@@ -86,6 +86,8 @@ public class LauncherActivity extends Activity {
     private boolean showingChooser;
     private volatile boolean downloading;
     private TorrentDownload download;
+    private File builtIn;
+    private boolean builtInChecked;
     private boolean scannedOnce;
     private boolean rescanOnResume;
     private boolean archiveAccess;
@@ -526,6 +528,9 @@ public class LauncherActivity extends Activity {
             addButton("Grant archive access", this::requestArchiveAccess);
         addButton("Select disc image", this::pickImage);
         addButton("Download game data", this::downloadGameData);
+        File shipped = builtInTorrent();
+        if (shipped != null)
+            addButton("Download Halo", () -> startDownload(download -> download.runFile(shipped)));
         addButton("Select game data folder", this::pickFolder);
         addButton("Scan again", this::scanForImages);
     }
@@ -1018,6 +1023,26 @@ public class LauncherActivity extends Activity {
         dialog.show();
     }
 
+    /** a torrent shipped in the APK's assets, if the builder put one there */
+    private File builtInTorrent() {
+        if (builtIn == null && !builtInChecked) {
+            builtInChecked = true;
+            try (InputStream in = getAssets().open("game.torrent")) {
+                File file = new File(getCacheDir(), "game.torrent");
+                try (OutputStream out = new FileOutputStream(file)) {
+                    byte[] buffer = new byte[1 << 16];
+                    int count;
+                    while ((count = in.read(buffer)) > 0)
+                        out.write(buffer, 0, count);
+                }
+                builtIn = file;
+            } catch (Exception exception) {
+                builtIn = null;
+            }
+        }
+        return builtIn;
+    }
+
     private void pickTorrent() {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -1041,7 +1066,7 @@ public class LauncherActivity extends Activity {
         progress.setProgress(0f);
         percent.setText("");
         log("> downloading game data");
-        final File directory = new File(dataRoot, "download");
+        final File directory = new File(getFilesDir(), "download");
         final TorrentDownload torrent = new TorrentDownload(directory, (state, done, total, rate) -> {
             if (cancelled)
                 return false;
