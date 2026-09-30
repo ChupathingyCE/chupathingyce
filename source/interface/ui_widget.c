@@ -679,6 +679,7 @@ struct widget_instance;
 #include "ui_widget.h"
 #ifdef HALO_64BIT
 #include "interface/ui_widget_instance.h"
+#endif
 #ifdef HALO_GAME_BROWSER
 /* the in-game server browser (port/linux/game/browser_screen.c): a screen of
 code over the widgets, as the virtual keyboard is */
@@ -687,7 +688,6 @@ boolean browser_screen_open_from_event(struct event_record const *event);
 void browser_screen_process(void);
 void browser_screen_render(void);
 void browser_screen_render_hint(void);
-#endif
 #endif
 
 /* ---------- constants */

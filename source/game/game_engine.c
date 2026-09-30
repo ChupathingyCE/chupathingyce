@@ -587,9 +587,9 @@ symbols in this file:
 #include "units/units.h"
 #ifdef HALO_64BIT
 #include "main/console.h"
+#endif
 #ifdef HALO_GAME_BROWSER
 #include "../../port/linux/src/browser.h"
-#endif
 #endif
 
 /* network_game_globals.c's */
