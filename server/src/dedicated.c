@@ -20,7 +20,9 @@ Each frame (main.c, beside the user interface) the director:
     lobby's players start it, and the server has none; it may run when
     server_ok_to_countdown, which lets the host's machine go without a
     player: dedicated_server_active);
-  - after each game, back in the pregame, sets the next entry;
+  - after each game, once the carnage report has shown a while, goes back
+    to the pregame lobby (the host's A = pick game, game_engine.c) and sets
+    the next entry;
   - leaves a team entry for the next one without teams while a single
     player waits (a team game needs players on both teams; joining players
     are put on the smaller team, network_server_manager.c).
@@ -55,6 +57,8 @@ enum
 	MAXIMUM_ENTRIES = 64,
 	/* a failed start tried again this much later */
 	RETRY_MILLISECONDS = 5000,
+	/* the carnage report shown this long before the next game's lobby */
+	POSTGAME_MILLISECONDS = 20000,
 };
 
 /* (network_server_manager_internal.h's, and the menus') */
@@ -77,6 +81,7 @@ enum
 {
 	/* network_server_manager.c's server states */
 	DEDICATED_SERVER_STATE_PREGAME = 0,
+	DEDICATED_SERVER_STATE_POSTGAME = 2,
 };
 
 /* ---------- globals */
@@ -98,6 +103,7 @@ static struct
 	boolean entry_teams;
 	word last_state;
 	unsigned long retry_time;
+	unsigned long postgame_time;
 } dedicated;
 
 /* ---------- private code */
@@ -317,6 +323,17 @@ void dedicated_server_update(
 			network_game_server_pause_countdown(server,
 				!game || game->player_count < dedicated.minimum_players);
 			network_game_server_dedicated_start_countdown(server);
+		}
+	}
+	else if (state == DEDICATED_SERVER_STATE_POSTGAME)
+	{
+		/* (the host's A on the carnage report: the server has no one to press it) */
+		if (dedicated.last_state != DEDICATED_SERVER_STATE_POSTGAME)
+			dedicated.postgame_time = system_milliseconds() + POSTGAME_MILLISECONDS;
+		else if ((long)(system_milliseconds() - dedicated.postgame_time) >= 0)
+		{
+			error(_error_silent, "dedicated: back to the lobby");
+			network_game_server_reset_to_pregame(server);
 		}
 	}
 	dedicated.last_state = state;
