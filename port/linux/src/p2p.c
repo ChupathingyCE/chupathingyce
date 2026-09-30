@@ -1904,6 +1904,20 @@ static int join_invite(const char *text)
 	return 1;
 }
 
+#ifdef HALO_NEW_NETWORKING
+int p2p_hosting_invite(char *text, int size)
+{
+	int result;
+
+	pthread_mutex_lock(&p2p_lock);
+	result = p2p.running && p2p.hosting && p2p.has_token;
+	if (result)
+		snprintf(text, (size_t)size, "%s", p2p.invite + strlen("halo://join/"));
+	pthread_mutex_unlock(&p2p_lock);
+	return result;
+}
+
+#endif
 int p2p_join_invite(const char *text)
 {
 	int result;

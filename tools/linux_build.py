@@ -191,6 +191,12 @@ def musl_math_cflags(abi: str) -> str:
                      f"-include {MUSL_MATH_DIR}/include/libm.h"])
 
 
+def new_networking_defines(sln: Any) -> List[str]:
+    """configure.py --new-networking: the game list and server browser
+    (port/linux/src/browser.c), off in the builds the project ships"""
+    return ["-DHALO_NEW_NETWORKING"] if getattr(sln, "new_networking", False) else []
+
+
 def march_flag(sln: Any) -> str:
     """The instruction set of the native x86 builds: this machine's
     (-march=native, the default), or with configure.py --portable the
@@ -358,7 +364,8 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
         pool="console",
     )
 
-    abi = " ".join(LINUX_ABI_FLAGS + [march_flag(sln)] + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else []))
+    abi = " ".join(LINUX_ABI_FLAGS + [march_flag(sln)] + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else [])
+                   + new_networking_defines(sln))
     port_include = PORT_DIR / "include"
     sdk_flags = f"-idirafter {XDK_INCLUDE}"
     libs = " ".join(f"-l{lib}" for lib in config.get("libraries", []))
@@ -416,10 +423,10 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
             "-Isource -Isource/cseries",
             sdk_flags,
         ])
-        posix_cflags = " ".join(POSIX_FLAGS + [march_flag(sln), f"-I{platform_dir}"])
+        posix_cflags = " ".join(POSIX_FLAGS + [march_flag(sln), f"-I{platform_dir}"] + new_networking_defines(sln))
         mbedtls_include = f"-I{MBEDTLS_DIR / 'include'}"
         for source in sorted(platform_dir.glob("*.c")):
-            if source.name == "posix_update.c":
+            if source.name in ("posix_update.c", "posix_browser.c"):
                 add_object(source, f"{posix_cflags} {mbedtls_include}", posix=True)
             elif source.name == "posix_upnp.c":
                 add_object(source, f"{posix_cflags} -I{MINIUPNPC_DIR / 'include'} -DMINIUPNP_STATICLIB", posix=True)

@@ -472,6 +472,9 @@ symbols in this file:
 #include "text/unicode.h"
 
 #include "cache/cache_files.h"
+#ifdef HALO_NEW_NETWORKING
+#include "../../port/linux/src/browser.h"
+#endif
 
 /* ---------- constants */
 
@@ -1022,6 +1025,29 @@ boolean network_game_server_idle(
 	{
 		network_event("the server's game is invalid");
 	}
+
+#ifdef HALO_NEW_NETWORKING
+	/* the game list of the new networking (port/linux/src/browser.c): the
+	game as its advertisement describes it
+	(network_server_message_handler.c) */
+	if (success && network_game_server_game_is_valid(server))
+	{
+		struct network_game *game = network_game_server_get_game(server);
+
+		if (game)
+		{
+			browser_host_update(
+				(unsigned short const *)game->name,
+				game->map.name,
+				(short)game->variant.game_engine_index,
+				game->player_count,
+				game->maximum_players,
+				network_game_server_get_state(server, NULL) == _network_game_server_state_ingame
+					? network_game_server_accepts_late_joins(server)
+					: network_game_server_game_is_open(server));
+		}
+	}
+#endif
 
 exit:
 	return success;

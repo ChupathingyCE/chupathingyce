@@ -780,6 +780,134 @@ static struct
 	byte flags;
 } network_game_client_advertised_versions[MAXIMUM_NETWORK_ADVERTISED_GAMES];
 
+#ifdef HALO_NEW_NETWORKING
+/* The game list of the new networking (port/linux/src/browser.c): the games
+listed on network.browser_url fill the list's free entries, each with its
+invite here and a nonce of its own. Picking one joins its invite
+(network_game_client_browser_join); the host's own advertisement then
+comes through the tunnel and takes over. */
+#include "../../port/linux/src/browser.h"
+
+static const byte browser_entry_nonce[TRANSPORT_NONCE_LENGTH] = { 'H', 'A', 'L', 'O', 'L', 'I', 'S', 'T' };
+static char browser_entry_invites[MAXIMUM_NETWORK_ADVERTISED_GAMES][BROWSER_INVITE_LENGTH + 1];
+
+static boolean network_game_client_is_browser_entry(
+	struct network_advertised_game const *available_games,
+	long game_index)
+{
+	return available_games[game_index].valid &&
+		browser_entry_invites[game_index][0] &&
+		!csmemcmp(available_games[game_index].nonce, browser_entry_nonce, sizeof(browser_entry_nonce));
+}
+
+/* a game of the list, whose host's own advertisement this machine has */
+static boolean network_game_client_browser_game_advertised(
+	struct network_advertised_game const *available_games,
+	char const *invite)
+{
+	unsigned long address;
+	long game_index;
+
+	if (!browser_game_peer(invite, &address))
+		return FALSE;
+	for (game_index = 0; game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES; game_index++)
+	{
+		struct network_advertised_game const *game = &available_games[game_index];
+		unsigned long advertised_address;
+
+		csmemcpy(&advertised_address, game->xnaddr.data, sizeof(advertised_address));
+		if (!network_game_client_is_browser_entry(available_games, game_index) &&
+			network_game_client_advertised_game_is_valid((struct network_advertised_game *)game) &&
+			(advertised_address == address ||
+				advertised_address == ((address >> 24) | ((address >> 8) & 0xFF00) |
+					((address << 8) & 0xFF0000) | (address << 24))))
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+static void network_game_client_add_browser_games(
+	struct network_advertised_game *available_games)
+{
+	static struct browser_game games[BROWSER_MAXIMUM_GAMES];
+	long count = browser_get_games(games, BROWSER_MAXIMUM_GAMES);
+	long game_index;
+	long listed_index;
+
+	/* (entries a real advertisement took over, or that lapsed) */
+	for (game_index = 0; game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES; game_index++)
+	{
+		if (!network_game_client_is_browser_entry(available_games, game_index))
+			browser_entry_invites[game_index][0] = 0;
+	}
+
+	for (listed_index = 0; listed_index < count; listed_index++)
+	{
+		struct browser_game const *listed = &games[listed_index];
+		long slot = NONE;
+
+		if (network_game_client_browser_game_advertised(available_games, listed->invite))
+			continue;
+		for (game_index = 0; game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES && slot == NONE; game_index++)
+		{
+			if (network_game_client_is_browser_entry(available_games, game_index) &&
+				!csstrcmp(browser_entry_invites[game_index], listed->invite))
+			{
+				slot = game_index;
+			}
+		}
+		for (game_index = 0; game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES && slot == NONE; game_index++)
+		{
+			if (!network_game_client_advertised_game_is_valid(&available_games[game_index]))
+				slot = game_index;
+		}
+		if (slot == NONE)
+			break;
+
+		{
+			struct network_advertised_game *entry = &available_games[slot];
+
+			csmemset(entry, 0, sizeof(*entry));
+			csmemcpy(entry->nonce, browser_entry_nonce, sizeof(browser_entry_nonce));
+			entry->update_time = system_milliseconds();
+			csmemcpy(entry->game_name, listed->name, sizeof(entry->game_name) - sizeof(wchar_t));
+			csstrncpy(entry->map.name, listed->map, sizeof(entry->map.name) - 1);
+			entry->engine_type = listed->engine;
+			entry->machine_count = (word)listed->players;
+			entry->player_count = (word)listed->players;
+			entry->maximum_player_count = listed->maximum_players;
+			entry->platform = 0;
+			entry->open = listed->open;
+			entry->valid = TRUE;
+			network_game_client_advertised_versions[slot].version = listed->version;
+			network_game_client_advertised_versions[slot].flags = HALO_PORT_ADVERTISED_DISTRIBUTED_FLAG;
+			csstrncpy(browser_entry_invites[slot], listed->invite, BROWSER_INVITE_LENGTH);
+			browser_entry_invites[slot][BROWSER_INVITE_LENGTH] = 0;
+		}
+	}
+}
+
+boolean network_game_client_browser_join(
+	struct network_game_client *client,
+	void const *game)
+{
+	long game_index;
+
+	if (!client)
+		return FALSE;
+	game_index = (struct network_advertised_game const *)game - client->available_games;
+	if (game_index < 0 || game_index >= MAXIMUM_NETWORK_ADVERTISED_GAMES ||
+		!network_game_client_is_browser_entry(client->available_games, game_index))
+	{
+		return FALSE;
+	}
+	browser_join(browser_entry_invites[game_index]);
+	return TRUE;
+}
+#endif
+
 struct network_game_client network_game_client_dont_use_directly;
 boolean allow_out_of_sync = FALSE;
 boolean network_game_client_dont_use_directly_in_use = FALSE;
@@ -1028,6 +1156,9 @@ struct network_advertised_game *network_game_client_get_available_games(
 		0x2AC,
 		client);
 
+#ifdef HALO_NEW_NETWORKING
+	network_game_client_add_browser_games(client->available_games);
+#endif
 	return client->available_games;
 }
 

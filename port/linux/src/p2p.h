@@ -25,6 +25,11 @@ int p2p_hand_off_invite(void);
 /* joins the game an invite link or code leads to; text may hold other
 words around it. Returns nonzero if it held an invite */
 int p2p_join_invite(const char *text);
+#ifdef HALO_NEW_NETWORKING
+/* the invite of the game this machine hosts on the internet (its 44 digits,
+without halo://join/); 0 when it hosts none (browser.c) */
+int p2p_hosting_invite(char *text, int size);
+#endif
 
 /* this machine's identifier, which its XNADDR carries (6 bytes) */
 const unsigned char *p2p_identifier(void);

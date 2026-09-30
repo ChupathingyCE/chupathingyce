@@ -1,0 +1,51 @@
+/*
+BROWSER.H
+
+The game list of the new networking (configure.py --new-networking,
+HALO_NEW_NETWORKING): the system link games hosted by copies of the game
+anywhere, listed on network.browser_url (tools/list_server.py). A host's
+game is listed with its invite (p2p.c); a player picks a listed game, which
+joins its invite, and the host's game then shows in System Link as any
+game reached through an invite. See browser.c.
+*/
+
+#ifndef __BROWSER_H
+#define __BROWSER_H
+
+#define BROWSER_INVITE_LENGTH 44
+#define BROWSER_NAME_LENGTH 16
+#define BROWSER_MAP_LENGTH 64
+#define BROWSER_MAXIMUM_GAMES 64
+
+struct browser_game
+{
+	char invite[BROWSER_INVITE_LENGTH + 1];
+	/* (UTF-16, as the game's names) */
+	unsigned short name[BROWSER_NAME_LENGTH];
+	char map[BROWSER_MAP_LENGTH];
+	short engine;
+	short players;
+	short maximum_players;
+	unsigned char open;
+	unsigned short version;
+};
+
+/* the hosted game, as the game's server has it; called each frame while
+this machine hosts (network_server_manager.c). The listing follows (and is
+withdrawn a few seconds after the calls stop). */
+void browser_host_update(const unsigned short *name, const char *map, short engine, short players,
+	short maximum_players, int open);
+
+/* the listed games, asking the server for the list again if the last one
+is more than a few seconds old: those of this machine's network version,
+without this machine's own. Returns their count. */
+int browser_get_games(struct browser_game *games, int maximum_count);
+
+/* whether a listed game's host is an internet play peer of this machine
+(joining it, or joined): its address in the game's network then */
+int browser_game_peer(const char *invite, unsigned long *address);
+
+/* joins a listed game: its invite, as an invite link would (p2p.c) */
+int browser_join(const char *invite);
+
+#endif
