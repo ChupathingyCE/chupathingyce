@@ -686,6 +686,7 @@ boolean browser_screen_active(void);
 boolean browser_screen_open_from_event(struct event_record const *event);
 void browser_screen_process(void);
 void browser_screen_render(void);
+void browser_screen_render_hint(void);
 #endif
 #endif
 
@@ -6082,6 +6083,8 @@ void render_ui_widgets(
 #ifdef HALO_NEW_NETWORKING
 	if (browser_screen_active())
 		browser_screen_render();
+	else
+		browser_screen_render_hint();
 #endif
 
 	return;

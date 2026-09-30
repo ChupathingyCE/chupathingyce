@@ -44,10 +44,10 @@ enum
 	STATUS_DURATION = 6000,
 };
 
-/* the game's engines, as the list page names them */
+/* the game's engines, short (as players say them) to fit the column */
 static char const *const engine_names[] =
 {
-	"", "Capture the Flag", "Slayer", "Oddball", "King of the Hill", "Race",
+	"", "CTF", "Slayer", "Oddball", "King", "Race",
 };
 
 /* the multiplayer maps' names in the menus */
@@ -252,6 +252,18 @@ void browser_screen_process(
 	event_manager_flush();
 }
 
+/* the System Link screen's footer has no word of the browser (it is the
+user interface's tags): its free corner says so */
+void browser_screen_render_hint(
+	void)
+{
+	real_argb_color hint_color = { 1.0f, 0.55f, 0.75f, 1.0f };
+
+	if (browser_screen.active || system_milliseconds() - browser_screen.list_shown_time > LIST_SHOWN_WINDOW)
+		return;
+	draw_ascii(48, 432, 300, 456, 0, &hint_color, "X = INTERNET GAMES");
+}
+
 void browser_screen_render(
 	void)
 {
@@ -270,7 +282,8 @@ void browser_screen_render(
 	bounds.x1 = (short)(640 + (halo_screen_width() - 640) / 2);
 	bounds.y0 = 0;
 	bounds.y1 = 480;
-	draw_quad(&bounds, 0xE0060C18);
+	/* (nearly opaque: the menu behind is only a hint) */
+	draw_quad(&bounds, 0xF4060C18);
 
 	draw_ascii(48, 40, 592, 72, 0, &title_color, "INTERNET GAMES");
 	snprintf(text, sizeof(text), "%d game%s on %s", browser_screen.count, browser_screen.count == 1 ? "" : "s",
