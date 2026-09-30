@@ -74,8 +74,7 @@ treats an Xbox address as a pointer, or the reverse, does not compile.
 ## Status
 
 A beta. The game plays its movies, campaign and multiplayer, and joins and
-hosts internet games with the Linux and Windows builds. Known problems: a
-plasma effect can crash (an address of NONE); vertical sync is not yet
-confirmed to pace the frames; and several game sources carry more
+hosts internet games with the Linux and Windows builds. Known problems:
+vertical sync is not yet confirmed to pace the frames; and several game sources carry more
 `HALO_64BIT` guards than they need (`ui_widget_event_handler_functions.c`
 most of all), which a shared widget structure can replace.
