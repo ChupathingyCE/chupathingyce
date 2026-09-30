@@ -261,7 +261,7 @@ void browser_screen_render_hint(
 
 	if (browser_screen.active || system_milliseconds() - browser_screen.list_shown_time > LIST_SHOWN_WINDOW)
 		return;
-	draw_ascii(48, 432, 300, 456, 0, &hint_color, "X = INTERNET GAMES");
+	draw_ascii(48, 432, 300, 456, 0, &hint_color, "X = ALL GAMES");
 }
 
 void browser_screen_render(

@@ -731,6 +731,14 @@ long scenario_tags_load(
 
 				pal_tags_loaded(cache_file_globals.header.build);
 			}
+#ifdef HALO_NEW_NETWORKING
+			/* the new networking's ONLINE PLAY (port/linux/game/online_strings.c) */
+			{
+				extern void online_strings_loaded(void);
+
+				online_strings_loaded();
+			}
+#endif
 			result = cache_file_globals.tag_header->scenario_tag_index;
 		}
 	}
