@@ -593,4 +593,11 @@ int browser_join(const char *invite)
 	return p2p_join_invite(link);
 }
 
+int browser_dedicated(void)
+{
+	const char *playlist = getenv("HALO_DEDICATED");
+
+	return playlist && playlist[0];
+}
+
 #endif

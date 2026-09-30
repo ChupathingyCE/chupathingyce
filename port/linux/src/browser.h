@@ -73,4 +73,9 @@ int browser_game_peer(const char *invite, unsigned long *address);
 /* joins a listed game: its invite, as an invite link would (p2p.c) */
 int browser_join(const char *invite);
 
+/* whether this copy is the dedicated server (server/src/dedicated.c:
+HALO_DEDICATED names its playlist): it joins no invite, leaves the clipboard
+alone and plays no sound */
+int browser_dedicated(void);
+
 #endif

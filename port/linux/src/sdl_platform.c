@@ -20,6 +20,9 @@ and the debug keyboard that the game's console reads.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef HALO_GAME_BROWSER
+#include "browser.h"
+#endif
 
 static SDL_Window *platform_window;
 static SDL_GLContext platform_gl_context;
@@ -65,6 +68,11 @@ BOOL platform_sdl_initialize(void)
 	/* touching the screen must not aim or fire (the mouse drives the
 	controller emulation in xinput_sdl.c) */
 	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+#endif
+#ifdef HALO_GAME_BROWSER
+	/* the dedicated server plays no sound (server/src/dedicated.c) */
+	if (browser_dedicated())
+		SDL_SetHint(SDL_HINT_AUDIO_DRIVER, "dummy");
 #endif
 	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMEPAD | SDL_INIT_EVENTS))
 	{
@@ -617,6 +625,12 @@ static void platform_invite_clipboard(BOOL look)
 	static char seen[256];
 	const char *invite = p2p_take_clipboard_text();
 
+#ifdef HALO_GAME_BROWSER
+	/* (the dedicated server leaves the clipboard alone: its games are
+	listed, and it joins none) */
+	if (browser_dedicated())
+		return;
+#endif
 	if (invite)
 	{
 		SDL_SetClipboardText(invite);

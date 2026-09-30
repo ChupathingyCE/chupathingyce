@@ -57,6 +57,9 @@ only look up and create stand-ins.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef HALO_GAME_BROWSER
+#include "browser.h"
+#endif
 
 enum
 {
@@ -1878,6 +1881,12 @@ static int join_invite(const char *text)
 	unsigned char host[P2P_IDENTIFIER_SIZE], token[P2P_TOKEN_SIZE];
 	struct peer *peer;
 
+#ifdef HALO_GAME_BROWSER
+	/* (the dedicated server hosts; it joins no one) */
+	if (browser_dedicated())
+		return 0;
+#endif
+
 	if (!parse_invite(text, host, token))
 		return 0;
 	if (!memcmp(host, identifier, P2P_IDENTIFIER_SIZE))
@@ -1922,6 +1931,13 @@ int p2p_join_invite(const char *text)
 {
 	int result;
 
+#ifdef HALO_GAME_BROWSER
+	if (browser_dedicated())
+	{
+		platform_log("dedicated server: the invite is not joined");
+		return 0;
+	}
+#endif
 #ifdef HALO_64BIT
 	if (!text || !*text)
 		return 0;
