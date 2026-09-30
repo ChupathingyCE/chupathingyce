@@ -291,9 +291,9 @@ void browser_screen_render_hint(
 	bitmap = bitmap_index != NONE ? bitmap_group_get_bitmap_from_sequence(bitmap_index, 0, 0) : NULL;
 	if (!bitmap)
 		return;
-	/* (the footer draws its buttons' icons as tall as its words, not at
-	their bitmaps' size) */
-	icon_height = (short)(text.y1 - text.y0 + 2);
+	/* (the button's bitmap has a margin around the button: a box twice the
+	words' height shows the button as big as the footer's others) */
+	icon_height = (short)(2 * (text.y1 - text.y0));
 	icon_width = bitmap->height ? (short)(icon_height * bitmap->width / bitmap->height) : icon_height;
 
 	draw_string_set_draw_mode(font_index, NONE, 0, 0, &color);
@@ -306,10 +306,10 @@ void browser_screen_render_hint(
 	/* (a little slack: the measure falls a few short of the drawing) */
 	words_width = (short)(measured.x1 - measured.x0 + 6);
 
-	/* the Y button's icon sits just left of its words: this prompt ends a
-	gap before it, as the footer's prompts are apart */
-	right = (short)(text.x0 - icon_width - 4 - 18);
-	middle = (short)((text.y0 + text.y1) / 2);
+	/* the Y button shows about 23 left of its words; this prompt ends 20
+	before it, as far as the footer's prompts are apart */
+	right = (short)(text.x0 - 23 - 20);
+	middle = (short)((text.y0 + text.y1) / 2 + 3);
 
 	bounds.x1 = right;
 	bounds.x0 = (short)(right - words_width);
@@ -317,7 +317,8 @@ void browser_screen_render_hint(
 	bounds.y1 = text.y1;
 	rasterizer_draw_unicode_string(&bounds, &bounds, NULL, 0, words);
 
-	bounds.x1 = (short)(right - words_width - 2);
+	/* (its margin under the words' start: the button against the "=") */
+	bounds.x1 = (short)(right - words_width + icon_width / 4);
 	bounds.x0 = (short)(bounds.x1 - icon_width);
 	bounds.y0 = (short)(middle - icon_height / 2);
 	bounds.y1 = (short)(bounds.y0 + icon_height);
