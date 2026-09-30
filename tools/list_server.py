@@ -23,6 +23,8 @@ Interface (version 1):
                         invite name map engine players maximum_players
                         open version age score_limit teams
     GET  /v1/health     -> 200 "ok"
+    GET  /              -> the list as a web page, each game with a Join
+                        link (halo://join/..., which the game handles)
 
 An announcement expires after EXPIRY seconds without another. Each address
 may list MAXIMUM_GAMES_PER_ADDRESS games and send REQUESTS_PER_MINUTE
@@ -62,6 +64,89 @@ def clean_integer(value: str, low: int, high: int) -> int:
     if not low <= number <= high:
         raise ValueError(value)
     return number
+
+
+PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Halo Games</title>
+<style>
+:root { --bg: #0b1320; --panel: #111c2e; --line: #23406b; --text: #d8e4f5; --dim: #8aa0bf; --accent: #3d8bff; --open: #56c46b; --full: #c46b56; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --bg: #eef2f8; --panel: #ffffff; --line: #c5d3e8; --text: #102038; --dim: #5a6f8d; --accent: #1f6fe5; --open: #23843a; --full: #a23c2a; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: 0.02em; }
+p.lead { margin: 0 0 20px; color: var(--dim); }
+.games { display: grid; gap: 10px; }
+.game { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.name { font-weight: 600; font-size: 17px; overflow-wrap: anywhere; }
+.info { color: var(--dim); font-size: 14px; }
+.status { font-size: 13px; font-weight: 600; }
+.status.open { color: var(--open); } .status.closed { color: var(--full); }
+a.join { grid-row: 1 / span 2; grid-column: 2; background: var(--accent); color: #fff; text-decoration: none; font-weight: 600; padding: 9px 18px; border-radius: 8px; }
+a.join[aria-disabled="true"] { opacity: 0.4; pointer-events: none; }
+.empty { color: var(--dim); padding: 24px 0; }
+footer { margin-top: 28px; color: var(--dim); font-size: 13px; }
+code { font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Halo system link games</h1>
+<p class="lead">Games hosted by players of Halo: Combat Evolved (the native ports). Join opens the game and joins through the game's invite.</p>
+<div class="games" id="games"><div class="empty">Loading…</div></div>
+<footer>The game must be installed for Join to open it (it registers <code>halo://</code> links). The list refreshes every 10 seconds; a game stays listed while its host runs.</footer>
+</main>
+<script>
+const ENGINES = ["", "Capture the Flag", "Slayer", "Oddball", "King of the Hill", "Race"];
+const MAPS = { beavercreek: "Battle Creek", bloodgulch: "Blood Gulch", boardingaction: "Boarding Action", carousel: "Derelict",
+  chillout: "Chill Out", damnation: "Damnation", hangemhigh: "Hang 'Em High", longest: "Longest", prisoner: "Prisoner",
+  putput: "Chiron TL-34", ratrace: "Rat Race", sidewinder: "Sidewinder", wizard: "Wizard" };
+function mapName(path) {
+  const base = path.split(/[\\\\/]/).pop();
+  return MAPS[base] || base;
+}
+function element(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+async function refresh() {
+  const list = document.getElementById("games");
+  try {
+    const response = await fetch("/v1/games", { cache: "no-store" });
+    const games = (await response.json()).games;
+    list.replaceChildren();
+    if (!games.length) { list.append(element("div", "empty", "No games are being hosted right now.")); return; }
+    for (const game of games) {
+      const card = element("div", "game");
+      const engine = (game.teams ? "Team " : "") + (ENGINES[game.engine] || "Game");
+      card.append(element("div", "name", game.name));
+      const join = element("a", "join", "Join");
+      join.href = "halo://join/" + game.invite;
+      if (!game.open) join.setAttribute("aria-disabled", "true");
+      card.append(join);
+      const info = element("div", "info");
+      info.append(mapName(game.map) + " · " + engine + (game.score_limit ? " to " + game.score_limit : "") +
+        " · " + game.players + "/" + game.maximum_players + " players · ");
+      info.append(element("span", "status " + (game.open ? "open" : "closed"), game.open ? "Accepting players" : "In progress"));
+      card.append(info);
+      list.append(card);
+    }
+  } catch (error) {
+    list.replaceChildren(element("div", "empty", "Could not reach the list server."));
+  }
+}
+refresh();
+setInterval(refresh, 10000);
+</script>
+</body>
+</html>
+"""
 
 
 class GameList:
@@ -170,6 +255,8 @@ class Handler(BaseHTTPRequestHandler):
                                                       "score_limit", "teams"))
                      for g in GAMES.snapshot()]
             return self.reply(200, "".join(line + "\n" for line in lines))
+        if self.path in ("/", "/index.html"):
+            return self.reply(200, PAGE, "text/html; charset=utf-8")
         if self.path == "/v1/health":
             return self.reply(200, "ok\n")
         return self.reply(404, "not found\n")
