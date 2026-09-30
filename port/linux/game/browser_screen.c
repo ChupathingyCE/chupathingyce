@@ -19,6 +19,7 @@ picked there as any.
 
 #include "cseries.h"
 #include "cseries/cseries_windows.h"
+#include "cseries/errors.h"
 #include "cutscene/cinematics.h"
 #include "input/input.h"
 #include "interface/event_manager.h"
@@ -279,10 +280,13 @@ void browser_screen_render_hint(
 
 	if (browser_screen.active || system_milliseconds() - browser_screen.list_shown_time > LIST_SHOWN_WINDOW)
 		return;
-	/* (not drawn yet this time: the next frame) */
-	if (!ui_widget_text_style("ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\create_game_button",
+	/* (not drawn yet this time: the next frame. The Y button's icon is the
+	background of that text's own widget, the words offset past it) */
+	if (!ui_widget_text_style(
+			"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\create_game_button",
 			&font_index, &color, &text) ||
-		!ui_widget_icon_rectangle("ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\create_game_key",
+		!ui_widget_icon_rectangle(
+			"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\create_game_button",
 			&icon, &icon_color))
 	{
 		return;
