@@ -70,10 +70,46 @@ static char const *const map_names[][2] =
 	{ "putput", "Chiron TL-34" }, { "ratrace", "Rat Race" }, { "sidewinder", "Sidewinder" }, { "wizard", "Wizard" },
 };
 
+/* the list's rows' icons, 11 by 11: a globe for the game list's games, a
+network for the local network's */
+#define ROW_ICON_SIZE 11
+
+static char const *const globe_icon[ROW_ICON_SIZE] =
+{
+	"...#####...",
+	".##.#.#.##.",
+	".#..#.#..#.",
+	"#...#.#...#",
+	"###########",
+	"#...#.#...#",
+	"###########",
+	"#...#.#...#",
+	".#..#.#..#.",
+	".##.#.#.##.",
+	"...#####...",
+};
+
+static char const *const network_icon[ROW_ICON_SIZE] =
+{
+	"....###....",
+	"....#.#....",
+	"....###....",
+	".....#.....",
+	".....#.....",
+	".#########.",
+	".#.......#.",
+	"###.....###",
+	"#.#.....#.#",
+	"###.....###",
+	"...........",
+};
+
 /* ---------- globals */
 
 static struct
 {
+	boolean list_row_listed[9];
+	long list_row_count;
 	boolean active;
 	unsigned long list_shown_time;
 	short selected;
@@ -301,6 +337,65 @@ void browser_screen_process(
 /* the System Link screen's footer has no word of the browser (it is the
 user interface's tags): its free corner says so */
 boolean ui_widget_text_style(char const *name, long *font_index, real_argb_color *color, rectangle2d *bounds);
+boolean ui_widget_list_row_bounds(short row, rectangle2d *bounds);
+
+/* the System Link list's rows as it laid them out: which are the game list's */
+void browser_screen_list_rows(
+	boolean const *listed,
+	long count)
+{
+	long row;
+
+	browser_screen.list_row_count = MIN(count, NUMBEROF(browser_screen.list_row_listed));
+	for (row = 0; row < browser_screen.list_row_count; row++)
+		browser_screen.list_row_listed[row] = listed[row];
+}
+
+static void draw_row_icon(
+	char const *const *icon,
+	short x0,
+	short y0,
+	pixel32 color)
+{
+	short row, column;
+
+	for (row = 0; row < ROW_ICON_SIZE; row++)
+	{
+		for (column = 0; column < ROW_ICON_SIZE; column++)
+		{
+			if (icon[row][column] == '#')
+			{
+				rectangle2d pixel;
+
+				pixel.x0 = (short)(x0 + column);
+				pixel.x1 = (short)(pixel.x0 + 1);
+				pixel.y0 = (short)(y0 + row);
+				pixel.y1 = (short)(pixel.y0 + 1);
+				draw_quad(&pixel, color);
+			}
+		}
+	}
+}
+
+/* each row's icon, in a column at the list's right, as the list's words */
+static void render_row_icons(
+	real_argb_color const *color)
+{
+	pixel32 pixel_color = ((pixel32)(long)(color->alpha * 255.0f) << 24) |
+		((pixel32)(long)(color->red * 255.0f) << 16) | ((pixel32)(long)(color->green * 255.0f) << 8) |
+		(pixel32)(long)(color->blue * 255.0f);
+	short row;
+
+	for (row = 0; row < browser_screen.list_row_count; row++)
+	{
+		rectangle2d bounds;
+
+		if (!ui_widget_list_row_bounds(row, &bounds))
+			continue;
+		draw_row_icon(browser_screen.list_row_listed[row] ? globe_icon : network_icon,
+			(short)(262 - ROW_ICON_SIZE), (short)((bounds.y0 + bounds.y1) / 2 - ROW_ICON_SIZE / 2), pixel_color);
+	}
+}
 
 /* the System Link screen's footer has no word of the browser (it is the
 user interface's tags): an X button's prompt joins its others, left of
@@ -366,6 +461,8 @@ void browser_screen_render_hint(
 	bounds.y1 = (short)(bounds.y0 + icon_height);
 	draw_bitmap_in_rect(bitmap, &bounds, NULL, NULL, (pixel32)((long)(color.alpha * 255.0f) << 24) | 0x00FFFFFF,
 		NULL, FALSE);
+
+	render_row_icons(&color);
 
 	/* the list's pages of listed games, under the list, when there are more
 	than one */

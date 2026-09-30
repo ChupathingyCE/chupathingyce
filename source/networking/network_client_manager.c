@@ -926,6 +926,20 @@ boolean network_game_client_browser_turn_page(
 	return TRUE;
 }
 
+/* whether a game of the list came from the game list (not the local network) */
+boolean network_game_client_game_is_listed(
+	struct network_game_client *client,
+	void const *game)
+{
+	long game_index;
+
+	if (!client)
+		return FALSE;
+	game_index = (struct network_advertised_game const *)game - client->available_games;
+	return game_index >= 0 && game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES &&
+		network_game_client_is_browser_entry(client->available_games, game_index);
+}
+
 void network_game_client_browser_page(
 	long *page,
 	long *page_count)

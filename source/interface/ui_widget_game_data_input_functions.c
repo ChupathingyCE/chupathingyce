@@ -1002,6 +1002,19 @@ static void server_list_menu_update(
 			}
 		}
 
+#ifdef HALO_NEW_NETWORKING
+		{
+			/* (which rows are the game list's: their icons, port/linux/game/browser_screen.c) */
+			boolean network_game_client_game_is_listed(struct network_game_client *client, void const *game);
+			void browser_screen_list_rows(boolean const *listed, long count);
+			boolean listed[MAXIMUM_NETWORK_ADVERTISED_GAMES];
+			long row;
+
+			for (row = 0; row < displayed_server_count; row++)
+				listed[row] = network_game_client_game_is_listed(client, displayed_servers[row]);
+			browser_screen_list_rows(listed, displayed_server_count);
+		}
+#endif
 		widget->parameters.list.list_items = displayed_servers;
 		widget->parameters.list.number_of_items = (word)displayed_server_count;
 		widget->parameters.list.selected_list_item_index = (short)CEILING(

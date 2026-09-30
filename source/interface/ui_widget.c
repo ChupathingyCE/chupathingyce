@@ -4884,6 +4884,45 @@ static struct
 	rectangle2d bounds;
 } ui_widget_noted_style = { NONE };
 
+/* the System Link list's rows as drawn (server_list_item0 to 8, or a text
+box of theirs) */
+#define BROWSER_LIST_ROWS 9
+
+static struct
+{
+	long tag_indices[BROWSER_LIST_ROWS];
+	unsigned long times[BROWSER_LIST_ROWS];
+	rectangle2d bounds[BROWSER_LIST_ROWS];
+	boolean resolved;
+} ui_widget_noted_rows;
+
+boolean ui_widget_list_row_bounds(
+	short row,
+	rectangle2d *bounds)
+{
+	if (!ui_widget_noted_rows.resolved)
+	{
+		short index;
+
+		for (index = 0; index < BROWSER_LIST_ROWS; index++)
+		{
+			char name[128];
+
+			csprintf(name,
+				"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\server_list_item%d", index);
+			ui_widget_noted_rows.tag_indices[index] = tag_loaded(UI_WIDGET_DEFINITION_TAG, name);
+		}
+		ui_widget_noted_rows.resolved = TRUE;
+	}
+	if (row < 0 || row >= BROWSER_LIST_ROWS ||
+		widget_globals.current_system_milliseconds - ui_widget_noted_rows.times[row] > 250)
+	{
+		return FALSE;
+	}
+	*bounds = ui_widget_noted_rows.bounds[row];
+	return TRUE;
+}
+
 boolean ui_widget_text_style(
 	char const *name,
 	long *font_index,
@@ -5033,6 +5072,22 @@ static void widget_instance_render_text_box(
 				SECONDS_PER_MILLISECOND * 3.0f) + 1.5f) * 0.4f) * color.alpha;
 	}
 #ifdef HALO_NEW_NETWORKING
+	if (ui_widget_noted_rows.resolved)
+	{
+		short row;
+
+		for (row = 0; row < BROWSER_LIST_ROWS; row++)
+		{
+			long tag_index = ui_widget_noted_rows.tag_indices[row];
+
+			if (tag_index != NONE && (widget->definition_tag_index == tag_index ||
+				(widget->parent && widget->parent->definition_tag_index == tag_index)))
+			{
+				ui_widget_noted_rows.times[row] = widget_globals.current_system_milliseconds;
+				ui_widget_noted_rows.bounds[row] = bounds;
+			}
+		}
+	}
 	if (widget->definition_tag_index == ui_widget_noted_style.tag_index && ui_widget_noted_style.tag_index != NONE)
 	{
 		ui_widget_noted_style.time = widget_globals.current_system_milliseconds;
@@ -6126,6 +6181,8 @@ void render_ui_widgets(
 		browser_screen_render();
 	else
 		browser_screen_render_hint();
+	if (!we_are_at_the_main_menu)
+		ui_widget_noted_rows.resolved = FALSE;
 #endif
 
 	return;
