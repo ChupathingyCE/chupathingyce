@@ -1861,6 +1861,13 @@ boolean network_game_client_remove_player(
 				}
 			}
 
+#ifdef HALO_GAME_BROWSER
+			/* the dedicated server never had a player of its own
+			(server/src/dedicated.c): a player leaving is not its cue to go */
+			{ boolean dedicated_server_active(void);
+			  if (dedicated_server_active())
+				network_player_index = 0; }
+#endif
 			if (network_player_index == MAXIMUM_NUMBER_OF_PLAYERS)
 			{
 				network_game_client_all_local_players_have_quit();
