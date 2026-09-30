@@ -59,9 +59,7 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries.h"
-#ifdef HALO_64BIT
 #include "cseries/errors.h"
-#endif
 
 /* ---------- constants */
 

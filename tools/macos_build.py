@@ -35,6 +35,7 @@ from .linux_build import (
     TOML_DIR,
     XDK_INCLUDE,
     compile_launcher,
+    game_sources,
     miniupnpc_sources,
     musl_math_sources,
     updater_defines,
@@ -219,7 +220,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
     prefix_header = lp64(LINUX_PORT_DIR / "include" / "halo_linux_prefix.h")
     port_include = lp64(LINUX_PORT_DIR / "include")
     homebrew_include = f"-idirafter {HOMEBREW / 'include'}"
-    excluded = set(linux_config.get("exclude_sources", [])) | set(config.get("exclude_sources", []))
+    excluded = set(config.get("exclude_sources", []))
     objects: List[Path] = []
 
     def add_object(source: Path, cflags: str) -> None:
@@ -232,29 +233,21 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
                 order_only=[build_dir / "lp64.stamp"],
                 variables={"cflags": cflags})
 
-    for proj in sln.projects:
-        if proj.name not in linux_config["projects"]:
-            continue
-        options = proj.options
-        defines = " ".join(f"-D{d}" for d in options.get("defines") or [])
-        includes = " ".join(
-            f"-I{_quote(lp64(Path(d)))}"
-            for d in options.get("include_dirs") or []
-            if Path(d) != Path("xbox/include")
-        )
-        game_cflags = " ".join([
-            abi, " ".join(MACOS_GAME_FLAGS),
-            f"-include {_quote(prefix_header)}", f"-include {_quote(semantics_header)}",
-            defines, f"-I{_quote(port_include)}", includes, f"-idirafter {xdk}",
-        ])
-        for obj in proj.objects:
-            name = str(obj.file_path).replace(os.sep, "/")
-            if obj.status.name == "Missing" or name in excluded or obj.file_path.suffix.lower() != ".c":
-                continue
-            add_object(lp64(obj.file_path), game_cflags)
-        for source in sorted(Path(linux_config["game_sources"]).glob("*.c")):
-            if str(source) not in excluded:
-                add_object(lp64(source), game_cflags)
+    game = linux_config["game"]
+    defines = " ".join(f"-D{d}" for d in game.get("defines", []))
+    includes = " ".join(f"-I{_quote(lp64(Path(d)))}" for d in game.get("include_dirs", []))
+    game_cflags = " ".join([
+        abi, " ".join(MACOS_GAME_FLAGS),
+        f"-include {_quote(prefix_header)}", f"-include {_quote(semantics_header)}",
+        defines, f"-I{_quote(port_include)}", includes, f"-idirafter {xdk}",
+    ])
+    for source in game_sources(linux_config):
+        if source.as_posix() not in excluded:
+            add_object(lp64(source), game_cflags)
+    # the port's own units that see the game as its sources do (port/linux/game)
+    for source in sorted(Path(linux_config["game_sources"]).glob("*.c")):
+        if source.as_posix() not in excluded:
+            add_object(lp64(source), game_cflags)
 
     platform_dir = Path(linux_config["platform_sources"])
     platform_cflags = " ".join([

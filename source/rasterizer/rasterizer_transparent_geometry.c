@@ -85,7 +85,7 @@ symbols in this file:
 #include "cseries.h"
 #include "cseries/errors.h"
 #include "rasterizer.h"
-#include "rasterizer_debug_options.h"
+#include "rasterizer_console_vars.h"
 #include "rasterizer_geometry.h"
 #include "rasterizer_transparent_geometry.h"
 #include "rasterizer/xbox/rasterizer_xbox_internal.h"
@@ -155,6 +155,8 @@ typedef char transparent_geometry_group_cortana_hack_offset_assert[
 
 #endif
 /* ---------- prototypes */
+static void rasterizer_sort_external(
+	void);
 
 /* ---------- globals */
 
@@ -168,7 +170,6 @@ static long transparent_geometry_group_count2 = 0;
 static short *transparent_geometry_group_sorted_indices = NULL;
 static short transparent_geometry_next_group_sorted_index = 0;
 
-extern struct rasterizer_window_begin_parameters global_window_parameters;
 
 /* ---------- public code */
 
@@ -448,7 +449,7 @@ static void rasterizer_sort_internal(
 	return;
 }
 
-int __cdecl group_sorted_indices_cmpfn(
+static int __cdecl group_sorted_indices_cmpfn(
 	void const *group_index1_pointer,
 	void const *group_index2_pointer)
 {
@@ -533,7 +534,7 @@ int __cdecl group_sorted_indices_cmpfn(
 	return comparison;
 }
 
-void rasterizer_sort_external(
+static void rasterizer_sort_external(
 	void)
 {
 	short group_index;

@@ -43,7 +43,7 @@ symbols in this file:
 000E5F30 0010:
 	_virtual_keyboard_process (0000)
 00278CC0 0037:
-	_virtual_keyboard_key_layout (0000)
+	_virtual_keyboard_layout_table (0000)
 00278CF8 0032:
 	??_C@_0DC@DOACNNNI@failed?5to?5load?5virtual?5keyboard?5@ (0000)
 00278D2C 0032:
@@ -276,7 +276,7 @@ static boolean virtual_keyboard_cancel(
 	void);
 static wchar_t virtual_keyboard_get_character(
 	word keycode);
-wchar_t virtual_keyboard_get_current_character(
+static wchar_t virtual_keyboard_get_current_character(
 	void);
 static void virtual_keyboard_render_internal(
 	void);
@@ -287,7 +287,9 @@ static void virtual_keyboard_process_internal(
 
 /* ---------- globals */
 
-char const virtual_keyboard_key_layout[VIRTUAL_KEYBOARD_ROW_COUNT][VIRTUAL_KEYBOARD_COLUMN_COUNT] =
+/* name from the 2003 PC demo PDB and the HCEX PDB (file static const char[5][11]); the 55 bytes are
+ * identical to January's, which has no public for it (static) */
+static char const virtual_keyboard_layout_table[VIRTUAL_KEYBOARD_ROW_COUNT][VIRTUAL_KEYBOARD_COLUMN_COUNT] =
 {
 	{ _vkey_done, _vkey_1, _vkey_2, _vkey_3, _vkey_4, _vkey_5, _vkey_6, _vkey_7, _vkey_8, _vkey_9, _vkey_0 },
 	{ _vkey_shift, _vkey_a, _vkey_b, _vkey_c, _vkey_d, _vkey_e, _vkey_f, _vkey_g, _vkey_h, _vkey_i, _vkey_j },
@@ -344,7 +346,7 @@ static rectangle2d keyboard_rect[NUMBER_OF_VIRTUAL_KEYS] =
 	{ 286, 208, 318, 400 }, /* space */
 };
 
-struct virtual_keyboard_globals virtual_keyboard_globals= {0};
+static struct virtual_keyboard_globals virtual_keyboard_globals= {0};
 
 /* ---------- public code */
 
@@ -480,7 +482,7 @@ boolean virtual_keyboard_last_exit_saved_text(
 static boolean virtual_keyboard_tab_left(
 	void)
 {
-	char keycode = virtual_keyboard_key_layout[virtual_keyboard_globals.row][virtual_keyboard_globals.column];
+	char keycode = virtual_keyboard_layout_table[virtual_keyboard_globals.row][virtual_keyboard_globals.column];
 
 	do
 	{
@@ -488,7 +490,7 @@ static boolean virtual_keyboard_tab_left(
 		if (virtual_keyboard_globals.column < 0)
 			virtual_keyboard_globals.column = VIRTUAL_KEYBOARD_COLUMN_COUNT - 1;
 	}
-	while (virtual_keyboard_key_layout[virtual_keyboard_globals.row][virtual_keyboard_globals.column] == keycode);
+	while (virtual_keyboard_layout_table[virtual_keyboard_globals.row][virtual_keyboard_globals.column] == keycode);
 
 	ui_play_audio_feedback_sound(_ui_audio_feedback_cursor);
 
@@ -498,7 +500,7 @@ static boolean virtual_keyboard_tab_left(
 static boolean virtual_keyboard_tab_right(
 	void)
 {
-	char keycode = virtual_keyboard_key_layout[virtual_keyboard_globals.row][virtual_keyboard_globals.column];
+	char keycode = virtual_keyboard_layout_table[virtual_keyboard_globals.row][virtual_keyboard_globals.column];
 
 	do
 	{
@@ -506,7 +508,7 @@ static boolean virtual_keyboard_tab_right(
 		if (virtual_keyboard_globals.column == VIRTUAL_KEYBOARD_COLUMN_COUNT)
 			virtual_keyboard_globals.column = 0;
 	}
-	while (virtual_keyboard_key_layout[virtual_keyboard_globals.row][virtual_keyboard_globals.column] == keycode);
+	while (virtual_keyboard_layout_table[virtual_keyboard_globals.row][virtual_keyboard_globals.column] == keycode);
 
 	ui_play_audio_feedback_sound(_ui_audio_feedback_cursor);
 
@@ -516,7 +518,7 @@ static boolean virtual_keyboard_tab_right(
 static boolean virtual_keyboard_tab_up(
 	void)
 {
-	char keycode = virtual_keyboard_key_layout[virtual_keyboard_globals.row][virtual_keyboard_globals.column];
+	char keycode = virtual_keyboard_layout_table[virtual_keyboard_globals.row][virtual_keyboard_globals.column];
 
 	do
 	{
@@ -524,7 +526,7 @@ static boolean virtual_keyboard_tab_up(
 		if (virtual_keyboard_globals.row < 0)
 			virtual_keyboard_globals.row = VIRTUAL_KEYBOARD_ROW_COUNT - 1;
 	}
-	while (virtual_keyboard_key_layout[virtual_keyboard_globals.row][virtual_keyboard_globals.column] == keycode);
+	while (virtual_keyboard_layout_table[virtual_keyboard_globals.row][virtual_keyboard_globals.column] == keycode);
 
 	ui_play_audio_feedback_sound(_ui_audio_feedback_cursor);
 
@@ -534,7 +536,7 @@ static boolean virtual_keyboard_tab_up(
 static boolean virtual_keyboard_tab_down(
 	void)
 {
-	char keycode = virtual_keyboard_key_layout[virtual_keyboard_globals.row][virtual_keyboard_globals.column];
+	char keycode = virtual_keyboard_layout_table[virtual_keyboard_globals.row][virtual_keyboard_globals.column];
 
 	do
 	{
@@ -542,7 +544,7 @@ static boolean virtual_keyboard_tab_down(
 		if (virtual_keyboard_globals.row == VIRTUAL_KEYBOARD_ROW_COUNT)
 			virtual_keyboard_globals.row = 0;
 	}
-	while (virtual_keyboard_key_layout[virtual_keyboard_globals.row][virtual_keyboard_globals.column] == keycode);
+	while (virtual_keyboard_layout_table[virtual_keyboard_globals.row][virtual_keyboard_globals.column] == keycode);
 
 	ui_play_audio_feedback_sound(_ui_audio_feedback_cursor);
 
@@ -617,10 +619,10 @@ static wchar_t virtual_keyboard_get_character(
 	return character;
 }
 
-wchar_t virtual_keyboard_get_current_character(
+static wchar_t virtual_keyboard_get_current_character(
 	void)
 {
-	return virtual_keyboard_get_character(virtual_keyboard_key_layout[
+	return virtual_keyboard_get_character(virtual_keyboard_layout_table[
 		virtual_keyboard_globals.row][virtual_keyboard_globals.column]);
 }
 
@@ -771,7 +773,7 @@ static void virtual_keyboard_render_internal(
 				rasterizer_draw_unicode_string(&key_bounds, NULL, NULL, 0, string);
 			}
 
-			if (virtual_keyboard_key_layout[virtual_keyboard_globals.row][virtual_keyboard_globals.column] == key_index)
+			if (virtual_keyboard_layout_table[virtual_keyboard_globals.row][virtual_keyboard_globals.column] == key_index)
 			{
 				if (virtual_keyboard_globals.last_event == _event_key_select)
 					bitmap_index = key->active_background_bitmap_tag.index;
@@ -809,7 +811,7 @@ static void virtual_keyboard_render_internal(
 				case _vkey_left:
 				case _vkey_right:
 				case _vkey_space:
-					if (virtual_keyboard_key_layout[virtual_keyboard_globals.row][virtual_keyboard_globals.column] == key_index)
+					if (virtual_keyboard_layout_table[virtual_keyboard_globals.row][virtual_keyboard_globals.column] == key_index)
 					{
 						if (virtual_keyboard_globals.last_event == _event_key_select)
 							bitmap_index = key->active_background_bitmap_tag.index;
@@ -823,7 +825,7 @@ static void virtual_keyboard_render_internal(
 					break;
 
 				case _vkey_shift:
-					if (virtual_keyboard_key_layout[virtual_keyboard_globals.row][virtual_keyboard_globals.column] == key_index)
+					if (virtual_keyboard_layout_table[virtual_keyboard_globals.row][virtual_keyboard_globals.column] == key_index)
 					{
 						if (virtual_keyboard_globals.last_event == _event_key_select)
 							bitmap_index = key->active_background_bitmap_tag.index;
@@ -841,7 +843,7 @@ static void virtual_keyboard_render_internal(
 					break;
 
 				case _vkey_caps:
-					if (virtual_keyboard_key_layout[virtual_keyboard_globals.row][virtual_keyboard_globals.column] == key_index)
+					if (virtual_keyboard_layout_table[virtual_keyboard_globals.row][virtual_keyboard_globals.column] == key_index)
 					{
 						if (virtual_keyboard_globals.last_event == _event_key_select)
 							bitmap_index = key->active_background_bitmap_tag.index;
@@ -859,7 +861,7 @@ static void virtual_keyboard_render_internal(
 					break;
 
 				case _vkey_symbols:
-					if (virtual_keyboard_key_layout[virtual_keyboard_globals.row][virtual_keyboard_globals.column] == key_index)
+					if (virtual_keyboard_layout_table[virtual_keyboard_globals.row][virtual_keyboard_globals.column] == key_index)
 					{
 						if (virtual_keyboard_globals.last_event == _event_key_select)
 							bitmap_index = key->active_background_bitmap_tag.index;
@@ -905,7 +907,7 @@ static void virtual_keyboard_render_internal(
 	return;
 }
 
-long virtual_keyboard_free_space_in_text_buffer(
+static long virtual_keyboard_free_space_in_text_buffer(
 	void)
 {
 	return virtual_keyboard_globals.buffer_size -
@@ -967,7 +969,7 @@ void virtual_keyboard_process(
 static boolean virtual_keyboard_select(
 	void)
 {
-	short keycode = virtual_keyboard_key_layout[virtual_keyboard_globals.row][virtual_keyboard_globals.column];
+	short keycode = virtual_keyboard_layout_table[virtual_keyboard_globals.row][virtual_keyboard_globals.column];
 
 	switch (keycode)
 	{
@@ -1094,17 +1096,16 @@ static boolean virtual_keyboard_select(
 			virtual_keyboard_globals.first_key_replaces_buffer = FALSE;
 		}
 		{
-			long buffer_size = virtual_keyboard_globals.buffer_size;
-			long free_space = buffer_size - 2 * (ustrlen(virtual_keyboard_globals.text_buffer) + 1);
+			long move_size;
 
-			if (free_space >= 2)
+			if (virtual_keyboard_free_space_in_text_buffer() >= 2)
 			{
+				move_size = virtual_keyboard_globals.buffer_size - ((byte *)virtual_keyboard_globals.cursor - (byte *)virtual_keyboard_globals.text_buffer) - sizeof(wchar_t);
 				csmemmove(
 					virtual_keyboard_globals.cursor + 1,
 					virtual_keyboard_globals.cursor,
-					buffer_size - ((byte *)virtual_keyboard_globals.cursor - (byte *)virtual_keyboard_globals.text_buffer) - sizeof(wchar_t));
-				*virtual_keyboard_globals.cursor++ = virtual_keyboard_get_character(
-					virtual_keyboard_key_layout[virtual_keyboard_globals.row][virtual_keyboard_globals.column]);
+					move_size);
+				*virtual_keyboard_globals.cursor++ = virtual_keyboard_get_current_character();
 				if (ustrcmp(virtual_keyboard_globals.text_buffer, L".fortune") == 0)
 				{
 					unsigned long fortune_index = system_milliseconds() % NUMBER_OF_VIRTUAL_KEYBOARD_FORTUNES;
@@ -1136,7 +1137,7 @@ static boolean virtual_keyboard_select(
 		break;
 	}
 
-	if (virtual_keyboard_key_layout[virtual_keyboard_globals.row][virtual_keyboard_globals.column] != _vkey_shift)
+	if (virtual_keyboard_layout_table[virtual_keyboard_globals.row][virtual_keyboard_globals.column] != _vkey_shift)
 		virtual_keyboard_globals.shift_active = FALSE;
 
 	return TRUE;
@@ -1282,7 +1283,7 @@ static void virtual_keyboard_process_internal(
 
 	if (action != NONE)
 	{
-		virtual_keyboard_globals.last_key = virtual_keyboard_key_layout[
+		virtual_keyboard_globals.last_key = virtual_keyboard_layout_table[
 			virtual_keyboard_globals.row][virtual_keyboard_globals.column];
 		switch (action)
 		{

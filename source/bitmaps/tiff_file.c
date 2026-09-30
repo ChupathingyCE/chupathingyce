@@ -48,7 +48,6 @@ symbols in this file:
 
 #include "bitmaps/bitmaps.h"
 #include "bitmaps/bitmap_group.h"
-#include "bitmaps/bitmaps_internal.h"
 #ifndef HALO_64BIT
 #include "bitmaps/libtiff/tiffio.h"
 #endif
