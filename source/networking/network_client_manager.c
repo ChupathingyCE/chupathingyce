@@ -1565,6 +1565,14 @@ boolean network_game_client_add_player(
 		0x530,
 		client && (local_player_index>=0) && (local_player_index<MAXIMUM_NUMBER_OF_LOCAL_PLAYERS));
 
+#ifdef HALO_GAME_BROWSER
+	/* the dedicated server plays no one on its own machine (server/src/dedicated.c):
+	its pregame screen's players stay out */
+	{ boolean dedicated_server_active(void);
+	  if (dedicated_server_active())
+		return TRUE; }
+#endif
+
 	/* port: the pregame screen asks each frame until the host's settings
 	have the player: once every half second, not each frame (the host
 	refused and logged each repeat) */
