@@ -291,9 +291,9 @@ void browser_screen_render_hint(
 	bitmap = bitmap_index != NONE ? bitmap_group_get_bitmap_from_sequence(bitmap_index, 0, 0) : NULL;
 	if (!bitmap)
 		return;
-	/* (the button's bitmap has a margin around the button: a box 1.8 times
+	/* (the button's bitmap has a margin around the button: a box 1.62 times
 	the words' height shows the button as big as the footer's others) */
-	icon_height = (short)(9 * (text.y1 - text.y0) / 5);
+	icon_height = (short)(81 * (text.y1 - text.y0) / 50);
 	icon_width = bitmap->height ? (short)(icon_height * bitmap->width / bitmap->height) : icon_height;
 
 	draw_string_set_draw_mode(font_index, NONE, 0, 0, &color);
