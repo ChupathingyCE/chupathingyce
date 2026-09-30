@@ -254,14 +254,37 @@ void browser_screen_process(
 
 /* the System Link screen's footer has no word of the browser (it is the
 user interface's tags): its free corner says so */
+boolean ui_widget_text_style(char const *name, long *font_index, real_argb_color *color, rectangle2d *bounds);
+void draw_string_and_hack_in_icons(rectangle2d *bounds, rectangle2d *clip, point2d *cursor_reference,
+	short height_adjust, wchar_t const *instring, boolean ignore_icon_color);
+
 void browser_screen_render_hint(
 	void)
 {
-	real_argb_color hint_color = { 1.0f, 0.55f, 0.75f, 1.0f };
+	static wchar_t const hint[] = L"%x-button=ALL GAMES";
+	long font_index;
+	real_argb_color color;
+	rectangle2d key;
+	rectangle2d bounds;
+	rectangle2d clip;
 
 	if (browser_screen.active || system_milliseconds() - browser_screen.list_shown_time > LIST_SHOWN_WINDOW)
 		return;
-	draw_ascii(48, 432, 300, 456, 0, &hint_color, "X = ALL GAMES");
+	/* as the footer's "Y = CREATE GAME", on its line, to its left */
+	if (!ui_widget_text_style("ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\create_game_key",
+		&font_index, &color, &key))
+	{
+		real_argb_color hint_color = { 1.0f, 0.55f, 0.75f, 1.0f };
+
+		draw_ascii(48, 432, 300, 456, 0, &hint_color, "X = ALL GAMES");
+		return;
+	}
+	bounds = key;
+	bounds.x1 = (short)(key.x0 - 12);
+	bounds.x0 = (short)(bounds.x1 - 220);
+	clip = bounds;
+	draw_string_set_draw_mode(font_index, NONE, 1, 0, &color);
+	draw_string_and_hack_in_icons(&bounds, &clip, NULL, 0, hint, FALSE);
 }
 
 void browser_screen_render(

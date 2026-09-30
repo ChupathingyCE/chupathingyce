@@ -4871,6 +4871,30 @@ static long search_and_replace(
 	return replacements;
 }
 
+#ifdef HALO_NEW_NETWORKING
+/* a widget's text style, by its tag's name (the server browser's hint on
+the System Link screen takes the footer's: port/linux/game/browser_screen.c) */
+boolean ui_widget_text_style(
+	char const *name,
+	long *font_index,
+	real_argb_color *color,
+	rectangle2d *bounds)
+{
+	long tag_index = tag_loaded(UI_WIDGET_DEFINITION_TAG, name);
+	struct ui_widget_definition *definition;
+
+	if (tag_index == NONE)
+		return FALSE;
+	definition = ui_widget_definition_get(tag_index);
+	if (definition->text_font.index == NONE)
+		return FALSE;
+	*font_index = definition->text_font.index;
+	*color = definition->text_color;
+	*bounds = definition->bounds;
+	return TRUE;
+}
+#endif
+
 static void widget_instance_render_text_box(
 	struct widget_instance *widget,
 	struct ui_widget_definition *definition,
