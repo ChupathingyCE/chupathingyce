@@ -19,7 +19,7 @@ compile_commands.json
 # build's PDB); never commit
 *.exe
 *.pdb
-xbox/
+/xbox/
 !source/**/xbox/
 
 # Locally extracted proprietary game data (never commit)
