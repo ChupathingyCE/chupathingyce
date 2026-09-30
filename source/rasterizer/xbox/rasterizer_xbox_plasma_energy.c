@@ -62,6 +62,30 @@ struct plasma_runtime_parameters
 	real const *exponents;
 };
 
+#ifdef HALO_64BIT
+/* the shared group (rasterizer_transparent_geometry.h) under the plasma
+shader's names: its permutation index is the bitmap sequence index, and its
+animation field carries the runtime parameters */
+struct rasterizer_transparent_geometry_group_plasma
+{
+	byte reserved00[offsetof(struct transparent_geometry_group, shader)];
+	struct shader *shader;
+	short bitmap_sequence_index;
+	byte reserved12[offsetof(struct transparent_geometry_group, animation) -
+		offsetof(struct transparent_geometry_group, shader_permutation_index) - sizeof(short)];
+	struct plasma_runtime_parameters const *runtime_parameters;
+};
+
+typedef char plasma_group_shader_offset_assert[
+	offsetof(struct rasterizer_transparent_geometry_group_plasma, shader) ==
+		offsetof(struct transparent_geometry_group, shader) ? 1 : -1];
+typedef char plasma_group_sequence_offset_assert[
+	offsetof(struct rasterizer_transparent_geometry_group_plasma, bitmap_sequence_index) ==
+		offsetof(struct transparent_geometry_group, shader_permutation_index) ? 1 : -1];
+typedef char plasma_group_runtime_offset_assert[
+	offsetof(struct rasterizer_transparent_geometry_group_plasma, runtime_parameters) ==
+		offsetof(struct transparent_geometry_group, animation) ? 1 : -1];
+#else
 struct rasterizer_transparent_geometry_group_plasma
 {
 	byte reserved00[0xC];
@@ -70,6 +94,7 @@ struct rasterizer_transparent_geometry_group_plasma
 	byte reserved12[0x5A];
 	struct plasma_runtime_parameters const *runtime_parameters;
 };
+#endif
 
 struct shader_transparent_plasma_definition
 {
