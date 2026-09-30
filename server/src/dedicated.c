@@ -9,7 +9,8 @@ builds (configure.py --game-browser); without HALO_DEDICATED it does
 nothing.
 
 Each frame (main.c, beside the user interface) the director:
-  - waits for the main menu to be up;
+  - waits for the main menu to be up, and no movie playing (the intro's
+    end loads the main menu anew, which ends any network game);
   - hosts as the game's fast set-up does (player_ui.c,
     player_ui_fast_setup_network_server): the game server, its client on
     this machine with no player, and the pregame lobby's screen;
@@ -65,6 +66,7 @@ void game_connection_set(short connection);
 void main_set_multiplayer_map_name(char const *map_name);
 void game_engine_override_map_name(char const *map_name);
 boolean main_menu_is_active(void);
+boolean bink_playback_active(void);
 
 enum
 {
@@ -229,7 +231,9 @@ void dedicated_server_update(
 	{
 		dedicated.hosting = FALSE;
 		dedicated.entry_set = FALSE;
-		if (!main_menu_is_active() || system_milliseconds() < dedicated.retry_time)
+		/* (not while a movie plays: the intro's end loads the main menu,
+		which ends any network game) */
+		if (!main_menu_is_active() || bink_playback_active() || system_milliseconds() < dedicated.retry_time)
 			return;
 		dedicated.retry_time = system_milliseconds() + RETRY_MILLISECONDS;
 		dedicated.hosting = host();
