@@ -25,6 +25,9 @@ picked there as any.
 #include "interface/interface.h"
 #include "rasterizer/rasterizer.h"
 #include "text/draw_string.h"
+#include "bitmaps/bitmap_group.h"
+#include "interface/ui_widget.h"
+#include "tag_files/tag_groups.h"
 #include "../src/browser.h"
 
 /* ---------- constants */
@@ -255,35 +258,51 @@ void browser_screen_process(
 /* the System Link screen's footer has no word of the browser (it is the
 user interface's tags): its free corner says so */
 boolean ui_widget_text_style(char const *name, long *font_index, real_argb_color *color, rectangle2d *bounds);
-void draw_string_and_hack_in_icons(rectangle2d *bounds, rectangle2d *clip, point2d *cursor_reference,
-	short height_adjust, wchar_t const *instring, boolean ignore_icon_color);
+boolean ui_widget_icon_rectangle(char const *name, rectangle2d *bounds, pixel32 *color);
 
+/* the System Link screen's footer has no word of the browser (it is the
+user interface's tags): an X button's prompt joins its others, as they are
+drawn (the X button's icon, from the same bitmaps as theirs, the size of
+the Y button's; the words in their font and color) */
 void browser_screen_render_hint(
 	void)
 {
-	static wchar_t const hint[] = L"%x-button=ALL GAMES";
 	long font_index;
 	real_argb_color color;
-	rectangle2d key;
+	rectangle2d text;
+	rectangle2d icon;
 	rectangle2d bounds;
-	rectangle2d clip;
+	pixel32 icon_color;
+	long bitmap_index;
+	struct bitmap_data *bitmap;
+	short icon_width;
 
 	if (browser_screen.active || system_milliseconds() - browser_screen.list_shown_time > LIST_SHOWN_WINDOW)
 		return;
-	/* as the footer's "Y = CREATE GAME", on its line, to its left */
 	/* (not drawn yet this time: the next frame) */
 	if (!ui_widget_text_style("ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\create_game_button",
-		&font_index, &color, &key))
+			&font_index, &color, &text) ||
+		!ui_widget_icon_rectangle("ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\create_game_key",
+			&icon, &icon_color))
 	{
 		return;
 	}
-	/* (left of the Y button's icon, which sits left of that text) */
-	bounds = key;
-	bounds.x1 = (short)(key.x0 - 40);
-	bounds.x0 = (short)(bounds.x1 - 220);
-	clip = bounds;
-	draw_string_set_draw_mode(font_index, NONE, 1, 0, &color);
-	draw_string_and_hack_in_icons(&bounds, &clip, NULL, 0, hint, FALSE);
+	bitmap_index = tag_loaded('bitm', "ui\\shell\\bitmaps\\x_butn");
+	bitmap = bitmap_index != NONE ? bitmap_group_get_bitmap_from_sequence(bitmap_index, 0, 0) : NULL;
+	if (!bitmap)
+		return;
+
+	/* the prompt: [X]=ALL GAMES, ending a little left of the Y button's */
+	icon_width = (short)(icon.x1 - icon.x0);
+	bounds = icon;
+	bounds.x0 = (short)(icon.x0 - icon_width - 150);
+	bounds.x1 = (short)(bounds.x0 + icon_width);
+	draw_bitmap_in_rect(bitmap, &bounds, &bounds, NULL, icon_color, NULL, FALSE);
+	bounds = text;
+	bounds.x0 = (short)(icon.x0 - 150 + 2);
+	bounds.x1 = (short)(icon.x0 - 8);
+	draw_string_set_draw_mode(font_index, NONE, 0, 0, &color);
+	rasterizer_draw_unicode_string(&bounds, &bounds, NULL, 0, L"=ALL GAMES");
 }
 
 void browser_screen_render(
