@@ -334,18 +334,20 @@ function element(tag, className, text) {
 function duration(seconds) { return Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0"); }
 function accuracy(player) { return player.shots_fired ? Math.round(100 * player.shots_hit / player.shots_fired) + "%" : "–"; }
 function ratio(player) { return (player.kills / Math.max(1, player.deaths)).toFixed(2); }
-function scoreboard(players) {
+function scoreboard(players, shots) {
   const wrap = element("div", "scroll");
   const table = element("table");
   const head = element("tr");
-  for (const title of ["#", "Player", "Score", "Kills", "Assists", "Deaths", "K/D", "Betrayals", "Suicides", "Accuracy", "Multikills"])
-    head.append(element("th", "", title));
+  /* (accuracy only where the game counted shots) */
+  const titles = ["#", "Player", "Score", "Kills", "Assists", "Deaths", "K/D", "Betrayals", "Suicides", "Accuracy", "Multikills"];
+  for (const title of titles)
+    if (shots || title !== "Accuracy") head.append(element("th", "", title));
   table.append(head);
   for (const player of players) {
     const row = element("tr", player.place === 1 ? "first" : "");
-    for (const value of [player.place, player.name, player.score, player.kills, player.assists, player.deaths, ratio(player),
-      player.betrayals, player.suicides, accuracy(player), player.multikills])
-      row.append(element("td", "", String(value)));
+    const values = [player.place, player.name, player.score, player.kills, player.assists, player.deaths, ratio(player),
+      player.betrayals, player.suicides, accuracy(player), player.multikills];
+    values.forEach((value, index) => { if (shots || titles[index] !== "Accuracy") row.append(element("td", "", String(value))); });
     table.append(row);
   }
   wrap.append(table);
@@ -369,15 +371,16 @@ async function load() {
     winner.append(element("span", "winner", report.winner + " won"));
     holder.append(winner);
     const players = report.players.slice().sort((a, b) => a.place - b.place);
+    const shots = players.some(p => p.shots_fired > 0);
     if (report.teams) {
       const order = [...new Set(players.map(p => p.team))].sort((a, b) => (report.team_scores[b] || 0) - (report.team_scores[a] || 0));
       for (const team of order) {
         const heading = element("div", "team " + (team === 0 ? "red" : team === 1 ? "blue" : ""),
           (TEAMS[team] || "Team " + (team + 1)) + " · " + (report.team_scores[team] || 0));
-        holder.append(heading, scoreboard(players.filter(p => p.team === team)));
+        holder.append(heading, scoreboard(players.filter(p => p.team === team), shots));
       }
     } else {
-      holder.append(scoreboard(players));
+      holder.append(scoreboard(players, shots));
     }
   } catch (error) {
     holder.replaceChildren(element("div", "empty", "There is no such game."));
