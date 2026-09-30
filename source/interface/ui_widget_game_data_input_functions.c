@@ -945,6 +945,15 @@ static void server_list_menu_update(
 	struct network_game_client *client = global_network_game_client_get();
 	long displayed_server_count = 0;
 
+#ifdef HALO_NEW_NETWORKING
+	{
+		/* (X there opens the server browser: port/linux/game/browser_screen.c) */
+		void browser_screen_list_shown(void);
+
+		browser_screen_list_shown();
+	}
+#endif
+
 	csmemset(
 		displayed_servers,
 		0,

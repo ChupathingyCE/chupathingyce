@@ -679,6 +679,14 @@ struct widget_instance;
 #include "ui_widget.h"
 #ifdef HALO_64BIT
 #include "interface/ui_widget_instance.h"
+#ifdef HALO_NEW_NETWORKING
+/* the in-game server browser (port/linux/game/browser_screen.c): a screen of
+code over the widgets, as the virtual keyboard is */
+boolean browser_screen_active(void);
+boolean browser_screen_open_from_event(struct event_record const *event);
+void browser_screen_process(void);
+void browser_screen_render(void);
+#endif
 #endif
 
 /* ---------- constants */
@@ -6071,6 +6079,10 @@ void render_ui_widgets(
 	{
 		virtual_keyboard_render();
 	}
+#ifdef HALO_NEW_NETWORKING
+	if (browser_screen_active())
+		browser_screen_render();
+#endif
 
 	return;
 }
@@ -6993,6 +7005,14 @@ void process_ui_widgets(
 
 		return;
 	}
+#ifdef HALO_NEW_NETWORKING
+	if (browser_screen_active())
+	{
+		browser_screen_process();
+
+		return;
+	}
+#endif
 	if (attract_mode_should_start())
 	{
 		attract_mode_start();
@@ -7094,6 +7114,11 @@ void process_ui_widgets(
 			{
 				do
 				{
+#ifdef HALO_NEW_NETWORKING
+					/* (X on the System Link screen: the server browser) */
+					if (browser_screen_open_from_event(&event))
+						break;
+#endif
 					if (!pause_pressed)
 					{
 						widget_instance_process_one_event_recursive(
