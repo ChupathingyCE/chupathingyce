@@ -1,8 +1,8 @@
 # Server tools
 
 The game list and the dedicated server. Both belong to the game list builds
-(`configure.py --game-browser`, `HALO_GAME_BROWSER`); the other builds are
-unchanged.
+(`HALO_GAME_BROWSER`, on by default in this fork; `configure.py
+--no-game-browser` leaves them out, as upstream's builds are).
 
 | | |
 | --- | --- |
@@ -49,7 +49,7 @@ path) and a game type (`slayer`, `team_slayer`, `ctf`, `king`, `oddball`,
 To run one on a desktop:
 
 ```
-python3 configure.py --game-browser && ninja
+python3 configure.py && ninja
 HALO_DEDICATED=playlists/free_for_all.txt HALO_DEDICATED_NAME="My Server" build/linux/halo
 ```
 
@@ -62,7 +62,7 @@ needs Docker, not 32-bit libraries), as the `halo-dedicated` systemd service.
 
 1. Build the Linux game with the game list, on Debian 13 (its libraries are
    the container's):
-   `python3 configure.py --game-browser --portable --release && ninja linux`.
+   `python3 configure.py --portable --release && ninja linux`.
 2. Copy the maps to the host's `/opt/halo-dedicated/data/maps`: `ui.map` and
    the multiplayer maps (about 300 MB).
 3. Run `server/deploy/deploy.sh user@host build/linux/halo`. It copies the

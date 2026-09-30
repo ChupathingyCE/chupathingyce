@@ -36,9 +36,10 @@ parser.add_argument(
 )
 parser.add_argument(
     "--game-browser",
-    action="store_true",
+    action=argparse.BooleanOptionalAction,
+    default=True,
     help="native ports (Linux, macOS): the game list and server browser of halo.milenko.org "
-    "(HALO_GAME_BROWSER; port/linux/src/browser.c)",
+    "(HALO_GAME_BROWSER; port/linux/src/browser.c); on unless --no-game-browser",
 )
 parser.add_argument(
     "--lto",
