@@ -4872,25 +4872,33 @@ static long search_and_replace(
 }
 
 #ifdef HALO_NEW_NETWORKING
-/* a widget's text style, by its tag's name (the server browser's hint on
-the System Link screen takes the footer's: port/linux/game/browser_screen.c) */
+/* a text widget's style as it was last drawn (on screen: its position is
+its parents' too), for the server browser's hint on the System Link screen,
+which takes the footer's "= CREATE GAME" (port/linux/game/browser_screen.c) */
+static struct
+{
+	long tag_index;
+	unsigned long time;
+	long font_index;
+	real_argb_color color;
+	rectangle2d bounds;
+} ui_widget_noted_style = { NONE };
+
 boolean ui_widget_text_style(
 	char const *name,
 	long *font_index,
 	real_argb_color *color,
 	rectangle2d *bounds)
 {
-	long tag_index = tag_loaded(UI_WIDGET_DEFINITION_TAG, name);
-	struct ui_widget_definition *definition;
-
-	if (tag_index == NONE)
+	ui_widget_noted_style.tag_index = tag_loaded(UI_WIDGET_DEFINITION_TAG, name);
+	if (ui_widget_noted_style.tag_index == NONE ||
+		widget_globals.current_system_milliseconds - ui_widget_noted_style.time > 250)
+	{
 		return FALSE;
-	definition = ui_widget_definition_get(tag_index);
-	if (definition->text_font.index == NONE)
-		return FALSE;
-	*font_index = definition->text_font.index;
-	*color = definition->text_color;
-	*bounds = definition->bounds;
+	}
+	*font_index = ui_widget_noted_style.font_index;
+	*color = ui_widget_noted_style.color;
+	*bounds = ui_widget_noted_style.bounds;
 	return TRUE;
 }
 #endif
@@ -5024,6 +5032,15 @@ static void widget_instance_render_text_box(
 			widget_globals.current_system_milliseconds *
 				SECONDS_PER_MILLISECOND * 3.0f) + 1.5f) * 0.4f) * color.alpha;
 	}
+#ifdef HALO_NEW_NETWORKING
+	if (widget->definition_tag_index == ui_widget_noted_style.tag_index && ui_widget_noted_style.tag_index != NONE)
+	{
+		ui_widget_noted_style.time = widget_globals.current_system_milliseconds;
+		ui_widget_noted_style.font_index = font_index;
+		ui_widget_noted_style.color = color;
+		ui_widget_noted_style.bounds = bounds;
+	}
+#endif
 	draw_string_set_draw_mode(font_index, NONE, justification, 0, &color);
 	if (string_has_icons_to_draw(*text))
 		draw_string_and_hack_in_icons(&bounds, &clip, NULL, 0, *text, FALSE);

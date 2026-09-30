@@ -271,16 +271,15 @@ void browser_screen_render_hint(
 	if (browser_screen.active || system_milliseconds() - browser_screen.list_shown_time > LIST_SHOWN_WINDOW)
 		return;
 	/* as the footer's "Y = CREATE GAME", on its line, to its left */
-	if (!ui_widget_text_style("ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\create_game_key",
+	/* (not drawn yet this time: the next frame) */
+	if (!ui_widget_text_style("ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\create_game_button",
 		&font_index, &color, &key))
 	{
-		real_argb_color hint_color = { 1.0f, 0.55f, 0.75f, 1.0f };
-
-		draw_ascii(48, 432, 300, 456, 0, &hint_color, "X = ALL GAMES");
 		return;
 	}
+	/* (left of the Y button's icon, which sits left of that text) */
 	bounds = key;
-	bounds.x1 = (short)(key.x0 - 12);
+	bounds.x1 = (short)(key.x0 - 40);
 	bounds.x0 = (short)(bounds.x1 - 220);
 	clip = bounds;
 	draw_string_set_draw_mode(font_index, NONE, 1, 0, &color);
