@@ -272,6 +272,7 @@ void browser_screen_render_hint(
 	real_argb_color color;
 	rectangle2d text;
 	rectangle2d measured;
+	rectangle2d cursor;
 	rectangle2d bounds;
 	long bitmap_index;
 	struct bitmap_data *bitmap;
@@ -298,7 +299,8 @@ void browser_screen_render_hint(
 	bounds.y0 = 0;
 	bounds.x1 = 640;
 	bounds.y1 = 480;
-	draw_unicode_string_compute_bounds(&bounds, words, &measured, NULL);
+	/* (it writes the cursor's bounds too: it takes no NULL there) */
+	draw_unicode_string_compute_bounds(&bounds, words, &measured, &cursor);
 	words_width = (short)(measured.x1 - measured.x0);
 
 	/* the Y button's icon sits just left of its words: this prompt ends a
