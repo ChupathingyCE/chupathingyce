@@ -373,24 +373,14 @@ void texture_cache_bitmap_new(
 		!TEST_FLAG(bitmap->flags, _bitmap_cached_bit));
 	SET_FLAG(bitmap->flags, _bitmap_cached_bit, TRUE);
 	bitmap->cache_block_index = NONE;
-#ifdef HALO_64BIT
-	bitmap->base_address = 0;
-	bitmap->hardware_format = 0;
-#else
-	bitmap->base_address = NULL;
-	bitmap->hardware_format = NULL;
-#endif
+	bitmap->base_address = XBOX_NULL;
+	bitmap->hardware_format = XBOX_NULL;
 	bitmap_group = bitmap_group_get(bitmap_tag_index);
 	bitmap->pixels_offset += bitmap_group->pixel_data.file_offset;
 	bitmap->pixels_size = bitmap_get_pixel_data_size(bitmap);
 	bitmap->tag_index = bitmap_tag_index;
-#ifdef HALO_64BIT
-	bitmap->base_address = 0;
-	bitmap->hardware_format = 0;
-#else
-	bitmap->base_address = NULL;
-	bitmap->hardware_format = NULL;
-#endif
+	bitmap->base_address = XBOX_NULL;
+	bitmap->hardware_format = XBOX_NULL;
 	bitmap->cache_block_index = NONE;
 
 	return;
@@ -412,11 +402,7 @@ void texture_cache_bitmap_delete(
 		}
 		SET_FLAG(bitmap->flags, _bitmap_cached_bit, FALSE);
 		bitmap->cache_block_index = NONE;
-#ifdef HALO_64BIT
-		bitmap->base_address = 0;
-#else
-		bitmap->base_address = NULL;
-#endif
+		bitmap->base_address = XBOX_NULL;
 	}
 
 	return;
@@ -596,11 +582,7 @@ static void texture_cache_delete_block_proc(
 		0x187,
 		texture->bitmap->cache_block_index==block_index);
 	texture->bitmap->cache_block_index = NONE;
-#ifdef HALO_64BIT
-	texture->bitmap->base_address = 0;
-#else
-	texture->bitmap->base_address = NULL;
-#endif
+	texture->bitmap->base_address = XBOX_NULL;
 	datum_delete(
 		xbox_texture_cache_globals.textures,
 		block_index);

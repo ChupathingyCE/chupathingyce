@@ -568,11 +568,7 @@ struct bitmap_data *bitmap_cube_map_new(
 		bitmap->type = _bitmap_type_cube_map;
 		bitmap->format = format;
 		bitmap->mipmap_count = mipmap_count;
-#ifdef HALO_64BIT
-		bitmap->hardware_format = 0;
-#else
-		bitmap->hardware_format = NULL;
-#endif
+		bitmap->hardware_format = XBOX_NULL;
 		bitmap->flags = FLAG(_bitmap_has_power_of_two_dimensions_bit)|FLAG(_bitmap_allocated_bit);
 		if (format>=FIRST_COMPRESSED_BITMAP_FORMAT && format<=LAST_COMPRESSED_BITMAP_FORMAT)
 		{

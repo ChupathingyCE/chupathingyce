@@ -783,11 +783,7 @@ void scenario_structure_bsp_unload(
 		"c:\\halo\\SOURCE\\cache\\cache_files.c",
 		257,
 		tag_instance->group_tag==STRUCTURE_BSP_TAG);
-#ifdef HALO_64BIT
-	tag_instance->base_address = 0;
-#else
-	tag_instance->base_address = NULL;
-#endif
+	tag_instance->base_address = XBOX_NULL;
 	cache_file_globals.structure_bsp_header = NULL;
 
 	return;
