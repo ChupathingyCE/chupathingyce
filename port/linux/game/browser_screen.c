@@ -306,10 +306,10 @@ void browser_screen_render_hint(
 	/* (a little slack: the measure falls a few short of the drawing) */
 	words_width = (short)(measured.x1 - measured.x0 + 6);
 
-	/* the Y button shows about 23 left of its words; this prompt ends 20
-	before it, as far as the footer's prompts are apart */
-	right = (short)(text.x0 - 23 - 20);
-	middle = (short)((text.y0 + text.y1) / 2 + 3);
+	/* the Y button shows about 6 left of its words' bounds; this prompt
+	ends 20 before it, as far as the footer's prompts are apart */
+	right = (short)(text.x0 - 6 - 20);
+	middle = (short)((text.y0 + text.y1) / 2 + 4);
 
 	bounds.x1 = right;
 	bounds.x0 = (short)(right - words_width);
