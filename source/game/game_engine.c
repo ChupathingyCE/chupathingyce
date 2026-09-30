@@ -959,6 +959,25 @@ long game_engine_get_team_score(
 	return 0;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* every player's score added up: the dedicated server's sign that a game is
+being played (server/src/dedicated.c) */
+long game_engine_total_score(
+	void)
+{
+	struct data_iterator iterator;
+	long total = 0;
+
+	if (!game_engine || !game_engine->get_player_score)
+		return 0;
+	data_iterator_new(&iterator, player_data);
+	while (data_iterator_next(&iterator))
+		total += game_engine->get_player_score(iterator.datum_index, FALSE);
+
+	return total;
+}
+#endif
+
 real linear_to_non_linear_alpha(
 	real linear_alpha)
 {

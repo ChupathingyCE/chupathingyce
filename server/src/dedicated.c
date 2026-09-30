@@ -22,9 +22,8 @@ screen. Each frame (main.c, beside the user interface) the director:
     lobby's players start it, and the server has none; it may run when
     server_ok_to_countdown, which lets the host's machine go without a
     player: dedicated_server_active);
-  - ends a game at the time limit (this beta's game types have none), or
-    once everyone has left it (game_engine_end_game, as the score limit
-    does);
+  - ends a game nobody has scored in for a while, or once everyone has
+    left it (game_engine_end_game, as the score limit does);
   - after each game, once the carnage report has shown a while, goes back
     to the pregame lobby (the host's A = pick game, game_engine.c) and sets
     the next entry;
@@ -84,6 +83,7 @@ void game_engine_playlist_begin(void);
 void game_connection_set(short connection);
 void main_set_multiplayer_map_name(char const *map_name);
 void game_engine_override_map_name(char const *map_name);
+long game_engine_total_score(void);
 boolean main_menu_is_active(void);
 boolean bink_playback_active(void);
 
@@ -107,8 +107,8 @@ static struct
 	long entry;
 	long minimum_players;
 	long maximum_players;
-	/* (minutes; 0: none) */
-	long time_limit;
+	/* (minutes without a score; 0: none) */
+	long idle_limit;
 	wchar_t name[16];
 
 	boolean hosting;
@@ -118,7 +118,8 @@ static struct
 	unsigned long retry_time;
 	unsigned long postgame_time;
 	unsigned long frame_time;
-	unsigned long game_time;
+	unsigned long score_time;
+	long score;
 	unsigned long empty_time;
 } dedicated;
 
@@ -174,7 +175,7 @@ static void initialize(
 	char const *minimum = getenv("HALO_DEDICATED_MINIMUM_PLAYERS");
 	char const *maximum = getenv("HALO_DEDICATED_MAXIMUM_PLAYERS");
 	char const *name = getenv("HALO_DEDICATED_NAME");
-	char const *time_limit = getenv("HALO_DEDICATED_TIME_LIMIT");
+	char const *idle_limit = getenv("HALO_DEDICATED_IDLE_LIMIT");
 	long index;
 
 	dedicated.initialized = TRUE;
@@ -188,11 +189,10 @@ static void initialize(
 	dedicated.maximum_players = maximum ? atol(maximum) : 12;
 	if (dedicated.maximum_players < dedicated.minimum_players)
 		dedicated.maximum_players = dedicated.minimum_players;
-	/* (this beta's game types have no time limit: the server's, 15 minutes
-	unless set) */
-	dedicated.time_limit = time_limit ? atol(time_limit) : 15;
-	if (dedicated.time_limit < 0)
-		dedicated.time_limit = 0;
+	/* (a game nobody scores in ends: 5 minutes unless set) */
+	dedicated.idle_limit = idle_limit ? atol(idle_limit) : 5;
+	if (dedicated.idle_limit < 0)
+		dedicated.idle_limit = 0;
 	if (!name || !name[0])
 		name = "Dedicated";
 	for (index = 0; index < 15 && name[index]; index++)
@@ -365,7 +365,8 @@ void dedicated_server_update(
 
 		if (dedicated.last_state != DEDICATED_SERVER_STATE_INGAME)
 		{
-			dedicated.game_time = now;
+			dedicated.score_time = now;
+			dedicated.score = 0;
 			dedicated.empty_time = 0;
 		}
 		/* everyone left: the game ends (as the score limit ends it) and the
@@ -382,12 +383,23 @@ void dedicated_server_update(
 		}
 		else
 			dedicated.empty_time = 0;
-		/* the time limit */
-		if (dedicated.time_limit && now - dedicated.game_time >= (unsigned long)dedicated.time_limit * 60000 &&
-			game_engine_running() && game_engine_can_score())
+		/* nobody has scored for a while (idle players, or no one fighting):
+		the game ends rather than sitting there */
+		if (game_engine_running())
 		{
-			error(_error_silent, "dedicated: %ld minutes up; ending the game", dedicated.time_limit);
-			game_engine_end_game();
+			long score = game_engine_total_score();
+
+			if (score != dedicated.score)
+			{
+				dedicated.score = score;
+				dedicated.score_time = now;
+			}
+			else if (dedicated.idle_limit && game_engine_can_score() &&
+				now - dedicated.score_time >= (unsigned long)dedicated.idle_limit * 60000)
+			{
+				error(_error_silent, "dedicated: no score in %ld minutes; ending the game", dedicated.idle_limit);
+				game_engine_end_game();
+			}
 		}
 	}
 	else if (state == DEDICATED_SERVER_STATE_POSTGAME)
