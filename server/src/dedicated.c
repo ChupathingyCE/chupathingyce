@@ -8,7 +8,9 @@ entry after another, with no player of its own. Built into the game browser's
 builds (configure.py --game-browser); without HALO_DEDICATED it does
 nothing.
 
-Each frame (main.c, beside the user interface) the director:
+It runs without a window: nothing drawn (d3d8_gl.c), no sound, no movies,
+no display needed (SDL's dummy drivers), so it runs on a server with no
+screen. Each frame (main.c, beside the user interface) the director:
   - waits for the main menu to be up, and no movie playing (the intro's
     end loads the main menu anew, which ends any network game);
   - hosts as the game's fast set-up does (player_ui.c,
@@ -59,6 +61,9 @@ enum
 	RETRY_MILLISECONDS = 5000,
 	/* the carnage report shown this long before the next game's lobby */
 	POSTGAME_MILLISECONDS = 20000,
+	/* a frame at most this often: with nothing drawn, no display's refresh
+	paces the main loop (60 a second, twice the game's ticks) */
+	FRAME_MILLISECONDS = 16,
 };
 
 /* (network_server_manager_internal.h's, and the menus') */
@@ -104,6 +109,7 @@ static struct
 	word last_state;
 	unsigned long retry_time;
 	unsigned long postgame_time;
+	unsigned long frame_time;
 } dedicated;
 
 /* ---------- private code */
@@ -273,6 +279,17 @@ void dedicated_server_update(
 
 	if (!dedicated_server_active())
 		return;
+
+	/* (the rest of the frame waits: the server spins otherwise) */
+	{
+		unsigned long now = system_milliseconds();
+		unsigned long elapsed = now - dedicated.frame_time;
+
+		if (dedicated.frame_time && elapsed < FRAME_MILLISECONDS)
+			Sleep(FRAME_MILLISECONDS - elapsed);
+		dedicated.frame_time = system_milliseconds();
+	}
+
 	server = global_network_game_server_get();
 	if (!server)
 	{

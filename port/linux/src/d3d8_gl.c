@@ -31,6 +31,9 @@ Conventions carried over from the Xbox:
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#ifdef HALO_GAME_BROWSER
+#include "browser.h"
+#endif
 
 void d3d8_surface_initialize(D3DSurface *surface, D3DFORMAT format, unsigned long width, unsigned long height);
 void d3d8_surface_resize(D3DSurface *surface, D3DFORMAT format, unsigned long width, unsigned long height);
@@ -1125,7 +1128,12 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 		}
 		viewport_update_constants();
 
-		if (!config_boolean("debug.null_renderer") && platform_video_initialize(width, height))
+		/* (the dedicated server draws nothing: server/src/dedicated.c) */
+		if (!config_boolean("debug.null_renderer") &&
+#ifdef HALO_GAME_BROWSER
+			!browser_dedicated() &&
+#endif
+			platform_video_initialize(width, height))
 			gl_initialize();
 		else
 			platform_log("Direct3D: running without a window (nothing is displayed)");

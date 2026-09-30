@@ -70,9 +70,13 @@ BOOL platform_sdl_initialize(void)
 	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
 #endif
 #ifdef HALO_GAME_BROWSER
-	/* the dedicated server plays no sound (server/src/dedicated.c) */
+	/* the dedicated server plays no sound and needs no display
+	(server/src/dedicated.c) */
 	if (browser_dedicated())
+	{
 		SDL_SetHint(SDL_HINT_AUDIO_DRIVER, "dummy");
+		SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
+	}
 #endif
 	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMEPAD | SDL_INIT_EVENTS))
 	{
@@ -675,6 +679,10 @@ void platform_show_message(const char *title, const char *message)
 	/* (a run nobody watches: the log only) */
 	if (config_boolean("debug.hidden_window") || config_boolean("debug.null_renderer"))
 		return;
+#ifdef HALO_GAME_BROWSER
+	if (browser_dedicated())
+		return;
+#endif
 	pthread_mutex_lock(&platform_message_lock);
 	snprintf(platform_message_title, sizeof(platform_message_title), "%s", title);
 	snprintf(platform_message_text, sizeof(platform_message_text), "%s", message);
@@ -723,6 +731,20 @@ void platform_pump_events(void)
 	static BOOL looked_at_clipboard;
 	BOOL look_at_clipboard = !looked_at_clipboard;
 
+#ifdef HALO_GAME_BROWSER
+	/* the dedicated server has no window, but stops as asked (SIGTERM or
+	SIGINT: SDL's quit event), as a service is stopped */
+	if (!platform_window && browser_dedicated())
+	{
+		SDL_PumpEvents();
+		if (SDL_PeepEvents(&event, 1, SDL_GETEVENT, SDL_EVENT_QUIT, SDL_EVENT_QUIT) > 0)
+		{
+			platform_log("dedicated server: stopping");
+			exit(EXIT_SUCCESS);
+		}
+		return;
+	}
+#endif
 	if (!platform_window || SDL_GetCurrentThreadID() != platform_event_thread)
 		return;
 	if (exit_ticks == (Uint64)-1)
