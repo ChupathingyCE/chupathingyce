@@ -248,14 +248,14 @@ int posix_find_entry_case_insensitive(const char *directory, const char *name,
 
 /* Describe a code address as "symbol+offset" without allocating (the game's
 stack dump runs inside its own allocator's assertions). */
-void posix_describe_address(void *address, char *buffer, unsigned int size)
+void posix_describe_address(void *address, char *buffer, posix_ulong size)
 {
 	Dl_info information;
 
 	if (dladdr(address, &information) && information.dli_sname)
 	{
 		snprintf(buffer, size, "%p %s+%lu", address, information.dli_sname,
-			(unsigned int)((char *)address - (char *)information.dli_saddr));
+			(unsigned long)((char *)address - (char *)information.dli_saddr));
 	}
 	else
 	{
