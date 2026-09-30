@@ -16,9 +16,10 @@ Each frame (main.c, beside the user interface) the director:
     this machine with no player, and the pregame lobby's screen;
   - sets the entry's map and game type (the menu's automation:
     game_engine_get_variant_by_name);
-  - lets the pregame countdown run once enough players have joined (the
-    server counts down by itself when it may: server_ok_to_countdown, which
-    lets the host's machine go without a player: dedicated_server_active);
+  - starts the pregame countdown once enough players have joined (a
+    lobby's players start it, and the server has none; it may run when
+    server_ok_to_countdown, which lets the host's machine go without a
+    player: dedicated_server_active);
   - after each game, back in the pregame, sets the next entry;
   - leaves a team entry for the next one without teams while a single
     player waits (a team game needs players on both teams; joining players
@@ -62,6 +63,7 @@ struct network_game *network_game_server_get_game(struct network_game_server *se
 void network_game_server_change_map_name(struct network_game_server *server, char const *map_name);
 void network_game_server_change_game_variant(struct network_game_server *server, struct game_variant *variant);
 void network_game_server_pause_countdown(struct network_game_server *server, boolean pause_countdown);
+void network_game_server_dedicated_start_countdown(struct network_game_server *server);
 void network_game_accept_remote_connections(boolean accept);
 void game_engine_playlist_initialize(void);
 void game_engine_playlist_begin(void);
@@ -306,9 +308,11 @@ void dedicated_server_update(
 				if (game->maximum_players != dedicated.maximum_players)
 					game->maximum_players = (byte)dedicated.maximum_players;
 			}
-			/* the countdown runs by itself once it may (enough players, teams) */
+			/* the countdown, started once it may (enough players, teams): a
+			lobby's players start it, and the server has none of its own */
 			network_game_server_pause_countdown(server,
 				!game || game->player_count < dedicated.minimum_players);
+			network_game_server_dedicated_start_countdown(server);
 		}
 	}
 	dedicated.last_state = state;

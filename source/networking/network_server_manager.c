@@ -3870,3 +3870,24 @@ boolean network_game_server_reset_to_pregame(
 
 	return success;
 }
+
+#ifdef HALO_GAME_BROWSER
+/* the dedicated server's countdown (server/src/dedicated.c): the pregame
+screen's players start it (a game start request, network_server_message_handler.c),
+and the dedicated server has none of its own; started as a joining player's
+would, once it may run */
+void network_game_server_dedicated_start_countdown(
+	struct network_game_server *server)
+{
+	if (server &&
+		server->state == _network_game_server_state_pregame &&
+		!server->countdown_state.paused &&
+		!server->countdown_state.active &&
+		server_ok_to_countdown(server))
+	{
+		network_game_server_update_countdown(server, _network_game_server_countdown_event_player_joined);
+	}
+
+	return;
+}
+#endif
