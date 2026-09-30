@@ -402,10 +402,21 @@ static void *browser_thread(void *unused)
 	return NULL;
 }
 
+/* a copy of the game that quits while its game is listed takes it off the
+list (without this the server drops it only once it stops hearing of it) */
+static void withdraw_at_exit(void)
+{
+	/* (the browser thread may be mid-request: the listing is withdrawn by
+	whichever of the two gets there) */
+	if (browser.listed_invite[0])
+		withdraw();
+}
+
 static void start_thread(void)
 {
 	pthread_t thread;
 
+	atexit(withdraw_at_exit);
 	if (pthread_create(&thread, NULL, browser_thread, NULL) == 0)
 		pthread_detach(thread);
 	else
