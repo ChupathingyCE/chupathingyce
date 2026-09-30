@@ -10,9 +10,9 @@ nothing.
 
 Each frame (main.c, beside the user interface) the director:
   - waits for the main menu to be up;
-  - hosts as the Multiplayer menu's Create Game does
-    (ui_widget_event_handler_functions.c, network_game_start_new_server):
-    the game server, and its client on this machine with no player;
+  - hosts as the game's fast set-up does (player_ui.c,
+    player_ui_fast_setup_network_server): the game server, its client on
+    this machine with no player, and the pregame lobby's screen;
   - sets the entry's map and game type (the menu's automation:
     game_engine_get_variant_by_name);
   - lets the pregame countdown run once enough players have joined (the
@@ -191,37 +191,19 @@ static boolean set_entry(
 	return TRUE;
 }
 
-/* hosting as the menu's Create Game does, without a player */
+/* hosting as the game's fast set-up does (player_ui.c): the server, its
+client on this machine (without a player) and the pregame lobby's screen,
+as a host that chose Create Game ends up */
 static boolean host(
 	void)
 {
-	boolean result = TRUE;
-
-	dispose_global_network_game_client();
-	player_ui_clear_multiplayer_variant();
-	network_game_accept_remote_connections(TRUE);
-	if (!global_network_game_server_get())
+	player_ui_fast_setup_network_server();
+	if (!global_network_game_server_get() || !global_network_game_client_get())
 	{
-		game_engine_playlist_initialize();
-		result = create_global_network_game_server();
-		if (result)
-		{
-			network_game_server_pause_countdown(global_network_game_server_get(), TRUE);
-			game_engine_playlist_begin();
-			game_connection_set(2);
-		}
-	}
-	if (result && !global_network_game_client_get())
-		result = create_global_network_game_client();
-	if (!result)
-	{
-		dispose_global_network_game_server();
-		dispose_global_network_game_client();
-		network_game_accept_remote_connections(FALSE);
-		player_ui_clear_multiplayer_variant();
 		error(_error_silent, "dedicated: could not host; trying again");
+		return FALSE;
 	}
-	return result;
+	return TRUE;
 }
 
 /* ---------- public code */
