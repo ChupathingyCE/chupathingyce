@@ -1044,7 +1044,9 @@ boolean network_game_server_idle(
 				game->maximum_players,
 				network_game_server_get_state(server, NULL) == _network_game_server_state_ingame
 					? network_game_server_accepts_late_joins(server)
-					: network_game_server_game_is_open(server));
+					: network_game_server_game_is_open(server),
+				(short)game->variant.universal_variant.score_to_win,
+				game->variant.universal_variant.teams == TRUE);
 		}
 	}
 #endif

@@ -880,6 +880,8 @@ static void network_game_client_add_browser_games(
 			entry->maximum_player_count = listed->maximum_players;
 			entry->platform = 0;
 			entry->open = listed->open;
+			entry->unknown100 = listed->score_limit;
+			entry->has_teams = listed->teams;
 			entry->valid = TRUE;
 			network_game_client_advertised_versions[slot].version = listed->version;
 			network_game_client_advertised_versions[slot].flags = HALO_PORT_ADVERTISED_DISTRIBUTED_FLAG;

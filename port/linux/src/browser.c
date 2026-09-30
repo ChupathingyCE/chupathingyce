@@ -59,6 +59,8 @@ struct hosted_game
 	short players;
 	short maximum_players;
 	int open;
+	short score_limit;
+	int teams;
 };
 
 static pthread_mutex_t browser_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -239,6 +241,9 @@ static void announce(const char *invite, const struct hosted_game *game)
 	snprintf(text, sizeof(text), "%d", game->maximum_players);
 	form_add(form, sizeof(form), "maximum_players", text);
 	form_add(form, sizeof(form), "open", game->open ? "1" : "0");
+	snprintf(text, sizeof(text), "%d", game->score_limit);
+	form_add(form, sizeof(form), "score_limit", text);
+	form_add(form, sizeof(form), "teams", game->teams ? "1" : "0");
 	snprintf(text, sizeof(text), "%d", HALO_PORT_NETWORK_VERSION);
 	form_add(form, sizeof(form), "version", text);
 
@@ -294,14 +299,14 @@ static void update_hosting(void)
 /* ---------- browsing (the browser thread) */
 
 /* one line of /v1/games.txt: invite name map engine players
-maximum_players open version age */
+maximum_players open version age score_limit teams */
 static int parse_game(char *line, struct browser_game *game)
 {
-	char *fields[9];
+	char *fields[11];
 	int count = 0;
 	char *cursor = line;
 
-	while (count < 9)
+	while (count < 11)
 	{
 		fields[count++] = cursor;
 		cursor = strchr(cursor, '\t');
@@ -320,6 +325,12 @@ static int parse_game(char *line, struct browser_game *game)
 	game->maximum_players = (short)atoi(fields[5]);
 	game->open = (unsigned char)(atoi(fields[6]) != 0);
 	game->version = (unsigned short)atoi(fields[7]);
+	/* (a server from before these: none) */
+	if (count >= 11)
+	{
+		game->score_limit = (short)atoi(fields[9]);
+		game->teams = (unsigned char)(atoi(fields[10]) != 0);
+	}
 	return 1;
 }
 
@@ -404,7 +415,7 @@ static void start_thread(void)
 /* ---------- public code */
 
 void browser_host_update(const unsigned short *name, const char *map, short engine, short players,
-	short maximum_players, int open)
+	short maximum_players, int open, short score_limit, int teams)
 {
 	struct hosted_game game;
 
@@ -416,6 +427,8 @@ void browser_host_update(const unsigned short *name, const char *map, short engi
 	game.players = players;
 	game.maximum_players = maximum_players;
 	game.open = open != 0;
+	game.score_limit = score_limit;
+	game.teams = teams != 0;
 
 	pthread_mutex_lock(&browser_lock);
 	if (memcmp(&game, &browser.hosted, sizeof(game)))

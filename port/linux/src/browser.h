@@ -27,14 +27,16 @@ struct browser_game
 	short players;
 	short maximum_players;
 	unsigned char open;
+	unsigned char teams;
 	unsigned short version;
+	short score_limit;
 };
 
 /* the hosted game, as the game's server has it; called each frame while
 this machine hosts (network_server_manager.c). The listing follows (and is
 withdrawn a few seconds after the calls stop). */
 void browser_host_update(const unsigned short *name, const char *map, short engine, short players,
-	short maximum_players, int open);
+	short maximum_players, int open, short score_limit, int teams);
 
 /* the listed games, asking the server for the list again if the last one
 is more than a few seconds old: those of this machine's network version,

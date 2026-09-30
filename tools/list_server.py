@@ -15,13 +15,13 @@ address. Standard library only.
 Interface (version 1):
 
     POST /v1/announce   form fields: invite, name, map, engine, players,
-                        maximum_players, open, version
+                        maximum_players, open, version, score_limit, teams
                         -> 200 "ok <seconds until it expires>"
     POST /v1/withdraw   form field: invite -> 200 "ok"
     GET  /v1/games      -> 200 JSON {"games": [...]}
     GET  /v1/games.txt  -> 200 one game a line, tab separated:
                         invite name map engine players maximum_players
-                        open version age
+                        open version age score_limit teams
     GET  /v1/health     -> 200 "ok"
 
 An announcement expires after EXPIRY seconds without another. Each address
@@ -100,6 +100,8 @@ class GameList:
             "maximum_players": fields["maximum_players"],
             "open": fields["open"],
             "version": fields["version"],
+            "score_limit": fields["score_limit"],
+            "teams": fields["teams"],
             "address": address,
             "time": time.monotonic(),
         }
@@ -164,7 +166,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, json.dumps({"games": GAMES.snapshot()}), "application/json")
         if self.path == "/v1/games.txt":
             lines = ["\t".join(str(g[k]) for k in ("invite", "name", "map", "engine", "players",
-                                                      "maximum_players", "open", "version", "age"))
+                                                      "maximum_players", "open", "version", "age",
+                                                      "score_limit", "teams"))
                      for g in GAMES.snapshot()]
             return self.reply(200, "".join(line + "\n" for line in lines))
         if self.path == "/v1/health":
@@ -201,6 +204,8 @@ class Handler(BaseHTTPRequestHandler):
                 "maximum_players": clean_integer(form.get("maximum_players", "0"), 0, 255),
                 "open": clean_integer(form.get("open", "0"), 0, 1),
                 "version": clean_integer(form.get("version", "0"), 0, 65535),
+                "score_limit": clean_integer(form.get("score_limit", "0"), 0, 32767),
+                "teams": clean_integer(form.get("teams", "0"), 0, 1),
             }
         except ValueError:
             return self.reply(400, "bad field\n")
