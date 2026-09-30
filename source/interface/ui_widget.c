@@ -4871,6 +4871,269 @@ static long search_and_replace(
 	return replacements;
 }
 
+#ifdef HALO_NEW_NETWORKING
+/* ---------- the Multiplayer menu's INTERNET PLAY (the new networking)
+
+The Multiplayer menu's entries are the user interface's tags; this one is
+drawn and driven here, under EDIT GAMETYPES, in the menu's own font, colors
+and spacing, recorded as the real entries are drawn. Down from EDIT
+GAMETYPES selects it (the list keeps no focused entry meanwhile, so none of
+the real ones looks selected), up goes back, and A opens the server browser
+(port/linux/game/browser_screen.c). While it is selected, the menu's
+description panel says what it is. */
+
+void browser_screen_open(void);
+
+enum
+{
+	/* the Multiplayer menu was drawn this recently: it is up */
+	INTERNET_ENTRY_SEEN_WINDOW = 250,
+};
+
+static struct
+{
+	long list_tag;
+	long first_item_tag;
+	long second_item_tag;
+	long last_item_tag;
+	long description_tag;
+
+	boolean focused;
+	unsigned long seen_time;
+	struct widget_instance *list;
+
+	/* as the real entries were last drawn */
+	rectangle2d first_bounds;
+	rectangle2d second_bounds;
+	rectangle2d last_bounds;
+	long font_index;
+	short justification;
+	real_argb_color color;
+	real alpha;
+	boolean description_seen;
+	rectangle2d description_bounds;
+	long description_font_index;
+	short description_justification;
+	real_argb_color description_color;
+} internet_entry = { NONE, NONE, NONE, NONE, NONE };
+
+static void internet_entry_resolve_tags(
+	void)
+{
+	/* (again at each main menu: its tags are the ui map's) */
+	internet_entry.list_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG,
+		"ui\\shell\\main_menu\\multiplayer_type_select\\multiplayer_type_select_list");
+	internet_entry.first_item_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG,
+		"ui\\shell\\main_menu\\multiplayer_type_select\\multiplayer_type_coop_item");
+	internet_entry.second_item_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG,
+		"ui\\shell\\main_menu\\multiplayer_type_select\\multiplayer_type_split_item");
+	internet_entry.last_item_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG,
+		"ui\\shell\\main_menu\\multiplayer_type_select\\multiplayer_type_gametypes_item");
+	internet_entry.description_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG,
+		"ui\\shell\\main_menu\\multiplayer_type_select\\multiplayer_type_list_ext_desc");
+}
+
+static boolean internet_entry_is_up(
+	void)
+{
+	/* (the list as the active widgets have it now: the one recorded while
+	drawing may be gone) */
+	internet_entry.list = NULL;
+	if (internet_entry.last_item_tag == NONE || internet_entry.list_tag == NONE ||
+		widget_globals.current_system_milliseconds - internet_entry.seen_time > INTERNET_ENTRY_SEEN_WINDOW ||
+		!widget_globals.active_widgets[0])
+	{
+		return FALSE;
+	}
+	internet_entry.list = widget_instance_find_by_tag_index_recursive(widget_globals.active_widgets[0],
+		internet_entry.list_tag);
+	return internet_entry.list != NULL;
+}
+
+/* a text box as it is drawn: the menu's entries and description recorded */
+static void internet_entry_note_text_box(
+	struct widget_instance *widget,
+	long font_index,
+	short justification,
+	rectangle2d const *bounds,
+	real_argb_color const *color,
+	real alpha)
+{
+	long tag_index = widget->definition_tag_index;
+	struct widget_instance *ancestor;
+
+	if (internet_entry.last_item_tag == NONE)
+		return;
+	if (tag_index == internet_entry.first_item_tag)
+		internet_entry.first_bounds = *bounds;
+	else if (tag_index == internet_entry.second_item_tag)
+		internet_entry.second_bounds = *bounds;
+	else if (tag_index == internet_entry.last_item_tag)
+	{
+		internet_entry.last_bounds = *bounds;
+		internet_entry.font_index = font_index;
+		internet_entry.justification = justification;
+		internet_entry.color = *color;
+		internet_entry.alpha = alpha;
+		internet_entry.seen_time = widget_globals.current_system_milliseconds;
+	}
+	for (ancestor = widget->parent; ancestor; ancestor = ancestor->parent)
+	{
+		if (ancestor->definition_tag_index == internet_entry.description_tag &&
+			internet_entry.description_tag != NONE)
+		{
+			/* (the panel's text: the lowest of its text boxes, the description) */
+			if (!internet_entry.description_seen || bounds->y0 >= internet_entry.description_bounds.y0)
+			{
+				internet_entry.description_bounds = *bounds;
+				internet_entry.description_font_index = font_index;
+				internet_entry.description_justification = justification;
+				internet_entry.description_color = *color;
+				internet_entry.description_seen = TRUE;
+			}
+			break;
+		}
+	}
+}
+
+static struct widget_instance *internet_entry_last_item(
+	void)
+{
+	struct widget_instance *child;
+
+	for (child = internet_entry.list->child; child; child = child->next)
+	{
+		if (child->definition_tag_index == internet_entry.last_item_tag)
+			return child;
+	}
+	return NULL;
+}
+
+/* an event for the Multiplayer menu: TRUE when it was the entry's */
+static boolean internet_entry_event(
+	struct event_record const *event)
+{
+	boolean down = (event->type == _event_type_button && event->data.button.index == _widget_event_dpad_down) ||
+		(event->type == _event_type_left_stick && event->data.stick.y == SHORT_MIN);
+	boolean up = (event->type == _event_type_button && event->data.button.index == _widget_event_dpad_up) ||
+		(event->type == _event_type_left_stick && event->data.stick.y == SHORT_MAX);
+
+	if (!internet_entry_is_up())
+	{
+		internet_entry.focused = FALSE;
+		return FALSE;
+	}
+	if (!internet_entry.focused)
+	{
+		if (down && internet_entry.list->focused_child &&
+			internet_entry.list->focused_child->definition_tag_index == internet_entry.last_item_tag)
+		{
+			internet_entry.focused = TRUE;
+			internet_entry.list->focused_child = NULL;
+			play_sound_tag(tag_loaded(SOUND_DEFINITION_TAG, "sound\\sfx\\ui\\cursor"));
+			return TRUE;
+		}
+		return FALSE;
+	}
+	if (event->type == _event_type_null)
+		return FALSE;
+	if (up || (event->type == _event_type_button &&
+		(event->data.button.index == _widget_event_b_button || event->data.button.index == _widget_event_back_button)))
+	{
+		/* (EDIT GAMETYPES again; B then goes back as the menu does) */
+		internet_entry.list->focused_child = internet_entry_last_item();
+		internet_entry.focused = FALSE;
+		if (up)
+		{
+			play_sound_tag(tag_loaded(SOUND_DEFINITION_TAG, "sound\\sfx\\ui\\cursor"));
+			return TRUE;
+		}
+		return FALSE;
+	}
+	if (event->type == _event_type_button && event->data.button.index == _gamepad_analog_button_a)
+	{
+		play_sound_tag(tag_loaded(SOUND_DEFINITION_TAG, "sound\\sfx\\ui\\forward"));
+		browser_screen_open();
+	}
+	return TRUE;
+}
+
+static void internet_entry_draw_text(
+	rectangle2d const *bounds,
+	long font_index,
+	short justification,
+	real_argb_color const *color,
+	wchar_t const *text)
+{
+	rectangle2d draw_bounds = *bounds;
+	rectangle2d clip = *bounds;
+
+	clip.x1 += 200;
+	clip.y1 += 40;
+	draw_string_set_draw_mode(font_index, NONE, justification, 0, color);
+	rasterizer_draw_unicode_string(&draw_bounds, &clip, NULL, 0, text);
+}
+
+static void internet_entry_render(
+	void)
+{
+	rectangle2d bounds;
+	real_argb_color color;
+	short spacing;
+
+	if (!internet_entry_is_up())
+		return;
+	spacing = (short)(internet_entry.second_bounds.y0 - internet_entry.first_bounds.y0);
+	if (spacing <= 0)
+		return;
+	bounds = internet_entry.last_bounds;
+	bounds.y0 += spacing;
+	bounds.y1 += spacing;
+
+	color = internet_entry.focused ? get_ui_argb_white() : internet_entry.color;
+	color.alpha = internet_entry.alpha * (internet_entry.focused ? 1.0f : internet_entry.color.alpha);
+	if (internet_entry.focused)
+	{
+		/* the selection's frame: from the entry to the description panel */
+		rectangle2d line;
+		pixel32 frame = ((pixel32)(long)(internet_entry.alpha * 255.0f) << 24) | 0x004C8FE8;
+		short top = (short)(bounds.y0 - 6);
+		short bottom = (short)(bounds.y0 + spacing - 6);
+		short left = (short)(bounds.x0 - 16);
+		short right = 275;
+
+		line.x0 = left; line.x1 = right; line.y0 = top; line.y1 = (short)(top + 2);
+		draw_quad(&line, frame);
+		line.y0 = (short)(bottom - 2); line.y1 = bottom;
+		draw_quad(&line, frame);
+		line.x0 = left; line.x1 = (short)(left + 2); line.y0 = top; line.y1 = bottom;
+		draw_quad(&line, frame);
+	}
+	internet_entry_draw_text(&bounds, internet_entry.font_index, internet_entry.justification, &color,
+		L"INTERNET PLAY");
+
+	if (internet_entry.focused && internet_entry.description_seen)
+	{
+		/* the description panel, over what the list left there */
+		rectangle2d panel;
+		real_argb_color description_color = internet_entry.description_color;
+
+		panel.x0 = 279;
+		panel.x1 = 586;
+		panel.y0 = 83;
+		panel.y1 = 396;
+		draw_quad(&panel, ((pixel32)(long)(internet_entry.alpha * 255.0f) << 24) | 0x00050B18);
+		description_color.alpha *= internet_entry.alpha;
+		bounds = internet_entry.description_bounds;
+		bounds.y0 = (short)(panel.y0 + 60);
+		internet_entry_draw_text(&bounds, internet_entry.font_index, 2, &color, L"INTERNET PLAY");
+		internet_entry_draw_text(&internet_entry.description_bounds, internet_entry.description_font_index,
+			internet_entry.description_justification, &description_color,
+			L"Find system link games hosted by players anywhere, and join them over the internet.");
+	}
+}
+#endif
+
 static void widget_instance_render_text_box(
 	struct widget_instance *widget,
 	struct ui_widget_definition *definition,
@@ -5000,6 +5263,9 @@ static void widget_instance_render_text_box(
 			widget_globals.current_system_milliseconds *
 				SECONDS_PER_MILLISECOND * 3.0f) + 1.5f) * 0.4f) * color.alpha;
 	}
+#ifdef HALO_NEW_NETWORKING
+	internet_entry_note_text_box(widget, font_index, justification, &bounds, &definition->text_color, alpha_modifier);
+#endif
 	draw_string_set_draw_mode(font_index, NONE, justification, 0, &color);
 	if (string_has_icons_to_draw(*text))
 		draw_string_and_hack_in_icons(&bounds, &clip, NULL, 0, *text, FALSE);
@@ -6084,7 +6350,14 @@ void render_ui_widgets(
 	if (browser_screen_active())
 		browser_screen_render();
 	else
+	{
 		browser_screen_render_hint();
+		internet_entry_render();
+	}
+	if (we_are_at_the_main_menu)
+		internet_entry_resolve_tags();
+	else
+		internet_entry.last_item_tag = NONE;
 #endif
 
 	return;
@@ -7118,8 +7391,9 @@ void process_ui_widgets(
 				do
 				{
 #ifdef HALO_NEW_NETWORKING
-					/* (X on the System Link screen: the server browser) */
-					if (browser_screen_open_from_event(&event))
+					/* (the Multiplayer menu's INTERNET PLAY; X on the System
+					Link screen: the server browser) */
+					if (internet_entry_event(&event) || browser_screen_open_from_event(&event))
 						break;
 #endif
 					if (!pause_pressed)

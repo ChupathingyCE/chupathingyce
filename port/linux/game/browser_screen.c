@@ -187,6 +187,15 @@ boolean browser_screen_active(
 	return browser_screen.active;
 }
 
+void browser_screen_open(
+	void)
+{
+	browser_screen.active = TRUE;
+	browser_screen.selected = 0;
+	browser_screen.status[0] = 0;
+	browser_screen.count = (short)browser_get_games(browser_screen.games, BROWSER_MAXIMUM_GAMES);
+}
+
 boolean browser_screen_open_from_event(
 	struct event_record const *event)
 {
@@ -196,10 +205,7 @@ boolean browser_screen_open_from_event(
 	{
 		return FALSE;
 	}
-	browser_screen.active = TRUE;
-	browser_screen.selected = 0;
-	browser_screen.status[0] = 0;
-	browser_screen.count = (short)browser_get_games(browser_screen.games, BROWSER_MAXIMUM_GAMES);
+	browser_screen_open();
 	return TRUE;
 }
 
