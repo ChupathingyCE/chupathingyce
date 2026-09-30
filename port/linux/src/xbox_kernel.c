@@ -44,7 +44,15 @@ void platform_log(const char *format, ...)
 	fputc('\n', stderr);
 #ifdef HALO_64BIT
 
-	handle = fopen("assets/debug.txt", "a");
+	{
+		/* the game's log, in the data folder once it is known (xbox_files.c):
+		an application's working directory is / */
+		extern char platform_log_path[];
+
+		handle = platform_log_path[0] ? fopen(platform_log_path, "a") : NULL;
+	}
+	if (!handle)
+		handle = fopen("assets/debug.txt", "a");
 	if (!handle)
 		handle = fopen("debug.txt", "a");
 	if (handle)
