@@ -224,6 +224,7 @@ class GameList:
         self.lock = threading.Lock()
         self.games = {}  # invite -> record
         self.requests = {}  # address -> [times]
+        self.games_per_address = MAXIMUM_GAMES_PER_ADDRESS
 
     def allow(self, address: str) -> bool:
         now = time.monotonic()
@@ -265,7 +266,7 @@ class GameList:
             if existing and existing["address"] != address:
                 return "the invite is listed from another address"
             if not existing:
-                if sum(1 for g in self.games.values() if g["address"] == address) >= MAXIMUM_GAMES_PER_ADDRESS:
+                if sum(1 for g in self.games.values() if g["address"] == address) >= self.games_per_address:
                     return "too many games from this address"
                 if len(self.games) >= MAXIMUM_GAMES:
                     return "the list is full"
@@ -600,7 +601,10 @@ def main():
     parser.add_argument("--address", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8390)
     parser.add_argument("--data", default=".", help="the folder of reports.db")
+    parser.add_argument("--games-per-address", type=int, default=MAXIMUM_GAMES_PER_ADDRESS,
+                        help="(more for testing on one machine)")
     args = parser.parse_args()
+    GAMES.games_per_address = args.games_per_address
     global REPORTS
     REPORTS = Reports(f"{args.data.rstrip('/')}/reports.db")
     server = ThreadingHTTPServer((args.address, args.port), Handler)
