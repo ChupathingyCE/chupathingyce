@@ -57,7 +57,7 @@ void platform_log(const char *format, ...)
 		handle = fopen("debug.txt", "a");
 	if (handle)
 	{
-		fprintf(handle, "halo-gpu: %s\n", buffer);
+		fprintf(handle, "halo-linux: %s\n", buffer);
 		fclose(handle);
 	}
 #endif
