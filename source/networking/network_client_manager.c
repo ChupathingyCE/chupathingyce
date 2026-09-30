@@ -810,11 +810,21 @@ static boolean network_game_client_browser_game_joined(
 	return browser_game_peer(invite, &address);
 }
 
+/* the page of listed games the list shows: the local network's games take
+their slots on every page, the listed games the rest */
+static long browser_page;
+static long browser_page_count = 1;
+
 static void network_game_client_add_browser_games(
 	struct network_advertised_game *available_games)
 {
 	static struct browser_game games[BROWSER_MAXIMUM_GAMES];
+	static short eligible[BROWSER_MAXIMUM_GAMES];
 	long count = browser_get_games(games, BROWSER_MAXIMUM_GAMES);
+	long eligible_count = 0;
+	long local_count = 0;
+	long capacity;
+	long first;
 	long game_index;
 	long listed_index;
 
@@ -822,16 +832,46 @@ static void network_game_client_add_browser_games(
 	for (game_index = 0; game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES; game_index++)
 	{
 		if (!network_game_client_is_browser_entry(available_games, game_index))
+		{
 			browser_entry_invites[game_index][0] = 0;
+			if (network_game_client_advertised_game_is_valid(&available_games[game_index]))
+				local_count++;
+		}
 	}
-
 	for (listed_index = 0; listed_index < count; listed_index++)
 	{
-		struct browser_game const *listed = &games[listed_index];
+		if (!network_game_client_browser_game_joined(games[listed_index].invite))
+			eligible[eligible_count++] = (short)listed_index;
+	}
+	capacity = MAX(1, MAXIMUM_NETWORK_ADVERTISED_GAMES - local_count);
+	browser_page_count = MAX(1, (eligible_count + capacity - 1) / capacity);
+	browser_page = PIN(browser_page, 0, browser_page_count - 1);
+	first = browser_page * capacity;
+
+	/* (the listed games of other pages leave the list) */
+	for (game_index = 0; game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES; game_index++)
+	{
+		boolean on_page = FALSE;
+
+		if (!network_game_client_is_browser_entry(available_games, game_index))
+			continue;
+		for (listed_index = first; listed_index < MIN(eligible_count, first + capacity); listed_index++)
+		{
+			if (!csstrcmp(browser_entry_invites[game_index], games[eligible[listed_index]].invite))
+				on_page = TRUE;
+		}
+		if (!on_page)
+		{
+			available_games[game_index].valid = FALSE;
+			browser_entry_invites[game_index][0] = 0;
+		}
+	}
+
+	for (listed_index = first; listed_index < MIN(eligible_count, first + capacity); listed_index++)
+	{
+		struct browser_game const *listed = &games[eligible[listed_index]];
 		long slot = NONE;
 
-		if (network_game_client_browser_game_joined(listed->invite))
-			continue;
 		for (game_index = 0; game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES && slot == NONE; game_index++)
 		{
 			if (network_game_client_is_browser_entry(available_games, game_index) &&
@@ -871,6 +911,27 @@ static void network_game_client_add_browser_games(
 			browser_entry_invites[slot][BROWSER_INVITE_LENGTH] = 0;
 		}
 	}
+}
+
+/* the list's page of listed games turned by delta (left or right on the
+System Link screen: port/linux/game/browser_screen.c); FALSE past either end */
+boolean network_game_client_browser_turn_page(
+	long delta)
+{
+	long page = browser_page + delta;
+
+	if (page < 0 || page >= browser_page_count)
+		return FALSE;
+	browser_page = page;
+	return TRUE;
+}
+
+void network_game_client_browser_page(
+	long *page,
+	long *page_count)
+{
+	*page = browser_page;
+	*page_count = browser_page_count;
 }
 
 boolean network_game_client_browser_join(

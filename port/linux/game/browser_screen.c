@@ -48,6 +48,13 @@ enum
 	STATUS_DURATION = 6000,
 };
 
+/* ui_widget.c owns the same private enum (virtual_keyboard.c keeps a copy) */
+enum
+{
+	_ui_audio_feedback_none,
+	_ui_audio_feedback_cursor,
+};
+
 /* the game's engines, short (as players say them) to fit the column */
 static char const *const engine_names[] =
 {
@@ -191,9 +198,44 @@ boolean browser_screen_active(
 	return browser_screen.active;
 }
 
+boolean network_game_client_browser_turn_page(long delta);
+void network_game_client_browser_page(long *page, long *page_count);
+
+/* left or right on the System Link screen: its list's page of listed games
+(network_client_manager.c) */
+static boolean browser_screen_turn_page(
+	struct event_record const *event)
+{
+	long delta = 0;
+
+	if (system_milliseconds() - browser_screen.list_shown_time > LIST_SHOWN_WINDOW)
+		return FALSE;
+	if (event->type == BROWSER_EVENT_BUTTON)
+	{
+		if (event->data.button.index == _gamepad_binary_button_dpad_left)
+			delta = -1;
+		else if (event->data.button.index == _gamepad_binary_button_dpad_right)
+			delta = 1;
+	}
+	else if (event->type == BROWSER_EVENT_LEFT_STICK)
+	{
+		if (event->data.stick.x == SHORT_MIN)
+			delta = -1;
+		else if (event->data.stick.x == SHORT_MAX)
+			delta = 1;
+	}
+	if (!delta)
+		return FALSE;
+	if (network_game_client_browser_turn_page(delta))
+		ui_play_audio_feedback_sound(_ui_audio_feedback_cursor);
+	return TRUE;
+}
+
 boolean browser_screen_open_from_event(
 	struct event_record const *event)
 {
+	if (browser_screen_turn_page(event))
+		return TRUE;
 	if (event->type != BROWSER_EVENT_BUTTON ||
 		event->data.button.index != _gamepad_analog_button_x ||
 		system_milliseconds() - browser_screen.list_shown_time > LIST_SHOWN_WINDOW)
@@ -324,6 +366,29 @@ void browser_screen_render_hint(
 	bounds.y1 = (short)(bounds.y0 + icon_height);
 	draw_bitmap_in_rect(bitmap, &bounds, NULL, NULL, (pixel32)((long)(color.alpha * 255.0f) << 24) | 0x00FFFFFF,
 		NULL, FALSE);
+
+	/* the list's pages of listed games, under the list, when there are more
+	than one */
+	{
+		long page, page_count;
+
+		network_game_client_browser_page(&page, &page_count);
+		if (page_count > 1)
+		{
+			wchar_t indicator[48];
+			char ascii[48];
+
+			snprintf(ascii, sizeof(ascii), "%s PAGE %ld OF %ld %s", page > 0 ? "<" : " ", page + 1, page_count,
+				page + 1 < page_count ? ">" : " ");
+			widen(indicator, NUMBEROF(indicator), ascii);
+			bounds.x0 = 40;
+			bounds.x1 = 290;
+			bounds.y0 = (short)(text.y0 - 52);
+			bounds.y1 = (short)(text.y0 - 30);
+			draw_string_set_draw_mode(font_index, NONE, 2, 0, &color);
+			rasterizer_draw_unicode_string(&bounds, &bounds, NULL, 0, indicator);
+		}
+	}
 }
 
 void browser_screen_render(
