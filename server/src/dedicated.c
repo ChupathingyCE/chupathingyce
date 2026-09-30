@@ -19,7 +19,10 @@ Each frame (main.c, beside the user interface) the director:
   - lets the pregame countdown run once enough players have joined (the
     server counts down by itself when it may: server_ok_to_countdown, which
     lets the host's machine go without a player: dedicated_server_active);
-  - after each game, back in the pregame, sets the next entry.
+  - after each game, back in the pregame, sets the next entry;
+  - leaves a team entry for the next one without teams while a single
+    player waits (a team game needs players on both teams; joining players
+    are put on the smaller team, network_server_manager.c).
 The game list (port/linux/src/browser.c) lists the game as it does any
 hosted game, and a finished game's carnage report goes out as usual.
 
@@ -90,6 +93,7 @@ static struct
 
 	boolean hosting;
 	boolean entry_set;
+	boolean entry_teams;
 	word last_state;
 	unsigned long retry_time;
 } dedicated;
@@ -167,6 +171,40 @@ static void initialize(
 	dedicated.active = dedicated.entry_count > 0;
 }
 
+/* whether an entry's game type is played in teams */
+static boolean entry_has_teams(
+	long entry)
+{
+	struct game_variant variant;
+
+	game_engine_get_variant_by_name(&variant, dedicated.variants[entry]);
+	return variant.universal_variant.teams ? TRUE : FALSE;
+}
+
+/* a team game cannot start with one player (it needs a player on each of two
+teams: server_needs_more_teams): the next entry played alone instead */
+static void skip_team_entry_for_one_player(
+	struct network_game *game)
+{
+	long offset;
+
+	if (!dedicated.entry_teams || !game || game->player_count != 1)
+		return;
+	for (offset = 1; offset < dedicated.entry_count; offset++)
+	{
+		long entry = (dedicated.entry + offset) % dedicated.entry_count;
+
+		if (!entry_has_teams(entry))
+		{
+			error(_error_silent, "dedicated: one player: %s instead of %s", dedicated.variants[entry],
+				dedicated.variants[dedicated.entry]);
+			dedicated.entry = entry;
+			dedicated.entry_set = FALSE;
+			return;
+		}
+	}
+}
+
 /* the playlist's entry, set on the server (in its pregame) */
 static boolean set_entry(
 	struct network_game_server *server)
@@ -189,6 +227,7 @@ static boolean set_entry(
 	network_game_server_change_map_name(server, map);
 	player_ui_set_game_variant(&variant);
 	network_game_server_change_game_variant(server, &variant);
+	dedicated.entry_teams = variant.universal_variant.teams ? TRUE : FALSE;
 	error(_error_silent, "dedicated: next %s on %s", variant_name, map);
 	return TRUE;
 }
@@ -249,6 +288,10 @@ void dedicated_server_update(
 			dedicated.entry = (dedicated.entry + 1) % dedicated.entry_count;
 			dedicated.entry_set = FALSE;
 		}
+		if (!dedicated.entry_set)
+			dedicated.entry_set = set_entry(server);
+		if (dedicated.entry_set)
+			skip_team_entry_for_one_player(network_game_server_get_game(server));
 		if (!dedicated.entry_set)
 			dedicated.entry_set = set_entry(server);
 		if (dedicated.entry_set)
