@@ -286,6 +286,9 @@ enum
 	NETWORK_GAME_NAME_LENGTH = 16,
 	MAXIMUM_NUMBER_OF_PLAYERS = HALO_PORT_MAXIMUM_NETWORK_PLAYERS,
 	NUMBER_OF_MULTIPLAYER_TEAMS = 2,
+	/* port: the least time between two advertisements of the game
+	(milliseconds: network_game_server_handle_message_client_broadcast_game_search) */
+	GAME_ADVERTISEMENT_INTERVAL = 250,
 };
 
 enum
@@ -564,6 +567,28 @@ static boolean network_game_server_write(
 		buffer_size,
 		destination_address,
 		reliable);
+}
+
+/* port: whether a line about a stray datagram (which anyone may send, as
+fast as they like) goes in the log: at most one a second, with how many were
+left out (the host writes its log a line at a time) */
+static boolean network_game_server_datagram_event_logged(
+	void)
+{
+	static unsigned long last_time = 0;
+	static long left_out_count = 0;
+	unsigned long now = system_milliseconds();
+
+	if (last_time && now - last_time < MILLISECONDS_PER_SECOND)
+	{
+		left_out_count++;
+		return FALSE;
+	}
+	if (left_out_count)
+		network_event("(%ld more stray datagrams not logged)", left_out_count);
+	left_out_count = 0;
+	last_time = now ? now : 1;
+	return TRUE;
 }
 
 /* ---------- public code */
@@ -1198,7 +1223,11 @@ boolean network_game_server_handle_client_message(
 
 			case _message_type_data:
 				/* the distributed netcode's messages (port/linux/NETCODE.md) */
-				if (network_game_server_client_machine_is_joined_to_game(server, machine))
+				/* (in game, from a machine that has loaded it, as a datagram
+				is: else dropped) */
+				if (network_game_server_client_machine_is_joined_to_game(server, machine) &&
+					network_game_server_get_state(server, NULL) == _network_game_server_state_ingame &&
+					network_game_server_client_machine_is_loaded(server, machine))
 				{
 					long machine_index;
 
@@ -1262,9 +1291,12 @@ boolean network_game_server_handle_datagram(
 	message_type = (byte)GET_MESSAGE_TYPE(*message);
 	if (GET_MESSAGE_FLAGS(*message))
 	{
-		network_event(
-			"server received a datagram with invalid flags; sender= '%s'",
-			transport_address_to_string(source_address));
+		if (network_game_server_datagram_event_logged())
+		{
+			network_event(
+				"server received a datagram with invalid flags; sender= '%s'",
+				transport_address_to_string(source_address));
+		}
 	}
 	else
 	{
@@ -1374,9 +1406,12 @@ boolean network_game_server_handle_datagram(
 						break;
 
 					default:
-						network_event(
-							"server received datagram with an unexpected packet type; sender= '%s'",
-							transport_address_to_string(source_address));
+						if (network_game_server_datagram_event_logged())
+						{
+							network_event(
+								"server received datagram with an unexpected packet type; sender= '%s'",
+								transport_address_to_string(source_address));
+						}
 						break;
 				}
 			}
@@ -1391,7 +1426,8 @@ boolean network_game_server_handle_datagram(
 					struct network_game_server_client_machine *client_machine =
 						network_game_server_get_client_machine_at_address(server, source_address->address.long_words[0]);
 
-					if (client_machine)
+					/* (and has loaded it, as for its reliable messages) */
+					if (client_machine && network_game_server_client_machine_is_loaded(server, client_machine))
 					{
 						long machine_index;
 
@@ -1403,7 +1439,11 @@ boolean network_game_server_handle_datagram(
 				break;
 
 			case _message_type_error:
-				if (datagram_size >= MINIMUM_TRANSPORT_ERROR_MESSAGE_SIZE)
+				if (!network_game_server_datagram_event_logged())
+				{
+					/* (logged at most once a second) */
+				}
+				else if (datagram_size >= MINIMUM_TRANSPORT_ERROR_MESSAGE_SIZE)
 				{
 					byte *error_message = (byte *)(message + 1);
 
@@ -1423,10 +1463,13 @@ boolean network_game_server_handle_datagram(
 				break;
 
 			default:
-				network_event(
-					"server received a datagram with an unknown message type (#%d); sender= '%s'",
-					message_type,
-					transport_address_to_string(source_address));
+				if (network_game_server_datagram_event_logged())
+				{
+					network_event(
+						"server received a datagram with an unknown message type (#%d); sender= '%s'",
+						message_type,
+						transport_address_to_string(source_address));
+				}
 				break;
 		}
 	}
@@ -1461,16 +1504,23 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 	struct message_client_broadcast_game_search *client_message)
 {
 	boolean result = TRUE;
+	/* port: the advertisement is broadcast (to every internet play peer
+	too): one each so often answers every machine searching, and a flood of
+	searches no more */
+	static unsigned long last_advertised_time = 0;
+	unsigned long now = system_milliseconds();
 
 	match_assert(
 		"c:\\halo\\SOURCE\\networking\\network_server_message_handler.c",
 		0x21F,
 		server && source_address && client_message);
-
 	if (client_message->version == NETWORK_GAME_MESSAGE_VERSION)
 	{
 		struct network_game *game = network_game_server_get_game(server);
 
+		/* (the time taken only by a search answered) */
+		if (game && last_advertised_time && now - last_advertised_time < GAME_ADVERTISEMENT_INTERVAL)
+			return TRUE;
 		if (game)
 		{
 			struct message_server_game_advertise advertisement = {0};
@@ -1528,7 +1578,7 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 			once it is over, nor in progress when no player can join it) */
 			if (network_game_server_get_state(server, NULL) == _network_game_server_state_ingame
 				? network_game_server_accepts_late_joins(server)
-				: network_game_server_game_is_open(server))
+				: network_game_server_game_is_open(server) && network_game_has_free_player_slot(game))
 			{
 				advertisement.flags |= FLAG(_game_advertisement_open_bit);
 			}
@@ -1544,6 +1594,7 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 				struct network_connection *connection =
 					network_game_server_get_connection(server);
 
+				last_advertised_time = now ? now : 1;
 				result = network_game_server_write(
 					connection,
 					reply,
@@ -1641,10 +1692,17 @@ static boolean network_game_server_handle_message_client_join_game_request(
 			_network_game_packet_class_client_pregame))
 		{
 			struct transport_address source_address;
+			wchar_t machine_name[MAXIMUM_MACHINE_NAME_LENGTH];
+			/* port: a lobby with no player slot free (its machines' players
+			fill it) is full: a machine that joined could add none, and held
+			the countdown for ever */
+			boolean full = network_game_server_get_state(server, NULL) == _network_game_server_state_pregame &&
+				!network_game_has_free_player_slot(network_game_server_get_game(server));
 
 			/* (the name comes from the wire, and need not end: in ASCII,
 			for the log) */
 			join_game_request.machine_name[MAXIMUM_MACHINE_NAME_LENGTH - 1] = 0;
+			csmemcpy(machine_name, join_game_request.machine_name, sizeof(machine_name));
 			wide_to_ascii(
 				join_game_request.machine_name,
 				(char *)join_game_request.machine_name,
@@ -1654,7 +1712,8 @@ static boolean network_game_server_handle_message_client_join_game_request(
 				&source_address,
 				FALSE);
 			if ((network_game_server_get_state(server, NULL) == _network_game_server_state_pregame || late_join) &&
-				network_game_server_game_is_open(server))
+				network_game_server_game_is_open(server) &&
+				!full)
 			{
 				byte join_game_token[JOIN_GAME_TOKEN_LENGTH];
 
@@ -1684,6 +1743,12 @@ static boolean network_game_server_handle_message_client_join_game_request(
 							"c:\\halo\\SOURCE\\networking\\network_server_message_handler.c",
 							0x2CE,
 							network_machine_is_valid(client_machine));
+
+						/* port: a machine joining the game in progress is named
+						by its join (its settings request, which names a machine
+						in the lobby, is refused in game) */
+						if (late_join)
+							csmemcpy(client_machine->name, machine_name, sizeof(client_machine->name));
 
 						acceptance.machine_index = (short)machine_index;
 						acceptance.random_seed = network_game_get_random_seed();
@@ -1823,7 +1888,7 @@ static boolean network_game_server_handle_message_client_join_game_request(
 				struct message_server_machine_rejected rejection;
 				struct network_message *reply;
 
-				rejection.reason = _network_game_server_rejection_reason_game_not_open;
+				rejection.reason = full ? _rejection_code_game_is_full : _network_game_server_rejection_reason_game_not_open;
 				network_event(
 					"client machine '%s' @%s tried to join game when they should not be",
 					join_game_request.machine_name,
@@ -1891,7 +1956,9 @@ static boolean network_game_server_handle_message_client_add_player_request_preg
 	word *message,
 	short message_size)
 {
-	if (network_game_server_get_state(server, NULL) == _network_game_server_state_pregame)
+	/* (port: not once the game has started: every machine loads it from
+	the settings sent with the start) */
+	if (network_game_server_lobby_is_open(server))
 	{
 		struct network_player player;
 		short packet_type = _message_client_add_player_request_pregame;
@@ -1966,7 +2033,9 @@ static boolean network_game_server_handle_message_client_remove_player_request_p
 	word *message,
 	short message_size)
 {
-	if (network_game_server_get_state(server, NULL) == _network_game_server_state_pregame)
+	/* (port: not once the game has started: every machine loads it from
+	the settings sent with the start) */
+	if (network_game_server_lobby_is_open(server))
 	{
 		struct network_player player;
 		short packet_type = _message_client_remove_player_request_pregame;
@@ -2015,7 +2084,9 @@ static boolean network_game_server_handle_message_client_settings_request(
 	word *message,
 	short message_size)
 {
-	if (network_game_server_get_state(server, NULL) == _network_game_server_state_pregame)
+	/* (port: not once the game has started: every machine loads it from
+	the settings sent with the start) */
+	if (network_game_server_lobby_is_open(server))
 	{
 		struct network_machine machine_settings;
 		short packet_type = _message_client_settings_request;
@@ -2073,7 +2144,9 @@ static boolean network_game_server_handle_message_client_player_settings_request
 	word *message,
 	short message_size)
 {
-	if (network_game_server_get_state(server, NULL) == _network_game_server_state_pregame)
+	/* (port: not once the game has started: every machine loads it from
+	the settings sent with the start) */
+	if (network_game_server_lobby_is_open(server))
 	{
 		struct network_player player;
 		short packet_type = _message_client_player_settings_request;
@@ -2166,7 +2239,8 @@ static boolean network_game_server_handle_message_client_game_start_request(
 			to stop the countdown or start at once (a script's), the host's own
 			(the Xbox game took any event from any machine, and a machine
 			could hold the lobby or skip the countdown) */
-			if (countdown_event == _network_game_server_countdown_event_player_left ||
+			if ((countdown_event == _network_game_server_countdown_event_player_left &&
+					network_game_server_client_machine_may_slow_countdown(server, client_machine)) ||
 				countdown_event == _network_game_server_countdown_event_player_joined ||
 				((countdown_event == _network_game_server_countdown_event_stop ||
 					countdown_event == _network_game_server_countdown_event_start_immediately) &&
@@ -2218,7 +2292,9 @@ static boolean network_game_server_handle_message_client_graceful_game_exit_preg
 				server,
 				network_game_server_get_client_machine(server, client_machine, NULL)))
 			{
-				if (!network_game_server_send_game_data_pregame(server))
+				/* (not to machines loading the game) */
+				if (network_game_server_lobby_is_open(server) &&
+					!network_game_server_send_game_data_pregame(server))
 				{
 					network_event(
 						"server failed to send pregame game data in network_game_server_handle_message_client_graceful_game_exit_pregame()");
