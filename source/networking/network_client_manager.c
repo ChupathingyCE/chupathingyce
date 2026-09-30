@@ -780,8 +780,8 @@ static struct
 	byte flags;
 } network_game_client_advertised_versions[MAXIMUM_NETWORK_ADVERTISED_GAMES];
 
-#ifdef HALO_NEW_NETWORKING
-/* The game list of the new networking (port/linux/src/browser.c): the games
+#ifdef HALO_GAME_BROWSER
+/* The game list (port/linux/src/browser.c): the games
 listed on network.browser_url fill the list's free entries, each with its
 invite here and a nonce of its own. Picking one joins its invite
 (network_game_client_browser_join); the host's own advertisement then
@@ -1215,7 +1215,7 @@ struct network_advertised_game *network_game_client_get_available_games(
 		0x2AC,
 		client);
 
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 	network_game_client_add_browser_games(client->available_games);
 #endif
 	return client->available_games;

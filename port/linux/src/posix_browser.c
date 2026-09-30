@@ -2,7 +2,7 @@
 POSIX_BROWSER.C
 
 The game list server's requests (browser_http.h), for browser.c
-(configure.py --new-networking): HTTP/1.0 over a TCP connection, with TLS
+(configure.py --game-browser): HTTP/1.0 over a TCP connection, with TLS
 (Mbed TLS, as posix_update.c) for https:// addresses. HTTP/1.0 keeps the
 response simple: the server sends the body as it is and closes the
 connection when it is done.
@@ -13,7 +13,7 @@ authorities and name the host, as for the updater.
 Built with the host's ABI, as the other posix_*.c.
 */
 
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 
 #include "browser_http.h"
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The game list server of the new networking (configure.py --new-networking).
+"""The game list server (configure.py --game-browser).
 
 A copy of the game that hosts a system link game announces it here with its
 invite (port/linux/src/browser.c), and repeats the announcement while it

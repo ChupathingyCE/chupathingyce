@@ -45,7 +45,7 @@ boolean network_game_client_advertised_game_compatible(
 	struct network_game_client *client,
 	struct network_advertised_game const *game,
 	boolean tell);
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 /* a game of the game list (network.browser_url) picked: joins its invite,
 TRUE; FALSE for any other game (network_client_manager.c) */
 boolean network_game_client_browser_join(

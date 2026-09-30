@@ -1,8 +1,8 @@
 /*
 BROWSER_SCREEN.C
 
-The in-game server browser of the new networking (configure.py
---new-networking): every game on the game list (port/linux/src/browser.c),
+The in-game server browser (configure.py
+--game-browser): every game on the game list (port/linux/src/browser.c),
 on a screen of its own over the menus, as the game's virtual keyboard is
 (interface/virtual_keyboard.c): drawn and driven by code, not a widget of
 the user interface's tags.
@@ -15,7 +15,7 @@ answers, its game shows in the System Link list through the tunnel, to be
 picked there as any.
 */
 
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 
 #include "cseries.h"
 #include "cseries/cseries_windows.h"

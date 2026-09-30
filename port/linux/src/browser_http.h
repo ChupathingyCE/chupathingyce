@@ -1,7 +1,7 @@
 /*
 BROWSER_HTTP.H
 
-The game list server's requests (browser.c, configure.py --new-networking),
+The game list server's requests (browser.c, configure.py --game-browser),
 on the host's C library: plain types only across this boundary.
 */
 

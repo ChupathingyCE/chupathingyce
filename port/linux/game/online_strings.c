@@ -1,7 +1,7 @@
 /*
 ONLINE_STRINGS.C
 
-The new networking (configure.py --new-networking) makes the Multiplayer
+The game browser (configure.py --game-browser) makes the Multiplayer
 menu's System Link the way to play on the local network and over the
 internet alike (its list shows the games of the game list too: port/linux/
 src/browser.c), so the menu calls it ONLINE PLAY, and the strings that
@@ -14,7 +14,7 @@ data), and after whatever the string holds before the words (the game's
 strings may start with a formatting mark).
 */
 
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 
 #include "cseries.h"
 #include "cache/cache_files.h"
@@ -106,7 +106,7 @@ void online_strings_loaded(
 		}
 	}
 	if (rewritten)
-		error(_error_silent, "new networking: %ld of the user interface's strings say online play", rewritten);
+		error(_error_silent, "game browser: %ld of the user interface's strings say online play", rewritten);
 }
 
 #endif

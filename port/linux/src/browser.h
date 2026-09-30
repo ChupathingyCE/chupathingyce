@@ -1,8 +1,8 @@
 /*
 BROWSER.H
 
-The game list of the new networking (configure.py --new-networking,
-HALO_NEW_NETWORKING): the system link games hosted by copies of the game
+The game list (configure.py --game-browser,
+HALO_GAME_BROWSER): the system link games hosted by copies of the game
 anywhere, listed on network.browser_url (tools/list_server.py). A host's
 game is listed with its invite (p2p.c); a player picks a listed game, which
 joins its invite, and the host's game then shows in System Link as any

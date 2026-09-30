@@ -1,8 +1,8 @@
 /*
 BROWSER.C
 
-The game list of the new networking (browser.h; configure.py
---new-networking): hosted system link games announced to the list server
+The game list (browser.h; configure.py
+--game-browser): hosted system link games announced to the list server
 (network.browser_url, tools/list_server.py) with their invites, and the
 server's list for System Link to show.
 
@@ -24,7 +24,7 @@ file's, which the first call starts; the game's threads only exchange state
 with it under the lock.
 */
 
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 
 #include "platform.h"
 #include "port_config.h"

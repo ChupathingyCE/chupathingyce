@@ -679,7 +679,7 @@ struct widget_instance;
 #include "ui_widget.h"
 #ifdef HALO_64BIT
 #include "interface/ui_widget_instance.h"
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 /* the in-game server browser (port/linux/game/browser_screen.c): a screen of
 code over the widgets, as the virtual keyboard is */
 boolean browser_screen_active(void);
@@ -4871,7 +4871,7 @@ static long search_and_replace(
 	return replacements;
 }
 
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 /* a text widget's style as it was last drawn (on screen: its position is
 its parents' too), for the server browser's hint on the System Link screen,
 which takes the footer's "= CREATE GAME" (port/linux/game/browser_screen.c) */
@@ -5071,7 +5071,7 @@ static void widget_instance_render_text_box(
 			widget_globals.current_system_milliseconds *
 				SECONDS_PER_MILLISECOND * 3.0f) + 1.5f) * 0.4f) * color.alpha;
 	}
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 	if (ui_widget_noted_rows.resolved)
 	{
 		short row;
@@ -6176,7 +6176,7 @@ void render_ui_widgets(
 	{
 		virtual_keyboard_render();
 	}
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 	if (browser_screen_active())
 		browser_screen_render();
 	else
@@ -7106,7 +7106,7 @@ void process_ui_widgets(
 
 		return;
 	}
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 	if (browser_screen_active())
 	{
 		browser_screen_process();
@@ -7215,7 +7215,7 @@ void process_ui_widgets(
 			{
 				do
 				{
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 					/* (X on the System Link screen: the server browser) */
 					if (browser_screen_open_from_event(&event))
 						break;

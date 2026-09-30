@@ -1013,7 +1013,7 @@ boolean network_game_client_request_start_time_change(
 boolean network_game_client_request_remove_player(
 	void *client,
 	void *player);
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 boolean network_game_client_browser_join(
 	struct network_game_client *client,
 	void const *game);
@@ -1905,7 +1905,7 @@ static boolean network_game_join_game_from_server_list(
 						struct transport_address address = { { { 0 } } };
 						struct network_game_join_descriptor join_descriptor;
 
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 						/* (a game of the game list: its invite joined, and the
 						host's game then shows in the list through the tunnel) */
 						if (network_game_client_browser_join(global_network_game_client_get(), server))

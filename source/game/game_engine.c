@@ -587,7 +587,7 @@ symbols in this file:
 #include "units/units.h"
 #ifdef HALO_64BIT
 #include "main/console.h"
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 #include "../../port/linux/src/browser.h"
 #endif
 #endif
@@ -4414,7 +4414,7 @@ void game_engine_load_stage(
 	return;
 }
 
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 /* the carnage report of a game this machine hosts, as it ends: the players
 in the postgame's order, for the game list (port/linux/src/browser.c,
 which sends it if the game is listed). A game that is quit or crashes never
@@ -4464,7 +4464,7 @@ void game_engine_end_game(
 {
 	if (game_engine_globals.postgame_state==game_engine_mode_active)
 	{
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 		if (global_network_game_server_get())
 			game_engine_report_game();
 #endif

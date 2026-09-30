@@ -945,7 +945,7 @@ static void server_list_menu_update(
 	struct network_game_client *client = global_network_game_client_get();
 	long displayed_server_count = 0;
 
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 	{
 		/* (X there opens the server browser: port/linux/game/browser_screen.c) */
 		void browser_screen_list_shown(void);
@@ -1002,7 +1002,7 @@ static void server_list_menu_update(
 			}
 		}
 
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 		{
 			/* (which rows are the game list's: their icons, port/linux/game/browser_screen.c) */
 			boolean network_game_client_game_is_listed(struct network_game_client *client, void const *game);

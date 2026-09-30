@@ -1904,7 +1904,7 @@ static int join_invite(const char *text)
 	return 1;
 }
 
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 int p2p_hosting_invite(char *text, int size)
 {
 	int result;

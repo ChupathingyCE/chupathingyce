@@ -472,7 +472,7 @@ symbols in this file:
 #include "text/unicode.h"
 
 #include "cache/cache_files.h"
-#ifdef HALO_NEW_NETWORKING
+#ifdef HALO_GAME_BROWSER
 #include "../../port/linux/src/browser.h"
 #endif
 
@@ -1026,8 +1026,8 @@ boolean network_game_server_idle(
 		network_event("the server's game is invalid");
 	}
 
-#ifdef HALO_NEW_NETWORKING
-	/* the game list of the new networking (port/linux/src/browser.c): the
+#ifdef HALO_GAME_BROWSER
+	/* the game list (port/linux/src/browser.c): the
 	game as its advertisement describes it
 	(network_server_message_handler.c) */
 	if (success && network_game_server_game_is_valid(server))

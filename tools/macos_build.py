@@ -36,7 +36,7 @@ from .linux_build import (
     XDK_INCLUDE,
     compile_launcher,
     game_sources,
-    new_networking_defines,
+    game_browser_defines,
     miniupnpc_sources,
     musl_math_sources,
     updater_defines,
@@ -217,7 +217,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
     )
 
     release = ["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else []
-    abi = " ".join([target, *MACOS_ABI_FLAGS, *release, *new_networking_defines(sln)])
+    abi = " ".join([target, *MACOS_ABI_FLAGS, *release, *game_browser_defines(sln)])
     prefix_header = lp64(LINUX_PORT_DIR / "include" / "halo_linux_prefix.h")
     port_include = lp64(LINUX_PORT_DIR / "include")
     homebrew_include = f"-idirafter {HOMEBREW / 'include'}"
@@ -260,7 +260,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
         homebrew_include, f"-idirafter {xdk}",
     ])
     posix_cflags = " ".join([target, *MACOS_POSIX_FLAGS, f"-I{platform_dir}", homebrew_include,
-                             *new_networking_defines(sln)])
+                             *game_browser_defines(sln)])
     mbedtls_include = f"-I{MBEDTLS_DIR / 'include'}"
     for source in sorted(platform_dir.glob("*.c")):
         if str(source) in excluded:

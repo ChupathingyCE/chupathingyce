@@ -35,10 +35,10 @@ parser.add_argument(
     help="release builds (Linux, Windows, Android): assertions are not checked",
 )
 parser.add_argument(
-    "--new-networking",
+    "--game-browser",
     action="store_true",
     help="native ports (Linux, macOS): the game list and server browser of halo.milenko.org "
-    "(HALO_NEW_NETWORKING; port/linux/src/browser.c)",
+    "(HALO_GAME_BROWSER; port/linux/src/browser.c)",
 )
 parser.add_argument(
     "--lto",
@@ -88,7 +88,7 @@ sln = SimpleNamespace(
     linux_cc=args.linux_cc,
     compiler_launcher=args.compiler_launcher,
     port_release=args.release,
-    new_networking=args.new_networking,
+    game_browser=args.game_browser,
     port_lto=args.lto,
     port_portable=args.portable,
     port_pgo=args.pgo,
