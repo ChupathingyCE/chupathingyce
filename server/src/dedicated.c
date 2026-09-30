@@ -2,7 +2,8 @@
 DEDICATED.C
 
 The dedicated server (server/README.md): with HALO_DEDICATED naming a
-playlist file, the game hosts system link games by itself, one playlist
+playlist file in the data folder (playlists/slayer.txt, beside maps), the
+game hosts system link games by itself, one playlist
 entry after another, with no player of its own. Built into the game browser's
 builds (configure.py --game-browser); without HALO_DEDICATED it does
 nothing.
@@ -93,11 +94,22 @@ static struct
 
 /* ---------- private code */
 
+/* the playlist, in the data folder (the game's d:, beside maps) */
 static void load_playlist(
-	char const *path)
+	char const *name)
 {
-	FILE *file = fopen(path, "r");
+	char path[256];
+	FILE *file;
 	char line[256];
+	char *cursor;
+
+	snprintf(path, sizeof(path), "d:\\%s", name);
+	for (cursor = path; *cursor; cursor++)
+	{
+		if (*cursor == '/')
+			*cursor = '\\';
+	}
+	file = fopen(path, "r");
 
 	if (!file)
 	{
