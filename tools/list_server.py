@@ -24,7 +24,22 @@ Interface (version 1):
                         open version age score_limit teams
     GET  /v1/health     -> 200 "ok"
     GET  /              -> the list as a web page, each game with a Join
-                        link (halo://join/..., which the game handles)
+                        link (halo://join/..., which the game handles), and
+                        the last games played
+    POST /v1/report     a finished game's carnage report (JSON, below), from
+                        the address that lists its invite -> 200 "ok <id>"
+    GET  /v1/reports    -> 200 JSON {"reports": [...]}: the last games, newest
+                        first (?limit=, at most 50)
+    GET  /v1/reports/N  -> 200 JSON: game N's report
+    GET  /games/N       -> game N's carnage report as a web page
+
+A carnage report: {"invite", "map", "engine", "teams" (0 or 1),
+"score_limit", "duration" (seconds), "team_scores" ([score of team 0,
+...]), "players": [{"name", "team", "place" (1 first), "score", "kills",
+"assists", "deaths", "betrayals", "suicides", "shots_fired", "shots_hit",
+"multikills"}, ...]}. Only a game that ends (its host reaches the
+postgame) sends one: a game that crashes or is quit is not recorded.
+Reports are kept in reports.db in the --data folder, without addresses.
 
 An announcement expires after EXPIRY seconds without another. Each address
 may list MAXIMUM_GAMES_PER_ADDRESS games and send REQUESTS_PER_MINUTE
@@ -34,6 +49,7 @@ requests a minute. The addresses are kept only to apply those limits.
 import argparse
 import json
 import re
+import sqlite3
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -44,6 +60,9 @@ MAXIMUM_GAMES = 512
 MAXIMUM_GAMES_PER_ADDRESS = 4
 REQUESTS_PER_MINUTE = 60
 MAXIMUM_BODY = 2048
+MAXIMUM_REPORT_BODY = 65536
+MAXIMUM_REPORT_PLAYERS = 128
+REPORT_INTERVAL = 60
 
 INVITE = re.compile(r"^[0-9a-f]{44}$")
 FIELDS = {
@@ -89,6 +108,22 @@ p.lead { margin: 0 0 20px; color: var(--dim); }
 a.join { grid-row: 1 / span 2; grid-column: 2; background: var(--accent); color: #fff; text-decoration: none; font-weight: 600; padding: 9px 18px; border-radius: 8px; }
 a.join[aria-disabled="true"] { opacity: 0.4; pointer-events: none; }
 .empty { color: var(--dim); padding: 24px 0; }
+h2 { margin: 32px 0 10px; font-size: 19px; }
+.recent { display: grid; gap: 6px; }
+.recent a { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; color: var(--text); text-decoration: none; }
+.recent a:hover { border-color: var(--accent); }
+.recent .when { color: var(--dim); font-size: 13px; text-align: right; }
+.winner { color: var(--open); font-weight: 600; }
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-variant-numeric: tabular-nums; }
+th, td { padding: 8px 10px; text-align: right; white-space: nowrap; }
+th:nth-child(2), td:nth-child(2) { text-align: left; }
+th { color: var(--dim); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--line); }
+tr + tr td { border-top: 1px solid var(--line); }
+tr.first td { font-weight: 700; }
+.team { margin: 22px 0 8px; font-size: 17px; font-weight: 700; }
+.team.red { color: #e0524f; } .team.blue { color: #4f8fe0; }
+.back { color: var(--accent); text-decoration: none; font-size: 14px; }
 footer { margin-top: 28px; color: var(--dim); font-size: 13px; }
 code { font-size: 12px; }
 </style>
@@ -98,6 +133,8 @@ code { font-size: 12px; }
 <h1>Halo system link games</h1>
 <p class="lead">Games hosted by players of Halo: Combat Evolved (the native ports). Join opens the game and joins through the game's invite.</p>
 <div class="games" id="games"><div class="empty">Loading…</div></div>
+<h2>Last 10 games</h2>
+<div class="recent" id="recent"><div class="empty">Loading…</div></div>
 <footer>The game must be installed for Join to open it (it registers <code>halo://</code> links). The list refreshes every 10 seconds; a game stays listed while its host runs.</footer>
 </main>
 <script>
@@ -141,8 +178,41 @@ async function refresh() {
     list.replaceChildren(element("div", "empty", "Could not reach the list server."));
   }
 }
+function ago(seconds) {
+  const age = Math.max(0, Math.floor(Date.now() / 1000) - seconds);
+  if (age < 60) return "just now";
+  if (age < 3600) return Math.floor(age / 60) + " min ago";
+  if (age < 86400) return Math.floor(age / 3600) + " h ago";
+  return new Date(seconds * 1000).toLocaleDateString();
+}
+async function refreshRecent() {
+  const list = document.getElementById("recent");
+  try {
+    const reports = (await (await fetch("/v1/reports?limit=10", { cache: "no-store" })).json()).reports;
+    list.replaceChildren();
+    if (!reports.length) { list.append(element("div", "empty", "No finished games yet.")); return; }
+    for (const report of reports) {
+      const row = element("a");
+      row.href = "/games/" + report.id;
+      const title = element("div", "name");
+      title.style.fontSize = "15px";
+      title.append(mapName(report.map) + " · " + (report.teams ? "Team " : "") + (ENGINES[report.engine] || "Game"));
+      row.append(title);
+      row.append(element("div", "when", ago(report.time)));
+      const detail = element("div", "info");
+      detail.append(element("span", "winner", report.winner + " won"));
+      detail.append(" · " + report.player_count + " player" + (report.player_count == 1 ? "" : "s") + " · hosted by " + report.host);
+      row.append(detail);
+      list.append(row);
+    }
+  } catch (error) {
+    list.replaceChildren(element("div", "empty", "Could not reach the list server."));
+  }
+}
 refresh();
+refreshRecent();
 setInterval(refresh, 10000);
+setInterval(refreshRecent, 30000);
 </script>
 </body>
 </html>
@@ -202,6 +272,17 @@ class GameList:
             self.games[invite] = record
         return ""
 
+    def listed_game(self, address: str, invite: str):
+        """the listing of an invite this address lists, which may report
+        (one report a REPORT_INTERVAL): None otherwise"""
+        now = time.monotonic()
+        with self.lock:
+            game = self.games.get(invite)
+            if not game or game["address"] != address or now - game.get("reported", -REPORT_INTERVAL) < REPORT_INTERVAL:
+                return None
+            game["reported"] = now
+            return dict(game)
+
     def withdraw(self, address: str, invite: str):
         with self.lock:
             game = self.games.get(invite)
@@ -214,6 +295,181 @@ class GameList:
             games = sorted(self.games.values(), key=lambda g: (-g["players"], g["name"].lower()))
             return [dict({k: v for k, v in g.items() if k not in ("address", "time")},
                          age=int(now - g["time"])) for g in games]
+
+
+def report_page() -> str:
+    """the carnage report page: the list page's style, its own content"""
+    style = PAGE[PAGE.index("<style>"):PAGE.index("</style>") + len("</style>")]
+    return REPORT_PAGE.replace("<!--STYLE-->", style)
+
+
+REPORT_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Carnage Report</title>
+<!--STYLE-->
+</head>
+<body>
+<main>
+<a class="back" href="/">← All games</a>
+<h1 id="title" style="margin-top:10px">Carnage Report</h1>
+<p class="lead" id="summary"></p>
+<div id="report"><div class="empty">Loading…</div></div>
+</main>
+<script>
+const ENGINES = ["", "Capture the Flag", "Slayer", "Oddball", "King of the Hill", "Race"];
+const MAPS = { beavercreek: "Battle Creek", bloodgulch: "Blood Gulch", boardingaction: "Boarding Action", carousel: "Derelict",
+  chillout: "Chill Out", damnation: "Damnation", hangemhigh: "Hang 'Em High", longest: "Longest", prisoner: "Prisoner",
+  putput: "Chiron TL-34", ratrace: "Rat Race", sidewinder: "Sidewinder", wizard: "Wizard" };
+const TEAMS = ["Red Team", "Blue Team"];
+function mapName(path) { const base = path.split(/[\\\\/]/).pop(); return MAPS[base] || base; }
+function element(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+function duration(seconds) { return Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0"); }
+function accuracy(player) { return player.shots_fired ? Math.round(100 * player.shots_hit / player.shots_fired) + "%" : "–"; }
+function ratio(player) { return (player.kills / Math.max(1, player.deaths)).toFixed(2); }
+function scoreboard(players) {
+  const wrap = element("div", "scroll");
+  const table = element("table");
+  const head = element("tr");
+  for (const title of ["#", "Player", "Score", "Kills", "Assists", "Deaths", "K/D", "Betrayals", "Suicides", "Accuracy", "Multikills"])
+    head.append(element("th", "", title));
+  table.append(head);
+  for (const player of players) {
+    const row = element("tr", player.place === 1 ? "first" : "");
+    for (const value of [player.place, player.name, player.score, player.kills, player.assists, player.deaths, ratio(player),
+      player.betrayals, player.suicides, accuracy(player), player.multikills])
+      row.append(element("td", "", String(value)));
+    table.append(row);
+  }
+  wrap.append(table);
+  return wrap;
+}
+async function load() {
+  const id = location.pathname.split("/").pop();
+  const holder = document.getElementById("report");
+  try {
+    const response = await fetch("/v1/reports/" + encodeURIComponent(id), { cache: "no-store" });
+    if (!response.ok) throw new Error("missing");
+    const report = await response.json();
+    const engine = (report.teams ? "Team " : "") + (ENGINES[report.engine] || "Game");
+    document.title = "Carnage Report · " + mapName(report.map);
+    document.getElementById("title").textContent = mapName(report.map) + " · " + engine;
+    document.getElementById("summary").textContent = new Date(report.time * 1000).toLocaleString() +
+      " · " + duration(report.duration) + (report.score_limit ? " · to " + report.score_limit : "") +
+      " · hosted by " + report.host;
+    holder.replaceChildren();
+    const winner = element("div", "team");
+    winner.append(element("span", "winner", report.winner + " won"));
+    holder.append(winner);
+    const players = report.players.slice().sort((a, b) => a.place - b.place);
+    if (report.teams) {
+      const order = [...new Set(players.map(p => p.team))].sort((a, b) => (report.team_scores[b] || 0) - (report.team_scores[a] || 0));
+      for (const team of order) {
+        const heading = element("div", "team " + (team === 0 ? "red" : team === 1 ? "blue" : ""),
+          (TEAMS[team] || "Team " + (team + 1)) + " · " + (report.team_scores[team] || 0));
+        holder.append(heading, scoreboard(players.filter(p => p.team === team)));
+      }
+    } else {
+      holder.append(scoreboard(players));
+    }
+  } catch (error) {
+    holder.replaceChildren(element("div", "empty", "There is no such game."));
+  }
+}
+load();
+</script>
+</body>
+</html>
+"""
+
+
+class Reports:
+    """finished games' carnage reports, in SQLite"""
+
+    def __init__(self, path: str):
+        self.lock = threading.Lock()
+        self.database = sqlite3.connect(path, check_same_thread=False)
+        self.database.execute("""CREATE TABLE IF NOT EXISTS reports (
+            id INTEGER PRIMARY KEY, time INTEGER NOT NULL, map TEXT NOT NULL, engine INTEGER NOT NULL,
+            teams INTEGER NOT NULL, host TEXT NOT NULL, winner TEXT NOT NULL, player_count INTEGER NOT NULL,
+            report TEXT NOT NULL)""")
+        self.database.commit()
+
+    def add(self, report: dict) -> int:
+        with self.lock:
+            cursor = self.database.execute(
+                "INSERT INTO reports (time, map, engine, teams, host, winner, player_count, report) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (report["time"], report["map"], report["engine"], report["teams"], report["host"], report["winner"],
+                 len(report["players"]), json.dumps(report)))
+            self.database.commit()
+            return cursor.lastrowid
+
+    def recent(self, limit: int):
+        with self.lock:
+            rows = self.database.execute(
+                "SELECT id, time, map, engine, teams, host, winner, player_count FROM reports ORDER BY id DESC LIMIT ?",
+                (limit,)).fetchall()
+        return [dict(zip(("id", "time", "map", "engine", "teams", "host", "winner", "player_count"), row)) for row in rows]
+
+    def get(self, report_id: int):
+        with self.lock:
+            row = self.database.execute("SELECT id, report FROM reports WHERE id = ?", (report_id,)).fetchone()
+        if not row:
+            return None
+        return dict(json.loads(row[1]), id=row[0])
+
+
+def clean_report(body: dict, game: dict) -> dict:
+    """a carnage report as sent, checked field by field; the game's own
+    listing gives what the report does not"""
+    players = []
+    raw_players = body.get("players")
+    if not isinstance(raw_players, list) or not 1 <= len(raw_players) <= MAXIMUM_REPORT_PLAYERS:
+        raise ValueError("players")
+    for raw in raw_players:
+        if not isinstance(raw, dict):
+            raise ValueError("player")
+        player = {"name": clean_text(str(raw.get("name", "")), 16) or "Player"}
+        for key, low, high in (("team", -1, 15), ("place", 1, MAXIMUM_REPORT_PLAYERS), ("score", -32768, 32767),
+                               ("kills", 0, 32767), ("assists", 0, 32767), ("deaths", 0, 32767),
+                               ("betrayals", 0, 32767), ("suicides", 0, 32767), ("shots_fired", 0, 2 ** 31 - 1),
+                               ("shots_hit", 0, 2 ** 31 - 1), ("multikills", 0, 32767)):
+            player[key] = clean_integer(str(raw.get(key, 0)), low, high)
+        player["shots_hit"] = min(player["shots_hit"], player["shots_fired"])
+        players.append(player)
+    teams = clean_integer(str(body.get("teams", game["teams"])), 0, 1)
+    team_scores = body.get("team_scores", [])
+    if not isinstance(team_scores, list) or len(team_scores) > 16:
+        raise ValueError("team_scores")
+    team_scores = [clean_integer(str(score), -32768, 32767) for score in team_scores]
+    first = min(players, key=lambda p: p["place"])
+    if teams and team_scores:
+        best = max(range(len(team_scores)), key=lambda team: team_scores[team])
+        winner = ["Red Team", "Blue Team"][best] if best < 2 else f"Team {best + 1}"
+    else:
+        winner = first["name"]
+    return {
+        "time": int(time.time()),
+        "map": clean_text(str(body.get("map", game["map"])), 64) or game["map"],
+        "engine": clean_integer(str(body.get("engine", game["engine"])), 0, 15),
+        "teams": teams,
+        "score_limit": clean_integer(str(body.get("score_limit", game["score_limit"])), 0, 32767),
+        "duration": clean_integer(str(body.get("duration", 0)), 0, 24 * 3600),
+        "team_scores": team_scores,
+        "host": game["name"],
+        "winner": winner,
+        "players": players,
+    }
+
+
+REPORTS = None
 
 
 GAMES = GameList()
@@ -257,6 +513,19 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, "".join(line + "\n" for line in lines))
         if self.path in ("/", "/index.html"):
             return self.reply(200, PAGE, "text/html; charset=utf-8")
+        match = re.fullmatch(r"/games/(\d+)", self.path)
+        if match:
+            return self.reply(200, report_page(), "text/html; charset=utf-8")
+        match = re.fullmatch(r"/v1/reports(?:\?limit=(\d+))?", self.path)
+        if match:
+            limit = min(50, int(match.group(1) or 10))
+            return self.reply(200, json.dumps({"reports": REPORTS.recent(limit)}), "application/json")
+        match = re.fullmatch(r"/v1/reports/(\d+)", self.path)
+        if match:
+            report = REPORTS.get(int(match.group(1)))
+            if not report:
+                return self.reply(404, "not found\n")
+            return self.reply(200, json.dumps(report), "application/json")
         if self.path == "/v1/health":
             return self.reply(200, "ok\n")
         return self.reply(404, "not found\n")
@@ -269,6 +538,25 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             return self.reply(400, "bad length\n")
+        if self.path == "/v1/report":
+            if length <= 0 or length > MAXIMUM_REPORT_BODY:
+                return self.reply(400, "bad length\n")
+            try:
+                body = json.loads(self.rfile.read(length).decode("utf-8"))
+                invite = str(body.get("invite", "")).lower()
+            except (ValueError, AttributeError):
+                return self.reply(400, "bad report\n")
+            if not INVITE.match(invite):
+                return self.reply(400, "bad invite\n")
+            GAMES.expire()
+            game = GAMES.listed_game(address, invite)
+            if not game:
+                return self.reply(403, "not a game this address lists, or it reported less than a minute ago\n")
+            try:
+                report = clean_report(body, game)
+            except (ValueError, TypeError):
+                return self.reply(400, "bad report\n")
+            return self.reply(200, f"ok {REPORTS.add(report)}\n")
         if length <= 0 or length > MAXIMUM_BODY:
             return self.reply(400, "bad length\n")
         form = {k: v[0] for k, v in parse_qs(self.rfile.read(length).decode("utf-8", "replace")).items()}
@@ -308,7 +596,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--address", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8390)
+    parser.add_argument("--data", default=".", help="the folder of reports.db")
     args = parser.parse_args()
+    global REPORTS
+    REPORTS = Reports(f"{args.data.rstrip('/')}/reports.db")
     server = ThreadingHTTPServer((args.address, args.port), Handler)
     server.daemon_threads = True
     print(f"listening on {args.address}:{args.port}", flush=True)
