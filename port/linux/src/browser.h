@@ -12,7 +12,9 @@ game reached through an invite. See browser.c.
 #ifndef __BROWSER_H
 #define __BROWSER_H
 
-#define BROWSER_INVITE_LENGTH 44
+/* an invite's code: the host's key hash and the token, in hexadecimal
+(p2p_internal.h's P2P_LINK_SIZE, without "halo://join/") */
+#define BROWSER_INVITE_LENGTH 64
 #define BROWSER_NAME_LENGTH 16
 #define BROWSER_MAP_LENGTH 64
 #define BROWSER_MAXIMUM_GAMES 64

@@ -64,7 +64,8 @@ MAXIMUM_REPORT_BODY = 65536
 MAXIMUM_REPORT_PLAYERS = 128
 REPORT_INTERVAL = 60
 
-INVITE = re.compile(r"^[0-9a-f]{44}$")
+# (64 digits since network version 8; 44 before, which older builds still list)
+INVITE = re.compile(r"^(?:[0-9a-f]{64}|[0-9a-f]{44})$")
 FIELDS = {
     "name": 32,
     "map": 64,
