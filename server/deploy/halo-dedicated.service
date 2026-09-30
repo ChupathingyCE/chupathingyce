@@ -1,0 +1,22 @@
+# The dedicated server as a service (server/README.md): the container built
+# from server/deploy/Dockerfile, with the data folder and settings in
+# /opt/halo-dedicated. The host's network: internet play finds its public
+# address and reaches players from it.
+[Unit]
+Description=Halo dedicated server
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+ExecStartPre=-/usr/bin/docker rm -f halo-dedicated
+ExecStart=/usr/bin/docker run --rm --name halo-dedicated --network host \
+	--env-file /opt/halo-dedicated/dedicated.env \
+	-v /opt/halo-dedicated/data:/data \
+	halo-dedicated
+ExecStop=/usr/bin/docker stop -t 10 halo-dedicated
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
