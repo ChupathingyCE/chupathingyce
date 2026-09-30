@@ -383,8 +383,8 @@ void browser_screen_render_hint(
 			widen(indicator, NUMBEROF(indicator), ascii);
 			bounds.x0 = 40;
 			bounds.x1 = 290;
-			bounds.y0 = (short)(text.y0 - 52);
-			bounds.y1 = (short)(text.y0 - 30);
+			bounds.y0 = (short)(text.y0 - 38);
+			bounds.y1 = (short)(text.y0 - 16);
 			draw_string_set_draw_mode(font_index, NONE, 2, 0, &color);
 			rasterizer_draw_unicode_string(&bounds, &bounds, NULL, 0, indicator);
 		}
