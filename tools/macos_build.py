@@ -144,7 +144,7 @@ def _rewritten_inputs() -> List[Path]:
     inputs. Headers come along whole, so that includes relative to the
     including file find the rewritten copies."""
     roots = [Path("source"), LINUX_PORT_DIR / "game", LINUX_PORT_DIR / "src", LINUX_PORT_DIR / "include",
-             Path("port/include"), KCP_DIR, TOML_DIR]
+             Path("port/include"), KCP_DIR, TOML_DIR, Path("server/src")]
     files = []
     for root in roots:
         for path in sorted(root.rglob("*")):
@@ -248,6 +248,10 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
     # the port's own units that see the game as its sources do (port/linux/game)
     for source in sorted(Path(linux_config["game_sources"]).glob("*.c")):
         if source.as_posix() not in excluded:
+            add_object(lp64(source), game_cflags)
+    # the dedicated server's director, with the game browser (server/)
+    if getattr(sln, "game_browser", False):
+        for source in sorted(Path("server/src").glob("*.c")):
             add_object(lp64(source), game_cflags)
 
     platform_dir = Path(linux_config["platform_sources"])

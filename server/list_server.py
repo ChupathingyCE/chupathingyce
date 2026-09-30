@@ -7,7 +7,7 @@ hosts; copies of the game that browse get the list and join a game through
 its invite, as with an invite link. Nothing of the game itself goes through
 this server: it only keeps the list.
 
-    tools/list_server.py [--address 127.0.0.1] [--port 8390]
+    server/list_server.py [--address 127.0.0.1] [--port 8390]
 
 Behind a reverse proxy (Apache, nginx) that adds TLS, on the loopback
 address. Standard library only.

@@ -2331,6 +2331,15 @@ boolean server_has_a_player_on_each_machine(
 				}
 			}
 
+#ifdef HALO_GAME_BROWSER
+			{
+				/* (a dedicated server's own machine has none: server/src/dedicated.c) */
+				boolean dedicated_server_active(void);
+
+				if (!has_a_player && dedicated_server_active())
+					continue;
+			}
+#endif
 			if (!has_a_player)
 				return FALSE;
 		}

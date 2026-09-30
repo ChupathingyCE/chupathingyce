@@ -409,6 +409,10 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
         # sources do (port/linux/game).
         for source in sorted(Path(config["game_sources"]).glob("*.c")):
             add_object(source, game_cflags)
+        # the dedicated server's director, with the game browser (server/)
+        if getattr(sln, "game_browser", False):
+            for source in sorted(Path("server/src").glob("*.c")):
+                add_object(source, game_cflags)
 
         platform_dir = Path(config["platform_sources"])
         platform_cflags = " ".join([

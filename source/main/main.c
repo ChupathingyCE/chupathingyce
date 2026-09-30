@@ -3233,6 +3233,14 @@ void main_loop(
 
 			main_update_time();
 			process_ui_widgets();
+#ifdef HALO_GAME_BROWSER
+			{
+				/* the dedicated server's director (server/src/dedicated.c) */
+				void dedicated_server_update(void);
+
+				dedicated_server_update();
+			}
+#endif
 			bink_playback_update();
 
 			if ((!game_in_editor() && (input_key_is_down(_key_end) || input_key_is_down(_key_escape))) || editor_should_exit())

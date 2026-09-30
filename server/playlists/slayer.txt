@@ -1,0 +1,18 @@
+# Slayer and Team Slayer, every multiplayer map (server/src/dedicated.c).
+# One entry a line: the map, then the game type. The server plays them in
+# order, back to the top after the last.
+
+# map            game type
+bloodgulch       team_slayer
+prisoner         slayer
+damnation        team_slayer
+hangemhigh       slayer
+sidewinder       team_slayer
+chillout         slayer
+boardingaction   team_slayer
+wizard           slayer
+ratrace          team_slayer
+longest          slayer
+beavercreek      team_slayer
+carousel         slayer
+putput           team_slayer
