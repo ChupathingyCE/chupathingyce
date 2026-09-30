@@ -4436,6 +4436,9 @@ static void game_engine_report_game(
 	boolean teams = global_variant.universal_variant.teams;
 	long index;
 
+	/* (a game everyone left, the dedicated server's to end: no report) */
+	if (count == 0)
+		return;
 	for (index = 0; index < count; index++)
 	{
 		struct player_datum *player = player_get(ranking[index].player_index);

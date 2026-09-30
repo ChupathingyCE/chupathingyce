@@ -24,6 +24,7 @@ playlist in the data folder. It then:
 - plays the playlist's entries in order: once a player has joined, the
   lobby counts down by itself; after each game, the carnage report shows
   for 20 seconds, then the next entry's lobby opens;
+- ends a game at the time limit, or 30 seconds after everyone has left it;
 - plays a team entry's next entry without teams while a single player
   waits (a team game needs a player on each team);
 - joins no invites and leaves the clipboard alone;
@@ -37,6 +38,7 @@ The settings, as environment variables:
 | `HALO_DEDICATED_NAME` | `Dedicated` | The game's name on the lists (at most 15 characters). |
 | `HALO_DEDICATED_MINIMUM_PLAYERS` | `1` | The players the countdown waits for. |
 | `HALO_DEDICATED_MAXIMUM_PLAYERS` | `12` | The players the game takes. |
+| `HALO_DEDICATED_TIME_LIMIT` | `15` | A game's minutes, after which it ends (this beta's game types have no time limit). `0`: none. |
 | `HALO_NET_BROWSER` | `https://halo.milenko.org` | The game list it announces to. |
 
 A playlist has one entry a line: a map (its name, `bloodgulch`, or its

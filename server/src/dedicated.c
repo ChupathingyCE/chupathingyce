@@ -22,6 +22,9 @@ screen. Each frame (main.c, beside the user interface) the director:
     lobby's players start it, and the server has none; it may run when
     server_ok_to_countdown, which lets the host's machine go without a
     player: dedicated_server_active);
+  - ends a game at the time limit (this beta's game types have none), or
+    once everyone has left it (game_engine_end_game, as the score limit
+    does);
   - after each game, once the carnage report has shown a while, goes back
     to the pregame lobby (the host's A = pick game, game_engine.c) and sets
     the next entry;
@@ -61,6 +64,8 @@ enum
 	RETRY_MILLISECONDS = 5000,
 	/* the carnage report shown this long before the next game's lobby */
 	POSTGAME_MILLISECONDS = 20000,
+	/* a game with no players left ended this long after the last left */
+	EMPTY_GAME_MILLISECONDS = 30000,
 	/* a frame at most this often: with nothing drawn, no display's refresh
 	paces the main loop (60 a second, twice the game's ticks) */
 	FRAME_MILLISECONDS = 16,
@@ -86,6 +91,7 @@ enum
 {
 	/* network_server_manager.c's server states */
 	DEDICATED_SERVER_STATE_PREGAME = 0,
+	DEDICATED_SERVER_STATE_INGAME = 1,
 	DEDICATED_SERVER_STATE_POSTGAME = 2,
 };
 
@@ -101,6 +107,8 @@ static struct
 	long entry;
 	long minimum_players;
 	long maximum_players;
+	/* (minutes; 0: none) */
+	long time_limit;
 	wchar_t name[16];
 
 	boolean hosting;
@@ -110,6 +118,8 @@ static struct
 	unsigned long retry_time;
 	unsigned long postgame_time;
 	unsigned long frame_time;
+	unsigned long game_time;
+	unsigned long empty_time;
 } dedicated;
 
 /* ---------- private code */
@@ -164,6 +174,7 @@ static void initialize(
 	char const *minimum = getenv("HALO_DEDICATED_MINIMUM_PLAYERS");
 	char const *maximum = getenv("HALO_DEDICATED_MAXIMUM_PLAYERS");
 	char const *name = getenv("HALO_DEDICATED_NAME");
+	char const *time_limit = getenv("HALO_DEDICATED_TIME_LIMIT");
 	long index;
 
 	dedicated.initialized = TRUE;
@@ -177,6 +188,11 @@ static void initialize(
 	dedicated.maximum_players = maximum ? atol(maximum) : 12;
 	if (dedicated.maximum_players < dedicated.minimum_players)
 		dedicated.maximum_players = dedicated.minimum_players;
+	/* (this beta's game types have no time limit: the server's, 15 minutes
+	unless set) */
+	dedicated.time_limit = time_limit ? atol(time_limit) : 15;
+	if (dedicated.time_limit < 0)
+		dedicated.time_limit = 0;
 	if (!name || !name[0])
 		name = "Dedicated";
 	for (index = 0; index < 15 && name[index]; index++)
@@ -340,6 +356,38 @@ void dedicated_server_update(
 			network_game_server_pause_countdown(server,
 				!game || game->player_count < dedicated.minimum_players);
 			network_game_server_dedicated_start_countdown(server);
+		}
+	}
+	else if (state == DEDICATED_SERVER_STATE_INGAME)
+	{
+		struct network_game *game = network_game_server_get_game(server);
+		unsigned long now = system_milliseconds();
+
+		if (dedicated.last_state != DEDICATED_SERVER_STATE_INGAME)
+		{
+			dedicated.game_time = now;
+			dedicated.empty_time = 0;
+		}
+		/* everyone left: the game ends (as the score limit ends it) and the
+		next entry's lobby opens */
+		if (game && game->player_count == 0)
+		{
+			if (!dedicated.empty_time)
+				dedicated.empty_time = now;
+			else if (now - dedicated.empty_time >= EMPTY_GAME_MILLISECONDS && game_engine_running() && game_engine_can_score())
+			{
+				error(_error_silent, "dedicated: everyone left; ending the game");
+				game_engine_end_game();
+			}
+		}
+		else
+			dedicated.empty_time = 0;
+		/* the time limit */
+		if (dedicated.time_limit && now - dedicated.game_time >= (unsigned long)dedicated.time_limit * 60000 &&
+			game_engine_running() && game_engine_can_score())
+		{
+			error(_error_silent, "dedicated: %ld minutes up; ending the game", dedicated.time_limit);
+			game_engine_end_game();
 		}
 	}
 	else if (state == DEDICATED_SERVER_STATE_POSTGAME)
