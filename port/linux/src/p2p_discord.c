@@ -293,23 +293,20 @@ void p2p_discord_update(void)
 			p2p_register_url_scheme(scheme, "Halo: Combat Evolved");
 #ifdef HALO_64BIT
 #ifdef __APPLE__
+			/* Discord on macOS opens discord-<application>:// (Info.plist
+			declares it) unless a games/<application>.json names a command,
+			which it takes for a page of its own instead of running it: the
+			one an earlier version wrote goes */
 			{
 				const char *home = getenv("HOME");
+
 				if (home && *home)
 				{
-					char dir[1024];
 					char path[1024];
-					FILE *f;
 
-					snprintf(dir, sizeof(dir), "%s/Library/Application Support/discord/games", home);
-					posix_make_directory(dir);
-					snprintf(path, sizeof(path), "%s/%s.json", dir, application);
-					f = fopen(path, "w");
-					if (f)
-					{
-						fprintf(f, "{\"command\": \"open -b io.github.mrmilenko.halo-ce-macos\"}\n");
-						fclose(f);
-					}
+					snprintf(path, sizeof(path), "%s/Library/Application Support/discord/games/%s.json",
+						home, application);
+					remove(path);
 				}
 			}
 #endif
