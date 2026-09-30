@@ -800,32 +800,14 @@ static boolean network_game_client_is_browser_entry(
 		!csmemcmp(available_games[game_index].nonce, browser_entry_nonce, sizeof(browser_entry_nonce));
 }
 
-/* a game of the list, whose host's own advertisement this machine has */
-static boolean network_game_client_browser_game_advertised(
-	struct network_advertised_game const *available_games,
+/* a game of the list whose host this machine is joining, or joined: its own
+advertisement comes through the tunnel (it is the one to pick) */
+static boolean network_game_client_browser_game_joined(
 	char const *invite)
 {
 	unsigned long address;
-	long game_index;
 
-	if (!browser_game_peer(invite, &address))
-		return FALSE;
-	for (game_index = 0; game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES; game_index++)
-	{
-		struct network_advertised_game const *game = &available_games[game_index];
-		unsigned long advertised_address;
-
-		csmemcpy(&advertised_address, game->xnaddr.data, sizeof(advertised_address));
-		if (!network_game_client_is_browser_entry(available_games, game_index) &&
-			network_game_client_advertised_game_is_valid((struct network_advertised_game *)game) &&
-			(advertised_address == address ||
-				advertised_address == ((address >> 24) | ((address >> 8) & 0xFF00) |
-					((address << 8) & 0xFF0000) | (address << 24))))
-		{
-			return TRUE;
-		}
-	}
-	return FALSE;
+	return browser_game_peer(invite, &address);
 }
 
 static void network_game_client_add_browser_games(
@@ -848,7 +830,7 @@ static void network_game_client_add_browser_games(
 		struct browser_game const *listed = &games[listed_index];
 		long slot = NONE;
 
-		if (network_game_client_browser_game_advertised(available_games, listed->invite))
+		if (network_game_client_browser_game_joined(listed->invite))
 			continue;
 		for (game_index = 0; game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES && slot == NONE; game_index++)
 		{
