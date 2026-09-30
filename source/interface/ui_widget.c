@@ -4882,28 +4882,7 @@ static struct
 	long font_index;
 	real_argb_color color;
 	rectangle2d bounds;
-	/* and the icon beside it, as drawn */
-	long icon_tag_index;
-	unsigned long icon_time;
-	rectangle2d icon_bounds;
-	pixel32 icon_color;
 } ui_widget_noted_style = { NONE };
-
-boolean ui_widget_icon_rectangle(
-	char const *name,
-	rectangle2d *bounds,
-	pixel32 *color)
-{
-	ui_widget_noted_style.icon_tag_index = tag_loaded(UI_WIDGET_DEFINITION_TAG, name);
-	if (ui_widget_noted_style.icon_tag_index == NONE ||
-		widget_globals.current_system_milliseconds - ui_widget_noted_style.icon_time > 250)
-	{
-		return FALSE;
-	}
-	*bounds = ui_widget_noted_style.icon_bounds;
-	*color = ui_widget_noted_style.icon_color;
-	return TRUE;
-}
 
 boolean ui_widget_text_style(
 	char const *name,
@@ -5880,15 +5859,6 @@ static void widget_instance_render_recursive(
 				alpha_modifier;
 		}
 		color = modulate_pixel32_by_real_alpha(0xFFFFFFFF, alpha);
-#ifdef HALO_NEW_NETWORKING
-		if (widget->definition_tag_index == ui_widget_noted_style.icon_tag_index &&
-			ui_widget_noted_style.icon_tag_index != NONE)
-		{
-			ui_widget_noted_style.icon_time = widget_globals.current_system_milliseconds;
-			ui_widget_noted_style.icon_bounds = bounds;
-			ui_widget_noted_style.icon_color = color;
-		}
-#endif
 		draw_bitmap_in_rect(
 			bitmap,
 			&bounds,

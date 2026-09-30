@@ -259,35 +259,30 @@ void browser_screen_process(
 /* the System Link screen's footer has no word of the browser (it is the
 user interface's tags): its free corner says so */
 boolean ui_widget_text_style(char const *name, long *font_index, real_argb_color *color, rectangle2d *bounds);
-boolean ui_widget_icon_rectangle(char const *name, rectangle2d *bounds, pixel32 *color);
 
 /* the System Link screen's footer has no word of the browser (it is the
-user interface's tags): an X button's prompt joins its others, as they are
-drawn (the X button's icon, from the same bitmaps as theirs, the size of
-the Y button's; the words in their font and color) */
+user interface's tags): an X button's prompt joins its others, left of
+"[Y]= CREATE GAME" (its words' font, color and line as they are drawn; the X
+button's icon from the shell's button bitmaps, as the Y button's) */
 void browser_screen_render_hint(
 	void)
 {
+	static wchar_t const words[] = L"=ALL GAMES";
 	long font_index;
 	real_argb_color color;
 	rectangle2d text;
-	rectangle2d icon;
+	rectangle2d measured;
 	rectangle2d bounds;
-	pixel32 icon_color;
 	long bitmap_index;
 	struct bitmap_data *bitmap;
-	short icon_width;
+	short icon_width, icon_height, words_width, right, middle;
 
 	if (browser_screen.active || system_milliseconds() - browser_screen.list_shown_time > LIST_SHOWN_WINDOW)
 		return;
-	/* (not drawn yet this time: the next frame. The Y button's icon is the
-	background of that text's own widget, the words offset past it) */
+	/* (not drawn yet this time: the next frame) */
 	if (!ui_widget_text_style(
-			"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\create_game_button",
-			&font_index, &color, &text) ||
-		!ui_widget_icon_rectangle(
-			"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\create_game_button",
-			&icon, &icon_color))
+		"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\create_game_button",
+		&font_index, &color, &text))
 	{
 		return;
 	}
@@ -295,18 +290,34 @@ void browser_screen_render_hint(
 	bitmap = bitmap_index != NONE ? bitmap_group_get_bitmap_from_sequence(bitmap_index, 0, 0) : NULL;
 	if (!bitmap)
 		return;
+	icon_width = bitmap->width;
+	icon_height = bitmap->height;
 
-	/* the prompt: [X]=ALL GAMES, ending a little left of the Y button's */
-	icon_width = (short)(icon.x1 - icon.x0);
-	bounds = icon;
-	bounds.x0 = (short)(icon.x0 - icon_width - 150);
-	bounds.x1 = (short)(bounds.x0 + icon_width);
-	draw_bitmap_in_rect(bitmap, &bounds, &bounds, NULL, icon_color, NULL, FALSE);
-	bounds = text;
-	bounds.x0 = (short)(icon.x0 - 150 + 2);
-	bounds.x1 = (short)(icon.x0 - 8);
 	draw_string_set_draw_mode(font_index, NONE, 0, 0, &color);
-	rasterizer_draw_unicode_string(&bounds, &bounds, NULL, 0, L"=ALL GAMES");
+	bounds.x0 = 0;
+	bounds.y0 = 0;
+	bounds.x1 = 640;
+	bounds.y1 = 480;
+	draw_unicode_string_compute_bounds(&bounds, words, &measured, NULL);
+	words_width = (short)(measured.x1 - measured.x0);
+
+	/* the Y button's icon sits just left of its words: this prompt ends a
+	gap before it */
+	right = (short)(text.x0 - icon_width - 24);
+	middle = (short)((text.y0 + text.y1) / 2);
+
+	bounds.x1 = right;
+	bounds.x0 = (short)(right - words_width);
+	bounds.y0 = text.y0;
+	bounds.y1 = text.y1;
+	rasterizer_draw_unicode_string(&bounds, &bounds, NULL, 0, words);
+
+	bounds.x1 = (short)(right - words_width - 2);
+	bounds.x0 = (short)(bounds.x1 - icon_width);
+	bounds.y0 = (short)(middle - icon_height / 2);
+	bounds.y1 = (short)(bounds.y0 + icon_height);
+	draw_bitmap_in_rect(bitmap, &bounds, NULL, NULL, (pixel32)((long)(color.alpha * 255.0f) << 24) | 0x00FFFFFF,
+		NULL, FALSE);
 }
 
 void browser_screen_render(
