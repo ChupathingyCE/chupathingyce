@@ -275,6 +275,9 @@ symbols in this file:
 #include "render/render_debug.h"
 #include "scenario/scenario.h"
 #include "structures/structure_bsp_definitions.h"
+#ifdef HALO_64BIT
+#include "game/player_control.h"
+#endif
 
 /* ---------- constants */
 

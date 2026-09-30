@@ -653,12 +653,20 @@ enum
 	(((struct rasterizer_xbox_rasterizer_globals *)&rasterizer_globals)->floating_point_z_buffer)
 #define rasterizer_refresh_rate \
 	(((struct rasterizer_xbox_rasterizer_globals *)&rasterizer_globals)->refresh_rate)
+#ifdef HALO_64BIT
+/* the default textures are host pointers, which the tag-sized globals have
+no room for */
+static void *rasterizer_default_2d_hardware_format = NULL;
+static void *rasterizer_default_3d_hardware_format = NULL;
+static void *rasterizer_default_cm_hardware_format = NULL;
+#else
 #define rasterizer_default_2d_hardware_format \
 	(((struct rasterizer_xbox_rasterizer_globals *)&rasterizer_globals)->default_2d_hardware_format)
 #define rasterizer_default_3d_hardware_format \
 	(((struct rasterizer_xbox_rasterizer_globals *)&rasterizer_globals)->default_3d_hardware_format)
 #define rasterizer_default_cm_hardware_format \
 	(((struct rasterizer_xbox_rasterizer_globals *)&rasterizer_globals)->default_cm_hardware_format)
+#endif
 
 /* ---------- structures */
 
@@ -2870,16 +2878,22 @@ struct rasterizer_xbox_rasterizer_globals
 	boolean floating_point_z_buffer;
 	byte reserved3D[3];
 	short refresh_rate;
+#ifdef HALO_64BIT
+	byte reserved42[0x26];
+#else
 	byte reserved42[0x12];
 	void *default_2d_hardware_format;
 	void *default_3d_hardware_format;
 	void *default_cm_hardware_format;
 	byte reserved60[8];
+#endif
 };
 
+#ifndef HALO_64BIT
 typedef char verify_rasterizer_xbox_rasterizer_globals_size[
 	sizeof(struct rasterizer_xbox_rasterizer_globals) ==
 		sizeof(struct rasterizer_globals_definition) ? 1 : -1];
+#endif
 typedef char verify_rasterizer_xbox_push_buffer_size_offset[
 	offsetof(
 		struct rasterizer_xbox_rasterizer_globals,
@@ -2888,11 +2902,13 @@ typedef char verify_rasterizer_xbox_refresh_rate_offset[
 	offsetof(
 		struct rasterizer_xbox_rasterizer_globals,
 		refresh_rate) == 0x40 ? 1 : -1];
+#ifndef HALO_64BIT
 typedef char verify_rasterizer_xbox_default_2d_hardware_format_offset[
 	offsetof(
 		struct rasterizer_xbox_rasterizer_globals,
 		default_2d_hardware_format) == 0x54 ? 1 : -1];
 
+#endif
 boolean _rasterizer_initialize(
 	void)
 {

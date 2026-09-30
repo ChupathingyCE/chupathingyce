@@ -81,6 +81,10 @@ symbols in this file:
 #include "objects/object_lights_rendering.h"
 #include "effects/particle_systems.h"
 #include "effects/weather_particle_systems.h"
+#ifdef HALO_64BIT
+#include "cseries/errors.h"
+#include "interface/interface.h"
+#endif
 
 /* ---------- constants */
 

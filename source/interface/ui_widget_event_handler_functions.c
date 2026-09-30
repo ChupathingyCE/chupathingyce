@@ -913,12 +913,16 @@ symbols in this file:
 #include "interface/player_ui.h"
 #include "saved games/player_profile.h"
 #include "interface/ui_widget_definitions.h"
+#ifdef HALO_64BIT
+#include "interface/ui_widget_instance.h"
+#endif
 
 /* ---------- constants */
 
 /* ---------- macros */
 
 /* ---------- structures */
+#ifndef HALO_64BIT
 
 struct widget_instance
 {
@@ -946,6 +950,7 @@ struct widget_instance
 	void *generated_list;
 	short generated_count;
 };
+#endif
 
 struct single_player_level_entry
 {
@@ -980,7 +985,11 @@ struct game_variant_data
 	byte data[0x68];
 };
 
+#ifdef HALO_64BIT
+/* the Xbox packing only matched January's .data layout; native here */
+#else
 #pragma pack(push, 2)
+#endif
 struct event_handler_globals
 {
 	long function_count;
@@ -994,7 +1003,9 @@ struct event_handler_globals
 	char *multiplayer_levels[13];
 	short unknown74;
 };
+#ifndef HALO_64BIT
 #pragma pack(pop)
+#endif
 
 struct playlist_profile_item_options_prefix
 {
@@ -1025,6 +1036,38 @@ void dispose_global_network_game_server(
 	void);
 void game_engine_playlist_initialize(
 	void);
+#ifdef HALO_64BIT
+void network_game_generate_join_game_token(
+	byte *join_token);
+struct widget_instance *ui_widget_load_by_name_or_tag(
+	char const *name,
+	int tag_index,
+	struct widget_instance *parent,
+	short local_player_index,
+	int invoking_widget_tag,
+	int focused_child_parent_widget_tag,
+	short focused_child_index);
+int widget_instance_get_child_index_from_parent(
+	struct widget_instance *widget);
+void network_game_abort(
+	void);
+void main_set_multiplayer_map_name(
+	char const *map_name);
+void game_engine_override_map_name(
+	char const *map_name);
+void network_game_server_change_map_name(
+	struct network_game_server *server,
+	char const *map_name);
+void saved_game_file_remember_last_used_multiplayer_map(
+	char const *map_name);
+void network_game_server_change_game_variant(
+	struct network_game_server *server,
+	struct game_variant *variant);
+boolean game_state_test_persistent_storage(
+	char *map_name,
+	short *difficulty,
+	boolean *corrupted);
+#endif
 void game_engine_playlist_next(
 	long,
 	long,
@@ -2031,16 +2074,29 @@ static boolean network_game_join_game_from_server_list(
 
 	zero = 0;
 	result = FALSE;
+#ifdef HALO_64BIT
+	if (widget->focused_child && widget->parameters.list.selected_index >= zero)
+#else
 	if (widget->focused_child && widget->data3C.selected_index >= zero)
+#endif
 	{
 		short generated_count;
 
+#ifdef HALO_64BIT
+		generated_count = widget->parameters.list.number_of_items;
+		if (widget->parameters.list.selected_index < (word)generated_count && widget->parameters.list.list_items)
+#else
 		generated_count = widget->generated_count;
 		if (widget->data3C.selected_index < (word)generated_count && widget->generated_list)
+#endif
 		{
 			if ((word)generated_count > (word)zero)
 			{
+#ifdef HALO_64BIT
+				server = ((byte **)widget->parameters.list.list_items)[widget->parameters.list.selected_index];
+#else
 				server = ((byte **)widget->generated_list)[widget->data3C.selected_index];
+#endif
 				if (server[0xE0] == TRUE)
 				{
 					if (*(short *)(server + 0xDE) == zero)
@@ -2210,8 +2266,13 @@ static boolean network_server_list_dispose(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
+#ifdef HALO_64BIT
+	widget->parameters.list.list_items = NULL;
+	widget->parameters.list.number_of_items = 0;
+#else
 	widget->generated_list = NULL;
 	widget->generated_count = 0;
+#endif
 	return TRUE;
 }
 
@@ -2242,8 +2303,13 @@ static boolean multiplayer_level_list_dispose(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
+#ifdef HALO_64BIT
+	widget->parameters.list.list_items = NULL;
+	widget->parameters.list.number_of_items = 0;
+#else
 	widget->generated_list = NULL;
 	widget->generated_count = 0;
+#endif
 	return TRUE;
 }
 
@@ -2350,8 +2416,13 @@ static boolean solo_level_dispose_list(
 	boolean *widget_deleted)
 {
 	memset(single_player_level_data, 0, sizeof(single_player_level_data));
+#ifdef HALO_64BIT
+	widget->parameters.list.list_items = NULL;
+	widget->parameters.list.number_of_items = 0;
+#else
 	widget->generated_list = NULL;
 	widget->generated_count = 0;
+#endif
 	return TRUE;
 }
 
@@ -2373,12 +2444,25 @@ static boolean multiplayer_profiles_list_dispose(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
+#ifdef HALO_64BIT
+	if (widget->parameters.list.list_items)
+#else
 	if (widget->generated_list)
+#endif
 	{
+#ifdef HALO_64BIT
+		widget_free(widget->parameters.list.list_items);
+		widget->parameters.list.list_items = NULL;
+#else
 		widget_free(widget->generated_list);
 		widget->generated_list = NULL;
+#endif
 	}
+#ifdef HALO_64BIT
+	widget->parameters.list.number_of_items = 0;
+#else
 	widget->generated_count = 0;
+#endif
 	return TRUE;
 }
 
@@ -2387,12 +2471,25 @@ static boolean player_profiles_list_dispose(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
+#ifdef HALO_64BIT
+	if (widget->parameters.list.list_items)
+#else
 	if (widget->generated_list)
+#endif
 	{
+#ifdef HALO_64BIT
+		widget_free(widget->parameters.list.list_items);
+		widget->parameters.list.list_items = NULL;
+#else
 		widget_free(widget->generated_list);
 		widget->generated_list = NULL;
+#endif
 	}
+#ifdef HALO_64BIT
+	widget->parameters.list.number_of_items = 0;
+#else
 	widget->generated_count = 0;
+#endif
 	return TRUE;
 }
 
@@ -2401,10 +2498,19 @@ static boolean player_profile_color_picker_menu_dispose(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
+#ifdef HALO_64BIT
+	if (widget->parameters.list.list_items)
+#else
 	if (widget->generated_list)
+#endif
 	{
+#ifdef HALO_64BIT
+		widget_free(widget->parameters.list.list_items);
+		widget->parameters.list.list_items = NULL;
+#else
 		widget_free(widget->generated_list);
 		widget->generated_list = NULL;
+#endif
 	}
 	return TRUE;
 }
@@ -2666,7 +2772,11 @@ static boolean close_calling_widget_if_not_editing_profile(
 		struct widget_instance *top = widget_instance_get_topmost_parent(widget);
 		error(2, "closing widget '%s' because no saved game file is being edited", top->name);
 		result = FALSE;
+#ifdef HALO_64BIT
+		top->creation_time = 1;
+#else
 		top->unknown1C = 1;
+#endif
 		top->visible = result;
 	}
 	else
@@ -2699,9 +2809,17 @@ static boolean difficulty_set(
 	boolean *widget_deleted)
 {
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 787,
+#ifdef HALO_64BIT
+		widget->parameters.list.selected_index >= 0 && widget->parameters.list.selected_index < 4,
+#else
 		widget->data3C.selected_index >= 0 && widget->data3C.selected_index < 4,
+#endif
 		"I don't think this is the difficulty list widget");
+#ifdef HALO_64BIT
+	main_set_difficulty(widget->parameters.list.selected_index);
+#else
 	main_set_difficulty(widget->data3C.selected_index);
+#endif
 	ui_play_audio_feedback_sound(2);
 	return TRUE;
 }
@@ -2808,7 +2926,11 @@ static boolean start_network_game_if_no_advertised_servers(
 
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 4593,
 		widget->type == 3, "expected a column list for server list");
+#ifdef HALO_64BIT
+	if (widget->parameters.list.number_of_items == 0)
+#else
 	if (widget->generated_count == 0)
+#endif
 	{
 		client = global_network_game_client_get();
 		if (client && network_game_client_get_state(client, &state) == 0)
@@ -2843,10 +2965,19 @@ static boolean delete_player_profile_request(
 	}
 	widget = widget->child;
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 4124,
+#ifdef HALO_64BIT
+		widget->parameters.list.selected_index >= 0 &&
+		widget->parameters.list.selected_index < (unsigned short)widget->parameters.list.number_of_items,
+#else
 		widget->data3C.selected_index >= 0 &&
 		widget->data3C.selected_index < (unsigned short)widget->generated_count,
+#endif
 		"invalid multiplayer profile specified from 'multiplayer profile list' list widget");
+#ifdef HALO_64BIT
+	profile_index = ((long *)widget->parameters.list.list_items)[widget->parameters.list.selected_index];
+#else
 	profile_index = ((long *)widget->generated_list)[widget->data3C.selected_index];
+#endif
 	event_handler_functions.profile_index = profile_index;
 	if (profile_index != NONE)
 		return TRUE;
@@ -2875,13 +3006,22 @@ static boolean player_profile_color_picker_select_color(
 			"expected 3 list items for 'player color picker list' widget");
 	}
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3644,
+#ifdef HALO_64BIT
+		color_select_screen->parameters.list.selected_index >= 0 &&
+		color_select_screen->parameters.list.selected_index <
+#else
 		color_select_screen->data3C.selected_index >= 0 &&
 		color_select_screen->data3C.selected_index <
+#endif
 			player_profile_number_of_available_primary_colors(),
 		"invalid player profile color index specified");
 	if (profile)
 	{
+#ifdef HALO_64BIT
+		profile->primary_color_index = color_select_screen->parameters.list.selected_index;
+#else
 		profile->primary_color_index = color_select_screen->data3C.selected_index;
+#endif
 		return TRUE;
 	}
 	error(2, "failed to set player profile color because no profile is currently being edited");
@@ -2903,7 +3043,11 @@ static boolean playlist_profile_set_game_engine(
 		"expected column list for game engine type list");
 	if (profile)
 	{
+#ifdef HALO_64BIT
+		switch (list_widget->parameters.list.selected_index)
+#else
 		switch (list_widget->data3C.selected_index)
+#endif
 		{
 		case 0:
 			game_engine = 1;
@@ -3128,19 +3272,42 @@ static boolean multiplayer_level_list_initialize(
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1229,
 		definition->child_count == 3,
 		"expected 3 list items for 'multiplayer level list' widget");
+#ifdef HALO_64BIT
+	widget->parameters.list.list_items = event_handler_functions.multiplayer_levels;
+	widget->parameters.list.number_of_items = level_count;
+#else
 	widget->generated_list = event_handler_functions.multiplayer_levels;
 	widget->generated_count = level_count;
+#endif
 	if (saved_game_file_retrieve_last_used_multiplayer_map(map_name))
 	{
+#ifdef HALO_64BIT
+		widget->parameters.list.selected_index = 0;
+		while (widget->parameters.list.selected_index < level_count &&
+#else
 		widget->data3C.selected_index = 0;
 		while (widget->data3C.selected_index < level_count &&
+#endif
 			_stricmp(map_name,
+#ifdef HALO_64BIT
+				event_handler_functions.multiplayer_levels[widget->parameters.list.selected_index]))
+#else
 				event_handler_functions.multiplayer_levels[widget->data3C.selected_index]))
+#endif
 		{
+#ifdef HALO_64BIT
+			widget->parameters.list.selected_index++;
+#else
 			widget->data3C.selected_index++;
+#endif
 		}
+#ifdef HALO_64BIT
+		if (widget->parameters.list.selected_index == level_count)
+			widget->parameters.list.selected_index = 0;
+#else
 		if (widget->data3C.selected_index == level_count)
 			widget->data3C.selected_index = 0;
+#endif
 	}
 	return TRUE;
 }
@@ -3173,10 +3340,19 @@ static boolean playlist_profile_begin_editing(
 	}
 	widget = widget->child;
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1909,
+#ifdef HALO_64BIT
+		widget->parameters.list.selected_index >= 0 &&
+		widget->parameters.list.selected_index < (unsigned short)widget->parameters.list.number_of_items,
+#else
 		widget->data3C.selected_index >= 0 &&
 		widget->data3C.selected_index < (unsigned short)widget->generated_count,
+#endif
 		"invalid multiplayer profile specified from 'multiplayer profile list' list widget");
+#ifdef HALO_64BIT
+	profile_index = ((long *)widget->parameters.list.list_items)[widget->parameters.list.selected_index];
+#else
 	profile_index = ((long *)widget->generated_list)[widget->data3C.selected_index];
+#endif
 	if (profile_index != NONE)
 	{
 		if (profile_index & 0x80000000)
@@ -3220,10 +3396,19 @@ static boolean player_profile_begin_editing(
 	}
 	widget = widget->child;
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3687,
+#ifdef HALO_64BIT
+		widget->parameters.list.selected_index >= 0 &&
+		widget->parameters.list.selected_index < (unsigned short)widget->parameters.list.number_of_items,
+#else
 		widget->data3C.selected_index >= 0 &&
 		widget->data3C.selected_index < (unsigned short)widget->generated_count,
+#endif
 		"invalid player profile specified from 'player profile list' list widget");
+#ifdef HALO_64BIT
+	profile_index = ((long *)widget->parameters.list.list_items)[widget->parameters.list.selected_index];
+#else
 	profile_index = ((long *)widget->generated_list)[widget->data3C.selected_index];
+#endif
 	if (profile_index != NONE)
 	{
 		if (profile_index & 0x80000000)
@@ -3268,10 +3453,19 @@ static boolean delete_playlist_profile_request(
 	}
 	widget = widget->child;
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 4169,
+#ifdef HALO_64BIT
+		widget->parameters.list.selected_index >= 0 &&
+		widget->parameters.list.selected_index < (unsigned short)widget->parameters.list.number_of_items,
+#else
 		widget->data3C.selected_index >= 0 &&
 		widget->data3C.selected_index < (unsigned short)widget->generated_count,
+#endif
 		"invalid multiplayer profile specified from 'multiplayer profile list' list widget");
+#ifdef HALO_64BIT
+	profile_index = ((long *)widget->parameters.list.list_items)[widget->parameters.list.selected_index];
+#else
 	profile_index = ((long *)widget->generated_list)[widget->data3C.selected_index];
+#endif
 	event_handler_functions.profile_index = profile_index;
 	if (profile_index != NONE)
 	{
@@ -3304,13 +3498,26 @@ static boolean player_profile_color_picker_menu_initialize(
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3577,
 		definition->child_count == 3,
 		"expected 3 list items for 'player color picker list' widget");
+#ifdef HALO_64BIT
+	widget->parameters.list.list_items = ui_widget_realloc(widget->parameters.list.list_items, color_count,
+#else
 	widget->generated_list = ui_widget_realloc(widget->generated_list, color_count,
+#endif
 		"c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3581);
+#ifdef HALO_64BIT
+	if (widget->parameters.list.list_items)
+#else
 	if (widget->generated_list)
+#endif
 	{
 		for (index = 0; index < (unsigned short)color_count; index++)
+#ifdef HALO_64BIT
+			((byte *)widget->parameters.list.list_items)[index] = (byte)index;
+		widget->parameters.list.number_of_items = (short)color_count;
+#else
 			((byte *)widget->generated_list)[index] = (byte)index;
 		widget->generated_count = (short)color_count;
+#endif
 	}
 	if (profile)
 	{
@@ -3327,7 +3534,11 @@ static boolean player_profile_color_picker_menu_initialize(
 				result = maximum_color;
 		}
 		profile->primary_color_index = (short)result;
+#ifdef HALO_64BIT
+		widget->parameters.list.selected_index = (short)result;
+#else
 		widget->data3C.selected_index = (short)result;
+#endif
 	}
 	else
 		error(2, "failed to find editing player profile");
@@ -3350,7 +3561,11 @@ static boolean difficulty_menu_initialize(
 			persistant_game_data_info.difficulty.value);
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 4865,
 			difficulty_widget != NULL, "failed to find 'difficulty' menu item");
+#ifdef HALO_64BIT
+		widget->parameters.list.selected_index = persistant_game_data_info.difficulty.value;
+#else
 		widget->data3C.selected_index = persistant_game_data_info.difficulty.value;
+#endif
 		widget->focused_child = difficulty_widget;
 		return TRUE;
 	}
@@ -3358,7 +3573,11 @@ static boolean difficulty_menu_initialize(
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 4871,
 		difficulty_widget != NULL, "failed to find 'difficulty' menu item");
 	widget->focused_child = difficulty_widget;
+#ifdef HALO_64BIT
+	widget->parameters.list.selected_index = 1;
+#else
 	widget->data3C.selected_index = 1;
+#endif
 	return TRUE;
 }
 
@@ -3378,25 +3597,49 @@ static boolean playlist_profile_initialize_game_engine(
 		switch (game_engine)
 		{
 		case 4:
+#ifdef HALO_64BIT
+			widget->parameters.list.selected_index = 1;
+#else
 			widget->data3C.selected_index = 1;
+#endif
 			break;
 		case 2:
+#ifdef HALO_64BIT
+			widget->parameters.list.selected_index = 2;
+#else
 			widget->data3C.selected_index = 2;
+#endif
 			break;
 		case 3:
+#ifdef HALO_64BIT
+			widget->parameters.list.selected_index = 3;
+#else
 			widget->data3C.selected_index = 3;
+#endif
 			break;
 		case 5:
+#ifdef HALO_64BIT
+			widget->parameters.list.selected_index = 4;
+#else
 			widget->data3C.selected_index = 4;
+#endif
 			break;
 		case 1:
 			goto default_game_engine;
 		default:
 		default_game_engine:
+#ifdef HALO_64BIT
+			widget->parameters.list.selected_index = 0;
+#else
 			widget->data3C.selected_index = 0;
+#endif
 			break;
 		}
+#ifdef HALO_64BIT
+		widget->focused_child = widget_instance_get_nth_child(widget, widget->parameters.list.selected_index);
+#else
 		widget->focused_child = widget_instance_get_nth_child(widget, widget->data3C.selected_index);
+#endif
 		return TRUE;
 	}
 	error(2, "failed to retrieve editable game variant");
@@ -3461,9 +3704,17 @@ static boolean multiplayer_profiles_list_initialize(
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1385,
 		definition->child_count == 3,
 		"expected 3 list items for 'multiplayer settings list' widget");
+#ifdef HALO_64BIT
+	widget->parameters.list.list_items = ui_widget_realloc(widget->parameters.list.list_items, 0x190,
+#else
 	widget->generated_list = ui_widget_realloc(widget->generated_list, 0x190,
+#endif
 		"c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1390);
+#ifdef HALO_64BIT
+	profile_indices = widget->parameters.list.list_items;
+#else
 	profile_indices = widget->generated_list;
+#endif
 	if (profile_indices)
 	{
 		long profile_count;
@@ -3484,7 +3735,11 @@ static boolean multiplayer_profiles_list_initialize(
 				profile_index_pointer++;
 			} while (--remaining_profile_count);
 		}
+#ifdef HALO_64BIT
+		widget->parameters.list.number_of_items = (word)profile_count;
+#else
 		widget->generated_count = (word)profile_count;
+#endif
 		if (saved_game_file_retrieve_last_used_multiplayer_variant_directory(directory_path))
 		{
 			profile_index = saved_game_file_find_profile_index_for_directory_path(directory_path, 1);
@@ -3494,7 +3749,11 @@ static boolean multiplayer_profiles_list_initialize(
 				{
 					if (profile_indices[list_item_index] == profile_index)
 					{
+#ifdef HALO_64BIT
+						widget->parameters.list.selected_index = list_item_index;
+#else
 						widget->data3C.selected_index = list_item_index;
+#endif
 						break;
 					}
 				}
@@ -3590,12 +3849,25 @@ static boolean playlist_profile_initialize_name(
 		widget->type == 1, "expected text box widget for profile name");
 	if (profile)
 	{
+#ifdef HALO_64BIT
+		widget->parameters.text_box.text = ui_widget_realloc(widget->parameters.text_box.text, 0x100,
+#else
 		widget->data3C.text = ui_widget_realloc(widget->data3C.text, 0x100,
+#endif
 			"c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2774);
+#ifdef HALO_64BIT
+		if (widget->parameters.text_box.text)
+#else
 		if (widget->data3C.text)
+#endif
 		{
+#ifdef HALO_64BIT
+			ustrncpy(widget->parameters.text_box.text, profile, 0x7F);
+			widget->parameters.text_box.text[0x7F] = L'\0';
+#else
 			ustrncpy(widget->data3C.text, profile, 0x7F);
 			widget->data3C.text[0x7F] = L'\0';
+#endif
 		}
 	}
 	else
@@ -3624,7 +3896,11 @@ static boolean playlist_profile_change_item_options(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2610, option_spinner, "expected 'infinite grenades' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0:
 			*(long *)(profile + 0x20) |= 4;
@@ -3643,7 +3919,11 @@ static boolean playlist_profile_change_item_options(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2621, option_spinner, "expected 'vehicle set' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(long *)(profile + 0x48) = 0; break;
 		case 1: *(long *)(profile + 0x48) = 1; break;
@@ -3661,7 +3941,11 @@ static boolean playlist_profile_change_item_options(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2635, option_spinner, "expected 'weapon set' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(long *)(profile + 0x44) = 0; break;
 		case 1: *(long *)(profile + 0x44) = 1; break;
@@ -3685,7 +3969,11 @@ static boolean playlist_profile_change_item_options(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2656, option_spinner, "expected 'starting equipment' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0:
 			*(long *)(profile + 0x20) &= ~0x20;
@@ -3721,7 +4009,11 @@ static boolean playlist_profile_change_indicator_options(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2690, option_spinner, "expected 'radar display' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(long *)(profile + 0x24) = 0; break;
 		case 1: *(long *)(profile + 0x24) = 1; break;
@@ -3737,7 +4029,11 @@ static boolean playlist_profile_change_indicator_options(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2702, option_spinner, "expected 'other players on radar' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0:
 			*(long *)(profile + 0x20) |= 1;
@@ -3756,7 +4052,11 @@ static boolean playlist_profile_change_indicator_options(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2713, option_spinner, "expected 'friends on screen' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0:
 			*(long *)(profile + 0x20) |= 2;
@@ -3792,7 +4092,11 @@ static boolean playlist_profile_change_ctf_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2042, option_spinner, "expected 'assault' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: profile[0x4C] = TRUE; break;
 		case 1: profile[0x4C] = FALSE; break;
@@ -3805,7 +4109,11 @@ static boolean playlist_profile_change_ctf_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2053, option_spinner, "expected 'single flag' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(long *)(profile + 0x50) = 0; break;
 		case 1: *(long *)(profile + 0x50) = 0x708; break;
@@ -3822,7 +4130,11 @@ static boolean playlist_profile_change_ctf_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2068, option_spinner, "expected 'flag must reset' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: profile[0x4E] = TRUE; break;
 		case 1: profile[0x4E] = FALSE; break;
@@ -3835,7 +4147,11 @@ static boolean playlist_profile_change_ctf_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2079, option_spinner, "expected 'flag at home to score' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: profile[0x4F] = TRUE; break;
 		case 1: profile[0x4F] = FALSE; break;
@@ -3848,7 +4164,11 @@ static boolean playlist_profile_change_ctf_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2090, option_spinner, "expected 'captures to win' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(long *)(profile + 0x40) = 1; break;
 		case 1: *(long *)(profile + 0x40) = 3; break;
@@ -3883,7 +4203,11 @@ static boolean playlist_profile_change_racing_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2410, option_spinner, "expected 'team scoring' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(long *)(profile + 0x50) = 0; break;
 		case 1: *(long *)(profile + 0x50) = 1; break;
@@ -3896,7 +4220,11 @@ static boolean playlist_profile_change_racing_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2422, option_spinner, "expected 'race type' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(long *)(profile + 0x4C) = 0; break;
 		case 1: *(long *)(profile + 0x4C) = 1; break;
@@ -3909,7 +4237,11 @@ static boolean playlist_profile_change_racing_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2434, option_spinner, "expected 'laps to win' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(long *)(profile + 0x40) = 1; break;
 		case 1: *(long *)(profile + 0x40) = 3; break;
@@ -3925,7 +4257,11 @@ static boolean playlist_profile_change_racing_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2449, option_spinner, "expected 'teams' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: profile[0x1C] = TRUE; break;
 		case 1: profile[0x1C] = FALSE; break;
@@ -3956,7 +4292,11 @@ static boolean playlist_profile_change_koth_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2128, option_spinner, "expected 'moving hill' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: profile[0x4C] = TRUE; break;
 		case 1: profile[0x4C] = FALSE; break;
@@ -3968,7 +4308,11 @@ static boolean playlist_profile_change_koth_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2139, option_spinner, "expected 'score to win' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(long *)(profile + 0x40) = 1; break;
 		case 1: *(long *)(profile + 0x40) = 2; break;
@@ -3983,7 +4327,11 @@ static boolean playlist_profile_change_koth_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2153, option_spinner, "expected 'teams' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: profile[0x1C] = TRUE; break;
 		case 1: profile[0x1C] = FALSE; break;
@@ -4014,7 +4362,11 @@ static boolean playlist_profile_change_slayer_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2189, option_spinner, "expected 'death bonus' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: profile[0x4C] = FALSE; break;
 		case 1: profile[0x4C] = TRUE; break;
@@ -4026,7 +4378,11 @@ static boolean playlist_profile_change_slayer_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2200, option_spinner, "expected 'kill in order' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: profile[0x4E] = TRUE; break;
 		case 1: profile[0x4E] = FALSE; break;
@@ -4038,7 +4394,11 @@ static boolean playlist_profile_change_slayer_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2211, option_spinner, "expected 'kill penalty' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: profile[0x4D] = FALSE; break;
 		case 1: profile[0x4D] = TRUE; break;
@@ -4050,7 +4410,11 @@ static boolean playlist_profile_change_slayer_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2222, option_spinner, "expected 'kills to win' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(long *)(profile + 0x40) = 5; break;
 		case 1: *(long *)(profile + 0x40) = 10; break;
@@ -4065,7 +4429,11 @@ static boolean playlist_profile_change_slayer_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2236, option_spinner, "expected 'teams' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: profile[0x1C] = TRUE; break;
 		case 1: profile[0x1C] = FALSE; break;
@@ -4097,17 +4465,31 @@ static boolean player_profile_set_for_game_1wide(
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1838, spinner_list, "failed to find the 1-wide spinner list for player profiles (expected it to be a child of this widget)");
 	definition = ui_widget_definition_get(spinner_list->definition_tag_index);
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1845, definition->child_count == 0, "expected a code-generated 1-wide spinner list for 'mp player profile list' widget");
+#ifdef HALO_64BIT
+	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1851, spinner_list->parameters.list.selected_index >= 0 && spinner_list->parameters.list.selected_index < (word)spinner_list->parameters.list.number_of_items, "invalid multiplayer profile specified from 'mp player profile list' list widget");
+	available_profiles = spinner_list->parameters.list.list_items;
+	if (!(available_profiles[spinner_list->parameters.list.selected_index] & 0x80000000))
+#else
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1851, spinner_list->data3C.selected_index >= 0 && spinner_list->data3C.selected_index < (word)spinner_list->generated_count, "invalid multiplayer profile specified from 'mp player profile list' list widget");
 	available_profiles = spinner_list->generated_list;
 	if (!(available_profiles[spinner_list->data3C.selected_index] & 0x80000000))
+#endif
 	{
 		display_error_deferred(31, controller_index, TRUE, FALSE);
 		ui_play_audio_feedback_sound(4);
 		return FALSE;
 	}
+#ifdef HALO_64BIT
+	if (player_profile_get(available_profiles[spinner_list->parameters.list.selected_index], &profile))
+#else
 	if (player_profile_get(available_profiles[spinner_list->data3C.selected_index], &profile))
+#endif
 	{
+#ifdef HALO_64BIT
+		player_ui_set_active_player_profile(controller_index, available_profiles[spinner_list->parameters.list.selected_index], &profile);
+#else
 		player_ui_set_active_player_profile(controller_index, available_profiles[spinner_list->data3C.selected_index], &profile);
+#endif
 		return TRUE;
 	}
 	error(2, "failed to retrieve user selected player profile");
@@ -4138,19 +4520,39 @@ static boolean player_profile_initialize_controller_settings(
 		switch (profile->controller_settings.joystick_preset)
 		{
 		case _joystick_preset_standard:
+#ifdef HALO_64BIT
+			option_spinner->parameters.list.selected_index = 0;
+#else
 			option_spinner->data3C.selected_index = 0;
+#endif
 			break;
 		case _joystick_preset_south_paw:
+#ifdef HALO_64BIT
+			option_spinner->parameters.list.selected_index = 1;
+#else
 			option_spinner->data3C.selected_index = 1;
+#endif
 			break;
 		case _joystick_preset_legacy:
+#ifdef HALO_64BIT
+			option_spinner->parameters.list.selected_index = 2;
+#else
 			option_spinner->data3C.selected_index = 2;
+#endif
 			break;
 		case _joystick_preset_legacy_south_paw:
+#ifdef HALO_64BIT
+			option_spinner->parameters.list.selected_index = 3;
+#else
 			option_spinner->data3C.selected_index = 3;
+#endif
 			break;
 		default:
+#ifdef HALO_64BIT
+			option_spinner->parameters.list.selected_index = 0;
+#else
 			option_spinner->data3C.selected_index = 0;
+#endif
 			break;
 		}
 
@@ -4163,22 +4565,46 @@ static boolean player_profile_initialize_controller_settings(
 		switch (profile->controller_settings.button_preset)
 		{
 		case _button_preset_standard:
+#ifdef HALO_64BIT
+			option_spinner->parameters.list.selected_index = 0;
+#else
 			option_spinner->data3C.selected_index = 0;
+#endif
 			break;
 		case _button_preset_swap_triggers:
+#ifdef HALO_64BIT
+			option_spinner->parameters.list.selected_index = 1;
+#else
 			option_spinner->data3C.selected_index = 1;
+#endif
 			break;
 		case _button_preset_swap_a_and_left_trigger:
+#ifdef HALO_64BIT
+			option_spinner->parameters.list.selected_index = 2;
+#else
 			option_spinner->data3C.selected_index = 2;
+#endif
 			break;
 		case _button_preset_swap_b_and_left_trigger:
+#ifdef HALO_64BIT
+			option_spinner->parameters.list.selected_index = 3;
+#else
 			option_spinner->data3C.selected_index = 3;
+#endif
 			break;
 		case _button_preset_swap_b_and_right_thumb:
+#ifdef HALO_64BIT
+			option_spinner->parameters.list.selected_index = 4;
+#else
 			option_spinner->data3C.selected_index = 4;
+#endif
 			break;
 		default:
+#ifdef HALO_64BIT
+			option_spinner->parameters.list.selected_index = 0;
+#else
 			option_spinner->data3C.selected_index = 0;
+#endif
 			break;
 		}
 	}
@@ -4230,9 +4656,15 @@ static boolean solo_level_initialize_list_coop(
 	definition = ui_widget_definition_get(widget->definition_tag_index);
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 689, definition->type == 2, "expected a spinner list widget for 'solo level list' widget");
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 690, definition->child_count == 3, "expected 3 list items for 'solo level list' widget");
+#ifdef HALO_64BIT
+	widget->parameters.list.list_items = single_player_level_data;
+	widget->parameters.list.number_of_items = 10;
+	widget->parameters.list.selected_index = PIN(player_ui_get_last_single_player_level_played(0), 0, 9);
+#else
 	widget->generated_list = single_player_level_data;
 	widget->generated_count = 10;
 	widget->data3C.selected_index = PIN(player_ui_get_last_single_player_level_played(0), 0, 9);
+#endif
 	return TRUE;
 }
 
@@ -4255,7 +4687,11 @@ static boolean player_profile_change_advanced_controller_settings(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3994, option_spinner, "expected 'invert joystick' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: profile->controller_settings.invert_look = TRUE; break;
 		case 1: profile->controller_settings.invert_look = FALSE; break;
@@ -4269,9 +4705,17 @@ static boolean player_profile_change_advanced_controller_settings(
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 4005, option_spinner, "expected 'look sensitivity' option spinner list");
 		{
+#ifdef HALO_64BIT
+			long selected_index = option_spinner->parameters.list.selected_index;
+#else
 			long selected_index = option_spinner->data3C.selected_index;
+#endif
 			if (selected_index >= 0 && selected_index <= 9)
+#ifdef HALO_64BIT
+				profile->controller_settings.look_sensitivity = (byte)(option_spinner->parameters.list.selected_index + 1);
+#else
 				profile->controller_settings.look_sensitivity = (byte)(option_spinner->data3C.selected_index + 1);
+#endif
 			else
 				error(2, "unknown option selected for look sensitivity");
 		}
@@ -4282,7 +4726,11 @@ static boolean player_profile_change_advanced_controller_settings(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 4026, option_spinner, "expected 'controller vibration' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: profile->controller_settings.vibration_disabled = FALSE; break;
 		case 1: profile->controller_settings.vibration_disabled = TRUE; break;
@@ -4295,7 +4743,11 @@ static boolean player_profile_change_advanced_controller_settings(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 4037, option_spinner, "expected 'flight stick controls' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: profile->controller_settings.flight_stick_aircraft_controls = TRUE; break;
 		case 1: profile->controller_settings.flight_stick_aircraft_controls = FALSE; break;
@@ -4308,7 +4760,11 @@ static boolean player_profile_change_advanced_controller_settings(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 4048, option_spinner, "expected 'autocenter' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: profile->controller_settings.autocenter = TRUE; break;
 		case 1: profile->controller_settings.autocenter = FALSE; break;
@@ -4333,13 +4789,21 @@ static boolean solo_level_set_next_map_name(
 
 	list_widget = widget;
 	result = FALSE;
+#ifdef HALO_64BIT
+	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 724, list_widget->parameters.list.selected_index >= 0 && list_widget->parameters.list.selected_index < 10, "I don't think this is the solo level list widget");
+#else
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 724, list_widget->data3C.selected_index >= 0 && list_widget->data3C.selected_index < 10, "I don't think this is the solo level list widget");
+#endif
 	switch (player_spawn_count)
 	{
 	case 1:
 		player_ui_get_active_player_profile(0, &profile);
 		player_profile_get_highest_completed_solo_level(&profile, &highest_level, &highest_difficulty);
+#ifdef HALO_64BIT
+		if (profile.single_player_map_flags[list_widget->parameters.list.selected_index] || list_widget->parameters.list.selected_index == highest_level + 1 || list_widget->parameters.list.selected_index == 0)
+#else
 		if (profile.single_player_map_flags[list_widget->data3C.selected_index] || list_widget->data3C.selected_index == highest_level + 1 || list_widget->data3C.selected_index == 0)
+#endif
 			result = TRUE;
 		player_ui_remember_player1_profile(0);
 	case 2:
@@ -4350,7 +4814,11 @@ static boolean solo_level_set_next_map_name(
 			{
 				player_ui_get_active_player_profile(local_player_index, &profile);
 				player_profile_get_highest_completed_solo_level(&profile, &highest_level, &highest_difficulty);
+#ifdef HALO_64BIT
+				if (profile.single_player_map_flags[list_widget->parameters.list.selected_index] || list_widget->parameters.list.selected_index == highest_level + 1 || list_widget->parameters.list.selected_index == 0)
+#else
 				if (profile.single_player_map_flags[list_widget->data3C.selected_index] || list_widget->data3C.selected_index == highest_level + 1 || list_widget->data3C.selected_index == 0)
+#endif
 				{
 					result = TRUE;
 					break;
@@ -4364,7 +4832,11 @@ static boolean solo_level_set_next_map_name(
 	}
 	if (result == TRUE)
 	{
+#ifdef HALO_64BIT
+		main_set_map_name((&event_handler_functions.map_name)[list_widget->parameters.list.selected_index]);
+#else
 		main_set_map_name((&event_handler_functions.map_name)[list_widget->data3C.selected_index]);
+#endif
 		main_defer_map_map_change();
 	}
 	else
@@ -4405,14 +4877,6 @@ static boolean netgame_join_player(
 					(short)(signed char)game[HALO_PORT_NETWORK_GAME_PLAYERS_OFFSET + 0x1D + value * 0x20] == event->controller_index)
 					return TRUE;
 			}
-#else
-			for (value = 0; value < 16; value++)
-			{
-				if (network_player_is_valid(game + 0x226 + value * 0x20) &&
-					(short)(signed char)game[0x242 + value * 0x20] == (short)machine_index &&
-					(short)(signed char)game[0x243 + value * 0x20] == event->controller_index)
-					return TRUE;
-			}
 #endif
 		}
 		if (!network_game_client_add_player(client, event->controller_index))
@@ -4442,9 +4906,17 @@ static boolean player_profiles_list_initialize(
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1688,
 		definition->child_count == 0 || definition->child_count == required_profile_count,
 		"expected either 1 or 3 list items for 'player settings list' widget");
+#ifdef HALO_64BIT
+	widget->parameters.list.list_items = ui_widget_realloc(widget->parameters.list.list_items, 400,
+#else
 	widget->generated_list = ui_widget_realloc(widget->generated_list, 400,
+#endif
 		"c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1693);
+#ifdef HALO_64BIT
+	if (widget->parameters.list.list_items)
+#else
 	if (widget->generated_list)
+#endif
 	{
 		if (definition->child_count != required_profile_count)
 		{
@@ -4459,7 +4931,11 @@ static boolean player_profiles_list_initialize(
 		player_profiles_enumerate_available_to_local_player_index(
 			widget->local_player_index,
 			&profile_count,
+#ifdef HALO_64BIT
+			widget->parameters.list.list_items,
+#else
 			widget->generated_list,
+#endif
 			include_default);
 		if (definition->child_count == required_profile_count && (word)profile_count < (word)required_profile_count)
 		{
@@ -4470,23 +4946,40 @@ static boolean player_profiles_list_initialize(
 			remaining_profile_count = (word)(required_profile_count - (word)profile_count);
 			do
 			{
+#ifdef HALO_64BIT
+				*(long *)((byte *)widget->parameters.list.list_items + profile_offset) = NONE;
+#else
 				*(long *)((byte *)widget->generated_list + profile_offset) = NONE;
+#endif
 				profile_count++;
 				profile_offset += sizeof(long);
 			} while (--remaining_profile_count);
 		}
+#ifdef HALO_64BIT
+		widget->parameters.list.number_of_items = (word)profile_count;
+#else
 		widget->generated_count = (word)profile_count;
+#endif
 		last_profile_index = player_ui_get_player1_last_used_profile_index();
 		if (last_profile_index != NONE)
 		{
 			byte *profile_indices;
 
+#ifdef HALO_64BIT
+			profile_indices = widget->parameters.list.list_items;
+			for (profile_index = 0; profile_index < (word)widget->parameters.list.number_of_items; profile_index++)
+#else
 			profile_indices = widget->generated_list;
 			for (profile_index = 0; profile_index < (word)widget->generated_count; profile_index++)
+#endif
 			{
 				if (*(long *)(profile_indices + profile_index * sizeof(long)) == last_profile_index)
 				{
+#ifdef HALO_64BIT
+					widget->parameters.list.selected_index = (short)profile_index;
+#else
 					widget->data3C.selected_index = (short)profile_index;
+#endif
 					break;
 				}
 			}
@@ -4525,10 +5018,19 @@ static boolean player_profile_set_for_game_3wide(
 		"expected 3 list items for 'player profile list' widget");
 	spinner = widget->child;
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1784,
+#ifdef HALO_64BIT
+		spinner->parameters.list.selected_index >= 0 && spinner->parameters.list.selected_index < (unsigned short)spinner->parameters.list.number_of_items,
+#else
 		spinner->data3C.selected_index >= 0 && spinner->data3C.selected_index < (unsigned short)spinner->generated_count,
+#endif
 		"invalid multiplayer profile specified from 'player profile list' list widget");
+#ifdef HALO_64BIT
+	profile_indices = spinner->parameters.list.list_items;
+	profile_index = profile_indices[spinner->parameters.list.selected_index];
+#else
 	profile_indices = spinner->generated_list;
 	profile_index = profile_indices[spinner->data3C.selected_index];
+#endif
 	if (profile_index != NONE)
 	{
 		if (!(profile_index & 0x80000000))
@@ -4545,7 +5047,11 @@ static boolean player_profile_set_for_game_3wide(
 			local_player_index = player_ui_get_single_player_local_player_from_controller(event->controller_index);
 			player_ui_set_active_player_profile(
 				local_player_index,
+#ifdef HALO_64BIT
+				profile_indices[spinner->parameters.list.selected_index],
+#else
 				profile_indices[spinner->data3C.selected_index],
+#endif
 				&profile);
 			return TRUE;
 		}
@@ -4578,10 +5084,17 @@ static boolean playlist_profile_initialize_indicator_options(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3460, option_spinner, "expected 'radar display' option spinner list");
 		switch (*(long *)(profile + 0x24))
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 0; break;
+		case 1: option_spinner->parameters.list.selected_index = 1; break;
+		case 2: option_spinner->parameters.list.selected_index = 2; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 0; break;
 		case 1: option_spinner->data3C.selected_index = 1; break;
 		case 2: option_spinner->data3C.selected_index = 2; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -4592,9 +5105,15 @@ static boolean playlist_profile_initialize_indicator_options(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3472, option_spinner, "expected 'other players on radar' option spinner list");
 		switch (*(long *)(profile + 0x20) & 1)
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 1; break;
+		case 1: option_spinner->parameters.list.selected_index = 0; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 1; break;
 		case 1: option_spinner->data3C.selected_index = 0; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -4605,9 +5124,15 @@ static boolean playlist_profile_initialize_indicator_options(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3484, option_spinner, "expected 'friends on screen' option spinner list");
 		switch ((*(unsigned long *)(profile + 0x20) >> 1) & 1)
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 1; return TRUE;
+		case 1: option_spinner->parameters.list.selected_index = 0; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 1; return TRUE;
 		case 1: option_spinner->data3C.selected_index = 0; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 		return TRUE;
 	}
@@ -4639,13 +5164,25 @@ static boolean playlist_profile_initialize_item_options(
 		switch ((profile->flags >> 2) & 1)
 		{
 		case 0:
+#ifdef HALO_64BIT
+			option_spinner->parameters.list.selected_index = 1;
+#else
 			option_spinner->data3C.selected_index = 1;
+#endif
 			break;
 		case 1:
+#ifdef HALO_64BIT
+			option_spinner->parameters.list.selected_index = 0;
+#else
 			option_spinner->data3C.selected_index = 0;
+#endif
 			break;
 		default:
+#ifdef HALO_64BIT
+			option_spinner->parameters.list.selected_index = 0;
+#else
 			option_spinner->data3C.selected_index = 0;
+#endif
 			break;
 		}
 
@@ -4657,12 +5194,21 @@ static boolean playlist_profile_initialize_item_options(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3388, option_spinner, "expected 'vehicle set' option spinner list");
 		switch (profile->vehicle_set)
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 0; break;
+		case 1: option_spinner->parameters.list.selected_index = 1; break;
+		case 2: option_spinner->parameters.list.selected_index = 2; break;
+		case 3: option_spinner->parameters.list.selected_index = 3; break;
+		case 4: option_spinner->parameters.list.selected_index = 4; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 0; break;
 		case 1: option_spinner->data3C.selected_index = 1; break;
 		case 2: option_spinner->data3C.selected_index = 2; break;
 		case 3: option_spinner->data3C.selected_index = 3; break;
 		case 4: option_spinner->data3C.selected_index = 4; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -4673,6 +5219,20 @@ static boolean playlist_profile_initialize_item_options(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3402, option_spinner, "expected 'weapon set' option spinner list");
 		switch (profile->weapon_set)
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 0; break;
+		case 1: option_spinner->parameters.list.selected_index = 1; break;
+		case 2: option_spinner->parameters.list.selected_index = 2; break;
+		case 3: option_spinner->parameters.list.selected_index = 3; break;
+		case 4: option_spinner->parameters.list.selected_index = 4; break;
+		case 5: option_spinner->parameters.list.selected_index = 5; break;
+		case 6: option_spinner->parameters.list.selected_index = 6; break;
+		case 7: option_spinner->parameters.list.selected_index = 7; break;
+		case 8: option_spinner->parameters.list.selected_index = 8; break;
+		case 9: option_spinner->parameters.list.selected_index = 9; break;
+		case 10: option_spinner->parameters.list.selected_index = 10; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 0; break;
 		case 1: option_spinner->data3C.selected_index = 1; break;
 		case 2: option_spinner->data3C.selected_index = 2; break;
@@ -4685,6 +5245,7 @@ static boolean playlist_profile_initialize_item_options(
 		case 9: option_spinner->data3C.selected_index = 9; break;
 		case 10: option_spinner->data3C.selected_index = 10; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -4695,9 +5256,15 @@ static boolean playlist_profile_initialize_item_options(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3423, option_spinner, "expected 'starting equpiment' option spinner list");
 		switch ((profile->flags >> 5) & 1)
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 0; return TRUE;
+		case 1: option_spinner->parameters.list.selected_index = 1; return TRUE;
+		default: option_spinner->parameters.list.selected_index = 0; return TRUE;
+#else
 		case 0: option_spinner->data3C.selected_index = 0; return TRUE;
 		case 1: option_spinner->data3C.selected_index = 1; return TRUE;
 		default: option_spinner->data3C.selected_index = 0; return TRUE;
+#endif
 		}
 	}
 	error(2, "failed to retrieve editable game variant");
@@ -4725,9 +5292,15 @@ static boolean player_profile_initialize_advanced_controller_settings(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3854, option_spinner, "expected 'invert joystick' option spinner list");
 		switch (profile->controller_settings.invert_look)
 		{
+#ifdef HALO_64BIT
+		case FALSE: option_spinner->parameters.list.selected_index = 1; break;
+		case TRUE: option_spinner->parameters.list.selected_index = 0; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case FALSE: option_spinner->data3C.selected_index = 1; break;
 		case TRUE: option_spinner->data3C.selected_index = 0; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -4737,9 +5310,17 @@ static boolean player_profile_initialize_advanced_controller_settings(
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3865, option_spinner, "expected 'look sensitivity' option spinner list");
 		if (profile->controller_settings.look_sensitivity > 0 && profile->controller_settings.look_sensitivity <= 10)
+#ifdef HALO_64BIT
+			option_spinner->parameters.list.selected_index = profile->controller_settings.look_sensitivity - 1;
+#else
 			option_spinner->data3C.selected_index = profile->controller_settings.look_sensitivity - 1;
+#endif
 		else
+#ifdef HALO_64BIT
+			option_spinner->parameters.list.selected_index = 0;
+#else
 			option_spinner->data3C.selected_index = 0;
+#endif
 
 		list_item = list_item->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3884, list_item, "expected 'controller vibration' list item");
@@ -4749,9 +5330,15 @@ static boolean player_profile_initialize_advanced_controller_settings(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3886, option_spinner, "expected 'controller vibration' option spinner list");
 		switch (profile->controller_settings.vibration_disabled)
 		{
+#ifdef HALO_64BIT
+		case FALSE: option_spinner->parameters.list.selected_index = 0; break;
+		case TRUE: option_spinner->parameters.list.selected_index = 1; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case FALSE: option_spinner->data3C.selected_index = 0; break;
 		case TRUE: option_spinner->data3C.selected_index = 1; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -4762,9 +5349,15 @@ static boolean player_profile_initialize_advanced_controller_settings(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3897, option_spinner, "expected 'flight stick controls' option spinner list");
 		switch (profile->controller_settings.flight_stick_aircraft_controls)
 		{
+#ifdef HALO_64BIT
+		case FALSE: option_spinner->parameters.list.selected_index = 1; break;
+		case TRUE: option_spinner->parameters.list.selected_index = 0; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case FALSE: option_spinner->data3C.selected_index = 1; break;
 		case TRUE: option_spinner->data3C.selected_index = 0; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -4775,9 +5368,15 @@ static boolean player_profile_initialize_advanced_controller_settings(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3908, option_spinner, "expected 'autocenter' option spinner list");
 		switch (profile->controller_settings.autocenter)
 		{
+#ifdef HALO_64BIT
+		case FALSE: option_spinner->parameters.list.selected_index = 1; return TRUE;
+		case TRUE: option_spinner->parameters.list.selected_index = 0; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case FALSE: option_spinner->data3C.selected_index = 1; return TRUE;
 		case TRUE: option_spinner->data3C.selected_index = 0; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 		return TRUE;
 	}
@@ -4804,7 +5403,11 @@ static boolean player_profile_change_controller_settings(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3943, option_spinner, "expected 'joystick config' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case _joystick_preset_standard: profile->controller_settings.joystick_preset = _joystick_preset_standard; break;
 		case _joystick_preset_south_paw: profile->controller_settings.joystick_preset = _joystick_preset_south_paw; break;
@@ -4819,7 +5422,11 @@ static boolean player_profile_change_controller_settings(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3956, option_spinner, "expected 'button config' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case _button_preset_standard: profile->controller_settings.button_preset = _button_preset_standard; return TRUE;
 		case _button_preset_swap_triggers: profile->controller_settings.button_preset = _button_preset_swap_triggers; return TRUE;
@@ -4855,10 +5462,17 @@ static boolean playlist_profile_initialize_racing_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3172, option_spinner, "expected 'team scoring' option spinner list");
 		switch (*(long *)(profile + 0x50))
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 0; break;
+		case 1: option_spinner->parameters.list.selected_index = 1; break;
+		case 2: option_spinner->parameters.list.selected_index = 2; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 0; break;
 		case 1: option_spinner->data3C.selected_index = 1; break;
 		case 2: option_spinner->data3C.selected_index = 2; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -4869,10 +5483,17 @@ static boolean playlist_profile_initialize_racing_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3184, option_spinner, "expected 'race type' option spinner list");
 		switch (*(long *)(profile + 0x4C))
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 0; break;
+		case 1: option_spinner->parameters.list.selected_index = 1; break;
+		case 2: option_spinner->parameters.list.selected_index = 2; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 0; break;
 		case 1: option_spinner->data3C.selected_index = 1; break;
 		case 2: option_spinner->data3C.selected_index = 2; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -4883,6 +5504,15 @@ static boolean playlist_profile_initialize_racing_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3196, option_spinner, "expected 'laps to win' option spinner list");
 		switch (*(long *)(profile + 0x40))
 		{
+#ifdef HALO_64BIT
+		case 1: option_spinner->parameters.list.selected_index = 0; break;
+		case 3: option_spinner->parameters.list.selected_index = 1; break;
+		case 5: option_spinner->parameters.list.selected_index = 2; break;
+		case 10: option_spinner->parameters.list.selected_index = 3; break;
+		case 15: option_spinner->parameters.list.selected_index = 4; break;
+		case 25: option_spinner->parameters.list.selected_index = 5; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 1: option_spinner->data3C.selected_index = 0; break;
 		case 3: option_spinner->data3C.selected_index = 1; break;
 		case 5: option_spinner->data3C.selected_index = 2; break;
@@ -4890,6 +5520,7 @@ static boolean playlist_profile_initialize_racing_rules(
 		case 15: option_spinner->data3C.selected_index = 4; break;
 		case 25: option_spinner->data3C.selected_index = 5; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -4900,9 +5531,15 @@ static boolean playlist_profile_initialize_racing_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3211, option_spinner, "expected 'teams' option spinner list");
 		switch (profile[0x1C])
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 1; return TRUE;
+		case 1: option_spinner->parameters.list.selected_index = 0; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 1; return TRUE;
 		case 1: option_spinner->data3C.selected_index = 0; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 		return TRUE;
 	}
@@ -4932,9 +5569,15 @@ static boolean playlist_profile_initialize_slayer_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2953, option_spinner, "expected 'death bonus' option spinner list");
 		switch (profile[0x4C])
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 0; break;
+		case 1: option_spinner->parameters.list.selected_index = 1; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 0; break;
 		case 1: option_spinner->data3C.selected_index = 1; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -4945,8 +5588,13 @@ static boolean playlist_profile_initialize_slayer_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2964, option_spinner, "expected 'kill in order' option spinner list");
 		switch (profile[0x4E])
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 1; break;
+		case 1: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 1; break;
 		case 1: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -4957,9 +5605,15 @@ static boolean playlist_profile_initialize_slayer_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2975, option_spinner, "expected 'kill penalty' option spinner list");
 		switch (profile[0x4D])
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 0; break;
+		case 1: option_spinner->parameters.list.selected_index = 1; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 0; break;
 		case 1: option_spinner->data3C.selected_index = 1; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -4970,12 +5624,21 @@ static boolean playlist_profile_initialize_slayer_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2986, option_spinner, "expected 'kills to win' option spinner list");
 		switch (*(long *)(profile + 0x40))
 		{
+#ifdef HALO_64BIT
+		case 5: option_spinner->parameters.list.selected_index = 0; break;
+		case 10: option_spinner->parameters.list.selected_index = 1; break;
+		case 15: option_spinner->parameters.list.selected_index = 2; break;
+		case 25: option_spinner->parameters.list.selected_index = 3; break;
+		case 50: option_spinner->parameters.list.selected_index = 4; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 5: option_spinner->data3C.selected_index = 0; break;
 		case 10: option_spinner->data3C.selected_index = 1; break;
 		case 15: option_spinner->data3C.selected_index = 2; break;
 		case 25: option_spinner->data3C.selected_index = 3; break;
 		case 50: option_spinner->data3C.selected_index = 4; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -4986,9 +5649,15 @@ static boolean playlist_profile_initialize_slayer_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3000, option_spinner, "expected 'teams' option spinner list");
 		switch (profile[0x1C])
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 1; return TRUE;
+		case 1: option_spinner->parameters.list.selected_index = 0; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 1; return TRUE;
 		case 1: option_spinner->data3C.selected_index = 0; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 		return TRUE;
 	}
@@ -5018,9 +5687,15 @@ static boolean playlist_profile_initialize_ctf_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2807, option_spinner, "expected 'assault' option spinner list");
 		switch (profile[0x4C])
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 1; break;
+		case 1: option_spinner->parameters.list.selected_index = 0; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 1; break;
 		case 1: option_spinner->data3C.selected_index = 0; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -5031,6 +5706,15 @@ static boolean playlist_profile_initialize_ctf_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2818, option_spinner, "expected 'single flag' option spinner list");
 		switch (*(long *)(profile + 0x50))
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 0; break;
+		case 0x708: option_spinner->parameters.list.selected_index = 1; break;
+		case 0xE10: option_spinner->parameters.list.selected_index = 2; break;
+		case 0x1518: option_spinner->parameters.list.selected_index = 3; break;
+		case 0x2328: option_spinner->parameters.list.selected_index = 4; break;
+		case 0x4650: option_spinner->parameters.list.selected_index = 5; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 0; break;
 		case 0x708: option_spinner->data3C.selected_index = 1; break;
 		case 0xE10: option_spinner->data3C.selected_index = 2; break;
@@ -5038,6 +5722,7 @@ static boolean playlist_profile_initialize_ctf_rules(
 		case 0x2328: option_spinner->data3C.selected_index = 4; break;
 		case 0x4650: option_spinner->data3C.selected_index = 5; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -5048,9 +5733,15 @@ static boolean playlist_profile_initialize_ctf_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2833, option_spinner, "expected 'flag must reset' option spinner list");
 		switch (profile[0x4E])
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 1; break;
+		case 1: option_spinner->parameters.list.selected_index = 0; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 1; break;
 		case 1: option_spinner->data3C.selected_index = 0; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -5061,9 +5752,15 @@ static boolean playlist_profile_initialize_ctf_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2844, option_spinner, "expected 'flag at home to score' option spinner list");
 		switch (profile[0x4F])
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 1; break;
+		case 1: option_spinner->parameters.list.selected_index = 0; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 1; break;
 		case 1: option_spinner->data3C.selected_index = 0; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -5074,12 +5771,21 @@ static boolean playlist_profile_initialize_ctf_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2855, option_spinner, "expected 'captures to win' option spinner list");
 		switch (*(long *)(profile + 0x40))
 		{
+#ifdef HALO_64BIT
+		case 1: option_spinner->parameters.list.selected_index = 0; return TRUE;
+		case 3: option_spinner->parameters.list.selected_index = 1; return TRUE;
+		case 5: option_spinner->parameters.list.selected_index = 2; return TRUE;
+		case 10: option_spinner->parameters.list.selected_index = 3; return TRUE;
+		case 15: option_spinner->parameters.list.selected_index = 4; return TRUE;
+		default: option_spinner->parameters.list.selected_index = 0; return TRUE;
+#else
 		case 1: option_spinner->data3C.selected_index = 0; return TRUE;
 		case 3: option_spinner->data3C.selected_index = 1; return TRUE;
 		case 5: option_spinner->data3C.selected_index = 2; return TRUE;
 		case 10: option_spinner->data3C.selected_index = 3; return TRUE;
 		case 15: option_spinner->data3C.selected_index = 4; return TRUE;
 		default: option_spinner->data3C.selected_index = 0; return TRUE;
+#endif
 		}
 	}
 	error(2, "failed to retrieve editable game variant");
@@ -5107,9 +5813,15 @@ static boolean playlist_profile_initialize_koth_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2893, option_spinner, "expected 'moving hill' option spinner list");
 		switch (profile[0x4C])
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 1; break;
+		case 1: option_spinner->parameters.list.selected_index = 0; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 1; break;
 		case 1: option_spinner->data3C.selected_index = 0; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -5120,12 +5832,21 @@ static boolean playlist_profile_initialize_koth_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2904, option_spinner, "expected 'score to win' option spinner list");
 		switch (*(long *)(profile + 0x40))
 		{
+#ifdef HALO_64BIT
+		case 1: option_spinner->parameters.list.selected_index = 0; break;
+		case 2: option_spinner->parameters.list.selected_index = 1; break;
+		case 5: option_spinner->parameters.list.selected_index = 2; break;
+		case 10: option_spinner->parameters.list.selected_index = 3; break;
+		case 15: option_spinner->parameters.list.selected_index = 4; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 1: option_spinner->data3C.selected_index = 0; break;
 		case 2: option_spinner->data3C.selected_index = 1; break;
 		case 5: option_spinner->data3C.selected_index = 2; break;
 		case 10: option_spinner->data3C.selected_index = 3; break;
 		case 15: option_spinner->data3C.selected_index = 4; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -5136,9 +5857,15 @@ static boolean playlist_profile_initialize_koth_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2918, option_spinner, "expected 'teams' option spinner list");
 		switch (profile[0x1C])
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 1; return TRUE;
+		case 1: option_spinner->parameters.list.selected_index = 0; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 1; return TRUE;
 		case 1: option_spinner->data3C.selected_index = 0; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 		return TRUE;
 	}
@@ -5166,11 +5893,19 @@ static boolean playlist_profile_initialize_oddball_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3035, option_spinner, "expected 'trait with ball' option spinner list");
 		switch (*(long *)(profile + 0x54))
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 0; break;
+		case 1: option_spinner->parameters.list.selected_index = 1; break;
+		case 2: option_spinner->parameters.list.selected_index = 2; break;
+		case 3: option_spinner->parameters.list.selected_index = 3; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 0; break;
 		case 1: option_spinner->data3C.selected_index = 1; break;
 		case 2: option_spinner->data3C.selected_index = 2; break;
 		case 3: option_spinner->data3C.selected_index = 3; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -5181,11 +5916,19 @@ static boolean playlist_profile_initialize_oddball_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3048, option_spinner, "expected 'trait without ball' option spinner list");
 		switch (*(long *)(profile + 0x58))
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 0; break;
+		case 1: option_spinner->parameters.list.selected_index = 1; break;
+		case 2: option_spinner->parameters.list.selected_index = 2; break;
+		case 3: option_spinner->parameters.list.selected_index = 3; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 0; break;
 		case 1: option_spinner->data3C.selected_index = 1; break;
 		case 2: option_spinner->data3C.selected_index = 2; break;
 		case 3: option_spinner->data3C.selected_index = 3; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -5196,10 +5939,17 @@ static boolean playlist_profile_initialize_oddball_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3061, option_spinner, "expected 'speed with ball' option spinner list");
 		switch (*(long *)(profile + 0x50))
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 1; break;
+		case 1: option_spinner->parameters.list.selected_index = 0; break;
+		case 2: option_spinner->parameters.list.selected_index = 2; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 1; break;
 		case 1: option_spinner->data3C.selected_index = 0; break;
 		case 2: option_spinner->data3C.selected_index = 2; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -5210,10 +5960,17 @@ static boolean playlist_profile_initialize_oddball_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3073, option_spinner, "expected 'ball type' option spinner list");
 		switch (*(long *)(profile + 0x5C))
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 0; break;
+		case 1: option_spinner->parameters.list.selected_index = 1; break;
+		case 2: option_spinner->parameters.list.selected_index = 2; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 0; break;
 		case 1: option_spinner->data3C.selected_index = 1; break;
 		case 2: option_spinner->data3C.selected_index = 2; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -5224,9 +5981,15 @@ static boolean playlist_profile_initialize_oddball_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3085, option_spinner, "expected 'random start' option spinner list");
 		switch (profile[0x4C])
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 1; break;
+		case 1: option_spinner->parameters.list.selected_index = 0; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 1; break;
 		case 1: option_spinner->data3C.selected_index = 0; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -5236,9 +5999,17 @@ static boolean playlist_profile_initialize_oddball_rules(
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3096, option_spinner, "expected 'ball spawn count' option spinner list");
 		if (*(long *)(profile + 0x60) > 0 && *(long *)(profile + 0x60) <= 16)
+#ifdef HALO_64BIT
+			option_spinner->parameters.list.selected_index = (short)(*(long *)(profile + 0x60) - 1);
+#else
 			option_spinner->data3C.selected_index = (short)(*(long *)(profile + 0x60) - 1);
+#endif
 		else
+#ifdef HALO_64BIT
+			option_spinner->parameters.list.selected_index = 0;
+#else
 			option_spinner->data3C.selected_index = 0;
+#endif
 
 		list_item = list_item->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3121, list_item, "expected 'score to win' item");
@@ -5248,12 +6019,21 @@ static boolean playlist_profile_initialize_oddball_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3123, option_spinner, "expected 'score to win' option spinner list");
 		switch (*(long *)(profile + 0x40))
 		{
+#ifdef HALO_64BIT
+		case 1: option_spinner->parameters.list.selected_index = 0; break;
+		case 2: option_spinner->parameters.list.selected_index = 1; break;
+		case 5: option_spinner->parameters.list.selected_index = 2; break;
+		case 10: option_spinner->parameters.list.selected_index = 3; break;
+		case 15: option_spinner->parameters.list.selected_index = 4; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 1: option_spinner->data3C.selected_index = 0; break;
 		case 2: option_spinner->data3C.selected_index = 1; break;
 		case 5: option_spinner->data3C.selected_index = 2; break;
 		case 10: option_spinner->data3C.selected_index = 3; break;
 		case 15: option_spinner->data3C.selected_index = 4; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -5264,9 +6044,15 @@ static boolean playlist_profile_initialize_oddball_rules(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3137, option_spinner, "expected 'teams' option spinner list");
 		switch (profile[0x1C])
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 1; return TRUE;
+		case 1: option_spinner->parameters.list.selected_index = 0; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 1; return TRUE;
 		case 1: option_spinner->data3C.selected_index = 0; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 		return TRUE;
 	}
@@ -5295,11 +6081,19 @@ static boolean playlist_profile_initialize_player_options(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3247, option_spinner, "expected 'number of lives' option spinner list");
 		switch (*(long *)(profile + 0x38))
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 0; break;
+		case 1: option_spinner->parameters.list.selected_index = 1; break;
+		case 3: option_spinner->parameters.list.selected_index = 2; break;
+		case 5: option_spinner->parameters.list.selected_index = 3; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 0; break;
 		case 1: option_spinner->data3C.selected_index = 1; break;
 		case 3: option_spinner->data3C.selected_index = 2; break;
 		case 5: option_spinner->data3C.selected_index = 3; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -5311,6 +6105,15 @@ static boolean playlist_profile_initialize_player_options(
 		maximum_health = -5 - (long)(*(float *)(profile + 0x3C) * -10.0f);
 		switch (maximum_health)
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 0; break;
+		case 5: option_spinner->parameters.list.selected_index = 1; break;
+		case 10: option_spinner->parameters.list.selected_index = 2; break;
+		case 15: option_spinner->parameters.list.selected_index = 3; break;
+		case 25: option_spinner->parameters.list.selected_index = 4; break;
+		case 35: option_spinner->parameters.list.selected_index = 5; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 0; break;
 		case 5: option_spinner->data3C.selected_index = 1; break;
 		case 10: option_spinner->data3C.selected_index = 2; break;
@@ -5318,6 +6121,7 @@ static boolean playlist_profile_initialize_player_options(
 		case 25: option_spinner->data3C.selected_index = 4; break;
 		case 35: option_spinner->data3C.selected_index = 5; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -5328,9 +6132,15 @@ static boolean playlist_profile_initialize_player_options(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3275, option_spinner, "expected 'shields' option spinner list");
 		switch ((*(unsigned long *)(profile + 0x20) >> 3) & 1)
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 0; break;
+		case 1: option_spinner->parameters.list.selected_index = 1; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 0; break;
 		case 1: option_spinner->data3C.selected_index = 1; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -5341,11 +6151,19 @@ static boolean playlist_profile_initialize_player_options(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3287, option_spinner, "expected 'respawn time' option spinner list");
 		switch (*(long *)(profile + 0x30))
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 0; break;
+		case 150: option_spinner->parameters.list.selected_index = 1; break;
+		case 300: option_spinner->parameters.list.selected_index = 2; break;
+		case 450: option_spinner->parameters.list.selected_index = 3; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 0; break;
 		case 150: option_spinner->data3C.selected_index = 1; break;
 		case 300: option_spinner->data3C.selected_index = 2; break;
 		case 450: option_spinner->data3C.selected_index = 3; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -5356,11 +6174,19 @@ static boolean playlist_profile_initialize_player_options(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3300, option_spinner, "expected 'respawn time growth' option spinner list");
 		switch (*(long *)(profile + 0x2C))
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 0; break;
+		case 150: option_spinner->parameters.list.selected_index = 1; break;
+		case 300: option_spinner->parameters.list.selected_index = 2; break;
+		case 450: option_spinner->parameters.list.selected_index = 3; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 0; break;
 		case 150: option_spinner->data3C.selected_index = 1; break;
 		case 300: option_spinner->data3C.selected_index = 2; break;
 		case 450: option_spinner->data3C.selected_index = 3; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -5371,9 +6197,15 @@ static boolean playlist_profile_initialize_player_options(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3313, option_spinner, "expected 'odd man out' option spinner list");
 		switch (profile[0x28])
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 1; break;
+		case 1: option_spinner->parameters.list.selected_index = 0; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 1; break;
 		case 1: option_spinner->data3C.selected_index = 0; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -5384,9 +6216,15 @@ static boolean playlist_profile_initialize_player_options(
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 3324, option_spinner, "expected 'invisible players' option spinner list");
 		switch ((*(unsigned long *)(profile + 0x20) >> 4) & 1)
 		{
+#ifdef HALO_64BIT
+		case 0: option_spinner->parameters.list.selected_index = 1; break;
+		case 1: option_spinner->parameters.list.selected_index = 0; break;
+		default: option_spinner->parameters.list.selected_index = 0; break;
+#else
 		case 0: option_spinner->data3C.selected_index = 1; break;
 		case 1: option_spinner->data3C.selected_index = 0; break;
 		default: option_spinner->data3C.selected_index = 0; break;
+#endif
 		}
 
 		list_item = list_item->next;
@@ -5396,11 +6234,19 @@ static boolean playlist_profile_initialize_player_options(
 			option_spinner = option_spinner->next;
 		switch (*(long *)(profile + 0x34))
 		{
+#ifdef HALO_64BIT
+		default: option_spinner->parameters.list.selected_index = 0; break;
+		case 0: option_spinner->parameters.list.selected_index = 0; break;
+		case 150: option_spinner->parameters.list.selected_index = 1; break;
+		case 300: option_spinner->parameters.list.selected_index = 2; break;
+		case 450: option_spinner->parameters.list.selected_index = 3; break;
+#else
 		default: option_spinner->data3C.selected_index = 0; break;
 		case 0: option_spinner->data3C.selected_index = 0; break;
 		case 150: option_spinner->data3C.selected_index = 1; break;
 		case 300: option_spinner->data3C.selected_index = 2; break;
 		case 450: option_spinner->data3C.selected_index = 3; break;
+#endif
 		}
 		return TRUE;
 	}
@@ -5426,7 +6272,11 @@ static boolean playlist_profile_change_oddball_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2272, option_spinner, "expected 'trait with ball' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(long *)(profile + 0x54) = 0; break;
 		case 1: *(long *)(profile + 0x54) = 1; break;
@@ -5441,7 +6291,11 @@ static boolean playlist_profile_change_oddball_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2285, option_spinner, "expected 'trait without ball' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(long *)(profile + 0x58) = 0; break;
 		case 1: *(long *)(profile + 0x58) = 1; break;
@@ -5456,7 +6310,11 @@ static boolean playlist_profile_change_oddball_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2298, option_spinner, "expected 'speed with ball' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(long *)(profile + 0x50) = 1; break;
 		case 1: *(long *)(profile + 0x50) = 0; break;
@@ -5470,7 +6328,11 @@ static boolean playlist_profile_change_oddball_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2310, option_spinner, "expected 'ball type' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(long *)(profile + 0x5C) = 0; break;
 		case 1: *(long *)(profile + 0x5C) = 1; break;
@@ -5484,7 +6346,11 @@ static boolean playlist_profile_change_oddball_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2322, option_spinner, "expected 'random start' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: profile[0x4C] = 1; break;
 		case 1: profile[0x4C] = 0; break;
@@ -5497,7 +6363,11 @@ static boolean playlist_profile_change_oddball_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2333, option_spinner, "expected 'ball spawn count' option spinner list");
+#ifdef HALO_64BIT
+		selected_index = option_spinner->parameters.list.selected_index;
+#else
 		selected_index = option_spinner->data3C.selected_index;
+#endif
 		if (selected_index >= 0 && selected_index <= 15)
 			*(long *)(profile + 0x60) = selected_index + 1;
 		else
@@ -5509,7 +6379,11 @@ static boolean playlist_profile_change_oddball_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2360, option_spinner, "expected 'score to win' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(long *)(profile + 0x40) = 1; break;
 		case 1: *(long *)(profile + 0x40) = 2; break;
@@ -5525,7 +6399,11 @@ static boolean playlist_profile_change_oddball_rules(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2374, option_spinner, "expected 'teams' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: profile[0x1C] = 1; break;
 		case 1: profile[0x1C] = 0; break;
@@ -5559,7 +6437,11 @@ static boolean playlist_profile_change_player_options(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2485, option_spinner, "expected 'number of lives' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(long *)(profile + 0x38) = 0; break;
 		case 1: *(long *)(profile + 0x38) = 1; break;
@@ -5574,7 +6456,11 @@ static boolean playlist_profile_change_player_options(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2498, option_spinner, "expected 'maximum health' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(float *)(profile + 0x3C) = 0.5f; break;
 		case 1: *(float *)(profile + 0x3C) = 1.0f; break;
@@ -5591,7 +6477,11 @@ static boolean playlist_profile_change_player_options(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2513, option_spinner, "expected 'shields' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(unsigned long *)(profile + 0x20) &= ~8UL; break;
 		case 1: *(unsigned long *)(profile + 0x20) |= 8UL; break;
@@ -5604,7 +6494,11 @@ static boolean playlist_profile_change_player_options(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2524, option_spinner, "expected 'respawn time' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(long *)(profile + 0x30) = 0; break;
 		case 1: *(long *)(profile + 0x30) = 150; break;
@@ -5619,7 +6513,11 @@ static boolean playlist_profile_change_player_options(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2537, option_spinner, "expected 'respawn time growth' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(long *)(profile + 0x2C) = 0; break;
 		case 1: *(long *)(profile + 0x2C) = 150; break;
@@ -5634,7 +6532,11 @@ static boolean playlist_profile_change_player_options(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2550, option_spinner, "expected 'odd man out' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: profile[0x28] = TRUE; break;
 		case 1: profile[0x28] = FALSE; break;
@@ -5647,7 +6549,11 @@ static boolean playlist_profile_change_player_options(
 		while (option_spinner && option_spinner->type != 2)
 			option_spinner = option_spinner->next;
 		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2561, option_spinner, "expected 'invisible players' option spinner list");
+#ifdef HALO_64BIT
+		switch (option_spinner->parameters.list.selected_index)
+#else
 		switch (option_spinner->data3C.selected_index)
+#endif
 		{
 		case 0: *(unsigned long *)(profile + 0x20) |= 0x10UL; break;
 		case 1: *(unsigned long *)(profile + 0x20) &= ~0x10UL; break;
@@ -5661,7 +6567,11 @@ static boolean playlist_profile_change_player_options(
 			while (option_spinner && option_spinner->type != 2)
 				option_spinner = option_spinner->next;
 			match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 2574, option_spinner, "expected 'suicide penalty' option spinner list");
+#ifdef HALO_64BIT
+			switch (option_spinner->parameters.list.selected_index)
+#else
 			switch (option_spinner->data3C.selected_index)
+#endif
 			{
 			case 0: *(long *)(profile + 0x34) = 0; break;
 			case 1: *(long *)(profile + 0x34) = 150; break;
@@ -5677,6 +6587,22 @@ static boolean playlist_profile_change_player_options(
 		result = FALSE;
 	}
 	return result;
+#ifdef HALO_64BIT
+}
+
+static struct widget_instance *ui_find_child_by_type(struct widget_instance *parent, short type)
+{
+	struct widget_instance *curr;
+	if (!parent)
+		return NULL;
+	for (curr = parent->child; curr; curr = curr->next)
+	{
+		struct ui_widget_definition *def = ui_widget_definition_get(curr->definition_tag_index);
+		if (def && def->type == type)
+			return curr;
+	}
+	return parent->child;
+#endif
 }
 
 static boolean multiplayer_level_select(
@@ -5697,6 +6623,30 @@ static boolean multiplayer_level_select(
 		definition->child_count == 1,
 		"expected a wrapper widget around the multiplayer level select screen");
 	level_select_screen = widget->child;
+#ifdef HALO_64BIT
+	if (level_select_screen)
+	{
+		definition = ui_widget_definition_get(level_select_screen->definition_tag_index);
+		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1285,
+			definition->type == 0 && definition->child_count == 3,
+			"expected the multiplayer level select screen to be a container w/ 3 children");
+	}
+	level_list = ui_find_child_by_type(level_select_screen, 2);
+	if (level_list)
+	{
+		definition = ui_widget_definition_get(level_list->definition_tag_index);
+		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1288,
+			definition->type == 2,
+			"expected a spinner list widget for 'multiplayer level list' widget");
+		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1289,
+			definition->child_count == 3,
+			"expected 3 list items for 'multiplayer level list' widget");
+	}
+	else if (widget->child)
+	{
+		level_list = widget->child->child;
+	}
+#else
 	definition = ui_widget_definition_get(level_select_screen->definition_tag_index);
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1285,
 		definition->type == 0 && definition->child_count == 3,
@@ -5710,10 +6660,26 @@ static boolean multiplayer_level_select(
 		definition->child_count == 3,
 		"expected 3 list items for 'multiplayer level list' widget");
 	level_list = widget->child->child;
+#endif
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1298,
+#ifdef HALO_64BIT
+		level_list && level_list->parameters.list.selected_index >= 0 && level_list->parameters.list.selected_index < 13,
+#else
 		level_list->data3C.selected_index >= 0 && level_list->data3C.selected_index < 13,
+#endif
 		"invalid multiplayer level specified from 'multiplayer level list' list widget");
+#ifdef HALO_64BIT
+	if (level_list && level_list->parameters.list.selected_index >= 0 && level_list->parameters.list.selected_index < 13)
+	{
+		map_name = event_handler_functions.multiplayer_levels[level_list->parameters.list.selected_index];
+	}
+	else
+	{
+		map_name = event_handler_functions.multiplayer_levels[0];
+	}
+#else
 	map_name = event_handler_functions.multiplayer_levels[level_list->data3C.selected_index];
+#endif
 	file = fopen("d:\\map_automation.txt", "r");
 	if (file)
 	{
@@ -5779,6 +6745,30 @@ static boolean multiplayer_profile_set_for_game(
 		definition->child_count == 1,
 		"expected a wrapper widget around the multiplayer profile select screen");
 	profile_select_screen = widget->child;
+#ifdef HALO_64BIT
+	if (profile_select_screen)
+	{
+		definition = ui_widget_definition_get(profile_select_screen->definition_tag_index);
+		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1470,
+			definition->type == 0 && definition->child_count == 3,
+			"expected the multiplayer profile select screen to be a container w/ 3 children");
+	}
+	profile_list = ui_find_child_by_type(profile_select_screen, 2);
+	if (profile_list)
+	{
+		definition = ui_widget_definition_get(profile_list->definition_tag_index);
+		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1473,
+			definition->type == 2,
+			"expected a spinner list widget for 'multiplayer profile list' widget");
+		match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1474,
+			definition->child_count == 3,
+			"expected 3 list items for 'multiplayer profile list' widget");
+	}
+	else if (widget->child)
+	{
+		profile_list = widget->child->child;
+	}
+#else
 	definition = ui_widget_definition_get(profile_select_screen->definition_tag_index);
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1470,
 		definition->type == 0 && definition->child_count == 3,
@@ -5792,11 +6782,29 @@ static boolean multiplayer_profile_set_for_game(
 		definition->child_count == 3,
 		"expected 3 list items for 'multiplayer profile list' widget");
 	profile_list = widget->child->child;
+#endif
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1483,
+#ifdef HALO_64BIT
+		profile_list &&
+		profile_list->parameters.list.selected_index >= 0 &&
+		profile_list->parameters.list.selected_index < (unsigned short)profile_list->parameters.list.number_of_items,
+#else
 		profile_list->data3C.selected_index >= 0 &&
 		profile_list->data3C.selected_index < (unsigned short)profile_list->generated_count,
+#endif
 		"invalid multiplayer profile specified from 'multiplayer profile list' list widget");
+#ifdef HALO_64BIT
+	if (!profile_list ||
+		profile_list->parameters.list.selected_index < 0 ||
+		profile_list->parameters.list.selected_index >= (unsigned short)profile_list->parameters.list.number_of_items)
+	{
+		ui_play_audio_feedback_sound(4);
+		return FALSE;
+	}
+	profile_index = ((int *)profile_list->parameters.list.list_items)[profile_list->parameters.list.selected_index];
+#else
 	profile_index = ((long *)profile_list->generated_list)[profile_list->data3C.selected_index];
+#endif
 	if (profile_index == NONE)
 	{
 		ui_play_audio_feedback_sound(4);
@@ -5891,9 +6899,15 @@ static boolean solo_level_initialize_list_single_player(
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 604,
 		definition->child_count == 3,
 		"expected 3 list items for 'solo level list' widget");
+#ifdef HALO_64BIT
+	widget->parameters.list.list_items = single_player_level_data;
+	widget->parameters.list.number_of_items = 10;
+	widget->parameters.list.selected_index = PIN(player_ui_get_last_single_player_level_played(0), 0, 9);
+#else
 	widget->generated_list = single_player_level_data;
 	widget->generated_count = 10;
 	widget->data3C.selected_index = PIN(player_ui_get_last_single_player_level_played(0), 0, 9);
+#endif
 
 	if (persistant_game_data_info.valid == TRUE)
 	{

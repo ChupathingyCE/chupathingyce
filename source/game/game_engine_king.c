@@ -100,6 +100,9 @@ symbols in this file:
 #include "text/text_group.h"
 #include "text/unicode.h"
 #include "units/units.h"
+#ifdef HALO_64BIT
+#include "rasterizer/rasterizer_model_types.h"
+#endif
 
 /* ---------- constants */
 
@@ -151,6 +154,7 @@ enum
 /* ---------- structures */
 
 /* Target-proven vertex layouts used by this translation unit's quad helper. */
+#ifndef HALO_64BIT
 struct model_vertex_uncompressed
 {
 	real_point3d position;
@@ -173,12 +177,14 @@ struct model_vertex_compressed
 	short node_weight;
 };
 
+#endif
 typedef char verify_model_vertex_uncompressed_size[
 	sizeof(struct model_vertex_uncompressed) == 0x44 ? 1 : -1];
 typedef char verify_model_vertex_compressed_size[
 	sizeof(struct model_vertex_compressed) == 0x20 ? 1 : -1];
 
 /* January-local render packet layouts used by render_dynamic_quad. */
+#ifndef HALO_64BIT
 struct rasterizer_model_skinning
 {
 	real_matrix4x3 const *node_matrices;
@@ -210,6 +216,7 @@ struct rasterizer_model_begin_parameters
 typedef char verify_rasterizer_model_begin_parameters_size[
 	sizeof(struct rasterizer_model_begin_parameters) == 0xCC ? 1 : -1];
 
+#endif
 /* January scenario flag layout consumed by the King map scan. */
 typedef char verify_scenario_netgame_flag_size[
 	sizeof(struct scenario_netgame_flag) == 0x94 ? 1 : -1];

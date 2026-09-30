@@ -41,6 +41,9 @@ symbols in this file:
 #include "bungie_net/common/public_key_crypt.h"
 #include "bungie_net/common/random_numbers.h"
 #include "memory/byte_swapping.h"
+#ifdef HALO_64BIT
+#include "cseries/errors.h"
+#endif
 
 /* ---------- constants */
 

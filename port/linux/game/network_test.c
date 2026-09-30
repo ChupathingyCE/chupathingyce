@@ -49,6 +49,9 @@ Called from the main loop every frame (main.c).
 #include "camera/observer.h"
 
 #include <stdio.h>
+
+/* players.c's (not in players.h) */
+boolean player_handle_powerup(long player_index, short powerup_type, short duration);
 #include <string.h>
 
 /* the platform layer's (port/linux/src/port_config.c) */
@@ -292,7 +295,7 @@ static void network_test_shoot(
 		scenario_location_from_point(&damage.location, &damage.epicenter);
 		object_cause_damage(&damage, target->unit_index, NONE, NONE, NONE, NULL);
 		platform_log("network test: player %ld shoots player %ld",
-			(long)DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index), (long)(target - (struct player_datum *)player_data->data));
+			(long)DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index), (long)(target - (struct player_datum *)xbox_pointer(player_data->data)));
 	}
 }
 
@@ -382,7 +385,7 @@ static void network_test_second_weapon(
 		{
 			platform_log("network test: the last player takes a second weapon (%lx)", weapon->definition_index);
 			/* (and camouflage, as a powerup gives) */
-			player_handle_powerup(DATUM_INDEX_NEW(last - (struct player_datum *)player_data->data, last->identifier),
+			player_handle_powerup(DATUM_INDEX_NEW(last - (struct player_datum *)xbox_pointer(player_data->data), last->identifier),
 				_player_powerup_active_camouflage, 10 * TICKS_PER_SECOND);
 			return;
 		}

@@ -115,6 +115,9 @@ symbols in this file:
 #include "text/text_group.h"
 #include "text/unicode.h"
 #include "units/units.h"
+#ifdef HALO_64BIT
+#include "game/game_engine_runtime.h"
+#endif
 
 /* ---------- constants */
 

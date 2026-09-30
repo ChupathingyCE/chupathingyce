@@ -249,6 +249,10 @@ typedef char weapon_hud_interface_definition_screen_effects_offset_assert[
 	offsetof(struct weapon_hud_interface_definition, screen_effects) == 0xAC ? 1 : -1];
 typedef char weapon_flash_state_definition_size_assert[
 	sizeof(struct weapon_flash_state_definition) == 0x2C ? 1 : -1];
+#ifdef HALO_64BIT
+typedef char hud_absolute_placement_definition_size_assert[
+	sizeof(struct hud_absolute_placement_definition) == 0x24 ? 1 : -1];
+#endif
 typedef char icon_hud_element_definition_size_assert[
 	sizeof(struct icon_hud_element_definition) == 0x10 ? 1 : -1];
 typedef char weapon_hud_interface_definition_size_assert[
@@ -259,9 +263,11 @@ typedef char hud_screen_effect_definition_light_flags_offset_assert[
 	offsetof(struct hud_screen_effect_definition, light_enhancement_flags) == 0x6C ? 1 : -1];
 typedef char hud_screen_effect_definition_desaturation_flags_offset_assert[
 	offsetof(struct hud_screen_effect_definition, desaturation_flags) == 0x8C ? 1 : -1];
+#ifndef HALO_64BIT
 typedef char rasterizer_cinematic_screen_effect_parameters_tint_offset_assert[
 	offsetof(struct rasterizer_cinematic_screen_effect_parameters, filter_desaturation_tint) == 0x14 ? 1 : -1];
 
+#endif
 struct system_memory_information
 {
 	long available_physical_memory;
@@ -278,9 +284,11 @@ struct profile_value
 	boolean subtract_previous;
 	boolean enabled;
 };
+#ifndef HALO_64BIT
 
 typedef char profile_value_size_assert[
 	sizeof(struct profile_value) == 0x20C ? 1 : -1];
+#endif
 
 struct interface_hud_scripted_globals
 {
@@ -528,7 +536,11 @@ void interface_draw_bitmap(
 	return;
 }
 
+#ifdef HALO_64BIT
+long interface_get_weapon_hud_index(
+#else
 static long interface_get_weapon_hud_index(
+#endif
 	real *flashlight_power)
 {
 	long player_index = local_player_get_player_index(render.local_player_index);

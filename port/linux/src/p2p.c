@@ -342,7 +342,11 @@ static const char *address_text(unsigned long ip, unsigned short port, char *tex
 {
 	unsigned long value = network_long(ip);
 
+#ifdef HALO_64BIT
+	snprintf(text, 32, "%lu.%lu.%lu.%lu:%u", value >> 24, (value >> 16) & 255, (value >> 8) & 255, value & 255,
+#else
 	sprintf(text, "%lu.%lu.%lu.%lu:%u", value >> 24, (value >> 16) & 255, (value >> 8) & 255, value & 255,
+#endif
 		network_short(port));
 	return text;
 }
@@ -1453,6 +1457,10 @@ static void tunnel_readable(void)
 
 /* ---------- invites */
 
+#ifdef HALO_64BIT
+static char pending_startup_invite[256];
+
+#endif
 /* the host identifier and token in an invite link or code within text */
 static int parse_invite(const char *text, unsigned char *host, unsigned char *token)
 {
@@ -1515,7 +1523,14 @@ static int join_invite(const char *text)
 	if (!parse_invite(text, host, token))
 		return 0;
 	if (!memcmp(host, identifier, P2P_IDENTIFIER_SIZE))
+#ifdef HALO_64BIT
+	{
+		platform_log("Internet play: invite is from this machine (cannot join your own hosted game)");
+#endif
 		return 1;
+#ifdef HALO_64BIT
+	}
+#endif
 	peer = find_peer(host);
 	if (peer && peer->connected)
 	{
@@ -1535,12 +1550,34 @@ int p2p_join_invite(const char *text)
 {
 	int result;
 
+#ifdef HALO_64BIT
+	if (!text || !*text)
+		return 0;
+
+#endif
 	p2p_identifier();
+#ifdef HALO_64BIT
+
+	if (!p2p.running)
+	{
+		if (!config_boolean("network.online"))
+		{
+			platform_log("Internet play is off (network.online in config.toml): the invite is ignored");
+			return 0;
+		}
+		snprintf(pending_startup_invite, sizeof(pending_startup_invite), "%s", text);
+		platform_log("Internet play: stashing invite for startup: %s", text);
+		return 1;
+	}
+
+#endif
 	pthread_mutex_lock(&p2p_lock);
 	result = join_invite(text);
 	pthread_mutex_unlock(&p2p_lock);
+#ifndef HALO_64BIT
 	if (result && !p2p.running)
 		platform_log("Internet play is off (network.online in config.toml): the invite is ignored");
+#endif
 	return result;
 }
 
@@ -2056,6 +2093,22 @@ void p2p_initialize(unsigned long local_address)
 	}
 	pthread_detach(thread);
 	p2p.running = 1;
+#ifdef HALO_64BIT
+	if (pending_startup_invite[0])
+	{
+		platform_log("Internet play: applying stashed startup invite: %s", pending_startup_invite);
+		pthread_mutex_lock(&p2p_lock);
+		join_invite(pending_startup_invite);
+		pthread_mutex_unlock(&p2p_lock);
+		pending_startup_invite[0] = '\0';
+	}
+	else if (command_line_invite(invite, sizeof(invite)))
+	{
+#else
 	if (command_line_invite(invite, sizeof(invite)))
+#endif
 		p2p_join_invite(invite);
+#ifdef HALO_64BIT
+	}
+#endif
 }

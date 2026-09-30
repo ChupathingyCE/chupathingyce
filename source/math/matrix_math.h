@@ -18,4 +18,10 @@ real_matrix3x3 *matrix3x3_multiply(
 	real_matrix3x3 const *b,
 	real_matrix3x3 *result);
 
+#ifdef HALO_64BIT
+void matrix3x3_rotation_to_quaternion(
+	real_matrix3x3 const *matrix,
+	real_quaternion *quaternion);
+
+#endif
 #endif /* __MATRIX_MATH_H */

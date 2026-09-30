@@ -148,6 +148,10 @@ symbols in this file:
 
 #include "rasterizer_xbox.h"
 #include "rasterizer_xbox_water.h"
+#ifdef HALO_64BIT
+#include "rasterizer/xbox/rasterizer_xbox_draw_primitives.h"
+#include "rasterizer/rasterizer_model_types.h"
+#endif
 
 /* ---------- constants */
 
@@ -340,6 +344,7 @@ struct rasterizer_model_skinning_parameters
 	word pad06;
 };
 
+#ifndef HALO_64BIT
 struct rasterizer_model_effect_parameters
 {
 	short type;
@@ -399,6 +404,7 @@ struct transparent_geometry_group
 	byte pad9E[2];
 };
 
+#endif
 typedef char rasterizer_environment_fog_window_parameters_fog_offset_assert[
 	offsetof(struct rasterizer_window_begin_parameters, fog) == 0x1E8 ? 1 : -1];
 typedef char rasterizer_environment_fog_window_parameters_field_of_view_offset_assert[
@@ -417,6 +423,7 @@ typedef char rasterizer_environment_fog_screen_window_wind_offset_assert[
 	offsetof(struct rasterizer_environment_fog_screen_window, wind) == 0x2C ? 1 : -1];
 typedef char rasterizer_environment_fog_chicago_map_scale_offset_assert[
 	offsetof(struct shader_transparent_chicago_definition, map_u_scale) == 0x9C ? 1 : -1];
+#ifndef HALO_64BIT
 typedef char rasterizer_environment_fog_model_skinning_size_assert[
 	sizeof(struct rasterizer_model_skinning_parameters) == 0x8 ? 1 : -1];
 typedef char rasterizer_environment_fog_model_map_scale_offset_assert[
@@ -426,6 +433,7 @@ typedef char rasterizer_environment_fog_transparent_group_size_assert[
 typedef char rasterizer_environment_fog_transparent_group_map_scale_offset_assert[
 	offsetof(struct transparent_geometry_group, model_base_map_scale) == 0x3C ? 1 : -1];
 
+#endif
 /* ---------- globals */
 
 static short cached_node_matrix_count = 0;

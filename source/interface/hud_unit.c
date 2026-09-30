@@ -187,6 +187,9 @@ static void hud_update_unit_local_player(
 
 static struct unit_hud_globals *unit_hud_globals = NULL;
 extern struct hud_scripted_globals *hud_scripted_globals;
+#ifdef HALO_64BIT
+extern struct hud_globals_definition *hud_globals;
+#endif
 
 /* ---------- private code */
 

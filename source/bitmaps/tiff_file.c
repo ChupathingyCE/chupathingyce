@@ -49,11 +49,19 @@ symbols in this file:
 #include "bitmaps/bitmaps.h"
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmaps_internal.h"
+#ifndef HALO_64BIT
 #include "bitmaps/libtiff/tiffio.h"
+#endif
 #include "bitmaps/tiff_file.h"
+#ifndef HALO_64BIT
 #include "math/integer_math.h"
 #include "tag_files/files.h"
+#endif
 
+#ifdef HALO_64BIT
+/* The modern fork drops libtiff: the platform layer writes screenshots
+(HALO_SCREENSHOT_DIR), and importing TIFFs is the tools' business. */
+#else
 /* ---------- constants */
 
 enum
@@ -79,6 +87,7 @@ enum
 static char error_message_buffer[512] = {0};
 
 /* ---------- public code */
+#endif
 
 boolean
 tiff_get_bounds(
@@ -86,6 +95,9 @@ tiff_get_bounds(
 	unsigned long *width,
 	unsigned long *height)
 {
+#ifdef HALO_64BIT
+	return FALSE;
+#else
 	char path[256];
 	TIFF *tiff;
 	boolean result = FALSE;
@@ -102,6 +114,7 @@ tiff_get_bounds(
 	}
 
 	return result;
+#endif
 }
 
 char const *
@@ -109,6 +122,9 @@ tiff_export(
 	struct file_reference *file,
 	struct bitmap_data *bitmap)
 {
+#ifdef HALO_64BIT
+	return "tiff export is not supported; set HALO_SCREENSHOT_DIR for screenshots";
+#else
 	char const *error_message = NULL;
 	short tiff_format;
 	short photometric;
@@ -275,6 +291,7 @@ tiff_export(
 	}
 
 	return error_message;
+#endif
 }
 
 char const *
@@ -284,6 +301,9 @@ tiff_import(
 	rectangle2d const *requested_bounds,
 	short format)
 {
+#ifdef HALO_64BIT
+	return "tiff import is not supported";
+#else
 	char const *error_message = NULL;
 
 	if (file_exists(file))
@@ -472,6 +492,7 @@ tiff_import(
 	}
 
 	return error_message;
+#endif
 }
 
 /* ---------- private code */

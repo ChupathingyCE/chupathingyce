@@ -6,6 +6,10 @@ REAL_MATH.C
 
 #include "cseries.h"
 #include "real_math.h"
+#ifdef HALO_64BIT
+#include "math/periodic_functions.h"
+#include "math/random_math.h"
+#endif
 
 /* ---------- constants */
 

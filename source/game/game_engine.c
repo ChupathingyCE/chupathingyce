@@ -577,6 +577,9 @@ symbols in this file:
 #include "text/unicode.h"
 #include "units/bipeds.h"
 #include "units/units.h"
+#ifdef HALO_64BIT
+#include "main/console.h"
+#endif
 
 #ifdef HALO_LINUX
 /* network_game_globals.c's */
@@ -4790,7 +4793,11 @@ short game_engine_player_get_custom_motion_sensor_positions(
 		need not sit next to global_variant */
 		while (goal < global_goal + NUMBEROF(global_goal));
 #else
+#ifdef HALO_64BIT
+		while (POINTER_BITS(goal) < POINTER_BITS(&global_variant));
+#else
 		while ((long)goal < (long)&global_variant);
+#endif
 #endif
 	}
 
@@ -4843,7 +4850,11 @@ void game_engine_render_nav_points(
 					/* port: bounded by the goal array itself, as above */
 					while (goal < global_goal + NUMBEROF(global_goal));
 #else
+#ifdef HALO_64BIT
+					while (POINTER_BITS(goal) < POINTER_BITS(&global_variant));
+#else
 					while ((long)goal < (long)&global_variant);
+#endif
 #endif
 				}
 			}
@@ -7479,7 +7490,7 @@ static long item_collection_get_total(
 	struct tag_block const *permutations)
 {
 	struct item_permutation_definition const *permutation =
-		(struct item_permutation_definition const *)permutations->address;
+		(struct item_permutation_definition const *)xbox_pointer(permutations->address);
 	long permutation_count = permutations->count;
 	long result = 0;
 	long permutation_index;
@@ -7507,7 +7518,7 @@ static long random_item(
 		0,
 		(short)item_collection_get_total(permutations));
 	struct item_permutation_definition const *permutation =
-		permutations->address;
+		xbox_pointer(permutations->address);
 	long permutation_index = 0;
 
 	while (permutation_index < permutation_count)

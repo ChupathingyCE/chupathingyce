@@ -25,12 +25,34 @@ threads, asynchronous procedure calls, time, memory and debug output.
 void platform_log(const char *format, ...)
 {
 	va_list arguments;
+#ifdef HALO_64BIT
+	char buffer[2048];
+	FILE *handle;
+#endif
 
 	fputs("halo-linux: ", stderr);
 	va_start(arguments, format);
+#ifdef HALO_64BIT
+	vsnprintf(buffer, sizeof(buffer), format, arguments);
+#else
 	vfprintf(stderr, format, arguments);
+#endif
 	va_end(arguments);
+#ifdef HALO_64BIT
+	fputs(buffer, stderr);
+#endif
 	fputc('\n', stderr);
+#ifdef HALO_64BIT
+
+	handle = fopen("assets/debug.txt", "a");
+	if (!handle)
+		handle = fopen("debug.txt", "a");
+	if (handle)
+	{
+		fprintf(handle, "halo-gpu: %s\n", buffer);
+		fclose(handle);
+	}
+#endif
 }
 
 void platform_unimplemented(const char *name)
@@ -119,7 +141,11 @@ struct platform_handle *platform_handle_get(HANDLE handle, long type)
 
 	/* GetCurrentProcess() and GetCurrentThread() are the pseudo handles -1
 	and -2; any other value in the top page cannot be a heap pointer */
+#ifdef HALO_64BIT
+	if (!result || (uintptr_t)handle >= (uintptr_t)-0x1000 ||
+#else
 	if (!result || (unsigned long)handle >= 0xfffff000UL ||
+#endif
 		result->signature != PLATFORM_HANDLE_SIGNATURE ||
 		(type && result->type != type))
 	{
@@ -788,9 +814,13 @@ struct global_block
 
 HGLOBAL WINAPI GlobalAlloc(UINT flags, SIZE_T size)
 {
+#ifdef HALO_64BIT
+	struct global_block *block = xbox_heap_allocate(sizeof(*block) + 8 + size, (flags & GMEM_ZEROINIT) != 0);
+#else
 	struct global_block *block = (flags & GMEM_ZEROINIT) ?
 		calloc(1, sizeof(*block) + 8 + size) :
 		malloc(sizeof(*block) + 8 + size);
+#endif
 
 	if (!block)
 	{
@@ -809,28 +839,60 @@ static struct global_block *global_block_from_pointer(HGLOBAL memory)
 HGLOBAL WINAPI GlobalReAlloc(HGLOBAL memory, SIZE_T size, UINT flags)
 {
 	struct global_block *block;
+#ifdef HALO_64BIT
+	struct global_block *new_block;
+#endif
 	SIZE_T old_size;
 
 	if (!memory)
 		return GlobalAlloc(flags, size);
 	block = global_block_from_pointer(memory);
 	old_size = block->size;
+#ifdef HALO_64BIT
+	if (xbox_heap_capacity(block) >= sizeof(*block) + 8 + size)
+#else
 	block = realloc(block, sizeof(*block) + 8 + size);
 	if (!block)
+#endif
 	{
+#ifdef HALO_64BIT
+		new_block = block;
+	}
+	else
+	{
+		new_block = xbox_heap_allocate(sizeof(*block) + 8 + size, FALSE);
+		if (!new_block)
+		{
+			SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+			return NULL;
+		}
+		memcpy(new_block, block, sizeof(*block) + 8 + (old_size < size ? old_size : size));
+		xbox_heap_free(block);
+#else
 		SetLastError(ERROR_NOT_ENOUGH_MEMORY);
 		return NULL;
+#endif
 	}
 	if ((flags & GMEM_ZEROINIT) && size > old_size)
+#ifdef HALO_64BIT
+		memset((char *)new_block + sizeof(*new_block) + 8 + old_size, 0, size - old_size);
+	new_block->size = size;
+	return (char *)new_block + sizeof(*new_block) + 8;
+#else
 		memset((char *)block + sizeof(*block) + 8 + old_size, 0, size - old_size);
 	block->size = size;
 	return (char *)block + sizeof(*block) + 8;
+#endif
 }
 
 HLOCAL WINAPI LocalFree(HLOCAL memory)
 {
 	if (memory)
+#ifdef HALO_64BIT
+		xbox_heap_free(global_block_from_pointer(memory));
+#else
 		free(global_block_from_pointer(memory));
+#endif
 	return NULL;
 }
 
@@ -841,9 +903,20 @@ SIZE_T WINAPI LocalSize(HLOCAL memory)
 
 VOID WINAPI GlobalMemoryStatus(LPMEMORYSTATUS status)
 {
+#ifdef HALO_64BIT
+	int pages = sysconf(_SC_PHYS_PAGES);
+#ifdef _SC_AVPHYS_PAGES
+	int available = sysconf(_SC_AVPHYS_PAGES);
+#else
+	/* macOS has no free page count here; the report is capped at 64 MB anyway */
+	int available = pages;
+#endif
+	int page_size = sysconf(_SC_PAGESIZE);
+#else
 	long pages = sysconf(_SC_PHYS_PAGES);
 	long available = sysconf(_SC_AVPHYS_PAGES);
 	long page_size = sysconf(_SC_PAGESIZE);
+#endif
 	/* report at most an Xbox-sized 64 MB so size arithmetic in the game
 	cannot overflow 32 bits */
 	SIZE_T total = (SIZE_T)64 * 1024 * 1024;

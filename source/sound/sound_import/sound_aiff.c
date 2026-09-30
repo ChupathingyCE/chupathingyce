@@ -74,9 +74,11 @@ struct aiff_byte_swap_globals
 	byte_swap_code common_chunk_codes[8];
 	struct byte_swap_definition common_chunk_definition;
 };
+#ifndef HALO_64BIT
 
 typedef char verify_aiff_byte_swap_globals_size[
 	sizeof(struct aiff_byte_swap_globals) == 0x88 ? 1 : -1];
+#endif
 
 /* ---------- prototypes */
 

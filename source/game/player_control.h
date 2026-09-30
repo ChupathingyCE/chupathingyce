@@ -114,8 +114,10 @@ typedef char player_control_pitch_minimum_offset_assert[
 	offsetof(struct player_control, pitch_minimum) == 0x38 ? 1 : -1];
 typedef char player_control_pitch_maximum_offset_assert[
 	offsetof(struct player_control, pitch_maximum) == 0x3C ? 1 : -1];
+#ifndef HALO_64BIT
 typedef char player_control_unit_camera_info_size_assert[
 	sizeof(struct player_control_unit_camera_info) == 0x18 ? 1 : -1];
+#endif
 typedef char player_control_globals_size_assert[
 	sizeof(struct player_control_globals_data) == 0x110 ? 1 : -1];
 typedef char player_control_globals_players_offset_assert[
@@ -218,4 +220,9 @@ boolean player_control_action_test_look_relative_all_directions(
 extern real player_look_yaw_rate[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 extern real player_look_pitch_rate[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 
+#ifdef HALO_64BIT
+short unit_get_local_player_index(
+	int unit_index);
+
+#endif
 #endif // __PLAYER_CONTROL_H

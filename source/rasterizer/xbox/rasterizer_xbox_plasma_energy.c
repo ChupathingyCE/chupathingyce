@@ -123,12 +123,14 @@ struct pixel_shader_definition
 	unsigned long final_combiner_constants;
 };
 
+#ifndef HALO_64BIT
 typedef char plasma_group_size_assert[
 	sizeof(struct rasterizer_transparent_geometry_group_plasma) == 0x70 ? 1 : -1];
 typedef char plasma_group_shader_offset_assert[
 	offsetof(struct rasterizer_transparent_geometry_group_plasma, shader) == 0xC ? 1 : -1];
 typedef char plasma_group_runtime_offset_assert[
 	offsetof(struct rasterizer_transparent_geometry_group_plasma, runtime_parameters) == 0x6C ? 1 : -1];
+#endif
 typedef char plasma_primary_period_offset_assert[
 	offsetof(struct shader_transparent_plasma_definition, primary_noise_map_animation_period) == 0x98 ? 1 : -1];
 typedef char plasma_primary_bitmap_offset_assert[

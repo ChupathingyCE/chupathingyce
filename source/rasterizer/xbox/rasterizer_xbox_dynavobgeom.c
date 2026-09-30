@@ -162,6 +162,7 @@ enum
 		(struct shader *)(shader), _shader_type_effect))
 
 /* ---------- structures */
+#ifndef HALO_64BIT
 
 struct transparent_geometry_group
 {
@@ -207,6 +208,7 @@ typedef char transparent_geometry_group_plane_offset_assert[
 	offsetof(struct transparent_geometry_group, plane) == 0x80 ? 1 : -1];
 typedef char transparent_geometry_group_cortana_hack_offset_assert[
 	offsetof(struct transparent_geometry_group, cortana_hack) == 0x9D ? 1 : -1];
+#endif
 
 struct rasterizer_meter_parameters
 {

@@ -370,8 +370,10 @@ struct tag_group
 	unsigned long child_group_tags[16];
 	short child_count;
 };
+#ifndef HALO_64BIT
 
 typedef char tag_group_size_assert[sizeof(struct tag_group) == 0x60 ? 1 : -1];
+#endif
 
 /* ---------- END OWNER HEADER PREREQUISITE */
 
@@ -823,8 +825,13 @@ short bitmap_group_add_bitmap(
 	new_bitmap_data.registration_point.x = 0;
 	new_bitmap_data.mipmap_count = mipmap_count;
 	new_bitmap_data.pixels_offset = 0;
+#ifdef HALO_64BIT
+	new_bitmap_data.hardware_format = 0;
+	new_bitmap_data.base_address = 0;
+#else
 	new_bitmap_data.hardware_format = NULL;
 	new_bitmap_data.base_address = NULL;
+#endif
 	new_bitmap_data.signature = BITMAP_GROUP_TAG;
 	new_bitmap_data.width = width;
 	new_bitmap_data.height = height;
@@ -926,15 +933,33 @@ short bitmap_group_add_bitmap(
 					0x34D,
 					!bitmap->hardware_format);
 				bitmap->base_address =
+#ifdef HALO_64BIT
+					xbox_address((byte *)xbox_pointer(group->pixel_data.address) + bitmap->pixels_offset);
+#else
 					(byte *)group->pixel_data.address + bitmap->pixels_offset;
+#endif
+#ifdef HALO_64BIT
+				match_assert(
+					"c:\\halo\\SOURCE\\bitmaps\\bitmap_group.c",
+					0x352,
+					(byte*)xbox_pointer(bitmap->base_address)>=(byte*)xbox_pointer(group->pixel_data.address));
+#else
 				match_assert(
 					"c:\\halo\\SOURCE\\bitmaps\\bitmap_group.c",
 					0x352,
 					(byte*)bitmap->base_address>=(byte*)group->pixel_data.address);
+#endif
+#ifdef HALO_64BIT
+				match_assert(
+					"c:\\halo\\SOURCE\\bitmaps\\bitmap_group.c",
+					0x354,
+					(byte*)xbox_pointer(bitmap->base_address) + bitmap_get_pixel_data_size(bitmap) <= (byte*)xbox_pointer(group->pixel_data.address) + group->pixel_data.size);
+#else
 				match_assert(
 					"c:\\halo\\SOURCE\\bitmaps\\bitmap_group.c",
 					0x354,
 					(byte*)bitmap->base_address + bitmap_get_pixel_data_size(bitmap) <= (byte*)group->pixel_data.address + group->pixel_data.size);
+#endif
 
 				if (previous_bitmap)
 				{
@@ -971,8 +996,13 @@ short bitmap_group_add_bitmap(
 				new_bitmap);
 			csmemcpy(new_bitmap, &new_bitmap_data, sizeof(new_bitmap_data));
 			new_bitmap->pixels_offset = pixels_end;
+#ifdef HALO_64BIT
+			new_bitmap->base_address = xbox_address((byte *)xbox_pointer(group->pixel_data.address) + pixels_end);
+			csmemset(xbox_pointer(new_bitmap->base_address), 0, pixel_data_size);
+#else
 			new_bitmap->base_address = (byte *)group->pixel_data.address + pixels_end;
 			csmemset(new_bitmap->base_address, 0, pixel_data_size);
+#endif
 		}
 
 		return (short)previous_count;

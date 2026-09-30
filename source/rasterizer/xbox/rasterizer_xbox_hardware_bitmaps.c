@@ -148,6 +148,14 @@ static short const face_mapping_table[NUMBER_OF_FACES_PER_CUBE] =
 boolean rasterizer_bitmap_new(
 	struct bitmap_data *bitmap)
 {
+#ifdef HALO_64BIT
+	/* hardware_format holds an Xbox address: the device creates the texture
+	into a pointer, which is then stored as one */
+	void *created_texture = NULL;
+#define HARDWARE_FORMAT_OUT(type) ((type **)&created_texture)
+#else
+#define HARDWARE_FORMAT_OUT(type) ((type **)&bitmap->hardware_format)
+#endif
 	boolean success = TRUE;
 	long result;
 
@@ -175,7 +183,7 @@ boolean rasterizer_bitmap_new(
 				0,
 				rasterizer_bitmap_format_table[bitmap->format],
 				D3DPOOL_MANAGED,
-				(IDirect3DTexture8 **)&bitmap->hardware_format);
+				HARDWARE_FORMAT_OUT(IDirect3DTexture8));
 			if (result >= 0)
 			{
 				success = TRUE;
@@ -199,7 +207,7 @@ boolean rasterizer_bitmap_new(
 				0,
 				rasterizer_bitmap_format_table[bitmap->format],
 				D3DPOOL_MANAGED,
-				(IDirect3DVolumeTexture8 **)&bitmap->hardware_format);
+				HARDWARE_FORMAT_OUT(IDirect3DVolumeTexture8));
 			if (result >= 0)
 			{
 				success = TRUE;
@@ -221,7 +229,7 @@ boolean rasterizer_bitmap_new(
 				0,
 				rasterizer_bitmap_format_table[bitmap->format],
 				D3DPOOL_MANAGED,
-				(IDirect3DCubeTexture8 **)&bitmap->hardware_format);
+				HARDWARE_FORMAT_OUT(IDirect3DCubeTexture8));
 			if (result >= 0)
 			{
 				success = TRUE;
@@ -243,15 +251,18 @@ boolean rasterizer_bitmap_new(
 				"### ERROR unsupported bitmap type");
 			break;
 		}
+#ifdef HALO_64BIT
+		bitmap->hardware_format = XBOX_ADDRESS(created_texture);
+#endif
 
 		if (!bitmap->hardware_format)
 			success = FALSE;
 		if (!success)
-			bitmap->hardware_format = NULL;
+			bitmap->hardware_format = XBOX_NULL;
 	}
 	else
 	{
-		bitmap->hardware_format = NULL;
+		bitmap->hardware_format = XBOX_NULL;
 	}
 
 	if (!success)
@@ -261,6 +272,7 @@ boolean rasterizer_bitmap_new(
 			"### ERROR failed to create bitmap hardware format");
 	}
 	return success;
+#undef HARDWARE_FORMAT_OUT
 }
 
 /* ---------- private code */
@@ -290,7 +302,7 @@ static void rasterizer_bitmap_2d_changed(
 			mipmap_index++)
 		{
 			if (IDirect3DTexture8_LockRect(
-					(IDirect3DTexture8 *)bitmap->hardware_format,
+					(IDirect3DTexture8 *)xbox_pointer(bitmap->hardware_format),
 					mipmap_index,
 					&d3d_locked_rect,
 					NULL,
@@ -361,7 +373,7 @@ static void rasterizer_bitmap_2d_changed(
 				}
 
 				if (IDirect3DTexture8_UnlockRect(
-						(IDirect3DTexture8 *)bitmap->hardware_format,
+						(IDirect3DTexture8 *)xbox_pointer(bitmap->hardware_format),
 						mipmap_index) >= 0 && success)
 				{
 					success = TRUE;
@@ -422,7 +434,7 @@ static void rasterizer_bitmap_3d_changed(
 			mipmap_index++)
 		{
 			if (IDirect3DVolumeTexture8_LockBox(
-					(IDirect3DVolumeTexture8 *)bitmap->hardware_format,
+					(IDirect3DVolumeTexture8 *)xbox_pointer(bitmap->hardware_format),
 					mipmap_index,
 					&d3d_locked_box,
 					NULL,
@@ -509,7 +521,7 @@ static void rasterizer_bitmap_3d_changed(
 				}
 
 				if (IDirect3DVolumeTexture8_UnlockBox(
-						(IDirect3DVolumeTexture8 *)bitmap->hardware_format,
+						(IDirect3DVolumeTexture8 *)xbox_pointer(bitmap->hardware_format),
 						mipmap_index) >= 0 && success)
 				{
 					success = TRUE;
@@ -572,7 +584,7 @@ static void rasterizer_bitmap_cm_changed(
 				face_index++)
 			{
 				if (IDirect3DCubeTexture8_LockRect(
-						(IDirect3DCubeTexture8 *)bitmap->hardware_format,
+						(IDirect3DCubeTexture8 *)xbox_pointer(bitmap->hardware_format),
 						face_mapping_table[face_index],
 						mipmap_index,
 						&d3d_locked_rect,
@@ -650,7 +662,7 @@ static void rasterizer_bitmap_cm_changed(
 					}
 
 					if (IDirect3DCubeTexture8_UnlockRect(
-							(IDirect3DCubeTexture8 *)bitmap->hardware_format,
+							(IDirect3DCubeTexture8 *)xbox_pointer(bitmap->hardware_format),
 							face_mapping_table[face_index],
 							mipmap_index) >= 0 && success)
 					{
@@ -694,8 +706,8 @@ void rasterizer_bitmap_delete(
 	if (bitmap && bitmap->hardware_format)
 	{
 		IDirect3DBaseTexture8_Release(
-			(IDirect3DBaseTexture8 *)bitmap->hardware_format);
-		bitmap->hardware_format = NULL;
+			(IDirect3DBaseTexture8 *)xbox_pointer(bitmap->hardware_format));
+		bitmap->hardware_format = XBOX_NULL;
 	}
 
 	return;

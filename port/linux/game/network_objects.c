@@ -232,7 +232,7 @@ long network_objects_new_object_index(
 	for (absolute_index = LOCAL_OBJECTS_FIRST_INDEX; absolute_index < object_header_data->maximum_count; absolute_index++)
 	{
 		struct datum_header const *header = (struct datum_header const *)
-			((byte const *)object_header_data->data + absolute_index * object_header_data->size);
+			((byte const *)xbox_pointer(object_header_data->data) + absolute_index * object_header_data->size);
 
 		if (!header->identifier)
 		{
@@ -903,7 +903,7 @@ static void distributed_client_create(
 	{
 		return;
 	}
-	header = (struct datum_header const *)((byte const *)object_header_data->data +
+	header = (struct datum_header const *)((byte const *)xbox_pointer(object_header_data->data) +
 		absolute_index * object_header_data->size);
 	if (header->identifier)
 	{

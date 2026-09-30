@@ -24,8 +24,14 @@ missing from the reconstruction (docs/xbox_link_probe_20260924.md).
 
 /* ---------- pooled COMMON globals */
 
+#ifdef HALO_64BIT
+/* (twice the Xbox's size: many of them hold pointers) */
+#define HALO_COMMON(name, size) \
+	__attribute__((weak, aligned(16))) unsigned char name[(size) * 2]
+#else
 #define HALO_COMMON(name, size) \
 	__attribute__((weak, aligned(16))) unsigned char name[size]
+#endif
 
 HALO_COMMON(ai_globals, 12); /* struct ai_globals_data *ai_globals */
 HALO_COMMON(antenna_data, 12); /* struct data_array *antenna_data */

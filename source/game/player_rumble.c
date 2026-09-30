@@ -45,6 +45,9 @@ symbols in this file:
 #include "interface/player_ui.h"
 #include "math/periodic_functions.h"
 #include "saved games/game_state.h"
+#ifdef HALO_64BIT
+#include "memory/data.h"
+#endif
 
 /* ---------- constants */
 

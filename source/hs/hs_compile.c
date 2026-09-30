@@ -513,6 +513,7 @@ typedef char verify_hs_compile_compiled_source_size_offset[
 	offsetof(struct hs_compile_globals, compiled_source_size) == 0x04 ? 1 : -1];
 typedef char verify_hs_compile_compiled_source_offset[
 	offsetof(struct hs_compile_globals, compiled_source) == 0x08 ? 1 : -1];
+#ifndef HALO_64BIT
 typedef char verify_hs_compile_string_constant_buffer_offset[
 	offsetof(struct hs_compile_globals, string_constant_buffer) == 0x0C ? 1 : -1];
 typedef char verify_hs_compile_error_since_initialize_offset[
@@ -524,6 +525,7 @@ typedef char verify_hs_compile_compiling_scenario_offset[
 typedef char verify_hs_compile_globals_size[
 	sizeof(struct hs_compile_globals) == 0x12C ? 1 : -1];
 
+#endif
 /* ---------- prototypes */
 
 static boolean hs_parse_scenario_datum(
@@ -920,7 +922,7 @@ long hs_compile_expression(
 				0xA6,
 				global_scenario_get()->hs_string_constants.size>=HS_MAXIMUM_DYNAMIC_SOURCE_DATA_BYTES);
 			source_offset = global_scenario_get()->hs_string_constants.size - HS_MAXIMUM_DYNAMIC_SOURCE_DATA_BYTES;
-			hs_compile_globals.compiled_source = global_scenario_get()->hs_string_constants.address;
+			hs_compile_globals.compiled_source = xbox_pointer(global_scenario_get()->hs_string_constants.address);
 		}
 		else
 		{
@@ -1088,7 +1090,7 @@ static void hs_compile_finish(
 
 	if (success)
 	{
-		hs_compile_globals.string_constant_buffer = scenario->hs_string_constants.address;
+		hs_compile_globals.string_constant_buffer = xbox_pointer(scenario->hs_string_constants.address);
 		hs_compile_globals.string_constant_buffer_offset = 0;
 		hs_compile_globals.string_constant_buffer_size = hs_compile_globals.compiled_source_size;
 
@@ -1399,7 +1401,12 @@ static boolean hs_parse_string(
 		0x61F,
 		expression->constant_type==expression->type);
 
+#ifdef HALO_64BIT
+	/* script values are 32 bits: strings are Xbox addresses */
+	expression->data = xbox_address(hs_compile_globals.compiled_source + expression->source_offset);
+#else
 	expression->data = (long)(hs_compile_globals.compiled_source + expression->source_offset);
+#endif
 
 	return TRUE;
 }
@@ -1456,7 +1463,7 @@ static boolean hs_parse_tag_reference(
 			reference_index,
 			struct hs_reference);
 		if (csstrcmp(
-			reference->reference.name,
+			xbox_pointer(reference->reference.name),
 			hs_compile_globals.compiled_source + expression->source_offset) == 0 &&
 			reference->reference.group_tag == group_tag)
 		{
@@ -2431,7 +2438,7 @@ boolean hs_compile_postprocess(
 	short resolved_type;
 	struct hs_script *script;
 
-	hs_compile_globals.compiled_source = global_scenario_get()->hs_string_constants.address;
+	hs_compile_globals.compiled_source = xbox_pointer(global_scenario_get()->hs_string_constants.address);
 	hs_compile_globals.compiled_source_size =
 		global_scenario_get()->hs_string_constants.size - HS_MAXIMUM_DYNAMIC_SOURCE_DATA_BYTES;
 	hs_compile_globals.error = NULL;
@@ -2792,7 +2799,11 @@ boolean hs_macro_function_parse(
 		result && parameter_index < definition->parameter_count && argument_expression_index != NONE;
 		parameter_index++)
 	{
+#ifdef HALO_64BIT
+		if (hs_parse(argument_expression_index, HS_FUNCTION_PARAMETER_TYPE(definition, parameter_index)))
+#else
 		if (hs_parse(argument_expression_index, definition->parameter_types[parameter_index]))
+#endif
 		{
 			struct hs_syntax_node *argument = hs_syntax_get(argument_expression_index);
 

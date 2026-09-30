@@ -215,6 +215,7 @@ struct game_engine
 	long (*did_player_win)(
 		long player_index);
 };
+#ifndef HALO_64BIT
 
 typedef char verify_game_engine_size[sizeof(struct game_engine) == 0x88 ? 1 : -1];
 typedef char verify_game_engine_player_update_each_tick_offset[
@@ -231,6 +232,7 @@ typedef char verify_game_engine_format_message_offset[
 	offsetof(struct game_engine, format_message) == 0x64 ? 1 : -1];
 typedef char verify_game_engine_player_update_offset[
 	offsetof(struct game_engine, player_update) == 0x70 ? 1 : -1];
+#endif
 
 /* ---------- prototypes/GAME_ENGINE.C */
 
@@ -544,4 +546,14 @@ real game_engine_get_damage_multiplier(
 	long damaging_player_index,
 	long damaged_player_index);
 
+#ifdef HALO_64BIT
+int game_engine_did_player_win_default(
+	int player_index);
+
+void game_show_score_extended(
+	int player_index,
+	int score,
+	int team_index);
+
+#endif
 #endif // __GAME_ENGINE_H

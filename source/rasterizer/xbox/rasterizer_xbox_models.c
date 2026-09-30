@@ -120,6 +120,14 @@ symbols in this file:
 #include "rasterizer/xbox/rasterizer_xbox_draw_primitives.h"
 #include "rasterizer/xbox/rasterizer_xbox_internal.h"
 #include "rasterizer/xbox/rasterizer_xbox_models.h"
+#ifdef HALO_64BIT
+#include "rasterizer/rasterizer_model_types.h"
+
+/* rasterizer_frame_statistics.h; its globals clash with this file's own */
+int rasterizer_frame_statistics_count_static_vertices(
+	struct triangle_buffer const *triangle_buffer,
+	struct vertex_buffer const *vertex_buffer);
+#endif
 
 /* ---------- constants */
 
@@ -229,6 +237,7 @@ struct rasterizer_model_skinning_parameters
 	word pad06;
 };
 
+#ifndef HALO_64BIT
 struct rasterizer_model_effect_parameters
 {
 	short type;
@@ -254,6 +263,7 @@ struct rasterizer_model_begin_parameters
 	real_vector2d base_map_scale;
 };
 
+#endif
 struct shader_model_properties
 {
 	word flags;
@@ -315,6 +325,7 @@ struct render_sort_filth
 	short next_part_index;
 	short part_index;
 	word pad0A;
+#ifndef HALO_64BIT
 };
 
 struct transparent_geometry_group
@@ -349,6 +360,7 @@ struct transparent_geometry_group
 	boolean sort_last;
 	boolean cortana_hack;
 	byte pad9E[2];
+#endif
 };
 
 struct rasterizer_models_frame_statistics
@@ -468,12 +480,14 @@ typedef char verify_rasterizer_models_active_camouflage_offset[
 typedef char verify_rasterizer_model_parameters_skinning_offset[
 	offsetof(struct rasterizer_model_begin_parameters, skinning) == 0x08
 		? 1 : -1];
+#ifndef HALO_64BIT
 typedef char verify_rasterizer_model_parameters_lighting_offset[
 	offsetof(struct rasterizer_model_begin_parameters, lighting) == 0x10
 		? 1 : -1];
 typedef char verify_rasterizer_model_parameters_effect_offset[
 	offsetof(struct rasterizer_model_begin_parameters, effect) == 0x8C
 		? 1 : -1];
+#endif
 typedef char verify_rasterizer_models_window_fog_offset[
 	offsetof(struct rasterizer_window_begin_parameters, fog) == 0x1E8
 		? 1 : -1];
@@ -489,6 +503,7 @@ typedef char verify_rasterizer_models_statistics_vertex_offset[
 	offsetof(
 		struct rasterizer_models_frame_statistics,
 		model_vertex_count) == 0xD8 ? 1 : -1];
+#ifndef HALO_64BIT
 typedef char verify_rasterizer_model_parameters_position_offset[
 	offsetof(struct rasterizer_model_begin_parameters, centroid) == 0xB4
 		? 1 : -1];
@@ -511,6 +526,7 @@ typedef char verify_transparent_geometry_group_plane_offset[
 typedef char verify_transparent_geometry_group_cortana_hack_offset[
 	offsetof(struct transparent_geometry_group, cortana_hack) == 0x9D
 		? 1 : -1];
+#endif
 typedef char verify_rasterizer_models_statistics_transparent_offset[
 	offsetof(
 		struct rasterizer_models_frame_statistics,
@@ -542,12 +558,14 @@ typedef char verify_shader_environment_cube_map_offset[
 
 typedef char verify_rasterizer_models_debug_options_zbias_offset[
 	offsetof(struct rasterizer_debug_options, zbias) == 0x54
+#ifndef HALO_64BIT
 		? 1 : -1];
 typedef char verify_rasterizer_model_parameters_effect_shader_offset[
 	offsetof(struct rasterizer_model_begin_parameters, effect.shader) == 0xA8
 		? 1 : -1];
 typedef char verify_rasterizer_model_parameters_effect_animation_offset[
 	offsetof(struct rasterizer_model_begin_parameters, effect.animation) == 0xAC
+#endif
 		? 1 : -1];
 typedef char verify_rasterizer_models_statistics_vertex_shader_work_offset[
 	offsetof(

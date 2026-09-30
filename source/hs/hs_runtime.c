@@ -282,6 +282,9 @@ symbols in this file:
 #include "cseries/errors.h"
 #include "main/console.h"
 #include "game/game.h"
+#ifdef HALO_64BIT
+#include "cseries/cseries_windows.h"
+#endif
 
 /* ---------- constants */
 
@@ -307,7 +310,12 @@ enum
 
 enum
 {
+#ifdef HALO_64BIT
+	/* doubled: stack frames hold two native pointers */
+	HS_THREAD_STACK_SIZE = 0x400
+#else
 	HS_THREAD_STACK_SIZE = 0x200
+#endif
 };
 
 enum
@@ -328,8 +336,8 @@ enum
 /* a thread is valid when it lies inside the thread data array and its stack pointer and
    the fill mark of its topmost frame lie inside its own inline stack buffer */
 #define valid_thread(thread) \
-	((byte *)(thread)>=(byte *)hs_thread_data->data && \
-	(byte *)(thread)<(byte *)hs_thread_data->data+hs_thread_data->count*hs_thread_data->size && \
+	((byte *)(thread)>=(byte *)xbox_pointer(hs_thread_data->data) && \
+	(byte *)(thread)<(byte *)xbox_pointer(hs_thread_data->data)+hs_thread_data->count*hs_thread_data->size && \
 	(byte *)(thread)->stack>=(thread)->stack_data && \
 	(byte *)(thread)->stack<(thread)->stack_data+HS_THREAD_STACK_SIZE && \
 	(thread)->stack->data+(thread)->stack->size<=(thread)->stack_data+HS_THREAD_STACK_SIZE)
@@ -377,10 +385,49 @@ union hs_conversion_result
 	short short_integer;
 	long long_integer;
 	real real;
-	char const *string;
+	/* script values are 32 bits: strings are Xbox addresses */
+	XPTR(char const) string;
 };
 
 typedef long (*hs_typecasting_procedure)(long value);
+#ifdef HALO_64BIT
+
+/* A string as a script value: an Xbox address. Strings the executable owns
+(external globals' defaults and values) live outside the Xbox address
+space, so each is copied onto the Xbox heap once. */
+static unsigned int hs_string_value(
+	char const *string)
+{
+	static struct
+	{
+		char const *host;
+		unsigned int address;
+	} copies[64];
+	static int copy_count = 0;
+	int index;
+	char *copy;
+
+	if (!string)
+		return 0;
+	if (POINTER_BITS(string) - XBOX_ADDRESS_SPACE_BASE < XBOX_ADDRESS_SPACE_SIZE)
+		return xbox_address(string);
+	for (index = 0; index < copy_count; index++)
+	{
+		if (copies[index].host == string)
+			return copies[index].address;
+	}
+	copy = system_malloc(csstrlen(string) + 1);
+	csstrcpy(copy, string);
+	if (copy_count < NUMBEROF(copies))
+	{
+		copies[copy_count].host = string;
+		copies[copy_count].address = xbox_address(copy);
+		copy_count++;
+	}
+
+	return xbox_address(copy);
+}
+#endif
 
 typedef void (*hs_debug_string_procedure)(
 	long name_count,
@@ -427,9 +474,11 @@ struct hs_thread_datum
 	long result;
 	byte stack_data[0x200];
 };
+#ifndef HALO_64BIT
 
 typedef char hs_thread_datum_size_assert[
 	sizeof(struct hs_thread_datum) == 0x218 ? 1 : -1];
+#endif
 
 /* ---------- prototypes */
 
@@ -732,7 +781,12 @@ void hs_runtime_initialize(
 	short global_index;
 	long index;
 
+#ifdef HALO_64BIT
+	/* the thread holds a native stack frame pointer */
+	hs_thread_data = game_state_data_new("hs thread", 0x100, MAX(0x218, sizeof(struct hs_thread_datum)));
+#else
 	hs_thread_data = game_state_data_new("hs thread", 0x100, 0x218);
+#endif
 	hs_global_data = game_state_data_new("hs globals", 0x400, 8);
 	if (hs_thread_data && hs_global_data)
 	{
@@ -1549,7 +1603,7 @@ static union hs_conversion_result hs_string_to_boolean(
 {
 	union hs_conversion_result result;
 
-	result.boolean = csstrlen(value.string)==0;
+	result.boolean = csstrlen(xbox_pointer(value.string))==0;
 
 	return result;
 }
@@ -1775,6 +1829,40 @@ void hs_return(
 	return;
 }
 
+#ifdef HALO_64BIT
+#define MAXIMUM_HS_FUNCTION_PARAMETERS 32
+
+short const *hs_function_parameter_types(
+	struct hs_function_definition const *function)
+{
+	static struct
+	{
+		struct hs_function_definition const *function;
+		short types[MAXIMUM_HS_FUNCTION_PARAMETERS];
+	} copies[512];
+	static int copy_count = 0;
+	int copy_index;
+	short parameter_index;
+
+	for (copy_index = 0; copy_index < copy_count; copy_index++)
+	{
+		if (copies[copy_index].function == function)
+		{
+			return copies[copy_index].types;
+		}
+	}
+	match_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", __LINE__,
+		copy_count < NUMBEROF(copies) && function->parameter_count <= MAXIMUM_HS_FUNCTION_PARAMETERS);
+	for (parameter_index = 0; parameter_index < function->parameter_count; parameter_index++)
+	{
+		copies[copy_count].types[parameter_index] = HS_FUNCTION_PARAMETER_TYPE(function, parameter_index);
+	}
+	copies[copy_count].function = function;
+
+	return copies[copy_count++].types;
+}
+
+#endif
 long *hs_macro_function_evaluate(
 	short function_index,
 	long thread_index,
@@ -1785,7 +1873,11 @@ long *hs_macro_function_evaluate(
 	return hs_arguments_evaluate(
 		thread_index,
 		function->parameter_count,
+#ifdef HALO_64BIT
+		hs_function_parameter_types(function),
+#else
 		function->parameter_types,
+#endif
 		initialize);
 }
 
@@ -2277,7 +2369,11 @@ void hs_evaluate_debug_string(
 
 		hs_evaluate(thread_index, *expression_index, &argument);
 		*expression_index = hs_syntax_get(*expression_index)->next_node_index;
+#ifdef HALO_64BIT
+		arguments[*argument_count] = xbox_pointer(argument);
+#else
 		arguments[*argument_count] = (char const *)argument;
+#endif
 		*argument_count += 1;
 	}
 	else
@@ -2671,9 +2767,17 @@ static void hs_global_reconcile_read(
 				: _hs_type_long_integer_default;
 			break;
 		case _hs_type_string:
+#ifdef HALO_64BIT
+			global->value.string = hs_string_value(external->address
+#else
 			global->value.string = external->address
+#endif
 				? *(char const * *)external->address
+#ifdef HALO_64BIT
+				: _hs_type_string_default);
+#else
 				: _hs_type_string_default;
+#endif
 			break;
 		case _hs_type_script:
 			global->value.short_integer = external->address
@@ -2897,7 +3001,7 @@ static void hs_global_reconcile_write(
 			break;
 		case _hs_type_string:
 			if (external->address)
-				*(char const **)external->address = global->value.string;
+				*(char const **)external->address = xbox_pointer(global->value.string);
 			break;
 		case _hs_type_script:
 			if (external->address)

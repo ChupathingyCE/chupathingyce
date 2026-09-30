@@ -38,6 +38,7 @@ from .semantic_progress import (
 from .linux_build import generate_linux_build, linux_configure_inputs
 from .android_build import generate_android_build, android_configure_inputs
 from .windows_build import generate_windows_build, windows_configure_inputs
+from .macos_build import generate_macos_build, macos_configure_inputs
 from .parked_functions import (
     ParkedFunctionsError,
     require_valid_parked_functions,
@@ -276,6 +277,7 @@ def generate_native_build_ninja(sln: SolutionConfig) -> None:
     generate_linux_build(n, sln)
     generate_android_build(n, sln)
     generate_windows_build(n, sln)
+    generate_macos_build(n, sln)
 
     n.comment("Reconfigure on change")
     n.rule(
@@ -295,13 +297,14 @@ def generate_native_build_ninja(sln: SolutionConfig) -> None:
             *linux_configure_inputs(),
             *android_configure_inputs(),
             *windows_configure_inputs(),
+            *macos_configure_inputs(),
         ],
     )
     n.newline()
 
     # the build for this computer, where it could be generated (the Windows
     # build is left out when SDL cannot be fetched, for instance)
-    default = "windows" if is_windows() else "linux"
+    default = "windows" if is_windows() else "macos" if sys.platform == "darwin" else "linux"
     if f"\nbuild {default}: " in out.getvalue():
         n.comment("Default rule: the build for this computer")
         n.default(default)

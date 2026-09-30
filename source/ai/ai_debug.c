@@ -40,6 +40,10 @@ AI_DEBUG.C
 #include "units/biped_definitions.h"
 #include "units/units.h"
 #include "units/unit_definitions.h"
+#ifdef HALO_64BIT
+#include "main/console.h"
+#include "cseries/errors.h"
+#endif
 
 /* ---------- constants */
 
@@ -145,9 +149,11 @@ typedef char ai_debug_globals_enterable_vehicle_offset_assert[
 	offsetof(struct ai_debug_globals_view, enterable_vehicle) == 0x3B8 ? 1 : -1];
 typedef char ai_debug_globals_size_assert[
 	sizeof(struct ai_debug_globals_view) == 0x8DC ? 1 : -1];
+#ifndef HALO_64BIT
 typedef char ai_debug_actor_iterator_size_assert[
 	sizeof(struct actor_iterator) == 0x1C ? 1 : -1];
 
+#endif
 
 /* ---------- prototypes */
 
@@ -4222,13 +4228,21 @@ static void ai_debug_communication_toggle_bits(
 	if (clear_count)
 	{
 		bit_vector_or(vector_size, new_vector, vector, vector);
+#ifdef HALO_64BIT
+		console_printf(FALSE, "set %d flags", clear_count);
+#else
 		console_printf(NULL, "set %d flags", clear_count);
+#endif
 	}
 	else if (set_count)
 	{
 		bit_vector_not(vector_size, new_vector, new_vector);
 		bit_vector_and(vector_size, new_vector, vector, vector);
+#ifdef HALO_64BIT
+		console_printf(FALSE, "cleared %d flags", set_count);
+#else
 		console_printf(NULL, "cleared %d flags", set_count);
+#endif
 	}
 
 	return;
@@ -4553,7 +4567,7 @@ char *ai_debug_describe_actor(
 		struct unit_datum *unit = unit_get(unit_index);
 
 		model_name = tag_name_strip_path(
-			unit_definition_get(unit->definition_index)->object.model.name);
+			xbox_pointer(unit_definition_get(unit->definition_index)->object.model.name));
 
 		if (unit->object.name_index!=NONE)
 		{

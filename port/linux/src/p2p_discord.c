@@ -24,6 +24,9 @@ handshake (opcode 0) names the application; commands and events are opcode
 #include "p2p_internal.h"
 
 #include <stdio.h>
+#ifdef HALO_64BIT
+#include <stdlib.h>
+#endif
 #include <string.h>
 
 enum
@@ -108,7 +111,14 @@ static void send_activity(void)
 	else
 	{
 		size = snprintf(json, sizeof(json),
+#ifdef HALO_64BIT
+			"{\"cmd\":\"SET_ACTIVITY\",\"nonce\":\"%lu\",\"args\":{\"pid\":%lu,\"activity\":{"
+			"\"details\":\"In Menus\","
+			"\"assets\":{\"large_image\":\"logo\",\"large_text\":\"Halo: Combat Evolved\"},"
+			"\"instance\":false}}}",
+#else
 			"{\"cmd\":\"SET_ACTIVITY\",\"nonce\":\"%lu\",\"args\":{\"pid\":%lu}}",
+#endif
 			++discord.nonce, (unsigned long)posix_process_id());
 	}
 	discord_send(_opcode_frame, json, size);
@@ -248,6 +258,29 @@ void p2p_discord_update(void)
 			running; the game then receives the invite once connected */
 			snprintf(scheme, sizeof(scheme), "discord-%s", application);
 			p2p_register_url_scheme(scheme, "Halo: Combat Evolved");
+#ifdef HALO_64BIT
+#ifdef __APPLE__
+			{
+				const char *home = getenv("HOME");
+				if (home && *home)
+				{
+					char dir[1024];
+					char path[1024];
+					FILE *f;
+
+					snprintf(dir, sizeof(dir), "%s/Library/Application Support/discord/games", home);
+					posix_make_directory(dir);
+					snprintf(path, sizeof(path), "%s/%s.json", dir, application);
+					f = fopen(path, "w");
+					if (f)
+					{
+						fprintf(f, "{\"command\": \"open -b io.github.mrmilenko.halo-ce-macos\"}\n");
+						fclose(f);
+					}
+				}
+			}
+#endif
+#endif
 		}
 	}
 	if (!discord.enabled)

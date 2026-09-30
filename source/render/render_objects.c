@@ -108,6 +108,9 @@ symbols in this file:
 #include "cutscene/cinematics.h"
 #include "tag_files/tag_files.h"
 #include "saved games/game_state.h"
+#ifdef HALO_64BIT
+#include "rasterizer/rasterizer_model_types.h"
+#endif
 
 /* ---------- constants */
 
@@ -159,6 +162,7 @@ enum
 
 /* ---------- structures */
 
+#ifndef HALO_64BIT
 struct render_model_effect
 {
 	short type;
@@ -171,6 +175,7 @@ struct render_model_effect
 	struct render_animation modifier_animation;
 };
 
+#endif
 struct object_render_data
 {
 	long object_index;
@@ -208,10 +213,12 @@ struct rasterizer_debug_options
 	boolean draw_first_person_weapon_first;
 };
 
+#ifndef HALO_64BIT
 typedef char render_model_effect_size_assert[
 	sizeof(struct render_model_effect) == 0x28 ? 1 : -1];
 typedef char object_render_data_size_assert[
 	sizeof(struct object_render_data) == 0x48 ? 1 : -1];
+#endif
 typedef char object_render_state_size_assert[
 	sizeof(struct object_render_state) == 0x100 ? 1 : -1];
 #ifdef HALO_LINUX

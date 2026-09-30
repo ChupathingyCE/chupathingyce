@@ -171,9 +171,11 @@ struct rasterizer_dynamic_screen_geometry_parameters
 	boolean point_sampled;
 	byte pad8B;
 };
+#ifndef HALO_64BIT
 
 typedef char verify_rasterizer_dynamic_screen_geometry_parameters_size[
 	sizeof(struct rasterizer_dynamic_screen_geometry_parameters) == 0x8C ? 1 : -1];
+#endif
 
 struct rasterizer_globals_reserved04
 {
