@@ -291,8 +291,10 @@ void browser_screen_render_hint(
 	bitmap = bitmap_index != NONE ? bitmap_group_get_bitmap_from_sequence(bitmap_index, 0, 0) : NULL;
 	if (!bitmap)
 		return;
-	icon_width = bitmap->width;
-	icon_height = bitmap->height;
+	/* (the footer draws its buttons' icons as tall as its words, not at
+	their bitmaps' size) */
+	icon_height = (short)(text.y1 - text.y0 + 2);
+	icon_width = bitmap->height ? (short)(icon_height * bitmap->width / bitmap->height) : icon_height;
 
 	draw_string_set_draw_mode(font_index, NONE, 0, 0, &color);
 	bounds.x0 = 0;
@@ -301,11 +303,12 @@ void browser_screen_render_hint(
 	bounds.y1 = 480;
 	/* (it writes the cursor's bounds too: it takes no NULL there) */
 	draw_unicode_string_compute_bounds(&bounds, words, &measured, &cursor);
-	words_width = (short)(measured.x1 - measured.x0);
+	/* (a little slack: the measure falls a few short of the drawing) */
+	words_width = (short)(measured.x1 - measured.x0 + 6);
 
 	/* the Y button's icon sits just left of its words: this prompt ends a
-	gap before it */
-	right = (short)(text.x0 - icon_width - 24);
+	gap before it, as the footer's prompts are apart */
+	right = (short)(text.x0 - icon_width - 4 - 18);
 	middle = (short)((text.y0 + text.y1) / 2);
 
 	bounds.x1 = right;
