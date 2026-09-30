@@ -590,7 +590,16 @@ void bink_playback_start(
 			bink_globals.surface_type= BINKSURFACE32;
 			bink_globals.bytes_per_pixel= sizeof(pixel32);
 			bink_globals.texture_locked= FALSE;
+#ifdef HALO_64BIT
+			/* in the Xbox address space, as the bink bitmap holds the texture's
+			address in 32 bits */
+			bink_globals.texture= (D3DTexture *)bink_alloc_permanent(sizeof(D3DTexture), 16);
+			XPhysicalProtect(bink_globals.texture, sizeof(D3DTexture), PAGE_READWRITE);
+			csmemset(bink_globals.texture, 0, sizeof(D3DTexture));
+#define bink_texture (*(D3DBaseTexture *)bink_globals.texture)
+#else
 			bink_globals.texture= (D3DTexture *)&bink_texture;
+#endif
 
 			bink_texture.Common= BINK_TEXTURE_COMMON;
 			bink_texture.Data= 0;
@@ -599,6 +608,9 @@ void bink_playback_start(
 				((bink_globals.height-1)<<D3DSIZE_HEIGHT_SHIFT)|(bink_globals.width-1);
 			bink_texture.Format= BINK_TEXTURE_FORMAT;
 			IDirect3DBaseTexture8_Register(&bink_texture, frame_buffer);
+#ifdef HALO_64BIT
+#undef bink_texture
+#endif
 
 			csmemset(&bink_globals.screen_geometry, 0, sizeof(bink_globals.screen_geometry));
 			bink_globals.screen_geometry.map_texture_scale[0].i= 1.f;

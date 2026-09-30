@@ -373,51 +373,79 @@ VOID WINAPI XPhysicalFree(LPVOID address)
 	platform_contiguous_free(address);
 }
 
+#ifdef HALO_64BIT
+/* Protection is per host page, which holds several Xbox pages on Apple
+silicon (16 KB): every host page the range touches takes the protection its
+Xbox pages share, or read-write where they differ. So a few bytes made
+writable in a read-only block (bink_alloc_permanent) are writable. */
 BOOL WINAPI VirtualProtect(LPVOID address, SIZE_T size, DWORD new_protect, PDWORD old_protect)
 {
-#ifdef HALO_64BIT
-	BOOL contiguous = platform_is_contiguous(address);
+	uintptr_t mask = platform_host_page_size - 1;
+	uintptr_t first = (uintptr_t)address & ~mask;
+	uintptr_t end = ((uintptr_t)address + size + mask) & ~mask;
+	uintptr_t host_page;
+	unsigned int page, last;
+
+	if (!platform_is_contiguous(address))
+	{
+		/* outside the Xbox's pages: the host's own pages */
+		if (old_protect)
+			*old_protect = PAGE_READWRITE;
+		memory_watch_forget(address, size);
+		if (!protect_host_pages(address, size, protection_to_host(new_protect)))
+		{
+			platform_set_last_error_from_errno(errno);
+			return FALSE;
+		}
+		return TRUE;
+	}
+	pthread_mutex_lock(&arena_lock);
+	if (old_protect)
+		*old_protect = page_protection[contiguous_page(address)];
+	last = contiguous_page((char *)address + (size ? size - 1 : 0));
+	for (page = contiguous_page(address); page <= last && page < CONTIGUOUS_PAGE_COUNT; page++)
+	{
+		if (page_protection[page])
+			page_protection[page] = new_protect & ~(PAGE_WRITECOMBINE | PAGE_NOCACHE);
+	}
+	/* (the whole host pages: their protection changes, and with it what the
+	memory watch sees) */
+	memory_watch_forget((void *)first, (unsigned int)(end - first));
+	for (host_page = first; host_page < end; host_page += platform_host_page_size)
+	{
+		if (mprotect((void *)host_page, platform_host_page_size, host_page_protection(host_page)) != 0)
+		{
+			pthread_mutex_unlock(&arena_lock);
+			platform_set_last_error_from_errno(errno);
+			return FALSE;
+		}
+	}
+	pthread_mutex_unlock(&arena_lock);
+	return TRUE;
+}
 #else
+BOOL WINAPI VirtualProtect(LPVOID address, SIZE_T size, DWORD new_protect, PDWORD old_protect)
+{
 	unsigned long start = (unsigned long)address & ~(PAGE_SIZE_BYTES - 1);
 	unsigned long end = ((unsigned long)address + size + PAGE_SIZE_BYTES - 1) & ~(PAGE_SIZE_BYTES - 1);
-#endif
 
 	if (old_protect)
-#ifdef HALO_64BIT
-		*old_protect = contiguous ? page_protection[contiguous_page(address)] : PAGE_READWRITE;
-	memory_watch_forget(address, size);
-	if (!protect_host_pages(address, size, protection_to_host(new_protect)))
-#else
 		*old_protect = platform_is_contiguous(address) ?
 			page_protection[(start - PLATFORM_CONTIGUOUS_BASE) / PAGE_SIZE_BYTES] : PAGE_READWRITE;
 	memory_watch_forget((void *)start, end - start);
 	if (mprotect((void *)start, end - start, protection_to_host(new_protect)) != 0)
-#endif
 	{
 		platform_set_last_error_from_errno(errno);
 		return FALSE;
 	}
-#ifdef HALO_64BIT
-	if (contiguous)
-#else
 	if (platform_is_contiguous((void *)start))
-#endif
 	{
-#ifdef HALO_64BIT
-		unsigned int page, last;
-#else
 		unsigned long page;
-#endif
 
 		pthread_mutex_lock(&arena_lock);
-#ifdef HALO_64BIT
-		last = contiguous_page((char *)address + (size ? size - 1 : 0));
-		for (page = contiguous_page(address); page <= last && page < CONTIGUOUS_PAGE_COUNT; page++)
-#else
 		for (page = (start - PLATFORM_CONTIGUOUS_BASE) / PAGE_SIZE_BYTES;
 			page < (end - PLATFORM_CONTIGUOUS_BASE) / PAGE_SIZE_BYTES && page < CONTIGUOUS_PAGE_COUNT;
 			page++)
-#endif
 		{
 			if (page_protection[page])
 				page_protection[page] = new_protect & ~(PAGE_WRITECOMBINE | PAGE_NOCACHE);
@@ -426,6 +454,7 @@ BOOL WINAPI VirtualProtect(LPVOID address, SIZE_T size, DWORD new_protect, PDWOR
 	}
 	return TRUE;
 }
+#endif
 
 VOID WINAPI XPhysicalProtect(LPVOID address, SIZE_T size, DWORD new_protect)
 {

@@ -10,7 +10,7 @@ Linux build's, and [port/linux/README.md](../linux/README.md) describes them.
 
 - macOS 13 or later on Apple silicon.
 - The Xcode command line tools (`xcode-select --install`): clang and the SDK.
-- SDL3 and ninja from Homebrew: `brew install sdl3 ninja`.
+- SDL3, FFmpeg (Bink video) and ninja from Homebrew: `brew install sdl3 ffmpeg ninja`.
 - The game data in `assets/maps` (see the [README](../../README.md)).
 
 ```sh
@@ -65,6 +65,9 @@ treats an Xbox address as a pointer, or the reverse, does not compile.
   frames do not run.
 - Apple silicon has 16 KB pages; page protection works in host pages
   (`xbox_memory.c`, `memory_watch.c`).
+- Bink video (the intro, attract and credits movies) is decoded with FFmpeg
+  (`port/macos/src/macos_bink.c`) behind the Bink calls the game makes, in
+  place of the other ports' `bink_null.c`.
 - The application bundle (`port/macos/bundle.py`, `Info.plist`) registers the
   `halo://` and Discord URL schemes that internet play invites use.
 

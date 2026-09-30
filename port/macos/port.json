@@ -30,12 +30,17 @@
     "source/bitmaps/libtiff/tif_tile.c",
     "source/bitmaps/libtiff/tif_version.c",
     "source/bitmaps/libtiff/tif_warning.c",
-    "source/bitmaps/libtiff/tif_write.c"
+    "source/bitmaps/libtiff/tif_write.c",
+    "port/linux/src/bink_null.c"
   ],
   "libraries": [
     "SDL3",
     "m",
-    "pthread"
+    "pthread",
+    "avcodec",
+    "avformat",
+    "swscale",
+    "avutil"
   ],
   "frameworks": [
     "OpenGL"
