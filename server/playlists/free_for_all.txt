@@ -1,0 +1,18 @@
+# Slayer only, every multiplayer map (server/src/dedicated.c): no team games,
+# so any number of players, one included, can start a game.
+# One entry a line: the map, then the game type, played in order.
+
+# map            game type
+bloodgulch       slayer
+prisoner         slayer
+damnation        slayer
+hangemhigh       slayer
+sidewinder       slayer
+chillout         slayer
+boardingaction   slayer
+wizard           slayer
+ratrace          slayer
+longest          slayer
+beavercreek      slayer
+carousel         slayer
+putput           slayer
