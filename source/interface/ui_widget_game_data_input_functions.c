@@ -853,6 +853,12 @@ static void multiplayer_type_menu_update_extended_description(
 	struct widget_instance *child;
 	short index;
 
+#ifdef HALO_NEW_NETWORKING
+	/* (the menu's INTERNET PLAY selected: no real entry is, and the panel is
+	its own: ui_widget.c) */
+	if (list_widget && !list_widget->focused_child)
+		return;
+#endif
 	match_vassert(
 		"c:\\halo\\SOURCE\\interface\\ui_widget_game_data_input_functions.c",
 		0x1A6,
