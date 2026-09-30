@@ -307,6 +307,10 @@ void dedicated_server_update(
 				game->name[NUMBEROF(game->name) - 1] = 0;
 				if (game->maximum_players != dedicated.maximum_players)
 					game->maximum_players = (byte)dedicated.maximum_players;
+				/* (a game's lobby wants two players, network_game_manager.c:
+				the server's own would have been one) */
+				if (game->minimum_players != dedicated.minimum_players)
+					game->minimum_players = (byte)dedicated.minimum_players;
 			}
 			/* the countdown, started once it may (enough players, teams): a
 			lobby's players start it, and the server has none of its own */
