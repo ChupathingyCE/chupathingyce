@@ -32,6 +32,29 @@ struct browser_game
 	short score_limit;
 };
 
+/* one player's line of a finished game's carnage report */
+struct browser_report_player
+{
+	/* (UTF-16, as the game's names) */
+	unsigned short name[12];
+	short team;
+	short place;
+	int score;
+	short kills;
+	short assists;
+	short deaths;
+	short betrayals;
+	short suicides;
+	short multikills;
+	int shots_fired;
+	int shots_hit;
+};
+
+/* a hosted game that ended (reached the postgame): its carnage report, sent
+to the list server if the game is listed there (game_engine.c) */
+void browser_report_game(int teams, int red_score, int blue_score, int duration_seconds,
+	const struct browser_report_player *players, int count);
+
 /* the hosted game, as the game's server has it; called each frame while
 this machine hosts (network_server_manager.c). The listing follows (and is
 withdrawn a few seconds after the calls stop). */

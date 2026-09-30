@@ -79,6 +79,10 @@ static struct
 	unsigned long announce_time;
 	struct hosted_game announced;
 
+	/* a finished game's carnage report, waiting to be sent (JSON, without
+	the invite, which is the listing's) */
+	char *report;
+
 	/* browsing */
 	int list_wanted;
 	unsigned long list_request_time;
@@ -218,7 +222,7 @@ static void withdraw(void)
 	server_url("/v1/withdraw", url, sizeof(url));
 	form[0] = 0;
 	form_add(form, sizeof(form), "invite", browser.listed_invite);
-	posix_browser_request(url, form, response, sizeof(response), error, sizeof(error));
+	posix_browser_request(url, form, NULL, response, sizeof(response), error, sizeof(error));
 	platform_log("Game list: the game is no longer listed");
 	browser.listed_invite[0] = 0;
 }
@@ -247,7 +251,7 @@ static void announce(const char *invite, const struct hosted_game *game)
 	snprintf(text, sizeof(text), "%d", HALO_PORT_NETWORK_VERSION);
 	form_add(form, sizeof(form), "version", text);
 
-	status = posix_browser_request(url, form, response, sizeof(response), error, sizeof(error));
+	status = posix_browser_request(url, form, NULL, response, sizeof(response), error, sizeof(error));
 	browser.announce_time = p2p_now();
 	browser.announced = *game;
 	if (status == 200)
@@ -294,6 +298,42 @@ static void update_hosting(void)
 	{
 		announce(invite, &game);
 	}
+}
+
+static void send_report(void)
+{
+	char url[512], response[256], error[256];
+	char *report, *body;
+	size_t size;
+	int status;
+
+	pthread_mutex_lock(&browser_lock);
+	report = browser.report;
+	browser.report = NULL;
+	pthread_mutex_unlock(&browser_lock);
+	if (!report)
+		return;
+	/* (only a listed game: the server takes reports of those alone) */
+	if (browser.listed_invite[0])
+	{
+		size = strlen(report) + 64;
+		body = malloc(size);
+		if (body)
+		{
+			snprintf(body, size, "{\"invite\": \"%s\", %s", browser.listed_invite, report + 1);
+			server_url("/v1/report", url, sizeof(url));
+			status = posix_browser_request(url, body, "application/json", response, sizeof(response), error,
+				sizeof(error));
+			response[strcspn(response, "\r\n")] = 0;
+			if (status == 200)
+				platform_log("Game list: the game's carnage report is at %s/games/%s",
+					config_string("network.browser_url"), response + 3);
+			else
+				platform_log("Game list: could not send the carnage report (%s)", status ? response : error);
+			free(body);
+		}
+	}
+	free(report);
 }
 
 /* ---------- browsing (the browser thread) */
@@ -354,7 +394,7 @@ static void update_list(void)
 		return;
 
 	server_url("/v1/games.txt", url, sizeof(url));
-	status = posix_browser_request(url, NULL, response, sizeof(response), error, sizeof(error));
+	status = posix_browser_request(url, NULL, NULL, response, sizeof(response), error, sizeof(error));
 	games = malloc(sizeof(*games) * BROWSER_MAXIMUM_GAMES);
 	if (!games)
 		return;
@@ -395,6 +435,7 @@ static void *browser_thread(void *unused)
 		if (config_string("network.browser_url")[0])
 		{
 			update_hosting();
+			send_report();
 			update_list();
 		}
 		Sleep(THREAD_INTERVAL);
@@ -449,6 +490,67 @@ void browser_host_update(const unsigned short *name, const char *map, short engi
 	}
 	browser.host_reported = 1;
 	browser.host_report_time = p2p_now();
+	pthread_mutex_unlock(&browser_lock);
+}
+
+/* appends a JSON string of a name */
+static int json_name(char *out, int size, const unsigned short *name, int length)
+{
+	char text[64];
+	int used = 0;
+	const char *cursor;
+
+	utf8_from_name(name, length, text, sizeof(text));
+	used += snprintf(out + used, (size_t)(size - used), "\"");
+	for (cursor = text; *cursor && used < size - 8; cursor++)
+	{
+		unsigned char character = (unsigned char)*cursor;
+
+		if (character == '"' || character == '\\')
+			used += snprintf(out + used, (size_t)(size - used), "\\%c", character);
+		else if (character < 0x20)
+			used += snprintf(out + used, (size_t)(size - used), "\\u%04x", character);
+		else
+			out[used++] = (char)character;
+	}
+	used += snprintf(out + used, (size_t)(size - used), "\"");
+	return used;
+}
+
+void browser_report_game(int teams, int red_score, int blue_score, int duration_seconds,
+	const struct browser_report_player *players, int count)
+{
+	size_t size = 256 + (size_t)count * 320;
+	char *report = malloc(size);
+	int used = 0;
+	int index;
+
+	if (!report || count <= 0)
+	{
+		free(report);
+		return;
+	}
+	used += snprintf(report + used, size - (size_t)used,
+		"{\"teams\": %d, \"duration\": %d, \"team_scores\": [%d, %d], \"players\": [",
+		teams != 0, duration_seconds, teams ? red_score : 0, teams ? blue_score : 0);
+	for (index = 0; index < count && (size_t)used < size - 320; index++)
+	{
+		const struct browser_report_player *player = &players[index];
+
+		used += snprintf(report + used, size - (size_t)used, "%s{\"name\": ", index ? ", " : "");
+		used += json_name(report + used, (int)(size - (size_t)used), player->name, 12);
+		used += snprintf(report + used, size - (size_t)used,
+			", \"team\": %d, \"place\": %d, \"score\": %d, \"kills\": %d, \"assists\": %d, \"deaths\": %d, "
+			"\"betrayals\": %d, \"suicides\": %d, \"shots_fired\": %d, \"shots_hit\": %d, \"multikills\": %d}",
+			player->team, player->place, player->score, player->kills, player->assists, player->deaths,
+			player->betrayals, player->suicides, player->shots_fired, player->shots_hit, player->multikills);
+	}
+	snprintf(report + used, size - (size_t)used, "]}");
+
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	free(browser.report);
+	browser.report = report;
 	pthread_mutex_unlock(&browser_lock);
 }
 

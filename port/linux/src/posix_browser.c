@@ -244,11 +244,12 @@ static int connection_read(struct connection *connection, unsigned char *buffer,
 	}
 }
 
-int posix_browser_request(const char *url, const char *form, char *response, int response_size, char *error,
-	int error_size)
+int posix_browser_request(const char *url, const char *form, const char *content_type, char *response,
+	int response_size, char *error, int error_size)
 {
 	char host[256], port[16], path[512];
 	char request[4096];
+	char *long_request = NULL;
 	char *buffer;
 	size_t capacity = 65536, used = 0;
 	struct connection connection;
@@ -276,17 +277,32 @@ int posix_browser_request(const char *url, const char *form, char *response, int
 	}
 	if (form)
 	{
-		length = snprintf(request, sizeof(request),
+		/* (a long body, as a carnage report: a request of its own size) */
+		size_t size = strlen(form) + 1024;
+
+		long_request = malloc(size);
+		if (!long_request)
+		{
+			set_error(error, error_size, "out of memory", 0);
+			return 0;
+		}
+		length = snprintf(long_request, size,
 			"POST %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: " BROWSER_USER_AGENT "\r\n"
-			"Content-Type: application/x-www-form-urlencoded\r\nContent-Length: %zu\r\n\r\n%s",
-			path, host, strlen(form), form);
+			"Content-Type: %s\r\nContent-Length: %zu\r\n\r\n%s",
+			path, host, content_type ? content_type : "application/x-www-form-urlencoded", strlen(form), form);
+		if (length <= 0 || (size_t)length >= size)
+		{
+			free(long_request);
+			set_error(error, error_size, "the request is too long", 0);
+			return 0;
+		}
 	}
 	else
 	{
 		length = snprintf(request, sizeof(request),
 			"GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: " BROWSER_USER_AGENT "\r\n\r\n", path, host);
 	}
-	if (length <= 0 || (size_t)length >= sizeof(request))
+	if (!long_request && (length <= 0 || (size_t)length >= sizeof(request)))
 	{
 		set_error(error, error_size, "the request is too long", 0);
 		return 0;
@@ -301,11 +317,12 @@ int posix_browser_request(const char *url, const char *form, char *response, int
 	{
 		set_error(error, error_size, "out of memory", 0);
 		connection_free(&connection);
+		free(long_request);
 		return 0;
 	}
 	if (connection_open(&connection, host, port, error, error_size))
 	{
-		if (!connection_write(&connection, request, (size_t)length))
+		if (!connection_write(&connection, long_request ? long_request : request, (size_t)length))
 		{
 			set_error(error, error_size, "could not send the request", 0);
 		}
@@ -332,6 +349,7 @@ int posix_browser_request(const char *url, const char *form, char *response, int
 	}
 	connection_free(&connection);
 	free(buffer);
+	free(long_request);
 	return status;
 }
 

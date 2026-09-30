@@ -587,6 +587,9 @@ symbols in this file:
 #include "units/units.h"
 #ifdef HALO_64BIT
 #include "main/console.h"
+#ifdef HALO_NEW_NETWORKING
+#include "../../port/linux/src/browser.h"
+#endif
 #endif
 
 /* network_game_globals.c's */
@@ -4411,11 +4414,60 @@ void game_engine_load_stage(
 	return;
 }
 
+#ifdef HALO_NEW_NETWORKING
+/* the carnage report of a game this machine hosts, as it ends: the players
+in the postgame's order, for the game list (port/linux/src/browser.c,
+which sends it if the game is listed). A game that is quit or crashes never
+gets here, so it is never reported. */
+static void game_engine_report_game(
+	void)
+{
+	static struct statistic_buffer ranking[MULTIPLAYER_MAXIMUM_PLAYERS];
+	static struct browser_report_player players[MULTIPLAYER_MAXIMUM_PLAYERS];
+	long count = populate_statistic_buffer(ranking, _postgame_statistic_ranking, FALSE);
+	boolean teams = global_variant.universal_variant.teams;
+	long index;
+
+	for (index = 0; index < count; index++)
+	{
+		struct player_datum *player = player_get(ranking[index].player_index);
+		struct browser_report_player *line = &players[index];
+
+		csmemset(line, 0, sizeof(*line));
+		csmemcpy(line->name, player->name, sizeof(line->name));
+		line->team = (short)player->team_index;
+		line->place = (short)((ranking[index].place & 0x7FFFFFFF) + 1);
+		line->score = game_engine->get_player_score
+			? game_engine->get_player_score(ranking[index].player_index, FALSE)
+			: 0;
+		line->kills = player->statistics.kills[0];
+		line->assists = player->statistics.assists[0];
+		line->deaths = player->statistics.deaths;
+		line->betrayals = player->statistics.friendly_fire_kills;
+		line->suicides = player->statistics.suicides;
+		line->multikills = player->statistics.multiple_kills;
+		line->shots_fired = player->statistics.shots_fired;
+		line->shots_hit = player->statistics.shots_hit;
+	}
+	browser_report_game(
+		teams,
+		teams ? game_engine_get_team_score(0) : 0,
+		teams ? game_engine_get_team_score(1) : 0,
+		game_time_get() / TICKS_PER_SECOND,
+		players,
+		count);
+}
+#endif
+
 void game_engine_end_game(
 	void)
 {
 	if (game_engine_globals.postgame_state==game_engine_mode_active)
 	{
+#ifdef HALO_NEW_NETWORKING
+		if (global_network_game_server_get())
+			game_engine_report_game();
+#endif
 		game_engine_globals.postgame_state = game_engine_mode_postgame_delay;
 		game_engine_globals.postgame_timer = 7.0f;
 		game_engine_play_multiplayer_sound(_multiplayer_sound_game_over);
