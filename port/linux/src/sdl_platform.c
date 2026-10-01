@@ -376,7 +376,10 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	{
 		int flags = 0;
 
+#ifndef HALO_ANDROID
+		/* (the Android guest's SDL has no getter: port/android) */
 		SDL_GL_GetAttribute(SDL_GL_CONTEXT_FLAGS, &flags);
+#endif
 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, flags | SDL_GL_CONTEXT_DEBUG_FLAG);
 	}
 #if !defined(HALO_ANDROID) && !defined(_WIN32)
