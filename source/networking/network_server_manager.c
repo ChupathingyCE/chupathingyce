@@ -4285,8 +4285,9 @@ void network_game_server_dedicated_start_countdown(
 #endif
 
 #ifdef HALO_GAME_BROWSER
-/* the IPv4 address a client machine is connected from (the game's: an
-internet player's virtual address, port/linux/src/p2p.c), 0 for the
+/* the IPv4 address a client machine is connected from, in network byte
+order (the game keeps its addresses swapped, transport_endpoint_winsock.c):
+an internet player's virtual address (port/linux/src/p2p.c); 0 for the
 host's own or one not connected (the game list's confirmed players,
 game_engine.c) */
 unsigned long network_game_server_machine_ipv4_address(
@@ -4309,7 +4310,7 @@ unsigned long network_game_server_machine_ipv4_address(
 			csmemset(&reliable, 0, sizeof(reliable));
 			csmemset(&unreliable, 0, sizeof(unreliable));
 			network_connection_get_address(machine->connection, &reliable, &unreliable);
-			return reliable.address.ipv4_address;
+			return SWAP4(reliable.address.ipv4_address);
 		}
 	}
 
