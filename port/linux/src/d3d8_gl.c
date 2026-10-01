@@ -33,6 +33,7 @@ Conventions carried over from the Xbox:
 #include <time.h>
 #ifdef HALO_GAME_BROWSER
 #include "browser.h"
+#include "ui_overlay.h"
 #endif
 
 void d3d8_surface_initialize(D3DSurface *surface, D3DFORMAT format, unsigned long width, unsigned long height);
@@ -3740,6 +3741,11 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		/* row 0 of the render target is the top of the picture */
 		glBlitFramebuffer(0, 0, (GLint)back_buffer->target.gl_width, (GLint)back_buffer->target.gl_height,
 			x, y + height, x + width, y, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+#ifdef HALO_GAME_BROWSER
+		/* the overlay's screens, over the picture at the window's resolution
+		(ui_overlay.c) */
+		ui_overlay_present(x, y, width, height, window_width, window_height);
+#endif
 		platform_video_swap();
 		xgpu_gl_state_invalidate();
 		xgpu_texture_cache_begin_frame();

@@ -1,0 +1,125 @@
+/*
+POSIX_UI_FONT.C
+
+The overlay's fonts (ui_overlay.c; configure.py --game-browser,
+HALO_GAME_BROWSER): TrueType faces built into the game (#embed, from
+port/linux/ui/fonts), measured and rasterised with stb_truetype
+(port/third_party/stb). Compiled with the host's ABI, as the posix_*.c are:
+stb is ordinary C that expects it.
+*/
+
+#ifdef HALO_GAME_BROWSER
+
+#include "ui_font.h"
+
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define STB_TRUETYPE_IMPLEMENTATION
+#define STBTT_STATIC
+#include "stb_truetype.h"
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wc23-extensions"
+static const unsigned char font_regular[] = {
+#embed "../ui/fonts/NotoSans-Regular.ttf"
+};
+static const unsigned char font_bold[] = {
+#embed "../ui/fonts/NotoSans-Bold.ttf"
+};
+static const unsigned char font_xbox[] = {
+#embed "../ui/fonts/input_xbox.ttf"
+};
+static const unsigned char font_playstation[] = {
+#embed "../ui/fonts/input_playstation.ttf"
+};
+static const unsigned char font_nintendo[] = {
+#embed "../ui/fonts/input_nintendo.ttf"
+};
+static const unsigned char font_keyboard[] = {
+#embed "../ui/fonts/input_keyboard.ttf"
+};
+#pragma clang diagnostic pop
+
+static const unsigned char *const font_data[POSIX_UI_FONT_COUNT] =
+{
+	font_regular, font_bold, font_xbox, font_playstation, font_nintendo, font_keyboard,
+};
+
+static struct
+{
+	int state; /* 0 not tried, 1 ready, -1 broken */
+	stbtt_fontinfo info;
+} fonts[POSIX_UI_FONT_COUNT];
+
+static stbtt_fontinfo *face(int font)
+{
+	if (font < 0 || font >= POSIX_UI_FONT_COUNT)
+		return NULL;
+	if (!fonts[font].state)
+	{
+		const unsigned char *data = font_data[font];
+		int offset = stbtt_GetFontOffsetForIndex(data, 0);
+
+		fonts[font].state = offset >= 0 && stbtt_InitFont(&fonts[font].info, data, offset) ? 1 : -1;
+	}
+	return fonts[font].state > 0 ? &fonts[font].info : NULL;
+}
+
+int posix_ui_font_metrics(int font, float pixel_height, float *ascent, float *descent)
+{
+	stbtt_fontinfo *info = face(font);
+	int ascent_units, descent_units, gap_units;
+	float scale;
+
+	if (!info)
+		return 0;
+	scale = stbtt_ScaleForPixelHeight(info, pixel_height);
+	stbtt_GetFontVMetrics(info, &ascent_units, &descent_units, &gap_units);
+	*ascent = (float)ascent_units * scale;
+	*descent = (float)-descent_units * scale;
+	return 1;
+}
+
+int posix_ui_font_has(int font, unsigned int codepoint)
+{
+	stbtt_fontinfo *info = face(font);
+
+	return info && stbtt_FindGlyphIndex(info, (int)codepoint) != 0;
+}
+
+float posix_ui_font_advance(int font, float pixel_height, unsigned int codepoint, unsigned int previous)
+{
+	stbtt_fontinfo *info = face(font);
+	int advance, bearing;
+	float scale, width;
+
+	if (!info)
+		return 0.0f;
+	scale = stbtt_ScaleForPixelHeight(info, pixel_height);
+	stbtt_GetCodepointHMetrics(info, (int)codepoint, &advance, &bearing);
+	width = (float)advance * scale;
+	if (previous)
+		width += (float)stbtt_GetCodepointKernAdvance(info, (int)previous, (int)codepoint) * scale;
+	return width;
+}
+
+unsigned char *posix_ui_font_glyph(int font, float pixel_height, unsigned int codepoint, int *width, int *height,
+	int *x_offset, int *y_offset)
+{
+	stbtt_fontinfo *info = face(font);
+
+	*width = *height = *x_offset = *y_offset = 0;
+	if (!info)
+		return NULL;
+	return stbtt_GetCodepointBitmap(info, 0, stbtt_ScaleForPixelHeight(info, pixel_height), (int)codepoint,
+		width, height, x_offset, y_offset);
+}
+
+void posix_ui_font_free(unsigned char *bitmap)
+{
+	stbtt_FreeBitmap(bitmap, NULL);
+}
+
+#endif

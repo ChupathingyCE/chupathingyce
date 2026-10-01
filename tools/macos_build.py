@@ -32,6 +32,7 @@ from .linux_build import (
     MUSL_MATH_DIR,
     OPTIMISATION,
     PLATFORM_FLAGS as LINUX_PLATFORM_FLAGS,
+    STB_DIR,
     TOML_DIR,
     XDK_INCLUDE,
     compile_launcher,
@@ -275,6 +276,8 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
             add_object(source, f"{posix_cflags} {mbedtls_include}")
         elif source.name == "posix_upnp.c":
             add_object(source, f"{posix_cflags} -I{MINIUPNPC_DIR / 'include'} -DMINIUPNP_STATICLIB")
+        elif source.name == "posix_ui_font.c":
+            add_object(source, f"{posix_cflags} -I{STB_DIR}")
         elif source.name.startswith("posix_"):
             add_object(source, posix_cflags)
         elif source.name == "updater.c":

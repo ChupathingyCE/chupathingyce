@@ -180,6 +180,40 @@ static BYTE analog(BOOL down)
 	return down ? 0xff : 0x00;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* the device the player last used (the overlay's button prompts,
+ui_overlay.c): 0 the keyboard (or mouse), 1 an Xbox-like pad, 2 a
+PlayStation pad, 3 a Nintendo pad */
+static int last_input_scheme = 1;
+static BOOL last_input_seen = FALSE;
+
+int platform_input_scheme(void)
+{
+	/* (before any input: a pad if one is connected, else the keyboard) */
+	if (!last_input_seen)
+		return SDL_HasGamepad() ? 1 : 0;
+	return last_input_scheme;
+}
+
+static int scheme_of(SDL_Gamepad *gamepad)
+{
+	switch (SDL_GetGamepadType(gamepad))
+	{
+	case SDL_GAMEPAD_TYPE_PS3:
+	case SDL_GAMEPAD_TYPE_PS4:
+	case SDL_GAMEPAD_TYPE_PS5:
+		return 2;
+	case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO:
+	case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_LEFT:
+	case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT:
+	case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR:
+		return 3;
+	default:
+		return 1;
+	}
+}
+#endif
+
 static void keyboard_gamepad(const struct platform_input_state *input, XINPUT_GAMEPAD *pad)
 {
 	const unsigned char *k = input->keys;
@@ -187,6 +221,24 @@ static void keyboard_gamepad(const struct platform_input_state *input, XINPUT_GA
 	const unsigned char *m = input->mouse_buttons;
 	int x = 0, y = 0;
 
+#ifdef HALO_GAME_BROWSER
+	{
+		int scancode;
+
+		/* (not a system shortcut: Command held, as a screenshot's; and the
+		modifiers alone do not count) */
+		for (scancode = SDL_SCANCODE_A; scancode < SDL_SCANCODE_LCTRL && !k[SDL_SCANCODE_LGUI] &&
+			!k[SDL_SCANCODE_RGUI]; scancode++)
+		{
+			if (k[scancode])
+			{
+				last_input_scheme = 0;
+				last_input_seen = TRUE;
+				break;
+			}
+		}
+	}
+#endif
 	if (k[SDL_SCANCODE_D]) x++;
 	if (k[SDL_SCANCODE_A]) x--;
 	if (k[SDL_SCANCODE_W]) y++;
@@ -429,6 +481,23 @@ static void sdl_gamepad_state(SDL_Gamepad *gamepad, XINPUT_GAMEPAD *pad)
 	if (right_trigger > pad->bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER])
 		pad->bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] = (BYTE)right_trigger;
 
+#ifdef HALO_GAME_BROWSER
+	/* (a button pressed, a trigger pulled or a stick pushed: this pad) */
+	{
+		int button;
+		BOOL used = left_trigger > 64 || right_trigger > 64 ||
+			abs(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFTX)) > 16000 ||
+			abs(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFTY)) > 16000;
+
+		for (button = 0; button < SDL_GAMEPAD_BUTTON_COUNT && !used; button++)
+			used = SDL_GetGamepadButton(gamepad, (SDL_GamepadButton)button);
+		if (used)
+		{
+			last_input_scheme = scheme_of(gamepad);
+			last_input_seen = TRUE;
+		}
+	}
+#endif
 	/* a stick only overrides the keyboard when it is pushed further */
 	value = stick(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFTX), FALSE);
 	if (abs(value) > abs(pad->sThumbLX)) pad->sThumbLX = value;

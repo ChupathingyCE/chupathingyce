@@ -118,6 +118,7 @@ KCP_DIR = Path("port/third_party/kcp")
 MUSL_MATH_DIR = Path("port/third_party/musl-math")
 # the self-updater's TLS (port/linux/src/posix_update.c)
 MBEDTLS_DIR = Path("port/third_party/mbedtls")
+STB_DIR = Path("port/third_party/stb")
 # internet play's UPnP (port/linux/src/posix_upnp.c)
 MINIUPNPC_DIR = Path("port/third_party/miniupnpc")
 # miniupnpc's own build's definitions (its Makefile), and a static library
@@ -439,6 +440,9 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
                 add_object(source, f"{posix_cflags} {mbedtls_include}", posix=True)
             elif source.name == "posix_upnp.c":
                 add_object(source, f"{posix_cflags} -I{MINIUPNPC_DIR / 'include'} -DMINIUPNP_STATICLIB", posix=True)
+            elif source.name == "posix_ui_font.c":
+                # (the overlay's fonts: stb_truetype, and the fonts by #embed)
+                add_object(source, f"{posix_cflags} -I{STB_DIR}", posix=True)
             elif source.name.startswith("posix_"):
                 add_object(source, posix_cflags, posix=True)
             elif source.name == "updater.c":

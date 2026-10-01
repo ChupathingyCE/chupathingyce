@@ -30,6 +30,7 @@ picked there as any.
 #include "interface/ui_widget.h"
 #include "tag_files/tag_groups.h"
 #include "../src/browser.h"
+#include "../src/ui_overlay.h"
 
 /* ---------- constants */
 
@@ -42,7 +43,7 @@ enum
 	/* the System Link screen was up this recently: X opens the browser */
 	LIST_SHOWN_WINDOW = 500,
 
-	ROWS_PER_PAGE = 10,
+	ROWS_PER_PAGE = 9,
 	ROW_HEIGHT = 26,
 	LIST_TOP = 112,
 	STATUS_DURATION = 6000,
@@ -104,6 +105,17 @@ static char const *const network_icon[ROW_ICON_SIZE] =
 	"...........",
 };
 
+/* the list's orders (LT and RT, or the shoulders, step through them) */
+enum
+{
+	SORT_PLAYERS,
+	SORT_NAME,
+	SORT_MAP,
+	SORT_TYPE,
+
+	NUMBER_OF_SORTS
+};
+
 /* ---------- globals */
 
 static struct
@@ -117,6 +129,7 @@ static struct
 	struct browser_game games[BROWSER_MAXIMUM_GAMES];
 	char status[96];
 	unsigned long status_time;
+	short sort;
 } browser_screen;
 
 /* ---------- private code */
@@ -220,6 +233,71 @@ static void join_selected(
 	}
 }
 
+static long compare_names(
+	unsigned short const *a,
+	unsigned short const *b)
+{
+	long index;
+
+	for (index = 0; index < BROWSER_NAME_LENGTH; index++)
+	{
+		unsigned short x = a[index] >= 'a' && a[index] <= 'z' ? (unsigned short)(a[index] - 32) : a[index];
+		unsigned short y = b[index] >= 'a' && b[index] <= 'z' ? (unsigned short)(b[index] - 32) : b[index];
+
+		if (x != y || !x)
+			return (long)x - (long)y;
+	}
+	return 0;
+}
+
+static long compare_games(
+	struct browser_game const *a,
+	struct browser_game const *b)
+{
+	long order;
+
+	/* (closed games last, whatever the order) */
+	if (a->open != b->open)
+		return a->open ? -1 : 1;
+	switch (browser_screen.sort)
+	{
+	case SORT_NAME: order = compare_names(a->name, b->name); break;
+	case SORT_MAP: order = strcmp(map_display_name(a->map), map_display_name(b->map)); break;
+	case SORT_TYPE: order = (long)a->engine * 2 + a->teams - ((long)b->engine * 2 + b->teams); break;
+	default: order = (long)b->players - (long)a->players; break;
+	}
+	return order ? order : compare_names(a->name, b->name);
+}
+
+/* the game list's games, in the screen's order; the selection stays on its
+game */
+static void fetch_games(
+	void)
+{
+	char invite[BROWSER_INVITE_LENGTH + 1];
+	short index, other;
+
+	invite[0] = 0;
+	if (browser_screen.selected >= 0 && browser_screen.selected < browser_screen.count)
+		csstrncpy(invite, browser_screen.games[browser_screen.selected].invite, sizeof(invite) - 1);
+	invite[sizeof(invite) - 1] = 0;
+	browser_screen.count = (short)browser_get_games(browser_screen.games, BROWSER_MAXIMUM_GAMES);
+	/* (insertion: a few dozen games) */
+	for (index = 1; index < browser_screen.count; index++)
+	{
+		struct browser_game game = browser_screen.games[index];
+
+		for (other = index; other > 0 && compare_games(&browser_screen.games[other - 1], &game) > 0; other--)
+			browser_screen.games[other] = browser_screen.games[other - 1];
+		browser_screen.games[other] = game;
+	}
+	for (index = 0; invite[0] && index < browser_screen.count; index++)
+	{
+		if (!strcmp(browser_screen.games[index].invite, invite))
+			browser_screen.selected = index;
+	}
+}
+
 /* ---------- public code */
 
 void browser_screen_list_shown(
@@ -281,7 +359,7 @@ boolean browser_screen_open_from_event(
 	browser_screen.active = TRUE;
 	browser_screen.selected = 0;
 	browser_screen.status[0] = 0;
-	browser_screen.count = (short)browser_get_games(browser_screen.games, BROWSER_MAXIMUM_GAMES);
+	fetch_games();
 	return TRUE;
 }
 
@@ -291,7 +369,7 @@ void browser_screen_process(
 	struct event_record event;
 	short move = 0;
 
-	browser_screen.count = (short)browser_get_games(browser_screen.games, BROWSER_MAXIMUM_GAMES);
+	fetch_games();
 	while (browser_screen.active && get_next_event(&event, NONE))
 	{
 		if (event.type == BROWSER_EVENT_LEFT_STICK)
@@ -314,10 +392,26 @@ void browser_screen_process(
 			case _gamepad_binary_button_dpad_left: move = -ROWS_PER_PAGE; break;
 			case _gamepad_binary_button_dpad_right: move = ROWS_PER_PAGE; break;
 			case _gamepad_analog_button_a: join_selected(); break;
-			case _gamepad_analog_button_y:
+			case _gamepad_binary_button_start:
 				browser_open_profile();
-				csstrncpy(browser_screen.status, "Opening your profile in the web browser", sizeof(browser_screen.status) - 1);
-				browser_screen.status_time = system_milliseconds();
+				set_status("Opening your profile in the web browser");
+				break;
+			case _gamepad_analog_button_x:
+				fetch_games();
+				set_status("Refreshed");
+				break;
+			case _gamepad_analog_button_y:
+				set_status("Filters are next");
+				break;
+			case _gamepad_analog_button_left_trigger:
+			case _gamepad_analog_button_white:
+				browser_screen.sort = (short)((browser_screen.sort + NUMBER_OF_SORTS - 1) % NUMBER_OF_SORTS);
+				fetch_games();
+				break;
+			case _gamepad_analog_button_right_trigger:
+			case _gamepad_analog_button_black:
+				browser_screen.sort = (short)((browser_screen.sort + 1) % NUMBER_OF_SORTS);
+				fetch_games();
 				break;
 			case _gamepad_analog_button_b:
 			case _gamepad_binary_button_back:
@@ -493,83 +587,287 @@ void browser_screen_render_hint(
 	}
 }
 
+/* ---------- drawing: the Online Games screen (the overlay, ui_overlay.c) */
+
+/* the screen's colors (0xRRGGBBAA), as the mockups */
+enum
+{
+	COLOR_BACKGROUND_TOP = 0x0B1830FF,
+	COLOR_BACKGROUND_BOTTOM = 0x03070FFF,
+	COLOR_RULE = 0x2A62C8FF,
+	COLOR_TITLE = 0x3D8BFFFF,
+	COLOR_PANEL = 0x081530F0,
+	COLOR_PANEL_EDGE = 0x2F6DD0FF,
+	COLOR_HEAD = 0x7FB0FFFF,
+	COLOR_ROW_SELECTED = 0x2052B0FF,
+	COLOR_ROW_RULE = 0x16294AFF,
+	COLOR_TEXT = 0xE6EEFCFF,
+	COLOR_DIM = 0x8FA6C8FF,
+	COLOR_LABEL = 0x4AA3FFFF,
+	COLOR_CLOSED = 0xF08A4BFF,
+	COLOR_PROMPT = 0x4AA3FFFF,
+};
+
+/* the list's rows, columns and panels, in the 640x480 layout */
+enum
+{
+	LIST_X = 37, LIST_Y = 72, LIST_WIDTH = 566, LIST_HEAD = 20, LIST_ROW = 22, LIST_FOOT = 20,
+	DETAIL_Y = 318, DETAIL_HEIGHT = 117,
+	COLUMN_NAME = 67, COLUMN_MAP = 275, COLUMN_TYPE = 385, COLUMN_PLAYERS = 531, COLUMN_PING = 596,
+};
+
+/* the map pictures (the menus' mp_map_grafix, in their order:
+ui_widget_game_data_input_functions.c) and the game types' (game_type_grafix) */
+static char const *const map_picture_order[] =
+{
+	"beavercreek", "sidewinder", "damnation", "ratrace", "prisoner", "hangemhigh", "chillout",
+	"carousel", "boardingaction", "bloodgulch", "wizard", "putput", "longest",
+};
+static short const engine_picture[] = { 5, 0, 2, 3, 1, 4 };
+
+static char const *const sort_names[NUMBER_OF_SORTS] = { "PLAYERS", "NAME", "MAP", "TYPE" };
+
+static void utf8_name(
+	unsigned short const *name,
+	char *text,
+	long size)
+{
+	long used = 0, index;
+
+	for (index = 0; index < BROWSER_NAME_LENGTH && name[index] && used < size - 4; index++)
+	{
+		unsigned int character = name[index];
+
+		if (character < 0x80)
+			text[used++] = (char)character;
+		else if (character < 0x800)
+		{
+			text[used++] = (char)(0xC0 | (character >> 6));
+			text[used++] = (char)(0x80 | (character & 0x3F));
+		}
+		else
+		{
+			text[used++] = (char)(0xE0 | (character >> 12));
+			text[used++] = (char)(0x80 | ((character >> 6) & 0x3F));
+			text[used++] = (char)(0x80 | (character & 0x3F));
+		}
+	}
+	text[used] = 0;
+}
+
+static char const *type_name(
+	struct browser_game const *game,
+	char *text,
+	long size)
+{
+	char const *engine = game->engine >= 0 && game->engine < NUMBEROF(engine_names) && engine_names[game->engine][0] ?
+		engine_names[game->engine] : "Game";
+
+	/* (Capture the Flag is played in teams alone) */
+	snprintf(text, (size_t)size, "%s%s", game->teams && game->engine != 1 ? "Team " : "", engine);
+	return text;
+}
+
+/* a game's picture from the game's own bitmaps, in a cut-out of the overlay */
+static void draw_picture(
+	char const *tag,
+	short frame,
+	short art_width,
+	short art_height,
+	short x0,
+	short y0,
+	short x1,
+	short y1)
+{
+	long bitmap_index = tag_loaded('bitm', tag);
+	struct bitmap_data *bitmap = bitmap_index != NONE ? bitmap_group_get_bitmap_from_sequence(bitmap_index, 0, frame) : NULL;
+	rectangle2d bounds;
+
+	ui_overlay_cutout(x0, y0, (float)(x1 - x0), (float)(y1 - y0));
+	bounds.x0 = x0;
+	bounds.y0 = y0;
+	bounds.x1 = x1;
+	bounds.y1 = y1;
+	draw_quad(&bounds, 0xFF0A1A33);
+	if (bitmap)
+	{
+		/* (the picture fills the bitmap's top left; the rest is margin) */
+		rectangle2d art;
+
+		art.x0 = 0;
+		art.y0 = 0;
+		art.x1 = (short)MIN(art_width, bitmap->width);
+		art.y1 = (short)MIN(art_height, bitmap->height);
+		draw_bitmap_in_rect(bitmap, &bounds, &art, NULL, 0xFFFFFFFF, NULL, FALSE);
+	}
+}
+
+static float prompt(
+	int button,
+	char const *words,
+	float x)
+{
+	x += ui_overlay_button(button, 15.0f, x, 455.0f, 0xFFFFFFFF) + 3.0f;
+	return x + ui_overlay_text(UI_FONT_BOLD, 12.0f, x, 456.5f, UI_ALIGN_LEFT, COLOR_PROMPT, words) + 20.0f;
+}
+
+static float prompt_width(
+	int button,
+	char const *words)
+{
+	return ui_overlay_button_width(button, 15.0f) + 3.0f + ui_overlay_text_width(UI_FONT_BOLD, 12.0f, words) + 20.0f;
+}
+
 void browser_screen_render(
 	void)
 {
-	real_argb_color title_color = { 1.0f, 0.55f, 0.75f, 1.0f };
-	real_argb_color text_color = { 1.0f, 0.88f, 0.9f, 0.95f };
-	real_argb_color dim_color = { 1.0f, 0.55f, 0.62f, 0.72f };
-	real_argb_color open_color = { 1.0f, 0.45f, 0.85f, 0.5f };
-	real_argb_color closed_color = { 1.0f, 0.85f, 0.5f, 0.45f };
-	rectangle2d bounds;
-	short page_first;
-	short row;
-	char text[128];
+	short page_first, page_count, row;
+	long players = 0, index;
+	char text[160], name[64];
+	float x, width, margin = (float)((halo_screen_width() - 640) / 2 + 2);
+	struct browser_game const *selected = browser_screen.count ? &browser_screen.games[browser_screen.selected] : NULL;
 
-	/* the screen, the widescreen margins too */
-	bounds.x0 = (short)(-(halo_screen_width() - 640) / 2);
-	bounds.x1 = (short)(640 + (halo_screen_width() - 640) / 2);
-	bounds.y0 = 0;
-	bounds.y1 = 480;
-	/* (nearly opaque: the menu behind is only a hint) */
-	draw_quad(&bounds, 0xF4060C18);
+	if (!ui_overlay_available())
+		return;
+	for (index = 0; index < browser_screen.count; index++)
+		players += browser_screen.games[index].players;
 
-	draw_ascii(48, 40, 592, 72, 0, &title_color, "INTERNET GAMES");
-	snprintf(text, sizeof(text), "%d game%s on %s", browser_screen.count, browser_screen.count == 1 ? "" : "s",
-		"the game list");
-	draw_ascii(48, 72, 592, 92, 0, &dim_color, text);
+	/* the screen, its widescreen margins too */
+	ui_overlay_gradient(-margin, 0, 640 + 2 * margin, 480, 0, COLOR_BACKGROUND_TOP, COLOR_BACKGROUND_BOTTOM);
+	ui_overlay_gradient(-margin, 0, 640 + 2 * margin, 62, 0, 0x0A1A36FF, 0x050C1AFF);
+	ui_overlay_rect(-margin, 61.5f, 640 + 2 * margin, 1.0f, 0, COLOR_RULE);
+	ui_overlay_text(UI_FONT_BOLD, 30.0f, 37, 17, UI_ALIGN_LEFT, COLOR_TITLE, "ONLINE GAMES");
 
-	/* the column heads */
-	draw_ascii(48, LIST_TOP - 22, 240, LIST_TOP - 4, 0, &dim_color, "GAME");
-	draw_ascii(240, LIST_TOP - 22, 360, LIST_TOP - 4, 0, &dim_color, "MAP");
-	draw_ascii(360, LIST_TOP - 22, 500, LIST_TOP - 4, 0, &dim_color, "TYPE");
-	draw_ascii(500, LIST_TOP - 22, 592, LIST_TOP - 4, 1, &dim_color, "PLAYERS");
+	/* servers, players and the list it comes from, at the right */
+	x = 603;
+	x -= ui_overlay_text(UI_FONT_BOLD, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_TEXT, "HALO.MILENKO.ORG") + 4;
+	x -= ui_overlay_text(UI_FONT_REGULAR, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_DIM, "MASTER") + 14;
+	snprintf(text, sizeof(text), "%ld", players);
+	x -= ui_overlay_text(UI_FONT_BOLD, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_TEXT, text) + 4;
+	x -= ui_overlay_text(UI_FONT_REGULAR, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_DIM, "PLAYERS") + 14;
+	snprintf(text, sizeof(text), "%d", browser_screen.count);
+	x -= ui_overlay_text(UI_FONT_BOLD, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_TEXT, text) + 4;
+	ui_overlay_text(UI_FONT_REGULAR, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_DIM, "SERVERS");
 
+	/* the list */
+	ui_overlay_rect(LIST_X, LIST_Y, LIST_WIDTH, LIST_HEAD + ROWS_PER_PAGE * LIST_ROW + LIST_FOOT, 6, COLOR_PANEL);
+	ui_overlay_gradient(LIST_X, LIST_Y, LIST_WIDTH, LIST_HEAD, 6, 0x123266FF, 0x0C2347FF);
+	ui_overlay_text(UI_FONT_BOLD, 8.0f, COLUMN_NAME, LIST_Y + 6, UI_ALIGN_LEFT, COLOR_HEAD, "Server");
+	ui_overlay_text(UI_FONT_BOLD, 8.0f, COLUMN_MAP, LIST_Y + 6, UI_ALIGN_LEFT, COLOR_HEAD, "Map");
+	ui_overlay_text(UI_FONT_BOLD, 8.0f, COLUMN_TYPE, LIST_Y + 6, UI_ALIGN_LEFT, COLOR_HEAD, "Type");
+	ui_overlay_text(UI_FONT_BOLD, 8.0f, COLUMN_PLAYERS, LIST_Y + 6, UI_ALIGN_RIGHT,
+		browser_screen.sort == SORT_PLAYERS ? 0xFFFFFFFF : COLOR_HEAD, "Players");
+	ui_overlay_text(UI_FONT_BOLD, 8.0f, COLUMN_PING, LIST_Y + 6, UI_ALIGN_RIGHT, COLOR_HEAD, "Ping");
+
+	page_first = (short)(browser_screen.selected - browser_screen.selected % ROWS_PER_PAGE);
+	page_count = (short)MAX(1, (browser_screen.count + ROWS_PER_PAGE - 1) / ROWS_PER_PAGE);
 	if (!browser_screen.count)
 	{
-		draw_ascii(48, LIST_TOP + 20, 592, LIST_TOP + 44, 0, &text_color,
-			"No games are hosted on the list right now.");
+		ui_overlay_text(UI_FONT_REGULAR, 10.0f, 320, LIST_Y + LIST_HEAD + 80, UI_ALIGN_CENTER, COLOR_DIM,
+			"No one is hosting right now. Host a game, and it shows here.");
 	}
-	page_first = (short)(browser_screen.selected - browser_screen.selected % ROWS_PER_PAGE);
-	for (row = 0; row < ROWS_PER_PAGE && page_first + row < browser_screen.count; row++)
+	for (row = 0; row < ROWS_PER_PAGE; row++)
 	{
-		struct browser_game const *game = &browser_screen.games[page_first + row];
-		short y = (short)(LIST_TOP + row * ROW_HEIGHT);
-		wchar_t name[BROWSER_NAME_LENGTH + 1];
-		long index;
+		float y = (float)(LIST_Y + LIST_HEAD + row * LIST_ROW);
+		struct browser_game const *game;
+		unsigned int color;
 
+		if (row)
+			ui_overlay_rect(LIST_X + 1, y, LIST_WIDTH - 2, 0.5f, 0, COLOR_ROW_RULE);
+		if (page_first + row >= browser_screen.count)
+			continue;
+		game = &browser_screen.games[page_first + row];
 		if (page_first + row == browser_screen.selected)
-		{
-			rectangle2d highlight;
-
-			highlight.x0 = 40;
-			highlight.x1 = 600;
-			highlight.y0 = (short)(y - 2);
-			highlight.y1 = (short)(y + ROW_HEIGHT - 4);
-			draw_quad(&highlight, 0x803D8BFF);
-		}
-		for (index = 0; index < BROWSER_NAME_LENGTH; index++)
-			name[index] = (wchar_t)game->name[index];
-		name[BROWSER_NAME_LENGTH] = 0;
-		draw_text(48, y, 236, (short)(y + ROW_HEIGHT), 0, &text_color, name);
-		draw_ascii(240, y, 356, (short)(y + ROW_HEIGHT), 0, &text_color, map_display_name(game->map));
-		snprintf(text, sizeof(text), "%s%s", game->teams ? "Team " : "",
-			game->engine >= 0 && game->engine < NUMBEROF(engine_names) ? engine_names[game->engine] : "Game");
-		draw_ascii(360, y, 496, (short)(y + ROW_HEIGHT), 0, &text_color, text);
+			ui_overlay_rect(LIST_X + 1, y, LIST_WIDTH - 2, LIST_ROW, 0, COLOR_ROW_SELECTED);
+		color = game->open ? COLOR_TEXT : COLOR_DIM;
+		utf8_name(game->name, name, sizeof(name));
+		ui_overlay_text(UI_FONT_BOLD, 10.0f, COLUMN_NAME, y + 5, UI_ALIGN_LEFT, color, name);
+		ui_overlay_text(UI_FONT_BOLD, 10.0f, COLUMN_MAP, y + 5, UI_ALIGN_LEFT, color, map_display_name(game->map));
+		ui_overlay_text(UI_FONT_BOLD, 10.0f, COLUMN_TYPE, y + 5, UI_ALIGN_LEFT, color, type_name(game, text, sizeof(text)));
 		snprintf(text, sizeof(text), "%d/%d", game->players, game->maximum_players);
-		draw_ascii(500, y, 592, (short)(y + ROW_HEIGHT), 1, game->open ? &open_color : &closed_color, text);
+		ui_overlay_text(UI_FONT_BOLD, 10.0f, COLUMN_PLAYERS, y + 5, UI_ALIGN_RIGHT, game->open ? color : COLOR_CLOSED, text);
+		/* (no ping yet: the probe is to come) */
+		ui_overlay_text(UI_FONT_REGULAR, 10.0f, COLUMN_PING, y + 5, UI_ALIGN_RIGHT, COLOR_DIM, "\xE2\x80\x93");
+	}
+	{
+		float y = (float)(LIST_Y + LIST_HEAD + ROWS_PER_PAGE * LIST_ROW);
+
+		ui_overlay_rect(LIST_X + 1, y, LIST_WIDTH - 2, 0.75f, 0, COLOR_PANEL_EDGE);
+		snprintf(text, sizeof(text), "SORTED BY %s  \xC2\xB7  CLOSED GAMES LAST", sort_names[browser_screen.sort]);
+		ui_overlay_text(UI_FONT_BOLD, 7.5f, LIST_X + 10, y + 6, UI_ALIGN_LEFT, COLOR_DIM, text);
+		snprintf(text, sizeof(text), "\xE2\x80\xB9   PAGE %d OF %d   \xE2\x80\xBA", page_first / ROWS_PER_PAGE + 1, page_count);
+		ui_overlay_text(UI_FONT_BOLD, 8.0f, LIST_X + LIST_WIDTH - 12, y + 5.5f, UI_ALIGN_RIGHT, COLOR_LABEL, text);
+	}
+	ui_overlay_outline(LIST_X, LIST_Y, LIST_WIDTH, LIST_HEAD + ROWS_PER_PAGE * LIST_ROW + LIST_FOOT, 6, 1.0f,
+		COLOR_PANEL_EDGE);
+
+	/* the selected game */
+	ui_overlay_rect(LIST_X, DETAIL_Y, LIST_WIDTH, DETAIL_HEIGHT, 6, COLOR_PANEL);
+	ui_overlay_outline(LIST_X, DETAIL_Y, LIST_WIDTH, DETAIL_HEIGHT, 6, 1.0f, COLOR_PANEL_EDGE);
+	if (selected)
+	{
+		short map_frame = NUMBEROF(map_picture_order);
+		char const *base = selected->map;
+		char const *cursor;
+		float y = DETAIL_Y + 34;
+
+		for (cursor = selected->map; *cursor; cursor++)
+		{
+			if (*cursor == '\\' || *cursor == '/')
+				base = cursor + 1;
+		}
+		for (index = 0; index < NUMBEROF(map_picture_order); index++)
+		{
+			if (!strcmp(base, map_picture_order[index]))
+				map_frame = (short)index;
+		}
+		draw_picture("ui\\shell\\bitmaps\\mp_map_grafix", map_frame, 140, 116, 46, DETAIL_Y + 9, 171, DETAIL_Y + DETAIL_HEIGHT - 9);
+		ui_overlay_outline(45, DETAIL_Y + 8, 127, DETAIL_HEIGHT - 16, 0, 1.0f, COLOR_ROW_RULE);
+		draw_picture("ui\\shell\\bitmaps\\game_type_grafix",
+			engine_picture[selected->engine >= 0 && selected->engine < NUMBEROF(engine_picture) ? selected->engine : 0],
+			140, 114, 181, DETAIL_Y + 9, 256, DETAIL_Y + DETAIL_HEIGHT - 9);
+
+		utf8_name(selected->name, name, sizeof(name));
+		ui_overlay_text(UI_FONT_BOLD, 13.0f, 266, DETAIL_Y + 12, UI_ALIGN_LEFT, 0xFFFFFFFF, name);
+#define DETAIL_LINE(label, value) \
+		x = 266 + ui_overlay_text(UI_FONT_REGULAR, 10.0f, 266, y, UI_ALIGN_LEFT, COLOR_LABEL, label) + 4; \
+		ui_overlay_text(UI_FONT_REGULAR, 10.0f, x, y, UI_ALIGN_LEFT, COLOR_TEXT, value); \
+		y += 16;
+		DETAIL_LINE("Status:", selected->open ? "Accepting Players" : "In Progress");
+		DETAIL_LINE("Map:", map_display_name(selected->map));
+		DETAIL_LINE("Rules:", type_name(selected, text, sizeof(text)));
+		if (selected->score_limit)
+		{
+			snprintf(text, sizeof(text), "%d", selected->score_limit);
+			DETAIL_LINE("Score Limit:", text);
+		}
+		snprintf(text, sizeof(text), "%d of %d", selected->players, selected->maximum_players);
+		DETAIL_LINE("Players:", text);
+#undef DETAIL_LINE
+
+		/* who is in it (the host's roster, when it sends one) */
+		ui_overlay_rect(444, DETAIL_Y + 10, 0.75f, DETAIL_HEIGHT - 20, 0, COLOR_ROW_RULE);
+		ui_overlay_text(UI_FONT_BOLD, 8.5f, 453, DETAIL_Y + 10, UI_ALIGN_LEFT, COLOR_LABEL, "IN GAME");
+		width = ui_overlay_text(UI_FONT_REGULAR, 8.5f, 453, DETAIL_Y + 27, UI_ALIGN_LEFT, COLOR_DIM,
+			selected->players ? "The roster shows here" : "No one yet");
+		(void)width;
 	}
 
-	if (browser_screen.count > ROWS_PER_PAGE)
-	{
-		snprintf(text, sizeof(text), "Page %d of %d", browser_screen.selected / ROWS_PER_PAGE + 1,
-			(browser_screen.count + ROWS_PER_PAGE - 1) / ROWS_PER_PAGE);
-		draw_ascii(48, 392, 592, 412, 1, &dim_color, text);
-	}
+	/* the buttons */
+	ui_overlay_rect(-margin, 444, 640 + 2 * margin, 0.75f, 0, COLOR_RULE);
+	width = prompt_width(UI_BUTTON_A, "=JOIN") + prompt_width(UI_BUTTON_B, "=BACK") +
+		prompt_width(UI_BUTTON_X, "=REFRESH") + prompt_width(UI_BUTTON_Y, "=FILTERS") +
+		prompt_width(UI_BUTTON_LEFT_TRIGGER, "") + prompt_width(UI_BUTTON_RIGHT_TRIGGER, "=SORT") - 20 - 3;
+	x = 320 - width / 2;
+	x = prompt(UI_BUTTON_A, "=JOIN", x);
+	x = prompt(UI_BUTTON_B, "=BACK", x);
+	x = prompt(UI_BUTTON_X, "=REFRESH", x);
+	x = prompt(UI_BUTTON_Y, "=FILTERS", x);
+	x += ui_overlay_button(UI_BUTTON_LEFT_TRIGGER, 15.0f, x, 455.0f, 0xFFFFFFFF);
+	prompt(UI_BUTTON_RIGHT_TRIGGER, "=SORT", x);
+
 	if (browser_screen.status[0] && system_milliseconds() - browser_screen.status_time < STATUS_DURATION)
-		draw_ascii(48, 392, 592, 412, 0, &closed_color, browser_screen.status);
-	draw_ascii(48, 424, 592, 448, 2, &dim_color,
-		"A = Join     B = Back     Y = My Profile     Left/Right = Page");
+		ui_overlay_text(UI_FONT_BOLD, 9.0f, 603, 300, UI_ALIGN_RIGHT, COLOR_CLOSED, browser_screen.status);
 }
 
 #endif
