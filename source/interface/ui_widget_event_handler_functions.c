@@ -2005,6 +2005,14 @@ static boolean multiplayer_type_menu_initialize(
 	boolean *widget_deleted)
 {
 	player_spawn_count = 1;
+#ifdef HALO_GAME_BROWSER
+	/* port: the Multiplayer menu ends a network game left behind, as System
+	Link's list does when it opens (network_game_server_list_initialize):
+	Online Games' joins and games (browser_screen.c) have no such list to
+	come back to */
+	network_game_cancel(widget, event, widget_deleted);
+	network_game_accept_remote_connections(FALSE);
+#endif
 	return TRUE;
 }
 
@@ -5739,3 +5747,25 @@ static boolean solo_level_initialize_list_single_player(
 	}
 	return TRUE;
 }
+
+#ifdef HALO_GAME_BROWSER
+/* port: Online Games (port/linux/game/browser_screen.c), as System Link's
+list: opened, the network searching for games (its list's "initialize net
+game server list"); Y, a game of this machine's (its "start network game
+server") */
+boolean ui_online_games_start_network(
+	void)
+{
+	boolean deleted = FALSE;
+
+	return network_game_server_list_initialize(NULL, NULL, &deleted);
+}
+
+boolean ui_online_games_start_server(
+	void)
+{
+	boolean deleted = FALSE;
+
+	return network_game_start_new_server(NULL, NULL, &deleted);
+}
+#endif

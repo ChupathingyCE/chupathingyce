@@ -143,8 +143,27 @@ starts with, joined once it is advertised) */
 long network_game_client_join_invite_host(char const *invite);
 boolean create_global_network_game_client(void);
 void game_connection_set(short connection);
+/* (interface/: the network, as System Link's list starts it, and a game of
+this machine's, as its Y makes one) */
+boolean ui_online_games_start_network(void);
+boolean ui_widget_online_games_create_game(void);
 
 static void utf8_name(unsigned short const *name, char *text, long size);
+
+/* the first player in the game to be joined or made, with the profile
+System Link's Start would pick: the one last used, else the first saved */
+static void join_first_player(
+	void)
+{
+	long profile_index = player_ui_get_player1_last_used_profile_index();
+	struct player_profile profile;
+
+	player_ui_local_player_joined_multiplayer_game(0);
+	if (profile_index == NONE)
+		profile_index = 0;
+	if (player_profile_get(profile_index, &profile))
+		player_ui_set_active_player_profile(0, profile_index, &profile);
+}
 
 /* a game picked: its invite joined (the tunnel to its host), then its game
 joined once advertised through it (browser_screen_process) */
@@ -162,7 +181,7 @@ static void join_selected(
 		return;
 	}
 	/* a network client searching, as System Link's (the advertisement comes
-	to it), with the first player's profile */
+	to it: browser_screen_open started it) */
 	if (!global_network_game_client_get())
 	{
 		if (!create_global_network_game_client())
@@ -171,19 +190,8 @@ static void join_selected(
 			return;
 		}
 		game_connection_set(_game_connection_network_client);
-		player_ui_local_player_joined_multiplayer_game(0);
 	}
-	/* (the first player's profile, as System Link's Start would pick it: the
-	one last used, else the first saved) */
-	{
-		long profile_index = player_ui_get_player1_last_used_profile_index();
-		struct player_profile profile;
-
-		if (profile_index == NONE)
-			profile_index = 0;
-		if (player_profile_get(profile_index, &profile))
-			player_ui_set_active_player_profile(0, profile_index, &profile);
-	}
+	join_first_player();
 	if (!browser_join(game->invite))
 	{
 		set_status("Internet play is off (network.online in config.toml).");
@@ -308,7 +316,23 @@ void browser_screen_open(
 	browser_screen.opened_time = system_milliseconds();
 	/* (the menu's A, still queued, is not a pick) */
 	event_manager_flush();
+	/* the network searching, as System Link's list starts it: a game left
+	behind (a lobby backed out of) ended */
+	if (!ui_online_games_start_network())
+		set_status("Could not start the network.");
 	fetch_games();
+}
+
+/* Y: a game of this machine's, as System Link's Y makes one (the new game's
+map chosen next; once it starts, the game list lists it) */
+static void create_game(
+	void)
+{
+	join_first_player();
+	if (ui_widget_online_games_create_game())
+		browser_screen.active = FALSE;
+	else
+		set_status("Could not create a game.");
 }
 
 void browser_screen_process(
@@ -354,6 +378,10 @@ void browser_screen_process(
 				set_status("Refreshed");
 				break;
 			case _gamepad_analog_button_y:
+				if (!browser_screen.connecting && system_milliseconds() - browser_screen.opened_time > OPEN_SETTLE)
+					create_game();
+				break;
+			case _gamepad_binary_button_back:
 				set_status("Filters are next");
 				break;
 			case _gamepad_analog_button_left_trigger:
@@ -367,7 +395,6 @@ void browser_screen_process(
 				fetch_games();
 				break;
 			case _gamepad_analog_button_b:
-			case _gamepad_binary_button_back:
 				/* (B while a host is waited for: the wait given up) */
 				if (browser_screen.connecting)
 					browser_screen.connecting = FALSE;
@@ -659,13 +686,15 @@ void browser_screen_render(
 	/* the buttons */
 	ui_overlay_rect(-margin, 444, 640 + 2 * margin, 0.75f, 0, COLOR_RULE);
 	width = prompt_width(UI_BUTTON_A, "=JOIN") + prompt_width(UI_BUTTON_B, "=BACK") +
-		prompt_width(UI_BUTTON_X, "=REFRESH") + prompt_width(UI_BUTTON_Y, "=FILTERS") +
+		prompt_width(UI_BUTTON_X, "=REFRESH") + prompt_width(UI_BUTTON_Y, "=CREATE GAME") +
+		prompt_width(UI_BUTTON_BACK, "=FILTERS") +
 		prompt_width(UI_BUTTON_LEFT_TRIGGER, "") + prompt_width(UI_BUTTON_RIGHT_TRIGGER, "=SORT") - 20 - 3;
 	x = 320 - width / 2;
 	x = prompt(UI_BUTTON_A, "=JOIN", x);
 	x = prompt(UI_BUTTON_B, "=BACK", x);
 	x = prompt(UI_BUTTON_X, "=REFRESH", x);
-	x = prompt(UI_BUTTON_Y, "=FILTERS", x);
+	x = prompt(UI_BUTTON_Y, "=CREATE GAME", x);
+	x = prompt(UI_BUTTON_BACK, "=FILTERS", x);
 	x += ui_overlay_button(UI_BUTTON_LEFT_TRIGGER, 15.0f, x, 455.0f, 0xFFFFFFFF);
 	prompt(UI_BUTTON_RIGHT_TRIGGER, "=SORT", x);
 

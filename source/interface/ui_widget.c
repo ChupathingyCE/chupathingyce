@@ -3190,6 +3190,8 @@ told apart by its place in the list. */
 #define ONLINE_GAMES_SCREEN "ui\\shell\\main_menu\\multiplayer_type_select\\multiplayer_type_select_screen"
 #define ONLINE_GAMES_LINE "ui\\shell\\main_menu\\blueline"
 #define ONLINE_GAMES_DESCRIPTION_TEXT "ui\\shell\\main_menu\\multiplayer_type_select\\multiplayer_options_txt"
+/* (System Link's Y: a new game's map) */
+#define ONLINE_GAMES_MAP_SELECT "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\connected_map_select_wrapper"
 
 enum
 {
@@ -3285,6 +3287,33 @@ boolean ui_widget_online_games_item(
 	return online_games.list_tag != NONE && widget && widget->parent &&
 		widget->parent->definition_tag_index == online_games.list_tag &&
 		ui_widget_list_position(widget) == ONLINE_GAMES_POSITION;
+}
+
+/* (ui_widget_event_handler_functions.c's) */
+boolean ui_online_games_start_server(void);
+
+/* Online Games' Y (browser_screen.c): a game of this machine's, as System
+Link's Y makes one: on maps that play multiplayer with the others, the
+server started, then the new game's map chosen, whose B goes back to the
+Multiplayer menu (which ends the game, ui_widget_event_handler_functions.c) */
+boolean ui_widget_online_games_create_game(
+	void)
+{
+	long map_select = tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_MAP_SELECT);
+	long screen = tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_SCREEN);
+	char build[0x20];
+
+	if (map_select == NONE || screen == NONE)
+		return FALSE;
+	if (!cache_files_multiplayer_region(build))
+	{
+		cache_files_show_multiplayer_unavailable(NULL, build);
+		return FALSE;
+	}
+	if (!ui_online_games_start_server())
+		return FALSE;
+	return ui_widget_load_by_name_or_tag(NULL, map_select, NULL, NONE, screen, online_games.list_tag,
+		ONLINE_GAMES_POSITION) != NULL;
 }
 
 /* the Multiplayer menu's description for its focused item
