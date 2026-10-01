@@ -51,7 +51,7 @@ enum
 	/* a picked game's host answers this soon, or it is given up on */
 	CONNECT_TIMEOUT = 15000,
 	/* the screen takes no A this soon after it opens */
-	OPEN_SETTLE = 400,
+	OPEN_SETTLE = 600,
 };
 
 /* ui_widget.c owns the same private enum (virtual_keyboard.c keeps a copy) */
