@@ -392,7 +392,6 @@ int posix_browser_request(const char *url, const char *form, const char *content
 	return status;
 }
 
-#endif
 
 /* the game list's player key (browser.c): read from path, or made there
 (random, readable by this user alone) the first time. As
@@ -460,3 +459,5 @@ int posix_browser_replace_key(const char *path, const unsigned char *key, int si
 	}
 	return 1;
 }
+
+#endif
