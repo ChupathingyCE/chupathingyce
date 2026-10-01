@@ -29,6 +29,9 @@ picked there as any.
 #include "bitmaps/bitmap_group.h"
 #include "interface/ui_widget.h"
 #include "tag_files/tag_groups.h"
+#include "game/game.h"
+#include "interface/player_ui.h"
+#include "networking/network_game_globals.h"
 #include "../src/browser.h"
 #include "../src/ui_overlay.h"
 
@@ -44,6 +47,8 @@ enum
 	ROW_HEIGHT = 26,
 	LIST_TOP = 112,
 	STATUS_DURATION = 6000,
+	/* a picked game's host answers this soon, or it is given up on */
+	CONNECT_TIMEOUT = 15000,
 };
 
 /* ui_widget.c owns the same private enum (virtual_keyboard.c keeps a copy) */
@@ -91,6 +96,11 @@ static struct
 	char status[96];
 	unsigned long status_time;
 	short sort;
+	/* a game picked: its invite, while its host's game is waited for */
+	boolean connecting;
+	char connecting_invite[BROWSER_INVITE_LENGTH + 1];
+	char connecting_name[64];
+	unsigned long connecting_time;
 } browser_screen;
 
 /* ---------- private code */
@@ -123,6 +133,16 @@ static char const *map_display_name(
 	return base;
 }
 
+/* (network_client_manager.c: the game whose host's identifier the invite
+starts with, joined once it is advertised) */
+long network_game_client_join_invite_host(char const *invite);
+boolean create_global_network_game_client(void);
+void game_connection_set(short connection);
+
+static void utf8_name(unsigned short const *name, char *text, long size);
+
+/* a game picked: its invite joined (the tunnel to its host), then its game
+joined once advertised through it (browser_screen_process) */
 static void join_selected(
 	void)
 {
@@ -136,14 +156,55 @@ static void join_selected(
 		set_status("That game is not accepting players.");
 		return;
 	}
-	if (browser_join(game->invite))
+	/* a network client searching, as System Link's (the advertisement comes
+	to it), with the first player's profile */
+	if (!global_network_game_client_get())
 	{
-		/* (its game shows in System Link once its host answers) */
-		browser_screen.active = FALSE;
+		if (!create_global_network_game_client())
+		{
+			set_status("Could not start the network.");
+			return;
+		}
+		game_connection_set(_game_connection_network_client);
+		player_ui_local_player_joined_multiplayer_game(0);
 	}
-	else
+	if (!browser_join(game->invite))
 	{
 		set_status("Internet play is off (network.online in config.toml).");
+		return;
+	}
+	browser_screen.connecting = TRUE;
+	csstrncpy(browser_screen.connecting_invite, game->invite, sizeof(browser_screen.connecting_invite) - 1);
+	browser_screen.connecting_invite[sizeof(browser_screen.connecting_invite) - 1] = 0;
+	utf8_name(game->name, browser_screen.connecting_name, sizeof(browser_screen.connecting_name));
+	browser_screen.connecting_time = system_milliseconds();
+}
+
+/* the picked game's host: its game joined once it is advertised, and its
+lobby opened */
+static void wait_for_host(
+	void)
+{
+	long joined = network_game_client_join_invite_host(browser_screen.connecting_invite);
+
+	if (joined > 0)
+	{
+		browser_screen.connecting = FALSE;
+		browser_screen.active = FALSE;
+		ui_widgets_close_all();
+		ui_widget_load_by_name_or_tag(
+			"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\pregame\\connected_pregame_screen",
+			NONE, NULL, NONE, NONE, NONE, NONE);
+	}
+	else if (joined < 0)
+	{
+		browser_screen.connecting = FALSE;
+		set_status("That game can't be joined from this version.");
+	}
+	else if (system_milliseconds() - browser_screen.connecting_time > CONNECT_TIMEOUT)
+	{
+		browser_screen.connecting = FALSE;
+		set_status("The host did not answer.");
 	}
 }
 
@@ -237,6 +298,8 @@ void browser_screen_process(
 	short move = 0;
 
 	fetch_games();
+	if (browser_screen.connecting)
+		wait_for_host();
 	while (browser_screen.active && get_next_event(&event, NONE))
 	{
 		if (event.type == BROWSER_EVENT_LEFT_STICK)
@@ -258,7 +321,10 @@ void browser_screen_process(
 			case _gamepad_binary_button_dpad_down: move = 1; break;
 			case _gamepad_binary_button_dpad_left: move = -ROWS_PER_PAGE; break;
 			case _gamepad_binary_button_dpad_right: move = ROWS_PER_PAGE; break;
-			case _gamepad_analog_button_a: join_selected(); break;
+			case _gamepad_analog_button_a:
+				if (!browser_screen.connecting)
+					join_selected();
+				break;
 			case _gamepad_binary_button_start:
 				browser_open_profile();
 				set_status("Opening your profile in the web browser");
@@ -282,7 +348,11 @@ void browser_screen_process(
 				break;
 			case _gamepad_analog_button_b:
 			case _gamepad_binary_button_back:
-				browser_screen.active = FALSE;
+				/* (B while a host is waited for: the wait given up) */
+				if (browser_screen.connecting)
+					browser_screen.connecting = FALSE;
+				else
+					browser_screen.active = FALSE;
 				break;
 			default: break;
 			}
@@ -579,7 +649,20 @@ void browser_screen_render(
 	x += ui_overlay_button(UI_BUTTON_LEFT_TRIGGER, 15.0f, x, 455.0f, 0xFFFFFFFF);
 	prompt(UI_BUTTON_RIGHT_TRIGGER, "=SORT", x);
 
-	if (browser_screen.status[0] && system_milliseconds() - browser_screen.status_time < STATUS_DURATION)
+	if (browser_screen.connecting)
+	{
+		char line[160];
+		long dots = (long)((system_milliseconds() - browser_screen.connecting_time) / 400 % 4);
+
+		snprintf(line, sizeof(line), "Connecting to %s%.*s", browser_screen.connecting_name, (int)dots, "...");
+		ui_overlay_rect(170, 200, 300, 64, 6, 0x0A1A36F8);
+		ui_overlay_outline(170, 200, 300, 64, 6, 1.0f, COLOR_PANEL_EDGE);
+		ui_overlay_text(UI_FONT_BOLD, 12.0f, 320, 212, UI_ALIGN_CENTER, 0xFFFFFFFF, line);
+		x = 320 - (ui_overlay_button_width(UI_BUTTON_B, 13.0f) + ui_overlay_text_width(UI_FONT_BOLD, 10.0f, "=CANCEL")) / 2;
+		x += ui_overlay_button(UI_BUTTON_B, 13.0f, x, 236, 0xFFFFFFFF) + 3;
+		ui_overlay_text(UI_FONT_BOLD, 10.0f, x, 237.5f, UI_ALIGN_LEFT, COLOR_PROMPT, "=CANCEL");
+	}
+	else if (browser_screen.status[0] && system_milliseconds() - browser_screen.status_time < STATUS_DURATION)
 		ui_overlay_text(UI_FONT_BOLD, 9.0f, 603, 300, UI_ALIGN_RIGHT, COLOR_CLOSED, browser_screen.status);
 }
 

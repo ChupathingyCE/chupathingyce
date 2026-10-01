@@ -3111,3 +3111,61 @@ boolean network_game_client_set_team(
 	return success;
 }
 
+
+#ifdef HALO_GAME_BROWSER
+/* the game list's game whose invite this machine joined (the Online Games
+screen, port/linux/game/browser_screen.c): joined once its host's game is
+advertised through the tunnel. The host is told by its XNADDR's abEnet,
+the identifier its invite starts with (port/linux/src/xnet.c). 1: joining,
+0: not advertised yet, -1: it cannot be joined (another version: the
+player is told) */
+long network_game_client_join_invite_host(
+	char const *invite)
+{
+	struct network_game_client *client = global_network_game_client_get();
+	byte identifier[6];
+	long game_index;
+	long index;
+
+	if (!client || client->state != _network_game_client_state_searching || client->join_in_progress ||
+		!client->connection || network_connection_connected(client->connection))
+	{
+		return 0;
+	}
+	for (index = 0; index < 2 * NUMBEROF(identifier); index++)
+	{
+		char digit = invite[index];
+		long value = digit >= '0' && digit <= '9' ? digit - '0' : digit >= 'a' && digit <= 'f' ? digit - 'a' + 10 : -1;
+
+		if (value < 0)
+			return -1;
+		if (index % 2)
+			identifier[index / 2] = (byte)(identifier[index / 2] | value);
+		else
+			identifier[index / 2] = (byte)(value << 4);
+	}
+	for (game_index = 0; game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES; game_index++)
+	{
+		struct network_advertised_game *game = &client->available_games[game_index];
+		struct transport_address address = { { { 0 } } };
+		struct network_join_parameters join_parameters;
+
+		/* (the XNADDR: its size and flags, then abEnet) */
+		if (!network_game_client_advertised_game_is_valid(game) || !game->open ||
+			csmemcmp(game->xnaddr.data + 2, identifier, sizeof(identifier)))
+		{
+			continue;
+		}
+		if (!network_game_client_advertised_game_compatible(client, game, TRUE))
+			return -1;
+		csmemset(&join_parameters, 0, sizeof(join_parameters));
+		transport_client_start((XNADDR const *)&game->xnaddr, (XNKEY const *)&game->key,
+			(XNKID const *)&game->key_id, NETWORK_GAME_SERVER_PORT, &address);
+		if (!address.address.long_words[0] || !address.port)
+			return 0;
+		network_game_generate_join_game_token(join_parameters.join_token);
+		return network_game_client_initiate_join_game(client, game, &join_parameters, &address) ? 1 : -1;
+	}
+	return 0;
+}
+#endif
