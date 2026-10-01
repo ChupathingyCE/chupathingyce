@@ -431,8 +431,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, json.dumps({"reports": REPORTS.history(limit)}), "application/json")
         match = re.fullmatch(r"/v1/players/([^/?]{1,96})", self.path)
         if match:
-            name = clean_text(unquote(match.group(1)), 16)
-            return self.reply(200, json.dumps({"reports": REPORTS.player(name)}), "application/json")
+            who = unquote(match.group(1))
+            # (a player ID as it is; a name as the reports keep names)
+            who = who.lower() if PLAYER_ID.match(who.lower()) else clean_text(who, 16)
+            return self.reply(200, json.dumps({"reports": REPORTS.player(who)}), "application/json")
         match = re.fullmatch(r"/v1/reports(?:\?limit=(\d+))?", self.path)
         if match:
             limit = min(50, int(match.group(1) or 10))
