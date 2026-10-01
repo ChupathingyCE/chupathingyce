@@ -244,3 +244,21 @@ a.confirmed::after, span.confirmed::after {
   background: center/contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 0l2 2.2 3-.4.4 3L16 8l-2.6 3.2-.4 3-3-.4L8 16l-2-2.2-3 .4-.4-3L0 8l2.6-3.2.4-3 3 .4z' fill='%233d8bff'/%3E%3Cpath d='M4.6 8.2l2.2 2.2 4.6-4.8' stroke='%23fff' stroke-width='1.8' fill='none'/%3E%3C/svg%3E");
 }
 .unconfirmed { color: var(--dim); font-size: 13px; }
+
+/* the profile page's forms */
+.form { display: grid; gap: 14px; max-width: 560px; }
+.field { display: grid; gap: 6px; }
+.field .label { font: 600 13px/1 var(--head); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+.field .note, .dim { color: var(--dim); font-size: 13px; }
+.form input, .form textarea {
+  font: 16px/1.3 var(--body); color: var(--text); background: rgba(3, 10, 22, 0.8);
+  border: 1px solid var(--edge); border-radius: 3px; padding: 10px 12px; width: 100%;
+}
+.form input:focus, .form textarea:focus { outline: none; border-color: var(--edge-bright); box-shadow: 0 0 10px var(--glow); }
+.form .join { justify-self: start; cursor: pointer; }
+.join[disabled] { opacity: 0.6; cursor: wait; }
+.join.quiet { background: transparent; border-color: var(--edge); box-shadow: none; color: var(--dim); cursor: pointer; }
+.message { padding: 10px 12px; border-radius: 3px; border: 1px solid var(--edge); background: rgba(61, 139, 255, 0.08); }
+.message.bad { border-color: rgba(226, 80, 76, 0.7); background: rgba(226, 80, 76, 0.1); color: #ffc2bf; }
+.message.good { border-color: rgba(87, 210, 122, 0.6); background: rgba(87, 210, 122, 0.08); color: #c9f5d5; }
+.profile-about { margin: 0 0 18px; color: var(--text); }

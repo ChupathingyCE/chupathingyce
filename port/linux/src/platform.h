@@ -103,6 +103,11 @@ out of an Xbox disc image into destination (sdl_platform.c), and quits if
 the player declines; nonzero once destination has one */
 BOOL platform_offer_game_data(const char *destination);
 const char *platform_save_root(void);
+#ifdef HALO_GAME_BROWSER
+/* a web page opened in the web browser (from any thread: the main thread
+opens it) */
+void platform_open_url(const char *url);
+#endif
 
 /* ---------- contiguous ("physical") memory
 

@@ -226,7 +226,8 @@ function earnedMedals(report, player) {
 /* ---------- the frame of every page */
 
 function frame(here) {
-  const links = [["/", "Games", "games"], ["/leaders", "Leaderboards", "leaders"], ["/medals", "Medals", "medals"]];
+  const links = [["/", "Games", "games"], ["/leaders", "Leaderboards", "leaders"], ["/medals", "Medals", "medals"],
+    ["/profile", "Profile", "profile"]];
   const top = el("header", { class: "top" },
     el("div", { class: "top-inner" },
       el("a", { class: "brand", href: "/" }, picture("/art/logo.png", "", "Halo"), el("span", { text: "Combat Evolved · Online" })),

@@ -437,3 +437,26 @@ int posix_browser_private_key(const char *path, unsigned char *key, int size)
 	}
 	return 0;
 }
+
+/* a player key put in place of the one at path (a restored key): written
+to a new file beside it (readable by this user alone), then renamed over it */
+int posix_browser_replace_key(const char *path, const unsigned char *key, int size)
+{
+	char temporary[1100];
+	int descriptor;
+	int ok;
+
+	snprintf(temporary, sizeof(temporary), "%s.new", path);
+	unlink(temporary);
+	descriptor = open(temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+	if (descriptor < 0)
+		return 0;
+	ok = write(descriptor, key, (size_t)size) == size && fsync(descriptor) == 0;
+	close(descriptor);
+	if (!ok || rename(temporary, path) != 0)
+	{
+		unlink(temporary);
+		return 0;
+	}
+	return 1;
+}

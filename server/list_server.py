@@ -56,6 +56,35 @@ name matches, and the line is not confirmed yet. Its player ID, the first
 16 bytes of SHA-256("halo-ce-universal player id\n" + key), is the line's
 from then on. No key is kept: the ID is worked out from it each time.
 
+Profiles (/profile; JSON requests from the page carry "X-Halo: 1", which a
+form or a page of another site cannot send, and the session cookie is
+HttpOnly, Secure and SameSite=Strict):
+
+    POST /v1/link       JSON {"key"} from the game (MY PROFILE) -> "ok <code>":
+                        a sign-in code good once, for LINK_LIFETIME
+    POST /v1/session/link    {"code"} -> signed in as the key's player;
+                        JSON {"player_id", "profile", "key"}: the key comes
+                        back to the page alone, for it to back it up
+    POST /v1/session/login   {"handle", "auth"} -> signed in; JSON
+                        {"player_id", "profile"} with the profile's backup
+    GET  /v1/session    -> the signed-in player, or 401
+    POST /v1/session/logout
+    POST /v1/profile    {"handle", "display", "bio", "auth", "backup"}: made
+                        (by a session from the game's link, which proved the
+                        key), or "display" and "bio" changed (any session),
+                        or "auth" and "backup" replaced (a linked session)
+    GET  /v1/profiles/ID -> a player's public profile {"handle", "display", "bio"}
+
+The password never reaches the server: the page stretches it (PBKDF2,
+600000 rounds, salted with the profile name) into a sign-in secret, "auth",
+of which the server keeps a scrypt hash, and an encryption key that stays
+in the page, with which the page encrypts the player key (AES-256-GCM):
+"backup", {"iv", "data"}, is all the server keeps of it. So the server, or
+anyone who takes its database, cannot read a player's key; signing in
+returns the backup, for the page to decrypt and hand to the game
+(halo://key/...). A link's key is held in memory only, until its code is
+used or lapses.
+
 A carnage report: {"invite", "map", "engine", "teams" (0 or 1),
 "score_limit", "duration" (seconds), "team_scores" ([score of team 0,
 ...]), "players": [{"name", "team", "place" (1 first), "score", "kills",
@@ -79,6 +108,7 @@ import ipaddress
 import mimetypes
 import json
 import re
+import secrets
 import sqlite3
 import threading
 import time
@@ -99,10 +129,19 @@ CLAIM_WINDOW = 600
 PLAYER_KEY = re.compile(r"^[0-9a-f]{64}$")
 PLAYER_ID = re.compile(r"^[0-9a-f]{32}$")
 TAG = re.compile(r"^[0-9a-f]{64}$")
+# profiles: a sign-in link from the game is good this long; a session this long
+LINK_LIFETIME = 300
+SESSION_LIFETIME = 30 * 24 * 3600
+HANDLE = re.compile(r"^[a-z0-9_-]{3,20}$")
+HEX = re.compile(r"^[0-9a-f]+$")
+# failed sign-ins allowed an hour, for a profile name and for an address
+SIGN_IN_FAILURES_PER_HANDLE = 10
+SIGN_IN_FAILURES_PER_ADDRESS = 30
 
 # (64 digits since network version 8; 44 before, which older builds still list)
 MEDAL_KEY = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
-PAGES = {"/": "index.html", "/index.html": "index.html", "/leaders": "leaders.html", "/medals": "medals.html"}
+PAGES = {"/": "index.html", "/index.html": "index.html", "/leaders": "leaders.html", "/medals": "medals.html",
+         "/profile": "profile.html"}
 STATIC = re.compile(r"^/static/([a-z0-9_-]+\.(?:css|js))$")
 ART = re.compile(r"^/art/((?:[a-z0-9_-]+/){0,2}[a-z0-9_-]+\.(?:png|jpg))$")
 WEB = Path(__file__).resolve().parent / "web"
@@ -220,6 +259,11 @@ class Reports:
             report INTEGER NOT NULL, line INTEGER NOT NULL, invite TEXT NOT NULL, name TEXT NOT NULL,
             tag TEXT NOT NULL, expires INTEGER NOT NULL)""")
         self.database.execute("CREATE INDEX IF NOT EXISTS claims_invite ON claims (invite)")
+        self.database.execute("""CREATE TABLE IF NOT EXISTS profiles (
+            player_id TEXT PRIMARY KEY, handle TEXT NOT NULL UNIQUE, display TEXT NOT NULL, bio TEXT NOT NULL,
+            auth TEXT NOT NULL, backup TEXT NOT NULL, created INTEGER NOT NULL, updated INTEGER NOT NULL)""")
+        self.database.execute("""CREATE TABLE IF NOT EXISTS sessions (
+            token TEXT PRIMARY KEY, player_id TEXT NOT NULL, linked INTEGER NOT NULL, expires INTEGER NOT NULL)""")
         self.database.commit()
 
     def add(self, report: dict, invite: str = "", tags=()) -> int:
@@ -298,6 +342,158 @@ class Reports:
         return dict(json.loads(row[1]), id=row[0])
 
 
+def hash_secret(secret: bytes) -> str:
+    """a sign-in secret's hash: scrypt where Python has it, else PBKDF2"""
+    salt = secrets.token_bytes(16)
+    if hasattr(hashlib, "scrypt"):
+        digest = hashlib.scrypt(secret, salt=salt, n=2 ** 15, r=8, p=1, maxmem=64 * 1024 * 1024, dklen=32)
+        return f"scrypt$15$8$1${salt.hex()}${digest.hex()}"
+    digest = hashlib.pbkdf2_hmac("sha256", secret, salt, 600000)
+    return f"pbkdf2$600000${salt.hex()}${digest.hex()}"
+
+
+def secret_matches(secret: bytes, stored: str) -> bool:
+    parts = stored.split("$")
+    if parts[0] == "scrypt" and hasattr(hashlib, "scrypt"):
+        n, r, p, salt, digest = int(parts[1]), int(parts[2]), int(parts[3]), parts[4], parts[5]
+        computed = hashlib.scrypt(secret, salt=bytes.fromhex(salt), n=2 ** n, r=r, p=p,
+                                  maxmem=64 * 1024 * 1024, dklen=32)
+    elif parts[0] == "pbkdf2":
+        computed = hashlib.pbkdf2_hmac("sha256", secret, bytes.fromhex(parts[2]), int(parts[1]))
+        digest = parts[3]
+    else:
+        return False
+    return hmac.compare_digest(computed.hex(), digest)
+
+
+def player_id_of(key_hex: str) -> str:
+    return hashlib.sha256(b"halo-ce-universal player id\n" + bytes.fromhex(key_hex)).hexdigest()[:32]
+
+
+class Profiles:
+    """profiles, sessions and the game's sign-in links (beside the reports)"""
+
+    def __init__(self, reports):
+        self.lock = reports.lock
+        self.database = reports.database
+        self.links = {}  # sha256(code) -> (player_id, key, expires): memory only
+        self.failures = {}  # handle or address -> [times]
+
+    def add_link(self, key_hex: str) -> str:
+        code = secrets.token_hex(32)
+        now = time.time()
+        with self.lock:
+            for digest in [d for d, link in self.links.items() if link[2] < now]:
+                del self.links[digest]
+            if len(self.links) > 1000:
+                raise ValueError("too many links")
+            self.links[hashlib.sha256(code.encode()).hexdigest()] = (player_id_of(key_hex), key_hex, now + LINK_LIFETIME)
+        return code
+
+    def use_link(self, code: str):
+        """the link's (player_id, key), once"""
+        with self.lock:
+            link = self.links.pop(hashlib.sha256(code.encode()).hexdigest(), None)
+        if not link or link[2] < time.time():
+            return None
+        return link[0], link[1]
+
+    def new_session(self, player_id: str, linked: bool) -> str:
+        token = secrets.token_hex(32)
+        now = int(time.time())
+        with self.lock:
+            self.database.execute("DELETE FROM sessions WHERE expires < ?", (now,))
+            self.database.execute("INSERT INTO sessions (token, player_id, linked, expires) VALUES (?, ?, ?, ?)",
+                                  (hashlib.sha256(token.encode()).hexdigest(), player_id, int(linked),
+                                   now + SESSION_LIFETIME))
+            self.database.commit()
+        return token
+
+    def session(self, token: str):
+        """(player_id, linked) of a session, or None"""
+        if not token or len(token) != 64 or not HEX.match(token):
+            return None
+        with self.lock:
+            row = self.database.execute("SELECT player_id, linked, expires FROM sessions WHERE token = ?",
+                                        (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
+        if not row or row[2] < time.time():
+            return None
+        return row[0], bool(row[1])
+
+    def end_session(self, token: str):
+        with self.lock:
+            self.database.execute("DELETE FROM sessions WHERE token = ?", (hashlib.sha256(token.encode()).hexdigest(),))
+            self.database.commit()
+
+    def get(self, player_id: str, private: bool = False):
+        with self.lock:
+            row = self.database.execute(
+                "SELECT handle, display, bio, backup, created FROM profiles WHERE player_id = ?", (player_id,)).fetchone()
+        if not row:
+            return None
+        profile = {"handle": row[0], "display": row[1], "bio": row[2], "created": row[4]}
+        if private:
+            profile["backup"] = json.loads(row[3])
+        return profile
+
+    def by_handle(self, handle: str):
+        """(player_id, auth hash) of a profile name"""
+        with self.lock:
+            return self.database.execute("SELECT player_id, auth FROM profiles WHERE handle = ?", (handle,)).fetchone()
+
+    def create(self, player_id: str, handle: str, display: str, bio: str, auth: bytes, backup: dict) -> str:
+        now = int(time.time())
+        with self.lock:
+            if self.database.execute("SELECT 1 FROM profiles WHERE player_id = ?", (player_id,)).fetchone():
+                return "this player already has a profile"
+            if self.database.execute("SELECT 1 FROM profiles WHERE handle = ?", (handle,)).fetchone():
+                return "that profile name is taken"
+        stored = hash_secret(auth)
+        with self.lock:
+            try:
+                self.database.execute(
+                    "INSERT INTO profiles (player_id, handle, display, bio, auth, backup, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (player_id, handle, display, bio, stored, json.dumps(backup), now, now))
+                self.database.commit()
+            except sqlite3.IntegrityError:
+                return "that profile name is taken"
+        return ""
+
+    def update(self, player_id: str, display: str, bio: str, auth=None, backup=None):
+        stored = hash_secret(auth) if auth is not None else None
+        with self.lock:
+            self.database.execute("UPDATE profiles SET display = ?, bio = ?, updated = ? WHERE player_id = ?",
+                                  (display, bio, int(time.time()), player_id))
+            if stored is not None and backup is not None:
+                self.database.execute("UPDATE profiles SET auth = ?, backup = ? WHERE player_id = ?",
+                                      (stored, json.dumps(backup), player_id))
+            self.database.commit()
+
+    def allow_sign_in(self, handle: str, address: str) -> bool:
+        now = time.time()
+        with self.lock:
+            for key in ("handle:" + handle, "address:" + address):
+                self.failures[key] = [t for t in self.failures.get(key, []) if now - t < 3600]
+            return (len(self.failures["handle:" + handle]) < SIGN_IN_FAILURES_PER_HANDLE and
+                    len(self.failures["address:" + address]) < SIGN_IN_FAILURES_PER_ADDRESS)
+
+    def failed_sign_in(self, handle: str, address: str):
+        with self.lock:
+            for key in ("handle:" + handle, "address:" + address):
+                self.failures.setdefault(key, []).append(time.time())
+
+
+def clean_backup(raw) -> dict:
+    """an encrypted key as the page sends it: AES-GCM's 12-byte IV, and the
+    32-byte key with its 16-byte tag"""
+    if not isinstance(raw, dict):
+        raise ValueError("backup")
+    iv, data = str(raw.get("iv", "")), str(raw.get("data", ""))
+    if len(iv) != 24 or len(data) != 96 or not HEX.match(iv) or not HEX.match(data):
+        raise ValueError("backup")
+    return {"iv": iv, "data": data}
+
+
 def clean_report(body: dict, game: dict) -> dict:
     """a carnage report as sent, checked field by field; the game's own
     listing gives what the report does not"""
@@ -356,6 +552,7 @@ def clean_report(body: dict, game: dict) -> dict:
 
 
 REPORTS = None
+PROFILES = None
 
 
 GAMES = GameList()
@@ -394,11 +591,112 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def reply_json(self, code: int, body, cookie: str = None):
+        data = json.dumps(body).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        if cookie is not None:
+            # (an empty one ends the session)
+            age = SESSION_LIFETIME if cookie else 0
+            self.send_header("Set-Cookie", f"halo_session={cookie}; Path=/; Max-Age={age}; HttpOnly; Secure; SameSite=Strict")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def session_token(self) -> str:
+        for part in self.headers.get("Cookie", "").split(";"):
+            name, _, value = part.strip().partition("=")
+            if name == "halo_session":
+                return value
+        return ""
+
     def page(self, name: str):
         return self.file(WEB / name, "no-cache")
 
     def log_message(self, format, *args):
         pass
+
+    def profile_request(self, address: str, length: int):
+        """the profile requests (see the top of this file)"""
+        if length <= 0 or length > MAXIMUM_BODY:
+            return self.reply(400, "bad length\n")
+        try:
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+            if not isinstance(body, dict):
+                raise ValueError("body")
+        except ValueError:
+            return self.reply(400, "bad request\n")
+        # the game's request for a sign-in link
+        if self.path == "/v1/link":
+            key = str(body.get("key", "")).lower()
+            if not PLAYER_KEY.match(key):
+                return self.reply(400, "bad key\n")
+            try:
+                return self.reply(200, f"ok {PROFILES.add_link(key)}\n")
+            except ValueError:
+                return self.reply(503, "busy\n")
+        # the page's own (a form or another site's page cannot add the header)
+        if self.headers.get("X-Halo") != "1":
+            return self.reply(403, "not from the page\n")
+        token = self.session_token()
+        session = PROFILES.session(token)
+        if self.path == "/v1/session/link":
+            code = str(body.get("code", "")).lower()
+            link = PROFILES.use_link(code) if len(code) == 64 and HEX.match(code) else None
+            if not link:
+                return self.reply_json(403, {"error": "That link was used already, or has lapsed. Press Y in the game's game list for another."})
+            player_id, key = link
+            return self.reply_json(200, {"player_id": player_id, "key": key,
+                                         "profile": PROFILES.get(player_id, private=True)},
+                                   PROFILES.new_session(player_id, True))
+        if self.path == "/v1/session/login":
+            handle = str(body.get("handle", "")).lower()
+            auth = str(body.get("auth", "")).lower()
+            if not HANDLE.match(handle) or len(auth) != 64 or not HEX.match(auth):
+                return self.reply_json(400, {"error": "Enter your profile name and password."})
+            if not PROFILES.allow_sign_in(handle, address):
+                return self.reply_json(429, {"error": "Too many tries. Try again in an hour."})
+            row = PROFILES.by_handle(handle)
+            if not row or not secret_matches(bytes.fromhex(auth), row[1]):
+                PROFILES.failed_sign_in(handle, address)
+                return self.reply_json(403, {"error": "That profile name and password do not match."})
+            return self.reply_json(200, {"player_id": row[0], "profile": PROFILES.get(row[0], private=True)},
+                                   PROFILES.new_session(row[0], False))
+        if self.path == "/v1/session/logout":
+            if token:
+                PROFILES.end_session(token)
+            return self.reply_json(200, {"ok": True}, "")
+        if not session:
+            return self.reply_json(401, {"error": "Sign in first."})
+        player_id, linked = session
+        display = clean_text(str(body.get("display", "")), 24)
+        bio = clean_text(str(body.get("bio", "")), 280)
+        existing = PROFILES.get(player_id)
+        try:
+            auth = body.get("auth")
+            auth = bytes.fromhex(str(auth).lower()) if auth is not None else None
+            if auth is not None and len(auth) != 32:
+                raise ValueError("auth")
+            backup = clean_backup(body["backup"]) if body.get("backup") is not None else None
+        except (ValueError, TypeError):
+            return self.reply_json(400, {"error": "Bad request."})
+        if not existing:
+            handle = str(body.get("handle", "")).lower()
+            if not linked:
+                return self.reply_json(403, {"error": "Open your profile from the game to make it."})
+            if not HANDLE.match(handle):
+                return self.reply_json(400, {"error": "A profile name is 3 to 20 letters, digits, - or _."})
+            if auth is None or backup is None:
+                return self.reply_json(400, {"error": "Choose a password."})
+            refused = PROFILES.create(player_id, handle, display or handle, bio, auth, backup)
+            if refused:
+                return self.reply_json(409, {"error": refused[0].upper() + refused[1:] + "."})
+        else:
+            if (auth is None) != (backup is None) or (auth is not None and not linked):
+                return self.reply_json(403, {"error": "Open your profile from the game to change the password."})
+            PROFILES.update(player_id, display or existing["handle"], bio, auth, backup)
+        return self.reply_json(200, {"player_id": player_id, "profile": PROFILES.get(player_id, private=True)})
 
     def do_GET(self):
         if not GAMES.allow(self.client_address_text()):
@@ -434,7 +732,10 @@ class Handler(BaseHTTPRequestHandler):
             who = unquote(match.group(1))
             # (a player ID as it is; a name as the reports keep names)
             who = who.lower() if PLAYER_ID.match(who.lower()) else clean_text(who, 16)
-            return self.reply(200, json.dumps({"reports": REPORTS.player(who)}), "application/json")
+            answer = {"reports": REPORTS.player(who)}
+            if PLAYER_ID.match(who):
+                answer["profile"] = PROFILES.get(who)
+            return self.reply(200, json.dumps(answer), "application/json")
         match = re.fullmatch(r"/v1/reports(?:\?limit=(\d+))?", self.path)
         if match:
             limit = min(50, int(match.group(1) or 10))
@@ -445,6 +746,16 @@ class Handler(BaseHTTPRequestHandler):
             if not report:
                 return self.reply(404, "not found\n")
             return self.reply(200, json.dumps(report), "application/json")
+        if path == "/v1/session":
+            session = PROFILES.session(self.session_token())
+            if not session:
+                return self.reply_json(401, {"error": "not signed in"})
+            return self.reply_json(200, {"player_id": session[0], "linked": session[1],
+                                         "profile": PROFILES.get(session[0], private=True)})
+        match = re.fullmatch(r"/v1/profiles/([0-9a-f]{32})", path)
+        if match:
+            profile = PROFILES.get(match.group(1))
+            return self.reply_json(200 if profile else 404, profile or {"error": "no profile"})
         if self.path == "/v1/health":
             return self.reply(200, "ok\n")
         return self.reply(404, "not found\n")
@@ -457,6 +768,8 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             return self.reply(400, "bad length\n")
+        if self.path == "/v1/link" or self.path.startswith("/v1/session/") or self.path == "/v1/profile":
+            return self.profile_request(address, length)
         if self.path == "/v1/report":
             if length <= 0 or length > MAXIMUM_REPORT_BODY:
                 return self.reply(400, "bad length\n")
@@ -549,6 +862,8 @@ def main():
     GAMES.games_per_address = args.games_per_address
     global REPORTS
     REPORTS = Reports(f"{args.data.rstrip('/')}/reports.db")
+    global PROFILES
+    PROFILES = Profiles(REPORTS)
     server = ThreadingHTTPServer((args.address, args.port), Handler)
     server.daemon_threads = True
     print(f"listening on {args.address}:{args.port}", flush=True)

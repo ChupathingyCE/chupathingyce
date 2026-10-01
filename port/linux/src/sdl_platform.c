@@ -721,6 +721,65 @@ void platform_show_message(const char *title, const char *message)
 	pthread_mutex_unlock(&platform_message_lock);
 }
 
+#ifdef HALO_GAME_BROWSER
+static pthread_mutex_t platform_url_lock = PTHREAD_MUTEX_INITIALIZER;
+static char platform_url[700];
+
+void platform_open_url(const char *url)
+{
+	pthread_mutex_lock(&platform_url_lock);
+	snprintf(platform_url, sizeof(platform_url), "%s", url);
+	pthread_mutex_unlock(&platform_url_lock);
+}
+
+/* (the main thread's: a page to open, a restored key to ask about) */
+static void platform_game_list_requests(void)
+{
+	char url[sizeof(platform_url)];
+	char new_id[64], old_id[64], message[512];
+
+	pthread_mutex_lock(&platform_url_lock);
+	snprintf(url, sizeof(url), "%s", platform_url);
+	platform_url[0] = 0;
+	pthread_mutex_unlock(&platform_url_lock);
+	if (url[0] && !SDL_OpenURL(url))
+		platform_log("Game list: could not open the web browser: %s", SDL_GetError());
+
+	if (browser_take_key_link(new_id, old_id, sizeof(new_id)))
+	{
+		static const SDL_MessageBoxButtonData buttons[] =
+		{
+			{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Keep mine" },
+			{ 0, 1, "Replace" },
+		};
+		SDL_MessageBoxData question;
+		int answer = 0;
+
+		if (!strcmp(new_id, old_id))
+		{
+			platform_log("Game list: that player key is already this copy's");
+			browser_answer_key_link(0);
+			return;
+		}
+		snprintf(message, sizeof(message),
+			"A link asks to replace this copy's player key, which confirms your games on the game list.\n\n"
+			"Your games are now confirmed as player %.8s. With the new key they will be player %.8s.\n\n"
+			"Replace the key only with your own, from your profile on the game list.",
+			old_id[0] ? old_id : "(none)", new_id);
+		memset(&question, 0, sizeof(question));
+		question.flags = SDL_MESSAGEBOX_WARNING;
+		question.window = platform_window;
+		question.title = "Halo: replace your player key?";
+		question.message = message;
+		question.numbuttons = 2;
+		question.buttons = buttons;
+		if (!SDL_ShowMessageBox(&question, &answer))
+			answer = 0;
+		browser_answer_key_link(answer == 1);
+	}
+}
+#endif
+
 static void platform_show_pending_message(void)
 {
 	char title[sizeof(platform_message_title)];
@@ -790,6 +849,9 @@ void platform_pump_events(void)
 		exit(EXIT_SUCCESS);
 	}
 	platform_show_pending_message();
+#ifdef HALO_GAME_BROWSER
+	platform_game_list_requests();
+#endif
 #ifndef HALO_ANDROID
 	updater_poll(platform_window);
 #endif

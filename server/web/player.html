@@ -20,8 +20,8 @@ async function load() {
   const holder = document.getElementById("record");
   const who = decodeURIComponent(location.pathname.split("/").pop());
   const byId = /^[0-9a-f]{32}$/.test(who);
-  let reports;
-  try { reports = (await getJSON("/v1/players/" + encodeURIComponent(who))).reports; }
+  let reports, profile = null;
+  try { const answer = await getJSON("/v1/players/" + encodeURIComponent(who)); reports = answer.reports; profile = answer.profile || null; }
   catch (error) { holder.replaceChildren(el("div", { class: "empty", text: "Could not load the service record." })); return; }
   const people = summarize(reports);
   const person = people.find(p => byId ? p.id === who : p.key === "name:" + who.toLowerCase());
@@ -39,7 +39,7 @@ async function load() {
           playerName(p, "who"), el("span", { class: "value", text: p.games + " games" }))))));
     return;
   }
-  document.title = "Service Record · " + person.name;
+  document.title = "Service Record · " + (profile ? profile.display : person.name);
   const mine = line => byId ? line.player_id === person.id : !line.player_id && line.name.toLowerCase() === person.name.toLowerCase();
 
   const favorite = Object.entries(person.maps).sort((a, b) => b[1] - a[1])[0];
@@ -48,7 +48,9 @@ async function load() {
   const games = reports.slice().sort((a, b) => b.time - a.time);
 
   holder.replaceChildren(...[
-    el("h1", { class: "page-title" }, el("span", { class: person.id ? "confirmed" : "", text: person.name })),
+    el("h1", { class: "page-title" }, el("span", { class: person.id ? "confirmed" : "", text: profile ? profile.display : person.name })),
+    profile ? el("p", { class: "page-sub" }, "@" + profile.handle + (profile.display !== person.name ? " · in the game: " + person.name : "")) : null,
+    profile && profile.bio ? el("p", { class: "profile-about", text: profile.bio }) : null,
     el("p", { class: "page-sub" },
       "Service record · " + (COLORS[person.color] || "Unknown") + " armor · last played " + ago(person.time),
       person.id ? " · player " + person.id.slice(0, 8) : null,

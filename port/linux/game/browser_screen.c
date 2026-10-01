@@ -314,6 +314,11 @@ void browser_screen_process(
 			case _gamepad_binary_button_dpad_left: move = -ROWS_PER_PAGE; break;
 			case _gamepad_binary_button_dpad_right: move = ROWS_PER_PAGE; break;
 			case _gamepad_analog_button_a: join_selected(); break;
+			case _gamepad_analog_button_y:
+				browser_open_profile();
+				csstrncpy(browser_screen.status, "Opening your profile in the web browser", sizeof(browser_screen.status) - 1);
+				browser_screen.status_time = system_milliseconds();
+				break;
 			case _gamepad_analog_button_b:
 			case _gamepad_binary_button_back:
 				browser_screen.active = FALSE;
@@ -564,7 +569,7 @@ void browser_screen_render(
 	if (browser_screen.status[0] && system_milliseconds() - browser_screen.status_time < STATUS_DURATION)
 		draw_ascii(48, 392, 592, 412, 0, &closed_color, browser_screen.status);
 	draw_ascii(48, 424, 592, 448, 2, &dim_color,
-		"A = Join     B = Back     Left/Right = Page");
+		"A = Join     B = Back     Y = My Profile     Left/Right = Page");
 }
 
 #endif

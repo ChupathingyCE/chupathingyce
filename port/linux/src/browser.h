@@ -103,4 +103,13 @@ public player ID it confirms them as */
 void browser_claim_game(const unsigned short (*names)[12], int count);
 int browser_player_id(char *text, int size);
 
+/* the profile page (halo.milenko.org/profile), signed in as this copy's
+player, opened in the web browser (MY PROFILE) */
+void browser_open_profile(void);
+/* a restored key (halo://key/...): kept, then put in place of this copy's
+once the player says yes (sdl_platform.c asks) */
+int browser_key_link(const char *text);
+int browser_take_key_link(char *new_id, char *old_id, int size);
+void browser_answer_key_link(int install);
+
 #endif

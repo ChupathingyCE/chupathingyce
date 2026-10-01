@@ -2280,6 +2280,9 @@ int p2p_join_invite(const char *text)
 	int result;
 
 #ifdef HALO_GAME_BROWSER
+	/* (a restored player key's link, not an invite: browser.c) */
+	if (browser_key_link(text))
+		return 1;
 	if (browser_dedicated())
 	{
 		platform_log("dedicated server: the invite is not joined");

@@ -27,6 +27,7 @@ with it under the lock.
 #ifdef HALO_GAME_BROWSER
 
 #include "platform.h"
+#include "posix.h"
 #include "port_config.h"
 #include "browser_http.h"
 #include "p2p.h"
@@ -36,6 +37,7 @@ with it under the lock.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 enum
 {
@@ -101,6 +103,11 @@ static struct
 	int claim_count;
 	int claim_attempts;
 	unsigned long claim_time;
+
+	/* the profile page asked for (MY PROFILE: a sign-in link) */
+	int profile_wanted;
+	/* a restored key (a halo://key/ link) waiting for the player's yes */
+	char pending_key[2 * PLAYER_KEY_SIZE + 1];
 
 	/* browsing */
 	int list_wanted;
@@ -248,22 +255,38 @@ confirms its own player's lines, in games they played. */
 
 static int json_name(char *out, int size, const unsigned short *name, int length);
 
+static int player_key_loaded;
+static unsigned char player_key_cached[PLAYER_KEY_SIZE];
+
+static void player_key_path(char *path, int size)
+{
+	snprintf(path, (size_t)size, "%s/game_list_player.key", platform_save_root());
+}
+
 static int player_key(unsigned char *key)
 {
-	static int loaded;
-	static unsigned char cached[PLAYER_KEY_SIZE];
+	int loaded;
+	unsigned char *cached = player_key_cached;
 	char path[1024];
 
+	pthread_mutex_lock(&browser_lock);
+	loaded = player_key_loaded;
+	pthread_mutex_unlock(&browser_lock);
 	if (!loaded)
 	{
-		snprintf(path, sizeof(path), "%s/game_list_player.key", platform_save_root());
-		loaded = posix_browser_private_key(path, cached, sizeof(cached)) ? 1 : -1;
+		player_key_path(path, sizeof(path));
+		loaded = posix_browser_private_key(path, cached, PLAYER_KEY_SIZE) ? 1 : -1;
 		if (loaded < 0)
 			platform_log("Game list: no player key (%s): finished games are not confirmed", path);
+		pthread_mutex_lock(&browser_lock);
+		player_key_loaded = loaded;
+		pthread_mutex_unlock(&browser_lock);
 	}
 	if (loaded < 0)
 		return 0;
-	memcpy(key, cached, sizeof(cached));
+	pthread_mutex_lock(&browser_lock);
+	memcpy(key, cached, PLAYER_KEY_SIZE);
+	pthread_mutex_unlock(&browser_lock);
 	return 1;
 }
 
@@ -373,6 +396,45 @@ static void send_claims(void)
 	if (!retry || browser.claim_attempts >= CLAIM_ATTEMPTS)
 		browser.claim_count = 0;
 	pthread_mutex_unlock(&browser_lock);
+}
+
+/* the profile page, signed in: the key goes to the server, which answers
+with a code for a sign-in link good once, for a few minutes; the page opens
+with the code (not the key) */
+static void open_profile(void)
+{
+	unsigned char key[PLAYER_KEY_SIZE];
+	char key_text[2 * PLAYER_KEY_SIZE + 1];
+	char url[512], body[256], response[256], error[256], page[640];
+	int wanted, status;
+
+	pthread_mutex_lock(&browser_lock);
+	wanted = browser.profile_wanted;
+	browser.profile_wanted = 0;
+	pthread_mutex_unlock(&browser_lock);
+	if (!wanted)
+		return;
+	server_url("/v1/link", url, sizeof(url));
+	if (!safe_for_key(url) || !player_key(key))
+	{
+		platform_log("Game list: the profile page needs an HTTPS game list and a player key");
+		return;
+	}
+	p2p_hex(key, PLAYER_KEY_SIZE, key_text);
+	snprintf(body, sizeof(body), "{\"key\": \"%s\"}", key_text);
+	status = posix_browser_request(url, body, "application/json", response, sizeof(response), error, sizeof(error));
+	memset(key, 0, sizeof(key));
+	memset(key_text, 0, sizeof(key_text));
+	memset(body, 0, sizeof(body));
+	response[strcspn(response, "\r\n")] = 0;
+	if (status != 200 || strncmp(response, "ok ", 3) || strspn(response + 3, "0123456789abcdef") != 64)
+	{
+		platform_log("Game list: could not open the profile page (%s)", status ? response : error);
+		return;
+	}
+	server_url("/profile?link=", page, sizeof(page));
+	strncat(page, response + 3, sizeof(page) - strlen(page) - 1);
+	platform_open_url(page);
 }
 
 /* ---------- hosting (the browser thread) */
@@ -602,6 +664,7 @@ static void *browser_thread(void *unused)
 			update_hosting();
 			send_report();
 			send_claims();
+			open_profile();
 			update_list();
 		}
 		Sleep(THREAD_INTERVAL);
@@ -756,6 +819,107 @@ void browser_claim_game(const unsigned short (*names)[12], int count)
 	browser.claim_attempts = 0;
 	browser.claim_time = p2p_now();
 	pthread_mutex_unlock(&browser_lock);
+}
+
+void browser_open_profile(void)
+{
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	browser.profile_wanted = 1;
+	pthread_mutex_unlock(&browser_lock);
+}
+
+/* a restored key's link, halo://key/<64 hexadecimal digits> (the profile
+page's Install in Game): kept until the player says yes
+(browser_take_key_link, from the main thread); 1 if the text is one */
+int browser_key_link(const char *text)
+{
+	static const char prefix[] = "halo://key/";
+	const char *digits;
+
+	if (strncasecmp(text, prefix, sizeof(prefix) - 1))
+		return 0;
+	digits = text + sizeof(prefix) - 1;
+	if (strspn(digits, "0123456789abcdef") != 2 * PLAYER_KEY_SIZE ||
+		(digits[2 * PLAYER_KEY_SIZE] && digits[2 * PLAYER_KEY_SIZE] != '/'))
+	{
+		platform_log("Game list: that key link is not a player key");
+		return 1;
+	}
+	pthread_mutex_lock(&browser_lock);
+	memcpy(browser.pending_key, digits, 2 * PLAYER_KEY_SIZE);
+	browser.pending_key[2 * PLAYER_KEY_SIZE] = 0;
+	pthread_mutex_unlock(&browser_lock);
+	return 1;
+}
+
+/* a key link waiting (as on the command line, a copy started with one): its
+key, and the player IDs of the key in use and of it */
+int browser_take_key_link(char *new_id, char *old_id, int size)
+{
+	static int command_line_checked;
+	unsigned char key[PLAYER_KEY_SIZE];
+	char digits[2 * PLAYER_KEY_SIZE + 1];
+	int index;
+
+	if (!command_line_checked)
+	{
+		char argument[256];
+
+		command_line_checked = 1;
+		for (index = 1; posix_command_line_argument(index, argument, sizeof(argument)); index++)
+			browser_key_link(argument);
+	}
+	pthread_mutex_lock(&browser_lock);
+	memcpy(digits, browser.pending_key, sizeof(digits));
+	pthread_mutex_unlock(&browser_lock);
+	if (!digits[0] || size <= 2 * PLAYER_ID_SIZE)
+		return 0;
+	for (index = 0; index < PLAYER_KEY_SIZE; index++)
+	{
+		unsigned int byte;
+
+		sscanf(digits + 2 * index, "%2x", &byte);
+		key[index] = (unsigned char)byte;
+	}
+	player_id_from_key(key, new_id);
+	if (!browser_player_id(old_id, size))
+		old_id[0] = 0;
+	memset(key, 0, sizeof(key));
+	memset(digits, 0, sizeof(digits));
+	return 1;
+}
+
+/* the waiting key put in place of this copy's (yes), or dropped (no) */
+void browser_answer_key_link(int install)
+{
+	unsigned char key[PLAYER_KEY_SIZE];
+	char path[1024];
+	int index, ok = 0;
+
+	pthread_mutex_lock(&browser_lock);
+	if (install && browser.pending_key[0])
+	{
+		for (index = 0; index < PLAYER_KEY_SIZE; index++)
+		{
+			unsigned int byte;
+
+			sscanf(browser.pending_key + 2 * index, "%2x", &byte);
+			key[index] = (unsigned char)byte;
+		}
+		player_key_path(path, sizeof(path));
+		ok = posix_browser_replace_key(path, key, PLAYER_KEY_SIZE);
+		if (ok)
+		{
+			memcpy(player_key_cached, key, PLAYER_KEY_SIZE);
+			player_key_loaded = 1;
+		}
+		memset(key, 0, sizeof(key));
+	}
+	memset(browser.pending_key, 0, sizeof(browser.pending_key));
+	pthread_mutex_unlock(&browser_lock);
+	if (install)
+		platform_log(ok ? "Game list: the player key was restored" : "Game list: could not restore the player key");
 }
 
 /* this copy's public player ID (its line in finished games), as text */
