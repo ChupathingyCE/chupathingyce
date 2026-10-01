@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Service Record</title>
+<link rel="icon" href="/art/types/slayer.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700&family=Saira+Semi+Condensed:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/static/site.css">
+</head>
+<body>
+<main id="record"><div class="empty">Loading the service record…</div></main>
+<script src="/static/site.js"></script>
+<script>
+frame("");
+
+async function load() {
+  const holder = document.getElementById("record");
+  const name = decodeURIComponent(location.pathname.split("/").pop());
+  let reports;
+  try { reports = (await getJSON("/v1/players/" + encodeURIComponent(name))).reports; }
+  catch (error) { holder.replaceChildren(el("div", { class: "empty", text: "Could not load the service record." })); return; }
+  const person = summarize(reports).find(p => p.name.toLowerCase() === name.toLowerCase());
+  if (!person) { holder.replaceChildren(el("div", { class: "empty", text: "No games played as " + name + " yet." })); return; }
+  document.title = "Service Record · " + person.name;
+
+  const favorite = Object.entries(person.maps).sort((a, b) => b[1] - a[1])[0];
+  const stat = (n, k) => el("div", { class: "stat" }, el("div", { class: "n", text: n }), el("div", { class: "k", text: k }));
+  const medals = MEDAL_ORDER.filter(key => person.medals[key]);
+  const games = reports.slice().sort((a, b) => b.time - a.time);
+
+  holder.replaceChildren(
+    el("h1", { class: "page-title", text: person.name }),
+    el("p", { class: "page-sub", text: "Service record · " + (COLORS[person.color] || "Unknown") + " armor · last played " + ago(person.time) }),
+    el("div", { class: "record" },
+      el("div", { class: "figure-wrap" }, picture(spartanArt(person.color, true), "", person.name)),
+      el("div", {},
+        el("section", { class: "panel" }, el("h2", { text: "Career" }),
+          el("div", { class: "stats" },
+            stat(person.games, "Games"), stat(person.wins, "Wins"),
+            stat(person.games ? Math.round(100 * person.wins / person.games) + "%" : "–", "Win rate"),
+            stat(person.kills, "Kills"), stat(person.deaths, "Deaths"), stat(ratio(person.kills, person.deaths), "K/D"),
+            stat(person.assists, "Assists"), stat(person.medal_count, "Medals"),
+            stat(favorite ? MAPS[favorite[0]] || "Unknown" : "–", "Favorite map"))),
+        medals.length ? el("section", { class: "panel" }, el("h2", { text: "Medals" }),
+          el("div", { class: "medal-board" }, medals.map(key => el("div", { class: "medal-card" },
+            medalSVG(key),
+            el("div", {}, el("div", { class: "label", text: MEDALS[key].name }), el("div", { class: "desc", text: MEDALS[key].desc })),
+            el("div", { class: "count", text: person.medals[key] }))))) : null)),
+    el("section", { class: "panel" }, el("h2", {}, "Game History", el("span", { class: "note", text: games.length + " games" })),
+      el("table", { class: "history" }, el("tbody", {}, games.map(report => {
+        const line = report.players.find(p => p.name.toLowerCase() === person.name.toLowerCase());
+        return el("tr", { onclick: () => { location.href = "/games/" + report.id; } },
+          el("td", { style: "width:66px" }, picture(mapArt(report.map), "thumb", "", "/art/maps/unknown.jpg")),
+          el("td", {},
+            el("a", { class: "what", href: "/games/" + report.id, text: engineName(report.engine, report.teams) + " on " + mapName(report.map) }),
+            el("div", { class: "sub" },
+              el("span", { class: "place-" + line.place, text: ordinal(line.place) }),
+              " · " + line.kills + " kills, " + line.deaths + " deaths · " + report.host)),
+          el("td", {}, el("div", { class: "medal-row", style: "justify-content:flex-end" },
+            earnedMedals(report, line).slice(0, 4).map(m => medalChip(m.key, m.count)))),
+          el("td", { class: "right", text: ago(report.time) }));
+      })))));
+}
+load();
+</script>
+</body>
+</html>

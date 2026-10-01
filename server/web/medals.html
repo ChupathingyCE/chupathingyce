@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Medals</title>
+<link rel="icon" href="/art/types/slayer.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700&family=Saira+Semi+Condensed:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/static/site.css">
+</head>
+<body>
+<main>
+  <h1 class="page-title">Medals</h1>
+  <p class="page-sub">What each medal is for, and who has earned it most. Some come from the scores; the rest, multikills and sprees, as the game learns to report them.</p>
+  <section class="panel"><h2>All Medals</h2><div class="medal-board" id="medals"></div></section>
+</main>
+<script src="/static/site.js"></script>
+<script>
+frame("medals");
+async function load() {
+  let people = [];
+  try { people = summarize((await getJSON("/v1/history?limit=1000")).reports); } catch (error) { }
+  document.getElementById("medals").replaceChildren(...MEDAL_ORDER.map(key => {
+    const best = people.filter(p => p.medals[key]).sort((a, b) => b.medals[key] - a.medals[key])[0];
+    const total = people.reduce((sum, p) => sum + (p.medals[key] || 0), 0);
+    return el("div", { class: "medal-card" }, medalSVG(key),
+      el("div", {}, el("div", { class: "label", text: MEDALS[key].name }), el("div", { class: "desc", text: MEDALS[key].desc }),
+        best ? el("div", { class: "desc" }, "Most: ", el("a", { href: playerLink(best.name), text: best.name }), " (" + best.medals[key] + ")") : null),
+      el("div", { class: "count", text: total || "" }));
+  }));
+}
+load();
+</script>
+</body>
+</html>

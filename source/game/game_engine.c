@@ -4487,6 +4487,26 @@ static void game_engine_report_game(
 		line->multikills = player->statistics.multiple_kills;
 		line->shots_fired = player->statistics.shots_fired;
 		line->shots_hit = player->statistics.shots_hit;
+		line->color = player->network_player_data.primary_color_index;
+		/* (the game type's statistics: the union's member for this game) */
+		switch (global_variant.game_engine_index)
+		{
+		case game_engine_ctf:
+			line->flag_grabs = player->statistics.multiplayer_statistics.ctf_statistics.flag_grabs;
+			line->flag_returns = player->statistics.multiplayer_statistics.ctf_statistics.flag_returns;
+			line->flag_scores = player->statistics.multiplayer_statistics.ctf_statistics.flag_scores;
+			break;
+		case game_engine_oddball:
+			line->ball_time = player->statistics.multiplayer_statistics.oddball_statistics.time_with_the_ball;
+			line->ball_carrier_kills = player->statistics.multiplayer_statistics.oddball_statistics.ball_carrier_kills;
+			break;
+		case game_engine_king:
+			line->hill_time = player->statistics.multiplayer_statistics.king_statistics.time_on_hill;
+			break;
+		case game_engine_race:
+			line->laps = player->statistics.multiplayer_statistics.race_statistics.laps;
+			break;
+		}
 	}
 	browser_report_game(
 		teams,

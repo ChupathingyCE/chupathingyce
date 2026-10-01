@@ -520,7 +520,7 @@ static int json_name(char *out, int size, const unsigned short *name, int length
 void browser_report_game(int teams, int red_score, int blue_score, int duration_seconds,
 	const struct browser_report_player *players, int count)
 {
-	size_t size = 256 + (size_t)count * 320;
+	size_t size = 256 + (size_t)count * 480;
 	char *report = malloc(size);
 	int used = 0;
 	int index;
@@ -533,7 +533,7 @@ void browser_report_game(int teams, int red_score, int blue_score, int duration_
 	used += snprintf(report + used, size - (size_t)used,
 		"{\"teams\": %d, \"duration\": %d, \"team_scores\": [%d, %d], \"players\": [",
 		teams != 0, duration_seconds, teams ? red_score : 0, teams ? blue_score : 0);
-	for (index = 0; index < count && (size_t)used < size - 320; index++)
+	for (index = 0; index < count && (size_t)used < size - 480; index++)
 	{
 		const struct browser_report_player *player = &players[index];
 
@@ -541,9 +541,13 @@ void browser_report_game(int teams, int red_score, int blue_score, int duration_
 		used += json_name(report + used, (int)(size - (size_t)used), player->name, 12);
 		used += snprintf(report + used, size - (size_t)used,
 			", \"team\": %d, \"place\": %d, \"score\": %d, \"kills\": %d, \"assists\": %d, \"deaths\": %d, "
-			"\"betrayals\": %d, \"suicides\": %d, \"shots_fired\": %d, \"shots_hit\": %d, \"multikills\": %d}",
+			"\"betrayals\": %d, \"suicides\": %d, \"shots_fired\": %d, \"shots_hit\": %d, \"multikills\": %d, "
+			"\"color\": %d, \"flag_grabs\": %d, \"flag_returns\": %d, \"flag_scores\": %d, \"ball_time\": %d, "
+			"\"ball_carrier_kills\": %d, \"hill_time\": %d, \"laps\": %d}",
 			player->team, player->place, player->score, player->kills, player->assists, player->deaths,
-			player->betrayals, player->suicides, player->shots_fired, player->shots_hit, player->multikills);
+			player->betrayals, player->suicides, player->shots_fired, player->shots_hit, player->multikills,
+			player->color, player->flag_grabs, player->flag_returns, player->flag_scores, player->ball_time,
+			player->ball_carrier_kills, player->hill_time, player->laps);
 	}
 	snprintf(report + used, size - (size_t)used, "]}");
 

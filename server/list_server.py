@@ -23,21 +23,31 @@ Interface (version 1):
                         invite name map engine players maximum_players
                         open version age score_limit teams
     GET  /v1/health     -> 200 "ok"
-    GET  /              -> the list as a web page, each game with a Join
-                        link (halo://join/..., which the game handles), and
-                        the last games played
+    GET  /              -> the site (server/web): the games hosted, each with
+                        a Join link (halo://join/..., which the game
+                        handles), the last games played and the leaders;
+                        /games/N a carnage report, /players/NAME a service
+                        record, /leaders, /medals; /static/* the pages'
+                        styles and code, /art/* the game's pictures
+                        (server/site_art.py)
     POST /v1/report     a finished game's carnage report (JSON, below), from
                         the address that lists its invite -> 200 "ok <id>"
     GET  /v1/reports    -> 200 JSON {"reports": [...]}: the last games, newest
                         first (?limit=, at most 50)
     GET  /v1/reports/N  -> 200 JSON: game N's report
-    GET  /games/N       -> game N's carnage report as a web page
+    GET  /v1/history    -> 200 JSON {"reports": [...]}: the last games' full
+                        reports, newest first (?limit=, at most 1000)
+    GET  /v1/players/NAME -> 200 JSON {"reports": [...]}: the games a player
+                        of that name (any case) played, newest first
 
 A carnage report: {"invite", "map", "engine", "teams" (0 or 1),
 "score_limit", "duration" (seconds), "team_scores" ([score of team 0,
 ...]), "players": [{"name", "team", "place" (1 first), "score", "kills",
 "assists", "deaths", "betrayals", "suicides", "shots_fired", "shots_hit",
-"multikills"}, ...]}. Only a game that ends (its host reaches the
+"multikills", and from newer games "color" (0 to 17), the game type's
+"flag_grabs", "flag_returns", "flag_scores", "ball_time",
+"ball_carrier_kills", "hill_time", "laps", and "medals" ({key: count})},
+...]}. Only a game that ends (its host reaches the
 postgame) sends one: a game that crashes or is quit is not recorded.
 Reports are kept in reports.db in the --data folder, without addresses.
 
@@ -47,13 +57,15 @@ requests a minute. The addresses are kept only to apply those limits.
 """
 
 import argparse
+import mimetypes
 import json
 import re
 import sqlite3
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs
+from pathlib import Path
+from urllib.parse import parse_qs, unquote
 
 EXPIRY = 75
 MAXIMUM_GAMES = 512
@@ -65,6 +77,11 @@ MAXIMUM_REPORT_PLAYERS = 128
 REPORT_INTERVAL = 60
 
 # (64 digits since network version 8; 44 before, which older builds still list)
+MEDAL_KEY = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+PAGES = {"/": "index.html", "/index.html": "index.html", "/leaders": "leaders.html", "/medals": "medals.html"}
+STATIC = re.compile(r"^/static/([a-z0-9_-]+\.(?:css|js))$")
+ART = re.compile(r"^/art/((?:[a-z0-9_-]+/){0,2}[a-z0-9_-]+\.(?:png|jpg))$")
+WEB = Path(__file__).resolve().parent / "web"
 INVITE = re.compile(r"^(?:[0-9a-f]{64}|[0-9a-f]{44})$")
 FIELDS = {
     "name": 32,
@@ -84,140 +101,6 @@ def clean_integer(value: str, low: int, high: int) -> int:
     if not low <= number <= high:
         raise ValueError(value)
     return number
-
-
-PAGE = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Halo Games</title>
-<style>
-:root { --bg: #0b1320; --panel: #111c2e; --line: #23406b; --text: #d8e4f5; --dim: #8aa0bf; --accent: #3d8bff; --open: #56c46b; --full: #c46b56; }
-@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --bg: #eef2f8; --panel: #ffffff; --line: #c5d3e8; --text: #102038; --dim: #5a6f8d; --accent: #1f6fe5; --open: #23843a; --full: #a23c2a; } }
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-main { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
-h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: 0.02em; }
-p.lead { margin: 0 0 20px; color: var(--dim); }
-.games { display: grid; gap: 10px; }
-.game { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
-.name { font-weight: 600; font-size: 17px; overflow-wrap: anywhere; }
-.info { color: var(--dim); font-size: 14px; }
-.status { font-size: 13px; font-weight: 600; }
-.status.open { color: var(--open); } .status.closed { color: var(--full); }
-a.join { grid-row: 1 / span 2; grid-column: 2; background: var(--accent); color: #fff; text-decoration: none; font-weight: 600; padding: 9px 18px; border-radius: 8px; }
-a.join[aria-disabled="true"] { opacity: 0.4; pointer-events: none; }
-.empty { color: var(--dim); padding: 24px 0; }
-h2 { margin: 32px 0 10px; font-size: 19px; }
-.recent { display: grid; gap: 6px; }
-.recent a { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; color: var(--text); text-decoration: none; }
-.recent a:hover { border-color: var(--accent); }
-.recent .when { color: var(--dim); font-size: 13px; text-align: right; }
-.winner { color: var(--open); font-weight: 600; }
-.scroll { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-variant-numeric: tabular-nums; }
-th, td { padding: 8px 10px; text-align: right; white-space: nowrap; }
-th:nth-child(2), td:nth-child(2) { text-align: left; }
-th { color: var(--dim); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--line); }
-tr + tr td { border-top: 1px solid var(--line); }
-tr.first td { font-weight: 700; }
-.team { margin: 22px 0 8px; font-size: 17px; font-weight: 700; }
-.team.red { color: #e0524f; } .team.blue { color: #4f8fe0; }
-.back { color: var(--accent); text-decoration: none; font-size: 14px; }
-footer { margin-top: 28px; color: var(--dim); font-size: 13px; }
-code { font-size: 12px; }
-</style>
-</head>
-<body>
-<main>
-<h1>Halo system link games</h1>
-<p class="lead">Games hosted by players of Halo: Combat Evolved (the native ports). Join opens the game and joins through the game's invite.</p>
-<div class="games" id="games"><div class="empty">Loading…</div></div>
-<h2>Last 10 games</h2>
-<div class="recent" id="recent"><div class="empty">Loading…</div></div>
-<footer>The game must be installed for Join to open it (it registers <code>halo://</code> links). The list refreshes every 10 seconds; a game stays listed while its host runs.</footer>
-</main>
-<script>
-const ENGINES = ["", "Capture the Flag", "Slayer", "Oddball", "King of the Hill", "Race"];
-const MAPS = { beavercreek: "Battle Creek", bloodgulch: "Blood Gulch", boardingaction: "Boarding Action", carousel: "Derelict",
-  chillout: "Chill Out", damnation: "Damnation", hangemhigh: "Hang 'Em High", longest: "Longest", prisoner: "Prisoner",
-  putput: "Chiron TL-34", ratrace: "Rat Race", sidewinder: "Sidewinder", wizard: "Wizard" };
-function mapName(path) {
-  const base = path.split(/[\\\\/]/).pop();
-  return MAPS[base] || base;
-}
-function element(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-async function refresh() {
-  const list = document.getElementById("games");
-  try {
-    const response = await fetch("/v1/games", { cache: "no-store" });
-    const games = (await response.json()).games;
-    list.replaceChildren();
-    if (!games.length) { list.append(element("div", "empty", "No games are being hosted right now.")); return; }
-    for (const game of games) {
-      const card = element("div", "game");
-      const engine = (game.teams ? "Team " : "") + (ENGINES[game.engine] || "Game");
-      card.append(element("div", "name", game.name));
-      const join = element("a", "join", "Join");
-      join.href = "halo://join/" + game.invite;
-      if (!game.open) join.setAttribute("aria-disabled", "true");
-      card.append(join);
-      const info = element("div", "info");
-      info.append(mapName(game.map) + " · " + engine + (game.score_limit ? " to " + game.score_limit : "") +
-        " · " + game.players + "/" + game.maximum_players + " players · ");
-      info.append(element("span", "status " + (game.open ? "open" : "closed"), game.open ? "Accepting players" : "In progress"));
-      card.append(info);
-      list.append(card);
-    }
-  } catch (error) {
-    list.replaceChildren(element("div", "empty", "Could not reach the list server."));
-  }
-}
-function ago(seconds) {
-  const age = Math.max(0, Math.floor(Date.now() / 1000) - seconds);
-  if (age < 60) return "just now";
-  if (age < 3600) return Math.floor(age / 60) + " min ago";
-  if (age < 86400) return Math.floor(age / 3600) + " h ago";
-  return new Date(seconds * 1000).toLocaleDateString();
-}
-async function refreshRecent() {
-  const list = document.getElementById("recent");
-  try {
-    const reports = (await (await fetch("/v1/reports?limit=10", { cache: "no-store" })).json()).reports;
-    list.replaceChildren();
-    if (!reports.length) { list.append(element("div", "empty", "No finished games yet.")); return; }
-    for (const report of reports) {
-      const row = element("a");
-      row.href = "/games/" + report.id;
-      const title = element("div", "name");
-      title.style.fontSize = "15px";
-      title.append(mapName(report.map) + " · " + (report.teams ? "Team " : "") + (ENGINES[report.engine] || "Game"));
-      row.append(title);
-      row.append(element("div", "when", ago(report.time)));
-      const detail = element("div", "info");
-      detail.append(element("span", "winner", report.winner + " won"));
-      detail.append(" · " + report.player_count + " player" + (report.player_count == 1 ? "" : "s") + " · hosted by " + report.host);
-      row.append(detail);
-      list.append(row);
-    }
-  } catch (error) {
-    list.replaceChildren(element("div", "empty", "Could not reach the list server."));
-  }
-}
-refresh();
-refreshRecent();
-setInterval(refresh, 10000);
-setInterval(refreshRecent, 30000);
-</script>
-</body>
-</html>
-"""
 
 
 class GameList:
@@ -299,102 +182,6 @@ class GameList:
                          age=int(now - g["time"])) for g in games]
 
 
-def report_page() -> str:
-    """the carnage report page: the list page's style, its own content"""
-    style = PAGE[PAGE.index("<style>"):PAGE.index("</style>") + len("</style>")]
-    return REPORT_PAGE.replace("<!--STYLE-->", style)
-
-
-REPORT_PAGE = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Carnage Report</title>
-<!--STYLE-->
-</head>
-<body>
-<main>
-<a class="back" href="/">← All games</a>
-<h1 id="title" style="margin-top:10px">Carnage Report</h1>
-<p class="lead" id="summary"></p>
-<div id="report"><div class="empty">Loading…</div></div>
-</main>
-<script>
-const ENGINES = ["", "Capture the Flag", "Slayer", "Oddball", "King of the Hill", "Race"];
-const MAPS = { beavercreek: "Battle Creek", bloodgulch: "Blood Gulch", boardingaction: "Boarding Action", carousel: "Derelict",
-  chillout: "Chill Out", damnation: "Damnation", hangemhigh: "Hang 'Em High", longest: "Longest", prisoner: "Prisoner",
-  putput: "Chiron TL-34", ratrace: "Rat Race", sidewinder: "Sidewinder", wizard: "Wizard" };
-const TEAMS = ["Red Team", "Blue Team"];
-function mapName(path) { const base = path.split(/[\\\\/]/).pop(); return MAPS[base] || base; }
-function element(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-function duration(seconds) { return Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0"); }
-function accuracy(player) { return player.shots_fired ? Math.round(100 * player.shots_hit / player.shots_fired) + "%" : "–"; }
-function ratio(player) { return (player.kills / Math.max(1, player.deaths)).toFixed(2); }
-function scoreboard(players, shots) {
-  const wrap = element("div", "scroll");
-  const table = element("table");
-  const head = element("tr");
-  /* (accuracy only where the game counted shots) */
-  const titles = ["#", "Player", "Score", "Kills", "Assists", "Deaths", "K/D", "Betrayals", "Suicides", "Accuracy", "Multikills"];
-  for (const title of titles)
-    if (shots || title !== "Accuracy") head.append(element("th", "", title));
-  table.append(head);
-  for (const player of players) {
-    const row = element("tr", player.place === 1 ? "first" : "");
-    const values = [player.place, player.name, player.score, player.kills, player.assists, player.deaths, ratio(player),
-      player.betrayals, player.suicides, accuracy(player), player.multikills];
-    values.forEach((value, index) => { if (shots || titles[index] !== "Accuracy") row.append(element("td", "", String(value))); });
-    table.append(row);
-  }
-  wrap.append(table);
-  return wrap;
-}
-async function load() {
-  const id = location.pathname.split("/").pop();
-  const holder = document.getElementById("report");
-  try {
-    const response = await fetch("/v1/reports/" + encodeURIComponent(id), { cache: "no-store" });
-    if (!response.ok) throw new Error("missing");
-    const report = await response.json();
-    const engine = (report.teams ? "Team " : "") + (ENGINES[report.engine] || "Game");
-    document.title = "Carnage Report · " + mapName(report.map);
-    document.getElementById("title").textContent = mapName(report.map) + " · " + engine;
-    document.getElementById("summary").textContent = new Date(report.time * 1000).toLocaleString() +
-      " · " + duration(report.duration) + (report.score_limit ? " · to " + report.score_limit : "") +
-      " · hosted by " + report.host;
-    holder.replaceChildren();
-    const winner = element("div", "team");
-    winner.append(element("span", "winner", report.winner + " won"));
-    holder.append(winner);
-    const players = report.players.slice().sort((a, b) => a.place - b.place);
-    const shots = players.some(p => p.shots_fired > 0);
-    if (report.teams) {
-      const order = [...new Set(players.map(p => p.team))].sort((a, b) => (report.team_scores[b] || 0) - (report.team_scores[a] || 0));
-      for (const team of order) {
-        const heading = element("div", "team " + (team === 0 ? "red" : team === 1 ? "blue" : ""),
-          (TEAMS[team] || "Team " + (team + 1)) + " · " + (report.team_scores[team] || 0));
-        holder.append(heading, scoreboard(players.filter(p => p.team === team), shots));
-      }
-    } else {
-      holder.append(scoreboard(players, shots));
-    }
-  } catch (error) {
-    holder.replaceChildren(element("div", "empty", "There is no such game."));
-  }
-}
-load();
-</script>
-</body>
-</html>
-"""
-
-
 class Reports:
     """finished games' carnage reports, in SQLite"""
 
@@ -423,6 +210,18 @@ class Reports:
                 (limit,)).fetchall()
         return [dict(zip(("id", "time", "map", "engine", "teams", "host", "winner", "player_count"), row)) for row in rows]
 
+    def history(self, limit: int):
+        """the last games' full reports, newest first"""
+        with self.lock:
+            rows = self.database.execute("SELECT id, report FROM reports ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(json.loads(row[1]), id=row[0]) for row in rows]
+
+    def player(self, name: str, limit: int = 1000):
+        """the games a player of that name played, newest first"""
+        name = name.lower()
+        return [report for report in self.history(5000)
+                if any(player["name"].lower() == name for player in report["players"])][:limit]
+
     def get(self, report_id: int):
         with self.lock:
             row = self.database.execute("SELECT id, report FROM reports WHERE id = ?", (report_id,)).fetchone()
@@ -448,6 +247,18 @@ def clean_report(body: dict, game: dict) -> dict:
                                ("shots_hit", 0, 2 ** 31 - 1), ("multikills", 0, 32767)):
             player[key] = clean_integer(str(raw.get(key, 0)), low, high)
         player["shots_hit"] = min(player["shots_hit"], player["shots_fired"])
+        # (newer games' fields)
+        if "color" in raw:
+            player["color"] = clean_integer(str(raw["color"]), -1, 31)
+        for key in ("flag_grabs", "flag_returns", "flag_scores", "ball_time", "ball_carrier_kills", "hill_time", "laps"):
+            if key in raw:
+                player[key] = clean_integer(str(raw[key]), 0, 32767)
+        medals = raw.get("medals")
+        if medals is not None:
+            if not isinstance(medals, dict) or len(medals) > 64:
+                raise ValueError("medals")
+            player["medals"] = {key: clean_integer(str(count), 1, 999) for key, count in medals.items()
+                                if MEDAL_KEY.match(str(key)) and str(count) != "0"}
         players.append(player)
     teams = clean_integer(str(body.get("teams", game["teams"])), 0, 1)
     team_scores = body.get("team_scores", [])
@@ -501,6 +312,21 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def file(self, path: Path, cache: str):
+        try:
+            data = path.read_bytes()
+        except OSError:
+            return self.reply(404, "not found\n")
+        self.send_response(200)
+        self.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", cache)
+        self.end_headers()
+        self.wfile.write(data)
+
+    def page(self, name: str):
+        return self.file(WEB / name, "no-cache")
+
     def log_message(self, format, *args):
         pass
 
@@ -516,11 +342,27 @@ class Handler(BaseHTTPRequestHandler):
                                                       "score_limit", "teams"))
                      for g in GAMES.snapshot()]
             return self.reply(200, "".join(line + "\n" for line in lines))
-        if self.path in ("/", "/index.html"):
-            return self.reply(200, PAGE, "text/html; charset=utf-8")
-        match = re.fullmatch(r"/games/(\d+)", self.path)
+        path = self.path.split("?")[0]
+        if path in PAGES:
+            return self.page(PAGES[path])
+        if re.fullmatch(r"/games/\d+", path):
+            return self.page("game.html")
+        if re.fullmatch(r"/players/[^/]{1,64}", path):
+            return self.page("player.html")
+        match = STATIC.match(path)
         if match:
-            return self.reply(200, report_page(), "text/html; charset=utf-8")
+            return self.file(WEB / match.group(1), "no-cache")
+        match = ART.match(path)
+        if match:
+            return self.file(WEB / "art" / match.group(1), "public, max-age=86400")
+        match = re.fullmatch(r"/v1/history(?:\?limit=(\d+))?", self.path)
+        if match:
+            limit = min(1000, int(match.group(1) or 100))
+            return self.reply(200, json.dumps({"reports": REPORTS.history(limit)}), "application/json")
+        match = re.fullmatch(r"/v1/players/([^/?]{1,96})", self.path)
+        if match:
+            name = clean_text(unquote(match.group(1)), 16)
+            return self.reply(200, json.dumps({"reports": REPORTS.player(name)}), "application/json")
         match = re.fullmatch(r"/v1/reports(?:\?limit=(\d+))?", self.path)
         if match:
             limit = min(50, int(match.group(1) or 10))

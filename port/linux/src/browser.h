@@ -50,6 +50,18 @@ struct browser_report_player
 	short multikills;
 	int shots_fired;
 	int shots_hit;
+	/* the player's armor (the profile's color, 0 to 17) */
+	short color;
+	/* the game type's own: flags grabbed, returned and scored (CTF), seconds
+	with the ball and ball carriers killed (Oddball), seconds on the hill
+	(King), laps (Race) */
+	short flag_grabs;
+	short flag_returns;
+	short flag_scores;
+	short ball_time;
+	short ball_carrier_kills;
+	short hill_time;
+	short laps;
 };
 
 /* a hosted game that ended (reached the postgame): its carnage report, sent

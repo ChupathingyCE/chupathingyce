@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Carnage Report</title>
+<link rel="icon" href="/art/types/slayer.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700&family=Saira+Semi+Condensed:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/static/site.css">
+</head>
+<body>
+<main id="report"><div class="empty">Loading the carnage report…</div></main>
+<script src="/static/site.js"></script>
+<script>
+frame("games");
+
+/* the game type's own columns, where the game counted them */
+const OBJECTIVE = {
+  1: [["flag_scores", "Captures"], ["flag_returns", "Returns"], ["flag_grabs", "Grabs"]],
+  3: [["ball_time", "Ball Time", clock], ["ball_carrier_kills", "Carrier Kills"]],
+  4: [["hill_time", "Hill Time", clock]],
+  5: [["laps", "Laps"]],
+};
+
+function scoreboard(report, players) {
+  const objective = (OBJECTIVE[report.engine] || []).filter(([field]) => players.some(p => p[field] !== undefined));
+  const shots = players.some(p => p.shots_fired > 0);
+  const head = el("tr", {},
+    el("th", { class: "place", text: "" }), el("th", { class: "left", text: "Player" }),
+    ["Score", "Kills", "Assists", "Deaths", "K/D"].map(label => el("th", { class: "num", text: label })),
+    objective.map(([, label]) => el("th", { class: "num", text: label })),
+    shots ? el("th", { class: "num", text: "Accuracy" }) : null, el("th", { class: "medal-col", text: "Medals" }));
+  const rows = players.map(player => el("tr", { class: player.place === 1 ? "first" : "" },
+    el("td", { class: "place place-" + player.place, text: ordinal(player.place) }),
+    el("td", { class: "left" }, el("div", { class: "player" },
+      picture(spartanArt(player.color), "", COLORS[player.color] || ""),
+      el("a", { href: playerLink(player.name), text: player.name }))),
+    el("td", { class: "big", text: player.score }),
+    el("td", { text: player.kills }), el("td", { text: player.assists }), el("td", { text: player.deaths }),
+    el("td", { text: ratio(player.kills, player.deaths) }),
+    objective.map(([field, , format]) => el("td", { text: format ? format(player[field] || 0) : (player[field] || 0) })),
+    shots ? el("td", { text: player.shots_fired ? Math.round(100 * player.shots_hit / player.shots_fired) + "%" : "–" }) : null,
+    el("td", {}, el("div", { class: "medals" }, earnedMedals(report, player).slice(0, 6).map(m => medalChip(m.key, m.count))))));
+  return el("div", { class: "scroll" }, el("table", { class: "carnage" }, el("thead", {}, head), el("tbody", {}, rows)));
+}
+
+function medalsPanel(report, players) {
+  const rows = players.map(player => ({ player, medals: earnedMedals(report, player) })).filter(row => row.medals.length);
+  if (!rows.length) return null;
+  return el("section", { class: "panel" }, el("h2", { text: "Medals" }),
+    el("table", { class: "per-player" }, el("tbody", {}, rows.map(({ player, medals }) => el("tr", {},
+      el("td", { class: "who" }, el("div", { class: "player" },
+        picture(spartanArt(player.color), "", ""), el("a", { href: playerLink(player.name), text: player.name }))),
+      el("td", {}, el("div", { class: "medal-row" }, medals.map(m => medalChip(m.key, m.count)))))))));
+}
+
+async function load() {
+  const holder = document.getElementById("report");
+  const id = location.pathname.split("/").pop();
+  let report;
+  try { report = await getJSON("/v1/reports/" + encodeURIComponent(id)); }
+  catch (error) { holder.replaceChildren(el("div", { class: "empty", text: "There is no such game." })); return; }
+
+  const title = engineName(report.engine, report.teams) + " on " + mapName(report.map);
+  document.title = "Carnage Report · " + title;
+  const players = report.players.slice().sort((a, b) => a.place - b.place);
+  const banner = el("section", { class: "banner", style: "--shot:url('" + mapArt(report.map) + "')" },
+    picture(mapArt(report.map), "shot", mapName(report.map), "/art/maps/unknown.jpg"),
+    el("div", {},
+      el("div", { class: "kicker", text: "Postgame Carnage Report" }),
+      el("h1", { text: title }),
+      el("div", { class: "facts" },
+        el("span", {}, el("b", { text: new Date(report.time * 1000).toLocaleString() })),
+        el("span", {}, "Length ", el("b", { text: clock(report.duration) })),
+        report.score_limit ? el("span", {}, "Playing to ", el("b", { text: report.score_limit })) : null,
+        el("span", {}, "Hosted by ", el("b", { text: report.host })),
+        el("span", {}, el("b", { text: players.length }), players.length === 1 ? " player" : " players")),
+      el("div", { class: "winner-line", text: report.winner + " wins" })),
+    picture(engineArt(report.engine), "type", engineName(report.engine, report.teams)));
+
+  const parts = [banner];
+  if (report.teams) {
+    const teams = [...new Set(players.map(p => p.team))]
+      .sort((a, b) => (report.team_scores[b] || 0) - (report.team_scores[a] || 0));
+    for (const team of teams) {
+      const side = team === 0 ? "red" : team === 1 ? "blue" : "";
+      parts.push(el("section", { class: "panel " + side },
+        el("h2", { class: "team-head" }, TEAMS[team] || "Team " + (team + 1),
+          el("span", { class: "score", text: report.team_scores[team] || 0 })),
+        scoreboard(report, players.filter(p => p.team === team))));
+    }
+  } else {
+    parts.push(el("section", { class: "panel" }, el("h2", { text: "Carnage" }), scoreboard(report, players)));
+  }
+  parts.push(medalsPanel(report, players));
+  holder.replaceChildren(...parts.filter(Boolean));
+}
+load();
+</script>
+</body>
+</html>

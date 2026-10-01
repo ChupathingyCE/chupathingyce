@@ -7,6 +7,9 @@ The game list and the dedicated server. Both belong to the game list builds
 | | |
 | --- | --- |
 | `list_server.py` | The game list: hosts announce their games, players get the list, and finished games' carnage reports are kept. It runs on halo.milenko.org. |
+| `web/` | halo.milenko.org's pages: the games hosted, carnage reports, service records, leaderboards and medals. |
+| `site_art.py` | The pages' pictures (`web/art`), from the game's `ui.map`: map screenshots, game type icons, the Spartan in each color. They are the game's, so they are made from a copy of it, not kept here. |
+| `map_bitmaps.py` | Lists or extracts any bitmap of an Xbox cache file (a `.map`) as PNG. |
 | `src/dedicated.c` | The dedicated server, compiled into the game: a copy of the game that hosts games by itself, with no player of its own. |
 | `playlists/` | The dedicated server's playlists. |
 | `deploy/` | The dedicated server as a Docker container and a systemd service. |
@@ -74,3 +77,15 @@ The settings are in `/opt/halo-dedicated/dedicated.env` on the host (from
 `sudo systemctl restart halo-dedicated`. The game's log is
 `/opt/halo-dedicated/data/debug.txt`, the service's
 `journalctl -u halo-dedicated`.
+
+## Deploying the site
+
+The list server serves `web/` from beside itself. Make the pictures, then
+copy the server and its pages:
+
+```
+server/site_art.py assets/maps/ui.map server/web/art
+scp -r server/list_server.py server/web HOST:/opt/halo-list/
+```
+
+and restart it (`systemctl restart halo-list` on halo.milenko.org's host).
