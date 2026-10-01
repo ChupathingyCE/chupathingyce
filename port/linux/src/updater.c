@@ -29,6 +29,12 @@ update.h's: posix_update.c on Linux, win32_update.c on Windows.
 #include "port_config.h"
 #include "update.h"
 
+/* (given for this file by the build: tools/linux_build.py, windows_build.py,
+macos_build.py; the Android app's version is its own, build.gradle) */
+#ifndef HALO_VERSION
+#define HALO_VERSION "dev"
+#endif
+
 #ifndef HALO_ANDROID
 
 #include "memory/zlib/zlib.h"
@@ -38,11 +44,6 @@ update.h's: posix_update.c on Linux, win32_update.c on Windows.
 #include <stdlib.h>
 #include <string.h>
 
-/* (given for this file by the build: tools/linux_build.py, windows_build.py,
-macos_build.py) */
-#ifndef HALO_VERSION
-#define HALO_VERSION "dev"
-#endif
 #ifndef HALO_RELEASE_BUILD
 #define HALO_RELEASE_BUILD 0
 #endif

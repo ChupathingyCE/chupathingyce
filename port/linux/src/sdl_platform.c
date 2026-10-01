@@ -52,8 +52,9 @@ static unsigned long keystroke_head, keystroke_count;
 /* updater.c's: the desktop self-updater */
 void updater_start(void);
 void updater_poll(SDL_Window *window);
-const char *updater_version(void);
 #endif
+/* (and the version, for the window's title) */
+const char *updater_version(void);
 
 BOOL platform_sdl_initialize(void)
 {
