@@ -18,13 +18,29 @@ frame("");
 
 async function load() {
   const holder = document.getElementById("record");
-  const name = decodeURIComponent(location.pathname.split("/").pop());
+  const who = decodeURIComponent(location.pathname.split("/").pop());
+  const byId = /^[0-9a-f]{32}$/.test(who);
   let reports;
-  try { reports = (await getJSON("/v1/players/" + encodeURIComponent(name))).reports; }
+  try { reports = (await getJSON("/v1/players/" + encodeURIComponent(who))).reports; }
   catch (error) { holder.replaceChildren(el("div", { class: "empty", text: "Could not load the service record." })); return; }
-  const person = summarize(reports).find(p => p.name.toLowerCase() === name.toLowerCase());
-  if (!person) { holder.replaceChildren(el("div", { class: "empty", text: "No games played as " + name + " yet." })); return; }
+  const people = summarize(reports);
+  const person = people.find(p => byId ? p.id === who : p.key === "name:" + who.toLowerCase());
+  /* (a name's confirmed players: who else played as it) */
+  const confirmedNamed = byId ? [] : people.filter(p => p.id && [...p.names].some(n => n.toLowerCase() === who.toLowerCase()));
+  if (!person && !confirmedNamed.length) {
+    holder.replaceChildren(el("div", { class: "empty", text: byId ? "No games confirmed by that player." : "No games played as " + who + " yet." }));
+    return;
+  }
+  if (!person) {
+    holder.replaceChildren(el("h1", { class: "page-title", text: who }),
+      el("section", { class: "panel" }, el("h2", { text: "Confirmed players with this name" }),
+        el("ol", { class: "leaders" }, confirmedNamed.map((p, index) => el("li", {},
+          el("span", { class: "rank", text: index + 1 }), picture(spartanArt(p.color), "figure", ""),
+          playerName(p, "who"), el("span", { class: "value", text: p.games + " games" }))))));
+    return;
+  }
   document.title = "Service Record · " + person.name;
+  const mine = line => byId ? line.player_id === person.id : !line.player_id && line.name.toLowerCase() === person.name.toLowerCase();
 
   const favorite = Object.entries(person.maps).sort((a, b) => b[1] - a[1])[0];
   const stat = (n, k) => el("div", { class: "stat" }, el("div", { class: "n", text: n }), el("div", { class: "k", text: k }));
@@ -32,8 +48,15 @@ async function load() {
   const games = reports.slice().sort((a, b) => b.time - a.time);
 
   holder.replaceChildren(
-    el("h1", { class: "page-title", text: person.name }),
-    el("p", { class: "page-sub", text: "Service record · " + (COLORS[person.color] || "Unknown") + " armor · last played " + ago(person.time) }),
+    el("h1", { class: "page-title" }, el("span", { class: person.id ? "confirmed" : "", text: person.name })),
+    el("p", { class: "page-sub" },
+      "Service record · " + (COLORS[person.color] || "Unknown") + " armor · last played " + ago(person.time),
+      person.id ? " · player " + person.id.slice(0, 8) : null,
+      person.id && person.names.size > 1 ? " · also played as " + [...person.names].filter(n => n !== person.name).join(", ") : null),
+    person.id ? null : el("p", { class: "unconfirmed" },
+      "Unconfirmed: games played under this name by copies of the game that do not confirm their players, so they may be more than one person's.",
+      confirmedNamed.length ? " Confirmed players who use this name: " : null,
+      ...confirmedNamed.map((p, index) => [index ? ", " : "", playerName(p)])),
     el("div", { class: "record" },
       el("div", { class: "figure-wrap" }, picture(spartanArt(person.color, true), "", person.name)),
       el("div", {},
@@ -51,7 +74,7 @@ async function load() {
             el("div", { class: "count", text: person.medals[key] }))))) : null)),
     el("section", { class: "panel" }, el("h2", {}, "Game History", el("span", { class: "note", text: games.length + " games" })),
       el("table", { class: "history" }, el("tbody", {}, games.map(report => {
-        const line = report.players.find(p => p.name.toLowerCase() === person.name.toLowerCase());
+        const line = report.players.find(mine);
         return el("tr", { onclick: () => { location.href = "/games/" + report.id; } },
           el("td", { style: "width:66px" }, picture(mapArt(report.map), "thumb", "", "/art/maps/unknown.jpg")),
           el("td", {},

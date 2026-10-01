@@ -3235,10 +3235,13 @@ void main_loop(
 			process_ui_widgets();
 #ifdef HALO_GAME_BROWSER
 			{
-				/* the dedicated server's director (server/src/dedicated.c) */
+				/* the dedicated server's director (server/src/dedicated.c); the
+				game list's confirmed players (port/linux/game/game_list_claims.c) */
 				void dedicated_server_update(void);
+				void game_list_claims_update(void);
 
 				dedicated_server_update();
+				game_list_claims_update();
 			}
 #endif
 			bink_playback_update();

@@ -38,7 +38,17 @@ function spartanArt(color, large) {
   const name = Number.isInteger(color) && color >= 0 && color < COLORS.length ? color : "unknown";
   return "/art/spartans/" + (large ? "large/" : "") + name + ".png";
 }
-function playerLink(name) { return "/players/" + encodeURIComponent(name); }
+/* a player's record: a confirmed player's by their ID (the same player
+under any name), anyone else's by name */
+function playerLink(player) {
+  if (typeof player === "string") return "/players/" + encodeURIComponent(player);
+  return "/players/" + (player.player_id || player.id || encodeURIComponent(player.name));
+}
+function playerName(player, className) {
+  const confirmed = Boolean(player.player_id || player.id);
+  return el("a", { href: playerLink(player), class: (className || "") + (confirmed ? " confirmed" : ""),
+    title: confirmed ? "Confirmed player" : "Unconfirmed: played under this name", text: player.name });
+}
 
 function el(tag, attributes, ...children) {
   const node = document.createElement(tag);
@@ -239,13 +249,14 @@ function summarize(reports) {
   const people = new Map();
   for (const report of reports) {
     for (const player of report.players) {
-      const key = player.name.toLowerCase();
+      const key = player.player_id || "name:" + player.name.toLowerCase();
       let person = people.get(key);
       if (!person) {
-        person = { name: player.name, color: player.color, time: 0, games: 0, wins: 0, kills: 0, deaths: 0, assists: 0,
-          betrayals: 0, suicides: 0, medals: {}, medal_count: 0, maps: {} };
+        person = { key, id: player.player_id || null, name: player.name, names: new Set(), color: player.color, time: 0,
+          games: 0, wins: 0, kills: 0, deaths: 0, assists: 0, betrayals: 0, suicides: 0, medals: {}, medal_count: 0, maps: {} };
         people.set(key, person);
       }
+      person.names.add(player.name);
       /* (the newest game's name and color) */
       if (report.time >= person.time) { person.time = report.time; person.name = player.name; person.color = player.color; }
       person.games++;
@@ -263,7 +274,7 @@ function summarize(reports) {
 }
 function leaderboards(people) {
   const top = (value, minimum) => people.filter(p => p.games >= (minimum || 1))
-    .map(p => ({ name: p.name, color: p.color, value: value(p) })).filter(row => row.value > 0)
+    .map(p => ({ name: p.name, id: p.id, color: p.color, value: value(p) })).filter(row => row.value > 0)
     .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
   return {
     wins: top(p => p.wins), kills: top(p => p.kills),

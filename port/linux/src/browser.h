@@ -62,6 +62,11 @@ struct browser_report_player
 	short ball_carrier_kills;
 	short hill_time;
 	short laps;
+	/* the IPv4 address the host's game has the player's machine at (an
+	internet player's virtual one), 0 for the host's own: from it the host
+	tags the player's line, so that only their machine may confirm it
+	(browser.c); the address itself is not sent */
+	unsigned long address;
 };
 
 /* a hosted game that ended (reached the postgame): its carnage report, sent
@@ -91,5 +96,11 @@ int browser_join(const char *invite);
 HALO_DEDICATED names its playlist): it joins no invite, leaves the clipboard
 alone and plays no sound */
 int browser_dedicated(void);
+
+/* the local players of a game that just ended, by name: their lines in its
+carnage report confirmed with this copy's player key (browser.c); and the
+public player ID it confirms them as */
+void browser_claim_game(const unsigned short (*names)[12], int count);
+int browser_player_id(char *text, int size);
 
 #endif

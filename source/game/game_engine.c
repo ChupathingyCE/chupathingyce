@@ -4488,6 +4488,13 @@ static void game_engine_report_game(
 		line->shots_fired = player->statistics.shots_fired;
 		line->shots_hit = player->statistics.shots_hit;
 		line->color = player->network_player_data.primary_color_index;
+		{
+			unsigned long network_game_server_machine_ipv4_address(struct network_game_server *server,
+				short machine_index);
+
+			line->address = network_game_server_machine_ipv4_address(global_network_game_server_get(),
+				player->network_player_data.machine_index);
+		}
 		/* (the game type's statistics: the union's member for this game) */
 		switch (global_variant.game_engine_index)
 		{

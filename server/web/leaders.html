@@ -37,7 +37,7 @@ function show() {
   const rows = boards ? boards[board] : [];
   document.getElementById("board").replaceChildren(...(rows.length ? rows.slice(0, 50).map((row, index) => el("li", {},
     el("span", { class: "rank", text: index + 1 }), picture(spartanArt(row.color), "figure", ""),
-    el("a", { class: "who", href: playerLink(row.name), text: row.name }),
+    playerName(row, "who"),
     el("span", { class: "value", text: board === "kd" ? row.value.toFixed(2) : row.value })))
     : [el("li", { class: "empty", text: boards ? "No one yet." : "Loading…" })]));
 }

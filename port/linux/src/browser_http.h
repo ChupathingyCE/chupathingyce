@@ -17,4 +17,6 @@ a thread of its own. */
 int posix_browser_request(const char *url, const char *body, const char *content_type, char *response,
 	int response_size, char *error, int error_size);
 
+int posix_browser_private_key(const char *path, unsigned char *key, int size);
+
 #endif

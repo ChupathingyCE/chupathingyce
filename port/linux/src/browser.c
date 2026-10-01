@@ -49,6 +49,17 @@ enum
 	RETRY_INTERVAL = 15000,
 	THREAD_INTERVAL = 250,
 	RESPONSE_SIZE = 32768,
+	/* the player key (game_list_player.key in the save root) */
+	PLAYER_KEY_SIZE = 32,
+	/* the public player ID: the first bytes of the key's hash */
+	PLAYER_ID_SIZE = 16,
+	/* a finished game's lines confirmed: the first try this long after the
+	game ends (its host's report first), then again while the server has
+	no report yet */
+	CLAIM_DELAY = 4000,
+	CLAIM_INTERVAL = 8000,
+	CLAIM_ATTEMPTS = 8,
+	MAXIMUM_CLAIM_NAMES = 4,
 };
 
 struct hosted_game
@@ -82,6 +93,14 @@ static struct
 	/* a finished game's carnage report, waiting to be sent (JSON, without
 	the invite, which is the listing's) */
 	char *report;
+
+	/* the local players' lines of a finished game, to confirm (the game's
+	thread asks, the browser thread sends) */
+	char claim_invite[BROWSER_INVITE_LENGTH + 1];
+	unsigned short claim_names[MAXIMUM_CLAIM_NAMES][12];
+	int claim_count;
+	int claim_attempts;
+	unsigned long claim_time;
 
 	/* browsing */
 	int list_wanted;
@@ -209,6 +228,151 @@ static void server_url(const char *path, char *url, int size)
 	while (length && base[length - 1] == '/')
 		length--;
 	snprintf(url, (size_t)size, "%.*s%s", (int)length, base, path);
+}
+
+/* ---------- the player's identity
+
+Each copy of the game has a player key: 32 random bytes made the first time
+(posix_browser_private_key: readable by this user alone), in the save root.
+The key is sent to the game list server alone, over HTTPS (whose
+certificate is checked), to confirm the player's lines in finished games;
+the server keeps no keys, only the player ID it works out from one again
+each time: the first bytes of the key's SHA-256 (with a label, so that the
+ID is no other use's hash of the key). The ID is public; the key is not.
+
+To confirm a line the key alone does not do: the line must also be one the
+game's host tagged with the address it had the player at (a hash of the
+invite and that address: the address itself is never sent), and the
+request must come from that address (server/list_server.py). So a key
+confirms its own player's lines, in games they played. */
+
+static int json_name(char *out, int size, const unsigned short *name, int length);
+
+static int player_key(unsigned char *key)
+{
+	static int loaded;
+	static unsigned char cached[PLAYER_KEY_SIZE];
+	char path[1024];
+
+	if (!loaded)
+	{
+		snprintf(path, sizeof(path), "%s/game_list_player.key", platform_save_root());
+		loaded = posix_browser_private_key(path, cached, sizeof(cached)) ? 1 : -1;
+		if (loaded < 0)
+			platform_log("Game list: no player key (%s): finished games are not confirmed", path);
+	}
+	if (loaded < 0)
+		return 0;
+	memcpy(key, cached, sizeof(cached));
+	return 1;
+}
+
+static void player_id_from_key(const unsigned char *key, char *text)
+{
+	static const char label[] = "halo-ce-universal player id\n";
+	unsigned char data[sizeof(label) - 1 + PLAYER_KEY_SIZE];
+	unsigned char digest[P2P_SHA256_SIZE];
+
+	memcpy(data, label, sizeof(label) - 1);
+	memcpy(data + sizeof(label) - 1, key, PLAYER_KEY_SIZE);
+	p2p_sha256(data, (int)sizeof(data), digest);
+	p2p_hex(digest, PLAYER_ID_SIZE, text);
+}
+
+/* a player's line tag: the hash of the invite and the address the host had
+them at (dotted, as the server writes the address a request comes from) */
+static void address_tag(const char *invite, unsigned long address, char *text)
+{
+	const unsigned char *bytes = (const unsigned char *)&address;
+	char data[160];
+	unsigned char digest[P2P_SHA256_SIZE];
+	int size;
+
+	size = snprintf(data, sizeof(data), "halo-ce-universal address\n%s\n%u.%u.%u.%u", invite,
+		bytes[0], bytes[1], bytes[2], bytes[3]);
+	p2p_sha256(data, size, digest);
+	p2p_hex(digest, P2P_SHA256_SIZE, text);
+}
+
+/* the public address a player was at: an internet player's, as the tunnel
+hears them; for the host's own machine, or one on its network (its game
+address private), the host's own public address (the same network's) */
+static unsigned long public_address(unsigned long game_address)
+{
+	unsigned long address = game_address ? p2p_peer_public_address(game_address) : 0;
+	const unsigned char *bytes = (const unsigned char *)&game_address;
+	int private_address = !game_address || bytes[0] == 10 || bytes[0] == 127 ||
+		(bytes[0] == 172 && (bytes[1] & 0xF0) == 16) || (bytes[0] == 192 && bytes[1] == 168) ||
+		(bytes[0] == 169 && bytes[1] == 254) || (bytes[0] == 100 && (bytes[1] & 0xC0) == 64);
+
+	if (!address && private_address)
+		address = p2p_public_address();
+	else if (!address)
+		address = game_address;
+	return address;
+}
+
+/* the key goes to an HTTPS server, or one on this machine (a test) */
+static int safe_for_key(const char *url)
+{
+	return !strncmp(url, "https://", 8) || !strncmp(url, "http://127.0.0.1", 16) ||
+		!strncmp(url, "http://localhost", 16);
+}
+
+static void send_claims(void)
+{
+	char invite[BROWSER_INVITE_LENGTH + 1];
+	unsigned short names[MAXIMUM_CLAIM_NAMES][12];
+	unsigned char key[PLAYER_KEY_SIZE];
+	char key_text[2 * PLAYER_KEY_SIZE + 1];
+	char url[512], body[512], name[64], response[256], error[256];
+	int count, index, retry = 0;
+
+	pthread_mutex_lock(&browser_lock);
+	count = browser.claim_count;
+	if (count && !elapsed(browser.claim_time, browser.claim_attempts ? CLAIM_INTERVAL : CLAIM_DELAY))
+		count = 0;
+	memcpy(invite, browser.claim_invite, sizeof(invite));
+	memcpy(names, browser.claim_names, sizeof(names));
+	pthread_mutex_unlock(&browser_lock);
+	if (!count)
+		return;
+	server_url("/v1/claim", url, sizeof(url));
+	if (!safe_for_key(url) || !player_key(key))
+	{
+		pthread_mutex_lock(&browser_lock);
+		browser.claim_count = 0;
+		pthread_mutex_unlock(&browser_lock);
+		return;
+	}
+	p2p_hex(key, PLAYER_KEY_SIZE, key_text);
+	for (index = 0; index < count; index++)
+	{
+		int status;
+
+		utf8_from_name(names[index], 12, name, sizeof(name));
+		snprintf(body, sizeof(body), "{\"invite\": \"%s\", \"key\": \"%s\", \"name\": ", invite, key_text);
+		json_name(body + strlen(body), (int)(sizeof(body) - strlen(body) - 2), names[index], 12);
+		strcat(body, "}");
+		status = posix_browser_request(url, body, "application/json", response, sizeof(response), error,
+			sizeof(error));
+		response[strcspn(response, "\r\n")] = 0;
+		if (status == 200)
+			platform_log("Game list: %s's line confirmed (player %s)", name, response + 3);
+		else if (status == 404 || !status)
+			retry = 1;
+		else
+			platform_log("Game list: %s's line was not confirmed (%s)", name, response);
+	}
+	memset(key, 0, sizeof(key));
+	memset(key_text, 0, sizeof(key_text));
+	memset(body, 0, sizeof(body));
+	pthread_mutex_lock(&browser_lock);
+	browser.claim_attempts++;
+	browser.claim_time = p2p_now();
+	if (!retry || browser.claim_attempts >= CLAIM_ATTEMPTS)
+		browser.claim_count = 0;
+	pthread_mutex_unlock(&browser_lock);
 }
 
 /* ---------- hosting (the browser thread) */
@@ -436,6 +600,7 @@ static void *browser_thread(void *unused)
 		{
 			update_hosting();
 			send_report();
+			send_claims();
 			update_list();
 		}
 		Sleep(THREAD_INTERVAL);
@@ -520,8 +685,10 @@ static int json_name(char *out, int size, const unsigned short *name, int length
 void browser_report_game(int teams, int red_score, int blue_score, int duration_seconds,
 	const struct browser_report_player *players, int count)
 {
-	size_t size = 256 + (size_t)count * 480;
+	size_t size = 256 + (size_t)count * 576;
 	char *report = malloc(size);
+	char invite[BROWSER_INVITE_LENGTH + 1];
+	int tagged;
 	int used = 0;
 	int index;
 
@@ -533,9 +700,11 @@ void browser_report_game(int teams, int red_score, int blue_score, int duration_
 	used += snprintf(report + used, size - (size_t)used,
 		"{\"teams\": %d, \"duration\": %d, \"team_scores\": [%d, %d], \"players\": [",
 		teams != 0, duration_seconds, teams ? red_score : 0, teams ? blue_score : 0);
-	for (index = 0; index < count && (size_t)used < size - 480; index++)
+	tagged = p2p_hosting_invite(invite, sizeof(invite));
+	for (index = 0; index < count && (size_t)used < size - 576; index++)
 	{
 		const struct browser_report_player *player = &players[index];
+		unsigned long address = tagged ? public_address(player->address) : 0;
 
 		used += snprintf(report + used, size - (size_t)used, "%s{\"name\": ", index ? ", " : "");
 		used += json_name(report + used, (int)(size - (size_t)used), player->name, 12);
@@ -548,6 +717,15 @@ void browser_report_game(int teams, int red_score, int blue_score, int duration_
 			player->betrayals, player->suicides, player->shots_fired, player->shots_hit, player->multikills,
 			player->color, player->flag_grabs, player->flag_returns, player->flag_scores, player->ball_time,
 			player->ball_carrier_kills, player->hill_time, player->laps);
+		/* (the line's tag: who may confirm it) */
+		if (address)
+		{
+			char tag[2 * P2P_SHA256_SIZE + 1];
+
+			address_tag(invite, address, tag);
+			used--;
+			used += snprintf(report + used, size - (size_t)used, ", \"tag\": \"%s\"}", tag);
+		}
 	}
 	snprintf(report + used, size - (size_t)used, "]}");
 
@@ -556,6 +734,39 @@ void browser_report_game(int teams, int red_score, int blue_score, int duration_
 	free(browser.report);
 	browser.report = report;
 	pthread_mutex_unlock(&browser_lock);
+}
+
+/* the local players of a game that ended: their lines confirmed with the
+player key, once the host has reported the game (if it is listed) */
+void browser_claim_game(const unsigned short (*names)[12], int count)
+{
+	char invite[BROWSER_INVITE_LENGTH + 1];
+
+	if (count <= 0 || !config_string("network.browser_url")[0] ||
+		(!p2p_hosting_invite(invite, sizeof(invite)) && !p2p_joined_invite(invite, sizeof(invite))))
+		return;
+	if (count > MAXIMUM_CLAIM_NAMES)
+		count = MAXIMUM_CLAIM_NAMES;
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	memcpy(browser.claim_invite, invite, sizeof(invite));
+	memcpy(browser.claim_names, names, (size_t)count * sizeof(names[0]));
+	browser.claim_count = count;
+	browser.claim_attempts = 0;
+	browser.claim_time = p2p_now();
+	pthread_mutex_unlock(&browser_lock);
+}
+
+/* this copy's public player ID (its line in finished games), as text */
+int browser_player_id(char *text, int size)
+{
+	unsigned char key[PLAYER_KEY_SIZE];
+
+	if (size <= 2 * PLAYER_ID_SIZE || !player_key(key))
+		return 0;
+	player_id_from_key(key, text);
+	memset(key, 0, sizeof(key));
+	return 1;
 }
 
 int browser_get_games(struct browser_game *games, int maximum_count)

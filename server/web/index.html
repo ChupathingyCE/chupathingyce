@@ -96,7 +96,7 @@ function showBoard() {
   list.replaceChildren(...rows.slice(0, 10).map((row, index) => el("li", {},
     el("span", { class: "rank", text: index + 1 }),
     picture(spartanArt(row.color), "figure", ""),
-    el("a", { class: "who", href: playerLink(row.name), text: row.name }),
+    playerName(row, "who"),
     el("span", { class: "value", text: board === "kd" ? row.value.toFixed(2) : row.value }))));
 }
 async function loadLeaders() {

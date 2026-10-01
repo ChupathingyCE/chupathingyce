@@ -4283,3 +4283,36 @@ void network_game_server_dedicated_start_countdown(
 	return;
 }
 #endif
+
+#ifdef HALO_GAME_BROWSER
+/* the IPv4 address a client machine is connected from (the game's: an
+internet player's virtual address, port/linux/src/p2p.c), 0 for the
+host's own or one not connected (the game list's confirmed players,
+game_engine.c) */
+unsigned long network_game_server_machine_ipv4_address(
+	struct network_game_server *server,
+	short machine_index)
+{
+	long index;
+
+	if (!server)
+		return 0;
+	for (index = 0; index < MAXIMUM_NETWORK_MACHINE_COUNT; index++)
+	{
+		struct network_game_server_client_machine *machine = &server->client_machines[index];
+
+		if (machine->machine_index == machine_index && machine->connection &&
+			!network_game_server_client_machine_is_local(server, machine))
+		{
+			struct transport_address reliable, unreliable;
+
+			csmemset(&reliable, 0, sizeof(reliable));
+			csmemset(&unreliable, 0, sizeof(unreliable));
+			network_connection_get_address(machine->connection, &reliable, &unreliable);
+			return reliable.address.ipv4_address;
+		}
+	}
+
+	return 0;
+}
+#endif

@@ -38,7 +38,23 @@ Interface (version 1):
     GET  /v1/history    -> 200 JSON {"reports": [...]}: the last games' full
                         reports, newest first (?limit=, at most 1000)
     GET  /v1/players/NAME -> 200 JSON {"reports": [...]}: the games a player
-                        of that name (any case) played, newest first
+                        of that name (any case) played, newest first; with
+                        a player ID (32 hexadecimal digits), the games that
+                        player confirmed
+    POST /v1/claim      JSON {"invite", "name", "key"}: a player confirms
+                        their line in a game that just ended -> 200 "ok
+                        <player ID>", 404 while the game has no report yet,
+                        403 if the line is not theirs to confirm
+
+Confirmed players: a game's host tags each line of its report with a hash
+of the invite and the address it had that player at (port/linux/src/
+browser.c). The tags are kept apart from the report, never shown, and
+dropped after CLAIM_WINDOW. A player's copy of the game then sends its
+player key (32 random bytes, over HTTPS) with the invite and its name; the
+line is confirmed if a tag matches the address the request comes from, the
+name matches, and the line is not confirmed yet. Its player ID, the first
+16 bytes of SHA-256("halo-ce-universal player id\n" + key), is the line's
+from then on. No key is kept: the ID is worked out from it each time.
 
 A carnage report: {"invite", "map", "engine", "teams" (0 or 1),
 "score_limit", "duration" (seconds), "team_scores" ([score of team 0,
@@ -57,6 +73,9 @@ requests a minute. The addresses are kept only to apply those limits.
 """
 
 import argparse
+import hashlib
+import hmac
+import ipaddress
 import mimetypes
 import json
 import re
@@ -75,6 +94,11 @@ MAXIMUM_BODY = 2048
 MAXIMUM_REPORT_BODY = 65536
 MAXIMUM_REPORT_PLAYERS = 128
 REPORT_INTERVAL = 60
+# a finished game's lines may be confirmed for this long after its report
+CLAIM_WINDOW = 600
+PLAYER_KEY = re.compile(r"^[0-9a-f]{64}$")
+PLAYER_ID = re.compile(r"^[0-9a-f]{32}$")
+TAG = re.compile(r"^[0-9a-f]{64}$")
 
 # (64 digits since network version 8; 44 before, which older builds still list)
 MEDAL_KEY = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
@@ -192,16 +216,57 @@ class Reports:
             id INTEGER PRIMARY KEY, time INTEGER NOT NULL, map TEXT NOT NULL, engine INTEGER NOT NULL,
             teams INTEGER NOT NULL, host TEXT NOT NULL, winner TEXT NOT NULL, player_count INTEGER NOT NULL,
             report TEXT NOT NULL)""")
+        self.database.execute("""CREATE TABLE IF NOT EXISTS claims (
+            report INTEGER NOT NULL, line INTEGER NOT NULL, invite TEXT NOT NULL, name TEXT NOT NULL,
+            tag TEXT NOT NULL, expires INTEGER NOT NULL)""")
+        self.database.execute("CREATE INDEX IF NOT EXISTS claims_invite ON claims (invite)")
         self.database.commit()
 
-    def add(self, report: dict) -> int:
+    def add(self, report: dict, invite: str = "", tags=()) -> int:
         with self.lock:
             cursor = self.database.execute(
                 "INSERT INTO reports (time, map, engine, teams, host, winner, player_count, report) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (report["time"], report["map"], report["engine"], report["teams"], report["host"], report["winner"],
                  len(report["players"]), json.dumps(report)))
+            report_id = cursor.lastrowid
+            # (the lines' tags, apart from the report: who may confirm them)
+            expires = int(time.time()) + CLAIM_WINDOW
+            for line, tag in enumerate(tags):
+                if tag:
+                    self.database.execute("INSERT INTO claims (report, line, invite, name, tag, expires) VALUES (?, ?, ?, ?, ?, ?)",
+                                          (report_id, line, invite, report["players"][line]["name"], tag, expires))
             self.database.commit()
-            return cursor.lastrowid
+            return report_id
+
+    def claim(self, invite: str, name: str, tag: str, player_id: str) -> str:
+        """a line of a game of that invite confirmed as player_id: "ok", or
+        "none" (the game has no report yet), or "refused" """
+        now = int(time.time())
+        with self.lock:
+            self.database.execute("DELETE FROM claims WHERE expires < ?", (now,))
+            rows = self.database.execute("SELECT rowid, report, line, name, tag FROM claims WHERE invite = ?",
+                                         (invite,)).fetchall()
+            if not rows:
+                # (no report of that game, or none left to confirm: the
+                # player's copy asks again a few times, then stops)
+                self.database.commit()
+                return "none"
+            match = None
+            for rowid, report_id, line, line_name, line_tag in rows:
+                # (every row compared, each in constant time)
+                if hmac.compare_digest(line_tag, tag) and line_name == name and match is None:
+                    match = (rowid, report_id, line)
+            if not match:
+                self.database.commit()
+                return "refused"
+            rowid, report_id, line = match
+            row = self.database.execute("SELECT report FROM reports WHERE id = ?", (report_id,)).fetchone()
+            report = json.loads(row[0])
+            report["players"][line]["player_id"] = player_id
+            self.database.execute("UPDATE reports SET report = ? WHERE id = ?", (json.dumps(report), report_id))
+            self.database.execute("DELETE FROM claims WHERE rowid = ?", (rowid,))
+            self.database.commit()
+            return "ok"
 
     def recent(self, limit: int):
         with self.lock:
@@ -216,9 +281,12 @@ class Reports:
             rows = self.database.execute("SELECT id, report FROM reports ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
         return [dict(json.loads(row[1]), id=row[0]) for row in rows]
 
-    def player(self, name: str, limit: int = 1000):
-        """the games a player of that name played, newest first"""
-        name = name.lower()
+    def player(self, who: str, limit: int = 1000):
+        """the games a confirmed player (by ID) or a name played, newest first"""
+        if PLAYER_ID.match(who):
+            return [report for report in self.history(5000)
+                    if any(player.get("player_id") == who for player in report["players"])][:limit]
+        name = who.lower()
         return [report for report in self.history(5000)
                 if any(player["name"].lower() == name for player in report["players"])][:limit]
 
@@ -253,6 +321,8 @@ def clean_report(body: dict, game: dict) -> dict:
         for key in ("flag_grabs", "flag_returns", "flag_scores", "ball_time", "ball_carrier_kills", "hill_time", "laps"):
             if key in raw:
                 player[key] = clean_integer(str(raw[key]), 0, 32767)
+        tag = str(raw.get("tag", "")).lower()
+        player["_tag"] = tag if TAG.match(tag) else ""
         medals = raw.get("medals")
         if medals is not None:
             if not isinstance(medals, dict) or len(medals) > 64:
@@ -403,7 +473,34 @@ class Handler(BaseHTTPRequestHandler):
                 report = clean_report(body, game)
             except (ValueError, TypeError):
                 return self.reply(400, "bad report\n")
-            return self.reply(200, f"ok {REPORTS.add(report)}\n")
+            tags = [player.pop("_tag", "") for player in report["players"]]
+            return self.reply(200, f"ok {REPORTS.add(report, invite, tags)}\n")
+        if self.path == "/v1/claim":
+            if length <= 0 or length > MAXIMUM_BODY:
+                return self.reply(400, "bad length\n")
+            try:
+                body = json.loads(self.rfile.read(length).decode("utf-8"))
+                invite = str(body["invite"]).lower()
+                key = str(body["key"]).lower()
+                name = clean_text(str(body["name"]), 16)
+            except (ValueError, KeyError, TypeError, AttributeError):
+                return self.reply(400, "bad claim\n")
+            if not INVITE.match(invite) or not PLAYER_KEY.match(key) or not name:
+                return self.reply(400, "bad claim\n")
+            try:
+                source = ipaddress.ip_address(address)
+            except ValueError:
+                return self.reply(400, "bad address\n")
+            if source.version != 4:
+                return self.reply(403, "claims come over IPv4\n")
+            tag = hashlib.sha256(f"halo-ce-universal address\n{invite}\n{source}".encode()).hexdigest()
+            player_id = hashlib.sha256(b"halo-ce-universal player id\n" + bytes.fromhex(key)).hexdigest()[:32]
+            result = REPORTS.claim(invite, name, tag, player_id)
+            if result == "ok":
+                return self.reply(200, f"ok {player_id}\n")
+            if result == "none":
+                return self.reply(404, "no report of that game yet\n")
+            return self.reply(403, "not a line of yours to confirm\n")
         if length <= 0 or length > MAXIMUM_BODY:
             return self.reply(400, "bad length\n")
         form = {k: v[0] for k, v in parse_qs(self.rfile.read(length).decode("utf-8", "replace")).items()}

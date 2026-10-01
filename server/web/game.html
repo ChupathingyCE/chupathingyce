@@ -36,7 +36,7 @@ function scoreboard(report, players) {
     el("td", { class: "place place-" + player.place, text: ordinal(player.place) }),
     el("td", { class: "left" }, el("div", { class: "player" },
       picture(spartanArt(player.color), "", COLORS[player.color] || ""),
-      el("a", { href: playerLink(player.name), text: player.name }))),
+      playerName(player))),
     el("td", { class: "big", text: player.score }),
     el("td", { text: player.kills }), el("td", { text: player.assists }), el("td", { text: player.deaths }),
     el("td", { text: ratio(player.kills, player.deaths) }),
@@ -52,7 +52,7 @@ function medalsPanel(report, players) {
   return el("section", { class: "panel" }, el("h2", { text: "Medals" }),
     el("table", { class: "per-player" }, el("tbody", {}, rows.map(({ player, medals }) => el("tr", {},
       el("td", { class: "who" }, el("div", { class: "player" },
-        picture(spartanArt(player.color), "", ""), el("a", { href: playerLink(player.name), text: player.name }))),
+        picture(spartanArt(player.color), "", ""), playerName(player))),
       el("td", {}, el("div", { class: "medal-row" }, medals.map(m => medalChip(m.key, m.count)))))))));
 }
 

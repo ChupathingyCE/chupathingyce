@@ -237,3 +237,10 @@ main { max-width: 1080px; margin: 0 auto; padding: 22px 16px 60px; }
 
 footer { max-width: 1080px; margin: 0 auto; padding: 0 16px 40px; color: var(--faint); font-size: 13px; }
 footer code { color: var(--dim); }
+
+/* a confirmed player's name (their player key confirmed their games) */
+a.confirmed::after, span.confirmed::after {
+  content: ""; display: inline-block; width: 12px; height: 12px; margin-left: 6px; vertical-align: -1px;
+  background: center/contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 0l2 2.2 3-.4.4 3L16 8l-2.6 3.2-.4 3-3-.4L8 16l-2-2.2-3 .4-.4-3L0 8l2.6-3.2.4-3 3 .4z' fill='%233d8bff'/%3E%3Cpath d='M4.6 8.2l2.2 2.2 4.6-4.8' stroke='%23fff' stroke-width='1.8' fill='none'/%3E%3C/svg%3E");
+}
+.unconfirmed { color: var(--dim); font-size: 13px; }

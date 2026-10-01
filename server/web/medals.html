@@ -27,7 +27,7 @@ async function load() {
     const total = people.reduce((sum, p) => sum + (p.medals[key] || 0), 0);
     return el("div", { class: "medal-card" }, medalSVG(key),
       el("div", {}, el("div", { class: "label", text: MEDALS[key].name }), el("div", { class: "desc", text: MEDALS[key].desc }),
-        best ? el("div", { class: "desc" }, "Most: ", el("a", { href: playerLink(best.name), text: best.name }), " (" + best.medals[key] + ")") : null),
+        best ? el("div", { class: "desc" }, "Most: ", playerName(best), " (" + best.medals[key] + ")") : null),
       el("div", { class: "count", text: total || "" }));
   }));
 }

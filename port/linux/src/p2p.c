@@ -2209,6 +2209,59 @@ static int join_invite(const char *text)
 }
 
 #ifdef HALO_GAME_BROWSER
+#ifdef HALO_GAME_BROWSER
+/* the game list's confirmed players (browser.c): the public address a peer
+is heard from, for the game's address of it (its virtual address), 0 if
+it is not a peer's; this machine's own, as the STUN servers see it */
+unsigned long p2p_peer_public_address(unsigned long game_address)
+{
+	struct peer *peer;
+	unsigned long result = 0;
+
+	pthread_mutex_lock(&p2p_lock);
+	peer = is_virtual_address(game_address) ? find_peer_by_address(game_address) : NULL;
+	if (peer && peer->connected)
+		result = peer->endpoint.address;
+	pthread_mutex_unlock(&p2p_lock);
+	return result;
+}
+
+unsigned long p2p_public_address(void)
+{
+	unsigned long result = 0;
+	int index;
+
+	pthread_mutex_lock(&p2p_lock);
+	for (index = 0; index < p2p.stun_count && !result; index++)
+	{
+		if (p2p.stun[index].has_mapped)
+			result = p2p.stun[index].mapped.address;
+	}
+	pthread_mutex_unlock(&p2p_lock);
+	return result;
+}
+
+/* the code of the invite this machine last joined through (its host's key
+hash and token, in hexadecimal), as a host's p2p_hosting_invite */
+int p2p_joined_invite(char *text, int size)
+{
+	unsigned char code[P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE];
+	static const unsigned char none[P2P_KEY_HASH_SIZE];
+	int result;
+
+	pthread_mutex_lock(&p2p_lock);
+	result = memcmp(p2p.join_host_hash, none, sizeof(none)) != 0 && size > (int)sizeof(code) * 2;
+	if (result)
+	{
+		memcpy(code, p2p.join_host_hash, P2P_KEY_HASH_SIZE);
+		memcpy(code + P2P_KEY_HASH_SIZE, p2p.join_token, P2P_TOKEN_SIZE);
+		p2p_hex(code, sizeof(code), text);
+	}
+	pthread_mutex_unlock(&p2p_lock);
+	return result;
+}
+
+#endif
 int p2p_hosting_invite(char *text, int size)
 {
 	int result;

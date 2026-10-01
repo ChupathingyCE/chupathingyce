@@ -29,6 +29,11 @@ int p2p_join_invite(const char *text);
 /* the invite of the game this machine hosts on the internet (its 44 digits,
 without halo://join/); 0 when it hosts none (browser.c) */
 int p2p_hosting_invite(char *text, int size);
+#ifdef HALO_GAME_BROWSER
+unsigned long p2p_peer_public_address(unsigned long game_address);
+unsigned long p2p_public_address(void);
+int p2p_joined_invite(char *text, int size);
+#endif
 #endif
 
 /* this machine's identifier, which its XNADDR carries (6 bytes) */

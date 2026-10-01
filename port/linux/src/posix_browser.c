@@ -24,7 +24,14 @@ Built with the host's ABI, as the other posix_*.c.
 #include "mbedtls/x509_crt.h"
 #include "psa/crypto.h"
 
+#include <errno.h>
+#include <fcntl.h>
+#include <netdb.h>
 #include <pthread.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -152,12 +159,44 @@ static void connection_free(struct connection *connection)
 	mbedtls_net_free(&connection->net);
 }
 
+/* a TCP connection over IPv4 alone: the game list matches a player's
+address as their game's host saw it, which internet play (IPv4) has */
+static int connect_ipv4(mbedtls_net_context *net, const char *host, const char *port)
+{
+	struct addrinfo hints, *addresses, *address;
+	int descriptor = -1;
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_protocol = IPPROTO_TCP;
+	if (getaddrinfo(host, port, &hints, &addresses) != 0)
+		return MBEDTLS_ERR_NET_UNKNOWN_HOST;
+	for (address = addresses; address && descriptor < 0; address = address->ai_next)
+	{
+		descriptor = socket(address->ai_family, address->ai_socktype, address->ai_protocol);
+		if (descriptor < 0)
+			continue;
+		if (connect(descriptor, address->ai_addr, address->ai_addrlen) != 0)
+		{
+			close(descriptor);
+			descriptor = -1;
+		}
+	}
+	freeaddrinfo(addresses);
+	if (descriptor < 0)
+		return MBEDTLS_ERR_NET_CONNECT_FAILED;
+	fcntl(descriptor, F_SETFD, FD_CLOEXEC);
+	net->fd = descriptor;
+	return 0;
+}
+
 static int connection_open(struct connection *connection, const char *host, const char *port, char *error,
 	int error_size)
 {
 	int result;
 
-	if ((result = mbedtls_net_connect(&connection->net, host, port, MBEDTLS_NET_PROTO_TCP)) != 0)
+	if ((result = connect_ipv4(&connection->net, host, port)) != 0)
 	{
 		set_error(error, error_size, "could not connect", result);
 		return 0;
@@ -354,3 +393,47 @@ int posix_browser_request(const char *url, const char *form, const char *content
 }
 
 #endif
+
+/* the game list's player key (browser.c): read from path, or made there
+(random, readable by this user alone) the first time. As
+posix_user_secret: only a file of the user's no one else can read, and not
+a link */
+int posix_browser_private_key(const char *path, unsigned char *key, int size)
+{
+	int attempt;
+
+	for (attempt = 0; attempt < 3; attempt++)
+	{
+		struct stat status;
+		int descriptor = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+		int ok;
+
+		if (descriptor >= 0)
+		{
+			ok = fstat(descriptor, &status) == 0 && S_ISREG(status.st_mode) && status.st_uid == getuid() &&
+				!(status.st_mode & 077) && read(descriptor, key, (size_t)size) == size;
+			close(descriptor);
+			return ok;
+		}
+		if (errno != ENOENT)
+			return 0;
+		descriptor = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+		/* (another copy of the game made it first: read that one) */
+		if (descriptor < 0)
+			continue;
+		/* (the PSA crypto set up first: load_certificates does) */
+		pthread_once(&certificates_once, load_certificates);
+		if (!crypto_ready || psa_generate_random(key, (size_t)size) != PSA_SUCCESS)
+		{
+			close(descriptor);
+			unlink(path);
+			return 0;
+		}
+		ok = write(descriptor, key, (size_t)size) == size && fsync(descriptor) == 0;
+		close(descriptor);
+		if (!ok)
+			unlink(path);
+		return ok;
+	}
+	return 0;
+}
