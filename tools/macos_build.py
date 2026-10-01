@@ -41,6 +41,7 @@ from .linux_build import (
     musl_math_sources,
     updater_defines,
 )
+from .embed_assets import hud_assets_build, hud_configure_inputs
 from .ninja_syntax import Writer
 
 PORT_DIR = Path("port/macos")
@@ -136,7 +137,8 @@ def macos_configure_inputs() -> List[Path]:
     """Files whose change must re-run configure.py."""
     if not PORT_CONFIG.is_file():
         return [Path(__file__)]
-    return [PORT_CONFIG, Path(__file__), LINUX_PORT_CONFIG, LINUX_PORT_DIR / "src", LINUX_PORT_DIR / "game"]
+    return [PORT_CONFIG, Path(__file__), LINUX_PORT_CONFIG, LINUX_PORT_DIR / "src", LINUX_PORT_DIR / "game",
+            *hud_configure_inputs()]
 
 
 def _rewritten_inputs() -> List[Path]:
@@ -279,6 +281,11 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
             add_object(lp64(source), f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
         else:
             add_object(lp64(source), platform_cflags)
+    # the high-res HUD's textures (port/assets/hud; port/linux/src/hud_hires.c),
+    # with the platform units' flags: its table is hud_hires.h's, from the
+    # 64-bit tree
+    for source in hud_assets_build(n, "macos", build_dir / "generated" / "hud_hires_assets.c"):
+        add_object(source, platform_cflags)
     # macOS-only platform units, with the host's ABI (port/macos/src)
     for source in sorted((PORT_DIR / "src").glob("*.c")):
         add_object(source, posix_cflags)
