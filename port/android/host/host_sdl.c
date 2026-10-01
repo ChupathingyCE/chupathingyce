@@ -395,3 +395,37 @@ int host_sdl_show_simple_message_box(uint32_t flags, const char *title, const ch
 {
 	return SDL_ShowSimpleMessageBox((SDL_MessageBoxFlags)flags, title, message, NULL) ? 1 : 0;
 }
+
+/* a question with buttons (the game list's key links, sdl_platform.c): each
+button's flags, its answer, and its text, a guest address; the answer
+chosen, -1 if none */
+int host_sdl_show_message_box(uint32_t flags, const char *title, const char *message, int count,
+	const uint32_t *button_flags, const int32_t *button_ids, const uint32_t *button_texts)
+{
+	SDL_MessageBoxButtonData buttons[8];
+	SDL_MessageBoxData data;
+	int index, answer = -1;
+
+	if (count < 0 || count > 8)
+		return -1;
+	for (index = 0; index < count; index++)
+	{
+		buttons[index].flags = (SDL_MessageBoxButtonFlags)button_flags[index];
+		buttons[index].buttonID = button_ids[index];
+		buttons[index].text = (const char *)(uintptr_t)button_texts[index];
+	}
+	SDL_zero(data);
+	data.flags = (SDL_MessageBoxFlags)flags;
+	data.title = title;
+	data.message = message;
+	data.numbuttons = count;
+	data.buttons = buttons;
+	return SDL_ShowMessageBox(&data, &answer) ? answer : -1;
+}
+
+/* ---------- the web browser (the game list's profile, sdl_platform.c) */
+
+int host_sdl_open_url(const char *url)
+{
+	return SDL_OpenURL(url) ? 1 : 0;
+}

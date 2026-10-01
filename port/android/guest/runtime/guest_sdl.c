@@ -82,6 +82,50 @@ bool SDL_ShowSimpleMessageBox(SDL_MessageBoxFlags flags, const char *title, cons
 	return host_sdl_show_simple_message_box((unsigned int)flags, title, message) != 0;
 }
 
+bool SDL_ShowMessageBox(const SDL_MessageBoxData *data, int *answer)
+{
+	unsigned int flags[8], texts[8];
+	int ids[8];
+	int index, chosen;
+
+	if (!data || data->numbuttons < 0 || data->numbuttons > 8)
+		return false;
+	for (index = 0; index < data->numbuttons; index++)
+	{
+		flags[index] = (unsigned int)data->buttons[index].flags;
+		ids[index] = data->buttons[index].buttonID;
+		texts[index] = (unsigned int)(uintptr_t)data->buttons[index].text;
+	}
+	chosen = host_sdl_show_message_box((unsigned int)data->flags, data->title, data->message, data->numbuttons,
+		flags, ids, texts);
+	if (answer)
+		*answer = chosen;
+	return chosen != -1;
+}
+
+/* ---------- the web browser (the game list's profile) */
+
+bool SDL_OpenURL(const char *url)
+{
+	return host_sdl_open_url(url) != 0;
+}
+
+int SDL_strncasecmp(const char *first, const char *second, size_t length)
+{
+	for (; length; length--, first++, second++)
+	{
+		int a = (unsigned char)*first, b = (unsigned char)*second;
+
+		if (a >= 'A' && a <= 'Z')
+			a += 'a' - 'A';
+		if (b >= 'A' && b <= 'Z')
+			b += 'a' - 'A';
+		if (a != b || !a)
+			return a - b;
+	}
+	return 0;
+}
+
 void SDL_Delay(Uint32 milliseconds)
 {
 	struct timespec duration;
@@ -154,7 +198,30 @@ bool SDL_PollEvent(SDL_Event *event)
 	return host_sdl_poll_event(event ? event : &scratch) != 0;
 }
 
+/* (the dedicated server's, which has no window and never runs on Android:
+SDL_PollEvent pumps the host's events itself) */
+void SDL_PumpEvents(void)
+{
+}
+
+int SDL_PeepEvents(SDL_Event *events, int count, SDL_EventAction action, Uint32 first, Uint32 last)
+{
+	(void)events;
+	(void)count;
+	(void)action;
+	(void)first;
+	(void)last;
+	return 0;
+}
+
 /* ---------- gamepads */
+
+bool SDL_HasGamepad(void)
+{
+	unsigned int ids[16];
+
+	return host_sdl_get_gamepads(ids, 16) > 0;
+}
 
 SDL_JoystickID *SDL_GetGamepads(int *count)
 {

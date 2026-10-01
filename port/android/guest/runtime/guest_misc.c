@@ -9,6 +9,7 @@ musl provides.
 #include "guest_host.h"
 
 #include <math.h>
+#include <pthread.h>
 #include <string.h>
 
 /* Darwin's combined sine and cosine, which clang substitutes for
@@ -99,4 +100,19 @@ void backtrace_symbols_fd(void *const *frames, int size, int fd)
 	(void)frames;
 	(void)size;
 	(void)fd;
+}
+
+/* musl's pthread_cleanup_push and _pop (pthread_once's, browser.c's): the
+guest's threads are never cancelled, so a handler runs only when popped to
+run */
+void _pthread_cleanup_push(struct __ptcb *buffer, void (*routine)(void *), void *argument)
+{
+	buffer->__f = routine;
+	buffer->__x = argument;
+}
+
+void _pthread_cleanup_pop(struct __ptcb *buffer, int run)
+{
+	if (run && buffer->__f)
+		buffer->__f(buffer->__x);
 }
