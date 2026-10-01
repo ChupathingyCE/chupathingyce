@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Makes the Android app's launcher icon from its artwork,
-port/android/art/android-icon.png (a light emblem on a solid background):
+port/android/art/android-icon.png (an emblem on a solid background; drawn
+from port/art/icon.svg):
 
     python tools/android_icon.py
 
@@ -35,21 +36,25 @@ def main() -> None:
     artwork = Image.open(ARTWORK).convert("RGBA")
     width, height = artwork.size
     background = artwork.getpixel((0, 0))[:3]
-    emblem_colour = max((artwork.getpixel((x, y))[:3] for x in range(width) for y in range(height)),
-                        key=sum)
 
     # the emblem on transparency: each pixel's opacity is how far it is from
-    # the background towards the emblem's colour (the artwork's edges are
-    # blended between the two)
-    span = sum(emblem_colour) - sum(background)
+    # the background, against the emblem's colour closest to the background
+    # (the artwork's edges are blended between the two), and its colour the
+    # one that, so blended, gives the artwork's
+    def distance(pixel):
+        return math.dist(pixel[:3], background)
+    # (the emblem's colours: the artwork's common ones, not its blended edges)
+    colours = [colour[:3] for count, colour in artwork.getcolors(width * height) if count >= width * height // 1000]
+    edge = min((distance(colour) for colour in colours if distance(colour) > 0), default=1.0)
     emblem = Image.new("RGBA", artwork.size)
     furthest = 0.0
     for y in range(height):
         for x in range(width):
             pixel = artwork.getpixel((x, y))
-            opacity = max(0.0, min(1.0, (sum(pixel[:3]) - sum(background)) / span))
+            opacity = max(0.0, min(1.0, distance(pixel) / edge))
             if opacity > 0.0:
-                emblem.putpixel((x, y), (*emblem_colour, round(opacity * 255)))
+                colour = tuple(max(0, min(255, round(b + (p - b) / opacity))) for p, b in zip(pixel[:3], background))
+                emblem.putpixel((x, y), (*colour, round(opacity * 255)))
                 furthest = max(furthest, math.hypot(x + 0.5 - width / 2, y + 0.5 - height / 2))
 
     # the artwork scaled so that the emblem's furthest point from the middle
