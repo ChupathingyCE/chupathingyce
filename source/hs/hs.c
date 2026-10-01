@@ -2802,6 +2802,7 @@ symbols in this file:
 #include "memory/data.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
+#include "networking/network_server_manager.h"
 #include "objects/damage.h"
 #include "objects/object_lights.h"
 #include "objects/scenery.h"
@@ -14093,7 +14094,25 @@ static boolean hs_expression_changes_no_game(
 	return TRUE;
 }
 
+static boolean hs_compile_and_evaluate_command(
+	char const *expression);
+
+/* port: a command someone typed (the console, the telnet console, a cheat
+button, init.txt): what it logs is its answer, shown whatever
+config.toml's game.console_log is (terminal_command_running) */
 boolean hs_compile_and_evaluate(
+	char const *expression)
+{
+	boolean was_running = terminal_command_running;
+	boolean result;
+
+	terminal_command_running = TRUE;
+	result = hs_compile_and_evaluate_command(expression);
+	terminal_command_running = was_running;
+	return result;
+}
+
+static boolean hs_compile_and_evaluate_command(
 	char const *expression)
 {
 	boolean success = FALSE;
@@ -14111,6 +14130,30 @@ boolean hs_compile_and_evaluate(
 	{
 		console_warning("not while playing in another's game: the host decides the game");
 		return FALSE;
+	}
+	/* port: the host's ban command ("ban <player name>", or its start: Tab
+	completes it), which is no script's */
+	{
+		char const *text = expression;
+
+		while (*text == ' ' || *text == '\t' || *text == '(')
+			text++;
+		if ((text[0] == 'b' || text[0] == 'B') && (text[1] == 'a' || text[1] == 'A') &&
+			(text[2] == 'n' || text[2] == 'N') && (text[3] == ' ' || text[3] == '\t' || text[3] == 0))
+		{
+			char name[64];
+			long length = 0;
+
+			text += 3;
+			while (*text == ' ' || *text == '\t' || *text == '"')
+				text++;
+			while (*text && *text != '"' && *text != ')' && length < (long)sizeof(name) - 1)
+				name[length++] = *text++;
+			while (length > 0 && (name[length - 1] == ' ' || name[length - 1] == '\t'))
+				length--;
+			name[length] = 0;
+			return network_game_server_ban_player(name);
+		}
 	}
 	csstrncpy(buffer, expression, sizeof(buffer));
 	buffer[sizeof(buffer)-1] = 0;
