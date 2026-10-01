@@ -966,7 +966,8 @@ int browser_game_peer(const char *invite, unsigned long *address)
 
 int browser_join(const char *invite)
 {
-	char link[64];
+	/* ("halo://join/" and the invite's digits) */
+	char link[16 + BROWSER_INVITE_LENGTH];
 
 	snprintf(link, sizeof(link), "halo://join/%s", invite);
 	platform_log("Game list: joining a listed game");
