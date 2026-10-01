@@ -63,6 +63,12 @@ def prepare(workdir: Path, name: str, revision: str) -> Path:
     run(["git", "worktree", "add", "--detach", "-f", str(tree), revision], ROOT)
     run([sys.executable, "configure.py"], tree)
     run(["ninja", "build/linux/halo_msvc_semantics.h", "build/linux/platform_msvc_semantics.h"], tree)
+    # the sources the build generates (the high-res HUD's textures), which
+    # the units are compiled from
+    generated = [line.split(":")[0] for line in run(["ninja", "-t", "targets", "all"], tree).stdout.splitlines()
+                 if line.startswith("build/linux/generated/") and line.split(":")[0].endswith(".c")]
+    if generated:
+        run(["ninja", *generated], tree)
     return tree
 
 
