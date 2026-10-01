@@ -105,6 +105,15 @@ static void load_certificates(void)
 	}
 	(void)index;
 #else
+#ifdef __ANDROID__
+	/* Android's: a folder of them (the app runs the requests in its host,
+	port/android) */
+	if (mbedtls_x509_crt_parse_path(&certificates, "/system/etc/security/cacerts") >= 0)
+	{
+		certificates_loaded = 1;
+		return;
+	}
+#endif
 	for (index = 0; index < sizeof(certificate_bundles) / sizeof(certificate_bundles[0]); index++)
 	{
 		/* (a bundle with a few certificates it cannot read still counts) */

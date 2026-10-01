@@ -122,6 +122,21 @@ int pthread_equal(pthread_t thread1, pthread_t thread2)
 	return thread1 == thread2;
 }
 
+_Static_assert(sizeof(INIT_ONCE) == sizeof(void *), "pthread_once_t holds an INIT_ONCE");
+
+static BOOL CALLBACK once_routine(PINIT_ONCE once, PVOID routine, PVOID *context)
+{
+	(void)once;
+	(void)context;
+	((void (*)(void))routine)();
+	return TRUE;
+}
+
+int pthread_once(pthread_once_t *once, void (*routine)(void))
+{
+	return InitOnceExecuteOnce((PINIT_ONCE)&once->once, once_routine, (PVOID)routine, NULL) ? 0 : -1;
+}
+
 int pthread_attr_init(pthread_attr_t *attributes)
 {
 	attributes->stack_size = 0;

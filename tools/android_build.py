@@ -25,8 +25,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .linux_build import (LINUX_PROFILE, MINIUPNPC_DEFINES, MINIUPNPC_DIR, MUSL_MATH_DIR, XDK_INCLUDE,
-                          compile_launcher, game_defines_and_includes, game_sources, miniupnpc_sources,
+from .linux_build import (LINUX_PROFILE, MBEDTLS_DIR, MINIUPNPC_DEFINES, MINIUPNPC_DIR, MUSL_MATH_DIR, STB_DIR,
+                          XDK_INCLUDE, compile_launcher, game_browser_defines, game_defines_and_includes, game_sources, miniupnpc_sources,
                           musl_math_sources, pgo_mode, pgo_profile,
                           profile_use_flags, xdk_headers)
 from .embed_assets import hud_assets_build, hud_configure_inputs
@@ -293,11 +293,13 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     posix_imports = gen_dir / "posix_imports.list"
     n.rule(
         name="android_posix_stubs",
-        command=f"{python} tools/android_posix_stubs.py {LINUX_DIR}/src/posix.h {guest_posix_c} {posix_imports}",
+        command=(f"{python} tools/android_posix_stubs.py {LINUX_DIR}/src/posix.h {LINUX_DIR}/src/browser_http.h "
+                 f"{guest_posix_c} {posix_imports}"),
         description="ANDROID POSIX STUBS",
     )
     n.build(outputs=[guest_posix_c, posix_imports], rule="android_posix_stubs",
-            implicit=[Path("tools/android_posix_stubs.py"), LINUX_DIR / "src" / "posix.h"])
+            implicit=[Path("tools/android_posix_stubs.py"), LINUX_DIR / "src" / "posix.h",
+                      LINUX_DIR / "src" / "browser_http.h"])
 
     imports_s = gen_dir / "imports.s"
     host_table_c = BUILD / "host" / "host_import_table.c"
@@ -335,7 +337,10 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         f"-isystem {libc_include}", f"-isystem {arch}", f"-isystem {MUSL_DIR}/arch/generic",
         f"-isystem {MUSL_DIR}/include",
     ]
-    guest_abi = " ".join(GUEST_ABI_FLAGS + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else []))
+    # (the game browser, the game list and dedicated servers, as every other
+    # build has them: HALO_GAME_BROWSER, configure.py)
+    guest_abi = " ".join(GUEST_ABI_FLAGS + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else [])
+                         + game_browser_defines(sln))
     guest_code = " ".join(GUEST_CODE_FLAGS)
     tool_implicit = [Path("tools/android_asm_convert.py"), *generated_headers]
     # profile-guided optimisation with the Linux build's profile (committed,
@@ -395,6 +400,10 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         objects.append(guest_object(source, cflags))
     for source in sorted(Path(config["game_sources"]).glob("*.c")):
         objects.append(guest_object(source, game_cflags))
+    # the dedicated server's director, with the game browser (server/)
+    if getattr(sln, "game_browser", False):
+        for source in sorted(Path("server/src").glob("*.c")):
+            objects.append(guest_object(source, game_cflags))
 
     # the platform layer shared with Linux, and the guest runtime
     platform_cflags = " ".join([
@@ -405,7 +414,13 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         f"-I{SDL_DIR}/include", f"-I{gl_include}", *libc_includes, f"-idirafter {XDK_INCLUDE}",
     ])
     guest_host_only = {"memory_watch.c"}  # replaced by guest_memory_watch.c
+    # (the overlay's fonts are plain C, drawn in the guest with the overlay:
+    # stb_truetype, and the fonts by #embed)
+    guest_posix = {"posix_ui_font.c": f"-I{STB_DIR}"}
     for source in sorted((LINUX_DIR / "src").glob("*.c")):
+        if source.name in guest_posix:
+            objects.append(guest_object(source, f"{platform_cflags} {guest_posix[source.name]}"))
+            continue
         if source.name.startswith("posix_") or source.name in guest_host_only:
             continue
         objects.append(guest_object(source, platform_cflags))
@@ -515,6 +530,18 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         n.build(outputs=obj, rule="android_host_cc", inputs=source,
                 variables={"cflags": miniupnpc_cflags + (" -w" if source.name != "posix_upnp.c" else "")})
         host_objects.append(obj)
+    # the game list's requests (posix_browser.c, with port/third_party/mbedtls
+    # and Android's certificate authorities), as the other posix_*.c in the
+    # host
+    if getattr(sln, "game_browser", False):
+        mbedtls_cflags = " ".join([host_cflags, *game_browser_defines(sln), f"-I{MBEDTLS_DIR / 'include'}"])
+        for source in [LINUX_DIR / "src" / "posix_browser.c", *sorted((MBEDTLS_DIR / "library").glob("*.c"))]:
+            obj = host_obj_dir / ("mbedtls_" + source.name + ".o" if source.parent.parent == MBEDTLS_DIR
+                                  else source.name + ".o")
+            n.build(outputs=obj, rule="android_host_cc", inputs=source,
+                    variables={"cflags": mbedtls_cflags + (f" -I{MBEDTLS_DIR / 'library'} -w"
+                                                           if source.name != "posix_browser.c" else "")})
+            host_objects.append(obj)
     table_obj = host_obj_dir / "host_import_table.c.o"
     n.build(outputs=table_obj, rule="android_host_cc", inputs=host_table_c, variables={"cflags": host_cflags})
     host_objects.append(table_obj)

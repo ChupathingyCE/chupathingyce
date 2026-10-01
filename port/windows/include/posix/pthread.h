@@ -41,8 +41,14 @@ typedef struct
 	int unused;
 } pthread_condattr_t;
 
+typedef struct
+{
+	void *once; /* INIT_ONCE, which is pointer-sized */
+} pthread_once_t;
+
 #define PTHREAD_MUTEX_INITIALIZER { 0 }
 #define PTHREAD_COND_INITIALIZER { 0 }
+#define PTHREAD_ONCE_INIT { 0 }
 
 #define PTHREAD_CREATE_JOINABLE 0
 #define PTHREAD_CREATE_DETACHED 1
@@ -56,6 +62,8 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attributes, void *(*
 int pthread_detach(pthread_t thread);
 pthread_t pthread_self(void);
 int pthread_equal(pthread_t thread1, pthread_t thread2);
+
+int pthread_once(pthread_once_t *once, void (*routine)(void));
 
 int pthread_attr_init(pthread_attr_t *attributes);
 int pthread_attr_destroy(pthread_attr_t *attributes);
