@@ -20,6 +20,7 @@ atlas texture as they are first drawn at a size, and drawn as quads too.
 #include "ui_overlay.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
