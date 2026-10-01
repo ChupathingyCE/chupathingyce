@@ -18,6 +18,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from .version import release_build, version
 from .linux_build import (LINUX_PROFILE, MINIUPNPC_DIR, OPTIMISATION, WINDOWS_PROFILE, XDK_INCLUDE, lto_mode,
                           march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
                           game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
@@ -53,14 +54,13 @@ KCP_DIR = Path("port/third_party/kcp")
 
 
 def updater_defines(release: bool) -> str:
-    """the self-updater's build (port/linux/src/updater.c): its number, from
-    HALO_BUILD_NUMBER (tools/ci_build.py gives it for builds of main; none
-    elsewhere, which never look for updates), and its configuration"""
-    number = os.environ.get("HALO_BUILD_NUMBER", "0")
-    if not number.isdigit():
-        number = "0"
+    """the version's defines (port/linux/src/updater.c, the self-updater, has
+    them, and gives the version to the rest): the version (tools/version.py),
+    whether this build is a release's (only those look for updates), and its
+    configuration"""
     flavor = "release" if release else "debug"
-    return f'-DHALO_BUILD_NUMBER={number} -DHALO_BUILD_FLAVOR=\\"{flavor}\\"'
+    return (f'-DHALO_VERSION=\\"{version()}\\" -DHALO_RELEASE_BUILD={int(release_build())} '
+            f'-DHALO_BUILD_FLAVOR=\\"{flavor}\\"')
 
 WINDOWS_ABI_FLAGS = [
     "--target=i686-pc-windows-msvc",

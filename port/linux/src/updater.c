@@ -4,16 +4,16 @@ UPDATER.C
 The desktop ports' self-updater (Linux and Windows; the Android app updates
 itself in Java, port/android).
 
-A build of the main branch made by GitHub Actions knows its build number
-(HALO_BUILD_NUMBER, the workflow's run number, which names its release:
-build-<number>); other builds have none and never look for updates. When
-update.auto in config.toml is true (the default), the game asks GitHub for
-the latest release when it starts, on a thread of its own: the game starts
-meanwhile, and nothing happens if the release is not newer or cannot be
-reached. If it is newer, the game asks whether to update:
+A release's build (HALO_RELEASE_BUILD: built from the release's tag,
+v<version>, by ChupathingyCE's release workflow; tools/version.py) knows its
+version (HALO_VERSION, 0.5.0b); nightlies and other builds never look for
+updates. When update.auto in config.toml is true (the default), the game
+asks GitHub for the latest release when it starts, on a thread of its own:
+the game starts meanwhile, and nothing happens if the release is not newer
+or cannot be reached. If it is newer, the game asks whether to update:
 
 - Yes: the release's build for this platform and configuration
-  (halo-<platform>-<release|debug>.zip) is downloaded next to the executable
+  (chupathingyce-<platform>-<release|debug>.zip) is downloaded next to the executable
   (into update.partial/) and unpacked, its files put in place of the running
   game's (which become <name>.old, deleted at the next start), and the new
   game started; this one quits.
@@ -38,21 +38,25 @@ update.h's: posix_update.c on Linux, win32_update.c on Windows.
 #include <stdlib.h>
 #include <string.h>
 
-/* (given for this file by the build: tools/linux_build.py, windows_build.py) */
-#ifndef HALO_BUILD_NUMBER
-#define HALO_BUILD_NUMBER 0
+/* (given for this file by the build: tools/linux_build.py, windows_build.py,
+macos_build.py) */
+#ifndef HALO_VERSION
+#define HALO_VERSION "dev"
+#endif
+#ifndef HALO_RELEASE_BUILD
+#define HALO_RELEASE_BUILD 0
+#endif
+#ifdef __APPLE__
+/* (the macOS application does not update itself yet) */
+#undef HALO_RELEASE_BUILD
+#define HALO_RELEASE_BUILD 0
 #endif
 #ifndef HALO_BUILD_FLAVOR
 #define HALO_BUILD_FLAVOR "release"
 #endif
 
-#ifdef HALO_GAME_BROWSER
-/* the fork's builds update from the fork's releases (upstream's have none of
-its game list: an update from them would take it away) */
-#define UPDATE_REPOSITORY "MrMilenko/halo-ce-universal"
-#else
-#define UPDATE_REPOSITORY "cybersecurity/halo-ce-universal"
-#endif
+/* ChupathingyCE's releases */
+#define UPDATE_REPOSITORY "ChupathingyCE/chupathingyce"
 #ifdef _WIN32
 #define UPDATE_PLATFORM "windows"
 #define PATH_SEPARATOR "\\"
@@ -60,7 +64,7 @@ its game list: an update from them would take it away) */
 #define UPDATE_PLATFORM "linux"
 #define PATH_SEPARATOR "/"
 #endif
-#define UPDATE_ASSET "halo-" UPDATE_PLATFORM "-" HALO_BUILD_FLAVOR ".zip"
+#define UPDATE_ASSET "chupathingyce-" UPDATE_PLATFORM "-" HALO_BUILD_FLAVOR ".zip"
 #define UPDATE_DIRECTORY "update.partial"
 #define MAXIMUM_UPDATE_FILES 32
 
@@ -73,7 +77,7 @@ enum
 };
 
 static SDL_AtomicInt updater_state;
-static long updater_latest_build;
+static char updater_latest_version[32];
 static char updater_directory[1024];
 static char updater_executable[1024];
 
@@ -305,15 +309,63 @@ done:
 
 /* ---------- checking */
 
-/* the build number of GitHub's latest release, 0 if there is none */
-static long updater_latest_release(void)
+/* a version's numbers and pre-release suffix: [v]<major>.<minor>.<patch>
+followed by a suffix (0.5.0b, 1.0.0rc1) or nothing; 0 if it is not one */
+static int updater_parse_version(const char *text, long numbers[3], const char **suffix)
+{
+	int part;
+
+	if (*text == 'v')
+		text++;
+	for (part = 0; part < 3; part++)
+	{
+		char *end;
+
+		if (*text < '0' || *text > '9')
+			return 0;
+		numbers[part] = strtol(text, &end, 10);
+		text = end;
+		if (part < 2 && *text++ != '.')
+			return 0;
+	}
+	*suffix = text;
+	return 1;
+}
+
+/* whether version is newer than this build's: by its numbers, then a
+version without a suffix comes after the ones with (0.5.0b, then 0.5.0),
+and suffixes in order (a, b, rc1) */
+static int updater_newer(const char *version)
+{
+	long latest[3], current[3];
+	const char *latest_suffix, *current_suffix;
+	int part;
+
+	if (!updater_parse_version(version, latest, &latest_suffix) ||
+		!updater_parse_version(HALO_VERSION, current, &current_suffix))
+	{
+		return 0;
+	}
+	for (part = 0; part < 3; part++)
+	{
+		if (latest[part] != current[part])
+			return latest[part] > current[part];
+	}
+	if (!*latest_suffix || !*current_suffix)
+		return !*latest_suffix && *current_suffix;
+	return strcmp(latest_suffix, current_suffix) > 0;
+}
+
+/* GitHub's latest release's version (its tag, without the v), into version;
+0 if there is none */
+static int updater_latest_release(char *version, size_t size)
 {
 	char path[1200];
 	char error[512] = "";
-	size_t size = 0;
+	size_t length = 0;
 	char *text;
 	const char *tag;
-	long build = 0;
+	int found = 0;
 
 	updater_path(path, sizeof(path), "update-check.json");
 	if (!update_download("https://api.github.com/repos/" UPDATE_REPOSITORY "/releases/latest", path, NULL, NULL,
@@ -322,37 +374,45 @@ static long updater_latest_release(void)
 		platform_log("update: could not check for a new version: %s", error);
 		return 0;
 	}
-	text = SDL_LoadFile(path, &size);
+	text = SDL_LoadFile(path, &length);
 	update_delete_file(path);
 	if (!text)
 		return 0;
-	/* "tag_name": "build-<number>" */
+	/* "tag_name": "v<version>" */
 	tag = strstr(text, "\"tag_name\"");
 	if (tag)
 	{
 		tag = strchr(tag + 10, '"');
-		if (tag && !strncmp(tag, "\"build-", 7))
-			build = strtol(tag + 7, NULL, 10);
+		if (tag && !strncmp(tag, "\"v", 2))
+		{
+			size_t end = strcspn(tag + 2, "\"");
+
+			if (end > 0 && end < size)
+			{
+				memcpy(version, tag + 2, end);
+				version[end] = 0;
+				found = 1;
+			}
+		}
 	}
 	SDL_free(text);
-	return build;
+	return found;
 }
 
 static int SDLCALL updater_check_thread(void *context)
 {
-	long latest = updater_latest_release();
+	char latest[sizeof(updater_latest_version)];
 
 	(void)context;
-	if (latest > HALO_BUILD_NUMBER)
+	if (updater_latest_release(latest, sizeof(latest)) && updater_newer(latest))
 	{
-		platform_log("update: build %ld is available (this is build %d)", latest, HALO_BUILD_NUMBER);
-		updater_latest_build = latest;
+		platform_log("update: version %s is available (this is %s)", latest, HALO_VERSION);
+		snprintf(updater_latest_version, sizeof(updater_latest_version), "%s", latest);
 		SDL_SetAtomicInt(&updater_state, _updater_available);
 	}
 	else
 	{
-		if (latest)
-			platform_log("update: this is the latest build (%d)", HALO_BUILD_NUMBER);
+		platform_log("update: this is the latest version (%s)", HALO_VERSION);
 		SDL_SetAtomicInt(&updater_state, _updater_handled);
 	}
 	return 0;
@@ -408,7 +468,7 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 	memset(&download, 0, sizeof(download));
 	download.lock = SDL_CreateMutex();
 	snprintf(download.url, sizeof(download.url),
-		"https://github.com/" UPDATE_REPOSITORY "/releases/download/build-%ld/" UPDATE_ASSET, updater_latest_build);
+		"https://github.com/" UPDATE_REPOSITORY "/releases/download/v%s/" UPDATE_ASSET, updater_latest_version);
 	snprintf(download.zip_path, sizeof(download.zip_path), "%s", zip_path);
 	thread = SDL_CreateThread(updater_download_thread, "update download", &download);
 	if (!thread)
@@ -416,7 +476,7 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 		snprintf(error, error_size, "could not start the download");
 		return 0;
 	}
-	window = SDL_CreateWindow("Halo", 640, 150, 0);
+	window = SDL_CreateWindow("ChupathingyCE", 640, 150, 0);
 	if (window)
 		renderer = SDL_CreateRenderer(window, SDL_SOFTWARE_RENDERER);
 	while (!finished)
@@ -445,7 +505,7 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 			SDL_SetRenderScale(renderer, 2.0f, 2.0f);
 			SDL_RenderDebugText(renderer, 10.0f, 10.0f, "Downloading the new version...");
 			SDL_SetRenderScale(renderer, 1.0f, 1.0f);
-			snprintf(line, sizeof(line), "build %ld  (%llu of %llu MB)", updater_latest_build, received >> 20,
+			snprintf(line, sizeof(line), "version %s  (%llu of %llu MB)", updater_latest_version, received >> 20,
 				total >> 20);
 			SDL_RenderDebugText(renderer, 20.0f, 70.0f, line);
 			SDL_SetRenderDrawColor(renderer, 60, 66, 72, 255);
@@ -478,7 +538,7 @@ static void updater_update(void)
 
 	updater_path(partial, sizeof(partial), UPDATE_DIRECTORY);
 	updater_partial_path(zip_path, sizeof(zip_path), UPDATE_ASSET);
-	platform_log("update: downloading build %ld (" UPDATE_ASSET ")", updater_latest_build);
+	platform_log("update: downloading version %s (" UPDATE_ASSET ")", updater_latest_version);
 	if (!update_make_directory(partial))
 	{
 		snprintf(error, sizeof(error), "could not make %s (is the game's folder read-only?)", partial);
@@ -504,7 +564,7 @@ static void updater_update(void)
 		if (index == name_count)
 		{
 			update_delete_file(partial);
-			platform_log("update: starting build %ld", updater_latest_build);
+			platform_log("update: starting version %s", updater_latest_version);
 			if (update_launch(updater_executable))
 				exit(EXIT_SUCCESS);
 			snprintf(error, sizeof(error), "the new version is in place, but could not be started: start it again");
@@ -515,7 +575,7 @@ static void updater_update(void)
 		char message[800];
 
 		snprintf(message, sizeof(message), "The update failed:\n\n%s", error);
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Halo", message, NULL);
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "ChupathingyCE", message, NULL);
 	}
 }
 
@@ -555,9 +615,9 @@ void updater_start(void)
 		return;
 	*slash = 0;
 	updater_clean_up();
-	/* (not for builds without a number, the player's no, or runs nobody is
-	watching, but for a test with its answer) */
-	if (HALO_BUILD_NUMBER <= 0 || !config_boolean("update.auto") ||
+	/* (not for builds other than a release's, the player's no, or runs nobody
+	is watching, but for a test with its answer) */
+	if (!HALO_RELEASE_BUILD || !config_boolean("update.auto") ||
 		(!config_string("debug.update_answer")[0] && (config_boolean("debug.hidden_window") ||
 			config_real("debug.exit_after") > 0.0 || config_string("debug.network_test")[0])))
 	{
@@ -612,11 +672,11 @@ void updater_poll(SDL_Window *window)
 	if (fullscreen)
 		SDL_SetWindowFullscreen(window, false);
 	snprintf(message, sizeof(message),
-		"A new version of Halo was detected (build %ld; this is build %d).\n\n"
+		"A new version of ChupathingyCE is out (%s; this is %s).\n\n"
 		"Do you want to update? The game will close and start the new version.",
-		updater_latest_build, HALO_BUILD_NUMBER);
+		updater_latest_version, HALO_VERSION);
 	{
-		SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, window, "Halo: new version", message,
+		SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, window, "ChupathingyCE: new version", message,
 			3, question_buttons, NULL };
 
 		if (!SDL_ShowMessageBox(&question, &answer))
@@ -624,7 +684,7 @@ void updater_poll(SDL_Window *window)
 	}
 	if (answer == 2)
 	{
-		SDL_MessageBoxData confirm = { SDL_MESSAGEBOX_WARNING, window, "Halo: new version",
+		SDL_MessageBoxData confirm = { SDL_MESSAGEBOX_WARNING, window, "ChupathingyCE: new version",
 			"Stop asking about new versions?\n\n"
 			"To ask again, set auto = true in the [update] section of config.toml.",
 			2, confirm_buttons, NULL };
@@ -653,3 +713,10 @@ void updater_start(void)
 }
 
 #endif
+
+/* this build's version (HALO_VERSION: 0.5.0b, 0.5.0b-nightly.42, 0.5.0b-dev),
+for the window's title (sdl_platform.c) */
+const char *updater_version(void)
+{
+	return HALO_VERSION;
+}

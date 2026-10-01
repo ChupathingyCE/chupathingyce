@@ -2,7 +2,7 @@
 
 `ninja macos` builds the game as a native 64-bit arm64 (Apple silicon)
 executable, `build/macos/halo`, and an application bundle,
-`build/macos/Halo.app`. It is the Linux port (`port/linux`) compiled as
+`build/macos/ChupathingyCE.app`. It is the Linux port (`port/linux`) compiled as
 64-bit code: the game sources, the platform layer and the settings are the
 Linux build's, and [port/linux/README.md](../linux/README.md) describes them.
 
@@ -16,7 +16,7 @@ Linux build's, and [port/linux/README.md](../linux/README.md) describes them.
 ```sh
 python3 configure.py
 ninja macos
-build/macos/halo          # or open build/macos/Halo.app
+build/macos/halo          # or open build/macos/ChupathingyCE.app
 ```
 
 ## 64-bit

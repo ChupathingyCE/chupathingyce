@@ -13,7 +13,7 @@ work without changing what the other builds compile:
     32 bits, macOS's is 64.
 
 The result is build/macos/halo and the application bundle
-build/macos/Halo.app. See port/macos/README.md.
+build/macos/ChupathingyCE.app. See port/macos/README.md.
 """
 
 import json
@@ -44,6 +44,7 @@ from .linux_build import (
 )
 from .embed_assets import hud_assets_build, hud_configure_inputs
 from .ninja_syntax import Writer
+from .version import version
 
 PORT_DIR = Path("port/macos")
 PORT_CONFIG = PORT_DIR / "port.json"
@@ -319,10 +320,10 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
     )
 
     # the application bundle, which macOS shows with the game's name and icon
-    bundle = build_dir / "Halo.app"
+    bundle = build_dir / "ChupathingyCE.app"
     n.rule(
         name="macos_bundle",
-        command=f"$python {PORT_DIR / 'bundle.py'} --executable $in --output {_quote(bundle)}",
+        command=f"$python {PORT_DIR / 'bundle.py'} --executable $in --output {_quote(bundle)} --version {version()}",
         description="MACOS BUNDLE $out",
     )
     n.build(outputs=bundle / "Contents" / "MacOS" / "halo", rule="macos_bundle", inputs=output,

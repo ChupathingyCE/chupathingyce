@@ -6,9 +6,13 @@ plugins {
 // native libraries (jniLibs) and the guest image (assets)
 def staged = new File(rootDir, "../../build/android")
 
-// a build of main knows its number (tools/ci_build.py), which names its
-// release and which the self-updater (Updater.java) compares; others have
-// none and never look for updates
+// the version (tools/version.py): HALO_VERSION from the release workflow
+// (0.5.0b, 0.5.0b-nightly.42), else VERSION's, a development build; only a
+// release's build (HALO_RELEASE_BUILD) looks for updates (Updater.java).
+// HALO_BUILD_NUMBER, from the workflow, only orders the builds for Android
+// (versionCode: each must be higher than the one it installs over)
+def haloVersion = System.getenv("HALO_VERSION") ?: (new File(rootDir, "../../VERSION").text.trim() + "-dev")
+def releaseBuild = System.getenv("HALO_RELEASE_BUILD") == "1"
 def buildNumberText = System.getenv("HALO_BUILD_NUMBER") ?: "0"
 def buildNumber = buildNumberText.isInteger() ? buildNumberText.toInteger() : 0
 
@@ -26,8 +30,9 @@ android {
         minSdk 28
         targetSdk 35
         versionCode Math.max(1, buildNumber)
-        versionName buildNumber > 0 ? "build " + buildNumber : "1.0"
-        buildConfigField "int", "HALO_BUILD_NUMBER", "${buildNumber}"
+        versionName haloVersion
+        buildConfigField "String", "HALO_VERSION", "\"${haloVersion}\""
+        buildConfigField "boolean", "HALO_RELEASE_BUILD", "${releaseBuild}"
         ndk {
             abiFilters "arm64-v8a"
         }

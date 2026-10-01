@@ -112,7 +112,7 @@ const char *platform_data_root(void)
 
 				executable[length] = '\0';
 #ifdef __APPLE__
-				/* ... and <repository>/build/macos/Halo.app/Contents/MacOS/halo:
+				/* ... and <repository>/build/macos/ChupathingyCE.app/Contents/MacOS/halo:
 				the nearest assets folder up to five levels up */
 				for (level = 0; level < 6 && (slash = strrchr(executable, '/')); level++)
 				{

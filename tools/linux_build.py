@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .embed_assets import hud_assets_build, hud_configure_inputs
 from .ninja_syntax import Writer
+from .version import release_build, version
 
 PORT_DIR = Path("port/linux")
 PORT_CONFIG = PORT_DIR / "port.json"
@@ -132,14 +133,13 @@ def miniupnpc_sources() -> List[Path]:
 
 
 def updater_defines(release: bool) -> str:
-    """the self-updater's build (port/linux/src/updater.c): its number, from
-    HALO_BUILD_NUMBER (tools/ci_build.py gives it for builds of main; none
-    elsewhere, which never look for updates), and its configuration"""
-    number = os.environ.get("HALO_BUILD_NUMBER", "0")
-    if not number.isdigit():
-        number = "0"
+    """the version's defines (port/linux/src/updater.c, the self-updater, has
+    them, and gives the version to the rest): the version (tools/version.py),
+    whether this build is a release's (only those look for updates), and its
+    configuration"""
     flavor = "release" if release else "debug"
-    return f'-DHALO_BUILD_NUMBER={number} -DHALO_BUILD_FLAVOR=\\"{flavor}\\"'
+    return (f'-DHALO_VERSION=\\"{version()}\\" -DHALO_RELEASE_BUILD={int(release_build())} '
+            f'-DHALO_BUILD_FLAVOR=\\"{flavor}\\"')
 
 PLATFORM_FLAGS = [
     "-std=gnu11",

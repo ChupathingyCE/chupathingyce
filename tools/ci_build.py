@@ -10,9 +10,13 @@ computers. Debug builds skip link-time and profile-guided optimisation,
 which only make the build slower; release builds use both, as a local
 release build does (profile-guided optimisation needs clang 22 or later,
 and is skipped with an older one). CI_COMPILER_LAUNCHER (ccache, say) is
-passed on as --compiler-launcher. A build of the main branch gets the run's
-number (HALO_BUILD_NUMBER), which its release is named after and the
-self-updater compares.
+passed on as --compiler-launcher.
+
+The version comes from the environment (tools/version.py), which
+ChupathingyCE's release workflows set: HALO_VERSION (0.5.0b, or
+0.5.0b-nightly.42), HALO_RELEASE_BUILD=1 for a release (whose version must
+be VERSION's), and HALO_BUILD_NUMBER, which orders the Android builds.
+Without them, a build is VERSION's -dev and never looks for updates.
 """
 
 import argparse
@@ -23,6 +27,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from tools.version import base_version, release_build, version  # noqa: E402
 
 # what each port's build leaves, and what goes into dist/
 OUTPUTS = {
@@ -55,12 +62,11 @@ def main() -> int:
     launcher = os.environ.get("CI_COMPILER_LAUNCHER")
     if launcher:
         configure += ["--compiler-launcher", launcher]
-    # a build of main knows its number, which names its release (build-<n>),
-    # for the self-updater (port/linux/src/updater.c, and the Android app);
-    # other builds have none, and never look for updates
-    if os.environ.get("GITHUB_REF") == "refs/heads/main" and os.environ.get("GITHUB_RUN_NUMBER", "").isdigit():
-        os.environ["HALO_BUILD_NUMBER"] = os.environ["GITHUB_RUN_NUMBER"]
-        print(f"build number {os.environ['HALO_BUILD_NUMBER']}", flush=True)
+    # a release is VERSION's, and nothing else is one
+    if release_build() and version() != base_version():
+        print(f"error: a release build of {version()}, but VERSION is {base_version()}", file=sys.stderr)
+        return 1
+    print(f"version {version()}{' (a release)' if release_build() else ''}", flush=True)
     run(configure)
 
     if args.platform == "android":
@@ -74,7 +80,7 @@ def main() -> int:
         run(["ninja", args.platform])
         outputs = OUTPUTS[args.platform]
 
-    dist = ROOT / "dist" / f"halo-{args.platform}-{args.config}"
+    dist = ROOT / "dist" / f"chupathingyce-{args.platform}-{args.config}"
     if dist.exists():
         shutil.rmtree(dist)
     dist.mkdir(parents=True)
@@ -92,6 +98,11 @@ def main() -> int:
     # internet play's UPnP (port/third_party/miniupnpc), in every build,
     # whose BSD license asks binaries to carry its notice
     shutil.copy2(ROOT / "port/third_party/miniupnpc/LICENSE", dist / "miniupnpc-LICENSE.txt")
+    # the overlay's fonts (port/linux/ui/fonts): Noto Sans's license asks
+    # the same; Kenney's Input Prompts are CC0, credited all the same
+    if args.platform != "android":
+        shutil.copy2(ROOT / "port/linux/ui/fonts/OFL.txt", dist / "NotoSans-OFL.txt")
+        shutil.copy2(ROOT / "port/linux/ui/fonts/KENNEY-CC0.txt", dist / "Kenney-Input-Prompts-CC0.txt")
     return 0
 
 

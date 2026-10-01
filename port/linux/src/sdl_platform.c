@@ -52,6 +52,7 @@ static unsigned long keystroke_head, keystroke_count;
 /* updater.c's: the desktop self-updater */
 void updater_start(void);
 void updater_poll(SDL_Window *window);
+const char *updater_version(void);
 #endif
 
 BOOL platform_sdl_initialize(void)
@@ -68,7 +69,7 @@ BOOL platform_sdl_initialize(void)
 	one already running, and goes */
 	if (p2p_hand_off_invite())
 		exit(EXIT_SUCCESS);
-	SDL_SetHint(SDL_HINT_APP_NAME, "Halo");
+	SDL_SetHint(SDL_HINT_APP_NAME, "ChupathingyCE");
 #ifdef HALO_ANDROID
 	/* landscape only; the back key arrives as a key event (xinput_sdl.c)
 	instead of closing the activity */
@@ -165,7 +166,7 @@ static BOOL data_extract(const char *image, const char *destination, char *error
 	/* (waited for through extraction.finished; the Windows port's threads
 	cannot be joined) */
 	pthread_detach(thread);
-	window = SDL_CreateWindow("Halo", 640, 150, 0);
+	window = SDL_CreateWindow("ChupathingyCE", 640, 150, 0);
 	if (window)
 	{
 		renderer = SDL_CreateRenderer(window, NULL);
@@ -288,7 +289,7 @@ BOOL platform_offer_game_data(const char *destination)
 		destination);
 	for (;;)
 	{
-		SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "Halo", message, 2, buttons, NULL };
+		SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "ChupathingyCE", message, 2, buttons, NULL };
 		char image[1024];
 		char error[512];
 		int answer = 0;
@@ -308,7 +309,7 @@ BOOL platform_offer_game_data(const char *destination)
 			return TRUE;
 		}
 		platform_log("extraction failed: %s", error);
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Halo", error, NULL);
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "ChupathingyCE", error, NULL);
 	}
 }
 #endif
@@ -356,6 +357,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 {
 	int scale = (int)config_integer("display.window_scale");
 	int version;
+	char title[64];
 
 	if (platform_window)
 		return TRUE;
@@ -402,15 +404,17 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	setenv("mesa_glthread", "true", 0);
 #endif
 
+	/* "ChupathingyCE 0.5.0b" */
+	snprintf(title, sizeof(title), "ChupathingyCE %s", updater_version());
 #ifdef HALO_ANDROID
-	platform_window = SDL_CreateWindow("Halo", (int)(width * scale), (int)(height * scale),
+	platform_window = SDL_CreateWindow(title, (int)(width * scale), (int)(height * scale),
 		SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN);
 #else
 	/* fullscreen at the desktop's resolution unless display.fullscreen is
 	false, where the game draws the display's shape at its resolution
 	(d3d8_gl.c); the window size is the windowed mode F11 switches to and
 	from, where it draws 640x480 */
-	platform_window = SDL_CreateWindow("Halo", (int)(width * scale), (int)(height * scale),
+	platform_window = SDL_CreateWindow(title, (int)(width * scale), (int)(height * scale),
 		SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
 		(config_boolean("debug.hidden_window") ? SDL_WINDOW_HIDDEN : 0) |
 		(platform_fullscreen_setting() ? SDL_WINDOW_FULLSCREEN : 0));
