@@ -872,6 +872,14 @@ static void multiplayer_type_menu_update_extended_description(
 		index++;
 	}
 
+#ifdef HALO_GAME_BROWSER
+	{
+		/* (ONLINE GAMES, an item the menu's tags lack: ui_widget.c) */
+		short ui_widget_online_games_description(struct widget_instance *list_widget, short index);
+
+		index = ui_widget_online_games_description(list_widget, index);
+	}
+#endif
 	if (index != NONE)
 	{
 		list_widget->parameters.list.extended_description->child->
@@ -945,14 +953,6 @@ static void server_list_menu_update(
 	struct network_game_client *client = global_network_game_client_get();
 	long displayed_server_count = 0;
 
-#ifdef HALO_GAME_BROWSER
-	{
-		/* (X there opens the server browser: port/linux/game/browser_screen.c) */
-		void browser_screen_list_shown(void);
-
-		browser_screen_list_shown();
-	}
-#endif
 
 	csmemset(
 		displayed_servers,
@@ -1002,19 +1002,6 @@ static void server_list_menu_update(
 			}
 		}
 
-#ifdef HALO_GAME_BROWSER
-		{
-			/* (which rows are the game list's: their icons, port/linux/game/browser_screen.c) */
-			boolean network_game_client_game_is_listed(struct network_game_client *client, void const *game);
-			void browser_screen_list_rows(boolean const *listed, long count);
-			boolean listed[MAXIMUM_NETWORK_ADVERTISED_GAMES];
-			long row;
-
-			for (row = 0; row < displayed_server_count; row++)
-				listed[row] = network_game_client_game_is_listed(client, displayed_servers[row]);
-			browser_screen_list_rows(listed, displayed_server_count);
-		}
-#endif
 		widget->parameters.list.list_items = displayed_servers;
 		widget->parameters.list.number_of_items = (word)displayed_server_count;
 		widget->parameters.list.selected_list_item_index = (short)CEILING(

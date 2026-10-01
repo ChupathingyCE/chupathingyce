@@ -40,9 +40,6 @@ enum
 	BROWSER_EVENT_LEFT_STICK = 1,
 	BROWSER_EVENT_BUTTON = 3,
 
-	/* the System Link screen was up this recently: X opens the browser */
-	LIST_SHOWN_WINDOW = 500,
-
 	ROWS_PER_PAGE = 9,
 	ROW_HEIGHT = 26,
 	LIST_TOP = 112,
@@ -71,39 +68,6 @@ static char const *const map_names[][2] =
 	{ "putput", "Chiron TL-34" }, { "ratrace", "Rat Race" }, { "sidewinder", "Sidewinder" }, { "wizard", "Wizard" },
 };
 
-/* the list's rows' icons, 11 by 11: a globe for the game list's games, a
-network for the local network's */
-#define ROW_ICON_SIZE 11
-
-static char const *const globe_icon[ROW_ICON_SIZE] =
-{
-	"...#####...",
-	".##.#.#.##.",
-	".#..#.#..#.",
-	"#...#.#...#",
-	"###########",
-	"#...#.#...#",
-	"###########",
-	"#...#.#...#",
-	".#..#.#..#.",
-	".##.#.#.##.",
-	"...#####...",
-};
-
-static char const *const network_icon[ROW_ICON_SIZE] =
-{
-	"....###....",
-	"....#.#....",
-	"....###....",
-	".....#.....",
-	".....#.....",
-	".#########.",
-	".#.......#.",
-	"###.....###",
-	"#.#.....#.#",
-	"###.....###",
-	"...........",
-};
 
 /* the list's orders (LT and RT, or the shoulders, step through them) */
 enum
@@ -120,10 +84,7 @@ enum
 
 static struct
 {
-	boolean list_row_listed[9];
-	long list_row_count;
 	boolean active;
-	unsigned long list_shown_time;
 	short selected;
 	short count;
 	struct browser_game games[BROWSER_MAXIMUM_GAMES];
@@ -160,53 +121,6 @@ static char const *map_display_name(
 			return map_names[index][1];
 	}
 	return base;
-}
-
-/* ASCII into the game's wide strings */
-static void widen(
-	wchar_t *out,
-	long size,
-	char const *text)
-{
-	long index;
-
-	for (index = 0; index < size - 1 && text[index]; index++)
-		out[index] = (wchar_t)(unsigned char)text[index];
-	out[index] = 0;
-}
-
-static void draw_text(
-	short x0,
-	short y0,
-	short x1,
-	short y1,
-	short justification,
-	real_argb_color const *color,
-	wchar_t const *text)
-{
-	rectangle2d bounds;
-
-	bounds.x0 = x0;
-	bounds.y0 = y0;
-	bounds.x1 = x1;
-	bounds.y1 = y1;
-	draw_string_set_draw_mode(interface_get_tag_index(_interface_font_terminal), NONE, justification, 0, color);
-	rasterizer_draw_unicode_string(&bounds, &bounds, NULL, 0, text);
-}
-
-static void draw_ascii(
-	short x0,
-	short y0,
-	short x1,
-	short y1,
-	short justification,
-	real_argb_color const *color,
-	char const *text)
-{
-	wchar_t wide[128];
-
-	widen(wide, NUMBEROF(wide), text);
-	draw_text(x0, y0, x1, y1, justification, color, wide);
 }
 
 static void join_selected(
@@ -300,67 +214,20 @@ static void fetch_games(
 
 /* ---------- public code */
 
-void browser_screen_list_shown(
-	void)
-{
-	browser_screen.list_shown_time = system_milliseconds();
-}
-
 boolean browser_screen_active(
 	void)
 {
 	return browser_screen.active;
 }
 
-boolean network_game_client_browser_turn_page(long delta);
-void network_game_client_browser_page(long *page, long *page_count);
-
-/* left or right on the System Link screen: its list's page of listed games
-(network_client_manager.c) */
-static boolean browser_screen_turn_page(
-	struct event_record const *event)
+/* the screen opened (the Multiplayer menu's ONLINE GAMES, interface/ui_widget.c) */
+void browser_screen_open(
+	void)
 {
-	long delta = 0;
-
-	if (system_milliseconds() - browser_screen.list_shown_time > LIST_SHOWN_WINDOW)
-		return FALSE;
-	if (event->type == BROWSER_EVENT_BUTTON)
-	{
-		if (event->data.button.index == _gamepad_binary_button_dpad_left)
-			delta = -1;
-		else if (event->data.button.index == _gamepad_binary_button_dpad_right)
-			delta = 1;
-	}
-	else if (event->type == BROWSER_EVENT_LEFT_STICK)
-	{
-		if (event->data.stick.x == SHORT_MIN)
-			delta = -1;
-		else if (event->data.stick.x == SHORT_MAX)
-			delta = 1;
-	}
-	if (!delta)
-		return FALSE;
-	if (network_game_client_browser_turn_page(delta))
-		ui_play_audio_feedback_sound(_ui_audio_feedback_cursor);
-	return TRUE;
-}
-
-boolean browser_screen_open_from_event(
-	struct event_record const *event)
-{
-	if (browser_screen_turn_page(event))
-		return TRUE;
-	if (event->type != BROWSER_EVENT_BUTTON ||
-		event->data.button.index != _gamepad_analog_button_x ||
-		system_milliseconds() - browser_screen.list_shown_time > LIST_SHOWN_WINDOW)
-	{
-		return FALSE;
-	}
 	browser_screen.active = TRUE;
 	browser_screen.selected = 0;
 	browser_screen.status[0] = 0;
 	fetch_games();
-	return TRUE;
 }
 
 void browser_screen_process(
@@ -431,160 +298,6 @@ void browser_screen_process(
 		browser_screen.selected = (short)MAX(0, browser_screen.count - 1);
 	/* (the widgets behind take nothing while the browser is up) */
 	event_manager_flush();
-}
-
-/* the System Link screen's footer has no word of the browser (it is the
-user interface's tags): its free corner says so */
-boolean ui_widget_text_style(char const *name, long *font_index, real_argb_color *color, rectangle2d *bounds);
-boolean ui_widget_list_row_bounds(short row, rectangle2d *bounds);
-
-/* the System Link list's rows as it laid them out: which are the game list's */
-void browser_screen_list_rows(
-	boolean const *listed,
-	long count)
-{
-	long row;
-
-	browser_screen.list_row_count = MIN(count, NUMBEROF(browser_screen.list_row_listed));
-	for (row = 0; row < browser_screen.list_row_count; row++)
-		browser_screen.list_row_listed[row] = listed[row];
-}
-
-static void draw_row_icon(
-	char const *const *icon,
-	short x0,
-	short y0,
-	pixel32 color)
-{
-	short row, column;
-
-	for (row = 0; row < ROW_ICON_SIZE; row++)
-	{
-		for (column = 0; column < ROW_ICON_SIZE; column++)
-		{
-			if (icon[row][column] == '#')
-			{
-				rectangle2d pixel;
-
-				pixel.x0 = (short)(x0 + column);
-				pixel.x1 = (short)(pixel.x0 + 1);
-				pixel.y0 = (short)(y0 + row);
-				pixel.y1 = (short)(pixel.y0 + 1);
-				draw_quad(&pixel, color);
-			}
-		}
-	}
-}
-
-/* each row's icon, in a column at the list's right, as the list's words */
-static void render_row_icons(
-	real_argb_color const *color)
-{
-	pixel32 pixel_color = ((pixel32)(long)(color->alpha * 255.0f) << 24) |
-		((pixel32)(long)(color->red * 255.0f) << 16) | ((pixel32)(long)(color->green * 255.0f) << 8) |
-		(pixel32)(long)(color->blue * 255.0f);
-	short row;
-
-	for (row = 0; row < browser_screen.list_row_count; row++)
-	{
-		rectangle2d bounds;
-
-		if (!ui_widget_list_row_bounds(row, &bounds))
-			continue;
-		draw_row_icon(browser_screen.list_row_listed[row] ? globe_icon : network_icon,
-			(short)(262 - ROW_ICON_SIZE), (short)((bounds.y0 + bounds.y1) / 2 - ROW_ICON_SIZE / 2), pixel_color);
-	}
-}
-
-/* the System Link screen's footer has no word of the browser (it is the
-user interface's tags): an X button's prompt joins its others, left of
-"[Y]= CREATE GAME" (its words' font, color and line as they are drawn; the X
-button's icon from the shell's button bitmaps, as the Y button's) */
-void browser_screen_render_hint(
-	void)
-{
-	static wchar_t const words[] = L"=ALL GAMES";
-	long font_index;
-	real_argb_color color;
-	rectangle2d text;
-	rectangle2d measured;
-	rectangle2d cursor;
-	rectangle2d bounds;
-	long bitmap_index;
-	struct bitmap_data *bitmap;
-	short icon_width, icon_height, words_width, right, middle;
-
-	if (browser_screen.active || system_milliseconds() - browser_screen.list_shown_time > LIST_SHOWN_WINDOW)
-		return;
-	/* (not drawn yet this time: the next frame) */
-	if (!ui_widget_text_style(
-		"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\create_game_button",
-		&font_index, &color, &text))
-	{
-		return;
-	}
-	bitmap_index = tag_loaded('bitm', "ui\\shell\\bitmaps\\x_butn");
-	bitmap = bitmap_index != NONE ? bitmap_group_get_bitmap_from_sequence(bitmap_index, 0, 0) : NULL;
-	if (!bitmap)
-		return;
-	/* (the button's bitmap has a margin around the button: a box 1.62 times
-	the words' height shows the button as big as the footer's others) */
-	icon_height = (short)(81 * (text.y1 - text.y0) / 50);
-	icon_width = bitmap->height ? (short)(icon_height * bitmap->width / bitmap->height) : icon_height;
-
-	draw_string_set_draw_mode(font_index, NONE, 0, 0, &color);
-	bounds.x0 = 0;
-	bounds.y0 = 0;
-	bounds.x1 = 640;
-	bounds.y1 = 480;
-	/* (it writes the cursor's bounds too: it takes no NULL there) */
-	draw_unicode_string_compute_bounds(&bounds, words, &measured, &cursor);
-	/* (a little slack: the measure falls a few short of the drawing) */
-	words_width = (short)(measured.x1 - measured.x0 + 6);
-
-	/* the Y button shows about 6 left of its words' bounds; this prompt
-	ends 20 before it, as far as the footer's prompts are apart */
-	right = (short)(text.x0 - 6 - 20);
-	middle = (short)((text.y0 + text.y1) / 2 + 4);
-
-	bounds.x1 = right;
-	bounds.x0 = (short)(right - words_width);
-	bounds.y0 = text.y0;
-	bounds.y1 = text.y1;
-	rasterizer_draw_unicode_string(&bounds, &bounds, NULL, 0, words);
-
-	/* (its margin under the words' start: the button against the "=") */
-	bounds.x1 = (short)(right - words_width + icon_width / 4);
-	bounds.x0 = (short)(bounds.x1 - icon_width);
-	bounds.y0 = (short)(middle - icon_height / 2);
-	bounds.y1 = (short)(bounds.y0 + icon_height);
-	draw_bitmap_in_rect(bitmap, &bounds, NULL, NULL, (pixel32)((long)(color.alpha * 255.0f) << 24) | 0x00FFFFFF,
-		NULL, FALSE);
-
-	render_row_icons(&color);
-
-	/* the list's pages of listed games, under the list, when there are more
-	than one */
-	{
-		long page, page_count;
-
-		network_game_client_browser_page(&page, &page_count);
-		if (page_count > 1)
-		{
-			wchar_t indicator[48];
-			char ascii[48];
-
-			snprintf(ascii, sizeof(ascii), "%s PAGE %ld OF %ld %s", page > 0 ? "<" : " ", page + 1, page_count,
-				page + 1 < page_count ? ">" : " ");
-			widen(indicator, NUMBEROF(indicator), ascii);
-			bounds.x0 = 40;
-			bounds.x1 = 290;
-			bounds.y0 = (short)(text.y0 - 38);
-			bounds.y1 = (short)(text.y0 - 16);
-			draw_string_set_draw_mode(font_index, NONE, 2, 0, &color);
-			rasterizer_draw_unicode_string(&bounds, &bounds, NULL, 0, indicator);
-		}
-	}
 }
 
 /* ---------- drawing: the Online Games screen (the overlay, ui_overlay.c) */

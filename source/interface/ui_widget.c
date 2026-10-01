@@ -684,10 +684,11 @@ struct widget_instance;
 /* the in-game server browser (port/linux/game/browser_screen.c): a screen of
 code over the widgets, as the virtual keyboard is */
 boolean browser_screen_active(void);
-boolean browser_screen_open_from_event(struct event_record const *event);
+void browser_screen_open(void);
 void browser_screen_process(void);
 void browser_screen_render(void);
-void browser_screen_render_hint(void);
+/* (ONLINE GAMES, below: its list moves focus item by item) */
+boolean ui_widget_online_games_list(struct widget_instance *widget);
 #endif
 
 /* ---------- constants */
@@ -2566,6 +2567,13 @@ boolean widget_event_function_list_widget_goto_next_item(
 			child = widget_instance_get_nth_child(widget, item_index);
 			if (child)
 			{
+				#ifdef HALO_GAME_BROWSER
+				/* (ONLINE GAMES shares System Link's tag: by tag, the first of the two
+				would take the focus) */
+				if (ui_widget_online_games_list(widget))
+					widget_instance_give_focus_directly(widget, child);
+				else
+#endif
 				widget_instance_give_focus_by_tag(
 					widget,
 					child->definition_tag_index,
@@ -2635,6 +2643,13 @@ boolean widget_event_function_list_widget_goto_next_item(
 			}
 			if (child)
 			{
+				#ifdef HALO_GAME_BROWSER
+				/* (ONLINE GAMES shares System Link's tag: by tag, the first of the two
+				would take the focus) */
+				if (ui_widget_online_games_list(widget))
+					widget_instance_give_focus_directly(widget, child);
+				else
+#endif
 				widget_instance_give_focus_by_tag(
 					widget,
 					child->definition_tag_index,
@@ -2685,6 +2700,13 @@ boolean widget_event_function_list_widget_goto_previous_item(
 			child = widget_instance_get_nth_child(widget, item_index);
 			if (child)
 			{
+				#ifdef HALO_GAME_BROWSER
+				/* (ONLINE GAMES shares System Link's tag: by tag, the first of the two
+				would take the focus) */
+				if (ui_widget_online_games_list(widget))
+					widget_instance_give_focus_directly(widget, child);
+				else
+#endif
 				widget_instance_give_focus_by_tag(
 					widget,
 					child->definition_tag_index,
@@ -2759,6 +2781,13 @@ boolean widget_event_function_list_widget_goto_previous_item(
 					item_index++;
 				}
 			}
+			#ifdef HALO_GAME_BROWSER
+			/* (ONLINE GAMES shares System Link's tag: by tag, the first of the two
+			would take the focus) */
+			if (ui_widget_online_games_list(widget))
+				widget_instance_give_focus_directly(widget, child);
+			else
+#endif
 			widget_instance_give_focus_by_tag(
 				widget,
 				child->definition_tag_index,
@@ -3145,6 +3174,138 @@ static __inline struct widget_instance *widget_instance_find_by_tag_index(
 	return result;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* ---------- ONLINE GAMES
+
+The Multiplayer menu's fourth item, after System Link: the game list's
+screen (port/linux/game/browser_screen.c). The menu is the user
+interface's tags, and has no such item: when the tags load, the menu's
+list gets a copy of System Link's (its look, its tab into the description,
+a row below it), and the items after it and the line under them move down
+a row. The copy's
+text, its A and Start, and its description are this code's: the item is
+told apart by its place in the list. */
+
+#define ONLINE_GAMES_LIST "ui\\shell\\main_menu\\multiplayer_type_select\\multiplayer_type_select_list"
+#define ONLINE_GAMES_SCREEN "ui\\shell\\main_menu\\multiplayer_type_select\\multiplayer_type_select_screen"
+#define ONLINE_GAMES_LINE "ui\\shell\\main_menu\\blueline"
+#define ONLINE_GAMES_DESCRIPTION_TEXT "ui\\shell\\main_menu\\multiplayer_type_select\\multiplayer_options_txt"
+
+enum
+{
+	ONLINE_GAMES_SYSTEM_LINK = 2,
+	ONLINE_GAMES_POSITION = 3,
+	ONLINE_GAMES_MENU_ITEMS = 4,
+	/* the items' spacing (their vertical offset, -33) */
+	ONLINE_GAMES_ROW = 33,
+};
+
+static struct
+{
+	long list_tag;
+	long description_text_tag;
+	struct ui_widget_child_reference *children;
+	boolean described;
+} online_games = { NONE, NONE, NULL, FALSE };
+
+void ui_widget_online_games_tags_loaded(
+	void)
+{
+	long list_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_LIST);
+	long screen_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_SCREEN);
+	long line_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_LINE);
+	struct ui_widget_definition *list;
+	struct ui_widget_child_reference *old_children;
+	struct ui_widget_child_reference *children;
+	long index;
+
+	online_games.list_tag = NONE;
+	online_games.description_text_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_DESCRIPTION_TEXT);
+	if (list_tag == NONE)
+		return;
+	list = tag_get(UI_WIDGET_DEFINITION_TAG, list_tag);
+	/* (not the menu this was made for: left as it is) */
+	if (list->child_widgets.count != ONLINE_GAMES_MENU_ITEMS)
+		return;
+	/* (the tags are loaded again with each map: the last copy goes) */
+	if (online_games.children)
+		system_free(online_games.children);
+	children = system_malloc((ONLINE_GAMES_MENU_ITEMS + 1) * sizeof(*children));
+	online_games.children = children;
+	if (!children)
+		return;
+	old_children = (struct ui_widget_child_reference *)xbox_pointer(list->child_widgets.address);
+	csmemcpy(children, old_children, ONLINE_GAMES_POSITION * sizeof(*children));
+	children[ONLINE_GAMES_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
+	csmemcpy(&children[ONLINE_GAMES_POSITION + 1], &old_children[ONLINE_GAMES_POSITION],
+		(ONLINE_GAMES_MENU_ITEMS - ONLINE_GAMES_POSITION) * sizeof(*children));
+	/* (each item's place is its own tag's bounds: the copy, and the items
+	after it, a row lower) */
+	for (index = ONLINE_GAMES_POSITION; index <= ONLINE_GAMES_MENU_ITEMS; index++)
+		children[index].vertical_offset += ONLINE_GAMES_ROW;
+	list->child_widgets.address = XBOX_ADDRESS(children);
+	list->child_widgets.count = ONLINE_GAMES_MENU_ITEMS + 1;
+	online_games.list_tag = list_tag;
+
+	/* the line under the items, a row lower */
+	if (screen_tag != NONE && line_tag != NONE)
+	{
+		struct ui_widget_definition *screen = tag_get(UI_WIDGET_DEFINITION_TAG, screen_tag);
+		struct ui_widget_child_reference *screen_children =
+			(struct ui_widget_child_reference *)xbox_pointer(screen->child_widgets.address);
+
+		for (index = 0; index < screen->child_widgets.count; index++)
+		{
+			if (screen_children[index].widget_tag.index == line_tag)
+				screen_children[index].vertical_offset += ONLINE_GAMES_ROW;
+		}
+	}
+}
+
+static short ui_widget_list_position(
+	struct widget_instance *widget)
+{
+	struct widget_instance *child;
+	short position = 0;
+
+	for (child = widget->parent->child; child && child != widget; child = child->next)
+		position++;
+	return child ? position : NONE;
+}
+
+boolean ui_widget_online_games_list(
+	struct widget_instance *widget)
+{
+	return online_games.list_tag != NONE && widget && widget->definition_tag_index == online_games.list_tag;
+}
+
+boolean ui_widget_online_games_item(
+	struct widget_instance *widget)
+{
+	return online_games.list_tag != NONE && widget && widget->parent &&
+		widget->parent->definition_tag_index == online_games.list_tag &&
+		ui_widget_list_position(widget) == ONLINE_GAMES_POSITION;
+}
+
+/* the Multiplayer menu's description for its focused item
+(ui_widget_game_data_input_functions.c): ONLINE GAMES shows System Link's
+picture and its own words, and the items after it their own */
+short ui_widget_online_games_description(
+	struct widget_instance *list_widget,
+	short index)
+{
+	online_games.described = FALSE;
+	if (online_games.list_tag == NONE || list_widget->definition_tag_index != online_games.list_tag)
+		return index;
+	if (index == ONLINE_GAMES_POSITION)
+	{
+		online_games.described = TRUE;
+		return ONLINE_GAMES_SYSTEM_LINK;
+	}
+	return index > ONLINE_GAMES_POSITION ? (short)(index - 1) : index;
+}
+#endif
+
 static void event_handler_dispatch(
 	struct widget_instance *widget,
 	struct ui_widget_definition *definition,
@@ -3160,6 +3321,17 @@ static void event_handler_dispatch(
 	boolean close_current = FALSE;
 	boolean close_all = FALSE;
 
+#ifdef HALO_GAME_BROWSER
+	/* ONLINE GAMES (System Link's item copied): the game list's screen, not
+	System Link's */
+	if (ui_widget_online_games_item(widget) &&
+		(handler->event_type == _gamepad_analog_button_a || handler->event_type == _gamepad_binary_button_start))
+	{
+		ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
+		browser_screen_open();
+		return;
+	}
+#endif
 	if (TEST_FLAG(handler->flags, _event_handler_run_scenario_script_bit) &&
 		handler->script[0])
 	{
@@ -4863,76 +5035,6 @@ static long search_and_replace(
 	return replacements;
 }
 
-#ifdef HALO_GAME_BROWSER
-/* a text widget's style as it was last drawn (on screen: its position is
-its parents' too), for the server browser's hint on the System Link screen,
-which takes the footer's "= CREATE GAME" (port/linux/game/browser_screen.c) */
-static struct
-{
-	long tag_index;
-	unsigned long time;
-	long font_index;
-	real_argb_color color;
-	rectangle2d bounds;
-} ui_widget_noted_style = { NONE };
-
-/* the System Link list's rows as drawn (server_list_item0 to 8, or a text
-box of theirs) */
-#define BROWSER_LIST_ROWS 9
-
-static struct
-{
-	long tag_indices[BROWSER_LIST_ROWS];
-	unsigned long times[BROWSER_LIST_ROWS];
-	rectangle2d bounds[BROWSER_LIST_ROWS];
-	boolean resolved;
-} ui_widget_noted_rows;
-
-boolean ui_widget_list_row_bounds(
-	short row,
-	rectangle2d *bounds)
-{
-	if (!ui_widget_noted_rows.resolved)
-	{
-		short index;
-
-		for (index = 0; index < BROWSER_LIST_ROWS; index++)
-		{
-			char name[128];
-
-			csprintf(name,
-				"ui\\shell\\main_menu\\multiplayer_type_select\\connected\\server_list\\server_list_item%d", index);
-			ui_widget_noted_rows.tag_indices[index] = tag_loaded(UI_WIDGET_DEFINITION_TAG, name);
-		}
-		ui_widget_noted_rows.resolved = TRUE;
-	}
-	if (row < 0 || row >= BROWSER_LIST_ROWS ||
-		widget_globals.current_system_milliseconds - ui_widget_noted_rows.times[row] > 250)
-	{
-		return FALSE;
-	}
-	*bounds = ui_widget_noted_rows.bounds[row];
-	return TRUE;
-}
-
-boolean ui_widget_text_style(
-	char const *name,
-	long *font_index,
-	real_argb_color *color,
-	rectangle2d *bounds)
-{
-	ui_widget_noted_style.tag_index = tag_loaded(UI_WIDGET_DEFINITION_TAG, name);
-	if (ui_widget_noted_style.tag_index == NONE ||
-		widget_globals.current_system_milliseconds - ui_widget_noted_style.time > 250)
-	{
-		return FALSE;
-	}
-	*font_index = ui_widget_noted_style.font_index;
-	*color = ui_widget_noted_style.color;
-	*bounds = ui_widget_noted_style.bounds;
-	return TRUE;
-}
-#endif
 
 static void widget_instance_render_text_box(
 	struct widget_instance *widget,
@@ -4964,6 +5066,14 @@ static void widget_instance_render_text_box(
 		string = unicode_string_list_get_string(
 			definition->text_label_string_list.index,
 			string_list_index);
+#ifdef HALO_GAME_BROWSER
+		/* (ONLINE GAMES' item and description share System Link's tags) */
+		if (ui_widget_online_games_item(widget))
+			string = L"ONLINE GAMES";
+		else if (online_games.described && widget->definition_tag_index == online_games.description_text_tag)
+			/* (broken in lines as the game's own: the text box does not wrap) */
+			string = L"Find and join games hosted \r\nover the internet, on the \r\ncommunity's game list.";
+#endif
 		length = ustrlen(string);
 		widget->parameters.text_box.text = pool_resize_pointer(
 			widget_memory_pool,
@@ -5063,31 +5173,6 @@ static void widget_instance_render_text_box(
 			widget_globals.current_system_milliseconds *
 				SECONDS_PER_MILLISECOND * 3.0f) + 1.5f) * 0.4f) * color.alpha;
 	}
-#ifdef HALO_GAME_BROWSER
-	if (ui_widget_noted_rows.resolved)
-	{
-		short row;
-
-		for (row = 0; row < BROWSER_LIST_ROWS; row++)
-		{
-			long tag_index = ui_widget_noted_rows.tag_indices[row];
-
-			if (tag_index != NONE && (widget->definition_tag_index == tag_index ||
-				(widget->parent && widget->parent->definition_tag_index == tag_index)))
-			{
-				ui_widget_noted_rows.times[row] = widget_globals.current_system_milliseconds;
-				ui_widget_noted_rows.bounds[row] = bounds;
-			}
-		}
-	}
-	if (widget->definition_tag_index == ui_widget_noted_style.tag_index && ui_widget_noted_style.tag_index != NONE)
-	{
-		ui_widget_noted_style.time = widget_globals.current_system_milliseconds;
-		ui_widget_noted_style.font_index = font_index;
-		ui_widget_noted_style.color = color;
-		ui_widget_noted_style.bounds = bounds;
-	}
-#endif
 	draw_string_set_draw_mode(font_index, NONE, justification, 0, &color);
 	if (string_has_icons_to_draw(*text))
 		draw_string_and_hack_in_icons(&bounds, &clip, NULL, 0, *text, FALSE);
@@ -6201,10 +6286,6 @@ void render_ui_widgets(
 #ifdef HALO_GAME_BROWSER
 	if (browser_screen_active())
 		browser_screen_render();
-	else
-		browser_screen_render_hint();
-	if (!we_are_at_the_main_menu)
-		ui_widget_noted_rows.resolved = FALSE;
 #endif
 
 	return;
@@ -7237,11 +7318,6 @@ void process_ui_widgets(
 			{
 				do
 				{
-#ifdef HALO_GAME_BROWSER
-					/* (X on the System Link screen: the server browser) */
-					if (browser_screen_open_from_event(&event))
-						break;
-#endif
 					if (!pause_pressed)
 					{
 						widget_instance_process_one_event_recursive(

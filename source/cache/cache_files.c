@@ -817,11 +817,11 @@ long scenario_tags_load(
 				hud_hires_tags_loaded();
 			}
 #ifdef HALO_GAME_BROWSER
-			/* the game browser's ONLINE PLAY (port/linux/game/online_strings.c) */
+			/* the Multiplayer menu's ONLINE GAMES (interface/ui_widget.c) */
 			{
-				extern void online_strings_loaded(void);
+				extern void ui_widget_online_games_tags_loaded(void);
 
-				online_strings_loaded();
+				ui_widget_online_games_tags_loaded();
 			}
 #endif
 			result = cache_file_globals.tag_header->scenario_tag_index;
