@@ -671,6 +671,13 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	glGetIntegerv(GL_BLEND_SRC_ALPHA, &saved_blend_alpha_source);
 	glGetIntegerv(GL_BLEND_DST_ALPHA, &saved_blend_alpha_destination);
 	glGetIntegerv(GL_BLEND_EQUATION_RGB, &saved_blend_equation);
+#ifndef HALO_GL_NO_CLIP_CONTROL
+	/* (the renderer's clip space is D3D's, y down (d3d8_gl.c's
+	glClipControl); the overlay's is GL's, as on macOS and Android, which have
+	no glClipControl) */
+	if (glClipControl)
+		glClipControl(GL_LOWER_LEFT, GL_NEGATIVE_ONE_TO_ONE);
+#endif
 
 	/* the text's glyphs (packing new ones binds the atlas) */
 	shape_count = overlay.quad_count;
@@ -765,6 +772,10 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	glBindSampler(0, (GLuint)saved_sampler);
 	glActiveTexture((GLenum)saved_active);
 	glViewport(saved_viewport[0], saved_viewport[1], saved_viewport[2], saved_viewport[3]);
+#ifndef HALO_GL_NO_CLIP_CONTROL
+	if (glClipControl)
+		glClipControl(GL_UPPER_LEFT, GL_ZERO_TO_ONE);
+#endif
 	glBlendFuncSeparate((GLenum)saved_blend_rgb_source, (GLenum)saved_blend_rgb_destination,
 		(GLenum)saved_blend_alpha_source, (GLenum)saved_blend_alpha_destination);
 	glBlendEquation((GLenum)saved_blend_equation);
