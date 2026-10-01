@@ -31,6 +31,7 @@ picked there as any.
 #include "tag_files/tag_groups.h"
 #include "game/game.h"
 #include "interface/player_ui.h"
+#include "saved games/player_profile.h"
 #include "networking/network_game_globals.h"
 #include "../src/browser.h"
 #include "../src/ui_overlay.h"
@@ -49,6 +50,8 @@ enum
 	STATUS_DURATION = 6000,
 	/* a picked game's host answers this soon, or it is given up on */
 	CONNECT_TIMEOUT = 15000,
+	/* the screen takes no A this soon after it opens */
+	OPEN_SETTLE = 400,
 };
 
 /* ui_widget.c owns the same private enum (virtual_keyboard.c keeps a copy) */
@@ -101,6 +104,8 @@ static struct
 	char connecting_invite[BROWSER_INVITE_LENGTH + 1];
 	char connecting_name[64];
 	unsigned long connecting_time;
+	/* when the screen opened (the menu's A that opened it picks nothing) */
+	unsigned long opened_time;
 } browser_screen;
 
 /* ---------- private code */
@@ -167,6 +172,17 @@ static void join_selected(
 		}
 		game_connection_set(_game_connection_network_client);
 		player_ui_local_player_joined_multiplayer_game(0);
+	}
+	/* (the first player's profile, as System Link's Start would pick it: the
+	one last used, else the first saved) */
+	{
+		long profile_index = player_ui_get_player1_last_used_profile_index();
+		struct player_profile profile;
+
+		if (profile_index == NONE)
+			profile_index = 0;
+		if (player_profile_get(profile_index, &profile))
+			player_ui_set_active_player_profile(0, profile_index, &profile);
 	}
 	if (!browser_join(game->invite))
 	{
@@ -288,6 +304,10 @@ void browser_screen_open(
 	browser_screen.active = TRUE;
 	browser_screen.selected = 0;
 	browser_screen.status[0] = 0;
+	browser_screen.connecting = FALSE;
+	browser_screen.opened_time = system_milliseconds();
+	/* (the menu's A, still queued, is not a pick) */
+	event_manager_flush();
 	fetch_games();
 }
 
@@ -322,7 +342,7 @@ void browser_screen_process(
 			case _gamepad_binary_button_dpad_left: move = -ROWS_PER_PAGE; break;
 			case _gamepad_binary_button_dpad_right: move = ROWS_PER_PAGE; break;
 			case _gamepad_analog_button_a:
-				if (!browser_screen.connecting)
+				if (!browser_screen.connecting && system_milliseconds() - browser_screen.opened_time > OPEN_SETTLE)
 					join_selected();
 				break;
 			case _gamepad_binary_button_start:
