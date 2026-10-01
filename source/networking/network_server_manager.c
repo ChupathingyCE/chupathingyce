@@ -4285,6 +4285,8 @@ void network_game_server_dedicated_start_countdown(
 #endif
 
 #ifdef HALO_GAME_BROWSER
+#include "memory/byte_swapping.h"
+
 /* the IPv4 address a client machine is connected from, in network byte
 order (the game keeps its addresses swapped, transport_endpoint_winsock.c):
 an internet player's virtual address (port/linux/src/p2p.c); 0 for the
