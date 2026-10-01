@@ -23,6 +23,7 @@ import shlex
 from pathlib import Path
 from typing import Any, Dict, List
 
+from .embed_assets import hud_assets_build
 from .linux_build import (
     GAME_FLAGS as LINUX_GAME_FLAGS,
     KCP_DIR,
@@ -273,6 +274,9 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
             add_object(lp64(source), f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
         else:
             add_object(lp64(source), platform_cflags)
+    # the high-res HUD's textures (port/assets/hud; port/linux/src/hud_hires.c)
+    for source in hud_assets_build(n, "macos", build_dir / "generated" / "hud_hires_assets.c"):
+        add_object(source, platform_cflags)
     # macOS-only platform units, with the host's ABI (port/macos/src)
     for source in sorted((PORT_DIR / "src").glob("*.c")):
         add_object(source, posix_cflags)
