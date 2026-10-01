@@ -37,7 +37,8 @@ with it under the lock.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
+
+#include <SDL3/SDL_stdinc.h>
 
 enum
 {
@@ -837,7 +838,7 @@ int browser_key_link(const char *text)
 	static const char prefix[] = "halo://key/";
 	const char *digits;
 
-	if (strncasecmp(text, prefix, sizeof(prefix) - 1))
+	if (SDL_strncasecmp(text, prefix, sizeof(prefix) - 1))
 		return 0;
 	digits = text + sizeof(prefix) - 1;
 	if (strspn(digits, "0123456789abcdef") != 2 * PLAYER_KEY_SIZE ||
