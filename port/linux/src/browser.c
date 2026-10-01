@@ -480,7 +480,8 @@ static void send_report(void)
 	/* (only a listed game: the server takes reports of those alone) */
 	if (browser.listed_invite[0])
 	{
-		size = strlen(report) + 64;
+		/* (the report, and the invite before it) */
+		size = strlen(report) + BROWSER_INVITE_LENGTH + 32;
 		body = malloc(size);
 		if (body)
 		{

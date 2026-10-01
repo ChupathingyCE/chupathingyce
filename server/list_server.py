@@ -471,8 +471,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(403, "not a game this address lists, or it reported less than a minute ago\n")
             try:
                 report = clean_report(body, game)
-            except (ValueError, TypeError):
-                return self.reply(400, "bad report\n")
+            except (ValueError, TypeError) as problem:
+                return self.reply(400, f"bad report ({problem})\n")
             tags = [player.pop("_tag", "") for player in report["players"]]
             return self.reply(200, f"ok {REPORTS.add(report, invite, tags)}\n")
         if self.path == "/v1/claim":
