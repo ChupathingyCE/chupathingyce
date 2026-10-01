@@ -42,7 +42,7 @@ from .linux_build import (
     musl_math_sources,
     updater_defines,
 )
-from .embed_assets import hud_assets_build, hud_configure_inputs
+from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .ninja_syntax import Writer
 from .version import version
 
@@ -288,7 +288,8 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
     # the high-res HUD's textures (port/assets/hud; port/linux/src/hud_hires.c),
     # with the platform units' flags: its table is hud_hires.h's, from the
     # 64-bit tree
-    for source in hud_assets_build(n, "macos", build_dir / "generated" / "hud_hires_assets.c"):
+    for source in (hud_assets_build(n, "macos", build_dir / "generated" / "hud_hires_assets.c")
+                   + ui_fonts_build(n, "macos", build_dir / "generated" / "ui_fonts.c", sln)):
         add_object(source, platform_cflags)
     # macOS-only platform units, with the host's ABI (port/macos/src)
     for source in sorted((PORT_DIR / "src").glob("*.c")):

@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from .embed_assets import hud_assets_build, hud_configure_inputs
+from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .ninja_syntax import Writer
 from .version import release_build, version
 
@@ -368,7 +368,8 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     )
 
     # the high-res HUD's textures (port/assets/hud; port/linux/src/hud_hires.c)
-    embedded_assets = hud_assets_build(n, "linux", build_dir / "generated" / "hud_hires_assets.c")
+    embedded_assets = (hud_assets_build(n, "linux", build_dir / "generated" / "hud_hires_assets.c")
+                       + ui_fonts_build(n, "linux", build_dir / "generated" / "ui_fonts.c", sln))
 
     abi = " ".join(LINUX_ABI_FLAGS + [march_flag(sln)] + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else [])
                    + game_browser_defines(sln))
@@ -441,7 +442,7 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
             elif source.name == "posix_upnp.c":
                 add_object(source, f"{posix_cflags} -I{MINIUPNPC_DIR / 'include'} -DMINIUPNP_STATICLIB", posix=True)
             elif source.name == "posix_ui_font.c":
-                # (the overlay's fonts: stb_truetype, and the fonts by #embed)
+                # (the overlay's fonts: stb_truetype; their data, tools/embed_assets.py --fonts)
                 add_object(source, f"{posix_cflags} -I{STB_DIR}", posix=True)
             elif source.name.startswith("posix_"):
                 add_object(source, posix_cflags, posix=True)

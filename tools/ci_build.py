@@ -98,11 +98,11 @@ def main() -> int:
     # internet play's UPnP (port/third_party/miniupnpc), in every build,
     # whose BSD license asks binaries to carry its notice
     shutil.copy2(ROOT / "port/third_party/miniupnpc/LICENSE", dist / "miniupnpc-LICENSE.txt")
-    # the overlay's fonts (port/linux/ui/fonts): Noto Sans's license asks
-    # the same; Kenney's Input Prompts are CC0, credited all the same
-    if args.platform != "android":
-        shutil.copy2(ROOT / "port/linux/ui/fonts/OFL.txt", dist / "NotoSans-OFL.txt")
-        shutil.copy2(ROOT / "port/linux/ui/fonts/KENNEY-CC0.txt", dist / "Kenney-Input-Prompts-CC0.txt")
+    # the overlay's fonts (port/linux/ui/fonts), in every build: Noto Sans's
+    # license asks the same; Kenney's Input Prompts are CC0, credited all
+    # the same
+    shutil.copy2(ROOT / "port/linux/ui/fonts/OFL.txt", dist / "NotoSans-OFL.txt")
+    shutil.copy2(ROOT / "port/linux/ui/fonts/KENNEY-CC0.txt", dist / "Kenney-Input-Prompts-CC0.txt")
     return 0
 
 

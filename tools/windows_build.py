@@ -23,7 +23,7 @@ from .linux_build import (LINUX_PROFILE, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATIO
                           XDK_INCLUDE, game_browser_defines, lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
                           game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
                           xdk_headers)
-from .embed_assets import hud_assets_build, hud_configure_inputs
+from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .ninja_syntax import Writer
 
 LINUX_DIR = Path("port/linux")
@@ -289,7 +289,8 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
     )
 
     # the high-res HUD's textures (port/assets/hud; port/linux/src/hud_hires.c)
-    embedded_assets = hud_assets_build(n, "windows", BUILD / "generated" / "hud_hires_assets.c")
+    embedded_assets = (hud_assets_build(n, "windows", BUILD / "generated" / "hud_hires_assets.c")
+                       + ui_fonts_build(n, "windows", BUILD / "generated" / "ui_fonts.c", sln))
 
     # (the game browser, the game list and dedicated servers, as every
     # desktop build has them: HALO_GAME_BROWSER, configure.py)
@@ -386,7 +387,7 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
                 # on Linux)
                 add_object(source, f"{win32_cflags} -I{MBEDTLS_DIR / 'include'}")
             elif source.name == "posix_ui_font.c":
-                # (the overlay's fonts: stb_truetype, and the fonts by #embed)
+                # (the overlay's fonts: stb_truetype; their data, tools/embed_assets.py --fonts)
                 add_object(source, f"{platform_cflags} -I{STB_DIR}")
             else:
                 add_object(source, platform_cflags)

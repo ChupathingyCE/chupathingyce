@@ -29,7 +29,7 @@ from .linux_build import (LINUX_PROFILE, MBEDTLS_DIR, MINIUPNPC_DEFINES, MINIUPN
                           XDK_INCLUDE, compile_launcher, game_browser_defines, game_defines_and_includes, game_sources, miniupnpc_sources,
                           musl_math_sources, pgo_mode, pgo_profile,
                           profile_use_flags, xdk_headers)
-from .embed_assets import hud_assets_build, hud_configure_inputs
+from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .ninja_syntax import Writer
 
 PORT_DIR = Path("port/android")
@@ -415,7 +415,7 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     ])
     guest_host_only = {"memory_watch.c"}  # replaced by guest_memory_watch.c
     # (the overlay's fonts are plain C, drawn in the guest with the overlay:
-    # stb_truetype, and the fonts by #embed)
+    # stb_truetype; the fonts, tools/embed_assets.py --fonts)
     guest_posix = {"posix_ui_font.c": f"-I{STB_DIR}"}
     for source in sorted((LINUX_DIR / "src").glob("*.c")):
         if source.name in guest_posix:
@@ -425,7 +425,8 @@ def generate_android_build(n: Writer, sln: Any) -> None:
             continue
         objects.append(guest_object(source, platform_cflags))
     # the high-res HUD's textures (port/assets/hud; port/linux/src/hud_hires.c)
-    for source in hud_assets_build(n, "android", gen_dir / "hud_hires_assets.c"):
+    for source in (hud_assets_build(n, "android", gen_dir / "hud_hires_assets.c")
+                   + ui_fonts_build(n, "android", gen_dir / "ui_fonts.c", sln)):
         objects.append(guest_object(source, platform_cflags))
     # the settings file's parser (port/third_party/tomlc17)
     objects.append(guest_object(TOML_DIR / "tomlc17.c", platform_cflags))
