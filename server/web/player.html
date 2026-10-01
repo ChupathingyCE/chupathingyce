@@ -47,7 +47,7 @@ async function load() {
   const medals = MEDAL_ORDER.filter(key => person.medals[key]);
   const games = reports.slice().sort((a, b) => b.time - a.time);
 
-  holder.replaceChildren(
+  holder.replaceChildren(...[
     el("h1", { class: "page-title" }, el("span", { class: person.id ? "confirmed" : "", text: person.name })),
     el("p", { class: "page-sub" },
       "Service record · " + (COLORS[person.color] || "Unknown") + " armor · last played " + ago(person.time),
@@ -85,7 +85,7 @@ async function load() {
           el("td", {}, el("div", { class: "medal-row", style: "justify-content:flex-end" },
             earnedMedals(report, line).slice(0, 4).map(m => medalChip(m.key, m.count)))),
           el("td", { class: "right", text: ago(report.time) }));
-      })))));
+      }))))].filter(Boolean));
 }
 load();
 </script>
