@@ -51,6 +51,8 @@ this list to generate the guest's entry points */
 	X(glStencilOp) \
 	X(glStencilMask) \
 	X(glBlendFunc) \
+	X(glBlendFuncSeparate) \
+	X(glIsEnabled) \
 	X(glBlendEquation) \
 	X(glBlendColor) \
 	X(glCullFace) \
@@ -154,6 +156,8 @@ this list to generate the guest's entry points */
 	X(glStencilOp) \
 	X(glStencilMask) \
 	X(glBlendFunc) \
+	X(glBlendFuncSeparate) \
+	X(glIsEnabled) \
 	X(glBlendEquation) \
 	X(glBlendColor) \
 	X(glCullFace) \
@@ -267,6 +271,8 @@ pointers, sees the declarations without these aliases */
 #define glStencilOp halo_glStencilOp
 #define glStencilMask halo_glStencilMask
 #define glBlendFunc halo_glBlendFunc
+#define glBlendFuncSeparate halo_glBlendFuncSeparate
+#define glIsEnabled halo_glIsEnabled
 #define glBlendEquation halo_glBlendEquation
 #define glBlendColor halo_glBlendColor
 #define glCullFace halo_glCullFace
@@ -368,6 +374,8 @@ pointers, sees the declarations without these aliases */
 #define glStencilOp halo_glStencilOp
 #define glStencilMask halo_glStencilMask
 #define glBlendFunc halo_glBlendFunc
+#define glBlendFuncSeparate halo_glBlendFuncSeparate
+#define glIsEnabled halo_glIsEnabled
 #define glBlendEquation halo_glBlendEquation
 #define glBlendColor halo_glBlendColor
 #define glCullFace halo_glCullFace
