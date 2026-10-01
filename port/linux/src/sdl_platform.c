@@ -972,7 +972,11 @@ void platform_pump_events(void)
 			arrives on the command line (p2p_hand_off_invite) */
 			if (event.drop.data && !strncmp(event.drop.data, "halo://", 7))
 			{
-				platform_log("Internet play: opened %s", event.drop.data);
+				/* (a player key's link is a secret: never in the log) */
+				if (!SDL_strncasecmp(event.drop.data, "halo://key/", 11))
+					platform_log("Internet play: opened a player key link");
+				else
+					platform_log("Internet play: opened %s", event.drop.data);
 				p2p_join_invite(event.drop.data);
 			}
 			break;
