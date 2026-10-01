@@ -23,9 +23,8 @@ xbox/
 !source/**/xbox/
 
 # Locally extracted proprietary game data (never commit)
-assets/
+/assets
 original/
 
 # CI build outputs (tools/ci_build.py)
 dist/
-/server/web/art/

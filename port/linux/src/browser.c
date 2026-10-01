@@ -3,7 +3,7 @@ BROWSER.C
 
 The game list (browser.h; configure.py
 --game-browser): hosted system link games announced to the list server
-(network.browser_url, server/list_server.py) with their invites, and the
+(network.browser_url: halo.milenko.org, the community's) with their invites, and the
 server's list for System Link to show.
 
 Hosting: the game's server reports its game each frame
@@ -250,7 +250,7 @@ ID is no other use's hash of the key). The ID is public; the key is not.
 To confirm a line the key alone does not do: the line must also be one the
 game's host tagged with the address it had the player at (a hash of the
 invite and that address: the address itself is never sent), and the
-request must come from that address (server/list_server.py). So a key
+request must come from that address (the game list checks). So a key
 confirms its own player's lines, in games they played. */
 
 static int json_name(char *out, int size, const unsigned short *name, int length);

@@ -46,7 +46,13 @@ update.h's: posix_update.c on Linux, win32_update.c on Windows.
 #define HALO_BUILD_FLAVOR "release"
 #endif
 
+#ifdef HALO_GAME_BROWSER
+/* the fork's builds update from the fork's releases (upstream's have none of
+its game list: an update from them would take it away) */
+#define UPDATE_REPOSITORY "MrMilenko/halo-ce-universal"
+#else
 #define UPDATE_REPOSITORY "cybersecurity/halo-ce-universal"
+#endif
 #ifdef _WIN32
 #define UPDATE_PLATFORM "windows"
 #define PATH_SEPARATOR "\\"

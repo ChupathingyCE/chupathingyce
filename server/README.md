@@ -1,29 +1,28 @@
-# Server tools
+# Dedicated servers
 
-The game list and the dedicated server. Both belong to the game list builds
-(`HALO_GAME_BROWSER`, on by default in this fork; `configure.py
---no-game-browser` leaves them out, as upstream's builds are).
+A dedicated server is a copy of the game that hosts games by itself, with
+no player of its own, around the clock. Anyone can run one: it lists its
+games on [halo.milenko.org](https://halo.milenko.org), the community's game
+list, where players find and join them (from the game's ONLINE PLAY, or
+from the site's Join buttons), and where its finished games are kept as
+carnage reports.
 
 | | |
 | --- | --- |
-| `list_server.py` | The game list: hosts announce their games, players get the list, and finished games' carnage reports are kept. It runs on halo.milenko.org. |
-| `web/` | halo.milenko.org's pages: the games hosted, carnage reports, service records, leaderboards and medals. |
-| `site_art.py` | The pages' pictures (`web/art`), from the game's `ui.map`: map screenshots, game type icons, the Spartan in each color. They are the game's, so they are made from a copy of it, not kept here. |
-| `map_bitmaps.py` | Lists or extracts any bitmap of an Xbox cache file (a `.map`) as PNG. |
-| `src/dedicated.c` | The dedicated server, compiled into the game: a copy of the game that hosts games by itself, with no player of its own. |
-| `playlists/` | The dedicated server's playlists. |
-| `deploy/` | The dedicated server as a Docker container and a systemd service. |
+| `src/dedicated.c` | The dedicated server, compiled into the game (the game browser builds, `HALO_GAME_BROWSER`, on by default). |
+| `playlists/` | Playlists: `free_for_all.txt` (Slayer on every map), `slayer.txt` (Slayer and Team Slayer). |
+| `deploy/` | The server as a Docker container and a systemd service, for a Linux host. |
 
-## The dedicated server
+## What it does
 
-Any game list build is a dedicated server when `HALO_DEDICATED` names a
+Any game browser build is a dedicated server when `HALO_DEDICATED` names a
 playlist in the data folder. It then:
 
 - has no window: it draws nothing, plays no sound or movies, and needs no
-  display, so it runs on a server with no screen;
-- hosts a system link game with no player of its own, which is listed on
-  the game list (and joined from it, from the web page's Join button, or
-  from any build that opens invite links);
+  display, so it runs on a server with no screen (about 3% of a CPU core
+  and 70 MB while it waits);
+- hosts a system link game with no player of its own, listed on the game
+  list (any build that opens invite links can join it);
 - plays the playlist's entries in order: once a player has joined, the
   lobby counts down by itself; after each game, the carnage report shows
   for 20 seconds, then the next entry's lobby opens;
@@ -34,7 +33,9 @@ playlist in the data folder. It then:
 - joins no invites and leaves the clipboard alone;
 - stops, and withdraws its game from the list, on SIGTERM or SIGINT.
 
-The settings, as environment variables:
+## Settings
+
+As environment variables:
 
 | Variable | Default | |
 | --- | --- | --- |
@@ -49,25 +50,29 @@ A playlist has one entry a line: a map (its name, `bloodgulch`, or its
 path) and a game type (`slayer`, `team_slayer`, `ctf`, `king`, `oddball`,
 `race`, ...). `#` starts a comment.
 
-To run one on a desktop:
+## Run one on a desktop
+
+Build the game (the README at the top), copy a playlist into the data
+folder's `playlists/`, and start it:
 
 ```
-python3 configure.py && ninja
 HALO_DEDICATED=playlists/free_for_all.txt HALO_DEDICATED_NAME="My Server" build/linux/halo
 ```
 
-with the playlist copied to the data folder's `playlists`.
+(or `build/macos/halo` on a Mac). Keep it running; it shows on
+halo.milenko.org within a few seconds.
 
-## Deploying the dedicated server
+## Run one on a Linux server
 
 `deploy/` runs the 32-bit Linux game in a Debian i386 container (the host
-needs Docker, not 32-bit libraries), as the `halo-dedicated` systemd service.
+needs Docker, not 32-bit libraries), as the `halo-dedicated` systemd
+service.
 
-1. Build the Linux game with the game list, on Debian 13 (its libraries are
-   the container's):
+1. Build the Linux game on Debian 13 (its libraries are the container's):
    `python3 configure.py --portable --release && ninja linux`.
-2. Copy the maps to the host's `/opt/halo-dedicated/data/maps`: `ui.map` and
-   the multiplayer maps (about 300 MB).
+2. Copy the maps to the host's `/opt/halo-dedicated/data/maps`: `ui.map`
+   and the multiplayer maps (about 300 MB). Use the North American (NTSC)
+   maps.
 3. Run `server/deploy/deploy.sh user@host build/linux/halo`. It copies the
    game and the playlists, builds the image, and installs and starts the
    service.
@@ -78,14 +83,12 @@ The settings are in `/opt/halo-dedicated/dedicated.env` on the host (from
 `/opt/halo-dedicated/data/debug.txt`, the service's
 `journalctl -u halo-dedicated`.
 
-## Deploying the site
+The server needs no open ports: internet play reaches players through the
+same hole punching as any host's invite.
 
-The list server serves `web/` from beside itself. Make the pictures, then
-copy the server and its pages:
+## The game list
 
-```
-server/site_art.py assets/maps/ui.map server/web/art
-scp -r server/list_server.py server/web HOST:/opt/halo-list/
-```
-
-and restart it (`systemctl restart halo-list` on halo.milenko.org's host).
+halo.milenko.org is run by Milenko for the community. It keeps the list of
+games being hosted, the carnage reports of finished games, players' service
+records and profiles. Its code is not in this repository. Please be kind to
+it: one listing per game, as the game does by itself.
