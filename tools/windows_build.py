@@ -19,8 +19,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .version import release_build, version
-from .linux_build import (LINUX_PROFILE, MINIUPNPC_DIR, OPTIMISATION, WINDOWS_PROFILE, XDK_INCLUDE, lto_mode,
-                          march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
+from .linux_build import (LINUX_PROFILE, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
+                          XDK_INCLUDE, game_browser_defines, lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
                           game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
                           xdk_headers)
 from .embed_assets import hud_assets_build, hud_configure_inputs
@@ -291,7 +291,10 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
     # the high-res HUD's textures (port/assets/hud; port/linux/src/hud_hires.c)
     embedded_assets = hud_assets_build(n, "windows", BUILD / "generated" / "hud_hires_assets.c")
 
-    abi = " ".join(WINDOWS_ABI_FLAGS + [march_flag(sln)] + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else []))
+    # (the game browser, the game list and dedicated servers, as every
+    # desktop build has them: HALO_GAME_BROWSER, configure.py)
+    abi = " ".join(WINDOWS_ABI_FLAGS + [march_flag(sln)] + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else [])
+                   + game_browser_defines(sln))
     sdl_include = SDL_DIR / "include"
     libs = " ".join(
         [_quote(SDL_DIR / "lib" / "x86" / "SDL3.lib")]
@@ -342,6 +345,10 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
             add_object(source, game_cflags)
         for source in sorted(Path(linux_config["game_sources"]).glob("*.c")):
             add_object(source, game_cflags)
+        # the dedicated server's director, with the game browser (server/)
+        if getattr(sln, "game_browser", False):
+            for source in sorted(Path("server/src").glob("*.c")):
+                add_object(source, game_cflags)
 
         linux_platform = Path(linux_config["platform_sources"])
         platform_cflags = " ".join([
@@ -374,8 +381,21 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
                 continue
             if source.name == "updater.c":
                 add_object(source, f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
+            elif source.name == "posix_browser.c":
+                # (the game list's requests: on Winsock, with Mbed TLS, as
+                # on Linux)
+                add_object(source, f"{win32_cflags} -I{MBEDTLS_DIR / 'include'}")
+            elif source.name == "posix_ui_font.c":
+                # (the overlay's fonts: stb_truetype, and the fonts by #embed)
+                add_object(source, f"{platform_cflags} -I{STB_DIR}")
             else:
                 add_object(source, platform_cflags)
+        # the game list's TLS (port/third_party/mbedtls; posix_browser.c), on
+        # Winsock
+        if getattr(sln, "game_browser", False):
+            for source in sorted((MBEDTLS_DIR / "library").glob("*.c")):
+                add_object(source, " ".join([abi, *WIN32_FLAGS, f"-I{MBEDTLS_DIR / 'include'}",
+                                             f"-I{MBEDTLS_DIR / 'library'}", "-D_CRT_SECURE_NO_WARNINGS", "-w"]))
         miniupnpc_include = f"-I{MINIUPNPC_DIR / 'include'} -DMINIUPNP_STATICLIB"
         for source in sorted((PORT_DIR / "src").glob("*.c")):
             if source.name == "win32_upnp.c":

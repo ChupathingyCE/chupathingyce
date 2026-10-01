@@ -10,7 +10,10 @@ connection when it is done.
 The server's certificate must chain to one of the system's certificate
 authorities and name the host, as for the updater.
 
-Built with the host's ABI, as the other posix_*.c.
+Built with the host's ABI, as the other posix_*.c. The Windows build
+compiles it too (tools/windows_build.py), on Winsock, with Windows' own
+certificate authorities, so that the game list behaves the same on every
+platform.
 */
 
 #ifdef HALO_GAME_BROWSER
@@ -24,22 +27,34 @@ Built with the host's ABI, as the other posix_*.c.
 #include "mbedtls/x509_crt.h"
 #include "psa/crypto.h"
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#include <bcrypt.h>
+#include <wincrypt.h>
+#define strncasecmp _strnicmp
+#define close_socket closesocket
+#else
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <pthread.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#include <time.h>
 #include <unistd.h>
+#include <strings.h>
+#define close_socket close
+#endif
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 
-#define BROWSER_USER_AGENT "halo-ce-universal-browser"
+#define BROWSER_USER_AGENT "chupathingyce-browser"
 #define TIMEOUT_MILLISECONDS 10000
 
+#ifndef _WIN32
 /* where systems keep their certificate authorities */
 static const char *const certificate_bundles[] =
 {
@@ -49,8 +64,8 @@ static const char *const certificate_bundles[] =
 	"/etc/ssl/ca-bundle.pem", /* openSUSE */
 	"/etc/ssl/cert.pem", /* Alpine, Arch, Void, macOS */
 };
+#endif
 
-static pthread_once_t certificates_once = PTHREAD_ONCE_INIT;
 static mbedtls_x509_crt certificates;
 static int certificates_loaded;
 static int crypto_ready;
@@ -67,6 +82,29 @@ static void load_certificates(void)
 		certificates_loaded = 1;
 		return;
 	}
+#ifdef _WIN32
+	/* Windows' certificate authorities: its store's (a certificate it
+	cannot read skipped) */
+	{
+		HCERTSTORE store = CertOpenSystemStoreW(0, L"ROOT");
+		PCCERT_CONTEXT certificate = NULL;
+
+		if (store)
+		{
+			while ((certificate = CertEnumCertificatesInStore(store, certificate)) != NULL)
+			{
+				if (certificate->dwCertEncodingType & X509_ASN_ENCODING &&
+					mbedtls_x509_crt_parse_der(&certificates, certificate->pbCertEncoded,
+						certificate->cbCertEncoded) == 0)
+				{
+					certificates_loaded = 1;
+				}
+			}
+			CertCloseStore(store, 0);
+		}
+	}
+	(void)index;
+#else
 	for (index = 0; index < sizeof(certificate_bundles) / sizeof(certificate_bundles[0]); index++)
 	{
 		/* (a bundle with a few certificates it cannot read still counts) */
@@ -76,7 +114,38 @@ static void load_certificates(void)
 			return;
 		}
 	}
+#endif
 }
+
+/* the certificate authorities and the crypto, set up once */
+#ifdef _WIN32
+static INIT_ONCE certificates_once = INIT_ONCE_STATIC_INIT;
+
+static BOOL CALLBACK load_certificates_once(PINIT_ONCE once, PVOID parameter, PVOID *context)
+{
+	WSADATA data;
+
+	(void)once;
+	(void)parameter;
+	(void)context;
+	/* (Winsock, for this file's sockets: counted, so the game's is kept) */
+	WSAStartup(MAKEWORD(2, 2), &data);
+	load_certificates();
+	return TRUE;
+}
+
+static void set_up(void)
+{
+	InitOnceExecuteOnce(&certificates_once, load_certificates_once, NULL, NULL);
+}
+#else
+static pthread_once_t certificates_once = PTHREAD_ONCE_INIT;
+
+static void set_up(void)
+{
+	pthread_once(&certificates_once, load_certificates);
+}
+#endif
 
 static void set_error(char *error, int error_size, const char *what, int code)
 {
@@ -164,7 +233,13 @@ address as their game's host saw it, which internet play (IPv4) has */
 static int connect_ipv4(mbedtls_net_context *net, const char *host, const char *port)
 {
 	struct addrinfo hints, *addresses, *address;
+#ifdef _WIN32
+	SOCKET descriptor = INVALID_SOCKET;
+#define NO_SOCKET INVALID_SOCKET
+#else
 	int descriptor = -1;
+#define NO_SOCKET (-1)
+#endif
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_INET;
@@ -172,22 +247,24 @@ static int connect_ipv4(mbedtls_net_context *net, const char *host, const char *
 	hints.ai_protocol = IPPROTO_TCP;
 	if (getaddrinfo(host, port, &hints, &addresses) != 0)
 		return MBEDTLS_ERR_NET_UNKNOWN_HOST;
-	for (address = addresses; address && descriptor < 0; address = address->ai_next)
+	for (address = addresses; address && descriptor == NO_SOCKET; address = address->ai_next)
 	{
 		descriptor = socket(address->ai_family, address->ai_socktype, address->ai_protocol);
-		if (descriptor < 0)
+		if (descriptor == NO_SOCKET)
 			continue;
-		if (connect(descriptor, address->ai_addr, address->ai_addrlen) != 0)
+		if (connect(descriptor, address->ai_addr, (int)address->ai_addrlen) != 0)
 		{
-			close(descriptor);
-			descriptor = -1;
+			close_socket(descriptor);
+			descriptor = NO_SOCKET;
 		}
 	}
 	freeaddrinfo(addresses);
-	if (descriptor < 0)
+	if (descriptor == NO_SOCKET)
 		return MBEDTLS_ERR_NET_CONNECT_FAILED;
+#ifndef _WIN32
 	fcntl(descriptor, F_SETFD, FD_CLOEXEC);
-	net->fd = descriptor;
+#endif
+	net->fd = (int)descriptor;
 	return 0;
 }
 
@@ -307,7 +384,7 @@ int posix_browser_request(const char *url, const char *form, const char *content
 	}
 	if (secure)
 	{
-		pthread_once(&certificates_once, load_certificates);
+		set_up();
 		if (!crypto_ready || !certificates_loaded)
 		{
 			set_error(error, error_size, "no certificate authorities (set SSL_CERT_FILE)", 0);
@@ -393,6 +470,86 @@ int posix_browser_request(const char *url, const char *form, const char *content
 }
 
 
+#ifdef _WIN32
+
+/* a UTF-8 path as Windows' */
+static int wide_path(const char *path, wchar_t *wide, int size)
+{
+	return MultiByteToWideChar(CP_UTF8, 0, path, -1, wide, size) > 0;
+}
+
+/* the game list's player key (browser.c): read from path, or made there
+(random) the first time. The save folder (in the user's application data)
+is the user's alone; the file must be a plain file, not a link */
+int posix_browser_private_key(const char *path, unsigned char *key, int size)
+{
+	wchar_t wide[1024];
+	int attempt;
+
+	if (!wide_path(path, wide, 1024))
+		return 0;
+	for (attempt = 0; attempt < 3; attempt++)
+	{
+		DWORD done = 0;
+		HANDLE file = CreateFileW(wide, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+			FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+		int ok;
+
+		if (file != INVALID_HANDLE_VALUE)
+		{
+			BY_HANDLE_FILE_INFORMATION information;
+
+			ok = GetFileInformationByHandle(file, &information) &&
+				!(information.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) &&
+				ReadFile(file, key, (DWORD)size, &done, NULL) && done == (DWORD)size;
+			CloseHandle(file);
+			return ok;
+		}
+		if (GetLastError() != ERROR_FILE_NOT_FOUND)
+			return 0;
+		file = CreateFileW(wide, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+		/* (another copy of the game made it first: read that one) */
+		if (file == INVALID_HANDLE_VALUE)
+			continue;
+		ok = BCRYPT_SUCCESS(BCryptGenRandom(NULL, key, (ULONG)size, BCRYPT_USE_SYSTEM_PREFERRED_RNG)) &&
+			WriteFile(file, key, (DWORD)size, &done, NULL) && done == (DWORD)size && FlushFileBuffers(file);
+		CloseHandle(file);
+		if (!ok)
+			DeleteFileW(wide);
+		return ok;
+	}
+	return 0;
+}
+
+/* a player key put in place of the one at path (a restored key): written
+to a new file beside it, then moved over it */
+int posix_browser_replace_key(const char *path, const unsigned char *key, int size)
+{
+	char temporary[1100];
+	wchar_t wide[1024], wide_temporary[1100];
+	DWORD done = 0;
+	HANDLE file;
+	int ok;
+
+	snprintf(temporary, sizeof(temporary), "%s.new", path);
+	if (!wide_path(path, wide, 1024) || !wide_path(temporary, wide_temporary, 1100))
+		return 0;
+	DeleteFileW(wide_temporary);
+	file = CreateFileW(wide_temporary, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (file == INVALID_HANDLE_VALUE)
+		return 0;
+	ok = WriteFile(file, key, (DWORD)size, &done, NULL) && done == (DWORD)size && FlushFileBuffers(file);
+	CloseHandle(file);
+	if (!ok || !MoveFileExW(wide_temporary, wide, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+	{
+		DeleteFileW(wide_temporary);
+		return 0;
+	}
+	return 1;
+}
+
+#else
+
 /* the game list's player key (browser.c): read from path, or made there
 (random, readable by this user alone) the first time. As
 posix_user_secret: only a file of the user's no one else can read, and not
@@ -421,7 +578,7 @@ int posix_browser_private_key(const char *path, unsigned char *key, int size)
 		if (descriptor < 0)
 			continue;
 		/* (the PSA crypto set up first: load_certificates does) */
-		pthread_once(&certificates_once, load_certificates);
+		set_up();
 		if (!crypto_ready || psa_generate_random(key, (size_t)size) != PSA_SUCCESS)
 		{
 			close(descriptor);
@@ -459,5 +616,7 @@ int posix_browser_replace_key(const char *path, const unsigned char *key, int si
 	}
 	return 1;
 }
+
+#endif /* _WIN32 */
 
 #endif
