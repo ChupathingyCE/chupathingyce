@@ -59,13 +59,15 @@ unsigned long config_changes(void);
 /* world units (10 feet each) a node may move in one tick before it snaps:
 well beyond any vehicle, short of any teleport */
 #define OBJECT_SNAP_DISTANCE 10.0f
-/* ... a node may move relative to the object's root node in one tick before
+/* ... a node may move in the object's root node's frame in one tick before
 the pose is taken for a new one, not blended to: further than any limb or
-part of a model moves in 33 ms (55 m/s), short of the game changing a pose
+part of a model moves in 33 ms (37 m/s), short of the game changing a pose
 at once (an actor waking from dormancy, a model swapped), which blended
-sweeps the vertices through poses it never had (0.3 snapped some fast
-animations too) */
-#define NODE_SNAP_DISTANCE 0.6f
+sweeps the vertices through poses it never had. (In the root's frame, so
+that the whole object turning moves nothing: measured in the world, a fast
+turn swung the head and weapon far enough to snap, and characters moved
+like robots.) */
+#define NODE_SNAP_DISTANCE 0.4f
 /* ... a first-person node may move relative to the camera */
 #define FIRST_PERSON_SNAP_DISTANCE 0.25f
 /* the cosine of half the largest turn a node is blended through in one tick,
@@ -353,23 +355,6 @@ static boolean node_turn_blends(
 		vector_dot(&a->up, &b->up) > 0.0f;
 }
 
-/* whether a node moved from a to b no more than limit beyond how far its
-reference moved from reference_a to reference_b (so written that a position
-not a number has moved too far) */
-static boolean node_moved_with(
-	real_point3d const *a,
-	real_point3d const *b,
-	real_point3d const *reference_a,
-	real_point3d const *reference_b,
-	real limit)
-{
-	real x = (b->x - a->x) - (reference_b->x - reference_a->x);
-	real y = (b->y - a->y) - (reference_b->y - reference_a->y);
-	real z = (b->z - a->z) - (reference_b->z - reference_a->z);
-
-	return x * x + y * y + z * z <= limit * limit;
-}
-
 /* the vector's parts' sum, large enough to be a correction (so written that
 one not a number is none) */
 static boolean correction_significant(real_vector3d const *correction)
@@ -583,12 +568,16 @@ real_matrix4x3 *render_interpolation_object_node_matrices(long object_index)
 		boolean snap = !(distance_squared(&previous[0].position, &latest[0].position) <=
 			OBJECT_SNAP_DISTANCE * OBJECT_SNAP_DISTANCE);
 
-		/* a node moved further from the root than a tick allows: the two
-		snapshots are different poses, not one moving */
+		/* a node moved further in the root's frame than a tick allows: the
+		two snapshots are different poses, not one moving (so written that
+		a position not a number snaps) */
 		for (node_index = 1; !snap && node_index < record->node_count; node_index++)
 		{
-			snap = !node_moved_with(&previous[node_index].position, &latest[node_index].position,
-				&previous[0].position, &latest[0].position, NODE_SNAP_DISTANCE);
+			real_point3d previous_local, latest_local;
+
+			matrix4x3_inverse_transform_point(&previous[0], &previous[node_index].position, &previous_local);
+			matrix4x3_inverse_transform_point(&latest[0], &latest[node_index].position, &latest_local);
+			snap = !(distance_squared(&previous_local, &latest_local) <= NODE_SNAP_DISTANCE * NODE_SNAP_DISTANCE);
 		}
 		if (!snap)
 		{
@@ -895,8 +884,10 @@ void render_interpolation_first_person(
 	first_person->node_count = node_count;
 	if (!first_person->has_previous)
 		return;
-	/* a node that jumped or turned further than a tick allows: the last pose
-	was another weapon's skeleton (of as many nodes), not this one moving */
+	/* a node that jumped (in the camera's frame) or turned further than a
+	tick allows: the last pose was another weapon's skeleton (of as many
+	nodes), not this one moving (so written that a position not a number
+	snaps) */
 	for (node_index = 0; node_index < node_count; node_index++)
 	{
 		real_matrix4x3 const *previous = &first_person->previous[node_index];
@@ -904,8 +895,8 @@ void render_interpolation_first_person(
 
 		rotation_from_matrix(previous, &previous_rotations[node_index]);
 		rotation_from_matrix(latest, &latest_rotations[node_index]);
-		if (!node_moved_with(&previous->position, &latest->position, global_origin3d, global_origin3d,
-			FIRST_PERSON_SNAP_DISTANCE) ||
+		if (!(distance_squared(&previous->position, &latest->position) <=
+			FIRST_PERSON_SNAP_DISTANCE * FIRST_PERSON_SNAP_DISTANCE) ||
 			!node_turn_blends(previous, latest, &previous_rotations[node_index], &latest_rotations[node_index]))
 		{
 			return;
