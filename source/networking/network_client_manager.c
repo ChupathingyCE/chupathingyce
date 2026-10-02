@@ -3139,6 +3139,9 @@ static boolean network_game_client_invite_identifier(
 		else
 			identifier[index / 2] = (byte)(value << 4);
 	}
+	/* (made a locally administered unicast MAC address, as the host's
+	identifier is from its key's hash: p2p.c's p2p_identifier_from_hash) */
+	identifier[0] = (byte)((identifier[0] & 0xFC) | 0x02);
 	return TRUE;
 }
 
