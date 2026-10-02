@@ -40,6 +40,14 @@ enum
 	NUMBER_OF_CE_RESOURCE_MAPS,
 
 	CE_TAG_INSTANCE_SIZE = 0x20,
+	/* a bitmap's flags the Xbox's tags keep (bitmap_utilities.c: power of
+	two, compressed, palettized, swizzled, linear, v16u16) */
+	CE_BITMAP_XBOX_FORMAT_FLAGS = 0x3f,
+	/* Halo PC's: the bitmap's pixels are in bitmaps.map, though its tag is
+	in the map */
+	CE_BITMAP_EXTERNAL_FLAG = 0x100,
+	/* (xbox_texture_cache.c's _bitmap_cached_bit) */
+	CE_BITMAP_CACHED_FLAG = 0x80,
 };
 
 /* ---------- structures */
@@ -68,6 +76,8 @@ struct ce_resource_map
 	HANDLE file;
 	unsigned long count;
 	struct ce_resource *resources;
+	char *paths;
+	unsigned long paths_size;
 };
 
 /* ---------- prototypes */
@@ -82,6 +92,8 @@ static char const *const ce_resource_map_names[NUMBER_OF_CE_RESOURCE_MAPS] = { "
 0 none) */
 static byte *ce_indexed_tags;
 static long ce_indexed_tag_count;
+/* the space left in the map's tag cache (ce_resources_allocate) */
+static unsigned long ce_free_next, ce_free_end;
 
 /* ---------- private code */
 
@@ -127,9 +139,38 @@ static boolean ce_resource_map_open(
 		CloseHandle(file);
 		return FALSE;
 	}
+	/* (the paths, to find a sound's resource by its tag's name) */
+	map->paths_size = header[2] > header[1] ? header[2] - header[1] : 0;
+	map->paths = map->paths_size ? system_malloc(map->paths_size + 1) : NULL;
+	if (map->paths && ce_read(file, header[1], map->paths, map->paths_size))
+		map->paths[map->paths_size] = 0;
+	else
+	{
+		system_free(map->paths);
+		map->paths = NULL;
+	}
 	map->count = header[3];
 	map->file = file;
 	return TRUE;
+}
+
+/* the resource whose path is name, or NONE */
+static long ce_resource_by_path(
+	struct ce_resource_map const *map,
+	char const *name)
+{
+	unsigned long index;
+
+	if (!map->paths)
+		return NONE;
+	for (index = 0; index < map->count; index++)
+	{
+		unsigned long offset = map->resources[index].path_offset;
+
+		if (offset < map->paths_size && !_stricmp(map->paths + offset, name))
+			return (long)index;
+	}
+	return NONE;
 }
 
 static short ce_resource_type(
@@ -307,12 +348,19 @@ boolean ce_resources_tags_loaded(
 		if (!ce_resource_map_open(type))
 			return FALSE;
 		map = &ce_resource_maps[type];
-		/* (a sound's tag stays in the map, its base address an address
-		there: only its samples are in sounds.map) */
-		if (instance->base_address >= first_free - (first_free & 0xffffff) && instance->base_address < end_free)
+		/* (a sound's tag in the map is only its header, empty: the whole
+		tag is the resource of its name in sounds.map, after its samples) */
+		if (type == _ce_resource_sounds)
 		{
-			ce_indexed_tags[index] = (byte)(type + 1);
-			continue;
+			long found = ce_resource_by_path(map, xbox_pointer(instance->name));
+
+			if (found == NONE)
+			{
+				error(_error_silent, "Custom Edition maps: %s is not in sounds.map",
+					(char const *)xbox_pointer(instance->name));
+				return FALSE;
+			}
+			instance->base_address = (unsigned long)found;
 		}
 		/* (strings and fonts are indexed by their resource, bitmaps the
 		same: the resource after their pixels) */
@@ -337,8 +385,44 @@ boolean ce_resources_tags_loaded(
 		next = (next + resource->size + 15) & ~15UL;
 		copied++;
 	}
+	/* every bitmap (in the map or copied in): Halo PC's flags past the
+	Xbox's format flags (its "external", and what Halo PC's renderer keeps
+	there) cleared, and the bitmap made the texture cache's, as the Xbox's
+	tools leave every bitmap in a map (texture_cache_bitmap_new, but for
+	the pixels' offset, already the file's): its tag named, and no cache
+	block, texture or pixels yet */
+	for (index = 0; index < tag_count; index++)
+	{
+		struct ce_tag_instance *instance = (struct ce_tag_instance *)((byte *)tag_instances +
+			index * CE_TAG_INSTANCE_SIZE);
+		byte *bitmap_group;
+		unsigned long count, elements, bitmap;
+
+		if (instance->group_tag != 'bitm')
+			continue;
+		bitmap_group = xbox_pointer(instance->base_address);
+		count = *(unsigned long *)(bitmap_group + 0x60);
+		elements = *(unsigned long *)(bitmap_group + 0x64);
+		for (bitmap = 0; bitmap < count; bitmap++)
+		{
+			byte *data = (byte *)xbox_pointer(elements) + bitmap * 0x30;
+
+			/* (a tag's bitmaps are all external or none are: its pixels are
+			read from bitmaps.map, as an indexed tag's are) */
+			if (*(unsigned short *)(data + 0x0e) & CE_BITMAP_EXTERNAL_FLAG)
+				ce_indexed_tags[index] = (byte)(_ce_resource_bitmaps + 1);
+			*(unsigned short *)(data + 0x0e) = (*(unsigned short *)(data + 0x0e) & CE_BITMAP_XBOX_FORMAT_FLAGS) |
+				CE_BITMAP_CACHED_FLAG;
+			*(unsigned long *)(data + 0x20) = instance->tag_index;
+			*(long *)(data + 0x24) = -1;
+			*(unsigned long *)(data + 0x28) = 0;
+			*(unsigned long *)(data + 0x2c) = 0;
+		}
+	}
 	error(_error_silent, "Custom Edition maps: %ld indexed tags copied in (%lu bytes free after them)", copied,
 		end_free - next);
+	ce_free_next = next;
+	ce_free_end = end_free;
 	return TRUE;
 }
 
@@ -352,6 +436,19 @@ HANDLE ce_resources_file_for_tag(
 	if (tag_index == NONE || index >= ce_indexed_tag_count || !ce_indexed_tags[index])
 		return NULL;
 	return ce_resource_maps[ce_indexed_tags[index] - 1].file;
+}
+
+/* size bytes (16-byte aligned) of the map's tag cache, after its tags and
+resources (ce_models.c): their Xbox address, or 0 if there is no room */
+unsigned long ce_resources_allocate(
+	unsigned long size)
+{
+	unsigned long address = ce_free_next;
+
+	if (!address || address + size > ce_free_end)
+		return 0;
+	ce_free_next = (address + size + 15) & ~15UL;
+	return address;
 }
 
 /* the map unloaded (cache_files.c) */

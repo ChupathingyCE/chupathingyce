@@ -636,6 +636,16 @@ static void texture_cache_initialize_hardware_format(
 			D3DFORMAT_BORDERSOURCE_COLOR |
 			D3DFORMAT_DMACHANNEL_A;
 		texture->Size = 0;
+#ifdef HALO_64BIT
+		/* port: a Custom Edition map's bitmap has its pixels as Halo PC lays
+		them out: uploaded as they are, not rearranged as the Xbox's */
+		{
+			extern boolean cache_file_tags_are_ce(void);
+
+			if (cache_file_tags_are_ce())
+				texture->Common |= D3DCOMMON_PORT_PC_LAYOUT;
+		}
+#endif
 	}
 	IDirect3DBaseTexture8_Register(texture, xbox_pointer(bitmap->base_address));
 

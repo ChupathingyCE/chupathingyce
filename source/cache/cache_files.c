@@ -206,6 +206,7 @@ struct cache_file_ce_tag_header
 };
 
 static boolean cache_file_is_ce;
+
 #endif
 
 struct cache_file_header
@@ -302,6 +303,16 @@ static struct cache_file_tag_instance *cache_get_tag_instance(
 
 /* ---------- public code */
 
+#ifdef HALO_64BIT
+/* whether the loaded map is a Custom Edition map: its bitmaps' pixels are laid
+out as Halo PC's (xbox_texture_cache.c) */
+boolean cache_file_tags_are_ce(
+	void)
+{
+	return cache_file_globals.tags_loaded && cache_file_is_ce;
+}
+#endif
+
 char const *cache_files_map_directory(
 	void)
 {
@@ -369,8 +380,10 @@ void scenario_tags_unload(
 	if (cache_file_is_ce)
 	{
 		extern void ce_resources_tags_unloaded(void);
+		extern void ce_models_tags_unloaded(void);
 
 		ce_resources_tags_unloaded();
+		ce_models_tags_unloaded();
 	}
 	else
 #endif
@@ -858,6 +871,29 @@ long scenario_tags_load(
 					error(_error_silent, "Custom Edition map %s: its resources could not be loaded", scenario_name);
 				}
 			}
+			/* its gbxmodels made models, from its model data block
+			(port/linux/game/ce_models.c) */
+			{
+				extern boolean ce_models_tags_loaded(void *tag_instances, long tag_count, byte const *model_data,
+					unsigned long vertex_data_size);
+				byte *model_data = system_malloc(ce_header->model_data_size);
+
+				if (model_data)
+				{
+					cache_file_read(NONE, ce_header->model_data_file_offset, ce_header->model_data_size, model_data,
+						&read_complete, TRUE);
+					while (!read_complete)
+						SwitchToThread();
+					ce_models_tags_loaded(global_tag_instances, ce_header->tag_count, model_data,
+						ce_header->vertex_data_size);
+					{
+						extern void ce_shaders_tags_loaded(void *tag_instances, long tag_count);
+
+						ce_shaders_tags_loaded(global_tag_instances, ce_header->tag_count);
+					}
+					system_free(model_data);
+				}
+			}
 
 			{
 				extern void hud_hires_tags_loaded(void);
@@ -965,6 +1001,16 @@ boolean scenario_structure_bsp_load(
 		0xE0,
 		cache_file_globals.structure_bsp_header->signature==CACHE_FILE_STRUCTURE_BSP_HEADER_SIGNATURE);
 	structure_bsp_header_register_vertex_buffers(cache_file_globals.structure_bsp_header);
+#ifdef HALO_64BIT
+	/* port: a Custom Edition map's BSP: its vertices compressed, as the
+	Xbox's are (port/linux/game/ce_bsp.c) */
+	if (cache_file_is_ce)
+	{
+		extern void ce_bsp_loaded(struct structure_bsp *structure);
+
+		ce_bsp_loaded(xbox_pointer(cache_file_globals.structure_bsp_header->base_address));
+	}
+#endif
 	tag_instance = cache_get_tag_instance(reference->structure_bsp.index);
 	match_assert(
 		"c:\\halo\\SOURCE\\cache\\cache_files.c",
@@ -985,6 +1031,14 @@ void scenario_structure_bsp_unload(
 	struct cache_file_tag_instance *tag_instance;
 
 	structure_bsp_header_deregister_vertex_buffers(cache_file_globals.structure_bsp_header);
+#ifdef HALO_64BIT
+	if (cache_file_is_ce)
+	{
+		extern void ce_bsp_unloaded(void);
+
+		ce_bsp_unloaded();
+	}
+#endif
 	tag_instance = cache_get_tag_instance(reference->structure_bsp.index);
 	match_assert(
 		"c:\\halo\\SOURCE\\cache\\cache_files.c",
