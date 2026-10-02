@@ -22,6 +22,13 @@ int main(int argc, char *argv[])
         setenv("HALO_DATA_ROOT", documents.fileSystemRepresentation, 1);
         chdir(documents.fileSystemRepresentation);
 
+        // saves and the z:\ cache go under the save root, which is
+        // $XDG_DATA_HOME/halo-linux (xbox_files.c); the default, ~/.local/share,
+        // is in the container's read-only top level on a device
+        NSString *support = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject;
+        [NSFileManager.defaultManager createDirectoryAtPath:support withIntermediateDirectories:YES attributes:nil error:NULL];
+        setenv("XDG_DATA_HOME", support.fileSystemRepresentation, 1);
+
         // the game draws 480 lines at the display's shape (d3d8_gl.c
         // screen_mode_choose); the Android app passes the same
         CGRect bounds = UIScreen.mainScreen.bounds;

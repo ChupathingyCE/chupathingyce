@@ -166,7 +166,15 @@ static const struct config_setting config_settings[] =
 		"clipboard) that lets whoever has it join over the internet; opening a\n"
 		"link (or copying one before switching to the game) joins. Only people\n"
 		"with the invite can join. Off keeps system link to the local network." },
-	{ "network.join_from_clipboard", _config_boolean, "true", "HALO_NET_JOIN_FROM_CLIPBOARD", _environment_value,
+	/* (off on iOS, which asks the player before an app reads what another
+	app copied: a card number from Wallet set it off on every launch) */
+	{ "network.join_from_clipboard", _config_boolean,
+#ifdef HALO_IOS
+		"false",
+#else
+		"true",
+#endif
+		"HALO_NET_JOIN_FROM_CLIPBOARD", _environment_value,
 		_platform_all,
 		"Join the game of an invite link found on the clipboard when the game\n"
 		"comes to the front." },
