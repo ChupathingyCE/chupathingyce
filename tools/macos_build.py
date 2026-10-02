@@ -283,6 +283,10 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
             add_object(source, posix_cflags)
         elif source.name == "updater.c":
             add_object(lp64(source), f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
+        elif source.name == "text_hires.c":
+            # (it includes stb_truetype by a path from its own folder: the
+            # copy's folder has no third_party beside it, the original's has)
+            add_object(lp64(source), f"{platform_cflags} -idirafter {LINUX_PORT_DIR / 'src'}")
         else:
             add_object(lp64(source), platform_cflags)
     # the high-res HUD's textures (port/assets/hud; port/linux/src/hud_hires.c),
