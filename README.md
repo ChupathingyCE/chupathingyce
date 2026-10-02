@@ -2,7 +2,7 @@
 
 <h1 align="center">ChupathingyCE</h1>
 
-<p align="center"><b>Halo: Combat Evolved on Windows, Mac, Linux and Android, with online play that just works.</b></p>
+<p align="center"><b>A community build of OpenCE: Halo: Combat Evolved on Windows, Mac, Linux and Android.</b></p>
 
 <p align="center">
 <a href="https://github.com/ChupathingyCE/chupathingyce/releases/latest">Download</a> ·
@@ -14,30 +14,44 @@
 > Players on OpenCE and players on ChupathingyCE play together.
 
 ChupathingyCE is a community build of **OpenCE**, the port of the Halo: Combat
-Evolved decompilation to modern computers and phones. We follow OpenCE closely,
-send our fixes back to it, and add things on top: a server list, dedicated
-servers, stats and service records, and a native Mac version. It's not a rival
-to OpenCE; it's a stable build you can count on, with its own releases.
+Evolved decompilation to modern computers and phones. Our goal is a unified
+online experience, plus our own tweaks, on a project that's still in its
+infancy. We follow OpenCE closely, send our fixes back to it, and put out our
+own releases. Expect rough edges, and please report them.
 
 <p align="center"><img src="docs/screenshots/lobby.jpg" width="720" alt="A multiplayer lobby"></p>
 
-## What you get
+## Features
 
-- **The whole game**: the campaign, split screen, and System Link multiplayer,
-  running natively. No emulator.
-- **Online Games**: a server list in the Multiplayer menu. Pick a game and you're
-  in, or press **Y** to host your own and it shows up for everyone.
-- **Play with anyone**: games go straight between players' computers. No port
-  forwarding in most homes.
-- **Stats and service records** at [halo.milenko.org](https://halo.milenko.org):
-  every finished game gets a carnage report with medals, and your games add up
-  on your service record and the leaderboards.
-- **Your own account**: make one on the site (or from the game), and back up
-  your player identity so a reinstall keeps your record.
-- **Dedicated servers**: anyone can run a server that hosts games around the
-  clock. See [server/README.md](server/README.md).
-- **High-res HUD and text**, widescreen menus, and controller prompts for
-  Xbox, PlayStation and Nintendo pads.
+**Online**
+- **Online Games**, a server list in the Multiplayer menu: join a game with **A**, or host one with **Y**
+- Games you host are listed for everyone, from any of our builds
+- Invite links (`halo://join/…`) to send to friends; opening one joins their game
+- Direct connections between players, with no port forwarding in most homes
+- Plays with OpenCE builds of the same network version, both ways
+- Dedicated servers anyone can run: a playlist of games, around the clock, with no window or player
+
+**Stats, on [halo.milenko.org](https://halo.milenko.org)**
+- A carnage report for every finished game, with medals
+- Service records and leaderboards, with confirmed players (your games count toward you, whatever name you use)
+- Accounts, made on the site or from the game, with an encrypted backup of your player identity
+- Listing a game hosted from an OpenCE build, by its invite link
+
+**The game**
+- The campaign, split screen and System Link, running natively (no emulator)
+- High-res HUD and text, and widescreen menus
+- Controller prompts for Xbox, PlayStation and Nintendo pads, and the keyboard
+- Updates itself: it checks for new releases when it starts, and asks first
+
+**Platforms**
+
+| | Windows | Mac | Linux | Android |
+| --- | --- | --- | --- | --- |
+| The game | ✅ | ✅ Apple silicon and Intel | ✅ | ✅ |
+| Online Games, hosting, stats | ✅ | ✅ | ✅ | ✅ |
+| Dedicated server | ✅ | ✅ | ✅ (and Docker) | |
+| Updates itself | ✅ | Not yet | ✅ | ✅ |
+| Movies (the intro) | | | | |
 
 ## Download
 
@@ -48,11 +62,16 @@ Get the latest release from the [Releases page](https://github.com/ChupathingyCE
 | Windows | `chupathingyce-windows-release.zip` | Windows 10 or later. |
 | Linux | `chupathingyce-linux-release.zip` | Needs SDL3 (32-bit). See [port/linux/README.md](port/linux/README.md). |
 | Android | `chupathingyce-android-release.zip` | Android 9 or later, 64-bit. See [port/android/README.md](port/android/README.md). |
-| Mac | Coming with the first release | Apple silicon. Build it yourself for now: [port/macos/README.md](port/macos/README.md). |
+| Mac | `chupathingyce-macos-release.zip` | macOS 13 or later, Apple silicon or Intel. |
 
 The game checks for new releases when it starts and asks before updating.
-Windows may warn that the app is from an unknown publisher: choose
-**More info → Run anyway**.
+
+We don't pay for code signing yet, so the first start needs one extra step:
+
+- **Windows** may warn about an unknown publisher: choose **More info → Run anyway**.
+- **Mac**: move ChupathingyCE to Applications and open it. If macOS won't open
+  it, go to **System Settings → Privacy & Security**, and choose **Open
+  Anyway** next to ChupathingyCE. You only do this once.
 
 ## You need your own copy of Halo
 
@@ -63,7 +82,8 @@ disc image (`.iso` or `.xiso`) of Halo: Combat Evolved. Any region works.
 2. The first time, it asks for your disc image. Pick it.
 3. It copies the game's `maps` folder out of the image (about 2 GB), then starts.
 
-On Android, copy the disc image to your phone first.
+On Android, copy the disc image to your phone first. On a Mac, the maps,
+settings and saves go in `~/Library/Application Support/ChupathingyCE`.
 
 ## Playing online
 
