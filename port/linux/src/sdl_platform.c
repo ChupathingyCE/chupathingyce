@@ -58,13 +58,23 @@ static long scoreboard_pages;
 static struct platform_keystroke keystroke_queue[KEYSTROKE_QUEUE_SIZE];
 static unsigned long keystroke_head, keystroke_count;
 
-#ifndef HALO_ANDROID
+#ifndef HALO_MOBILE
 /* updater.c's: the desktop self-updater */
 void updater_start(void);
 void updater_poll(SDL_Window *window);
 #endif
 /* (and the version, for the window's title) */
 const char *updater_version(void);
+
+#ifdef HALO_IOS
+/* the framebuffer object SDL presents the window from (d3d8_gl.c draws the
+picture into it instead of framebuffer 0, which iOS does not have) */
+unsigned int platform_video_framebuffer(void)
+{
+	return platform_window ? (unsigned int)SDL_GetNumberProperty(SDL_GetWindowProperties(platform_window),
+		SDL_PROP_WINDOW_UIKIT_OPENGL_FRAMEBUFFER_NUMBER, 0) : 0;
+}
+#endif
 
 BOOL platform_sdl_initialize(void)
 {
@@ -81,7 +91,7 @@ BOOL platform_sdl_initialize(void)
 	if (p2p_hand_off_invite())
 		exit(EXIT_SUCCESS);
 	SDL_SetHint(SDL_HINT_APP_NAME, "ChupathingyCE");
-#ifdef HALO_ANDROID
+#ifdef HALO_MOBILE
 	/* landscape only; the back key arrives as a key event (xinput_sdl.c)
 	instead of closing the activity */
 	SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
@@ -105,7 +115,7 @@ BOOL platform_sdl_initialize(void)
 		return FALSE;
 	}
 	platform_sdl_started = TRUE;
-#ifndef HALO_ANDROID
+#ifndef HALO_MOBILE
 	/* found (or offered to the player, platform_offer_game_data) before the
 	game's window opens */
 	platform_data_root();
@@ -115,7 +125,7 @@ BOOL platform_sdl_initialize(void)
 	return TRUE;
 }
 
-#ifndef HALO_ANDROID
+#ifndef HALO_MOBILE
 /* ---------- first start without game data (xbox_files.c) */
 
 struct data_extraction
@@ -334,7 +344,7 @@ int halo_interpolation_enabled(void)
 	return enabled;
 }
 
-#ifndef HALO_ANDROID
+#ifndef HALO_MOBILE
 /* whether the window opens fullscreen (display.fullscreen), never when it
 is hidden */
 static BOOL platform_fullscreen_setting(void)
@@ -377,7 +387,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	if (scale < 1)
 		scale = 1;
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
@@ -417,7 +427,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 
 	/* "ChupathingyCE 0.5.0b" */
 	snprintf(title, sizeof(title), "ChupathingyCE %s", updater_version());
-#ifdef HALO_ANDROID
+#ifdef HALO_MOBILE
 	platform_window = SDL_CreateWindow(title, (int)(width * scale), (int)(height * scale),
 		SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN);
 #else
@@ -443,7 +453,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	SDL_SyncWindow(platform_window);
 #endif
 	platform_gl_context = SDL_GL_CreateContext(platform_window);
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 	/* ES 3.2 where the driver has it, otherwise the renderer makes do with
 	3.0 plus extensions */
 	if (!platform_gl_context)
@@ -460,6 +470,14 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	SDL_GL_MakeCurrent(platform_window, platform_gl_context);
 	if (!gl_functions_load())
 		return FALSE;
+#ifdef HALO_IOS
+	{
+		/* port/ios/app: the touch controls, over the view the context draws to */
+		void ios_window_created(SDL_Window *window);
+
+		ios_window_created(platform_window);
+	}
+#endif
 #ifdef __APPLE__
 	{
 		/* port/macos/src/macos_video.c */
@@ -474,7 +492,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	(void)version;
 	platform_event_thread = SDL_GetCurrentThreadID();
 	platform_log("OpenGL %s on %s", (const char *)glGetString(GL_VERSION), (const char *)glGetString(GL_RENDERER));
-#ifndef HALO_ANDROID
+#ifndef HALO_MOBILE
 	platform_mouse_capture(TRUE);
 #endif
 	return TRUE;
@@ -938,7 +956,7 @@ void platform_pump_events(void)
 #ifdef HALO_GAME_BROWSER
 	platform_game_list_requests();
 #endif
-#ifndef HALO_ANDROID
+#ifndef HALO_MOBILE
 	updater_poll(platform_window);
 #endif
 	pthread_mutex_lock(&input_lock);

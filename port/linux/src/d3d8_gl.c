@@ -39,7 +39,7 @@ Conventions carried over from the Xbox:
 void d3d8_surface_initialize(D3DSurface *surface, D3DFORMAT format, unsigned long width, unsigned long height);
 void d3d8_surface_resize(D3DSurface *surface, D3DFORMAT format, unsigned long width, unsigned long height);
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 /* OpenGL ES 3 (port/android/README.md): the desktop formats, enumerants
 and entry points used below that ES lacks */
 #define GL_BGRA GL_RGBA
@@ -88,7 +88,7 @@ static long ui_offset;
 
 static void screen_mode_choose(long *width, float scale[2])
 {
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 	/* display.screen_width, or 0 for the display's shape, which the app
 	passes (port/android/host/host_main.c) */
 	const char *display = getenv("HALO_DISPLAY_WIDTH");
@@ -278,6 +278,15 @@ static struct framebuffer_entry *framebuffers;
 
 /* ---------- the device */
 
+#ifdef HALO_IOS
+/* iOS has no window-system framebuffer 0: SDL draws the window through a
+framebuffer object of its own (sdl_platform.c) */
+unsigned int platform_video_framebuffer(void);
+#define WINDOW_FRAMEBUFFER platform_video_framebuffer()
+#else
+#define WINDOW_FRAMEBUFFER 0
+#endif
+
 #ifdef HALO_ANDROID
 /* Mobile drivers (Mali) keep every orphaned copy of a buffer until the GPU
 is done with it, so a large buffer orphaned each frame costs its size per
@@ -293,7 +302,7 @@ vertices. */
 #define INDEX_BUFFER_SIZE (8 * 1024 * 1024)
 #endif
 #define VISIBILITY_TEST_SLOTS 4096
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 #define VISIBILITY_QUERY GL_ANY_SAMPLES_PASSED
 #define VISIBILITY_ALL_SAMPLES 1000000
 #else
@@ -357,7 +366,7 @@ struct gl_device
 	float query_area[VISIBILITY_TEST_SLOTS];
 	GLuint active_query;
 	BOOL visibility_test_active;
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 	/* with atomic counters: one counter per test, used as a ring; the
 	counter a test ended in, per result slot */
 	GLuint visibility_counters;
@@ -734,7 +743,7 @@ static GLuint compile_shader(GLenum type, const char *source, const char *what)
 	return shader;
 }
 
-#ifndef HALO_ANDROID
+#ifndef HALO_GLES
 static void GLAPIENTRY gl_debug_callback(GLenum source, GLenum type, GLuint id, GLenum severity,
 	GLsizei length, const GLchar *message, const void *user)
 {
@@ -890,7 +899,7 @@ static void gl_initialize(void)
 
 	glGetIntegerv(GL_MAJOR_VERSION, &major);
 	glGetIntegerv(GL_MINOR_VERSION, &minor);
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 	{
 		BOOL es32 = major > 3 || (major == 3 && minor >= 2);
 
@@ -960,7 +969,7 @@ static void gl_initialize(void)
 #endif
 	glGenSamplers(D3DTSS_MAXSTAGES, device.samplers);
 	glGenQueries(VISIBILITY_TEST_SLOTS, device.queries);
-#ifndef HALO_ANDROID
+#ifndef HALO_GLES
 	/* (OpenGL 4.4: without it, as on macOS, visibility tests wait for the GPU) */
 	if (glBufferStorage)
 	{
@@ -986,7 +995,7 @@ static void gl_initialize(void)
 		}
 	}
 #endif
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 	if (xgpu_capabilities.atomic_counters)
 	{
 		glGenBuffers(1, &device.visibility_counters);
@@ -1099,7 +1108,7 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 			device.presentation = *presentation_parameters;
 		width = device.presentation.BackBufferWidth ? device.presentation.BackBufferWidth : 640;
 		height = device.presentation.BackBufferHeight ? device.presentation.BackBufferHeight : 480;
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 		d3d8_surface_initialize(&device.back_buffer, D3DFMT_LIN_A8R8G8B8, width, height);
 		d3d8_surface_initialize(&device.depth_buffer, D3DFMT_LIN_D24S8, width, height);
 #else
@@ -1243,7 +1252,7 @@ long halo_screen_commit(void)
 		screen_width = width;
 		screen_scale[0] = scale[0];
 		screen_scale[1] = scale[1];
-#ifndef HALO_ANDROID
+#ifndef HALO_GLES
 		if (device.created)
 		{
 			device.presentation.BackBufferWidth = (UINT)width;
@@ -1387,7 +1396,7 @@ void WINAPI D3DDevice_BeginVisibilityTest(void)
 		return;
 	/* the query object is chosen when the test ends; use a scratch one */
 	device.visibility_test_active = TRUE;
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 	if (xgpu_capabilities.atomic_counters)
 	{
 		const GLuint zero = 0;
@@ -1414,7 +1423,7 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 	index %= VISIBILITY_TEST_SLOTS;
 	if (!index)
 		index = 1;
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 	if (xgpu_capabilities.atomic_counters)
 	{
 		device.counter_of_slot[index] = device.counter_active;
@@ -1433,7 +1442,7 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 	device.queries[0] = device.queries[index];
 	device.queries[index] = scratch;
 	device.query_pending[index] = TRUE;
-#ifndef HALO_ANDROID
+#ifndef HALO_GLES
 	if (device.visibility_results)
 	{
 		/* the GPU writes the count into the slot once it is known */
@@ -1445,7 +1454,7 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 	return S_OK;
 }
 
-#ifndef HALO_ANDROID
+#ifndef HALO_GLES
 /* a count of pixels in the game's pixels */
 static GLuint visibility_unscaled(GLuint samples, DWORD index)
 {
@@ -1470,7 +1479,7 @@ HRESULT WINAPI D3DDevice_GetVisibilityTestResult(DWORD index, UINT *result, ULON
 			*result = 0;
 		return S_OK;
 	}
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 	if (xgpu_capabilities.atomic_counters)
 	{
 		/* reading the buffer waits for the draws that counted */
@@ -1481,7 +1490,7 @@ HRESULT WINAPI D3DDevice_GetVisibilityTestResult(DWORD index, UINT *result, ULON
 		return S_OK;
 	}
 #endif
-#ifndef HALO_ANDROID
+#ifndef HALO_GLES
 	if (device.visibility_results)
 	{
 		/* the latest count the GPU has written: from this test, or while
@@ -1495,7 +1504,7 @@ HRESULT WINAPI D3DDevice_GetVisibilityTestResult(DWORD index, UINT *result, ULON
 	if (!available)
 		return D3DERR_TESTINCOMPLETE;
 	glGetQueryObjectuiv(device.queries[index], GL_QUERY_RESULT, &samples);
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 	/* ES only says whether any sample passed. The game divides the count by
 	the test's area (lens flare brightness, rasterizer_lights.c): report
 	more than any test covers, well below what would overflow there. */
@@ -2051,7 +2060,7 @@ static GLenum address_mode(DWORD mode)
 	{
 	case D3DTADDRESS_MIRROR: return GL_MIRRORED_REPEAT;
 	case D3DTADDRESS_CLAMP: return GL_CLAMP_TO_EDGE;
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 	case D3DTADDRESS_BORDER: return xgpu_capabilities.border_clamp ? GL_CLAMP_TO_BORDER : GL_CLAMP_TO_EDGE;
 #else
 	case D3DTADDRESS_BORDER: return GL_CLAMP_TO_BORDER;
@@ -2107,7 +2116,7 @@ static void configure_sampler(int stage, BOOL mipmapped, BOOL hires)
 	glSamplerParameteri(sampler, GL_TEXTURE_WRAP_S, (GLint)address_mode(state[D3DTSS_ADDRESSU]));
 	glSamplerParameteri(sampler, GL_TEXTURE_WRAP_T, (GLint)address_mode(state[D3DTSS_ADDRESSV]));
 	glSamplerParameteri(sampler, GL_TEXTURE_WRAP_R, (GLint)address_mode(state[D3DTSS_ADDRESSW]));
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 	/* ES has no sampler LOD bias; the pixel shader applies it
 	(texture_lod_bias) */
 	glSamplerParameterf(sampler, GL_TEXTURE_MIN_LOD, (float)maximum_mip_level);
@@ -2146,8 +2155,8 @@ struct mip_composite
 
 static struct mip_composite *mip_composites;
 
-#if defined(HALO_ANDROID) || defined(__APPLE__)
-#ifdef HALO_ANDROID
+#if defined(HALO_GLES) || defined(__APPLE__)
+#ifdef HALO_GLES
 #define HOST_GL_COPY_IMAGE xgpu_capabilities.copy_image
 #else
 #define HOST_GL_COPY_IMAGE (glCopyImageSubData != NULL)
@@ -2167,7 +2176,7 @@ static void copy_level_by_blit(GLuint source, GLuint destination, GLint level, G
 	glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, destination, level);
 	glDisable(GL_SCISSOR_TEST);
 	glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glBindFramebuffer(GL_FRAMEBUFFER, WINDOW_FRAMEBUFFER);
 	/* the blit bypasses the cached state, so the next draw must re-apply it */
 	xgpu_gl_state_invalidate();
 }
@@ -2217,7 +2226,7 @@ static GLuint mip_composite_get(const struct xgpu_texture_description *descripti
 		if (!target || target->width != width || target->height != height ||
 			target->gl_width != width || target->gl_height != height)
 			break;
-#if defined(HALO_ANDROID) || defined(__APPLE__)
+#if defined(HALO_GLES) || defined(__APPLE__)
 		/* (OpenGL 4.3: macOS's 4.1 copies levels with a blit instead) */
 		if (!HOST_GL_COPY_IMAGE)
 		{
@@ -2468,7 +2477,7 @@ static void apply_raster_state(BOOL has_depth)
 			glCullFace(cull_mode);
 		}
 	}
-#ifndef HALO_ANDROID
+#ifndef HALO_GLES
 	/* ES draws filled polygons only (wireframe is a debug mode) */
 	{
 		GLenum polygon_mode = rs[D3DRS_FILLMODE] == D3DFILL_WIREFRAME ? GL_LINE :
@@ -2484,7 +2493,7 @@ static void apply_raster_state(BOOL has_depth)
 
 	/* D3DRS_ZBIAS is expressed in these states (D3DDevice_SetRenderState_ZBias) */
 	state_enable(&gl_state.offset_fill, GL_POLYGON_OFFSET_FILL, rs[D3DRS_SOLIDOFFSETENABLE] != 0);
-#ifndef HALO_ANDROID
+#ifndef HALO_GLES
 	state_enable(&gl_state.offset_line, GL_POLYGON_OFFSET_LINE, rs[D3DRS_SOLIDOFFSETENABLE] != 0);
 #endif
 	if (rs[D3DRS_SOLIDOFFSETENABLE])
@@ -2501,7 +2510,7 @@ static void apply_raster_state(BOOL has_depth)
 	}
 }
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 /* ES has no debug callback in 3.0; debug.gl_debug polls glGetError around
 each draw instead, reporting each distinct error a few times */
 static void gl_check_errors(const char *where)
@@ -2621,7 +2630,7 @@ static struct program_entry *prepare_draw(BOOL immediate)
 	key.alpha_test_function = D3D__RenderState[D3DRS_ALPHATESTENABLE] ? D3D__RenderState[D3DRS_ALPHAFUNC] : 0;
 	key.fog_enable = D3D__RenderState[D3DRS_FOGENABLE] != 0;
 	key.fog_table_mode = (unsigned char)D3D__RenderState[D3DRS_FOGTABLEMODE];
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 	key.count_samples = device.visibility_test_active && xgpu_capabilities.atomic_counters;
 #endif
 
@@ -2639,7 +2648,7 @@ static struct program_entry *prepare_draw(BOOL immediate)
 		stats.draws++;
 	draw_flush();
 	state_program(entry->program);
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 	if (key.count_samples)
 		glBindBufferRange(GL_ATOMIC_COUNTER_BUFFER, 0, device.visibility_counters,
 			(GLintptr)(device.counter_active * sizeof(GLuint)), sizeof(GLuint));
@@ -3183,7 +3192,7 @@ static unsigned long stream_upload(const void *data, unsigned long size)
 	return offset;
 }
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 /* stream_upload, with the D3DCOLOR elements of the stream turned from BGRA
 into the RGBA byte order ES reads */
 static unsigned long stream_upload_swizzled(const struct vertex_shader_object *declaration, unsigned long stream,
@@ -3257,7 +3266,7 @@ static void attribute_format(const struct vertex_element *element, GLint *size, 
 	case D3DVSDT_FLOAT2: *size = 2; *type = GL_FLOAT; break;
 	case D3DVSDT_FLOAT3: case D3DVSDT_FLOAT2H: *size = 3; *type = GL_FLOAT; break;
 	case D3DVSDT_FLOAT4: *size = 4; *type = GL_FLOAT; break;
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 	/* ES has no BGRA attributes: stream_upload_swizzled swaps the bytes */
 	case D3DVSDT_D3DCOLOR: *size = 4; *type = GL_UNSIGNED_BYTE; *normalized = GL_TRUE; break;
 #else
@@ -3282,7 +3291,7 @@ static void attribute_format(const struct vertex_element *element, GLint *size, 
 /* upload vertices [first, first + count) of every stream the declaration
 uses and point the attributes at them; attribute data then starts at
 vertex 0 of the uploaded range */
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 /* ES has no BGRA attributes, so a stream with colours is swizzled as it is
 uploaded (stream_upload_swizzled) and cannot come from the mirror */
 static BOOL stream_has_colors(const struct vertex_shader_object *declaration, unsigned long stream)
@@ -3321,7 +3330,7 @@ static void setup_streams(unsigned long first, unsigned long count)
 		placed[stream] = TRUE;
 		stream_buffers[stream] = 0;
 		base = (unsigned long)XBOX_ADDRESS(PLATFORM_PHYSICAL_TO_VIRTUAL(device.streams[stream].data)) + first * stride;
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 		if (!stream_has_colors(declaration, stream))
 #endif
 		if (mirror_range(base, bytes, &stream_buffers[stream], &stream_offsets[stream], NULL))
@@ -3346,7 +3355,7 @@ static void setup_streams(unsigned long first, unsigned long count)
 			const unsigned char *base = PLATFORM_PHYSICAL_TO_VIRTUAL(device.streams[stream].data);
 			unsigned long bytes = stride ? stride * count : 64;
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 			stream_offsets[stream] = stream_upload_swizzled(declaration, stream, base + first * stride, bytes, stride);
 #else
 			stream_offsets[stream] = stream_upload(base + first * stride, bytes);
@@ -3463,7 +3472,7 @@ void WINAPI D3DDevice_DrawIndexedVertices(D3DPRIMITIVETYPE primitive_type, UINT 
 		return;
 	/* quads are drawn as triangles, from indices made for the draw */
 	mirrored = primitive_type != D3DPT_QUADLIST &&
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 		xgpu_capabilities.base_vertex &&
 #endif
 		mirror_range((unsigned long)XBOX_ADDRESS(index_data), vertex_count * sizeof(WORD), &index_buffer, &index_offset, &generation);
@@ -3486,7 +3495,7 @@ void WINAPI D3DDevice_DrawIndexedVertices(D3DPRIMITIVETYPE primitive_type, UINT 
 		indices = quad_indices(index_data, vertex_count, &count);
 		source = indices;
 	}
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 	if (!xgpu_capabilities.base_vertex)
 	{
 		/* the indices are copied anyway: rebase them */
@@ -3495,7 +3504,7 @@ void WINAPI D3DDevice_DrawIndexedVertices(D3DPRIMITIVETYPE primitive_type, UINT 
 		for (index = 0; index < count; index++)
 			rebased[index] = (WORD)(source[index] - minimum);
 		glDrawElements(primitive_mode(primitive_type), (GLsizei)count, GL_UNSIGNED_SHORT,
-			(const void *)index_upload(rebased, count * sizeof(WORD)));
+			(const void *)(uintptr_t)index_upload(rebased, count * sizeof(WORD)));
 		free(rebased);
 		free(indices);
 		return;
@@ -3712,7 +3721,7 @@ static void write_screenshot(struct render_target_entry *target)
 	image viewers would show it as transparency */
 	for (row = 0; row < width * height; row++)
 	{
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 		unsigned char red = pixels[row * 4];
 
 		pixels[row * 4] = pixels[row * 4 + 2];
@@ -3774,7 +3783,7 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		}
 		x = (window_width - width) / 2;
 		y = (window_height - height) / 2;
-		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, WINDOW_FRAMEBUFFER);
 		glDisable(GL_SCISSOR_TEST);
 		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);

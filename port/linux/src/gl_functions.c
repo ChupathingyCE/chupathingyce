@@ -22,7 +22,7 @@ int gl_functions_load(void)
 #define GL_OPTIONAL_FUNCTION(name) \
 	(!strcmp(#name, "glClipControl") || !strcmp(#name, "glCopyImageSubData") || \
 		!strcmp(#name, "glDebugMessageCallback") || !strcmp(#name, "glBufferStorage") || \
-		!strcmp(#name, "glMemoryBarrier"))
+		!strcmp(#name, "glMemoryBarrier") || !strcmp(#name, "glDrawElementsBaseVertex"))
 #define GL_LOAD_FUNCTION(name) \
 	halo_##name = (__typeof__(halo_##name))SDL_GL_GetProcAddress(#name); \
 	if (!halo_##name && !GL_OPTIONAL_FUNCTION(name)) \
