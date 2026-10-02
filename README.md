@@ -6,7 +6,8 @@
 
 <p align="center">
 <a href="https://github.com/ChupathingyCE/chupathingyce/releases/latest">Download</a> ·
-<a href="https://halo.milenko.org">Games online now</a>
+<a href="https://halo.milenko.org">Games online now</a> ·
+<a href="https://discord.gg/fXNqnpaNay">Discord (Milenko x TeamUIX)</a>
 </p>
 
 > **Compatible with [OpenCE](https://github.com/cybersecurity/halo-ce-universal) build-55 through build-65 (network version 9).**
