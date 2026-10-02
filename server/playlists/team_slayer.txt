@@ -1,0 +1,19 @@
+# Team Slayer on every map (server/src/dedicated.c). While a single player
+# waits, the server plays the next entry without teams instead (here there
+# is none, so it waits for a second player).
+# One entry a line: the map, then the game type, played in order.
+
+# map            game type
+bloodgulch       team_slayer
+prisoner         team_slayer
+sidewinder       team_slayer
+hangemhigh       team_slayer
+damnation        team_slayer
+boardingaction   team_slayer
+chillout         team_slayer
+beavercreek      team_slayer
+ratrace          team_slayer
+wizard           team_slayer
+longest          team_slayer
+carousel         team_slayer
+putput           team_slayer

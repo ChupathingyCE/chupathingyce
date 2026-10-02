@@ -1,0 +1,16 @@
+# Slayer, every player for themselves, on the smaller maps (server/src/dedicated.c):
+# no team games, so any number of players, one included, can start a game.
+# The big maps (Blood Gulch, Sidewinder, Boarding Action) are left to teams.
+# One entry a line: the map, then the game type, played in order.
+
+# map            game type
+prisoner         slayer
+hangemhigh       slayer
+chillout         slayer
+wizard           slayer
+damnation        slayer
+longest          slayer
+ratrace          slayer
+carousel         slayer
+beavercreek      slayer
+putput           slayer
