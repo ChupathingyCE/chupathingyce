@@ -366,7 +366,13 @@ void scenario_tags_unload(
 	cache_file_close();
 #ifdef HALO_64BIT
 	/* (a Custom Edition map registered no Direct3D buffers) */
-	if (!cache_file_is_ce)
+	if (cache_file_is_ce)
+	{
+		extern void ce_resources_tags_unloaded(void);
+
+		ce_resources_tags_unloaded();
+	}
+	else
 #endif
 	tags_header_deregister_vertex_and_index_buffers(cache_file_globals.tag_header);
 	cache_file_globals.tags_loaded = FALSE;
@@ -825,6 +831,33 @@ long scenario_tags_load(
 			cache_file_globals.tags_loaded = TRUE;
 			error(_error_silent, "Custom Edition map %s: %ld tags, %ld model parts (%ld bytes of model data)",
 				scenario_name, ce_header->tag_count, ce_header->model_part_count, ce_header->model_data_size);
+			/* its indexed tags, from the resource maps, into the space between
+			its tags and its structure BSPs (the lowest of them: the scenario's
+			references, port/linux/game/ce_resources.c) */
+			{
+				extern boolean ce_resources_tags_loaded(void *tag_instances, long tag_count, unsigned long first_free,
+					unsigned long end_free);
+				struct cache_file_tag_instance *scenario = &global_tag_instances[ce_header->scenario_tag_index & 0xffff];
+				byte *scenario_data = xbox_pointer(scenario->base_address);
+				long bsp_count = *(long *)(scenario_data + 0x5A4);
+				struct scenario_structure_bsp_reference *bsps =
+					xbox_pointer(*(unsigned long *)(scenario_data + 0x5A8));
+				unsigned long end_free = CE_TAG_CACHE_BASE + CE_TAG_CACHE_SIZE;
+				long bsp_index;
+
+				for (bsp_index = 0; bsp_index < bsp_count; bsp_index++)
+				{
+					unsigned long bsp_base = (unsigned long)xbox_address(xbox_pointer(bsps[bsp_index].base_address));
+
+					if (bsp_base > CE_TAG_CACHE_BASE && bsp_base < end_free)
+						end_free = bsp_base;
+				}
+				if (!ce_resources_tags_loaded(global_tag_instances, ce_header->tag_count,
+					CE_TAG_CACHE_BASE + cache_file_globals.header.tag_data_size, end_free))
+				{
+					error(_error_silent, "Custom Edition map %s: its resources could not be loaded", scenario_name);
+				}
+			}
 
 			{
 				extern void hud_hires_tags_loaded(void);
