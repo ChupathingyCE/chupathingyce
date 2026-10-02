@@ -61,15 +61,17 @@ well beyond any vehicle, short of any teleport */
 #define OBJECT_SNAP_DISTANCE 10.0f
 /* ... a node may move relative to the object's root node in one tick before
 the pose is taken for a new one, not blended to: further than any limb or
-part of a model moves in 33 ms (two snapshots of different poses, such as a
-model swapped, blended into vertices stretched across the world) */
-#define NODE_SNAP_DISTANCE 1.0f
+part of a model moves in 33 ms (27 m/s), short of the game changing a pose
+at once (an actor waking from dormancy, a model swapped), which blended
+sweeps the vertices through poses it never had */
+#define NODE_SNAP_DISTANCE 0.3f
 /* ... a first-person node may move relative to the camera */
 #define FIRST_PERSON_SNAP_DISTANCE 0.25f
 /* the cosine of half the largest turn a node is blended through in one tick,
-90 degrees: a larger one is taken as it ends (the shorter way round could go
-either way, and the node's neighbors another, tearing the skin between them;
-a fast wheel is round, so its turn not blended shows nothing) */
+90 degrees, beyond which the whole pose is taken as it ends: the shorter way
+round could go either way, and the node's neighbors another, tearing the
+skin between them (a vehicle's wheels turn about 60 degrees a tick at its
+top speed) */
 #define NODE_SNAP_HALF_COSINE 0.7071f
 /* a correction's difference left drawn after each tick (of 1) */
 #define CORRECTION_DECAY 0.6f
@@ -587,11 +589,7 @@ real_matrix4x3 *render_interpolation_object_node_matrices(long object_index)
 			snap = !node_moved_with(&previous[node_index].position, &latest[node_index].position,
 				&previous[0].position, &latest[0].position, NODE_SNAP_DISTANCE);
 		}
-		if (snap)
-		{
-			memcpy(blended, latest, record->node_count * sizeof(real_matrix4x3));
-		}
-		else
+		if (!snap)
 		{
 			struct interpolation_rotation *previous_rotations =
 				record->rotations + (record->latest ^ 1) * record->node_capacity;
@@ -614,20 +612,22 @@ real_matrix4x3 *render_interpolation_object_node_matrices(long object_index)
 					record->rotations_valid[snapshot] = TRUE;
 				}
 			}
-			for (node_index = 0; node_index < record->node_count; node_index++)
+			/* a node turned further than a tick allows: the whole pose snaps
+			(a node of it taken as it ends while its neighbors blend would
+			stretch the skin between them) */
+			for (node_index = 0; !snap && node_index < record->node_count; node_index++)
 			{
-				if (node_turn_blends(&previous[node_index], &latest[node_index], &previous_rotations[node_index],
-					&latest_rotations[node_index]))
-				{
-					matrix_blend_rotations(&previous[node_index], &latest[node_index], &previous_rotations[node_index],
-						&latest_rotations[node_index], interpolation_fraction, &blended[node_index]);
-				}
-				else
-				{
-					blended[node_index] = latest[node_index];
-				}
+				snap = !node_turn_blends(&previous[node_index], &latest[node_index], &previous_rotations[node_index],
+					&latest_rotations[node_index]);
+			}
+			for (node_index = 0; !snap && node_index < record->node_count; node_index++)
+			{
+				matrix_blend_rotations(&previous[node_index], &latest[node_index], &previous_rotations[node_index],
+					&latest_rotations[node_index], interpolation_fraction, &blended[node_index]);
 			}
 		}
+		if (snap)
+			memcpy(blended, latest, record->node_count * sizeof(real_matrix4x3));
 		if (correction_significant(&record->correction) || correction_significant(&record->correction_pending))
 		{
 			real_vector3d drawn;
