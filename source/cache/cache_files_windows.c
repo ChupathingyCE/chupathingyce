@@ -444,6 +444,10 @@ platform.h) */
 
 static struct cached_map_file ce_map_file;
 static char ce_map_name[64];
+/* each request's file, if not the map's: a Custom Edition map's resource
+map, for its indexed tags' pixels and samples (port/linux/game/ce_resources.c) */
+static HANDLE ce_request_files[MAXIMUM_SIMULTANEOUS_CACHE_REQUESTS];
+HANDLE ce_resources_file_for_tag(long tag_index);
 
 static boolean ce_map_name_is(
 	const char *map_name)
@@ -908,6 +912,10 @@ short cache_file_read(
 		size = (size | (CACHE_FILE_SECTOR_SIZE - 1)) + 1;
 	}
 	*completion_flag_reference = FALSE;
+#ifdef HALO_64BIT
+	ce_request_files[request_index] = cache_file_globals.open_map_file_index == CE_MAP_FILE_INDEX
+		? ce_resources_file_for_tag(tag_index) : NULL;
+#endif
 	memset(
 		&request->overlapped,
 		0,
@@ -1215,6 +1223,12 @@ static void cache_file_windows_thread_proc(
 			}
 
 			file = cached_map_file_get_handle(cache_file_globals.open_map_file_index);
+#ifdef HALO_64BIT
+			/* (a Custom Edition map's indexed tag's pixels or samples: its
+			resource map) */
+			if (ce_request_files[best_request - cache_request_get(0)])
+				file = ce_request_files[best_request - cache_request_get(0)];
+#endif
 			match_assert(
 				"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
 				1327,
