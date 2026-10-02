@@ -28,6 +28,7 @@ follows the one of its pixels (<path>__pixels).
 #include "tag_files/tag_groups.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* ---------- constants */
@@ -48,6 +49,13 @@ enum
 	CE_BITMAP_EXTERNAL_FLAG = 0x100,
 	/* (xbox_texture_cache.c's _bitmap_cached_bit) */
 	CE_BITMAP_CACHED_FLAG = 0x80,
+
+	/* ce_indexed_tags' mark of a sound whose samples are decoded (in
+	ce_sounds.pcm) */
+	CE_DECODED_SOUND = 0xff,
+	/* (sound_manager.c's sound_compression) */
+	CE_SOUND_COMPRESSION_NONE = 0,
+	CE_SOUND_COMPRESSION_OGG = 3,
 };
 
 /* ---------- structures */
@@ -83,6 +91,9 @@ struct ce_resource_map
 /* ---------- prototypes */
 
 char const *cache_files_map_directory(void);
+int ce_vorbis_decode(const unsigned char *data, int size, int *channels, int *sample_rate, short **samples);
+void ce_vorbis_free(short *samples);
+static void ce_sounds_decode(void *tag_instances, long tag_count);
 
 /* ---------- globals */
 
@@ -92,6 +103,8 @@ static char const *const ce_resource_map_names[NUMBER_OF_CE_RESOURCE_MAPS] = { "
 0 none) */
 static byte *ce_indexed_tags;
 static long ce_indexed_tag_count;
+/* the map's Ogg Vorbis sounds' samples, decoded to 16-bit PCM (maps\ce\ce_sounds.pcm) */
+static HANDLE ce_decoded_sounds_file;
 /* the space left in the map's tag cache (ce_resources_allocate) */
 static unsigned long ce_free_next, ce_free_end;
 
@@ -266,26 +279,64 @@ static void ce_relocate_tag(
 		}
 		break;
 	case 'snd!':
-		/* (sound_definitions.h: pitch ranges, their permutations' samples,
-		mouth data and subtitles) */
-		count = ce_relocate_block(copy, size, 0x98, base, &elements);
-		for (index = 0; index < count; index++)
+	{
+		/* (sound_definitions.h) A sound's resource keeps the pointers of
+		the machine that built it, not offsets: its parts follow each other,
+		the sound (0xa4 bytes), its pitch ranges, each pitch range's
+		permutations, then each permutation's mouth data and subtitles. Its
+		samples are in sounds.map, where their offsets say. */
+		unsigned long cursor = 0xa4;
+		unsigned long range_count = *(unsigned long *)(copy + 0x98);
+		unsigned long ranges = cursor;
+
+		*(unsigned long *)(copy + 0x9c) = range_count ? base + ranges : 0;
+		cursor += range_count * 0x48;
+		for (index = 0; index < range_count && ranges + (index + 1) * 0x48 <= size; index++)
 		{
-			unsigned long permutations;
-			unsigned long permutation_count = ce_relocate_block(copy, size, elements + index * 0x48 + 0x3c, base,
-				&permutations);
+			byte *range = copy + ranges + index * 0x48;
+			unsigned long permutation_count = *(unsigned long *)(range + 0x3c);
+
+			*(unsigned long *)(range + 0x40) = permutation_count ? base + cursor : 0;
+			*(unsigned long *)(range + 0x44) = 0;
+			cursor += permutation_count * 0x7c;
+		}
+		for (index = 0; index < range_count && ranges + (index + 1) * 0x48 <= size; index++)
+		{
+			byte *range = copy + ranges + index * 0x48;
+			unsigned long permutation_count = *(unsigned long *)(range + 0x3c);
+			unsigned long permutations = *(unsigned long *)(range + 0x40) - base;
 			unsigned long permutation;
 
-			for (permutation = 0; permutation < permutation_count; permutation++)
+			for (permutation = 0; permutation < permutation_count && permutations + (permutation + 1) * 0x7c <= size;
+				permutation++)
 			{
-				unsigned long at = permutations + permutation * 0x7c;
+				byte *at = copy + permutations + permutation * 0x7c;
+				unsigned long data;
 
-				ce_relocate_data(copy, size, at + 0x40, base);
-				ce_relocate_data(copy, size, at + 0x54, base);
-				ce_relocate_data(copy, size, at + 0x68, base);
+				/* (the sound cache's, as the Xbox's tools leave them: no block
+				or address yet, and the tag the samples are read for, which
+				routes the read: ce_resources_file_for_tag; Halo PC's resource
+				has the tag index of the map it was built in) */
+				*(unsigned long *)(at + 0x2c) = 0xffffffff;
+				*(unsigned long *)(at + 0x30) = 0;
+				*(unsigned long *)(at + 0x34) = tag_index;
+				*(unsigned long *)(at + 0x3c) = tag_index;
+				/* (samples: in sounds.map; mouth data and subtitles: here) */
+				*(unsigned long *)(at + 0x4c) = 0;
+				for (data = 0x54; data <= 0x68; data += 0x14)
+				{
+					unsigned long data_size = *(unsigned long *)(at + data);
+
+					*(unsigned long *)(at + data + 12) = data_size ? base + cursor : 0;
+					cursor += data_size;
+				}
 			}
 		}
+		if (cursor > size)
+			error(_error_silent, "Custom Edition maps: sound tag %lu's parts (%lu bytes) pass its resource (%lu)",
+				tag_index, cursor, size);
 		break;
+	}
 	case 'font':
 		/* (font_group.h: character tables and their indices, characters, pixels) */
 		count = ce_relocate_block(copy, size, 0x30, base, &elements);
@@ -423,7 +474,115 @@ boolean ce_resources_tags_loaded(
 		end_free - next);
 	ce_free_next = next;
 	ce_free_end = end_free;
+	ce_sounds_decode(tag_instances, tag_count);
 	return TRUE;
+}
+
+/* Halo PC's Ogg Vorbis sounds made the engine's 16-bit PCM ones (which it
+plays on PCM channels: sound_preferences.c): each permutation's samples
+decoded (ce_vorbis.c) into maps\ce\ce_sounds.pcm, where they are then read
+from, and the sound and its permutations marked uncompressed. Their channels
+and rate stay the sound's (an Ogg of others is left as it was, unplayable). */
+static void ce_sounds_decode(
+	void *tag_instances,
+	long tag_count)
+{
+	struct ce_resource_map *map = &ce_resource_maps[_ce_resource_sounds];
+	char path[256];
+	HANDLE file;
+	unsigned long written = 0;
+	long sounds = 0, permutations_decoded = 0;
+	long index;
+
+	if (!map->file)
+		return;
+	if (ce_decoded_sounds_file)
+	{
+		CloseHandle(ce_decoded_sounds_file);
+		ce_decoded_sounds_file = NULL;
+	}
+	sprintf(path, "%sce\\ce_sounds.pcm", cache_files_map_directory());
+	file = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
+	if (file == INVALID_HANDLE_VALUE)
+	{
+		error(_error_silent, "Custom Edition maps: cannot write %s; Ogg Vorbis sounds will not play", path);
+		return;
+	}
+	for (index = 0; index < tag_count; index++)
+	{
+		struct ce_tag_instance *instance = (struct ce_tag_instance *)((byte *)tag_instances +
+			index * CE_TAG_INSTANCE_SIZE);
+		byte *sound;
+		unsigned long pitch_range_count, pitch_ranges, pitch_range;
+		short encoding, sample_rate;
+		boolean all = TRUE;
+
+		if (instance->group_tag != 'snd!' || ce_indexed_tags[index] != _ce_resource_sounds + 1)
+			continue;
+		sound = xbox_pointer(instance->base_address);
+		if (*(short *)(sound + 0x6e) != CE_SOUND_COMPRESSION_OGG)
+			continue;
+		encoding = *(short *)(sound + 0x6c);
+		sample_rate = *(short *)(sound + 0x06);
+		pitch_range_count = *(unsigned long *)(sound + 0x98);
+		pitch_ranges = *(unsigned long *)(sound + 0x9c);
+		for (pitch_range = 0; pitch_range < pitch_range_count; pitch_range++)
+		{
+			byte *range = (byte *)xbox_pointer(pitch_ranges) + pitch_range * 0x48;
+			unsigned long permutation_count = *(unsigned long *)(range + 0x3c);
+			unsigned long permutations = *(unsigned long *)(range + 0x40);
+			unsigned long permutation;
+
+			for (permutation = 0; permutation < permutation_count; permutation++)
+			{
+				byte *at = (byte *)xbox_pointer(permutations) + permutation * 0x7c;
+				long size = *(long *)(at + 0x40);
+				unsigned long offset = *(unsigned long *)(at + 0x48);
+				unsigned char *data;
+				short *samples = NULL;
+				int channels = 0, rate = 0, frames;
+				unsigned long bytes, bytes_written = 0;
+
+				if (*(short *)(at + 0x28) != CE_SOUND_COMPRESSION_OGG || size <= 0)
+					continue;
+				data = malloc((size_t)size);
+				frames = data && ce_read(map->file, offset, data, (unsigned long)size) ?
+					ce_vorbis_decode(data, size, &channels, &rate, &samples) : -1;
+				free(data);
+				if (frames <= 0 || channels != (encoding ? 2 : 1) || rate != (sample_rate ? 44100 : 22050))
+				{
+					error(_error_silent, "Custom Edition maps: %s: an Ogg Vorbis permutation of %d channels at %d Hz",
+						(char const *)xbox_pointer(instance->name), channels, rate);
+					ce_vorbis_free(samples);
+					all = FALSE;
+					continue;
+				}
+				bytes = (unsigned long)frames * (unsigned long)channels * sizeof(short);
+				if (!WriteFile(file, samples, bytes, &bytes_written, NULL) || bytes_written != bytes)
+				{
+					ce_vorbis_free(samples);
+					all = FALSE;
+					continue;
+				}
+				ce_vorbis_free(samples);
+				*(long *)(at + 0x40) = (long)bytes;
+				*(unsigned long *)(at + 0x48) = written;
+				*(unsigned long *)(at + 0x38) = bytes;
+				*(short *)(at + 0x28) = CE_SOUND_COMPRESSION_NONE;
+				written += bytes;
+				permutations_decoded++;
+			}
+		}
+		if (all)
+		{
+			*(short *)(sound + 0x6e) = CE_SOUND_COMPRESSION_NONE;
+			ce_indexed_tags[index] = CE_DECODED_SOUND;
+			sounds++;
+		}
+	}
+	ce_decoded_sounds_file = file;
+	error(_error_silent, "Custom Edition maps: %ld Ogg Vorbis sounds decoded (%ld permutations, %lu bytes)",
+		sounds, permutations_decoded, written);
 }
 
 /* the resource map a tag's pixels or samples are read from (cache_files_windows.c),
@@ -435,6 +594,8 @@ HANDLE ce_resources_file_for_tag(
 
 	if (tag_index == NONE || index >= ce_indexed_tag_count || !ce_indexed_tags[index])
 		return NULL;
+	if (ce_indexed_tags[index] == CE_DECODED_SOUND)
+		return ce_decoded_sounds_file;
 	return ce_resource_maps[ce_indexed_tags[index] - 1].file;
 }
 
