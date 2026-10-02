@@ -1,177 +1,150 @@
-# Halo: Combat Evolved for macOS, Linux, Windows and Android
+<p align="center"><img src="docs/icon-160.png" width="120" alt=""></p>
 
-[![Join our Discord](https://invidget.switchblade.xyz/9gqcHyr5km)](https://discord.gg/9gqcHyr5km)
+<h1 align="center">ChupathingyCE</h1>
 
-This project is a port of the Halo: Combat Evolved decompilation to macOS,
-Linux, Windows and Android, with online play built around a community game
-list, [halo.milenko.org](https://halo.milenko.org). The decompilation is of
-the Xbox build 2342 (`cachebeta.exe`, SHA-256
-`4cc87b45f721270392a96f1674ed2b5cd4a7bb4355faeab4531d1cf1884d9520`).
+<p align="center"><b>Halo: Combat Evolved on Windows, Mac, Linux and Android, with online play that just works.</b></p>
 
-<img width="1289" height="995" alt="The game on Linux" src="https://github.com/user-attachments/assets/0d3ad50f-f8b8-46cf-aef8-e3661da2a7d7" />
+<p align="center">
+<a href="https://github.com/ChupathingyCE/chupathingyce/releases/latest">Download</a> ·
+<a href="https://halo.milenko.org">Games online now</a>
+</p>
 
-> **This is a fork of [cybersecurity/halo-ce-universal](https://github.com/cybersecurity/halo-ce-universal).**
-> We merge its changes regularly, so that the two stay consistent (the same
-> netcode and network version: players of both can play together), and we
-> send our fixes for the shared code back to it as pull requests. What this
-> fork adds is below.
+> **Compatible with [OpenCE](https://github.com/cybersecurity/halo-ce-universal) build-55 through build-65 (network version 9).**
+> Players on OpenCE and players on ChupathingyCE play together.
 
-The port starts from the decompilation of [bnunu/halo-1](https://github.com/bnunu/halo-1).
-That project is a fork of [punpckhdq/halo](https://github.com/punpckhdq/halo).
+ChupathingyCE is a community build of **OpenCE**, the port of the Halo: Combat
+Evolved decompilation to modern computers and phones. We follow OpenCE closely,
+send our fixes back to it, and add things on top: a server list, dedicated
+servers, stats and service records, and a native Mac version. It's not a rival
+to OpenCE; it's a stable build you can count on, with its own releases.
 
-## What this fork adds
+<p align="center"><img src="docs/screenshots/lobby.jpg" width="720" alt="A multiplayer lobby"></p>
 
-- **A native macOS build**: 64-bit code for Apple silicon, as an
-  application, from the same sources. Refer to
-  [port/macos/README.md](port/macos/README.md).
-- **An in-game game browser**: ONLINE PLAY (System Link's new name) lists
-  the games hosted on the internet next to the local network's, with
-  paging, and X opens the whole list. Picking a game joins it through its
-  invite, as before.
-- **[halo.milenko.org](https://halo.milenko.org)**, the community's game
-  list: the games being hosted, with Join buttons that open the game; a
-  carnage report for every game that ends, with medals; service records,
-  leaderboards and profiles.
-- **Confirmed players**: each copy of the game keeps a private player key,
-  which confirms its player's games, so a service record follows a player
-  whatever name they use. A profile on the site keeps an encrypted backup
-  of the key (the site cannot read it), to restore it to a reinstalled
-  game. In the game list, Y opens your profile.
-- **Dedicated servers**, which anyone can run: the game hosts a playlist
-  by itself, with no window and no player, and lists it on the game list.
-  Refer to [server/README.md](server/README.md).
+## What you get
 
-The game browser, the game list and dedicated servers are built in by
-default (`HALO_GAME_BROWSER`); `python configure.py --no-game-browser`
-leaves them out, as upstream's builds are.
-
-### Status
-
-| Platform | The game | Game browser, game list, dedicated servers |
-| --- | --- | --- |
-| macOS (arm64) | Yes | Yes |
-| Linux (32-bit x86) | Yes | Yes |
-| Windows (32-bit x86) | Yes | Not yet: in progress |
-| Android (arm64) | Yes | Not yet: in progress (testers welcome) |
-
-Players of every platform can play together, and any build, upstream's
-included, can join a listed game through its Join button on the site.
+- **The whole game**: the campaign, split screen, and System Link multiplayer,
+  running natively. No emulator.
+- **Online Games**: a server list in the Multiplayer menu. Pick a game and you're
+  in, or press **Y** to host your own and it shows up for everyone.
+- **Play with anyone**: games go straight between players' computers. No port
+  forwarding in most homes.
+- **Stats and service records** at [halo.milenko.org](https://halo.milenko.org):
+  every finished game gets a carnage report with medals, and your games add up
+  on your service record and the leaderboards.
+- **Your own account**: make one on the site (or from the game), and back up
+  your player identity so a reinstall keeps your record.
+- **Dedicated servers**: anyone can run a server that hosts games around the
+  clock. See [server/README.md](server/README.md).
+- **High-res HUD and text**, widescreen menus, and controller prompts for
+  Xbox, PlayStation and Nintendo pads.
 
 ## Download
 
-This fork has no release builds yet: build the game as below. Upstream's
-releases (without this fork's additions) are on its
-[Releases](https://github.com/cybersecurity/halo-ce-universal/releases)
-page.
+Get the latest release from the [Releases page](https://github.com/ChupathingyCE/chupathingyce/releases/latest):
 
-## Game data
+| Platform | Download | Notes |
+| --- | --- | --- |
+| Windows | `chupathingyce-windows-release.zip` | Windows 10 or later. |
+| Linux | `chupathingyce-linux-release.zip` | Needs SDL3 (32-bit). See [port/linux/README.md](port/linux/README.md). |
+| Android | `chupathingyce-android-release.zip` | Android 9 or later, 64-bit. See [port/android/README.md](port/android/README.md). |
+| Mac | Coming with the first release | Apple silicon. Build it yourself for now: [port/macos/README.md](port/macos/README.md). |
 
-The port does not include the game data. Download an Xbox disc image
-(`.xiso` or `.iso`) of Halo: Combat Evolved. All versions of the game
-operate. The maps of the European (PAL) version were made for a slower
-console. The port changes them to play as the North American (NTSC) maps do,
-so players of the two versions can play together.
+The game checks for new releases when it starts and asks before updating.
+Windows may warn that the app is from an unknown publisher: choose
+**More info → Run anyway**.
 
-1. Start the game.
-2. At the first start, the game asks for the disc image. Select it.
-3. The game extracts the `maps/` folder. Then the game starts.
+## You need your own copy of Halo
 
-On Linux and Windows, the game puts `maps/` next to the executable. On macOS,
-put `maps/` in the data folder (refer to the macOS README). On
-Android, copy the disc image to the phone first. The app puts `maps/` in its
-data folder. Refer to [port/android/README.md](port/android/README.md).
+ChupathingyCE doesn't include the game's maps, sounds or art. You need an Xbox
+disc image (`.iso` or `.xiso`) of Halo: Combat Evolved. Any region works.
 
-## Platforms
+1. Start ChupathingyCE.
+2. The first time, it asks for your disc image. Pick it.
+3. It copies the game's `maps` folder out of the image (about 2 GB), then starts.
 
-Each platform has its own instructions:
+On Android, copy the disc image to your phone first.
 
-| Platform | Instructions |
+## Playing online
+
+| You want to | Do this |
 | --- | --- |
-| macOS (arm64 application, OpenGL 4.1, SDL3) | [port/macos/README.md](port/macos/README.md) |
-| Linux (32-bit x86 executable, OpenGL 4.5, SDL3) | [port/linux/README.md](port/linux/README.md) |
-| Windows (32-bit x86 executable, OpenGL 4.5, SDL3) | [port/windows/README.md](port/windows/README.md) |
-| Android (arm64 app, OpenGL ES 3, SDL3) | [port/android/README.md](port/android/README.md) |
+| Join a game | **Multiplayer → Online Games**, pick a game, press **A**. Or press **Join** on [halo.milenko.org](https://halo.milenko.org). |
+| Host a game | **Multiplayer → Online Games → Y (Create Game)**, or host from System Link as usual. Your game is listed online by itself. |
+| Invite a friend | When you host, the game copies an invite link (`halo://join/…`). Send it; opening it joins your game. |
+| See your stats | Your service record is on [halo.milenko.org](https://halo.milenko.org), found by your name. |
+| Make an account | On [halo.milenko.org/profile](https://halo.milenko.org/profile), or press **Start** in Online Games to make one for the player you already are. |
+| List a game from an OpenCE build | Sign in on the site, open **Host a Game**, and paste your invite link. |
 
-The Linux README also gives the controls, the settings and the multiplayer
-functions. These are almost the same on all platforms.
+Everything here plays with OpenCE builds of the same network version: they can
+join your games and you can join theirs. Stats and the server list need a
+ChupathingyCE host. Games hosted from OpenCE builds can still be listed by
+their host on the site (Host a Game).
 
-## Multiplayer
+<p align="center">
+<img src="docs/screenshots/site-games.jpg" width="49%" alt="halo.milenko.org: games and recent games">
+<img src="docs/screenshots/site-medals.jpg" width="49%" alt="halo.milenko.org: medals">
+</p>
 
-The game can play system link games on a local network and on the internet:
+## Run a server
 
-- A system link game can have up to 128 players on up to 128 machines.
-- Linux, Windows and Android machines can play in the same game.
-- An invite link lets a machine join a game on the internet.
-- A game hosted with a game browser build is listed on
-  [halo.milenko.org](https://halo.milenko.org) while it runs (the
-  `network.list_hosted_games` setting turns this off). Players find it in
-  ONLINE PLAY, or on the site. A game that ends is kept as a carnage report.
-- The invite still does the joining: no game's traffic goes through the
-  game list.
-- The netcode is new. Each machine moves its own player at once,
-  and the host makes the decisions for the game. Refer to
-  [port/linux/NETCODE.md](port/linux/NETCODE.md).
+A dedicated server is a copy of the game with no player and no window, hosting
+a playlist of games around the clock and listing them on the server list. It
+runs on any Linux server with Docker, or on your own computer. See
+[server/README.md](server/README.md).
 
-## Build the game
+## How ChupathingyCE relates to OpenCE
 
-You do not need the Xbox SDK. The port supplies the SDK declarations that
-the game uses. Refer to [port/include/xdk](port/include/xdk/README.md).
+- OpenCE ([cybersecurity/halo-ce-universal](https://github.com/cybersecurity/halo-ce-universal))
+  is where the port is made. ChupathingyCE merges its changes regularly.
+- We keep the same network version, so players of both play together. The line
+  at the top of this page says which OpenCE builds match this one.
+- Fixes to the shared game code go back to OpenCE as pull requests.
+- ChupathingyCE has its own version numbers (this is v0.5.0b) and its own
+  releases, so it doesn't change under you every few hours.
 
-To build the game:
+## Building it yourself
 
-1. Install Python and [ninja](https://ninja-build.org/).
-2. Install the tools for your platform. Refer to the README for the
-   platform.
-3. In the root folder of the repository, enter `python configure.py`.
-4. Enter `ninja` with the target for the platform:
+You need Python 3, [ninja](https://ninja-build.org/) and clang. The game
+supplies the Xbox SDK declarations it uses, so you don't need the SDK.
 
-| Target | Result |
+```sh
+python3 configure.py
+ninja            # the game for the computer you're on
+```
+
+| Target | Result | Instructions |
+| --- | --- | --- |
+| `ninja macos` | `build/macos/ChupathingyCE.app` | [port/macos/README.md](port/macos/README.md) |
+| `ninja linux` | `build/linux/halo` | [port/linux/README.md](port/linux/README.md) |
+| `ninja windows` | `build/windows/halo.exe` | [port/windows/README.md](port/windows/README.md) |
+| `ninja android_apk` | the Android app | [port/android/README.md](port/android/README.md) |
+
+Useful `configure.py` options:
+
+| Option | What it does |
 | --- | --- |
-| `ninja macos` (on a Mac) | `build/macos/Halo.app` |
-| `ninja linux` | `build/linux/halo` |
-| `ninja windows` (on Windows) | `build/windows/halo.exe` and `SDL3.dll` |
-| `ninja android_apk` | `port/android/app/build/outputs/apk/debug/app-debug.apk` |
+| `--release` | A release build, as players get. Without it, a failed check stops the game. |
+| `--portable` | A Linux or Windows build that runs on any x86-64 computer, to give to others. |
+| `--no-game-browser` | Leaves out the server list, stats and dedicated servers, as OpenCE's builds are. |
+| `--pgo=off`, `--lto=off` | Faster builds, without profile-guided or link-time optimisation. |
 
-If you enter `ninja` without a target, ninja builds the game for the
-computer that you use.
+The version being made is in `VERSION`. Releases are built and published by
+the project's release workflow; the builds on this repository's Actions page
+are for checking changes.
 
-`tools/ci_build.py` makes the same builds as GitHub Actions. For example,
-enter `python tools/ci_build.py linux release`.
+## Credits
 
-### Build options
+- The decompilation: [punpckhdq/halo](https://github.com/punpckhdq/halo) and
+  [bnunu/halo-1](https://github.com/bnunu/halo-1), of the Xbox build 2342.
+- The port: [OpenCE](https://github.com/cybersecurity/halo-ce-universal) and
+  its contributors.
+- ChupathingyCE: [Milenko](https://github.com/MrMilenko) and contributors. The
+  icon is MrBruh's helmet, with tusks.
+- Fonts: [Noto Sans](https://fonts.google.com/noto) (SIL OFL) and
+  [Kenney's Input Prompts](https://kenney.nl/assets/input-prompts) (CC0).
+- Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths, and
+  extract-xiso. Their licenses are beside them in `port/third_party`.
 
-Give these options to `configure.py`:
-
-| Option | Result |
-| --- | --- |
-| (none) | A debug build. A failed assertion stops the game. |
-| `--release` | A release build. The game does not examine assertions, as in the retail game. |
-| `--portable` | The Linux and Windows builds operate on all x86-64 processors. Use this option for builds that you give to other persons. |
-| `--lto=thin`, `--lto=off` | Less link-time optimization. The link is faster. |
-| `--pgo=off` | No profile-guided optimization. |
-| `--pgo=train` | Records a new optimization profile. Refer to "Optimization profiles". |
-| `--no-game-browser` | Leaves out the game browser, the game list and dedicated servers (as upstream's builds). |
-
-Without `--portable`, the Linux and Windows builds use all the instructions
-of the processor that builds them (`-march=native`). Such a build does not
-always start on a different computer.
-
-### Optimization profiles
-
-The builds use profiles of the game to optimize the code:
-
-- `pgo/halo_linux.profdata` for Linux and Android.
-- `pgo/halo_windows.profdata` for Windows.
-
-The profiles need clang 22 or later. With an older clang, the builds do not
-use the profiles.
-
-To record a new profile:
-
-1. Delete the profile.
-2. Enter `python configure.py --pgo=train`.
-3. Enter `ninja linux` or `ninja windows`.
-
-The build then plays the main menu and the first minute of each campaign
-level. This procedure continues for approximately 15 minutes. The game
-data must be in `assets/`.
+Halo is a trademark of Microsoft. ChupathingyCE is a fan project, not made or
+endorsed by Microsoft, Bungie or 343 Industries, and includes none of the
+game's content. The code is released under [CC0](LICENSE.md).
