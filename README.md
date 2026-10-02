@@ -10,7 +10,7 @@
 <a href="https://discord.gg/fXNqnpaNay">Discord (Milenko x TeamUIX)</a>
 </p>
 
-> **Compatible with [OpenCE](https://github.com/cybersecurity/halo-ce-universal) build-55 through build-65 (network version 9).**
+> **Compatible with [OpenCE](https://github.com/cybersecurity/halo-ce-universal) build-73 (network version 10). It can also join games hosted on build-55 through build-72.**
 > Players on OpenCE and players on ChupathingyCE play together.
 
 ChupathingyCE is a community build of **OpenCE**, the port of the Halo: Combat
