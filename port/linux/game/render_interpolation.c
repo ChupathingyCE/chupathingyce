@@ -61,10 +61,11 @@ well beyond any vehicle, short of any teleport */
 #define OBJECT_SNAP_DISTANCE 10.0f
 /* ... a node may move relative to the object's root node in one tick before
 the pose is taken for a new one, not blended to: further than any limb or
-part of a model moves in 33 ms (27 m/s), short of the game changing a pose
+part of a model moves in 33 ms (55 m/s), short of the game changing a pose
 at once (an actor waking from dormancy, a model swapped), which blended
-sweeps the vertices through poses it never had */
-#define NODE_SNAP_DISTANCE 0.3f
+sweeps the vertices through poses it never had (0.3 snapped some fast
+animations too) */
+#define NODE_SNAP_DISTANCE 0.6f
 /* ... a first-person node may move relative to the camera */
 #define FIRST_PERSON_SNAP_DISTANCE 0.25f
 /* the cosine of half the largest turn a node is blended through in one tick,
