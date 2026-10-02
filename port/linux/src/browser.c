@@ -75,6 +75,8 @@ struct hosted_game
 	int open;
 	short score_limit;
 	int teams;
+	int roster_count;
+	struct browser_roster_player roster[BROWSER_HOSTED_ROSTER];
 };
 
 static pthread_mutex_t browser_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -454,9 +456,28 @@ static void withdraw(void)
 	browser.listed_invite[0] = 0;
 }
 
+/* a roster as the list takes it: "team:name|team:name" (UTF-8; a name has
+no "|", which the host's names leave out: network_server_message_handler.c) */
+static void roster_text(const struct browser_roster_player *roster, int count, char *text, int size)
+{
+	int used = 0;
+	int index;
+
+	text[0] = 0;
+	for (index = 0; index < count && used < size - 48; index++)
+	{
+		char name[64];
+
+		utf8_from_name(roster[index].name, 12, name, sizeof(name));
+		used += snprintf(text + used, (size_t)(size - used), "%s%d:%s", index ? "|" : "", roster[index].team, name);
+	}
+}
+
 static void announce(const char *invite, const struct hosted_game *game)
 {
-	char url[512], form[1024], response[256], error[256], text[128];
+	/* (the form: a roster of BROWSER_HOSTED_ROSTER names, URL encoded) */
+	static char form[16384], roster[8192];
+	char url[512], response[256], error[256], text[128];
 	int status;
 
 	server_url("/v1/announce", url, sizeof(url));
@@ -477,6 +498,10 @@ static void announce(const char *invite, const struct hosted_game *game)
 	form_add(form, sizeof(form), "teams", game->teams ? "1" : "0");
 	snprintf(text, sizeof(text), "%d", HALO_PORT_NETWORK_VERSION);
 	form_add(form, sizeof(form), "version", text);
+	/* (last: a full one may be cut short, and a list from before rosters
+	takes no field of the name) */
+	roster_text(game->roster, game->roster_count, roster, sizeof(roster));
+	form_add(form, sizeof(form), "roster", roster);
 
 	status = posix_browser_request(url, form, NULL, response, sizeof(response), error, sizeof(error));
 	browser.announce_time = p2p_now();
@@ -568,13 +593,42 @@ static void send_report(void)
 
 /* one line of /v1/games.txt: invite name map engine players
 maximum_players open version age score_limit teams */
+/* a listed game's roster, from the list's "team:name|team:name" */
+static void parse_roster(char *text, struct browser_game *game)
+{
+	char *entry = text;
+
+	while (entry && *entry)
+	{
+		char *next = strchr(entry, '|');
+		char *colon;
+
+		if (next)
+			*next++ = 0;
+		colon = strchr(entry, ':');
+		if (colon && colon[1])
+		{
+			*colon = 0;
+			if (game->roster_count < BROWSER_LISTED_ROSTER)
+			{
+				struct browser_roster_player *player = &game->roster[game->roster_count];
+
+				name_from_utf8(colon + 1, player->name, 12);
+				player->team = (short)atoi(entry);
+			}
+			game->roster_count++;
+		}
+		entry = next;
+	}
+}
+
 static int parse_game(char *line, struct browser_game *game)
 {
-	char *fields[11];
+	char *fields[12];
 	int count = 0;
 	char *cursor = line;
 
-	while (count < 11)
+	while (count < 12)
 	{
 		fields[count++] = cursor;
 		cursor = strchr(cursor, '\t');
@@ -598,6 +652,12 @@ static int parse_game(char *line, struct browser_game *game)
 	{
 		game->score_limit = (short)atoi(fields[9]);
 		game->teams = (unsigned char)(atoi(fields[10]) != 0);
+	}
+	/* (a list from before rosters: none) */
+	if (count >= 12)
+	{
+		fields[11][strcspn(fields[11], "\r\n")] = 0;
+		parse_roster(fields[11], game);
 	}
 	return 1;
 }
@@ -698,9 +758,12 @@ static void start_thread(void)
 /* ---------- public code */
 
 void browser_host_update(const unsigned short *name, const char *map, short engine, short players,
-	short maximum_players, int open, short score_limit, int teams)
+	short maximum_players, int open, short score_limit, int teams,
+	const struct browser_roster_player *roster, int roster_count)
 {
-	struct hosted_game game;
+	/* (a roster of BROWSER_HOSTED_ROSTER: not on the stack, called on the
+	game's thread only) */
+	static struct hosted_game game;
 
 	pthread_once(&browser_once, start_thread);
 	memset(&game, 0, sizeof(game));
@@ -712,6 +775,13 @@ void browser_host_update(const unsigned short *name, const char *map, short engi
 	game.open = open != 0;
 	game.score_limit = score_limit;
 	game.teams = teams != 0;
+	if (roster_count > BROWSER_HOSTED_ROSTER)
+		roster_count = BROWSER_HOSTED_ROSTER;
+	if (roster && roster_count > 0)
+	{
+		memcpy(game.roster, roster, (size_t)roster_count * sizeof(*roster));
+		game.roster_count = roster_count;
+	}
 
 	pthread_mutex_lock(&browser_lock);
 	if (memcmp(&game, &browser.hosted, sizeof(game)))

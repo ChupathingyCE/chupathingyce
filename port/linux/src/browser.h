@@ -18,6 +18,19 @@ game reached through an invite. See browser.c.
 #define BROWSER_NAME_LENGTH 16
 #define BROWSER_MAP_LENGTH 64
 #define BROWSER_MAXIMUM_GAMES 64
+/* a host's roster: the players it announces (as many as a game takes), and
+those a listed game keeps (as many as the Online Games screen shows) */
+#define BROWSER_HOSTED_ROSTER 128
+#define BROWSER_LISTED_ROSTER 16
+
+/* a player of a game's roster */
+struct browser_roster_player
+{
+	/* (UTF-16, as the game's names) */
+	unsigned short name[12];
+	/* its team, -1 in a game without teams */
+	short team;
+};
 
 struct browser_game
 {
@@ -32,6 +45,11 @@ struct browser_game
 	unsigned char teams;
 	unsigned short version;
 	short score_limit;
+	/* who is in it, as its host announces it (none from hosts that do not:
+	OpenCE's, and links added on the site); roster_count may be more than
+	the players kept */
+	short roster_count;
+	struct browser_roster_player roster[BROWSER_LISTED_ROSTER];
 };
 
 /* one player's line of a finished game's carnage report */
@@ -78,7 +96,8 @@ void browser_report_game(int teams, int red_score, int blue_score, int duration_
 this machine hosts (network_server_manager.c). The listing follows (and is
 withdrawn a few seconds after the calls stop). */
 void browser_host_update(const unsigned short *name, const char *map, short engine, short players,
-	short maximum_players, int open, short score_limit, int teams);
+	short maximum_players, int open, short score_limit, int teams,
+	const struct browser_roster_player *roster, int roster_count);
 
 /* the listed games, asking the server for the list again if the last one
 is more than a few seconds old: those of this machine's network version,

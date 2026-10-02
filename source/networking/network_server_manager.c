@@ -1409,6 +1409,21 @@ boolean network_game_server_idle(
 
 		if (game)
 		{
+			/* (who is in it, for the list's roster) */
+			static struct browser_roster_player roster[BROWSER_HOSTED_ROSTER];
+			long roster_count = 0;
+			long index;
+
+			for (index = 0; index < (long)NUMBEROF(game->players) && roster_count < BROWSER_HOSTED_ROSTER; index++)
+			{
+				struct network_player const *player = &game->players[index];
+
+				if (!network_player_is_valid(player))
+					continue;
+				csmemcpy(roster[roster_count].name, player->name, sizeof(roster[roster_count].name));
+				roster[roster_count].team = game->variant.universal_variant.teams == TRUE ? (short)player->team_index : -1;
+				roster_count++;
+			}
 			browser_host_update(
 				(unsigned short const *)game->name,
 				game->map.name,
@@ -1419,7 +1434,9 @@ boolean network_game_server_idle(
 					? network_game_server_accepts_late_joins(server)
 					: network_game_server_game_is_open(server),
 				(short)game->variant.universal_variant.score_to_win,
-				game->variant.universal_variant.teams == TRUE);
+				game->variant.universal_variant.teams == TRUE,
+				roster,
+				(int)roster_count);
 		}
 	}
 #endif

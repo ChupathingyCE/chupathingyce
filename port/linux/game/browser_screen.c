@@ -434,6 +434,9 @@ enum
 	COLOR_TEXT = 0xE6EEFCFF,
 	COLOR_DIM = 0x8FA6C8FF,
 	COLOR_LABEL = 0x4AA3FFFF,
+	/* the roster's players of each team */
+	COLOR_RED_TEAM = 0xFF6B6BFF,
+	COLOR_BLUE_TEAM = 0x6BB0FFFF,
 	COLOR_CLOSED = 0xF08A4BFF,
 	COLOR_PROMPT = 0x4AA3FFFF,
 };
@@ -443,6 +446,8 @@ enum
 {
 	LIST_X = 37, LIST_Y = 72, LIST_WIDTH = 566, LIST_HEAD = 20, LIST_ROW = 22, LIST_FOOT = 20,
 	DETAIL_Y = 318, DETAIL_HEIGHT = 117,
+	/* the roster's places in the details */
+	ROSTER_COLUMNS = 2, ROSTER_ROWS = 7,
 	COLUMN_NAME = 67, COLUMN_MAP = 275, COLUMN_TYPE = 385, COLUMN_PLAYERS = 531, COLUMN_PING = 596,
 };
 
@@ -675,12 +680,39 @@ void browser_screen_render(
 		DETAIL_LINE("Players:", text);
 #undef DETAIL_LINE
 
-		/* who is in it (the host's roster, when it sends one) */
+		/* who is in it (the host's roster, when it sends one: two columns of
+		seven, the last place saying how many more) */
 		ui_overlay_rect(444, DETAIL_Y + 10, 0.75f, DETAIL_HEIGHT - 20, 0, COLOR_ROW_RULE);
 		ui_overlay_text(UI_FONT_BOLD, 8.5f, 453, DETAIL_Y + 10, UI_ALIGN_LEFT, COLOR_LABEL, "IN GAME");
-		width = ui_overlay_text(UI_FONT_REGULAR, 8.5f, 453, DETAIL_Y + 27, UI_ALIGN_LEFT, COLOR_DIM,
-			selected->players ? "The roster shows here" : "No one yet");
-		(void)width;
+		if (!selected->players && !selected->roster_count)
+			ui_overlay_text(UI_FONT_REGULAR, 8.5f, 453, DETAIL_Y + 27, UI_ALIGN_LEFT, COLOR_DIM, "No one yet");
+		else if (!selected->roster_count)
+			ui_overlay_text(UI_FONT_REGULAR, 8.5f, 453, DETAIL_Y + 27, UI_ALIGN_LEFT, COLOR_DIM,
+				"This host doesn't share names");
+		else
+		{
+			long kept = selected->roster_count < BROWSER_LISTED_ROSTER ? selected->roster_count : BROWSER_LISTED_ROSTER;
+			long places = ROSTER_COLUMNS * ROSTER_ROWS;
+			long shown = selected->roster_count > places ? places - 1 : kept;
+			long index;
+
+			for (index = 0; index < shown; index++)
+			{
+				struct browser_roster_player const *player = &selected->roster[index];
+				unsigned long color = !selected->teams || player->team < 0 ? COLOR_TEXT :
+					player->team == 0 ? COLOR_RED_TEAM : COLOR_BLUE_TEAM;
+
+				utf8_name(player->name, name, sizeof(name));
+				ui_overlay_text(UI_FONT_REGULAR, 8.5f, 453 + (index / ROSTER_ROWS) * 85,
+					DETAIL_Y + 27 + (index % ROSTER_ROWS) * 11, UI_ALIGN_LEFT, color, name);
+			}
+			if (selected->roster_count > shown)
+			{
+				snprintf(text, sizeof(text), "+%d more", selected->roster_count - (int)shown);
+				ui_overlay_text(UI_FONT_REGULAR, 8.5f, 453 + (shown / ROSTER_ROWS) * 85,
+					DETAIL_Y + 27 + (shown % ROSTER_ROWS) * 11, UI_ALIGN_LEFT, COLOR_DIM, text);
+			}
+		}
 	}
 
 	/* the buttons */
