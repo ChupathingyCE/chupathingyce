@@ -10,6 +10,7 @@ carnage reports.
 | | |
 | --- | --- |
 | `src/dedicated.c` | The dedicated server, compiled into the game (the game browser builds, `HALO_GAME_BROWSER`, on by default). |
+| `src/probe.c` | The game list's probe: what an invite leads to (below). |
 | `playlists/` | Playlists: `free_for_all.txt` (Slayer on every map), `slayer.txt` (Slayer and Team Slayer). |
 | `deploy/` | The server as a Docker container and a systemd service, for a Linux host. |
 
@@ -85,6 +86,26 @@ The settings are in `/opt/halo-dedicated/dedicated.env` on the host (from
 
 The server needs no open ports: internet play reaches players through the
 same hole punching as any host's invite.
+
+## Probing a game
+
+Any game browser build is also the game list's **probe** when `HALO_PROBE`
+holds an invite (the digits after `halo://join/`). It reads the game that
+invite leads to, the way a joining player's copy sees it advertised, prints
+it as one line and quits, without joining the game or taking a place in it.
+halo.milenko.org uses it to list games hosted by copies without the game
+list: a signed-in player gives their invite, and the site checks it before
+listing it and while it is listed.
+
+```
+HALO_PROBE=068f5721cffe... build/linux/halo
+probe: {"ok": true, "name": "Milenko Slayer", "map": "chillout", "engine": "slayer", "players": 0, "maximum_players": 12, "open": true, "teams": false, "network_version": 9, "compatible": true}
+```
+
+It needs only `maps/ui.map` in the data folder, runs without a window as the
+dedicated server does, and takes about 3 seconds. A host that does not
+answer in 20 seconds gives `{"ok": false, "error": "no answer from the host"}`
+(exit status 1).
 
 ## The game list
 

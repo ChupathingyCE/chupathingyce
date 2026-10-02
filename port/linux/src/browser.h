@@ -97,6 +97,15 @@ HALO_DEDICATED names its playlist): it joins no invite, leaves the clipboard
 alone and plays no sound */
 int browser_dedicated(void);
 
+/* the invite this copy probes (server/src/probe.c: HALO_PROBE names it,
+its digits), NULL if it is not a probe: it reads the game the invite leads
+to, prints it, and quits */
+const char *browser_probe(void);
+
+/* whether this copy runs without a window, sound or a player: the
+dedicated server or a probe */
+int browser_headless(void);
+
 /* the local players of a game that just ended, by name: their lines in its
 carnage report confirmed with this copy's player key (browser.c); and the
 public player ID it confirms them as */

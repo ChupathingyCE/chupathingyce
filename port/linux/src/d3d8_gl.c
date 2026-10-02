@@ -1129,10 +1129,10 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 		}
 		viewport_update_constants();
 
-		/* (the dedicated server draws nothing: server/src/dedicated.c) */
+		/* (the dedicated server and a probe draw nothing: server/src) */
 		if (!config_boolean("debug.null_renderer") &&
 #ifdef HALO_GAME_BROWSER
-			!browser_dedicated() &&
+			!browser_headless() &&
 #endif
 			platform_video_initialize(width, height))
 			gl_initialize();

@@ -81,9 +81,9 @@ BOOL platform_sdl_initialize(void)
 	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
 #endif
 #ifdef HALO_GAME_BROWSER
-	/* the dedicated server plays no sound and needs no display
-	(server/src/dedicated.c) */
-	if (browser_dedicated())
+	/* the dedicated server and a probe play no sound and need no display
+	(server/src) */
+	if (browser_headless())
 	{
 		SDL_SetHint(SDL_HINT_AUDIO_DRIVER, "dummy");
 		SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
@@ -667,9 +667,8 @@ static void platform_invite_clipboard(BOOL look)
 	const char *invite = p2p_take_clipboard_text();
 
 #ifdef HALO_GAME_BROWSER
-	/* (the dedicated server leaves the clipboard alone: its games are
-	listed, and it joins none) */
-	if (browser_dedicated())
+	/* (the dedicated server and a probe leave the clipboard alone) */
+	if (browser_headless())
 		return;
 #endif
 	if (invite)
@@ -719,7 +718,7 @@ void platform_show_message(const char *title, const char *message)
 	if (config_boolean("debug.hidden_window") || config_boolean("debug.null_renderer"))
 		return;
 #ifdef HALO_GAME_BROWSER
-	if (browser_dedicated())
+	if (browser_headless())
 		return;
 #endif
 	pthread_mutex_lock(&platform_message_lock);
@@ -832,7 +831,7 @@ void platform_pump_events(void)
 #ifdef HALO_GAME_BROWSER
 	/* the dedicated server has no window, but stops as asked (SIGTERM or
 	SIGINT: SDL's quit event), as a service is stopped */
-	if (!platform_window && browser_dedicated())
+	if (!platform_window && browser_headless())
 	{
 		SDL_PumpEvents();
 		if (SDL_PeepEvents(&event, 1, SDL_GETEVENT, SDL_EVENT_QUIT, SDL_EVENT_QUIT) > 0)

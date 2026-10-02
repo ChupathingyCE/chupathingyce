@@ -3119,31 +3119,43 @@ advertised through the tunnel. The host is told by its XNADDR's abEnet,
 the identifier its invite starts with (port/linux/src/xnet.c). 1: joining,
 0: not advertised yet, -1: it cannot be joined (another version: the
 player is told) */
+/* the host's identifier an invite starts with (its first 12 hex digits);
+FALSE if it is not one */
+static boolean network_game_client_invite_identifier(
+	char const *invite,
+	byte identifier[6])
+{
+	long index;
+
+	for (index = 0; index < 12; index++)
+	{
+		char digit = invite[index];
+		long value = digit >= '0' && digit <= '9' ? digit - '0' : digit >= 'a' && digit <= 'f' ? digit - 'a' + 10 : -1;
+
+		if (value < 0)
+			return FALSE;
+		if (index % 2)
+			identifier[index / 2] = (byte)(identifier[index / 2] | value);
+		else
+			identifier[index / 2] = (byte)(value << 4);
+	}
+	return TRUE;
+}
+
 long network_game_client_join_invite_host(
 	char const *invite)
 {
 	struct network_game_client *client = global_network_game_client_get();
 	byte identifier[6];
 	long game_index;
-	long index;
 
 	if (!client || client->state != _network_game_client_state_searching || client->join_in_progress ||
 		!client->connection || network_connection_connected(client->connection))
 	{
 		return 0;
 	}
-	for (index = 0; index < 2 * NUMBEROF(identifier); index++)
-	{
-		char digit = invite[index];
-		long value = digit >= '0' && digit <= '9' ? digit - '0' : digit >= 'a' && digit <= 'f' ? digit - 'a' + 10 : -1;
-
-		if (value < 0)
-			return -1;
-		if (index % 2)
-			identifier[index / 2] = (byte)(identifier[index / 2] | value);
-		else
-			identifier[index / 2] = (byte)(value << 4);
-	}
+	if (!network_game_client_invite_identifier(invite, identifier))
+		return -1;
 	for (game_index = 0; game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES; game_index++)
 	{
 		struct network_advertised_game *game = &client->available_games[game_index];
@@ -3165,6 +3177,42 @@ long network_game_client_join_invite_host(
 			return 0;
 		network_game_generate_join_game_token(join_parameters.join_token);
 		return network_game_client_initiate_join_game(client, game, &join_parameters, &address) ? 1 : -1;
+	}
+	return 0;
+}
+
+long network_game_client_invite_host_advertisement(
+	char const *invite,
+	struct network_invite_advertisement *advertisement)
+{
+	struct network_game_client *client = global_network_game_client_get();
+	byte identifier[6];
+	long game_index;
+
+	if (!network_game_client_invite_identifier(invite, identifier))
+		return -1;
+	if (!client || client->state != _network_game_client_state_searching)
+		return 0;
+	for (game_index = 0; game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES; game_index++)
+	{
+		struct network_advertised_game *game = &client->available_games[game_index];
+
+		if (!network_game_client_advertised_game_is_valid(game) ||
+			csmemcmp(game->xnaddr.data + 2, identifier, sizeof(identifier)))
+		{
+			continue;
+		}
+		csmemset(advertisement, 0, sizeof(*advertisement));
+		csmemcpy(advertisement->game_name, game->game_name, sizeof(advertisement->game_name));
+		csstrncpy(advertisement->map_name, game->map.name, sizeof(advertisement->map_name) - 1);
+		advertisement->engine_type = game->engine_type;
+		advertisement->player_count = (short)game->player_count;
+		advertisement->maximum_player_count = game->maximum_player_count;
+		advertisement->open = game->open;
+		advertisement->has_teams = game->has_teams;
+		advertisement->network_version = network_game_client_advertised_versions[game_index].version;
+		advertisement->compatible = network_game_client_advertised_game_compatible(client, game, FALSE);
+		return 1;
 	}
 	return 0;
 }

@@ -982,4 +982,16 @@ int browser_dedicated(void)
 	return playlist && playlist[0];
 }
 
+const char *browser_probe(void)
+{
+	const char *invite = getenv("HALO_PROBE");
+
+	return invite && invite[0] ? invite : NULL;
+}
+
+int browser_headless(void)
+{
+	return browser_dedicated() || browser_probe() != NULL;
+}
+
 #endif

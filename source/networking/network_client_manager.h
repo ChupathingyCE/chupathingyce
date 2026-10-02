@@ -46,6 +46,27 @@ boolean network_game_client_advertised_game_compatible(
 	struct network_advertised_game const *game,
 	boolean tell);
 #ifdef HALO_GAME_BROWSER
+/* the advertisement of the game an invite's host advertises (the game
+list's probe, server/src/probe.c) */
+struct network_invite_advertisement
+{
+	/* (NETWORK_GAME_NAME_LENGTH's 16) */
+	wchar_t game_name[16];
+	char map_name[0x80];
+	short engine_type;
+	short player_count;
+	short maximum_player_count;
+	boolean open;
+	boolean has_teams;
+	unsigned short network_version;
+	boolean compatible;
+};
+
+/* 1: the game the invite's host advertises through the tunnel, written to
+advertisement; 0: not advertised yet; -1: not an invite */
+long network_game_client_invite_host_advertisement(
+	char const *invite,
+	struct network_invite_advertisement *advertisement);
 /* a game of the game list (network.browser_url) picked: joins its invite,
 TRUE; FALSE for any other game (network_client_manager.c) */
 boolean network_game_client_browser_join(

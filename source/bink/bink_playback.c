@@ -518,10 +518,11 @@ void bink_playback_start(
 	bink_get_memory_available("begin bink_playback_start");
 
 #ifdef HALO_GAME_BROWSER
-	/* the dedicated server plays no movies: the intro, the attract mode's
-	(server/src/dedicated.c) */
+	/* the dedicated server and the game list's probe play no movies: the
+	intro, the attract mode's (server/src) */
 	{ boolean dedicated_server_active(void);
-	  if (dedicated_server_active())
+	  boolean probe_active(void);
+	  if (dedicated_server_active() || probe_active())
 		return; }
 #endif
 
