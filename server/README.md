@@ -11,7 +11,7 @@ carnage reports.
 | --- | --- |
 | `src/dedicated.c` | The dedicated server, compiled into the game (the game browser builds, `HALO_GAME_BROWSER`, on by default). |
 | `src/probe.c` | The game list's probe: what an invite leads to (below). |
-| `playlists/` | Playlists: `free_for_all.txt` (Slayer on every map), `slayer.txt` (Slayer and Team Slayer). |
+| `playlists/` | Playlists: `small_maps.txt` (Slayer on the smaller maps), `team_slayer.txt` (Team Slayer on every map), `free_for_all.txt` (Slayer on every map), `slayer.txt` (Slayer and Team Slayer). |
 | `deploy/` | The server as a Docker container and a systemd service, for a Linux host. |
 
 ## What it does
@@ -86,6 +86,16 @@ The settings are in `/opt/halo-dedicated/dedicated.env` on the host (from
 
 The server needs no open ports: internet play reaches players through the
 same hole punching as any host's invite.
+
+### More servers on the same host
+
+Each further server is the `halo-dedicated@<name>` service: the same image,
+its settings in `deploy/instances/<name>.env` (`team.env`: Team Slayer on
+every map), its own data folder `/opt/halo-dedicated/instances/<name>`
+(saves, `debug.txt`), and the first server's maps and playlists. It plays on
+Docker's bridge network, since the first holds the host's system link port.
+After `deploy.sh`, run `server/deploy/deploy-instance.sh user@host team`.
+Its log is `journalctl -u halo-dedicated@team`.
 
 ## Probing a game
 
