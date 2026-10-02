@@ -127,6 +127,13 @@ Xbox address. */
 #define PLATFORM_CONTIGUOUS_SIZE 0x08000000U /* a 128 MB development kit */
 #define PLATFORM_ANY_PHYSICAL_ADDRESS 0xffffffffU
 
+/* Custom Edition maps (Halo PC's, version 609: cache_files_windows.c, CE
+maps) are linked to a tag cache of their own, outside the Xbox window: their
+tags at 0x40440000 and their structure BSPs at its top. The 64-bit build
+commits it at start-up (xbox_memory.c), below its heap (xbox_heap.c) */
+#define PLATFORM_CE_TAG_CACHE_BASE 0x40440000U
+#define PLATFORM_CE_TAG_CACHE_SIZE 0x01700000U
+
 /* the host's page size, which protection works in (4 KB or more) */
 extern unsigned int platform_host_page_size;
 

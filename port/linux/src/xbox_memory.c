@@ -124,6 +124,12 @@ static void contiguous_arena_reserve(void)
 		platform_log("cannot commit the Xbox contiguous memory window (%s)", strerror(errno));
 		abort();
 	}
+	/* Custom Edition maps' tag cache (platform.h) */
+	if (mmap(xbox_pointer(PLATFORM_CE_TAG_CACHE_BASE), PLATFORM_CE_TAG_CACHE_SIZE, PROT_READ | PROT_WRITE,
+		MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) != xbox_pointer(PLATFORM_CE_TAG_CACHE_BASE))
+	{
+		platform_log("cannot commit Custom Edition maps' tag cache (%s)", strerror(errno));
+	}
 	arena_reserved = TRUE;
 }
 
