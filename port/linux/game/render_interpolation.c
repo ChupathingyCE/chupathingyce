@@ -17,9 +17,9 @@ Rotations are blended as quaternions (normalised lerp, taking the shorter
 way round), positions and scales linearly. Anything that moves further than
 a tick of motion plausibly allows (teleports, respawns, camera cuts) snaps
 instead of sweeping across the world, and so does a pose whose nodes moved
-or turned too far for one tick: two snapshots of different poses (a model
-swapped, another weapon's skeleton, a pose left from seconds before) blended
-node by node stretch vertices across the screen.
+too far for one tick: two snapshots of different poses (a model swapped,
+another weapon's skeleton, a pose left from seconds before) blended node by
+node stretch vertices across the screen.
 
 Particles, contrails and other effects already move every frame
 (game_frame), so they need nothing here.
@@ -70,12 +70,6 @@ like robots.) */
 #define NODE_SNAP_DISTANCE 0.4f
 /* ... a first-person node may move relative to the camera */
 #define FIRST_PERSON_SNAP_DISTANCE 0.25f
-/* the cosine of half the largest turn a node is blended through in one tick,
-90 degrees, beyond which the whole pose is taken as it ends: the shorter way
-round could go either way, and the node's neighbors another, tearing the
-skin between them (a vehicle's wheels turn about 60 degrees a tick at its
-top speed) */
-#define NODE_SNAP_HALF_COSINE 0.7071f
 /* a correction's difference left drawn after each tick (of 1) */
 #define CORRECTION_DECAY 0.6f
 /* ... and small enough to be none */
@@ -331,30 +325,6 @@ static void matrix_blend_rotations(
 	result->up.k = lerp(a->up.k, b->up.k, t);
 }
 
-static real vector_dot(real_vector3d const *a, real_vector3d const *b)
-{
-	return a->i * b->i + a->j * b->j + a->k * b->k;
-}
-
-/* whether a node's turn from a to b is small enough to blend through: no more
-than 90 degrees (a basis a quaternion cannot hold, blended as it is, only
-while each of its axes turns less than that) */
-static boolean node_turn_blends(
-	real_matrix4x3 const *a,
-	real_matrix4x3 const *b,
-	struct interpolation_rotation const *rotation_a,
-	struct interpolation_rotation const *rotation_b)
-{
-	if (rotation_a->is_rotation && rotation_b->is_rotation)
-	{
-		struct interpolation_quaternion const *qa = &rotation_a->quaternion, *qb = &rotation_b->quaternion;
-
-		return fabs(qa->i * qb->i + qa->j * qb->j + qa->k * qb->k + qa->w * qb->w) >= NODE_SNAP_HALF_COSINE;
-	}
-	return vector_dot(&a->forward, &b->forward) > 0.0f && vector_dot(&a->left, &b->left) > 0.0f &&
-		vector_dot(&a->up, &b->up) > 0.0f;
-}
-
 /* the vector's parts' sum, large enough to be a correction (so written that
 one not a number is none) */
 static boolean correction_significant(real_vector3d const *correction)
@@ -602,15 +572,7 @@ real_matrix4x3 *render_interpolation_object_node_matrices(long object_index)
 					record->rotations_valid[snapshot] = TRUE;
 				}
 			}
-			/* a node turned further than a tick allows: the whole pose snaps
-			(a node of it taken as it ends while its neighbors blend would
-			stretch the skin between them) */
-			for (node_index = 0; !snap && node_index < record->node_count; node_index++)
-			{
-				snap = !node_turn_blends(&previous[node_index], &latest[node_index], &previous_rotations[node_index],
-					&latest_rotations[node_index]);
-			}
-			for (node_index = 0; !snap && node_index < record->node_count; node_index++)
+			for (node_index = 0; node_index < record->node_count; node_index++)
 			{
 				matrix_blend_rotations(&previous[node_index], &latest[node_index], &previous_rotations[node_index],
 					&latest_rotations[node_index], interpolation_fraction, &blended[node_index]);
@@ -884,23 +846,21 @@ void render_interpolation_first_person(
 	first_person->node_count = node_count;
 	if (!first_person->has_previous)
 		return;
-	/* a node that jumped (in the camera's frame) or turned further than a
-	tick allows: the last pose was another weapon's skeleton (of as many
-	nodes), not this one moving (so written that a position not a number
-	snaps) */
+	/* a node that jumped further in the camera's frame than a tick allows:
+	the last pose was another weapon's skeleton (of as many nodes), not this
+	one moving (so written that a position not a number snaps) */
 	for (node_index = 0; node_index < node_count; node_index++)
 	{
 		real_matrix4x3 const *previous = &first_person->previous[node_index];
 		real_matrix4x3 const *latest = &first_person->latest[node_index];
 
-		rotation_from_matrix(previous, &previous_rotations[node_index]);
-		rotation_from_matrix(latest, &latest_rotations[node_index]);
 		if (!(distance_squared(&previous->position, &latest->position) <=
-			FIRST_PERSON_SNAP_DISTANCE * FIRST_PERSON_SNAP_DISTANCE) ||
-			!node_turn_blends(previous, latest, &previous_rotations[node_index], &latest_rotations[node_index]))
+			FIRST_PERSON_SNAP_DISTANCE * FIRST_PERSON_SNAP_DISTANCE))
 		{
 			return;
 		}
+		rotation_from_matrix(previous, &previous_rotations[node_index]);
+		rotation_from_matrix(latest, &latest_rotations[node_index]);
 	}
 	for (node_index = 0; node_index < node_count; node_index++)
 	{
