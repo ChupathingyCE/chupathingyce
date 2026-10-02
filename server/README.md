@@ -102,10 +102,18 @@ HALO_PROBE=068f5721cffe... build/linux/halo
 probe: {"ok": true, "name": "Milenko Slayer", "map": "chillout", "engine": "slayer", "players": 0, "maximum_players": 12, "open": true, "teams": false, "network_version": 9, "compatible": true}
 ```
 
-It needs only `maps/ui.map` in the data folder, runs without a window as the
-dedicated server does, and takes about 3 seconds. A host that does not
+It needs only `maps/ui.map` in the data folder (and about 33 MB for its
+saves, the game's scratch drive), runs without a window as the dedicated
+server does, and takes about 3 seconds. A host that does not
 answer in 20 seconds gives `{"ok": false, "error": "no answer from the host"}`
 (exit status 1).
+
+`deploy/deploy-probe.sh user@host build/linux/halo "<site's SSH key>"` puts it
+on a dedicated server's host beside the server, which it leaves as it is:
+a `halo-probe` image (the same Dockerfile), `probe.sh`, which runs one probe
+in a container of its own that goes when it is done, and a `probe` user
+whose key may only ask for a probe (`probe-ssh.sh`). halo.milenko.org runs
+its probes there.
 
 ## The game list
 
