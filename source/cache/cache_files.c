@@ -921,10 +921,13 @@ long scenario_tags_load(
 				}
 			}
 
+			/* (none of the high-res HUD: Halo PC's HUD bitmaps are laid out
+			otherwise than the Xbox's it was drawn for, so a Custom Edition map
+			draws its own) */
 			{
-				extern void hud_hires_tags_loaded(void);
+				extern void hud_hires_tags_unloaded(void);
 
-				hud_hires_tags_loaded();
+				hud_hires_tags_unloaded();
 			}
 			return ce_header->scenario_tag_index;
 		}

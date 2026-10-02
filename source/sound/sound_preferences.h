@@ -17,8 +17,11 @@ header included in hcex build.
 struct sound_preferences
 {
 	short platform;
-	short actual_channel_counts[4];
-	short virtual_channel_counts[4];
+	/* (per channel type, sound_channel_type_flags: the Xbox's four of Xbox
+	ADPCM, then the port's four of 16-bit PCM, for Halo PC's Ogg Vorbis sounds,
+	decoded) */
+	short actual_channel_counts[8];
+	short virtual_channel_counts[8];
 	short unused;
 };
 
@@ -31,7 +34,7 @@ void write_sound_preferences(
 
 /* ---------- globals */
 
-extern short sound_channel_type_flags[4];
+extern short sound_channel_type_flags[8];
 
 /* ---------- public code */
 

@@ -22,6 +22,7 @@
     ],
     "include_dirs": [
       "source",
+      "port/third_party/stb",
       "source/main",
       "source/cseries",
       "source/sound",

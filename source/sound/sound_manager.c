@@ -2420,7 +2420,10 @@ long sound_new_impulse(
 
 	if (sound_manager_globals.initialized && sound_manager_globals.enabled)
 	{
-		if (definition->compression == _sound_compression_xbox_adpcm &&
+		/* (port: 16-bit PCM too, as Halo PC's Ogg Vorbis sounds are decoded:
+		port/linux/game/ce_resources.c) */
+		if ((definition->compression == _sound_compression_xbox_adpcm ||
+				definition->compression == _sound_compression_none) &&
 			((definition->encoding == _sound_encoding_mono &&
 				definition->sample_rate == 0) ||
 				definition->encoding == _sound_encoding_stereo))
