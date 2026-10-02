@@ -632,7 +632,8 @@ static void update_list(void)
 	{
 		for (line = strtok(response, "\n"); line && count < BROWSER_MAXIMUM_GAMES; line = strtok(NULL, "\n"))
 		{
-			if (parse_game(line, &games[count]) && games[count].version == HALO_PORT_NETWORK_VERSION &&
+			if (parse_game(line, &games[count]) && games[count].version >= HALO_PORT_NETWORK_VERSION_MINIMUM &&
+				games[count].version <= HALO_PORT_NETWORK_VERSION_MAXIMUM &&
 				strcmp(games[count].invite, own))
 			{
 				count++;

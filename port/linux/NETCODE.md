@@ -95,6 +95,15 @@ every machine of a player the host dropped for cheating, each client
 tells the host its Discord user, and a machine's join request carries its
 hardware id.
 
+A host never checks a joining client's version: the client reads the
+host's from its advertisement and joins only a version it plays with. That
+is its own, or one of a range (HALO_PORT_NETWORK_VERSION_MINIMUM to
+HALO_PORT_NETWORK_VERSION_MAXIMUM, halo_port_limits.h) of versions that
+differ from it only in messages the other machine drops, not knowing them:
+version 10 (OpenCE's build-73) adds the host's message of the players'
+pings, which a machine of version 9 drops, so this build, of version 9,
+joins hosts of 9 and 10. The game browser lists the range's games.
+
 A client plays by its host's rules: in another's game (searching for it,
 in its lobby, or playing it) the developer console, the telnet console
 and the cheat buttons run only commands that change nothing of the game

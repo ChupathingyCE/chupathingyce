@@ -65,6 +65,17 @@ in its game's advertisement's reserved bytes (network_server_message_handler.c),
 which hosts built before there was a version send as zeros: version 0.
 Raise it with any change to what the machines send each other. */
 #define HALO_PORT_NETWORK_VERSION 9
+/* ... the versions whose hosts a client joins: its own, and those that differ
+from it only in what the other machines leave out (a message a machine of
+the other version does not know it drops). Version 10 (OpenCE's build-73)
+adds the host's message of the players' pings, for the scoreboard, which a
+machine of version 9 drops: it plays with them. Version 8 sends what version
+9 does not (version 9's join request carries the hardware id), and is
+outside. A host never checks a client's version: the client does
+(network_client_manager.c), so the range is the client's. Widen it only
+for a version read and found to differ so. */
+#define HALO_PORT_NETWORK_VERSION_MINIMUM 9
+#define HALO_PORT_NETWORK_VERSION_MAXIMUM 10
 /* ... the advertisement's reserved bytes: the version (a little-endian word),
 then flags */
 #define HALO_PORT_ADVERTISED_VERSION_OFFSET 0
