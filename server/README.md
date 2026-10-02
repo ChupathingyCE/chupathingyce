@@ -99,7 +99,7 @@ listing it and while it is listed.
 
 ```
 HALO_PROBE=068f5721cffe... build/linux/halo
-probe: {"ok": true, "name": "Milenko Slayer", "map": "chillout", "engine": "slayer", "players": 0, "maximum_players": 12, "open": true, "teams": false, "network_version": 9, "compatible": true}
+probe: {"ok": true, "name": "Milenko Slayer", "map": "chillout", "engine": "slayer", "players": 0, "maximum_players": 12, "open": true, "teams": false, "network_version": 10, "compatible": true}
 ```
 
 It needs only `maps/ui.map` in the data folder (and about 33 MB for its
