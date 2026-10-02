@@ -3285,8 +3285,12 @@ union hs_evaluation_argument
 	short short_value;
 	unsigned short unsigned_short_value;
 	boolean boolean_value;
-	char const *string_value;
+	XPTR(char const) string_value; /* script values are 32 bits: an Xbox address */
 };
+
+/* (each argument a script value's 32 bits: a pointer here would make the
+64-bit build read every argument past the first from the wrong place) */
+typedef char hs_evaluation_argument_size_assert[sizeof(union hs_evaluation_argument) == 4 ? 1 : -1];
 
 struct hs_arguments_boolean
 {
@@ -13210,7 +13214,7 @@ HS_EVALUATE_VOID_FROM_ARGUMENTS_WITH_REAL(
 	hs_sound_set_gain_evaluate,
 	union hs_evaluation_argument,
 	1,
-	hs_sound_set_gain(arguments[0].string_value, real_argument))
+	hs_sound_set_gain(xbox_pointer(arguments[0].string_value), real_argument))
 static void objects_scripting_set_scale_evaluate(
 	short function_index,
 	long thread_index,
@@ -13704,7 +13708,7 @@ static void hs_sound_get_gain_evaluate(
 	if (arguments)
 	{
 		union hs_real_value result;
-		result.real_value = hs_sound_get_gain(arguments[0].string_value);
+		result.real_value = hs_sound_get_gain(xbox_pointer(arguments[0].string_value));
 		hs_return(thread_index, result.long_value);
 	}
 	return;
@@ -13807,7 +13811,7 @@ static void ai_debug_vocalize_evaluate(
 	union hs_evaluation_argument *arguments = (union hs_evaluation_argument *)hs_macro_function_evaluate(function_index, thread_index, initialize);
 	if (arguments)
 	{
-		ai_debug_vocalize(arguments[0].string_value, arguments[1].string_value);
+		ai_debug_vocalize(xbox_pointer(arguments[0].string_value), xbox_pointer(arguments[1].string_value));
 		hs_return(thread_index, 0);
 	}
 	return;
@@ -13834,7 +13838,7 @@ static void debug_sound_classes_enable_evaluate(
 	union hs_evaluation_argument *arguments = (union hs_evaluation_argument *)hs_macro_function_evaluate(function_index, thread_index, initialize);
 	if (arguments)
 	{
-		debug_sound_classes_enable(arguments[0].string_value, arguments[1].boolean_value);
+		debug_sound_classes_enable(xbox_pointer(arguments[0].string_value), arguments[1].boolean_value);
 		hs_return(thread_index, 0);
 	}
 	return;
