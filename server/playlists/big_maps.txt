@@ -1,0 +1,12 @@
+# Slayer, every player for themselves, on the roomier maps, for big games
+# (server/src/dedicated.c): no team games, so any number of players, one
+# included, can start a game.
+# One entry a line: the map, then the game type, played in order.
+
+# map            game type
+bloodgulch       slayer
+damnation        slayer
+sidewinder       slayer
+hangemhigh       slayer
+boardingaction   slayer
+ratrace          slayer

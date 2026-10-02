@@ -23,7 +23,7 @@ It runs without a window, sound or a player, as the dedicated server
 
 The line: {"ok": true, "name": ..., "map": ..., "engine": "slayer",
 "players": 3, "maximum_players": 12, "open": true, "teams": false,
-"network_version": 9, "compatible": true}, or {"ok": false, "error": ...}.
+"network_version": 10, "compatible": true}, or {"ok": false, "error": ...}.
 */
 
 #ifdef HALO_GAME_BROWSER

@@ -11,7 +11,7 @@ carnage reports.
 | --- | --- |
 | `src/dedicated.c` | The dedicated server, compiled into the game (the game browser builds, `HALO_GAME_BROWSER`, on by default). |
 | `src/probe.c` | The game list's probe: what an invite leads to (below). |
-| `playlists/` | Playlists: `free_for_all.txt` (Slayer on every map), `slayer.txt` (Slayer and Team Slayer). |
+| `playlists/` | Playlists: `small_maps.txt` (Slayer on the smaller maps), `team_slayer.txt` (Team Slayer on every map), `big_maps.txt` (Slayer on the roomier maps, for 32 players), `bloodgulch.txt` (Blood Gulch, Team Slayer and Slayer, for 128), `free_for_all.txt` (Slayer on every map), `slayer.txt` (Slayer and Team Slayer). |
 | `deploy/` | The server as a Docker container and a systemd service, for a Linux host. |
 
 ## What it does
@@ -87,6 +87,20 @@ The settings are in `/opt/halo-dedicated/dedicated.env` on the host (from
 The server needs no open ports: internet play reaches players through the
 same hole punching as any host's invite.
 
+### More servers on the same host
+
+Each further server is the `halo-dedicated@<name>` service: the same image,
+its settings in `deploy/instances/<name>.env` (`team.env`: Team Slayer on
+every map), its own data folder `/opt/halo-dedicated/instances/<name>`
+(saves, `debug.txt`), and the first server's maps and playlists. All play on
+the host's network (hole punching does not get through a bridge's NAT to
+players behind their own), each with system link on a loopback address of
+its own (`HALO_NET_ADDRESS`: 127.0.0.2 the first, 127.0.0.3 the team
+server, 127.0.0.4 `max.env`'s 32-player Slayer, 127.0.0.5 `bloodgulch.env`'s
+128-player Blood Gulch), since two cannot share its port on one address.
+After `deploy.sh`, run `server/deploy/deploy-instance.sh user@host team`.
+Its log is `journalctl -u halo-dedicated@team`.
+
 ## Probing a game
 
 Any game browser build is also the game list's **probe** when `HALO_PROBE`
@@ -99,7 +113,7 @@ listing it and while it is listed.
 
 ```
 HALO_PROBE=068f5721cffe... build/linux/halo
-probe: {"ok": true, "name": "Milenko Slayer", "map": "chillout", "engine": "slayer", "players": 0, "maximum_players": 12, "open": true, "teams": false, "network_version": 9, "compatible": true}
+probe: {"ok": true, "name": "Milenko Slayer", "map": "chillout", "engine": "slayer", "players": 0, "maximum_players": 12, "open": true, "teams": false, "network_version": 10, "compatible": true}
 ```
 
 It needs only `maps/ui.map` in the data folder (and about 33 MB for its
