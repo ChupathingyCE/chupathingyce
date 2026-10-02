@@ -36,6 +36,8 @@ OUTPUTS = {
     "linux": ["build/linux/halo"],
     "windows": ["build/windows/halo.exe", "build/windows/SDL3.dll"],
     "android": [],  # the APK, below
+    # the application (universal and self-contained: --portable), whole
+    "macos": ["build/macos/ChupathingyCE.app"],
 }
 APKS = {
     "debug": "port/android/app/build/outputs/apk/debug/app-debug.apk",
@@ -85,8 +87,15 @@ def main() -> int:
         shutil.rmtree(dist)
     dist.mkdir(parents=True)
     for output in outputs:
-        shutil.copy2(ROOT / output, dist)
+        if (ROOT / output).is_dir():
+            # (a bundle: its symbolic links as they are, for its signature)
+            shutil.copytree(ROOT / output, dist / Path(output).name, symlinks=True)
+        else:
+            shutil.copy2(ROOT / output, dist)
         print(f"{output} -> {dist.relative_to(ROOT)}", flush=True)
+    if args.platform == "macos":
+        # (the SDL3 inside it, the build's own: zlib license)
+        shutil.copy2(ROOT / "build/macos/third_party/SDL3/LICENSE.txt", dist / "SDL3-LICENSE.txt")
     # the disc image readers (port/linux/src/xiso.c, and the Android app's
     # XisoExtractor.java) follow extract-xiso, whose license asks binaries
     # to carry its notice

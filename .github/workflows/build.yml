@@ -1,6 +1,7 @@
 name: Build
 
-# Debug and release builds of the native ports (Linux, Windows, Android) for
+# Debug and release builds of the native ports (Linux, Windows, Android,
+# macOS) for
 # every pushed commit and pull request, uploaded as artifacts: whether a
 # change builds. tools/ci_build.py does each build; see it for the options.
 #
@@ -197,4 +198,52 @@ jobs:
         with:
           name: chupathingyce-windows-release
           path: dist/chupathingyce-windows-release
+          retention-days: 3
+
+  macos:
+    # Apple silicon, with Xcode's clang: the universal application (Apple
+    # silicon and Intel, self-contained: tools/macos_build.py, --portable),
+    # with its own SDL3, built once and cached. The application goes up as
+    # a tar, which keeps its symbolic links and permissions (its signature
+    # needs them).
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Install the toolchain
+        run: brew install ninja ccache
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-macos-${{ github.sha }}
+          restore-keys: ccache-macos-
+
+      - uses: actions/cache@v4
+        with:
+          path: build/macos/third_party
+          key: macos-sdl3-${{ hashFiles('tools/android_build.py', 'tools/macos_build.py') }}
+
+      - name: Debug
+        run: python3 tools/ci_build.py macos debug
+
+      - name: Release
+        run: python3 tools/ci_build.py macos release
+
+      - name: Package
+        run: |
+          tar -C dist -cf chupathingyce-macos-debug.tar chupathingyce-macos-debug
+          tar -C dist -cf chupathingyce-macos-release.tar chupathingyce-macos-release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chupathingyce-macos-debug
+          path: chupathingyce-macos-debug.tar
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chupathingyce-macos-release
+          path: chupathingyce-macos-release.tar
           retention-days: 3
