@@ -6247,6 +6247,11 @@ static void widget_instance_render_recursive(
 	if (!widget->visible)
 		return;
 	ui_mouse_note_target(widget, definition, offset);
+#ifdef HALO_64BIT
+	/* port: a picture of the menus' map list's own, past ui.map's */
+	bitmap = ui_map_list_picture(widget->animation.current_frame_index);
+	if (!bitmap)
+#endif
 	bitmap = bitmap_group_get_bitmap_from_sequence(
 		definition->background_bitmap.index,
 		0,

@@ -3,13 +3,15 @@ HALO_UI_MAP_LIST.H
 
 The menus' list of multiplayer maps on the native builds
 (port/linux/game/ui_map_list.c): the Xbox's thirteen, as they were, then the
-Custom Edition maps in maps\ce, named with [CE]. The multiplayer map list,
-its rows and the lobby (source/interface) ask it in place of the game's
-fixed thirteen.
+Custom Edition maps in maps\ce, named with [CE], with Halo PC's names,
+descriptions and pictures of them. The multiplayer map list, its rows and the
+lobby (source/interface) ask it in place of the game's fixed thirteen.
 */
 
 #ifndef HALO_UI_MAP_LIST_H
 #define HALO_UI_MAP_LIST_H
+
+struct bitmap_data;
 
 /* a row's strings (ui_map_list_string_index) */
 enum
@@ -35,8 +37,11 @@ long ui_map_list_lookup(char const *map_name);
 /* a row's string list index for one of its strings: an Xbox map's own in
 ui.map, or one of this list's (ui_map_list_text) */
 short ui_map_list_string_index(long row, short kind);
-/* a row's bitmap frame among the Xbox maps' pictures */
+/* a row's bitmap frame: an Xbox map's in ui.map, or one of this list's
+(ui_map_list_picture) */
 short ui_map_list_picture_index(long row);
+/* the bitmap of a frame of this list's, or NULL for ui.map's */
+struct bitmap_data *ui_map_list_picture(short frame_index);
 /* the text of a string list index of this list's, or NULL for ui.map's */
 wchar_t const *ui_map_list_text(short string_list_index);
 
