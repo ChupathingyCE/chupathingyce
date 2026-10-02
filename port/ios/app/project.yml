@@ -34,6 +34,11 @@ targets:
         LSSupportsOpeningDocumentsInPlace: true
         GCSupportsGameMode: true
         UIApplicationSupportsIndirectInputEvents: true
+        # opening a halo://join/... invite link starts (or switches to) the game,
+        # which joins it (sdl_platform.c: SDL reports the link as a dropped file)
+        CFBundleURLTypes:
+          - CFBundleURLName: com.millsaircode.halo.invite
+            CFBundleURLSchemes: [halo]
     entitlements:
       path: Halo/Halo.entitlements
       properties:
