@@ -183,6 +183,31 @@ struct cache_file_structure_bsp_header
 	unsigned long signature;
 };
 
+#ifdef HALO_64BIT
+/* port: Custom Edition maps (Halo PC's): their version, their tag cache
+(platform.h), and their tag header, which has the models' vertices and
+indices in one block of the file rather than Direct3D buffers */
+#define CACHE_FILE_CE_VERSION 609
+#define CE_TAG_CACHE_BASE 0x40440000U
+#define CE_TAG_CACHE_SIZE 0x01700000U
+
+struct cache_file_ce_tag_header
+{
+	XPTR(struct cache_file_tag_instance) tag_instances;
+	long scenario_tag_index;
+	unsigned long checksum;
+	long tag_count;
+	long model_part_count;
+	long model_data_file_offset;
+	long model_part_count_again;
+	long vertex_data_size;
+	long model_data_size;
+	unsigned long signature;
+};
+
+static boolean cache_file_is_ce;
+#endif
+
 struct cache_file_header
 {
 	unsigned long header_signature;
@@ -347,6 +372,10 @@ void scenario_tags_unload(
 		menu_tags_unloaded();
 	}
 	cache_file_close();
+#ifdef HALO_64BIT
+	/* (a Custom Edition map registered no Direct3D buffers) */
+	if (!cache_file_is_ce)
+#endif
 	tags_header_deregister_vertex_and_index_buffers(cache_file_globals.tag_header);
 	cache_file_globals.tags_loaded = FALSE;
 	global_tag_instances = NULL;
@@ -602,7 +631,12 @@ boolean cache_file_header_verify(
 		return FALSE;
 	}
 
-	if (header->version != 5)
+	/* port: a Custom Edition map (Halo PC's, version 609: cache_files_windows.c) */
+	if (header->version != 5
+#ifdef HALO_64BIT
+		&& header->version != CACHE_FILE_CE_VERSION
+#endif
+		)
 	{
 		if (fatal)
 		{
@@ -796,6 +830,36 @@ long scenario_tags_load(
 	if (cache_file_open(stripped_scenario_name, &cache_file_globals.header))
 	{
 		tag_cache_base_address = physical_memory_get_tag_cache_base_address();
+#ifdef HALO_64BIT
+		/* port: a Custom Edition map's tags, in their own tag cache */
+		cache_file_is_ce = cache_file_globals.header.version == CACHE_FILE_CE_VERSION;
+		if (cache_file_is_ce && cache_file_header_verify(&cache_file_globals.header, scenario_name, TRUE))
+		{
+			struct cache_file_ce_tag_header *ce_header;
+
+			tag_cache_base_address = xbox_pointer(CE_TAG_CACHE_BASE);
+			csmemset(tag_cache_base_address, 0xCD, CE_TAG_CACHE_SIZE);
+			cache_file_read(NONE, cache_file_globals.header.tag_data_offset, cache_file_globals.header.tag_data_size,
+				tag_cache_base_address, &read_complete, TRUE);
+			while (!read_complete)
+				SwitchToThread();
+			ce_header = tag_cache_base_address;
+			match_vassert("c:\\halo\\SOURCE\\cache\\cache_files.c", 0x94,
+				ce_header->signature == CACHE_FILE_TAG_HEADER_SIGNATURE, "a Custom Edition map's tag header");
+			cache_file_globals.tag_header = tag_cache_base_address;
+			global_tag_instances = xbox_pointer(ce_header->tag_instances);
+			cache_file_globals.tags_loaded = TRUE;
+			error(_error_silent, "Custom Edition map %s: %ld tags, %ld model parts (%ld bytes of model data)",
+				scenario_name, ce_header->tag_count, ce_header->model_part_count, ce_header->model_data_size);
+
+			{
+				extern void hud_hires_tags_loaded(void);
+
+				hud_hires_tags_loaded();
+			}
+			return ce_header->scenario_tag_index;
+		}
+#endif
 		if (cache_file_header_verify(&cache_file_globals.header, scenario_name, TRUE))
 		{
 			csmemset(tag_cache_base_address, 0xCD, 0x01600000);

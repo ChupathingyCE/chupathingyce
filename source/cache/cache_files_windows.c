@@ -432,6 +432,64 @@ static short cached_map_files_find_map(
 
 static struct cache_file_runtime_globals cache_file_globals;
 
+#ifdef HALO_64BIT
+/* port: Custom Edition maps (Halo PC's, version 609), beside the Xbox maps:
+maps\ce\<name>.map, played as <name>@ce. Such a map is read where it is,
+not copied into one of the Xbox's cache slots and decompressed (it is not
+compressed): it has a slot of its own, after theirs, which every read goes
+through as theirs do (cache_files.c loads its tags into its own tag cache,
+platform.h) */
+#define CE_MAP_FILE_INDEX NUMBER_OF_CACHED_MAP_FILES
+#define CE_MAP_SUFFIX "@ce"
+
+static struct cached_map_file ce_map_file;
+static char ce_map_name[64];
+
+static boolean ce_map_name_is(
+	const char *map_name)
+{
+	size_t length = strlen(map_name);
+
+	return length > 3 && !_stricmp(map_name + length - 3, CE_MAP_SUFFIX);
+}
+
+/* the CE map named <name>@ce opened in its slot (once): FALSE if there is
+none, or it is not one */
+static boolean ce_map_open(
+	const char *map_name)
+{
+	char path[256];
+	unsigned long bytes_read = 0;
+	HANDLE file;
+	size_t length = strlen(map_name);
+
+	if (ce_map_file.file && !_stricmp(ce_map_name, map_name))
+		return TRUE;
+	if (ce_map_file.file)
+	{
+		CloseHandle(ce_map_file.file);
+		ce_map_file.file = NULL;
+	}
+	if (length - 3 >= 48)
+		return FALSE;
+	sprintf(path, "%sce\\%.*s.map", cache_files_map_directory(), (int)(length - 3), map_name);
+	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+	if (file == INVALID_HANDLE_VALUE)
+		return FALSE;
+	if (!ReadFile(file, &ce_map_file.header, sizeof(ce_map_file.header), &bytes_read, NULL) ||
+		bytes_read != sizeof(ce_map_file.header) ||
+		!cache_file_header_verify((struct cache_file_header *)&ce_map_file.header, path, FALSE))
+	{
+		CloseHandle(file);
+		return FALSE;
+	}
+	ce_map_file.file = file;
+	strncpy(ce_map_name, map_name, sizeof(ce_map_name) - 1);
+	error(_error_silent, "Custom Edition map %s: %s, build %s", map_name, path, ce_map_file.header.build);
+	return TRUE;
+}
+#endif
+
 /* ---------- public code */
 
 void tags_header_register_vertex_and_index_buffers(
@@ -839,7 +897,13 @@ short cache_file_read(
 		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
 		276,
 		offset>=0);
-	if (size & (CACHE_FILE_SECTOR_SIZE - 1))
+	if (size & (CACHE_FILE_SECTOR_SIZE - 1)
+#ifdef HALO_64BIT
+		/* (a Custom Edition map is read as it is, to its end, not in the
+		Xbox's whole sectors) */
+		&& cache_file_globals.open_map_file_index != CE_MAP_FILE_INDEX
+#endif
+		)
 	{
 		size = (size | (CACHE_FILE_SECTOR_SIZE - 1)) + 1;
 	}
@@ -1614,6 +1678,10 @@ static void cache_requests_flush(
 static struct cached_map_file *cached_map_file_get(
 	short map_file_index)
 {
+#ifdef HALO_64BIT
+	if (map_file_index == CE_MAP_FILE_INDEX)
+		return &ce_map_file;
+#endif
 	match_assert(
 		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
 		1208,
@@ -1634,6 +1702,12 @@ static short cached_map_files_find_map(
 	const char *map_name)
 {
 	short map_file_index;
+
+#ifdef HALO_64BIT
+	/* port: a Custom Edition map, in its own slot (above) */
+	if (ce_map_name_is(map_name))
+		return ce_map_open(map_name) ? CE_MAP_FILE_INDEX : NONE;
+#endif
 
 	for (map_file_index = 0;
 		map_file_index < NUMBER_OF_CACHED_MAP_FILES;
