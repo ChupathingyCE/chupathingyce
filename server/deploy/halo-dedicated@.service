@@ -2,9 +2,10 @@
 # the instance (halo-dedicated@team): the same image, with its settings in
 # /opt/halo-dedicated/instances/<name>.env and its own data folder
 # /opt/halo-dedicated/instances/<name> (saves, debug.txt), the maps and
-# playlists the first server's, read-only. On a network of its own (Docker's
-# bridge), not the host's: the first server holds the host's system link
-# port, and internet play finds the public address through the bridge.
+# playlists the first server's, read-only. On the host's network, as the
+# first (through a bridge's NAT, hole punching does not reach players behind
+# their own), each server's system link on a loopback address of its own
+# (HALO_NET_ADDRESS: two cannot share the port on one address).
 [Unit]
 Description=Halo dedicated server (%i)
 After=docker.service network-online.target
@@ -13,7 +14,7 @@ Wants=network-online.target
 
 [Service]
 ExecStartPre=-/usr/bin/docker rm -f halo-dedicated-%i
-ExecStart=/usr/bin/docker run --rm --name halo-dedicated-%i --network bridge \
+ExecStart=/usr/bin/docker run --rm --name halo-dedicated-%i --network host \
 	--env-file /opt/halo-dedicated/instances/%i.env \
 	-v /opt/halo-dedicated/instances/%i:/data \
 	-v /opt/halo-dedicated/data/maps:/data/maps:ro \

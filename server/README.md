@@ -92,8 +92,11 @@ same hole punching as any host's invite.
 Each further server is the `halo-dedicated@<name>` service: the same image,
 its settings in `deploy/instances/<name>.env` (`team.env`: Team Slayer on
 every map), its own data folder `/opt/halo-dedicated/instances/<name>`
-(saves, `debug.txt`), and the first server's maps and playlists. It plays on
-Docker's bridge network, since the first holds the host's system link port.
+(saves, `debug.txt`), and the first server's maps and playlists. All play on
+the host's network (hole punching does not get through a bridge's NAT to
+players behind their own), each with system link on a loopback address of
+its own (`HALO_NET_ADDRESS`: 127.0.0.2 the first, 127.0.0.3 the team
+server), since two cannot share its port on one address.
 After `deploy.sh`, run `server/deploy/deploy-instance.sh user@host team`.
 Its log is `journalctl -u halo-dedicated@team`.
 
