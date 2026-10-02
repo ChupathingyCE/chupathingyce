@@ -21,7 +21,7 @@ because the game's Xbox code talks to the Xbox SDK directly.
   files. The build was made with the 5933 SDK.
 - An Aug 2001 build of the Direct3D library, `d3d8ntpr.lib`. This repository
   does not supply it. Refer to "Direct3D".
-- The PAL (European) disc's maps. Refer to "Game data".
+- The North American (NTSC) disc's maps. Refer to "Game data".
 
 ## Build
 
@@ -35,11 +35,12 @@ OXDK or the Direct3D library is not found, there is no `xbox` target.
 
 ## Game data
 
-The game is build 01.01.14.2342, the same as the PAL release, and it does
-not load cache files of a different build. Use the maps of the PAL disc
-(`maps/*.map` and `maps/loading.tga`). The NTSC maps (01.10.12.2276) stop
-the game with "the cache file 'ui' belongs to a different build". The PC
-ports accept both.
+The game is build 01.01.14.2342, but it plays the maps of the North American
+(NTSC) release, 01.10.12.2276, as the other ports and the dedicated servers
+do: playing online with them needs the same maps. The maps of the PAL
+release (01.01.14.2342) work too, played as the NTSC maps are
+(`port/linux/game/pal_tags.c`). Use `maps/*.map` and `maps/loading.tga`
+from the disc.
 
 Put the files on the console's hard disk in one folder, for example:
 
