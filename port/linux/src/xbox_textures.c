@@ -361,14 +361,20 @@ static void decode_level(const struct xgpu_texture_description *description, uns
 	unsigned long depth = level_dimension(description->depth, level);
 	unsigned long x, y, z;
 
-	if (description->linear)
+	if (description->linear || description->pc_layout)
 	{
+		/* (a linear texture's rows are its pitch apart; Halo PC's, a level's
+		width) */
+		unsigned long pitch = description->linear ? description->pitch : width * information.bytes;
+
+		for (z = 0; z < depth; z++)
 		for (y = 0; y < height; y++)
 		{
-			const unsigned char *row = source + y * description->pitch;
+			const unsigned char *row = source + (z * height + y) * pitch;
 
 			for (x = 0; x < width; x++)
-				destination[y * width + x] = convert_texel(information.kind, row + x * information.bytes, palette, x, row);
+				destination[(z * height + y) * width + x] = convert_texel(information.kind, row + x * information.bytes,
+					palette, x, row);
 		}
 		return;
 	}
@@ -612,6 +618,12 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 			GLsizei height = (GLsizei)level_dimension(description->height, level);
 			GLsizei depth = (GLsizei)level_dimension(description->depth, level);
 
+			/* (Halo PC's cube map: its levels one after another, each the six
+			faces', the second and third swapped) */
+			if (description->pc_layout && description->cube_map)
+				source = base + xgpu_texture_level_offset(description, level) * 6 +
+					(face == 1 ? 2 : face == 2 ? 1 : face) * level_bytes(description, level);
+
 			if (description->compressed && !decode_compressed)
 			{
 				if (target == GL_TEXTURE_3D)
@@ -813,6 +825,8 @@ GLuint xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, GLenum *
 	generation = memory_watch_generation(entry->address, entry->size);
 	if (!entry->generation || generation > entry->generation || no_cache)
 	{
+		/* (whose layout, as the bitmap now here is laid out) */
+		entry->description.pc_layout = (resource[0] & D3DCOMMON_PORT_PC_LAYOUT) != 0;
 		/* protect first, so a write racing with the upload is noticed */
 		memory_watch_protect(entry->address, entry->size);
 		entry->generation = memory_watch_generation(entry->address, entry->size);
