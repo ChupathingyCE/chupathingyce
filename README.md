@@ -49,7 +49,7 @@ own releases. Expect rough edges, and please report them.
 | --- | --- | --- | --- | --- |
 | The game | ✅ | ✅ Apple silicon and Intel | ✅ | ✅ |
 | Online Games, hosting, stats | ✅ | ✅ | ✅ | ✅ |
-| Dedicated server | Untested | Untested | ✅ (and Docker) | |
+| Dedicated server | ✅ (tested in Wine) | Untested | ✅ (and Docker) | |
 | Updates itself | ✅ | Not yet | ✅ | ✅ |
 
 ## Download
@@ -108,9 +108,10 @@ their host on the site (Host a Game).
 ## Run a server
 
 A dedicated server is a copy of the game with no player and no window, hosting
-a playlist of games around the clock and listing them on the server list. It
-runs on any Linux server with Docker, or on your own computer. See
-[server/README.md](server/README.md).
+a playlist of games and listing them on halo.milenko.org and in Online Games.
+You can run one on your own computer, with no port forwarding:
+[the setup guide](docs/dedicated-server.md) walks through it. For one that runs
+around the clock on a Linux server, see [server/README.md](server/README.md).
 
 ## How ChupathingyCE relates to OpenCE
 
