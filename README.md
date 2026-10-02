@@ -49,9 +49,8 @@ own releases. Expect rough edges, and please report them.
 | --- | --- | --- | --- | --- |
 | The game | ✅ | ✅ Apple silicon and Intel | ✅ | ✅ |
 | Online Games, hosting, stats | ✅ | ✅ | ✅ | ✅ |
-| Dedicated server | ✅ | ✅ | ✅ (and Docker) | |
+| Dedicated server | Untested | Untested | ✅ (and Docker) | |
 | Updates itself | ✅ | Not yet | ✅ | ✅ |
-| Movies (the intro) | | | | |
 
 ## Download
 
