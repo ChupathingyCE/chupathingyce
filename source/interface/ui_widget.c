@@ -679,6 +679,7 @@ struct widget_instance;
 #include "ui_widget.h"
 #ifdef HALO_64BIT
 #include "interface/ui_widget_instance.h"
+#include "halo_ui_map_list.h"
 #endif
 #ifdef HALO_GAME_BROWSER
 /* the in-game server browser (port/linux/game/browser_screen.c): a screen of
@@ -5313,6 +5314,11 @@ static void widget_instance_render_text_box(
 			string_list_index = definition->string_list_index;
 		else
 			string_list_index = widget->parameters.text_box.string_list_index;
+#ifdef HALO_64BIT
+		/* port: a string of the menus' map list's own, past ui.map's */
+		string = (wchar_t *)ui_map_list_text(string_list_index);
+		if (!string)
+#endif
 		string = widget == ui_widget_port_error_text_box && ui_widget_port_error_text ?
 			(wchar_t *)ui_widget_port_error_text :
 			unicode_string_list_get_string(definition->text_label_string_list.index, string_list_index);

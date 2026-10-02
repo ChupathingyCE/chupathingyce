@@ -936,6 +936,10 @@ boolean playlist_profile_get_options(long playlist_profile_index, struct game_va
 #include "text/unicode.h"
 #include "halo_menus.h" /* port: PC_MENU_FUNCTION_BASE */
 
+#ifdef HALO_64BIT
+#include "halo_ui_map_list.h"
+#endif
+
 /* ---------- constants */
 
 /* ---------- macros */
@@ -1738,6 +1742,33 @@ struct event_handler_globals event_handler_functions =
 	},
 	NONE
 };
+
+#ifdef HALO_64BIT
+/* port: the row of the menus' map list that plays a map's name, the list
+filled anew for a name it lacks (a game's map the list hasn't been shown
+since, or one new in maps\ce): NONE if none does. A name looked for in vain
+isn't looked for again until another is */
+long ui_map_list_lookup(
+	char const *map_name)
+{
+	static char missing[64];
+	long row;
+
+	if (!map_name)
+		return NONE;
+	if (!ui_map_list_count())
+		ui_map_list_refresh(event_handler_functions.multiplayer_levels);
+	row = ui_map_list_find(map_name);
+	if (row == NONE && strncmp(missing, map_name, sizeof(missing) - 1))
+	{
+		ui_map_list_refresh(event_handler_functions.multiplayer_levels);
+		row = ui_map_list_find(map_name);
+		if (row == NONE)
+			snprintf(missing, sizeof(missing), "%s", map_name);
+	}
+	return row;
+}
+#endif
 
 /* ---------- public code */
 
@@ -2947,7 +2978,19 @@ static boolean multiplayer_level_list_initialize(
 {
 	char map_name[256];
 	struct ui_widget_definition *definition = ui_widget_definition_get(widget->definition_tag_index);
+#ifdef HALO_64BIT
+	/* port: the menus' map list, the Xbox's thirteen then the Custom
+	Edition maps */
+	short level_count;
+	char **level_names;
+
+	ui_map_list_refresh(event_handler_functions.multiplayer_levels);
+	level_count = (short)ui_map_list_count();
+	level_names = ui_map_list_names();
+#else
 	short level_count = 13;
+	char **level_names = event_handler_functions.multiplayer_levels;
+#endif
 
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1228,
 		definition->type == 2,
@@ -2955,14 +2998,14 @@ static boolean multiplayer_level_list_initialize(
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1229,
 		definition->child_count == 3,
 		"expected 3 list items for 'multiplayer level list' widget");
-	widget->parameters.list.list_items = event_handler_functions.multiplayer_levels;
+	widget->parameters.list.list_items = level_names;
 	widget->parameters.list.number_of_items = level_count;
 	if (saved_game_file_retrieve_last_used_multiplayer_map(map_name))
 	{
 		widget->parameters.list.selected_index = 0;
 		while (widget->parameters.list.selected_index < level_count &&
 			_stricmp(map_name,
-				event_handler_functions.multiplayer_levels[widget->parameters.list.selected_index]))
+				level_names[widget->parameters.list.selected_index]))
 		{
 			widget->parameters.list.selected_index++;
 		}
@@ -5601,10 +5644,18 @@ static boolean multiplayer_level_select(
 		definition->child_count == 3,
 		"expected 3 list items for 'multiplayer level list' widget");
 	level_list = widget->child->child;
+#ifdef HALO_64BIT
+	/* port: the menus' map list */
+	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1298,
+		level_list->parameters.list.selected_index >= 0 && level_list->parameters.list.selected_index < ui_map_list_count(),
+		"invalid multiplayer level specified from 'multiplayer level list' list widget");
+	map_name = ui_map_list_names()[level_list->parameters.list.selected_index];
+#else
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1298,
 		level_list->parameters.list.selected_index >= 0 && level_list->parameters.list.selected_index < 13,
 		"invalid multiplayer level specified from 'multiplayer level list' list widget");
 	map_name = event_handler_functions.multiplayer_levels[level_list->parameters.list.selected_index];
+#endif
 	file = fopen("d:\\map_automation.txt", "r");
 	if (file)
 	{
@@ -5633,6 +5684,11 @@ static boolean multiplayer_level_select(
 		if (server)
 			network_game_server_change_map_name(server, map_name);
 	}
+#ifdef HALO_64BIT
+	level_index = ui_map_list_find(map_name);
+	if (level_index != NONE)
+		saved_game_file_remember_last_used_multiplayer_map(ui_map_list_names()[level_index]);
+#else
 	for (level_index = 0; level_index < 13; level_index++)
 	{
 		if (!_stricmp(map_name, event_handler_functions.multiplayer_levels[level_index]))
@@ -5641,6 +5697,7 @@ static boolean multiplayer_level_select(
 			break;
 		}
 	}
+#endif
 	return TRUE;
 }
 

@@ -357,6 +357,10 @@ symbols in this file:
 #ifdef HALO_64BIT
 #include "cseries/errors.h"
 #include "interface/ui_widget_instance.h"
+
+#ifdef HALO_64BIT
+#include "halo_ui_map_list.h"
+#endif
 #endif
 #include "halo_menus.h" /* port: PC_MENU_FUNCTION_BASE */
 
@@ -2433,6 +2437,20 @@ static void multiplayer_game_set_text_box_for_map_name(
 	if (game)
 	{
 		map_name = game->map.name;
+#ifdef HALO_64BIT
+	/* port: a map past the Xbox's is named as the menus' map list names it */
+	if (strchr(map_name, '@'))
+	{
+		long row = ui_map_list_lookup(map_name);
+
+		if (row != NONE)
+		{
+			widget->parameters.text_box.string_list_index =
+				ui_map_list_string_index(row, _ui_map_list_string_lobby_name);
+			return;
+		}
+	}
+#endif
 	if (strstr(map_name, "beavercreek"))
 	{
 		widget->parameters.text_box.string_list_index = 0;
@@ -2701,6 +2719,19 @@ static void multiplayer_game_set_bitmap_for_map(
 	if (game)
 	{
 		map_name = game->map.name;
+#ifdef HALO_64BIT
+	/* port: a map past the Xbox's shows the menus' map list's picture for it */
+	if (strchr(map_name, '@'))
+	{
+		long row = ui_map_list_lookup(map_name);
+
+		if (row != NONE)
+		{
+			widget->animation.current_frame_index = ui_map_list_picture_index(row);
+			return;
+		}
+	}
+#endif
 	if (strstr(map_name, "beavercreek"))
 	{
 		widget->animation.current_frame_index = 0;
@@ -4244,12 +4275,23 @@ static void mp_level_select_list_update_displayed_items(
 				_ui_widget_type_text_box,
 			"expected a text box widget for the list item's third child (map description)");
 
+#ifdef HALO_64BIT
+		/* port: the rows are the menus' map list's: an Xbox map's string and
+		frame are its own, another's text that list's */
+		map_name->parameters.text_box.string_list_index =
+			ui_map_list_string_index(displayed_item_indices[item_index], _ui_map_list_string_name);
+		map_bitmap->animation.current_frame_index =
+			ui_map_list_picture_index(displayed_item_indices[item_index]);
+		map_description->parameters.text_box.string_list_index =
+			ui_map_list_string_index(displayed_item_indices[item_index], _ui_map_list_string_description);
+#else
 		map_name->parameters.text_box.string_list_index =
 			(short)displayed_item_indices[item_index];
 		map_bitmap->animation.current_frame_index =
 			(short)displayed_item_indices[item_index];
 		map_description->parameters.text_box.string_list_index =
 			(short)displayed_item_indices[item_index];
+#endif
 	}
 	return;
 }
