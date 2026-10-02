@@ -79,8 +79,7 @@ The files in `port/xbox/src` supply what the later SDK does not:
   reverb.
 - `xbox_d3dx.c`: the four D3DX functions that the game calls. The SDK's
   D3DX library needs the SDK's own Direct3D.
-- `xbox_support.cpp`: `fast_ftol_C` and `main_crash` (not yet in the
-  reconstruction), and the debug monitor's module functions. A title that
+- `xbox_support.cpp`: `fast_ftol_C` (not yet in the reconstruction), and the debug monitor's module functions. A title that
   imports `xbdm.dll` does not start on a retail console, so the game finds
   no modules.
 

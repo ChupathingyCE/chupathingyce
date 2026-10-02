@@ -28,6 +28,42 @@ The CPU part holds about 13.6 MB of pools at the sizes below (the Xbox pools
 fill 3,165,260 of its 0x305000 bytes); the GPU part holds only the decal
 vertices, as on the Xbox. */
 
+#ifdef HALO_XBOX_CONSOLE
+/* the console (port/xbox): its own sizes, those of the game as it shipped */
+
+#define HALO_PORT_GAME_STATE_BASE_ADDRESS 0x80061000
+#define HALO_PORT_GAME_STATE_CPU_SIZE 0x305000
+#define HALO_PORT_GAME_STATE_GPU_SIZE 0x40000
+#define HALO_PORT_GAME_STATE_SIZE (HALO_PORT_GAME_STATE_CPU_SIZE+HALO_PORT_GAME_STATE_GPU_SIZE)
+
+/* ---------- objects */
+
+#define HALO_PORT_MAXIMUM_OBJECTS_PER_MAP 2048
+#define HALO_PORT_OBJECT_MEMORY_POOL_SIZE 0x100000
+/* each of the two reference lists of every cluster partition (collideable
+objects, noncollideable objects, lights) */
+#define HALO_PORT_MAXIMUM_CLUSTER_REFERENCES 2048
+#define HALO_PORT_MAXIMUM_RENDERED_OBJECTS 256
+#define HALO_PORT_MAXIMUM_CACHED_OBJECT_RENDER_STATES 256
+/* objects one explosion can damage */
+#define HALO_PORT_MAXIMUM_AREA_OF_EFFECT_OBJECTS 64
+/* object references shared by all script object lists */
+#define HALO_PORT_MAXIMUM_LISTED_OBJECTS_PER_MAP 128
+
+/* ---------- effects, particles, lights and sounds */
+
+#define HALO_PORT_MAXIMUM_EFFECTS 256
+#define HALO_PORT_MAXIMUM_EFFECT_LOCATIONS 512
+#define HALO_PORT_MAXIMUM_PARTICLES 1024
+#define HALO_PORT_MAXIMUM_PARTICLE_SYSTEMS 64
+#define HALO_PORT_MAXIMUM_SYSTEM_PARTICLES 512
+#define HALO_PORT_MAXIMUM_CONTRAILS 256
+#define HALO_PORT_MAXIMUM_CONTRAIL_POINTS 1024
+#define HALO_PORT_MAXIMUM_LIGHTS_PER_MAP 896
+#define HALO_PORT_MAXIMUM_GAME_LOOPING_SOUNDS 1024
+
+#else
+
 #define HALO_PORT_GAME_STATE_BASE_ADDRESS 0x81A00000 /* (0x80061000) */
 #define HALO_PORT_GAME_STATE_CPU_SIZE 0xFC0000 /* (0x305000) */
 #define HALO_PORT_GAME_STATE_GPU_SIZE 0x40000 /* (0x40000) */
@@ -58,5 +94,7 @@ objects, noncollideable objects, lights) */
 #define HALO_PORT_MAXIMUM_CONTRAIL_POINTS 8192 /* (1024) */
 #define HALO_PORT_MAXIMUM_LIGHTS_PER_MAP 4096 /* (896) */
 #define HALO_PORT_MAXIMUM_GAME_LOOPING_SOUNDS 4096 /* (1024) */
+
+#endif /* HALO_XBOX_CONSOLE */
 
 #endif /* __HALO_PORT_CAPACITY_H */

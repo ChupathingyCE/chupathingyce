@@ -33,4 +33,15 @@ library no longer takes: port/xbox/src/xbox_dsound.c translates them */
 #define IDirectSoundStream_SetMixBins halo_xbox_IDirectSoundStream_SetMixBins
 #define IDirectSoundStream_SetMixBinVolumes halo_xbox_IDirectSoundStream_SetMixBinVolumes
 
+/* the shared sources' limits, as the native builds' prefix includes them
+(the network's are the same on every machine; the capacity is the
+console's: HALO_XBOX_CONSOLE) */
+#include "../../linux/include/halo_port_limits.h"
+/* a host's socket set holds a socket for every machine (the SDK's Winsock
+headers default to 64) */
+#define FD_SETSIZE HALO_PORT_FD_SETSIZE
+/* the desktop builds' mouse in the menus, which the console has none of
+(port/xbox/src/xbox_port.c) */
+#include "../../linux/include/halo_ui_pointer.h"
+
 #endif

@@ -9,8 +9,8 @@ the January SDK, which later SDKs changed), built to run inside the kernel.
 That build allocates through D3DK::MemAlloc and MemFree, which the kernel
 provided; here they come from the pool, as there.
 
-The game: fast_ftol_C and main_crash are Halo functions missing from the
-reconstruction (as in port/linux/src/halo_linker_common.c).
+The game: fast_ftol_C is a Halo function missing from the reconstruction
+(as in port/linux/src/halo_linker_common.c).
 
 The debug monitor: see below.
 
@@ -71,14 +71,6 @@ extern "C" long fast_ftol_C(float value)
 	}
 
 	return result;
-}
-
-/* The debug console's "crash" command, which deliberately brings the game
-down to exercise crash handling. */
-extern "C" void main_crash(const char *reason)
-{
-	DbgPrint("main_crash: %s\n", reason ? reason : "");
-	*(volatile int *)0= 0;
 }
 
 /* ---------- the debug monitor

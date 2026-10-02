@@ -52,6 +52,8 @@ GAME_FLAGS = [
     "-fno-omit-frame-pointer",
     "-fcommon",
     "-D_XBOX", "-D_X86_", "-D_NTOS_", "-D_MT",
+    # the console's own capacity (port/linux/include/halo_port_capacity.h)
+    "-DHALO_XBOX_CONSOLE",
     "-w",
     "-Wno-error=incompatible-pointer-types",
     "-Wno-error=incompatible-function-pointer-types",
@@ -86,6 +88,13 @@ LINK_FLAGS = [
 # the four functions the game calls)
 LIBRARIES = [
     "libcmt.lib", "oldnames.lib", "xboxkrnl.lib", "dsound.lib", "xnet.lib", "xapilib.lib", "xkbd.lib",
+]
+# the game's C++ sources (game_sources has its C only)
+XBOX_GAME_CXX_SOURCES = [Path("source/main/d3d_intimacy.cpp")]
+# port/linux/game's sources the console builds too
+XBOX_PORT_GAME_SOURCES = [
+    "hud_hires_tags.c", "network_damage.c", "network_distributed.c", "network_objects.c", "network_test.c",
+    "pal_tags.c", "render_interpolation.c",
 ]
 # d3d_intimacy.cpp reads the device as the January library named it; the
 # kernel's build of the Aug 2001 library has it in its own namespace (the
@@ -225,10 +234,19 @@ def generate_xbox_build(n: Writer, sln: Any) -> None:
     for source in game_sources(config):
         add_object(source, f"-std=gnu89 {game_cflags}", [semantics_header, prefix_header],
                    _inline_export_wrapper(source, build_dir))
+    # the game's C++, which the native builds replace (d3d8_gl.c): the frame
+    # counter read out of the console's Direct3D device
+    for source in XBOX_GAME_CXX_SOURCES:
+        add_object(source, f"-fno-exceptions {game_cflags}", [semantics_header, prefix_header])
     # one pick-any copy of each header inline that units call through a
     # prototype (see the file)
     add_object(Path("port/linux/game/msvc_comdat.c"), f"-std=gnu89 {game_cflags}",
                [semantics_header, prefix_header])
+    # the native builds' game code the console plays the same (their netcode,
+    # so it plays with them; PAL tags; frame interpolation), but not their
+    # screens of the game list, which draw through their platform layer
+    for name in XBOX_PORT_GAME_SOURCES:
+        add_object(Path("port/linux/game") / name, f"-std=gnu89 {game_cflags}", [semantics_header, prefix_header])
 
     support_cflags = " ".join([*SUPPORT_FLAGS, f"-I{_quote(xdk / 'include')}"])
     for source in sorted((PORT_DIR / "src").glob("*.c")):
