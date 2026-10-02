@@ -11,7 +11,7 @@ carnage reports.
 | --- | --- |
 | `src/dedicated.c` | The dedicated server, compiled into the game (the game browser builds, `HALO_GAME_BROWSER`, on by default). |
 | `src/probe.c` | The game list's probe: what an invite leads to (below). |
-| `playlists/` | Playlists: `small_maps.txt` (Slayer on the smaller maps), `team_slayer.txt` (Team Slayer on every map), `free_for_all.txt` (Slayer on every map), `slayer.txt` (Slayer and Team Slayer). |
+| `playlists/` | Playlists: `small_maps.txt` (Slayer on the smaller maps), `team_slayer.txt` (Team Slayer on every map), `big_maps.txt` (Slayer on the roomier maps, for 32 players), `free_for_all.txt` (Slayer on every map), `slayer.txt` (Slayer and Team Slayer). |
 | `deploy/` | The server as a Docker container and a systemd service, for a Linux host. |
 
 ## What it does
@@ -96,7 +96,7 @@ every map), its own data folder `/opt/halo-dedicated/instances/<name>`
 the host's network (hole punching does not get through a bridge's NAT to
 players behind their own), each with system link on a loopback address of
 its own (`HALO_NET_ADDRESS`: 127.0.0.2 the first, 127.0.0.3 the team
-server), since two cannot share its port on one address.
+server, 127.0.0.4 `max.env`'s 32-player Slayer), since two cannot share its port on one address.
 After `deploy.sh`, run `server/deploy/deploy-instance.sh user@host team`.
 Its log is `journalctl -u halo-dedicated@team`.
 
