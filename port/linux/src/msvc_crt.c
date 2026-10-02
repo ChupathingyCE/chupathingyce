@@ -360,18 +360,39 @@ unsigned int _clearfp(void)
 #else
 /* x87: glibc's floating-point environment holds the control and status
 words (fegetenv and fesetenv save and load the whole x87 environment, and
-keep the SSE unit's rounding and masks in step) */
+keep the SSE unit's rounding and masks in step). macOS's (the universal
+application's Intel half) names them __control and __status, and keeps the
+SSE unit's register apart (__mxcsr): it is kept in step here, its rounding
+and exception masks with the control word's, and its exception flags read
+and cleared with the status word's (64-bit code computes with the SSE unit) */
+#ifdef __APPLE__
+#define FENV_CONTROL_WORD(environment) ((environment).__control)
+#define FENV_STATUS_WORD(environment) ((environment).__status)
+#define FENV_SSE_STATUS(environment) ((environment).__mxcsr & 0x3f)
+#define FENV_SSE_FOLLOW_CONTROL(environment) \
+	((environment).__mxcsr = ((environment).__mxcsr & ~0x7f80u) | (((environment).__control & 0x0c00u) << 3) | \
+		(((environment).__control & 0x3fu) << 7))
+#define FENV_SSE_CLEAR_STATUS(environment) ((environment).__mxcsr &= ~0x3fu)
+#else
+#define FENV_CONTROL_WORD(environment) ((environment).__control_word)
+#define FENV_STATUS_WORD(environment) ((environment).__status_word)
+#define FENV_SSE_STATUS(environment) 0
+#define FENV_SSE_FOLLOW_CONTROL(environment) ((void)0)
+#define FENV_SSE_CLEAR_STATUS(environment) ((void)0)
+#endif
+
 unsigned int _control87(unsigned int new_value, unsigned int mask)
 {
 	fenv_t environment;
 	unsigned int current;
 
 	fegetenv(&environment);
-	current = control_word_to_msvc(environment.__control_word);
+	current = control_word_to_msvc(FENV_CONTROL_WORD(environment));
 	if (mask)
 	{
 		current = (current & ~mask) | (new_value & mask);
-		environment.__control_word = msvc_to_control_word(current, environment.__control_word);
+		FENV_CONTROL_WORD(environment) = msvc_to_control_word(current, FENV_CONTROL_WORD(environment));
+		FENV_SSE_FOLLOW_CONTROL(environment);
 		fesetenv(&environment);
 	}
 	return current;
@@ -388,7 +409,7 @@ unsigned int _statusfp(void)
 	fenv_t environment;
 
 	fegetenv(&environment);
-	return environment.__status_word & 0x3f;
+	return (FENV_STATUS_WORD(environment) | FENV_SSE_STATUS(environment)) & 0x3f;
 }
 
 unsigned int _clearfp(void)
@@ -397,9 +418,10 @@ unsigned int _clearfp(void)
 	unsigned int status;
 
 	fegetenv(&environment);
-	status = environment.__status_word & 0x3f;
+	status = (FENV_STATUS_WORD(environment) | FENV_SSE_STATUS(environment)) & 0x3f;
 	/* the exception flags, and the summary and stack fault bits with them */
-	environment.__status_word &= (unsigned short)~0xff;
+	FENV_STATUS_WORD(environment) &= (unsigned short)~0xff;
+	FENV_SSE_CLEAR_STATUS(environment);
 	fesetenv(&environment);
 	return status;
 }

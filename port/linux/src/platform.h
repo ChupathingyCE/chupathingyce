@@ -102,6 +102,12 @@ const char *platform_data_root(void);
 out of an Xbox disc image into destination (sdl_platform.c), and quits if
 the player declines; nonzero once destination has one */
 BOOL platform_offer_game_data(const char *destination);
+/* the macOS application's folder for its data and settings, when the game
+runs as an application (ChupathingyCE.app): ~/Library/Application
+Support/ChupathingyCE, made if need be, into path; 0 otherwise (and on
+other systems). An application's own files are not written: it is signed,
+and may be where its player cannot write (port_config.c) */
+int platform_app_folder(char *path, unsigned long size);
 const char *platform_save_root(void);
 #ifdef HALO_GAME_BROWSER
 /* a web page opened in the web browser (from any thread: the main thread

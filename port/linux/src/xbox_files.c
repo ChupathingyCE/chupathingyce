@@ -138,10 +138,20 @@ const char *platform_data_root(void)
 #endif
 			}
 #ifndef HALO_ANDROID
-			if (!has_maps(root) && executable_directory[0] && platform_offer_game_data(executable_directory) &&
-				has_maps(executable_directory))
 			{
-				snprintf(root, sizeof(root), "%s", executable_directory);
+				/* (the macOS application's data goes in its folder in
+				Application Support, not in the application: port_config.c) */
+				char app_folder[MAX_PATH];
+				const char *destination = platform_app_folder(app_folder, sizeof(app_folder))
+					? app_folder : executable_directory;
+
+				if (!has_maps(root) && destination[0] && has_maps(destination))
+					snprintf(root, sizeof(root), "%s", destination);
+				else if (!has_maps(root) && destination[0] && platform_offer_game_data(destination) &&
+					has_maps(destination))
+				{
+					snprintf(root, sizeof(root), "%s", destination);
+				}
 			}
 #endif
 			if (!has_maps(root))
@@ -178,6 +188,18 @@ static void make_directories(const char *path)
 		posix_make_directory(partial);
 }
 
+#ifdef __APPLE__
+/* whether this Mac has saves in the folder the game used before the
+application had its own (~/.local/share/halo-linux) */
+static BOOL saves_exist(const char *home)
+{
+	char path[MAX_PATH];
+
+	snprintf(path, sizeof(path), "%s/.local/share/halo-linux", home);
+	return directory_exists(path);
+}
+#endif
+
 const char *platform_save_root(void)
 {
 	static char root[MAX_PATH];
@@ -190,6 +212,16 @@ const char *platform_save_root(void)
 
 		if (*environment)
 			snprintf(root, sizeof(root), "%s", environment);
+#ifdef __APPLE__
+		/* the macOS application keeps everything in its folder in
+		Application Support (platform_app_folder), unless this Mac has saves
+		from before (and its player key: browser.c), in the folder below */
+		else if (platform_app_folder(root, sizeof(root)) &&
+			!(home && *home && saves_exist(home)))
+		{
+			strncat(root, "/saves", sizeof(root) - strlen(root) - 1);
+		}
+#endif
 #ifdef _WIN32
 		/* the Windows build (port/windows) keeps saves in the roaming
 		application data folder */

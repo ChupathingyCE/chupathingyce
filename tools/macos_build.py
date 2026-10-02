@@ -20,6 +20,7 @@ import json
 import os
 import platform
 import shlex
+import subprocess
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -54,6 +55,22 @@ LINUX_PORT_CONFIG = LINUX_PORT_DIR / "port.json"
 MACOS_MINIMUM = "13.0"
 # SDL3 and the other libraries, from Homebrew
 HOMEBREW = Path("/opt/homebrew")
+# an application for other Macs (configure.py --portable) is built with an
+# SDL3 of its own, for MACOS_MINIMUM (Homebrew's is for the Mac that has it):
+# the Android build's release, built here with CMake
+from .android_build import SDL_TAG, SDL_URL  # noqa: E402
+PORTABLE_SDL_DIR = Path("build/macos/third_party/SDL3")
+PORTABLE_SDL_BUILD = Path("build/macos/third_party/SDL3-build")
+
+
+def fetch_portable_sdl() -> bool:
+    """SDL3's sources for the portable build (once): whether they are there"""
+    if (PORTABLE_SDL_DIR / "CMakeLists.txt").is_file():
+        return True
+    PORTABLE_SDL_DIR.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Cloning SDL3 {SDL_TAG} (the portable macOS build's)")
+    return subprocess.run(["git", "clone", "-q", "--depth", "1", "--branch", SDL_TAG, SDL_URL,
+                           str(PORTABLE_SDL_DIR)]).returncode == 0
 
 # The Xbox ABI the sources were written against, as far as a 64-bit ARM host
 # can reproduce it (compare LINUX_ABI_FLAGS): 16-bit wchar_t, MSVC's
@@ -167,8 +184,15 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
     lp64_dir = build_dir / "lp64"
     output = build_dir / "halo"
     cc = getattr(sln, "macos_cc", None) or "clang"
-    arch = "arm64" if platform.machine() == "arm64" else "x86_64"
-    target = f"--target={arch}-apple-macos{MACOS_MINIMUM}"
+    portable = getattr(sln, "port_portable", False)
+    # the Mac's own architecture; an application for other Macs, both (Apple
+    # silicon and Intel: a universal application)
+    architectures = ["arm64", "x86_64"] if portable else ["arm64" if platform.machine() == "arm64" else "x86_64"]
+    if portable and not fetch_portable_sdl():
+        raise SystemExit("the portable macOS build needs SDL3's sources (git clone failed)")
+    # (its SDL: the headers before Homebrew's, the library built below)
+    portable_sdl = PORTABLE_SDL_BUILD / "libSDL3.0.dylib"
+    sdl_include = f"-I{PORTABLE_SDL_DIR / 'include'} " if portable else ""
 
     def lp64(path: Path) -> Path:
         return lp64_dir / path
@@ -220,115 +244,156 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
         rspfile_content="$in_newline",
     )
 
-    release = ["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else []
-    abi = " ".join([target, *MACOS_ABI_FLAGS, *release, *game_browser_defines(sln)])
-    prefix_header = lp64(LINUX_PORT_DIR / "include" / "halo_linux_prefix.h")
-    port_include = lp64(LINUX_PORT_DIR / "include")
-    homebrew_include = f"-idirafter {HOMEBREW / 'include'}"
-    excluded = set(config.get("exclude_sources", []))
-    objects: List[Path] = []
+    # (the generated sources: one set, compiled for each architecture)
+    generated_sources = (hud_assets_build(n, "macos", build_dir / "generated" / "hud_hires_assets.c")
+                         + ui_fonts_build(n, "macos", build_dir / "generated" / "ui_fonts.c", sln))
+    if portable:
+        n.rule(
+            name="macos_sdl3",
+            command=(f"cmake -S {PORTABLE_SDL_DIR} -B {PORTABLE_SDL_BUILD} -G Ninja -DCMAKE_BUILD_TYPE=Release "
+                     f"-DCMAKE_OSX_DEPLOYMENT_TARGET={MACOS_MINIMUM} '-DCMAKE_OSX_ARCHITECTURES={';'.join(architectures)}' "
+                     "-DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF "
+                     f"> {PORTABLE_SDL_BUILD.parent}/sdl3-configure.log && ninja -C {PORTABLE_SDL_BUILD} "
+                     f"> {PORTABLE_SDL_BUILD.parent}/sdl3-build.log"),
+            description="MACOS SDL3 (portable)",
+            pool="console",
+        )
+        n.build(outputs=portable_sdl, rule="macos_sdl3", implicit=[PORTABLE_SDL_DIR / "CMakeLists.txt"])
 
-    def add_object(source: Path, cflags: str) -> None:
-        # (a rewritten copy's object sits where the original's would)
-        relative = source.relative_to(lp64_dir) if lp64_dir in source.parents else source
-        obj = obj_dir / relative.with_suffix(".o")
-        objects.append(obj)
-        n.build(outputs=obj, rule="macos_cc", inputs=source,
-                implicit=[semantics_header, platform_semantics_header],
-                order_only=[build_dir / "lp64.stamp"],
-                variables={"cflags": cflags})
+    def emit(arch: str, arch_obj_dir: Path, arch_output: Path) -> None:
+        """the game for one architecture: its objects and its executable"""
+        target = f"--target={arch}-apple-macos{MACOS_MINIMUM}"
+        release = ["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else []
+        abi = " ".join([target, *MACOS_ABI_FLAGS, *release, *game_browser_defines(sln)])
+        prefix_header = lp64(LINUX_PORT_DIR / "include" / "halo_linux_prefix.h")
+        port_include = lp64(LINUX_PORT_DIR / "include")
+        homebrew_include = f"{sdl_include}-idirafter {HOMEBREW / 'include'}"
+        excluded = set(config.get("exclude_sources", []))
+        # an application for other Macs (configure.py --portable): self-contained
+        # (its libraries in it, bundle.py), and without FFmpeg, whose libraries
+        # (and their licenses) would come with it: movies are skipped, as the
+        # other platforms' builds do (bink_null.c, not port/macos/src/macos_bink.c)
+        if portable:
+            excluded.discard("port/linux/src/bink_null.c")
+            excluded.add("port/macos/src/macos_bink.c")
+        objects: List[Path] = []
 
-    game = linux_config["game"]
-    defines = " ".join(f"-D{d}" for d in game.get("defines", []))
-    includes = " ".join(f"-I{_quote(lp64(Path(d)))}" for d in game.get("include_dirs", []))
-    game_cflags = " ".join([
-        abi, " ".join(MACOS_GAME_FLAGS),
-        f"-include {_quote(prefix_header)}", f"-include {_quote(semantics_header)}",
-        defines, f"-I{_quote(port_include)}", includes, f"-idirafter {xdk}",
-    ])
-    for source in game_sources(linux_config):
-        if source.as_posix() not in excluded:
-            add_object(lp64(source), game_cflags)
-    # the port's own units that see the game as its sources do (port/linux/game)
-    for source in sorted(Path(linux_config["game_sources"]).glob("*.c")):
-        if source.as_posix() not in excluded:
-            add_object(lp64(source), game_cflags)
-    # the dedicated server's director, with the game browser (server/)
-    if getattr(sln, "game_browser", False):
-        for source in sorted(Path("server/src").glob("*.c")):
-            add_object(lp64(source), game_cflags)
+        def add_object(source: Path, cflags: str) -> None:
+            # (a rewritten copy's object sits where the original's would)
+            relative = source.relative_to(lp64_dir) if lp64_dir in source.parents else source
+            obj = arch_obj_dir / relative.with_suffix(".o")
+            objects.append(obj)
+            n.build(outputs=obj, rule="macos_cc", inputs=source,
+                    implicit=[semantics_header, platform_semantics_header],
+                    order_only=[build_dir / "lp64.stamp"],
+                    variables={"cflags": cflags})
 
-    platform_dir = Path(linux_config["platform_sources"])
-    platform_cflags = " ".join([
-        abi, " ".join(MACOS_PLATFORM_FLAGS),
-        f"-include {_quote(prefix_header)}", f"-include {_quote(platform_semantics_header)}",
-        f"-I{_quote(lp64(platform_dir))}", f"-I{_quote(port_include)}",
-        f"-I{_quote(lp64(TOML_DIR))}", f"-I{_quote(lp64(KCP_DIR))}",
-        f"-I{_quote(lp64(Path('source')))} -I{_quote(lp64(Path('source/cseries')))}",
-        homebrew_include, f"-idirafter {xdk}",
-    ])
-    posix_cflags = " ".join([target, *MACOS_POSIX_FLAGS, f"-I{platform_dir}", homebrew_include,
-                             *game_browser_defines(sln)])
-    mbedtls_include = f"-I{MBEDTLS_DIR / 'include'}"
-    for source in sorted(platform_dir.glob("*.c")):
-        if str(source) in excluded:
-            continue
-        if source.name in ("posix_update.c", "posix_browser.c"):
-            add_object(source, f"{posix_cflags} {mbedtls_include}")
-        elif source.name == "posix_upnp.c":
-            add_object(source, f"{posix_cflags} -I{MINIUPNPC_DIR / 'include'} -DMINIUPNP_STATICLIB")
-        elif source.name == "posix_ui_font.c":
-            add_object(source, f"{posix_cflags} -I{STB_DIR}")
-        elif source.name.startswith("posix_"):
-            add_object(source, posix_cflags)
-        elif source.name == "updater.c":
-            add_object(lp64(source), f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
-        elif source.name == "text_hires.c":
-            # (it includes stb_truetype by a path from its own folder: the
-            # copy's folder has no third_party beside it, the original's has)
-            add_object(lp64(source), f"{platform_cflags} -idirafter {LINUX_PORT_DIR / 'src'}")
-        else:
-            add_object(lp64(source), platform_cflags)
-    # the high-res HUD's textures (port/assets/hud; port/linux/src/hud_hires.c),
-    # with the platform units' flags: its table is hud_hires.h's, from the
-    # 64-bit tree
-    for source in (hud_assets_build(n, "macos", build_dir / "generated" / "hud_hires_assets.c")
-                   + ui_fonts_build(n, "macos", build_dir / "generated" / "ui_fonts.c", sln)):
-        add_object(source, platform_cflags)
-    # macOS-only platform units, with the host's ABI (port/macos/src)
-    for source in sorted((PORT_DIR / "src").glob("*.c")):
-        add_object(source, posix_cflags)
-    for source in sorted((MBEDTLS_DIR / "library").glob("*.c")):
-        add_object(source, " ".join([target, "-std=gnu11", OPTIMISATION, "-g", "-w", mbedtls_include,
-                                     f"-I{MBEDTLS_DIR / 'library'}"]))
-    for source in miniupnpc_sources():
-        add_object(source, " ".join([target, "-std=gnu11", OPTIMISATION, "-g", "-w", *MINIUPNPC_DEFINES,
-                                     f"-I{MINIUPNPC_DIR / 'include'}", f"-I{MINIUPNPC_DIR / 'src'}"]))
-    third_party = " ".join([abi, "-std=gnu11", "-w"])
-    add_object(lp64(TOML_DIR / "tomlc17.c"), third_party)
-    add_object(lp64(KCP_DIR / "ikcp.c"), third_party)
-    for source in musl_math_sources():
-        add_object(source, " ".join([abi, "-std=gnu11", "-w", f"-I{MUSL_MATH_DIR}/include",
-                                     f"-include {MUSL_MATH_DIR}/include/libm.h"]))
+        game = linux_config["game"]
+        defines = " ".join(f"-D{d}" for d in game.get("defines", []))
+        includes = " ".join(f"-I{_quote(lp64(Path(d)))}" for d in game.get("include_dirs", []))
+        game_cflags = " ".join([
+            abi, " ".join(MACOS_GAME_FLAGS),
+            f"-include {_quote(prefix_header)}", f"-include {_quote(semantics_header)}",
+            defines, f"-I{_quote(port_include)}", includes, f"-idirafter {xdk}",
+        ])
+        for source in game_sources(linux_config):
+            if source.as_posix() not in excluded:
+                add_object(lp64(source), game_cflags)
+        # the port's own units that see the game as its sources do (port/linux/game)
+        for source in sorted(Path(linux_config["game_sources"]).glob("*.c")):
+            if source.as_posix() not in excluded:
+                add_object(lp64(source), game_cflags)
+        # the dedicated server's director, with the game browser (server/)
+        if getattr(sln, "game_browser", False):
+            for source in sorted(Path("server/src").glob("*.c")):
+                add_object(lp64(source), game_cflags)
 
-    libraries = config.get("libraries", [])
-    frameworks = config.get("frameworks", [])
-    n.build(
-        outputs=output,
-        rule="macos_link",
-        inputs=objects,
-        variables={
-            "ldflags": f"{target} -g",
-            "libs": " ".join([f"-L{HOMEBREW / 'lib'}", *(f"-l{lib}" for lib in libraries),
-                              *(f"-framework {fw}" for fw in frameworks)]),
-        },
-    )
+        platform_dir = Path(linux_config["platform_sources"])
+        platform_cflags = " ".join([
+            abi, " ".join(MACOS_PLATFORM_FLAGS),
+            f"-include {_quote(prefix_header)}", f"-include {_quote(platform_semantics_header)}",
+            f"-I{_quote(lp64(platform_dir))}", f"-I{_quote(port_include)}",
+            f"-I{_quote(lp64(TOML_DIR))}", f"-I{_quote(lp64(KCP_DIR))}",
+            f"-I{_quote(lp64(Path('source')))} -I{_quote(lp64(Path('source/cseries')))}",
+            homebrew_include, f"-idirafter {xdk}",
+        ])
+        posix_cflags = " ".join([target, *MACOS_POSIX_FLAGS, f"-I{platform_dir}", homebrew_include,
+                                 *game_browser_defines(sln)])
+        mbedtls_include = f"-I{MBEDTLS_DIR / 'include'}"
+        for source in sorted(platform_dir.glob("*.c")):
+            if str(source) in excluded:
+                continue
+            if source.name in ("posix_update.c", "posix_browser.c"):
+                add_object(source, f"{posix_cflags} {mbedtls_include}")
+            elif source.name == "posix_upnp.c":
+                add_object(source, f"{posix_cflags} -I{MINIUPNPC_DIR / 'include'} -DMINIUPNP_STATICLIB")
+            elif source.name == "posix_ui_font.c":
+                add_object(source, f"{posix_cflags} -I{STB_DIR}")
+            elif source.name.startswith("posix_"):
+                add_object(source, posix_cflags)
+            elif source.name == "updater.c":
+                add_object(lp64(source), f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
+            elif source.name == "text_hires.c":
+                # (it includes stb_truetype by a path from its own folder: the
+                # copy's folder has no third_party beside it, the original's has)
+                add_object(lp64(source), f"{platform_cflags} -idirafter {LINUX_PORT_DIR / 'src'}")
+            else:
+                add_object(lp64(source), platform_cflags)
+        # the high-res HUD's textures (port/assets/hud; port/linux/src/hud_hires.c),
+        # with the platform units' flags: its table is hud_hires.h's, from the
+        # 64-bit tree
+        for source in generated_sources:
+            add_object(source, platform_cflags)
+        # macOS-only platform units, with the host's ABI (port/macos/src)
+        for source in sorted((PORT_DIR / "src").glob("*.c")):
+            if source.as_posix() not in excluded:
+                add_object(source, posix_cflags)
+        for source in sorted((MBEDTLS_DIR / "library").glob("*.c")):
+            add_object(source, " ".join([target, "-std=gnu11", OPTIMISATION, "-g", "-w", mbedtls_include,
+                                         f"-I{MBEDTLS_DIR / 'library'}"]))
+        for source in miniupnpc_sources():
+            add_object(source, " ".join([target, "-std=gnu11", OPTIMISATION, "-g", "-w", *MINIUPNPC_DEFINES,
+                                         f"-I{MINIUPNPC_DIR / 'include'}", f"-I{MINIUPNPC_DIR / 'src'}"]))
+        third_party = " ".join([abi, "-std=gnu11", "-w"])
+        add_object(lp64(TOML_DIR / "tomlc17.c"), third_party)
+        add_object(lp64(KCP_DIR / "ikcp.c"), third_party)
+        for source in musl_math_sources():
+            add_object(source, " ".join([abi, "-std=gnu11", "-w", f"-I{MUSL_MATH_DIR}/include",
+                                         f"-include {MUSL_MATH_DIR}/include/libm.h"]))
+
+        libraries = config.get("libraries", [])
+        if portable:
+            libraries = [library for library in libraries if library not in ("avcodec", "avformat", "swscale", "avutil")]
+        frameworks = config.get("frameworks", [])
+        n.build(
+            outputs=arch_output,
+            rule="macos_link",
+            inputs=objects,
+            implicit=[portable_sdl] if portable else [],
+            variables={
+                "ldflags": f"{target} -g",
+                "libs": " ".join([*([f"-L{PORTABLE_SDL_BUILD}"] if portable else []), f"-L{HOMEBREW / 'lib'}",
+                                  *(f"-l{lib}" for lib in libraries), *(f"-framework {fw}" for fw in frameworks)]),
+            },
+        )
+
+    if len(architectures) == 1:
+        emit(architectures[0], obj_dir, output)
+    else:
+        # (a universal application: each architecture's executable, joined)
+        slices = []
+        for arch in architectures:
+            emit(arch, build_dir / f"obj-{arch}", build_dir / f"halo-{arch}")
+            slices.append(build_dir / f"halo-{arch}")
+        n.rule(name="macos_lipo", command="lipo -create -output $out $in", description="MACOS LIPO $out")
+        n.build(outputs=output, rule="macos_lipo", inputs=slices)
 
     # the application bundle, which macOS shows with the game's name and icon
     bundle = build_dir / "ChupathingyCE.app"
     n.rule(
         name="macos_bundle",
-        command=f"$python {PORT_DIR / 'bundle.py'} --executable $in --output {_quote(bundle)} --version {version()}",
+        command=(f"$python {PORT_DIR / 'bundle.py'} --executable $in --output {_quote(bundle)} --version {version()}"
+                 + (f" --self-contained --library-path {PORTABLE_SDL_BUILD}" if portable else "")),
         description="MACOS BUNDLE $out",
     )
     n.build(outputs=bundle / "Contents" / "MacOS" / "halo", rule="macos_bundle", inputs=output,

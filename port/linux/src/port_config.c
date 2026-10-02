@@ -290,8 +290,36 @@ static pthread_mutex_t config_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /* ---------- the file */
 
+int platform_app_folder(char *path, unsigned long size)
+{
+#if defined(__APPLE__)
+	const char *base = SDL_GetBasePath();
+	const char *home = getenv("HOME");
+
+	if (!base || !strstr(base, ".app/Contents/") || !home || !*home)
+		return 0;
+	snprintf(path, (size_t)size, "%s/Library/Application Support/ChupathingyCE", home);
+	SDL_CreateDirectory(path);
+	return 1;
+#else
+	(void)path;
+	(void)size;
+	return 0;
+#endif
+}
+
 static void config_path(char *path, size_t size)
 {
+#ifdef __APPLE__
+	char folder[1024];
+
+	/* (the application's folder: not the application, which is signed) */
+	if (platform_app_folder(folder, sizeof(folder)))
+	{
+		snprintf(path, size, "%s/config.toml", folder);
+		return;
+	}
+#endif
 #ifdef HALO_ANDROID
 	/* the data folder, which the app names (port/android/host/host_main.c) */
 	const char *root = getenv("HALO_DATA_ROOT");
