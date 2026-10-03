@@ -928,6 +928,11 @@ symbols in this file:
 #include "interface/ui_widget_definitions.h"
 #include "interface/ui_widget_instance.h"
 #include "saved games/saved_game_files.h"
+#ifdef HALO_64BIT
+/* port: (saved games/playlist_profile.h's, whose other prototypes this unit
+declares its own way; the 64-bit build takes no implicit declarations) */
+boolean playlist_profile_get_options(long playlist_profile_index, struct game_variant_options *options);
+#endif
 #include "text/unicode.h"
 #include "halo_menus.h" /* port: PC_MENU_FUNCTION_BASE */
 

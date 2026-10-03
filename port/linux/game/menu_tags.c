@@ -115,8 +115,9 @@ struct cache_file_tag_instance
 	long group_tag;
 	long parent_group_tags[2];
 	long tag_index;
-	char *name;
-	void *base_address;
+	/* Xbox addresses (as in cache_files.c) */
+	XPTR(char) name;
+	XPTR(void) base_address;
 	unsigned long unused[2];
 };
 
@@ -366,6 +367,11 @@ static struct
 	long setting_count;
 	boolean loaded;
 	char root[300];
+#ifdef HALO_64BIT
+	/* the name of an empty reference, inside the Xbox address space as the
+	map's names are */
+	char *empty_name;
+#endif
 } menu_tags;
 
 /* the build under way */
@@ -453,7 +459,13 @@ static long flags_parse(char const *text, char const *const *names, long count, 
 static void reference_clear(struct tag_reference *reference, long group_tag)
 {
 	reference->group_tag = group_tag;
+#ifdef HALO_64BIT
+	if (!menu_tags.empty_name)
+		menu_tags.empty_name = allocate(1);
+	reference->name = XBOX_ADDRESS(menu_tags.empty_name);
+#else
 	reference->name = "";
+#endif
 	reference->name_length = 0;
 	reference->index = NONE;
 }
@@ -466,8 +478,8 @@ static void reference_set(struct tag_reference *reference, long group_tag, long 
 		return;
 	}
 	reference->group_tag = group_tag;
-	reference->name = (char *)tag_get_name(tag_index);
-	reference->name_length = (long)strlen(reference->name);
+	reference->name = XBOX_ADDRESS(tag_get_name(tag_index));
+	reference->name_length = (long)strlen(xbox_pointer(reference->name));
 	reference->index = tag_index;
 }
 
@@ -636,7 +648,7 @@ static void *string_list_build(char const *const *strings, long count)
 	if (!list || !entries)
 		return list;
 	list->strings.count = count;
-	list->strings.address = entries;
+	list->strings.address = XBOX_ADDRESS(entries);
 	for (index = 0; index < count; index++)
 	{
 		long length = (long)strlen(strings[index]);
@@ -647,7 +659,7 @@ static void *string_list_build(char const *const *strings, long count)
 			return list;
 		written = halo_menus_utf16(strings[index], characters, length * 2 + 2);
 		entries[index].string.size = written * (long)sizeof(unsigned short);
-		entries[index].string.address = characters;
+		entries[index].string.address = XBOX_ADDRESS(characters);
 	}
 	return list;
 }
@@ -690,9 +702,9 @@ static void *bitmap_build(struct halo_menu_bitmap const *source, long tag_index)
 	sequence->first_bitmap_index = 0;
 	sequence->bitmap_count = (short)source->frame_count;
 	group->sequences.count = 1;
-	group->sequences.address = sequence;
+	group->sequences.address = XBOX_ADDRESS(sequence);
 	group->bitmaps.count = source->frame_count;
-	group->bitmaps.address = bitmaps;
+	group->bitmaps.address = XBOX_ADDRESS(bitmaps);
 	for (frame = 0; frame < source->frame_count; frame++)
 	{
 		struct halo_menu_frame const *data = &build.menus->frames[source->first_frame + frame];
@@ -713,9 +725,9 @@ static void *bitmap_build(struct halo_menu_bitmap const *source, long tag_index)
 				problem(source->file, source->line, "the map's bitmap has no such frame:", data->map);
 				return group;
 			}
-			memcpy(bitmap, (struct bitmap_data *)group_source->bitmaps.address + data->index, sizeof(*bitmap));
+			memcpy(bitmap, XBOX_POINTER(struct bitmap_data, group_source->bitmaps.address) + data->index, sizeof(*bitmap));
 			bitmap->cache_block_index = NONE;
-			bitmap->base_address = NULL;
+			bitmap->base_address = XBOX_NULL;
 			continue;
 		}
 
@@ -746,7 +758,7 @@ static void *bitmap_build(struct halo_menu_bitmap const *source, long tag_index)
 		menu_tags.bitmaps[menu_tags.bitmap_count++] = bitmap;
 		/* (none without a renderer: debug.null_renderer) */
 		if (bitmap->hardware_format)
-			halo_menus_art_register(bitmap->hardware_format, data->png);
+			halo_menus_art_register(xbox_pointer(bitmap->hardware_format), data->png);
 	}
 	return group;
 }
@@ -755,7 +767,7 @@ static void *bitmap_build(struct halo_menu_bitmap const *source, long tag_index)
 static void conditional_add(struct ui_widget_definition *definition, long tag_index, long flags)
 {
 	struct ui_widget_conditional_reference *conditionals =
-		(struct ui_widget_conditional_reference *)definition->conditional_widgets.address;
+		XBOX_POINTER(struct ui_widget_conditional_reference, definition->conditional_widgets.address);
 	struct ui_widget_conditional_reference *grown;
 	long count = definition->conditional_widgets.count, index;
 
@@ -772,7 +784,7 @@ static void conditional_add(struct ui_widget_definition *definition, long tag_in
 		memcpy(grown, conditionals, count * sizeof(*grown));
 	reference_set(&grown[count].widget_tag, UI_WIDGET_DEFINITION_TAG, tag_index);
 	grown[count].flags = flags;
-	definition->conditional_widgets.address = grown;
+	definition->conditional_widgets.address = XBOX_ADDRESS(grown);
 	definition->conditional_widgets.count = count + 1;
 }
 
@@ -943,7 +955,7 @@ static void *widget_build(long widget_index)
 		struct ui_widget_game_data_input_reference *inputs = allocate(count * sizeof(*inputs));
 
 		definition->game_data_inputs.count = count;
-		definition->game_data_inputs.address = inputs;
+		definition->game_data_inputs.address = XBOX_ADDRESS(inputs);
 		for (count = 0, input = source->first_input; inputs && input != HALO_MENU_NONE; input = menus->inputs[input].next)
 		{
 			struct halo_menu_input const *data = &menus->inputs[input];
@@ -959,7 +971,7 @@ static void *widget_build(long widget_index)
 		struct ui_widget_search_and_replace_reference *replaces = allocate(count * sizeof(*replaces));
 
 		definition->search_and_replace_functions.count = count;
-		definition->search_and_replace_functions.address = replaces;
+		definition->search_and_replace_functions.address = XBOX_ADDRESS(replaces);
 		for (count = 0, replace = source->first_replace; replaces && replace != HALO_MENU_NONE;
 			replace = menus->replaces[replace].next)
 		{
@@ -1067,7 +1079,7 @@ static void *widget_build(long widget_index)
 		struct ui_widget_child_reference *children = allocate(count * sizeof(*children));
 
 		definition->child_widgets.count = count;
-		definition->child_widgets.address = children;
+		definition->child_widgets.address = XBOX_ADDRESS(children);
 		for (count = 0, child = source->first_child; children && child != HALO_MENU_NONE; child = menus->children[child].next)
 		{
 			struct halo_menu_child const *entry = &menus->children[child];
@@ -1128,7 +1140,7 @@ static void *widget_build(long widget_index)
 			struct ui_widget_event_handler_reference *handlers = allocate(total * sizeof(*handlers));
 
 			definition->event_handlers.count = total;
-			definition->event_handlers.address = handlers;
+			definition->event_handlers.address = XBOX_ADDRESS(handlers);
 			for (count = 0, handler = source->first_handler; handlers && handler != HALO_MENU_NONE;
 				handler = menus->handlers[handler].next)
 			{
@@ -1219,8 +1231,8 @@ static void instance_set(struct cache_file_tag_instance *instances, long group_t
 	instance->parent_group_tags[0] = NONE;
 	instance->parent_group_tags[1] = NONE;
 	instance->tag_index = tag_index;
-	instance->name = copy;
-	instance->base_address = definition;
+	instance->name = XBOX_ADDRESS(copy);
+	instance->base_address = XBOX_ADDRESS(definition);
 }
 
 static void menu_tags_release(void)
@@ -1329,7 +1341,7 @@ void menu_tags_loaded(
 		goto failed;
 	cache_files_set_tag_instances(instances, build.first_index + total);
 	for (index = 0; index < widget_count && !build.failed; index++)
-		instances[DATUM_INDEX_TO_ABSOLUTE_INDEX(build.widget_tags[index])].base_address = widget_build(index);
+		instances[DATUM_INDEX_TO_ABSOLUTE_INDEX(build.widget_tags[index])].base_address = XBOX_ADDRESS(widget_build(index));
 	if (build.failed)
 		goto failed;
 	if (widget_named(menus->root) != NONE)

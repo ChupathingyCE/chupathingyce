@@ -25,6 +25,8 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from .linux_build import (
+    EXPAT_DIR,
+    EXPAT_SOURCES,
     GAME_FLAGS as LINUX_GAME_FLAGS,
     KCP_DIR,
     MBEDTLS_DIR,
@@ -314,6 +316,9 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
             f"-include {_quote(prefix_header)}", f"-include {_quote(platform_semantics_header)}",
             f"-I{_quote(lp64(platform_dir))}", f"-I{_quote(port_include)}",
             f"-I{_quote(lp64(TOML_DIR))}", f"-I{_quote(lp64(KCP_DIR))}",
+            # (the menus' XML parser's own headers, not rewritten: Expat is
+            # built with the host's ABI, below)
+            f"-I{EXPAT_DIR}",
             f"-I{_quote(lp64(Path('source')))} -I{_quote(lp64(Path('source/cseries')))}",
             homebrew_include, f"-idirafter {xdk}",
         ])
@@ -354,6 +359,11 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
         for source in miniupnpc_sources():
             add_object(source, " ".join([target, "-std=gnu11", OPTIMISATION, "-g", "-w", *MINIUPNPC_DEFINES,
                                          f"-I{MINIUPNPC_DIR / 'include'}", f"-I{MINIUPNPC_DIR / 'src'}"]))
+        # the menus' XML parser (port/third_party/expat; menu_files.c), with the
+        # host's ABI: it holds nothing of the Xbox's, and its API is its own
+        # types (expat.h, which menu_files.c includes unrewritten)
+        for name in EXPAT_SOURCES:
+            add_object(EXPAT_DIR / name, " ".join([target, "-std=gnu11", OPTIMISATION, "-g", "-w", f"-I{EXPAT_DIR}"]))
         third_party = " ".join([abi, "-std=gnu11", "-w"])
         add_object(lp64(TOML_DIR / "tomlc17.c"), third_party)
         add_object(lp64(KCP_DIR / "ikcp.c"), third_party)

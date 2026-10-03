@@ -360,14 +360,14 @@ void *cache_files_tag_instances(
 	long *count)
 {
 	*count = cache_file_globals.tags_loaded ? cache_file_globals.tag_header->tag_count : 0;
-	return cache_file_globals.tags_loaded ? cache_file_globals.tag_header->tag_instances : NULL;
+	return cache_file_globals.tags_loaded ? xbox_pointer(cache_file_globals.tag_header->tag_instances) : NULL;
 }
 
 void cache_files_set_tag_instances(
 	void *instances,
 	long count)
 {
-	cache_file_globals.tag_header->tag_instances = instances;
+	cache_file_globals.tag_header->tag_instances = XBOX_ADDRESS(instances);
 	cache_file_globals.tag_header->tag_count = count;
 	global_tag_instances = instances;
 }

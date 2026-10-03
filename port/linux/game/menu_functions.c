@@ -89,6 +89,12 @@ void platform_binding_capture_begin(void);
 int platform_binding_capture_poll(int *input);
 void halo_input_name(int input, char *name, unsigned int size);
 short pc_menu_string_index(long definition_index);
+#ifdef HALO_64BIT
+/* (declared for the 64-bit build, which takes no implicit declarations; the
+32-bit build calls them as it did) */
+unsigned long system_milliseconds(void);
+int config_boolean(char const *name);
+#endif
 
 /* the game's (port) */
 boolean ui_widget_port_dispatch_event(struct widget_instance *widget, short event_type, short controller_index,
@@ -121,6 +127,10 @@ enum
 
 /* ---------- structures */
 
+#ifdef HALO_64BIT
+/* a widget: the shared definition, laid out for 64-bit pointers */
+#include "interface/ui_widget_instance.h"
+#else
 /* a widget, as ui_widget.c has it */
 struct widget_instance
 {
@@ -185,6 +195,7 @@ typedef char verify_widget_instance_number_of_items_offset[
 	offsetof(struct widget_instance, parameters.list.number_of_items) == 0x44 ? 1 : -1];
 typedef char verify_widget_instance_animation_offset[
 	offsetof(struct widget_instance, animation) == 0x50 ? 1 : -1];
+#endif
 
 /* menu_tags.c's */
 struct pc_menu_setting
