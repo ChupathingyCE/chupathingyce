@@ -566,8 +566,9 @@ void test_input_hold_action(int hold)
 }
 
 /* debug.test_input "menu:<buttons>": the buttons pressed one a second, from
-the first poll, for testing the menus: a, b, x, y, up, down, left, right,
-start, back, or wait (none), separated by spaces or commas */
+the first poll, for testing the menus: a, b, x, y, lb, rb (white and black),
+up, down, left, right, start, back, or wait (none), separated by spaces or
+commas */
 static char test_input_menu[512];
 static Uint64 test_input_menu_since;
 
@@ -584,6 +585,8 @@ static void test_input_menu_gamepad(XINPUT_GAMEPAD *pad)
 		{ "b", XINPUT_GAMEPAD_B, 0 },
 		{ "x", XINPUT_GAMEPAD_X, 0 },
 		{ "y", XINPUT_GAMEPAD_Y, 0 },
+		{ "lb", XINPUT_GAMEPAD_WHITE, 0 },
+		{ "rb", XINPUT_GAMEPAD_BLACK, 0 },
 		{ "up", -1, XINPUT_GAMEPAD_DPAD_UP },
 		{ "down", -1, XINPUT_GAMEPAD_DPAD_DOWN },
 		{ "left", -1, XINPUT_GAMEPAD_DPAD_LEFT },
