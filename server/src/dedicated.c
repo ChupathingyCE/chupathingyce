@@ -33,9 +33,10 @@ screen. Each frame (main.c, beside the user interface) the director:
 The game list (port/linux/src/browser.c) lists the game as it does any
 hosted game, and a finished game's carnage report goes out as usual.
 
-The playlist: one entry a line, a map (its name, "bloodgulch", or its path)
-and a game type (game_engine_get_variant_by_name's names: slayer,
-team_slayer, ctf, king, oddball, race, ...); # starts a comment.
+The playlist: one entry a line, a map (its name, "bloodgulch", its path, or
+a Custom Edition map in maps\ce as <name>@ce, "timberland@ce") and a game
+type (game_engine_get_variant_by_name's names: slayer, team_slayer, ctf,
+king, oddball, race, ...); # starts a comment.
 */
 
 #ifdef HALO_GAME_BROWSER
@@ -156,8 +157,10 @@ static void load_playlist(
 			*comment = 0;
 		if (sscanf(line, "%127s %31s", map, variant) != 2)
 			continue;
-		/* (a bare name is a multiplayer level's: levels\test\<name>\<name>) */
-		if (!strchr(map, '\\'))
+		/* (a bare name is a multiplayer level's: levels\test\<name>\<name>;
+		a Custom Edition map's, <name>@ce, stays bare, as the menus' map list
+		plays it: cache_files_windows.c) */
+		if (!strchr(map, '\\') && !strchr(map, '@'))
 			snprintf(dedicated.maps[dedicated.entry_count], sizeof(dedicated.maps[0]), "levels\\test\\%s\\%s", map, map);
 		else
 			snprintf(dedicated.maps[dedicated.entry_count], sizeof(dedicated.maps[0]), "%s", map);

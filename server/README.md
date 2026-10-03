@@ -11,7 +11,7 @@ carnage reports.
 | --- | --- |
 | `src/dedicated.c` | The dedicated server, compiled into the game (the game browser builds, `HALO_GAME_BROWSER`, on by default). |
 | `src/probe.c` | The game list's probe: what an invite leads to (below). |
-| `playlists/` | Playlists: `small_maps.txt` (Slayer on the smaller maps), `team_slayer.txt` (Team Slayer on every map), `big_maps.txt` (Slayer on the roomier maps, for 32 players), `bloodgulch.txt` (Blood Gulch, Team Slayer and Slayer, for 128), `free_for_all.txt` (Slayer on every map), `slayer.txt` (Slayer and Team Slayer). |
+| `playlists/` | Playlists: `small_maps.txt` (Slayer on the smaller maps), `team_slayer.txt` (Team Slayer on every map), `big_maps.txt` (Slayer on the roomier maps, for 32 players), `bloodgulch.txt` (Blood Gulch, Team Slayer and Slayer, for 128), `free_for_all.txt` (Slayer on every map), `slayer.txt` (Slayer and Team Slayer), `gearbox.txt` (Halo PC's own maps, Slayer and Team Slayer in turn: needs them in `maps/ce/`). |
 | `deploy/` | The server as a Docker container and a systemd service, for a Linux host. |
 
 ## What it does
@@ -47,8 +47,9 @@ As environment variables:
 | `HALO_DEDICATED_IDLE_LIMIT` | `5` | A game in which nobody scores for this many minutes ends. `0`: never. |
 | `HALO_NET_BROWSER` | `https://halo.milenko.org` | The game list it announces to. |
 
-A playlist has one entry a line: a map (its name, `bloodgulch`, or its
-path) and a game type (`slayer`, `team_slayer`, `ctf`, `king`, `oddball`,
+A playlist has one entry a line: a map (its name, `bloodgulch`, its
+path, or a Halo PC map in the data folder's `maps/ce/` as `<name>@ce`,
+`timberland@ce`) and a game type (`slayer`, `team_slayer`, `ctf`, `king`, `oddball`,
 `race`, ...). `#` starts a comment.
 
 ## Run one on a desktop
