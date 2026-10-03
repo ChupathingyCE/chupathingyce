@@ -647,6 +647,16 @@ static void texture_cache_initialize_hardware_format(
 		}
 #endif
 	}
+#ifdef HALO_64BIT
+	/* port: a Custom Edition map's HUD meter, its channels Halo PC's
+	(port/linux/game/ce_hud.c) */
+	{
+		extern boolean ce_hud_bitmap_is_meter(void const *bitmap);
+
+		if (ce_hud_bitmap_is_meter(bitmap))
+			texture->Common |= D3DCOMMON_PORT_PC_METER;
+	}
+#endif
 	IDirect3DBaseTexture8_Register(texture, xbox_pointer(bitmap->base_address));
 
 	return;

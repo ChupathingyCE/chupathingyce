@@ -598,12 +598,35 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 	converted = description->compressed && !decode_compressed ? NULL : malloc(largest * sizeof(unsigned long));
 	glBindTexture(target, texture);
 	xgpu_gl_state_invalidate();
+	/* the channel each channel is sampled from, set on every upload: a
+	texture object is reused for whatever pixels arrive at its address */
+	{
+		GLint channels[4] = { GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA };
+
 #ifdef HALO_ANDROID
-	/* converted texels are BGRA in memory (32-bit ARGB words); ES takes
-	RGBA */
-	glTexParameteri(target, GL_TEXTURE_SWIZZLE_R, converted ? GL_BLUE : GL_RED);
-	glTexParameteri(target, GL_TEXTURE_SWIZZLE_B, converted ? GL_RED : GL_BLUE);
+		/* converted texels are BGRA in memory (32-bit ARGB words); ES takes
+		RGBA */
+		if (converted)
+		{
+			channels[0] = GL_BLUE;
+			channels[2] = GL_RED;
+		}
 #endif
+		/* a Halo PC HUD meter: its fill order (alpha) sampled as the color,
+		its shape (the color) as alpha, as the Xbox's meter shader reads
+		them (D3DCOMMON_PORT_PC_METER) */
+		if (description->pc_meter)
+		{
+			GLint red = channels[0];
+
+			channels[0] = channels[1] = channels[2] = channels[3];
+			channels[3] = red;
+		}
+		glTexParameteri(target, GL_TEXTURE_SWIZZLE_R, channels[0]);
+		glTexParameteri(target, GL_TEXTURE_SWIZZLE_G, channels[1]);
+		glTexParameteri(target, GL_TEXTURE_SWIZZLE_B, channels[2]);
+		glTexParameteri(target, GL_TEXTURE_SWIZZLE_A, channels[3]);
+	}
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 	glTexParameteri(target, GL_TEXTURE_BASE_LEVEL, 0);
 	glTexParameteri(target, GL_TEXTURE_MAX_LEVEL, (GLint)description->levels - 1);
@@ -827,6 +850,7 @@ GLuint xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, GLenum *
 	{
 		/* (whose layout, as the bitmap now here is laid out) */
 		entry->description.pc_layout = (resource[0] & D3DCOMMON_PORT_PC_LAYOUT) != 0;
+		entry->description.pc_meter = (resource[0] & D3DCOMMON_PORT_PC_METER) != 0;
 		/* protect first, so a write racing with the upload is noticed */
 		memory_watch_protect(entry->address, entry->size);
 		entry->generation = memory_watch_generation(entry->address, entry->size);

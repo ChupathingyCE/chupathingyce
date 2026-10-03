@@ -389,9 +389,11 @@ void scenario_tags_unload(
 	{
 		extern void ce_resources_tags_unloaded(void);
 		extern void ce_models_tags_unloaded(void);
+		extern void ce_hud_tags_unloaded(void);
 
 		ce_resources_tags_unloaded();
 		ce_models_tags_unloaded();
+		ce_hud_tags_unloaded();
 	}
 	else
 #endif
@@ -928,6 +930,14 @@ long scenario_tags_load(
 				extern void hud_hires_tags_unloaded(void);
 
 				hud_hires_tags_unloaded();
+			}
+			/* its HUD interfaces: placements at Halo PC's high resolution
+			scale halved, meters' bitmaps sampled in Halo PC's channels
+			(port/linux/game/ce_hud.c) */
+			{
+				extern void ce_hud_tags_loaded(void *tag_instances, long tag_count);
+
+				ce_hud_tags_loaded(global_tag_instances, ce_header->tag_count);
 			}
 			return ce_header->scenario_tag_index;
 		}
