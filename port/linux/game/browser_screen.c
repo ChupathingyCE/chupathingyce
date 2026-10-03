@@ -285,23 +285,9 @@ static void join_selected(
 		return;
 	}
 	/* (a Custom Edition map's game, only with the map: a join without it
-	would fail at its loading) */
-	switch (ce_map_state(game, TRUE))
-	{
-	case _ce_map_missing:
-	{
-		char file[BROWSER_MAP_LENGTH], text[96];
-
-		map_file(game->map, file, sizeof(file));
-		snprintf(text, sizeof(text), "Needs maps/ce/%s.map to join", file);
-		set_status(text);
+	would fail at its loading; the list's footer says what is missing) */
+	if (ce_map_state(game, TRUE) >= _ce_map_missing)
 		return;
-	}
-	case _ce_map_unsupported:
-		set_status("Halo PC maps need the 64-bit ChupathingyCE.");
-		return;
-	default: break;
-	}
 	/* a network client searching, as System Link's (the advertisement comes
 	to it: browser_screen_open started it) */
 	if (!global_network_game_client_get())
@@ -425,6 +411,28 @@ static void fetch_games(
 	{
 		if (!strcmp(browser_screen.games[index].invite, invite))
 			browser_screen.selected = index;
+	}
+}
+
+/* what this machine lacks to join a game on a Custom Edition map, or NULL
+when nothing (ce_map_state) */
+static char const *ce_map_blocker(
+	struct browser_game const *game,
+	char *text,
+	long size)
+{
+	char file[BROWSER_MAP_LENGTH];
+
+	switch (ce_map_state(game, FALSE))
+	{
+	case _ce_map_missing:
+		map_file(game->map, file, sizeof(file));
+		snprintf(text, (size_t)size, "Needs maps/ce/%s.map to join", file);
+		return text;
+	case _ce_map_unsupported:
+		return "Halo PC maps need the 64-bit ChupathingyCE.";
+	default:
+		return NULL;
 	}
 }
 
@@ -573,12 +581,10 @@ enum
 	/* a prompt that does nothing for the selected game */
 	COLOR_PROMPT_OFF = 0x4A5E80FF,
 	COLOR_BUTTON_OFF = 0xFFFFFF55,
-	/* Halo PC's maps: their badge and note, gold as the game list's web
-	pages draw them */
+	/* Halo PC's maps: their badge, gold as the game list's web pages draw it */
 	COLOR_PC = 0xF2C14EFF,
 	COLOR_PC_FILL = 0xF2C14E1F,
 	COLOR_PC_EDGE = 0xF2C14E99,
-	COLOR_PC_NOTE = 0xF2D68AFF,
 };
 
 /* the list's rows, columns and panels, in the 640x480 layout */
@@ -590,7 +596,7 @@ enum
 	ROSTER_COLUMNS = 2, ROSTER_ROWS = 7,
 	COLUMN_NAME = 67, COLUMN_MAP = 275, COLUMN_TYPE = 385, COLUMN_PLAYERS = 531, COLUMN_PING = 596,
 	/* the details' lines: the first's top, and each next's */
-	DETAIL_FIRST_LINE = 31, DETAIL_LINE_STEP = 14,
+	DETAIL_FIRST_LINE = 34, DETAIL_LINE_STEP = 16,
 };
 
 /* the HALO PC badge: its text's size, and its room before the Type column */
@@ -853,14 +859,19 @@ void browser_screen_render(
 	}
 	{
 		float y = (float)(LIST_Y + LIST_HEAD + ROWS_PER_PAGE * LIST_ROW);
+		char blocker_text[BROWSER_MAP_LENGTH + 32];
+		char const *blocker = selected ? ce_map_blocker(selected, blocker_text, sizeof(blocker_text)) : NULL;
 
 		ui_overlay_rect(LIST_X + 1, y, LIST_WIDTH - 2, 0.75f, 0, COLOR_PANEL_EDGE);
-		/* (a status message in the sort's place while it shows) */
+		/* (in the sort's place: a status message while it shows, else what the
+		selected game's Custom Edition map lacks to be joined) */
 		if (!browser_screen.connecting && browser_screen.status[0] &&
 			system_milliseconds() - browser_screen.status_time < STATUS_DURATION)
 		{
 			ui_overlay_text(UI_FONT_BOLD, 8.0f, LIST_X + 10, y + 5.5f, UI_ALIGN_LEFT, COLOR_CLOSED, browser_screen.status);
 		}
+		else if (blocker)
+			ui_overlay_text(UI_FONT_BOLD, 8.0f, LIST_X + 10, y + 5.5f, UI_ALIGN_LEFT, COLOR_CLOSED, blocker);
 		else
 		{
 			snprintf(text, sizeof(text), "SORTED BY %s  \xC2\xB7  CLOSED GAMES LAST", sort_names[browser_screen.sort]);
@@ -880,7 +891,6 @@ void browser_screen_render(
 		short map_frame = NUMBEROF(map_picture_order);
 		char file[BROWSER_MAP_LENGTH], map_name[64];
 		short ce_state = ce_map_state(selected, FALSE);
-		float note_y;
 		float y = DETAIL_Y + DETAIL_FIRST_LINE;
 
 		map_file(selected->map, file, sizeof(file));
@@ -930,42 +940,9 @@ void browser_screen_render(
 		DETAIL_LINE("Players:", text);
 #undef DETAIL_LINE
 
-		/* a Custom Edition map's game: who hosts it (as the game list's web
-		pages note it), and what this machine lacks to join it; the next line,
-		under the details and the roster both */
-		if (ce_state != _ce_map_none)
-		{
-			char const *host = "This map is being hosted by ChupathingyCE";
-			char const *separator = "  \xC2\xB7  ";
-			char need[96];
-			float size = 10.0f;
-
-			need[0] = 0;
-			if (ce_state == _ce_map_missing)
-				snprintf(need, sizeof(need), "Needs maps/ce/%s.map", file);
-			else if (ce_state == _ce_map_unsupported)
-				snprintf(need, sizeof(need), "Halo PC map: needs the 64-bit ChupathingyCE");
-			/* (smaller when long) */
-			while (size > 7.0f && ui_overlay_text_width(UI_FONT_REGULAR, size, host) +
-				(need[0] ? ui_overlay_text_width(UI_FONT_REGULAR, size, separator) +
-				ui_overlay_text_width(UI_FONT_BOLD, size, need) : 0) > LIST_X + LIST_WIDTH - 12 - 266)
-			{
-				size -= 0.5f;
-			}
-			note_y = y + (10.0f - size) / 2;
-			x = 266 + ui_overlay_text(UI_FONT_REGULAR, size, 266, note_y, UI_ALIGN_LEFT, COLOR_PC_NOTE, host);
-			if (need[0])
-			{
-				x += ui_overlay_text(UI_FONT_REGULAR, size, x, note_y, UI_ALIGN_LEFT, COLOR_DIM, separator);
-				ui_overlay_text(UI_FONT_BOLD, size, x, note_y, UI_ALIGN_LEFT, COLOR_CLOSED, need);
-			}
-		}
-
 		/* who is in it (the host's roster, when it sends one: two columns of
-		seven, the last place saying how many more); its rule stops above a
-		Custom Edition map's note */
-		ui_overlay_rect(444, DETAIL_Y + 10, 0.75f,
-			ce_state != _ce_map_none ? y - 4 - (DETAIL_Y + 10) : DETAIL_HEIGHT - 20, 0, COLOR_ROW_RULE);
+		seven, the last place saying how many more) */
+		ui_overlay_rect(444, DETAIL_Y + 10, 0.75f, DETAIL_HEIGHT - 20, 0, COLOR_ROW_RULE);
 		ui_overlay_text(UI_FONT_BOLD, 8.5f, 453, DETAIL_Y + 10, UI_ALIGN_LEFT, COLOR_LABEL, "IN GAME");
 		if (!selected->players && !selected->roster_count)
 			ui_overlay_text(UI_FONT_REGULAR, 8.5f, 453, DETAIL_Y + 27, UI_ALIGN_LEFT, COLOR_DIM, "No one yet");
