@@ -21,7 +21,8 @@ int gl_functions_load(void)
 /* newer than OpenGL 4.1 (macOS's newest); callers check for NULL */
 #define GL_OPTIONAL_FUNCTION(name) \
 	(!strcmp(#name, "glClipControl") || !strcmp(#name, "glCopyImageSubData") || \
-		!strcmp(#name, "glDebugMessageCallback") || !strcmp(#name, "glBufferStorage"))
+		!strcmp(#name, "glDebugMessageCallback") || !strcmp(#name, "glBufferStorage") || \
+		!strcmp(#name, "glMemoryBarrier"))
 #define GL_LOAD_FUNCTION(name) \
 	halo_##name = (__typeof__(halo_##name))SDL_GL_GetProcAddress(#name); \
 	if (!halo_##name && !GL_OPTIONAL_FUNCTION(name)) \
