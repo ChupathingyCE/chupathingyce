@@ -278,6 +278,11 @@ void *platform_contiguous_alloc(unsigned long size, unsigned long alignment,
 
 #ifdef HALO_64BIT
 	address = xbox_pointer(PLATFORM_CONTIGUOUS_BASE + first * PAGE_SIZE_BYTES);
+	/* (a host page it shares with a texture the renderer watches is
+	read-only: made writable, as a write would make it, before the watch
+	forgets it; else zeroing the block faults where no watch is left to
+	take the fault) */
+	memory_watch_prepare_write(address, count * PAGE_SIZE_BYTES);
 #else
 	address = (void *)(PLATFORM_CONTIGUOUS_BASE + first * PAGE_SIZE_BYTES);
 #endif
