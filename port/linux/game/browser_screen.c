@@ -18,7 +18,7 @@ A game on a Custom Edition map (Halo PC's, announced as <file>@ce) is named
 as the menus' map list names it (ui_map_list.c: Halo PC's own names, or the
 file's made readable), marked HALO PC as the game list's web pages mark it,
 and pictured by Halo PC's own picture of it. It is joined only with the map
-in maps\ce (and on a 64-bit build, the only one that plays them): else its
+in maps\ce (and on a build with Halo PC map support, HALO_CUSTOM_EDITION): else its
 details say what is missing, and A says so rather than join.
 */
 
@@ -226,7 +226,7 @@ static short ce_map_state(
 
 	if (!map_file(game->map, file, sizeof(file)))
 		return _ce_map_none;
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 	if (fresh || strcmp(browser_screen.ce_map, game->map) ||
 		system_milliseconds() - browser_screen.ce_map_time > CE_MAP_CHECK_INTERVAL)
 	{
@@ -430,7 +430,7 @@ static char const *ce_map_blocker(
 		snprintf(text, (size_t)size, "Needs maps/ce/%s.map to join", file);
 		return text;
 	case _ce_map_unsupported:
-		return "Halo PC maps need the 64-bit ChupathingyCE.";
+		return "Halo PC maps need ChupathingyCE with Halo PC map support.";
 	default:
 		return NULL;
 	}
@@ -898,7 +898,7 @@ void browser_screen_render(
 		{
 			struct bitmap_data *bitmap = NULL;
 
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 			/* (Halo PC's picture of it, or of an unknown level: laid out as the
 			Xbox's) */
 			bitmap = ui_map_list_ce_picture(file);

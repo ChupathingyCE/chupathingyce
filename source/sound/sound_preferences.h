@@ -17,7 +17,7 @@ header included in hcex build.
 struct sound_preferences
 {
 	short platform;
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 	/* (per channel type, sound_channel_type_flags: the Xbox's four of Xbox
 	ADPCM, then the port's four of 16-bit PCM, for Halo PC's Ogg Vorbis sounds,
 	decoded) */
@@ -39,7 +39,7 @@ void write_sound_preferences(
 
 /* ---------- globals */
 
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 extern short sound_channel_type_flags[8];
 #else
 extern short sound_channel_type_flags[4];

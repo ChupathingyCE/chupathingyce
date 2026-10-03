@@ -5,7 +5,7 @@ Halo PC's Ogg Vorbis sounds decoded to 16-bit PCM (ce_resources.c), with
 stb_vorbis (port/third_party/stb).
 */
 
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 
 #define STB_VORBIS_NO_STDIO
 #define STB_VORBIS_NO_PUSHDATA_API

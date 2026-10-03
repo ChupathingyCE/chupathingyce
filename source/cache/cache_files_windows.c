@@ -435,7 +435,7 @@ static short cached_map_files_find_map(
 
 static struct cache_file_runtime_globals cache_file_globals;
 
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 /* port: Custom Edition maps (Halo PC's, version 609), beside the Xbox maps:
 maps\ce\<name>.map, played as <name>@ce. Such a map is read where it is,
 not copied into one of the Xbox's cache slots and decompressed (it is not
@@ -483,6 +483,16 @@ static boolean ce_map_open(
 		return TRUE;
 	if (length - 3 >= 48)
 		return FALSE;
+	/* (its tag cache, which the platform layer maps at start-up: xbox_memory.c) */
+	{
+		extern int platform_ce_tag_cache_ready;
+
+		if (!platform_ce_tag_cache_ready)
+		{
+			error(_error_silent, "Custom Edition map %s: no tag cache for it", map_name);
+			return FALSE;
+		}
+	}
 	sprintf(path, "%sce\\%.*s.map", cache_files_map_directory(), (int)(length - 3), map_name);
 	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
 	if (file == INVALID_HANDLE_VALUE)
@@ -935,7 +945,7 @@ short cache_file_read(
 		276,
 		offset>=0);
 	if (size & (CACHE_FILE_SECTOR_SIZE - 1)
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 		/* (a Custom Edition map is read as it is, to its end, not in the
 		Xbox's whole sectors) */
 		&& cache_file_globals.open_map_file_index != CE_MAP_FILE_INDEX
@@ -945,7 +955,7 @@ short cache_file_read(
 		size = (size | (CACHE_FILE_SECTOR_SIZE - 1)) + 1;
 	}
 	*completion_flag_reference = FALSE;
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 	ce_request_files[request_index] = cache_file_globals.open_map_file_index == CE_MAP_FILE_INDEX
 		? ce_resources_file_for_tag(tag_index) : NULL;
 #endif
@@ -1256,7 +1266,7 @@ static void cache_file_windows_thread_proc(
 			}
 
 			file = cached_map_file_get_handle(cache_file_globals.open_map_file_index);
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 			/* (a Custom Edition map's indexed tag's pixels or samples: its
 			resource map) */
 			if (ce_request_files[best_request - cache_request_get(0)])
@@ -1725,7 +1735,7 @@ static void cache_requests_flush(
 static struct cached_map_file *cached_map_file_get(
 	short map_file_index)
 {
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 	if (map_file_index == CE_MAP_FILE_INDEX)
 		return &ce_map_file;
 #endif
@@ -1750,7 +1760,7 @@ static short cached_map_files_find_map(
 {
 	short map_file_index;
 
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 	/* port: a Custom Edition map, in its own slot (above) */
 	if (ce_map_name_is(map_name))
 		return ce_map_open(map_name) ? CE_MAP_FILE_INDEX : NONE;

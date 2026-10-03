@@ -16,7 +16,7 @@ ce_map_checks.c): what is read here lies within the BSP and is of the sizes
 its counts give.
 */
 
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 
 #include "cseries.h"
 #include "cseries_windows.h"

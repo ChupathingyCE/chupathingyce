@@ -636,7 +636,7 @@ static void texture_cache_initialize_hardware_format(
 			D3DFORMAT_BORDERSOURCE_COLOR |
 			D3DFORMAT_DMACHANNEL_A;
 		texture->Size = 0;
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 		/* port: a Custom Edition map's bitmap has its pixels as Halo PC lays
 		them out: uploaded as they are, not rearranged as the Xbox's */
 		{
@@ -647,7 +647,7 @@ static void texture_cache_initialize_hardware_format(
 		}
 #endif
 	}
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 	/* port: a Custom Edition map's HUD meter, its channels Halo PC's
 	(port/linux/game/ce_hud.c) */
 	{

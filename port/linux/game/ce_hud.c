@@ -26,7 +26,7 @@ hud_weapon.c's weapon and grenade HUD interfaces (OpenSauce's
 hud_definitions.hpp agrees).
 */
 
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 
 #include "cseries.h"
 #include "cseries_windows.h"

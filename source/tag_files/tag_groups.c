@@ -58,6 +58,10 @@ void* tag_data_get_pointer(
 #endif
 }
 
+#if defined(HALO_CUSTOM_EDITION) && !defined(HALO_64BIT)
+extern boolean cache_file_is_ce;
+#endif
+
 void *tag_block_get_element_with_size(
 	const struct tag_block *block,
 	long index, 
@@ -66,6 +70,11 @@ void *tag_block_get_element_with_size(
 	match_assert("c:\\halo\\SOURCE\\tag_files\\tag_groups.c", 3084, block);
 	match_assert("c:\\halo\\SOURCE\\tag_files\\tag_groups.c", 3085, block->count>=0);
 #ifndef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a Custom Edition map's blocks keep the definitions' addresses in
+	Halo PC's executable, not this one's (cache_files.c) */
+	if (!cache_file_is_ce)
+#endif
 	match_assert("c:\\halo\\SOURCE\\tag_files\\tag_groups.c", 3086, !block->definition || block->definition->element_size==element_size);
 #endif
 

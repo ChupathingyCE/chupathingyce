@@ -89,6 +89,8 @@ MACOS_ABI_FLAGS = [
     "-fno-omit-frame-pointer",
     "-ffp-contract=off",
     "-DHALO_64BIT",
+    # Halo PC's Custom Edition maps (linux_build.py, CUSTOM_EDITION_DEFINES)
+    "-DHALO_CUSTOM_EDITION",
     # the C library's checked printf macros collide with the MSVC names
     "-D_FORTIFY_SOURCE=0",
     OPTIMISATION,

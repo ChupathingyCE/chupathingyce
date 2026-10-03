@@ -936,7 +936,7 @@ boolean playlist_profile_get_options(long playlist_profile_index, struct game_va
 #include "text/unicode.h"
 #include "halo_menus.h" /* port: PC_MENU_FUNCTION_BASE */
 
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 #include "halo_ui_map_list.h"
 #endif
 
@@ -1743,7 +1743,7 @@ struct event_handler_globals event_handler_functions =
 	NONE
 };
 
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 /* port: the row of the menus' map list that plays a map's name, the list
 filled anew for a name it lacks (a game's map the list hasn't been shown
 since, or one new in maps\ce): NONE if none does. A name looked for in vain
@@ -2978,7 +2978,7 @@ static boolean multiplayer_level_list_initialize(
 {
 	char map_name[256];
 	struct ui_widget_definition *definition = ui_widget_definition_get(widget->definition_tag_index);
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 	/* port: the menus' map list, the Xbox's thirteen then the Custom
 	Edition maps */
 	short level_count;
@@ -5644,7 +5644,7 @@ static boolean multiplayer_level_select(
 		definition->child_count == 3,
 		"expected 3 list items for 'multiplayer level list' widget");
 	level_list = widget->child->child;
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 	/* port: the menus' map list */
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1298,
 		level_list->parameters.list.selected_index >= 0 && level_list->parameters.list.selected_index < ui_map_list_count(),
@@ -5684,7 +5684,7 @@ static boolean multiplayer_level_select(
 		if (server)
 			network_game_server_change_map_name(server, map_name);
 	}
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 	level_index = ui_map_list_find(map_name);
 	if (level_index != NONE)
 		saved_game_file_remember_last_used_multiplayer_map(ui_map_list_names()[level_index]);

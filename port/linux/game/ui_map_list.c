@@ -24,8 +24,8 @@ Without Halo PC's ui.map, the names are ce_maps' and an Xbox map's picture
 stands in.
 
 The server browser (browser_screen.c) names a listed game's Custom Edition
-map by the same (ui_map_list_ce_name), on every build: the 32-bit builds,
-which play no Custom Edition map, still name one. On the 64-bit builds it
+map by the same (ui_map_list_ce_name), on every build: the builds without
+Custom Edition maps (HALO_CUSTOM_EDITION) still name one. On those with them it
 has Halo PC's picture of the map (ui_map_list_ce_picture) and asks whether
 the map is in maps\ce (ui_map_list_ce_present).
 */
@@ -125,7 +125,7 @@ static void ce_map_tidy_name(
 	name[length] = 0;
 }
 
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmaps.h"
@@ -719,7 +719,7 @@ boolean ui_map_list_ce_present(
 #endif
 
 /* a Custom Edition map's name, by its file's name: Halo PC's own for its
-maps (as its ui.map has it, on the 64-bit builds), else the file's name
+maps (as its ui.map has it, on the builds with Custom Edition maps), else the file's name
 made readable */
 void ui_map_list_ce_name(
 	char const *file,
@@ -736,7 +736,7 @@ void ui_map_list_ce_name(
 		return;
 	}
 	known = ce_maps[index].name;
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 	ce_ui_read();
 	if (index < ce_ui.name_count && ce_ui.names[index][0])
 		known = ce_ui.names[index];

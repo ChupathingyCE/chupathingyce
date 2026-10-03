@@ -212,7 +212,7 @@ static wchar_t *fallback_string(long tag_index, short string_index)
 	return fallback_multiplayer_game_text_strings[fallback_index];
 }
 
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 /* Custom Edition maps' ui\multiplayer_game_text (Halo PC's, 194 strings) has
 the PAL list's strings at the same indices, but three of them name keys, for
 Halo PC's keyboard: the postgame prompts (72, 73: "ESCAPE = Quit    ENTER =
@@ -271,7 +271,7 @@ wchar_t *unicode_string_list_get_string(long tag_index, short string_index)
 	{
 		struct string_list *list = unicode_string_list_definition_get(tag_index);
 
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 		if (custom_edition_keyboard_string(tag_index, string_index))
 			result = custom_edition_keyboard_string(tag_index, string_index);
 		else

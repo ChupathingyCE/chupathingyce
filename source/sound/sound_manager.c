@@ -2420,7 +2420,7 @@ long sound_new_impulse(
 
 	if (sound_manager_globals.initialized && sound_manager_globals.enabled)
 	{
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 		/* (port: 16-bit PCM too, as Halo PC's Ogg Vorbis sounds are decoded:
 		port/linux/game/ce_resources.c) */
 		if ((definition->compression == _sound_compression_xbox_adpcm ||

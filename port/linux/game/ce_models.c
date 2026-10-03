@@ -41,7 +41,7 @@ a texture swizzle). A bitmap a model shader also draws as its base or detail
 map keeps its channels, which the renderer has one order of.
 */
 
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 
 #include "cseries.h"
 #include "cseries_windows.h"

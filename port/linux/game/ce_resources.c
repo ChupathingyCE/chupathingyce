@@ -26,7 +26,7 @@ is opened (ce_map_checks.c, which copies them in as loading does, into an
 image of the tag cache, and checks every bitmap and sound: ce_resources_check).
 */
 
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 
 #include "cseries.h"
 #include "cseries_windows.h"

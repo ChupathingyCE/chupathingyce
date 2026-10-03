@@ -183,7 +183,7 @@ struct cache_file_structure_bsp_header
 	unsigned long signature;
 };
 
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 /* port: Custom Edition maps (Halo PC's): their version, their tag cache
 (platform.h), and their tag header, which has the models' vertices and
 indices in one block of the file rather than Direct3D buffers */
@@ -205,7 +205,8 @@ struct cache_file_ce_tag_header
 	unsigned long signature;
 };
 
-static boolean cache_file_is_ce;
+/* (whether the map being loaded, or loaded, is one: tag_groups.c) */
+boolean cache_file_is_ce;
 
 #endif
 
@@ -303,7 +304,7 @@ static struct cache_file_tag_instance *cache_get_tag_instance(
 
 /* ---------- public code */
 
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 /* whether the loaded map is a Custom Edition map: its bitmaps' pixels are laid
 out as Halo PC's (xbox_texture_cache.c) */
 boolean cache_file_tags_are_ce(
@@ -383,7 +384,7 @@ void scenario_tags_unload(
 		menu_tags_unloaded();
 	}
 	cache_file_close();
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 	/* (a Custom Edition map registered no Direct3D buffers) */
 	if (cache_file_is_ce)
 	{
@@ -654,7 +655,7 @@ boolean cache_file_header_verify(
 
 	/* port: a Custom Edition map (Halo PC's, version 609: cache_files_windows.c) */
 	if (header->version != 5
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 		&& header->version != CACHE_FILE_CE_VERSION
 #endif
 		)
@@ -851,7 +852,7 @@ long scenario_tags_load(
 	if (cache_file_open(stripped_scenario_name, &cache_file_globals.header))
 	{
 		tag_cache_base_address = physical_memory_get_tag_cache_base_address();
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 		/* port: a Custom Edition map's tags, in their own tag cache */
 		cache_file_is_ce = cache_file_globals.header.version == CACHE_FILE_CE_VERSION;
 		if (cache_file_is_ce && cache_file_header_verify(&cache_file_globals.header, scenario_name, TRUE))
@@ -1053,7 +1054,7 @@ boolean scenario_structure_bsp_load(
 		0xE0,
 		cache_file_globals.structure_bsp_header->signature==CACHE_FILE_STRUCTURE_BSP_HEADER_SIGNATURE);
 	structure_bsp_header_register_vertex_buffers(cache_file_globals.structure_bsp_header);
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 	/* port: a Custom Edition map's BSP: its vertices compressed, as the
 	Xbox's are (port/linux/game/ce_bsp.c) */
 	if (cache_file_is_ce)
@@ -1083,7 +1084,7 @@ void scenario_structure_bsp_unload(
 	struct cache_file_tag_instance *tag_instance;
 
 	structure_bsp_header_deregister_vertex_buffers(cache_file_globals.structure_bsp_header);
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 	if (cache_file_is_ce)
 	{
 		extern void ce_bsp_unloaded(void);

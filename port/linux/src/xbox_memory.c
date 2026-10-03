@@ -56,6 +56,9 @@ static DWORD page_protection[CONTIGUOUS_PAGE_COUNT];
 static unsigned long block_page_count[CONTIGUOUS_PAGE_COUNT];
 static BOOL arena_reserved = FALSE;
 static pthread_mutex_t arena_lock = PTHREAD_MUTEX_INITIALIZER;
+#ifdef HALO_CUSTOM_EDITION
+int platform_ce_tag_cache_ready = FALSE;
+#endif
 #ifdef HALO_64BIT
 
 unsigned int platform_host_page_size = PAGE_SIZE_BYTES;
@@ -117,6 +120,28 @@ static void contiguous_arena_reserve(void)
 			wanted, strerror(errno));
 #endif
 	}
+#if defined(HALO_CUSTOM_EDITION) && !defined(HALO_64BIT)
+	/* Custom Edition maps' tag cache (platform.h). Xbox addresses are host
+	addresses here, so it is the host's 0x40440000 to 0x41b40000, which a
+	32-bit process leaves free: the executable is linked at 0x08048000, its
+	break heap grows up from just past it, and the libraries, mmap'd blocks
+	and the stack are at the top below 0xc0000000 or 0xffffffff, growing
+	down. Taken here, before anything else is mapped, never in place of a
+	mapping (MAP_FIXED_NOREPLACE); backed on first touch */
+	result = mmap((void *)PLATFORM_CE_TAG_CACHE_BASE, PLATFORM_CE_TAG_CACHE_SIZE, PROT_READ | PROT_WRITE,
+		MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED_NOREPLACE, -1, 0);
+	if (result != (void *)PLATFORM_CE_TAG_CACHE_BASE)
+	{
+		if (result != MAP_FAILED)
+			munmap(result, PLATFORM_CE_TAG_CACHE_SIZE);
+		platform_log("cannot reserve Custom Edition maps' tag cache at %p (%s): they will not load",
+			(void *)PLATFORM_CE_TAG_CACHE_BASE, strerror(errno));
+	}
+	else
+	{
+		platform_ce_tag_cache_ready = TRUE;
+	}
+#endif
 #ifdef HALO_64BIT
 	if (mmap(xbox_pointer(PLATFORM_CONTIGUOUS_BASE), PLATFORM_CONTIGUOUS_SIZE, PROT_READ | PROT_WRITE,
 		MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) != xbox_pointer(PLATFORM_CONTIGUOUS_BASE))
@@ -129,6 +154,10 @@ static void contiguous_arena_reserve(void)
 		MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) != xbox_pointer(PLATFORM_CE_TAG_CACHE_BASE))
 	{
 		platform_log("cannot commit Custom Edition maps' tag cache (%s)", strerror(errno));
+	}
+	else
+	{
+		platform_ce_tag_cache_ready = TRUE;
 	}
 	arena_reserved = TRUE;
 }
