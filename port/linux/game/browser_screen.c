@@ -574,12 +574,11 @@ enum
 	COLOR_PROMPT_OFF = 0x4A5E80FF,
 	COLOR_BUTTON_OFF = 0xFFFFFF55,
 	/* Halo PC's maps: their badge and note, gold as the game list's web
-	pages draw them; a map this machine has */
+	pages draw them */
 	COLOR_PC = 0xF2C14EFF,
 	COLOR_PC_FILL = 0xF2C14E1F,
 	COLOR_PC_EDGE = 0xF2C14E99,
 	COLOR_PC_NOTE = 0xF2D68AFF,
-	COLOR_MAP_PRESENT = 0x7FD68AFF,
 };
 
 /* the list's rows, columns and panels, in the 640x480 layout */
@@ -590,6 +589,15 @@ enum
 	/* the roster's places in the details */
 	ROSTER_COLUMNS = 2, ROSTER_ROWS = 7,
 	COLUMN_NAME = 67, COLUMN_MAP = 275, COLUMN_TYPE = 385, COLUMN_PLAYERS = 531, COLUMN_PING = 596,
+	/* the details' lines: the first's top, and each next's */
+	DETAIL_FIRST_LINE = 31, DETAIL_LINE_STEP = 14,
+};
+
+/* the HALO PC badge: its text's size, and its room before the Type column */
+#define BADGE_SIZE 6.5f
+enum
+{
+	BADGE_MARGIN = 12,
 };
 
 /* the map pictures (the menus' mp_map_grafix, in their order:
@@ -725,20 +733,29 @@ static float prompt_off(
 }
 
 /* the HALO PC badge of a game on a Custom Edition map, size its text's
-height, at x (its left), y (its top); its width */
-static float draw_pc_badge(
+height: its width */
+static float pc_badge_width(
+	float size)
+{
+	return ui_overlay_text_width(UI_FONT_BOLD, size, "HALO PC") + size;
+}
+
+/* the badge at x (its left), centred on the capitals of text whose top is
+text_y and height text_size (as ui_overlay_text draws them: their middle
+half the size down) */
+static void draw_pc_badge(
 	float size,
 	float x,
-	float y)
+	float text_y,
+	float text_size)
 {
 	float padding = size * 0.5f;
-	float width = ui_overlay_text_width(UI_FONT_BOLD, size, "HALO PC") + 2 * padding;
 	float height = size + padding;
+	float y = text_y + text_size * 0.5f - height * 0.5f;
 
-	ui_overlay_rect(x, y, width, height, 2, COLOR_PC_FILL);
-	ui_overlay_outline(x, y, width, height, 2, 0.75f, COLOR_PC_EDGE);
+	ui_overlay_rect(x, y, pc_badge_width(size), height, 2, COLOR_PC_FILL);
+	ui_overlay_outline(x, y, pc_badge_width(size), height, 2, 0.75f, COLOR_PC_EDGE);
 	ui_overlay_text(UI_FONT_BOLD, size, x + padding, y + padding * 0.55f, UI_ALIGN_LEFT, COLOR_PC, "HALO PC");
-	return width;
 }
 
 static float prompt_width(
@@ -816,15 +833,15 @@ void browser_screen_render(
 		map_name = map_display_name(game->map, text, sizeof(text));
 		if (map_is_ce(game->map))
 		{
-			/* (the name smaller, for the badge, when the column is short of room) */
+			/* (the badges in a column at the Map column's right; a name too long
+			for the room left of it smaller, its middle where the others' is) */
+			float badge_x = COLUMN_TYPE - BADGE_MARGIN - pc_badge_width(BADGE_SIZE);
 			float size = 10.0f;
-			float badge = ui_overlay_text_width(UI_FONT_BOLD, 6.5f, "HALO PC") + 6.5f + 4;
 
-			while (size > 7.0f && ui_overlay_text_width(UI_FONT_BOLD, size, map_name) + badge > COLUMN_TYPE - COLUMN_MAP - 6)
+			while (size > 7.0f && ui_overlay_text_width(UI_FONT_BOLD, size, map_name) > badge_x - 4 - COLUMN_MAP)
 				size -= 0.5f;
-			x = COLUMN_MAP + ui_overlay_text(UI_FONT_BOLD, size, COLUMN_MAP, y + 5 + (10.0f - size) / 2, UI_ALIGN_LEFT,
-				color, map_name) + 4;
-			draw_pc_badge(6.5f, x, y + 5.5f);
+			ui_overlay_text(UI_FONT_BOLD, size, COLUMN_MAP, y + 5 + (10.0f - size) / 2, UI_ALIGN_LEFT, color, map_name);
+			draw_pc_badge(BADGE_SIZE, badge_x, y + 5, 10.0f);
 		}
 		else
 			ui_overlay_text(UI_FONT_BOLD, 10.0f, COLUMN_MAP, y + 5, UI_ALIGN_LEFT, color, map_name);
@@ -838,8 +855,17 @@ void browser_screen_render(
 		float y = (float)(LIST_Y + LIST_HEAD + ROWS_PER_PAGE * LIST_ROW);
 
 		ui_overlay_rect(LIST_X + 1, y, LIST_WIDTH - 2, 0.75f, 0, COLOR_PANEL_EDGE);
-		snprintf(text, sizeof(text), "SORTED BY %s  \xC2\xB7  CLOSED GAMES LAST", sort_names[browser_screen.sort]);
-		ui_overlay_text(UI_FONT_BOLD, 7.5f, LIST_X + 10, y + 6, UI_ALIGN_LEFT, COLOR_DIM, text);
+		/* (a status message in the sort's place while it shows) */
+		if (!browser_screen.connecting && browser_screen.status[0] &&
+			system_milliseconds() - browser_screen.status_time < STATUS_DURATION)
+		{
+			ui_overlay_text(UI_FONT_BOLD, 8.0f, LIST_X + 10, y + 5.5f, UI_ALIGN_LEFT, COLOR_CLOSED, browser_screen.status);
+		}
+		else
+		{
+			snprintf(text, sizeof(text), "SORTED BY %s  \xC2\xB7  CLOSED GAMES LAST", sort_names[browser_screen.sort]);
+			ui_overlay_text(UI_FONT_BOLD, 7.5f, LIST_X + 10, y + 6, UI_ALIGN_LEFT, COLOR_DIM, text);
+		}
 		snprintf(text, sizeof(text), "\xE2\x80\xB9   PAGE %d OF %d   \xE2\x80\xBA", page_first / ROWS_PER_PAGE + 1, page_count);
 		ui_overlay_text(UI_FONT_BOLD, 8.0f, LIST_X + LIST_WIDTH - 12, y + 5.5f, UI_ALIGN_RIGHT, COLOR_LABEL, text);
 	}
@@ -854,9 +880,8 @@ void browser_screen_render(
 		short map_frame = NUMBEROF(map_picture_order);
 		char file[BROWSER_MAP_LENGTH], map_name[64];
 		short ce_state = ce_map_state(selected, FALSE);
-		/* (a Custom Edition map's game: its lines closer, for its note below) */
-		float step = ce_state != _ce_map_none ? 13.0f : 16.0f;
-		float y = DETAIL_Y + (ce_state != _ce_map_none ? 29 : 34);
+		float note_y;
+		float y = DETAIL_Y + DETAIL_FIRST_LINE;
 
 		map_file(selected->map, file, sizeof(file));
 		if (ce_state != _ce_map_none)
@@ -890,11 +915,11 @@ void browser_screen_render(
 #define DETAIL_LINE(label, value) \
 		x = 266 + ui_overlay_text(UI_FONT_REGULAR, 10.0f, 266, y, UI_ALIGN_LEFT, COLOR_LABEL, label) + 4; \
 		x += ui_overlay_text(UI_FONT_REGULAR, 10.0f, x, y, UI_ALIGN_LEFT, COLOR_TEXT, value); \
-		y += step;
+		y += DETAIL_LINE_STEP;
 		DETAIL_LINE("Status:", selected->open ? "Accepting Players" : "In Progress");
 		DETAIL_LINE("Map:", map_display_name(selected->map, map_name, sizeof(map_name)));
 		if (ce_state != _ce_map_none)
-			draw_pc_badge(7.0f, x + 5, y - step + 1);
+			draw_pc_badge(BADGE_SIZE, x + 6, y - DETAIL_LINE_STEP, 10.0f);
 		DETAIL_LINE("Rules:", type_name(selected, text, sizeof(text)));
 		if (selected->score_limit)
 		{
@@ -905,44 +930,42 @@ void browser_screen_render(
 		DETAIL_LINE("Players:", text);
 #undef DETAIL_LINE
 
-		/* a Custom Edition map's game: who hosts it, and whether this machine
-		has its map (as the game list's web pages note it) */
+		/* a Custom Edition map's game: who hosts it (as the game list's web
+		pages note it), and what this machine lacks to join it; the next line,
+		under the details and the roster both */
 		if (ce_state != _ce_map_none)
 		{
 			char const *host = "This map is being hosted by ChupathingyCE";
 			char const *separator = "  \xC2\xB7  ";
 			char need[96];
-			char const *have = need;
-			unsigned int have_color = COLOR_CLOSED;
-			float size = 9.0f;
+			float size = 10.0f;
 
-			if (ce_state == _ce_map_present)
-			{
-				have = "You have this map";
-				have_color = COLOR_MAP_PRESENT;
-			}
-			else if (ce_state == _ce_map_missing)
+			need[0] = 0;
+			if (ce_state == _ce_map_missing)
 				snprintf(need, sizeof(need), "Needs maps/ce/%s.map", file);
-			else
-				have = "Halo PC map: needs the 64-bit ChupathingyCE";
-			/* (on one line, under the details and the roster: smaller when long) */
+			else if (ce_state == _ce_map_unsupported)
+				snprintf(need, sizeof(need), "Halo PC map: needs the 64-bit ChupathingyCE");
+			/* (smaller when long) */
 			while (size > 7.0f && ui_overlay_text_width(UI_FONT_REGULAR, size, host) +
-				ui_overlay_text_width(UI_FONT_REGULAR, size, separator) +
-				ui_overlay_text_width(UI_FONT_BOLD, size, have) > LIST_X + LIST_WIDTH - 10 - 266)
+				(need[0] ? ui_overlay_text_width(UI_FONT_REGULAR, size, separator) +
+				ui_overlay_text_width(UI_FONT_BOLD, size, need) : 0) > LIST_X + LIST_WIDTH - 12 - 266)
 			{
 				size -= 0.5f;
 			}
-			y = DETAIL_Y + DETAIL_HEIGHT - 9 - size;
-			ui_overlay_rect(266, y - 4, LIST_X + LIST_WIDTH - 10 - 266, 0.75f, 0, COLOR_ROW_RULE);
-			x = 266 + ui_overlay_text(UI_FONT_REGULAR, size, 266, y, UI_ALIGN_LEFT, COLOR_PC_NOTE, host);
-			x += ui_overlay_text(UI_FONT_REGULAR, size, x, y, UI_ALIGN_LEFT, COLOR_DIM, separator);
-			ui_overlay_text(UI_FONT_BOLD, size, x, y, UI_ALIGN_LEFT, have_color, have);
+			note_y = y + (10.0f - size) / 2;
+			x = 266 + ui_overlay_text(UI_FONT_REGULAR, size, 266, note_y, UI_ALIGN_LEFT, COLOR_PC_NOTE, host);
+			if (need[0])
+			{
+				x += ui_overlay_text(UI_FONT_REGULAR, size, x, note_y, UI_ALIGN_LEFT, COLOR_DIM, separator);
+				ui_overlay_text(UI_FONT_BOLD, size, x, note_y, UI_ALIGN_LEFT, COLOR_CLOSED, need);
+			}
 		}
 
 		/* who is in it (the host's roster, when it sends one: two columns of
-		seven, the last place saying how many more) */
-		ui_overlay_rect(444, DETAIL_Y + 10, 0.75f, DETAIL_HEIGHT - 20 - (ce_state != _ce_map_none ? 20 : 0), 0,
-			COLOR_ROW_RULE);
+		seven, the last place saying how many more); its rule stops above a
+		Custom Edition map's note */
+		ui_overlay_rect(444, DETAIL_Y + 10, 0.75f,
+			ce_state != _ce_map_none ? y - 4 - (DETAIL_Y + 10) : DETAIL_HEIGHT - 20, 0, COLOR_ROW_RULE);
 		ui_overlay_text(UI_FONT_BOLD, 8.5f, 453, DETAIL_Y + 10, UI_ALIGN_LEFT, COLOR_LABEL, "IN GAME");
 		if (!selected->players && !selected->roster_count)
 			ui_overlay_text(UI_FONT_REGULAR, 8.5f, 453, DETAIL_Y + 27, UI_ALIGN_LEFT, COLOR_DIM, "No one yet");
@@ -1007,8 +1030,6 @@ void browser_screen_render(
 		x += ui_overlay_button(UI_BUTTON_B, 13.0f, x, 236, 0xFFFFFFFF) + 3;
 		ui_overlay_text(UI_FONT_BOLD, 10.0f, x, 237.5f, UI_ALIGN_LEFT, COLOR_PROMPT, "=CANCEL");
 	}
-	else if (browser_screen.status[0] && system_milliseconds() - browser_screen.status_time < STATUS_DURATION)
-		ui_overlay_text(UI_FONT_BOLD, 9.0f, 603, 300, UI_ALIGN_RIGHT, COLOR_CLOSED, browser_screen.status);
 }
 
 #endif
