@@ -1019,7 +1019,7 @@ boolean scenario_structure_bsp_load(
 	byte *tag_cache_base_address;
 
 	tag_cache_base_address = physical_memory_get_tag_cache_base_address();
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 	/* port: (not a Custom Edition map's: its tags are in a tag cache of their
 	own, and may be more than the Xbox's holds) */
 	if (!cache_file_is_ce)

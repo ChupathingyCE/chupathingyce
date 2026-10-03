@@ -37,7 +37,7 @@ that is not there. The check is what the port reads; the game reads the
 rest of a map's tags as it reads the Xbox's maps, trusting them.
 */
 
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 
 #include "cseries.h"
 #include "cseries_windows.h"

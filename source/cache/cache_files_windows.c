@@ -186,7 +186,7 @@ symbols in this file:
 #include "cache/cache_files_decompress_windows.h"
 #include "cache/texture_cache.h"
 #include "interface/ui_widget.h"
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 #include "main/console.h"
 #endif
 #include "tag_files/files.h"

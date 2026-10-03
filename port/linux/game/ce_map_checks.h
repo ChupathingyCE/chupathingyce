@@ -10,7 +10,7 @@ structure BSPs, and the reason a map is refused.
 #define __CE_MAP_CHECKS_H
 #pragma once
 
-#ifdef HALO_64BIT
+#ifdef HALO_CUSTOM_EDITION
 
 /* ---------- constants */
 
