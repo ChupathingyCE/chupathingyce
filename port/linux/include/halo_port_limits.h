@@ -46,8 +46,10 @@ machines, 16 players) are 0x226 and 0x434. */
 #define HALO_PORT_NETWORK_GAME_PLAYERS_END \
 	(HALO_PORT_NETWORK_GAME_PLAYERS_OFFSET + HALO_PORT_MAXIMUM_NETWORK_PLAYERS * HALO_PORT_NETWORK_PLAYER_SIZE)
 #define HALO_PORT_NETWORK_GAME_RANDOM_SEED_OFFSET (HALO_PORT_NETWORK_GAME_PLAYERS_END + 2)
-#define HALO_PORT_NETWORK_GAME_LOCAL_DATA_OFFSET (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0xA)
-#define HALO_PORT_NETWORK_GAME_SIZE (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0xE)
+/* (then the gametype's PC options, struct game_variant_options: 0x1C bytes) */
+#define HALO_PORT_NETWORK_GAME_VARIANT_OPTIONS_OFFSET (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0xA)
+#define HALO_PORT_NETWORK_GAME_LOCAL_DATA_OFFSET (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0x26)
+#define HALO_PORT_NETWORK_GAME_SIZE (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0x2A)
 
 /* ---------- system link protocol
 
@@ -64,19 +66,17 @@ is newer (network_client_manager.c). A host advertises it, with its netcode,
 in its game's advertisement's reserved bytes (network_server_message_handler.c),
 which hosts built before there was a version send as zeros: version 0.
 Raise it with any change to what the machines send each other. */
-#define HALO_PORT_NETWORK_VERSION 10
+#define HALO_PORT_NETWORK_VERSION 11
 /* ... the versions whose hosts a client joins: its own, and those that differ
 from it only in what the other machines leave out (a message a machine of
-the other version does not know it drops). Version 10 (OpenCE's
-build-73's) adds a message of the players' pings, for the scoreboard,
-which a machine of version 9 drops: so this build, of version 10, still
-joins hosts of 9. Version 8 sends what version
-9 does not (version 9's join request carries the hardware id), and is
-outside. A host never checks a client's version: the client does
+the other version does not know it drops). Version 11 (OpenCE's build-76's)
+adds the gametype's PC options to the game settings record every machine
+reads (HALO_PORT_NETWORK_GAME_VARIANT_OPTIONS_OFFSET), so it plays with no
+other version. A host never checks a client's version: the client does
 (network_client_manager.c), so the range is the client's. Widen it only
 for a version read and found to differ so. */
-#define HALO_PORT_NETWORK_VERSION_MINIMUM 9
-#define HALO_PORT_NETWORK_VERSION_MAXIMUM 10
+#define HALO_PORT_NETWORK_VERSION_MINIMUM 11
+#define HALO_PORT_NETWORK_VERSION_MAXIMUM 11
 /* ... the advertisement's reserved bytes: the version (a little-endian word),
 then flags */
 #define HALO_PORT_ADVERTISED_VERSION_OFFSET 0
@@ -84,6 +84,9 @@ then flags */
 /* ... the host plays the distributed netcode (always, since the lockstep
 netcode was removed; hosts of version 4 built before then may not) */
 #define HALO_PORT_ADVERTISED_DISTRIBUTED_FLAG 0x01
+/* ... the game is under way (loading, playing or over), not in its lobby:
+the menus show it before joining it (hosts built before then never set it) */
+#define HALO_PORT_ADVERTISED_IN_PROGRESS_FLAG 0x02
 
 /* a message header's 12-bit length allows messages of up to 0xFFF bytes,
 header included; the per-tick update of 128 players is 3,857 */
@@ -93,7 +96,7 @@ header included; the per-tick update of 128 players is 3,857 */
 update of 128 players decodes to 0x1010 bytes */
 #define HALO_PORT_NETWORK_PACKET_SIZE 0x1100
 
-/* the game settings record (HALO_PORT_NETWORK_GAME_SIZE, 13,092 bytes at 128
+/* the game settings record (HALO_PORT_NETWORK_GAME_SIZE, 13,120 bytes at 128
 machines and players) does not fit one message; it is sent in pieces of
 this many bytes (4 pieces), each 3,594 bytes on the wire */
 #define HALO_PORT_NETWORK_GAME_SETTINGS_FRAGMENT_SIZE 0xE00

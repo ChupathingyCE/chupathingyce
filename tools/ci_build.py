@@ -115,6 +115,9 @@ def main() -> int:
     # the same
     shutil.copy2(ROOT / "port/linux/ui/fonts/OFL.txt", dist / "NotoSans-OFL.txt")
     shutil.copy2(ROOT / "port/linux/ui/fonts/KENNEY-CC0.txt", dist / "Kenney-Input-Prompts-CC0.txt")
+    # the menus' XML parser (port/third_party/expat), in every build, whose
+    # MIT license asks copies to carry its notice
+    shutil.copy2(ROOT / "port/third_party/expat/COPYING", dist / "expat-COPYING.txt")
     return 0
 
 
