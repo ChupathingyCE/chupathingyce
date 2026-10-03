@@ -23,6 +23,7 @@ from .linux_build import (
     MINIUPNPC_DIR,
     MUSL_MATH_DIR,
     OPTIMISATION,
+    STB_DIR,
     TOML_DIR,
     XDK_INCLUDE,
     compile_launcher,
@@ -202,14 +203,20 @@ def _ios_variant(n: Writer, sln: Any, name: str, sdk: str, suffix: str, sdl: Pat
     for source in sorted(platform_dir.glob("*.c")):
         if source.as_posix() in excluded:
             continue
-        if source.name == "posix_update.c":
+        if source.name in ("posix_update.c", "posix_browser.c"):
             add_object(source, f"{posix_cflags} {mbedtls_include}")
         elif source.name == "posix_upnp.c":
             add_object(source, f"{posix_cflags} -I{MINIUPNPC_DIR / 'include'} -DMINIUPNP_STATICLIB")
+        elif source.name == "posix_ui_font.c":
+            add_object(source, f"{posix_cflags} -I{STB_DIR}")
         elif source.name.startswith("posix_"):
             add_object(source, posix_cflags)
         elif source.name == "updater.c":
             add_object(lp64(source), f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
+        elif source.name == "text_hires.c":
+            # (it includes stb_truetype by a path from its own folder, as on macOS:
+            # the rewritten copy's folder has no third_party beside it)
+            add_object(lp64(source), f"{platform_cflags} -idirafter {LINUX_PORT_DIR / 'src'}")
         else:
             add_object(lp64(source), platform_cflags)
     for source in hud_assets_build(n, name, build_dir / "generated" / "hud_hires_assets.c"):
