@@ -803,8 +803,8 @@ static void draw_quick_connect(
 	case BROWSER_CONNECT_DECLINED:
 	case BROWSER_CONNECT_FAILED:
 		if (connect->state == BROWSER_CONNECT_EXPIRED)
-			text_with_button(12.0f, center, CONNECT_Y + 120, COLOR_TEXT, "Code expired: press", UI_BUTTON_RIGHT_SHOULDER,
-				"for a new one");
+			text_with_button(12.0f, center, CONNECT_Y + 120, COLOR_TEXT, "Code expired. Press", UI_BUTTON_RIGHT_SHOULDER,
+				"for a new code.");
 		else if (connect->state == BROWSER_CONNECT_DECLINED)
 			text_with_button(12.0f, center, CONNECT_Y + 120, COLOR_TEXT, "Cancelled. Press", UI_BUTTON_RIGHT_SHOULDER,
 				"for a new code.");
@@ -846,7 +846,14 @@ void browser_screen_render(
 
 	/* servers, players and the list it comes from, at the right */
 	x = 603;
-	x -= ui_overlay_text(UI_FONT_BOLD, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_TEXT, "HALO.MILENKO.ORG") + 4;
+	/* (the game list's address, in capitals as the rest) */
+	browser_server_name(text, sizeof(text));
+	for (index = 0; text[index]; index++)
+	{
+		if (text[index] >= 'a' && text[index] <= 'z')
+			text[index] = (char)(text[index] - 32);
+	}
+	x -= ui_overlay_text(UI_FONT_BOLD, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_TEXT, text[0] ? text : "NONE") + 4;
 	x -= ui_overlay_text(UI_FONT_REGULAR, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_DIM, "MASTER") + 14;
 	snprintf(text, sizeof(text), "%ld", players);
 	x -= ui_overlay_text(UI_FONT_BOLD, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_TEXT, text) + 4;

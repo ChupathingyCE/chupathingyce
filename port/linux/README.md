@@ -530,13 +530,14 @@ Games:
 
 - Press Start. The game opens the profile page in the web browser, signed
   in as this player.
-- Press RB (Quick Connect). Use this step where no web browser opens: Steam's
-  Game Mode, a Steam Deck, a console. The game shows a short code and a QR
-  code. On a phone or a computer, go to `<server>/connect` (the address that
-  the game shows), sign in, and enter the code, or scan the QR code. Then the
-  game asks "Connect this game to <name>?" (or "Move this game from <old
-  name> to <name>?"). Press A to connect, or B to cancel. A code operates
-  for two minutes, and the question for two minutes. Press RB for a new code.
+- Press RB, or C on the keyboard (Quick Connect). Use this step where no web
+  browser opens: Steam's Game Mode, a Steam Deck, a console. The game shows
+  a short code and a QR code. On a phone or a computer, go to
+  `<server>/connect` (the address that the game shows), sign in, and enter
+  the code, or scan the QR code. Then the game asks "Connect this game to
+  <name>?" (or "Move this game from <old name> to <name>?"). Press A to
+  connect, or B to cancel. A code operates for two minutes, and the question
+  for two minutes. Press RB (or C) for a new code.
 
 Quick Connect uses these requests to the server (`src/browser.c`, on the
 thread of the game list): `POST /v1/connect/start` with the key (and the

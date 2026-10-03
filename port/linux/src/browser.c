@@ -1205,10 +1205,24 @@ void browser_connect_answer(int accept)
 	pthread_mutex_unlock(&browser_lock);
 }
 
-void browser_connect_get(struct browser_connect *connect)
+void browser_server_name(char *text, int size)
 {
 	const char *base = config_string("network.browser_url");
 	size_t length;
+
+	/* (as a player types it: without the scheme or the final slash) */
+	if (!strncmp(base, "https://", 8))
+		base += 8;
+	else if (!strncmp(base, "http://", 7))
+		base += 7;
+	length = strlen(base);
+	while (length && base[length - 1] == '/')
+		length--;
+	snprintf(text, (size_t)size, "%.*s", (int)length, base);
+}
+
+void browser_connect_get(struct browser_connect *connect)
+{
 	int size;
 
 	pthread_mutex_lock(&browser_lock);
@@ -1228,16 +1242,8 @@ void browser_connect_get(struct browser_connect *connect)
 	memcpy(connect->qr, browser.connect_qr, (size_t)(size * size));
 	pthread_mutex_unlock(&browser_lock);
 
-	/* the page as a player types it: the server's address without its
-	scheme */
-	if (!strncmp(base, "https://", 8))
-		base += 8;
-	else if (!strncmp(base, "http://", 7))
-		base += 7;
-	length = strlen(base);
-	while (length && base[length - 1] == '/')
-		length--;
-	snprintf(connect->page, sizeof(connect->page), "%.*s/connect", (int)length, base);
+	browser_server_name(connect->page, (int)sizeof(connect->page) - 8);
+	strcat(connect->page, "/connect");
 }
 
 /* a restored key's link, halo://key/<64 hexadecimal digits> (the profile

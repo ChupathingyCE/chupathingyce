@@ -99,6 +99,10 @@ void browser_host_update(const unsigned short *name, const char *map, short engi
 	short maximum_players, int open, short score_limit, int teams,
 	const struct browser_roster_player *roster, int roster_count);
 
+/* the game list's address as a player types it (halo.milenko.org: no
+scheme), empty for none */
+void browser_server_name(char *text, int size);
+
 /* the listed games, asking the server for the list again if the last one
 is more than a few seconds old: those of this machine's network version,
 without this machine's own. Returns their count. */
