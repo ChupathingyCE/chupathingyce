@@ -105,9 +105,10 @@ static const struct config_setting config_settings[] =
 		"Draw the menus' and HUD's text with the fonts in port/assets/fonts\n"
 		"(Overpass) at the display's resolution, and the menus' titles from\n"
 		"port/assets/titles; false draws the maps' bitmap fonts and titles." },
-	{ "display.menus", _config_string, "\"pc\"", "HALO_MENUS", _environment_value, _platform_all,
-		"The menus: \"pc\" for the PC version's main menu (port/assets/menus,\n"
-		"and a menus folder here for your own), \"xbox\" for the Xbox's." },
+	{ "display.menus", _config_string, "\"xbox\"", "HALO_MENUS", _environment_value, _platform_all,
+		"The menus: \"xbox\" for the Xbox's (with Online Games), \"pc\" for the\n"
+		"PC version's main menu (port/assets/menus, and a menus folder here for\n"
+		"your own; not all of it is wired yet)." },
 	{ "display.player_names", _config_string, "\"all\"", "HALO_PLAYER_NAMES", _environment_value, _platform_all,
 		"In multiplayer, whose names are drawn above their heads: \"all\",\n"
 		"\"allies\", \"enemies\" or \"none\". An enemy's shows only while in sight\n"
