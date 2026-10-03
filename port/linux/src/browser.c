@@ -33,6 +33,7 @@ with it under the lock.
 #include "p2p.h"
 #include "p2p_internal.h"
 #include "browser.h"
+#include "qrcodegen.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -63,6 +64,18 @@ enum
 	CLAIM_INTERVAL = 8000,
 	CLAIM_ATTEMPTS = 8,
 	MAXIMUM_CLAIM_NAMES = 4,
+	/* Quick Connect: the server asked whether its code was typed this often,
+	and a code given up on this long after it runs out (if the server could
+	not say so) */
+	CONNECT_POLL_INTERVAL = 3000,
+	CONNECT_GRACE = 10000,
+	/* (a confirm question's time, as the server keeps it; an answer not
+	heard sent again a few times, the server taking five) */
+	CONNECT_CONFIRM = 120000,
+	CONNECT_ANSWER_TRIES = 4,
+	CONNECT_TOKEN_LENGTH = 64,
+	/* (the page with the code, as a QR code: version 10 at most) */
+	CONNECT_QR_VERSION = 10,
 };
 
 struct hosted_game
@@ -111,6 +124,30 @@ static struct
 	int profile_wanted;
 	/* a restored key (a halo://key/ link) waiting for the player's yes */
 	char pending_key[2 * PLAYER_KEY_SIZE + 1];
+
+	/* Quick Connect (the game's thread asks, the browser thread talks to the
+	server): the serial counts the codes asked for and the panel's closings,
+	so that an answer about a code no longer shown is dropped */
+	int connect_state;
+	int connect_serial;
+	unsigned short connect_name[12];
+	char connect_code[16];
+	char connect_token[CONNECT_TOKEN_LENGTH + 1];
+	unsigned long connect_time;
+	unsigned long connect_lifetime;
+	unsigned long connect_poll_time;
+	/* who typed the code (asked to confirm, then linked), and who the game
+	was linked to before */
+	char connect_handle[64];
+	char connect_previous[64];
+	unsigned long connect_confirm_time;
+	/* the player's answer to the question: 1 yes, -1 no (0 none yet) */
+	int connect_answer;
+	int connect_answer_sent;
+	int connect_answer_tries;
+	char connect_message[96];
+	int connect_qr_size;
+	unsigned char connect_qr[BROWSER_CONNECT_QR_SIZE * BROWSER_CONNECT_QR_SIZE];
 
 	/* browsing */
 	int list_wanted;
@@ -440,6 +477,226 @@ static void open_profile(void)
 	platform_open_url(page);
 }
 
+/* ---------- Quick Connect (the browser thread) */
+
+static void connect_failed(int serial, const char *message)
+{
+	pthread_mutex_lock(&browser_lock);
+	if (browser.connect_serial == serial)
+	{
+		browser.connect_state = BROWSER_CONNECT_FAILED;
+		snprintf(browser.connect_message, sizeof(browser.connect_message), "%s", message);
+	}
+	pthread_mutex_unlock(&browser_lock);
+}
+
+/* a code for this copy's player key: the server answers "ok <code>
+<seconds> <token>", the token what the game asks about the code with after
+(the key goes once, as for the profile page's link; the profile's name
+goes with it, for the page to say who it linked) */
+static void start_connect(int serial, const unsigned short *name)
+{
+	unsigned char key[PLAYER_KEY_SIZE];
+	unsigned char qr[qrcodegen_BUFFER_LEN_FOR_VERSION(CONNECT_QR_VERSION)];
+	unsigned char work[qrcodegen_BUFFER_LEN_FOR_VERSION(CONNECT_QR_VERSION)];
+	char key_text[2 * PLAYER_KEY_SIZE + 1];
+	char url[512], body[320], response[256], error[256], page[640];
+	char code[16], token[CONNECT_TOKEN_LENGTH + 1];
+	int seconds = 0, status, size = 0, x, y;
+
+	server_url("/v1/connect/start", url, sizeof(url));
+	if (!safe_for_key(url) || !player_key(key))
+	{
+		connect_failed(serial, "Quick Connect needs an HTTPS game list and a player key.");
+		return;
+	}
+	p2p_hex(key, PLAYER_KEY_SIZE, key_text);
+	snprintf(body, sizeof(body), "{\"key\": \"%s\"", key_text);
+	if (name[0])
+	{
+		strcat(body, ", \"name\": ");
+		json_name(body + strlen(body), (int)(sizeof(body) - strlen(body) - 2), name, 12);
+	}
+	strcat(body, "}");
+	status = posix_browser_request(url, body, "application/json", response, sizeof(response), error, sizeof(error));
+	memset(key, 0, sizeof(key));
+	memset(key_text, 0, sizeof(key_text));
+	memset(body, 0, sizeof(body));
+	response[strcspn(response, "\r\n")] = 0;
+	if (status != 200 || sscanf(response, "ok %15s %d %64s", code, &seconds, token) != 3 || seconds <= 0 ||
+		strspn(code, "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-") != strlen(code) ||
+		strlen(token) != CONNECT_TOKEN_LENGTH || strspn(token, "0123456789abcdef") != CONNECT_TOKEN_LENGTH)
+	{
+		platform_log("Game list: no Quick Connect code (%s)", status ? response : error);
+		connect_failed(serial, status && response[0] ? response : status ? "The game list gave no code." : error);
+		memset(token, 0, sizeof(token));
+		return;
+	}
+	/* (the page opens with the code filled in) */
+	server_url("/connect?code=", page, sizeof(page));
+	strncat(page, code, sizeof(page) - strlen(page) - 1);
+	if (qrcodegen_encodeText(page, work, qr, qrcodegen_Ecc_MEDIUM, qrcodegen_VERSION_MIN, CONNECT_QR_VERSION,
+		qrcodegen_Mask_AUTO, true))
+	{
+		size = qrcodegen_getSize(qr);
+	}
+
+	pthread_mutex_lock(&browser_lock);
+	if (browser.connect_serial == serial)
+	{
+		browser.connect_state = BROWSER_CONNECT_WAITING;
+		memcpy(browser.connect_code, code, sizeof(code));
+		memcpy(browser.connect_token, token, sizeof(token));
+		browser.connect_time = p2p_now();
+		browser.connect_lifetime = (unsigned long)seconds * 1000;
+		browser.connect_poll_time = browser.connect_time;
+		browser.connect_qr_size = size;
+		for (y = 0; y < size; y++)
+		{
+			for (x = 0; x < size; x++)
+				browser.connect_qr[y * size + x] = qrcodegen_getModule(qr, x, y) ? 1 : 0;
+		}
+	}
+	pthread_mutex_unlock(&browser_lock);
+	memset(token, 0, sizeof(token));
+}
+
+/* a handle from the server's line, as text: up to a space, without control
+characters, and no character cut in two */
+static const char *connect_handle(const char *line, char *handle, int size)
+{
+	int used = 0;
+
+	for (; *line && *line != ' ' && used < size - 1; line++)
+	{
+		if ((unsigned char)*line >= 0x20 && *line != 0x7F)
+			handle[used++] = *line;
+	}
+	if (*line && *line != ' ')
+	{
+		while (used && ((unsigned char)handle[used - 1] & 0xC0) == 0x80)
+			used--;
+		if (used && ((unsigned char)handle[used - 1] & 0xC0) == 0xC0)
+			used--;
+		line += strcspn(line, " ");
+	}
+	handle[used] = 0;
+	return *line == ' ' ? line + 1 : line;
+}
+
+/* the server's word on the code (under the lock): "pending" (not typed
+yet), "confirm <handle> [<previous handle>]" (typed by someone signed in
+as handle: the player is asked), "connected <handle>", "declined" or
+"expired"; status 0 (no answer) changes nothing */
+static void connect_line(int status, const char *response)
+{
+	browser.connect_poll_time = p2p_now();
+	if (status == 200 && !strcmp(response, "pending"))
+		return;
+	if (status == 200 && !strncmp(response, "confirm ", 8))
+	{
+		char handle[sizeof(browser.connect_handle)];
+		const char *rest = connect_handle(response + 8, handle, sizeof(handle));
+
+		/* (the question's two minutes from when it is first asked) */
+		if (browser.connect_state != BROWSER_CONNECT_CONFIRM || strcmp(handle, browser.connect_handle))
+			browser.connect_confirm_time = p2p_now();
+		memcpy(browser.connect_handle, handle, sizeof(handle));
+		connect_handle(rest, browser.connect_previous, sizeof(browser.connect_previous));
+		browser.connect_state = BROWSER_CONNECT_CONFIRM;
+		return;
+	}
+	if (status == 200 && !strncmp(response, "connected ", 10))
+	{
+		connect_handle(response + 10, browser.connect_handle, sizeof(browser.connect_handle));
+		browser.connect_state = BROWSER_CONNECT_CONNECTED;
+		platform_log("Game list: Quick Connect linked the game to %s", browser.connect_handle);
+	}
+	else if (status == 200 && !strcmp(response, "declined"))
+		browser.connect_state = BROWSER_CONNECT_DECLINED;
+	else if (status == 200 && !strcmp(response, "expired"))
+		browser.connect_state = BROWSER_CONNECT_EXPIRED;
+	else if (status)
+	{
+		browser.connect_state = BROWSER_CONNECT_FAILED;
+		snprintf(browser.connect_message, sizeof(browser.connect_message), "%s",
+			response[0] ? response : "The game list did not answer as expected.");
+	}
+	else
+		return;
+	/* (the code is done with) */
+	browser.connect_answer = 0;
+	memset(browser.connect_token, 0, sizeof(browser.connect_token));
+}
+
+/* whether the code was typed (status), or the player's yes or no to who
+typed it (confirm) */
+static void ask_connect(int serial, const char *token, int answer)
+{
+	char url[512], body[128], response[256], error[256];
+	int status;
+
+	server_url(answer ? "/v1/connect/confirm" : "/v1/connect/status", url, sizeof(url));
+	snprintf(body, sizeof(body), answer ? "{\"token\": \"%s\", \"accept\": %s}" : "{\"token\": \"%s\"}", token,
+		answer > 0 ? "true" : "false");
+	status = posix_browser_request(url, body, "application/json", response, sizeof(response), error, sizeof(error));
+	memset(body, 0, sizeof(body));
+	response[strcspn(response, "\r\n")] = 0;
+
+	pthread_mutex_lock(&browser_lock);
+	if (browser.connect_serial == serial)
+	{
+		/* (an answer sent: asked no more; one not heard: sent again, a few
+		times) */
+		if (answer && status)
+			browser.connect_answer = 0;
+		else if (answer && ++browser.connect_answer_tries >= CONNECT_ANSWER_TRIES)
+		{
+			browser.connect_answer = 0;
+			memset(browser.connect_token, 0, sizeof(browser.connect_token));
+			browser.connect_state = BROWSER_CONNECT_FAILED;
+			snprintf(browser.connect_message, sizeof(browser.connect_message), "%s", error);
+		}
+		connect_line(status, response);
+	}
+	pthread_mutex_unlock(&browser_lock);
+}
+
+static void update_connect(void)
+{
+	unsigned short name[12];
+	char token[CONNECT_TOKEN_LENGTH + 1];
+	int state, serial, answer, ask;
+
+	pthread_mutex_lock(&browser_lock);
+	state = browser.connect_state;
+	serial = browser.connect_serial;
+	answer = browser.connect_answer;
+	/* (the code ran out, or the question did, and the server could not say
+	so) */
+	if ((state == BROWSER_CONNECT_WAITING &&
+			elapsed(browser.connect_time, browser.connect_lifetime + CONNECT_GRACE)) ||
+		(state == BROWSER_CONNECT_CONFIRM && elapsed(browser.connect_confirm_time, CONNECT_CONFIRM + CONNECT_GRACE)))
+	{
+		state = browser.connect_state = BROWSER_CONNECT_EXPIRED;
+		browser.connect_answer = 0;
+		memset(browser.connect_token, 0, sizeof(browser.connect_token));
+	}
+	/* (the player's answer goes at once, the first time) */
+	ask = (state == BROWSER_CONNECT_WAITING || state == BROWSER_CONNECT_CONFIRM) &&
+		(elapsed(browser.connect_poll_time, CONNECT_POLL_INTERVAL) || (answer && !browser.connect_answer_sent));
+	if (ask && answer)
+		browser.connect_answer_sent = 1;
+	memcpy(name, browser.connect_name, sizeof(name));
+	memcpy(token, browser.connect_token, sizeof(token));
+	pthread_mutex_unlock(&browser_lock);
+	if (state == BROWSER_CONNECT_STARTING)
+		start_connect(serial, name);
+	else if (ask)
+		ask_connect(serial, token, state == BROWSER_CONNECT_CONFIRM ? answer : 0);
+	memset(token, 0, sizeof(token));
+}
+
 /* ---------- hosting (the browser thread) */
 
 static void withdraw(void)
@@ -727,6 +984,7 @@ static void *browser_thread(void *unused)
 			send_report();
 			send_claims();
 			open_profile();
+			update_connect();
 			update_list();
 		}
 		Sleep(THREAD_INTERVAL);
@@ -899,6 +1157,93 @@ void browser_open_profile(void)
 	pthread_mutex_lock(&browser_lock);
 	browser.profile_wanted = 1;
 	pthread_mutex_unlock(&browser_lock);
+}
+
+void browser_connect_start(const unsigned short *name)
+{
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	browser.connect_serial++;
+	browser.connect_state = BROWSER_CONNECT_STARTING;
+	memset(browser.connect_name, 0, sizeof(browser.connect_name));
+	if (name)
+		memcpy(browser.connect_name, name, sizeof(browser.connect_name));
+	browser.connect_code[0] = 0;
+	browser.connect_handle[0] = 0;
+	browser.connect_previous[0] = 0;
+	browser.connect_answer = 0;
+	browser.connect_qr_size = 0;
+	memset(browser.connect_token, 0, sizeof(browser.connect_token));
+	/* (the browser thread asks no server without one) */
+	if (!config_string("network.browser_url")[0])
+	{
+		browser.connect_state = BROWSER_CONNECT_FAILED;
+		snprintf(browser.connect_message, sizeof(browser.connect_message), "No game list (network.browser_url).");
+	}
+	pthread_mutex_unlock(&browser_lock);
+}
+
+void browser_connect_stop(void)
+{
+	pthread_mutex_lock(&browser_lock);
+	browser.connect_serial++;
+	browser.connect_state = BROWSER_CONNECT_OFF;
+	browser.connect_answer = 0;
+	memset(browser.connect_token, 0, sizeof(browser.connect_token));
+	pthread_mutex_unlock(&browser_lock);
+}
+
+void browser_connect_answer(int accept)
+{
+	pthread_mutex_lock(&browser_lock);
+	if (browser.connect_state == BROWSER_CONNECT_CONFIRM && !browser.connect_answer)
+	{
+		browser.connect_answer = accept ? 1 : -1;
+		browser.connect_answer_sent = 0;
+		browser.connect_answer_tries = 0;
+	}
+	pthread_mutex_unlock(&browser_lock);
+}
+
+void browser_server_name(char *text, int size)
+{
+	const char *base = config_string("network.browser_url");
+	size_t length;
+
+	/* (as a player types it: without the scheme or the final slash) */
+	if (!strncmp(base, "https://", 8))
+		base += 8;
+	else if (!strncmp(base, "http://", 7))
+		base += 7;
+	length = strlen(base);
+	while (length && base[length - 1] == '/')
+		length--;
+	snprintf(text, (size_t)size, "%.*s", (int)length, base);
+}
+
+void browser_connect_get(struct browser_connect *connect)
+{
+	int size;
+
+	pthread_mutex_lock(&browser_lock);
+	connect->state = browser.connect_state;
+	memcpy(connect->code, browser.connect_code, sizeof(connect->code));
+	connect->seconds = 0;
+	if (connect->state == BROWSER_CONNECT_WAITING && !elapsed(browser.connect_time, browser.connect_lifetime))
+		connect->seconds = (int)((browser.connect_lifetime - (p2p_now() - browser.connect_time) + 999) / 1000);
+	else if (connect->state == BROWSER_CONNECT_CONFIRM && !elapsed(browser.connect_confirm_time, CONNECT_CONFIRM))
+		connect->seconds = (int)((CONNECT_CONFIRM - (p2p_now() - browser.connect_confirm_time) + 999) / 1000);
+	connect->answered = browser.connect_answer != 0;
+	memcpy(connect->handle, browser.connect_handle, sizeof(connect->handle));
+	memcpy(connect->previous, browser.connect_previous, sizeof(connect->previous));
+	memcpy(connect->message, browser.connect_message, sizeof(connect->message));
+	size = connect->state == BROWSER_CONNECT_WAITING ? browser.connect_qr_size : 0;
+	connect->qr_size = size;
+	memcpy(connect->qr, browser.connect_qr, (size_t)(size * size));
+	pthread_mutex_unlock(&browser_lock);
+
+	browser_server_name(connect->page, (int)sizeof(connect->page) - 8);
+	strcat(connect->page, "/connect");
 }
 
 /* a restored key's link, halo://key/<64 hexadecimal digits> (the profile

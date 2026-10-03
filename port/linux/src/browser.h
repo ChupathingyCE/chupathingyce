@@ -99,6 +99,10 @@ void browser_host_update(const unsigned short *name, const char *map, short engi
 	short maximum_players, int open, short score_limit, int teams,
 	const struct browser_roster_player *roster, int roster_count);
 
+/* the game list's address as a player types it (halo.milenko.org: no
+scheme), empty for none */
+void browser_server_name(char *text, int size);
+
 /* the listed games, asking the server for the list again if the last one
 is more than a few seconds old: those of this machine's network version,
 without this machine's own. Returns their count. */
@@ -139,5 +143,62 @@ once the player says yes (sdl_platform.c asks) */
 int browser_key_link(const char *text);
 int browser_take_key_link(char *new_id, char *old_id, int size);
 void browser_answer_key_link(int install);
+
+/* Quick Connect (Online Games' RB): the game linked to the player's profile
+from another device, where no web browser opens (Steam's Game Mode, a
+console). The list server gives a short code for this copy's player key;
+the player types it at <server>/connect on a phone or any computer, signed
+in, and the game hears that they did (browser.c asks every few seconds) and
+asks the player to confirm the profile it is to be linked to. */
+enum
+{
+	BROWSER_CONNECT_OFF,
+	/* a code asked for */
+	BROWSER_CONNECT_STARTING,
+	/* a code shown, waiting for it to be typed */
+	BROWSER_CONNECT_WAITING,
+	/* the code typed: the player asked whether to link to that profile */
+	BROWSER_CONNECT_CONFIRM,
+	BROWSER_CONNECT_CONNECTED,
+	/* the player said no */
+	BROWSER_CONNECT_DECLINED,
+	BROWSER_CONNECT_EXPIRED,
+	BROWSER_CONNECT_FAILED,
+};
+
+/* (a QR code of version 10 at most: 57 modules square) */
+#define BROWSER_CONNECT_QR_SIZE 57
+
+struct browser_connect
+{
+	int state;
+	/* the code to type (K7Q-4MD), and how many seconds it (or the confirm
+	question) is good for yet */
+	char code[16];
+	int seconds;
+	/* the question answered, the answer on its way */
+	int answered;
+	/* where to type it, as a player types it (halo.milenko.org/connect) */
+	char page[128];
+	/* who typed the code (confirm) and who the game was linked to before
+	(empty if none), then who it is linked to (connected); what went wrong
+	(failed) */
+	char handle[64];
+	char previous[64];
+	char message[96];
+	/* the page with the code in it as a QR code: qr_size modules square,
+	nonzero for a dark one (qr_size 0: none) */
+	int qr_size;
+	unsigned char qr[BROWSER_CONNECT_QR_SIZE * BROWSER_CONNECT_QR_SIZE];
+};
+
+/* a new code asked for (the one before forgotten), with the name of the
+profile it links (UTF-16, as the game's names; NULL for none), and the
+asking stopped (the panel closed) */
+void browser_connect_start(const unsigned short *name);
+void browser_connect_stop(void);
+/* the player's answer to the confirm question */
+void browser_connect_answer(int accept);
+void browser_connect_get(struct browser_connect *connect);
 
 #endif

@@ -17,7 +17,7 @@ In the menus the keys drive the controller, to move about them:
 	arrows           D-pad               W A S D          left stick
 	space, enter     A                   escape, backspace B
 	delete, E        X                   tab              Y
-	F1               back
+	F1               back                C                black (RB)
 (keys held as the game and the menus switch count only once let go of), the
 on-screen keyboard takes what is typed, and the mouse is free and drives a
 pointer
@@ -345,6 +345,8 @@ static void keyboard_gamepad(const struct platform_input_state *input, XINPUT_GA
 #endif
 	pad->bAnalogButtons[XINPUT_GAMEPAD_X] |= analog(k[SDL_SCANCODE_DELETE] || k[SDL_SCANCODE_E]);
 	pad->bAnalogButtons[XINPUT_GAMEPAD_Y] |= analog(k[SDL_SCANCODE_TAB]);
+	/* (Online Games' Quick Connect: browser_screen.c) */
+	pad->bAnalogButtons[XINPUT_GAMEPAD_BLACK] |= analog(k[SDL_SCANCODE_C]);
 }
 
 /* the keys held when the game and the menus switch count as up until let go
@@ -566,10 +568,53 @@ void test_input_hold_action(int hold)
 }
 
 /* debug.test_input "menu:<buttons>": the buttons pressed one a second, from
-the first poll, for testing the menus: a, b, x, y, up, down, left, right,
-start, back, or wait (none), separated by spaces or commas */
+the first poll, for testing the menus: a, b, x, y, lb, rb (white and black),
+up, down, left, right, start, back, key:<a key's name> (a key of the
+keyboard, as SDL names it: key:C), or wait (none), separated by spaces or
+commas */
 static char test_input_menu[512];
 static Uint64 test_input_menu_since;
+
+/* the button or key pressed now (NULL for none) */
+static const char *test_input_menu_token(size_t *length)
+{
+	Uint64 elapsed = SDL_GetTicks() - test_input_menu_since;
+	Uint64 step = elapsed / 1000;
+	const char *token = test_input_menu;
+
+	/* (pressed for the first 150 ms of its second) */
+	if (!test_input_menu[0] || elapsed % 1000 >= 150)
+		return NULL;
+	for (;;)
+	{
+		token += strspn(token, " ,");
+		*length = strcspn(token, " ,");
+		if (!*length)
+			return NULL;
+		if (!step)
+			return token;
+		step--;
+		token += *length;
+	}
+}
+
+/* (a key goes in with the keyboard's, as if typed, before the keys drive
+the controller) */
+static void test_input_menu_keys(struct platform_input_state *input)
+{
+	size_t length;
+	const char *token = test_input_menu_token(&length);
+	char name[32];
+	SDL_Scancode scancode;
+
+	if (!token || length <= 4 || length - 4 >= sizeof(name) || strncmp(token, "key:", 4))
+		return;
+	memcpy(name, token + 4, length - 4);
+	name[length - 4] = 0;
+	scancode = SDL_GetScancodeFromName(name);
+	if (scancode != SDL_SCANCODE_UNKNOWN)
+		input->keys[scancode] = 1;
+}
 
 static void test_input_menu_gamepad(XINPUT_GAMEPAD *pad)
 {
@@ -584,6 +629,8 @@ static void test_input_menu_gamepad(XINPUT_GAMEPAD *pad)
 		{ "b", XINPUT_GAMEPAD_B, 0 },
 		{ "x", XINPUT_GAMEPAD_X, 0 },
 		{ "y", XINPUT_GAMEPAD_Y, 0 },
+		{ "lb", XINPUT_GAMEPAD_WHITE, 0 },
+		{ "rb", XINPUT_GAMEPAD_BLACK, 0 },
 		{ "up", -1, XINPUT_GAMEPAD_DPAD_UP },
 		{ "down", -1, XINPUT_GAMEPAD_DPAD_DOWN },
 		{ "left", -1, XINPUT_GAMEPAD_DPAD_LEFT },
@@ -591,26 +638,12 @@ static void test_input_menu_gamepad(XINPUT_GAMEPAD *pad)
 		{ "start", -1, XINPUT_GAMEPAD_START },
 		{ "back", -1, XINPUT_GAMEPAD_BACK },
 	};
-	Uint64 elapsed = SDL_GetTicks() - test_input_menu_since;
-	Uint64 step = elapsed / 1000;
-	const char *token = test_input_menu;
 	size_t length;
+	const char *token = test_input_menu_token(&length);
 	unsigned int index;
 
-	/* (pressed for the first 150 ms of its second) */
-	if (elapsed % 1000 >= 150)
+	if (!token)
 		return;
-	for (;;)
-	{
-		token += strspn(token, " ,");
-		length = strcspn(token, " ,");
-		if (!length)
-			return;
-		if (!step)
-			break;
-		step--;
-		token += length;
-	}
 	for (index = 0; index < sizeof(buttons) / sizeof(buttons[0]); index++)
 	{
 		if (strlen(buttons[index].name) == length && !strncmp(token, buttons[index].name, length))
@@ -943,6 +976,7 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 		wheel_update();
 		keyboard_actions_held = 0;
 		keys_held_over_switch(&input);
+		test_input_menu_keys(&input);
 		if (!console_is_active())
 		{
 			if (input.menus)

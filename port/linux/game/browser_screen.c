@@ -20,6 +20,11 @@ file's made readable), marked HALO PC as the game list's web pages mark it,
 and pictured by Halo PC's own picture of it. It is joined only with the map
 in maps\ce (and on a build with Halo PC map support, HALO_CUSTOM_EDITION): else its
 details say what is missing, and A says so rather than join.
+
+Start opens the player's profile page in the web browser; RB opens Quick
+Connect over the list, for where no web browser opens: a code (and a QR
+code) to type at the game list's /connect page on another device, then the
+profile it was typed for, to confirm with A or refuse with B (browser.c).
 */
 
 #ifdef HALO_GAME_BROWSER
@@ -61,6 +66,9 @@ enum
 	CONNECT_TIMEOUT = 15000,
 	/* the screen takes no A this soon after it opens */
 	OPEN_SETTLE = 600,
+	/* nor a button this soon after Quick Connect's panel opens or closes (a
+	press seen twice would close it, or the screen) */
+	CONNECT_SETTLE = 400,
 	/* whether the selected game's Custom Edition map is in maps\ce, asked
 	again this often */
 	CE_MAP_CHECK_INTERVAL = 1000,
@@ -102,7 +110,8 @@ static char const *const map_names[][2] =
 };
 
 
-/* the list's orders (LT and RT, or the shoulders, step through them) */
+/* the list's orders (LT and RT step through them, and LB back; RB is
+Quick Connect's) */
 enum
 {
 	SORT_PLAYERS,
@@ -135,6 +144,11 @@ static struct
 	char ce_map[BROWSER_MAP_LENGTH];
 	short ce_map_answer;
 	unsigned long ce_map_time;
+	/* Quick Connect's panel up, and what it shows (browser.c's, each frame);
+	when it last opened, closed or asked for a code */
+	boolean connect_open;
+	unsigned long connect_changed_time;
+	struct browser_connect connect;
 } browser_screen;
 
 /* ---------- private code */
@@ -450,6 +464,74 @@ static char const *ce_map_blocker(
 	}
 }
 
+/* RB: a Quick Connect code, for the profile the screen's games are joined
+with (its name goes to the page, to say who it links) */
+static void quick_connect(
+	void)
+{
+	long profile_index = player_ui_get_player1_last_used_profile_index();
+	struct player_profile profile;
+	unsigned short name[12];
+	long index;
+
+	csmemset(name, 0, sizeof(name));
+	if (profile_index == NONE)
+		profile_index = 0;
+	if (player_profile_get(profile_index, &profile))
+	{
+		for (index = 0; index < NUMBEROF(name) - 1 && index < MAXIMUM_PLAYER_PROFILE_NAME_LENGTH &&
+			profile.player_name[index]; index++)
+		{
+			name[index] = (unsigned short)profile.player_name[index];
+		}
+	}
+	browser_screen.connect_open = TRUE;
+	browser_screen.connect_changed_time = system_milliseconds();
+	browser_connect_start(name);
+	browser_connect_get(&browser_screen.connect);
+}
+
+static void close_quick_connect(
+	void)
+{
+	browser_screen.connect_open = FALSE;
+	browser_screen.connect_changed_time = system_milliseconds();
+	browser_connect_stop();
+}
+
+/* the panel's buttons: A and B answer its question while it asks one, RB
+asks for a new code once the last is done with, B closes it */
+static void quick_connect_button(
+	short button)
+{
+	struct browser_connect const *connect = &browser_screen.connect;
+	boolean asking = connect->state == BROWSER_CONNECT_CONFIRM;
+	boolean done = connect->state == BROWSER_CONNECT_EXPIRED || connect->state == BROWSER_CONNECT_DECLINED ||
+		connect->state == BROWSER_CONNECT_FAILED;
+
+	switch (button)
+	{
+	case _gamepad_analog_button_a:
+		if (asking && !connect->answered)
+			browser_connect_answer(TRUE);
+		break;
+	case _gamepad_analog_button_b:
+		if (asking)
+		{
+			if (!connect->answered)
+				browser_connect_answer(FALSE);
+		}
+		else
+			close_quick_connect();
+		break;
+	case _gamepad_analog_button_black:
+		if (done)
+			quick_connect();
+		break;
+	default: break;
+	}
+}
+
 /* ---------- public code */
 
 boolean browser_screen_active(
@@ -466,6 +548,8 @@ void browser_screen_open(
 	browser_screen.selected = 0;
 	browser_screen.status[0] = 0;
 	browser_screen.connecting = FALSE;
+	if (browser_screen.connect_open)
+		close_quick_connect();
 	browser_screen.opened_time = system_milliseconds();
 	/* (the menu's A, still queued, is not a pick) */
 	event_manager_flush();
@@ -497,8 +581,22 @@ void browser_screen_process(
 	fetch_games();
 	if (browser_screen.connecting)
 		wait_for_host();
+	if (browser_screen.connect_open)
+		browser_connect_get(&browser_screen.connect);
 	while (browser_screen.active && get_next_event(&event, NONE))
 	{
+		if (event.type == BROWSER_EVENT_BUTTON &&
+			system_milliseconds() - browser_screen.connect_changed_time < CONNECT_SETTLE)
+		{
+			continue;
+		}
+		/* (Quick Connect's panel takes the buttons while it is up) */
+		if (browser_screen.connect_open)
+		{
+			if (event.type == BROWSER_EVENT_BUTTON)
+				quick_connect_button(event.data.button.index);
+			continue;
+		}
 		if (event.type == BROWSER_EVENT_LEFT_STICK)
 		{
 			if (event.data.stick.y == SHORT_MAX)
@@ -543,9 +641,12 @@ void browser_screen_process(
 				fetch_games();
 				break;
 			case _gamepad_analog_button_right_trigger:
-			case _gamepad_analog_button_black:
 				browser_screen.sort = (short)((browser_screen.sort + 1) % NUMBER_OF_SORTS);
 				fetch_games();
+				break;
+			case _gamepad_analog_button_black:
+				if (!browser_screen.connecting)
+					quick_connect();
 				break;
 			case _gamepad_analog_button_b:
 				/* (B while a host is waited for: the wait given up) */
@@ -785,6 +886,176 @@ static float prompt_width(
 	return ui_overlay_button_width(button, 15.0f) + 3.0f + ui_overlay_text_width(UI_FONT_BOLD, 12.0f, words) + 20.0f;
 }
 
+/* ---------- drawing: Quick Connect's panel */
+
+enum
+{
+	CONNECT_X = 100, CONNECT_Y = 84, CONNECT_WIDTH = 440, CONNECT_HEIGHT = 312,
+	CONNECT_QR_X = 382, CONNECT_QR_Y = 150, CONNECT_QR_WIDTH = 138,
+	COLOR_CONNECTED = 0x6BE38AFF,
+	COLOR_QR_DARK = 0x081020FF,
+};
+
+/* a line of text with a button's glyph in it, centred on x */
+static void text_with_button(
+	float size,
+	float x,
+	float y,
+	unsigned int color,
+	char const *before,
+	int button,
+	char const *after)
+{
+	float width = ui_overlay_text_width(UI_FONT_BOLD, size, before) + 4 +
+		ui_overlay_button_width(button, size + 4) + 4 + ui_overlay_text_width(UI_FONT_BOLD, size, after);
+
+	x -= width / 2;
+	x += ui_overlay_text(UI_FONT_BOLD, size, x, y, UI_ALIGN_LEFT, color, before) + 4;
+	x += ui_overlay_button(button, size + 4, x, y - 2, 0xFFFFFFFF) + 4;
+	ui_overlay_text(UI_FONT_BOLD, size, x, y, UI_ALIGN_LEFT, color, after);
+}
+
+/* the panel's buttons, centred along its foot */
+static void connect_prompts(
+	int first,
+	char const *first_words,
+	int second,
+	char const *second_words)
+{
+	float width = prompt_width(second, second_words) - 20 - 3;
+	float x;
+
+	if (first_words)
+		width += prompt_width(first, first_words);
+	x = 320 - width / 2;
+	if (first_words)
+	{
+		x += ui_overlay_button(first, 15.0f, x, CONNECT_Y + CONNECT_HEIGHT - 30, 0xFFFFFFFF) + 3;
+		x += ui_overlay_text(UI_FONT_BOLD, 12.0f, x, CONNECT_Y + CONNECT_HEIGHT - 28.5f, UI_ALIGN_LEFT, COLOR_PROMPT,
+			first_words) + 20;
+	}
+	x += ui_overlay_button(second, 15.0f, x, CONNECT_Y + CONNECT_HEIGHT - 30, 0xFFFFFFFF) + 3;
+	ui_overlay_text(UI_FONT_BOLD, 12.0f, x, CONNECT_Y + CONNECT_HEIGHT - 28.5f, UI_ALIGN_LEFT, COLOR_PROMPT,
+		second_words);
+}
+
+/* the page with the code as a QR code: dark modules on a light square with
+its quiet zone, each row's dark runs one rectangle (overlapping a little,
+so that no seam shows between them) */
+static void draw_qr(
+	struct browser_connect const *connect)
+{
+	short size = (short)connect->qr_size;
+	float module = (float)CONNECT_QR_WIDTH / (size + 8);
+	short x, y, run;
+
+	ui_overlay_rect(CONNECT_QR_X, CONNECT_QR_Y, CONNECT_QR_WIDTH, CONNECT_QR_WIDTH, 4, 0xFFFFFFFF);
+	for (y = 0; y < size; y++)
+	{
+		for (x = 0; x < size; x = (short)(x + run))
+		{
+			for (run = 0; x + run < size && connect->qr[y * size + x + run] == connect->qr[y * size + x]; run++)
+				;
+			if (connect->qr[y * size + x])
+			{
+				ui_overlay_rect(CONNECT_QR_X + (x + 4) * module, CONNECT_QR_Y + (y + 4) * module,
+					run * module + 0.3f, module + 0.3f, 0, COLOR_QR_DARK);
+			}
+		}
+	}
+	ui_overlay_text(UI_FONT_REGULAR, 9.0f, CONNECT_QR_X + CONNECT_QR_WIDTH / 2, CONNECT_QR_Y + CONNECT_QR_WIDTH + 6,
+		UI_ALIGN_CENTER, COLOR_DIM, "or scan this with your phone");
+}
+
+static void draw_quick_connect(
+	void)
+{
+	struct browser_connect const *connect = &browser_screen.connect;
+	char text[192];
+	float center = CONNECT_X + CONNECT_WIDTH / 2;
+
+	ui_overlay_rect(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT, 8, 0x0A1A36F8);
+	ui_overlay_outline(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT, 8, 1.0f, COLOR_PANEL_EDGE);
+	ui_overlay_text(UI_FONT_BOLD, 20.0f, CONNECT_X + 20, CONNECT_Y + 14, UI_ALIGN_LEFT, COLOR_TITLE, "Quick Connect");
+	ui_overlay_rect(CONNECT_X + 1, CONNECT_Y + 48, CONNECT_WIDTH - 2, 0.75f, 0, COLOR_ROW_RULE);
+
+	switch (connect->state)
+	{
+	case BROWSER_CONNECT_WAITING:
+	{
+		float left = CONNECT_X + 20;
+		float y = CONNECT_Y + 66;
+
+		ui_overlay_text(UI_FONT_REGULAR, 10.0f, left, y, UI_ALIGN_LEFT, COLOR_TEXT, "On your phone or computer, go to");
+		ui_overlay_text(UI_FONT_BOLD, 13.0f, left, y + 17, UI_ALIGN_LEFT, COLOR_LABEL, connect->page);
+		ui_overlay_text(UI_FONT_REGULAR, 10.0f, left, y + 38, UI_ALIGN_LEFT, COLOR_TEXT, "and enter:");
+		ui_overlay_rect(left, y + 58, 238, 62, 6, 0x123266FF);
+		ui_overlay_outline(left, y + 58, 238, 62, 6, 1.0f, COLOR_PANEL_EDGE);
+		ui_overlay_text(UI_FONT_BOLD, 36.0f, left + 119, y + 68, UI_ALIGN_CENTER, 0xFFFFFFFF, connect->code);
+		snprintf(text, sizeof(text), "Good for %d:%02d", connect->seconds / 60, connect->seconds % 60);
+		ui_overlay_text(UI_FONT_REGULAR, 10.0f, left, y + 132, UI_ALIGN_LEFT, COLOR_DIM, text);
+		ui_overlay_text(UI_FONT_BOLD, 10.0f, left, y + 152, UI_ALIGN_LEFT, COLOR_TEXT, "Waiting\xE2\x80\xA6");
+		if (connect->qr_size)
+			draw_qr(connect);
+		connect_prompts(UI_BUTTON_B, NULL, UI_BUTTON_B, "=CLOSE");
+		break;
+	}
+	case BROWSER_CONNECT_CONFIRM:
+		/* (the profile the code was typed for: the player says whether it
+		is theirs) */
+		if (connect->previous[0])
+			snprintf(text, sizeof(text), "Move this game from %s to %s?", connect->previous, connect->handle);
+		else
+			snprintf(text, sizeof(text), "Connect this game to %s?", connect->handle);
+		ui_overlay_text(UI_FONT_BOLD, 16.0f, center, CONNECT_Y + 100, UI_ALIGN_CENTER, 0xFFFFFFFF, text);
+		snprintf(text, sizeof(text), "Someone signed in as %s entered the code.", connect->handle);
+		ui_overlay_text(UI_FONT_REGULAR, 10.0f, center, CONNECT_Y + 132, UI_ALIGN_CENTER, COLOR_DIM, text);
+		ui_overlay_text(UI_FONT_REGULAR, 10.0f, center, CONNECT_Y + 148, UI_ALIGN_CENTER, COLOR_DIM,
+			"If that isn't you, cancel.");
+		if (connect->answered)
+		{
+			ui_overlay_text(UI_FONT_BOLD, 11.0f, center, CONNECT_Y + 196, UI_ALIGN_CENTER, COLOR_TEXT,
+				"Sending your answer\xE2\x80\xA6");
+		}
+		else
+		{
+			snprintf(text, sizeof(text), "%d:%02d to answer", connect->seconds / 60, connect->seconds % 60);
+			ui_overlay_text(UI_FONT_REGULAR, 10.0f, center, CONNECT_Y + 196, UI_ALIGN_CENTER, COLOR_LABEL, text);
+			connect_prompts(UI_BUTTON_A, "=CONNECT", UI_BUTTON_B, "=CANCEL");
+		}
+		break;
+	case BROWSER_CONNECT_CONNECTED:
+		snprintf(text, sizeof(text), "Connected as %s", connect->handle);
+		ui_overlay_text(UI_FONT_BOLD, 18.0f, center, CONNECT_Y + 110, UI_ALIGN_CENTER, COLOR_CONNECTED, text);
+		ui_overlay_text(UI_FONT_REGULAR, 10.0f, center, CONNECT_Y + 144, UI_ALIGN_CENTER, COLOR_DIM,
+			"Your games now count toward this profile.");
+		connect_prompts(UI_BUTTON_B, NULL, UI_BUTTON_B, "=DONE");
+		break;
+	case BROWSER_CONNECT_EXPIRED:
+	case BROWSER_CONNECT_DECLINED:
+	case BROWSER_CONNECT_FAILED:
+		if (connect->state == BROWSER_CONNECT_EXPIRED)
+			text_with_button(12.0f, center, CONNECT_Y + 120, COLOR_TEXT, "Code expired. Press", UI_BUTTON_RIGHT_SHOULDER,
+				"for a new code.");
+		else if (connect->state == BROWSER_CONNECT_DECLINED)
+			text_with_button(12.0f, center, CONNECT_Y + 120, COLOR_TEXT, "Cancelled. Press", UI_BUTTON_RIGHT_SHOULDER,
+				"for a new code.");
+		else
+		{
+			ui_overlay_text(UI_FONT_BOLD, 11.0f, center, CONNECT_Y + 104, UI_ALIGN_CENTER, COLOR_CLOSED, connect->message);
+			text_with_button(12.0f, center, CONNECT_Y + 132, COLOR_TEXT, "Press", UI_BUTTON_RIGHT_SHOULDER,
+				"to try again.");
+		}
+		connect_prompts(UI_BUTTON_RIGHT_SHOULDER, "=NEW CODE", UI_BUTTON_B, "=CLOSE");
+		break;
+	default:
+		ui_overlay_text(UI_FONT_BOLD, 11.0f, center, CONNECT_Y + 120, UI_ALIGN_CENTER, COLOR_TEXT,
+			"Getting a code\xE2\x80\xA6");
+		connect_prompts(UI_BUTTON_B, NULL, UI_BUTTON_B, "=CLOSE");
+		break;
+	}
+}
+
 void browser_screen_render(
 	void)
 {
@@ -807,7 +1078,14 @@ void browser_screen_render(
 
 	/* servers, players and the list it comes from, at the right */
 	x = 603;
-	x -= ui_overlay_text(UI_FONT_BOLD, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_TEXT, "HALO.MILENKO.ORG") + 4;
+	/* (the game list's address, in capitals as the rest) */
+	browser_server_name(text, sizeof(text));
+	for (index = 0; text[index]; index++)
+	{
+		if (text[index] >= 'a' && text[index] <= 'z')
+			text[index] = (char)(text[index] - 32);
+	}
+	x -= ui_overlay_text(UI_FONT_BOLD, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_TEXT, text[0] ? text : "NONE") + 4;
 	x -= ui_overlay_text(UI_FONT_REGULAR, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_DIM, "MASTER") + 14;
 	snprintf(text, sizeof(text), "%ld", players);
 	x -= ui_overlay_text(UI_FONT_BOLD, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_TEXT, text) + 4;
@@ -815,6 +1093,14 @@ void browser_screen_render(
 	snprintf(text, sizeof(text), "%d", browser_screen.count);
 	x -= ui_overlay_text(UI_FONT_BOLD, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_TEXT, text) + 4;
 	ui_overlay_text(UI_FONT_REGULAR, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_DIM, "SERVERS");
+
+	/* Quick Connect's panel in the list's place (the overlay draws all its
+	text over all its shapes: none of the list's may lie under the panel) */
+	if (browser_screen.connect_open)
+	{
+		draw_quick_connect();
+		return;
+	}
 
 	/* the list */
 	ui_overlay_rect(LIST_X, LIST_Y, LIST_WIDTH, LIST_HEAD + ROWS_PER_PAGE * LIST_ROW + LIST_FOOT, 6, COLOR_PANEL);
@@ -994,7 +1280,8 @@ void browser_screen_render(
 	width = prompt_width(UI_BUTTON_A, "=JOIN") + prompt_width(UI_BUTTON_B, "=BACK") +
 		prompt_width(UI_BUTTON_X, "=REFRESH") + prompt_width(UI_BUTTON_Y, "=CREATE GAME") +
 		prompt_width(UI_BUTTON_BACK, "=FILTERS") +
-		prompt_width(UI_BUTTON_LEFT_TRIGGER, "") + prompt_width(UI_BUTTON_RIGHT_TRIGGER, "=SORT") - 20 - 3;
+		prompt_width(UI_BUTTON_LEFT_TRIGGER, "") + prompt_width(UI_BUTTON_RIGHT_TRIGGER, "=SORT") +
+		prompt_width(UI_BUTTON_RIGHT_SHOULDER, "=QUICK CONNECT") - 20 - 3;
 	x = 320 - width / 2;
 	/* (A greyed for a game on a Custom Edition map that can't be played here) */
 	if (selected && ce_map_state(selected, FALSE) >= _ce_map_missing)
@@ -1006,7 +1293,8 @@ void browser_screen_render(
 	x = prompt(UI_BUTTON_Y, "=CREATE GAME", x);
 	x = prompt(UI_BUTTON_BACK, "=FILTERS", x);
 	x += ui_overlay_button(UI_BUTTON_LEFT_TRIGGER, 15.0f, x, 455.0f, 0xFFFFFFFF);
-	prompt(UI_BUTTON_RIGHT_TRIGGER, "=SORT", x);
+	x = prompt(UI_BUTTON_RIGHT_TRIGGER, "=SORT", x);
+	prompt(UI_BUTTON_RIGHT_SHOULDER, "=QUICK CONNECT", x);
 
 	if (browser_screen.connecting)
 	{

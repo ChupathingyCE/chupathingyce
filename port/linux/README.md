@@ -516,6 +516,38 @@ the invite with the invite button of Discord. When a person accepts it, that
 person joins the game. If the game does not operate, Discord starts it.
 The game sends the activity only to a Discord client of the same user.
 
+### Online Games and the profile
+
+Builds with the game list (`configure.py --game-browser`) have Online Games
+in the Multiplayer menu: the games on `network.browser_url`
+(halo.milenko.org). Each copy of the game has a player key in the save root
+(`game_list_player.key`). The key confirms the player's lines in finished
+games. The game sends the key only to an HTTPS server, or to a server on
+this computer (`http://127.0.0.1`, `http://localhost`) for tests.
+
+To link the game to a profile on the site, do one of these steps in Online
+Games:
+
+- Press Start. The game opens the profile page in the web browser, signed
+  in as this player.
+- Press RB, or C on the keyboard (Quick Connect). Use this step where no web
+  browser opens: Steam's Game Mode, a Steam Deck, a console. The game shows
+  a short code and a QR code. On a phone or a computer, go to
+  `<server>/connect` (the address that the game shows), sign in, and enter
+  the code, or scan the QR code. Then the game asks "Connect this game to
+  <name>?" (or "Move this game from <old name> to <name>?"). Press A to
+  connect, or B to cancel. A code operates for two minutes, and the question
+  for two minutes. Press RB (or C) for a new code.
+
+Quick Connect uses these requests to the server (`src/browser.c`, on the
+thread of the game list): `POST /v1/connect/start` with the key (and the
+name of the profile) gives `ok <code> <seconds> <token>`.
+`POST /v1/connect/status` with the token, each 3 seconds, gives `pending`,
+`confirm <name> [<old name>]`, `connected <name>`, `declined` or `expired`.
+`POST /v1/connect/confirm` with the token and the answer gives
+`connected <name>`, `declined` or `expired`. The QR code is from
+`port/third_party/qrcodegen`.
+
 ## What operates
 
 | Area | Status |

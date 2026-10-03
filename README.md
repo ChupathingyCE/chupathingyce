@@ -93,6 +93,7 @@ settings and saves go in `~/Library/Application Support/ChupathingyCE`.
 | Invite a friend | When you host, the game copies an invite link (`halo://join/…`). Send it; opening it joins your game. |
 | See your stats | Your service record is on [halo.milenko.org](https://halo.milenko.org), found by your name. |
 | Make an account | On [halo.milenko.org/profile](https://halo.milenko.org/profile), or press **Start** in Online Games to make one for the player you already are. |
+| Link the game without a browser (Steam Deck, Game Mode) | In Online Games, press **RB** (or **C** on the keyboard) for Quick Connect. On your phone or computer, go to [halo.milenko.org/connect](https://halo.milenko.org/connect), enter the code the game shows (or scan its QR code), then press **A** in the game to confirm. |
 | List a game from an OpenCE build | Sign in on the site, open **Host a Game**, and paste your invite link. |
 
 Everything here plays with OpenCE builds of the same network version: they can
@@ -163,8 +164,9 @@ are for checking changes.
   icon is MrBruh's helmet, with tusks.
 - Fonts: [Noto Sans](https://fonts.google.com/noto) (SIL OFL) and
   [Kenney's Input Prompts](https://kenney.nl/assets/input-prompts) (CC0).
-- Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths, and
-  extract-xiso. Their licenses are beside them in `port/third_party`.
+- Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths,
+  extract-xiso, and Project Nayuki's QR Code generator. Their licenses are
+  beside them in `port/third_party`.
 
 Halo is a trademark of Microsoft. ChupathingyCE is a fan project, not made or
 endorsed by Microsoft, Bungie or 343 Industries, and includes none of the
