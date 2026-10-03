@@ -75,6 +75,10 @@ static int protection_to_host(DWORD protect)
 }
 
 /* Reserve the window before anything else can map into it. */
+#ifdef HALO_IOS
+unsigned long long xbox_address_space_base;
+#endif
+
 __attribute__((constructor(101)))
 #ifdef HALO_64BIT
 static void xbox_address_space_reserve(void)
@@ -95,8 +99,29 @@ static void contiguous_arena_reserve(void)
 #ifdef HALO_64BIT
 	if (host_page_size > 0)
 		platform_host_page_size = (unsigned int)host_page_size;
+#ifdef HALO_IOS
+	/* twice the size anywhere, keeping the 4 GB aligned half, so that an
+	Xbox address is still a host pointer's low 32 bits */
+	result = mmap(NULL, 2 * XBOX_ADDRESS_SPACE_SIZE, PROT_NONE,
+		MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+	if (result != MAP_FAILED)
+	{
+		unsigned long long start = (unsigned long long)(uintptr_t)result;
+		unsigned long long end = start + 2 * XBOX_ADDRESS_SPACE_SIZE;
+		unsigned long long aligned = (start + XBOX_ADDRESS_SPACE_SIZE - 1) & ~(XBOX_ADDRESS_SPACE_SIZE - 1);
+
+		if (aligned > start)
+			munmap(result, (size_t)(aligned - start));
+		if (aligned + XBOX_ADDRESS_SPACE_SIZE < end)
+			munmap((void *)(uintptr_t)(aligned + XBOX_ADDRESS_SPACE_SIZE),
+				(size_t)(end - aligned - XBOX_ADDRESS_SPACE_SIZE));
+		xbox_address_space_base = aligned;
+		wanted = result = (void *)(uintptr_t)aligned;
+	}
+#else
 	result = mmap(wanted, XBOX_ADDRESS_SPACE_SIZE, PROT_NONE,
 		MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+#endif
 	if (result != wanted)
 #else
 	if (result == wanted)

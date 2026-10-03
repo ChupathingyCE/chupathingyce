@@ -16,7 +16,15 @@ Windows it is __stdcall too, and SDL would include windows.h without it) */
 #ifndef _WIN32
 #undef APIENTRY
 #endif
-#ifdef HALO_ANDROID
+#if defined(HALO_IOS)
+/* (Apple deprecated OpenGL ES; it is still what iOS has for it) */
+#define GL_SILENCE_DEPRECATION
+#include <OpenGLES/ES3/gl.h>
+#include <OpenGLES/ES3/glext.h>
+/* the ES 3.1 and 3.2 declarations iOS's ES 3.0 headers lack */
+#include "gl_ios.h"
+#define GLAPIENTRY GL_APIENTRY
+#elif defined(HALO_ANDROID)
 #include <GLES3/gl32.h>
 #include <GLES2/gl2ext.h>
 #define GLAPIENTRY GL_APIENTRY
@@ -25,7 +33,7 @@ Windows it is __stdcall too, and SDL would include windows.h without it) */
 #endif
 #pragma pop_macro("APIENTRY")
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 /* OpenGL ES 3.2 (port/android/README.md); tools/android_gl_stubs.py reads
 this list to generate the guest's entry points */
 /* ANDROID_GL_FUNCTIONS_BEGIN */
@@ -250,7 +258,7 @@ GL_FUNCTIONS(GL_DECLARE_FUNCTION)
 /* call sites use the ordinary names; gl_functions.c, which defines the
 pointers, sees the declarations without these aliases */
 #ifndef GL_FUNCTIONS_DEFINE
-#ifdef HALO_ANDROID
+#ifdef HALO_GLES
 #define glGetString halo_glGetString
 #define glGetIntegerv halo_glGetIntegerv
 #define glCopyImageSubData halo_glCopyImageSubData

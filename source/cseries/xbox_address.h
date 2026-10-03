@@ -22,7 +22,14 @@ nothing, so the code compiles as before.
 
 #ifdef HALO_64BIT
 
+#ifdef HALO_IOS
+/* iOS decides where an app's memory goes and has nothing at 1 TB: the
+region is wherever xbox_memory.c reserved it, 4 GB aligned */
+extern unsigned long long xbox_address_space_base;
+#define XBOX_ADDRESS_SPACE_BASE xbox_address_space_base
+#else
 #define XBOX_ADDRESS_SPACE_BASE 0x10000000000ULL /* 1 TB */
+#endif
 #define XBOX_ADDRESS_SPACE_SIZE 0x100000000ULL /* 4 GB */
 
 /* a pointer field of an Xbox-layout structure; type documents the target */

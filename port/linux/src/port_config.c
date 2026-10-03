@@ -166,7 +166,15 @@ static const struct config_setting config_settings[] =
 		"clipboard) that lets whoever has it join over the internet; opening a\n"
 		"link (or copying one before switching to the game) joins. Only people\n"
 		"with the invite can join. Off keeps system link to the local network." },
-	{ "network.join_from_clipboard", _config_boolean, "true", "HALO_NET_JOIN_FROM_CLIPBOARD", _environment_value,
+	/* (off on iOS, which asks the player before an app reads what another
+	app copied: a card number from Wallet set it off on every launch) */
+	{ "network.join_from_clipboard", _config_boolean,
+#ifdef HALO_IOS
+		"false",
+#else
+		"true",
+#endif
+		"HALO_NET_JOIN_FROM_CLIPBOARD", _environment_value,
 		_platform_all,
 		"Join the game of an invite link found on the clipboard when the game\n"
 		"comes to the front." },
@@ -295,7 +303,7 @@ static const struct config_setting config_settings[] =
 
 #define NUMBER_OF_CONFIG_SETTINGS (sizeof(config_settings) / sizeof(config_settings[0]))
 
-#ifdef HALO_ANDROID
+#ifdef HALO_MOBILE
 #define CONFIG_PLATFORM _platform_android
 #else
 #define CONFIG_PLATFORM _platform_desktop
@@ -345,7 +353,7 @@ static void config_path(char *path, size_t size)
 		return;
 	}
 #endif
-#ifdef HALO_ANDROID
+#ifdef HALO_MOBILE
 	/* the data folder, which the app names (port/android/host/host_main.c) */
 	const char *root = getenv("HALO_DATA_ROOT");
 
@@ -361,7 +369,7 @@ static void config_path(char *path, size_t size)
 /* the whole file, NUL terminated, or NULL; free() it */
 static char *config_read_file(const char *path, size_t *size)
 {
-#ifdef HALO_ANDROID
+#ifdef HALO_MOBILE
 	FILE *file = fopen(path, "rb");
 	char *text = NULL;
 	long length;
@@ -404,7 +412,7 @@ static char *config_read_file(const char *path, size_t *size)
 
 static int config_write_file(const char *path, const char *text)
 {
-#ifdef HALO_ANDROID
+#ifdef HALO_MOBILE
 	FILE *file = fopen(path, "wb");
 	int written;
 
@@ -473,7 +481,7 @@ static void config_append_setting(struct config_text *text, const struct config_
 		if (*line)
 			line++;
 	}
-#ifndef HALO_ANDROID
+#ifndef HALO_MOBILE
 	/* (Android apps have no environment to set) */
 	switch (setting->environment_style)
 	{
@@ -500,7 +508,7 @@ static char *config_default_text(void)
 	char section[32] = "";
 	size_t index;
 
-#ifdef HALO_ANDROID
+#ifdef HALO_MOBILE
 	config_append(&text,
 		"# Halo settings\n"
 		"#\n"

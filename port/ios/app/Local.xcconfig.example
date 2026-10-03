@@ -1,0 +1,5 @@
+// Copy to Local.xcconfig (not committed) and put in your own.
+DEVELOPMENT_TEAM = ABCDE12345
+PRODUCT_BUNDLE_IDENTIFIER = com.yourname.halo
+// if SDL3 is installed somewhere else than ~/dev/sdl3-ios
+// HALO_SDL3_INCLUDE = /path/to/sdl3-ios/include

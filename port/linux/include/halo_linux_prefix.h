@@ -10,6 +10,15 @@ byte-for-byte identical to what the matching MSVC build compiles.
 #ifndef __HALO_LINUX_PREFIX_H
 #define __HALO_LINUX_PREFIX_H
 
+/* OpenGL ES (HALO_GLES) and a phone's platform layer (HALO_MOBILE): the
+Android build's, which the iOS build (HALO_IOS) shares */
+#if defined(HALO_ANDROID) && !defined(HALO_GLES)
+#define HALO_GLES 1
+#endif
+#if (defined(HALO_ANDROID) || defined(HALO_IOS)) && !defined(HALO_MOBILE)
+#define HALO_MOBILE 1
+#endif
+
 #if !defined(__i386__) && !defined(HALO_ANDROID) && !defined(HALO_64BIT)
 #error the Linux port targets 32-bit x86: game data structures assume 32-bit pointers
 #endif

@@ -100,6 +100,16 @@ static float mouse_sensitivity(void)
 	return sensitivity;
 }
 
+#ifdef HALO_IOS
+/* the touch controls (port/ios/app/Halo/ios_look.m): while they are up,
+their right stick turns the view at a rate of the player's choosing
+instead of through Halo's stick curve and its acceleration, which a thumb
+on glass sends from barely moving to fast */
+int ios_touch_look_active(void);
+int ios_touch_look(float *yaw, float *pitch);
+int ios_touch_aim_assist(void);
+#endif
+
 /* radians of yaw and pitch for the mouse motion since the last call; the
 game adds these to the facing change of the player on gamepad 0 */
 int halo_linux_mouse_look(short gamepad_index, float *yaw, float *pitch)
@@ -122,6 +132,18 @@ int halo_linux_mouse_look(short gamepad_index, float *yaw, float *pitch)
 	mouse_pending_y = 0.0f;
 	mouse_polls_unconsumed = 0;
 	pthread_mutex_unlock(&mouse_lock);
+#ifdef HALO_IOS
+	{
+		float touch_yaw, touch_pitch;
+
+		if (ios_touch_look(&touch_yaw, &touch_pitch))
+		{
+			*yaw = -x * scale * mouse_sensitivity() + touch_yaw;
+			*pitch = (invert ? y : -y) * scale * mouse_sensitivity() + touch_pitch;
+			return TRUE;
+		}
+	}
+#endif
 	if (x == 0.0f && y == 0.0f)
 		return FALSE;
 	*yaw = -x * scale * mouse_sensitivity();
@@ -139,6 +161,11 @@ int halo_linux_mouse_aiming(short gamepad_index)
 
 	if (gamepad_index != 0)
 		return FALSE;
+#ifdef HALO_IOS
+	/* (aiming "with the mouse" turns the view's magnetism off) */
+	if (ios_touch_look_active())
+		return !ios_touch_aim_assist();
+#endif
 	if (aim_assist < 0)
 		aim_assist = config_boolean("input.mouse_aim_assist");
 	if (aim_assist)
@@ -503,6 +530,12 @@ static void sdl_gamepad_state(SDL_Gamepad *gamepad, XINPUT_GAMEPAD *pad)
 	if (abs(value) > abs(pad->sThumbLX)) pad->sThumbLX = value;
 	value = stick(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFTY), TRUE);
 	if (abs(value) > abs(pad->sThumbLY)) pad->sThumbLY = value;
+#ifdef HALO_IOS
+	/* (a physical controller hides the touch controls, so then the right
+	stick is that controller's and looks the way Halo does) */
+	if (ios_touch_look_active())
+		return;
+#endif
 	value = stick(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_RIGHTX), FALSE);
 	if (abs(value) > abs(pad->sThumbRX)) pad->sThumbRX = value;
 	value = stick(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_RIGHTY), TRUE);

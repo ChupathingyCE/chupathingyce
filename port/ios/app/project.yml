@@ -1,0 +1,81 @@
+name: Halo
+options:
+  deploymentTarget:
+    iOS: "26.0"
+settings:
+  base:
+    CODE_SIGN_STYLE: Automatic
+    CLANG_ENABLE_OBJC_ARC: YES
+targets:
+  Halo:
+    type: application
+    platform: iOS
+    sources: [Halo]
+    # your Apple team and bundle identifier (Local.xcconfig: README.md)
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
+    info:
+      path: Halo/Info.plist
+      properties:
+        CFBundleDisplayName: Halo
+        UILaunchScreen: {}
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default
+                UISceneDelegateClassName: SDLUIKitSceneDelegate
+        # the game data goes in the app's Documents (Files app, or devicectl)
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        GCSupportsGameMode: true
+        UIApplicationSupportsIndirectInputEvents: true
+        # opening a halo://join/... invite link starts (or switches to) the game,
+        # which joins it (sdl_platform.c: SDL reports the link as a dropped file)
+        CFBundleURLTypes:
+          - CFBundleURLName: $(PRODUCT_BUNDLE_IDENTIFIER).invite
+            CFBundleURLSchemes: [halo]
+    entitlements:
+      path: Halo/Halo.entitlements
+      properties:
+        com.apple.developer.kernel.increased-memory-limit: true
+        com.apple.developer.kernel.extended-virtual-addressing: true
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1"
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        HEADER_SEARCH_PATHS: ["$(HALO_SDL3_INCLUDE)"]
+        # build/ios for the phone, build/ios-sim for the simulator (ninja ios, ninja ios-sim)
+        "OTHER_LDFLAGS[sdk=iphoneos*]":
+          - "$(SRCROOT)/../../../build/ios/libhalo.a"
+          - "$(HOME)/dev/sdl3-ios/lib/libSDL3.a"
+        "OTHER_LDFLAGS[sdk=iphonesimulator*]":
+          - "$(SRCROOT)/../../../build/ios-sim/libhalo.a"
+          - "$(HOME)/dev/sdl3-ios-sim/lib/libSDL3.a"
+        DEAD_CODE_STRIPPING: YES
+    dependencies:
+      - sdk: TouchController.framework
+      - sdk: MetalKit.framework
+      - sdk: CoreMedia.framework
+      - sdk: CoreVideo.framework
+      - sdk: CoreAudio.framework
+      - sdk: AudioToolbox.framework
+      - sdk: AVFoundation.framework
+      - sdk: CoreBluetooth.framework
+      - sdk: CoreGraphics.framework
+      - sdk: CoreMotion.framework
+      - sdk: Foundation.framework
+      - sdk: GameController.framework
+      - sdk: Metal.framework
+      - sdk: OpenGLES.framework
+      - sdk: QuartzCore.framework
+      - sdk: UIKit.framework
+      - sdk: CoreHaptics.framework
+        weak: true
