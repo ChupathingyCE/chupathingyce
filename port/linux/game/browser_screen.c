@@ -32,6 +32,7 @@ picked there as any.
 #include "game/game.h"
 #include "interface/player_ui.h"
 #include "saved games/player_profile.h"
+#include "saved games/saved_game_files.h"
 #include "networking/network_game_globals.h"
 #include "../src/browser.h"
 #include "../src/ui_overlay.h"
@@ -151,7 +152,11 @@ boolean ui_widget_online_games_create_game(void);
 static void utf8_name(unsigned short const *name, char *text, long size);
 
 /* the first player in the game to be joined or made, with the profile
-System Link's Start would pick: the one last used, else the first saved */
+System Link's Start would pick: the one last used, else the first saved.
+(A profile's index is the saved game files' (saved_game_files.c), its valid
+bit set: 0 is none, and player_profile_get made of it a profile named for
+whichever saved file came first, a game type on a new install.) None saved,
+the player keeps the profile it has */
 static void join_first_player(
 	void)
 {
@@ -159,10 +164,19 @@ static void join_first_player(
 	struct player_profile profile;
 
 	player_ui_local_player_joined_multiplayer_game(0);
-	if (profile_index == NONE)
-		profile_index = 0;
-	if (player_profile_get(profile_index, &profile))
+	if (profile_index == NONE || !TEST_FLAG(profile_index, _saved_game_file_index_valid_bit))
+	{
+		long profile_indices[100];
+		word profile_count = NUMBEROF(profile_indices);
+
+		player_profiles_enumerate_available_to_local_player_index(0, &profile_count, profile_indices, FALSE);
+		profile_index = profile_count ? profile_indices[0] : NONE;
+	}
+	if (profile_index != NONE && TEST_FLAG(profile_index, _saved_game_file_index_valid_bit) &&
+		player_profile_get(profile_index, &profile))
+	{
 		player_ui_set_active_player_profile(0, profile_index, &profile);
+	}
 }
 
 /* a game picked: its invite joined (the tunnel to its host), then its game
