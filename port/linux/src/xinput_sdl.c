@@ -345,7 +345,7 @@ static void keyboard_gamepad(const struct platform_input_state *input, XINPUT_GA
 #endif
 	pad->bAnalogButtons[XINPUT_GAMEPAD_X] |= analog(k[SDL_SCANCODE_DELETE] || k[SDL_SCANCODE_E]);
 	pad->bAnalogButtons[XINPUT_GAMEPAD_Y] |= analog(k[SDL_SCANCODE_TAB]);
-	/* (Online Games' Quick Connect: browser_screen.c) */
+	/* (Online Games' Link Profile: browser_screen.c) */
 	pad->bAnalogButtons[XINPUT_GAMEPAD_BLACK] |= analog(k[SDL_SCANCODE_C]);
 }
 

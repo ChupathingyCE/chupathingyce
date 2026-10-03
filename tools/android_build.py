@@ -439,7 +439,7 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         objects.append(guest_object(EXPAT_DIR / name, platform_cflags))
     # internet play's reliable streams (port/third_party/kcp; p2p.c)
     objects.append(guest_object(KCP_DIR / "ikcp.c", platform_cflags))
-    # Quick Connect's QR code (port/third_party/qrcodegen; browser.c)
+    # Link Profile's QR code (port/third_party/qrcodegen; browser.c)
     objects.append(guest_object(QRCODEGEN_DIR / "qrcodegen.c", platform_cflags))
     # the game's sin, pow and the rest, the same on every port
     # (port/include/halo_math.h)

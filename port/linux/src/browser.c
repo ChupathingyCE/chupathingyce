@@ -64,7 +64,7 @@ enum
 	CLAIM_INTERVAL = 8000,
 	CLAIM_ATTEMPTS = 8,
 	MAXIMUM_CLAIM_NAMES = 4,
-	/* Quick Connect: the server asked whether its code was typed this often,
+	/* Link Profile: the server asked whether its code was typed this often,
 	and a code given up on this long after it runs out (if the server could
 	not say so) */
 	CONNECT_POLL_INTERVAL = 3000,
@@ -125,7 +125,7 @@ static struct
 	/* a restored key (a halo://key/ link) waiting for the player's yes */
 	char pending_key[2 * PLAYER_KEY_SIZE + 1];
 
-	/* Quick Connect (the game's thread asks, the browser thread talks to the
+	/* Link Profile (the game's thread asks, the browser thread talks to the
 	server): the serial counts the codes asked for and the panel's closings,
 	so that an answer about a code no longer shown is dropped */
 	int connect_state;
@@ -477,7 +477,7 @@ static void open_profile(void)
 	platform_open_url(page);
 }
 
-/* ---------- Quick Connect (the browser thread) */
+/* ---------- Link Profile (the browser thread) */
 
 static void connect_failed(int serial, const char *message)
 {
@@ -507,7 +507,7 @@ static void start_connect(int serial, const unsigned short *name)
 	server_url("/v1/connect/start", url, sizeof(url));
 	if (!safe_for_key(url) || !player_key(key))
 	{
-		connect_failed(serial, "Quick Connect needs an HTTPS game list and a player key.");
+		connect_failed(serial, "Link Profile needs an HTTPS game list and a player key.");
 		return;
 	}
 	p2p_hex(key, PLAYER_KEY_SIZE, key_text);
@@ -527,7 +527,7 @@ static void start_connect(int serial, const unsigned short *name)
 		strspn(code, "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-") != strlen(code) ||
 		strlen(token) != CONNECT_TOKEN_LENGTH || strspn(token, "0123456789abcdef") != CONNECT_TOKEN_LENGTH)
 	{
-		platform_log("Game list: no Quick Connect code (%s)", status ? response : error);
+		platform_log("Game list: Link Profile: no code (%s)", status ? response : error);
 		connect_failed(serial, status && response[0] ? response : status ? "The game list gave no code." : error);
 		memset(token, 0, sizeof(token));
 		return;
@@ -610,7 +610,7 @@ static void connect_line(int status, const char *response)
 	{
 		connect_handle(response + 10, browser.connect_handle, sizeof(browser.connect_handle));
 		browser.connect_state = BROWSER_CONNECT_CONNECTED;
-		platform_log("Game list: Quick Connect linked the game to %s", browser.connect_handle);
+		platform_log("Game list: Link Profile: the game is linked to %s", browser.connect_handle);
 	}
 	else if (status == 200 && !strcmp(response, "declined"))
 		browser.connect_state = BROWSER_CONNECT_DECLINED;

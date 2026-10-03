@@ -325,7 +325,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
             # (the menus' XML parser's own headers, not rewritten: Expat is
             # built with the host's ABI, below)
             f"-I{EXPAT_DIR}",
-            # (Quick Connect's QR encoder's, likewise)
+            # (Link Profile's QR encoder's, likewise)
             f"-I{QRCODEGEN_DIR}",
             f"-I{_quote(lp64(Path('source')))} -I{_quote(lp64(Path('source/cseries')))}",
             homebrew_include, f"-idirafter {xdk}",
@@ -372,7 +372,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
         # types (expat.h, which menu_files.c includes unrewritten)
         for name in EXPAT_SOURCES:
             add_object(EXPAT_DIR / name, " ".join([target, "-std=gnu11", OPTIMISATION, "-g", "-w", f"-I{EXPAT_DIR}"]))
-        # Quick Connect's QR encoder (port/third_party/qrcodegen; browser.c),
+        # Link Profile's QR encoder (port/third_party/qrcodegen; browser.c),
         # with the host's ABI too: its long is the host's (LONG_MAX)
         add_object(QRCODEGEN_DIR / "qrcodegen.c", " ".join([target, "-std=gnu11", OPTIMISATION, "-g", "-w"]))
         third_party = " ".join([abi, "-std=gnu11", "-w"])

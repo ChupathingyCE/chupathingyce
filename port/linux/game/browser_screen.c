@@ -66,7 +66,7 @@ enum
 	CONNECT_TIMEOUT = 15000,
 	/* the screen takes no A this soon after it opens */
 	OPEN_SETTLE = 600,
-	/* nor a button this soon after Quick Connect's panel opens or closes (a
+	/* nor a button this soon after Link Profile's panel opens or closes (a
 	press seen twice would close it, or the screen) */
 	CONNECT_SETTLE = 400,
 	/* whether the selected game's Custom Edition map is in maps\ce, asked
@@ -111,7 +111,7 @@ static char const *const map_names[][2] =
 
 
 /* the list's orders (LT and RT step through them, and LB back; RB is
-Quick Connect's) */
+Link Profile's) */
 enum
 {
 	SORT_PLAYERS,
@@ -144,7 +144,7 @@ static struct
 	char ce_map[BROWSER_MAP_LENGTH];
 	short ce_map_answer;
 	unsigned long ce_map_time;
-	/* Quick Connect's panel up, and what it shows (browser.c's, each frame);
+	/* Link Profile's panel up, and what it shows (browser.c's, each frame);
 	when it last opened, closed or asked for a code */
 	boolean connect_open;
 	unsigned long connect_changed_time;
@@ -464,7 +464,7 @@ static char const *ce_map_blocker(
 	}
 }
 
-/* RB: a Quick Connect code, for the profile the screen's games are joined
+/* RB: a Link Profile code, for the profile the screen's games are joined
 with (its name goes to the page, to say who it links) */
 static void quick_connect(
 	void)
@@ -590,7 +590,7 @@ void browser_screen_process(
 		{
 			continue;
 		}
-		/* (Quick Connect's panel takes the buttons while it is up) */
+		/* (Link Profile's panel takes the buttons while it is up) */
 		if (browser_screen.connect_open)
 		{
 			if (event.type == BROWSER_EVENT_BUTTON)
@@ -886,7 +886,7 @@ static float prompt_width(
 	return ui_overlay_button_width(button, 15.0f) + 3.0f + ui_overlay_text_width(UI_FONT_BOLD, 12.0f, words) + 20.0f;
 }
 
-/* ---------- drawing: Quick Connect's panel */
+/* ---------- drawing: Link Profile's panel */
 
 enum
 {
@@ -976,7 +976,7 @@ static void draw_quick_connect(
 
 	ui_overlay_rect(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT, 8, 0x0A1A36F8);
 	ui_overlay_outline(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT, 8, 1.0f, COLOR_PANEL_EDGE);
-	ui_overlay_text(UI_FONT_BOLD, 20.0f, CONNECT_X + 20, CONNECT_Y + 14, UI_ALIGN_LEFT, COLOR_TITLE, "Quick Connect");
+	ui_overlay_text(UI_FONT_BOLD, 20.0f, CONNECT_X + 20, CONNECT_Y + 14, UI_ALIGN_LEFT, COLOR_TITLE, "Link Profile");
 	ui_overlay_rect(CONNECT_X + 1, CONNECT_Y + 48, CONNECT_WIDTH - 2, 0.75f, 0, COLOR_ROW_RULE);
 
 	switch (connect->state)
@@ -1094,7 +1094,7 @@ void browser_screen_render(
 	x -= ui_overlay_text(UI_FONT_BOLD, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_TEXT, text) + 4;
 	ui_overlay_text(UI_FONT_REGULAR, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_DIM, "SERVERS");
 
-	/* Quick Connect's panel in the list's place (the overlay draws all its
+	/* Link Profile's panel in the list's place (the overlay draws all its
 	text over all its shapes: none of the list's may lie under the panel) */
 	if (browser_screen.connect_open)
 	{
@@ -1281,7 +1281,7 @@ void browser_screen_render(
 		prompt_width(UI_BUTTON_X, "=REFRESH") + prompt_width(UI_BUTTON_Y, "=CREATE GAME") +
 		prompt_width(UI_BUTTON_BACK, "=FILTERS") +
 		prompt_width(UI_BUTTON_LEFT_TRIGGER, "") + prompt_width(UI_BUTTON_RIGHT_TRIGGER, "=SORT") +
-		prompt_width(UI_BUTTON_RIGHT_SHOULDER, "=QUICK CONNECT") - 20 - 3;
+		prompt_width(UI_BUTTON_RIGHT_SHOULDER, "=LINK PROFILE") - 20 - 3;
 	x = 320 - width / 2;
 	/* (A greyed for a game on a Custom Edition map that can't be played here) */
 	if (selected && ce_map_state(selected, FALSE) >= _ce_map_missing)
@@ -1294,7 +1294,7 @@ void browser_screen_render(
 	x = prompt(UI_BUTTON_BACK, "=FILTERS", x);
 	x += ui_overlay_button(UI_BUTTON_LEFT_TRIGGER, 15.0f, x, 455.0f, 0xFFFFFFFF);
 	x = prompt(UI_BUTTON_RIGHT_TRIGGER, "=SORT", x);
-	prompt(UI_BUTTON_RIGHT_SHOULDER, "=QUICK CONNECT", x);
+	prompt(UI_BUTTON_RIGHT_SHOULDER, "=LINK PROFILE", x);
 
 	if (browser_screen.connecting)
 	{

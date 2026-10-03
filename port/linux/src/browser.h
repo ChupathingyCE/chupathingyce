@@ -144,7 +144,7 @@ int browser_key_link(const char *text);
 int browser_take_key_link(char *new_id, char *old_id, int size);
 void browser_answer_key_link(int install);
 
-/* Quick Connect (Online Games' RB): the game linked to the player's profile
+/* Link Profile (Online Games' RB): the game linked to the player's profile
 from another device, where no web browser opens (Steam's Game Mode, a
 console). The list server gives a short code for this copy's player key;
 the player types it at <server>/connect on a phone or any computer, signed
