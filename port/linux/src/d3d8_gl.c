@@ -2568,7 +2568,7 @@ apply to the others. A memory barrier is one (and only that: nothing
 here writes images). (OpenGL 4.2's: macOS's 4.1 has none, and needs none.) */
 static void draw_flush(void)
 {
-#ifndef HALO_ANDROID
+#ifndef HALO_MOBILE
 	if (device.flush_every && glMemoryBarrier && ++device.flush_draws >= device.flush_every)
 	{
 		device.flush_draws = 0;
