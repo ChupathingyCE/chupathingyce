@@ -172,6 +172,12 @@ PC's: the meter's shape in the color, the order it fills in in alpha, where
 the Xbox's meter shader reads them the other way round (ce_hud.c,
 xbox_textures.c) */
 #define D3DCOMMON_PORT_PC_METER 0x20000000
+/* port: a Custom Edition map's model multipurpose map, whose channels are
+Halo PC's: the auxiliary mask, self-illumination, specular and color change
+in red, green, blue and alpha, where the Xbox's model shaders read specular,
+self-illumination, color change and the auxiliary mask (ce_models.c,
+xbox_textures.c) */
+#define D3DCOMMON_PORT_PC_MULTIPURPOSE 0x10000000
 #define D3DPALETTE_COMMON_PALETTESIZE_SHIFT 30
 
 /* a texture's Format word: the NV2A's texture format register

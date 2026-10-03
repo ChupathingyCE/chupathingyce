@@ -622,6 +622,18 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 			channels[0] = channels[1] = channels[2] = channels[3];
 			channels[3] = red;
 		}
+		/* a Halo PC multipurpose map: specular (blue), self-illumination
+		(green), color change (alpha) and the auxiliary mask (red) sampled
+		where the Xbox's model shaders read them, red, green, blue and alpha
+		(D3DCOMMON_PORT_PC_MULTIPURPOSE) */
+		else if (description->pc_multipurpose)
+		{
+			GLint red = channels[0];
+
+			channels[0] = channels[2];
+			channels[2] = channels[3];
+			channels[3] = red;
+		}
 		glTexParameteri(target, GL_TEXTURE_SWIZZLE_R, channels[0]);
 		glTexParameteri(target, GL_TEXTURE_SWIZZLE_G, channels[1]);
 		glTexParameteri(target, GL_TEXTURE_SWIZZLE_B, channels[2]);
@@ -851,6 +863,7 @@ GLuint xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, GLenum *
 		/* (whose layout, as the bitmap now here is laid out) */
 		entry->description.pc_layout = (resource[0] & D3DCOMMON_PORT_PC_LAYOUT) != 0;
 		entry->description.pc_meter = (resource[0] & D3DCOMMON_PORT_PC_METER) != 0;
+		entry->description.pc_multipurpose = (resource[0] & D3DCOMMON_PORT_PC_MULTIPURPOSE) != 0;
 		/* protect first, so a write racing with the upload is noticed */
 		memory_watch_protect(entry->address, entry->size);
 		entry->generation = memory_watch_generation(entry->address, entry->size);
