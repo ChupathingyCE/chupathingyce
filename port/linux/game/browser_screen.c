@@ -13,6 +13,13 @@ game, left and right turn the page, A joins it through its invite, as a web
 page's Join or an invite link would, and B goes back. Once the invite's host
 answers, its game shows in the System Link list through the tunnel, to be
 picked there as any.
+
+A game on a Custom Edition map (Halo PC's, announced as <file>@ce) is named
+as the menus' map list names it (ui_map_list.c: Halo PC's own names, or the
+file's made readable), marked HALO PC as the game list's web pages mark it,
+and pictured by Halo PC's own picture of it. It is joined only with the map
+in maps\ce (and on a build with Halo PC map support, HALO_CUSTOM_EDITION): else its
+details say what is missing, and A says so rather than join.
 */
 
 #ifdef HALO_GAME_BROWSER
@@ -36,6 +43,7 @@ picked there as any.
 #include "networking/network_game_globals.h"
 #include "../src/browser.h"
 #include "../src/ui_overlay.h"
+#include "halo_ui_map_list.h"
 
 /* ---------- constants */
 
@@ -53,6 +61,22 @@ enum
 	CONNECT_TIMEOUT = 15000,
 	/* the screen takes no A this soon after it opens */
 	OPEN_SETTLE = 600,
+	/* whether the selected game's Custom Edition map is in maps\ce, asked
+	again this often */
+	CE_MAP_CHECK_INTERVAL = 1000,
+};
+
+/* whether a game's map can be played here (ce_map_state) */
+enum
+{
+	/* an Xbox map */
+	_ce_map_none,
+	/* a Custom Edition map, in maps\ce */
+	_ce_map_present,
+	/* a Custom Edition map this machine lacks */
+	_ce_map_missing,
+	/* a Custom Edition map, on a build that plays none (32-bit) */
+	_ce_map_unsupported,
 };
 
 /* ui_widget.c owns the same private enum (virtual_keyboard.c keeps a copy) */
@@ -107,6 +131,10 @@ static struct
 	unsigned long connecting_time;
 	/* when the screen opened (the menu's A that opened it picks nothing) */
 	unsigned long opened_time;
+	/* the last game's map asked of maps\ce, and the answer (ce_map_state) */
+	char ce_map[BROWSER_MAP_LENGTH];
+	short ce_map_answer;
+	unsigned long ce_map_time;
 } browser_screen;
 
 /* ---------- private code */
@@ -119,24 +147,100 @@ static void set_status(
 	browser_screen.status_time = system_milliseconds();
 }
 
-static char const *map_display_name(
-	char const *path)
+static void utf8_text(unsigned short const *name, long length, char *text, long size);
+
+/* a game's map: its file's name (the path's last part, without a Custom
+Edition map's @ce), and whether it is a Custom Edition map */
+static boolean map_file(
+	char const *path,
+	char *file,
+	long size)
 {
 	char const *base = path;
 	char const *cursor;
-	long index;
+	long length;
+	boolean ce;
 
 	for (cursor = path; *cursor; cursor++)
 	{
 		if (*cursor == '\\' || *cursor == '/')
 			base = cursor + 1;
 	}
+	length = (long)strlen(base);
+	ce = length >= 3 && base[length - 3] == '@' && (base[length - 2] | 0x20) == 'c' && (base[length - 1] | 0x20) == 'e';
+	if (ce)
+		length -= 3;
+	snprintf(file, (size_t)size, "%.*s", (int)length, base);
+	return ce;
+}
+
+static boolean map_is_ce(
+	char const *path)
+{
+	char file[BROWSER_MAP_LENGTH];
+
+	return map_file(path, file, sizeof(file));
+}
+
+/* a game's map as players name it: an Xbox map's name in the menus, or a
+Custom Edition map's as the menus' map list names it */
+static char const *map_display_name(
+	char const *path,
+	char *text,
+	long size)
+{
+	char file[BROWSER_MAP_LENGTH];
+	long index;
+
+	if (map_file(path, file, sizeof(file)))
+	{
+		wchar_t name[48];
+		unsigned short characters[48];
+		long length;
+
+		ui_map_list_ce_name(file, name, NUMBEROF(name));
+		for (length = 0; length < NUMBEROF(name) && name[length]; length++)
+			characters[length] = (unsigned short)name[length];
+		utf8_text(characters, length, text, size);
+		if (!text[0])
+			snprintf(text, (size_t)size, "Unknown map");
+		return text;
+	}
 	for (index = 0; index < NUMBEROF(map_names); index++)
 	{
-		if (!csstrcmp(base, map_names[index][0]))
+		if (!csstrcmp(file, map_names[index][0]))
 			return map_names[index][1];
 	}
-	return base;
+	/* (the path's last part, as it was) */
+	snprintf(text, (size_t)size, "%s", file);
+	return text;
+}
+
+/* whether a game's map can be played here: an Xbox map, or a Custom Edition
+map in maps\ce, missing, or on a build without them; maps\ce asked again
+when fresh, or for another map, or now and then */
+static short ce_map_state(
+	struct browser_game const *game,
+	boolean fresh)
+{
+	char file[BROWSER_MAP_LENGTH];
+
+	if (!map_file(game->map, file, sizeof(file)))
+		return _ce_map_none;
+#ifdef HALO_CUSTOM_EDITION
+	if (fresh || strcmp(browser_screen.ce_map, game->map) ||
+		system_milliseconds() - browser_screen.ce_map_time > CE_MAP_CHECK_INTERVAL)
+	{
+		csstrncpy(browser_screen.ce_map, game->map, sizeof(browser_screen.ce_map) - 1);
+		browser_screen.ce_map[sizeof(browser_screen.ce_map) - 1] = 0;
+		browser_screen.ce_map_answer = ui_map_list_ce_present(file) ? _ce_map_present : _ce_map_missing;
+		browser_screen.ce_map_time = system_milliseconds();
+	}
+	return browser_screen.ce_map_answer;
+#else
+	(void)fresh;
+	return _ce_map_unsupported;
+#endif
 }
 
 /* (network_client_manager.c: the game whose host's identifier the invite
@@ -194,6 +298,10 @@ static void join_selected(
 		set_status("That game is not accepting players.");
 		return;
 	}
+	/* (a Custom Edition map's game, only with the map: a join without it
+	would fail at its loading; the list's footer says what is missing) */
+	if (ce_map_state(game, TRUE) >= _ce_map_missing)
+		return;
 	/* a network client searching, as System Link's (the advertisement comes
 	to it: browser_screen_open started it) */
 	if (!global_network_game_client_get())
@@ -275,7 +383,16 @@ static long compare_games(
 	switch (browser_screen.sort)
 	{
 	case SORT_NAME: order = compare_names(a->name, b->name); break;
-	case SORT_MAP: order = strcmp(map_display_name(a->map), map_display_name(b->map)); break;
+	case SORT_MAP:
+	{
+		char a_name[64], b_name[64];
+
+		order = strcmp(map_display_name(a->map, a_name, sizeof(a_name)), map_display_name(b->map, b_name, sizeof(b_name)));
+		/* (an Xbox map before Halo PC's of the same name) */
+		if (!order)
+			order = (long)map_is_ce(a->map) - (long)map_is_ce(b->map);
+		break;
+	}
 	case SORT_TYPE: order = (long)a->engine * 2 + a->teams - ((long)b->engine * 2 + b->teams); break;
 	default: order = (long)b->players - (long)a->players; break;
 	}
@@ -308,6 +425,28 @@ static void fetch_games(
 	{
 		if (!strcmp(browser_screen.games[index].invite, invite))
 			browser_screen.selected = index;
+	}
+}
+
+/* what this machine lacks to join a game on a Custom Edition map, or NULL
+when nothing (ce_map_state) */
+static char const *ce_map_blocker(
+	struct browser_game const *game,
+	char *text,
+	long size)
+{
+	char file[BROWSER_MAP_LENGTH];
+
+	switch (ce_map_state(game, FALSE))
+	{
+	case _ce_map_missing:
+		map_file(game->map, file, sizeof(file));
+		snprintf(text, (size_t)size, "Needs maps/ce/%s.map to join", file);
+		return text;
+	case _ce_map_unsupported:
+		return "Halo PC maps need ChupathingyCE with Halo PC map support.";
+	default:
+		return NULL;
 	}
 }
 
@@ -453,6 +592,13 @@ enum
 	COLOR_BLUE_TEAM = 0x6BB0FFFF,
 	COLOR_CLOSED = 0xF08A4BFF,
 	COLOR_PROMPT = 0x4AA3FFFF,
+	/* a prompt that does nothing for the selected game */
+	COLOR_PROMPT_OFF = 0x4A5E80FF,
+	COLOR_BUTTON_OFF = 0xFFFFFF55,
+	/* Halo PC's maps: their badge, gold as the game list's web pages draw it */
+	COLOR_PC = 0xF2C14EFF,
+	COLOR_PC_FILL = 0xF2C14E1F,
+	COLOR_PC_EDGE = 0xF2C14E99,
 };
 
 /* the list's rows, columns and panels, in the 640x480 layout */
@@ -463,6 +609,15 @@ enum
 	/* the roster's places in the details */
 	ROSTER_COLUMNS = 2, ROSTER_ROWS = 7,
 	COLUMN_NAME = 67, COLUMN_MAP = 275, COLUMN_TYPE = 385, COLUMN_PLAYERS = 531, COLUMN_PING = 596,
+	/* the details' lines: the first's top, and each next's */
+	DETAIL_FIRST_LINE = 34, DETAIL_LINE_STEP = 16,
+};
+
+/* the HALO PC badge: its text's size, and its room before the Type column */
+#define BADGE_SIZE 6.5f
+enum
+{
+	BADGE_MARGIN = 12,
 };
 
 /* the map pictures (the menus' mp_map_grafix, in their order:
@@ -481,9 +636,19 @@ static void utf8_name(
 	char *text,
 	long size)
 {
+	utf8_text(name, BROWSER_NAME_LENGTH, text, size);
+}
+
+/* UTF-16 text, up to length characters, as UTF-8 */
+static void utf8_text(
+	unsigned short const *name,
+	long length,
+	char *text,
+	long size)
+{
 	long used = 0, index;
 
-	for (index = 0; index < BROWSER_NAME_LENGTH && name[index] && used < size - 4; index++)
+	for (index = 0; index < length && name[index] && used < size - 4; index++)
 	{
 		unsigned int character = name[index];
 
@@ -517,6 +682,9 @@ static char const *type_name(
 	return text;
 }
 
+static void draw_bitmap_picture(struct bitmap_data *bitmap, short art_width, short art_height, short x0, short y0,
+	short x1, short y1);
+
 /* a game's picture from the game's own bitmaps, in a cut-out of the overlay */
 static void draw_picture(
 	char const *tag,
@@ -530,6 +698,20 @@ static void draw_picture(
 {
 	long bitmap_index = tag_loaded('bitm', tag);
 	struct bitmap_data *bitmap = bitmap_index != NONE ? bitmap_group_get_bitmap_from_sequence(bitmap_index, 0, frame) : NULL;
+
+	draw_bitmap_picture(bitmap, art_width, art_height, x0, y0, x1, y1);
+}
+
+/* a picture (or none: the box alone), in a cut-out of the overlay */
+static void draw_bitmap_picture(
+	struct bitmap_data *bitmap,
+	short art_width,
+	short art_height,
+	short x0,
+	short y0,
+	short x1,
+	short y1)
+{
 	rectangle2d bounds;
 
 	ui_overlay_cutout(x0, y0, (float)(x1 - x0), (float)(y1 - y0));
@@ -558,6 +740,42 @@ static float prompt(
 {
 	x += ui_overlay_button(button, 15.0f, x, 455.0f, 0xFFFFFFFF) + 3.0f;
 	return x + ui_overlay_text(UI_FONT_BOLD, 12.0f, x, 456.5f, UI_ALIGN_LEFT, COLOR_PROMPT, words) + 20.0f;
+}
+
+/* a prompt that does nothing for the selected game, greyed */
+static float prompt_off(
+	int button,
+	char const *words,
+	float x)
+{
+	x += ui_overlay_button(button, 15.0f, x, 455.0f, COLOR_BUTTON_OFF) + 3.0f;
+	return x + ui_overlay_text(UI_FONT_BOLD, 12.0f, x, 456.5f, UI_ALIGN_LEFT, COLOR_PROMPT_OFF, words) + 20.0f;
+}
+
+/* the HALO PC badge of a game on a Custom Edition map, size its text's
+height: its width */
+static float pc_badge_width(
+	float size)
+{
+	return ui_overlay_text_width(UI_FONT_BOLD, size, "HALO PC") + size;
+}
+
+/* the badge at x (its left), centred on the capitals of text whose top is
+text_y and height text_size (as ui_overlay_text draws them: their middle
+half the size down) */
+static void draw_pc_badge(
+	float size,
+	float x,
+	float text_y,
+	float text_size)
+{
+	float padding = size * 0.5f;
+	float height = size + padding;
+	float y = text_y + text_size * 0.5f - height * 0.5f;
+
+	ui_overlay_rect(x, y, pc_badge_width(size), height, 2, COLOR_PC_FILL);
+	ui_overlay_outline(x, y, pc_badge_width(size), height, 2, 0.75f, COLOR_PC_EDGE);
+	ui_overlay_text(UI_FONT_BOLD, size, x + padding, y + padding * 0.55f, UI_ALIGN_LEFT, COLOR_PC, "HALO PC");
 }
 
 static float prompt_width(
@@ -619,6 +837,7 @@ void browser_screen_render(
 	{
 		float y = (float)(LIST_Y + LIST_HEAD + row * LIST_ROW);
 		struct browser_game const *game;
+		char const *map_name;
 		unsigned int color;
 
 		if (row)
@@ -631,7 +850,21 @@ void browser_screen_render(
 		color = game->open ? COLOR_TEXT : COLOR_DIM;
 		utf8_name(game->name, name, sizeof(name));
 		ui_overlay_text(UI_FONT_BOLD, 10.0f, COLUMN_NAME, y + 5, UI_ALIGN_LEFT, color, name);
-		ui_overlay_text(UI_FONT_BOLD, 10.0f, COLUMN_MAP, y + 5, UI_ALIGN_LEFT, color, map_display_name(game->map));
+		map_name = map_display_name(game->map, text, sizeof(text));
+		if (map_is_ce(game->map))
+		{
+			/* (the badges in a column at the Map column's right; a name too long
+			for the room left of it smaller, its middle where the others' is) */
+			float badge_x = COLUMN_TYPE - BADGE_MARGIN - pc_badge_width(BADGE_SIZE);
+			float size = 10.0f;
+
+			while (size > 7.0f && ui_overlay_text_width(UI_FONT_BOLD, size, map_name) > badge_x - 4 - COLUMN_MAP)
+				size -= 0.5f;
+			ui_overlay_text(UI_FONT_BOLD, size, COLUMN_MAP, y + 5 + (10.0f - size) / 2, UI_ALIGN_LEFT, color, map_name);
+			draw_pc_badge(BADGE_SIZE, badge_x, y + 5, 10.0f);
+		}
+		else
+			ui_overlay_text(UI_FONT_BOLD, 10.0f, COLUMN_MAP, y + 5, UI_ALIGN_LEFT, color, map_name);
 		ui_overlay_text(UI_FONT_BOLD, 10.0f, COLUMN_TYPE, y + 5, UI_ALIGN_LEFT, color, type_name(game, text, sizeof(text)));
 		snprintf(text, sizeof(text), "%d/%d", game->players, game->maximum_players);
 		ui_overlay_text(UI_FONT_BOLD, 10.0f, COLUMN_PLAYERS, y + 5, UI_ALIGN_RIGHT, game->open ? color : COLOR_CLOSED, text);
@@ -640,10 +873,24 @@ void browser_screen_render(
 	}
 	{
 		float y = (float)(LIST_Y + LIST_HEAD + ROWS_PER_PAGE * LIST_ROW);
+		char blocker_text[BROWSER_MAP_LENGTH + 32];
+		char const *blocker = selected ? ce_map_blocker(selected, blocker_text, sizeof(blocker_text)) : NULL;
 
 		ui_overlay_rect(LIST_X + 1, y, LIST_WIDTH - 2, 0.75f, 0, COLOR_PANEL_EDGE);
-		snprintf(text, sizeof(text), "SORTED BY %s  \xC2\xB7  CLOSED GAMES LAST", sort_names[browser_screen.sort]);
-		ui_overlay_text(UI_FONT_BOLD, 7.5f, LIST_X + 10, y + 6, UI_ALIGN_LEFT, COLOR_DIM, text);
+		/* (in the sort's place: a status message while it shows, else what the
+		selected game's Custom Edition map lacks to be joined) */
+		if (!browser_screen.connecting && browser_screen.status[0] &&
+			system_milliseconds() - browser_screen.status_time < STATUS_DURATION)
+		{
+			ui_overlay_text(UI_FONT_BOLD, 8.0f, LIST_X + 10, y + 5.5f, UI_ALIGN_LEFT, COLOR_CLOSED, browser_screen.status);
+		}
+		else if (blocker)
+			ui_overlay_text(UI_FONT_BOLD, 8.0f, LIST_X + 10, y + 5.5f, UI_ALIGN_LEFT, COLOR_CLOSED, blocker);
+		else
+		{
+			snprintf(text, sizeof(text), "SORTED BY %s  \xC2\xB7  CLOSED GAMES LAST", sort_names[browser_screen.sort]);
+			ui_overlay_text(UI_FONT_BOLD, 7.5f, LIST_X + 10, y + 6, UI_ALIGN_LEFT, COLOR_DIM, text);
+		}
 		snprintf(text, sizeof(text), "\xE2\x80\xB9   PAGE %d OF %d   \xE2\x80\xBA", page_first / ROWS_PER_PAGE + 1, page_count);
 		ui_overlay_text(UI_FONT_BOLD, 8.0f, LIST_X + LIST_WIDTH - 12, y + 5.5f, UI_ALIGN_RIGHT, COLOR_LABEL, text);
 	}
@@ -656,21 +903,32 @@ void browser_screen_render(
 	if (selected)
 	{
 		short map_frame = NUMBEROF(map_picture_order);
-		char const *base = selected->map;
-		char const *cursor;
-		float y = DETAIL_Y + 34;
+		char file[BROWSER_MAP_LENGTH], map_name[64];
+		short ce_state = ce_map_state(selected, FALSE);
+		float y = DETAIL_Y + DETAIL_FIRST_LINE;
 
-		for (cursor = selected->map; *cursor; cursor++)
+		map_file(selected->map, file, sizeof(file));
+		if (ce_state != _ce_map_none)
 		{
-			if (*cursor == '\\' || *cursor == '/')
-				base = cursor + 1;
+			struct bitmap_data *bitmap = NULL;
+
+#ifdef HALO_CUSTOM_EDITION
+			/* (Halo PC's picture of it, or of an unknown level: laid out as the
+			Xbox's) */
+			bitmap = ui_map_list_ce_picture(file);
+#endif
+			draw_bitmap_picture(bitmap, 140, 116, 46, DETAIL_Y + 9, 171, DETAIL_Y + DETAIL_HEIGHT - 9);
 		}
-		for (index = 0; index < NUMBEROF(map_picture_order); index++)
+		else
 		{
-			if (!strcmp(base, map_picture_order[index]))
-				map_frame = (short)index;
+			for (index = 0; index < NUMBEROF(map_picture_order); index++)
+			{
+				if (!strcmp(file, map_picture_order[index]))
+					map_frame = (short)index;
+			}
+			draw_picture("ui\\shell\\bitmaps\\mp_map_grafix", map_frame, 140, 116, 46, DETAIL_Y + 9, 171,
+				DETAIL_Y + DETAIL_HEIGHT - 9);
 		}
-		draw_picture("ui\\shell\\bitmaps\\mp_map_grafix", map_frame, 140, 116, 46, DETAIL_Y + 9, 171, DETAIL_Y + DETAIL_HEIGHT - 9);
 		ui_overlay_outline(45, DETAIL_Y + 8, 127, DETAIL_HEIGHT - 16, 0, 1.0f, COLOR_ROW_RULE);
 		draw_picture("ui\\shell\\bitmaps\\game_type_grafix",
 			engine_picture[selected->engine >= 0 && selected->engine < NUMBEROF(engine_picture) ? selected->engine : 0],
@@ -680,10 +938,12 @@ void browser_screen_render(
 		ui_overlay_text(UI_FONT_BOLD, 13.0f, 266, DETAIL_Y + 12, UI_ALIGN_LEFT, 0xFFFFFFFF, name);
 #define DETAIL_LINE(label, value) \
 		x = 266 + ui_overlay_text(UI_FONT_REGULAR, 10.0f, 266, y, UI_ALIGN_LEFT, COLOR_LABEL, label) + 4; \
-		ui_overlay_text(UI_FONT_REGULAR, 10.0f, x, y, UI_ALIGN_LEFT, COLOR_TEXT, value); \
-		y += 16;
+		x += ui_overlay_text(UI_FONT_REGULAR, 10.0f, x, y, UI_ALIGN_LEFT, COLOR_TEXT, value); \
+		y += DETAIL_LINE_STEP;
 		DETAIL_LINE("Status:", selected->open ? "Accepting Players" : "In Progress");
-		DETAIL_LINE("Map:", map_display_name(selected->map));
+		DETAIL_LINE("Map:", map_display_name(selected->map, map_name, sizeof(map_name)));
+		if (ce_state != _ce_map_none)
+			draw_pc_badge(BADGE_SIZE, x + 6, y - DETAIL_LINE_STEP, 10.0f);
 		DETAIL_LINE("Rules:", type_name(selected, text, sizeof(text)));
 		if (selected->score_limit)
 		{
@@ -736,7 +996,11 @@ void browser_screen_render(
 		prompt_width(UI_BUTTON_BACK, "=FILTERS") +
 		prompt_width(UI_BUTTON_LEFT_TRIGGER, "") + prompt_width(UI_BUTTON_RIGHT_TRIGGER, "=SORT") - 20 - 3;
 	x = 320 - width / 2;
-	x = prompt(UI_BUTTON_A, "=JOIN", x);
+	/* (A greyed for a game on a Custom Edition map that can't be played here) */
+	if (selected && ce_map_state(selected, FALSE) >= _ce_map_missing)
+		x = prompt_off(UI_BUTTON_A, "=JOIN", x);
+	else
+		x = prompt(UI_BUTTON_A, "=JOIN", x);
 	x = prompt(UI_BUTTON_B, "=BACK", x);
 	x = prompt(UI_BUTTON_X, "=REFRESH", x);
 	x = prompt(UI_BUTTON_Y, "=CREATE GAME", x);
@@ -757,8 +1021,6 @@ void browser_screen_render(
 		x += ui_overlay_button(UI_BUTTON_B, 13.0f, x, 236, 0xFFFFFFFF) + 3;
 		ui_overlay_text(UI_FONT_BOLD, 10.0f, x, 237.5f, UI_ALIGN_LEFT, COLOR_PROMPT, "=CANCEL");
 	}
-	else if (browser_screen.status[0] && system_milliseconds() - browser_screen.status_time < STATUS_DURATION)
-		ui_overlay_text(UI_FONT_BOLD, 9.0f, 603, 300, UI_ALIGN_RIGHT, COLOR_CLOSED, browser_screen.status);
 }
 
 #endif

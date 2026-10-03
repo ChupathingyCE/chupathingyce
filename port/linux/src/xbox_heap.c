@@ -24,7 +24,8 @@ load, so this stays simple rather than clever.
 #include <string.h>
 #include <sys/mman.h>
 
-#define XBOX_HEAP_BASE 0x10000000U
+/* (above Custom Edition maps' tag cache, platform.h) */
+#define XBOX_HEAP_BASE 0x42000000U
 #define XBOX_HEAP_END 0x7f000000U
 #define HEAP_MAGIC 0x68656170U /* 'heap' */
 #define SMALL_CLASS_COUNT 13 /* 16 bytes .. 64 KB of payload */

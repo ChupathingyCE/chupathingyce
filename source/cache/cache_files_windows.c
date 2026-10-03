@@ -186,6 +186,9 @@ symbols in this file:
 #include "cache/cache_files_decompress_windows.h"
 #include "cache/texture_cache.h"
 #include "interface/ui_widget.h"
+#ifdef HALO_CUSTOM_EDITION
+#include "main/console.h"
+#endif
 #include "tag_files/files.h"
 #include "tag_files/tag_files.h"
 #include "scenario/scenario_definitions.h"
@@ -431,6 +434,108 @@ static short cached_map_files_find_map(
 /* ---------- globals */
 
 static struct cache_file_runtime_globals cache_file_globals;
+
+#ifdef HALO_CUSTOM_EDITION
+/* port: Custom Edition maps (Halo PC's, version 609), beside the Xbox maps:
+maps\ce\<name>.map, played as <name>@ce. Such a map is read where it is,
+not copied into one of the Xbox's cache slots and decompressed (it is not
+compressed): it has a slot of its own, after theirs, which every read goes
+through as theirs do (cache_files.c loads its tags into its own tag cache,
+platform.h) */
+#define CE_MAP_FILE_INDEX NUMBER_OF_CACHED_MAP_FILES
+#define CE_MAP_SUFFIX "@ce"
+
+static struct cached_map_file ce_map_file;
+static char ce_map_name[64];
+/* each request's file, if not the map's: a Custom Edition map's resource
+map, for its indexed tags' pixels and samples (port/linux/game/ce_resources.c) */
+static HANDLE ce_request_files[MAXIMUM_SIMULTANEOUS_CACHE_REQUESTS];
+HANDLE ce_resources_file_for_tag(long tag_index);
+boolean ce_map_check(HANDLE file, char const *map_name, long file_length, long tag_data_offset,
+	long tag_data_size);
+/* the last map refused (ce_map_check), its size and checksum */
+static char ce_refused_map_name[64];
+static unsigned long ce_refused_map_size;
+static unsigned long ce_refused_map_checksum;
+
+static boolean ce_map_name_is(
+	const char *map_name)
+{
+	size_t length = strlen(map_name);
+
+	return length > 3 && !_stricmp(map_name + length - 3, CE_MAP_SUFFIX);
+}
+
+/* the CE map named <name>@ce opened in its slot (once): FALSE if there is
+none, or it is not one, or it is refused (ce_map_check). The map open
+before stays open until another is accepted */
+static boolean ce_map_open(
+	const char *map_name)
+{
+	char path[256];
+	unsigned long bytes_read = 0;
+	struct cache_file_header header;
+	unsigned long file_size;
+	HANDLE file;
+	size_t length = strlen(map_name);
+
+	if (ce_map_file.file && !_stricmp(ce_map_name, map_name))
+		return TRUE;
+	if (length - 3 >= 48)
+		return FALSE;
+	/* (its tag cache, which the platform layer maps at start-up: xbox_memory.c) */
+	{
+		extern int platform_ce_tag_cache_ready;
+
+		if (!platform_ce_tag_cache_ready)
+		{
+			error(_error_silent, "Custom Edition map %s: no tag cache for it", map_name);
+			return FALSE;
+		}
+	}
+	sprintf(path, "%sce\\%.*s.map", cache_files_map_directory(), (int)(length - 3), map_name);
+	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+	if (file == INVALID_HANDLE_VALUE)
+		return FALSE;
+	memset(&header, 0, sizeof(header));
+	file_size = GetFileSize(file, NULL);
+	if (!ReadFile(file, &header, sizeof(header), &bytes_read, NULL))
+		bytes_read = 0;
+	/* (a map refused already, unchanged: refused again, quietly) */
+	if (!_stricmp(ce_refused_map_name, map_name) && ce_refused_map_size == file_size &&
+		ce_refused_map_checksum == header.checksum)
+	{
+		CloseHandle(file);
+		return FALSE;
+	}
+	if (bytes_read != sizeof(header) || !cache_file_header_verify(&header, path, FALSE))
+	{
+		error(_error_silent, "Custom Edition map %s refused: %s is not a cache file of this version", map_name,
+			path);
+		console_warning("Custom Edition map %s refused: not a cache file of this version", map_name);
+	}
+	/* every offset, count and size in it that the port reads checked, before
+	it has a slot (port/linux/game/ce_map_checks.c) */
+	else if (ce_map_check(file, map_name, header.file_length, header.tag_data_offset, header.tag_data_size))
+	{
+		if (ce_map_file.file)
+			CloseHandle(ce_map_file.file);
+		ce_refused_map_name[0] = 0;
+		ce_map_file.file = file;
+		ce_map_file.header = header;
+		memset(ce_map_name, 0, sizeof(ce_map_name));
+		strncpy(ce_map_name, map_name, sizeof(ce_map_name) - 1);
+		error(_error_silent, "Custom Edition map %s: %s, build %.32s", map_name, path, ce_map_file.header.build);
+		return TRUE;
+	}
+	memset(ce_refused_map_name, 0, sizeof(ce_refused_map_name));
+	strncpy(ce_refused_map_name, map_name, sizeof(ce_refused_map_name) - 1);
+	ce_refused_map_size = file_size;
+	ce_refused_map_checksum = header.checksum;
+	CloseHandle(file);
+	return FALSE;
+}
+#endif
 
 /* ---------- public code */
 
@@ -839,11 +944,21 @@ short cache_file_read(
 		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
 		276,
 		offset>=0);
-	if (size & (CACHE_FILE_SECTOR_SIZE - 1))
+	if (size & (CACHE_FILE_SECTOR_SIZE - 1)
+#ifdef HALO_CUSTOM_EDITION
+		/* (a Custom Edition map is read as it is, to its end, not in the
+		Xbox's whole sectors) */
+		&& cache_file_globals.open_map_file_index != CE_MAP_FILE_INDEX
+#endif
+		)
 	{
 		size = (size | (CACHE_FILE_SECTOR_SIZE - 1)) + 1;
 	}
 	*completion_flag_reference = FALSE;
+#ifdef HALO_CUSTOM_EDITION
+	ce_request_files[request_index] = cache_file_globals.open_map_file_index == CE_MAP_FILE_INDEX
+		? ce_resources_file_for_tag(tag_index) : NULL;
+#endif
 	memset(
 		&request->overlapped,
 		0,
@@ -1151,6 +1266,12 @@ static void cache_file_windows_thread_proc(
 			}
 
 			file = cached_map_file_get_handle(cache_file_globals.open_map_file_index);
+#ifdef HALO_CUSTOM_EDITION
+			/* (a Custom Edition map's indexed tag's pixels or samples: its
+			resource map) */
+			if (ce_request_files[best_request - cache_request_get(0)])
+				file = ce_request_files[best_request - cache_request_get(0)];
+#endif
 			match_assert(
 				"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
 				1327,
@@ -1614,6 +1735,10 @@ static void cache_requests_flush(
 static struct cached_map_file *cached_map_file_get(
 	short map_file_index)
 {
+#ifdef HALO_CUSTOM_EDITION
+	if (map_file_index == CE_MAP_FILE_INDEX)
+		return &ce_map_file;
+#endif
 	match_assert(
 		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
 		1208,
@@ -1634,6 +1759,12 @@ static short cached_map_files_find_map(
 	const char *map_name)
 {
 	short map_file_index;
+
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a Custom Edition map, in its own slot (above) */
+	if (ce_map_name_is(map_name))
+		return ce_map_open(map_name) ? CE_MAP_FILE_INDEX : NONE;
+#endif
 
 	for (map_file_index = 0;
 		map_file_index < NUMBER_OF_CACHED_MAP_FILES;

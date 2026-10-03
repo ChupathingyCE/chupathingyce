@@ -89,6 +89,8 @@ MACOS_ABI_FLAGS = [
     "-fno-omit-frame-pointer",
     "-ffp-contract=off",
     "-DHALO_64BIT",
+    # Halo PC's Custom Edition maps (linux_build.py, CUSTOM_EDITION_DEFINES)
+    "-DHALO_CUSTOM_EDITION",
     # the C library's checked printf macros collide with the MSVC names
     "-D_FORTIFY_SOURCE=0",
     OPTIMISATION,
@@ -292,7 +294,10 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
 
         game = linux_config["game"]
         defines = " ".join(f"-D{d}" for d in game.get("defines", []))
-        includes = " ".join(f"-I{_quote(lp64(Path(d)))}" for d in game.get("include_dirs", []))
+        # (the rewritten copies first; then the originals, for what is not
+        # rewritten, such as port/third_party/stb's)
+        includes = " ".join([f"-I{_quote(lp64(Path(d)))}" for d in game.get("include_dirs", [])] +
+                            [f"-idirafter {_quote(Path(d))}" for d in game.get("include_dirs", [])])
         game_cflags = " ".join([
             abi, " ".join(MACOS_GAME_FLAGS),
             f"-include {_quote(prefix_header)}", f"-include {_quote(semantics_header)}",

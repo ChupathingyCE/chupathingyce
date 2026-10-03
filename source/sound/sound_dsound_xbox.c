@@ -25,7 +25,12 @@ enum
 {
 	NUMBER_OF_SOUND_SAMPLE_RATES = 2,
 	MAXIMUM_SOUND_CHANNELS = 256,
+#ifdef HALO_CUSTOM_EDITION
+	/* (sound_preferences.c: the Xbox's four, and the port's four of PCM) */
+	NUMBER_OF_SOUND_CHANNEL_TYPES = 8,
+#else
 	NUMBER_OF_SOUND_CHANNEL_TYPES = 4,
+#endif
 	MAXIMUM_DSOUND_ERROR_STRING_LENGTH = 256,
 	MAXIMUM_DSOUND_ERROR_MESSAGE_LENGTH = 4096,
 	MAXIMUM_SOUND_PACKETS = 4,
@@ -166,12 +171,16 @@ struct dsound_globals
 
 typedef char dsound_globals_type_first_channel_index_offset_assert[
 	offsetof(struct dsound_globals, type_first_channel_index) == 0x7808 ? 1 : -1];
+#ifndef HALO_CUSTOM_EDITION
+/* (past the per-type arrays, which have the port's four PCM types too with
+Custom Edition maps) */
 typedef char dsound_globals_direct_sound_offset_assert[
 	offsetof(struct dsound_globals, direct_sound) == 0x789C ? 1 : -1];
 typedef char dsound_globals_paused_offset_assert[
 	offsetof(struct dsound_globals, paused) == 0x78C4 ? 1 : -1];
 typedef char dsound_globals_pause_gain_offset_assert[
 	offsetof(struct dsound_globals, pause_gain) == 0x78C8 ? 1 : -1];
+#endif
 #endif
 
 struct sound_platform_definition
@@ -2107,10 +2116,21 @@ static boolean dsound_initialize_channel(
 	{
 		wave_format.wfx.wFormatTag= WAVE_FORMAT_PCM;
 		wave_format.wfx.wBitsPerSample= 16;
+#ifdef HALO_CUSTOM_EDITION
+		/* (port: a PCM channel is of its type's channels and rate, as a
+		compressed one is: the Xbox's were only ever stereo 44 kHz) */
+		wave_format.wfx.nChannels= (WORD)(TEST_FLAG(type_flags, _sound_channel_stereo_bit) ? 2 : 1);
+		wave_format.wfx.nBlockAlign= (WORD)(2*wave_format.wfx.nChannels);
+		wave_format.wfx.nSamplesPerSec= sound_samples_per_second(
+			TEST_FLAG(type_flags, _sound_channel_44k_bit));
+		wave_format.wfx.nAvgBytesPerSec= wave_format.wfx.nSamplesPerSec*wave_format.wfx.nBlockAlign;
+		wave_format.wfx.cbSize= 0;
+#else
 		wave_format.wfx.nChannels= 2;
 		wave_format.wfx.nBlockAlign= 4;
 		wave_format.wfx.nSamplesPerSec= sound_sample_rate_samples_per_second[1];
 		wave_format.wfx.nAvgBytesPerSec= wave_format.wfx.nSamplesPerSec*4;
+#endif
 	}
 	else
 	{

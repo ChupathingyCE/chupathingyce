@@ -161,6 +161,23 @@ surface; the game's textures are 0x40001 (rasterizer_xbox.c). */
 #define D3DCOMMON_TYPE_TEXTURE 0x00040000
 #define D3DCOMMON_TYPE_SURFACE 0x00050000
 #define D3DCOMMON_D3DCREATED 0x01000000
+/* port: a texture laid out as Halo PC lays out a bitmap's pixels (a Custom
+Edition map's), though its format is a swizzled one: uncompressed texels in
+rows, not swizzled; a cube map's levels one after another, each the six
+faces' (the second and third faces the Xbox's third and second), not each
+face's levels (xbox_texture_cache.c, xbox_textures.c) */
+#define D3DCOMMON_PORT_PC_LAYOUT 0x40000000
+/* port: a Custom Edition map's HUD meter bitmap, whose channels are Halo
+PC's: the meter's shape in the color, the order it fills in in alpha, where
+the Xbox's meter shader reads them the other way round (ce_hud.c,
+xbox_textures.c) */
+#define D3DCOMMON_PORT_PC_METER 0x20000000
+/* port: a Custom Edition map's model multipurpose map, whose channels are
+Halo PC's: the auxiliary mask, self-illumination, specular and color change
+in red, green, blue and alpha, where the Xbox's model shaders read specular,
+self-illumination, color change and the auxiliary mask (ce_models.c,
+xbox_textures.c) */
+#define D3DCOMMON_PORT_PC_MULTIPURPOSE 0x10000000
 #define D3DPALETTE_COMMON_PALETTESIZE_SHIFT 30
 
 /* a texture's Format word: the NV2A's texture format register

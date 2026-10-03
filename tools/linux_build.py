@@ -195,6 +195,14 @@ def musl_math_cflags(abi: str) -> str:
                      f"-include {MUSL_MATH_DIR}/include/libm.h"])
 
 
+# Halo PC's Custom Edition maps (maps/ce/<name>.map, played as <name>@ce):
+# the port code of source/cache, sound, interface and text and
+# port/linux/game/ce_*.c (HALO_CUSTOM_EDITION). The native desktop builds
+# (Linux here, macOS: macos_build.py) have them; the Windows and Android
+# builds do not yet.
+CUSTOM_EDITION_DEFINES = ["-DHALO_CUSTOM_EDITION"]
+
+
 def game_browser_defines(sln: Any) -> List[str]:
     """configure.py --game-browser: the game list and server browser
     (port/linux/src/browser.c), off in the builds the project ships"""
@@ -374,7 +382,7 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
                        + ui_fonts_build(n, "linux", build_dir / "generated" / "ui_fonts.c", sln))
 
     abi = " ".join(LINUX_ABI_FLAGS + [march_flag(sln)] + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else [])
-                   + game_browser_defines(sln))
+                   + game_browser_defines(sln) + CUSTOM_EDITION_DEFINES)
     port_include = PORT_DIR / "include"
     sdk_flags = f"-idirafter {XDK_INCLUDE}"
     libs = " ".join(f"-l{lib}" for lib in config.get("libraries", []))
