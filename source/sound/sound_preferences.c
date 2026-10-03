@@ -28,16 +28,25 @@ symbols in this file:
 static struct sound_preferences default_sound_preferences =
 {
 	0,
+#ifdef HALO_64BIT
 	{ 10, 51, 10, 10, 2, 4, 4, 1 },
 	{ 9, 46, 9, 9, 2, 4, 4, 1 },
+#else
+	{ 10, 51, 10, 10 },
+	{ 9, 46, 9, 9 },
+#endif
 	0,
 };
 
+#ifdef HALO_64BIT
 /* the channels' types (sound_dsound_xbox.c: 3D, stereo, 44 kHz, compressed):
 the Xbox's, of Xbox ADPCM (mono, mono 3D, stereo, stereo 44 kHz), then the
 port's, the same of 16-bit PCM, which Halo PC's Ogg Vorbis sounds play as
 (port/linux/game/ce_resources.c decodes them) */
 short sound_channel_type_flags[8] = { 8, 9, 10, 14, 0, 1, 2, 6 };
+#else
+short sound_channel_type_flags[4] = { 8, 9, 10, 14 };
+#endif
 
 /* ---------- public code */
 
