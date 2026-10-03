@@ -41,6 +41,8 @@ enum
 	NUMBER_OF_CE_RESOURCE_MAPS,
 
 	CE_TAG_INSTANCE_SIZE = 0x20,
+	/* (cache_files.c's: where a Custom Edition map's tags are) */
+	CE_TAG_CACHE_BASE = 0x40440000,
 	/* a bitmap's flags the Xbox's tags keep (bitmap_utilities.c: power of
 	two, compressed, palettized, swizzled, linear, v16u16) */
 	CE_BITMAP_XBOX_FORMAT_FLAGS = 0x3f,
@@ -56,6 +58,12 @@ enum
 	/* (sound_manager.c's sound_compression) */
 	CE_SOUND_COMPRESSION_NONE = 0,
 	CE_SOUND_COMPRESSION_OGG = 3,
+	/* (sound_definitions.h's sound_definition) */
+	CE_SOUND_HEADER_SIZE = 0xa4,
+	CE_SOUND_SAMPLE_RATE_OFFSET = 0x06,
+	CE_SOUND_ENCODING_OFFSET = 0x6c,
+	CE_SOUND_LONGEST_PERMUTATION_OFFSET = 0x84,
+	CE_SOUND_PITCH_RANGES_OFFSET = 0x98,
 };
 
 /* ---------- structures */
@@ -364,6 +372,29 @@ static void ce_relocate_tag(
 	}
 }
 
+/* a sound's header in sounds.map is the one of the map sounds.map was
+built with: its promotion sound is a tag index there, not in this map (in
+timberland's, a shell casing sound's promotion sound is a Scorpion shader or
+bitmap), so the copy takes the map's own header, but for what describes the
+samples in sounds.map (rate, encoding, compression, longest permutation)
+and its pitch ranges, as relocated (Halo PC's sound cache, the same) */
+static void ce_sound_header(
+	byte *copy,
+	unsigned long size,
+	byte const *map_header)
+{
+	byte entry[CE_SOUND_HEADER_SIZE];
+
+	if (size < CE_SOUND_HEADER_SIZE)
+		return;
+	memcpy(entry, copy, CE_SOUND_HEADER_SIZE);
+	memcpy(copy, map_header, CE_SOUND_HEADER_SIZE);
+	memcpy(copy + CE_SOUND_SAMPLE_RATE_OFFSET, entry + CE_SOUND_SAMPLE_RATE_OFFSET, 2);
+	memcpy(copy + CE_SOUND_ENCODING_OFFSET, entry + CE_SOUND_ENCODING_OFFSET, 4); /* (and compression) */
+	memcpy(copy + CE_SOUND_LONGEST_PERMUTATION_OFFSET, entry + CE_SOUND_LONGEST_PERMUTATION_OFFSET, 4);
+	memcpy(copy + CE_SOUND_PITCH_RANGES_OFFSET, entry + CE_SOUND_PITCH_RANGES_OFFSET, 12);
+}
+
 /* ---------- public code */
 
 /* a Custom Edition map's tags loaded (cache_files.c): its indexed tags'
@@ -393,17 +424,26 @@ boolean ce_resources_tags_loaded(
 		struct ce_resource_map *map;
 		struct ce_resource *resource;
 		byte *copy;
+		unsigned long sound_header = 0;
 
 		if (!instance->indexed || type == NONE)
 			continue;
 		if (!ce_resource_map_open(type))
 			return FALSE;
 		map = &ce_resource_maps[type];
-		/* (a sound's tag in the map is only its header, empty: the whole
-		tag is the resource of its name in sounds.map, after its samples) */
+		/* (a sound's tag in the map is only its header, without its pitch
+		ranges: those are the resource of its name in sounds.map, after its
+		samples, which begins with a header of its own: ce_sound_header) */
 		if (type == _ce_resource_sounds)
 		{
 			long found = ce_resource_by_path(map, xbox_pointer(instance->name));
+
+			/* (its header, in the map's tags) */
+			if (instance->base_address >= CE_TAG_CACHE_BASE &&
+				instance->base_address + CE_SOUND_HEADER_SIZE <= first_free)
+			{
+				sound_header = instance->base_address;
+			}
 
 			if (found == NONE)
 			{
@@ -431,6 +471,8 @@ boolean ce_resources_tags_loaded(
 		if (!ce_read(map->file, resource->offset, copy, resource->size))
 			return FALSE;
 		ce_relocate_tag(instance->group_tag, copy, resource->size, next, instance->tag_index);
+		if (sound_header)
+			ce_sound_header(copy, resource->size, xbox_pointer(sound_header));
 		instance->base_address = next;
 		ce_indexed_tags[index] = (byte)(type + 1);
 		next = (next + resource->size + 15) & ~15UL;
