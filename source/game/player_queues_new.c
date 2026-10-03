@@ -373,7 +373,7 @@ static boolean update_queue_make_room(
 
 	if (absolute_index < 0 || absolute_index >= queues->maximum_count)
 		return FALSE;
-	header = (struct datum_header *)((byte *)queues->data + queues->size * absolute_index);
+	header = (struct datum_header *)((byte *)xbox_pointer(queues->data) + queues->size * absolute_index);
 	if (!header->identifier)
 		return FALSE;
 	if (header->identifier == (short)(player_index >> 16))
