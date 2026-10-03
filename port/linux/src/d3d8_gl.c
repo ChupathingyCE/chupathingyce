@@ -979,7 +979,7 @@ static void gl_initialize(void)
 
 		if (every < 0)
 			every = renderer && strstr(renderer, "Mesa Intel") ? 3 : 0;
-		if (every > 0)
+		if (every > 0 && glMemoryBarrier)
 		{
 			device.flush_every = (unsigned long)every;
 			platform_log("GPU: a pipeline flush every %ld draws", every);
@@ -2556,11 +2556,11 @@ and the reset that follows takes the desktop's other programs with it.
 Intel's workaround for a hang of this kind on their DG2 graphics
 (Wa_16014538804) is a flush at least every 3 draws, which Mesa does not
 apply to the others. A memory barrier is one (and only that: nothing
-here writes images). */
+here writes images). (OpenGL 4.2's: macOS's 4.1 has none, and needs none.) */
 static void draw_flush(void)
 {
 #ifndef HALO_ANDROID
-	if (device.flush_every && ++device.flush_draws >= device.flush_every)
+	if (device.flush_every && glMemoryBarrier && ++device.flush_draws >= device.flush_every)
 	{
 		device.flush_draws = 0;
 		glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
