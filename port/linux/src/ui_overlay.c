@@ -104,7 +104,7 @@ static struct
 static const unsigned int button_glyphs[4][NUMBER_OF_UI_BUTTONS] =
 {
 	/* keyboard: Enter, Backspace, E, Tab, Esc, Q, X, Q, C (the game's keys
-	for them, xinput_sdl.c; C is Online Games' Quick Connect), Left, Right,
+	for them, xinput_sdl.c; C is Online Games' Link Profile), Left, Right,
 	F1 */
 	{ 0xE05E, 0xE038, 0xE05A, 0xE0D1, 0xE062, 0xE0B3, 0xE0E3, 0xE0B3, 0xE046, 0xE020, 0xE022, 0xE067 },
 	/* Xbox: A, B, X, Y, menu, LT, RT, LB, RB, -, -, view */
