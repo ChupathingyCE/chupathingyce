@@ -6,8 +6,12 @@ The native ports' settings (port_config.h), parsed with tomlc17
 type, default, the HALO_* environment variable that overrides it and the
 comment written into a new file. The file is read once, on the first
 question; unknown keys and values of the wrong type are reported in the log
-and the defaults used instead, and the file itself is never rewritten once
-it exists, so that the player's edits and comments stay.
+and the defaults used instead. A new file has every setting commented out at
+its default, so that a later version's default reaches it; a setting is
+written as a value only when the player chooses one (config_write). Once
+the file exists only those lines, the settings a newer version adds and an
+older file's layout (config_version) are changed in it, so that the player's
+edits and comments stay.
 */
 
 #include "platform.h"
@@ -482,6 +486,14 @@ static int config_write_file(const char *path, const char *text)
 #endif
 }
 
+/* the file's layout: 2 writes a setting at its default commented out (1,
+before config_version, wrote every value, which kept a default a later
+version changed) */
+#define CONFIG_VERSION 2
+#define CONFIG_VERSION_LINE "config_version = 2\n"
+#define CONFIG_VERSION_LINES "# The layout of this file, for the game: leave it.\n" CONFIG_VERSION_LINE
+#define CONFIG_VERSION_TEXT "\n" CONFIG_VERSION_LINES
+
 struct config_text
 {
 	char *buffer;
@@ -519,8 +531,50 @@ static char *config_copy(const char *text, size_t length)
 	return copy;
 }
 
+/* the line's key, if it is "key = ..." (after spaces), in key */
+static int config_line_key(const char *line, const char *end, const char *key)
+{
+	size_t length = strlen(key);
+
+	while (line < end && (*line == ' ' || *line == '\t'))
+		line++;
+	if ((size_t)(end - line) <= length || strncmp(line, key, length) != 0)
+		return 0;
+	line += length;
+	while (line < end && (*line == ' ' || *line == '\t'))
+		line++;
+	return line < end && *line == '=';
+}
+
+/* the section the line opens, if it is "[section]" (after spaces) */
+static int config_line_section(const char *line, const char *end, char *section, size_t size)
+{
+	const char *close;
+
+	while (line < end && (*line == ' ' || *line == '\t'))
+		line++;
+	if (line >= end || *line != '[')
+		return 0;
+	close = memchr(line, ']', (size_t)(end - line));
+	if (!close || (size_t)(close - line - 1) >= size)
+		return 0;
+	memcpy(section, line + 1, (size_t)(close - line - 1));
+	section[close - line - 1] = 0;
+	return 1;
+}
+
+/* the line's key, if it is a setting written at its default, "# key = ..."
+(config_append_setting) */
+static int config_line_commented_key(const char *line, const char *end, const char *key)
+{
+	while (line < end && (*line == ' ' || *line == '\t'))
+		line++;
+	return line < end && *line == '#' && config_line_key(line + 1, end, key);
+}
+
 /* one setting as the file holds it: its comment, and its key at the
-default */
+default, commented out, so that it follows the default of whichever version
+reads the file until the player chooses a value (config_write) */
 static void config_append_setting(struct config_text *text, const struct config_setting *setting)
 {
 	const char *dot = strchr(setting->name, '.');
@@ -554,7 +608,7 @@ static void config_append_setting(struct config_text *text, const struct config_
 	}
 	config_append(text, buffer);
 #endif
-	snprintf(buffer, sizeof(buffer), "%s = %s\n", dot + 1, setting->default_value);
+	snprintf(buffer, sizeof(buffer), "# %s = %s\n", dot + 1, setting->default_value);
 	config_append(text, buffer);
 }
 
@@ -569,15 +623,22 @@ static char *config_default_text(void)
 	config_append(&text,
 		"# Halo settings\n"
 		"#\n"
-		"# The game writes this file with the defaults when it is missing: delete\n"
-		"# it to go back to them.\n");
+		"# The game writes this file with the defaults when it is missing. A\n"
+		"# setting at its default is commented out (\"# key = value\") and follows\n"
+		"# the default of the version that runs: take out the \"# \" and change the\n"
+		"# value to choose another. Delete the file to go back to the defaults.\n"
+		CONFIG_VERSION_TEXT);
 #else
 	config_append(&text,
 		"# Halo settings\n"
 		"#\n"
-		"# The game writes this file with the defaults when it is missing: delete\n"
-		"# it to go back to them. Each setting can also be set for one run with\n"
-		"# the environment variable named with it, which wins over this file.\n");
+		"# The game writes this file with the defaults when it is missing. A\n"
+		"# setting at its default is commented out (\"# key = value\") and follows\n"
+		"# the default of the version that runs: take out the \"# \" and change the\n"
+		"# value to choose another. Delete the file to go back to the defaults.\n"
+		"# Each setting can also be set for one run with the environment variable\n"
+		"# named with it, which wins over this file.\n"
+		CONFIG_VERSION_TEXT);
 #endif
 	for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
 	{
@@ -599,8 +660,32 @@ static char *config_default_text(void)
 	return text.buffer;
 }
 
+/* whether text has the setting's line in its section: as a value, or (with
+commented) also commented out at its default */
+static int config_text_has_key(const char *text, const char *name, int commented)
+{
+	const char *dot = strchr(name, '.');
+	char section[64], current[64] = "";
+	const char *line;
+
+	snprintf(section, sizeof(section), "%.*s", (int)(dot - name), name);
+	for (line = text; *line;)
+	{
+		const char *end = line + strcspn(line, "\n");
+
+		if (!config_line_section(line, end, current, sizeof(current)) && !strcmp(current, section) &&
+			(config_line_key(line, end, dot + 1) || (commented && config_line_commented_key(line, end, dot + 1))))
+		{
+			return 1;
+		}
+		line = *end ? end + 1 : end;
+	}
+	return 0;
+}
+
 /* the settings of this build that text (the file, parsed as table) lacks,
-added to it in their sections, keeping the rest as it is: a newer version's
+neither a value nor commented out at a default, added to it in their
+sections (commented out), keeping the rest as it is: a newer version's
 settings appear in an older file. Returns the new text, or NULL if nothing
 was missing */
 static char *config_add_missing(const char *text, toml_datum_t table)
@@ -619,7 +704,8 @@ static char *config_add_missing(const char *text, toml_datum_t table)
 		const char *line;
 		const char *insert = NULL;
 
-		if (!(setting->platforms & CONFIG_PLATFORM) || !dot || toml_seek(table, setting->name).type != TOML_UNKNOWN)
+		if (!(setting->platforms & CONFIG_PLATFORM) || !dot || toml_seek(table, setting->name).type != TOML_UNKNOWN ||
+			config_text_has_key(current, setting->name, 1))
 			continue;
 		snprintf(header, sizeof(header), "[%.*s]", (int)(dot - setting->name), setting->name);
 		/* the end of the section's last line that is not blank */
@@ -791,6 +877,8 @@ static void config_report_unknown_keys(toml_datum_t table)
 		toml_datum_t section = table.u.tab.value[section_index];
 		int key_index;
 
+		if (!strcmp(table.u.tab.key[section_index], "config_version"))
+			continue;
 		if (section.type != TOML_TABLE)
 		{
 			platform_log("config.toml line %d: unknown setting %s", section.lineno, table.u.tab.key[section_index]);
@@ -805,6 +893,158 @@ static void config_report_unknown_keys(toml_datum_t table)
 				platform_log("config.toml line %d: unknown setting %s", section.u.tab.value[key_index].lineno, name);
 		}
 	}
+}
+
+/* ---------- older files */
+
+/* the settings whose default an earlier version had otherwise, with that
+default as it was written */
+static const struct
+{
+	const char *name;
+	const char *default_value;
+} config_old_defaults[] =
+{
+	/* upstream's, which ChupathingyCE kept until v0.5.2b */
+	{ "display.menus", "\"pc\"" },
+};
+
+#define NUMBER_OF_CONFIG_OLD_DEFAULTS (sizeof(config_old_defaults) / sizeof(config_old_defaults[0]))
+
+/* whether the file's value is the default written as text */
+static int config_datum_is(toml_datum_t datum, enum config_type type, const char *text)
+{
+	struct config_value value = { 0, 0, 0.0, NULL };
+	size_t length = strlen(text);
+
+	switch (type)
+	{
+	case _config_boolean:
+		config_set_from_text(&value, type, text);
+		return datum.type == TOML_BOOLEAN && !datum.u.boolean == !value.boolean;
+	case _config_integer:
+		config_set_from_text(&value, type, text);
+		return datum.type == TOML_INT64 && datum.u.int64 == value.integer;
+	case _config_real:
+		config_set_from_text(&value, type, text);
+		return (datum.type == TOML_FP64 && datum.u.fp64 == value.real) ||
+			(datum.type == TOML_INT64 && (double)datum.u.int64 == value.real);
+	case _config_string:
+		/* (a TOML basic string without escapes) */
+		return datum.type == TOML_STRING && length >= 2 && strlen(datum.u.s) == length - 2 &&
+			!strncmp(datum.u.s, text + 1, length - 2);
+	}
+	return 0;
+}
+
+/* a file from before config_version (text, parsed as table) wrote every
+setting at the default of the version that wrote it, so that a default
+changed since never reached it: its lines holding this version's default or
+an older one are commented out at this version's default, as a new file has
+them, and config_version written. Values that are no default stay, being
+the player's. Returns the new text, or NULL if the file has its version */
+static char *config_update_layout(const char *text, toml_datum_t table)
+{
+	toml_datum_t version = toml_seek(table, "config_version");
+	int lines[NUMBER_OF_CONFIG_SETTINGS];
+	struct config_text out = { NULL, 0, 0 };
+	struct config_text changed = { NULL, 0, 0 };
+	int line_number = 1, defaults = 0, version_written;
+	const char *line;
+	size_t index;
+
+	if (version.type == TOML_INT64 && version.u.int64 >= CONFIG_VERSION)
+		return NULL;
+	/* (an older version's line is changed where it is) */
+	version_written = version.type != TOML_UNKNOWN;
+	for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
+	{
+		const struct config_setting *setting = &config_settings[index];
+		toml_datum_t datum = toml_seek(table, setting->name);
+		size_t old;
+
+		lines[index] = 0;
+		if (datum.type == TOML_UNKNOWN)
+			continue;
+		if (config_datum_is(datum, setting->type, setting->default_value))
+		{
+			lines[index] = datum.lineno;
+			continue;
+		}
+		for (old = 0; old < NUMBER_OF_CONFIG_OLD_DEFAULTS; old++)
+		{
+			if (!strcmp(config_old_defaults[old].name, setting->name) &&
+				config_datum_is(datum, setting->type, config_old_defaults[old].default_value))
+			{
+				char buffer[256];
+
+				lines[index] = datum.lineno;
+				snprintf(buffer, sizeof(buffer), "%s%s (%s, now %s)", changed.length ? ", " : "", setting->name,
+					config_old_defaults[old].default_value, setting->default_value);
+				config_append(&changed, buffer);
+			}
+		}
+	}
+	for (line = text; *line; line_number++)
+	{
+		const char *end = line + strcspn(line, "\n");
+		const char *next = *end ? end + 1 : end;
+		char section[64];
+		long setting_index = -1;
+
+		for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
+		{
+			/* (only the line "key = value" in the section: not a dotted key
+			or an inline table, which hold more) */
+			if (lines[index] == line_number &&
+				config_line_key(line, end, strchr(config_settings[index].name, '.') + 1))
+			{
+				setting_index = (long)index;
+			}
+		}
+		if (version.type != TOML_UNKNOWN && version.lineno == line_number &&
+			config_line_key(line, end, "config_version"))
+		{
+			config_append(&out, CONFIG_VERSION_LINE);
+		}
+		else if (setting_index >= 0)
+		{
+			const struct config_setting *setting = &config_settings[setting_index];
+			char buffer[256];
+
+			snprintf(buffer, sizeof(buffer), "# %s = %s\n", strchr(setting->name, '.') + 1, setting->default_value);
+			config_append(&out, buffer);
+			defaults++;
+		}
+		else
+		{
+			char *copy;
+
+			/* (the version goes before the first section, as TOML has it,
+			after the blank line that is there) */
+			if (!version_written && config_line_section(line, end, section, sizeof(section)))
+			{
+				config_append(&out, CONFIG_VERSION_LINES "\n");
+				version_written = 1;
+			}
+			copy = config_copy(line, (size_t)(next - line));
+			if (copy)
+				config_append(&out, copy);
+			free(copy);
+		}
+		line = next;
+	}
+	if (!version_written)
+	{
+		if (out.length && out.buffer[out.length - 1] != '\n')
+			config_append(&out, "\n");
+		config_append(&out, CONFIG_VERSION_TEXT);
+	}
+	platform_log("settings: config.toml updated (config_version %d): %d lines at a default commented out, to follow "
+		"this version's%s%s", CONFIG_VERSION, defaults, changed.length ? "; changed defaults: " : "",
+		changed.length ? changed.buffer : "");
+	free(changed.buffer);
+	return out.buffer;
 }
 
 static void config_load(void)
@@ -839,14 +1079,34 @@ static void config_load(void)
 
 		if (result.ok)
 		{
+			char *updated = config_update_layout(text, result.toptab);
 			char *completed;
 
+			if (updated)
+			{
+				/* (read as it is now, the defaults it gave up taking effect) */
+				toml_result_t updated_result = toml_parse(updated, (int)strlen(updated));
+
+				if (updated_result.ok)
+				{
+					toml_free(result);
+					free(text);
+					result = updated_result;
+					text = updated;
+				}
+				else
+				{
+					toml_free(updated_result);
+					free(updated);
+					updated = NULL;
+				}
+			}
 			for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
 				config_set_from_file(&config_values[index], &config_settings[index], result.toptab);
 			config_report_unknown_keys(result.toptab);
 			platform_log("settings: %s", path);
 			completed = config_add_missing(text, result.toptab);
-			if (completed && !config_write_file(path, completed))
+			if ((completed || updated) && !config_write_file(path, completed ? completed : text))
 				platform_log("settings: cannot write %s", path);
 			free(completed);
 		}
@@ -913,41 +1173,10 @@ static const struct config_value *config_value(const char *name, enum config_typ
 
 /* ---------- writing a setting */
 
-/* the line's key, if it is "key = ..." (after spaces), in key */
-static int config_line_key(const char *line, const char *end, const char *key)
-{
-	size_t length = strlen(key);
-
-	while (line < end && (*line == ' ' || *line == '\t'))
-		line++;
-	if ((size_t)(end - line) <= length || strncmp(line, key, length) != 0)
-		return 0;
-	line += length;
-	while (line < end && (*line == ' ' || *line == '\t'))
-		line++;
-	return line < end && *line == '=';
-}
-
-/* the section the line opens, if it is "[section]" (after spaces) */
-static int config_line_section(const char *line, const char *end, char *section, size_t size)
-{
-	const char *close;
-
-	while (line < end && (*line == ' ' || *line == '\t'))
-		line++;
-	if (line >= end || *line != '[')
-		return 0;
-	close = memchr(line, ']', (size_t)(end - line));
-	if (!close || (size_t)(close - line - 1) >= size)
-		return 0;
-	memcpy(section, line + 1, (size_t)(close - line - 1));
-	section[close - line - 1] = 0;
-	return 1;
-}
-
 /* sets a setting, for now and in config.toml, from its value as text
-("true", "60", "1.5", "all"): its line there is changed (or added), the rest
-of the file kept as it is */
+("true", "60", "1.5", "all"): its line there is changed (or added, or the
+line at its default taken out of its comment, now that the player chose
+it), the rest of the file kept as it is */
 int config_write(const char *name, const char *value)
 {
 	const char *dot = strchr(name, '.');
@@ -957,7 +1186,7 @@ int config_write(const char *name, const char *value)
 	size_t size = 0;
 	char *text;
 	const char *line;
-	int written = 0, in_section = 0, succeeded;
+	int written = 0, in_section = 0, has_value, succeeded;
 
 	if (index < 0 || !dot || (size_t)(dot - name) >= sizeof(section) || strlen(value) > 256)
 		return 0;
@@ -1000,6 +1229,9 @@ int config_write(const char *name, const char *value)
 	snprintf(wanted, sizeof(wanted), "%s", section);
 	config_path(path, sizeof(path));
 	text = config_read_file(path, &size);
+	/* (the commented-out line is the one replaced only when there is no
+	value) */
+	has_value = text && config_text_has_key(text, name, 0);
 	for (line = text ? text : ""; *line;)
 	{
 		const char *end = line + strcspn(line, "\n");
@@ -1015,7 +1247,8 @@ int config_write(const char *name, const char *value)
 			}
 			in_section = !strcmp(current, wanted);
 		}
-		else if (in_section && !written && config_line_key(line, end, key))
+		else if (in_section && !written &&
+			(has_value ? config_line_key(line, end, key) : config_line_commented_key(line, end, key)))
 		{
 			config_append(&out, line_text);
 			written = 1;

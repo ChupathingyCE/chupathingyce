@@ -170,15 +170,35 @@ problem.
 
 The settings are in `config.toml` next to the executable
 (`build/linux/config.toml`). At the first start, the game writes the file
-with the default values and a comment for each setting. To get the default
-values again, delete the file.
+with a comment for each setting and its default value, commented out:
+
+```toml
+# The menus: "xbox" for the Xbox's (with Online Games), "pc" for the
+# ...
+# menus = "xbox"
+```
+
+A setting that is commented out follows the default of the version that
+runs, so a new version with a different default changes it. To choose a
+value, remove the `# ` at the start of the line and change the value. Only
+the settings that you (or the Settings menu) change are lines without `#`;
+those stay as they are, also if a later version changes the default. To get
+the default values again, delete the file.
 
 The game reads the file at start-up. If a key is not correct, or a value
 has the wrong type, the game writes the line to the log and uses the default
 value. The Settings menu (Video, Mouse, Audio, Network and Controls Setup)
 changes the useful settings, writes them into the file (only their lines
-change) and applies them at once, but `audio.enabled`, and `display.menus`
-from the next main menu.
+change: the line of a setting at its default loses its `#`) and applies
+them at once, but `audio.enabled`, and `display.menus` from the next main
+menu. A new version adds its new settings to the file, commented out.
+
+Earlier versions wrote every setting as a value. The first start of this
+version updates such a file once (`config_version = 2` at the top
+marks it): a setting that holds the default of this version, or the
+default of an earlier version (`display.menus = "pc"`, the default before
+0.5.2b), is commented out, so that it follows the default. A setting with
+another value stays. The log has one line that tells what changed.
 
 Each setting has an environment variable. The environment variable changes
 the setting for one start of the game. It has priority over the file.
