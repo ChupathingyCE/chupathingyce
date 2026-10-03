@@ -142,6 +142,9 @@ symbols in this file:
 #include "units/bipeds.h"
 #include "units/units.h"
 #include "units/vehicles.h"
+#ifdef HALO_64BIT
+#include "game/game_engine.h" /* port: game_engine_vehicle_placement_begin, _allowed */
+#endif
 
 /* ---------- constants */
 
@@ -1160,6 +1163,9 @@ void object_types_place_all(
 	{
 		short object_type;
 
+		/* port: the gametype's vehicles counted afresh */
+		game_engine_vehicle_placement_begin();
+
 		for (object_type = 0; object_type < NUMBER_OF_OBJECT_TYPES; object_type++)
 		{
 			struct object_type_definition *definition;
@@ -1193,6 +1199,13 @@ void object_types_place_all(
 							scenario_datum_index,
 							element_size);
 
+					/* port: the gametype's vehicles of each team (game_variant_options:
+					every machine places the same) */
+					if (object_type == _object_type_vehicle &&
+						!game_engine_vehicle_placement_allowed(scenario_object, scenario_palette))
+					{
+						continue;
+					}
 					object_new_from_scenario(scenario_object, scenario_palette);
 					objects_garbage_collection();
 				}

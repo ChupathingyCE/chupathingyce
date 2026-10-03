@@ -7,10 +7,10 @@
 <p align="center">
 <a href="https://github.com/ChupathingyCE/chupathingyce/releases/latest">Download</a> ·
 <a href="https://halo.milenko.org">Games online now</a> ·
-<a href="https://discord.gg/fXNqnpaNay">Discord (Milenko x TeamUIX)</a>
+<a href="https://discord.gg/4BUm2FwuCB">Discord</a>
 </p>
 
-> **Compatible with [OpenCE](https://github.com/cybersecurity/halo-ce-universal) build-73 (network version 10). It can also join games hosted on build-55 through build-72.**
+> **Compatible with [OpenCE](https://github.com/cybersecurity/halo-ce-universal) build-76 through build-78 (network version 11).** Games hosted on older builds (network version 10) can't be joined; their hosts need to update.
 > Players on OpenCE and players on ChupathingyCE play together.
 
 ChupathingyCE is a community build of **OpenCE**, the port of the Halo: Combat
