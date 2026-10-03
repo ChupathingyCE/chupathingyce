@@ -186,6 +186,9 @@ symbols in this file:
 #include "cache/cache_files_decompress_windows.h"
 #include "cache/texture_cache.h"
 #include "interface/ui_widget.h"
+#ifdef HALO_64BIT
+#include "main/console.h"
+#endif
 #include "tag_files/files.h"
 #include "tag_files/tag_files.h"
 #include "scenario/scenario_definitions.h"
@@ -448,6 +451,12 @@ static char ce_map_name[64];
 map, for its indexed tags' pixels and samples (port/linux/game/ce_resources.c) */
 static HANDLE ce_request_files[MAXIMUM_SIMULTANEOUS_CACHE_REQUESTS];
 HANDLE ce_resources_file_for_tag(long tag_index);
+boolean ce_map_check(HANDLE file, char const *map_name, long file_length, long tag_data_offset,
+	long tag_data_size);
+/* the last map refused (ce_map_check), its size and checksum */
+static char ce_refused_map_name[64];
+static unsigned long ce_refused_map_size;
+static unsigned long ce_refused_map_checksum;
 
 static boolean ce_map_name_is(
 	const char *map_name)
@@ -458,39 +467,63 @@ static boolean ce_map_name_is(
 }
 
 /* the CE map named <name>@ce opened in its slot (once): FALSE if there is
-none, or it is not one */
+none, or it is not one, or it is refused (ce_map_check). The map open
+before stays open until another is accepted */
 static boolean ce_map_open(
 	const char *map_name)
 {
 	char path[256];
 	unsigned long bytes_read = 0;
+	struct cache_file_header header;
+	unsigned long file_size;
 	HANDLE file;
 	size_t length = strlen(map_name);
 
 	if (ce_map_file.file && !_stricmp(ce_map_name, map_name))
 		return TRUE;
-	if (ce_map_file.file)
-	{
-		CloseHandle(ce_map_file.file);
-		ce_map_file.file = NULL;
-	}
 	if (length - 3 >= 48)
 		return FALSE;
 	sprintf(path, "%sce\\%.*s.map", cache_files_map_directory(), (int)(length - 3), map_name);
 	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
 	if (file == INVALID_HANDLE_VALUE)
 		return FALSE;
-	if (!ReadFile(file, &ce_map_file.header, sizeof(ce_map_file.header), &bytes_read, NULL) ||
-		bytes_read != sizeof(ce_map_file.header) ||
-		!cache_file_header_verify((struct cache_file_header *)&ce_map_file.header, path, FALSE))
+	memset(&header, 0, sizeof(header));
+	file_size = GetFileSize(file, NULL);
+	if (!ReadFile(file, &header, sizeof(header), &bytes_read, NULL))
+		bytes_read = 0;
+	/* (a map refused already, unchanged: refused again, quietly) */
+	if (!_stricmp(ce_refused_map_name, map_name) && ce_refused_map_size == file_size &&
+		ce_refused_map_checksum == header.checksum)
 	{
 		CloseHandle(file);
 		return FALSE;
 	}
-	ce_map_file.file = file;
-	strncpy(ce_map_name, map_name, sizeof(ce_map_name) - 1);
-	error(_error_silent, "Custom Edition map %s: %s, build %s", map_name, path, ce_map_file.header.build);
-	return TRUE;
+	if (bytes_read != sizeof(header) || !cache_file_header_verify(&header, path, FALSE))
+	{
+		error(_error_silent, "Custom Edition map %s refused: %s is not a cache file of this version", map_name,
+			path);
+		console_warning("Custom Edition map %s refused: not a cache file of this version", map_name);
+	}
+	/* every offset, count and size in it that the port reads checked, before
+	it has a slot (port/linux/game/ce_map_checks.c) */
+	else if (ce_map_check(file, map_name, header.file_length, header.tag_data_offset, header.tag_data_size))
+	{
+		if (ce_map_file.file)
+			CloseHandle(ce_map_file.file);
+		ce_refused_map_name[0] = 0;
+		ce_map_file.file = file;
+		ce_map_file.header = header;
+		memset(ce_map_name, 0, sizeof(ce_map_name));
+		strncpy(ce_map_name, map_name, sizeof(ce_map_name) - 1);
+		error(_error_silent, "Custom Edition map %s: %s, build %.32s", map_name, path, ce_map_file.header.build);
+		return TRUE;
+	}
+	memset(ce_refused_map_name, 0, sizeof(ce_refused_map_name));
+	strncpy(ce_refused_map_name, map_name, sizeof(ce_refused_map_name) - 1);
+	ce_refused_map_size = file_size;
+	ce_refused_map_checksum = header.checksum;
+	CloseHandle(file);
+	return FALSE;
 }
 #endif
 

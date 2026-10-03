@@ -1,0 +1,67 @@
+/*
+CE_MAP_CHECKS.H
+
+What a Custom Edition map's data is read through while it is checked or
+converted (ce_map_checks.c): an image of the map's tag cache, or of one of its
+structure BSPs, and the reason a map is refused.
+*/
+
+#ifndef __CE_MAP_CHECKS_H
+#define __CE_MAP_CHECKS_H
+#pragma once
+
+#ifdef HALO_64BIT
+
+/* ---------- constants */
+
+enum
+{
+	/* (cache_files.c's: where a Custom Edition map's tags are) */
+	CE_IMAGE_TAG_CACHE_BASE = 0x40440000,
+	CE_IMAGE_TAG_CACHE_SIZE = 0x01700000,
+};
+
+/* ---------- structures */
+
+/* bytes standing for the Xbox addresses [base, base + size): the map's tag
+cache itself, or a copy of it (or of a BSP) being checked */
+struct ce_image
+{
+	byte *data;
+	unsigned long base;
+	unsigned long size;
+};
+
+/* ---------- prototypes */
+
+/* whether [offset, offset + size) lies within [0, limit), without overflow */
+boolean ce_range_within(unsigned long offset, unsigned long size, unsigned long limit);
+
+/* the bytes at address, if all size of them are in the image; else NULL */
+void *ce_image_pointer(struct ce_image const *image, unsigned long address, unsigned long size);
+
+/* a tag block (count, address) in the image at field: its elements, each
+element_size bytes, all in the image, and no more than maximum_count of them;
+FALSE (refused, naming what) if not. An empty block has no elements (NULL) */
+boolean ce_image_block(struct ce_image const *image, void const *field, unsigned long element_size,
+	unsigned long maximum_count, char const *what, long *count, byte **elements);
+
+/* a tag data (size, flags, file offset, address) in the image at field: its
+bytes, all in the image (NULL, and *size 0, if it is empty); FALSE (refused)
+if not */
+boolean ce_image_data(struct ce_image const *image, void const *field, char const *what, unsigned long *size,
+	byte **data);
+
+/* a tag instance's name, for messages */
+char const *ce_image_tag_name(struct ce_image const *image, void const *instance);
+
+/* the map being checked refused: the first reason given is kept (and
+logged by ce_map_check); returns FALSE */
+boolean ce_refuse(char const *format, ...);
+
+/* whether a map is being checked (ce_map_check) rather than loaded */
+boolean ce_map_checking(void);
+
+#endif
+
+#endif

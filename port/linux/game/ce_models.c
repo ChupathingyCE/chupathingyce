@@ -48,6 +48,7 @@ map keeps its channels, which the renderer has one order of.
 #include "errors.h"
 #include "math/real_math.h"
 #include "rasterizer/rasterizer_geometry.h"
+#include "ce_map_checks.h"
 
 #include <xtl.h>
 #include <stdlib.h>
@@ -75,6 +76,12 @@ enum
 	CE_PART_LOCAL_NODE_COUNT_OFFSET = 0x6b,
 	CE_PART_LOCAL_NODES_OFFSET = 0x6c,
 	CE_PART_LOCAL_NODES_FLAG = 2,
+	/* (model_definitions.h's MAXIMUM_NODES_PER_MODEL_GEOMETRY_PART) */
+	CE_PART_MAXIMUM_LOCAL_NODES = 22,
+	/* a part's blocks of vertices and triangles, which the Xbox's tools
+	leave empty, as Halo PC's do */
+	PART_BLOCKS_OFFSET = 0x20,
+	PART_BLOCKS_SIZE = 0x24,
 
 	/* shaders (shader_definitions.h's shader_base: its type), and a
 	transparent chicago shader's extra flags (rasterizer_xbox_transparent_geometry.c),
@@ -154,14 +161,24 @@ static long ce_multipurpose_bitmap_count;
 
 /* ---------- private code */
 
+/* a component of a unit vector, within [-1, 1] (not a number: 0), as the
+compressor asserts it is within a hundredth of */
+static real ce_unit_component(
+	real value)
+{
+	if (value != value)
+		return 0.0f;
+	return value < -1.0f ? -1.0f : value > 1.0f ? 1.0f : value;
+}
+
 static unsigned long ce_compress_vector(
 	real const *vector)
 {
 	union real_vector3d v;
 
-	v.i = vector[0];
-	v.j = vector[1];
-	v.k = vector[2];
+	v.i = ce_unit_component(vector[0]);
+	v.j = ce_unit_component(vector[1]);
+	v.k = ce_unit_component(vector[2]);
 	return compress_real_vector3d_to_int32_clamp(&v);
 }
 
@@ -212,7 +229,7 @@ static unsigned long ce_part_vertices(
 
 			if (node_index < 0)
 				node_index = in->node_indices[0] < 0 ? 0 : in->node_indices[0];
-			if (local_nodes && node_index < local_node_count)
+			if (local_nodes && node_index < local_node_count && node_index < CE_PART_MAXIMUM_LOCAL_NODES)
 				node_index = part[CE_PART_LOCAL_NODES_OFFSET + node_index];
 			out->node_indices[node] = (char)(node_index * 3);
 		}
@@ -436,6 +453,7 @@ boolean ce_models_tags_loaded(
 
 				csmemset(xbox_part, 0, XBOX_PART_SIZE);
 				csmemcpy(xbox_part, ce_part, PART_HEADER_SIZE);
+				csmemset(xbox_part + PART_BLOCKS_OFFSET, 0, PART_BLOCKS_SIZE);
 				ce_part_centroid_node(xbox_part + PART_CENTROID_PRIMARY_NODE_OFFSET, ce_part);
 				ce_part_centroid_node(xbox_part + PART_CENTROID_SECONDARY_NODE_OFFSET, ce_part);
 				/* the triangle buffer: type, count, the strip, its index buffer */
@@ -534,6 +552,401 @@ boolean ce_models_bitmap_is_multipurpose(
 	void const *bitmap)
 {
 	return ce_multipurpose_bitmap_listed(bitmap);
+}
+
+/* ---------- checks (ce_map_checks.c) */
+
+enum
+{
+	/* a gbxmodel (model_definitions.h's model: the Xbox's, but for its parts) */
+	MODEL_HEADER_SIZE = 0xe8,
+	MODEL_MARKERS_OFFSET = 0xac,
+	MODEL_NODES_OFFSET = 0xb8,
+	MODEL_REGIONS_OFFSET = 0xc4,
+	MODEL_SHADERS_OFFSET = 0xdc,
+	MODEL_MARKER_SIZE = 0x40,
+	MODEL_MARKER_INSTANCES_OFFSET = 0x34,
+	MODEL_MARKER_INSTANCE_SIZE = 0x20,
+	MODEL_NODE_SIZE = 0x9c,
+	MODEL_NODE_LINKS_OFFSET = 0x20,
+	MODEL_REGION_SIZE = 0x4c,
+	MODEL_REGION_PERMUTATIONS_OFFSET = 0x40,
+	MODEL_PERMUTATION_SIZE = 0x58,
+	MODEL_PERMUTATION_GEOMETRIES_OFFSET = 0x40,
+	MODEL_SHADER_SIZE = 0x20,
+	/* (model_definitions.h's maximums; the renderer skins at most 43 nodes:
+	rasterizer.h's RASTERIZER_MAXIMUM_NODES_PER_MODEL) */
+	CE_MAXIMUM_MODEL_NODES = 43,
+	CE_MAXIMUM_MODEL_MARKERS = 256,
+	CE_MAXIMUM_MARKER_INSTANCES = 32,
+	CE_MAXIMUM_MODEL_REGIONS = 32,
+	CE_MAXIMUM_REGION_PERMUTATIONS = 32,
+	CE_MAXIMUM_MODEL_GEOMETRIES = 256,
+	CE_MAXIMUM_GEOMETRY_PARTS = 32,
+	CE_MAXIMUM_MODEL_SHADERS = 32,
+	CE_MAXIMUM_PART_VERTICES = 0xffff,
+	CE_MAXIMUM_PART_TRIANGLES = 0xffff - 2,
+	CE_PART_SHADER_INDEX_OFFSET = 0x04,
+	CE_PART_PREVIOUS_PART_OFFSET = 0x06,
+	CE_PART_NEXT_PART_OFFSET = 0x07,
+	CE_PART_CENTROID_NODES_OFFSET = 0x08,
+	CE_TRIANGLE_BUFFER_PRECOMPILED_STRIP = 1,
+	/* (the room ce_models_tags_loaded takes of the tag cache: 16-byte
+	aligned) */
+	CE_BUFFER_HEADER_ROOM = 16,
+	/* shaders' groups and types, Halo PC's (shader_definitions.h, with
+	transparent chicago extended at 7) */
+	CE_SHADER_GROUP = 'shdr',
+	CE_SHADER_SIZE = 0x70,
+};
+
+#define CE_ALIGNED(size) (((size) + 15) & ~15UL)
+
+static short ce_read_short(
+	byte const *at)
+{
+	short value;
+
+	memcpy(&value, at, sizeof(value));
+	return value;
+}
+
+static long ce_read_long32(
+	byte const *at)
+{
+	long value;
+
+	memcpy(&value, at, sizeof(value));
+	return value;
+}
+
+static boolean ce_is_shader(
+	struct ce_tag_instance const *instance)
+{
+	return instance->group_tag == 'scex' || instance->group_tag == CE_SHADER_GROUP ||
+		instance->parent_group_tags[0] == CE_SHADER_GROUP || instance->parent_group_tags[1] == CE_SHADER_GROUP;
+}
+
+/* a model's nodes: few enough to skin, and a tree, each node's parent
+before it and its child and next sibling after it (so that walking it ends) */
+static boolean ce_model_nodes_check(
+	struct ce_image const *image,
+	byte const *model,
+	char const *name,
+	long *node_count)
+{
+	byte *nodes;
+	long index;
+
+	if (!ce_image_block(image, model + MODEL_NODES_OFFSET, MODEL_NODE_SIZE, CE_MAXIMUM_MODEL_NODES, name,
+		node_count, &nodes))
+	{
+		return FALSE;
+	}
+	if (!*node_count)
+		return ce_refuse("model %s has no nodes", name);
+	for (index = 0; index < *node_count; index++)
+	{
+		byte const *node = nodes + index * MODEL_NODE_SIZE;
+		short link;
+
+		for (link = 0; link < 3; link++)
+		{
+			short linked = ce_read_short(node + MODEL_NODE_LINKS_OFFSET + link * sizeof(short));
+
+			if (linked != NONE && (linked < 0 || linked >= *node_count))
+				return ce_refuse("model %s: node %ld is linked to node %d of %ld", name, index, linked, *node_count);
+		}
+	}
+	/* (from the first node, by children and siblings, no node reached
+	twice: walking the nodes ends) */
+	{
+		boolean reached[CE_MAXIMUM_MODEL_NODES] = { 0 };
+		short stack[2 * CE_MAXIMUM_MODEL_NODES + 1];
+		long stack_count = 0;
+
+		stack[stack_count++] = 0;
+		while (stack_count)
+		{
+			short node_index = stack[--stack_count];
+			byte const *node = nodes + node_index * MODEL_NODE_SIZE;
+			short next_sibling = ce_read_short(node + MODEL_NODE_LINKS_OFFSET);
+			short first_child = ce_read_short(node + MODEL_NODE_LINKS_OFFSET + 2);
+
+			if (reached[node_index])
+				return ce_refuse("model %s: node %d is reached twice from the first", name, node_index);
+			reached[node_index] = TRUE;
+			if (next_sibling != NONE)
+				stack[stack_count++] = next_sibling;
+			if (first_child != NONE)
+				stack[stack_count++] = first_child;
+		}
+	}
+	return TRUE;
+}
+
+/* a part's strip and vertices: in the model data, each index one of its
+vertices, each vertex's nodes the model's; the room its conversion takes */
+static boolean ce_part_check(
+	byte const *part,
+	char const *name,
+	long node_count,
+	byte const *model_data,
+	unsigned long model_data_size,
+	unsigned long vertex_data_size,
+	unsigned long *bytes)
+{
+	short triangle_type = ce_read_short(part + PART_TRIANGLE_BUFFER_OFFSET);
+	long triangle_count = ce_read_long32(part + PART_TRIANGLE_BUFFER_OFFSET + 4);
+	unsigned long triangle_offset = (unsigned long)ce_read_long32(part + PART_TRIANGLE_BUFFER_OFFSET + 8);
+	long vertex_count = ce_read_long32(part + PART_VERTEX_BUFFER_OFFSET + 4);
+	unsigned long vertex_offset = (unsigned long)ce_read_long32(part + PART_VERTEX_BUFFER_OFFSET + 16);
+	byte local_node_count = part[CE_PART_LOCAL_NODE_COUNT_OFFSET];
+	boolean local_nodes = (ce_read_long32(part) & CE_PART_LOCAL_NODES_FLAG) && local_node_count;
+	unsigned long index_count;
+	long index;
+
+	if (triangle_type != CE_TRIANGLE_BUFFER_PRECOMPILED_STRIP || triangle_count < 0 ||
+		triangle_count > CE_MAXIMUM_PART_TRIANGLES)
+	{
+		return ce_refuse("model %s: a part's triangles (%ld, of type %d) are not a strip", name, triangle_count,
+			triangle_type);
+	}
+	if (vertex_count < 0 || vertex_count > CE_MAXIMUM_PART_VERTICES)
+		return ce_refuse("model %s: a part has %ld vertices", name, vertex_count);
+	index_count = (unsigned long)triangle_count + 2;
+	if (!ce_range_within(vertex_offset, (unsigned long)vertex_count * CE_VERTEX_SIZE, vertex_data_size) ||
+		triangle_offset > model_data_size ||
+		!ce_range_within(vertex_data_size, index_count * sizeof(word), model_data_size) ||
+		!ce_range_within(triangle_offset, index_count * sizeof(word), model_data_size - vertex_data_size))
+	{
+		return ce_refuse("model %s: a part's vertices or strip are not in the model data", name);
+	}
+	if (local_nodes && local_node_count > CE_PART_MAXIMUM_LOCAL_NODES)
+		return ce_refuse("model %s: a part has %d local nodes", name, local_node_count);
+	for (index = 0; local_nodes && index < local_node_count; index++)
+	{
+		if (part[CE_PART_LOCAL_NODES_OFFSET + index] >= node_count)
+			return ce_refuse("model %s: a part's local node %ld is node %d", name, index,
+				part[CE_PART_LOCAL_NODES_OFFSET + index]);
+	}
+	/* (the strip, used whole by the renderer: every index one of the
+	part's vertices) */
+	for (index = 0; index < (long)index_count; index++)
+	{
+		word vertex_index;
+
+		memcpy(&vertex_index, model_data + vertex_data_size + triangle_offset + index * sizeof(word),
+			sizeof(vertex_index));
+		if (vertex_index >= vertex_count)
+			return ce_refuse("model %s: a part's strip names vertex %u of %ld", name, vertex_index, vertex_count);
+	}
+	/* (each vertex's nodes, as ce_part_vertices finds them) */
+	for (index = 0; index < vertex_count; index++)
+	{
+		struct ce_vertex vertex;
+		short node;
+
+		memcpy(&vertex, model_data + vertex_offset + index * CE_VERTEX_SIZE, sizeof(vertex));
+		for (node = 0; node < 2; node++)
+		{
+			short node_index = vertex.node_indices[node];
+
+			if (node_index < 0)
+				node_index = vertex.node_indices[0] < 0 ? 0 : vertex.node_indices[0];
+			if (local_nodes && node_index < local_node_count)
+				node_index = part[CE_PART_LOCAL_NODES_OFFSET + node_index];
+			if (node_index >= node_count)
+				return ce_refuse("model %s: a vertex is skinned to node %d of %ld", name, node_index, node_count);
+		}
+	}
+	*bytes += CE_ALIGNED(index_count * sizeof(word)) + 2 * CE_BUFFER_HEADER_ROOM;
+	return TRUE;
+}
+
+/* every gbxmodel of a map being checked: its blocks in the tags, its
+indices each naming one of what it indexes, its parts' strips and vertices
+in the model data; the room its conversion takes of the tag cache added to
+*bytes (ce_models_tags_loaded) */
+boolean ce_models_check(
+	struct ce_image const *image,
+	void const *tag_instances,
+	long tag_count,
+	byte const *model_data,
+	unsigned long model_data_size,
+	unsigned long vertex_data_size,
+	unsigned long *bytes)
+{
+	long index;
+
+	*bytes = 0;
+	for (index = 0; index < tag_count; index++)
+	{
+		struct ce_tag_instance const *instance = (struct ce_tag_instance const *)((byte const *)tag_instances +
+			index * CE_TAG_INSTANCE_SIZE);
+		char const *name;
+		byte *model, *markers, *regions, *geometries, *shaders;
+		long node_count, marker_count, region_count, geometry_count, shader_count, item;
+
+		if (instance->group_tag != 'mod2')
+			continue;
+		name = ce_image_tag_name(image, instance);
+		model = ce_image_pointer(image, instance->base_address, MODEL_HEADER_SIZE);
+		if (!model)
+			return ce_refuse("model %s is not in the tags", name);
+		if (!ce_model_nodes_check(image, model, name, &node_count) ||
+			!ce_image_block(image, model + MODEL_MARKERS_OFFSET, MODEL_MARKER_SIZE, CE_MAXIMUM_MODEL_MARKERS, name,
+				&marker_count, &markers) ||
+			!ce_image_block(image, model + MODEL_REGIONS_OFFSET, MODEL_REGION_SIZE, CE_MAXIMUM_MODEL_REGIONS, name,
+				&region_count, &regions) ||
+			!ce_image_block(image, model + MODEL_GEOMETRIES_OFFSET, GEOMETRY_SIZE, CE_MAXIMUM_MODEL_GEOMETRIES, name,
+				&geometry_count, &geometries) ||
+			!ce_image_block(image, model + MODEL_SHADERS_OFFSET, MODEL_SHADER_SIZE, CE_MAXIMUM_MODEL_SHADERS, name,
+				&shader_count, &shaders))
+		{
+			return FALSE;
+		}
+		/* (the shaders: each a shader's tag, as tag_get asserts) */
+		for (item = 0; item < shader_count; item++)
+		{
+			unsigned long shader_index = (unsigned long)ce_read_long32(shaders + item * MODEL_SHADER_SIZE + 0xc);
+			struct ce_tag_instance const *shader = (struct ce_tag_instance const *)((byte const *)tag_instances +
+				(shader_index & 0xffff) * CE_TAG_INSTANCE_SIZE);
+
+			if ((shader_index & 0xffff) >= (unsigned long)tag_count || shader->tag_index != shader_index ||
+				!ce_is_shader(shader))
+			{
+				return ce_refuse("model %s: shader %ld is not a shader (%08lx)", name, item, shader_index);
+			}
+		}
+		/* (the markers' instances: of the model's nodes and regions) */
+		for (item = 0; item < marker_count; item++)
+		{
+			byte *instances;
+			long instance_count, instance_index;
+
+			if (!ce_image_block(image, markers + item * MODEL_MARKER_SIZE + MODEL_MARKER_INSTANCES_OFFSET,
+				MODEL_MARKER_INSTANCE_SIZE, CE_MAXIMUM_MARKER_INSTANCES, name, &instance_count, &instances))
+			{
+				return FALSE;
+			}
+			for (instance_index = 0; instance_index < instance_count; instance_index++)
+			{
+				byte const *marker = instances + instance_index * MODEL_MARKER_INSTANCE_SIZE;
+
+				if (marker[0] >= region_count || marker[2] >= node_count)
+					return ce_refuse("model %s: a marker is on region %d, node %d", name, marker[0], marker[2]);
+			}
+		}
+		/* (the regions' permutations: each level of detail one of the
+		model's geometries, or none) */
+		for (item = 0; item < region_count; item++)
+		{
+			byte *permutations;
+			long permutation_count, permutation;
+
+			if (!ce_image_block(image, regions + item * MODEL_REGION_SIZE + MODEL_REGION_PERMUTATIONS_OFFSET,
+				MODEL_PERMUTATION_SIZE, CE_MAXIMUM_REGION_PERMUTATIONS, name, &permutation_count, &permutations))
+			{
+				return FALSE;
+			}
+			for (permutation = 0; permutation < permutation_count; permutation++)
+			{
+				short level;
+
+				for (level = 0; level < 5; level++)
+				{
+					short geometry = ce_read_short(permutations + permutation * MODEL_PERMUTATION_SIZE +
+						MODEL_PERMUTATION_GEOMETRIES_OFFSET + level * sizeof(short));
+
+					if (geometry != NONE && (geometry < 0 || geometry >= geometry_count))
+						return ce_refuse("model %s: a permutation draws geometry %d of %ld", name, geometry,
+							geometry_count);
+				}
+			}
+		}
+		/* (the geometries' parts) */
+		for (item = 0; item < geometry_count; item++)
+		{
+			byte *parts;
+			long part_count, part;
+
+			if (!ce_image_block(image, geometries + item * GEOMETRY_SIZE + GEOMETRY_PARTS_OFFSET, CE_PART_SIZE,
+				CE_MAXIMUM_GEOMETRY_PARTS, name, &part_count, &parts))
+			{
+				return FALSE;
+			}
+			*bytes += CE_ALIGNED((unsigned long)part_count * XBOX_PART_SIZE);
+			for (part = 0; part < part_count; part++)
+			{
+				byte const *at = parts + part * CE_PART_SIZE;
+				short shader_index = ce_read_short(at + CE_PART_SHADER_INDEX_OFFSET);
+				signed char previous = (signed char)at[CE_PART_PREVIOUS_PART_OFFSET];
+				signed char next = (signed char)at[CE_PART_NEXT_PART_OFFSET];
+				short primary = ce_read_short(at + CE_PART_CENTROID_NODES_OFFSET);
+				short secondary = ce_read_short(at + CE_PART_CENTROID_NODES_OFFSET + 2);
+
+				if (shader_index < 0 || shader_index >= shader_count)
+					return ce_refuse("model %s: a part's shader is %d of %ld", name, shader_index, shader_count);
+				if ((previous != NONE && (previous < 0 || previous >= part_count)) ||
+					(next != NONE && (next < 0 || next >= part_count)))
+				{
+					return ce_refuse("model %s: a part's neighbours are parts %d and %d of %ld", name, previous, next,
+						part_count);
+				}
+				if (primary < 0 || primary >= node_count || secondary < 0 || secondary >= node_count)
+					return ce_refuse("model %s: a part's centroid is on nodes %d and %d", name, primary, secondary);
+				if (!ce_part_check(at, name, node_count, model_data, model_data_size, vertex_data_size, bytes))
+					return FALSE;
+			}
+		}
+	}
+	return TRUE;
+}
+
+/* every shader of a map being checked: in the tags, and of its group's type
+(Halo PC's numbering, which ce_shaders_tags_loaded makes the Xbox's) */
+boolean ce_shaders_check(
+	struct ce_image const *image,
+	void const *tag_instances,
+	long tag_count)
+{
+	static struct
+	{
+		unsigned long group_tag;
+		short type;
+	} const types[] =
+	{
+		{ 'senv', 3 }, { 'soso', 4 }, { 'sotr', 5 }, { 'schi', 6 }, { 'scex', 7 },
+		{ 'swat', 8 }, { 'sgla', 9 }, { 'smet', 10 }, { 'spla', 11 },
+	};
+	long index;
+
+	for (index = 0; index < tag_count; index++)
+	{
+		struct ce_tag_instance const *instance = (struct ce_tag_instance const *)((byte const *)tag_instances +
+			index * CE_TAG_INSTANCE_SIZE);
+		byte const *shader;
+		short type;
+		long type_index;
+
+		if (!ce_is_shader(instance))
+			continue;
+		shader = ce_image_pointer(image, instance->base_address, CE_SHADER_SIZE);
+		if (!shader)
+			return ce_refuse("shader %s is not in the tags", ce_image_tag_name(image, instance));
+		type = ce_read_short(shader + SHADER_TYPE_OFFSET);
+		for (type_index = 0; type_index < (long)NUMBEROF(types); type_index++)
+		{
+			if (types[type_index].group_tag == instance->group_tag)
+				break;
+		}
+		if (type_index < (long)NUMBEROF(types) ? type != types[type_index].type : (type < 0 || type > 11))
+		{
+			return ce_refuse("shader %s is of type %d, not its group's", ce_image_tag_name(image, instance), type);
+		}
+	}
+	return TRUE;
 }
 
 #endif

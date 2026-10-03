@@ -890,6 +890,8 @@ long scenario_tags_load(
 				{
 					unsigned long bsp_base = (unsigned long)xbox_address(xbox_pointer(bsps[bsp_index].base_address));
 
+					/* (each above the tags, within the tag cache, checked
+					before the map was opened: ce_map_checks.c) */
 					if (bsp_base > CE_TAG_CACHE_BASE && bsp_base < end_free)
 						end_free = bsp_base;
 				}
@@ -1016,6 +1018,11 @@ boolean scenario_structure_bsp_load(
 	byte *tag_cache_base_address;
 
 	tag_cache_base_address = physical_memory_get_tag_cache_base_address();
+#ifdef HALO_64BIT
+	/* port: (not a Custom Edition map's: its tags are in a tag cache of their
+	own, and may be more than the Xbox's holds) */
+	if (!cache_file_is_ce)
+#endif
 	csmemset(
 		tag_cache_base_address + cache_file_globals.header.tag_data_size,
 		0xCD,

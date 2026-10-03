@@ -31,6 +31,7 @@ hud_definitions.hpp agrees).
 #include "cseries.h"
 #include "cseries_windows.h"
 #include "errors.h"
+#include "ce_map_checks.h"
 
 /* ---------- constants */
 
@@ -104,6 +105,12 @@ enum
 
 	/* the most meter bitmaps listed (Blood Gulch has 2) */
 	MAXIMUM_CE_HUD_METER_BITMAPS = 64,
+
+	/* (for the checks: a tag block's and a placement's sizes, and the most
+	elements of a HUD block checked, more than any would hold) */
+	TAG_BLOCK_SIZE = 0x0c,
+	PLACEMENT_SIZE = 0x10,
+	CE_HUD_MAXIMUM_ELEMENTS = 0x1000,
 };
 
 /* ---------- structures */
@@ -344,6 +351,98 @@ void ce_hud_tags_unloaded(
 	void)
 {
 	ce_hud_meter_bitmap_count = 0;
+}
+
+/* the blocks of a weapon HUD interface's crosshairs or overlays, and their
+items' blocks: in the tags */
+static boolean ce_hud_check_items(
+	struct ce_image const *image,
+	byte const *block,
+	unsigned long element_size,
+	unsigned long item_size,
+	char const *name)
+{
+	byte *elements, *items;
+	long count, item_count, index;
+
+	if (!ce_image_block(image, block, element_size, CE_HUD_MAXIMUM_ELEMENTS, name, &count, &elements))
+		return FALSE;
+	for (index = 0; index < count; index++)
+	{
+		if (!ce_image_block(image, elements + index * element_size + WEAPON_HUD_ITEMS_OFFSET, item_size,
+			CE_HUD_MAXIMUM_ELEMENTS, name, &item_count, &items))
+		{
+			return FALSE;
+		}
+	}
+	return TRUE;
+}
+
+/* a Custom Edition map being checked (ce_map_checks.c): every HUD
+interface ce_hud_tags_loaded reads in the tags, and each block it walks */
+boolean ce_hud_check(
+	struct ce_image const *image,
+	void const *tag_instances,
+	long tag_count)
+{
+	long index;
+
+	for (index = 0; index < tag_count; index++)
+	{
+		struct ce_tag_instance const *instance = (struct ce_tag_instance const *)((byte const *)tag_instances +
+			index * CE_TAG_INSTANCE_SIZE);
+		char const *name = ce_image_tag_name(image, instance);
+		unsigned long size;
+		byte *hud, *elements;
+		long count;
+
+		switch (instance->group_tag)
+		{
+		case 'unhi': size = UNIT_HUD_AUXILARY_METERS_OFFSET + TAG_BLOCK_SIZE; break;
+		case 'wphi': size = WEAPON_HUD_OVERLAYS_OFFSET + TAG_BLOCK_SIZE; break;
+		case 'grhi': size = GRENADE_HUD_OVERLAY_ITEMS_OFFSET + TAG_BLOCK_SIZE; break;
+		case 'hudg': size = HUD_GLOBALS_MESSAGING_PLACEMENT_OFFSET + PLACEMENT_SIZE; break;
+		default: continue;
+		}
+		hud = ce_image_pointer(image, instance->base_address, size);
+		if (!hud)
+			return ce_refuse("HUD %s is not in the tags", name);
+		switch (instance->group_tag)
+		{
+		case 'unhi':
+			if (!ce_image_block(image, hud + UNIT_HUD_AUXILARY_OVERLAYS_OFFSET, AUXILARY_OVERLAY_SIZE,
+				CE_HUD_MAXIMUM_ELEMENTS, name, &count, &elements) ||
+				!ce_image_block(image, hud + UNIT_HUD_AUXILARY_METERS_OFFSET, AUXILARY_METER_SIZE,
+				CE_HUD_MAXIMUM_ELEMENTS, name, &count, &elements))
+			{
+				return FALSE;
+			}
+			break;
+		case 'wphi':
+			if (!ce_image_block(image, hud + WEAPON_HUD_STATICS_OFFSET, WEAPON_HUD_STATIC_SIZE,
+				CE_HUD_MAXIMUM_ELEMENTS, name, &count, &elements) ||
+				!ce_image_block(image, hud + WEAPON_HUD_METERS_OFFSET, WEAPON_HUD_METER_SIZE,
+				CE_HUD_MAXIMUM_ELEMENTS, name, &count, &elements) ||
+				!ce_image_block(image, hud + WEAPON_HUD_NUMBERS_OFFSET, WEAPON_HUD_NUMBER_SIZE,
+				CE_HUD_MAXIMUM_ELEMENTS, name, &count, &elements) ||
+				!ce_hud_check_items(image, hud + WEAPON_HUD_CROSSHAIRS_OFFSET, WEAPON_HUD_CROSSHAIRS_SIZE,
+					WEAPON_HUD_CROSSHAIR_ITEM_SIZE, name) ||
+				!ce_hud_check_items(image, hud + WEAPON_HUD_OVERLAYS_OFFSET, WEAPON_HUD_OVERLAYS_SIZE,
+					WEAPON_HUD_OVERLAY_ITEM_SIZE, name))
+			{
+				return FALSE;
+			}
+			break;
+		case 'grhi':
+			if (!ce_image_block(image, hud + GRENADE_HUD_OVERLAY_ITEMS_OFFSET, WEAPON_HUD_OVERLAY_ITEM_SIZE,
+				CE_HUD_MAXIMUM_ELEMENTS, name, &count, &elements))
+			{
+				return FALSE;
+			}
+			break;
+		}
+	}
+	return TRUE;
 }
 
 /* whether a bitmap (bitmap_data) of the map loaded is a Custom Edition

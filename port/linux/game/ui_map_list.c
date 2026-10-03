@@ -29,6 +29,7 @@ stands in.
 #include "cseries.h"
 #include "cseries_windows.h"
 #include "bitmaps/bitmap_group.h"
+#include "bitmaps/bitmaps.h"
 #include "rasterizer/rasterizer_swizzle.h"
 
 #include <xtl.h>
@@ -223,7 +224,10 @@ static byte *ce_tag_find(
 
 	if (!header)
 		return NULL;
-	/* (its instances' address, ..., their count) */
+	/* (its instances' address, ..., their count: no more than its tags
+hold, so that the size does not overflow) */
+	if (header[3] > ce_tags_size / 0x20)
+		return NULL;
 	instances = ce_tags_pointer(header[0], header[3] * 0x20);
 	if (!instances)
 		return NULL;
@@ -300,6 +304,7 @@ static void ce_pictures_read(
 		unsigned short flags = *(unsigned short *)(element + 0xe);
 		unsigned long pixels_offset = *(unsigned long *)(element + 0x18);
 		unsigned long pixels_size = *(unsigned long *)(element + 0x1c);
+		unsigned long allocated_size;
 		HANDLE file = ui_file;
 		D3DBaseTexture *texture;
 		void *pixels;
@@ -317,11 +322,20 @@ static void ce_pictures_read(
 		bitmap->pixels_size = pixels_size;
 		bitmap->tag_index = NONE;
 		bitmap->cache_block_index = NONE;
+		/* (a 2D bitmap the game draws, of a format with a Direct3D one:
+		bitmap_format_to_d3d_format asserts there is) */
 		if (bitmap->type != CE_BITMAP_TYPE_2D || bitmap->width <= 0 || bitmap->height <= 0 ||
-			pixels_size == 0 || pixels_size > 0x100000)
+			pixels_size == 0 || pixels_size > 0x100000 || !bitmap_verify(bitmap, FALSE) ||
+			bitmap->format == 4 || bitmap->format == 5 || bitmap->format == 7 || bitmap->format == 12 ||
+			bitmap->format == 13 || (bitmap->flags & 0x10))
 		{
 			break;
 		}
+		/* (as much as the renderer reads of its size and format, as the
+		texture cache gives it: the pixels the file has, the rest zero) */
+		allocated_size = MAX(pixels_size, (unsigned long)rasterizer_xbox_bitmap_get_pixel_data_size(bitmap));
+		if (allocated_size > 0x400000)
+			break;
 		if (flags & CE_BITMAP_EXTERNAL_FLAG)
 		{
 			if (bitmaps_file == INVALID_HANDLE_VALUE)
@@ -335,8 +349,10 @@ static void ce_pictures_read(
 			}
 			file = bitmaps_file;
 		}
-		pixels = XPhysicalAlloc(pixels_size, -1, 0, PAGE_READWRITE);
+		pixels = XPhysicalAlloc(allocated_size, -1, 0, PAGE_READWRITE);
 		texture = XPhysicalAlloc(sizeof(D3DBaseTexture), -1, 0, PAGE_READWRITE);
+		if (pixels)
+			memset(pixels, 0, allocated_size);
 		if (!pixels || !texture || !file_read(file, pixels_offset, pixels, pixels_size))
 		{
 			if (pixels)
