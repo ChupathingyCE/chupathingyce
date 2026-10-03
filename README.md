@@ -10,7 +10,7 @@
 <a href="https://discord.gg/4BUm2FwuCB">Discord</a>
 </p>
 
-> **Compatible with [OpenCE](https://github.com/cybersecurity/halo-ce-universal) build-76 through build-80 (network version 11).** Games hosted on older builds (network version 10) can't be joined; their hosts need to update.
+> **Compatible with [OpenCE](https://github.com/cybersecurity/halo-ce-universal) build-76 through build-82 (network version 11).** Games hosted on older builds (network version 10) can't be joined; their hosts need to update.
 > Players on OpenCE and players on ChupathingyCE play together.
 
 ChupathingyCE is a community build of **OpenCE**, the port of the Halo: Combat
@@ -47,10 +47,12 @@ own releases. Expect rough edges, and please report them.
 
 | | Windows | Mac | Linux | Android |
 | --- | --- | --- | --- | --- |
-| The game | ✅ | ✅ Apple silicon and Intel | ✅ | ✅ |
-| Online Games, hosting, stats | ✅ | ✅ | ✅ | ✅ |
-| Dedicated server | ✅ (tested in Wine) | Untested | ✅ (and Docker) | |
-| Updates itself | ✅ | Not yet | ✅ | ✅ |
+| The game | Yes | Yes, Apple silicon and Intel | Yes | Yes |
+| Online Games, hosting, stats | Yes | Yes | Yes | Yes |
+| Dedicated server | Yes (tested in Wine) | Untested | Yes (and Docker) | |
+| Updates itself | Yes | Not yet | Yes | Yes |
+| Halo PC (Custom Edition) maps | Not yet (32-bit) | Yes | Yes | Not yet |
+| Server Browser in the PC menus | Yes | Yes | Yes | Yes |
 
 ## Download
 
@@ -84,6 +86,23 @@ disc image (`.iso` or `.xiso`) of Halo: Combat Evolved. Any region works.
 On Android, copy the disc image to your phone first. On a Mac, the maps,
 settings and saves go in `~/Library/Application Support/ChupathingyCE`.
 
+## Halo PC maps
+
+ChupathingyCE also plays Halo PC (Custom Edition) multiplayer maps, on a Mac
+and on Linux. Copy the `.map` files from your own Halo PC (Custom Edition)
+install into a `ce` folder inside the game's `maps` folder:
+
+| Platform | Put Halo PC maps in |
+| --- | --- |
+| Mac | `~/Library/Application Support/ChupathingyCE/maps/ce/` |
+| Linux | `maps/ce/` next to the `halo` executable |
+
+Include `bitmaps.map`, `sounds.map` and `loc.map`, which the maps share. Halo PC's
+own `ui.map` adds its map names and pictures. The maps appear in the multiplayer
+map list after the Xbox maps, marked HALO PC. In Online Games, a game on a Halo PC
+map is badged, and it can be joined only by players who have that map: the game
+says which file is missing. The Xbox maps from your disc image are still needed.
+
 ## Playing online
 
 | You want to | Do this |
@@ -94,6 +113,7 @@ settings and saves go in `~/Library/Application Support/ChupathingyCE`.
 | See your stats | Your service record is on [halo.milenko.org](https://halo.milenko.org), found by your name. |
 | Make an account | On [halo.milenko.org/profile](https://halo.milenko.org/profile), or press **Start** in Online Games to make one for the player you already are. |
 | Link the game without a browser (Steam Deck, Game Mode) | In Online Games, press **RB** (or **C** on the keyboard) for Link Profile. On your phone or computer, go to [halo.milenko.org/connect](https://halo.milenko.org/connect), enter the code the game shows (or scan its QR code), then press **A** in the game to confirm. |
+| Use the PC menus | Set `menus = "pc"` under `[display]` in `config.toml`. **Multiplayer → Join Game → Server Browser** lists the same games as Online Games. |
 | List a game from an OpenCE build | Sign in on the site, open **Host a Game**, and paste your invite link. |
 
 Everything here plays with OpenCE builds of the same network version: they can
