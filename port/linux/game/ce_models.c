@@ -42,7 +42,6 @@ enum
 
 	/* a model's geometries, a geometry's parts */
 	MODEL_GEOMETRIES_OFFSET = 0xd0,
-	MODEL_BASE_MAP_SCALE_OFFSET = 0x30,
 	GEOMETRY_SIZE = 0x30,
 	GEOMETRY_PARTS_OFFSET = 0x24,
 
@@ -137,8 +136,7 @@ static unsigned long ce_part_vertices(
 	byte const *model_data,
 	unsigned long vertex_offset,
 	long count,
-	byte const *part,
-	real const *base_map_scale)
+	byte const *part)
 {
 	struct xbox_vertex *vertices;
 	unsigned long *buffer = NULL;
@@ -168,12 +166,11 @@ static unsigned long ce_part_vertices(
 		out->normal = ce_compress_vector(in->normal);
 		out->binormal = ce_compress_vector(in->binormal);
 		out->tangent = ce_compress_vector(in->tangent);
-		/* (the Xbox's are fractions of the base map scale; Halo PC's are
-		already multiplied by it) */
-		out->texture_coordinates[0] = compress_real_to_int16_clamp(base_map_scale[0] != 0.0f
-			? in->texture_coordinates[0] / base_map_scale[0] : in->texture_coordinates[0]);
-		out->texture_coordinates[1] = compress_real_to_int16_clamp(base_map_scale[1] != 0.0f
-			? in->texture_coordinates[1] / base_map_scale[1] : in->texture_coordinates[1]);
+		/* (fractions of the base map scale in both: Halo PC's are not
+		multiplied by it, the renderer multiplies both by it; the warthog's
+		scale is 2 by 3, its coordinates 0.33 to 1) */
+		out->texture_coordinates[0] = compress_real_to_int16_clamp(in->texture_coordinates[0]);
+		out->texture_coordinates[1] = compress_real_to_int16_clamp(in->texture_coordinates[1]);
 		for (node = 0; node < 2; node++)
 		{
 			short node_index = in->node_indices[node];
@@ -237,14 +234,12 @@ boolean ce_models_tags_loaded(
 		struct ce_tag_instance *instance = (struct ce_tag_instance *)((byte *)tag_instances +
 			index * CE_TAG_INSTANCE_SIZE);
 		byte *model;
-		real base_map_scale[2];
 		unsigned long geometry_count, geometries;
 		unsigned long geometry;
 
 		if (instance->group_tag != 'mod2')
 			continue;
 		model = xbox_pointer(instance->base_address);
-		csmemcpy(base_map_scale, model + MODEL_BASE_MAP_SCALE_OFFSET, sizeof(base_map_scale));
 		geometry_count = *(unsigned long *)(model + MODEL_GEOMETRIES_OFFSET);
 		geometries = *(unsigned long *)(model + MODEL_GEOMETRIES_OFFSET + 4);
 		for (geometry = 0; geometry < geometry_count; geometry++)
@@ -283,7 +278,7 @@ boolean ce_models_tags_loaded(
 				*(short *)(xbox_part + PART_VERTEX_BUFFER_OFFSET) = XBOX_MODEL_VERTEX_TYPE;
 				*(long *)(xbox_part + PART_VERTEX_BUFFER_OFFSET + 4) = vertex_count;
 				*(unsigned long *)(xbox_part + PART_VERTEX_BUFFER_OFFSET + 16) =
-					ce_part_vertices(model_data, vertex_offset, vertex_count, ce_part, base_map_scale);
+					ce_part_vertices(model_data, vertex_offset, vertex_count, ce_part);
 				parts_converted++;
 			}
 			*(unsigned long *)(geometry_data + GEOMETRY_PARTS_OFFSET + 4) = xbox_parts_address;
