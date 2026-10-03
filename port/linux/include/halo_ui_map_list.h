@@ -45,4 +45,11 @@ struct bitmap_data *ui_map_list_picture(short frame_index);
 /* the text of a string list index of this list's, or NULL for ui.map's */
 wchar_t const *ui_map_list_text(short string_list_index);
 
+/* a Custom Edition map, by its file's name (the server browser's): its name
+(Halo PC's own, or the file's made readable; every build), Halo PC's
+picture of it (or NULL), and whether maps\ce has it (64-bit builds) */
+void ui_map_list_ce_name(char const *file, wchar_t *name, long size);
+struct bitmap_data *ui_map_list_ce_picture(char const *file);
+boolean ui_map_list_ce_present(char const *file);
+
 #endif

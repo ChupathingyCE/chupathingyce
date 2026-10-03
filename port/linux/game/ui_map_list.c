@@ -22,22 +22,117 @@ the map's by Halo PC's order of its maps (ce_maps); a map of another's
 making is named by its file, with Halo PC's picture for an unknown level.
 Without Halo PC's ui.map, the names are ce_maps' and an Xbox map's picture
 stands in.
-*/
 
-#ifdef HALO_64BIT
+The server browser (browser_screen.c) names a listed game's Custom Edition
+map by the same (ui_map_list_ce_name), on every build: the 32-bit builds,
+which play no Custom Edition map, still name one. On the 64-bit builds it
+has Halo PC's picture of the map (ui_map_list_ce_picture) and asks whether
+the map is in maps\ce (ui_map_list_ce_present).
+*/
 
 #include "cseries.h"
 #include "cseries_windows.h"
+
+#include <stdio.h>
+#include <string.h>
+
+#include "halo_ui_map_list.h"
+
+/* Halo PC's multiplayer maps, in the order of its map list (its strings and
+pictures), and an Xbox map of the same kind whose picture stands in
+without Halo PC's ui.map */
+static struct
+{
+	char const *file;
+	wchar_t const *name;
+	short xbox_picture_index;
+} const ce_maps[] =
+{
+	{ "beavercreek", L"Battle Creek", 0 },
+	{ "sidewinder", L"Sidewinder", 1 },
+	{ "damnation", L"Damnation", 2 },
+	{ "ratrace", L"Rat Race", 3 },
+	{ "prisoner", L"Prisoner", 4 },
+	{ "hangemhigh", L"Hang 'Em High", 5 },
+	{ "chillout", L"Chill Out", 6 },
+	{ "carousel", L"Derelict", 7 },
+	{ "boardingaction", L"Boarding Action", 8 },
+	{ "bloodgulch", L"Blood Gulch", 9 },
+	{ "wizard", L"Wizard", 10 },
+	{ "putput", L"Chiron TL34", 11 },
+	{ "longest", L"Longest", 12 },
+	{ "icefields", L"Ice Fields", 1 },
+	{ "deathisland", L"Death Island", 1 },
+	{ "dangercanyon", L"Danger Canyon", 9 },
+	{ "infinity", L"Infinity", 9 },
+	{ "timberland", L"Timberland", 9 },
+	{ "gephyrophobia", L"Gephyrophobia", 2 },
+};
+
+/* a map file's place in ce_maps (by its name, any case), or NONE */
+static long ce_map_index(
+	char const *file)
+{
+	long index;
+
+	for (index = 0; index < (long)NUMBEROF(ce_maps); index++)
+	{
+		char const *a = file;
+		char const *b = ce_maps[index].file;
+
+		while (*a && (*a | 0x20) == *b)
+		{
+			a++;
+			b++;
+		}
+		if (!*a && !*b)
+			return index;
+	}
+	return NONE;
+}
+
+/* a map file's name made readable, as the game list's web pages make it:
+its underscores, dots and dashes spaces, each word begun with a capital
+(hugeass_v2: Hugeass V2) */
+static void ce_map_tidy_name(
+	char const *file,
+	wchar_t *name,
+	long size)
+{
+	long length = 0;
+	boolean space = FALSE;
+
+	for (; *file && length < size - 1; file++)
+	{
+		unsigned char character = (unsigned char)*file;
+
+		if (character == '_' || character == '.' || character == '-' || character == ' ' || character == '\t')
+		{
+			space = length > 0;
+			continue;
+		}
+		if (space)
+		{
+			if (length >= size - 2)
+				break;
+			name[length++] = ' ';
+			space = FALSE;
+		}
+		if ((length == 0 || name[length - 1] == ' ') && character >= 'a' && character <= 'z')
+			character = (unsigned char)(character - 'a' + 'A');
+		name[length++] = (wchar_t)character;
+	}
+	name[length] = 0;
+}
+
+#ifdef HALO_64BIT
+
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmaps.h"
 #include "rasterizer/rasterizer_swizzle.h"
 
 #include <xtl.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-
-#include "halo_ui_map_list.h"
 
 /* ---------- constants */
 
@@ -79,37 +174,6 @@ struct ui_map_entry
 	/* its row among the Xbox's (their strings and bitmap frames), or NONE */
 	short xbox_index;
 	short picture_index;
-};
-
-/* Halo PC's multiplayer maps, in the order of its map list (its strings and
-pictures), and an Xbox map of the same kind whose picture stands in
-without Halo PC's ui.map */
-static struct
-{
-	char const *file;
-	wchar_t const *name;
-	short xbox_picture_index;
-} const ce_maps[] =
-{
-	{ "beavercreek", L"Battle Creek", 0 },
-	{ "sidewinder", L"Sidewinder", 1 },
-	{ "damnation", L"Damnation", 2 },
-	{ "ratrace", L"Rat Race", 3 },
-	{ "prisoner", L"Prisoner", 4 },
-	{ "hangemhigh", L"Hang 'Em High", 5 },
-	{ "chillout", L"Chill Out", 6 },
-	{ "carousel", L"Derelict", 7 },
-	{ "boardingaction", L"Boarding Action", 8 },
-	{ "bloodgulch", L"Blood Gulch", 9 },
-	{ "wizard", L"Wizard", 10 },
-	{ "putput", L"Chiron TL34", 11 },
-	{ "longest", L"Longest", 12 },
-	{ "icefields", L"Ice Fields", 1 },
-	{ "deathisland", L"Death Island", 1 },
-	{ "dangercanyon", L"Danger Canyon", 9 },
-	{ "infinity", L"Infinity", 9 },
-	{ "timberland", L"Timberland", 9 },
-	{ "gephyrophobia", L"Gephyrophobia", 2 },
 };
 
 /* ---------- prototypes */
@@ -620,4 +684,64 @@ wchar_t const *ui_map_list_text(
 	}
 }
 
+/* Halo PC's picture of a Custom Edition map, by its file's name: its own of
+Halo PC's maps, its unknown level's for another's; NULL without Halo PC's
+ui.map */
+struct bitmap_data *ui_map_list_ce_picture(
+	char const *file)
+{
+	long index = ce_map_index(file);
+
+	ce_ui_read();
+	if (index == NONE)
+		index = CE_UNKNOWN_LEVEL;
+	return index < ce_ui.picture_count ? &ce_ui.pictures[index] : NULL;
+}
+
+/* whether maps\ce has a Custom Edition map of this file's name (where the
+game loads one from: cache_files_windows.c) */
+boolean ui_map_list_ce_present(
+	char const *file)
+{
+	char path[512];
+	HANDLE handle;
+
+	if (!file[0] || strchr(file, '\\') || strchr(file, '/'))
+		return FALSE;
+	snprintf(path, sizeof(path), "%sce\\%s.map", cache_files_map_directory(), file);
+	handle = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (handle == INVALID_HANDLE_VALUE)
+		return FALSE;
+	CloseHandle(handle);
+	return TRUE;
+}
+
 #endif
+
+/* a Custom Edition map's name, by its file's name: Halo PC's own for its
+maps (as its ui.map has it, on the 64-bit builds), else the file's name
+made readable */
+void ui_map_list_ce_name(
+	char const *file,
+	wchar_t *name,
+	long size)
+{
+	long index = ce_map_index(file);
+	wchar_t const *known;
+	long length;
+
+	if (index == NONE)
+	{
+		ce_map_tidy_name(file, name, size);
+		return;
+	}
+	known = ce_maps[index].name;
+#ifdef HALO_64BIT
+	ce_ui_read();
+	if (index < ce_ui.name_count && ce_ui.names[index][0])
+		known = ce_ui.names[index];
+#endif
+	for (length = 0; length < size - 1 && known[length]; length++)
+		name[length] = known[length];
+	name[length] = 0;
+}
