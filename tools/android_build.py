@@ -41,6 +41,7 @@ TOML_DIR = Path("port/third_party/tomlc17")
 EXPAT_DIR = Path("port/third_party/expat")
 EXPAT_SOURCES = ("xmlparse.c", "xmlrole.c", "xmltok.c")
 KCP_DIR = Path("port/third_party/kcp")
+QRCODEGEN_DIR = Path("port/third_party/qrcodegen")
 MUSL_VERSION = "1.2.5"
 MUSL_DIR = THIRD_PARTY / f"musl-{MUSL_VERSION}"
 MUSL_URL = f"https://musl.libc.org/releases/musl-{MUSL_VERSION}.tar.gz"
@@ -412,7 +413,8 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         guest_abi, guest_code, "-std=gnu11", "-D_GNU_SOURCE", "-DHALO_LINUX_PLATFORM_LAYER", "-w", profile_flags,
         f"-include {prefix_header}", f"-include {platform_semantics_header}",
         f"-I{LINUX_DIR}/src", f"-I{LINUX_DIR}/include", f"-I{PORT_DIR}/guest/runtime",
-        f"-I{PORT_DIR}/include", f"-I{TOML_DIR}", f"-I{EXPAT_DIR}", f"-I{KCP_DIR}", "-Isource -Isource/cseries",
+        f"-I{PORT_DIR}/include", f"-I{TOML_DIR}", f"-I{EXPAT_DIR}", f"-I{KCP_DIR}", f"-I{QRCODEGEN_DIR}",
+        "-Isource -Isource/cseries",
         f"-I{SDL_DIR}/include", f"-I{gl_include}", *libc_includes, f"-idirafter {XDK_INCLUDE}",
     ])
     guest_host_only = {"memory_watch.c"}  # replaced by guest_memory_watch.c
@@ -437,6 +439,8 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         objects.append(guest_object(EXPAT_DIR / name, platform_cflags))
     # internet play's reliable streams (port/third_party/kcp; p2p.c)
     objects.append(guest_object(KCP_DIR / "ikcp.c", platform_cflags))
+    # Quick Connect's QR code (port/third_party/qrcodegen; browser.c)
+    objects.append(guest_object(QRCODEGEN_DIR / "qrcodegen.c", platform_cflags))
     # the game's sin, pow and the rest, the same on every port
     # (port/include/halo_math.h)
     musl_math_cflags = " ".join([
