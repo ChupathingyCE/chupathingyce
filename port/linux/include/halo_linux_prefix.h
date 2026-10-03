@@ -30,15 +30,25 @@ byte-for-byte identical to what the matching MSVC build compiles.
 /* the XDK's COM headers decorate methods with __export when _WIN32 is unset */
 #define __export
 
-/* ---------- the host C library on macOS
+/* ---------- the host C library on macOS and 64-bit Linux
 
 Apple's libc headers use `__inline` for their extern inline helpers, which the MSVC inline semantics below redefine. Include the
 C runtime headers the game uses before that happens; their include guards
 keep later includes from seeing the redefinition. <limits.h> is left out:
 cseries.h defines LONG_MAX and friends as enumerators. wint_t is 16 bits wide
-with -fshort-wchar and must be fixed before the host headers define theirs. */
+with -fshort-wchar and must be fixed before the host headers define theirs.
+The 64-bit builds also need the declarations themselves: they reject an
+implicitly declared function (its int result would truncate a pointer). */
 
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(HALO_64BIT)
+#ifndef __APPLE__
+/* glibc: no extern-inline helpers (__NO_INLINE__ below; its headers are
+read here first), and the ctype functions as functions, not macros, which
+the game declares itself; uintptr_t, which Apple's <sys/types.h> declares */
+#define __NO_INLINE__ 1
+#define __NO_CTYPE 1
+#include <stdint.h>
+#endif
 #include <stddef.h>
 #ifndef __wint_t_defined
 #define __wint_t_defined 1

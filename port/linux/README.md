@@ -35,6 +35,17 @@ To start the game:
 2. Enter `python configure.py`.
 3. Enter `ninja linux`.
 
+### 64-bit
+
+`ninja linux64` builds the same game as native x86-64 code,
+`build/linux64/halo`, the way the macOS build does (the 64-bit build in
+[port/macos/README.md](../macos/README.md): `HALO_64BIT` and the `long`
+rewrite, `tools/lp64_build.py`). It needs the 64-bit glibc and SDL3
+development files (`libsdl3-dev` on Debian and Ubuntu) instead of the 32-bit
+ones, and the 64-bit OpenGL and sound libraries to start. It is not
+optimised with a profile, and does not update itself. A beta: the 32-bit
+build is the one the project releases.
+
 ## Start the game
 
 Enter `build/linux/halo`.

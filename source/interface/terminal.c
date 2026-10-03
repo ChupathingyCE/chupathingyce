@@ -347,7 +347,12 @@ void terminal_printf(
 	...)
 {
 	real_argb_color default_terminal_printf_color;
+#ifdef HALO_64BIT
+	/* (x86-64's va_list is a structure, not a pointer) */
+	va_list arglist;
+#else
 	char *arglist;
+#endif
 
 	va_start(arglist, format);
 
