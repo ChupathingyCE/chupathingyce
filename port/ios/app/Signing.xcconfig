@@ -1,0 +1,9 @@
+// The app's signing and the SDL3 headers (README.md). Your own team and
+// bundle identifier go in Local.xcconfig beside this file, which is not
+// committed: copy Local.xcconfig.example.
+PRODUCT_BUNDLE_IDENTIFIER = com.example.halo
+DEVELOPMENT_TEAM =
+// SDL3 built for iOS (README.md); the simulator's headers are the same
+HALO_SDL3_INCLUDE = $(HOME)/dev/sdl3-ios/include
+
+#include? "Local.xcconfig"
