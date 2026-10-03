@@ -212,6 +212,29 @@ static wchar_t *fallback_string(long tag_index, short string_index)
 	return fallback_multiplayer_game_text_strings[fallback_index];
 }
 
+#ifdef HALO_64BIT
+/* Custom Edition maps' ui\multiplayer_game_text (Halo PC's, 194 strings) has
+the PAL list's strings at the same indices, but three of them name keys, for
+Halo PC's keyboard: the postgame prompts (72, 73: "ESCAPE = Quit    ENTER =
+Continue", "ESCAPE = Quit") and the first seconds' scoreboard prompt (100:
+'Hold "%s" for score', its key's name put in by Halo PC's executable, which
+this code does not do, so it showed "%s"). With a Custom Edition map's tags
+loaded those three are the console's, as with the Xbox's maps, the buttons
+drawn as their icons (draw_string_and_hack_in_icons) or named */
+static wchar_t *custom_edition_keyboard_string(long tag_index, short string_index)
+{
+	extern boolean cache_file_tags_are_ce(void);
+
+	if ((string_index != 72 && string_index != 73 && string_index != 100) ||
+		!cache_file_tags_are_ce() ||
+		csstrcasecmp(tag_get_name(tag_index), MULTIPLAYER_GAME_TEXT_TAG_NAME))
+	{
+		return NULL;
+	}
+	return fallback_multiplayer_game_text_strings[string_index - FIRST_FALLBACK_MULTIPLAYER_GAME_TEXT_STRING];
+}
+#endif
+
 /* ---------- public code */
 
 char *string_list_get_string(long tag_index, short string_index)
@@ -248,6 +271,11 @@ wchar_t *unicode_string_list_get_string(long tag_index, short string_index)
 	{
 		struct string_list *list = unicode_string_list_definition_get(tag_index);
 
+#ifdef HALO_64BIT
+		if (custom_edition_keyboard_string(tag_index, string_index))
+			result = custom_edition_keyboard_string(tag_index, string_index);
+		else
+#endif
 		if (string_index >= 0 && string_index < list->strings.count)
 		{
 			struct string_list_entry *entry = TAG_BLOCK_GET_ELEMENT(
