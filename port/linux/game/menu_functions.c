@@ -16,6 +16,8 @@ calls them from PC_MENU_FUNCTION_BASE on):
 - Join Game's SERVER BROWSER mode: internet play's public games, sorted by
   the column titles ("gamespy select header"), the chosen game's players
   and rules (or a message) in the lines below the rows;
+- the lobby's players, in their teams' colours (a text box's own colour:
+  pc_menu_text_color, which ui_widget.c asks);
 - its buttons' events: "mouse emit back event" and "mouse emit x event" push
   B and X (as the mouse does), "emit custom activation event" (an OK
   button) runs the screen's custom activation handler, "single prev cl item
@@ -3154,6 +3156,100 @@ static void lobby_row_text(short row, wchar_t *text)
 	text[ROW_TEXT_LENGTH - 1] = 0;
 }
 
+/* ---- text boxes' own colours: a text box given one shows its text in it
+in place of its definition's (ui_widget.c asks, for each text box it draws:
+pc_menu_text_color), while the one who gave it keeps giving it (a widget
+is drawn each frame its screen is up, and a gone widget's place may come to
+hold another) */
+
+#define MAXIMUM_TEXT_COLORS 16
+/* a colour given this long ago is forgotten */
+#define TEXT_COLOR_LIFETIME 250
+
+static struct
+{
+	struct widget_instance const *widget;
+	real_rgb_color rgb;
+	unsigned long time;
+} text_colors[MAXIMUM_TEXT_COLORS];
+
+static void text_color_set(struct widget_instance const *widget, real red, real green, real blue)
+{
+	short index, free_index = NONE;
+
+	if (!widget)
+		return;
+	for (index = 0; index < MAXIMUM_TEXT_COLORS; index++)
+	{
+		if (text_colors[index].widget == widget ||
+			system_milliseconds() - text_colors[index].time > TEXT_COLOR_LIFETIME)
+		{
+			free_index = index;
+			if (text_colors[index].widget == widget)
+				break;
+		}
+	}
+	if (free_index == NONE)
+		return;
+	text_colors[free_index].widget = widget;
+	text_colors[free_index].rgb.red = red;
+	text_colors[free_index].rgb.green = green;
+	text_colors[free_index].rgb.blue = blue;
+	text_colors[free_index].time = system_milliseconds();
+}
+
+static void text_color_clear(struct widget_instance const *widget)
+{
+	short index;
+
+	for (index = 0; widget && index < MAXIMUM_TEXT_COLORS; index++)
+	{
+		if (text_colors[index].widget == widget)
+			text_colors[index].widget = NULL;
+	}
+}
+
+boolean pc_menu_text_color(struct widget_instance const *widget, real_rgb_color *rgb)
+{
+	short index;
+
+	for (index = 0; index < MAXIMUM_TEXT_COLORS; index++)
+	{
+		if (text_colors[index].widget == widget &&
+			system_milliseconds() - text_colors[index].time <= TEXT_COLOR_LIFETIME)
+		{
+			*rgb = text_colors[index].rgb;
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+/* the lobby's rows' players in their teams' colours (a game with teams),
+as the scores show them */
+static void lobby_rows_color(struct widget_instance *list, struct network_game const *game)
+{
+	struct widget_instance *row;
+	short index = 0;
+
+	for (row = list->child; row && index < LOBBY_ROWS; row = row->next, index++)
+	{
+		struct widget_instance *text = named(row, "list_item_text", 0);
+		struct network_player const *player;
+
+		if (strncmp(row->name, "list_item_", 10))
+			break;
+		player = index < lobby_player_count - multiplayer.lobby_first ? lobby_players[multiplayer.lobby_first + index] :
+			NULL;
+		if (!player || !game || !game->variant.universal_variant.teams)
+			text_color_clear(text);
+		else if (player->team_index)
+			text_color_set(text, 0.38f, 0.58f, 1.0f);
+		else
+			text_color_set(text, 1.0f, 0.36f, 0.36f);
+	}
+}
+
 /* the lobby's panel's map: its picture and name */
 static void lobby_map_show(struct widget_instance *description, char const *map_name)
 {
@@ -3192,6 +3288,7 @@ static void lobby_update(struct widget_instance *list)
 	if (multiplayer.lobby_first > MAX(0, lobby_player_count - LOBBY_ROWS))
 		multiplayer.lobby_first = (short)MAX(0, lobby_player_count - LOBBY_ROWS);
 	rows_update(list, (short)MIN(lobby_player_count, LOBBY_ROWS), lobby_row_text);
+	lobby_rows_color(list, game);
 	visible_set(named(list, "lobby_button_team", 0), game && game->variant.universal_variant.teams);
 	/* (the buttons' focus, off Switch Team when it is hidden) */
 	focus_off_hidden(named(list, "lobby_button_bar", 0));
