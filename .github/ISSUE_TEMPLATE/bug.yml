@@ -1,0 +1,41 @@
+name: Bug report
+description: Something in ChupathingyCE doesn't work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. One bug per issue, please. ChupathingyCE never provides game files, so please don't attach maps or disc images.
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: [Windows, macOS (Apple Silicon), macOS (Intel), Linux, Steam Deck, Android, Xbox]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release you're on (for example v0.5.3b), or nightly and its date.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [Crash, Online play, Online Games list, Halo PC maps, Campaign, Menus, Controls, Graphics, Sound, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Steps to get there, what you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: For a crash, attach debug.txt from the game's data folder, and on macOS the crash report from ~/Library/Logs/DiagnosticReports (halo-*.ips).

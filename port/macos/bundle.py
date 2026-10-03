@@ -34,9 +34,12 @@ SYSTEM_PREFIXES = ("/System/", "/usr/lib/")
 def linked_libraries(binary: Path) -> List[str]:
     """the libraries a Mach-O file links (otool -L), its own name aside"""
     output = subprocess.run(["otool", "-L", str(binary)], capture_output=True, text=True, check=True).stdout
-    names = [line.strip().split(" (")[0] for line in output.splitlines()[1:] if line.strip()]
+    # (a universal file lists each architecture's libraries under a header
+    # line of its own, "<file> (architecture arm64):": not a library)
+    names = [line.strip().split(" (")[0] for line in output.splitlines()[1:]
+             if line.strip() and not line.rstrip().endswith(":")]
     own = subprocess.run(["otool", "-D", str(binary)], capture_output=True, text=True).stdout.splitlines()[1:]
-    return [name for name in names if name not in own]
+    return list(dict.fromkeys(name for name in names if name not in own))
 
 
 LIBRARY_PATH: List[str] = []
