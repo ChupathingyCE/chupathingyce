@@ -18,8 +18,11 @@ build folder holds each architecture's server as
 mkdir -p image/bin/amd64
 cp server/deploy/Dockerfile image/
 cp chupathingyce-server-linux-x64/chupathingyce-server image/bin/amd64/
-docker build -t chupathingyce-server image
+docker build --build-arg TARGETARCH=amd64 -t chupathingyce-server image
 ```
+
+(`TARGETARCH` names the folder; BuildKit sets it from the platform, but
+Docker's legacy builder, where buildx isn't installed, sets none.)
 
 Nothing runs while the image builds, so one machine can make all three at
 once (with each server in its folder):

@@ -20,7 +20,7 @@ scp "$binary" "$host:/opt/halo-probe/image/bin/$arch/chupathingyce-server"
 scp "$here/Dockerfile" "$host:/opt/halo-probe/image/"
 scp "$here/probe.sh" "$here/probe-ssh.sh" "$host:/opt/halo-probe/"
 ssh "$host" 'set -e
-	sudo docker build -q --platform linux/'"$arch"' -t halo-probe /opt/halo-probe/image
+	sudo docker build -q --pull --platform linux/'"$arch"' --build-arg TARGETARCH='"$arch"' -t halo-probe /opt/halo-probe/image
 	sudo chown root:root /opt/halo-probe /opt/halo-probe/probe.sh /opt/halo-probe/probe-ssh.sh
 	sudo chmod 755 /opt/halo-probe/probe.sh /opt/halo-probe/probe-ssh.sh'
 # (an update without the site's key keeps the probe user as it is)

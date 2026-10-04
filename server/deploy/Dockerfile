@@ -11,6 +11,8 @@
 #   docker buildx build --platform linux/386,linux/amd64,linux/arm64 .
 # (deploy.sh puts the one server it is given there, and builds for it)
 FROM alpine:3.22
+# (BuildKit's, from the platform; Docker's legacy builder needs it given:
+# --build-arg TARGETARCH=amd64, as deploy.sh does)
 ARG TARGETARCH
 
 COPY bin/${TARGETARCH}/chupathingyce-server /opt/chupathingyce/chupathingyce-server

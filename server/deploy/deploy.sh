@@ -50,7 +50,9 @@ ssh "$host" 'sudo mkdir -p /opt/halo-dedicated/data/maps /opt/halo-dedicated/dat
 scp "$binary" "$host:$context/bin/$arch/chupathingyce-server"
 scp "$here/Dockerfile" "$host:$context/"
 scp "$here"/../playlists/*.txt "$host:/opt/halo-dedicated/data/playlists/"
-ssh "$host" 'sudo docker build -q --platform linux/'"$arch"' -t '"$image $context"
+# (TARGETARCH given: Docker's legacy builder, without buildx, sets none;
+# and --pull, or it takes whichever architecture's Alpine it has already)
+ssh "$host" 'sudo docker build -q --pull --platform linux/'"$arch"' --build-arg TARGETARCH='"$arch"' -t '"$image $context"
 if [ "$image" != halo-dedicated ]; then
 	echo "deploy.sh: built $image; restart the services that run it"
 	exit 0
