@@ -1019,9 +1019,17 @@ void *network_game_client_get_game(
 	void *client);
 short network_game_client_get_machine_index(
 	void *client);
+#ifdef HALO_64BIT
+/* (as defined: an x64 Windows caller leaves the upper bits of an argument
+narrower than the definition's parameter as they are) */
+boolean network_game_client_request_start_time_change(
+	void *client,
+	short request_type);
+#else
 boolean network_game_client_request_start_time_change(
 	void *client,
 	boolean start);
+#endif
 boolean network_game_client_request_remove_player(
 	void *client,
 	void *player);

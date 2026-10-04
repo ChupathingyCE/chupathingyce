@@ -58,9 +58,20 @@ macos_build.py; the Android app's version is its own, build.gradle) */
 
 /* ChupathingyCE's releases */
 #define UPDATE_REPOSITORY "ChupathingyCE/chupathingyce"
-#ifdef _WIN32
+#if defined(_WIN32) && defined(HALO_64BIT)
+/* (the 64-bit Windows build's own download, ninja windows64: tools/ci_build.py) */
+#define UPDATE_PLATFORM "windows64"
+#define PATH_SEPARATOR "\\"
+#elif defined(_WIN32)
 #define UPDATE_PLATFORM "windows"
 #define PATH_SEPARATOR "\\"
+#elif defined(__APPLE__)
+#define UPDATE_PLATFORM "macos"
+#define PATH_SEPARATOR "/"
+#elif defined(HALO_64BIT)
+/* (the 64-bit Linux build's own download, ninja linux64: tools/ci_build.py) */
+#define UPDATE_PLATFORM "linux64"
+#define PATH_SEPARATOR "/"
 #else
 #define UPDATE_PLATFORM "linux"
 #define PATH_SEPARATOR "/"

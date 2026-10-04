@@ -707,13 +707,13 @@ real game_engine_get_damage_multiplier(
 	long damaged_player_index);
 
 #ifdef HALO_64BIT
-int game_engine_did_player_win_default(
-	int player_index);
+long game_engine_did_player_win_default(
+	long player_index);
 
 void game_show_score_extended(
-	int player_index,
-	int score,
-	int team_index);
+	long player_index,
+	long score,
+	long team_index);
 
 #endif
 #endif // __GAME_ENGINE_H

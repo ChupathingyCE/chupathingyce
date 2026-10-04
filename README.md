@@ -10,7 +10,7 @@
 <a href="https://discord.gg/4BUm2FwuCB">Discord</a>
 </p>
 
-> **Compatible with [OpenCE](https://github.com/cybersecurity/halo-ce-universal) build-76 through build-85 (network version 11).** Games hosted on older builds (network version 10) can't be joined; their hosts need to update.
+> **Compatible with [OpenCE](https://github.com/cybersecurity/halo-ce-universal) build-76 through build-88 (network version 11).** Games hosted on older builds (network version 10) can't be joined; their hosts need to update.
 > Players on OpenCE and players on ChupathingyCE play together.
 
 ChupathingyCE is a community build of **OpenCE**, the port of the Halo: Combat
@@ -61,7 +61,8 @@ Get the latest release from the [Releases page](https://github.com/ChupathingyCE
 | Platform | Download | Notes |
 | --- | --- | --- |
 | Windows | `chupathingyce-windows-release.zip` | Windows 10 or later. |
-| Linux | `chupathingyce-linux-release.zip` | Needs SDL3 (32-bit). See [port/linux/README.md](port/linux/README.md). |
+| Linux (64-bit) | `chupathingyce-linux64-release.zip` | Needs SDL3. See [port/linux/README.md](port/linux/README.md). |
+| Linux (32-bit, older systems) | `chupathingyce-linux-release.zip` | Needs SDL3 (32-bit). See [port/linux/README.md](port/linux/README.md). |
 | Android | `chupathingyce-android-release.zip` | Android 9 or later, 64-bit. See [port/android/README.md](port/android/README.md). |
 | Mac | `chupathingyce-macos-release.zip` | macOS 13 or later, Apple silicon or Intel. |
 
@@ -85,6 +86,10 @@ disc image (`.iso` or `.xiso`) of Halo: Combat Evolved. Any region works.
 
 On Android, copy the disc image to your phone first. On a Mac, the maps,
 settings and saves go in `~/Library/Application Support/ChupathingyCE`.
+On Linux, the maps and settings (`config.toml`) go next to the `halo`
+executable, and the saves in `~/.local/share/halo-linux` (or
+`$XDG_DATA_HOME/halo-linux`). The 64-bit and 32-bit builds use the same
+places, so switching from one to the other keeps your saves and settings.
 
 ## Halo PC maps
 
@@ -126,6 +131,43 @@ their host on the site (Host a Game).
 <img src="docs/screenshots/site-medals.jpg" width="49%" alt="halo.milenko.org: medals">
 </p>
 
+## Settings (config.toml)
+
+Most of what you can change lives in the game's menus, but everything the
+port adds is in one file, `config.toml`. The game writes it the first time it
+starts, with every setting listed, commented out at its default, and a line
+or two saying what each one does. To change one, remove the `#` in front of it
+and edit the value; the game reads the file when it starts.
+
+| Platform | config.toml is |
+| --- | --- |
+| Windows | next to `halo.exe` |
+| Mac | `~/Library/Application Support/ChupathingyCE/config.toml` |
+| Linux and Steam Deck | next to the `halo` executable |
+| Android | in the game's data folder |
+
+A few people look for most:
+
+| Setting | What it does |
+| --- | --- |
+| `display.mode` | `"fullscreen"`, `"borderless"` or `"windowed"`. F11 switches between a window and the whole screen. |
+| `display.window_scale` | The window's size, as a multiple of 640x480. |
+| `display.vsync`, `display.max_fps` | Vertical sync, and a frame rate cap (0 for none). |
+| `display.menus` | `"xbox"` (the default) or `"pc"`, the Halo PC style menus with their Server Browser. |
+| `display.player_names` | Names over players' heads: `"all"`, `"allies"`, `"enemies"` or `"none"`. |
+| `audio.volume`, `audio.music_volume`, `audio.effects_volume` | Volumes, from 0.0 to 1.0. |
+| `input.mouse_sensitivity`, `input.invert_mouse` | Mouse aim. |
+| `controls.*` | Every key: `controls.jump = "Space"`, or two at once, such as `"F, Mouse 4"`. |
+| `network.browser_url` | The game list Online Games shows (halo.milenko.org). |
+| `network.host_public` | Whether games you host are listed for everyone (true) or only joinable by invite (false). |
+| `update.auto` | Whether the game updates itself. |
+| `paths.data`, `paths.saves` | Where the maps and the saves are, if not the usual place. |
+
+Settings you leave at their default follow each new version's default, so
+leaving the file alone is always safe. Every setting can also be given as an
+environment variable for one run (the file lists each one's name), which
+overrides the file.
+
 ## Run a server
 
 A dedicated server is a copy of the game with no player and no window, hosting
@@ -157,8 +199,10 @@ ninja            # the game for the computer you're on
 | Target | Result | Instructions |
 | --- | --- | --- |
 | `ninja macos` | `build/macos/ChupathingyCE.app` | [port/macos/README.md](port/macos/README.md) |
-| `ninja linux` | `build/linux/halo` | [port/linux/README.md](port/linux/README.md) |
+| `ninja linux64` | `build/linux64/halo` (64-bit) | [port/linux/README.md](port/linux/README.md) |
+| `ninja linux` | `build/linux/halo` (32-bit) | [port/linux/README.md](port/linux/README.md) |
 | `ninja windows` | `build/windows/halo.exe` | [port/windows/README.md](port/windows/README.md) |
+| `ninja windows64` | `build/windows64/halo.exe`, the 64-bit game | [port/windows/README.md](port/windows/README.md#64-bit) |
 | `ninja android_apk` | the Android app | [port/android/README.md](port/android/README.md) |
 
 Useful `configure.py` options:
