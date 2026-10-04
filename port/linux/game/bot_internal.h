@@ -167,6 +167,7 @@ void bot_move_to_goal(struct bot_mover *bot, struct bot_body const *body, struct
 boolean bot_move_direction_safe(struct bot_body const *body, real yaw, real distance);
 /* travel time on foot (or driving) from here to a point; <0 no way */
 float bot_travel_time(struct bot_body const *body, long type, real_point3d const *to);
+float bot_travel_time_soon(struct bot_body const *body, long type, real_point3d const *to, int *soon);
 /* a reachability that's more than a walk under way (a jump, a ladder):
    not to be interrupted */
 boolean bot_move_committed(struct bot_mover const *bot);

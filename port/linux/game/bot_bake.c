@@ -23,7 +23,11 @@ the last is done the process ends: 0 when every map has its navigation, 1
 when one could not be baked.
 
 "new" bakes the maps that have no baked navigation of this build's kind,
-"all" (or anything else) every map.
+"all" (or anything else) every map. A map has it when every one of its
+structure BSPs does (a few Custom Edition maps have two, and a script that
+changes to the second as the game starts): how many it has is written
+beside its files when the last is baked (bot_nav.c, navm_baked_bsps), since
+only the loaded map says.
 
 Called from the main loop every frame (main.c).
 */
@@ -61,6 +65,7 @@ unsigned long long bot_time_microseconds(void);
 enum
 {
 	MAXIMUM_BAKED_MAPS = 128,
+	MAXIMUM_BAKED_BSPS = 32, /* (of one map: more, and it is not baked) */
 	/* a map file's header: 'head', the map's name and what it is */
 	BAKE_HEADER_SIZE = 0x64,
 	BAKE_HEADER_NAME_OFFSET = 0x20,
@@ -126,9 +131,9 @@ static struct
 	real lobby_seconds;
 	real apply_seconds;
 	long files_before;
-	/* (the structure BSP of the map being baked: a map with a few has each
-	done in turn) */
-	short bsp_index;
+	/* (the structure BSPs of the map being baked that are done: a map with a
+	few has each in turn, whichever its script has it on when it starts) */
+	unsigned long bsps_done;
 	unsigned long long map_start;
 	unsigned long long leave_start;
 	unsigned long long start;
@@ -229,6 +234,32 @@ static void bake_find_maps(
 #endif
 }
 
+/* has a map its baked navigation, of this build's kind, for every one of
+its structure BSPs? By the count its bake wrote down. A bake from before
+that was written down: by its first BSP's files, and those of each BSP
+after that there are files for (so a second BSP's stale files are seen,
+and only one whose files were never written is not: "all" bakes it) */
+static boolean bake_map_is_current(
+	char const *name)
+{
+	long count = navm_baked_bsps(name);
+	long bsp_index;
+
+	if (count > 0)
+	{
+		for (bsp_index = 0; bsp_index < count; bsp_index++)
+			if (!aas_baked_current(name, bsp_index))
+				return FALSE;
+		return TRUE;
+	}
+	if (!aas_baked_current(name, 0))
+		return FALSE;
+	for (bsp_index = 1; bsp_index < MAXIMUM_BAKED_BSPS && navm_baked_exists(name, bsp_index); bsp_index++)
+		if (!aas_baked_current(name, bsp_index))
+			return FALSE;
+	return TRUE;
+}
+
 static void bake_read_settings(
 	void)
 {
@@ -245,7 +276,7 @@ static void bake_read_settings(
 	bake_find_maps();
 	for (i = 0; i < bake.map_count; i++)
 	{
-		if (!bake.all && aas_baked_current(bake.maps[i].name, 0))
+		if (!bake.all && bake_map_is_current(bake.maps[i].name))
 			bake.maps[i].state = _bake_map_current;
 		else
 			waiting++;
@@ -423,21 +454,58 @@ void bot_bake_update(
 	it loaded (bots.c, bots_map_loaded), and written */
 	if (bake.hosting && bake.started && client && !main_menu_loaded && game_in_progress() && game_engine_running())
 	{
-		if (aas_ready() && navm_baked_files() >= bake.files_before + 2 && aas_baked_current(map->name, bake.bsp_index))
+		/* (the BSP the navigation in hand is of: the one the map loaded
+		with, or the one switched to below; not, if the map's script has
+		changed it since, the one the game is on now) */
+		long built = bots_navigation_bsp();
+
+		if (aas_ready() && built >= 0 && built < MAXIMUM_BAKED_BSPS && navm_baked_files() >= bake.files_before + 2 &&
+			aas_baked_current(map->name, built))
 		{
-			/* a map with another structure BSP (one its script switches to
-			as the game starts, in a few Custom Edition maps): that one's
-			too, switched to here and worked out as the first was */
+			/* a map with other structure BSPs (one its script switches to
+			as the game starts, in a few Custom Edition maps): each of them
+			too, switched to here and worked out as the first was. Every
+			one, or the map is not baked: one that cannot be switched to
+			is a failure, not the end of the list. */
 			struct scenario *scenario = global_scenario_get();
-			if (scenario && bake.bsp_index + 1 < scenario->structure_bsp_references.count &&
-				bake.bsp_index == global_structure_bsp_index && scenario_switch_structure_bsp((short)(bake.bsp_index + 1)))
+			long count = scenario ? scenario->structure_bsp_references.count : 1;
+			long next;
+
+			bake.bsps_done |= 1UL << built;
+			for (next = 0; next < count && next < MAXIMUM_BAKED_BSPS && (bake.bsps_done & (1UL << next)); next++)
+				;
+			if (count > MAXIMUM_BAKED_BSPS)
 			{
-				bake.bsp_index++;
+				platform_log("bake: %s has %ld structure BSPs, more than are baked (%d)", map->name, count, (int)MAXIMUM_BAKED_BSPS);
+				bake_leave(map, _bake_map_failed);
+			}
+			else if (next >= count)
+			{
+				if (!navm_baked_bsps_write(map->name, count))
+				{
+					platform_log("bake: %s: its count of structure BSPs could not be written to the game data's navcache folder", map->name);
+					bake_leave(map, _bake_map_failed);
+				}
+				else
+					bake_leave(map, _bake_map_baked);
+			}
+			else if (next == global_structure_bsp_index || scenario_switch_structure_bsp((short)next))
+			{
+				/* (already on it: the map's script got there first, and the
+				navigation in hand is still the last one's) */
 				bake.files_before = navm_baked_files();
 				bots_map_loaded();
-				return;
+				if (bots_navigation_bsp() != next)
+				{
+					platform_log("bake: %s: no navigation could be worked out for its structure BSP %ld", map->name, next);
+					bake_leave(map, navm_map_too_large() ? _bake_map_too_large : _bake_map_failed);
+				}
 			}
-			bake_leave(map, _bake_map_baked);
+			else
+			{
+				platform_log("bake: %s: its structure BSP %ld could not be switched to", map->name, next);
+				bake_leave(map, _bake_map_failed);
+			}
 		}
 		else if (!aas_ready() && navm_map_too_large())
 		{
@@ -490,7 +558,7 @@ void bot_bake_update(
 		}
 		bake.map_start = bot_time_microseconds();
 		bake.files_before = navm_baked_files();
-		bake.bsp_index = 0;
+		bake.bsps_done = 0;
 		main_set_multiplayer_map_name(map->name);
 		player_ui_fast_setup_network_server();
 		/* (nobody joins it) */

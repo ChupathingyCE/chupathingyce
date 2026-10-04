@@ -1125,6 +1125,64 @@ void navm_cache_file(char const *map, long bsp_index, char const *extension, boo
 	snprintf(path, size, "%s\\%s_%d.%s", root, name, (int)bsp_index, extension);
 }
 
+/* How many structure BSPs a map has, kept beside its baked navigation when
+   every one of them has been baked (<map>.bsps, a number): what "is this
+   map baked" needs to know of a map that is not loaded, and its files
+   alone do not say (a second BSP's that are not there look the same as a
+   map with one BSP). 0: not kept, a bake from before this was. */
+static void navm_baked_bsps_path(char const *map, char *path, long size)
+{
+	char *end;
+	navm_cache_file(map, 0, "bsps", TRUE, path, size);
+	/* (<map>_0.bsps as the others are named: the map's, not a BSP's) */
+	end = strstr(path, "_0.bsps");
+	if (end && !end[7])
+		snprintf(end, size - (end - path), ".bsps");
+}
+
+long navm_baked_bsps(char const *map_name)
+{
+	char path[512];
+	FILE *file;
+	long count = 0;
+
+	navm_baked_bsps_path(map_name, path, sizeof(path));
+	file = fopen(path, "rb");
+	if (!file)
+		return 0;
+	if (fscanf(file, "%ld", &count) != 1 || count < 1 || count > 32)
+		count = 0;
+	fclose(file);
+	return count;
+}
+
+boolean navm_baked_bsps_write(char const *map_name, long count)
+{
+	char path[512];
+	FILE *file;
+	boolean whole;
+
+	navm_baked_bsps_path(map_name, path, sizeof(path));
+	file = fopen(path, "wb");
+	if (!file)
+		return FALSE;
+	whole = fprintf(file, "%ld\n", count) > 0;
+	return fclose(file) == 0 && whole;
+}
+
+/* is there a baked file of a map's for this structure BSP at all, good or not */
+boolean navm_baked_exists(char const *map_name, long bsp_index)
+{
+	char path[512];
+	FILE *file;
+
+	navm_cache_file(map_name, bsp_index, "height", TRUE, path, sizeof(path));
+	file = fopen(path, "rb");
+	if (file)
+		fclose(file);
+	return file != NULL;
+}
+
 void navm_cache_path(char const *map, char const *extension, boolean baked, char *path, long size)
 {
 	navm_cache_file(map, global_structure_bsp_index, extension, baked, path, size);
@@ -1619,6 +1677,18 @@ static boolean navm_transition_open(long from_span, long to_span)
 		return FALSE;
 	if (dy != 0 && ((from->pad & (1 << y_side)) || (to->pad & (1 << opposite[y_side]))))
 		return FALSE;
+	/* (Cornerwise, the neighbours' rule, navm_walk_neighbor, is that both
+	   sides be open too. A line does not take that rule whole, and does
+	   not need to. A side shut by a wall makes the floor stepped onto a
+	   wall's border, 0.05 from it, which any wall_min of a hand's width
+	   refuses as it is; a side with no floor, by a drop, is the corner of
+	   a ledge, which a body does cut across and every jump's run-up
+	   starts on, and how near a drop a line may go is its edge_min. Only
+	   a line asked for with no clearance at all goes past a wall's corner:
+	   the areas' check that a jump has floor behind it to run on, which is
+	   asking no more than that. With the neighbours' rule there, a map
+	   loses a few hundred jumps from ledges that have a wall anywhere by
+	   them: 241 of Wizard's.) */
 	return TRUE;
 }
 
@@ -1630,7 +1700,7 @@ static boolean navm_transition_open(long from_span, long to_span)
    floor the line ends on is given back for those that mean a place
    (navm_line_arrives). over_slots: a hand's width of missing floor is
    stepped over. */
-static boolean navm_line_follow(real_point3d const *from, real_point3d const *to, real wall_min, real edge_min, boolean over_slots, real *end_floor)
+static boolean navm_line_follow(real_point3d const *from, real_point3d const *to, real wall_min, real edge_min, boolean over_slots, long *end_span)
 {
 	real dx = to->x - from->x;
 	real dy = to->y - from->y;
@@ -1687,8 +1757,8 @@ static boolean navm_line_follow(real_point3d const *from, real_point3d const *to
 		s = best;
 		z = navm.spans[best].floor;
 	}
-	if (end_floor)
-		*end_floor = z;
+	if (end_span)
+		*end_span = s;
 	return missing == 0.f;
 }
 
@@ -1710,15 +1780,15 @@ boolean navm_line_passable(real_point3d const *from, real_point3d const *to, rea
 	return navm_line_follow(from, to, wall_min, 0.f, TRUE, NULL);
 }
 
-/* ... to a place: the floor the line ends on is the one `to` is on or just
-   over (as navm_span_at finds a point's floor), not another under or over
-   it */
+/* ... to a place: the floor the line ends on is the very one `to` is on
+   or just over (the floor navm_span_at finds for the point), not another
+   under or over it that happens to be about as high */
 boolean navm_line_arrives(real_point3d const *from, real_point3d const *to, real wall_min, real edge_min, boolean over_slots)
 {
-	real end_floor;
-	if (!navm_line_follow(from, to, wall_min, edge_min, over_slots, &end_floor))
+	long end_span = NONE;
+	if (!navm_line_follow(from, to, wall_min, edge_min, over_slots, &end_span))
 		return FALSE;
-	return to->z - end_floor <= 1.2f && to->z - end_floor >= -0.3f;
+	return end_span != NONE && end_span == navm_span_at(to, 0.3f, 1.2f);
 }
 
 int bot_logging(void)

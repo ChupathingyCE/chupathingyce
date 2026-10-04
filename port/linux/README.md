@@ -793,6 +793,17 @@ Without baked files the game makes the data for a structure BSP when the
 map's script changes to it, and the game stops for that time (10 to 30
 seconds) a moment after it starts. Bake such a map.
 
+The bake makes the data for each structure BSP of a map, and a map is baked
+only when all of them are. A structure BSP that the game cannot change to is
+a failure for that map. When the last one is done, the bake writes
+`navcache/<map>.bsps`, which has the number of structure BSPs of the map.
+`new` uses this number: a map is baked when the files of each of its
+structure BSPs are complete and of this build. A `navcache` folder from an
+earlier build has no `.bsps` files. For such a map, `new` examines the files
+of the first structure BSP and of each subsequent one that has files, so it
+cannot find a second structure BSP whose files were not written at all. Bake
+with `all` one time to write the `.bsps` files.
+
 A very large map (more than about 1,300 world units across: Coldsnap is
 1,800, Hugeass is 2,200) has navigation data only for the parts where the
 game is played. These parts are the ground near the player starting points,
@@ -900,6 +911,13 @@ seconds, Sidewinder has 52, Boarding Action has 31, and Hang 'Em High has
 18. With `HALO_BOT_LOG` set, the game writes the measure in a line that
 starts with `bots: this map's reach`.
 
+A map that has no navigation (not sufficient memory, or a map too large for
+it) has a measure also. The game then uses the player starting points of the
+map and straight lines, each multiplied by 1.5. This measure is less
+accurate (the line that follows `this map's reach` in the log gives it for
+each map: 67 seconds for Blood Gulch, 47 for Sidewinder, 20 for Hang 'Em
+High), but a far map is not played as a near one.
+
 On a far map, a bot that has no enemy within 30 world units goes to the
 place where the enemies are. This is its trip:
 
@@ -917,9 +935,16 @@ On all maps:
 
 - A driver who has no weapon on the vehicle and no gunner gets out and
   fights on foot when the vehicle has been near an enemy for 4 seconds
-  without a view of the enemy, or for 8 seconds with one.
-- A person who has not moved 6 world units in 6 seconds does not lead the
-  squad of the team. The bots of the team then follow one of the bots.
+  without a view of the enemy, or for 8 seconds with one. Only the time in
+  which the vehicle does not get nearer to the enemy than it was is in this
+  count. The time in which the driver waits for bots of its team to get in
+  is not. The count starts again for a different vehicle or a different
+  enemy.
+- A person who has not gone 6 world units from one place in 6 seconds does
+  not lead the squad of the team. The bots of the team then follow one of
+  the bots. This is a measure of travel: a person who fights in one place
+  does not lead the squad to a different place. The count starts when the
+  person gets a new body.
 
 ### The characters of the bots
 
@@ -989,6 +1014,13 @@ longer than the others:
   tries one place in each tick.
 - A bot that selects a thing to get asks for the way to a thing only when
   that thing can be the best one. It selects the same thing.
+- The bots start a maximum of 3 new searches in one tick for the things
+  that they only compare. After that, a thing that has no search has its
+  straight-line distance in that tick, and its search in a subsequent tick.
+  A bot that walks to a place always gets its route in the same tick.
+- A place in a part of the map that has no connection to the part of the bot
+  (a part of a very large map, a ledge that nothing goes to) has no route.
+  The game knows this without a search.
 - In a game with 12 players or more, a bot looks at all the players every
   second tick (every third tick with 24 players or more). In the other
   ticks it looks only at its target.

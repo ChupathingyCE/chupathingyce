@@ -235,6 +235,7 @@ static real bots_map_far;
 #define BOT_FAR_REACH_FAR 40.f
 /* nobody nearer than this: nobody here to fight */
 #define BOT_TRIP_NOBODY 30.f
+#define BOT_FAR_UNMAPPED_WALK 1.5f /* a walk for a straight line, where there is no navigation to measure the walk by */
 static int nav_flood_done; /* the map's areas are ready (or there are none to be had) */
 static short nav_aas_bsp = -1;
 static int nav_aas_tried;
@@ -1151,6 +1152,10 @@ struct bot_state
 	int goal_squad; /* team slayer: the goal's keeping with the team */
 	int goal_trip; /* a far map: the goal is the trip to where the others are */
 	long drive_orbit_ticks; /* driving round someone it cannot shoot or run down: for how long */
+	long drive_orbit_vehicle; /* ... in what, */
+	long drive_orbit_unit; /* ... round whom, */
+	long drive_orbit_tick; /* ... when it was last at it (a tick missed: another drive), */
+	real drive_orbit_nearest; /* ... and the nearest it has got to them */
 	real_point3d squad_point;
 	/* the target's movement, smoothed (for leading them) */
 	long aim_velocity_unit;
@@ -3134,12 +3139,17 @@ struct bot_squad
 static struct bot_squad bot_squads[2];
 
 /* A person leads its side's squad while it is going somewhere. One that
-   stands about (at its base with a sniper rifle, away from the keyboard,
-   looking at the scores) gives the bots nothing to follow: they stood
-   about with it. Where each person was when it last moved a few steps,
-   and when. */
+   stays where it is (at its base with a sniper rifle, away from the
+   keyboard, looking at the scores) gives the bots nothing to follow: they
+   stood about with it. So what is kept is whether each person is getting
+   anywhere, not whether it is at the controls: where it was when it last
+   came a few steps from where it had been, and when. (Someone fighting
+   hard on one spot is not leading anyone anywhere either.) A person seen
+   for the first time, or in another body (a new life, another player in
+   the slot), starts from where it is, now. Cleared with the map. */
 static real_point3d bots_person_anchor[BOT_MAXIMUM_PLAYERS];
 static long bots_person_moved[BOT_MAXIMUM_PLAYERS];
+static long bots_person_unit[BOT_MAXIMUM_PLAYERS]; /* (whose the two above are: 0 for nobody's yet) */
 #define BOT_LEADER_STILL_SECONDS 6.f
 #define BOT_LEADER_STEPS 6.f
 
@@ -3192,12 +3202,14 @@ static struct bot_squad *bot_squad_update(long team, unsigned long seed)
 		if (human && index >= 0 && index < BOT_MAXIMUM_PLAYERS)
 		{
 			real_point3d const *at = &object_get(object_get_ultimate_parent(player->unit_index))->object.position;
-			if (bots_person_moved[index] > now || distance3d(at, &bots_person_anchor[index]) > BOT_LEADER_STEPS)
+			if (bots_person_unit[index] != player->unit_index || bots_person_moved[index] > now ||
+				distance3d(at, &bots_person_anchor[index]) > BOT_LEADER_STEPS)
 			{
+				bots_person_unit[index] = player->unit_index;
 				bots_person_anchor[index] = *at;
 				bots_person_moved[index] = now;
 			}
-			/* (standing about: not the one to lead) */
+			/* (going nowhere: not the one to lead) */
 			if (now - bots_person_moved[index] > BOT_SECONDS(BOT_LEADER_STILL_SECONDS))
 				continue;
 		}
@@ -3446,6 +3458,12 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 	{
 		bot->goal_trip = FALSE;
 		bot->goal_score = MIN(bot->goal_score, 4.f);
+		/* (and the place it was to is let go of: left as a walk still
+		   under way, it was kept at before anywhere else to walk to was so
+		   much as weighed, "on the way somewhere" below, whatever its score
+		   had come down to) */
+		if (bot->goal_kind == _bot_goal_roam)
+			bot->goal_ticks = 0;
 	}
 
 	memset(&best, 0, sizeof(best));
@@ -3634,13 +3652,17 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 		{
 			struct bot_body walker;
 			float time;
+			int soon = FALSE;
 			memset(&walker, 0, sizeof(walker));
 			walker.position = *position;
 			walker.vehicle_index = NONE;
-			time = bot_travel_time(&walker, AAS_FOOT, &object->object.position);
+			/* (the walk to it; with no route to it worked out yet and this
+			   tick's new routes spent, as far as it is in a straight line
+			   for now: weighed again by the walk the next time) */
+			time = bot_travel_time_soon(&walker, AAS_FOOT, &object->object.position, &soon);
 			if (time >= 0.f)
 				distance = MAX(distance, time * aas_speed(AAS_FOOT));
-			else
+			else if (!soon)
 				score = 0.f;
 		}
 		if (score > 0.f)
@@ -4968,11 +4990,74 @@ void bot_reset(long player_absolute_index)
 	}
 }
 
+static int bots_compare_floats(void const *a, void const *b)
+{
+	float x = *(float const *)a, y = *(float const *)b;
+	return x < y ? -1 : x > y;
+}
+
+/* How long the walk is between the places players start, in seconds: the
+   85th in 100 of the walks between a sixteenth of them, evenly, each to
+   each. By the navigation (a walk it has no way for, between a very large
+   map's parts, as the crow flies), or without it by the scenario's
+   starting places and straight lines made half as long again. */
+static real bots_measure_reach(int by_navigation, long *walks)
+{
+	enum { MAXIMUM_PLACES = 16 };
+	static float times[MAXIMUM_PLACES * MAXIMUM_PLACES];
+	real_point3d sampled_places[MAXIMUM_PLACES];
+	long sampled = 0;
+	long count = 0;
+	long a, b;
+
+	if (by_navigation)
+	{
+		long places = aas_spawn_place_count() > 1 ? aas_spawn_place_count() : nav_place_count();
+		sampled = MIN(places, MAXIMUM_PLACES);
+		for (a = 0; a < sampled; a++)
+			sampled_places[a] = *aas_place(a * places / sampled);
+	}
+	else
+	{
+		struct scenario *scenario = global_scenario_get();
+		long places = scenario ? scenario->players.count : 0;
+		for (a = 0; a < MAXIMUM_PLACES && a < places; a++)
+		{
+			struct player_starting_location *location = player_get_starting_location((short)(a * places / MIN(places, MAXIMUM_PLACES)));
+			if (location)
+				sampled_places[sampled++] = location->position;
+		}
+	}
+	for (a = 0; a < sampled; a++)
+	{
+		for (b = 0; b < sampled; b++)
+		{
+			real_point3d const *from = &sampled_places[a];
+			real_point3d const *to = &sampled_places[b];
+			float time = -1.f;
+			if (a == b)
+				continue;
+			if (by_navigation)
+				time = aas_travel_time(AAS_FOOT, from, to);
+			else
+				time = bot_distance2d(from, to) * BOT_FAR_UNMAPPED_WALK / AAS_FOOT_SPEED_BOT;
+			times[count++] = time >= 0.f ? time : bot_distance2d(from, to) / AAS_FOOT_SPEED_BOT;
+		}
+	}
+	*walks = count;
+	if (count <= 0)
+		return 0.f;
+	/* (the 85th in 100: the least time that so many of them are no more than) */
+	qsort(times, count, sizeof(times[0]), bots_compare_floats);
+	return times[MIN(count - 1, (count * 85 + 99) / 100 - 1)];
+}
+
 /* the map's areas: worked out (or read from the cache) when a map starts,
    and again for another structure BSP */
 static void nav_update(void)
 {
 	long i;
+	unsigned long long update_start = bot_time_microseconds(); /* (all of it is timed: the end of this) */
 	if (nav_aas_tried && nav_aas_bsp == global_structure_bsp_index)
 		return;
 	nav_aas_tried = TRUE;
@@ -4980,18 +5065,11 @@ static void nav_update(void)
 	nav_danger_reset();
 	nav_vehicle_forget(); /* (the areas are other ones) */
 	{
-		void network_connection_pardon_stall(void);
-		unsigned long long start = bot_time_microseconds();
 		aas_build();
 		if (bot_logging())
 			bot_log("bots: areas %s: %ld foot, %ld vehicle, %ld places, in %.1f s", aas_ready() ? "ready" : "none",
 				aas_ready() ? aas_area_count(AAS_FOOT) : 0, aas_ready() ? aas_area_count(AAS_VEHICLE) : 0, nav_place_count(),
-				(bot_time_microseconds() - start) / 1.0e6);
-		/* (worked out in the middle of a game, for the structure BSP a
-		   map's script switched to, and nothing heard or said the while:
-		   no one is dropped for it) */
-		if (bot_time_microseconds() - start > 1000000ULL)
-			network_connection_pardon_stall();
+				(bot_time_microseconds() - update_start) / 1.0e6);
 	}
 	nav_flood_done = TRUE;
 	if (getenv("HALO_BOT_AREADUMP") && aas_ready())
@@ -5076,53 +5154,28 @@ static void nav_update(void)
 		}
 	}
 	/* how far a map is it? By how long the walk is between the places
-	   players start (a sixteenth of them, evenly, each to each: a few dozen
-	   routes, once a map); as the crow flies where there is no way on foot
-	   (a very large map's parts) */
+	   players start (bots_measure_reach: a few dozen routes, once a map).
+	   With no navigation at all (a map too large for it, no memory for it)
+	   the map is no nearer for that: its starting places and straight
+	   lines then, so that a far map is still known for one. */
 	bots_map_reach = 0.f;
 	bots_map_far = 0.f;
 	{
-		enum { MAXIMUM_PLACES = 16 };
-		float times[MAXIMUM_PLACES * MAXIMUM_PLACES];
-		long places = aas_ready() ? (aas_spawn_place_count() > 1 ? aas_spawn_place_count() : nav_place_count()) : 0;
-		long sampled = MIN(places, MAXIMUM_PLACES);
-		long count = 0;
-		long a, b;
-		for (a = 0; a < sampled; a++)
-		{
-			for (b = 0; b < sampled; b++)
-			{
-				real_point3d const *from = aas_place(a * places / sampled);
-				real_point3d const *to = aas_place(b * places / sampled);
-				float time;
-				if (a == b)
-					continue;
-				time = aas_travel_time(AAS_FOOT, from, to);
-				times[count++] = time >= 0.f ? time : bot_distance2d(from, to) / AAS_FOOT_SPEED_BOT;
-			}
-		}
-		if (count > 0)
-		{
-			/* (the 85th in 100 of them, by a count of those under a guess) */
-			real low = 0.f, high = 2000.f;
-			long pass;
-			for (pass = 0; pass < 20; pass++)
-			{
-				real middle = (low + high) * 0.5f;
-				long under = 0;
-				for (a = 0; a < count; a++)
-					under += times[a] <= middle;
-				if (under * 100 >= count * 85)
-					high = middle;
-				else
-					low = middle;
-			}
-			bots_map_reach = high;
+		unsigned long long reach_start = bot_time_microseconds();
+		long walks = 0;
+		bots_map_reach = bots_measure_reach(aas_ready(), &walks);
+		if (walks > 0)
 			bots_map_far = PIN((bots_map_reach - BOT_FAR_REACH_NEAR) / (BOT_FAR_REACH_FAR - BOT_FAR_REACH_NEAR), 0.f, 1.f);
-		}
 		if (bot_logging())
-			bot_log("bots: this map's reach is %.0f seconds on foot: %s (%.2f)", bots_map_reach,
-				bots_map_far <= 0.f ? "a near map" : bots_map_far < 1.f ? "something of a far map" : "a far map", bots_map_far);
+		{
+			bot_log("bots: this map's reach is %.0f seconds on foot%s: %s (%.2f), from %ld walks in %.2f s", bots_map_reach,
+				aas_ready() ? "" : " (by its starting places alone: no navigation)",
+				bots_map_far <= 0.f ? "a near map" : bots_map_far < 1.f ? "something of a far map" : "a far map", bots_map_far, walks,
+				(bot_time_microseconds() - reach_start) / 1.0e6);
+			/* (testing: what it would be taken for with no navigation) */
+			if (aas_ready())
+				bot_log("bots: ... and by its starting places alone, %.0f seconds", bots_measure_reach(FALSE, &walks));
+		}
 	}
 	/* how big is this map? By the spread of its spawns, items and flags */
 	nav_vehicle_bonus = 0.f;
@@ -5147,6 +5200,17 @@ static void nav_update(void)
 		object_iterator_new(&vehicles, _object_mask_vehicle, 0);
 		while (object_iterator_next(&vehicles))
 			bots_vehicle_count++;
+	}
+	/* (worked out in the middle of a game, for the structure BSP a map's
+	   script switched to, and nothing heard or said the while: no one is
+	   dropped for it. All of the above is in the time: the areas, the
+	   walks the map's reach is measured by, the places to watch from) */
+	{
+		void network_connection_pardon_stall(void);
+		if (bot_time_microseconds() - update_start > 1000000ULL)
+			network_connection_pardon_stall();
+		if (bot_logging())
+			bot_log("bots: navigation ready in %.2f s in all", (bot_time_microseconds() - update_start) / 1.0e6);
 	}
 }
 
@@ -7002,24 +7066,51 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		/* Nothing to shoot with from the driver's seat and nobody on the
 		   gun: all it can do is run them down. Round and round someone it
 		   cannot get at (in a building, up on a rock) is no use to
-		   anyone, and looks it: a few seconds of that (twice as long with
-		   them in sight, and a run at them to be had), then out, to fight
-		   on foot. The ride got it here. */
-		if (know_enemy && enemy_distance < 28.f && !driver_shoots && !has_gunner && game_engine != &race_engine)
+		   anyone, and looks it: a few seconds of getting no nearer them
+		   (twice as long with them in sight, and a run at them to be
+		   had), then out, to fight on foot. The ride got it here.
+		   What is counted is time by them that brings it no closer than
+		   it has been: a run in that is still closing is not, and nor is
+		   standing for its own people to get in (below: "waiting"), which
+		   is not going round anyone. Another vehicle, another one of
+		   them, or a drive begun afresh: the count from nothing. */
 		{
-			bot->drive_orbit_ticks += target == NONE ? 2 : 1;
-			if (bot->drive_orbit_ticks > 2 * BOT_SECONDS(4.f))
+			long quarry = target != NONE ? target : bot->target_unit;
+			long now = game_time_get();
+			int standing_for_riders = waiting > 0 && bot->goal_progress_ticks <= 5 * BOT_TICKS_PER_SECOND;
+			if (bot->drive_orbit_vehicle != vehicle_index || now - bot->drive_orbit_tick > 1 || now < bot->drive_orbit_tick ||
+				(quarry != NONE && quarry != bot->drive_orbit_unit))
 			{
-				action->control_flags |= FLAG(_unit_control_action_bit);
-				bot_ignore(bot, vehicle_index, 20 * BOT_TICKS_PER_SECOND);
 				bot->drive_orbit_ticks = 0;
-				if (bot_logging())
-					bot_log("bot%ld t%ld out of the %s to fight on foot (%.1f from them)", player_absolute_index, game_time_get(),
-						tag_get_name(object_get(vehicle_index)->definition_index), enemy_distance);
+				bot->drive_orbit_nearest = 1.0e9f;
+				bot->drive_orbit_vehicle = vehicle_index;
+				if (quarry != NONE)
+					bot->drive_orbit_unit = quarry;
+			}
+			bot->drive_orbit_tick = now;
+			if (know_enemy && enemy_distance < 28.f && !driver_shoots && !has_gunner && game_engine != &race_engine && !standing_for_riders)
+			{
+				if (enemy_distance < bot->drive_orbit_nearest - 0.5f)
+					bot->drive_orbit_nearest = enemy_distance; /* (nearer than it has been: getting somewhere) */
+				else
+					bot->drive_orbit_ticks += target == NONE ? 2 : 1;
+				if (bot->drive_orbit_ticks > 2 * BOT_SECONDS(4.f))
+				{
+					action->control_flags |= FLAG(_unit_control_action_bit);
+					bot_ignore(bot, vehicle_index, 20 * BOT_TICKS_PER_SECOND);
+					bot->drive_orbit_ticks = 0;
+					bot->drive_orbit_nearest = 1.0e9f;
+					if (bot_logging())
+						bot_log("bot%ld t%ld out of the %s to fight on foot (%.1f from them)", player_absolute_index, game_time_get(),
+							tag_get_name(object_get(vehicle_index)->definition_index), enemy_distance);
+				}
+			}
+			else if (bot->drive_orbit_ticks > 0 && !standing_for_riders)
+			{
+				if (--bot->drive_orbit_ticks == 0)
+					bot->drive_orbit_nearest = 1.0e9f;
 			}
 		}
-		else if (bot->drive_orbit_ticks > 0)
-			bot->drive_orbit_ticks--;
 		/* over the vehicle areas (a vehicle's width off walls, no stairs,
 		   no jumps): the route pulled straight, round corners, slowing for
 		   sharp ones, backing out when stuck, never over our own people */
@@ -8049,6 +8140,13 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 
 	BOT_PROFILE_MARK("a grenade on its w");
 	/* ---- a grenade on its way: aim high enough to lob it there, then throw */
+	if (bot->grenade_pending_ticks > 0 && look_forced)
+	{
+		/* (the route needs its look, on a ladder, at a ledge: that comes
+		   first, and the throw is off; never lined up, nothing to learn) */
+		bot->grenade_pending_ticks = 0;
+		bot->grenade_watch_ticks = 0;
+	}
 	if (bot->grenade_pending_ticks > 0)
 	{
 		real distance = bot_distance2d(&eye, &bot->grenade_point);
@@ -8292,7 +8390,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		   as one can be thrown, and less with a gun that does the job
 		   (a pistol, a power weapon) in range. How it has gone so far
 		   this game makes a bot keener or less keen */
-		if (vehicle_index == NONE && bot->grenade_cooldown <= 0 && bot->grenade_pending_ticks <= 0 &&
+		if (vehicle_index == NONE && bot->grenade_cooldown <= 0 && bot->grenade_pending_ticks <= 0 && !look_forced &&
 			target_distance > 6.f && target_distance < BOT_GRENADE_RANGE)
 		{
 			int opening = bot->opened_on_target != target && bot->seen_ticks < 45;
@@ -8360,7 +8458,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		real_point3d popout = bot_predict_enemy(bot, 1.f);
 		popout.z = bot->last_seen_feet.z;
 		if (vehicle_index == NONE && bot->target_unit != NONE && bot->lost_ticks > 6 && bot->lost_ticks < 60 &&
-			bot->grenade_cooldown <= 0 && bot->grenade_pending_ticks <= 0 &&
+			bot->grenade_cooldown <= 0 && bot->grenade_pending_ticks <= 0 && !look_forced &&
 			distance3d(&position, &popout) > 6.f && distance3d(&position, &popout) < BOT_GRENADE_RANGE &&
 			bot_grenade_clear(&eye, &popout, me->unit_index) &&
 			bot_random(bot) < 0.015f + 0.09f * bot_grenade_keenness(bot, &weapon, 1.0e9f))
@@ -8526,6 +8624,11 @@ void bots_map_loaded(void)
 	nav_update();
 }
 
+long bots_navigation_bsp(void)
+{
+	return nav_aas_tried && aas_ready() ? nav_aas_bsp : -1;
+}
+
 /* the console's "bots [count]" and "bot_skill [1-5]" (hs.c): TRUE when the
 text was one of them. The count is the lobby's at once, and a game in
 progress keeps the bots it started with. */
@@ -8590,6 +8693,9 @@ void bots_map_disposed(void)
 	memset(bot_squads, 0, sizeof(bot_squads));
 	bot_squads[0].leader = bot_squads[1].leader = NONE;
 	memset(bots_alive_unit, 0, sizeof(bots_alive_unit));
+	memset(bots_person_anchor, 0, sizeof(bots_person_anchor));
+	memset(bots_person_moved, 0, sizeof(bots_person_moved));
+	memset(bots_person_unit, 0, sizeof(bots_person_unit));
 	memset(bots_kills_counted, 0, sizeof(bots_kills_counted));
 	memset(bots_killer, 0, sizeof(bots_killer));
 	memset(bots_killed_time, 0, sizeof(bots_killed_time));

@@ -582,6 +582,21 @@ float bot_travel_time(struct bot_body const *body, long type, real_point3d const
 	return aas_travel_time(type, &body->position, to);
 }
 
+/* ... for something being weighed, that can do with the answer a tick or
+   two on (aas_travel_time_soon): *soon, and a time below 0, when it is not
+   worked out yet */
+float bot_travel_time_soon(struct bot_body const *body, long type, real_point3d const *to, int *soon)
+{
+	boolean waits = FALSE;
+	float time;
+	*soon = FALSE;
+	if (!aas_ready())
+		return bot_move_distance(&body->position, to) / aas_speed(type);
+	time = aas_travel_time_soon(type, &body->position, to, &waits);
+	*soon = waits;
+	return time;
+}
+
 /* ---------- reachabilities more than a walk */
 
 /* others (bots) close by: on a ladder, at a ledge, crowding */
@@ -1193,7 +1208,14 @@ static void bot_move_fly(struct bot_mover *bot, struct bot_body const *body, rea
 {
 	real_point3d aim = *goal;
 	real distance = bot_distance2d(&body->position, goal);
-	aim.z = MAX(goal->z + 2.f, body->position.z) + (distance > 20.f ? 2.f : 0.f);
+	real over = body->position.z - (goal->z + 2.f);
+	/* (no lower than it is while it is on its way, over whatever is between;
+	   and down to the place once that is near enough to come down to: three
+	   along for one down, from further off the higher it is) */
+	if (over > 0.f && distance < 20.f + 3.f * over)
+		aim.z = goal->z + 2.f;
+	else
+		aim.z = MAX(goal->z + 2.f, body->position.z) + (distance > 20.f ? 2.f : 0.f);
 	result->moving = distance > 2.f;
 	result->steer_yaw = bot_yaw_to(&body->position, &aim);
 	result->look = TRUE;

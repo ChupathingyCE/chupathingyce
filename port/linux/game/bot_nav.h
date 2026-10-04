@@ -109,6 +109,11 @@ void navm_set_baking(boolean baking);
 long navm_baked_files(void);
 /* whether the map has baked navigation of this build's kind */
 boolean navm_baked_current(char const *map_name, long bsp_index);
+/* how many structure BSPs the map has, as its bake wrote down when all of
+   them were done (0: not written down); and whether a BSP has a baked file */
+long navm_baked_bsps(char const *map_name);
+boolean navm_baked_bsps_write(char const *map_name, long count);
+boolean navm_baked_exists(char const *map_name, long bsp_index);
 /* the map loaded now was too large to work navigation out for */
 boolean navm_map_too_large(void);
 boolean aas_baked_current(char const *map_name, long bsp_index);
@@ -150,6 +155,7 @@ void aas_set_area_costs(long type, long slot, float const *costs); /* seconds pe
 float aas_goal_time(long type, long reach, long goal_area, long slot); /* from reach's start to the goal area; <0 no way */
 long aas_route_reach(long type, long area, real_point3d const *from, long goal_area, aas_avoid_function avoid, void *context, long slot, float *time);
 float aas_travel_time(long type, real_point3d const *from, real_point3d const *to); /* seconds; <0 no way */
+float aas_travel_time_soon(long type, real_point3d const *from, real_point3d const *to, boolean *soon); /* ... or *soon: not worked out yet, ask again */
 void aas_reach_failed(long type, long reach);
 /* a jumped gap's fall for a jump that misses (a great deal where there is no floor under it) */
 real aas_reach_fall(long type, long reach); /* learned: it went wrong; it costs more from now on */

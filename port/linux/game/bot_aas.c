@@ -154,6 +154,16 @@ struct aas_world
 #define AAS_ROUTES_PER_TICK 1
 static long aas_budget_tick = -1;
 static long aas_budget_used;
+/* ... and routes begun to somewhere there was none to, of all the bots', by
+   those that only want to know how far a thing is to weigh it (the goals'
+   candidates: aas_travel_time_soon). One with no route yet has nothing out
+   of date to go on with, so it is told "not yet" (never "no way") and
+   weighs the thing by how far it is as the crow flies until a later tick
+   has room for its route. What walks a route always gets one at once. */
+#define AAS_NEW_ROUTES_PER_TICK 3
+static long aas_new_used;
+static boolean aas_route_may_wait; /* (the query under way is one of those) */
+static boolean aas_route_waits; /* (... and was told not yet) */
 long game_time_get(void);
 
 /* the routing's heap, kept between routes (it's big: a fresh one each time
@@ -2209,8 +2219,9 @@ static void aas_finish_world(long type)
    a walk does), share one. Somewhere in another region cannot be got to on
    foot whatever the route: a very large map's parts, each worked out apart
    (bot_nav.c, navm_choose_parts), a ledge nothing leads to. Asked before a
-   route is looked for (aas_same_region): a route that cannot be searches
-   the whole of the region it starts in to find that out. */
+   route is looked for (aas_route_reach, aas_goal_time, and by the bots of
+   what they weigh): a route that cannot be searches the whole of the
+   region its goal is in to find that out. */
 static void aas_find_regions(long type)
 {
 	struct aas_world *world = &aas_worlds[type];
@@ -2841,6 +2852,7 @@ static struct aas_cache *aas_route(long type, long goal, long slot)
 	{
 		aas_budget_tick = game_time_get();
 		aas_budget_used = 0;
+		aas_new_used = 0;
 	}
 	for (i = 0; i < AAS_CACHES; i++)
 	{
@@ -2858,6 +2870,15 @@ static struct aas_cache *aas_route(long type, long goal, long slot)
 				bot_profile_add(entry->epoch != epoch ? "route: costs changed" : "route: penalties changed", 0);
 			break;
 		}
+	}
+	if (!cache)
+	{
+		if (aas_route_may_wait && aas_new_used >= AAS_NEW_ROUTES_PER_TICK)
+		{
+			aas_route_waits = TRUE;
+			return NULL;
+		}
+		aas_new_used++;
 	}
 	aas_budget_used++;
 	if (bot_profiling && !cache)
@@ -3347,6 +3368,8 @@ float aas_goal_time(long type, long reach, long goal_area, long slot)
 	float result;
 	if (!aas_is_ready || goal_area == NONE || reach == NONE)
 		return -1.f;
+	if (world->region && world->region[world->reaches[reach].to] != world->region[goal_area])
+		return -1.f; /* (as aas_route_reach: another part of the map) */
 	cache = aas_route(type, goal_area, slot);
 	if (!cache)
 		return -1.f;
@@ -3422,6 +3445,11 @@ long aas_route_reach(long type, long area, real_point3d const *from, long goal_a
 			*time_out = aas_distance(from, &world->areas[goal_area].center) / speed;
 		return NONE;
 	}
+	/* (another part of the map, joined to this one by nothing either way:
+	   no way there, known at once, with no route begun to find it out by
+	   going through all of the part the goal is in) */
+	if (world->region && world->region[area] != world->region[goal_area])
+		return NONE;
 	cache = aas_route(type, goal_area, slot);
 	if (!cache)
 		return NONE;
@@ -3538,6 +3566,20 @@ float aas_travel_time(long type, real_point3d const *from, real_point3d const *t
 	if (aas_route_reach(type, a, from, b, NULL, NULL, NONE, &time) == NONE)
 		return -1.f;
 	return time;
+}
+
+/* the same for something only being weighed: with this tick's new routes
+   spent and none to there yet, *soon is set and the time is as no way's
+   (below 0): not known yet, to be asked again */
+float aas_travel_time_soon(long type, real_point3d const *from, real_point3d const *to, boolean *soon)
+{
+	float time;
+	aas_route_may_wait = TRUE;
+	aas_route_waits = FALSE;
+	time = aas_travel_time(type, from, to);
+	aas_route_may_wait = FALSE;
+	*soon = aas_route_waits;
+	return aas_route_waits ? -1.f : time;
 }
 
 /* a gap's fall for a jump that misses it (0 for what is not a jumped gap) */
