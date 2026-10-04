@@ -862,6 +862,38 @@ favourite weapon.
 `HALO_BOT_OFF=human` gives the bots their movement without the first list
 above, for a comparison.
 
+### Far maps
+
+The bots measure each map when its navigation is ready. The measure is the
+time on foot between the places where players start: 85 of each 100 pairs of
+these places are not farther apart than this time. A map with a time of 20
+seconds or less is a near map. A map with a time of 40 seconds or more is a
+far map, and a map between the two is partly a far map. Blood Gulch has 39
+seconds, Sidewinder has 52, Boarding Action has 31, and Hang 'Em High has
+18. With `HALO_BOT_LOG` set, the game writes the measure in a line that
+starts with `bots: this map's reach`.
+
+On a far map, a bot that has no enemy within 30 world units goes to the
+place where the enemies are. This is its trip:
+
+- The bot starts the trip with the weapon that it has. It takes a better
+  weapon that lies near its way, as the list of weapons above tells.
+- The bot does not stop the trip for an ordinary item, for one of its own
+  places, or to hold a place. It stops for a power weapon or a powerup that
+  is near, for a vehicle, for the objective of the game, and for its squad.
+- A vehicle that is less than 30 world units away is worth more to the bot
+  when the enemies are more than 60 world units away.
+- The trip goes to the place where the enemies are now. It ends when an
+  enemy is less than 30 world units away.
+
+On all maps:
+
+- A driver who has no weapon on the vehicle and no gunner gets out and
+  fights on foot when the vehicle has been near an enemy for 4 seconds
+  without a view of the enemy, or for 8 seconds with one.
+- A person who has not moved 6 world units in 6 seconds does not lead the
+  squad of the team. The bots of the team then follow one of the bots.
+
 ### The characters of the bots
 
 Each bot has a character for the full game. The bots do not keep it from

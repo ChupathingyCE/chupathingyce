@@ -219,6 +219,20 @@ instead of walking ones. Worked out once per map and cached. */
 #define NAV_VISIT_LEVELS 8 /* (3-unit bands of height: one floor over another; 24 units before a band comes round again) */
 static long nav_visited[NAV_DANGER_TEAMS][NAV_VISIT_CELLS * NAV_VISIT_CELLS * NAV_VISIT_LEVELS];
 static real nav_vehicle_bonus; /* 0 on small maps .. 0.8 on big ones: how much everyone wants a vehicle */
+/* How far apart a map's play is, and so how it is played. The reach: the
+   walk that 85 in 100 pairs of the places where players start are within,
+   seconds. How far a map it is, 0 to 1: 0 up to a reach of 20 seconds (a
+   pair of rooms, a courtyard: everyone is always near someone), 1 from 40
+   (a valley, an island: most of a minute from one end to the other). On a
+   far map somebody with nobody near sets off for where the others are and
+   keeps going (bot_choose_goal, the trip): it is not a place to potter
+   about in. */
+static real bots_map_reach;
+static real bots_map_far;
+#define BOT_FAR_REACH_NEAR 20.f
+#define BOT_FAR_REACH_FAR 40.f
+/* nobody nearer than this: nobody here to fight */
+#define BOT_TRIP_NOBODY 30.f
 static int nav_flood_done; /* the map's areas are ready (or there are none to be had) */
 static short nav_aas_bsp = -1;
 static int nav_aas_tried;
@@ -1133,6 +1147,8 @@ struct bot_state
 	real_point3d recent_spot[BOT_RECENT_SPOTS];
 	long recent_until[BOT_RECENT_SPOTS];
 	int goal_squad; /* team slayer: the goal's keeping with the team */
+	int goal_trip; /* a far map: the goal is the trip to where the others are */
+	long drive_orbit_ticks; /* driving round someone it cannot shoot or run down: for how long */
 	real_point3d squad_point;
 	/* the target's movement, smoothed (for leading them) */
 	long aim_velocity_unit;
@@ -1803,6 +1819,7 @@ static void bot_set_goal(struct bot_state *bot, long kind, real_point3d const *p
 	}
 	bot->goal_kind = kind;
 	bot->goal_squad = FALSE;
+	bot->goal_trip = FALSE;
 	bot->goal = *point;
 	bot_goal_snap(bot);
 	bot->goal_object = object_index;
@@ -2219,6 +2236,7 @@ struct bot_candidate
 	int objective; /* something to get to even under fire */
 	int squad; /* team slayer: with the team */
 	int explore; /* somewhere to explore */
+	int trip; /* a far map: off to where the others are */
 };
 
 /* the choice being weighed: whose, and how loosely. Every candidate's score
@@ -2311,6 +2329,7 @@ static int bot_consider(struct bot_candidate *best, real score, long kind, real_
 		best->objective = objective;
 		best->squad = FALSE;
 		best->explore = FALSE;
+		best->trip = FALSE;
 		return TRUE;
 	}
 	return FALSE;
@@ -3112,6 +3131,16 @@ struct bot_squad
 
 static struct bot_squad bot_squads[2];
 
+/* A person leads its side's squad while it is going somewhere. One that
+   stands about (at its base with a sniper rifle, away from the keyboard,
+   looking at the scores) gives the bots nothing to follow: they stood
+   about with it. Where each person was when it last moved a few steps,
+   and when. */
+static real_point3d bots_person_anchor[BOT_MAXIMUM_PLAYERS];
+static long bots_person_moved[BOT_MAXIMUM_PLAYERS];
+#define BOT_LEADER_STILL_SECONDS 6.f
+#define BOT_LEADER_STEPS 6.f
+
 /* who was alive last tick and where (deaths mark the danger map); cleared
    with the map */
 static long bots_alive_unit[BOT_MAXIMUM_PLAYERS];
@@ -3158,6 +3187,18 @@ static struct bot_squad *bot_squad_update(long team, unsigned long seed)
 		if (player->team_index != team || player->unit_index == NONE || !bot_unit_alive(player->unit_index))
 			continue;
 		human = !bot_unit_is_bot(player->unit_index);
+		if (human && index >= 0 && index < BOT_MAXIMUM_PLAYERS)
+		{
+			real_point3d const *at = &object_get(object_get_ultimate_parent(player->unit_index))->object.position;
+			if (bots_person_moved[index] > now || distance3d(at, &bots_person_anchor[index]) > BOT_LEADER_STEPS)
+			{
+				bots_person_anchor[index] = *at;
+				bots_person_moved[index] = now;
+			}
+			/* (standing about: not the one to lead) */
+			if (now - bots_person_moved[index] > BOT_SECONDS(BOT_LEADER_STILL_SECONDS))
+				continue;
+		}
 		{
 			unsigned long rank = bot_hash((unsigned long)index ^ bots_match());
 			int better = best == NONE || (human && !best_human);
@@ -3382,6 +3423,27 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 		long slot = NONE;
 		bot_worst_held(unit, &slot);
 		swap_poor = slot != NONE && bot_weapon_is_poor(unit->unit.weapon_object_indices[slot]) && !bot_slot_is_favorite(bot, unit, slot);
+	}
+
+	/* A far map, and nobody near to fight (bots_map_far): the trip to where
+	   the others are is on, and staying about (its own places, a spot to
+	   hold) is worth little. */
+	int nobody_near = FALSE;
+	real nobody_distance = 0.f;
+	real_point3d others_at = *position;
+	real stay = 1.f;
+	if (bots_map_far > 0.f && !bot->carrying_objective && bot_nearest_enemy(player, position, &others_at, &nobody_distance) &&
+		nobody_distance > BOT_TRIP_NOBODY)
+	{
+		nobody_near = TRUE;
+		stay = 1.f - 0.85f * bots_map_far;
+	}
+	/* (there, or they have come to us: the trip is over, and what we were
+	   on is no longer worth what the trip was) */
+	if (bot->goal_trip && !nobody_near)
+	{
+		bot->goal_trip = FALSE;
+		bot->goal_score = MIN(bot->goal_score, 4.f);
 	}
 
 	memset(&best, 0, sizeof(best));
@@ -3627,6 +3689,9 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 				/* on your own a warthog is only good for running people over */
 				if (!teams && !bot_driver_shoots(iterator.index) && game_engine != &race_engine)
 					score *= 0.35f;
+				/* (a long way to go and one standing by: the way to go) */
+				if (nobody_near && nobody_distance > 60.f && distance < 30.f && game_engine != &race_engine)
+					score += 7.f * bots_map_far * bot_vehicle_worth(object->definition_index) / (1.f + distance / 30.f);
 				/* someone else is on the way: in a team game ride with them */
 				if (bot_goal_taken(iterator.index, me))
 					score *= teams && bot_vehicle_seats(iterator.index) > 1 ? 0.9f : 0.3f;
@@ -3647,6 +3712,28 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 					score *= 2.5f;
 			}
 			bot_consider(&best, score, _bot_goal_vehicle, &entry, iterator.index, 20 * BOT_TICKS_PER_SECOND, TRUE);
+		}
+	}
+
+	/* The trip. A far map, and nobody within reach of a fight: off to where
+	   the others are, whatever is in hand (a better gun lying by the way
+	   is taken as it is passed), and kept at: no going back for something,
+	   no stopping at a place of its own, no walk about the base first. How
+	   it gets there matters little; that it does, a lot. Over when someone
+	   is near (bot_choose_goal's start). */
+	if (nobody_near && unit->object.parent_object_index == NONE)
+	{
+		real_point3d point;
+		/* (the same trip while they are about where they were: not a new
+		   place by them each time it is weighed) */
+		if (bot->goal_trip && bot->goal_kind == _bot_goal_roam && bot->goal_ticks > 0 && bot_distance2d(&bot->goal, &others_at) < 20.f)
+			point = bot->goal;
+		else
+			point = bot_approach_spot(bot, &others_at, position);
+		if (bot_consider(&best, (9.f + 6.f * bot->personality.aggression) * bots_map_far * (objective_game ? BOT_OBJECTIVE_HUNT : 1.f),
+				_bot_goal_roam, &point, NONE, (long)((8.f + nobody_distance / 1.5f) * BOT_TICKS_PER_SECOND), FALSE))
+		{
+			best.trip = TRUE;
 		}
 	}
 
@@ -3791,12 +3878,12 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 				if (since > BOT_SECONDS(45.f))
 				{
 					bot->memory.haunt_visited[i] = game_time_get();
-					bot_consider(&best, personal * (3.f + 5.f * bot->personality.camping), _bot_goal_hold, &bot->memory.haunts[i], NONE,
+					bot_consider(&best, stay * personal * (3.f + 5.f * bot->personality.camping), _bot_goal_hold, &bot->memory.haunts[i], NONE,
 						(long)((3.f + 12.f * bot->personality.camping) * personal * BOT_TICKS_PER_SECOND), FALSE);
 				}
 			}
 			else if (since > BOT_SECONDS(45.f))
-				bot_consider(&best, personal * (1.5f + 2.5f * bot->personality.patience + 2.5f * bot->personality.camping) / (1.f + distance / 80.f),
+				bot_consider(&best, stay * personal * (1.5f + 2.5f * bot->personality.patience + 2.5f * bot->personality.camping) / (1.f + distance / 80.f),
 					_bot_goal_roam, &bot->memory.haunts[i], NONE, (long)((8.f + distance / 1.5f) * BOT_TICKS_PER_SECOND), FALSE);
 		}
 	}
@@ -3999,8 +4086,20 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 	   else of the same sort every time the dice come up differently (a new
 	   random place each second is a bot that wanders about the middle and
 	   never gets anywhere); only for something else altogether */
+	/* (the trip under way: on with it, to where they are now) */
+	if (bot->goal_trip && best.trip && bot->goal_kind == _bot_goal_roam && bot->goal_ticks > 0)
+	{
+		if (distance3d(&best.point, &bot->goal) > 2.f)
+		{
+			bot->goal = best.point;
+			bot_goal_snap(bot);
+			bot->goal_ticks = MAX(bot->goal_ticks, best.ticks);
+		}
+		bot->goal_score = best.score;
+		return;
+	}
 	if (bot->goal_kind == _bot_goal_roam && !bot->goal_squad && !bot->goal_objective && bot->goal_ticks > 0 && best.kind == _bot_goal_roam &&
-		!best.squad && !best.objective &&
+		!best.squad && !best.objective && !(best.trip && !bot->goal_trip) && /* (a trip is something else altogether) */
 		best.object == NONE && bot_distance2d(position, &bot->goal) > 2.f)
 	{
 		return;
@@ -4023,9 +4122,10 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 	if (best.kind != _bot_goal_none && best.score > 0.25f)
 	{
 		if (bot_logging() && (best.kind != bot->goal_kind || best.object != bot->goal_object))
-			bot_log("bot%ld goal %ld %s score %.2f d %.1f (was %ld %lx ticks %ld score %.2f)", me, best.kind,
+			bot_log("bot%ld goal %ld %s score %.2f d %.1f (was %ld %lx ticks %ld score %.2f)%s%s%s%s", me, best.kind,
 				best.object != NONE ? tag_get_name(object_get(best.object)->definition_index) : "-", best.score, distance3d(position, &best.point),
-				bot->goal_kind, (unsigned long)bot->goal_object, bot->goal_ticks, bot->goal_score);
+				bot->goal_kind, (unsigned long)bot->goal_object, bot->goal_ticks, bot->goal_score,
+				best.trip ? " trip" : "", best.squad ? " squad" : "", best.objective ? " objective" : "", best.explore ? " explore" : "");
 		if (best.kind == _bot_goal_item && best.object != bot->goal_object)
 			bot->item_streak++;
 		else if (best.kind != _bot_goal_item)
@@ -4034,6 +4134,7 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 		bot->goal_score = best.score;
 		bot->goal_objective = best.objective;
 		bot->goal_squad = best.squad;
+		bot->goal_trip = best.trip;
 		if (best.explore)
 		{
 			bot->explore_point = best.point;
@@ -4971,6 +5072,55 @@ static void nav_update(void)
 			bot_states[i].mover.move.avoid_reach[k] = NONE;
 			bot_states[i].mover.move.avoid_until[k] = 0;
 		}
+	}
+	/* how far a map is it? By how long the walk is between the places
+	   players start (a sixteenth of them, evenly, each to each: a few dozen
+	   routes, once a map); as the crow flies where there is no way on foot
+	   (a very large map's parts) */
+	bots_map_reach = 0.f;
+	bots_map_far = 0.f;
+	{
+		enum { MAXIMUM_PLACES = 16 };
+		float times[MAXIMUM_PLACES * MAXIMUM_PLACES];
+		long places = aas_ready() ? (aas_spawn_place_count() > 1 ? aas_spawn_place_count() : nav_place_count()) : 0;
+		long sampled = MIN(places, MAXIMUM_PLACES);
+		long count = 0;
+		long a, b;
+		for (a = 0; a < sampled; a++)
+		{
+			for (b = 0; b < sampled; b++)
+			{
+				real_point3d const *from = aas_place(a * places / sampled);
+				real_point3d const *to = aas_place(b * places / sampled);
+				float time;
+				if (a == b)
+					continue;
+				time = aas_travel_time(AAS_FOOT, from, to);
+				times[count++] = time >= 0.f ? time : bot_distance2d(from, to) / AAS_FOOT_SPEED_BOT;
+			}
+		}
+		if (count > 0)
+		{
+			/* (the 85th in 100 of them, by a count of those under a guess) */
+			real low = 0.f, high = 2000.f;
+			long pass;
+			for (pass = 0; pass < 20; pass++)
+			{
+				real middle = (low + high) * 0.5f;
+				long under = 0;
+				for (a = 0; a < count; a++)
+					under += times[a] <= middle;
+				if (under * 100 >= count * 85)
+					high = middle;
+				else
+					low = middle;
+			}
+			bots_map_reach = high;
+			bots_map_far = PIN((bots_map_reach - BOT_FAR_REACH_NEAR) / (BOT_FAR_REACH_FAR - BOT_FAR_REACH_NEAR), 0.f, 1.f);
+		}
+		if (bot_logging())
+			bot_log("bots: this map's reach is %.0f seconds on foot: %s (%.2f)", bots_map_reach,
+				bots_map_far <= 0.f ? "a near map" : bots_map_far < 1.f ? "something of a far map" : "a far map", bots_map_far);
 	}
 	/* how big is this map? By the spread of its spawns, items and flags */
 	nav_vehicle_bonus = 0.f;
@@ -6781,6 +6931,27 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			}
 			next = bot->goal;
 		}
+		/* Nothing to shoot with from the driver's seat and nobody on the
+		   gun: all it can do is run them down. Round and round someone it
+		   cannot get at (in a building, up on a rock) is no use to
+		   anyone, and looks it: a few seconds of that (twice as long with
+		   them in sight, and a run at them to be had), then out, to fight
+		   on foot. The ride got it here. */
+		if (know_enemy && enemy_distance < 28.f && !driver_shoots && !has_gunner && game_engine != &race_engine)
+		{
+			bot->drive_orbit_ticks += target == NONE ? 2 : 1;
+			if (bot->drive_orbit_ticks > 2 * BOT_SECONDS(4.f))
+			{
+				action->control_flags |= FLAG(_unit_control_action_bit);
+				bot_ignore(bot, vehicle_index, 20 * BOT_TICKS_PER_SECOND);
+				bot->drive_orbit_ticks = 0;
+				if (bot_logging())
+					bot_log("bot%ld t%ld out of the %s to fight on foot (%.1f from them)", player_absolute_index, game_time_get(),
+						tag_get_name(object_get(vehicle_index)->definition_index), enemy_distance);
+			}
+		}
+		else if (bot->drive_orbit_ticks > 0)
+			bot->drive_orbit_ticks--;
 		/* over the vehicle areas (a vehicle's width off walls, no stairs,
 		   no jumps): the route pulled straight, round corners, slowing for
 		   sharp ones, backing out when stuck, never over our own people */
