@@ -18,11 +18,12 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .version import release_build, version
-from .linux_build import (CUSTOM_EDITION_DEFINES, LINUX_PROFILE, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
+from .version import has_updater
+from .linux_build import (CUSTOM_EDITION_DEFINES, LINUX_PROFILE, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR,
+                          UPDATE_SOURCES, WINDOWS_PROFILE,
                           XDK_INCLUDE, game_browser_defines, lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
                           game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
-                          xdk_headers)
+                          updater_defines, xdk_headers)
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .ninja_syntax import Writer
 
@@ -55,15 +56,6 @@ EXPAT_SOURCES = ("xmlparse.c", "xmlrole.c", "xmltok.c", "random_rand_s.c")
 KCP_DIR = Path("port/third_party/kcp")
 QRCODEGEN_DIR = Path("port/third_party/qrcodegen")
 
-
-def updater_defines(release: bool) -> str:
-    """the version's defines (port/linux/src/updater.c, the self-updater, has
-    them, and gives the version to the rest): the version (tools/version.py),
-    whether this build is a release's (only those look for updates), and its
-    configuration"""
-    flavor = "release" if release else "debug"
-    return (f'-DHALO_VERSION=\\"{version()}\\" -DHALO_RELEASE_BUILD={int(release_build())} '
-            f'-DHALO_BUILD_FLAVOR=\\"{flavor}\\"')
 
 WINDOWS_ABI_FLAGS = [
     "--target=i686-pc-windows-msvc",
@@ -392,7 +384,7 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
             if source.name in replaced:
                 continue
             if source.name == "updater.c":
-                add_object(source, f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
+                add_object(source, f"{platform_cflags} {updater_defines(sln)}")
             elif source.name == "posix_browser.c":
                 # (the game list's requests: on Winsock, with Mbed TLS, as
                 # on Linux)
@@ -410,6 +402,8 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
                                              f"-I{MBEDTLS_DIR / 'library'}", "-D_CRT_SECURE_NO_WARNINGS", "-w"]))
         miniupnpc_include = f"-I{MINIUPNPC_DIR / 'include'} -DMINIUPNP_STATICLIB"
         for source in sorted((PORT_DIR / "src").glob("*.c")):
+            if source.name in UPDATE_SOURCES and not has_updater(sln):
+                continue
             if source.name == "win32_upnp.c":
                 add_object(source, f"{win32_cflags} {miniupnpc_include}")
             else:

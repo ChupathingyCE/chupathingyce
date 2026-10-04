@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .ninja_syntax import Writer
-from .version import release_build, version
+from .version import build_version, has_updater, release_build, version
 
 PORT_DIR = Path("port/linux")
 PORT_CONFIG = PORT_DIR / "port.json"
@@ -136,14 +136,23 @@ def miniupnpc_sources() -> List[Path]:
     return sorted((MINIUPNPC_DIR / "src").glob("*.c"))
 
 
-def updater_defines(release: bool) -> str:
+def updater_defines(sln: Any) -> str:
     """the version's defines (port/linux/src/updater.c, the self-updater, has
     them, and gives the version to the rest): the version (tools/version.py),
     whether this build is a release's (only those look for updates), and its
-    configuration"""
-    flavor = "release" if release else "debug"
+    configuration; with configure.py --no-updater, a test build's version and
+    no updater (HALO_NO_UPDATER)"""
+    flavor = "release" if getattr(sln, "port_release", False) else "debug"
+    if not has_updater(sln):
+        return (f'-DHALO_VERSION=\\"{build_version(sln)}\\" -DHALO_NO_UPDATER '
+                f'-DHALO_BUILD_FLAVOR=\\"{flavor}\\"')
     return (f'-DHALO_VERSION=\\"{version()}\\" -DHALO_RELEASE_BUILD={int(release_build())} '
             f'-DHALO_BUILD_FLAVOR=\\"{flavor}\\"')
+
+
+# the self-updater's system side (update.h), which a test build without it
+# (configure.py --no-updater) leaves out
+UPDATE_SOURCES = ("posix_update.c", "win32_update.c")
 
 PLATFORM_FLAGS = [
     "-std=gnu11",
@@ -451,6 +460,8 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
         posix_cflags = " ".join(POSIX_FLAGS + [march_flag(sln), f"-I{platform_dir}"] + game_browser_defines(sln))
         mbedtls_include = f"-I{MBEDTLS_DIR / 'include'}"
         for source in sorted(platform_dir.glob("*.c")):
+            if source.name in UPDATE_SOURCES and not has_updater(sln):
+                continue
             if source.name in ("posix_update.c", "posix_browser.c"):
                 add_object(source, f"{posix_cflags} {mbedtls_include}", posix=True)
             elif source.name == "posix_upnp.c":
@@ -461,7 +472,7 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
             elif source.name.startswith("posix_"):
                 add_object(source, posix_cflags, posix=True)
             elif source.name == "updater.c":
-                add_object(source, f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
+                add_object(source, f"{platform_cflags} {updater_defines(sln)}")
             else:
                 add_object(source, platform_cflags)
         for source in embedded_assets:

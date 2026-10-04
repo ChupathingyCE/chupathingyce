@@ -17,6 +17,12 @@ ChupathingyCE's release workflows set: HALO_VERSION (0.5.0b, or
 0.5.0b-nightly.42), HALO_RELEASE_BUILD=1 for a release (whose version must
 be VERSION's), and HALO_BUILD_NUMBER, which orders the Android builds.
 Without them, a build is VERSION's -dev and never looks for updates.
+
+    python tools/ci_build.py windows release --test-name halopc-maps
+
+makes a test build: no self-updater, version VERSION-halopc-maps-test
+(configure.py --no-updater --test-name). The workflow's manual run passes its
+test_name input as CI_TEST_NAME, the default of --test-name.
 """
 
 import argparse
@@ -29,7 +35,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.version import base_version, release_build, version  # noqa: E402
+from tools.version import base_version, release_build, test_version, version  # noqa: E402
 
 # what each port's build leaves, and what goes into dist/
 OUTPUTS = {
@@ -54,6 +60,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("platform", choices=sorted(OUTPUTS))
     parser.add_argument("config", choices=["debug", "release"])
+    parser.add_argument("--test-name", metavar="NAME", default=os.environ.get("CI_TEST_NAME") or None,
+                        help="a test build without the self-updater, VERSION-NAME-test (configure.py --test-name; "
+                        "default: CI_TEST_NAME)")
     args = parser.parse_args()
 
     configure = [sys.executable, "configure.py", "--portable"]
@@ -61,6 +70,8 @@ def main() -> int:
         configure.append("--release")
     else:
         configure += ["--lto=off", "--pgo=off"]
+    if args.test_name:
+        configure += ["--no-updater", "--test-name", args.test_name]
     launcher = os.environ.get("CI_COMPILER_LAUNCHER")
     if launcher:
         configure += ["--compiler-launcher", launcher]
@@ -68,7 +79,10 @@ def main() -> int:
     if release_build() and version() != base_version():
         print(f"error: a release build of {version()}, but VERSION is {base_version()}", file=sys.stderr)
         return 1
-    print(f"version {version()}{' (a release)' if release_build() else ''}", flush=True)
+    if args.test_name:
+        print(f"version {test_version(args.test_name)} (a test build, without the self-updater)", flush=True)
+    else:
+        print(f"version {version()}{' (a release)' if release_build() else ''}", flush=True)
     run(configure)
 
     if args.platform == "android":

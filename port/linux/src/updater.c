@@ -23,6 +23,11 @@ or cannot be reached. If it is newer, the game asks whether to update:
 
 The system side (the HTTPS download, the files, starting the new game) is
 update.h's: posix_update.c on Linux, win32_update.c on Windows.
+
+A test build (configure.py --no-updater: HALO_NO_UPDATER) has no updater at
+all: none of this is compiled, the system side is left out of the build, and
+update.auto is not read. Its version is marked as a test's (0.6.0b-test,
+tools/version.py), and so is the window's title.
 */
 
 #include "platform.h"
@@ -35,7 +40,7 @@ macos_build.py; the Android app's version is its own, build.gradle) */
 #define HALO_VERSION "dev"
 #endif
 
-#ifndef HALO_ANDROID
+#if !defined(HALO_ANDROID) && !defined(HALO_NO_UPDATER)
 
 #include "memory/zlib/zlib.h"
 
@@ -705,6 +710,21 @@ void updater_poll(SDL_Window *window)
 	}
 	if (fullscreen)
 		SDL_SetWindowFullscreen(window, true);
+}
+
+#elif defined(HALO_NO_UPDATER)
+
+#include <SDL3/SDL.h>
+
+/* (a test build: no update check, configure.py --no-updater) */
+void updater_start(void)
+{
+	platform_log("update: a test build (%s): the self-updater is not built", HALO_VERSION);
+}
+
+void updater_poll(SDL_Window *window)
+{
+	(void)window;
 }
 
 #else

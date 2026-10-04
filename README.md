@@ -171,6 +171,7 @@ Useful `configure.py` options:
 | `--portable` | A Linux or Windows build that runs on any x86-64 computer, to give to others. |
 | `--no-game-browser` | Leaves out the server list, stats and dedicated servers, as OpenCE's builds are. |
 | `--pgo=off`, `--lto=off` | Faster builds, without profile-guided or link-time optimisation. |
+| `--no-updater`, `--test-name NAME` | A test build: the self-updater left out, and the version `VERSION-NAME-test` (or `VERSION-test`). |
 
 The version being made is in `VERSION`. Releases are built and published by
 the project's release workflow; the builds on this repository's Actions page

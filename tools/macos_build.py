@@ -38,6 +38,7 @@ from .linux_build import (
     QRCODEGEN_DIR,
     STB_DIR,
     TOML_DIR,
+    UPDATE_SOURCES,
     XDK_INCLUDE,
     compile_launcher,
     game_sources,
@@ -48,7 +49,7 @@ from .linux_build import (
 )
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .ninja_syntax import Writer
-from .version import version
+from .version import has_updater, version
 
 PORT_DIR = Path("port/macos")
 PORT_CONFIG = PORT_DIR / "port.json"
@@ -334,7 +335,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
                                  *game_browser_defines(sln)])
         mbedtls_include = f"-I{MBEDTLS_DIR / 'include'}"
         for source in sorted(platform_dir.glob("*.c")):
-            if str(source) in excluded:
+            if str(source) in excluded or (source.name in UPDATE_SOURCES and not has_updater(sln)):
                 continue
             if source.name in ("posix_update.c", "posix_browser.c"):
                 add_object(source, f"{posix_cflags} {mbedtls_include}")
@@ -345,7 +346,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
             elif source.name.startswith("posix_"):
                 add_object(source, posix_cflags)
             elif source.name == "updater.c":
-                add_object(lp64(source), f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
+                add_object(lp64(source), f"{platform_cflags} {updater_defines(sln)}")
             elif source.name == "text_hires.c":
                 # (it includes stb_truetype by a path from its own folder: the
                 # copy's folder has no third_party beside it, the original's has)

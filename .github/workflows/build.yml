@@ -20,6 +20,10 @@ name: Build
 # - pushes that only change documentation do not build;
 # - Windows, whose minutes cost twice Linux's, builds only Windows;
 # - artifacts are kept for three days.
+#
+# Run by hand (workflow_dispatch) with a test_name, it makes test builds:
+# without the self-updater, versioned VERSION-<test_name>-test
+# (tools/ci_build.py --test-name, configure.py --no-updater).
 on:
   push:
     paths-ignore:
@@ -28,6 +32,11 @@ on:
     paths-ignore:
       - "**.md"
   workflow_dispatch:
+    inputs:
+      test_name:
+        description: "Test build name (VERSION-NAME-test, without the self-updater); empty for normal builds"
+        required: false
+        default: ""
 
 concurrency:
   group: build-${{ github.ref }}
@@ -38,6 +47,7 @@ permissions:
 
 env:
   CI_COMPILER_LAUNCHER: ccache
+  CI_TEST_NAME: ${{ inputs.test_name }}
   CCACHE_DIR: ${{ github.workspace }}/.ccache
   CCACHE_BASEDIR: ${{ github.workspace }}
   CCACHE_MAXSIZE: 1G

@@ -6,6 +6,7 @@
 import argparse
 import io
 import os
+import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,6 +16,15 @@ from tools.android_build import android_configure_inputs, generate_android_build
 from tools.linux_build import generate_linux_build, linux_configure_inputs
 from tools.macos_build import generate_macos_build, macos_configure_inputs
 from tools.windows_build import generate_windows_build, windows_configure_inputs
+
+
+def test_name(text: str) -> str:
+    """--test-name's: letters, digits, dots and dashes (it goes into the
+    version, a C string)"""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]*", text):
+        raise argparse.ArgumentTypeError("letters, digits, dots and dashes only")
+    return text
+
 
 # arguments
 parser = argparse.ArgumentParser()
@@ -40,6 +50,20 @@ parser.add_argument(
     default=True,
     help="native ports (Linux, macOS): the game list and server browser of halo.milenko.org "
     "(HALO_GAME_BROWSER; port/linux/src/browser.c); on unless --no-game-browser",
+)
+parser.add_argument(
+    "--updater",
+    action=argparse.BooleanOptionalAction,
+    default=True,
+    help="desktop ports (Linux, Windows, macOS): the self-updater (port/linux/src/updater.c); on unless "
+    "--no-updater, which compiles it out (HALO_NO_UPDATER) for a test build, whose version is marked as a "
+    "test's: VERSION-test, or with --test-name, VERSION-NAME-test",
+)
+parser.add_argument(
+    "--test-name",
+    metavar="NAME",
+    type=test_name,
+    help="a test build's name, in its version and window title (VERSION-NAME-test); implies --no-updater",
 )
 parser.add_argument(
     "--lto",
@@ -90,6 +114,8 @@ sln = SimpleNamespace(
     compiler_launcher=args.compiler_launcher,
     port_release=args.release,
     game_browser=args.game_browser,
+    updater=args.updater and not args.test_name,
+    test_name=args.test_name,
     port_lto=args.lto,
     port_portable=args.portable,
     port_pgo=args.pgo,
