@@ -35,6 +35,7 @@ with it under the lock.
 #include "browser.h"
 #include "qrcodegen.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1176,6 +1177,27 @@ int browser_json_name(char *out, int size, const unsigned short *name, int lengt
 	return json_name(out, size, name, length);
 }
 
+/* text appended to a report of size bytes at used, as far as it fits:
+where its end is now (never past the buffer, whatever snprintf says it
+would have written) */
+static int clamped(int used, size_t size)
+{
+	return used < 0 ? 0 : (size_t)used >= size ? (int)size - 1 : used;
+}
+
+static int append(char *report, size_t size, int used, const char *format, ...)
+{
+	va_list arguments;
+	int written;
+
+	if ((size_t)used >= size - 1)
+		return used;
+	va_start(arguments, format);
+	written = vsnprintf(report + used, size - (size_t)used, format, arguments);
+	va_end(arguments);
+	return written < 0 ? used : clamped(used + written, size);
+}
+
 /* a report as JSON: the teams, the scores, the length and the lines (each
 tagged with its player's address's hash when tag_invite is given: the
 host's own report), then extra's members */
@@ -1192,7 +1214,7 @@ static char *report_json(int teams, int red_score, int blue_score, int duration_
 		free(report);
 		return NULL;
 	}
-	used += snprintf(report + used, size - (size_t)used,
+	used = append(report, size, used,
 		"{\"teams\": %d, \"duration\": %d, \"team_scores\": [%d, %d], \"players\": [",
 		teams != 0, duration_seconds, teams ? red_score : 0, teams ? blue_score : 0);
 	for (index = 0; index < count && (size_t)used < size - REPORT_LINE_SIZE; index++)
@@ -1200,9 +1222,9 @@ static char *report_json(int teams, int red_score, int blue_score, int duration_
 		const struct browser_report_player *player = &players[index];
 		unsigned long address = tag_invite ? public_address(player->address) : 0;
 
-		used += snprintf(report + used, size - (size_t)used, "%s{\"name\": ", index ? ", " : "");
-		used += json_name(report + used, (int)(size - (size_t)used), player->name, 12);
-		used += snprintf(report + used, size - (size_t)used,
+		used = append(report, size, used, "%s{\"name\": ", index ? ", " : "");
+		used = clamped(used + json_name(report + used, (int)(size - (size_t)used), player->name, 12), size);
+		used = append(report, size, used,
 			", \"team\": %d, \"place\": %d, \"score\": %d, \"kills\": %d, \"assists\": %d, \"deaths\": %d, "
 			"\"betrayals\": %d, \"suicides\": %d, \"shots_fired\": %d, \"shots_hit\": %d, \"multikills\": %d, "
 			"\"color\": %d, \"flag_grabs\": %d, \"flag_returns\": %d, \"flag_scores\": %d, \"ball_time\": %d, "
@@ -1217,16 +1239,16 @@ static char *report_json(int teams, int red_score, int blue_score, int duration_
 			char tag[2 * P2P_SHA256_SIZE + 1];
 
 			address_tag(tag_invite, address, tag);
-			used += snprintf(report + used, size - (size_t)used, ", \"tag\": \"%s\"", tag);
+			used = append(report, size, used, ", \"tag\": \"%s\"", tag);
 		}
 		if (player->extra && player->extra[0] && strlen(player->extra) < BROWSER_REPORT_EXTRA_SIZE)
-			used += snprintf(report + used, size - (size_t)used, ", %s", player->extra);
-		used += snprintf(report + used, size - (size_t)used, "}");
+			used = append(report, size, used, ", %s", player->extra);
+		used = append(report, size, used, "}");
 	}
-	used += snprintf(report + used, size - (size_t)used, "]");
+	used = append(report, size, used, "]");
 	if (extra && extra[0])
-		used += snprintf(report + used, size - (size_t)used, ", %s", extra);
-	snprintf(report + used, size - (size_t)used, "}");
+		used = append(report, size, used, ", %s", extra);
+	append(report, size, used, "}");
 	return report;
 }
 
