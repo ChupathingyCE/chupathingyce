@@ -1320,13 +1320,15 @@ static boolean network_game_server_network_lost(
 	return now - down_time > NETWORK_GAME_SERVER_CLIENT_TIMEOUT;
 }
 
-/* port: wide text as the listing has it: ASCII ('?' for the rest) */
+/* port: wide text as the listing has it: ASCII, a Latin letter with a mark
+its plain letter ('?' for the rest: player_name_character_ascii, as the
+server browser validates the name as a player's) */
 static void listing_text(char *text, int size, wchar_t const *wide, int length)
 {
 	int index;
 
 	for (index = 0; index < size - 1 && index < length && wide[index]; index++)
-		text[index] = wide[index] >= 0x20 && wide[index] < 0x7F ? (char)wide[index] : '?';
+		text[index] = player_name_character_ascii(wide[index]);
 	text[index] = 0;
 }
 
@@ -3887,6 +3889,22 @@ void network_game_server_port_set_settings(
 	network_game_server_port_settings.maximum_players = maximum_players;
 	if (server)
 		network_game_server_port_settings_apply(server);
+}
+
+/* port: a game a host runs afresh. A machine that asked to join as the last
+game ended, before the server switched to the pregame, is left waiting behind
+the one it holds (server->queued_player): the server refuses every later join
+with "network_game_add_player() failed" and sits in the lobby for good
+(network_test.c's host, which starts the next game by itself: the dedicated
+servers). */
+void network_game_server_port_clear_queued_players(
+	struct network_game_server *server)
+{
+	if (server)
+	{
+		server->queued_player_valid = FALSE;
+		server->waiting_player_count = 0;
+	}
 }
 
 /* port: a gametype's PC options: the menus' (player_ui_set_game_variant_options)

@@ -2431,10 +2431,12 @@ static boolean network_game_remove_local_player(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
-	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 4073,
-		event && event->controller_index >= 0 && event->controller_index < 4,
-		"valid controller index required to remove player from network game");
-	network_game_client_local_player_quit(event->controller_index);
+	/* port: a mouse or keyboard event has no controller (the Xbox asserted
+	one); the player is then the pause screen's */
+	short controller_index = event && event->controller_index >= 0 && event->controller_index < 4 ?
+		event->controller_index : widget->local_player_index;
+
+	network_game_client_local_player_quit(controller_index != NONE ? controller_index : 0);
 	return TRUE;
 }
 
