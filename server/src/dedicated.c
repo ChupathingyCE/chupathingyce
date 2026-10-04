@@ -31,7 +31,11 @@ screen. Each frame (main.c, beside the user interface) the director:
     player waits (a team game needs players on both teams; joining players
     are put on the smaller team, network_server_manager.c).
 The game list (port/linux/src/browser.c) lists the game as it does any
-hosted game, and a finished game's carnage report goes out as usual.
+hosted game, and a finished game's carnage report goes out as usual. Unless
+HALO_DEDICATED_PUBLIC is false, the game is public too: its signed listing
+is published on internet play's brokers (port/linux/src/p2p_lobby.c), so it
+shows in every OpenCE and ChupathingyCE server browser (Join Game > Server
+Browser), and is withdrawn when the server stops.
 
 The playlist: one entry a line, a map (its name, "bloodgulch", its path, or
 a Custom Edition map in maps\ce as <name>@ce, "timberland@ce") and a game
@@ -78,6 +82,9 @@ void network_game_server_change_map_name(struct network_game_server *server, cha
 void network_game_server_change_game_variant(struct network_game_server *server, struct game_variant *variant);
 void network_game_server_pause_countdown(struct network_game_server *server, boolean pause_countdown);
 void network_game_server_dedicated_start_countdown(struct network_game_server *server);
+/* (internet play's: port/linux/src/p2p.c, p2p_lobby.c) */
+void p2p_set_hosting_allowed(int allowed);
+void p2p_set_hosting_public(int public);
 void network_game_accept_remote_connections(boolean accept);
 void game_engine_playlist_initialize(void);
 void game_engine_playlist_begin(void);
@@ -111,6 +118,8 @@ static struct
 	/* (minutes without a score; 0: none) */
 	long idle_limit;
 	wchar_t name[16];
+	/* listed in the server browser (HALO_DEDICATED_PUBLIC) */
+	boolean public_game;
 
 	boolean hosting;
 	boolean entry_set;
@@ -179,6 +188,7 @@ static void initialize(
 	char const *maximum = getenv("HALO_DEDICATED_MAXIMUM_PLAYERS");
 	char const *name = getenv("HALO_DEDICATED_NAME");
 	char const *idle_limit = getenv("HALO_DEDICATED_IDLE_LIMIT");
+	char const *public_game = getenv("HALO_DEDICATED_PUBLIC");
 	long index;
 
 	dedicated.initialized = TRUE;
@@ -201,6 +211,12 @@ static void initialize(
 	for (index = 0; index < 15 && name[index]; index++)
 		dedicated.name[index] = (wchar_t)(unsigned char)name[index];
 	dedicated.name[index] = 0;
+	/* (public unless false, 0, no or off) */
+	dedicated.public_game = !public_game || !public_game[0] ||
+		!(!_stricmp(public_game, "false") || !strcmp(public_game, "0") || !_stricmp(public_game, "no") ||
+			!_stricmp(public_game, "off"));
+	error(_error_silent, "dedicated: %s game (HALO_DEDICATED_PUBLIC)", dedicated.public_game ? "a public" :
+		"not a public");
 	dedicated.active = dedicated.entry_count > 0;
 }
 
@@ -271,6 +287,10 @@ as a host that chose Create Game ends up */
 static boolean host(
 	void)
 {
+	/* (an internet game, reached through its invite; listed in the server
+	browser if public) */
+	p2p_set_hosting_allowed(TRUE);
+	p2p_set_hosting_public(dedicated.public_game);
 	player_ui_fast_setup_network_server();
 	if (!global_network_game_server_get() || !global_network_game_client_get())
 	{

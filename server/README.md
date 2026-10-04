@@ -24,6 +24,10 @@ playlist in the data folder. It then:
   and 70 MB while it waits);
 - hosts a system link game with no player of its own, listed on the game
   list (any build that opens invite links can join it);
+- is a public game (unless `HALO_DEDICATED_PUBLIC` is `false`): its signed
+  listing goes out through internet play's brokers, so it shows in the
+  in-game Server Browser (Join Game > Server Browser) of OpenCE and
+  ChupathingyCE alike;
 - plays the playlist's entries in order: once a player has joined, the
   lobby counts down by itself; after each game, the carnage report shows
   for 20 seconds, then the next entry's lobby opens;
@@ -32,7 +36,8 @@ playlist in the data folder. It then:
 - plays a team entry's next entry without teams while a single player
   waits (a team game needs a player on each team);
 - joins no invites and leaves the clipboard alone;
-- stops, and withdraws its game from the list, on SIGTERM or SIGINT.
+- stops, and withdraws its game from the list and the Server Browser, on
+  SIGTERM or SIGINT.
 
 ## Settings
 
@@ -45,6 +50,7 @@ As environment variables:
 | `HALO_DEDICATED_MINIMUM_PLAYERS` | `1` | The players the countdown waits for. |
 | `HALO_DEDICATED_MAXIMUM_PLAYERS` | `12` | The players the game takes. |
 | `HALO_DEDICATED_IDLE_LIMIT` | `5` | A game in which nobody scores for this many minutes ends. `0`: never. |
+| `HALO_DEDICATED_PUBLIC` | `true` | A public game, listed in every in-game Server Browser (OpenCE's and ChupathingyCE's) through internet play's brokers. `false`: not listed there (the game list still lists it, and its invite still works). |
 | `HALO_NET_BROWSER` | `https://halo.milenko.org` | The game list it announces to. |
 
 A playlist has one entry a line: a map (its name, `bloodgulch`, its
