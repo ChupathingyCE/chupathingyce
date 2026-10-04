@@ -752,6 +752,25 @@ teams, a bot prefers an enemy who is busy with another player, goes to a
 fight that it hears, and throws a grenade into a fight or into a group of
 enemies.
 
+The bots rate the weapons in this order: the power weapons, the pistol, the
+assault rifle, the plasma rifle, the needler, the plasma pistol. The needler,
+the plasma pistol and a weapon that is almost empty are weak weapons. A bot
+with a weak weapon goes to a pistol, an assault rifle or a power weapon that
+lies near and takes it in place of the weak weapon:
+
+- When the bot has only weak weapons, it goes up to 12 world units for the
+  better weapon, also during a fight, unless the enemy is less than 2.5
+  world units away.
+- When the bot also has a good weapon, it goes up to 7 world units, and
+  only when it has no enemy in view.
+- When the bot goes to the hill, a checkpoint or a flag carrier, it goes up
+  to 7 world units. When it goes to a flag or a ball, or carries one, it
+  does not go.
+
+In a fight, a bot with a weak weapon in its hands and a better weapon on
+its back changes to the better weapon. No bot has the needler as its
+favourite weapon.
+
 `HALO_BOT_OFF=human` gives the bots their movement without the first list
 above, for a comparison.
 
@@ -793,6 +812,15 @@ one game to the next.
 - **Camping.** How long a bot stays in one place.
 - **The herd** (team games). Some bots follow the nearest teammate. Others
   seldom do.
+
+In a game with an objective (capture the flag, king of the hill, oddball,
+race), the objective comes before the character. The flag, the hill, the
+ball and the checkpoint are worth almost the same to each bot. The grudge,
+the vengeance, the places and the herd count for about one third of their
+value in a slayer game, and a bot stays at one of its places for a shorter
+time. A bot that goes to the objective or carries it does not taunt, does
+not turn around after a kill, and does not go to cover as a hit-and-run
+bot does. The character still decides how the bot fights on the way.
 
 With `HALO_BOT_LOG=1`, the log has one line for each bot with its
 character.

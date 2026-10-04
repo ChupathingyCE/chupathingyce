@@ -890,9 +890,10 @@ static void bot_make_personality(long slot, struct bot_personality *personality)
 		personality->taunt = t * t;
 	}
 	/* a favourite: the rifle, the pistol, the shotgun, the sniper or the
-	   rockets, the plasma rifle or the needler */
+	   rockets, or the plasma rifle (nobody's is the needler: it is a gun to
+	   be rid of) */
 	{
-		static long const guns[] = { 1, 2, 3, 4, 5, 7, 8 }; /* (_bot_gun_*, below) */
+		static long const guns[] = { 1, 2, 3, 4, 5, 7, 2 }; /* (_bot_gun_*, below; as many as there were) */
 		personality->favorite = guns[(seed = bot_hash(seed)) % (sizeof(guns) / sizeof(guns[0]))];
 	}
 	/* its character (drawn after the rest: the traits above are as they
@@ -1040,6 +1041,7 @@ struct bot_state
 	   heard shooting */
 	long tracked_unit;
 	long item_streak; /* items gone for one after another */
+	long grab_object; /* the better gun lying near that it broke off for */
 	real_point3d explore_point; /* where we're exploring toward (until explore_until) */
 	long explore_until;
 	/* a way round of this trip's own: somewhere off the straight route to
@@ -1236,15 +1238,17 @@ struct bot_weapon
 	real value;
 };
 
-/* how good a weapon (or powerup) is to have: power weapons first */
+/* how good a weapon (or powerup) is to have: power weapons first; then the
+   pistol, the rifles, and last the needler and the plasma pistol (guns to
+   have until there is a better one) */
 static real bot_item_value(long definition_index)
 {
 	static struct { char const *name; real value; } const table[] =
 	{
 		{ "rocket launcher", 10.f }, { "sniper rifle", 9.f }, { "fuel rod", 8.5f }, { "plasma_cannon", 8.5f } /* (the fuel rod's tag) */, { "shotgun", 8.f },
 		{ "flamethrower", 7.f }, { "over shield", 9.5f }, { "overshield", 9.5f }, { "active camo", 9.f },
-		{ "camouflage", 9.f }, { "pistol\\pistol", 6.f }, { "needler", 5.f }, { "plasma rifle", 5.f },
-		{ "assault rifle", 4.f }, { "plasma pistol", 3.f }, { "frag grenade", 2.f }, { "plasma grenade", 2.f },
+		{ "camouflage", 9.f }, { "pistol\\pistol", 6.f }, { "assault rifle", 5.f }, { "plasma rifle", 4.5f },
+		{ "needler", 4.f }, { "plasma pistol", 3.f }, { "frag grenade", 2.f }, { "plasma grenade", 2.f },
 		{ "health", 2.5f },
 	};
 	long i;
@@ -2230,6 +2234,18 @@ static void bot_keep_away_spot(struct bot_state *bot, real_point3d const *enemy,
 	}
 }
 
+/* How much the game's objective (the flag, the hill, the ball, the next
+   checkpoint) is worth to a bot: much the same to all of them. Its character
+   shows in how it goes about it, and in what it does when there is nothing
+   to be done for the objective; it does not decide whether it plays the game.
+   (It was 0.6 to 1.4 times: the least minded hardly went for the flag.) */
+#define BOT_OBJECTIVE_FOCUS(bot) (0.9f + 0.3f * (bot)->personality.focus)
+/* ... and how much its own errands are worth in a game that has one (its
+   grudges, its places, trailing its side, other people's fights), and going
+   to look for a fight for the fight's sake */
+#define BOT_OBJECTIVE_PERSONAL 0.35f
+#define BOT_OBJECTIVE_HUNT 0.7f
+
 /* capture the flag goals. The variants change the plan:
    - single flag (a turn each): the side with a flag defends it, everyone
      on the other side attacks
@@ -2255,7 +2271,7 @@ static void bot_ctf_candidates(struct bot_state *bot, struct player_datum *playe
 	int wait_for_ours = variant->flag_at_home_to_score && !single;
 	int must_reset = variant->flag_must_reset != 0;
 	int ours_home;
-	real focus = 0.6f + 0.8f * bot->personality.focus;
+	real focus = BOT_OBJECTIVE_FOCUS(bot);
 	real armed = held < 3.5f ? 0.6f + 0.3f * bot->personality.focus : 1.f; /* unarmed: a weapon on the way first */
 
 	if (team < 0 || team > 1 || !ctf_bot_flag(team, &my_flag, &my_base) || !ctf_bot_flag(1 - team, &their_flag, &their_base))
@@ -2384,7 +2400,8 @@ static void bot_ctf_candidates(struct bot_state *bot, struct player_datum *playe
 				real to_vehicle = distance3d(&object->object.position, position);
 				long driver = unit_scripting_unit_driver(iterator.index);
 				if (to_vehicle > 25.f || object->object.parent_object_index != NONE || bot_ignoring(bot, iterator.index) ||
-					!bot_vehicle_entry(player->unit_index, iterator.index, &entry))
+					!bot_vehicle_entry(player->unit_index, iterator.index, &entry) ||
+					bot_vehicle_has_enemy(iterator.index, player)) /* (one of them at its gun and nobody driving: theirs) */
 				{
 					continue;
 				}
@@ -2430,6 +2447,12 @@ extern struct game_engine slayer_engine;
 boolean player_has_ball(long player_index); /* game_engine_oddball.c */
 boolean king_bot_hill(real_point3d *center); /* game_engine_king.c */
 boolean race_bot_next_checkpoint(long player_index, real_point3d const *from, real_point3d *point); /* game_engine_race.c */
+
+/* a game that is won by something other than kills */
+static int bot_game_has_objective(void)
+{
+	return game_engine == &ctf_engine || game_engine == &king_engine || game_engine == &oddball_engine || game_engine == &race_engine;
+}
 
 /* the nearest living enemy's position: FALSE when there is none */
 static int bot_nearest_enemy(struct player_datum *player, real_point3d const *position, real_point3d *at, real *distance_out)
@@ -2484,7 +2507,7 @@ static void bot_game_candidates(struct bot_state *bot, struct player_datum *play
 	real_point3d const *position, real held, struct bot_candidate *best)
 {
 	real armed = held < 3.5f ? 0.6f + 0.3f * bot->personality.focus : 1.f;
-	real focus = 0.6f + 0.8f * bot->personality.focus;
+	real focus = BOT_OBJECTIVE_FOCUS(bot);
 	real_point3d hill_center;
 
 	/* race: the next checkpoint we may touch, in a vehicle if there's one
@@ -3171,6 +3194,54 @@ static void bot_squad_candidates(struct bot_state *bot, long me, struct player_d
 
 /* what to do next: every candidate scored, the best wins; the current goal
    is kept unless something is clearly better */
+/* A gun worth having in its own right (by its kind: the rifle, the pistol,
+   the power weapons; and with something in it), and what counts as a poor
+   one: one to swap for the first of those that turns up (by its kind: the
+   needler, the plasma pistol; or any gun nearly dry). The plasma rifle is
+   neither. */
+#define BOT_PROPER_GUN 5.f
+#define BOT_POOR_GUN 4.5f
+#define BOT_DRY_GUN 3.5f
+
+static int bot_weapon_is_proper(long weapon_index)
+{
+	struct object_datum *object = weapon_index != NONE ? object_try_and_get(weapon_index) : NULL;
+	return object && bot_item_value(object->definition_index) >= BOT_PROPER_GUN && bot_weapon_worth(weapon_index) >= BOT_DRY_GUN + 0.5f;
+}
+
+static int bot_weapon_is_poor(long weapon_index)
+{
+	struct object_datum *object = weapon_index != NONE ? object_try_and_get(weapon_index) : NULL;
+	if (!object || bot_goal_is_game_object(weapon_index))
+		return FALSE; /* (the flag, the ball: not a gun at all) */
+	return bot_item_value(object->definition_index) < BOT_POOR_GUN || bot_weapon_worth(weapon_index) < BOT_DRY_GUN;
+}
+
+/* nothing but poor guns on us (none at all counts) */
+static int bot_all_held_poor(struct unit_datum *unit)
+{
+	long i;
+	for (i = 0; i < MAXIMUM_WEAPONS_PER_UNIT; i++)
+	{
+		long weapon = unit->unit.weapon_object_indices[i];
+		if (weapon != NONE && object_try_and_get(weapon) && !bot_weapon_is_poor(weapon))
+			return FALSE;
+	}
+	return TRUE;
+}
+
+static int bot_slot_is_favorite(struct bot_state const *bot, struct unit_datum *unit, long slot)
+{
+	struct bot_weapon described;
+	if (slot < 0 || slot >= MAXIMUM_WEAPONS_PER_UNIT || unit->unit.weapon_object_indices[slot] == NONE ||
+		!object_try_and_get(unit->unit.weapon_object_indices[slot]))
+	{
+		return FALSE;
+	}
+	bot_weapon_describe(unit->unit.weapon_object_indices[slot], &described);
+	return described.kind != _bot_gun_other && described.kind == bot->personality.favorite;
+}
+
 static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum *player, struct unit_datum *unit,
 	real_point3d const *position, int teams)
 {
@@ -3191,6 +3262,18 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 	long item_count = 0;
 
 	long role = bot_role(bot, player, teams);
+	/* a game with something to do besides the killing: that first */
+	int objective_game = bot_game_has_objective();
+	real personal = objective_game ? BOT_OBJECTIVE_PERSONAL : 1.f;
+	/* the guns on us: all of them poor ones; and, both hands full, the one
+	   we'd drop for another a poor one (and not its favourite) */
+	int all_poor = bot_all_held_poor(unit);
+	int swap_poor = FALSE;
+	{
+		long slot = NONE;
+		bot_worst_held(unit, &slot);
+		swap_poor = slot != NONE && bot_weapon_is_poor(unit->unit.weapon_object_indices[slot]) && !bot_slot_is_favorite(bot, unit, slot);
+	}
 
 	memset(&best, 0, sizeof(best));
 	best.kind = _bot_goal_none;
@@ -3258,6 +3341,16 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 					score = MAX(0.5f, theirs - held) + 1.f; /* a free hand */
 				else
 					score = theirs > worst + 1.f ? (theirs - worst) + (worst < 1.f ? 3.f : 0.f) : 0.1f;
+				/* A poor gun in our hands (a needler, a plasma pistol, one
+				   run nearly dry) and a proper one lying about (the pistol,
+				   a rifle, anything better): worth going over for, and most
+				   of all when the poor one is the best we have. (Not to be
+				   rid of its favourite, poor as that one may be just now.) */
+				if ((all_poor || swap_poor) && bot_weapon_is_proper(iterator.index) && (bot_weapons_held(unit) < 2 ? all_poor :
+					swap_poor && theirs > worst))
+				{
+					score += all_poor ? 7.f : 3.5f;
+				}
 				/* power weapons: the greedy go a long way for them */
 				/* power weapons: what everyone makes for first (worth more
 				   than a fight with the rifle), the greedy most of all */
@@ -3392,6 +3485,8 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 				continue;
 			if (!bot_vehicle_entry(unit->object.parent_object_index == NONE ? player->unit_index : NONE, iterator.index, &entry))
 				continue; /* full */
+			if (bot_vehicle_has_enemy(iterator.index, player))
+				continue; /* (one of them in it, driving or not: a goal dropped as soon as it was chosen, every tick) */
 			driver = unit_scripting_unit_driver(iterator.index);
 			if (driver == NONE)
 			{
@@ -3489,7 +3584,8 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 			if (bot_player_count <= 3)
 				advantage *= 1.8f;
 			bot_consider(&best, (5.f + 6.f * bot->personality.aggression + (held >= 7.f ? 3.f : 0.f)) * advantage / (1.f + distance / 150.f) *
-				(bot_is_team_slayer() ? 0.5f : 1.f), /* (team slayer: the squad hunts together) */
+				(bot_is_team_slayer() ? 0.5f : 1.f) * /* (team slayer: the squad hunts together) */
+				(objective_game ? BOT_OBJECTIVE_HUNT : 1.f),
 				_bot_goal_roam, &chosen, NONE, (long)((6.f + distance / 2.f) * BOT_TICKS_PER_SECOND), FALSE);
 		}
 	}
@@ -3532,7 +3628,7 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 				if (distance > 8.f)
 				{
 					at = bot_approach_spot(bot, &at, position);
-					bot_consider(&best, worth / (1.f + distance / 100.f), _bot_goal_roam, &at, NONE, 6 * BOT_TICKS_PER_SECOND, FALSE);
+					bot_consider(&best, personal * worth / (1.f + distance / 100.f), _bot_goal_roam, &at, NONE, 6 * BOT_TICKS_PER_SECOND, FALSE);
 				}
 			}
 		}
@@ -3573,12 +3669,12 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 				if (since > BOT_SECONDS(45.f))
 				{
 					bot->memory.haunt_visited[i] = game_time_get();
-					bot_consider(&best, 3.f + 5.f * bot->personality.camping, _bot_goal_hold, &bot->memory.haunts[i], NONE,
-						(long)((3.f + 12.f * bot->personality.camping) * BOT_TICKS_PER_SECOND), FALSE);
+					bot_consider(&best, personal * (3.f + 5.f * bot->personality.camping), _bot_goal_hold, &bot->memory.haunts[i], NONE,
+						(long)((3.f + 12.f * bot->personality.camping) * personal * BOT_TICKS_PER_SECOND), FALSE);
 				}
 			}
 			else if (since > BOT_SECONDS(45.f))
-				bot_consider(&best, (1.5f + 2.5f * bot->personality.patience + 2.5f * bot->personality.camping) / (1.f + distance / 80.f),
+				bot_consider(&best, personal * (1.5f + 2.5f * bot->personality.patience + 2.5f * bot->personality.camping) / (1.f + distance / 80.f),
 					_bot_goal_roam, &bot->memory.haunts[i], NONE, (long)((8.f + distance / 1.5f) * BOT_TICKS_PER_SECOND), FALSE);
 		}
 	}
@@ -3611,7 +3707,7 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 			}
 		}
 		if (nearest < 60.f)
-			bot_consider(&best, 3.5f * bot->personality.herd * (0.5f + bot->personality.teamwork) / (1.f + nearest / 100.f),
+			bot_consider(&best, personal * 3.5f * bot->personality.herd * (0.5f + bot->personality.teamwork) / (1.f + nearest / 100.f),
 				_bot_goal_roam, &friend_at, NONE, 4 * BOT_TICKS_PER_SECOND, FALSE);
 	}
 
@@ -3644,7 +3740,7 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 				fight = object_get(object_get_ultimate_parent(other->unit_index))->object.position;
 			}
 		}
-		if (best_fight > 0.f && bot_consider(&best, (6.f + 5.f * bot->personality.greed + 4.f * bot->personality.aggression) * best_fight *
+		if (best_fight > 0.f && bot_consider(&best, personal * (6.f + 5.f * bot->personality.greed + 4.f * bot->personality.aggression) * best_fight *
 				(1.3f - bot->personality.sporting), /* (the sporting leave other people's fights to them) */
 				_bot_goal_roam, &fight, NONE, 6 * BOT_TICKS_PER_SECOND, FALSE) && bot_logging())
 			bot_log("bot%ld t%ld to the fight at %.1f %.1f (worth %.2f)", me, game_time_get(), fight.x, fight.y, best_fight);
@@ -4221,6 +4317,16 @@ static long bot_find_health(real_point3d const *position, real reach)
      on */
 static int bot_goal_is_power_weapon(struct bot_state const *bot);
 static int bot_goal_is_powerup(struct bot_state const *bot);
+
+/* on the game's own business just now: the flag or the ball in hand, or on
+   the way to one, to the hill, after a carrier (not just any item, which
+   also counts as an 'objective' goal: something to go straight to) */
+static int bot_on_objective(struct bot_state const *bot)
+{
+	return bot->carrying_objective || (bot->goal_objective && bot->goal_ticks > 0 && bot->goal_kind != _bot_goal_vehicle &&
+		bot->goal_kind != _bot_goal_none &&
+		(bot->goal_kind == _bot_goal_item ? bot_goal_is_game_object(bot->goal_object) : bot->goal_score >= 12.f && bot_game_has_objective()));
+}
 
 /* whether to look for one, and what for: the tries follow, one a tick */
 static void bot_plan_via(struct bot_state *bot, struct bot_body const *body, long player_index)
@@ -5079,7 +5185,7 @@ static real bot_weapon_fit(struct bot_weapon const *w, real d, real shields)
 	case _bot_gun_pistol: fit = d < 3.f ? 5.5f : 7.f; break;
 	case _bot_gun_assault_rifle: fit = d < 10.f ? 6.f : d < 22.f ? 4.f : 2.f; break;
 	case _bot_gun_plasma_rifle: fit = d < 14.f ? 6.f : 3.f; break;
-	case _bot_gun_needler: fit = d < 18.f ? 5.5f : 2.f; break;
+	case _bot_gun_needler: fit = d < 18.f ? 3.5f : 1.5f; break; /* (the rifle or the pistol, if there is one) */
 	case _bot_gun_plasma_pistol: fit = d < 15.f ? 4.f : 2.f; break;
 	default: fit = w->value * 0.7f; break;
 	}
@@ -5089,7 +5195,7 @@ static real bot_weapon_fit(struct bot_weapon const *w, real d, real shields)
 	case _bot_gun_plasma_rifle:
 	case _bot_gun_needler:
 		if (shields > 0.6f)
-			fit += 2.f;
+			fit += w->kind == _bot_gun_needler ? 1.f : 2.f;
 		else if (shields < 0.15f)
 			fit -= 1.5f;
 		break;
@@ -6180,6 +6286,68 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		}
 	}
 
+	/* ---- a poor gun in our hands and a proper one lying a few steps off:
+	   over to it now, whatever we were about (the hill, a hunt, a fight not
+	   yet on top of us; not with the flag or the ball, nor on the way to
+	   one: that does not wait). From further off when a poor gun is all we
+	   have; with a good one beside it, only when there is nobody to fight. */
+	if (vehicle_index == NONE && !zombie && (game_time_get() + player_absolute_index * 3) % 15 == 0 && !bot_goal_is_powerup(bot) &&
+		!(bot->goal_kind == _bot_goal_item && bot->goal_ticks > 0 && (bot_goal_is_game_object(bot->goal_object) || bot->goal_score >= 50.f)) &&
+		!bot->carrying_objective && !committed)
+	{
+		long worst_slot = NONE;
+		real worst = bot_worst_held(unit, &worst_slot);
+		int all_poor = bot_all_held_poor(unit);
+		int full_hands = bot_weapons_held(unit) >= 2;
+		if (all_poor || (target == NONE && full_hands && worst_slot != NONE &&
+			bot_weapon_is_poor(unit->unit.weapon_object_indices[worst_slot]) && !bot_slot_is_favorite(bot, unit, worst_slot)))
+		{
+			struct object_iterator nearby;
+			struct object_datum *item;
+			long best_item = NONE;
+			/* (on the game's business: only one that is right by the way) */
+			int busy = bot_on_objective(bot);
+			real best_d = all_poor && !busy ? 12.f : 7.f;
+			object_iterator_new(&nearby, _object_mask_weapon, 0);
+			while ((item = (struct object_datum *)object_iterator_next(&nearby)) != NULL)
+			{
+				real d;
+				int nearer = FALSE;
+				if (item->object.parent_object_index != NONE || bot_ignoring(bot, nearby.index))
+					continue;
+				d = distance3d(&item->object.position, &position);
+				if (d >= best_d || fabs(item->object.position.z - position.z) > 1.5f)
+					continue;
+				if (!bot_weapon_is_proper(nearby.index) || bot_holds_weapon_type(unit, item->definition_index) ||
+					(full_hands && bot_weapon_worth(nearby.index) <= worst))
+				{
+					continue;
+				}
+				/* (one of the others nearer to it and after it: theirs) */
+				if (bot_goal_takers(nearby.index, player_absolute_index, &position, &nearer) > 0 && nearer)
+					continue;
+				if (aas_ready())
+				{
+					float time = bot_travel_time(&body, AAS_FOOT, &item->object.position);
+					if (time < 0.f || time > (all_poor && !busy ? 4.f : 2.5f))
+						continue;
+				}
+				best_item = nearby.index;
+				best_d = d;
+			}
+			if (best_item != NONE && !(bot->goal_kind == _bot_goal_item && bot->goal_object == best_item && bot->goal_ticks > 0))
+			{
+				item = object_get(best_item);
+				bot_set_goal(bot, _bot_goal_item, &item->object.position, best_item, 6 * BOT_TICKS_PER_SECOND);
+				bot->goal_objective = TRUE;
+				bot->goal_score = 50.f;
+				bot->grab_object = best_item;
+				if (bot_logging())
+					bot_log("bot%ld t%ld grabs %s %.1f away (a better gun)", player_absolute_index, game_time_get(), tag_get_name(item->definition_index), best_d);
+			}
+		}
+	}
+
 	BOT_PROFILE_MARK("rubbing it in");
 	/* ---- rubbing it in: a kill, nobody else about, and a bot that likes
 	   to gloat goes over and teabags the body (a second or three, then on
@@ -6190,7 +6358,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 	{
 		struct object_datum *victim = bot->last_fired_unit != NONE ? object_try_and_get(bot->last_fired_unit) : NULL;
 		bot->teabag_pending = FALSE;
-		if (vehicle_index == NONE && target == NONE && !bot->carrying_objective && bot->hit_ticks <= 0 &&
+		if (vehicle_index == NONE && target == NONE && !bot_on_objective(bot) && bot->hit_ticks <= 0 &&
 			bot_random(bot) < bot->personality.taunt * (0.5f + 0.5f * (1.f - bot->personality.focus)) *
 				(1.f + 0.4f * bot->personality.swagger * MIN(bot->personality.kill_streak, 3)))
 		{
@@ -6537,6 +6705,11 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				/* (a power weapon, the rockets say: worth more than this
 				   fight; get it, shooting on the way, then come back) */
 				bot_goal_is_power_weapon(bot) ? target_distance < 2.5f :
+				/* (a proper gun for the poor one in our hands, a few steps
+				   off: the same; this fight is better had with it) */
+				bot->goal_object == bot->grab_object && bot->goal_score >= 50.f && bot_weapon_is_poor(unit->unit.current_weapon_index >= 0 &&
+					unit->unit.current_weapon_index < MAXIMUM_WEAPONS_PER_UNIT ? unit->unit.weapon_object_indices[unit->unit.current_weapon_index] : NONE) ?
+					target_distance < 2.5f :
 				weapon.value >= 4.5f ? target_distance < 9.f : target_distance < 6.f)) ||
 			/* a flag, the hill, a carrier: fight whoever's in the way
 			   when they're close; carrying it, never stop */
@@ -6658,7 +6831,8 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			int broken = mine < 0.1f && unit->object.body_vitality < 0.55f && losing && !finishing;
 			/* (hit and run: off as soon as its shields are going, whoever
 			   is winning, and back when they are up) */
-			int breaking_off = bot->personality.style == _bot_style_hit_and_run && mine < 0.4f && !finishing && !closing;
+			int breaking_off = bot->personality.style == _bot_style_hit_and_run && mine < 0.4f && !finishing && !closing &&
+				!bot_on_objective(bot); /* (its way of fighting is for its own time) */
 			if (!bot->in_cover && (broken || breaking_off) && !bot_holds_named(unit, "flag") && !bot_holds_named(unit, "ball") &&
 				(breaking_off || bot->personality.aggression < 0.45f + 0.25f * bot->personality.patience) &&
 				--bot->cover_check_ticks <= 0)
@@ -7254,7 +7428,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 	/* ---- showing off, with nobody to fight: the turn right round after a
 	   kill; and, standing about by one of its own side, a few ducks at
 	   them */
-	if (target != NONE || look_forced || vehicle_index != NONE || bot->hit_ticks > 0)
+	if (target != NONE || look_forced || vehicle_index != NONE || bot->hit_ticks > 0 || bot_on_objective(bot))
 	{
 		bot->spin_ticks = 0;
 		bot->antic_ticks = 0;
@@ -7518,7 +7692,12 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 					here += 3.f * bot->personality.loyalty;
 				if (other.kind == bot->personality.favorite)
 					there += 2.f * bot->personality.loyalty;
-				if (there > here + 3.f && here <= 4.f + 3.f * bot->personality.loyalty && bot_random(bot) < 0.08f + 0.3f * bot_skill_fraction())
+				/* (a poor gun out and a proper one on our back: that one,
+				   as soon as it is any better for this) */
+				if (((there > here + 3.f && here <= 4.f + 3.f * bot->personality.loyalty) ||
+					(there > here && bot_weapon_is_poor(unit->unit.weapon_object_indices[unit->unit.current_weapon_index]) &&
+						!bot_weapon_is_poor(other_index))) &&
+					bot_random(bot) < 0.08f + 0.3f * bot_skill_fraction())
 				{
 					action->desired_weapon_index = other_slot;
 					bot->weapon_switch_ticks = (long)(1.5f * BOT_TICKS_PER_SECOND);
