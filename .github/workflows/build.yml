@@ -1,8 +1,9 @@
 name: Build
 
 # Debug and release builds of the native ports (Linux and Windows, 32- and
-# 64-bit, Android, macOS) for every pushed commit and pull request,
-# uploaded as artifacts: whether a change builds. tools/ci_build.py does each build; see it for the options.
+# 64-bit, Android, macOS), and release builds of the dedicated server (Linux
+# x86, x64 and arm64) and its container, for every pushed commit and pull
+# request, uploaded as artifacts: whether a change builds. tools/ci_build.py does each build; see it for the options.
 #
 # Releases and nightlies are not made here: ChupathingyCE's release
 # workflows build them from the versions they pin, signed, and publish them
@@ -126,6 +127,118 @@ jobs:
           name: chupathingyce-linux64-release
           path: dist/chupathingyce-linux64-release
           retention-days: 3
+
+  server:
+    # The dedicated server (tools/server_build.py): one static program for
+    # each architecture, built against musl in Alpine Linux's container of
+    # that architecture (tools/ci_build.py --alpine; x86 on the x86-64
+    # runner, arm64 on GitHub's arm64 one), then started on the runner's
+    # Ubuntu, which it shares nothing with: it prints its version, refuses
+    # to start without a playlist, and stops with a clear error without maps.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86
+            runner: ubuntu-24.04
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-server-${{ matrix.arch }}-${{ github.sha }}
+          restore-keys: ccache-server-${{ matrix.arch }}-
+
+      # SDL's headers, which configure.py fetches
+      - uses: actions/cache@v4
+        with:
+          path: build/server/third_party
+          key: server-third-party-${{ hashFiles('tools/server_build.py') }}
+
+      - name: Release
+        run: python3 tools/ci_build.py server-${{ matrix.arch }} release --alpine
+
+      - name: Start it
+        run: |
+          smoke="$RUNNER_TEMP/smoke"
+          server="$smoke/chupathingyce-server"
+          mkdir -p "$smoke/data/playlists"
+          cp dist/chupathingyce-server-linux-${{ matrix.arch }}/chupathingyce-server "$server"
+          file "$server"
+          "$server" --version
+          # no playlist: how to start one, and status 2
+          status=0; "$server" || status=$?
+          test "$status" = 2
+          # a playlist, but no maps: a clear error, and status 1
+          echo "bloodgulch slayer" > "$smoke/data/playlists/test.txt"
+          status=0
+          HALO_DATA_ROOT="$smoke/data" HALO_SAVE_ROOT="$smoke/saves" HALO_DEDICATED=playlists/test.txt \
+            HALO_NET_ONLINE=false HALO_NET_LIST_GAMES=false \
+            timeout 60 "$server" 2> "$smoke/error.txt" || status=$?
+          cat "$smoke/error.txt"
+          test "$status" = 1
+          grep -q "no maps" "$smoke/error.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chupathingyce-server-linux-${{ matrix.arch }}
+          path: dist/chupathingyce-server-linux-${{ matrix.arch }}
+          retention-days: 3
+
+  server-container:
+    # The server's container (server/deploy/Dockerfile) for the three
+    # architectures at once, from the server job's programs, as buildx makes
+    # it (nothing runs while it builds); then each started once, as above
+    # (arm64 emulated). Not pushed anywhere.
+    needs: server
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: chupathingyce-server-linux-*
+          path: artifacts
+
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        run: |
+          context="$RUNNER_TEMP/context"
+          mkdir -p "$context"
+          cp server/deploy/Dockerfile "$context/"
+          for pair in x86:386 x64:amd64 arm64:arm64; do
+            arch=${pair%%:*}; platform=${pair#*:}
+            mkdir -p "$context/bin/$platform"
+            cp "artifacts/chupathingyce-server-linux-$arch/chupathingyce-server" "$context/bin/$platform/"
+            chmod +x "$context/bin/$platform/chupathingyce-server"
+          done
+          docker buildx build --platform linux/386,linux/amd64,linux/arm64 \
+            --output type=oci,dest="$RUNNER_TEMP/chupathingyce-server.oci.tar" "$context"
+          ls -l "$RUNNER_TEMP/chupathingyce-server.oci.tar"
+
+      - name: Start each
+        run: |
+          for platform in 386 amd64 arm64; do
+            docker buildx build --platform linux/$platform --load -t chupathingyce-server:$platform "$RUNNER_TEMP/context"
+            docker run --rm --platform linux/$platform --cap-drop ALL --security-opt no-new-privileges \
+              chupathingyce-server:$platform --version
+            # (not root)
+            test "$(docker image inspect -f '{{.Config.User}}' chupathingyce-server:$platform)" = 1000:1000
+          done
+          docker image ls chupathingyce-server
 
   android:
     # The runner image has the Android SDK and NDK, a JDK and CMake.
