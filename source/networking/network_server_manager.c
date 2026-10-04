@@ -3319,16 +3319,33 @@ void network_game_server_begin_game_start_countdown(
 	return;
 }
 
+/* port: whether this machine hosts as a dedicated server (server/src/dedicated.c,
+in the builds with the game browser) */
+static boolean server_is_dedicated(
+	void)
+{
+#ifdef HALO_GAME_BROWSER
+	boolean dedicated_server_active(void);
+
+	return dedicated_server_active();
+#else
+	return FALSE;
+#endif
+}
+
 boolean server_needs_more_teams(
 	struct network_game_server *server)
 {
 	boolean needs_more_teams = FALSE;
 
 	/* port: infection's sides are the game's to give, whatever the lobby's
-	(port/linux/game/infection.c) */
+	(port/linux/game/infection.c); and a player alone may start a team game,
+	with nobody on the other team yet (but on a dedicated server, whose
+	playlist goes on to a game for one: server/src/dedicated.c) */
 	if (server->game.variant.universal_variant.teams &&
 		!(server->game.variant.game_engine_index == game_engine_slayer &&
-			server->game.variant.game_engine_variant.slayer.infection))
+			server->game.variant.game_engine_variant.slayer.infection) &&
+		!(server->game.player_count <= 1 && !server_is_dedicated()))
 	{
 		short player_count_by_team[NUMBER_OF_MULTIPLAYER_TEAMS] = { 0, 0 };
 		long player_index;
@@ -3414,8 +3431,10 @@ boolean server_has_enough_machines(
 	struct network_game_server *server)
 {
 	boolean has_enough_machines;
-	long minimum_machine_count =
-		network_game_is_splitscreen_local() ? 1 : 2;
+	/* port: one machine is enough for a system link game too (the Xbox game
+	waited for a second: a player alone can start the game, and the others
+	join it in progress) */
+	long minimum_machine_count = 1;
 	long machine_count = 0;
 	long client_machine_index;
 
@@ -4094,8 +4113,8 @@ void network_game_server_update_countdown(
 				}
 				else
 				{
-					if (network_game_should_accept_remote_connections() == FALSE ||
-						network_game_server_get_client_machine_count(server) > 1)
+					/* port: with the host's machine alone, too (the Xbox game's
+					system link countdown waited for a second machine) */
 					{
 						unsigned long countdown;
 
@@ -4374,7 +4393,8 @@ static boolean network_game_server_setup_game_from_playlist(
 		ustrncpy(server->game.name, machine_name, NETWORK_GAME_NAME_LENGTH - 1);
 		server->game.name[NETWORK_GAME_NAME_LENGTH - 1] = L'\0';
 		server->game.map.version = 0;
-		server->game.minimum_players = 2;
+		/* port: one player is enough (the Xbox game's lobby waited for two) */
+		server->game.minimum_players = 1;
 		server->game.maximum_players = MAXIMUM_NETWORK_PLAYER_COUNT;
 		network_game_server_port_settings_apply(server);
 		network_game_server_variant_options(&server->game.variant, &server->game.variant_options);

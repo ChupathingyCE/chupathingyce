@@ -1365,8 +1365,9 @@ static void network_pregame_status_screen_update(
 		{
 			short seconds_to_game_start = network_game_client_get_seconds_to_game_start(
 				global_network_game_client_get());
-			boolean waiting_for_machines = (global_network_game_server_get() &&
-				game->machine_count < 2);
+			/* port: never: one machine is enough to start a game
+			(network_server_manager.c) */
+			boolean waiting_for_machines = FALSE;
 
 			ustrncpy(countdown_text->parameters.text_box.text, L"-:--", 15);
 			status_text->visible = TRUE;
@@ -1810,7 +1811,8 @@ static void splitscreen_pregame_status_screen_update(
 						seconds_to_game_start - (hours * 60 + minutes) * 60);
 				}
 			}
-			else if (game->player_count < 2 || game->variant.universal_variant.teams == TRUE)
+			/* port: (one player is enough to start a game) */
+			else if (game->player_count < 1 || game->variant.universal_variant.teams == TRUE)
 			{
 				status_text->visible = FALSE;
 				countdown_text->visible = FALSE;
@@ -2950,16 +2952,18 @@ static void multiplayer_game_directions(
 		widget->type == _ui_widget_type_text_box,
 		"expected text box widget for team game directions");
 
+	/* port: nothing to wait for with a player in the lobby: one is enough to
+	start a game, on one machine (network_server_manager.c) */
 	if (server)
 	{
 		boolean waiting_for_machines = !network_game_is_splitscreen_local() &&
 			game &&
-			game->machine_count < 2;
+			game->machine_count < 1;
 
 		if (!waiting_for_machines &&
 			network_game_is_splitscreen_local() &&
 			game &&
-			game->player_count < 2)
+			game->player_count < 1)
 		{
 			widget->parameters.text_box.string_list_index =
 				_multiplayer_game_text_string_waiting_for_player;
@@ -3002,7 +3006,9 @@ static void multiplayer_game_directions(
 			}
 		}
 
-		if (team_zero_player_count && team_one_player_count)
+		/* port: (or a player alone, who may start the game) */
+		if ((team_zero_player_count && team_one_player_count) ||
+			team_zero_player_count + team_one_player_count == 1)
 		{
 			widget->parameters.text_box.string_list_index =
 				_multiplayer_game_text_string_teams_ready;

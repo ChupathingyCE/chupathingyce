@@ -608,7 +608,8 @@ void network_game_invalidate(
 		network_game_invalidate_machine(game, (short)machine_index);
 
 	csmemset(game->players, NONE, sizeof(game->players));
-	game->minimum_players = 2;
+	/* port: one player is enough (the Xbox game's lobby waited for two) */
+	game->minimum_players = 1;
 	/* (port: 128 in the native builds, halo_port_limits.h) */
 	game->maximum_players = NETWORK_GAME_PLAYER_SLOTS;
 	game->local_data.game_objects_loaded = FALSE;

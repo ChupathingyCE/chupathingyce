@@ -336,6 +336,12 @@ The Xbox game lets 16 players on 4 machines play a system link game. This
 port lets up to 128 players on up to 128 machines play. Each machine can
 have up to 4 players (split screen).
 
+One player can start a split screen game or a system link game: the lobby
+does not wait for a second player or a second machine (the Xbox game did),
+and other machines can join the game in progress. A player who is alone can
+also start a team game. A dedicated server keeps its own rules. Refer to
+[docs/dedicated-server.md](../../docs/dedicated-server.md).
+
 - `include/halo_port_limits.h` sets the limits.
 - `include/halo_port_capacity.h` sets the memory for the limits. The game
   state is 16 MB at `0x81A00000` (3.3 MB on the Xbox). The pools of objects,
