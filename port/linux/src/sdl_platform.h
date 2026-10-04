@@ -61,6 +61,7 @@ BOOL platform_sdl_initialize(void);
 BOOL platform_video_initialize(unsigned long width, unsigned long height);
 #ifndef HALO_ANDROID
 BOOL platform_screen_mode(long *width, long *height);
+BOOL platform_window_pixel_size(long *width, long *height);
 #endif
 void platform_video_drawable_size(int *width, int *height);
 /* the window's mode and size and V-Sync, from config.toml as Settings has
