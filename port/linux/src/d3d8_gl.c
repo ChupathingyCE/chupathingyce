@@ -107,7 +107,23 @@ static void screen_mode_choose(long *width, float scale[2])
 
 	*width = 640;
 	scale[0] = scale[1] = 1.0f;
-	if (platform_screen_mode(&display_width, &display_height) && display_width > 0 && display_height > 0)
+	/* windowed: draw at the window's size (the window is window_scale/2 times the
+	picture's 640x480 shape), so Retina displays get a crisp picture instead of a
+	640x480 one stretched over them */
+	if (!platform_screen_mode(&display_width, &display_height))
+		display_width = display_height = 0;
+	if (!display_width && platform_window_pixel_size(&display_width, &display_height) && display_width > 640)
+	{
+		long wanted = (SCREEN_HEIGHT * display_width + display_height / 2) / display_height;
+
+		*width = wanted < 640 ? 640 : wanted > SCREEN_MAXIMUM_WIDTH ? SCREEN_MAXIMUM_WIDTH : wanted & ~1L;
+		scale[0] = (float)display_width / (float)*width;
+		scale[1] = (float)display_height / (float)SCREEN_HEIGHT;
+		if (*width != wanted && *width != (wanted & ~1L))
+			scale[0] = scale[1] = scale[0] < scale[1] ? scale[0] : scale[1];
+		return;
+	}
+	if (display_width > 0 && display_height > 0)
 	{
 		long wanted = (SCREEN_HEIGHT * display_width + display_height / 2) / display_height;
 

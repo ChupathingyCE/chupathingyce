@@ -411,6 +411,23 @@ static BOOL platform_fullscreen_setting(void)
 	return !config_boolean("debug.hidden_window") && platform_display_mode() != _display_mode_windowed;
 }
 
+/* the window's size in pixels (windowed mode draws at it: d3d8_gl.c) */
+BOOL platform_window_pixel_size(long *width, long *height)
+{
+	int w = 0, h = 0;
+	float density;
+
+	if (!platform_window)
+		return FALSE;
+	density = SDL_GetWindowPixelDensity(platform_window);
+	if (!SDL_GetWindowSizeInPixels(platform_window, &w, &h) || w < 1 || h < 1)
+		return FALSE;
+	*width = (long)w;
+	*height = (long)h;
+	(void)density;
+	return TRUE;
+}
+
 /* the window's fullscreen kind (display.mode): borderless, a window over
 the whole desktop (SDL's fullscreen without a mode), or fullscreen, the
 display taken at its desktop resolution. Either draws at the display's
