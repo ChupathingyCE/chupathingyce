@@ -175,6 +175,9 @@ enum
 	RASTERIZER_STATIC_BUFFER_USAGE = D3DUSAGE_WRITEONLY,
 	RASTERIZER_STATIC_BUFFER_POOL = D3DPOOL_MANAGED,
 	RASTERIZER_TRANSPARENT_GEOMETRY_VISIBILITY_TEST_INDEX = 0xfff,
+	/* port: how deep a transparent chicago shader's extra layers' own
+	extra layers are drawn (rasterizer_transparent_geometry_group_draw) */
+	MAXIMUM_TRANSPARENT_GEOMETRY_LAYER_DEPTH = 4,
 };
 
 enum
@@ -654,6 +657,8 @@ typedef char rasterizer_xbox_transparent_geometry_globals_size_assert[
 
 static struct rasterizer_xbox_transparent_geometry_globals
 	rasterizer_xbox_transparent_geometry_globals = { 0 };
+/* port: the extra layers being drawn, within each other */
+static short rasterizer_xbox_transparent_geometry_layer_depth = 0;
 
 /* ---------- public code */
 
@@ -2310,24 +2315,33 @@ void rasterizer_transparent_geometry_group_draw(
 							short map_index;
 							long result;
 
-							/* BUG (preserved for exact matching): January never advances layer_index, so the
-							 * loop redraws extra layer 0 for as long as the block is non-empty (the bytes push
-							 * index 0 and re-test the count). A corrected build should increment layer_index.
+							/* port: January never advanced layer_index, so a shader with extra layers
+							 * redrew its first one forever and the frame never ended (the Xbox's maps have
+							 * none; Halo PC's maps do: Hornets Nest's). Each layer is drawn once, but for
+							 * one that names no shader, and layers of layers only so deep: a layer that is
+							 * its shader, or a shader it is a layer of, would never end either.
 							 */
-							for (layer_index = 0;
-								layer_index < shader_transparent_chicago->chicago.extra_layers.count;
-								)
+							if (rasterizer_xbox_transparent_geometry_layer_depth < MAXIMUM_TRANSPARENT_GEOMETRY_LAYER_DEPTH)
 							{
-								struct transparent_geometry_group layer_group;
-
-								csmemcpy(&layer_group, group, sizeof(layer_group));
-								layer_group.sorted_index = NONE;
-								layer_group.shader = shader_definition_get(
-									TAG_BLOCK_GET_ELEMENT(
+								rasterizer_xbox_transparent_geometry_layer_depth++;
+								for (layer_index = 0;
+									layer_index < shader_transparent_chicago->chicago.extra_layers.count;
+									layer_index++)
+								{
+									struct transparent_geometry_group layer_group;
+									long layer_shader_index = TAG_BLOCK_GET_ELEMENT(
 										&shader_transparent_chicago->chicago.extra_layers,
 										layer_index,
-										struct tag_reference)->index);
-								rasterizer_transparent_geometry_group_draw(&layer_group, dirty);
+										struct tag_reference)->index;
+
+									if (layer_shader_index == NONE)
+										continue;
+									csmemcpy(&layer_group, group, sizeof(layer_group));
+									layer_group.sorted_index = NONE;
+									layer_group.shader = shader_definition_get(layer_shader_index);
+									rasterizer_transparent_geometry_group_draw(&layer_group, dirty);
+								}
+								rasterizer_xbox_transparent_geometry_layer_depth--;
 							}
 
 							rasterizer_set_vertex_shader_permutation(
