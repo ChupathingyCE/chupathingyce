@@ -237,10 +237,40 @@ static real_point3d nav_random_place(real random)
 	return *aas_place((long)(random * count) % count);
 }
 
+/* the part of a very large map the spots are to be in (NONE: anywhere) */
+static long nav_spot_region = NONE;
+
+/* the part of a very large map a place is in, on foot (NONE: none it is
+   near, or a map with navigation all over, where it doesn't matter) */
+static long nav_region_at(real_point3d const *point)
+{
+	long area = aas_ready() && navm_in_parts() ? aas_nearest_area(AAS_FOOT, point, 3.f, NULL) : NONE;
+	return area != NONE ? aas_area_region(AAS_FOOT, area) : NONE;
+}
+
 /* somewhere to go on the map (a playable area, bigger ones likelier) */
 static int nav_random_spot(unsigned long seed, real_point3d *spot)
 {
 	long area = NONE;
+	if (nav_spot_region != NONE && aas_ready())
+	{
+		/* one of this part's own (any alike: a part is a base and the
+		   ground about it) */
+		long count = aas_region_size(AAS_FOOT, nav_spot_region);
+		long tries;
+		for (tries = 0; tries < 12 && count > 0; tries++)
+		{
+			long a;
+			seed = bot_hash(seed + 0x9e3779b9UL);
+			a = aas_region_area(AAS_FOOT, nav_spot_region, (long)(seed % (unsigned long)count));
+			if (a != NONE && ((aas_area(AAS_FOOT, a)->flags & _aas_area_playable) || tries >= 8))
+			{
+				*spot = aas_area(AAS_FOOT, a)->center;
+				return TRUE;
+			}
+		}
+		return FALSE;
+	}
 	/* half the time any playable area alike (the walkways, the corridors,
 	   the upper floors: not just the open ground, which bigger-likelier
 	   favours) */
@@ -1067,6 +1097,7 @@ struct bot_state
 	} via_plan;
 	real_point3d noroute_point; /* the last place there was no way to, and until when to leave it be */
 	long noroute_until;
+	long region; /* a very large map: the part of it we are in on foot (NONE: not known) */
 	long flank_side; /* the last flank's side, and when (keep to it, not this way then that) */
 	long flank_time;
 	int on_objective_route; /* going for the objective by a way of its own (dying on it: another way next time) */
@@ -1925,6 +1956,28 @@ static int bot_recently_at(struct bot_state const *bot, real_point3d const *poin
 	return FALSE;
 }
 
+/* a vehicle's kind, as its physics are (vehicles.c: the tank, the jeep, the
+   boat, the plane, the scout (a Ghost), the fighter (a Banshee), a turret) */
+enum
+{
+	_bot_vehicle_tank = 0,
+	_bot_vehicle_jeep,
+	_bot_vehicle_boat,
+	_bot_vehicle_plane,
+	_bot_vehicle_scout,
+	_bot_vehicle_fighter,
+	_bot_vehicle_turret,
+	NUMBER_OF_BOT_VEHICLE_KINDS
+};
+
+static long bot_vehicle_kind(long definition_index)
+{
+	/* (vehicle_definition, vehicles.c: its flags, then its type, after the unit's) */
+	char const *definition = (char const *)object_definition_get(definition_index);
+	short type = *(short const *)(definition + sizeof(struct unit_definition) + 4);
+	return type >= 0 && type < NUMBER_OF_BOT_VEHICLE_KINDS ? type : _bot_vehicle_jeep;
+}
+
 /* how good a vehicle is to take into a fight */
 static real bot_vehicle_worth(long definition_index)
 {
@@ -2176,10 +2229,31 @@ static real bot_hunch(real score, long kind, real_point3d const *point, long obj
 	return score * (1.f + bot_hunch_width * (2.f * u - 1.f));
 }
 
+/* the part of a very large map the bot choosing a goal is in, on foot
+   (NONE: not known, or a map with navigation all over), and where it is */
+static long bot_consider_region = NONE;
+static real_point3d bot_consider_from;
+
+/* Whether somewhere is in that part. Somewhere that isn't cannot be got to
+   on foot: another base of a very large map, a mile off, with nothing
+   worked out between (bot_nav.c, navm_choose_parts). Not a goal: a route
+   to it is looked for through the whole of this part, found wanting, and
+   the next second it is chosen again. */
+static int bot_within_reach(real_point3d const *point)
+{
+	long area;
+	if (bot_consider_region == NONE)
+		return TRUE;
+	area = aas_nearest_area(AAS_FOOT, point, 3.f, NULL);
+	return area != NONE ? aas_area_region(AAS_FOOT, area) == bot_consider_region : distance3d(point, &bot_consider_from) <= 30.f;
+}
+
 /* TRUE when this one is now the best (its score is the hunch's, not the
    one passed in: compare with this, not with the score) */
 static int bot_consider(struct bot_candidate *best, real score, long kind, real_point3d const *point, long object, long ticks, int objective)
 {
+	if (!bot_within_reach(point))
+		return FALSE;
 	if (kind == _bot_goal_item && object != NONE && aas_ready())
 	{
 		/* something lying where no one can get to it (a flag knocked off
@@ -3097,6 +3171,8 @@ static struct bot_squad *bot_squad_update(long team, unsigned long seed)
 	{
 		real best_score = -1.f;
 		long sample;
+		long region_before = nav_spot_region;
+		nav_spot_region = nav_region_at(&squad->leader_at); /* (a very large map: where the leader can get to) */
 		for (sample = 0; sample < 10; sample++)
 		{
 			real_point3d spot;
@@ -3116,6 +3192,7 @@ static struct bot_squad *bot_squad_update(long team, unsigned long seed)
 				squad->goal = spot;
 			}
 		}
+		nav_spot_region = region_before;
 		squad->until = now + 25 * BOT_TICKS_PER_SECOND;
 	}
 	return squad;
@@ -3279,6 +3356,19 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 	best.kind = _bot_goal_none;
 	best.object = NONE;
 	bot_hunches_begin(bot, me);
+	/* (a very large map: the part we are in, or were last, in the air) */
+	bot_consider_region = NONE;
+	bot_consider_from = *position;
+	if (aas_ready() && navm_in_parts() && unit->object.parent_object_index == NONE)
+	{
+		long region = nav_region_at(position);
+		if (region != NONE)
+			bot->region = region;
+		bot_consider_region = bot->region;
+	}
+	else
+		bot->region = NONE;
+	nav_spot_region = bot_consider_region;
 	if (role != bot->role)
 	{
 		if (bot_logging())
@@ -3932,11 +4022,14 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 	if (role == _bot_role_sniper && held >= 7.f && bots_vantage_count > 0)
 	{
 		real_point3d spot = bots_vantages[(bot->random >> 4) % bots_vantage_count];
-		if (bot_distance2d(position, &spot) > 2.f)
-			bot_set_goal(bot, _bot_goal_roam, &spot, NONE, 30 * BOT_TICKS_PER_SECOND);
-		else
-			bot_set_goal(bot, _bot_goal_hold, &spot, NONE, 15 * BOT_TICKS_PER_SECOND);
-		return;
+		if (bot_within_reach(&spot))
+		{
+			if (bot_distance2d(position, &spot) > 2.f)
+				bot_set_goal(bot, _bot_goal_roam, &spot, NONE, 30 * BOT_TICKS_PER_SECOND);
+			else
+				bot_set_goal(bot, _bot_goal_hold, &spot, NONE, 15 * BOT_TICKS_PER_SECOND);
+			return;
+		}
 	}
 	/* a good gun and the patience for it: up to high ground that sees a
 	   lot (over a gap, up a ladder if that's the way) */
@@ -3950,7 +4043,7 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 		for (i = 0; i < bots_vantage_count; i++)
 		{
 			real score = distance3d(position, &bots_vantages[i]);
-			if (score >= 60.f)
+			if (score >= 60.f || !bot_within_reach(&bots_vantages[i]))
 				continue;
 			score *= 0.6f + 0.8f * bot_random(bot);
 			if (bot_recently_at(bot, &bots_vantages[i]) && bot_distance2d(position, &bots_vantages[i]) > 2.f)
@@ -3995,8 +4088,11 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 			/* not straight at them: somewhere near, so they're met from an
 			   angle, and from above when there's high ground there */
 			point = bot_approach_spot(bot, &point, position);
-			bot_set_goal(bot, _bot_goal_roam, &point, NONE, 6 * BOT_TICKS_PER_SECOND);
-			return;
+			if (bot_within_reach(&point))
+			{
+				bot_set_goal(bot, _bot_goal_roam, &point, NONE, 6 * BOT_TICKS_PER_SECOND);
+				return;
+			}
 		}
 	}
 
@@ -4026,7 +4122,7 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 			}
 			else
 				continue;
-			if (distance3d(&point, position) > 10.f)
+			if (distance3d(&point, position) > 10.f && bot_within_reach(&point))
 			{
 				bot_set_goal(bot, _bot_goal_roam, &point, NONE, 30 * BOT_TICKS_PER_SECOND);
 				return;
@@ -4748,12 +4844,18 @@ static void nav_update(void)
 	nav_aas_bsp = global_structure_bsp_index;
 	nav_danger_reset();
 	{
+		void network_connection_pardon_stall(void);
 		unsigned long long start = bot_time_microseconds();
 		aas_build();
 		if (bot_logging())
 			bot_log("bots: areas %s: %ld foot, %ld vehicle, %ld places, in %.1f s", aas_ready() ? "ready" : "none",
 				aas_ready() ? aas_area_count(AAS_FOOT) : 0, aas_ready() ? aas_area_count(AAS_VEHICLE) : 0, nav_place_count(),
 				(bot_time_microseconds() - start) / 1.0e6);
+		/* (worked out in the middle of a game, for the structure BSP a
+		   map's script switched to, and nothing heard or said the while:
+		   no one is dropped for it) */
+		if (bot_time_microseconds() - start > 1000000ULL)
+			network_connection_pardon_stall();
 	}
 	nav_flood_done = TRUE;
 	if (getenv("HALO_BOT_AREADUMP") && aas_ready())
@@ -4937,6 +5039,22 @@ static void bots_world_tick(void)
 			bot_log("place %ld %s at %.2f %.2f %.2f area %ld flags %ld there %.1f back %.1f", p, p < aas_spawn_place_count() ? "spawn" : "thing",
 				place->x, place->y, place->z, area, area != NONE ? (long)aas_area(AAS_FOOT, area)->flags : -1L,
 				aas_travel_time(AAS_FOOT, home, place), aas_travel_time(AAS_FOOT, place, home));
+		}
+	}
+	if (bot_env_set("HALO_BOT_ITEMS") && now == 30)
+	{
+		static char const *const kinds[NUMBER_OF_BOT_VEHICLE_KINDS] = { "tank", "jeep", "boat", "plane", "scout", "fighter", "turret" };
+		struct object_iterator vehicles;
+		struct object_datum *object;
+		object_iterator_new(&vehicles, _object_mask_vehicle, 0);
+		while ((object = (struct object_datum *)object_iterator_next(&vehicles)) != NULL)
+		{
+			char const *definition = (char const *)object_definition_get(object->definition_index);
+			real const *speeds = (real const *)(definition + sizeof(struct unit_definition) + 8);
+			bot_log("vehicle %s (%s, %ld seats) at %.1f %.1f %.1f speeds %.3f %.3f %.3f %.3f turn %.3f %.3f", tag_get_name(object->definition_index),
+				kinds[bot_vehicle_kind(object->definition_index)], bot_vehicle_seats(vehicles.index),
+				object->object.position.x, object->object.position.y, object->object.position.z,
+				speeds[0], speeds[1], speeds[2], speeds[3], speeds[4], speeds[5]);
 		}
 	}
 	if (bot_env_set("HALO_BOT_ITEMS") && now % 300 == 30 && aas_ready())
@@ -5678,6 +5796,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		bot->unit_index = me->unit_index;
 		bot->target_unit = NONE;
 		bot->goal_object = NONE;
+		bot->region = NONE;
 		bot_move_reset(&bot->mover.move);
 		bot->tracked_unit = NONE;
 		bot->aim_velocity_unit = NONE;

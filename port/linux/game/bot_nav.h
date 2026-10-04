@@ -106,10 +106,10 @@ void navm_set_baking(boolean baking);
 /* ... the files it has written so far (two a map: its heights, its areas) */
 long navm_baked_files(void);
 /* whether the map has baked navigation of this build's kind */
-boolean navm_baked_current(char const *map_name);
+boolean navm_baked_current(char const *map_name, long bsp_index);
 /* the map loaded now was too large to work navigation out for */
 boolean navm_map_too_large(void);
-boolean aas_baked_current(char const *map_name);
+boolean aas_baked_current(char const *map_name, long bsp_index);
 
 boolean aas_build(void);
 void aas_dispose(void);
@@ -118,6 +118,14 @@ boolean aas_ready(void);
 long aas_area_count(long type);
 struct aas_area const *aas_area(long type, long area);
 struct aas_reach const *aas_reach(long type, long reach);
+/* the part of the map an area is joined to by any way at all (NONE: not
+   known), and how many areas a part has: somewhere in another part cannot
+   be got to on foot */
+long aas_area_region(long type, long area);
+long aas_region_size(long type, long region);
+long aas_region_area(long type, long region, long index);
+/* whether only parts of the map have navigation (a very large map) */
+boolean navm_in_parts(void);
 long aas_reach_count(long type);
 
 real aas_speed(long type); /* world units a second, for travel times */

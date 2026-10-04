@@ -135,6 +135,11 @@ struct aas_world
 	long *pair_base;
 	float *pair_time;
 	float *random_weight; /* cumulative, over the areas, for aas_random_area */
+	long *region; /* per area: the part of the map it is joined to, some way or other (aas_find_regions) */
+	long *region_size; /* per region: how many areas */
+	long *region_first; /* per region: where its areas begin in region_areas */
+	long *region_areas; /* the areas, a region at a time */
+	long region_count;
 	struct aas_cache caches[AAS_CACHES];
 	unsigned long cache_clock;
 	float *area_cost[AAS_COST_SLOTS]; /* extra seconds to go through an area, per side (danger; shared) */
@@ -899,7 +904,7 @@ static void aas_ledge_reaches(long type, struct aas_reaches *reaches)
 						long v;
 						if (bx < 0 || by < 0 || bx >= navm.width || by >= navm.height)
 							continue;
-						for (v = navm.columns[by * navm.width + bx]; v != NONE; v = navm.spans[v].next)
+						for (v = navm_first_span_at(bx, by); v != NONE; v = navm.spans[v].next)
 						{
 							real rise = navm.spans[v].floor - span->floor;
 							if (rise > -NAVM_STEP && rise < NAVM_HEIGHT)
@@ -923,7 +928,7 @@ static void aas_ledge_reaches(long type, struct aas_reaches *reaches)
 				boolean walkover = FALSE;
 				if (x < 0 || y < 0 || x >= navm.width || y >= navm.height)
 					break;
-				for (u = navm.columns[y * navm.width + x]; u != NONE; u = navm.spans[u].next)
+				for (u = navm_first_span_at(x, y); u != NONE; u = navm.spans[u].next)
 				{
 					struct navm_span const *other = &navm.spans[u];
 					real rise = other->floor - span->floor;
@@ -1036,7 +1041,7 @@ static void aas_ledge_reaches(long type, struct aas_reaches *reaches)
 								boolean floor_there = FALSE;
 								if (bx < 0 || by < 0 || bx >= navm.width || by >= navm.height)
 									break;
-								for (v = navm.columns[by * navm.width + bx]; v != NONE; v = navm.spans[v].next)
+								for (v = navm_first_span_at(bx, by); v != NONE; v = navm.spans[v].next)
 								{
 									real off = navm.spans[v].floor - navm.spans[found].floor;
 									if (off > -1.5f && off < NAVM_HEIGHT)
@@ -1399,7 +1404,7 @@ static void aas_ladder_reaches(struct aas_reaches *reaches)
 				long u;
 				if (x < 0 || y < 0 || x >= navm.width || y >= navm.height)
 					continue;
-				for (u = navm.columns[y * navm.width + x]; u != NONE; u = navm.spans[u].next)
+				for (u = navm_first_span_at(x, y); u != NONE; u = navm.spans[u].next)
 				{
 					real_point3d point;
 					real distance;
@@ -1826,16 +1831,16 @@ static boolean aas_cache_load(void)
 
 /* whether the map has baked areas of this build's kind (the file's header
    only: bot_nav.c, navm_baked_current) */
-boolean aas_baked_current(char const *map_name)
+boolean aas_baked_current(char const *map_name, long bsp_index)
 {
 	struct aas_cache_header header;
 	char path[512];
 	FILE *file;
 	boolean ok;
 
-	if (!navm_baked_current(map_name))
+	if (!navm_baked_current(map_name, bsp_index))
 		return FALSE;
-	navm_cache_file(map_name, 0, "aas", TRUE, path, sizeof(path));
+	navm_cache_file(map_name, bsp_index, "aas", TRUE, path, sizeof(path));
 	file = fopen(path, "rb");
 	if (!file)
 		return FALSE;
@@ -1909,6 +1914,10 @@ static void aas_world_free(struct aas_world *world)
 	free(world->failures);
 	free(world->fall);
 	free(world->random_weight);
+	free(world->region);
+	free(world->region_size);
+	free(world->region_first);
+	free(world->region_areas);
 	free(world->reach_from);
 	free(world->incoming_time);
 	free(world->pair_base);
@@ -2155,6 +2164,94 @@ static void aas_finish_world(long type)
 	}
 }
 
+/* The regions: areas joined by any way at all, either way (a drop joins as
+   a walk does), share one. Somewhere in another region cannot be got to on
+   foot whatever the route: a very large map's parts, each worked out apart
+   (bot_nav.c, navm_choose_parts), a ledge nothing leads to. Asked before a
+   route is looked for (aas_same_region): a route that cannot be searches
+   the whole of the region it starts in to find that out. */
+static void aas_find_regions(long type)
+{
+	struct aas_world *world = &aas_worlds[type];
+	long head = 0, tail = 0;
+	long a;
+
+	free(world->region);
+	free(world->region_size);
+	free(world->region_first);
+	free(world->region_areas);
+	world->region_count = 0;
+	world->region = (long *)malloc(MAX(1, world->area_count) * sizeof(long));
+	world->region_size = (long *)calloc(MAX(1, world->area_count), sizeof(long));
+	world->region_first = (long *)calloc(MAX(1, world->area_count), sizeof(long));
+	world->region_areas = (long *)malloc(MAX(1, world->area_count) * sizeof(long));
+	if (!world->region || !world->region_size || !world->region_first || !world->region_areas || !world->incoming)
+	{
+		free(world->region);
+		free(world->region_size);
+		free(world->region_first);
+		free(world->region_areas);
+		world->region = NULL;
+		world->region_size = NULL;
+		world->region_first = NULL;
+		world->region_areas = NULL;
+		return;
+	}
+	for (a = 0; a < world->area_count; a++)
+		world->region[a] = NONE;
+	/* (the areas in the order they are come to, a region at a time: the
+	   list of each region's own) */
+	for (a = 0; a < world->area_count; a++)
+	{
+		long region;
+		if (world->region[a] != NONE)
+			continue;
+		region = world->region_count++;
+		world->region[a] = region;
+		world->region_first[region] = tail;
+		world->region_areas[tail++] = a;
+		while (head < tail)
+		{
+			struct aas_area const *area = &world->areas[world->region_areas[head++]];
+			long i;
+			world->region_size[region]++;
+			for (i = 0; i < area->reach_count; i++)
+			{
+				long to = world->reaches[area->first_reach + i].to;
+				if (world->region[to] == NONE)
+					world->region[to] = region, world->region_areas[tail++] = to;
+			}
+			for (i = 0; i < area->incoming_count; i++)
+			{
+				long from = world->reaches[world->incoming[area->first_incoming + i]].from;
+				if (world->region[from] == NONE)
+					world->region[from] = region, world->region_areas[tail++] = from;
+			}
+		}
+	}
+}
+
+long aas_area_region(long type, long area)
+{
+	struct aas_world const *world = &aas_worlds[type];
+	return world->region && area >= 0 && area < world->area_count ? world->region[area] : NONE;
+}
+
+/* how many areas a region has (a ledge on its own: one or two) */
+long aas_region_size(long type, long region)
+{
+	struct aas_world const *world = &aas_worlds[type];
+	return world->region_size && region >= 0 && region < world->region_count ? world->region_size[region] : 0;
+}
+
+/* one of a region's areas (index: 0 to its size less one) */
+long aas_region_area(long type, long region, long index)
+{
+	struct aas_world const *world = &aas_worlds[type];
+	return world->region_areas && region >= 0 && region < world->region_count && index >= 0 && index < world->region_size[region] ?
+		world->region_areas[world->region_first[region] + index] : NONE;
+}
+
 static void aas_find_random_weights(long type)
 {
 	struct aas_world *world = &aas_worlds[type];
@@ -2223,7 +2320,10 @@ boolean aas_build(void)
 			aas_find_attachments(type, FALSE);
 	}
 	for (type = 0; type < NUMBER_OF_AAS_TYPES; type++)
+	{
 		aas_finish_world(type);
+		aas_find_regions(type);
+	}
 	aas_failures_load();
 	for (type = 0; type < NUMBER_OF_AAS_TYPES; type++)
 	{
@@ -2329,7 +2429,7 @@ boolean aas_build(void)
 					long u;
 					long top = NONE;
 					unsigned char *rgb = &image[((navm.height - 1 - y) * navm.width + x) * 3];
-					for (u = navm.columns[y * navm.width + x]; u != NONE; u = navm.spans[u].next)
+					for (u = navm_first_span_at(x, y); u != NONE; u = navm.spans[u].next)
 						if (aas_worlds[AAS_FOOT].span_area[u] != NONE && (aas_worlds[AAS_FOOT].areas[aas_worlds[AAS_FOOT].span_area[u]].flags & _aas_area_reachable))
 							top = u;
 					if (top == NONE)
@@ -2337,7 +2437,7 @@ boolean aas_build(void)
 						/* the top floor here: walkable (dark yellow), scenery
 						   (dark red), no room (grey) */
 						long last = NONE;
-						for (u = navm.columns[y * navm.width + x]; u != NONE; u = navm.spans[u].next)
+						for (u = navm_first_span_at(x, y); u != NONE; u = navm.spans[u].next)
 							last = u;
 						if (last != NONE)
 						{
@@ -2443,7 +2543,7 @@ static long aas_nearest_area_search(long type, real_point3d const *point, real r
 				long u;
 				if (x < 0 || y < 0 || x >= navm.width || y >= navm.height)
 					continue;
-				for (u = navm.columns[y * navm.width + x]; u != NONE; u = navm.spans[u].next)
+				for (u = navm_first_span_at(x, y); u != NONE; u = navm.spans[u].next)
 				{
 					real_point3d there;
 					real distance;
@@ -2561,7 +2661,7 @@ boolean aas_line_in_areas(long type, real_point3d const *from, real_point3d cons
 		real best_rise = 1.0e9f;
 		if (column == NONE)
 			return FALSE;
-		for (u = navm.columns[column]; u != NONE; u = navm.spans[u].next)
+		for (u = navm_first_span(column); u != NONE; u = navm.spans[u].next)
 		{
 			real rise = navm.spans[u].floor - z;
 			if (fabs(rise) <= NAVM_STEP && fabs(rise) < best_rise)
@@ -3566,7 +3666,7 @@ void aas_debug_scan(void)
 		line[0] = 0;
 		if (column == NONE)
 			continue;
-		for (u = navm.columns[column]; u != NONE && used < 440; u = navm.spans[u].next)
+		for (u = navm_first_span(column); u != NONE && used < 440; u = navm.spans[u].next)
 			used += snprintf(line + used, sizeof(line) - used, " [f %.2f c %.2f fl %d wall %d edge %d area %ld]", navm.spans[u].floor,
 				navm.spans[u].ceiling, navm.spans[u].flags, navm.spans[u].wall, navm.spans[u].edge,
 				aas_worlds[AAS_FOOT].span_area ? aas_worlds[AAS_FOOT].span_area[u] : -2L);

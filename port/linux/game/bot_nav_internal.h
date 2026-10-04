@@ -49,13 +49,32 @@ struct navm_climbable
 
 #define NAVM_MAXIMUM_CLIMBABLES 128
 
+/* A long for each column of the grid (NONE where there is none), kept in
+   blocks of NAVM_BLOCK columns a side, and only the blocks with something in
+   them: a map a mile across has its floors worked out in parts of it only
+   (navm_build), and what is left out takes no memory and no room in the
+   map's file. */
+#define NAVM_BLOCK_SHIFT 6
+#define NAVM_BLOCK (1 << NAVM_BLOCK_SHIFT)
+
+struct navm_grid
+{
+	long **blocks;
+	long across, down; /* blocks */
+};
+
+long navm_grid_get(struct navm_grid const *grid, long x, long y);
+
 struct navm_world
 {
 	boolean ready;
 	float cell; /* the grid: world units a column (NAVM_CELL) */
 	float x0, y0;
 	long width, height;
-	long *columns; /* first span in each column, NONE */
+	struct navm_grid columns; /* first span in each column, NONE */
+	/* the blocks that are worked out, one each (NULL: all of them): the
+	   parts of a very large map that are played in */
+	unsigned char *wanted;
 	struct navm_span *spans;
 	long span_count;
 	struct navm_climbable climbables[NAVM_MAXIMUM_CLIMBABLES];
@@ -75,6 +94,10 @@ extern long const navm_dx[8];
 extern long const navm_dy[8];
 extern float const navm_step_length[8];
 
+/* the first span of a column (the next up is its span's next), by the
+   column's place in the grid or by its index */
+#define navm_first_span_at(x, y) navm_grid_get(&navm.columns, (x), (y))
+long navm_first_span(long column);
 long navm_column_of(real x, real y);
 void navm_column_center(long column, real *x, real *y);
 void navm_span_point(long span, real_point3d *point);

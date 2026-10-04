@@ -38,6 +38,8 @@ Called from the main loop every frame (main.c).
 #include "networking/network_server_manager.h"
 #include "game/game.h"
 #include "game/game_engine.h"
+#include "scenario/scenario.h"
+#include "scenario/scenario_definitions.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -124,6 +126,9 @@ static struct
 	real lobby_seconds;
 	real apply_seconds;
 	long files_before;
+	/* (the structure BSP of the map being baked: a map with a few has each
+	done in turn) */
+	short bsp_index;
 	unsigned long long map_start;
 	unsigned long long leave_start;
 	unsigned long long start;
@@ -240,7 +245,7 @@ static void bake_read_settings(
 	bake_find_maps();
 	for (i = 0; i < bake.map_count; i++)
 	{
-		if (!bake.all && aas_baked_current(bake.maps[i].name))
+		if (!bake.all && aas_baked_current(bake.maps[i].name, 0))
 			bake.maps[i].state = _bake_map_current;
 		else
 			waiting++;
@@ -418,8 +423,22 @@ void bot_bake_update(
 	it loaded (bots.c, bots_map_loaded), and written */
 	if (bake.hosting && bake.started && client && !main_menu_loaded && game_in_progress() && game_engine_running())
 	{
-		if (aas_ready() && navm_baked_files() >= bake.files_before + 2 && aas_baked_current(map->name))
+		if (aas_ready() && navm_baked_files() >= bake.files_before + 2 && aas_baked_current(map->name, bake.bsp_index))
+		{
+			/* a map with another structure BSP (one its script switches to
+			as the game starts, in a few Custom Edition maps): that one's
+			too, switched to here and worked out as the first was */
+			struct scenario *scenario = global_scenario_get();
+			if (scenario && bake.bsp_index + 1 < scenario->structure_bsp_references.count &&
+				bake.bsp_index == global_structure_bsp_index && scenario_switch_structure_bsp((short)(bake.bsp_index + 1)))
+			{
+				bake.bsp_index++;
+				bake.files_before = navm_baked_files();
+				bots_map_loaded();
+				return;
+			}
 			bake_leave(map, _bake_map_baked);
+		}
 		else if (!aas_ready() && navm_map_too_large())
 		{
 			/* (not a failure: there is nothing to bake, and the bots play
@@ -471,6 +490,7 @@ void bot_bake_update(
 		}
 		bake.map_start = bot_time_microseconds();
 		bake.files_before = navm_baked_files();
+		bake.bsp_index = 0;
 		main_set_multiplayer_map_name(map->name);
 		player_ui_fast_setup_network_server();
 		/* (nobody joins it) */

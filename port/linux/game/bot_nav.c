@@ -33,7 +33,12 @@ Surfaces the map marks climbable (ladders) are kept for the reachabilities.
 #include <stdlib.h>
 #include <string.h>
 
+/* a heightfield's file: all its columns, row by row (5), or the blocks of
+   them that are worked out (6: a very large map's) */
 #define NAVM_CACHE_VERSION 5
+#define NAVM_CACHE_VERSION_BLOCKS 6
+/* a grid's side, at most, in columns (its columns' numbers fit a long) */
+#define NAVM_MAXIMUM_SIDE 40000
 #define NAVM_FLOOR_BUDGET 1200000.f /* floors (a column's worth each) a map gets, about: a bigger map, a coarser grid */
 #define NAVM_CACHE_MAGIC 0x4d56414eUL /* NAVM */
 
@@ -48,12 +53,76 @@ struct navm_interval
 
 struct navm_world navm;
 
+/* ---------- the grid's columns */
+
+static boolean navm_grid_new(struct navm_grid *grid, long width, long height)
+{
+	grid->across = (width + NAVM_BLOCK - 1) >> NAVM_BLOCK_SHIFT;
+	grid->down = (height + NAVM_BLOCK - 1) >> NAVM_BLOCK_SHIFT;
+	grid->blocks = (long **)calloc((size_t)(grid->across * grid->down), sizeof(long *));
+	return grid->blocks != NULL;
+}
+
+static void navm_grid_free(struct navm_grid *grid)
+{
+	long i;
+	if (grid->blocks)
+		for (i = 0; i < grid->across * grid->down; i++)
+			free(grid->blocks[i]);
+	free(grid->blocks);
+	memset(grid, 0, sizeof(*grid));
+}
+
+long navm_grid_get(struct navm_grid const *grid, long x, long y)
+{
+	long const *block;
+	if (!grid->blocks)
+		return NONE;
+	block = grid->blocks[(y >> NAVM_BLOCK_SHIFT) * grid->across + (x >> NAVM_BLOCK_SHIFT)];
+	return block ? block[((y & (NAVM_BLOCK - 1)) << NAVM_BLOCK_SHIFT) | (x & (NAVM_BLOCK - 1))] : NONE;
+}
+
+/* a block of the grid (made, every column NONE, if it is not there); NULL
+   when there is no memory for it */
+static long *navm_grid_block(struct navm_grid *grid, long index)
+{
+	if (!grid->blocks[index])
+	{
+		long *block = (long *)malloc(NAVM_BLOCK * NAVM_BLOCK * sizeof(long));
+		long i;
+		if (!block)
+			return NULL;
+		for (i = 0; i < NAVM_BLOCK * NAVM_BLOCK; i++)
+			block[i] = NONE;
+		grid->blocks[index] = block;
+	}
+	return grid->blocks[index];
+}
+
+/* where a column's long is kept, to set it */
+static long *navm_grid_slot(struct navm_grid *grid, long x, long y)
+{
+	long *block = navm_grid_block(grid, (y >> NAVM_BLOCK_SHIFT) * grid->across + (x >> NAVM_BLOCK_SHIFT));
+	return block ? &block[((y & (NAVM_BLOCK - 1)) << NAVM_BLOCK_SHIFT) | (x & (NAVM_BLOCK - 1))] : NULL;
+}
+
+long navm_first_span(long column)
+{
+	return navm_grid_get(&navm.columns, column % navm.width, column / navm.width);
+}
+
+/* whether a column's block is one that is worked out */
+static boolean navm_wanted_at(long x, long y)
+{
+	return !navm.wanted || navm.wanted[(y >> NAVM_BLOCK_SHIFT) * navm.columns.across + (x >> NAVM_BLOCK_SHIFT)];
+}
+
 /* ---------- small things */
 
 long navm_column_of(real x, real y)
 {
 	long cx, cy;
-	if (!navm.columns || navm.cell <= 0.f)
+	if (!navm.columns.blocks || navm.cell <= 0.f)
 		return NONE;
 	cx = (long)floor((x - navm.x0) / NAVM_CELL);
 	cy = (long)floor((y - navm.y0) / NAVM_CELL);
@@ -94,7 +163,7 @@ long navm_walk_neighbor(long s, long direction)
 	/* something thin in the way (a railing, a post) the heightfield missed */
 	if (direction < 4 && (span->pad & (1 << direction)))
 		return NONE;
-	for (t = navm.columns[y * navm.width + x]; t != NONE; t = navm.spans[t].next)
+	for (t = navm_first_span_at(x, y); t != NONE; t = navm.spans[t].next)
 	{
 		struct navm_span const *other = &navm.spans[t];
 		real rise = other->floor - span->floor;
@@ -142,7 +211,7 @@ long navm_span_at(real_point3d const *point, real above, real below)
 	real best_distance = 1.0e9f;
 	if (column == NONE)
 		return NONE;
-	for (s = navm.columns[column]; s != NONE; s = navm.spans[s].next)
+	for (s = navm_first_span(column); s != NONE; s = navm.spans[s].next)
 	{
 		real distance = point->z - navm.spans[s].floor;
 		if (distance > below || distance < -above)
@@ -194,15 +263,18 @@ static long navm_clip(real_point3d *out, real_point3d const *in, long count, lon
 
 struct navm_raster
 {
-	long *first; /* per column: first interval */
+	struct navm_grid first; /* per column: first interval */
 	struct navm_interval *intervals;
 	long count;
 	long capacity;
 };
 
-static void navm_add_interval(struct navm_raster *raster, long column, real low, real high, real floor_z, int walkable)
+static void navm_add_interval(struct navm_raster *raster, long x, long y, real low, real high, real floor_z, int walkable)
 {
 	struct navm_interval *interval;
+	long *first = navm_grid_slot(&raster->first, x, y);
+	if (!first)
+		return;
 	if (raster->count >= raster->capacity)
 	{
 		long capacity = raster->capacity ? raster->capacity * 2 : (1 << 20);
@@ -217,8 +289,8 @@ static void navm_add_interval(struct navm_raster *raster, long column, real low,
 	interval->high = high;
 	interval->floor = floor_z;
 	interval->walkable = (unsigned char)walkable;
-	interval->next = raster->first[column];
-	raster->first[column] = raster->count++;
+	interval->next = *first;
+	*first = raster->count++;
 }
 
 /* a surface of the map's collision geometry: its corners (up to 16) and
@@ -326,6 +398,111 @@ static void navm_play_bounds(real *minimum_x, real *minimum_y, real *maximum_x, 
 	*maximum_y = MIN(*maximum_y, y1 + NAVM_PLAY_MARGIN);
 }
 
+/* The parts of a very large map that are worked out: the blocks within a
+   way of where it is played. Players' starting places, the weapons and
+   powerups, the vehicles and the flags, teleporters and the ball count in
+   full; a race's checkpoints and the hills (strung out across the open
+   ground) for half. If that is more floor than a machine should work out
+   and keep, the way round each is shortened until it fits. FALSE when the
+   map marks nowhere. */
+#define NAVM_PART_RADIUS 56.f
+#define NAVM_PART_RADIUS_LEAST 14.f
+#define NAVM_PARTS_COLUMNS (3 * 1024 * 1024 + 512 * 1024)
+
+struct navm_part_point
+{
+	real x, y;
+	real weight; /* of the radius */
+};
+
+static long navm_part_points(struct navm_part_point *points, long maximum)
+{
+	struct scenario *scenario = global_scenario_get();
+	long count = 0;
+	long i;
+	if (!scenario)
+		return 0;
+	for (i = 0; i < scenario->players.count && count < maximum; i++)
+	{
+		struct player_starting_location *location = player_get_starting_location((short)i);
+		if (location)
+			points[count].x = location->position.x, points[count].y = location->position.y, points[count++].weight = 1.f;
+	}
+	for (i = 0; i < scenario->netgame_equipment.count && count < maximum; i++)
+	{
+		/* scenario_netgame_equipment (game_engine.c): position at 0x40 */
+		real_point3d const *point = (real_point3d const *)((byte *)xbox_pointer(scenario->netgame_equipment.address) + i * 0x90 + 0x40);
+		points[count].x = point->x, points[count].y = point->y, points[count++].weight = 1.f;
+	}
+	for (i = 0; i < scenario->netgame_flags.count && count < maximum; i++)
+	{
+		struct scenario_netgame_flag const *flag = (struct scenario_netgame_flag const *)((byte *)xbox_pointer(scenario->netgame_flags.address) + i * 0x94);
+		points[count].x = flag->position.x, points[count].y = flag->position.y;
+		points[count++].weight = flag->type == _netgame_flag_race_track || flag->type == _netgame_flag_race_vehicle ||
+			flag->type == _netgame_flag_hill ? 0.5f : 1.f;
+	}
+	for (i = 0; i < scenario->vehicles.count && count < maximum; i++)
+	{
+		/* a vehicle's placement (0x78 each): a scenario_object_datum first */
+		struct scenario_object_datum const *vehicle = (struct scenario_object_datum const *)((byte *)xbox_pointer(scenario->vehicles.address) + i * 0x78);
+		points[count].x = vehicle->position.x, points[count].y = vehicle->position.y, points[count++].weight = 1.f;
+	}
+	return count;
+}
+
+static boolean navm_choose_parts(void)
+{
+	enum { MAXIMUM_POINTS = 2048 };
+	static struct navm_part_point points[MAXIMUM_POINTS];
+	long count = navm_part_points(points, MAXIMUM_POINTS);
+	long total = navm.columns.across * navm.columns.down;
+	real side = NAVM_BLOCK * NAVM_CELL; /* a block's, world units */
+	real radius;
+	long wanted = 0;
+
+	if (count < 1 || total <= 0)
+		return FALSE;
+	free(navm.wanted);
+	navm.wanted = (unsigned char *)malloc((size_t)total);
+	if (!navm.wanted)
+		return FALSE;
+	for (radius = NAVM_PART_RADIUS; ; radius *= 0.85f)
+	{
+		long p;
+		memset(navm.wanted, 0, (size_t)total);
+		wanted = 0;
+		for (p = 0; p < count; p++)
+		{
+			real reach = radius * points[p].weight;
+			long bx0 = MAX(0, (long)floor((points[p].x - reach - navm.x0) / side));
+			long bx1 = MIN(navm.columns.across - 1, (long)floor((points[p].x + reach - navm.x0) / side));
+			long by0 = MAX(0, (long)floor((points[p].y - reach - navm.y0) / side));
+			long by1 = MIN(navm.columns.down - 1, (long)floor((points[p].y + reach - navm.y0) / side));
+			long bx, by;
+			for (by = by0; by <= by1; by++)
+			{
+				for (bx = bx0; bx <= bx1; bx++)
+				{
+					/* (the block's nearest point to it) */
+					real nx = PIN(points[p].x, navm.x0 + bx * side, navm.x0 + (bx + 1) * side);
+					real ny = PIN(points[p].y, navm.y0 + by * side, navm.y0 + (by + 1) * side);
+					unsigned char *block = &navm.wanted[by * navm.columns.across + bx];
+					if ((nx - points[p].x) * (nx - points[p].x) + (ny - points[p].y) * (ny - points[p].y) <= reach * reach && !*block)
+					{
+						*block = TRUE;
+						wanted++;
+					}
+				}
+			}
+		}
+		if (wanted * NAVM_BLOCK * NAVM_BLOCK <= NAVM_PARTS_COLUMNS || radius * 0.85f < NAVM_PART_RADIUS_LEAST)
+			break;
+	}
+	bot_log("navm: a very large map (%.0f by %.0f world units): its floors are worked out within %.0f world units of where it is played, %ld of %ld blocks (%.0f%% of the map)",
+		navm.width * NAVM_CELL, navm.height * NAVM_CELL, radius, wanted, total, 100. * wanted / total);
+	return wanted > 0;
+}
+
 static void navm_rasterize_bsp(struct navm_raster *raster, struct collision_bsp *bsp)
 {
 	long s;
@@ -407,6 +584,13 @@ static void navm_rasterize_bsp(struct navm_raster *raster, struct collision_bsp 
 			{
 				real_point3d a[24], b[24];
 				real x0 = navm.x0 + cx * NAVM_CELL;
+				/* (a part of the map that is not worked out: on to the
+				   next block of the row) */
+				if (!navm_wanted_at(cx, cy))
+				{
+					cx |= NAVM_BLOCK - 1;
+					continue;
+				}
 				real y0 = navm.y0 + cy * NAVM_CELL;
 				long n = count;
 				long i;
@@ -431,7 +615,7 @@ static void navm_rasterize_bsp(struct navm_raster *raster, struct collision_bsp 
 					floor_z = (plane.d - plane.n.i * mx - plane.n.j * my) / plane.n.k;
 					floor_z = PIN(floor_z, low, high);
 				}
-				navm_add_interval(raster, cy * navm.width + cx, low, high, floor_z, walkable);
+				navm_add_interval(raster, cx, cy, low, high, floor_z, walkable);
 			}
 		}
 	}
@@ -447,24 +631,31 @@ static int navm_float_compare(void const *a, void const *b)
 /* the floors in each column, and the room over them */
 static void navm_build_spans(struct navm_raster *raster)
 {
-	long column;
+	long cx, cy;
 	long capacity = 1 << 20;
 	navm.spans = (struct navm_span *)malloc(capacity * sizeof(struct navm_span));
 	navm.span_count = 0;
-	/* (every column empty to start with: a build cut short by memory
-	   leaves no garbage) */
-	for (column = 0; column < navm.width * navm.height; column++)
-		navm.columns[column] = NONE;
 	if (!navm.spans)
 		return;
-	for (column = 0; column < navm.width * navm.height; column++)
+	/* (the columns in their order, row by row, whatever blocks they are in:
+	   the spans are numbered as they always were) */
+	for (cy = 0; cy < navm.height; cy++)
+	for (cx = 0; cx < navm.width; cx++)
 	{
 		float floors[64];
 		long floor_count = 0;
 		long i;
 		long previous = NONE;
-		navm.columns[column] = NONE;
-		for (i = raster->first[column]; i != NONE && floor_count < 64; i = raster->intervals[i].next)
+		long column = cy * navm.width + cx;
+		long first_interval;
+		/* (a block nothing passes through: on to the next of the row) */
+		if (!raster->first.blocks[(cy >> NAVM_BLOCK_SHIFT) * raster->first.across + (cx >> NAVM_BLOCK_SHIFT)])
+		{
+			cx |= NAVM_BLOCK - 1;
+			continue;
+		}
+		first_interval = navm_grid_get(&raster->first, cx, cy);
+		for (i = first_interval; i != NONE && floor_count < 64; i = raster->intervals[i].next)
 			if (raster->intervals[i].walkable)
 				floors[floor_count++] = raster->intervals[i].floor;
 		if (!floor_count)
@@ -479,7 +670,7 @@ static void navm_build_spans(struct navm_raster *raster)
 			/* one floor for several surfaces meeting in the column: the top */
 			if (i + 1 < floor_count && floors[i + 1] - f < 0.2f)
 				continue;
-			for (j = raster->first[column]; j != NONE; j = raster->intervals[j].next)
+			for (j = first_interval; j != NONE; j = raster->intervals[j].next)
 			{
 				struct navm_interval const *interval = &raster->intervals[j];
 				if (interval->high <= f + 0.1f)
@@ -512,7 +703,12 @@ static void navm_build_spans(struct navm_raster *raster)
 			if (ceiling - f >= NAVM_HEIGHT)
 				span->flags |= _navm_span_walkable;
 			if (previous == NONE)
-				navm.columns[column] = navm.span_count;
+			{
+				long *first = navm_grid_slot(&navm.columns, cx, cy);
+				if (!first)
+					return;
+				*first = navm.span_count;
+			}
 			else
 				navm.spans[previous].next = navm.span_count;
 			previous = navm.span_count++;
@@ -600,7 +796,7 @@ static void navm_mark_scenery(void)
 			for (cx = cx0; cx <= cx1; cx++)
 			{
 				long s;
-				for (s = navm.columns[cy * navm.width + cx]; s != NONE; s = navm.spans[s].next)
+				for (s = navm_first_span_at(cx, cy); s != NONE; s = navm.spans[s].next)
 				{
 					struct navm_span *span = &navm.spans[s];
 					real x, y;
@@ -651,11 +847,14 @@ static int navm_is_wall(struct navm_raster *raster, long s, long direction)
 	long t;
 	if (x < 0 || y < 0 || x >= navm.width || y >= navm.height)
 		return TRUE;
+	/* (the edge of a part of the map that is worked out: as the map's own) */
+	if (!navm_wanted_at(x, y))
+		return TRUE;
 	if (direction < 4 && (span->pad & (1 << direction)))
 		return TRUE; /* (a railing, a post) */
 	/* something passing through at body height (a wall, a rock, a step
 	   face too high to walk) */
-	for (i = raster->first[y * navm.width + x]; i != NONE; i = raster->intervals[i].next)
+	for (i = navm_grid_get(&raster->first, x, y); i != NONE; i = raster->intervals[i].next)
 	{
 		struct navm_interval const *interval = &raster->intervals[i];
 		if (interval->high > span->floor + NAVM_STEP && interval->low < span->floor + NAVM_HEIGHT)
@@ -665,7 +864,7 @@ static int navm_is_wall(struct navm_raster *raster, long s, long direction)
 	   the way too. (One with no room over it for anything else has that
 	   something at body height, found above, or it's low down and no wall:
 	   a ridge's shoulder is a drop, not a wall to keep a body's width off) */
-	for (t = navm.columns[y * navm.width + x]; t != NONE; t = navm.spans[t].next)
+	for (t = navm_first_span_at(x, y); t != NONE; t = navm.spans[t].next)
 		if (fabs(navm.spans[t].floor - span->floor) <= NAVM_STEP && ((navm.spans[t].flags & _navm_span_blocked) || navm_old_rules()))
 			return TRUE;
 	return FALSE;
@@ -913,9 +1112,11 @@ static boolean navm_cache_read(FILE *file, char const *map, unsigned long const 
 	struct navm_cache_header header;
 	boolean ok;
 
-	ok = fread(&header, sizeof(header), 1, file) == 1 && header.magic == NAVM_CACHE_MAGIC && header.version == NAVM_CACHE_VERSION &&
+	ok = fread(&header, sizeof(header), 1, file) == 1 && header.magic == NAVM_CACHE_MAGIC &&
+		(header.version == NAVM_CACHE_VERSION || header.version == NAVM_CACHE_VERSION_BLOCKS) &&
 		header.span_size == sizeof(struct navm_span) && !strcmp(header.map, map) && !memcmp(header.signature, signature, 4 * sizeof(unsigned long)) &&
-		header.width > 0 && header.height > 0 && header.width * header.height < 64 * 1024 * 1024 &&
+		header.width > 0 && header.height > 0 && header.width <= NAVM_MAXIMUM_SIDE && header.height <= NAVM_MAXIMUM_SIDE &&
+		(header.version == NAVM_CACHE_VERSION_BLOCKS || header.width * header.height < 64 * 1024 * 1024) &&
 		header.climbable_count >= 0 && header.climbable_count <= NAVM_MAXIMUM_CLIMBABLES &&
 		header.span_count >= 0 && header.span_count < 64 * 1024 * 1024 && /* (before anything's sized by it) */
 		header.cell >= NAVM_CELL_FINEST * 0.99f && header.cell <= NAVM_CELL_COARSEST * 1.01f &&
@@ -927,23 +1128,66 @@ static boolean navm_cache_read(FILE *file, char const *map, unsigned long const 
 		navm.y0 = header.y0;
 		navm.width = header.width;
 		navm.height = header.height;
-		navm.columns = (long *)malloc(navm.width * navm.height * sizeof(long));
-		navm.spans = (struct navm_span *)malloc(MAX(1, header.span_count) * sizeof(struct navm_span));
-		ok = navm.columns && navm.spans &&
-			fread(navm.columns, sizeof(long), (size_t)(navm.width * navm.height), file) == (size_t)(navm.width * navm.height) &&
-			fread(navm.spans, sizeof(struct navm_span), (size_t)header.span_count, file) == (size_t)header.span_count &&
-			fread(navm.climbables, sizeof(struct navm_climbable), (size_t)header.climbable_count, file) == (size_t)header.climbable_count;
 		navm.span_count = header.span_count;
 		navm.climbable_count = header.climbable_count;
+		navm.spans = (struct navm_span *)malloc(MAX(1, header.span_count) * sizeof(struct navm_span));
+		ok = navm_grid_new(&navm.columns, navm.width, navm.height) && navm.spans != NULL;
 		/* (a damaged file: every index in range, or build afresh) */
+		if (ok && header.version == NAVM_CACHE_VERSION)
+		{
+			/* every column, a row at a time */
+			long *row = (long *)malloc(navm.width * sizeof(long));
+			long x, y;
+			ok = row != NULL;
+			for (y = 0; ok && y < navm.height; y++)
+			{
+				ok = fread(row, sizeof(long), (size_t)navm.width, file) == (size_t)navm.width;
+				for (x = 0; ok && x < navm.width; x++)
+				{
+					if (row[x] != NONE)
+					{
+						long *first = navm_grid_slot(&navm.columns, x, y);
+						ok = first && row[x] >= 0 && row[x] < navm.span_count;
+						if (ok)
+							*first = row[x];
+					}
+				}
+			}
+			free(row);
+		}
+		else if (ok)
+		{
+			/* the blocks that are worked out: how many, then each one's place
+			   and its columns */
+			long block_count = 0;
+			long total = navm.columns.across * navm.columns.down;
+			long b;
+			ok = fread(&block_count, sizeof(block_count), 1, file) == 1 && block_count >= 0 && block_count <= total;
+			navm.wanted = ok ? (unsigned char *)calloc((size_t)total, 1) : NULL;
+			ok = ok && navm.wanted != NULL;
+			for (b = 0; ok && b < block_count; b++)
+			{
+				long index = NONE;
+				long *block;
+				long c;
+				ok = fread(&index, sizeof(index), 1, file) == 1 && index >= 0 && index < total && !navm.wanted[index];
+				block = ok ? navm_grid_block(&navm.columns, index) : NULL;
+				ok = block && fread(block, sizeof(long), NAVM_BLOCK * NAVM_BLOCK, file) == NAVM_BLOCK * NAVM_BLOCK;
+				for (c = 0; ok && c < NAVM_BLOCK * NAVM_BLOCK; c++)
+					ok = block[c] == NONE || (block[c] >= 0 && block[c] < navm.span_count);
+				if (ok)
+					navm.wanted[index] = TRUE;
+			}
+		}
+		ok = ok &&
+			fread(navm.spans, sizeof(struct navm_span), (size_t)header.span_count, file) == (size_t)header.span_count &&
+			fread(navm.climbables, sizeof(struct navm_climbable), (size_t)header.climbable_count, file) == (size_t)header.climbable_count;
 		if (ok)
 		{
 			long c;
-			for (c = 0; ok && c < navm.width * navm.height; c++)
-				ok = navm.columns[c] == NONE || (navm.columns[c] >= 0 && navm.columns[c] < navm.span_count);
 			for (c = 0; ok && c < navm.span_count; c++)
 				ok = (navm.spans[c].next == NONE || (navm.spans[c].next >= 0 && navm.spans[c].next < navm.span_count)) &&
-					navm.spans[c].column >= 0 && navm.spans[c].column < navm.width * navm.height;
+					navm.spans[c].column >= 0 && navm.spans[c].column / navm.width < navm.height;
 		}
 	}
 	return ok;
@@ -984,25 +1228,34 @@ static boolean navm_cache_load(void)
 
 /* whether the map has a baked heightfield of this build's kind (its header
    only: whether it is this very map's is found when the map is loaded) */
-boolean navm_baked_current(char const *map_name)
+boolean navm_baked_current(char const *map_name, long bsp_index)
 {
 	struct navm_cache_header header;
 	char path[512];
 	FILE *file;
 	boolean ok;
 
-	navm_cache_file(map_name, 0, "height", TRUE, path, sizeof(path));
+	navm_cache_file(map_name, bsp_index, "height", TRUE, path, sizeof(path));
 	file = fopen(path, "rb");
 	if (!file)
 		return FALSE;
-	ok = fread(&header, sizeof(header), 1, file) == 1 && header.magic == NAVM_CACHE_MAGIC && header.version == NAVM_CACHE_VERSION &&
+	ok = fread(&header, sizeof(header), 1, file) == 1 && header.magic == NAVM_CACHE_MAGIC &&
+		(header.version == NAVM_CACHE_VERSION || header.version == NAVM_CACHE_VERSION_BLOCKS) &&
 		header.span_size == sizeof(struct navm_span);
 	/* (and all of it there) */
 	if (ok)
 	{
-		double size = sizeof(header) + (double)header.width * header.height * sizeof(long) +
-			(double)header.span_count * sizeof(struct navm_span) + (double)header.climbable_count * sizeof(struct navm_climbable);
-		ok = fseek(file, 0, SEEK_END) == 0 && (double)ftell(file) == size;
+		double size = sizeof(header) + (double)header.span_count * sizeof(struct navm_span) +
+			(double)header.climbable_count * sizeof(struct navm_climbable);
+		if (header.version == NAVM_CACHE_VERSION)
+			size += (double)header.width * header.height * sizeof(long);
+		else
+		{
+			long block_count = 0;
+			ok = fread(&block_count, sizeof(block_count), 1, file) == 1 && block_count >= 0;
+			size += sizeof(block_count) + (double)block_count * (sizeof(long) + NAVM_BLOCK * NAVM_BLOCK * sizeof(long));
+		}
+		ok = ok && fseek(file, 0, SEEK_END) == 0 && (double)ftell(file) == size;
 	}
 	fclose(file);
 	return ok;
@@ -1016,7 +1269,7 @@ static void navm_cache_save(void)
 	boolean whole;
 	memset(&header, 0, sizeof(header));
 	header.magic = NAVM_CACHE_MAGIC;
-	header.version = NAVM_CACHE_VERSION;
+	header.version = navm.wanted ? NAVM_CACHE_VERSION_BLOCKS : NAVM_CACHE_VERSION;
 	header.span_size = sizeof(struct navm_span);
 	navm_signature(header.map, header.signature);
 	header.x0 = navm.x0;
@@ -1033,8 +1286,41 @@ static void navm_cache_save(void)
 		navm_baked_file(FALSE, path);
 		return;
 	}
-	whole = fwrite(&header, sizeof(header), 1, file) == 1 &&
-		fwrite(navm.columns, sizeof(long), (size_t)(navm.width * navm.height), file) == (size_t)(navm.width * navm.height) &&
+	whole = fwrite(&header, sizeof(header), 1, file) == 1;
+	if (whole && !navm.wanted)
+	{
+		/* every column, a row at a time (as the file always was) */
+		long *row = (long *)malloc(navm.width * sizeof(long));
+		long x, y;
+		whole = row != NULL;
+		for (y = 0; whole && y < navm.height; y++)
+		{
+			for (x = 0; x < navm.width; x++)
+				row[x] = navm_first_span_at(x, y);
+			whole = fwrite(row, sizeof(long), (size_t)navm.width, file) == (size_t)navm.width;
+		}
+		free(row);
+	}
+	else if (whole)
+	{
+		/* the blocks that are worked out */
+		long total = navm.columns.across * navm.columns.down;
+		long block_count = 0;
+		long b;
+		for (b = 0; b < total; b++)
+			block_count += navm.wanted[b] != 0;
+		whole = fwrite(&block_count, sizeof(block_count), 1, file) == 1;
+		for (b = 0; whole && b < total; b++)
+		{
+			long *block;
+			if (!navm.wanted[b])
+				continue;
+			block = navm_grid_block(&navm.columns, b);
+			whole = block && fwrite(&b, sizeof(b), 1, file) == 1 &&
+				fwrite(block, sizeof(long), NAVM_BLOCK * NAVM_BLOCK, file) == NAVM_BLOCK * NAVM_BLOCK;
+		}
+	}
+	whole = whole &&
 		fwrite(navm.spans, sizeof(struct navm_span), (size_t)navm.span_count, file) == (size_t)navm.span_count &&
 		fwrite(navm.climbables, sizeof(struct navm_climbable), (size_t)navm.climbable_count, file) == (size_t)navm.climbable_count;
 	whole = fclose(file) == 0 && whole;
@@ -1047,7 +1333,8 @@ static void navm_cache_save(void)
 
 void navm_dispose(void)
 {
-	free(navm.columns);
+	navm_grid_free(&navm.columns);
+	free(navm.wanted);
 	free(navm.spans);
 	memset(&navm, 0, sizeof(navm));
 	navm.cell = NAVM_CELL_COARSEST; /* (never nought: it's divided by) */
@@ -1058,8 +1345,9 @@ boolean navm_ready(void)
 	return navm.ready;
 }
 
-/* the most columns a map's grid may have (a long each, twice over while it
-   is worked out) */
+/* the most columns a map's grid may have with all of them worked out (a
+   long each, twice over meanwhile); a larger map has parts of it worked out
+   (navm_choose_parts) */
 #define NAVM_MAXIMUM_COLUMNS (48 * 1024 * 1024)
 
 /* the last map's grid would have had more: it has no navigation */
@@ -1068,6 +1356,11 @@ static boolean navm_too_large;
 boolean navm_map_too_large(void)
 {
 	return navm_too_large;
+}
+
+boolean navm_in_parts(void)
+{
+	return navm.ready && navm.wanted != NULL;
 }
 
 boolean navm_build(void)
@@ -1116,26 +1409,36 @@ boolean navm_build(void)
 	}
 	navm.width = (long)((maximum_x - navm.x0) / NAVM_CELL) + 2;
 	navm.height = (long)((maximum_y - navm.y0) / NAVM_CELL) + 2;
-	if (navm.width * navm.height > NAVM_MAXIMUM_COLUMNS)
+	if (navm.width > NAVM_MAXIMUM_SIDE || navm.height > NAVM_MAXIMUM_SIDE)
 	{
-		/* (a map a mile or two across, made for aircraft: at the coarsest
-		   grid it is still more than a machine should work out and keep) */
+		/* (beyond anything sensible: ten miles a side) */
 		navm_too_large = TRUE;
-		bot_log("navm: this map is too large for the bots' navigation (%.0f by %.0f world units: %ld x %ld columns of %.2f): the bots play it without",
-			maximum_x - minimum_x, maximum_y - minimum_y, navm.width, navm.height, navm.cell);
+		bot_log("navm: this map is too large for the bots' navigation (%.0f by %.0f world units): the bots play it without",
+			maximum_x - minimum_x, maximum_y - minimum_y);
 		return FALSE;
 	}
-	navm.columns = (long *)malloc(navm.width * navm.height * sizeof(long));
 	memset(&raster, 0, sizeof(raster));
-	raster.first = (long *)malloc(navm.width * navm.height * sizeof(long));
-	if (!navm.columns || !raster.first)
+	if (!navm_grid_new(&navm.columns, navm.width, navm.height) || !navm_grid_new(&raster.first, navm.width, navm.height))
 	{
-		free(raster.first);
+		navm_grid_free(&raster.first);
 		navm_dispose();
 		return FALSE;
 	}
-	for (i = 0; i < navm.width * navm.height; i++)
-		raster.first[i] = NONE;
+	/* A map a mile or two across (made for aircraft: Coldsnap, Hugeass) is
+	   eighty times Blood Gulch, nearly all of it open ground nobody walks:
+	   ten minutes on foot from one end to the other. Its floors are worked
+	   out only round where it is played (where players start, the weapons,
+	   the vehicles, the flags), each such part as fine as a small map's;
+	   the rest is left out, and crossed by air (bot_flight.c). */
+	if (navm.width * navm.height > NAVM_MAXIMUM_COLUMNS && !navm_choose_parts())
+	{
+		navm_too_large = TRUE;
+		bot_log("navm: this map is too large for the bots' navigation (%.0f by %.0f world units) and has nowhere marked to play in: the bots play it without",
+			maximum_x - minimum_x, maximum_y - minimum_y);
+		navm_grid_free(&raster.first);
+		navm_dispose();
+		return FALSE;
+	}
 
 	navm_rasterize_bsp(&raster, bsp);
 	navm_build_spans(&raster);
@@ -1162,7 +1465,7 @@ boolean navm_build(void)
 				navm.spans[s].flags |= _navm_span_vehicle_border;
 		}
 	}
-	free(raster.first);
+	navm_grid_free(&raster.first);
 	free(raster.intervals);
 	navm_distances(_navm_span_wall_border, _navm_distance_wall);
 	navm_distances(_navm_span_edge_border, _navm_distance_edge);
@@ -1240,7 +1543,7 @@ boolean navm_line_walkable(real_point3d const *from, real_point3d const *to, rea
 		real best_rise = 1.0e9f;
 		if (column == NONE)
 			return FALSE;
-		for (u = navm.columns[column]; u != NONE; u = navm.spans[u].next)
+		for (u = navm_first_span(column); u != NONE; u = navm.spans[u].next)
 		{
 			real rise = navm.spans[u].floor - z;
 			if (fabs(rise) <= NAVM_STEP && fabs(rise) < best_rise)
@@ -1290,7 +1593,7 @@ boolean navm_line_passable(real_point3d const *from, real_point3d const *to, rea
 		real best_rise = 1.0e9f;
 		if (column == NONE)
 			return FALSE;
-		for (u = navm.columns[column]; u != NONE; u = navm.spans[u].next)
+		for (u = navm_first_span(column); u != NONE; u = navm.spans[u].next)
 		{
 			real rise = navm.spans[u].floor - z;
 			if (fabs(rise) <= NAVM_STEP && fabs(rise) < best_rise)

@@ -760,10 +760,22 @@ exit code is `0` when each map has its data.
 The files of a Custom Edition map or a HaloMD map have the name that the
 map is played under: `navcache/timberland_ce_0.aas` for `timberland@ce`.
 
-A map that is more than about 1,300 world units across (Coldsnap is 1,800)
-is too large for this data. The bake tool gives a line that says so, and the
-bots play such a map without navigation: they go straight to each place and
-do not find their way around walls.
+A map with more than one structure BSP (Hugeass and Coldsnap each have two)
+has two files for each: `<map>_1.height` and `<map>_1.aas` for the second.
+Without baked files the game makes the data for a structure BSP when the
+map's script changes to it, and the game stops for that time (10 to 30
+seconds) a moment after it starts. Bake such a map.
+
+A very large map (more than about 1,300 world units across: Coldsnap is
+1,800, Hugeass is 2,200) has navigation data only for the parts where the
+game is played. These parts are the ground near the player starting points,
+the weapons and equipment, the flags and the vehicles. The game finds how
+far from these points it can make the data within a limit on the size
+(21 world units on Coldsnap, 34 on Hugeass) and writes one line that starts
+with `navm: a very large map`. A bot moves with full navigation in the part
+that it is in. It does not choose a place in a different part as a place to
+walk to, because there is no route on foot between the parts. The files of
+such a map are 100 to 150 MB for each structure BSP.
 
 A baked file is for the map that it was made from, and for the build that
 made it: the game makes the data again, into the save root, when the map

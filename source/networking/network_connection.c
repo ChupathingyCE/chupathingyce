@@ -1613,6 +1613,21 @@ static boolean network_connection_idle_server_reliable_endpoint(
 	return success;
 }
 
+/* port: this machine itself stood still for a while in a game (the bots'
+navigation worked out for another structure BSP, bots.c: a map whose script
+switches it as the game starts): for the next few seconds a connection that
+heard nothing meanwhile is not timed out for it, and its time begins again.
+What was sent to it while it stood still is read as it idles. */
+static boolean network_connection_stall_pardoned = FALSE;
+static unsigned long network_connection_stall_pardon_time;
+
+void network_connection_pardon_stall(
+	void)
+{
+	network_connection_stall_pardoned = TRUE;
+	network_connection_stall_pardon_time = system_milliseconds();
+}
+
 boolean network_connection_idle(
 	struct network_connection *connection,
 	long timeout,
@@ -1628,6 +1643,17 @@ boolean network_connection_idle(
 		connection);
 
 	SET_FLAG(connection->flags, _connection_going_stale_bit, FALSE);
+	if (network_connection_stall_pardoned)
+	{
+		if (current_time - network_connection_stall_pardon_time < 3 * MILLISECONDS_PER_SECOND)
+		{
+			connection->last_keep_alive_time = current_time;
+		}
+		else
+		{
+			network_connection_stall_pardoned = FALSE;
+		}
+	}
 	if (timeout)
 	{
 		/* (differences, which the millisecond clock's wrap leaves right) */

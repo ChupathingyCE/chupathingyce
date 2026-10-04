@@ -93,6 +93,9 @@ void network_server_allow_client_connections(
 
 extern boolean global_connection_dont_timeout;
 
+/* port: this machine stood still for a while (network_connection.c) */
+void network_connection_pardon_stall(void);
+
 /* ---------- public code */
 
 #endif // __NETWORK_CONNECTION_H
