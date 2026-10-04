@@ -115,15 +115,16 @@ says which file is missing. The Xbox maps from your disc image are still needed.
 | Join a game | **Multiplayer → Online Games**, pick a game, press **A**. Or press **Join** on [halo.milenko.org](https://halo.milenko.org). |
 | Host a game | **Multiplayer → Online Games → Y (Create Game)**, or host from System Link as usual. Your game is listed online by itself, on halo.milenko.org and in OpenCE's in-game Server Browser (`public_lobby`/`host_public` under `[network]` in `config.toml` turn that off). |
 | Invite a friend | When you host, the game copies an invite link (`halo://join/…`). Send it; opening it joins your game. |
-| See your stats | Your service record is on [halo.milenko.org](https://halo.milenko.org), found by your name. |
+| See your stats | Your service record is on [halo.milenko.org](https://halo.milenko.org), found by your name. Games you join count even when the host doesn't run ChupathingyCE: when an online game you joined ends, the game sends halo.milenko.org the scoreboard as your game saw it (names, kills, deaths, scores, medals, weapons) with your player ID. To turn that off, set `report_joined_games = false` under `[network]` in `config.toml`. |
 | Make an account | On [halo.milenko.org/profile](https://halo.milenko.org/profile), or press **Start** in Online Games to make one for the player you already are. |
 | Link the game without a browser (Steam Deck, Game Mode) | In Online Games, press **RB** (or **C** on the keyboard) for Link Profile. On your phone or computer, go to [halo.milenko.org/connect](https://halo.milenko.org/connect), enter the code the game shows (or scan its QR code), then press **A** in the game to confirm. |
 | Use the PC menus | Set `menus = "pc"` under `[display]` in `config.toml`. **Multiplayer → Join Game → Server Browser** lists OpenCE's public games and the games of halo.milenko.org, each once. |
 | List a game from an OpenCE build | Sign in on the site, open **Host a Game**, and paste your invite link. |
 
 Everything here plays with OpenCE builds of the same network version: they can
-join your games and you can join theirs. Stats and the server list need a
-ChupathingyCE host. Games hosted from OpenCE builds can still be listed by
+join your games and you can join theirs. Games an OpenCE build hosts are
+recorded from the reports of the ChupathingyCE players in them; a game only
+one player reported counts only on that player's own record. Games hosted from OpenCE builds can still be listed by
 their host on the site (Host a Game).
 
 <p align="center">

@@ -95,6 +95,8 @@ enum
 	_medal_beat_down,
 	_medal_sniper_kill,
 	_medal_grenade_stick,
+	/* (no splatter or assassin: they need their damage tags' names, or a
+	way to tell a kill from behind, confirmed in a real game first) */
 	NUMBER_OF_MEDALS
 };
 
