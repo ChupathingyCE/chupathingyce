@@ -105,6 +105,11 @@ BOOL platform_sdl_initialize(void)
 	if (p2p_hand_off_invite())
 		exit(EXIT_SUCCESS);
 	SDL_SetHint(SDL_HINT_APP_NAME, "ChupathingyCE");
+#ifdef __APPLE__
+	/* closing the window is the event's to decide (platform_pump_events:
+	Command-W does not quit) */
+	SDL_SetHint(SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE, "0");
+#endif
 #ifdef HALO_ANDROID
 	/* landscape only; the back key arrives as a key event (xinput_sdl.c)
 	instead of closing the activity */
@@ -1000,11 +1005,29 @@ static void platform_show_pending_message(void)
 /* quits as closing the window does, when the events are next read (the
 menus' Quit: port/linux/game/menu_functions.c); Android's menus have none,
 as the system closes its apps */
+#ifdef __APPLE__
+/* the menus asked to quit (platform_request_quit), not Command-Q */
+static BOOL quit_requested;
+
+/* the game's console (source/interface/terminal.c) */
+void terminal_printf(const void *color, const char *format, ...);
+
+/* a line in the game's console and the log */
+static void platform_quit_notice(const char *text)
+{
+	platform_log("%s", text);
+	terminal_printf(NULL, "%s", text);
+}
+#endif
+
 void platform_request_quit(void)
 {
 #ifndef HALO_ANDROID
 	SDL_Event event;
 
+#ifdef __APPLE__
+	quit_requested = TRUE;
+#endif
 	memset(&event, 0, sizeof(event));
 	event.type = SDL_EVENT_QUIT;
 	SDL_PushEvent(&event);
@@ -1080,7 +1103,37 @@ void platform_pump_events(void)
 	{
 		switch (event.type)
 		{
+#ifdef __APPLE__
+		/* the window's close button quits at once; Command-W (the Window
+		menu's Close, while W moves the player forward) does nothing */
+		case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+			if (SDL_GetModState() & SDL_KMOD_GUI)
+			{
+				platform_quit_notice("Command-W does not close the game: press Command-Q twice to quit");
+				break;
+			}
+			pthread_mutex_unlock(&input_lock);
+			platform_log("window closed");
+			exit(EXIT_SUCCESS);
+#endif
 		case SDL_EVENT_QUIT:
+#ifdef __APPLE__
+			/* Command-Q quits on a second press within two seconds (Q is the
+			flashlight); the menus' Quit, the Dock's and logging out quit at
+			once */
+			if (!quit_requested && (SDL_GetModState() & SDL_KMOD_GUI))
+			{
+				static Uint64 first_quit;
+				Uint64 now = SDL_GetTicks();
+
+				if (!first_quit || now - first_quit > 2000)
+				{
+					first_quit = now;
+					platform_quit_notice("press Command-Q again to quit");
+					break;
+				}
+			}
+#endif
 			pthread_mutex_unlock(&input_lock);
 			platform_log("window closed");
 			exit(EXIT_SUCCESS);
