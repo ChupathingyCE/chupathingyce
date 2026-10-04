@@ -755,8 +755,8 @@ typedef struct
    uint16 coupling_steps;
    MappingChannel *chan;
    uint8  submaps;
-   uint8  submap_floor[15]; // varies
-   uint8  submap_residue[15]; // varies
+   uint8  submap_floor[16]; // varies (ChupathingyCE: up to 16, as the submap count's 4 bits + 1 allow)
+   uint8  submap_residue[16]; // varies
 } Mapping;
 
 typedef struct
@@ -949,6 +949,7 @@ static void *make_block_array(void *mem, int count, int size)
 
 static void *setup_malloc(vorb *f, int sz)
 {
+   if (sz < 0 || sz > 0x7fffffff - 7) return NULL; // ChupathingyCE: no size that overflows the rounding
    sz = (sz+7) & ~7; // round up to nearest 8 for alignment of future allocs.
    f->setup_memory_required += sz;
    if (f->alloc.alloc_buffer) {
@@ -968,6 +969,7 @@ static void setup_free(vorb *f, void *p)
 
 static void *setup_temp_malloc(vorb *f, int sz)
 {
+   if (sz < 0 || sz > 0x7fffffff - 7) return NULL; // ChupathingyCE: no size that overflows the rounding
    sz = (sz+7) & ~7; // round up to nearest 8 for alignment of future allocs.
    if (f->alloc.alloc_buffer) {
       if (f->temp_offset - sz < f->setup_offset) return NULL;
@@ -1753,7 +1755,7 @@ static int codebook_decode_scalar(vorb *f, Codebook *c)
 
 #define DECODE(var,f,c)                                       \
    DECODE_RAW(var,f,c)                                        \
-   if (c->sparse) var = c->sorted_values[var];
+   if (c->sparse && var >= 0) var = c->sorted_values[var];
 
 #ifndef STB_VORBIS_DIVIDES_IN_CODEBOOK
   #define DECODE_VQ(var,f,c)   DECODE_RAW(var,f,c)
@@ -3650,6 +3652,8 @@ static int start_decoder(vorb *f)
    if (!vorbis_validate(header))                    return error(f, VORBIS_invalid_setup);
    //file vendor
    len = get32_packet(f);
+   // ChupathingyCE: a length no longer than the stream (and not negative)
+   if (len < 0 || (USE_MEMORY(f) && len > f->stream_end - f->stream)) return error(f, VORBIS_invalid_setup);
    f->vendor = (char*)setup_malloc(f, sizeof(char) * (len+1));
    if (f->vendor == NULL)                           return error(f, VORBIS_outofmem);
    for(i=0; i < len; ++i) {
@@ -3659,14 +3663,24 @@ static int start_decoder(vorb *f)
    //user comments
    f->comment_list_length = get32_packet(f);
    f->comment_list = NULL;
+   // ChupathingyCE: no more comments than the stream has room for (each has a
+   // 4-byte length), the list zeroed (vorbis_deinit frees what is in it),
+   // and its length 0 if it is not there
+   if (f->comment_list_length < 0 ||
+       (USE_MEMORY(f) && f->comment_list_length > (f->stream_end - f->stream) / 4)) {
+      f->comment_list_length = 0;
+      return error(f, VORBIS_invalid_setup);
+   }
    if (f->comment_list_length > 0)
    {
       f->comment_list = (char**) setup_malloc(f, sizeof(char*) * (f->comment_list_length));
-      if (f->comment_list == NULL)                  return error(f, VORBIS_outofmem);
+      if (f->comment_list == NULL)                  { f->comment_list_length = 0; return error(f, VORBIS_outofmem); }
+      memset(f->comment_list, 0, sizeof(char*) * (f->comment_list_length));
    }
 
    for(i=0; i < f->comment_list_length; ++i) {
       len = get32_packet(f);
+      if (len < 0 || (USE_MEMORY(f) && len > f->stream_end - f->stream)) return error(f, VORBIS_invalid_setup);
       f->comment_list[i] = (char*)setup_malloc(f, sizeof(char) * (len+1));
       if (f->comment_list[i] == NULL)               return error(f, VORBIS_outofmem);
 
@@ -3735,6 +3749,9 @@ static int start_decoder(vorb *f)
       c->sparse = ordered ? 0 : get_bits(f,1);
 
       if (c->dimensions == 0 && c->entries != 0)    return error(f, VORBIS_invalid_setup);
+      // ChupathingyCE: entries times dimensions (the lookup values and
+      // multiplicands, in ints) no more than an int's sizes hold
+      if ((unsigned long long) c->entries * c->dimensions > (1u << 24)) return error(f, VORBIS_invalid_setup);
 
       if (c->sparse)
          lengths = (uint8 *) setup_temp_malloc(f, c->entries);
