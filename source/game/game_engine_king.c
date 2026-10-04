@@ -1206,3 +1206,16 @@ boolean game_engine_king_read_network_state(
 	}
 	return TRUE;
 }
+
+/* port: the bots (port/linux/game/bots.c): the hill's middle, when a king of
+the hill game is running and has a hill */
+boolean king_bot_hill(
+	real_point3d *center)
+{
+	extern struct game_engine *game_engine;
+
+	if (game_engine != &king_engine || king_globals.hill_point_count <= 0)
+		return FALSE;
+	*center = king_globals.hill_center;
+	return TRUE;
+}

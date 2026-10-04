@@ -444,7 +444,35 @@ void game_time_update(
 					update_client_local_ticks(ticks_elapsed);
 					break;
 				case _game_connection_network_server:
-					network_game_server_update_ticks(global_network_game_server_get(), (short)ticks_elapsed);
+					/* port: in a game, the host builds each tick's update just
+					before that tick runs, not a frame's updates all at once:
+					a frame of several ticks (a slow frame, a dedicated server
+					under load) built them all from the game as the last frame
+					left it, so the host's bots (port/linux/game/bots.c) chose
+					every one of those ticks' input without seeing the ticks
+					before it, and the updates' game time was the first's */
+					if (network_game_server_playing(global_network_game_server_get()))
+					{
+						long update_index;
+
+						for (update_index = 0;
+							update_index < ticks_elapsed &&
+								network_game_server_playing(global_network_game_server_get());
+							update_index++)
+						{
+							network_game_server_update_ticks(global_network_game_server_get(), 1);
+							if (update_client_get_maximum_possible_server_time() > game_time_globals->server_time)
+							{
+								game_tick();
+								render_interpolation_tick();
+								game_time_globals->server_time++;
+								game_time_globals->local_time++;
+								network_distributed_tick();
+							}
+						}
+					}
+					else
+						network_game_server_update_ticks(global_network_game_server_get(), (short)ticks_elapsed);
 					break;
 				}
 

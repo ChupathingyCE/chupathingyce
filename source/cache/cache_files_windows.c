@@ -570,6 +570,26 @@ void tags_header_register_vertex_and_index_buffers(
 	return;
 }
 
+/* port: the buffers of a model brought in from another map
+(port/linux/game/tag_import.c), made as the map's own are above */
+void cache_files_register_imported_buffers(
+	void *vertex_buffer_address,
+	void *vertex_data,
+	void *index_buffer_address,
+	void *index_data)
+{
+	D3DVertexBuffer *vertex_buffer = vertex_buffer_address;
+	D3DIndexBuffer *index_buffer = index_buffer_address;
+
+	vertex_buffer->Common = D3DCOMMON_TYPE_VERTEXBUFFER | 1;
+	vertex_buffer->Data = (DWORD)POINTER_BITS(XBOX_ADDRESS(vertex_data));
+	vertex_buffer->Lock = 0;
+	IDirect3DVertexBuffer8_Register(vertex_buffer, NULL);
+	index_buffer->Common = D3DCOMMON_TYPE_INDEXBUFFER | 1;
+	index_buffer->Data = (DWORD)POINTER_BITS(XBOX_ADDRESS(index_data));
+	index_buffer->Lock = 0;
+}
+
 void tags_header_deregister_vertex_and_index_buffers(
 	struct cache_file_tag_header *header)
 {
@@ -925,8 +945,23 @@ short cache_file_read(
 	boolean *completion_flag_reference,
 	boolean blocking)
 {
-	short request_index = cache_request_next_free_index();
-	struct cache_file_request *request = cache_request_get(request_index);
+	short request_index;
+	struct cache_file_request *request;
+
+	/* port: the pixels or samples of a tag brought in from another map are
+	not in this map's file (port/linux/game/tag_import.c) */
+	{
+		extern boolean tag_import_read(long tag_index, long offset, long size, void *buffer);
+
+		if (tag_import_read(tag_index, offset, size, buffer))
+		{
+			*completion_flag_reference = TRUE;
+			return 0;
+		}
+	}
+
+	request_index = cache_request_next_free_index();
+	request = cache_request_get(request_index);
 
 	match_assert(
 		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",

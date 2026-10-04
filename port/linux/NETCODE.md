@@ -367,6 +367,65 @@ a pregame keep-alive every five seconds from the host
      whether the shield or the body took the hit, and how much is left of
      it (the host's own copies of a client's projectiles likewise).
 
+## Bots
+
+The host's bots (`game/bots.c`; "Bots" in [README.md](README.md#bots)) need
+nothing of their own from the netcode, and nothing of the other machines'
+builds. They are players of the lobby, on machines that no connection owns
+(`network_server_manager.c`), so every machine has them in the game's
+settings and makes their players, a machine that joins the game in progress
+too. Each tick, before the host builds its update, its server works out
+each bot's input (`bot_think`) and gives it to the update as a client's
+input message gives a client's (`update_server_set_player_action`,
+`player_queues_new.c`). From there a bot is one of the host's own players:
+the host simulates it, sends its unit to every client each tick, and relays
+its input.
+
+The host builds each tick's update just before that tick runs
+(`game_time_update`), not a frame's updates all at once: in a frame of
+several ticks, every bot chooses each tick's input from the game as the
+tick before left it, and an update's game time is its own tick's.
+
+A host with bots works out the map's navigation while it loads the map
+(`bots_map_loaded`), when the other machines load too. In the game's first
+tick it was a stall of the host with the game already running on every
+client, whose clocks then stayed that far ahead of the host's.
+
+With `bots.fill`, the host adds and removes bots during a game: a bot's
+player joins as a machine's that joins the game in progress does, and
+leaves as the players of a machine that quits do.
+
+## Infection
+
+Infection (`game/infection.c`; "Infection" in
+[README.md](README.md#infection)) is the slayer game type with teams, and a
+flag in a byte of the slayer variant that no other build reads. The network
+version is the same, and what goes between the machines for the game types
+is the same: a machine whose build has no infection joins a game of
+infection and plays it as team slayer.
+
+What is infection's own goes in two messages with numbers far from the
+game's (`network_distributed.h`), which a build without them drops, as it
+drops every kind it does not know:
+
+- the hello (reliable, a client's, with its ready and each time it asks the
+  host again): its build has infection, and whether its map has the Flood
+  (`game/tag_import.c`);
+- the state (reliable, the host's, to a machine that said hello, and to all
+  of them when it changes): each player's team, which infection changes
+  during a game, and whether the zombies are the Flood.
+
+A zombie's body is one of the host's objects, and a client makes it of the
+tag the host names. The Flood's tags are past the end of a multiplayer
+map's own, so a machine without them refuses the object: it would not see
+the zombies. The host therefore makes zombies of the Flood only while every
+client machine in the game has said that it has the Flood. A machine that
+has loaded and has not said hello in three seconds is a build without
+infection: from then the zombies are players with no weapon (who hit with
+their hands in every build of this network version), and those that were
+the Flood spawn again. Until then (three
+seconds at most) that machine does not see the zombies.
+
 ## Transport
 
 What reaches the other machines, and how, decides how the game feels over

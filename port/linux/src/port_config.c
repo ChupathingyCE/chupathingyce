@@ -268,13 +268,47 @@ static const struct config_setting config_settings[] =
 		"The Discord application internet play invites go through while the\n"
 		"Discord desktop client runs; empty for none." },
 
+	{ "bots.count", _config_integer, "0", "HALO_BOTS", _environment_value, _platform_all,
+		"Bots in the multiplayer games this machine hosts (split screen, system\n"
+		"link, internet play, a dedicated server): players the host drives\n"
+		"itself, in the lobby on machines named \"Bots\". 0 for none; they make\n"
+		"way for people when the lobby is full. The console's \"bots <n>\"\n"
+		"changes it in the lobby." },
+	{ "bots.fill", _config_integer, "0", "HALO_BOTS_FILL", _environment_value, _platform_all,
+		"Fill the games this machine hosts up to this many players with bots:\n"
+		"a bot leaves when a person joins and comes back when one leaves, in\n"
+		"the lobby and in the game. 0: bots.count bots, whoever joins (the\n"
+		"console's \"bots_fill <n>\")." },
+	{ "bots.skill", _config_integer, "3", "HALO_BOT_SKILL", _environment_value, _platform_all,
+		"How good the bots are: 1 easy, 2 normal, 3 hard, 4 legendary, 5 near\n"
+		"perfect (the console's \"bot_skill <n>\")." },
+
+	{ "infection.rounds", _config_integer, "3", "HALO_INFECTION_ROUNDS", _environment_value, _platform_all,
+		"Infection (the game type \"infection\": a dedicated server's playlist,\n"
+		"or the console's \"gametype infection\" in a host's lobby): the rounds\n"
+		"of a game." },
+	{ "infection.round_minutes", _config_integer, "4", "HALO_INFECTION_ROUND_MINUTES", _environment_value, _platform_all,
+		"The minutes the living have to hold out for: a round still going then\n"
+		"is theirs. 0 for a round that lasts until everyone is infected." },
+	{ "infection.countdown", _config_integer, "10", "HALO_INFECTION_COUNTDOWN", _environment_value, _platform_all,
+		"The seconds of a round before one of its players is infected." },
+	{ "infection.zombie_speed", _config_real, "1.3", "HALO_INFECTION_ZOMBIE_SPEED", _environment_value, _platform_all,
+		"How fast a zombie runs, a player's own speed being 1." },
+	{ "infection.zombie_damage", _config_real, "8.0", "HALO_INFECTION_ZOMBIE_DAMAGE", _environment_value, _platform_all,
+		"How hard a zombie hits: a multiple of the Flood's own blow (at 8, one\n"
+		"blow kills; at 4, two)." },
+	{ "infection.zombie_health", _config_real, "1.5", "HALO_INFECTION_ZOMBIE_HEALTH", _environment_value, _platform_all,
+		"How much a zombie takes to kill: a multiple of the Flood's own health\n"
+		"(a round's first zombie, while it is the only one, has twice this)." },
+
 	{ "update.auto", _config_boolean, "true", "HALO_UPDATE_AUTO", _environment_value, _platform_all,
 		"Look for a new version when the game starts, and offer to update to it;\n"
 		"false never looks (the game's \"Do not ask again\" writes false here)." },
 
 	{ "debug.network_test", _config_string, "\"\"", "HALO_NETWORK_TEST", _environment_value, _platform_all,
 		"Automated system link sessions for testing (port/linux/game/network_test.c):\n"
-		"\"host:<map>\" hosts a game on that map, \"join\" joins the first game found;\n"
+		"\"host:<map>\" hosts a game on that map (\"local:<map>\" a split screen\n"
+		"game), \"join\" joins the first game found;\n"
 		"empty for none." },
 	{ "debug.network_test_start", _config_real, "15.0", "HALO_NETWORK_TEST_START", _environment_value, _platform_all,
 		"Seconds after hosting that an automated test game starts." },
@@ -297,6 +331,9 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"The weapon network_test_pickup stands the player on: the first whose tag\n"
 		"name has this in it (\"sniper\", say); empty any." },
+	{ "debug.random_seed", _config_integer, "0", "HALO_RANDOM_SEED", _environment_value, _platform_all,
+		"A hosted game's random seed, and its bots': the same game every time\n"
+		"with nobody but bots in it, to compare two builds; 0 a new one each game." },
 	{ "debug.telnet_console", _config_boolean, "false", "HALO_TELNET_CONSOLE", _environment_set_is_true, _platform_all,
 		"Listen on 127.0.0.1 (port telnet_console_port) for a script console that\n"
 		"runs what it is sent as the game's console does, with no password; false\n"

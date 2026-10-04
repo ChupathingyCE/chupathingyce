@@ -69,6 +69,18 @@ enum
 	NUMBER_OF_DISTRIBUTED_MESSAGES
 };
 
+/* infection's own (port/linux/game/infection.c), numbered far from the
+game's: a machine whose build has no infection drops what it does not know,
+and plays on (the game on the wire is otherwise the same) */
+enum
+{
+	/* the players' teams, and what the zombies are (reliable, the host's) */
+	_distributed_message_infection_state = 0xE0,
+	/* a client's build has infection, and whether its map has the Flood
+	(reliable, with its ready) */
+	_distributed_message_infection_hello,
+};
+
 /* where a message goes */
 enum
 {
@@ -141,6 +153,9 @@ a longer message is split where a batch is full */
 unreliable ones gathered into one datagram a machine each tick */
 void distributed_send(void *message, byte type, short count, word size, short destination);
 void distributed_client_send_identity(void);
+/* (the host) a text in red on every machine's console; in no network game,
+on its own alone */
+void network_distributed_notice(char const *text);
 /* ... unreliably to one client (the host) */
 void distributed_send_to_machine(long machine_index, void *message, byte type, short count, word size);
 /* ... reliably to one client (the host) */

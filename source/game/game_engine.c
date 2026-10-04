@@ -4704,6 +4704,13 @@ boolean game_engine_has_shield(
 
 	if (game_engine && player_index!=NONE)
 		has_shield = !TEST_FLAG(global_variant.universal_variant.flags, _game_variant_no_shields_bit);
+	/* port: infection's zombies have none (port/linux/game/infection.c) */
+	{
+		extern boolean infection_player_is_zombie(long player_index);
+
+		if (has_shield && infection_player_is_zombie(player_index))
+			has_shield = FALSE;
+	}
 
 	return has_shield;
 }
@@ -5001,6 +5008,14 @@ boolean game_engine_should_end_game(
 	{
 		should_end_game = TRUE;
 	}
+	/* port: infection's sides come and go: its rounds end its game
+	(port/linux/game/infection.c) */
+	{
+		extern boolean infection_active(void);
+
+		if (infection_active())
+			should_end_game = FALSE;
+	}
 
 	return should_end_game;
 }
@@ -5115,6 +5130,16 @@ static void game_engine_report_game(
 	/* (a game everyone left, the dedicated server's to end: no report) */
 	if (count == 0)
 		return;
+	/* port: nor of a game the bots played in, or of infection: the game list
+	keeps the scores of people, at the game types it knows
+	(network_server_manager.c, port/linux/game/infection.c) */
+	{
+		extern boolean network_game_server_bots_played(void);
+		extern boolean infection_active(void);
+
+		if (network_game_server_bots_played() || infection_active())
+			return;
+	}
 	for (index = 0; index < count; index++)
 	{
 		struct player_datum *player = player_get(ranking[index].player_index);
@@ -6569,6 +6594,22 @@ struct game_variant *game_engine_get_variant_by_name(
 		result = *build_game_variant_slayer(&temporary);
 	else if (csstrcmp(name, "team_slayer") == 0)
 		result = *build_game_variant_team_slayer(&temporary);
+	/* port: infection (port/linux/game/infection.c): slayer with teams, the
+	living and the infected; "playing to" is the rounds of a game */
+	else if (csstrcmp(name, "infection") == 0)
+	{
+		extern long config_integer(char const *name);
+
+		result = *build_game_variant_team_slayer(&temporary);
+		result.game_engine_variant.slayer.infection = TRUE;
+		ustrncpy(result.human_readable_game_description, L"Infection", NUMBEROF(result.human_readable_game_description) - 1);
+		result.game_engine_variant.slayer.no_death_bonus = TRUE;
+		result.game_engine_variant.slayer.no_kill_penalty = TRUE;
+		result.universal_variant.respawn_time = 3 * TICKS_PER_SECOND;
+		result.universal_variant.suicide_penalty = 0;
+		result.universal_variant.vehicle_set = _game_engine_vehicles_none;
+		result.universal_variant.score_to_win = MAX(1, config_integer("infection.rounds"));
+	}
 	else if (csstrcmp(name, "elimination") == 0)
 		result = *build_game_variant_elimination(&temporary);
 	else if (csstrcmp(name, "stalker") == 0)
@@ -6746,6 +6787,8 @@ void game_engine_variant_cleanup(
 		variant->game_engine_variant.slayer.no_death_bonus = !!variant->game_engine_variant.slayer.no_death_bonus;
 		variant->game_engine_variant.slayer.no_kill_penalty = !!variant->game_engine_variant.slayer.no_kill_penalty;
 		variant->game_engine_variant.slayer.kill_in_order = !!variant->game_engine_variant.slayer.kill_in_order;
+		/* port: infection (port/linux/game/infection.c) */
+		variant->game_engine_variant.slayer.infection = !!variant->game_engine_variant.slayer.infection;
 		break;
 
 	case game_engine_oddball:
@@ -7187,6 +7230,13 @@ real game_engine_get_damage_multiplier(
 
 	if (game_engine)
 		result /= PIN(global_variant.universal_variant.health, 0.25f, 4.0f);
+	/* port: infection (port/linux/game/infection.c): nobody hurts their own
+	side, and a zombie hits hard */
+	{
+		extern real infection_damage_multiplier(long damaging_player_index, long damaged_player_index);
+
+		result *= infection_damage_multiplier(damaging_player_index, damaged_player_index);
+	}
 
 	if (damaging_player_index != NONE &&
 		damaged_player_index != NONE)
@@ -8577,6 +8627,14 @@ void game_engine_postspawn_player_update(
 
 	if (!game_engine)
 		return;
+
+	/* port: infection's zombies start with nothing (port/linux/game/infection.c) */
+	{
+		extern boolean infection_player_spawned(long player_index);
+
+		if (infection_player_spawned(player_index))
+			return;
+	}
 
 	if (game_engine->player_update)
 	{

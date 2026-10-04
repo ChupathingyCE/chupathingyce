@@ -14159,6 +14159,22 @@ static boolean hs_compile_and_evaluate_command(
 			return network_game_server_ban_player(name);
 		}
 	}
+	/* port: the bots' commands ("bots <count>", "bot_skill <1-5>":
+	port/linux/game/bots.c), which are no script's either */
+	{
+		boolean bots_console_command(char const *text);
+
+		if (bots_console_command(expression))
+			return TRUE;
+	}
+	/* port: and "gametype <name>" for a host's lobby, infection's way in
+	(port/linux/game/infection.c) */
+	{
+		boolean infection_console_command(char const *text);
+
+		if (infection_console_command(expression))
+			return TRUE;
+	}
 	csstrncpy(buffer, expression, sizeof(buffer));
 	buffer[sizeof(buffer)-1] = 0;
 	if (strchr(buffer, ';'))

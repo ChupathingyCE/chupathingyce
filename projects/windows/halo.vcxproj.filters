@@ -1,0 +1,2293 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="build">
+      <UniqueIdentifier>{80754af9-1bfb-6d10-7358-5b046fe0a474}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="port">
+      <UniqueIdentifier>{062d8a9d-ec0f-a507-d19f-3b3481b4980c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="port\linux">
+      <UniqueIdentifier>{28361377-e45d-929c-ba4c-a7261260de7b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="port\linux\game">
+      <UniqueIdentifier>{be8979da-a03a-991e-229c-980f3489fcfb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="port\linux\src">
+      <UniqueIdentifier>{bb38658f-e985-ea12-8e40-20dc39cce1de}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="port\third_party">
+      <UniqueIdentifier>{5aeaa624-3128-ebc9-6d5c-e6208b3a2d8f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="port\third_party\expat">
+      <UniqueIdentifier>{3f29f751-e653-9bad-383b-deadf2728211}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="port\third_party\kcp">
+      <UniqueIdentifier>{0d87a66e-f892-9839-6c79-2c342c858b45}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="port\third_party\mbedtls">
+      <UniqueIdentifier>{4c97d4b3-7b78-131b-6c0f-57499958748c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="port\third_party\mbedtls\library">
+      <UniqueIdentifier>{e5b4bd6e-4c0e-e5e5-2ed5-1b5e1e8ac6f7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="port\third_party\miniupnpc">
+      <UniqueIdentifier>{b24d58f0-78fb-13bf-a618-97e16fe6f001}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="port\third_party\miniupnpc\src">
+      <UniqueIdentifier>{360ea012-23f5-2450-8583-47396628c904}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="port\third_party\musl-math">
+      <UniqueIdentifier>{cb276b60-e6df-73b4-7949-f111ffb1b446}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="port\third_party\musl-math\src">
+      <UniqueIdentifier>{daceba45-7c69-537d-9f63-29f8e4ceffb0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="port\third_party\qrcodegen">
+      <UniqueIdentifier>{dd557a4f-808b-4dd5-d814-89cb0e97b92b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="port\third_party\tomlc17">
+      <UniqueIdentifier>{41bb7e86-002b-a713-7be5-2b896897c8e4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="port\windows">
+      <UniqueIdentifier>{51e6cd5e-f72a-ca70-2574-f634148915e3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="port\windows\src">
+      <UniqueIdentifier>{b5418878-93ab-481b-1bb9-96baec61bfe7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="server">
+      <UniqueIdentifier>{3de4f901-fffb-30ac-720b-0e7eb654b4fa}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="server\src">
+      <UniqueIdentifier>{91ac546d-a36d-e749-22ea-f58fcefda149}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source">
+      <UniqueIdentifier>{828d338a-9b04-221c-9cbe-286f50cd389f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\ai">
+      <UniqueIdentifier>{b38a6059-ce25-f624-35b7-6cc4f52d9eca}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\bink">
+      <UniqueIdentifier>{701a9412-5f11-6ae4-5484-b16a750ee76b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\bitmaps">
+      <UniqueIdentifier>{073fb7ef-85d8-879a-86ec-9fa7744294d7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\bitmaps\libtiff">
+      <UniqueIdentifier>{e0a7f7b7-1cce-cffc-c58f-f37ee53f9853}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\bitmaps\s3tc">
+      <UniqueIdentifier>{c951a0ac-d727-ba85-49d5-640cbbfd3a28}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\bungie_net">
+      <UniqueIdentifier>{6ef9720e-5b35-d66c-654c-c3ab1cd03a07}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\bungie_net\common">
+      <UniqueIdentifier>{f5e7026a-fa4e-ba0c-eeda-ea3edd23c0ba}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\bungie_net\network">
+      <UniqueIdentifier>{e5cba5bb-646d-0d21-166d-c432967a3c2e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\cache">
+      <UniqueIdentifier>{dc9c3405-8cf6-af27-495f-3878baf9a946}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\camera">
+      <UniqueIdentifier>{55e450db-6803-2d4e-9a72-213089a61fd0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\cseries">
+      <UniqueIdentifier>{4603c977-be4e-d7c6-dd2a-f1c14cb6d99e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\cutscene">
+      <UniqueIdentifier>{84e40b85-188d-e921-806b-34d27ac0724c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\devices">
+      <UniqueIdentifier>{274a81c1-1aae-bc88-e8c5-92556bc4bae1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\dialogs">
+      <UniqueIdentifier>{366e0325-414d-d7b1-1b66-b7b22efb8c0a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\editor">
+      <UniqueIdentifier>{1bafd170-1bcd-7ce1-5120-06d39bbfd5c0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\effects">
+      <UniqueIdentifier>{d414711a-fb9f-6437-3ab8-f8a3d21646d3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\game">
+      <UniqueIdentifier>{cbd4250f-f671-5de9-3d57-70796ea7bd8d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\hs">
+      <UniqueIdentifier>{10cd8019-1e94-d05b-c642-5702bce071ec}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\input">
+      <UniqueIdentifier>{dd52c268-a01d-8d8e-cebc-550ad2f14a4a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\interface">
+      <UniqueIdentifier>{96e2fcf1-6237-7001-b7c4-d55a9b586f9a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\items">
+      <UniqueIdentifier>{3333b687-90d7-872b-7691-e42ab8b08895}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\main">
+      <UniqueIdentifier>{cb6bfe3a-613a-7b35-6724-d826f49a604b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\math">
+      <UniqueIdentifier>{16c322e1-e962-e664-270e-7635630f6d04}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\memory">
+      <UniqueIdentifier>{e00b6bd9-e0f9-57b3-9333-d129f1f55ee2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\memory\zlib">
+      <UniqueIdentifier>{7d017adc-0a63-d1a4-fa01-3652783dd36c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\models">
+      <UniqueIdentifier>{a1517b16-04c0-61cd-5c9f-d56a55f6f26b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\networking">
+      <UniqueIdentifier>{b2f446fd-7100-f552-bb54-ec78f44808a7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\objects">
+      <UniqueIdentifier>{36e2bf5f-54d5-b3fb-6b5b-425e1fbadfaa}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\objects\widgets">
+      <UniqueIdentifier>{6b588fc1-13c3-46cb-e52e-ce1adc4462cf}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\physics">
+      <UniqueIdentifier>{916c23b3-cab1-814f-f4b1-de1134c73ffb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\rasterizer">
+      <UniqueIdentifier>{b06b04bd-b69f-332c-b5bf-776596581915}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\rasterizer\common">
+      <UniqueIdentifier>{b258db01-a59a-5605-1604-15df183b1257}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\rasterizer\xbox">
+      <UniqueIdentifier>{3174d9fc-23b9-bd49-4de7-0f05b3c833cf}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\render">
+      <UniqueIdentifier>{99297475-eb6f-1534-bcc9-e420075382b6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\saved films">
+      <UniqueIdentifier>{71317dec-6d31-03dd-8a04-866a04642483}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\saved games">
+      <UniqueIdentifier>{2bc208ab-f4af-6f14-7d3f-84fdbe2d9639}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\scenario">
+      <UniqueIdentifier>{72498791-3ebd-dc5e-0149-67881a3df183}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\shaders">
+      <UniqueIdentifier>{679ce51f-6a6a-5288-3b5f-59ca6afbc432}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\shell">
+      <UniqueIdentifier>{eb66fc99-827b-321a-d56d-22678ac1bf0c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\sound">
+      <UniqueIdentifier>{c2a16eb5-32df-fc50-122a-a5631452d785}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\sound\sound_import">
+      <UniqueIdentifier>{6c14aa9f-16e2-8707-8060-2a517607cfe4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\structures">
+      <UniqueIdentifier>{b573cd30-5f55-d093-6809-95846ce76a84}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\structures\radiosity">
+      <UniqueIdentifier>{6f7cc855-18c8-5ed5-ef9a-97e2d5d134ab}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\tag_files">
+      <UniqueIdentifier>{5449e7fe-0936-7a46-d1d6-3c15584bc141}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\text">
+      <UniqueIdentifier>{c0bc897e-bd50-ca48-6adf-4e0ac77b8b73}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\tool">
+      <UniqueIdentifier>{9bebf618-d4fa-2e32-1227-6e33f38ee9e2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source\units">
+      <UniqueIdentifier>{648d6d58-1c7f-e340-71e1-519ad1ce04da}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="$(HaloRoot)source\ai\action_alert.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\action_avoid.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\action_charge.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\action_converse.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\action_fight.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\action_flee.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\action_guard.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\action_obey.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\action_search.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\action_sleep.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\action_uncover.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\action_vehicle.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\action_wait.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actions.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actor_combat.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actor_definitions.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actor_firing_position.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\windows\generated\inline_exports\source\ai\actor_looking.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actor_moving.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actor_perception.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actor_stimulus.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actor_type_carrier.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actor_type_crew.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actor_type_elite.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actor_type_engineer.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actor_type_flood.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actor_type_grunt.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actor_type_hunter.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actor_type_infection.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actor_type_jackal.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actor_type_marine.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actor_type_mounted_weapon.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actor_type_sentinel.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actor_types.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\actors.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\ai.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\ai_communication.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\ai_debug.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\ai_profile.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\ai_scenario_definitions.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\ai_script.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\encounters.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\path.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\path_obstacle_avoidance.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\path_obstacles.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\path_smoothing.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\path_structure_bsp.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\ai\props.c">
+      <Filter>source\ai</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bink\bink_playback.c">
+      <Filter>source\bink</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\bitmap_compress.c">
+      <Filter>source\bitmaps</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\bitmap_drawing.c">
+      <Filter>source\bitmaps</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\bitmap_extract.c">
+      <Filter>source\bitmaps</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\bitmap_group.c">
+      <Filter>source\bitmaps</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\bitmap_utilities.c">
+      <Filter>source\bitmaps</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\bitmaps.c">
+      <Filter>source\bitmaps</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\bitmaps_quantitize.c">
+      <Filter>source\bitmaps</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\color_table_group.c">
+      <Filter>source\bitmaps</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_aux.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_ccittrle.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_close.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_compat.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_compress.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_dir.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_dirinfo.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_dirread.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_dirwrite.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_dumpmode.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_error.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_fax3.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_fax4.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_flush.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_getimage.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_jpeg.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_lzw.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_machdep.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_next.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_open.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_packbits.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_print.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_read.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_strip.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_swab.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_thunder.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_tile.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_version.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_warning.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\libtiff\tif_write.c">
+      <Filter>source\bitmaps\libtiff</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\s3tc\s3tc.c">
+      <Filter>source\bitmaps\s3tc</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\targa_file.c">
+      <Filter>source\bitmaps</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bitmaps\tiff_file.c">
+      <Filter>source\bitmaps</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bungie_net\common\64bit_math.c">
+      <Filter>source\bungie_net\common</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bungie_net\common\key_agreement.c">
+      <Filter>source\bungie_net\common</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bungie_net\common\message_encryption.c">
+      <Filter>source\bungie_net\common</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bungie_net\common\message_header.c">
+      <Filter>source\bungie_net\common</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bungie_net\common\prime_numbers.c">
+      <Filter>source\bungie_net\common</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bungie_net\common\public_key_crypt.c">
+      <Filter>source\bungie_net\common</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bungie_net\common\random_numbers.c">
+      <Filter>source\bungie_net\common</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bungie_net\common\thread_win32.c">
+      <Filter>source\bungie_net\common</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bungie_net\network\transport_address.c">
+      <Filter>source\bungie_net\network</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bungie_net\network\transport_dns_winsock.c">
+      <Filter>source\bungie_net\network</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bungie_net\network\transport_endpoint_set_winsock.c">
+      <Filter>source\bungie_net\network</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\bungie_net\network\transport_endpoint_winsock.c">
+      <Filter>source\bungie_net\network</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cache\cache_files.c">
+      <Filter>source\cache</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cache\cache_files_decompress_windows.c">
+      <Filter>source\cache</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cache\cache_files_windows.c">
+      <Filter>source\cache</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cache\physical_memory_map.c">
+      <Filter>source\cache</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cache\predicted_resources.c">
+      <Filter>source\cache</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cache\xbox_sound_cache.c">
+      <Filter>source\cache</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cache\xbox_texture_cache.c">
+      <Filter>source\cache</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\camera\bored_camera.c">
+      <Filter>source\camera</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\camera\camera_scripting.c">
+      <Filter>source\camera</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\camera\camera_track_definitions.c">
+      <Filter>source\camera</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\camera\dead_camera.c">
+      <Filter>source\camera</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\camera\director.c">
+      <Filter>source\camera</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\camera\editor_flying_camera.c">
+      <Filter>source\camera</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\camera\first_person_camera.c">
+      <Filter>source\camera</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\camera\flying_camera.c">
+      <Filter>source\camera</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\camera\following_camera.c">
+      <Filter>source\camera</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\camera\observer.c">
+      <Filter>source\camera</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\camera\orbiting_camera.c">
+      <Filter>source\camera</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\camera\static_camera.c">
+      <Filter>source\camera</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cseries\cseries.c">
+      <Filter>source\cseries</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cseries\cseries_windows.c">
+      <Filter>source\cseries</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cseries\debug_memory.c">
+      <Filter>source\cseries</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cseries\errors.c">
+      <Filter>source\cseries</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cseries\headers.c">
+      <Filter>source\cseries</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cseries\profile.c">
+      <Filter>source\cseries</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cseries\progress.c">
+      <Filter>source\cseries</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cseries\sort.c">
+      <Filter>source\cseries</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cseries\stack_walk_windows.c">
+      <Filter>source\cseries</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cutscene\cinematics.c">
+      <Filter>source\cutscene</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cutscene\recorded_animation_definitions.c">
+      <Filter>source\cutscene</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cutscene\recorded_animation_initialize.c">
+      <Filter>source\cutscene</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cutscene\recorded_animation_playback.c">
+      <Filter>source\cutscene</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cutscene\recorded_animation_playback_v1.c">
+      <Filter>source\cutscene</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\cutscene\recorded_animations.c">
+      <Filter>source\cutscene</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\devices\device_controls.c">
+      <Filter>source\devices</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\devices\device_definitions.c">
+      <Filter>source\devices</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\devices\device_light_fixtures.c">
+      <Filter>source\devices</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\devices\device_machines.c">
+      <Filter>source\devices</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\devices\devices.c">
+      <Filter>source\devices</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\dialogs\button_control.c">
+      <Filter>source\dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\dialogs\dialog_controls.c">
+      <Filter>source\dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\dialogs\dialog_templates.c">
+      <Filter>source\dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\dialogs\dialogs.c">
+      <Filter>source\dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\dialogs\edit_text.c">
+      <Filter>source\dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\dialogs\edit_text_control.c">
+      <Filter>source\dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\dialogs\list_control.c">
+      <Filter>source\dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\dialogs\picture_control.c">
+      <Filter>source\dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\dialogs\static_text_control.c">
+      <Filter>source\dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\dialogs\value_control.c">
+      <Filter>source\dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\editor\editor_stubs.c">
+      <Filter>source\editor</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\effects\contrail_definitions.c">
+      <Filter>source\effects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\effects\contrails.c">
+      <Filter>source\effects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\effects\decal_definitions.c">
+      <Filter>source\effects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\effects\decals.c">
+      <Filter>source\effects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\effects\effect_definitions.c">
+      <Filter>source\effects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\effects\effects.c">
+      <Filter>source\effects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\effects\glass_definitions.c">
+      <Filter>source\effects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\effects\material_effect_definitions.c">
+      <Filter>source\effects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\effects\material_effects.c">
+      <Filter>source\effects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\effects\particle_definitions.c">
+      <Filter>source\effects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\effects\particle_system_definitions.c">
+      <Filter>source\effects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\effects\particle_systems.c">
+      <Filter>source\effects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\effects\particles.c">
+      <Filter>source\effects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\effects\player_effects.c">
+      <Filter>source\effects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\effects\spheroid_definitions.c">
+      <Filter>source\effects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\effects\spheroids.c">
+      <Filter>source\effects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\effects\weather_particle_definitions.c">
+      <Filter>source\effects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\effects\weather_particle_systems.c">
+      <Filter>source\effects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\windows\generated\inline_exports\source\game\aim_assist.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\cheats.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\game.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\game_allegiance.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\game_engine.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\game_engine_bomb.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\game_engine_ctf.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\game_engine_defend.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\game_engine_king.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\game_engine_list.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\game_engine_multiplayer_sounds.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\game_engine_oddball.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\game_engine_race.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\game_engine_slayer.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\game_engine_stub.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\game_engine_terminator.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\game_globals.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\game_statistics.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\game_time.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\player_control.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\player_queues_new.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\player_rumble.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\player_rumble_definition.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\game\players.c">
+      <Filter>source\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\hs\hs.c">
+      <Filter>source\hs</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\hs\hs_compile.c">
+      <Filter>source\hs</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\hs\hs_globals_external.c">
+      <Filter>source\hs</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\hs\hs_library_external.c">
+      <Filter>source\hs</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\hs\hs_runtime.c">
+      <Filter>source\hs</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\hs\hs_scenario_definitions.c">
+      <Filter>source\hs</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\hs\object_lists.c">
+      <Filter>source\hs</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\input\HaloAutoTest.c">
+      <Filter>source\input</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\input\input_abstraction.c">
+      <Filter>source\input</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\input\input_windows.c">
+      <Filter>source\input</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\input\input_xbox.c">
+      <Filter>source\input</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\attract_mode.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\event_manager.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\first_person_weapons.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\hud.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\hud_definitions.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\hud_draw.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\hud_messaging.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\hud_messaging_definitions.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\hud_nav_points.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\hud_sounds.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\hud_unit.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\hud_weapon.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\interface.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\interface_panels.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\inventory_displays.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\marketing_and_strategic_business_development.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\meter_definitions.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\meters.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\motion_sensor.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\overhead_map.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\player_ui.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\progress_bar.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\terminal.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\ui_widget.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\ui_widget_event_handler_functions.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\ui_widget_game_data_input_functions.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\ui_widget_group.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\ui_widget_text_search_and_replace_functions.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\unit_hud_interface_definition.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\virtual_keyboard.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\interface\weapon_hud_interface_definition.c">
+      <Filter>source\interface</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\items\equipment.c">
+      <Filter>source\items</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\items\equipment_definitions.c">
+      <Filter>source\items</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\items\garbage.c">
+      <Filter>source\items</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\items\garbage_definitions.c">
+      <Filter>source\items</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\items\item_definitions.c">
+      <Filter>source\items</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\items\items.c">
+      <Filter>source\items</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\items\projectile_definitions.c">
+      <Filter>source\items</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\items\projectiles.c">
+      <Filter>source\items</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\items\weapon_definitions.c">
+      <Filter>source\items</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\items\weapon_interfaces.c">
+      <Filter>source\items</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\items\weapons.c">
+      <Filter>source\items</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\main\console.c">
+      <Filter>source\main</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\main\debug_keys.c">
+      <Filter>source\main</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\main\main.c">
+      <Filter>source\main</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\main\restricted_beta.c">
+      <Filter>source\main</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\math\geometry.c">
+      <Filter>source\math</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\math\integer_math.c">
+      <Filter>source\math</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\math\matrix_math.c">
+      <Filter>source\math</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\math\periodic_functions.c">
+      <Filter>source\math</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\math\probability.c">
+      <Filter>source\math</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\math\random_math.c">
+      <Filter>source\math</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\math\real_math.c">
+      <Filter>source\math</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\math\trig_math.c">
+      <Filter>source\math</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\math\vector_tree.c">
+      <Filter>source\math</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\array.c">
+      <Filter>source\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\byte_swapping.c">
+      <Filter>source\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\circular_queue.c">
+      <Filter>source\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\crc.c">
+      <Filter>source\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\data.c">
+      <Filter>source\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\data_compress.c">
+      <Filter>source\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\data_encoding.c">
+      <Filter>source\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\data_packet_groups.c">
+      <Filter>source\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\data_packets.c">
+      <Filter>source\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\fibonacci_heap.c">
+      <Filter>source\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\hashtable.c">
+      <Filter>source\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\lra_cache.c">
+      <Filter>source\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\lrar_cache.c">
+      <Filter>source\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\lru_cache.c">
+      <Filter>source\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\lruv_cache.c">
+      <Filter>source\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\memory_pool.c">
+      <Filter>source\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\sl_list.c">
+      <Filter>source\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\stack_memory_pool.c">
+      <Filter>source\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\texture_page.c">
+      <Filter>source\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\zlib\adler32.c">
+      <Filter>source\memory\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\zlib\compress.c">
+      <Filter>source\memory\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\zlib\crc32.c">
+      <Filter>source\memory\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\zlib\deflate.c">
+      <Filter>source\memory\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\zlib\gzio.c">
+      <Filter>source\memory\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\zlib\infblock.c">
+      <Filter>source\memory\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\zlib\infcodes.c">
+      <Filter>source\memory\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\zlib\inffast.c">
+      <Filter>source\memory\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\zlib\inflate.c">
+      <Filter>source\memory\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\zlib\inftrees.c">
+      <Filter>source\memory\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\zlib\infutil.c">
+      <Filter>source\memory\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\zlib\trees.c">
+      <Filter>source\memory\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\zlib\uncompr.c">
+      <Filter>source\memory\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\memory\zlib\zutil.c">
+      <Filter>source\memory\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\models\model_animation_definitions.c">
+      <Filter>source\models</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\models\model_animations.c">
+      <Filter>source\models</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\models\model_definitions.c">
+      <Filter>source\models</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\models\models.c">
+      <Filter>source\models</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\networking\network_client_manager.c">
+      <Filter>source\networking</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\networking\network_client_message_handler.c">
+      <Filter>source\networking</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\networking\network_connection.c">
+      <Filter>source\networking</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\networking\network_game_globals.c">
+      <Filter>source\networking</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\networking\network_game_manager.c">
+      <Filter>source\networking</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\networking\network_game_preferences.c">
+      <Filter>source\networking</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\networking\network_game_ui.c">
+      <Filter>source\networking</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\networking\network_messages.c">
+      <Filter>source\networking</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\networking\network_server_manager.c">
+      <Filter>source\networking</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\networking\network_server_message_handler.c">
+      <Filter>source\networking</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\networking\telnet_console.c">
+      <Filter>source\networking</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\damage.c">
+      <Filter>source\objects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\damage_effect_definitions.c">
+      <Filter>source\objects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\light_definitions.c">
+      <Filter>source\objects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\object_definitions.c">
+      <Filter>source\objects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\object_deleted_procs.c">
+      <Filter>source\objects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\object_lights.c">
+      <Filter>source\objects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\object_shadows.c">
+      <Filter>source\objects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\object_types.c">
+      <Filter>source\objects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\objects.c">
+      <Filter>source\objects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\placeholder_definitions.c">
+      <Filter>source\objects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\scenery.c">
+      <Filter>source\objects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\scenery_group.c">
+      <Filter>source\objects</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\widgets\aleph.c">
+      <Filter>source\objects\widgets</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\widgets\antenna.c">
+      <Filter>source\objects\widgets</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\widgets\antenna_definitions.c">
+      <Filter>source\objects\widgets</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\widgets\cellular_automata.c">
+      <Filter>source\objects\widgets</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\widgets\cellular_automata2d.c">
+      <Filter>source\objects\widgets</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\widgets\flag_definitions.c">
+      <Filter>source\objects\widgets</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\widgets\flags.c">
+      <Filter>source\objects\widgets</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\widgets\glow.c">
+      <Filter>source\objects\widgets</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\widgets\glow_definitions.c">
+      <Filter>source\objects\widgets</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\widgets\light_volume_definitions.c">
+      <Filter>source\objects\widgets</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\widgets\light_volumes.c">
+      <Filter>source\objects\widgets</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\widgets\lightning.c">
+      <Filter>source\objects\widgets</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\widgets\lightning_definitions.c">
+      <Filter>source\objects\widgets</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\objects\widgets\widgets.c">
+      <Filter>source\objects\widgets</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\physics\breakable_surfaces.c">
+      <Filter>source\physics</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\physics\bsp2d.c">
+      <Filter>source\physics</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\physics\bsp3d.c">
+      <Filter>source\physics</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\physics\collision_bsp.c">
+      <Filter>source\physics</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\physics\collision_bsp_definitions.c">
+      <Filter>source\physics</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\physics\collision_debug.c">
+      <Filter>source\physics</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\physics\collision_features.c">
+      <Filter>source\physics</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\physics\collision_model_definitions.c">
+      <Filter>source\physics</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\physics\collision_models.c">
+      <Filter>source\physics</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\physics\collision_usage.c">
+      <Filter>source\physics</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\physics\collisions.c">
+      <Filter>source\physics</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\physics\physics.c">
+      <Filter>source\physics</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\physics\physics_definitions.c">
+      <Filter>source\physics</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\physics\physics_variables.c">
+      <Filter>source\physics</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\physics\point_physics.c">
+      <Filter>source\physics</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\physics\terrain_definitions.c">
+      <Filter>source\physics</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\common\rasterizer_common.c">
+      <Filter>source\rasterizer\common</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\rasterizer.c">
+      <Filter>source\rasterizer</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\rasterizer_cinematics.c">
+      <Filter>source\rasterizer</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\rasterizer_debug.c">
+      <Filter>source\rasterizer</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\rasterizer_frame_statistics.c">
+      <Filter>source\rasterizer</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\rasterizer_geometry.c">
+      <Filter>source\rasterizer</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\rasterizer_lights.c">
+      <Filter>source\rasterizer</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\rasterizer_memory_pool.c">
+      <Filter>source\rasterizer</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\rasterizer_swizzle.c">
+      <Filter>source\rasterizer</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\rasterizer_text.c">
+      <Filter>source\rasterizer</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\rasterizer_transparent_geometry.c">
+      <Filter>source\rasterizer</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_active_camouflage.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_debug.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_decals.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_detail_objects.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_draw_primitives.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_dynavobgeom.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_environment.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_environment_fog.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_errors.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_hardware_bitmaps.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_hardware_geometry.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_lights.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_models.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_motion_sensor.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_plasma_energy.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_profile.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_screen_effect.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_shadows.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_text.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_transparent_geometry.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_vertex_shaders.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_vertex_shaders_initialize.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_vertex_shaders_runtime.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_water.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\rasterizer_xbox_widgets.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\shader_transparent_chicago_preprocessor.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\rasterizer\xbox\shader_transparent_generic_preprocessor.c">
+      <Filter>source\rasterizer\xbox</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\render\render.c">
+      <Filter>source\render</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\render\render_cameras.c">
+      <Filter>source\render</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\render\render_contrails.c">
+      <Filter>source\render</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\render\render_debug.c">
+      <Filter>source\render</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\render\render_detail_objects.c">
+      <Filter>source\render</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\render\render_media.c">
+      <Filter>source\render</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\render\render_objects.c">
+      <Filter>source\render</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\render\render_particles.c">
+      <Filter>source\render</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\render\render_sky.c">
+      <Filter>source\render</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\render\render_sprite.c">
+      <Filter>source\render</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\render\triangle_strips.c">
+      <Filter>source\render</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\saved films\saved_films.c">
+      <Filter>source\saved films</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\saved games\game_state.c">
+      <Filter>source\saved games</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\saved games\game_state_xbox.c">
+      <Filter>source\saved games</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\saved games\player_profile.c">
+      <Filter>source\saved games</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\saved games\playlist_profile.c">
+      <Filter>source\saved games</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\saved games\saved_game_files.c">
+      <Filter>source\saved games</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\scenario\fog_definitions.c">
+      <Filter>source\scenario</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\scenario\multiplayer_scenario_description.c">
+      <Filter>source\scenario</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\scenario\scenario.c">
+      <Filter>source\scenario</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\scenario\scenario_definitions.c">
+      <Filter>source\scenario</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\scenario\sky_definitions.c">
+      <Filter>source\scenario</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\scenario\wind.c">
+      <Filter>source\scenario</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\scenario\wind_definitions.c">
+      <Filter>source\scenario</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\shaders\shader_definitions.c">
+      <Filter>source\shaders</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\shaders\shaders.c">
+      <Filter>source\shaders</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\shell\shell.c">
+      <Filter>source\shell</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\shell\shell_windows.c">
+      <Filter>source\shell</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\shell\shell_xbox.c">
+      <Filter>source\shell</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\sound\game_sound.c">
+      <Filter>source\sound</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\sound\ima_adpcm.c">
+      <Filter>source\sound</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\sound\sound_classes.c">
+      <Filter>source\sound</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\sound\sound_definitions.c">
+      <Filter>source\sound</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\sound\sound_dsound_xbox.c">
+      <Filter>source\sound</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\sound\sound_environment_definitions.c">
+      <Filter>source\sound</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\sound\sound_import\sound_aiff.c">
+      <Filter>source\sound\sound_import</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\sound\sound_import\sound_import.c">
+      <Filter>source\sound\sound_import</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\sound\sound_import\sound_wave.c">
+      <Filter>source\sound\sound_import</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\sound\sound_manager.c">
+      <Filter>source\sound</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\sound\sound_preferences.c">
+      <Filter>source\sound</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\sound\sound_scenery.c">
+      <Filter>source\sound</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\sound\sound_scenery_group.c">
+      <Filter>source\sound</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\structures\cluster_partitions.c">
+      <Filter>source\structures</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\structures\detail_object_definitions.c">
+      <Filter>source\structures</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\structures\leaf_map.c">
+      <Filter>source\structures</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\structures\radiosity\intermediate_radiosity.c">
+      <Filter>source\structures\radiosity</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\structures\radiosity\radiosity.c">
+      <Filter>source\structures\radiosity</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\structures\radiosity\radiosity_io.c">
+      <Filter>source\structures\radiosity</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\structures\structure_bsp_definitions.c">
+      <Filter>source\structures</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\structures\structure_detail_objects.c">
+      <Filter>source\structures</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\structures\structure_lens_flares.c">
+      <Filter>source\structures</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\structures\structure_render.c">
+      <Filter>source\structures</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\structures\structure_runtime_decals.c">
+      <Filter>source\structures</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\structures\structure_visibility.c">
+      <Filter>source\structures</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\structures\structures.c">
+      <Filter>source\structures</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\tag_files\files.c">
+      <Filter>source\tag_files</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\tag_files\files_windows.c">
+      <Filter>source\tag_files</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\tag_files\tag_files.c">
+      <Filter>source\tag_files</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\tag_files\tag_files_xbox.c">
+      <Filter>source\tag_files</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\tag_files\tag_groups.c">
+      <Filter>source\tag_files</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\text\draw_string.c">
+      <Filter>source\text</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\text\font_group.c">
+      <Filter>source\text</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\text\international_strings.c">
+      <Filter>source\text</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\text\text_group.c">
+      <Filter>source\text</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\text\unicode.c">
+      <Filter>source\text</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\tool\connected_geometry.c">
+      <Filter>source\tool</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\tool\error_geometry.c">
+      <Filter>source\tool</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\units\biped_definitions.c">
+      <Filter>source\units</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\units\biped_limp_noodle.c">
+      <Filter>source\units</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\units\bipeds.c">
+      <Filter>source\units</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\units\dialogue_definitions.c">
+      <Filter>source\units</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\units\unit_definitions.c">
+      <Filter>source\units</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\units\unit_dialogue.c">
+      <Filter>source\units</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\units\unit_scripting_commands.c">
+      <Filter>source\units</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\units\units.c">
+      <Filter>source\units</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\units\vehicle_definitions.c">
+      <Filter>source\units</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)source\units\vehicles.c">
+      <Filter>source\units</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\bot_aas.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\bot_move.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\bot_nav.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\bot_port.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\bots.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\browser_screen.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\ce_bsp.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\ce_hud.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\ce_map_checks.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\ce_models.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\ce_resources.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\ce_vorbis.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\game_list_claims.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\hud_hires_tags.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\infection.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\menu_functions.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\menu_tags.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\msvc_comdat.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\network_damage.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\network_distributed.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\network_objects.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\network_test.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\pal_tags.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\render_interpolation.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\server_browser.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\tag_import.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\ui_map_list.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)server\src\dedicated.c">
+      <Filter>server\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)server\src\probe.c">
+      <Filter>server\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\bink_null.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\browser.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\d3d8_gl.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\d3d8_resources.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\dsound_sdl.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\gl_functions.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\halo_linker_common.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\hud_hires.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\menu_files.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\nv2a_psh.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\nv2a_vsh.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\p2p.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\p2p_crypto.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\p2p_discord.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\p2p_signal.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\port_config.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\posix_browser.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\posix_ui_font.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\sdl_platform.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\text_hires.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\ui_overlay.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\updater.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\xbdm.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\xbox_files.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\xbox_heap.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\xbox_kernel.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\xbox_memory.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\xbox_textures.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\xbox_xapi.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\xgpu_text.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\xinput_sdl.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\xiso.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\xnet.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\aes.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\aesce.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\aesni.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\aria.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\asn1parse.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\asn1write.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\base64.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\bignum.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\bignum_core.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\bignum_mod.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\bignum_mod_raw.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\block_cipher.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\camellia.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ccm.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\chacha20.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\chachapoly.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\cipher.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\cipher_wrap.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\cmac.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\constant_time.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ctr_drbg.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\debug.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\des.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\dhm.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ecdh.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ecdsa.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ecjpake.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ecp.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ecp_curves.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ecp_curves_new.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\entropy.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\entropy_poll.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\error.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\gcm.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\hkdf.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\hmac_drbg.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\lmots.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\lms.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\md.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\md5.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\memory_buffer_alloc.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\mps_reader.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\mps_trace.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\net_sockets.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\nist_kw.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\oid.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\padlock.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\pem.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\pk.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\pk_ecc.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\pk_wrap.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\pkcs12.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\pkcs5.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\pkcs7.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\pkparse.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\pkwrite.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\platform.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\platform_util.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\poly1305.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\psa_crypto.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\psa_crypto_aead.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\psa_crypto_cipher.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\psa_crypto_client.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\psa_crypto_driver_wrappers_no_static.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\psa_crypto_ecp.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\psa_crypto_ffdh.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\psa_crypto_hash.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\psa_crypto_mac.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\psa_crypto_pake.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\psa_crypto_random.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\psa_crypto_rsa.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\psa_crypto_se.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\psa_crypto_slot_management.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\psa_crypto_storage.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\psa_its_file.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\psa_util.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ripemd160.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\rsa.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\rsa_alt_helpers.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\sha1.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\sha256.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\sha3.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\sha512.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ssl_cache.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ssl_ciphersuites.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ssl_client.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ssl_cookie.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ssl_debug_helpers_generated.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ssl_msg.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ssl_ticket.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ssl_tls.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ssl_tls12_client.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ssl_tls12_server.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ssl_tls13_client.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ssl_tls13_generic.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ssl_tls13_keys.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\ssl_tls13_server.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\threading.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\timing.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\version.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\version_features.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\x509.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\x509_create.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\x509_crl.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\x509_crt.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\x509_csr.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\x509write.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\x509write_crt.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\x509write_csr.c">
+      <Filter>port\third_party\mbedtls\library</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\windows\src\win32_files.c">
+      <Filter>port\windows\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\windows\src\win32_memory_watch.c">
+      <Filter>port\windows\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\windows\src\win32_net.c">
+      <Filter>port\windows\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\windows\src\win32_p2p.c">
+      <Filter>port\windows\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\windows\src\win32_posix.c">
+      <Filter>port\windows\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\windows\src\win32_update.c">
+      <Filter>port\windows\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\windows\src\win32_upnp.c">
+      <Filter>port\windows\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\windows\src\windows_crt.c">
+      <Filter>port\windows\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\miniupnpc\src\addr_is_reserved.c">
+      <Filter>port\third_party\miniupnpc\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\miniupnpc\src\connecthostport.c">
+      <Filter>port\third_party\miniupnpc\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\miniupnpc\src\igd_desc_parse.c">
+      <Filter>port\third_party\miniupnpc\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\miniupnpc\src\minisoap.c">
+      <Filter>port\third_party\miniupnpc\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\miniupnpc\src\minissdpc.c">
+      <Filter>port\third_party\miniupnpc\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\miniupnpc\src\miniupnpc.c">
+      <Filter>port\third_party\miniupnpc\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\miniupnpc\src\miniwget.c">
+      <Filter>port\third_party\miniupnpc\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\miniupnpc\src\minixml.c">
+      <Filter>port\third_party\miniupnpc\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\miniupnpc\src\portlistingparse.c">
+      <Filter>port\third_party\miniupnpc\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\miniupnpc\src\receivedata.c">
+      <Filter>port\third_party\miniupnpc\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\miniupnpc\src\upnpcommands.c">
+      <Filter>port\third_party\miniupnpc\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\miniupnpc\src\upnpdev.c">
+      <Filter>port\third_party\miniupnpc\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\miniupnpc\src\upnperrors.c">
+      <Filter>port\third_party\miniupnpc\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\miniupnpc\src\upnpreplyparse.c">
+      <Filter>port\third_party\miniupnpc\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\tomlc17\tomlc17.c">
+      <Filter>port\third_party\tomlc17</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\kcp\ikcp.c">
+      <Filter>port\third_party\kcp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\qrcodegen\qrcodegen.c">
+      <Filter>port\third_party\qrcodegen</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\expat\xmlparse.c">
+      <Filter>port\third_party\expat</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\expat\xmlrole.c">
+      <Filter>port\third_party\expat</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\expat\xmltok.c">
+      <Filter>port\third_party\expat</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\expat\random_rand_s.c">
+      <Filter>port\third_party\expat</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\__cos.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\__math_divzero.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\__math_invalid.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\__math_oflow.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\__math_uflow.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\__math_xflow.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\__rem_pio2.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\__rem_pio2_large.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\__sin.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\__tan.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\acos.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\asin.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\atan.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\atan2.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\cos.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\exp.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\exp_data.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\log.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\log10.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\log2.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\log2_data.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\log_data.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\pow.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\pow_data.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\sin.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\tan.c">
+      <Filter>port\third_party\musl-math\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloGenerated)hud_hires_assets.c">
+      <Filter>build</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloGenerated)ui_fonts.c">
+      <Filter>build</Filter>
+    </ClCompile>
+  </ItemGroup>
+</Project>

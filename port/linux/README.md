@@ -242,9 +242,15 @@ the setting for one start of the game. It has priority over the file.
 | `network.allow_upnp` | `true` | `HALO_NET_ALLOW_UPNP` | `true`: internet play can ask the router to forward its port (UPnP). `false`: the game does not ask. Refer to "Internet play". |
 | `network.signalling_brokers` | three public brokers | `HALO_NET_BROKERS` | The public MQTT brokers (`host:port`, with commas between them) that let the machines of an invite find each other. |
 | `network.stun_servers` | Google and Cloudflare | `HALO_NET_STUN` | The public STUN servers (`host:port`, with commas between them) that give the internet address of a machine. |
+| `bots.count` | `0` | `HALO_BOTS` | The number of bots in the multiplayer games that this machine hosts. `0`: no bots. Refer to "Bots". |
+| `bots.fill` | `0` | `HALO_BOTS_FILL` | The games that this machine hosts have this number of players: bots fill the places that people do not have. A bot goes when a person joins and comes back when a person goes. `0`: `bots.count` bots. Refer to "Bots". |
+| `bots.skill` | `3` | `HALO_BOT_SKILL` | How good the bots are: `1` easy, `2` normal, `3` hard, `4` legendary, `5` near perfect. |
+| `infection.rounds`, `infection.round_minutes`, `infection.countdown` | `3`, `4`, `10` | `HALO_INFECTION_ROUNDS`, `HALO_INFECTION_ROUND_MINUTES`, `HALO_INFECTION_COUNTDOWN` | The rounds of a game of infection, the minutes of a round (`0`: no limit) and the seconds before the first zombie. Refer to "Infection". |
+| `infection.zombie_speed`, `infection.zombie_damage`, `infection.zombie_health` | `1.3`, `8.0`, `1.5` | `HALO_INFECTION_ZOMBIE_SPEED`, `HALO_INFECTION_ZOMBIE_DAMAGE`, `HALO_INFECTION_ZOMBIE_HEALTH` | How fast a zombie moves (a player is `1`), how hard it hits and how much damage it can take (the Flood of the campaign is `1`). |
 | `discord.application_id` | the application of the project | `HALO_DISCORD_APPLICATION` | The Discord application for invites. Empty: no Discord. |
 | `update.auto` | `true` | `HALO_UPDATE_AUTO` | `true`: at start-up, the game looks for a new version. Refer to "Updates". `false`: the game does not look. |
 | `debug.update_answer` | `""` | `HALO_UPDATE_ANSWER` | The answer to the update question, for automatic tests: `yes`, `no` or `never`. Empty: the game asks. |
+| `debug.random_seed` | `0` | `HALO_RANDOM_SEED` | The random seed of the games that this machine hosts, and of their bots. With the same seed, a game with only bots is the same each time. Use this setting to compare two builds. `0`: a new seed for each game. |
 | `debug.exit_after` | `0.0` | `HALO_EXIT_AFTER` | The game stops after this number of seconds. `0`: never. |
 | `debug.screenshot_directory`, `debug.screenshot_every` | `""`, `0` | `HALO_SCREENSHOT_DIR`, `HALO_SCREENSHOT_EVERY` | The game writes each Nth frame to this folder as a BMP file. |
 | `debug.hidden_window`, `debug.null_renderer` | `false` | `HALO_HIDDEN_WINDOW`, `HALO_NULL_RENDERER` | `true`: no visible window, or no graphics. |
@@ -567,6 +573,125 @@ name of the profile) gives `ok <code> <seconds> <token>`.
 `POST /v1/connect/confirm` with the token and the answer gives
 `connected <name>`, `declined` or `expired`. The QR code is from
 `port/third_party/qrcodegen`.
+
+## Bots
+
+The host of a multiplayer game can add bots. A bot is a player that the
+host moves. The bots play all the game types on all the multiplayer maps:
+they get weapons and powerups, drive and ride the vehicles, carry the flag
+and the ball, and hold the hill.
+
+- `bots.count` in `config.toml` gives the number of bots (`0` by default:
+  no bots). `bots.skill` gives how good they are, from `1` to `5`.
+- In the console, `bots <number>` and `bot_skill <1-5>` change these values
+  until the game stops. A new number of bots applies in the lobby. A game in
+  progress keeps its bots.
+- `bots.fill` gives a number of players, not a number of bots: the bots
+  fill the places that people do not have. A bot goes when a person joins,
+  and a bot comes back when a person goes, in the lobby and during the
+  game. In the console, `bots_fill <number>` changes the value. `0` stops
+  this, and the game has `bots.count` bots.
+- The bots are in split screen games, system link games, internet games
+  and the games of a dedicated server. Only the settings of the host apply.
+
+The bots are players of the lobby. They are on machines with the name
+"Bots", four bots to a machine, and the lobby and the scores show them as
+other players. They come when the first person is in the lobby. When the
+lobby is full, a bot goes for each person who joins. In team games, each
+bot goes to the smaller team, and a bot changes teams when a team is larger
+by two players or more.
+
+To the netcode, a bot is one of the host's own players: the host calculates
+the input of each bot in each tick and sends the other machines the bots as
+it sends its own player. The other machines need no settings, and no build
+with bots: a machine with OpenCE, or with a ChupathingyCE without bots,
+plays with the bots of a host. Refer to [NETCODE.md](NETCODE.md#bots).
+
+A game that had bots in it sends no carnage report to the game list
+(halo.milenko.org): the scores there are the scores of people.
+
+The first time that a map has bots, the host makes the navigation data of
+the map (the places where a player can walk, jump, drop and climb). This
+takes 1 to 10 seconds. The host keeps the data in `navcache` in the save
+root, and reads it from there in less than a second. The host does this
+while the machines load the map. Thus the game does not stop at its start.
+
+A bot finds its way with a search that starts at its goal. The search goes
+only as far as the bot is from the goal. If a bot farther away asks for the
+same goal, the search continues from that point. The result is the same as
+that of a search of the full map. `HALO_BOT_PROFILE=1` writes the time that
+the parts of the bots use to the log, and `HALO_BOT_ROUTE_CHECK=1` compares
+each result with a search of the full map. The code is in `game/bots.c`
+(what a bot does), `game/bot_move.c` (how it moves), and `game/bot_nav.c`
+and `game/bot_aas.c` (the navigation data).
+
+## Infection
+
+Infection is a game type of the port for the multiplayer maps. The name of
+the game type is `infection`:
+
+- A dedicated server plays it from its playlist (`bloodgulch infection`).
+  Refer to [docs/dedicated-server.md](../../docs/dedicated-server.md).
+- A host that plays types `gametype infection` in the console while the
+  lobby shows. The menus do not show the game type. `gametype <name>` sets
+  each game type that a playlist can name.
+
+The rules:
+
+- All the players start a round alive. After `infection.countdown` seconds,
+  the game infects one player. This player is the first zombie. A game
+  needs two players.
+- A zombie has no weapon, no grenades and no shield, and cannot get them. It
+  moves faster than a player, and it kills with a blow of its hands (the
+  melee button).
+- A player who dies while there is a zombie comes back as a zombie. Zombies
+  come back as zombies.
+- The players of a side cannot hurt each other.
+- The round stops when no player is alive. The last player who was alive
+  wins the round. If `infection.round_minutes` minutes go by first, the
+  players who are still alive win the round.
+- A game has `infection.rounds` rounds. A player gets 1 point for each
+  zombie that they kill, 1 point for each player that they infect, and 3
+  points for a round that they win. The team scores show how many players
+  are alive (blue) and how many are zombies (red).
+- A zombie that is alone takes two times as much damage to kill, so that
+  the first zombie of a round can get to the other players.
+
+The zombies are the Flood of the campaign (the combat form). The
+multiplayer maps do not have the Flood. When a game of infection loads its
+map, the game takes the Flood from a campaign map in the `maps` folder
+(`c20`, `d20`, `c40`, `c10` or `d40`, the first that it finds) and adds it
+to the multiplayer map in memory: the model, the animations, the textures
+and the sounds. The first game of infection after the game starts takes
+approximately one second longer to load, because the game decompresses the
+campaign map. The map files do not change.
+
+The host makes its zombies of the Flood only while all the machines of the
+game have it. Each machine with a build that has infection tells the host,
+when it has loaded the map, whether its map has the Flood. If one machine
+has no campaign map with the Flood, or has a build without infection
+(OpenCE, a ChupathingyCE without infection), the zombies are players as
+they are, with no shield and no weapon: they hit with their hands, as a
+player with no weapon does in each build of this network version. The
+zombies that are the Flood at that time come back so.
+
+On the network, a game of infection is a game of team slayer, and a machine
+with a build without infection can be in it. That machine does not know the
+sides: it shows the teams of the lobby, and its player, as a zombie, has
+no weapon and sees no other change. The host applies the rules for all the
+players. Refer to [NETCODE.md](NETCODE.md#infection).
+
+The game adds the Flood only to the Xbox's multiplayer maps. On a Custom
+Edition map (`<name>@ce`), the zombies are players with no weapon.
+
+A game of infection sends no carnage report to the game list.
+
+The bots play infection. A bot that is a zombie runs to the nearest player
+who is alive and hits them. The other bots fight the zombies as they fight
+the players of the other team.
+
+The code is in `game/infection.c` (the rules) and `game/tag_import.c` (the
+Flood in a multiplayer map).
 
 ## What operates
 

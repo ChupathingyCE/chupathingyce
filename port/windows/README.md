@@ -40,6 +40,52 @@ For a new optimization profile (`--pgo=train`), the build compiles the
 profile runtime of LLVM for 32-bit x86 (`pgo/halo_profile_runtime.c`).
 LLVM for Windows supplies this runtime only for x86-64.
 
+## Build the game with Visual Studio
+
+Visual Studio can build the game with no other tool: no Python, no ninja
+and no separate LLVM.
+
+1. In the Visual Studio Installer, add the workload "Desktop development
+   with C++" and the component "C++ Clang tools for Windows". A Windows 10
+   or 11 SDK is part of the workload.
+2. Open `projects\windows\halo.sln`.
+3. Select the configuration `Release` and the platform `x86`.
+4. Build the solution.
+
+The result is `build\windows\Release\halo.exe`, with `SDL3.dll` next to
+it. The first build needs a network connection: it downloads the Visual C++
+development package of SDL to `build\windows\third_party`. To use a
+package that is on the computer, set the environment variable `HALO_SDL3`
+to its folder.
+
+| Configuration | Contents |
+| --- | --- |
+| `Release` | Optimized (`-O2`), as `ninja windows` with `--portable --lto=off --pgo=off`. |
+| `Debug` | Not optimized, for the debugger. |
+
+The debugger starts the game in the folder of `halo.exe`. Put the game data
+there (`build\windows\Release\maps`), or give its folder in `paths.data` in
+the `config.toml` next to `halo.exe`.
+
+The build has the game browser, the game list and the dedicated server, as
+`ninja windows` has them. Its version is the version of the `VERSION` file
+with `-dev`, and it does not look for updates. To start a dedicated server,
+refer to [docs/dedicated-server.md](../../docs/dedicated-server.md).
+
+The project compiles the same sources with the same flags as
+`ninja windows`, through the `ClangCL` toolset (`clang-cl`):
+
+- `tools/visual_studio.py` writes `projects\windows\halo.sln`,
+  `halo.vcxproj` and `halo.vcxproj.filters`, and the files that the ninja
+  build generates from the sources: `generated\halo_msvc_tags.h` and
+  `generated\inline_exports`. All these files are in the repository. When
+  you add, remove or rename a source file, enter
+  `python tools/visual_studio.py` and commit the result.
+- Before the build compiles, `tools\prebuild.ps1` (PowerShell) embeds the
+  assets of `port\assets` in `build\windows\generated\hud_hires_assets.c`
+  and the fonts of `port\linux\ui\fonts` in `ui_fonts.c`, writes the
+  version to `halo_version.h`, and downloads SDL.
+
 ## Start the game
 
 Enter `build\windows\halo.exe`.

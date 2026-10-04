@@ -99,6 +99,9 @@ struct slayer_variant
 	boolean no_death_bonus;
 	boolean no_kill_penalty;
 	boolean kill_in_order;
+	/* port: infection (port/linux/game/infection.c): team slayer whose
+	teams are the living and the infected */
+	boolean infection;
 };
 
 struct king_variant

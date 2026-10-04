@@ -85,6 +85,10 @@ void game_connection_set(short connection);
 void main_set_multiplayer_map_name(char const *map_name);
 void game_engine_override_map_name(char const *map_name);
 long game_engine_total_score(void);
+/* (the bots': port/linux/game/bots.c, network_server_manager.c) */
+long network_game_server_people_count(struct network_game_server *server);
+long bots_configured(void);
+long bots_fill(void);
 boolean main_menu_is_active(void);
 boolean bink_playback_active(void);
 
@@ -223,6 +227,9 @@ static void skip_team_entry_for_one_player(
 
 	if (!dedicated.entry_teams || !game || game->player_count != 1)
 		return;
+	/* (with bots, the one player has a team to play against) */
+	if (bots_fill() > 1 || (bots_fill() <= 0 && bots_configured() > 0))
+		return;
 	for (offset = 1; offset < dedicated.entry_count; offset++)
 	{
 		long entry = (dedicated.entry + offset) % dedicated.entry_count;
@@ -356,8 +363,9 @@ void dedicated_server_update(
 			}
 			/* the countdown, started once it may (enough players, teams): a
 			lobby's players start it, and the server has none of its own */
+			/* (people: the bots are none of the players a game waits for) */
 			network_game_server_pause_countdown(server,
-				!game || game->player_count < dedicated.minimum_players);
+				!game || network_game_server_people_count(server) < dedicated.minimum_players);
 			network_game_server_dedicated_start_countdown(server);
 		}
 	}
@@ -372,9 +380,9 @@ void dedicated_server_update(
 			dedicated.score = 0;
 			dedicated.empty_time = 0;
 		}
-		/* everyone left: the game ends (as the score limit ends it) and the
-		next entry's lobby opens */
-		if (game && game->player_count == 0)
+		/* everyone left (the bots play no game on their own): the game ends
+		(as the score limit ends it) and the next entry's lobby opens */
+		if (game && network_game_server_people_count(server) <= 0)
 		{
 			if (!dedicated.empty_time)
 				dedicated.empty_time = now;

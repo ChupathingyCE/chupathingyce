@@ -788,6 +788,14 @@ boolean create_global_network_game_server(
 	{
 		network_game_set_random_seed(
 			seed_random(get_global_local_random_seed_address()));
+		/* port: debug.random_seed, the same games every time (to compare two
+		builds with the bots playing: port/linux/game/bots.c) */
+		{
+			long config_integer(char const *name);
+
+			if (config_integer("debug.random_seed"))
+				network_game_set_random_seed(config_integer("debug.random_seed"));
+		}
 	}
 
 	return global_network_game_server != NULL;

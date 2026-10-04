@@ -10,6 +10,8 @@ Automated system link sessions for testing the netcode without the menus
   screen's fast setup does, and starts it debug.network_test_start seconds
   later; with more variants, once a game is over (debug.network_test_score
   makes it short) the next, as the host's button on the scores does;
+- "local:<map>[:<variant>...]" is "host" for a split screen game: the same
+  lobby, closed to other machines (the bots are in it: bots.c);
 - "join" searches for games and joins the first it finds, as picking it in
   the system link list does.
 
@@ -86,6 +88,8 @@ static struct
 {
 	boolean checked;
 	short mode;
+	/* (a host: its lobby closed to other machines, as split screen's is) */
+	boolean local;
 	char map_name[64];
 	char variant_name[64];
 	/* ... the variant of this game, of variant_name's list; and the seconds
@@ -143,12 +147,13 @@ static void network_test_read_settings(
 	char const *setting = config_string("debug.network_test");
 
 	network_test.checked = TRUE;
-	if (!strncmp(setting, "host:", 5) && setting[5])
+	if ((!strncmp(setting, "host:", 5) && setting[5]) || (!strncmp(setting, "local:", 6) && setting[6]))
 	{
 		char *colon;
 
 		network_test.mode = _network_test_host;
-		snprintf(network_test.map_name, sizeof(network_test.map_name), "%s", setting + 5);
+		network_test.local = setting[0] == 'l';
+		snprintf(network_test.map_name, sizeof(network_test.map_name), "%s", strchr(setting, ':') + 1);
 		snprintf(network_test.variant_name, sizeof(network_test.variant_name), "slayer");
 		colon = strchr(network_test.map_name, ':');
 		if (colon)
@@ -924,7 +929,9 @@ void network_test_update(
 			network_test.set_up = TRUE;
 			main_set_multiplayer_map_name(network_test.map_name);
 			player_ui_fast_setup_network_server();
-			platform_log("network test: hosting %s", network_test.map_name);
+			if (network_test.local)
+				network_game_accept_remote_connections(FALSE);
+			platform_log("network test: hosting %s%s", network_test.map_name, network_test.local ? " (split screen)" : "");
 		}
 		else if (!network_test.started)
 		{

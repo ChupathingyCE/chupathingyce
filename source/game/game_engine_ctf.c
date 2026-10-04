@@ -1679,3 +1679,32 @@ boolean game_engine_ctf_read_network_state(
 	}
 	return TRUE;
 }
+
+/* port: the bots (port/linux/game/bots.c): a team's flag and where its base
+is, and its score, when a CTF game is running */
+boolean ctf_bot_flag(
+	long team_index,
+	long *weapon_index,
+	real_point3d *base)
+{
+	extern struct game_engine *game_engine;
+
+	if (game_engine != &ctf_engine || team_index < 0 || team_index >= NUMBER_OF_CTF_TEAMS ||
+		!ctf_globals.flags[team_index])
+	{
+		return FALSE;
+	}
+	*weapon_index = ctf_globals.weapon_indices[team_index];
+	*base = ctf_globals.flags[team_index]->position;
+	return TRUE;
+}
+
+long ctf_bot_score(
+	long team_index)
+{
+	extern struct game_engine *game_engine;
+
+	if (game_engine != &ctf_engine || team_index < 0 || team_index >= NUMBER_OF_CTF_TEAMS)
+		return 0;
+	return ctf_globals.scores[team_index];
+}

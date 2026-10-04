@@ -41,6 +41,8 @@ own releases. Expect rough edges, and please report them.
 - The campaign, split screen and System Link, running natively (no emulator)
 - High-res HUD and text, and widescreen menus
 - Controller prompts for Xbox, PlayStation and Nintendo pads, and the keyboard
+- Bots: a host can fill its games with players it drives itself, on every map and game type ([how](port/linux/README.md#bots))
+- Infection, a new game type: one player starts as a zombie (the campaign's Flood), and everyone they kill joins them ([how](port/linux/README.md#infection))
 - Updates itself: it checks for new releases when it starts, and asks first
 
 **Platforms**

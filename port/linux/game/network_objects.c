@@ -76,6 +76,10 @@ void network_player_detach_unit(long player_index);
 void render_interpolation_correct_object(long object_index, real_vector3d const *offset);
 /* cache_files.c's */
 boolean tag_index_is_group(long tag_index, long group_tag);
+/* infection.c's */
+long infection_client_definition(long definition_index);
+boolean infection_player_is_zombie(long player_index);
+void infection_client_ready_sent(void);
 
 /* the vehicle tag's speeds (world units a tick), as actor_moving.c reads
 them: its layout is not the public header's */
@@ -1245,8 +1249,12 @@ static void distributed_host_send_inventories(
 		weapon out of its hands everywhere, and then no more of it) */
 		if (carries)
 			objects_host_inventories[absolute_index].carried_time = game_time_get();
-		else if (objects_host_inventories[absolute_index].carried_time == NONE ||
-			game_time_get() - objects_host_inventories[absolute_index].carried_time >= EMPTY_INVENTORY_TICKS)
+		/* (but infection's zombie, which carries nothing from the start: told
+		as any unit that carries is, or a client keeps the grenades its own
+		copy of the unit was made with: infection.c) */
+		else if (!infection_player_is_zombie(unit->unit.player_index) &&
+			(objects_host_inventories[absolute_index].carried_time == NONE ||
+				game_time_get() - objects_host_inventories[absolute_index].carried_time >= EMPTY_INVENTORY_TICKS))
 		{
 			continue;
 		}
@@ -1873,6 +1881,21 @@ static void distributed_client_create(
 	struct object_placement_data placement;
 	real_vector3d forward, up;
 	long object_index;
+	struct distributed_object_change substituted;
+
+	/* infection's zombies are tags brought into the map from a campaign
+	map (tag_import.c): a machine with no such map has not got them, and
+	makes the host's zombies as players are (infection.c) */
+	{
+		long definition_index = infection_client_definition(change->definition_index);
+
+		if (definition_index != change->definition_index)
+		{
+			substituted = *change;
+			substituted.definition_index = definition_index;
+			change = &substituted;
+		}
+	}
 
 	if (absolute_index < 0 || absolute_index >= MAXIMUM_TRACKED_OBJECTS ||
 		absolute_index >= object_header_data->maximum_count ||
@@ -2542,6 +2565,8 @@ void network_objects_client_tick(
 		objects_client_ready_time = game_time_get();
 		distributed_send(&message, _distributed_message_client_ready, objects_client_ask_again ? 1 : 0,
 			(word)sizeof(message), _distributed_to_host_reliably);
+		/* (and what this build knows of infection, with it: infection.c) */
+		infection_client_ready_sent();
 		objects_client_ask_again = FALSE;
 	}
 	if (objects_client_synchronized)

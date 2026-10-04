@@ -83,4 +83,9 @@ void network_game_server_change_game_variant(
 
 /* ---------- public code */
 
+/* port: the players of the server's game that are people (not bots), and
+whether bots played in its game at any time */
+long network_game_server_people_count(struct network_game_server *server);
+boolean network_game_server_bots_played(void);
+
 #endif // __NETWORK_SERVER_MANAGER_H

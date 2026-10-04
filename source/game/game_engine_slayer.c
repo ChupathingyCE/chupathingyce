@@ -146,6 +146,14 @@ static struct slayer_globals slayer_globals = { 0 };
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
+/* port/linux/game/infection.c's */
+boolean infection_active(void);
+boolean infection_allow_pick_up(long unit_index, long weapon_index);
+void infection_initialize_for_new_map(void);
+void infection_player_added(long player_index);
+void infection_player_killed(long killing_player_index, long dead_player_index);
+void infection_player_update(long player_index);
+void infection_update(void);
 
 /* ---------- code */
 
@@ -160,6 +168,8 @@ static boolean slayer_engine_initialize_for_new_map(
 {
 	csmemset(slayer_globals.team_score, 0, sizeof(slayer_globals.team_score));
 	csmemset(slayer_globals.individual_score, 0, sizeof(slayer_globals.individual_score));
+	/* port: and infection's first round (port/linux/game/infection.c) */
+	infection_initialize_for_new_map();
 
 	return TRUE;
 }
@@ -223,6 +233,10 @@ static void slayer_engine_pregame_post_rasterize(
 static void slayer_engine_update(
 	void)
 {
+	/* port: infection's rounds (port/linux/game/infection.c) */
+	if (infection_active())
+		infection_update();
+
 	return;
 }
 
@@ -232,6 +246,8 @@ static void slayer_engine_player_added(
 	struct player_datum *player = player_get(player_index);
 
 	player->multiplayer_special = NONE;
+	/* port: alive or a zombie (port/linux/game/infection.c) */
+	infection_player_added(player_index);
 
 	return;
 }
@@ -251,7 +267,8 @@ static boolean slayer_engine_allow_pick_up(
 	long unit_index,
 	long weapon_index)
 {
-	return TRUE;
+	/* port: infection's zombies carry nothing (port/linux/game/infection.c) */
+	return infection_allow_pick_up(unit_index, weapon_index);
 }
 
 static long slayer_get_score(
@@ -394,6 +411,22 @@ static void slayer_engine_adjust_score(
 	return;
 }
 
+/* port: infection's scores (port/linux/game/infection.c): a team's is how
+many are of it, a player's is the points it has */
+void slayer_infection_set_team_score(
+	long team_index,
+	long score)
+{
+	slayer_globals.team_score[team_index] = score;
+}
+
+void slayer_infection_adjust_score(
+	long player_index,
+	long score_delta)
+{
+	slayer_globals.individual_score[DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index)] += score_delta;
+}
+
 static void find_next_target(
 	long player_index)
 {
@@ -464,6 +497,14 @@ static void slayer_engine_player_killed_player(
 	boolean friendly_fire)
 {
 	struct player_datum *dead_player = player_get(dead_player_index);
+
+	/* port: infection has its own rules for a kill (port/linux/game/infection.c) */
+	if (infection_active())
+	{
+		if (!network_game_distributed_client())
+			infection_player_killed(killing_player_index, dead_player_index);
+		return;
+	}
 
 	/* (a client of the distributed netcode has the host's scores,
 	game_engine_slayer_read_network_state: its copy of a kill may come before
@@ -587,6 +628,14 @@ static void slayer_player_update(
 	long index)
 {
 	struct player_datum *player = player_get(index);
+
+	/* port: infection: a zombie is quick, and a game is over when its rounds
+	are (port/linux/game/infection.c) */
+	if (infection_active())
+	{
+		infection_player_update(index);
+		return;
+	}
 
 	if (game_engine_get_variant()->game_engine_variant.slayer.no_kill_penalty &&
 		player->speed_multiplier > 1.0f)

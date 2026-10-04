@@ -1141,6 +1141,22 @@ void update_server_handle_distributed_input(
 	queue->current_action = *action;
 }
 
+/* port: a bot's input for the tick about to be built (the host's server
+works it out: network_server_manager.c), as the host's own players' is taken
+(update_server_take_local_actions) */
+void update_server_set_player_action(
+	long player_index,
+	struct player_action const *action)
+{
+	struct update_server_queue_datum *queue;
+
+	if (!update_server_globals.initialized || !distributed_action_valid(action))
+		return;
+	queue = (struct update_server_queue_datum *)datum_try_and_get(update_server_globals.queues, player_index);
+	if (queue)
+		queue->current_action = *action;
+}
+
 long update_server_ticked_update_number(
 	void)
 {

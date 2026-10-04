@@ -373,6 +373,12 @@ void scenario_tags_unload(
 
 		hud_hires_tags_unloaded();
 	}
+	/* port: and what was brought into it is gone (port/linux/game/tag_import.c) */
+	{
+		extern void tag_import_tags_unloaded(void);
+
+		tag_import_tags_unloaded();
+	}
 	sound_cache_close();
 	texture_cache_close();
 	/* port: the menus' tags go, and the map's own table comes back
@@ -991,6 +997,13 @@ long scenario_tags_load(
 
 				menu_tags_loaded(cache_file_globals.header.name);
 			}
+			/* port: the Flood, brought into a map that is to be played as
+			infection (port/linux/game/tag_import.c) */
+			{
+				extern void tag_import_tags_loaded(void);
+
+				tag_import_tags_loaded();
+			}
 			/* port: the bitmaps the high-res HUD stands for (port/linux/game/hud_hires_tags.c) */
 			{
 				extern void hud_hires_tags_loaded(void);
@@ -1024,10 +1037,18 @@ boolean scenario_structure_bsp_load(
 	own, and may be more than the Xbox's holds) */
 	if (!cache_file_is_ce)
 #endif
-	csmemset(
-		tag_cache_base_address + cache_file_globals.header.tag_data_size,
-		0xCD,
-		0x01600000 - cache_file_globals.header.tag_data_size);
+	/* port: tags brought in from another map come after the map's own
+	(port/linux/game/tag_import.c), and stay */
+	{
+		extern void *tag_import_end(void);
+		byte *clear_address = tag_import_end() ? (byte *)tag_import_end() :
+			tag_cache_base_address + cache_file_globals.header.tag_data_size;
+
+		csmemset(
+			clear_address,
+			0xCD,
+			0x01600000 - (clear_address - tag_cache_base_address));
+	}
 	{
 		boolean read_complete;
 
@@ -1105,6 +1126,45 @@ void scenario_structure_bsp_unload(
 	cache_file_globals.structure_bsp_header = NULL;
 
 	return;
+}
+
+/* port: what port/linux/game/tag_import.c needs of the loaded map's tags:
+where they end, where the first of the map's level geometry is loaded (the
+memory between is unused), and a new index of them (the map's tags and more) */
+void *cache_files_tag_data_end(
+	void)
+{
+	return (byte *)physical_memory_get_tag_cache_base_address() + cache_file_globals.header.tag_data_size;
+}
+
+/* (whether the map is one of the multiplayer maps: its header's type) */
+boolean cache_files_map_is_multiplayer(
+	void)
+{
+	return *(short *)cache_file_globals.header.reserved60 == 1;
+}
+
+void *cache_files_tag_data_limit(
+	void)
+{
+	byte *limit = (byte *)physical_memory_get_tag_cache_base_address() + 0x01600000;
+	struct cache_file_tag_instance *instance =
+		&global_tag_instances[(short)cache_file_globals.tag_header->scenario_tag_index];
+	struct scenario *scenario = xbox_pointer(instance->base_address);
+	long index;
+
+	for (index = 0; index < scenario->structure_bsp_references.count; index++)
+	{
+		struct scenario_structure_bsp_reference *reference = TAG_BLOCK_GET_ELEMENT(
+			&scenario->structure_bsp_references,
+			index,
+			struct scenario_structure_bsp_reference);
+
+		if (reference->base_address && (byte *)xbox_pointer(reference->base_address) < limit)
+			limit = xbox_pointer(reference->base_address);
+	}
+
+	return limit;
 }
 
 void *tag_get(

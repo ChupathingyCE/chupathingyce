@@ -1443,8 +1443,22 @@ void object_cause_damage(
 
 	if (game_engine_running())
 	{
+		long damaging_player_index = get_player_index_from_object_or_parents(damage->owner_object_index);
+
+		/* port: infection (port/linux/game/infection.c), where a side takes
+		nothing from its own: the damage of a body its player has left (a
+		round's end takes every body away) is still that player's */
+		{
+			extern boolean infection_active(void);
+
+			if (damaging_player_index == NONE && damage->owner_player_index != NONE && infection_active() &&
+				datum_try_and_get(player_data, damage->owner_player_index))
+			{
+				damaging_player_index = damage->owner_player_index;
+			}
+		}
 		total_damage *= game_engine_get_damage_multiplier(
-			get_player_index_from_object_or_parents(damage->owner_object_index),
+			damaging_player_index,
 			get_player_index_from_object_or_parents(object_index));
 	}
 	else if (damage->owner_team_index != NONE &&

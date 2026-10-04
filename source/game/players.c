@@ -1349,6 +1349,12 @@ static void player_spawn(
 						0,
 						struct game_globals_multiplayer_information);
 					unit_definition_index = multiplayer_information->unit.index;
+					/* port: infection's zombies are the Flood (port/linux/game/infection.c) */
+					{
+						extern long infection_player_unit_definition(long player_index, long definition_index);
+
+						unit_definition_index = infection_player_unit_definition(player_index, unit_definition_index);
+					}
 				}
 				else
 				{
@@ -1523,6 +1529,8 @@ void network_player_show_pickup(
 nothing here to do (to pick up, swap for, enter): what the host has around
 them, to the log, at most every few seconds (a client sees what to pick up
 where the host has nothing) */
+long distributed_player_machine(short player_index); /* port/linux/game/network_distributed.c */
+
 static void network_player_log_idle_action(
 	long player_index,
 	unsigned long control_flags)
@@ -1536,8 +1544,12 @@ static void network_player_log_idle_action(
 	long nearest_index = NONE;
 	real nearest_distance = 0.0f;
 
+	/* (a player on no client machine is the host's own: a bot,
+	port/linux/game/bots.c, which presses the button on the chance, and whose
+	every press went to the log) */
 	if (game_connection() != _game_connection_network_server ||
 		player->local_player_index != NONE || player->action_result != _player_action_result_reload ||
+		distributed_player_machine((short)absolute_index) == NONE ||
 		!(control_flags & (FLAG(_unit_control_action_bit) | FLAG(_unit_control_swap_weapons_bit))) ||
 		absolute_index >= HALO_PORT_MAXIMUM_NETWORK_PLAYERS ||
 		(logged_times[absolute_index] && logged_times[absolute_index] <= game_time_get() &&
@@ -3085,6 +3097,14 @@ static void player_examine_nearby_item(
 		item->item.ignore_object_index == player->unit_index)
 	{
 		return;
+	}
+	/* port: infection's zombies take nothing up: no grenades, no powerups
+	(port/linux/game/infection.c) */
+	{
+		extern boolean infection_player_is_zombie(long player_index);
+
+		if (infection_player_is_zombie(player_index))
+			return;
 	}
 
 	{
