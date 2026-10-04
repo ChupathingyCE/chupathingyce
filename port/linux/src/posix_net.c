@@ -996,6 +996,13 @@ int posix_discord_connect(void)
 					{
 						return socket_descriptor;
 					}
+#elif defined(__APPLE__)
+					/* (the same, as macOS tells it: /tmp is everyone's) */
+					uid_t user;
+					gid_t group;
+
+					if (getpeereid(socket_descriptor, &user, &group) == 0 && user == getuid())
+						return socket_descriptor;
 #else
 					return socket_descriptor;
 #endif
