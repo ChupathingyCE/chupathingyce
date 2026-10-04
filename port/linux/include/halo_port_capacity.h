@@ -33,6 +33,26 @@ vertices, as on the Xbox. */
 #define HALO_PORT_GAME_STATE_GPU_SIZE 0x40000 /* (0x40000) */
 #define HALO_PORT_GAME_STATE_SIZE (HALO_PORT_GAME_STATE_CPU_SIZE+HALO_PORT_GAME_STATE_GPU_SIZE)
 
+/* ---------- texture cache
+
+The texture cache (cache/xbox_texture_cache.c) holds the bitmaps' pixels the
+renderer draws, in 16 KB pages, and is allocated top-down in the Xbox memory
+window (cache/physical_memory_map.c). The Xbox maps' bitmaps fit the Xbox's
+22 MB. Halo PC's maps (HALO_CUSTOM_EDITION) keep their bump maps in 32 bits
+a pixel, not the Xbox's 8-bit palettized ones, and community maps draw many
+large ones at once: Portent's view of its base draws 23 MB of bitmaps in a
+frame. When a frame's bitmaps do not fit, the cache cannot load the rest
+("YOU GOT STABBED" in debug.txt), and the surfaces drawn with them show
+whatever is at their pixels' addresses. The builds that play Halo PC's maps
+double it; what else the window holds takes about 23 MB of its 86 MB above
+the game state. */
+
+#ifdef HALO_CUSTOM_EDITION
+#define HALO_PORT_TEXTURE_CACHE_SIZE 0x2C00000 /* (0x1600000) */
+#else
+#define HALO_PORT_TEXTURE_CACHE_SIZE 0x1600000 /* (0x1600000) */
+#endif
+
 /* ---------- objects */
 
 #define HALO_PORT_MAXIMUM_OBJECTS_PER_MAP 8192 /* (2048) */
