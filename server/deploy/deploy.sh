@@ -1,32 +1,27 @@
 #!/bin/sh
 # Installs or updates the dedicated server on a Linux host with Docker
-# (server/README.md). Run from the repository, after building the Linux
-# game with the game list, 32-bit or 64-bit:
-#   python3 configure.py --game-browser --portable --release && ninja linux
-#   server/deploy/deploy.sh user@host [path/to/halo]
-# (ninja linux64 and build/linux64/halo for the 64-bit game)
+# (server/docs/docker.md). Run from the repository, with a server for the
+# host's architecture: a release's chupathingyce-server-linux-<arch>, or one
+# built here (python3 tools/ci_build.py server-x64 release --alpine):
+#   server/deploy/deploy.sh user@host path/to/chupathingyce-server
 # The host's data folder, /opt/halo-dedicated/data, needs the maps (maps/,
 # the multiplayer maps and ui.map); the playlists are copied from server/.
 set -eu
 host=$1
-binary=${2:-build/linux/halo}
+binary=$2
 here=$(dirname "$0")
-# the image's Debian: the game's word size (byte 5 of its ELF header, its
-# class: 2 for the 64-bit game, ninja linux64)
-if [ "$(od -An -tu1 -j4 -N1 "$binary" | tr -d ' ')" = 2 ]; then
-	base=debian:trixie-slim
-else
-	base=i386/debian:trixie-slim
-fi
+# the image's platform: the server's architecture (an x86 server runs on an
+# x86-64 host too)
+arch=$("$here/server-arch.sh" "$binary")
 
-ssh "$host" 'sudo mkdir -p /opt/halo-dedicated/data/maps /opt/halo-dedicated/data/playlists /opt/halo-dedicated/data/saves /opt/halo-dedicated/image && sudo chown -R "$(id -un)" /opt/halo-dedicated'
-scp "$binary" "$host:/opt/halo-dedicated/image/halo"
+ssh "$host" 'sudo mkdir -p /opt/halo-dedicated/data/maps /opt/halo-dedicated/data/md_maps /opt/halo-dedicated/data/playlists /opt/halo-dedicated/data/saves /opt/halo-dedicated/image/bin/'"$arch"' && sudo chown -R "$(id -un)" /opt/halo-dedicated'
+scp "$binary" "$host:/opt/halo-dedicated/image/bin/$arch/chupathingyce-server"
 scp "$here/Dockerfile" "$host:/opt/halo-dedicated/image/"
 scp "$here"/../playlists/*.txt "$host:/opt/halo-dedicated/data/playlists/"
 # (the settings are kept once there: edit them on the host)
 ssh "$host" 'test -f /opt/halo-dedicated/dedicated.env' || scp "$here/dedicated.env" "$host:/opt/halo-dedicated/"
 scp "$here/halo-dedicated.service" "$host:/tmp/"
-ssh "$host" 'sudo docker build -q --build-arg BASE='"$base"' -t halo-dedicated /opt/halo-dedicated/image \
+ssh "$host" 'sudo docker build -q --platform linux/'"$arch"' -t halo-dedicated /opt/halo-dedicated/image \
 	&& sudo mv /tmp/halo-dedicated.service /etc/systemd/system/ \
 	&& sudo systemctl daemon-reload \
 	&& sudo systemctl enable halo-dedicated \
