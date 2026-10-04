@@ -3465,6 +3465,15 @@ static boolean new_campaign_chosen(
 	return TRUE;
 }
 
+/* port: internet play's (port/linux/src/p2p.c, p2p_lobby.c) */
+void p2p_set_hosting_allowed(int allowed);
+void p2p_set_hosting_public(int public);
+int config_boolean(const char *name);
+
+/* port: whether the PC menus' Create Game is hosting (ui_widget_port_host),
+which chose internet or LAN, public or private, itself */
+static boolean network_game_port_pc_menus_hosting = FALSE;
+
 static boolean network_game_start_new_server(
 	struct widget_instance *widget,
 	struct event_record *event,
@@ -3472,6 +3481,15 @@ static boolean network_game_start_new_server(
 {
 	boolean result = TRUE;
 
+	/* port: a game hosted from the Xbox's menus (their server list's Y,
+	Online Games) may be joined from the internet, through its invite, and
+	is listed in everyone's server browser as network.host_public says (as
+	a new game of the PC menus' Create Game > Internet starts) */
+	if (!network_game_port_pc_menus_hosting)
+	{
+		p2p_set_hosting_allowed(TRUE);
+		p2p_set_hosting_public(config_boolean("network.host_public"));
+	}
 	dispose_global_network_game_client();
 	player_ui_clear_multiplayer_variant();
 	network_game_accept_remote_connections(TRUE);
@@ -6026,7 +6044,12 @@ boolean ui_widget_port_host(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
-	return network_game_start_new_server(widget, event, widget_deleted);
+	boolean result;
+
+	network_game_port_pc_menus_hosting = TRUE;
+	result = network_game_start_new_server(widget, event, widget_deleted);
+	network_game_port_pc_menus_hosting = FALSE;
+	return result;
 }
 
 /* the game browsing (as the Xbox's server list): found games' client */
