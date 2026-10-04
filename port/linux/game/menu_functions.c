@@ -92,14 +92,14 @@ void platform_request_quit(void);
 char const *pc_menu_function_name(long function_index);
 char const *pc_menu_game_data_input_name(long function_index);
 void event_manager_post_button(short controller_index, short button_index);
-int config_text(char const *name, char *text, unsigned int size);
+int config_text(char const *name, char *text, size_t size);
 int config_write(char const *name, char const *value);
-int config_default(char const *name, char *text, unsigned int size);
+int config_default(char const *name, char *text, size_t size);
 char const *config_string(char const *name);
 void platform_display_apply(void);
 void platform_binding_capture_begin(void);
 int platform_binding_capture_poll(int *input);
-void halo_input_name(int input, char *name, unsigned int size);
+void halo_input_name(int input, char *name, size_t size);
 short pc_menu_string_index(long definition_index);
 #ifdef HALO_64BIT
 /* (declared for the 64-bit build, which takes no implicit declarations; the

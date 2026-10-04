@@ -393,9 +393,17 @@ void _rasterizer_dynamic_vertices_unlock(
 	long dynamic_vertex_buffer_index);
 void _rasterizer_dynamic_vertices_delete(
 	long dynamic_vertex_buffer_index);
+#ifdef HALO_64BIT
+/* (as defined: an x64 Windows caller leaves the upper bits of an argument
+narrower than the definition's parameter as they are) */
+void *_rasterizer_decal_vertices_lock(
+	long cache_index,
+	long cache_size);
+#else
 void *_rasterizer_decal_vertices_lock(
 	short cache_index,
 	unsigned long cache_size);
+#endif
 long _rasterizer_decal_vertices_new(
 	long size);
 void _rasterizer_decal_vertices_delete(
@@ -559,8 +567,15 @@ void _rasterizer_environment_fog_screen_wind_get_vector(
 	short wind_index,
 	real animation_time,
 	real_vector3d *wind_vector);
+#ifdef HALO_64BIT
+/* (as defined: an x64 Windows caller leaves the upper bits of an argument
+narrower than the definition's parameter as they are) */
+void _rasterizer_environment_fog_screen_begin(
+	short pass);
+#else
 void _rasterizer_environment_fog_screen_begin(
 	boolean render_fog);
+#endif
 void _rasterizer_screen_flash(
 	void);
 /* ---------- globals */

@@ -52,6 +52,11 @@ alone peers reach.
 
 #include <stdlib.h>
 #include <string.h>
+#ifdef HALO_64BIT
+/* (snprintf: the 64-bit Windows build reads no C runtime headers ahead of
+this file, as halo_linux_prefix.h has the others do) */
+#include <stdio.h>
+#endif
 
 /* ---------- address settings */
 

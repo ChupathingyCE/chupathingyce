@@ -127,7 +127,7 @@ symbols in this file:
 #include "rasterizer/rasterizer_model_types.h"
 
 /* rasterizer_frame_statistics.h; its globals clash with this file's own */
-int rasterizer_frame_statistics_count_static_vertices(
+long rasterizer_frame_statistics_count_static_vertices(
 	struct triangle_buffer const *triangle_buffer,
 	struct vertex_buffer const *vertex_buffer);
 #endif
