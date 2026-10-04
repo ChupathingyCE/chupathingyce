@@ -61,6 +61,13 @@ macos_build.py; the Android app's version is its own, build.gradle) */
 #ifdef _WIN32
 #define UPDATE_PLATFORM "windows"
 #define PATH_SEPARATOR "\\"
+#elif defined(__APPLE__)
+#define UPDATE_PLATFORM "macos"
+#define PATH_SEPARATOR "/"
+#elif defined(HALO_64BIT)
+/* (the 64-bit Linux build's own download, ninja linux64: tools/ci_build.py) */
+#define UPDATE_PLATFORM "linux64"
+#define PATH_SEPARATOR "/"
 #else
 #define UPDATE_PLATFORM "linux"
 #define PATH_SEPARATOR "/"

@@ -157,8 +157,19 @@ static void segv_handler(int signal_number, siginfo_t *information, void *contex
 	length = snprintf(line, sizeof(line), "halo: fault at %p, pc %llx fp %llx sp %llx\n",
 		information->si_addr, pc, frame, stack);
 	write(STDERR_FILENO, line, (size_t)length);
+	crash_debug_line(line);
 	count = backtrace(frames, 48);
 	backtrace_symbols_fd(frames, count, STDERR_FILENO);
+	/* (debug.txt too, as the 32-bit build does: a player sends that) */
+	{
+		int index;
+
+		for (index = 0; index < count; index++)
+		{
+			snprintf(line, sizeof(line), "halo: called from %p\n", frames[index]);
+			crash_debug_line(line);
+		}
+	}
 }
 
 static void chain(struct sigaction *previous, int signal_number, siginfo_t *information, void *context)

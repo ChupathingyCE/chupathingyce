@@ -1,8 +1,13 @@
-# The dedicated server's container (server/README.md): the 32-bit Linux
-# game built with the game list (configure.py --game-browser, ninja linux),
-# on the Debian that builds it, so its libraries are the ones it was linked
-# against. The data folder (maps, playlists) is mounted at /data.
-FROM i386/debian:trixie-slim
+# The dedicated server's container (server/README.md): the Linux game built
+# with the game list (configure.py --game-browser), on the Debian that
+# builds it, so its libraries are the ones it was linked against. The data
+# folder (maps, playlists) is mounted at /data.
+#
+# BASE is the Debian of the game's word size: the 32-bit game (ninja linux)
+# by default, the 64-bit one (ninja linux64) with
+# --build-arg BASE=debian:trixie-slim (deploy.sh picks it from the game).
+ARG BASE=i386/debian:trixie-slim
+FROM ${BASE}
 
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends libsdl3-0 ca-certificates \
