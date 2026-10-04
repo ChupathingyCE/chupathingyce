@@ -3379,7 +3379,12 @@ typedef void (*hs_token_enumerator)(
 
 struct hs_function_table_storage
 {
+#ifdef HALO_CUSTOM_EDITION
+	/* port: and Halo PC's functions the Xbox's have none of (below) */
+	struct hs_function_definition const *functions[418 + 3];
+#else
 	struct hs_function_definition const *functions[418];
+#endif
 	struct profile_section profile;
 	hs_token_enumerator token_enumerators[18];
 };
@@ -11577,7 +11582,99 @@ static struct hs_function_definition_with_1_parameter const xbox_set_machine_nam
 	},
 };
 
+#ifdef HALO_CUSTOM_EDITION
+/* port: Halo PC's functions that a Custom Edition map's scripts may call and
+the Xbox's engine has none of. A map whose scripts call one did not load
+them, and the game halted ("missing function (you need to recompile
+scripts.)": lookout_classic's and the Halo Kart maps' call sv_say). Each
+machine runs the game's scripts, so a message said reaches every player */
+static void hs_sv_say(
+	char const *message)
+{
+	wchar_t text[128];
+	short local_player_index;
+	long index;
+
+	for (index = 0; message && message[index] && index < NUMBEROF(text) - 1; index++)
+		text[index] = (wchar_t)(unsigned char)message[index];
+	text[index] = 0;
+	for (local_player_index = 0; local_player_index < MAXIMUM_LOCAL_PLAYERS; local_player_index++)
+	{
+		if (local_player_get_player_index(local_player_index) != NONE)
+			hud_print_message(local_player_index, text);
+	}
+	return;
+}
+
+/* (a map's script does not quit the game) */
+static void hs_quit_from_script(
+	void)
+{
+	error(_error_silent, "a script called quit (Halo PC's), which does nothing here");
+	return;
+}
+
+/* (sounds are read when they play: predicting one does nothing) */
+static void hs_sound_impulse_predict_evaluate(
+	short function_index,
+	long thread_index,
+	boolean initialize)
+{
+	if (hs_macro_function_evaluate(function_index, thread_index, initialize))
+		hs_return(thread_index, 0);
+	return;
+}
+
+HS_EVALUATE_VOID_STRING(hs_sv_say_evaluate, hs_sv_say)
+HS_EVALUATE_NO_ARGUMENTS(hs_quit_evaluate, hs_quit_from_script)
+
+static struct hs_function_definition_with_1_parameter const sv_say_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sv_say",
+		hs_macro_function_parse,
+		hs_sv_say_evaluate,
+		"Halo PC's: shows every player a message.",
+		NULL,
+		1,
+		{ _hs_type_string },
+	},
+};
+
+static struct hs_function_definition const quit_definition=
+{
+	_hs_type_void,
+	0,
+	"quit",
+	hs_macro_function_parse,
+	hs_quit_evaluate,
+	"Halo PC's: quits the game; from a map's script, does nothing.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition_with_2_parameters const sound_impulse_predict_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sound_impulse_predict",
+		hs_macro_function_parse,
+		hs_sound_impulse_predict_evaluate,
+		"Halo PC's: loads a sound before it plays; does nothing.",
+		NULL,
+		2,
+		{ _hs_type_sound },
+	},
+	{ _hs_type_boolean },
+};
+
+long const hs_function_table_count= 418 + 3;
+#else
 long const hs_function_table_count= 418;
+#endif
 
 struct hs_enum_definition const hs_enum_table[]=
 {
@@ -12009,6 +12106,11 @@ struct hs_function_table_storage hs_function_table=
 		&display_scenario_help_definition.definition,
 		&hs_network_game_start_now_definition,
 		&xbox_set_machine_name_definition.definition,
+#ifdef HALO_CUSTOM_EDITION
+		&sv_say_definition.definition,
+		&quit_definition,
+		&sound_impulse_predict_definition.definition,
+#endif
 	},
 	{
 		"hs_update",
@@ -13988,14 +14090,24 @@ boolean hs_scenario_postprocess(
 	}
 	else
 	{
+		/* port: a Custom Edition map's scripts that do not load are
+		logged, and it plays without them, rather than halting the game
+		(it has no source to compile them from: Halo PC's tools leave none) */
+#ifdef HALO_CUSTOM_EDITION
+		extern boolean cache_file_tags_are_ce(void);
+		short priority = cache_file_tags_are_ce() ? _error_silent : _error_immediate;
+#else
+		short priority = _error_immediate;
+#endif
+
 		if (recompile)
-			error(0, "recompiling scripts after scenarios were merged.");
+			error(priority, "recompiling scripts after scenarios were merged.");
 		else if (!error_message)
-			error(0, "an unspecified error occurred loading scripts");
+			error(priority, "an unspecified error occurred loading scripts");
 		else if (!error_source)
-			error(0, "%s", error_message);
+			error(priority, "%s", error_message);
 		else
-			error(0, "%s: %s", error_source, error_message);
+			error(priority, "%s: %s", error_source, error_message);
 
 		if (hs_compile_source() && hs_compile_postprocess(&error_message, &error_source))
 		{
