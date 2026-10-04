@@ -170,7 +170,11 @@ void hs_print(
 	 * text, from a scenario script or typed at this build's console, reads arguments
 	 * that were never passed. A corrected build should print it through "%s".
 	 * Source-policy approval pending (2026-09-27 audit). */
-	terminal_printf(global_real_argb_green, message);
+	/* (port: a scenario script's print is the game's chatter, which the
+	Xbox never showed: on screen as config.toml's game.console_log says;
+	print typed at the console, always) */
+	if (terminal_shows(terminal_command_running ? _terminal_message_serious : _terminal_message_chatter))
+		terminal_printf(global_real_argb_green, message);
 
 	return;
 }
