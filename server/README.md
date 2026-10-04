@@ -31,8 +31,9 @@ Halo PC (Custom Edition) and HaloMD maps: use the x64 or arm64 server. The
 x86 one is for the Xbox maps (it can load the others, with less room for
 their textures and sounds).
 
-An idle server uses about 3% of one CPU core and 70 to 110 MB of memory, so
-the smallest VPS will do.
+A server waiting for players uses about 2% of one CPU core, and about 85 MB
+of memory (x86) or 215 MB (x64 and arm64, whose caches are larger), so a
+small VPS will do.
 
 ## Quick start
 
