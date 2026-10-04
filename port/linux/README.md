@@ -755,6 +755,48 @@ enemies.
 `HALO_BOT_OFF=human` gives the bots their movement without the first list
 above, for a comparison.
 
+### The characters of the bots
+
+Each bot has a character for the full game. The bots do not keep it from
+one game to the next.
+
+- **A way to fight.** A duelist stays at the range of its weapon and
+  strafes. A rusher goes close. A lurker stays a little farther away, holds
+  a place, and does not follow an enemy that it lost. A hit-and-run bot
+  goes to cover when its shields are low and comes back when they are full.
+- **A habit.** One of: it crouches while it strafes, it jumps while it
+  shoots, it goes in for a melee hit when the shields of the enemy are
+  down, it throws a grenade first, or it moves back while it shoots when it
+  is hit.
+- **A grudge.** A bot remembers the players that killed it. It prefers
+  such a player as a target and goes to find a player that killed it two
+  times or more.
+- **Its run.** After some kills without a death, a bot becomes more
+  aggressive and taunts more. After some deaths without a kill, it becomes
+  more reckless or more careful, as its temper is.
+- **Its places.** A bot has 2 or 3 places on the map. It goes back to them
+  and stays there for a time.
+- **The trigger.** Some bots hold the trigger and shoot when the aim is
+  near the target. Others wait for the aim and shoot in short bursts.
+- **Melee.** Some bots go in for a melee hit when the back of an enemy is
+  to them.
+- **Vengeance** (team games). When an enemy kills a teammate near a bot,
+  the bot can go after that enemy for 5 to 13 seconds.
+- **Composure.** A hit moves the aim of some bots more than that of others.
+- **Loyalty.** A bot keeps its favourite weapon longer, and goes farther to
+  get it.
+- **Sportsmanship.** A sporting bot does not prefer an enemy who is busy
+  with another player, and it gives a player who came back to life 2
+  seconds. Other bots take each kill that they can get.
+- **Play.** Some bots turn around and jump after a kill, or crouch at a
+  teammate when they have nothing to do.
+- **Camping.** How long a bot stays in one place.
+- **The herd** (team games). Some bots follow the nearest teammate. Others
+  seldom do.
+
+With `HALO_BOT_LOG=1`, the log has one line for each bot with its
+character.
+
 ### How the bots find their way, and what they cost
 
 A bot finds its way with a search that starts at its goal. The search goes
