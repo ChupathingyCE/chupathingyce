@@ -14,7 +14,9 @@ or cannot be reached. If it is newer, the game asks whether to update:
 
 - Yes: the release's build for this platform and configuration
   (chupathingyce-<platform>-<release|debug>.zip) is downloaded next to the executable
-  (into update.partial/) and unpacked, its files put in place of the running
+  (into update.partial/), with its signature (<zip>.sig) checked against
+  the release key the game is built with (update_signature.c, update_key.h),
+  and unpacked, its files put in place of the running
   game's (which become <name>.old, deleted at the next start), and the new
   game started; this one quits.
 - No: nothing, until the next start.
@@ -28,6 +30,7 @@ update.h's: posix_update.c on Linux, win32_update.c on Windows.
 #include "platform.h"
 #include "port_config.h"
 #include "update.h"
+#include "update_signature.h"
 
 /* (given for this file by the build: tools/linux_build.py, windows_build.py,
 macos_build.py; the Android app's version is its own, build.gradle) */
@@ -80,9 +83,10 @@ macos_build.py; the Android app's version is its own, build.gradle) */
 #define UPDATE_DIRECTORY "update.partial"
 #define MAXIMUM_UPDATE_FILES 32
 /* the most a download may be: GitHub's answer about the latest release, a
-release's zip (about 30 MB) */
+release's zip (about 30 MB), its signature */
 #define MAXIMUM_CHECK_SIZE (1024ULL * 1024)
 #define MAXIMUM_UPDATE_SIZE (256ULL * 1024 * 1024)
+#define MAXIMUM_SIGNATURE_SIZE 4096ULL
 
 enum
 {
@@ -578,12 +582,14 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 	return download.succeeded;
 }
 
-/* the downloaded zip, read once and unpacked from that copy; the zip is
-deleted either way */
+/* the downloaded zip, checked against its signature and unpacked from the
+copy that was checked; the zip is deleted either way */
 static int updater_unpack(const char *zip_path, char names[][256], int *name_count, char *error, size_t error_size)
 {
-	size_t zip_size = 0;
+	char signature_path[1200];
+	size_t zip_size = 0, signature_size = 0;
 	unsigned char *zip = SDL_LoadFile(zip_path, &zip_size);
+	char *signature = NULL;
 	SDL_IOStream *stream;
 	int succeeded = 0;
 
@@ -592,6 +598,32 @@ static int updater_unpack(const char *zip_path, char names[][256], int *name_cou
 	{
 		snprintf(error, error_size, "could not read the download");
 		goto done;
+	}
+	if (update_signature_required())
+	{
+		char url[512], reason[256] = "";
+
+		updater_partial_path(signature_path, sizeof(signature_path), UPDATE_ASSET ".sig");
+		snprintf(url, sizeof(url), "https://github.com/" UPDATE_REPOSITORY "/releases/download/v%s/" UPDATE_ASSET ".sig",
+			updater_latest_version);
+		if (!update_download(url, signature_path, MAXIMUM_SIGNATURE_SIZE, NULL, NULL, reason, sizeof(reason)))
+		{
+			snprintf(error, error_size, "the new version's signature could not be downloaded (%s)", reason);
+			goto done;
+		}
+		signature = SDL_LoadFile(signature_path, &signature_size);
+		update_delete_file(signature_path);
+		if (!update_signature_check(zip, zip_size, UPDATE_ASSET, updater_latest_version, signature,
+			signature ? signature_size : 0, reason, sizeof(reason)))
+		{
+			snprintf(error, error_size, "the download was not installed: %s", reason);
+			goto done;
+		}
+		platform_log("update: the download's signature checks");
+	}
+	else
+	{
+		platform_log("update: this build has no release key: the download's signature is not checked");
 	}
 	stream = SDL_IOFromConstMem(zip, zip_size);
 	if (!stream)
@@ -603,6 +635,7 @@ static int updater_unpack(const char *zip_path, char names[][256], int *name_cou
 	SDL_CloseIO(stream);
 
 done:
+	SDL_free(signature);
 	SDL_free(zip);
 	return succeeded;
 }
@@ -673,6 +706,8 @@ static void updater_clean_up(void)
 		update_delete_file(path);
 	}
 	updater_partial_path(path, sizeof(path), UPDATE_ASSET);
+	update_delete_file(path);
+	updater_partial_path(path, sizeof(path), UPDATE_ASSET ".sig");
 	update_delete_file(path);
 	updater_path(path, sizeof(path), UPDATE_DIRECTORY);
 	update_delete_file(path);
