@@ -233,6 +233,13 @@ real periodic_function_evaluate(
 
 	if (function_type == _periodic_function_one)
 		return 1.0f;
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a Custom Edition map's tag may name a function there is none of
+	(port/linux/game/ce_functions.c makes the fields it knows valid ones):
+	the first, one, as a zeroed field is, never a table past the last */
+	if (function_type < 0 || function_type >= NUMBER_OF_PERIODIC_FUNCTIONS)
+		return 1.0f;
+#endif
 
 	match_assert(
 		"c:\\halo\\SOURCE\\math\\periodic_functions.c",
@@ -286,6 +293,11 @@ real transition_function_evaluate(
 
 	if (function_type == _transition_function_linear)
 		return value;
+#ifdef HALO_CUSTOM_EDITION
+	/* port: as for a periodic function: the first, linear */
+	if (function_type < 0 || function_type >= NUMBER_OF_TRANSITION_FUNCTIONS)
+		return value;
+#endif
 
 	match_assert(
 		"c:\\halo\\SOURCE\\math\\periodic_functions.c",
