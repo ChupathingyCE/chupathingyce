@@ -60,15 +60,15 @@
     <HaloGameForced>$(HaloRoot)port\windows\include\halo_windows_prefix.h;$(HaloRoot)port\windows\generated\halo_msvc_tags.h</HaloGameForced>
     <HaloPlatformOptions>$(HaloAbiOptions) /clang:-std=gnu11 /clang:-Wall /clang:-Wno-unused-function /clang:-Wno-unknown-pragmas /clang:-Wno-microsoft-anon-tag /clang:-Wno-pragma-pack /clang:-Wno-ignored-attributes /clang:-Wno-duplicate-decl-specifier /clang:-Wno-missing-braces /clang:-Wno-unused-variable /clang:-Wno-ignored-pragmas /clang:-Wno-microsoft-enum-forward-reference /clang:-Wno-language-extension-token "/clang:-iquote$(HaloRoot)port\linux\include"</HaloPlatformOptions>
     <HaloPlatformDefines>$(HaloAbiDefines);HALO_LINUX_PLATFORM_LAYER</HaloPlatformDefines>
-    <HaloPlatformIncludes>$(HaloRoot)port\windows\include\posix;$(HaloRoot)port\windows\include\crt;$(HaloRoot)port\linux\src;$(HaloRoot)port\windows\include;$(HaloRoot)port\third_party\tomlc17;$(HaloRoot)port\third_party\expat;$(HaloRoot)port\third_party\kcp;$(HaloRoot)port\third_party\qrcodegen;$(HaloRoot)source;$(HaloRoot)source\cseries;$(HaloSDL)\include;$(HaloRoot)port\include\xdk</HaloPlatformIncludes>
+    <HaloPlatformIncludes>$(HaloRoot)port\windows\include\posix;$(HaloRoot)port\windows\include\crt;$(HaloRoot)port\linux\src;$(HaloRoot)port\windows\include;$(HaloRoot)port\third_party\tomlc17;$(HaloRoot)port\third_party\expat;$(HaloRoot)port\third_party\kcp;$(HaloRoot)port\third_party\qrcodegen;$(HaloRoot)port\third_party\monocypher;$(HaloRoot)source;$(HaloRoot)source\cseries;$(HaloSDL)\include;$(HaloRoot)port\include\xdk</HaloPlatformIncludes>
     <HaloPlatformForced>$(HaloRoot)port\windows\include\halo_windows_prefix.h</HaloPlatformForced>
     <HaloPlatformUpdaterOptions>$(HaloAbiOptions) /clang:-std=gnu11 /clang:-Wall /clang:-Wno-unused-function /clang:-Wno-unknown-pragmas /clang:-Wno-microsoft-anon-tag /clang:-Wno-pragma-pack /clang:-Wno-ignored-attributes /clang:-Wno-duplicate-decl-specifier /clang:-Wno-missing-braces /clang:-Wno-unused-variable /clang:-Wno-ignored-pragmas /clang:-Wno-microsoft-enum-forward-reference /clang:-Wno-language-extension-token "/clang:-iquote$(HaloRoot)port\linux\include"</HaloPlatformUpdaterOptions>
     <HaloPlatformUpdaterDefines>$(HaloAbiDefines);HALO_LINUX_PLATFORM_LAYER</HaloPlatformUpdaterDefines>
-    <HaloPlatformUpdaterIncludes>$(HaloRoot)port\windows\include\posix;$(HaloRoot)port\windows\include\crt;$(HaloRoot)port\linux\src;$(HaloRoot)port\windows\include;$(HaloRoot)port\third_party\tomlc17;$(HaloRoot)port\third_party\expat;$(HaloRoot)port\third_party\kcp;$(HaloRoot)port\third_party\qrcodegen;$(HaloRoot)source;$(HaloRoot)source\cseries;$(HaloSDL)\include;$(HaloRoot)port\include\xdk</HaloPlatformUpdaterIncludes>
+    <HaloPlatformUpdaterIncludes>$(HaloRoot)port\windows\include\posix;$(HaloRoot)port\windows\include\crt;$(HaloRoot)port\linux\src;$(HaloRoot)port\windows\include;$(HaloRoot)port\third_party\tomlc17;$(HaloRoot)port\third_party\expat;$(HaloRoot)port\third_party\kcp;$(HaloRoot)port\third_party\qrcodegen;$(HaloRoot)port\third_party\monocypher;$(HaloRoot)source;$(HaloRoot)source\cseries;$(HaloSDL)\include;$(HaloRoot)port\include\xdk</HaloPlatformUpdaterIncludes>
     <HaloPlatformUpdaterForced>$(HaloRoot)port\windows\include\halo_windows_prefix.h;$(HaloGenerated)halo_version.h</HaloPlatformUpdaterForced>
     <HaloPlatformFontOptions>$(HaloAbiOptions) /clang:-std=gnu11 /clang:-Wall /clang:-Wno-unused-function /clang:-Wno-unknown-pragmas /clang:-Wno-microsoft-anon-tag /clang:-Wno-pragma-pack /clang:-Wno-ignored-attributes /clang:-Wno-duplicate-decl-specifier /clang:-Wno-missing-braces /clang:-Wno-unused-variable /clang:-Wno-ignored-pragmas /clang:-Wno-microsoft-enum-forward-reference /clang:-Wno-language-extension-token "/clang:-iquote$(HaloRoot)port\linux\include"</HaloPlatformFontOptions>
     <HaloPlatformFontDefines>$(HaloAbiDefines);HALO_LINUX_PLATFORM_LAYER</HaloPlatformFontDefines>
-    <HaloPlatformFontIncludes>$(HaloRoot)port\windows\include\posix;$(HaloRoot)port\windows\include\crt;$(HaloRoot)port\linux\src;$(HaloRoot)port\windows\include;$(HaloRoot)port\third_party\tomlc17;$(HaloRoot)port\third_party\expat;$(HaloRoot)port\third_party\kcp;$(HaloRoot)port\third_party\qrcodegen;$(HaloRoot)source;$(HaloRoot)source\cseries;$(HaloSDL)\include;$(HaloRoot)port\include\xdk;$(HaloRoot)port\third_party\stb</HaloPlatformFontIncludes>
+    <HaloPlatformFontIncludes>$(HaloRoot)port\windows\include\posix;$(HaloRoot)port\windows\include\crt;$(HaloRoot)port\linux\src;$(HaloRoot)port\windows\include;$(HaloRoot)port\third_party\tomlc17;$(HaloRoot)port\third_party\expat;$(HaloRoot)port\third_party\kcp;$(HaloRoot)port\third_party\qrcodegen;$(HaloRoot)port\third_party\monocypher;$(HaloRoot)source;$(HaloRoot)source\cseries;$(HaloSDL)\include;$(HaloRoot)port\include\xdk;$(HaloRoot)port\third_party\stb</HaloPlatformFontIncludes>
     <HaloPlatformFontForced>$(HaloRoot)port\windows\include\halo_windows_prefix.h</HaloPlatformFontForced>
     <HaloWin32BrowserOptions>$(HaloAbiOptions) /clang:-std=gnu11 /clang:-Wall</HaloWin32BrowserOptions>
     <HaloWin32BrowserDefines>$(HaloAbiDefines);WIN32_LEAN_AND_MEAN;NOMINMAX;_WIN32_WINNT=0x0A00</HaloWin32BrowserDefines>
@@ -5308,6 +5308,18 @@
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\third_party\qrcodegen\qrcodegen.c">
       <ObjectFileName>$(IntDir)qrcodegen_9da96909.obj</ObjectFileName>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <PreprocessorDefinitions>$(HaloThirdPartyDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>$(HaloThirdPartyOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\monocypher\monocypher.c">
+      <ObjectFileName>$(IntDir)monocypher_4991f82c.obj</ObjectFileName>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <PreprocessorDefinitions>$(HaloThirdPartyDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>$(HaloThirdPartyOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\monocypher\monocypher-ed25519.c">
+      <ObjectFileName>$(IntDir)monocypher-ed25519_8c57ec6b.obj</ObjectFileName>
       <WarningLevel>TurnOffAllWarnings</WarningLevel>
       <PreprocessorDefinitions>$(HaloThirdPartyDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalOptions>$(HaloThirdPartyOptions) %(AdditionalOptions)</AdditionalOptions>

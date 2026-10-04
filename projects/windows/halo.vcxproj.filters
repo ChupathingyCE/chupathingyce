@@ -37,6 +37,9 @@
     <Filter Include="port\third_party\miniupnpc\src">
       <UniqueIdentifier>{360ea012-23f5-2450-8583-47396628c904}</UniqueIdentifier>
     </Filter>
+    <Filter Include="port\third_party\monocypher">
+      <UniqueIdentifier>{f59c70a0-00b1-c941-b72f-5c7627247803}</UniqueIdentifier>
+    </Filter>
     <Filter Include="port\third_party\musl-math">
       <UniqueIdentifier>{cb276b60-e6df-73b4-7949-f111ffb1b446}</UniqueIdentifier>
     </Filter>
@@ -2198,6 +2201,12 @@
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\third_party\qrcodegen\qrcodegen.c">
       <Filter>port\third_party\qrcodegen</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\monocypher\monocypher.c">
+      <Filter>port\third_party\monocypher</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\monocypher\monocypher-ed25519.c">
+      <Filter>port\third_party\monocypher</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\third_party\expat\xmlparse.c">
       <Filter>port\third_party\expat</Filter>

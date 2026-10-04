@@ -38,6 +38,7 @@ os.chdir(ROOT)
 from tools.embed_assets import UI_FONT_FILES  # noqa: E402
 from tools.linux_build import (MBEDTLS_DIR, MINIUPNPC_DIR, MUSL_MATH_DIR, STB_DIR, XDK_INCLUDE, game_sources,  # noqa: E402
                                miniupnpc_sources, musl_math_sources)
+from tools.windows_build import MONOCYPHER_DIR  # noqa: E402
 from tools.windows_build import (COMMENT, EXPAT_DIR, EXPAT_SOURCES, EXPORTED_INLINE, GAME_FLAGS, KCP_DIR, LINUX_DIR,  # noqa: E402
                                  PLATFORM_FLAGS, PORT_DIR, QRCODEGEN_DIR, SDL_VERSION, TOML_DIR, WIN32_FLAGS,
                                  WINDOWS_ABI_FLAGS)
@@ -203,20 +204,23 @@ def main() -> None:
         "Platform": group(
             platform_flags + [f"-iquote{win(LINUX_DIR / 'include')}"], platform_defines,
             [win(posix_include), win(crt_include), win(linux_platform), win(PORT_DIR / "include"), win(TOML_DIR),
-             win(EXPAT_DIR), win(KCP_DIR), win(QRCODEGEN_DIR), win(Path("source")), win(Path("source/cseries")), sdl_include, win(XDK_INCLUDE)],
+             win(EXPAT_DIR), win(KCP_DIR), win(QRCODEGEN_DIR), win(MONOCYPHER_DIR),
+             win(Path("source")), win(Path("source/cseries")), sdl_include, win(XDK_INCLUDE)],
             [win(prefix_header)], True),
         # (updater.c, with the version the prebuild step writes: a string on
         # the command line does not survive MSBuild's quoting)
         "PlatformUpdater": group(
             platform_flags + [f"-iquote{win(LINUX_DIR / 'include')}"], platform_defines,
             [win(posix_include), win(crt_include), win(linux_platform), win(PORT_DIR / "include"), win(TOML_DIR),
-             win(EXPAT_DIR), win(KCP_DIR), win(QRCODEGEN_DIR), win(Path("source")), win(Path("source/cseries")), sdl_include, win(XDK_INCLUDE)],
+             win(EXPAT_DIR), win(KCP_DIR), win(QRCODEGEN_DIR), win(MONOCYPHER_DIR),
+             win(Path("source")), win(Path("source/cseries")), sdl_include, win(XDK_INCLUDE)],
             [win(prefix_header), version_header], True),
         # (posix_ui_font.c: stb_truetype)
         "PlatformFont": group(
             platform_flags + [f"-iquote{win(LINUX_DIR / 'include')}"], platform_defines,
             [win(posix_include), win(crt_include), win(linux_platform), win(PORT_DIR / "include"), win(TOML_DIR),
-             win(EXPAT_DIR), win(KCP_DIR), win(QRCODEGEN_DIR), win(Path("source")), win(Path("source/cseries")), sdl_include, win(XDK_INCLUDE),
+             win(EXPAT_DIR), win(KCP_DIR), win(QRCODEGEN_DIR), win(MONOCYPHER_DIR),
+             win(Path("source")), win(Path("source/cseries")), sdl_include, win(XDK_INCLUDE),
              win(STB_DIR)],
             [win(prefix_header)], True),
         # (posix_browser.c: the game list's requests, on Winsock with Mbed TLS)
@@ -279,6 +283,10 @@ def main() -> None:
     add(KCP_DIR / "ikcp.c", "ThirdParty")
     # Link Profile's QR code (port/third_party/qrcodegen; browser.c)
     add(QRCODEGEN_DIR / "qrcodegen.c", "ThirdParty")
+    # internet play's signatures, for public games' listings
+    # (port/third_party/monocypher; p2p_crypto.c)
+    for name in ("monocypher.c", "monocypher-ed25519.c"):
+        add(MONOCYPHER_DIR / name, "ThirdParty")
     for name in EXPAT_SOURCES:
         add(EXPAT_DIR / name, "Expat")
     for source in musl_math_sources():
