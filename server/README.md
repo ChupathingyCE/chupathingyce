@@ -1,162 +1,129 @@
-# Dedicated servers
+# ChupathingyCE Dedicated Server
 
-A dedicated server is a copy of the game that hosts games by itself, with
-no player of its own, around the clock. Anyone can run one: it lists its
-games on [halo.milenko.org](https://halo.milenko.org), the community's game
-list, where players find and join them (from the game's ONLINE PLAY, or
-from the site's Join buttons), and where its finished games are kept as
-carnage reports.
+A Halo: Combat Evolved server for Linux. It hosts games by itself, with no
+player of its own, around the clock, from a playlist of maps and game types.
+Its games show on [halo.milenko.org](https://halo.milenko.org), the
+community's game list, and in the in-game Server Browser of ChupathingyCE
+and OpenCE alike. Finished games get carnage reports there.
 
-| | |
-| --- | --- |
-| `src/dedicated.c` | The dedicated server, compiled into the game (the game browser builds, `HALO_GAME_BROWSER`, on by default). |
-| `src/probe.c` | The game list's probe: what an invite leads to (below). |
-| `playlists/` | Playlists: `small_maps.txt` (Slayer on the smaller maps), `team_slayer.txt` (Team Slayer on every map), `big_maps.txt` (Slayer on the roomier maps, for 32 players), `bloodgulch.txt` (Blood Gulch, Team Slayer and Slayer, for 128), `free_for_all.txt` (Slayer on every map), `slayer.txt` (Slayer and Team Slayer), `gearbox.txt` (Halo PC's own maps, Slayer and Team Slayer in turn: needs them in `maps/ce/`). |
-| `deploy/` | The server as a Docker container and a systemd service, for a Linux host. |
+It is the game itself (the same code, network protocol and version as the
+ChupathingyCE release it comes with), built as a program of its own with
+nothing a player sits in front of: no window, no sound, no controller. It is
+one file, with no libraries to install, and it runs on any Linux of its
+architecture.
+
+You don't need to open or forward any ports. Players reach your server the
+same way they reach anyone's invite link, even behind a home router.
+
+## Which download
+
+Each [release](https://github.com/ChupathingyCE/chupathingyce/releases/latest)
+has the server for three kinds of machine. Run `uname -m` on yours if you're
+not sure.
+
+| Download | `uname -m` | For |
+| --- | --- | --- |
+| `chupathingyce-server-linux-x64` | `x86_64` | Most VPSes and PCs: Intel and AMD 64-bit. |
+| `chupathingyce-server-linux-arm64` | `aarch64` | 64-bit ARM: Oracle Cloud's free tier (Ampere A1), other Ampere and Graviton servers, Raspberry Pi 4 and 5 with a 64-bit OS. |
+| `chupathingyce-server-linux-x86` | `i686`, `i386` | Older 32-bit PCs. It runs on a 64-bit x86 Linux too, and uses a little less memory there. |
+
+Halo PC (Custom Edition) and HaloMD maps: use the x64 or arm64 server. The
+x86 one is for the Xbox maps (it can load the others, with less room for
+their textures and sounds).
+
+An idle server uses about 3% of one CPU core and 70 to 110 MB of memory, so
+the smallest VPS will do.
+
+## Quick start
+
+1. Download the server for your machine and unpack it. You get
+   `chupathingyce-server`, a `playlists` folder and this README.
+2. Make a data folder with a `maps` folder in it, and copy in the game's
+   `ui.map` and the multiplayer maps (all of them: about 300 MB). Use the
+   maps of the North American (NTSC) Xbox disc, as the players do. Halo PC
+   maps go in `maps/ce`, HaloMD maps in `md_maps` ([Playlists](docs/playlists.md)).
+3. Put a playlist in the data folder's `playlists` folder (the download's,
+   or your own), and start the server:
+
+```sh
+cd /path/to/data
+HALO_DEDICATED=playlists/free_for_all.txt HALO_DEDICATED_NAME="My Server" \
+  /path/to/chupathingyce-server
+```
+
+The server prints what it is doing; leave it running. It shows on
+halo.milenko.org within a few seconds. Ctrl+C stops it, and takes its game
+off the lists as it goes.
+
+The data folder is the current folder, unless `HALO_DATA_ROOT` says
+otherwise. The server writes its log, `debug.txt`, there, and its saves in
+`~/.local/share/halo-linux` unless `HALO_SAVE_ROOT` says otherwise
+([Settings](docs/settings.md)).
+
+To keep a server running all the time, with restarts and several servers on
+one machine, use [Docker or systemd](docs/docker.md).
 
 ## What it does
 
-Any game browser build is a dedicated server when `HALO_DEDICATED` names a
-playlist in the data folder. It then:
+- Hosts a system link game with no player of its own, listed on the game
+  list. Any build that opens invite links can join it.
+- Is a public game (unless `HALO_DEDICATED_PUBLIC` is `false`): it shows in
+  the in-game Server Browser (Join Game > Server Browser) of OpenCE and
+  ChupathingyCE.
+- Plays the playlist's entries in order: once enough players have joined,
+  the lobby counts down by itself; after each game the carnage report shows
+  for 20 seconds, then the next entry's lobby opens.
+- Ends a game nobody has scored in for 5 minutes, or 30 seconds after
+  everyone has left it.
+- Plays a team entry's next entry without teams while a single player waits
+  (a team game needs a player on each team).
+- Stops on SIGTERM or SIGINT, and withdraws its game from the lists.
 
-- has no window: it draws nothing, plays no sound or movies, and needs no
-  display, so it runs on a server with no screen (about 3% of a CPU core
-  and 70 MB while it waits);
-- hosts a system link game with no player of its own, listed on the game
-  list (any build that opens invite links can join it);
-- is a public game (unless `HALO_DEDICATED_PUBLIC` is `false`): its signed
-  listing goes out through internet play's brokers, so it shows in the
-  in-game Server Browser (Join Game > Server Browser) of OpenCE and
-  ChupathingyCE alike;
-- plays the playlist's entries in order: once a player has joined, the
-  lobby counts down by itself; after each game, the carnage report shows
-  for 20 seconds, then the next entry's lobby opens;
-- ends a game nobody has scored in for 5 minutes, or 30 seconds after
-  everyone has left it;
-- plays a team entry's next entry without teams while a single player
-  waits (a team game needs a player on each team);
-- joins no invites and leaves the clipboard alone;
-- stops, and withdraws its game from the list and the Server Browser, on
-  SIGTERM or SIGINT.
+## Who can join
 
-## Settings
+Players need a build of the same network version: the ChupathingyCE release
+the server comes from (or any other of that network version), or OpenCE
+builds of that network version. `chupathingyce-server --version` prints it.
+A player with another version sees a message saying which version each side
+is on.
 
-As environment variables:
+## More
 
-| Variable | Default | |
-| --- | --- | --- |
-| `HALO_DEDICATED` | (none: not a dedicated server) | The playlist, in the data folder (`playlists/free_for_all.txt`). |
-| `HALO_DEDICATED_NAME` | `Dedicated` | The game's name on the lists (at most 15 characters). |
-| `HALO_DEDICATED_MINIMUM_PLAYERS` | `1` | The players the countdown waits for. |
-| `HALO_DEDICATED_MAXIMUM_PLAYERS` | `12` | The players the game takes. |
-| `HALO_DEDICATED_IDLE_LIMIT` | `5` | A game in which nobody scores for this many minutes ends. `0`: never. |
-| `HALO_DEDICATED_PUBLIC` | `true` | A public game, listed in every in-game Server Browser (OpenCE's and ChupathingyCE's) through internet play's brokers. `false`: not listed there (the game list still lists it, and its invite still works). |
-| `HALO_NET_BROWSER` | `https://halo.milenko.org` | The game list it announces to. |
+| | |
+| --- | --- |
+| [docs/settings.md](docs/settings.md) | Every setting, the command line, exit statuses, and the files the server writes. |
+| [docs/playlists.md](docs/playlists.md) | Playlists: the maps (Xbox, `@ce`, `@md`), the game types, and the ones included. |
+| [docs/docker.md](docs/docker.md) | The container image, the systemd services, more servers on one host, and the game list's probe. |
+| [docs/building.md](docs/building.md) | Building the server: the targets, musl and glibc, and how it differs from the game. |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in the server, release by release. |
 
-A playlist has one entry a line: a map (its name, `bloodgulch`, its
-path, a Halo PC map in the data folder's `maps/ce/` as `<name>@ce`,
-`timberland@ce`, or a HaloMD map in the data folder's `md_maps/` as
-`<name>@md`, `bgplus_5@md`) and a game type (`slayer`, `team_slayer`, `ctf`,
-`king`, `oddball`, `race`, ...). `#` starts a comment. A HaloMD map needs
-Custom Edition's `bitmaps.map`, `sounds.map` and `loc.map` in `maps/ce/`, as
-the Halo PC maps do.
+In this folder: `src/` is the dedicated server's director, compiled into the
+game (`dedicated.c`) and the game list's probe (`probe.c`); `platform/` is
+the server's own platform layer, with no window, input or sound; `playlists/`
+the playlists; `deploy/` the container and services.
 
-## Which build
+## If something's wrong
 
-The 32-bit game (`ninja linux`) is the one for servers of the Xbox maps:
-it uses less memory. The 64-bit game (`ninja linux64`) is the one for Halo
-PC, Custom Edition and HaloMD maps, which need its larger caches. The
-releases ship both: `chupathingyce-dedicated` (32-bit) and
-`chupathingyce-dedicated64` (64-bit).
-
-## Run one on a desktop
-
-Build the game (the README at the top), copy a playlist into the data
-folder's `playlists/`, and start it:
-
-```
-HALO_DEDICATED=playlists/free_for_all.txt HALO_DEDICATED_NAME="My Server" build/linux/halo
-```
-
-(or `build/macos/halo` on a Mac). Keep it running; it shows on
-halo.milenko.org within a few seconds.
-
-## Run one on a Linux server
-
-`deploy/` runs the Linux game in a Debian container (the host needs
-Docker, not the game's libraries), as the `halo-dedicated` systemd
-service: the 64-bit game (`ninja linux64`) in a Debian amd64 container, or
-the 32-bit game (`ninja linux`) in a Debian i386 one (above: the 32-bit
-game for the Xbox maps, the 64-bit one for Halo PC and HaloMD maps).
-`deploy.sh` picks the container from the game it is given (the
-Dockerfile's `BASE`).
-
-1. Build the Linux game on Debian 13 (its libraries are the container's):
-   `python3 configure.py --portable --release && ninja linux64`
-   (`build/linux64/halo`), or `ninja linux` for the 32-bit game
-   (`build/linux/halo`).
-2. Copy the maps to the host's `/opt/halo-dedicated/data/maps`: `ui.map`
-   and the multiplayer maps (about 300 MB). Use the North American (NTSC)
-   maps. Halo PC maps and their `bitmaps.map`, `sounds.map` and `loc.map`
-   go in `maps/ce/` there, HaloMD maps in `/opt/halo-dedicated/data/md_maps`.
-3. Run `server/deploy/deploy.sh user@host build/linux64/halo`. It copies the
-   game and the playlists, builds the image, and installs and starts the
-   service.
-
-The settings are in `/opt/halo-dedicated/dedicated.env` on the host (from
-`deploy/dedicated.env` the first time); after a change,
-`sudo systemctl restart halo-dedicated`. The game's log is
-`/opt/halo-dedicated/data/debug.txt`, the service's
-`journalctl -u halo-dedicated`.
-
-The server needs no open ports: internet play reaches players through the
-same hole punching as any host's invite.
-
-### More servers on the same host
-
-Each further server is the `halo-dedicated@<name>` service: the same image,
-its settings in `deploy/instances/<name>.env` (`team.env`: Team Slayer on
-every map), its own data folder `/opt/halo-dedicated/instances/<name>`
-(saves, `debug.txt`), and the first server's maps and playlists. All play on
-the host's network (hole punching does not get through a bridge's NAT to
-players behind their own), each with system link on a loopback address of
-its own (`HALO_NET_ADDRESS`: 127.0.0.2 the first, 127.0.0.3 the team
-server, 127.0.0.4 `max.env`'s 32-player Slayer, 127.0.0.5 `bloodgulch.env`'s
-128-player Blood Gulch), since two cannot share its port on one address.
-After `deploy.sh`, run `server/deploy/deploy-instance.sh user@host team`.
-Its log is `journalctl -u halo-dedicated@team`.
-
-## Probing a game
-
-Any game browser build is also the game list's **probe** when `HALO_PROBE`
-holds an invite (the digits after `halo://join/`). It reads the game that
-invite leads to, the way a joining player's copy sees it advertised, prints
-it as one line and quits, without joining the game or taking a place in it.
-halo.milenko.org uses it to list games hosted by copies without the game
-list: a signed-in player gives their invite, and the site checks it before
-listing it and while it is listed.
-
-```
-HALO_PROBE=068f5721cffe... build/linux/halo
-probe: {"ok": true, "name": "Milenko Slayer", "map": "chillout", "engine": "slayer", "players": 0, "maximum_players": 12, "open": true, "teams": false, "network_version": 10, "compatible": true}
-```
-
-It needs only `maps/ui.map` in the data folder (and about 33 MB for its
-saves, the game's scratch drive), runs without a window as the dedicated
-server does, and takes about 3 seconds. A host that does not
-answer in 20 seconds gives `{"ok": false, "error": "no answer from the host"}`
-(exit status 1).
-
-`deploy/deploy-probe.sh user@host build/linux/halo "<site's SSH key>"` puts it
-on a dedicated server's host beside the server, which it leaves as it is:
-a `halo-probe` image (the same Dockerfile), `probe.sh`, which runs one probe
-in a container of its own that goes when it is done, and a `probe` user
-whose key may only ask for a probe (`probe-ssh.sh`). halo.milenko.org runs
-its probes there.
+- **It stops at once with "no maps".** The data folder needs
+  `maps/ui.map`. Start the server from the data folder, or set
+  `HALO_DATA_ROOT` to it.
+- **"cannot read the playlist".** `HALO_DEDICATED` is a path inside the data
+  folder: `playlists/my_playlist.txt`, not a path from elsewhere.
+- **It doesn't show on the site.** The log is `debug.txt` in the data folder.
+  The server needs to reach the internet (HTTPS to halo.milenko.org, and UDP).
+- **It shows, but nobody can join.** The player probably has another
+  version; the message they see says which.
+- **It sits in the lobby and never starts.** Check that every multiplayer
+  map is in `maps`, not just the playlist's. With
+  `HALO_DEDICATED_MINIMUM_PLAYERS` above 1, it waits for that many.
+- **"cannot reserve the Xbox address space"** (arm64). The kernel gives the
+  program fewer addresses than it needs (below 39 bits). Every 64-bit
+  Raspberry Pi OS, Ubuntu and Oracle Linux kernel has enough; tell us which
+  system this is.
 
 ## The game list
 
 halo.milenko.org is run by Milenko for the community. It keeps the list of
 games being hosted, the carnage reports of finished games, players' service
 records and profiles. Its code is not in this repository. Please be kind to
-it: one listing per game, as the game does by itself.
+it: one listing per game, as the server does by itself.

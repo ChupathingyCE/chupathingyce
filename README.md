@@ -29,7 +29,7 @@ own releases. Expect rough edges, and please report them.
 - Invite links (`halo://join/…`) to send to friends; opening one joins their game
 - Direct connections between players, with no port forwarding in most homes
 - Plays with OpenCE builds of the same network version, both ways
-- Dedicated servers anyone can run: a playlist of games, around the clock, with no window or player
+- Dedicated servers anyone can run: a playlist of games, around the clock, on Linux x86, x64 or arm64
 
 **Stats, on [halo.milenko.org](https://halo.milenko.org)**
 - A carnage report for every finished game, with medals
@@ -49,7 +49,7 @@ own releases. Expect rough edges, and please report them.
 | --- | --- | --- | --- | --- |
 | The game | Yes | Yes, Apple silicon and Intel | Yes | Yes |
 | Online Games, hosting, stats | Yes | Yes | Yes | Yes |
-| Dedicated server | Yes (tested in Wine) | Untested | Yes (and Docker) | |
+| Dedicated server | The game, for a test | The game, for a test | Yes: x86, x64 and arm64, and Docker | |
 | Updates itself | Yes | Not yet | Yes | Yes |
 | Halo PC (Custom Edition) maps | 64-bit build only | Yes | Yes | Not yet |
 | HaloMD maps | 64-bit build only | Yes | Yes | Not yet |
@@ -207,11 +207,11 @@ overrides the file.
 
 ## Run a server
 
-A dedicated server is a copy of the game with no player and no window, hosting
-a playlist of games and listing them on halo.milenko.org and in Online Games.
-You can run one on your own computer, with no port forwarding:
-[the setup guide](docs/dedicated-server.md) walks through it. For one that runs
-around the clock on a Linux server, see [server/README.md](server/README.md).
+The ChupathingyCE Dedicated Server hosts a playlist of games around the clock,
+with no player of its own, and lists them on halo.milenko.org and in the
+Server Browser. It is its own download for Linux on x86, x64 and arm64
+(Oracle Cloud's free tier and Raspberry Pis included): one file, no libraries
+to install, and no port forwarding. See [server/README.md](server/README.md).
 
 ## How ChupathingyCE relates to OpenCE
 
@@ -241,6 +241,7 @@ ninja            # the game for the computer you're on
 | `ninja windows` | `build/windows/halo.exe` | [port/windows/README.md](port/windows/README.md) |
 | `ninja windows64` | `build/windows64/halo.exe`, the 64-bit game | [port/windows/README.md](port/windows/README.md#64-bit) |
 | `ninja android_apk` | the Android app | [port/android/README.md](port/android/README.md) |
+| `ninja server` | `build/server-<arch>/chupathingyce-server`, the dedicated server (Linux) | [server/docs/building.md](server/docs/building.md) |
 
 Useful `configure.py` options:
 
