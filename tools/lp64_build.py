@@ -22,7 +22,7 @@ import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Sequence, Set
 
 from .linux_build import (
     CUSTOM_EDITION_DEFINES,
@@ -136,6 +136,9 @@ class Lp64Host:
     excluded: Set[str] = field(default_factory=set)
     # the host's own platform units, with posix_flags
     host_sources: List[Path] = field(default_factory=list)
+    # more platform units with the Xbox's ABI, rewritten and built as
+    # port/linux/src's (the dedicated server's: tools/server_build.py)
+    platform_sources: List[Path] = field(default_factory=list)
 
 
 @dataclass
@@ -168,12 +171,12 @@ def lp64_configure_inputs() -> List[Path]:
     return [Path(__file__), LINUX_PORT_CONFIG, LINUX_PORT_DIR / "src", LINUX_PORT_DIR / "game"]
 
 
-def rewritten_inputs() -> List[Path]:
+def rewritten_inputs(extra_roots: Sequence[Path] = ()) -> List[Path]:
     """Every file compiled or included with the Xbox's ABI: the rewrite's
     inputs. Headers come along whole, so that includes relative to the
     including file find the rewritten copies."""
     roots = [Path("source"), LINUX_PORT_DIR / "game", LINUX_PORT_DIR / "src", LINUX_PORT_DIR / "include",
-             Path("port/include"), KCP_DIR, TOML_DIR, Path("server/src")]
+             Path("port/include"), KCP_DIR, TOML_DIR, Path("server/src"), *extra_roots]
     files = []
     for root in roots:
         for path in sorted(root.rglob("*")):
@@ -186,7 +189,7 @@ class Lp64Build:
     """One 64-bit build's shared rules: the rewritten sources, the MSVC
     semantics headers and the compile rule (``{name}_cc``)."""
 
-    def __init__(self, n: Writer, sln: Any, name: str, cc: str) -> None:
+    def __init__(self, n: Writer, sln: Any, name: str, cc: str, extra_roots: Sequence[Path] = ()) -> None:
         self.n = n
         self.sln = sln
         self.name = name
@@ -204,7 +207,7 @@ class Lp64Build:
             restat=True,
         )
         rewritten = []
-        for source in rewritten_inputs():
+        for source in rewritten_inputs(extra_roots):
             n.build(outputs=self.lp64(source), rule=f"{name}_lp64", inputs=source,
                     implicit=[Path("tools/lp64_rewrite.py")])
             rewritten.append(self.lp64(source))
@@ -314,6 +317,10 @@ class Lp64Build:
                 add(lp64(source), f"{platform_cflags} -idirafter {LINUX_PORT_DIR / 'src'}")
             else:
                 add(lp64(source), platform_cflags)
+        # (the dedicated server's own platform units, with the version's
+        # defines as updater.c: tools/server_build.py)
+        for source in host.platform_sources:
+            add(lp64(source), f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
         # the high-res HUD's textures (port/assets/hud; port/linux/src/hud_hires.c),
         # with the platform units' flags: its table is hud_hires.h's, from the
         # 64-bit tree
