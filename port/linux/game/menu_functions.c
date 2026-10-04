@@ -76,6 +76,9 @@ their handlers open opens.
 #include "halo_menus.h"
 /* (internet play's server browser: the platform layer's) */
 #include "../src/p2p.h"
+#ifdef HALO_GAME_BROWSER
+#include "../src/browser.h"
+#endif
 
 #include <stdlib.h>
 #include <string.h>
@@ -2726,22 +2729,216 @@ static short lobby_browser_rows_place(struct widget_instance *list)
 	return focused;
 }
 
-/* the Players line: how many of how many */
+/* ---- the server browser's second source (configure.py --game-browser):
+the games of a game list, network.browser_url (port/linux/src/browser.c;
+halo.milenko.org by default), merged into the listings' as listings of
+their own. A game both list is shown once, as its listing (the same invite
+token); one on a Halo PC (Custom Edition) map, which its host lists as
+<map>@ce, is marked PC, and cannot be joined: this build cannot play those
+maps */
+
+#ifdef HALO_GAME_BROWSER
+static struct
+{
+	struct browser_game games[BROWSER_MAXIMUM_GAMES];
+	/* whether each is in the browser's list (not one a listing has) */
+	boolean shown[BROWSER_MAXIMUM_GAMES];
+	short count;
+} lobby_browser_listed;
+
+/* whether two invites (an invite link's, the list's code) are the same
+game's: their token, the last 32 hexadecimal digits */
+static boolean lobby_browser_same_token(char const *link, char const *code)
+{
+	size_t link_length = strlen(link), code_length = strlen(code);
+
+	return link_length >= 32 && code_length >= 32 && !_stricmp(link + link_length - 32, code + code_length - 32);
+}
+
+/* the game list's game a game of the browser's is, or NULL (a listing) */
+static struct browser_game const *lobby_browser_listed_game(struct p2p_listing const *game)
+{
+	short index;
+
+	for (index = 0; index < lobby_browser_listed.count; index++)
+	{
+		if (lobby_browser_listed.shown[index] && lobby_browser_same_token(game->invite,
+			lobby_browser_listed.games[index].invite))
+		{
+			return &lobby_browser_listed.games[index];
+		}
+	}
+	return NULL;
+}
+
+/* a game list's game's map: its scenario's name, without a Halo PC map's
+@ce; whether it is a Halo PC map */
+static boolean lobby_browser_listed_map(struct browser_game const *game, char *map, short size)
+{
+	char const *name = scenario_name(game->map);
+	size_t length = strlen(name);
+	boolean halo_pc = length > 3 && !_stricmp(name + length - 3, "@ce");
+
+	snprintf(map, (size_t)size, "%.*s", (int)(halo_pc ? length - 3 : length), name);
+	return halo_pc;
+}
+
+/* the game list's games, after the listings: those the listings have not */
+static void lobby_browser_add_listed(void)
+{
+	/* (its gametypes as a listing names them) */
+	static char const *const gametypes[] = { "Game", "CTF", "Slayer", "Oddball", "King", "Race" };
+	short index;
+
+	lobby_browser_listed.count = 0;
+	if (!config_boolean("network.online") || !config_boolean("network.public_lobby"))
+		return;
+	lobby_browser_listed.count = (short)browser_get_games(lobby_browser_listed.games, BROWSER_MAXIMUM_GAMES);
+	for (index = 0; index < lobby_browser_listed.count; index++)
+	{
+		struct browser_game const *listed = &lobby_browser_listed.games[index];
+		struct p2p_listing *game;
+		short other, engine;
+
+		lobby_browser_listed.shown[index] = FALSE;
+		for (other = 0; other < lobby_browser.count; other++)
+		{
+			if (lobby_browser_same_token(lobby_browser.games[other].invite, listed->invite))
+				break;
+		}
+		if (other < lobby_browser.count || lobby_browser.count >= LOBBY_BROWSER_GAMES)
+			continue;
+		lobby_browser_listed.shown[index] = TRUE;
+		game = &lobby_browser.games[lobby_browser.count++];
+		csmemset(game, 0, sizeof(*game));
+		snprintf(game->invite, sizeof(game->invite), "halo://join/%s", listed->invite);
+		/* (the host's identifier: its invite's first 6 bytes, made a
+		locally administered address, as p2p.c makes it) */
+		for (other = 0; other < (short)sizeof(game->identifier); other++)
+		{
+			unsigned int value = 0;
+
+			sscanf(listed->invite + 2 * other, "%2x", &value);
+			game->identifier[other] = (unsigned char)value;
+		}
+		game->identifier[0] = (unsigned char)((game->identifier[0] & 0xFC) | 0x02);
+		for (other = 0; other < BROWSER_NAME_LENGTH && listed->name[other] && other < P2P_LISTING_NAME_SIZE; other++)
+		{
+			unsigned short character = listed->name[other];
+
+			game->name[other] = character >= 0x20 && character < 0x7F ? (char)character : '?';
+		}
+		lobby_browser_listed_map(listed, game->map, sizeof(game->map));
+		engine = (short)PIN(listed->engine, 0, NUMBEROF(gametypes) - 1);
+		snprintf(game->gametype, sizeof(game->gametype), "%s%s", listed->teams && engine != 1 ? "Team " : "",
+			gametypes[engine]);
+		game->player_count = (unsigned char)PIN(listed->players, 0, 255);
+		game->maximum_player_count = (unsigned char)PIN(listed->maximum_players, 0, 255);
+		game->engine_type = (unsigned char)engine;
+		game->open = listed->open;
+		game->has_teams = listed->teams;
+		game->ping = -1;
+	}
+}
+
+static boolean lobby_browser_halo_pc(struct p2p_listing const *game)
+{
+	struct browser_game const *listed = lobby_browser_listed_game(game);
+	char map[BROWSER_MAP_LENGTH];
+
+	return listed && lobby_browser_listed_map(listed, map, sizeof(map));
+}
+
+/* the Players line's names (the host's roster, when the list has it) */
+static void lobby_browser_roster_text(struct p2p_listing const *game, wchar_t *text, short size)
+{
+	struct browser_game const *listed = lobby_browser_listed_game(game);
+	short index, used;
+
+	if (!listed || !listed->roster_count)
+		return;
+	for (index = 0; index < MIN(listed->roster_count, BROWSER_LISTED_ROSTER); index++)
+	{
+		wchar_t name[NUMBEROF(listed->roster[index].name) + 1];
+		short character;
+
+		for (character = 0; character < NUMBEROF(listed->roster[index].name) && listed->roster[index].name[character];
+			character++)
+		{
+			name[character] = (wchar_t)listed->roster[index].name[character];
+		}
+		name[character] = 0;
+		used = (short)ustrlen(text);
+		/* (room kept for what is left unsaid) */
+		if (used + (short)ustrlen(name) + 16 >= size)
+			break;
+		usnprintf(text + used, size - 1 - used, L"%s%s", index ? L", " : L": ", name);
+		text[size - 1] = 0;
+	}
+	if (index < listed->roster_count)
+	{
+		used = (short)ustrlen(text);
+		usnprintf(text + used, size - 1 - used, L" +%d more", listed->roster_count - index);
+		text[size - 1] = 0;
+	}
+}
+
+/* the score to win, when the list has it (0: not known) */
+static short lobby_browser_score_limit(struct p2p_listing const *game)
+{
+	struct browser_game const *listed = lobby_browser_listed_game(game);
+
+	return listed ? listed->score_limit : 0;
+}
+#else
+static void lobby_browser_add_listed(void)
+{
+}
+
+static boolean lobby_browser_halo_pc(struct p2p_listing const *game)
+{
+	(void)game;
+	return FALSE;
+}
+
+static void lobby_browser_roster_text(struct p2p_listing const *game, wchar_t *text, short size)
+{
+	(void)game;
+	(void)text;
+	(void)size;
+}
+
+static short lobby_browser_score_limit(struct p2p_listing const *game)
+{
+	(void)game;
+	return 0;
+}
+#endif
+
+/* the Players line: how many of how many (and who, when it is known) */
 static void lobby_browser_players_text(struct p2p_listing const *game, wchar_t *text, short size)
 {
 	usnprintf(text, size - 1, L"%d of %d", game->player_count, game->maximum_player_count);
 	text[size - 1] = 0;
+	lobby_browser_roster_text(game, text, size);
 }
 
-/* the Rules line: the gametype, the map, and whether it is under way */
+/* the Rules line: the gametype, its score (when known), the map, and
+whether it is under way */
 static void lobby_browser_rules_text(struct p2p_listing const *game, wchar_t *text, short size)
 {
 	wchar_t gametype[P2P_LISTING_GAMETYPE_SIZE + 1];
 	wchar_t map[ROW_TEXT_LENGTH];
+	wchar_t score[16];
+	short score_limit = lobby_browser_score_limit(game);
 
 	text_to_wide(game->gametype, gametype, NUMBEROF(gametype));
 	map_display_name(game->map, map);
-	usnprintf(text, size - 1, L"%s on %s%s", gametype[0] ? gametype : engine_names[PIN(game->engine_type, 0, 5)], map,
+	score[0] = 0;
+	if (score_limit > 0)
+		usnprintf(score, NUMBEROF(score) - 1, L" to %d", score_limit);
+	usnprintf(text, size - 1, L"%s%s on %s%s%s", gametype[0] ? gametype : engine_names[PIN(game->engine_type, 0, 5)],
+		score, map, lobby_browser_halo_pc(game) ? L" (HALO PC)" : L"",
 		!game->open ? L": full or starting" : game->in_progress ? L": under way" : L"");
 	text[size - 1] = 0;
 }
@@ -2761,6 +2958,7 @@ static void lobby_browser_update(struct widget_instance *list)
 	boolean message;
 
 	lobby_browser.count = (short)p2p_lobby_games(lobby_browser.games, LOBBY_BROWSER_GAMES);
+	lobby_browser_add_listed();
 	lobby_browser_sort();
 	focused = lobby_browser_rows_place(list);
 	/* (the first game found takes the focus from the buttons, which had it
@@ -2804,6 +3002,14 @@ static void lobby_browser_update(struct widget_instance *list)
 		text_to_wide(game->name, text, ROW_TEXT_LENGTH);
 		text_set(named(row, "server_item_server_name", 0), text);
 		map_display_name(game->map, text);
+		/* (a Halo PC map's game: marked) */
+		if (lobby_browser_halo_pc(game))
+		{
+			short length = (short)ustrlen(text);
+
+			usnprintf(text + length, ROW_TEXT_LENGTH - 1 - length, L" PC");
+			text[ROW_TEXT_LENGTH - 1] = 0;
+		}
 		text_set(named(row, "server_item_map", 0), text);
 		text_set(named(row, "server_item_type", 0), engine_names[PIN(game->engine_type, 0, 5)]);
 		usnprintf(text, ROW_TEXT_LENGTH - 1, L"%d/%d", game->player_count, game->maximum_player_count);
@@ -2971,6 +3177,11 @@ static boolean lobby_browser_select(struct widget_instance *widget, short contro
 	if (index >= lobby_browser.count)
 		return campaign_fail();
 	game = &lobby_browser.games[index];
+	if (lobby_browser_halo_pc(game))
+	{
+		lobby_browser_message(L"This game is on a Halo PC map, which this build can't play.");
+		return campaign_fail();
+	}
 	if (!game->open)
 	{
 		lobby_browser_message(L"That game is not taking players.");
