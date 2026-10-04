@@ -574,9 +574,10 @@ enum
 	MODEL_PERMUTATION_SIZE = 0x58,
 	MODEL_PERMUTATION_GEOMETRIES_OFFSET = 0x40,
 	MODEL_SHADER_SIZE = 0x20,
-	/* (model_definitions.h's maximums; the renderer skins at most 43 nodes:
-	rasterizer.h's RASTERIZER_MAXIMUM_NODES_PER_MODEL) */
-	CE_MAXIMUM_MODEL_NODES = 43,
+	/* (model_definitions.h's maximums; the renderer skins a model's first
+	43 nodes: rasterizer.h's RASTERIZER_MAXIMUM_NODES_PER_MODEL, models.c) */
+	CE_MAXIMUM_MODEL_NODES = 64,
+	CE_MAXIMUM_SKINNED_NODES = 43,
 	CE_MAXIMUM_MODEL_MARKERS = 256,
 	CE_MAXIMUM_MARKER_INSTANCES = 32,
 	CE_MAXIMUM_MODEL_REGIONS = 32,
@@ -686,7 +687,10 @@ static boolean ce_model_nodes_check(
 }
 
 /* a part's strip and vertices: in the model data, each index one of its
-vertices, each vertex's nodes the model's; the room its conversion takes */
+vertices, each vertex's nodes the model's and among those the renderer skins
+(a model of more nodes, a first-person weapon's with the arms' and its own,
+is drawn with its first CE_MAXIMUM_SKINNED_NODES: models.c); the room its
+conversion takes */
 static boolean ce_part_check(
 	byte const *part,
 	char const *name,
@@ -758,6 +762,11 @@ static boolean ce_part_check(
 				node_index = part[CE_PART_LOCAL_NODES_OFFSET + node_index];
 			if (node_index >= node_count)
 				return ce_refuse("model %s: a vertex is skinned to node %d of %ld", name, node_index, node_count);
+			if (node_index >= CE_MAXIMUM_SKINNED_NODES)
+			{
+				return ce_refuse("model %s: a vertex is skinned to node %d, past the %d nodes the renderer skins "
+					"(not supported)", name, node_index, CE_MAXIMUM_SKINNED_NODES);
+			}
 		}
 	}
 	*bytes += CE_ALIGNED(index_count * sizeof(word)) + 2 * CE_BUFFER_HEADER_ROOM;
