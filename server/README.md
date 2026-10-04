@@ -72,16 +72,20 @@ halo.milenko.org within a few seconds.
 
 ## Run one on a Linux server
 
-`deploy/` runs the 32-bit Linux game in a Debian i386 container (the host
-needs Docker, not 32-bit libraries), as the `halo-dedicated` systemd
-service.
+`deploy/` runs the Linux game in a Debian container (the host needs
+Docker, not the game's libraries), as the `halo-dedicated` systemd
+service: the 64-bit game (`ninja linux64`) in a Debian amd64 container, or
+the 32-bit game (`ninja linux`) in a Debian i386 one. `deploy.sh` picks the
+container from the game it is given (the Dockerfile's `BASE`).
 
 1. Build the Linux game on Debian 13 (its libraries are the container's):
-   `python3 configure.py --portable --release && ninja linux`.
+   `python3 configure.py --portable --release && ninja linux64`
+   (`build/linux64/halo`), or `ninja linux` for the 32-bit game
+   (`build/linux/halo`).
 2. Copy the maps to the host's `/opt/halo-dedicated/data/maps`: `ui.map`
    and the multiplayer maps (about 300 MB). Use the North American (NTSC)
    maps.
-3. Run `server/deploy/deploy.sh user@host build/linux/halo`. It copies the
+3. Run `server/deploy/deploy.sh user@host build/linux64/halo`. It copies the
    game and the playlists, builds the image, and installs and starts the
    service.
 

@@ -1,9 +1,8 @@
 name: Build
 
-# Debug and release builds of the native ports (Linux, Windows, Android,
-# macOS) for
-# every pushed commit and pull request, uploaded as artifacts: whether a
-# change builds. tools/ci_build.py does each build; see it for the options.
+# Debug and release builds of the native ports (Linux, 32- and 64-bit,
+# Windows, Android, macOS) for every pushed commit and pull request,
+# uploaded as artifacts: whether a change builds. tools/ci_build.py does each build; see it for the options.
 #
 # Releases and nightlies are not made here: ChupathingyCE's release
 # workflows build them from the versions they pin, signed, and publish them
@@ -86,6 +85,46 @@ jobs:
         with:
           name: chupathingyce-linux-release
           path: dist/chupathingyce-linux-release
+          retention-days: 3
+
+  linux64:
+    # The native 64-bit Linux build (ninja linux64), on Arch Linux as the
+    # 32-bit one, with 64-bit SDL 3.
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    timeout-minutes: 40
+    steps:
+      - name: Install the toolchain
+        run: |
+          pacman -Syu --noconfirm --needed git zstd python ninja ccache clang lld gcc sdl3
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-linux64-${{ github.sha }}
+          restore-keys: ccache-linux64-
+
+      - name: Debug
+        run: python tools/ci_build.py linux64 debug
+
+      - name: Release
+        run: python tools/ci_build.py linux64 release
+
+      - name: Compile cache
+        run: ccache --show-stats
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chupathingyce-linux64-debug
+          path: dist/chupathingyce-linux64-debug
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chupathingyce-linux64-release
+          path: dist/chupathingyce-linux64-release
           retention-days: 3
 
   android:

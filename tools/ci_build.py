@@ -34,6 +34,8 @@ from tools.version import base_version, release_build, version  # noqa: E402
 # what each port's build leaves, and what goes into dist/
 OUTPUTS = {
     "linux": ["build/linux/halo"],
+    # the native 64-bit build (ninja linux64; tools/linux64_build.py)
+    "linux64": ["build/linux64/halo"],
     "windows": ["build/windows/halo.exe", "build/windows/SDL3.dll"],
     "android": [],  # the APK, below
     # the application (universal and self-contained: --portable), whole
@@ -100,7 +102,7 @@ def main() -> int:
     # XisoExtractor.java) follow extract-xiso, whose license asks binaries
     # to carry its notice
     shutil.copy2(ROOT / "port/third_party/extract-xiso/LICENSE.TXT", dist / "extract-xiso-LICENSE.txt")
-    if args.platform == "linux":
+    if args.platform in ("linux", "linux64"):
         # the self-updater's TLS (port/third_party/mbedtls), whose Apache
         # license asks the same
         shutil.copy2(ROOT / "port/third_party/mbedtls/LICENSE", dist / "mbedtls-LICENSE.txt")
