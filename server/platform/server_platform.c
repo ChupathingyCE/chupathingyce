@@ -235,6 +235,13 @@ BOOL platform_screen_mode(long *width, long *height)
 	return FALSE;
 }
 
+BOOL platform_window_pixel_size(long *width, long *height)
+{
+	(void)width;
+	(void)height;
+	return FALSE;
+}
+
 BOOL platform_video_initialize(unsigned long width, unsigned long height)
 {
 	(void)width;
