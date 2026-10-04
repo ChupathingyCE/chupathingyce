@@ -97,7 +97,10 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
         rule="linux64_link",
         inputs=objects,
         variables={
-            "ldflags": " ".join([LINUX64_TARGET, "-g", *lto_ldflags]),
+            # (not position-independent, as the 32-bit build: the addresses
+            # of a crash report's calls, in debug.txt, are the executable's
+            # own, the same from run to run)
+            "ldflags": " ".join([LINUX64_TARGET, "-g", "-no-pie", *lto_ldflags]),
             "libs": " ".join(f"-l{lib}" for lib in config.get("libraries", [])),
         },
         implicit=[Path("tools/linux_link_check.py")],
