@@ -2160,7 +2160,14 @@ macOS's OpenGL 4.1 */
 static void copy_level_by_blit(GLuint source, GLuint destination, GLint level, GLsizei width, GLsizei height)
 {
 	static GLuint draw_framebuffer;
+	/* this runs while a draw is set up (bind_textures, after bind_targets and
+	apply_raster_state): the draw's framebuffers and scissor are put back, or
+	it would go to the default framebuffer, unseen (water's ripples, b30) */
+	GLint previous_draw = 0, previous_read = 0;
+	GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
 
+	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previous_draw);
+	glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previous_read);
 	if (!draw_framebuffer)
 		glGenFramebuffers(1, &draw_framebuffer);
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer_get(source, 0));
@@ -2168,7 +2175,10 @@ static void copy_level_by_blit(GLuint source, GLuint destination, GLint level, G
 	glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, destination, level);
 	glDisable(GL_SCISSOR_TEST);
 	glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)previous_read);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)previous_draw);
+	if (scissor)
+		glEnable(GL_SCISSOR_TEST);
 	/* the blit bypasses the cached state, so the next draw must re-apply it */
 	xgpu_gl_state_invalidate();
 }
