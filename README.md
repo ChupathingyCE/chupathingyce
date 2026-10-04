@@ -194,6 +194,38 @@ are for checking changes.
   extract-xiso, and Project Nayuki's QR Code generator. Their licenses are
   beside them in `port/third_party`.
 
+### Contributors
+
+Fixes from other people's OpenCE pull requests and forks, taken into
+ChupathingyCE with their authors credited in each commit. What OpenCE has
+merged itself, such as MrBruh's work, comes with OpenCE and is credited
+there.
+
+- [Tyberious](https://github.com/Tyberious) (Jeff Clark): Xbox ADPCM decoding
+  without the 344 Hz buzz, vertex constant serials that never wrap, pose
+  snapping for frame interpolation, and the clip-space position kept on the
+  desktop (no more first-person vertex spikes).
+- [thelinkin3000](https://github.com/thelinkin3000): the motion sensor for
+  three and four local players (a split screen crash), and split screen
+  dividers where the views meet on a wide screen.
+- [xshxdex98](https://github.com/xshxdex98) ([DamnationCE](https://github.com/xshxdex98/DamnationCE)):
+  the pause menu's QUIT by mouse or keyboard, and lens flares out of view no
+  longer tested.
+- [zimm3rmann](https://github.com/zimm3rmann): visibility test slot 0 kept
+  apart from the scratch query (lens flares sharing a result).
+- [nsafran1217](https://github.com/nsafran1217) (Nathan Safran): no hang
+  where the visibility results buffer cannot be mapped.
+- [saulob](https://github.com/saulob): the first menu frame's colors.
+- [natsu-anon](https://github.com/natsu-anon): the cursor hidden during play.
+- [lantos1618](https://github.com/lantos1618): no ghosting in the zoom effect
+  at high resolutions; on macOS, Command-W does not quit and Command-Q asks
+  twice.
+- [pfista](https://github.com/pfista) (Michael Pfister): projectile trails
+  ready before a weapon's first shot.
+- [JoshRob297](https://github.com/JoshRob297): hosts that run their own games
+  (the dedicated servers) no longer refuse every join after one arrived as a
+  game ended.
+
 Halo is a trademark of Microsoft. ChupathingyCE is a fan project, not made or
 endorsed by Microsoft, Bungie or 343 Industries, and includes none of the
 game's content. The code is released under [CC0](LICENSE.md).
