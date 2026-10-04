@@ -1,7 +1,7 @@
 name: Build
 
-# Debug and release builds of the native ports (Linux, 32- and 64-bit,
-# Windows, Android, macOS) for every pushed commit and pull request,
+# Debug and release builds of the native ports (Linux and Windows, 32- and
+# 64-bit, Android, macOS) for every pushed commit and pull request,
 # uploaded as artifacts: whether a change builds. tools/ci_build.py does each build; see it for the options.
 #
 # Releases and nightlies are not made here: ChupathingyCE's release
@@ -237,6 +237,62 @@ jobs:
         with:
           name: chupathingyce-windows-release
           path: dist/chupathingyce-windows-release
+          retention-days: 3
+
+  windows64:
+    # The native 64-bit Windows build (ninja windows64), on the same runner
+    # image as the 32-bit one, with Visual Studio's x64 libraries.
+    runs-on: windows-2025
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install the toolchain
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -OutFile ninja.zip https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-win.zip
+          Expand-Archive ninja.zip -DestinationPath "$env:RUNNER_TEMP\tools"
+          Invoke-WebRequest -OutFile ccache.zip https://github.com/ccache/ccache/releases/download/v4.10.2/ccache-4.10.2-windows-x86_64.zip
+          Expand-Archive ccache.zip -DestinationPath $env:RUNNER_TEMP
+          Copy-Item "$env:RUNNER_TEMP\ccache-4.10.2-windows-x86_64\ccache.exe" "$env:RUNNER_TEMP\tools"
+          Remove-Item ninja.zip, ccache.zip
+          "$env:RUNNER_TEMP\tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-windows64-${{ github.sha }}
+          restore-keys: ccache-windows64-
+
+      # SDL's development package, which configure.py fetches (the 32-bit
+      # job's: it holds both builds' libraries)
+      - uses: actions/cache@v4
+        with:
+          path: build/windows/third_party
+          key: windows-third-party-${{ hashFiles('tools/windows_build.py') }}
+
+      - name: Debug
+        run: python tools/ci_build.py windows64 debug
+
+      - name: Release
+        run: python tools/ci_build.py windows64 release
+
+      - name: Compile cache
+        run: ccache --show-stats
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chupathingyce-windows64-debug
+          path: dist/chupathingyce-windows64-debug
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chupathingyce-windows64-release
+          path: dist/chupathingyce-windows64-release
           retention-days: 3
 
   macos:

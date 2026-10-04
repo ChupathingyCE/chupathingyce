@@ -37,6 +37,8 @@ OUTPUTS = {
     # the native 64-bit build (ninja linux64; tools/linux64_build.py)
     "linux64": ["build/linux64/halo"],
     "windows": ["build/windows/halo.exe", "build/windows/SDL3.dll"],
+    # the native 64-bit build (ninja windows64; tools/windows_build.py)
+    "windows64": ["build/windows64/halo.exe", "build/windows64/SDL3.dll"],
     "android": [],  # the APK, below
     # the application (universal and self-contained: --portable), whole
     "macos": ["build/macos/ChupathingyCE.app"],
