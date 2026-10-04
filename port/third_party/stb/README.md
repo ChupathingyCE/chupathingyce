@@ -12,3 +12,10 @@ licensed, as the user chooses (see `LICENSE`), vendored unchanged from
 - `stb_image.h` v2.30: PNG and JPEG decoding, for the overlay's pictures.
 - `stb_vorbis.c` v1.22 (same commit): Ogg Vorbis decoding, for Halo PC's
   sounds in Custom Edition maps (`port/linux/game/ce_vorbis.c`).
+  Not unchanged: a map's sounds come from anyone, so its setup parsing is
+  bounded where upstream's v1.22 is not (each change marked `ChupathingyCE`
+  in the file): allocation sizes that would overflow refused, the vendor and
+  comment lengths and the comment count kept within the stream, the comment
+  list zeroed and its length reset when it cannot be read, room for all 16
+  submaps, a failed sparse codebook decode not used as an index, and a
+  codebook's entries times dimensions bounded.

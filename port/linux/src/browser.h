@@ -85,12 +85,37 @@ struct browser_report_player
 	tags the player's line, so that only their machine may confirm it
 	(browser.c); the address itself is not sent */
 	unsigned long address;
+	/* what the game's statistics recorder adds to the line
+	(port/linux/game/game_stats.c): JSON members, without braces ("medals":
+	{...}, "weapons": {...}, ...), or NULL */
+	const char *extra;
 };
 
+/* (the most a line's extra, and a report's, may be) */
+#define BROWSER_REPORT_EXTRA_SIZE 1024
+#define BROWSER_REPORT_GAME_EXTRA_SIZE 8192
+
 /* a hosted game that ended (reached the postgame): its carnage report, sent
-to the list server if the game is listed there (game_engine.c) */
+to the list server if the game is listed there (game_engine.c); extra, JSON
+members the report adds (the recorder's: who left early, how each part was
+known), or NULL */
 void browser_report_game(int teams, int red_score, int blue_score, int duration_seconds,
-	const struct browser_report_player *players, int count);
+	const struct browser_report_player *players, int count, const char *extra);
+
+/* a game this machine joined through an invite that ended: its report as
+this machine saw it (the host's statistics and scores, which every client
+is sent, and what this machine's own game saw of the kills), sent to the
+list server with this copy's player key, whoever hosted the game (a host of
+the game list's own builds reports it too; one of other builds does not),
+so that the server can record the games of hosts that do not report
+(port/linux/game/game_stats.c). extra: the report's other JSON members (the
+map, the game type, the reporting player, ...). */
+void browser_client_report(int teams, int red_score, int blue_score, int duration_seconds,
+	const struct browser_report_player *players, int count, const char *extra);
+
+/* a player's name as a JSON string, appended to out (UTF-8, quoted and
+escaped); returns its length */
+int browser_json_name(char *out, int size, const unsigned short *name, int length);
 
 /* the hosted game, as the game's server has it; called each frame while
 this machine hosts (network_server_manager.c). The listing follows (and is

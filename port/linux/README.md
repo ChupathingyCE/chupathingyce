@@ -35,6 +35,22 @@ To start the game:
 2. Enter `python configure.py`.
 3. Enter `ninja linux`.
 
+### 64-bit
+
+`ninja linux64` builds the same game as native x86-64 code,
+`build/linux64/halo`, the way the macOS build does (the 64-bit build in
+[port/macos/README.md](../macos/README.md): `HALO_64BIT` and the `long`
+rewrite, `tools/lp64_build.py`). It needs the 64-bit glibc and SDL3
+development files (`sdl3` on Arch Linux, `libsdl3-dev` on Debian 13 and
+Ubuntu 25.04 or later) instead of the 32-bit ones, and the 64-bit OpenGL and
+sound libraries to start. An SDL3 built by hand is found through
+`LIBRARY_PATH` when linking and `LD_LIBRARY_PATH` when starting. It is not
+optimised with a profile (the committed profiles are the 32-bit build's).
+Its releases are their own download, `chupathingyce-linux64-release.zip`,
+which its self-updater asks for. It plays Halo PC's Custom Edition maps
+(`maps/ce/`) and plays with the 32-bit builds and the other ports over the
+network, and it is a dedicated server too (`server/README.md`).
+
 ## Start the game
 
 Enter `build/linux/halo`.
@@ -95,8 +111,10 @@ The keyboard and the mouse are a control scheme of their own for the player
 of controller 1: each action has up to two keys or mouse buttons, which
 Settings > Controls Setup (or `[controls]` in `config.toml`) changes. The
 game adds the input of the first gamepad to controller 1. The other
-gamepads operate controllers 2 to 4. The profile's button layout (Settings >
-Gamepads) is the gamepads' only.
+gamepads operate controllers 2 to 4. In co-op with only one gamepad, that
+gamepad is controller 2 (player 2) and the keyboard and mouse stay
+controller 1. The profile's button layout (Settings > Gamepads) is the
+gamepads' only.
 
 | Action | Keys and buttons (default) |
 | --- | --- |
@@ -158,6 +176,24 @@ version's. ChupathingyCE starts on the Xbox's menus (`display.menus = "xbox"`),
 which start every kind of game and have Online Games; `display.menus = "pc"`
 gives these.
 
+Multiplayer > CO-OP CAMPAIGN is the Xbox's cooperative play, which the PC
+version does not have: two players on this computer play the campaign in
+split screen. Player 1 is the player who chose it, on the current profile.
+Player 2 then chooses a profile with their own controller (a gamepad), and
+New Game's levels are those either profile has reached. A co-op game does
+not continue a saved game of one player.
+
+In a multiplayer game, the pause menu (escape) has SETTINGS, which opens
+the profile's settings while the game goes on, and for the host END GAME.
+END GAME ends the game as its time limit does: the players stay, and after
+the carnage report the host picks the next map and gametype (PICK GAME).
+LEAVE GAME of the host still ends the game for everyone. The buttons go into
+the map's own pause menu, before LEAVE GAME, so the buttons of a custom map
+stay. The Xbox's pause box is drawn taller to hold them (a redraw,
+`port/assets/menus/port_svg/pause`); a custom map's box keeps its size, and
+what is below its list moves down. The few pictures of the settings that
+come from the main menu's map are not drawn there.
+
 The menus are XML files in `port/assets/menus` (`tools/ce_menus.py` writes
 them from the PC version's tags), which the game contains. To change them,
 put files in a `menus` folder next to `config.toml`: a file with the same
@@ -216,10 +252,11 @@ the setting for one start of the game. It has priority over the file.
 | `display.high_res_hud` | `true` | `HALO_HIGH_RES_HUD` | `true`: the HUD (meters, counters, panels and their outlines, the motion sensor, reticles, waypoints, scopes) is drawn from the high-res assets in `port/assets/hud`, 8x the size of the maps' bitmaps. The bitmaps with English text keep the maps' own. `false`: the maps' own bitmaps. |
 | `display.high_res_text` | `true` | `HALO_HIGH_RES_TEXT` | `true`: the menus' and HUD's text is drawn with the fonts in `port/assets/fonts` (Overpass, in place of the maps' Interstate) at the display's resolution, laid out as before, and the menus' titles are drawn from the high-res pictures in `port/assets/titles`. `false`: the maps' bitmap fonts and titles. |
 | `display.menus` | `"xbox"` | `HALO_MENUS` | `"xbox"`: the Xbox's menus, with Online Games (ChupathingyCE's default). `"pc"`: the PC version's menus, from the files in `port/assets/menus` and a `menus` folder next to `config.toml`. Refer to "Menus". |
-| `display.player_names` | `"all"` | `HALO_PLAYER_NAMES` | In multiplayer, whose names are drawn above their heads: `"all"`, `"allies"`, `"enemies"` or `"none"`. An ally's name is drawn above the triangle the game shows over teammates. An enemy's name shows only while the enemy is in sight and not camouflaged, so it never shows where an enemy hides, and only as far away as the weapon in hand turns its reticle red over an enemy (at least 20 world units, the motion sensor's reach, and at most 70). |
+| `display.player_names` | `"all"` | `HALO_PLAYER_NAMES` | In multiplayer, whose names are drawn above their heads: `"all"`, `"allies"`, `"enemies"` or `"none"`. An ally's name is drawn above the triangle the game shows over teammates. An enemy's name shows only within the motion sensor's reach, while the enemy is in sight and not camouflaged, so it never shows where an enemy hides. The gametype's motion tracker setting also applies: no names if it shows no players, only allies' if it shows only friends. |
 | `display.player_name_scale` | `1.0` | `HALO_PLAYER_NAME_SCALE` | How large the players' names are drawn: `1.0` is three quarters of the size of the HUD's text, from `0.25` to `4`. With high-res text, larger names are rasterized at their size, so they stay sharp. |
 | `display.scoreboard_team_layout` | `"teams"` | `HALO_SCOREBOARD_TEAM_LAYOUT` | How the multiplayer scoreboard (hold BACK, or tab) lists a team game's players. `"teams"`: a column for each team, red on the left and blue on the right. `"score"`: all the players in order of score. With more players than fit, the mouse wheel and Page Up / Page Down scroll the scoreboard. |
 | `display.scoreboard_background` | `true` | `HALO_SCOREBOARD_BACKGROUND` | `true`: the multiplayer scoreboard (hold BACK, or tab) has a panel behind its text, for clearer text. |
+| `display.show_quit_players` | `true` | `HALO_SHOW_QUIT_PLAYERS` | `true`: players who quit stay on the multiplayer scoreboard (hold BACK, or tab) and the score in the corner, as in the original game. `false`: they are left off, and the players still in the game are ranked among themselves, as OpenCE does. Only what this machine draws changes. |
 | `display.scoreboard_background_color` | `"16, 16, 16, 150"` | `HALO_SCOREBOARD_BACKGROUND_COLOR` | The colour of the scoreboard's panel: `"red, green, blue, alpha"`, each from `0` to `255`. Alpha `0` is see-through, `255` is solid. |
 | `audio.enabled` | `true` | `HALO_NO_AUDIO=1` sets `false` | `false`: no audio device. The sound continues without output. |
 | `audio.volume` | `1.0` | `HALO_VOLUME` | The master volume. |
@@ -688,7 +725,11 @@ with bots: a machine with OpenCE, or with a ChupathingyCE without bots,
 plays with the bots of a host. Refer to [NETCODE.md](NETCODE.md#bots).
 
 A game that had bots in it sends no carnage report to the game list
-(halo.milenko.org): the scores there are the scores of people.
+(halo.milenko.org): the scores there are the scores of people. This applies
+to the report of the host and to the report of a player who joined the
+game. A player with a build that has no bots (OpenCE, or a ChupathingyCE
+without them) does not know which players are bots, and that build sends
+its report.
 
 The first time that a map has bots, the host makes the navigation data of
 the map (the places where a player can walk, jump, drop and climb). This
@@ -711,7 +752,7 @@ not wait.
 The game then has no window and no sound, and it is not on the network. It
 loads each multiplayer map that it finds in the `maps` folder (a campaign
 map has none of this data) and, on the builds that play them, each Custom
-Edition map in `maps/ce`. For each map it writes two files,
+Edition map (`<name>@ce`) and each HaloMD map (`<name>@md`). For each map it writes two files,
 `navcache/<map>_0.height` and `navcache/<map>_0.aas`, and a line that starts
 with `bake:`. The 13 maps of the game take 1 to 2 minutes and 200 MB. The
 exit code is `0` when each map has its data.
@@ -914,7 +955,8 @@ players. Refer to [NETCODE.md](NETCODE.md#infection).
 The game adds the Flood only to the Xbox's multiplayer maps. On a Custom
 Edition map (`<name>@ce`), the zombies are players with no weapon.
 
-A game of infection sends no carnage report to the game list.
+A game of infection sends no carnage report to the game list, from the
+host or from a player who joined it.
 
 The bots play infection. A bot that is a zombie runs to the nearest player
 who is alive and hits them. The other bots fight the zombies as they fight
@@ -1016,7 +1058,7 @@ Other changes:
 | `networking/`, `game/`, `interface/`, `bungie_net/network/` and the pools of objects, effects and sounds | The system link limits and the memory for them. |
 | `game/`, `objects/`, `units/`, `networking/` | The distributed netcode. Refer to `NETCODE.md`. |
 | `cache/cache_files.c` | When a map's tags load and unload, the port finds the bitmaps that the high-res HUD replaces (`game/hud_hires_tags.c`), and adds the tags of the menus to the menus' map (`game/menu_tags.c`). |
-| `interface/ui_widget.c`, `interface/ui_widget_event_handler_functions.c`, `interface/ui_widget_game_data_input_functions.c` | The main menu is the PC version's from `port/assets/menus` (`display.menus`); the menus' widgets can call the port's functions (`game/menu_functions.c`) and send the PC version's custom activation event; the widgets' memory is 256 KB, not 16 KB. |
+| `interface/ui_widget.c`, `interface/ui_widget_event_handler_functions.c`, `interface/ui_widget_game_data_input_functions.c` | The main menu is the PC version's from `port/assets/menus` (`display.menus`); the menus' widgets can call the port's functions (`game/menu_functions.c`) and send the PC version's custom activation event; the widgets' memory is 256 KB, not 16 KB; the main menu and Multiplayer clear co-op's controllers, so that a gamepad going back to controller 1 is not a controller unplugged. |
 | `input/input_abstraction.c`, `game/player_control.c`, `game/players.c`, `game/player_queues_new.c`, `units/units.h` | The keyboard and mouse's actions (`src/xinput_sdl.c`, `include/halo_keyboard.h`) join controller 1's game controls; their reload key reloads on its own, and their action key only acts (a control flag of the port's, sent with the player's action, stops the reload the controller's X falls back to). |
 | `sound/sound_manager.c`, `interface/hud.c`, `game/game_engine.c` | The music's and the other sounds' volumes; the HUD's and the scoreboard's settings are read again when Settings changes them. |
 | `interface/hud.c` | In multiplayer, players' names are drawn above their heads (`display.player_names`, `display.player_name_scale`). |

@@ -23,7 +23,12 @@ It runs without a window, sound or a player, as the dedicated server
 
 The line: {"ok": true, "name": ..., "map": ..., "engine": "slayer",
 "players": 3, "maximum_players": 12, "open": true, "teams": false,
-"network_version": 10, "compatible": true}, or {"ok": false, "error": ...}.
+"network_version": 10, "compatible": true, "machines": 3, "score_limit":
+25, "in_progress": true}, or {"ok": false, "error": ...}.
+
+That is all a game's advertisement holds: no player's name or score. Those
+travel only to machines that have joined the game, which the probe never
+does.
 */
 
 #ifdef HALO_GAME_BROWSER
@@ -202,11 +207,13 @@ static void report(
 	json_text(escaped_map, sizeof(escaped_map), map);
 	snprintf(json, sizeof(json),
 		"{\"ok\": true, \"name\": \"%s\", \"map\": \"%s\", \"engine\": \"%s\", \"players\": %d, "
-		"\"maximum_players\": %d, \"open\": %s, \"teams\": %s, \"network_version\": %u, \"compatible\": %s}",
+		"\"maximum_players\": %d, \"open\": %s, \"teams\": %s, \"network_version\": %u, \"compatible\": %s, "
+		"\"machines\": %d, \"score_limit\": %d, \"in_progress\": %s}",
 		escaped_name, escaped_map, engine_name(advertisement->engine_type), advertisement->player_count,
 		advertisement->maximum_player_count, advertisement->open ? "true" : "false",
 		advertisement->has_teams ? "true" : "false", (unsigned int)advertisement->network_version,
-		advertisement->compatible ? "true" : "false");
+		advertisement->compatible ? "true" : "false", advertisement->machine_count, advertisement->score_limit,
+		advertisement->in_progress ? "true" : "false");
 	finish(json, 0);
 }
 

@@ -19,7 +19,9 @@ fi
 # (no more than a few at once: the rest wait their turn)
 exec 9>/run/halo-probe.lock
 flock -w 60 9
+# (not root, without capabilities: it reads what a stranger's host sends)
 exec timeout 40 docker run --rm --network bridge --memory 512m --cpus 1 --pids-limit 128 \
+	--user 65534:65534 --cap-drop ALL --security-opt no-new-privileges \
 	--tmpfs /data:size=256m \
 	-v /opt/halo-dedicated/data/maps/ui.map:/data/maps/ui.map:ro \
 	-e HALO_PROBE="$invite" \

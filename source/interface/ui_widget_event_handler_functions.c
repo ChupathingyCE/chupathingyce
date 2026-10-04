@@ -1019,9 +1019,17 @@ void *network_game_client_get_game(
 	void *client);
 short network_game_client_get_machine_index(
 	void *client);
+#ifdef HALO_64BIT
+/* (as defined: an x64 Windows caller leaves the upper bits of an argument
+narrower than the definition's parameter as they are) */
+boolean network_game_client_request_start_time_change(
+	void *client,
+	short request_type);
+#else
 boolean network_game_client_request_start_time_change(
 	void *client,
 	boolean start);
+#endif
 boolean network_game_client_request_remove_player(
 	void *client,
 	void *player);
@@ -2051,6 +2059,10 @@ static boolean multiplayer_type_menu_initialize(
 	network_game_cancel(widget, event, widget_deleted);
 	network_game_accept_remote_connections(FALSE);
 #endif
+	/* port: and no co-op player's controller, which one player with one
+	gamepad gives back to the keyboard's (xinput_sdl.c's port_gamepad): its
+	going is not a controller unplugged (input_abstraction.c) */
+	player_ui_reset_single_player_local_player_controllers();
 	return TRUE;
 }
 
@@ -2337,6 +2349,8 @@ static boolean main_menu_initialize(
 	dispose_global_network_game_server();
 	network_game_accept_remote_connections(FALSE);
 	player_spawn_count = 1;
+	/* port: as multiplayer_type_menu_initialize */
+	player_ui_reset_single_player_local_player_controllers();
 	player_ui_end_editing_profile();
 	if (!ui_main_menu_music_active())
 		ui_start_main_menu_music();
@@ -2423,10 +2437,12 @@ static boolean network_game_remove_local_player(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
-	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 4073,
-		event && event->controller_index >= 0 && event->controller_index < 4,
-		"valid controller index required to remove player from network game");
-	network_game_client_local_player_quit(event->controller_index);
+	/* port: a mouse or keyboard event has no controller (the Xbox asserted
+	one); the player is then the pause screen's */
+	short controller_index = event && event->controller_index >= 0 && event->controller_index < 4 ?
+		event->controller_index : widget->local_player_index;
+
+	network_game_client_local_player_quit(controller_index != NONE ? controller_index : 0);
 	return TRUE;
 }
 

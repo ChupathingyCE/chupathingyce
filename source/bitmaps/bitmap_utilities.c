@@ -296,6 +296,23 @@ enum
 
 /* ---------- macros */
 
+#ifdef HALO_CUSTOM_EDITION
+/* port: a Custom Edition or HaloMD map's colors may be over 1 (a HaloMD
+map's change colors are 2): Halo PC's engine used them unchecked, as this
+does for such maps only; an Xbox map's are asserted as they always were */
+boolean cache_file_tags_are_ce(void);
+#define match_assert_valid_real_rgb_color(file, line, rgb) \
+match_vassert( \
+	file, \
+	line, \
+	cache_file_tags_are_ce() || valid_real_rgb_color(rgb), \
+	csprintf( \
+		temporary, \
+		"%s: assert_valid_real_rgb_color(%f, %f, %f)", \
+		#rgb, (*rgb).red, (*rgb).green, (*rgb).blue \
+	) \
+)
+#else
 #define match_assert_valid_real_rgb_color(file, line, rgb) \
 match_vassert( \
 	file, \
@@ -307,6 +324,7 @@ match_vassert( \
 		#rgb, (*rgb).red, (*rgb).green, (*rgb).blue \
 	) \
 )
+#endif
 
 /* ---------- structures */
 

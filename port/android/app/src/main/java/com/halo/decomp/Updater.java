@@ -52,6 +52,8 @@ final class Updater {
     private static final String REPOSITORY = "ChupathingyCE/chupathingyce";
     private static final String USER_AGENT = "chupathingyce-updater";
     private static final int TIMEOUT_MILLISECONDS = 20000;
+    /** the most a download (a release's zip, about 25 MB) or the app in it may be */
+    private static final long MAXIMUM_UPDATE_SIZE = 256L * 1024 * 1024;
 
     private Updater() {
     }
@@ -211,7 +213,8 @@ final class Updater {
             try (InputStream stream = connection.getInputStream()) {
                 String tag = new JSONObject(new String(readAll(stream), StandardCharsets.UTF_8)).optString("tag_name");
 
-                return tag.startsWith("v") && tag.length() > 1 ? tag.substring(1) : null;
+                // (a version goes into the download's address: letters, digits and . _ + - only)
+                return tag.matches("v[0-9A-Za-z_+-][0-9A-Za-z._+-]{0,30}") ? tag.substring(1) : null;
             } finally {
                 connection.disconnect();
             }
@@ -329,8 +332,10 @@ final class Updater {
                 int count;
 
                 while ((count = in.read(buffer)) > 0) {
-                    out.write(buffer, 0, count);
                     received += count;
+                    if (received > MAXIMUM_UPDATE_SIZE)
+                        throw new IOException("the download is larger than expected");
+                    out.write(buffer, 0, count);
                     if (received - reported >= 256 * 1024 || received == total) {
                         progress.report(received, total);
                         reported = received;
@@ -354,10 +359,15 @@ final class Updater {
                     continue;
                 try (OutputStream out = new FileOutputStream(apk)) {
                     byte[] buffer = new byte[65536];
+                    long written = 0;
                     int count;
 
-                    while ((count = in.read(buffer)) > 0)
+                    while ((count = in.read(buffer)) > 0) {
+                        written += count;
+                        if (written > MAXIMUM_UPDATE_SIZE)
+                            throw new IOException("the app in the download is larger than expected");
                         out.write(buffer, 0, count);
+                    }
                 }
                 return;
             }

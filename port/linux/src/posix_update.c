@@ -302,11 +302,14 @@ struct download
 	FILE *file;
 	update_progress_proc progress;
 	void *context;
-	unsigned long long received, total;
+	unsigned long long received, total, maximum;
 };
 
 static int body_write(struct download *download, const unsigned char *data, size_t size)
 {
+	/* (no more than the caller expects: a body that goes on is refused) */
+	if (size > download->maximum - download->received)
+		return 0;
 	if (fwrite(data, 1, size, download->file) != size)
 		return 0;
 	download->received += size;
@@ -438,6 +441,12 @@ static int https_get(const char *url, struct download *download, char *location,
 	}
 	if (status == 200)
 	{
+		if (have_length && !chunked && length > download->maximum)
+		{
+			snprintf(error, (size_t)error_size, "the download from %s is larger than expected", host);
+			connection_free(&connection);
+			return 0;
+		}
 		download->total = have_length && !chunked ? length : 0;
 		if (!read_body(&connection, download, chunked, length, have_length && !chunked))
 		{
@@ -449,8 +458,8 @@ static int https_get(const char *url, struct download *download, char *location,
 	return status;
 }
 
-int update_download(const char *url, const char *path, update_progress_proc progress, void *context, char *error,
-	int error_size)
+int update_download(const char *url, const char *path, unsigned long long maximum, update_progress_proc progress,
+	void *context, char *error, int error_size)
 {
 	char current[2048];
 	char location[2048];
@@ -472,6 +481,7 @@ int update_download(const char *url, const char *path, update_progress_proc prog
 	memset(&download, 0, sizeof(download));
 	download.progress = progress;
 	download.context = context;
+	download.maximum = maximum;
 	download.file = fopen(path, "wb");
 	if (!download.file)
 	{

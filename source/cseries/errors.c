@@ -152,7 +152,12 @@ static void write_to_debug_file(
 	prefix[0] = 0;
 	if (date)
 	{
+#ifdef HALO_64BIT
+		/* (the host's time_t: 64 bits, which time() writes whole) */
+		time_t timeptr;
+#else
 		long timeptr;
+#endif
 		struct tm *_time;
 
 		time(&timeptr);

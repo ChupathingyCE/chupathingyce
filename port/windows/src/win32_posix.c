@@ -39,6 +39,57 @@ static void windows_startup(void)
 	timeBeginPeriod(1);
 }
 
+#ifdef HALO_64BIT
+/* ---------- backtraces */
+
+/* Unwinds context, a frame at a time, with the unwind information every x64
+function has (its frame pointer, when it keeps one, points partway into its
+frame: there is no chain to follow); the return addresses, at most count,
+go to frames. Also the crash reports' (win32_memory_watch.c). */
+int win32_unwind(CONTEXT *context, void **frames, int count)
+{
+	int captured = 0;
+
+	while (captured < count)
+	{
+		DWORD64 image_base, establisher_frame;
+		void *handler_data;
+		RUNTIME_FUNCTION *function = RtlLookupFunctionEntry(context->Rip, &image_base, NULL);
+
+		if (function)
+		{
+			RtlVirtualUnwind(UNW_FLAG_NHANDLER, image_base, context->Rip, function, context, &handler_data,
+				&establisher_frame, NULL);
+		}
+		else
+		{
+			/* a leaf function: the return address is on top of the stack */
+			if (IsBadReadPtr((const void *)context->Rsp, sizeof(DWORD64)))
+				break;
+			context->Rip = *(const DWORD64 *)context->Rsp;
+			context->Rsp += sizeof(DWORD64);
+		}
+		if (!context->Rip)
+			break;
+		frames[captured++] = (void *)context->Rip;
+	}
+	return captured;
+}
+
+/* <execinfo.h>'s, for the 64-bit game's stack dumps
+(source/cseries/stack_walk_windows.c, interface/hud_draw.c's
+get_return_eip): the return addresses of the calls that led here, the one
+into the caller first */
+__attribute__((noinline)) int backtrace(void **frames, int count)
+{
+	CONTEXT context;
+
+	/* (a place in this function: the first frame unwound is its own) */
+	RtlCaptureContext(&context);
+	return win32_unwind(&context, frames, count);
+}
+#endif
+
 static int errno_from_windows_error(DWORD error)
 {
 	switch (error)

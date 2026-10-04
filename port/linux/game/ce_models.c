@@ -574,9 +574,10 @@ enum
 	MODEL_PERMUTATION_SIZE = 0x58,
 	MODEL_PERMUTATION_GEOMETRIES_OFFSET = 0x40,
 	MODEL_SHADER_SIZE = 0x20,
-	/* (model_definitions.h's maximums; the renderer skins at most 43 nodes:
-	rasterizer.h's RASTERIZER_MAXIMUM_NODES_PER_MODEL) */
-	CE_MAXIMUM_MODEL_NODES = 43,
+	/* (model_definitions.h's maximums; the renderer skins a model's first
+	43 nodes: rasterizer.h's RASTERIZER_MAXIMUM_NODES_PER_MODEL, models.c) */
+	CE_MAXIMUM_MODEL_NODES = 64,
+	CE_MAXIMUM_SKINNED_NODES = 43,
 	CE_MAXIMUM_MODEL_MARKERS = 256,
 	CE_MAXIMUM_MARKER_INSTANCES = 32,
 	CE_MAXIMUM_MODEL_REGIONS = 32,
@@ -686,7 +687,10 @@ static boolean ce_model_nodes_check(
 }
 
 /* a part's strip and vertices: in the model data, each index one of its
-vertices, each vertex's nodes the model's; the room its conversion takes */
+vertices, each vertex's nodes the model's and among those the renderer skins
+(a model of more nodes, a first-person weapon's with the arms' and its own,
+is drawn with its first CE_MAXIMUM_SKINNED_NODES: models.c); the room its
+conversion takes */
 static boolean ce_part_check(
 	byte const *part,
 	char const *name,
@@ -758,6 +762,11 @@ static boolean ce_part_check(
 				node_index = part[CE_PART_LOCAL_NODES_OFFSET + node_index];
 			if (node_index >= node_count)
 				return ce_refuse("model %s: a vertex is skinned to node %d of %ld", name, node_index, node_count);
+			if (node_index >= CE_MAXIMUM_SKINNED_NODES)
+			{
+				return ce_refuse("model %s: a vertex is skinned to node %d, past the %d nodes the renderer skins "
+					"(not supported)", name, node_index, CE_MAXIMUM_SKINNED_NODES);
+			}
 		}
 	}
 	*bytes += CE_ALIGNED(index_count * sizeof(word)) + 2 * CE_BUFFER_HEADER_ROOM;
@@ -899,6 +908,187 @@ boolean ce_models_check(
 				if (!ce_part_check(at, name, node_count, model_data, model_data_size, vertex_data_size, bytes))
 					return FALSE;
 			}
+		}
+	}
+	return TRUE;
+}
+
+enum
+{
+	/* an animation graph (model_animation_definitions.h's animation_graph),
+	its nodes and animations */
+	ANIMATION_GRAPH_SIZE = 0x80,
+	ANIMATION_GRAPH_NODES_OFFSET = 0x68,
+	ANIMATION_GRAPH_ANIMATIONS_OFFSET = 0x74,
+	ANIMATION_GRAPH_NODE_SIZE = 0x40,
+	ANIMATION_GRAPH_NODE_LINKS_OFFSET = 0x20,
+	ANIMATION_SIZE = 0xb4,
+	ANIMATION_NODE_COUNT_OFFSET = 0x2c,
+	ANIMATION_FRAME_INFO_OFFSET = 0x48,
+	ANIMATION_DEFAULT_DATA_OFFSET = 0x8c,
+	ANIMATION_DATA_OFFSET = 0xa0,
+	/* (model_animation_definitions.h's MAXIMUM_NODES_PER_ANIMATION and
+	MAXIMUM_ANIMATIONS_PER_GRAPH's tag maximum: the arrays the game poses
+	an animation's nodes in are of this many) */
+	CE_MAXIMUM_ANIMATION_NODES = 64,
+	CE_MAXIMUM_GRAPH_ANIMATIONS = 0x10000,
+	/* an object (object_definitions.h): its model and animation graph's
+	tag indices */
+	OBJECT_DEFINITION_READ_SIZE = 0x48,
+	OBJECT_MODEL_INDEX_OFFSET = 0x34,
+	OBJECT_ANIMATION_GRAPH_INDEX_OFFSET = 0x44,
+	CE_OBJECT_GROUP = 'obje',
+};
+
+/* the instance at a tag handle, if it is the handle of one of the group */
+static struct ce_tag_instance const *ce_tag_of_group(
+	void const *tag_instances,
+	long tag_count,
+	unsigned long tag_index,
+	unsigned long group_tag)
+{
+	struct ce_tag_instance const *instance;
+
+	if (tag_index == 0xffffffff || (tag_index & 0xffff) >= (unsigned long)tag_count)
+		return NULL;
+	instance = (struct ce_tag_instance const *)((byte const *)tag_instances +
+		(tag_index & 0xffff) * CE_TAG_INSTANCE_SIZE);
+	return instance->tag_index == tag_index && instance->group_tag == group_tag ? instance : NULL;
+}
+
+/* an animation graph's nodes: no more than the game poses, linked to each
+other, and a tree (from the first, by siblings and children, no node reached
+twice: the game walks it into an array of as many); its animations of no more
+nodes, their data in the tags */
+static boolean ce_animation_graph_check(
+	struct ce_image const *image,
+	struct ce_tag_instance const *instance,
+	long *node_count)
+{
+	char const *name = ce_image_tag_name(image, instance);
+	byte const *graph = ce_image_pointer(image, instance->base_address, ANIMATION_GRAPH_SIZE);
+	byte *nodes, *animations;
+	long animation_count, index;
+
+	if (!graph)
+		return ce_refuse("animation graph %s is not in the tags", name);
+	if (!ce_image_block(image, graph + ANIMATION_GRAPH_NODES_OFFSET, ANIMATION_GRAPH_NODE_SIZE,
+		CE_MAXIMUM_ANIMATION_NODES, name, node_count, &nodes) ||
+		!ce_image_block(image, graph + ANIMATION_GRAPH_ANIMATIONS_OFFSET, ANIMATION_SIZE, CE_MAXIMUM_GRAPH_ANIMATIONS,
+			name, &animation_count, &animations))
+	{
+		return FALSE;
+	}
+	for (index = 0; index < *node_count; index++)
+	{
+		short link;
+
+		for (link = 0; link < 3; link++)
+		{
+			short linked = ce_read_short(nodes + index * ANIMATION_GRAPH_NODE_SIZE + ANIMATION_GRAPH_NODE_LINKS_OFFSET +
+				link * sizeof(short));
+
+			if (linked != NONE && (linked < 0 || linked >= *node_count))
+			{
+				return ce_refuse("animation graph %s: node %ld is linked to node %d of %ld", name, index, linked,
+					*node_count);
+			}
+		}
+	}
+	if (*node_count)
+	{
+		boolean reached[CE_MAXIMUM_ANIMATION_NODES] = { 0 };
+		short queue[2 * CE_MAXIMUM_ANIMATION_NODES + 1];
+		long read_index = 0, write_index = 0;
+
+		queue[write_index++] = 0;
+		while (read_index < write_index)
+		{
+			short node_index = queue[read_index++];
+			byte const *node = nodes + node_index * ANIMATION_GRAPH_NODE_SIZE;
+			short next_sibling = ce_read_short(node + ANIMATION_GRAPH_NODE_LINKS_OFFSET);
+			short first_child = ce_read_short(node + ANIMATION_GRAPH_NODE_LINKS_OFFSET + 2);
+
+			if (reached[node_index])
+				return ce_refuse("animation graph %s: node %d is reached twice from the first", name, node_index);
+			reached[node_index] = TRUE;
+			if (next_sibling != NONE)
+				queue[write_index++] = next_sibling;
+			if (first_child != NONE)
+				queue[write_index++] = first_child;
+		}
+	}
+	for (index = 0; index < animation_count; index++)
+	{
+		byte const *animation = animations + index * ANIMATION_SIZE;
+		short animation_node_count = ce_read_short(animation + ANIMATION_NODE_COUNT_OFFSET);
+		unsigned long ignored_size;
+		byte *ignored;
+
+		if (animation_node_count < 0 || animation_node_count > CE_MAXIMUM_ANIMATION_NODES)
+			return ce_refuse("animation graph %s: animation %ld has %d nodes", name, index, animation_node_count);
+		if (!ce_image_data(image, animation + ANIMATION_FRAME_INFO_OFFSET, name, &ignored_size, &ignored) ||
+			!ce_image_data(image, animation + ANIMATION_DEFAULT_DATA_OFFSET, name, &ignored_size, &ignored) ||
+			!ce_image_data(image, animation + ANIMATION_DATA_OFFSET, name, &ignored_size, &ignored))
+		{
+			return FALSE;
+		}
+	}
+	return TRUE;
+}
+
+/* every animation graph of a map being checked (ce_animation_graph_check),
+and every object's: of no more nodes than its model, whose nodes the game
+keeps for it (a limp body's are posed by its graph's: biped_limp_noodle.c) */
+boolean ce_animations_check(
+	struct ce_image const *image,
+	void const *tag_instances,
+	long tag_count)
+{
+	long index;
+
+	for (index = 0; index < tag_count; index++)
+	{
+		struct ce_tag_instance const *instance = (struct ce_tag_instance const *)((byte const *)tag_instances +
+			index * CE_TAG_INSTANCE_SIZE);
+		long node_count;
+
+		if (instance->group_tag == 'antr' && !ce_animation_graph_check(image, instance, &node_count))
+			return FALSE;
+	}
+	for (index = 0; index < tag_count; index++)
+	{
+		struct ce_tag_instance const *instance = (struct ce_tag_instance const *)((byte const *)tag_instances +
+			index * CE_TAG_INSTANCE_SIZE);
+		struct ce_tag_instance const *model, *graph;
+		byte const *object, *model_data, *graph_data;
+		long model_nodes, graph_nodes;
+
+		if (instance->group_tag != CE_OBJECT_GROUP && instance->parent_group_tags[0] != CE_OBJECT_GROUP &&
+			instance->parent_group_tags[1] != CE_OBJECT_GROUP)
+		{
+			continue;
+		}
+		object = ce_image_pointer(image, instance->base_address, OBJECT_DEFINITION_READ_SIZE);
+		if (!object)
+			return ce_refuse("object %s is not in the tags", ce_image_tag_name(image, instance));
+		model = ce_tag_of_group(tag_instances, tag_count,
+			(unsigned long)ce_read_long32(object + OBJECT_MODEL_INDEX_OFFSET), 'mod2');
+		graph = ce_tag_of_group(tag_instances, tag_count,
+			(unsigned long)ce_read_long32(object + OBJECT_ANIMATION_GRAPH_INDEX_OFFSET), 'antr');
+		if (!model || !graph)
+			continue;
+		/* (both checked: ce_models_check, above) */
+		model_data = ce_image_pointer(image, model->base_address, MODEL_HEADER_SIZE);
+		graph_data = ce_image_pointer(image, graph->base_address, ANIMATION_GRAPH_SIZE);
+		if (!model_data || !graph_data)
+			continue;
+		model_nodes = ce_read_long32(model_data + MODEL_NODES_OFFSET);
+		graph_nodes = ce_read_long32(graph_data + ANIMATION_GRAPH_NODES_OFFSET);
+		if (graph_nodes > model_nodes)
+		{
+			return ce_refuse("object %s: its animation graph has %ld nodes, its model %ld",
+				ce_image_tag_name(image, instance), graph_nodes, model_nodes);
 		}
 	}
 	return TRUE;

@@ -4269,8 +4269,10 @@ boolean unit_throw_grenade_begin(
 
 		default:
 			/* port: and with no weapon (a loadout of none), as melee
-			(bipeds.c), which weapon_prevents_grenade_throwing(NONE) prevents */
-			if (weapon_index == NONE || !weapon_prevents_grenade_throwing(weapon_index))
+			(bipeds.c), which weapon_prevents_grenade_throwing(NONE) prevents;
+			not from a vehicle's seat, which holds no weapon either */
+			if ((weapon_index == NONE && unit->unit.parent_seat_index == NONE) ||
+				(weapon_index != NONE && !weapon_prevents_grenade_throwing(weapon_index)))
 			{
 				struct animation_graph *animation_graph;
 				struct animation *animation;
@@ -4849,20 +4851,16 @@ void unit_render_debug(
 		struct object_marker marker;
 		real mouth_aperture;
 
-		/*
-		 * BUG (original): January ignores the marker count and consumes the
-		 * output even when the requested head marker is absent. A safe,
-		 * intentionally nonmatching build should render only when this call
-		 * returns a value greater than zero.
-		 */
-		object_get_marker_by_name(unit_index, "head", &marker, 1);
-		mouth_aperture = unit->unit.mouth_aperture;
-		origin = marker.matrix.position;
-		render_debug_string_at_point(
-			FALSE,
-			&origin,
-			csprintf(temporary, "%.2f", mouth_aperture),
-			global_real_argb_orange);
+		if (object_get_marker_by_name(unit_index, "head", &marker, 1) > 0)
+		{
+			mouth_aperture = unit->unit.mouth_aperture;
+			origin = marker.matrix.position;
+			render_debug_string_at_point(
+				FALSE,
+				&origin,
+				csprintf(temporary, "%.2f", mouth_aperture),
+				global_real_argb_orange);
+		}
 	}
 
 	return;
@@ -7465,6 +7463,34 @@ boolean unit_drop_current_weapon(
 	return result;
 }
 
+/* port: a swap's weapon out: the one the player chose, though the weapon
+in hand is still being put away for it (a network player's choice gets to
+the host before the switch is done), not that one, their backup */
+boolean unit_drop_selected_weapon(
+	long unit_index)
+{
+	struct unit_datum *unit = unit_get(unit_index);
+	short slot = unit->unit.desired_weapon_index;
+	long weapon_index = unit_inventory_get_weapon(unit_index, slot);
+
+	if (weapon_index == NONE || slot == unit->unit.current_weapon_index ||
+		TEST_FLAG(weapon_definition_get(weapon_get(weapon_index)->definition_index)->weapon.flags,
+			_weapon_doesnt_count_toward_maximum_bit))
+	{
+		return unit_drop_current_weapon(unit_index, TRUE);
+	}
+	unit_drop_item(unit_index, weapon_index);
+	unit->unit.weapon_object_indices[slot] = NONE;
+	unit->unit.desired_weapon_index = unit->unit.current_weapon_index!=NONE ?
+		unit->unit.current_weapon_index : unit_weapon_next_index(unit_index, NONE, 0);
+	if (!weapon_can_be_fired(weapon_index))
+	{
+		object_delete(weapon_index);
+	}
+
+	return TRUE;
+}
+
 /* ---------- private code */
 
 char const *base_seat_labels[NUMBER_OF_UNIT_BASE_SEATS] = {"asleep", "alert", "stand", "crouch", "flee", "flaming"};
@@ -8633,6 +8659,18 @@ enum
 	_collision_result_breakable_surface_bit = 3,
 };
 
+/* the globals' first multiplayer weapon, NONE where there is none: a
+campaign map's globals list no multiplayer weapons (and its player starts
+some levels unarmed, a10's), so its unarmed blow stays the game's, none */
+static long unarmed_melee_weapon_definition_index(
+	void)
+{
+	struct game_globals *game_globals = scenario_get_game_globals();
+
+	return game_globals && game_globals->weapon_list.count>0 ?
+		list_index_to_weapon_definition_index(0) : NONE;
+}
+
 /* port: the melee damage of a unit with no weapon (a gametype's loadout of
 none): its own, else (a player's biped has none: players always had a
 weapon) the blow of the globals' first multiplayer weapon, the assault
@@ -8645,7 +8683,7 @@ long unit_unarmed_melee_damage(
 
 	if (unit_definition->unit.melee_damage.index!=NONE)
 		return unit_definition->unit.melee_damage.index;
-	weapon_definition_index = list_index_to_weapon_definition_index(0);
+	weapon_definition_index = unarmed_melee_weapon_definition_index();
 	return weapon_definition_index!=NONE ?
 		weapon_definition_get(weapon_definition_index)->weapon.melee_attack_damage.index : NONE;
 }
@@ -8823,7 +8861,7 @@ void unit_cause_player_melee_damage(
 		response */
 		if (melee_damage_effect_index==NONE)
 		{
-			long weapon_definition_index = list_index_to_weapon_definition_index(0);
+			long weapon_definition_index = unarmed_melee_weapon_definition_index();
 
 			melee_damage_effect_index = unit_unarmed_melee_damage(unit_index);
 			if (weapon_definition_index!=NONE && melee_response_effect_index==NONE)

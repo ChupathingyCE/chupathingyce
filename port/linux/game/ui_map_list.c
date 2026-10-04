@@ -3,16 +3,18 @@ UI_MAP_LIST.C
 
 The menus' list of multiplayer maps, filled by the port rather than fixed in
 the game (ui_widget_event_handler_functions.c's multiplayer level list): the
-Xbox's thirteen maps first, as they were, then the Custom Edition maps in
-maps\ce (Halo PC's, played as <name>@ce), each named with [CE].
+Xbox's thirteen maps first, as they were, then the Custom Edition maps
+(Halo PC's, played as <name>@ce), each named with [CE], then HaloMD's maps
+(Halo PC retail's, played as <name>@md), each named with [MD]: each family
+in its folders (halo_map_families.h), in the order of their names.
 
 A row past the Xbox's has no string or bitmap frame of its own in ui.map:
 its text comes from here, by a string list index of
 UI_MAP_LIST_STRING_BASE and up (ui_widget.c asks ui_map_list_text when a
 text box has one), and its picture by a bitmap frame of
 UI_MAP_LIST_PICTURE_BASE and up (ui_widget.c asks ui_map_list_picture). Its
-name is two lines in the map list's narrow boxes (the name, then [CE]), and
-one in the lobby's.
+name is two lines in the map list's narrow boxes (the name, then [CE] or
+[MD]), and one in the lobby's.
 
 Those are Halo PC's own, read from its ui.map in maps\ce as Halo PC shows
 them: the names of its map list (ui\shell\main_menu\mp_map_list), their
@@ -21,22 +23,28 @@ descriptions (...\mp_map_select\map_data) and their pictures
 the map's by Halo PC's order of its maps (ce_maps); a map of another's
 making is named by its file, with Halo PC's picture for an unknown level.
 Without Halo PC's ui.map, the names are ce_maps' and an Xbox map's picture
-stands in.
+stands in. A HaloMD map is named as HaloMD's mod list names it (by its
+file's name: halomd_map_names.h, written by tools/halomd_map_names.py), or
+by its file's name made readable, with Halo PC's picture for an unknown
+level.
 
 The server browser (browser_screen.c) names a listed game's Custom Edition
-map by the same (ui_map_list_ce_name), on every build: the builds without
-Custom Edition maps (HALO_CUSTOM_EDITION) still name one. On those with them it
-has Halo PC's picture of the map (ui_map_list_ce_picture) and asks whether
-the map is in maps\ce (ui_map_list_ce_present).
+or HaloMD map by the same (ui_map_list_family_name), on every build: the
+builds without such maps (HALO_CUSTOM_EDITION) still name one. On those with
+them it has Halo PC's picture of the map (ui_map_list_family_picture) and
+asks whether the map is in its family's folders (ui_map_list_family_present).
 */
 
 #include "cseries.h"
 #include "cseries_windows.h"
+#include "errors.h"
 
 #include <stdio.h>
 #include <string.h>
 
+#include "halo_map_families.h"
 #include "halo_ui_map_list.h"
+#include "halomd_map_names.h"
 
 /* Halo PC's multiplayer maps, in the order of its map list (its strings and
 pictures), and an Xbox map of the same kind whose picture stands in
@@ -91,6 +99,38 @@ static long ce_map_index(
 	return NONE;
 }
 
+/* a HaloMD map's name, by its file's name: as HaloMD's mod list names it,
+or another version's of the same map (<map>_<version>), or NULL */
+static wchar_t const *halomd_map_name(
+	char const *file)
+{
+	size_t stem_length = strlen(file);
+	long index;
+
+	for (index = 0; index < (long)NUMBEROF(halomd_map_names); index++)
+	{
+		if (!_stricmp(file, halomd_map_names[index].file))
+			return halomd_map_names[index].name;
+	}
+	/* (another version's: the name without its _<version>) */
+	while (stem_length && file[stem_length - 1] >= '0' && file[stem_length - 1] <= '9')
+		stem_length--;
+	if (!stem_length || stem_length == strlen(file) || file[stem_length - 1] != '_')
+		return NULL;
+	for (index = 0; index < (long)NUMBEROF(halomd_map_names); index++)
+	{
+		char const *other = halomd_map_names[index].file;
+		size_t other_length = strlen(other);
+
+		if (other_length > stem_length && !_strnicmp(file, other, stem_length) &&
+			strspn(other + stem_length, "0123456789") == other_length - stem_length)
+		{
+			return halomd_map_names[index].name;
+		}
+	}
+	return NULL;
+}
+
 /* a map file's name made readable, as the game list's web pages make it:
 its underscores, dots and dashes spaces, each word begun with a capital
 (hugeass_v2: Hugeass V2) */
@@ -139,7 +179,9 @@ static void ce_map_tidy_name(
 enum
 {
 	XBOX_MAP_COUNT = 13,
-	MAXIMUM_MAP_LIST = 64,
+	/* (the Xbox's thirteen, then the Custom Edition and HaloMD maps found,
+	up to this many rows in all) */
+	MAXIMUM_MAP_LIST = 256,
 	MAP_NAME_LENGTH = 64,
 	DISPLAY_NAME_LENGTH = 48,
 	DESCRIPTION_LENGTH = 160,
@@ -241,26 +283,6 @@ static boolean file_read(
 	if (SetFilePointer(file, (long)offset, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER)
 		return FALSE;
 	return ReadFile(file, buffer, size, &bytes_read, NULL) && bytes_read == size;
-}
-
-/* whether the file is a Custom Edition multiplayer map: a cache file of
-version 609 whose type is multiplayer */
-static boolean ce_map_is_multiplayer(
-	char const *path)
-{
-	unsigned long header[0x19];
-	HANDLE file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-	boolean result = FALSE;
-
-	if (file == INVALID_HANDLE_VALUE)
-		return FALSE;
-	if (file_read(file, 0, header, sizeof(header)))
-	{
-		/* ('head', version, ..., the type a short at 0x60: 1 multiplayer) */
-		result = header[0] == 'head' && header[1] == CE_CACHE_VERSION && (header[0x60 / 4] & 0xffff) == 1;
-	}
-	CloseHandle(file);
-	return result;
 }
 
 /* an address of Halo PC's ui.map's tags made a pointer to size bytes of
@@ -507,8 +529,10 @@ static void add_entry(
 	ui_map_list_count_value++;
 }
 
-/* a Custom Edition map's row: its file's name (without .map) */
-static void add_ce_entry(
+/* a Custom Edition or HaloMD map's row: its file's name (without its
+suffix or .map) */
+static void add_pc_entry(
+	short family,
 	char const *file)
 {
 	char map_name[MAP_NAME_LENGTH];
@@ -516,12 +540,22 @@ static void add_ce_entry(
 	wchar_t display_name[DISPLAY_NAME_LENGTH];
 	wchar_t lobby_name[DISPLAY_NAME_LENGTH];
 	wchar_t const *description = L"A Halo Custom\r\nEdition map";
+	wchar_t const *mark = L"CE";
 	long ce_index = CE_UNKNOWN_LEVEL;
 	short picture_index = 9;
 	short known;
 
 	name[0] = 0;
-	for (known = 0; known < (short)NUMBEROF(ce_maps); known++)
+	if (family == _map_family_halomd)
+	{
+		wchar_t const *known_name = halomd_map_name(file);
+
+		description = L"A HaloMD map";
+		mark = L"MD";
+		if (known_name)
+			wide_copy(name, DISPLAY_NAME_LENGTH - 7, known_name);
+	}
+	for (known = 0; family == _map_family_custom_edition && known < (short)NUMBEROF(ce_maps); known++)
 	{
 		if (!_stricmp(file, ce_maps[known].file))
 		{
@@ -547,56 +581,69 @@ static void add_ce_entry(
 	if (ce_index < ce_ui.picture_count)
 		picture_index = (short)(UI_MAP_LIST_PICTURE_BASE + ce_index);
 	wide_copy(lobby_name, DISPLAY_NAME_LENGTH, name);
-	wide_append(lobby_name, DISPLAY_NAME_LENGTH, L" [CE]");
+	wide_append(lobby_name, DISPLAY_NAME_LENGTH, L" [");
+	wide_append(lobby_name, DISPLAY_NAME_LENGTH, mark);
+	wide_append(lobby_name, DISPLAY_NAME_LENGTH, L"]");
 	wide_copy(display_name, DISPLAY_NAME_LENGTH, name);
-	wide_append(display_name, DISPLAY_NAME_LENGTH, L"\r\n[CE]");
-	snprintf(map_name, sizeof(map_name), "%s@ce", file);
+	wide_append(display_name, DISPLAY_NAME_LENGTH, L"\r\n[");
+	wide_append(display_name, DISPLAY_NAME_LENGTH, mark);
+	wide_append(display_name, DISPLAY_NAME_LENGTH, L"]");
+	snprintf(map_name, sizeof(map_name), "%s%s", file, map_family_suffix(family));
 	add_entry(map_name, display_name, lobby_name, description, NONE, picture_index);
+}
+
+/* the files found of a family's maps, while the list is filled */
+struct found_files
+{
+	char names[MAXIMUM_MAP_LIST][MAP_NAME_LENGTH];
+	long count;
+};
+
+static void file_found(
+	char const *file,
+	void *context)
+{
+	struct found_files *found = context;
+
+	if (found->count < MAXIMUM_MAP_LIST && strlen(file) < MAP_NAME_LENGTH - 3)
+		snprintf(found->names[found->count++], MAP_NAME_LENGTH, "%s", file);
 }
 
 /* ---------- public code */
 
 /* the list anew: the Xbox's maps (the game's thirteen names, in its order),
-then the Custom Edition maps found */
+then the Custom Edition maps found, then HaloMD's */
 void ui_map_list_refresh(
 	char *const *xbox_maps)
 {
-	char pattern[256];
-	WIN32_FIND_DATAA data;
-	HANDLE find;
-	short index;
+	static struct found_files found;
+	/* (the counts last logged, to log each change once) */
+	static long logged_counts[NUMBER_OF_MAP_FAMILIES] = { -1, -1, -1 };
+	long counts[NUMBER_OF_MAP_FAMILIES] = { XBOX_MAP_COUNT, 0, 0 };
+	short index, family;
 
 	ui_map_list_count_value = 0;
 	for (index = 0; index < XBOX_MAP_COUNT; index++)
 		add_entry(xbox_maps[index], L"", L"", L"", index, index);
-	snprintf(pattern, sizeof(pattern), "%sce\\*.map", cache_files_map_directory());
-	find = FindFirstFileA(pattern, &data);
-	if (find != INVALID_HANDLE_VALUE)
+	for (family = _map_family_custom_edition; family < NUMBER_OF_MAP_FAMILIES; family++)
 	{
-		char files[MAXIMUM_MAP_LIST][MAP_NAME_LENGTH];
-		long file_count = 0, file;
+		long file;
 
-		do
-		{
-			char path[512];
-			size_t length = strlen(data.cFileName);
-
-			if (length < 5 || _stricmp(data.cFileName + length - 4, ".map") || length - 4 >= MAP_NAME_LENGTH - 3)
-				continue;
-			snprintf(path, sizeof(path), "%sce\\%s", cache_files_map_directory(), data.cFileName);
-			if (!ce_map_is_multiplayer(path) || file_count >= MAXIMUM_MAP_LIST)
-				continue;
-			snprintf(files[file_count], MAP_NAME_LENGTH, "%.*s", (int)(length - 4), data.cFileName);
-			file_count++;
-		}
-		while (FindNextFileA(find, &data));
-		CloseHandle(find);
-		if (file_count)
+		found.count = 0;
+		map_family_list(family, file_found, &found);
+		if (found.count)
 			ce_ui_read();
 		/* (in the order of their names, as the list shows them) */
-		qsort(files, file_count, MAP_NAME_LENGTH, (int (*)(void const *, void const *))_stricmp);
-		for (file = 0; file < file_count; file++)
-			add_ce_entry(files[file]);
+		qsort(found.names, found.count, MAP_NAME_LENGTH, (int (*)(void const *, void const *))_stricmp);
+		for (file = 0; file < found.count; file++)
+			add_pc_entry(family, found.names[file]);
+		counts[family] = found.count;
+	}
+	if (memcmp(counts, logged_counts, sizeof(counts)))
+	{
+		memcpy(logged_counts, counts, sizeof(counts));
+		error(_error_silent, "the menus' map list: %ld Custom Edition maps, %ld HaloMD maps",
+			counts[_map_family_custom_edition], counts[_map_family_halomd]);
 	}
 }
 
@@ -684,13 +731,14 @@ wchar_t const *ui_map_list_text(
 	}
 }
 
-/* Halo PC's picture of a Custom Edition map, by its file's name: its own of
-Halo PC's maps, its unknown level's for another's; NULL without Halo PC's
-ui.map */
-struct bitmap_data *ui_map_list_ce_picture(
+/* Halo PC's picture of a Custom Edition or HaloMD map, by its file's name:
+its own of Halo PC's maps, its unknown level's for another's (and for every
+HaloMD map); NULL without Halo PC's ui.map */
+struct bitmap_data *ui_map_list_family_picture(
+	short family,
 	char const *file)
 {
-	long index = ce_map_index(file);
+	long index = family == _map_family_custom_edition ? ce_map_index(file) : NONE;
 
 	ce_ui_read();
 	if (index == NONE)
@@ -698,41 +746,42 @@ struct bitmap_data *ui_map_list_ce_picture(
 	return index < ce_ui.picture_count ? &ce_ui.pictures[index] : NULL;
 }
 
-/* whether maps\ce has a Custom Edition map of this file's name (where the
-game loads one from: cache_files_windows.c) */
-boolean ui_map_list_ce_present(
+/* whether a family's folders have a map of this file's name, of its
+family's version (where the game loads one from: cache_files_windows.c) */
+boolean ui_map_list_family_present(
+	short family,
 	char const *file)
 {
 	char path[512];
-	HANDLE handle;
 
-	if (!file[0] || strchr(file, '\\') || strchr(file, '/'))
-		return FALSE;
-	snprintf(path, sizeof(path), "%sce\\%s.map", cache_files_map_directory(), file);
-	handle = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-	if (handle == INVALID_HANDLE_VALUE)
-		return FALSE;
-	CloseHandle(handle);
-	return TRUE;
+	return family != _map_family_xbox && map_family_find(family, file, path, sizeof(path));
 }
 
 #endif
 
-/* a Custom Edition map's name, by its file's name: Halo PC's own for its
-maps (as its ui.map has it, on the builds with Custom Edition maps), else the file's name
-made readable */
-void ui_map_list_ce_name(
+/* a Custom Edition or HaloMD map's name, by its file's name: Halo PC's own
+for its maps (as its ui.map has it, on the builds with Custom Edition maps),
+HaloMD's mod list's for HaloMD's, else the file's name made readable */
+void ui_map_list_family_name(
+	short family,
 	char const *file,
 	wchar_t *name,
 	long size)
 {
-	long index = ce_map_index(file);
-	wchar_t const *known;
+	long index = family == _map_family_custom_edition ? ce_map_index(file) : NONE;
+	wchar_t const *known = family == _map_family_halomd ? halomd_map_name(file) : NULL;
 	long length;
 
-	if (index == NONE)
+	if (index == NONE && !known)
 	{
 		ce_map_tidy_name(file, name, size);
+		return;
+	}
+	if (index == NONE)
+	{
+		for (length = 0; length < size - 1 && known[length]; length++)
+			name[length] = known[length];
+		name[length] = 0;
 		return;
 	}
 	known = ce_maps[index].name;

@@ -11,7 +11,9 @@ the save folder.
 
 The maps are those of the maps folder that are multiplayer maps, whatever
 their names (a campaign map has no navigation of this kind: its own AI's),
-and on the builds with them the Custom Edition maps of maps\ce.
+and on the builds with them Halo PC's maps: the Custom Edition maps
+(<name>@ce) and HaloMD's (<name>@md), wherever the game finds them
+(map_families.c).
 
 It hosts each map in turn in a split screen lobby of one player and no
 bots: the map loads, bots.c builds its navigation (bots_map_loaded), and
@@ -45,6 +47,7 @@ Called from the main loop every frame (main.c).
 
 #include "bots.h"
 #include "bot_nav.h"
+#include "halo_map_families.h"
 
 /* the platform layer's */
 void platform_log(char const *format, ...);
@@ -62,10 +65,8 @@ enum
 	BAKE_HEADER_TYPE_OFFSET = 0x60,
 	BAKE_HEADER_VERSION_OFFSET = 0x4,
 	BAKE_HEADER_MULTIPLAYER = 1,
-	/* the Xbox's maps, and Halo PC's (Custom Edition: maps\ce, played as
-	<name>@ce) */
+	/* the Xbox's maps (Halo PC's are found by map_families.c) */
 	BAKE_VERSION_XBOX = 5,
-	BAKE_VERSION_CE = 609,
 };
 
 /* every baked game's random seed */
@@ -91,7 +92,8 @@ enum
 
 struct bake_map
 {
-	/* (as the lobby has it: a Custom Edition map's ends in @ce) */
+	/* (as the lobby has it: a Custom Edition map's ends in @ce, a HaloMD
+	map's in @md) */
 	char name[40];
 	short state;
 	real seconds;
@@ -127,17 +129,37 @@ static struct
 
 /* ---------- private code */
 
-/* the multiplayer maps of a folder (maps, or maps\ce: version), by name */
-static void bake_find_maps_in(
-	char const *folder,
-	long version,
-	char const *suffix)
+/* a map to bake, by the name the lobby plays it under (each once, in the
+names' order, whatever the folders': the same every time) */
+static void bake_add_map(
+	char const *name)
+{
+	short i, j;
+
+	if (bake.map_count >= MAXIMUM_BAKED_MAPS || strlen(name) >= sizeof(bake.maps[0].name))
+		return;
+	for (i = 0; i < bake.map_count && strcmp(bake.maps[i].name, name) < 0; i++)
+		;
+	if (i < bake.map_count && !strcmp(bake.maps[i].name, name))
+		return;
+	for (j = bake.map_count; j > i; j--)
+		bake.maps[j] = bake.maps[j - 1];
+	memset(&bake.maps[i], 0, sizeof(bake.maps[i]));
+	snprintf(bake.maps[i].name, sizeof(bake.maps[i].name), "%s", name);
+	bake.maps[i].state = _bake_map_waiting;
+	bake.map_count++;
+}
+
+/* the Xbox's multiplayer maps: those of the maps folder, by the name in
+each one's header */
+static void bake_find_xbox_maps(
+	void)
 {
 	WIN32_FIND_DATAA data;
 	char pattern[256];
 	HANDLE find;
 
-	snprintf(pattern, sizeof(pattern), "%s%s*.map", cache_files_map_directory(), folder);
+	snprintf(pattern, sizeof(pattern), "%s*.map", cache_files_map_directory());
 	find = FindFirstFileA(pattern, &data);
 	if (find == INVALID_HANDLE_VALUE)
 		return;
@@ -151,59 +173,52 @@ static void bake_find_maps_in(
 
 		if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
 			continue;
-		snprintf(path, sizeof(path), "%s%s%s", cache_files_map_directory(), folder, data.cFileName);
+		snprintf(path, sizeof(path), "%s%s", cache_files_map_directory(), data.cFileName);
 		file = fopen(path, "rb");
 		if (!file)
 			continue;
 		multiplayer = fread(header, sizeof(header), 1, file) == 1 && !memcmp(header, "daeh", 4) &&
 			(long)(header[BAKE_HEADER_VERSION_OFFSET] | header[BAKE_HEADER_VERSION_OFFSET + 1] << 8 |
-				header[BAKE_HEADER_VERSION_OFFSET + 2] << 16) == version &&
+				header[BAKE_HEADER_VERSION_OFFSET + 2] << 16) == BAKE_VERSION_XBOX &&
 			header[BAKE_HEADER_TYPE_OFFSET] == BAKE_HEADER_MULTIPLAYER && !header[BAKE_HEADER_TYPE_OFFSET + 1];
 		fclose(file);
-		if (!multiplayer)
+		if (!multiplayer || !header[BAKE_HEADER_NAME_OFFSET])
 			continue;
-		if (version == BAKE_VERSION_CE)
-		{
-			/* (played by its file's name: cache_files_windows.c) */
-			size_t length = strlen(data.cFileName);
-
-			if (length < 5 || length - 4 + strlen(suffix) >= sizeof(name))
-				continue;
-			snprintf(name, sizeof(name), "%.*s%s", (int)(length - 4), data.cFileName, suffix);
-		}
-		else
-		{
-			if (!header[BAKE_HEADER_NAME_OFFSET])
-				continue;
-			snprintf(name, sizeof(name), "%.31s", (char const *)header + BAKE_HEADER_NAME_OFFSET);
-		}
-		if (bake.map_count < MAXIMUM_BAKED_MAPS)
-		{
-			short i, j;
-
-			/* (in the names' order, whatever the folder's: the same every time) */
-			for (i = 0; i < bake.map_count && strcmp(bake.maps[i].name, name) < 0; i++)
-				;
-			if (i < bake.map_count && !strcmp(bake.maps[i].name, name))
-				continue;
-			for (j = bake.map_count; j > i; j--)
-				bake.maps[j] = bake.maps[j - 1];
-			memset(&bake.maps[i], 0, sizeof(bake.maps[i]));
-			snprintf(bake.maps[i].name, sizeof(bake.maps[i].name), "%s", name);
-			bake.maps[i].state = _bake_map_waiting;
-			bake.map_count++;
-		}
+		snprintf(name, sizeof(name), "%.31s", (char const *)header + BAKE_HEADER_NAME_OFFSET);
+		bake_add_map(name);
 	} while (FindNextFileA(find, &data));
 	/* (as ui_map_list.c closes its own: the platform layer's find handles) */
 	CloseHandle(find);
 }
 
+#ifdef HALO_CUSTOM_EDITION
+/* one of Halo PC's multiplayer maps (map_family_list): played by its
+file's name and its family's suffix */
+static void bake_family_map_found(
+	char const *file,
+	void *context)
+{
+	char name[40];
+	char const *suffix = map_family_suffix(*(short const *)context);
+
+	if (strlen(file) + strlen(suffix) >= sizeof(name))
+		return;
+	snprintf(name, sizeof(name), "%s%s", file, suffix);
+	bake_add_map(name);
+}
+#endif
+
 static void bake_find_maps(
 	void)
 {
-	bake_find_maps_in("", BAKE_VERSION_XBOX, "");
+	bake_find_xbox_maps();
 #ifdef HALO_CUSTOM_EDITION
-	bake_find_maps_in("ce\\", BAKE_VERSION_CE, "@ce");
+	{
+		short family;
+
+		for (family = _map_family_custom_edition; family < NUMBER_OF_MAP_FAMILIES; family++)
+			map_family_list(family, bake_family_map_found, &family);
+	}
 #endif
 }
 
@@ -324,7 +339,7 @@ static boolean bake_apply_map(
 	settings = network_game_client_get_game(client);
 	if (!settings)
 		return FALSE;
-	/* (a Custom Edition map's name, <name>@ce, stays bare: cache_files_windows.c) */
+	/* (a Halo PC map's name, <name>@ce or <name>@md, stays bare: cache_files_windows.c) */
 	if (strchr(map->name, '@'))
 		snprintf(path, sizeof(path), "%s", map->name);
 	else

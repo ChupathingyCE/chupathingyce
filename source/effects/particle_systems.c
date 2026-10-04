@@ -1473,6 +1473,19 @@ static void particle_system_render(
 					{
 						sequence_index = state_definition->sequence_index;
 					}
+					/* port: a rotational sprite's sequence is the one after its state's,
+					which a Halo PC map's bitmap may not have (Hornets Nest's): its
+					state's own then; a particle whose bitmap has neither, or no sprites
+					in it, is not drawn, rather than read past the bitmap's sequences */
+					if (sequence_index >= bitmap->sequences.count)
+						sequence_index = state_definition->sequence_index;
+					if (sequence_index < 0 || sequence_index >= bitmap->sequences.count ||
+						TAG_BLOCK_GET_ELEMENT(&bitmap->sequences, sequence_index,
+							struct bitmap_group_sequence)->sprites.count <= 0)
+					{
+						particle_index = (short)particle->next_particle_index;
+						continue;
+					}
 					sequence = TAG_BLOCK_GET_ELEMENT(
 						&bitmap->sequences,
 						sequence_index,

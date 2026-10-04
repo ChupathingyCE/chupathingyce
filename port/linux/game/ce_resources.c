@@ -24,6 +24,10 @@ resource is checked to lie in its file, and each block and data in it to lie
 in it, as it is relocated; a map whose resources do not is refused before it
 is opened (ce_map_checks.c, which copies them in as loading does, into an
 image of the tag cache, and checks every bitmap and sound: ce_resources_check).
+
+HaloMD's maps (Halo PC retail's) are read with Custom Edition's resource
+maps too: their stock bitmaps' pixels and sounds' samples are found in them
+by their tags' paths (below).
 */
 
 #ifdef HALO_CUSTOM_EDITION
@@ -498,6 +502,344 @@ static boolean ce_relocate_tag(
 	return TRUE;
 }
 
+/* ---------- HaloMD's maps (Halo PC retail's, version 7, played as <name>@md)
+
+A retail map has no indexed tags: its bitmaps and sounds are all in it, but
+the pixels and samples of the stock ones are at offsets in Halo PC's own
+bitmaps.map and sounds.map, which are laid out unlike Custom Edition's. The
+same stock tags are in Custom Edition's resource maps, by the same paths
+(HaloMD's maps add '+'s to copies of them): each external bitmap or sound
+takes the offsets of its namesake there, when its pixels or samples are the
+same size. A bitmap with no namesake borrows the pixels of one of the same
+type (and format, if there is one) there; a sound with none is made
+silent (no pitch ranges: sound_manager.c does not play it). */
+
+/* every bitmap in Custom Edition's bitmaps.map (CE_BITMAP_DATA_SIZE each),
+read once, for stand-ins */
+static byte *ce_retail_stand_ins;
+static long ce_retail_stand_in_count;
+static boolean ce_retail_stand_ins_read;
+
+/* the resource of a tag's path, or of the path without its trailing '+'s */
+static long ce_retail_resource(
+	struct ce_resource_map const *map,
+	char const *name)
+{
+	char stripped[256];
+	size_t length = strlen(name), stripped_length = length;
+	long found = ce_resource_by_path(map, name);
+
+	if (found != NONE)
+		return found;
+	while (stripped_length && name[stripped_length - 1] == '+')
+		stripped_length--;
+	if (stripped_length == length || !stripped_length || stripped_length >= sizeof(stripped))
+		return NONE;
+	memcpy(stripped, name, stripped_length);
+	stripped[stripped_length] = 0;
+	return ce_resource_by_path(map, stripped);
+}
+
+/* a resource (no larger than maximum_size) read into a buffer to free, or NULL */
+static byte *ce_retail_read_resource(
+	struct ce_resource_map const *map,
+	long resource_index,
+	unsigned long minimum_size,
+	unsigned long maximum_size,
+	unsigned long *size)
+{
+	struct ce_resource const *resource = &map->resources[resource_index];
+	byte *copy;
+
+	if (resource->size < minimum_size || resource->size > maximum_size ||
+		!ce_range_within(resource->offset, resource->size, map->file_size))
+	{
+		return NULL;
+	}
+	copy = malloc(resource->size);
+	if (copy && !ce_read(map->file, resource->offset, copy, resource->size))
+	{
+		free(copy);
+		copy = NULL;
+	}
+	*size = resource->size;
+	return copy;
+}
+
+/* a bitmap resource's bitmaps, copied into a buffer to free, or NULL */
+static byte *ce_retail_resource_bitmaps(
+	struct ce_resource_map const *map,
+	long resource_index,
+	long *count)
+{
+	unsigned long size = 0;
+	byte *copy = ce_retail_read_resource(map, resource_index, CE_BITMAP_GROUP_SIZE, 0x100000, &size);
+	byte *bitmaps = NULL;
+
+	*count = 0;
+	if (copy)
+	{
+		unsigned long bitmap_count = ce_read_long(copy + CE_BITMAP_GROUP_BITMAPS_OFFSET);
+		unsigned long at = ce_read_long(copy + CE_BITMAP_GROUP_BITMAPS_OFFSET + 4);
+
+		if (bitmap_count && bitmap_count <= CE_MAXIMUM_ELEMENTS &&
+			ce_range_within(at, bitmap_count * CE_BITMAP_DATA_SIZE, size))
+		{
+			bitmaps = malloc(bitmap_count * CE_BITMAP_DATA_SIZE);
+			if (bitmaps)
+			{
+				memcpy(bitmaps, copy + at, bitmap_count * CE_BITMAP_DATA_SIZE);
+				*count = (long)bitmap_count;
+			}
+		}
+		free(copy);
+	}
+	return bitmaps;
+}
+
+static void ce_retail_read_stand_ins(
+	struct ce_resource_map const *map)
+{
+	unsigned long index;
+
+	ce_retail_stand_ins_read = TRUE;
+	for (index = 0; index < map->count; index++)
+	{
+		unsigned long path_offset = map->resources[index].path_offset;
+		size_t length;
+		long count;
+		byte *bitmaps, *grown;
+
+		if (!map->paths || path_offset >= map->paths_size)
+			continue;
+		length = strlen(map->paths + path_offset);
+		if (length >= 8 && !strcmp(map->paths + path_offset + length - 8, "__pixels"))
+			continue;
+		bitmaps = ce_retail_resource_bitmaps(map, (long)index, &count);
+		if (!bitmaps)
+			continue;
+		grown = realloc(ce_retail_stand_ins, (ce_retail_stand_in_count + count) * CE_BITMAP_DATA_SIZE);
+		if (grown)
+		{
+			memcpy(grown + ce_retail_stand_in_count * CE_BITMAP_DATA_SIZE, bitmaps, count * CE_BITMAP_DATA_SIZE);
+			ce_retail_stand_ins = grown;
+			ce_retail_stand_in_count += count;
+		}
+		free(bitmaps);
+	}
+}
+
+/* a bitmap given the pixels of one in Custom Edition's bitmaps.map: of its
+shape, else of its type and format, else of its type; FALSE if none is */
+static boolean ce_retail_bitmap_stand_in(
+	struct ce_resource_map const *map,
+	byte *data)
+{
+	long pass, index;
+
+	if (!ce_retail_stand_ins_read)
+		ce_retail_read_stand_ins(map);
+	for (pass = 0; pass < 3; pass++)
+	{
+		for (index = 0; index < ce_retail_stand_in_count; index++)
+		{
+			byte const *stand_in = ce_retail_stand_ins + index * CE_BITMAP_DATA_SIZE;
+			boolean fits;
+
+			switch (pass)
+			{
+			case 0: /* (width, height, depth, type, format; mipmaps; pixels' size) */
+				fits = !memcmp(data + 0x04, stand_in + 0x04, 10) && !memcmp(data + 0x14, stand_in + 0x14, 2) &&
+					!memcmp(data + 0x1c, stand_in + 0x1c, 4);
+				break;
+			case 1:
+				fits = !memcmp(data + 0x0a, stand_in + 0x0a, 4);
+				break;
+			default:
+				fits = !memcmp(data + 0x0a, stand_in + 0x0a, 2);
+				break;
+			}
+			if (fits)
+			{
+				unsigned short flags, stand_in_flags;
+
+				memcpy(&flags, data + 0x0e, 2);
+				memcpy(&stand_in_flags, stand_in + 0x0e, 2);
+				flags = (unsigned short)((flags & ~CE_BITMAP_XBOX_FORMAT_FLAGS) |
+					(stand_in_flags & CE_BITMAP_XBOX_FORMAT_FLAGS) | CE_BITMAP_EXTERNAL_FLAG);
+				memcpy(data + 0x04, stand_in + 0x04, 10);
+				memcpy(data + 0x0e, &flags, 2);
+				memcpy(data + 0x14, stand_in + 0x14, 2);
+				memcpy(data + 0x18, stand_in + 0x18, 8);
+				return TRUE;
+			}
+		}
+	}
+	return FALSE;
+}
+
+/* a retail map's bitmap tag: its external bitmaps' pixels found in Custom
+Edition's bitmaps.map (or stood in for), and the tag's pixels read from
+there (*type) */
+static boolean ce_retail_bitmaps(
+	struct ce_image *image,
+	struct ce_tag_instance const *instance,
+	byte *type,
+	long *stood_in)
+{
+	byte *group = ce_image_pointer(image, instance->base_address, CE_BITMAP_GROUP_SIZE);
+	char const *name = ce_image_tag_name(image, instance);
+	struct ce_resource_map *map = &ce_resource_maps[_ce_resource_bitmaps];
+	byte *bitmaps, *theirs;
+	long count, their_count = 0, index, found;
+	boolean external = FALSE;
+
+	/* (ce_bitmaps_check refuses a bitmap whose blocks are not in the tags) */
+	if (!group || !ce_image_block(image, group + CE_BITMAP_GROUP_BITMAPS_OFFSET, CE_BITMAP_DATA_SIZE,
+		CE_MAXIMUM_ELEMENTS, name, &count, &bitmaps))
+	{
+		return TRUE;
+	}
+	for (index = 0; index < count; index++)
+		external |= (*(unsigned short *)(bitmaps + index * CE_BITMAP_DATA_SIZE + 0x0e) & CE_BITMAP_EXTERNAL_FLAG) != 0;
+	if (!external)
+		return TRUE;
+	if (!ce_resource_map_open(_ce_resource_bitmaps))
+		return FALSE;
+	found = ce_retail_resource(map, name);
+	theirs = found != NONE ? ce_retail_resource_bitmaps(map, found, &their_count) : NULL;
+	for (index = 0; index < count; index++)
+	{
+		byte *data = bitmaps + index * CE_BITMAP_DATA_SIZE;
+		byte const *their = theirs && index < their_count ? theirs + index * CE_BITMAP_DATA_SIZE : NULL;
+
+		if (!(*(unsigned short *)(data + 0x0e) & CE_BITMAP_EXTERNAL_FLAG))
+			continue;
+		if (their && !memcmp(data + 0x04, their + 0x04, 10) && !memcmp(data + 0x14, their + 0x14, 2) &&
+			!memcmp(data + 0x1c, their + 0x1c, 4))
+		{
+			memcpy(data + 0x18, their + 0x18, 4);
+		}
+		else if (ce_retail_bitmap_stand_in(map, data))
+			(*stood_in)++;
+		else
+		{
+			if (theirs)
+				free(theirs);
+			return ce_refuse("bitmap %ld of %s is in Halo PC's bitmaps.map, not in Custom Edition's", index, name);
+		}
+	}
+	if (theirs)
+		free(theirs);
+	*type = (byte)(_ce_resource_bitmaps + 1);
+	return TRUE;
+}
+
+/* a retail map's sound tag: its external permutations' samples found in
+Custom Edition's sounds.map, and the tag's samples read from there (*type);
+or, if they are not all there, of the same sizes, the sound made silent */
+static boolean ce_retail_sound(
+	struct ce_image *image,
+	struct ce_tag_instance const *instance,
+	byte *type,
+	long *silenced)
+{
+	byte *sound = ce_image_pointer(image, instance->base_address, CE_SOUND_HEADER_SIZE);
+	char const *name = ce_image_tag_name(image, instance);
+	struct ce_resource_map *map = &ce_resource_maps[_ce_resource_sounds];
+	byte *ranges, *copy = NULL;
+	long range_count, range_index, found;
+	unsigned long size = 0, cursor, their_range_count = 0;
+	boolean external = FALSE, matches;
+
+	if (!sound || !ce_image_block(image, sound + CE_SOUND_PITCH_RANGES_OFFSET, CE_SOUND_PITCH_RANGE_SIZE,
+		CE_MAXIMUM_ELEMENTS, name, &range_count, &ranges))
+	{
+		return TRUE;
+	}
+	for (range_index = 0; range_index < range_count; range_index++)
+	{
+		byte *permutations;
+		long permutation_count, permutation_index;
+
+		if (!ce_image_block(image, ranges + range_index * CE_SOUND_PITCH_RANGE_SIZE + CE_PITCH_RANGE_PERMUTATIONS_OFFSET,
+			CE_SOUND_PERMUTATION_SIZE, CE_MAXIMUM_ELEMENTS, name, &permutation_count, &permutations))
+		{
+			return TRUE;
+		}
+		for (permutation_index = 0; permutation_index < permutation_count; permutation_index++)
+			external |= (ce_read_long(permutations + permutation_index * CE_SOUND_PERMUTATION_SIZE +
+				CE_PERMUTATION_SAMPLES_OFFSET + 4) & 1) != 0;
+	}
+	if (!external)
+		return TRUE;
+	if (!ce_resource_map_open(_ce_resource_sounds))
+		return FALSE;
+	found = ce_retail_resource(map, name);
+	if (found != NONE)
+		copy = ce_retail_read_resource(map, found, CE_SOUND_HEADER_SIZE, 0x1000000, &size);
+	/* (the same encoding and compression, pitch ranges, permutations and
+	samples' sizes; its resource's parts follow each other: ce_relocate_sound) */
+	matches = copy && !memcmp(copy + CE_SOUND_ENCODING_OFFSET, sound + CE_SOUND_ENCODING_OFFSET, 4);
+	if (matches)
+	{
+		their_range_count = ce_read_long(copy + CE_SOUND_PITCH_RANGES_OFFSET);
+		cursor = CE_SOUND_HEADER_SIZE;
+		matches = their_range_count == (unsigned long)range_count &&
+			ce_advance(&cursor, their_range_count, CE_SOUND_PITCH_RANGE_SIZE, size);
+	}
+	for (range_index = 0; matches && range_index < range_count; range_index++)
+	{
+		byte *permutations;
+		long permutation_count, permutation_index;
+		unsigned long their_permutations = cursor;
+
+		ce_image_block(image, ranges + range_index * CE_SOUND_PITCH_RANGE_SIZE + CE_PITCH_RANGE_PERMUTATIONS_OFFSET,
+			CE_SOUND_PERMUTATION_SIZE, CE_MAXIMUM_ELEMENTS, name, &permutation_count, &permutations);
+		matches = ce_read_long(copy + CE_SOUND_HEADER_SIZE + range_index * CE_SOUND_PITCH_RANGE_SIZE +
+			CE_PITCH_RANGE_PERMUTATIONS_OFFSET) == (unsigned long)permutation_count &&
+			ce_advance(&cursor, (unsigned long)permutation_count, CE_SOUND_PERMUTATION_SIZE, size);
+		for (permutation_index = 0; matches && permutation_index < permutation_count; permutation_index++)
+		{
+			byte const *their = copy + their_permutations + permutation_index * CE_SOUND_PERMUTATION_SIZE;
+			byte const *mine = permutations + permutation_index * CE_SOUND_PERMUTATION_SIZE;
+
+			matches = ce_read_long(mine + CE_PERMUTATION_SAMPLES_OFFSET) ==
+				ce_read_long(their + CE_PERMUTATION_SAMPLES_OFFSET);
+		}
+	}
+	/* (then the offsets taken: a second pass, once all of them match) */
+	if (matches)
+	{
+		cursor = CE_SOUND_HEADER_SIZE + their_range_count * CE_SOUND_PITCH_RANGE_SIZE;
+		for (range_index = 0; range_index < range_count; range_index++)
+		{
+			byte *permutations;
+			long permutation_count, permutation_index;
+
+			ce_image_block(image, ranges + range_index * CE_SOUND_PITCH_RANGE_SIZE +
+				CE_PITCH_RANGE_PERMUTATIONS_OFFSET, CE_SOUND_PERMUTATION_SIZE, CE_MAXIMUM_ELEMENTS, name,
+				&permutation_count, &permutations);
+			for (permutation_index = 0; permutation_index < permutation_count; permutation_index++)
+			{
+				memcpy(permutations + permutation_index * CE_SOUND_PERMUTATION_SIZE + CE_PERMUTATION_SAMPLES_OFFSET + 8,
+					copy + cursor + permutation_index * CE_SOUND_PERMUTATION_SIZE + CE_PERMUTATION_SAMPLES_OFFSET + 8, 4);
+			}
+			cursor += (unsigned long)permutation_count * CE_SOUND_PERMUTATION_SIZE;
+		}
+		*type = (byte)(_ce_resource_sounds + 1);
+	}
+	else
+	{
+		ce_write_long(sound + CE_SOUND_PITCH_RANGES_OFFSET, 0);
+		ce_write_long(sound + CE_SOUND_PITCH_RANGES_OFFSET + 4, 0);
+		(*silenced)++;
+	}
+	if (copy)
+		free(copy);
+	return TRUE;
+}
+
 /* a sound's header in sounds.map is the one of the map sounds.map was
 built with: its promotion sound is a tag index there, not in this map (in
 timberland's, a shell casing sound's promotion sound is a Scorpion shader or
@@ -537,6 +879,7 @@ static boolean ce_resources_place(
 	unsigned long tags_end = image->base + image->size;
 	unsigned long next = (tags_end + 15) & ~15UL;
 	long index;
+	long stood_in = 0, silenced = 0;
 
 	*copied = 0;
 	csmemset(types, 0, tag_count);
@@ -551,8 +894,25 @@ static boolean ce_resources_place(
 		byte *copy;
 		byte const *sound_header = NULL;
 
-		if (!instance->indexed || type == NONE)
+		if (type == NONE)
 			continue;
+		if (!instance->indexed)
+		{
+			/* (a retail map's stock bitmaps and sounds, from Custom
+			Edition's resource maps) */
+			if (ce_map_cache_version == CE_CACHE_VERSION_RETAIL)
+			{
+				boolean found = TRUE;
+
+				if (instance->group_tag == 'bitm')
+					found = ce_retail_bitmaps(image, instance, &types[index], &stood_in);
+				else if (instance->group_tag == 'snd!')
+					found = ce_retail_sound(image, instance, &types[index], &silenced);
+				if (!found)
+					return FALSE;
+			}
+			continue;
+		}
 		if (!ce_resource_map_open(type))
 			return FALSE;
 		map = &ce_resource_maps[type];
@@ -598,6 +958,11 @@ static boolean ce_resources_place(
 		next = (next + resource->size + 15) & ~15UL;
 		image->size = next - image->base;
 		(*copied)++;
+	}
+	if (ce_map_cache_version == CE_CACHE_VERSION_RETAIL && !ce_map_checking())
+	{
+		error(_error_silent, "HaloMD map: %ld bitmaps stood in for, %ld sounds silent (not in Custom Edition's "
+			"resource maps)", stood_in, silenced);
 	}
 	*next_free = next;
 	return TRUE;

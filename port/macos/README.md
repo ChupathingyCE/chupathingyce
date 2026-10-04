@@ -70,6 +70,10 @@ treats an Xbox address as a pointer, or the reverse, does not compile.
   place of the other ports' `bink_null.c`.
 - The application bundle (`port/macos/bundle.py`, `Info.plist`) registers the
   `halo://` and Discord URL schemes that internet play invites use.
+- Command-W (the Window menu's Close) does not close the game, as W moves
+  the player forward. Command-Q quits on a second press within two seconds
+  (Q is the flashlight); the window's close button, the menus' Quit and the
+  Dock's quit at once (`sdl_platform.c`).
 
 ## Status
 

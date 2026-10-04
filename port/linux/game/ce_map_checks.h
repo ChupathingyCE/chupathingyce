@@ -62,6 +62,18 @@ boolean ce_refuse(char const *format, ...);
 /* whether a map is being checked (ce_map_check) rather than loaded */
 boolean ce_map_checking(void);
 
+/* the cache version of the map being checked or loaded (ce_map_checks.c):
+Custom Edition's (609), or Halo PC retail's (7: HaloMD's maps, played as
+<name>@md, whose bitmaps' pixels and sounds' samples are at offsets in Halo
+PC's own resource maps, found in Custom Edition's by their tags' paths:
+ce_resources.c) */
+enum
+{
+	CE_CACHE_VERSION_CUSTOM_EDITION = 609,
+	CE_CACHE_VERSION_RETAIL = 7,
+};
+extern long ce_map_cache_version;
+
 #endif
 
 #endif

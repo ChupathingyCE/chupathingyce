@@ -272,9 +272,7 @@ void ai_profile_update(
 			meter->history_sum -= meter->history[meter->history_next_index];
 		}
 		meter->history[meter->history_next_index] = meter->current_value;
-		/* BUG (original): January and October subtract the evicted sample but
-		 * never add the new sample to history_sum. A corrected build should add
-		 * current_value here before computing the average. */
+		meter->history_sum += meter->current_value;
 		meter->history_next_index++;
 		meter->history_count = MAX(meter->history_count, meter->history_next_index);
 		meter->history_next_index %= AI_METER_HISTORY_TICKS;

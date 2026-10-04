@@ -992,7 +992,17 @@ void render_model(
 		model_parameters.animation.colors = change_colors;
 		model_parameters.animation.values = function_values;
 		model_parameters.skinning.node_matrices = relative_node_matrices;
+#ifdef HALO_CUSTOM_EDITION
+		/* port: no more than the renderer skins (rasterizer_set_model_skinning's
+		RASTERIZER_MAXIMUM_NODES_PER_MODEL). A Custom Edition model may have
+		more nodes, up to the model's maximum (a first-person weapon's, the
+		arms' nodes and its own), whose vertices are checked to be skinned to
+		none past them (port/linux/game/ce_models.c) */
+		model_parameters.skinning.node_matrix_count =
+			MIN(model->nodes.count, RASTERIZER_MAXIMUM_NODES_PER_MODEL - 1);
+#else
 		model_parameters.skinning.node_matrix_count = model->nodes.count;
+#endif
 		model_parameters.geometry_flags = 0;
 		model_parameters.base_map_scale = model->base_map_scale;
 

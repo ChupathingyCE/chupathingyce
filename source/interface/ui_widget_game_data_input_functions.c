@@ -2305,6 +2305,7 @@ static void game_options_menu_update_text_desc(
 		definition->child_count > 0,
 		"expected some list items for multiplayer game settings list");
 
+	description_index = 0;
 	extended_description = widget->parameters.list.extended_description;
 	if (widget->focused_child)
 	{
@@ -2345,12 +2346,6 @@ static void game_options_menu_update_text_desc(
 		}
 	}
 
-	/* BUG (preserved for exact matching): description_index is assigned only when the
-	 * list has a focused child. Without one, January stores the low word of the widget
-	 * argument slot instead (0x4e1ce0: +0xa4 branches to +0x119 mov dx,[ebp+8]; the slot
-	 * is never written). Whether a game options list is updated without a focused child
-	 * is not shown. A corrected build should initialise description_index to 0.
-	 * Source-policy approval pending (2026-09-27 audit). */
 	extended_description->parameters.text_box.string_list_index = (short)description_index;
 	return;
 }
@@ -2384,6 +2379,7 @@ static void game_options_menu_update_pic_desc(
 		definition->child_count > 0,
 		"expected some list items for game settings list");
 
+	description_index = 0;
 	extended_description = widget->parameters.list.extended_description;
 	if (widget->focused_child)
 	{
@@ -2414,11 +2410,6 @@ static void game_options_menu_update_pic_desc(
 		}
 	}
 
-	/* BUG (preserved for exact matching): as in game_options_menu_update_text_desc,
-	 * without a focused child January stores the low word of the widget argument slot
-	 * (0x4e1ea0 +0x119 mov dx,[ebp+8]). Whether that occurs is not shown. A corrected
-	 * build should initialise description_index to 0. Source-policy approval pending
-	 * (2026-09-27 audit). */
 	extended_description->animation.current_frame_index = (short)description_index;
 	return;
 }

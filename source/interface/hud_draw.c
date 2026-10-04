@@ -405,6 +405,11 @@ static void hud_draw_multitexture_overlay(
 	real theta,
 	pixel32 color);
 
+#ifdef _WIN64
+/* <execinfo.h>'s (port/windows/src/win32_posix.c) */
+int backtrace(void **frames, int count);
+#endif
+
 /* ---------- globals */
 
 /* ---------- public code */
@@ -414,8 +419,18 @@ static void hud_draw_multitexture_overlay(
 __attribute__((noinline)) long get_return_eip(
 	void)
 {
+#ifdef _WIN64
+	/* an x64 Windows frame pointer points into its frame, not at the saved
+	one, so there is no chain to follow: the unwind information finds the
+	caller's return address instead (the return addresses into this
+	function, into the guarded caller, and the guarded caller's own) */
+	void *frames[3];
+
+	return backtrace(frames, 3) == 3 ? (long)(__INTPTR_TYPE__)frames[2] : 0;
+#else
 	/* the caller's return address, as [ebp+4] is in the naked original */
 	return (long)(__INTPTR_TYPE__)__builtin_return_address(1);
+#endif
 }
 
 real hud_globals_get_scale(

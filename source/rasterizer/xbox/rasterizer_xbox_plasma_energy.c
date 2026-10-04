@@ -145,10 +145,19 @@ void rasterizer_set_texture(
 	long bitmap_definition_index,
 	short bitmap_sequence_index);
 
+#ifdef HALO_64BIT
+/* (as defined: an x64 Windows caller leaves the upper bits of an argument
+narrower than the definition's parameter as they are) */
+void rasterizer_set_vertex_shader_permutation(
+	short vertex_shader_index,
+	short vertex_type,
+	short permutation_index);
+#else
 void rasterizer_set_vertex_shader_permutation(
 	short vertex_type,
 	short permutation,
 	boolean one_node);
+#endif
 
 void rasterizer_set_pixel_shader(
 	struct pixel_shader_definition const *definition);

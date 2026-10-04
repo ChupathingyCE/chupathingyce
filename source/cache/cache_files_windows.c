@@ -436,14 +436,20 @@ static short cached_map_files_find_map(
 static struct cache_file_runtime_globals cache_file_globals;
 
 #ifdef HALO_CUSTOM_EDITION
-/* port: Custom Edition maps (Halo PC's, version 609), beside the Xbox maps:
-maps\ce\<name>.map, played as <name>@ce. Such a map is read where it is,
-not copied into one of the Xbox's cache slots and decompressed (it is not
+/* port: the maps past the Xbox's (halo_map_families.h): Halo PC's Custom
+Edition maps (version 609), played as <name>@ce, and HaloMD's (Halo PC
+retail's version 7), played as <name>@md, each found in its family's folders
+(port/linux/game/map_families.c). Such a map is read where it is, not
+copied into one of the Xbox's cache slots and decompressed (it is not
 compressed): it has a slot of its own, after theirs, which every read goes
 through as theirs do (cache_files.c loads its tags into its own tag cache,
 platform.h) */
+#include "halo_map_families.h"
+
 #define CE_MAP_FILE_INDEX NUMBER_OF_CACHED_MAP_FILES
-#define CE_MAP_SUFFIX "@ce"
+/* (each family's cache version: Custom Edition's, and Halo PC retail's) */
+#define CE_CACHE_VERSION_CE 609
+#define CE_CACHE_VERSION_HALOMD 7
 
 static struct cached_map_file ce_map_file;
 static char ce_map_name[64];
@@ -453,6 +459,8 @@ static HANDLE ce_request_files[MAXIMUM_SIMULTANEOUS_CACHE_REQUESTS];
 HANDLE ce_resources_file_for_tag(long tag_index);
 boolean ce_map_check(HANDLE file, char const *map_name, long file_length, long tag_data_offset,
 	long tag_data_size);
+/* the version of the map checked or loaded (port/linux/game/ce_resources.c) */
+extern long ce_map_cache_version;
 /* the last map refused (ce_map_check), its size and checksum */
 static char ce_refused_map_name[64];
 static unsigned long ce_refused_map_size;
@@ -461,27 +469,25 @@ static unsigned long ce_refused_map_checksum;
 static boolean ce_map_name_is(
 	const char *map_name)
 {
-	size_t length = strlen(map_name);
-
-	return length > 3 && !_stricmp(map_name + length - 3, CE_MAP_SUFFIX);
+	return map_family_parse(map_name, NULL, 0) != _map_family_xbox;
 }
 
-/* the CE map named <name>@ce opened in its slot (once): FALSE if there is
-none, or it is not one, or it is refused (ce_map_check). The map open
-before stays open until another is accepted */
+/* the map named <name>@ce or <name>@md opened in its slot (once): FALSE if
+there is none, or it is not one, or it is refused (ce_map_check). The map
+open before stays open until another is accepted */
 static boolean ce_map_open(
 	const char *map_name)
 {
-	char path[256];
+	char path[256], file_name[64];
 	unsigned long bytes_read = 0;
 	struct cache_file_header header;
 	unsigned long file_size;
 	HANDLE file;
-	size_t length = strlen(map_name);
+	short family;
 
 	if (ce_map_file.file && !_stricmp(ce_map_name, map_name))
 		return TRUE;
-	if (length - 3 >= 48)
+	if (strlen(map_name) >= sizeof(ce_map_name) - 1)
 		return FALSE;
 	/* (its tag cache, which the platform layer maps at start-up: xbox_memory.c) */
 	{
@@ -493,7 +499,9 @@ static boolean ce_map_open(
 			return FALSE;
 		}
 	}
-	sprintf(path, "%sce\\%.*s.map", cache_files_map_directory(), (int)(length - 3), map_name);
+	family = map_family_parse(map_name, file_name, sizeof(file_name));
+	if (!map_family_find(family, file_name, path, sizeof(path)))
+		return FALSE;
 	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
 	if (file == INVALID_HANDLE_VALUE)
 		return FALSE;
@@ -508,15 +516,19 @@ static boolean ce_map_open(
 		CloseHandle(file);
 		return FALSE;
 	}
-	if (bytes_read != sizeof(header) || !cache_file_header_verify(&header, path, FALSE))
+	/* (its family's version, as it was when it was found: map_family_find) */
+	if (bytes_read != sizeof(header) || !cache_file_header_verify(&header, path, FALSE) ||
+		header.version != (family == _map_family_halomd ? CE_CACHE_VERSION_HALOMD : CE_CACHE_VERSION_CE))
 	{
-		error(_error_silent, "Custom Edition map %s refused: %s is not a cache file of this version", map_name,
-			path);
-		console_warning("Custom Edition map %s refused: not a cache file of this version", map_name);
+		error(_error_silent, "%s map %s refused: %s is not a cache file of this version",
+			family == _map_family_halomd ? "HaloMD" : "Custom Edition", map_name, path);
+		console_warning("%s map %s refused: not a cache file of this version",
+			family == _map_family_halomd ? "HaloMD" : "Custom Edition", map_name);
 	}
 	/* every offset, count and size in it that the port reads checked, before
 	it has a slot (port/linux/game/ce_map_checks.c) */
-	else if (ce_map_check(file, map_name, header.file_length, header.tag_data_offset, header.tag_data_size))
+	else if ((ce_map_cache_version = header.version,
+		ce_map_check(file, map_name, header.file_length, header.tag_data_offset, header.tag_data_size)))
 	{
 		if (ce_map_file.file)
 			CloseHandle(ce_map_file.file);
@@ -525,9 +537,13 @@ static boolean ce_map_open(
 		ce_map_file.header = header;
 		memset(ce_map_name, 0, sizeof(ce_map_name));
 		strncpy(ce_map_name, map_name, sizeof(ce_map_name) - 1);
-		error(_error_silent, "Custom Edition map %s: %s, build %.32s", map_name, path, ce_map_file.header.build);
+		error(_error_silent, "%s map %s: %s, build %.32s",
+			family == _map_family_halomd ? "HaloMD" : "Custom Edition", map_name, path, ce_map_file.header.build);
 		return TRUE;
 	}
+	/* (the map open before stays open, and its version the one loaded) */
+	if (ce_map_file.file)
+		ce_map_cache_version = ce_map_file.header.version;
 	memset(ce_refused_map_name, 0, sizeof(ce_refused_map_name));
 	strncpy(ce_refused_map_name, map_name, sizeof(ce_refused_map_name) - 1);
 	ce_refused_map_size = file_size;

@@ -1091,11 +1091,21 @@ static void object_damage_aftermath(
 				being_damaged_flags,
 				_object_being_damaged_body_depleted_bit))
 		{
+#ifdef HALO_GAME_BROWSER
+			/* (the damage of the kill about to be counted, for the game
+			list's statistics recorder: port/linux/game/game_stats.c) */
+			void game_stats_kill_damage(long definition_index);
+
+			game_stats_kill_damage(damage->definition_index);
+#endif
 			game_statistics_record_kill(
 				object_index,
 				damage->owner_player_index,
 				damage->owner_object_index,
 				damage->owner_team_index);
+#ifdef HALO_GAME_BROWSER
+			game_stats_kill_damage(NONE);
+#endif
 		}
 	}
 	else if (game_engine_can_score())
