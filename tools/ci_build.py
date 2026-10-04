@@ -200,7 +200,7 @@ def server_dist(platform: str, config: str, output: str) -> int:
     (dist / "playlists").mkdir(parents=True)
     shutil.copy2(ROOT / output, dist)
     if config == "release":
-        # a release's download without its debug information (about 19 MB
+        # a release's download without its debug information (about 20 MB
         # of 33); build/server-<arch>/ keeps the full program, and a debug
         # build ships it
         strip_debug(dist / Path(output).name)
