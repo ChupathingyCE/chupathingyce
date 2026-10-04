@@ -6,7 +6,8 @@
 # prints the game's "probe: {...}" line. Runs as root (sudo, from
 # probe-ssh.sh); the invite must be one, its hexadecimal digits only. The
 # container's data folder is in memory (the saves in it: the game's scratch
-# drive wants about 33 MB), and goes with it.
+# drive wants about 33 MB), and goes with it; writable by anyone (mode
+# 1777), since the probe isn't root: a folder it can't write stalls it.
 set -eu
 invite=${1:-}
 case "$invite" in
@@ -22,7 +23,7 @@ flock -w 60 9
 # (not root, without capabilities: it reads what a stranger's host sends)
 exec timeout 40 docker run --rm --network bridge --memory 512m --cpus 1 --pids-limit 128 \
 	--user 65534:65534 --cap-drop ALL --security-opt no-new-privileges \
-	--tmpfs /data:size=256m \
+	--tmpfs /data:size=256m,mode=1777 \
 	-v /opt/halo-dedicated/data/maps/ui.map:/data/maps/ui.map:ro \
 	-e HALO_PROBE="$invite" \
 	halo-probe 2>/dev/null | grep '^probe: '
