@@ -281,6 +281,7 @@ symbols in this file:
 #include "saved games/game_state.h"
 #include "text/draw_string.h"
 #include "cseries/errors.h"
+#include "interface/terminal.h"
 #include "main/console.h"
 #include "game/game.h"
 #ifdef HALO_64BIT
@@ -2160,7 +2161,10 @@ void hs_evaluate_inspect(
 			 * format (January 0x4bc840 +0xdd..+0xe6), so inspecting a string that contains '%'
 			 * reads arguments that were never passed. A corrected build should print it through
 			 * "%s". Source-policy approval pending (2026-09-27 audit). */
-			console_printf(FALSE, string);
+			/* (port: a scenario script's inspect is the game's chatter, as
+			print is, hs_print) */
+			if (terminal_shows(terminal_command_running ? _terminal_message_serious : _terminal_message_chatter))
+				console_printf(FALSE, string);
 		}
 
 		hs_return(thread_index, 0);
