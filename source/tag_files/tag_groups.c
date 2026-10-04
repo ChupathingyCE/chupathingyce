@@ -11,6 +11,8 @@ TAG_GROUPS.C
 
 #ifdef HALO_CUSTOM_EDITION
 void *ce_tags_pointer(unsigned long address, long size);
+boolean cache_file_tags_are_ce(void);
+boolean tag_index_is_group(long tag_index, long group_tag);
 #endif
 
 /* ---------- public code */
@@ -21,6 +23,15 @@ long verify_tag_reference(
 	long index;
 
 	match_assert("c:\\halo\\SOURCE\\tag_files\\tag_groups.c", 3055, reference);
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a Custom Edition map's tags are not found by name. A "protected"
+	map (made with a map protector) has its tags' names replaced, most with
+	the same one, and its references' emptied, so the name finds no tag or
+	another; the reference's index, a tag of its group, is the tag
+	(cache_files.c's tag_index_is_group) */
+	if (cache_file_tags_are_ce())
+		return tag_index_is_group(reference->index, reference->group_tag) ? reference->index : NONE;
+#endif
 #ifdef HALO_64BIT
 	index = tag_loaded(reference->group_tag, TAG_REFERENCE_NAME(reference));
 #else
