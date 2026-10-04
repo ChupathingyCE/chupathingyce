@@ -39,7 +39,7 @@ HOMEBREW = Path("/opt/homebrew")
 # an application for other Macs (configure.py --portable) is built with an
 # SDL3 of its own, for MACOS_MINIMUM (Homebrew's is for the Mac that has it):
 # the Android build's release, built here with CMake
-from .android_build import SDL_TAG, SDL_URL  # noqa: E402
+from .android_build import SDL_TAG, SDL_URL, check_sdl_commit  # noqa: E402
 PORTABLE_SDL_DIR = Path("build/macos/third_party/SDL3")
 PORTABLE_SDL_BUILD = Path("build/macos/third_party/SDL3-build")
 
@@ -50,8 +50,11 @@ def fetch_portable_sdl() -> bool:
         return True
     PORTABLE_SDL_DIR.parent.mkdir(parents=True, exist_ok=True)
     print(f"Cloning SDL3 {SDL_TAG} (the portable macOS build's)")
-    return subprocess.run(["git", "clone", "-q", "--depth", "1", "--branch", SDL_TAG, SDL_URL,
-                           str(PORTABLE_SDL_DIR)]).returncode == 0
+    if subprocess.run(["git", "clone", "-q", "--depth", "1", "--branch", SDL_TAG, SDL_URL,
+                       str(PORTABLE_SDL_DIR)]).returncode != 0:
+        return False
+    check_sdl_commit(PORTABLE_SDL_DIR)
+    return True
 
 # Apple's libc restricted to ISO C (glibc's is by __STRICT_ANSI__)
 MACOS_GAME_FLAGS = lp64_game_flags(["-D_ANSI_SOURCE"])
