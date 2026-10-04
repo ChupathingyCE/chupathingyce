@@ -1136,8 +1136,15 @@ static long unit_find_dialogue_variant(
 			variant_index,
 			struct unit_dialogue_variant);
 
-		if (variant_number == NONE || variant->variant_number == variant_number)
+		/* port: a variant that names no dialogue is none to choose (a Halo
+		PC map's unit may have one: shipment-cod4's, which asserted when
+		chosen), and no more are chosen among than the list holds (the
+		tools' 16: a map's unit may list more, which were written past it) */
+		if ((variant_number == NONE || variant->variant_number == variant_number) &&
+			variant->dialogue_index != NONE && variant_count < NUMBEROF(variant_indices))
+		{
 			variant_indices[variant_count++] = variant_index;
+		}
 	}
 
 	if (variant_count > 0)
