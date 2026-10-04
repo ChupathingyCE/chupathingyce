@@ -53,6 +53,18 @@ struct navm_interval
 
 struct navm_world navm;
 
+/* A build that ran out of memory. What it has by then is not all of the
+   map: a wall whose surfaces are not in it is open floor. It is not used
+   and not kept (navm_build). */
+static boolean navm_build_failed;
+
+static void navm_no_memory(char const *what)
+{
+	if (!navm_build_failed)
+		bot_log("navm: no memory for %s: this map has no navigation", what);
+	navm_build_failed = TRUE;
+}
+
 /* ---------- the grid's columns */
 
 static boolean navm_grid_new(struct navm_grid *grid, long width, long height)
@@ -272,17 +284,32 @@ struct navm_raster
 static void navm_add_interval(struct navm_raster *raster, long x, long y, real low, real high, real floor_z, int walkable)
 {
 	struct navm_interval *interval;
-	long *first = navm_grid_slot(&raster->first, x, y);
-	if (!first)
+	long *first;
+	if (navm_build_failed)
 		return;
+	first = navm_grid_slot(&raster->first, x, y);
+	if (!first)
+	{
+		navm_no_memory("the surfaces' columns");
+		return;
+	}
 	if (raster->count >= raster->capacity)
 	{
 		long capacity = raster->capacity ? raster->capacity * 2 : (1 << 20);
 		struct navm_interval *grown = (struct navm_interval *)realloc(raster->intervals, capacity * sizeof(struct navm_interval));
 		if (!grown)
+		{
+			navm_no_memory("the surfaces");
 			return;
+		}
 		raster->intervals = grown;
 		raster->capacity = capacity;
+	}
+	/* (testing, HALO_BOT_TEST_NOMEMORY=navm: as if there were no more) */
+	if (raster->count == 200000 && getenv("HALO_BOT_TEST_NOMEMORY") && !strcmp(getenv("HALO_BOT_TEST_NOMEMORY"), "navm"))
+	{
+		navm_no_memory("the surfaces (a test)");
+		return;
 	}
 	interval = &raster->intervals[raster->count];
 	interval->low = low;
@@ -636,7 +663,10 @@ static void navm_build_spans(struct navm_raster *raster)
 	navm.spans = (struct navm_span *)malloc(capacity * sizeof(struct navm_span));
 	navm.span_count = 0;
 	if (!navm.spans)
+	{
+		navm_no_memory("the floors");
 		return;
+	}
 	/* (the columns in their order, row by row, whatever blocks they are in:
 	   the spans are numbered as they always were) */
 	for (cy = 0; cy < navm.height; cy++)
@@ -691,7 +721,10 @@ static void navm_build_spans(struct navm_raster *raster)
 				capacity *= 2;
 				grown = (struct navm_span *)realloc(navm.spans, capacity * sizeof(struct navm_span));
 				if (!grown)
+				{
+					navm_no_memory("the floors");
 					return;
+				}
 				navm.spans = grown;
 			}
 			span = &navm.spans[navm.span_count];
@@ -706,7 +739,10 @@ static void navm_build_spans(struct navm_raster *raster)
 			{
 				long *first = navm_grid_slot(&navm.columns, cx, cy);
 				if (!first)
+				{
+					navm_no_memory("the floors' columns");
 					return;
+				}
 				*first = navm.span_count;
 			}
 			else
@@ -942,7 +978,10 @@ static void navm_distances(unsigned char border_flag, long kind)
 	heap.keys = (float *)malloc(navm.span_count * 8 * sizeof(float));
 	heap.count = 0;
 	if (!distance || !heap.items || !heap.keys)
+	{
+		navm_no_memory("the distances to the walls");
 		goto done;
+	}
 	for (s = 0; s < navm.span_count; s++)
 	{
 		distance[s] = 1.0e9f;
@@ -1116,7 +1155,10 @@ static boolean navm_cache_read(FILE *file, char const *map, unsigned long const 
 		(header.version == NAVM_CACHE_VERSION || header.version == NAVM_CACHE_VERSION_BLOCKS) &&
 		header.span_size == sizeof(struct navm_span) && !strcmp(header.map, map) && !memcmp(header.signature, signature, 4 * sizeof(unsigned long)) &&
 		header.width > 0 && header.height > 0 && header.width <= NAVM_MAXIMUM_SIDE && header.height <= NAVM_MAXIMUM_SIDE &&
-		(header.version == NAVM_CACHE_VERSION_BLOCKS || header.width * header.height < 64 * 1024 * 1024) &&
+		/* (the two sides are in range by now, and their product is worked
+		   out in 64 bits: never one that has wrapped round to a small number) */
+		(header.version == NAVM_CACHE_VERSION_BLOCKS ||
+			(unsigned long long)header.width * (unsigned long long)header.height < 64ULL * 1024ULL * 1024ULL) &&
 		header.climbable_count >= 0 && header.climbable_count <= NAVM_MAXIMUM_CLIMBABLES &&
 		header.span_count >= 0 && header.span_count < 64 * 1024 * 1024 && /* (before anything's sized by it) */
 		header.cell >= NAVM_CELL_FINEST * 0.99f && header.cell <= NAVM_CELL_COARSEST * 1.01f &&
@@ -1184,10 +1226,35 @@ static boolean navm_cache_read(FILE *file, char const *map, unsigned long const 
 			fread(navm.climbables, sizeof(struct navm_climbable), (size_t)header.climbable_count, file) == (size_t)header.climbable_count;
 		if (ok)
 		{
+			/* A damaged file is not used at all. Each floor is in a column of
+			   the grid, and the next floor of its column comes after it in
+			   the file and is in the same column (as they are written: a
+			   chain that came back on itself would be walked for ever). */
 			long c;
+			long b;
 			for (c = 0; ok && c < navm.span_count; c++)
-				ok = (navm.spans[c].next == NONE || (navm.spans[c].next >= 0 && navm.spans[c].next < navm.span_count)) &&
-					navm.spans[c].column >= 0 && navm.spans[c].column / navm.width < navm.height;
+			{
+				struct navm_span const *span = &navm.spans[c];
+				ok = span->column >= 0 && span->column / navm.width < navm.height &&
+					(span->next == NONE || (span->next > c && span->next < navm.span_count && navm.spans[span->next].column == span->column));
+			}
+			/* ... and each column's first floor is a floor of that column */
+			for (b = 0; ok && b < navm.columns.across * navm.columns.down; b++)
+			{
+				long const *block = navm.columns.blocks[b];
+				long x0 = (b % navm.columns.across) << NAVM_BLOCK_SHIFT;
+				long y0 = (b / navm.columns.across) << NAVM_BLOCK_SHIFT;
+				long i;
+				if (!block)
+					continue;
+				for (i = 0; ok && i < NAVM_BLOCK * NAVM_BLOCK; i++)
+				{
+					long x = x0 + (i & (NAVM_BLOCK - 1));
+					long y = y0 + (i >> NAVM_BLOCK_SHIFT);
+					if (block[i] != NONE)
+						ok = x < navm.width && y < navm.height && navm.spans[block[i]].column == y * navm.width + x;
+				}
+			}
 		}
 	}
 	return ok;
@@ -1374,6 +1441,7 @@ boolean navm_build(void)
 
 	navm_dispose();
 	navm_too_large = FALSE;
+	navm_build_failed = FALSE;
 	if (!bsp)
 		return FALSE;
 	if (navm_cache_load())
@@ -1441,7 +1509,16 @@ boolean navm_build(void)
 	}
 
 	navm_rasterize_bsp(&raster, bsp);
-	navm_build_spans(&raster);
+	if (!navm_build_failed)
+		navm_build_spans(&raster);
+	if (navm_build_failed)
+	{
+		/* (not half a map: none of it) */
+		navm_grid_free(&raster.first);
+		free(raster.intervals);
+		navm_dispose();
+		return FALSE;
+	}
 	navm_mark_scenery();
 	navm_mark_thin_obstacles();
 	/* borders: walls and drops; for vehicles, walls and anything they
@@ -1470,6 +1547,11 @@ boolean navm_build(void)
 	navm_distances(_navm_span_wall_border, _navm_distance_wall);
 	navm_distances(_navm_span_edge_border, _navm_distance_edge);
 	navm_distances(_navm_span_vehicle_border, _navm_distance_vehicle);
+	if (navm_build_failed)
+	{
+		navm_dispose();
+		return FALSE;
+	}
 	navm.ready = navm.span_count > 0;
 	if (bot_logging())
 		bot_log("navm: %ld x %ld columns of %.3f, %ld floors, %ld climbable faces, %.1f s", navm.width, navm.height, navm.cell, navm.span_count,
@@ -1513,10 +1595,42 @@ boolean navm_floor_at(real_point3d const *point, real above, real below, real *f
 	return TRUE;
 }
 
-/* walking straight from one point to another over the floor: never up or
-   down more than a step at once, at least wall_min from walls and
-   edge_min from drops all the way */
-boolean navm_line_walkable(real_point3d const *from, real_point3d const *to, real wall_min, real edge_min)
+/* Whether a body gets from one floor to the next column's, which the
+   neighbours (navm_walk_neighbor) and the straight lines below both go by:
+   room for it through the way, and nothing thin between the two (a
+   railing, a post: navm_mark_thin_obstacles). Floors not side by side (the
+   same column, or one further off over a slot in the floor) have nothing
+   known between them. */
+static boolean navm_transition_open(long from_span, long to_span)
+{
+	static long const opposite[4] = { 1, 0, 3, 2 };
+	struct navm_span const *from = &navm.spans[from_span];
+	struct navm_span const *to = &navm.spans[to_span];
+	long dx = to->column % navm.width - from->column % navm.width;
+	long dy = to->column / navm.width - from->column / navm.width;
+	long x_side = dx > 0 ? 0 : 1;
+	long y_side = dy > 0 ? 2 : 3;
+
+	if ((dx == 0 && dy == 0) || dx < -1 || dx > 1 || dy < -1 || dy > 1)
+		return TRUE;
+	if (MIN(from->ceiling, to->ceiling) - MAX(from->floor, to->floor) < NAVM_HEIGHT)
+		return FALSE;
+	if (dx != 0 && ((from->pad & (1 << x_side)) || (to->pad & (1 << opposite[x_side]))))
+		return FALSE;
+	if (dy != 0 && ((from->pad & (1 << y_side)) || (to->pad & (1 << opposite[y_side]))))
+		return FALSE;
+	return TRUE;
+}
+
+/* Along the floor from one point toward another, a floor at a time. The
+   line is the one on the map from `from` to `to`: the floor it starts on
+   is the one under `from`, and each floor after is the one a step or less
+   from the last. The height of `to` is not read (most callers ask "is
+   there floor that way", with a point that has no height of its own); the
+   floor the line ends on is given back for those that mean a place
+   (navm_line_arrives). over_slots: a hand's width of missing floor is
+   stepped over. */
+static boolean navm_line_follow(real_point3d const *from, real_point3d const *to, real wall_min, real edge_min, boolean over_slots, real *end_floor)
 {
 	real dx = to->x - from->x;
 	real dy = to->y - from->y;
@@ -1524,55 +1638,6 @@ boolean navm_line_walkable(real_point3d const *from, real_point3d const *to, rea
 	long steps = (long)(length / (NAVM_CELL * 0.5f)) + 1;
 	unsigned short wall = (unsigned short)(wall_min * 100.f);
 	unsigned short edge = (unsigned short)(edge_min * 100.f);
-	real z;
-	long i;
-	long s;
-
-	if (!navm.ready)
-		return FALSE;
-	s = navm_span_at(from, 0.3f, 1.2f);
-	if (s == NONE)
-		return FALSE;
-	z = navm.spans[s].floor;
-	for (i = 1; i <= steps; i++)
-	{
-		real t = (real)i / (real)steps;
-		long column = navm_column_of(from->x + dx * t, from->y + dy * t);
-		long u;
-		long best = NONE;
-		real best_rise = 1.0e9f;
-		if (column == NONE)
-			return FALSE;
-		for (u = navm_first_span(column); u != NONE; u = navm.spans[u].next)
-		{
-			real rise = navm.spans[u].floor - z;
-			if (fabs(rise) <= NAVM_STEP && fabs(rise) < best_rise)
-			{
-				best_rise = (real)fabs(rise);
-				best = u;
-			}
-		}
-		if (best == NONE || !(navm.spans[best].flags & _navm_span_walkable) || (navm.spans[best].flags & _navm_span_blocked) ||
-			navm.spans[best].wall < wall || navm.spans[best].edge < edge)
-		{
-			return FALSE;
-		}
-		z = navm.spans[best].floor;
-	}
-	return TRUE;
-}
-
-/* the same, for getting along on foot where it's tight: over a slot in
-   the floor no wider than a hand (the bevel at the foot of a sill, the
-   crack between two plates: nothing a body notices), and up or down a
-   step at a time */
-boolean navm_line_passable(real_point3d const *from, real_point3d const *to, real wall_min)
-{
-	real dx = to->x - from->x;
-	real dy = to->y - from->y;
-	real length = (real)sqrt(dx * dx + dy * dy);
-	long steps = (long)(length / (NAVM_CELL * 0.5f)) + 1;
-	unsigned short wall = (unsigned short)(wall_min * 100.f);
 	real missing = 0.f;
 	real z;
 	long i;
@@ -1604,17 +1669,56 @@ boolean navm_line_passable(real_point3d const *from, real_point3d const *to, rea
 		}
 		if (best == NONE)
 		{
+			if (!over_slots)
+				return FALSE;
 			missing += length / (real)steps;
 			if (missing > 0.16f)
 				return FALSE;
 			continue;
 		}
 		missing = 0.f;
-		if (!(navm.spans[best].flags & _navm_span_walkable) || (navm.spans[best].flags & _navm_span_blocked) || navm.spans[best].wall < wall)
+		if (!(navm.spans[best].flags & _navm_span_walkable) || (navm.spans[best].flags & _navm_span_blocked) ||
+			navm.spans[best].wall < wall || navm.spans[best].edge < edge)
+		{
 			return FALSE;
+		}
+		if (best != s && !navm_transition_open(s, best))
+			return FALSE;
+		s = best;
 		z = navm.spans[best].floor;
 	}
+	if (end_floor)
+		*end_floor = z;
 	return missing == 0.f;
+}
+
+/* walking straight from one point toward another over the floor: never up
+   or down more than a step at once, at least wall_min from walls and
+   edge_min from drops all the way, through nothing a neighbour's way is
+   shut by */
+boolean navm_line_walkable(real_point3d const *from, real_point3d const *to, real wall_min, real edge_min)
+{
+	return navm_line_follow(from, to, wall_min, edge_min, FALSE, NULL);
+}
+
+/* the same, for getting along on foot where it's tight: over a slot in
+   the floor no wider than a hand (the bevel at the foot of a sill, the
+   crack between two plates: nothing a body notices), and up or down a
+   step at a time */
+boolean navm_line_passable(real_point3d const *from, real_point3d const *to, real wall_min)
+{
+	return navm_line_follow(from, to, wall_min, 0.f, TRUE, NULL);
+}
+
+/* ... to a place: the floor the line ends on is the one `to` is on or just
+   over (as navm_span_at finds a point's floor), not another under or over
+   it */
+boolean navm_line_arrives(real_point3d const *from, real_point3d const *to, real wall_min, real edge_min, boolean over_slots)
+{
+	real end_floor;
+	if (!navm_line_follow(from, to, wall_min, edge_min, over_slots, &end_floor))
+		return FALSE;
+	return to->z - end_floor <= 1.2f && to->z - end_floor >= -0.3f;
 }
 
 int bot_logging(void)

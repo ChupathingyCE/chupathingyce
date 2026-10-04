@@ -300,11 +300,27 @@ static int nav_random_spot(unsigned long seed, real_point3d *spot)
 	return TRUE;
 }
 
-/* where a vehicle can get closest to point from where it is (the vehicle
-   areas joined up with ours; worked out once a map): somewhere to drive to
-   and get out when a vehicle can't get there itself */
-static long *nav_vehicle_parts;
-static long nav_vehicle_part_count;
+/* Where a vehicle can get closest to point from where it is: somewhere to
+   drive to and get out when a vehicle can't get there itself. The areas it
+   can drive to are the ones the reachabilities lead to from the area it is
+   in, the way they go: a drop is one way, so what is down it can be got to
+   and what is up it cannot. Worked out for the area the vehicle is in, and
+   kept while it stays in it. */
+static long *nav_vehicle_reached; /* per vehicle area: the number of the search that got to it */
+static long *nav_vehicle_queue;
+static long nav_vehicle_reached_count;
+static long nav_vehicle_reached_from = NONE;
+static long nav_vehicle_reached_search;
+
+static void nav_vehicle_forget(void)
+{
+	free(nav_vehicle_reached);
+	free(nav_vehicle_queue);
+	nav_vehicle_reached = NULL;
+	nav_vehicle_queue = NULL;
+	nav_vehicle_reached_count = 0;
+	nav_vehicle_reached_from = NONE;
+}
 
 static int nav_vehicle_dropoff(real_point3d const *from, real_point3d const *point, real_point3d *spot)
 {
@@ -314,55 +330,49 @@ static int nav_vehicle_dropoff(real_point3d const *from, real_point3d const *poi
 	real best = 1.0e9f;
 	if (count <= 0)
 		return FALSE;
-	if (!nav_vehicle_parts || nav_vehicle_part_count != count)
+	if (!nav_vehicle_reached || nav_vehicle_reached_count != count)
 	{
-		long *queue = (long *)malloc(count * sizeof(long));
-		free(nav_vehicle_parts);
-		nav_vehicle_parts = (long *)malloc(count * sizeof(long));
-		nav_vehicle_part_count = count;
-		if (!nav_vehicle_parts || !queue)
+		nav_vehicle_forget();
+		nav_vehicle_reached = (long *)calloc(count, sizeof(long));
+		nav_vehicle_queue = (long *)malloc(count * sizeof(long));
+		if (!nav_vehicle_reached || !nav_vehicle_queue)
 		{
-			free(queue);
-			free(nav_vehicle_parts);
-			nav_vehicle_parts = NULL;
+			nav_vehicle_forget();
 			return FALSE;
 		}
-		for (a = 0; a < count; a++)
-			nav_vehicle_parts[a] = NONE;
-		/* (both ways across every reachability: drops are one way, but a
-		   part is somewhere to drive about in) */
-		for (a = 0; a < count; a++)
-		{
-			long head = 0, tail = 0;
-			if (nav_vehicle_parts[a] != NONE)
-				continue;
-			nav_vehicle_parts[a] = a;
-			queue[tail++] = a;
-			while (head < tail)
-			{
-				struct aas_area const *area = aas_area(AAS_VEHICLE, queue[head++]);
-				long r;
-				for (r = area->first_reach; r < area->first_reach + area->reach_count; r++)
-				{
-					long to = aas_reach(AAS_VEHICLE, r)->to;
-					if (nav_vehicle_parts[to] == NONE)
-					{
-						nav_vehicle_parts[to] = a;
-						queue[tail++] = to;
-					}
-				}
-			}
-		}
-		free(queue);
+		nav_vehicle_reached_count = count;
+		nav_vehicle_reached_search = 0;
 	}
 	here = aas_nearest_area(AAS_VEHICLE, from, 6.f, NULL);
 	if (here == NONE)
 		return FALSE;
+	if (here != nav_vehicle_reached_from)
+	{
+		long head = 0, tail = 0;
+		nav_vehicle_reached_from = here;
+		nav_vehicle_reached_search++;
+		nav_vehicle_reached[here] = nav_vehicle_reached_search;
+		nav_vehicle_queue[tail++] = here;
+		while (head < tail)
+		{
+			struct aas_area const *area = aas_area(AAS_VEHICLE, nav_vehicle_queue[head++]);
+			long r;
+			for (r = area->first_reach; r < area->first_reach + area->reach_count; r++)
+			{
+				long to = aas_reach(AAS_VEHICLE, r)->to;
+				if (nav_vehicle_reached[to] != nav_vehicle_reached_search)
+				{
+					nav_vehicle_reached[to] = nav_vehicle_reached_search;
+					nav_vehicle_queue[tail++] = to;
+				}
+			}
+		}
+	}
 	for (a = 0; a < count; a++)
 	{
 		struct aas_area const *area = aas_area(AAS_VEHICLE, a);
 		real d;
-		if (nav_vehicle_parts[a] != nav_vehicle_parts[here])
+		if (nav_vehicle_reached[a] != nav_vehicle_reached_search)
 			continue;
 		d = distance3d(&area->center, point);
 		if (d < best)
@@ -4843,6 +4853,7 @@ static void nav_update(void)
 	nav_aas_tried = TRUE;
 	nav_aas_bsp = global_structure_bsp_index;
 	nav_danger_reset();
+	nav_vehicle_forget(); /* (the areas are other ones) */
 	{
 		void network_connection_pardon_stall(void);
 		unsigned long long start = bot_time_microseconds();
@@ -5670,6 +5681,24 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 	int driving_moved = FALSE;
 	int committed = FALSE; /* in the middle of a jump, a gap, a ladder: see it through */
 	int look_forced = FALSE; /* the route needs us facing a way (a ladder) */
+	/* Why it looks where it does (desired_yaw, desired_pitch): each place
+	   that sets them says which of these it is, and what is done with the
+	   look afterwards goes by the reason, not by which place wrote last. */
+	enum
+	{
+		_bot_look_ahead, /* nothing in particular: the way it faces */
+		_bot_look_aim, /* at someone in sight, to shoot */
+		_bot_look_expect, /* where someone gone out of sight will come out */
+		_bot_look_glance, /* standing: a look about */
+		_bot_look_noise, /* someone on the tracker, or heard */
+		_bot_look_path, /* walking: the way it goes */
+		_bot_look_scan, /* walking: a deliberate look to a side or behind, for a moment */
+		_bot_look_steer, /* driving, flying: a vehicle goes where its driver looks */
+		_bot_look_move, /* the route needs it (a ladder, a ledge): look_forced */
+		_bot_look_act, /* something it is doing: at a vehicle's door, over a body, at a friend */
+		_bot_look_lob, /* lining up a grenade */
+	};
+	long look_reason = _bot_look_ahead;
 	int weapon_chosen = FALSE;
 	real drive_throttle = 0.f;
 	int zombie = FALSE; /* infection: one of the infected (infection.c) */
@@ -6185,6 +6214,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		}
 		desired_yaw = bot_yaw_to(&eye, &aim);
 		desired_pitch = (real)atan2(aim.z - eye.z, bot_distance2d(&aim, &eye));
+		look_reason = _bot_look_aim;
 		bot->aim_error_yaw *= skill->aim_settle;
 		bot->aim_error_pitch *= skill->aim_settle;
 		/* a camouflaged target: only a rough idea where they are, the aim
@@ -6205,6 +6235,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		real_point3d ahead = bot_predict_enemy(bot, 0.3f);
 		desired_yaw = bot_yaw_to(&eye, &ahead);
 		desired_pitch = (real)atan2(ahead.z - eye.z, MAX(0.5f, bot_distance2d(&ahead, &eye)));
+		look_reason = _bot_look_expect;
 	}
 
 	/* where the target is, for the trigger: what we end up looking at can
@@ -6528,6 +6559,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		{
 			/* look around a little */
 			desired_yaw = bot_glance(bot, me, &position);
+			look_reason = _bot_look_glance;
 			if (--bot->strafe_ticks <= 0)
 			{
 				bot->strafe_ticks = 60 + (long)(bot_random(bot) * 60);
@@ -6770,8 +6802,11 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		   going, at an enemy only when our own gun can hit them ahead */
 		if (!(driver_shoots && target != NONE && fabs(bot_angle_difference(desired_yaw, move_yaw)) < 1.f))
 		{
+			/* (an aircraft climbs and dives as its pilot looks up and
+			   down: what the flying asked for, bot_move.c) */
 			desired_yaw = move_yaw;
-			desired_pitch = 0.f;
+			desired_pitch = result.look ? result.look_pitch : 0.f;
+			look_reason = _bot_look_steer;
 		}
 		if (!driver_shoots)
 			target_distance = 1.0e9f; /* nothing to shoot with */
@@ -6800,6 +6835,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			moving = FALSE;
 			desired_yaw = bot_yaw_to(&eye, &bot->teabag_spot);
 			desired_pitch = -0.9f;
+			look_reason = _bot_look_act;
 			look_forced = TRUE;
 			/* (a dip: down for most of it, then up) */
 			if (bot->teabag_ticks % BOT_TEABAG_DIP_TICKS >= BOT_TEABAG_DIP_TICKS - BOT_TEABAG_DOWN_TICKS)
@@ -7190,7 +7226,10 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			/* holding a spot: pacing about it, never standing still */
 			moving = FALSE; /* (the pacing below) */
 			if (target == NONE && bot->target_unit == NONE)
+			{
 				desired_yaw = bot_glance(bot, me, &position);
+				look_reason = _bot_look_glance;
+			}
 		}
 		else
 		{
@@ -7293,6 +7332,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			{
 				desired_yaw = result.look_yaw;
 				desired_pitch = result.look_pitch;
+				look_reason = _bot_look_move;
 				look_forced = TRUE;
 			}
 			else if (target == NONE && bot->target_unit == NONE && bot->tracked_unit != NONE && bot->tracked_age < 3 * BOT_TICKS_PER_SECOND)
@@ -7300,11 +7340,13 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				/* someone on the tracker, or heard: looking their way */
 				desired_yaw = bot_yaw_to(&eye, &bot->tracked_at);
 				desired_pitch = (real)atan2(bot->tracked_at.z - eye.z, MAX(0.5f, bot_distance2d(&bot->tracked_at, &eye)));
+				look_reason = _bot_look_noise;
 			}
 			else if (target == NONE && bot->target_unit == NONE)
 			{
 				desired_yaw = moving ? path_yaw : desired_yaw;
 				desired_pitch = 0.f;
+				look_reason = moving ? _bot_look_path : look_reason;
 				/* a look about on the way, as a player has: mostly off to one
 				   side or the other, now and then right round behind (there's
 				   no seeing what we're not looking at: bot_notices); the more
@@ -7314,6 +7356,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 					if (bot->look_about_ticks > 0)
 					{
 						desired_yaw = bot_wrap(path_yaw + bot->look_about_yaw);
+						look_reason = _bot_look_scan;
 						if (--bot->look_about_ticks == 0)
 							bot->look_about_ticks = -(long)(BOT_SECONDS(1.5f + 3.5f * bot_random(bot)) * (1.6f - 0.6f * bot_skill_fraction()));
 					}
@@ -7419,6 +7462,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				move_yaw = bot_yaw_to(&position, &bot->goal);
 				move_speed = off > 0.6f ? 0.5f : 0.25f;
 				desired_yaw = bot_yaw_to(&position, &bot->goal);
+				look_reason = _bot_look_act;
 				if (off < 0.55f && (bot->action_ticks / 6) % 2 == 0)
 					action->control_flags |= FLAG(_unit_control_action_bit);
 			}
@@ -7599,8 +7643,12 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 	BOT_PROFILE_MARK("walking with nobod");
 	/* ---- walking with nobody in sight: eyes ahead, down the way it's going.
 	   Where someone went, or a noise, only pulls its look part of the way
-	   round (it glances, it doesn't walk looking over its shoulder) */
-	if (target == NONE && !look_forced && moving && path_yaw != NONE && vehicle_index == NONE &&
+	   round (it glances, it doesn't walk looking over its shoulder). Not
+	   the look about it means to take (to a side, now and then right
+	   round, for half a second): that one is the whole turn, or it sees no
+	   more to its sides and behind than it does walking. */
+	if (target == NONE && !look_forced && look_reason != _bot_look_scan && look_reason != _bot_look_act &&
+		moving && path_yaw != NONE && vehicle_index == NONE &&
 		bot->grenade_pending_ticks <= 0 && !(bot->in_cover && move_speed == 0.f))
 	{
 		real off = bot_angle_difference(desired_yaw, path_yaw);
@@ -7628,6 +7676,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		bot->spin_ticks--;
 		desired_yaw = bot_wrap(bot->yaw + 0.55f);
 		desired_pitch = 0.f;
+		look_reason = _bot_look_act;
 	}
 	if (bot->antic_ticks > 0)
 	{
@@ -7649,6 +7698,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			{
 				bot->antic_ticks = 30;
 				desired_yaw = bot_yaw_to(&position, &object_get(object_get_ultimate_parent(other->unit_index))->object.position);
+				look_reason = _bot_look_act;
 				break;
 			}
 		}
@@ -7662,6 +7712,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		bot->grenade_pending_ticks--;
 		desired_yaw = bot_yaw_to(&eye, &bot->grenade_point);
 		desired_pitch = (real)atan2(bot->grenade_point.z - eye.z, distance) + 0.06f + distance * 0.011f;
+		look_reason = _bot_look_lob;
 		if (fabs(bot_angle_difference(desired_yaw, bot->yaw)) < 0.12f && fabs(desired_pitch - bot->pitch) < 0.12f)
 		{
 			action->desired_grenade_index = bot->grenade_index;
@@ -7753,10 +7804,10 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		if (move_debug && atol(move_debug) == player_absolute_index && game_time_get() % 15 == 0)
 			bot_move_debug(&bot->mover, &body);
 		if (trace && (trace_all || atol(trace) == player_absolute_index))
-			bot_log("trace bot%ld t%ld pos %.2f %.2f %.2f yaw %.2f want %.2f move %.2f moving %d goal %ld (%.1f %.1f) obj %d area %ld reach %ld travel %ld target %d threat %d routed %d strafe %.0f speed %.2f known %d",
+			bot_log("trace bot%ld t%ld pos %.2f %.2f %.2f yaw %.2f want %.2f move %.2f moving %d goal %ld (%.1f %.1f) obj %d area %ld reach %ld travel %ld target %d threat %d routed %d strafe %.0f speed %.2f known %d look %ld",
 				player_absolute_index, game_time_get(), position.x, position.y, position.z, bot->yaw, desired_yaw, move_yaw, moving,
 				bot->goal_kind, bot->goal.x, bot->goal.y, bot->goal_objective, bot->mover.move.area, bot->mover.move.reach, result.travel,
-				target != NONE, threatened, moved, bot->strafe_sign, move_speed, bot->target_unit != NONE);
+				target != NONE, threatened, moved, bot->strafe_sign, move_speed, bot->target_unit != NONE, look_reason);
 	}
 	if (moving)
 	{
@@ -8200,9 +8251,7 @@ void bots_map_disposed(void)
 	memset(bots_killer, 0, sizeof(bots_killer));
 	memset(bots_killed_time, 0, sizeof(bots_killed_time));
 	memset(bots_spawned_time, 0, sizeof(bots_spawned_time));
-	free(nav_vehicle_parts);
-	nav_vehicle_parts = NULL;
-	nav_vehicle_part_count = 0;
+	nav_vehicle_forget();
 	nav_aas_tried = FALSE;
 	nav_aas_bsp = -1;
 	nav_flood_done = FALSE;

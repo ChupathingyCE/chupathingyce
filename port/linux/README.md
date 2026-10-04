@@ -777,6 +777,12 @@ that it is in. It does not choose a place in a different part as a place to
 walk to, because there is no route on foot between the parts. The files of
 such a map are 100 to 150 MB for each structure BSP.
 
+The game reads a file only when the file is complete and correct. It makes
+the data again when a file is damaged. When the game does not have
+sufficient memory to make the data for a map, it gives a line that says so,
+and the bots play that map without navigation. It does not use or keep data
+that is not complete.
+
 A baked file is for the map that it was made from, and for the build that
 made it: the game makes the data again, into the save root, when the map
 file is a different one or when a later build has another format. Bake the
@@ -808,6 +814,9 @@ The bots move and look as a person with a controller or a mouse does:
   will drop in its hands, and it makes the swap when it gets there.
 - A bot that taunts goes to a body that is less than 6 world units away
   and crouches down and up 2 or 3 times, for about 1 second.
+- A bot that walks with no enemy in view looks along its route. From time
+  to time it looks to one side, and less frequently behind it, for about
+  half a second.
 
 For the route, a jump up costs only the time of the jump, and a jump across
 a gap costs the same as the floor next to it. Thus the bots jump when that

@@ -42,6 +42,8 @@ real navm_edge_distance(real_point3d const *point); /* how far to a drop */
 boolean navm_floor_at(real_point3d const *point, real above, real below, real *floor_z);
 boolean navm_line_walkable(real_point3d const *from, real_point3d const *to, real wall_min, real edge_min);
 boolean navm_line_passable(real_point3d const *from, real_point3d const *to, real wall_min); /* ...over a hand's width of missing floor, too */
+/* ...and ending on the floor that `to` is on (the two above follow the floor toward `to` and do not read its height) */
+boolean navm_line_arrives(real_point3d const *from, real_point3d const *to, real wall_min, real edge_min, boolean over_slots);
 
 /* ---------- the area awareness system */
 

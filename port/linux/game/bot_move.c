@@ -673,7 +673,7 @@ static boolean bot_move_gap_run_on(struct bot_body const *body, struct aas_reach
 	along = (body->velocity.i * (real)cos(run) + body->velocity.j * (real)sin(run)) * BOT_TICKS_PER_SECOND;
 	if (along < 1.9f)
 		return FALSE;
-	return navm_line_walkable(position, &reach->edge, 0.15f, 0.f);
+	return navm_line_arrives(position, &reach->edge, 0.15f, 0.f, FALSE);
 }
 
 /* travelling a reachability: TRUE while it's still under way */
@@ -1529,7 +1529,7 @@ void bot_move_to_goal(struct bot_mover *bot, struct bot_body const *body, struct
 			spot.x = corners[0].x + (corners[1].x - corners[0].x) * along;
 			spot.y = corners[0].y + (corners[1].y - corners[0].y) * along;
 			spot.z = corners[0].z + (corners[1].z - corners[0].z) * along;
-			if (fabs(spot.z - position->z) < 0.6f && navm_line_walkable(position, &spot, 0.3f, 0.35f))
+			if (fabs(spot.z - position->z) < 0.6f && navm_line_arrives(position, &spot, 0.3f, 0.35f, FALSE))
 				result->yaw = bot_yaw_to(position, &spot);
 		}
 	}

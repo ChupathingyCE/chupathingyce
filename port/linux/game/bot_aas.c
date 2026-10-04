@@ -67,7 +67,7 @@ there. Reachabilities that bots keep failing at cost more (learned).
 #define AAS_FOOT_SPEED 2.25f
 #define AAS_VEHICLE_SPEED 6.f
 #define AAS_CACHES 96
-#define AAS_CACHE_VERSION 27
+#define AAS_CACHE_VERSION 28
 #define AAS_DEAD_FAILURES 4 /* failed this often: not a way */
 
 /* what a way that has failed costs, in seconds over its time: a jump or a
@@ -335,6 +335,18 @@ static struct aas_nearest_memo *aas_nearest_memo_for(long type, real_point3d con
 /* ...worked out for every span at once, as far as AAS_ATTACH_STEPS (out
    from the areas, a step at a time): asked for all the time, of a great
    many spans */
+/* A build that ran out of memory. What it has by then is not all of the
+   map's areas or the ways between them. It is not used and not kept
+   (aas_build). */
+static boolean aas_build_failed;
+
+static void aas_no_memory(char const *what)
+{
+	if (!aas_build_failed)
+		bot_log("aas: no memory for %s: this map has no navigation", what);
+	aas_build_failed = TRUE;
+}
+
 static void aas_find_attachments(long type, boolean reachable_only)
 {
 	struct aas_world *world = &aas_worlds[type];
@@ -347,6 +359,7 @@ static void aas_find_attachments(long type, boolean reachable_only)
 	world->attach_depth = (unsigned char *)malloc(MAX(1, navm.span_count));
 	if (!world->attach_span || !world->attach_depth || !world->span_area)
 	{
+		aas_no_memory("the floors' nearest areas");
 		free(world->attach_span);
 		free(world->attach_depth);
 		world->attach_span = NULL;
@@ -469,7 +482,10 @@ static void aas_build_areas(long type)
 	world->areas = (struct aas_area *)malloc(capacity * sizeof(struct aas_area));
 	world->area_count = 0;
 	if (!grid || !order || !bucket || !world->span_area || !world->areas)
+	{
+		aas_no_memory("the areas");
 		goto done;
+	}
 	for (s = 0; s < navm.span_count; s++)
 		world->span_area[s] = NONE;
 
@@ -574,7 +590,10 @@ static void aas_build_areas(long type)
 			capacity *= 2;
 			grown = (struct aas_area *)realloc(world->areas, capacity * sizeof(struct aas_area));
 			if (!grown)
+			{
+				aas_no_memory("the areas");
 				break;
+			}
 			world->areas = grown;
 		}
 		area = &world->areas[world->area_count];
@@ -655,7 +674,10 @@ static struct aas_candidate *aas_candidate_new(struct aas_candidates *list)
 		long capacity = list->capacity ? list->capacity * 2 : 65536;
 		struct aas_candidate *grown = (struct aas_candidate *)realloc(list->items, capacity * sizeof(struct aas_candidate));
 		if (!grown)
+		{
+			aas_no_memory("the ways between areas");
 			return NULL;
+		}
 		list->items = grown;
 		list->capacity = capacity;
 	}
@@ -678,9 +700,18 @@ static struct aas_reach *aas_reach_new(struct aas_reaches *list, long from, long
 		long capacity = list->capacity ? list->capacity * 2 : 65536;
 		struct aas_reach *grown = (struct aas_reach *)realloc(list->items, capacity * sizeof(struct aas_reach));
 		if (!grown)
+		{
+			aas_no_memory("the ways between areas");
 			return NULL;
+		}
 		list->items = grown;
 		list->capacity = capacity;
+	}
+	/* (testing, HALO_BOT_TEST_NOMEMORY=aas: as if there were no more) */
+	if (list->count == 1000 && getenv("HALO_BOT_TEST_NOMEMORY") && !strcmp(getenv("HALO_BOT_TEST_NOMEMORY"), "aas"))
+	{
+		aas_no_memory("the ways between areas (a test)");
+		return NULL;
 	}
 	reach = &list->items[list->count++];
 	memset(reach, 0, sizeof(*reach));
@@ -788,7 +819,10 @@ static void aas_dissolve_specks(long type, struct aas_reaches *walks)
 	long dissolved = 0;
 	long r, a, s;
 	if (!linked || !speck)
+	{
+		aas_no_memory("the specks");
 		goto done;
+	}
 	for (r = 0; r < walks->count; r++)
 		linked[walks->items[r].from] = linked[walks->items[r].to] = TRUE;
 	for (a = 0; a < world->area_count; a++)
@@ -1315,7 +1349,7 @@ static void aas_ledge_reaches(long type, struct aas_reaches *reaches)
 					real_point3d from, to;
 					navm_span_point(candidate->edge_span, &from);
 					navm_span_point(candidate->low_span, &to);
-					if (fabs(from.z - to.z) <= NAVM_STEP && navm_line_passable(&from, &to, 0.12f))
+					if (fabs(from.z - to.z) <= NAVM_STEP && navm_line_arrives(&from, &to, 0.12f, 0.f, TRUE))
 						reach->careful = AAS_WALKOVER;
 				}
 				if (candidate->walkover)
@@ -1573,7 +1607,10 @@ static void aas_find_flags(long type)
 	long p;
 
 	if (!queue)
+	{
+		aas_no_memory("the areas' flags");
 		return;
+	}
 	for (a = 0; a < world->area_count; a++)
 		world->areas[a].flags = 0;
 	if (type == AAS_FOOT)
@@ -1770,9 +1807,12 @@ static boolean aas_cache_read(FILE *file, char const *map, unsigned long const *
 		{
 			long r;
 			ok = world->area_count >= 0 && world->reach_count >= 0;
+			/* (and in the order of the area each one leaves, as they are
+			   written: each area's are found by it, aas_finish_world) */
 			for (r = 0; ok && r < world->reach_count; r++)
 				ok = world->reaches[r].from >= 0 && world->reaches[r].from < world->area_count &&
-					world->reaches[r].to >= 0 && world->reaches[r].to < world->area_count;
+					world->reaches[r].to >= 0 && world->reaches[r].to < world->area_count &&
+					(r == 0 || world->reaches[r].from >= world->reaches[r - 1].from);
 			for (r = 0; ok && r < navm.span_count; r++)
 				ok = world->span_area[r] == NONE || (world->span_area[r] >= 0 && world->span_area[r] < world->area_count);
 		}
@@ -2092,8 +2132,9 @@ static void aas_finish_world(long type)
 				world->fall[r] = aas_gap_fall(&world->reaches[r]);
 	world->random_weight = (float *)malloc(MAX(1, world->area_count) * sizeof(float));
 	count = (long *)calloc(MAX(1, world->area_count) + 1, sizeof(long));
-	if (!world->incoming || !world->penalty || !world->failures || !world->random_weight || !count)
+	if (!world->incoming || !world->penalty || !world->failures || !world->fall || !world->random_weight || !count)
 	{
+		aas_no_memory("the ways into each area");
 		free(count);
 		return;
 	}
@@ -2136,7 +2177,7 @@ static void aas_finish_world(long type)
 		world->pair_time = (float *)malloc(MAX(1, pairs) * sizeof(float));
 		if (!world->reach_from || !world->incoming_time || !world->pair_base || !world->pair_time)
 		{
-			/* (no routes: aas_route) */
+			aas_no_memory("the routes' times");
 			free(world->pair_time);
 			world->pair_time = NULL;
 			return;
@@ -2272,6 +2313,7 @@ boolean aas_build(void)
 	long type;
 
 	aas_dispose();
+	aas_build_failed = FALSE;
 	if (!navm_build())
 		return FALSE;
 	aas_stamp = (unsigned long *)calloc(navm.span_count, sizeof(unsigned long));
@@ -2295,34 +2337,53 @@ boolean aas_build(void)
 				unsigned long long t0 = bot_time_microseconds(), t1, t2, t3;
 				aas_build_areas(type);
 				t1 = bot_time_microseconds();
-				aas_walk_reaches(type, &reaches);
-				if (!getenv("HALO_BOT_OLDNAV"))
+				/* (each stage reads what the one before made: none of them
+				   after one that could not finish) */
+				if (!aas_build_failed)
+					aas_walk_reaches(type, &reaches);
+				if (!aas_build_failed && !getenv("HALO_BOT_OLDNAV"))
 					aas_dissolve_specks(type, &reaches);
-				aas_find_attachments(type, FALSE);
+				if (!aas_build_failed)
+					aas_find_attachments(type, FALSE);
 				t2 = bot_time_microseconds();
-				aas_ledge_reaches(type, &reaches);
+				if (!aas_build_failed)
+					aas_ledge_reaches(type, &reaches);
 				t3 = bot_time_microseconds();
 				if (bot_logging())
 					bot_log("aas: type %ld: areas %.2f s, walks %.2f s, ledges %.2f s", type, (t1 - t0) / 1.0e6, (t2 - t1) / 1.0e6, (t3 - t2) / 1.0e6);
 			}
-			if (type == AAS_FOOT)
+			if (type == AAS_FOOT && !aas_build_failed)
 				aas_ladder_reaches(&reaches);
-			aas_teleporter_reaches(type, &reaches);
-			qsort(reaches.items, reaches.count, sizeof(struct aas_reach), aas_reach_from_compare);
+			if (!aas_build_failed)
+				aas_teleporter_reaches(type, &reaches);
+			if (reaches.count > 0)
+				qsort(reaches.items, reaches.count, sizeof(struct aas_reach), aas_reach_from_compare);
 			aas_worlds[type].reaches = reaches.items;
 			aas_worlds[type].reach_count = reaches.count;
+			if (aas_build_failed)
+				break;
 		}
-		aas_cache_save();
+		/* (only what is whole is kept for the next game) */
+		if (!aas_build_failed)
+			aas_cache_save();
 	}
 	else
 	{
 		for (type = 0; type < NUMBER_OF_AAS_TYPES; type++)
 			aas_find_attachments(type, FALSE);
 	}
-	for (type = 0; type < NUMBER_OF_AAS_TYPES; type++)
+	for (type = 0; type < NUMBER_OF_AAS_TYPES && !aas_build_failed; type++)
 	{
 		aas_finish_world(type);
-		aas_find_regions(type);
+		if (!aas_build_failed)
+			aas_find_regions(type);
+	}
+	if (aas_build_failed)
+	{
+		/* no navigation at all, which the bots play without (straight to
+		   each place), sooner than one with parts of the map missing */
+		aas_dispose();
+		return FALSE;
 	}
 	aas_failures_load();
 	for (type = 0; type < NUMBER_OF_AAS_TYPES; type++)
@@ -2342,6 +2403,11 @@ boolean aas_build(void)
 				aas_find_flags(type);
 		for (type = 0; type < NUMBER_OF_AAS_TYPES; type++)
 			aas_find_attachments(type, TRUE);
+	}
+	if (aas_build_failed)
+	{
+		aas_dispose();
+		return FALSE;
 	}
 	if (bot_logging())
 	{
