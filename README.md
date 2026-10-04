@@ -61,7 +61,8 @@ Get the latest release from the [Releases page](https://github.com/ChupathingyCE
 | Platform | Download | Notes |
 | --- | --- | --- |
 | Windows | `chupathingyce-windows-release.zip` | Windows 10 or later. |
-| Linux | `chupathingyce-linux-release.zip` | Needs SDL3 (32-bit). See [port/linux/README.md](port/linux/README.md). |
+| Linux (64-bit) | `chupathingyce-linux64-release.zip` | Needs SDL3. See [port/linux/README.md](port/linux/README.md). |
+| Linux (32-bit, older systems) | `chupathingyce-linux-release.zip` | Needs SDL3 (32-bit). See [port/linux/README.md](port/linux/README.md). |
 | Android | `chupathingyce-android-release.zip` | Android 9 or later, 64-bit. See [port/android/README.md](port/android/README.md). |
 | Mac | `chupathingyce-macos-release.zip` | macOS 13 or later, Apple silicon or Intel. |
 
@@ -85,6 +86,10 @@ disc image (`.iso` or `.xiso`) of Halo: Combat Evolved. Any region works.
 
 On Android, copy the disc image to your phone first. On a Mac, the maps,
 settings and saves go in `~/Library/Application Support/ChupathingyCE`.
+On Linux, the maps and settings (`config.toml`) go next to the `halo`
+executable, and the saves in `~/.local/share/halo-linux` (or
+`$XDG_DATA_HOME/halo-linux`). The 64-bit and 32-bit builds use the same
+places, so switching from one to the other keeps your saves and settings.
 
 ## Halo PC maps
 
@@ -157,7 +162,8 @@ ninja            # the game for the computer you're on
 | Target | Result | Instructions |
 | --- | --- | --- |
 | `ninja macos` | `build/macos/ChupathingyCE.app` | [port/macos/README.md](port/macos/README.md) |
-| `ninja linux` | `build/linux/halo` | [port/linux/README.md](port/linux/README.md) |
+| `ninja linux64` | `build/linux64/halo` (64-bit) | [port/linux/README.md](port/linux/README.md) |
+| `ninja linux` | `build/linux/halo` (32-bit) | [port/linux/README.md](port/linux/README.md) |
 | `ninja windows` | `build/windows/halo.exe` | [port/windows/README.md](port/windows/README.md) |
 | `ninja android_apk` | the Android app | [port/android/README.md](port/android/README.md) |
 
