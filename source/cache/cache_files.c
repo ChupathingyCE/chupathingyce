@@ -188,6 +188,12 @@ struct cache_file_structure_bsp_header
 (platform.h), and their tag header, which has the models' vertices and
 indices in one block of the file rather than Direct3D buffers */
 #define CACHE_FILE_CE_VERSION 609
+/* (and Halo PC retail's, version 7: HaloMD's maps, played as <name>@md and
+read as Custom Edition's are, their stock bitmaps' and sounds' data from
+Custom Edition's resource maps, port/linux/game/ce_resources.c) */
+#define CACHE_FILE_RETAIL_VERSION 7
+#define CACHE_FILE_VERSION_IS_PC(version) \
+	((version) == CACHE_FILE_CE_VERSION || (version) == CACHE_FILE_RETAIL_VERSION)
 #define CE_TAG_CACHE_BASE 0x40440000U
 #define CE_TAG_CACHE_SIZE 0x01700000U
 
@@ -293,6 +299,15 @@ static struct cache_file_tag_instance *cache_get_tag_instance(
 		csprintf(temporary, "i don't think %08x is a tag index", tag_index));
 
 	tag_instance = &global_tag_instances[absolute_index];
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a Custom Edition or HaloMD map's references may have the salt
+	of another build of its tags (HaloMD's maps, edited by tools that
+	renumbered them, do): Halo PC's engine took the index alone, as this
+	does for such maps only (tag_get still checks the group). An Xbox map's
+	are asserted as they always were */
+	if (cache_file_is_ce)
+		return tag_instance;
+#endif
 	match_vassert(
 		"c:\\halo\\SOURCE\\cache\\cache_files.c",
 		526,
@@ -656,7 +671,7 @@ boolean cache_file_header_verify(
 	/* port: a Custom Edition map (Halo PC's, version 609: cache_files_windows.c) */
 	if (header->version != 5
 #ifdef HALO_CUSTOM_EDITION
-		&& header->version != CACHE_FILE_CE_VERSION
+		&& !CACHE_FILE_VERSION_IS_PC(header->version)
 #endif
 		)
 	{
@@ -875,7 +890,7 @@ long scenario_tags_load(
 		tag_cache_base_address = physical_memory_get_tag_cache_base_address();
 #ifdef HALO_CUSTOM_EDITION
 		/* port: a Custom Edition map's tags, in their own tag cache */
-		cache_file_is_ce = cache_file_globals.header.version == CACHE_FILE_CE_VERSION;
+		cache_file_is_ce = CACHE_FILE_VERSION_IS_PC(cache_file_globals.header.version);
 		if (cache_file_is_ce && cache_file_header_verify(&cache_file_globals.header, scenario_name, TRUE))
 		{
 			struct cache_file_ce_tag_header *ce_header;
@@ -917,10 +932,25 @@ long scenario_tags_load(
 					if (bsp_base > CE_TAG_CACHE_BASE && bsp_base < end_free)
 						end_free = bsp_base;
 				}
+				{
+					extern long ce_map_cache_version;
+
+					ce_map_cache_version = cache_file_globals.header.version;
+				}
 				if (!ce_resources_tags_loaded(global_tag_instances, ce_header->tag_count,
 					CE_TAG_CACHE_BASE + cache_file_globals.header.tag_data_size, end_free))
 				{
 					error(_error_silent, "Custom Edition map %s: its resources could not be loaded", scenario_name);
+				}
+				/* what Halo PC's engine let be that this one would not,
+				repaired as the map was when it was checked
+				(port/linux/game/ce_repairs.c) */
+				{
+					extern void ce_repairs_tags_loaded(void *tag_instances, long tag_count,
+						unsigned long scenario_tag_index);
+
+					ce_repairs_tags_loaded(global_tag_instances, ce_header->tag_count,
+						ce_header->scenario_tag_index);
 				}
 			}
 			/* its gbxmodels made models, from its model data block
@@ -1083,13 +1113,16 @@ boolean scenario_structure_bsp_load(
 		cache_file_globals.structure_bsp_header->signature==CACHE_FILE_STRUCTURE_BSP_HEADER_SIGNATURE);
 	structure_bsp_header_register_vertex_buffers(cache_file_globals.structure_bsp_header);
 #ifdef HALO_CUSTOM_EDITION
-	/* port: a Custom Edition map's BSP: its vertices compressed, as the
-	Xbox's are (port/linux/game/ce_bsp.c) */
+	/* port: a Custom Edition or HaloMD map's BSP: its vertices compressed,
+	as the Xbox's are (port/linux/game/ce_bsp.c), and its clusters'
+	predicted resources repaired (port/linux/game/ce_repairs.c) */
 	if (cache_file_is_ce)
 	{
 		extern void ce_bsp_loaded(struct structure_bsp *structure);
+		extern void ce_repairs_bsp_loaded(struct structure_bsp *structure);
 
 		ce_bsp_loaded(xbox_pointer(cache_file_globals.structure_bsp_header->base_address));
+		ce_repairs_bsp_loaded(xbox_pointer(cache_file_globals.structure_bsp_header->base_address));
 	}
 #endif
 	tag_instance = cache_get_tag_instance(reference->structure_bsp.index);

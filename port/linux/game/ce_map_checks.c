@@ -34,6 +34,16 @@ what it points into, with arithmetic that cannot overflow:
   - the scenario's scripts' syntax, which the game indexes where it is;
   - the HUD interfaces' blocks the port rescales (ce_hud.c).
 
+What Halo PC's engine read without checking and this one would not (bad
+predicted resources, an object typed as another group's, a model shader that
+is not a shader) is repaired first, as it is when the map loads
+(ce_repairs.c), so that the checks see the map as it will play.
+
+The maps of both families past the Xbox's are checked so: Custom Edition's
+(cache version 609) and HaloMD's (Halo PC retail's, 7: their stock bitmaps'
+and sounds' data are found in Custom Edition's resource maps by their tags'
+paths, ce_resources.c).
+
 A map that fails a check is refused: it is not opened, the reason is logged
 to debug.txt and shown on the console, and the game goes on as for a map
 that is not there. The check is what the port reads; the game reads the
@@ -74,6 +84,18 @@ enum
 	CE_SCENARIO_BSP_REFERENCE_SIZE = 0x20,
 	CE_MAXIMUM_BSPS = 16, /* (scenario.h's MAXIMUM_STRUCTURE_BSPS_PER_SCENARIO) */
 	CE_BSP_GROUP = 'sbsp',
+	/* a weapon's magazines and triggers (weapon_definitions.h), no more
+	than its datum has room for (weapons.h: two of each), and a trigger's
+	magazine, NONE or one of them */
+	CE_WEAPON_GROUP = 'weap',
+	CE_WEAPON_MAGAZINES_OFFSET = 0x4f0,
+	CE_WEAPON_TRIGGERS_OFFSET = 0x4fc,
+	CE_WEAPON_HEADER_SIZE = 0x508,
+	CE_WEAPON_MAGAZINE_SIZE = 0x70,
+	CE_WEAPON_TRIGGER_SIZE = 0x114,
+	CE_WEAPON_TRIGGER_MAGAZINE_OFFSET = 0x20,
+	CE_MAXIMUM_WEAPON_MAGAZINES = 2,
+	CE_MAXIMUM_WEAPON_TRIGGERS = 2,
 	CE_BSP_HEADER_SIZE = 0x18,
 
 	/* the scenario's scripts (scenario_definitions.h): their syntax, a data
@@ -138,11 +160,15 @@ boolean ce_shaders_check(struct ce_image const *image, void const *tag_instances
 boolean ce_hud_check(struct ce_image const *image, void const *tag_instances, long tag_count);
 boolean ce_bsp_check(struct ce_image const *image, unsigned long *bytes);
 boolean ce_animations_check(struct ce_image const *image, void const *tag_instances, long tag_count);
+void ce_repairs_apply(struct ce_image const *image, void *tag_instances, long tag_count,
+	unsigned long scenario_tag_index);
 
 /* ---------- globals */
 
 static char ce_refusal[256];
 static boolean ce_checking;
+
+long ce_map_cache_version = CE_CACHE_VERSION_CUSTOM_EDITION;
 
 /* ---------- private code */
 
@@ -248,6 +274,52 @@ static boolean ce_scripts_check(
 	{
 		return ce_refuse("its scripts' syntax (%d of %d nodes of %d bytes) is not in its %lu bytes", count,
 			maximum_count, element_size, syntax_size);
+	}
+	return TRUE;
+}
+
+/* the weapons' magazines and triggers: no more of each than a weapon's
+datum holds (weapons.c indexes them by the definition's counts), and each
+trigger's magazine none or one of the weapon's */
+static boolean ce_weapons_check(
+	struct ce_image const *image,
+	struct ce_tag_instance const *instances,
+	long tag_count)
+{
+	long index;
+
+	for (index = 0; index < tag_count; index++)
+	{
+		struct ce_tag_instance const *instance = &instances[index];
+		char const *name;
+		byte *weapon, *magazines, *triggers;
+		long magazine_count, trigger_count, trigger;
+
+		if (instance->group_tag != CE_WEAPON_GROUP)
+			continue;
+		name = ce_image_tag_name(image, instance);
+		weapon = ce_image_pointer(image, instance->base_address, CE_WEAPON_HEADER_SIZE);
+		if (!weapon)
+			return ce_refuse("weapon %s is not in the tags", name);
+		if (!ce_image_block(image, weapon + CE_WEAPON_MAGAZINES_OFFSET, CE_WEAPON_MAGAZINE_SIZE,
+			CE_MAXIMUM_WEAPON_MAGAZINES, name, &magazine_count, &magazines) ||
+			!ce_image_block(image, weapon + CE_WEAPON_TRIGGERS_OFFSET, CE_WEAPON_TRIGGER_SIZE,
+				CE_MAXIMUM_WEAPON_TRIGGERS, name, &trigger_count, &triggers))
+		{
+			return FALSE;
+		}
+		for (trigger = 0; trigger < trigger_count; trigger++)
+		{
+			short magazine;
+
+			memcpy(&magazine, triggers + trigger * CE_WEAPON_TRIGGER_SIZE + CE_WEAPON_TRIGGER_MAGAZINE_OFFSET,
+				sizeof(magazine));
+			if (magazine != NONE && (magazine < 0 || magazine >= magazine_count))
+			{
+				return ce_refuse("weapon %s: trigger %ld uses magazine %d of %ld", name, trigger, magazine,
+					magazine_count);
+			}
+		}
 	}
 	return TRUE;
 }
@@ -402,6 +474,9 @@ static boolean ce_map_check_tags(
 	tags = image;
 	if (!ce_resources_check(&image, instances, tag_count, end_free, file_size, &next_free))
 		goto done;
+	/* what Halo PC's engine let be that this one would not, repaired as it
+	is when the map loads (ce_repairs.c), before what follows checks it */
+	ce_repairs_apply(&image, instances, tag_count, header.scenario_tag_index);
 	/* the models, from the model data (ce_models.c) */
 	if (header.vertex_data_size > header.model_data_size ||
 		!ce_range_within(header.model_data_file_offset, header.model_data_size, file_size))
@@ -430,7 +505,7 @@ static boolean ce_map_check_tags(
 		goto done;
 	}
 	valid = ce_shaders_check(&tags, instances, tag_count) && ce_hud_check(&tags, instances, tag_count) &&
-		ce_animations_check(&tags, instances, tag_count);
+		ce_animations_check(&tags, instances, tag_count) && ce_weapons_check(&tags, instances, tag_count);
 
 done:
 	if (model_data)
@@ -591,6 +666,7 @@ boolean ce_map_check(
 	unsigned long file_size = GetFileSize(file, &file_size_high);
 	unsigned long started = system_milliseconds();
 	boolean valid;
+	char const *family = ce_map_cache_version == CE_CACHE_VERSION_RETAIL ? "HaloMD" : "Custom Edition";
 
 	ce_refusal[0] = 0;
 	ce_checking = TRUE;
@@ -603,13 +679,12 @@ boolean ce_map_check(
 	ce_checking = FALSE;
 	if (!valid)
 	{
-		error(_error_silent, "Custom Edition map %s refused: %s", map_name, ce_refusal);
-		console_warning("Custom Edition map %s refused: %s", map_name, ce_refusal);
+		error(_error_silent, "%s map %s refused: %s", family, map_name, ce_refusal);
+		console_warning("%s map %s refused: %s", family, map_name, ce_refusal);
 	}
 	else
 	{
-		error(_error_silent, "Custom Edition map %s: checked (%lu ms)", map_name,
-			system_milliseconds() - started);
+		error(_error_silent, "%s map %s: checked (%lu ms)", family, map_name, system_milliseconds() - started);
 	}
 	return valid;
 }
