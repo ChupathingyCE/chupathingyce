@@ -277,6 +277,12 @@ static const struct config_setting config_settings[] =
 		"List the system link games this machine hosts on network.browser_url,\n"
 		"where anyone can find and join them. False keeps them to invites and\n"
 		"the local network." },
+	{ "network.report_joined_games", _config_boolean, "true", "HALO_NET_REPORT_GAMES", _environment_value,
+		_platform_all,
+		"When an internet game this machine joined ends, send network.browser_url\n"
+		"its scores as this machine saw them, with this copy's player ID, so that\n"
+		"games whose host does not report them are recorded too. False sends\n"
+		"nothing." },
 #endif
 	{ "discord.application_id", _config_string, "\"1553978809840050229\"", "HALO_DISCORD_APPLICATION",
 		_environment_value, _platform_desktop,

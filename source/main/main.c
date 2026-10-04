@@ -3237,14 +3237,17 @@ void main_loop(
 			{
 				/* the dedicated server's director (server/src/dedicated.c); the
 				game list's probe (server/src/probe.c); the game list's confirmed
-				players (port/linux/game/game_list_claims.c) */
+				players (port/linux/game/game_list_claims.c) and statistics
+				recorder (port/linux/game/game_stats.c) */
 				void dedicated_server_update(void);
 				void probe_update(void);
 				void game_list_claims_update(void);
+				void game_stats_update(void);
 
 				dedicated_server_update();
 				probe_update();
 				game_list_claims_update();
+				game_stats_update();
 			}
 #endif
 			bink_playback_update();

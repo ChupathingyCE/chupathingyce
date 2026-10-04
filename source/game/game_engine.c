@@ -594,6 +594,10 @@ struct network_game *network_game_server_get_game(struct network_game_server *se
 #endif
 #ifdef HALO_GAME_BROWSER
 #include "../../port/linux/src/browser.h"
+/* port/linux/game/game_stats.c's */
+void game_stats_player_killed(long killing_player_index, long dead_player_index, boolean friendly_fire);
+void game_stats_player_extra(long player_index, char *text, long size, short *multikills);
+void game_stats_game_extra(boolean host, char *text, long size);
 #endif
 
 /* network_game_globals.c's */
@@ -4444,6 +4448,11 @@ void game_engine_player_killed(
 	/* port: a killer who has left the game since is no one's kill */
 	if (killing_player_index != NONE && !player_try_and_get(killing_player_index))
 		killing_player_index = NONE;
+#ifdef HALO_GAME_BROWSER
+	/* the game list's statistics recorder (port/linux/game/game_stats.c):
+	who killed whom, as this machine's game has it; it changes nothing */
+	game_stats_player_killed(killing_player_index, dead_player_index, friendly_fire);
+#endif
 	/* the host's kill of a player who quit, ahead of this client's clock
 	(game_update_quit_players has not come to its time yet) */
 	if (network_game_distributed_client() && dead_player->quit_out_of_game_time != NONE &&
@@ -5119,22 +5128,24 @@ void game_engine_load_stage(
 }
 
 #ifdef HALO_GAME_BROWSER
-/* the carnage report of a game this machine hosts, as it ends: the players
-in the postgame's order, for the game list (port/linux/src/browser.c,
-which sends it if the game is listed). A game that is quit or crashes never
-gets here, so it is never reported. */
-static void game_engine_report_game(
-	void)
+/* the lines of a carnage report: the players in the postgame's order, as
+this machine's game has them (the host's own, or a client's copy of the
+host's statistics and scores, network_distributed.c), each with what the
+game's statistics recorder adds (port/linux/game/game_stats.c: medals,
+weapons, sprees); the host also gives each player's machine's address, for
+its tag (browser.c). Returns the count. */
+long game_engine_report_lines(
+	struct browser_report_player *players,
+	long maximum)
 {
 	static struct statistic_buffer ranking[MULTIPLAYER_MAXIMUM_PLAYERS];
-	static struct browser_report_player players[MULTIPLAYER_MAXIMUM_PLAYERS];
+	static char extras[MULTIPLAYER_MAXIMUM_PLAYERS][BROWSER_REPORT_EXTRA_SIZE];
+	struct network_game_server *server = global_network_game_server_get();
 	long count = populate_statistic_buffer(ranking, _postgame_statistic_ranking, FALSE);
-	boolean teams = global_variant.universal_variant.teams;
 	long index;
 
-	/* (a game everyone left, the dedicated server's to end: no report) */
-	if (count == 0)
-		return;
+	if (count > maximum)
+		count = maximum;
 	for (index = 0; index < count; index++)
 	{
 		struct player_datum *player = player_get(ranking[index].player_index);
@@ -5152,15 +5163,18 @@ static void game_engine_report_game(
 		line->deaths = player->statistics.deaths;
 		line->betrayals = player->statistics.friendly_fire_kills;
 		line->suicides = player->statistics.suicides;
+		/* (the game's own count is of the multikill under way, not of all
+		of them: the recorder's, from every kill, where it has them) */
 		line->multikills = player->statistics.multiple_kills;
 		line->shots_fired = player->statistics.shots_fired;
 		line->shots_hit = player->statistics.shots_hit;
 		line->color = player->network_player_data.primary_color_index;
+		if (server)
 		{
 			unsigned long network_game_server_machine_ipv4_address(struct network_game_server *server,
 				short machine_index);
 
-			line->address = network_game_server_machine_ipv4_address(global_network_game_server_get(),
+			line->address = network_game_server_machine_ipv4_address(server,
 				player->network_player_data.machine_index);
 		}
 		/* (the game type's statistics: the union's member for this game) */
@@ -5182,14 +5196,42 @@ static void game_engine_report_game(
 			line->laps = player->statistics.multiplayer_statistics.race_statistics.laps;
 			break;
 		}
+		{
+			short multikills = line->multikills;
+
+			extras[index][0] = 0;
+			game_stats_player_extra(ranking[index].player_index, extras[index], BROWSER_REPORT_EXTRA_SIZE,
+				&multikills);
+			line->multikills = multikills;
+			line->extra = extras[index];
+		}
 	}
+	return count;
+}
+
+/* the carnage report of a game this machine hosts, as it ends, for the game
+list (port/linux/src/browser.c, which sends it if the game is listed). A
+game that is quit or crashes never gets here, so it is never reported. */
+static void game_engine_report_game(
+	void)
+{
+	static struct browser_report_player players[MULTIPLAYER_MAXIMUM_PLAYERS];
+	static char extra[BROWSER_REPORT_GAME_EXTRA_SIZE];
+	long count = game_engine_report_lines(players, MULTIPLAYER_MAXIMUM_PLAYERS);
+	boolean teams = global_variant.universal_variant.teams;
+
+	/* (a game everyone left, the dedicated server's to end: no report) */
+	if (count == 0)
+		return;
+	game_stats_game_extra(TRUE, extra, sizeof(extra));
 	browser_report_game(
 		teams,
 		teams ? game_engine_get_team_score(0) : 0,
 		teams ? game_engine_get_team_score(1) : 0,
 		game_time_get() / TICKS_PER_SECOND,
 		players,
-		count);
+		count,
+		extra);
 }
 #endif
 
