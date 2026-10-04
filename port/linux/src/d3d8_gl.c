@@ -352,6 +352,10 @@ struct gl_device
 
 	GLuint queries[VISIBILITY_TEST_SLOTS];
 	BOOL query_pending[VISIBILITY_TEST_SLOTS];
+	/* without the results buffer: each slot's latest result read from its
+	query, which answers while the slot's newer test is still on the GPU */
+	BOOL query_known[VISIBILITY_TEST_SLOTS];
+	GLuint query_last[VISIBILITY_TEST_SLOTS];
 	/* the pixels each of the game's pixels covered in the test's target
 	(render_target_get), which its count is divided by */
 	float query_area[VISIBILITY_TEST_SLOTS];
@@ -961,7 +965,8 @@ static void gl_initialize(void)
 	glGenSamplers(D3DTSS_MAXSTAGES, device.samplers);
 	glGenQueries(VISIBILITY_TEST_SLOTS, device.queries);
 #ifndef HALO_ANDROID
-	/* (OpenGL 4.4: without it, as on macOS, visibility tests wait for the GPU) */
+	/* (OpenGL 4.4: without it, as on macOS, visibility tests read their
+	queries, D3DDevice_GetVisibilityTestResult) */
 	if (glBufferStorage)
 	{
 	glGenBuffers(1, &device.visibility_results_buffer);
@@ -972,7 +977,7 @@ static void gl_initialize(void)
 		GL_MAP_READ_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT);
 	}
 	if (!device.visibility_results)
-		platform_log("cannot map the visibility test results; tests wait for the GPU");
+		platform_log("cannot map the visibility test results; tests read their queries");
 	{
 		long every = config_integer("debug.gpu_flush_draws");
 		const char *renderer = (const char *)glGetString(GL_RENDERER);
@@ -1494,7 +1499,17 @@ HRESULT WINAPI D3DDevice_GetVisibilityTestResult(DWORD index, UINT *result, ULON
 #endif
 	glGetQueryObjectuiv(device.queries[index], GL_QUERY_RESULT_AVAILABLE, &available);
 	if (!available)
-		return D3DERR_TESTINCOMPLETE;
+	{
+		/* the game spins until a test is done (lens flares,
+		rasterizer_xbox_widgets.c), which stops the CPU until the GPU has
+		caught up: while the GPU is behind, the slot's earlier result, as
+		the results buffer gives */
+		if (!device.query_known[index])
+			return D3DERR_TESTINCOMPLETE;
+		if (result)
+			*result = device.query_last[index];
+		return S_OK;
+	}
 	glGetQueryObjectuiv(device.queries[index], GL_QUERY_RESULT, &samples);
 #ifdef HALO_ANDROID
 	/* ES only says whether any sample passed. The game divides the count by
@@ -1505,6 +1520,8 @@ HRESULT WINAPI D3DDevice_GetVisibilityTestResult(DWORD index, UINT *result, ULON
 #else
 	samples = visibility_unscaled(samples, index);
 #endif
+	device.query_known[index] = TRUE;
+	device.query_last[index] = samples;
 	if (result)
 		*result = samples;
 	return S_OK;
