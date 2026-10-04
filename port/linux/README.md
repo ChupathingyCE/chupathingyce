@@ -170,15 +170,35 @@ problem.
 
 The settings are in `config.toml` next to the executable
 (`build/linux/config.toml`). At the first start, the game writes the file
-with the default values and a comment for each setting. To get the default
-values again, delete the file.
+with a comment for each setting and its default value, commented out:
+
+```toml
+# The menus: "xbox" for the Xbox's (with Online Games), "pc" for the
+# ...
+# menus = "xbox"
+```
+
+A setting that is commented out follows the default of the version that
+runs, so a new version with a different default changes it. To choose a
+value, remove the `# ` at the start of the line and change the value. Only
+the settings that you (or the Settings menu) change are lines without `#`;
+those stay as they are, also if a later version changes the default. To get
+the default values again, delete the file.
 
 The game reads the file at start-up. If a key is not correct, or a value
 has the wrong type, the game writes the line to the log and uses the default
 value. The Settings menu (Video, Mouse, Audio, Network and Controls Setup)
 changes the useful settings, writes them into the file (only their lines
-change) and applies them at once, but `audio.enabled`, and `display.menus`
-from the next main menu.
+change: the line of a setting at its default loses its `#`) and applies
+them at once, but `audio.enabled`, and `display.menus` from the next main
+menu. A new version adds its new settings to the file, commented out.
+
+Earlier versions wrote every setting as a value. The first start of this
+version updates such a file once (`config_version = 2` at the top
+marks it): a setting that holds the default of this version, or the
+default of an earlier version (`display.menus = "pc"`, the default before
+0.5.2b), is commented out, so that it follows the default. A setting with
+another value stays. The log has one line that tells what changed.
 
 Each setting has an environment variable. The environment variable changes
 the setting for one start of the game. It has priority over the file.
@@ -515,6 +535,38 @@ has a private party with the invite as its join secret. The host can send
 the invite with the invite button of Discord. When a person accepts it, that
 person joins the game. If the game does not operate, Discord starts it.
 The game sends the activity only to a Discord client of the same user.
+
+### Online Games and the profile
+
+Builds with the game list (`configure.py --game-browser`) have Online Games
+in the Multiplayer menu: the games on `network.browser_url`
+(halo.milenko.org). Each copy of the game has a player key in the save root
+(`game_list_player.key`). The key confirms the player's lines in finished
+games. The game sends the key only to an HTTPS server, or to a server on
+this computer (`http://127.0.0.1`, `http://localhost`) for tests.
+
+To link the game to a profile on the site, do one of these steps in Online
+Games:
+
+- Press Start. The game opens the profile page in the web browser, signed
+  in as this player.
+- Press RB, or C on the keyboard (Link Profile). Use this step where no web
+  browser opens: Steam's Game Mode, a Steam Deck, a console. The game shows
+  a short code and a QR code. On a phone or a computer, go to
+  `<server>/connect` (the address that the game shows), sign in, and enter
+  the code, or scan the QR code. Then the game asks "Connect this game to
+  <name>?" (or "Move this game from <old name> to <name>?"). Press A to
+  connect, or B to cancel. A code operates for two minutes, and the question
+  for two minutes. Press RB (or C) for a new code.
+
+Link Profile uses these requests to the server (`src/browser.c`, on the
+thread of the game list): `POST /v1/connect/start` with the key (and the
+name of the profile) gives `ok <code> <seconds> <token>`.
+`POST /v1/connect/status` with the token, each 3 seconds, gives `pending`,
+`confirm <name> [<old name>]`, `connected <name>`, `declined` or `expired`.
+`POST /v1/connect/confirm` with the token and the answer gives
+`connected <name>`, `declined` or `expired`. The QR code is from
+`port/third_party/qrcodegen`.
 
 ## What operates
 

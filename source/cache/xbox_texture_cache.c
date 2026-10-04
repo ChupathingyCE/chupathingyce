@@ -636,7 +636,35 @@ static void texture_cache_initialize_hardware_format(
 			D3DFORMAT_BORDERSOURCE_COLOR |
 			D3DFORMAT_DMACHANNEL_A;
 		texture->Size = 0;
+#ifdef HALO_CUSTOM_EDITION
+		/* port: a Custom Edition map's bitmap has its pixels as Halo PC lays
+		them out: uploaded as they are, not rearranged as the Xbox's */
+		{
+			extern boolean cache_file_tags_are_ce(void);
+
+			if (cache_file_tags_are_ce())
+				texture->Common |= D3DCOMMON_PORT_PC_LAYOUT;
+		}
+#endif
 	}
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a Custom Edition map's HUD meter, its channels Halo PC's
+	(port/linux/game/ce_hud.c) */
+	{
+		extern boolean ce_hud_bitmap_is_meter(void const *bitmap);
+
+		if (ce_hud_bitmap_is_meter(bitmap))
+			texture->Common |= D3DCOMMON_PORT_PC_METER;
+	}
+	/* port: a Custom Edition map's model multipurpose map, its channels
+	Halo PC's (port/linux/game/ce_models.c) */
+	{
+		extern boolean ce_models_bitmap_is_multipurpose(void const *bitmap);
+
+		if (ce_models_bitmap_is_multipurpose(bitmap))
+			texture->Common |= D3DCOMMON_PORT_PC_MULTIPURPOSE;
+	}
+#endif
 	IDirect3DBaseTexture8_Register(texture, xbox_pointer(bitmap->base_address));
 
 	return;

@@ -1,0 +1,19 @@
+# [D] Gearbox: Halo PC's own multiplayer maps (maps/ce/, played as
+# <name>@ce), Slayer and Team Slayer in turn (server/src/dedicated.c). The
+# twelve entries give every map both game types once a cycle. While a single
+# player waits, a team entry is left for the next Slayer one.
+# One entry a line: the map, then the game type, played in order.
+
+# map               game type
+timberland@ce       slayer
+dangercanyon@ce     team_slayer
+deathisland@ce      slayer
+icefields@ce        team_slayer
+infinity@ce         slayer
+gephyrophobia@ce    team_slayer
+timberland@ce       team_slayer
+dangercanyon@ce     slayer
+deathisland@ce      team_slayer
+icefields@ce        slayer
+infinity@ce         team_slayer
+gephyrophobia@ce    slayer

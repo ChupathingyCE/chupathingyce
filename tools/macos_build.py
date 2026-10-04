@@ -35,6 +35,7 @@ from .linux_build import (
     MUSL_MATH_DIR,
     OPTIMISATION,
     PLATFORM_FLAGS as LINUX_PLATFORM_FLAGS,
+    QRCODEGEN_DIR,
     STB_DIR,
     TOML_DIR,
     XDK_INCLUDE,
@@ -89,6 +90,8 @@ MACOS_ABI_FLAGS = [
     "-fno-omit-frame-pointer",
     "-ffp-contract=off",
     "-DHALO_64BIT",
+    # Halo PC's Custom Edition maps (linux_build.py, CUSTOM_EDITION_DEFINES)
+    "-DHALO_CUSTOM_EDITION",
     # the C library's checked printf macros collide with the MSVC names
     "-D_FORTIFY_SOURCE=0",
     OPTIMISATION,
@@ -292,7 +295,10 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
 
         game = linux_config["game"]
         defines = " ".join(f"-D{d}" for d in game.get("defines", []))
-        includes = " ".join(f"-I{_quote(lp64(Path(d)))}" for d in game.get("include_dirs", []))
+        # (the rewritten copies first; then the originals, for what is not
+        # rewritten, such as port/third_party/stb's)
+        includes = " ".join([f"-I{_quote(lp64(Path(d)))}" for d in game.get("include_dirs", [])] +
+                            [f"-idirafter {_quote(Path(d))}" for d in game.get("include_dirs", [])])
         game_cflags = " ".join([
             abi, " ".join(MACOS_GAME_FLAGS),
             f"-include {_quote(prefix_header)}", f"-include {_quote(semantics_header)}",
@@ -319,6 +325,8 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
             # (the menus' XML parser's own headers, not rewritten: Expat is
             # built with the host's ABI, below)
             f"-I{EXPAT_DIR}",
+            # (Link Profile's QR encoder's, likewise)
+            f"-I{QRCODEGEN_DIR}",
             f"-I{_quote(lp64(Path('source')))} -I{_quote(lp64(Path('source/cseries')))}",
             homebrew_include, f"-idirafter {xdk}",
         ])
@@ -364,6 +372,9 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
         # types (expat.h, which menu_files.c includes unrewritten)
         for name in EXPAT_SOURCES:
             add_object(EXPAT_DIR / name, " ".join([target, "-std=gnu11", OPTIMISATION, "-g", "-w", f"-I{EXPAT_DIR}"]))
+        # Link Profile's QR encoder (port/third_party/qrcodegen; browser.c),
+        # with the host's ABI too: its long is the host's (LONG_MAX)
+        add_object(QRCODEGEN_DIR / "qrcodegen.c", " ".join([target, "-std=gnu11", OPTIMISATION, "-g", "-w"]))
         third_party = " ".join([abi, "-std=gnu11", "-w"])
         add_object(lp64(TOML_DIR / "tomlc17.c"), third_party)
         add_object(lp64(KCP_DIR / "ikcp.c"), third_party)

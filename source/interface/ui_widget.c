@@ -680,6 +680,9 @@ struct widget_instance;
 #ifdef HALO_64BIT
 #include "interface/ui_widget_instance.h"
 #endif
+#ifdef HALO_CUSTOM_EDITION
+#include "halo_ui_map_list.h"
+#endif
 #ifdef HALO_GAME_BROWSER
 /* the in-game server browser (port/linux/game/browser_screen.c): a screen of
 code over the widgets, as the virtual keyboard is */
@@ -5313,6 +5316,11 @@ static void widget_instance_render_text_box(
 			string_list_index = definition->string_list_index;
 		else
 			string_list_index = widget->parameters.text_box.string_list_index;
+#ifdef HALO_CUSTOM_EDITION
+		/* port: a string of the menus' map list's own, past ui.map's */
+		string = (wchar_t *)ui_map_list_text(string_list_index);
+		if (!string)
+#endif
 		string = widget == ui_widget_port_error_text_box && ui_widget_port_error_text ?
 			(wchar_t *)ui_widget_port_error_text :
 			unicode_string_list_get_string(definition->text_label_string_list.index, string_list_index);
@@ -5421,6 +5429,13 @@ static void widget_instance_render_text_box(
 		{
 			color_alpha = color.alpha;
 		}
+	}
+	/* port: a colour the PC menus give this text box (the lobby's players
+	by team: menu_functions.c) */
+	{
+		extern boolean pc_menu_text_color(struct widget_instance const *widget, real_rgb_color *rgb);
+
+		pc_menu_text_color(widget, &color.rgb);
 	}
 	color.alpha = alpha_modifier * color_alpha;
 	if (TEST_FLAG(definition->text_box_flags, _text_box_flashing_text_bit))
@@ -6241,6 +6256,11 @@ static void widget_instance_render_recursive(
 	if (!widget->visible)
 		return;
 	ui_mouse_note_target(widget, definition, offset);
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a picture of the menus' map list's own, past ui.map's */
+	bitmap = ui_map_list_picture(widget->animation.current_frame_index);
+	if (!bitmap)
+#endif
 	bitmap = bitmap_group_get_bitmap_from_sequence(
 		definition->background_bitmap.index,
 		0,

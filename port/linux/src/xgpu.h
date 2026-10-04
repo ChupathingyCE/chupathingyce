@@ -146,6 +146,9 @@ struct xgpu_texture_description
 	unsigned long width, height, depth, levels;
 	BOOL cube_map;
 	BOOL linear;        /* not swizzled; addressed with texel coordinates */
+	BOOL pc_layout;     /* laid out as Halo PC's bitmaps (D3DCOMMON_PORT_PC_LAYOUT) */
+	BOOL pc_meter;      /* a Halo PC HUD meter's channels (D3DCOMMON_PORT_PC_METER) */
+	BOOL pc_multipurpose; /* a Halo PC multipurpose map's channels (D3DCOMMON_PORT_PC_MULTIPURPOSE) */
 	BOOL compressed;
 	unsigned long pitch; /* linear textures */
 	BOOL hires;         /* a high-res HUD texture drawn in the texture's place (hud_hires.h) */
