@@ -60,7 +60,16 @@ with Docker, over SSH, as the `halo-dedicated` systemd service:
 2. Run `server/deploy/deploy.sh user@host path/to/chupathingyce-server`,
    with the server for the host's architecture. It copies the server and
    the playlists, builds the image for that architecture, and installs and
-   starts the service.
+   starts the service. With `--no-restart` it installs them and leaves the
+   running server alone, to restart when nobody is playing.
+
+A second image, for a server of another architecture on the same host,
+takes `--image`: `deploy.sh --image halo-dedicated-ce user@host
+chupathingyce-server-linux-x64/chupathingyce-server` builds a 64-bit
+`halo-dedicated-ce` image (for Halo PC maps) beside a 32-bit
+`halo-dedicated`, from a build folder of its own
+(`/opt/halo-dedicated/image-ce`), and leaves every service as it is: the
+services that run it are restarted by hand.
 
 The settings are in `/opt/halo-dedicated/dedicated.env` on the host (from
 `deploy/dedicated.env` the first time); after a change,
