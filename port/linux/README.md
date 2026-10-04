@@ -41,10 +41,15 @@ To start the game:
 `build/linux64/halo`, the way the macOS build does (the 64-bit build in
 [port/macos/README.md](../macos/README.md): `HALO_64BIT` and the `long`
 rewrite, `tools/lp64_build.py`). It needs the 64-bit glibc and SDL3
-development files (`libsdl3-dev` on Debian and Ubuntu) instead of the 32-bit
-ones, and the 64-bit OpenGL and sound libraries to start. It is not
-optimised with a profile, and does not update itself. A beta: the 32-bit
-build is the one the project releases.
+development files (`sdl3` on Arch Linux, `libsdl3-dev` on Debian 13 and
+Ubuntu 25.04 or later) instead of the 32-bit ones, and the 64-bit OpenGL and
+sound libraries to start. An SDL3 built by hand is found through
+`LIBRARY_PATH` when linking and `LD_LIBRARY_PATH` when starting. It is not
+optimised with a profile (the committed profiles are the 32-bit build's).
+Its releases are their own download, `chupathingyce-linux64-release.zip`,
+which its self-updater asks for. It plays Halo PC's Custom Edition maps
+(`maps/ce/`) and plays with the 32-bit builds and the other ports over the
+network, and it is a dedicated server too (`server/README.md`).
 
 ## Start the game
 

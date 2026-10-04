@@ -47,9 +47,8 @@ macos_build.py; the Android app's version is its own, build.gradle) */
 #ifndef HALO_RELEASE_BUILD
 #define HALO_RELEASE_BUILD 0
 #endif
-#if defined(__APPLE__) || defined(HALO_64BIT)
-/* (the macOS application does not update itself yet, nor does the 64-bit
-Linux build, whose releases would be the 32-bit build's) */
+#ifdef __APPLE__
+/* (the macOS application does not update itself yet) */
 #undef HALO_RELEASE_BUILD
 #define HALO_RELEASE_BUILD 0
 #endif
@@ -62,6 +61,13 @@ Linux build, whose releases would be the 32-bit build's) */
 #ifdef _WIN32
 #define UPDATE_PLATFORM "windows"
 #define PATH_SEPARATOR "\\"
+#elif defined(__APPLE__)
+#define UPDATE_PLATFORM "macos"
+#define PATH_SEPARATOR "/"
+#elif defined(HALO_64BIT)
+/* (the 64-bit Linux build's own download, ninja linux64: tools/ci_build.py) */
+#define UPDATE_PLATFORM "linux64"
+#define PATH_SEPARATOR "/"
 #else
 #define UPDATE_PLATFORM "linux"
 #define PATH_SEPARATOR "/"
