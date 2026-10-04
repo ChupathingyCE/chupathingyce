@@ -1702,6 +1702,13 @@ void _rasterizer_model_draw(
 
 		if (local_model_effect_type == _render_model_effect_type_active_camouflage)
 		{
+			/* port: camouflage draws a part as a model shader's
+			(rasterizer_xbox_active_camouflage.c); a Halo PC map's model may
+			have parts of other shaders (hc-hanger's first-person weapon, an
+			environment shader), which asserted here and were read as model
+			shaders: such a part is not drawn while camouflaged */
+			if (shader->base.type != _shader_type_model)
+				return;
 			match_assert(
 				"c:\\halo\\SOURCE\\rasterizer\\xbox\\rasterizer_xbox_models.c",
 				729,
