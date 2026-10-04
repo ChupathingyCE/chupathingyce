@@ -426,7 +426,9 @@ struct hs_thread_datum
 	long previous_sleep_until;
 	struct hs_stack_frame *stack;
 	long result;
-	byte stack_data[0x200];
+	/* sized by the limit the stack checks allow: with 0x200 here, a 64-bit
+	   script deeper than 0x200 bytes wrote over the next thread's datum */
+	byte stack_data[HS_THREAD_STACK_SIZE];
 };
 #ifndef HALO_64BIT
 
