@@ -74,15 +74,25 @@ struct config_setting
 #define DEFAULT_FULLSCREEN "true"
 #endif
 
+/* macOS's audio cuts out with SDL's 512-frame buffer when the mixer is late
+(a 10.6 ms budget at 48 kHz); 2048 frames (43 ms) rides that out. Elsewhere
+512 keeps the latency low. */
+#ifdef __APPLE__
+#define DEFAULT_AUDIO_BUFFER_FRAMES "2048"
+#else
+#define DEFAULT_AUDIO_BUFFER_FRAMES "512"
+#endif
+
 static const struct config_setting config_settings[] =
 {
 	{ "display.fullscreen", _config_boolean, DEFAULT_FULLSCREEN, "HALO_FULLSCREEN", _environment_value, _platform_desktop,
 		"Start fullscreen, drawing at the display's resolution and shape; false\n"
-		"starts in a window, which draws the Xbox's 640x480. F11 switches." },
+		"starts in a window, which draws at the window's size and shape. F11\n"
+		"switches." },
 	{ "display.mode", _config_string, "\"\"", "HALO_DISPLAY_MODE", _environment_value, _platform_desktop,
 		"\"fullscreen\" takes the display at its desktop resolution, \"borderless\"\n"
 		"is a window over the whole desktop (both draw at the display's\n"
-		"resolution), \"windowed\" a window of the Xbox's 640x480, scaled. Empty:\n"
+		"resolution), \"windowed\" a window, drawing at its size. Empty:\n"
 		"display.fullscreen's (true: borderless). F11 switches to the window and back." },
 	{ "display.window_scale", _config_integer, "2", "HALO_WINDOW_SCALE", _environment_value, _platform_desktop,
 		"The window's size as a multiple of 640x480 (it can be resized)." },
@@ -148,7 +158,17 @@ static const struct config_setting config_settings[] =
 	{ "audio.effects_volume", _config_real, "1.0", "HALO_EFFECTS_VOLUME", _environment_value, _platform_all,
 		"The volume of every other sound (effects and speech), 0.0 to 1.0 (of\n"
 		"audio.volume)." },
+	{ "audio.buffer_frames", _config_integer, DEFAULT_AUDIO_BUFFER_FRAMES, "HALO_AUDIO_BUFFER_FRAMES", _environment_value,
+		_platform_all,
+		"The audio device's buffer, in sample frames at 48 kHz (64 to 8192): larger\n"
+		"rides out stalls that cut the sound out, smaller has less delay. 2048\n"
+		"(43 ms) on macOS, 512 (11 ms) elsewhere." },
 
+	{ "input.touch_controls", _config_string, "\"auto\"", "HALO_TOUCH_CONTROLS", _environment_value, _platform_android,
+		"The on-screen touch controls in a game: \"auto\" shows them on a\n"
+		"touchscreen while no controller is connected, \"on\" also with a\n"
+		"controller, \"off\" never. A device without a touchscreen never shows\n"
+		"them. The menus take taps in any case." },
 	{ "input.mouse_sensitivity", _config_real, "1.0", "HALO_MOUSE_SENSITIVITY", _environment_value, _platform_desktop,
 		"How far the view turns for the mouse's movement." },
 	{ "input.invert_mouse", _config_boolean, "false", "HALO_MOUSE_INVERT", _environment_set_is_true, _platform_desktop,
@@ -369,6 +389,12 @@ static const struct config_setting config_settings[] =
 		"address as a tag (addr#3f2a9c) that only matches up within one run;\n"
 		"local network addresses are always whole. Do not post a debug.txt\n"
 		"written with this on: it has the address of everyone you played with." },
+	{ "debug.touch_targets", _config_boolean, "false", "HALO_TOUCH_TARGETS", _environment_set_is_true, _platform_all,
+		"Outline the menus' tap targets (item green, value blue, list slot yellow,\n"
+		"legend button red, the band beside a list's slots orange; the virtual\n"
+		"keyboard's keys white), mark where the last finger went down and the\n"
+		"last tap landed for 3 seconds, and log each tap with the target it hit\n"
+		"(and a value's split); to judge touch accuracy." },
 	{ "debug.network_latency", _config_real, "0.0", "HALO_NETWORK_LATENCY", _environment_value, _platform_all,
 		"Milliseconds everything received is held back (a round trip between two\n"
 		"machines of twice it), to test the netcode as over the internet; 0 none." },
