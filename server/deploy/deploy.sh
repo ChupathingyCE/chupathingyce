@@ -57,8 +57,10 @@ if [ "$image" != halo-dedicated ]; then
 fi
 # (the settings are kept once there: edit them on the host)
 ssh "$host" 'test -f /opt/halo-dedicated/dedicated.env' || scp "$here/dedicated.env" "$host:/opt/halo-dedicated/"
-scp "$here/halo-dedicated.service" "$host:/tmp/"
-ssh "$host" 'sudo mv /tmp/halo-dedicated.service /etc/systemd/system/ \
+# (and the further servers' template, deploy-instance.sh's, which runs the
+# same image: its servers take it as they restart)
+scp "$here/halo-dedicated.service" "$here/halo-dedicated@.service" "$host:/tmp/"
+ssh "$host" 'sudo mv /tmp/halo-dedicated.service /tmp/halo-dedicated@.service /etc/systemd/system/ \
 	&& sudo systemctl daemon-reload \
 	&& sudo systemctl enable halo-dedicated'
 if [ "$restart" = true ]; then
