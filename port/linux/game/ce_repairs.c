@@ -26,7 +26,11 @@ or reads past a tag's end:
     model has a light for one, which Halo PC's engine drew with whatever it
     found there): given the model's first shader that is one, or else the
     map's first shader; one naming a shader with the salt of another build:
-    given the shader's own.
+    given the shader's own;
+  - a model's or animation graph's nodes linked into a loop (a node's
+    sibling or child one reached already: [h3]_sandtrap's cyborg graph has
+    its spine's next sibling the pelvis, the first node), which the game
+    walks without end, past its arrays of nodes: that link cut.
 
 The repairs are made before the map is opened, to the image it is checked
 in (ce_map_checks.c, so that its checks see the map as it will play), and
@@ -84,6 +88,16 @@ enum
 	MODEL_SHADER_SIZE = 0x20,
 	MODEL_HEADER_SIZE = 0xe8,
 	SHADER_GROUP = 'shdr',
+
+	/* a model's and an animation graph's nodes (model_definitions.h,
+	model_animation_definitions.h): each its next sibling, first child and
+	parent, at the same place; the most either has (ce_models.c) */
+	MODEL_NODES_OFFSET = 0xb8,
+	MODEL_NODE_SIZE = 0x9c,
+	ANIMATION_GRAPH_NODES_OFFSET = 0x68,
+	ANIMATION_GRAPH_NODE_SIZE = 0x40,
+	NODE_LINKS_OFFSET = 0x20,
+	CE_MAXIMUM_NODES = 64,
 };
 
 /* ---------- structures */
@@ -108,6 +122,7 @@ struct ce_repair_counts
 	long object_types;
 	long modifier_shaders;
 	long model_shaders;
+	long node_links;
 };
 
 /* ---------- globals */
@@ -147,6 +162,13 @@ static short ce_read_short(
 
 	memcpy(&value, at, sizeof(value));
 	return value;
+}
+
+static void ce_write_short(
+	byte *at,
+	short value)
+{
+	memcpy(at, &value, sizeof(value));
 }
 
 static struct ce_tag_instance *ce_instance(
@@ -363,18 +385,65 @@ static void ce_model_shaders_repair(
 	}
 }
 
+/* a model's or an animation graph's nodes (the block at field, each
+node_size bytes) walked from the first, by next siblings and first children,
+as the game walks them: a link to a node reached already is cut. Links past
+the nodes are left as they are, for the checks to refuse
+(ce_models.c) */
+static void ce_node_links_repair(
+	struct ce_image const *image,
+	byte *field,
+	unsigned long node_size,
+	struct ce_repair_counts *counts)
+{
+	long node_count;
+	byte *nodes = ce_block(image, field, node_size, &node_count);
+	boolean reached[CE_MAXIMUM_NODES];
+	short queue[CE_MAXIMUM_NODES];
+	long read_index = 0, write_index = 0;
+
+	if (!nodes || node_count > CE_MAXIMUM_NODES)
+		return;
+	memset(reached, 0, sizeof(reached));
+	reached[0] = TRUE;
+	queue[write_index++] = 0;
+	while (read_index < write_index)
+	{
+		byte *links = nodes + queue[read_index++] * node_size + NODE_LINKS_OFFSET;
+		long link;
+
+		/* (its next sibling, then its first child) */
+		for (link = 0; link < 2; link++)
+		{
+			short linked = ce_read_short(links + link * sizeof(short));
+
+			if (linked < 0 || linked >= node_count)
+				continue;
+			if (reached[linked])
+			{
+				ce_write_short(links + link * sizeof(short), NONE);
+				counts->node_links++;
+				continue;
+			}
+			reached[linked] = TRUE;
+			queue[write_index++] = linked;
+		}
+	}
+}
+
 static void ce_repairs_log(
 	struct ce_repair_counts const *counts)
 {
 	if (ce_map_checking() || !(counts->predicted_resources_dropped | counts->predicted_resources_salted |
-		counts->object_types | counts->modifier_shaders | counts->model_shaders))
+		counts->object_types | counts->modifier_shaders | counts->model_shaders | counts->node_links))
 	{
 		return;
 	}
 	error(_error_silent, "%s map: %ld predicted resources dropped and %ld given their tags' salts, %ld object "
-		"types, %ld modifier shaders and %ld model shaders repaired", ce_map_cache_version == CE_CACHE_VERSION_RETAIL ?
-		"HaloMD" : "Custom Edition", counts->predicted_resources_dropped, counts->predicted_resources_salted,
-		counts->object_types, counts->modifier_shaders, counts->model_shaders);
+		"types, %ld modifier shaders and %ld model shaders repaired, %ld node links looping back cut",
+		ce_map_cache_version == CE_CACHE_VERSION_RETAIL ? "HaloMD" : "Custom Edition",
+		counts->predicted_resources_dropped, counts->predicted_resources_salted, counts->object_types,
+		counts->modifier_shaders, counts->model_shaders, counts->node_links);
 }
 
 /* ---------- public code */
@@ -411,7 +480,18 @@ void ce_repairs_apply(
 					&counts);
 		}
 		else if (instance->group_tag == 'mod2')
+		{
 			ce_model_shaders_repair(image, instance, tag_instances, tag_count, &counts);
+			data = ce_image_pointer(image, instance->base_address, MODEL_NODES_OFFSET + 0xc);
+			if (data)
+				ce_node_links_repair(image, data + MODEL_NODES_OFFSET, MODEL_NODE_SIZE, &counts);
+		}
+		else if (instance->group_tag == 'antr')
+		{
+			data = ce_image_pointer(image, instance->base_address, ANIMATION_GRAPH_NODES_OFFSET + 0xc);
+			if (data)
+				ce_node_links_repair(image, data + ANIMATION_GRAPH_NODES_OFFSET, ANIMATION_GRAPH_NODE_SIZE, &counts);
+		}
 	}
 	{
 		struct ce_tag_instance *scenario = ce_instance_by_index(tag_instances, tag_count, scenario_tag_index);
