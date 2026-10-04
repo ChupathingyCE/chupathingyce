@@ -922,13 +922,13 @@ static void gl_initialize(void)
 			xgpu_capabilities.anisotropy, xgpu_capabilities.s3tc, xgpu_capabilities.atomic_counters);
 	}
 #else
-	if (config_boolean("debug.gl_debug"))
+	/* (OpenGL 4.3: macOS's 4.1 has no debug output, and enabling it is an
+	error there; gl_check_errors polls instead) */
+	if (config_boolean("debug.gl_debug") && glDebugMessageCallback)
 	{
 		glEnable(GL_DEBUG_OUTPUT);
 		glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
-		/* (OpenGL 4.3: macOS's 4.1 has no debug output) */
-		if (glDebugMessageCallback)
-			glDebugMessageCallback(gl_debug_callback, NULL);
+		glDebugMessageCallback(gl_debug_callback, NULL);
 	}
 #ifndef HALO_GL_NO_CLIP_CONTROL
 	glClipControl(GL_UPPER_LEFT, GL_ZERO_TO_ONE);
@@ -2529,9 +2529,10 @@ static void apply_raster_state(BOOL has_depth)
 	}
 }
 
-#ifdef HALO_ANDROID
-/* ES has no debug callback in 3.0; debug.gl_debug polls glGetError around
-each draw instead, reporting each distinct error a few times */
+#if defined(HALO_ANDROID) || defined(__APPLE__)
+/* ES 3.0 and macOS's OpenGL 4.1 have no debug callback; debug.gl_debug
+polls glGetError around each draw instead, reporting each distinct error a
+few times */
 static void gl_check_errors(const char *where)
 {
 	static int enabled = -1;
