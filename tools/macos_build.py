@@ -32,6 +32,7 @@ from .linux_build import (
     MBEDTLS_DIR,
     MINIUPNPC_DEFINES,
     MINIUPNPC_DIR,
+    MONOCYPHER_DIR,
     MUSL_MATH_DIR,
     OPTIMISATION,
     PLATFORM_FLAGS as LINUX_PLATFORM_FLAGS,
@@ -327,6 +328,8 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
             f"-I{EXPAT_DIR}",
             # (Link Profile's QR encoder's, likewise)
             f"-I{QRCODEGEN_DIR}",
+            # (public games' signatures', likewise)
+            f"-I{MONOCYPHER_DIR}",
             f"-I{_quote(lp64(Path('source')))} -I{_quote(lp64(Path('source/cseries')))}",
             homebrew_include, f"-idirafter {xdk}",
         ])
@@ -375,6 +378,10 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
         # Link Profile's QR encoder (port/third_party/qrcodegen; browser.c),
         # with the host's ABI too: its long is the host's (LONG_MAX)
         add_object(QRCODEGEN_DIR / "qrcodegen.c", " ".join([target, "-std=gnu11", OPTIMISATION, "-g", "-w"]))
+        # public games' signatures (port/third_party/monocypher; p2p_crypto.c),
+        # with the host's ABI: its API is bytes and size_t
+        for name in ("monocypher.c", "monocypher-ed25519.c"):
+            add_object(MONOCYPHER_DIR / name, " ".join([target, "-std=gnu11", OPTIMISATION, "-g", "-w"]))
         third_party = " ".join([abi, "-std=gnu11", "-w"])
         add_object(lp64(TOML_DIR / "tomlc17.c"), third_party)
         add_object(lp64(KCP_DIR / "ikcp.c"), third_party)

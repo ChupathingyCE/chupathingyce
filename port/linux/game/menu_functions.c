@@ -13,11 +13,9 @@ calls them from PC_MENU_FUNCTION_BASE on):
 - "gamespy screen init" hides the server browser's error and filter panels,
   and the title of the mode "mp type set mode" did not choose (Internet or
   LAN);
-- Join Game's SERVER BROWSER mode (with the game list, HALO_GAME_BROWSER):
-  the internet games of halo_server_browser.h in the PC version's rows,
-  sorted by the column titles ("gamespy select header"), read again by GET
-  LIST, a game joined as Online Games joins it and its lobby opened to wait
-  for its host; without the game list the mode stays empty;
+- Join Game's SERVER BROWSER mode: internet play's public games, sorted by
+  the column titles ("gamespy select header"), the chosen game's players
+  and rules (or a message) in the lines below the rows;
 - the lobby's players, in their teams' colours (a text box's own colour:
   pc_menu_text_color, which ui_widget.c asks);
 - its buttons' events: "mouse emit back event" and "mouse emit x event" push
@@ -76,9 +74,13 @@ their handlers open opens.
 #include "text/unicode.h"
 
 #include "halo_menus.h"
+/* (internet play's server browser: the platform layer's) */
+#include "../src/p2p.h"
 #ifdef HALO_GAME_BROWSER
-#include "halo_server_browser.h"
+#include "../src/browser.h"
 #endif
+/* (its games on Halo PC maps: server_browser.c) */
+#include "halo_server_browser.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -1661,9 +1663,8 @@ static void controls_update(struct widget_instance *list)
 }
 
 /* ---------- Multiplayer (port/assets/menus' PLAN: Create Game > Internet
-or LAN; Join Game > Server Browser (the game list's games, blank without
-it), LAN, Direct Link): the Xbox's networking, run by the engine's port
-entry points
+or LAN; Join Game > Server Browser (blank, for now), LAN, Direct Link): the
+Xbox's networking, run by the engine's port entry points
 (ui_widget_event_handler_functions.c) on our lists */
 
 #define MAXIMUM_ADVERTISED_GAMES 9
@@ -1762,6 +1763,7 @@ int platform_clipboard_get(char *text, int size);
 void platform_clipboard_set(char const *text);
 void platform_text_field(int typing);
 int config_boolean(char const *name);
+void ui_widget_port_post_button(short controller_index, short button_index);
 
 static wchar_t const *const engine_names[] = { L"", L"CTF", L"SLAYER", L"ODDBALL", L"KING OF THE HILL", L"RACE" };
 static short const maximum_players[] = { 2, 4, 8, 12, 16, 24, 32, 48, 64, 96, 128 };
@@ -1788,6 +1790,9 @@ static struct
 	(the client's slot it is in may come to hold another game) */
 	byte preview_key_id[8];
 	byte preview_xnaddr[12];
+	/* Server Setup's LISTING: PRIVATE (each new game starts with
+	network.host_public's choice: PUBLIC unless set otherwise) */
+	boolean game_private;
 } multiplayer = { 0, 0, 0, { 0 }, 0, { 0 }, 0, 0, 0, 0, { 0 }, NUMBEROF(maximum_players) - 1 };
 
 /* ---- a text field (Direct Link's link, the game's name): the keyboard
@@ -1933,6 +1938,10 @@ static boolean multiplayer_host(struct widget_instance *widget, struct event_rec
 	if (!multiplayer_player(controller))
 		return FALSE;
 	p2p_set_hosting_allowed(multiplayer.mode == _multiplayer_mode_host_internet);
+	/* (in the server browser, if PUBLIC: Server Setup's LISTING, which a
+	new game starts with as network.host_public says) */
+	multiplayer.game_private = !config_boolean("network.host_public");
+	p2p_set_hosting_public(multiplayer.mode == _multiplayer_mode_host_internet && !multiplayer.game_private);
 	return ui_widget_port_host(widget, event, widget_deleted);
 }
 
@@ -2152,6 +2161,10 @@ static boolean server_settings_initialize(struct widget_instance *list)
 	}
 	if (spinner)
 		spinner->parameters.list.selected_index = multiplayer.maximum_players_index;
+	/* (PUBLIC or PRIVATE: this game's; the screen is made again on coming
+	back from an option's screen) */
+	if ((spinner = named(list, "listing_spinner", 0)) != NULL)
+		spinner->parameters.list.selected_index = multiplayer.game_private ? 1 : 0;
 	return TRUE;
 }
 
@@ -2190,6 +2203,20 @@ static void server_settings_update(struct widget_instance *list)
 		text_set(named(list, "game_type_value", 0), type);
 	}
 	settings_help(list);
+	/* LISTING (an internet game's): PUBLIC, listed in everyone's server
+	browser, or PRIVATE, for this game. Its help is its choice's */
+	visible_set(named(list, "op_listing", 0), multiplayer.mode == _multiplayer_mode_host_internet &&
+		config_boolean("network.online") && config_boolean("network.public_lobby"));
+	if ((spinner = named(list, "listing_spinner", 0)) != NULL && named(list, "op_listing", 0)->visible)
+	{
+		boolean public = spinner->parameters.list.selected_index == 0;
+		struct widget_instance *help = list->parameters.list.extended_description;
+
+		multiplayer.game_private = !public;
+		p2p_set_hosting_public(public);
+		if (help && list->focused_child == named(list, "op_listing", 0))
+			help->parameters.text_box.string_list_index = (short)(10 + spinner->parameters.list.selected_index);
+	}
 }
 
 /* "ss edit server name" (its row's A: begins, or ends) */
@@ -2302,7 +2329,7 @@ static void focus_off_hidden(struct widget_instance *bar)
 }
 
 /* whether the browser's list's child can take focus (once visible): the
-Server Browser's column titles too, which sort it */
+server browser's column titles too, which sort it */
 static boolean browser_item_usable(struct widget_instance *child)
 {
 	return browser_row_index(child) != NONE || !strcmp(child->name, "join_game_button_bar") ||
@@ -2337,9 +2364,11 @@ static void browser_focus(struct widget_instance *list)
 	}
 }
 
-#ifdef HALO_GAME_BROWSER
-static void server_browser_mode_initialize(struct widget_instance *screen);
-#endif
+/* (the server browser's: below) */
+static void lobby_browser_begin(struct widget_instance *screen);
+static void lobby_browser_update(struct widget_instance *list);
+static boolean lobby_browser_select(struct widget_instance *widget, short controller, short row,
+	boolean *widget_deleted);
 
 /* "gamespy screen init": the mode's title and parts; the games' client */
 static boolean browser_initialize(struct widget_instance *screen, struct event_record *event,
@@ -2357,11 +2386,14 @@ static boolean browser_initialize(struct widget_instance *screen, struct event_r
 	for (index = 0; index < NUMBEROF(unused); index++)
 		visible_set(named(screen, unused[index], 0), FALSE);
 	visible_set(named(screen, "button_clipboard", 0), multiplayer.mode == _multiplayer_mode_direct_link);
+	visible_set(named(screen, "join_game_button_refresh", 0), multiplayer.mode == _multiplayer_mode_server_browser);
 	{
 		struct widget_instance *list = named(screen, "join_game_items_list", 0);
 		struct widget_instance *child;
 
-		/* (only the games' rows and the buttons take focus: not the column titles, which sort nothing, nor the ticker) */
+		/* (only the games' rows and the buttons take focus, and the server
+		browser's column titles: not the other modes' titles, which sort
+		nothing, nor the ticker) */
 		for (child = list ? list->child : NULL; child; child = child->next)
 			child->disabled = !browser_item_usable(child);
 		if (list)
@@ -2370,24 +2402,28 @@ static boolean browser_initialize(struct widget_instance *screen, struct event_r
 	visible_set(named(screen, "scroll_up_button", 0), FALSE);
 	visible_set(named(screen, "scroll_down_button", 0), FALSE);
 	/* (the columns' sort arrows, both of each over its title: the list is
-	not sorted) */
+	not sorted; the server browser's shows its column's) */
 	for (index = 0; named(screen, "header_sort_arrows", index); index++)
 		visible_set(named(screen, "header_sort_arrows", index), FALSE);
 	multiplayer.game_chosen = 0;
+	/* (the server browser's games are internet play's listings; joining
+	one reaches its host, whose game the client then finds as Direct Link's) */
 	if (multiplayer.mode == _multiplayer_mode_server_browser)
-	{
-#ifdef HALO_GAME_BROWSER
-		/* (the game list's games; the network searching, as for LAN's, for
-		joining one) */
-		server_browser_mode_initialize(screen);
-#else
-		return TRUE;
-#endif
-	}
+		lobby_browser_begin(screen);
 	return ui_widget_port_browse(screen, event, widget_deleted);
 }
 
-static void game_map_name(struct advertised_game const *game, wchar_t *text)
+/* a scenario's name without its path */
+static char const *scenario_name(char const *path)
+{
+	char const *name = strrchr(path, '\\');
+
+	return name ? name + 1 : path;
+}
+
+/* a map's name as the menus show it (its scenario's name, if not one of
+theirs), from its scenario's path or name */
+static void map_display_name(char const *map_name, wchar_t *text)
 {
 	char const *const *names;
 	short last, index;
@@ -2395,78 +2431,98 @@ static void game_map_name(struct advertised_game const *game, wchar_t *text)
 
 	for (index = 0; index < count; index++)
 	{
-		if (!_stricmp(names[index], game->map_name))
+		if (!_stricmp(scenario_name(names[index]), scenario_name(map_name)))
 		{
 			string_get("pc\\main_menu\\mp_map_list", index, text);
 			return;
 		}
 	}
-	for (index = 0; game->map_name[index] && index < ROW_TEXT_LENGTH - 1; index++)
-		text[index] = (wchar_t)(unsigned char)game->map_name[index];
+	for (index = 0; map_name[index] && index < ROW_TEXT_LENGTH - 1; index++)
+		text[index] = (wchar_t)(unsigned char)map_name[index];
 	text[index] = 0;
 }
 
-#ifdef HALO_GAME_BROWSER
-/* ---- Server Browser: the internet games of the game list
-(halo_server_browser.h, server_browser.c), in the PC version's rows, sorted
-by the column titles chosen, GET LIST reading the list again; a game joined
-as the list's own Online Games joins it (its invite), its lobby opened
-meanwhile (lobby_update waits there for the host) */
+static void game_map_name(struct advertised_game const *game, wchar_t *text)
+{
+	map_display_name(game->map_name, text);
+}
 
-/* a message shown in the Rules line this long */
-#define SERVER_BROWSER_STATUS_DURATION 6000
+/* ---- Join Game > Server Browser: internet play's public games (their
+hosts' listings, p2p_lobby.c). Joining one joins its invite (as Direct
+Link's PASTE LINK); once its host is reached its game is among the client's,
+and an A press (posted) joins it, or shows its lobby if under way. The
+column titles sort the games (again: the other way round); the game chosen
+stays chosen while the list changes under it */
+
+#define LOBBY_BROWSER_GAMES 256
+/* milliseconds: a host not reached in this long is given up (p2p's own
+wait is longer) */
+#define LOBBY_BROWSER_JOIN_TIMEOUT 30000
+/* how long the browser looks before it says it found none, and shows a
+join that failed */
+#define LOBBY_BROWSER_LOOK_TIME 6000
+#define LOBBY_BROWSER_FAILED_TIME 8000
+/* how long a message about the game chosen shows (why it cannot be
+joined) */
+#define LOBBY_BROWSER_MESSAGE_TIME 6000
 /* the ticker's labels (join_game_ticker_labels) */
 enum { _join_game_label_rules = 1, _join_game_label_message };
 
-static struct
+/* the orders the column titles choose (each the other way round on its
+title's second press) */
+enum
 {
-	short sort;
-	boolean descending;
-	/* the list's game in the first row, and the one chosen (by its key: the
-	list is read again each frame, its order may change) */
-	short first, chosen;
-	char chosen_key[SERVER_BROWSER_KEY_LENGTH];
-	/* the row focused the frame before (NONE: none) */
-	short last_row;
-	/* the first game's row given the focus, once there was one */
-	boolean row_focused;
-	wchar_t status[SERVER_BROWSER_TEXT_LENGTH];
-	unsigned long status_time;
-} server_browser_menu = { _server_browser_sort_players, FALSE, 0, 0, "", NONE, FALSE };
+	/* the most players first (p2p_lobby_games' own order) */
+	_lobby_browser_sort_players,
+	_lobby_browser_sort_name,
+	_lobby_browser_sort_map,
+	_lobby_browser_sort_type,
+	/* the shortest ping first, those not known last */
+	_lobby_browser_sort_ping,
+	NUMBER_OF_LOBBY_BROWSER_SORTS
+};
 
-/* the column titles that sort, by the order each sorts by */
-static char const *const server_browser_headers[NUMBER_OF_SERVER_BROWSER_SORTS] =
+/* the column titles that sort, by the order each chooses */
+static char const *const lobby_browser_headers[NUMBER_OF_LOBBY_BROWSER_SORTS] =
 {
 	"op_sort_header_players", "op_sort_header_server_name", "op_sort_header_map", "op_sort_header_type",
 	"op_sort_header_ping"
 };
 
-static void server_browser_status(wchar_t const *text)
+static struct
 {
-	ustrncpy(server_browser_menu.status, text, NUMBEROF(server_browser_menu.status) - 1);
-	server_browser_menu.status[NUMBEROF(server_browser_menu.status) - 1] = 0;
-	server_browser_menu.status_time = system_milliseconds();
-}
+	struct p2p_listing games[LOBBY_BROWSER_GAMES];
+	/* the games found, the first on the rows, the one last focused (Join's) */
+	short count, first, chosen;
+	/* whether it has shown a game (the first has the focus) */
+	boolean shown;
+	unsigned long begin_time;
+	/* a game being joined: its host, its name, since when, the controller
+	that asked; ready: its game reached (the A press posted) */
+	boolean joining, ready;
+	unsigned char identifier[6];
+	char name[P2P_LISTING_NAME_SIZE + 1];
+	unsigned long join_time;
+	short controller;
+	/* when the press was posted (again if it was lost) */
+	unsigned long ready_time;
+	/* the last that failed, and when */
+	char failed_name[P2P_LISTING_NAME_SIZE + 1];
+	unsigned long failed_time;
+	/* the order (and whether the other way round) */
+	short sort;
+	boolean descending;
+	/* the game chosen, by its host (the order may change under it), and
+	the row focused the frame before (NONE: none) */
+	unsigned char chosen_identifier[6];
+	short last_row;
+	/* a message about the game chosen (why it cannot be joined), and when */
+	wchar_t message[ROW_TEXT_LENGTH * 2];
+	unsigned long message_time;
+} lobby_browser;
 
-static void server_browser_focus_row(struct widget_instance *list, short row)
-{
-	struct widget_instance *child;
-	short child_index = 0;
-
-	for (child = list->child; child; child = child->next, child_index++)
-	{
-		if (browser_row_index(child) == row)
-		{
-			list->focused_child = child;
-			list->parameters.list.selected_index = child_index;
-			return;
-		}
-	}
-}
-
-/* "gamespy screen init"'s, for the mode: the column titles that sort take
-the focus (the icons' do not), GET LIST shown, nothing being joined */
-static void server_browser_mode_initialize(struct widget_instance *screen)
+/* the column titles that sort take the focus (the icons' do not) */
+static void lobby_browser_headers_initialize(struct widget_instance *screen)
 {
 	struct widget_instance *header = named(screen, "join_game_header", 0);
 	struct widget_instance *child;
@@ -2476,57 +2532,134 @@ static void server_browser_mode_initialize(struct widget_instance *screen)
 		short sort;
 
 		child->disabled = TRUE;
-		for (sort = 0; sort < NUMBER_OF_SERVER_BROWSER_SORTS; sort++)
+		for (sort = 0; sort < NUMBER_OF_LOBBY_BROWSER_SORTS; sort++)
 		{
-			if (!strcmp(child->name, server_browser_headers[sort]))
+			if (!strcmp(child->name, lobby_browser_headers[sort]))
 				child->disabled = FALSE;
 		}
 		if (header->focused_child == child && child->disabled)
 			header->focused_child = NULL;
 	}
-	visible_set(named(screen, "join_game_button_update", 0), TRUE);
-	server_browser_menu.first = 0;
-	server_browser_menu.chosen = 0;
-	server_browser_menu.last_row = NONE;
-	server_browser_menu.row_focused = FALSE;
-	server_browser_menu.status[0] = 0;
-	server_browser_join_cancel();
 }
 
-/* "gamespy select header": the list in that column's order, or the other
-way round if it is already */
-static boolean server_browser_sort(struct widget_instance *widget)
+static void lobby_browser_begin(struct widget_instance *screen)
+{
+	lobby_browser.count = 0;
+	lobby_browser.first = 0;
+	lobby_browser.chosen = 0;
+	lobby_browser.shown = FALSE;
+	lobby_browser.joining = lobby_browser.ready = FALSE;
+	lobby_browser.begin_time = system_milliseconds();
+	lobby_browser.last_row = NONE;
+	lobby_browser.message[0] = 0;
+	lobby_browser_headers_initialize(screen);
+	p2p_lobby_browse(TRUE);
+}
+
+/* "gamespy screen dispose" */
+static void lobby_browser_end(void)
+{
+	lobby_browser.joining = lobby_browser.ready = FALSE;
+	p2p_lobby_browse(FALSE);
+}
+
+static void text_to_wide(char const *text, wchar_t *wide, short size)
+{
+	short index;
+
+	for (index = 0; text[index] && index < size - 1; index++)
+		wide[index] = (wchar_t)(unsigned char)text[index];
+	wide[index] = 0;
+}
+
+static void lobby_browser_message(wchar_t const *text)
+{
+	ustrncpy(lobby_browser.message, text, NUMBEROF(lobby_browser.message) - 1);
+	lobby_browser.message[NUMBEROF(lobby_browser.message) - 1] = 0;
+	lobby_browser.message_time = system_milliseconds();
+}
+
+/* "gamespy select header": the games in that column's order, or the other
+way round if they are already */
+static boolean lobby_browser_sort_select(struct widget_instance *widget)
 {
 	short sort;
 
-	for (sort = 0; sort < NUMBER_OF_SERVER_BROWSER_SORTS; sort++)
+	for (sort = 0; sort < NUMBER_OF_LOBBY_BROWSER_SORTS; sort++)
 	{
-		if (!strcmp(widget->name, server_browser_headers[sort]))
+		if (!strcmp(widget->name, lobby_browser_headers[sort]))
 		{
-			server_browser_menu.descending = sort == server_browser_menu.sort && !server_browser_menu.descending;
-			server_browser_menu.sort = sort;
+			lobby_browser.descending = sort == lobby_browser.sort && !lobby_browser.descending;
+			lobby_browser.sort = sort;
 			ui_play_audio_feedback_sound(SOUND_FORWARD);
-			return TRUE;
 		}
 	}
 	return TRUE;
 }
 
+static long lobby_browser_compare_text(char const *a, char const *b)
+{
+	for (;; a++, b++)
+	{
+		char x = *a >= 'a' && *a <= 'z' ? (char)(*a - 32) : *a;
+		char y = *b >= 'a' && *b <= 'z' ? (char)(*b - 32) : *b;
+
+		if (x != y || !x)
+			return (long)(unsigned char)x - (long)(unsigned char)y;
+	}
+}
+
+/* two games' order in the column chosen (0: as p2p_lobby_games has them) */
+static long lobby_browser_compare(struct p2p_listing const *a, struct p2p_listing const *b)
+{
+	long order;
+
+	switch (lobby_browser.sort)
+	{
+	case _lobby_browser_sort_name: order = lobby_browser_compare_text(a->name, b->name); break;
+	case _lobby_browser_sort_map:
+		order = lobby_browser_compare_text(scenario_name(a->map), scenario_name(b->map));
+		break;
+	case _lobby_browser_sort_type:
+		order = ((long)a->engine_type * 2 + a->has_teams) - ((long)b->engine_type * 2 + b->has_teams);
+		break;
+	case _lobby_browser_sort_ping:
+		order = a->ping == b->ping ? 0 : a->ping < 0 ? 1 : b->ping < 0 ? -1 : (long)a->ping - (long)b->ping;
+		break;
+	default: order = (long)b->player_count - (long)a->player_count; break;
+	}
+	return lobby_browser.descending ? -order : order;
+}
+
+/* the games in the order chosen (kept, as found, where it ties) */
+static void lobby_browser_sort(void)
+{
+	static struct p2p_listing game;
+	short index, other;
+
+	for (index = 1; index < lobby_browser.count; index++)
+	{
+		game = lobby_browser.games[index];
+		for (other = index; other > 0 && lobby_browser_compare(&lobby_browser.games[other - 1], &game) > 0; other--)
+			lobby_browser.games[other] = lobby_browser.games[other - 1];
+		lobby_browser.games[other] = game;
+	}
+}
+
 /* the sorting column's arrow: up for A to Z (or the fewest first), down
 for the other way */
-static void server_browser_arrows_show(struct widget_instance *screen)
+static void lobby_browser_arrows_show(struct widget_instance *screen)
 {
 	short sort;
 
-	for (sort = 0; sort < NUMBER_OF_SERVER_BROWSER_SORTS; sort++)
+	for (sort = 0; sort < NUMBER_OF_LOBBY_BROWSER_SORTS; sort++)
 	{
-		struct widget_instance *arrows = named(named(screen, server_browser_headers[sort], 0), "header_sort_arrows", 0);
+		struct widget_instance *arrows = named(named(screen, lobby_browser_headers[sort], 0), "header_sort_arrows", 0);
 		/* (players' own order is the most first) */
-		boolean up = (sort != _server_browser_sort_players) != server_browser_menu.descending;
-
+		boolean up = (sort != _lobby_browser_sort_players) != lobby_browser.descending;
 		struct widget_instance *arrow;
 
-		visible_set(arrows, sort == server_browser_menu.sort);
+		visible_set(arrows, sort == lobby_browser.sort);
 		visible_set(named(arrows, "header_sort_up_arrow", 0), up);
 		visible_set(named(arrows, "header_sort_down_arrow", 0), !up);
 		/* (the arrows' bright frame: their first is faint on the title) */
@@ -2535,230 +2668,558 @@ static void server_browser_arrows_show(struct widget_instance *screen)
 	}
 }
 
-/* the rows' games: the chosen one kept in its row while the list changes
-under it, the rows moved on at their ends while there are more games past
-them */
-static short server_browser_rows_place(struct widget_instance *list, short count)
+/* the game being joined, once its host is reached (the client's game from
+it), else NULL */
+static struct advertised_game *lobby_browser_joined_game(void)
 {
-	short row = browser_row_index(list->focused_child);
+	void *client = global_network_game_client_get();
+	struct advertised_game *games = client ? network_game_client_get_available_games(client) : NULL;
+	short index;
+
+	for (index = 0; games && index < MAXIMUM_ADVERTISED_GAMES; index++)
+	{
+		if (network_game_client_advertised_game_is_valid(&games[index]) &&
+			!memcmp(games[index].xnaddr + 2, lobby_browser.identifier, sizeof(lobby_browser.identifier)))
+		{
+			return &games[index];
+		}
+	}
+	return NULL;
+}
+
+/* the focus on a game's row (0 to BROWSER_ROWS - 1) */
+static void lobby_browser_focus_row(struct widget_instance *list, short row)
+{
+	struct widget_instance *child;
+	short child_index = 0;
+	char name[16];
+
+	sprintf(name, "server_item_%d", row + 1);
+	for (child = list->child; child; child = child->next, child_index++)
+	{
+		if (!strcmp(child->name, name))
+		{
+			list->focused_child = child;
+			list->parameters.list.selected_index = child_index;
+			return;
+		}
+	}
+}
+
+/* the rows' games: scrolled on at their ends while there are more games
+past them, and the game chosen kept on its row while the order changes
+under it. Returns the row focused (NONE: none) */
+static short lobby_browser_rows_place(struct widget_instance *list)
+{
+	short focused = browser_row_index(list->focused_child);
 	short index, found = NONE;
 
-	for (index = 0; index < count; index++)
+	for (index = 0; index < lobby_browser.count; index++)
 	{
-		if (!strcmp(server_browser_game(index)->key, server_browser_menu.chosen_key))
+		if (!memcmp(lobby_browser.games[index].identifier, lobby_browser.chosen_identifier, 6))
 			found = index;
 	}
-	if (row != NONE && row == server_browser_menu.last_row && found != NONE &&
-		found != server_browser_menu.first + row)
+	if (focused != NONE && focused == lobby_browser.last_row && found != NONE &&
+		found != lobby_browser.first + focused)
 	{
 		/* (the chosen game moved: the rows follow it) */
-		server_browser_menu.first = (short)PIN(found - row, 0, MAX(0, count - BROWSER_ROWS));
-		row = (short)(found - server_browser_menu.first);
-		server_browser_focus_row(list, row);
+		lobby_browser.first = (short)PIN(found - focused, 0, MAX(0, lobby_browser.count - BROWSER_ROWS));
+		focused = (short)(found - lobby_browser.first);
+		lobby_browser_focus_row(list, focused);
 	}
-	else if (row == BROWSER_ROWS - 1 && server_browser_menu.first + BROWSER_ROWS < count)
+	else if (focused == BROWSER_ROWS - 1 && lobby_browser.first + BROWSER_ROWS < lobby_browser.count)
 	{
-		server_browser_menu.first++;
-		server_browser_focus_row(list, --row);
+		lobby_browser.first++;
+		lobby_browser_focus_row(list, --focused);
 	}
-	else if (row == 0 && server_browser_menu.first > 0)
+	else if (focused == 0 && lobby_browser.first > 0)
 	{
-		server_browser_menu.first--;
-		server_browser_focus_row(list, ++row);
+		lobby_browser.first--;
+		lobby_browser_focus_row(list, ++focused);
 	}
-	server_browser_menu.first = (short)PIN(server_browser_menu.first, 0, MAX(0, count - BROWSER_ROWS));
-	server_browser_menu.last_row = row;
-	if (row != NONE)
-		server_browser_menu.chosen = (short)(server_browser_menu.first + row);
-	else if (found != NONE)
-		server_browser_menu.chosen = found;
-	server_browser_menu.chosen = (short)PIN(server_browser_menu.chosen, 0, MAX(0, count - 1));
-	if (count)
-	{
-		char const *key = server_browser_game(server_browser_menu.chosen)->key;
-
-		/* (a message is about the game chosen when it came) */
-		if (strcmp(key, server_browser_menu.chosen_key))
-			server_browser_menu.status[0] = 0;
-		csstrncpy(server_browser_menu.chosen_key, key, sizeof(server_browser_menu.chosen_key) - 1);
-	}
-	return row;
+	lobby_browser.first = (short)PIN(lobby_browser.first, 0, MAX(0, lobby_browser.count - BROWSER_ROWS));
+	lobby_browser.last_row = focused;
+	return focused;
 }
 
-/* a row's map: its name, and its mark after it (the name cut short to
-leave the mark room in the column: about 13 characters) */
-#define SERVER_BROWSER_MAP_CELL_LENGTH 13
-static void server_browser_map_cell(struct server_browser_game const *game, wchar_t *text)
+/* ---- the server browser's second source (configure.py --game-browser):
+the games of a game list, network.browser_url (port/linux/src/browser.c;
+halo.milenko.org by default), merged into the listings' as listings of
+their own. A game both list is shown once, as its listing (the same invite
+token). One on a Halo PC (Custom Edition) map, which its host lists as
+<map>@ce, is marked PC, and joined only where it can be played (with the
+map in maps\ce: server_browser.c), as a listing's on one is */
+
+#ifdef HALO_GAME_BROWSER
+static struct
 {
-	short mark = (short)ustrlen(game->map_mark);
-	short room = (short)(SERVER_BROWSER_MAP_CELL_LENGTH - (mark ? mark + 1 : 0));
+	struct browser_game games[BROWSER_MAXIMUM_GAMES];
+	/* whether each is in the browser's list (not one a listing has) */
+	boolean shown[BROWSER_MAXIMUM_GAMES];
+	short count;
+} lobby_browser_listed;
 
-	if ((short)ustrlen(game->map) > room)
+/* whether two invites (an invite link's, the list's code) are the same
+game's: their token, the last 32 hexadecimal digits */
+static boolean lobby_browser_same_token(char const *link, char const *code)
+{
+	size_t link_length = strlen(link), code_length = strlen(code);
+
+	return link_length >= 32 && code_length >= 32 && !_stricmp(link + link_length - 32, code + code_length - 32);
+}
+
+/* the game list's game a game of the browser's is, or NULL (a listing) */
+static struct browser_game const *lobby_browser_listed_game(struct p2p_listing const *game)
+{
+	short index;
+
+	for (index = 0; index < lobby_browser_listed.count; index++)
 	{
-		/* (cut, and a full stop for what was cut) */
-		ustrncpy(text, game->map, room - 1);
-		text[room - 1] = 0;
-		ustrncpy(text + room - 1, L".", 2);
+		if (lobby_browser_listed.shown[index] && lobby_browser_same_token(game->invite,
+			lobby_browser_listed.games[index].invite))
+		{
+			return &lobby_browser_listed.games[index];
+		}
 	}
-	else
-		ustrncpy(text, game->map, ROW_TEXT_LENGTH - 1);
-	text[ROW_TEXT_LENGTH - 1] = 0;
-	if (mark)
-	{
-		short length = (short)ustrlen(text);
+	return NULL;
+}
 
-		usnprintf(text + length, ROW_TEXT_LENGTH - 1 - length, L" %s", game->map_mark);
-		text[ROW_TEXT_LENGTH - 1] = 0;
+/* a game list's game's map: its scenario's name, a Halo PC map's @ce kept
+(its file's name cut short, if it must be, to keep it) */
+static void lobby_browser_listed_map(struct browser_game const *game, char *map, short size)
+{
+	char const *name = scenario_name(game->map);
+	size_t length = strlen(name);
+	boolean halo_pc = length > 3 && !_stricmp(name + length - 3, "@ce");
+
+	if (halo_pc && length > (size_t)size - 1)
+		snprintf(map, (size_t)size, "%.*s@ce", (int)(size - 4), name);
+	else
+		snprintf(map, (size_t)size, "%s", name);
+}
+
+/* the game list's games, after the listings: those the listings have not */
+static void lobby_browser_add_listed(void)
+{
+	/* (its gametypes as a listing names them) */
+	static char const *const gametypes[] = { "Game", "CTF", "Slayer", "Oddball", "King", "Race" };
+	short index;
+
+	lobby_browser_listed.count = 0;
+	if (!config_boolean("network.online") || !config_boolean("network.public_lobby"))
+		return;
+	lobby_browser_listed.count = (short)browser_get_games(lobby_browser_listed.games, BROWSER_MAXIMUM_GAMES);
+	for (index = 0; index < lobby_browser_listed.count; index++)
+	{
+		struct browser_game const *listed = &lobby_browser_listed.games[index];
+		struct p2p_listing *game;
+		short other, engine;
+
+		lobby_browser_listed.shown[index] = FALSE;
+		for (other = 0; other < lobby_browser.count; other++)
+		{
+			if (lobby_browser_same_token(lobby_browser.games[other].invite, listed->invite))
+				break;
+		}
+		if (other < lobby_browser.count || lobby_browser.count >= LOBBY_BROWSER_GAMES)
+			continue;
+		lobby_browser_listed.shown[index] = TRUE;
+		game = &lobby_browser.games[lobby_browser.count++];
+		csmemset(game, 0, sizeof(*game));
+		snprintf(game->invite, sizeof(game->invite), "halo://join/%s", listed->invite);
+		/* (the host's identifier: its invite's first 6 bytes, made a
+		locally administered address, as p2p.c makes it) */
+		for (other = 0; other < (short)sizeof(game->identifier); other++)
+		{
+			unsigned int value = 0;
+
+			sscanf(listed->invite + 2 * other, "%2x", &value);
+			game->identifier[other] = (unsigned char)value;
+		}
+		game->identifier[0] = (unsigned char)((game->identifier[0] & 0xFC) | 0x02);
+		for (other = 0; other < BROWSER_NAME_LENGTH && listed->name[other] && other < P2P_LISTING_NAME_SIZE; other++)
+		{
+			unsigned short character = listed->name[other];
+
+			game->name[other] = character >= 0x20 && character < 0x7F ? (char)character : '?';
+		}
+		lobby_browser_listed_map(listed, game->map, sizeof(game->map));
+		engine = (short)PIN(listed->engine, 0, NUMBEROF(gametypes) - 1);
+		snprintf(game->gametype, sizeof(game->gametype), "%s%s", listed->teams && engine != 1 ? "Team " : "",
+			gametypes[engine]);
+		game->player_count = (unsigned char)PIN(listed->players, 0, 255);
+		game->maximum_player_count = (unsigned char)PIN(listed->maximum_players, 0, 255);
+		game->engine_type = (unsigned char)engine;
+		game->open = listed->open;
+		game->has_teams = listed->teams;
+		game->ping = -1;
 	}
 }
 
-/* "gamespy screen update", the mode's: the games' rows (name, map and its
-mark, gametype, players, ping), the chosen one's Players and Rules lines (or
-a message: what stops it being joined), the counts over the titles */
-static void server_browser_update(struct widget_instance *list)
+/* the Players line's names (the host's roster, when the list has it) */
+static void lobby_browser_roster_text(struct p2p_listing const *game, wchar_t *text, short size)
+{
+	struct browser_game const *listed = lobby_browser_listed_game(game);
+	short index, used;
+
+	if (!listed || !listed->roster_count)
+		return;
+	for (index = 0; index < MIN(listed->roster_count, BROWSER_LISTED_ROSTER); index++)
+	{
+		wchar_t name[NUMBEROF(listed->roster[index].name) + 1];
+		short character;
+
+		for (character = 0; character < NUMBEROF(listed->roster[index].name) && listed->roster[index].name[character];
+			character++)
+		{
+			name[character] = (wchar_t)listed->roster[index].name[character];
+		}
+		name[character] = 0;
+		used = (short)ustrlen(text);
+		/* (room kept for what is left unsaid) */
+		if (used + (short)ustrlen(name) + 16 >= size)
+			break;
+		usnprintf(text + used, size - 1 - used, L"%s%s", index ? L", " : L": ", name);
+		text[size - 1] = 0;
+	}
+	if (index < listed->roster_count)
+	{
+		used = (short)ustrlen(text);
+		usnprintf(text + used, size - 1 - used, L" +%d more", listed->roster_count - index);
+		text[size - 1] = 0;
+	}
+}
+
+/* the score to win, when the list has it (0: not known) */
+static short lobby_browser_score_limit(struct p2p_listing const *game)
+{
+	struct browser_game const *listed = lobby_browser_listed_game(game);
+
+	return listed ? listed->score_limit : 0;
+}
+#else
+static void lobby_browser_add_listed(void)
+{
+}
+
+static void lobby_browser_roster_text(struct p2p_listing const *game, wchar_t *text, short size)
+{
+	(void)game;
+	(void)text;
+	(void)size;
+}
+
+static short lobby_browser_score_limit(struct p2p_listing const *game)
+{
+	(void)game;
+	return 0;
+}
+#endif
+
+/* a game's map as the menus show it, and whether it is a Halo PC map (named
+as the menus' map list names it: server_browser.c) */
+static boolean lobby_browser_map_name(struct p2p_listing const *game, wchar_t *text)
+{
+	if (server_browser_map_halo_pc(game->map, text, ROW_TEXT_LENGTH))
+		return TRUE;
+	map_display_name(game->map, text);
+	return FALSE;
+}
+
+/* the Players line: how many of how many (and who, when it is known) */
+static void lobby_browser_players_text(struct p2p_listing const *game, wchar_t *text, short size)
+{
+	usnprintf(text, size - 1, L"%d of %d", game->player_count, game->maximum_player_count);
+	text[size - 1] = 0;
+	lobby_browser_roster_text(game, text, size);
+}
+
+/* the Rules line: the gametype, its score (when known), the map, and
+whether it is under way */
+static void lobby_browser_rules_text(struct p2p_listing const *game, wchar_t *text, short size)
+{
+	wchar_t gametype[P2P_LISTING_GAMETYPE_SIZE + 1];
+	wchar_t map[ROW_TEXT_LENGTH];
+	wchar_t score[16];
+	short score_limit = lobby_browser_score_limit(game);
+	boolean halo_pc;
+
+	text_to_wide(game->gametype, gametype, NUMBEROF(gametype));
+	halo_pc = lobby_browser_map_name(game, map);
+	score[0] = 0;
+	if (score_limit > 0)
+		usnprintf(score, NUMBEROF(score) - 1, L" to %d", score_limit);
+	usnprintf(text, size - 1, L"%s%s on %s%s%s", gametype[0] ? gametype : engine_names[PIN(game->engine_type, 0, 5)],
+		score, map, halo_pc ? L" (HALO PC)" : L"",
+		!game->open ? L": full or starting" : game->in_progress ? L": under way" : L"");
+	text[size - 1] = 0;
+}
+
+/* "gamespy screen update" for the server browser: the rows (in the order
+chosen), the Players and Rules lines (or a message in the Rules line's
+place), the counts over the titles */
+static void lobby_browser_update(struct widget_instance *list)
 {
 	struct widget_instance *stats = list->parameters.list.extended_description;
 	struct widget_instance *row;
-	short count = server_browser_read(server_browser_menu.sort, server_browser_menu.descending);
-	struct server_browser_game const *chosen;
-	wchar_t text[SERVER_BROWSER_TEXT_LENGTH];
+	short focused;
+	wchar_t text[ROW_TEXT_LENGTH * 2];
+	wchar_t players[ROW_TEXT_LENGTH * 2];
+	unsigned long now = system_milliseconds();
+	short chosen;
 	boolean message;
 
-	server_browser_rows_place(list, count);
+	lobby_browser.count = (short)p2p_lobby_games(lobby_browser.games, LOBBY_BROWSER_GAMES);
+	lobby_browser_add_listed();
+	lobby_browser_sort();
+	focused = lobby_browser_rows_place(list);
+	/* (the first game found takes the focus from the buttons, which had it
+	while there were none) */
+	if (lobby_browser.count && !lobby_browser.shown)
+	{
+		struct widget_instance *first_row = named(list, "server_item_1", 0);
+
+		lobby_browser.shown = TRUE;
+		if (first_row)
+		{
+			first_row->visible = TRUE;
+			lobby_browser_focus_row(list, 0);
+			focused = 0;
+			lobby_browser.last_row = 0;
+		}
+	}
+	if (focused != NONE)
+		lobby_browser.chosen = (short)(lobby_browser.first + focused);
+	lobby_browser.chosen = (short)PIN(lobby_browser.chosen, 0, MAX(0, lobby_browser.count - 1));
+	chosen = lobby_browser.chosen;
+	if (chosen < lobby_browser.count)
+	{
+		/* (a message is about the game chosen when it came) */
+		if (memcmp(lobby_browser.games[chosen].identifier, lobby_browser.chosen_identifier, 6))
+			lobby_browser.message[0] = 0;
+		csmemcpy(lobby_browser.chosen_identifier, lobby_browser.games[chosen].identifier, 6);
+	}
 	for (row = list->child; row; row = row->next)
 	{
 		short index = browser_row_index(row);
-		struct server_browser_game const *game;
+		struct p2p_listing const *game;
 
 		if (index == NONE)
 			continue;
-		game = server_browser_game((short)(server_browser_menu.first + index));
-		row->visible = game != NULL;
-		/* (its background's frames: 0 a row, 1 the focused row) */
-		row->animation.current_frame_index = row == list->focused_child ? 1 : 0;
-		if (!game)
+		index = (short)(index + lobby_browser.first);
+		row->visible = index < lobby_browser.count;
+		if (index >= lobby_browser.count)
 			continue;
-		text_set(named(row, "server_item_server_name", 0), game->name);
-		server_browser_map_cell(game, text);
+		game = &lobby_browser.games[index];
+		text_to_wide(game->name, text, ROW_TEXT_LENGTH);
+		text_set(named(row, "server_item_server_name", 0), text);
+		/* (a Halo PC map's game: marked) */
+		if (lobby_browser_map_name(game, text))
+		{
+			short length = (short)ustrlen(text);
+
+			usnprintf(text + length, ROW_TEXT_LENGTH - 1 - length, L" PC");
+			text[ROW_TEXT_LENGTH - 1] = 0;
+		}
 		text_set(named(row, "server_item_map", 0), text);
-		text_set(named(row, "server_item_type", 0), game->type);
-		usnprintf(text, ROW_TEXT_LENGTH - 1, L"%d/%d", game->players, game->maximum_players);
-		text[ROW_TEXT_LENGTH - 1] = 0;
+		text_set(named(row, "server_item_type", 0), engine_names[PIN(game->engine_type, 0, 5)]);
+		usnprintf(text, ROW_TEXT_LENGTH - 1, L"%d/%d", game->player_count, game->maximum_player_count);
 		text_set(named(row, "server_item_players", 0), text);
-		if (game->ping != NONE)
-			usnprintf(text, ROW_TEXT_LENGTH - 1, L"%d", game->ping);
-		else
-			usnprintf(text, ROW_TEXT_LENGTH - 1, L"-");
-		text[ROW_TEXT_LENGTH - 1] = 0;
-		text_set(named(row, "server_item_ping", 0), text);
-		visible_set(named(row, "server_item_locked", 0), FALSE);
+		/* (no ping yet: its host is reached only on joining) */
+		text_set(named(row, "server_item_ping", 0), game->failed ? L"FAILED" : game->in_progress ? L"LIVE" : L"-");
+		visible_set(named(row, "server_item_locked", 0), !game->open);
 		visible_set(named(row, "server_item_dedicated", 0), FALSE);
 		visible_set(named(row, "server_item_classic", 0), FALSE);
 	}
-	/* (the first game focused when the list first has one: the screen
-	opens before the list comes) */
-	if (count && !server_browser_menu.row_focused)
+	lobby_browser_arrows_show(screen_of(list));
+	/* joining: once the host is reached, its game joined (by an A press, on
+	its row); given up after a while */
+	if (lobby_browser.ready && now - lobby_browser.ready_time > 3000 &&
+		now - lobby_browser.join_time <= LOBBY_BROWSER_JOIN_TIMEOUT)
 	{
-		server_browser_menu.row_focused = TRUE;
-		server_browser_focus_row(list, 0);
-		server_browser_menu.last_row = 0;
-		server_browser_menu.chosen = 0;
+		lobby_browser.ready_time = now;
+		ui_widget_port_post_button(lobby_browser.controller, BUTTON_A);
 	}
-	server_browser_arrows_show(screen_of(list));
-
-	/* the Players line, and the Rules line (or a message in its place) */
-	chosen = server_browser_game(server_browser_menu.chosen);
-	message = server_browser_menu.status[0] &&
-		system_milliseconds() - server_browser_menu.status_time < SERVER_BROWSER_STATUS_DURATION;
-	if (message)
-		ustrncpy(text, server_browser_menu.status, NUMBEROF(text) - 1);
-	else if (chosen)
-		message = server_browser_game_blocked(server_browser_menu.chosen, text, NUMBEROF(text));
-	text[NUMBEROF(text) - 1] = 0;
-	if (!message)
-		ustrncpy(text, chosen ? chosen->rules_text : L"", NUMBEROF(text) - 1);
-	text_set_length(named(list, "ticker_rules_info", 0), text, SERVER_BROWSER_TEXT_LENGTH);
-	if (named(list, "ticker_rules_info_label", 0))
+	if (lobby_browser.joining)
 	{
-		named(list, "ticker_rules_info_label", 0)->parameters.text_box.string_list_index =
-			message ? _join_game_label_message : _join_game_label_rules;
-	}
-	text_set_length(named(list, "ticker_player_info", 0), chosen ? chosen->players_text :
-		L"No one is hosting right now. Host a game, and it shows here.", SERVER_BROWSER_TEXT_LENGTH);
+		if (lobby_browser.ready)
+		{
+			/* (its press posted: waiting for it, or for the timeout) */
+			if (now - lobby_browser.join_time > LOBBY_BROWSER_JOIN_TIMEOUT)
+				lobby_browser.joining = lobby_browser.ready = FALSE;
+		}
+		else if (lobby_browser_joined_game())
+		{
+			short index;
 
+			lobby_browser.ready = TRUE;
+			for (index = 0; index < lobby_browser.count; index++)
+			{
+				if (!memcmp(lobby_browser.games[index].identifier, lobby_browser.identifier, 6) &&
+					index >= lobby_browser.first && index < lobby_browser.first + BROWSER_ROWS)
+				{
+					lobby_browser_focus_row(list, (short)(index - lobby_browser.first));
+					lobby_browser.last_row = (short)(index - lobby_browser.first);
+				}
+			}
+			lobby_browser.ready_time = now;
+			ui_widget_port_post_button(lobby_browser.controller, BUTTON_A);
+		}
+		else if (now - lobby_browser.join_time > LOBBY_BROWSER_JOIN_TIMEOUT)
+		{
+			p2p_lobby_mark_failed(lobby_browser.identifier);
+			csmemcpy(lobby_browser.failed_name, lobby_browser.name, sizeof(lobby_browser.failed_name));
+			lobby_browser.failed_time = now ? now : 1;
+			lobby_browser.joining = FALSE;
+			platform_log("menus: could not reach the server browser's game %s", lobby_browser.name);
+			ui_play_audio_feedback_sound(SOUND_ERROR);
+		}
+	}
+	/* the Players line (the chosen game's), and the Rules line, or a
+	message in its place */
+	{
+		wchar_t name[P2P_LISTING_NAME_SIZE + 1];
+
+		message = TRUE;
+		if (!config_boolean("network.online"))
+			usnprintf(text, NUMBEROF(text) - 1, L"Internet play is off (Settings)");
+		else if (!config_boolean("network.public_lobby"))
+			usnprintf(text, NUMBEROF(text) - 1, L"The server browser is off (network.public_lobby)");
+		else if (lobby_browser.joining)
+		{
+			text_to_wide(lobby_browser.name, name, NUMBEROF(name));
+			usnprintf(text, NUMBEROF(text) - 1, L"Connecting to %s...", name);
+		}
+		else if (lobby_browser.failed_time && now - lobby_browser.failed_time < LOBBY_BROWSER_FAILED_TIME)
+		{
+			text_to_wide(lobby_browser.failed_name, name, NUMBEROF(name));
+			usnprintf(text, NUMBEROF(text) - 1, L"Could not reach %s", name);
+		}
+		else if (!lobby_browser.count)
+		{
+			usnprintf(text, NUMBEROF(text) - 1, L"%s", now - lobby_browser.begin_time < LOBBY_BROWSER_LOOK_TIME ?
+				L"Looking for public games..." : L"No public games found");
+		}
+		else if (lobby_browser.message[0] && now - lobby_browser.message_time < LOBBY_BROWSER_MESSAGE_TIME)
+			usnprintf(text, NUMBEROF(text) - 1, L"%s", lobby_browser.message);
+		/* (what stops the chosen game being joined here: its Halo PC map) */
+		else if (chosen < lobby_browser.count &&
+			server_browser_map_blocked(lobby_browser.games[chosen].map, text, NUMBEROF(text)))
+		{
+		}
+		else if (chosen < lobby_browser.count)
+		{
+			lobby_browser_rules_text(&lobby_browser.games[chosen], text, NUMBEROF(text));
+			message = FALSE;
+		}
+		else
+			text[0] = 0;
+		text[NUMBEROF(text) - 1] = 0;
+		if (chosen < lobby_browser.count)
+			lobby_browser_players_text(&lobby_browser.games[chosen], players, NUMBEROF(players));
+		else
+			players[0] = 0;
+		text_set_length(named(list, "ticker_player_info", 0), players, NUMBEROF(players));
+		text_set_length(named(list, "ticker_rules_info", 0), text, NUMBEROF(text));
+		if (named(list, "ticker_rules_info_label", 0))
+		{
+			named(list, "ticker_rules_info_label", 0)->parameters.text_box.string_list_index =
+				message ? _join_game_label_message : _join_game_label_rules;
+		}
+	}
 	if (stats)
 	{
 		wchar_t label[ROW_TEXT_LENGTH];
-		long players = 0;
+		long player_count = 0;
 		short index;
 
-		for (index = 0; index < count; index++)
-			players += server_browser_game(index)->players;
+		for (index = 0; index < lobby_browser.count; index++)
+			player_count += lobby_browser.games[index].player_count;
 		string_get(JOIN_GAME_LABELS, _join_game_label_players, label);
-		usnprintf(text, ROW_TEXT_LENGTH - 1, L"%s %ld", label, players);
+		usnprintf(text, ROW_TEXT_LENGTH - 1, L"%s %ld", label, player_count);
 		text_set(named(stats, "player_count_label", 0), text);
 		string_get(JOIN_GAME_LABELS, _join_game_label_page, label);
-		/* (the chosen game's) */
-		usnprintf(text, ROW_TEXT_LENGTH - 1, L"%s %d/%d", label, server_browser_menu.chosen / BROWSER_ROWS + 1,
-			MAX(1, (count + BROWSER_ROWS - 1) / BROWSER_ROWS));
+		usnprintf(text, ROW_TEXT_LENGTH - 1, L"%s %d/%d", label, chosen / BROWSER_ROWS + 1,
+			MAX(1, (lobby_browser.count + BROWSER_ROWS - 1) / BROWSER_ROWS));
 		text_set(named(stats, "page_count_label", 0), text);
 		string_get(JOIN_GAME_LABELS, _join_game_label_servers, label);
-		usnprintf(text, ROW_TEXT_LENGTH - 1, L"%s %d", label, count);
+		usnprintf(text, ROW_TEXT_LENGTH - 1, L"%s %d", label, lobby_browser.count);
 		text_set(named(stats, "server_count_label", 0), text);
 	}
 	browser_focus(list);
 }
 
-/* joining the game chosen, as Online Games joins it: what stops it said,
-else player 1 in, its host reached through its invite, and the lobby opened
-to wait for it there */
-static boolean server_browser_join_chosen(struct widget_instance *widget, short controller, boolean *widget_deleted)
+/* the server browser's rows and buttons: Refresh asks the hosts again; a
+row (or Join) joins its game's invite; the A press posted once its host is
+reached joins its game (or shows its lobby, if under way) */
+static boolean lobby_browser_select(struct widget_instance *widget, short controller, short row,
+	boolean *widget_deleted)
 {
-	wchar_t message[SERVER_BROWSER_TEXT_LENGTH];
+	struct p2p_listing const *game;
+	short index;
 
-	if (!server_browser_game(server_browser_menu.chosen))
-		return campaign_fail();
-	message[0] = 0;
-	if (!server_browser_join_ready(server_browser_menu.chosen, message, NUMBEROF(message)))
+	/* (the press posted: whatever has the focus) */
+	if (lobby_browser.ready)
 	{
-		server_browser_status(message);
-		return campaign_fail();
-	}
-	if (!multiplayer_player(controller))
-		return FALSE;
-	if (!server_browser_join(server_browser_menu.chosen, message, NUMBEROF(message)))
-	{
-		server_browser_status(message);
-		return campaign_fail();
-	}
-	/* (its host's game joined at once if it is already advertised, as Online
-	Games asks the same frame; else the lobby waits for it) */
-	server_browser_join_wait(message, NUMBEROF(message));
-	return ui_widget_port_open(widget, LOBBY_NAME, widget_deleted);
-}
+		struct advertised_game *found = lobby_browser_joined_game();
 
-/* "gamespy select item" and "gamespy select button", the mode's: a row
-(joins its game), JOIN GAME, GET LIST */
-static boolean server_browser_select(struct widget_instance *widget, short controller, boolean *widget_deleted)
-{
-	short row = browser_row_index(widget);
-
-	if (row != NONE)
-	{
-		server_browser_menu.chosen = (short)(server_browser_menu.first + row);
-		return server_browser_join_chosen(widget, controller, widget_deleted);
+		lobby_browser.joining = lobby_browser.ready = FALSE;
+		if (!found)
+			return campaign_fail();
+		if (advertised_in_progress(found))
+		{
+			csmemcpy(multiplayer.preview_key_id, found->key_id, sizeof(multiplayer.preview_key_id));
+			csmemcpy(multiplayer.preview_xnaddr, found->xnaddr, sizeof(multiplayer.preview_xnaddr));
+			return ui_widget_port_open(widget, PREVIEW_NAME, widget_deleted);
+		}
+		if (!found->open)
+			return campaign_fail();
+		if (!multiplayer_player(controller))
+			return FALSE;
+		return ui_widget_port_join(widget, found, LOBBY_NAME, widget_deleted);
 	}
-	if (strstr(widget->name, "button_join"))
-		return server_browser_join_chosen(widget, controller, widget_deleted);
-	if (strstr(widget->name, "button_update"))
+	if (strstr(widget->name, "button_refresh"))
 	{
-		server_browser_read(server_browser_menu.sort, server_browser_menu.descending);
-		server_browser_status(L"Refreshed");
+		p2p_lobby_refresh();
+		lobby_browser.begin_time = system_milliseconds();
 		ui_play_audio_feedback_sound(SOUND_FORWARD);
+		return TRUE;
 	}
+	if (row == NONE && !strstr(widget->name, "button_join"))
+		return TRUE;
+	if (lobby_browser.joining)
+		return TRUE;
+	index = row != NONE ? (short)(lobby_browser.first + row) : lobby_browser.chosen;
+	if (index >= lobby_browser.count)
+		return campaign_fail();
+	game = &lobby_browser.games[index];
+	/* (a Halo PC map's game, only with the map: a join without it would
+	fail at its loading) */
+	{
+		wchar_t blocked[ROW_TEXT_LENGTH * 2];
+
+		if (server_browser_map_blocked(game->map, blocked, NUMBEROF(blocked)))
+		{
+			lobby_browser_message(blocked);
+			return campaign_fail();
+		}
+	}
+	if (!game->open)
+	{
+		lobby_browser_message(L"That game is not taking players.");
+		return campaign_fail();
+	}
+	if (!config_boolean("network.online") || !p2p_join_invite(game->invite))
+		return campaign_fail();
+	csmemcpy(lobby_browser.identifier, game->identifier, sizeof(lobby_browser.identifier));
+	csmemcpy(lobby_browser.name, game->name, sizeof(lobby_browser.name));
+	lobby_browser.joining = TRUE;
+	lobby_browser.ready = FALSE;
+	lobby_browser.join_time = system_milliseconds();
+	lobby_browser.controller = controller;
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
 	return TRUE;
 }
-#endif
 
 /* "gamespy screen update": the games' rows (name, map, gametype, players),
 the one chosen's line, the counts over the titles (the PC version's: its
@@ -2769,13 +3230,11 @@ static void browser_update(struct widget_instance *list)
 	struct widget_instance *stats = list->parameters.list.extended_description;
 	short focused = browser_row_index(list->focused_child);
 
-#ifdef HALO_GAME_BROWSER
 	if (multiplayer.mode == _multiplayer_mode_server_browser)
 	{
-		server_browser_update(list);
+		lobby_browser_update(list);
 		return;
 	}
-#endif
 	browser_games_read();
 	if (focused != NONE && focused < multiplayer.game_count)
 		multiplayer.game_chosen = focused;
@@ -2872,7 +3331,7 @@ static boolean direct_link_from_clipboard(void)
 }
 
 /* joining the game chosen: player 1 in, then the lobby */
-static boolean browser_join(struct widget_instance *widget, short controller, boolean *widget_deleted)
+static boolean browser_join_chosen(struct widget_instance *widget, short controller, boolean *widget_deleted)
 {
 	if (multiplayer.game_chosen >= multiplayer.game_count)
 		return campaign_fail();
@@ -2888,10 +3347,8 @@ static boolean browser_select(struct widget_instance *widget, struct event_recor
 {
 	short row = browser_row_index(widget);
 
-#ifdef HALO_GAME_BROWSER
 	if (multiplayer.mode == _multiplayer_mode_server_browser)
-		return server_browser_select(widget, controller, widget_deleted);
-#endif
+		return lobby_browser_select(widget, controller, row, widget_deleted);
 	if (row != NONE)
 		multiplayer.game_chosen = row;
 	if (row != NONE || strstr(widget->name, "button_join"))
@@ -2906,7 +3363,7 @@ static boolean browser_select(struct widget_instance *widget, struct event_recor
 				sizeof(multiplayer.preview_xnaddr));
 			return ui_widget_port_open(widget, PREVIEW_NAME, widget_deleted);
 		}
-		return browser_join(widget, controller, widget_deleted);
+		return browser_join_chosen(widget, controller, widget_deleted);
 	}
 	return TRUE;
 }
@@ -3044,62 +3501,6 @@ static void lobby_map_show(struct widget_instance *description, char const *map_
 		widget->parameters.text_box.string_list_index = map;
 }
 
-#ifdef HALO_GAME_BROWSER
-/* the text in lines of up to length characters (the lobby's panel does not
-wrap), broken at spaces */
-static void text_wrap(wchar_t const *text, wchar_t *wrapped, short size, short length)
-{
-	short used = 0, line = 0;
-
-	while (*text && used < size - 3)
-	{
-		short word;
-
-		for (word = 0; text[word] && text[word] != ' '; word++)
-			;
-		if (line && line + 1 + word > length)
-		{
-			wrapped[used++] = '\r';
-			wrapped[used++] = '\n';
-			line = 0;
-		}
-		else if (line)
-		{
-			wrapped[used++] = ' ';
-			line++;
-		}
-		for (; word && used < size - 3; word--, line++)
-			wrapped[used++] = *text++;
-		while (*text == ' ')
-			text++;
-	}
-	wrapped[used] = 0;
-}
-
-/* the lobby of a Server Browser game while its host is waited for (its
-players come with joining it): what is under way, or why it failed; FALSE
-once nothing is waited for */
-static boolean server_browser_lobby_wait(struct widget_instance *list, struct widget_instance *description)
-{
-	wchar_t message[SERVER_BROWSER_TEXT_LENGTH], text[LOBBY_TEXT_LENGTH];
-	short waited = server_browser_join_wait(message, NUMBEROF(message));
-	boolean waiting = waited == _server_browser_join_waiting || waited == _server_browser_join_failed;
-
-	visible_set(named(description, "lobby_map_pic", 0), !waiting);
-	visible_set(named(description, "lobby_map_name", 0), !waiting);
-	if (!waiting)
-		return FALSE;
-	rows_update(list, 0, lobby_row_text);
-	visible_set(named(list, "lobby_button_team", 0), FALSE);
-	focus_off_hidden(named(list, "lobby_button_bar", 0));
-	visible_set(named(description, "lobby_right_item", 0), TRUE);
-	text_wrap(message, text, NUMBEROF(text), 18);
-	text_set_length(named(description, "lobby_game_data", 0), text, LOBBY_TEXT_LENGTH);
-	profile_name_show(description);
-	return TRUE;
-}
-#endif
-
 /* "port lobby update" */
 static void lobby_update(struct widget_instance *list)
 {
@@ -3109,11 +3510,6 @@ static void lobby_update(struct widget_instance *list)
 	short state_data, state = client ? network_game_client_get_state(client, &state_data) : NONE;
 	wchar_t text[LOBBY_TEXT_LENGTH];
 	short index;
-
-#ifdef HALO_GAME_BROWSER
-	if (multiplayer.mode == _multiplayer_mode_server_browser && server_browser_lobby_wait(list, description))
-		return;
-#endif
 
 	lobby_player_count = 0;
 	for (index = 0; game && state >= _client_state_pregame && index < HALO_PORT_MAXIMUM_NETWORK_PLAYERS; index++)
@@ -3129,7 +3525,8 @@ static void lobby_update(struct widget_instance *list)
 	visible_set(named(list, "lobby_button_team", 0), game && game->variant.universal_variant.teams);
 	/* (the buttons' focus, off Switch Team when it is hidden) */
 	focus_off_hidden(named(list, "lobby_button_bar", 0));
-	visible_set(named(description, "lobby_right_item", 0), game != NULL && state >= _client_state_pregame);	if (!game || state < _client_state_pregame)
+	visible_set(named(description, "lobby_right_item", 0), game != NULL && state >= _client_state_pregame);
+	if (!game || state < _client_state_pregame)
 	{
 		profile_name_show(description);
 		return;
@@ -3313,6 +3710,7 @@ static struct gametype_option const gametype_options[] =
 		{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 10 } },
 	{ "item_options_starting_equipment_spinner", _option_flag, 0, FLAG(_game_variant_generic_starting_equipment_bit),
 		2, { 0, 1 } },
+	{ "map_weapons_spinner", _option_option_byte, OPTIONS_FIELD(no_map_weapons), 0, 2, { 0, 1 } },
 	/* (the loadout: the weapon set's, or each player's two weapons) */
 	{ "loadout_spinner", _option_option_byte, OPTIONS_FIELD(loadout), 0, 2, { _loadout_category, _loadout_custom } },
 	{ "primary_weapon_spinner", _option_option_byte, OPTIONS_FIELD(primary_weapon), 0, NUMBER_OF_LOADOUT_WEAPONS,
@@ -3987,16 +4385,14 @@ boolean pc_menu_event_function_invoke(
 		{
 			return browser_select(widget, event, controller, widget_deleted);
 		}
+		else if (!strcmp(name, "gamespy select header") && multiplayer.mode == _multiplayer_mode_server_browser)
+		{
+			return lobby_browser_sort_select(widget);
+		}
 		else if (!strcmp(name, "gamespy back handler") && text_field_editing(NULL))
 		{
 			text_field_end(FALSE);
 		}
-#ifdef HALO_GAME_BROWSER
-		else if (!strcmp(name, "gamespy select header") && multiplayer.mode == _multiplayer_mode_server_browser)
-		{
-			return server_browser_sort(widget);
-		}
-#endif
 		else if (!strcmp(name, "port setup edit"))
 		{
 			return gametype_setup_edit();
@@ -4038,6 +4434,10 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port lobby preview join"))
 		{
 			return preview_join(widget, controller, widget_deleted);
+		}
+		else if (!strcmp(name, "gamespy screen dispose"))
+		{
+			lobby_browser_end();
 		}
 		else if (!strcmp(name, "direct ip connect go"))
 		{
