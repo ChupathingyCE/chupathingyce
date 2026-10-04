@@ -167,7 +167,12 @@ def fetch_sdl_headers() -> bool:
     with tarfile.open(archive) as tar:
         members = [m for m in tar.getmembers()
                    if m.isfile() and (m.name.startswith(prefix + "include/") or m.name == prefix + "LICENSE.txt")]
-        tar.extractall(THIRD_PARTY, members=members)
+        # (only regular files under the prefix; and the extraction filter
+        # where this Python has it)
+        if hasattr(tarfile, "data_filter"):
+            tar.extractall(THIRD_PARTY, members=members, filter="data")
+        else:
+            tar.extractall(THIRD_PARTY, members=members)
     archive.unlink()
     return (SDL_INCLUDE / "SDL3" / "SDL.h").is_file()
 
