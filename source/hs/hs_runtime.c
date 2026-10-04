@@ -2528,6 +2528,25 @@ static void hs_thread_main(
 	hs_runtime_globals.executing_thread_index = (short)thread_index;
 	if (thread->type==_hs_thread_type_script)
 	{
+		/* port: a corrupted thread's script index halted the whole game from
+	   the assert inside tag_block_get_element (observed on a10 with the
+	   sound cache under pressure); drop the bad thread and keep running */
+		if (thread->script_index<0 ||
+			thread->script_index>=global_scenario_get()->hs_scripts.count)
+		{
+			error(_error_silent, "hs thread #%08lX has a bad script index #%08lX; dropping it",
+				(unsigned long)thread_index, (unsigned long)thread->script_index);
+			thread->type = _hs_thread_type_console_command;
+			thread->script_index = NONE;
+			thread->sleep_until = 0;
+			thread->stack = (struct hs_stack_frame *)thread->stack_data;
+			thread->stack->previous = NULL;
+			thread->stack->size = 0;
+			thread->stack->expression_index = NONE;
+			hs_thread_delete(thread_index);
+			hs_runtime_globals.executing_thread_index = NONE;
+			return;
+		}
 		script = TAG_BLOCK_GET_ELEMENT(
 			&global_scenario_get()->hs_scripts,
 			thread->script_index,
