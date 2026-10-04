@@ -76,6 +76,12 @@ enum
 	CONNECT_TOKEN_LENGTH = 64,
 	/* (the page with the code, as a QR code: version 10 at most) */
 	CONNECT_QR_VERSION = 10,
+	/* a joined game's report (browser_client_report): sent again this long
+	after the server could not be reached, a few times */
+	CLIENT_REPORT_INTERVAL = 8000,
+	CLIENT_REPORT_ATTEMPTS = 4,
+	/* a report's line: its fixed members, and the most the recorder adds */
+	REPORT_LINE_SIZE = 640 + BROWSER_REPORT_EXTRA_SIZE,
 };
 
 struct hosted_game
@@ -111,6 +117,11 @@ static struct
 	/* a finished game's carnage report, waiting to be sent (JSON, without
 	the invite, which is the listing's) */
 	char *report;
+	/* a joined game's report, waiting to be sent (JSON, without the player
+	key, which the browser thread adds), how often it was tried, and when */
+	char *client_report;
+	int client_report_attempts;
+	unsigned long client_report_time;
 
 	/* the local players' lines of a finished game, to confirm (the game's
 	thread asks, the browser thread sends) */
@@ -846,6 +857,89 @@ static void send_report(void)
 	free(report);
 }
 
+/* a joined game's report, with this copy's player key, which shows the
+server whose report it is (the server keeps the player ID it works out
+from it, never the key, as for /v1/claim) */
+static void send_client_report(void)
+{
+	unsigned char key[PLAYER_KEY_SIZE];
+	char key_text[2 * PLAYER_KEY_SIZE + 1];
+	char url[512], response[256], error[256];
+	char *report, *body;
+	size_t size;
+	int status, retry;
+
+	pthread_mutex_lock(&browser_lock);
+	report = browser.client_report;
+	if (report && browser.client_report_attempts &&
+		!elapsed(browser.client_report_time, CLIENT_REPORT_INTERVAL))
+	{
+		report = NULL;
+	}
+	pthread_mutex_unlock(&browser_lock);
+	if (!report)
+		return;
+	server_url("/v1/client_report", url, sizeof(url));
+	body = NULL;
+	if (safe_for_key(url) && player_key(key))
+	{
+		p2p_hex(key, PLAYER_KEY_SIZE, key_text);
+		/* (the key, and the report after it; the report is the browser
+		thread's to free or replace only under the lock, and the game's
+		thread replaces it only with a new game's) */
+		pthread_mutex_lock(&browser_lock);
+		if (browser.client_report == report)
+		{
+			size = strlen(report) + sizeof(key_text) + 32;
+			body = malloc(size);
+			if (body)
+				snprintf(body, size, "{\"key\": \"%s\", %s", key_text, report + 1);
+		}
+		pthread_mutex_unlock(&browser_lock);
+		memset(key, 0, sizeof(key));
+		memset(key_text, 0, sizeof(key_text));
+	}
+	else
+	{
+		platform_log("Game list: the joined game's report needs an HTTPS game list and a player key");
+	}
+	if (!body)
+	{
+		pthread_mutex_lock(&browser_lock);
+		if (browser.client_report == report)
+		{
+			free(browser.client_report);
+			browser.client_report = NULL;
+		}
+		pthread_mutex_unlock(&browser_lock);
+		return;
+	}
+	status = posix_browser_request(url, body, "application/json", response, sizeof(response), error, sizeof(error));
+	memset(body, 0, strlen(body));
+	free(body);
+	response[strcspn(response, "\r\n")] = 0;
+	/* (no answer, or the server busy: again in a while) */
+	retry = !status || status == 429 || status >= 500;
+	if (status == 200)
+		platform_log("Game list: the joined game's report was taken (%s)", response);
+	else if (!retry)
+		platform_log("Game list: the joined game's report was not taken (%s)", response);
+	pthread_mutex_lock(&browser_lock);
+	if (browser.client_report == report)
+	{
+		browser.client_report_attempts++;
+		browser.client_report_time = p2p_now();
+		if (!retry || browser.client_report_attempts >= CLIENT_REPORT_ATTEMPTS)
+		{
+			if (retry)
+				platform_log("Game list: could not send the joined game's report (%s)", status ? response : error);
+			free(browser.client_report);
+			browser.client_report = NULL;
+		}
+	}
+	pthread_mutex_unlock(&browser_lock);
+}
+
 /* ---------- browsing (the browser thread) */
 
 /* one line of /v1/games.txt: invite name map engine players
@@ -982,6 +1076,7 @@ static void *browser_thread(void *unused)
 		{
 			update_hosting();
 			send_report();
+			send_client_report();
 			send_claims();
 			open_profile();
 			update_connect();
@@ -1076,29 +1171,34 @@ static int json_name(char *out, int size, const unsigned short *name, int length
 	return used;
 }
 
-void browser_report_game(int teams, int red_score, int blue_score, int duration_seconds,
-	const struct browser_report_player *players, int count)
+int browser_json_name(char *out, int size, const unsigned short *name, int length)
 {
-	size_t size = 256 + (size_t)count * 576;
+	return json_name(out, size, name, length);
+}
+
+/* a report as JSON: the teams, the scores, the length and the lines (each
+tagged with its player's address's hash when tag_invite is given: the
+host's own report), then extra's members */
+static char *report_json(int teams, int red_score, int blue_score, int duration_seconds,
+	const struct browser_report_player *players, int count, const char *extra, const char *tag_invite)
+{
+	size_t size = 256 + (size_t)count * REPORT_LINE_SIZE + (extra ? strlen(extra) : 0);
 	char *report = malloc(size);
-	char invite[BROWSER_INVITE_LENGTH + 1];
-	int tagged;
 	int used = 0;
 	int index;
 
 	if (!report || count <= 0)
 	{
 		free(report);
-		return;
+		return NULL;
 	}
 	used += snprintf(report + used, size - (size_t)used,
 		"{\"teams\": %d, \"duration\": %d, \"team_scores\": [%d, %d], \"players\": [",
 		teams != 0, duration_seconds, teams ? red_score : 0, teams ? blue_score : 0);
-	tagged = p2p_hosting_invite(invite, sizeof(invite));
-	for (index = 0; index < count && (size_t)used < size - 576; index++)
+	for (index = 0; index < count && (size_t)used < size - REPORT_LINE_SIZE; index++)
 	{
 		const struct browser_report_player *player = &players[index];
-		unsigned long address = tagged ? public_address(player->address) : 0;
+		unsigned long address = tag_invite ? public_address(player->address) : 0;
 
 		used += snprintf(report + used, size - (size_t)used, "%s{\"name\": ", index ? ", " : "");
 		used += json_name(report + used, (int)(size - (size_t)used), player->name, 12);
@@ -1106,7 +1206,7 @@ void browser_report_game(int teams, int red_score, int blue_score, int duration_
 			", \"team\": %d, \"place\": %d, \"score\": %d, \"kills\": %d, \"assists\": %d, \"deaths\": %d, "
 			"\"betrayals\": %d, \"suicides\": %d, \"shots_fired\": %d, \"shots_hit\": %d, \"multikills\": %d, "
 			"\"color\": %d, \"flag_grabs\": %d, \"flag_returns\": %d, \"flag_scores\": %d, \"ball_time\": %d, "
-			"\"ball_carrier_kills\": %d, \"hill_time\": %d, \"laps\": %d}",
+			"\"ball_carrier_kills\": %d, \"hill_time\": %d, \"laps\": %d",
 			player->team, player->place, player->score, player->kills, player->assists, player->deaths,
 			player->betrayals, player->suicides, player->shots_fired, player->shots_hit, player->multikills,
 			player->color, player->flag_grabs, player->flag_returns, player->flag_scores, player->ball_time,
@@ -1116,17 +1216,65 @@ void browser_report_game(int teams, int red_score, int blue_score, int duration_
 		{
 			char tag[2 * P2P_SHA256_SIZE + 1];
 
-			address_tag(invite, address, tag);
-			used--;
-			used += snprintf(report + used, size - (size_t)used, ", \"tag\": \"%s\"}", tag);
+			address_tag(tag_invite, address, tag);
+			used += snprintf(report + used, size - (size_t)used, ", \"tag\": \"%s\"", tag);
 		}
+		if (player->extra && player->extra[0] && strlen(player->extra) < BROWSER_REPORT_EXTRA_SIZE)
+			used += snprintf(report + used, size - (size_t)used, ", %s", player->extra);
+		used += snprintf(report + used, size - (size_t)used, "}");
 	}
-	snprintf(report + used, size - (size_t)used, "]}");
+	used += snprintf(report + used, size - (size_t)used, "]");
+	if (extra && extra[0])
+		used += snprintf(report + used, size - (size_t)used, ", %s", extra);
+	snprintf(report + used, size - (size_t)used, "}");
+	return report;
+}
 
+void browser_report_game(int teams, int red_score, int blue_score, int duration_seconds,
+	const struct browser_report_player *players, int count, const char *extra)
+{
+	char invite[BROWSER_INVITE_LENGTH + 1];
+	char *report = report_json(teams, red_score, blue_score, duration_seconds, players, count, extra,
+		p2p_hosting_invite(invite, sizeof(invite)) ? invite : NULL);
+
+	if (!report)
+		return;
 	pthread_once(&browser_once, start_thread);
 	pthread_mutex_lock(&browser_lock);
 	free(browser.report);
 	browser.report = report;
+	pthread_mutex_unlock(&browser_lock);
+}
+
+void browser_client_report(int teams, int red_score, int blue_score, int duration_seconds,
+	const struct browser_report_player *players, int count, const char *extra)
+{
+	char invite[BROWSER_INVITE_LENGTH + 1];
+	char *body, *report;
+	size_t size;
+
+	if (!config_string("network.browser_url")[0] || !config_boolean("network.report_joined_games") ||
+		!p2p_joined_invite(invite, sizeof(invite)))
+	{
+		return;
+	}
+	report = report_json(teams, red_score, blue_score, duration_seconds, players, count, extra, NULL);
+	if (!report)
+		return;
+	/* (the invite first: which game it is) */
+	size = strlen(report) + BROWSER_INVITE_LENGTH + 32;
+	body = malloc(size);
+	if (body)
+		snprintf(body, size, "{\"invite\": \"%s\", %s", invite, report + 1);
+	free(report);
+	if (!body)
+		return;
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	free(browser.client_report);
+	browser.client_report = body;
+	browser.client_report_attempts = 0;
+	browser.client_report_time = p2p_now();
 	pthread_mutex_unlock(&browser_lock);
 }
 

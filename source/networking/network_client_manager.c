@@ -3227,6 +3227,10 @@ long network_game_client_invite_host_advertisement(
 		advertisement->has_teams = game->has_teams;
 		advertisement->network_version = network_game_client_advertised_versions[game_index].version;
 		advertisement->compatible = network_game_client_advertised_game_compatible(client, game, FALSE);
+		advertisement->machine_count = game->machine_count;
+		/* (the advertisement's variant setting: the score to win) */
+		advertisement->score_limit = game->unknown100;
+		advertisement->in_progress = network_game_client_advertised_game_in_progress(client, game);
 		return 1;
 	}
 	return 0;

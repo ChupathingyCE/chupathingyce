@@ -64,6 +64,11 @@ struct network_invite_advertisement
 	boolean has_teams;
 	unsigned short network_version;
 	boolean compatible;
+	/* the machines in it, the score to win, and whether it is under way
+	(not in its lobby) */
+	short machine_count;
+	short score_limit;
+	boolean in_progress;
 };
 
 /* 1: the game the invite's host advertises through the tunnel, written to
