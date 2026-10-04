@@ -653,7 +653,14 @@ boolean cache_file_header_verify(
 	if (header->header_signature != CACHE_FILE_HEADER_SIGNATURE ||
 		header->footer_signature != CACHE_FILE_FOOTER_SIGNATURE ||
 		header->file_length < 0 ||
-		header->file_length > 0x11600000 ||
+		(header->file_length > 0x11600000
+#ifdef HALO_CUSTOM_EDITION
+			/* port: but a Halo PC map, which is read where it is, every
+			offset in it checked against its file (ce_map_checks.c): it may
+			be larger than the Xbox's largest (the_Cage's is 346 MB) */
+			&& !CACHE_FILE_VERSION_IS_PC(header->version)
+#endif
+		) ||
 		csstrlen(header->name) > 31)
 	{
 		if (fatal)
