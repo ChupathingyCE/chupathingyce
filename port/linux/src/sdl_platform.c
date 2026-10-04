@@ -415,16 +415,11 @@ static BOOL platform_fullscreen_setting(void)
 BOOL platform_window_pixel_size(long *width, long *height)
 {
 	int w = 0, h = 0;
-	float density;
 
-	if (!platform_window)
-		return FALSE;
-	density = SDL_GetWindowPixelDensity(platform_window);
-	if (!SDL_GetWindowSizeInPixels(platform_window, &w, &h) || w < 1 || h < 1)
+	if (!platform_window || !SDL_GetWindowSizeInPixels(platform_window, &w, &h) || w < 1 || h < 1)
 		return FALSE;
 	*width = (long)w;
 	*height = (long)h;
-	(void)density;
 	return TRUE;
 }
 
@@ -533,7 +528,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	/* fullscreen at the desktop's resolution unless display.fullscreen is
 	false, where the game draws the display's shape at its resolution
 	(d3d8_gl.c); the window size is the windowed mode F11 switches to and
-	from, where it draws 640x480 */
+	from, where it draws at the window's size in pixels */
 	platform_window = SDL_CreateWindow(title, (int)(width * scale), (int)(height * scale),
 		SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
 		(config_boolean("debug.hidden_window") ? SDL_WINDOW_HIDDEN : 0) |

@@ -27,7 +27,8 @@ Without an audio device, a clock thread runs the same mixer into a scratch
 buffer, so streams still drain at their real rate.
 
 audio.volume sets the master volume (default 1.0); audio.enabled = false
-skips opening a device (port_config.c).
+skips opening a device; audio.buffer_frames sets the device's buffer
+(port_config.c).
 */
 
 #include "platform.h"
@@ -36,6 +37,7 @@ skips opening a device (port_config.c).
 
 #include <SDL3/SDL.h>
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -482,6 +484,8 @@ static void *silent_clock_thread(void *parameter)
 static void audio_start(void)
 {
 	SDL_AudioSpec spec;
+	long buffer_frames;
+	char frames[16];
 
 	if (audio_started)
 		return;
@@ -493,7 +497,14 @@ static void audio_start(void)
 		spec.format = SDL_AUDIO_F32;
 		spec.channels = OUTPUT_CHANNELS;
 		spec.freq = OUTPUT_RATE;
-		SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, "2048");
+		/* audio.buffer_frames: the device's buffer (port_config.c) */
+		buffer_frames = config_integer("audio.buffer_frames");
+		if (buffer_frames < 64)
+			buffer_frames = 64;
+		if (buffer_frames > 8192)
+			buffer_frames = 8192;
+		snprintf(frames, sizeof(frames), "%ld", buffer_frames);
+		SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, frames);
 		audio_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, audio_callback, NULL);
 		if (audio_stream)
 		{

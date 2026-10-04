@@ -161,7 +161,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
             inputs=objects,
             implicit=[portable_sdl] if portable else [],
             variables={
-                "ldflags": f"{target} -g {" ".join(LTO_FLAGS)}".strip(),
+                "ldflags": " ".join([target, "-g", *LTO_FLAGS]),
                 "libs": " ".join([*([f"-L{PORTABLE_SDL_BUILD}"] if portable else []), f"-L{HOMEBREW / 'lib'}",
                                   *(f"-l{lib}" for lib in libraries), *(f"-framework {fw}" for fw in frameworks)]),
             },
