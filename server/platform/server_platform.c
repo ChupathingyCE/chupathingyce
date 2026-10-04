@@ -210,9 +210,20 @@ BOOL platform_offer_game_data(const char *destination)
 	return FALSE;
 }
 
+/* as sdl_platform.c's (display.interpolation, on unless set off): the game's
+main loop then runs unthrottled by the Xbox's 60 Hz display, which with no
+display to wait for would spin; the director paces it (dedicated.c) */
 int halo_interpolation_enabled(void)
 {
-	return 0;
+	static int enabled;
+	static unsigned long read_at = (unsigned long)-1;
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		enabled = config_boolean("display.interpolation");
+	}
+	return enabled;
 }
 
 /* ---------- no window */
