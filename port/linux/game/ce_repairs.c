@@ -35,7 +35,10 @@ or reads past a tag's end:
   - a model's or animation graph's nodes linked into a loop (a node's
     sibling or child one reached already: [h3]_sandtrap's cyborg graph has
     its spine's next sibling the pelvis, the first node), which the game
-    walks without end, past its arrays of nodes: that link cut.
+    walks without end, past its arrays of nodes: that link cut; and a
+    node's link past the nodes (h2_ascension's has its parents a byte too
+    high, 256 for 1): a sibling or child cut, a parent made the one the
+    nodes' tree gives it.
 
 The repairs are made before the map is opened, to the image it is checked
 in (ce_map_checks.c, so that its checks see the map as it will play), and
@@ -392,10 +395,10 @@ static void ce_model_shaders_repair(
 }
 
 /* a model's or an animation graph's nodes (the block at field, each
-node_size bytes) walked from the first, by next siblings and first children,
-as the game walks them: a link to a node reached already is cut. Links past
-the nodes are left as they are, for the checks to refuse
-(ce_models.c) */
+node_size bytes): a next sibling or first child past the nodes cut, then the
+nodes walked from the first, by next siblings and first children, as the
+game walks them, and a link to a node reached already cut; a parent past
+the nodes made the node's parent in that walk (none if it is not reached) */
 static void ce_node_links_repair(
 	struct ce_image const *image,
 	byte *field,
@@ -405,25 +408,44 @@ static void ce_node_links_repair(
 	long node_count;
 	byte *nodes = ce_block(image, field, node_size, &node_count);
 	boolean reached[CE_MAXIMUM_NODES];
+	short parents[CE_MAXIMUM_NODES];
 	short queue[CE_MAXIMUM_NODES];
-	long read_index = 0, write_index = 0;
+	long read_index = 0, write_index = 0, index;
 
 	if (!nodes || node_count > CE_MAXIMUM_NODES)
 		return;
-	memset(reached, 0, sizeof(reached));
-	reached[0] = TRUE;
-	queue[write_index++] = 0;
-	while (read_index < write_index)
+	for (index = 0; index < node_count; index++)
 	{
-		byte *links = nodes + queue[read_index++] * node_size + NODE_LINKS_OFFSET;
+		byte *links = nodes + index * node_size + NODE_LINKS_OFFSET;
 		long link;
 
-		/* (its next sibling, then its first child) */
 		for (link = 0; link < 2; link++)
 		{
 			short linked = ce_read_short(links + link * sizeof(short));
 
-			if (linked < 0 || linked >= node_count)
+			if (linked != NONE && (linked < 0 || linked >= node_count))
+			{
+				ce_write_short(links + link * sizeof(short), NONE);
+				counts->node_links++;
+			}
+		}
+	}
+	memset(reached, 0, sizeof(reached));
+	reached[0] = TRUE;
+	parents[0] = NONE;
+	queue[write_index++] = 0;
+	while (read_index < write_index)
+	{
+		short node_index = queue[read_index++];
+		byte *links = nodes + node_index * node_size + NODE_LINKS_OFFSET;
+		long link;
+
+		/* (its next sibling, of its parent, then its first child) */
+		for (link = 0; link < 2; link++)
+		{
+			short linked = ce_read_short(links + link * sizeof(short));
+
+			if (linked == NONE)
 				continue;
 			if (reached[linked])
 			{
@@ -432,7 +454,19 @@ static void ce_node_links_repair(
 				continue;
 			}
 			reached[linked] = TRUE;
+			parents[linked] = link ? node_index : parents[node_index];
 			queue[write_index++] = linked;
+		}
+	}
+	for (index = 0; index < node_count; index++)
+	{
+		byte *parent = nodes + index * node_size + NODE_LINKS_OFFSET + 2 * sizeof(short);
+		short parent_index = ce_read_short(parent);
+
+		if (parent_index != NONE && (parent_index < 0 || parent_index >= node_count))
+		{
+			ce_write_short(parent, reached[index] ? parents[index] : NONE);
+			counts->node_links++;
 		}
 	}
 }
@@ -446,7 +480,7 @@ static void ce_repairs_log(
 		return;
 	}
 	error(_error_silent, "%s map: %ld predicted resources dropped and %ld given their tags' salts, %ld object "
-		"types, %ld modifier shaders and %ld model shaders repaired, %ld node links looping back cut",
+		"types, %ld modifier shaders and %ld model shaders repaired, %ld node links looping back or out of the nodes",
 		ce_map_cache_version == CE_CACHE_VERSION_RETAIL ? "HaloMD" : "Custom Edition",
 		counts->predicted_resources_dropped, counts->predicted_resources_salted, counts->object_types,
 		counts->modifier_shaders, counts->model_shaders, counts->node_links);
