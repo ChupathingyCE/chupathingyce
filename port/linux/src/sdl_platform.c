@@ -1325,7 +1325,12 @@ void platform_pump_events(void)
 				if (!SDL_strncasecmp(event.drop.data, "halo://key/", 11))
 					platform_log("Internet play: opened a player key link");
 				else
-					platform_log("Internet play: opened %s", event.drop.data);
+				{
+					char shown[128];
+
+					platform_log("Internet play: opened %s",
+						p2p_invite_log_text(event.drop.data, shown, sizeof(shown)));
+				}
 				p2p_join_invite(event.drop.data);
 			}
 			break;
