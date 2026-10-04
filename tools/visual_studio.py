@@ -406,6 +406,7 @@ def main() -> None:
     out("  </ItemGroup>")
     out("  <ItemGroup>")
     out(f'    <None Include="{win(PORT_DIR / "tools" / "prebuild.ps1")}" />')
+    out(f'    <None Include="{win(PORT_DIR / "tools" / "bake-navigation.cmd")}" />')
     out("  </ItemGroup>")
     out('  <Import Project="$(VCTargetsPath)\\Microsoft.Cpp.targets" />')
     out("  <!-- before compiling: the embedded assets, the version and SDL3 (PowerShell, which Windows has) -->")
@@ -415,9 +416,10 @@ def main() -> None:
         '-FontsOutput &quot;$(HaloGenerated)ui_fonts.c&quot; -VersionOutput &quot;$(HaloGenerated)halo_version.h&quot; '
         '-SdlDir &quot;$(HaloSDL)&quot; -SdlVersion $(HaloSDLVersion)" />')
     out("  </Target>")
-    out("  <!-- SDL3.dll next to the game -->")
+    out("  <!-- SDL3.dll next to the game, and the bots' navigation's bake (bake-navigation.cmd: port/linux/game/bot_bake.c) -->")
     out('  <Target Name="HaloCopySDL" AfterTargets="Build">')
-    out('    <Copy SourceFiles="$(HaloSDL)\\lib\\x86\\SDL3.dll" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />')
+    out('    <Copy SourceFiles="$(HaloSDL)\\lib\\x86\\SDL3.dll;$(HaloRoot)port\\windows\\tools\\bake-navigation.cmd" '
+        'DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />')
     out("  </Target>")
     out("</Project>")
     write_if_changed(PROJECT_DIR / "halo.vcxproj", "\n".join(lines) + "\n")

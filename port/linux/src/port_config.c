@@ -1413,8 +1413,32 @@ int config_default(const char *name, char *text, size_t size)
 	return 1;
 }
 
+/* baking the bots' navigation (HALO_BAKE_NAVIGATION: port/linux/game/bot_bake.c) */
+static int config_baking(void)
+{
+	static int baking = -1;
+
+	if (baking < 0)
+	{
+		const char *setting = getenv("HALO_BAKE_NAVIGATION");
+
+		baking = setting && setting[0] && strcmp(setting, "false") && strcmp(setting, "0");
+	}
+	return baking;
+}
+
 int config_boolean(const char *name)
 {
+	/* a run that bakes the bots' navigation has no window and no sound, and
+	nothing of it is on the network */
+	if (config_baking())
+	{
+		if (!strcmp(name, "debug.null_renderer"))
+			return 1;
+		if (!strcmp(name, "audio.enabled") || !strcmp(name, "update.auto") || !strcmp(name, "network.online") ||
+			!strcmp(name, "network.allow_upnp"))
+			return 0;
+	}
 	return config_value(name, _config_boolean)->boolean;
 }
 
@@ -1432,5 +1456,10 @@ const char *config_string(const char *name)
 {
 	const char *string = config_value(name, _config_string)->string;
 
+	/* baking the bots' navigation hosts its games on this machine alone: on
+	the loopback address, where no other machine finds them (and no firewall
+	asks) */
+	if (config_baking() && !strcmp(name, "network.address") && !(string && string[0]))
+		return "127.0.0.1";
 	return string ? string : "";
 }

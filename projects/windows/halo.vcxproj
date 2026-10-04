@@ -3873,6 +3873,14 @@
       <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
       <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\bot_bake.c">
+      <ObjectFileName>$(IntDir)bot_bake_016fd34e.obj</ObjectFileName>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\game\bot_move.c">
       <ObjectFileName>$(IntDir)bot_move_16d80d57.obj</ObjectFileName>
       <WarningLevel>TurnOffAllWarnings</WarningLevel>
@@ -4203,6 +4211,14 @@
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\src\p2p_discord.c">
       <ObjectFileName>$(IntDir)p2p_discord_4b2fbc42.obj</ObjectFileName>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>$(HaloPlatformDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloPlatformIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloPlatformForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloPlatformOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\p2p_lobby.c">
+      <ObjectFileName>$(IntDir)p2p_lobby_8125b3e6.obj</ObjectFileName>
       <WarningLevel>Level3</WarningLevel>
       <PreprocessorDefinitions>$(HaloPlatformDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(HaloPlatformIncludes)</AdditionalIncludeDirectories>
@@ -5551,14 +5567,15 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="$(HaloRoot)port\windows\tools\prebuild.ps1" />
+    <None Include="$(HaloRoot)port\windows\tools\bake-navigation.cmd" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <!-- before compiling: the embedded assets, the version and SDL3 (PowerShell, which Windows has) -->
   <Target Name="HaloPrebuild" BeforeTargets="ClCompile">
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(HaloRoot)port\windows\tools\prebuild.ps1&quot; -Root &quot;$(HaloRoot).&quot; -Output &quot;$(HaloGenerated)hud_hires_assets.c&quot; -FontsOutput &quot;$(HaloGenerated)ui_fonts.c&quot; -VersionOutput &quot;$(HaloGenerated)halo_version.h&quot; -SdlDir &quot;$(HaloSDL)&quot; -SdlVersion $(HaloSDLVersion)" />
   </Target>
-  <!-- SDL3.dll next to the game -->
+  <!-- SDL3.dll next to the game, and the bots' navigation's bake (bake-navigation.cmd: port/linux/game/bot_bake.c) -->
   <Target Name="HaloCopySDL" AfterTargets="Build">
-    <Copy SourceFiles="$(HaloSDL)\lib\x86\SDL3.dll" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(HaloSDL)\lib\x86\SDL3.dll;$(HaloRoot)port\windows\tools\bake-navigation.cmd" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 </Project>

@@ -82,7 +82,13 @@ long navm_walk_neighbor(long span, long direction);
 long navm_vehicle_neighbor(long span, long direction);
 long navm_span_at(real_point3d const *point, real above, real below);
 void navm_signature(char *map, unsigned long *signature);
-void navm_cache_path(char const *map, char const *extension, char *path, long size);
+/* a file of the map's navigation: baked (with the game data) or this
+   machine's own (bot_nav.c) */
+void navm_cache_path(char const *map, char const *extension, boolean baked, char *path, long size);
+void navm_cache_file(char const *map, long bsp_index, char const *extension, boolean baked, char *path, long size);
+boolean navm_is_baking(void);
+/* (a baked file was written, whole or not) */
+void navm_baked_file(boolean whole, char const *path);
 
 struct navm_heap
 {

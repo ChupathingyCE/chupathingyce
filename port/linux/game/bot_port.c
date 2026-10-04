@@ -43,6 +43,8 @@ static struct
 	unsigned long long total;
 	unsigned long long worst;
 	unsigned long calls;
+	/* (in the bot's think going on) */
+	unsigned long long call_total;
 } bot_profile_sections[MAXIMUM_PROFILE_SECTIONS];
 
 void bot_profile_add(char const *section, unsigned long long microseconds)
@@ -56,6 +58,7 @@ void bot_profile_add(char const *section, unsigned long long microseconds)
 		if (bot_profile_sections[index].name == section)
 		{
 			bot_profile_sections[index].total += microseconds;
+			bot_profile_sections[index].call_total += microseconds;
 			bot_profile_sections[index].calls++;
 			if (microseconds > bot_profile_sections[index].worst)
 				bot_profile_sections[index].worst = microseconds;
@@ -74,6 +77,29 @@ void bot_profile_mark(char const *section)
 		bot_profile_add(marked, now - marked_time);
 	marked = section;
 	marked_time = now;
+}
+
+/* one bot's think is over: when it took long, where its time went */
+void bot_profile_call_end(long bot, long tick, unsigned long long microseconds, unsigned long long slow)
+{
+	long index;
+
+	if (microseconds >= slow)
+	{
+		char text[512];
+		long length = 0;
+
+		text[0] = 0;
+		for (index = 0; index < MAXIMUM_PROFILE_SECTIONS && bot_profile_sections[index].name; index++)
+		{
+			if (bot_profile_sections[index].call_total * 10 >= microseconds && length < (long)sizeof(text) - 64)
+				length += snprintf(text + length, sizeof(text) - length, " %s %.2f", bot_profile_sections[index].name,
+					(double)bot_profile_sections[index].call_total / 1000.0);
+		}
+		bot_log("bot slow: bot%ld t%ld %.2f ms:%s", bot, tick, (double)microseconds / 1000.0, text);
+	}
+	for (index = 0; index < MAXIMUM_PROFILE_SECTIONS && bot_profile_sections[index].name; index++)
+		bot_profile_sections[index].call_total = 0;
 }
 
 void bot_profile_report(long ticks)

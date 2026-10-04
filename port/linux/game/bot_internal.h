@@ -64,6 +64,13 @@ struct bot_move_state
 	long corridor_count;
 	long last_first_reach; /* the way out of our area last time (to stick with it) */
 	long last_goal_area;
+	/* the goal the route is to: its area, the spot in it and where the
+	   goal was then (a goal a long way off that has moved a little, someone
+	   being chased, keeps its route: bot_move_to_goal) */
+	long route_goal_area;
+	long route_goal_type;
+	real_point3d route_goal_spot;
+	real_point3d route_goal_origin;
 	int corridor_complete; /* to the goal's area, or to a reachability that's more than a walk */
 	long corridor_goal_area;
 	long corridor_type;

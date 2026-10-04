@@ -67,6 +67,7 @@ void bot_move_reset(struct bot_move_state *move)
 	move->corridor_goal_area = NONE;
 	move->last_first_reach = NONE;
 	move->last_goal_area = NONE;
+	move->route_goal_area = NONE;
 	for (i = 0; i < BOT_AVOID_REACHES; i++)
 		if (move->avoid_until[i] == 0)
 			move->avoid_reach[i] = NONE;
@@ -74,6 +75,10 @@ void bot_move_reset(struct bot_move_state *move)
 
 /* a gap over a fall longer than this is for the daring (and for what's
    worth it): a jump that misses costs more than a walk round */
+/* a goal further off than this that has moved a little keeps its route
+   (bot_move_to_goal) */
+#define BOT_FAR_GOAL 12.f
+
 #define BOT_CAREFUL_GAP_FALL 3.5f
 /* ... and so is one jumped down to a floor this much lower (Boarding
    Action's decks: over the rail and down, with space past the landing) */
@@ -1118,7 +1123,7 @@ void bot_move_to_goal(struct bot_mover *bot, struct bot_body const *body, struct
 	real_point3d corners[2];
 	long corner_count;
 	long area;
-	long goal_area;
+	long goal_area = NONE;
 	real to_goal = bot_distance2d(position, &goal->origin);
 
 	memset(result, 0, sizeof(*result));
@@ -1186,8 +1191,26 @@ void bot_move_to_goal(struct bot_mover *bot, struct bot_body const *body, struct
 		goto finish;
 	}
 
-	/* where the goal is */
-	goal_area = aas_nearest_area(type, &goal->origin, type == AAS_VEHICLE ? 10.f : 3.f, &goal_spot);
+	/* Where the goal is. A route is a search out from the goal's area, so
+	   a goal that moves (someone being chased) is a new search each time
+	   it crosses into another area, and from far off a search of most of
+	   the map: from far off the route stays the one to where the goal was,
+	   until it has moved a fifth as far as we are from it (four world
+	   units at most). Near it, where the search is short, the goal itself. */
+	if (move->route_goal_area != NONE && move->route_goal_type == type && to_goal > BOT_FAR_GOAL &&
+		bot_move_distance(&goal->origin, &move->route_goal_origin) < MIN(4.f, to_goal * 0.2f))
+	{
+		goal_area = move->route_goal_area;
+		goal_spot = move->route_goal_spot;
+	}
+	else
+	{
+		goal_area = aas_nearest_area(type, &goal->origin, type == AAS_VEHICLE ? 10.f : 3.f, &goal_spot);
+		move->route_goal_area = goal_area;
+		move->route_goal_type = type;
+		move->route_goal_spot = goal_spot;
+		move->route_goal_origin = goal->origin;
+	}
 	if (type == AAS_FOOT)
 		goal->area = goal_area;
 	if (area == NONE || goal_area == NONE)
@@ -1421,8 +1444,15 @@ finish:
 		move->circle_ticks = 0;
 	else if (++move->circle_check >= 8)
 	{
-		float time = aas_travel_time(move->type, position, &goal->origin);
-		real to_goal_now = time >= 0.f ? time * aas_speed(move->type) : bot_distance2d(position, &goal->origin);
+		/* (to the area the route is to, from the area we are in: the same
+		   search as the last look's, while the goal is where it was) */
+		float time = -1.f;
+		real to_goal_now;
+		if (area != NONE && goal_area != NONE && area != goal_area)
+			aas_route_reach(move->type, area, position, goal_area, NULL, NULL, NONE, &time);
+		else
+			time = aas_travel_time(move->type, position, &goal->origin);
+		to_goal_now = time >= 0.f ? time * aas_speed(move->type) : bot_distance2d(position, &goal->origin);
 		move->circle_check = 0;
 		if (move->circle_ticks == 0 || bot_distance2d(&goal->origin, &move->circle_goal) > 2.f || to_goal_now < move->circle_best - 1.f)
 		{

@@ -95,6 +95,12 @@ struct aas_cache
 	float frontier;
 	float *penalty;
 	float *cost;
+	/* the reachabilities reached and not final, as the search left them:
+	   what it carries on from (not every reachability looked through for
+	   them each time, which on a big map was most of a short search) */
+	long *open;
+	long open_count;
+	long open_capacity;
 };
 
 struct aas_world
@@ -131,7 +137,7 @@ struct aas_world
    (the danger moved, a way failed) is still a good way, and is used as it
    is while this tick's budget is spent, so that a whole team doesn't redo
    its routes in the same tick (a hitch) */
-#define AAS_ROUTES_PER_TICK 3
+#define AAS_ROUTES_PER_TICK 1
 static long aas_budget_tick = -1;
 static long aas_budget_used;
 long game_time_get(void);
@@ -268,6 +274,50 @@ static void aas_new_search(void)
 #define AAS_ATTACH_STEPS 40
 #define AAS_ATTACH_NONE 255
 
+/* The nearest area to a point (aas_nearest_area) is asked for the same
+   points over and over: every bot weighing what to go for asks it of every
+   weapon and powerup lying about, each time, and for something not right on
+   a floor's areas the answer is a search of the floors around. It depends
+   on the point and on what the areas are, nothing else: the last answers
+   are kept, by the point, until the areas (or which of them count) change. */
+#define AAS_NEAREST_MEMOS 2048 /* (a power of two) */
+
+struct aas_nearest_memo
+{
+	unsigned long generation; /* 0: empty */
+	long type;
+	real_point3d point;
+	real radius;
+	long area;
+	long found; /* the span it was found by */
+};
+
+static struct aas_nearest_memo aas_nearest_memos[AAS_NEAREST_MEMOS];
+/* (testing: every kept answer against the search) */
+static boolean aas_route_check(void);
+static unsigned long aas_nearest_generation = 1;
+
+static void aas_nearest_forget(void)
+{
+	if (!++aas_nearest_generation)
+	{
+		memset(aas_nearest_memos, 0, sizeof(aas_nearest_memos));
+		aas_nearest_generation = 1;
+	}
+}
+
+static struct aas_nearest_memo *aas_nearest_memo_for(long type, real_point3d const *point, real radius)
+{
+	unsigned long bits[4];
+	unsigned long hash;
+
+	memcpy(bits, point, 3 * sizeof(float));
+	memcpy(&bits[3], &radius, sizeof(float));
+	hash = (bits[0] * 0x9e3779b1UL) ^ (bits[1] * 0x85ebca6bUL) ^ (bits[2] * 0xc2b2ae35UL) ^ (bits[3] * 0x27d4eb2fUL) ^ (unsigned long)type;
+	hash ^= hash >> 15;
+	return &aas_nearest_memos[hash & (AAS_NEAREST_MEMOS - 1)];
+}
+
 /* ...worked out for every span at once, as far as AAS_ATTACH_STEPS (out
    from the areas, a step at a time): asked for all the time, of a great
    many spans */
@@ -276,6 +326,7 @@ static void aas_find_attachments(long type, boolean reachable_only)
 	struct aas_world *world = &aas_worlds[type];
 	long head = 0, tail = 0;
 	long s;
+	aas_nearest_forget();
 	free(world->attach_span);
 	free(world->attach_depth);
 	world->attach_span = (long *)malloc(MAX(1, navm.span_count) * sizeof(long));
@@ -1498,6 +1549,7 @@ static void aas_find_flags(long type)
 	struct aas_world *world = &aas_worlds[type];
 	long *queue = (long *)malloc(MAX(1, world->area_count) * sizeof(long));
 	long head = 0, tail = 0;
+	aas_nearest_forget();
 	real top = -1.0e9f;
 	long a;
 	long p;
@@ -1669,27 +1721,17 @@ static unsigned long aas_span_hash(void)
 	return hash;
 }
 
-static boolean aas_cache_load(void)
+/* the areas from a cache file of this map, made from the heightfield as it
+   is: TRUE when they are whole */
+static boolean aas_cache_read(FILE *file, char const *map, unsigned long const *signature)
 {
 	struct aas_cache_header header;
-	char map[128];
-	unsigned long signature[4];
-	char path[512];
-	FILE *file;
 	boolean ok;
 	long type;
 
-	aas_span_hash_now = aas_span_hash();
-	if (getenv("HALO_BOT_NOCACHE"))
-		return FALSE;
-	navm_signature(map, signature);
-	navm_cache_path(map, "aas", path, sizeof(path));
-	file = fopen(path, "rb");
-	if (!file)
-		return FALSE;
 	ok = fread(&header, sizeof(header), 1, file) == 1 && header.magic == AAS_CACHE_MAGIC && header.version == AAS_CACHE_VERSION &&
 		header.sizes[0] == sizeof(struct aas_area) && header.sizes[1] == sizeof(struct aas_reach) && !strcmp(header.map, map) &&
-		!memcmp(header.signature, signature, sizeof(signature)) && header.span_count == navm.span_count && header.span_hash == aas_span_hash_now;
+		!memcmp(header.signature, signature, 4 * sizeof(unsigned long)) && header.span_count == navm.span_count && header.span_hash == aas_span_hash_now;
 	for (type = 0; ok && type < NUMBER_OF_AAS_TYPES; type++)
 		ok = header.area_count[type] >= 0 && header.area_count[type] < 16 * 1024 * 1024 &&
 			header.reach_count[type] >= 0 && header.reach_count[type] < 64 * 1024 * 1024; /* (before anything's sized by them) */
@@ -1717,9 +1759,87 @@ static boolean aas_cache_load(void)
 				ok = world->span_area[r] == NONE || (world->span_area[r] >= 0 && world->span_area[r] < world->area_count);
 		}
 	}
+	if (!ok)
+	{
+		/* (nothing of a file that was not whole) */
+		for (type = 0; type < NUMBER_OF_AAS_TYPES; type++)
+		{
+			struct aas_world *world = &aas_worlds[type];
+			free(world->areas);
+			free(world->reaches);
+			free(world->span_area);
+			world->areas = NULL;
+			world->reaches = NULL;
+			world->span_area = NULL;
+			world->area_count = 0;
+			world->reach_count = 0;
+		}
+	}
+	return ok;
+}
+
+static boolean aas_cache_load(void)
+{
+	char map[128];
+	unsigned long signature[4];
+	long attempt;
+
+	aas_span_hash_now = aas_span_hash();
+	/* (baking: worked out afresh) */
+	if (getenv("HALO_BOT_NOCACHE") || navm_is_baking())
+		return FALSE;
+	navm_signature(map, signature);
+	/* the baked file, then this machine's own */
+	for (attempt = 0; attempt < 2; attempt++)
+	{
+		char path[512];
+		FILE *file;
+
+		navm_cache_path(map, "aas", attempt == 0, path, sizeof(path));
+		file = fopen(path, "rb");
+		if (!file)
+			continue;
+		if (aas_cache_read(file, map, signature))
+		{
+			fclose(file);
+			if (bot_logging())
+				bot_log("aas: read %s", path);
+			return TRUE;
+		}
+		fclose(file);
+	}
+	return FALSE;
+}
+
+/* whether the map has baked areas of this build's kind (the file's header
+   only: bot_nav.c, navm_baked_current) */
+boolean aas_baked_current(char const *map_name)
+{
+	struct aas_cache_header header;
+	char path[512];
+	FILE *file;
+	boolean ok;
+
+	if (!navm_baked_current(map_name))
+		return FALSE;
+	navm_cache_file(map_name, 0, "aas", TRUE, path, sizeof(path));
+	file = fopen(path, "rb");
+	if (!file)
+		return FALSE;
+	ok = fread(&header, sizeof(header), 1, file) == 1 && header.magic == AAS_CACHE_MAGIC && header.version == AAS_CACHE_VERSION &&
+		header.sizes[0] == sizeof(struct aas_area) && header.sizes[1] == sizeof(struct aas_reach);
+	/* (and all of it there) */
+	if (ok)
+	{
+		double size = sizeof(header);
+		long type;
+
+		for (type = 0; type < NUMBER_OF_AAS_TYPES; type++)
+			size += (double)header.area_count[type] * sizeof(struct aas_area) + (double)header.reach_count[type] * sizeof(struct aas_reach) +
+				(double)header.span_count * sizeof(long);
+		ok = fseek(file, 0, SEEK_END) == 0 && (double)ftell(file) == size;
+	}
 	fclose(file);
-	if (ok && bot_logging())
-		bot_log("aas: read %s", path);
 	return ok;
 }
 
@@ -1729,6 +1849,7 @@ static void aas_cache_save(void)
 	char path[512];
 	FILE *file;
 	long type;
+	boolean whole;
 	memset(&header, 0, sizeof(header));
 	header.magic = AAS_CACHE_MAGIC;
 	header.version = AAS_CACHE_VERSION;
@@ -1742,19 +1863,23 @@ static void aas_cache_save(void)
 		header.area_count[type] = aas_worlds[type].area_count;
 		header.reach_count[type] = aas_worlds[type].reach_count;
 	}
-	navm_cache_path(header.map, "aas", path, sizeof(path));
+	navm_cache_path(header.map, "aas", navm_is_baking(), path, sizeof(path));
 	file = fopen(path, "wb");
 	if (!file)
+	{
+		navm_baked_file(FALSE, path);
 		return;
-	fwrite(&header, sizeof(header), 1, file);
+	}
+	whole = fwrite(&header, sizeof(header), 1, file) == 1;
 	for (type = 0; type < NUMBER_OF_AAS_TYPES; type++)
 	{
 		struct aas_world *world = &aas_worlds[type];
-		fwrite(world->areas, sizeof(struct aas_area), (size_t)world->area_count, file);
-		fwrite(world->reaches, sizeof(struct aas_reach), (size_t)world->reach_count, file);
-		fwrite(world->span_area, sizeof(long), (size_t)navm.span_count, file);
+		whole = fwrite(world->areas, sizeof(struct aas_area), (size_t)world->area_count, file) == (size_t)world->area_count && whole;
+		whole = fwrite(world->reaches, sizeof(struct aas_reach), (size_t)world->reach_count, file) == (size_t)world->reach_count && whole;
+		whole = fwrite(world->span_area, sizeof(long), (size_t)navm.span_count, file) == (size_t)navm.span_count && whole;
 	}
-	fclose(file);
+	whole = fclose(file) == 0 && whole;
+	navm_baked_file(whole, path);
 }
 
 /* ---------- building */
@@ -1778,6 +1903,7 @@ static void aas_world_free(struct aas_world *world)
 	for (i = 0; i < AAS_CACHES; i++)
 	{
 		free(world->caches[i].time);
+		free(world->caches[i].open);
 		aas_shared_release(world->caches[i].penalty);
 		aas_shared_release(world->caches[i].cost);
 	}
@@ -1800,7 +1926,8 @@ static void aas_failures_path(char *path, long size, unsigned long *signature)
 {
 	char map[128];
 	navm_signature(map, signature);
-	navm_cache_path(map, "aasfail", path, size);
+	/* (what this machine's bots learned: its own, never baked) */
+	navm_cache_path(map, "aasfail", FALSE, path, size);
 }
 
 /* where the areas in use came from (the file their failures go back to:
@@ -1815,7 +1942,8 @@ static void aas_failures_save(void)
 	unsigned long header[8];
 	FILE *file;
 	long type;
-	if (!aas_is_ready || getenv("HALO_BOT_NOCACHE") || !aas_failures_saved_path[0])
+	/* (baking: one bot's moment in a map teaches nothing worth keeping) */
+	if (!aas_is_ready || getenv("HALO_BOT_NOCACHE") || navm_is_baking() || !aas_failures_saved_path[0])
 		return;
 	memcpy(path, aas_failures_saved_path, sizeof(path));
 	memcpy(signature, aas_failures_saved_signature, sizeof(signature));
@@ -1883,6 +2011,7 @@ static void aas_failures_load(void)
 void aas_dispose(void)
 {
 	long type;
+	aas_nearest_forget();
 	aas_failures_save();
 	for (type = 0; type < NUMBER_OF_AAS_TYPES; type++)
 		aas_world_free(&aas_worlds[type]);
@@ -2090,6 +2219,7 @@ boolean aas_build(void)
 		aas_find_random_weights(type);
 	}
 	aas_is_ready = aas_worlds[AAS_FOOT].area_count > 0;
+	aas_nearest_forget();
 	if (aas_is_ready)
 	{
 		long before = aas_places_count;
@@ -2273,14 +2403,13 @@ long aas_point_area(long type, real_point3d const *point)
 	return s == NONE ? NONE : aas_worlds[type].span_area[s];
 }
 
-long aas_nearest_area(long type, real_point3d const *point, real radius, real_point3d *spot)
+/* the search itself: the area, and the span it was found by */
+static long aas_nearest_area_search(long type, real_point3d const *point, real radius, long *found_out)
 {
 	struct aas_world *world = &aas_worlds[type];
 	long s;
 	long found = NONE;
 	long area;
-	if (!aas_is_ready && !world->span_area)
-		return NONE;
 	s = navm_span_at(point, 0.3f, 1.5f);
 	area = NONE;
 	if (s != NONE)
@@ -2331,6 +2460,51 @@ long aas_nearest_area(long type, real_point3d const *point, real radius, real_po
 		if (area == NONE)
 			return NONE;
 	}
+	*found_out = found;
+	return area;
+}
+
+long aas_nearest_area(long type, real_point3d const *point, real radius, real_point3d *spot)
+{
+	struct aas_world *world = &aas_worlds[type];
+	struct aas_nearest_memo *memo;
+	long found = NONE;
+	long area;
+	if (!aas_is_ready && !world->span_area)
+		return NONE;
+	/* asked before, of the areas as they are (not while they are being
+	   built: they change under it) */
+	memo = aas_is_ready ? aas_nearest_memo_for(type, point, radius) : NULL;
+	if (memo && memo->generation == aas_nearest_generation && memo->type == type && memo->radius == radius &&
+		!memcmp(&memo->point, point, sizeof(memo->point)))
+	{
+		area = memo->area;
+		found = memo->found;
+		/* (testing, HALO_BOT_ROUTE_CHECK: against the search) */
+		if (aas_route_check())
+		{
+			long found_now = NONE;
+			long area_now = aas_nearest_area_search(type, point, radius, &found_now);
+			static long wrong;
+			if ((area_now != area || (area != NONE && found_now != found)) && wrong++ < 20)
+				bot_log("aas: NEAREST CHECK: area %ld by span %ld kept, %ld by %ld searched", area, found, area_now, found_now);
+		}
+	}
+	else
+	{
+		area = aas_nearest_area_search(type, point, radius, &found);
+		if (memo)
+		{
+			memo->generation = aas_nearest_generation;
+			memo->type = type;
+			memo->point = *point;
+			memo->radius = radius;
+			memo->area = area;
+			memo->found = found;
+		}
+	}
+	if (area == NONE)
+		return NONE;
 	if (spot)
 	{
 		/* the nearest point of the area's rectangle (a little in) */
@@ -2453,6 +2627,21 @@ static void aas_route_release(struct aas_cache *cache)
 	cache->cost = NULL;
 }
 
+/* room for so many of the reached and not final */
+static boolean aas_route_open_reserve(struct aas_cache *cache, long count)
+{
+	if (cache->open_capacity < count)
+	{
+		long capacity = MAX(count, 256);
+		long *open = (long *)realloc(cache->open, capacity * sizeof(long));
+		if (!open)
+			return FALSE;
+		cache->open = open;
+		cache->open_capacity = capacity;
+	}
+	return TRUE;
+}
+
 /* the route to goal by the side's area costs: found among the ones worked
    out, or begun (the reachabilities into the goal's area have their times;
    nothing is final yet) */
@@ -2517,13 +2706,22 @@ static struct aas_cache *aas_route(long type, long goal, long slot)
 	time = cache->time;
 	for (i = 0; i < world->reach_count; i++)
 		time[i] = 1.0e30f;
+	cache->open_count = 0;
 	{
 		struct aas_area const *area = &world->areas[goal];
+		if (!aas_route_open_reserve(cache, area->incoming_count))
+		{
+			cache->goal = NONE; /* (not a route) */
+			return NULL;
+		}
 		for (i = area->first_incoming; i < area->first_incoming + area->incoming_count; i++)
 		{
 			long r = world->incoming[i];
 			struct aas_reach const *reach = &world->reaches[r];
 			float t = reach->time + cache->penalty[r] + aas_distance(&reach->end, &area->center) / speed;
+			/* (each of them once: a reachability comes into one area) */
+			if (time[r] >= 1.0e29f)
+				cache->open[cache->open_count++] = r;
 			if (t < time[r])
 				time[r] = t;
 		}
@@ -2547,6 +2745,7 @@ static long *aas_entry_reach;
 static long *aas_entry_next;
 static long aas_entry_capacity;
 static unsigned long *aas_route_done; /* per reachability: the search that went through it last */
+static unsigned long *aas_route_kept; /* ... and the search that kept it as reached and not final */
 static long aas_route_done_capacity;
 static unsigned long aas_route_search;
 
@@ -2581,10 +2780,18 @@ static boolean aas_queue_reserve(struct aas_world const *world)
 	if (aas_route_done_capacity < world->reach_count)
 	{
 		free(aas_route_done);
+		free(aas_route_kept);
 		aas_route_done = (unsigned long *)calloc(MAX(1, world->reach_count), sizeof(unsigned long));
-		aas_route_done_capacity = aas_route_done ? world->reach_count : 0;
-		if (!aas_route_done)
+		aas_route_kept = (unsigned long *)calloc(MAX(1, world->reach_count), sizeof(unsigned long));
+		aas_route_done_capacity = aas_route_done && aas_route_kept ? world->reach_count : 0;
+		if (!aas_route_done_capacity)
+		{
+			free(aas_route_done);
+			free(aas_route_kept);
+			aas_route_done = NULL;
+			aas_route_kept = NULL;
 			return FALSE;
+		}
 	}
 	return TRUE;
 }
@@ -2628,6 +2835,7 @@ static void aas_route_advance(struct aas_world *world, struct aas_cache *cache, 
 	long far = NONE; /* the entries further off than the ring */
 	long far_bucket = 0; /* the least bucket among them */
 	long current; /* the bucket being gone through */
+	long ring_last; /* the last bucket of the ring with anything in it */
 	long bound_bucket;
 	float bound = 1.0e30f;
 	float least = 1.0e30f;
@@ -2647,6 +2855,7 @@ static void aas_route_advance(struct aas_world *world, struct aas_cache *cache, 
 	{
 		/* (round again: no old mark is this search's) */
 		memset(done, 0, (size_t)aas_route_done_capacity * sizeof(unsigned long));
+		memset(aas_route_kept, 0, (size_t)aas_route_done_capacity * sizeof(unsigned long));
 		search = ++aas_route_search;
 	}
 	/* (the watched are all of one area, or the one reachability) */
@@ -2657,10 +2866,11 @@ static void aas_route_advance(struct aas_world *world, struct aas_cache *cache, 
 			bound = t;
 	}
 	bound_bucket = bound < 1.0e29f ? AAS_BUCKET(bound) : LONG_MAX;
-	/* the queue: every reachability reached and not final, from the least */
-	for (r = 0; r < world->reach_count; r++)
-		if (time[r] > cache->frontier && time[r] < least)
-			least = time[r];
+	/* the queue: every reachability reached and not final (as the search
+	   left them), from the least */
+	for (i = 0; i < cache->open_count; i++)
+		if (time[cache->open[i]] < least)
+			least = time[cache->open[i]];
 	if (least >= 1.0e29f)
 	{
 		cache->complete = TRUE;
@@ -2686,6 +2896,8 @@ static void aas_route_advance(struct aas_world *world, struct aas_cache *cache, 
 			entry_next[entry_] = heads[bucket_ & (AAS_BUCKET_RING - 1)]; \
 			heads[bucket_ & (AAS_BUCKET_RING - 1)] = entry_; \
 			ring_live++; \
+			if (bucket_ > ring_last) \
+				ring_last = bucket_; \
 		} \
 		else \
 		{ \
@@ -2696,9 +2908,12 @@ static void aas_route_advance(struct aas_world *world, struct aas_cache *cache, 
 		} \
 	}
 
-	for (r = 0; r < world->reach_count; r++)
-		if (time[r] > cache->frontier && time[r] < 1.0e29f)
-			AAS_QUEUE_ADD(r);
+	ring_last = current;
+	for (i = 0; i < cache->open_count; i++)
+	{
+		r = cache->open[i];
+		AAS_QUEUE_ADD(r);
+	}
 	while (live > 0)
 	{
 		long entry;
@@ -2731,6 +2946,8 @@ static void aas_route_advance(struct aas_world *world, struct aas_cache *cache, 
 					entry_next[list] = heads[bucket & (AAS_BUCKET_RING - 1)];
 					heads[bucket & (AAS_BUCKET_RING - 1)] = list;
 					ring_live++;
+					if (bucket > ring_last)
+						ring_last = bucket;
 				}
 				else
 				{
@@ -2822,6 +3039,7 @@ static void aas_route_advance(struct aas_world *world, struct aas_cache *cache, 
 		current++;
 	}
 #undef AAS_QUEUE_ADD
+	cache->open_count = 0;
 	if (live <= 0)
 	{
 		cache->complete = TRUE;
@@ -2831,9 +3049,46 @@ static void aas_route_advance(struct aas_world *world, struct aas_cache *cache, 
 	}
 	else
 	{
+		/* what is left in the queue is where it carries on from: each
+		   reachability not gone through, once (it has an entry for each
+		   time it was bettered). The ring is left as it was found, empty. */
+		unsigned long *kept = aas_route_kept;
+		long bucket;
+		boolean room = aas_route_open_reserve(cache, live);
+
 		cache->frontier = aas_bucket_last_time(bound_bucket);
-		/* (the ring as it was found, empty: NONE is every bit set) */
-		memset(heads, 0xFF, AAS_BUCKET_RING * sizeof(long));
+		for (bucket = current; bucket <= ring_last && bucket - current < AAS_BUCKET_RING; bucket++)
+		{
+			long entry = heads[bucket & (AAS_BUCKET_RING - 1)];
+
+			heads[bucket & (AAS_BUCKET_RING - 1)] = NONE;
+			for (; entry != NONE; entry = entry_next[entry])
+			{
+				r = entry_reach[entry];
+				if (done[r] != search && kept[r] != search && room)
+				{
+					kept[r] = search;
+					cache->open[cache->open_count++] = r;
+				}
+			}
+		}
+		for (; far != NONE; far = entry_next[far])
+		{
+			r = entry_reach[far];
+			if (done[r] != search && kept[r] != search && room)
+			{
+				kept[r] = search;
+				cache->open[cache->open_count++] = r;
+			}
+		}
+		if (!room)
+		{
+			/* (no memory for them: found again the long way) */
+			if (aas_route_open_reserve(cache, world->reach_count))
+				for (r = 0; r < world->reach_count; r++)
+					if (time[r] > cache->frontier && time[r] < 1.0e29f)
+						cache->open[cache->open_count++] = r;
+		}
 	}
 	BOT_PROFILE_END(route, "route search");
 }

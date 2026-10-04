@@ -693,17 +693,63 @@ A game that had bots in it sends no carnage report to the game list
 The first time that a map has bots, the host makes the navigation data of
 the map (the places where a player can walk, jump, drop and climb). This
 takes 1 to 10 seconds. The host keeps the data in `navcache` in the save
-root, and reads it from there in less than a second. The host does this
+root, and reads it from there in about a second or less. The host does this
 while the machines load the map. Thus the game does not stop at its start.
+
+### Baked navigation
+
+The navigation data of all the maps can be made before a game (baked). The
+game then reads it from a `navcache` folder next to `maps`, on each machine
+that has a copy of that folder, and the first game with bots on a map does
+not wait.
+
+- **Windows:** start `bake-navigation.cmd`, which is next to `halo.exe`.
+  `bake-navigation.cmd new` bakes only the maps that have no baked data.
+- **Linux and macOS:** start the game with `HALO_BAKE_NAVIGATION=all` (or
+  `new`) in the environment.
+
+The game then has no window and no sound, and it is not on the network. It
+loads each multiplayer map that it finds in the `maps` folder (a campaign
+map has none of this data) and, on the builds that play them, each Custom
+Edition map in `maps/ce`. For each map it writes two files,
+`navcache/<map>_0.height` and `navcache/<map>_0.aas`, and a line that starts
+with `bake:`. The 13 maps of the game take 1 to 2 minutes and 200 MB. The
+exit code is `0` when each map has its data.
+
+A baked file is for the map that it was made from, and for the build that
+made it: the game makes the data again, into the save root, when the map
+file is a different one or when a later build has another format. Bake the
+maps again after such a change. The code is in `game/bot_bake.c`.
+
+### How the bots find their way, and what they cost
 
 A bot finds its way with a search that starts at its goal. The search goes
 only as far as the bot is from the goal. If a bot farther away asks for the
 same goal, the search continues from that point. The result is the same as
-that of a search of the full map. `HALO_BOT_PROFILE=1` writes the time that
-the parts of the bots use to the log, and `HALO_BOT_ROUTE_CHECK=1` compares
-each result with a search of the full map. The code is in `game/bots.c`
-(what a bot does), `game/bot_move.c` (how it moves), and `game/bot_nav.c`
-and `game/bot_aas.c` (the navigation data).
+that of a search of the full map.
+
+The bots do their heavy work in small parts, so that one tick is not much
+longer than the others:
+
+- Each team has a map of the places where its bots saw enemies, and its
+  routes go around those places. The game makes this map a part in each
+  tick, and each team has a new one every 2 seconds.
+- A bot that looks for a way around (a flank, another way into a base)
+  tries one place in each tick.
+- A bot that selects a thing to get asks for the way to a thing only when
+  that thing can be the best one. It selects the same thing.
+- In a game with 12 players or more, a bot looks at all the players every
+  second tick (every third tick with 24 players or more). In the other
+  ticks it looks only at its target.
+- A bot far from a target that moves keeps its route until the target has
+  moved a fifth of the distance between them (4 world units at most).
+
+`HALO_BOT_PROFILE=1` writes the time that the parts of the bots use to the
+log every 5 seconds, with the longest tick, and a line for each bot that
+used 2 ms or more in one tick. `HALO_BOT_ROUTE_CHECK=1` compares each
+result with a search of the full map. The code is in `game/bots.c` (what a
+bot does), `game/bot_move.c` (how it moves), and `game/bot_nav.c` and
+`game/bot_aas.c` (the navigation data).
 
 ## Infection
 

@@ -37,6 +37,10 @@ void bot_think(long player_absolute_index, struct player_action *action);
 /* a map has loaded, its objects placed: its navigation now, on a machine
 that hosts with bots */
 void bots_map_loaded(void);
+/* baking the navigation of every multiplayer map, with no window
+   (HALO_BAKE_NAVIGATION: bot_bake.c) */
+boolean bot_bake_enabled(void);
+void bot_bake_update(boolean main_menu_loaded, real seconds);
 /* the map is gone: its navigation, and what the bots knew of the game */
 void bots_map_disposed(void);
 #endif /* __BOTS_H */

@@ -1886,7 +1886,14 @@ void network_game_server_client_machine_is_precached(
 {
 	char const *multiplayer_map_name = main_get_multiplayer_map_name();
 
-	if (!csstrcmp(multiplayer_map_name, map_name))
+	/* port: and the map the lobby has now. The host's own map name is set
+	by its client, when the settings that name the map reach it: a machine's
+	word that it has the last map, sent before it heard of the change and
+	read by the server before the host's client did, was taken for the new
+	map's (and the server's check that the host itself has the map loaded
+	then failed). A map changed the moment the lobby opened did it: baking
+	the bots' navigation, port/linux/game/bot_bake.c. */
+	if (!csstrcmp(multiplayer_map_name, map_name) && !csstrcmp(server->game.map.name, map_name))
 		SET_FLAG(client_machine->flags, _network_client_machine_precached_bit, TRUE);
 
 	return;

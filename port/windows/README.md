@@ -58,6 +58,11 @@ development package of SDL to `build\windows\third_party`. To use a
 package that is on the computer, set the environment variable `HALO_SDL3`
 to its folder.
 
+The build also puts `bake-navigation.cmd` next to `halo.exe`. It makes the
+navigation data of the bots for all the multiplayer maps in the `maps`
+folder, before a game: refer to
+[Baked navigation](../linux/README.md#baked-navigation).
+
 | Configuration | Contents |
 | --- | --- |
 | `Release` | Optimized (`-O2`), as `ninja windows` with `--portable --lto=off --pgo=off`. |

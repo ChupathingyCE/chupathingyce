@@ -351,7 +351,7 @@ static long bots_vehicle_count;
 
 /* what each side knows, for routes round danger. Each side pools what its
    bots see, hear and have on their motion trackers (where the enemy is),
-   and where its people died. From that, every second, what it costs (in
+   and where its people died. From that, every two seconds, what it costs (in
    seconds) to go through each area: near where the enemy is, and in their
    line of sight (more so below them: they have the height), and a little
    where our own people are (so we spread out and come at them from more
@@ -369,12 +369,32 @@ struct bot_known
 	long seen; /* game time */
 };
 
+/* Working a side's costs out is a look at every area for everything the
+   side knows of, with a line of sight for most: over a thousand of them on
+   a big map. All in one tick it was the bots' longest tick, every second.
+   So it is done a part each tick (so many lines of sight, so many areas
+   looked at), and the costs are the routes' once it is all done; then the
+   other side's; and a side's again no sooner than BOT_DANGER_PERIOD after
+   its last began. */
+#define BOT_DANGER_PERIOD (2 * BOT_TICKS_PER_SECOND)
+#define BOT_DANGER_RAYS_A_TICK 40
+#define BOT_DANGER_AREAS_A_TICK 6000
+#define BOT_DANGER_RAYS 1200 /* an update's most: past it, what is known of counts for less, unseen */
+
 struct bot_side
 {
 	struct bot_known known[BOT_KNOWN];
 	long known_count;
-	float *cost; /* per foot area */
+	float *cost; /* per foot area: being worked out */
 	long cost_count;
+	/* the update going on: the next of the known and of the areas to look
+	   at, the lines of sight so far, and whether there is anything */
+	boolean updating;
+	long update_known;
+	long update_area;
+	long update_rays;
+	boolean update_any;
+	long update_began; /* game time: the last one */
 };
 
 static struct bot_side bot_sides[AAS_COST_SLOTS];
@@ -449,32 +469,44 @@ static int bot_side_nearest_known(long side, real_point3d const *from, real seco
 	return best < 1.0e8f;
 }
 
-static void bot_side_update_costs(long side)
+/* a part of the side's update (begun, if none is going on): TRUE once it
+   is done and its costs are the routes' */
+static boolean bot_side_update_costs(long side)
 {
 	struct bot_side *knowledge = &bot_sides[side];
 	long now = game_time_get();
 	long area_count = aas_area_count(AAS_FOOT);
 	long rays = 0;
-	long i, a;
-	int any = FALSE;
+	long looked = 0;
+	long a;
 	struct data_iterator iterator;
 	struct player_datum *player;
 	unsigned long const flags = FLAG(_collision_test_structure_bit) | FLAG(_collision_test_front_facing_surfaces_bit);
 
 	if (area_count <= 0)
-		return;
+		return TRUE;
 	if (knowledge->cost_count != area_count)
 	{
 		free(knowledge->cost);
 		knowledge->cost = (float *)malloc(area_count * sizeof(float));
 		knowledge->cost_count = knowledge->cost ? area_count : 0;
+		knowledge->updating = FALSE;
 		if (!knowledge->cost)
-			return;
+			return TRUE;
 	}
-	memset(knowledge->cost, 0, area_count * sizeof(float));
-	for (i = 0; i < knowledge->known_count; i++)
+	if (!knowledge->updating)
 	{
-		struct bot_known const *known = &knowledge->known[i];
+		memset(knowledge->cost, 0, area_count * sizeof(float));
+		knowledge->updating = TRUE;
+		knowledge->update_known = 0;
+		knowledge->update_area = 0;
+		knowledge->update_rays = 0;
+		knowledge->update_any = FALSE;
+		knowledge->update_began = now;
+	}
+	for (; knowledge->update_known < knowledge->known_count; knowledge->update_known++, knowledge->update_area = 0)
+	{
+		struct bot_known const *known = &knowledge->known[knowledge->update_known];
 		real age = (now - known->seen) / (real)BOT_TICKS_PER_SECOND;
 		real fresh;
 		real_point3d eye = known->at;
@@ -482,13 +514,20 @@ static void bot_side_update_costs(long side)
 			continue;
 		fresh = 1.f - age / BOT_KNOWN_SECONDS;
 		eye.z += 0.3f;
-		any = TRUE;
-		for (a = 0; a < area_count; a++)
+		knowledge->update_any = TRUE;
+		for (a = knowledge->update_area; a < area_count; a++)
 		{
 			struct aas_area const *area = aas_area(AAS_FOOT, a);
 			real_point3d center;
 			real distance;
 			real danger;
+			/* (enough for this tick: on from here in the next) */
+			if (rays >= BOT_DANGER_RAYS_A_TICK || looked >= BOT_DANGER_AREAS_A_TICK)
+			{
+				knowledge->update_area = a;
+				return FALSE;
+			}
+			looked++;
 			if (!(area->flags & _aas_area_reachable))
 				continue;
 			center.x = PIN(known->at.x, area->x0, area->x1);
@@ -510,12 +549,13 @@ static void bot_side_update_costs(long side)
 				danger *= 1.f + MIN(1.f, (known->at.z - area->center.z) / 4.f);
 			if (distance < 6.f)
 				knowledge->cost[a] += danger;
-			else if (rays < 1200)
+			else if (knowledge->update_rays < BOT_DANGER_RAYS)
 			{
 				/* in their sight: covered */
 				real_point3d target = area->center;
 				target.z += 0.6f;
 				rays++;
+				knowledge->update_rays++;
 				if (bot_line_clear(flags, &eye, &target, NONE))
 					knowledge->cost[a] += danger;
 			}
@@ -536,7 +576,7 @@ static void bot_side_update_costs(long side)
 			if (area != NONE)
 			{
 				knowledge->cost[area] += 0.4f;
-				any = TRUE;
+				knowledge->update_any = TRUE;
 			}
 		}
 	}
@@ -551,7 +591,33 @@ static void bot_side_update_costs(long side)
 		knowledge->cost[a] *= MIN(1.f, (real)sqrt(w * w + h * h) / 5.f);
 		knowledge->cost[a] = MIN(knowledge->cost[a], 3.f);
 	}
-	aas_set_area_costs(AAS_FOOT, side, any ? knowledge->cost : NULL);
+	aas_set_area_costs(AAS_FOOT, side, knowledge->update_any ? knowledge->cost : NULL);
+	knowledge->updating = FALSE;
+	return TRUE;
+}
+
+/* each side's route costs, by turns: the one whose turn it is a part each
+   tick until it is done */
+static void bot_sides_update(void)
+{
+	static long turn;
+	long first = game_engine_has_teams() ? 0 : 2;
+	long count = game_engine_has_teams() ? 2 : 1;
+	long side;
+
+	if (turn < first || turn >= first + count)
+		turn = first;
+	side = turn;
+	/* (not begun before it is due; game time starts over with each game) */
+	if (!bot_sides[side].updating && bot_sides[side].cost && game_time_get() >= bot_sides[side].update_began &&
+		game_time_get() - bot_sides[side].update_began < BOT_DANGER_PERIOD)
+	{
+		/* (the other side, if it is due) */
+		turn = first + (turn - first + 1) % count;
+		return;
+	}
+	if (bot_side_update_costs(side))
+		turn = first + (turn - first + 1) % count;
 }
 
 /* the motion tracker: what a player's shows them (enemies moving faster
@@ -883,6 +949,20 @@ struct bot_state
 	int via_pending;
 	long via_ticks;
 	long via_side;
+	/* ... being looked for: a place tried each tick (bot_plan_via_step),
+	   not all in one, which was a long tick */
+	struct
+	{
+		long samples; /* tries left (0: not looking) */
+		int objective, carrying, flank;
+		real slack;
+		float direct;
+		long quarry;
+		real best_score;
+		real_point3d best_via;
+		float best_first;
+		long best_side;
+	} via_plan;
 	real_point3d noroute_point; /* the last place there was no way to, and until when to leave it be */
 	long noroute_until;
 	long flank_side; /* the last flank's side, and when (keep to it, not this way then that) */
@@ -1298,6 +1378,9 @@ static int bot_friend_in_line(struct player_datum *me, real_point3d const *eye, 
    Called for an enemy there's a clear line to; TRUE when they're seen */
 #define BOT_VIEW_HALF_ANGLE 0.96f /* radians: 55 degrees either side */
 #define BOT_VIEW_CENTER_ANGLE 0.26f /* 15 degrees: what we're looking right at */
+/* the ticks from one look round to the next (bot_think_inner) */
+static long bot_look_period = 1;
+
 static int bot_notices(struct bot_state *bot, long player_absolute_index, long unit_index, real_point3d const *eye, real distance, int hit_lately)
 {
 	struct unit_datum *unit = unit_try_and_get(unit_index);
@@ -1350,7 +1433,8 @@ static int bot_notices(struct bot_state *bot, long player_absolute_index, long u
 	/* (reactions 0.7 at the top skill to 1.4 at the bottom, and the lower
 	   levels slower again: up to 2.8 times as long) */
 	seconds *= bot->personality.reaction * (2.f - bot_skill_fraction());
-	bot->notice[player_absolute_index] += 1.f / MAX(1.f, seconds * BOT_TICKS_PER_SECOND);
+	/* (a look every so many ticks counts for as many: noticed as soon) */
+	bot->notice[player_absolute_index] += (real)bot_look_period / MAX(1.f, seconds * BOT_TICKS_PER_SECOND);
 	if (bot->notice[player_absolute_index] < 1.f)
 		return FALSE;
 	bot->notice[player_absolute_index] = 1.f;
@@ -1471,6 +1555,7 @@ static void bot_set_goal(struct bot_state *bot, long kind, real_point3d const *p
 		{
 			bot->via_valid = FALSE;
 			bot->via_pending = TRUE;
+			bot->via_plan.samples = 0;
 		}
 	}
 	bot->goal_kind = kind;
@@ -2901,6 +2986,17 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 	struct object_datum *object;
 	real held = bot_best_held_value(unit);
 	struct bot_candidate best;
+	/* the things lying about worth going for, before how far each really is */
+	enum { BOT_ITEM_CANDIDATES = 256 };
+	struct
+	{
+		long object_index;
+		real score;
+		real distance;
+		real falloff;
+		real most;
+	} items[BOT_ITEM_CANDIDATES];
+	long item_count = 0;
 
 	long role = bot_role(bot, player, teams);
 
@@ -3029,8 +3125,40 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 		}
 		if (bot_recently_at(bot, &object->object.position) && iterator.index != bot->goal_object)
 			score *= 0.4f;
-		/* how far it really is (round, up, over): the way there on foot,
-		   and none at all when there's no way there */
+		/* (how far it really is comes next, the likeliest first) */
+		if (item_count < BOT_ITEM_CANDIDATES)
+		{
+			items[item_count].object_index = iterator.index;
+			items[item_count].score = score;
+			items[item_count].distance = distance;
+			items[item_count].falloff = value >= 7.f ? 20.f : 12.f;
+			/* (the most it can come to: were it as near as it looks) */
+			items[item_count].most = bot_hunch(score / (1.f + distance / items[item_count].falloff) / (1.f + 0.35f * bot->item_streak),
+				_bot_goal_item, &object->object.position, iterator.index);
+			item_count++;
+		}
+	}
+	/* How far each really is (round, up, over): the way there on foot, and
+	   none at all when there's no way there. The way to something is a
+	   search from it out to here, and a bot weighs everything lying about,
+	   every second: so the ones that could score most are asked first, and
+	   one that could not beat the best so far even were it as near as it
+	   looks is not asked at all. What is chosen is the same. */
+	while (item_count > 0)
+	{
+		long most = 0;
+		long i;
+		real distance;
+		real score;
+
+		for (i = 1; i < item_count; i++)
+			if (items[i].most > items[most].most)
+				most = i;
+		if (items[most].most <= best.score)
+			break;
+		object = object_get(items[most].object_index);
+		distance = items[most].distance;
+		score = items[most].score;
 		if (aas_ready())
 		{
 			struct bot_body walker;
@@ -3039,16 +3167,21 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 			walker.position = *position;
 			walker.vehicle_index = NONE;
 			time = bot_travel_time(&walker, AAS_FOOT, &object->object.position);
-			if (time < 0.f)
-				continue;
-			distance = MAX(distance, time * aas_speed(AAS_FOOT));
+			if (time >= 0.f)
+				distance = MAX(distance, time * aas_speed(AAS_FOOT));
+			else
+				score = 0.f;
 		}
-		/* nearer is better: an everyday weapon only close by, the big
-		   things from further off */
-		score /= 1.f + distance / (value >= 7.f ? 20.f : 12.f);
-		/* one item after another after another: time to go somewhere else */
-		score /= 1.f + 0.35f * bot->item_streak;
-		bot_consider(&best, score, _bot_goal_item, &object->object.position, iterator.index, 20 * BOT_TICKS_PER_SECOND, TRUE);
+		if (score > 0.f)
+		{
+			/* nearer is better: an everyday weapon only close by, the big
+			   things from further off */
+			score /= 1.f + distance / items[most].falloff;
+			/* one item after another after another: time to go somewhere else */
+			score /= 1.f + 0.35f * bot->item_streak;
+			bot_consider(&best, score, _bot_goal_item, &object->object.position, items[most].object_index, 20 * BOT_TICKS_PER_SECOND, TRUE);
+		}
+		items[most] = items[--item_count];
 	}
 
 	/* vehicles: an empty one to drive, or a seat with a teammate: a
@@ -3710,6 +3843,7 @@ static long bot_find_health(real_point3d const *position, real reach)
 static int bot_goal_is_power_weapon(struct bot_state const *bot);
 static int bot_goal_is_powerup(struct bot_state const *bot);
 
+/* whether to look for one, and what for: the tries follow, one a tick */
 static void bot_plan_via(struct bot_state *bot, struct bot_body const *body, long player_index)
 {
 	real_point3d const *from = &body->position;
@@ -3723,18 +3857,13 @@ static void bot_plan_via(struct bot_state *bot, struct bot_body const *body, lon
 	real chance;
 	real slack;
 	float direct;
-	long sample;
-	real best_score = 1.0e9f;
-	real_point3d best_via;
-	float best_first = 0.f;
-	long best_side = 0;
+	long quarry = NONE; /* flanking: who we're after (their facing, their sight) */
 	bot->via_pending = FALSE;
 	bot->via_valid = FALSE;
 	bot->via_side = 0;
+	bot->via_plan.samples = 0;
 	if (bot_goal_is_power_weapon(bot) || bot_goal_is_powerup(bot))
 		return; /* (straight there, before someone else gets it) */
-	long quarry = NONE; /* flanking: who we're after (their facing, their sight) */
-	real_point3d quarry_eye;
 	if (!aas_ready() || distance < (objective ? 14.f : flank ? 15.f : 18.f))
 		return;
 	if (carrying)
@@ -3778,118 +3907,161 @@ static void bot_plan_via(struct bot_state *bot, struct bot_body const *body, lon
 				quarry = player->unit_index;
 			}
 		}
-		if (quarry != NONE)
-			quarry_eye = object_get(quarry)->object.bounding_sphere_center;
-		else
-		{
-			quarry_eye = bot->goal;
-			quarry_eye.z += 0.6f;
-		}
 	}
-	for (sample = 0; sample < (objective ? 8 : 4); sample++)
-	{
-		real along = 0.3f + 0.4f * bot_random(bot);
-		long side = bot_random(bot) < 0.5f ? -1 : 1;
-		real across = (real)side * (0.2f + 0.35f * bot_random(bot)) * distance;
-		real dx = bot->goal.x - from->x;
-		real dy = bot->goal.y - from->y;
-		real length = (real)sqrt(dx * dx + dy * dy);
-		real_point3d spot;
-		real_point3d via;
-		float first;
-		float second;
-		real score;
-		long i;
-		struct bot_body there;
-		if (length < 1.f)
-			return;
-		spot.x = from->x + dx * along - dy / length * across;
-		spot.y = from->y + dy * along + dx / length * across;
-		spot.z = from->z + (bot->goal.z - from->z) * along;
-		if (aas_nearest_area(AAS_FOOT, &spot, 8.f, &via) == NONE)
-		{
-			spot.z += 3.f;
-			if (aas_nearest_area(AAS_FOOT, &spot, 8.f, &via) == NONE)
-				continue;
-		}
-		first = bot_travel_time(body, AAS_FOOT, &via);
-		there = *body;
-		there.position = via;
-		second = bot_travel_time(&there, AAS_FOOT, &bot->goal);
-		if (first <= 0.f || second <= 0.f || first + second > direct * slack + 2.f)
-			continue;
-		if (!objective && !flank)
-		{
-			best_via = via, best_first = first, best_side = side;
-			best_score = 0.f;
-			break;
-		}
-		/* the shorter the better; then a change from last time, never the
-		   way it died, and not where teammates are already going */
-		score = (first + second) / direct + 0.3f * bot_random(bot) * bot->personality.whim;
-		if (flank)
-		{
-			/* come at them from where they can't see us coming: out of
-			   their sight on the way in, and from the side or behind rather
-			   than where they're looking */
-			real_point3d raised = via;
-			raised.z += 0.6f;
-			/* (a way round they can see all of is no flank: straight in) */
-			if (bot_line_clear(bot_sight_flags, &quarry_eye, &raised, quarry != NONE ? quarry : NONE))
-				continue;
-			if (quarry != NONE)
-			{
-				struct unit_datum *enemy = unit_try_and_get(quarry);
-				real vx = via.x - quarry_eye.x, vy = via.y - quarry_eye.y;
-				real vl = (real)sqrt(vx * vx + vy * vy);
-				if (enemy && vl > 1.f)
-				{
-					real facing = (enemy->unit.aiming_vector.i * vx + enemy->unit.aiming_vector.j * vy) / vl; /* 1: right in front */
-					score -= 0.25f * (1.f - facing);
-				}
-			}
-			if (side == bot->flank_side && game_time_get() - bot->flank_time < 6 * BOT_TICKS_PER_SECOND)
-				score -= 0.6f;
-		}
-		if (objective && side == bot->personality.route_side)
-			score += bot->personality.route_died ? 1.5f : 0.25f;
-		for (i = 0; i < BOT_MAXIMUM_PLAYERS; i++)
-		{
-			struct bot_state const *mate = &bot_states[i];
-			if (i == player_index || mate->unit_index == NONE || mate->team != bot->team || !mate->via_valid ||
-				distance3d(&mate->goal, &bot->goal) > 15.f)
-				continue;
-			if (distance3d(&mate->via_point, &via) < 12.f || (objective && mate->via_side == side))
-				score += 0.35f;
-		}
-		if (score < best_score)
-		{
-			best_score = score;
-			best_via = via;
-			best_first = first;
-			best_side = side;
-		}
-	}
-	if (best_score >= 1.0e9f)
+	bot->via_plan.samples = objective ? 8 : 4;
+	bot->via_plan.objective = objective;
+	bot->via_plan.carrying = carrying;
+	bot->via_plan.flank = flank;
+	bot->via_plan.slack = slack;
+	bot->via_plan.direct = direct;
+	bot->via_plan.quarry = quarry;
+	bot->via_plan.best_score = 1.0e9f;
+	bot->via_plan.best_side = 0;
+	bot->via_plan.best_first = 0.f;
+}
+
+/* the best of the places tried is the way round (if any did) */
+static void bot_plan_via_finish(struct bot_state *bot, long player_index)
+{
+	bot->via_plan.samples = 0;
+	if (bot->via_plan.best_score >= 1.0e9f)
 		return;
-	bot->via_point = best_via;
+	bot->via_point = bot->via_plan.best_via;
 	bot->via_valid = TRUE;
-	bot->via_side = best_side;
-	bot->via_ticks = (long)((best_first + 4.f) * BOT_TICKS_PER_SECOND);
-	if (flank)
+	bot->via_side = bot->via_plan.best_side;
+	bot->via_ticks = (long)((bot->via_plan.best_first + 4.f) * BOT_TICKS_PER_SECOND);
+	if (bot->via_plan.flank)
 	{
-		bot->flank_side = best_side;
+		bot->flank_side = bot->via_plan.best_side;
 		bot->flank_time = game_time_get();
 	}
-	if (objective)
+	if (bot->via_plan.objective)
 	{
-		bot->personality.route_side = best_side;
+		bot->personality.route_side = bot->via_plan.best_side;
 		bot->personality.route_died = FALSE;
 		bot->on_objective_route = TRUE;
 	}
 	if (bot_logging())
 		bot_log("bot%ld t%ld via %s side %ld (%.1f %.1f) for goal (%.1f %.1f)", player_index, game_time_get(),
-			carrying ? "carrying" : objective ? "objective" : flank ? "flank" : "trip", best_side, best_via.x, best_via.y, bot->goal.x, bot->goal.y);
+			bot->via_plan.carrying ? "carrying" : bot->via_plan.objective ? "objective" : bot->via_plan.flank ? "flank" : "trip",
+			bot->via_plan.best_side, bot->via_point.x, bot->via_point.y, bot->goal.x, bot->goal.y);
+}
+
+/* one place tried: somewhere off to a side of the straight way, the way
+   there and on from it against the straight way's */
+static void bot_plan_via_step(struct bot_state *bot, struct bot_body const *body, long player_index)
+{
+	real_point3d const *from = &body->position;
+	real distance = distance3d(from, &bot->goal);
+	int objective = bot->via_plan.objective;
+	int flank = bot->via_plan.flank;
+	float direct = bot->via_plan.direct;
+	long quarry = bot->via_plan.quarry;
+	real_point3d quarry_eye;
+	real along = 0.3f + 0.4f * bot_random(bot);
+	long side = bot_random(bot) < 0.5f ? -1 : 1;
+	real across = (real)side * (0.2f + 0.35f * bot_random(bot)) * distance;
+	real dx = bot->goal.x - from->x;
+	real dy = bot->goal.y - from->y;
+	real length = (real)sqrt(dx * dx + dy * dy);
+	real_point3d spot;
+	real_point3d via;
+	float first;
+	float second;
+	real score;
+	long i;
+	struct bot_body there;
+
+	/* (nearly there by now: straight on) */
+	if (!aas_ready() || length < 1.f || distance < 8.f)
+	{
+		bot->via_plan.samples = 0;
+		return;
+	}
+	if (--bot->via_plan.samples <= 0)
+		bot->via_plan.samples = -1; /* (the last: the best of them after it) */
+	if (quarry != NONE && (!bot_unit_alive(quarry) || !object_try_and_get(quarry)))
+		quarry = bot->via_plan.quarry = NONE;
+	if (quarry != NONE)
+		quarry_eye = object_get(quarry)->object.bounding_sphere_center;
+	else
+	{
+		quarry_eye = bot->goal;
+		quarry_eye.z += 0.6f;
+	}
+	spot.x = from->x + dx * along - dy / length * across;
+	spot.y = from->y + dy * along + dx / length * across;
+	spot.z = from->z + (bot->goal.z - from->z) * along;
+	if (aas_nearest_area(AAS_FOOT, &spot, 8.f, &via) == NONE)
+	{
+		spot.z += 3.f;
+		if (aas_nearest_area(AAS_FOOT, &spot, 8.f, &via) == NONE)
+			goto tried;
+	}
+	first = bot_travel_time(body, AAS_FOOT, &via);
+	there = *body;
+	there.position = via;
+	second = bot_travel_time(&there, AAS_FOOT, &bot->goal);
+	if (first <= 0.f || second <= 0.f || first + second > direct * bot->via_plan.slack + 2.f)
+		goto tried;
+	if (!objective && !flank)
+	{
+		/* an ordinary trip: the first that will do */
+		bot->via_plan.best_via = via;
+		bot->via_plan.best_first = first;
+		bot->via_plan.best_side = side;
+		bot->via_plan.best_score = 0.f;
+		bot_plan_via_finish(bot, player_index);
+		return;
+	}
+	/* the shorter the better; then a change from last time, never the
+	   way it died, and not where teammates are already going */
+	score = (first + second) / direct + 0.3f * bot_random(bot) * bot->personality.whim;
+	if (flank)
+	{
+		/* come at them from where they can't see us coming: out of
+		   their sight on the way in, and from the side or behind rather
+		   than where they're looking */
+		real_point3d raised = via;
+		raised.z += 0.6f;
+		/* (a way round they can see all of is no flank: straight in) */
+		if (bot_line_clear(bot_sight_flags, &quarry_eye, &raised, quarry != NONE ? quarry : NONE))
+			goto tried;
+		if (quarry != NONE)
+		{
+			struct unit_datum *enemy = unit_try_and_get(quarry);
+			real vx = via.x - quarry_eye.x, vy = via.y - quarry_eye.y;
+			real vl = (real)sqrt(vx * vx + vy * vy);
+			if (enemy && vl > 1.f)
+			{
+				real facing = (enemy->unit.aiming_vector.i * vx + enemy->unit.aiming_vector.j * vy) / vl; /* 1: right in front */
+				score -= 0.25f * (1.f - facing);
+			}
+		}
+		if (side == bot->flank_side && game_time_get() - bot->flank_time < 6 * BOT_TICKS_PER_SECOND)
+			score -= 0.6f;
+	}
+	if (objective && side == bot->personality.route_side)
+		score += bot->personality.route_died ? 1.5f : 0.25f;
+	for (i = 0; i < BOT_MAXIMUM_PLAYERS; i++)
+	{
+		struct bot_state const *mate = &bot_states[i];
+		if (i == player_index || mate->unit_index == NONE || mate->team != bot->team || !mate->via_valid ||
+			distance3d(&mate->goal, &bot->goal) > 15.f)
+			continue;
+		if (distance3d(&mate->via_point, &via) < 12.f || (objective && mate->via_side == side))
+			score += 0.35f;
+	}
+	if (score < bot->via_plan.best_score)
+	{
+		bot->via_plan.best_score = score;
+		bot->via_plan.best_via = via;
+		bot->via_plan.best_first = first;
+		bot->via_plan.best_side = side;
+	}
+tried:
+	if (bot->via_plan.samples < 0)
+		bot_plan_via_finish(bot, player_index);
 }
 
 /* a tick's movement toward point over the areas (at most once a tick) */
@@ -4444,13 +4616,9 @@ static void bots_world_tick(void)
 			}
 		}
 	}
-	/* each side's route costs, once a second (by turns) */
-	if (aas_ready() && now % 10 == 0)
-	{
-		long side = (now / 10) % 3;
-		if (game_engine_has_teams() ? side < 2 : side == 2)
-			bot_side_update_costs(side);
-	}
+	/* each side's route costs, a part each tick (by turns) */
+	if (aas_ready())
+		bot_sides_update();
 	/* who's been where */
 	if (now % 15 == 0)
 	{
@@ -4769,7 +4937,7 @@ boolean infection_player_is_zombie(long player_index);
 void bot_think(long player_absolute_index, struct player_action *action)
 {
 	static int profile = -1;
-	static unsigned long long total, worst, calls;
+	static unsigned long long total, worst, calls, tick_total, worst_tick;
 	static long last_tick = -1, ticks, window_start;
 	unsigned long long start, spent;
 	if (profile < 0)
@@ -4787,6 +4955,7 @@ void bot_think(long player_absolute_index, struct player_action *action)
 	bot_think_inner(player_absolute_index, action);
 	BOT_PROFILE_MARK(NULL);
 	spent = bot_time_microseconds() - start;
+	bot_profile_call_end(player_absolute_index, game_time_get(), spent, 2000);
 	total += spent;
 	calls++;
 	if (spent > worst)
@@ -4795,14 +4964,19 @@ void bot_think(long player_absolute_index, struct player_action *action)
 	{
 		last_tick = game_time_get();
 		ticks++;
+		tick_total = 0;
 	}
+	/* (all the bots' thinking in one tick: what a frame waits for) */
+	tick_total += spent;
+	if (tick_total > worst_tick)
+		worst_tick = tick_total;
 	if (last_tick - window_start >= 150 && ticks > 0)
 	{
-		bot_log("bot profile t%ld: %.3f ms a tick for %.1f bots, worst call %.2f ms, objects %ld", last_tick,
-			(double)total / 1000.0 / ticks, (double)calls / ticks, (double)worst / 1000.0,
+		bot_log("bot profile t%ld: %.3f ms a tick for %.1f bots, worst call %.2f ms, worst tick %.2f ms, objects %ld", last_tick,
+			(double)total / 1000.0 / ticks, (double)calls / ticks, (double)worst / 1000.0, (double)worst_tick / 1000.0,
 			object_header_data ? (long)object_header_data->actual_count : -1L);
 		bot_profile_report(ticks);
-		total = worst = calls = 0;
+		total = worst = calls = worst_tick = 0;
 		ticks = 0;
 		window_start = last_tick;
 	}
@@ -4844,6 +5018,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 	int weapon_chosen = FALSE;
 	real drive_throttle = 0.f;
 	int zombie = FALSE; /* infection: one of the infected (infection.c) */
+	long look_period;
 
 	action->control_flags = 0;
 	action->throttle.i = 0.f;
@@ -5034,22 +5209,31 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 	BOT_PROFILE_MARK("perception");
 	/* ---- perception */
 	bot_finding_teamwork = bot->personality.teamwork;
-	/* in a crowd, a full look round only every few ticks (by turns); in
-	   between, keep on whoever we're shooting while they're in sight */
+	/* A full look round (a line of sight to everyone) only every second
+	   tick in a game of twelve or more, every third in one of twenty-four
+	   (by turns: a fifteenth of a second, a tenth, well inside anyone's
+	   reaction time); in between, keep on whoever we're shooting while
+	   they're in sight. It is the bots' steadiest cost. */
 	target = NONE;
-	if (bot_player_count > 48 && bot->target_unit != NONE && bot_unit_alive(bot->target_unit) &&
-		(game_time_get() + player_absolute_index) % (1 + bot_player_count / 48) != 0)
+	look_period = MIN(3, 1 + bot_player_count / 12);
+	if (bot_env_set("HALO_BOT_LOOK_ALWAYS")) /* (testing) */
+		look_period = 1;
+	bot_look_period = look_period;
+	if (look_period > 1 && bot->target_unit != NONE && bot_unit_alive(bot->target_unit) &&
+		(game_time_get() + player_absolute_index) % look_period != 0)
 	{
+		/* (as the look round sees them: no further off than it looks) */
 		real_point3d at = object_get(bot->target_unit)->object.bounding_sphere_center;
-		if (bot_line_clear(bot_sight_flags, &eye, &at, object_get_ultimate_parent(me->unit_index)) &&
+		if (distance3d(&eye, &at) <= (weapon.precision ? 150.f : 90.f) &&
+			bot_line_clear(bot_sight_flags, &eye, &at, object_get_ultimate_parent(me->unit_index)) &&
 			bot_sees_camouflaged(bot->target_unit, distance3d(&eye, &at), TRUE))
 		{
 			target = bot->target_unit;
 			target_distance = distance3d(&eye, &at);
 		}
 	}
-	else if (bot_player_count > 48 && bot->target_unit == NONE &&
-		(game_time_get() + player_absolute_index) % (1 + bot_player_count / 96) != 0)
+	else if (look_period > 1 && bot->target_unit == NONE &&
+		(game_time_get() + player_absolute_index) % look_period != 0)
 	{
 		; /* nobody in sight last time: look again soon */
 	}
@@ -5533,7 +5717,10 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 
 	/* in the fight: the flank (if any) has done its job */
 	if (target != NONE && bot->goal_kind == _bot_goal_enemy)
+	{
 		bot->via_valid = FALSE;
+		bot->via_plan.samples = 0;
+	}
 
 	BOT_PROFILE_MARK("movement");
 	/* ---- movement */
@@ -6157,7 +6344,12 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			{
 				bot_plan_via(bot, &body, player_absolute_index);
 			}
+			else if (bot->via_pending)
+				bot->via_plan.samples = 0;
 			bot->via_pending = FALSE;
+			/* (a place tried each tick, straight on meanwhile) */
+			if (bot->via_plan.samples > 0)
+				bot_plan_via_step(bot, &body, player_absolute_index);
 			if (bot->via_valid && (bot_distance2d(&position, &bot->via_point) < 2.5f || --bot->via_ticks <= 0 || committed))
 				bot->via_valid = committed && bot->via_valid && bot->via_ticks > 0;
 			if (bot->via_valid)
@@ -6860,8 +7052,9 @@ void bots_map_loaded(void)
 {
 	struct scenario *scenario = global_scenario_get();
 
+	/* (and when the navigation is being baked, bot_bake.c: whoever plays) */
 	if (game_connection() != _game_connection_network_server || !scenario ||
-		scenario->type != _scenario_type_multiplayer || (bots_configured() <= 0 && bots_fill() <= 0))
+		scenario->type != _scenario_type_multiplayer || (bots_configured() <= 0 && bots_fill() <= 0 && !bot_bake_enabled()))
 	{
 		return;
 	}

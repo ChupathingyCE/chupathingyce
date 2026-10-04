@@ -100,6 +100,15 @@ struct aas_reach
 	float time; /* seconds, over and above the walk to start */
 };
 
+/* baking (bot_bake.c): the navigation is worked out afresh and kept with
+   the game data, where every machine reads it before its own */
+void navm_set_baking(boolean baking);
+/* ... the files it has written so far (two a map: its heights, its areas) */
+long navm_baked_files(void);
+/* whether the map has baked navigation of this build's kind */
+boolean navm_baked_current(char const *map_name);
+boolean aas_baked_current(char const *map_name);
+
 boolean aas_build(void);
 void aas_dispose(void);
 boolean aas_ready(void);

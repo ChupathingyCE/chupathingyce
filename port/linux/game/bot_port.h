@@ -37,6 +37,8 @@ bot_profile_report logs each section's share since the last report. */
 extern int bot_profiling;
 void bot_profile_add(char const *section, unsigned long long microseconds);
 void bot_profile_report(long ticks);
+/* ... and a think that took slow microseconds or more: its sections' times */
+void bot_profile_call_end(long bot, long tick, unsigned long long microseconds, unsigned long long slow);
 /* ... or from a mark to the next (NULL ends the last) */
 void bot_profile_mark(char const *section);
 #define BOT_PROFILE_MARK(name) do { if (bot_profiling) bot_profile_mark(name); } while (0)

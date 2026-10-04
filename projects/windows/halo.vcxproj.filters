@@ -1608,6 +1608,9 @@
     <ClCompile Include="$(HaloRoot)port\linux\game\bot_aas.c">
       <Filter>port\linux\game</Filter>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\bot_bake.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\game\bot_move.c">
       <Filter>port\linux\game</Filter>
     </ClCompile>
@@ -1732,6 +1735,9 @@
       <Filter>port\linux\src</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\src\p2p_discord.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\p2p_lobby.c">
       <Filter>port\linux\src</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\src\p2p_signal.c">

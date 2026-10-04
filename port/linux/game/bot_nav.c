@@ -819,21 +819,65 @@ void navm_signature(char *map, unsigned long *signature)
 	signature[3] = sum;
 }
 
-void navm_cache_path(char const *map, char const *extension, char *path, long size)
+/* Where a map's navigation is kept. Baked, with the game data
+   (d:\navcache, next to maps: made when the game is built, bot_bake.c), or
+   worked out by this machine the first time the map had bots (u:\navcache,
+   in the save folder). A map's baked files are read before its own. */
+static boolean navm_baking;
+
+void navm_set_baking(boolean baking)
+{
+	navm_baking = baking;
+}
+
+boolean navm_is_baking(void)
+{
+	return navm_baking;
+}
+
+/* (the files baking has written whole) */
+static long navm_baked_file_count;
+
+void navm_baked_file(boolean whole, char const *path)
+{
+	if (!navm_baking)
+		return;
+	if (whole)
+		navm_baked_file_count++;
+	else
+		bot_log("navm: could not write %s", path);
+}
+
+long navm_baked_files(void)
+{
+	return navm_baked_file_count;
+}
+
+void navm_cache_file(char const *map, long bsp_index, char const *extension, boolean baked, char *path, long size)
 {
 	char name[128];
 	char const *last = strrchr(map, '\\');
+	char const *root = baked ? "d:\\navcache" : "u:\\navcache";
 	long i;
-	struct file_reference folder;
 	snprintf(name, sizeof(name), "%s", last ? last + 1 : map);
 	for (i = 0; name[i]; i++)
 		if (!((name[i] >= 'a' && name[i] <= 'z') || (name[i] >= 'A' && name[i] <= 'Z') || (name[i] >= '0' && name[i] <= '9') || name[i] == '_'))
 			name[i] = '_';
-	file_reference_create_from_path(&folder, "u:\\navcache", TRUE);
-	if (!file_exists(&folder))
-		file_create(&folder);
+	/* (the game data's folder is only written to when baking) */
+	if (!baked || navm_baking)
+	{
+		struct file_reference folder;
+		file_reference_create_from_path(&folder, root, TRUE);
+		if (!file_exists(&folder))
+			file_create(&folder);
+	}
 	/* (a campaign level has a few structure BSPs: one each) */
-	snprintf(path, size, "u:\\navcache\\%s_%d.%s", name, (int)global_structure_bsp_index, extension);
+	snprintf(path, size, "%s\\%s_%d.%s", root, name, (int)bsp_index, extension);
+}
+
+void navm_cache_path(char const *map, char const *extension, boolean baked, char *path, long size)
+{
+	navm_cache_file(map, global_structure_bsp_index, extension, baked, path, size);
 }
 
 struct navm_cache_header
@@ -850,24 +894,15 @@ struct navm_cache_header
 	float cell;
 };
 
-static boolean navm_cache_load(void)
+/* the heightfield from a cache file of this map (its signature): TRUE when
+   it is whole */
+static boolean navm_cache_read(FILE *file, char const *map, unsigned long const *signature)
 {
 	struct navm_cache_header header;
-	char map[128];
-	unsigned long signature[4];
-	char path[512];
-	FILE *file;
 	boolean ok;
 
-	if (getenv("HALO_BOT_NOCACHE"))
-		return FALSE;
-	navm_signature(map, signature);
-	navm_cache_path(map, "height", path, sizeof(path));
-	file = fopen(path, "rb");
-	if (!file)
-		return FALSE;
 	ok = fread(&header, sizeof(header), 1, file) == 1 && header.magic == NAVM_CACHE_MAGIC && header.version == NAVM_CACHE_VERSION &&
-		header.span_size == sizeof(struct navm_span) && !strcmp(header.map, map) && !memcmp(header.signature, signature, sizeof(signature)) &&
+		header.span_size == sizeof(struct navm_span) && !strcmp(header.map, map) && !memcmp(header.signature, signature, 4 * sizeof(unsigned long)) &&
 		header.width > 0 && header.height > 0 && header.width * header.height < 64 * 1024 * 1024 &&
 		header.climbable_count >= 0 && header.climbable_count <= NAVM_MAXIMUM_CLIMBABLES &&
 		header.span_count >= 0 && header.span_count < 64 * 1024 * 1024 && /* (before anything's sized by it) */
@@ -899,15 +934,66 @@ static boolean navm_cache_load(void)
 					navm.spans[c].column >= 0 && navm.spans[c].column < navm.width * navm.height;
 		}
 	}
-	fclose(file);
-	if (!ok)
-	{
-		navm_dispose();
+	return ok;
+}
+
+static boolean navm_cache_load(void)
+{
+	char map[128];
+	unsigned long signature[4];
+	long attempt;
+
+	/* (baking: worked out afresh) */
+	if (getenv("HALO_BOT_NOCACHE") || navm_baking)
 		return FALSE;
+	navm_signature(map, signature);
+	/* the baked file, then this machine's own */
+	for (attempt = 0; attempt < 2; attempt++)
+	{
+		char path[512];
+		FILE *file;
+
+		navm_cache_path(map, "height", attempt == 0, path, sizeof(path));
+		file = fopen(path, "rb");
+		if (!file)
+			continue;
+		if (navm_cache_read(file, map, signature))
+		{
+			fclose(file);
+			if (bot_logging())
+				bot_log("navm: read %s", path);
+			return TRUE;
+		}
+		fclose(file);
+		navm_dispose();
 	}
-	if (bot_logging())
-		bot_log("navm: read %s", path);
-	return TRUE;
+	return FALSE;
+}
+
+/* whether the map has a baked heightfield of this build's kind (its header
+   only: whether it is this very map's is found when the map is loaded) */
+boolean navm_baked_current(char const *map_name)
+{
+	struct navm_cache_header header;
+	char path[512];
+	FILE *file;
+	boolean ok;
+
+	navm_cache_file(map_name, 0, "height", TRUE, path, sizeof(path));
+	file = fopen(path, "rb");
+	if (!file)
+		return FALSE;
+	ok = fread(&header, sizeof(header), 1, file) == 1 && header.magic == NAVM_CACHE_MAGIC && header.version == NAVM_CACHE_VERSION &&
+		header.span_size == sizeof(struct navm_span);
+	/* (and all of it there) */
+	if (ok)
+	{
+		double size = sizeof(header) + (double)header.width * header.height * sizeof(long) +
+			(double)header.span_count * sizeof(struct navm_span) + (double)header.climbable_count * sizeof(struct navm_climbable);
+		ok = fseek(file, 0, SEEK_END) == 0 && (double)ftell(file) == size;
+	}
+	fclose(file);
+	return ok;
 }
 
 static void navm_cache_save(void)
@@ -915,6 +1001,7 @@ static void navm_cache_save(void)
 	struct navm_cache_header header;
 	char path[512];
 	FILE *file;
+	boolean whole;
 	memset(&header, 0, sizeof(header));
 	header.magic = NAVM_CACHE_MAGIC;
 	header.version = NAVM_CACHE_VERSION;
@@ -927,15 +1014,19 @@ static void navm_cache_save(void)
 	header.span_count = navm.span_count;
 	header.climbable_count = navm.climbable_count;
 	header.cell = navm.cell;
-	navm_cache_path(header.map, "height", path, sizeof(path));
+	navm_cache_path(header.map, "height", navm_baking, path, sizeof(path));
 	file = fopen(path, "wb");
 	if (!file)
+	{
+		navm_baked_file(FALSE, path);
 		return;
-	fwrite(&header, sizeof(header), 1, file);
-	fwrite(navm.columns, sizeof(long), (size_t)(navm.width * navm.height), file);
-	fwrite(navm.spans, sizeof(struct navm_span), (size_t)navm.span_count, file);
-	fwrite(navm.climbables, sizeof(struct navm_climbable), (size_t)navm.climbable_count, file);
-	fclose(file);
+	}
+	whole = fwrite(&header, sizeof(header), 1, file) == 1 &&
+		fwrite(navm.columns, sizeof(long), (size_t)(navm.width * navm.height), file) == (size_t)(navm.width * navm.height) &&
+		fwrite(navm.spans, sizeof(struct navm_span), (size_t)navm.span_count, file) == (size_t)navm.span_count &&
+		fwrite(navm.climbables, sizeof(struct navm_climbable), (size_t)navm.climbable_count, file) == (size_t)navm.climbable_count;
+	whole = fclose(file) == 0 && whole;
+	navm_baked_file(whole, path);
 	if (bot_logging())
 		bot_log("navm: saved %s", path);
 }

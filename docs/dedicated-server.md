@@ -123,6 +123,13 @@ leaves it, bots or not. With bots, one person is enough for a team game.
 A game the bots played in gets no carnage report on the site: the stats
 there are for people.
 
+The first game with bots on each map takes a few seconds longer to start,
+while the server works out where the bots can go. To do that ahead of time
+for every map, run `bake-navigation.cmd` (Windows), or start the game once
+with `HALO_BAKE_NAVIGATION=all` (Linux and Mac): it writes a `navcache`
+folder next to `maps` and quits. More in the
+[port's README](../port/linux/README.md#baked-navigation).
+
 ## Infection
 
 `infection` is a game type of its own: everyone starts alive, one player
