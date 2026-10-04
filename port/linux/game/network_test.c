@@ -979,6 +979,28 @@ void network_test_update(
 				if (getenv("HALO_NETWORK_TEST_WEAPONS"))
 					variant.universal_variant.weapon_set = atol(getenv("HALO_NETWORK_TEST_WEAPONS"));
 				player_ui_set_game_variant(&variant);
+				/* HALO_NETWORK_TEST_BANSHEES=n: each team's vehicles by count
+				(the gametype's PC options): n Banshees, two Warthogs, a
+				Ghost and a Scorpion, where the map has places for them */
+				if (getenv("HALO_NETWORK_TEST_BANSHEES"))
+				{
+					struct game_variant_options options;
+					short side;
+
+					game_variant_options_default(&variant, &options);
+					for (side = 0; side < 2; side++)
+					{
+						options.vehicle_set[side] = VARIANT_VEHICLE_SET_CUSTOM;
+						options.vehicle_counts[side][_variant_vehicle_warthog] = 2;
+						options.vehicle_counts[side][_variant_vehicle_ghost] = 1;
+						options.vehicle_counts[side][_variant_vehicle_scorpion] = 1;
+						options.vehicle_counts[side][_variant_vehicle_banshee] = (byte)atol(getenv("HALO_NETWORK_TEST_BANSHEES"));
+					}
+					/* (as the gametype editor leaves the variant's own set) */
+					variant.universal_variant.vehicle_set = 0;
+					player_ui_set_game_variant(&variant);
+					player_ui_set_game_variant_options(&options);
+				}
 				network_game_server_change_game_variant(global_network_game_server_get(), &variant);
 				network_test.map_set = TRUE;
 			}

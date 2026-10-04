@@ -5242,6 +5242,72 @@ static void bots_world_tick(void)
 				speeds[0], speeds[1], speeds[2], speeds[3], speeds[4], speeds[5]);
 		}
 	}
+	if (bot_env_set("HALO_BOT_ITEMS") && getenv("HALO_BOT_WATCH") && now < 120)
+	{
+		/* (testing: one named unit's health each tick while it changes) */
+		struct scenario *scenario = global_scenario_get();
+		static real last = -99.f;
+		long n;
+		for (n = 0; n < scenario->object_names.count; n++)
+		{
+			struct scenario_object_name const *name = TAG_BLOCK_GET_ELEMENT(&scenario->object_names, n, struct scenario_object_name);
+			long index = object_index_from_name_index((short)n);
+			if (strcmp(name->name, getenv("HALO_BOT_WATCH")))
+				continue;
+			if (index == NONE)
+			{
+				if (last != -98.f)
+					bot_log("watch t%ld %s: not there", now, name->name);
+				last = -98.f;
+			}
+			else if (object_get(index)->object.body_vitality != last || now % 6 == 0)
+			{
+				struct object_datum *object = object_get(index);
+				last = object->object.body_vitality;
+				bot_log("watch t%ld %s: health %.3f of %.1f shield %.3f of %.1f damage flags %lx at %.1f %.1f %.1f velocity %.2f %.2f %.2f", now, name->name,
+					object->object.body_vitality, object->object.maximum_body_vitality, object->object.shield_vitality, object->object.maximum_shield_vitality,
+					(unsigned long)object->object.damage_flags, object->object.position.x, object->object.position.y, object->object.position.z,
+					object->object.translational_velocity.i, object->object.translational_velocity.j, object->object.translational_velocity.k);
+			}
+		}
+	}
+	if (bot_env_set("HALO_BOT_ITEMS") && now == 90)
+	{
+		/* (testing: the map's vehicle placements as the scenario has them:
+		   whose, and the gametypes each is for) */
+		struct scenario *scenario = global_scenario_get();
+		long v;
+		for (v = 0; v < scenario->vehicles.count && v < 200; v++)
+		{
+			byte const *placement = (byte const *)xbox_pointer(scenario->vehicles.address) + v * 0x78;
+			struct scenario_object_datum const *object = (struct scenario_object_datum const *)placement;
+			struct scenario_object_palette_entry const *entry = object->palette_entry_index >= 0 && object->palette_entry_index < scenario->vehicle_palette.count ?
+				TAG_BLOCK_GET_ELEMENT(&scenario->vehicle_palette, object->palette_entry_index, struct scenario_object_palette_entry) : NULL;
+			bot_log("placement %ld %s name %s not-placed %x team %d spawn flags %04x at %.0f %.0f %.0f", v,
+				entry && entry->reference.index != NONE ? tag_get_name(entry->reference.index) : "-",
+				object->name_index >= 0 && object->name_index < scenario->object_names.count ?
+					TAG_BLOCK_GET_ELEMENT(&scenario->object_names, object->name_index, struct scenario_object_name)->name : "-",
+				(unsigned)object->placement_flags, (int)(signed char)placement[0x58], (unsigned)*(word const *)(placement + 0x5a),
+				object->position.x, object->position.y, object->position.z);
+		}
+	}
+	if (bot_env_set("HALO_BOT_ITEMS") && now == 90)
+	{
+		/* (testing: the map's named units, which its scripts ask after:
+		   whether each is there) */
+		struct scenario *scenario = global_scenario_get();
+		long n;
+		for (n = 0; n < scenario->object_names.count && n < 400; n++)
+		{
+			struct scenario_object_name const *name = TAG_BLOCK_GET_ELEMENT(&scenario->object_names, n, struct scenario_object_name);
+			long index = object_index_from_name_index((short)n);
+			if (name->runtime_object_type != _object_type_biped && name->runtime_object_type != _object_type_vehicle)
+				continue;
+			bot_log("named %s %s: %s%s", name->runtime_object_type == _object_type_biped ? "biped" : "vehicle", name->name,
+				index == NONE ? "not there" : tag_get_name(object_get(index)->definition_index),
+				index != NONE && TEST_FLAG(object_get(index)->object.damage_flags, _object_dead_bit) ? " (dead)" : "");
+		}
+	}
 	if (bot_env_set("HALO_BOT_ITEMS") && now % 300 == 30 && aas_ready())
 	{
 		struct object_iterator items;

@@ -14030,6 +14030,13 @@ boolean hs_scenario_postprocess(
 			success = FALSE;
 		}
 	}
+	/* port, testing: HALO_HS_DUMP, the map's scripts in the log (hs_runtime.c) */
+	if (success && getenv("HALO_HS_DUMP"))
+	{
+		extern void hs_debug_dump_scripts(void);
+
+		hs_debug_dump_scripts();
+	}
 	if (restore_syntax_data)
 		hs_syntax_data = saved_syntax_data;
 

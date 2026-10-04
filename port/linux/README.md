@@ -202,6 +202,33 @@ path replaces one of the game's, and another `.xml` file is added.
 the game uses the Xbox's menus and the log names the file, the line and the
 problem.
 
+### Vehicles on Halo PC maps
+
+On a Halo PC (Custom Edition) map, the game puts the vehicles where Halo PC
+puts them. Each vehicle of such a map has a list of the gametypes that it is
+for (slayer, capture the flag, king of the hill, oddball), with two marks for
+each gametype: the vehicle is there by default, or the vehicle can be there.
+
+- The gametypes of the game (their vehicle setting is Warthogs) and the
+  setting `Default` put all the vehicles that are there by default for the
+  gametype. These are the vehicles of the map, also the vehicles that only
+  this map has (a jet, a walker).
+- The settings Ghosts and Scorpions put only the vehicles of that type that
+  can be there.
+- With a number for each type, the game puts that number of each type, at
+  the places of the vehicles that can be there. A vehicle that only this map
+  has is there when it is there by default.
+- The setting None puts no vehicles.
+- A vehicle that the script of the map makes is always made.
+
+For only Warthogs on such a map, set the number of each type in the gametype
+editor.
+
+`HALO_HS_DUMP=1` writes the scripts of a map to the standard error stream
+when the map loads. `HALO_NETWORK_TEST_BANSHEES=<n>`,
+`HALO_NETWORK_TEST_VEHICLES=<set>` and `HALO_NETWORK_TEST_WEAPONS=<set>` set
+the vehicles and the weapons of a test game (`game/network_test.c`).
+
 ## Settings
 
 The settings are in `config.toml` next to the executable

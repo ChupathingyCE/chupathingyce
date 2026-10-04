@@ -880,6 +880,69 @@ void hs_runtime_dispose_from_old_map(
 	return;
 }
 
+/* port, testing (HALO_HS_DUMP): a map's scripts as they were written, from
+their nodes and the text each node keeps of its source: what a map's script
+does to the game (a structure BSP it switches to, a vehicle it makes) with
+no source file to read. */
+static void hs_debug_dump_node(
+	long expression_index,
+	char *text,
+	long size,
+	long depth)
+{
+	struct hs_syntax_node *node;
+	long length = (long)strlen(text);
+	char const *source = (char const *)xbox_pointer(global_scenario_get()->hs_string_constants.address);
+
+	if (expression_index == NONE || depth > 40 || length > size - 80)
+		return;
+	node = (struct hs_syntax_node *)datum_try_and_get(hs_syntax_data, expression_index);
+	if (!node)
+		return;
+	if (TEST_FLAG(node->flags, _hs_syntax_node_primitive_bit))
+	{
+		if (source && node->source_offset >= 0 && node->source_offset < global_scenario_get()->hs_string_constants.size)
+			snprintf(text + length, size - length, "%.60s ", source + node->source_offset);
+		else
+			snprintf(text + length, size - length, "#%ld ", node->data);
+	}
+	else
+	{
+		long child;
+
+		snprintf(text + length, size - length, "(");
+		for (child = node->data; child != NONE; )
+		{
+			struct hs_syntax_node *child_node = (struct hs_syntax_node *)datum_try_and_get(hs_syntax_data, child);
+
+			if (!child_node)
+				break;
+			hs_debug_dump_node(child, text, size, depth + 1);
+			child = child_node->next_node_index;
+		}
+		length = (long)strlen(text);
+		snprintf(text + length, size - length, ") ");
+	}
+}
+
+void hs_debug_dump_scripts(
+	void)
+{
+	struct scenario *scenario = global_scenario_get();
+	short script_index;
+
+	for (script_index = 0; script_index < scenario->hs_scripts.count; script_index++)
+	{
+		struct hs_script *script = TAG_BLOCK_GET_ELEMENT(&scenario->hs_scripts, script_index, struct hs_script);
+		static char text[6000];
+
+		text[0] = 0;
+		hs_debug_dump_node(script->root_expression_index, text, sizeof(text), 0);
+		/* (to the standard error stream: the game's log keeps only so many lines of one kind) */
+		fprintf(stderr, "hs dump: script %s (type %d): %s\n", script->name, (int)script->script_type, text);
+	}
+}
+
 static char const *expression_get_function_name(
 	long thread_index,
 	long expression_index)

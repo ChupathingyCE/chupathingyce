@@ -7234,6 +7234,52 @@ boolean game_engine_vehicle_placement_allowed(
 
 	if (!game_engine || placement->palette_entry_index == NONE)
 		return TRUE;
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a Custom Edition map. Each vehicle placement of a Halo PC
+	scenario says which gametypes it is for (its multiplayer spawn flags,
+	a word 0x5a into the placement: for slayer, capture the flag, king and
+	oddball, a bit that it is there by default, and eight bits up a bit
+	that it may be there) and whose it is (its team, a byte at 0x58). A
+	placement with no bit is made by the map's script or not at all.
+	- The map's own vehicles (the default set; and the Warthogs set, which
+	  is what this game's stock gametypes have, as Halo PC's have the
+	  default): the placements that are there by default.
+	- One type alone, or each type by count: of that type, the placements
+	  that may be there; a vehicle that is none of the six types (a map's
+	  jet, its walker) as by default. */
+	{
+		extern boolean cache_file_tags_are_ce(void);
+
+		if (cache_file_tags_are_ce())
+		{
+			word spawn_flags = *(word const *)((byte const *)placement + 0x5a);
+			signed char team = *(signed char const *)((byte const *)placement + 0x58);
+			short bit =
+				global_variant.game_engine_index == game_engine_ctf ? 1 :
+				global_variant.game_engine_index == game_engine_king ? 2 :
+				global_variant.game_engine_index == game_engine_oddball ? 3 : 0;
+			boolean by_default = (spawn_flags >> bit) & 1;
+			boolean may_be = (spawn_flags >> (8 + bit)) & 1;
+
+			side = global_variant.universal_variant.teams && team == 1 ? 1 : 0;
+			set = options->vehicle_set[side];
+			type = game_engine_variant_vehicle_type(TAG_BLOCK_GET_ELEMENT(palette, placement->palette_entry_index,
+				struct scenario_object_palette_entry)->reference.index);
+			if (set == _game_engine_vehicles_none)
+				return FALSE;
+			if (set == _game_engine_vehicles_default || set == _game_engine_vehicles_warthog || type == NONE)
+				return by_default;
+			if (set == VARIANT_VEHICLE_SET_CUSTOM)
+			{
+				if (!may_be || game_engine_vehicles_placed[side][type] >= options->vehicle_counts[side][type])
+					return FALSE;
+				game_engine_vehicles_placed[side][type]++;
+				return TRUE;
+			}
+			return may_be && set - _game_engine_vehicles_warthog == type;
+		}
+	}
+#endif
 	side = global_variant.universal_variant.teams ? game_engine_nearest_team(&placement->position) : 0;
 	set = options->vehicle_set[side];
 	type = game_engine_variant_vehicle_type(TAG_BLOCK_GET_ELEMENT(palette, placement->palette_entry_index,
@@ -7345,6 +7391,20 @@ long game_engine_remap_vehicle(
 		vehicle1 = TAG_BLOCK_GET_ELEMENT(vehicles, 1, struct game_globals_vehicle);
 		vehicle2 = TAG_BLOCK_GET_ELEMENT(vehicles, 2, struct game_globals_vehicle);
 
+#ifdef HALO_CUSTOM_EDITION
+		/* port: a Custom Edition map's vehicles are placed by Halo PC's
+		rule, which is the placement's own (its multiplayer spawn flags:
+		game_engine_vehicle_placement_allowed). The rule below is the Xbox
+		game's (the globals' three vehicles and no others): it took away a
+		map's own vehicles (its jets, its tanks, its walkers), those its
+		placements have, and those its scripts make. */
+		{
+			extern boolean cache_file_tags_are_ce(void);
+
+			if (cache_file_tags_are_ce())
+				return result;
+		}
+#endif
 		/* (port: and the other types a gametype's sets name, which a map may
 		have: game_engine_variant_vehicle_type) */
 		if (result != vehicle0->vehicle.index &&
