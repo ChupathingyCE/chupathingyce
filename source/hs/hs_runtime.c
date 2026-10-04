@@ -2157,14 +2157,10 @@ void hs_evaluate_inspect(
 		if (hs_type_inspectors[expression->type])
 		{
 			hs_type_inspectors[expression->type](expression->type, *value, string);
-			/* BUG (preserved for exact matching): the inspected value's text is passed as the
-			 * format (January 0x4bc840 +0xdd..+0xe6), so inspecting a string that contains '%'
-			 * reads arguments that were never passed. A corrected build should print it through
-			 * "%s". Source-policy approval pending (2026-09-27 audit). */
 			/* (port: a scenario script's inspect is the game's chatter, as
 			print is, hs_print) */
 			if (terminal_shows(terminal_command_running ? _terminal_message_serious : _terminal_message_chatter))
-				console_printf(FALSE, string);
+				console_printf(FALSE, "%s", string);
 		}
 
 		hs_return(thread_index, 0);
