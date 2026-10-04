@@ -787,6 +787,15 @@ The bots move and look as a person with a controller or a mouse does:
   corners of walls, so that it does not catch on their edges.
 - When a bot walks and hardly moves for 0.2 seconds (a lip, a seam between
   two surfaces), it jumps at once and steps to the side with more room.
+- When a bot starts a jump, a drop or a ladder and does not move for 0.5
+  seconds, it takes a different route at once.
+- A bot goes to the place where an item is now, also when the item moved.
+  If the game does not give it the item there, the bot steps onto the item,
+  jumps for it, and goes on to a different goal after 1.2 seconds. Before a
+  bot gets to a weapon that it will swap for, it takes the weapon that it
+  will drop in its hands, and it makes the swap when it gets there.
+- A bot that taunts goes to a body that is less than 6 world units away
+  and crouches down and up 2 or 3 times, for about 1 second.
 
 For the route, a jump up costs only the time of the jump, and a jump across
 a gap costs the same as the floor next to it. Thus the bots jump when that

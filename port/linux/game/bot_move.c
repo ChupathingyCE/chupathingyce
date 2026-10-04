@@ -88,6 +88,9 @@ void bot_move_reset(struct bot_move_state *move)
 /* held up: moving less than this much of what it should, for this long */
 #define BOT_STALL_FRACTION 0.3f
 #define BOT_STALL_TICKS 6
+/* ... and on a reach (a jump, a gap, a ladder), this long of not moving at
+   all: it is given up */
+#define BOT_REACH_STALL_TICKS 15
 
 static boolean bot_move_avoiding(void *context, long reach)
 {
@@ -1634,6 +1637,26 @@ finish:
 	}
 	else
 		move->stall_ticks = 0;
+	/* ... and on a jump, a gap, a drop or a ladder, pushing and not moving at
+	   all (up, down or along) for half a second: it is not going to start
+	   from here (come at from a fight, from the wrong side of a rail).
+	   Given up at once, for another way, not after three seconds of pushing
+	   at it. */
+	if (type == AAS_FOOT && move->human && result->moving && move->reach != NONE && result->speed > 0.5f)
+	{
+		real expected = aas_speed(type) * BOT_TICK * result->speed * (body->speed_scale > 0.f ? body->speed_scale : 1.f);
+		if (move->stall_valid && distance3d(position, &move->stall_point) < expected * 0.15f)
+			move->reach_stall_ticks++;
+		else
+			move->reach_stall_ticks = 0;
+		if (move->reach_stall_ticks >= BOT_REACH_STALL_TICKS)
+		{
+			move->reach_stall_ticks = 0;
+			bot_move_reach_failed(bot, "stalled");
+		}
+	}
+	else
+		move->reach_stall_ticks = 0;
 	move->stall_point = *position;
 	move->stall_valid = result->moving;
 	/* stuck: not getting anywhere for a second */

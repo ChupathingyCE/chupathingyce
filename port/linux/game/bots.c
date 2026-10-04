@@ -4720,6 +4720,12 @@ int bot_body_friendly_ahead(struct bot_body const *body, real_point3d const *fro
 	return FALSE;
 }
 
+/* gloating over a body: how far off one may be to go over to, and a dip (a
+   crouch held until it is right down, and up again) */
+#define BOT_TEABAG_REACH 6.f
+#define BOT_TEABAG_DIP_TICKS 16
+#define BOT_TEABAG_DOWN_TICKS 10
+
 /* ---------- the bot */
 
 void bot_reset(long player_absolute_index)
@@ -6134,6 +6140,11 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			(bot->goal_object == NONE || !object_try_and_get(bot->goal_object) ||
 				object_get(bot->goal_object)->object.parent_object_index != NONE);
 
+		/* (a thing to pick up moves too: a weapon dropped on a slope slides, one
+		   knocked by a grenade flies. Where it is now, not where it was when it
+		   was chosen: a bot stood three seconds at the old place.) */
+		if (bot->goal_kind == _bot_goal_item && !goal_gone && distance3d(&object_get(bot->goal_object)->object.position, &bot->goal) > 0.25f)
+			bot->goal = object_get(bot->goal_object)->object.position;
 		if (bot->goal_kind == _bot_goal_vehicle && !goal_gone)
 		{
 			/* it moves; and the seat we want has its own door */
@@ -6350,8 +6361,12 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 
 	BOT_PROFILE_MARK("rubbing it in");
 	/* ---- rubbing it in: a kill, nobody else about, and a bot that likes
-	   to gloat goes over and teabags the body (a second or three, then on
-	   with the game; never with the flag or the ball, never under fire) */
+	   to gloat steps over to the body and teabags it (two or three dips,
+	   each right down and up again so that it reads as what it is, a second
+	   or so in all, then on with the game; only a body a few steps away,
+	   never with the flag or the ball, never under fire). It was up to
+	   three seconds of walking and three of standing over the body with a
+	   bob too quick to see: a bot that stopped and looked at the floor. */
 	if (zombie)
 		bot->teabag_pending = FALSE;
 	if (bot->teabag_pending)
@@ -6359,13 +6374,13 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		struct object_datum *victim = bot->last_fired_unit != NONE ? object_try_and_get(bot->last_fired_unit) : NULL;
 		bot->teabag_pending = FALSE;
 		if (vehicle_index == NONE && target == NONE && !bot_on_objective(bot) && bot->hit_ticks <= 0 &&
-			bot_random(bot) < bot->personality.taunt * (0.5f + 0.5f * (1.f - bot->personality.focus)) *
+			bot_random(bot) < 0.7f * bot->personality.taunt * (0.5f + 0.5f * (1.f - bot->personality.focus)) *
 				(1.f + 0.4f * bot->personality.swagger * MIN(bot->personality.kill_streak, 3)))
 		{
 			bot->teabag_spot = victim ? victim->object.position : bot->last_seen_feet;
-			if (distance3d(&bot->teabag_spot, &position) < 12.f && fabs(bot->teabag_spot.z - position.z) < 2.f)
+			if (distance3d(&bot->teabag_spot, &position) < BOT_TEABAG_REACH && fabs(bot->teabag_spot.z - position.z) < 1.f)
 			{
-				bot->teabag_ticks = (long)((1.2f + 1.5f * bot_random(bot)) * BOT_TICKS_PER_SECOND);
+				bot->teabag_ticks = BOT_TEABAG_DIP_TICKS * (bot_random(bot) < 0.5f ? 2 : 3);
 				bot->teabag_walk_ticks = 0;
 				if (bot_logging())
 					bot_log("bot%ld t%ld teabags %.1f away", player_absolute_index, game_time_get(), distance3d(&bot->teabag_spot, &position));
@@ -6373,7 +6388,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		}
 	}
 	if (bot->teabag_ticks > 0 && (target != NONE || bot->hit_ticks > 0 || bot->carrying_objective || vehicle_index != NONE ||
-		distance3d(&bot->teabag_spot, &position) > 14.f))
+		distance3d(&bot->teabag_spot, &position) > BOT_TEABAG_REACH + 3.f))
 		bot->teabag_ticks = 0;
 
 	/* in the fight: the flank (if any) has done its job */
@@ -6657,7 +6672,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			/* (the clock starts once it's there; getting there gets three
 			   seconds, and none if there's no way) */
 			bot->teabag_ticks++;
-			if (result.no_route || off > 10.f || ++bot->teabag_walk_ticks > 3 * BOT_TICKS_PER_SECOND)
+			if (result.no_route || off > BOT_TEABAG_REACH + 2.f || ++bot->teabag_walk_ticks > BOT_SECONDS(1.5f))
 				bot->teabag_ticks = 0;
 		}
 		else
@@ -6667,7 +6682,8 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			desired_yaw = bot_yaw_to(&eye, &bot->teabag_spot);
 			desired_pitch = -0.9f;
 			look_forced = TRUE;
-			if ((bot->teabag_ticks / (4 + (player_absolute_index % 3))) % 2 == 0)
+			/* (a dip: down for most of it, then up) */
+			if (bot->teabag_ticks % BOT_TEABAG_DIP_TICKS >= BOT_TEABAG_DIP_TICKS - BOT_TEABAG_DOWN_TICKS)
 				action->control_flags |= FLAG(_unit_control_crouch_modifier_bit);
 		}
 	}
@@ -7191,6 +7207,22 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				}
 			}
 		}
+		/* nearly at a gun to swap for: the one it will drop comes to hand on
+		   the last steps (as a person does it: the swap is then the moment it
+		   gets there, not a second of standing over the gun first) */
+		if (bot->goal_kind == _bot_goal_item && target == NONE && !weapon_chosen && bot_distance2d(&position, &bot->goal) < 5.f &&
+			unit->unit.weapon_object_indices[0] != NONE && unit->unit.weapon_object_indices[1] != NONE &&
+			object_try_and_get(bot->goal_object) && TEST_FLAG(_object_mask_weapon, object_get(bot->goal_object)->object.type) &&
+			!bot_goal_is_game_object(bot->goal_object) && !bot_holds_weapon_type(unit, object_get(bot->goal_object)->definition_index))
+		{
+			long drop_slot = NONE;
+			bot_worst_held(unit, &drop_slot);
+			if (drop_slot != NONE)
+			{
+				action->desired_weapon_index = (short)drop_slot;
+				weapon_chosen = TRUE;
+			}
+		}
 		/* at an item or a vehicle: hold action to pick up or get in */
 		if ((bot->goal_kind == _bot_goal_item || bot->goal_kind == _bot_goal_vehicle) &&
 			bot_distance2d(&position, &bot->goal) < (bot->goal_kind == _bot_goal_vehicle ? 1.2f : 1.3f) &&
@@ -7198,6 +7230,10 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		{
 			long worst_slot = NONE;
 			struct object_datum *item = bot->goal_object != NONE ? object_try_and_get(bot->goal_object) : NULL;
+			/* (the game has it in our reach: the swap it offers is for this) */
+			int offered = item && me->action_object_index == bot->goal_object &&
+				(me->action_result == _player_action_result_swap_for_weapon || me->action_result == _player_action_result_add_weapon_to_inventory ||
+				 me->action_result == _player_action_result_swap_for_powerup);
 			/* held: with two weapons, swapping one takes a held action */
 			bot->action_ticks++;
 			/* weapons are picked up with the swap button (players.c,
@@ -7231,6 +7267,28 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				}
 				else if ((bot->action_ticks / 4) % 2 == 0)
 					action->control_flags |= FLAG(_unit_control_swap_weapons_bit);
+				/* Not ours yet, and not in the game's reach of us: the route
+				   ends where the floor it knows ends, and the thing may lie a
+				   step past that (against a wall, on a crate's lid, on a lip).
+				   Right up to it, as a person walks onto what they want, and a
+				   hop when it is above us or will not come. */
+				if (bot->goal_kind == _bot_goal_item && item && !offered && !committed)
+				{
+					real off = bot_distance2d(&position, &item->object.position);
+					real above = item->object.position.z - position.z;
+					if (off > 0.1f)
+					{
+						real yaw = bot_yaw_to(&position, &item->object.position);
+						if (!aas_ready() || bot_move_direction_safe(&body, yaw, MIN(off, 0.6f)))
+						{
+							moving = TRUE;
+							move_yaw = yaw;
+							move_speed = off > 0.5f ? 1.f : 0.6f;
+						}
+					}
+					if ((bot->action_ticks == 10 && above > 0.3f) || bot->action_ticks == 20)
+						jump = TRUE;
+				}
 			}
 			else
 			{
@@ -7245,12 +7303,20 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				if (off < 0.55f && (bot->action_ticks / 6) % 2 == 0)
 					action->control_flags |= FLAG(_unit_control_action_bit);
 			}
-			if (bot->action_ticks > 3 * BOT_TICKS_PER_SECOND)
+			/* couldn't: pick something else. (A swap the game offers is under
+			   way, the worse gun coming to hand first: three seconds. Something
+			   the game will not give us where we stand: one, not three of
+			   standing at it.) */
+			if (bot->action_ticks > (bot->goal_kind == _bot_goal_vehicle || offered ? 3 * BOT_TICKS_PER_SECOND : 36))
 			{
-				/* couldn't: pick something else */
+				if (bot_logging())
+					bot_log("bot%ld t%ld gives up on %s (%.1f away, %s)", player_absolute_index, game_time_get(),
+						item ? tag_get_name(item->definition_index) : "it", item ? distance3d(&item->object.position, &position) : 0.f,
+						offered ? "offered" : "not in reach");
 				bot->action_ticks = 0;
 				bot_ignore(bot, bot->goal_object, 30 * BOT_TICKS_PER_SECOND);
 				bot->goal_kind = _bot_goal_none;
+				bot->goal_ticks = 0;
 			}
 		}
 		else

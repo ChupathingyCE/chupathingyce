@@ -87,6 +87,7 @@ struct bot_move_state
 	real_point3d stall_point;
 	int stall_valid;
 	long stall_ticks;
+	long reach_stall_ticks;
 	long jump_cooldown;
 	long crouch_ticks;
 	long reverse_ticks;
