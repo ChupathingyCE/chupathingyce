@@ -1899,6 +1899,11 @@ void hud_draw_numbers(
 			0,
 			0);
 		boolean kilometers = value > 999;
+		/* port: the digits are sprites of one bitmap, as the Xbox's are, or
+		a Halo PC map's may give each its own bitmap (a sequence of bitmaps
+		without sprites: [h3]_sandtrap's), each drawn from its own as before */
+		boolean digits_on_one_bitmap = bitmap_group->sequences.count <= 0 ||
+			TAG_BLOCK_GET_ELEMENT(&bitmap_group->sequences, 0, struct bitmap_group_sequence)->sprites.count > 0;
 
 		if (_texture_cache_bitmap_get_hardware_format(source_bitmap, FALSE, TRUE))
 		{
@@ -1997,7 +2002,7 @@ void hud_draw_numbers(
 					match_assert(
 						"c:\\halo\\SOURCE\\interface\\hud_draw.c",
 						515,
-						source_bitmap==number_bitmap);
+						!digits_on_one_bitmap || source_bitmap==number_bitmap);
 					hud_draw_bitmap_direct(
 						number_bitmap,
 						absolute_placement->corner,
@@ -2038,7 +2043,7 @@ void hud_draw_numbers(
 						match_assert(
 							"c:\\halo\\SOURCE\\interface\\hud_draw.c",
 							539,
-							source_bitmap==number_bitmap);
+							!digits_on_one_bitmap || source_bitmap==number_bitmap);
 						hud_draw_bitmap_direct(
 							number_bitmap,
 							absolute_placement->corner,
@@ -2073,7 +2078,7 @@ void hud_draw_numbers(
 						match_assert(
 							"c:\\halo\\SOURCE\\interface\\hud_draw.c",
 							556,
-							source_bitmap==number_bitmap);
+							!digits_on_one_bitmap || source_bitmap==number_bitmap);
 						hud_draw_bitmap_direct(
 							number_bitmap,
 							absolute_placement->corner,
@@ -2110,7 +2115,7 @@ void hud_draw_numbers(
 					match_assert(
 						"c:\\halo\\SOURCE\\interface\\hud_draw.c",
 						575,
-						source_bitmap==number_bitmap);
+						!digits_on_one_bitmap || source_bitmap==number_bitmap);
 					hud_draw_bitmap_direct(
 						number_bitmap,
 						absolute_placement->corner,
@@ -2143,7 +2148,7 @@ void hud_draw_numbers(
 					match_assert(
 						"c:\\halo\\SOURCE\\interface\\hud_draw.c",
 						595,
-						source_bitmap==number_bitmap);
+						!digits_on_one_bitmap || source_bitmap==number_bitmap);
 					hud_draw_bitmap_direct(
 						number_bitmap,
 						absolute_placement->corner,
