@@ -115,6 +115,7 @@ void ui_widget_port_go_back(struct widget_instance *widget);
 short ui_widget_port_list_index(struct widget_instance *list_widget);
 boolean ui_widget_port_saved_game(char const **map_name, short *level, short *difficulty);
 short main_get_solo_level_from_name(char const *name);
+boolean player_name_clean(wchar_t *name, long count);
 
 boolean pc_menu_event_function_invoke(struct widget_instance *widget, struct event_record *event,
 	long function_index, boolean *widget_deleted);
@@ -1754,6 +1755,8 @@ boolean network_player_is_valid(struct network_player *player);
 boolean playlist_profile_get(long index, struct game_variant *variant);
 boolean playlist_profile_get_display_name(long index, wchar_t *name);
 boolean input_get_key(struct key_stroke *key);
+boolean game_engine_running(void);
+void game_engine_end_game(void);
 /* the platform layer's */
 int p2p_join_invite(char const *text);
 int p2p_invite_link(char *link, int size);
@@ -2342,8 +2345,17 @@ static void browser_focus(struct widget_instance *list)
 {
 	char const *const choices[] = { "server_item_1", "join_game_button_bar" };
 	struct widget_instance *focused = list->focused_child;
+	struct widget_instance *row;
 	short index;
 
+	/* (the rows' backgrounds: the focused one's outlined frame. The engine
+	shows a list item's focus only on a bitmap of two frames, and theirs has
+	three: normal, focused, selected) */
+	for (row = list->child; row; row = row->next)
+	{
+		if (browser_row_index(row) != NONE)
+			row->animation.current_frame_index = row == focused ? 1 : 0;
+	}
 	focus_off_hidden(named(list, "join_game_button_bar", 0));
 	if (focused && focused->visible && !focused->disabled)
 		return;
@@ -2668,6 +2680,34 @@ static void lobby_browser_arrows_show(struct widget_instance *screen)
 	}
 }
 
+/* the games whose names are valid, as a host keeps the names of the
+machines and players that join it (network_game_server_clean_name): each
+name cleaned (player_name_clean), and a game whose name has nothing left
+that names it left out; returns how many are left */
+static short lobby_browser_valid_games(struct p2p_listing *games, short count)
+{
+	short read;
+	short written = 0;
+
+	for (read = 0; read < count; read++)
+	{
+		wchar_t name[P2P_LISTING_NAME_SIZE + 1];
+		short index;
+
+		text_to_wide(games[read].name, name, NUMBEROF(name));
+		if (!player_name_clean(name, NUMBEROF(name)))
+			continue;
+		/* (ASCII still: the listing's names are) */
+		for (index = 0; name[index]; index++)
+			games[read].name[index] = (char)name[index];
+		games[read].name[index] = 0;
+		if (written != read)
+			games[written] = games[read];
+		written++;
+	}
+	return written;
+}
+
 /* the game being joined, once its host is reached (the client's game from
 it), else NULL */
 static struct advertised_game *lobby_browser_joined_game(void)
@@ -2969,7 +3009,8 @@ static void lobby_browser_update(struct widget_instance *list)
 	short chosen;
 	boolean message;
 
-	lobby_browser.count = (short)p2p_lobby_games(lobby_browser.games, LOBBY_BROWSER_GAMES);
+	lobby_browser.count = lobby_browser_valid_games(lobby_browser.games,
+		(short)p2p_lobby_games(lobby_browser.games, LOBBY_BROWSER_GAMES));
 	lobby_browser_add_listed();
 	lobby_browser_sort();
 	focused = lobby_browser_rows_place(list);
@@ -3365,6 +3406,38 @@ static boolean browser_select(struct widget_instance *widget, struct event_recor
 		}
 		return browser_join_chosen(widget, controller, widget_deleted);
 	}
+	return TRUE;
+}
+
+/* "player profile save changes" (Settings' OK, the profile being edited):
+saved if it has changes, as the Xbox's (the saving screen follows); if it
+has none (the settings' own screens write theirs to config.toml as their OK
+is chosen), editing ends and the previous screen comes back, as CANCEL
+(the Xbox's called that a failure, and closed every screen) */
+static boolean profile_save_changes(struct widget_instance *widget, boolean *widget_deleted)
+{
+	if (player_ui_edit_profile_is_dirty())
+	{
+		if (player_ui_save_profile())
+			return TRUE;
+		platform_log("menus: could not save the profile's changes");
+		return campaign_fail();
+	}
+	player_ui_end_editing_profile();
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	ui_widget_port_go_back(widget);
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+
+/* "port pause end game" (the in-game pause menu's END GAME, the host's:
+menu_tags.c's pause_patch): the game ends as its time limit would, its
+players staying for the next (the carnage report, then the host's PICK GAME) */
+static boolean pause_end_game(void)
+{
+	if (!global_network_game_server_get() || !game_engine_running())
+		return campaign_fail();
+	game_engine_end_game();
 	return TRUE;
 }
 
@@ -4438,6 +4511,14 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "gamespy screen dispose"))
 		{
 			lobby_browser_end();
+		}
+		else if (!strcmp(name, "port pause end game"))
+		{
+			return pause_end_game();
+		}
+		else if (!strcmp(name, "player profile save changes"))
+		{
+			return profile_save_changes(widget, widget_deleted);
 		}
 		else if (!strcmp(name, "direct ip connect go"))
 		{
