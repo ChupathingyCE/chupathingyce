@@ -9,8 +9,12 @@ check has to look at the input objects rather than the output.
 
 It also rejects an executable that imports glibc's wide character
 functions: the game uses a 16-bit wchar_t, so they would misread its strings.
+A static executable (--static: the dedicated server with musl,
+tools/server_build.py) imports nothing, so there it rejects the objects'
+references to wide character functions that no object defines, which the C
+library would have supplied.
 
-Usage: linux_link_check.py <response file listing the objects> [executable]
+Usage: linux_link_check.py [--static] <response file listing the objects> [executable]
 """
 
 import re
@@ -51,7 +55,13 @@ def symbol_table(objects: List[str]) -> Dict[str, Set[str]]:
     return symbols
 
 
+WIDE_FUNCTION = re.compile(r"(wcs|wmem|[a-z]*wprintf|towlower|towupper|isw)")
+
+
 def main() -> None:
+    static = len(sys.argv) > 1 and sys.argv[1] == "--static"
+    if static:
+        del sys.argv[1]
     with open(sys.argv[1], "r", encoding="utf-8") as response:
         objects = [path for line in response for path in shlex.split(line)]
     symbols = symbol_table(objects)
@@ -65,14 +75,23 @@ def main() -> None:
         and not types & defined_types
         and name not in RUNTIME_WEAK_REFERENCES
     )
-    if len(sys.argv) > 2:
+    if static:
+        wide = sorted(
+            name for name, types in symbols.items()
+            if "U" in types and not types & defined_types and WIDE_FUNCTION.match(name)
+        )
+        if wide:
+            print("the objects call the C library's wide character functions, which assume "
+                  "a 32-bit wchar_t: " + ", ".join(wide))
+            sys.exit(1)
+    elif len(sys.argv) > 2:
         imports = subprocess.run(
             [NM, "--undefined-only", sys.argv[2]],
             check=True, capture_output=True, text=True,
         ).stdout.split()
         wide = sorted(
             name for name in imports
-            if re.match(r"(wcs|wmem|[a-z]*wprintf|towlower|towupper|isw)", name.split("@")[0])
+            if WIDE_FUNCTION.match(name.split("@")[0])
         )
         if wide:
             print("the executable imports glibc wide character functions, which assume "
