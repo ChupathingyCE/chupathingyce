@@ -14109,6 +14109,18 @@ boolean hs_scenario_postprocess(
 		else
 			error(priority, "%s: %s", error_source, error_message);
 
+#ifdef HALO_CUSTOM_EDITION
+		/* port: a Halo PC map's scripts are not compiled again: it has no
+		source, and its tags cannot be resized; it plays without them */
+		if (cache_file_tags_are_ce())
+		{
+			data_delete_all(hs_syntax_data);
+			scenario->hs_scripts.count = 0;
+			scenario->hs_globals.count = 0;
+			success = FALSE;
+		}
+		else
+#endif
 		if (hs_compile_source() && hs_compile_postprocess(&error_message, &error_source))
 		{
 			success = TRUE;
