@@ -1113,6 +1113,11 @@ void platform_pump_events(void)
 			{
 				input_state.mouse_released = !input_state.mouse_released;
 				platform_mouse_capture(!input_state.mouse_released && !input_state.ui_pointer);
+				/* (the pointer shows while released, hidden again in play) */
+				if (input_state.mouse_released || input_state.ui_pointer)
+					SDL_ShowCursor();
+				else
+					SDL_HideCursor();
 			}
 #ifndef HALO_ANDROID
 			/* F11 switches between fullscreen and the window (SDL keeps the
