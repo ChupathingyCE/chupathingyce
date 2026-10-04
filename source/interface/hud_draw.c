@@ -1842,9 +1842,12 @@ void hud_draw_meter(
 
 		meter_parameters.background_color =
 			((UNSIGNED_CHAR_MAX - (meter->empty_color>>24))<<24) | (meter->empty_color&0xFFFFFF);
+		/* port: the meter's fade and opacity taken within [0, 1], as the
+		tool keeps them: a Halo PC map's may be past them (Chronopolis's
+		weapon meters), which asserted */
 		meter_parameters.tint_color = real_alpha_intensity_to_pixel32(
-			meter->fade,
-			1.0f-meter->opacity);
+			PIN(meter->fade, 0.0f, 1.0f),
+			PIN(1.0f-meter->opacity, 0.0f, 1.0f));
 		meter_parameters.gradient = 1.0f;
 		meter_parameters.flash_color_is_negative = FALSE;
 		meter_parameters.tint_mode_2 = TRUE;
