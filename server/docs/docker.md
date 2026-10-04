@@ -151,3 +151,5 @@ puts it on a dedicated server's host beside the server, which it leaves as
 it is: a `halo-probe` image (the same Dockerfile), `probe.sh`, which runs
 one probe in a container of its own that goes when it is done, and a
 `probe` user whose key may only ask for a probe (`probe-ssh.sh`).
+Run again without the key, it updates the image and the scripts and keeps
+the `probe` user's key.
