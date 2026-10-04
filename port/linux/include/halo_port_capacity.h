@@ -60,6 +60,27 @@ maps yet, so its cache stays the Xbox's, as the console's does
 #define HALO_PORT_TEXTURE_CACHE_SIZE 0x1600000 /* (0x1600000) */
 #endif
 
+/* ---------- structure rendering
+
+The structure BSP's surfaces (its triangles) drawn in a frame
+(render/render.h: past them, the farther are not drawn) and the dynamic
+triangles a frame's draws take, the BSP's among them (rasterizer.h). The
+Xbox's maps fit the Xbox's 16384 surfaces; big community maps draw more
+(Halo PC's own engine stopped at 16384 too, and the PC community's tools
+for those maps raise it to 32767 surfaces with a 65536-triangle buffer).
+The desktop builds draw up to 32767 (the count is a short), with twice the
+dynamic triangles, so the BSP's do not leave the rest of a frame's draws
+none. Only what is drawn changes: nothing reaches the network or the game
+state. Android and the Xbox builds keep the Xbox's. */
+
+#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
+#define HALO_PORT_MAXIMUM_RENDERED_ENVIRONMENT_SURFACES 32767 /* (16384) */
+#define HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES 65536 /* (32768) */
+#else
+#define HALO_PORT_MAXIMUM_RENDERED_ENVIRONMENT_SURFACES 16384 /* (16384) */
+#define HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES 32768 /* (32768) */
+#endif
+
 /* ---------- objects */
 
 #define HALO_PORT_MAXIMUM_OBJECTS_PER_MAP 8192 /* (2048) */
