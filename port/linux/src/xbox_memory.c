@@ -126,8 +126,12 @@ static void contiguous_arena_reserve(void)
 	32-bit process leaves free: the executable is linked at 0x08048000, its
 	break heap grows up from just past it, and the libraries, mmap'd blocks
 	and the stack are at the top below 0xc0000000 or 0xffffffff, growing
-	down. Taken here, before anything else is mapped, never in place of a
-	mapping (MAP_FIXED_NOREPLACE); backed on first touch */
+	down. On Windows (win32_posix.c's mmap: VirtualAlloc at that address)
+	the executable is at 0x00400000 with its heaps above it, the DLLs near
+	the top of the lower 2 GB, and the large-address-aware process has the
+	upper 2 GB too (the Xbox window). Taken here, before anything else is
+	mapped, never in place of a mapping (MAP_FIXED_NOREPLACE); backed on
+	first touch */
 	result = mmap((void *)PLATFORM_CE_TAG_CACHE_BASE, PLATFORM_CE_TAG_CACHE_SIZE, PROT_READ | PROT_WRITE,
 		MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED_NOREPLACE, -1, 0);
 	if (result != (void *)PLATFORM_CE_TAG_CACHE_BASE)

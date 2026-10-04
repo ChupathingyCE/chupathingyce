@@ -51,7 +51,7 @@ own releases. Expect rough edges, and please report them.
 | Online Games, hosting, stats | Yes | Yes | Yes | Yes |
 | Dedicated server | Yes (tested in Wine) | Untested | Yes (and Docker) | |
 | Updates itself | Yes | Not yet | Yes | Yes |
-| Halo PC (Custom Edition) maps | Not yet (32-bit) | Yes | Yes | Not yet |
+| Halo PC (Custom Edition) maps | Testing | Yes | Yes | Not yet |
 | Server Browser in the PC menus | Yes | Yes | Yes | Yes |
 
 ## Download
@@ -89,13 +89,15 @@ settings and saves go in `~/Library/Application Support/ChupathingyCE`.
 ## Halo PC maps
 
 ChupathingyCE also plays Halo PC (Custom Edition) multiplayer maps, on a Mac
-and on Linux. Copy the `.map` files from your own Halo PC (Custom Edition)
-install into a `ce` folder inside the game's `maps` folder:
+and on Linux, and on Windows in test builds. Copy the `.map` files from your
+own Halo PC (Custom Edition) install into a `ce` folder inside the game's
+`maps` folder:
 
 | Platform | Put Halo PC maps in |
 | --- | --- |
 | Mac | `~/Library/Application Support/ChupathingyCE/maps/ce/` |
 | Linux | `maps/ce/` next to the `halo` executable |
+| Windows | `maps\ce\` next to `halo.exe` |
 
 Include `bitmaps.map`, `sounds.map` and `loc.map`, which the maps share. Halo PC's
 own `ui.map` adds its map names and pictures. The maps appear in the multiplayer

@@ -200,8 +200,8 @@ def musl_math_cflags(abi: str) -> str:
 # Halo PC's Custom Edition maps (maps/ce/<name>.map, played as <name>@ce):
 # the port code of source/cache, sound, interface and text and
 # port/linux/game/ce_*.c (HALO_CUSTOM_EDITION). The native desktop builds
-# (Linux here, macOS: macos_build.py) have them; the Windows and Android
-# builds do not yet.
+# (Linux here, Windows: windows_build.py, macOS: macos_build.py) have them;
+# the Android build does not yet.
 CUSTOM_EDITION_DEFINES = ["-DHALO_CUSTOM_EDITION"]
 
 

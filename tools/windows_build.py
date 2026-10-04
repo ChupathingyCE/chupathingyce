@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .version import release_build, version
-from .linux_build import (LINUX_PROFILE, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
+from .linux_build import (CUSTOM_EDITION_DEFINES, LINUX_PROFILE, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
                           XDK_INCLUDE, game_browser_defines, lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
                           game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
                           xdk_headers)
@@ -296,9 +296,11 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
                        + ui_fonts_build(n, "windows", BUILD / "generated" / "ui_fonts.c", sln))
 
     # (the game browser, the game list and dedicated servers, as every
-    # desktop build has them: HALO_GAME_BROWSER, configure.py)
+    # desktop build has them: HALO_GAME_BROWSER, configure.py; and Halo PC's
+    # Custom Edition maps, HALO_CUSTOM_EDITION, as the 32-bit Linux build has
+    # them: their tag cache at its own host address, xbox_memory.c)
     abi = " ".join(WINDOWS_ABI_FLAGS + [march_flag(sln)] + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else [])
-                   + game_browser_defines(sln))
+                   + game_browser_defines(sln) + CUSTOM_EDITION_DEFINES)
     sdl_include = SDL_DIR / "include"
     libs = " ".join(
         [_quote(SDL_DIR / "lib" / "x86" / "SDL3.lib")]
