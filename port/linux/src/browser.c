@@ -921,8 +921,10 @@ static void send_client_report(void)
 	response[strcspn(response, "\r\n")] = 0;
 	/* (no answer, or the server busy: again in a while) */
 	retry = !status || status == 429 || status >= 500;
-	if (status == 200)
+	if (status == 200 && !strncmp(response, "ok ", 3))
 		platform_log("Game list: the joined game's report was taken (%s)", response);
+	else if (status == 200)
+		platform_log("Game list: the game list did not answer the joined game's report as expected");
 	else if (!retry)
 		platform_log("Game list: the joined game's report was not taken (%s)", response);
 	pthread_mutex_lock(&browser_lock);

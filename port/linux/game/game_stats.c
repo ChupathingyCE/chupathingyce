@@ -117,6 +117,9 @@ struct stats_player
 {
 	boolean used;
 	boolean departed;
+	/* quit, but kept in the game (the scoreboard keeps players who quit:
+	display.show_quit_players); last_tick is when */
+	boolean quit;
 	short identifier;
 	wchar_t name[12];
 	long team_index;
@@ -246,10 +249,15 @@ static void stats_track_players(
 		{
 			stats_depart(tracked);
 		}
+		/* (one who quit and is kept in the game is still a line of the
+		report, with when they left: not a departed player too) */
 		if (player->quit_out_of_game)
 		{
 			if (tracked->used)
-				stats_depart(tracked);
+			{
+				tracked->quit = TRUE;
+				seen[DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index)] = TRUE;
+			}
 			continue;
 		}
 		if (!tracked->used)
@@ -440,6 +448,8 @@ static long stats_player_members(
 	boolean any;
 
 	used = stats_append(text, size, used, "\"joined\": %ld", player->first_tick / TICKS_PER_SECOND);
+	if (player->quit && !player->departed)
+		used = stats_append(text, size, used, ", \"left\": %ld", player->last_tick / TICKS_PER_SECOND);
 	if (!stats_feed_complete(player))
 		return stats_append(text, size, used, ", \"feed_incomplete\": true");
 	used = stats_append(text, size, used, ", \"best_spree\": %d, \"medals\": {", player->best_spree);
