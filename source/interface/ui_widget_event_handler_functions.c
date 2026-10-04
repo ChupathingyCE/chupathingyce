@@ -2059,6 +2059,10 @@ static boolean multiplayer_type_menu_initialize(
 	network_game_cancel(widget, event, widget_deleted);
 	network_game_accept_remote_connections(FALSE);
 #endif
+	/* port: and no co-op player's controller, which one player with one
+	gamepad gives back to the keyboard's (xinput_sdl.c's port_gamepad): its
+	going is not a controller unplugged (input_abstraction.c) */
+	player_ui_reset_single_player_local_player_controllers();
 	return TRUE;
 }
 
@@ -2345,6 +2349,8 @@ static boolean main_menu_initialize(
 	dispose_global_network_game_server();
 	network_game_accept_remote_connections(FALSE);
 	player_spawn_count = 1;
+	/* port: as multiplayer_type_menu_initialize */
+	player_ui_reset_single_player_local_player_controllers();
 	player_ui_end_editing_profile();
 	if (!ui_main_menu_music_active())
 		ui_start_main_menu_music();
