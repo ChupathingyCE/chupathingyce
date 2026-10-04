@@ -109,12 +109,16 @@ static void contiguous_arena_reserve(void)
 	else
 #endif
 	{
-		if (result != MAP_FAILED)
 #ifdef HALO_64BIT
+		const char *reason = result == MAP_FAILED ? strerror(errno) :
+			"the system put it elsewhere: its address space is smaller than this build needs";
+
+		if (result != MAP_FAILED)
 			munmap(result, XBOX_ADDRESS_SPACE_SIZE);
-		platform_log("cannot reserve the Xbox address space at %p (%s)", wanted, strerror(errno));
+		platform_log("cannot reserve the Xbox address space at %p (%s)", wanted, reason);
 		abort();
 #else
+		if (result != MAP_FAILED)
 			munmap(result, PLATFORM_CONTIGUOUS_SIZE);
 		platform_log("cannot reserve the Xbox contiguous memory window at %p (%s)",
 			wanted, strerror(errno));
