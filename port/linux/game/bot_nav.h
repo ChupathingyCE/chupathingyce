@@ -107,6 +107,8 @@ void navm_set_baking(boolean baking);
 long navm_baked_files(void);
 /* whether the map has baked navigation of this build's kind */
 boolean navm_baked_current(char const *map_name);
+/* the map loaded now was too large to work navigation out for */
+boolean navm_map_too_large(void);
 boolean aas_baked_current(char const *map_name);
 
 boolean aas_build(void);

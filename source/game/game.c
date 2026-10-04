@@ -414,6 +414,15 @@ short game_difficulty_level_get(
 	return game_globals->options.difficulty;
 }
 
+/* port: the map this game was made with, as it was asked for (a scenario's
+path, or a Halo PC map's name with its family's suffix: <name>@ce); for the
+bots' navigation's files (port/linux/game/bot_nav.c) */
+char const *game_options_map_name(
+	void)
+{
+	return game_globals ? game_globals->options.map_name : "";
+}
+
 short game_difficulty_level_get_ignore_easy(
 	void)
 {

@@ -409,6 +409,9 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries/cseries.h"
+#ifdef HALO_CUSTOM_EDITION
+#include "cseries/errors.h" /* (port: hs_parse_variable) */
+#endif
 #include "cache/cache_files.h"
 #include "ai/ai_script.h"
 #include "hs/hs.h"
@@ -1192,6 +1195,27 @@ static boolean hs_parse_variable(
 
 	global_index = hs_find_global_by_name(
 		hs_compile_globals.compiled_source + expression->source_offset);
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a Halo PC map's scripts may name a variable that only Halo PC has
+	(multiplayer_draw_teammates_names, in maps made for it). The game stopped
+	on it: no source to compile again, and a map's tags that cannot be
+	resized. One of this game's own variables that has no storage stands in
+	for it (hs_runtime.c: such a variable reads as false or zero, and setting
+	it changes nothing), so the script runs and the variable does nothing. */
+	if (global_index == NONE && hs_compile_globals.variables_predetermined && hs_type_valid(expression->type))
+	{
+		char const *stand_in = expression->type == _hs_type_boolean ? "radiosity_lines" : "radiosity_quality";
+		long stand_in_index = hs_find_global_by_name(stand_in);
+
+		if (stand_in_index != NONE && hs_can_cast(hs_global_get_type((short)stand_in_index), expression->type))
+		{
+			error(_error_silent, "Custom Edition maps: the script variable %s is Halo PC's own: it reads as %s here",
+				hs_compile_globals.compiled_source + expression->source_offset,
+				expression->type == _hs_type_boolean ? "false" : "zero");
+			global_index = stand_in_index;
+		}
+	}
+#endif
 	expression->data = global_index;
 	if (global_index != NONE)
 	{

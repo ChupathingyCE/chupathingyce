@@ -13986,6 +13986,23 @@ boolean hs_scenario_postprocess(
 				scenario->hs_string_constants.size + 0x400);
 		}
 	}
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a Halo PC map whose scripts name something this game does not
+	have (a function of Halo PC's own; its variables have stand-ins:
+	hs_compile.c, hs_parse_variable). The error below stops the game, and a
+	map file has no script source to compile again, nor tags to resize. The
+	map is played without its scripts. */
+	else if (!recompile)
+	{
+		error(_error_silent, "Custom Edition maps: this map's scripts are left out (%s%s%s)",
+			error_source ? error_source : "", error_source ? ": " : "",
+			error_message ? error_message : "an unspecified error occurred loading scripts");
+		data_delete_all(hs_syntax_data);
+		scenario->hs_globals.count = 0;
+		scenario->hs_scripts.count = 0;
+		success = FALSE;
+	}
+#endif
 	else
 	{
 		if (recompile)

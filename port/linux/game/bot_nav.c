@@ -803,6 +803,18 @@ void navm_signature(char *map, unsigned long *signature)
 	unsigned long sum = 0;
 	long i;
 	snprintf(map, 128, "%s", global_scenario_index != NONE ? tag_get_name(global_scenario_index) : "none");
+	/* One of Halo PC's maps (<name>@ce, <name>@md) goes by the name it is
+	   played under, its file's: the scenario inside it may be named as one
+	   of the Xbox's is (Halo PC's own bloodgulch), or not at all (a
+	   protected map's is "<protected>"), and the bake looks for its files
+	   by the played name (bot_bake.c). */
+	{
+		extern char const *game_options_map_name(void);
+		char const *played = game_options_map_name();
+		char const *last = strrchr(played, '\\');
+		if (strchr(played, '@'))
+			snprintf(map, 128, "%s", last ? last + 1 : played);
+	}
 	memset(signature, 0, 4 * sizeof(unsigned long));
 	if (!bsp)
 		return;
@@ -1046,6 +1058,18 @@ boolean navm_ready(void)
 	return navm.ready;
 }
 
+/* the most columns a map's grid may have (a long each, twice over while it
+   is worked out) */
+#define NAVM_MAXIMUM_COLUMNS (48 * 1024 * 1024)
+
+/* the last map's grid would have had more: it has no navigation */
+static boolean navm_too_large;
+
+boolean navm_map_too_large(void)
+{
+	return navm_too_large;
+}
+
 boolean navm_build(void)
 {
 	struct collision_bsp *bsp = global_collision_bsp_get();
@@ -1056,6 +1080,7 @@ boolean navm_build(void)
 	long s;
 
 	navm_dispose();
+	navm_too_large = FALSE;
 	if (!bsp)
 		return FALSE;
 	if (navm_cache_load())
@@ -1091,8 +1116,15 @@ boolean navm_build(void)
 	}
 	navm.width = (long)((maximum_x - navm.x0) / NAVM_CELL) + 2;
 	navm.height = (long)((maximum_y - navm.y0) / NAVM_CELL) + 2;
-	if (navm.width * navm.height > 48 * 1024 * 1024)
+	if (navm.width * navm.height > NAVM_MAXIMUM_COLUMNS)
+	{
+		/* (a map a mile or two across, made for aircraft: at the coarsest
+		   grid it is still more than a machine should work out and keep) */
+		navm_too_large = TRUE;
+		bot_log("navm: this map is too large for the bots' navigation (%.0f by %.0f world units: %ld x %ld columns of %.2f): the bots play it without",
+			maximum_x - minimum_x, maximum_y - minimum_y, navm.width, navm.height, navm.cell);
 		return FALSE;
+	}
 	navm.columns = (long *)malloc(navm.width * navm.height * sizeof(long));
 	memset(&raster, 0, sizeof(raster));
 	raster.first = (long *)malloc(navm.width * navm.height * sizeof(long));

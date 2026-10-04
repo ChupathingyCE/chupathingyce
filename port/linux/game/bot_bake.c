@@ -88,6 +88,8 @@ enum
 	_bake_map_current, /* (had its navigation already) */
 	_bake_map_baked,
 	_bake_map_failed,
+	_bake_map_too_large, /* (no navigation for it at all: bot_nav.c) */
+	NUMBER_OF_BAKE_MAP_STATES
 };
 
 struct bake_map
@@ -257,7 +259,7 @@ static void bake_read_settings(
 static void bake_finish(
 	void)
 {
-	short counts[4] = { 0, 0, 0, 0 };
+	short counts[NUMBER_OF_BAKE_MAP_STATES] = { 0 };
 	short i;
 
 	for (i = 0; i < bake.map_count; i++)
@@ -267,8 +269,9 @@ static void bake_finish(
 			platform_log("bake: %s has no baked navigation (the game works it out when the map is first played with bots)", bake.maps[i].name);
 	if (!bake.map_count)
 		platform_log("bake: no multiplayer maps in %s (the game data's maps folder)", cache_files_map_directory());
-	platform_log("bake: %d baked, %d already baked, %d failed, in %.1f s", (int)counts[_bake_map_baked], (int)counts[_bake_map_current],
-		(int)(counts[_bake_map_failed] + counts[_bake_map_waiting]), (bot_time_microseconds() - bake.start) / 1.0e6);
+	platform_log("bake: %d baked, %d already baked, %d too large for navigation, %d failed, in %.1f s", (int)counts[_bake_map_baked],
+		(int)counts[_bake_map_current], (int)counts[_bake_map_too_large], (int)(counts[_bake_map_failed] + counts[_bake_map_waiting]),
+		(bot_time_microseconds() - bake.start) / 1.0e6);
 	fflush(NULL);
 	/* (as closing the window ends it; there is none) */
 	exit(counts[_bake_map_failed] || counts[_bake_map_waiting] || !bake.map_count ? 1 : 0);
@@ -417,6 +420,13 @@ void bot_bake_update(
 	{
 		if (aas_ready() && navm_baked_files() >= bake.files_before + 2 && aas_baked_current(map->name))
 			bake_leave(map, _bake_map_baked);
+		else if (!aas_ready() && navm_map_too_large())
+		{
+			/* (not a failure: there is nothing to bake, and the bots play
+			the map without navigation) */
+			platform_log("bake: %s is too large for the bots' navigation: left out", map->name);
+			bake_leave(map, _bake_map_too_large);
+		}
 		else
 		{
 			platform_log("bake: %s: %s", map->name, aas_ready() ? "its navigation could not be written to the game data's navcache folder" :

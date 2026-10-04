@@ -757,6 +757,14 @@ Edition map (`<name>@ce`) and each HaloMD map (`<name>@md`). For each map it wri
 with `bake:`. The 13 maps of the game take 1 to 2 minutes and 200 MB. The
 exit code is `0` when each map has its data.
 
+The files of a Custom Edition map or a HaloMD map have the name that the
+map is played under: `navcache/timberland_ce_0.aas` for `timberland@ce`.
+
+A map that is more than about 1,300 world units across (Coldsnap is 1,800)
+is too large for this data. The bake tool gives a line that says so, and the
+bots play such a map without navigation: they go straight to each place and
+do not find their way around walls.
+
 A baked file is for the map that it was made from, and for the build that
 made it: the game makes the data again, into the save root, when the map
 file is a different one or when a later build has another format. Bake the
