@@ -491,7 +491,6 @@ void _rasterizer_screen_effect(
 	{
 		short pass_count = (parameters->convolution_extra_passes + 1) * 2;
 		short pass;
-#ifdef HALO_LINUX
 		/* The native builds draw the screen at several pixels to the Xbox's
 		one (halo_screen_scale): a convolution's few copies of the screen,
 		apart by its radius in the Xbox's pixels, blended into a blur at
@@ -514,7 +513,6 @@ void _rasterizer_screen_effect(
 				pass_count *= (short)steps;
 			}
 		}
-#endif
 		short source_target;
 		short destination_target;
 		short stage;
