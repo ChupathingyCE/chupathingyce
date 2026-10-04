@@ -172,6 +172,8 @@ jobs:
           mkdir -p "$smoke/data/playlists"
           cp dist/chupathingyce-server-linux-${{ matrix.arch }}/chupathingyce-server "$server"
           file "$server"
+          # (a release's download is without its debug information)
+          if file "$server" | grep -q "with debug_info"; then echo "not stripped"; exit 1; fi
           "$server" --version
           # no playlist: how to start one, and status 2
           status=0; "$server" || status=$?

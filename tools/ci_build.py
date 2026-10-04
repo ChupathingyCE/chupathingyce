@@ -25,7 +25,8 @@ program: on a musl system (Alpine Linux) as it is, or with --alpine in
 Alpine's Docker container of the server's architecture (an x86 one runs on
 an x86-64 machine, an arm64 one on an arm64 machine); it goes into
 dist/chupathingyce-server-linux-<arch> (-debug for a debug build), with
-its README and playlists.
+its README and playlists. A release's server there is stripped of its debug
+information; a debug build's keeps it.
 """
 
 import argparse
@@ -177,6 +178,18 @@ def alpine_build(platform: str, config: str) -> int:
     return 0
 
 
+def strip_debug(program: Path) -> None:
+    """removes a program's debug information (its symbols stay, for crash
+    reports): llvm-strip, or binutils' strip"""
+    tool = shutil.which("llvm-strip") or shutil.which("strip")
+    if tool is None:
+        raise SystemExit("error: no llvm-strip or strip to remove the release server's debug information")
+    before = program.stat().st_size
+    run([tool, "--strip-debug", program])
+    print(f"{program.relative_to(ROOT)}: {before / 1e6:.1f} MB -> {program.stat().st_size / 1e6:.1f} MB "
+          "(debug information removed)", flush=True)
+
+
 def server_dist(platform: str, config: str, output: str) -> int:
     """dist/chupathingyce-server-linux-<arch>[-debug]: the server, its
     README, its playlists and the notices its parts' licenses ask for"""
@@ -186,6 +199,11 @@ def server_dist(platform: str, config: str, output: str) -> int:
         shutil.rmtree(dist)
     (dist / "playlists").mkdir(parents=True)
     shutil.copy2(ROOT / output, dist)
+    if config == "release":
+        # a release's download without its debug information (about 19 MB
+        # of 33); build/server-<arch>/ keeps the full program, and a debug
+        # build ships it
+        strip_debug(dist / Path(output).name)
     shutil.copy2(ROOT / "server/README.md", dist / "README.md")
     for playlist in sorted((ROOT / "server/playlists").glob("*.txt")):
         shutil.copy2(playlist, dist / "playlists")
