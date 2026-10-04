@@ -24,7 +24,12 @@ renderer can protect the pages again before the kernel writes them.
 
 #include "platform.h"
 
-#if __has_include(<execinfo.h>)
+#if defined(__ANDROID__) && __ANDROID_API__ < 33
+/* bionic's are Android 13's (API 33): the native 64-bit app has its own
+(port/android/native64/android64_main.c) */
+int backtrace(void **frames, int count);
+void backtrace_symbols_fd(void *const *frames, int count, int descriptor);
+#elif __has_include(<execinfo.h>)
 #include <execinfo.h>
 #else
 /* (musl has none: the server's own, server/platform/backtrace.c) */

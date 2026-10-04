@@ -39,6 +39,9 @@ Xbox kernel does.
 #include "platform.h"
 
 #include <errno.h>
+#ifdef __ANDROID__
+#include <stdio.h>
+#endif
 #include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -62,6 +65,12 @@ int platform_ce_tag_cache_ready = FALSE;
 #ifdef HALO_64BIT
 
 unsigned int platform_host_page_size = PAGE_SIZE_BYTES;
+#endif
+#if defined(HALO_64BIT) && defined(__ANDROID__)
+/* why the Xbox address space could not be reserved, or empty: an Android
+app's library is loaded into a process the system has laid out already,
+and the app tells the player (port/android/native64/android64_main.c) */
+char platform_xbox_address_space_error[160];
 #endif
 
 static int protection_to_host(DWORD protect)
@@ -115,8 +124,14 @@ static void contiguous_arena_reserve(void)
 
 		if (result != MAP_FAILED)
 			munmap(result, XBOX_ADDRESS_SPACE_SIZE);
+#ifdef __ANDROID__
+		snprintf(platform_xbox_address_space_error, sizeof(platform_xbox_address_space_error),
+			"%s at %p", reason, wanted);
+		return;
+#else
 		platform_log("cannot reserve the Xbox address space at %p (%s)", wanted, reason);
 		abort();
+#endif
 #else
 		if (result != MAP_FAILED)
 			munmap(result, PLATFORM_CONTIGUOUS_SIZE);

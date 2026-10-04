@@ -27,7 +27,8 @@ port/linux/include/stdio.h).
 #ifdef __APPLE__
 #include <malloc/malloc.h>
 #define malloc_usable_size malloc_size
-#else
+#elif !defined(__ANDROID__)
+/* (bionic's <malloc.h>, which its <stdlib.h> includes, declares it) */
 size_t malloc_usable_size(void *pointer);
 #endif
 
