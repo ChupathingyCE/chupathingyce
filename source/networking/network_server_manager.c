@@ -3130,15 +3130,38 @@ boolean server_has_enough_machines(
 boolean server_ok_to_countdown(
 	struct network_game_server *server)
 {
-	if (server_has_enough_machines(server) &&
-		server_has_a_player_on_each_machine(server) &&
-		!server_needs_more_teams(server) &&
-		server->game.player_count >= server->game.minimum_players)
+	boolean enough_machines = server_has_enough_machines(server);
+	boolean a_player_on_each = server_has_a_player_on_each_machine(server);
+	boolean teams_full = !server_needs_more_teams(server);
+	boolean enough_players = server->game.player_count >= server->game.minimum_players;
+	boolean ok = enough_machines && a_player_on_each && teams_full && enough_players;
+
+	/* port: a host nobody watches leaves no trace of why its lobby does not
+	start. The reason, logged as it changes (network_event is the engine's
+	log, the host's debug.txt): one letter per condition that fails */
 	{
-		return TRUE;
+		static int last_reason = -1;
+		int reason = (enough_machines ? 0 : 1) | (a_player_on_each ? 0 : 2) |
+			(teams_full ? 0 : 4) | (enough_players ? 0 : 8);
+
+		if (reason != last_reason)
+		{
+			last_reason = reason;
+			network_event(
+				"lobby countdown %s: machines %s, a player on each machine %s, teams %s, players %ld of %ld, paused %s%s%s%s",
+				ok ? "ready" : "held",
+				enough_machines ? "yes" : "NO",
+				a_player_on_each ? "yes" : "NO",
+				teams_full ? "yes" : "NO",
+				(long)server->game.player_count, (long)server->game.minimum_players,
+				server->countdown_state.paused ? "yes" : "no",
+				reason ? " (failed:" : "",
+				(reason & 1) ? " machines" : "",
+				reason ? ")" : "");
+		}
 	}
 
-	return FALSE;
+	return ok;
 }
 
 void network_game_server_invalidate_network_machine(
