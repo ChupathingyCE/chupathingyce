@@ -211,6 +211,39 @@ static BOOL protect_host_pages(void *address, size_t size, int protection)
 	return mprotect((void *)start, end - start, protection) == 0;
 }
 
+/* The host protection a host page should have: that of its Xbox pages when
+they all agree, read-write otherwise (free pages are read-write). */
+static int host_page_protection(uintptr_t host_page)
+{
+	unsigned int first = contiguous_page((void *)host_page);
+	unsigned int count = platform_host_page_size / PAGE_SIZE_BYTES;
+	DWORD protect = page_protection[first];
+	unsigned int page;
+
+	for (page = first + 1; page < first + count && page < CONTIGUOUS_PAGE_COUNT; page++)
+	{
+		if (page_protection[page] != protect)
+			return PROT_READ | PROT_WRITE;
+	}
+	return protect ? protection_to_host(protect) : PROT_READ | PROT_WRITE;
+}
+
+/* Give every host page that [address, address + size) touches the
+protection host_page_protection says. A block allocated or freed takes its
+host pages back from the memory watch, which leaves them as it last made
+them: read-only where the renderer watched a texture there, even a host page
+the block only shares with its neighbour. */
+static void reprotect_host_pages(void *address, size_t size)
+{
+	uintptr_t mask = platform_host_page_size - 1;
+	uintptr_t start = (uintptr_t)address & ~mask;
+	uintptr_t end = ((uintptr_t)address + size + mask) & ~mask;
+	uintptr_t host_page;
+
+	for (host_page = start; host_page < end; host_page += platform_host_page_size)
+		mprotect((void *)host_page, platform_host_page_size, host_page_protection(host_page));
+}
+
 static BOOL pages_free(unsigned int first, unsigned int count)
 {
 	unsigned int page;
@@ -292,10 +325,10 @@ void *platform_contiguous_alloc(unsigned long size, unsigned long alignment,
 #endif
 	memory_watch_forget(address, count * PAGE_SIZE_BYTES);
 #ifdef HALO_64BIT
-	/* the window is committed read-write; a block starts out zeroed */
+	/* a block starts out zeroed (its pages still free, so read-write), then
+	takes its protection */
+	reprotect_host_pages(address, count * PAGE_SIZE_BYTES);
 	memset(address, 0, count * PAGE_SIZE_BYTES);
-	if (protection_to_host(protect) != (PROT_READ | PROT_WRITE))
-		protect_host_pages(address, count * PAGE_SIZE_BYTES, protection_to_host(protect));
 #else
 	/* map fresh zeroed pages over the reservation */
 	if (mmap(address, count * PAGE_SIZE_BYTES, protection_to_host(protect),
@@ -308,6 +341,10 @@ void *platform_contiguous_alloc(unsigned long size, unsigned long alignment,
 	for (page = first; page < first + count; page++)
 		page_protection[page] = protect;
 	block_page_count[first] = count;
+#ifdef HALO_64BIT
+	if (protection_to_host(protect) != (PROT_READ | PROT_WRITE))
+		reprotect_host_pages(address, count * PAGE_SIZE_BYTES);
+#endif
 	pthread_mutex_unlock(&arena_lock);
 	return address;
 }
@@ -328,9 +365,7 @@ void platform_contiguous_free(void *address)
 	if (count)
 	{
 		memory_watch_forget(address, count * PAGE_SIZE_BYTES);
-#ifdef HALO_64BIT
-		protect_host_pages(address, count * PAGE_SIZE_BYTES, PROT_READ | PROT_WRITE);
-#else
+#ifndef HALO_64BIT
 		mmap(address, count * PAGE_SIZE_BYTES, PROT_NONE,
 			MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0);
 #endif
@@ -338,26 +373,9 @@ void platform_contiguous_free(void *address)
 			page_protection[page] = 0;
 		block_page_count[first] = 0;
 #ifdef HALO_64BIT
+		reprotect_host_pages(address, count * PAGE_SIZE_BYTES);
 	}
 	pthread_mutex_unlock(&arena_lock);
-}
-
-/* The host protection a host page should have: that of its Xbox pages when
-they all agree (protect_host_pages only protects fully covered pages),
-read-write otherwise. */
-static int host_page_protection(uintptr_t host_page)
-{
-	unsigned int first = contiguous_page((void *)host_page);
-	unsigned int count = platform_host_page_size / PAGE_SIZE_BYTES;
-	DWORD protect = page_protection[first];
-	unsigned int page;
-
-	for (page = first + 1; page < first + count && page < CONTIGUOUS_PAGE_COUNT; page++)
-	{
-		if (page_protection[page] != protect)
-			return PROT_READ | PROT_WRITE;
-	}
-	return protect ? protection_to_host(protect) : PROT_READ | PROT_WRITE;
 }
 
 /* Write into contiguous memory the way the Xbox's DVD and hard disk do:
