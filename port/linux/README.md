@@ -817,6 +817,15 @@ The bots move and look as a person with a controller or a mouse does:
 - A bot that walks with no enemy in view looks along its route. From time
   to time it looks to one side, and less frequently behind it, for about
   half a second.
+- A bot goes only to a weapon that lies in the world. A weapon that a
+  player has put away has no place in the world, and no bot goes to it.
+- A bot is at an item only when it is on the same floor as the item. A bot
+  that is on the roof over an item, or under it, goes on along its route to
+  the item.
+- While the route to an item continues (for example, a jump up to the
+  platform that the item is on), the bot follows the route. The 1.2 seconds
+  start when the route ends. Where the route ends before the item, the bot
+  goes straight to the item when nothing is between them.
 
 For the route, a jump up costs only the time of the jump, and a jump across
 a gap costs the same as the floor next to it. Thus the bots jump when that

@@ -1082,6 +1082,7 @@ struct bot_state
 	long tracked_unit;
 	long item_streak; /* items gone for one after another */
 	long grab_object; /* the better gun lying near that it broke off for */
+	long item_route_ticks; /* by the thing it is after, and the route still taking it there: for how long */
 	real_point3d explore_point; /* where we're exploring toward (until explore_until) */
 	long explore_until;
 	/* a way round of this trip's own: somewhere off the straight route to
@@ -1966,6 +1967,19 @@ static int bot_recently_at(struct bot_state const *bot, real_point3d const *poin
 	return FALSE;
 }
 
+/* A weapon or a piece of equipment lying in the world, to be had. Not one
+   somebody has: the weapon in a unit's hand is the unit's child, but the
+   one it has put away is not. That one is taken off its unit, hidden and
+   taken off the map (units.c, unit_ready_desired_weapon), and stays where
+   it was put away, a weapon with no parent that nobody can see or pick
+   up: a bot that takes it for one lying there walks to an empty spot,
+   stands on it, and gives up. */
+static int bot_item_lying(struct object_datum const *object)
+{
+	return object->object.parent_object_index == NONE && !TEST_FLAG(object->object.flags, _object_invisible_bit) &&
+		TEST_FLAG(object->object.flags, _object_connected_to_map_bit);
+}
+
 /* a vehicle's kind, as its physics are (vehicles.c: the tank, the jeep, the
    boat, the plane, the scout (a Ghost), the fighter (a Banshee), a turret) */
 enum
@@ -2275,6 +2289,9 @@ static int bot_consider(struct bot_candidate *best, real score, long kind, real_
 		{
 			return FALSE;
 		}
+		/* (or one put away on someone's back) */
+		if (thing && thing->object.parent_object_index == NONE && !bot_item_lying(thing))
+			return FALSE;
 	}
 	score = bot_hunch(score, kind, point, object);
 	if (bot_consider_noroute && object == NONE && !objective && distance3d(point, bot_consider_noroute) < 4.f)
@@ -3395,7 +3412,7 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 		real value;
 		real score;
 
-		if (object->object.parent_object_index != NONE)
+		if (!bot_item_lying(object))
 			continue;
 		distance = distance3d(position, &object->object.position);
 		value = bot_item_value(object->definition_index);
@@ -4382,7 +4399,7 @@ static long bot_find_health(real_point3d const *position, real reach)
 	while ((object = (struct object_datum *)object_iterator_next(&iterator)) != NULL)
 	{
 		real distance;
-		if (object->object.parent_object_index != NONE || !bot_name_has(object->definition_index, "health"))
+		if (!bot_item_lying(object) || !bot_name_has(object->definition_index, "health"))
 			continue;
 		distance = distance3d(position, &object->object.position);
 		if (distance >= best_distance)
@@ -5077,7 +5094,7 @@ static void bots_world_tick(void)
 		{
 			real_point3d snapped;
 			long area;
-			if (object->object.parent_object_index != NONE)
+			if (!bot_item_lying(object))
 				continue;
 			area = aas_nearest_area(AAS_FOOT, &object->object.position, 2.f, &snapped);
 			bot_log("item t%ld %s at %.2f %.2f %.2f area %ld (%.2f %.2f %.2f) value %.1f from the spawns %.1f s", now, tag_get_name(object->definition_index),
@@ -5481,7 +5498,7 @@ static void bot_fire_control(struct bot_state *bot, struct bot_weapon const *wea
 static int bot_goal_is_power_weapon(struct bot_state const *bot)
 {
 	struct object_datum *object = bot->goal_kind == _bot_goal_item && bot->goal_object != NONE ? object_try_and_get(bot->goal_object) : NULL;
-	return object && TEST_FLAG(_object_mask_weapon, object->object.type) && object->object.parent_object_index == NONE &&
+	return object && TEST_FLAG(_object_mask_weapon, object->object.type) && bot_item_lying(object) &&
 		bot_is_power_item(object->definition_index);
 }
 
@@ -6288,7 +6305,9 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		int arrived = bot_distance2d(&position, &bot->goal) < 1.2f;
 		int goal_gone = (bot->goal_kind == _bot_goal_item || bot->goal_kind == _bot_goal_vehicle) &&
 			(bot->goal_object == NONE || !object_try_and_get(bot->goal_object) ||
-				object_get(bot->goal_object)->object.parent_object_index != NONE);
+				object_get(bot->goal_object)->object.parent_object_index != NONE ||
+				/* (taken, and put away on its taker's back) */
+				(bot->goal_kind == _bot_goal_item && !bot_item_lying(object_get(bot->goal_object))));
 
 		/* (a thing to pick up moves too: a weapon dropped on a slope slides, one
 		   knocked by a grenade flies. Where it is now, not where it was when it
@@ -6420,7 +6439,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		{
 			real value;
 			real d;
-			if (item->object.parent_object_index != NONE || bot_ignoring(bot, nearby.index))
+			if (!bot_item_lying(item) || bot_ignoring(bot, nearby.index))
 				continue;
 			if (bot->goal_kind == _bot_goal_item && bot->goal_object == nearby.index)
 				continue; /* (on the way to it already: setting it again would reset the check that it's getting anywhere) */
@@ -6474,7 +6493,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			{
 				real d;
 				int nearer = FALSE;
-				if (item->object.parent_object_index != NONE || bot_ignoring(bot, nearby.index))
+				if (!bot_item_lying(item) || bot_ignoring(bot, nearby.index))
 					continue;
 				d = distance3d(&item->object.position, &position);
 				if (d >= best_d || fabs(item->object.position.z - position.z) > 1.5f)
@@ -6966,7 +6985,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			bot->health_object = bot_find_health(&position, 10.f + 10.f * (1.f - unit->object.body_vitality));
 		}
 		if (wants_health && bot->health_object != NONE && object_try_and_get(bot->health_object) &&
-			object_get(bot->health_object)->object.parent_object_index == NONE)
+			bot_item_lying(object_get(bot->health_object)))
 		{
 			bot_go(bot, &body, &object_get(bot->health_object)->object.position, _bot_move_goal_item, 0.3f, &result);
 			moved = TRUE;
@@ -7386,9 +7405,12 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			}
 		}
 		/* at an item or a vehicle: hold action to pick up or get in */
+		/* (on its own floor: right over it on the roof, or under it, is not at
+		   it, and the route down or up to it is what goes on, not a stand
+		   over the spot and a hop) */
 		if ((bot->goal_kind == _bot_goal_item || bot->goal_kind == _bot_goal_vehicle) &&
 			bot_distance2d(&position, &bot->goal) < (bot->goal_kind == _bot_goal_vehicle ? 1.2f : 1.3f) &&
-			fabs(position.z - bot->goal.z) < 2.f)
+			fabs(position.z - bot->goal.z) < (bot->goal_kind == _bot_goal_vehicle ? 2.f : 1.f))
 		{
 			long worst_slot = NONE;
 			struct object_datum *item = bot->goal_object != NONE ? object_try_and_get(bot->goal_object) : NULL;
@@ -7434,22 +7456,65 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				   step past that (against a wall, on a crate's lid, on a lip).
 				   Right up to it, as a person walks onto what they want, and a
 				   hop when it is above us or will not come. */
-				if (bot->goal_kind == _bot_goal_item && item && !offered && !committed)
+				/* (While the route still has somewhere to take us, it is the
+				   route's: the thing may be up on a plinth a jump away round
+				   the other side, and straight at it from here is into the
+				   plinth's side. The clock for giving up waits too.) */
+				if (bot->goal_kind == _bot_goal_item && item && !offered &&
+					(committed || (moved && result.moving && !result.arrived && !result.no_route)) &&
+					bot->item_route_ticks < 4 * BOT_TICKS_PER_SECOND)
+				{
+					bot->item_route_ticks++;
+					bot->action_ticks--;
+				}
+				else if (bot->goal_kind == _bot_goal_item && item && !offered && !committed)
 				{
 					real off = bot_distance2d(&position, &item->object.position);
 					real above = item->object.position.z - position.z;
 					if (off > 0.1f)
 					{
 						real yaw = bot_yaw_to(&position, &item->object.position);
-						if (!aas_ready() || bot_move_direction_safe(&body, yaw, MIN(off, 0.6f)))
+						int open = !aas_ready() || bot_move_direction_safe(&body, yaw, MIN(off, 0.6f));
+						if (!open)
+						{
+							/* (floor the navigation has no areas on: an alcove too
+							   narrow for one, a plinth a step too high to walk
+							   onto. Nothing between us and it at the height of
+							   the higher of the two, and something to stand on
+							   halfway there: it is somewhere a body gets to) */
+							real level = MAX(position.z, item->object.position.z);
+							real_point3d from = position;
+							real_point3d to = item->object.position;
+							real_point3d half, under;
+							from.z = to.z = level + 0.5f;
+							/* (as far as just short of it: the thing itself is not in the way) */
+							to.x -= (to.x - from.x) / off * MIN(0.25f, off * 0.5f);
+							to.y -= (to.y - from.y) / off * MIN(0.25f, off * 0.5f);
+							half.x = (from.x + to.x) * 0.5f;
+							half.y = (from.y + to.y) * 0.5f;
+							half.z = level + 0.3f;
+							under = half;
+							under.z = MIN(position.z, item->object.position.z) - 1.2f;
+							open = bot_line_clear(bot_move_flags, &from, &to, me->unit_index) &&
+								!bot_line_clear(bot_move_flags, &half, &under, me->unit_index);
+							if (bot_logging() && bot_env_set("HALO_BOT_PICKUPS") && bot->action_ticks % 10 == 1)
+								bot_log("bot%ld pickup: the last step: %.2f off, %.2f above, way clear %d, floor halfway %d", player_absolute_index, off, above,
+									bot_line_clear(bot_move_flags, &from, &to, me->unit_index), !bot_line_clear(bot_move_flags, &half, &under, me->unit_index));
+						}
+						if (open)
 						{
 							moving = TRUE;
 							move_yaw = yaw;
 							move_speed = off > 0.5f ? 1.f : 0.6f;
 						}
 					}
-					if ((bot->action_ticks == 10 && above > 0.3f) || bot->action_ticks == 20)
+					/* (up onto what it lies on, as soon as we are at the foot of
+					   it; a hop anyway when it will not come) */
+					if ((above > 0.3f && off < 1.f && (bot->action_ticks == 4 || bot->action_ticks == 16)) ||
+						(above <= 0.3f && bot->action_ticks == 20))
+					{
 						jump = TRUE;
+					}
 				}
 			}
 			else
@@ -7476,6 +7541,37 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 					bot_log("bot%ld t%ld gives up on %s (%.1f away, %s)", player_absolute_index, game_time_get(),
 						item ? tag_get_name(item->definition_index) : "it", item ? distance3d(&item->object.position, &position) : 0.f,
 						offered ? "offered" : "not in reach");
+				if (bot_logging() && item && bot_env_set("HALO_BOT_PICKUPS"))
+				{
+					/* (testing: what the game has for us about it) */
+					bot_log("bot%ld pickup: result %d object %s; holds %d, in hand %d wanted %d; item at %.2f %.2f %.2f (we %.2f %.2f %.2f), its sphere %.2f %.2f %.2f r %.2f, ours %.2f %.2f %.2f r %.2f, ignores us %d, parent %lx, type %d",
+						player_absolute_index, (int)me->action_result, me->action_object_index == bot->goal_object ? "it" : me->action_object_index == NONE ? "none" : "another",
+						(int)bot_weapons_held(unit), (int)unit->unit.current_weapon_index, (int)unit->unit.desired_weapon_index,
+						item->object.position.x, item->object.position.y, item->object.position.z, position.x, position.y, position.z,
+						item->object.bounding_sphere_center.x, item->object.bounding_sphere_center.y, item->object.bounding_sphere_center.z, item->object.bounding_sphere_radius,
+						unit->object.bounding_sphere_center.x, unit->object.bounding_sphere_center.y, unit->object.bounding_sphere_center.z, unit->object.bounding_sphere_radius,
+						(int)(((struct item_datum *)item)->item.ignore_object_index == me->unit_index), (unsigned long)item->object.parent_object_index, (int)item->object.type);
+					{
+						boolean unit_can_use_weapon(long unit_index, long weapon_index);
+						boolean unit_should_autopick_weapon(long unit_index, long weapon_index);
+						boolean unit_approve_weapon_swap(long unit_index, long weapon_index);
+						long found[64];
+						short count = objects_in_sphere(0, NONE, &unit->object.location, &unit->object.bounding_sphere_center,
+							unit->object.bounding_sphere_radius, found, 64);
+						short i;
+						int among = FALSE;
+						for (i = 0; i < count; i++)
+							among = among || found[i] == bot->goal_object;
+						bot_log("bot%ld pickup: its flags %lx header %x",
+							player_absolute_index, (unsigned long)item->object.flags, (unsigned)object_header_get(bot->goal_object)->flags);
+						bot_log("bot%ld pickup: %d objects in our sphere, it among them %d; cluster ours %d its %d; can use %d autopick %d swap %d; control flags %lx",
+							player_absolute_index, (int)count, among, (int)unit->object.location.cluster_index, (int)item->object.location.cluster_index,
+							TEST_FLAG(_object_mask_weapon, item->object.type) ? (int)unit_can_use_weapon(me->unit_index, bot->goal_object) : -1,
+							TEST_FLAG(_object_mask_weapon, item->object.type) ? (int)unit_should_autopick_weapon(me->unit_index, bot->goal_object) : -1,
+							TEST_FLAG(_object_mask_weapon, item->object.type) ? (int)unit_approve_weapon_swap(me->unit_index, bot->goal_object) : -1,
+							(unsigned long)unit->unit.control_flags);
+					}
+				}
 				bot->action_ticks = 0;
 				bot_ignore(bot, bot->goal_object, 30 * BOT_TICKS_PER_SECOND);
 				bot->goal_kind = _bot_goal_none;
@@ -7483,7 +7579,10 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			}
 		}
 		else
+		{
 			bot->action_ticks = 0;
+			bot->item_route_ticks = 0;
+		}
 	}
 
 	/* never standing still (a still target is an easy one): nowhere to go
