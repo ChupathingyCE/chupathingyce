@@ -94,6 +94,13 @@ objects, noncollideable objects, lights) */
 #define HALO_PORT_MAXIMUM_AREA_OF_EFFECT_OBJECTS 256 /* (64) */
 /* object references shared by all script object lists */
 #define HALO_PORT_MAXIMUM_LISTED_OBJECTS_PER_MAP 1024 /* (128) */
+/* ... and the lists themselves. A script makes one each time it says
+(players), and they are let go of once a tick, after every script has run
+(hs_runtime_update): a map whose scripts go through the players one at a
+time, (unit (list_get (players) n)) for each of sixteen, in a few scripts,
+makes more in a tick than the 48 there were, and the game stopped on its
+blue screen (Coldsnap, with twelve players) */
+#define HALO_PORT_MAXIMUM_OBJECT_LISTS_PER_MAP 1024 /* (48) */
 
 /* ---------- effects, particles, lights and sounds */
 
