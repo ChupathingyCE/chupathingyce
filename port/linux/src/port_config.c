@@ -149,6 +149,11 @@ static const struct config_setting config_settings[] =
 		"The volume of every other sound (effects and speech), 0.0 to 1.0 (of\n"
 		"audio.volume)." },
 
+	{ "input.touch_controls", _config_string, "\"auto\"", "HALO_TOUCH_CONTROLS", _environment_value, _platform_android,
+		"The on-screen touch controls in a game: \"auto\" shows them on a\n"
+		"touchscreen while no controller is connected, \"on\" also with a\n"
+		"controller, \"off\" never. A device without a touchscreen never shows\n"
+		"them. The menus take taps in any case." },
 	{ "input.mouse_sensitivity", _config_real, "1.0", "HALO_MOUSE_SENSITIVITY", _environment_value, _platform_desktop,
 		"How far the view turns for the mouse's movement." },
 	{ "input.invert_mouse", _config_boolean, "false", "HALO_MOUSE_INVERT", _environment_set_is_true, _platform_desktop,
