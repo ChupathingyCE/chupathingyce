@@ -21,7 +21,7 @@ The Xbox game state is 0x345000 bytes at 0x80061000 and ends where the tag
 cache begins (0x803A6000). Cache files are linked to that tag cache address,
 so the game state cannot grow in place. The native builds put a 16 MB game
 state above the tag cache (which ends at 0x819A6000), inside the Xbox memory
-window (0x80000000-0x88000000, port/linux/src/platform.h) and below everything
+window (0x80000000 up, port/linux/src/platform.h) and below everything
 the window hands out top-down (texture and sound caches, Direct3D resources).
 
 The CPU part holds about 13.6 MB of pools at the sizes below (the Xbox pools
@@ -32,6 +32,33 @@ vertices, as on the Xbox. */
 #define HALO_PORT_GAME_STATE_CPU_SIZE 0xFC0000 /* (0x305000) */
 #define HALO_PORT_GAME_STATE_GPU_SIZE 0x40000 /* (0x40000) */
 #define HALO_PORT_GAME_STATE_SIZE (HALO_PORT_GAME_STATE_CPU_SIZE+HALO_PORT_GAME_STATE_GPU_SIZE)
+
+/* ---------- texture cache
+
+The texture cache (cache/xbox_texture_cache.c) holds the pixels of the
+bitmaps the renderer draws, in 16 KB pages, and is allocated top-down in
+the Xbox memory window (cache/physical_memory_map.c). When a frame's
+bitmaps do not fit, the cache cannot load the rest ("YOU GOT STABBED" in
+debug.txt) and the surfaces drawn with them show whatever is at their
+pixels' addresses. The Xbox's maps fit the Xbox's 22 MB. Halo PC's maps
+keep their bump maps in 32 bits a pixel, not the Xbox's 8-bit palettized
+ones, and community maps draw many large ones at once: Portent's busiest
+frames draw 23 MB, Foundation's 66 MB.
+
+The desktop builds (Linux, macOS and Windows, 32-bit and 64-bit) are not
+held to the Xbox's memory: their window is 512 MB (port/linux/src/platform.h) and
+their cache 128 MB, about twice Foundation's busiest frame; with it the
+window still has about 300 MB free. Nothing of the cache's size reaches
+the network or the game state. Android's window stays the development
+kit's 128 MB (its guest image is linked above it) and it plays no Halo PC
+maps yet, so its cache stays the Xbox's, as the console's does
+(HALO_XBOX_CONSOLE, the Xbox builds). */
+
+#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
+#define HALO_PORT_TEXTURE_CACHE_SIZE 0x8000000 /* (0x1600000) */
+#else
+#define HALO_PORT_TEXTURE_CACHE_SIZE 0x1600000 /* (0x1600000) */
+#endif
 
 /* ---------- objects */
 

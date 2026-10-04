@@ -917,6 +917,13 @@ long scenario_tags_load(
 						SwitchToThread();
 					ce_models_tags_loaded(global_tag_instances, ce_header->tag_count, model_data,
 						ce_header->vertex_data_size);
+					/* (its function fields naming functions there are none
+					of made valid ones first: port/linux/game/ce_functions.c) */
+					{
+						extern void ce_functions_tags_loaded(void *tag_instances, long tag_count);
+
+						ce_functions_tags_loaded(global_tag_instances, ce_header->tag_count);
+					}
 					{
 						extern void ce_shaders_tags_loaded(void *tag_instances, long tag_count);
 

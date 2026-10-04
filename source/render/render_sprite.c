@@ -617,6 +617,11 @@ void build_sprite_rotational(
 		&axis_of_rotation) - quarter_circle;
 	fraction = angle*angle/(quarter_circle*quarter_circle);
 	fraction = PIN(fraction, 0.f, 1.f);
+	/* port: the edge-on sprites are the sequence after the face-on ones,
+	which a Halo PC map's bitmap may not have (Hornets Nest's): the face-on
+	ones only then, rather than read past the bitmap's sequences */
+	if (first_sequence_index+1 >= bitmap_group_get(data->bitmap_group_index)->sequences.count)
+		fraction = 0.f;
 
 	if (fraction>0.05f)
 	{

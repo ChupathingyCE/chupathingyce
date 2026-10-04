@@ -165,16 +165,11 @@ boolean hs_not(
 void hs_print(
 	char const *message)
 {
-	/* BUG (preserved for exact matching): the printed string is passed as the format
-	 * (January 0x4b8970 +0x0c pushes it as terminal_printf's format), so a '%' in the
-	 * text, from a scenario script or typed at this build's console, reads arguments
-	 * that were never passed. A corrected build should print it through "%s".
-	 * Source-policy approval pending (2026-09-27 audit). */
 	/* (port: a scenario script's print is the game's chatter, which the
 	Xbox never showed: on screen as config.toml's game.console_log says;
 	print typed at the console, always) */
 	if (terminal_shows(terminal_command_running ? _terminal_message_serious : _terminal_message_chatter))
-		terminal_printf(global_real_argb_green, message);
+		terminal_printf(global_real_argb_green, "%s", message);
 
 	return;
 }
