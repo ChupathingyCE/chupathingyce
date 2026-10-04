@@ -4,8 +4,10 @@
     python tools/visual_studio.py
 
 makes projects/windows/halo.sln and halo.vcxproj (and its filters), which
-build what ``ninja windows`` builds (tools/windows_build.py: the same
-sources, flags and libraries) with Visual Studio alone: its ClangCL toolset
+build what ``ninja windows`` (the solution's platform x86) and ``ninja
+windows64`` (its platform x64: the 64-bit game, which plays Halo PC's Custom
+Edition maps and HaloMD's) build (tools/windows_build.py: the same sources,
+flags and libraries) with Visual Studio alone: its ClangCL toolset
 ("C++ Clang tools for Windows" in the Visual Studio Installer) and a
 Windows SDK. No Python, ninja or separate LLVM is needed to build with
 them: the files are committed, with what the ninja build generates from the
@@ -38,10 +40,11 @@ os.chdir(ROOT)
 from tools.embed_assets import UI_FONT_FILES  # noqa: E402
 from tools.linux_build import (MBEDTLS_DIR, MINIUPNPC_DIR, MUSL_MATH_DIR, STB_DIR, XDK_INCLUDE, game_sources,  # noqa: E402
                                miniupnpc_sources, musl_math_sources)
+from tools.lp64_build import lp64_excluded  # noqa: E402
 from tools.windows_build import MONOCYPHER_DIR  # noqa: E402
-from tools.windows_build import (COMMENT, EXPAT_DIR, EXPAT_SOURCES, EXPORTED_INLINE, GAME_FLAGS, KCP_DIR, LINUX_DIR,  # noqa: E402
-                                 PLATFORM_FLAGS, PORT_DIR, QRCODEGEN_DIR, SDL_VERSION, TOML_DIR, WIN32_FLAGS,
-                                 WINDOWS_ABI_FLAGS)
+from tools.windows_build import (COMMENT, EXPAT_DIR, EXPAT_SOURCES, EXPORTED_INLINE, KCP_DIR, LINUX_DIR,  # noqa: E402
+                                 PORT_DIR, QRCODEGEN_DIR, SDL_SHA256, SDL_VERSION, TOML_DIR, WIN32_FLAGS,
+                                 WINDOWS32, WINDOWS64, WindowsTarget)
 
 PROJECT_DIR = Path("projects/windows")
 GENERATED = PORT_DIR / "generated"
@@ -49,6 +52,16 @@ PROJECT_GUID = "{6B0B1C54-6D2A-4E0B-9F5C-2B7A4C1D9E10}"
 SOLUTION_GUID = "{3F1E2D4C-5B6A-4798-8A9B-0C1D2E3F4A5B}"
 # (the C++ project type)
 VC_PROJECT_TYPE = "{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}"
+# the project's platforms, each with the ninja build it is (the solution
+# calls Win32 x86): the 32-bit game, and the 64-bit one
+PLATFORMS: List[Tuple[str, WindowsTarget]] = [("Win32", WINDOWS32), ("x64", WINDOWS64)]
+
+
+def when(platform: str) -> str:
+    """the condition of what only one platform has (the 32-bit build's is
+    every platform's but x64: a project opened with no platform named is
+    that one)"""
+    return f""" Condition="'$(Platform)'{'==' if platform == 'x64' else '!='}'x64'\""""
 
 
 def win(path: Path) -> str:
@@ -156,24 +169,43 @@ def object_name(source: Path) -> str:
     return f"$(IntDir){source.stem}_{digest}.obj"
 
 
+# a link's flags the project has a setting for (the others go to its
+# additional options)
+LINK_SETTINGS = {
+    "/LARGEADDRESSAWARE": ("LargeAddressAware", "true"),
+    "/SUBSYSTEM:CONSOLE": ("SubSystem", "Console"),
+}
+
+
+def link_settings(target: WindowsTarget) -> Tuple[List[Tuple[str, str]], List[str]]:
+    """a build's link flags (tools/windows_build.py, ldflags) as the
+    project's settings and the options it has none for"""
+    settings: List[Tuple[str, str]] = []
+    options: List[str] = []
+    for flag in target.ldflags:
+        if not flag.startswith("-Wl,"):
+            continue  # (the target, lld and -g: the toolset's and GenerateDebugInformation's)
+        flag = flag[len("-Wl,"):]
+        if flag in LINK_SETTINGS:
+            settings.append(LINK_SETTINGS[flag])
+        elif flag.startswith("/STACK:"):
+            settings.append(("StackReserveSize", str(int(flag[len("/STACK:"):], 0))))
+        else:
+            options.append(flag)
+    return settings, options
+
+
 def main() -> None:
     linux_config = json.loads((LINUX_DIR / "port.json").read_text(encoding="utf-8"))
     config = json.loads((PORT_DIR / "port.json").read_text(encoding="utf-8"))
     wrappers = generated_sources()
 
-    abi_defines, abi_flags = split_flags(WINDOWS_ABI_FLAGS)
-    abi_flags.append("-march=x86-64")
-    # (the game browser, the game list and dedicated servers: tools/linux_build.py's game_browser_defines)
-    abi_defines.append("HALO_GAME_BROWSER")
     # (the overlay's fonts, as the prebuild step embeds them: the same files in the same order)
     prebuild = (PORT_DIR / "tools" / "prebuild.ps1").read_text(encoding="utf-8")
     listed = prebuild[prebuild.index("$uiFontFiles = @("):]
     listed = [name.strip().strip("',") for name in listed[:listed.index(")")].splitlines()[1:] if name.strip()]
     if listed != UI_FONT_FILES:
         sys.exit(f"{PORT_DIR / 'tools' / 'prebuild.ps1'}: $uiFontFiles is not tools/embed_assets.py's UI_FONT_FILES")
-    game_defines, game_flags = split_flags(GAME_FLAGS)
-    platform_defines, platform_flags = split_flags(PLATFORM_FLAGS)
-    win32_defines, win32_flags = split_flags(WIN32_FLAGS)
     game = linux_config["game"]
     linux_platform = Path(linux_config["platform_sources"])
     prefix_header = PORT_DIR / "include" / "halo_windows_prefix.h"
@@ -195,56 +227,65 @@ def main() -> None:
             "warnings": "Level3" if warnings else "TurnOffAllWarnings",
         }
 
-    groups: Dict[str, Dict[str, str]] = {
-        "Game": group(
-            game_flags + [f"-iquote{win(LINUX_DIR / 'include')}"], game_defines + list(game.get("defines", [])),
-            [win(crt_include), win(PORT_DIR / "include")] + [win(Path(d)) for d in game.get("include_dirs", [])]
-            + [win(XDK_INCLUDE)],
-            [win(prefix_header), win(GENERATED / "halo_msvc_tags.h")], False),
-        "Platform": group(
-            platform_flags + [f"-iquote{win(LINUX_DIR / 'include')}"], platform_defines,
-            [win(posix_include), win(crt_include), win(linux_platform), win(PORT_DIR / "include"), win(TOML_DIR),
-             win(EXPAT_DIR), win(KCP_DIR), win(QRCODEGEN_DIR), win(MONOCYPHER_DIR),
-             win(Path("source")), win(Path("source/cseries")), sdl_include, win(XDK_INCLUDE)],
-            [win(prefix_header)], True),
-        # (updater.c, with the version the prebuild step writes: a string on
-        # the command line does not survive MSBuild's quoting)
-        "PlatformUpdater": group(
-            platform_flags + [f"-iquote{win(LINUX_DIR / 'include')}"], platform_defines,
-            [win(posix_include), win(crt_include), win(linux_platform), win(PORT_DIR / "include"), win(TOML_DIR),
-             win(EXPAT_DIR), win(KCP_DIR), win(QRCODEGEN_DIR), win(MONOCYPHER_DIR),
-             win(Path("source")), win(Path("source/cseries")), sdl_include, win(XDK_INCLUDE)],
-            [win(prefix_header), version_header], True),
-        # (posix_ui_font.c: stb_truetype)
-        "PlatformFont": group(
-            platform_flags + [f"-iquote{win(LINUX_DIR / 'include')}"], platform_defines,
-            [win(posix_include), win(crt_include), win(linux_platform), win(PORT_DIR / "include"), win(TOML_DIR),
-             win(EXPAT_DIR), win(KCP_DIR), win(QRCODEGEN_DIR), win(MONOCYPHER_DIR),
-             win(Path("source")), win(Path("source/cseries")), sdl_include, win(XDK_INCLUDE),
-             win(STB_DIR)],
-            [win(prefix_header)], True),
-        # (posix_browser.c: the game list's requests, on Winsock with Mbed TLS)
-        "Win32Browser": group(
-            win32_flags, win32_defines,
-            [win(posix_include), win(linux_platform), sdl_include, win(MBEDTLS_DIR / "include")], [], True),
-        "Mbedtls": group(
-            [flag for flag in win32_flags if flag != "-Wall"], win32_defines,
-            [win(MBEDTLS_DIR / "include"), win(MBEDTLS_DIR / "library")], [], False),
-        "Win32": group(
-            win32_flags, win32_defines, [win(posix_include), win(linux_platform), sdl_include], [], True),
-        "Win32Upnp": group(
-            win32_flags, win32_defines + ["MINIUPNP_STATICLIB"],
-            [win(posix_include), win(linux_platform), sdl_include, win(MINIUPNPC_DIR / "include")], [], True),
-        "Miniupnpc": group(
-            [flag for flag in win32_flags if flag != "-Wall"],
-            win32_defines + ["MINIUPNP_STATICLIB"],
-            [win(MINIUPNPC_DIR / "include"), win(MINIUPNPC_DIR / "src")], [], False),
-        "ThirdParty": group(["-std=gnu11"], [], [], [], False),
-        # (the menus' XML parser: port/third_party/expat; menu_files.c)
-        "Expat": group(["-std=gnu11"], [], [win(EXPAT_DIR)], [], False),
-        "MuslMath": group(["-std=gnu11"], [], [win(MUSL_MATH_DIR / "include")],
-                          [win(MUSL_MATH_DIR / "include" / "libm.h")], False),
-    }
+    def target_groups(target: WindowsTarget) -> Dict[str, Dict[str, str]]:
+        """a build's groups (the 32-bit and the 64-bit builds differ in the
+        game's, the platform layer's and the Windows units' flags)"""
+        game_defines, game_flags = split_flags(target.game_flags)
+        platform_defines, platform_flags = split_flags(target.platform_flags)
+        win32_defines, win32_flags = split_flags(target.win32_flags)
+        # (the third parties' units have the 32-bit build's Windows flags in
+        # both: tools/windows_build.py, WIN32_FLAGS)
+        other_defines, other_flags = split_flags(WIN32_FLAGS)
+        platform_includes = [
+            win(posix_include), win(crt_include), win(linux_platform), win(PORT_DIR / "include"), win(TOML_DIR),
+            win(EXPAT_DIR), win(KCP_DIR), win(QRCODEGEN_DIR), win(MONOCYPHER_DIR),
+            win(Path("source")), win(Path("source/cseries")), sdl_include, win(XDK_INCLUDE)]
+        return {
+            # (-w hides everything, the errors a build asks for too: a build
+            # that has such errors names its warnings itself, after the
+            # project's level)
+            "Game": group(
+                game_flags + [f"-iquote{win(LINUX_DIR / 'include')}"], game_defines + list(game.get("defines", [])),
+                [win(crt_include), win(PORT_DIR / "include")] + [win(Path(d)) for d in game.get("include_dirs", [])]
+                + [win(XDK_INCLUDE)],
+                [win(prefix_header), win(GENERATED / "halo_msvc_tags.h")], "-w" not in target.game_flags),
+            "Platform": group(
+                platform_flags + [f"-iquote{win(LINUX_DIR / 'include')}"], platform_defines,
+                platform_includes, [win(prefix_header)], True),
+            # (updater.c, with the version the prebuild step writes: a string on
+            # the command line does not survive MSBuild's quoting)
+            "PlatformUpdater": group(
+                platform_flags + [f"-iquote{win(LINUX_DIR / 'include')}"], platform_defines,
+                platform_includes, [win(prefix_header), version_header], True),
+            # (posix_ui_font.c: stb_truetype)
+            "PlatformFont": group(
+                platform_flags + [f"-iquote{win(LINUX_DIR / 'include')}"], platform_defines,
+                platform_includes + [win(STB_DIR)], [win(prefix_header)], True),
+            # (posix_browser.c: the game list's requests, on Winsock with Mbed TLS)
+            "Win32Browser": group(
+                win32_flags, win32_defines,
+                [win(posix_include), win(linux_platform), sdl_include, win(MBEDTLS_DIR / "include")], [], True),
+            "Mbedtls": group(
+                [flag for flag in other_flags if flag != "-Wall"], other_defines,
+                [win(MBEDTLS_DIR / "include"), win(MBEDTLS_DIR / "library")], [], False),
+            "Win32": group(
+                win32_flags, win32_defines, [win(posix_include), win(linux_platform), sdl_include], [], True),
+            "Win32Upnp": group(
+                win32_flags, win32_defines + ["MINIUPNP_STATICLIB"],
+                [win(posix_include), win(linux_platform), sdl_include, win(MINIUPNPC_DIR / "include")], [], True),
+            "Miniupnpc": group(
+                [flag for flag in other_flags if flag != "-Wall"],
+                other_defines + ["MINIUPNP_STATICLIB"],
+                [win(MINIUPNPC_DIR / "include"), win(MINIUPNPC_DIR / "src")], [], False),
+            "ThirdParty": group(["-std=gnu11"], [], [], [], False),
+            # (the menus' XML parser: port/third_party/expat; menu_files.c)
+            "Expat": group(["-std=gnu11"], [], [win(EXPAT_DIR)], [], False),
+            "MuslMath": group(["-std=gnu11"], [], [win(MUSL_MATH_DIR / "include")],
+                              [win(MUSL_MATH_DIR / "include" / "libm.h")], False),
+        }
+
+    groups: Dict[str, Dict[str, Dict[str, str]]] = {platform: target_groups(target) for platform, target in PLATFORMS}
+    group_names = list(groups[PLATFORMS[0][0]])
 
     # the units: (the file compiled, the source it is, its group, more defines)
     units: List[Tuple[str, Path, str, List[str]]] = []
@@ -292,19 +333,33 @@ def main() -> None:
     for source in musl_math_sources():
         add(source, "MuslMath")
 
-    libraries = ["$(HaloSDL)\\lib\\x86\\SDL3.lib"] + [f"{lib}.lib" for lib in config.get("libraries", [])]
+    # what a build leaves out (the 64-bit one: port/linux/port.json "lp64")
+    excluded: Dict[str, set] = {platform: set(lp64_excluded()) if target.lp64_exclusions else set()
+                                for platform, target in PLATFORMS}
+
+    libraries = ["$(HaloSDL)\\lib\\$(HaloSDLArch)\\SDL3.lib"] + [f"{lib}.lib" for lib in config.get("libraries", [])]
 
     lines: List[str] = []
     out = lines.append
+
+    def out_property(name: str, values: Dict[str, str], indent: str = "    ") -> None:
+        """a property: once when the platforms have the same, else once each"""
+        if len(set(values.values())) == 1:
+            out(f"{indent}<{name}>{escape(next(iter(values.values())))}</{name}>")
+            return
+        for platform, value in values.items():
+            out(f"{indent}<{name}{when(platform)}>{escape(value)}</{name}>")
+
     out('<?xml version="1.0" encoding="utf-8"?>')
     out("<!-- generated by tools/visual_studio.py: do not edit -->")
     out('<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">')
     out('  <ItemGroup Label="ProjectConfigurations">')
-    for configuration in ("Release", "Debug"):
-        out(f'    <ProjectConfiguration Include="{configuration}|Win32">')
-        out(f"      <Configuration>{configuration}</Configuration>")
-        out("      <Platform>Win32</Platform>")
-        out("    </ProjectConfiguration>")
+    for platform, _ in PLATFORMS:
+        for configuration in ("Release", "Debug"):
+            out(f'    <ProjectConfiguration Include="{configuration}|{platform}">')
+            out(f"      <Configuration>{configuration}</Configuration>")
+            out(f"      <Platform>{platform}</Platform>")
+            out("    </ProjectConfiguration>")
     out("  </ItemGroup>")
     out('  <PropertyGroup Label="Globals">')
     out(f"    <ProjectGuid>{PROJECT_GUID}</ProjectGuid>")
@@ -313,12 +368,18 @@ def main() -> None:
     out("    <ProjectName>halo</ProjectName>")
     out("    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>")
     out("    <HaloRoot>$(MSBuildThisFileDirectory)..\\..\\</HaloRoot>")
-    out("    <!-- SDL3's Visual C++ development package (include\\SDL3\\SDL.h, lib\\x86\\SDL3.lib and SDL3.dll): the build")
-    out("         downloads it here once (port\\windows\\tools\\prebuild.ps1). Set the HALO_SDL3 environment variable to")
-    out("         use one already on the computer. -->")
+    out("    <!-- SDL3's Visual C++ development package (include\\SDL3\\SDL.h, and lib\\x86 and lib\\x64 with SDL3.lib and")
+    out("         SDL3.dll): the build downloads it here once and checks it against the hash below")
+    out("         (port\\windows\\tools\\prebuild.ps1). Set the HALO_SDL3 environment variable to use one already on the")
+    out("         computer. -->")
     out(f"    <HaloSDLVersion>{SDL_VERSION}</HaloSDLVersion>")
+    out(f"    <HaloSDLSha256>{SDL_SHA256}</HaloSDLSha256>")
     out("    <HaloSDL Condition=\"'$(HaloSDL)'=='' and '$(HALO_SDL3)'!=''\">$(HALO_SDL3)</HaloSDL>")
     out("    <HaloSDL Condition=\"'$(HaloSDL)'==''\">$(HaloRoot)build\\windows\\third_party\\SDL3-$(HaloSDLVersion)</HaloSDL>")
+    out_property("HaloSDLArch", {platform: target.sdl_arch for platform, target in PLATFORMS})
+    out("    <!-- each platform's build has its own folder, as the ninja builds have (build\\windows, build\\windows64);")
+    out("         what is generated before compiling is the same for both, and in one place -->")
+    out_property("HaloBuild", {platform: f"$(HaloRoot){PureWindowsPath(target.build)}\\" for platform, target in PLATFORMS})
     out("    <HaloGenerated>$(HaloRoot)build\\windows\\generated\\</HaloGenerated>")
     out("  </PropertyGroup>")
     out('  <Import Project="$(VCTargetsPath)\\Microsoft.Cpp.Default.props" />')
@@ -331,8 +392,8 @@ def main() -> None:
     out("  </PropertyGroup>")
     out('  <Import Project="$(VCTargetsPath)\\Microsoft.Cpp.props" />')
     out("  <PropertyGroup>")
-    out("    <OutDir>$(HaloRoot)build\\windows\\$(Configuration)\\</OutDir>")
-    out("    <IntDir>$(HaloRoot)build\\windows\\obj\\$(Configuration)\\</IntDir>")
+    out("    <OutDir>$(HaloBuild)$(Configuration)\\</OutDir>")
+    out("    <IntDir>$(HaloBuild)obj\\$(Configuration)\\</IntDir>")
     out("    <TargetName>halo</TargetName>")
     out("    <LinkIncremental>false</LinkIncremental>")
     out("    <GenerateManifest>false</GenerateManifest>")
@@ -344,17 +405,27 @@ def main() -> None:
     out("         assertions; add HALO_RELEASE to HaloAbiDefines for a build that does not (configure.py's release). -->")
     out("    <HaloOptimisation Condition=\"'$(Configuration)'=='Debug'\">/clang:-O0</HaloOptimisation>")
     out("    <HaloOptimisation Condition=\"'$(Configuration)'!='Debug'\">/clang:-O2</HaloOptimisation>")
-    out(f"    <HaloAbiOptions>{' '.join(clang(flag) for flag in abi_flags)} $(HaloOptimisation)</HaloAbiOptions>")
-    out(f"    <HaloAbiDefines>{';'.join(abi_defines)}</HaloAbiDefines>")
+    abi_options: Dict[str, str] = {}
+    abi_defines: Dict[str, str] = {}
+    for platform, target in PLATFORMS:
+        defines, flags = split_flags(target.abi_flags)
+        flags.append("-march=x86-64")
+        # (the game browser, the game list and dedicated servers: tools/linux_build.py's game_browser_defines)
+        defines.append("HALO_GAME_BROWSER")
+        abi_options[platform] = f"{' '.join(clang(flag) for flag in flags)} $(HaloOptimisation)"
+        abi_defines[platform] = ";".join(defines)
+    out("    <!-- x64: the 64-bit game (HALO_64BIT), which plays Halo PC's Custom Edition maps and HaloMD's")
+    out("         (HALO_CUSTOM_EDITION), as ninja windows64 builds it -->")
+    out_property("HaloAbiOptions", abi_options)
+    out_property("HaloAbiDefines", abi_defines)
     out("    <!-- Debug only: the callers of a header's __inline function that a unit also defines for everyone use")
     out("         that one; not inlined, their own copies would be duplicates (tools/visual_studio.py) -->")
     for macro in sorted({macro for macros in debug_defines.values() for macro in macros}):
         out(f"    <HaloDebugOnly{macro} Condition=\"'$(Configuration)'=='Debug'\">{macro}</HaloDebugOnly{macro}>")
-    for name, settings in groups.items():
-        out(f"    <Halo{name}Options>{escape(settings['options'])}</Halo{name}Options>")
-        out(f"    <Halo{name}Defines>{escape(settings['defines'])}</Halo{name}Defines>")
-        out(f"    <Halo{name}Includes>{escape(settings['includes'])}</Halo{name}Includes>")
-        out(f"    <Halo{name}Forced>{escape(settings['forced'])}</Halo{name}Forced>")
+    for name in group_names:
+        for setting, suffix in (("options", "Options"), ("defines", "Defines"), ("includes", "Includes"),
+                                ("forced", "Forced"), ("warnings", "Warnings")):
+            out_property(f"Halo{name}{suffix}", {platform: groups[platform][name][setting] for platform, _ in PLATFORMS})
     out("  </PropertyGroup>")
     out("  <ItemDefinitionGroup>")
     out("    <ClCompile>")
@@ -376,30 +447,43 @@ def main() -> None:
     out("      <MultiProcessorCompilation>true</MultiProcessorCompilation>")
     out("    </ClCompile>")
     out("    <Link>")
-    out("      <SubSystem>Console</SubSystem>")
-    out("      <TargetMachine>MachineX86</TargetMachine>")
-    out("      <!-- the Xbox memory window is at 0x80000000, in the upper half of the 32-bit address space -->")
-    out("      <LargeAddressAware>true</LargeAddressAware>")
-    out("      <StackReserveSize>8388608</StackReserveSize>")
     out("      <GenerateDebugInformation>true</GenerateDebugInformation>")
     out("      <!-- as the ninja build links: nothing folded or dropped -->")
     out("      <OptimizeReferences>false</OptimizeReferences>")
     out("      <EnableCOMDATFolding>false</EnableCOMDATFolding>")
-    out("      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>")
     out(f"      <AdditionalDependencies>{';'.join(libraries)};%(AdditionalDependencies)</AdditionalDependencies>")
     out("    </Link>")
     out("  </ItemDefinitionGroup>")
+    out("  <!-- each platform's link, as its ninja build's (tools/windows_build.py, ldflags). x86: the Xbox memory window")
+    out("       is at 0x80000000, in the upper half of the 32-bit address space. x64: the Xbox address space is 4 GB at")
+    out("       1 TB, and the first allocations of the process stay low, clear of it. -->")
+    for platform, target in PLATFORMS:
+        settings, options = link_settings(target)
+        out(f"  <ItemDefinitionGroup{when(platform)}>")
+        out("    <Link>")
+        out(f"      <TargetMachine>{'MachineX64' if platform == 'x64' else 'MachineX86'}</TargetMachine>")
+        for name, value in settings:
+            out(f"      <{name}>{value}</{name}>")
+        if platform != "x64":
+            # (x86 only: the linker refuses the setting for another machine)
+            out("      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>")
+        if options:
+            out(f"      <AdditionalOptions>{' '.join(options)} %(AdditionalOptions)</AdditionalOptions>")
+        out("    </Link>")
+        out("  </ItemDefinitionGroup>")
 
     def unit_lines(include: str, source: Path, name: str, defines: List[str]) -> None:
-        settings = groups[name]
         all_defines = ";".join(defines + [f"$(Halo{name}Defines)", "%(PreprocessorDefinitions)"])
         out(f'    <ClCompile Include="{escape(include)}">')
+        for platform, _ in PLATFORMS:
+            if source.as_posix() in excluded[platform]:
+                out(f"      <ExcludedFromBuild{when(platform)}>true</ExcludedFromBuild>")
         out(f"      <ObjectFileName>{object_name(source)}</ObjectFileName>")
-        out(f"      <WarningLevel>{settings['warnings']}</WarningLevel>")
+        out(f"      <WarningLevel>$(Halo{name}Warnings)</WarningLevel>")
         out(f"      <PreprocessorDefinitions>{escape(all_defines)}</PreprocessorDefinitions>")
-        if settings["includes"]:
+        if any(groups[platform][name]["includes"] for platform, _ in PLATFORMS):
             out(f"      <AdditionalIncludeDirectories>$(Halo{name}Includes)</AdditionalIncludeDirectories>")
-        if settings["forced"]:
+        if any(groups[platform][name]["forced"] for platform, _ in PLATFORMS):
             out(f"      <ForcedIncludeFiles>$(Halo{name}Forced)</ForcedIncludeFiles>")
         out(f"      <AdditionalOptions>$(Halo{name}Options) %(AdditionalOptions)</AdditionalOptions>")
         out("    </ClCompile>")
@@ -422,11 +506,11 @@ def main() -> None:
     out('    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(HaloRoot)port\\windows\\tools\\prebuild.ps1&quot; '
         '-Root &quot;$(HaloRoot).&quot; -Output &quot;$(HaloGenerated)hud_hires_assets.c&quot; '
         '-FontsOutput &quot;$(HaloGenerated)ui_fonts.c&quot; -VersionOutput &quot;$(HaloGenerated)halo_version.h&quot; '
-        '-SdlDir &quot;$(HaloSDL)&quot; -SdlVersion $(HaloSDLVersion)" />')
+        '-SdlDir &quot;$(HaloSDL)&quot; -SdlVersion $(HaloSDLVersion) -SdlSha256 $(HaloSDLSha256) -SdlArch $(HaloSDLArch)" />')
     out("  </Target>")
     out("  <!-- SDL3.dll next to the game, and the bots' navigation's bake (bake-navigation.cmd: port/linux/game/bot_bake.c) -->")
     out('  <Target Name="HaloCopySDL" AfterTargets="Build">')
-    out('    <Copy SourceFiles="$(HaloSDL)\\lib\\x86\\SDL3.dll;$(HaloRoot)port\\windows\\tools\\bake-navigation.cmd" '
+    out('    <Copy SourceFiles="$(HaloSDL)\\lib\\$(HaloSDLArch)\\SDL3.dll;$(HaloRoot)port\\windows\\tools\\bake-navigation.cmd" '
         'DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />')
     out("  </Target>")
     out("</Project>")
@@ -467,6 +551,14 @@ def main() -> None:
     filters.append("</Project>")
     write_if_changed(PROJECT_DIR / "halo.vcxproj.filters", "\n".join(filters) + "\n")
 
+    # (the solution's names for the platforms: x86 for the project's Win32)
+    names = [("x86" if platform == "Win32" else platform, platform) for platform, _ in PLATFORMS]
+    solution_platforms = "".join(f"\t\t{configuration}|{name} = {configuration}|{name}\n"
+                                 for name, _ in names for configuration in ("Release", "Debug"))
+    project_platforms = "".join(
+        f"\t\t{PROJECT_GUID}.{configuration}|{name}.ActiveCfg = {configuration}|{platform}\n"
+        f"\t\t{PROJECT_GUID}.{configuration}|{name}.Build.0 = {configuration}|{platform}\n"
+        for configuration in ("Debug", "Release") for name, platform in names)
     solution = f"""
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
@@ -476,15 +568,9 @@ Project("{VC_PROJECT_TYPE}") = "halo", "halo.vcxproj", "{PROJECT_GUID}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
-		Release|x86 = Release|x86
-		Debug|x86 = Debug|x86
-	EndGlobalSection
+{solution_platforms}	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{PROJECT_GUID}.Debug|x86.ActiveCfg = Debug|Win32
-		{PROJECT_GUID}.Debug|x86.Build.0 = Debug|Win32
-		{PROJECT_GUID}.Release|x86.ActiveCfg = Release|Win32
-		{PROJECT_GUID}.Release|x86.Build.0 = Release|Win32
-	EndGlobalSection
+{project_platforms}	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
@@ -494,7 +580,9 @@ Global
 EndGlobal
 """
     write_if_changed(PROJECT_DIR / "halo.sln", solution)
-    print(f"{len(units) + 2} units in {PROJECT_DIR / 'halo.vcxproj'}")
+    kept = {platform: len(units) + 2 - sum(1 for _, source, _, _ in units if source.as_posix() in excluded[platform])
+            for platform, _ in PLATFORMS}
+    print(", ".join(f"{count} units for {platform}" for platform, count in kept.items()) + f" in {PROJECT_DIR / 'halo.vcxproj'}")
 
 
 if __name__ == "__main__":

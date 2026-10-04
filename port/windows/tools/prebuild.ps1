@@ -10,8 +10,9 @@
 #    it is older than the fonts.
 # 3. Writes the version (the VERSION file's, a build of one's own:
 #    tools/version.py) to -VersionOutput, for port/linux/src/updater.c.
-# 4. Downloads SDL3's Visual C++ development package (headers, import
-#    library and DLL) to -SdlDir once, as tools/windows_build.py does.
+# 4. Downloads SDL3's Visual C++ development package (headers, and the
+#    import library and DLL of each architecture) to -SdlDir once, and checks
+#    the download against -SdlSha256, as tools/windows_build.py does.
 #
 # Windows PowerShell 5.1 runs it (and PowerShell 7).
 
@@ -21,7 +22,9 @@ param(
 	[string]$FontsOutput = "",
 	[string]$VersionOutput = "",
 	[string]$SdlDir = "",
-	[string]$SdlVersion = "3.4.16"
+	[string]$SdlVersion = "3.4.16",
+	[string]$SdlSha256 = "",
+	[string]$SdlArch = "x86"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -373,7 +376,9 @@ function Fetch-Sdl
 	{
 		return
 	}
-	if (Test-Path -LiteralPath (Join-Parts $SdlDir 'lib/x86/SDL3.lib'))
+	# (the library of the platform that is built: the x86 or the x64 one)
+	$library = Join-Parts $SdlDir "lib/$SdlArch/SDL3.lib"
+	if (Test-Path -LiteralPath $library)
 	{
 		return
 	}
@@ -387,11 +392,21 @@ function Fetch-Sdl
 	Write-Host "Downloading $url"
 	[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
 	Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing
+	# (the pinned hash of the package: tools/windows_build.py, SDL_SHA256)
+	if ($SdlSha256)
+	{
+		$digest = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+		if ($digest -ne $SdlSha256.ToLowerInvariant())
+		{
+			Remove-Item -LiteralPath $archive
+			throw "${url}: SHA-256 $digest, not the pinned $SdlSha256"
+		}
+	}
 	Expand-Archive -LiteralPath $archive -DestinationPath $parent -Force
 	Remove-Item -LiteralPath $archive
-	if (-not (Test-Path -LiteralPath (Join-Parts $SdlDir 'lib/x86/SDL3.lib')))
+	if (-not (Test-Path -LiteralPath $library))
 	{
-		throw "SDL3 $SdlVersion was downloaded, but $SdlDir\lib\x86\SDL3.lib is not there"
+		throw "SDL3 $SdlVersion was downloaded, but $library is not there"
 	}
 }
 
