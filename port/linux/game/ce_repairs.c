@@ -27,6 +27,11 @@ or reads past a tag's end:
     found there): given the model's first shader that is one, or else the
     map's first shader; one naming a shader with the salt of another build:
     given the shader's own;
+  - the scenario the map's header names with a group other than the
+    scenario's (a map protector renames it: h2_ascension's, Headlong_PB2's
+    and pitfall's is 'prot'), which Halo PC's engine took as the scenario
+    whatever its group said: given the scenario's group, before the map's
+    scenario is checked (ce_map_checks.c);
   - a model's or animation graph's nodes linked into a loop (a node's
     sibling or child one reached already: [h3]_sandtrap's cyborg graph has
     its spine's next sibling the pelvis, the first node), which the game
@@ -88,6 +93,7 @@ enum
 	MODEL_SHADER_SIZE = 0x20,
 	MODEL_HEADER_SIZE = 0xe8,
 	SHADER_GROUP = 'shdr',
+	SCENARIO_GROUP = 'scnr',
 
 	/* a model's and an animation graph's nodes (model_definitions.h,
 	model_animation_definitions.h): each its next sibling, first child and
@@ -448,6 +454,23 @@ static void ce_repairs_log(
 
 /* ---------- public code */
 
+/* the scenario the map's header names (scenario_tag_index, which must be a
+tag's handle) given the scenario's group if it has another; TRUE if it was */
+boolean ce_repairs_scenario_group(
+	void *tag_instances,
+	long tag_count,
+	unsigned long scenario_tag_index)
+{
+	struct ce_tag_instance *scenario = ce_instance_by_index(tag_instances, tag_count, scenario_tag_index);
+
+	if (!scenario || scenario->tag_index != scenario_tag_index || scenario->group_tag == SCENARIO_GROUP)
+		return FALSE;
+	scenario->group_tag = SCENARIO_GROUP;
+	scenario->parent_group_tags[0] = 0xffffffff;
+	scenario->parent_group_tags[1] = 0xffffffff;
+	return TRUE;
+}
+
 /* the map's tags repaired, in the image they are checked or loaded in (its
 resource maps' tags already copied in: ce_resources.c) */
 void ce_repairs_apply(
@@ -519,6 +542,8 @@ void ce_repairs_tags_loaded(
 	image.size = CE_IMAGE_TAG_CACHE_SIZE;
 	ce_loaded_instances = tag_instances;
 	ce_loaded_tag_count = tag_count;
+	if (ce_repairs_scenario_group(tag_instances, tag_count, scenario_tag_index))
+		error(_error_silent, "Custom Edition map: its scenario given the scenario's group");
 	ce_repairs_apply(&image, tag_instances, tag_count, scenario_tag_index);
 }
 
