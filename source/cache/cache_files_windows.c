@@ -551,6 +551,14 @@ static boolean ce_map_open(
 	CloseHandle(file);
 	return FALSE;
 }
+
+/* the map open in that slot, or NULL: its own sounds' samples are read
+from it as its tags load (port/linux/game/ce_resources.c) */
+HANDLE cache_files_ce_map_file(
+	void)
+{
+	return ce_map_file.file && ce_map_file.file != INVALID_HANDLE_VALUE ? ce_map_file.file : NULL;
+}
 #endif
 
 /* ---------- public code */
