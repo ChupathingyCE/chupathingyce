@@ -174,7 +174,12 @@ int bot_ground(real_point3d const *point, real depth, long ignore, real *ground_
 int bot_unit_alive(long unit_index)
 {
 	struct object_datum *unit = unit_index != NONE ? object_try_and_get(unit_index) : NULL;
-	return unit && !TEST_FLAG(unit->object.damage_flags, _object_dead_bit) && unit->object.body_vitality > 0.f;
+	/* (Dead is what the game calls dead. A body with no health left that
+	   the game did not kill (a head shot from its own side, with the
+	   shields gone, in a team game) is alive: it stands, it can be shot,
+	   its shields come back. A bot in that state was taken for dead by its
+	   own code and stood where it was for the rest of the game.) */
+	return unit && !TEST_FLAG(unit->object.damage_flags, _object_dead_bit);
 }
 
 /* (asked many times a tick of the same few tags: remembered, per map) */

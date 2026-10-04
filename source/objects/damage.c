@@ -1717,7 +1717,13 @@ void object_cause_damage(
 					force_kill = TRUE;
 				}
 
-				if (force_kill &&
+				/* port: not by one of its own side whose fire the gametype
+				keeps from the body (the shields only, or nothing:
+				game_engine_friendly_damage). The body's health went to
+				nothing here and nothing after killed it (the body's damage
+				is not done for such a hit): a melee in the back from a
+				teammate left a player standing alive with no health. */
+				if (force_kill && friendly_damage == _friendly_damage_all &&
 					!TEST_FLAG(current_object->object.damage_flags, _object_dead_bit))
 				{
 					current_object->object.body_vitality = 0.f;
