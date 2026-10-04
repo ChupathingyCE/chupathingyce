@@ -2,6 +2,10 @@
 # from server/deploy/Dockerfile, with the data folder and settings in
 # /opt/halo-dedicated. The host's network: internet play finds its public
 # address and reaches players from it.
+# The game runs as the data folder's owner (the deploying user, uid 1000 on
+# the host; a dedicated account of its own is better still), without
+# capabilities or a way to gain privileges, its memory and processes capped:
+# it reads packets from anyone who joins.
 [Unit]
 Description=Halo dedicated server
 After=docker.service network-online.target
@@ -11,6 +15,8 @@ Wants=network-online.target
 [Service]
 ExecStartPre=-/usr/bin/docker rm -f halo-dedicated
 ExecStart=/usr/bin/docker run --rm --name halo-dedicated --network host \
+	--user 1000:1000 --cap-drop ALL --security-opt no-new-privileges \
+	--memory 1g --pids-limit 256 \
 	--env-file /opt/halo-dedicated/dedicated.env \
 	-v /opt/halo-dedicated/data:/data \
 	halo-dedicated
