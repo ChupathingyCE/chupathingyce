@@ -24,7 +24,13 @@ renderer can protect the pages again before the kernel writes them.
 
 #include "platform.h"
 
+#if __has_include(<execinfo.h>)
 #include <execinfo.h>
+#else
+/* (musl has none: the server's own, server/platform/backtrace.c) */
+int backtrace(void **frames, int count);
+void backtrace_symbols_fd(void *const *frames, int count, int descriptor);
+#endif
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>

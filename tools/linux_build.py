@@ -10,8 +10,9 @@ import os
 import re
 import subprocess
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .ninja_syntax import Writer
@@ -67,9 +68,10 @@ OPTIMISATION = "-O2"
 #    (hs_runtime.c calls union-returning converters through pointers typed
 #    as returning long),
 #  - no optimisations that assume the absence of MSVC-tolerated UB.
+# (the target, first in LINUX_ABI_FLAGS and POSIX_FLAGS)
+LINUX_TARGET_FLAGS = ["--target=i686-linux-gnu", "-m32"]
 LINUX_ABI_FLAGS = [
-    "--target=i686-linux-gnu",
-    "-m32",
+    *LINUX_TARGET_FLAGS,
     "-fms-extensions",
     "-fshort-wchar",
     "-malign-double",
@@ -166,8 +168,7 @@ PLATFORM_FLAGS = [
 # host's native ABI (no -malign-double, no 16-bit wchar_t, no XDK headers) so
 # glibc structures such as struct stat have their real layout.
 POSIX_FLAGS = [
-    "--target=i686-linux-gnu",
-    "-m32",
+    *LINUX_TARGET_FLAGS,
     "-std=gnu11",
     "-D_GNU_SOURCE",
     "-D_FILE_OFFSET_BITS=64",
@@ -314,6 +315,173 @@ def _quote(path: Any) -> str:
     return f'"{text}"' if " " in text else text
 
 
+@dataclass
+class Linux32Units:
+    """What the 32-bit units are built for: `ninja linux` (the defaults) or
+    the 32-bit dedicated server (tools/server_build.py)."""
+    sln: Any
+    config: Dict[str, Any]
+    # the game list and the dedicated server (HALO_GAME_BROWSER)
+    game_browser: bool
+    semantics_header: Path
+    platform_semantics_header: Path
+    embedded_assets: List[Path]
+    # the compile rule
+    rule: str = "linux_cc"
+    # the target, in place of LINUX_ABI_FLAGS's and POSIX_FLAGS's first two
+    target_flags: List[str] = field(default_factory=lambda: list(LINUX_TARGET_FLAGS))
+    # more flags for every unit (after the ABI's)
+    extra_flags: List[str] = field(default_factory=list)
+    # platform units left out ("port/linux/src/name.c")
+    excluded: Set[str] = field(default_factory=set)
+    # more platform units, with the platform layer's flags (after port/linux/src's)
+    platform_sources: List[Path] = field(default_factory=list)
+    # more units with the host's ABI, as posix_*.c (after the platform units)
+    native_sources: List[Path] = field(default_factory=list)
+    # include flags for the platform and host-ABI units (SDL's headers)
+    include_flags: List[str] = field(default_factory=list)
+
+
+def _retarget(flags: List[str], target_flags: List[str]) -> List[str]:
+    """flags (LINUX_ABI_FLAGS or POSIX_FLAGS) for another target"""
+    assert flags[:len(LINUX_TARGET_FLAGS)] == LINUX_TARGET_FLAGS
+    return [*target_flags, *flags[len(LINUX_TARGET_FLAGS):]]
+
+
+def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags: List[str],
+                    implicit_inputs: List[Path]) -> List[Path]:
+    """the 32-bit units' objects, in link order, with the given extra flags"""
+    sln = units.sln
+    config = units.config
+    prefix_header = PORT_DIR / "include" / "halo_linux_prefix.h"
+    semantics_header = units.semantics_header
+    platform_semantics_header = units.platform_semantics_header
+    browser_defines = ["-DHALO_GAME_BROWSER"] if units.game_browser else []
+    abi = " ".join(_retarget(LINUX_ABI_FLAGS, units.target_flags) + [march_flag(sln)]
+                   + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else [])
+                   + browser_defines + CUSTOM_EDITION_DEFINES + units.extra_flags)
+    port_include = PORT_DIR / "include"
+    sdk_flags = f"-idirafter {XDK_INCLUDE}"
+    posix_flags = _retarget(POSIX_FLAGS, units.target_flags)
+    extra = " ".join(extra_cflags)
+    # the posix_* units have glibc's 32-bit wchar_t, and LLVM will not
+    # optimise them together with code that has a 16-bit one: they stay
+    # native objects
+    posix_extra = " ".join(flag for flag in extra_cflags if not flag.startswith("-flto"))
+    objects: List[Path] = []
+
+    def add_object(source: Path, cflags: str, posix: bool = False) -> None:
+        obj = obj_dir / source.with_suffix(".o")
+        objects.append(obj)
+        n.build(
+            outputs=obj,
+            rule=units.rule,
+            inputs=source,
+            # (the SDK declarations are system headers, which the depfile
+            # leaves out)
+            implicit=[*xdk_headers(), prefix_header, semantics_header, platform_semantics_header,
+                      *implicit_inputs],
+            variables={"cflags": f"{cflags} {posix_extra if posix else extra}"},
+        )
+
+    game_cflags = " ".join([
+        abi,
+        " ".join(GAME_FLAGS),
+        f"-include {prefix_header}",
+        f"-include {semantics_header}",
+        f"-I{port_include}",
+        game_defines_and_includes(config),
+        sdk_flags,
+    ])
+    for source in game_sources(config):
+        add_object(source, game_cflags)
+    # Port-specific units that must see the game exactly as its own
+    # sources do (port/linux/game).
+    for source in sorted(Path(config["game_sources"]).glob("*.c")):
+        add_object(source, game_cflags)
+    # the dedicated server's director, with the game browser (server/)
+    if units.game_browser:
+        for source in sorted(Path("server/src").glob("*.c")):
+            add_object(source, game_cflags)
+
+    platform_dir = Path(config["platform_sources"])
+    platform_cflags = " ".join([
+        abi,
+        " ".join(PLATFORM_FLAGS),
+        f"-include {prefix_header}",
+        f"-include {platform_semantics_header}",
+        f"-I{platform_dir}",
+        f"-I{port_include}",
+        f"-I{TOML_DIR}",
+        f"-I{EXPAT_DIR}",
+        f"-I{KCP_DIR}",
+        f"-I{QRCODEGEN_DIR}",
+        f"-I{MONOCYPHER_DIR}",
+        "-Isource -Isource/cseries",
+        sdk_flags,
+        *units.include_flags,
+    ])
+    posix_cflags = " ".join(posix_flags + [march_flag(sln), f"-I{platform_dir}"] + browser_defines
+                            + units.extra_flags + units.include_flags)
+    mbedtls_include = f"-I{MBEDTLS_DIR / 'include'}"
+    for source in sorted(platform_dir.glob("*.c")):
+        if source.as_posix() in units.excluded:
+            continue
+        if source.name in ("posix_update.c", "posix_browser.c"):
+            add_object(source, f"{posix_cflags} {mbedtls_include}", posix=True)
+        elif source.name == "posix_upnp.c":
+            add_object(source, f"{posix_cflags} -I{MINIUPNPC_DIR / 'include'} -DMINIUPNP_STATICLIB", posix=True)
+        elif source.name == "posix_ui_font.c":
+            # (the overlay's fonts: stb_truetype; their data, tools/embed_assets.py --fonts)
+            add_object(source, f"{posix_cflags} -I{STB_DIR}", posix=True)
+        elif source.name.startswith("posix_"):
+            add_object(source, posix_cflags, posix=True)
+        elif source.name == "updater.c":
+            add_object(source, f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
+        else:
+            add_object(source, platform_cflags)
+    # (the dedicated server's own: tools/server_build.py)
+    for source in units.platform_sources:
+        add_object(source, f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
+    for source in units.embedded_assets:
+        add_object(source, platform_cflags)
+    for source in units.native_sources:
+        add_object(source, posix_cflags, posix=True)
+    # the self-updater's TLS (port/third_party/mbedtls), with the host's
+    # ABI as the posix_*.c that use it (and no loop turned into glibc's
+    # wcslen, which linux_link_check.py rejects: the game's wchar_t is
+    # 16-bit)
+    for source in sorted((MBEDTLS_DIR / "library").glob("*.c")):
+        add_object(source, " ".join(posix_flags + [march_flag(sln), mbedtls_include,
+                                                   f"-I{MBEDTLS_DIR / 'library'}", "-fno-builtin-wcslen",
+                                                   "-w"]), posix=True)
+    # internet play's UPnP (port/third_party/miniupnpc), with the host's
+    # ABI as posix_upnp.c, which uses it
+    for source in miniupnpc_sources():
+        add_object(source, " ".join(posix_flags + [march_flag(sln), *MINIUPNPC_DEFINES,
+                                                   f"-I{MINIUPNPC_DIR / 'include'}", f"-I{MINIUPNPC_DIR / 'src'}",
+                                                   "-fno-builtin-wcslen", "-w"]), posix=True)
+    # the settings file's parser (port/third_party/tomlc17), with the
+    # platform layer's ABI (its structs hold doubles) and nothing else
+    add_object(TOML_DIR / "tomlc17.c", " ".join([abi, "-std=gnu11", "-w"]))
+    # the menus' XML parser (port/third_party/expat; menu_files.c)
+    for name in EXPAT_SOURCES:
+        add_object(EXPAT_DIR / name, " ".join([abi, "-std=gnu11", f"-I{EXPAT_DIR}", "-w"]))
+    # internet play's reliable streams (port/third_party/kcp; p2p.c)
+    add_object(KCP_DIR / "ikcp.c", " ".join([abi, "-std=gnu11", "-w"]))
+    # Link Profile's QR code (port/third_party/qrcodegen; browser.c)
+    add_object(QRCODEGEN_DIR / "qrcodegen.c", " ".join([abi, "-std=gnu11", "-w"]))
+    # internet play's signatures, for public games' listings
+    # (port/third_party/monocypher; p2p_crypto.c)
+    for name in ("monocypher.c", "monocypher-ed25519.c"):
+        add_object(MONOCYPHER_DIR / name, " ".join([abi, "-std=gnu11", "-w"]))
+    # the game's sin, pow and the rest, the same on every port
+    # (port/include/halo_math.h)
+    for source in musl_math_sources():
+        add_object(source, musl_math_cflags(abi))
+    return objects
+
+
 def generate_linux_build(n: Writer, sln: Any) -> None:
     if not PORT_CONFIG.is_file():
         # a checkout without the port (or a test fixture): nothing to emit
@@ -384,123 +552,15 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     embedded_assets = (hud_assets_build(n, "linux", build_dir / "generated" / "hud_hires_assets.c")
                        + ui_fonts_build(n, "linux", build_dir / "generated" / "ui_fonts.c", sln))
 
-    abi = " ".join(LINUX_ABI_FLAGS + [march_flag(sln)] + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else [])
-                   + game_browser_defines(sln) + CUSTOM_EDITION_DEFINES)
-    port_include = PORT_DIR / "include"
-    sdk_flags = f"-idirafter {XDK_INCLUDE}"
     libs = " ".join(f"-l{lib}" for lib in config.get("libraries", []))
+    units = Linux32Units(sln=sln, config=config, game_browser=getattr(sln, "game_browser", False),
+                         semantics_header=semantics_header, platform_semantics_header=platform_semantics_header,
+                         embedded_assets=embedded_assets)
 
     def emit(obj_dir: Path, output: Path, extra_cflags: List[str], extra_ldflags: List[str],
              implicit_inputs: List[Path]) -> None:
         """the objects and the executable, with the given extra flags"""
-        extra = " ".join(extra_cflags)
-        # the posix_* units have glibc's 32-bit wchar_t, and LLVM will not
-        # optimise them together with code that has a 16-bit one: they stay
-        # native objects
-        posix_extra = " ".join(flag for flag in extra_cflags if not flag.startswith("-flto"))
-        objects: List[Path] = []
-
-        def add_object(source: Path, cflags: str, posix: bool = False) -> None:
-            obj = obj_dir / source.with_suffix(".o")
-            objects.append(obj)
-            n.build(
-                outputs=obj,
-                rule="linux_cc",
-                inputs=source,
-                # (the SDK declarations are system headers, which the depfile
-                # leaves out)
-                implicit=[*xdk_headers(), prefix_header, semantics_header, platform_semantics_header,
-                          *implicit_inputs],
-                variables={"cflags": f"{cflags} {posix_extra if posix else extra}"},
-            )
-
-        game_cflags = " ".join([
-            abi,
-            " ".join(GAME_FLAGS),
-            f"-include {prefix_header}",
-            f"-include {semantics_header}",
-            f"-I{port_include}",
-            game_defines_and_includes(config),
-            sdk_flags,
-        ])
-        for source in game_sources(config):
-            add_object(source, game_cflags)
-        # Port-specific units that must see the game exactly as its own
-        # sources do (port/linux/game).
-        for source in sorted(Path(config["game_sources"]).glob("*.c")):
-            add_object(source, game_cflags)
-        # the dedicated server's director, with the game browser (server/)
-        if getattr(sln, "game_browser", False):
-            for source in sorted(Path("server/src").glob("*.c")):
-                add_object(source, game_cflags)
-
-        platform_dir = Path(config["platform_sources"])
-        platform_cflags = " ".join([
-            abi,
-            " ".join(PLATFORM_FLAGS),
-            f"-include {prefix_header}",
-            f"-include {platform_semantics_header}",
-            f"-I{platform_dir}",
-            f"-I{port_include}",
-            f"-I{TOML_DIR}",
-            f"-I{EXPAT_DIR}",
-            f"-I{KCP_DIR}",
-            f"-I{QRCODEGEN_DIR}",
-            f"-I{MONOCYPHER_DIR}",
-            "-Isource -Isource/cseries",
-            sdk_flags,
-        ])
-        posix_cflags = " ".join(POSIX_FLAGS + [march_flag(sln), f"-I{platform_dir}"] + game_browser_defines(sln))
-        mbedtls_include = f"-I{MBEDTLS_DIR / 'include'}"
-        for source in sorted(platform_dir.glob("*.c")):
-            if source.name in ("posix_update.c", "posix_browser.c"):
-                add_object(source, f"{posix_cflags} {mbedtls_include}", posix=True)
-            elif source.name == "posix_upnp.c":
-                add_object(source, f"{posix_cflags} -I{MINIUPNPC_DIR / 'include'} -DMINIUPNP_STATICLIB", posix=True)
-            elif source.name == "posix_ui_font.c":
-                # (the overlay's fonts: stb_truetype; their data, tools/embed_assets.py --fonts)
-                add_object(source, f"{posix_cflags} -I{STB_DIR}", posix=True)
-            elif source.name.startswith("posix_"):
-                add_object(source, posix_cflags, posix=True)
-            elif source.name == "updater.c":
-                add_object(source, f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
-            else:
-                add_object(source, platform_cflags)
-        for source in embedded_assets:
-            add_object(source, platform_cflags)
-        # the self-updater's TLS (port/third_party/mbedtls), with the host's
-        # ABI as the posix_*.c that use it (and no loop turned into glibc's
-        # wcslen, which linux_link_check.py rejects: the game's wchar_t is
-        # 16-bit)
-        for source in sorted((MBEDTLS_DIR / "library").glob("*.c")):
-            add_object(source, " ".join(POSIX_FLAGS + [march_flag(sln), mbedtls_include,
-                                                       f"-I{MBEDTLS_DIR / 'library'}", "-fno-builtin-wcslen",
-                                                       "-w"]), posix=True)
-        # internet play's UPnP (port/third_party/miniupnpc), with the host's
-        # ABI as posix_upnp.c, which uses it
-        for source in miniupnpc_sources():
-            add_object(source, " ".join(POSIX_FLAGS + [march_flag(sln), *MINIUPNPC_DEFINES,
-                                                       f"-I{MINIUPNPC_DIR / 'include'}", f"-I{MINIUPNPC_DIR / 'src'}",
-                                                       "-fno-builtin-wcslen", "-w"]), posix=True)
-        # the settings file's parser (port/third_party/tomlc17), with the
-        # platform layer's ABI (its structs hold doubles) and nothing else
-        add_object(TOML_DIR / "tomlc17.c", " ".join([abi, "-std=gnu11", "-w"]))
-        # the menus' XML parser (port/third_party/expat; menu_files.c)
-        for name in EXPAT_SOURCES:
-            add_object(EXPAT_DIR / name, " ".join([abi, "-std=gnu11", f"-I{EXPAT_DIR}", "-w"]))
-        # internet play's reliable streams (port/third_party/kcp; p2p.c)
-        add_object(KCP_DIR / "ikcp.c", " ".join([abi, "-std=gnu11", "-w"]))
-        # Link Profile's QR code (port/third_party/qrcodegen; browser.c)
-        add_object(QRCODEGEN_DIR / "qrcodegen.c", " ".join([abi, "-std=gnu11", "-w"]))
-        # internet play's signatures, for public games' listings
-        # (port/third_party/monocypher; p2p_crypto.c)
-        for name in ("monocypher.c", "monocypher-ed25519.c"):
-            add_object(MONOCYPHER_DIR / name, " ".join([abi, "-std=gnu11", "-w"]))
-        # the game's sin, pow and the rest, the same on every port
-        # (port/include/halo_math.h)
-        for source in musl_math_sources():
-            add_object(source, musl_math_cflags(abi))
-
+        objects = linux32_objects(n, units, obj_dir, extra_cflags, implicit_inputs)
         n.build(
             outputs=output,
             rule="linux_link",
@@ -511,6 +571,7 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
             },
             implicit=[Path("tools/linux_link_check.py")],
         )
+
 
     # Profile-guided optimisation: with the committed profile, or with
     # --pgo=train one that an instrumented build records while playing

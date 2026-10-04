@@ -1,30 +1,33 @@
-# The dedicated server's container (server/README.md): the Linux game built
-# with the game list (configure.py --game-browser), on the Debian that
-# builds it, so its libraries are the ones it was linked against. The data
-# folder (maps, playlists) is mounted at /data.
+# The ChupathingyCE Dedicated Server's container (server/docs/docker.md):
+# the server, one static program (tools/server_build.py), on Alpine Linux,
+# whose own files it needs none of but the certificates (its HTTPS to the
+# game list) and a shell for whoever looks inside. The data folder (maps,
+# playlists, saves) is mounted at /data.
 #
-# BASE is the Debian of the game's word size: the 32-bit game (ninja linux)
-# by default, the 64-bit one (ninja linux64) with
-# --build-arg BASE=debian:trixie-slim (deploy.sh picks it from the game).
-ARG BASE=i386/debian:trixie-slim
-FROM ${BASE}
+# The same file builds every architecture: the context holds each
+# architecture's server as bin/<Docker's name for it>/chupathingyce-server
+# (bin/386, bin/amd64, bin/arm64), and the platform built picks it. Nothing
+# runs while it builds, so buildx makes all three on any machine:
+#   docker buildx build --platform linux/386,linux/amd64,linux/arm64 .
+# (deploy.sh puts the one server it is given there, and builds for it)
+FROM alpine:3.22
+ARG TARGETARCH
 
-RUN apt-get update \
-	&& apt-get install -y --no-install-recommends libsdl3-0 ca-certificates \
-	&& rm -rf /var/lib/apt/lists/*
+COPY bin/${TARGETARCH}/chupathingyce-server /opt/chupathingyce/chupathingyce-server
+WORKDIR /data
 
-COPY halo /opt/halo/halo
-WORKDIR /opt/halo
-
-# no updates (the image is the version), the data and saves in /data; the
-# run's key in /tmp (it goes with the container, as it did in root's home),
-# so the game runs as any user (the services run it as the data folder's
-# owner, not root)
+# the data and saves in /data; the run's key in /tmp (it goes with the
+# container); no settings file beside the program (the environment's)
 ENV HALO_DATA_ROOT=/data \
 	HALO_SAVE_ROOT=/data/saves \
-	HALO_UPDATE_AUTO=false \
 	XDG_RUNTIME_DIR=/tmp
 
-# (the game withdraws its listing and stops on SIGTERM)
+# Not root: the server reads packets from anyone who joins. 1000 is the
+# first user of most Linux systems, who usually owns the data folder; the
+# services (halo-dedicated.service) say so too, and drop every capability
+# and the means to gain privileges, and cap memory and processes.
+USER 1000:1000
+
+# (the server withdraws its listing and stops on SIGTERM)
 STOPSIGNAL SIGTERM
-ENTRYPOINT ["/opt/halo/halo"]
+ENTRYPOINT ["/opt/chupathingyce/chupathingyce-server"]
