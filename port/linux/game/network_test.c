@@ -971,6 +971,13 @@ void network_test_update(
 				/* debug.network_test_score: a short game, to test the next */
 				if (network_test.score_to_win > 0)
 					variant.universal_variant.score_to_win = network_test.score_to_win;
+				/* HALO_NETWORK_TEST_VEHICLES, HALO_NETWORK_TEST_WEAPONS: the
+				variant's vehicle set and weapon set by number (0 the map's
+				own, all of them: a map's aircraft are only in that one) */
+				if (getenv("HALO_NETWORK_TEST_VEHICLES"))
+					variant.universal_variant.vehicle_set = atol(getenv("HALO_NETWORK_TEST_VEHICLES"));
+				if (getenv("HALO_NETWORK_TEST_WEAPONS"))
+					variant.universal_variant.weapon_set = atol(getenv("HALO_NETWORK_TEST_WEAPONS"));
 				player_ui_set_game_variant(&variant);
 				network_game_server_change_game_variant(global_network_game_server_get(), &variant);
 				network_test.map_set = TRUE;

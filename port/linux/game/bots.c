@@ -174,11 +174,13 @@ int bot_ground(real_point3d const *point, real depth, long ignore, real *ground_
 int bot_unit_alive(long unit_index)
 {
 	struct object_datum *unit = unit_index != NONE ? object_try_and_get(unit_index) : NULL;
-	/* (Dead is what the game calls dead. A body with no health left that
-	   the game did not kill (a head shot from its own side, with the
-	   shields gone, in a team game) is alive: it stands, it can be shot,
-	   its shields come back. A bot in that state was taken for dead by its
-	   own code and stood where it was for the rest of the game.) */
+	/* (Dead is what the game calls dead. The game kills a body when its
+	   health goes below nothing, not when it comes to nothing exactly: two
+	   hits of half its health each (25 points at one and a half times, on
+	   75) leave it standing with none, as a person in the same place plays
+	   on with an empty bar. A bot in that state was taken for dead by its
+	   own code, did nothing, and stood where it was until the game ended
+	   or somebody shot it.) */
 	return unit && !TEST_FLAG(unit->object.damage_flags, _object_dead_bit);
 }
 
