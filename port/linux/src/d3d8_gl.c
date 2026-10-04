@@ -976,6 +976,11 @@ static void gl_initialize(void)
 		GL_MAP_READ_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT);
 	device.visibility_results = glMapBufferRange(GL_QUERY_BUFFER, 0, VISIBILITY_TEST_SLOTS * sizeof(GLuint),
 		GL_MAP_READ_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT);
+	/* (D3DDevice_EndVisibilityTest binds it for each test: left bound, a
+	query read with glGetQueryObjectuiv would write into the buffer rather
+	than to its pointer argument, and without the buffer mapped the game
+	would wait forever for a test's result) */
+	glBindBuffer(GL_QUERY_BUFFER, 0);
 	}
 	if (!device.visibility_results)
 		platform_log("cannot map the visibility test results; tests read their queries");
