@@ -473,6 +473,28 @@ MQTT 5 if the broker has it, else MQTT 3.1.1. A broker that does not keep
 retained messages, or does not let clients subscribe with wildcards, carries
 only invites, not listings.
 
+ChupathingyCE's own parts of the server browser:
+
+- A game hosted from the Xbox menus (System Link, or Online Games) is an
+  internet game too, and public as `network.host_public` says, so it shows
+  in the Server Browser of OpenCE and ChupathingyCE. The dedicated server
+  (`server/`) is public unless `HALO_DEDICATED_PUBLIC=false`.
+- Builds with the game list (`configure.py --game-browser`) also show the
+  games of `network.browser_url` (halo.milenko.org). While the Server
+  Browser is open, the game reads the list with an HTTPS GET of
+  `/v1/games.txt` (at most every 5 seconds), and shows the games of its
+  network version, not its own. A game that is also listed on the brokers
+  shows once, with its listing (the same invite token). Joining a game of
+  the list joins its invite, as for a link.
+- A game on a Halo PC (Custom Edition) map, listed as `<map>@ce`, shows PC
+  after the map's name. It can be joined only with the map in `maps/ce/`,
+  on a build that plays Halo PC maps (`HALO_CUSTOM_EDITION`); otherwise
+  the Server Browser says what is missing (`game/server_browser.c`).
+- Column titles sort the games (players, name, map, gametype, ping). Select
+  a title again to sort the other way. The chosen game stays chosen while
+  the list changes. The lines below the rows show the players (by name,
+  when the host sends a roster) and the rules of the chosen game.
+
 ### Security
 
 Only machines with the invite can find the game:
