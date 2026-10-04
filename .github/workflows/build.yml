@@ -160,7 +160,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: build/server/third_party
-          key: server-third-party-${{ hashFiles('tools/server_build.py') }}
+          key: server-third-party-${{ matrix.arch }}-${{ hashFiles('tools/server_build.py') }}
 
       - name: Release
         run: python3 tools/ci_build.py server-${{ matrix.arch }} release --alpine
