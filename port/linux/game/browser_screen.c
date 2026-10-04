@@ -14,12 +14,14 @@ page's Join or an invite link would, and B goes back. Once the invite's host
 answers, its game shows in the System Link list through the tunnel, to be
 picked there as any.
 
-A game on a Custom Edition map (Halo PC's, announced as <file>@ce) is named
-as the menus' map list names it (ui_map_list.c: Halo PC's own names, or the
-file's made readable), marked HALO PC as the game list's web pages mark it,
-and pictured by Halo PC's own picture of it. It is joined only with the map
-in maps\ce (and on a build with Halo PC map support, HALO_CUSTOM_EDITION): else its
-details say what is missing, and A says so rather than join.
+A game on a Custom Edition map (Halo PC's, announced as <file>@ce) or a
+HaloMD map (announced as <file>@md: halo_map_families.h) is named as the
+menus' map list names it (ui_map_list.c: Halo PC's own names, HaloMD's mod
+list's, or the file's made readable), marked HALO PC or HALOMD as the game
+list's web pages mark it, and pictured by Halo PC's own picture of it. It is
+joined only with the map in its family's folders (and on a build with Halo
+PC map support, HALO_CUSTOM_EDITION): else its details say what is missing,
+and A says so rather than join.
 
 Start opens the player's profile page in the web browser; RB opens Quick
 Connect over the list, for where no web browser opens: a code (and a QR
@@ -33,6 +35,7 @@ profile it was typed for, to confirm with A or refuse with B (browser.c).
 #include "cseries/cseries_windows.h"
 #include "cseries/errors.h"
 #include "cutscene/cinematics.h"
+#include "halo_map_families.h"
 #include "input/input.h"
 #include "interface/event_manager.h"
 #include "interface/interface.h"
@@ -140,7 +143,8 @@ static struct
 	unsigned long connecting_time;
 	/* when the screen opened (the menu's A that opened it picks nothing) */
 	unsigned long opened_time;
-	/* the last game's map asked of maps\ce, and the answer (ce_map_state) */
+	/* the last game's map asked of its family's folders, and the answer
+	(ce_map_state) */
 	char ce_map[BROWSER_MAP_LENGTH];
 	short ce_map_answer;
 	unsigned long ce_map_time;
@@ -163,37 +167,20 @@ static void set_status(
 
 static void utf8_text(unsigned short const *name, long length, char *text, long size);
 
-/* a game's map: its file's name (the path's last part, without a Custom
-Edition map's @ce), and whether it is a Custom Edition map */
-static boolean map_file(
+/* a game's map: its file's name (the path's last part, without a Halo PC
+map's @ce or @md), and its family (halo_map_families.h) */
+static short map_file(
 	char const *path,
 	char *file,
 	long size)
 {
-	char const *base = path;
-	char const *cursor;
-	long length;
-	boolean ce;
-
-	for (cursor = path; *cursor; cursor++)
-	{
-		if (*cursor == '\\' || *cursor == '/')
-			base = cursor + 1;
-	}
-	length = (long)strlen(base);
-	ce = length >= 3 && base[length - 3] == '@' && (base[length - 2] | 0x20) == 'c' && (base[length - 1] | 0x20) == 'e';
-	if (ce)
-		length -= 3;
-	snprintf(file, (size_t)size, "%.*s", (int)length, base);
-	return ce;
+	return map_family_parse(path, file, size);
 }
 
-static boolean map_is_ce(
+static short map_family(
 	char const *path)
 {
-	char file[BROWSER_MAP_LENGTH];
-
-	return map_file(path, file, sizeof(file));
+	return map_family_parse(path, NULL, 0);
 }
 
 /* a game's map as players name it: an Xbox map's name in the menus, or a
@@ -205,14 +192,15 @@ static char const *map_display_name(
 {
 	char file[BROWSER_MAP_LENGTH];
 	long index;
+	short family = map_file(path, file, sizeof(file));
 
-	if (map_file(path, file, sizeof(file)))
+	if (family != _map_family_xbox)
 	{
 		wchar_t name[48];
 		unsigned short characters[48];
 		long length;
 
-		ui_map_list_ce_name(file, name, NUMBEROF(name));
+		ui_map_list_family_name(family, file, name, NUMBEROF(name));
 		for (length = 0; length < NUMBEROF(name) && name[length]; length++)
 			characters[length] = (unsigned short)name[length];
 		utf8_text(characters, length, text, size);
@@ -231,15 +219,16 @@ static char const *map_display_name(
 }
 
 /* whether a game's map can be played here: an Xbox map, or a Custom Edition
-map in maps\ce, missing, or on a build without them; maps\ce asked again
-when fresh, or for another map, or now and then */
+or HaloMD map in its family's folders, missing, or on a build without them;
+the folders asked again when fresh, or for another map, or now and then */
 static short ce_map_state(
 	struct browser_game const *game,
 	boolean fresh)
 {
 	char file[BROWSER_MAP_LENGTH];
+	short family = map_file(game->map, file, sizeof(file));
 
-	if (!map_file(game->map, file, sizeof(file)))
+	if (family == _map_family_xbox)
 		return _ce_map_none;
 #ifdef HALO_CUSTOM_EDITION
 	if (fresh || strcmp(browser_screen.ce_map, game->map) ||
@@ -247,12 +236,13 @@ static short ce_map_state(
 	{
 		csstrncpy(browser_screen.ce_map, game->map, sizeof(browser_screen.ce_map) - 1);
 		browser_screen.ce_map[sizeof(browser_screen.ce_map) - 1] = 0;
-		browser_screen.ce_map_answer = ui_map_list_ce_present(file) ? _ce_map_present : _ce_map_missing;
+		browser_screen.ce_map_answer = ui_map_list_family_present(family, file) ? _ce_map_present : _ce_map_missing;
 		browser_screen.ce_map_time = system_milliseconds();
 	}
 	return browser_screen.ce_map_answer;
 #else
 	(void)fresh;
+	(void)family;
 	return _ce_map_unsupported;
 #endif
 }
@@ -402,9 +392,10 @@ static long compare_games(
 		char a_name[64], b_name[64];
 
 		order = strcmp(map_display_name(a->map, a_name, sizeof(a_name)), map_display_name(b->map, b_name, sizeof(b_name)));
-		/* (an Xbox map before Halo PC's of the same name) */
+		/* (an Xbox map before Halo PC's of the same name, Custom Edition's
+		before HaloMD's) */
 		if (!order)
-			order = (long)map_is_ce(a->map) - (long)map_is_ce(b->map);
+			order = (long)map_family(a->map) - (long)map_family(b->map);
 		break;
 	}
 	case SORT_TYPE: order = (long)a->engine * 2 + a->teams - ((long)b->engine * 2 + b->teams); break;
@@ -450,15 +441,16 @@ static char const *ce_map_blocker(
 	long size)
 {
 	char file[BROWSER_MAP_LENGTH];
+	short family = map_file(game->map, file, sizeof(file));
 
 	switch (ce_map_state(game, FALSE))
 	{
 	case _ce_map_missing:
-		map_file(game->map, file, sizeof(file));
-		snprintf(text, (size_t)size, "Needs maps/ce/%s.map to join", file);
+		snprintf(text, (size_t)size, "Needs %s/%s.map to join", map_family_folder(family), file);
 		return text;
 	case _ce_map_unsupported:
-		return "Halo PC maps need ChupathingyCE with Halo PC map support.";
+		return family == _map_family_halomd ? "HaloMD maps need ChupathingyCE with Halo PC map support." :
+			"Halo PC maps need ChupathingyCE with Halo PC map support.";
 	default:
 		return NULL;
 	}
@@ -714,7 +706,8 @@ enum
 	DETAIL_FIRST_LINE = 34, DETAIL_LINE_STEP = 16,
 };
 
-/* the HALO PC badge: its text's size, and its room before the Type column */
+/* the HALO PC (or HALOMD) badge: its text's size, and its room before the
+Type column */
 #define BADGE_SIZE 6.5f
 enum
 {
@@ -853,18 +846,20 @@ static float prompt_off(
 	return x + ui_overlay_text(UI_FONT_BOLD, 12.0f, x, 456.5f, UI_ALIGN_LEFT, COLOR_PROMPT_OFF, words) + 20.0f;
 }
 
-/* the HALO PC badge of a game on a Custom Edition map, size its text's
-height: its width */
+/* the badge of a game on a Halo PC map (HALO PC, or HALOMD for a HaloMD
+map's: map_family_badge), size its text's height: its width */
 static float pc_badge_width(
+	short family,
 	float size)
 {
-	return ui_overlay_text_width(UI_FONT_BOLD, size, "HALO PC") + size;
+	return ui_overlay_text_width(UI_FONT_BOLD, size, map_family_badge(family)) + size;
 }
 
 /* the badge at x (its left), centred on the capitals of text whose top is
 text_y and height text_size (as ui_overlay_text draws them: their middle
 half the size down) */
 static void draw_pc_badge(
+	short family,
 	float size,
 	float x,
 	float text_y,
@@ -874,9 +869,10 @@ static void draw_pc_badge(
 	float height = size + padding;
 	float y = text_y + text_size * 0.5f - height * 0.5f;
 
-	ui_overlay_rect(x, y, pc_badge_width(size), height, 2, COLOR_PC_FILL);
-	ui_overlay_outline(x, y, pc_badge_width(size), height, 2, 0.75f, COLOR_PC_EDGE);
-	ui_overlay_text(UI_FONT_BOLD, size, x + padding, y + padding * 0.55f, UI_ALIGN_LEFT, COLOR_PC, "HALO PC");
+	ui_overlay_rect(x, y, pc_badge_width(family, size), height, 2, COLOR_PC_FILL);
+	ui_overlay_outline(x, y, pc_badge_width(family, size), height, 2, 0.75f, COLOR_PC_EDGE);
+	ui_overlay_text(UI_FONT_BOLD, size, x + padding, y + padding * 0.55f, UI_ALIGN_LEFT, COLOR_PC,
+		map_family_badge(family));
 }
 
 static float prompt_width(
@@ -1137,17 +1133,17 @@ void browser_screen_render(
 		utf8_name(game->name, name, sizeof(name));
 		ui_overlay_text(UI_FONT_BOLD, 10.0f, COLUMN_NAME, y + 5, UI_ALIGN_LEFT, color, name);
 		map_name = map_display_name(game->map, text, sizeof(text));
-		if (map_is_ce(game->map))
+		if (map_family(game->map) != _map_family_xbox)
 		{
 			/* (the badges in a column at the Map column's right; a name too long
 			for the room left of it smaller, its middle where the others' is) */
-			float badge_x = COLUMN_TYPE - BADGE_MARGIN - pc_badge_width(BADGE_SIZE);
+			float badge_x = COLUMN_TYPE - BADGE_MARGIN - pc_badge_width(map_family(game->map), BADGE_SIZE);
 			float size = 10.0f;
 
 			while (size > 7.0f && ui_overlay_text_width(UI_FONT_BOLD, size, map_name) > badge_x - 4 - COLUMN_MAP)
 				size -= 0.5f;
 			ui_overlay_text(UI_FONT_BOLD, size, COLUMN_MAP, y + 5 + (10.0f - size) / 2, UI_ALIGN_LEFT, color, map_name);
-			draw_pc_badge(BADGE_SIZE, badge_x, y + 5, 10.0f);
+			draw_pc_badge(map_family(game->map), BADGE_SIZE, badge_x, y + 5, 10.0f);
 		}
 		else
 			ui_overlay_text(UI_FONT_BOLD, 10.0f, COLUMN_MAP, y + 5, UI_ALIGN_LEFT, color, map_name);
@@ -1201,7 +1197,7 @@ void browser_screen_render(
 #ifdef HALO_CUSTOM_EDITION
 			/* (Halo PC's picture of it, or of an unknown level: laid out as the
 			Xbox's) */
-			bitmap = ui_map_list_ce_picture(file);
+			bitmap = ui_map_list_family_picture(map_family(selected->map), file);
 #endif
 			draw_bitmap_picture(bitmap, 140, 116, 46, DETAIL_Y + 9, 171, DETAIL_Y + DETAIL_HEIGHT - 9);
 		}
@@ -1229,7 +1225,7 @@ void browser_screen_render(
 		DETAIL_LINE("Status:", selected->open ? "Accepting Players" : "In Progress");
 		DETAIL_LINE("Map:", map_display_name(selected->map, map_name, sizeof(map_name)));
 		if (ce_state != _ce_map_none)
-			draw_pc_badge(BADGE_SIZE, x + 6, y - DETAIL_LINE_STEP, 10.0f);
+			draw_pc_badge(map_family(selected->map), BADGE_SIZE, x + 6, y - DETAIL_LINE_STEP, 10.0f);
 		DETAIL_LINE("Rules:", type_name(selected, text, sizeof(text)));
 		if (selected->score_limit)
 		{

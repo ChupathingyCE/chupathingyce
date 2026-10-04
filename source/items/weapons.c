@@ -1701,6 +1701,17 @@ static struct weapon_trigger *weapon_trigger_get(
 	struct weapon_definition const *weapon_definition = weapon_definition_get(weapon->definition_index);
 
 	match_assert("c:\\halo\\SOURCE\\items\\weapons.c", 1639, trigger_index>=0 && trigger_index<weapon_definition->weapon.triggers.count);
+#ifdef HALO_CUSTOM_EDITION
+	/* port: no slot the datum does not have, in any build (the map checks
+	refuse a weapon with more triggers than it: ce_map_checks.c) */
+	if (trigger_index<0 || trigger_index>=NUMBEROF(weapon->weapon.triggers))
+	{
+		static struct weapon_trigger no_trigger;
+
+		memset(&no_trigger, 0, sizeof(no_trigger));
+		return &no_trigger;
+	}
+#endif
 
 	return &weapon->weapon.triggers[trigger_index];
 }
@@ -1711,7 +1722,34 @@ static struct weapon_magazine *weapon_magazine_get(
 {
 	struct weapon_definition const *weapon_definition = weapon_definition_get(weapon->definition_index);
 
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a Custom Edition or HaloMD map's weapon may have a trigger that
+	charges with no magazine (a HaloMD map's trip mine), whose magazine
+	weapon_update reads as it charges. Halo PC's engine read the slot before
+	the first; this one, for such maps only, reads a full magazine that is
+	never kept (a trigger with none fires without ammunition), and in any
+	build reads no slot the datum does not have (the map checks refuse a
+	weapon with more magazines than it: ce_map_checks.c). An Xbox map's are
+	asserted as they always were */
+	if (magazine_index<0 || magazine_index>=weapon_definition->weapon.magazines.count ||
+		magazine_index>=NUMBEROF(weapon->weapon.magazines))
+	{
+		static struct weapon_magazine no_magazine;
+		extern boolean cache_file_tags_are_ce(void);
+
+		if (!(magazine_index==NONE && cache_file_tags_are_ce()))
+		{
+			match_assert("c:\\halo\\SOURCE\\items\\weapons.c", 1650,
+				magazine_index>=0 && magazine_index<weapon_definition->weapon.magazines.count);
+		}
+		memset(&no_magazine, 0, sizeof(no_magazine));
+		no_magazine.rounds_total = SHORT_MAX;
+		no_magazine.rounds_loaded = SHORT_MAX;
+		return &no_magazine;
+	}
+#else
 	match_assert("c:\\halo\\SOURCE\\items\\weapons.c", 1650, magazine_index>=0 && magazine_index<weapon_definition->weapon.magazines.count);
+#endif
 
 	return &weapon->weapon.magazines[magazine_index];
 }

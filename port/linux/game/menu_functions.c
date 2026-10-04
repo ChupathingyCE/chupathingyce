@@ -85,6 +85,7 @@ their handlers open opens.
 #include "../src/browser.h"
 #endif
 /* (its games on Halo PC maps: server_browser.c) */
+#include "halo_map_families.h"
 #include "halo_server_browser.h"
 
 #include <stdlib.h>
@@ -2881,9 +2882,10 @@ static short lobby_browser_rows_place(struct widget_instance *list)
 the games of a game list, network.browser_url (port/linux/src/browser.c;
 halo.milenko.org by default), merged into the listings' as listings of
 their own. A game both list is shown once, as its listing (the same invite
-token). One on a Halo PC (Custom Edition) map, which its host lists as
-<map>@ce, is marked PC, and joined only where it can be played (with the
-map in maps\ce: server_browser.c), as a listing's on one is */
+token). One on a Halo PC map, which its host lists as <map>@ce (Custom
+Edition) or <map>@md (HaloMD), is marked PC or MD, and joined only where it
+can be played (with the map in its family's folders: server_browser.c), as
+a listing's on one is */
 
 #ifdef HALO_GAME_BROWSER
 static struct
@@ -2919,16 +2921,17 @@ static struct browser_game const *lobby_browser_listed_game(struct p2p_listing c
 	return NULL;
 }
 
-/* a game list's game's map: its scenario's name, a Halo PC map's @ce kept
-(its file's name cut short, if it must be, to keep it) */
+/* a game list's game's map: its scenario's name, a Halo PC map's @ce or
+@md kept (its file's name cut short, if it must be, to keep it) */
 static void lobby_browser_listed_map(struct browser_game const *game, char *map, short size)
 {
 	char const *name = scenario_name(game->map);
 	size_t length = strlen(name);
-	boolean halo_pc = length > 3 && !_stricmp(name + length - 3, "@ce");
+	char const *suffix = map_family_suffix(map_family_parse(name, NULL, 0));
+	size_t suffix_length = strlen(suffix);
 
-	if (halo_pc && length > (size_t)size - 1)
-		snprintf(map, (size_t)size, "%.*s@ce", (int)(size - 4), name);
+	if (suffix_length && length > (size_t)size - 1)
+		snprintf(map, (size_t)size, "%.*s%s", (int)(size - 1 - suffix_length), name, suffix);
 	else
 		snprintf(map, (size_t)size, "%s", name);
 }
@@ -3051,14 +3054,15 @@ static short lobby_browser_score_limit(struct p2p_listing const *game)
 }
 #endif
 
-/* a game's map as the menus show it, and whether it is a Halo PC map (named
+/* a game's map as the menus show it, and its family (a Halo PC map's named
 as the menus' map list names it: server_browser.c) */
-static boolean lobby_browser_map_name(struct p2p_listing const *game, wchar_t *text)
+static short lobby_browser_map_name(struct p2p_listing const *game, wchar_t *text)
 {
-	if (server_browser_map_halo_pc(game->map, text, ROW_TEXT_LENGTH))
-		return TRUE;
-	map_display_name(game->map, text);
-	return FALSE;
+	short family = server_browser_map_family(game->map, text, ROW_TEXT_LENGTH);
+
+	if (family == _map_family_xbox)
+		map_display_name(game->map, text);
+	return family;
 }
 
 /* the Players line: how many of how many (and who, when it is known) */
@@ -3077,15 +3081,15 @@ static void lobby_browser_rules_text(struct p2p_listing const *game, wchar_t *te
 	wchar_t map[ROW_TEXT_LENGTH];
 	wchar_t score[16];
 	short score_limit = lobby_browser_score_limit(game);
-	boolean halo_pc;
+	short family;
 
 	text_to_wide(game->gametype, gametype, NUMBEROF(gametype));
-	halo_pc = lobby_browser_map_name(game, map);
+	family = lobby_browser_map_name(game, map);
 	score[0] = 0;
 	if (score_limit > 0)
 		usnprintf(score, NUMBEROF(score) - 1, L" to %d", score_limit);
 	usnprintf(text, size - 1, L"%s%s on %s%s%s", gametype[0] ? gametype : engine_names[PIN(game->engine_type, 0, 5)],
-		score, map, halo_pc ? L" (HALO PC)" : L"",
+		score, map, family == _map_family_halomd ? L" (HALOMD)" : family != _map_family_xbox ? L" (HALO PC)" : L"",
 		!game->open ? L": full or starting" : game->in_progress ? L": under way" : L"");
 	text[size - 1] = 0;
 }
@@ -3139,6 +3143,7 @@ static void lobby_browser_update(struct widget_instance *list)
 	{
 		short index = browser_row_index(row);
 		struct p2p_listing const *game;
+		short family;
 
 		if (index == NONE)
 			continue;
@@ -3150,11 +3155,12 @@ static void lobby_browser_update(struct widget_instance *list)
 		text_to_wide(game->name, text, ROW_TEXT_LENGTH);
 		text_set(named(row, "server_item_server_name", 0), text);
 		/* (a Halo PC map's game: marked) */
-		if (lobby_browser_map_name(game, text))
+		family = lobby_browser_map_name(game, text);
+		if (family != _map_family_xbox)
 		{
 			short length = (short)ustrlen(text);
 
-			usnprintf(text + length, ROW_TEXT_LENGTH - 1 - length, L" PC");
+			usnprintf(text + length, ROW_TEXT_LENGTH - 1 - length, family == _map_family_halomd ? L" MD" : L" PC");
 			text[ROW_TEXT_LENGTH - 1] = 0;
 		}
 		text_set(named(row, "server_item_map", 0), text);

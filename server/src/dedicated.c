@@ -37,8 +37,9 @@ is published on internet play's brokers (port/linux/src/p2p_lobby.c), so it
 shows in every OpenCE and ChupathingyCE server browser (Join Game > Server
 Browser), and is withdrawn when the server stops.
 
-The playlist: one entry a line, a map (its name, "bloodgulch", its path, or
-a Custom Edition map in maps\ce as <name>@ce, "timberland@ce") and a game
+The playlist: one entry a line, a map (its name, "bloodgulch", its path, a
+Custom Edition map in maps\ce as <name>@ce, "timberland@ce", or a HaloMD map
+in md_maps as <name>@md, "phoenix3_15@md": halo_map_families.h) and a game
 type (game_engine_get_variant_by_name's names: slayer, team_slayer, ctf,
 king, oddball, race, ...); # starts a comment.
 */
@@ -167,8 +168,8 @@ static void load_playlist(
 		if (sscanf(line, "%127s %31s", map, variant) != 2)
 			continue;
 		/* (a bare name is a multiplayer level's: levels\test\<name>\<name>;
-		a Custom Edition map's, <name>@ce, stays bare, as the menus' map list
-		plays it: cache_files_windows.c) */
+		a Custom Edition or HaloMD map's, <name>@ce or <name>@md, stays bare,
+		as the menus' map list plays it: cache_files_windows.c) */
 		if (!strchr(map, '\\') && !strchr(map, '@'))
 			snprintf(dedicated.maps[dedicated.entry_count], sizeof(dedicated.maps[0]), "levels\\test\\%s\\%s", map, map);
 		else

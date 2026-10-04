@@ -51,7 +51,8 @@ own releases. Expect rough edges, and please report them.
 | Online Games, hosting, stats | Yes | Yes | Yes | Yes |
 | Dedicated server | Yes (tested in Wine) | Untested | Yes (and Docker) | |
 | Updates itself | Yes | Not yet | Yes | Yes |
-| Halo PC (Custom Edition) maps | Not yet (32-bit) | Yes | Yes | Not yet |
+| Halo PC (Custom Edition) maps | 64-bit build only | Yes | Yes | Not yet |
+| HaloMD maps | 64-bit build only | Yes | Yes | Not yet |
 | Server Browser in the PC menus | Yes | Yes | Yes | Yes |
 
 ## Download
@@ -93,20 +94,55 @@ places, so switching from one to the other keeps your saves and settings.
 
 ## Halo PC maps
 
-ChupathingyCE also plays Halo PC (Custom Edition) multiplayer maps, on a Mac
-and on Linux. Copy the `.map` files from your own Halo PC (Custom Edition)
+ChupathingyCE also plays Halo PC (Custom Edition) multiplayer maps, on a Mac,
+on Linux and in the 64-bit Windows build. Copy the `.map` files from your own Halo PC (Custom Edition)
 install into a `ce` folder inside the game's `maps` folder:
 
 | Platform | Put Halo PC maps in |
 | --- | --- |
 | Mac | `~/Library/Application Support/ChupathingyCE/maps/ce/` |
 | Linux | `maps/ce/` next to the `halo` executable |
+| Windows (64-bit) | `maps\ce\` next to `halo.exe` |
 
 Include `bitmaps.map`, `sounds.map` and `loc.map`, which the maps share. Halo PC's
 own `ui.map` adds its map names and pictures. The maps appear in the multiplayer
 map list after the Xbox maps, marked HALO PC. In Online Games, a game on a Halo PC
 map is badged, and it can be joined only by players who have that map: the game
 says which file is missing. The Xbox maps from your disc image are still needed.
+A map file named `<name>@ce.map`, as some other builds name them, is found too,
+in `maps/ce/` or in `maps/`.
+
+### HaloMD maps
+
+ChupathingyCE also plays HaloMD's multiplayer maps (the Mac Halo community's
+maps, made for Halo PC 1.0), on a Mac, on Linux and in the 64-bit Windows
+build. Bring your own: download
+the maps you want from HaloMD's mod list, and put their `.map` files in an
+`md_maps` folder beside the game's `maps` folder:
+
+| Platform | Put HaloMD maps in |
+| --- | --- |
+| Mac | `~/Library/Application Support/ChupathingyCE/md_maps/` |
+| Linux | `md_maps/` next to the `halo` executable |
+| Windows (64-bit) | `md_maps\` next to `halo.exe` |
+
+They need the Halo PC (Custom Edition) files above too: `bitmaps.map`,
+`sounds.map` and `loc.map` from your own Halo PC install, in `maps/ce/`. A
+HaloMD map keeps Halo's own textures and sounds in those shared files, and
+the game reads them from Custom Edition's copies. ChupathingyCE doesn't come
+with any of these files.
+
+The maps appear in the multiplayer map list after the Halo PC maps, marked
+[MD], with their names from HaloMD's list. Online, a HaloMD map is played as
+`<name>@md` (`bgplus_5@md`), badged HALOMD in Online Games, and joined only by
+players who have the same map file. A HaloMD map already in `maps/ce/` still
+plays, and a file named `<name>@md.map` in `md_maps/` or `maps/` is found too.
+
+HaloMD's plug-ins aren't part of ChupathingyCE. A few maps were made for one:
+the visible-object and bigger-BSP limits they raised are already raised here,
+and the widescreen view is the game's own, but the maps made for gameplay
+plug-ins (3rd Person, Rocket Surfing, Spartan) play without them, as plain
+Halo.
 
 ## Playing online
 
@@ -228,6 +264,8 @@ are for checking changes.
   icon is MrBruh's helmet, with tusks.
 - Fonts: [Noto Sans](https://fonts.google.com/noto) (SIL OFL) and
   [Kenney's Input Prompts](https://kenney.nl/assets/input-prompts) (CC0).
+- HaloMD map names: from [MacGamingMods](https://macgamingmods.com)' public
+  HaloMD mod list, so the menus can show each map's own name.
 - Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths,
   extract-xiso, and Project Nayuki's QR Code generator. Their licenses are
   beside them in `port/third_party`.
