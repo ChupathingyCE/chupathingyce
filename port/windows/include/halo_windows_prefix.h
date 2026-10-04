@@ -11,16 +11,30 @@ much shorter than the Linux build's halo_linux_prefix.h.
 #ifndef __HALO_WINDOWS_PREFIX_H
 #define __HALO_WINDOWS_PREFIX_H
 
-#if !defined(_M_IX86)
-#error the Windows port targets 32-bit x86: game data structures assume 32-bit pointers
+#if !defined(_M_IX86) && !(defined(_M_X64) && defined(HALO_64BIT))
+#error the Windows port targets 32-bit x86, or x64 with HALO_64BIT: game data structures assume 32-bit pointers
 #endif
 
 #define HALO_WINDOWS 1
 
-/* ---------- pointers inside Xbox data (the 64-bit macOS build's; no-ops
-here, as in the Linux build: the shared sources name them) */
+/* ---------- pointers inside Xbox data (the 64-bit builds': ninja windows64;
+no-ops in the 32-bit build, as in the Linux build: the shared sources name
+them) */
 
 #include "../../../source/cseries/xbox_address.h"
+
+/* ---------- the C runtime functions the game calls undeclared
+
+The 64-bit build rejects an implicitly declared function, whose int result
+would truncate a pointer (tools/windows_build.py); the 32-bit build lets the
+game call these without their headers, as MSVC did. */
+
+#ifdef HALO_64BIT
+#include <ctype.h>
+/* (text/unicode.c's ugets: the C runtime still has it, but no longer
+declares it) */
+wchar_t *__cdecl _getws(wchar_t *buffer);
+#endif
 
 /* ---------- XDK architecture selection */
 

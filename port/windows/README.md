@@ -40,6 +40,35 @@ For a new optimization profile (`--pgo=train`), the build compiles the
 profile runtime of LLVM for 32-bit x86 (`pgo/halo_profile_runtime.c`).
 LLVM for Windows supplies this runtime only for x86-64.
 
+### 64-bit
+
+`ninja windows64` builds the same game as native x64 code,
+`build/windows64/halo.exe`, with `SDL3.dll` for x64 next to it. It needs the
+x64 MSVC libraries of Visual Studio instead of the x86 ones.
+
+It is the 64-bit build of the other systems (`HALO_64BIT`: see
+[port/macos/README.md](../macos/README.md)), with these differences:
+
+- Windows keeps `long` 32 bits wide on x64, as the Xbox compiler did. The
+  game sources need none of the `long` rewrite of the Linux and macOS
+  64-bit builds (`tools/lp64_rewrite.py`).
+- The platform layer reserves the 4 GB Xbox address space at 1 TB with
+  `VirtualAlloc`, through the `mmap` of `src/win32_posix.c`. The game stops
+  if it cannot get that address. The executable does not use high-entropy
+  address randomization, which could put the first allocations of the
+  process in that range.
+- The write tracking and the crash reports of `src/win32_memory_watch.c`
+  convert between Xbox addresses and the pointers of the process. A crash
+  report gives the address of `halo.exe` in that run, and the calls come
+  from the unwind data of x64 code, not from a chain of frame pointers.
+- It is not optimized with a profile. The committed profiles are those of
+  the 32-bit builds.
+
+It plays the Custom Edition maps of Halo PC (`maps/ce/`), it plays with the
+32-bit builds and the other ports over the network, and it is a dedicated
+server too (`server/README.md`). Its releases are a separate download,
+`chupathingyce-windows64-release.zip`, which its self-updater asks for.
+
 ## Start the game
 
 Enter `build\windows\halo.exe`.
@@ -56,7 +85,8 @@ The game finds the game data as on Linux. Refer to "Start the game" in
 ## How the port operates
 
 The game is 32-bit code, as on Linux, because its data contains 32-bit
-pointers. The clang target `i686-pc-windows-msvc` gives the ABI of MSVC:
+pointers (the 64-bit build keeps that data in a 4 GB Xbox address space:
+see "64-bit" above). The clang target `i686-pc-windows-msvc` gives the ABI of MSVC:
 the structure layout, the 16-bit `wchar_t` and the calling conventions.
 Thus the Windows build needs fewer changes than the Linux build.
 

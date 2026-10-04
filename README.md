@@ -202,6 +202,7 @@ ninja            # the game for the computer you're on
 | `ninja linux64` | `build/linux64/halo` (64-bit) | [port/linux/README.md](port/linux/README.md) |
 | `ninja linux` | `build/linux/halo` (32-bit) | [port/linux/README.md](port/linux/README.md) |
 | `ninja windows` | `build/windows/halo.exe` | [port/windows/README.md](port/windows/README.md) |
+| `ninja windows64` | `build/windows64/halo.exe`, the 64-bit game | [port/windows/README.md](port/windows/README.md#64-bit) |
 | `ninja android_apk` | the Android app | [port/android/README.md](port/android/README.md) |
 
 Useful `configure.py` options:
