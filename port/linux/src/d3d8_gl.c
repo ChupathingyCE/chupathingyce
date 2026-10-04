@@ -107,7 +107,15 @@ static void screen_mode_choose(long *width, float scale[2])
 
 	*width = 640;
 	scale[0] = scale[1] = 1.0f;
-	if (platform_screen_mode(&display_width, &display_height) && display_width > 0 && display_height > 0)
+	/* fullscreen draws at the display's resolution, a window at its own
+	size in pixels (on a Retina display, a crisp picture instead of 640x480
+	stretched over it); a window 640 pixels wide or less draws 640x480 */
+	if (!platform_screen_mode(&display_width, &display_height) &&
+		!(platform_window_pixel_size(&display_width, &display_height) && display_width > 640))
+	{
+		display_width = display_height = 0;
+	}
+	if (display_width > 0 && display_height > 0)
 	{
 		long wanted = (SCREEN_HEIGHT * display_width + display_height / 2) / display_height;
 

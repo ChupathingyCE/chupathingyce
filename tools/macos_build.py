@@ -11,6 +11,7 @@ The result is build/macos/halo and the application bundle
 build/macos/ChupathingyCE.app. See port/macos/README.md.
 """
 
+import os
 import platform
 import subprocess
 from pathlib import Path
@@ -57,7 +58,11 @@ def fetch_portable_sdl() -> bool:
     return True
 
 # Apple's libc restricted to ISO C (glibc's is by __STRICT_ANSI__)
-MACOS_GAME_FLAGS = lp64_game_flags(["-D_ANSI_SOURCE"])
+# HALO_LTO=1 builds the whole program with link-time optimisation (clang's
+# -flto on both the objects and the link): a few percent in the renderer's
+# hot paths, at the cost of a slower link
+LTO_FLAGS = ["-flto"] if os.environ.get("HALO_LTO") == "1" else []
+MACOS_GAME_FLAGS = [*lp64_game_flags(["-D_ANSI_SOURCE"]), *LTO_FLAGS]
 
 # Platform files named posix_*.c talk to the C library only, with the host's
 # own ABI and no rewrite (their boundary types are posix.h's).
@@ -156,7 +161,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
             inputs=objects,
             implicit=[portable_sdl] if portable else [],
             variables={
-                "ldflags": f"{target} -g",
+                "ldflags": " ".join([target, "-g", *LTO_FLAGS]),
                 "libs": " ".join([*([f"-L{PORTABLE_SDL_BUILD}"] if portable else []), f"-L{HOMEBREW / 'lib'}",
                                   *(f"-l{lib}" for lib in libraries), *(f"-framework {fw}" for fw in frameworks)]),
             },
