@@ -50,6 +50,17 @@ are ignored. The server plays them in order and starts over at the end.
 `carousel` (Derelict), `chillout`, `damnation`, `hangemhigh`, `longest`,
 `prisoner`, `putput` (Chiron TL-34), `ratrace`, `sidewinder`, `wizard`.
 
+A Halo PC (Custom Edition) map in your `maps/ce` folder goes in as
+`<name>@ce`, and a HaloMD map in your `md_maps` folder as `<name>@md`
+(see [Halo PC maps](../README.md#halo-pc-maps) in the README):
+
+```
+timberland@ce    team_slayer
+bgplus_5@md      ctf
+```
+
+Players need the same map file to join such a game.
+
 **Game types:** `slayer`, `team_slayer`, `ctf`, `ironctf`, `king`,
 `team_king`, `oddball`, `team_oddball`, `race`, `team_race`, `rally`,
 `elimination`, `stalker`, `accumulation`.
@@ -57,6 +68,15 @@ are ignored. The server plays them in order and starts over at the end.
 A team game needs at least two players. While only one player is waiting,
 the server skips ahead to the next game in your playlist that isn't a team
 game. If there isn't one, that player waits for a second.
+
+## Which build to run
+
+Servers of the Xbox maps run best on the 32-bit game, which uses less
+memory. Halo PC, Custom Edition and HaloMD maps need the 64-bit game, with
+its larger caches. On Linux, the releases have both:
+`chupathingyce-dedicated` (32-bit) and `chupathingyce-dedicated64`
+(64-bit). Building it yourself, `ninja linux` makes the 32-bit game and
+`ninja linux64` the 64-bit one.
 
 ## 2. Start it
 

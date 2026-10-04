@@ -64,7 +64,8 @@ It is the 64-bit build of the other systems (`HALO_64BIT`: see
 - It is not optimized with a profile. The committed profiles are those of
   the 32-bit builds.
 
-It plays the Custom Edition maps of Halo PC (`maps/ce/`), it plays with the
+It plays the Custom Edition maps of Halo PC (`maps/ce/`) and HaloMD's maps
+(`md_maps/`), it plays with the
 32-bit builds and the other ports over the network, and it is a dedicated
 server too (`server/README.md`). Its releases are a separate download,
 `chupathingyce-windows64-release.zip`, which its self-updater asks for.

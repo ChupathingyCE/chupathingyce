@@ -54,9 +54,20 @@ As environment variables:
 | `HALO_NET_BROWSER` | `https://halo.milenko.org` | The game list it announces to. |
 
 A playlist has one entry a line: a map (its name, `bloodgulch`, its
-path, or a Halo PC map in the data folder's `maps/ce/` as `<name>@ce`,
-`timberland@ce`) and a game type (`slayer`, `team_slayer`, `ctf`, `king`, `oddball`,
-`race`, ...). `#` starts a comment.
+path, a Halo PC map in the data folder's `maps/ce/` as `<name>@ce`,
+`timberland@ce`, or a HaloMD map in the data folder's `md_maps/` as
+`<name>@md`, `bgplus_5@md`) and a game type (`slayer`, `team_slayer`, `ctf`,
+`king`, `oddball`, `race`, ...). `#` starts a comment. A HaloMD map needs
+Custom Edition's `bitmaps.map`, `sounds.map` and `loc.map` in `maps/ce/`, as
+the Halo PC maps do.
+
+## Which build
+
+The 32-bit game (`ninja linux`) is the one for servers of the Xbox maps:
+it uses less memory. The 64-bit game (`ninja linux64`) is the one for Halo
+PC, Custom Edition and HaloMD maps, which need its larger caches. The
+releases ship both: `chupathingyce-dedicated` (32-bit) and
+`chupathingyce-dedicated64` (64-bit).
 
 ## Run one on a desktop
 
@@ -75,8 +86,10 @@ halo.milenko.org within a few seconds.
 `deploy/` runs the Linux game in a Debian container (the host needs
 Docker, not the game's libraries), as the `halo-dedicated` systemd
 service: the 64-bit game (`ninja linux64`) in a Debian amd64 container, or
-the 32-bit game (`ninja linux`) in a Debian i386 one. `deploy.sh` picks the
-container from the game it is given (the Dockerfile's `BASE`).
+the 32-bit game (`ninja linux`) in a Debian i386 one (above: the 32-bit
+game for the Xbox maps, the 64-bit one for Halo PC and HaloMD maps).
+`deploy.sh` picks the container from the game it is given (the
+Dockerfile's `BASE`).
 
 1. Build the Linux game on Debian 13 (its libraries are the container's):
    `python3 configure.py --portable --release && ninja linux64`
@@ -84,7 +97,8 @@ container from the game it is given (the Dockerfile's `BASE`).
    (`build/linux/halo`).
 2. Copy the maps to the host's `/opt/halo-dedicated/data/maps`: `ui.map`
    and the multiplayer maps (about 300 MB). Use the North American (NTSC)
-   maps.
+   maps. Halo PC maps and their `bitmaps.map`, `sounds.map` and `loc.map`
+   go in `maps/ce/` there, HaloMD maps in `/opt/halo-dedicated/data/md_maps`.
 3. Run `server/deploy/deploy.sh user@host build/linux64/halo`. It copies the
    game and the playlists, builds the image, and installs and starts the
    service.
