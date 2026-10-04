@@ -1483,8 +1483,17 @@ static void rasterize_in_game_score_draw_line(
 
 /* port: the in-game scoreboard's lists (game_engine_rasterize_scoreboard,
 game_engine_rasterize_in_game_score): the players in the game, not those who
-quit, ranked and placed among themselves */
+quit, ranked and placed among themselves, unless display.show_quit_players
+keeps them listed as the original game did (only what this machine draws) */
 static boolean statistic_buffer_in_game_only = FALSE;
+
+int config_boolean(const char *name);
+
+static boolean scoreboard_in_game_only(
+	void)
+{
+	return !config_boolean("display.show_quit_players");
+}
 
 long populate_statistic_buffer(
 	struct statistic_buffer *statistic_buffer,
@@ -1918,7 +1927,7 @@ static void game_engine_rasterize_scoreboard(
 	rows = (long)((bounds.y1 - SCOREBOARD_LAYOUT_TOP_ROWS * line_height) / SCOREBOARD_SCALE / line_height) - 2 -
 		SCOREBOARD_BOTTOM_ROWS;
 	rows = MAX(rows, 1);
-	statistic_buffer_in_game_only = TRUE;
+	statistic_buffer_in_game_only = scoreboard_in_game_only();
 	ranked_count = populate_statistic_buffer(ranked, _postgame_statistic_ranking, FALSE);
 	statistic_buffer_in_game_only = FALSE;
 	team_columns = has_teams && scoreboard_team_columns() && width >= 2 * SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP;
@@ -2143,7 +2152,7 @@ static void game_engine_rasterize_in_game_score(
 		return;
 	}
 	game_engine_generate_title_string(title_string, player_index);
-	statistic_buffer_in_game_only = TRUE;
+	statistic_buffer_in_game_only = scoreboard_in_game_only();
 	entry_count = select_players_to_display(
 		_postgame_statistic_ranking,
 		player_index,

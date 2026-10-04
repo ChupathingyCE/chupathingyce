@@ -130,6 +130,10 @@ static const struct config_setting config_settings[] =
 	{ "display.scoreboard_background", _config_boolean, "true", "HALO_SCOREBOARD_BACKGROUND", _environment_value,
 		_platform_all,
 		"Draw a panel behind the multiplayer scoreboard, for clearer text." },
+	{ "display.show_quit_players", _config_boolean, "true", "HALO_SHOW_QUIT_PLAYERS", _environment_value,
+		_platform_all,
+		"Keep players who quit on the multiplayer scoreboard, as the original game\n"
+		"did; false leaves them off it, as OpenCE does." },
 	{ "display.scoreboard_background_color", _config_string, "\"16, 16, 16, 150\"", "HALO_SCOREBOARD_BACKGROUND_COLOR",
 		_environment_value, _platform_all,
 		"The scoreboard panel's colour: \"red, green, blue, alpha\", each 0 to 255\n"

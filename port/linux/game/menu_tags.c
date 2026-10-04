@@ -1339,7 +1339,7 @@ static boolean tag_name_ends(long tag_index, char const *end)
 else NONE */
 static long pause_quit_button(struct ui_widget_definition const *list, long quit_function)
 {
-	struct ui_widget_child_reference const *children = list->child_widgets.address;
+	struct ui_widget_child_reference const *children = xbox_pointer(list->child_widgets.address);
 	long child;
 
 	for (child = 0; child < list->child_widgets.count; child++)
@@ -1351,7 +1351,7 @@ static long pause_quit_button(struct ui_widget_definition const *list, long quit
 		if (children[child].widget_tag.index == NONE)
 			continue;
 		button = tag_get(UI_WIDGET_DEFINITION_TAG, children[child].widget_tag.index);
-		handlers = button->event_handlers.address;
+		handlers = xbox_pointer(button->event_handlers.address);
 		for (handler = 0; handler < button->event_handlers.count; handler++)
 		{
 			if (handlers[handler].function == quit_function &&
@@ -1382,10 +1382,10 @@ static void *pause_button(struct cache_file_tag_instance *instances, struct ui_w
 	reference_set(&button->text_label_string_list, UNICODE_STRING_LIST_TAG, text_tag);
 	button->string_list_index = 0;
 	button->game_data_inputs.count = 0;
-	button->game_data_inputs.address = NULL;
+	button->game_data_inputs.address = XBOX_NULL;
 	/* (the game's memcpy asserts on a NULL source, even for nothing) */
 	if (model->event_handlers.count)
-		memcpy(handlers, model->event_handlers.address, model->event_handlers.count * sizeof(*handlers));
+		memcpy(handlers, xbox_pointer(model->event_handlers.address), model->event_handlers.count * sizeof(*handlers));
 	for (handler = 0; handler < model->event_handlers.count; handler++)
 	{
 		handlers[handler].flags = FLAG(_event_handler_run_function_bit);
@@ -1398,7 +1398,7 @@ static void *pause_button(struct cache_file_tag_instance *instances, struct ui_w
 				FLAG(_event_handler_try_to_branch_on_failure_bit);
 		}
 	}
-	button->event_handlers.address = handlers;
+	button->event_handlers.address = XBOX_ADDRESS(handlers);
 	return button;
 }
 
@@ -1407,7 +1407,7 @@ GAME (quit); returns how many were added */
 static long pause_list_patch(struct cache_file_tag_instance *instances, struct ui_widget_definition *list, long quit,
 	boolean host)
 {
-	struct ui_widget_child_reference *children = list->child_widgets.address;
+	struct ui_widget_child_reference *children = xbox_pointer(list->child_widgets.address);
 	long count = list->child_widgets.count, added = host ? 2 : 1, child;
 	struct ui_widget_child_reference *grown = allocate((count + added) * sizeof(struct ui_widget_child_reference));
 	struct ui_widget_definition const *model = tag_get(UI_WIDGET_DEFINITION_TAG, children[quit].widget_tag.index);
@@ -1445,7 +1445,7 @@ static long pause_list_patch(struct cache_file_tag_instance *instances, struct u
 		grown[child + added] = children[child];
 		grown[child + added].vertical_offset = (short)(children[child].vertical_offset + added * spacing);
 	}
-	list->child_widgets.address = grown;
+	list->child_widgets.address = XBOX_ADDRESS(grown);
 	list->child_widgets.count = count + added;
 	/* (the list draws within its bounds) */
 	list->bounds.y1 = (short)(list->bounds.y1 + added * spacing);
@@ -1455,7 +1455,7 @@ static long pause_list_patch(struct cache_file_tag_instance *instances, struct u
 /* the Xbox's own box: a widget of the three pausebox2 pieces */
 static boolean pause_box_stock(struct ui_widget_definition const *box)
 {
-	struct ui_widget_child_reference const *pieces = box->child_widgets.address;
+	struct ui_widget_child_reference const *pieces = xbox_pointer(box->child_widgets.address);
 
 	return box->child_widgets.count == 3 && tag_name_ends(pieces[0].widget_tag.index, "\\pausebox2_left") &&
 		tag_name_ends(pieces[1].widget_tag.index, "\\pausebox2_left_center") &&
@@ -1467,7 +1467,7 @@ the number of buttons */
 static void pause_box_redraw(struct ui_widget_definition const *box, long buttons)
 {
 	static char const *const names[] = { "pause/pausebox_left", "pause/pausebox_center", "pause/pausebox_right" };
-	struct ui_widget_child_reference const *pieces = box->child_widgets.address;
+	struct ui_widget_child_reference const *pieces = xbox_pointer(box->child_widgets.address);
 	long piece;
 
 	for (piece = 0; piece < 3; piece++)
@@ -1480,7 +1480,7 @@ static void pause_box_redraw(struct ui_widget_definition const *box, long button
 		if (bitmap == NONE)
 			continue;
 		group = bitmap_group_get(build.bitmap_tags[bitmap]);
-		sequence = group->sequences.address;
+		sequence = xbox_pointer(group->sequences.address);
 		/* (one frame: the one for the number of buttons) */
 		sequence->first_bitmap_index = (short)PIN(buttons - PAUSE_BOX_FIRST_BUTTONS, 0, group->bitmaps.count - 1);
 		sequence->bitmap_count = 1;
@@ -1503,7 +1503,7 @@ static void pause_patch(struct cache_file_tag_instance *instances)
 	screens = tag_get('Soul', collection);
 	for (screen = 0; screen < screens->count; screen++)
 	{
-		long screen_tag = ((struct tag_reference const *)screens->address)[screen].index;
+		long screen_tag = XBOX_POINTER(struct tag_reference const, screens->address)[screen].index;
 		struct ui_widget_definition *definition;
 		struct ui_widget_child_reference *children;
 		long child, list_child = NONE, box_child = NONE;
@@ -1512,7 +1512,7 @@ static void pause_patch(struct cache_file_tag_instance *instances)
 		if (screen_tag == NONE)
 			continue;
 		definition = tag_get(UI_WIDGET_DEFINITION_TAG, screen_tag);
-		children = definition->child_widgets.address;
+		children = xbox_pointer(definition->child_widgets.address);
 		for (child = 0; child < definition->child_widgets.count && list_child == NONE; child++)
 		{
 			struct ui_widget_definition *list;
@@ -1661,7 +1661,13 @@ void menu_tags_loaded(
 	{
 		instances[index].group_tag = NONE;
 		instances[index].tag_index = NONE;
+#ifdef HALO_64BIT
+		if (!menu_tags.empty_name)
+			menu_tags.empty_name = allocate(1);
+		instances[index].name = XBOX_ADDRESS(menu_tags.empty_name);
+#else
 		instances[index].name = "";
+#endif
 	}
 	cache_files_set_tag_instances(instances, build.first_index + total);
 	for (index = 0; index < widget_count && !build.failed; index++)
