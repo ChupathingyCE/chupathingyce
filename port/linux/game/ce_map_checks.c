@@ -29,6 +29,9 @@ what it points into, with arithmetic that cannot overflow:
     against the model data and each other, and the room the converted parts
     need (ce_models.c);
   - every shader's type against its group (ce_models.c);
+  - every animation graph's nodes and animations against the arrays the game
+    poses them in, and each object's graph against its model (ce_models.c);
+  - the scenario's scripts' syntax, which the game indexes where it is;
   - the HUD interfaces' blocks the port rescales (ce_hud.c).
 
 A map that fails a check is refused: it is not opened, the reason is logged
@@ -72,6 +75,17 @@ enum
 	CE_MAXIMUM_BSPS = 16, /* (scenario.h's MAXIMUM_STRUCTURE_BSPS_PER_SCENARIO) */
 	CE_BSP_GROUP = 'sbsp',
 	CE_BSP_HEADER_SIZE = 0x18,
+
+	/* the scenario's scripts (scenario_definitions.h): their syntax, a data
+	array (data.h) the game uses in place, and their strings */
+	CE_SCENARIO_SCRIPT_SYNTAX_OFFSET = 0x474,
+	CE_SCENARIO_SCRIPT_STRINGS_OFFSET = 0x488,
+	CE_DATA_ARRAY_HEADER_SIZE = 0x38,
+	CE_DATA_ARRAY_MAXIMUM_COUNT_OFFSET = 0x20,
+	CE_DATA_ARRAY_ELEMENT_SIZE_OFFSET = 0x22,
+	CE_DATA_ARRAY_FIRST_FREE_OFFSET = 0x2c,
+	CE_DATA_ARRAY_COUNT_OFFSET = 0x2e,
+	CE_SCRIPT_SYNTAX_NODE_SIZE = 0x14, /* (hs_compile.c's hs_syntax_node) */
 };
 
 /* ---------- structures */
@@ -123,6 +137,7 @@ boolean ce_models_check(struct ce_image const *image, void const *tag_instances,
 boolean ce_shaders_check(struct ce_image const *image, void const *tag_instances, long tag_count);
 boolean ce_hud_check(struct ce_image const *image, void const *tag_instances, long tag_count);
 boolean ce_bsp_check(struct ce_image const *image, unsigned long *bytes);
+boolean ce_animations_check(struct ce_image const *image, void const *tag_instances, long tag_count);
 
 /* ---------- globals */
 
@@ -198,6 +213,41 @@ static boolean ce_tag_index_check(
 		{
 			return ce_refuse("%s is not in its tag data", name);
 		}
+	}
+	return TRUE;
+}
+
+/* the scenario's scripts: their syntax's data array (which the game uses
+where it is, hs.c's hs_scenario_postprocess, and indexes up to its counts:
+data.c) of syntax nodes, its elements all in it, and their strings in the
+tags */
+static boolean ce_scripts_check(
+	struct ce_image const *image,
+	byte const *scenario)
+{
+	unsigned long syntax_size, strings_size;
+	byte *syntax, *strings;
+	short maximum_count, element_size, first_free, count;
+
+	if (!ce_image_data(image, scenario + CE_SCENARIO_SCRIPT_SYNTAX_OFFSET, "its scripts' syntax", &syntax_size,
+		&syntax) ||
+		!ce_image_data(image, scenario + CE_SCENARIO_SCRIPT_STRINGS_OFFSET, "its scripts' strings", &strings_size,
+			&strings))
+	{
+		return FALSE;
+	}
+	if (syntax_size < CE_DATA_ARRAY_HEADER_SIZE)
+		return ce_refuse("its scripts' syntax (%lu bytes) has no header", syntax_size);
+	memcpy(&maximum_count, syntax + CE_DATA_ARRAY_MAXIMUM_COUNT_OFFSET, sizeof(maximum_count));
+	memcpy(&element_size, syntax + CE_DATA_ARRAY_ELEMENT_SIZE_OFFSET, sizeof(element_size));
+	memcpy(&first_free, syntax + CE_DATA_ARRAY_FIRST_FREE_OFFSET, sizeof(first_free));
+	memcpy(&count, syntax + CE_DATA_ARRAY_COUNT_OFFSET, sizeof(count));
+	if (element_size != CE_SCRIPT_SYNTAX_NODE_SIZE || maximum_count < 0 || count < 0 || count > maximum_count ||
+		first_free < 0 || first_free > maximum_count ||
+		(unsigned long)maximum_count * CE_SCRIPT_SYNTAX_NODE_SIZE > syntax_size - CE_DATA_ARRAY_HEADER_SIZE)
+	{
+		return ce_refuse("its scripts' syntax (%d of %d nodes of %d bytes) is not in its %lu bytes", count,
+			maximum_count, element_size, syntax_size);
 	}
 	return TRUE;
 }
@@ -340,8 +390,11 @@ static boolean ce_map_check_tags(
 		ce_refuse("its scenario (tag %08lx) is not a scenario", header.scenario_tag_index);
 		goto done;
 	}
-	if (!ce_bsps_check(file, file_size, &image, instances, tag_count, scenario, &end_free, &bsp_bytes))
+	if (!ce_scripts_check(&image, scenario) ||
+		!ce_bsps_check(file, file_size, &image, instances, tag_count, scenario, &end_free, &bsp_bytes))
+	{
 		goto done;
+	}
 	/* the resource maps' tags copied in and relocated, and every bitmap and
 	sound checked (ce_resources.c); the image then reaches past them */
 	/* (the map's own tags, in the tag data: what follows is the resource
@@ -376,7 +429,8 @@ static boolean ce_map_check_tags(
 			model_bytes + bsp_bytes, end_free - next_free);
 		goto done;
 	}
-	valid = ce_shaders_check(&tags, instances, tag_count) && ce_hud_check(&tags, instances, tag_count);
+	valid = ce_shaders_check(&tags, instances, tag_count) && ce_hud_check(&tags, instances, tag_count) &&
+		ce_animations_check(&tags, instances, tag_count);
 
 done:
 	if (model_data)

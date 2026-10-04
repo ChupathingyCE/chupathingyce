@@ -49,6 +49,7 @@ alone peers reach.
 #include "posix.h"
 #include "port_config.h"
 #include "p2p.h"
+#include "log_address.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -1078,13 +1079,11 @@ INT WSAAPI XNetXnAddrToInAddr(const XNADDR *address, const XNKID *key_identifier
 #ifdef HALO_64BIT
 	{
 		char peer_id[16];
-		char peer_addr[32];
-		unsigned long val = halo_ws_ntohl(peer);
+		char peer_addr[LOG_ADDRESS_SIZE];
 		snprintf(peer_id, sizeof(peer_id), "%02x%02x%02x%02x%02x%02x",
 			address->abEnet[0], address->abEnet[1], address->abEnet[2],
 			address->abEnet[3], address->abEnet[4], address->abEnet[5]);
-		snprintf(peer_addr, sizeof(peer_addr), "%lu.%lu.%lu.%lu",
-			(val >> 24) & 255, (val >> 16) & 255, (val >> 8) & 255, val & 255);
+		log_address_ipv4(peer, 0, peer_addr, sizeof(peer_addr));
 		platform_log("Internet play: resolving peer identifier %s to virtual address %s", peer_id, peer_addr);
 #endif
 		result->s_addr = peer;

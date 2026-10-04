@@ -16,10 +16,14 @@ RUN apt-get update \
 COPY halo /opt/halo/halo
 WORKDIR /opt/halo
 
-# no updates (the image is the version), the data and saves in /data
+# no updates (the image is the version), the data and saves in /data; the
+# run's key in /tmp (it goes with the container, as it did in root's home),
+# so the game runs as any user (the services run it as the data folder's
+# owner, not root)
 ENV HALO_DATA_ROOT=/data \
 	HALO_SAVE_ROOT=/data/saves \
-	HALO_UPDATE_AUTO=false
+	HALO_UPDATE_AUTO=false \
+	XDG_RUNTIME_DIR=/tmp
 
 # (the game withdraws its listing and stops on SIGTERM)
 STOPSIGNAL SIGTERM
