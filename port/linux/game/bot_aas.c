@@ -67,8 +67,17 @@ there. Reachabilities that bots keep failing at cost more (learned).
 #define AAS_FOOT_SPEED 2.25f
 #define AAS_VEHICLE_SPEED 6.f
 #define AAS_CACHES 96
-#define AAS_CACHE_VERSION 26
+#define AAS_CACHE_VERSION 27
 #define AAS_DEAD_FAILURES 4 /* failed this often: not a way */
+
+/* what a way that has failed costs, in seconds over its time: a jump or a
+   gap has no cost of its own for being one (it is as good as the floor
+   beside it), so the first failure counts at once (a little: a slip), and
+   each one after doubles it, until it is not a way at all */
+static float aas_failure_penalty(long failures)
+{
+	return failures < 1 ? 0.f : failures >= AAS_DEAD_FAILURES ? 1000.f : (float)(1 << MIN(7, failures));
+}
 #define AAS_CACHE_MAGIC 0x53414148UL /* HAAS */
 #define AAS_MAXIMUM_PLACES 256
 
@@ -1324,7 +1333,10 @@ static void aas_ledge_reaches(long type, struct aas_reaches *reaches)
 				switch (candidate->travel)
 				{
 				case _aas_travel_jump:
-					reach->time += 0.6f;
+					/* (the rise itself: a jump up is a way like any other,
+					   taken whenever it is the quickest, and so is one up
+					   and then another across) */
+					reach->time += 0.25f;
 					break;
 				case _aas_travel_drop:
 				{
@@ -1336,10 +1348,11 @@ static void aas_ledge_reaches(long type, struct aas_reaches *reaches)
 					break;
 				}
 				case _aas_travel_gap:
+					/* a gap jumped is the run across it and no more: as
+					   good a way as the floor beside it (one that keeps
+					   failing still costs what it has cost: aas_reach_failed) */
 					if (reach->careful == AAS_WALKOVER)
 						reach->time += 0.3f; /* (slow going, by the wall) */
-					else
-						reach->time += 0.6f + 0.4f; /* and the risk (a long fall under it, and the careful won't: bot_move_avoiding) */
 					break;
 				}
 				made = TRUE;
@@ -1997,8 +2010,7 @@ static void aas_failures_load(void)
 			{
 				if (world->failures[r] > 0)
 					world->failures[r]--;
-				world->penalty[r] = world->failures[r] < 2 ? 0.f : world->failures[r] >= AAS_DEAD_FAILURES ? 1000.f :
-					MIN(120.f, 1.f * (1 << MIN(7, world->failures[r])));
+				world->penalty[r] = aas_failure_penalty(world->failures[r]);
 				dead += world->failures[r] >= 2;
 			}
 			if (bot_logging() && dead)
@@ -3380,9 +3392,7 @@ void aas_reach_failed(long type, long reach)
 	/* (the routes still searching keep the penalties they began with) */
 	if (!aas_shared_writable(&world->penalty))
 		return;
-	/* a slip now and then is nothing; again and again, it's not a way */
-	world->penalty[reach] = world->failures[reach] < 2 ? 0.f : world->failures[reach] >= AAS_DEAD_FAILURES ? 1000.f :
-		MIN(120.f, 1.f * (1 << MIN(7, world->failures[reach])));
+	world->penalty[reach] = aas_failure_penalty(world->failures[reach]);
 	if (world->failures[reach] == AAS_DEAD_FAILURES)
 	{
 		/* not a way at all: whatever's only got to by it is off the map as
@@ -3390,7 +3400,7 @@ void aas_reach_failed(long type, long reach)
 		aas_find_flags(type);
 		aas_find_random_weights(type);
 	}
-	if (world->failures[reach] >= 2)
+	if (world->failures[reach] >= 1)
 	{
 		/* routes worked out before are redone as they're wanted (a few a tick) */
 		world->penalty_epoch++;

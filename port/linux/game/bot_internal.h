@@ -44,7 +44,9 @@ struct bot_move_state
 	long type; /* AAS_FOOT or AAS_VEHICLE */
 	long cost_slot; /* whose danger to route round (NONE: none) */
 	int careful; /* no gaps or long drops unless there's no other way */
+	int human; /* corners rounded, and looked round before they are come to, as a person takes them */
 	long area; /* the area we're in (or last were) */
+	long area_before; /* ... and the one before it */
 	/* the reachability being travelled, when it's more than a walk */
 	long reach;
 	long reach_type;
@@ -81,6 +83,10 @@ struct bot_move_state
 	long stuck_count;
 	long unstick_ticks;
 	real unstick_yaw;
+	/* held up: where we were last tick, and how many ticks hardly moving */
+	real_point3d stall_point;
+	int stall_valid;
+	long stall_ticks;
 	long jump_cooldown;
 	long crouch_ticks;
 	long reverse_ticks;
@@ -142,6 +148,7 @@ struct bot_move_result
 	real look_yaw;
 	real look_pitch;
 	real path_yaw; /* which way the route goes (to look along it) */
+	int exact; /* close to where a jump, a gap, a ladder or a drop starts: the feet exactly where it says */
 	int arrived;
 	int no_route; /* can't get there from here */
 	long travel; /* what we're doing (_aas_travel_*) */

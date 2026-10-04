@@ -721,6 +721,40 @@ made it: the game makes the data again, into the save root, when the map
 file is a different one or when a later build has another format. Bake the
 maps again after such a change. The code is in `game/bot_bake.c`.
 
+### How the bots move and fight
+
+The bots move and look as a person with a controller or a mouse does:
+
+- The look starts to turn, gets faster, and slows before it stops. It does
+  not go at full speed from one tick to the next and then stop dead.
+- The movement changes direction in 2 to 4 ticks, as a thumb moves a
+  stick. Where the route has a jump, a gap, a ladder or a ledge, the feet
+  go exactly where the route says.
+- In a fight a bot strafes at full speed. It keeps one direction for about
+  half a second, sometimes for more than a second, and sometimes it makes a
+  quick step to one side and back.
+- A bot goes around a corner of its route in a curve, and it looks around
+  the corner before it gets there. It keeps a little distance from the
+  corners of walls, so that it does not catch on their edges.
+- When a bot walks and hardly moves for 0.2 seconds (a lip, a seam between
+  two surfaces), it jumps at once and steps to the side with more room.
+
+For the route, a jump up costs only the time of the jump, and a jump across
+a gap costs the same as the floor next to it. Thus the bots jump when that
+is the quickest way, also up to a place and then across from it. A jump
+that fails costs more each time it fails, and the bots keep what they
+learned in the save root.
+
+With a rocket launcher, a bot shoots at the floor at the feet of an enemy
+who is on the ground and less than 22 world units away, and it shoots from
+2.8 world units or more (the blast is 2 world units). In a game without
+teams, a bot prefers an enemy who is busy with another player, goes to a
+fight that it hears, and throws a grenade into a fight or into a group of
+enemies.
+
+`HALO_BOT_OFF=human` gives the bots their movement without the first list
+above, for a comparison.
+
 ### How the bots find their way, and what they cost
 
 A bot finds its way with a search that starts at its goal. The search goes

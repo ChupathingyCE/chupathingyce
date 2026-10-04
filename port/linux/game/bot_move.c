@@ -68,38 +68,39 @@ void bot_move_reset(struct bot_move_state *move)
 	move->last_first_reach = NONE;
 	move->last_goal_area = NONE;
 	move->route_goal_area = NONE;
+	move->area_before = NONE;
 	for (i = 0; i < BOT_AVOID_REACHES; i++)
 		if (move->avoid_until[i] == 0)
 			move->avoid_reach[i] = NONE;
 }
 
-/* a gap over a fall longer than this is for the daring (and for what's
-   worth it): a jump that misses costs more than a walk round */
+
 /* a goal further off than this that has moved a little keeps its route
    (bot_move_to_goal) */
 #define BOT_FAR_GOAL 12.f
 
-#define BOT_CAREFUL_GAP_FALL 3.5f
-/* ... and so is one jumped down to a floor this much lower (Boarding
-   Action's decks: over the rail and down, with space past the landing) */
-#define BOT_CAREFUL_GAP_DOWN 1.5f
+/* how far from a corner of the route the look starts round it, and the
+   feet */
+#define BOT_LOOK_AHEAD 3.f
+#define BOT_CORNER_ROUND 1.1f
+/* ... and the room it gives a wall's corner, turning round it */
+#define BOT_CORNER_ROOM 0.22f
+/* held up: moving less than this much of what it should, for this long */
+#define BOT_STALL_FRACTION 0.3f
+#define BOT_STALL_TICKS 6
 
 static boolean bot_move_avoiding(void *context, long reach)
 {
 	struct bot_move_state const *move = (struct bot_move_state const *)context;
 	long now = game_time_get();
 	long i;
-	/* the careful don't take long drops, or jump gaps over one or down to
-	   a much lower floor, when there's another way. A gap across to floor
-	   about as high, with the floor not far under it (Chill Out's broken
-	   bridge), is a way like any other: everyone jumps it when it's the
-	   quickest, as people do */
+	/* the careful don't take long drops (a hard landing hurts) when
+	   there's another way. A gap is a way like any other, whatever is under
+	   it: everyone jumps it when it's the quickest, as people do */
 	if (move->careful && move->type == AAS_FOOT)
 	{
 		struct aas_reach const *r = aas_reach(move->type, reach);
-		if ((r->travel == _aas_travel_gap && r->careful != AAS_WALKOVER &&
-				(aas_reach_fall(move->type, reach) > BOT_CAREFUL_GAP_FALL || r->edge.z - r->left.z > BOT_CAREFUL_GAP_DOWN)) ||
-			(r->travel == _aas_travel_drop && r->edge.z - r->end.z > 2.5f))
+		if (r->travel == _aas_travel_drop && r->edge.z - r->end.z > 2.5f)
 			return TRUE;
 	}
 	for (i = 0; i < BOT_AVOID_REACHES; i++)
@@ -121,6 +122,39 @@ static boolean bot_move_avoiding(void *context, long reach)
 /* ...the ones we've given up on that are walks (somewhere too tight to
    get through, a way that got us stuck) still, but not a jump, a gap or
    a ladder (tried again, when it's the only way out) */
+/* ...and, while a route is planned, the ways out that only lead back here
+   (bot_move_plan) */
+struct bot_move_plan_avoid
+{
+	struct bot_move_state *move;
+	long back[4];
+	long count;
+};
+
+static boolean bot_move_avoiding_back(void *context, long reach)
+{
+	struct bot_move_plan_avoid const *plan = (struct bot_move_plan_avoid const *)context;
+	long i;
+	for (i = 0; i < plan->count; i++)
+		if (plan->back[i] == reach)
+			return TRUE;
+	return bot_move_avoiding(plan->move, reach);
+}
+
+/* (whether it keeps off anything just now: with nothing kept off, a route
+   never leads back on itself) */
+static boolean bot_move_avoids_any(struct bot_move_state const *move)
+{
+	long now = game_time_get();
+	long i;
+	if (move->careful)
+		return TRUE;
+	for (i = 0; i < BOT_AVOID_REACHES; i++)
+		if (move->avoid_reach[i] != NONE && move->avoid_type[i] == move->type && move->avoid_until[i] > now)
+			return TRUE;
+	return FALSE;
+}
+
 static boolean bot_move_avoiding_walks(void *context, long reach)
 {
 	struct bot_move_state const *move = (struct bot_move_state const *)context;
@@ -259,6 +293,44 @@ static void bot_move_plan(struct bot_move_state *move, long area, real_point3d c
 		}
 		if (r == NONE)
 			break;
+		/* A way out that only leads back here: the quickest way on from the
+		   next area is one we are keeping off (failed at lately, or a long
+		   drop and we are careful), so from there the route is back here
+		   for it, and from here out again: to and fro across the one edge
+		   till the keeping off wears out. Not a way: the next best out of
+		   here; and when every way out is that, the quickest of all, kept
+		   off or not. */
+		if (move->corridor_count == 0)
+		{
+			struct bot_move_plan_avoid plan;
+			boolean keeping_off = bot_move_avoids_any(move);
+			long slot = move->type == AAS_FOOT ? move->cost_slot : NONE;
+			plan.move = move;
+			plan.count = 0;
+			/* (looked into when something is kept off, or the way out is
+			   back into the area we have just come from) */
+			while (r != NONE && aas_reach(move->type, r)->travel == _aas_travel_walk &&
+				(keeping_off || aas_reach(move->type, r)->to == move->area_before))
+			{
+				struct aas_reach const *first = aas_reach(move->type, r);
+				float on_time;
+				long on = first->to == goal_area ? NONE :
+					aas_route_reach(move->type, first->to, &first->end, goal_area, bot_move_avoiding_back, &plan, slot, &on_time);
+				if (on == NONE || aas_reach(move->type, on)->to != a)
+					break;
+				if (plan.count >= (long)(sizeof(plan.back) / sizeof(plan.back[0])))
+				{
+					r = NONE;
+					break;
+				}
+				plan.back[plan.count++] = r;
+				r = aas_route_reach(move->type, a, &point, goal_area, bot_move_avoiding_back, &plan, slot, &time);
+			}
+			if (r == NONE)
+				r = aas_route_reach(move->type, a, &point, goal_area, NULL, NULL, slot, &time);
+		}
+		if (r == NONE)
+			break;
 		/* out of the area we're in: the way we were going, unless another is
 		   clearly quicker (two ways about as quick: no dithering between them) */
 		if (move->corridor_count == 0)
@@ -333,6 +405,26 @@ static long bot_move_corners(struct bot_move_state const *move, real_point3d con
 		{
 			left[count] = reach->right;
 			right[count] = reach->left;
+		}
+		/* A little in from each end of the edge, where it is wide enough:
+		   the ends are a body's half width from the walls and no more, and
+		   a way that turns on them rubs along the wall's corner and catches
+		   on every seam and lip of it. A person gives a corner room. */
+		if (move->type == AAS_FOOT && move->human)
+		{
+			real_point3d l = left[count];
+			real_point3d r = right[count];
+			real width = bot_distance2d(&l, &r);
+			if (width > BOT_CORNER_ROOM)
+			{
+				real f = MIN(BOT_CORNER_ROOM, (width - BOT_CORNER_ROOM) * 0.5f) / width;
+				left[count].x = l.x + (r.x - l.x) * f;
+				left[count].y = l.y + (r.y - l.y) * f;
+				left[count].z = l.z + (r.z - l.z) * f;
+				right[count].x = r.x + (l.x - r.x) * f;
+				right[count].y = r.y + (l.y - r.y) * f;
+				right[count].z = r.z + (l.z - r.z) * f;
+			}
 		}
 		/* this trip's lane: through each wide doorway or across each open
 		   stretch toward one side or the other (a bot's own way through,
@@ -1181,8 +1273,11 @@ void bot_move_to_goal(struct bot_mover *bot, struct bot_body const *body, struct
 	}
 	else
 		move->off_mesh_ticks = 0;
-	if (area != NONE)
+	if (area != NONE && area != move->area)
+	{
+		move->area_before = move->area;
 		move->area = area;
+	}
 
 	/* a reachability under way */
 	if (type == AAS_FOOT && bot_move_travel(bot, body, result))
@@ -1401,6 +1496,40 @@ void bot_move_to_goal(struct bot_mover *bot, struct bot_body const *body, struct
 	result->moving = TRUE;
 	result->yaw = bot_yaw_to(position, &corners[0]);
 	result->path_yaw = result->yaw;
+	/* (the last steps to where we are going: onto it, not round it) */
+	if (to_goal < 2.f)
+		result->exact = TRUE;
+	if (move->human && corner_count > 1 && type == AAS_FOOT)
+	{
+		real to_corner = bot_distance2d(position, &corners[0]);
+		real leg = bot_distance2d(&corners[0], &corners[1]);
+		/* the eyes go round a corner before the feet: coming up to one, the
+		   look is on round it, toward the way after (a person looks where
+		   they are going next, and takes the corner sideways-on a step) */
+		if (to_corner < BOT_LOOK_AHEAD && leg > 0.5f)
+		{
+			real after = bot_yaw_to(&corners[0], &corners[1]);
+			result->path_yaw = bot_wrap(result->yaw + bot_angle_difference(after, result->yaw) * (1.f - to_corner / BOT_LOOK_AHEAD));
+		}
+		/* ... and the feet round it, not up to it and off at an angle: close
+		   to the corner, for a spot as far along the way after it as we are
+		   inside that (the turn is a curve of a few steps), where the floor
+		   between here and there is clear of walls and edges */
+		/* (not onto the start of a jump, a gap, a ladder or a drop: those
+		   are come at along the line they are taken on) */
+		if (to_corner < BOT_CORNER_ROUND && leg > 0.3f &&
+			!(move->corridor_count > 0 && aas_reach(type, move->corridor[move->corridor_count - 1])->travel != _aas_travel_walk &&
+				bot_distance2d(&corners[1], &aas_reach(type, move->corridor[move->corridor_count - 1])->start) < 0.05f))
+		{
+			real along = MIN(leg, BOT_CORNER_ROUND - to_corner) / leg;
+			real_point3d spot;
+			spot.x = corners[0].x + (corners[1].x - corners[0].x) * along;
+			spot.y = corners[0].y + (corners[1].y - corners[0].y) * along;
+			spot.z = corners[0].z + (corners[1].z - corners[0].z) * along;
+			if (fabs(spot.z - position->z) < 0.6f && navm_line_walkable(position, &spot, 0.3f, 0.35f))
+				result->yaw = bot_yaw_to(position, &spot);
+		}
+	}
 	move->corner = corners[0];
 	/* close to the item: slow, so as not to run past it */
 	if (goal->kind == _bot_move_goal_vehicle && to_goal < 1.5f)
@@ -1411,6 +1540,8 @@ void bot_move_to_goal(struct bot_mover *bot, struct bot_body const *body, struct
 	if (move->corridor_count > 0)
 	{
 		struct aas_reach const *next = aas_reach(type, move->corridor[move->corridor_count - 1]);
+		if (next->travel != _aas_travel_walk && bot_distance2d(position, &next->start) < 2.f)
+			result->exact = TRUE;
 		if (next->travel == _aas_travel_drop && next->careful && bot_distance2d(position, &next->edge) < 1.5f &&
 			fabs(position->z - next->edge.z) < 1.f)
 		{
@@ -1471,6 +1602,40 @@ finish:
 			move->circle_ticks = 0;
 		}
 	}
+	/* Held up: walking, and hardly moving (a lip, a seam between two
+	   faces, a corner clipped, a rock the areas did not know): a hop over it
+	   at once, and a step toward the side with more room, as a person does
+	   the moment they feel it; not a second of pushing at it first. */
+	if (type == AAS_FOOT && move->human && result->moving && move->reach == NONE && move->unstick_ticks <= 0)
+	{
+		real expected = aas_speed(type) * BOT_TICK * (result->speed > 0.f ? result->speed : 1.f) * (body->speed_scale > 0.f ? body->speed_scale : 1.f);
+		if (move->stall_valid && bot_distance2d(position, &move->stall_point) < expected * BOT_STALL_FRACTION)
+			move->stall_ticks++;
+		else
+			move->stall_ticks = 0;
+		if (move->stall_ticks >= BOT_STALL_TICKS)
+		{
+			real_point3d side;
+			real room[2];
+			long i;
+			for (i = 0; i < 2; i++)
+			{
+				real yaw = bot_wrap(result->yaw + (i ? -1.2f : 1.2f));
+				side = *position;
+				side.x += (real)cos(yaw) * 0.4f;
+				side.y += (real)sin(yaw) * 0.4f;
+				room[i] = navm_wall_clearance(&side, NULL);
+			}
+			move->stall_ticks = 0;
+			result->jump = TRUE;
+			move->unstick_ticks = 5;
+			move->unstick_yaw = bot_wrap(result->yaw + (room[0] >= room[1] ? 0.7f : -0.7f));
+		}
+	}
+	else
+		move->stall_ticks = 0;
+	move->stall_point = *position;
+	move->stall_valid = result->moving;
 	/* stuck: not getting anywhere for a second */
 	if (result->moving)
 	{
