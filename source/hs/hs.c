@@ -2801,6 +2801,9 @@ symbols in this file:
 #include "math/real_math.h"
 #include "memory/data.h"
 #include "networking/network_game_globals.h"
+#ifdef HALO_CUSTOM_EDITION
+#include "game/game_engine.h"
+#endif
 #include "networking/network_game_manager.h"
 #include "networking/network_server_manager.h"
 #include "objects/damage.h"
@@ -3381,7 +3384,7 @@ struct hs_function_table_storage
 {
 #ifdef HALO_CUSTOM_EDITION
 	/* port: and Halo PC's functions the Xbox's have none of (below) */
-	struct hs_function_definition const *functions[418 + 3];
+	struct hs_function_definition const *functions[418 + 3 + 24];
 #else
 	struct hs_function_definition const *functions[418];
 #endif
@@ -11671,7 +11674,377 @@ static struct hs_function_definition_with_2_parameters const sound_impulse_predi
 	{ _hs_type_boolean },
 };
 
-long const hs_function_table_count= 418 + 3;
+/* port: Halo PC's sv_end_game: a server ends the game, as its time running
+out does (the host's; on another machine, which runs the same script, it
+does nothing) */
+static void hs_sv_end_game(
+	void)
+{
+	if (global_network_game_server_get() && game_engine_running())
+		game_engine_end_game();
+
+	return;
+}
+
+HS_EVALUATE_NO_ARGUMENTS(hs_sv_end_game_evaluate, hs_sv_end_game)
+
+/* port: Halo PC's functions that a map's scripts may call and that do
+nothing here: Gearbox's server commands (a server here is run from the
+game's menus and its own settings, not by a map), and its settings of the
+display, sound and controls (the player's own, in config.toml). A map whose
+scripts call one keeps them; each call does nothing (its arguments not
+evaluated: Halo PC leaves some out) and returns nothing (0, FALSE), and the
+first is logged */
+static void hs_halo_pc_unsupported_evaluate(
+	short function_index,
+	long thread_index,
+	boolean initialize)
+{
+	static unsigned long logged[BIT_VECTOR_SIZE_IN_LONGS(512)];
+
+	if (function_index >= 0 && function_index < 512 && !BIT_VECTOR_TEST_FLAG(logged, function_index))
+	{
+		BIT_VECTOR_SET_FLAG(logged, function_index, TRUE);
+		error(_error_silent, "a script called Halo PC's %s, which does nothing here",
+			hs_function_get(function_index)->name);
+	}
+	hs_return(thread_index, 0);
+
+	return;
+}
+
+static struct hs_function_definition const sv_end_game_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_end_game",
+	hs_macro_function_parse,
+	hs_sv_end_game_evaluate,
+	"Halo PC's: a server ends the game.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition const sv_map_next_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_map_next",
+	hs_macro_function_parse,
+	hs_halo_pc_unsupported_evaluate,
+	"Halo PC's, a server's: begins the next game of its map cycle; does nothing here.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition const sv_map_reset_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_map_reset",
+	hs_macro_function_parse,
+	hs_halo_pc_unsupported_evaluate,
+	"Halo PC's, a server's: begins the game again; does nothing here.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition_with_2_parameters const sv_map_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sv_map",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, a server's: begins a game of a map and game type; does nothing here.",
+		NULL,
+		2,
+		{ _hs_type_string },
+	},
+	{ _hs_type_string },
+};
+
+static struct hs_function_definition const sv_mapcycle_begin_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_mapcycle_begin",
+	hs_macro_function_parse,
+	hs_halo_pc_unsupported_evaluate,
+	"Halo PC's, a server's: begins its map cycle; does nothing here.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition const sv_timelimit_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_timelimit",
+	hs_macro_function_parse,
+	hs_halo_pc_unsupported_evaluate,
+	"Halo PC's, a server's: overrides the game type's time limit; does nothing here.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition const sv_friendly_fire_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_friendly_fire",
+	hs_macro_function_parse,
+	hs_halo_pc_unsupported_evaluate,
+	"Halo PC's, a server's: overrides the game type's friendly fire; does nothing here.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition const sv_maxplayers_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_maxplayers",
+	hs_macro_function_parse,
+	hs_halo_pc_unsupported_evaluate,
+	"Halo PC's, a server's: sets the most players; does nothing here.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition_with_1_parameter const sv_name_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sv_name",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, a server's: sets its name; does nothing here.",
+		NULL,
+		1,
+		{ _hs_type_string },
+	},
+};
+
+static struct hs_function_definition_with_1_parameter const sv_password_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sv_password",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, a server's: sets its password; does nothing here.",
+		NULL,
+		1,
+		{ _hs_type_string },
+	},
+};
+
+static struct hs_function_definition const sv_motd_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_motd",
+	hs_macro_function_parse,
+	hs_halo_pc_unsupported_evaluate,
+	"Halo PC's, a server's: sets its message of the day; does nothing here.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition_with_1_parameter const sv_log_note_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sv_log_note",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, a server's: leaves a note in its log; does nothing here.",
+		NULL,
+		1,
+		{ _hs_type_string },
+	},
+};
+
+static struct hs_function_definition const sv_players_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_players",
+	hs_macro_function_parse,
+	hs_halo_pc_unsupported_evaluate,
+	"Halo PC's, a server's: lists the players; does nothing here.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition_with_1_parameter const sv_kick_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sv_kick",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, a server's: kicks a player; does nothing here.",
+		NULL,
+		1,
+		{ _hs_type_string },
+	},
+};
+
+static struct hs_function_definition_with_2_parameters const sv_ban_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sv_ban",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, a server's: bans a player; does nothing here.",
+		NULL,
+		2,
+		{ _hs_type_string },
+	},
+	{ _hs_type_string },
+};
+
+static struct hs_function_definition const sv_single_flag_force_reset_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_single_flag_force_reset",
+	hs_macro_function_parse,
+	hs_halo_pc_unsupported_evaluate,
+	"Halo PC's, a server's: resets the flag of one flag CTF when its time runs out; does nothing here.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition_with_2_parameters const rcon_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"rcon",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, sends a command to a server's console; does nothing here.",
+		NULL,
+		2,
+		{ _hs_type_string },
+	},
+	{ _hs_type_string },
+};
+
+static struct hs_function_definition_with_1_parameter const change_team_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"change_team",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, changes the local player's team; does nothing here.",
+		NULL,
+		1,
+		{ _hs_type_short_integer },
+	},
+};
+
+static struct hs_function_definition_with_1_parameter const set_gamma_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"set_gamma",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, sets the gamma; does nothing here.",
+		NULL,
+		1,
+		{ _hs_type_long_integer },
+	},
+};
+
+static struct hs_function_definition_with_2_parameters const player_effect_set_max_vibrate_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"player_effect_set_max_vibrate",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, sets the most a controller vibrates; does nothing here.",
+		NULL,
+		2,
+		{ _hs_type_real },
+	},
+	{ _hs_type_real },
+};
+
+static struct hs_function_definition_with_1_parameter const thread_sleep_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"thread_sleep",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, sleeps the game's thread; does nothing here.",
+		NULL,
+		1,
+		{ _hs_type_long_integer },
+	},
+};
+
+static struct hs_function_definition_with_1_parameter const sound_set_env_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sound_set_env",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, sets the EAX environment; does nothing here.",
+		NULL,
+		1,
+		{ _hs_type_short_integer },
+	},
+};
+
+static struct hs_function_definition_with_1_parameter const sound_enable_eax_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sound_enable_eax",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, turns EAX on or off; does nothing here.",
+		NULL,
+		1,
+		{ _hs_type_boolean },
+	},
+};
+
+static struct hs_function_definition const sound_eax_enabled_definition=
+{
+	_hs_type_boolean,
+	0,
+	"sound_eax_enabled",
+	hs_macro_function_parse,
+	hs_halo_pc_unsupported_evaluate,
+	"Halo PC's, whether EAX is on (it is not); does nothing here.",
+	NULL,
+	0,
+};
+
+long const hs_function_table_count= 418 + 3 + 24;
 #else
 long const hs_function_table_count= 418;
 #endif
@@ -12110,6 +12483,30 @@ struct hs_function_table_storage hs_function_table=
 		&sv_say_definition.definition,
 		&quit_definition,
 		&sound_impulse_predict_definition.definition,
+		&sv_end_game_definition,
+		&sv_map_next_definition,
+		&sv_map_reset_definition,
+		&sv_map_definition.definition,
+		&sv_mapcycle_begin_definition,
+		&sv_timelimit_definition,
+		&sv_friendly_fire_definition,
+		&sv_maxplayers_definition,
+		&sv_name_definition.definition,
+		&sv_password_definition.definition,
+		&sv_motd_definition,
+		&sv_log_note_definition.definition,
+		&sv_players_definition,
+		&sv_kick_definition.definition,
+		&sv_ban_definition.definition,
+		&sv_single_flag_force_reset_definition,
+		&rcon_definition.definition,
+		&change_team_definition.definition,
+		&set_gamma_definition.definition,
+		&player_effect_set_max_vibrate_definition.definition,
+		&thread_sleep_definition.definition,
+		&sound_set_env_definition.definition,
+		&sound_enable_eax_definition.definition,
+		&sound_eax_enabled_definition,
 #endif
 	},
 	{
