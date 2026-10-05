@@ -690,6 +690,8 @@ boolean browser_screen_active(void);
 void browser_screen_open(void);
 void browser_screen_process(void);
 void browser_screen_render(void);
+/* the menus' pointer, while it is up (its own taps and clicks) */
+void browser_screen_pointer(struct halo_ui_pointer const *pointer);
 /* (ONLINE GAMES, below: its list moves focus item by item) */
 boolean ui_widget_online_games_list(struct widget_instance *widget);
 #endif
@@ -6854,6 +6856,11 @@ static void ui_widgets_process_mouse(
 		if (ui_debug_targets_enabled())
 			ui_debug_log_keyboard_tap(pointer.click_x, pointer.click_y, hit);
 	}
+#ifdef HALO_GAME_BROWSER
+	/* Online Games takes the pointer itself, as the virtual keyboard does */
+	if (pointer_active && !keyboard_active && browser_screen_active())
+		browser_screen_pointer(&pointer);
+#endif
 	if (!pointer_active || keyboard_active
 #ifdef HALO_GAME_BROWSER
 		/* (nor over Online Games: a click left in the queue would pick a game) */
