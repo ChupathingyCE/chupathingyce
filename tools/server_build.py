@@ -39,6 +39,7 @@ from typing import Any, Dict, List, Optional
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .linux64_build import LINUX64_GAME_FLAGS, LINUX64_POSIX_FLAGS
 from .linux_build import (
+    MONOCYPHER_DIR,
     PORT_CONFIG,
     Linux32Units,
     _load_port_config,
@@ -55,8 +56,10 @@ SERVER_PLATFORM_DIR = SERVER_DIR / "platform"
 # the server's own platform units, with the Xbox's ABI (they stand in for
 # the ones it leaves out)
 SERVER_PLATFORM_SOURCES = [SERVER_PLATFORM_DIR / "server_platform.c", SERVER_PLATFORM_DIR / "server_input.c"]
-# and with the host's ABI: SDL's few utility functions, glibc's backtrace
-SERVER_NATIVE_SOURCES = [SERVER_PLATFORM_DIR / "sdl_headless.c", SERVER_PLATFORM_DIR / "backtrace.c"]
+# and with the host's ABI: SDL's few utility functions, glibc's backtrace,
+# and the console and control API (server/docs/admin.md)
+SERVER_NATIVE_SOURCES = [SERVER_PLATFORM_DIR / "sdl_headless.c", SERVER_PLATFORM_DIR / "backtrace.c",
+                         SERVER_PLATFORM_DIR / "control_protocol.c", SERVER_PLATFORM_DIR / "server_control.c"]
 # the window, input and self-updater the server has none of
 SERVER_EXCLUDED = {
     "port/linux/src/sdl_platform.c",
@@ -218,7 +221,8 @@ def generate_server_build(n: Writer, sln: Any) -> None:
     server_sln = SimpleNamespace(**vars(sln))
     server_sln.game_browser = True
     libs = "-lm -lpthread"
-    include_flags = [f"-I{SDL_INCLUDE}"]
+    # (SDL's headers; Monocypher's, for the control API's credentials)
+    include_flags = [f"-I{SDL_INCLUDE}", f"-I{MONOCYPHER_DIR}"]
 
     n.comment(f"The dedicated server (ninja server; tools/server_build.py): {', '.join(arches)}, "
               f"{'static, musl' if static else 'glibc'}")

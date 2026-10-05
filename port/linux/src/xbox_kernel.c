@@ -42,6 +42,19 @@ void platform_log(const char *format, ...)
 	fputs(buffer, stderr);
 #endif
 	fputc('\n', stderr);
+#ifdef HALO_SERVER
+	{
+		/* the dedicated server's recent log, for its control API
+		(server/platform/server_control.c) */
+		void server_control_log(const char *text);
+		char line[2048];
+
+		va_start(arguments, format);
+		vsnprintf(line, sizeof(line), format, arguments);
+		va_end(arguments);
+		server_control_log(line);
+	}
+#endif
 #ifdef HALO_64BIT
 
 	{
