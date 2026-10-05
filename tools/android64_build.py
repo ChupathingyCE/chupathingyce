@@ -106,6 +106,10 @@ def generate_android64_build(n: Writer, sln: Any) -> None:
         # a shared library (SDLActivity loads it)
         "-fPIC",
         "-DHALO_ANDROID=1",
+        # (char is unsigned on ARM Linux and Android; the game, as MSVC, has
+        # it signed, as every other build does: a char field holding NONE
+        # would read as 255)
+        "-fsigned-char",
     ]
     host = Lp64Host(
         name="android64",
