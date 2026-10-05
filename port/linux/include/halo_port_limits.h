@@ -66,7 +66,7 @@ is newer (network_client_manager.c). A host advertises it, with its netcode,
 in its game's advertisement's reserved bytes (network_server_message_handler.c),
 which hosts built before there was a version send as zeros: version 0.
 Raise it with any change to what the machines send each other. */
-#define HALO_PORT_NETWORK_VERSION 15
+#define HALO_PORT_NETWORK_VERSION 16
 /* ... the versions whose hosts a client joins: its own, and those that differ
 from it only in what the other machines leave out (a message a machine of
 the other version does not know it drops). Version 11 (OpenCE's build-76's)
@@ -79,7 +79,7 @@ older machine drops: 11 through 14 play multiplayer together. A host never check
 (network_client_manager.c), so the range is the client's. Widen it only
 for a version read and found to differ so. */
 #define HALO_PORT_NETWORK_VERSION_MINIMUM 11
-#define HALO_PORT_NETWORK_VERSION_MAXIMUM 15
+#define HALO_PORT_NETWORK_VERSION_MAXIMUM 16
 /* ... the advertisement's reserved bytes: the version (a little-endian word),
 then flags */
 #define HALO_PORT_ADVERTISED_VERSION_OFFSET 0
