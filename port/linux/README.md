@@ -946,6 +946,111 @@ On all maps:
   does not lead the squad to a different place. The count starts when the
   person gets a new body.
 
+### The bots in a Warthog
+
+In a team game, a bot that drives a vehicle with more than one seat does
+not go immediately:
+
+- It waits 1.5 seconds at the wheel when a seat is empty.
+- It waits up to 3.5 seconds when nobody is on the gun and one of its team
+  is on foot less than 14 world units away.
+- It waits up to 7 seconds while a bot of its team comes to the vehicle
+  from less than 12 world units away, or a person of its team stands less
+  than 9 world units away.
+- It goes immediately when somebody is on the gun and nobody of its team is
+  near, and when all the seats are full.
+- It does not wait when an enemy that it sees is less than 25 world units
+  away, or when it was hit a moment ago.
+
+A vehicle that stands with a driver of the team and nobody on the gun is
+worth more to a bot on foot that is less than 16 world units away. The
+nearest bot gets on the gun, whatever its job is.
+
+In five test games of capture the flag with 11 bots (Blood Gulch twice,
+Sidewinder, Death Island, Danger Canyon), 33 Warthogs went away: 11 with a
+gunner, 22 with only the driver. For 18 of those 22, nobody of the team was
+on foot less than 14 world units away.
+
+### The bots in a Banshee
+
+`port/linux/game/bot_flight.c` flies each vehicle that has the physics of
+the Banshee (the type `alien fighter`; the jets of some Halo PC maps have
+this type also).
+
+- **The map from above.** When the map loads, the game makes a map of
+  squares of 2 world units: the top of the ground in each square, the
+  lowest thing above it, and the top of each tree or large rock that stands
+  there (scenery that has a collision model and a radius of 1.5 world units
+  or more). The game finds these tops with rays. This took 0.03 seconds on
+  Death Island (29 trees and rocks) and 0.06 seconds on Timberland (43).
+- **The height.** A pilot flies 4.5 world units above the highest ground of
+  the next 2 seconds of its way, and 1.5 world units above the trees there.
+  It goes round a thing that is more than 30 world units higher than the
+  two ends of its way (a tower). Three rays along its way, one from the
+  middle and one from each wing, find the things that the map does not
+  show. The pilot climbs over such a thing or turns away from it.
+- **The look.** A Banshee does not go exactly where its pilot looks: its
+  nose is 15 degrees above the look, and it sinks. A pilot that looks 25
+  degrees down flies 6 degrees down. The pilot corrects its look each tick
+  by the direction in which the Banshee moves.
+- **Where it goes.** At full speed to the nearest enemy that is under the
+  sky. If no enemy is under the sky: in capture the flag, to the base of
+  the enemy; in the other games, to the nearest enemy. It flies circles
+  there. A pilot that has guns does not land to take the flag. In capture
+  the flag, the enemy that carries the flag of the team comes first.
+- **The attack.** The pilot starts a run when it sees the enemy at less
+  than 45 world units. It first comes down to a little above the enemy,
+  then it looks at the place where the enemy will be and shoots. The shots
+  go where the pilot looks only when the nose of the Banshee is less than
+  50 degrees from the look (the game turns a shot of a player that far and
+  no more). At less than 15 world units, the pilot stays in the air near
+  the enemy for up to 5.5 seconds and continues to shoot. Then it flies
+  away past the enemy and comes back.
+- **The fuel rod.** The second trigger of the Banshee fires it. It is slow
+  and it falls. The pilot calculates where to look from the speed of the
+  Banshee, the speed and the fall of the fuel rod, and the movement of the
+  enemy. It fires when the fuel rod will land less than 1 world unit from
+  the enemy and the enemy is less than 17 world units away. The gun fires
+  one fuel rod in about 4 seconds.
+- **When it is hurt.** A pilot whose shields are below 30% flies away from
+  the enemy, to a place that the enemy does not see if there is one in the
+  next 30 world units. It comes back when the shields are above 30% again,
+  or after 9 seconds.
+- **To get in.** A bot presses the button when the game offers the seat
+  that the bot wants. Before, a bot pressed it only when it stood less than
+  0.55 world units from the door of the seat. The door of a Banshee is
+  under its wing, and the bot stood 0.6 world units away and did not get
+  in. A bot also does not stop its way to a vehicle because the straight
+  line to it does not get shorter (a Banshee on a roof, or behind a
+  teleporter), if the route gets shorter.
+
+Four sets of six test games of 5 minutes with 11 bots (capture the flag
+and slayer on Death Island and Gephyrophobia; the last two sets with the
+code as it is now):
+
+| | Each set |
+|---|---|
+| Bots that got into a Banshee | 21 to 25 (1 to 7 in a game) |
+| Time in the air for each flight | 42 to 54 seconds |
+| Hits against something | 0 or 1 in 16 minutes in the air |
+| Kills from a Banshee, for each minute in the air | 0.6 to 0.7 |
+| Pilots shot down, for each minute in the air | 0.8 to 1.3 |
+
+With the code of the build before this one for getting in, 2, 3 and 2 bots
+got into a Banshee in three games of 5 minutes on the same maps, and 27, 11
+and 29 times a bot stopped at the door or on the way. The other numbers
+were not measured for that build.
+
+A bot on foot aims well at a Banshee, and most pilots are shot down when
+they fly away from an enemy that is near. The hits that remain are against
+the wall of a building next to which the Banshee starts, and against a
+second Banshee.
+
+A vehicle that has the physics of the Pelican (the type `human plane`) goes
+to the same code, but that code is not complete for it. In one test game on
+Hugeass, bots got into such a vehicle 3 times, did not get it out of the
+hangar, and got out after 6 seconds each time.
+
 ### The characters of the bots
 
 Each bot has a character for the full game. The bots do not keep it from

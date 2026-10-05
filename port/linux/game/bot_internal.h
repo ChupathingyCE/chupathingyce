@@ -173,6 +173,106 @@ float bot_travel_time_soon(struct bot_body const *body, long type, real_point3d 
 boolean bot_move_committed(struct bot_mover const *bot);
 void bot_move_debug(struct bot_mover *bot, struct bot_body const *body);
 
+/* ---------- flying (bot_flight.c) */
+
+#define BOT_PILOT_TURNS 12
+
+/* what a bot keeps of a craft it is flying */
+struct bot_pilot
+{
+	long vehicle; /* the craft this is of (another: afresh) */
+	real_point3d route[BOT_PILOT_TURNS]; /* the turns of the way there, the last of them the place */
+	long route_count;
+	long route_next;
+	long route_tick; /* when it was found */
+	real_point3d route_to; /* ... and where to */
+	long phase; /* on the way, a run at someone, off from one, landing */
+	long phase_tick;
+	real break_yaw;
+	long sight_tick; /* when it last saw who it is after */
+	long land_tick;
+	int indoors; /* under a roof: on the way out */
+	real rest_z; /* how high it stood when it was taken */
+	int hovering; /* a plane on its jets (slow, held up by the button), not yet on its wings */
+	int exit_valid;
+	real_point3d exit_point;
+	long exit_tick;
+	real_point3d stuck_point; /* held up: where it was, since when */
+	long stuck_tick;
+	real speed_before; /* how fast it was going a tick ago */
+	long heavy_tick; /* its other gun (a Banshee's fuel rod): when it last let go of the trigger */
+	long heavy_press; /* ... and for how many ticks more it holds it */
+	real swerve; /* round something in its way: to which hand, until when */
+	long swerve_until;
+	int away; /* off from them hurt, to mend: not round for another run until it has */
+	long over_tick; /* at the end of a run, over them with its guns on them: since when (0: not yet) */
+	real trim; /* how far off its pilot's look the craft really climbs or sinks: found as it flies */
+};
+
+/* where a pilot is to go, and what for */
+struct bot_flight_order
+{
+	real_point3d destination; /* the place, or who it is after */
+	real_vector3d velocity; /* ... and how they move (a tick's) */
+	int attack; /* someone to shoot at */
+	int airborne; /* ... who is in the air */
+	int armed; /* the craft has a gun that fires where it points */
+	real range; /* ... which reaches this far */
+	real shot_speed; /* ... at this speed, world units a second */
+	int heavy; /* it has another gun as well, on the other trigger (a fuel rod, a bomb) */
+	int heavy_ready; /* ... which will fire now (it has cooled from its last) */
+	real heavy_speed; /* ... whose shot leaves at this speed (a tick's), */
+	real heavy_slowing; /* ... loses this much of it each tick, */
+	real heavy_slowest; /* ... down to this, */
+	real heavy_gravity; /* ... and falls: of the world's gravity, this much */
+	real look_yaw, look_pitch; /* where its pilot is looking now: its shots go there */
+	int patrol; /* nobody to shoot at there now: round over the place, not down at it */
+	int hurt; /* its pilot's shields are down: no time to be flying at anyone */
+	real vitality; /* (testing: how whoever it is after stands, shields and health together) */
+	int land; /* the craft is only the way there: down by the place, and out */
+};
+
+struct bot_flight_result
+{
+	real yaw, pitch; /* where to look: the craft goes there */
+	real throttle; /* -1..1 */
+	int fire;
+	int fire_heavy; /* its other gun as well */
+	int climb; /* (a plane, slow: its jets up) */
+	int descend;
+	int get_out;
+	int stuck; /* ... because it is wedged: not this craft again for a while */
+	int arrived;
+};
+
+/* the map from above, for flying over: made when the map's navigation is */
+void bot_air_build(void);
+void bot_air_dispose(void);
+boolean bot_air_ready(void);
+/* the highest ground, and the lowest sky, within radius of a point */
+real bot_air_ground(real x, real y, real radius);
+boolean bot_air_open(real_point3d const *point); /* under the sky there, not under a roof */
+real bot_air_sky(real x, real y, real radius);
+long bot_air_route(real_point3d const *from, real_point3d const *to, real need, real_point3d *points, long maximum);
+/* a vehicle's kind, as its physics are (vehicles.c: the tank, the jeep, the
+   boat, the plane, the scout (a Ghost), the fighter (a Banshee), a turret) */
+enum
+{
+	_bot_vehicle_tank = 0,
+	_bot_vehicle_jeep,
+	_bot_vehicle_boat,
+	_bot_vehicle_plane,
+	_bot_vehicle_scout,
+	_bot_vehicle_fighter,
+	_bot_vehicle_turret,
+	NUMBER_OF_BOT_VEHICLE_KINDS
+};
+long bot_vehicle_kind(long definition_index);
+boolean bot_vehicle_flies(long definition_index);
+real bot_vehicle_top_speed(long definition_index);
+void bot_pilot_reset(struct bot_pilot *pilot);
+void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_flight_order const *order, struct bot_flight_result *result);
+
 /* ---------- shared helpers (bot_states.c) */
 
 struct bot_mover *bot_mover_get(long index); /* NULL: no bot there */

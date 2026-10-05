@@ -1275,7 +1275,7 @@ void bot_move_to_goal(struct bot_mover *bot, struct bot_body const *body, struct
 		return;
 	}
 	if (type == AAS_VEHICLE && body->vehicle_index != NONE && object_try_and_get(body->vehicle_index) &&
-		strstr(tag_get_name(object_get(body->vehicle_index)->definition_index), "banshee"))
+		bot_vehicle_flies(object_get(body->vehicle_index)->definition_index))
 	{
 		bot_move_fly(bot, body, &goal->origin, result);
 		return;
