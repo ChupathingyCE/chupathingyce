@@ -38,6 +38,7 @@ public class HaloActivity extends SDLActivity {
     private TouchControls touchControls;
     private static final int EXPORT_LAYOUT = 401, IMPORT_LAYOUT = 402;
     private String pendingLayoutExport;
+    private MoviePlayer moviePlayer;
 
     @Override
     protected String[] getLibraries() {
@@ -53,6 +54,11 @@ public class HaloActivity extends SDLActivity {
             touchControls = new TouchControls(this);
             mLayout.addView(touchControls, new ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        if (mLayout != null) {
+            /* the disc's movies (bink_null.c): the device's own decoder plays
+               them over the game (MoviePlayer.java) */
+            moviePlayer = new MoviePlayer(this, mLayout, null);
         }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         preferHighestRefreshRate();

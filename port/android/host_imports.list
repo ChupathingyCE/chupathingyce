@@ -59,3 +59,11 @@ host_touch_rumble
 host_touch_scene
 
 host_errno
+host_movie_open
+host_movie_exists
+host_movie_width
+host_movie_height
+host_movie_frames
+host_movie_frame
+host_movie_finished
+host_movie_close
