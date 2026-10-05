@@ -162,6 +162,7 @@ boolean ce_bsp_check(struct ce_image const *image, unsigned long *bytes);
 boolean ce_animations_check(struct ce_image const *image, void const *tag_instances, long tag_count);
 void ce_repairs_apply(struct ce_image const *image, void *tag_instances, long tag_count,
 	unsigned long scenario_tag_index);
+boolean ce_repairs_scenario_group(void *tag_instances, long tag_count, unsigned long scenario_tag_index);
 
 /* ---------- globals */
 
@@ -454,6 +455,8 @@ static boolean ce_map_check_tags(
 	}
 	if (!ce_tag_index_check(&image, instances, tag_count))
 		goto done;
+	/* (a protected map's scenario may have another group: ce_repairs.c) */
+	ce_repairs_scenario_group(instances, tag_count, header.scenario_tag_index);
 	scenario_instance = ce_tag_instance_get(instances, tag_count, header.scenario_tag_index);
 	scenario = scenario_instance && scenario_instance->group_tag == CE_SCENARIO_GROUP ?
 		ce_image_pointer(&image, scenario_instance->base_address, CE_SCENARIO_BSPS_OFFSET + 0xc) : NULL;

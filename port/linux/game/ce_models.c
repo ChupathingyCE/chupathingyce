@@ -584,7 +584,10 @@ enum
 	CE_MAXIMUM_REGION_PERMUTATIONS = 32,
 	CE_MAXIMUM_MODEL_GEOMETRIES = 256,
 	CE_MAXIMUM_GEOMETRY_PARTS = 32,
-	CE_MAXIMUM_MODEL_SHADERS = 32,
+	/* (the tools' 32, but the game reads a model's shaders only through
+	their block, by its parts' shader indices, checked below: Halo PC's
+	engine took more, h3_foundry's spartan has 56; a part's index is a short) */
+	CE_MAXIMUM_MODEL_SHADERS = 0x7fff,
 	CE_MAXIMUM_PART_VERTICES = 0xffff,
 	CE_MAXIMUM_PART_TRIANGLES = 0xffff - 2,
 	CE_PART_SHADER_INDEX_OFFSET = 0x04,

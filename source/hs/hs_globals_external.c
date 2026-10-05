@@ -920,7 +920,13 @@ typedef char verify_hs_external_global_definition_size[
 
 /* ---------- globals */
 
+#ifdef HALO_CUSTOM_EDITION
+/* port: and Halo PC's that its maps' scripts set and the Xbox's engine has
+none of (below) */
+short const hs_external_global_count = 443 + 2;
+#else
 short const hs_external_global_count = 443;
+#endif
 
 extern boolean allow_out_of_sync;
 extern boolean breakable_surface_effect_enabled;
@@ -1944,8 +1950,26 @@ static struct hs_external_global_definition allow_out_of_sync_definition = { "al
 static struct hs_external_global_definition global_connection_dont_timeout_definition = { "global_connection_dont_timeout", _hs_type_boolean, 0, &global_connection_dont_timeout };
 
 static struct hs_external_global_definition run_game_scripts_definition = { "run_game_scripts", _hs_type_boolean, 0, NULL };
+#ifdef HALO_CUSTOM_EDITION
+/* port: Halo PC's. A map whose scripts read or set one the Xbox's engine has
+none of did not load them, and the game halted ("this is not a valid
+variable name": coldsnap's use multiplayer_draw_teammates_names and
+developer_mode). They are kept, and change nothing: which players' names
+are drawn is the player's setting (display.player_names), and there is no
+developer mode (0, Halo PC's off, as a map's script finds it) */
+static boolean multiplayer_draw_teammates_names;
+static struct hs_external_global_definition multiplayer_draw_teammates_names_definition = {
+	"multiplayer_draw_teammates_names", _hs_type_boolean, 0, &multiplayer_draw_teammates_names };
+static short developer_mode;
+static struct hs_external_global_definition developer_mode_definition = {
+	"developer_mode", _hs_type_short_integer, 0, &developer_mode };
+#endif
 
+#ifdef HALO_CUSTOM_EDITION
+struct hs_external_global_definition *hs_external_globals[443 + 2] =
+#else
 struct hs_external_global_definition *hs_external_globals[443] =
+#endif
 {
 	&rasterizer_near_clip_distance_definition,
 	&rasterizer_far_clip_distance_definition,
@@ -2390,6 +2414,10 @@ struct hs_external_global_definition *hs_external_globals[443] =
 	&global_connection_dont_timeout_definition,
 	&find_all_fucked_up_shit_definition,
 	&run_game_scripts_definition,
+#ifdef HALO_CUSTOM_EDITION
+	&multiplayer_draw_teammates_names_definition,
+	&developer_mode_definition,
+#endif
 };
 
 /* ---------- public code */

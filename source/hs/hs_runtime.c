@@ -313,8 +313,10 @@ enum
 enum
 {
 #ifdef HALO_64BIT
-	/* doubled: stack frames hold two native pointers */
-	HS_THREAD_STACK_SIZE = 0x400
+	/* doubled: stack frames hold two native pointers; and doubled again
+	for Halo PC's maps, whose scripts run deeper than the Xbox's (Halo
+	Kart's), which Halo PC's engine let them */
+	HS_THREAD_STACK_SIZE = 0x800
 #else
 	HS_THREAD_STACK_SIZE = 0x200
 #endif
