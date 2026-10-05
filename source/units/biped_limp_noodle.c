@@ -704,19 +704,46 @@ boolean biped_limp_noodle_relax_nodes_onto_environment(
 	if (!relaxation_complete)
 	{
 		long node_index;
+		/* port: the limp body poses the graph's nodes, in the biped's node
+		matrices, which are its model's. A Halo PC map's graph may have
+		more nodes than its model (beavercreek_rev_beta's cyborg's has 20,
+		its model 19), which Halo PC's engine posed past the matrices: such
+		a body is posed in a copy of them with the graph's every node, the
+		extra ones where their parents are, and the model's taken back */
+		long model_node_count = definition->object.model.index == NONE ? 1 :
+			model_definition_get(definition->object.model.index)->nodes.count;
+		real_matrix4x3 padded_matrices[MAXIMUM_NODES_PER_ANIMATION];
+		real_matrix4x3 *limp_matrices = node_matrices;
+
+		if (animation_graph->nodes.count > model_node_count &&
+			animation_graph->nodes.count <= MAXIMUM_NODES_PER_ANIMATION)
+		{
+			csmemcpy(padded_matrices, node_matrices, model_node_count * sizeof(real_matrix4x3));
+			for (node_index = model_node_count; node_index < animation_graph->nodes.count; node_index++)
+			{
+				short parent_index = TAG_BLOCK_GET_ELEMENT(&animation_graph->nodes, node_index,
+					struct animation_graph_node)->parent_node_index;
+
+				padded_matrices[node_index] = padded_matrices[parent_index >= 0 && parent_index < node_index ?
+					parent_index : 0];
+			}
+			limp_matrices = padded_matrices;
+		}
 
 		for (node_index = 0; node_index < animation_graph->nodes.count; node_index++)
 		{
 			last_positions[node_index] =
-				node_matrices[node_index].position;
+				limp_matrices[node_index].position;
 		}
 
-		biped_limp_noodle_move_relax_and_constrain_positions(biped_index, node_matrices);
+		biped_limp_noodle_move_relax_and_constrain_positions(biped_index, limp_matrices);
 		biped_limp_noodle_adjust_orientations(
 			biped_index,
-			node_matrices,
+			limp_matrices,
 			animation_graph->nodes.count,
 			last_positions);
+		if (limp_matrices != node_matrices)
+			csmemcpy(node_matrices, padded_matrices, model_node_count * sizeof(real_matrix4x3));
 
 		if (biped->biped.limp_body_current_relaxation_iterations < CHAR_MAX)
 			biped->biped.limp_body_current_relaxation_iterations++;

@@ -2417,7 +2417,10 @@ static void dsound_channel_set_properties(
 	boolean gain_only)
 {
 	struct sound_channel *channel= channel_get(channel_index);
-#ifdef HALO_64BIT
+#if defined(HALO_64BIT) || defined(HALO_CUSTOM_EDITION)
+	/* port: a gain past 1 taken as 1, as a sound card plays it: a Halo PC
+	map's sound may have one (beavercreek_rev_beta's grenade throw has a gain
+	modifier of 1.4), which halted a debug build */
 	real prop_gain = PIN(properties->gain, 0.f, 1.f);
 	real gain= dsound_globals.pause_gain*prop_gain;
 #else
@@ -2427,7 +2430,7 @@ static void dsound_channel_set_properties(
 	match_assert(
 		"c:\\halo\\SOURCE\\sound\\sound_dsound_xbox.c",
 		980,
-#ifdef HALO_64BIT
+#if defined(HALO_64BIT) || defined(HALO_CUSTOM_EDITION)
 		prop_gain>=0.f && prop_gain<=1.f);
 #else
 		properties->gain>=0.f && properties->gain<=1.f);
