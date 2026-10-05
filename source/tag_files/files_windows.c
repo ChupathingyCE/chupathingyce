@@ -121,6 +121,12 @@ symbols in this file:
 #define BUILDING_FILES_WINDOWS
 #include "files.h"
 #include "text/international_strings.h"
+#ifdef HALO_ANDROID
+/* port: the movies (port/android/host/host_movie.c, host_movie_exists): the
+port ships no Bink file, so a movie exists when the host has a transcoded
+file the device's player can show (see file_exists) */
+int host_movie_exists(const char *name);
+#endif
 
 /* ---------- constants */
 
@@ -703,6 +709,16 @@ boolean file_exists(
 		file_reference_get_const_info(file);
 	boolean result = FALSE;
 	char full_path[MAXIMUM_FILENAME_LENGTH+1] = "";
+
+#ifdef HALO_ANDROID
+	/* port: the port has no Bink decoder and ships no .bik file: a movie the
+	device's player can decode is the one the host has a file for
+	(host_movie.c), named with the language the engine is asking for. The
+	engine's own fallback (the loop around this call in attract_mode.c) walks
+	the languages in turn, so the one it can show is the one it takes. */
+	if (strstr(info->path, ".bik") && host_movie_exists(info->path))
+		return TRUE;
+#endif
 
 	file_location_get_full_path(info->location, info->path, full_path);
 	if (GetFileAttributesA(full_path) != (unsigned long)NONE)
