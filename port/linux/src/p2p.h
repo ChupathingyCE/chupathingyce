@@ -159,7 +159,8 @@ void p2p_discord_sanitize(char *destination, int size, const char *source, int n
 READY told (empty if none, or internet play is off) */
 void p2p_discord_identity(char *id, int id_size, char *name, int name_size);
 /* this machine's hardware id, as hex (empty if none), a host told it when
-joining (a keyed hash of what the machine is known by: p2p.c); and the hex
+joining (a keyed hash of what the machine is known by, else of
+the install's random id: hardware_id.c); and the hex
 kept of one told: lowercase hex digits only, P2P_HARDWARE_ID_BYTES' worth */
 enum
 {
