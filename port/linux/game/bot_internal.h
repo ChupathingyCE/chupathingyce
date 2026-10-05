@@ -257,6 +257,7 @@ struct bot_traveller
 	long stuck_count;
 	long escape_until; /* getting clear of what holds it: until when, and which way */
 	real escape_yaw;
+	long run_up_until; /* (backing off along a step's line for a run at it, until this tick) */
 	real swerve; /* round something in the way: to which side, for how long yet */
 	long swerve_ticks;
 };
@@ -284,6 +285,7 @@ void bot_country_update(void); /* once a tick: its searches carried on */
 boolean bot_country_on(real_point3d const *point);
 boolean bot_country_nearest(real_point3d const *point, long rings, real_point3d *ground);
 long bot_country_portals_of(long vehicle_index); /* the ways the map's script carries this vehicle (a set of them) */
+boolean bot_country_walk(real_point3d const *from, real_point3d const *to, real_point3d *next, boolean *soon, boolean *off);
 boolean bot_country_way(real_point3d const *from, real_point3d const *to, long portals, boolean drops, real ahead, real_point3d *next,
 	boolean *soon, boolean *off, real *left);
 real bot_country_distance(real_point3d const *from, real_point3d const *to, long portals);

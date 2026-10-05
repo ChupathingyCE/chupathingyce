@@ -1230,6 +1230,41 @@ static void bot_move_fly(struct bot_mover *bot, struct bot_body const *body, rea
 
 /* ---------- the goal */
 
+/* On a map too large for the areas to cover (bot_country.c): on foot off
+   the areas, or bound for a place they do not lead to. Over the ground the
+   vehicles cross, to somewhere not too far to walk: the last steps to a
+   flag from where the Warthog stopped, back to the Warthog, to the next
+   one. TRUE when the result is filled in (with a way, or with none: not
+   straight at the place, which on these maps is over a cliff). */
+#define BOT_FOOT_ACROSS_FARTHEST 220.f
+static boolean bot_move_foot_across(real_point3d const *position, real_point3d const *to, real to_goal, struct bot_move_result *result)
+{
+	real_point3d next;
+	boolean soon = FALSE, off = FALSE;
+	if (!bot_nav_in_parts() || !bot_country_ready())
+		return FALSE;
+	if (to_goal > BOT_FOOT_ACROSS_FARTHEST)
+	{
+		result->no_route = TRUE;
+		result->moving = FALSE;
+		return TRUE;
+	}
+	if (bot_country_walk(position, to, &next, &soon, &off))
+	{
+		result->moving = TRUE;
+		result->no_route = FALSE;
+		result->yaw = bot_yaw_to(position, &next);
+		result->path_yaw = result->yaw;
+		return TRUE;
+	}
+	/* (not on the country at all, under a roof: as it was) */
+	if (off)
+		return FALSE;
+	result->moving = FALSE;
+	result->no_route = !soon;
+	return TRUE;
+}
+
 void bot_move_to_goal(struct bot_mover *bot, struct bot_body const *body, struct bot_goal *goal, struct bot_move_result *result)
 {
 	struct bot_move_state *move = &bot->move;
@@ -1333,6 +1368,8 @@ void bot_move_to_goal(struct bot_mover *bot, struct bot_body const *body, struct
 	}
 	if (type == AAS_FOOT)
 		goal->area = goal_area;
+	if (type == AAS_FOOT && (area == NONE || goal_area == NONE) && bot_move_foot_across(position, &goal->origin, to_goal, result))
+		goto finish;
 	if (area == NONE || goal_area == NONE)
 	{
 		/* off the map's areas altogether (on top of something, in the
@@ -1342,6 +1379,28 @@ void bot_move_to_goal(struct bot_mover *bot, struct bot_body const *body, struct
 		result->yaw = bot_yaw_to(position, area == NONE ? &goal->origin : &spot);
 		if (area != NONE && bot_distance2d(position, &spot) < 0.3f)
 			result->yaw = bot_yaw_to(position, &goal->origin);
+		/* (On a map too large for the areas to cover, what is straight
+		   ahead off the areas is a canyon as often as not: the flag of
+		   Coldsnap's north-west base stands out over one. Not a step where
+		   there is no ground to step onto.) */
+		if (type == AAS_FOOT && bot_nav_in_parts())
+		{
+			real reach;
+			for (reach = 1.2f; reach <= 2.5f; reach += 1.2f)
+			{
+				real_point3d ahead = *position;
+				real ground;
+				ahead.x += (real)cos(result->yaw) * reach;
+				ahead.y += (real)sin(result->yaw) * reach;
+				ahead.z += 1.f;
+				if (!bot_ground(&ahead, 3.5f, NONE, &ground))
+				{
+					result->moving = FALSE;
+					result->no_route = TRUE;
+					break;
+				}
+			}
+		}
 		if (type == AAS_VEHICLE)
 		{
 			bot_move_drive(bot, body, area != NONE ? &spot : &goal->origin, NULL, result);
@@ -1354,6 +1413,8 @@ void bot_move_to_goal(struct bot_mover *bot, struct bot_body const *body, struct
 
 	/* the route */
 	bot_move_plan(move, area, &spot, goal_area);
+	if (type == AAS_FOOT && area != goal_area && move->corridor_count == 0 && bot_move_foot_across(position, &goal->origin, to_goal, result))
+		goto finish;
 	if (area != goal_area && move->corridor_count == 0)
 	{
 		/* no way there (from here) */

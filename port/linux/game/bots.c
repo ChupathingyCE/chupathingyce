@@ -2237,6 +2237,8 @@ static int bot_vehicle_entry_seat(long unit_index, long vehicle_index, real_poin
 	struct object_datum *vehicle = object_get(vehicle_index);
 	struct unit_definition *definition = (struct unit_definition *)object_definition_get(vehicle->definition_index);
 	int has_driver = unit_scripting_unit_driver(vehicle_index) != NONE;
+	struct unit_datum *enterer = unit_try_and_get(unit_index);
+	int carrier = bot_nav_in_parts() && enterer && (bot_holds_named(enterer, "flag") || bot_holds_named(enterer, "ball"));
 	short best = NONE;
 	int best_rank = 99;
 	short seat;
@@ -2254,9 +2256,15 @@ static int bot_vehicle_entry_seat(long unit_index, long vehicle_index, real_poin
 		}
 		if (taken)
 			continue;
+		/* (With the flag in hand on a map that is not walked across: a
+		   seat that keeps it there, beside someone who drives. At the
+		   wheel or on the gun the hands are full, and the flag is left on
+		   the ground where the Warthog stood.) */
+		if (carrier)
+			rank = has_driver && !unit_seat_is_driver(vehicle_index, seat) && !unit_seat_is_gunner(vehicle_index, seat) ? 0 : 99;
 		/* nobody at the wheel: the wheel (a gun on a parked vehicle is a
 		   sitting duck); someone driving: the gun, then any seat */
-		if (unit_seat_is_driver(vehicle_index, seat))
+		else if (unit_seat_is_driver(vehicle_index, seat))
 			rank = has_driver ? 99 : 0;
 		else if (unit_seat_is_gunner(vehicle_index, seat))
 			rank = has_driver ? 0 : 99;
@@ -2284,6 +2292,31 @@ static int bot_vehicle_entry_seat(long unit_index, long vehicle_index, real_poin
 		real_point3d seat_point;
 		return unit_get_seat_entrance_point(unit_index, vehicle_index, best, entry, &exit_point, &seat_point);
 	}
+}
+
+/* a seat free in it that is neither its wheel nor its gun: where someone
+   rides with their own hands free (and the flag in them) */
+static int bot_vehicle_passenger_free(long vehicle_index)
+{
+	struct object_datum *vehicle = object_get(vehicle_index);
+	struct unit_definition *definition = (struct unit_definition *)object_definition_get(vehicle->definition_index);
+	short seat;
+	for (seat = 0; seat < definition->unit.seats.count; seat++)
+	{
+		long child;
+		int taken = FALSE;
+		if (unit_seat_is_driver(vehicle_index, seat) || unit_seat_is_gunner(vehicle_index, seat))
+			continue;
+		for (child = vehicle->object.first_child_object_index; child != NONE; child = object_get(child)->object.next_object_index)
+		{
+			struct unit_datum *rider = (struct unit_datum *)object_try_and_get_and_verify_type(child, _object_mask_unit);
+			if (rider && rider->unit.parent_seat_index == seat)
+				taken = TRUE;
+		}
+		if (!taken)
+			return TRUE;
+	}
+	return FALSE;
 }
 
 static int bot_vehicle_entry_rank(long unit_index, long vehicle_index, real_point3d *entry, int *rank_out)
@@ -2618,6 +2651,30 @@ static void bot_ctf_candidates(struct bot_state *bot, struct player_datum *playe
 		}
 		else
 			bot_consider(best, 1000.f, _bot_goal_roam, &my_base, NONE, 30 * BOT_TICKS_PER_SECOND, TRUE);
+		/* (A map that is not walked across, and home a long way off: a
+		   ride, beside one of ours at the wheel of something near. The
+		   seat is bot_vehicle_entry_seat's to pick.) */
+		if (bot_nav_in_parts() && distance3d(position, &my_base) > 250.f && unit->object.parent_object_index == NONE)
+		{
+			struct object_iterator iterator;
+			struct object_datum *object;
+			object_iterator_new(&iterator, _object_mask_vehicle, 0);
+			while ((object = (struct object_datum *)object_iterator_next(&iterator)) != NULL)
+			{
+				real_point3d entry;
+				real to_vehicle = distance3d(&object->object.position, position);
+				long driver = unit_scripting_unit_driver(iterator.index);
+				struct unit_datum *driver_unit = driver != NONE ? unit_try_and_get(driver) : NULL;
+				struct player_datum *driver_player = driver_unit && driver_unit->unit.player_index != NONE ?
+					player_try_and_get(driver_unit->unit.player_index) : NULL;
+				if (to_vehicle > 60.f || object->object.parent_object_index != NONE || !driver_player ||
+					bot_is_enemy((short)player->team_index, driver_player) || !bot_vehicle_entry(player->unit_index, iterator.index, &entry))
+				{
+					continue;
+				}
+				bot_consider(best, 2000.f / (1.f + to_vehicle / 60.f), _bot_goal_vehicle, &entry, iterator.index, 10 * BOT_TICKS_PER_SECOND, TRUE);
+			}
+		}
 		return;
 	}
 	/* ours is out: stop the carrier; touch it to send it back, or (when it
@@ -2752,6 +2809,31 @@ static void bot_ctf_candidates(struct bot_state *bot, struct player_datum *playe
 			}
 			bot_consider(best, (6.f + 16.f * bot->personality.teamwork) / (1.f + distance / 80.f), _bot_goal_enemy, &at, NONE,
 				2 * BOT_TICKS_PER_SECOND, TRUE);
+		}
+		/* (... and on a map that is not walked across, with them on foot a
+		   long way from home: the wheel of something near, to take them) */
+		if (bot_nav_in_parts() && object_get(carrier)->object.parent_object_index == NONE && distance < 120.f &&
+			TEST_FLAG(_object_mask_unit, object_get(carrier)->object.type) && !TEST_FLAG(_object_mask_vehicle, object_get(carrier)->object.type) &&
+			distance3d(&object_get(carrier)->object.position, &my_base) > 250.f && unit->object.parent_object_index == NONE)
+		{
+			struct object_iterator iterator;
+			struct object_datum *object;
+			object_iterator_new(&iterator, _object_mask_vehicle, 0);
+			while ((object = (struct object_datum *)object_iterator_next(&iterator)) != NULL)
+			{
+				real_point3d entry;
+				real to_vehicle = distance3d(&object->object.position, position);
+				int rank = 99;
+				if (to_vehicle > 80.f || object->object.parent_object_index != NONE || bot_ignoring(bot, iterator.index) ||
+					!bot_vehicle_passenger_free(iterator.index) || bot_vehicle_flies(object->definition_index) ||
+					unit_scripting_unit_driver(iterator.index) != NONE || bot_vehicle_has_enemy(iterator.index, player) ||
+					!bot_vehicle_entry_rank(player->unit_index, iterator.index, &entry, &rank) || rank != 0 ||
+					bot_goal_taken(iterator.index, (long)(bot - bot_states)))
+				{
+					continue;
+				}
+				bot_consider(best, 60.f / (1.f + to_vehicle / 60.f), _bot_goal_vehicle, &entry, iterator.index, 10 * BOT_TICKS_PER_SECOND, TRUE);
+			}
 		}
 	}
 }
@@ -3023,6 +3105,10 @@ static void bot_game_candidates(struct bot_state *bot, struct player_datum *play
 	}
 }
 
+/* (bot_ctf_drive_target's errand is one of ours on foot with their flag,
+   to be driven up to and waited for: not someone to go round, or over) */
+static int bot_ctf_drive_pick_up;
+
 /* a driver's capture-the-flag errand: their flag (to get out at and take),
    or our flag's carrier; FALSE when there's none */
 static int bot_ctf_drive_target(struct bot_state *bot, struct player_datum *player, real_point3d *point, int *get_out_there)
@@ -3036,10 +3122,32 @@ static int bot_ctf_drive_target(struct bot_state *bot, struct player_datum *play
 	struct object_datum *theirs;
 
 	*get_out_there = FALSE;
+	bot_ctf_drive_pick_up = FALSE;
 	if (team < 0 || team > 1 || !ctf_bot_flag(team, &my_flag, &my_base) || !ctf_bot_flag(1 - team, &their_flag, &their_base))
 		return FALSE;
 	mine = my_flag != NONE ? object_try_and_get(my_flag) : NULL;
 	theirs = their_flag != NONE ? object_try_and_get(their_flag) : NULL;
+	/* (A map that is not walked across, and one of ours with their flag:
+	   aboard, home with them; on foot and near, to them, and wait.) */
+	if (bot_nav_in_parts() && theirs && theirs->object.parent_object_index != NONE && player->unit_index != NONE)
+	{
+		long carrier = object_get_ultimate_parent(their_flag);
+		long mine_now = object_get_ultimate_parent(player->unit_index);
+		if (carrier == mine_now && mine_now != player->unit_index)
+		{
+			*point = my_base;
+			bot_ctf_drive_pick_up = TRUE; /* (up to it, and there: not round it) */
+			return TRUE;
+		}
+		if (mine_now != player->unit_index && !TEST_FLAG(_object_mask_vehicle, object_get(carrier)->object.type) &&
+			distance3d(&object_get(carrier)->object.position, &object_get(mine_now)->object.position) < 150.f &&
+			distance3d(&object_get(carrier)->object.position, &my_base) > 250.f && bot_vehicle_passenger_free(mine_now))
+		{
+			*point = object_get(carrier)->object.position;
+			bot_ctf_drive_pick_up = TRUE;
+			return TRUE;
+		}
+	}
 	if (mine && mine->object.parent_object_index != NONE)
 	{
 		*point = object_get(object_get_ultimate_parent(my_flag))->object.position;
@@ -7200,7 +7308,18 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			action->control_flags |= FLAG(_unit_control_action_bit);
 		/* in the wrong seat (a passenger with the wheel or the gun free):
 		   out, and in again at the right door; twice at most */
-		if (!gunner && bot->seat_retries < 2 && ++bot->seat_check_ticks > 20)
+		if (bot_nav_in_parts() && (bot_holds_named(unit, "flag") || bot_holds_named(unit, "ball")))
+		{
+			/* (riding home with the flag: out by our own, and in with it) */
+			long my_flag = NONE;
+			real_point3d my_base;
+			if (teams && me->team_index >= 0 && me->team_index <= 1 && ctf_bot_flag(me->team_index, &my_flag, &my_base) &&
+				distance3d(&position, &my_base) < 16.f && game_time_get() % 6 < 3)
+			{
+				action->control_flags |= FLAG(_unit_control_action_bit);
+			}
+		}
+		else if (!gunner && bot->seat_retries < 2 && ++bot->seat_check_ticks > 20)
 		{
 			struct object_datum *vehicle = object_get(vehicle_index);
 			real speed = (real)sqrt(vehicle->object.translational_velocity.i * vehicle->object.translational_velocity.i +
@@ -7490,6 +7609,27 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		struct bot_country_result across;
 		long waiting = teams ? bot_riders_coming(vehicle_index, player_absolute_index, 25.f) : 0;
 
+		/* testing (HALO_BOT_COUNTRYJUMP=team,tick,x,y,z,count): so many
+		   vehicles of that team that are being driven far, put down at a
+		   place (each a few units on from the last) at a tick, to look at
+		   what their drivers do there without the drive to it */
+		if (getenv("HALO_BOT_COUNTRYJUMP"))
+		{
+			long team = 0, tick = 0, count = 1;
+			real_point3d at = { 0.f, 0.f, 0.f };
+			static long done = 0;
+			static long done_vehicles[4] = { NONE, NONE, NONE, NONE };
+			if (sscanf(getenv("HALO_BOT_COUNTRYJUMP"), "%ld,%ld,%f,%f,%f,%ld", &team, &tick, &at.x, &at.y, &at.z, &count) >= 5 &&
+				me->team_index == team && game_time_get() >= tick && done < MIN(count, 4) &&
+				done_vehicles[0] != vehicle_index && done_vehicles[1] != vehicle_index && done_vehicles[2] != vehicle_index)
+			{
+				at.x -= 7.f * done;
+				done_vehicles[done++] = vehicle_index;
+				object_set_position(vehicle_index, &at, NULL, NULL);
+				memset(&object_get(vehicle_index)->object.translational_velocity, 0, sizeof(real_vector3d));
+				bot_log("countryjump: bot%ld's vehicle put at %.0f %.0f %.0f", player_absolute_index, at.x, at.y, at.z);
+			}
+		}
 		bot_country_drive(&bot->traveller, &body, &far_place, &across);
 		if (across.off)
 		{
@@ -7565,6 +7705,8 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		int know_enemy = FALSE;
 		real enemy_distance = 1.0e9f;
 		int circling = FALSE;
+		int errand_on_foot = FALSE; /* (what it is bound for is got on foot, and is not far) */
+		int picking_up = FALSE; /* (... is one of ours with their flag, to be taken home) */
 
 		{
 			/* someone on the gun? */
@@ -7669,11 +7811,36 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			{
 				if (get_out && distance3d(&errand, &position) < 7.f)
 					action->control_flags |= FLAG(_unit_control_action_bit); /* out, and take it */
+				errand_on_foot = bot_nav_in_parts() && get_out && distance3d(&errand, &position) < 80.f;
+				picking_up = bot_ctf_drive_pick_up;
 				enemy = errand;
 				/* the flag lying there: route to it, don't circle; our flag's
 				   carrier: after them, and run them down or circle them close */
-				enemy_distance = get_out ? 1.0e9f : distance3d(&errand, &position);
+				enemy_distance = get_out || picking_up ? 1.0e9f : distance3d(&errand, &position);
 				know_enemy = TRUE;
+				/* (up to them, and there until they are in) */
+				if (picking_up && distance3d(&errand, &position) < 8.f)
+					hold = TRUE;
+				/* (A flag to get out for, on one of these maps: stopped a
+				   little way off it and the rest walked. The flag of
+				   Coldsnap's north-west base stands on the lip of a
+				   canyon, and a Warthog driven up to it goes in.) */
+				if (errand_on_foot && distance3d(&errand, &position) < 16.f)
+				{
+					hold = TRUE;
+					if (magnitude3d(&object_get(vehicle_index)->object.translational_velocity) < 0.03f)
+					{
+						if (game_time_get() % 6 < 3)
+							action->control_flags |= FLAG(_unit_control_action_bit);
+						if (!bot_ignoring(bot, vehicle_index))
+						{
+							bot_ignore(bot, vehicle_index, 20 * BOT_TICKS_PER_SECOND);
+							if (bot_logging())
+								bot_log("bot%ld t%ld out of the %s, %.0f from the flag, to walk to it", player_absolute_index, game_time_get(),
+									tag_get_name(object_get(vehicle_index)->definition_index), distance3d(&errand, &position));
+						}
+					}
+				}
 			}
 		}
 
@@ -7844,6 +8011,27 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		}
 		if (!result.no_route)
 			bot->drive_stranded_ticks = 0;
+		/* (as near the flag as a vehicle gets, and that is not at it: the
+		   rest on foot. The way on is the walker's to find; sitting at the
+		   end of the road with the flag in sight is nobody's) */
+		if (errand_on_foot && !circling && !hold && !result.no_route && (result.arrived || !result.moving) &&
+			bot_distance2d(&position, &next) < 5.f)
+		{
+			struct object_datum *ride = object_get(vehicle_index);
+			/* (stopped first: out of a Warthog that is still going is on with
+			   it at its speed, and the flag of Coldsnap's north-west base
+			   stands by a cliff) */
+			hold = TRUE;
+			if (magnitude3d(&ride->object.translational_velocity) < 0.03f)
+				action->control_flags |= FLAG(_unit_control_action_bit);
+			if (magnitude3d(&ride->object.translational_velocity) < 0.03f && !bot_ignoring(bot, vehicle_index))
+			{
+				bot_ignore(bot, vehicle_index, 20 * BOT_TICKS_PER_SECOND);
+				if (bot_logging())
+					bot_log("bot%ld t%ld out of the %s at the end of its road, %.0f from what it came for", player_absolute_index, game_time_get(),
+						tag_get_name(object_get(vehicle_index)->definition_index), bot_distance2d(&position, &enemy));
+			}
+		}
 		move_yaw = result.moving ? result.steer_yaw : move_yaw;
 		drive_throttle = result.throttle;
 		moving = result.moving && !hold;
