@@ -1015,14 +1015,23 @@ static char *config_update_layout(const char *text, toml_datum_t table)
 	int lines[NUMBER_OF_CONFIG_SETTINGS];
 	struct config_text out = { NULL, 0, 0 };
 	struct config_text changed = { NULL, 0, 0 };
-	int line_number = 1, defaults = 0, version_written;
+	int line_number = 1, defaults = 0, version_written, written_by_game;
 	const char *line;
-	size_t index;
+	size_t index, present = 0;
 
 	if (version.type == TOML_INT64 && version.u.int64 >= CONFIG_VERSION)
 		return NULL;
 	/* (an older version's line is changed where it is) */
 	version_written = version.type != TOML_UNKNOWN;
+	/* (the builds before config_version wrote every setting as a value: a
+	file holding fewer than half of them was written by a person, whose
+	values, an older default's included, are theirs) */
+	for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
+	{
+		if (toml_seek(table, config_settings[index].name).type != TOML_UNKNOWN)
+			present++;
+	}
+	written_by_game = present * 2 >= NUMBER_OF_CONFIG_SETTINGS;
 	for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
 	{
 		const struct config_setting *setting = &config_settings[index];
@@ -1037,7 +1046,7 @@ static char *config_update_layout(const char *text, toml_datum_t table)
 			lines[index] = datum.lineno;
 			continue;
 		}
-		for (old = 0; old < NUMBER_OF_CONFIG_OLD_DEFAULTS; old++)
+		for (old = 0; written_by_game && old < NUMBER_OF_CONFIG_OLD_DEFAULTS; old++)
 		{
 			if (!strcmp(config_old_defaults[old].name, setting->name) &&
 				config_datum_is(datum, setting->type, config_old_defaults[old].default_value))
