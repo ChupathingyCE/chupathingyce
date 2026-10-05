@@ -13,6 +13,9 @@ settings file of its own may come later; see the [changelog](../CHANGELOG.md).)
 | `HALO_DEDICATED_MAXIMUM_PLAYERS` | `12` | The players a game takes, up to 128 (see below). |
 | `HALO_DEDICATED_IDLE_LIMIT` | `5` | A game in which nobody scores for this many minutes ends. `0`: never. |
 | `HALO_DEDICATED_PUBLIC` | `true` | A public game, listed in every in-game Server Browser (OpenCE's and ChupathingyCE's) through internet play's brokers. `false`: not listed there; the game list still lists it, and its invite still works. |
+| `HALO_DEDICATED_COMMANDS` | (none) | A file of [commands](admin.md#startup-commands) in the data folder, run once the server first hosts. |
+| `HALO_DEDICATED_CONSOLE` | on in a terminal | Commands typed on the server's standard input ([the console](admin.md#the-console)). `true`: read them even when it is not a terminal; `false`: never. |
+| `HALO_DEDICATED_CONTROL` | (off) | The [control API](admin.md#the-control-api)'s address: a port (`8080`, on 127.0.0.1 only) or an address and port (`127.0.0.1:8080`, `[::1]:8080`; any other is warned of). Its token is made and printed the first time. |
 
 A game everyone has left ends after 30 seconds. After each game the
 carnage report shows for 20 seconds, then the next entry's lobby opens.
@@ -57,9 +60,19 @@ chupathingyce-server [--version | --help]
 | `--version`, `-v` | Prints the version, architecture and network version, and exits. |
 | `--help`, `-h` | Prints a summary of the settings, and exits. |
 
+Commands for a running server (kick, ban, change the map, ...) are typed
+on its console or sent to its control API: [admin.md](admin.md).
+
 Exit statuses: `0` stopped as asked (SIGTERM, SIGINT); `1` no maps, or a
 playlist it cannot read; `2` no playlist (`HALO_DEDICATED`), or an argument
 it does not know.
+
+## The files it writes
+
+In the data folder: `debug.txt` (its log), `bans.txt` (its bans, read on
+every join: [admin.md](admin.md#bans)), `cheaters.txt` (players dropped for
+cheating), and `control_credentials.txt` (the control API's token's hash,
+once the API is turned on).
 
 ## Probing a game
 

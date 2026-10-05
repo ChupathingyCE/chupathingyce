@@ -71,7 +71,7 @@ jobs:
         run: python tools/ci_build.py linux release
 
       - name: Test
-        run: python -m pytest -q tools/test_linux_port.py tools/test_touch_menu.py
+        run: python -m pytest -q tools/test_linux_port.py tools/test_touch_menu.py tools/test_server_control.py
 
       - name: Compile cache
         run: ccache --show-stats
@@ -282,7 +282,12 @@ jobs:
             ~/.gradle/wrapper
           key: gradle-${{ hashFiles('port/android/**/*.gradle*', 'port/android/gradle/wrapper/gradle-wrapper.properties') }}
 
-      # (signed with the runner's debug key: the release workflows sign)
+      # No keystore.properties here (pull requests and forks have no
+      # secrets): the debug app has the runner's own debug key
+      # (chupathingyce-android-debug-testkey.apk), which does not install
+      # over ChupathingyCE's builds, and the release app is unsigned, only
+      # checked to build. The release workflows (ChupathingyCE/command) sign
+      # both with ChupathingyCE's key (port/android/README.md).
       - name: Debug
         run: python3 tools/ci_build.py android debug
 
@@ -294,13 +299,13 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: chupathingyce-android-debug
+          name: chupathingyce-android-debug-testkey
           path: dist/chupathingyce-android-debug
           retention-days: 3
 
       - uses: actions/upload-artifact@v4
         with:
-          name: chupathingyce-android-release
+          name: chupathingyce-android-release-unsigned
           path: dist/chupathingyce-android-release
           retention-days: 3
 

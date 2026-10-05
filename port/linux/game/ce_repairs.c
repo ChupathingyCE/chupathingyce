@@ -32,6 +32,10 @@ or reads past a tag's end:
     and pitfall's is 'prot'), which Halo PC's engine took as the scenario
     whatever its group said: given the scenario's group, before the map's
     scenario is checked (ce_map_checks.c);
+  - a tag whose parent groups are not its group's (Invader leaves a
+    vehicle's and a water shader's none: beavercreek_rev_beta's), which
+    the game's tag_get checks a vehicle against as an object: given its
+    group's;
   - a model's or animation graph's nodes linked into a loop (a node's
     sibling or child one reached already: [h3]_sandtrap's cyborg graph has
     its spine's next sibling the pelvis, the first node), which the game
@@ -132,6 +136,7 @@ struct ce_repair_counts
 	long modifier_shaders;
 	long model_shaders;
 	long node_links;
+	long parent_groups;
 };
 
 /* ---------- globals */
@@ -140,6 +145,40 @@ struct ce_repair_counts
 static unsigned long const ce_object_type_groups[] =
 {
 	'bipd', 'vehi', 'weap', 'eqip', 'garb', 'proj', 'scen', 'mach', 'ctrl', 'lifi', 'plac', 'ssce',
+};
+
+/* the groups with parents, and their parents (tag_groups.c's, as Halo PC
+has them) */
+static struct
+{
+	unsigned long group_tag;
+	unsigned long parent_group_tags[2];
+} const ce_group_parents[] =
+{
+	{ 'bipd', { 'unit', 'obje' } },
+	{ 'vehi', { 'unit', 'obje' } },
+	{ 'weap', { 'item', 'obje' } },
+	{ 'eqip', { 'item', 'obje' } },
+	{ 'garb', { 'item', 'obje' } },
+	{ 'mach', { 'devi', 'obje' } },
+	{ 'ctrl', { 'devi', 'obje' } },
+	{ 'lifi', { 'devi', 'obje' } },
+	{ 'proj', { 'obje', 0xffffffff } },
+	{ 'scen', { 'obje', 0xffffffff } },
+	{ 'plac', { 'obje', 0xffffffff } },
+	{ 'ssce', { 'obje', 0xffffffff } },
+	{ 'unit', { 'obje', 0xffffffff } },
+	{ 'item', { 'obje', 0xffffffff } },
+	{ 'devi', { 'obje', 0xffffffff } },
+	{ 'senv', { 'shdr', 0xffffffff } },
+	{ 'soso', { 'shdr', 0xffffffff } },
+	{ 'sotr', { 'shdr', 0xffffffff } },
+	{ 'schi', { 'shdr', 0xffffffff } },
+	{ 'scex', { 'shdr', 0xffffffff } },
+	{ 'swat', { 'shdr', 0xffffffff } },
+	{ 'sgla', { 'shdr', 0xffffffff } },
+	{ 'smet', { 'shdr', 0xffffffff } },
+	{ 'spla', { 'shdr', 0xffffffff } },
 };
 
 /* the loaded map's tags (ce_repairs_tags_loaded), for its BSPs' */
@@ -471,19 +510,42 @@ static void ce_node_links_repair(
 	}
 }
 
+/* a tag given its group's parent groups, if it has others */
+static void ce_parent_groups_repair(
+	struct ce_tag_instance *instance,
+	struct ce_repair_counts *counts)
+{
+	long index;
+
+	for (index = 0; index < NUMBEROF(ce_group_parents); index++)
+	{
+		if (ce_group_parents[index].group_tag != instance->group_tag)
+			continue;
+		if (instance->parent_group_tags[0] != ce_group_parents[index].parent_group_tags[0] ||
+			instance->parent_group_tags[1] != ce_group_parents[index].parent_group_tags[1])
+		{
+			instance->parent_group_tags[0] = ce_group_parents[index].parent_group_tags[0];
+			instance->parent_group_tags[1] = ce_group_parents[index].parent_group_tags[1];
+			counts->parent_groups++;
+		}
+		return;
+	}
+}
+
 static void ce_repairs_log(
 	struct ce_repair_counts const *counts)
 {
 	if (ce_map_checking() || !(counts->predicted_resources_dropped | counts->predicted_resources_salted |
-		counts->object_types | counts->modifier_shaders | counts->model_shaders | counts->node_links))
+		counts->object_types | counts->modifier_shaders | counts->model_shaders | counts->node_links |
+		counts->parent_groups))
 	{
 		return;
 	}
 	error(_error_silent, "%s map: %ld predicted resources dropped and %ld given their tags' salts, %ld object "
-		"types, %ld modifier shaders and %ld model shaders repaired, %ld node links looping back or out of the nodes",
-		ce_map_cache_version == CE_CACHE_VERSION_RETAIL ? "HaloMD" : "Custom Edition",
+		"types, %ld modifier shaders and %ld model shaders repaired, %ld node links looping back or out of the nodes, "
+		"%ld tags' parent groups", ce_map_cache_version == CE_CACHE_VERSION_RETAIL ? "HaloMD" : "Custom Edition",
 		counts->predicted_resources_dropped, counts->predicted_resources_salted, counts->object_types,
-		counts->modifier_shaders, counts->model_shaders, counts->node_links);
+		counts->modifier_shaders, counts->model_shaders, counts->node_links, counts->parent_groups);
 }
 
 /* ---------- public code */
@@ -517,6 +579,9 @@ void ce_repairs_apply(
 	long index;
 
 	memset(&counts, 0, sizeof(counts));
+	/* (first: the repairs below find objects and shaders by their parents) */
+	for (index = 0; index < tag_count; index++)
+		ce_parent_groups_repair(ce_instance(tag_instances, index), &counts);
 	for (index = 0; index < tag_count; index++)
 	{
 		struct ce_tag_instance *instance = ce_instance(tag_instances, index);
