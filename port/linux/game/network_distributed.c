@@ -69,6 +69,7 @@ machine (their datum identifiers need not be).
 
 #include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 #include <math.h>
 
@@ -3373,13 +3374,16 @@ static void distributed_printable(
 their address, Discord user and names, and why; separated by tabs, each
 part kept to the characters allowed and their lengths (what a player could
 tell: their Discord user and names). The Discord user of the machine at
-the index, if it is one in the game (NONE: none) */
+the index, if it is one in the game (NONE: none). A ban for a while has
+until= last, when it ends (seconds since 1970, UTC); one without is for
+ever */
 static void distributed_write_player_record(
 	char const *file_name,
 	char const *address,
 	long machine_index,
 	char const *names,
-	char const *reason)
+	char const *reason,
+	unsigned long until)
 {
 	char discord_id[DISCORD_ID_SIZE] = "";
 	char discord_name[DISCORD_NAME_SIZE] = "";
@@ -3411,9 +3415,12 @@ static void distributed_write_player_record(
 		error(_error_log, "could not open %s to add a player to it", file_name);
 		return;
 	}
-	fprintf(file, "%s\tip=%s\thwid=%s\tdiscord_username=%s\tdiscord_id=%s\tplayers=%s\treason=%s\n", when,
+	fprintf(file, "%s\tip=%s\thwid=%s\tdiscord_username=%s\tdiscord_id=%s\tplayers=%s\treason=%s", when,
 		kept_address, hardware_id[0] ? hardware_id : "none", discord_name[0] ? discord_name : "none",
 		discord_id[0] ? discord_id : "none", kept_names, kept_reason);
+	if (until)
+		fprintf(file, "\tuntil=%lu", until);
+	fprintf(file, "\n");
 	fclose(file);
 }
 
@@ -3427,14 +3434,69 @@ static void distributed_log_cheater(
 	char address[32];
 
 	distributed_machine_address_text(machine_index, address, sizeof(address));
-	distributed_write_player_record(CHEATERS_FILE, address, machine_index, names, reason);
-	distributed_write_player_record(BANS_FILE, address, machine_index, names, reason);
+	distributed_write_player_record(CHEATERS_FILE, address, machine_index, names, reason, 0);
+	distributed_write_player_record(BANS_FILE, address, machine_index, names, reason, 0);
+}
+
+/* a line of BANS_FILE's field (its "name=" given), up to the next tab or
+the line's end, kept to printable ASCII, in text; FALSE if it has none */
+static boolean distributed_ban_field(
+	char const *line,
+	char const *name,
+	char *text,
+	long size)
+{
+	char const *field = line;
+	long name_length = (long)strlen(name);
+	long length = 0;
+
+	if (size > 0)
+		text[0] = 0;
+	/* (a field's name begins the line or follows a tab) */
+	while (field && *field)
+	{
+		if ((field == line || field[-1] == '\t') && !strncmp(field, name, (size_t)name_length))
+			break;
+		field = strchr(field, '\t');
+		if (field)
+			field++;
+	}
+	if (!field || !*field)
+		return FALSE;
+	for (field += name_length; *field && *field != '\t' && *field != '\r' && *field != '\n' && length < size - 1;
+		field++)
+	{
+		text[length++] = *field >= 32 && *field < 127 ? *field : '?';
+	}
+	if (size > 0)
+		text[length] = 0;
+	return TRUE;
+}
+
+/* when a line of BANS_FILE's ban ends (its "until=", seconds since 1970); 0
+if it is for ever */
+static unsigned long distributed_ban_until(
+	char const *line)
+{
+	char text[24];
+
+	if (!distributed_ban_field(line, "until=", text, sizeof(text)))
+		return 0;
+	return strtoul(text, NULL, 10);
+}
+
+/* whether a line of BANS_FILE's is a ban (an address or a hardware id to
+refuse; # begins a comment) */
+static boolean distributed_ban_line(
+	char const *line)
+{
+	return line[0] != '#' && (strstr(line, "ip=") || strstr(line, "hwid="));
 }
 
 /* (the host: network_server_manager.c) whether a machine of this address
 (host byte order; an internet play peer's by its real one) is banned: its
 address one of BANS_FILE's (each line's "ip=", which a host may add or
-take out by hand) */
+take out by hand), and the ban not over (its "until=") */
 boolean network_distributed_banned(
 	unsigned long address,
 	char const *hardware_id)
@@ -3455,10 +3517,15 @@ boolean network_distributed_banned(
 		return FALSE;
 	while (!banned && fgets(line, sizeof(line), file))
 	{
+		unsigned long until = distributed_ban_until(line);
 		char const *ip = strstr(line, "ip=");
 		char const *hwid = strstr(line, "hwid=");
 		size_t length = csstrlen(text);
 		size_t hardware_id_length = csstrlen(kept_hardware_id);
+
+		/* (not a comment, nor a ban for a while that is over) */
+		if (!distributed_ban_line(line) || (until && (unsigned long)time(NULL) >= until))
+			continue;
 
 		/* (the whole address: 1.2.3.4 is not 1.2.3.45) */
 		if (length && ip && !strncmp(ip + 3, text, length) &&
@@ -3480,14 +3547,17 @@ boolean network_distributed_banned(
 	return banned;
 }
 
-/* (the host: network_server_manager.c, its ban command) a machine banned
-by the host: its line in BANS_FILE, and every machine told (the Discord
-user of the machine at the index, if it is one in the game; its address,
-host byte order) */
-void network_distributed_ban(
+/* (the host: network_server_manager.c, its ban command; the dedicated
+server's sv_ban, server/src/server_commands.c) a machine banned: its line
+in BANS_FILE, for ever (until 0) or until then (seconds since 1970), and
+every machine told, "<names> <reason>" (the Discord user of the machine at
+the index, if it is one in the game; its address, host byte order) */
+void network_distributed_ban_until(
 	long machine_index,
 	unsigned long address,
-	char const *names)
+	char const *names,
+	char const *reason,
+	unsigned long until)
 {
 	char text[32];
 	char kept_names[64];
@@ -3497,7 +3567,7 @@ void network_distributed_ban(
 	char notice[MAXIMUM_NOTICE_LENGTH];
 
 	distributed_address_text(address, text, sizeof(text));
-	distributed_write_player_record(BANS_FILE, text, machine_index, names, "banned by the host");
+	distributed_write_player_record(BANS_FILE, text, machine_index, names, reason, until);
 	distributed_printable(kept_names, sizeof(kept_names), names);
 	if (game_in_progress() && machine_index >= 0 && machine_index < HALO_PORT_MAXIMUM_NETWORK_MACHINES)
 	{
@@ -3507,7 +3577,7 @@ void network_distributed_ban(
 	}
 	if (discord_id[0] || discord_name[0])
 		snprintf(discord, sizeof(discord), " (Discord: %s, %s)", discord_name, discord_id);
-	snprintf(notice, sizeof(notice), "%s%s banned by the host", kept_names, discord);
+	snprintf(notice, sizeof(notice), "%s%s %s", kept_names, discord, reason);
 	/* (to every client in the game: in the lobby, the host's own) */
 	if (game_in_progress())
 		distributed_send_notice(notice);
@@ -3516,6 +3586,125 @@ void network_distributed_ban(
 		console_warning("%s", notice);
 		error(_error_log, "%s", notice);
 	}
+}
+
+void network_distributed_ban(
+	long machine_index,
+	unsigned long address,
+	char const *names)
+{
+	network_distributed_ban_until(machine_index, address, names, "banned by the host", 0);
+}
+
+/* (the dedicated server's sv_banlist) BANS_FILE's index-th ban (from 0,
+comments and other lines not counted): when it was made, the hardware id
+banned ("none"), the players' names, why, and when it ends (0: never); no
+address. FALSE past the last */
+boolean network_distributed_ban_entry(
+	long index,
+	char *when,
+	long when_size,
+	char *hardware_id,
+	long hardware_id_size,
+	char *players,
+	long players_size,
+	char *reason,
+	long reason_size,
+	unsigned long *until)
+{
+	char line[512];
+	FILE *file = fopen(BANS_FILE, "r");
+	long count = 0;
+	boolean found = FALSE;
+
+	if (!file)
+		return FALSE;
+	while (!found && fgets(line, sizeof(line), file))
+	{
+		if (!distributed_ban_line(line))
+			continue;
+		if (count++ != index)
+			continue;
+		found = TRUE;
+		/* (the first field, its date and time) */
+		{
+			long length = 0;
+
+			while (line[length] && line[length] != '\t' && line[length] != '\n' && length < when_size - 1)
+			{
+				when[length] = line[length] >= 32 && line[length] < 127 ? line[length] : '?';
+				length++;
+			}
+			when[length] = 0;
+			/* (a line written by hand may begin with a field) */
+			if (strchr(when, '='))
+				when[0] = 0;
+		}
+		if (!distributed_ban_field(line, "hwid=", hardware_id, hardware_id_size) || !hardware_id[0])
+			snprintf(hardware_id, (size_t)hardware_id_size, "none");
+		distributed_ban_field(line, "players=", players, players_size);
+		distributed_ban_field(line, "reason=", reason, reason_size);
+		*until = distributed_ban_until(line);
+	}
+	fclose(file);
+	return found;
+}
+
+/* (the dedicated server's sv_unban) BANS_FILE's index-th ban (as
+network_distributed_ban_entry counts) taken out, every other line kept as
+it was; FALSE if there is none, or the file could not be written */
+boolean network_distributed_unban(
+	long index)
+{
+	enum
+	{
+		/* (a bans file larger than this is not rewritten) */
+		MAXIMUM_BANS_FILE_SIZE = 1024 * 1024,
+	};
+	static char contents[MAXIMUM_BANS_FILE_SIZE];
+	char line[512];
+	long size = 0;
+	long count = 0;
+	boolean found = FALSE;
+	FILE *file = fopen(BANS_FILE, "r");
+
+	if (!file)
+		return FALSE;
+	while (fgets(line, sizeof(line), file))
+	{
+		long length = (long)strlen(line);
+
+		if (distributed_ban_line(line) && count++ == index)
+		{
+			found = TRUE;
+			continue;
+		}
+		if (size + length >= MAXIMUM_BANS_FILE_SIZE)
+		{
+			fclose(file);
+			error(_error_log, "%s is too large to rewrite", BANS_FILE);
+			return FALSE;
+		}
+		csmemcpy(contents + size, line, length);
+		size += length;
+	}
+	fclose(file);
+	if (!found)
+		return FALSE;
+	file = fopen(BANS_FILE, "w");
+	if (!file)
+	{
+		error(_error_log, "could not open %s to take a ban out of it", BANS_FILE);
+		return FALSE;
+	}
+	if (size && fwrite(contents, 1, (size_t)size, file) != (size_t)size)
+	{
+		fclose(file);
+		error(_error_log, "could not write %s", BANS_FILE);
+		return FALSE;
+	}
+	fclose(file);
+	return TRUE;
 }
 
 /* (the host) a client machine's tick, which one of its messages is

@@ -51,6 +51,11 @@ Use the host's network (`--network host`): internet play's hole punching
 does not get through a bridge's NAT to players behind their own. The server
 needs no open ports.
 
+To type commands into it, run it with `-it` and `docker attach` to it; for
+its control API (`HALO_DEDICATED_CONTROL`), see
+[admin.md](admin.md#docker): with the host's network it stays on the
+host's 127.0.0.1.
+
 ## A service on a Linux host
 
 `server/deploy/deploy.sh` installs or updates the server on a Linux host

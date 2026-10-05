@@ -42,6 +42,12 @@ Custom Edition map in maps\ce as <name>@ce, "timberland@ce", or a HaloMD map
 in md_maps as <name>@md, "phoenix3_15@md": halo_map_families.h) and a game
 type (game_engine_get_variant_by_name's names: slayer, team_slayer, ctf,
 king, oddball, race, ...); # starts a comment.
+
+The server's commands (server_commands.c: its console, its startup
+commands and its control API, server/docs/admin.md) change what the
+director does through dedicated.h: a map and game type played at once
+(after which the playlist goes on where it was), the next entry at once,
+the game ending, and the seats and the name, which the lobby takes.
 */
 
 #ifdef HALO_GAME_BROWSER
@@ -55,6 +61,7 @@ king, oddball, race, ...); # starts a comment.
 #include "networking/network_game_manager.h"
 #include "text/unicode.h"
 #include "networking/network_server_manager.h"
+#include "dedicated.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -64,7 +71,7 @@ king, oddball, race, ...); # starts a comment.
 
 enum
 {
-	MAXIMUM_ENTRIES = 64,
+	MAXIMUM_ENTRIES = DEDICATED_MAXIMUM_ENTRIES,
 	/* a failed start tried again this much later */
 	RETRY_MILLISECONDS = 5000,
 	/* the carnage report shown this long before the next game's lobby */
@@ -95,6 +102,10 @@ void game_engine_override_map_name(char const *map_name);
 long game_engine_total_score(void);
 boolean main_menu_is_active(void);
 boolean bink_playback_active(void);
+boolean network_game_server_lobby_is_open(struct network_game_server *server);
+boolean network_game_server_game_is_loading(struct network_game_server *server);
+/* (server_commands.c's) */
+void server_commands_update(void);
 
 enum
 {
@@ -111,8 +122,9 @@ static struct
 	boolean initialized;
 	boolean active;
 	long entry_count;
-	char maps[MAXIMUM_ENTRIES][128];
-	char variants[MAXIMUM_ENTRIES][32];
+	char maps[MAXIMUM_ENTRIES][DEDICATED_MAP_SIZE];
+	char variants[MAXIMUM_ENTRIES][DEDICATED_VARIANT_SIZE];
+	char playlist[DEDICATED_MAP_SIZE];
 	long entry;
 	long minimum_players;
 	long maximum_players;
@@ -132,6 +144,18 @@ static struct
 	unsigned long score_time;
 	long score;
 	unsigned long empty_time;
+	unsigned long start_time;
+
+	/* a map and game type a command chose (sv_map): to be played next, and
+	being played (the playlist's entry is then the one after it) */
+	boolean chosen_pending;
+	boolean chosen_playing;
+	char chosen_map[DEDICATED_MAP_SIZE];
+	char chosen_variant[DEDICATED_VARIANT_SIZE];
+	/* the game in progress to end (a command's), and its carnage report not
+	waited out when the command wanted the next game at once */
+	boolean end_requested;
+	boolean postgame_skipped;
 } dedicated;
 
 /* ---------- private code */
@@ -193,8 +217,10 @@ static void initialize(
 	long index;
 
 	dedicated.initialized = TRUE;
+	dedicated.start_time = system_milliseconds();
 	if (!playlist || !playlist[0])
 		return;
+	snprintf(dedicated.playlist, sizeof(dedicated.playlist), "%s", playlist);
 	load_playlist(playlist);
 	dedicated.minimum_players = minimum ? atol(minimum) : 1;
 	if (dedicated.minimum_players < 1)
@@ -240,6 +266,16 @@ static void skip_team_entry_for_one_player(
 
 	if (!dedicated.entry_teams || !game || game->player_count != 1)
 		return;
+	/* (a team game a command chose too: the playlist's goes on, from its
+	entry, if that one is played alone) */
+	if (dedicated.chosen_playing)
+	{
+		error(_error_silent, "dedicated: one player: not %s on %s", dedicated.chosen_variant, dedicated.chosen_map);
+		dedicated.chosen_playing = FALSE;
+		dedicated.entry_set = FALSE;
+		if (!entry_has_teams(dedicated.entry))
+			return;
+	}
 	for (offset = 1; offset < dedicated.entry_count; offset++)
 	{
 		long entry = (dedicated.entry + offset) % dedicated.entry_count;
@@ -255,7 +291,8 @@ static void skip_team_entry_for_one_player(
 	}
 }
 
-/* the playlist's entry, set on the server (in its pregame) */
+/* the playlist's entry (or the map and game type a command chose), set on
+the server (in its pregame) */
 static boolean set_entry(
 	struct network_game_server *server)
 {
@@ -264,12 +301,25 @@ static boolean set_entry(
 	char const *map = dedicated.maps[dedicated.entry];
 	char const *variant_name = dedicated.variants[dedicated.entry];
 
+	if (dedicated.chosen_pending)
+	{
+		dedicated.chosen_pending = FALSE;
+		dedicated.chosen_playing = TRUE;
+	}
+	if (dedicated.chosen_playing)
+	{
+		map = dedicated.chosen_map;
+		variant_name = dedicated.chosen_variant;
+	}
 	csmemset(&empty, 0, sizeof(empty));
 	game_engine_get_variant_by_name(&variant, variant_name);
 	if (!csmemcmp(&variant, &empty, sizeof(variant)))
 	{
 		error(_error_silent, "dedicated: no game type %s; skipping the entry", variant_name);
-		dedicated.entry = (dedicated.entry + 1) % dedicated.entry_count;
+		if (dedicated.chosen_playing)
+			dedicated.chosen_playing = FALSE;
+		else
+			dedicated.entry = (dedicated.entry + 1) % dedicated.entry_count;
 		return FALSE;
 	}
 	main_set_multiplayer_map_name(map);
@@ -329,6 +379,9 @@ void dedicated_server_update(
 			Sleep(FRAME_MILLISECONDS - elapsed);
 		dedicated.frame_time = system_milliseconds();
 	}
+	/* the commands that came in (the console's, the control API's), here on
+	the main thread */
+	server_commands_update();
 
 	server = global_network_game_server_get();
 	if (!server)
@@ -347,12 +400,21 @@ void dedicated_server_update(
 	state = network_game_server_get_state(server, NULL);
 	if (state == DEDICATED_SERVER_STATE_PREGAME)
 	{
-		/* (back from a game: the next entry) */
+		/* (back from a game: the next entry; after a game a command chose,
+		the entry that was next before it) */
 		if (dedicated.last_state != DEDICATED_SERVER_STATE_PREGAME && dedicated.entry_set)
 		{
-			dedicated.entry = (dedicated.entry + 1) % dedicated.entry_count;
+			if (dedicated.chosen_playing)
+				dedicated.chosen_playing = FALSE;
+			else
+				dedicated.entry = (dedicated.entry + 1) % dedicated.entry_count;
 			dedicated.entry_set = FALSE;
 		}
+		if (dedicated.last_state != DEDICATED_SERVER_STATE_PREGAME)
+			dedicated.postgame_skipped = FALSE;
+		/* (a command's game, once the lobby takes it) */
+		if (dedicated.chosen_pending && dedicated.entry_set && network_game_server_lobby_is_open(server))
+			dedicated.entry_set = FALSE;
 		if (!dedicated.entry_set)
 			dedicated.entry_set = set_entry(server);
 		if (dedicated.entry_set)
@@ -393,6 +455,14 @@ void dedicated_server_update(
 			dedicated.score = 0;
 			dedicated.empty_time = 0;
 		}
+		/* a command ended it (sv_end_game, sv_map, sv_mapcycle_next), once it
+		can end */
+		if (dedicated.end_requested && game_engine_running() && game_engine_can_score())
+		{
+			dedicated.end_requested = FALSE;
+			error(_error_silent, "dedicated: a command ends the game");
+			game_engine_end_game();
+		}
 		/* everyone left: the game ends (as the score limit ends it) and the
 		next entry's lobby opens */
 		if (game && game->player_count == 0)
@@ -428,8 +498,16 @@ void dedicated_server_update(
 	}
 	else if (state == DEDICATED_SERVER_STATE_POSTGAME)
 	{
-		/* (the host's A on the carnage report: the server has no one to press it) */
-		if (dedicated.last_state != DEDICATED_SERVER_STATE_POSTGAME)
+		/* (the host's A on the carnage report: the server has no one to press
+		it; at once when a command wanted the next game) */
+		dedicated.end_requested = FALSE;
+		if (dedicated.postgame_skipped)
+		{
+			dedicated.postgame_skipped = FALSE;
+			error(_error_silent, "dedicated: back to the lobby at once");
+			network_game_server_reset_to_pregame(server);
+		}
+		else if (dedicated.last_state != DEDICATED_SERVER_STATE_POSTGAME)
 			dedicated.postgame_time = system_milliseconds() + POSTGAME_MILLISECONDS;
 		else if ((long)(system_milliseconds() - dedicated.postgame_time) >= 0)
 		{
@@ -438,6 +516,178 @@ void dedicated_server_update(
 		}
 	}
 	dedicated.last_state = state;
+}
+
+/* ---------- the commands' (dedicated.h) */
+
+void dedicated_server_get_status(
+	struct dedicated_status *status)
+{
+	struct network_game_server *server = global_network_game_server_get();
+	long index;
+
+	csmemset(status, 0, sizeof(*status));
+	status->state = _dedicated_state_starting;
+	if (server)
+	{
+		word state = network_game_server_get_state(server, NULL);
+
+		if (state == DEDICATED_SERVER_STATE_INGAME)
+			status->state = _dedicated_state_in_game;
+		else if (state == DEDICATED_SERVER_STATE_POSTGAME)
+			status->state = _dedicated_state_postgame;
+		else if (network_game_server_game_is_loading(server))
+			status->state = _dedicated_state_loading;
+		else
+			status->state = _dedicated_state_lobby;
+	}
+	status->entry = dedicated.entry;
+	status->entry_count = dedicated.entry_count;
+	if (dedicated.chosen_playing || (dedicated.chosen_pending && status->state != _dedicated_state_in_game &&
+		status->state != _dedicated_state_loading && status->state != _dedicated_state_postgame))
+	{
+		status->chosen = TRUE;
+		snprintf(status->map, sizeof(status->map), "%s", dedicated.chosen_map);
+		snprintf(status->variant, sizeof(status->variant), "%s", dedicated.chosen_variant);
+	}
+	else if (dedicated.entry_count)
+	{
+		snprintf(status->map, sizeof(status->map), "%s", dedicated.maps[dedicated.entry]);
+		snprintf(status->variant, sizeof(status->variant), "%s", dedicated.variants[dedicated.entry]);
+	}
+	/* (and a command's game to follow the one in progress) */
+	if (dedicated.chosen_pending && !status->chosen)
+	{
+		snprintf(status->next_map, sizeof(status->next_map), "%s", dedicated.chosen_map);
+		snprintf(status->next_variant, sizeof(status->next_variant), "%s", dedicated.chosen_variant);
+	}
+	snprintf(status->playlist, sizeof(status->playlist), "%s", dedicated.playlist);
+	status->minimum_players = dedicated.minimum_players;
+	status->maximum_players = dedicated.maximum_players;
+	status->idle_limit = dedicated.idle_limit;
+	status->public_game = dedicated.public_game;
+	for (index = 0; index < (long)NUMBEROF(status->name) - 1 && dedicated.name[index]; index++)
+		status->name[index] = (char)dedicated.name[index];
+	status->name[index] = 0;
+	status->uptime_seconds = (system_milliseconds() - dedicated.start_time) / 1000;
+}
+
+long dedicated_playlist_count(
+	void)
+{
+	return dedicated.entry_count;
+}
+
+char const *dedicated_playlist_map(
+	long entry)
+{
+	return entry >= 0 && entry < dedicated.entry_count ? dedicated.maps[entry] : "";
+}
+
+char const *dedicated_playlist_variant(
+	long entry)
+{
+	return entry >= 0 && entry < dedicated.entry_count ? dedicated.variants[entry] : "";
+}
+
+/* the game in progress (or loading) to end at once, and the next lobby to
+open without waiting out the carnage report; in the lobby, the next entry
+(or the command's game) set now */
+static void next_game_now(
+	void)
+{
+	struct network_game_server *server = global_network_game_server_get();
+	word state;
+
+	if (!server)
+		return;
+	state = network_game_server_get_state(server, NULL);
+	if (state == DEDICATED_SERVER_STATE_PREGAME && network_game_server_lobby_is_open(server))
+	{
+		dedicated.entry_set = FALSE;
+		return;
+	}
+	dedicated.postgame_skipped = TRUE;
+	if (state != DEDICATED_SERVER_STATE_POSTGAME)
+		dedicated.end_requested = TRUE;
+}
+
+void dedicated_server_play(
+	char const *map,
+	char const *variant)
+{
+	/* (a bare name is a multiplayer level's, as the playlist's) */
+	if (!strchr(map, '\\') && !strchr(map, '@'))
+		snprintf(dedicated.chosen_map, sizeof(dedicated.chosen_map), "levels\\test\\%s\\%s", map, map);
+	else
+		snprintf(dedicated.chosen_map, sizeof(dedicated.chosen_map), "%s", map);
+	snprintf(dedicated.chosen_variant, sizeof(dedicated.chosen_variant), "%s", variant);
+	dedicated.chosen_pending = TRUE;
+	/* (a game a command chose before, set in the lobby, is replaced; one being
+	played ends, and as it ends the playlist's entry stays the one after the
+	last it played) */
+	{
+		struct network_game_server *server = global_network_game_server_get();
+
+		if (server && network_game_server_get_state(server, NULL) == DEDICATED_SERVER_STATE_PREGAME &&
+			network_game_server_lobby_is_open(server))
+		{
+			dedicated.chosen_playing = FALSE;
+		}
+	}
+	next_game_now();
+}
+
+void dedicated_server_skip(
+	void)
+{
+	struct network_game_server *server = global_network_game_server_get();
+
+	/* (a command's game waiting or in the lobby: dropped, and the playlist's
+	entry it came before played instead) */
+	dedicated.chosen_pending = FALSE;
+	if (server && network_game_server_get_state(server, NULL) == DEDICATED_SERVER_STATE_PREGAME &&
+		network_game_server_lobby_is_open(server))
+	{
+		if (dedicated.chosen_playing)
+			dedicated.chosen_playing = FALSE;
+		else if (dedicated.entry_count)
+			dedicated.entry = (dedicated.entry + 1) % dedicated.entry_count;
+	}
+	next_game_now();
+}
+
+boolean dedicated_server_end_game(
+	void)
+{
+	struct network_game_server *server = global_network_game_server_get();
+	word state;
+
+	if (!server)
+		return FALSE;
+	state = network_game_server_get_state(server, NULL);
+	if (state == DEDICATED_SERVER_STATE_INGAME || network_game_server_game_is_loading(server))
+	{
+		dedicated.end_requested = TRUE;
+		return TRUE;
+	}
+	return FALSE;
+}
+
+void dedicated_server_set_maximum_players(
+	long maximum_players)
+{
+	dedicated.maximum_players = maximum_players;
+}
+
+void dedicated_server_set_name(
+	char const *name)
+{
+	long index;
+
+	for (index = 0; index < (long)NUMBEROF(dedicated.name) - 1 && name[index]; index++)
+		dedicated.name[index] = (wchar_t)(unsigned char)name[index];
+	dedicated.name[index] = 0;
 }
 
 #endif
