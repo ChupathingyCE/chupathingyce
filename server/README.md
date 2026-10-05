@@ -82,7 +82,8 @@ one machine, use [Docker or systemd](docs/docker.md).
 - Takes commands, named after Halo PC's (`sv_players`, `sv_kick`, `sv_ban`,
   `sv_map`, `sv_mapcycle_next`, ...): typed on its console, from a startup
   file, or through its control API (HTTP and JSON, off unless turned on,
-  with a token of its own). See [docs/admin.md](docs/admin.md).
+  with a token of its own) and the web admin page on the same port. See
+  [docs/admin.md](docs/admin.md).
 
 ## Who can join
 
@@ -97,7 +98,7 @@ is on.
 | | |
 | --- | --- |
 | [docs/settings.md](docs/settings.md) | Every setting, the command line, exit statuses, and the files the server writes. |
-| [docs/admin.md](docs/admin.md) | Running a server: its commands, its console, startup commands, and the control API (and reaching it safely). |
+| [docs/admin.md](docs/admin.md) | Running a server: its commands, its console, startup commands, the control API and web admin page (and reaching them safely). |
 | [docs/playlists.md](docs/playlists.md) | Playlists: the maps (Xbox, `@ce`, `@md`), the game types, and the ones included. |
 | [docs/docker.md](docs/docker.md) | The container image, the systemd services, more servers on one host, and the game list's probe. |
 | [docs/building.md](docs/building.md) | Building the server: the targets, musl and glibc, and how it differs from the game. |

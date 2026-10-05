@@ -47,6 +47,15 @@ enum
 	CONTROL_ARGON2_MAXIMUM_PASSES = 16,
 	/* a credential's line, at most, with its end */
 	CONTROL_CREDENTIAL_LINE = 256,
+	/* a credential's name, at most, with its end */
+	CONTROL_NAME_SIZE = 32,
+
+	/* the web page's session id and CSRF token: random bytes, in
+	hexadecimal (control_web.h) */
+	CONTROL_SESSION_BYTES = 32,
+	CONTROL_SESSION_LENGTH = 2 * CONTROL_SESSION_BYTES,
+	/* a Host's (or X-Forwarded-Host's) value kept, at most, with its end */
+	CONTROL_MAXIMUM_HOST = 128,
 };
 
 /* ---------- requests */
@@ -81,6 +90,27 @@ struct control_request
 	size_t content_length;
 	/* (in the bytes parsed) */
 	const char *body;
+
+	/* what a browser sends (the web page's, control_web.h): the session
+	cookie's id (chce_session, 64 lowercase hex digits; empty if none, if
+	not that, or if there were two) and X-CSRF-Token's (the same form) */
+	char session[CONTROL_SESSION_LENGTH + 1];
+	char csrf[CONTROL_SESSION_LENGTH + 1];
+	/* Host's and X-Forwarded-Host's values (empty if none, or too long), and
+	Origin's, whether there was one */
+	char host[CONTROL_MAXIMUM_HOST];
+	char forwarded_host[CONTROL_MAXIMUM_HOST];
+	int has_origin;
+	char origin[CONTROL_MAXIMUM_HOST + 16];
+	/* Sec-Fetch-Site said cross-site or same-site (another site's page) */
+	int cross_site;
+	/* a reverse proxy's headers came with it (Forwarded, X-Forwarded-For,
+	X-Forwarded-Proto, X-Forwarded-Host, X-Real-IP), and one said HTTPS */
+	int proxied;
+	int https;
+	/* X-Background: 1, the page's own polling (a session it does not keep
+	from going idle) */
+	int background;
 };
 
 enum
@@ -100,6 +130,14 @@ ASCII) in command, else 0 and why in reason */
 int control_parse_command_body(const char *body, size_t length, char *command, size_t command_size,
 	const char **reason);
 
+/* a login's request body, {"token": "..."}: 1 and the token in token,
+else 0 and why in reason */
+int control_parse_login_body(const char *body, size_t length, char *token, size_t token_size, const char **reason);
+
+/* whether text is a session id's or CSRF token's form (64 lowercase hex
+digits) */
+int control_session_text_valid(const char *text);
+
 /* the log's query, "since=<number>" or nothing (0): 1, else 0 */
 int control_parse_log_query(const char *query, uint64_t *since);
 
@@ -114,7 +152,7 @@ const char *control_status_text(int status);
 
 struct control_credential
 {
-	char name[32];
+	char name[CONTROL_NAME_SIZE];
 	char id[CONTROL_ID_LENGTH + 1];
 	uint32_t kib;
 	uint32_t passes;
@@ -127,6 +165,10 @@ void control_token_text(const uint8_t bytes[CONTROL_TOKEN_BYTES], char token[CON
 
 /* whether text is a token's form (it may still be the wrong one) */
 int control_token_valid(const char *text);
+
+/* whether text may name a credential: 1 to 31 of RFC 9110's token
+characters (letters, digits, !#$%&'*+-.^_`|~) */
+int control_credential_name_valid(const char *text);
 
 /* a credential for a token: its name, its id (random bytes, in hex), salt,
 and the token's Argon2id hash at that cost. 1, else 0 (no memory) */

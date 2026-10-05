@@ -145,6 +145,99 @@ static int content_type_is_json(const char *value, size_t length)
 	return length - index == 13 && name_is(value + index, 13, "charset=utf-8");
 }
 
+/* text (length bytes) into out (size bytes) if it fits: 1, else 0 (out
+empty) */
+static int copy_value(const char *text, size_t length, char *out, size_t size)
+{
+	if (length >= size)
+	{
+		out[0] = 0;
+		return 0;
+	}
+	memcpy(out, text, length);
+	out[length] = 0;
+	return 1;
+}
+
+/* whether text (length bytes) is a session id's form: 64 lowercase hex
+digits */
+static int session_form(const char *text, size_t length)
+{
+	uint8_t bytes[CONTROL_SESSION_BYTES];
+
+	return length == CONTROL_SESSION_LENGTH && hex_bytes(text, length, bytes, sizeof(bytes));
+}
+
+/* a Cookie header's value: "a=1; chce_session=<id>; b=2". The session's id
+if it is there once and well formed; seen counts it across Cookie headers
+(a second one, as another site's page could plant, leaves none) */
+static void parse_cookie(const char *value, size_t length, struct control_request *request, int *seen)
+{
+	size_t index = 0;
+
+	while (index < length)
+	{
+		size_t start, equals, end;
+
+		while (index < length && (value[index] == ' ' || value[index] == ';'))
+			index++;
+		start = index;
+		while (index < length && value[index] != ';')
+			index++;
+		end = index;
+		while (end > start && value[end - 1] == ' ')
+			end--;
+		for (equals = start; equals < end && value[equals] != '='; equals++)
+			;
+		if (equals >= end || !name_is(value + start, equals - start, "chce_session") ||
+			memcmp(value + start, "chce_session", 12))
+		{
+			continue;
+		}
+		if (++*seen == 1 && session_form(value + equals + 1, end - equals - 1))
+			copy_value(value + equals + 1, end - equals - 1, request->session, sizeof(request->session));
+		else
+			request->session[0] = 0;
+	}
+}
+
+/* the first of a list's values ("https, http": "https"), its length */
+static size_t first_value(const char *value, size_t length)
+{
+	size_t index = 0;
+
+	while (index < length && value[index] != ',')
+		index++;
+	while (index > 0 && (value[index - 1] == ' ' || value[index - 1] == '\t'))
+		index--;
+	return index;
+}
+
+/* whether a Forwarded header's first element says proto=https */
+static int forwarded_https(const char *value, size_t length)
+{
+	size_t end = first_value(value, length);
+	size_t index = 0;
+
+	while (index < end)
+	{
+		size_t start;
+
+		while (index < end && (value[index] == ' ' || value[index] == ';'))
+			index++;
+		start = index;
+		while (index < end && value[index] != ';')
+			index++;
+		if (index - start >= 11 && name_is(value + start, 6, "proto=") &&
+			(name_is(value + start + 6, index - start - 6, "https") ||
+			name_is(value + start + 6, index - start - 6, "\"https\"")))
+		{
+			return 1;
+		}
+	}
+	return 0;
+}
+
 /* ---------- requests */
 
 int control_parse_request(const char *data, size_t length, struct control_request *request, int *status,
@@ -157,6 +250,7 @@ int control_parse_request(const char *data, size_t length, struct control_reques
 	int version_minor;
 	int header_count = 0;
 	int have_host = 0, have_length = 0, have_authorization = 0, have_type = 0;
+	int have_csrf = 0, have_forwarded_host = 0, sessions_seen = 0;
 	size_t scan = length < CONTROL_MAXIMUM_HEAD ? length : CONTROL_MAXIMUM_HEAD;
 
 	memset(request, 0, sizeof(*request));
@@ -267,6 +361,64 @@ int control_parse_request(const char *data, size_t length, struct control_reques
 		{
 			if (have_host++ || value_end == value_start)
 				return fail(status, reason, 400, "Host twice, or empty");
+			copy_value(data + value_start, value_end - value_start, request->host, sizeof(request->host));
+		}
+		else if (name_is(data + cursor, name_length, "cookie"))
+		{
+			parse_cookie(data + value_start, value_end - value_start, request, &sessions_seen);
+		}
+		else if (name_is(data + cursor, name_length, "x-csrf-token"))
+		{
+			if (have_csrf++)
+				return fail(status, reason, 400, "X-CSRF-Token twice");
+			if (session_form(data + value_start, value_end - value_start))
+				copy_value(data + value_start, value_end - value_start, request->csrf, sizeof(request->csrf));
+		}
+		else if (name_is(data + cursor, name_length, "origin"))
+		{
+			if (request->has_origin++)
+				return fail(status, reason, 400, "Origin twice");
+			copy_value(data + value_start, value_end - value_start, request->origin, sizeof(request->origin));
+		}
+		else if (name_is(data + cursor, name_length, "sec-fetch-site"))
+		{
+			if (name_is(data + value_start, value_end - value_start, "cross-site") ||
+				name_is(data + value_start, value_end - value_start, "same-site"))
+			{
+				request->cross_site = 1;
+			}
+		}
+		else if (name_is(data + cursor, name_length, "x-forwarded-host"))
+		{
+			request->proxied = 1;
+			if (have_forwarded_host++)
+				request->forwarded_host[0] = 0;
+			else
+			{
+				copy_value(data + value_start, first_value(data + value_start, value_end - value_start),
+					request->forwarded_host, sizeof(request->forwarded_host));
+			}
+		}
+		else if (name_is(data + cursor, name_length, "x-forwarded-proto"))
+		{
+			request->proxied = 1;
+			if (name_is(data + value_start, first_value(data + value_start, value_end - value_start), "https"))
+				request->https = 1;
+		}
+		else if (name_is(data + cursor, name_length, "forwarded"))
+		{
+			request->proxied = 1;
+			if (forwarded_https(data + value_start, value_end - value_start))
+				request->https = 1;
+		}
+		else if (name_is(data + cursor, name_length, "x-background"))
+		{
+			request->background = value_end - value_start == 1 && data[value_start] == '1';
+		}
+		else if (name_is(data + cursor, name_length, "x-forwarded-for") ||
+			name_is(data + cursor, name_length, "x-real-ip"))
+		{
+			request->proxied = 1;
 		}
 		else if (name_is(data + cursor, name_length, "content-length"))
 		{
@@ -420,12 +572,16 @@ static int parse_json_string(const char **cursor, const char *end, char *out, si
 	return 1;
 }
 
-int control_parse_command_body(const char *body, size_t length, char *command, size_t command_size,
+/* a request body that is a JSON object of one field, {"<field>": "..."}:
+1 and its string in out, else 0 and why */
+static int parse_one_field_body(const char *body, size_t length, const char *field, char *out, size_t out_size,
 	const char **reason)
 {
 	const char *cursor = body;
 	const char *end = body + length;
 	char key[16];
+	char *command = out;
+	size_t command_size = out_size;
 
 	*reason = "";
 	if (command_size)
@@ -441,12 +597,12 @@ int control_parse_command_body(const char *body, size_t length, char *command, s
 	if (!parse_json_string(&cursor, end, key, sizeof(key), reason))
 	{
 		if (cursor < end && *cursor == '}')
-			*reason = "no command";
+			*reason = !strcmp(field, "command") ? "no command" : "no token";
 		return 0;
 	}
-	if (strcmp(key, "command"))
+	if (strcmp(key, field))
 	{
-		*reason = "the only field is command";
+		*reason = !strcmp(field, "command") ? "the only field is command" : "the only field is token";
 		return 0;
 	}
 	skip_json_space(&cursor, end);
@@ -462,7 +618,8 @@ int control_parse_command_body(const char *body, size_t length, char *command, s
 	skip_json_space(&cursor, end);
 	if (cursor >= end || *cursor != '}')
 	{
-		*reason = cursor < end && *cursor == ',' ? "the only field is command" : "the object is not closed";
+		*reason = cursor < end && *cursor == ',' ? (!strcmp(field, "command") ? "the only field is command" :
+			"the only field is token") : "the object is not closed";
 		return 0;
 	}
 	cursor++;
@@ -473,6 +630,28 @@ int control_parse_command_body(const char *body, size_t length, char *command, s
 		return 0;
 	}
 	return 1;
+}
+
+int control_parse_command_body(const char *body, size_t length, char *command, size_t command_size,
+	const char **reason)
+{
+	return parse_one_field_body(body, length, "command", command, command_size, reason);
+}
+
+int control_parse_login_body(const char *body, size_t length, char *token, size_t token_size, const char **reason)
+{
+	if (!parse_one_field_body(body, length, "token", token, token_size, reason))
+	{
+		if (token_size)
+			crypto_wipe(token, token_size);
+		return 0;
+	}
+	return 1;
+}
+
+int control_session_text_valid(const char *text)
+{
+	return session_form(text, strlen(text));
 }
 
 int control_parse_log_query(const char *query, uint64_t *since)
@@ -562,6 +741,7 @@ const char *control_status_text(int status)
 	case 200: return "OK";
 	case 400: return "Bad Request";
 	case 401: return "Unauthorized";
+	case 403: return "Forbidden";
 	case 404: return "Not Found";
 	case 405: return "Method Not Allowed";
 	case 408: return "Request Timeout";
@@ -594,6 +774,21 @@ int control_token_valid(const char *text)
 
 	return strlen(text) == CONTROL_TOKEN_LENGTH && !memcmp(text, "chce_", 5) &&
 		hex_bytes(text + 5, CONTROL_TOKEN_LENGTH - 5, bytes, CONTROL_TOKEN_BYTES);
+}
+
+int control_credential_name_valid(const char *text)
+{
+	size_t length = strlen(text);
+	size_t index;
+
+	if (!length || length >= CONTROL_NAME_SIZE)
+		return 0;
+	for (index = 0; index < length; index++)
+	{
+		if (!is_tchar((unsigned char)text[index]))
+			return 0;
+	}
+	return 1;
 }
 
 /* a token's Argon2id hash, at a credential's salt and cost: 1, else 0 (no
