@@ -99,7 +99,8 @@ These files are in the data root:
 | `init.txt` | Console commands that the game does at start-up. For example, `map_name levels\a10\a10` starts the first campaign level. |
 
 The settings are in `config.toml` next to the executable. Refer to
-"Settings".
+"Settings". Internet play's MQTT brokers are in `brokers.txt` next to it
+(`network.brokers_file`).
 
 If the game stops because of a fatal signal, it writes the address and a
 backtrace to the standard error. To find the function at the address, enter
@@ -111,9 +112,11 @@ The keyboard and the mouse are a control scheme of their own for the player
 of controller 1: each action has up to two keys or mouse buttons, which
 Settings > Controls Setup (or `[controls]` in `config.toml`) changes. The
 game adds the input of the first gamepad to controller 1. The other
-gamepads operate controllers 2 to 4. In co-op with only one gamepad, that
-gamepad is controller 2 (player 2) and the keyboard and mouse stay
-controller 1. The profile's button layout (Settings > Gamepads) is the
+gamepads operate controllers 2 to 4. With two or more players on this
+computer (co-op, or split screen in a network game) and only one gamepad,
+that gamepad is controller 2 (player 2) and the keyboard and mouse stay
+controller 1. The gamepad changes controller only when none of its buttons
+is held. The profile's button layout (Settings > Gamepads) is the
 gamepads' only.
 
 | Action | Keys and buttons (default) |
@@ -184,6 +187,17 @@ split screen. Player 1 is the player who chose it, on the current profile.
 Player 2 then chooses a profile with their own controller (a gamepad), and
 New Game's levels are those either profile has reached. A co-op game does
 not continue a saved game of one player.
+
+Network games have split screen too: up to 4 players on each computer. In
+the game lobby, another controller presses START to join, and the new
+player's profile is chosen on the ADD PLAYER screen that opens (with any
+controller). With one gamepad, choose the lobby's ADD PLAYER button first:
+until then that gamepad shares controller 1 with the keyboard. Two players on one profile get different names from the host. A
+player's B in the lobby leaves the game alone, and the last player of the
+computer leaves it for all of them. In the game, each player's pause menu
+opens on their part of the screen, and its LEAVE GAME is theirs: their part
+of the screen stays until the game ends. A game under way is joined by one
+player; others join in the lobby of the next.
 
 In a multiplayer game, the pause menu (escape) has SETTINGS, which opens
 the profile's settings while the game goes on, and for the host END GAME.
@@ -282,7 +296,7 @@ the setting for one start of the game. It has priority over the file.
 | `network.allow_upnp` | `true` | `HALO_NET_ALLOW_UPNP` | `true`: internet play can ask the router to forward its port (UPnP). `false`: the game does not ask. Refer to "Internet play". |
 | `network.public_lobby` | `true` | `HALO_NET_PUBLIC_LOBBY` | `true`: the server browser. Public games are listed, and Join Game > Server Browser shows them. `false`: no games are listed or shown. Refer to "Server browser". |
 | `network.host_public` | `true` | `HALO_NET_HOST_PUBLIC` | `true`: a new game of Create Game > Internet starts as PUBLIC. `false`: it starts as PRIVATE. LISTING in Server Setup changes it for each game. Refer to "Server browser". |
-| `network.signalling_brokers` | three public brokers | `HALO_NET_BROKERS` | The public MQTT brokers (`host:port`, with commas between them) that let the machines of an invite find each other, and that carry the listings of the server browser. |
+| `network.brokers_file` | `"brokers.txt"` | `HALO_NET_BROKERS_FILE` | The file of the public MQTT brokers that let the machines of an invite find each other, and that carry the listings of the server browser: next to `config.toml`, unless a full path. One `host:port` on each line, up to 4; `#` starts a comment. |
 | `network.stun_servers` | Google and Cloudflare | `HALO_NET_STUN` | The public STUN servers (`host:port`, with commas between them) that give the internet address of a machine. |
 | `discord.application_id` | the application of the project | `HALO_DISCORD_APPLICATION` | The Discord application for invites. Empty: no Discord. |
 | `update.auto` | `true` | `HALO_UPDATE_AUTO` | `true`: at start-up, the game looks for a new version. Refer to "Updates". `false`: the game does not look. |
@@ -486,7 +500,7 @@ How it operates (`src/p2p_lobby.c`):
 
 - The host of a public game publishes a listing: the invite, and the name,
   map, gametype and player counts of the game. The listing goes to the
-  same MQTT brokers as the invites (`network.signalling_brokers`), retained,
+  same MQTT brokers as the invites (`network.brokers_file`), retained,
   to a topic of the host (`hceu/3/lobby/s/<hash of its key>`).
 - The key of the host signs the listing (Ed25519). The key is the key of the
   invite, so no other machine can list the invite of the host, change its
@@ -508,8 +522,13 @@ with the invite can ask the host to connect, and the host then sends its
 addresses. Thus anyone can learn the address of the host of a public game,
 as for any public server.
 
-To use a broker of your own, add it to `network.signalling_brokers`. All the
-players must use the same broker to see each other's games. The game uses
+The brokers are in `brokers.txt` next to the executable (from
+`port/assets/network/brokers.txt`; on Android, the app writes it next to
+`config.toml` at each start), one `host:port` on each line. The game uses
+all of them at once (up to 4), so one that works is enough. An update
+replaces `brokers.txt`: to use brokers of your own, put them in another
+file and name it in `network.brokers_file`. All the players must use the
+same broker to see each other's games. The game uses
 MQTT 5 if the broker has it, else MQTT 3.1.1. A broker that does not keep
 retained messages, or does not let clients subscribe with wildcards, carries
 only invites, not listings.
@@ -548,7 +567,7 @@ Only machines with the invite can find the game:
   random 16-byte token. The identifier of the host is from the first 6
   bytes of the hash.
 - The machines exchange their public keys and addresses through public MQTT
-  brokers (`network.signalling_brokers`). The topics are HMACs of the token.
+  brokers (`network.brokers_file`). The topics are HMACs of the token.
   A key from the token encrypts and authenticates the messages
   (`src/p2p_signal.c`, `src/p2p_crypto.c`). The host authenticates its answer
   with a key that only it and the player can calculate. Its public key must
@@ -776,7 +795,7 @@ Other changes:
 | `networking/`, `game/`, `interface/`, `bungie_net/network/` and the pools of objects, effects and sounds | The system link limits and the memory for them. |
 | `game/`, `objects/`, `units/`, `networking/` | The distributed netcode. Refer to `NETCODE.md`. |
 | `cache/cache_files.c` | When a map's tags load and unload, the port finds the bitmaps that the high-res HUD replaces (`game/hud_hires_tags.c`), and adds the tags of the menus to the menus' map (`game/menu_tags.c`). |
-| `interface/ui_widget.c`, `interface/ui_widget_event_handler_functions.c`, `interface/ui_widget_game_data_input_functions.c` | The main menu is the PC version's from `port/assets/menus` (`display.menus`); the menus' widgets can call the port's functions (`game/menu_functions.c`) and send the PC version's custom activation event; the widgets' memory is 256 KB, not 16 KB; the main menu and Multiplayer clear co-op's controllers, so that a gamepad going back to controller 1 is not a controller unplugged. |
+| `interface/ui_widget.c`, `interface/ui_widget_event_handler_functions.c`, `interface/ui_widget_game_data_input_functions.c` | The main menu is the PC version's from `port/assets/menus` (`display.menus`); the menus' widgets can call the port's functions (`game/menu_functions.c`) and send the PC version's custom activation event; the widgets' memory is 256 KB, not 16 KB; the main menu and Multiplayer clear co-op's controllers, so that a gamepad going back to controller 1 is not a controller unplugged; the lobby's split screen players leave alone, and one who quits in game is not joined to the next game (`interface/player_ui.c`). |
 | `input/input_abstraction.c`, `game/player_control.c`, `game/players.c`, `game/player_queues_new.c`, `units/units.h` | The keyboard and mouse's actions (`src/xinput_sdl.c`, `include/halo_keyboard.h`) join controller 1's game controls; their reload key reloads on its own, and their action key only acts (a control flag of the port's, sent with the player's action, stops the reload the controller's X falls back to). |
 | `sound/sound_manager.c`, `interface/hud.c`, `game/game_engine.c` | The music's and the other sounds' volumes; the HUD's and the scoreboard's settings are read again when Settings changes them. |
 | `interface/hud.c` | In multiplayer, players' names are drawn above their heads (`display.player_names`, `display.player_name_scale`). |

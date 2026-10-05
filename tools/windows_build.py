@@ -629,5 +629,8 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
     emit(obj_dir, output, lto_cflags + profile_use_flags(profile),
          lto_cflags + [OPTIMISATION] if lto_cflags else [], [], [profile] if profile else [])
     n.build(outputs=sdl_dll, rule=f"{prefix}_copy", inputs=sdl_lib / "SDL3.dll")
-    n.build(outputs=prefix, rule="phony", inputs=[output, sdl_dll])
+    # internet play's MQTT brokers, a file beside the game (network.brokers_file)
+    brokers = build / "brokers.txt"
+    n.build(outputs=brokers, rule=f"{prefix}_copy", inputs=Path("port/assets/network/brokers.txt"))
+    n.build(outputs=prefix, rule="phony", inputs=[output, sdl_dll, brokers])
     n.newline()
