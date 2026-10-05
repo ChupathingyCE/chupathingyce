@@ -16,3 +16,9 @@ dependencyResolutionManagement {
 }
 rootProject.name = "halo-android"
 include ":app"
+// the native 64-bit build's app (app64), beside the guest build's: only
+// when asked for (-Pnative64), as `ninja android64_apk` does, once
+// `ninja android64` has built its libraries
+if (startParameter.projectProperties.containsKey("native64")) {
+    include ":app64"
+}

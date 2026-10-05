@@ -1,0 +1,122 @@
+plugins {
+    id "com.android.application"
+}
+
+// The native 64-bit build's app (tools/android64_build.py): the same app as
+// ../app, with its own id and name so that it installs beside it, and the
+// libraries `ninja android64` stages in build/android64 (libmain.so is the
+// game itself; there is no guest image). Included by settings.gradle only
+// with -Pnative64, as `ninja android64_apk` builds it.
+def staged = new File(rootDir, "../../build/android64")
+// the SDL3 Java sources, which `ninja android` fetches (build/android)
+def sdlJava = new File(rootDir, "../../build/android/third_party/SDL3/android-project/app/src/main/java")
+def app = new File(rootDir, "app/src/main")
+
+// the version, its versionCode and the signing key, as ../app's
+// (build.gradle there, and README.md's "App ID, signing and versions")
+def haloVersion = System.getenv("HALO_VERSION") ?: (new File(rootDir, "../../VERSION").text.trim() + "-dev")
+def haloVersionCode = {
+    def found = (haloVersion =~ /^(\d+)\.(\d+)(?:\.(\d+))?/)
+    if (!found)
+        throw new GradleException("the version ${haloVersion} does not start with major.minor.patch")
+    def major = found[0][1].toInteger()
+    def minor = found[0][2].toInteger()
+    def patch = (found[0][3] ?: "0").toInteger()
+    if (minor > 99 || patch > 99)
+        throw new GradleException("the version ${haloVersion}: minor and patch must be below 100 for versionCode")
+    return Math.max(1, major * 10000 + minor * 100 + patch)
+}()
+
+// keystore.properties beside settings.gradle (port/android; gitignored):
+// with it, both builds are signed with that key; without it, the debug
+// build has the computer's debug key and the release build is unsigned
+def keystore = new Properties()
+def keystoreFile = rootProject.file("keystore.properties")
+if (keystoreFile.exists()) {
+    keystoreFile.withInputStream { keystore.load(it) }
+    for (name in ["storeFile", "storePassword", "keyAlias", "keyPassword"]) {
+        if (!keystore[name])
+            throw new GradleException("keystore.properties has no ${name}")
+    }
+}
+def signed = keystore["storeFile"] != null
+
+android {
+    // the Java package stays com.halo.decomp, as ../app's; the application
+    // ID is ../app's with a suffix, so that the two install side by side,
+    // each with its own data folder
+    namespace "com.halo.decomp"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "dev.horrible.chupathingyce.native64"
+        minSdk 28
+        targetSdk 35
+        versionCode haloVersionCode
+        versionName haloVersion + "-native64"
+        buildConfigField "String", "HALO_VERSION", "\"${haloVersion}\""
+        // never updates itself: the releases' app is the guest build's
+        // (Updater), which would not install over this one
+        buildConfigField "boolean", "HALO_RELEASE_BUILD", "false"
+        ndk {
+            abiFilters "arm64-v8a"
+        }
+    }
+
+    sourceSets {
+        main {
+            manifest.srcFile new File(app, "AndroidManifest.xml")
+            java.srcDirs = [new File(app, "java"), sdlJava]
+            res.srcDirs = [new File(app, "res")]
+            jniLibs.srcDirs = [new File(staged, "jniLibs")]
+        }
+        // its name over ../app's, and its manifest's additions (overlay/)
+        debug {
+            manifest.srcFile "overlay/AndroidManifest.xml"
+            res.srcDirs = ["overlay/res"]
+        }
+        release {
+            manifest.srcFile "overlay/AndroidManifest.xml"
+            res.srcDirs = ["overlay/res"]
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // stored uncompressed and page-aligned in the APK, loaded from it
+            useLegacyPackaging false
+        }
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    signingConfigs {
+        if (signed) {
+            chupathingyce {
+                storeFile rootProject.file(keystore["storeFile"])
+                storePassword keystore["storePassword"]
+                keyAlias keystore["keyAlias"]
+                keyPassword keystore["keyPassword"]
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            debuggable true
+            minifyEnabled false
+            if (signed) signingConfig signingConfigs.chupathingyce
+        }
+        release {
+            minifyEnabled false
+            signingConfig signed ? signingConfigs.chupathingyce : null
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

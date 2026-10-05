@@ -1,9 +1,10 @@
 name: Build
 
 # Debug and release builds of the native ports (Linux and Windows, 32- and
-# 64-bit, Android, macOS), and release builds of the dedicated server (Linux
-# x86, x64 and arm64) and its container, for every pushed commit and pull
-# request, uploaded as artifacts: whether a change builds. tools/ci_build.py does each build; see it for the options.
+# 64-bit, Android, its native 64-bit app, macOS), and release builds of the
+# dedicated server (Linux x86, x64 and arm64) and its container, for every
+# pushed commit and pull request, uploaded as artifacts: whether a change
+# builds. tools/ci_build.py does each build; see it for the options.
 #
 # Releases and nightlies are not made here: ChupathingyCE's release
 # workflows build them from the versions they pin, signed, and publish them
@@ -307,6 +308,71 @@ jobs:
         with:
           name: chupathingyce-android-release-unsigned
           path: dist/chupathingyce-android-release
+          retention-days: 3
+
+  android64:
+    # The native 64-bit Android app (tools/android64_build.py), an
+    # experimental build that installs beside the guest build's; a job of its
+    # own, so that the android job's builds and artifacts stay as they are.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Install the toolchain
+        run: |
+          mkdir -p "$RUNNER_TEMP/tools"
+          # (each download checked against the hash it had when it was pinned)
+          curl -fsSL -o ninja.zip https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-linux.zip
+          curl -fsSL -o ccache.tar.xz https://github.com/ccache/ccache/releases/download/v4.10.2/ccache-4.10.2-linux-x86_64.tar.xz
+          sha256sum -c - <<'EOF'
+          6f98805688d19672bd699fbbfa2c2cf0fc054ac3df1f0e6a47664d963d530255  ninja.zip
+          80cab87bd510eca796467aee8e663c398239e0df1c4800a0b5dff11dca0b4f18  ccache.tar.xz
+          EOF
+          unzip -q ninja.zip -d "$RUNNER_TEMP/tools" && rm ninja.zip
+          tar -xJf ccache.tar.xz -C "$RUNNER_TEMP/tools" --strip-components=1 ccache-4.10.2-linux-x86_64/ccache && rm ccache.tar.xz
+          echo "$RUNNER_TEMP/tools" >> "$GITHUB_PATH"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-android64-${{ github.sha }}
+          restore-keys: ccache-android64-
+
+      # musl and SDL, which configure.py fetches (the android job's cache)
+      - uses: actions/cache@v4
+        with:
+          path: build/android/third_party
+          key: android-third-party-${{ hashFiles('tools/android_build.py') }}
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('port/android/**/*.gradle*', 'port/android/gradle/wrapper/gradle-wrapper.properties') }}
+
+      # No keystore.properties here, as in the android job: the debug app
+      # has the runner's own debug key, and the release app is unsigned.
+      - name: Debug
+        run: python3 tools/ci_build.py android64 debug
+
+      - name: Release
+        run: python3 tools/ci_build.py android64 release
+
+      - name: Compile cache
+        run: ccache --show-stats
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chupathingyce-android64-debug-testkey
+          path: dist/chupathingyce-android64-debug
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chupathingyce-android64-release-unsigned
+          path: dist/chupathingyce-android64-release
           retention-days: 3
 
   windows:
