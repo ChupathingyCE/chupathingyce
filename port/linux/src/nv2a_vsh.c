@@ -347,11 +347,28 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 		that brought them close to the camera: spikes from the screen's edge
 		to its center). Where the clip position was kept, the same result is
 		computed without dividing. */
+		"\tvec4 position;\n"
 		"\tif (clip_captured)\n"
-		"\t\tgl_Position = vec4((clip_position.xyz * c[%d].xyz + (c[%d].xyz + vec3(0.5 + screen_offset, 0.5, 0.0)\n"
+		"\t\tposition = vec4((clip_position.xyz * c[%d].xyz + (c[%d].xyz + vec3(0.5 + screen_offset, 0.5, 0.0)\n"
 		"\t\t\t- viewport_offset.xyz) * clip_position.w) / scale, clip_position.w);\n"
 		"\telse\n"
-		"\t\tgl_Position = vec4((vec3(oPos.xy + vec2(0.5 + screen_offset, 0.5), oPos.z) - viewport_offset.xyz) / scale * oPos.w, oPos.w);\n"
+		"\t{\n"
+		"\t\tvec3 ndc = (vec3(oPos.xy + vec2(0.5 + screen_offset, 0.5), oPos.z) - viewport_offset.xyz) / scale;\n"
+		"\t\tposition = vec4(ndc * oPos.w, oPos.w);\n"
+		"\t}\n"
+		/* A position whose w is zero, or is not a number, is the clip-space
+		origin: the screen conversion's reciprocal is clamped rather than
+		infinite, so a large position times a w of zero is exactly zero, and
+		the origin is inside the frustum. Nothing then clips the triangle
+		away and OpenGL divides zero by zero there: the vertex lands on the
+		middle of the screen and the triangle is drawn out to it from the
+		first-person weapon, whose pose follows the camera and so reaches the
+		camera plane. The divide on the Xbox sends such a vertex to infinity
+		and the clipper takes the triangle; put it behind the camera instead,
+		which the clipper also takes. */
+		"\tif (!(abs(position.w) > 0.0))\n"
+		"\t\tposition = vec4(0.0, 0.0, 0.0, -1.0);\n"
+		"\tgl_Position = position;\n"
 #ifdef HALO_GL_NO_CLIP_CONTROL
 		/* what glClipControl(GL_UPPER_LEFT, GL_ZERO_TO_ONE) does on desktop
 		GL 4.5: rows from the top, depth 0..1 (OpenGL ES and macOS's 4.1 have

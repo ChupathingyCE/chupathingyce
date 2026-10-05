@@ -13,11 +13,13 @@ import java.io.FileNotFoundException;
 
 /**
  * Hands Android's package installer the downloaded new version of the app
- * (Updater), read-only, the one file content://com.halo.decomp.update/halo.apk.
+ * (Updater), read-only, the one file content://<application ID>.update/halo.apk
+ * (content://dev.horrible.chupathingyce.update/halo.apk; the manifest's
+ * ${applicationId}.update).
  * (The app has no AndroidX, whose FileProvider does the same.)
  */
 public class UpdateProvider extends ContentProvider {
-    static final String AUTHORITY = "com.halo.decomp.update";
+    static final String AUTHORITY = BuildConfig.APPLICATION_ID + ".update";
     static final String DIRECTORY = "update";
     static final String APK = "halo.apk";
 

@@ -39,6 +39,7 @@ drive the controller.
 #include "platform.h"
 #include "sdl_platform.h"
 #include "port_config.h"
+#include "touch_input.h"
 #include "halo_keyboard.h"
 
 #include <SDL3/SDL.h>
@@ -54,9 +55,9 @@ drive the controller.
 
 /* main/console.c */
 extern unsigned char console_is_active(void);
-/* port/linux/game/menu_functions.c: two players on this machine (the
-campaign's co-op) */
-extern unsigned char pc_menu_coop_players(void);
+/* port/linux/game/menu_functions.c: two or more players on this machine
+(co-op, or split screen in a network game) */
+extern unsigned char pc_menu_split_players(void);
 
 /* ---------- device tables */
 
@@ -145,10 +146,15 @@ int halo_linux_mouse_look(short gamepad_index, float *yaw, float *pitch)
 	mouse_pending_y = 0.0f;
 	mouse_polls_unconsumed = 0;
 	pthread_mutex_unlock(&mouse_lock);
+#ifdef HALO_ANDROID
+	/* the touch controls' swipe; it is not the mouse's aiming
+	(halo_linux_mouse_aiming), so a thumb keeps the stick's magnetism */
+	touch_input_look(scale, yaw, pitch);
+#endif
 	if (x == 0.0f && y == 0.0f)
-		return FALSE;
-	*yaw = -x * scale * mouse_sensitivity();
-	*pitch = (invert ? y : -y) * scale * vertical_sensitivity;
+		return *yaw != 0.0f || *pitch != 0.0f;
+	*yaw += -x * scale * mouse_sensitivity();
+	*pitch += (invert ? y : -y) * scale * vertical_sensitivity;
 	return TRUE;
 }
 
@@ -790,13 +796,43 @@ static int sdl_gamepads(SDL_Gamepad *gamepads[PORT_COUNT])
 	return found;
 }
 
+/* whether one gamepad is port 1's (port_gamepad) */
+static BOOL lone_gamepad_split;
+
+/* no button of the gamepad held, its sticks and triggers at rest */
+static BOOL gamepad_idle(SDL_Gamepad *gamepad)
+{
+	int index;
+
+	for (index = 0; index < SDL_GAMEPAD_BUTTON_COUNT; index++)
+	{
+		if (SDL_GetGamepadButton(gamepad, (SDL_GamepadButton)index))
+			return FALSE;
+	}
+	for (index = 0; index < SDL_GAMEPAD_AXIS_COUNT; index++)
+	{
+		if (abs(SDL_GetGamepadAxis(gamepad, (SDL_GamepadAxis)index)) > 8000)
+			return FALSE;
+	}
+	return TRUE;
+}
+
 /* the gamepad of a port: the first shares port 0 with the keyboard, but for
-two players with one gamepad (co-op), port 1 has it (the keyboard's player
-is 1, the gamepad's 2) */
+two or more players with one gamepad (co-op, split screen), port 1 has it
+(the keyboard's player is 1, the gamepad's 2). It changes port only at rest:
+a button held across the change would be pressed again on the other port
+(the B that leaves a profile screen leaving the game as player 1's) */
 static SDL_Gamepad *port_gamepad(SDL_Gamepad *gamepads[PORT_COUNT], int count, int port)
 {
-	if (count == 1 && pc_menu_coop_players())
-		return port == 1 ? gamepads[0] : NULL;
+	if (count == 1)
+	{
+		BOOL split = pc_menu_split_players() != 0;
+
+		if (split != lone_gamepad_split && gamepad_idle(gamepads[0]))
+			lone_gamepad_split = split;
+		if (lone_gamepad_split)
+			return port == 1 ? gamepads[0] : NULL;
+	}
 	return port < count ? gamepads[port] : NULL;
 }
 
@@ -972,6 +1008,10 @@ static int controller_port(HANDLE device)
 	return -1;
 }
 
+/* reads a controller's state; for port 0 the keyboard, mouse, debug input
+and touchscreen are merged into the first gamepad's; runs on the game's main
+thread (touch_input_gamepad relies on it); returns ERROR_SUCCESS or
+ERROR_DEVICE_NOT_CONNECTED for an unknown port */
 DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 {
 	int port = controller_port(device);
@@ -1003,6 +1043,10 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 		if (port_gamepad(gamepads, count, 0))
 			sdl_gamepad_state(gamepads[0], &state->Gamepad);
 		test_input_gamepad(&state->Gamepad);
+		touch_input_gamepad(&state->Gamepad);
+#ifdef HALO_ANDROID
+		touch_input_controls(&state->Gamepad, input.menus);
+#endif
 		if (abs(state->Gamepad.sThumbRX) > STICK_AIMING_DEFLECTION ||
 			abs(state->Gamepad.sThumbRY) > STICK_AIMING_DEFLECTION)
 		{
@@ -1036,6 +1080,11 @@ DWORD WINAPI XInputSetState(HANDLE device, PXINPUT_FEEDBACK feedback)
 	feedback->Header.dwStatus = ERROR_SUCCESS;
 	if (port < 0)
 		return ERROR_DEVICE_NOT_CONNECTED;
+#ifdef HALO_ANDROID
+	/* the phone vibrates for the touch controls' player */
+	if (port == 0)
+		touch_input_rumble(feedback->Rumble.wLeftMotorSpeed, feedback->Rumble.wRightMotorSpeed);
+#endif
 	count = sdl_gamepads(gamepads);
 	if (port_gamepad(gamepads, count, port))
 	{

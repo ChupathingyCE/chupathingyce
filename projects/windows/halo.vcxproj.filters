@@ -1707,13 +1707,22 @@
     <ClCompile Include="$(HaloRoot)port\linux\game\tag_import.c">
       <Filter>port\linux\game</Filter>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\touch_game.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\game\ui_map_list.c">
       <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)server\src\command_line.c">
+      <Filter>server\src</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)server\src\dedicated.c">
       <Filter>server\src</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)server\src\probe.c">
+      <Filter>server\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)server\src\server_commands.c">
       <Filter>server\src</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\src\bink_null.c">
@@ -1780,6 +1789,12 @@
       <Filter>port\linux\src</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\src\text_hires.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\touch_input.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\touch_menu.c">
       <Filter>port\linux\src</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\src\ui_overlay.c">

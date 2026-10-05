@@ -10,7 +10,7 @@
 <a href="https://discord.gg/4BUm2FwuCB">Discord</a>
 </p>
 
-> **Compatible with [OpenCE](https://github.com/cybersecurity/halo-ce-universal) build-76 through build-95 (network version 11).** Games hosted on older builds (network version 10) can't be joined; their hosts need to update.
+> **Compatible with [OpenCE](https://github.com/OpenCommunityEdition/OpenCE) build-76 through build-112 (network version 11).** Games hosted on older builds (network version 10) can't be joined; their hosts need to update.
 > Players on OpenCE and players on ChupathingyCE play together.
 
 ChupathingyCE is a community build of **OpenCE**, the port of the Halo: Combat
@@ -29,7 +29,7 @@ own releases. Expect rough edges, and please report them.
 - Invite links (`halo://join/…`) to send to friends; opening one joins their game
 - Direct connections between players, with no port forwarding in most homes
 - Plays with OpenCE builds of the same network version, both ways
-- Dedicated servers anyone can run: a playlist of games, around the clock, with no window or player
+- Dedicated servers anyone can run: a playlist of games, around the clock, on Linux x86, x64 or arm64
 
 **Stats, on [halo.milenko.org](https://halo.milenko.org)**
 - A carnage report for every finished game, with medals
@@ -51,7 +51,7 @@ own releases. Expect rough edges, and please report them.
 | --- | --- | --- | --- | --- |
 | The game | Yes | Yes, Apple silicon and Intel | Yes | Yes |
 | Online Games, hosting, stats | Yes | Yes | Yes | Yes |
-| Dedicated server | Yes (tested in Wine) | Untested | Yes (and Docker) | |
+| Dedicated server | The game, for a test | The game, for a test | Yes: x86, x64 and arm64, and Docker | |
 | Updates itself | Yes | Not yet | Yes | Yes |
 | Halo PC (Custom Edition) maps | 64-bit build only | Yes | Yes | Not yet |
 | HaloMD maps | 64-bit build only | Yes | Yes | Not yet |
@@ -87,8 +87,10 @@ disc image (`.iso` or `.xiso`) of Halo: Combat Evolved. Any region works.
 2. The first time, it asks for your disc image. Pick it.
 3. It copies the game's `maps` folder out of the image (about 2 GB), then starts.
 
-On Android, copy the disc image to your phone first. On a Mac, the maps,
-settings and saves go in `~/Library/Application Support/ChupathingyCE`.
+On Android, copy the disc image to your phone first; the maps, settings and
+saves go in `/sdcard/Android/data/dev.horrible.chupathingyce/files`. On a
+Mac, the maps, settings and saves go in
+`~/Library/Application Support/ChupathingyCE`.
 On Linux, the maps and settings (`config.toml`) go next to the `halo`
 executable, and the saves in `~/.local/share/halo-linux` (or
 `$XDG_DATA_HOME/halo-linux`). The 64-bit and 32-bit builds use the same
@@ -183,7 +185,7 @@ and edit the value; the game reads the file when it starts.
 | Windows | next to `halo.exe` |
 | Mac | `~/Library/Application Support/ChupathingyCE/config.toml` |
 | Linux and Steam Deck | next to the `halo` executable |
-| Android | in the game's data folder |
+| Android | in the game's data folder, `/sdcard/Android/data/dev.horrible.chupathingyce/files` |
 
 A few people look for most:
 
@@ -209,15 +211,15 @@ overrides the file.
 
 ## Run a server
 
-A dedicated server is a copy of the game with no player and no window, hosting
-a playlist of games and listing them on halo.milenko.org and in Online Games.
-You can run one on your own computer, with no port forwarding:
-[the setup guide](docs/dedicated-server.md) walks through it. For one that runs
-around the clock on a Linux server, see [server/README.md](server/README.md).
+The ChupathingyCE Dedicated Server hosts a playlist of games around the clock,
+with no player of its own, and lists them on halo.milenko.org and in the
+Server Browser. It is its own download for Linux on x86, x64 and arm64
+(Oracle Cloud's free tier and Raspberry Pis included): one file, no libraries
+to install, and no port forwarding. See [server/README.md](server/README.md).
 
 ## How ChupathingyCE relates to OpenCE
 
-- OpenCE ([cybersecurity/halo-ce-universal](https://github.com/cybersecurity/halo-ce-universal))
+- OpenCE ([OpenCommunityEdition/OpenCE](https://github.com/OpenCommunityEdition/OpenCE))
   is where the port is made. ChupathingyCE merges its changes regularly.
 - We keep the same network version, so players of both play together. The line
   at the top of this page says which OpenCE builds match this one.
@@ -243,6 +245,7 @@ ninja            # the game for the computer you're on
 | `ninja windows` | `build/windows/halo.exe` | [port/windows/README.md](port/windows/README.md) |
 | `ninja windows64` | `build/windows64/halo.exe`, the 64-bit game | [port/windows/README.md](port/windows/README.md#64-bit) |
 | `ninja android_apk` | the Android app | [port/android/README.md](port/android/README.md) |
+| `ninja server` | `build/server-<arch>/chupathingyce-server`, the dedicated server (Linux) | [server/docs/building.md](server/docs/building.md) |
 
 Useful `configure.py` options:
 
@@ -261,7 +264,7 @@ are for checking changes.
 
 - The decompilation: [punpckhdq/halo](https://github.com/punpckhdq/halo) and
   [bnunu/halo-1](https://github.com/bnunu/halo-1), of the Xbox build 2342.
-- The port: [OpenCE](https://github.com/cybersecurity/halo-ce-universal) and
+- The port: [OpenCE](https://github.com/OpenCommunityEdition/OpenCE) and
   its contributors.
 - ChupathingyCE: [Milenko](https://github.com/MrMilenko) and contributors. The
   icon is MrBruh's helmet, with tusks.

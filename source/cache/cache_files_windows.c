@@ -509,6 +509,11 @@ static boolean ce_map_open(
 	file_size = GetFileSize(file, NULL);
 	if (!ReadFile(file, &header, sizeof(header), &bytes_read, NULL))
 		bytes_read = 0;
+	/* (a map built by Invader may give its length as 0, which Halo PC's
+	engine did not read: beavercreek_rev_beta's; the file's own then, which
+	every offset in it is checked against: ce_map_check) */
+	if (bytes_read == sizeof(header) && !header.file_length && file_size <= 0x7fffffff)
+		header.file_length = (long)file_size;
 	/* (a map refused already, unchanged: refused again, quietly) */
 	if (!_stricmp(ce_refused_map_name, map_name) && ce_refused_map_size == file_size &&
 		ce_refused_map_checksum == header.checksum)
@@ -550,6 +555,14 @@ static boolean ce_map_open(
 	ce_refused_map_checksum = header.checksum;
 	CloseHandle(file);
 	return FALSE;
+}
+
+/* the map open in that slot, or NULL: its own sounds' samples are read
+from it as its tags load (port/linux/game/ce_resources.c) */
+HANDLE cache_files_ce_map_file(
+	void)
+{
+	return ce_map_file.file && ce_map_file.file != INVALID_HANDLE_VALUE ? ce_map_file.file : NULL;
 }
 #endif
 

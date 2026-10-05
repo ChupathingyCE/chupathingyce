@@ -30,7 +30,8 @@ calls them from PC_MENU_FUNCTION_BASE on):
 - the settings screens' (tools/port_settings.py): "port settings save"
   (OK) writes those changed and applies the window's (the rest follow
   config.toml themselves), "port settings defaults" shows the defaults,
-  "port settings help" the help of the row chosen;
+  "port settings help" the help of the row chosen (and Video Setup's
+  Resolution or Window Size, for the display mode shown);
 - Controls Setup's: the keyboard and mouse's controls, two bindings each,
   shown a group at a time ("controls update menu"); "controls begin
   binding" takes the next key or button pressed for the binding left and
@@ -122,6 +123,7 @@ short ui_widget_port_list_index(struct widget_instance *list_widget);
 boolean ui_widget_port_saved_game(char const **map_name, short *level, short *difficulty);
 short main_get_solo_level_from_name(char const *name);
 boolean player_name_clean(wchar_t *name, long count);
+short players_port_local_player_count(void);
 
 boolean pc_menu_event_function_invoke(struct widget_instance *widget, struct event_record *event,
 	long function_index, boolean *widget_deleted);
@@ -135,6 +137,7 @@ void pc_menu_game_data_function_invoke(struct widget_instance *widget, long func
 #define BUTTON_A 0
 #define BUTTON_B 1
 #define BUTTON_X 2
+#define BUTTON_START 12
 
 enum
 {
@@ -334,6 +337,22 @@ static boolean setting_text(char const *name, char *text, unsigned int size, boo
 		sdl_platform.c) */
 		if (!strcmp(name, "display.mode") && !text[0])
 			snprintf(text, size, "%s", default_value || config_boolean("display.fullscreen") ? "borderless" : "windowed");
+		/* (display.window_size empty: 640x480 times display.window_scale, as
+		older versions set it) */
+		if (!strcmp(name, "display.window_size") && !text[0])
+		{
+			char scale_text[32] = "";
+			long scale;
+
+			if (default_value)
+				config_default("display.window_scale", scale_text, sizeof(scale_text));
+			else
+				config_text("display.window_scale", scale_text, sizeof(scale_text));
+			scale = atol(scale_text);
+			if (scale < 1)
+				scale = 1;
+			snprintf(text, size, "%ldx%ld", 640 * scale, 480 * scale);
+		}
 		return TRUE;
 	}
 	for (index = 0; index < NUMBEROF(profile_settings); index++)
@@ -1157,6 +1176,37 @@ static void settings_help(struct widget_instance *list)
 	help->parameters.text_box.string_list_index = index;
 }
 
+/* Video Setup's Resolution and Window Size, in the one row's place
+(tools/port_settings.py): the one the display mode shown uses (Window Size
+the window's, Resolution fullscreen's and borderless's) is shown, and the
+list passes over the other, which takes no focus while it is hidden */
+static void video_rows_show(struct widget_instance *list)
+{
+	struct widget_instance *mode = named(list, "mode_spinner", 0);
+	struct widget_instance *resolution = named(list, "op_resolution", 0);
+	struct widget_instance *window_size = named(list, "op_window_size", 0);
+	struct pc_menu_setting *setting = mode ? pc_menu_setting_get(mode->definition_tag_index) : NULL;
+	struct widget_instance *shown, *child;
+	short index;
+
+	if (!setting || !resolution || !window_size)
+		return;
+	index = mode->parameters.list.selected_index;
+	shown = index >= 0 && index < setting->value_count && !strcmp(setting->values[index], "windowed") ?
+		window_size : resolution;
+	resolution->visible = shown == resolution;
+	window_size->visible = shown == window_size;
+	/* (the focus on the one hidden goes to the one shown: Defaults can
+	change the mode while it has it) */
+	if (list->focused_child == (shown == resolution ? window_size : resolution))
+	{
+		for (index = 0, child = list->child; child && child != shown; child = child->next)
+			index++;
+		list->focused_child = shown;
+		list->parameters.list.selected_index = index;
+	}
+}
+
 /* ---------- Change Color: the profile's colour, from a list of the
 game's colours (more than its rows: it scrolls), by the Xbox's names for
 its spinner's functions */
@@ -1442,15 +1492,11 @@ static boolean profile_delete(void)
 screen (the Xbox's Cooperative Play, which the PC version has not):
 Multiplayer's CO-OP CAMPAIGN ("port coop begin"), player 2's profile, chosen
 with player 2's controller ("port coop player 2"), then New Game's levels
-(those either has reached) and difficulty. The main menu and Multiplayer
-go back to one player (main_menu_initialize, multiplayer_type_menu_initialize) */
-
-/* (xinput_sdl.c) whether two players play on this machine: then one gamepad
-is player 2's, not the keyboard's player 1's */
-unsigned char pc_menu_coop_players(void)
-{
-	return player_spawn_count >= 2;
-}
+(those either has reached) and difficulty, with either player's controller
+(ui_widget.c, widget_takes_events_of_controller). The main menu and
+Multiplayer go back to one player (main_menu_initialize,
+multiplayer_type_menu_initialize).
+With one gamepad, it is player 2's (pc_menu_split_players) */
 
 /* "port coop begin": two players, player 1 on its profile (campaign_profile)
 and the controller that chose co-op */
@@ -1838,6 +1884,8 @@ boolean network_game_client_advertised_game_in_progress(void *client, struct adv
 boolean ui_widget_port_join(struct widget_instance *widget, void *advertised_game, char const *lobby_name,
 	boolean *widget_deleted);
 boolean ui_widget_port_multiplayer_player(short controller_index, long profile_index);
+boolean ui_widget_port_unjoin_player(struct widget_instance *widget, struct event_record *event,
+	boolean *widget_deleted);
 void network_game_server_port_set_settings(wchar_t const *name, long maximum_players);
 void *global_network_game_client_get(void);
 void *global_network_game_server_get(void);
@@ -3310,6 +3358,9 @@ static boolean lobby_browser_select(struct widget_instance *widget, short contro
 			return campaign_fail();
 		if (advertised_in_progress(found))
 		{
+			/* (player 1 joining it: others join them there) */
+			if (!multiplayer_player(controller))
+				return FALSE;
 			csmemcpy(multiplayer.preview_key_id, found->key_id, sizeof(multiplayer.preview_key_id));
 			csmemcpy(multiplayer.preview_xnaddr, found->xnaddr, sizeof(multiplayer.preview_xnaddr));
 			return ui_widget_port_open(widget, PREVIEW_NAME, widget_deleted);
@@ -3499,6 +3550,9 @@ static boolean browser_select(struct widget_instance *widget, struct event_recor
 		if (multiplayer.game_chosen < multiplayer.game_count &&
 			advertised_in_progress(multiplayer.games[multiplayer.game_chosen]))
 		{
+			/* (player 1 joining it: others join them there) */
+			if (!multiplayer_player(controller))
+				return FALSE;
 			csmemcpy(multiplayer.preview_key_id, multiplayer.games[multiplayer.game_chosen]->key_id,
 				sizeof(multiplayer.preview_key_id));
 			csmemcpy(multiplayer.preview_xnaddr, multiplayer.games[multiplayer.game_chosen]->xnaddr,
@@ -3548,6 +3602,205 @@ gametype, the countdown */
 static struct network_player *lobby_players[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
 static short lobby_player_count;
 
+/* split screen: up to 4 players on this machine. In the lobby, a controller
+not playing presses START to join ("port lobby join"), then chooses a
+profile (its screen, "port lobby player choose"); ADD PLAYER ("port lobby
+add player") gives one gamepad its own controller first (as it shares
+player 1's: pc_menu_split_players). A player's B leaves the game alone ("port
+lobby leave"; the machine's last leaves it). In game, a player's pause menu's
+QUIT is theirs (the Xbox's "mp game player quit") */
+static struct
+{
+	/* ADD PLAYER chosen: one gamepad is the new player's */
+	boolean adding;
+	/* the controller choosing its profile, NONE if none */
+	short controller;
+} lobby_join = { FALSE, NONE };
+
+/* the client's player of the controller on this machine, NULL if none */
+static struct network_player *lobby_local_player(short controller)
+{
+	void *client = global_network_game_client_get();
+	struct network_game *game = client ? network_game_client_get_game(client) : NULL;
+	short machine_index = network_game_client_get_local_machine_index();
+	short index;
+
+	for (index = 0; game && machine_index != NONE && index < HALO_PORT_MAXIMUM_NETWORK_PLAYERS; index++)
+	{
+		struct network_player *player = &game->players[index];
+
+		if (network_player_is_valid(player) && (short)player->machine_index == machine_index &&
+			(short)player->controller_index == controller)
+		{
+			return player;
+		}
+	}
+	return NULL;
+}
+
+/* whether the controller plays (or is to: joined, not yet added) */
+static boolean lobby_controller_playing(short controller)
+{
+	return player_ui_local_player_wants_to_play_multiplayer(controller) || lobby_local_player(controller);
+}
+
+/* this machine's players in the network game (or to be) */
+static short lobby_local_player_count(void)
+{
+	short controller, count = 0;
+
+	if (!global_network_game_client_get())
+		return 0;
+	for (controller = 0; controller < MAXIMUM_LOCAL_PLAYERS; controller++)
+		count += lobby_controller_playing(controller) ? 1 : 0;
+	return count;
+}
+
+/* (xinput_sdl.c) whether this machine has, or is adding, a second player: co-op,
+or split screen in a network game (a player who quit keeps their part of the
+screen until the game ends). Then one gamepad is its own controller, not
+sharing player 1's with the keyboard */
+unsigned char pc_menu_split_players(void)
+{
+	return player_spawn_count >= 2 || lobby_join.adding || lobby_join.controller != NONE ||
+		lobby_local_player_count() >= 2 || players_port_local_player_count() >= 2;
+}
+
+/* the lobby's widget that has the focus (the one a press goes to) */
+static struct widget_instance *focused_leaf(struct widget_instance *widget)
+{
+	while (widget->parent)
+		widget = widget->parent;
+	while (widget->focused_child)
+		widget = widget->focused_child;
+	return widget;
+}
+
+/* "port lobby open" (the lobby made, or come back to): no player being added */
+static boolean lobby_join_reset(void)
+{
+	lobby_join.adding = FALSE;
+	lobby_join.controller = NONE;
+	return TRUE;
+}
+
+/* "port lobby add player" (ADD PLAYER): the next START of another controller
+joins (one gamepad leaves the keyboard's controller for its own) */
+static boolean lobby_add_player(void)
+{
+	if (lobby_local_player_count() >= MAXIMUM_LOCAL_PLAYERS)
+		return campaign_fail();
+	lobby_join.adding = TRUE;
+	return TRUE;
+}
+
+/* "port lobby join" (START): a controller not playing joins, choosing its
+profile next (FALSE: no profile screen); a player's START is the focused
+button's */
+static boolean lobby_join_start(struct widget_instance *widget, short controller, boolean *widget_deleted)
+{
+	void *client = global_network_game_client_get();
+	struct network_game *game = client ? network_game_client_get_game(client) : NULL;
+	short state_data;
+
+	if (lobby_controller_playing(controller))
+	{
+		ui_widget_port_dispatch_event(focused_leaf(widget), BUTTON_START, controller, widget_deleted);
+		return FALSE;
+	}
+	if (!game || network_game_client_get_state(client, &state_data) != _client_state_pregame)
+		return campaign_fail();
+	if (lobby_player_count >= game->maximum_players)
+	{
+		display_error_text_deferred(L"The game is full.", NONE);
+		return campaign_fail();
+	}
+	lobby_join.controller = controller;
+	return TRUE;
+}
+
+/* "port lobby leave" (B): a player leaves the game, the machine's last
+leaving it (TRUE: back from the lobby); a controller not playing cancels
+ADD PLAYER */
+static boolean lobby_leave(struct widget_instance *widget, struct event_record *event, short controller,
+	boolean *widget_deleted)
+{
+	if (!lobby_controller_playing(controller))
+	{
+		lobby_join_reset();
+		return FALSE;
+	}
+	return ui_widget_port_unjoin_player(widget, event, widget_deleted);
+}
+
+/* "port lobby player list initialize": on the joining controller's profile,
+else the first no other player of this machine has */
+static boolean lobby_player_list_initialize(struct widget_instance *list)
+{
+	long mine = lobby_join.controller != NONE ? player_ui_get_active_player_profile_index(lobby_join.controller) : NONE;
+	short index, controller;
+
+	profile_list_read(TRUE);
+	profile_list.chosen = 0;
+	for (index = profile_list.count - 1; index >= 0; index--)
+	{
+		boolean taken = FALSE;
+
+		for (controller = 0; controller < MAXIMUM_LOCAL_PLAYERS; controller++)
+		{
+			taken |= controller != lobby_join.controller && lobby_controller_playing(controller) &&
+				player_ui_get_active_player_profile_index(controller) == profile_list.indices[index];
+		}
+		if (!taken)
+			profile_list.chosen = index;
+	}
+	for (index = 0; index < profile_list.count && mine != NONE; index++)
+	{
+		if (profile_list.indices[index] == mine)
+			profile_list.chosen = index;
+	}
+	profile_list.first = (short)PIN(profile_list.chosen - PROFILE_ROWS / 2, 0,
+		MAX(0, profile_list.count + 1 - PROFILE_ROWS));
+	focus_row(list, (short)(profile_list.chosen - profile_list.first));
+	return TRUE;
+}
+
+/* "port lobby player choose": the joining controller's player on the profile
+chosen (the lobby's "net splitscreen prejoin players" adds them) */
+static boolean lobby_player_choose(void)
+{
+	short controller = lobby_join.controller;
+
+	if (controller == NONE || profile_list.chosen >= profile_list.count ||
+		!ui_widget_port_multiplayer_player(controller, profile_list.indices[profile_list.chosen]))
+	{
+		return campaign_fail();
+	}
+	return TRUE;
+}
+
+/* the lobby's line under its players: how another player joins */
+static void lobby_join_help(struct widget_instance *list)
+{
+	struct widget_instance *help = named(screen_of(list), "lobby_join_help", 0);
+	wchar_t const *text = L"";
+	short controller;
+
+	if (lobby_join.adding)
+	{
+		text = L"New player: press START.";
+	}
+	else if (lobby_local_player_count() < MAXIMUM_LOCAL_PLAYERS)
+	{
+		for (controller = 0; controller < MAXIMUM_LOCAL_PLAYERS; controller++)
+		{
+			if (input_has_gamepad(controller) && !lobby_controller_playing(controller))
+				text = L"Another controller: START joins.";
+		}
+	}
+	text_set(help, text);
+}
+
 static void lobby_row_text(short row, wchar_t *text)
 {
 	struct network_player *player = lobby_players[multiplayer.lobby_first + row];
@@ -3560,6 +3813,13 @@ static void lobby_row_text(short row, wchar_t *text)
 		usnprintf(text, ROW_TEXT_LENGTH - 1, L"%s  (%s)", name, player->team_index ? L"BLUE" : L"RED");
 	else
 		usnprintf(text, ROW_TEXT_LENGTH - 1, L"%s", name);
+	/* (this machine's players, when it has more than one: their controllers) */
+	if (lobby_local_player_count() >= 2 && (short)player->machine_index == network_game_client_get_local_machine_index())
+	{
+		size_t length = ustrlen(text);
+
+		usnprintf(text + length, ROW_TEXT_LENGTH - 1 - length, L"  [P%d]", player->controller_index + 1);
+	}
 	text[ROW_TEXT_LENGTH - 1] = 0;
 }
 
@@ -3696,6 +3956,7 @@ static void lobby_update(struct widget_instance *list)
 		multiplayer.lobby_first = (short)MAX(0, lobby_player_count - LOBBY_ROWS);
 	rows_update(list, (short)MIN(lobby_player_count, LOBBY_ROWS), lobby_row_text);
 	lobby_rows_color(list, game);
+	lobby_join_help(list);
 	visible_set(named(list, "lobby_button_team", 0), game && game->variant.universal_variant.teams);
 	/* (the buttons' focus, off Switch Team when it is hidden) */
 	focus_off_hidden(named(list, "lobby_button_bar", 0));
@@ -3736,7 +3997,9 @@ static void lobby_update(struct widget_instance *list)
 
 /* ---- an in-progress game's lobby, before joining it (Direct Link and
 LAN's rows of games under way): what its advertisement tells (no players'
-names: they come with joining), JOIN GAME */
+names: they come with joining), JOIN GAME. Split screen players join here
+as in the lobby (lobby_join), for the game starts at once for a machine
+that joins it: player 1 as it opens, the others with START */
 
 /* the previewed game, found again among the client's (NULL: gone) */
 static struct advertised_game *preview_game(void)
@@ -3755,6 +4018,34 @@ static struct advertised_game *preview_game(void)
 		}
 	}
 	return NULL;
+}
+
+/* the preview's status's end: the players joining from here, when there
+are more than one (split screen) */
+static void preview_players_text(wchar_t *text, short size)
+{
+	short controller;
+	size_t length;
+
+	if (lobby_local_player_count() < 2)
+		return;
+	length = ustrlen(text);
+	usnprintf(text + length, size - 1 - length, L"\r\n\r\nJoining from here:");
+	for (controller = 0; controller < MAXIMUM_LOCAL_PLAYERS; controller++)
+	{
+		struct player_profile profile;
+		wchar_t name[NUMBEROF(profile.player_name) + 1];
+
+		if (!player_ui_local_player_wants_to_play_multiplayer(controller))
+			continue;
+		player_ui_get_active_player_profile(controller, &profile);
+		ustrncpy(name, profile.player_name, NUMBEROF(profile.player_name));
+		name[NUMBEROF(profile.player_name)] = 0;
+		text[size - 1] = 0;
+		length = ustrlen(text);
+		usnprintf(text + length, size - 1 - length, L"\r\n%s  [P%d]", name, controller + 1);
+	}
+	text[size - 1] = 0;
 }
 
 /* "port lobby preview update" */
@@ -3779,22 +4070,74 @@ static void preview_update(struct widget_instance *list)
 		usnprintf(text, NUMBEROF(text) - 1, L"%s\r\n\r\nThis game is under way.\r\n\r\n%s", name,
 			game->open ? L"JOIN GAME joins it now;\r\nits players show then." :
 			L"It cannot be joined now:\r\nit is loading, over or full.");
+		text[NUMBEROF(text) - 1] = 0;
+		preview_players_text(text, NUMBEROF(text));
 	}
 	else
 		usnprintf(text, NUMBEROF(text) - 1, L"The game is gone.");
 	text[NUMBEROF(text) - 1] = 0;
 	text_set_length(named(list, "preview_status", 0), text, LOBBY_TEXT_LENGTH);
+	lobby_join_help(list);
 	profile_name_show(description);
 }
 
-/* "port lobby preview join" */
+/* "port lobby preview add" (START): as the lobby's ("port lobby join"), a
+controller not joining chooses its profile, to join with the others; a
+joining player's START is the focused button's */
+static boolean preview_add(struct widget_instance *widget, short controller, boolean *widget_deleted)
+{
+	struct advertised_game *game = preview_game();
+	short count = lobby_local_player_count();
+
+	if (lobby_controller_playing(controller))
+	{
+		ui_widget_port_dispatch_event(focused_leaf(widget), BUTTON_START, controller, widget_deleted);
+		return FALSE;
+	}
+	if (!game || !game->open || count >= MAXIMUM_LOCAL_PLAYERS)
+		return campaign_fail();
+	if (game->player_count + count >= game->maximum_player_count)
+	{
+		display_error_text_deferred(L"The game is full.", NONE);
+		return campaign_fail();
+	}
+	lobby_join.controller = controller;
+	return TRUE;
+}
+
+/* "port lobby preview leave" (B): a joining player stays out, the last of
+them backing out (TRUE); a controller not joining cancels ADD PLAYER, else
+backs out for them all (the game is not joined yet: none is kept here) */
+static boolean preview_leave(short controller)
+{
+	short index;
+
+	if (!lobby_controller_playing(controller))
+	{
+		if (lobby_join.adding)
+		{
+			lobby_join_reset();
+			return FALSE;
+		}
+		for (index = 0; index < MAXIMUM_LOCAL_PLAYERS; index++)
+			player_ui_local_player_left_multiplayer_game(index);
+		return TRUE;
+	}
+	player_ui_local_player_left_multiplayer_game(controller);
+	return lobby_local_player_count() == 0;
+}
+
+/* "port lobby preview join": with the players joining from here (player 1,
+as the preview opened, and those added), whom the lobby asks the host for
+all at once ("net splitscreen prejoin players"): it starts the machine in
+the game once it has them all */
 static boolean preview_join(struct widget_instance *widget, short controller, boolean *widget_deleted)
 {
 	struct advertised_game *game = preview_game();
 
 	if (!game || !game->open)
 		return campaign_fail();
-	if (!multiplayer_player(controller))
+	if (!lobby_local_player_count() && !multiplayer_player(controller))
 		return FALSE;
 	return ui_widget_port_join(widget, game, LOBBY_NAME, widget_deleted);
 }
@@ -4513,17 +4856,19 @@ boolean pc_menu_event_function_invoke(
 		{
 			return pc_menu_profile_edit_begin();
 		}
+		/* (the press posted is the controller's that chose the button: a
+		split screen player's LEAVE is theirs) */
 		else if (!strcmp(name, "mouse emit accept event"))
 		{
-			event_manager_post_button(controller_of(widget), BUTTON_A);
+			event_manager_post_button(controller, BUTTON_A);
 		}
 		else if (!strcmp(name, "mouse emit back event"))
 		{
-			event_manager_post_button(controller_of(widget), BUTTON_B);
+			event_manager_post_button(controller, BUTTON_B);
 		}
 		else if (!strcmp(name, "mouse emit x event"))
 		{
-			event_manager_post_button(controller_of(widget), BUTTON_X);
+			event_manager_post_button(controller, BUTTON_X);
 		}
 		else if (!strcmp(name, "emit custom activation event"))
 		{
@@ -4696,6 +5041,38 @@ boolean pc_menu_event_function_invoke(
 		{
 			return profile_choose(controller);
 		}
+		else if (!strcmp(name, "port lobby open"))
+		{
+			return lobby_join_reset();
+		}
+		else if (!strcmp(name, "port lobby add player"))
+		{
+			return lobby_add_player();
+		}
+		else if (!strcmp(name, "port lobby join"))
+		{
+			return lobby_join_start(widget, controller, widget_deleted);
+		}
+		else if (!strcmp(name, "port lobby leave"))
+		{
+			return lobby_leave(widget, event, controller, widget_deleted);
+		}
+		else if (!strcmp(name, "port lobby player list initialize"))
+		{
+			return lobby_player_list_initialize(widget);
+		}
+		else if (!strcmp(name, "port lobby player choose"))
+		{
+			return lobby_player_choose();
+		}
+		else if (!strcmp(name, "port lobby preview add"))
+		{
+			return preview_add(widget, controller, widget_deleted);
+		}
+		else if (!strcmp(name, "port lobby preview leave"))
+		{
+			return preview_leave(controller);
+		}
 		else if (!strcmp(name, "port coop begin"))
 		{
 			return coop_begin(controller);
@@ -4814,7 +5191,10 @@ void pc_menu_game_data_function_invoke(
 	else if (!strcmp(name, "port lobby update"))
 		lobby_update(widget);
 	else if (!strcmp(name, "port settings help"))
+	{
+		video_rows_show(widget);
 		settings_help(widget);
+	}
 	else if (!strcmp(name, "controls update menu"))
 		controls_update(widget);
 	else if (!strcmp(name, "color picker update"))

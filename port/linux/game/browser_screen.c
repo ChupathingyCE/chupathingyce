@@ -27,6 +27,12 @@ Start opens the player's profile page in the web browser; RB opens Quick
 Connect over the list, for where no web browser opens: a code (and a QR
 code) to type at the game list's /connect page on another device, then the
 profile it was typed for, to confirm with A or refuse with B (browser.c).
+
+The menus' pointer (the mouse, or the touchscreen's taps and drags:
+halo_ui_pointer.h) works it as the PC menus' lists: a click on a game picks
+it and a click on the picked game joins it, the wheel or a drag steps
+through the games, a click on a button's prompt presses that button, and
+the right button is B.
 */
 
 #ifdef HALO_GAME_BROWSER
@@ -52,6 +58,7 @@ profile it was typed for, to confirm with A or refuse with B (browser.c).
 #include "../src/browser.h"
 #include "../src/ui_overlay.h"
 #include "halo_ui_map_list.h"
+#include "halo_ui_pointer.h"
 
 /* ---------- constants */
 
@@ -75,6 +82,8 @@ enum
 	/* whether the selected game's Custom Edition map is in maps\ce, asked
 	again this often */
 	CE_MAP_CHECK_INTERVAL = 1000,
+	/* the places the pointer presses a button, drawn each frame */
+	MAXIMUM_TARGETS = 24,
 };
 
 /* whether a game's map can be played here (ce_map_state) */
@@ -153,6 +162,15 @@ static struct
 	boolean connect_open;
 	unsigned long connect_changed_time;
 	struct browser_connect connect;
+	/* what the last frame drew for the pointer: the button each prompt
+	presses, and the list's first game (none: the list not drawn) */
+	short target_count;
+	struct
+	{
+		float x0, y0, x1, y1;
+		short button;
+	} targets[MAXIMUM_TARGETS];
+	short drawn_first;
 } browser_screen;
 
 /* ---------- private code */
@@ -564,11 +582,79 @@ static void create_game(
 		set_status("Could not create a game.");
 }
 
+/* the selection moved by move games, kept on the list */
+static void step(
+	short move)
+{
+	browser_screen.selected = (short)PIN(browser_screen.selected + move, 0,
+		MAX(0, browser_screen.count - 1));
+}
+
+/* a button pressed: the controller's, or the pointer's on its prompt */
+static void press(
+	short button)
+{
+	if (system_milliseconds() - browser_screen.connect_changed_time < CONNECT_SETTLE)
+		return;
+	/* (Link Profile's panel takes the buttons while it is up) */
+	if (browser_screen.connect_open)
+	{
+		quick_connect_button(button);
+		return;
+	}
+	switch (button)
+	{
+	case _gamepad_binary_button_dpad_up: step(-1); break;
+	case _gamepad_binary_button_dpad_down: step(1); break;
+	case _gamepad_binary_button_dpad_left: step(-ROWS_PER_PAGE); break;
+	case _gamepad_binary_button_dpad_right: step(ROWS_PER_PAGE); break;
+	case _gamepad_analog_button_a:
+		if (!browser_screen.connecting && system_milliseconds() - browser_screen.opened_time > OPEN_SETTLE)
+			join_selected();
+		break;
+	case _gamepad_binary_button_start:
+		browser_open_profile();
+		set_status("Opening your profile in the web browser");
+		break;
+	case _gamepad_analog_button_x:
+		fetch_games();
+		set_status("Refreshed");
+		break;
+	case _gamepad_analog_button_y:
+		if (!browser_screen.connecting && system_milliseconds() - browser_screen.opened_time > OPEN_SETTLE)
+			create_game();
+		break;
+	case _gamepad_binary_button_back:
+		set_status("Filters are next");
+		break;
+	case _gamepad_analog_button_left_trigger:
+	case _gamepad_analog_button_white:
+		browser_screen.sort = (short)((browser_screen.sort + NUMBER_OF_SORTS - 1) % NUMBER_OF_SORTS);
+		fetch_games();
+		break;
+	case _gamepad_analog_button_right_trigger:
+		browser_screen.sort = (short)((browser_screen.sort + 1) % NUMBER_OF_SORTS);
+		fetch_games();
+		break;
+	case _gamepad_analog_button_black:
+		if (!browser_screen.connecting)
+			quick_connect();
+		break;
+	case _gamepad_analog_button_b:
+		/* (B while a host is waited for: the wait given up) */
+		if (browser_screen.connecting)
+			browser_screen.connecting = FALSE;
+		else
+			browser_screen.active = FALSE;
+		break;
+	default: break;
+	}
+}
+
 void browser_screen_process(
 	void)
 {
 	struct event_record event;
-	short move = 0;
 
 	fetch_games();
 	if (browser_screen.connecting)
@@ -577,84 +663,18 @@ void browser_screen_process(
 		browser_connect_get(&browser_screen.connect);
 	while (browser_screen.active && get_next_event(&event, NONE))
 	{
-		if (event.type == BROWSER_EVENT_BUTTON &&
-			system_milliseconds() - browser_screen.connect_changed_time < CONNECT_SETTLE)
-		{
-			continue;
-		}
-		/* (Link Profile's panel takes the buttons while it is up) */
-		if (browser_screen.connect_open)
-		{
-			if (event.type == BROWSER_EVENT_BUTTON)
-				quick_connect_button(event.data.button.index);
-			continue;
-		}
-		if (event.type == BROWSER_EVENT_LEFT_STICK)
+		if (event.type == BROWSER_EVENT_BUTTON)
+			press(event.data.button.index);
+		else if (event.type == BROWSER_EVENT_LEFT_STICK && !browser_screen.connect_open)
 		{
 			if (event.data.stick.y == SHORT_MAX)
-				move = -1;
+				step(-1);
 			else if (event.data.stick.y == SHORT_MIN)
-				move = 1;
+				step(1);
 			else if (event.data.stick.x == SHORT_MIN)
-				move = -ROWS_PER_PAGE;
+				step(-ROWS_PER_PAGE);
 			else if (event.data.stick.x == SHORT_MAX)
-				move = ROWS_PER_PAGE;
-		}
-		else if (event.type == BROWSER_EVENT_BUTTON)
-		{
-			switch (event.data.button.index)
-			{
-			case _gamepad_binary_button_dpad_up: move = -1; break;
-			case _gamepad_binary_button_dpad_down: move = 1; break;
-			case _gamepad_binary_button_dpad_left: move = -ROWS_PER_PAGE; break;
-			case _gamepad_binary_button_dpad_right: move = ROWS_PER_PAGE; break;
-			case _gamepad_analog_button_a:
-				if (!browser_screen.connecting && system_milliseconds() - browser_screen.opened_time > OPEN_SETTLE)
-					join_selected();
-				break;
-			case _gamepad_binary_button_start:
-				browser_open_profile();
-				set_status("Opening your profile in the web browser");
-				break;
-			case _gamepad_analog_button_x:
-				fetch_games();
-				set_status("Refreshed");
-				break;
-			case _gamepad_analog_button_y:
-				if (!browser_screen.connecting && system_milliseconds() - browser_screen.opened_time > OPEN_SETTLE)
-					create_game();
-				break;
-			case _gamepad_binary_button_back:
-				set_status("Filters are next");
-				break;
-			case _gamepad_analog_button_left_trigger:
-			case _gamepad_analog_button_white:
-				browser_screen.sort = (short)((browser_screen.sort + NUMBER_OF_SORTS - 1) % NUMBER_OF_SORTS);
-				fetch_games();
-				break;
-			case _gamepad_analog_button_right_trigger:
-				browser_screen.sort = (short)((browser_screen.sort + 1) % NUMBER_OF_SORTS);
-				fetch_games();
-				break;
-			case _gamepad_analog_button_black:
-				if (!browser_screen.connecting)
-					quick_connect();
-				break;
-			case _gamepad_analog_button_b:
-				/* (B while a host is waited for: the wait given up) */
-				if (browser_screen.connecting)
-					browser_screen.connecting = FALSE;
-				else
-					browser_screen.active = FALSE;
-				break;
-			default: break;
-			}
-		}
-		if (move)
-		{
-			browser_screen.selected = (short)PIN(browser_screen.selected + move, 0,
-				MAX(0, browser_screen.count - 1));
-			move = 0;
+				step(ROWS_PER_PAGE);
 		}
 	}
 	if (browser_screen.selected >= browser_screen.count)
@@ -827,23 +847,63 @@ static void draw_bitmap_picture(
 	}
 }
 
+/* the game's button for each of the overlay's glyphs (UI_BUTTON_A...) */
+static short const glyph_buttons[NUMBER_OF_UI_BUTTONS] =
+{
+	_gamepad_analog_button_a, _gamepad_analog_button_b, _gamepad_analog_button_x, _gamepad_analog_button_y,
+	_gamepad_binary_button_start, _gamepad_analog_button_left_trigger, _gamepad_analog_button_right_trigger,
+	_gamepad_analog_button_white, _gamepad_analog_button_black, _gamepad_binary_button_dpad_left,
+	_gamepad_binary_button_dpad_right, _gamepad_binary_button_back,
+};
+
+/* a place the pointer presses a button (a glyph's: UI_BUTTON_A...), for
+the next frame (browser_screen_pointer) */
+static void add_target(
+	float x0,
+	float y0,
+	float x1,
+	float y1,
+	int button)
+{
+	if (browser_screen.target_count < MAXIMUM_TARGETS)
+	{
+		browser_screen.targets[browser_screen.target_count].x0 = x0;
+		browser_screen.targets[browser_screen.target_count].y0 = y0;
+		browser_screen.targets[browser_screen.target_count].x1 = x1;
+		browser_screen.targets[browser_screen.target_count].y1 = y1;
+		browser_screen.targets[browser_screen.target_count].button = glyph_buttons[button];
+		browser_screen.target_count++;
+	}
+}
+
+/* a prompt along the foot, pressed by the pointer from the rule above it
+to the screen's bottom and halfway into the gaps beside it */
 static float prompt(
 	int button,
 	char const *words,
 	float x)
 {
+	float left = x;
+
 	x += ui_overlay_button(button, 15.0f, x, 455.0f, 0xFFFFFFFF) + 3.0f;
-	return x + ui_overlay_text(UI_FONT_BOLD, 12.0f, x, 456.5f, UI_ALIGN_LEFT, COLOR_PROMPT, words) + 20.0f;
+	x += ui_overlay_text(UI_FONT_BOLD, 12.0f, x, 456.5f, UI_ALIGN_LEFT, COLOR_PROMPT, words);
+	add_target(left - 10.0f, 444.0f, x + 10.0f, 480.0f, button);
+	return x + 20.0f;
 }
 
-/* a prompt that does nothing for the selected game, greyed */
+/* a prompt that does nothing for the selected game, greyed (pressed as the
+others: its button says why) */
 static float prompt_off(
 	int button,
 	char const *words,
 	float x)
 {
+	float left = x;
+
 	x += ui_overlay_button(button, 15.0f, x, 455.0f, COLOR_BUTTON_OFF) + 3.0f;
-	return x + ui_overlay_text(UI_FONT_BOLD, 12.0f, x, 456.5f, UI_ALIGN_LEFT, COLOR_PROMPT_OFF, words) + 20.0f;
+	x += ui_overlay_text(UI_FONT_BOLD, 12.0f, x, 456.5f, UI_ALIGN_LEFT, COLOR_PROMPT_OFF, words);
+	add_target(left - 10.0f, 444.0f, x + 10.0f, 480.0f, button);
+	return x + 20.0f;
 }
 
 /* the badge of a game on a Halo PC map (HALO PC, or HALOMD for a HaloMD
@@ -926,13 +986,22 @@ static void connect_prompts(
 	x = 320 - width / 2;
 	if (first_words)
 	{
+		float left = x;
+
 		x += ui_overlay_button(first, 15.0f, x, CONNECT_Y + CONNECT_HEIGHT - 30, 0xFFFFFFFF) + 3;
 		x += ui_overlay_text(UI_FONT_BOLD, 12.0f, x, CONNECT_Y + CONNECT_HEIGHT - 28.5f, UI_ALIGN_LEFT, COLOR_PROMPT,
-			first_words) + 20;
+			first_words);
+		add_target(left - 10, CONNECT_Y + CONNECT_HEIGHT - 40, x + 10, CONNECT_Y + CONNECT_HEIGHT, first);
+		x += 20;
 	}
-	x += ui_overlay_button(second, 15.0f, x, CONNECT_Y + CONNECT_HEIGHT - 30, 0xFFFFFFFF) + 3;
-	ui_overlay_text(UI_FONT_BOLD, 12.0f, x, CONNECT_Y + CONNECT_HEIGHT - 28.5f, UI_ALIGN_LEFT, COLOR_PROMPT,
-		second_words);
+	{
+		float left = x;
+
+		x += ui_overlay_button(second, 15.0f, x, CONNECT_Y + CONNECT_HEIGHT - 30, 0xFFFFFFFF) + 3;
+		x += ui_overlay_text(UI_FONT_BOLD, 12.0f, x, CONNECT_Y + CONNECT_HEIGHT - 28.5f, UI_ALIGN_LEFT, COLOR_PROMPT,
+			second_words);
+		add_target(left - 10, CONNECT_Y + CONNECT_HEIGHT - 40, x + 10, CONNECT_Y + CONNECT_HEIGHT, second);
+	}
 }
 
 /* the page with the code as a QR code: dark modules on a light square with
@@ -1061,6 +1130,9 @@ void browser_screen_render(
 	float x, width, margin = (float)((halo_screen_width() - 640) / 2 + 2);
 	struct browser_game const *selected = browser_screen.count ? &browser_screen.games[browser_screen.selected] : NULL;
 
+	/* (what the pointer may press, as this frame draws it) */
+	browser_screen.target_count = 0;
+	browser_screen.drawn_first = NONE;
 	if (!ui_overlay_available())
 		return;
 	for (index = 0; index < browser_screen.count; index++)
@@ -1109,6 +1181,7 @@ void browser_screen_render(
 	ui_overlay_text(UI_FONT_BOLD, 8.0f, COLUMN_PING, LIST_Y + 6, UI_ALIGN_RIGHT, COLOR_HEAD, "Ping");
 
 	page_first = (short)(browser_screen.selected - browser_screen.selected % ROWS_PER_PAGE);
+	browser_screen.drawn_first = page_first;
 	page_count = (short)MAX(1, (browser_screen.count + ROWS_PER_PAGE - 1) / ROWS_PER_PAGE);
 	if (!browser_screen.count)
 	{
@@ -1171,10 +1244,16 @@ void browser_screen_render(
 		else
 		{
 			snprintf(text, sizeof(text), "SORTED BY %s  \xC2\xB7  CLOSED GAMES LAST", sort_names[browser_screen.sort]);
-			ui_overlay_text(UI_FONT_BOLD, 7.5f, LIST_X + 10, y + 6, UI_ALIGN_LEFT, COLOR_DIM, text);
+			/* (the pointer steps to the next order on it, as RT) */
+			width = ui_overlay_text(UI_FONT_BOLD, 7.5f, LIST_X + 10, y + 6, UI_ALIGN_LEFT, COLOR_DIM, text);
+			add_target(LIST_X, y, LIST_X + 20 + width, y + LIST_FOOT, UI_BUTTON_RIGHT_TRIGGER);
 		}
 		snprintf(text, sizeof(text), "\xE2\x80\xB9   PAGE %d OF %d   \xE2\x80\xBA", page_first / ROWS_PER_PAGE + 1, page_count);
-		ui_overlay_text(UI_FONT_BOLD, 8.0f, LIST_X + LIST_WIDTH - 12, y + 5.5f, UI_ALIGN_RIGHT, COLOR_LABEL, text);
+		width = ui_overlay_text(UI_FONT_BOLD, 8.0f, LIST_X + LIST_WIDTH - 12, y + 5.5f, UI_ALIGN_RIGHT, COLOR_LABEL, text);
+		/* (the pointer turns the page back on its left half, on with its right) */
+		add_target(LIST_X + LIST_WIDTH - 22 - width, y, LIST_X + LIST_WIDTH - 12 - width / 2, y + LIST_FOOT,
+			UI_BUTTON_DPAD_LEFT);
+		add_target(LIST_X + LIST_WIDTH - 12 - width / 2, y, LIST_X + LIST_WIDTH, y + LIST_FOOT, UI_BUTTON_DPAD_RIGHT);
 	}
 	ui_overlay_outline(LIST_X, LIST_Y, LIST_WIDTH, LIST_HEAD + ROWS_PER_PAGE * LIST_ROW + LIST_FOOT, 6, 1.0f,
 		COLOR_PANEL_EDGE);
@@ -1288,7 +1367,9 @@ void browser_screen_render(
 	x = prompt(UI_BUTTON_X, "=REFRESH", x);
 	x = prompt(UI_BUTTON_Y, "=CREATE GAME", x);
 	x = prompt(UI_BUTTON_BACK, "=FILTERS", x);
-	x += ui_overlay_button(UI_BUTTON_LEFT_TRIGGER, 15.0f, x, 455.0f, 0xFFFFFFFF);
+	width = ui_overlay_button(UI_BUTTON_LEFT_TRIGGER, 15.0f, x, 455.0f, 0xFFFFFFFF);
+	add_target(x - 10, 444, x + width, 480, UI_BUTTON_LEFT_TRIGGER);
+	x += width;
 	x = prompt(UI_BUTTON_RIGHT_TRIGGER, "=SORT", x);
 	prompt(UI_BUTTON_RIGHT_SHOULDER, "=LINK PROFILE", x);
 
@@ -1302,8 +1383,52 @@ void browser_screen_render(
 		ui_overlay_outline(170, 200, 300, 64, 6, 1.0f, COLOR_PANEL_EDGE);
 		ui_overlay_text(UI_FONT_BOLD, 12.0f, 320, 212, UI_ALIGN_CENTER, 0xFFFFFFFF, line);
 		x = 320 - (ui_overlay_button_width(UI_BUTTON_B, 13.0f) + ui_overlay_text_width(UI_FONT_BOLD, 10.0f, "=CANCEL")) / 2;
+		/* (the pointer cancels on the panel's lower half, its prompt's) */
+		add_target(170, 230, 470, 264, UI_BUTTON_B);
 		x += ui_overlay_button(UI_BUTTON_B, 13.0f, x, 236, 0xFFFFFFFF) + 3;
 		ui_overlay_text(UI_FONT_BOLD, 10.0f, x, 237.5f, UI_ALIGN_LEFT, COLOR_PROMPT, "=CANCEL");
+	}
+}
+
+/* the menus' pointer, each frame while the screen is up (ui_widget.c), in
+the menus' 640x480: a click presses the button whose prompt it is on, or
+picks the game it is on, or joins that game if it is the one picked; the
+wheel (a drag on the touchscreen) steps through the games; the right
+button is B */
+void browser_screen_pointer(
+	struct halo_ui_pointer const *pointer)
+{
+	short index;
+
+	if (!browser_screen.active)
+		return;
+	if (pointer->right_clicks)
+		press(_gamepad_analog_button_b);
+	/* (positive: away from the player, or a finger moving down: back) */
+	if (pointer->wheel_steps && !browser_screen.connect_open)
+		step((short)-pointer->wheel_steps);
+	if (!pointer->left_clicks || !browser_screen.active)
+		return;
+	for (index = 0; index < browser_screen.target_count; index++)
+	{
+		if (pointer->click_x >= browser_screen.targets[index].x0 && pointer->click_x < browser_screen.targets[index].x1 &&
+			pointer->click_y >= browser_screen.targets[index].y0 && pointer->click_y < browser_screen.targets[index].y1)
+		{
+			press(browser_screen.targets[index].button);
+			return;
+		}
+	}
+	/* (not through the panel of a game being joined) */
+	if (browser_screen.drawn_first != NONE && !browser_screen.connect_open && !browser_screen.connecting &&
+		pointer->click_x >= LIST_X && pointer->click_x < LIST_X + LIST_WIDTH &&
+		pointer->click_y >= LIST_Y + LIST_HEAD && pointer->click_y < LIST_Y + LIST_HEAD + ROWS_PER_PAGE * LIST_ROW)
+	{
+		short game = (short)(browser_screen.drawn_first + (pointer->click_y - LIST_Y - LIST_HEAD) / LIST_ROW);
+
+		if (game == browser_screen.selected)
+			press(_gamepad_analog_button_a);
+		else if (game < browser_screen.count)
+			browser_screen.selected = game;
 	}
 }
 

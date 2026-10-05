@@ -56,7 +56,10 @@ void hud_play_sound(
 			struct hud_sound_definition const *sound =
 				TAG_BLOCK_GET_ELEMENT(sounds, absolute_sound_index, struct hud_sound_definition);
 
-			if (state_flags & sound->state_flags)
+			/* port: a sound that names no tag (a Halo PC map's may: pitfall's
+			unit HUD has a looping sound of none) never plays; it asserted
+			here */
+			if (sound->sound.index != NONE && (state_flags & sound->state_flags))
 			{
 				switch (sound->sound.group_tag)
 				{

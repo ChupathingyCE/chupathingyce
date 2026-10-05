@@ -920,7 +920,13 @@ typedef char verify_hs_external_global_definition_size[
 
 /* ---------- globals */
 
+#ifdef HALO_CUSTOM_EDITION
+/* port: and Halo PC's that its maps' scripts set and the Xbox's engine has
+none of (below) */
+short const hs_external_global_count = 443 + 14;
+#else
 short const hs_external_global_count = 443;
+#endif
 
 extern boolean allow_out_of_sync;
 extern boolean breakable_surface_effect_enabled;
@@ -1944,8 +1950,65 @@ static struct hs_external_global_definition allow_out_of_sync_definition = { "al
 static struct hs_external_global_definition global_connection_dont_timeout_definition = { "global_connection_dont_timeout", _hs_type_boolean, 0, &global_connection_dont_timeout };
 
 static struct hs_external_global_definition run_game_scripts_definition = { "run_game_scripts", _hs_type_boolean, 0, NULL };
+#ifdef HALO_CUSTOM_EDITION
+/* port: Halo PC's. A map whose scripts read or set one the Xbox's engine has
+none of did not load them, and the game halted ("this is not a valid
+variable name": coldsnap's use multiplayer_draw_teammates_names and
+developer_mode). They are kept, and change nothing: which players' names
+are drawn is the player's setting (display.player_names), and there is no
+developer mode (0, Halo PC's off, as a map's script finds it) */
+static boolean multiplayer_draw_teammates_names;
+static struct hs_external_global_definition multiplayer_draw_teammates_names_definition = {
+	"multiplayer_draw_teammates_names", _hs_type_boolean, 0, &multiplayer_draw_teammates_names };
+static short developer_mode;
+static struct hs_external_global_definition developer_mode_definition = {
+	"developer_mode", _hs_type_short_integer, 0, &developer_mode };
+/* (and more of Halo PC's that a map's script may set: its settings of the
+server, display, sound and controls, which change nothing here and read as
+they were set, 0 or false at first) */
+static real multiplayer_hit_sound_volume;
+static struct hs_external_global_definition multiplayer_hit_sound_volume_definition = {
+	"multiplayer_hit_sound_volume", _hs_type_real, 0, &multiplayer_hit_sound_volume };
+static boolean hud_filter;
+static struct hs_external_global_definition hud_filter_definition = {
+	"hud_filter", _hs_type_boolean, 0, &hud_filter };
+static boolean object_prediction;
+static struct hs_external_global_definition object_prediction_definition = {
+	"object_prediction", _hs_type_boolean, 0, &object_prediction };
+static boolean sv_public;
+static struct hs_external_global_definition sv_public_definition = {
+	"sv_public", _hs_type_boolean, 0, &sv_public };
+static short sv_tk_ban;
+static struct hs_external_global_definition sv_tk_ban_definition = {
+	"sv_tk_ban", _hs_type_short_integer, 0, &sv_tk_ban };
+static long sv_mapcycle_timeout;
+static struct hs_external_global_definition sv_mapcycle_timeout_definition = {
+	"sv_mapcycle_timeout", _hs_type_long_integer, 0, &sv_mapcycle_timeout };
+static short rasterizer_effects_level;
+static struct hs_external_global_definition rasterizer_effects_level_definition = {
+	"rasterizer_effects_level", _hs_type_short_integer, 0, &rasterizer_effects_level };
+static boolean rasterizer_fps;
+static struct hs_external_global_definition rasterizer_fps_definition = {
+	"rasterizer_fps", _hs_type_boolean, 0, &rasterizer_fps };
+static real mouse_acceleration;
+static struct hs_external_global_definition mouse_acceleration_definition = {
+	"mouse_acceleration", _hs_type_real, 0, &mouse_acceleration };
+static boolean error_suppress_all;
+static struct hs_external_global_definition error_suppress_all_definition = {
+	"error_suppress_all", _hs_type_boolean, 0, &error_suppress_all };
+static boolean director_camera_switching;
+static struct hs_external_global_definition director_camera_switching_definition = {
+	"director_camera_switching", _hs_type_boolean, 0, &director_camera_switching };
+static short rasterizer_frame_drop_ms;
+static struct hs_external_global_definition rasterizer_frame_drop_ms_definition = {
+	"rasterizer_frame_drop_ms", _hs_type_short_integer, 0, &rasterizer_frame_drop_ms };
+#endif
 
+#ifdef HALO_CUSTOM_EDITION
+struct hs_external_global_definition *hs_external_globals[443 + 14] =
+#else
 struct hs_external_global_definition *hs_external_globals[443] =
+#endif
 {
 	&rasterizer_near_clip_distance_definition,
 	&rasterizer_far_clip_distance_definition,
@@ -2390,6 +2453,22 @@ struct hs_external_global_definition *hs_external_globals[443] =
 	&global_connection_dont_timeout_definition,
 	&find_all_fucked_up_shit_definition,
 	&run_game_scripts_definition,
+#ifdef HALO_CUSTOM_EDITION
+	&multiplayer_draw_teammates_names_definition,
+	&developer_mode_definition,
+	&multiplayer_hit_sound_volume_definition,
+	&hud_filter_definition,
+	&object_prediction_definition,
+	&sv_public_definition,
+	&sv_tk_ban_definition,
+	&sv_mapcycle_timeout_definition,
+	&rasterizer_effects_level_definition,
+	&rasterizer_fps_definition,
+	&mouse_acceleration_definition,
+	&error_suppress_all_definition,
+	&director_camera_switching_definition,
+	&rasterizer_frame_drop_ms_definition,
+#endif
 };
 
 /* ---------- public code */

@@ -8,28 +8,66 @@ def staged = new File(rootDir, "../../build/android")
 
 // the version (tools/version.py): HALO_VERSION from the release workflow
 // (0.5.0b, 0.5.0b-nightly.42), else VERSION's, a development build; only a
-// release's build (HALO_RELEASE_BUILD) looks for updates (Updater.java).
-// HALO_BUILD_NUMBER, from the workflow, only orders the builds for Android
-// (versionCode: each must be higher than the one it installs over)
+// release's build (HALO_RELEASE_BUILD) looks for updates (Updater.java)
 def haloVersion = System.getenv("HALO_VERSION") ?: (new File(rootDir, "../../VERSION").text.trim() + "-dev")
 def releaseBuild = System.getenv("HALO_RELEASE_BUILD") == "1"
-def buildNumberText = System.getenv("HALO_BUILD_NUMBER") ?: "0"
-def buildNumber = buildNumberText.isInteger() ? buildNumberText.toInteger() : 0
 
-// the workflow's signing key (.github/workflows/build.yml): every build of
-// main signed with it can install over the one before; without it, the
-// debug key of the computer that builds
-def signingKey = System.getenv("HALO_ANDROID_KEYSTORE")
+// versionCode, as Butter and Jelly makes it: major * 10000 + minor * 100 +
+// patch, from the version's numbers (0.6.2b is 602). What follows them (the
+// "b" every version carries, -nightly.N, -dev) is not counted: a release,
+// the nightlies and the development builds of one VERSION share its code,
+// and Android installs a build over another of the same code, so they
+// install over each other in any order. Codes only go up because VERSION
+// only goes up; minor and patch stay below 100 so that they cannot carry.
+def haloVersionCode = {
+    def found = (haloVersion =~ /^(\d+)\.(\d+)(?:\.(\d+))?/)
+    if (!found)
+        throw new GradleException("the version ${haloVersion} does not start with major.minor.patch")
+    def major = found[0][1].toInteger()
+    def minor = found[0][2].toInteger()
+    def patch = (found[0][3] ?: "0").toInteger()
+    if (minor > 99 || patch > 99)
+        throw new GradleException("the version ${haloVersion}: minor and patch must be below 100 for versionCode")
+    return Math.max(1, major * 10000 + minor * 100 + patch)
+}()
+
+// ChupathingyCE's signing key, as Butter and Jelly signs: keystore.properties
+// beside settings.gradle (port/android; gitignored, never committed), with
+// storeFile (absolute, or relative to port/android), storePassword, keyAlias
+// and keyPassword. The release workflows write it from their secrets; a
+// developer writes their own to the key's copy outside the repository.
+// With it, the debug and the release builds are both signed with that key,
+// so that any of them installs over another. Without it, the debug build
+// has the computer's own debug key, and the release build is unsigned
+// (app-release-unsigned.apk), never signed with a stand-in key.
+def keystore = new Properties()
+def keystoreFile = rootProject.file("keystore.properties")
+if (keystoreFile.exists()) {
+    keystoreFile.withInputStream { keystore.load(it) }
+    for (name in ["storeFile", "storePassword", "keyAlias", "keyPassword"]) {
+        if (!keystore[name])
+            throw new GradleException("keystore.properties has no ${name}")
+    }
+}
+def signed = keystore["storeFile"] != null
 
 android {
+    // The Java package (and so namespace, R and BuildConfig) stays upstream's
+    // com.halo.decomp: the native code's JNI functions are named for it
+    // (Java_com_halo_decomp_*), and upstream's changes merge as they are.
+    // Only the application ID, what Android and the stores know the app by,
+    // is ChupathingyCE's; it decides the data folder too,
+    // /sdcard/Android/data/dev.horrible.chupathingyce/files. A variant that
+    // installs beside it (a native 64-bit build) adds a suffix:
+    // dev.horrible.chupathingyce.native64.
     namespace "com.halo.decomp"
     compileSdk 35
 
     defaultConfig {
-        applicationId "com.halo.decomp"
+        applicationId "dev.horrible.chupathingyce"
         minSdk 28
         targetSdk 35
-        versionCode Math.max(1, buildNumber)
+        versionCode haloVersionCode
         versionName haloVersion
         buildConfigField "String", "HALO_VERSION", "\"${haloVersion}\""
         buildConfigField "boolean", "HALO_RELEASE_BUILD", "${releaseBuild}"
@@ -62,12 +100,12 @@ android {
     }
 
     signingConfigs {
-        if (signingKey) {
-            halo {
-                storeFile file(signingKey)
-                storePassword System.getenv("HALO_ANDROID_KEYSTORE_PASSWORD")
-                keyAlias System.getenv("HALO_ANDROID_KEY_ALIAS") ?: "halo"
-                keyPassword System.getenv("HALO_ANDROID_KEYSTORE_PASSWORD")
+        if (signed) {
+            chupathingyce {
+                storeFile rootProject.file(keystore["storeFile"])
+                storePassword keystore["storePassword"]
+                keyAlias keystore["keyAlias"]
+                keyPassword keystore["keyPassword"]
             }
         }
     }
@@ -76,11 +114,11 @@ android {
         debug {
             debuggable true
             minifyEnabled false
-            signingConfig signingKey ? signingConfigs.halo : signingConfigs.debug
+            if (signed) signingConfig signingConfigs.chupathingyce
         }
         release {
             minifyEnabled false
-            signingConfig signingKey ? signingConfigs.halo : signingConfigs.debug
+            signingConfig signed ? signingConfigs.chupathingyce : null
         }
     }
 

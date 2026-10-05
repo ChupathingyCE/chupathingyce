@@ -74,18 +74,40 @@ struct config_setting
 #define DEFAULT_FULLSCREEN "true"
 #endif
 
+/* macOS's audio cuts out with SDL's 512-frame buffer when the mixer is late
+(a 10.6 ms budget at 48 kHz); 2048 frames (43 ms) rides that out. Elsewhere
+512 keeps the latency low. */
+#ifdef __APPLE__
+#define DEFAULT_AUDIO_BUFFER_FRAMES "2048"
+#else
+#define DEFAULT_AUDIO_BUFFER_FRAMES "512"
+#endif
+
 static const struct config_setting config_settings[] =
 {
 	{ "display.fullscreen", _config_boolean, DEFAULT_FULLSCREEN, "HALO_FULLSCREEN", _environment_value, _platform_desktop,
-		"Start fullscreen, drawing at the display's resolution and shape; false\n"
-		"starts in a window, which draws the Xbox's 640x480. F11 switches." },
+		"Where display.mode is empty: start borderless over the whole display;\n"
+		"false starts in a window. F11 switches." },
 	{ "display.mode", _config_string, "\"\"", "HALO_DISPLAY_MODE", _environment_value, _platform_desktop,
-		"\"fullscreen\" takes the display at its desktop resolution, \"borderless\"\n"
-		"is a window over the whole desktop (both draw at the display's\n"
-		"resolution), \"windowed\" a window of the Xbox's 640x480, scaled. Empty:\n"
-		"display.fullscreen's (true: borderless). F11 switches to the window and back." },
+		"\"fullscreen\" takes the display (at display.resolution's mode),\n"
+		"\"borderless\" is a window over the whole desktop, \"windowed\" a window\n"
+		"(display.window_size). Empty: display.fullscreen's (true: borderless).\n"
+		"F11 switches to the window and back." },
+	{ "display.resolution", _config_string, "\"native\"", "HALO_RESOLUTION", _environment_value, _platform_desktop,
+		"What fullscreen and borderless draw at: \"native\", the display's own, or\n"
+		"\"<width>x<height>\" (\"1920x1080\"), 640x480 or more. Fullscreen sets the\n"
+		"display to it; borderless draws it scaled to the display." },
+	{ "display.resolution_scaling", _config_string, "\"native\"", "HALO_RESOLUTION_SCALING", _environment_value,
+		_platform_desktop,
+		"\"native\" draws at the window's resolution (fullscreen, the display's or\n"
+		"display.resolution); \"original\" draws the Xbox's 640x480 and scales it\n"
+		"up." },
+	{ "display.window_size", _config_string, "\"\"", "HALO_WINDOW_SIZE", _environment_value, _platform_desktop,
+		"The window's size, \"<width>x<height>\" (\"1920x1080\"), 640x480 or more (it\n"
+		"can be resized). Empty: display.window_scale's." },
 	{ "display.window_scale", _config_integer, "2", "HALO_WINDOW_SCALE", _environment_value, _platform_desktop,
-		"The window's size as a multiple of 640x480 (it can be resized)." },
+		"Where display.window_size is empty: the window's size as a multiple of\n"
+		"640x480." },
 	{ "display.screen_width", _config_integer, "0", "HALO_SCREEN_WIDTH", _environment_value, _platform_android,
 		"Columns of the 480-line picture: 0 for the display's shape, 640 for the\n"
 		"Xbox's 4:3." },
@@ -107,8 +129,8 @@ static const struct config_setting config_settings[] =
 		"false draws the maps' own bitmaps." },
 	{ "display.high_res_text", _config_boolean, "true", "HALO_HIGH_RES_TEXT", _environment_value, _platform_all,
 		"Draw the menus' and HUD's text with the fonts in port/assets/fonts\n"
-		"(Overpass) at the display's resolution, and the menus' titles from\n"
-		"port/assets/titles; false draws the maps' bitmap fonts and titles." },
+		"(Overpass) at the resolution the game draws at, and the menus' titles\n"
+		"from port/assets/titles; false draws the maps' bitmap fonts and titles." },
 	{ "display.menus", _config_string, "\"xbox\"", "HALO_MENUS", _environment_value, _platform_all,
 		"The menus: \"xbox\" for the Xbox's (with Online Games), \"pc\" for the\n"
 		"PC version's main menu (port/assets/menus, and a menus folder here for\n"
@@ -148,7 +170,17 @@ static const struct config_setting config_settings[] =
 	{ "audio.effects_volume", _config_real, "1.0", "HALO_EFFECTS_VOLUME", _environment_value, _platform_all,
 		"The volume of every other sound (effects and speech), 0.0 to 1.0 (of\n"
 		"audio.volume)." },
+	{ "audio.buffer_frames", _config_integer, DEFAULT_AUDIO_BUFFER_FRAMES, "HALO_AUDIO_BUFFER_FRAMES", _environment_value,
+		_platform_all,
+		"The audio device's buffer, in sample frames at 48 kHz (64 to 8192): larger\n"
+		"rides out stalls that cut the sound out, smaller has less delay. 2048\n"
+		"(43 ms) on macOS, 512 (11 ms) elsewhere." },
 
+	{ "input.touch_controls", _config_string, "\"on\"", "HALO_TOUCH_CONTROLS", _environment_value, _platform_android,
+		"The on-screen touch controls in a game: \"on\" shows them on a\n"
+		"touchscreen (their Hide button hides them for a controller), \"auto\"\n"
+		"only while no controller is connected, \"off\" never. A device without\n"
+		"a touchscreen never shows them. The menus take taps in any case." },
 	{ "input.mouse_sensitivity", _config_real, "1.0", "HALO_MOUSE_SENSITIVITY", _environment_value, _platform_desktop,
 		"How far the view turns for the mouse's movement." },
 	{ "input.invert_mouse", _config_boolean, "false", "HALO_MOUSE_INVERT", _environment_set_is_true, _platform_desktop,
@@ -259,11 +291,12 @@ static const struct config_setting config_settings[] =
 		"in everyone's server browser: anyone can see and join it) or, false,\n"
 		"PRIVATE (only players with its invite link can join). Server Setup's\n"
 		"LISTING changes it for each game." },
-	{ "network.signalling_brokers", _config_string,
-		"\"broker.emqx.io:1883,broker.hivemq.com:1883,test.mosquitto.org:1883\"",
-		"HALO_NET_BROKERS", _environment_value, _platform_all,
-		"Public MQTT brokers through which the machines of an invite find each\n"
-		"other (its messages are encrypted); comma-separated host:port." },
+	{ "network.brokers_file", _config_string, "\"brokers.txt\"",
+		"HALO_NET_BROKERS_FILE", _environment_value, _platform_all,
+		"The file of the public MQTT brokers through which the machines of an\n"
+		"invite find each other (its messages are encrypted), beside this file\n"
+		"unless a full path: one host:port on each line, up to 4. Updates\n"
+		"replace brokers.txt: keep a list of your own under another name." },
 	{ "network.stun_servers", _config_string, "\"stun.l.google.com:19302,stun.cloudflare.com:3478\"",
 		"HALO_NET_STUN", _environment_value, _platform_all,
 		"Public STUN servers that tell this machine its internet address;\n"
@@ -369,6 +402,12 @@ static const struct config_setting config_settings[] =
 		"address as a tag (addr#3f2a9c) that only matches up within one run;\n"
 		"local network addresses are always whole. Do not post a debug.txt\n"
 		"written with this on: it has the address of everyone you played with." },
+	{ "debug.touch_targets", _config_boolean, "false", "HALO_TOUCH_TARGETS", _environment_set_is_true, _platform_all,
+		"Outline the menus' tap targets (item green, value blue, list slot yellow,\n"
+		"legend button red, the band beside a list's slots orange; the virtual\n"
+		"keyboard's keys white), mark where the last finger went down and the\n"
+		"last tap landed for 3 seconds, and log each tap with the target it hit\n"
+		"(and a value's split); to judge touch accuracy." },
 	{ "debug.network_latency", _config_real, "0.0", "HALO_NETWORK_LATENCY", _environment_value, _platform_all,
 		"Milliseconds everything received is held back (a round trip between two\n"
 		"machines of twice it), to test the netcode as over the internet; 0 none." },
@@ -1405,6 +1444,11 @@ void config_folder(char *path, size_t size)
 }
 
 /* ---------- public code */
+
+char *config_file_read(const char *path, size_t *size)
+{
+	return config_read_file(path, size);
+}
 
 unsigned long config_changes(void)
 {

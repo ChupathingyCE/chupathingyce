@@ -6,7 +6,7 @@
 
 The game shows its graphics with OpenGL ES 3. It plays sound through SDL3
 (AAudio). It accepts input from game controllers, for example a PlayStation
-5 DualSense on Bluetooth. The app needs Android 9 (API 28) or later. It
+5 DualSense on Bluetooth, and from the touchscreen (refer to "Controls"). The app needs Android 9 (API 28) or later. It
 operates on 64-bit-only devices, for example the Pixel 9 Pro XL.
 
 The Android build uses the platform layer of the Linux build
@@ -38,11 +38,15 @@ ninja) and these items:
 
 `ninja android` builds only the game image and the native libraries.
 
+The app is `dev.horrible.chupathingyce`, and its name on the device is
+ChupathingyCE. Refer to "App ID, signing and versions".
+
 ## Game data
 
 The game needs the `maps/` folder from an Xbox disc image (`.xiso` or
 `.iso`) of any version of the game. The app extracts `maps/` from the disc
-image. The app keeps the data in `/sdcard/Android/data/com.halo.decomp/files`.
+image. The app keeps the data in
+`/sdcard/Android/data/dev.horrible.chupathingyce/files`.
 
 To install the data with the app:
 
@@ -57,16 +61,16 @@ To install the data with the app:
 To install the data from a computer:
 
 1. Start the app one time. The app makes its folders.
-2. Enter `adb push <folder>/. /sdcard/Android/data/com.halo.decomp/files/`.
+2. Enter `adb push <folder>/. /sdcard/Android/data/dev.horrible.chupathingyce/files/`.
 
-| Item | Location in `/sdcard/Android/data/com.halo.decomp/files` |
+| Item | Location in `/sdcard/Android/data/dev.horrible.chupathingyce/files` |
 | --- | --- |
 | Saved games (`z:\` and `u:\`) | `save` |
 | Log | `debug.txt` |
 | Settings | `config.toml` |
 
 To make a copy of the saved games, enter
-`adb pull /sdcard/Android/data/com.halo.decomp/files/save`.
+`adb pull /sdcard/Android/data/dev.horrible.chupathingyce/files/save`.
 
 ## Controls
 
@@ -92,17 +96,80 @@ with the positions on the Xbox controller:
 | Create | back | |
 
 The controller gets the rumble. The back gesture of Android is the B
-button. A Bluetooth or USB keyboard operates as on Linux. The screen does
-not accept touch input.
+button. A Bluetooth or USB keyboard operates as on Linux.
+
+The touchscreen operates the menus: tap an item to select it (on a
+setting with values, tap its left or right half), tap a button of the key
+at the bottom of a screen (for example "B = Back") to push it, and drag to
+scroll a list (down or right steps back, up or left steps forward). A drag
+stops at the first and the last item, and it does not change a setting's
+value. Touches that start in the edge-gesture zones of Android do not tap
+or scroll at the sides, and do not scroll at the top and bottom, because the
+first swipe from an edge in full screen only shows the system bars.
+
+A tap during a cinematic that can be skipped skips it, as A does. On the
+on-screen keyboard, tap a key to press it, "B =BACK" to cancel and
+"A =ENTER" to accept the name.
+
+In Online Games, tap a game to select it and tap the selected game to
+join it. Drag to scroll the list, tap the left or right half of "PAGE 1 OF
+2" to turn the page, and tap a button at the bottom (for example
+"Y =CREATE GAME") to push it. Link Profile's buttons take taps too.
+
+### Touch controls
+
+In a game, the app shows touch controls over the picture. They are a
+controller for player 1:
+
+| Control | Function in the game |
+| --- | --- |
+| stick (lower left) | move |
+| swipe on the screen away from the buttons | look |
+| Fire | right trigger |
+| Grenade | left trigger |
+| A / Jump, B / Melee, X / Reload, Y / Weapon | A, B, X, Y |
+| Crouch, Zoom | left and right stick clicks |
+| Light, Gren. type | white, black |
+| Pause, Back | start, back |
+| Up, Down, Left, Right | D-pad |
+
+A finger that holds a button can also swipe to look, so you can fire and
+aim with one thumb. A short tap reaches the game even when it is shorter
+than one frame. Swipes that start in the edge-gesture zones of Android do
+not turn the view. The view does not use the mouse settings: the swipe
+keeps the aim assist of the controller.
+
+The touch controls show only in a game. In the menus and during
+cinematics they hide, and the touchscreen operates the menus as described
+above. They also show when a controller is connected: push "Hide" to play
+with the controller. A device without a touchscreen (a TV) never shows
+them. The setting `input.touch_controls` changes this (refer to
+"Settings").
+
+The buttons at the top of the screen:
+
+- "Hide" removes the controls until you push "Touch".
+- "Options" opens these items:
+  - "General": the phone's vibration (on by default; it follows the
+    vibration setting of the game's profile), aiming with the gyroscope
+    (off by default), "Hide or add buttons" (hide a button, add a copy of
+    a button) and "Edit buttons size".
+  - "Edit buttons layout": drag the controls to new positions, then push
+    "Save and exit". "Export" and "Import" write and read a layout file
+    with the file picker of the system.
+  - "Look sensitivity".
+
+The app keeps the layout in its own preferences, not in `config.toml`.
+Removing the app's data or the app removes the layout.
 
 ## Settings
 
 The settings are in `config.toml` in the data folder of the app. To change
 them:
 
-1. Enter `adb pull /sdcard/Android/data/com.halo.decomp/files/config.toml`.
+1. Enter `adb pull /sdcard/Android/data/dev.horrible.chupathingyce/files/config.toml`.
 2. Change the file.
-3. Enter `adb push config.toml /sdcard/Android/data/com.halo.decomp/files/`.
+3. Enter `adb push config.toml /sdcard/Android/data/dev.horrible.chupathingyce/files/`.
 
 At the first start, the game writes the file with the default values. To
 get the default values again, delete the file.
@@ -113,6 +180,7 @@ These settings are only for Android:
 
 | Setting | Function |
 | --- | --- |
+| `input.touch_controls` | The touch controls in a game. `"on"` (the default): shown on a touchscreen, also with a controller connected. `"auto"`: shown only while no controller is connected. `"off"`: never shown. A device without a touchscreen never shows them. The menus take taps with each value. |
 | `display.screen_width` | The number of columns of the 480-line picture. `0` (the default): the shape of the display (1068 on a 20:9 phone). `640`: the 4:3 shape of the Xbox. |
 | `debug.sample_seconds` | Refer to "Find problems". |
 
@@ -148,16 +216,92 @@ select "Yes":
 
 1. The app downloads the new version.
 2. The package installer of Android opens. At the first update, Android asks
-   you to let Halo install apps. Allow it.
+   you to let ChupathingyCE install apps. Allow it.
 3. Select "Update". Android replaces the app.
 4. Select "Open" to start the new version.
 
 To install over the previous version, each build must have the same
-signature. GitHub Actions signs each build with the key in the
-`ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD` secrets of the
-repository. If you installed a build that has a different signature, remove
-that build before you install a new build. Removing the app deletes its data
-folder: first make a copy of `maps/` and `save/`.
+signature. The release workflows sign each build with ChupathingyCE's key.
+If you installed a build that has a different signature (for example a
+pull request's build from GitHub Actions), remove that build before you
+install a new build. Removing the app deletes its data folder: first make a
+copy of `maps/` and `save/`.
+
+## App ID, signing and versions
+
+### App ID
+
+The app ID is `dev.horrible.chupathingyce`. Release 0.6.2b and the builds
+before it were `com.halo.decomp`, the app ID of upstream. Android sees the two as
+different apps: the new app does not install over the old app, and it does
+not see the data of the old app. To move to the new app:
+
+1. Install the new app, start it one time, and install the game data.
+2. Copy the saved games and the settings from the old app:
+   `adb pull /sdcard/Android/data/com.halo.decomp/files/save`, then
+   `adb push save /sdcard/Android/data/dev.horrible.chupathingyce/files/`
+   (and `config.toml` the same way).
+3. Uninstall the old app.
+
+The Java package (`com.halo.decomp`, the `namespace` in `app/build.gradle`)
+does not change. The JNI functions of the native code have its name
+(`Java_com_halo_decomp_*`), and the changes of upstream merge without
+changes. Only `applicationId` is ChupathingyCE's. A variant that installs
+beside the app adds a suffix, for example
+`dev.horrible.chupathingyce.native64`. The update provider of the app
+(`UpdateProvider`) has the authority `<app ID>.update`.
+
+### Signing
+
+The build signs the app with the key in `port/android/keystore.properties`,
+as Butter and Jelly does. Git ignores this file. Never commit it, or the
+key:
+
+```properties
+storeFile=/Users/you/ChupathingyCE-keys/android.keystore
+storePassword=...
+keyAlias=halo
+keyPassword=...
+```
+
+`storeFile` is an absolute path, or a path relative to `port/android`. Keep
+the key outside the repository.
+
+| `keystore.properties` | Debug build (`app-debug.apk`) | Release build |
+| --- | --- | --- |
+| present | the key of the file | the key of the file (`app-release.apk`) |
+| absent | the debug key of the computer | unsigned (`app-release-unsigned.apk`) |
+
+With the file, the debug build and the release build install over each
+other and over the builds of the release workflows. A release build is
+never signed with a debug key.
+
+Where each build gets its signature:
+
+- Your computer: `ninja android_apk` and `tools/ci_build.py android` use
+  `keystore.properties` if it is present.
+- Pull requests (`.github/workflows/build.yml` of this repository): there
+  is no key, because forks have no secrets. The artifacts are
+  `chupathingyce-android-debug-testkey.apk` (the debug key of the runner)
+  and `chupathingyce-android-release-unsigned.apk`. A build with the debug
+  key of the runner does not install over a build with ChupathingyCE's key.
+- Nightly builds and releases (the workflows of ChupathingyCE/command):
+  the workflow writes `keystore.properties` from its secrets, signs the
+  debug and the release builds with ChupathingyCE's key, and checks the
+  certificate. To get a signed build of a pull request, start the "Build"
+  workflow of ChupathingyCE/command with the commit of the pull request.
+
+### Versions
+
+`versionCode` is `major * 10000 + minor * 100 + patch` of the version
+(`VERSION`, or `HALO_VERSION` from the workflows): 0.6.2b is 602. The text
+after the three numbers (the `b` of each version, `-nightly.N`, `-dev`)
+does not change the code. A release, its nightly builds and the builds of
+developers of one `VERSION` have the same code, and Android installs a build
+over a build with the same code. The code increases when `VERSION`
+increases, and it never decreases. The minor number and the patch number
+must be less than 100: the build stops if they are not. `versionName` is
+the full version, for example `0.6.2b-nightly.3`.
 
 ## Widescreen
 
@@ -217,7 +361,7 @@ and supplies the thread pointer and TLS.
 
 - Reserves the address space of the guest below 4 GB: the Xbox memory at
   `0x80000000`, the image, and pools for the memory of the guest
-  (`host/host_memory.c`).
+  (`host/host_memory.c`). Refer to "The fixed addresses".
 - Loads the image and fills its import table (`host/host_loader.c`).
 - Starts the `main` of the game and each guest thread on a stack in guest
   memory, because ILP32 code keeps stack addresses in 32-bit registers
@@ -233,6 +377,45 @@ two ABIs use the same registers for 32-bit integers, floats and pointers.
 `tools/android_gl_stubs.py` makes the OpenGL ES stubs from
 `port/linux/src/gl.h`. `tools/android_posix_stubs.py` makes the stubs of the
 `posix_*` functions, which copy the `errno` of the host.
+
+### The fixed addresses
+
+The guest needs the Xbox memory at `0x80000000` to `0x88000000` and the
+image above it, to `0x8c000000`. The cache files contain pointers to these
+addresses. The Java runtime of Android (ART) also reserves its spaces below
+4 GB. On some devices, for example handhelds with a large Java heap (the
+AYN Thor, the Retroid Pocket), ART's large object space covers
+`0x80000000`. ART fills that space from its bottom, so the part at
+`0x80000000` is usually empty.
+
+Thus:
+
+1. The game operates in a process of its own (`:game`), with a fresh Java
+   heap. The launcher, the import of a disc image and an earlier game do
+   not leave objects there.
+2. At the start of that process, `HaloApplication` loads `libmain.so`. Its
+   `JNI_OnLoad` reserves the fixed addresses before the Java side
+   allocates large objects.
+3. If ART's large object space is in the way, the host takes back only the
+   part that covers the fixed addresses, and only if no page of it is in
+   use (`/proc/self/pagemap`, or `mincore` and the swap total of the space
+   if the device refuses `pagemap`). The host never takes the other spaces
+   of ART.
+
+If the addresses are not available, the game shows a message, and writes
+the mappings below 4 GB to `memory_map.txt` in the data folder and to the
+log.
+
+To test the reclaim on any device, set a system property before you start
+the game. The app then puts a stand-in for ART's large object space over
+the fixed addresses:
+
+- `adb shell setprop debug.halo.art_overlap idle`: the stand-in is empty
+  at `0x80000000`. The log shows `reclaimed idle ART range`, and the game
+  starts.
+- `adb shell setprop debug.halo.art_overlap busy`: a page at `0x80100000`
+  is in use. The game shows the message and writes `memory_map.txt`.
+- `adb shell setprop debug.halo.art_overlap ""`: normal operation.
 
 ### OpenGL ES
 
@@ -308,8 +491,9 @@ assembly of the port is necessary:
 
 - Bink video is not available. The game skips the movies.
 - The device must let the app reserve the fixed guest addresses, from
-  `0x80000000` to approximately `0x89000000`. If the addresses are not
-  available, the app shows a message.
-- The game does not accept touch input. Use a controller or a keyboard.
+  `0x80000000` to `0x8c000000`. If ART uses them, the app shows a message
+  (refer to "The fixed addresses").
+- The size of the touch controls follows the height of the screen. On a
+  tablet they are larger than on a phone.
 - Kernels with 16 KB pages (a developer option of Android 15) do not
   operate. The Xbox memory uses 4 KB pages.

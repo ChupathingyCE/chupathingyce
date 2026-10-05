@@ -2801,6 +2801,9 @@ symbols in this file:
 #include "math/real_math.h"
 #include "memory/data.h"
 #include "networking/network_game_globals.h"
+#ifdef HALO_CUSTOM_EDITION
+#include "game/game_engine.h"
+#endif
 #include "networking/network_game_manager.h"
 #include "networking/network_server_manager.h"
 #include "objects/damage.h"
@@ -3379,7 +3382,12 @@ typedef void (*hs_token_enumerator)(
 
 struct hs_function_table_storage
 {
+#ifdef HALO_CUSTOM_EDITION
+	/* port: and Halo PC's functions the Xbox's have none of (below) */
+	struct hs_function_definition const *functions[418 + 3 + 24];
+#else
 	struct hs_function_definition const *functions[418];
+#endif
 	struct profile_section profile;
 	hs_token_enumerator token_enumerators[18];
 };
@@ -11577,7 +11585,469 @@ static struct hs_function_definition_with_1_parameter const xbox_set_machine_nam
 	},
 };
 
+#ifdef HALO_CUSTOM_EDITION
+/* port: Halo PC's functions that a Custom Edition map's scripts may call and
+the Xbox's engine has none of. A map whose scripts call one did not load
+them, and the game halted ("missing function (you need to recompile
+scripts.)": lookout_classic's and the Halo Kart maps' call sv_say). Each
+machine runs the game's scripts, so a message said reaches every player */
+static void hs_sv_say(
+	char const *message)
+{
+	wchar_t text[128];
+	short local_player_index;
+	long index;
+
+	for (index = 0; message && message[index] && index < NUMBEROF(text) - 1; index++)
+		text[index] = (wchar_t)(unsigned char)message[index];
+	text[index] = 0;
+	for (local_player_index = 0; local_player_index < MAXIMUM_LOCAL_PLAYERS; local_player_index++)
+	{
+		if (local_player_get_player_index(local_player_index) != NONE)
+			hud_print_message(local_player_index, text);
+	}
+	return;
+}
+
+/* (a map's script does not quit the game) */
+static void hs_quit_from_script(
+	void)
+{
+	error(_error_silent, "a script called quit (Halo PC's), which does nothing here");
+	return;
+}
+
+/* (sounds are read when they play: predicting one does nothing) */
+static void hs_sound_impulse_predict_evaluate(
+	short function_index,
+	long thread_index,
+	boolean initialize)
+{
+	if (hs_macro_function_evaluate(function_index, thread_index, initialize))
+		hs_return(thread_index, 0);
+	return;
+}
+
+HS_EVALUATE_VOID_STRING(hs_sv_say_evaluate, hs_sv_say)
+HS_EVALUATE_NO_ARGUMENTS(hs_quit_evaluate, hs_quit_from_script)
+
+static struct hs_function_definition_with_1_parameter const sv_say_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sv_say",
+		hs_macro_function_parse,
+		hs_sv_say_evaluate,
+		"Halo PC's: shows every player a message.",
+		NULL,
+		1,
+		{ _hs_type_string },
+	},
+};
+
+static struct hs_function_definition const quit_definition=
+{
+	_hs_type_void,
+	0,
+	"quit",
+	hs_macro_function_parse,
+	hs_quit_evaluate,
+	"Halo PC's: quits the game; from a map's script, does nothing.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition_with_2_parameters const sound_impulse_predict_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sound_impulse_predict",
+		hs_macro_function_parse,
+		hs_sound_impulse_predict_evaluate,
+		"Halo PC's: loads a sound before it plays; does nothing.",
+		NULL,
+		2,
+		{ _hs_type_sound },
+	},
+	{ _hs_type_boolean },
+};
+
+/* port: Halo PC's sv_end_game: a server ends the game, as its time running
+out does (the host's; on another machine, which runs the same script, it
+does nothing) */
+static void hs_sv_end_game(
+	void)
+{
+	if (global_network_game_server_get() && game_engine_running())
+		game_engine_end_game();
+
+	return;
+}
+
+HS_EVALUATE_NO_ARGUMENTS(hs_sv_end_game_evaluate, hs_sv_end_game)
+
+/* port: Halo PC's functions that a map's scripts may call and that do
+nothing here: Gearbox's server commands (a server here is run from the
+game's menus and its own settings, not by a map), and its settings of the
+display, sound and controls (the player's own, in config.toml). A map whose
+scripts call one keeps them; each call does nothing (its arguments not
+evaluated: Halo PC leaves some out) and returns nothing (0, FALSE), and the
+first is logged */
+static void hs_halo_pc_unsupported_evaluate(
+	short function_index,
+	long thread_index,
+	boolean initialize)
+{
+	static unsigned long logged[BIT_VECTOR_SIZE_IN_LONGS(512)];
+
+	if (function_index >= 0 && function_index < 512 && !BIT_VECTOR_TEST_FLAG(logged, function_index))
+	{
+		BIT_VECTOR_SET_FLAG(logged, function_index, TRUE);
+		error(_error_silent, "a script called Halo PC's %s, which does nothing here",
+			hs_function_get(function_index)->name);
+	}
+	hs_return(thread_index, 0);
+
+	return;
+}
+
+static struct hs_function_definition const sv_end_game_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_end_game",
+	hs_macro_function_parse,
+	hs_sv_end_game_evaluate,
+	"Halo PC's: a server ends the game.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition const sv_map_next_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_map_next",
+	hs_macro_function_parse,
+	hs_halo_pc_unsupported_evaluate,
+	"Halo PC's, a server's: begins the next game of its map cycle; does nothing here.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition const sv_map_reset_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_map_reset",
+	hs_macro_function_parse,
+	hs_halo_pc_unsupported_evaluate,
+	"Halo PC's, a server's: begins the game again; does nothing here.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition_with_2_parameters const sv_map_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sv_map",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, a server's: begins a game of a map and game type; does nothing here.",
+		NULL,
+		2,
+		{ _hs_type_string },
+	},
+	{ _hs_type_string },
+};
+
+static struct hs_function_definition const sv_mapcycle_begin_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_mapcycle_begin",
+	hs_macro_function_parse,
+	hs_halo_pc_unsupported_evaluate,
+	"Halo PC's, a server's: begins its map cycle; does nothing here.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition const sv_timelimit_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_timelimit",
+	hs_macro_function_parse,
+	hs_halo_pc_unsupported_evaluate,
+	"Halo PC's, a server's: overrides the game type's time limit; does nothing here.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition const sv_friendly_fire_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_friendly_fire",
+	hs_macro_function_parse,
+	hs_halo_pc_unsupported_evaluate,
+	"Halo PC's, a server's: overrides the game type's friendly fire; does nothing here.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition const sv_maxplayers_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_maxplayers",
+	hs_macro_function_parse,
+	hs_halo_pc_unsupported_evaluate,
+	"Halo PC's, a server's: sets the most players; does nothing here.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition_with_1_parameter const sv_name_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sv_name",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, a server's: sets its name; does nothing here.",
+		NULL,
+		1,
+		{ _hs_type_string },
+	},
+};
+
+static struct hs_function_definition_with_1_parameter const sv_password_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sv_password",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, a server's: sets its password; does nothing here.",
+		NULL,
+		1,
+		{ _hs_type_string },
+	},
+};
+
+static struct hs_function_definition const sv_motd_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_motd",
+	hs_macro_function_parse,
+	hs_halo_pc_unsupported_evaluate,
+	"Halo PC's, a server's: sets its message of the day; does nothing here.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition_with_1_parameter const sv_log_note_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sv_log_note",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, a server's: leaves a note in its log; does nothing here.",
+		NULL,
+		1,
+		{ _hs_type_string },
+	},
+};
+
+static struct hs_function_definition const sv_players_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_players",
+	hs_macro_function_parse,
+	hs_halo_pc_unsupported_evaluate,
+	"Halo PC's, a server's: lists the players; does nothing here.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition_with_1_parameter const sv_kick_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sv_kick",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, a server's: kicks a player; does nothing here.",
+		NULL,
+		1,
+		{ _hs_type_string },
+	},
+};
+
+static struct hs_function_definition_with_2_parameters const sv_ban_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sv_ban",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, a server's: bans a player; does nothing here.",
+		NULL,
+		2,
+		{ _hs_type_string },
+	},
+	{ _hs_type_string },
+};
+
+static struct hs_function_definition const sv_single_flag_force_reset_definition=
+{
+	_hs_type_void,
+	0,
+	"sv_single_flag_force_reset",
+	hs_macro_function_parse,
+	hs_halo_pc_unsupported_evaluate,
+	"Halo PC's, a server's: resets the flag of one flag CTF when its time runs out; does nothing here.",
+	NULL,
+	0,
+};
+
+static struct hs_function_definition_with_2_parameters const rcon_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"rcon",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, sends a command to a server's console; does nothing here.",
+		NULL,
+		2,
+		{ _hs_type_string },
+	},
+	{ _hs_type_string },
+};
+
+static struct hs_function_definition_with_1_parameter const change_team_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"change_team",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, changes the local player's team; does nothing here.",
+		NULL,
+		1,
+		{ _hs_type_short_integer },
+	},
+};
+
+static struct hs_function_definition_with_1_parameter const set_gamma_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"set_gamma",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, sets the gamma; does nothing here.",
+		NULL,
+		1,
+		{ _hs_type_long_integer },
+	},
+};
+
+static struct hs_function_definition_with_2_parameters const player_effect_set_max_vibrate_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"player_effect_set_max_vibrate",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, sets the most a controller vibrates; does nothing here.",
+		NULL,
+		2,
+		{ _hs_type_real },
+	},
+	{ _hs_type_real },
+};
+
+static struct hs_function_definition_with_1_parameter const thread_sleep_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"thread_sleep",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, sleeps the game's thread; does nothing here.",
+		NULL,
+		1,
+		{ _hs_type_long_integer },
+	},
+};
+
+static struct hs_function_definition_with_1_parameter const sound_set_env_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sound_set_env",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, sets the EAX environment; does nothing here.",
+		NULL,
+		1,
+		{ _hs_type_short_integer },
+	},
+};
+
+static struct hs_function_definition_with_1_parameter const sound_enable_eax_definition=
+{
+	{
+		_hs_type_void,
+		0,
+		"sound_enable_eax",
+		hs_macro_function_parse,
+		hs_halo_pc_unsupported_evaluate,
+		"Halo PC's, turns EAX on or off; does nothing here.",
+		NULL,
+		1,
+		{ _hs_type_boolean },
+	},
+};
+
+static struct hs_function_definition const sound_eax_enabled_definition=
+{
+	_hs_type_boolean,
+	0,
+	"sound_eax_enabled",
+	hs_macro_function_parse,
+	hs_halo_pc_unsupported_evaluate,
+	"Halo PC's, whether EAX is on (it is not); does nothing here.",
+	NULL,
+	0,
+};
+
+long const hs_function_table_count= 418 + 3 + 24;
+#else
 long const hs_function_table_count= 418;
+#endif
 
 struct hs_enum_definition const hs_enum_table[]=
 {
@@ -12009,6 +12479,35 @@ struct hs_function_table_storage hs_function_table=
 		&display_scenario_help_definition.definition,
 		&hs_network_game_start_now_definition,
 		&xbox_set_machine_name_definition.definition,
+#ifdef HALO_CUSTOM_EDITION
+		&sv_say_definition.definition,
+		&quit_definition,
+		&sound_impulse_predict_definition.definition,
+		&sv_end_game_definition,
+		&sv_map_next_definition,
+		&sv_map_reset_definition,
+		&sv_map_definition.definition,
+		&sv_mapcycle_begin_definition,
+		&sv_timelimit_definition,
+		&sv_friendly_fire_definition,
+		&sv_maxplayers_definition,
+		&sv_name_definition.definition,
+		&sv_password_definition.definition,
+		&sv_motd_definition,
+		&sv_log_note_definition.definition,
+		&sv_players_definition,
+		&sv_kick_definition.definition,
+		&sv_ban_definition.definition,
+		&sv_single_flag_force_reset_definition,
+		&rcon_definition.definition,
+		&change_team_definition.definition,
+		&set_gamma_definition.definition,
+		&player_effect_set_max_vibrate_definition.definition,
+		&thread_sleep_definition.definition,
+		&sound_set_env_definition.definition,
+		&sound_enable_eax_definition.definition,
+		&sound_eax_enabled_definition,
+#endif
 	},
 	{
 		"hs_update",
@@ -14005,15 +14504,37 @@ boolean hs_scenario_postprocess(
 #endif
 	else
 	{
-		if (recompile)
-			error(0, "recompiling scripts after scenarios were merged.");
-		else if (!error_message)
-			error(0, "an unspecified error occurred loading scripts");
-		else if (!error_source)
-			error(0, "%s", error_message);
-		else
-			error(0, "%s: %s", error_source, error_message);
+		/* port: a Custom Edition map's scripts that do not load are
+		logged, and it plays without them, rather than halting the game
+		(it has no source to compile them from: Halo PC's tools leave none) */
+#ifdef HALO_CUSTOM_EDITION
+		extern boolean cache_file_tags_are_ce(void);
+		short priority = cache_file_tags_are_ce() ? _error_silent : _error_immediate;
+#else
+		short priority = _error_immediate;
+#endif
 
+		if (recompile)
+			error(priority, "recompiling scripts after scenarios were merged.");
+		else if (!error_message)
+			error(priority, "an unspecified error occurred loading scripts");
+		else if (!error_source)
+			error(priority, "%s", error_message);
+		else
+			error(priority, "%s: %s", error_source, error_message);
+
+#ifdef HALO_CUSTOM_EDITION
+		/* port: a Halo PC map's scripts are not compiled again: it has no
+		source, and its tags cannot be resized; it plays without them */
+		if (cache_file_tags_are_ce())
+		{
+			data_delete_all(hs_syntax_data);
+			scenario->hs_scripts.count = 0;
+			scenario->hs_globals.count = 0;
+			success = FALSE;
+		}
+		else
+#endif
 		if (hs_compile_source() && hs_compile_postprocess(&error_message, &error_source))
 		{
 			success = TRUE;

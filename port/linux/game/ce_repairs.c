@@ -26,7 +26,23 @@ or reads past a tag's end:
     model has a light for one, which Halo PC's engine drew with whatever it
     found there): given the model's first shader that is one, or else the
     map's first shader; one naming a shader with the salt of another build:
-    given the shader's own.
+    given the shader's own;
+  - the scenario the map's header names with a group other than the
+    scenario's (a map protector renames it: h2_ascension's, Headlong_PB2's
+    and pitfall's is 'prot'), which Halo PC's engine took as the scenario
+    whatever its group said: given the scenario's group, before the map's
+    scenario is checked (ce_map_checks.c);
+  - a tag whose parent groups are not its group's (Invader leaves a
+    vehicle's and a water shader's none: beavercreek_rev_beta's), which
+    the game's tag_get checks a vehicle against as an object: given its
+    group's;
+  - a model's or animation graph's nodes linked into a loop (a node's
+    sibling or child one reached already: [h3]_sandtrap's cyborg graph has
+    its spine's next sibling the pelvis, the first node), which the game
+    walks without end, past its arrays of nodes: that link cut; and a
+    node's link past the nodes (h2_ascension's has its parents a byte too
+    high, 256 for 1): a sibling or child cut, a parent made the one the
+    nodes' tree gives it.
 
 The repairs are made before the map is opened, to the image it is checked
 in (ce_map_checks.c, so that its checks see the map as it will play), and
@@ -84,6 +100,17 @@ enum
 	MODEL_SHADER_SIZE = 0x20,
 	MODEL_HEADER_SIZE = 0xe8,
 	SHADER_GROUP = 'shdr',
+	SCENARIO_GROUP = 'scnr',
+
+	/* a model's and an animation graph's nodes (model_definitions.h,
+	model_animation_definitions.h): each its next sibling, first child and
+	parent, at the same place; the most either has (ce_models.c) */
+	MODEL_NODES_OFFSET = 0xb8,
+	MODEL_NODE_SIZE = 0x9c,
+	ANIMATION_GRAPH_NODES_OFFSET = 0x68,
+	ANIMATION_GRAPH_NODE_SIZE = 0x40,
+	NODE_LINKS_OFFSET = 0x20,
+	CE_MAXIMUM_NODES = 64,
 };
 
 /* ---------- structures */
@@ -108,6 +135,8 @@ struct ce_repair_counts
 	long object_types;
 	long modifier_shaders;
 	long model_shaders;
+	long node_links;
+	long parent_groups;
 };
 
 /* ---------- globals */
@@ -116,6 +145,40 @@ struct ce_repair_counts
 static unsigned long const ce_object_type_groups[] =
 {
 	'bipd', 'vehi', 'weap', 'eqip', 'garb', 'proj', 'scen', 'mach', 'ctrl', 'lifi', 'plac', 'ssce',
+};
+
+/* the groups with parents, and their parents (tag_groups.c's, as Halo PC
+has them) */
+static struct
+{
+	unsigned long group_tag;
+	unsigned long parent_group_tags[2];
+} const ce_group_parents[] =
+{
+	{ 'bipd', { 'unit', 'obje' } },
+	{ 'vehi', { 'unit', 'obje' } },
+	{ 'weap', { 'item', 'obje' } },
+	{ 'eqip', { 'item', 'obje' } },
+	{ 'garb', { 'item', 'obje' } },
+	{ 'mach', { 'devi', 'obje' } },
+	{ 'ctrl', { 'devi', 'obje' } },
+	{ 'lifi', { 'devi', 'obje' } },
+	{ 'proj', { 'obje', 0xffffffff } },
+	{ 'scen', { 'obje', 0xffffffff } },
+	{ 'plac', { 'obje', 0xffffffff } },
+	{ 'ssce', { 'obje', 0xffffffff } },
+	{ 'unit', { 'obje', 0xffffffff } },
+	{ 'item', { 'obje', 0xffffffff } },
+	{ 'devi', { 'obje', 0xffffffff } },
+	{ 'senv', { 'shdr', 0xffffffff } },
+	{ 'soso', { 'shdr', 0xffffffff } },
+	{ 'sotr', { 'shdr', 0xffffffff } },
+	{ 'schi', { 'shdr', 0xffffffff } },
+	{ 'scex', { 'shdr', 0xffffffff } },
+	{ 'swat', { 'shdr', 0xffffffff } },
+	{ 'sgla', { 'shdr', 0xffffffff } },
+	{ 'smet', { 'shdr', 0xffffffff } },
+	{ 'spla', { 'shdr', 0xffffffff } },
 };
 
 /* the loaded map's tags (ce_repairs_tags_loaded), for its BSPs' */
@@ -147,6 +210,13 @@ static short ce_read_short(
 
 	memcpy(&value, at, sizeof(value));
 	return value;
+}
+
+static void ce_write_short(
+	byte *at,
+	short value)
+{
+	memcpy(at, &value, sizeof(value));
 }
 
 static struct ce_tag_instance *ce_instance(
@@ -363,21 +433,139 @@ static void ce_model_shaders_repair(
 	}
 }
 
+/* a model's or an animation graph's nodes (the block at field, each
+node_size bytes): a next sibling or first child past the nodes cut, then the
+nodes walked from the first, by next siblings and first children, as the
+game walks them, and a link to a node reached already cut; a parent past
+the nodes made the node's parent in that walk (none if it is not reached) */
+static void ce_node_links_repair(
+	struct ce_image const *image,
+	byte *field,
+	unsigned long node_size,
+	struct ce_repair_counts *counts)
+{
+	long node_count;
+	byte *nodes = ce_block(image, field, node_size, &node_count);
+	boolean reached[CE_MAXIMUM_NODES];
+	short parents[CE_MAXIMUM_NODES];
+	short queue[CE_MAXIMUM_NODES];
+	long read_index = 0, write_index = 0, index;
+
+	if (!nodes || node_count > CE_MAXIMUM_NODES)
+		return;
+	for (index = 0; index < node_count; index++)
+	{
+		byte *links = nodes + index * node_size + NODE_LINKS_OFFSET;
+		long link;
+
+		for (link = 0; link < 2; link++)
+		{
+			short linked = ce_read_short(links + link * sizeof(short));
+
+			if (linked != NONE && (linked < 0 || linked >= node_count))
+			{
+				ce_write_short(links + link * sizeof(short), NONE);
+				counts->node_links++;
+			}
+		}
+	}
+	memset(reached, 0, sizeof(reached));
+	reached[0] = TRUE;
+	parents[0] = NONE;
+	queue[write_index++] = 0;
+	while (read_index < write_index)
+	{
+		short node_index = queue[read_index++];
+		byte *links = nodes + node_index * node_size + NODE_LINKS_OFFSET;
+		long link;
+
+		/* (its next sibling, of its parent, then its first child) */
+		for (link = 0; link < 2; link++)
+		{
+			short linked = ce_read_short(links + link * sizeof(short));
+
+			if (linked == NONE)
+				continue;
+			if (reached[linked])
+			{
+				ce_write_short(links + link * sizeof(short), NONE);
+				counts->node_links++;
+				continue;
+			}
+			reached[linked] = TRUE;
+			parents[linked] = link ? node_index : parents[node_index];
+			queue[write_index++] = linked;
+		}
+	}
+	for (index = 0; index < node_count; index++)
+	{
+		byte *parent = nodes + index * node_size + NODE_LINKS_OFFSET + 2 * sizeof(short);
+		short parent_index = ce_read_short(parent);
+
+		if (parent_index != NONE && (parent_index < 0 || parent_index >= node_count))
+		{
+			ce_write_short(parent, reached[index] ? parents[index] : NONE);
+			counts->node_links++;
+		}
+	}
+}
+
+/* a tag given its group's parent groups, if it has others */
+static void ce_parent_groups_repair(
+	struct ce_tag_instance *instance,
+	struct ce_repair_counts *counts)
+{
+	long index;
+
+	for (index = 0; index < NUMBEROF(ce_group_parents); index++)
+	{
+		if (ce_group_parents[index].group_tag != instance->group_tag)
+			continue;
+		if (instance->parent_group_tags[0] != ce_group_parents[index].parent_group_tags[0] ||
+			instance->parent_group_tags[1] != ce_group_parents[index].parent_group_tags[1])
+		{
+			instance->parent_group_tags[0] = ce_group_parents[index].parent_group_tags[0];
+			instance->parent_group_tags[1] = ce_group_parents[index].parent_group_tags[1];
+			counts->parent_groups++;
+		}
+		return;
+	}
+}
+
 static void ce_repairs_log(
 	struct ce_repair_counts const *counts)
 {
 	if (ce_map_checking() || !(counts->predicted_resources_dropped | counts->predicted_resources_salted |
-		counts->object_types | counts->modifier_shaders | counts->model_shaders))
+		counts->object_types | counts->modifier_shaders | counts->model_shaders | counts->node_links |
+		counts->parent_groups))
 	{
 		return;
 	}
 	error(_error_silent, "%s map: %ld predicted resources dropped and %ld given their tags' salts, %ld object "
-		"types, %ld modifier shaders and %ld model shaders repaired", ce_map_cache_version == CE_CACHE_VERSION_RETAIL ?
-		"HaloMD" : "Custom Edition", counts->predicted_resources_dropped, counts->predicted_resources_salted,
-		counts->object_types, counts->modifier_shaders, counts->model_shaders);
+		"types, %ld modifier shaders and %ld model shaders repaired, %ld node links looping back or out of the nodes, "
+		"%ld tags' parent groups", ce_map_cache_version == CE_CACHE_VERSION_RETAIL ? "HaloMD" : "Custom Edition",
+		counts->predicted_resources_dropped, counts->predicted_resources_salted, counts->object_types,
+		counts->modifier_shaders, counts->model_shaders, counts->node_links, counts->parent_groups);
 }
 
 /* ---------- public code */
+
+/* the scenario the map's header names (scenario_tag_index, which must be a
+tag's handle) given the scenario's group if it has another; TRUE if it was */
+boolean ce_repairs_scenario_group(
+	void *tag_instances,
+	long tag_count,
+	unsigned long scenario_tag_index)
+{
+	struct ce_tag_instance *scenario = ce_instance_by_index(tag_instances, tag_count, scenario_tag_index);
+
+	if (!scenario || scenario->tag_index != scenario_tag_index || scenario->group_tag == SCENARIO_GROUP)
+		return FALSE;
+	scenario->group_tag = SCENARIO_GROUP;
+	scenario->parent_group_tags[0] = 0xffffffff;
+	scenario->parent_group_tags[1] = 0xffffffff;
+	return TRUE;
+}
 
 /* the map's tags repaired, in the image they are checked or loaded in (its
 resource maps' tags already copied in: ce_resources.c) */
@@ -391,6 +579,9 @@ void ce_repairs_apply(
 	long index;
 
 	memset(&counts, 0, sizeof(counts));
+	/* (first: the repairs below find objects and shaders by their parents) */
+	for (index = 0; index < tag_count; index++)
+		ce_parent_groups_repair(ce_instance(tag_instances, index), &counts);
 	for (index = 0; index < tag_count; index++)
 	{
 		struct ce_tag_instance *instance = ce_instance(tag_instances, index);
@@ -411,7 +602,18 @@ void ce_repairs_apply(
 					&counts);
 		}
 		else if (instance->group_tag == 'mod2')
+		{
 			ce_model_shaders_repair(image, instance, tag_instances, tag_count, &counts);
+			data = ce_image_pointer(image, instance->base_address, MODEL_NODES_OFFSET + 0xc);
+			if (data)
+				ce_node_links_repair(image, data + MODEL_NODES_OFFSET, MODEL_NODE_SIZE, &counts);
+		}
+		else if (instance->group_tag == 'antr')
+		{
+			data = ce_image_pointer(image, instance->base_address, ANIMATION_GRAPH_NODES_OFFSET + 0xc);
+			if (data)
+				ce_node_links_repair(image, data + ANIMATION_GRAPH_NODES_OFFSET, ANIMATION_GRAPH_NODE_SIZE, &counts);
+		}
 	}
 	{
 		struct ce_tag_instance *scenario = ce_instance_by_index(tag_instances, tag_count, scenario_tag_index);
@@ -439,6 +641,8 @@ void ce_repairs_tags_loaded(
 	image.size = CE_IMAGE_TAG_CACHE_SIZE;
 	ce_loaded_instances = tag_instances;
 	ce_loaded_tag_count = tag_count;
+	if (ce_repairs_scenario_group(tag_instances, tag_count, scenario_tag_index))
+		error(_error_silent, "Custom Edition map: its scenario given the scenario's group");
 	ce_repairs_apply(&image, tag_instances, tag_count, scenario_tag_index);
 }
 

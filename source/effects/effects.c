@@ -622,7 +622,16 @@ void effects_initialize(
 {
 	/* the native builds' larger effect pools (halo_port_capacity.h); a full
 	pool drops deterministic effects, damage included */
+#ifdef HALO_64BIT
+	/* an effect's impulse field holds native pointers, which make it larger
+	than the Xbox's 0xFC: in 0xFC slots, an effect's last particle counts
+	(an event's 21st particles on) were the next effect's identifier and
+	definition, and a deleted effect could come back with its freed
+	locations */
+	effect_data = game_state_data_new("effect", HALO_PORT_MAXIMUM_EFFECTS, sizeof(struct effect_datum));
+#else
 	effect_data = game_state_data_new("effect", HALO_PORT_MAXIMUM_EFFECTS, 0xFC);
+#endif
 	effect_location_data = game_state_data_new("effect location", HALO_PORT_MAXIMUM_EFFECT_LOCATIONS, 0x3C);
 	if (!effect_data || !effect_location_data)
 		error(_error_immediate, "couldn't allocate effect globals");

@@ -584,7 +584,10 @@ enum
 	CE_MAXIMUM_REGION_PERMUTATIONS = 32,
 	CE_MAXIMUM_MODEL_GEOMETRIES = 256,
 	CE_MAXIMUM_GEOMETRY_PARTS = 32,
-	CE_MAXIMUM_MODEL_SHADERS = 32,
+	/* (the tools' 32, but the game reads a model's shaders only through
+	their block, by its parts' shader indices, checked below: Halo PC's
+	engine took more, h3_foundry's spartan has 56; a part's index is a short) */
+	CE_MAXIMUM_MODEL_SHADERS = 0x7fff,
 	CE_MAXIMUM_PART_VERTICES = 0xffff,
 	CE_MAXIMUM_PART_TRIANGLES = 0xffff - 2,
 	CE_PART_SHADER_INDEX_OFFSET = 0x04,
@@ -923,6 +926,8 @@ enum
 	ANIMATION_GRAPH_NODE_SIZE = 0x40,
 	ANIMATION_GRAPH_NODE_LINKS_OFFSET = 0x20,
 	ANIMATION_SIZE = 0xb4,
+	ANIMATION_TYPE_OFFSET = 0x20,
+	ANIMATION_TYPE_BASE = 0,
 	ANIMATION_NODE_COUNT_OFFSET = 0x2c,
 	ANIMATION_FRAME_INFO_OFFSET = 0x48,
 	ANIMATION_DEFAULT_DATA_OFFSET = 0x8c,
@@ -1038,8 +1043,14 @@ static boolean ce_animation_graph_check(
 }
 
 /* every animation graph of a map being checked (ce_animation_graph_check),
-and every object's: of no more nodes than its model, whose nodes the game
-keeps for it (a limp body's are posed by its graph's: biped_limp_noodle.c) */
+and every object's against its model, whose nodes the game keeps for it (one
+without a model, one): its overlays and replacements, which the game poses
+the object's nodes with, node for node (objects.c, units.c, devices.c), of no
+more nodes than the model. A graph of more nodes is otherwise let be, as Halo PC's engine let
+it (beavercreek_rev_beta's DMR has a pistol's graph of 7 nodes and a model of
+1): its base animations pose an object only when they are of its model's
+nodes (model_animations.c), and a limp body of more is posed in a copy of the
+biped's nodes (biped_limp_noodle.c) */
 boolean ce_animations_check(
 	struct ce_image const *image,
 	void const *tag_instances,
@@ -1062,7 +1073,7 @@ boolean ce_animations_check(
 			index * CE_TAG_INSTANCE_SIZE);
 		struct ce_tag_instance const *model, *graph;
 		byte const *object, *model_data, *graph_data;
-		long model_nodes, graph_nodes;
+		long model_nodes;
 
 		if (instance->group_tag != CE_OBJECT_GROUP && instance->parent_group_tags[0] != CE_OBJECT_GROUP &&
 			instance->parent_group_tags[1] != CE_OBJECT_GROUP)
@@ -1076,19 +1087,38 @@ boolean ce_animations_check(
 			(unsigned long)ce_read_long32(object + OBJECT_MODEL_INDEX_OFFSET), 'mod2');
 		graph = ce_tag_of_group(tag_instances, tag_count,
 			(unsigned long)ce_read_long32(object + OBJECT_ANIMATION_GRAPH_INDEX_OFFSET), 'antr');
-		if (!model || !graph)
+		if (!graph || (!model && ce_read_long32(object + OBJECT_MODEL_INDEX_OFFSET) != NONE))
 			continue;
 		/* (both checked: ce_models_check, above) */
-		model_data = ce_image_pointer(image, model->base_address, MODEL_HEADER_SIZE);
+		model_data = model ? ce_image_pointer(image, model->base_address, MODEL_HEADER_SIZE) : NULL;
 		graph_data = ce_image_pointer(image, graph->base_address, ANIMATION_GRAPH_SIZE);
-		if (!model_data || !graph_data)
+		if ((model && !model_data) || !graph_data)
 			continue;
-		model_nodes = ce_read_long32(model_data + MODEL_NODES_OFFSET);
-		graph_nodes = ce_read_long32(graph_data + ANIMATION_GRAPH_NODES_OFFSET);
-		if (graph_nodes > model_nodes)
+		model_nodes = model_data ? ce_read_long32(model_data + MODEL_NODES_OFFSET) : 1;
+		/* (its graph's overlays and replacements: each of no more nodes than its
+		model) */
 		{
-			return ce_refuse("object %s: its animation graph has %ld nodes, its model %ld",
-				ce_image_tag_name(image, instance), graph_nodes, model_nodes);
+			byte *animations;
+			long animation_count, animation;
+
+			if (!ce_image_block(image, graph_data + ANIMATION_GRAPH_ANIMATIONS_OFFSET, ANIMATION_SIZE,
+				CE_MAXIMUM_GRAPH_ANIMATIONS, ce_image_tag_name(image, graph), &animation_count, &animations))
+			{
+				return FALSE;
+			}
+			for (animation = 0; animation < animation_count; animation++)
+			{
+				byte const *at = animations + animation * ANIMATION_SIZE;
+
+				if (ce_read_short(at + ANIMATION_TYPE_OFFSET) != ANIMATION_TYPE_BASE &&
+					ce_read_short(at + ANIMATION_NODE_COUNT_OFFSET) > model_nodes)
+				{
+					return ce_refuse("object %s: an overlay or replacement of its animation graph has %d nodes, its "
+						"model %ld",
+						ce_image_tag_name(image, instance), ce_read_short(at + ANIMATION_NODE_COUNT_OFFSET),
+						model_nodes);
+				}
+			}
 		}
 	}
 	return TRUE;

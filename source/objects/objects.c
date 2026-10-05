@@ -1857,9 +1857,11 @@ short object_get_marker_by_name(
 
 	struct object_datum const *object = object_get(object_index);
 	struct object_definition const *object_definition = object_definition_get(object->definition_index);
-	struct object_datum *matrix_object = object_get(object_index);
-	real_matrix4x3 const *matrices = (real_matrix4x3 *)object_header_block_get(object_index,
-		&matrix_object->object.node_matrices);
+	/* port: the matrices the renderer draws with, so a marker an effect, a
+	particle system or a contrail hangs off moves as the object does, between
+	the ticks too (port/linux/game/render_interpolation.c). While a tick runs,
+	which is when the game asks for markers, this is the same array. */
+	real_matrix4x3 const *matrices = object_get_node_matrices(object_index);
 
 	marker = model_get_marker_by_name(
 		object_definition->object.model.index,
@@ -2273,6 +2275,12 @@ void object_export_function_values(
 				break;
 			default:
 				region_index = object_definition->object.function_modes[i]-_object_function_first_region_damage;
+				/* port: a mode that is no region's damage (the umbrella
+				shield's, or past the modes: a Halo PC map's object may have
+				one, shipment-cod4's) exports 0; it asserted here, and read
+				past the object's regions */
+				if (region_index<0 || region_index>=MAXIMUM_REGIONS_PER_OBJECT)
+					break;
 				match_assert("c:\\halo\\SOURCE\\objects\\objects.c", 2630, region_index>=0 && region_index<MAXIMUM_REGIONS_PER_OBJECT);
 				value = object->object.region_damage[region_index] / 255.f;
 				break;
