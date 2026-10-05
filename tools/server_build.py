@@ -37,6 +37,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
+from .embed_webui import webui_inputs
 from .linux64_build import LINUX64_GAME_FLAGS, LINUX64_POSIX_FLAGS
 from .linux_build import (
     MONOCYPHER_DIR,
@@ -57,9 +58,12 @@ SERVER_PLATFORM_DIR = SERVER_DIR / "platform"
 # the ones it leaves out)
 SERVER_PLATFORM_SOURCES = [SERVER_PLATFORM_DIR / "server_platform.c", SERVER_PLATFORM_DIR / "server_input.c"]
 # and with the host's ABI: SDL's few utility functions, glibc's backtrace,
-# and the console and control API (server/docs/admin.md)
+# and the console, control API and web admin page (server/docs/admin.md;
+# the page's files are embedded by tools/embed_webui.py)
 SERVER_NATIVE_SOURCES = [SERVER_PLATFORM_DIR / "sdl_headless.c", SERVER_PLATFORM_DIR / "backtrace.c",
-                         SERVER_PLATFORM_DIR / "control_protocol.c", SERVER_PLATFORM_DIR / "server_control.c"]
+                         SERVER_PLATFORM_DIR / "control_protocol.c", SERVER_PLATFORM_DIR / "control_web.c",
+                         SERVER_PLATFORM_DIR / "server_control.c"]
+SERVER_WEBUI_DIR = SERVER_DIR / "webui"
 # the window, input and self-updater the server has none of
 SERVER_EXCLUDED = {
     "port/linux/src/sdl_platform.c",
@@ -184,7 +188,20 @@ def server_configure_inputs() -> List[Path]:
     """Files whose change must re-run configure.py."""
     if not PORT_CONFIG.is_file():
         return [Path(__file__)]
-    return [Path(__file__), SERVER_PLATFORM_DIR, *lp64_configure_inputs(), *hud_configure_inputs()]
+    return [Path(__file__), SERVER_PLATFORM_DIR, SERVER_WEBUI_DIR, Path("tools/embed_webui.py"),
+            *lp64_configure_inputs(), *hud_configure_inputs()]
+
+
+def webui_build(n: Writer, prefix: str, output: Path) -> List[Path]:
+    """Emits the rule that embeds the web admin page's files
+    (tools/embed_webui.py); returns [output]."""
+    n.rule(
+        name=f"{prefix}_embed_webui",
+        command="$python tools/embed_webui.py $out",
+        description=f"{prefix.upper()} EMBED $out",
+    )
+    n.build(outputs=output, rule=f"{prefix}_embed_webui", implicit=[Path("tools/embed_webui.py"), *webui_inputs()])
+    return [output]
 
 
 def _link_rule(n: Writer, name: str, static: bool) -> None:
@@ -237,6 +254,9 @@ def generate_server_build(n: Writer, sln: Any) -> None:
         lto_cflags, lto_ldflags = lto_flags(sln, build_dir / "thinlto-cache")
         generated = (hud_assets_build(n, rule_name, build_dir / "generated" / "hud_hires_assets.c")
                      + ui_fonts_build(n, rule_name, build_dir / "generated" / "ui_fonts.c", server_sln))
+        # (the web admin page's files: plain bytes, with the host's ABI as
+        # control_web.c, which serves them)
+        native_sources = SERVER_NATIVE_SOURCES + webui_build(n, rule_name, build_dir / "generated" / "webui_assets.c")
 
         if arch.lp64:
             lp64 = Lp64Build(n, server_sln, rule_name, cc, extra_roots=[SERVER_PLATFORM_DIR])
@@ -248,7 +268,7 @@ def generate_server_build(n: Writer, sln: Any) -> None:
                 host_include=" ".join(include_flags),
                 third_party_flags=["-fno-builtin-wcslen"],
                 excluded=set(lp64_excluded()) | SERVER_EXCLUDED,
-                host_sources=SERVER_NATIVE_SOURCES,
+                host_sources=native_sources,
                 platform_sources=SERVER_PLATFORM_SOURCES,
             )
             objects = lp64.objects(host, generated, build_dir / "obj", lto_cflags)
@@ -269,7 +289,7 @@ def generate_server_build(n: Writer, sln: Any) -> None:
                 platform_semantics_header=linux_dir / "platform_msvc_semantics.h",
                 embedded_assets=generated, rule=f"{rule_name}_cc", target_flags=target,
                 extra_flags=[*arch.flags, *defines], excluded=SERVER_EXCLUDED,
-                platform_sources=SERVER_PLATFORM_SOURCES, native_sources=SERVER_NATIVE_SOURCES,
+                platform_sources=SERVER_PLATFORM_SOURCES, native_sources=native_sources,
                 include_flags=include_flags,
             )
             objects = linux32_objects(n, units, build_dir / "obj", lto_cflags, [])
