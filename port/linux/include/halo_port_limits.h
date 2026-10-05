@@ -69,15 +69,12 @@ Raise it with any change to what the machines send each other. */
 #define HALO_PORT_NETWORK_VERSION 16
 /* ... the versions whose hosts a client joins: its own, and those that differ
 from it only in what the other machines leave out (a message a machine of
-the other version does not know it drops). Version 11 (OpenCE's build-76's)
-adds the gametype's PC options to the game settings record every machine
-reads (HALO_PORT_NETWORK_GAME_VARIANT_OPTIONS_OFFSET). OpenCE's versions 12
-(build-118), 13 (build-119) and 14 add only network co-op's messages (its
-presentation, object names, skip votes, extra enemies, devices' positions,
-units opening and closing), which a multiplayer game never sends and an
-older machine drops: 11 through 14 play multiplayer together. A host never checks a client's version: the client does
-(network_client_manager.c), so the range is the client's. Widen it only
-for a version read and found to differ so. */
+the other version does not know it drops). Which are which is delta.h's
+table (DELTA_LEGACY_VERSIONS): the minimum is its newest breaking version,
+the maximum and the version above its newest (tools/test_delta.py checks
+them; they stay numbers here, which the command repository reads). A host
+never checks a client's version: the client does (network_client_manager.c),
+so the range is the client's. */
 #define HALO_PORT_NETWORK_VERSION_MINIMUM 11
 #define HALO_PORT_NETWORK_VERSION_MAXIMUM 16
 /* ... the advertisement's reserved bytes: the version (a little-endian word),
