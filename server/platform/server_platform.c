@@ -238,11 +238,21 @@ BOOL platform_screen_mode(long *width, long *height)
 	return FALSE;
 }
 
-BOOL platform_window_pixel_size(long *width, long *height)
+/* (Video Setup's lists: a server has no display) */
+int platform_display_resolutions(long *widths, long *heights, int maximum)
 {
-	(void)width;
-	(void)height;
-	return FALSE;
+	(void)widths;
+	(void)heights;
+	(void)maximum;
+	return 0;
+}
+
+int platform_window_sizes(long *widths, long *heights, int maximum)
+{
+	(void)widths;
+	(void)heights;
+	(void)maximum;
+	return 0;
 }
 
 BOOL platform_video_initialize(unsigned long width, unsigned long height)

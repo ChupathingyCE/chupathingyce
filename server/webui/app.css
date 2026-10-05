@@ -1,0 +1,226 @@
+/* The dedicated server's web admin page (server/docs/admin.md). No web
+fonts, no images but the icon: everything is this file and app.js. */
+
+:root {
+  --bg: #eef1ef;
+  --panel: #ffffff;
+  --line: #cfd6d2;
+  --text: #17201b;
+  --muted: #5b6862;
+  --accent: #4f7d2b;
+  --accent-text: #ffffff;
+  --danger: #a3332b;
+  --danger-text: #ffffff;
+  --field: #f7f9f8;
+  --bar: #1e2a24;
+  --bar-text: #e3ebe6;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1412;
+    --panel: #18201c;
+    --line: #2c3832;
+    --text: #dfe7e2;
+    --muted: #8d9b94;
+    --accent: #7fb34a;
+    --accent-text: #0d130f;
+    --danger: #d4574c;
+    --danger-text: #140a09;
+    --field: #111815;
+    --bar: #0a0e0c;
+    --bar-text: #cfdad3;
+    --shadow: none;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+[hidden] { display: none !important; }
+
+code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--bar);
+  color: var(--bar-text);
+  border-bottom: 3px solid var(--accent);
+}
+
+.brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.brand-name { font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; font-size: 14px; }
+.brand-sub { color: var(--muted); font-size: 13px; letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.who { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.who .quiet { color: var(--bar-text); border-color: rgba(255, 255, 255, 0.25); }
+
+main { max-width: 960px; margin: 0 auto; padding: 16px; }
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+  scrollbar-width: none;
+}
+
+.tabs button {
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+  padding: 8px 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 12px;
+  box-shadow: var(--shadow);
+}
+
+.login { max-width: 420px; margin: 40px auto; }
+
+h1, h2 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+h1 { font-size: 15px; }
+h2 + h2, .row + h2, .table-wrap + h2 { margin-top: 20px; }
+.count { color: var(--muted); font-weight: 500; letter-spacing: 0.02em; text-transform: none; }
+
+.hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+.error { color: var(--danger); min-height: 1.4em; margin: 8px 0 0; }
+
+.notice {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  background: var(--panel);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  font-size: 14px;
+}
+
+.notice.bad { border-left-color: var(--danger); }
+
+label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+label.check { flex-direction: row; align-items: center; gap: 6px; }
+
+input, select, button {
+  font: inherit;
+  color: inherit;
+}
+
+input, select {
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 8px 10px;
+  color: var(--text);
+  min-width: 0;
+}
+
+input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+button {
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 8px 14px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+button:disabled { opacity: 0.5; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+button.danger { background: var(--danger); border-color: var(--danger); color: var(--danger-text); font-weight: 600; }
+button.quiet { background: none; padding: 4px 10px; font-size: 13px; }
+button.small { padding: 4px 10px; font-size: 13px; }
+
+#login-form { display: flex; flex-direction: column; gap: 10px; }
+
+.row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-bottom: 12px; }
+.row.end { justify-content: flex-end; margin: 12px 0 0; }
+
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+.facts dt { color: var(--muted); font-size: 13px; }
+.facts dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.actions { white-space: nowrap; }
+td.actions button + button { margin-left: 6px; }
+tr.current td { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+td.empty { color: var(--muted); text-align: center; padding: 16px; }
+.team-red { color: #c0392b; font-weight: 600; }
+.team-blue { color: #2f6db5; font-weight: 600; }
+
+.log {
+  margin: 0;
+  height: 60vh;
+  min-height: 240px;
+  overflow: auto;
+  padding: 10px;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+dialog {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 16px;
+  width: min(420px, calc(100vw - 32px));
+}
+
+dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+dialog label { margin-top: 8px; }
+
+@media (max-width: 560px) {
+  .brand-sub { display: none; }
+  main { padding: 12px; }
+  .panel { padding: 12px; }
+  .row > label { flex: 1 1 100%; }
+  .row > button { flex: 1 1 auto; }
+  th, td { padding: 6px 5px; }
+}

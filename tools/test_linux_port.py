@@ -304,11 +304,21 @@ def test_menu_settings_exist():
     assert controls == set(re.findall(r'\{ "(controls\.[a-z_]+)", L"', functions))
 
 
-def _platform_layer_flags(target):
-    """the flags ninja gives the platform layer's units (p2p_crypto.c's) in
-    the build at target ("linux", "macos"), less its output and dependency
-    files, link-time optimization and profile; None if there is no such
-    configured build or no clang and ninja to use it"""
+def test_default_brokers_are_brokers_txt():
+    """The brokers a game uses with no brokers.txt beside its config.toml
+    (p2p_signal.c's DEFAULT_BROKERS) are port/assets/network/brokers.txt's."""
+    root = MENUS.parent.parent.parent
+    listed = [line.split("#", 1)[0].strip()
+              for line in (root / "port/assets/network/brokers.txt").read_text().splitlines()]
+    default = re.search(r'^#define DEFAULT_BROKERS "([^"]*)"',
+                        (root / "port/linux/src/p2p_signal.c").read_text(), re.M).group(1)
+    assert default.split(",") == [line for line in listed if line]
+
+
+def test_p2p_signatures_and_listings(tmp_path):
+    """internet play's Ed25519 (RFC 8032), the X25519 key of a seed, and the
+    server browser's listings from host to browser (tools/p2p_lobby_check.c),
+    built with the flags ninja gives the platform layer"""
     import shlex
 
     if not shutil.which("clang") or not shutil.which("ninja") or not Path("build.ninja").is_file():

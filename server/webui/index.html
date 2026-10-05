@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
+<title>Server Admin</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<header class="bar">
+  <div class="brand">
+    <img src="/icon.svg" alt="" width="22" height="22">
+    <span class="brand-name">ChupathingyCE</span>
+    <span class="brand-sub">Dedicated Server</span>
+  </div>
+  <div class="who" id="who" hidden>
+    <span id="who-name"></span>
+    <button type="button" class="quiet" id="logout">Log out</button>
+  </div>
+</header>
+
+<main>
+  <section id="login" class="panel login" hidden>
+    <h1>Log in</h1>
+    <p class="hint">Paste a control token. The server printed one the first time its control API was turned on; <code>sv_admin_add</code> on its console makes more.</p>
+    <form id="login-form" autocomplete="off">
+      <label for="token">Token</label>
+      <input id="token" name="token" type="password" spellcheck="false" autocapitalize="off" placeholder="chce_..." required>
+      <button type="submit" class="primary">Log in</button>
+      <p class="error" id="login-error" role="alert"></p>
+    </form>
+  </section>
+
+  <div id="app" hidden>
+    <nav class="tabs" role="tablist">
+      <button type="button" role="tab" data-tab="status" aria-selected="true">Status</button>
+      <button type="button" role="tab" data-tab="players">Players</button>
+      <button type="button" role="tab" data-tab="maps">Maps</button>
+      <button type="button" role="tab" data-tab="bans">Bans</button>
+      <button type="button" role="tab" data-tab="log">Log</button>
+      <button type="button" role="tab" data-tab="settings">Settings</button>
+    </nav>
+
+    <p class="notice" id="notice" role="status" hidden></p>
+
+    <section class="panel" data-panel="status">
+      <h2>Status</h2>
+      <dl class="facts" id="status-facts"></dl>
+    </section>
+
+    <section class="panel" data-panel="players" hidden>
+      <h2>Players <span class="count" id="players-count"></span></h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Name</th><th>Team</th><th class="num">Score</th><th class="num">Ping</th><th>Actions</th></tr></thead>
+          <tbody id="players-body"></tbody>
+        </table>
+      </div>
+      <p class="hint">A kick drops every player on that machine (split screen); they may join again. A ban keeps the machine out by its hardware id and address.</p>
+    </section>
+
+    <section class="panel" data-panel="maps" hidden>
+      <h2>Play a map</h2>
+      <form id="map-form" class="row">
+        <label>Map <select id="map-select" required></select></label>
+        <label>Game type <select id="type-select" required></select></label>
+        <button type="submit" class="primary">Play now</button>
+      </form>
+      <div class="row">
+        <button type="button" id="skip">Skip to next entry</button>
+        <button type="button" id="end-game">End game</button>
+      </div>
+      <h2>Playlist <span class="count" id="playlist-name"></span></h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Map</th><th>Game type</th><th></th></tr></thead>
+          <tbody id="playlist-body"></tbody>
+        </table>
+      </div>
+      <p class="hint" id="playlist-extra"></p>
+    </section>
+
+    <section class="panel" data-panel="bans" hidden>
+      <h2>Bans <span class="count" id="bans-count"></span></h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>When</th><th>Players</th><th>Left</th><th>Reason</th><th></th></tr></thead>
+          <tbody id="bans-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="log" hidden>
+      <h2>Log</h2>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="log-follow" checked> Follow</label>
+        <button type="button" class="quiet" id="log-clear">Clear view</button>
+      </div>
+      <pre class="log" id="log-lines"></pre>
+    </section>
+
+    <section class="panel" data-panel="settings" hidden>
+      <h2>Settings</h2>
+      <p class="hint">These last until the server restarts; its environment sets what it starts with.</p>
+      <form id="name-form" class="row">
+        <label>Server name <input id="name-input" maxlength="15" required></label>
+        <button type="submit">Set name</button>
+      </form>
+      <form id="max-form" class="row">
+        <label>Most players <input id="max-input" type="number" min="1" max="128" required></label>
+        <button type="submit">Set</button>
+      </form>
+    </section>
+  </div>
+</main>
+
+<dialog id="confirm">
+  <form method="dialog">
+    <p id="confirm-text"></p>
+    <label id="confirm-duration-label" hidden>For
+      <select id="confirm-duration">
+        <option value="30m">30 minutes</option>
+        <option value="2h">2 hours</option>
+        <option value="1d" selected>1 day</option>
+        <option value="7d">7 days</option>
+        <option value="30d">30 days</option>
+        <option value="forever">Forever</option>
+      </select>
+    </label>
+    <div class="row end">
+      <button value="cancel" type="submit">Cancel</button>
+      <button value="ok" type="submit" class="danger" id="confirm-ok">Confirm</button>
+    </div>
+  </form>
+</dialog>
+</body>
+</html>

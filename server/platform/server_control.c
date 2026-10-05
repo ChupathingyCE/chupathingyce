@@ -18,6 +18,7 @@ which is warned of: it is plain HTTP, for a tunnel or a TLS proxy in front).
   GET  /v1/players   its players (sv_players, as JSON)
   POST /v1/command   {"command": "sv_kick 3"}: a command run, its output
   GET  /v1/log?since=<n>  the recent lines of the server's log after line n
+  GET  /v1/bans, /v1/mapcycle, /v1/maps  sv_banlist, sv_mapcycle, sv_maps
 Every request needs a token (Authorization: Bearer <token>). There is no
 default: the first time the API is on, the server makes one, prints it once
 on its standard output, and keeps only its Argon2id hash, salted, in the
@@ -31,12 +32,29 @@ a connection that does not send one soon is closed. Every command the API
 runs is logged with the credential it came with; reads (status, players,
 the log) are not, a web page asks for them every few seconds.
 
+The web admin page (control_web.h): its files (GET /, /app.js, ...) from
+the program itself, to anyone; everything else as the API, with a session
+instead of a bearer token: POST /v1/login with a token makes one (a random
+id in an HttpOnly, SameSite=Strict cookie; only its keyed hash kept, with
+an idle and an absolute expiry), GET /v1/session tells its CSRF token, and
+every POST of a session must carry it (X-CSRF-Token) and come from this
+server's own page; POST /v1/logout ends it. Logins count against the same
+limits as tokens, and are logged, as is every command a session runs
+("web <name> <id>"). Every response carries a strict
+Content-Security-Policy and no-caching headers.
+
+The console's sv_admin_* commands (run here, never the API's) manage the
+credentials file: one credential (a token of its own) for each admin, a
+new token for one, or one taken out; a token is printed once, on the
+console, and its hash kept.
+
 The log lines the API hands out (control_log, from errors.c and
 platform_log) are kept in a ring here, any public address in them hidden
 (control_protocol.h), whatever debug.log_addresses says.
 */
 
 #include "control_protocol.h"
+#include "control_web.h"
 
 #include "monocypher.h"
 
@@ -55,6 +73,15 @@ platform_log) are kept in a ring here, any public address in them hidden
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+
+/* (Linux's; the tests' harness builds this unit on macOS too, which has
+neither: server/tests/control_harness.c) */
+#ifndef SOCK_CLOEXEC
+#define SOCK_CLOEXEC 0
+#endif
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
 
 /* the platform layer's (xbox_files.c, log_address.c): plain types */
 const char *platform_data_root(void);
@@ -128,7 +155,7 @@ struct ticket
 	/* (the order they came in) */
 	unsigned long long sequence;
 	char line[CONTROL_MAXIMUM_COMMAND];
-	char source[64];
+	char source[80];
 	/* the console's (its output printed), else the API connection's */
 	int console;
 	int ok;
@@ -182,6 +209,14 @@ static struct
 	struct connection connections[MAXIMUM_CONNECTIONS];
 	struct control_credential credentials[MAXIMUM_CREDENTIALS];
 	int credential_count;
+	/* the credentials file's lines that were no credential (it is then not
+	rewritten: sv_admin_* refuse) */
+	int credentials_skipped;
+	/* the listener's address is the loopback's; the web page was reached
+	straight over the network once (warned of) */
+	int listener_loopback;
+	int warned_direct;
+	struct control_web_sessions sessions;
 	/* the tokens checked right this run, by a keyed hash of each */
 	uint8_t run_key[32];
 	uint8_t remembered[MAXIMUM_CREDENTIALS][32];
@@ -329,6 +364,7 @@ static int load_credentials(void)
 				!control_credential_parse(line, &control.credentials[control.credential_count]))
 			{
 				notice("line %d of %s is not a credential; it is left out", line_number, CREDENTIALS_FILE);
+				control.credentials_skipped++;
 				continue;
 			}
 			control.credential_count++;
@@ -565,12 +601,13 @@ static int start_listener(const char *setting)
 		return 0;
 	}
 	control.listener = fd;
-	notice("the control API listens on %s (HTTP; server/docs/admin.md)", setting);
+	control.listener_loopback = loopback;
+	notice("the control API and web admin page listen on %s (HTTP; server/docs/admin.md)", setting);
 	if (!loopback)
 	{
-		notice("WARNING: the control API listens beyond this machine (%s). It is plain HTTP: reach it through "
-			"an SSH tunnel, a private network such as Tailscale, or a TLS reverse proxy, and firewall the port",
-			setting);
+		notice("WARNING: the control API and web admin page listen beyond this machine (%s). They are plain HTTP: "
+			"reach them through an SSH tunnel, a private network such as Tailscale, or a TLS reverse proxy, and "
+			"firewall the port", setting);
 	}
 	return 1;
 }
@@ -597,27 +634,28 @@ static void close_connection(struct connection *connection)
 	connection->state = CONNECTION_FREE;
 }
 
-/* a response, with a JSON body (taken: freed with the connection) */
-static void respond(struct connection *connection, int status, char *body, const char *extra_headers)
+/* a response: its body (length bytes, copied) of a type, and the security
+headers every response has (control_web.h) */
+static void respond_bytes(struct connection *connection, int status, const char *type, const void *body,
+	size_t body_length, const char *extra_headers)
 {
-	char head[512];
-	size_t body_length = body ? strlen(body) : 0;
+	char head[2048];
 	int head_length = snprintf(head, sizeof(head),
 		"HTTP/1.1 %d %s\r\n"
-		"Content-Type: application/json; charset=utf-8\r\n"
+		"Content-Type: %s\r\n"
 		"Content-Length: %lu\r\n"
-		"Cache-Control: no-store\r\n"
-		"X-Content-Type-Options: nosniff\r\n"
+		"%s"
 		"Connection: close\r\n"
 		"%s"
-		"\r\n", status, control_status_text(status), (unsigned long)body_length, extra_headers ? extra_headers : "");
-	char *response = malloc((size_t)head_length + body_length + 1);
+		"\r\n", status, control_status_text(status), type, (unsigned long)body_length, control_web_security_headers(),
+		extra_headers ? extra_headers : "");
+	char *response = head_length > 0 && (size_t)head_length < sizeof(head) ?
+		malloc((size_t)head_length + body_length + 1) : NULL;
 
 	free(connection->response);
 	connection->response = NULL;
 	if (!response)
 	{
-		free(body);
 		close_connection(connection);
 		return;
 	}
@@ -625,12 +663,21 @@ static void respond(struct connection *connection, int status, char *body, const
 	if (body_length)
 		memcpy(response + head_length, body, body_length);
 	response[head_length + body_length] = 0;
-	free(body);
 	connection->response = response;
 	connection->response_length = (size_t)head_length + body_length;
 	connection->sent = 0;
 	connection->state = CONNECTION_WRITING;
 	connection->deadline = monotonic_seconds() + RESPONSE_SECONDS;
+}
+
+/* a response, with a JSON body (taken: freed here) */
+static void respond(struct connection *connection, int status, char *body, const char *extra_headers)
+{
+	respond_bytes(connection, status, "application/json; charset=utf-8", body, body ? strlen(body) : 0,
+		extra_headers);
+	if (body)
+		crypto_wipe(body, strlen(body));
+	free(body);
 }
 
 /* {"error": "<reason>"} */
@@ -728,73 +775,324 @@ static void address_text(const uint8_t address[16], char *text, int size)
 		log_address(address, 16, -1, text, size);
 }
 
-static void handle_request(struct connection *connection, struct control_request *request)
+/* the credential with an id (its index), or -1 */
+static int credential_by_id(const char *id)
 {
-	int64_t now = monotonic_seconds();
+	int index;
+
+	for (index = 0; index < control.credential_count; index++)
+	{
+		if (!strcmp(control.credentials[index].id, id))
+			return index;
+	}
+	return -1;
+}
+
+/* the web page reached straight over the network, no reverse proxy in
+front: warned of once a run (its token and cookie cross it in the clear,
+unless the network is private, as Tailscale's is) */
+static void warn_direct(struct connection *connection, const struct control_request *request)
+{
+	static const uint8_t loopback4[13] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127 };
+	static const uint8_t loopback6[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
+	char address[64];
+
+	if (control.warned_direct || control.listener_loopback || request->proxied ||
+		!memcmp(connection->address, loopback4, sizeof(loopback4)) ||
+		!memcmp(connection->address, loopback6, sizeof(loopback6)))
+	{
+		return;
+	}
+	control.warned_direct = 1;
+	address_text(connection->address, address, sizeof(address));
+	notice("WARNING: the web admin page was reached from %s straight over the network, with no reverse proxy in "
+		"front: its token and session cookie cross the network unencrypted. Unless this is a private network such "
+		"as Tailscale, reach it through an SSH tunnel or a TLS reverse proxy instead (server/docs/admin.md)", address);
+}
+
+/* a token checked as the API checks one (the limits, Argon2id, the audit
+line for a wrong one): the credential's index, or -1 with the response
+given */
+static int check_token(struct connection *connection, const char *token, int64_t now, const char *what,
+	const char *challenge)
+{
 	int64_t retry_after;
 	int credential;
-	char source[64];
-	char command[CONTROL_MAXIMUM_COMMAND];
-	const char *line = NULL;
-	int flags = 0;
-	int ticket;
+	char address[64];
 
 	/* (an address refused for wrong tokens still gets in with a token
 already checked right this run: behind a reverse proxy, everyone's address
 is the proxy's, and the admin is not locked out by someone guessing) */
-	if (!(request->authorization == CONTROL_AUTHORIZATION_BEARER && control_token_valid(request->token) &&
-		remembered_credential(request->token) >= 0) &&
+	if (!(control_token_valid(token) && remembered_credential(token) >= 0) &&
 		!control_limiter_allowed(&control.limiter, connection->address, now, &retry_after))
 	{
 		char headers[64];
 
 		snprintf(headers, sizeof(headers), "Retry-After: %lld\r\n", (long long)retry_after);
 		respond_error(connection, 429, "too many wrong tokens from this address: try again later", headers);
-		return;
+		return -1;
 	}
-	if (request->authorization != CONTROL_AUTHORIZATION_BEARER || !control_token_valid(request->token) ||
-		!control.credential_count)
+	if (!control_token_valid(token) || !control.credential_count)
 	{
-		char address[64];
-
-		if (request->authorization != CONTROL_AUTHORIZATION_NONE)
-		{
-			control_limiter_failed(&control.limiter, connection->address, now);
-			address_text(connection->address, address, sizeof(address));
-			notice("a control API request with a malformed token, from %s", address);
-		}
-		crypto_wipe(request->token, sizeof(request->token));
-		respond_error(connection, 401, "a token is needed: Authorization: Bearer <token>",
-			"WWW-Authenticate: Bearer realm=\"chupathingyce-server\"\r\n");
-		return;
+		control_limiter_failed(&control.limiter, connection->address, now);
+		address_text(connection->address, address, sizeof(address));
+		notice("a %s with a malformed token, from %s", what, address);
+		respond_error(connection, 401, "the token is not right", challenge);
+		return -1;
 	}
-	credential = authenticate(request->token, now);
-	crypto_wipe(request->token, sizeof(request->token));
+	credential = authenticate(token, now);
 	if (credential == -2)
 	{
 		respond_error(connection, 429, "too many tokens checked: try again shortly", "Retry-After: 5\r\n");
-		return;
+		return -1;
 	}
 	if (credential == -3)
 	{
 		respond_error(connection, 503, "no memory to check the token", NULL);
-		return;
+		return -1;
 	}
 	if (credential < 0)
 	{
-		char address[64];
-
 		control_limiter_failed(&control.limiter, connection->address, now);
 		address_text(connection->address, address, sizeof(address));
-		notice("a control API request with a wrong token, from %s", address);
-		respond_error(connection, 401, "the token is not right",
-			"WWW-Authenticate: Bearer realm=\"chupathingyce-server\", error=\"invalid_token\"\r\n");
-		return;
+		notice("a %s with a wrong token, from %s", what, address);
+		respond_error(connection, 401, "the token is not right", challenge);
+		return -1;
 	}
 	control_limiter_succeeded(&control.limiter, connection->address);
-	snprintf(source, sizeof(source), "api %s %s", control.credentials[credential].name,
-		control.credentials[credential].id);
+	return credential;
+}
 
+/* POST /v1/login, {"token": "..."}: a session, its cookie set */
+static void handle_login(struct connection *connection, struct control_request *request, int64_t now)
+{
+	char token[CONTROL_MAXIMUM_TOKEN];
+	uint8_t id_bytes[CONTROL_WEB_SECRET_BYTES];
+	uint8_t csrf_bytes[CONTROL_WEB_SECRET_BYTES];
+	char id_text[CONTROL_WEB_SECRET_LENGTH + 1];
+	char headers[256];
+	char address[64];
+	const char *reason;
+	char *body;
+	int credential;
+	int session;
+	int status;
+
+	if (request->method != CONTROL_METHOD_POST)
+	{
+		respond_error(connection, 405, "POST only", "Allow: POST\r\n");
+		return;
+	}
+	warn_direct(connection, request);
+	status = control_web_check_change(NULL, request, &reason);
+	if (status)
+	{
+		respond_error(connection, status, reason, NULL);
+		return;
+	}
+	if (!request->json_body)
+	{
+		respond_error(connection, 415, "the body is JSON: Content-Type: application/json", NULL);
+		return;
+	}
+	if (!control_parse_login_body(request->body, request->content_length, token, sizeof(token), &reason))
+	{
+		respond_error(connection, 400, reason, NULL);
+		return;
+	}
+	credential = check_token(connection, token, now, "web login", NULL);
+	crypto_wipe(token, sizeof(token));
+	if (credential < 0)
+		return;
+	if (!random_bytes(id_bytes, sizeof(id_bytes)) || !random_bytes(csrf_bytes, sizeof(csrf_bytes)))
+	{
+		respond_error(connection, 503, "no random bytes for a session", NULL);
+		return;
+	}
+	session = control_web_session_create(&control.sessions, id_bytes, csrf_bytes, control.credentials[credential].name,
+		control.credentials[credential].id, now, id_text);
+	crypto_wipe(id_bytes, sizeof(id_bytes));
+	crypto_wipe(csrf_bytes, sizeof(csrf_bytes));
+	control_web_session_cookie(headers, sizeof(headers), id_text, request->https);
+	crypto_wipe(id_text, sizeof(id_text));
+	address_text(connection->address, address, sizeof(address));
+	notice("web login: %s %s, from %s", control.credentials[credential].name, control.credentials[credential].id,
+		address);
+	body = malloc(256);
+	if (body)
+	{
+		snprintf(body, 256, "{\"name\": \"%s\", \"id\": \"%s\", \"csrf\": \"%s\", \"idle_seconds\": %d}\n",
+			control.credentials[credential].name, control.credentials[credential].id,
+			control.sessions.entries[session].csrf, (int)CONTROL_WEB_IDLE_SECONDS);
+	}
+	respond(connection, 200, body, headers);
+	crypto_wipe(headers, sizeof(headers));
+}
+
+/* a request with a session cookie: its session (its index), the source
+its commands are logged with, and for a POST the checks a browser's
+change must pass; -1 with the response given */
+static int session_request(struct connection *connection, struct control_request *request, int64_t now,
+	char *source, size_t source_size)
+{
+	int session = control_web_session_find(&control.sessions, request->session, now, request->background);
+	const char *reason;
+	char cookie[160];
+	int status;
+
+	crypto_wipe(request->session, sizeof(request->session));
+	if (session >= 0 && credential_by_id(control.sessions.entries[session].credential_id) < 0)
+	{
+		/* (its credential taken out since) */
+		control_web_session_end(&control.sessions, session);
+		session = -1;
+	}
+	if (session < 0)
+	{
+		control_web_session_cookie(cookie, sizeof(cookie), NULL, request->https);
+		respond_error(connection, 401, "not logged in, or the session ended: log in again", cookie);
+		return -1;
+	}
+	if (request->method == CONTROL_METHOD_POST)
+	{
+		status = control_web_check_change(&control.sessions.entries[session], request, &reason);
+		if (status)
+		{
+			char address[64];
+
+			address_text(connection->address, address, sizeof(address));
+			notice("a web request refused (%s), from %s", reason, address);
+			respond_error(connection, status, reason, NULL);
+			return -1;
+		}
+	}
+	snprintf(source, source_size, "web %s %s", control.sessions.entries[session].name,
+		control.sessions.entries[session].credential_id);
+	return session;
+}
+
+static void handle_request(struct connection *connection, struct control_request *request)
+{
+	int64_t now = monotonic_seconds();
+	int credential;
+	int session = -1;
+	char source[80];
+	char command[CONTROL_MAXIMUM_COMMAND];
+	const char *line = NULL;
+	int flags = 0;
+	int ticket;
+
+	/* the web page's own files, to anyone: they are the program's, and hold
+	nothing of the server's */
+	if (strncmp(request->path, "/v1/", 4))
+	{
+		const struct control_web_asset *asset = control_web_find_asset(request->path);
+
+		crypto_wipe(request->token, sizeof(request->token));
+		if (request->method != CONTROL_METHOD_GET)
+		{
+			respond_error(connection, asset ? 405 : 404, asset ? "GET only" : "no such page",
+				asset ? "Allow: GET\r\n" : NULL);
+			return;
+		}
+		if (!asset)
+		{
+			respond_error(connection, 404, "no such page", NULL);
+			return;
+		}
+		warn_direct(connection, request);
+		respond_bytes(connection, 200, asset->type, asset->data, asset->size, NULL);
+		return;
+	}
+	if (!strcmp(request->path, "/v1/login"))
+	{
+		crypto_wipe(request->token, sizeof(request->token));
+		handle_login(connection, request, now);
+		return;
+	}
+	/* a browser's session (a request with no Authorization, and its cookie),
+	else a bearer token */
+	if (request->authorization == CONTROL_AUTHORIZATION_NONE && request->session[0])
+	{
+		session = session_request(connection, request, now, source, sizeof(source));
+		if (session < 0)
+			return;
+	}
+	else
+	{
+		if (request->authorization != CONTROL_AUTHORIZATION_BEARER)
+		{
+			int64_t retry_after;
+
+			if (!control_limiter_allowed(&control.limiter, connection->address, now, &retry_after))
+			{
+				char headers[64];
+
+				snprintf(headers, sizeof(headers), "Retry-After: %lld\r\n", (long long)retry_after);
+				respond_error(connection, 429, "too many wrong tokens from this address: try again later", headers);
+				return;
+			}
+			if (request->authorization != CONTROL_AUTHORIZATION_NONE)
+			{
+				char address[64];
+
+				control_limiter_failed(&control.limiter, connection->address, now);
+				address_text(connection->address, address, sizeof(address));
+				notice("a control API request with a malformed token, from %s", address);
+			}
+			crypto_wipe(request->token, sizeof(request->token));
+			respond_error(connection, 401, "a token is needed: Authorization: Bearer <token>",
+				"WWW-Authenticate: Bearer realm=\"chupathingyce-server\"\r\n");
+			return;
+		}
+		credential = check_token(connection, request->token, now, "control API request",
+			"WWW-Authenticate: Bearer realm=\"chupathingyce-server\", error=\"invalid_token\"\r\n");
+		crypto_wipe(request->token, sizeof(request->token));
+		if (credential < 0)
+			return;
+		snprintf(source, sizeof(source), "api %s %s", control.credentials[credential].name,
+			control.credentials[credential].id);
+	}
+
+	if (!strcmp(request->path, "/v1/session") || !strcmp(request->path, "/v1/logout"))
+	{
+		int logout = !strcmp(request->path, "/v1/logout");
+		char *body;
+
+		if (session < 0)
+		{
+			respond_error(connection, 400, "a web session's only (log in at /)", NULL);
+			return;
+		}
+		if (request->method != (logout ? CONTROL_METHOD_POST : CONTROL_METHOD_GET))
+		{
+			respond_error(connection, 405, logout ? "POST only" : "GET only", logout ? "Allow: POST\r\n" :
+				"Allow: GET\r\n");
+			return;
+		}
+		if (logout)
+		{
+			char cookie[160];
+
+			notice("web logout: %s", source + 4);
+			control_web_session_end(&control.sessions, session);
+			control_web_session_cookie(cookie, sizeof(cookie), NULL, request->https);
+			body = malloc(32);
+			if (body)
+				snprintf(body, 32, "{\"ok\": true}\n");
+			respond(connection, 200, body, cookie);
+			return;
+		}
+		body = malloc(256);
+		if (body)
+		{
+			snprintf(body, 256, "{\"name\": \"%s\", \"id\": \"%s\", \"csrf\": \"%s\", \"idle_seconds\": %d}\n",
+				control.sessions.entries[session].name, control.sessions.entries[session].credential_id,
+				control.sessions.entries[session].csrf, (int)CONTROL_WEB_IDLE_SECONDS);
+		}
+		respond(connection, 200, body, NULL);
+		return;
+	}
 	if (!strcmp(request->path, "/v1/log"))
 	{
 		uint64_t since;
@@ -812,14 +1110,18 @@ is the proxy's, and the admin is not locked out by someone guessing) */
 		respond_log(connection, since);
 		return;
 	}
-	if (!strcmp(request->path, "/v1/status") || !strcmp(request->path, "/v1/players"))
+	if (!strcmp(request->path, "/v1/status") || !strcmp(request->path, "/v1/players") ||
+		!strcmp(request->path, "/v1/bans") || !strcmp(request->path, "/v1/mapcycle") ||
+		!strcmp(request->path, "/v1/maps"))
 	{
 		if (request->method != CONTROL_METHOD_GET)
 		{
 			respond_error(connection, 405, "GET only", "Allow: GET\r\n");
 			return;
 		}
-		line = !strcmp(request->path, "/v1/status") ? "sv_status" : "sv_players";
+		line = !strcmp(request->path, "/v1/status") ? "sv_status" : !strcmp(request->path, "/v1/players") ?
+			"sv_players" : !strcmp(request->path, "/v1/bans") ? "sv_banlist" :
+			!strcmp(request->path, "/v1/mapcycle") ? "sv_mapcycle" : "sv_maps";
 		flags = CONTROL_JSON | CONTROL_QUIET;
 		connection->answer = ANSWER_JSON;
 	}
@@ -847,7 +1149,8 @@ is the proxy's, and the admin is not locked out by someone guessing) */
 	}
 	else
 	{
-		respond_error(connection, 404, "no such endpoint (/v1/status, /v1/players, /v1/command, /v1/log)", NULL);
+		respond_error(connection, 404, "no such endpoint (/v1/status, /v1/players, /v1/bans, /v1/mapcycle, /v1/maps, "
+			"/v1/command, /v1/log)", NULL);
 		return;
 	}
 	if (request->query[0])
@@ -962,13 +1265,259 @@ static void accept_connection(void)
 	}
 }
 
+/* ---------- the console's credential commands */
+
+/* the credentials file written again, whole, from the credentials kept
+(a new file beside it, then renamed over it): 1, else 0 (printed) */
+static int write_credentials(void)
+{
+	char path[1024];
+	char temporary[1040];
+	char text[CONTROL_CREDENTIAL_LINE];
+	int index;
+	int fd;
+	FILE *out;
+
+	credentials_path(path, sizeof(path));
+	snprintf(temporary, sizeof(temporary), "%s.new", path);
+	unlink(temporary);
+	fd = open(temporary, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+	out = fd >= 0 ? fdopen(fd, "w") : NULL;
+	if (!out)
+	{
+		if (fd >= 0)
+			close(fd);
+		printf("cannot write %s.new in the data folder (%s): nothing changed\n", CREDENTIALS_FILE, strerror(errno));
+		return 0;
+	}
+	fprintf(out,
+		"# The ChupathingyCE Dedicated Server's control API credentials (server/docs/admin.md).\n"
+		"# Each line is a token's Argon2id hash, never the token: one for each admin. Change them\n"
+		"# with the console's sv_admin_add, sv_admin_rotate and sv_admin_remove, or delete this\n"
+		"# file and restart the server for a single new token.\n");
+	for (index = 0; index < control.credential_count; index++)
+	{
+		control_credential_line(&control.credentials[index], text);
+		fprintf(out, "%s\n", text);
+	}
+	if (fflush(out) || fsync(fileno(out)) || fclose(out) || rename(temporary, path))
+	{
+		printf("cannot write %s in the data folder (%s): nothing changed\n", CREDENTIALS_FILE, strerror(errno));
+		unlink(temporary);
+		return 0;
+	}
+	return 1;
+}
+
+/* the credential a console command names (its name, or its id): its
+index, or -1 (printed) */
+static int credential_named(const char *text)
+{
+	int index;
+
+	for (index = 0; index < control.credential_count; index++)
+	{
+		if (!strcmp(control.credentials[index].name, text) || !strcmp(control.credentials[index].id, text))
+			return index;
+	}
+	printf("no credential %s (sv_admin_list)\n", text);
+	return -1;
+}
+
+/* a new credential named name, into *credential, and its token printed
+once: 1, else 0 (printed) */
+static int make_credential(const char *name, struct control_credential *credential)
+{
+	uint8_t token_bytes[CONTROL_TOKEN_BYTES];
+	uint8_t id[CONTROL_ID_LENGTH / 2];
+	uint8_t salt[CONTROL_SALT_BYTES];
+	char token[CONTROL_TOKEN_LENGTH + 1];
+	int made;
+
+	if (!random_bytes(token_bytes, sizeof(token_bytes)) || !random_bytes(id, sizeof(id)) ||
+		!random_bytes(salt, sizeof(salt)))
+	{
+		printf("no random bytes for a token: nothing changed\n");
+		return 0;
+	}
+	control_token_text(token_bytes, token);
+	crypto_wipe(token_bytes, sizeof(token_bytes));
+	made = control_credential_make(token, name, id, salt, CONTROL_ARGON2_KIB, CONTROL_ARGON2_PASSES, credential);
+	if (made)
+	{
+		printf("\n"
+			"The token of %s (%s), shown this once:\n"
+			"\n"
+			"    %s\n"
+			"\n", credential->name, credential->id, token);
+	}
+	else
+		printf("no memory to hash a token: nothing changed\n");
+	crypto_wipe(token, sizeof(token));
+	return made;
+}
+
+/* the tokens remembered as checked right, all forgotten (a credential's
+index has moved, or its token changed) */
+static void forget_remembered(void)
+{
+	crypto_wipe(control.remembered, sizeof(control.remembered));
+	memset(control.remembered_valid, 0, sizeof(control.remembered_valid));
+}
+
+/* a console line that is one of the credentials' commands (sv_admin_*),
+run here, where the credentials are: 1, else 0 (the main thread's) */
+static int console_admin(const char *line)
+{
+	char words[3][64];
+	char extra[2];
+	int count;
+	int index;
+
+	words[0][0] = words[1][0] = 0;
+	count = sscanf(line, "%63s %63s %63s %1s", words[0], words[1], words[2], extra);
+	if (count < 1 || strncmp(words[0], "sv_admin_", 9))
+		return 0;
+	if (strcmp(words[0], "sv_admin_list") && strcmp(words[0], "sv_admin_add") && strcmp(words[0], "sv_admin_rotate") &&
+		strcmp(words[0], "sv_admin_remove"))
+	{
+		return 0;
+	}
+	/* (logged as the main thread logs the console's other commands) */
+	notice("console: %s", line);
+	if (control.listener < 0)
+	{
+		printf("the control API is off (HALO_DEDICATED_CONTROL): no credentials here to manage\n");
+	}
+	else if (!strcmp(words[0], "sv_admin_list"))
+	{
+		if (count != 1)
+			printf("usage: sv_admin_list\n");
+		for (index = 0; count == 1 && index < control.credential_count; index++)
+		{
+			int sessions = 0;
+			int session;
+
+			for (session = 0; session < CONTROL_WEB_SESSIONS; session++)
+			{
+				sessions += control.sessions.entries[session].used &&
+					!strcmp(control.sessions.entries[session].credential_id, control.credentials[index].id);
+			}
+			printf("%-31s %s  (%d web session%s)\n", control.credentials[index].name, control.credentials[index].id,
+				sessions, sessions == 1 ? "" : "s");
+		}
+	}
+	else if (count != 2)
+	{
+		printf("usage: %s <name>\n", words[0]);
+	}
+	else if (control.credentials_skipped)
+	{
+		printf("%s has lines that are no credential (the log says which): fix or delete them, and restart the "
+			"server, before it is changed here\n", CREDENTIALS_FILE);
+	}
+	else if (!strcmp(words[0], "sv_admin_add"))
+	{
+		struct control_credential credential;
+
+		if (!control_credential_name_valid(words[1]))
+			printf("a name is 1 to 31 letters, digits, or -._~ and the like (no spaces or quotes)\n");
+		else if (control.credential_count >= MAXIMUM_CREDENTIALS)
+			printf("%d credentials at most: sv_admin_remove one first\n", (int)MAXIMUM_CREDENTIALS);
+		else
+		{
+			for (index = 0; index < control.credential_count && strcmp(control.credentials[index].name, words[1]);
+				index++)
+			{
+				;
+			}
+			if (index < control.credential_count)
+				printf("there is a credential %s already (sv_admin_rotate gives it a new token)\n", words[1]);
+			else if (make_credential(words[1], &credential))
+			{
+				control.credentials[control.credential_count++] = credential;
+				if (write_credentials())
+				{
+					printf("%s can log in with it now; it was not written anywhere but here\n", credential.name);
+					notice("a new credential: %s %s (sv_admin_add)", credential.name, credential.id);
+				}
+				else
+				{
+					control.credential_count--;
+					printf("(the token above does not work)\n");
+				}
+				crypto_wipe(&credential, sizeof(credential));
+			}
+		}
+	}
+	else if ((index = credential_named(words[1])) >= 0)
+	{
+		struct control_credential old = control.credentials[index];
+
+		if (!strcmp(words[0], "sv_admin_rotate"))
+		{
+			struct control_credential credential;
+
+			if (make_credential(old.name, &credential))
+			{
+				control.credentials[index] = credential;
+				if (write_credentials())
+				{
+					int ended = control_web_sessions_end_credential(&control.sessions, old.id);
+
+					forget_remembered();
+					printf("%s's old token (%s) and its %d web session%s stop working now\n", old.name, old.id, ended,
+						ended == 1 ? "" : "s");
+					notice("a credential's token rotated: %s %s, now %s (sv_admin_rotate)", old.name, old.id,
+						credential.id);
+				}
+				else
+				{
+					control.credentials[index] = old;
+					printf("(the token above does not work; the old one still does)\n");
+				}
+				crypto_wipe(&credential, sizeof(credential));
+			}
+		}
+		else if (control.credential_count == 1)
+		{
+			printf("%s is the only credential: sv_admin_add another first (or sv_admin_rotate it)\n", old.name);
+		}
+		else
+		{
+			memmove(&control.credentials[index], &control.credentials[index + 1],
+				(size_t)(control.credential_count - index - 1) * sizeof(control.credentials[0]));
+			control.credential_count--;
+			if (write_credentials())
+			{
+				int ended = control_web_sessions_end_credential(&control.sessions, old.id);
+
+				forget_remembered();
+				printf("%s (%s) taken out: its token and its %d web session%s stop working now\n", old.name, old.id,
+					ended, ended == 1 ? "" : "s");
+				notice("a credential taken out: %s %s (sv_admin_remove)", old.name, old.id);
+			}
+			else
+			{
+				memmove(&control.credentials[index + 1], &control.credentials[index],
+					(size_t)(control.credential_count - index) * sizeof(control.credentials[0]));
+				control.credentials[index] = old;
+				control.credential_count++;
+			}
+		}
+		crypto_wipe(&old, sizeof(old));
+	}
+	fflush(stdout);
+	return 1;
+}
+
 /* ---------- the console */
 
 static void console_line(const char *line)
 {
 	while (*line == ' ' || *line == '\t')
 		line++;
-	if (!*line)
+	if (!*line || console_admin(line))
 		return;
 	if (queue_command(line, "console", 0, 1) < 0)
 	{
@@ -1159,10 +1708,16 @@ void server_control_start(void)
 	control.console = console && console[0] ? truthy(console) : isatty(STDIN_FILENO);
 	if (setting && !falsy(setting))
 	{
-		if (!random_bytes(control.run_key, sizeof(control.run_key)))
+		uint8_t session_key[32];
+
+		if (!random_bytes(control.run_key, sizeof(control.run_key)) || !random_bytes(session_key, sizeof(session_key)))
 			notice("no random bytes: the control API is off");
 		else if (load_credentials())
+		{
+			control_web_sessions_initialize(&control.sessions, session_key);
 			start_listener(setting);
+		}
+		crypto_wipe(session_key, sizeof(session_key));
 	}
 	if (!control.console && control.listener < 0)
 		return;

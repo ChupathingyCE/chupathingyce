@@ -3,8 +3,10 @@ SERVER_COMMANDS.C
 
 The dedicated server's commands (server/docs/admin.md), named after Halo
 PC's dedicated server's where it had one: sv_status, sv_players, sv_kick,
-sv_ban, sv_unban, sv_banlist, sv_map, sv_mapcycle, sv_mapcycle_next,
-sv_end_game, sv_maxplayers, sv_name, and help.
+sv_ban, sv_unban, sv_banlist, sv_map, sv_maps, sv_mapcycle,
+sv_mapcycle_next, sv_end_game, sv_maxplayers, sv_name, and help (and the
+console's own sv_admin_* commands, which server_control.c runs: they are
+listed here, and refused anywhere else).
 
 They come from three places, and run here, on the game's main thread, each
 frame (dedicated.c), whichever thread they came in on:
@@ -65,6 +67,8 @@ enum
 	MAXIMUM_STARTUP_COMMANDS = 64,
 	/* the bans sv_banlist lists, at most */
 	MAXIMUM_LISTED_BANS = 500,
+	/* the maps sv_maps lists, at most */
+	MAXIMUM_LISTED_MAPS = 512,
 
 	/* the control unit's flags for a command (server_control.c): its output
 	as JSON; a notice of the control's own to log, not a command; a command
@@ -140,6 +144,8 @@ static boolean command_mapcycle_next(struct command_line const *line, boolean js
 static boolean command_end_game(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_maxplayers(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_name(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_maps(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_console_only(struct command_line const *line, boolean json, struct command_output *output);
 
 /* ---------- globals */
 
@@ -160,6 +166,8 @@ static struct server_command const server_commands[] =
 		command_banlist },
 	{ "sv_map", "sv_map <map> <game type>", "Plays a map (bloodgulch, a Halo PC map as name@ce, a HaloMD map as "
 		"name@md) and game type (slayer, ctf, ...) now; then the playlist goes on.", 3, 3, FALSE, command_map },
+	{ "sv_maps", "sv_maps", "The maps this server can play (its multiplayer maps: Xbox, name@ce, name@md) and "
+		"the game types sv_map takes.", 1, 1, FALSE, command_maps },
 	{ "sv_mapcycle", "sv_mapcycle", "The playlist, and which entry is played.", 1, 1, FALSE, command_mapcycle },
 	{ "sv_mapcycle_next", "sv_mapcycle_next", "Skips to the playlist's next entry now.", 1, 1, TRUE,
 		command_mapcycle_next },
@@ -169,6 +177,22 @@ static struct server_command const server_commands[] =
 		"lobby, or the lobby now).", 1, 2, FALSE, command_maxplayers },
 	{ "sv_name", "sv_name [name]", "Shows or sets the server's name on the lists (15 characters at most).", 1, 2, FALSE,
 		command_name },
+	/* (the console's own: server_control.c runs them before they get here) */
+	{ "sv_admin_list", "sv_admin_list", "The control API's credentials (console only).", 1, 1, FALSE,
+		command_console_only },
+	{ "sv_admin_add", "sv_admin_add <name>", "Makes another credential, a token of its own for one admin, and "
+		"prints its token once (console only).", 2, 2, FALSE, command_console_only },
+	{ "sv_admin_rotate", "sv_admin_rotate <name>", "Gives a credential a new token, printed once; the old one and its "
+		"web sessions stop working (console only).", 2, 2, FALSE, command_console_only },
+	{ "sv_admin_remove", "sv_admin_remove <name>", "Takes a credential out; its token and web sessions stop "
+		"working (console only).", 2, 2, FALSE, command_console_only },
+};
+
+/* the game types sv_map takes (game_engine_get_variant_by_name's) */
+static char const *const server_game_types[] =
+{
+	"slayer", "team_slayer", "ctf", "ironctf", "king", "team_king", "oddball", "team_oddball", "race",
+	"team_race", "rally", "elimination", "stalker", "accumulation",
 };
 
 static char server_command_output[OUTPUT_SIZE];
@@ -700,7 +724,8 @@ static boolean command_banlist(
 	unsigned long now = (unsigned long)time(NULL);
 
 	(void)line;
-	(void)json;
+	if (json)
+		command_output_printf(output, "{\"bans\": [");
 	for (index = 0; index < MAXIMUM_LISTED_BANS; index++)
 	{
 		char when[32], hardware_id[40], players[96], reason[96], left[32];
@@ -710,6 +735,26 @@ static boolean command_banlist(
 			sizeof(players), reason, sizeof(reason), &until))
 		{
 			break;
+		}
+		if (json)
+		{
+			command_output_printf(output, "%s{\"number\": %ld, \"when\": ", index ? ", " : "", index + 1);
+			command_output_json_string(output, when);
+			command_output_printf(output, ", \"id\": ");
+			if (hardware_id[0])
+				command_output_json_string(output, hardware_id);
+			else
+				command_output_printf(output, "null");
+			command_output_printf(output, ", \"players\": ");
+			command_output_json_string(output, players);
+			command_output_printf(output, ", \"reason\": ");
+			command_output_json_string(output, reason);
+			if (!until)
+				command_output_printf(output, ", \"until\": null, \"seconds_left\": null}");
+			else
+				command_output_printf(output, ", \"until\": %lu, \"seconds_left\": %lu}", until,
+					until > now ? until - now : 0UL);
+			continue;
 		}
 		if (!until)
 			snprintf(left, sizeof(left), "forever");
@@ -725,7 +770,9 @@ static boolean command_banlist(
 		command_output_printf(output, "%3ld  %-19s  %-32s  %-14s  %s  (%s)\n", index + 1, when[0] ? when : "-",
 			hardware_id, left, players[0] ? players : "-", reason[0] ? reason : "-");
 	}
-	if (!index)
+	if (json)
+		command_output_printf(output, "], \"count\": %ld}", index);
+	else if (!index)
 		command_output_printf(output, "no bans\n");
 	return TRUE;
 }
@@ -770,8 +817,46 @@ static boolean command_mapcycle(
 	long index;
 
 	(void)line;
-	(void)json;
 	dedicated_server_get_status(&status);
+	if (json)
+	{
+		command_output_printf(output, "{\"playlist\": ");
+		command_output_json_string(output, status.playlist);
+		command_output_printf(output, ", \"entry\": %ld, \"state\": \"%s\", \"entries\": [", status.entry + 1,
+			state_name(status.state, TRUE));
+		for (index = 0; index < dedicated_playlist_count(); index++)
+		{
+			command_output_printf(output, "%s{\"number\": %ld, \"map\": ", index ? ", " : "", index + 1);
+			command_output_json_string(output, map_display_name(dedicated_playlist_map(index)));
+			command_output_printf(output, ", \"game_type\": ");
+			command_output_json_string(output, dedicated_playlist_variant(index));
+			command_output_printf(output, "}");
+		}
+		command_output_printf(output, "], \"chosen\": ");
+		if (status.chosen)
+		{
+			command_output_printf(output, "{\"map\": ");
+			command_output_json_string(output, map_display_name(status.map));
+			command_output_printf(output, ", \"game_type\": ");
+			command_output_json_string(output, status.variant);
+			command_output_printf(output, "}");
+		}
+		else
+			command_output_printf(output, "null");
+		command_output_printf(output, ", \"next\": ");
+		if (status.next_map[0])
+		{
+			command_output_printf(output, "{\"map\": ");
+			command_output_json_string(output, map_display_name(status.next_map));
+			command_output_printf(output, ", \"game_type\": ");
+			command_output_json_string(output, status.next_variant);
+			command_output_printf(output, "}");
+		}
+		else
+			command_output_printf(output, "null");
+		command_output_printf(output, "}");
+		return TRUE;
+	}
 	command_output_printf(output, "%s:\n", status.playlist);
 	for (index = 0; index < dedicated_playlist_count(); index++)
 	{
@@ -889,6 +974,142 @@ static boolean command_name(
 	command_output_printf(output, "the server is %s %s\n", line->words[1],
 		status.state == _dedicated_state_lobby ? "(now)" : "(from the next lobby)");
 	return TRUE;
+}
+
+/* the maps sv_maps lists, as it finds them */
+struct map_listing
+{
+	char names[MAXIMUM_LISTED_MAPS][80];
+	long count;
+};
+
+static void map_listing_add(
+	struct map_listing *listing,
+	char const *name)
+{
+	long index;
+
+	for (index = 0; index < listing->count; index++)
+	{
+		if (!_stricmp(listing->names[index], name))
+			return;
+	}
+	if (listing->count < MAXIMUM_LISTED_MAPS)
+		snprintf(listing->names[listing->count++], sizeof(listing->names[0]), "%s", name);
+}
+
+#ifdef HALO_CUSTOM_EDITION
+struct map_listing_family
+{
+	struct map_listing *listing;
+	short family;
+};
+
+static void map_listing_found(
+	char const *file,
+	void *context)
+{
+	struct map_listing_family *family = (struct map_listing_family *)context;
+	char name[80];
+
+	snprintf(name, sizeof(name), "%s%s", file, map_family_suffix(family->family));
+	if (command_line_map_name_valid(name))
+		map_listing_add(family->listing, name);
+}
+#endif
+
+static int map_listing_compare(
+	void const *a,
+	void const *b)
+{
+	return _stricmp((char const *)a, (char const *)b);
+}
+
+static boolean command_maps(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	static struct map_listing listing;
+	char pattern[288];
+	WIN32_FIND_DATAA data;
+	HANDLE find;
+	long index;
+
+	(void)line;
+	listing.count = 0;
+	/* the Xbox's: the maps folder's multiplayer maps */
+	snprintf(pattern, sizeof(pattern), "%s*.map", cache_files_map_directory());
+	find = FindFirstFileA(pattern, &data);
+	if (find != INVALID_HANDLE_VALUE)
+	{
+		do
+		{
+			char name[80], path[384];
+			size_t length = strlen(data.cFileName);
+
+			if (length <= 4 || length - 4 >= sizeof(name) || _stricmp(data.cFileName + length - 4, ".map"))
+				continue;
+			snprintf(name, sizeof(name), "%.*s", (int)(length - 4), data.cFileName);
+			if (map_family_parse(name, NULL, 0) != _map_family_xbox || !command_line_map_name_valid(name))
+				continue;
+			snprintf(path, sizeof(path), "%s%s", cache_files_map_directory(), data.cFileName);
+			if (file_is_multiplayer_map(path))
+				map_listing_add(&listing, name);
+		}
+		while (FindNextFileA(find, &data));
+		CloseHandle(find);
+	}
+#ifdef HALO_CUSTOM_EDITION
+	{
+		short family;
+
+		for (family = _map_family_xbox + 1; family < NUMBER_OF_MAP_FAMILIES; family++)
+		{
+			struct map_listing_family context;
+
+			context.listing = &listing;
+			context.family = family;
+			map_family_list(family, map_listing_found, &context);
+		}
+	}
+#endif
+	qsort(listing.names, (size_t)listing.count, sizeof(listing.names[0]), map_listing_compare);
+	if (json)
+	{
+		command_output_printf(output, "{\"maps\": [");
+		for (index = 0; index < listing.count; index++)
+		{
+			command_output_printf(output, "%s", index ? ", " : "");
+			command_output_json_string(output, listing.names[index]);
+		}
+		command_output_printf(output, "], \"game_types\": [");
+		for (index = 0; index < (long)NUMBEROF(server_game_types); index++)
+		{
+			command_output_printf(output, "%s", index ? ", " : "");
+			command_output_json_string(output, server_game_types[index]);
+		}
+		command_output_printf(output, "]}");
+		return TRUE;
+	}
+	command_output_printf(output, "maps:");
+	for (index = 0; index < listing.count; index++)
+		command_output_printf(output, " %s", listing.names[index]);
+	command_output_printf(output, "%s\ngame types:", listing.count ? "" : " none");
+	for (index = 0; index < (long)NUMBEROF(server_game_types); index++)
+		command_output_printf(output, " %s", server_game_types[index]);
+	command_output_printf(output, "\n");
+	return TRUE;
+}
+
+static boolean command_console_only(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	(void)json;
+	command_output_printf(output, "%s is the server's console's only (its token is printed there)\n", line->words[0]);
+	return FALSE;
 }
 
 /* a command line run: its output (text, or JSON for sv_status and

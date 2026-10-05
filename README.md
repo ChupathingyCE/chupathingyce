@@ -10,7 +10,7 @@
 <a href="https://discord.gg/4BUm2FwuCB">Discord</a>
 </p>
 
-> **Compatible with [OpenCE](https://github.com/cybersecurity/halo-ce-universal) build-76 through build-95 (network version 11).** Games hosted on older builds (network version 10) can't be joined; their hosts need to update.
+> **Compatible with [OpenCE](https://github.com/OpenCommunityEdition/OpenCE) build-76 through build-112 (network version 11).** Games hosted on older builds (network version 10) can't be joined; their hosts need to update.
 > Players on OpenCE and players on ChupathingyCE play together.
 
 ChupathingyCE is a community build of **OpenCE**, the port of the Halo: Combat
@@ -217,7 +217,7 @@ to install, and no port forwarding. See [server/README.md](server/README.md).
 
 ## How ChupathingyCE relates to OpenCE
 
-- OpenCE ([cybersecurity/halo-ce-universal](https://github.com/cybersecurity/halo-ce-universal))
+- OpenCE ([OpenCommunityEdition/OpenCE](https://github.com/OpenCommunityEdition/OpenCE))
   is where the port is made. ChupathingyCE merges its changes regularly.
 - We keep the same network version, so players of both play together. The line
   at the top of this page says which OpenCE builds match this one.
@@ -262,7 +262,7 @@ are for checking changes.
 
 - The decompilation: [punpckhdq/halo](https://github.com/punpckhdq/halo) and
   [bnunu/halo-1](https://github.com/bnunu/halo-1), of the Xbox build 2342.
-- The port: [OpenCE](https://github.com/cybersecurity/halo-ce-universal) and
+- The port: [OpenCE](https://github.com/OpenCommunityEdition/OpenCE) and
   its contributors.
 - ChupathingyCE: [Milenko](https://github.com/MrMilenko) and contributors. The
   icon is MrBruh's helmet, with tusks.
