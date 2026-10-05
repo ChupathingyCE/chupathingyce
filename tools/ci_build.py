@@ -15,9 +15,17 @@ passed on as --compiler-launcher.
 
 The version comes from the environment (tools/version.py), which
 ChupathingyCE's release workflows set: HALO_VERSION (0.5.0b, or
-0.5.0b-nightly.42), HALO_RELEASE_BUILD=1 for a release (whose version must
-be VERSION's), and HALO_BUILD_NUMBER, which orders the Android builds.
-Without them, a build is VERSION's -dev and never looks for updates.
+0.5.0b-nightly.42), and HALO_RELEASE_BUILD=1 for a release (whose version
+must be VERSION's). Without them, a build is VERSION's -dev and never looks
+for updates.
+
+The Android app is signed with ChupathingyCE's key when
+port/android/keystore.properties is there (the release workflows write it;
+port/android/README.md): chupathingyce-android-<config>.apk. Without it
+(pull requests, forks), the debug build has the runner's own key,
+chupathingyce-android-debug-testkey.apk, which installs over nothing
+signed with ChupathingyCE's key, and the release build is unsigned,
+chupathingyce-android-release-unsigned.apk.
 
 The dedicated server (server-x86, server-x64, server-arm64:
 tools/server_build.py) is built against musl, so that it is one static
@@ -66,6 +74,8 @@ APKS = {
     "debug": "port/android/app/build/outputs/apk/debug/app-debug.apk",
     "release": "port/android/app/build/outputs/apk/release/app-release.apk",
 }
+# what Gradle calls the release build without a key (app/build.gradle)
+UNSIGNED_APK = "port/android/app/build/outputs/apk/release/app-release-unsigned.apk"
 
 
 def run(command, cwd=ROOT):
@@ -105,13 +115,23 @@ def main() -> int:
     print(f"version {version()}{' (a release)' if release_build() else ''}", flush=True)
     run(configure)
 
+    apk_names = {}
     if args.platform == "android":
         # the native part, then the app around it (Gradle's variant of the
-        # same name: release is signed with the debug key, not debuggable)
+        # same name), named for its signature
         run(["ninja", "android"])
         gradlew = "gradlew.bat" if os.name == "nt" else "./gradlew"
+        for stale in (APKS[args.config], UNSIGNED_APK):
+            (ROOT / stale).unlink(missing_ok=True)
         run([gradlew, "--console=plain", "-q", f"assemble{args.config.capitalize()}"], cwd=ROOT / "port/android")
-        outputs = [APKS[args.config]]
+        if (ROOT / "port/android/keystore.properties").exists():
+            apk, name = APKS[args.config], f"chupathingyce-android-{args.config}.apk"
+        elif args.config == "debug":
+            apk, name = APKS["debug"], "chupathingyce-android-debug-testkey.apk"
+        else:
+            apk, name = UNSIGNED_APK, "chupathingyce-android-release-unsigned.apk"
+        outputs = [apk]
+        apk_names[apk] = name
     else:
         run(["ninja", args.platform])
         outputs = OUTPUTS[args.platform]
@@ -128,7 +148,7 @@ def main() -> int:
             # (a bundle: its symbolic links as they are, for its signature)
             shutil.copytree(ROOT / output, dist / Path(output).name, symlinks=True)
         else:
-            shutil.copy2(ROOT / output, dist)
+            shutil.copy2(ROOT / output, dist / apk_names.get(output, Path(output).name))
         print(f"{output} -> {dist.relative_to(ROOT)}", flush=True)
     if args.platform == "macos":
         # (the SDL3 inside it, the build's own: zlib license)
@@ -164,7 +184,7 @@ def alpine_build(platform: str, config: str) -> int:
     with CCACHE_DIR in the checkout)"""
     environment = []
     for name in ("CI_COMPILER_LAUNCHER", "CCACHE_DIR", "CCACHE_BASEDIR", "CCACHE_MAXSIZE", "HALO_VERSION",
-                 "HALO_RELEASE_BUILD", "HALO_BUILD_NUMBER"):
+                 "HALO_RELEASE_BUILD"):
         value = os.environ.get(name)
         if not value:
             continue
