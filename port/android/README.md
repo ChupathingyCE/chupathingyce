@@ -107,6 +107,11 @@ A tap during a cinematic that can be skipped skips it, as A does. On the
 on-screen keyboard, tap a key to press it, "B =BACK" to cancel and
 "A =ENTER" to accept the name.
 
+In Online Games, tap a game to select it and tap the selected game to
+join it. Drag to scroll the list, tap the left or right half of "PAGE 1 OF
+2" to turn the page, and tap a button at the bottom (for example
+"Y =CREATE GAME") to push it. Link Profile's buttons take taps too.
+
 ### Touch controls
 
 In a game, the app shows touch controls over the picture. They are a
@@ -132,10 +137,10 @@ keeps the aim assist of the controller.
 
 The touch controls show only in a game. In the menus and during
 cinematics they hide, and the touchscreen operates the menus as described
-above. They also hide when a controller is connected, for example the
-built-in controller of a handheld. A device without a touchscreen (a TV)
-never shows them. The setting `input.touch_controls` changes this (refer
-to "Settings").
+above. They also show when a controller is connected: push "Hide" to play
+with the controller. A device without a touchscreen (a TV) never shows
+them. The setting `input.touch_controls` changes this (refer to
+"Settings").
 
 The buttons at the top of the screen:
 
@@ -171,7 +176,7 @@ These settings are only for Android:
 
 | Setting | Function |
 | --- | --- |
-| `input.touch_controls` | The touch controls in a game. `"auto"` (the default): shown on a touchscreen while no controller is connected. `"on"`: also shown with a controller. `"off"`: never shown. A device without a touchscreen never shows them. The menus take taps with each value. |
+| `input.touch_controls` | The touch controls in a game. `"on"` (the default): shown on a touchscreen, also with a controller connected. `"auto"`: shown only while no controller is connected. `"off"`: never shown. A device without a touchscreen never shows them. The menus take taps with each value. |
 | `display.screen_width` | The number of columns of the 480-line picture. `0` (the default): the shape of the display (1068 on a 20:9 phone). `640`: the 4:3 shape of the Xbox. |
 | `debug.sample_seconds` | Refer to "Find problems". |
 

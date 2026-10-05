@@ -28,6 +28,7 @@ void host_touch_scene(int scene);
 /* the game's (port/linux/game/touch_game.c) */
 int touch_game_cinematic_skippable(void);
 int touch_game_cinematic_playing(void);
+int touch_game_playing(void);
 
 /* a tap moves at most this far; a drag of this length is one wheel step */
 #define TOUCH_TAP_SLOP_DP 12.0f
@@ -194,16 +195,18 @@ enum
 {
 	/* the game has read its controller: the other bits are known */
 	_touch_scene_known = 1 << 0,
-	/* a menu or a cinematic is up: the overlay hides and lets the fingers
-	through to the menus' pointer above */
+	/* a menu or a cinematic is up, or no game is (the game starting): the
+	overlay hides and lets the fingers through to the menus' pointer above */
 	_touch_scene_menus = 1 << 1,
-	/* input.touch_controls: "on" and "off" (none: "auto", shown when the
-	device has a touchscreen and no controller) */
+	/* input.touch_controls: "on" and "off" (neither: "auto", shown when
+	the device has a touchscreen and no controller) */
 	_touch_scene_on = 1 << 2,
 	_touch_scene_off = 1 << 3,
 };
 
-/* input.touch_controls as _touch_scene_on, _touch_scene_off or 0 */
+/* input.touch_controls as _touch_scene_on, _touch_scene_off or 0 ("auto");
+none, or a value it does not know, is "on": a controller seen where there is
+none would otherwise hide the controls with no way to show them */
 static int touch_controls_setting(void)
 {
 	static int setting;
@@ -214,9 +217,9 @@ static int touch_controls_setting(void)
 		const char *value = config_string("input.touch_controls");
 
 		read_at = config_changes();
-		setting = 0;
-		if (value && !strcmp(value, "on"))
-			setting = _touch_scene_on;
+		setting = _touch_scene_on;
+		if (value && !strcmp(value, "auto"))
+			setting = 0;
 		else if (value && !strcmp(value, "off"))
 			setting = _touch_scene_off;
 	}
@@ -238,12 +241,23 @@ void touch_input_controls(XINPUT_GAMEPAD *pad, int menus)
 	{
 		XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B, XINPUT_GAMEPAD_X, XINPUT_GAMEPAD_Y
 	};
+	static int last_scene = -1;
 	SHORT *sticks[4];
 	int state[7];
+	int scene;
 	int index;
 
-	host_touch_scene(_touch_scene_known | touch_controls_setting() |
-		(menus || touch_game_cinematic_playing() ? _touch_scene_menus : 0));
+	/* (the controller is read from the first frames, before the main menu
+	is up: no game yet is no place for the controls either) */
+	scene = _touch_scene_known | touch_controls_setting() |
+		(menus || !touch_game_playing() || touch_game_cinematic_playing() ? _touch_scene_menus : 0);
+	if (scene != last_scene)
+	{
+		platform_log("touch: %s, input.touch_controls %s", scene & _touch_scene_menus ? "menus" : "in a game",
+			scene & _touch_scene_on ? "on" : scene & _touch_scene_off ? "off" : "auto");
+		last_scene = scene;
+	}
+	host_touch_scene(scene);
 	sticks[0] = &pad->sThumbLX;
 	sticks[1] = &pad->sThumbLY;
 	sticks[2] = &pad->sThumbRX;
