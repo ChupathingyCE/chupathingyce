@@ -4,6 +4,7 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.SurfaceHolder;
+import android.view.MotionEvent;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
@@ -54,6 +55,19 @@ final class MoviePlayer implements SurfaceHolder.Callback, Runnable {
         view.setZOrderMediaOverlay(true);
         view.getHolder().addCallback(this);
         view.setVisibility(View.GONE);
+        /* a tap skips the movie (the overlay is hidden while it plays, so
+           there would be no way out of it without a gamepad: the Xbox skips
+           it on any button) */
+        view.setOnTouchListener((touched, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN && player != null) {
+                int done = movie;
+
+                stopMovie();
+                nativeFinished(done);
+                return true;
+            }
+            return false;
+        });
         layout.addView(view, new ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         registerAssets();
