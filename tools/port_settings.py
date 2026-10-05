@@ -29,14 +29,25 @@ SCREENS = {
         "screen": "video_settings_screen",
         "header": ("header_profile_video_settings", f"{PE}/video_settings/header_profile_video_settings"),
         "spacing": 26,
+        # (rows in the place of the row before them: Window Size in
+        # Resolution's, port/linux/game/menu_functions.c showing the one the
+        # display mode chosen uses)
+        "same_place": ["display.window_size"],
         "rows": [
             ("DISPLAY MODE:", "display.mode",
              [("FULLSCREEN", "fullscreen"), ("BORDERLESS", "borderless"), ("WINDOWED", "windowed")],
-             "Fullscreen and borderless draw at the display's\nresolution; windowed, 640x480 scaled. F11: window.",
+             "Fullscreen takes the display; borderless covers it\nwith a window. F11 switches to the window.",
              "desktop"),
-            ("WINDOW SIZE:", "display.window_scale",
-             [("640 x 480", "1"), ("1280 x 960", "2"), ("1920 x 1440", "3"), ("2560 x 1920", "4")],
-             "The window's size when windowed (its edges can\nalso be dragged).", "desktop"),
+            # (port/linux/game/menu_tags.c adds the display's resolutions)
+            ("RESOLUTION:", "display.resolution", [("NATIVE", "native")],
+             "What fullscreen and borderless draw at. Fullscreen\nsets the display to it; borderless scales it.",
+             "desktop"),
+            # (port/linux/game/menu_tags.c puts the sizes that fit the desktop
+            # in place of this one)
+            ("WINDOW SIZE:", "display.window_size", [("1280 x 960", "1280x960")],
+             "The window's size: 4:3, then 16:10, 16:9 and 21:9\n(its edges can also be dragged).", "desktop"),
+            ("RESOLUTION SCALING:", "display.resolution_scaling", [("NATIVE", "native"), ("ORIGINAL", "original")],
+             "Native draws at the resolution; Original draws\nthe Xbox's 640x480 and scales it up.", "desktop"),
             ("V-SYNC:", "display.vsync", ON_OFF,
              "Wait for the display between frames, so that the\npicture never tears.", None),
             ("FRAME RATE LIMIT:", "display.max_fps",
@@ -191,8 +202,10 @@ def _screen(folder: str, spec: dict, rows: list, list_inputs: list, list_handler
                                       ("height", 60), ("string_list", f"{base}/help_strings"),
                                       ("font", "ui\\large_ui"), ("color", "#FFFFFFFF")], [])
     children = [f'<data input="{name}"/>' for name in list_inputs] + list_handlers
-    for index, (row, platform) in enumerate(rows):
-        children.append(f'<child{attributes([("widget", row), ("x", 54), ("y", 73 + index * spec["spacing"]), ("platform", platform)])}/>')
+    # (each row: its widget, platform, and the place it is in, else the next)
+    for index, (row, platform, *place) in enumerate(rows):
+        y = 73 + (place[0] if place else index) * spec["spacing"]
+        children.append(f'<child{attributes([("widget", row), ("x", 54), ("y", y), ("platform", platform)])}/>')
     children.append(f'<child{attributes([("widget", f"{base}/button_bar"), ("y", 414)])}/>')
     lines += _widget(f"{base}/options_menu",
                      [("type", "column_list"), ("width", 640), ("height", 480),
@@ -211,10 +224,13 @@ def _screen(folder: str, spec: dict, rows: list, list_inputs: list, list_handler
 def _setting_screen(folder: str, spec: dict) -> list:
     base = f"{PE}/{folder}"
     rows, extra = [], []
+    place = -1
     for index, (label, setting, choices, _, platform) in enumerate(spec["rows"]):
         key = setting.split(".", 1)[1]
         row = f"{base}/op_{key}"
-        rows.append((row, platform))
+        if setting not in spec.get("same_place", ()):
+            place += 1
+        rows.append((row, platform, place))
         extra += _widget(row, [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                                ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF"), ("platform", platform)],
                          [f'<child{attributes([("widget", f"{base}/{key}_label")])}/>',
@@ -787,16 +803,22 @@ def _lobby() -> list:
                                                      ("font", "ui\\small_ui"), ("color", "#FF2896FF"), ("text_y", 5),
                                                      ("text_flags", "no_focus_test")], [])
     # a game under way's lobby, before joining it (the browser's rows of
-    # games in progress): what its advertisement tells, JOIN GAME
+    # games in progress): what its advertisement tells, JOIN GAME. Split
+    # screen players join here, as in the lobby, before JOIN GAME: the game
+    # starts at once for the machine, with the players it brings
     lines += _widget(f"{base}/preview_screen", [("width", 640), ("height", 480),
                                                 ("flags", "pass_unhandled_to_focused_child"),
                                                 ("bitmap", "bitmaps/gradient")],
-                     ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
+                     ['<on event="created" run="port lobby open"/>',
+                      '<on event="b" run="port lobby preview leave" back="true"/>',
+                      '<on event="back" run="port lobby preview leave" back="true"/>',
+                      f'<on event="start" run="port lobby preview add" open="{base}/player_profile_screen" branch="true"/>',
                       '<child widget="main_menu/new_select/sel_list_desc_bkd"/>',
                       f'<child widget="{base}/preview_list"/>',
-                      f'<child widget="{base}/header_lobby"/>'])
+                      f'<child widget="{base}/header_lobby"/>',
+                      f'<child widget="{base}/lobby_join_help"/>'])
     lines += _widget(f"{base}/preview_list", [("type", "column_list"), ("width", 640), ("height", 480),
-                                              ("flags", "pass_unhandled_to_focused_child left_right_tabs_items"),
+                                              ("flags", "pass_unhandled_to_focused_child up_down_tabs_children"),
                                               ("description", f"{base}/lobby_desc")],
                      ['<data input="port lobby preview update"/>',
                       f'<child widget="{base}/preview_status" x="30" y="75"/>',
@@ -805,9 +827,12 @@ def _lobby() -> list:
                                                 ("font", "ui\\large_ui"), ("color", "#FF2896FF")], [])
     lines += _widget(f"{base}/preview_button_bar", [("type", "column_list"), ("width", 640), ("height", 28),
                                                     ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
-                     [f'<child widget="{base}/preview_button_join" x="380" y="1"/>',
+                     [f'<child widget="{base}/preview_button_join" x="250" y="1"/>',
+                      f'<child widget="{base}/preview_button_add" x="380" y="1"/>',
                       f'<child widget="{base}/preview_button_back" x="510" y="1"/>'])
-    for key, caption, run in (("join", "JOIN GAME", "port lobby preview join"), ("back", "BACK", "mouse emit back event")):
+    for key, caption, run in (("join", "JOIN GAME", "port lobby preview join"),
+                              ("add", "ADD PLAYER", "port lobby add player"),
+                              ("back", "BACK", "mouse emit back event")):
         lines += _widget(f"{base}/preview_button_{key}", [("type", "text"), ("width", 128), ("height", 24),
                                                          ("bitmap", "bitmaps/text_button_background"),
                                                          ("text", caption), ("font", "ui\\small_ui"),
@@ -822,7 +847,9 @@ def _coop() -> list:
     (the Xbox's Cooperative Play): Multiplayer's CO-OP CAMPAIGN, then player
     2's profile, chosen with player 2's controller (its rows take any
     controller's presses, as the shared rows do only controller 1's), then
-    New Game's levels and difficulty (menu_functions.c's coop_begin)"""
+    New Game's levels and difficulty, which either player's controller uses
+    (ui_widget.c's widget_takes_events_of_controller; menu_functions.c's
+    coop_begin)"""
     base = f"{MT}/coop"
     lines = _widget(f"{MT}/multiplayer_type_coop_item",
                     [("type", "text"), ("left", 51), ("width", 232), ("height", 32), ("bitmap", "bitmaps/list_item_bkd"),

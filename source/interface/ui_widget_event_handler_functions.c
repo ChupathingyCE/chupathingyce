@@ -6060,7 +6060,11 @@ boolean ui_widget_port_gametype_choose(
 	return TRUE;
 }
 
-/* hosting (as the Xbox's server list's Y) */
+/* hosting (as the Xbox's server list's Y): always a new game. A game made
+before and backed out of keeps its server (the lobby's last player leaving
+pauses it: netgame_unjoin_player), and network_game_start_new_server joins
+only a server it makes, so the client it made for that one never joined it
+and the lobby had nobody in it */
 boolean ui_widget_port_host(
 	struct widget_instance *widget,
 	struct event_record *event,
@@ -6068,6 +6072,8 @@ boolean ui_widget_port_host(
 {
 	boolean result;
 
+	dispose_global_network_game_client();
+	dispose_global_network_game_server();
 	network_game_port_pc_menus_hosting = TRUE;
 	result = network_game_start_new_server(widget, event, widget_deleted);
 	network_game_port_pc_menus_hosting = FALSE;

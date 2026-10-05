@@ -197,7 +197,6 @@ WINDOWS32 = WindowsTarget(
         # 32-bit address space
         "-Wl,/LARGEADDRESSAWARE",
         "-Wl,/STACK:0x800000",
-        "-Wl,/SUBSYSTEM:CONSOLE",
     ],
     comment="Native Windows build (ninja windows)",
 )
@@ -242,7 +241,6 @@ WINDOWS64 = WindowsTarget(
         # terabyte, up to that window; without it they stay low
         "-Wl,/HIGHENTROPYVA:NO",
         "-Wl,/STACK:0x800000",
-        "-Wl,/SUBSYSTEM:CONSOLE",
     ],
     comment="Native 64-bit Windows build (ninja windows64)",
     pgo=False,
@@ -440,7 +438,14 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         [_quote(sdl_lib / "SDL3.lib")]
         + [f"-l{lib}" for lib in config.get("libraries", [])]
     )
-    base_ldflags = target.ldflags
+    base_ldflags = list(target.ldflags)
+    if getattr(sln, "port_release", False):
+        # no console window (the port's log goes to halo.log instead,
+        # win32_posix.c): under Wine (Proton, gamescope) the console window
+        # can hide the game's window
+        base_ldflags += ["-Wl,/SUBSYSTEM:WINDOWS", "-Wl,/ENTRY:mainCRTStartup"]
+    else:
+        base_ldflags += ["-Wl,/SUBSYSTEM:CONSOLE"]
 
     def emit(obj_dir: Path, output: Path, extra_cflags: List[str], extra_ldflags: List[str],
              extra_objects: List[Path], implicit_inputs: List[Path]) -> None:
