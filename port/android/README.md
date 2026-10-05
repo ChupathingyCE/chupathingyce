@@ -38,11 +38,15 @@ ninja) and these items:
 
 `ninja android` builds only the game image and the native libraries.
 
+The app is `dev.horrible.chupathingyce`, and its name on the device is
+ChupathingyCE. Refer to "App ID, signing and versions".
+
 ## Game data
 
 The game needs the `maps/` folder from an Xbox disc image (`.xiso` or
 `.iso`) of any version of the game. The app extracts `maps/` from the disc
-image. The app keeps the data in `/sdcard/Android/data/com.halo.decomp/files`.
+image. The app keeps the data in
+`/sdcard/Android/data/dev.horrible.chupathingyce/files`.
 
 To install the data with the app:
 
@@ -57,16 +61,16 @@ To install the data with the app:
 To install the data from a computer:
 
 1. Start the app one time. The app makes its folders.
-2. Enter `adb push <folder>/. /sdcard/Android/data/com.halo.decomp/files/`.
+2. Enter `adb push <folder>/. /sdcard/Android/data/dev.horrible.chupathingyce/files/`.
 
-| Item | Location in `/sdcard/Android/data/com.halo.decomp/files` |
+| Item | Location in `/sdcard/Android/data/dev.horrible.chupathingyce/files` |
 | --- | --- |
 | Saved games (`z:\` and `u:\`) | `save` |
 | Log | `debug.txt` |
 | Settings | `config.toml` |
 
 To make a copy of the saved games, enter
-`adb pull /sdcard/Android/data/com.halo.decomp/files/save`.
+`adb pull /sdcard/Android/data/dev.horrible.chupathingyce/files/save`.
 
 ## Controls
 
@@ -163,9 +167,9 @@ Removing the app's data or the app removes the layout.
 The settings are in `config.toml` in the data folder of the app. To change
 them:
 
-1. Enter `adb pull /sdcard/Android/data/com.halo.decomp/files/config.toml`.
+1. Enter `adb pull /sdcard/Android/data/dev.horrible.chupathingyce/files/config.toml`.
 2. Change the file.
-3. Enter `adb push config.toml /sdcard/Android/data/com.halo.decomp/files/`.
+3. Enter `adb push config.toml /sdcard/Android/data/dev.horrible.chupathingyce/files/`.
 
 At the first start, the game writes the file with the default values. To
 get the default values again, delete the file.
@@ -212,16 +216,92 @@ select "Yes":
 
 1. The app downloads the new version.
 2. The package installer of Android opens. At the first update, Android asks
-   you to let Halo install apps. Allow it.
+   you to let ChupathingyCE install apps. Allow it.
 3. Select "Update". Android replaces the app.
 4. Select "Open" to start the new version.
 
 To install over the previous version, each build must have the same
-signature. GitHub Actions signs each build with the key in the
-`ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD` secrets of the
-repository. If you installed a build that has a different signature, remove
-that build before you install a new build. Removing the app deletes its data
-folder: first make a copy of `maps/` and `save/`.
+signature. The release workflows sign each build with ChupathingyCE's key.
+If you installed a build that has a different signature (for example a
+pull request's build from GitHub Actions), remove that build before you
+install a new build. Removing the app deletes its data folder: first make a
+copy of `maps/` and `save/`.
+
+## App ID, signing and versions
+
+### App ID
+
+The app ID is `dev.horrible.chupathingyce`. Release 0.6.2b and the builds
+before it were `com.halo.decomp`, the app ID of upstream. Android sees the two as
+different apps: the new app does not install over the old app, and it does
+not see the data of the old app. To move to the new app:
+
+1. Install the new app, start it one time, and install the game data.
+2. Copy the saved games and the settings from the old app:
+   `adb pull /sdcard/Android/data/com.halo.decomp/files/save`, then
+   `adb push save /sdcard/Android/data/dev.horrible.chupathingyce/files/`
+   (and `config.toml` the same way).
+3. Uninstall the old app.
+
+The Java package (`com.halo.decomp`, the `namespace` in `app/build.gradle`)
+does not change. The JNI functions of the native code have its name
+(`Java_com_halo_decomp_*`), and the changes of upstream merge without
+changes. Only `applicationId` is ChupathingyCE's. A variant that installs
+beside the app adds a suffix, for example
+`dev.horrible.chupathingyce.native64`. The update provider of the app
+(`UpdateProvider`) has the authority `<app ID>.update`.
+
+### Signing
+
+The build signs the app with the key in `port/android/keystore.properties`,
+as Butter and Jelly does. Git ignores this file. Never commit it, or the
+key:
+
+```properties
+storeFile=/Users/you/ChupathingyCE-keys/android.keystore
+storePassword=...
+keyAlias=halo
+keyPassword=...
+```
+
+`storeFile` is an absolute path, or a path relative to `port/android`. Keep
+the key outside the repository.
+
+| `keystore.properties` | Debug build (`app-debug.apk`) | Release build |
+| --- | --- | --- |
+| present | the key of the file | the key of the file (`app-release.apk`) |
+| absent | the debug key of the computer | unsigned (`app-release-unsigned.apk`) |
+
+With the file, the debug build and the release build install over each
+other and over the builds of the release workflows. A release build is
+never signed with a debug key.
+
+Where each build gets its signature:
+
+- Your computer: `ninja android_apk` and `tools/ci_build.py android` use
+  `keystore.properties` if it is present.
+- Pull requests (`.github/workflows/build.yml` of this repository): there
+  is no key, because forks have no secrets. The artifacts are
+  `chupathingyce-android-debug-testkey.apk` (the debug key of the runner)
+  and `chupathingyce-android-release-unsigned.apk`. A build with the debug
+  key of the runner does not install over a build with ChupathingyCE's key.
+- Nightly builds and releases (the workflows of ChupathingyCE/command):
+  the workflow writes `keystore.properties` from its secrets, signs the
+  debug and the release builds with ChupathingyCE's key, and checks the
+  certificate. To get a signed build of a pull request, start the "Build"
+  workflow of ChupathingyCE/command with the commit of the pull request.
+
+### Versions
+
+`versionCode` is `major * 10000 + minor * 100 + patch` of the version
+(`VERSION`, or `HALO_VERSION` from the workflows): 0.6.2b is 602. The text
+after the three numbers (the `b` of each version, `-nightly.N`, `-dev`)
+does not change the code. A release, its nightly builds and the builds of
+developers of one `VERSION` have the same code, and Android installs a build
+over a build with the same code. The code increases when `VERSION`
+increases, and it never decreases. The minor number and the patch number
+must be less than 100: the build stops if they are not. `versionName` is
+the full version, for example `0.6.2b-nightly.3`.
 
 ## Widescreen
 

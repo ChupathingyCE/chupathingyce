@@ -85,8 +85,10 @@ disc image (`.iso` or `.xiso`) of Halo: Combat Evolved. Any region works.
 2. The first time, it asks for your disc image. Pick it.
 3. It copies the game's `maps` folder out of the image (about 2 GB), then starts.
 
-On Android, copy the disc image to your phone first. On a Mac, the maps,
-settings and saves go in `~/Library/Application Support/ChupathingyCE`.
+On Android, copy the disc image to your phone first; the maps, settings and
+saves go in `/sdcard/Android/data/dev.horrible.chupathingyce/files`. On a
+Mac, the maps, settings and saves go in
+`~/Library/Application Support/ChupathingyCE`.
 On Linux, the maps and settings (`config.toml`) go next to the `halo`
 executable, and the saves in `~/.local/share/halo-linux` (or
 `$XDG_DATA_HOME/halo-linux`). The 64-bit and 32-bit builds use the same
@@ -181,7 +183,7 @@ and edit the value; the game reads the file when it starts.
 | Windows | next to `halo.exe` |
 | Mac | `~/Library/Application Support/ChupathingyCE/config.toml` |
 | Linux and Steam Deck | next to the `halo` executable |
-| Android | in the game's data folder |
+| Android | in the game's data folder, `/sdcard/Android/data/dev.horrible.chupathingyce/files` |
 
 A few people look for most:
 

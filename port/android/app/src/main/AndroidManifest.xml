@@ -82,10 +82,12 @@
                 android:value="game" />
         </activity>
 
-        <!-- the downloaded new version, for the package installer (Updater) -->
+        <!-- the downloaded new version, for the package installer (Updater);
+             the authority is the application ID's, so that a variant with its
+             own ID (UpdateProvider.AUTHORITY) installs beside this app -->
         <provider
             android:name=".UpdateProvider"
-            android:authorities="com.halo.decomp.update"
+            android:authorities="${applicationId}.update"
             android:exported="false"
             android:grantUriPermissions="true" />
 
