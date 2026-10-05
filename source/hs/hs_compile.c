@@ -1787,6 +1787,18 @@ static boolean hs_parse_object_name(
 			hs_compile_globals.error_offset = expression->source_offset;
 		}
 	}
+#ifdef HALO_CUSTOM_EDITION
+	/* port: Halo PC's compiler also takes none for an object name: no
+	object, as the engine's own object name variables start (coldsnap's
+	scripts start a global object_name as none, and set it later) */
+	else if (csstrcmp(
+		hs_compile_globals.compiled_source + expression->source_offset,
+		"none") == 0)
+	{
+		expression->data = NONE;
+		result = TRUE;
+	}
+#endif
 	else
 	{
 		hs_compile_globals.error = "this is not a valid object name.";
