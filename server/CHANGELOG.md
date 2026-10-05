@@ -4,7 +4,7 @@ What changed in the ChupathingyCE Dedicated Server. The server is released
 with the game and has its version; the game's own changes are in its
 release notes.
 
-## Unreleased
+## 0.6.3b
 
 - The server is a program of its own, `chupathingyce-server`, for Linux
   only, in three downloads: `chupathingyce-server-linux-x64`,
