@@ -946,6 +946,101 @@ On all maps:
   does not lead the squad to a different place. The count starts when the
   person gets a new body.
 
+### Very large maps
+
+Some Halo PC maps are about 2000 world units across (Coldsnap, Hugeass).
+The navigation of such a map is made only for the parts where the game is
+played: the bases, the weapons, the vehicles. It has no way between the
+parts. `port/linux/game/bot_country.c` drives the ground vehicles between
+them. It operates only on a map whose navigation is made in parts. On all
+other maps the game does not make it and does not use it: three games of 4
+minutes (Blood Gulch and Sidewinder, capture the flag, 11 bots; Hang 'Em
+High, slayer, 7 bots) had the same result with it as before it.
+
+- **The ground.** When the map loads, the game makes a map of squares of 2
+  world units. A square has the floors that are below its middle: a floor
+  is a surface of 45 degrees or less that has 1.6 world units of room above
+  it. This took 2.6 seconds on Coldsnap and 2.2 seconds on Hugeass.
+- **The steps.** A vehicle can go from a floor to a floor of the next
+  square when the step is not steeper than 40 degrees. If the height of
+  the step agrees with the slopes of the two floors, the game accepts it.
+  If not, or if the floor has a side (a ramp, a bridge, a road along a
+  cliff), the game looks at the ground with rays, one time: the ground
+  must not jump more than 0.8 world units, and it must be 2 world units
+  wide. Thus a kerb, the side of a ramp, and the narrow slope at the edge
+  of a platform are not ways.
+- **Bridges and gates.** One second into the game, the game adds the tops
+  of the machines of the map that join the ground (the two bridges that
+  go up from each hangar of Hugeass). A script of a map that moves a
+  vehicle from a trigger volume to a flag (the gates of Coldsnap) is a way
+  for the vehicles that the script names. A bot drives to the volume, and
+  the game puts its vehicle into the volume when the vehicle is less than
+  3.5 world units from it and nothing of the map is between.
+- **Down a cliff.** A vehicle can go off an edge to a lower floor. This is
+  a way in one direction. The bases of Hugeass have no other way down.
+- **The route.** For each destination, the game searches from the
+  destination across all the map and keeps, in each floor, the next step.
+  All the bots that go to the same end of the map use the same search. The
+  search gets 4 milliseconds of each tick. A driver stops and waits until
+  it is complete: 18 seconds on Coldsnap and 42 seconds on Hugeass for the
+  first destination of a game, on the computer of the measurement (2
+  processor cores). The game keeps what the rays found, and later searches
+  are faster.
+- **Room.** A square at the edge of the ground (at a wall, at a cliff, at
+  the side of a bridge) costs 4 times a square in the open. A square next
+  to such a square costs 1.5 times. Thus the route goes along the middle
+  of a bridge and round the end of a wall.
+- **The driving.** The driver steers to the farthest point of the route
+  that it can go to in a straight line that does not touch the edge of the
+  ground. It goes onto a narrow ramp along the line of the ramp, and at
+  full speed when the vehicle is on that line. It slows down before a turn
+  of the route. It brakes when there is no ground at the place where the
+  vehicle will be in the next second, and it reverses from an edge at
+  which it has stopped. A ray finds a tree, a rock or a different vehicle
+  in front, and the driver goes round it. The driver of a Ghost points the
+  nose against the direction in which the Ghost slides.
+- **The fight.** When an enemy is less than 28 world units away and the
+  vehicle is not on the navigation, the driver goes round the enemy across
+  the ground in the same way.
+- **When it stops.** A driver whose vehicle did not move 4 times, or that
+  has no way from the place where it is, gets out. No bot gets into that
+  vehicle while it is in that place: for 90 seconds if it did not move,
+  for 5 minutes if it has no way.
+
+These are games of 5 minutes of capture the flag with 11 bots, with
+`HALO_RANDOM_SEED=5`. Before this change, a driver had no route between
+the parts of these maps.
+
+| | Hugeass | Coldsnap |
+| --- | --- | --- |
+| Kills | 5 | 0 |
+| Kills by a bot in a ground vehicle | 3 | 0 |
+| Deaths from a fall | 0 | 0 |
+| Drivers that got to less than 100 world units from their destination | 4 | 0 |
+| Longest time that one bot drove | 186 seconds | 261 seconds |
+| Gates used | 0 | 8 |
+| Times a driver got out because the vehicle did not move | 4 | 1 |
+| Times a driver got out because there was no way | 0 | 5 |
+
+On Hugeass, the Ghosts and the Warthogs leave the hangars, go down from the
+bases, cross the basin and fight. Coldsnap operates only in part:
+
+- The team in the north-west base leaves through its gate, crosses the
+  canyon on the lower deck of the bridge, and uses the gate that goes up
+  the cliff. It does not get to the base of the enemy: the nearest that a
+  driver got was 437 world units.
+- The Warthogs on the north-west side of the south-east base have no way
+  to the yard where the gates of that base are. The only slopes onto the
+  platform between them are 1 world unit wide. Their drivers get out.
+- A bot on foot between the parts of such a map has no navigation.
+- The aircraft do not use the gates, and the game does not fly the large
+  aircraft (the type `human plane`) well.
+
+With `HALO_BOT_LOG` set, the lines that start with `bots: country:` give
+the size of the map of the ground, each gate, each search, and where each
+driver is every 3 seconds. `HALO_BOT_COUNTRYTRACE=1` adds a line for each
+driver every third of a second.
+
 ### The bots in a Warthog
 
 In a team game, a bot that drives a vehicle with more than one seat does

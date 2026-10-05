@@ -246,6 +246,50 @@ struct bot_flight_result
 };
 
 /* the map from above, for flying over: made when the map's navigation is */
+/* across country on the ground (bot_country.c) */
+struct bot_traveller
+{
+	long vehicle; /* what it is in (another: afresh) */
+	real_point3d next; /* where it is making for now */
+	real_point3d stuck_point; /* held up: where it was, since when, how often of late */
+	long stuck_tick;
+	long stuck_last;
+	long stuck_count;
+	long escape_until; /* getting clear of what holds it: until when, and which way */
+	real escape_yaw;
+	real swerve; /* round something in the way: to which side, for how long yet */
+	long swerve_ticks;
+};
+
+struct bot_country_result
+{
+	real yaw; /* steer this way */
+	real throttle;
+	real_point3d next; /* the point it is making for */
+	boolean moving;
+	boolean arrived;
+	boolean soon; /* the way is still being worked out */
+	boolean off; /* not on the country (under a roof, in a building) */
+	boolean none; /* the country does not join here to there */
+	boolean held_up; /* stuck time and again: out */
+	boolean into_portal; /* the point is the way into a portal: straight into it */
+	boolean escaping; /* getting clear of something: by its own steering, not the navigation's */
+	boolean edge; /* going at an edge with nothing under it: stopping */
+};
+
+void bot_country_build(void);
+void bot_country_dispose(void);
+boolean bot_country_ready(void);
+void bot_country_update(void); /* once a tick: its searches carried on */
+boolean bot_country_on(real_point3d const *point);
+boolean bot_country_nearest(real_point3d const *point, long rings, real_point3d *ground);
+long bot_country_portals_of(long vehicle_index); /* the ways the map's script carries this vehicle (a set of them) */
+boolean bot_country_way(real_point3d const *from, real_point3d const *to, long portals, boolean drops, real ahead, real_point3d *next,
+	boolean *soon, boolean *off, real *left);
+real bot_country_distance(real_point3d const *from, real_point3d const *to, long portals);
+boolean bot_nav_in_parts(void); /* (bot_nav.c: a map too large for its floors to be worked out whole) */
+void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *body, real_point3d const *to, struct bot_country_result *result);
+
 void bot_air_build(void);
 void bot_air_dispose(void);
 boolean bot_air_ready(void);

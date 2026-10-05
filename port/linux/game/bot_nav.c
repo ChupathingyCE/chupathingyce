@@ -1475,6 +1475,14 @@ boolean navm_ready(void)
    (navm_choose_parts) */
 #define NAVM_MAXIMUM_COLUMNS (48 * 1024 * 1024)
 
+/* A map so large that its floors are worked out only in parts (or not at
+   all): what goes between the parts on the ground goes across country
+   (bot_country.c). */
+boolean bot_nav_in_parts(void)
+{
+	return navm_map_too_large() || (navm.width > 0 && (double)navm.width * (double)navm.height > (double)NAVM_MAXIMUM_COLUMNS);
+}
+
 /* the last map's grid would have had more: it has no navigation */
 static boolean navm_too_large;
 

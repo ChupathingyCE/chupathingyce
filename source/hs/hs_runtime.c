@@ -943,6 +943,82 @@ void hs_debug_dump_scripts(
 	}
 }
 
+/* port: the teleports a map's scripts do with its vehicles. A map made for
+aircraft keeps its bases inside mountains, and its script carries a vehicle
+that is driven into a trigger volume there out to a flag in the open:
+	(if (volume_test_object <volume> <object>) (object_teleport <object> <flag>))
+for each vehicle by name. Each such pair found in the scripts is given to
+`found`: the volume, the object's name, the flag (the bots' way out of a base,
+port/linux/game/bot_country.c). */
+static void hs_find_scripted_teleports_in(
+	long expression_index,
+	long depth,
+	short test_function,
+	short teleport_function,
+	long *tested_volume,
+	long *tested_object,
+	void (*found)(short trigger_volume_index, short object_name_index, short cutscene_flag_index, void *context),
+	void *context)
+{
+	struct hs_syntax_node *node;
+	long child;
+	long arguments[3] = { NONE, NONE, NONE };
+	long count = 0;
+
+	if (expression_index == NONE || depth > 60)
+		return;
+	node = (struct hs_syntax_node *)datum_try_and_get(hs_syntax_data, expression_index);
+	if (!node || TEST_FLAG(node->flags, _hs_syntax_node_primitive_bit))
+		return;
+	for (child = node->data; child != NONE; )
+	{
+		struct hs_syntax_node *child_node = (struct hs_syntax_node *)datum_try_and_get(hs_syntax_data, child);
+
+		if (!child_node)
+			break;
+		if (count < 3)
+			arguments[count] = TEST_FLAG(child_node->flags, _hs_syntax_node_primitive_bit) ? (long)(short)child_node->data : NONE;
+		count++;
+		hs_find_scripted_teleports_in(child, depth + 1, test_function, teleport_function, tested_volume, tested_object, found, context);
+		child = child_node->next_node_index;
+	}
+	/* (a call's nodes: its name, then what it is given) */
+	if (!TEST_FLAG(node->flags, _hs_syntax_node_script_bit) && count == 3 && arguments[1] != NONE && arguments[2] != NONE)
+	{
+		if (node->function_index == test_function)
+		{
+			*tested_volume = arguments[1];
+			*tested_object = arguments[2];
+		}
+		else if (node->function_index == teleport_function && *tested_volume != NONE && *tested_object == arguments[1])
+		{
+			found((short)*tested_volume, (short)arguments[1], (short)arguments[2], context);
+		}
+	}
+}
+
+void hs_find_scripted_teleports(
+	void (*found)(short trigger_volume_index, short object_name_index, short cutscene_flag_index, void *context),
+	void *context)
+{
+	struct scenario *scenario = global_scenario_get();
+	short test_function = hs_find_function_by_name("volume_test_object");
+	short teleport_function = hs_find_function_by_name("object_teleport");
+	short script_index;
+
+	if (!scenario || test_function == NONE || teleport_function == NONE || !hs_syntax_data)
+		return;
+	for (script_index = 0; script_index < scenario->hs_scripts.count; script_index++)
+	{
+		struct hs_script *script = TAG_BLOCK_GET_ELEMENT(&scenario->hs_scripts, script_index, struct hs_script);
+		long tested_volume = NONE;
+		long tested_object = NONE;
+
+		hs_find_scripted_teleports_in(script->root_expression_index, 0, test_function, teleport_function, &tested_volume, &tested_object,
+			found, context);
+	}
+}
+
 static char const *expression_get_function_name(
 	long thread_index,
 	long expression_index)
