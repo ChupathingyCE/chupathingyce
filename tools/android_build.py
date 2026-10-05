@@ -166,6 +166,26 @@ def _find_ndk() -> Optional[Path]:
     return None
 
 
+def ndk_toolchain(ndk: Path) -> Optional[Path]:
+    """the NDK's LLVM toolchain for this computer (toolchains/llvm/prebuilt/<host>), or None"""
+    prebuilt = ndk / "toolchains" / "llvm" / "prebuilt"
+    host_tag = os.environ.get("ANDROID_NDK_HOST_TAG", "")
+    if not host_tag:
+        if sys.platform == "darwin":
+            host_tag = "darwin-x86_64"
+        elif os.name == "nt":
+            host_tag = "windows-x86_64"
+        else:
+            host_tag = "linux-x86_64"
+    if not (prebuilt / host_tag).is_dir():
+        # an NDK that names its host folder differently: take the one there is
+        tags = sorted(entry.name for entry in prebuilt.iterdir() if entry.is_dir()) if prebuilt.is_dir() else []
+        if not tags:
+            return None
+        host_tag = tags[0]
+    return prebuilt / host_tag
+
+
 def check_sdl_commit(directory: Path) -> None:
     """SDL3's clone refused unless its tag is still the pinned commit."""
     commit = subprocess.run(["git", "-C", str(directory), "rev-parse", "HEAD"], capture_output=True, text=True,
@@ -235,23 +255,10 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     import json
     config: Dict[str, Any] = json.loads(config_path.read_text(encoding="utf-8"))
 
-    prebuilt = ndk / "toolchains" / "llvm" / "prebuilt"
-    _host_tag = os.environ.get("ANDROID_NDK_HOST_TAG", "")
-    if not _host_tag:
-        if sys.platform == "darwin":
-            _host_tag = "darwin-x86_64"
-        elif os.name == "nt":
-            _host_tag = "windows-x86_64"
-        else:
-            _host_tag = "linux-x86_64"
-    if not (prebuilt / _host_tag).is_dir():
-        # an NDK that names its host folder differently: take the one there is
-        _tags = sorted(entry.name for entry in prebuilt.iterdir() if entry.is_dir()) if prebuilt.is_dir() else []
-        if not _tags:
-            n.comment("Android build: the NDK has no LLVM toolchain")
-            return
-        _host_tag = _tags[0]
-    toolchain = prebuilt / _host_tag
+    toolchain = ndk_toolchain(ndk)
+    if not toolchain:
+        n.comment("Android build: the NDK has no LLVM toolchain")
+        return
     sysroot_include = toolchain / "sysroot" / "usr" / "include"
     host_cc = toolchain / "bin" / f"aarch64-linux-android{ANDROID_API}-clang"
     ndk_bin = toolchain / "bin"

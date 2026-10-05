@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 from tools import ninja_syntax
 from tools.android_build import android_configure_inputs, generate_android_build
+from tools.android64_build import android64_configure_inputs, generate_android64_build
 from tools.linux_build import generate_linux_build, linux_configure_inputs
 from tools.linux64_build import generate_linux64_build, linux64_configure_inputs
 from tools.macos_build import generate_macos_build, macos_configure_inputs
@@ -77,7 +78,7 @@ parser.add_argument(
 parser.add_argument(
     "--android-ndk",
     type=str,
-    help="Android NDK for `ninja android` (default: ANDROID_NDK_HOME, or the newest under the Android SDK)",
+    help="Android NDK for `ninja android` and `ninja android64` (default: ANDROID_NDK_HOME, or the newest under the Android SDK)",
 )
 parser.add_argument(
     "--android-guest-cc",
@@ -124,6 +125,7 @@ n.newline()
 generate_linux_build(n, sln)
 generate_linux64_build(n, sln)
 generate_android_build(n, sln)
+generate_android64_build(n, sln)
 generate_windows_build(n, sln)
 generate_macos_build(n, sln)
 generate_server_build(n, sln)
@@ -144,6 +146,7 @@ n.build(
         *linux_configure_inputs(),
         *linux64_configure_inputs(),
         *android_configure_inputs(),
+        *android64_configure_inputs(),
         *windows_configure_inputs(),
         *macos_configure_inputs(),
         *server_configure_inputs(),

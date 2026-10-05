@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- merged into ../app's manifest for the native 64-bit app (build.gradle) -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- heap pointers without Android's tag in their top byte, as on the
+         desktop's 64-bit builds, whose code this is: the game compares
+         and subtracts pointers into its Xbox address space
+         (source/cseries/xbox_address.h) -->
+    <application android:allowNativeHeapPointerTagging="false" />
+</manifest>

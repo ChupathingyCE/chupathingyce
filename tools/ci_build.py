@@ -58,6 +58,9 @@ OUTPUTS = {
     # the native 64-bit build (ninja windows64; tools/windows_build.py)
     "windows64": ["build/windows64/halo.exe", "build/windows64/SDL3.dll"],
     "android": [],  # the APK, below
+    # the native 64-bit app (ninja android64; tools/android64_build.py),
+    # which installs beside the guest build's: its APK, below
+    "android64": [],
     # the application (universal and self-contained: --portable), whole
     "macos": ["build/macos/ChupathingyCE.app"],
     # the dedicated server (ninja server-<arch>; tools/server_build.py)
@@ -76,6 +79,12 @@ APKS = {
 }
 # what Gradle calls the release build without a key (app/build.gradle)
 UNSIGNED_APK = "port/android/app/build/outputs/apk/release/app-release-unsigned.apk"
+# the native 64-bit app's (app64/build.gradle), likewise
+APKS64 = {
+    "debug": "port/android/app64/build/outputs/apk/debug/app64-debug.apk",
+    "release": "port/android/app64/build/outputs/apk/release/app64-release.apk",
+}
+UNSIGNED_APK64 = "port/android/app64/build/outputs/apk/release/app64-release-unsigned.apk"
 
 
 def run(command, cwd=ROOT):
@@ -116,20 +125,26 @@ def main() -> int:
     run(configure)
 
     apk_names = {}
-    if args.platform == "android":
+    if args.platform in ("android", "android64"):
         # the native part, then the app around it (Gradle's variant of the
-        # same name), named for its signature
-        run(["ninja", "android"])
+        # same name), named for its signature; the native 64-bit app is the
+        # Gradle module app64, only in the project with -Pnative64
+        # (port/android/settings.gradle)
+        native64 = args.platform == "android64"
+        apks, unsigned_apk = (APKS64, UNSIGNED_APK64) if native64 else (APKS, UNSIGNED_APK)
+        task = f"assemble{args.config.capitalize()}"
+        run(["ninja", args.platform])
         gradlew = "gradlew.bat" if os.name == "nt" else "./gradlew"
-        for stale in (APKS[args.config], UNSIGNED_APK):
+        for stale in (apks[args.config], unsigned_apk):
             (ROOT / stale).unlink(missing_ok=True)
-        run([gradlew, "--console=plain", "-q", f"assemble{args.config.capitalize()}"], cwd=ROOT / "port/android")
+        run([gradlew, "--console=plain", "-q"] + (["-Pnative64", f":app64:{task}"] if native64 else [task]),
+            cwd=ROOT / "port/android")
         if (ROOT / "port/android/keystore.properties").exists():
-            apk, name = APKS[args.config], f"chupathingyce-android-{args.config}.apk"
+            apk, name = apks[args.config], f"chupathingyce-{args.platform}-{args.config}.apk"
         elif args.config == "debug":
-            apk, name = APKS["debug"], "chupathingyce-android-debug-testkey.apk"
+            apk, name = apks["debug"], f"chupathingyce-{args.platform}-debug-testkey.apk"
         else:
-            apk, name = UNSIGNED_APK, "chupathingyce-android-release-unsigned.apk"
+            apk, name = unsigned_apk, f"chupathingyce-{args.platform}-release-unsigned.apk"
         outputs = [apk]
         apk_names[apk] = name
     else:
@@ -157,9 +172,9 @@ def main() -> int:
     # XisoExtractor.java) follow extract-xiso, whose license asks binaries
     # to carry its notice
     shutil.copy2(ROOT / "port/third_party/extract-xiso/LICENSE.TXT", dist / "extract-xiso-LICENSE.txt")
-    if args.platform in ("linux", "linux64"):
-        # the self-updater's TLS (port/third_party/mbedtls), whose Apache
-        # license asks the same
+    if args.platform in ("linux", "linux64", "android64"):
+        # the self-updater's TLS (port/third_party/mbedtls; the game list's,
+        # in the native 64-bit Android app), whose Apache license asks the same
         shutil.copy2(ROOT / "port/third_party/mbedtls/LICENSE", dist / "mbedtls-LICENSE.txt")
     # internet play's UPnP (port/third_party/miniupnpc), in every build,
     # whose BSD license asks binaries to carry its notice

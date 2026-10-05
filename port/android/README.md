@@ -41,6 +41,43 @@ ninja) and these items:
 The app is `dev.horrible.chupathingyce`, and its name on the device is
 ChupathingyCE. Refer to "App ID, signing and versions".
 
+## The native 64-bit app (experimental)
+
+`ninja android64` builds the game as native 64-bit code (LP64), as the
+macOS, Linux x86-64 and Windows x64 builds do (`HALO_64BIT`,
+`tools/lp64_build.py`). It does not use the guest image and the host
+library: the game and the platform layer are in `libmain.so`, which calls
+SDL3 and OpenGL ES 3 directly. `port/android/native64` holds the entry
+point (`SDL_main`), which does the work of `host_main.c`.
+`ninja android64_apk` makes the app:
+`port/android/app64/build/outputs/apk/debug/app64-debug.apk`.
+
+The app has the ID `dev.horrible.chupathingyce.native64` and the name
+"ChupathingyCE 64". You can install it next to the usual app. It has its own
+data folder, `/sdcard/Android/data/dev.horrible.chupathingyce.native64/files`.
+It does not update itself. Its signature and its `versionCode` are the same
+as those of the usual app (refer to "App ID, signing and versions"):
+with `keystore.properties`, `ninja android64_apk` signs it with
+ChupathingyCE's key. It plays Halo PC maps (Custom Edition and HaloMD) as
+the other 64-bit builds do, and it has their memory window and texture
+cache.
+
+The game keeps the Xbox address space (4 GB) at 256 GB in the process
+(`source/cseries/xbox_address.h`), above the low 4 GB that ART uses. If the
+app cannot reserve it, the app shows a message and writes the mappings near
+it to logcat. Kernels with 16 KB pages (Android 15 and later) are
+supported.
+
+To build it and install it:
+
+1. Enter `ninja android64_apk`.
+2. Enter `adb install -r port/android/app64/build/outputs/apk/debug/app64-debug.apk`.
+3. Install the game data in its data folder, as for the usual app.
+
+To see its log, enter `adb logcat -s halo`. A crash report gives addresses
+in `libmain.so`. To get the names, enter
+`llvm-symbolizer --obj=build/android64/jniLibs/arm64-v8a/libmain.so 0x<offset>`.
+
 ## Game data
 
 The game needs the `maps/` folder from an Xbox disc image (`.xiso` or
@@ -279,7 +316,8 @@ never signed with a debug key.
 Where each build gets its signature:
 
 - Your computer: `ninja android_apk` and `tools/ci_build.py android` use
-  `keystore.properties` if it is present.
+  `keystore.properties` if it is present. So do `ninja android64_apk` and
+  `tools/ci_build.py android64` (the native 64-bit app).
 - Pull requests (`.github/workflows/build.yml` of this repository): there
   is no key, because forks have no secrets. The artifacts are
   `chupathingyce-android-debug-testkey.apk` (the debug key of the runner)
