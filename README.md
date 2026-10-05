@@ -2,7 +2,7 @@
 
 <h1 align="center">ChupathingyCE</h1>
 
-<p align="center"><b>A community build of OpenCE: Halo: Combat Evolved on Windows, Mac, Linux and Android.</b></p>
+<p align="center"><b>Halo: Combat Evolved on Windows, Mac, Linux and Android: a community build of OpenCE, with its own releases, dedicated servers and the Delta network family.</b></p>
 
 <p align="center">
 <a href="https://github.com/ChupathingyCE/chupathingyce/releases/latest">Download</a> ·
@@ -16,8 +16,8 @@
 ChupathingyCE is a community build of **OpenCE**, the port of the Halo: Combat
 Evolved decompilation to modern computers and phones. Our goal is a unified
 online experience, plus our own tweaks, on a project that's still in its
-infancy. We follow OpenCE closely, send our fixes back to it, and put out our
-own releases. Expect rough edges, and please report them.
+infancy. We stay compatible with OpenCE, offer our fixes back to it, and put
+out our own releases. Expect rough edges, and please report them.
 
 <p align="center"><img src="docs/screenshots/lobby.jpg" width="720" alt="A multiplayer lobby"></p>
 
@@ -215,15 +215,27 @@ Server Browser. It is its own download for Linux on x86, x64 and arm64
 (Oracle Cloud's free tier and Raspberry Pis included): one file, no libraries
 to install, and no port forwarding. See [server/README.md](server/README.md).
 
-## How ChupathingyCE relates to OpenCE
+## ChupathingyCE, OpenCE and Delta
 
-- OpenCE ([OpenCommunityEdition/OpenCE](https://github.com/OpenCommunityEdition/OpenCE))
-  is where the port is made. ChupathingyCE merges its changes regularly.
-- We keep the same network version, so players of both play together. The line
-  at the top of this page says which OpenCE builds match this one.
-- Fixes to the shared game code go back to OpenCE as pull requests.
-- ChupathingyCE has its own version numbers (this is v0.5.0b) and its own
-  releases, so it doesn't change under you every few hours.
+- **OpenCE** ([OpenCommunityEdition/OpenCE](https://github.com/OpenCommunityEdition/OpenCE))
+  is the port ChupathingyCE started from. We merge its changes on our own
+  schedule, and ChupathingyCE has its own releases and version numbers, so it
+  doesn't change under you every few hours.
+- **Playing together.** OpenCE players and ChupathingyCE players join each
+  other's games. OpenCE raises its network version often, and its builds join
+  only hosts of their exact number. ChupathingyCE follows those raises on its
+  own: a workflow watches OpenCE's releases, checks that a raise doesn't
+  change multiplayer, and releases a matching build, usually within the hour.
+  The line at the top of this page says which OpenCE builds match this one.
+- **Delta** is ChupathingyCE's network family ([docs/delta.md](docs/delta.md)):
+  everything our machines and services say beyond OpenCE's game protocol,
+  which stays OpenCE's byte for byte. OpenCE's version number is Delta's
+  legacy layer, kept for compatibility. Between ChupathingyCE machines, Delta
+  Peer negotiates what each side supports, so small changes stop splitting
+  players. The game list, stats and profile links on
+  [halo.milenko.org](https://halo.milenko.org) and the dedicated server's
+  admin tools are Delta List, Delta Stats, Delta Link and Delta Control.
+- Fixes to the shared game code are offered back to OpenCE as pull requests.
 
 ## Building it yourself
 
