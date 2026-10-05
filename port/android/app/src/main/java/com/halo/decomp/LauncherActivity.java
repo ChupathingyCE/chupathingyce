@@ -203,6 +203,63 @@ public class LauncherActivity extends Activity {
         new Thread(() -> importImage(image)).start();
     }
 
+    /* the disc's language, from its name: the movies and the port's own
+       strings follow game.language, and a disc the port has no name for is
+       taken as the Spanish one this build ships (an English disc, empty) */
+    private void setGameLanguage(Uri image) {
+        String name = "";
+        try (android.database.Cursor cursor = getContentResolver().query(image, null, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int column = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (column >= 0) name = cursor.getString(column);
+            }
+        } catch (Exception ignored) {
+        }
+        if (name == null) name = "";
+        name = name.toLowerCase(java.util.Locale.ROOT);
+        String language = "es";
+        if (name.contains("usa") || name.contains("english") || name.contains("_en") || name.contains("(en)")) {
+            language = "";
+        }
+        writeGameLanguage(language);
+    }
+
+    /* game.language in config.toml (the key is added, or its line changed,
+       the rest of the file kept as it is): empty is English */
+    private void writeGameLanguage(String language) {
+        if (dataRoot == null) return;
+        File config = new File(dataRoot, "config.toml");
+        StringBuilder out = new StringBuilder();
+        boolean inGame = false, wrote = false, seenGame = false;
+        try {
+            if (config.isFile()) {
+                for (String line : java.nio.file.Files.readAllLines(config.toPath())) {
+                    String trimmed = line.trim();
+                    if (trimmed.startsWith("[")) {
+                        if (inGame && !wrote) {
+                            out.append("language = \"").append(language).append("\"\n");
+                            wrote = true;
+                        }
+                        inGame = trimmed.equals("[game]");
+                        if (inGame) seenGame = true;
+                    } else if (inGame && trimmed.startsWith("language") && trimmed.contains("=")) {
+                        out.append("language = \"").append(language).append("\"\n");
+                        wrote = true;
+                        continue;
+                    }
+                    out.append(line).append('\n');
+                }
+            }
+            if (!wrote) {
+                if (seenGame) out.append("language = \"").append(language).append("\"\n");
+                else out.append("[game]\nlanguage = \"").append(language).append("\"\n");
+            }
+            java.nio.file.Files.write(config.toPath(),
+                out.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+        }
+    }
+
     private void report(String text, int permille) {
         handler.post(() -> {
             status.setText(text);
@@ -221,6 +278,7 @@ public class LauncherActivity extends Activity {
     }
 
     private void importImage(Uri image) {
+        setGameLanguage(image);
         try (ParcelFileDescriptor descriptor = getContentResolver().openFileDescriptor(image, "r")) {
             if (descriptor == null)
                 throw new java.io.IOException("the file could not be opened");
