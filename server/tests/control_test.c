@@ -3,7 +3,9 @@ CONTROL_TEST.C
 
 Tests of the dedicated server's command lines (server/src/command_line.c)
 and its control API's requests, credentials, limits and log
-(server/platform/control_protocol.c): well-formed input, malformed,
+(server/platform/control_protocol.c), and its web admin page's sessions,
+checks, headers and files (server/platform/control_web.c, with the page's
+files as tools/embed_webui.py embeds them): well-formed input, malformed,
 oversized and cut-short input, and a few thousand random requests (built
 with AddressSanitizer and UndefinedBehaviorSanitizer where the compiler has
 them). Built and run by tools/test_server_control.py; exits nonzero on a
@@ -12,6 +14,7 @@ failure.
 
 #include "../src/command_line.h"
 #include "../platform/control_protocol.h"
+#include "../platform/control_web.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -398,7 +401,10 @@ static void fuzz_requests(int rounds)
 		"GET ", "POST ", "/v1/status", "/v1/command", "?since=", " HTTP/1.1", " HTTP/1.0", "\r\n", "\r\n\r\n",
 		"Host: x", "Content-Length: ", "12", "Authorization: Bearer ", "chce_00", "Content-Type: application/json",
 		"Transfer-Encoding: chunked", ": ", " ", "\t", "\n", "\r", "{\"command\": \"sv_status\"}", "\"", "\\u0041",
-		"\x00", "\xff", "%", "#",
+		"\x00", "\xff", "%", "#", "/v1/login", "/v1/session", "/v1/logout", "/", "/index.html", "/../", "Cookie: ",
+		"chce_session=", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "; ", "X-CSRF-Token: ",
+		"Origin: http://x", "Origin: null", "Sec-Fetch-Site: cross-site", "X-Forwarded-Proto: https",
+		"X-Forwarded-Host: y", "Forwarded: for=1;proto=https", "X-Background: 1", "{\"token\": \"chce_\"}",
 	};
 	static const char good[] = "POST /v1/command HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer chce_ab\r\n"
 		"Content-Type: application/json\r\nContent-Length: 24\r\n\r\n{\"command\": \"sv_kick 3\"}";
@@ -441,8 +447,22 @@ static void fuzz_requests(int rounds)
 		{
 			CHECK(request.path[0] == '/' && strlen(request.path) < CONTROL_MAXIMUM_TARGET);
 			CHECK(strlen(request.token) < CONTROL_MAXIMUM_TOKEN);
+			CHECK(!request.session[0] || control_session_text_valid(request.session));
+			CHECK(!request.csrf[0] || control_session_text_valid(request.csrf));
+			CHECK(strlen(request.host) < sizeof(request.host) && strlen(request.origin) < sizeof(request.origin));
+			CHECK(strlen(request.forwarded_host) < sizeof(request.forwarded_host));
+			/* (a file is one of the page's, by its whole path, or none) */
+			{
+				const struct control_web_asset *asset = control_web_find_asset(request.path);
+
+				CHECK(!asset || !strcmp(asset->path, request.path) || !strcmp(request.path, "/"));
+				CHECK(!asset || (!strstr(request.path, "..") && !strstr(request.path, "//")));
+			}
 			if (request.body)
 			{
+				char token[CONTROL_MAXIMUM_TOKEN];
+
+				control_parse_login_body(request.body, request.content_length, token, sizeof(token), &reason);
 				CHECK(request.body + request.content_length == data + length);
 				if (control_parse_command_body(request.body, request.content_length, command, sizeof(command),
 					&reason))
@@ -683,6 +703,269 @@ static void test_log(void)
 	}
 }
 
+/* ---------- the web page */
+
+static void test_web_requests(void)
+{
+	struct control_request request;
+	int status;
+	char token[CONTROL_MAXIMUM_TOKEN];
+	const char *reason;
+	static const char id[] = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+	/* the session cookie, among others; the CSRF header; the browser's */
+	CHECK(parse("GET /v1/status HTTP/1.1\r\nHost: 127.0.0.1:8080\r\nCookie: a=1; chce_session="
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef; b=2\r\nX-CSRF-Token: "
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\nOrigin: http://127.0.0.1:8080\r\n"
+		"Sec-Fetch-Site: same-origin\r\nX-Background: 1\r\n\r\n", &request, &status) == CONTROL_PARSE_DONE);
+	CHECK(!strcmp(request.session, id) && !strcmp(request.csrf, id));
+	CHECK(!strcmp(request.host, "127.0.0.1:8080") && request.has_origin &&
+		!strcmp(request.origin, "http://127.0.0.1:8080"));
+	CHECK(!request.cross_site && !request.proxied && !request.https && request.background);
+	CHECK(request.authorization == CONTROL_AUTHORIZATION_NONE);
+	/* a cookie in a header of its own, as a proxy may split them */
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nCookie: a=1\r\nCookie: chce_session="
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n\r\n", &request, &status) ==
+		CONTROL_PARSE_DONE && !strcmp(request.session, id));
+	/* none if it is there twice (another site's page may plant one), not
+	the form, or another cookie's name */
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nCookie: chce_session="
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef; chce_session="
+		"1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n\r\n", &request, &status) ==
+		CONTROL_PARSE_DONE && !request.session[0]);
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nCookie: chce_session=0123\r\n\r\n", &request, &status) ==
+		CONTROL_PARSE_DONE && !request.session[0]);
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nCookie: chce_session="
+		"0123456789ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef\r\n\r\n", &request, &status) ==
+		CONTROL_PARSE_DONE && !request.session[0]);
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nCookie: CHCE_SESSION="
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef; xchce_session="
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n\r\n", &request, &status) ==
+		CONTROL_PARSE_DONE && !request.session[0]);
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nX-CSRF-Token: nope\r\n\r\n", &request, &status) == CONTROL_PARSE_DONE &&
+		!request.csrf[0]);
+	/* twice is refused */
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nX-CSRF-Token: a\r\nX-CSRF-Token: b\r\n\r\n", &request, &status) ==
+		CONTROL_PARSE_ERROR && status == 400);
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nOrigin: http://x\r\norigin: http://x\r\n\r\n", &request, &status) ==
+		CONTROL_PARSE_ERROR && status == 400);
+	/* a reverse proxy's: HTTPS, its host */
+	CHECK(parse("GET / HTTP/1.1\r\nHost: 127.0.0.1:8080\r\nX-Forwarded-Proto: https\r\nX-Forwarded-Host: "
+		"admin.example.org, other\r\n\r\n", &request, &status) == CONTROL_PARSE_DONE);
+	CHECK(request.proxied && request.https && !strcmp(request.forwarded_host, "admin.example.org"));
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nForwarded: for=192.0.2.1;proto=https;host=a\r\n\r\n", &request,
+		&status) == CONTROL_PARSE_DONE && request.proxied && request.https);
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nForwarded: for=192.0.2.1;proto=http, proto=https\r\n\r\n", &request,
+		&status) == CONTROL_PARSE_DONE && request.proxied && !request.https);
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: 192.0.2.1\r\n\r\n", &request, &status) ==
+		CONTROL_PARSE_DONE && request.proxied && !request.https);
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nSec-Fetch-Site: cross-site\r\n\r\n", &request, &status) ==
+		CONTROL_PARSE_DONE && request.cross_site);
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nSec-Fetch-Site: none\r\n\r\n", &request, &status) ==
+		CONTROL_PARSE_DONE && !request.cross_site);
+
+	/* a login's body */
+	CHECK(control_parse_login_body("{\"token\": \"chce_ab\"}", 20, token, sizeof(token), &reason) &&
+		!strcmp(token, "chce_ab"));
+	CHECK(!control_parse_login_body("{\"command\": \"x\"}", 16, token, sizeof(token), &reason) && !token[0]);
+	CHECK(!control_parse_login_body("{\"token\": \"a\", \"b\": 1}", 22, token, sizeof(token), &reason));
+	CHECK(!control_parse_login_body("{}", 2, token, sizeof(token), &reason) && !strcmp(reason, "no token"));
+	CHECK(!control_parse_login_body("{\"token\": \"\\u0000\"}", 19, token, sizeof(token), &reason));
+	CHECK(control_credential_name_valid("admin") && control_credential_name_valid("ops-2.eu"));
+	CHECK(!control_credential_name_valid("") && !control_credential_name_valid("a b") &&
+		!control_credential_name_valid("a\"b") && !control_credential_name_valid("0123456789012345678901234567890x"));
+}
+
+/* whether bytes hold needle */
+static int contains(const void *bytes, size_t size, const void *needle, size_t length)
+{
+	size_t index;
+
+	for (index = 0; index + length <= size; index++)
+	{
+		if (!memcmp((const char *)bytes + index, needle, length))
+			return 1;
+	}
+	return 0;
+}
+
+static void make_secret(uint8_t bytes[CONTROL_WEB_SECRET_BYTES], int seed)
+{
+	int index;
+
+	for (index = 0; index < CONTROL_WEB_SECRET_BYTES; index++)
+		bytes[index] = (uint8_t)(seed * 31 + index * 7);
+}
+
+static void test_sessions(void)
+{
+	static struct control_web_sessions sessions;
+	uint8_t key[32] = { 1, 2, 3 };
+	uint8_t id[CONTROL_WEB_SECRET_BYTES], csrf[CONTROL_WEB_SECRET_BYTES];
+	char text[CONTROL_WEB_SECRET_LENGTH + 1];
+	char other[CONTROL_WEB_SECRET_LENGTH + 1];
+	char first[CONTROL_WEB_SECRET_LENGTH + 1];
+	int index, session;
+	struct control_request request;
+	const char *reason;
+
+	control_web_sessions_initialize(&sessions, key);
+	make_secret(id, 1);
+	make_secret(csrf, 2);
+	session = control_web_session_create(&sessions, id, csrf, "admin", "e76c2bf3", 1000, text);
+	CHECK(session >= 0 && control_session_text_valid(text));
+	CHECK(control_session_text_valid(sessions.entries[session].csrf) && strcmp(sessions.entries[session].csrf, text));
+	/* (only its hash is kept) */
+	CHECK(!contains(&sessions.entries[session], sizeof(sessions.entries[session]), text, CONTROL_WEB_SECRET_LENGTH));
+	CHECK(control_web_session_find(&sessions, text, 1001, 0) == session);
+	/* another id, a malformed one, an empty one: none */
+	snprintf(other, sizeof(other), "%s", text);
+	other[0] = other[0] == 'a' ? 'b' : 'a';
+	CHECK(control_web_session_find(&sessions, other, 1001, 0) < 0);
+	CHECK(control_web_session_find(&sessions, "", 1001, 0) < 0);
+	CHECK(control_web_session_find(&sessions, "zz", 1001, 0) < 0);
+	/* idle: used just before the limit lives on; polling alone does not
+	keep it */
+	CHECK(control_web_session_find(&sessions, text, 1001 + CONTROL_WEB_IDLE_SECONDS - 1, 0) == session);
+	CHECK(control_web_session_find(&sessions, text, 1001 + 2 * CONTROL_WEB_IDLE_SECONDS - 10, 1) == session);
+	CHECK(control_web_session_find(&sessions, text, 1001 + 2 * CONTROL_WEB_IDLE_SECONDS, 1) < 0);
+	/* (and once ended, it is forgotten) */
+	CHECK(!sessions.entries[session].used);
+	CHECK(control_web_session_find(&sessions, text, 1002 + 2 * CONTROL_WEB_IDLE_SECONDS, 0) < 0);
+	/* its whole life, however busy */
+	session = control_web_session_create(&sessions, id, csrf, "admin", "e76c2bf3", 5000, text);
+	for (index = 1; index * 600 < CONTROL_WEB_LIFETIME_SECONDS; index++)
+		CHECK(control_web_session_find(&sessions, text, 5000 + index * 600, 0) == session);
+	CHECK(control_web_session_find(&sessions, text, 5000 + CONTROL_WEB_LIFETIME_SECONDS, 0) < 0);
+	/* logout */
+	session = control_web_session_create(&sessions, id, csrf, "admin", "e76c2bf3", 100000, text);
+	control_web_session_end(&sessions, session);
+	CHECK(control_web_session_find(&sessions, text, 100001, 0) < 0);
+	control_web_session_end(&sessions, -1);
+	control_web_session_end(&sessions, CONTROL_WEB_SESSIONS);
+	/* a credential's sessions all end with it, no one else's */
+	control_web_sessions_initialize(&sessions, key);
+	make_secret(id, 10);
+	control_web_session_create(&sessions, id, csrf, "a", "aaaaaaaa", 100, text);
+	make_secret(id, 11);
+	control_web_session_create(&sessions, id, csrf, "a", "aaaaaaaa", 100, other);
+	make_secret(id, 12);
+	control_web_session_create(&sessions, id, csrf, "b", "bbbbbbbb", 100, first);
+	CHECK(control_web_sessions_end_credential(&sessions, "aaaaaaaa") == 2);
+	CHECK(control_web_session_find(&sessions, text, 101, 0) < 0 && control_web_session_find(&sessions, other, 101, 0) < 0);
+	CHECK(control_web_session_find(&sessions, first, 101, 0) >= 0);
+	/* full: the least recently used goes */
+	control_web_sessions_initialize(&sessions, key);
+	for (index = 0; index < CONTROL_WEB_SESSIONS; index++)
+	{
+		make_secret(id, 100 + index);
+		control_web_session_create(&sessions, id, csrf, "a", "aaaaaaaa", 200 + index, index ? text : first);
+	}
+	CHECK(control_web_session_find(&sessions, first, 300, 0) >= 0);
+	make_secret(id, 999);
+	control_web_session_create(&sessions, id, csrf, "a", "aaaaaaaa", 301, other);
+	CHECK(control_web_session_find(&sessions, first, 302, 0) >= 0);
+	CHECK(control_web_session_find(&sessions, other, 302, 0) >= 0);
+
+	/* a change: its CSRF token, its origin, not another site's */
+	control_web_sessions_initialize(&sessions, key);
+	make_secret(id, 5);
+	session = control_web_session_create(&sessions, id, csrf, "admin", "e76c2bf3", 10, text);
+	CHECK(parse("POST /v1/command HTTP/1.1\r\nHost: 127.0.0.1:8080\r\nContent-Length: 0\r\n\r\n", &request, &index) ==
+		CONTROL_PARSE_DONE);
+	CHECK(control_web_check_change(&sessions.entries[session], &request, &reason) == 403 && reason[0]);
+	snprintf(request.csrf, sizeof(request.csrf), "%s", sessions.entries[session].csrf);
+	CHECK(control_web_check_change(&sessions.entries[session], &request, &reason) == 0);
+	request.csrf[5] = request.csrf[5] == 'a' ? 'b' : 'a';
+	CHECK(control_web_check_change(&sessions.entries[session], &request, &reason) == 403);
+	snprintf(request.csrf, sizeof(request.csrf), "%s", text);
+	CHECK(control_web_check_change(&sessions.entries[session], &request, &reason) == 403);
+	snprintf(request.csrf, sizeof(request.csrf), "%s", sessions.entries[session].csrf);
+	request.has_origin = 1;
+	snprintf(request.origin, sizeof(request.origin), "http://127.0.0.1:8080");
+	CHECK(control_web_check_change(&sessions.entries[session], &request, &reason) == 0);
+	snprintf(request.origin, sizeof(request.origin), "https://127.0.0.1:8080");
+	CHECK(control_web_check_change(&sessions.entries[session], &request, &reason) == 0);
+	snprintf(request.origin, sizeof(request.origin), "http://evil.example");
+	CHECK(control_web_check_change(&sessions.entries[session], &request, &reason) == 403);
+	snprintf(request.origin, sizeof(request.origin), "null");
+	CHECK(control_web_check_change(&sessions.entries[session], &request, &reason) == 403);
+	snprintf(request.origin, sizeof(request.origin), "http://127.0.0.1:8080.evil.example");
+	CHECK(control_web_check_change(&sessions.entries[session], &request, &reason) == 403);
+	snprintf(request.origin, sizeof(request.origin), "https://admin.example.org");
+	snprintf(request.forwarded_host, sizeof(request.forwarded_host), "admin.example.org");
+	CHECK(control_web_check_change(&sessions.entries[session], &request, &reason) == 0);
+	request.cross_site = 1;
+	CHECK(control_web_check_change(&sessions.entries[session], &request, &reason) == 403);
+	/* a login: no session, the same origin checks */
+	request.cross_site = 0;
+	CHECK(control_web_check_change(NULL, &request, &reason) == 0);
+	snprintf(request.origin, sizeof(request.origin), "http://evil.example");
+	CHECK(control_web_check_change(NULL, &request, &reason) == 403);
+	request.host[0] = 0;
+	request.forwarded_host[0] = 0;
+	snprintf(request.origin, sizeof(request.origin), "http://");
+	CHECK(control_web_check_change(NULL, &request, &reason) == 403);
+}
+
+static void test_web_headers(void)
+{
+	char cookie[256];
+	const char *headers = control_web_security_headers();
+	static const char id[] = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+	control_web_session_cookie(cookie, sizeof(cookie), id, 0);
+	CHECK(!strncmp(cookie, "Set-Cookie: chce_session=0123456789abcdef", 41));
+	CHECK(strstr(cookie, "; HttpOnly") && strstr(cookie, "; SameSite=Strict") && strstr(cookie, "; Path=/"));
+	CHECK(!strstr(cookie, "Secure") && strstr(cookie, "Max-Age=43200"));
+	CHECK(!strcmp(cookie + strlen(cookie) - 2, "\r\n"));
+	control_web_session_cookie(cookie, sizeof(cookie), id, 1);
+	CHECK(strstr(cookie, "; Secure\r\n"));
+	control_web_session_cookie(cookie, sizeof(cookie), NULL, 0);
+	CHECK(strstr(cookie, "chce_session=;") && strstr(cookie, "Max-Age=0") && strstr(cookie, "HttpOnly"));
+	CHECK(strstr(headers, "Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self';"));
+	CHECK(strstr(headers, "frame-ancestors 'none'") && !strstr(headers, "unsafe"));
+	CHECK(strstr(headers, "X-Frame-Options: DENY\r\n") && strstr(headers, "Referrer-Policy: no-referrer\r\n"));
+	CHECK(strstr(headers, "Cache-Control: no-store\r\n") && strstr(headers, "X-Content-Type-Options: nosniff\r\n"));
+}
+
+static void test_web_files(void)
+{
+	static const char *const outside[] = {
+		"", "/v1/status", "/index.htm", "/INDEX.HTML", "/index.html/", "//index.html", "/./index.html",
+		"/../index.html", "/x/../index.html", "/index.html/..", "/..", "/.", "/app.js.map", "/app", "/server_control.c",
+		"/control_credentials.txt", "/bans.txt", "/etc/passwd", "/../../../../etc/passwd", "index.html", "\\index.html",
+		"/index.html\\", "/index.html%00",
+	};
+	const struct control_web_asset *page = control_web_find_asset("/");
+	int index;
+	int found_js = 0, found_css = 0;
+
+	CHECK(page && !strcmp(page->path, "/index.html") && !strncmp(page->type, "text/html", 9));
+	CHECK(control_web_find_asset("/index.html") == page);
+	for (index = 0; index < (int)(sizeof(outside) / sizeof(outside[0])); index++)
+		CHECK(!control_web_find_asset(outside[index]));
+	for (index = 0; index < control_web_asset_count; index++)
+	{
+		const struct control_web_asset *asset = &control_web_assets[index];
+
+		CHECK(control_web_find_asset(asset->path) == asset && asset->size > 0 && asset->data);
+		CHECK(asset->path[0] == '/' && !strchr(asset->path + 1, '/') && !strstr(asset->path, ".."));
+		found_js += !strcmp(asset->path, "/app.js") && !strncmp(asset->type, "text/javascript", 15);
+		found_css += !strcmp(asset->path, "/app.css") && !strncmp(asset->type, "text/css", 8);
+	}
+	CHECK(found_js == 1 && found_css == 1);
+	/* (the page loads its script and style as files, none inline) */
+	{
+		char *text = calloc(1, page->size + 1);
+
+		memcpy(text, page->data, page->size);
+		CHECK(strstr(text, "<script src=\"/app.js\"") && strstr(text, "href=\"/app.css\""));
+		CHECK(!strstr(text, "<style") && !strstr(text, " style=") && !strstr(text, "onclick"));
+		free(text);
+	}
+}
+
 int main(int argc, char **argv)
 {
 	int rounds = argc > 1 ? atoi(argv[1]) : 5000;
@@ -694,6 +977,10 @@ int main(int argc, char **argv)
 	test_credentials();
 	test_limiter();
 	test_log();
+	test_web_requests();
+	test_sessions();
+	test_web_headers();
+	test_web_files();
 	printf("%d checks, %d failures\n", checks, failures);
 	return failures ? 1 : 0;
 }
