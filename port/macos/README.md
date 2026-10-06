@@ -67,7 +67,10 @@ treats an Xbox address as a pointer, or the reverse, does not compile.
   (`xbox_memory.c`, `memory_watch.c`).
 - Bink video (the intro, attract and credits movies) is decoded with FFmpeg
   (`port/macos/src/macos_bink.c`) behind the Bink calls the game makes, in
-  place of the other ports' `bink_null.c`.
+  place of the other ports' `bink_null.c`, in a build made on this Mac only:
+  the application for other Macs (`configure.py --portable`, which the
+  downloads are) leaves FFmpeg out and skips the movies, as the other
+  platforms do (`tools/macos_build.py`).
 - The application bundle (`port/macos/bundle.py`, `Info.plist`) registers the
   `halo://` and Discord URL schemes that internet play invites use.
 - Command-W (the Window menu's Close) does not close the game, as W moves
