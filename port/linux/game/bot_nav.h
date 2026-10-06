@@ -157,6 +157,10 @@ long aas_route_reach(long type, long area, real_point3d const *from, long goal_a
 float aas_travel_time(long type, real_point3d const *from, real_point3d const *to); /* seconds; <0 no way */
 float aas_travel_time_soon(long type, real_point3d const *from, real_point3d const *to, boolean *soon); /* ... or *soon: not worked out yet, ask again */
 void aas_reach_failed(long type, long reach);
+/* seconds a way takes over what it is reckoned at, as found (not a failure:
+   for as long as the map is up) */
+void aas_reach_handicap(long type, long reach, float seconds);
+float aas_reach_handicap_of(long type, long reach);
 /* a jumped gap's fall for a jump that misses (a great deal where there is no floor under it) */
 real aas_reach_fall(long type, long reach); /* learned: it went wrong; it costs more from now on */
 

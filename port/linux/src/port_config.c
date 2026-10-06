@@ -344,6 +344,11 @@ static const struct config_setting config_settings[] =
 	{ "bots.skill", _config_integer, "3", "HALO_BOT_SKILL", _environment_value, _platform_all,
 		"How good the bots are: 1 easy, 2 normal, 3 hard, 4 legendary, 5 near\n"
 		"perfect (the console's \"bot_skill <n>\")." },
+	{ "bots.skill_spread", _config_integer, "0", "HALO_BOT_SKILL_SPREAD", _environment_value, _platform_all,
+		"How many levels under bots.skill a bot may be: each bot's skill is\n"
+		"drawn for the game from that many levels under bots.skill up to it\n"
+		"(skill 5 with a spread of 2: bots from 3 to 5). 0: every bot at\n"
+		"bots.skill (the console's \"bot_skill_spread <n>\")." },
 
 	{ "infection.rounds", _config_integer, "3", "HALO_INFECTION_ROUNDS", _environment_value, _platform_all,
 		"Infection (the game type \"infection\": a dedicated server's playlist,\n"

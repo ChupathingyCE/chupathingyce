@@ -1048,6 +1048,35 @@ static void country_debug_box(void)
 			bot_log("countryat %.0f %.0f:%s", x + country_dx[direction] * k * country.cell, y + country_dy[direction] * k * country.cell, line);
 		}
 	}
+	/* testing (HALO_BOT_RAYPROBE=x,y,z,yaw,length): rays level from a point,
+	   at that height and each tenth of a unit for a unit up: how far each
+	   goes, and what stops it */
+	if (getenv("HALO_BOT_RAYPROBE"))
+	{
+		real_point3d from = { 0.f, 0.f, 0.f };
+		real yaw = 0.f, length = 2.f, up;
+		sscanf(getenv("HALO_BOT_RAYPROBE"), "%f,%f,%f,%f,%f", &from.x, &from.y, &from.z, &yaw, &length);
+		for (up = 0.f; up <= 1.01f; up += 0.1f)
+		{
+			struct collision_result collision;
+			real_point3d at = from;
+			real_vector3d along;
+			at.z += up;
+			along.i = (real)cos(yaw) * length;
+			along.j = (real)sin(yaw) * length;
+			along.k = 0.f;
+			if (collision_test_vector(FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_back_facing_surfaces_bit) |
+					FLAG(_collision_test_structure_bit) | FLAG(_collision_test_objects_bit) | FLAG(_collision_test_objects_scenery_bit) |
+					FLAG(_collision_test_objects_machines_bit) | FLAG(_collision_test_objects_weapons_bit), &at, &along, NONE, &collision))
+			{
+				bot_log("rayprobe z %.2f: stopped %.2f on, at %.2f %.2f %.2f, normal %.2f %.2f %.2f, type %d, object %s", at.z, collision.t * length,
+					collision.point.x, collision.point.y, collision.point.z, collision.plane.n.i, collision.plane.n.j, collision.plane.n.k, (int)collision.type,
+					collision.object_index != NONE && object_try_and_get(collision.object_index) ? tag_get_name(object_get(collision.object_index)->definition_index) : "-");
+			}
+			else
+				bot_log("rayprobe z %.2f: clear for %.2f", at.z, length);
+		}
+	}
 	/* testing (HALO_BOT_GROUNDPROBE=x0,y0,x1,y1,step,top): the ground itself
 	   under a grid of points, looked for from a height down, a row a line
 	   with the north at the top: each one's height under the top, in tenths */

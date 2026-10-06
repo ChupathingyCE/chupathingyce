@@ -335,6 +335,7 @@ the setting for one start of the game. It has priority over the file.
 | `bots.count` | `0` | `HALO_BOTS` | The number of bots in the multiplayer games that this machine hosts. `0`: no bots. Refer to "Bots". |
 | `bots.fill` | `0` | `HALO_BOTS_FILL` | The games that this machine hosts have this number of players: bots fill the places that people do not have. A bot goes when a person joins and comes back when a person goes. `0`: `bots.count` bots. Refer to "Bots". |
 | `bots.skill` | `3` | `HALO_BOT_SKILL` | How good the bots are: `1` easy, `2` normal, `3` hard, `4` legendary, `5` near perfect. |
+| `bots.skill_spread` | `0` | `HALO_BOT_SKILL_SPREAD` | How many levels below `bots.skill` a bot can be, from `0` to `4`. Each bot gets its skill for the game from that range: `bots.skill = 5` with a spread of `2` gives bots from `3` to `5`. `0`: all the bots have `bots.skill`. Refer to "Bots". |
 | `infection.rounds`, `infection.round_minutes`, `infection.countdown` | `3`, `4`, `10` | `HALO_INFECTION_ROUNDS`, `HALO_INFECTION_ROUND_MINUTES`, `HALO_INFECTION_COUNTDOWN` | The rounds of a game of infection, the minutes of a round (`0`: no limit) and the seconds before the first zombie. Refer to "Infection". |
 | `infection.zombie_speed`, `infection.zombie_damage`, `infection.zombie_health` | `1.3`, `8.0`, `1.5` | `HALO_INFECTION_ZOMBIE_SPEED`, `HALO_INFECTION_ZOMBIE_DAMAGE`, `HALO_INFECTION_ZOMBIE_HEALTH` | How fast a zombie moves (a player is `1`), how hard it hits and how much damage it can take (the Flood of the campaign is `1`). |
 | `discord.application_id` | the application of the project | `HALO_DISCORD_APPLICATION` | The Discord application for invites. Empty: no Discord. |
@@ -762,6 +763,15 @@ and the ball, and hold the hill.
 - In the console, `bots <number>` and `bot_skill <1-5>` change these values
   until the game stops. A new number of bots applies in the lobby. A game in
   progress keeps its bots.
+- `bots.skill_spread` gives the bots different skills. With a spread of
+  `2` and a skill of `5`, each bot has a skill between 3 and 5 (not only
+  whole levels: 3.4 is possible). A bot keeps its skill for the game and
+  gets a different one in the next game. In the console, `bot_skill_spread
+  <0-4>` changes the value.
+- The name of a bot starts with `[bot]`: `[bot]Anvil`. The lobby, the
+  scores, the kill messages and the names above the players show this
+  name. A name has 11 letters at most, thus the names of the bots are
+  short.
 - `bots.fill` gives a number of players, not a number of bots: the bots
   fill the places that people do not have. A bot goes when a person joins,
   and a bot comes back when a person goes, in the lobby and during the
@@ -952,6 +962,146 @@ ladder that a bot makes or does not make. `HALO_BOT_REACHTRACE=1` adds a
 line for each second tick of one, and `HALO_BOT_WALKTRACE=1` a line for
 each third tick of a walk that does not get on.
 
+**Jumps up onto ledges and rocks.** These are the changes:
+
+- A bot jumps onto a ledge that is 0.72 world units above it or less. The
+  limit was 0.6. The jump of a player gets 0.69 world units high. When a
+  body folds its legs in the air, the game lifts it 0.16 world units more,
+  and the bots fold their legs. In a test, a bot got onto a ledge 0.69
+  world units above it each time that it left the ground in front of the
+  ledge. The navigation data has the new jumps (the host makes the data of
+  each map again one time, in 1 to 10 seconds).
+- The navigation also finds a ledge that is to one side of the place where
+  a bot stands (a diagonal jump), not only one that is straight in front.
+- A bot starts the jump only when the game will make it: the body is on
+  the ground, it stands on a surface that it can stand on, and its legs
+  are straight. The legs lift a body only when they fold in the air. A
+  bot that jumped again one tick after it came down, with its legs folded,
+  made a low jump or no jump.
+- A bot holds the jump button for up to 8 ticks, until its body goes up.
+  Before, the button was down for one tick. The game does not jump in a
+  tick in which the body is in the air, and a body that runs across a
+  rough rock is in the air on each second step.
+- A bot goes to the front of a ledge before it jumps. A bot that came
+  along the side of a ledge jumped from there, went up along the side and
+  came down past the end of the ledge.
+- A bot does not jump while it moves across the line of the jump at more
+  than 0.6 world units a second (0.3 for a ledge 0.55 or more above it).
+  It slows down for up to 0.8 seconds first.
+- When the ledge is small (no floor 0.7 world units behind its edge, as on
+  the top of a rock), the bot comes to it at half speed and steers in the
+  air to come down 0.15 world units behind the edge.
+- A bot that comes to the start of a jump or a gap with no floor behind
+  the start goes the last 0.8 world units at 65 % and then 45 % of its
+  speed.
+
+**The cost of a gap.** The navigation gave a gap the time of the run
+across it and no more. In games on eight maps, a gap took 1.5 seconds
+more than that (the middle value): the bot comes to the edge, goes back
+for its run, and jumps. Thus the bots made a jump of 3 seconds to walk
+1 world unit less. These are the changes:
+
+- A gap costs 1 second more than its run. After each gap that a bot makes,
+  the route planner corrects the cost of that gap by half of the
+  difference from the time that it took, in steps of 0.5 seconds, up to 6
+  seconds. The host keeps these costs with the data of the map, as it
+  keeps the jumps that fail.
+- The run before a gap starts 1 world unit behind the edge. It was 1.6. A
+  body gets its full speed in 0.65 world units. For a gap that the bot
+  takes at less than its full speed, the run is shorter (0.5 world units
+  or more).
+- The run does not go up across a bump of 0.2 world units or more. A body
+  that runs across the top of a rock is in the air there, and the game
+  does not jump.
+- A bot jumps up to 0.8 world units before the edge when the jump from
+  there gets to the other side. The last part of a rock is round, and the
+  game does not jump from a slope.
+- A jump or a gap that comes down on a slope of more than 47 degrees, with
+  no flat ground 0.15 world units to each side, is not a way. A body
+  slides off such a slope.
+- When a bot is 1.2 world units or more below the end of a jump or a gap
+  less than 1.5 seconds after it made it, the jump counts as failed.
+
+**Hops.** A bot hops when a step 0.2 to 0.75 world units high is in front
+of it. It now computes where the hop comes down, with the speed that it
+has and the speed that it gets in the air. It does not hop when the hop
+comes down more than 0.9 world units below the place where it started, or
+when no floor is there to stop on. Before, a bot on a narrow rock hopped
+across the rock and came down on its other side.
+
+**Sharp turns.** A bot slows down for a turn of more than 50 degrees when
+no floor is 0.5 world units behind the corner in the direction that it
+moves (the end of a ledge, the shoulder of a rock). It goes at 65 % of
+its speed from 0.8 world units and at 45 % from 0.4. On other floors a
+bot takes its corners at full speed.
+
+**The big items.** A rocket launcher, a sniper rifle, an overshield and an
+active camouflage are worth half of their value at 30 world units of
+walking (20 for the other weapons that the bots value). These are the
+changes:
+
+- A bot stops for 45 seconds from an item that it does not get nearer to.
+  It measured this in a straight line. A way to an item can go away from
+  the item first, thus the bot now measures the walking distance.
+- A bot keeps an item as its goal for the time of the walk to it and half
+  as long again (20 seconds or more). It was 20 seconds.
+- An item that the bot already goes to is worth 1.5 times its value.
+  Before, a bot on its way to a rocket launcher changed its goal when a
+  different goal was worth a little more for one second.
+- A bot that goes to an item does not turn to a weapon that is worth less
+  on its way.
+
+These are tests on Battle Creek with bots of skill 5. In the first test
+one bot goes to the rocket launcher on the arch (the way goes up a rock, a
+ledge and a ridge). In the next tests one bot goes to the roofs of the
+bases. The way to the east roof is a rock, a strip 0.7 world units above
+the rock, the roof of the porch 0.66 above the strip, and a gap to the
+main roof. The way to the roof of the west porch is a rock, a gap of 2
+world units to the top of a wall, and the roof 0.69 above the wall.
+
+| | Before | After |
+| --- | --- | --- |
+| Bots that got to the rocket launcher in 90 seconds | 10 of 12 | 16 of 16 |
+| Time to the rocket launcher (the bots that got there) | 10 to 71 s, mean 39 s | 10 to 28 s, mean 18 s |
+| Bots that got to the main roof of the east base | no way | 8 of 8, in 13 to 24 s |
+| Bots that got to the roof of the east porch | no way | 8 of 8, in 10 to 17 s |
+| Bots that got to the roof of the west porch | no way | 6 of 8, in 12 to 19 s (one in 63 s) |
+| Two games of slayer, 7 minutes, 8 bots: samples of a bot with the rocket launcher in its hands | 0 of 456 | 12 of 476 |
+
+In the next test, four bots go around the items of a map, one item after
+the other, for 5 minutes (`HALO_BOT_GOTO=tour` with `HALO_BOT_TOUR`). A
+bot stops a leg after 60 seconds. The maps are Battle Creek, Chill Out,
+Damnation, Hang 'Em High, Prisoner, Longest, Boarding Action, Wizard, Rat
+Race and Derelict:
+
+| | Before | After |
+| --- | --- | --- |
+| Legs that the bots completed | 849 | 929 |
+| The mean time of a leg | 12.5 s | 11.9 s |
+| Legs that a bot stopped after 60 seconds | 20 | 15 |
+
+In games of 5 minutes of slayer on eight maps (8 bots, skill 5), the
+jumps, gaps, drops and ladders that failed went from 2.8 to 2.4 for each
+10 minutes of a bot. The bots took 222 gaps (467 before) and 167 jumps up
+(99 before).
+
+**The barricades of Longest.** On Longest, a barricade stands 1.3 world
+units in front of each flag. Its middle is 0.4 world units high, and the
+navigation has a hop across the middle. A bot that went to a flag, or
+came home with one, ran straight at the barricade. The hop took 2.2
+seconds, and the walk around the barricade takes 1.2 seconds. With the
+cost of a gap (see above), the route of a bot goes around the barricade.
+In a game of capture the flag of 7 minutes with 8 bots, no bot hopped
+across a barricade.
+
+These settings are for tests: `HALO_BOT_GAPCOST=0` (a gap costs its run
+only), `HALO_BOT_STEEP=0` (jumps onto steep slopes stay ways),
+`HALO_BOT_RUNUP=<world units>` (the run before a gap) and
+`HALO_BOT_JUMPRISE=<world units>` (the highest ledge; the host makes the
+navigation data again). `HALO_BOT_BOXTRACE=x0,y0,x1,y1` writes each second
+tick of the bots in a box to the log. `HALO_BOT_JUMPTEST=x,y,z,yaw,pace,
+ticks` puts the first bot at a place, lets it run in a direction and jump.
+
 With a rocket launcher, a bot shoots at the floor at the feet of an enemy
 who is on the ground and less than 22 world units away, and it shoots from
 2.8 world units or more (the blast is 2 world units). In a game without
@@ -1032,6 +1182,18 @@ these enemies, went from 0.23 to 0.33 seconds; the shortest stayed at 0.1
 seconds. The number of kills did not change (91 and 91).
 `HALO_BOT_OFF=fresh` turns the added time off, and `HALO_BOT_NOTICELOG=1`
 writes each time to the log.
+
+**How far a bot sees.** A bot on foot sees an enemy that is 90 world units
+away or less, and 150 with a weapon that has a scope. On the large maps,
+vehicles fight from farther than this:
+
+- A bot in a vehicle (the driver, the gunner, a passenger, a pilot) sees
+  1.5 times as far: 135 world units, and 225 with a scoped weapon.
+- An enemy in a vehicle is seen from two times as far, up to 300 world
+  units. A Warthog on a hill is easier to see than a person.
+
+The view must be clear in all cases: a bot does not see through the
+ground or a wall. A bot keeps a target to the same distances.
 
 `HALO_BOT_OFF=human` gives the bots their movement without the first list
 above, for a comparison.

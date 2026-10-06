@@ -60,6 +60,12 @@ struct bot_move_state
 	real reach_beyond; /* ... and how far on from the near end of where it lands it is meant to come down */
 	int reach_hole; /* a gap that is walked over: 0 not looked at, 1 walked, 2 a hole a body goes down (jumped) */
 	int reach_no_room; /* a gap with nowhere behind its edge to take a run from */
+	long reach_settle_ticks; /* held back from a jump it was going across the line of */
+	long jump_hold; /* ticks more the jump button is held, for a jump the game has not taken yet */
+	long stand_ticks; /* how long it has been standing up (its legs not tucked) */
+	long landed_reach; /* a jump or a gap just made (NONE: none), watched a moment for whether it stays there */
+	long landed_until;
+	real landed_z;
 	long reach_rise_ticks; /* a ladder: when we last got higher */
 	real reach_rise_z;
 	/* reachabilities failed at: not taken again for a while */
@@ -141,6 +147,7 @@ struct bot_body
 	long team;
 	int teams; /* a team game */
 	real speed_scale; /* how fast it runs, of the usual (slayer's bonus for dying, penalty for killing) */
+	int can_jump; /* on its feet, on something it stands on, and not just down from a jump: the game takes a jump from it this tick */
 };
 
 struct bot_move_result

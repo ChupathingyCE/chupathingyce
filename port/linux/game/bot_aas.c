@@ -67,7 +67,7 @@ there. Reachabilities that bots keep failing at cost more (learned).
 #define AAS_FOOT_SPEED 2.25f
 #define AAS_VEHICLE_SPEED 6.f
 #define AAS_CACHES 96
-#define AAS_CACHE_VERSION 28
+#define AAS_CACHE_VERSION 30
 #define AAS_DEAD_FAILURES 4 /* failed this often: not a way */
 
 /* what a way that has failed costs, in seconds over its time: a jump or a
@@ -84,6 +84,26 @@ static float aas_failure_penalty(long failures)
 /* a Spartan's jump: up at 2.1 units a second, 3.2 units a second a second
    down again, running at 2.25 */
 #define AAS_GAP_RISE 0.5f /* a running jump lands this much higher at most (it tops out at 0.69) */
+/* How high a ledge is jumped up onto. The jump tops out at 0.69, and with
+   the legs tucked up, as the bots tuck them, the feet are another 0.16 over
+   that: measured, a body gets onto a ledge 0.69 up every time it leaves the
+   ground in front of it. It was 0.6, from before the tuck; the porch roofs
+   of Battle Creek's bases are 0.69 above the wall beside them, which is the
+   way up, and nothing went up there. (HALO_BOT_JUMPRISE: another, to try;
+   the areas are worked out afresh with it) */
+#define AAS_JUMP_RISE 0.72f
+static real aas_jump_rise(void)
+{
+	static int asked;
+	static real rise = AAS_JUMP_RISE;
+	if (!asked)
+	{
+		asked = TRUE;
+		if (getenv("HALO_BOT_JUMPRISE"))
+			rise = (real)atof(getenv("HALO_BOT_JUMPRISE"));
+	}
+	return rise;
+}
 #define AAS_JUMP_VELOCITY 2.1f
 #define AAS_GRAVITY 3.21f
 
@@ -125,6 +145,7 @@ struct aas_world
 	boolean attach_reachable; /* ...of the areas there's a way to only (once that's known: aas_find_flags) */
 	float *penalty; /* per reachability: learned extra seconds (shared: aas_shared_new) */
 	unsigned char *failures;
+	float *handicap; /* per reachability: seconds more than it is reckoned at, as it is found to take (aas_reach_handicap) */
 	float *fall; /* per reachability: a gap's fall for a jump that misses (aas_reach_fall) */
 	/* for the routes' search (aas_finish_world): each reachability's area and
 	   time again, by the place it has among the ones into its area; and for
@@ -1001,7 +1022,10 @@ static void aas_ledge_reaches(long type, struct aas_reaches *reaches)
 					/* (jumped up: the jump's top is 0.69 up, the legs tucked a bit
 					   more; a ledge right at that is a jump that fails as often as
 					   not, so a margin) */
-					if (d < 4 && k <= jump_cells && type == AAS_FOOT && rise > NAVM_STEP && rise <= NAVM_JUMP - 0.15f &&
+					/* (cornerwise as well as square on: the way onto the west
+					   base of Battle Creek is off the end of a wall a body wide,
+					   onto a roof whose edge is a step to one side of it) */
+					if ((d < 4 ? k <= jump_cells : k * navm_step_length[d] <= jump_cells) && type == AAS_FOOT && rise > NAVM_STEP && rise <= aas_jump_rise() &&
 						span->ceiling - span->floor >= rise + NAVM_HEIGHT)
 					{
 						found = u;
@@ -1962,6 +1986,7 @@ static void aas_world_free(struct aas_world *world)
 	free(world->attach_span);
 	free(world->attach_depth);
 	free(world->failures);
+	free(world->handicap);
 	free(world->fall);
 	free(world->random_weight);
 	free(world->region);
@@ -1992,7 +2017,7 @@ static void aas_world_free(struct aas_world *world)
 /* which lessons these are: with the areas' version, so that what the bots
    learned while they moved another way is not held against a way they can
    now take (2: gaps jumped with a late tuck, and timed from their run) */
-#define AAS_FAIL_VERSION (AAS_CACHE_VERSION + (2UL << 16))
+#define AAS_FAIL_VERSION (AAS_CACHE_VERSION + (3UL << 16)) /* (3: and how long each jump and gap is found to take, aas_reach_handicap) */
 
 static void aas_failures_path(char *path, long size, unsigned long *signature)
 {
@@ -2031,6 +2056,17 @@ static void aas_failures_save(void)
 	for (type = 0; type < NUMBER_OF_AAS_TYPES; type++)
 		if (aas_worlds[type].failures && aas_worlds[type].reach_count > 0)
 			fwrite(aas_worlds[type].failures, 1, (size_t)aas_worlds[type].reach_count, file);
+	/* (... and what each way on foot was found to take over its reckoning,
+	   in half seconds: a bot does not have to find out again every game
+	   that the hop over a barricade is two seconds and the walk round it
+	   one. Not the ones ruled out for good, which are worked out each time) */
+	{
+		struct aas_world const *world = &aas_worlds[AAS_FOOT];
+		long r;
+		if (world->handicap)
+			for (r = 0; r < world->reach_count; r++)
+				fputc(world->handicap[r] < 100.f ? (int)MIN(world->handicap[r] * 2.f + 0.5f, 250.f) : 0, file);
+	}
 	fclose(file);
 }
 
@@ -2069,11 +2105,34 @@ static void aas_failures_load(void)
 			{
 				if (world->failures[r] > 0)
 					world->failures[r]--;
-				world->penalty[r] = aas_failure_penalty(world->failures[r]);
+				world->penalty[r] = aas_failure_penalty(world->failures[r]) + (world->handicap ? world->handicap[r] : 0.f);
 				dead += world->failures[r] >= 2;
 			}
 			if (bot_logging() && dead)
 				bot_log("aas: %s: %ld ways bots have been failing at, from before", type == AAS_VEHICLE ? "vehicle" : "foot", dead);
+		}
+		if (type == NUMBER_OF_AAS_TYPES)
+		{
+			struct aas_world *world = &aas_worlds[AAS_FOOT];
+			long r;
+			long known = 0;
+			if (world->handicap && aas_shared_writable(&world->penalty))
+			{
+				for (r = 0; r < world->reach_count; r++)
+				{
+					int half = fgetc(file);
+					if (half == EOF)
+						break;
+					if (half > 0)
+					{
+						world->handicap[r] = half * 0.5f;
+						world->penalty[r] = aas_failure_penalty(world->failures[r]) + world->handicap[r];
+						known++;
+					}
+				}
+				if (bot_logging() && known)
+					bot_log("aas: foot: %ld jumps and gaps reckoned as they were found to go, from before", known);
+			}
 		}
 	}
 	fclose(file);
@@ -2135,6 +2194,7 @@ static void aas_finish_world(long type)
 	world->incoming = (long *)malloc(MAX(1, world->reach_count) * sizeof(long));
 	world->penalty = aas_shared_new(world->reach_count, TRUE);
 	world->failures = (unsigned char *)calloc(MAX(1, world->reach_count), 1);
+	world->handicap = (float *)calloc(MAX(1, world->reach_count), sizeof(float));
 	world->fall = (float *)calloc(MAX(1, world->reach_count), sizeof(float));
 	if (world->fall)
 		for (r = 0; r < world->reach_count; r++)
@@ -3600,7 +3660,7 @@ void aas_reach_failed(long type, long reach)
 	/* (the routes still searching keep the penalties they began with) */
 	if (!aas_shared_writable(&world->penalty))
 		return;
-	world->penalty[reach] = aas_failure_penalty(world->failures[reach]);
+	world->penalty[reach] = aas_failure_penalty(world->failures[reach]) + (world->handicap ? world->handicap[reach] : 0.f);
 	if (world->failures[reach] == AAS_DEAD_FAILURES)
 	{
 		/* not a way at all: whatever's only got to by it is off the map as
@@ -3620,6 +3680,32 @@ void aas_reach_failed(long type, long reach)
 				reach, r->travel, r->edge.x, r->edge.y, r->edge.z, world->failures[reach], world->penalty[reach]);
 		}
 	}
+}
+
+/* What a way costs over what it is reckoned at, as it is found: a gap that
+   is a run-up and a jump of four seconds for a step saved, somewhere to land
+   that nothing stands on. Not a failure (those are counted, kept from game
+   to game and forgiven with time): how long the way is, for as long as the
+   map is up. */
+void aas_reach_handicap(long type, long reach, float seconds)
+{
+	struct aas_world *world = &aas_worlds[type];
+	if (!aas_is_ready || reach < 0 || reach >= world->reach_count || !world->handicap || !world->failures)
+		return;
+	if (fabs(world->handicap[reach] - seconds) < 0.05f)
+		return;
+	world->handicap[reach] = seconds;
+	/* (the routes still searching keep the costs they began with) */
+	if (!aas_shared_writable(&world->penalty))
+		return;
+	world->penalty[reach] = aas_failure_penalty(world->failures[reach]) + world->handicap[reach];
+	world->penalty_epoch++;
+}
+
+float aas_reach_handicap_of(long type, long reach)
+{
+	struct aas_world const *world = &aas_worlds[type];
+	return aas_is_ready && world->handicap && reach >= 0 && reach < world->reach_count ? world->handicap[reach] : 0.f;
 }
 
 long aas_spawn_place_count(void)

@@ -27,6 +27,8 @@ long bots_fill(void);
 void bots_set_fill(long fill);
 void bots_set_skill(long skill);
 long bots_get_skill(void);
+void bots_set_skill_spread(long spread);
+long bots_get_skill_spread(void);
 /* a bot's name: a different one for each slot */
 char const *bot_name(long slot);
 /* a player at this absolute index is a bot from now on: none of the last
