@@ -765,7 +765,7 @@ static void announce(const char *invite, const struct hosted_game *game)
 	snprintf(text, sizeof(text), "%d", game->score_limit);
 	form_add(form, sizeof(form), "score_limit", text);
 	form_add(form, sizeof(form), "teams", game->teams ? "1" : "0");
-	snprintf(text, sizeof(text), "%d", HALO_PORT_NETWORK_VERSION);
+	snprintf(text, sizeof(text), "%d", delta_legacy_announce());
 	form_add(form, sizeof(form), "version", text);
 	/* (last: a full one may be cut short, and a list from before rosters
 	takes no field of the name) */
@@ -1046,8 +1046,8 @@ static void update_list(void)
 	{
 		for (line = strtok(response, "\n"); line && count < BROWSER_MAXIMUM_GAMES; line = strtok(NULL, "\n"))
 		{
-			if (parse_game(line, &games[count]) && games[count].version >= HALO_PORT_NETWORK_VERSION_MINIMUM &&
-				games[count].version <= HALO_PORT_NETWORK_VERSION_MAXIMUM &&
+			if (parse_game(line, &games[count]) && games[count].version >= delta_legacy_minimum() &&
+				games[count].version <= delta_legacy_maximum() &&
 				strcmp(games[count].invite, own))
 			{
 				count++;

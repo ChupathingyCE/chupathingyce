@@ -4,12 +4,13 @@ DELTA.H
 Delta, ChupathingyCE's network family (docs/delta.md): what our machines say
 to each other and to our services beyond the game protocol OpenCE defines,
 which stays OpenCE's byte for byte. This header holds Delta Peer's numbers
-(its major, its advertisement flag, the capability registry) and the legacy
-number's compatibility table.
+(its major, its advertisement flag, the capability registry), the legacy
+number's compatibility table, this build's wire, and the signed legacy
+table's calls (port/linux/src/delta.c).
 
-Nothing here changes what a machine sends yet: the table documents the
-legacy numbers and checks halo_port_limits.h against them
-(tools/test_delta.py), and Delta Peer's handshake comes later.
+The compatibility table documents the legacy numbers and checks
+halo_port_limits.h against them (tools/test_delta.py); Delta Peer's handshake
+comes later.
 */
 
 #ifndef HALO_DELTA_H
@@ -58,6 +59,13 @@ enum delta_capability
 
 /* ---------- the legacy number */
 
+/* This build's wire: the revision of the game protocol it speaks. A signed
+legacy table (port/linux/src/delta.c; docs/delta.md, "The legacy table as
+config") has a row of OpenCE numbers for each wire, which CI adds to only
+after a cross-play test of that wire; a build reads its own wire's row alone.
+Give each release that changes what the machines send a new one. */
+#define DELTA_WIRE "chupa-18a"
+
 /* OpenCE's network versions (HALO_PORT_NETWORK_VERSION in its builds), the
 first of its releases with each, and whether the version's change is one the
 version before plays multiplayer with as it is (additive: messages a machine
@@ -80,5 +88,35 @@ command repository's watch adds a row when it follows OpenCE's raise
 	X(18, "build-129", additive) /* followed from OpenCE: additive */ \
 	X(19, "build-132", additive) /* co-op's player collisions switch, in a padding byte of the game settings */ \
 	X(20, "build-133", additive) /* password games' internet listings (another listing layout); game messages as 19 */
+
+
+/* ---------- the legacy table (port/linux/src/delta.c)
+
+The numbers in use (delta_legacy_announce, _minimum and _maximum, in
+halo_port_limits.h) are the built-in ones, widened by the newest signed
+legacy table this machine has (or set by a local, unsigned override). */
+
+/* at start-up, on the game's thread: loads the cached table, and fetches a
+newer one in the background (never holding anything up) */
+void delta_legacy_start(void);
+/* the serial of the signed table in use; 0 for none (or a local override,
+which is never passed on) */
+unsigned int delta_legacy_serial(void);
+/* the signed table in use as it travels between machines (the signature's
+128 hex digits, a line feed, the document) into buffer: its size, or 0 for
+none or when it does not fit (DELTA_LEGACY_SIGNED_SIZE always does) */
+int delta_legacy_signed(char *buffer, int size);
+/* a signed table from elsewhere (another machine): checked, and used if it
+is newer than the one in use and widens no less than the built-in numbers;
+1 if it was taken */
+int delta_legacy_offer(const char *signed_table, int size);
+/* whether the table in use turns a capability off (its kill switch) */
+int delta_capability_disabled(int capability);
+/* whether a local, unsigned table (network.legacy_table) is in use */
+int delta_legacy_override(void);
+
+/* the largest document, and signed table */
+#define DELTA_LEGACY_DOCUMENT_SIZE 16384
+#define DELTA_LEGACY_SIGNED_SIZE (128 + 1 + DELTA_LEGACY_DOCUMENT_SIZE)
 
 #endif

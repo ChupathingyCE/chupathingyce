@@ -357,6 +357,13 @@ static const struct config_setting config_settings[] =
 		"HALO_NET_STUN", _environment_value, _platform_all,
 		"Public STUN servers that tell this machine its internet address;\n"
 		"comma-separated host:port." },
+	{ "network.legacy_table", _config_string, "\"\"", "HALO_LEGACY_TABLE", _environment_value, _platform_all,
+		"For testing, and for admins who know better: a legacy table file\n"
+		"(docs/delta.md, \"The legacy table as config\"), beside this file unless a\n"
+		"full path, whose row for this build's wire sets the OpenCE network\n"
+		"versions it announces and joins. It is not signed: it replaces the\n"
+		"signed tables, which are then neither fetched nor passed on, and the\n"
+		"log says so at start. Empty for none." },
 #ifdef HALO_GAME_BROWSER
 	{ "network.browser_url", _config_string, "\"https://halo.milenko.org\"", "HALO_NET_BROWSER", _environment_value,
 		_platform_all,

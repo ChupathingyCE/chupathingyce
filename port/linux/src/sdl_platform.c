@@ -16,6 +16,7 @@ and the debug keyboard that the game's console reads.
 #include "p2p.h"
 #include "xiso.h"
 #include "touch_input.h"
+#include "delta.h"
 
 #include <SDL3/SDL.h>
 #include <stdio.h>
@@ -142,6 +143,8 @@ BOOL platform_sdl_initialize(void)
 	/* (a new version looked for meanwhile, updater_poll asking about it) */
 	updater_start();
 #endif
+	/* (the legacy table: a newer one fetched meanwhile) */
+	delta_legacy_start();
 	return TRUE;
 }
 

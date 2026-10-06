@@ -77,6 +77,11 @@ never checks a client's version: the client does (network_client_manager.c),
 so the range is the client's. */
 #define HALO_PORT_NETWORK_VERSION_MINIMUM 11
 #define HALO_PORT_NETWORK_VERSION_MAXIMUM 20
+/* ... the numbers in use (port/linux/src/delta.c): the three above, until a
+legacy table (docs/delta.md) widens them; code asks these, not the numbers */
+int delta_legacy_announce(void);
+int delta_legacy_minimum(void);
+int delta_legacy_maximum(void);
 /* ... the advertisement's reserved bytes: the version (a little-endian word),
 then flags */
 #define HALO_PORT_ADVERTISED_VERSION_OFFSET 0

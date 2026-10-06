@@ -3019,7 +3019,7 @@ boolean network_game_client_advertised_game_compatible(
 	boolean tell)
 {
 	long game_index = client ? game - client->available_games : NONE;
-	unsigned int ours = HALO_PORT_NETWORK_VERSION;
+	unsigned int ours = (unsigned int)delta_legacy_announce();
 	unsigned int theirs;
 	boolean distributed;
 	char message[400];
@@ -3029,18 +3029,18 @@ boolean network_game_client_advertised_game_compatible(
 	theirs = network_game_client_advertised_versions[game_index].version;
 	distributed = (network_game_client_advertised_versions[game_index].flags &
 		HALO_PORT_ADVERTISED_DISTRIBUTED_FLAG) != 0;
-	if (theirs >= HALO_PORT_NETWORK_VERSION_MINIMUM && theirs <= HALO_PORT_NETWORK_VERSION_MAXIMUM && distributed)
+	if (theirs >= (unsigned int)delta_legacy_minimum() && theirs <= (unsigned int)delta_legacy_maximum() && distributed)
 	{
 		network_event("joining a host of network version %u (this machine's is %u)", theirs, ours);
 		return TRUE;
 	}
-	if (theirs >= HALO_PORT_NETWORK_VERSION_MINIMUM && theirs <= HALO_PORT_NETWORK_VERSION_MAXIMUM)
+	if (theirs >= (unsigned int)delta_legacy_minimum() && theirs <= (unsigned int)delta_legacy_maximum())
 	{
 		csprintf(message,
 			"The host is using the lockstep network code, which this version no longer has.\n\n"
 			"Ask the host to update the game.");
 	}
-	else if (theirs > HALO_PORT_NETWORK_VERSION_MAXIMUM)
+	else if (theirs > (unsigned int)delta_legacy_maximum())
 	{
 		csprintf(message,
 			"The host is using a newer version of the network code than you.\n\n"
