@@ -37,7 +37,13 @@ def run(cc):
     common = (ROOT / "port/linux/src/halo_linker_common.c").read_text()
     lights = (ROOT / "source/objects/object_lights.c").read_text()
     partitions = (ROOT / "source/structures/cluster_partitions.c").read_text()
-    macro = common[common.index("#define HALO_COMMON"):common.index("HALO_COMMON(ai_globals")]
+    # (the macro, with the #ifdef HALO_64BIT its 64-bit size is under, if
+    # any: this probe is 32-bit, which takes the other)
+    start = common.index("#define HALO_COMMON")
+    conditional = common.rfind("#ifdef HALO_64BIT", 0, start)
+    if conditional != -1 and "\n\n" not in common[conditional:start]:
+        start = conditional
+    macro = common[start:common.index("HALO_COMMON(ai_globals")]
     fallbacks = "\n".join(re.findall(
         r"^HALO_COMMON\((?:light_cluster_partition|light_data),[^\n]+", common, re.M))
     header = (ROOT / "source/structures/cluster_partitions.h").as_posix()
