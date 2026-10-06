@@ -323,7 +323,7 @@ def main() -> int:
         elif arguments.command == "verify":
             keys = [bytes.fromhex(arguments.public_key)] if arguments.public_key else header_keys()
             if not keys or any(len(key) != 32 for key in keys):
-                print(f"no key (delta_key.h's is a placeholder): give --public-key", file=sys.stderr)
+                print(f"no key in delta_key.h: give --public-key", file=sys.stderr)
                 return 1
             table = check(arguments.document.read_bytes(), Path(f"{arguments.document}.sig").read_text(), keys)
             row = table["wires"].get(wire())

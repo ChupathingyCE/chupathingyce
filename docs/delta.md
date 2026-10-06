@@ -582,11 +582,18 @@ and, with `--from`, keeps the other wires' rows of the table before it.
 ### The key
 
 `port/linux/src/delta_key.h` holds the public keys builds accept (several,
-for rotating). It is a **placeholder of zeros** until the owner makes the
-real pair with `delta_table.py keygen`, keeps the private key only as a CI
-secret, and puts the printed public half in `delta_key.h`. A build with no
-key fetches no table and accepts none: it plays with its built-in numbers
-(and a local override).
+for rotating): the primary key, which signs every table, and a recovery key
+kept apart for a lost or leaked primary. Both are published, with the CI
+secrets that hold their private halves, as `keys/delta.pub.json` in
+ChupathingyCE's command repository:
+
+| Key | Public key (hex) |
+| --- | --- |
+| primary | `d51bd85346bf889b6bc5aa21dcc7a43488657b64f2432e17f6e0e7fe976933ce` |
+| recovery | `97cde84d8b9b6ba8a275d412b49422d4c07970653ee53ae54285e96640a5e456` |
+
+A build with no key (all zeros) fetches no table and accepts none: it
+plays with its built-in numbers (and a local override).
 
 ### How it travels
 
@@ -730,7 +737,7 @@ asking players for anything:
 6. Moderators for dedicated servers through Delta Link profiles; Delta
    Stats events.
 7. The legacy table as config. Built: wire IDs, the signed document and
-   its tool, the game's loader (cache, Delta List, GitHub) and the local
-   override. Next: the real key, CI publishing after cross-play, and
+   its tool, the game's loader (cache, Delta List, GitHub), the local
+   override and the real keys. Next: CI publishing after cross-play, and
    delivery over Delta Peer.
 8. The per-peer host experiment, and the proposal to OpenCE.

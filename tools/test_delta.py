@@ -107,12 +107,42 @@ def test_capability_names():
     assert names == registry
 
 
-def test_production_key_is_placeholder_or_a_key():
-    """delta_key.h's keys are 32 bytes each (all zero: the placeholder)"""
+# the built-in keys, as published in ChupathingyCE/command's keys/delta.pub.json
+PUBLISHED_KEYS = {
+    "primary": "d51bd85346bf889b6bc5aa21dcc7a43488657b64f2432e17f6e0e7fe976933ce",
+    "recovery": "97cde84d8b9b6ba8a275d412b49422d4c07970653ee53ae54285e96640a5e456",
+}
+
+
+def ed25519_point(key):
+    """whether 32 bytes are an Ed25519 public key: a point on the curve
+    (RFC 8032, 5.1.3's decoding)"""
+    p = 2 ** 255 - 19
+    d = -121665 * pow(121666, p - 2, p) % p
+    number = int.from_bytes(key, "little")
+    sign, y = number >> 255, number & ((1 << 255) - 1)
+    if y >= p:
+        return False
+    u, v = (y * y - 1) % p, (d * y * y + 1) % p
+    x = u * pow(v, 3, p) * pow(u * pow(v, 7, p), (p - 5) // 8, p) % p
+    if v * x * x % p != u:
+        x = x * pow(2, (p - 1) // 4, p) % p
+        if v * x * x % p != u:
+            return False
+    return not (x == 0 and sign)
+
+
+def test_built_in_keys():
+    """delta_key.h's keys: the published primary and recovery keys, in that
+    order, 32 bytes each, none zero, each a point on the curve (the tests
+    build with their own key instead: HALO_DELTA_TEST_KEY)"""
     text = (ROOT / "port" / "linux" / "src" / "delta_key.h").read_text().split("#else", 1)[0]
     blocks = [re.findall(r"0x([0-9a-fA-F]{2})", block) for block in re.findall(r"\{([^{}]*)\}", text)]
-    keys = [block for block in blocks if block]
-    assert keys and all(len(key) == 32 for key in keys)
+    keys = [bytes(int(byte, 16) for byte in block) for block in blocks if block]
+    assert [key.hex() for key in keys] == [PUBLISHED_KEYS["primary"], PUBLISHED_KEYS["recovery"]]
+    assert all(len(key) == 32 and any(key) and ed25519_point(key) for key in keys)
+    assert delta_table.header_keys() == keys
+    assert not ed25519_point(bytes.fromhex("02" + "00" * 31))
 
 
 def test_make_is_this_builds_numbers():
