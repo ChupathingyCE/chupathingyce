@@ -395,6 +395,8 @@ static void host_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4,
 		if (!peer->peers[machine_index].has_profile ||
 			memcmp(&peer->peers[machine_index].profile, &profile, sizeof(profile)))
 		{
+			if (!peer->peers[machine_index].has_profile)
+				say(peer, "Delta Peer: machine %d shares its profile", machine_index);
 			peer->peers[machine_index].has_profile = 1;
 			peer->peers[machine_index].profile = profile;
 			peer->roster_dirty = 1;
