@@ -344,7 +344,9 @@ written as 128 hex digits. The servers keep the two as files side by side:
 | `legacy.json` | the document, as signed (at most 16384 bytes) |
 | `legacy.json.sig` | the signature's 128 hex digits and a line feed |
 
-Between machines, and in the cache, the two travel as one **signed table**:
+(The site keeps them in its data folder as `delta_legacy.json` and
+`delta_legacy.json.sig`, and serves them as they are.) Between machines, and
+in the cache, the two travel as one **signed table**:
 the signature's 128 hex digits, a line feed, then the document's bytes.
 
 `tools/delta_table.py` makes, signs and checks them:
