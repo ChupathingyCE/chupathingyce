@@ -546,6 +546,8 @@ void delta_peer_host_frame(struct delta_peer *peer, delta_u32 now, const struct 
 			say(peer, "Delta Peer: the game takes at most %d players now (its machines' platform limits)",
 				room_players);
 	}
+	if (room_capabilities != peer->room_capabilities)
+		say(peer, "Delta Peer: every machine of the game shares capabilities 0x%x", (unsigned)room_capabilities);
 	if (room_capabilities != peer->room_capabilities || room_players != peer->room_players)
 	{
 		peer->room_capabilities = room_capabilities;
@@ -754,6 +756,11 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 			peer->dropped++;
 			break;
 		}
+		if ((roster.room_capabilities & peer->agreed) != peer->room_capabilities)
+		{
+			say(peer, "Delta Peer: every machine of the game shares capabilities 0x%x",
+				(unsigned)(roster.room_capabilities & peer->agreed));
+		}
 		peer->room_capabilities = roster.room_capabilities & peer->agreed;
 		peer->room_players = roster.room_players ? roster.room_players : DELTA_PEER_NO_LIMIT;
 		for (index = 0; index < roster.count; index++)
@@ -771,6 +778,13 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 				continue;
 			}
 			machine = &peer->machines[entry->machine_index];
+			/* (said when a machine's platform is first known, or changes) */
+			if ((entry->flags & DELTA_ROSTER_PLATFORM) &&
+				(!(machine->flags & DELTA_ROSTER_PLATFORM) || machine->key.platform != entry->key.platform))
+			{
+				say(peer, "Delta Peer: machine %d is %s%s", entry->machine_index, platform_name(entry->key.platform),
+					entry->flags & DELTA_ROSTER_PROFILE ? ", with a profile" : "");
+			}
 			memset(machine, 0, sizeof(*machine));
 			if (!(entry->flags & DELTA_ROSTER_DELTA))
 				continue;
