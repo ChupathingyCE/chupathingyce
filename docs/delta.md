@@ -2,8 +2,11 @@
 
 Status (October 6, 2026): in progress. Delta List, Stats, Link and Control
 run today under the names in the table below; the legacy number's table and
-its automation are built (see "The legacy number"); Delta Peer is designed
-and not built yet. The site's page for players: https://halo.milenko.org/delta
+its automation are built (see "The legacy number"); Delta Peer's first
+layer is built: its port, the advertisement's flag, the handshake with
+silent fallback, platform keys, and the `platform` and `profile`
+capabilities (see "Delta Peer"). The site's page for players:
+https://halo.milenko.org/delta
 
 Delta is the name for everything ChupathingyCE's machines say to each other
 and to our services beyond the game protocol OpenCE defines. It has one rule
@@ -19,7 +22,7 @@ boundaries:
 
 | Part | Between | What it is | Exists today as |
 | --- | --- | --- | --- |
-| **Delta Peer** | ChupathingyCE machines in one game | protocol major, capabilities, and our own messages | planned as "the Chupathingy channel" |
+| **Delta Peer** | ChupathingyCE machines in one game | protocol major, capabilities, and our own messages | `delta_peer.c`, UDP port 5160 |
 | **Delta List** | game or server, and the site | announcing and listing games | `/v1/announce`, `/v1/withdraw`, `/v1/games`, the console list |
 | **Delta Stats** | game or server, and the site | end-of-game reports and the event stream | `/v1/report`, `/v1/client_report`; events planned |
 | **Delta Control** | an admin, and a server | commands, the control API, the web page | `sv_` commands, `HALO_DEDICATED_CONTROL` |
@@ -53,29 +56,54 @@ OpenCE's public listings and LAN work without it.
 
 ### Transport
 
-- A socket of our own on a port beside the game's, so our message numbers
-  can never clash with OpenCE's. On the internet it runs inside the same
-  invite tunnel as the game (`p2p.c` passes the port through), so it is
-  encrypted and authenticated like everything else in the tunnel. On a LAN it
-  is plain UDP, like the game itself.
+- A UDP socket of our own on a port beside the game's, so our message
+  numbers can never clash with OpenCE's: a host listens on **5160**, the
+  game's server port (5150) plus `DELTA_PEER_PORT_OFFSET` (10); a client
+  sends from any port the system gives it. On a LAN it is plain UDP, like
+  the game itself.
+- The socket is opened through the game's own socket layer (`xnet.c`), so
+  it goes wherever the game's traffic goes: `network.address` binds it to the
+  same address as the game's sockets (several copies on one computer, each
+  on its loopback alias), and on the internet the invite tunnel carries it
+  exactly as it carries the game's datagrams. The tunnel learns every port
+  the game's sockets are bound to (`p2p_socket_port`), and peers reach only
+  those; Delta's socket is bound the same way, so the host's 5160 and the
+  client's port are among them. A datagram to a peer's virtual address
+  (100.64.0.0/10) is sealed onto the tunnel at once (`p2p_send_datagram`),
+  and one arriving from a peer reaches the socket from the peer's stand-in
+  and is reported as coming from the peer's virtual address. So Delta Peer
+  on the internet is encrypted and bound to the invite's host like the game,
+  with no new path through `p2p.c`.
 - Halo is a star: clients talk to the host, never to each other. Delta Peer
   is the same: client to host, and the host relays what others need.
 - A host that speaks Delta sets a flag in its advertisement's spare
   reserved bytes (the flags byte at `HALO_PORT_ADVERTISED_FLAGS_OFFSET`;
-  0x01 and 0x02 are taken, so 0x04). OpenCE machines ignore the bit.
+  0x01 and 0x02 are taken, so 0x04), only while its Delta socket is open
+  (another copy on the same address may hold 5160: that game is then hosted
+  without Delta, and says so). OpenCE machines ignore the bit. The game
+  protocol itself is unchanged, byte for byte.
 
 ### Handshake
 
 Right after a client joins (the legacy join, unchanged), if the host's
 advertisement has the Delta flag:
 
-1. The client sends **HELLO**: Delta major, its capability set, its build
-   (version string), platform, and the legacy number it runs.
-2. The host answers **WELCOME**: its major, its capability set, and the
-   intersection both will use. A host with a different major answers
-   **LEGACY** and nothing else is said.
-3. No answer within a few seconds means legacy only. The game is never held
-   up waiting.
+1. Once the host has given the client its machine index (the client's
+   pregame), the client sends **HELLO**: Delta major (in the header), its
+   capability set, its build (version string), its platform key, its machine
+   index, the legacy number it runs and its legacy table's serial. It says
+   HELLO again every 500 ms until answered.
+2. The host answers **WELCOME**: its major, its capability set, the
+   intersection both will use, its build, its platform key, its own machine
+   index and its legacy table's serial. A host with a different major
+   answers **LEGACY** and nothing else is said. The host only answers a
+   machine of its game: the HELLO's address must be that machine's.
+3. No answer within 4 seconds means legacy only, for the rest of that game.
+   The game is never held up waiting: the handshake runs beside it from the
+   network's idle, and nothing in the game waits on its result.
+4. With `profile` agreed, the client sends **PROFILE**; the host then sends
+   every Delta client a **ROSTER** (below) whenever the room changes (at most
+   every 250 ms) and every 5 seconds. Leaving, either side says **BYE**.
 
 The handshake is per client. A game can mix Delta clients, OpenCE clients
 and Delta clients with different capability sets; each pair uses what it
@@ -103,10 +131,199 @@ shares.
 | 6 | `coop` | network co-op extensions beyond OpenCE's |
 | 7 | `ai_sync` | AI sync extensions |
 | 8 | `vote` | map and game type votes |
-| 9 | `console_slots` | the client is a console (16 slots), for hosts that adapt |
+| 9 | `console_slots` | retired before use: a console's slots are its platform key's limits (below). Never set, never reused |
 
 The registry lives in the repository next to the compatibility table and is
-the single source for the bit numbers.
+the single source for the bit numbers. Built so far: `platform` and
+`profile`. Their values are claims, shown as claims, never used for game
+state:
+
+- **`platform`**: each machine's platform key (below), and so each player's
+  platform: `delta_peer_player_platform(player)` for the scoreboard's icons
+  (from the player's `machine_index`), unknown for an OpenCE machine.
+- **`profile`**: a machine's player ID (the game list's, 16 bytes) and its
+  profile revision (0 until the game knows it); the profile itself is the
+  site's. Opt-in: a copy shares its own only with `network.share_profile`,
+  since the ID is the same in every game.
+
+Machines share what both sides of each pair agreed to: the host puts a
+machine's platform or profile in a client's roster only if both that machine
+and that client agreed to the capability.
+
+### Room-wide capabilities
+
+`delta_peer_room_has(capability)` says whether every machine in the game has
+the capability now: the host's own set, ANDed with each client's agreed set,
+and nothing for a machine without Delta (so one OpenCE machine turns every
+room-wide capability off until it leaves). The host computes it; clients
+read it from the roster. A room-wide capability is on only while this is
+true.
+
+### Platform keys
+
+Every machine (Windows, macOS, Linux, Android, Steam Deck, the dedicated
+server, and later the Xbox, 360, Wii U and Switch) sends a **platform key**
+in HELLO and WELCOME: 8 bytes, fixed, readable in plain C89 with no
+allocation (Warthog builds with MSVC 7.1):
+
+| Byte | Field | |
+| --- | --- | --- |
+| 0 | platform | the registry below |
+| 1 | version | 1; a newer version's key is read for the fields this one knows |
+| 2 | flags | 0x01 opted in (its player turned its caveats off), 0x02 a dedicated server |
+| 3 | host_players | the most players a game it hosts can have |
+| 4 | join_players | the most players of a game it joins, by default |
+| 5 | join_players_opt_in | the most it joins with its player's opt-in |
+| 6 | memory_class | 1 up to 64 MB, 2 up to 512 MB, 3 up to 2 GB, 4 more; 0 unknown |
+| 7 | reserved | 0 |
+
+The platform registry (`enum delta_platform`, one byte, never reused):
+0 unknown, 1 `pc_windows`, 2 `pc_macos`, 3 `pc_linux`, 4 `android`,
+5 `steam_deck` (Linux with Steam's `SteamDeck=1`), 6 `xbox`, 7 `xbox360`,
+8 `wiiu`, 9 `switch`.
+
+### Platform policy
+
+Console builds play with PC builds, with caveats Delta controls. The
+caveats are policy, one table in `delta.h` (`DELTA_PLATFORM_POLICY`), the
+defaults every machine's key starts from:
+
+| Platform | Hosts at most | Joins at most | Opted in | Memory |
+| --- | --- | --- | --- | --- |
+| PC (Windows, macOS, Linux), Steam Deck, unknown | 128 | 128 | 128 | 4 |
+| Android | 128 | 128 | 128 | 3 |
+| Xbox | 16 | 16 | 128 | 1 |
+| Xbox 360, Wii U, Switch | 16 | 16 | 128 | 2, 3, 3 (placeholders until their ports play) |
+
+A host protects the weakest machine of its game: it takes no more players
+than the smallest of its own hosting limit and every Delta machine's join
+limit (`delta_peer_room_limit`, applied where the game counts a free
+player slot, so the advertisement shows the game full). A machine's join
+limit is its platform's row, or its key's own claim if lower (never more);
+none if its player opted in. Without Delta (an OpenCE machine, or
+`network.protocol = "opence"`) none of this applies: plain OpenCE behavior.
+A host never lies about the game's size: it only takes fewer players. Players
+already in a game stay when a weaker machine joins it; the host takes no
+more until the game is back under the limit (a weaker machine's own build
+should not join a game already above its limit: Warthog's side).
+
+Overrides, on purpose:
+
+- `network.platform_limits = "off"` on the weaker machine sets its key's
+  opted-in flag: it accepts whatever the host runs. (You can roast your Xbox
+  with 128 players if you want.) The default is `"on"`.
+- `network.host_platform_limits = false` (`HALO_NET_HOST_PLATFORM_LIMITS` on
+  a server) has a host ignore the caveats, for testing.
+
+The signed legacy table is to carry a `platform_policy` section that tunes
+the rows without a release; the hook is `delta_peer_platform_policy()` in
+`delta_peer_game.c` (not built yet: the defaults stand).
+
+### Wire format
+
+Little-endian. Every datagram is a 12-byte header and a payload, at most
+1200 bytes in all (under the game's 1264 and the tunnel's 1400). The header
+is the same in every major, so a machine of another major can always be
+answered with LEGACY:
+
+| Offset | Size | Field |
+| --- | --- | --- |
+| 0 | 2 | magic, `"DP"` (0x44 0x50) |
+| 2 | 1 | Delta major (1) |
+| 3 | 1 | type |
+| 4 | 2 | payload length: the datagram's size less 12, exactly |
+| 6 | 2 | reserved, 0 |
+| 8 | 4 | session: the client's, random and never 0, chosen per handshake; every message of the session carries it |
+
+Messages (a type number is never reused; unknown types are ignored; a
+payload longer than its fields is read for the fields this version knows, so
+a later version may append):
+
+| Type | Name | Way | Payload |
+| --- | --- | --- | --- |
+| 1 | HELLO | client to host | capabilities (4), legacy number (2), machine index (1), build length (1, at most 31), legacy table serial (4), platform key (8), build (printable ASCII) |
+| 2 | WELCOME | host to client | host's capabilities (4), agreed (4), legacy number (2), host's machine index (1; 255 none), build length (1), legacy table serial (4), platform key (8), build |
+| 3 | LEGACY | host to client | none (the header's major is the host's) |
+| 4 | ROSTER | host to client | room capabilities (4), room's player limit (1), reserved (3), entry count (1, at most 32), reserved (3), then 36-byte entries: machine index (1), flags (1: 0x01 Delta, 0x02 platform key present, 0x04 profile present), reserved (2), agreed capabilities (4), platform key (8), profile revision (4), player ID (16) |
+| 5 | BYE | either | none |
+| 6 | PROFILE | client to host | profile revision (4), player ID (16) |
+
+A roster covers every machine of the game, in as many datagrams as it takes
+(32 machines each). A client forgets a machine the roster has not named for
+12 seconds, or that has no players.
+
+Limits and timeouts (`delta_peer.h`):
+
+| | |
+| --- | --- |
+| HELLO resent | every 500 ms |
+| handshake given up (legacy only) | 4 s |
+| roster | on change (at most every 250 ms) and every 5 s |
+| a new session from one machine | at most one a second |
+| messages a host takes from one machine | 10 a second, 20 at once |
+| messages a client takes from its host | 50 a second, 100 at once |
+| datagrams read a frame | 64 |
+
+Who is heard: a host reads a datagram only from an address of a machine of
+its game (anything else is dropped before parsing), and ties a HELLO to the
+machine of its address and machine index; a client reads only its host's
+address and port, of its session. Everything else is dropped and counted.
+`port/linux/tests/delta_test.c` (unit tests and a seeded random-input test of
+every parser and both sessions) and `delta_fuzz.c` (libFuzzer) run in CI
+(`tools/test_delta_peer.py`).
+
+### The protocol setting
+
+`network.protocol` in config.toml (`HALO_NET_PROTOCOL`):
+
+- `"auto"` (the default): the behavior above.
+- `"opence"`: Delta Peer off entirely: no socket, no flag, no handshake; the
+  machine is an OpenCE machine to everyone.
+- `"delta"`: for now the same as auto; it marks the intent. The Delta-only
+  rooms and the listings' protocol labels come later (see "The protocol
+  choice").
+
+### The legacy table's hook
+
+HELLO and WELCOME carry each side's legacy table serial. When a peer's is
+older, the session calls `delta_peer_legacy_table_offer()`
+(`delta_peer_game.c`), the spot where the signed table is to be sent (branch
+`delta-legacy-table`); for now it only logs. `delta_peer_legacy_table_serial()`
+gives this machine's serial (0: the built-in table).
+
+### LAN superset (planned)
+
+An idea of thelinkin3000's. System link uses fixed ports (5150 and 5151),
+so two hosts can't share one address on a LAN: the second can't bind 5150,
+and plain OpenCE or Xbox clients would not find it anyway. A superset of
+system link, never a replacement:
+
+- A Delta host still listens on the standard port when it can, so OpenCE
+  and Xbox clients see it as today, unchanged.
+- If the standard port is taken (another instance on the same machine), it
+  binds another free port for the game (and Delta Peer's beside it) and is
+  reachable only by Delta clients.
+- Delta clients find such hosts through a **Delta LAN announcement**: a
+  small datagram on a port of Delta's own (planned 5161), broadcast like
+  the game's advertisement in answer to a client's search, carrying the
+  game's actual port, its Delta Peer port and the advertisement's fields:
+
+  | Offset | Size | Field |
+  | --- | --- | --- |
+  | 0 | 12 | Delta Peer's header (type: a new LAN announcement type) |
+  | 12 | 2 | the game's port |
+  | 14 | 2 | the Delta Peer port |
+  | 16 | ... | the game's advertisement (name, map, players, flags), as OpenCE's |
+
+- A Delta client merges both lists: games heard on the standard
+  advertisement, and games heard only through the Delta announcement (shown
+  the same; one heard both ways is one game). Joining one on another port
+  is the same join, to that port.
+- Non-Delta clients see only the games on the standard port, as today.
+
+Nothing of this is built; standard system link is unchanged. The code's
+hook is the host's port choice in `delta_peer_game_host_frame` (5160 today,
+and a port taken means "no Delta" rather than "another port").
 
 ### Security
 
@@ -243,14 +460,15 @@ and every action is audited.
 
 - **OpenCE clients and hosts:** see only the legacy protocol and number.
   Nothing changes for them.
-- **The invite tunnel (`p2p.c`):** carries Delta Peer's port next to the
-  game's, inside the same encryption.
+- **The invite tunnel (`p2p.c`):** carries Delta Peer's socket like the
+  game's own (it is opened through the game's socket layer), inside the same
+  encryption.
 - **The dedicated server:** a host that speaks Delta Peer, announces through
   Delta List, reports through Delta Stats, and is run through Delta Control
   and Delta Link.
 - **Warthog (Xbox):** speaks the legacy protocol with OpenCE's layout (the
-  cross-play work) and, later, Delta Peer with `console_slots`, so hosts can
-  adapt to its 16 slots.
+  cross-play work) and, later, Delta Peer with its platform key, so hosts
+  keep games to its 16 players unless its player opts in.
 - **Android and the 64-bit builds:** the same Delta as every other build.
 - **The site:** the other end of Delta List, Stats and Link; never in the
   path of a game.
@@ -418,8 +636,9 @@ asking players for anything:
 3. The watch workflow's classifier (done); following becomes a reviewed
    merge of OpenCE's code gated by CI's cross-play test (next), starting
    with OpenCE's network versions 19 and 20.
-4. Delta Peer: the port, the flag, the handshake with fallback, fuzzing, and
-   its first capabilities (`platform`, `profile`, then `server_messages`).
+4. Delta Peer: the port, the flag, the handshake with fallback, fuzzing,
+   platform keys and their policy, and its first capabilities (`platform`,
+   `profile`). Built; `server_messages` next, then the LAN superset.
 5. The protocol choice (Auto, Delta only, OpenCE only) and the browsers'
    protocol labels; a dedicated server's listing marks it (flag 128).
 6. Moderators for dedicated servers through Delta Link profiles; Delta
