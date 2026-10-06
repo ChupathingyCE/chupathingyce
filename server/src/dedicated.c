@@ -291,6 +291,34 @@ static void skip_team_entry_for_one_player(
 	}
 }
 
+/* whether the map is a campaign level (its file's name, without a family's
+suffix, as "a30" or "levels\\a30\\a30"): a dedicated server hosts only
+multiplayer maps. A campaign level played as a multiplayer game has none of
+its spawn points or flags, and loading one stopped the server; network
+co-op is hosted from the game (Create Game) */
+static boolean map_is_campaign_level(
+	char const *map)
+{
+	static char const *const levels[] = { "a10", "a30", "a50", "b30", "b40", "c10", "c20", "c40", "d20", "d40" };
+	char const *base = map;
+	char const *cursor;
+	size_t length;
+	short index;
+
+	for (cursor = map; *cursor; cursor++)
+	{
+		if (*cursor == '\\' || *cursor == '/')
+			base = cursor + 1;
+	}
+	length = strcspn(base, "@");
+	for (index = 0; index < (short)NUMBEROF(levels); index++)
+	{
+		if (length == strlen(levels[index]) && !_strnicmp(base, levels[index], length))
+			return TRUE;
+	}
+	return FALSE;
+}
+
 /* the playlist's entry (or the map and game type a command chose), set on
 the server (in its pregame) */
 static boolean set_entry(
@@ -313,6 +341,16 @@ static boolean set_entry(
 	}
 	csmemset(&empty, 0, sizeof(empty));
 	game_engine_get_variant_by_name(&variant, variant_name);
+	if (map_is_campaign_level(map))
+	{
+		error(_error_silent, "dedicated: %s is a campaign level, which a dedicated server does not host; "
+			"skipping the entry", map);
+		if (dedicated.chosen_playing)
+			dedicated.chosen_playing = FALSE;
+		else
+			dedicated.entry = (dedicated.entry + 1) % dedicated.entry_count;
+		return FALSE;
+	}
 	if (!csmemcmp(&variant, &empty, sizeof(variant)))
 	{
 		error(_error_silent, "dedicated: no game type %s; skipping the entry", variant_name);
