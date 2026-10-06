@@ -153,27 +153,28 @@ def main() -> int:
     if args.platform == "macos":
         # (the SDL3 inside it, the build's own: zlib license)
         shutil.copy2(ROOT / "build/macos/third_party/SDL3/LICENSE.txt", dist / "SDL3-LICENSE.txt")
-    if args.platform == "windows":
+    if args.platform in ("windows", "windows64"):
         # the symbols of halo.exe and SDL3.dll, apart (players do not need
         # them): the workflow uploads them to Sentry, which turns the crash
         # reports' minidumps into function names and lines
         # (port/windows/src/win32_crash.c), and tools/symbolize_crash.py
         # reads debug.txt's crash lines with them
-        symbols = ROOT / "dist" / f"chupathingyce-windows-{args.config}-symbols"
+        symbols = ROOT / "dist" / f"chupathingyce-{args.platform}-{args.config}-symbols"
+        sdl_arch = "x64" if args.platform == "windows64" else "x86"
         if symbols.exists():
             shutil.rmtree(symbols)
         symbols.mkdir(parents=True)
-        for pdb in [ROOT / "build/windows/halo.pdb", *sorted((ROOT / "build/windows/third_party").glob("SDL3-*/lib/x86/SDL3.pdb"))]:
+        for pdb in [ROOT / f"build/{args.platform}/halo.pdb",
+                    *sorted((ROOT / "build/windows/third_party").glob(f"SDL3-*/lib/{sdl_arch}/SDL3.pdb"))]:
             shutil.copy2(pdb, symbols)
             print(f"{pdb.relative_to(ROOT)} -> {symbols.relative_to(ROOT)}", flush=True)
     # the disc image readers (port/linux/src/xiso.c, and the Android app's
     # XisoExtractor.java) follow extract-xiso, whose license asks binaries
     # to carry its notice
     shutil.copy2(ROOT / "port/third_party/extract-xiso/LICENSE.TXT", dist / "extract-xiso-LICENSE.txt")
-    if args.platform in ("linux", "linux64"):
-        # the self-updater's TLS (port/third_party/mbedtls), whose Apache
-        # license asks the same
-        shutil.copy2(ROOT / "port/third_party/mbedtls/LICENSE", dist / "mbedtls-LICENSE.txt")
+    # the game list's and the self-updater's TLS (port/third_party/mbedtls),
+    # in every build (HALO_GAME_BROWSER), whose Apache license asks the same
+    shutil.copy2(ROOT / "port/third_party/mbedtls/LICENSE", dist / "mbedtls-LICENSE.txt")
     # internet play's UPnP (port/third_party/miniupnpc), in every build,
     # whose BSD license asks binaries to carry its notice
     shutil.copy2(ROOT / "port/third_party/miniupnpc/LICENSE", dist / "miniupnpc-LICENSE.txt")

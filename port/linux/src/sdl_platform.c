@@ -925,7 +925,16 @@ void platform_display_apply(void)
 	if (!platform_window)
 		return;
 #endif
+#ifdef __APPLE__
+	{
+		/* (the context's own interval, as at start-up: SDL's stays off) */
+		void macos_set_swap_interval(int interval);
+
+		macos_set_swap_interval(config_boolean("display.vsync") ? 1 : 0);
+	}
+#else
 	SDL_GL_SetSwapInterval(config_boolean("display.vsync") ? 1 : 0);
+#endif
 }
 
 void platform_video_drawable_size(int *width, int *height)

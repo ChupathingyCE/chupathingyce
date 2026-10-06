@@ -217,7 +217,7 @@ CUSTOM_EDITION_DEFINES = ["-DHALO_CUSTOM_EDITION"]
 
 def game_browser_defines(sln: Any) -> List[str]:
     """configure.py --game-browser: the game list and server browser
-    (port/linux/src/browser.c), off in the builds the project ships"""
+    (port/linux/src/browser.c), on unless --no-game-browser"""
     return ["-DHALO_GAME_BROWSER"] if getattr(sln, "game_browser", False) else []
 
 
