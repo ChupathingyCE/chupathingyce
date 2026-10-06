@@ -146,6 +146,9 @@ struct nv2a_pixel_shader_key
 	proportion to how far alpha is past the reference, not all of the pixel
 	or none of it, so that cut-out edges (foliage, grates) are smoothed too */
 	unsigned char alpha_test_samples;
+	/* Discrete meter thresholds in texture 0's red are read at level zero,
+	without filtering. Coverage/brightness still use the filtered lookup. */
+	unsigned char point_threshold;
 };
 
 char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key);
@@ -194,6 +197,7 @@ struct xgpu_texture_description
 	unsigned long pitch; /* linear textures */
 	BOOL hires;         /* a high-res HUD texture drawn in the texture's place (hud_hires.h) */
 	BOOL hires_coverage; /* ... whose green is its coverage (a meter's) */
+	BOOL hires_point_threshold; /* ... whose red holds discrete segment data */
 };
 
 void xgpu_texture_describe(DWORD format_word, DWORD size_word, struct xgpu_texture_description *description);
