@@ -627,8 +627,13 @@ void ui_map_list_refresh(
 		add_entry(xbox_maps[index], L"", L"", L"", index, index);
 	for (family = _map_family_custom_edition; family < NUMBER_OF_MAP_FAMILIES; family++)
 	{
+		extern int platform_ce_tag_cache_ready;
 		long file;
 
+		/* (none of them would load without their tag cache, which the
+		platform layer could not map: port/linux/src/xbox_memory.c) */
+		if (!platform_ce_tag_cache_ready)
+			break;
 		found.count = 0;
 		map_family_list(family, file_found, &found);
 		if (found.count)

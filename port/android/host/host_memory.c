@@ -59,6 +59,8 @@ static pthread_mutex_t memory_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static uint64_t window_base, window_end;
 static uint64_t image_base, image_end;
+/* Custom Edition maps' tag cache, if it was had (reserve_fixed) */
+static uint64_t ce_base, ce_end;
 
 static uint64_t round_up(uint64_t value)
 {
@@ -456,6 +458,21 @@ static int reserve_fixed(void)
 		return -1;
 	}
 	fixed_reserved = 1;
+	/* Custom Edition maps' tag cache (halo_android_abi.h): wanted, not
+	needed. ART's main space starts at 0x12c00000 and is as large as its
+	heap (dalvik.vm.heapsize), so on a device whose heap is larger than
+	about 700 MB it covers this range, and is left alone: only an idle
+	slice of the large object space is ever taken back (reserve) */
+	if (reserve(HALO_GUEST_CE_TAG_CACHE_BASE, HALO_GUEST_CE_TAG_CACHE_SIZE, 1) == 0)
+	{
+		ce_base = HALO_GUEST_CE_TAG_CACHE_BASE;
+		ce_end = ce_base + HALO_GUEST_CE_TAG_CACHE_SIZE;
+	}
+	else
+	{
+		host_logf(HOST_LOG_WARN, "cannot reserve Custom Edition maps' tag cache at %08llx (%s): Halo PC maps will not load",
+			(unsigned long long)HALO_GUEST_CE_TAG_CACHE_BASE, strerror(errno));
+	}
 	return 0;
 }
 
@@ -624,7 +641,8 @@ int host_low_owns(uintptr_t address, size_t size)
 {
 	int result;
 
-	if (in_range(address, size, window_base, window_end) || in_range(address, size, image_base, image_end))
+	if (in_range(address, size, window_base, window_end) || in_range(address, size, image_base, image_end) ||
+		(ce_end && in_range(address, size, ce_base, ce_end)))
 		return 1;
 	pthread_mutex_lock(&memory_lock);
 	result = pool_of(address, size) != NULL;
@@ -679,7 +697,7 @@ long host_guest_munmap(uint64_t address, uint64_t size)
 
 	if (address + length > LOW_LIMIT)
 		return -EINVAL;
-	if (in_range(address, length, window_base, window_end))
+	if (in_range(address, length, window_base, window_end) || (ce_end && in_range(address, length, ce_base, ce_end)))
 	{
 		mmap((void *)address, length, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0);
 		return 0;

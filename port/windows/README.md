@@ -64,10 +64,10 @@ It is the 64-bit build of the other systems (`HALO_64BIT`: see
 - It is not optimized with a profile. The committed profiles are those of
   the 32-bit builds.
 
-It plays the Custom Edition maps of Halo PC (`maps/ce/`) and HaloMD's maps
-(`md_maps/`), it plays with the
-32-bit builds and the other ports over the network, and it is a dedicated
-server too (`server/README.md`). Its releases are a separate download,
+Like the 32-bit build, it plays the Custom Edition maps of Halo PC
+(`maps/ce/`) and HaloMD's maps (`md_maps/`). It plays with the 32-bit builds
+and the other ports over the network, and it is a dedicated server too
+(`server/README.md`). Its releases are a separate download,
 `chupathingyce-windows64-release.zip`, which its self-updater asks for.
 
 ## Start the game
@@ -95,6 +95,16 @@ Thus the Windows build needs fewer changes than the Linux build.
 
 The executable is large-address-aware, because the platform layer reserves
 the Xbox memory at `0x80000000`.
+
+The game plays the Custom Edition maps of Halo PC (`maps/ce/`) and HaloMD's
+maps (`md_maps/`), as the Linux build does (`HALO_CUSTOM_EDITION`). Their
+tags are linked to `0x40440000`, outside the Xbox memory. When the game
+starts, the platform layer takes those 23 MB at that address
+(`port/linux/src/xbox_memory.c`, with `VirtualAlloc`). The executable is
+at `0x00400000` and the system libraries are near the top of the lower
+2 GB, so the address is normally free. If it is not (`cannot reserve Custom
+Edition maps' tag cache` in the log), the game does not open those maps,
+and the Xbox maps play as usual.
 
 ### Headers
 

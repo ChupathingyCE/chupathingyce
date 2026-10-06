@@ -168,7 +168,8 @@ port/windows/src/win32_memory_watch.c has the same */
 maps) are linked to a tag cache of their own, outside the Xbox window: their
 tags at 0x40440000 and their structure BSPs at its top. The layer maps it
 at start-up (xbox_memory.c): in the 64-bit build's Xbox address space, below
-its heap (xbox_heap.c); in a 32-bit build, at that host address. Nonzero
+its heap (xbox_heap.c); in a 32-bit build, at that host address (on
+Android, in the range the host reserved for it: halo_android_abi.h). Nonzero
 once it is mapped: a Custom Edition map is not opened without it
 (cache_files_windows.c) */
 #define PLATFORM_CE_TAG_CACHE_BASE 0x40440000U

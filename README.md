@@ -51,8 +51,8 @@ out our own releases. Expect rough edges, and please report them.
 | Online Games, hosting, stats | Yes | Yes | Yes | Yes |
 | Dedicated server | The game, for a test | The game, for a test | Yes: x86, x64 and arm64, and Docker | |
 | Updates itself | Yes | Not yet | Yes | Yes |
-| Halo PC (Custom Edition) maps | 64-bit build only | Yes | Yes | Not yet |
-| HaloMD maps | 64-bit build only | Yes | Yes | Not yet |
+| Halo PC (Custom Edition) maps | Yes | Yes | Yes | Yes, see below |
+| HaloMD maps | Yes | Yes | Yes | Yes, see below |
 | Server Browser in the PC menus | Yes | Yes | Yes | Yes |
 
 ## Download
@@ -102,15 +102,17 @@ and quits.
 
 ## Halo PC maps
 
-ChupathingyCE also plays Halo PC (Custom Edition) multiplayer maps, on a Mac,
-on Linux and in the 64-bit Windows build. Copy the `.map` files from your own Halo PC (Custom Edition)
+Every ChupathingyCE build also plays Halo PC (Custom Edition) multiplayer
+maps: Windows (32-bit and 64-bit), Mac, Linux (32-bit and 64-bit), Android
+and the dedicated server. Copy the `.map` files from your own Halo PC (Custom Edition)
 install into a `ce` folder inside the game's `maps` folder:
 
 | Platform | Put Halo PC maps in |
 | --- | --- |
 | Mac | `~/Library/Application Support/ChupathingyCE/maps/ce/` |
 | Linux | `maps/ce/` next to the `halo` executable |
-| Windows (64-bit) | `maps\ce\` next to `halo.exe` |
+| Windows | `maps\ce\` next to `halo.exe` |
+| Android | `maps/ce/` in `/sdcard/Android/data/dev.horrible.chupathingyce/files` |
 
 Include `bitmaps.map`, `sounds.map` and `loc.map`, which the maps share. Halo PC's
 own `ui.map` adds its map names and pictures. The maps appear in the multiplayer
@@ -125,11 +127,18 @@ Halo PC maps straight into it. The game can't start with Halo PC's `ui.map`
 in place of the Xbox one, and Halo PC maps in `maps/` itself don't play. Keep
 the Xbox maps in `maps/` and the Halo PC maps in `maps/ce/`.
 
+On Android, two limits apply. The maps need a fixed 23 MB of the app's
+memory, which Android's Java runtime takes on some devices with a very large
+Java heap (more than about 700 MB, such as some gaming handhelds). There
+the Halo PC maps are not listed, and the log says `cannot reserve Custom
+Edition maps' tag cache`. And the phone's texture cache is smaller than a
+computer's, so on the heaviest maps (Foundation) some surfaces can show the
+wrong textures in their busiest views. See [port/android/README.md](port/android/README.md).
+
 ### HaloMD maps
 
 ChupathingyCE also plays HaloMD's multiplayer maps (the Mac Halo community's
-maps, made for Halo PC 1.0), on a Mac, on Linux and in the 64-bit Windows
-build. Bring your own: download
+maps, made for Halo PC 1.0), in every build. Bring your own: download
 the maps you want from HaloMD's mod list, and put their `.map` files in an
 `md_maps` folder beside the game's `maps` folder:
 
@@ -137,7 +146,8 @@ the maps you want from HaloMD's mod list, and put their `.map` files in an
 | --- | --- |
 | Mac | `~/Library/Application Support/ChupathingyCE/md_maps/` |
 | Linux | `md_maps/` next to the `halo` executable |
-| Windows (64-bit) | `md_maps\` next to `halo.exe` |
+| Windows | `md_maps\` next to `halo.exe` |
+| Android | `md_maps/` in `/sdcard/Android/data/dev.horrible.chupathingyce/files` |
 
 They need the Halo PC (Custom Edition) files above too: `bitmaps.map`,
 `sounds.map` and `loc.map` from your own Halo PC install, in `maps/ce/`. A
