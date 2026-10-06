@@ -13,8 +13,22 @@ import android.view.Surface;
  * the app.
  */
 final class BinkPlayer {
-    static {
-        System.loadLibrary("binkplayer");
+    /* built by port/android/binkplayer/build.sh (FFmpeg's Bink decoder linked
+       with this class): it is not part of the tree, so a build without that
+       step still makes an APK, one whose host offers no movie to the engine
+       and whose engine then skips them, as the port did before */
+    private static Boolean available;
+
+    static boolean isAvailable() {
+        if (available == null) {
+            try {
+                System.loadLibrary("binkplayer");
+                available = Boolean.TRUE;
+            } catch (UnsatisfiedLinkError e) {
+                available = Boolean.FALSE;
+            }
+        }
+        return available;
     }
 
     private long handle;

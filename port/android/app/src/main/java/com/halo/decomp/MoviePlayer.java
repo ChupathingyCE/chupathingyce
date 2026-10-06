@@ -83,6 +83,10 @@ final class MoviePlayer implements SurfaceHolder.Callback, Runnable {
     /* the movies the disc carries: what the native side may offer (a language
        with no file falls back to the one that is here) */
     private void registerAssets() {
+        /* no decoder: nothing is offered, so the engine's own check skips every
+           movie instead of asking for one this cannot play */
+        if (!BinkPlayer.isAvailable()) return;
+
         File directory = binkDirectory();
         String[] files = directory != null ? directory.list() : null;
         if (files != null) {
