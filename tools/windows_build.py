@@ -9,8 +9,9 @@ configure.py runs on Windows. See port/windows/README.md for the design.
 
 ``ninja windows64`` compiles the same units for x64 Windows
 (x86_64-pc-windows-msvc) into ``build/windows64/halo.exe``, with the 64-bit
-builds' code paths (HALO_64BIT: source/cseries/xbox_address.h) and Halo PC's
-Custom Edition maps, as ``ninja linux64`` and ``ninja macos`` have them.
+builds' code paths (HALO_64BIT: source/cseries/xbox_address.h), as
+``ninja linux64`` and ``ninja macos`` have them. Both play Halo PC's Custom
+Edition maps (HALO_CUSTOM_EDITION).
 Windows keeps `long` 32 bits wide on x64 (LLP64), as the Xbox's compiler
 did, so the sources need none of the LP64 builds' `long` rewrite
 (tools/lp64_build.py).
@@ -192,7 +193,10 @@ WINDOWS32 = WindowsTarget(
     name="windows",
     triple="i686-pc-windows-msvc",
     sdl_arch="x86",
-    abi_flags=WINDOWS_ABI_FLAGS,
+    # Halo PC's Custom Edition maps (linux_build.py, CUSTOM_EDITION_DEFINES),
+    # as the 32-bit Linux build has them: their tag cache is mapped at the
+    # host address they are linked to (port/linux/src/xbox_memory.c)
+    abi_flags=[*WINDOWS_ABI_FLAGS, *CUSTOM_EDITION_DEFINES],
     game_flags=GAME_FLAGS,
     platform_flags=PLATFORM_FLAGS,
     win32_flags=WIN32_FLAGS,
