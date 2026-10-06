@@ -198,6 +198,12 @@ static const struct config_setting config_settings[] =
 		"Reverberate the world's sounds as the place the player is in does (the\n"
 		"maps' sound environments, as the Xbox's I3DL2 reverb did); false keeps\n"
 		"them dry." },
+	{ "audio.resampling", _config_string, "\"sinc\"", "HALO_AUDIO_RESAMPLING", _environment_value, _platform_all,
+		"How sounds recorded at another rate (most are 22 kHz) are played at the\n"
+		"output's 48 kHz: \"sinc\" keeps their band and nothing above it;\n"
+		"\"linear\" interpolates between their samples, as the game did before\n"
+		"OpenCE's build 130: their top octave duller, and images of their band\n"
+		"above it (a brighter, grainier sound)." },
 
 	{ "input.touch_controls", _config_string, "\"on\"", "HALO_TOUCH_CONTROLS", _environment_value, _platform_android,
 		"The on-screen touch controls in a game: \"on\" shows them on a\n"
