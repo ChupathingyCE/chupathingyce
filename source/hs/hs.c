@@ -12628,8 +12628,34 @@ static boolean hs_scenario_syntax_data_valid(
 		!tag_cache ||
 		!scenario->hs_syntax_data.address ||
 		address < tag_cache ||
-		address > tag_cache+tag_cache_size-syntax_data_size ||
-		(POINTER_BITS(address) & 3))
+		address > tag_cache+tag_cache_size-syntax_data_size)
+	{
+		return FALSE;
+	}
+
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a Custom Edition or HaloMD map's array, which Halo PC's tools
+	wrote: after its signature its header is laid out otherwise (its counts
+	are not the Xbox's fields, and do not pass the checks below), and it need
+	not lie at a 4-byte boundary. Its place in the tag cache, its size, its
+	signature and the node count and size it was made with are checked: a
+	node is found by an index below the array's maximum count, so its scripts
+	read nothing outside it. These maps' scripts ran so before the checks
+	below were added (Coldsnap's, for one) */
+	{
+		extern boolean cache_file_tags_are_ce(void);
+
+		if (cache_file_tags_are_ce())
+		{
+			return data->signature == 'd@t@' &&
+				data->maximum_count == MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO &&
+				data->size == sizeof(struct hs_syntax_node) &&
+				hs_scenario_string_constants_valid(scenario);
+		}
+	}
+#endif
+
+	if (POINTER_BITS(address) & 3)
 	{
 		return FALSE;
 	}
@@ -14625,6 +14651,10 @@ boolean hs_scenario_postprocess(
 #endif
 	if (!recompile && hs_compile_postprocess(&error_message, &error_source))
 	{
+		/* port: in debug.txt, what the map's scripts are */
+		error(_error_silent, "scenario scripts: %ld scripts, %ld globals",
+			scenario->hs_scripts.count,
+			scenario->hs_globals.count);
 		if (scenario->hs_string_constants.size<0x400)
 		{
 			success = tag_data_resize(
