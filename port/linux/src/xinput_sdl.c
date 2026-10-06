@@ -579,8 +579,8 @@ void test_input_hold_action(int hold)
 /* debug.test_input "menu:<buttons>": the buttons pressed one a second, from
 the first poll, for testing the menus: a, b, x, y, lb, rb (white and black),
 up, down, left, right, start, back, key:<a key's name> (a key of the
-keyboard, as SDL names it: key:C), or wait (none), separated by spaces or
-commas */
+keyboard, as SDL names it: key:C; key:W+C holds both), or wait (none),
+separated by spaces or commas */
 static char test_input_menu[512];
 static Uint64 test_input_menu_since;
 
@@ -608,21 +608,29 @@ static const char *test_input_menu_token(size_t *length)
 }
 
 /* (a key goes in with the keyboard's, as if typed, before the keys drive
-the controller) */
+the controller; key:W+C holds both) */
 static void test_input_menu_keys(struct platform_input_state *input)
 {
 	size_t length;
 	const char *token = test_input_menu_token(&length);
-	char name[32];
-	SDL_Scancode scancode;
+	char names[64];
+	char *name, *next;
 
-	if (!token || length <= 4 || length - 4 >= sizeof(name) || strncmp(token, "key:", 4))
+	if (!token || length <= 4 || length - 4 >= sizeof(names) || strncmp(token, "key:", 4))
 		return;
-	memcpy(name, token + 4, length - 4);
-	name[length - 4] = 0;
-	scancode = SDL_GetScancodeFromName(name);
-	if (scancode != SDL_SCANCODE_UNKNOWN)
-		input->keys[scancode] = 1;
+	memcpy(names, token + 4, length - 4);
+	names[length - 4] = 0;
+	for (name = names; name; name = next)
+	{
+		SDL_Scancode scancode;
+
+		next = strchr(name, '+');
+		if (next)
+			*next++ = 0;
+		scancode = SDL_GetScancodeFromName(name);
+		if (scancode != SDL_SCANCODE_UNKNOWN)
+			input->keys[scancode] = 1;
+	}
 }
 
 static void test_input_menu_gamepad(XINPUT_GAMEPAD *pad)

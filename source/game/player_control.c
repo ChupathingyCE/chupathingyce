@@ -1373,10 +1373,14 @@ static void get_local_player_input_blob(
 				{
 					struct biped_datum *biped = biped_try_and_get(player->unit_index);
 
+					/* (crouching takes a stick short of all the way; port: the
+					keyboard always moves all the way, so its crouch key
+					crouches at any speed, as Halo PC's does) */
 					if (biped &&
 						(controls_enable_crouch ||
 						TEST_FLAG(biped->biped.flags, _biped_airborne_bit) ||
-						magnitude_squared2d(&input->throttle) < 0.98f * 0.98f))
+						magnitude_squared2d(&input->throttle) < 0.98f * 0.98f ||
+						input_abstraction_port_crouch(gamepad_index)))
 					{
 						SET_FLAG(
 							input->unit_control_flags,
