@@ -318,6 +318,12 @@ check it too):
   the floor: play never depends on reaching anything.
 - **Delta List:** clients and servers fetch it at start and every few hours
   (`/v1/delta/legacy`), and cache it.
+- **GitHub, if the site can't be reached:** the same signed file, committed
+  by CI to the `delta-table` branch of ChupathingyCE's repository and read
+  from `raw.githubusercontent.com/ChupathingyCE/chupathingyce/delta-table/legacy.json`.
+  A branch of its own keeps the table's updates out of main's history. Both
+  copies are signed with the same key, so neither host is trusted; the
+  newest serial of whatever is reached wins.
 - **Delta Peer:** in the handshake each side says its table's serial; the side
   with the newer one sends it. A machine that never reaches the site still
   gets it from the first host or client that has it. It is signed, so
