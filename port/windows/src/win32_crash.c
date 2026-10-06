@@ -49,13 +49,19 @@ here, so they are reported too.
 #ifndef HALO_BUILD_FLAVOR
 #define HALO_BUILD_FLAVOR "release"
 #endif
+#ifndef HALO_VERSION
+#define HALO_VERSION "dev"
+#endif
+#ifndef HALO_COMMIT
+#define HALO_COMMIT "unknown"
+#endif
 
 /* the minidump endpoint of the project's DSN,
 https://e656c596e8f90402b0f47a2613b69e50@o4512207906603008.ingest.de.sentry.io/4512207917744208
 (a DSN is public: it only lets a client send events) */
 #define SENTRY_HOST L"o4512207906603008.ingest.de.sentry.io"
 #define SENTRY_MINIDUMP_PATH L"/api/4512207917744208/minidump/?sentry_key=e656c596e8f90402b0f47a2613b69e50"
-#define SENTRY_USER_AGENT L"halo-ce-universal-crash-reporter"
+#define SENTRY_USER_AGENT L"ChupathingyCE/" HALO_VERSION L" (Windows crash reporter)"
 
 #define CRASH_REPORT_OPTION L"--crash-report"
 #define CRASH_UPLOAD_OPTION L"--crash-upload"
@@ -826,8 +832,8 @@ static LONG WINAPI crash_filter(EXCEPTION_POINTERS *exception)
 	dumped = crash_reports_enabled() && crash_dump(exception);
 	/* (where halo.exe is: tools/symbolize_crash.py finds the lines of the
 	addresses below from it and halo.pdb) */
-	crash_line("crash: halo.exe at %p, build %d (%s)", (void *)GetModuleHandleW(NULL), HALO_BUILD_NUMBER,
-		HALO_BUILD_FLAVOR);
+	crash_line("crash: halo.exe at %p, ChupathingyCE %s (%s config, commit %s)", (void *)GetModuleHandleW(NULL),
+		HALO_VERSION, HALO_BUILD_FLAVOR, HALO_COMMIT);
 #ifdef HALO_64BIT
 	{
 		CONTEXT unwound = *context;

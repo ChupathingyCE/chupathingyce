@@ -479,7 +479,7 @@ assembly of the port is necessary:
 
 ## Find problems
 
-- Enter `adb logcat -s halo` to see the log of the port and the errors of
+- Enter `adb logcat -s chupathingyce` to see the log of the port and the errors of
   the game. `files/debug.txt` is the log of the game.
 - If the guest code stops, the log shows the registers and the frame chain.
   To find the functions, enter
