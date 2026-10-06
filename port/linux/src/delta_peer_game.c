@@ -26,7 +26,6 @@ HALO_GAME_BROWSER; network.protocol = "opence" turns all of it off.
 
 #include <stdio.h>
 #include <string.h>
-#include <strings.h>
 
 /* updater.c's (server_platform.c's in the dedicated server) */
 const char *updater_version(void);
@@ -50,6 +49,22 @@ static struct
 	/* a host whose port was taken said so once */
 	int port_refused;
 } delta_game = { 0 };
+
+/* whether two settings' words are the same, case aside (ASCII; no
+strings.h: Windows has none) */
+static int same_word(const char *a, const char *b)
+{
+	for (;; a++, b++)
+	{
+		char x = *a >= 'A' && *a <= 'Z' ? (char)(*a - 'A' + 'a') : *a;
+		char y = *b >= 'A' && *b <= 'Z' ? (char)(*b - 'A' + 'a') : *b;
+
+		if (x != y)
+			return 0;
+		if (!x)
+			return 1;
+	}
+}
 
 /* ---------- this machine */
 
@@ -98,7 +113,7 @@ void delta_peer_local_key(struct delta_platform_key *key)
 	key->version = DELTA_PLATFORM_KEY_VERSION;
 	key->flags = 0;
 	/* (its player takes whatever the host runs: no caveat protects it) */
-	if (!strcasecmp(limits, "off"))
+	if (same_word(limits, "off"))
 		key->flags |= DELTA_PLATFORM_KEY_OPTED_IN;
 #ifdef HALO_SERVER
 	key->flags |= DELTA_PLATFORM_KEY_DEDICATED;
@@ -216,13 +231,13 @@ int delta_peer_protocol(void)
 
 		delta_game.ready = 1;
 		delta_game.socket = INVALID_SOCKET;
-		if (!strcasecmp(protocol, "opence"))
+		if (same_word(protocol, "opence"))
 			delta_game.protocol = _delta_peer_protocol_opence;
-		else if (!strcasecmp(protocol, "delta"))
+		else if (same_word(protocol, "delta"))
 			delta_game.protocol = _delta_peer_protocol_delta;
 		else
 		{
-			if (protocol[0] && strcasecmp(protocol, "auto"))
+			if (protocol[0] && !same_word(protocol, "auto"))
 				platform_log("Delta Peer: network.protocol \"%s\" is not auto, delta or opence: auto", protocol);
 			delta_game.protocol = _delta_peer_protocol_auto;
 		}
@@ -248,9 +263,9 @@ int delta_peer_protocol(void)
 		{
 			const char *limits = config_string("network.platform_limits");
 
-			if (limits[0] && strcasecmp(limits, "on") && strcasecmp(limits, "off"))
+			if (limits[0] && !same_word(limits, "on") && !same_word(limits, "off"))
 				platform_log("Delta Peer: network.platform_limits \"%s\" is not on or off: on", limits);
-			if (!strcasecmp(limits, "off"))
+			if (same_word(limits, "off"))
 				platform_log("Delta Peer: platform limits off (network.platform_limits): this machine joins "
 					"games of any size");
 		}
