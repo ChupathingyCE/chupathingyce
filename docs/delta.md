@@ -2,8 +2,9 @@
 
 Status (October 6, 2026): in progress. Delta List, Stats, Link and Control
 run today under the names in the table below; the legacy number's table and
-its automation are built (see "The legacy number"); Delta Peer is designed
-and not built yet. The site's page for players: https://halo.milenko.org/delta
+its automation are built (see "The legacy number"), and so is the signed
+legacy table's loader, waiting for its key (see "The legacy table as
+config"); Delta Peer is designed and not built yet. The site's page for players: https://halo.milenko.org/delta
 
 Delta is the name for everything ChupathingyCE's machines say to each other
 and to our services beyond the game protocol OpenCE defines. It has one rule
@@ -294,70 +295,153 @@ check it too):
   "serial": 42,
   "issued": 1791331200,
   "wires": {
-    "chupa-18a": { "announce": 19, "minimum": 17, "maximum": 19 }
+    "chupa-18a": { "announce": 19, "minimum": 11, "maximum": 19 }
   },
-  "disabled_capabilities": []
+  "disabled_capabilities": [],
+  "platform_policy": {}
 }
 ```
 
-- **Rows by wire, not by build.** Each build has a wire ID: the revision of
-  the game protocol it actually speaks. A row says which OpenCE numbers that
-  wire was proven to play with. An old build only follows numbers verified
-  against its own wire, so a raise that needs new code (OpenCE's 19 and 20
-  were) never reaches a build that lacks it.
+- **`delta_legacy`**: the document's format, 1. A build drops a table of a
+  format it doesn't read.
+- **`serial`**: 1 to 4294967295; each table published gets a higher one.
+  **`issued`**: when it was made (Unix seconds), for people; optional.
+- **Rows by wire, not by build.** Each build has a wire ID (`DELTA_WIRE` in
+  `delta.h`, `chupa-18a` today): the revision of the game protocol it
+  actually speaks. A row says which OpenCE numbers that wire was proven to
+  play with: the number a host announces, and the range of hosts' numbers a
+  client joins (each 1 to 65535, `minimum <= announce <= maximum`). An old
+  build only follows numbers verified against its own wire, so a raise that
+  needs new code (OpenCE's 19 and 20 were) never reaches a build that lacks
+  it. A build ignores every other wire's row; a table without a row for its
+  wire leaves it on its built-in numbers.
 - **Rows are added only by CI.** When OpenCE raises, CI runs the cross-play
   test of each wire still in use against the new OpenCE build; a pass adds
   that number to the wire's row and publishes a new serial. A fail means a
   release (merge the code, new wire ID), as today.
 - **`disabled_capabilities`**: the kill switch for a Delta capability found
-  unsafe, until a fixed build ships.
+  unsafe, until a fixed build ships: names from the capability registry
+  (`platform`, `chat`, ...). Names a build doesn't know are ignored.
+- **`platform_policy`** (reserved, optional): per-platform limits Delta Peer
+  reads, such as how many players a host or a joining machine of that
+  platform may have, keyed by platform name (`xbox`, `xbox360`, `wiiu`,
+  `switch`, `android`, `pc_windows`, ...): an object of objects of small
+  whole numbers (0 to 4096; names of lowercase letters, digits and `_`). The
+  Delta Peer work owns the platform names, the limits and their built-in
+  defaults. A table may tune them without a release, but every value is
+  **bounded by the build's own hard limits**: a build clamps it to the range
+  it was built to allow, so a table can relax a limit only as far as the
+  built-in default and tighten it only within the documented bounds. Until
+  Delta Peer reads it, builds pass over it.
+- Unknown fields are skipped, so later fields don't break older builds. A key
+  twice in one object is a broken table.
+
+The **signature** is Ed25519 (RFC 8032) over the document's exact bytes,
+written as 128 hex digits. The servers keep the two as files side by side:
+
+| File | What it is |
+| --- | --- |
+| `legacy.json` | the document, as signed (at most 16384 bytes) |
+| `legacy.json.sig` | the signature's 128 hex digits and a line feed |
+
+Between machines, and in the cache, the two travel as one **signed table**:
+the signature's 128 hex digits, a line feed, then the document's bytes.
+
+`tools/delta_table.py` makes, signs and checks them:
+
+```
+delta_table.py make --serial N [--from legacy.json] [--out legacy.json]
+delta_table.py sign --key KEY.pem legacy.json        (writes legacy.json.sig)
+delta_table.py verify [--public-key HEX] legacy.json
+delta_table.py keygen --out KEY.pem
+```
+
+`make` writes this build's wire and numbers (`delta.h`, `halo_port_limits.h`)
+and, with `--from`, keeps the other wires' rows of the table before it.
+
+### The key
+
+`port/linux/src/delta_key.h` holds the public keys builds accept (several,
+for rotating). It is a **placeholder of zeros** until the owner makes the
+real pair with `delta_table.py keygen`, keeps the private key only as a CI
+secret, and puts the printed public half in `delta_key.h`. A build with no
+key fetches no table and accepts none: it plays with its built-in numbers
+(and a local override).
 
 ### How it travels
 
 - **Built in:** each build carries the table as it was at release. That is
   the floor: play never depends on reaching anything.
-- **Delta List:** clients and servers fetch it at start and every few hours
-  (`/v1/delta/legacy`), and cache it.
-- **GitHub, if the site can't be reached:** the same signed file, committed
-  by CI to the `delta-table` branch of ChupathingyCE's repository and read
-  from `raw.githubusercontent.com/ChupathingyCE/chupathingyce/delta-table/legacy.json`.
-  A branch of its own keeps the table's updates out of main's history. Both
-  copies are signed with the same key, so neither host is trusted; the
-  newest serial of whatever is reached wins.
+- **The cache:** the newest signed table taken is kept as
+  `delta_legacy.signed` in the save root and read at start, checked again
+  like any other copy.
+- **Delta List:** clients and servers fetch it in the background at start
+  and every four hours (thirty minutes after a failure), from
+  `network.browser_url`'s `/v1/delta/legacy` and `/v1/delta/legacy.sig`
+  (the two files, as they are). Nothing waits for it: until it arrives the
+  game uses the cache or the built-in numbers. With `network.browser_url`
+  empty (no list server) nothing is fetched at all.
+- **GitHub, if the site can't be reached or gives no valid table:** the same
+  two files, committed by CI to the `delta-table` branch of ChupathingyCE's
+  repository and read from
+  `raw.githubusercontent.com/ChupathingyCE/chupathingyce/delta-table/legacy.json`
+  (and `legacy.json.sig`). A branch of its own keeps the table's updates out
+  of main's history. Both copies are signed with the same key, so neither
+  host is trusted; the newest serial of whatever is reached wins.
 - **Delta Peer:** in the handshake each side says its table's serial; the side
-  with the newer one sends it. A machine that never reaches the site still
-  gets it from the first host or client that has it. It is signed, so
-  relaying it needs no trust in the relay.
+  with the newer one sends its signed table. A machine that never reaches the
+  site still gets it from the first host or client that has it. It is
+  signed, so relaying it needs no trust in the relay.
 
 ### Checks
 
-- The signature is checked before anything is read past the size; the
-  document is capped (16 KB) and parsed as hostile input.
+- The size is checked first (16384 bytes of document), then the signature,
+  and only then is the document read, by a strict parser (bounded nesting,
+  whole numbers only where numbers are read, no trailing bytes, no repeated
+  keys) that skips what it doesn't know.
 - **Serials only go forward.** An older or equal serial is ignored, so an old
   copy can't be replayed to roll a machine back.
-- A row may only **widen** the built-in one for the same wire (a newer
-  announce, a wider range). Nothing the network sends can make a build
-  stricter than it shipped, or claim a number its wire never passed.
-- A table that doesn't verify is dropped quietly (logged); nothing is shown
-  to the player.
+- A row may only **widen** the built-in one for the same wire: announce at
+  least the built-in number, minimum at most the built-in minimum, maximum at
+  least the built-in maximum. Nothing the network sends can make a build
+  stricter than it shipped; a table whose row narrows is dropped whole.
+- A table that doesn't verify is dropped quietly (one line in the log, never
+  an address); nothing is shown to the player.
 
 ### Local override
 
-`network.legacy_table` in config.toml (and `HALO_LEGACY_TABLE` for servers)
-names an unsigned file to use instead, for testing and for an admin who
-knows better. It logs a warning at start, is never relayed to peers, and the
-game's About shows it is in use.
+`network.legacy_table` in config.toml (`HALO_LEGACY_TABLE` for servers)
+names an unsigned file in the same format (beside config.toml unless a full
+path), for testing and for an admin who knows better. Its row for the build's
+wire is used as it is (it may narrow too); its serial is not checked. It logs
+a warning at start, and while it is set no signed table is fetched, taken or
+relayed. A file that can't be read, or has no row for the wire, leaves the
+built-in numbers in use (and says so).
 
 ### In the code
 
-The constants become calls (`delta_legacy_announce()`,
-`delta_legacy_minimum()`, `delta_legacy_maximum()`) at the places the number
-is used today: the listing (`p2p_lobby.c`), the advertisement
-(`network_server_message_handler.c`), the join check
-(`network_client_manager.c`), the browser (`browser.c`) and what the server
-and reports print. `HALO_PORT_NETWORK_VERSION` stays as the built-in
-announce and the wire's own number, so OpenCE's tools that read it keep
-working.
+The constants became calls (`delta_legacy_announce()`,
+`delta_legacy_minimum()`, `delta_legacy_maximum()`, in
+`halo_port_limits.h`) at the places the number is used: the listing
+(`p2p_lobby.c`), the advertisement (`network_server_message_handler.c`), the
+join check (`network_client_manager.c`), the browser (`browser.c`) and what
+the server and reports print. `HALO_PORT_NETWORK_VERSION` stays as the
+built-in announce and the wire's own number, so OpenCE's tools that read it
+keep working.
+
+`port/linux/src/delta.c` does the rest (declared in `delta.h`):
+
+| Call | What it does |
+| --- | --- |
+| `delta_legacy_start()` | at start-up: the override or the cache, and the fetching thread |
+| `delta_legacy_serial()` | the serial of the signed table in use; 0 for none or an override |
+| `delta_legacy_signed(buffer, size)` | the signed table in use, for Delta Peer to send |
+| `delta_legacy_offer(table, size)` | a signed table from a peer: checked, taken if newer |
+| `delta_capability_disabled(bit)` | the kill switch |
+| `delta_legacy_override()` | whether a local, unsigned table is in use |
+
+`tools/test_delta.py` checks the tool and builds `delta.c` with a test key
+(`tools/delta_check.c`) to check what the game takes and drops.
 
 ## An open network
 
@@ -424,6 +508,8 @@ asking players for anything:
    protocol labels; a dedicated server's listing marks it (flag 128).
 6. Moderators for dedicated servers through Delta Link profiles; Delta
    Stats events.
-7. The legacy table as config: wire IDs, the signed document, Delta List
-   and Delta Peer delivery, CI publishing after cross-play.
+7. The legacy table as config. Built: wire IDs, the signed document and
+   its tool, the game's loader (cache, Delta List, GitHub) and the local
+   override. Next: the real key, CI publishing after cross-play, and
+   delivery over Delta Peer.
 8. The per-peer host experiment, and the proposal to OpenCE.
