@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .ninja_syntax import Writer
-from .version import release_build, version
+from .version import VERSION_SOURCES, identity_defines, release_build, version
 
 PORT_DIR = Path("port/linux")
 PORT_CONFIG = PORT_DIR / "port.json"
@@ -151,10 +151,10 @@ def updater_defines(release: bool) -> str:
     """the version's defines (port/linux/src/updater.c, the self-updater, has
     them, and gives the version to the rest): the version (tools/version.py),
     whether this build is a release's (only those look for updates), and its
-    configuration"""
+    configuration; and the channel and commit (build_identity.c)"""
     flavor = "release" if release else "debug"
     return (f'-DHALO_VERSION=\\"{version()}\\" -DHALO_RELEASE_BUILD={int(release_build())} '
-            f'-DHALO_BUILD_FLAVOR=\\"{flavor}\\"')
+            f'-DHALO_BUILD_FLAVOR=\\"{flavor}\\" {identity_defines()}')
 
 PLATFORM_FLAGS = [
     "-std=gnu11",
@@ -451,7 +451,7 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
             add_object(source, f"{posix_cflags} -I{STB_DIR}", posix=True)
         elif source.name.startswith("posix_"):
             add_object(source, posix_cflags, posix=True)
-        elif source.name == "updater.c":
+        elif source.name in VERSION_SOURCES:
             add_object(source, f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
         else:
             add_object(source, platform_cflags)

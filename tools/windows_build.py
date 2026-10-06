@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .version import release_build, version
+from .version import VERSION_SOURCES, identity_defines, release_build, version
 from .linux_build import (CUSTOM_EDITION_DEFINES, LINUX_PROFILE, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
                           XDK_INCLUDE, game_browser_defines, lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
                           game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
@@ -82,10 +82,10 @@ def updater_defines(release: bool) -> str:
     """the version's defines (port/linux/src/updater.c, the self-updater, has
     them, and gives the version to the rest): the version (tools/version.py),
     whether this build is a release's (only those look for updates), and its
-    configuration"""
+    configuration; and the channel and commit (build_identity.c)"""
     flavor = "release" if release else "debug"
     return (f'-DHALO_VERSION=\\"{version()}\\" -DHALO_RELEASE_BUILD={int(release_build())} '
-            f'-DHALO_BUILD_FLAVOR=\\"{flavor}\\"')
+            f'-DHALO_BUILD_FLAVOR=\\"{flavor}\\" {identity_defines()}')
 
 WINDOWS_ABI_FLAGS = [
     "--target=i686-pc-windows-msvc",
@@ -538,7 +538,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         for source in sorted(linux_platform.glob("*.c")):
             if source.name in replaced:
                 continue
-            if source.name == "updater.c":
+            if source.name in VERSION_SOURCES:
                 add_object(source, f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
             elif source.name == "posix_browser.c":
                 # (the game list's requests: on Winsock, with Mbed TLS, as

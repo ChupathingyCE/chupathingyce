@@ -29,9 +29,10 @@ from typing import Any, Dict, List, Optional
 from .linux_build import (LINUX_PROFILE, MBEDTLS_DIR, MINIUPNPC_DEFINES, MINIUPNPC_DIR, MUSL_MATH_DIR, STB_DIR,
                           XDK_INCLUDE, compile_launcher, game_browser_defines, game_defines_and_includes, game_sources, miniupnpc_sources,
                           musl_math_sources, pgo_mode, pgo_profile,
-                          profile_use_flags, xdk_headers)
+                          profile_use_flags, updater_defines, xdk_headers)
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .ninja_syntax import Writer
+from .version import VERSION_SOURCES
 
 PORT_DIR = Path("port/android")
 LINUX_DIR = Path("port/linux")
@@ -473,6 +474,12 @@ def generate_android_build(n: Writer, sln: Any) -> None:
             objects.append(guest_object(source, f"{platform_cflags} {guest_posix[source.name]}"))
             continue
         if source.name.startswith("posix_") or source.name in guest_host_only:
+            continue
+        if source.name in VERSION_SOURCES:
+            # (the version and the build's identity, as the other ports'
+            # have them; the app's own version is build.gradle's, the same)
+            objects.append(guest_object(source, f"{platform_cflags} "
+                                                f"{updater_defines(getattr(sln, 'port_release', False))}"))
             continue
         objects.append(guest_object(source, platform_cflags))
     # the high-res HUD's textures (port/assets/hud; port/linux/src/hud_hires.c)

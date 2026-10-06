@@ -47,7 +47,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.version import base_version, release_build, version  # noqa: E402
+from tools.version import base_version, commit, release_build, version  # noqa: E402
 
 # what each port's build leaves, and what goes into dist/
 OUTPUTS = {
@@ -209,6 +209,9 @@ def alpine_build(platform: str, config: str) -> int:
         if name in ("CCACHE_DIR", "CCACHE_BASEDIR") and Path(value).resolve().is_relative_to(ROOT):
             value = (Path("/src") / Path(value).resolve().relative_to(ROOT)).as_posix()
         environment += ["-e", f"{name}={value}"]
+    # (the checkout's commit, which git in the container may not read: the
+    # checkout's owner is another user there)
+    environment += ["-e", f"HALO_COMMIT={commit()}"]
     script = f"apk add --no-cache -q {' '.join(ALPINE_PACKAGES)} && python3 tools/ci_build.py {platform} {config}"
     run(["docker", "run", "--rm", "--platform", DOCKER_PLATFORMS[platform], "-v", f"{ROOT}:/src", "-w", "/src",
          *environment, ALPINE_IMAGE, "sh", "-c", script])

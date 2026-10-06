@@ -28,10 +28,11 @@ the SDK headers are read, exactly as game code sees them. */
 #define HALO_LINUX_WINSOCK_NAMES_UNDEFINE
 #include "halo_linux_winsock_names.h"
 #undef HALO_LINUX_WINSOCK_NAMES_UNDEFINE
+#include "build_identity.h"
 
 /* ---------- logging */
 
-/* prints "halo-linux: <message>" to stderr */
+/* prints PLATFORM_LOG_PREFIX <message> to stderr (build_identity.h) */
 void platform_log(const char *format, ...) __attribute__((format(printf, 1, 2)));
 
 /* reports an SDK entry point the Linux port does not implement, once per
