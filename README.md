@@ -317,6 +317,20 @@ there.
 - [JoshRob297](https://github.com/JoshRob297): hosts that run their own games
   (the dedicated servers) no longer refuse every join after one arrived as a
   game ended.
+- [HiIAmMoot](https://github.com/HiIAmMoot) (Mootjuh): the Android menus by
+  touch, and `debug.solo_game` (a multiplayer game started alone).
+- [oatkrs](https://github.com/oatkrs) (Utkarsh): crisp windowed rendering and no
+  audio cut-outs on macOS, and a corrupted script thread dropped instead of
+  halting the game.
+
+### Findings and testing
+
+- [bnunu](https://github.com/bnunu) (Jonas Volman): Custom Edition map
+  findings from the custom-edition-maps branch, credited in the commits they
+  led to, and the larger texture cache for Halo PC maps, which that branch had
+  first.
+- Sabriel and ugoboom: the Halo PC map reports and regression lists behind
+  most of the Custom Edition fixes.
 
 Halo is a trademark of Microsoft. ChupathingyCE is a fan project, not made or
 endorsed by Microsoft, Bungie or 343 Industries, and includes none of the
