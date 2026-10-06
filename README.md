@@ -94,6 +94,12 @@ executable, and the saves in `~/.local/share/halo-linux` (or
 `$XDG_DATA_HOME/halo-linux`). The 64-bit and 32-bit builds use the same
 places, so switching from one to the other keeps your saves and settings.
 
+**Common mistake:** the `maps` folder must hold the Xbox maps from your disc
+image, not Halo PC's. Halo PC (Custom Edition) maps go in `maps/ce/` inside
+it, and HaloMD maps in `md_maps/` beside it (see below). On a Mac, Linux and
+Windows, if `maps` holds Halo PC maps or has no `ui.map`, the game says so
+and quits.
+
 ## Halo PC maps
 
 ChupathingyCE also plays Halo PC (Custom Edition) multiplayer maps, on a Mac,
@@ -113,6 +119,11 @@ map is badged, and it can be joined only by players who have that map: the game
 says which file is missing. The Xbox maps from your disc image are still needed.
 A map file named `<name>@ce.map`, as some other builds name them, is found too,
 in `maps/ce/` or in `maps/`.
+
+**Common mistake:** don't point `maps` itself at a Halo PC maps folder, or copy
+Halo PC maps straight into it. The game can't start with Halo PC's `ui.map`
+in place of the Xbox one, and Halo PC maps in `maps/` itself don't play. Keep
+the Xbox maps in `maps/` and the Halo PC maps in `maps/ce/`.
 
 ### HaloMD maps
 
