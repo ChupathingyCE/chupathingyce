@@ -2250,10 +2250,9 @@ static void tunnel_readable(void)
 
 /* ---------- invites */
 
-#ifdef HALO_64BIT
+/* an invite given before internet play started, joined once it has */
 static char pending_startup_invite[256];
 
-#endif
 /* the host's key hash and the token in an invite link or code within text:
 1 if it holds one, -1 if it holds an older version's (with the host's
 identifier alone, which a key made to have it could pass for), else 0 */
@@ -2323,14 +2322,10 @@ static int join_invite(const char *text)
 		return parsed;
 	p2p_identifier_from_hash(hash, host);
 	if (!memcmp(host, identifier, P2P_IDENTIFIER_SIZE))
-#ifdef HALO_64BIT
 	{
 		platform_log("Internet play: invite is from this machine (cannot join your own hosted game)");
-#endif
 		return 1;
-#ifdef HALO_64BIT
 	}
-#endif
 	peer = find_peer(host);
 	if (peer && peer->connected)
 	{
@@ -2462,14 +2457,9 @@ int p2p_join_invite(const char *text)
 		return 0;
 	}
 #endif
-#ifdef HALO_64BIT
 	if (!text || !*text)
 		return 0;
-
-#endif
 	p2p_identifier();
-#ifdef HALO_64BIT
-
 	if (!p2p.running)
 	{
 		if (!config_boolean("network.online"))
@@ -2486,15 +2476,9 @@ int p2p_join_invite(const char *text)
 		}
 		return 1;
 	}
-
-#endif
 	pthread_mutex_lock(&p2p_lock);
 	result = join_invite(text);
 	pthread_mutex_unlock(&p2p_lock);
-#ifndef HALO_64BIT
-	if (result > 0 && !p2p.running)
-		platform_log("Internet play is off (network.online in config.toml): the invite is ignored");
-#endif
 	return result > 0;
 }
 
@@ -3222,7 +3206,6 @@ void p2p_initialize(unsigned long local_address)
 	}
 	pthread_detach(thread);
 	p2p.running = 1;
-#ifdef HALO_64BIT
 	if (pending_startup_invite[0])
 	{
 		char shown[128];
@@ -3235,12 +3218,5 @@ void p2p_initialize(unsigned long local_address)
 		pending_startup_invite[0] = '\0';
 	}
 	else if (command_line_invite(invite, sizeof(invite)))
-	{
-#else
-	if (command_line_invite(invite, sizeof(invite)))
-#endif
 		p2p_join_invite(invite);
-#ifdef HALO_64BIT
-	}
-#endif
 }
