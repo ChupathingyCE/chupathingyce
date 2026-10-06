@@ -267,13 +267,6 @@ and every action is audited.
 
 ## Later
 
-- **The table as signed data.** The built-in table stays the floor; a table
-  signed with ChupathingyCE's key (Ed25519, the key kept in CI) and served
-  through Delta List may only add newer additive rows. Clients and servers
-  cache it and fall back to the built-in one offline; CI publishes it after
-  the cross-play test passes; a dedicated server's admin can override it
-  locally, with a warning in the log. Then a raise needs no release at all.
-
 - **Per-peer announcing.** A host compatible with several legacy numbers
   could give each joining machine its own number in the advertisement it
   sends it through the tunnel, so OpenCE players on different builds share
@@ -281,6 +274,84 @@ and every action is audited.
   more than the table allows.
 - **Proposing capabilities upstream.** OpenCE's exact match splits its own
   players on every raise. Running Delta first makes the proposal concrete.
+
+## The legacy table as config
+
+OpenCE raises its number often, mostly for changes older machines can live
+with. Following it should not take a release each time, so the table our
+builds check is config, not code: signed, served by Delta List, and passed
+peer to peer over Delta Peer.
+
+### What it says
+
+One document, JSON, signed with ChupathingyCE's Ed25519 key (kept in CI;
+the public key is built in and published, so anyone building on Delta can
+check it too):
+
+```json
+{
+  "delta_legacy": 1,
+  "serial": 42,
+  "issued": 1791331200,
+  "wires": {
+    "chupa-18a": { "announce": 19, "minimum": 17, "maximum": 19 }
+  },
+  "disabled_capabilities": []
+}
+```
+
+- **Rows by wire, not by build.** Each build has a wire ID: the revision of
+  the game protocol it actually speaks. A row says which OpenCE numbers that
+  wire was proven to play with. An old build only follows numbers verified
+  against its own wire, so a raise that needs new code (OpenCE's 19 and 20
+  were) never reaches a build that lacks it.
+- **Rows are added only by CI.** When OpenCE raises, CI runs the cross-play
+  test of each wire still in use against the new OpenCE build; a pass adds
+  that number to the wire's row and publishes a new serial. A fail means a
+  release (merge the code, new wire ID), as today.
+- **`disabled_capabilities`**: the kill switch for a Delta capability found
+  unsafe, until a fixed build ships.
+
+### How it travels
+
+- **Built in:** each build carries the table as it was at release. That is
+  the floor: play never depends on reaching anything.
+- **Delta List:** clients and servers fetch it at start and every few hours
+  (`/v1/delta/legacy`), and cache it.
+- **Delta Peer:** in the handshake each side says its table's serial; the side
+  with the newer one sends it. A machine that never reaches the site still
+  gets it from the first host or client that has it. It is signed, so
+  relaying it needs no trust in the relay.
+
+### Checks
+
+- The signature is checked before anything is read past the size; the
+  document is capped (16 KB) and parsed as hostile input.
+- **Serials only go forward.** An older or equal serial is ignored, so an old
+  copy can't be replayed to roll a machine back.
+- A row may only **widen** the built-in one for the same wire (a newer
+  announce, a wider range). Nothing the network sends can make a build
+  stricter than it shipped, or claim a number its wire never passed.
+- A table that doesn't verify is dropped quietly (logged); nothing is shown
+  to the player.
+
+### Local override
+
+`network.legacy_table` in config.toml (and `HALO_LEGACY_TABLE` for servers)
+names an unsigned file to use instead, for testing and for an admin who
+knows better. It logs a warning at start, is never relayed to peers, and the
+game's About shows it is in use.
+
+### In the code
+
+The constants become calls (`delta_legacy_announce()`,
+`delta_legacy_minimum()`, `delta_legacy_maximum()`) at the places the number
+is used today: the listing (`p2p_lobby.c`), the advertisement
+(`network_server_message_handler.c`), the join check
+(`network_client_manager.c`), the browser (`browser.c`) and what the server
+and reports print. `HALO_PORT_NETWORK_VERSION` stays as the built-in
+announce and the wire's own number, so OpenCE's tools that read it keep
+working.
 
 ## An open network
 
@@ -347,5 +418,6 @@ asking players for anything:
    protocol labels; a dedicated server's listing marks it (flag 128).
 6. Moderators for dedicated servers through Delta Link profiles; Delta
    Stats events.
-7. The signed table and kill switches; the per-peer host experiment; the
-   proposal to OpenCE.
+7. The legacy table as config: wire IDs, the signed document, Delta List
+   and Delta Peer delivery, CI publishing after cross-play.
+8. The per-peer host experiment, and the proposal to OpenCE.
