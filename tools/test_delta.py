@@ -277,7 +277,8 @@ def checker(keys, tmp_path_factory):
             flags.append(word)
     key = ",".join(f"0x{byte:02x}" for byte in keys[1])
     program = tmp_path_factory.mktemp("delta_check") / "delta_check"
-    link = ["-Wl,-undefined,dynamic_lookup", "-Wl,-dead_strip"] if sys.platform == "darwin" else ["-no-pie"]
+    link = ["-Wl,-undefined,dynamic_lookup", "-Wl,-dead_strip"] if sys.platform == "darwin" else \
+        ["-no-pie", "-Wl,--unresolved-symbols=ignore-all"]
     built = subprocess.run(["clang", *flags, "-DHALO_GAME_BROWSER", f"-DHALO_DELTA_TEST_KEY={key}", "-O1", *link, "-o", str(program),
                             *sources, "tools/delta_check.c", "port/third_party/monocypher/monocypher.c",
                             "port/third_party/monocypher/monocypher-ed25519.c", "-lpthread"],
