@@ -81,6 +81,9 @@ static void shader_header(struct xgpu_text *text)
 		"precision highp int;\n"
 		"precision highp sampler2D;\n",
 		xgpu_capabilities.shading_language);
+#elif defined(__APPLE__)
+	/* (macOS stops at OpenGL 4.1, as nv2a_psh.c says) */
+	xgpu_text_append(text, "#version 410 core\n");
 #else
 	xgpu_text_append(text, "#version 450 core\n");
 #endif
