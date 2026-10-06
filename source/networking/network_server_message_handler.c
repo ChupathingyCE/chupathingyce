@@ -1670,6 +1670,12 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 			advertisement.reserved[HALO_PORT_ADVERTISED_VERSION_OFFSET + 1] = (byte)(HALO_PORT_NETWORK_VERSION >> 8);
 			advertisement.reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] =
 				HALO_PORT_ADVERTISED_DISTRIBUTED_FLAG;
+#ifdef HALO_GAME_BROWSER
+			/* (and Delta Peer's flag, while this host speaks it: OpenCE's
+			machines ignore the bit; port/linux/src/delta_peer.h) */
+			{ unsigned char delta_peer_advertised_flags(void);
+			  advertisement.reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] |= delta_peer_advertised_flags(); }
+#endif
 			if (network_game_server_get_state(server, NULL) != _network_game_server_state_pregame ||
 				network_game_server_game_is_loading(server))
 			{

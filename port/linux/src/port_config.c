@@ -282,6 +282,24 @@ static const struct config_setting config_settings[] =
 		"networks whose NAT stops connections: when a player joins this\n"
 		"machine's game, and when joining a game takes too long. False never\n"
 		"asks." },
+	{ "network.protocol", _config_string, "\"auto\"", "HALO_NET_PROTOCOL", _environment_value, _platform_all,
+		"The protocol between ChupathingyCE machines beside OpenCE's game\n"
+		"protocol (Delta Peer, docs/delta.md): \"auto\" speaks Delta with the\n"
+		"machines that do and plain OpenCE with the rest (each connection\n"
+		"falls back on its own, and nobody waits for it); \"opence\" turns\n"
+		"Delta off (OpenCE's protocol alone, as an OpenCE build). \"delta\"\n"
+		"plays as auto for now: Delta-only games come later." },
+	{ "network.platform_limits", _config_string, "\"on\"", "HALO_NET_PLATFORM_LIMITS", _environment_value,
+		_platform_all,
+		"Delta's platform limits for this machine: \"on\" has hosts keep a\n"
+		"game to the players this platform takes (an original Xbox: 16);\n"
+		"\"off\" joins games of any size the host runs (you can roast your\n"
+		"Xbox with 128 players if you want). Only with Delta hosts." },
+	{ "network.host_platform_limits", _config_boolean, "true", "HALO_NET_HOST_PLATFORM_LIMITS", _environment_value,
+		_platform_all,
+		"Whether a game this machine hosts keeps to the players its Delta\n"
+		"machines' platforms take (their platform limits); false ignores\n"
+		"them, for testing." },
 	{ "network.public_lobby", _config_boolean, "true", "HALO_NET_PUBLIC_LOBBY", _environment_value, _platform_all,
 		"The server browser: public games are listed through the signalling\n"
 		"brokers, and Join Game > Server Browser shows them. False lists no\n"
