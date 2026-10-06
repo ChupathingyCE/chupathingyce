@@ -8,8 +8,8 @@ calls them from PC_MENU_FUNCTION_BASE on):
 - "port quit game" (and the PC version's "main menu quit game") quits, as
   closing the window does;
 - the PC version's "profile set edit begin" begins editing the first player
-  profile, as its settings screens need, and fails with none (its handlers
-  then open the screens that make one);
+  profile, as its settings screens need, making one (New001) if there is
+  none;
 - "gamespy screen init" hides the server browser's error and filter panels,
   and the title of the mode "mp type set mode" did not choose (Internet or
   LAN);
@@ -76,6 +76,7 @@ their handlers open opens.
 #include "main/main.h"
 #include "networking/network_game_manager.h"
 #include "saved games/player_profile.h"
+#include "saved games/saved_game_files.h"
 #include "tag_files/tag_groups.h"
 #include "text/text_group.h"
 #include "text/unicode.h"
@@ -523,14 +524,31 @@ static void server_browser_initialize(struct widget_instance *screen)
 	}
 }
 
-/* begins editing player 1's profile (as the campaign has it); FALSE if
-there is none */
+/* begins editing player 1's profile (as the campaign has it). With none (a
+new install), it makes one with the first unused untitled name ("New001"),
+as a new campaign's does when its name is left as offered; Settings' Name
+renames it. (The PC menus' Settings then opened nothing: its screens that
+make a profile take the name a new campaign asks for, which Settings never
+asks for.) FALSE if none can be made */
 boolean pc_menu_profile_edit_begin(void)
 {
 	struct player_profile profile;
 
 	if (!campaign_profile(0, &profile))
-		return FALSE;
+	{
+		wchar_t name[128];
+		long profile_index;
+
+		saved_game_file_get_useable_untitled_profile_name(name);
+		name[11] = L'\0';
+		profile_index = player_profile_new(0, name);
+		if (profile_index == NONE || !campaign_profile(0, &profile))
+		{
+			platform_log("menus: no player profile, and one could not be made");
+			return FALSE;
+		}
+		platform_log("menus: made a player profile for Settings");
+	}
 	player_ui_begin_editing_profile(player_ui_get_active_player_profile_index(0));
 	return TRUE;
 }
