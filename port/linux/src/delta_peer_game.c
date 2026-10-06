@@ -25,6 +25,7 @@ HALO_GAME_BROWSER; network.protocol = "opence" turns all of it off.
 #endif
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* updater.c's (server_platform.c's in the dedicated server) */
@@ -71,7 +72,11 @@ static int same_word(const char *a, const char *b)
 static int local_platform(void)
 {
 #if defined(_WIN32)
-	return _delta_platform_pc_windows;
+	/* (the Windows build under Proton on the Deck: Steam sets SteamDeck=1
+	there too) */
+	const char *deck = getenv("SteamDeck");
+
+	return deck && deck[0] == '1' ? _delta_platform_steam_deck : _delta_platform_pc_windows;
 #elif defined(__APPLE__)
 	return _delta_platform_pc_macos;
 #elif defined(HALO_ANDROID)
