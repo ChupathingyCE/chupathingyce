@@ -1,15 +1,16 @@
 # Delta: ChupathingyCE's network family
 
-Status (October 5, 2026): in progress. Delta List, Stats, Link and Control
+Status (October 6, 2026): in progress. Delta List, Stats, Link and Control
 run today under the names in the table below; the legacy number's table and
 its automation are built (see "The legacy number"); Delta Peer is designed
 and not built yet. The site's page for players: https://halo.milenko.org/delta
 
 Delta is the name for everything ChupathingyCE's machines say to each other
 and to our services beyond the game protocol OpenCE defines. It has one rule
-above all: **the game protocol stays OpenCE's, byte for byte.** Delta sits
-beside it, never inside it, and every part of Delta falls back silently to
-plain OpenCE behavior when the other side doesn't speak it.
+above all: **the player base stays whole.** OpenCE's game protocol is the
+common ground; Delta starts beside it, and when a capability does change the
+game protocol (see "An open network"), every part of Delta still falls back
+silently to plain OpenCE behavior when the other side doesn't speak it.
 
 ## The family
 
@@ -281,15 +282,70 @@ and every action is audited.
 - **Proposing capabilities upstream.** OpenCE's exact match splits its own
   players on every raise. Running Delta first makes the proposal concrete.
 
+## An open network
+
+Delta is public: this document is its specification, and anyone may build a
+client, server or tool that speaks it. Nothing in it depends on being
+ChupathingyCE, and nothing is kept secret but signing keys.
+
+Delta may grow past OpenCE's game protocol: a capability can change the game
+protocol itself (co-op, CE map identity, sync), not only add messages beside
+it. One rule keeps the player base whole: **every Delta game falls back to
+OpenCE's protocol**, per connection, for a machine that doesn't share the
+capability. A room-wide capability (one every machine must agree on) is on
+only while every machine in the game has it.
+
+### The protocol choice
+
+A host chooses, in Server Setup (and a dedicated server in its settings):
+
+| Choice | Who joins | Shown with it |
+| --- | --- | --- |
+| **Auto** (the default) | everyone: OpenCE machines on OpenCE's protocol, Delta machines with what they share | room-wide extras are on only while everyone has Delta |
+| **Delta only** | Delta machines | OpenCE players can't see or join the game |
+| **OpenCE only** | everyone, plainly | no Delta extras |
+
+Browsers show every game with its protocol; a join takes the best protocol
+both sides share. Nobody is told "incompatible" when a fallback exists.
+
+## Security
+
+Delta is open, so it is built for hostile peers, not friendly ones, without
+asking players for anything:
+
+- **Untrusted by default.** Every message is parsed as hostile input: sizes
+  bounded before reading, counts capped, strings checked, and every parser
+  fuzzed in CI. The host stays authoritative; a peer's claim (platform,
+  profile, build) is shown as a claim.
+- **Encrypted where the game is.** On the internet Delta Peer runs inside the
+  invite tunnel (encrypted, bound to the invite's host); listings are signed
+  by the host's key, as OpenCE's are.
+- **Bounded cost.** Rate limits and work budgets per peer (signature checks,
+  handshakes, relayed messages), so a peer can slow only itself.
+- **Signed policy, offline floor.** The legacy table and a per-capability
+  kill switch come signed from Delta List; the built-in table is the floor,
+  and being offline never stops play.
+- **No surprises for players.** No accounts needed to play, no prompts in the
+  way; a profile is opt-in. Addresses are never shown (see the privacy
+  rules); moderation (kick, ban, profile-linked moderators) is the host's.
+- **Reviewed upstream changes.** An OpenCE raise is merged as code, checked by
+  the cross-play test and reviewed before its number is announced; the
+  number alone is never matched blind.
+
 ## Phases
 
 1. This document, the compatibility table and the capability registry.
    Done: `delta.h` and `test_delta.py`.
 2. The announced number and join range checked against the table. Done;
    generating them from it comes with the signed table.
-3. The watch workflow's classifier and automatic raise (done), and CI's
-   cross-play test against OpenCE builds (next).
-4. Delta Peer: the port, the flag, the handshake, and its first
-   capabilities (`platform`, `profile`).
-5. Delta Link for servers, and Delta Stats events (in progress separately).
-6. The per-peer host experiment, and the proposal to OpenCE.
+3. The watch workflow's classifier (done); following becomes a reviewed
+   merge of OpenCE's code gated by CI's cross-play test (next), starting
+   with OpenCE's network versions 19 and 20.
+4. Delta Peer: the port, the flag, the handshake with fallback, fuzzing, and
+   its first capabilities (`platform`, `profile`, then `server_messages`).
+5. The protocol choice (Auto, Delta only, OpenCE only) and the browsers'
+   protocol labels; a dedicated server's listing marks it (flag 128).
+6. Moderators for dedicated servers through Delta Link profiles; Delta
+   Stats events.
+7. The signed table and kill switches; the per-peer host experiment; the
+   proposal to OpenCE.
