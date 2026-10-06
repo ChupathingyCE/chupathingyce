@@ -76,6 +76,7 @@ command repository's watch adds a row when it follows OpenCE's raise
 	X(14, "build-123", additive) /* co-op devices' positions, units opening and closing */ \
 	X(15, "build-124", additive) /* co-op allegiances, loading zones, falling players */ \
 	X(16, "build-125", additive) /* co-op: every machine stays on the host's BSP */ \
-	X(17, "build-128", additive) /* followed from OpenCE: additive */
+	X(17, "build-128", additive) /* followed from OpenCE: additive */ \
+	X(18, "build-129", additive) /* followed from OpenCE: additive */
 
 #endif
