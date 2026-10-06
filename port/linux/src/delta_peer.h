@@ -12,6 +12,8 @@ machines of one game, beside OpenCE's game protocol, which stays as it is.
 - Each pair uses the capabilities both have; the host sends every Delta
   client a ROSTER of every machine's claims (its platform key, its profile)
   and of what the whole room shares.
+- Either side with a newer signed legacy table than the other's sends it
+  (TABLE, in pieces; TABLE_HAVE says what each has): delta.c checks it.
 
 Its sockets are the game's own Winsock layer's (xnet.c), so network.address
 and the invite tunnel (p2p.c) carry them as they do the game's: no new path.
@@ -58,7 +60,25 @@ enum
 	DELTA_PEER_CLIENT_RATE = 50,
 	DELTA_PEER_CLIENT_BURST = 100,
 	/* the datagrams read in one frame */
-	DELTA_PEER_FRAME_DATAGRAMS = 64
+	DELTA_PEER_FRAME_DATAGRAMS = 64,
+
+	/* the legacy table's relay (milliseconds): a session's first pass waits
+	this long after the handshake; a piece is sent to a machine at most this
+	often (5 a second: under the host's DELTA_PEER_HOST_RATE from a machine,
+	with room for the session's own messages); passes to one machine, at
+	most this many a session, this far apart; a received table is checked
+	(its signature) at most once a minute a machine; a piece-by-piece table
+	from one machine is given up after this long without a piece; a host
+	sends to at most this many machines at once */
+	DELTA_PEER_TABLE_DELAY = 2000,
+	DELTA_PEER_TABLE_GAP = 200,
+	DELTA_PEER_TABLE_PASSES = 3,
+	DELTA_PEER_TABLE_PASS_GAP = 60000,
+	DELTA_PEER_TABLE_CHECK_GAP = 60000,
+	DELTA_PEER_TABLE_STALE = 5000,
+	DELTA_PEER_TABLE_SENDS = 4,
+	/* (and says TABLE_HAVE to a machine at most once a second) */
+	DELTA_PEER_TABLE_HAVE_GAP = 1000
 };
 
 /* the room's limits (delta_peer_room_limit) */
@@ -92,9 +112,14 @@ struct delta_peer_env
 	void (*log_line)(void *context, const char *text);
 	/* a random number (sessions) */
 	delta_u32 (*random_number)(void *context);
-	/* (may be NULL) the legacy table's hook: a peer has an older table than
-	this machine's (delta_peer_legacy_table_offer) */
-	void (*legacy_table_offer)(void *context, int machine_index, delta_u32 their_serial);
+	/* (may be NULL: no relay) the legacy table's relay (delta.c's
+	delta_legacy_serial, _signed and _offer): this machine's serial now (0
+	the built-in table; DELTA_WIRE_TABLE_NONE: it takes no tables and
+	sends none); its signed table into buffer (its size, 0 for none); a
+	signed table from another machine, checked and taken if newer (1) */
+	delta_u32 (*legacy_table_serial)(void *context);
+	int (*legacy_table_signed)(void *context, unsigned char *buffer, int size);
+	int (*legacy_table_offer)(void *context, const unsigned char *table, int size);
 	/* (may be NULL: delta.h's defaults) the platform policy's row for a
 	platform, which the signed legacy table may tune
 	(delta_peer_platform_policy): key holds the defaults on the way in */
@@ -106,6 +131,7 @@ struct delta_peer_local
 {
 	delta_u32 capabilities;
 	unsigned short legacy_version;
+	/* (with no legacy_table_serial in the env: this, which never changes) */
 	delta_u32 legacy_table_serial;
 	struct delta_platform_key key;
 	char build[DELTA_WIRE_BUILD_SIZE + 1];
@@ -138,6 +164,34 @@ struct delta_peer_machine
 	delta_u32 seen_time;
 };
 
+/* the legacy table's relay with one machine (the host's with each client,
+a client's with its host) */
+struct delta_peer_relay
+{
+	/* its serial, from the handshake and TABLE_HAVE */
+	delta_u32 their_serial;
+	/* the session's start (passes wait DELTA_PEER_TABLE_DELAY) */
+	delta_u32 start_time;
+	/* sending to it: the serial, the next piece's offset, when the last
+	piece went */
+	int sending;
+	delta_u32 sending_serial;
+	delta_u32 offset;
+	delta_u32 piece_time;
+	/* passes begun, and when the last began */
+	int passes;
+	delta_u32 pass_time;
+	/* a table from it checked, and when */
+	int checked;
+	delta_u32 check_time;
+	/* TABLE_HAVE said to it, and when */
+	int said;
+	delta_u32 said_time;
+	/* the serial last said to it in TABLE_HAVE (this machine's changed:
+	said again) */
+	delta_u32 said_serial;
+};
+
 /* the host's view of a client machine's session */
 struct delta_peer_host_peer
 {
@@ -150,6 +204,22 @@ struct delta_peer_host_peer
 	struct delta_wire_hello hello;
 	int has_profile;
 	struct delta_wire_profile profile;
+	struct delta_peer_relay relay;
+};
+
+/* a signed legacy table coming in, piece by piece: one at a time, from one
+machine */
+struct delta_peer_table_in
+{
+	int active;
+	/* its machine (the host's client), or -1 (a client's host) */
+	int from;
+	delta_u32 serial;
+	delta_u32 total;
+	/* the pieces in (bit n: the piece at n * DELTA_WIRE_TABLE_CHUNK) */
+	delta_u32 pieces;
+	delta_u32 time;
+	unsigned char data[DELTA_LEGACY_SIGNED_SIZE];
 };
 
 struct delta_peer
@@ -179,6 +249,14 @@ struct delta_peer
 	struct delta_wire_welcome welcome;
 	delta_u32 agreed;
 	struct delta_rate host_rate;
+	struct delta_peer_relay host_relay;
+
+	/* both: the legacy table relayed; this machine's signed table as it
+	goes out (its serial: 0 not read yet), and one coming in */
+	delta_u32 table_out_serial;
+	int table_out_size;
+	unsigned char table_out[DELTA_LEGACY_SIGNED_SIZE];
+	struct delta_peer_table_in table_in;
 
 	/* both: what is known of each machine, the room, and each player's
 	machine (-1: none) */
@@ -275,10 +353,5 @@ int delta_peer_game_room_limit(int limit);
 /* the client's handshake (enum delta_peer_client_state) */
 int delta_peer_game_client_state(void);
 
-/* The legacy table's hook (branch delta-legacy-table): this machine's
-table's serial (0: the built-in one), and the spot where a peer's older
-serial would have it send its table. Not yet: it only logs. */
-delta_u32 delta_peer_legacy_table_serial(void);
-void delta_peer_legacy_table_offer(int machine_index, delta_u32 their_serial);
 
 #endif

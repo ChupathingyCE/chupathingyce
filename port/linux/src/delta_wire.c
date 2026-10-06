@@ -352,6 +352,81 @@ int delta_wire_write_profile(unsigned char *data, delta_u32 session, const struc
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_PROFILE_SIZE;
 }
 
+/* ---------- TABLE
+	0  serial (4)
+	4  the signed table's whole size (4, at most DELTA_LEGACY_SIGNED_SIZE)
+	8  offset (4, a multiple of 1024)
+	12 length (2: 1024, or the rest of the table)
+	14 reserved (2)
+	16 the piece's bytes */
+
+/* the length of the piece at offset of a table of total bytes (0: none) */
+static int table_piece(delta_u32 total, delta_u32 offset)
+{
+	if (total == 0 || total > DELTA_LEGACY_SIGNED_SIZE || offset >= total || offset % DELTA_WIRE_TABLE_CHUNK)
+		return 0;
+	return total - offset < DELTA_WIRE_TABLE_CHUNK ? (int)(total - offset) : DELTA_WIRE_TABLE_CHUNK;
+}
+
+int delta_wire_read_table(const unsigned char *payload, int size, struct delta_wire_table *table)
+{
+	clear(table, (int)sizeof(*table));
+	if (!payload || size < DELTA_WIRE_TABLE_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	table->serial = read_u32(payload);
+	table->total = read_u32(payload + 4);
+	table->offset = read_u32(payload + 8);
+	table->length = read_u16(payload + 12);
+	if (!table->serial || table->serial == DELTA_WIRE_TABLE_NONE || !table->length ||
+		table->length != table_piece(table->total, table->offset) || size < DELTA_WIRE_TABLE_SIZE + table->length)
+	{
+		clear(table, (int)sizeof(*table));
+		return 0;
+	}
+	table->data = payload + DELTA_WIRE_TABLE_SIZE;
+	return 1;
+}
+
+int delta_wire_write_table(unsigned char *data, delta_u32 session, const struct delta_wire_table *table)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+	int index;
+
+	if (!table->data || !table->serial || table->serial == DELTA_WIRE_TABLE_NONE || table->length <= 0 ||
+		table->length != table_piece(table->total, table->offset))
+	{
+		return 0;
+	}
+	write_u32(payload, table->serial);
+	write_u32(payload + 4, table->total);
+	write_u32(payload + 8, table->offset);
+	write_u16(payload + 12, (unsigned int)table->length);
+	write_u16(payload + 14, 0);
+	for (index = 0; index < table->length; index++)
+		payload[DELTA_WIRE_TABLE_SIZE + index] = table->data[index];
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_table, DELTA_WIRE_TABLE_SIZE + table->length, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TABLE_SIZE + table->length;
+}
+
+/* ---------- TABLE_HAVE
+	0  serial (4: 0 the built-in table, DELTA_WIRE_TABLE_NONE takes none) */
+
+int delta_wire_read_table_have(const unsigned char *payload, int size, delta_u32 *serial)
+{
+	*serial = 0;
+	if (!payload || size < DELTA_WIRE_TABLE_HAVE_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	*serial = read_u32(payload);
+	return 1;
+}
+
+int delta_wire_write_table_have(unsigned char *data, delta_u32 session, delta_u32 serial)
+{
+	write_u32(data + DELTA_WIRE_HEADER_SIZE, serial);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_table_have, DELTA_WIRE_TABLE_HAVE_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TABLE_HAVE_SIZE;
+}
+
 /* ---------- rate limits */
 
 int delta_rate_take(struct delta_rate *rate, delta_u32 now, int rate_per_second, int burst)

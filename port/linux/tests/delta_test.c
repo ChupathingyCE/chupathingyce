@@ -59,9 +59,16 @@ struct node
 	unsigned short port;
 	/* the network loses everything this node sends */
 	int mute;
-	int offers;
-	int offered_machine;
-	delta_u32 offered_serial;
+	/* its legacy table (the relay's): serial (DELTA_WIRE_TABLE_NONE takes
+	none), the signed table's bytes, the checks made and tables taken, the
+	TABLE datagrams it was sent, and a check that fails whatever comes */
+	delta_u32 table_serial;
+	int table_size;
+	unsigned char table[DELTA_LEGACY_SIGNED_SIZE];
+	int checks;
+	int taken;
+	int pieces_in;
+	int reject;
 	char last_log[256];
 };
 
@@ -110,13 +117,65 @@ static delta_u32 node_random(void *context)
 	return next_random();
 }
 
-static void node_offer(void *context, int machine_index, delta_u32 serial)
+/* a stand-in signed table: its serial in its first 4 bytes, then a pattern
+of it (the stand-in for its signature: delta.c checks the real one) */
+static void make_table(struct node *node, delta_u32 serial, int size)
+{
+	int index;
+
+	node->table_serial = serial;
+	node->table_size = serial && serial != DELTA_WIRE_TABLE_NONE ? size : 0;
+	for (index = 0; index < node->table_size; index++)
+		node->table[index] = (unsigned char)(index < 4 ? serial >> (8 * index) : serial * 31u + (delta_u32)index * 7u);
+}
+
+static int table_valid(const unsigned char *table, int size)
+{
+	delta_u32 serial;
+	int index;
+
+	if (size < 4 || size > DELTA_LEGACY_SIGNED_SIZE)
+		return 0;
+	serial = (delta_u32)table[0] | (delta_u32)table[1] << 8 | (delta_u32)table[2] << 16 | (delta_u32)table[3] << 24;
+	for (index = 4; index < size; index++)
+	{
+		if (table[index] != (unsigned char)(serial * 31u + (delta_u32)index * 7u))
+			return 0;
+	}
+	return 1;
+}
+
+static delta_u32 node_table_serial(void *context)
+{
+	return ((struct node *)context)->table_serial;
+}
+
+static int node_table_signed(void *context, unsigned char *buffer, int size)
 {
 	struct node *node = (struct node *)context;
 
-	node->offers++;
-	node->offered_machine = machine_index;
-	node->offered_serial = serial;
+	if (!node->table_size || node->table_size > size)
+		return 0;
+	memcpy(buffer, node->table, (size_t)node->table_size);
+	return node->table_size;
+}
+
+static int node_table_offer(void *context, const unsigned char *table, int size)
+{
+	struct node *node = (struct node *)context;
+	delta_u32 serial;
+
+	node->checks++;
+	if (node->reject || node->table_serial == DELTA_WIRE_TABLE_NONE || !table_valid(table, size))
+		return 0;
+	serial = (delta_u32)table[0] | (delta_u32)table[1] << 8 | (delta_u32)table[2] << 16 | (delta_u32)table[3] << 24;
+	if (serial <= node->table_serial)
+		return 0;
+	node->table_serial = serial;
+	node->table_size = size;
+	memcpy(node->table, table, (size_t)size);
+	node->taken++;
+	return 1;
 }
 
 static void pc_key(struct delta_platform_key *key, int platform)
@@ -145,7 +204,9 @@ static void node_start(int index, delta_u32 ipv4, unsigned short port, delta_u32
 	env.send_datagram = node_send;
 	env.log_line = node_log;
 	env.random_number = node_random;
-	env.legacy_table_offer = node_offer;
+	env.legacy_table_serial = node_table_serial;
+	env.legacy_table_signed = node_table_signed;
+	env.legacy_table_offer = node_table_offer;
 	memset(&local, 0, sizeof(local));
 	local.capabilities = capabilities;
 	local.legacy_version = 18;
@@ -158,6 +219,7 @@ static void node_start(int index, delta_u32 ipv4, unsigned short port, delta_u32
 		local.profile.revision = (delta_u32)profile_byte;
 		memset(local.profile.player_id, profile_byte, sizeof(local.profile.player_id));
 	}
+	make_table(node, serial, 3000);
 	delta_peer_initialize(&node->peer, &env, &local);
 }
 
@@ -182,6 +244,8 @@ static void deliver(delta_u32 now)
 			{
 				if (nodes[node].ipv4 == batch[index].to_ipv4 && nodes[node].port == batch[index].to_port)
 				{
+					if (batch[index].size > 3 && batch[index].data[3] == _delta_message_table)
+						nodes[node].pieces_in++;
 					delta_peer_receive(&nodes[node].peer, now, batch[index].from_ipv4, batch[index].from_port,
 						batch[index].data, batch[index].size);
 				}
@@ -246,6 +310,105 @@ static void frame(delta_u32 now, int client_count, const int *joined, int delta)
 }
 
 /* ---------- the wire */
+
+static void test_wire_table(void)
+{
+	static unsigned char bytes[DELTA_LEGACY_SIGNED_SIZE];
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	struct delta_wire_header header;
+	struct delta_wire_table table, back;
+	delta_u32 serial;
+	int size;
+	int index;
+
+	for (index = 0; index < DELTA_LEGACY_SIGNED_SIZE; index++)
+		bytes[index] = (unsigned char)(index * 13);
+	CHECK(DELTA_WIRE_TABLE_CHUNKS == 17);
+	CHECK(DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TABLE_SIZE + DELTA_WIRE_TABLE_CHUNK <= DELTA_WIRE_MAXIMUM_DATAGRAM);
+
+	/* every piece of the largest table, and back */
+	memset(&table, 0, sizeof(table));
+	table.serial = 42;
+	table.total = DELTA_LEGACY_SIGNED_SIZE;
+	for (index = 0; index < DELTA_WIRE_TABLE_CHUNKS; index++)
+	{
+		table.offset = (delta_u32)(index * DELTA_WIRE_TABLE_CHUNK);
+		table.length = index == DELTA_WIRE_TABLE_CHUNKS - 1 ? DELTA_LEGACY_SIGNED_SIZE % DELTA_WIRE_TABLE_CHUNK :
+			DELTA_WIRE_TABLE_CHUNK;
+		table.data = bytes + table.offset;
+		size = delta_wire_write_table(data, 7, &table);
+		CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TABLE_SIZE + table.length);
+		CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_table && header.session == 7);
+		CHECK(delta_wire_read_table(data + 12, header.length, &back));
+		CHECK(back.serial == 42 && back.total == table.total && back.offset == table.offset &&
+			back.length == table.length && !memcmp(back.data, bytes + table.offset, (size_t)back.length));
+		/* (cut short: refused) */
+		CHECK(!delta_wire_read_table(data + 12, header.length - 1, &back) && back.data == NULL);
+	}
+
+	/* what is not a piece of a table is neither written nor read */
+	table.offset = 0;
+	table.length = DELTA_WIRE_TABLE_CHUNK;
+	table.data = bytes;
+	size = delta_wire_write_table(data, 7, &table);
+	CHECK(size > 0);
+	/* (an offset off the grid, past the end; a length not the piece's; a
+	total over the cap, or 0; serial 0, or the none mark) */
+	data[12 + 8] = 1;
+	CHECK(!delta_wire_read_table(data + 12, size - 12, &back));
+	data[12 + 8] = 0;
+	data[12 + 9] = 0x44;
+	CHECK(!delta_wire_read_table(data + 12, size - 12, &back));
+	data[12 + 9] = 0;
+	data[12 + 12] = 1;
+	CHECK(!delta_wire_read_table(data + 12, size - 12, &back));
+	data[12 + 12] = 0;
+	data[12 + 4] = (unsigned char)((DELTA_LEGACY_SIGNED_SIZE + 1) & 0xFF);
+	data[12 + 5] = (unsigned char)((DELTA_LEGACY_SIGNED_SIZE + 1) >> 8);
+	CHECK(!delta_wire_read_table(data + 12, size - 12, &back));
+	data[12 + 4] = data[12 + 5] = 0;
+	CHECK(!delta_wire_read_table(data + 12, size - 12, &back));
+	/* (a total of 0 with a length of 0: the fuzzer's find) */
+	data[12 + 12] = data[12 + 13] = 0;
+	CHECK(!delta_wire_read_table(data + 12, size - 12, &back));
+	data[12 + 13] = DELTA_WIRE_TABLE_CHUNK >> 8;
+	data[12 + 4] = (unsigned char)(DELTA_LEGACY_SIGNED_SIZE & 0xFF);
+	data[12 + 5] = (unsigned char)(DELTA_LEGACY_SIGNED_SIZE >> 8);
+	CHECK(delta_wire_read_table(data + 12, size - 12, &back));
+	memset(data + 12, 0, 4);
+	CHECK(!delta_wire_read_table(data + 12, size - 12, &back));
+	memset(data + 12, 0xFF, 4);
+	CHECK(!delta_wire_read_table(data + 12, size - 12, &back));
+	CHECK(!delta_wire_read_table(data + 12, DELTA_WIRE_TABLE_SIZE - 1, &back));
+	CHECK(!delta_wire_read_table(NULL, 100, &back));
+	table.offset = 5;
+	CHECK(delta_wire_write_table(data, 7, &table) == 0);
+	table.offset = 0;
+	table.length = 1;
+	CHECK(delta_wire_write_table(data, 7, &table) == 0);
+	table.length = DELTA_WIRE_TABLE_CHUNK;
+	table.total = DELTA_LEGACY_SIGNED_SIZE + 1;
+	CHECK(delta_wire_write_table(data, 7, &table) == 0);
+	table.total = 10;
+	table.length = 10;
+	table.serial = DELTA_WIRE_TABLE_NONE;
+	CHECK(delta_wire_write_table(data, 7, &table) == 0);
+	/* (a small table: one piece of its size) */
+	table.serial = 3;
+	size = delta_wire_write_table(data, 7, &table);
+	CHECK(size == 12 + DELTA_WIRE_TABLE_SIZE + 10 && delta_wire_read_table(data + 12, size - 12, &back) && back.length == 10);
+	/* (trailing bytes of a later version: skipped) */
+	CHECK(delta_wire_read_table(data + 12, size - 12 + 40, &back) && back.length == 10);
+
+	/* TABLE_HAVE */
+	size = delta_wire_write_table_have(data, 9, DELTA_WIRE_TABLE_NONE);
+	CHECK(size == 12 + DELTA_WIRE_TABLE_HAVE_SIZE);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_table_have);
+	CHECK(delta_wire_read_table_have(data + 12, header.length, &serial) && serial == DELTA_WIRE_TABLE_NONE);
+	size = delta_wire_write_table_have(data, 9, 77);
+	CHECK(delta_wire_read_table_have(data + 12, size - 12, &serial) && serial == 77);
+	CHECK(!delta_wire_read_table_have(data + 12, 3, &serial) && serial == 0);
+}
 
 static void test_wire(void)
 {
@@ -351,6 +514,8 @@ static void test_wire(void)
 
 	size = delta_wire_write_empty(data, 2, _delta_message_legacy, 5);
 	CHECK(size == 12 && delta_wire_read_header(data, size, &header) && header.major == 2 && header.length == 0);
+
+	test_wire_table();
 }
 
 static void test_rate(void)
@@ -400,10 +565,8 @@ static void test_handshake(void)
 	CHECK(nodes[3].peer.client_state == _delta_peer_client_delta);
 	CHECK(nodes[1].peer.agreed == (PLATFORM_BIT | PROFILE_BIT));
 	CHECK(nodes[3].peer.agreed == PLATFORM_BIT);
-	/* (the legacy table's hook: the host's serial 5 over client 1's 0, not
-	client 2's 5) */
-	CHECK(nodes[0].offers == 2 && nodes[0].offered_machine == 3 && nodes[0].offered_serial == 0);
-	CHECK(nodes[2].offers == 0);
+	/* (the legacy table is not sent in the handshake's first moments) */
+	CHECK(nodes[1].pieces_in == 0 && nodes[1].table_serial == 0);
 
 	/* the host's view: each machine's claims */
 	CHECK(delta_peer_machine(&nodes[0].peer, 1, &machine) && machine.key.platform == _delta_platform_pc_linux);
@@ -661,6 +824,137 @@ static void test_strangers(void)
 	CHECK((nodes[1].peer.agreed & ~PLATFORM_BIT) == 0);
 }
 
+/* ---------- the legacy table's relay */
+
+/* frames every step milliseconds until the time */
+static void run_frames(delta_u32 *now, delta_u32 until, delta_u32 step, int client_count, const int *joined)
+{
+	for (; *now < until; *now += step)
+		frame(*now, client_count, joined, 1);
+}
+
+static void test_relay(void)
+{
+	int joined[4] = { 0, 1, 1, 1 };
+	delta_u32 now = 200000;
+	delta_u32 start;
+	int index;
+
+	/* the host has table 5; client 1 none (0), client 2 table 5, client 3
+	takes none (a local table, or no key) */
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT, _delta_platform_pc_linux, 0, 5);
+	node_start(1, 0x0300007F, 40001, PLATFORM_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(2, 0x0400007F, 40002, PLATFORM_BIT, _delta_platform_pc_linux, 0, 5);
+	node_start(3, 0x0500007F, 40003, PLATFORM_BIT, _delta_platform_pc_linux, 0, DELTA_WIRE_TABLE_NONE);
+	game_reset();
+	game_add(1);
+	game_add(2);
+	game_add(3);
+	start = now;
+	run_frames(&now, start + 1500, 100, 4, joined);
+	/* (nothing in the first moments) */
+	CHECK(nodes[1].pieces_in == 0 && nodes[0].peer.peers[1].relay.their_serial == 0);
+	/* (client 3 said it takes none) */
+	CHECK(nodes[0].peer.peers[3].relay.their_serial == DELTA_WIRE_TABLE_NONE);
+	run_frames(&now, start + 10000, 100, 4, joined);
+	/* client 1 has the host's table (3000 bytes: 3 pieces, one check), and
+	said so */
+	CHECK(nodes[1].table_serial == 5 && nodes[1].taken == 1 && nodes[1].checks == 1);
+	CHECK(nodes[1].table_size == nodes[0].table_size && !memcmp(nodes[1].table, nodes[0].table, 3000));
+	CHECK(nodes[1].pieces_in == 3);
+	CHECK(nodes[0].peer.peers[1].relay.their_serial == 5 && !nodes[0].peer.peers[1].relay.sending);
+	/* client 2 had it, client 3 takes none: sent nothing */
+	CHECK(nodes[2].pieces_in == 0 && nodes[3].pieces_in == 0 && nodes[3].checks == 0);
+	/* (no message of the relay was dropped by a rate limit) */
+	for (index = 0; index < 4; index++)
+		CHECK(nodes[index].peer.dropped == 0);
+	/* a minute on: no pass again (each has the table) */
+	run_frames(&now, now + 70000, 500, 4, joined);
+	CHECK(nodes[1].pieces_in == 3 && nodes[1].checks == 1);
+
+	/* client 1 takes a newer table (9, as from Delta List), the largest
+	there is: it says so and sends it to the host, which takes it and sends
+	it on to client 2; client 3 still nothing */
+	make_table(&nodes[1], 9, DELTA_LEGACY_SIGNED_SIZE);
+	start = now;
+	run_frames(&now, start + 20000, 50, 4, joined);
+	CHECK(nodes[0].table_serial == 9 && nodes[0].taken == 1 && nodes[0].pieces_in == DELTA_WIRE_TABLE_CHUNKS);
+	CHECK(nodes[0].table_size == DELTA_LEGACY_SIGNED_SIZE && table_valid(nodes[0].table, nodes[0].table_size));
+	CHECK(nodes[2].table_serial == 9 && nodes[2].taken == 1 && nodes[2].pieces_in == DELTA_WIRE_TABLE_CHUNKS);
+	CHECK(nodes[3].pieces_in == 0 && nodes[3].table_serial == DELTA_WIRE_TABLE_NONE);
+	CHECK(nodes[1].pieces_in == 3);
+	for (index = 0; index < 4; index++)
+		CHECK(nodes[index].peer.dropped == 0);
+}
+
+/* a table the receiver does not take: at most three passes a session, a
+minute apart, and one check a minute */
+static void test_relay_refused(void)
+{
+	int joined[2] = { 0, 1 };
+	delta_u32 now = 500000;
+	delta_u32 start;
+
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, PLATFORM_BIT, _delta_platform_pc_linux, 0, 12);
+	nodes[0].reject = 1;
+	game_reset();
+	game_add(1);
+	start = now;
+	run_frames(&now, start + 10000, 100, 2, joined);
+	CHECK(nodes[0].checks == 1 && nodes[0].pieces_in == 3);
+	run_frames(&now, start + 50000, 100, 2, joined);
+	CHECK(nodes[0].checks == 1 && nodes[0].pieces_in == 3);
+	run_frames(&now, start + 10 * 60000, 100, 2, joined);
+	CHECK(nodes[0].checks == DELTA_PEER_TABLE_PASSES && nodes[0].pieces_in == 3 * DELTA_PEER_TABLE_PASSES);
+	CHECK(nodes[0].table_serial == 0 && nodes[1].peer.host_relay.passes == DELTA_PEER_TABLE_PASSES);
+
+	/* a new session (the client joins again): passes again, and the check
+	still waits out its minute */
+	nodes[0].reject = 0;
+	delta_peer_stop(&nodes[1].peer);
+	deliver(now);
+	start = now;
+	run_frames(&now, start + 20000, 100, 2, joined);
+	CHECK(nodes[0].table_serial == 12 && nodes[0].taken == 1);
+
+	/* pieces of two tables at once from two machines: one at a time */
+	{
+		unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+		struct delta_wire_table piece;
+		int joined3[3] = { 0, 1, 1 };
+		int size;
+
+		node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT, _delta_platform_pc_linux, 0, 0);
+		node_start(1, 0x0300007F, 40001, PLATFORM_BIT, _delta_platform_pc_linux, 0, 0);
+		node_start(2, 0x0400007F, 40002, PLATFORM_BIT, _delta_platform_pc_linux, 0, 0);
+		game_reset();
+		game_add(1);
+		game_add(2);
+		run_frames(&now, now + 1000, 100, 3, joined3);
+		make_table(&nodes[1], 20, 3000);
+		memset(&piece, 0, sizeof(piece));
+		piece.serial = 20;
+		piece.total = 3000;
+		piece.length = DELTA_WIRE_TABLE_CHUNK;
+		piece.data = nodes[1].table;
+		size = delta_wire_write_table(data, nodes[1].peer.session, &piece);
+		delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, 40001, data, size);
+		CHECK(nodes[0].peer.table_in.active && nodes[0].peer.table_in.from == 1);
+		size = delta_wire_write_table(data, nodes[2].peer.session, &piece);
+		delta_peer_receive(&nodes[0].peer, now + 10, nodes[2].ipv4, 40002, data, size);
+		CHECK(nodes[0].peer.table_in.from == 1);
+		/* (until the first goes quiet) */
+		delta_peer_receive(&nodes[0].peer, now + DELTA_PEER_TABLE_STALE, nodes[2].ipv4, 40002, data, size);
+		CHECK(nodes[0].peer.table_in.from == 2);
+		/* (a piece from a session not the machine's: nothing) */
+		size = delta_wire_write_table(data, nodes[2].peer.session + 1, &piece);
+		delta_peer_receive(&nodes[0].peer, now + DELTA_PEER_TABLE_STALE, nodes[2].ipv4, 40002, data, size);
+		CHECK(nodes[0].peer.table_in.from == 2);
+		queued = 0;
+	}
+}
+
 /* ---------- random input */
 
 static void random_bytes(unsigned char *data, int size)
@@ -681,8 +975,32 @@ static int mutated_message(unsigned char *data, delta_u32 session)
 	int size;
 	int flips;
 
-	switch (next_random() % 6)
+	switch (next_random() % 8)
 	{
+	case 6:
+	{
+		static unsigned char bytes[DELTA_WIRE_TABLE_CHUNK];
+		struct delta_wire_table table;
+		int pieces = 1 + (int)(next_random() % DELTA_WIRE_TABLE_CHUNKS);
+
+		random_bytes(bytes, (int)sizeof(bytes));
+		memset(&table, 0, sizeof(table));
+		table.serial = 1 + next_random() % 8;
+		table.total = (delta_u32)((pieces - 1) * DELTA_WIRE_TABLE_CHUNK + 1 + (int)(next_random() % DELTA_WIRE_TABLE_CHUNK));
+		if (table.total > DELTA_LEGACY_SIGNED_SIZE)
+			table.total = DELTA_LEGACY_SIGNED_SIZE;
+		table.offset = (delta_u32)((int)(next_random() % (delta_u32)pieces) * DELTA_WIRE_TABLE_CHUNK);
+		if (table.offset >= table.total)
+			table.offset = 0;
+		table.length = table.total - table.offset < DELTA_WIRE_TABLE_CHUNK ? (int)(table.total - table.offset) :
+			DELTA_WIRE_TABLE_CHUNK;
+		table.data = bytes;
+		size = delta_wire_write_table(data, session, &table);
+		break;
+	}
+	case 7:
+		size = delta_wire_write_table_have(data, session, next_random() % 2 ? next_random() % 8 : next_random());
+		break;
 	case 0:
 		memset(&hello, 0, sizeof(hello));
 		random_bytes((unsigned char *)&hello, (int)sizeof(hello));
@@ -738,6 +1056,8 @@ static void test_random(long iterations)
 		struct delta_wire_hello hello;
 		struct delta_wire_welcome welcome;
 		struct delta_wire_profile profile;
+		struct delta_wire_table table;
+		delta_u32 serial;
 		static struct delta_wire_roster roster;
 		delta_u32 session = next_random() % 2 ? nodes[1].peer.session : next_random();
 		int size = mutated_message(data, session);
@@ -749,6 +1069,14 @@ static void test_random(long iterations)
 			delta_wire_read_hello(data + DELTA_WIRE_HEADER_SIZE, header.length, &hello);
 			delta_wire_read_welcome(data + DELTA_WIRE_HEADER_SIZE, header.length, &welcome);
 			delta_wire_read_profile(data + DELTA_WIRE_HEADER_SIZE, header.length, &profile);
+			if (delta_wire_read_table(data + DELTA_WIRE_HEADER_SIZE, header.length, &table))
+			{
+				CHECK(table.length > 0 && table.length <= DELTA_WIRE_TABLE_CHUNK);
+				CHECK(table.offset % DELTA_WIRE_TABLE_CHUNK == 0 && table.offset + (delta_u32)table.length <= table.total);
+				CHECK(table.total <= DELTA_LEGACY_SIGNED_SIZE);
+				CHECK(table.data + table.length <= data + size);
+			}
+			delta_wire_read_table_have(data + DELTA_WIRE_HEADER_SIZE, header.length, &serial);
 			if (delta_wire_read_roster(data + DELTA_WIRE_HEADER_SIZE, header.length, &roster))
 				CHECK(roster.count <= DELTA_WIRE_MAXIMUM_ROSTER_ENTRIES);
 			for (index = 0; index < DELTA_WIRE_BUILD_SIZE + 1 && hello.build[index]; index++)
@@ -778,6 +1106,9 @@ static void test_random(long iterations)
 		CHECK(nodes[1].peer.client_state >= _delta_peer_client_off &&
 			nodes[1].peer.client_state <= _delta_peer_client_legacy);
 		CHECK(delta_peer_room_limit(&nodes[0].peer, _delta_peer_limit_players) >= 1);
+		/* (a table coming in is never past its size) */
+		CHECK(!nodes[0].peer.table_in.active || nodes[0].peer.table_in.total <= DELTA_LEGACY_SIGNED_SIZE);
+		CHECK(!nodes[1].peer.table_in.active || nodes[1].peer.table_in.total <= DELTA_LEGACY_SIGNED_SIZE);
 		for (index = 0; index < DELTA_PEER_MAXIMUM_PLAYERS; index++)
 			CHECK(nodes[1].peer.player_machines[index] >= -1);
 		if (failures)
@@ -799,6 +1130,8 @@ int main(int argc, char **argv)
 	test_fallback();
 	test_limits();
 	test_strangers();
+	test_relay();
+	test_relay_refused();
 	test_random(iterations);
 	if (failures)
 	{

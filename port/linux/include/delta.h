@@ -200,6 +200,10 @@ int delta_legacy_offer(const char *signed_table, int size);
 int delta_capability_disabled(int capability);
 /* whether a local, unsigned table (network.legacy_table) is in use */
 int delta_legacy_override(void);
+/* whether this machine relays signed tables (Delta Peer: takes them from
+and sends them to other machines): not with a local table in use, nor
+without a key to check one with */
+int delta_legacy_relay(void);
 
 /* the largest document, and signed table */
 #define DELTA_LEGACY_DOCUMENT_SIZE 16384

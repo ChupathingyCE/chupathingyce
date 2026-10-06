@@ -18,6 +18,7 @@ HALO_GAME_BROWSER; network.protocol = "opence" turns all of it off.
 #include "posix.h"
 #include "port_config.h"
 #include "halo_port_limits.h"
+#include "delta.h"
 #include "delta_peer.h"
 #ifdef HALO_GAME_BROWSER
 #include "browser.h"
@@ -178,25 +179,24 @@ static delta_u32 game_random(void *context)
 	return value;
 }
 
-static void game_legacy_table_offer(void *context, int machine_index, delta_u32 their_serial)
+/* the legacy table's relay: delta.c's table (none taken or sent with a
+local table in use, or no key) */
+static delta_u32 game_legacy_table_serial(void *context)
 {
 	(void)context;
-	delta_peer_legacy_table_offer(machine_index, their_serial);
+	return delta_legacy_relay() ? delta_legacy_serial() : DELTA_WIRE_TABLE_NONE;
 }
 
-delta_u32 delta_peer_legacy_table_serial(void)
+static int game_legacy_table_signed(void *context, unsigned char *buffer, int size)
 {
-	/* the built-in table: delta-legacy-table gives the signed table's serial
-	here */
-	return 0;
+	(void)context;
+	return delta_legacy_relay() ? delta_legacy_signed((char *)buffer, size) : 0;
 }
 
-void delta_peer_legacy_table_offer(int machine_index, delta_u32 their_serial)
+static int game_legacy_table_offer(void *context, const unsigned char *table, int size)
 {
-	/* delta-legacy-table: send this machine's newer table to the machine
-	here (its serial is delta_peer_legacy_table_serial's, theirs older) */
-	platform_log("Delta Peer: machine %d has legacy table %u, older than this machine's %u (not sent yet)",
-		machine_index, (unsigned)their_serial, (unsigned)delta_peer_legacy_table_serial());
+	(void)context;
+	return delta_legacy_relay() && delta_legacy_offer((const char *)table, size);
 }
 
 int delta_peer_protocol(void)
@@ -226,12 +226,13 @@ int delta_peer_protocol(void)
 		env.send_datagram = game_send;
 		env.log_line = game_log;
 		env.random_number = game_random;
+		env.legacy_table_serial = game_legacy_table_serial;
+		env.legacy_table_signed = game_legacy_table_signed;
 		env.legacy_table_offer = game_legacy_table_offer;
 		env.platform_policy = game_platform_policy;
 		memset(&local, 0, sizeof(local));
 		local.capabilities = (delta_u32)1 << _delta_capability_platform | (delta_u32)1 << _delta_capability_profile;
 		local.legacy_version = HALO_PORT_NETWORK_VERSION;
-		local.legacy_table_serial = delta_peer_legacy_table_serial();
 		delta_peer_local_key(&local.key);
 		snprintf(local.build, sizeof(local.build), "ChupathingyCE %s", updater_version());
 		local.has_profile = local_profile(&local.profile);

@@ -49,10 +49,23 @@ enum
 	DELTA_WIRE_MAXIMUM_ROSTER_ENTRIES =
 		(DELTA_WIRE_MAXIMUM_PAYLOAD - DELTA_WIRE_ROSTER_SIZE) / DELTA_WIRE_ROSTER_ENTRY_SIZE,
 
+	/* TABLE: its fields, then a piece of the signed legacy table of at most
+	this many bytes; every piece but the last is that long, at an offset
+	a multiple of it */
+	DELTA_WIRE_TABLE_SIZE = 16,
+	DELTA_WIRE_TABLE_CHUNK = 1024,
+	/* (17: a whole signed table, DELTA_LEGACY_SIGNED_SIZE) */
+	DELTA_WIRE_TABLE_CHUNKS = (DELTA_LEGACY_SIGNED_SIZE + DELTA_WIRE_TABLE_CHUNK - 1) / DELTA_WIRE_TABLE_CHUNK,
+	DELTA_WIRE_TABLE_HAVE_SIZE = 4,
+
 	/* a machine index none has (a dedicated server's own machine, or a
 	client not yet given one) */
 	DELTA_WIRE_NO_MACHINE = 0xFF
 };
+
+/* TABLE_HAVE's serial for a machine that takes no tables (a local legacy
+table in use, or no key to check one with) */
+#define DELTA_WIRE_TABLE_NONE 0xFFFFFFFFu
 
 /* the message types; a number is never reused, and a machine ignores types
 it does not know */
@@ -71,7 +84,13 @@ enum delta_message_type
 	_delta_message_bye = 5,
 	/* client to host, after WELCOME, if both agreed to profile: its player
 	ID and profile revision */
-	_delta_message_profile = 6
+	_delta_message_profile = 6,
+	/* either way: a piece of the sender's signed legacy table, sent to a
+	machine whose serial is older (delta.c checks the whole) */
+	_delta_message_table = 7,
+	/* either way: the serial of the legacy table the sender has now
+	(DELTA_WIRE_TABLE_NONE: it takes none) */
+	_delta_message_table_have = 8
 };
 
 struct delta_wire_header
@@ -141,6 +160,20 @@ struct delta_wire_profile
 	unsigned char player_id[DELTA_WIRE_PLAYER_ID_SIZE];
 };
 
+struct delta_wire_table
+{
+	/* the table's serial */
+	delta_u32 serial;
+	/* the whole signed table's size (at most DELTA_LEGACY_SIGNED_SIZE) */
+	delta_u32 total;
+	/* where this piece goes (a multiple of DELTA_WIRE_TABLE_CHUNK) */
+	delta_u32 offset;
+	/* its bytes: DELTA_WIRE_TABLE_CHUNK, or what is left of the table */
+	int length;
+	/* (read: into the payload, nothing copied) */
+	const unsigned char *data;
+};
+
 struct delta_wire_roster
 {
 	/* the capabilities every machine in the game has now (0 while one has
@@ -166,6 +199,10 @@ int delta_wire_read_hello(const unsigned char *payload, int size, struct delta_w
 int delta_wire_read_welcome(const unsigned char *payload, int size, struct delta_wire_welcome *welcome);
 int delta_wire_read_roster(const unsigned char *payload, int size, struct delta_wire_roster *roster);
 int delta_wire_read_profile(const unsigned char *payload, int size, struct delta_wire_profile *profile);
+/* (a piece that is not where the serial's table has one: a size over the
+cap, an offset off the grid or past the end, a length not the piece's) */
+int delta_wire_read_table(const unsigned char *payload, int size, struct delta_wire_table *table);
+int delta_wire_read_table_have(const unsigned char *payload, int size, delta_u32 *serial);
 
 /* a whole datagram of the message into data (DELTA_WIRE_MAXIMUM_DATAGRAM
 bytes); returns its size, 0 if it does not fit */
@@ -173,6 +210,8 @@ int delta_wire_write_hello(unsigned char *data, delta_u32 session, const struct 
 int delta_wire_write_welcome(unsigned char *data, delta_u32 session, const struct delta_wire_welcome *welcome);
 int delta_wire_write_roster(unsigned char *data, delta_u32 session, const struct delta_wire_roster *roster);
 int delta_wire_write_profile(unsigned char *data, delta_u32 session, const struct delta_wire_profile *profile);
+int delta_wire_write_table(unsigned char *data, delta_u32 session, const struct delta_wire_table *table);
+int delta_wire_write_table_have(unsigned char *data, delta_u32 session, delta_u32 serial);
 /* LEGACY and BYE: a header alone */
 int delta_wire_write_empty(unsigned char *data, int major, int type, delta_u32 session);
 

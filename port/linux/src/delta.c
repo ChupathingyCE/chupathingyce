@@ -960,3 +960,8 @@ int delta_legacy_override(void)
 	pthread_mutex_unlock(&delta_lock);
 	return override;
 }
+
+int delta_legacy_relay(void)
+{
+	return !delta_legacy_override() && delta_has_key();
+}

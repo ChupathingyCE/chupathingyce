@@ -248,6 +248,8 @@ a later version may append):
 | 4 | ROSTER | host to client | room capabilities (4), room's player limit (1), reserved (3), entry count (1, at most 32), reserved (3), then 36-byte entries: machine index (1), flags (1: 0x01 Delta, 0x02 platform key present, 0x04 profile present), reserved (2), agreed capabilities (4), platform key (8), profile revision (4), player ID (16) |
 | 5 | BYE | either | none |
 | 6 | PROFILE | client to host | profile revision (4), player ID (16) |
+| 7 | TABLE | either | serial (4), the signed table's whole size (4, at most 16513), offset (4, a multiple of 1024), length (2: 1024, or the rest), reserved (2), the piece's bytes |
+| 8 | TABLE_HAVE | either | serial (4: 0 the built-in table, 0xFFFFFFFF takes no tables) |
 
 A roster covers every machine of the game, in as many datagrams as it takes
 (32 machines each). A client forgets a machine the roster has not named for
@@ -264,6 +266,11 @@ Limits and timeouts (`delta_peer.h`):
 | messages a host takes from one machine | 10 a second, 20 at once |
 | messages a client takes from its host | 50 a second, 100 at once |
 | datagrams read a frame | 64 |
+| legacy table: first pass after the handshake | 2 s |
+| legacy table: a piece to one machine | at most every 200 ms (5 a second) |
+| legacy table: passes to one machine | 3 a session, the next a minute after one ends |
+| legacy table: signature checks of one machine's tables | 1 a minute |
+| legacy table: a host sending to machines at once | 4 |
 
 Who is heard: a host reads a datagram only from an address of a machine of
 its game (anything else is dropped before parsing), and ties a HELLO to the
@@ -284,13 +291,29 @@ every parser and both sessions) and `delta_fuzz.c` (libFuzzer) run in CI
   rooms and the listings' protocol labels come later (see "The protocol
   choice").
 
-### The legacy table's hook
+### The legacy table's relay
 
-HELLO and WELCOME carry each side's legacy table serial. When a peer's is
-older, the session calls `delta_peer_legacy_table_offer()`
-(`delta_peer_game.c`), the spot where the signed table is to be sent (branch
-`delta-legacy-table`); for now it only logs. `delta_peer_legacy_table_serial()`
-gives this machine's serial (0: the built-in table).
+HELLO and WELCOME carry each side's legacy table serial (0: the built-in
+table). The side with the newer serial sends its signed table (as
+`delta_legacy_signed()` gives it) in TABLE pieces of 1 KB, one transfer at a
+time to a machine, paced at five pieces a second, under the host's ten
+messages a second from a machine. The receiver puts the pieces together (one
+table coming in at a time; another machine's waits until it has been quiet
+for 5 s) and hands the whole to `delta_legacy_offer()`, which checks the
+signature and the document as it does every other copy, and takes it only
+if it is newer; it says its serial then in TABLE_HAVE, and again whenever
+its serial changes (a table from Delta List mid-game is passed on the same
+way). The relay needs no trust in the relay: only a table signed with the
+built-in keys is taken.
+
+Bounded: the first pass waits 2 s after the handshake; a machine is sent at
+most three passes a session, the next a minute after one ends; its tables
+are checked at most once a minute; a host sends to at most four machines at
+once. A machine that takes no tables (a local table in use, or a build with
+no key: `delta_legacy_relay()`) says TABLE_HAVE 0xFFFFFFFF after the
+handshake, is sent none, and sends none. `delta_peer_game.c` wires the
+session to `delta_legacy_serial()`, `delta_legacy_signed()` and
+`delta_legacy_offer()`.
 
 ### LAN superset (planned)
 
@@ -668,6 +691,7 @@ keep working.
 | `delta_legacy_offer(table, size)` | a signed table from a peer: checked, taken if newer |
 | `delta_capability_disabled(bit)` | the kill switch |
 | `delta_legacy_override()` | whether a local, unsigned table is in use |
+| `delta_legacy_relay()` | whether Delta Peer relays tables: not with an override, nor with no key |
 
 `tools/test_delta.py` checks the tool and builds `delta.c` with a test key
 (`tools/delta_check.c`) to check what the game takes and drops.
@@ -740,6 +764,6 @@ asking players for anything:
    Stats events.
 7. The legacy table as config. Built: wire IDs, the signed document and
    its tool, the game's loader (cache, Delta List, GitHub), the local
-   override and the real keys. Next: CI publishing after cross-play, and
-   delivery over Delta Peer.
+   override, the real keys and delivery over Delta Peer. Next: CI publishing
+   after cross-play.
 8. The per-peer host experiment, and the proposal to OpenCE.

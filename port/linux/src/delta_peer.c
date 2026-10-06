@@ -152,6 +152,8 @@ static void forget_all(struct delta_peer *peer)
 	memset(&peer->welcome, 0, sizeof(peer->welcome));
 	peer->agreed = 0;
 	memset(&peer->host_rate, 0, sizeof(peer->host_rate));
+	memset(&peer->host_relay, 0, sizeof(peer->host_relay));
+	peer->table_in.active = 0;
 	memset(peer->machines, 0, sizeof(peer->machines));
 	peer->room_capabilities = 0;
 	peer->room_players = DELTA_PEER_NO_LIMIT;
@@ -206,6 +208,237 @@ static void enter_mode(struct delta_peer *peer, int mode)
 	}
 }
 
+/* ---------- the legacy table's relay
+
+The side with the newer serial sends its signed table, in pieces paced
+under the receiver's rate limit; the receiver puts them together and gives
+the whole to delta.c (the signature, then the document, checked there),
+then says its serial (TABLE_HAVE). A machine that takes no tables says so
+(DELTA_WIRE_TABLE_NONE) and is sent none. */
+
+/* this machine's serial now (DELTA_WIRE_TABLE_NONE: it takes no tables; no
+relay in the env: its fixed serial, and none taken) */
+static delta_u32 own_serial(const struct delta_peer *peer)
+{
+	return peer->env.legacy_table_serial ? peer->env.legacy_table_serial(peer->env.context) :
+		peer->local.legacy_table_serial;
+}
+
+/* the serial as the handshake says it (0 for none or a table not taken) */
+static delta_u32 handshake_serial(const struct delta_peer *peer)
+{
+	delta_u32 serial = own_serial(peer);
+
+	return serial == DELTA_WIRE_TABLE_NONE ? 0 : serial;
+}
+
+static int relaying(const struct delta_peer *peer)
+{
+	return peer->env.legacy_table_serial && peer->env.legacy_table_signed && peer->env.legacy_table_offer;
+}
+
+/* a session's relay: their serial, and this machine's as its handshake
+said it */
+static void relay_start(struct delta_peer *peer, struct delta_peer_relay *relay, delta_u32 now,
+	delta_u32 their_serial)
+{
+	memset(relay, 0, sizeof(*relay));
+	relay->their_serial = their_serial;
+	relay->start_time = now;
+	relay->said = 1;
+	relay->said_serial = handshake_serial(peer);
+	relay->said_time = now - DELTA_PEER_TABLE_HAVE_GAP;
+}
+
+/* a machine's name in the log: "machine N", or "the host" */
+static const char *relay_name(int from, char *name, int size)
+{
+	if (from < 0)
+		snprintf(name, (size_t)size, "the host");
+	else
+		snprintf(name, (size_t)size, "machine %d", from);
+	return name;
+}
+
+/* TABLE_HAVE with this machine's serial, if it changed since last said or
+when asked (at most once a DELTA_PEER_TABLE_HAVE_GAP) */
+static void relay_say(struct delta_peer *peer, struct delta_peer_relay *relay, delta_u32 now, delta_u32 ipv4,
+	unsigned short port, delta_u32 session, int asked)
+{
+	unsigned char data[DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TABLE_HAVE_SIZE];
+	delta_u32 serial = own_serial(peer);
+
+	if (!peer->env.legacy_table_serial)
+		return;
+	if (relay->said && relay->said_serial == serial && !asked)
+		return;
+	if (relay->said && !elapsed(now, relay->said_time, DELTA_PEER_TABLE_HAVE_GAP))
+		return;
+	relay->said = 1;
+	relay->said_time = now;
+	relay->said_serial = serial;
+	peer_send(peer, ipv4, port, data, delta_wire_write_table_have(data, session, serial));
+}
+
+/* each frame, for each machine with a session: TABLE_HAVE when this
+machine's serial changed (or it takes none), and the next piece of a pass
+to a machine whose table is older */
+static void relay_frame(struct delta_peer *peer, struct delta_peer_relay *relay, int to, delta_u32 now,
+	delta_u32 ipv4, unsigned short port, delta_u32 session, int *sends)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	struct delta_wire_table piece;
+	delta_u32 serial = own_serial(peer);
+	char name[32];
+
+	if (!peer->env.legacy_table_serial)
+		return;
+	/* (a serial other than the handshake's, or the one said since, is
+	said: a machine that takes no tables says so at once) */
+	relay_say(peer, relay, now, ipv4, port, session, 0);
+	if (!relaying(peer) || serial == DELTA_WIRE_TABLE_NONE || !serial || relay->their_serial == DELTA_WIRE_TABLE_NONE ||
+		serial <= relay->their_serial)
+	{
+		relay->sending = 0;
+		return;
+	}
+	if (!relay->sending)
+	{
+		if (relay->passes >= DELTA_PEER_TABLE_PASSES || !elapsed(now, relay->start_time, DELTA_PEER_TABLE_DELAY) ||
+			(relay->passes && !elapsed(now, relay->pass_time, DELTA_PEER_TABLE_PASS_GAP)) ||
+			(sends && *sends >= DELTA_PEER_TABLE_SENDS))
+		{
+			return;
+		}
+		if (peer->table_out_serial != serial)
+		{
+			int size = peer->env.legacy_table_signed(peer->env.context, peer->table_out, (int)sizeof(peer->table_out));
+
+			peer->table_out_serial = size > 0 && size <= DELTA_LEGACY_SIGNED_SIZE ? serial : 0;
+			peer->table_out_size = peer->table_out_serial ? size : 0;
+			if (!peer->table_out_serial)
+				return;
+		}
+		relay->sending = 1;
+		relay->sending_serial = serial;
+		relay->offset = 0;
+		relay->passes++;
+		relay->piece_time = now - DELTA_PEER_TABLE_GAP;
+		say(peer, "Delta Peer: sending legacy table %u to %s (it has %u; pass %d of %d)", (unsigned)serial,
+			relay_name(to, name, (int)sizeof(name)), (unsigned)relay->their_serial, relay->passes,
+			DELTA_PEER_TABLE_PASSES);
+		if (sends)
+			++*sends;
+	}
+	else if (sends)
+		++*sends;
+	/* (this machine took a newer table meanwhile: the pass ends; the next
+	sends that one) */
+	if (relay->sending_serial != serial || peer->table_out_serial != serial)
+	{
+		relay->sending = 0;
+		relay->pass_time = now;
+		return;
+	}
+	if (!elapsed(now, relay->piece_time, DELTA_PEER_TABLE_GAP))
+		return;
+	memset(&piece, 0, sizeof(piece));
+	piece.serial = serial;
+	piece.total = (delta_u32)peer->table_out_size;
+	piece.offset = relay->offset;
+	piece.length = piece.total - piece.offset < DELTA_WIRE_TABLE_CHUNK ? (int)(piece.total - piece.offset) :
+		DELTA_WIRE_TABLE_CHUNK;
+	piece.data = peer->table_out + piece.offset;
+	peer_send(peer, ipv4, port, data, delta_wire_write_table(data, session, &piece));
+	relay->piece_time = now;
+	relay->offset += (delta_u32)piece.length;
+	/* (the next pass a minute after this one's end: after the receiver's
+	check, which is once a minute) */
+	if (relay->offset >= piece.total)
+	{
+		relay->sending = 0;
+		relay->pass_time = now;
+	}
+}
+
+/* TABLE from a machine (from: the host's client, or -1 a client's host) */
+static void relay_table(struct delta_peer *peer, struct delta_peer_relay *relay, int from, delta_u32 now,
+	delta_u32 ipv4, unsigned short port, delta_u32 session, const unsigned char *payload, int size)
+{
+	struct delta_peer_table_in *in = &peer->table_in;
+	struct delta_wire_table piece;
+	delta_u32 serial = own_serial(peer);
+	delta_u32 bit;
+	char name[32];
+	int taken;
+
+	if (!delta_wire_read_table(payload, size, &piece))
+	{
+		peer->dropped++;
+		return;
+	}
+	/* (it has one: its serial is newer than the one said) */
+	if (relay->their_serial != DELTA_WIRE_TABLE_NONE && piece.serial > relay->their_serial)
+		relay->their_serial = piece.serial;
+	/* (one this machine takes no tables, or has: it says so, and is sent no
+	more) */
+	if (!relaying(peer) || serial == DELTA_WIRE_TABLE_NONE || piece.serial <= serial)
+	{
+		relay_say(peer, relay, now, ipv4, port, session, 1);
+		return;
+	}
+	/* (one table at a time: another machine's, still coming, goes on) */
+	if (in->active && in->from != from && !elapsed(now, in->time, DELTA_PEER_TABLE_STALE))
+	{
+		peer->dropped++;
+		return;
+	}
+	if (!in->active || in->from != from || in->serial != piece.serial || in->total != piece.total)
+	{
+		in->active = 1;
+		in->from = from;
+		in->serial = piece.serial;
+		in->total = piece.total;
+		in->pieces = 0;
+	}
+	in->time = now;
+	bit = (delta_u32)1 << (piece.offset / DELTA_WIRE_TABLE_CHUNK);
+	if (!(in->pieces & bit))
+	{
+		memcpy(in->data + piece.offset, piece.data, (size_t)piece.length);
+		in->pieces |= bit;
+	}
+	if (in->pieces != ((delta_u32)1 << ((in->total + DELTA_WIRE_TABLE_CHUNK - 1) / DELTA_WIRE_TABLE_CHUNK)) - 1)
+		return;
+	in->active = 0;
+	relay_name(from, name, (int)sizeof(name));
+	/* (a signature check a minute a machine: a later pass brings it again) */
+	if (relay->checked && !elapsed(now, relay->check_time, DELTA_PEER_TABLE_CHECK_GAP))
+	{
+		say(peer, "Delta Peer: legacy table %u from %s set aside: one check a minute", (unsigned)in->serial, name);
+		return;
+	}
+	relay->checked = 1;
+	relay->check_time = now;
+	taken = peer->env.legacy_table_offer(peer->env.context, in->data, (int)in->total);
+	say(peer, "Delta Peer: legacy table %u from %s %s", (unsigned)in->serial, name, taken ? "taken" : "not taken");
+	relay_say(peer, relay, now, ipv4, port, session, 1);
+}
+
+/* TABLE_HAVE from a machine */
+static void relay_have(struct delta_peer *peer, struct delta_peer_relay *relay, const unsigned char *payload,
+	int size)
+{
+	delta_u32 serial;
+
+	if (!delta_wire_read_table_have(payload, size, &serial))
+	{
+		peer->dropped++;
+		return;
+	}
+	relay->their_serial = serial;
+}
+
 /* ---------- the host */
 
 static void forget_peer(struct delta_peer *peer, int machine_index, const char *why)
@@ -214,6 +447,8 @@ static void forget_peer(struct delta_peer *peer, int machine_index, const char *
 	{
 		say(peer, "Delta Peer: machine %d %s", machine_index, why);
 		memset(&peer->peers[machine_index], 0, sizeof(peer->peers[machine_index]));
+		if (peer->table_in.active && peer->table_in.from == machine_index)
+			peer->table_in.active = 0;
 		peer->roster_dirty = 1;
 	}
 }
@@ -279,7 +514,7 @@ static void host_send_welcome(struct delta_peer *peer, int machine_index)
 		if (peer->game_machines[index].local)
 			welcome.host_machine_index = peer->game_machines[index].machine_index;
 	}
-	welcome.legacy_table_serial = peer->local.legacy_table_serial;
+	welcome.legacy_table_serial = handshake_serial(peer);
 	welcome.key = peer->local.key;
 	memcpy(welcome.build, peer->local.build, sizeof(welcome.build));
 	peer_send(peer, client->ipv4, client->port, data, delta_wire_write_welcome(data, client->session, &welcome));
@@ -324,13 +559,12 @@ static void host_hello(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4, u
 	client->session_time = now;
 	client->hello = hello;
 	client->agreed = hello.capabilities & peer->local.capabilities;
+	relay_start(peer, &client->relay, now, hello.legacy_table_serial);
+	if (peer->table_in.active && peer->table_in.from == machine_index)
+		peer->table_in.active = 0;
 	say(peer, "Delta Peer: machine %d speaks Delta (build %s, %s, network version %u); capabilities 0x%x, agreed 0x%x",
 		machine_index, hello.build[0] ? hello.build : "?", platform_name(hello.key.platform),
 		(unsigned)hello.legacy_version, (unsigned)hello.capabilities, (unsigned)client->agreed);
-	/* the legacy table: a peer with an older one is sent this machine's
-	(branch delta-legacy-table; for now the hook only logs) */
-	if (peer->local.legacy_table_serial > hello.legacy_table_serial && peer->env.legacy_table_offer)
-		peer->env.legacy_table_offer(peer->env.context, machine_index, hello.legacy_table_serial);
 	host_send_welcome(peer, machine_index);
 	peer->roster_dirty = 1;
 }
@@ -409,6 +643,27 @@ static void host_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4,
 
 		if (machine_index >= 0)
 			forget_peer(peer, machine_index, "left Delta");
+		break;
+	}
+	case _delta_message_table:
+	case _delta_message_table_have:
+	{
+		int machine_index = host_find_session(peer, ipv4, header.session);
+		struct delta_peer_host_peer *client;
+
+		if (machine_index < 0)
+		{
+			peer->dropped++;
+			break;
+		}
+		client = &peer->peers[machine_index];
+		if (header.type == _delta_message_table)
+		{
+			relay_table(peer, &client->relay, machine_index, now, client->ipv4, client->port, client->session,
+				payload, header.length);
+		}
+		else
+			relay_have(peer, &client->relay, payload, header.length);
 		break;
 	}
 	default:
@@ -566,6 +821,28 @@ void delta_peer_host_frame(struct delta_peer *peer, delta_u32 now, const struct 
 		peer->roster_time = now;
 		peer->roster_dirty = 0;
 	}
+
+	{
+		int sends = 0;
+
+		for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+		{
+			if (peer->peers[index].used && peer->peers[index].relay.sending)
+				sends++;
+		}
+		for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+		{
+			struct delta_peer_host_peer *client = &peer->peers[index];
+			int was_sending = client->relay.sending;
+
+			if (!client->used)
+				continue;
+			/* (counted once: those sending already are in sends) */
+			if (was_sending)
+				sends--;
+			relay_frame(peer, &client->relay, index, now, client->ipv4, client->port, client->session, &sends);
+		}
+	}
 }
 
 /* ---------- the client */
@@ -579,7 +856,7 @@ static void client_send_hello(struct delta_peer *peer, delta_u32 now)
 	hello.capabilities = peer->local.capabilities;
 	hello.legacy_version = peer->local.legacy_version;
 	hello.machine_index = peer->machine_index;
-	hello.legacy_table_serial = peer->local.legacy_table_serial;
+	hello.legacy_table_serial = handshake_serial(peer);
 	hello.key = peer->local.key;
 	memcpy(hello.build, peer->local.build, sizeof(hello.build));
 	peer_send(peer, peer->host_ipv4, peer->host_port, data, delta_wire_write_hello(data, peer->session, &hello));
@@ -607,6 +884,8 @@ static void client_legacy(struct delta_peer *peer, const char *why)
 	peer->agreed = 0;
 	peer->room_capabilities = 0;
 	peer->room_players = DELTA_PEER_NO_LIMIT;
+	memset(&peer->host_relay, 0, sizeof(peer->host_relay));
+	peer->table_in.active = 0;
 	memset(peer->machines, 0, sizeof(peer->machines));
 	if (valid_machine(own))
 		peer->machines[own] = local;
@@ -676,6 +955,7 @@ void delta_peer_client_frame(struct delta_peer *peer, delta_u32 now, int joined,
 			if (!players || elapsed(now, machine->seen_time, DELTA_PEER_ROSTER_EXPIRY))
 				memset(machine, 0, sizeof(*machine));
 		}
+		relay_frame(peer, &peer->host_relay, -1, now, peer->host_ipv4, peer->host_port, peer->session, NULL);
 		break;
 	}
 }
@@ -740,8 +1020,7 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 			}
 			host->seen_time = now;
 		}
-		if (peer->local.legacy_table_serial > welcome.legacy_table_serial && peer->env.legacy_table_offer)
-			peer->env.legacy_table_offer(peer->env.context, welcome.host_machine_index, welcome.legacy_table_serial);
+		relay_start(peer, &peer->host_relay, now, welcome.legacy_table_serial);
 		client_send_profile(peer);
 		break;
 	}
@@ -806,6 +1085,23 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 	}
 	case _delta_message_bye:
 		client_legacy(peer, "the host stopped Delta");
+		break;
+	case _delta_message_table:
+		if (peer->client_state != _delta_peer_client_delta)
+		{
+			peer->dropped++;
+			break;
+		}
+		relay_table(peer, &peer->host_relay, -1, now, peer->host_ipv4, peer->host_port, peer->session, payload,
+			header.length);
+		break;
+	case _delta_message_table_have:
+		if (peer->client_state != _delta_peer_client_delta)
+		{
+			peer->dropped++;
+			break;
+		}
+		relay_have(peer, &peer->host_relay, payload, header.length);
 		break;
 	default:
 		break;
