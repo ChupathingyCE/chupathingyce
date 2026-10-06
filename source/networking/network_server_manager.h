@@ -57,6 +57,10 @@ void network_game_server_kick_machine(
 the client machine at the index refused with the rejection code and
 dropped, not kept out after (a ban is bans.txt's, which every join is
 checked against); FALSE if it is none that joined */
+/* port: the rejection code of the last machine
+network_game_server_accept_client_machine_into_game refused */
+short network_game_server_last_refusal_code(
+	void);
 boolean network_game_server_drop_machine(
 	long machine_index,
 	short rejection_code);
