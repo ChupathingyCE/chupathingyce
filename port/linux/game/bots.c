@@ -4360,6 +4360,7 @@ static int bot_slot_is_favorite(struct bot_state const *bot, struct unit_datum *
 
 #define BOT_POWER_FALLOFF 30.f /* how far off the biggest things are worth half what they are at hand (20 for the rest of the big ones) */
 #define BOT_ITEM_UNDER_WAY 1.5f /* what a power weapon or a powerup it is already on its way to is worth, of what it would be */
+static int bot_jump_cause; /* (testing: which of its reasons the last jump asked for was for) */
 static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum *player, struct unit_datum *unit,
 	real_point3d const *position, int teams)
 {
@@ -7495,9 +7496,11 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		body.speed_scale = me->speed_multiplier > 0.1f ? me->speed_multiplier : 1.f;
 		/* (whether the game takes a jump from it now: bipeds.c's own test) */
 		body.can_jump = FALSE;
+		body.airborne = FALSE;
 		if (vehicle_index == NONE && TEST_FLAG(_object_mask_biped, root->object.type))
 		{
 			struct biped_datum const *biped = (struct biped_datum const *)root;
+			body.airborne = TEST_FLAG(biped->biped.flags, _biped_airborne_bit) != 0;
 			body.can_jump = !TEST_FLAG(biped->biped.flags, _biped_airborne_bit) && !TEST_FLAG(biped->biped.flags, _biped_slipping_bit) &&
 				biped->biped.landing != 1 && biped->biped.jump_recovery_timer >= 5;
 		}
@@ -9730,6 +9733,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			if (bot->attack_jump_cooldown <= 0 && bot_random(bot) < chance && (!aas_ready() || bot_move_direction_safe(&body, move_yaw, 1.5f)))
 			{
 				jump = TRUE;
+				bot_jump_cause = 1;
 				bot->attack_jump_cooldown = BOT_SECONDS(1.8f - 0.9f * skill_move);
 				if (bot_random(bot) < (0.1f + 0.6f * skill_move) * (0.5f + bot->personality.jumpiness))
 					bot->crouch_jump_ticks = 23;
@@ -9839,6 +9843,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				if (bot_random(bot) < chance && (!aas_ready() || bot_move_direction_safe(&body, move_yaw, 2.f)))
 				{
 					jump = TRUE;
+					bot_jump_cause = 2;
 					bot->attack_jump_cooldown = BOT_SECONDS(0.9f + 0.7f * bot_random(bot));
 					if (bot_random(bot) < 0.3f + 0.4f * skill)
 						bot->crouch_jump_ticks = 23;
@@ -10017,6 +10022,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 						(above <= 0.3f && bot->action_ticks == 20))
 					{
 						jump = TRUE;
+						bot_jump_cause = 3;
 					}
 				}
 			}
@@ -10257,6 +10263,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			move_yaw = bot->unstick_yaw;
 			if (bot->unstick_ticks % 12 == 0)
 				jump = TRUE;
+				bot_jump_cause = 4;
 		}
 		else if (!aas_ready())
 		{
@@ -10267,6 +10274,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			move_yaw = steered;
 			if (steer_jump)
 				jump = TRUE;
+				bot_jump_cause = 5;
 		}
 	}
 	else
@@ -10283,7 +10291,11 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		/* the route's jumps (up a ledge, over a gap) and crouches (legs
 		   tucked up to clear a lip): as they come */
 		if (moved && result.jump)
+		{
 			action->control_flags |= FLAG(_unit_control_jump_bit);
+			if (!jump)
+				bot_jump_cause = 9;
+		}
 		if (moved && result.crouch)
 			action->control_flags |= FLAG(_unit_control_crouch_modifier_bit);
 		if (jump && bot->jump_cooldown <= 0 && !committed)
@@ -10833,6 +10845,24 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			action->desired_weapon_index = other_slot;
 	}
 
+	/* testing, HALO_BOT_MOTION=<ticks>: every so many ticks, where each bot on
+	   foot is, how it is going, what it has pressed and what it is about:
+	   what its movement looks like, to be measured (/tmp tools: motion.py) */
+	{
+		static long every = -1;
+		if (every < 0)
+			every = getenv("HALO_BOT_MOTION") && bot_logging() ? MAX(1, atol(getenv("HALO_BOT_MOTION"))) : 0;
+		if (every > 0 && vehicle_index == NONE && game_time_get() % every == 0)
+		{
+			bot_log("mo bot%ld t%ld %.2f %.2f %.2f v %.2f %.2f %.2f look %.2f thumb %.2f %.2f%s%s goal %ld target %d moved %d reach %ld travel %ld seen %d", player_absolute_index,
+				game_time_get(), position.x, position.y, position.z, body.velocity.i * BOT_TICKS_PER_SECOND, body.velocity.j * BOT_TICKS_PER_SECOND,
+				body.velocity.k * BOT_TICKS_PER_SECOND, bot->yaw, bot->thumb_x, bot->thumb_y,
+				(action->control_flags & FLAG(_unit_control_jump_bit)) ? " J" : "", (action->control_flags & FLAG(_unit_control_crouch_modifier_bit)) ? " C" : "",
+				bot->goal_kind, target != NONE, moved, bot->mover.move.reach, (long)result.travel, bot->target_unit != NONE);
+			if (action->control_flags & FLAG(_unit_control_jump_bit))
+				bot_log("jc bot%ld t%ld cause %d target %d reach %ld", player_absolute_index, game_time_get(), bot_jump_cause, target != NONE, bot->mover.move.reach);
+		}
+	}
 	{
 		static int log = -1;
 		if (log < 0)

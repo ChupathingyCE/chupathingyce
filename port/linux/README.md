@@ -1094,6 +1094,55 @@ cost of a gap (see above), the route of a bot goes around the barricade.
 In a game of capture the flag of 7 minutes with 8 bots, no bot hopped
 across a barricade.
 
+**Hops at nothing.** In games on six maps, a bot of skill 5 jumped 6 times
+a minute with no enemy in view. Most of these jumps had no cause that a
+person can see. These are the changes:
+
+- A bot that walks and hardly moves is "held up": it hops and steps to one
+  side. A body in the air moves slowly (more so with its legs folded), and
+  the bot counted that as held up. It hopped again in the tick in which it
+  came down, and went along a ledge in hops. A bot in the air is now not
+  held up. A bot that slips on a slope is.
+- A bot hops at a step in front of it only when it is on the ground.
+- A bot that moved less than 0.35 world units in a second is stuck: it
+  jumps, and steps to one side the second time. A bot that turned around
+  and came back to the same place was stuck by this rule. It is now not
+  stuck when it was 0.9 world units or more away in that second.
+- Near a corner of its route, a bot steers to a point on the next part of
+  the route when the floor to that point is clear. When it was not clear,
+  the bot steered at the corner, and it changed between the two from one
+  tick to the next. It now tries a point half as far along, and then a
+  quarter.
+- Across a step that the navigation calls a walk (floor on both sides, 0.12
+  world units or more up), a bot hops when it is at the step and on the
+  ground. Before, it hopped each 20 ticks.
+
+These are six games of 5 minutes with 8 bots of skill 5 (Battle Creek,
+Chill Out, Damnation, Prisoner, Hang 'Em High: slayer; Longest: capture the
+flag), with `HALO_BOT_REFINE=0` (before) and without it. The numbers are
+for each 10 minutes of a bot on foot:
+
+| | Before | After |
+| --- | --- | --- |
+| Jumps with no enemy in view | 61 | 27 |
+| Jumps with an enemy in view | 66 | 39 |
+| Hops because the bot was "held up" (all six games) | 691 | 132 |
+| Hops at a step (all six games) | 240 | 58 |
+| Times that a bot was "stuck" (all six games) | 104 | 76 |
+| Times that a bot came back to a place 3 to 8 seconds later, no enemy in view | 21 | 14 |
+| Seconds without movement, with an enemy in view | 19 | 15 |
+| Kills in the six games | 512 | 502 |
+
+In the test with four bots that go around the items of a map (nine maps:
+the ten maps above without Derelict), the bots completed 877 legs in a
+mean time of 11.9 seconds. With `HALO_BOT_REFINE=0` they completed 844 in
+12.3 seconds.
+
+`HALO_BOT_MOTION=<ticks>` writes the position, the speed and the controls
+of each bot on foot to the log each so many ticks. `HALO_BOT_REFINE=0`
+turns these five changes off (a sum of 1, 2, 4, 8 and 16 turns on the
+change for held up, corners, walked steps, stuck and hops at a step).
+
 These settings are for tests: `HALO_BOT_GAPCOST=0` (a gap costs its run
 only), `HALO_BOT_STEEP=0` (jumps onto steep slopes stay ways),
 `HALO_BOT_RUNUP=<world units>` (the run before a gap) and

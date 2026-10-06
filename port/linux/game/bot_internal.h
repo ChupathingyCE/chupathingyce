@@ -63,6 +63,7 @@ struct bot_move_state
 	long reach_settle_ticks; /* held back from a jump it was going across the line of */
 	long jump_hold; /* ticks more the jump button is held, for a jump the game has not taken yet */
 	long stand_ticks; /* how long it has been standing up (its legs not tucked) */
+	real progress_path; /* the furthest it has been from where it was last looked at for being stuck */
 	long landed_reach; /* a jump or a gap just made (NONE: none), watched a moment for whether it stays there */
 	long landed_until;
 	real landed_z;
@@ -148,6 +149,7 @@ struct bot_body
 	int teams; /* a team game */
 	real speed_scale; /* how fast it runs, of the usual (slayer's bonus for dying, penalty for killing) */
 	int can_jump; /* on its feet, on something it stands on, and not just down from a jump: the game takes a jump from it this tick */
+	int airborne; /* off the ground */
 };
 
 struct bot_move_result
@@ -170,6 +172,11 @@ struct bot_move_result
 	real steer_yaw;
 	int get_out;
 };
+
+/* testing: HALO_BOT_REFINE=0 moves the bots as they moved before the last
+   round of refinements to their walking (one switch for the lot, for a
+   comparison in the same build) */
+int bot_refined(void);
 
 void bot_move_reset(struct bot_move_state *move);
 /* one tick's movement toward goal (on foot, or driving) */

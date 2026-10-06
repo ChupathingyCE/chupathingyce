@@ -48,6 +48,23 @@ static real bot_move_distance(real_point3d const *a, real_point3d const *b)
 	return (real)sqrt(dx * dx + dy * dy + dz * dz);
 }
 
+static int bot_refined_is(int which)
+{
+	static int asked, on = 31;
+	if (!asked)
+	{
+		asked = TRUE;
+		if (getenv("HALO_BOT_REFINE"))
+			on = atoi(getenv("HALO_BOT_REFINE"));
+	}
+	return (on & which) != 0;
+}
+
+int bot_refined(void)
+{
+	return bot_refined_is(31);
+}
+
 void bot_move_reset(struct bot_move_state *move)
 {
 	long i;
@@ -96,6 +113,8 @@ void bot_move_reset(struct bot_move_state *move)
 #define BOT_REACH_STALL_TICKS 15
 /* how long the jump button is held for a jump that has not come yet */
 #define BOT_JUMP_HOLD 8
+/* how far off a bot has been in a second that is not stuck, back where it began or not */
+#define BOT_STUCK_PATH 0.9f
 /* ... and how long it has to have been standing up to be jumped from */
 #define BOT_STAND_TICKS 8
 
@@ -1250,8 +1269,14 @@ static boolean bot_move_travel(struct bot_mover *bot, struct bot_body const *bod
 				move->reach_started = TRUE;
 				result->yaw = bot_yaw_to(position, bot_distance2d(position, landing) > 0.15f ? landing : &reach->end);
 				/* (up a step that isn't being walked up: a hop) */
-				if (landing->z > position->z + 0.12f && bot_distance2d(position, landing) < 0.6f && (move->reach_ticks % 20) == 10)
+				/* (as soon as it is at it and on its feet: it was on every
+				   twentieth tick, wherever the bot was by then, and a step
+				   a foot high was bumped at for two seconds) */
+				if (landing->z > position->z + 0.12f && bot_distance2d(position, landing) < 0.6f &&
+					(bot_refined_is(4) ? body->can_jump && move->jump_cooldown <= 0 && bot_distance2d(position, landing) < 0.45f : (move->reach_ticks % 20) == 10))
+				{
 					result->jump = TRUE;
+				}
 			}
 			break;
 		}
@@ -2126,12 +2151,50 @@ void bot_move_to_goal(struct bot_mover *bot, struct bot_body const *body, struct
 		{
 			real along = MIN(leg, BOT_CORNER_ROUND - to_corner) / leg;
 			real_point3d spot;
-			spot.x = corners[0].x + (corners[1].x - corners[0].x) * along;
-			spot.y = corners[0].y + (corners[1].y - corners[0].y) * along;
-			spot.z = corners[0].z + (corners[1].z - corners[0].z) * along;
-			if (fabs(spot.z - position->z) < 0.6f && navm_line_arrives(position, &spot, 0.3f, 0.35f, FALSE))
-				result->yaw = bot_yaw_to(position, &spot);
+			long nearer;
+			/* (as far along the way after the corner as the floor from here
+			   is clear to: where it is not clear to all of that, to half of
+			   it, to a quarter. It was all or nothing, and a corner whose
+			   inside the line across just clipped was steered at, then
+			   round, then at again, from one tick to the next: the feet
+			   wagged into every such turn) */
+			for (nearer = 0; nearer < (bot_refined_is(2) ? 3 : 1); nearer++)
+			{
+				spot.x = corners[0].x + (corners[1].x - corners[0].x) * along;
+				spot.y = corners[0].y + (corners[1].y - corners[0].y) * along;
+				spot.z = corners[0].z + (corners[1].z - corners[0].z) * along;
+				if (fabs(spot.z - position->z) < 0.6f && navm_line_arrives(position, &spot, 0.3f, 0.35f, FALSE))
+				{
+					result->yaw = bot_yaw_to(position, &spot);
+					break;
+				}
+				along *= 0.5f;
+				if (along * leg < 0.12f)
+					break;
+			}
 		}
+	}
+	/* (testing, with HALO_BOT_BOXTRACE: a turn right round in its walk, and
+	   what changed with it: the place it is going to, the area that is in,
+	   the first link of its way) */
+	{
+		static real was_yaw[32];
+		static long was_first[32], was_goal_area[32], was_tick[32], was_area[32];
+		static real_point3d was_goal[32];
+		long k = bot->index & 31;
+		long first = move->corridor_count > 0 ? move->corridor[0] : NONE;
+		if (getenv("HALO_BOT_BOXTRACE") && was_tick[k] == game_time_get() - 1 && fabs(bot_angle_difference(result->yaw, was_yaw[k])) > 2.2f)
+			bot_log("uturn bot%ld t%ld at %.2f %.2f %.2f: yaw %.2f -> %.2f, goal moved %.2f, goal area %ld -> %ld, area %ld -> %ld, first %ld (travel %d to %ld) -> %ld (travel %d to %ld), corridor %ld, avoiding %d",
+				bot->index, (long)game_time_get(), position->x, position->y, position->z, was_yaw[k], result->yaw, bot_move_distance(&goal->origin, &was_goal[k]),
+				was_goal_area[k], goal_area, was_area[k], area, was_first[k], was_first[k] != NONE ? (int)aas_reach(type, was_first[k])->travel : -1,
+				was_first[k] != NONE ? aas_reach(type, was_first[k])->to : NONE, first, first != NONE ? (int)aas_reach(type, first)->travel : -1,
+				first != NONE ? aas_reach(type, first)->to : NONE, move->corridor_count, (int)bot_move_avoids_any(move));
+		was_yaw[k] = result->yaw;
+		was_first[k] = first;
+		was_goal_area[k] = goal_area;
+		was_goal[k] = goal->origin;
+		was_tick[k] = game_time_get();
+		was_area[k] = area;
 	}
 	move->corner = corners[0];
 	/* A sharp turn with nothing past it to overrun onto: taken at a walk. A
@@ -2228,7 +2291,7 @@ finish:
 		result->yaw = bot_move_dodge(bot, body, result->yaw);
 		/* a step just too high to walk up (a curb, a sill): hop it (not
 		   off the far side of what the step is on) */
-		if (bot_move_step_ahead(body, result->yaw) && bot_move_hop_lands(body, result->yaw))
+		if ((body->can_jump || !bot_refined_is(16)) && bot_move_step_ahead(body, result->yaw) && bot_move_hop_lands(body, result->yaw))
 		{
 			result->jump = TRUE;
 			if (getenv("HALO_BOT_BOXTRACE"))
@@ -2278,7 +2341,13 @@ finish:
 	if (type == AAS_FOOT && move->human && result->moving && move->reach == NONE && move->unstick_ticks <= 0)
 	{
 		real expected = aas_speed(type) * BOT_TICK * (result->speed > 0.f ? result->speed : 1.f) * (body->speed_scale > 0.f ? body->speed_scale : 1.f);
-		if (move->stall_valid && bot_distance2d(position, &move->stall_point) < expected * BOT_STALL_FRACTION)
+		/* (on the ground: a body in the air goes as it was thrown, slowly
+		   when its legs are tucked up, and is held up by nothing. Counted
+		   as held up there, it was hopped again the tick it came down,
+		   and went along a ledge it had just jumped onto in hops. One that
+		   slips on a bank of rock is held up, and the hop and the step
+		   aside are what get it off the bank) */
+		if (move->stall_valid && (!body->airborne || !bot_refined_is(1)) && bot_distance2d(position, &move->stall_point) < expected * BOT_STALL_FRACTION)
 			move->stall_ticks++;
 		else
 			move->stall_ticks = 0;
@@ -2342,6 +2411,8 @@ finish:
 	}
 	else
 		move->reach_stall_ticks = 0;
+	/* (how far from where it was last looked at it has been since) */
+	move->progress_path = MAX(move->progress_path, bot_distance2d(position, &move->progress_point));
 	move->stall_point = *position;
 	move->stall_valid = result->moving;
 	/* (testing, HALO_BOT_WALKTRACE: a walk that is being held up, every third tick) */
@@ -2380,7 +2451,13 @@ finish:
 			real to_goal_now = bot_distance2d(position, &goal->origin);
 			int nearer = to_goal_now < move->progress_goal_distance - 0.5f; /* (closer to where we're going: that's progress) */
 			move->progress_goal_distance = to_goal_now;
-			if (!nearer && (bot_distance2d(position, &move->progress_point) < 0.35f || move->unstick_check))
+			/* (... and having gone nowhere: a bot that turned right round
+			   and is back where it was a second ago has been a unit away
+			   and come back, and is held up by nothing. It was hopped and
+			   stepped aside for it, as one that is stuck is: a jump at
+			   nothing after every turn about) */
+			if (!nearer && (bot_distance2d(position, &move->progress_point) < 0.35f || move->unstick_check) &&
+				!(bot_refined_is(8) && move->progress_path > BOT_STUCK_PATH && !move->unstick_check))
 			{
 				move->stuck_count++;
 				if (bot_logging())
@@ -2426,6 +2503,7 @@ finish:
 				move->unstick_check = FALSE;
 			move->progress_point = *position;
 			move->progress_ticks = 0;
+			move->progress_path = 0.f;
 		}
 		if (move->unstick_ticks > 0 && move->reach == NONE)
 		{
