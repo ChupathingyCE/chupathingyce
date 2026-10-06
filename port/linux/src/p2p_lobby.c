@@ -243,8 +243,8 @@ static int listing_make(unsigned char *bytes, int flags)
 	bytes[size++] = 'H';
 	bytes[size++] = 'L';
 	bytes[size++] = LISTING_FORMAT;
-	bytes[size++] = (unsigned char)(HALO_PORT_NETWORK_VERSION >> 8);
-	bytes[size++] = (unsigned char)HALO_PORT_NETWORK_VERSION;
+	bytes[size++] = (unsigned char)(delta_legacy_announce() >> 8);
+	bytes[size++] = (unsigned char)delta_legacy_announce();
 	bytes[size++] = (unsigned char)flags;
 	put_long(bytes + size, ++lobby.sequence);
 	size += 4;
@@ -605,8 +605,8 @@ static void update_browsing(void)
 		int good;
 
 		memmove(lobby.queue, lobby.queue + 1, sizeof(*lobby.queue) * (size_t)(--lobby.queue_count));
-		if (!listing_read(queued.payload, queued.size, &listing) || listing.version < HALO_PORT_NETWORK_VERSION_MINIMUM ||
-			listing.version > HALO_PORT_NETWORK_VERSION_MAXIMUM ||
+		if (!listing_read(queued.payload, queued.size, &listing) || listing.version < delta_legacy_minimum() ||
+			listing.version > delta_legacy_maximum() ||
 			!signing_key_hash(listing.key, key_hash) || memcmp(key_hash, queued.key_hash, P2P_KEY_HASH_SIZE))
 		{
 			continue;

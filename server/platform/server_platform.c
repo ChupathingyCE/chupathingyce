@@ -57,7 +57,7 @@ static volatile sig_atomic_t stop_requested;
 static void print_version(void)
 {
 	printf("ChupathingyCE Dedicated Server %s (linux-%s, network version %d)\n", HALO_VERSION,
-		SERVER_ARCHITECTURE, (int)HALO_PORT_NETWORK_VERSION);
+		SERVER_ARCHITECTURE, delta_legacy_announce());
 }
 
 static void print_usage(FILE *stream)
