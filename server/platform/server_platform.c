@@ -27,6 +27,7 @@ never hosts.
 #include "posix.h"
 #include "browser.h"
 #include "halo_port_limits.h"
+#include "delta.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -188,6 +189,8 @@ static void server_arguments(void)
 	}
 	platform_log("ChupathingyCE Dedicated Server %s (linux-%s)", HALO_VERSION, SERVER_ARCHITECTURE);
 	server_check_data();
+	/* (the legacy table: a newer one fetched meanwhile) */
+	delta_legacy_start();
 	/* a write to a connection the other end closed fails instead of ending
 	the server (as sdl_platform.c); SIGTERM and SIGINT stop it at the next
 	frame */
