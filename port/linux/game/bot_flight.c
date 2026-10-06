@@ -2117,6 +2117,16 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 				   hangar's mouth, is not over it a length further on) */
 				to = pilot->stuck_point;
 				want_z = MIN(height, pilot->rest_z + 3.f);
+				/* (something over it that it cannot rise through, the
+				   underside of a bridge it came down beneath: no higher
+				   than there is room, and off on its wings from where it
+				   is) */
+				if (want_z > position->z + 1.f)
+				{
+					real room = air_ray(position, yaw, 1.5707964f, want_z - position->z + 6.f, body->vehicle_index);
+					if (room < want_z - position->z + 5.f)
+						want_z = MIN(want_z, MAX(position->z + room - 5.f, position->z - 1.f));
+				}
 				if (position->z > want_z - 1.f && fabs(bot_angle_difference(yaw, body->facing_yaw)) < 0.8f)
 					pilot->hovering = FALSE;
 			}
@@ -2161,6 +2171,12 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 				   as fast as it is far, about) */
 				want = AIR_HOVER_SLOWING * MAX((real)fabs(ahead_of_it) + (ahead_of_it > 0.f ? more : 0.f) - 1.f, 0.f);
 				want = ahead_of_it < 0.f ? -MIN(want, 2.f) : MIN(want, limit);
+				/* (under a roof it goes along its nose only when its nose is
+				   on the way out: a Longsword stands on its pad with its
+				   tail to the hangar's mouth, and driven off while it was
+				   still coming round it went into the wall beside it) */
+				if (pilot->indoors && !landing && want > 0.f)
+					want *= PIN((0.5f - (real)fabs(bot_angle_difference(face, body->facing_yaw))) / 0.25f, 0.f, 1.f);
 				yaw = face;
 				pitch = PIN(-AIR_HOVER_LEAN * (want - forward), -0.35f, 0.6f);
 				/* (Leaning gets it two units a second and no more, the air

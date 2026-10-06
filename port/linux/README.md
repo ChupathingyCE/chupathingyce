@@ -1278,7 +1278,14 @@ tick.
 - **Up.** A pilot goes up 3 world units on the jets, turns to its route,
   and opens the throttle. Under a roof, it stays on the jets, 1.6 world
   units above the floor below it and the floor 7 world units ahead, at 6
-  to 9 world units a second, until it is out.
+  to 9 world units a second, until it is out. Under a roof it does not go
+  forward until its nose is less than 0.5 radians from the way out (the
+  Longsword of Hugeass stands with its tail to the door of the hangar; it
+  went forward during the turn, into the wall, and stayed at the ceiling:
+  4 of 5 Longswords in one test game, none of 3 and none of 2 in two games
+  after this). A pilot that has something above it (the bottom of a
+  bridge) does not go up on the jets: it flies out on its wings from the
+  height where it is.
 - **Down.** A pilot closes the throttle at a distance of 2.5 seconds of
   flight plus 20 world units from the place, comes over it on the jets, and
   goes down at 4 world units a second or less. In one test game, 14
