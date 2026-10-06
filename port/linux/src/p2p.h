@@ -106,6 +106,9 @@ in everyone's server browser: Create Game's PUBLIC; a private game is
 reached only by its invite. Going private makes a new invite, if the old one
 was listed */
 void p2p_set_hosting_public(int public);
+/* whether a dedicated server hosts: its listing says so, for browsers that
+list dedicated servers apart (the next p2p_set_game_listing publishes it) */
+void p2p_set_hosting_dedicated(int dedicated);
 /* the hosted game's details as listed (printable ASCII is kept; NULL leaves
 one as it was): the game's server calls it as they change (calling it with
 the same again costs little) */
@@ -134,7 +137,7 @@ struct p2p_listing
 	char map[P2P_LISTING_MAP_SIZE + 1];
 	char gametype[P2P_LISTING_GAMETYPE_SIZE + 1];
 	unsigned char player_count, maximum_player_count, engine_type;
-	unsigned char open, in_progress, has_teams;
+	unsigned char open, in_progress, has_teams, dedicated;
 	/* joining it failed this run (p2p_lobby_mark_failed) */
 	unsigned char failed;
 	/* milliseconds, -1 if not known */

@@ -93,6 +93,7 @@ void network_game_server_dedicated_start_countdown(struct network_game_server *s
 /* (internet play's: port/linux/src/p2p.c, p2p_lobby.c) */
 void p2p_set_hosting_allowed(int allowed);
 void p2p_set_hosting_public(int public);
+void p2p_set_hosting_dedicated(int dedicated);
 void network_game_accept_remote_connections(boolean accept);
 void game_engine_playlist_initialize(void);
 void game_engine_playlist_begin(void);
@@ -342,6 +343,7 @@ static boolean host(
 	browser if public) */
 	p2p_set_hosting_allowed(TRUE);
 	p2p_set_hosting_public(dedicated.public_game);
+	p2p_set_hosting_dedicated(TRUE);
 	player_ui_fast_setup_network_server();
 	if (!global_network_game_server_get() || !global_network_game_client_get())
 	{
