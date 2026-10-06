@@ -421,6 +421,14 @@ boolean network_game_has_free_player_slot(
 
 	if (game->player_count >= game->maximum_players)
 		return FALSE;
+#ifdef HALO_GAME_BROWSER
+	/* port: no more players than a Delta machine of the hosted game says it
+	takes (its platform key: a console; port/linux/src/delta_peer.h). No
+	limit unless one says so */
+	{ int delta_peer_host_player_limit(void);
+	  if (game->player_count >= delta_peer_host_player_limit())
+		return FALSE; }
+#endif
 	for (player_index = 0; player_index < NETWORK_GAME_PLAYER_SLOTS; player_index++)
 	{
 		if (game->players[player_index].player_list_index == NONE &&

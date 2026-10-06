@@ -814,6 +814,14 @@ static struct
 } network_game_client_advertised_versions[MAXIMUM_NETWORK_ADVERTISED_GAMES];
 
 
+#ifdef HALO_GAME_BROWSER
+/* port: the joined game's advertisement's flags (HALO_PORT_ADVERTISED_FLAGS_OFFSET),
+for Delta Peer (network_game_client_delta_frame); 0 for the host's own game */
+static byte network_game_client_joined_flags;
+static void network_game_client_delta_frame(struct network_game_client *client);
+void delta_peer_game_stop(int host);
+#endif
+
 struct network_game_client network_game_client_dont_use_directly;
 boolean allow_out_of_sync = FALSE;
 boolean network_game_client_dont_use_directly_in_use = FALSE;
@@ -919,6 +927,9 @@ void network_game_client_dispose(
 		network_game_client_dont_use_directly_in_use = FALSE;
 	}
 
+#ifdef HALO_GAME_BROWSER
+	delta_peer_game_stop(FALSE);
+#endif
 	network_event("network client disposed");
 
 	return;
@@ -1256,6 +1267,10 @@ boolean network_game_client_idle(
 			!"unknown client state");
 		break;
 	}
+
+#ifdef HALO_GAME_BROWSER
+	network_game_client_delta_frame(client);
+#endif
 
 	return success;
 }
@@ -2029,6 +2044,16 @@ boolean network_game_client_initiate_join_game(
 	client->join_in_progress = TRUE;
 	client->connect_process = 0;
 	client->connection_attempt_time = system_milliseconds();
+#ifdef HALO_GAME_BROWSER
+	/* (an advertised game's flags; the host's own game, joined through
+	127.0.0.1, is no advertised one) */
+	{
+		long game_index = game - client->available_games;
+
+		network_game_client_joined_flags = game_index >= 0 && game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES ?
+			network_game_client_advertised_versions[game_index].flags : 0;
+	}
+#endif
 
 	csmemcpy(
 		&client->join_parameters,
@@ -3263,5 +3288,49 @@ long network_game_client_invite_host_advertisement(
 		return 1;
 	}
 	return 0;
+}
+#endif
+
+#ifdef HALO_GAME_BROWSER
+#include "memory/byte_swapping.h"
+#include "../../port/linux/src/delta_peer.h"
+
+/* port: Delta Peer's view of the joined game (port/linux/src/delta_peer.h):
+whether this client is in another machine's game, the host's address (as the
+game's sockets have it: a peer's virtual address over the invite tunnel),
+whether its advertisement has Delta's flag, this machine's index and each
+player's machine. Nothing of the game changes here, and the game never
+waits for Delta */
+static void network_game_client_delta_frame(
+	struct network_game_client *client)
+{
+	static signed char player_machines[DELTA_PEER_MAXIMUM_PLAYERS];
+	boolean joined = (client->state == _network_game_client_state_pregame ||
+		client->state == _network_game_client_state_ingame ||
+		client->state == _network_game_client_state_postgame) &&
+		client->connection && !global_network_game_server_get();
+	delta_u32 host = 0;
+	long index;
+
+	/* (this machine hosting: the host's session has its own machine) */
+	if (global_network_game_server_get())
+		return;
+	if (joined)
+	{
+		struct transport_address reliable, unreliable;
+
+		csmemset(&reliable, 0, sizeof(reliable));
+		csmemset(&unreliable, 0, sizeof(unreliable));
+		network_connection_get_address(client->connection, &reliable, &unreliable);
+		host = (delta_u32)SWAP4(reliable.address.ipv4_address);
+	}
+	for (index = 0; index < DELTA_PEER_MAXIMUM_PLAYERS; index++)
+	{
+		player_machines[index] = (signed char)(joined && index < MAXIMUM_NUMBER_OF_PLAYERS &&
+			network_player_is_valid(&client->game.players[index]) ? client->game.players[index].machine_index : -1);
+	}
+	delta_peer_game_client_frame(joined && host, host,
+		(network_game_client_joined_flags & DELTA_ADVERTISED_FLAG) != 0, network_game_client_get_machine_index(client),
+		player_machines);
 }
 #endif

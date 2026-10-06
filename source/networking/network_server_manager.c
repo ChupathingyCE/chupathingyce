@@ -483,6 +483,13 @@ server browser's listing of a public game (p2p_lobby.c) */
 void p2p_set_game_player_counts(int count, int maximum);
 void p2p_set_game_listing(const char *name, const char *map, const char *gametype, int engine_type, int open,
 	int in_progress, int has_teams);
+#ifdef HALO_GAME_BROWSER
+/* port: Delta Peer (port/linux/src/delta_peer.h), beside the game's
+protocol, which it leaves as it is: the hosted game's machines and players
+told to it each idle, and the game gone */
+static void network_game_server_delta_frame(struct network_game_server *server);
+void delta_peer_game_stop(int host);
+#endif
 
 /* ---------- constants */
 
@@ -1358,6 +1365,9 @@ void network_game_server_dispose(
 	network_game_server_memory_do_not_use_directly_in_use = FALSE;
 
 	p2p_set_game_player_counts(0, 0);
+#ifdef HALO_GAME_BROWSER
+	delta_peer_game_stop(TRUE);
+#endif
 	network_event("network server disposed");
 
 	return;
@@ -1465,6 +1475,9 @@ boolean network_game_server_idle(
 	server browser's listing) */
 	p2p_set_game_player_counts(server->game.player_count, server->game.maximum_players);
 	network_game_server_list(server);
+#ifdef HALO_GAME_BROWSER
+	network_game_server_delta_frame(server);
+#endif
 
 	if (network_game_server_game_is_valid(server))
 	{
@@ -5019,5 +5032,47 @@ unsigned long network_game_server_machine_ipv4_address(
 	}
 
 	return 0;
+}
+#endif
+
+#ifdef HALO_GAME_BROWSER
+#include "../../port/linux/src/delta_peer.h"
+
+/* Delta Peer's view of the hosted game (port/linux/src/delta_peer.h): its
+machines joined (the host's own, and each other's address, as
+network_game_server_machine_ipv4_address gives it) and each player's
+machine. Nothing of the game changes here */
+static void network_game_server_delta_frame(
+	struct network_game_server *server)
+{
+	static struct delta_peer_game_machine machines[MAXIMUM_NETWORK_MACHINE_COUNT];
+	static signed char player_machines[DELTA_PEER_MAXIMUM_PLAYERS];
+	int count = 0;
+	long index;
+
+	for (index = 0; index < MAXIMUM_NETWORK_MACHINE_COUNT && count < DELTA_PEER_MAXIMUM_MACHINES; index++)
+	{
+		struct network_game_server_client_machine *machine = &server->client_machines[index];
+		boolean local;
+
+		if (!network_game_server_client_machine_is_joined_to_game(server, machine) ||
+			machine->machine_index < 0 || machine->machine_index >= DELTA_PEER_MAXIMUM_MACHINES)
+		{
+			continue;
+		}
+		local = network_game_server_client_machine_is_local(server, machine);
+		machines[count].machine_index = (unsigned char)machine->machine_index;
+		machines[count].local = (unsigned char)local;
+		machines[count].ipv4 = local ? 0 :
+			(delta_u32)network_game_server_machine_ipv4_address(server, machine->machine_index);
+		if (local || machines[count].ipv4)
+			count++;
+	}
+	for (index = 0; index < DELTA_PEER_MAXIMUM_PLAYERS; index++)
+	{
+		player_machines[index] = (signed char)(index < MAXIMUM_NETWORK_PLAYER_COUNT &&
+			network_player_is_valid(&server->game.players[index]) ? server->game.players[index].machine_index : -1);
+	}
+	delta_peer_game_host_frame(machines, count, player_machines);
 }
 #endif
