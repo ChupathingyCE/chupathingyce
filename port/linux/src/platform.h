@@ -102,6 +102,33 @@ const char *platform_data_root(void);
 out of an Xbox disc image into destination (sdl_platform.c), and quits if
 the player declines; nonzero once destination has one */
 BOOL platform_offer_game_data(const char *destination);
+/* what the data root's maps folder holds, which should be the Xbox maps
+(sdl_platform.c tells the player when it is not, rather than the game
+failing on Halo PC's ui.map) */
+enum
+{
+	_maps_folder_xbox,
+	/* its ui.map is Halo PC's (retail's, version 7, or Custom Edition's, 609) */
+	_maps_folder_halo_pc,
+	/* it has no ui.map (or one that is not a map) */
+	_maps_folder_no_ui,
+};
+#define PLATFORM_MAPS_FOLDER_NAMED 4
+struct platform_maps_folder
+{
+	int state;
+	/* the data root, whole */
+	char root[1024];
+	long ui_version;
+	/* Halo PC maps in maps/ itself (not named <name>@ce.map or
+	<name>@md.map): how many, and the first PLATFORM_MAPS_FOLDER_NAMED's
+	names */
+	long stray_pc_maps;
+	char stray_names[256];
+	/* and in maps/ce and md_maps */
+	long pc_maps_beside;
+};
+void platform_maps_folder_check(struct platform_maps_folder *maps);
 /* the macOS application's folder for its data and settings, when the game
 runs as an application (ChupathingyCE.app): ~/Library/Application
 Support/ChupathingyCE, made if need be, into path; 0 otherwise (and on
