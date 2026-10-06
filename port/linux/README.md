@@ -318,6 +318,8 @@ the setting for one start of the game. It has priority over the file.
 | `controls.<action>` | (the table in "Controls") | `HALO_KEY_<ACTION>` | The keys and mouse buttons of an action, up to two, separated by a comma: `move_forward`, `move_backward`, `strafe_left`, `strafe_right`, `jump`, `crouch`, `fire`, `throw_grenade`, `melee`, `reload`, `zoom`, `switch_weapon`, `switch_grenade`, `action`, `flashlight`, `scoreboard`, `pause`. Keys by their names (`"W"`, `"Space"`, `"Left Ctrl"`, `"F1"`), and `"Mouse Left"`, `"Mouse Right"`, `"Mouse Middle"`, `"Mouse 4"`, `"Mouse 5"`, `"Wheel"` (either way), `"Wheel Up"`, `"Wheel Down"`. |
 | `game.console_log` | `"important"` | `HALO_CONSOLE_LOG` | What the console shows on the screen. `"important"`: bans, players that the host drops for cheating, the reasons that the game refuses a command, and the asserts that stop the game. `"all"`: all the lines. `"none"`: only the asserts that stop the game. The output of a command always shows. `debug.txt` gets all the lines. |
 | `game.language` | `""` | `HALO_LANGUAGE` | The language of the menus: `ja`, `de`, `fr`, `es` or `it`. Empty: English. |
+| `game.vehicle_multiplier` | `1` | `HALO_VEHICLE_MULTIPLIER` | The number of each vehicle of a map in the multiplayer games that this machine hosts: `1` to `4`. Refer to "More vehicles". |
+| `game.vehicle_multiplier_maps` | `""` | `HALO_VEHICLE_MULTIPLIER_MAPS` | The maps that `game.vehicle_multiplier` is for: the names of their files, with commas between them (`"hugeass,coldsnap"`). Empty: all maps. |
 | `paths.data` | `""` | `HALO_DATA_ROOT` | The data root. Refer to "Start the game". |
 | `paths.saves` | `""` | `HALO_SAVE_ROOT` | The save root. Refer to "Files and folders". |
 | `network.address` | `""` | `HALO_NET_ADDRESS` | The IPv4 address of this machine for system link. Refer to "Play on one computer". |
@@ -1525,6 +1527,36 @@ In a test, all the empty vehicles of Coldsnap and Hugeass were killed at
 names at the end of the test, 80 seconds later. With no time (the setting `never`), only the
 vehicles that the scripts of the maps make again came back (the Longsword,
 and two kinds of walker); the wrecks of the others stayed.
+
+### More vehicles
+
+With `game.vehicle_multiplier` set to 2, 3 or 4, the host makes that
+number of each vehicle of the map. For Hugeass with three of each vehicle,
+put these lines in the `[game]` section of `config.toml`:
+
+```
+vehicle_multiplier = 3
+vehicle_multiplier_maps = "hugeass"
+```
+
+- Half a second into the game, the host makes the other vehicles. It puts
+  each one next to a vehicle of the map: to its sides, behind it or in
+  front of it, up to 3 widths or 3 lengths away. The place must have level
+  ground at about the same height (1.2 world units or less higher or
+  lower), nothing of the map between it and the vehicle of the map,
+  nothing of the map around it or 1.2 world units above it, and no other
+  vehicle. If no place is free, the host does not make that vehicle, and
+  `debug.txt` has the number.
+- The clients get these vehicles from the host, as they get each vehicle
+  that the host makes.
+- When the game type has a time for vehicles to come back, these vehicles
+  come back to their places also.
+- These vehicles have no names. A script of the map that moves a vehicle
+  by its name (a gate of Coldsnap) does not move them.
+
+On Hugeass the map has 36 vehicles, and with the setting 3 the host made
+all 72 others. In a test game of 7 minutes of capture the flag with 11
+bots, 12 jets, 6 Pelicans and 3 Longswords were flown.
 
 ### The characters of the bots
 

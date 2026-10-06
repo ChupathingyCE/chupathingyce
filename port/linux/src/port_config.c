@@ -246,6 +246,14 @@ static const struct config_setting config_settings[] =
 		"chatter too), or \"none\" (the asserts that stop the game only). What\n"
 		"a command prints shows whatever this is, and debug.txt has every line." },
 
+	{ "game.vehicle_multiplier", _config_integer, "1", "HALO_VEHICLE_MULTIPLIER", _environment_value, _platform_all,
+		"How many of each of a map's vehicles the multiplayer games this\n"
+		"machine hosts have: 1 as the map has them, 2 to 4 that many of each,\n"
+		"the others put beside the map's own where there is room for them." },
+	{ "game.vehicle_multiplier_maps", _config_string, "\"\"", "HALO_VEHICLE_MULTIPLIER_MAPS", _environment_value, _platform_all,
+		"The maps game.vehicle_multiplier is for, by their files' names with\n"
+		"commas between (\"hugeass,coldsnap\"); empty for every map." },
+
 	{ "game.language", _config_string, "\"\"", "HALO_LANGUAGE", _environment_value, _platform_all,
 		"The language the game asks the Xbox for: \"ja\", \"de\", \"fr\", \"es\" or \"it\";\n"
 		"empty for English. The game data decides what is translated." },

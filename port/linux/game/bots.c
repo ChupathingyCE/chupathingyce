@@ -6281,7 +6281,7 @@ static void bots_world_tick(void)
 	/* ...and, once, every place on the map (where players start, where
 	   things lie, the flags): whether there's a way there from where the
 	   first player starts, and back */
-	if (bot_env_set("HALO_BOT_ITEMS") && now == 30 && aas_ready() && nav_place_count() > 0)
+	if (bot_env_set("HALO_BOT_ITEMS") && now == (atol(getenv("HALO_BOT_ITEMS")) > 1 ? atol(getenv("HALO_BOT_ITEMS")) : 30) && aas_ready() && nav_place_count() > 0)
 	{
 		long p;
 		real_point3d const *home = aas_place(0);
@@ -6344,7 +6344,7 @@ static void bots_world_tick(void)
 			}
 		}
 	}
-	if (bot_env_set("HALO_BOT_ITEMS") && now == 30)
+	if (bot_env_set("HALO_BOT_ITEMS") && now == (atol(getenv("HALO_BOT_ITEMS")) > 1 ? atol(getenv("HALO_BOT_ITEMS")) : 30))
 	{
 		static char const *const kinds[NUMBER_OF_BOT_VEHICLE_KINDS] = { "tank", "jeep", "boat", "plane", "scout", "fighter", "turret" };
 		struct object_iterator vehicles;

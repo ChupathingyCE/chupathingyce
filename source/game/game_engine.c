@@ -573,6 +573,7 @@ struct network_game *network_game_server_get_game(struct network_game_server *se
 #include "objects.h"
 #include "objects/damage_effect_definitions.h"
 #include "physics/collision_features.h"
+#include "physics/collisions.h"
 #include "player_rumble.h"
 #include "players.h"
 #include "players_runtime.h"
@@ -4198,6 +4199,234 @@ static struct
 } game_engine_vehicle_homes[MAXIMUM_VEHICLE_HOMES];
 static short game_engine_vehicle_home_count = NONE;
 
+/* port: more of each of a map's vehicles (the settings
+game.vehicle_multiplier and game.vehicle_multiplier_maps): the host makes
+the others when the game starts, each beside the map's own where there is
+room for it (ground about as high and as level, nothing of the map between
+or about it, clear of every other vehicle), and they come back as the
+map's own do. The clients get them as they get anything the host makes
+(the distributed netcode). They have no names: a map's script that names a
+vehicle means the map's own. */
+static long game_engine_vehicle_multiplier(
+	void)
+{
+	extern long config_integer(char const *name);
+	extern char const *game_options_map_name(void);
+	long multiplier = config_integer("game.vehicle_multiplier");
+	char const *maps = config_string("game.vehicle_multiplier_maps");
+
+	multiplier = PIN(multiplier, 1, 4);
+	if (multiplier > 1 && maps && *maps)
+	{
+		/* (the map by its file's name: without its folder, and without
+		the @ce or @md it is played under) */
+		char const *played = game_options_map_name();
+		char name[64];
+		char const *cut;
+		long length;
+		boolean found = FALSE;
+
+		if (!played)
+			return 1;
+		for (cut = played; *cut; cut++)
+		{
+			if (*cut == '\\' || *cut == '/')
+				played = cut + 1;
+		}
+		for (length = 0; played[length] && played[length] != '@' && played[length] != '.' && length < (long)sizeof(name) - 1; length++)
+			name[length] = (char)(played[length] >= 'A' && played[length] <= 'Z' ? played[length] + 32 : played[length]);
+		name[length] = 0;
+		while (*maps && !found)
+		{
+			long k = 0;
+
+			while (*maps == ',' || *maps == ' ')
+				maps++;
+			while (maps[k] && maps[k] != ',' && maps[k] != ' ' && maps[k] != '@' && maps[k] != '.')
+				k++;
+			if (k == length && k > 0)
+			{
+				long c;
+
+				found = TRUE;
+				for (c = 0; c < k; c++)
+				{
+					char letter = (char)(maps[c] >= 'A' && maps[c] <= 'Z' ? maps[c] + 32 : maps[c]);
+
+					if (letter != name[c])
+						found = FALSE;
+				}
+			}
+			maps += k;
+			while (*maps && *maps != ',')
+				maps++;
+		}
+		if (!found)
+			multiplier = 1;
+	}
+	return multiplier;
+}
+
+static boolean game_engine_vehicle_spot(
+	short home,
+	long copy,
+	real_point3d *spot)
+{
+	/* (to its hands, behind it and before it, and further out: so many
+	of its widths to the left, so many of its lengths forward) */
+	static signed char const offsets[24][2] =
+	{
+		{ 1, 0 }, { -1, 0 }, { 0, -1 }, { 0, 1 }, { 1, -1 }, { -1, -1 }, { 1, 1 }, { -1, 1 },
+		{ 2, 0 }, { -2, 0 }, { 0, -2 }, { 0, 2 }, { 2, -1 }, { -2, -1 }, { 2, 1 }, { -2, 1 },
+		{ 1, -2 }, { -1, -2 }, { 1, 2 }, { -1, 2 }, { 3, 0 }, { -3, 0 }, { 0, -3 }, { 0, 3 },
+	};
+	unsigned long const solid = FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_structure_bit) |
+		FLAG(_collision_test_objects_bit) | FLAG(_collision_test_objects_scenery_bit) | FLAG(_collision_test_objects_machines_bit);
+	long object_index = game_engine_vehicle_homes[home].object_index;
+	struct object_datum *object = object_get(object_index);
+	real_point3d const *origin = &game_engine_vehicle_homes[home].position;
+	real_vector3d forward = game_engine_vehicle_homes[home].forward;
+	real_vector3d left;
+	real radius = MAX(object->object.bounding_sphere_radius, 0.6f);
+	real ground = origin->z - 0.5f;
+	struct collision_result collision;
+	real_vector3d ray;
+	real_point3d from;
+	long tried;
+
+	forward.k = 0.0f;
+	if (normalize3d(&forward) <= 0.0f)
+	{
+		forward.i = 1.0f;
+		forward.j = 0.0f;
+	}
+	left.i = -forward.j;
+	left.j = forward.i;
+	left.k = 0.0f;
+	from = *origin;
+	from.z += 0.5f;
+	ray.i = ray.j = 0.0f;
+	ray.k = -4.0f;
+	if (collision_test_vector(solid, &from, &ray, object_index, &collision))
+		ground = collision.point.z;
+	for (tried = 0; tried < 24; tried++)
+	{
+		real across = offsets[tried][0] * (radius * 1.3f + 0.3f);
+		real along = offsets[tried][1] * (radius * 2.1f + 0.3f);
+		real_point3d at;
+		struct object_iterator iterator;
+		boolean clear = TRUE;
+		long k;
+
+		at.x = origin->x + left.i * across + forward.i * along;
+		at.y = origin->y + left.j * across + forward.j * along;
+		at.z = origin->z;
+		/* (in the same room: nothing of the map from the one to the place) */
+		from = *origin;
+		from.z += 1.0f;
+		ray.i = at.x - from.x;
+		ray.j = at.y - from.y;
+		ray.k = 0.0f;
+		if (collision_test_vector(solid, &from, &ray, object_index, &collision))
+			continue;
+		/* (ground there, about as high, and level) */
+		from = at;
+		from.z = origin->z + 2.0f;
+		ray.i = ray.j = 0.0f;
+		ray.k = -5.0f;
+		if (!collision_test_vector(solid, &from, &ray, object_index, &collision) || fabs(collision.point.z - ground) > 1.2f ||
+			collision.plane.n.k < 0.85f)
+		{
+			continue;
+		}
+		at.z = origin->z + (collision.point.z - ground);
+		/* (room about it, and over it) */
+		from = at;
+		from.z += 0.6f;
+		for (k = 0; k < 8 && clear; k++)
+		{
+			ray.i = (real)cos(k * 0.7853982f) * radius * 0.9f;
+			ray.j = (real)sin(k * 0.7853982f) * radius * 0.9f;
+			ray.k = 0.0f;
+			if (collision_test_vector(solid, &from, &ray, object_index, &collision))
+				clear = FALSE;
+		}
+		ray.i = ray.j = 0.0f;
+		ray.k = 1.2f;
+		if (clear && collision_test_vector(solid, &from, &ray, object_index, &collision))
+			clear = FALSE;
+		/* (clear of every other vehicle, the ones just made too) */
+		object_iterator_new(&iterator, _object_mask_vehicle, 0);
+		while (clear && object_iterator_next(&iterator))
+		{
+			struct object_datum *other = object_get(iterator.index);
+			real dx = other->object.position.x - at.x;
+			real dy = other->object.position.y - at.y;
+			real dz = other->object.position.z - at.z;
+			real apart = 0.6f * (radius + MAX(other->object.bounding_sphere_radius, 0.6f));
+
+			if (dx * dx + dy * dy + dz * dz < apart * apart)
+				clear = FALSE;
+		}
+		if (clear)
+		{
+			*spot = at;
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+static void game_engine_vehicles_multiply(
+	void)
+{
+	long multiplier = game_engine_vehicle_multiplier();
+	short originals = game_engine_vehicle_home_count;
+	long made = 0, no_room = 0;
+	long copy;
+	short home;
+
+	if (multiplier <= 1)
+		return;
+	for (copy = 1; copy < multiplier; copy++)
+	{
+		for (home = 0; home < originals && game_engine_vehicle_home_count < MAXIMUM_VEHICLE_HOMES; home++)
+		{
+			struct object_placement_data placement_data;
+			real_point3d spot;
+			long new_index;
+			short added;
+
+			if (!object_try_and_get(game_engine_vehicle_homes[home].object_index))
+				continue;
+			if (!game_engine_vehicle_spot(home, copy, &spot))
+			{
+				no_room++;
+				continue;
+			}
+			object_placement_data_new(&placement_data, game_engine_vehicle_homes[home].definition_index, NONE);
+			placement_data.position = spot;
+			placement_data.forward = game_engine_vehicle_homes[home].forward;
+			placement_data.up = game_engine_vehicle_homes[home].up;
+			new_index = object_new(&placement_data);
+			if (new_index == NONE)
+			{
+				no_room++;
+				continue;
+			}
+			added = game_engine_vehicle_home_count++;
+			game_engine_vehicle_homes[added] = game_engine_vehicle_homes[home];
+			game_engine_vehicle_homes[added].object_index = new_index;
+			game_engine_vehicle_homes[added].position = spot;
+			game_engine_vehicle_homes[added].idle_since = NONE;
+			game_engine_vehicle_homes[added].name_index = NONE;
+			made++;
+		}
+	}
+	error(_error_log, "vehicles: %ld of each of the map's %d: %ld more made, %ld with no room beside the map's own",
+		multiplier, (int)originals, made, no_room);
+}
+
 static void game_engine_update_vehicle_respawn(
 	void)
 {
@@ -4215,9 +4444,17 @@ static void game_engine_update_vehicle_respawn(
 			respawn_ticks = forced * TICKS_PER_SECOND;
 	}
 
-	if (respawn_ticks <= 0 || network_game_distributed_client() || now % TICKS_PER_SECOND)
+	if (network_game_distributed_client())
 		return;
-	/* (where the map put them: the vehicles there at the first look) */
+	/* (where the map put them: the vehicles there at the first look, half a
+	second into the game, when they have come to rest; and the others of
+	them the settings ask for) */
+	if (game_engine_vehicle_home_count == NONE && now < TICKS_PER_SECOND / 2 && game_engine_vehicle_multiplier() > 1)
+		return;
+	if (game_engine_vehicle_home_count != NONE && (respawn_ticks <= 0 || now % TICKS_PER_SECOND))
+		return;
+	if (game_engine_vehicle_home_count == NONE && game_engine_vehicle_multiplier() <= 1 && (respawn_ticks <= 0 || now % TICKS_PER_SECOND))
+		return;
 	if (game_engine_vehicle_home_count == NONE)
 	{
 		struct object_iterator iterator;
@@ -4237,7 +4474,10 @@ static void game_engine_update_vehicle_respawn(
 			game_engine_vehicle_homes[home].idle_since = NONE;
 			game_engine_vehicle_homes[home].name_index = object->object.name_index;
 		}
+		game_engine_vehicles_multiply();
 	}
+	if (respawn_ticks <= 0 || now % TICKS_PER_SECOND)
+		return;
 	for (index = 0; index < game_engine_vehicle_home_count; index++)
 	{
 		struct unit_datum *vehicle;
