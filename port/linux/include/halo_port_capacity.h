@@ -50,12 +50,20 @@ The desktop builds (Linux, macOS and Windows, 32-bit and 64-bit) are not
 held to the Xbox's memory: their window is 512 MB (port/linux/src/platform.h) and
 their cache 128 MB, about twice Foundation's busiest frame; with it the
 window still has about 300 MB free. Nothing of the cache's size reaches
-the network or the game state. Android's window stays the development
-kit's 128 MB (its guest image is linked above it) and it plays no Halo PC
-maps yet, so its cache stays the Xbox's, as the console's does
-(HALO_XBOX_CONSOLE, the Xbox builds). */
+the network or the game state.
 
-#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
+Android's window stays the development kit's 128 MB (its guest image is
+linked just above it), 82 MB of it above the game state. Besides the
+texture cache, Portent and Foundation take about 23 MB of that in a game
+(the sound cache and Direct3D's resources), so Android's cache is twice
+the Xbox's, 44 MB, and leaves about 15 MB free: Portent's busiest frames
+fit, Foundation's (66 MB) do not, and some of its surfaces can show the
+wrong pixels there. The Xbox builds (HALO_XBOX_CONSOLE) keep the Xbox's
+cache. */
+
+#if defined(HALO_ANDROID)
+#define HALO_PORT_TEXTURE_CACHE_SIZE 0x2C00000 /* (0x1600000) */
+#elif !defined(HALO_XBOX_CONSOLE)
 #define HALO_PORT_TEXTURE_CACHE_SIZE 0x8000000 /* (0x1600000) */
 #else
 #define HALO_PORT_TEXTURE_CACHE_SIZE 0x1600000 /* (0x1600000) */

@@ -66,11 +66,19 @@ To install the data from a computer:
 | Item | Location in `/sdcard/Android/data/dev.horrible.chupathingyce/files` |
 | --- | --- |
 | Saved games (`z:\` and `u:\`) | `save` |
+| Halo PC (Custom Edition) maps, with `bitmaps.map`, `sounds.map` and `loc.map` | `maps/ce` |
+| HaloMD maps | `md_maps` |
 | Log | `debug.txt` |
 | Settings | `config.toml` |
 
 To make a copy of the saved games, enter
 `adb pull /sdcard/Android/data/dev.horrible.chupathingyce/files/save`.
+
+The app plays Halo PC (Custom Edition) and HaloMD maps as the other builds
+do: refer to "Halo PC maps" in the main [README](../../README.md#halo-pc-maps).
+Copy the files from a computer, for example
+`adb push <folder>/. /sdcard/Android/data/dev.horrible.chupathingyce/files/maps/ce/`.
+Refer to "Limits".
 
 ## Controls
 
@@ -406,6 +414,15 @@ If the addresses are not available, the game shows a message, and writes
 the mappings below 4 GB to `memory_map.txt` in the data folder and to the
 log.
 
+The Halo PC maps contain pointers to their own tag cache, at `0x40440000`
+to `0x41b40000`. The host also reserves this range at the start, in the
+same way, but the game can start without it. ART's main space starts at
+`0x12c00000` and is as large as the Java heap of the device
+(`dalvik.vm.heapsize`). If that heap is larger than about 700 MB, the main
+space covers the range, and the host does not take it. Then the game does
+not list or load Halo PC maps, and the log shows `cannot reserve Custom
+Edition maps' tag cache`.
+
 To test the reclaim on any device, set a system property before you start
 the game. The app then puts a stand-in for ART's large object space over
 the fixed addresses:
@@ -490,6 +507,16 @@ assembly of the port is necessary:
 ## Limits
 
 - Bink video is not available. The game skips the movies.
+- The Xbox memory is the 128 MB of a development kit, not the 512 MB of the
+  computer builds. Thus the texture cache is 44 MB, not 128 MB
+  (`port/linux/include/halo_port_capacity.h`). This is sufficient for the
+  Xbox maps and for most Halo PC maps (Portent draws 23 MB of textures in
+  a frame). Foundation draws up to 66 MB in a frame: some surfaces then
+  show incorrect textures. A larger Xbox memory needs a different address
+  for the guest image, which more devices could refuse.
+- Halo PC maps need the range at `0x40440000` (refer to "The fixed
+  addresses"). Devices with a Java heap larger than about 700 MB do not
+  play them.
 - The device must let the app reserve the fixed guest addresses, from
   `0x80000000` to `0x8c000000`. If ART uses them, the app shows a message
   (refer to "The fixed addresses").
