@@ -98,6 +98,10 @@ their handlers open opens.
 void platform_log(char const *format, ...);
 void platform_request_quit(void);
 char const *pc_menu_function_name(long function_index);
+#ifdef HALO_GAME_BROWSER
+/* (delta_peer_game.c's) */
+int delta_peer_host_coop(void);
+#endif
 char const *pc_menu_game_data_input_name(long function_index);
 void event_manager_post_button(short controller_index, short button_index);
 int config_text(char const *name, char *text, size_t size);
@@ -2431,6 +2435,15 @@ static boolean map_list_choose(struct widget_instance *list, boolean *widget_del
 		return campaign_fail();
 	if (map_list.step == MAP_STEP_DIFFICULTIES)
 	{
+#ifdef HALO_GAME_BROWSER
+		/* (no co-op while a machine that does not play it, the original
+		Xbox, is in the game: Delta's platform policy) */
+		if (!delta_peer_host_coop())
+		{
+			platform_log("Delta Peer: co-op is not offered while a machine that does not play it is in the game");
+			return campaign_fail();
+		}
+#endif
 		/* the co-op game set up, then Server Setup in the gametypes' place */
 		if (!ui_widget_port_cooperative_level_choose(main_get_solo_level_name(map_list.level), chosen))
 			return campaign_fail();

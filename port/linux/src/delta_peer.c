@@ -1169,6 +1169,24 @@ int delta_peer_room_has(const struct delta_peer *peer, int capability)
 	return (peer->room_capabilities & CAPABILITY(capability)) != 0;
 }
 
+int delta_peer_room_coop(const struct delta_peer *peer)
+{
+	int index;
+
+	if (peer->mode != _mode_host || peer->local.ignore_platform_limits)
+		return 1;
+	if (!delta_platform_policy_coop(peer->local.key.platform))
+		return 0;
+	/* (the policy counts whether or not a machine shares its platform for
+	display, as the player limit does) */
+	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+	{
+		if (peer->peers[index].used && !delta_platform_policy_coop(peer->peers[index].hello.key.platform))
+			return 0;
+	}
+	return 1;
+}
+
 int delta_peer_room_limit(const struct delta_peer *peer, int limit)
 {
 	if (limit != _delta_peer_limit_players || peer->mode == _mode_off)

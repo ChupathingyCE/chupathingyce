@@ -224,6 +224,10 @@ void delta_wire_write_key(unsigned char *data, const struct delta_platform_key *
 delta.h) as a key: platform, version, limits and memory class; an unknown
 platform's row for one this build does not know */
 void delta_platform_policy_default(int platform, struct delta_platform_key *key);
+/* the platform policy's co-op column: whether a machine of the platform
+plays network co-op (an unknown platform's row for one this build does not
+know) */
+int delta_platform_policy_coop(int platform);
 
 /* A token bucket: up to burst messages at once, refilled rate a second.
 1 if a message may be taken now (and takes it). Times in milliseconds,

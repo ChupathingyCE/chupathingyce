@@ -411,6 +411,13 @@ int delta_peer_host_player_limit(void)
 	return delta_peer_room_limit(&delta_game.peer, _delta_peer_limit_players);
 }
 
+int delta_peer_host_coop(void)
+{
+	if (!delta_game.ready || delta_game.role != _role_host)
+		return 1;
+	return delta_peer_room_coop(&delta_game.peer);
+}
+
 int delta_peer_machine_key(int machine_index, struct delta_platform_key *key)
 {
 	struct delta_peer_machine machine;

@@ -116,8 +116,8 @@ struct delta_platform_key
 	player's opt-in (at least join_players) */
 	unsigned char join_players;
 	unsigned char join_players_opt_in;
-	/* its memory: 1 up to 64 MB (the Xbox), 2 up to 512 MB, 3 up to 2 GB,
-	4 more; 0 unknown */
+	/* its memory, as log2 of megabytes: 6 for 64 MB (the Xbox), 7 128 MB,
+	8 256 MB, 9 512 MB, 10 1 GB, 11 2 GB, 12 4 GB...; 0 unknown */
 	unsigned char memory_class;
 	unsigned char reserved;
 };
@@ -126,22 +126,24 @@ struct delta_platform_key
 machine's key starts from and every host applies to protect the weakest
 machine of its game (delta_peer.c): the most players it hosts, the most of
 a game it joins (unless its player opted in: network.platform_limits =
-"off"), the most it joins opted in, and its memory class. One row a
-platform, in the registry's order. The consoles' rows are placeholders until
-their ports play (the original Xbox's is the owner's: 16 and 16); the signed
+"off"), the most it joins opted in, its memory class (log2 of megabytes),
+and whether it plays network co-op (a host offers no co-op while a machine
+that does not is in its game: delta_peer_room_coop). One row a platform, in
+the registry's order. The consoles' rows are placeholders until their ports
+play (the original Xbox's is the owner's: 16 and 16, no co-op); the signed
 legacy table's "platform_policy" section is to tune them without a release
 (delta_peer_platform_policy, delta_peer_game.c). */
 #define DELTA_PLATFORM_POLICY(X) \
-	X(_delta_platform_unknown, 128, 128, 128, 0) \
-	X(_delta_platform_pc_windows, 128, 128, 128, 4) \
-	X(_delta_platform_pc_macos, 128, 128, 128, 4) \
-	X(_delta_platform_pc_linux, 128, 128, 128, 4) \
-	X(_delta_platform_android, 128, 128, 128, 3) \
-	X(_delta_platform_steam_deck, 128, 128, 128, 4) \
-	X(_delta_platform_xbox, 16, 16, 128, 1) \
-	X(_delta_platform_xbox360, 16, 16, 128, 2) \
-	X(_delta_platform_wiiu, 16, 16, 128, 3) \
-	X(_delta_platform_switch, 16, 16, 128, 3)
+	X(_delta_platform_unknown, 128, 128, 128, 0, 1) \
+	X(_delta_platform_pc_windows, 128, 128, 128, 12, 1) \
+	X(_delta_platform_pc_macos, 128, 128, 128, 12, 1) \
+	X(_delta_platform_pc_linux, 128, 128, 128, 12, 1) \
+	X(_delta_platform_android, 128, 128, 128, 11, 1) \
+	X(_delta_platform_steam_deck, 128, 128, 128, 14, 1) \
+	X(_delta_platform_xbox, 16, 16, 128, 6, 0) \
+	X(_delta_platform_xbox360, 16, 16, 128, 9, 1) \
+	X(_delta_platform_wiiu, 16, 16, 128, 10, 1) \
+	X(_delta_platform_switch, 16, 16, 128, 12, 1)
 
 /* ---------- the legacy number */
 

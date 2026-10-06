@@ -193,7 +193,7 @@ static void pc_key(struct delta_platform_key *key, int platform)
 	key->host_players = 128;
 	key->join_players = 128;
 	key->join_players_opt_in = 128;
-	key->memory_class = 4;
+	key->memory_class = 12;
 }
 
 static void node_start(int index, delta_u32 ipv4, unsigned short port, delta_u32 capabilities, int platform,
@@ -701,7 +701,7 @@ static void test_limits(void)
 	nodes[1].peer.local.key.host_players = 16;
 	nodes[1].peer.local.key.join_players = 16;
 	nodes[1].peer.local.key.join_players_opt_in = 128;
-	nodes[1].peer.local.key.memory_class = 1;
+	nodes[1].peer.local.key.memory_class = 6;
 	game_reset();
 	game_add(1);
 	game_add(2);
@@ -715,6 +715,23 @@ static void test_limits(void)
 	shares none) */
 	CHECK(nodes[2].peer.client_state == _delta_peer_client_delta && nodes[2].peer.agreed == 0);
 	CHECK(!delta_peer_room_has(&nodes[0].peer, _delta_capability_platform));
+
+	/* (co-op: not offered while the Xbox is in the game, nor by an Xbox
+	host; the policy's defaults) */
+	CHECK(!delta_peer_room_coop(&nodes[0].peer));
+	CHECK(delta_peer_room_coop(&nodes[1].peer));
+	CHECK(delta_platform_policy_coop(_delta_platform_xbox) == 0 && delta_platform_policy_coop(_delta_platform_pc_linux));
+	CHECK(delta_platform_policy_coop(200) == 1);
+	{
+		struct delta_platform_key key;
+
+		delta_platform_policy_default(_delta_platform_xbox, &key);
+		CHECK(key.memory_class == 6 && key.host_players == 16);
+		delta_platform_policy_default(_delta_platform_xbox360, &key);
+		CHECK(key.memory_class == 9);
+		delta_platform_policy_default(_delta_platform_pc_windows, &key);
+		CHECK(key.memory_class == 12);
+	}
 
 	/* a key claiming more than its platform's row is held to the row */
 	{
@@ -750,11 +767,15 @@ static void test_limits(void)
 		frame(now, 3, joined, 1);
 	CHECK(delta_peer_room_limit(&nodes[0].peer, _delta_peer_limit_players) == DELTA_PEER_NO_LIMIT);
 
+	/* (a host that ignores the limits offers co-op too) */
+	CHECK(delta_peer_room_coop(&nodes[0].peer));
+
 	/* an Xbox host keeps its own game to its row's 16 */
 	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT, _delta_platform_xbox, 0, 0);
 	nodes[0].peer.local.key.host_players = 16;
 	delta_peer_host_frame(&nodes[0].peer, now, game_machines, game_machine_count, player_machines);
 	CHECK(delta_peer_room_limit(&nodes[0].peer, _delta_peer_limit_players) == 16);
+	CHECK(!delta_peer_room_coop(&nodes[0].peer));
 	queued = 0;
 }
 

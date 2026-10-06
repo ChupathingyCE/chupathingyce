@@ -301,6 +301,11 @@ capabilities are on only while this is so) */
 int delta_peer_room_has(const struct delta_peer *peer, int capability);
 /* the room's limit (enum delta_peer_limit); DELTA_PEER_NO_LIMIT if none */
 int delta_peer_room_limit(const struct delta_peer *peer, int limit);
+/* whether the host's game may be network co-op: no machine of it (its
+own, or a Delta machine's platform) is of a platform the policy keeps out
+of co-op (delta_platform_policy_coop); 1 when not hosting, or for a host
+that ignores the platform caveats (network.host_platform_limits = false) */
+int delta_peer_room_coop(const struct delta_peer *peer);
 /* the most players a game with this platform key's machine may have
 without harm to it: the platform policy's join limit for its platform, or
 the key's own if lower; no limit if its player opted in
@@ -328,6 +333,10 @@ unsigned char delta_peer_advertised_flags(void);
 /* the hosted game's player limit: DELTA_PEER_NO_LIMIT unless a Delta
 machine (or this host's own key) takes fewer */
 int delta_peer_host_player_limit(void);
+/* whether this host offers network co-op now: not while a machine of a
+platform without it (the original Xbox) is in its game (1 when not hosting
+with Delta) */
+int delta_peer_host_coop(void);
 
 /* the hooks: the host's game each frame (machines and players as above);
 the client each frame (not while this machine hosts: its own client is the

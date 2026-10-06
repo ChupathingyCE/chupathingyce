@@ -175,7 +175,7 @@ allocation (Warthog builds with MSVC 7.1):
 | 3 | host_players | the most players a game it hosts can have |
 | 4 | join_players | the most players of a game it joins, by default |
 | 5 | join_players_opt_in | the most it joins with its player's opt-in |
-| 6 | memory_class | 1 up to 64 MB, 2 up to 512 MB, 3 up to 2 GB, 4 more; 0 unknown |
+| 6 | memory_class | log2 of its megabytes: 6 for 64 MB, 7 128 MB, 8 256 MB, 9 512 MB, 10 1 GB, 11 2 GB, 12 4 GB...; 0 unknown |
 | 7 | reserved | 0 |
 
 The platform registry (`enum delta_platform`, one byte, never reused):
@@ -189,12 +189,19 @@ Console builds play with PC builds, with caveats Delta controls. The
 caveats are policy, one table in `delta.h` (`DELTA_PLATFORM_POLICY`), the
 defaults every machine's key starts from:
 
-| Platform | Hosts at most | Joins at most | Opted in | Memory |
-| --- | --- | --- | --- | --- |
-| PC (Windows, macOS, Linux), Steam Deck, unknown | 128 | 128 | 128 | 4 |
-| Android | 128 | 128 | 128 | 3 |
-| Xbox | 16 | 16 | 128 | 1 |
-| Xbox 360, Wii U, Switch | 16 | 16 | 128 | 2, 3, 3 (placeholders until their ports play) |
+| Platform | Hosts at most | Joins at most | Opted in | Memory | Co-op |
+| --- | --- | --- | --- | --- | --- |
+| PC (Windows, macOS, Linux) | 128 | 128 | 128 | 12 (4 GB) | yes |
+| Steam Deck | 128 | 128 | 128 | 14 (16 GB) | yes |
+| Android | 128 | 128 | 128 | 11 (2 GB) | yes |
+| unknown | 128 | 128 | 128 | 0 | yes |
+| Xbox | 16 | 16 | 128 | 6 (64 MB) | no |
+| Xbox 360, Wii U, Switch | 16 | 16 | 128 | 9, 10, 12 (placeholders until their ports play) | yes |
+
+Co-op: a host offers no network co-op (the Map screen's campaign levels
+refuse, and say why in the log) while a machine of a platform without it is
+in its game, nor on such a platform itself (`delta_peer_room_coop`). Only
+the original Xbox is kept out today.
 
 A host protects the weakest machine of its game: it takes no more players
 than the smallest of its own hosting limit and every Delta machine's join
@@ -214,7 +221,7 @@ Overrides, on purpose:
   opted-in flag: it accepts whatever the host runs. (You can roast your Xbox
   with 128 players if you want.) The default is `"on"`.
 - `network.host_platform_limits = false` (`HALO_NET_HOST_PLATFORM_LIMITS` on
-  a server) has a host ignore the caveats, for testing.
+  a server) has a host ignore the caveats, co-op's included, for testing.
 
 The signed legacy table is to carry a `platform_policy` section that tunes
 the rows without a release; the hook is `delta_peer_platform_policy()` in

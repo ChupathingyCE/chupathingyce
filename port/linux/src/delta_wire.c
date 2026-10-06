@@ -139,7 +139,7 @@ void delta_wire_write_key(unsigned char *data, const struct delta_platform_key *
 
 void delta_platform_policy_default(int platform, struct delta_platform_key *key)
 {
-#define DELTA_POLICY_ROW(row_platform, host, join, join_opt_in, memory) \
+#define DELTA_POLICY_ROW(row_platform, host, join, join_opt_in, memory, coop) \
 	{ row_platform, DELTA_PLATFORM_KEY_VERSION, 0, host, join, join_opt_in, memory, 0 },
 	static const struct delta_platform_key rows[NUMBER_OF_DELTA_PLATFORMS] = {
 		DELTA_PLATFORM_POLICY(DELTA_POLICY_ROW)
@@ -148,6 +148,17 @@ void delta_platform_policy_default(int platform, struct delta_platform_key *key)
 
 	*key = rows[platform >= 0 && platform < NUMBER_OF_DELTA_PLATFORMS ? platform : 0];
 	key->platform = (unsigned char)(platform >= 0 && platform < 256 ? platform : 0);
+}
+
+int delta_platform_policy_coop(int platform)
+{
+#define DELTA_POLICY_COOP(row_platform, host, join, join_opt_in, memory, coop) coop,
+	static const unsigned char rows[NUMBER_OF_DELTA_PLATFORMS] = {
+		DELTA_PLATFORM_POLICY(DELTA_POLICY_COOP)
+	};
+#undef DELTA_POLICY_COOP
+
+	return rows[platform >= 0 && platform < NUMBER_OF_DELTA_PLATFORMS ? platform : 0];
 }
 
 /* ---------- HELLO
