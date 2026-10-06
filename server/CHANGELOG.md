@@ -24,6 +24,11 @@ release notes.
   `sv_end_game`, `sv_maxplayers`, `sv_name` and `help`. Kicks and bans use
   the game's own protocol; bans are `bans.txt`'s, by hardware id and
   address, read on every join.
+- Every game now tells a hardware id when it joins, so bans by hardware id
+  cover macOS and Android players too: macOS's is made from the Mac's
+  platform UUID; Android's, and that of a Linux machine without a
+  machine-id, from a random id the game keeps in its save folder. Windows
+  and Linux ids are unchanged, so existing bans still hold.
 - A console: commands typed where the server runs (`HALO_DEDICATED_CONSOLE`).
 - Startup commands from a file (`HALO_DEDICATED_COMMANDS`).
 - A control API, off unless `HALO_DEDICATED_CONTROL` turns it on: HTTP and

@@ -596,7 +596,7 @@ struct message_client_join_game_request
 {
 	wchar_t machine_name[MAXIMUM_MACHINE_NAME_LENGTH];
 	byte join_token[0x10];
-	/* port: this machine's hardware id, as hex (p2p.c's p2p_hardware_id) */
+	/* port: this machine's hardware id, as hex (hardware_id.c's p2p_hardware_id) */
 	char hardware_id[0x20];
 };
 

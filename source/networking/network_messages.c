@@ -295,7 +295,7 @@ DEFINE_NETWORK_GAME_MESSAGE(message_server_graceful_game_exit_pregame, 0x04);
 DEFINE_NETWORK_GAME_MESSAGE(message_server_pregame_keep_alive, 0x02);
 DEFINE_NETWORK_GAME_MESSAGE(message_server_postgame_keep_alive, 0x02);
 /* (port: the joining machine's hardware id after the Xbox's, 0x20 bytes of
-hex: p2p.c's p2p_hardware_id) */
+hex: hardware_id.c's p2p_hardware_id) */
 DEFINE_NETWORK_GAME_MESSAGE(message_client_join_game_request, 0x70);
 DEFINE_NETWORK_GAME_MESSAGE(message_client_add_player_request_pregame, 0x20);
 DEFINE_NETWORK_GAME_MESSAGE(message_client_remove_player_request_pregame, 0x20);

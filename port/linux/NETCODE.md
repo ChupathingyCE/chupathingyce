@@ -141,9 +141,10 @@ in the id and letters, digits, "_", "." and "-" in the name, 23 and 39 of
 them at most (`p2p_discord_sanitize`), and names it as the player said.
 A joining machine tells the host its hardware id: a keyed hash (HMAC-SHA-256,
 16 bytes as hex) of what its machine is known by (Windows' SMBIOS UUID, else
-its MachineGuid; Linux's `/etc/machine-id`; Android's `ANDROID_ID`, which the
-launcher writes to `hardware_id.txt`: `p2p_hardware_id`), kept by the host
-as hex only. A player dropped for cheating, and one the host bans with the
+its MachineGuid; Linux's `/etc/machine-id`; macOS's platform UUID), or, with
+none of these (Android, which never reads `ANDROID_ID`; a Linux container
+without a machine-id), of a random id the game makes once in the save root,
+`hardware_id.key` (`hardware_id.c`); kept by the host as hex only. A player dropped for cheating, and one the host bans with the
 console's `ban <player name>` (Tab completes the name; the host's alone), is
 added to `bans.txt` beside `debug.txt` (a line each, as in `cheaters.txt`,
 with `ip=` and `hwid=`): the host refuses a machine joining whose address or

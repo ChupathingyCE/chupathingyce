@@ -60,8 +60,12 @@ without a restart: delete a line to lift a ban, or add `#` before it.
 Keep the file private: it holds the banned players' addresses, which no
 command ever shows.
 
-A machine that tells no hardware id (macOS builds have none today) is
-banned by its address alone; `sv_ban` says so.
+The hardware id comes from the machine's own id on Windows, Linux and
+macOS, so a ban holds through a reinstall. Where there is none (Android,
+and Linux containers without a machine-id) the game makes a random one for
+its install, kept in its save folder: a reinstall there makes a new one.
+A machine that tells no hardware id (an older version on macOS or in such
+a container) is banned by its address alone; `sv_ban` says so.
 
 ### Why there is no `sv_password`
 

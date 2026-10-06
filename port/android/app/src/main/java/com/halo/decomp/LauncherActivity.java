@@ -8,7 +8,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
-import android.provider.Settings;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -51,7 +50,7 @@ public class LauncherActivity extends Activity {
         // readable (a directory adb creates there belongs to the shell user)
         if (dataRoot != null)
             new File(dataRoot, "maps").mkdirs();
-        passOnHardwareId();
+        removeOldHardwareId();
         passOnInvite(getIntent());
         if (haveData()) {
             startGame();
@@ -84,32 +83,15 @@ public class LauncherActivity extends Activity {
     }
 
     /**
-     * This device's ANDROID_ID (the app's own: one per app signing key and
-     * user, until a factory reset), which native code cannot read: the game
-     * (port/linux/src/p2p.c) hashes it from hardware_id.txt into the
-     * hardware id a host it joins is told.
+     * Removes hardware_id.txt, the device's ANDROID_ID that versions before
+     * this one wrote for the game to hash. The game no longer reads it: on
+     * Android its hardware id is the install's own random id
+     * (port/linux/src/hardware_id.c), so nothing that identifies the device
+     * to other apps is kept or used.
      */
-    private void passOnHardwareId() {
-        String id;
-
-        if (dataRoot == null)
-            return;
-        try {
-            id = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
-        } catch (RuntimeException e) {
-            return;
-        }
-        if (id == null || id.isEmpty())
-            return;
-        File partial = new File(dataRoot, "hardware_id.txt.tmp");
-        try (OutputStream out = new FileOutputStream(partial)) {
-            out.write(id.getBytes("UTF-8"));
-        } catch (java.io.IOException e) {
-            partial.delete();
-            return;
-        }
-        if (!partial.renameTo(new File(dataRoot, "hardware_id.txt")))
-            partial.delete();
+    private void removeOldHardwareId() {
+        if (dataRoot != null)
+            new File(dataRoot, "hardware_id.txt").delete();
     }
 
     private boolean haveData() {

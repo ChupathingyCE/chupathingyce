@@ -322,10 +322,12 @@ def test_p2p_signatures_and_listings(tmp_path):
     import shlex
 
     if not shutil.which("clang") or not shutil.which("ninja") or not Path("build.ninja").is_file():
-        pytest.skip("needs clang, ninja and a configured build")
-    command = subprocess.run(["ninja", "-t", "commands", "build/linux/obj/port/linux/src/p2p_crypto.o"],
-                             capture_output=True, text=True, check=True).stdout.strip().splitlines()[-1]
-    words = shlex.split(command)
+        return None
+    commands = subprocess.run(["ninja", "-t", "commands", f"build/{target}/obj/port/linux/src/p2p_crypto.o"],
+                              capture_output=True, text=True)
+    if commands.returncode != 0 or not commands.stdout.strip():
+        return None
+    words = shlex.split(commands.stdout.strip().splitlines()[-1])
     # (the compiler, and whatever runs it, ccache in CI: up to the first flag)
     while words and not words[0].startswith("-"):
         words = words[1:]
@@ -340,6 +342,16 @@ def test_p2p_signatures_and_listings(tmp_path):
             continue
         else:
             flags.append(word)
+    return flags
+
+
+def test_p2p_signatures_and_listings(tmp_path):
+    """internet play's Ed25519 (RFC 8032), the X25519 key of a seed, and the
+    server browser's listings from host to browser (tools/p2p_lobby_check.c),
+    built with the flags ninja gives the platform layer"""
+    flags = _platform_layer_flags("linux")
+    if flags is None:
+        pytest.skip("needs clang, ninja and a configured build")
     program = tmp_path / "p2p_lobby_check"
     built = subprocess.run(["clang", *flags, "-O1", "-no-pie", "-Wl,--unresolved-symbols=ignore-all", "-o",
                             str(program), "tools/p2p_lobby_check.c", "port/linux/src/p2p_crypto.c",
@@ -348,5 +360,33 @@ def test_p2p_signatures_and_listings(tmp_path):
                            capture_output=True, text=True)
     assert built.returncode == 0, built.stderr[-4000:]
     result = subprocess.run([str(program)], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stdout
+    assert "PASS" in result.stdout
+
+
+def test_hardware_id(tmp_path):
+    """the hardware id a joining machine tells a host (port/linux/src/hardware_id.c,
+    tools/hardware_id_check.c): a machine's id hashes as it always has, and one
+    without has its install's, the same in one save root and another in
+    another; built with the flags ninja gives this host's platform layer"""
+    target = "macos" if sys.platform == "darwin" else "linux"
+    flags = _platform_layer_flags(target)
+    if flags is None:
+        pytest.skip("needs clang, ninja and a configured build")
+    # (the program uses no more of the game than these units; the rest of
+    # the platform layer they name is left unresolved)
+    unresolved = ["-Wl,-dead_strip", "-Wl,-undefined,dynamic_lookup"] if target == "macos" else \
+        ["-no-pie", "-Wl,--unresolved-symbols=ignore-all"]
+    program = tmp_path / "hardware_id_check"
+    built = subprocess.run(["clang", *flags, "-O1", *unresolved, "-o", str(program), "tools/hardware_id_check.c",
+                            "port/linux/src/hardware_id.c", "port/linux/src/p2p_crypto.c",
+                            "port/third_party/monocypher/monocypher.c",
+                            "port/third_party/monocypher/monocypher-ed25519.c"],
+                           capture_output=True, text=True)
+    assert built.returncode == 0, built.stderr[-4000:]
+    first, second = tmp_path / "save_a", tmp_path / "save_b"
+    first.mkdir()
+    second.mkdir()
+    result = subprocess.run([str(program), str(first), str(second)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stdout
     assert "PASS" in result.stdout
