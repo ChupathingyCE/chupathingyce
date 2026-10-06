@@ -90,7 +90,7 @@ the navigation can.
    no other. The edges of the platforms of Hugeass's hangar are 1.8 and
    2.1. A wall of 0.9 with the same ground on both sides is another thing,
    and country_walled's: on top of one a Warthog sits.) */
-#define COUNTRY_KERB_HIGHEST 1.f
+#define COUNTRY_KERB_HIGHEST 0.6f
 /* ... and a step of more than this is only one where the ground goes on at
    its new height (country_kerbed: not a wall with a top, not a rut) */
 #define COUNTRY_RIDGE 0.6f
@@ -115,6 +115,21 @@ the navigation can.
 #define COUNTRY_STEPS_PER_TICK 60000
 /* a place within so many squares of a field's own is that field's */
 #define COUNTRY_FIELD_NEAR 6
+
+/* (on a map whose navigation is whole: the ground worked out this far
+   round what the navigation covers, and no further) */
+#define COUNTRY_ROUND_THE_AREAS 30.f
+
+/* A lift: a ramp the map has that is too narrow for wheels (the way up
+   onto the platform of Coldsnap's south-east base, 0.8 of a unit across,
+   where its ten Warthogs stand below it and the gate they leave by is
+   beyond it) and the only way up there is. A vehicle a bot drives to the
+   foot of one is carried up it, as it is put into the frame of a gate. */
+#define COUNTRY_LIFTS 12
+#define COUNTRY_SQUEEZE_LEAST 0.5f /* as narrow as that (measured a quarter of a unit at a time), and no narrower */
+#define COUNTRY_LIFT_RISE 0.9f /* up at least this much: less is a kerb */
+#define COUNTRY_LIFT_PACE 4.5f /* world units a second, up it */
+#define COUNTRY_RIDE_HEIGHT 0.4f /* a vehicle's own middle over the ground it stands on */
 
 /* the ways a map's script carries a vehicle (hs_find_scripted_teleports) */
 #define COUNTRY_PORTALS 79 /* (a floor's way on is a byte: so many and no more) */
@@ -163,6 +178,13 @@ struct country_portal
 	short names[COUNTRY_PORTAL_NAMES];
 	long name_count;
 	real size; /* the volume's longest side: a gate is a frame; a volume a base wide is something else */
+	long lift; /* NONE: the script's. Else which lift it is (no volume, no flag, and anything's to go by) */
+};
+
+struct country_lift
+{
+	real_point3d foot, top, exit; /* on the ground at each */
+	real side_x, side_y; /* to the open hand of it, going up (0: neither) */
 };
 
 struct country_field
@@ -226,6 +248,8 @@ static struct
 	/* (the sets of portals the map's vehicles have: which portals are in each) */
 	unsigned char portal_sets[COUNTRY_PORTAL_SETS][COUNTRY_PORTALS];
 	long portal_set_count;
+	struct country_lift lifts[COUNTRY_LIFTS];
+	long lift_count;
 	struct country_field fields[COUNTRY_FIELDS];
 	unsigned long clock;
 	/* the field being worked out (one at a time) */
@@ -337,6 +361,12 @@ static boolean country_has_side(long f, long direction)
 	return FALSE;
 }
 
+/* (while every step is looked at, country_prepare: the steps that failed
+   only for want of width, and not by much) */
+static struct country_squeeze { long f, g; long direction; } *country_squeezes;
+static long country_squeeze_count, country_squeeze_capacity;
+static boolean country_squeeze_noting;
+
 static boolean country_kerbed(long f, long g, long direction, boolean keep)
 {
 	unsigned long const flags = FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_structure_bit) |
@@ -417,8 +447,9 @@ static boolean country_kerbed(long f, long g, long direction, boolean keep)
 		real lx = to.x - from.x, ly = to.y - from.y;
 		real run = (real)sqrt(lx * lx + ly * ly);
 		real jump = 0.2f + 0.25f * MIN(MAX(country.slope[f], country.slope[g]), 1.f);
+		real narrowest = 1.0e9f;
 		long part, side;
-		for (part = 1; part <= 2 && !kerbed; part++)
+		for (part = 1; part <= 2; part++)
 		{
 			real_point3d middle;
 			real width = 0.f;
@@ -448,8 +479,28 @@ static boolean country_kerbed(long f, long g, long direction, boolean keep)
 						width += 0.25f;
 				}
 			}
-			if (width < COUNTRY_WIDTH_NEEDED)
+			if (width + 0.01f < COUNTRY_WIDTH_NEEDED)
 				kerbed = TRUE;
+			narrowest = MIN(narrowest, width);
+		}
+		if (kerbed && narrowest + 0.01f >= COUNTRY_SQUEEZE_LEAST && country_squeeze_noting)
+		{
+			if (country_squeeze_count >= country_squeeze_capacity)
+			{
+				long capacity = country_squeeze_capacity ? country_squeeze_capacity * 2 : 1024;
+				struct country_squeeze *more = (struct country_squeeze *)realloc(country_squeezes, capacity * sizeof(*more));
+				if (more)
+				{
+					country_squeezes = more;
+					country_squeeze_capacity = capacity;
+				}
+			}
+			if (country_squeeze_count < country_squeeze_capacity)
+			{
+				country_squeezes[country_squeeze_count].f = f;
+				country_squeezes[country_squeeze_count].g = g;
+				country_squeezes[country_squeeze_count++].direction = direction;
+			}
 		}
 	}
 	/* testing (HALO_BOT_COUNTRYJUDGE=x,y): what was made of the steps from the square there */
@@ -877,7 +928,7 @@ long bot_country_portals_of(long vehicle_index)
 		return 0;
 	for (p = 0; p < country.portal_count; p++)
 	{
-		set[p] = FALSE;
+		set[p] = country.portals[p].lift != NONE; /* (a lift is anything's) */
 		for (i = 0; i < country.portals[p].name_count; i++)
 			if (country.portals[p].names[i] == vehicle->object.name_index)
 				set[p] = any = TRUE;
@@ -995,6 +1046,32 @@ static void country_debug_box(void)
 			}
 			line[length] = 0;
 			bot_log("countryat %.0f %.0f:%s", x + country_dx[direction] * k * country.cell, y + country_dy[direction] * k * country.cell, line);
+		}
+	}
+	/* testing (HALO_BOT_GROUNDPROBE=x0,y0,x1,y1,step,top): the ground itself
+	   under a grid of points, looked for from a height down, a row a line
+	   with the north at the top: each one's height under the top, in tenths */
+	if (getenv("HALO_BOT_GROUNDPROBE"))
+	{
+		real x0 = 0.f, y0 = 0.f, x1 = 0.f, y1 = 0.f, step = 1.f, top = 0.f;
+		real x, y;
+		sscanf(getenv("HALO_BOT_GROUNDPROBE"), "%f,%f,%f,%f,%f,%f", &x0, &y0, &x1, &y1, &step, &top);
+		for (y = y1; y >= y0 - 0.001f; y -= step)
+		{
+			char line[1200];
+			long length = 0;
+			for (x = x0; x <= x1 + 0.001f && length < 1100; x += step)
+			{
+				real_point3d at;
+				real ground;
+				at.x = x, at.y = y, at.z = top;
+				if (bot_ground(&at, 12.f, NONE, &ground))
+					length += snprintf(line + length, sizeof(line) - length, "%3ld", (long)((top - ground) * 10.f + 0.5f));
+				else
+					length += snprintf(line + length, sizeof(line) - length, "  -");
+			}
+			line[length] = 0;
+			bot_log("groundprobe %7.2f:%s", y, line);
 		}
 	}
 	/* testing (HALO_BOT_COUNTRYBOX=x0,y0,x1,y1,z0,z1): the floors between two
@@ -1456,7 +1533,7 @@ static void country_machines(void)
 /* ---------- the file */
 
 #define COUNTRY_CACHE_MAGIC 0x59544e43UL /* CNTY */
-#define COUNTRY_CACHE_VERSION 6
+#define COUNTRY_CACHE_VERSION 8
 
 struct country_cache_header
 {
@@ -1469,6 +1546,8 @@ struct country_cache_header
 	float kerb, kerb_highest;
 	int floor_count;
 };
+
+static void country_lifts_find(void);
 
 /* every step from every floor looked at (country_kerbed, country_walled:
    kept as they are found), and the room round every floor (country_clear) */
@@ -1484,11 +1563,198 @@ static void country_prepare(void)
 		for (d = 0; d < 8; d++)
 			country_steps(f, d, to);
 	}
+	country_squeeze_noting = FALSE;
 	for (f = 0; f < country.floor_count; f++)
 		if (!country.steep[f])
 			country_clear(f);
+	country_lifts_find();
 	if (bot_logging())
-		bot_log("country: every step looked at, %.2f s", (bot_time_microseconds() - start) / 1.0e6);
+		bot_log("country: every step looked at, %.2f s (%ld of them too narrow by a little, %ld lifts)", (bot_time_microseconds() - start) / 1.0e6,
+			country_squeeze_count, country.lift_count);
+	free(country_squeezes);
+	country_squeezes = NULL;
+	country_squeeze_count = country_squeeze_capacity = 0;
+}
+
+/* The lifts, of the steps that were too narrow (country_prepare has just
+   looked at every step): a run of them one after another the same way, up;
+   from the floor at its foot to somewhere with room at its top; and only
+   where that is somewhere the ground at its foot does not lead to already
+   (a platform with a proper ramp as well has no need of one, and a ramp
+   for people into a building is no way in for a Warthog). */
+static void country_lifts_find(void)
+{
+	long i, j;
+	country.lift_count = 0;
+	for (i = 0; i < country_squeeze_count && country.lift_count < COUNTRY_LIFTS; i++)
+	{
+		struct country_squeeze const *first = &country_squeezes[i];
+		long d = first->direction;
+		long foot = first->f, top = first->g, exit_floor;
+		long hands[2];
+		long extra;
+		boolean begun = TRUE, more = TRUE;
+		if (d >= 4 || country.z[first->g] < country.z[first->f] + 0.15f)
+			continue;
+		/* (noted twice: the once) */
+		for (j = 0; j < i; j++)
+			if (country_squeezes[j].f == first->f && country_squeezes[j].g == first->g && country_squeezes[j].direction == d)
+				break;
+		if (j < i)
+			continue;
+		/* (the first of its run: none comes up to its foot) */
+		for (j = 0; j < country_squeeze_count && begun; j++)
+			if (country_squeezes[j].g == foot && country_squeezes[j].direction == d && country.z[foot] > country.z[country_squeezes[j].f] + 0.15f)
+				begun = FALSE;
+		if (!begun)
+			continue;
+		while (more)
+		{
+			more = FALSE;
+			for (j = 0; j < country_squeeze_count; j++)
+			{
+				if (country_squeezes[j].f == top && country_squeezes[j].direction == d && country.z[country_squeezes[j].g] > country.z[top] + 0.15f)
+				{
+					top = country_squeezes[j].g;
+					more = TRUE;
+					break;
+				}
+			}
+		}
+		/* (... and the last of the rise, where it is wide again) */
+		for (extra = 0; extra < 2; extra++)
+		{
+			long on = country_step(top, d);
+			if (on == NONE || country.z[on] < country.z[top] + 0.1f)
+				break;
+			top = on;
+		}
+		if (country.z[top] - country.z[foot] < COUNTRY_LIFT_RISE)
+			continue;
+		/* (the place to be put down: the floor with the most room within a
+		   couple of steps of the top, and about as high) */
+		{
+			long ring[32];
+			long count = 0, head = 0;
+			long best_clear = 0;
+			real best_off = 1.0e9f;
+			real_point3d top_point;
+			country_floor_point(top, &top_point);
+			exit_floor = NONE;
+			ring[count++] = top;
+			while (head < count)
+			{
+				long at = ring[head++];
+				long clear = country_clear(at);
+				real_point3d point;
+				long way;
+				country_floor_point(at, &point);
+				if (clear > best_clear || (clear == best_clear && bot_distance2d(&point, &top_point) < best_off))
+				{
+					best_clear = clear;
+					best_off = bot_distance2d(&point, &top_point);
+					exit_floor = at;
+				}
+				if (bot_distance2d(&point, &top_point) > country.cell * 2.1f)
+					continue;
+				for (way = 0; way < 8 && count < 32; way++)
+				{
+					long on = country_joined(at, way);
+					long k;
+					if (on == NONE || fabs(country.z[on] - country.z[top]) > 0.4f)
+						continue;
+					for (k = 0; k < count; k++)
+						if (ring[k] == on)
+							break;
+					if (k == count)
+						ring[count++] = on;
+				}
+			}
+			if (exit_floor == NONE || best_clear < 2)
+				continue;
+		}
+		/* (not somewhere the foot leads to by the ground: a look outward from
+		   the foot over what joins, as far as a base's yard goes) */
+		{
+			enum { budget = 4000 };
+			long *queue = (long *)malloc(budget * sizeof(long));
+			unsigned char *seen = (unsigned char *)calloc(MAX(1, country.floor_count), 1);
+			long head = 0, tail = 0;
+			boolean found = FALSE, whole = TRUE;
+			if (!queue || !seen)
+			{
+				free(queue);
+				free(seen);
+				continue;
+			}
+			queue[tail++] = foot;
+			seen[foot] = TRUE;
+			while (head < tail && !found)
+			{
+				long at = queue[head++];
+				long way;
+				for (way = 0; way < 8 && !found; way++)
+				{
+					long on = country_joined(at, way);
+					if (on == NONE || seen[on])
+						continue;
+					if (on == exit_floor)
+						found = TRUE;
+					else if (tail < budget)
+					{
+						seen[on] = TRUE;
+						queue[tail++] = on;
+					}
+					else
+						whole = FALSE;
+				}
+			}
+			free(queue);
+			free(seen);
+			/* (open country at its foot: there is some other way round) */
+			if (found || !whole)
+				continue;
+		}
+		{
+			struct country_lift *lift = &country.lifts[country.lift_count++];
+			real_point3d middle;
+			long hand;
+			memset(lift, 0, sizeof(*lift));
+			country_floor_point(foot, &lift->foot);
+			country_floor_point(top, &lift->top);
+			country_floor_point(exit_floor, &lift->exit);
+			/* (the hand of it with nothing beside it as high: a vehicle is
+			   wider than it, and hangs over on that hand) */
+			hands[0] = d < 2 ? 2 : 0;
+			hands[1] = d < 2 ? 3 : 1;
+			country_floor_point(first->g, &middle);
+			for (hand = 0; hand < 2; hand++)
+			{
+				long c = country.square[first->g];
+				long x = c % country.width + country_dx[hands[hand]];
+				long y = c / country.width + country_dy[hands[hand]];
+				boolean open = TRUE;
+				long g;
+				if (x >= 0 && y >= 0 && x < country.width && y < country.height)
+				{
+					long n = y * country.width + x;
+					for (g = country.first[n]; g < country.first[n + 1]; g++)
+						if (country.z[g] > middle.z + 0.3f && country.z[g] < middle.z + 4.f)
+							open = FALSE;
+				}
+				if (open && lift->side_x == 0.f && lift->side_y == 0.f)
+				{
+					lift->side_x = (real)country_dx[hands[hand]];
+					lift->side_y = (real)country_dy[hands[hand]];
+				}
+				else if (open)
+					lift->side_x = lift->side_y = 0.f; /* (both: down its middle) */
+			}
+			if (bot_logging())
+				bot_log("country: a lift: from %.0f %.0f %.1f up to %.0f %.0f %.1f, put down at %.0f %.0f %.1f", lift->foot.x, lift->foot.y, lift->foot.z,
+					lift->top.x, lift->top.y, lift->top.z, lift->exit.x, lift->exit.y, lift->exit.z);
+		}
+	}
 }
 
 static void country_cache_header_now(struct country_cache_header *header)
@@ -1548,6 +1814,11 @@ static void country_cache_save(void)
 	whole = fwrite(country.wide, 1, (size_t)country.floor_count, file) == (size_t)country.floor_count && whole;
 	whole = fwrite(country.clear, 1, (size_t)country.floor_count, file) == (size_t)country.floor_count && whole;
 	whole = fwrite(country.step_mask, 8, (size_t)country.floor_count, file) == (size_t)country.floor_count && whole;
+	{
+		int lifts = (int)country.lift_count;
+		whole = fwrite(&lifts, sizeof(lifts), 1, file) == 1 && whole;
+		whole = fwrite(country.lifts, sizeof(struct country_lift), COUNTRY_LIFTS, file) == COUNTRY_LIFTS && whole;
+	}
 	whole = fclose(file) == 0 && whole;
 	free(first);
 	navm_baked_file(whole, path);
@@ -1565,10 +1836,12 @@ static boolean country_cache_read(FILE *file)
 	long cells = country.width * country.height;
 	size_t floors;
 	int *first = NULL;
+	int lifts = 0;
 	boolean ok;
 	long c;
 
 	country.floor_count = 0;
+	country.lift_count = 0;
 	country_cache_header_now(&now);
 	ok = fread(&header, sizeof(header), 1, file) == 1 && header.floor_count >= 0 && header.floor_count < 64 * 1024 * 1024;
 	now.floor_count = header.floor_count;
@@ -1602,7 +1875,11 @@ static boolean country_cache_read(FILE *file)
 		fread(country.wide, 1, floors, file) == floors &&
 		fread(country.clear, 1, floors, file) == floors &&
 		fread(country.step_mask, 8, floors, file) == floors &&
+		fread(&lifts, sizeof(lifts), 1, file) == 1 && lifts >= 0 && lifts <= COUNTRY_LIFTS &&
+		fread(country.lifts, sizeof(struct country_lift), COUNTRY_LIFTS, file) == COUNTRY_LIFTS &&
 		fgetc(file) == EOF;
+	if (ok)
+		country.lift_count = lifts;
 	/* (a damaged file: each square's floors in their place, or none of it) */
 	ok = ok && first[0] == 0 && first[cells] == header.floor_count;
 	for (c = 0; ok && c < cells; c++)
@@ -1681,6 +1958,9 @@ void bot_country_build(void)
 	bot_country_dispose();
 	if (!bsp || bsp->vertices.count <= 0)
 		return;
+	/* (from the first step looked at: some are before country_prepare) */
+	country_squeeze_count = 0;
+	country_squeeze_noting = TRUE;
 	country_kerb_highest = getenv("HALO_BOT_COUNTRYKERB") ? (real)atof(getenv("HALO_BOT_COUNTRYKERB")) : COUNTRY_KERB_HIGHEST;
 	for (i = 0; i < bsp->vertices.count; i++)
 	{
@@ -1689,6 +1969,33 @@ void bot_country_build(void)
 		maximum_x = MAX(maximum_x, vertex->point.x);
 		minimum_y = MIN(minimum_y, vertex->point.y);
 		maximum_y = MAX(maximum_y, vertex->point.y);
+	}
+	/* (a map whose navigation is whole: no more of it than the navigation
+	   has, and some way round that. The shell of an island map goes out to
+	   its horizon, and squares fine enough for its sea are too coarse for
+	   its roads) */
+	if (aas_ready() && !bot_nav_in_parts())
+	{
+		real x0 = 1.0e9f, x1 = -1.0e9f, y0 = 1.0e9f, y1 = -1.0e9f;
+		long type;
+		for (type = AAS_FOOT; type <= AAS_VEHICLE; type++)
+		{
+			for (i = 0; i < aas_area_count(type); i++)
+			{
+				struct aas_area const *area = aas_area(type, i);
+				x0 = MIN(x0, area->x0);
+				x1 = MAX(x1, area->x1);
+				y0 = MIN(y0, area->y0);
+				y1 = MAX(y1, area->y1);
+			}
+		}
+		if (x1 > x0 && y1 > y0)
+		{
+			minimum_x = MAX(minimum_x, x0 - COUNTRY_ROUND_THE_AREAS);
+			maximum_x = MIN(maximum_x, x1 + COUNTRY_ROUND_THE_AREAS);
+			minimum_y = MAX(minimum_y, y0 - COUNTRY_ROUND_THE_AREAS);
+			maximum_y = MIN(maximum_y, y1 + COUNTRY_ROUND_THE_AREAS);
+		}
 	}
 	country.cell = MAX(COUNTRY_CELL_FINEST, MAX(maximum_x - minimum_x, maximum_y - minimum_y) / COUNTRY_MAXIMUM_SIDE);
 	country.x0 = (real)floor(minimum_x) - country.cell;
@@ -1852,10 +2159,40 @@ ready:
 	   between (into a volume over a floor: its middle may be in the air over
 	   it; out at a flag: put down on the floor under it) */
 	hs_find_scripted_teleports(country_portal_found, NULL);
+	for (i = 0; i < country.portal_count; i++)
+		country.portals[i].lift = NONE;
+	/* (... and the lifts, as ways of the same kind that anything goes by:
+	   on a map the navigation has only in parts. On another, everywhere a
+	   vehicle is wanted the areas lead to, and a ramp for people goes into
+	   a building) */
+	for (i = 0; bot_nav_in_parts() && i < country.lift_count && country.portal_count < COUNTRY_PORTALS; i++)
+	{
+		struct country_portal *portal = &country.portals[country.portal_count];
+		long set;
+		memset(portal, 0, sizeof(*portal));
+		portal->volume = NONE;
+		portal->flag = NONE;
+		portal->lift = i;
+		portal->entry = country.lifts[i].foot;
+		portal->exit = country.lifts[i].exit;
+		portal->entry.z += COUNTRY_RIDE_HEIGHT;
+		portal->exit.z += COUNTRY_RIDE_HEIGHT;
+		for (set = 0; set < COUNTRY_PORTAL_SETS; set++)
+			country.portal_sets[set][country.portal_count] = TRUE;
+		country.portal_count++;
+	}
 	country_portal_floors();
 	for (i = 0; i < country.portal_count; i++)
 	{
 		struct country_portal *portal = &country.portals[i];
+		if (portal->lift != NONE)
+		{
+			if (bot_logging())
+				bot_log("country: portal %ld, lift %ld at %.0f %.0f %.0f (%s) to %.0f %.0f %.0f (%s)", i, portal->lift, portal->entry.x, portal->entry.y, portal->entry.z,
+					portal->entry_floor != NONE ? "a floor under it" : "no floor", portal->exit.x, portal->exit.y, portal->exit.z,
+					portal->exit_floor != NONE ? "a floor under it" : "no floor");
+			continue;
+		}
 		if (bot_logging())
 			bot_log("country: portal %ld, volume %s (%.0f across) at %.0f %.0f %.0f (%s) to flag %s at %.0f %.0f %.0f (%s), for %ld by name", i,
 				TAG_BLOCK_GET_ELEMENT(&global_scenario_get()->trigger_volumes, portal->volume, struct scenario_trigger_volume)->name, portal->size,
@@ -2361,6 +2698,9 @@ static void country_field_advance(void)
 			long n = portal->entry_floor;
 			float through = key + 6.f;
 			if (portal->exit_floor != c || n == NONE || !country.portal_sets[field->portals][d])
+				continue;
+			/* (a lift is for what is driven: someone on foot walks up it) */
+			if (portal->lift != NONE && !field->drops)
 				continue;
 			if (field->next[n] != _country_next_none && !(field->next[n] & _country_next_tentative))
 				continue;
@@ -3120,19 +3460,115 @@ static real country_thing_ray(real_point3d const *from, real_vector3d const *alo
 /* is there ground that way, a little way off and about as high as here: not
    the top of a cliff, the lip of a platform (a way with nothing in it is
    the freest there is, and the last to take) */
-static boolean country_ground_that_way(real_point3d const *from, real yaw, long ignore)
+static boolean country_ground_as_far(real_point3d const *from, real yaw, real furthest, long ignore)
 {
 	real reach;
-	for (reach = 2.5f; reach <= 5.f; reach += 2.5f)
+	for (reach = 2.5f; reach <= furthest + 0.1f; reach += 2.5f)
 	{
 		real_point3d at = *from;
 		real ground;
 		at.x += (real)cos(yaw) * reach;
 		at.y += (real)sin(yaw) * reach;
 		at.z += 1.f;
-		if (!bot_ground(&at, 3.5f, ignore, &ground))
+		if (!bot_ground(&at, 3.5f + (reach > 5.f ? reach - 5.f : 0.f), ignore, &ground))
 			return FALSE;
 	}
+	return TRUE;
+}
+
+static boolean country_ground_that_way(real_point3d const *from, real yaw, long ignore)
+{
+	return country_ground_as_far(from, yaw, 5.f, ignore);
+}
+
+/* (... at one place that way) */
+static boolean country_ground_at(real_point3d const *from, real yaw, real reach, long ignore)
+{
+	real_point3d at = *from;
+	real ground;
+	at.x += (real)cos(yaw) * reach;
+	at.y += (real)sin(yaw) * reach;
+	at.z += 1.f;
+	return bot_ground(&at, 3.5f + (reach > 5.f ? reach - 5.f : 0.f), ignore, &ground);
+}
+
+/* Carried up a lift: along its points at a steady pace, its nose the way it
+   goes (brought round to that over the first third of a second), and set
+   down at the last of them, standing. TRUE while it is being carried. */
+static boolean country_carry(struct bot_traveller *traveller, struct bot_body const *body, struct bot_country_result *result)
+{
+	struct object_datum *vehicle = object_get(body->vehicle_index);
+	long now = game_time_get();
+	real gone, along = 0.f;
+	real_point3d at;
+	real_vector3d forward, left, up;
+	long k;
+	if (traveller->carry_count < 2 || now >= traveller->carry_until || now < traveller->carry_from)
+		return FALSE;
+	gone = (now - traveller->carry_from + 1) * COUNTRY_LIFT_PACE / BOT_TICKS_PER_SECOND;
+	at = traveller->carry[traveller->carry_count - 1];
+	forward.i = traveller->carry[traveller->carry_count - 1].x - traveller->carry[traveller->carry_count - 2].x;
+	forward.j = traveller->carry[traveller->carry_count - 1].y - traveller->carry[traveller->carry_count - 2].y;
+	forward.k = 0.f;
+	for (k = 0; k + 1 < traveller->carry_count; k++)
+	{
+		real length = distance3d(&traveller->carry[k], &traveller->carry[k + 1]);
+		if (gone <= along + length && length > 0.01f)
+		{
+			real part = (gone - along) / length;
+			at.x = traveller->carry[k].x + (traveller->carry[k + 1].x - traveller->carry[k].x) * part;
+			at.y = traveller->carry[k].y + (traveller->carry[k + 1].y - traveller->carry[k].y) * part;
+			at.z = traveller->carry[k].z + (traveller->carry[k + 1].z - traveller->carry[k].z) * part;
+			forward.i = traveller->carry[k + 1].x - traveller->carry[k].x;
+			forward.j = traveller->carry[k + 1].y - traveller->carry[k].y;
+			forward.k = traveller->carry[k + 1].z - traveller->carry[k].z;
+			break;
+		}
+		along += length;
+	}
+	if (k + 1 >= traveller->carry_count)
+		traveller->carry_until = now; /* (there) */
+	if (normalize3d(&forward) <= 0.f)
+		forward = vehicle->object.forward;
+	{
+		real blend = MIN((now - traveller->carry_from + 1) / (real)BOT_SECONDS(0.35f), 1.f);
+		forward.i = traveller->carry_forward.i + (forward.i - traveller->carry_forward.i) * blend;
+		forward.j = traveller->carry_forward.j + (forward.j - traveller->carry_forward.j) * blend;
+		forward.k = traveller->carry_forward.k + (forward.k - traveller->carry_forward.k) * blend;
+		if (normalize3d(&forward) <= 0.f)
+			forward = vehicle->object.forward;
+	}
+	left.i = -forward.j;
+	left.j = forward.i;
+	left.k = 0.f;
+	if (normalize3d(&left) <= 0.f)
+	{
+		left.i = 0.f, left.j = 1.f, left.k = 0.f;
+	}
+	up.i = forward.j * left.k - forward.k * left.j;
+	up.j = forward.k * left.i - forward.i * left.k;
+	up.k = forward.i * left.j - forward.j * left.i;
+	object_set_position(body->vehicle_index, &at, &forward, &up);
+	vehicle = object_get(body->vehicle_index);
+	if (now >= traveller->carry_until)
+		memset(&vehicle->object.translational_velocity, 0, sizeof(real_vector3d));
+	else
+	{
+		vehicle->object.translational_velocity.i = forward.i * COUNTRY_LIFT_PACE / BOT_TICKS_PER_SECOND;
+		vehicle->object.translational_velocity.j = forward.j * COUNTRY_LIFT_PACE / BOT_TICKS_PER_SECOND;
+		vehicle->object.translational_velocity.k = forward.k * COUNTRY_LIFT_PACE / BOT_TICKS_PER_SECOND;
+	}
+	memset(&vehicle->object.angular_velocity, 0, sizeof(real_vector3d));
+	traveller->stuck_point = at;
+	traveller->stuck_tick = now;
+	traveller->escape_until = 0;
+	traveller->run_up_until = 0;
+	traveller->swerve_ticks = 0;
+	memset(result, 0, sizeof(*result));
+	result->moving = TRUE;
+	result->yaw = (real)atan2(forward.j, forward.i);
+	result->throttle = now >= traveller->carry_until ? 0.f : 0.5f;
+	result->next = traveller->carry[traveller->carry_count - 1];
 	return TRUE;
 }
 
@@ -3157,6 +3593,62 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 		traveller->vehicle = body->vehicle_index;
 		traveller->stuck_point = *position;
 		traveller->stuck_tick = now;
+	}
+	if (country_carry(traveller, body, result))
+		return;
+	/* testing (HALO_BOT_DRIVETEST=x0,y0,z0,x1,y1,seconds[,throttle]): the first
+	   vehicle driven within sixty units of the first place is put down
+	   there, standing, with its nose to the second, and driven straight at
+	   it for so long; where it is then is written, and it is done again */
+	if (getenv("HALO_BOT_DRIVETEST"))
+	{
+		static long test_vehicle = NONE;
+		static long test_tick;
+		static real_point3d highest;
+		real_point3d from = { 0.f, 0.f, 0.f }, toward = { 0.f, 0.f, 0.f };
+		real seconds = 4.f, full = 1.f;
+		real_point3d then = { 0.f, 0.f, 0.f };
+		real within = 1.2f;
+		static boolean second;
+		long given = sscanf(getenv("HALO_BOT_DRIVETEST"), "%f,%f,%f,%f,%f,%f,%f,%f,%f,%f", &from.x, &from.y, &from.z, &toward.x, &toward.y, &seconds, &full,
+			&then.x, &then.y, &within);
+		if (test_vehicle == NONE && bot_distance2d(position, &from) < 60.f)
+		{
+			test_vehicle = body->vehicle_index;
+			test_tick = now - BOT_SECONDS(seconds) - 1;
+		}
+		if (test_vehicle == body->vehicle_index)
+		{
+			real way = (real)atan2(toward.y - from.y, toward.x - from.x);
+			if (now - test_tick > BOT_SECONDS(seconds))
+			{
+				real_vector3d forward, up = { 0.f, 0.f, 1.f };
+				if (test_tick > 0)
+					bot_log("drivetest: t%ld ended at %.1f %.1f %.1f (%.1f on from the start, %.1f up), highest %.1f at %.1f %.1f", now, position->x, position->y, position->z,
+						bot_distance2d(position, &from), position->z - from.z, highest.z, highest.x, highest.y);
+				forward.i = (real)cos(way), forward.j = (real)sin(way), forward.k = 0.f;
+				object_set_position(body->vehicle_index, &from, &forward, &up);
+				memset(&vehicle->object.translational_velocity, 0, sizeof(real_vector3d));
+				memset(&vehicle->object.angular_velocity, 0, sizeof(real_vector3d));
+				test_tick = now;
+				highest = from;
+				second = FALSE;
+			}
+			/* (... and on to a second place, from so near the first) */
+			if (given >= 9 && bot_distance2d(position, &toward) < within)
+				second = TRUE;
+			if (position->z > highest.z)
+				highest = *position;
+			if (now % 10 == 0)
+				bot_log("drivetest: t%ld at %.1f %.1f %.2f speed %.1f heading %.2f", now, position->x, position->y, position->z, speed, heading);
+			result->moving = TRUE;
+			result->yaw = second ? bot_yaw_to(position, &then) : now - test_tick < BOT_SECONDS(0.7f) ? way : bot_yaw_to(position, &toward);
+			result->throttle = now - test_tick < BOT_SECONDS(0.7f) ? 0.f : full;
+			result->next = toward;
+			traveller->stuck_point = *position;
+			traveller->stuck_tick = now;
+			return;
+		}
 	}
 	if (!bot_country_way(position, to, bot_country_portals_of(body->vehicle_index), TRUE, MAX(14.f, speed * 1.6f), &next, &soon, &off, NULL))
 	{
@@ -3256,7 +3748,52 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 			middle.z = MAX(middle.z, country.z[portal->entry_floor] + 0.35f);
 		throttle = fabs(turn) > 0.6f ? 0.4f : 0.7f;
 		traveller->swerve_ticks = 0;
-		if (off < COUNTRY_PORTAL_REACH && fabs(position->z - portal->entry.z) < 2.5f)
+		if (portal->lift != NONE)
+		{
+			/* (a lift: from within a length of its foot, with nothing of the
+			   map between, and going slowly, up it) */
+			struct country_lift const *lift = &country.lifts[portal->lift];
+			real_point3d foot = lift->foot;
+			foot.x += lift->side_x * 0.45f;
+			foot.y += lift->side_y * 0.45f;
+			foot.z += COUNTRY_RIDE_HEIGHT;
+			if (speed > 4.f)
+				throttle = 0.f;
+			if (bot_distance2d(position, &foot) < COUNTRY_PORTAL_REACH && fabs(position->z - foot.z) < 1.5f && speed < 5.f)
+			{
+				struct collision_result wall;
+				real_vector3d way;
+				real_point3d eye = *position;
+				eye.z += 0.5f;
+				way.i = foot.x - eye.x;
+				way.j = foot.y - eye.y;
+				way.k = foot.z + 0.3f - eye.z;
+				if (!collision_test_vector(FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_structure_bit), &eye, &way,
+						body->vehicle_index, &wall))
+				{
+					real length = 0.f;
+					long k;
+					traveller->carry_count = 4;
+					traveller->carry[0] = *position;
+					traveller->carry[1] = foot;
+					traveller->carry[2] = lift->top;
+					traveller->carry[2].z += COUNTRY_RIDE_HEIGHT;
+					traveller->carry[3] = lift->exit;
+					traveller->carry[3].z += COUNTRY_RIDE_HEIGHT;
+					for (k = 0; k < 3; k++)
+						length += distance3d(&traveller->carry[k], &traveller->carry[k + 1]);
+					traveller->carry_from = now;
+					traveller->carry_until = now + (long)(length / COUNTRY_LIFT_PACE * BOT_TICKS_PER_SECOND) + 2;
+					traveller->carry_forward = vehicle->object.forward;
+					if (bot_logging())
+						bot_log("country: unit %ld t%ld up lift %ld from %.1f %.1f %.1f to %.1f %.1f %.1f", body->unit_index & 0xffff, now, portal->lift,
+							position->x, position->y, position->z, lift->exit.x, lift->exit.y, lift->exit.z);
+					if (country_carry(traveller, body, result))
+						return;
+				}
+			}
+		}
+		else if (off < COUNTRY_PORTAL_REACH && fabs(position->z - portal->entry.z) < 2.5f)
 		{
 			struct collision_result wall;
 			real_vector3d way;
@@ -3437,6 +3974,14 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 	   way for a couple of seconds, nose first when it is before it and
 	   backing when it is behind. Time and again of it, and it is the
 	   caller's to get out. */
+	/* (from a stand: it waited for its way, or for its people, or has just
+	   got clear of something. A Warthog is two seconds getting a length
+	   from where it stood, with its wheels turned: that is not being held
+	   up, and taken for it it was sent off for two seconds the way with the
+	   most room, which from the row the Warthogs of Coldsnap stand in is
+	   over the edge of the base) */
+	if (now - traveller->stuck_tick >= 0 && now - traveller->stuck_tick <= 1)
+		traveller->stand_tick = now;
 	if (distance3d(position, &traveller->stuck_point) > 2.5f)
 	{
 		/* (carried somewhere by a portal: afresh) */
@@ -3447,7 +3992,7 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 		if (now - traveller->stuck_last > BOT_SECONDS(12.f))
 			traveller->stuck_count = 0;
 	}
-	else if (speed > 1.5f && now >= traveller->escape_until)
+	else if (speed > (now - traveller->stand_tick < BOT_SECONDS(4.f) && now >= traveller->stand_tick ? 0.5f : 1.5f) && now >= traveller->escape_until)
 	{
 		/* (moving, if it has not got far yet: pulling away from a stand) */
 		traveller->stuck_tick = MAX(traveller->stuck_tick, now - BOT_SECONDS(1.f));
@@ -3465,6 +4010,10 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 			real score = room + 1.5f * (real)cos(bot_angle_difference(way, yaw));
 			if (!country_ground_that_way(position, way, body->vehicle_index))
 				score -= 100.f;
+			/* (... nor a way with an edge as far off as two seconds take it,
+			   while there is another) */
+			else if (!country_ground_as_far(position, way, 12.5f, body->vehicle_index))
+				score -= 30.f;
 			if (score > best)
 			{
 				best = score;
@@ -3476,13 +4025,18 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 		traveller->stuck_last = now;
 		traveller->stuck_count++;
 	}
+	/* (getting clear, and going at an edge: that is the end of getting
+	   clear, and the stopping for it stands) */
+	if (now < traveller->escape_until && result->edge && speed > 3.f)
+		traveller->escape_until = now;
 	if (now < traveller->escape_until)
 	{
 		real to_it = bot_angle_difference(traveller->escape_yaw, heading);
 		if (fabs(to_it) < 1.4f)
 		{
 			yaw = traveller->escape_yaw;
-			throttle = 0.8f;
+			/* (a length or two is clear of it: not a run) */
+			throttle = speed > 5.f ? 0.f : 0.8f;
 		}
 		else
 		{
@@ -3517,6 +4071,38 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 	}
 	else
 		traveller->run_up_until = 0;
+	/* Backing (to get clear, for a run at a step, off a lip): only onto
+	   ground. Nothing behind it within what it would cover in a second, and
+	   it is stopped, and whatever had it backing is over: the Warthogs of
+	   Coldsnap backed for their run at the step to the gate, the length of
+	   the platform, and off the far side of it. */
+	if (throttle < 0.f && !result->into_portal)
+	{
+		real backward = -(body->velocity.i * vehicle->object.forward.i + body->velocity.j * vehicle->object.forward.j) * BOT_TICKS_PER_SECOND;
+		if (backward > -0.5f)
+		{
+			real back = bot_wrap(heading + BOT_PI);
+			if (!country_ground_at(position, back, 2.5f, body->vehicle_index) || !country_ground_at(position, back, 3.5f, body->vehicle_index))
+			{
+				throttle = backward > 1.5f ? 1.f : 0.f;
+				traveller->run_up_until = 0;
+				if (now < traveller->escape_until)
+					traveller->escape_until = now;
+				traveller->stuck_point = *position;
+				traveller->stuck_tick = now;
+				result->edge = TRUE;
+			}
+			/* (the edge a little further off: slowly, to stop at it. The
+			   run at the step to Coldsnap's gate wants all the platform
+			   there is behind it) */
+			else if (!country_ground_at(position, back, 5.f, body->vehicle_index) || !country_ground_at(position, back, 7.5f, body->vehicle_index))
+			{
+				throttle = backward > 1.6f ? 0.4f : -0.4f;
+				traveller->stuck_point = *position;
+				traveller->stuck_tick = now;
+			}
+		}
+	}
 	result->held_up = traveller->stuck_count >= 4;
 	result->yaw = yaw;
 	result->throttle = throttle;

@@ -281,9 +281,17 @@ struct bot_traveller
 	long stuck_tick;
 	long stuck_last;
 	long stuck_count;
+	long stand_tick; /* when it last began from a stand (waited, was put down somewhere, got clear) */
 	long escape_until; /* getting clear of what holds it: until when, and which way */
 	real escape_yaw;
 	long run_up_until; /* (backing off along a step's line for a run at it, until this tick) */
+	/* carried up something too narrow for it (bot_country.c, a lift): from
+	   when until when, by which points, and how its nose lay when it began */
+	long carry_from;
+	long carry_until;
+	long carry_count;
+	real_point3d carry[4];
+	real_vector3d carry_forward;
 	real swerve; /* round something in the way: to which side, for how long yet */
 	long swerve_ticks;
 };

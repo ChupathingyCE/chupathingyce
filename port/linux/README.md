@@ -1037,11 +1037,11 @@ Some Halo PC maps are about 2000 world units across (Coldsnap, Hugeass).
 The navigation of such a map is made only for the parts where the game is
 played: the bases, the weapons, the vehicles. It has no way between the
 parts. `port/linux/game/bot_country.c` takes the bots between them, in
-ground vehicles and on foot. It operates only on a map whose navigation is
-made in parts. On all other maps the game does not make it and does not use
-it: three games of 4 minutes (Blood Gulch and Sidewinder, capture the flag,
-11 bots; Hang 'Em High, slayer, 7 bots) had the same deaths with it, tick
-for tick, as before it.
+ground vehicles and on foot. The game makes this map of the ground on each
+map, and the drivers of ground vehicles use it on each map (see [Ground
+vehicles on all maps](#ground-vehicles-on-all-maps)). On foot, and to go
+between the parts, the bots use it only on a map whose navigation is made
+in parts.
 
 - **The ground.** The game makes a map of squares of 2 world units. A
   square has the floors that are below its middle: a floor is a surface of
@@ -1051,10 +1051,25 @@ for tick, as before it.
   the step agrees with the slopes of the two floors, the game accepts it.
   If not, or if the floor has a side (a ramp, a bridge, a road along a
   cliff), the game looks at the ground with rays: the ground must not jump
-  more than 1 world unit, and it must be 2 world units wide. After a jump
-  of more than 0.6 world units, the ground must continue at its new height
-  for 2.5 world units. Thus a Warthog goes up a step onto a platform, but
-  not onto the top of a low wall, and not into a rut.
+  more than 0.6 world units, and it must be 2 world units wide. Thus a
+  Warthog does not go onto the top of a low wall, and not into a rut. (The
+  limit was 1 world unit. In 16 tests, a Warthog that went straight at two
+  steps of 0.84 and 0.96 world units at 5 to 6 world units a second did
+  not get up one time.)
+- **Lifts.** A ramp that is 0.5 to 2 world units wide, that goes up 0.9
+  world units or more, and whose top the ground at its foot does not join
+  in a different way, is a lift. A Warthog is 1.7 world units wide. A bot
+  drives to the foot of a lift. When the vehicle is less than 3.5 world
+  units from the foot, slower than 5 world units a second, and nothing of
+  the map is between, the game moves the vehicle up the ramp at 4.5 world
+  units a second and puts it down at the top. The ten Warthogs of the
+  south-east base of Coldsnap stand 1.8 world units below the platform
+  that their gate is behind, and the two ramps up are 0.8 world units
+  wide. In test drives, a Warthog got up such a ramp one time in three
+  (the wheels of one side on the ramp). Before, no route went up: the
+  Warthogs went off the edge of the base, and the script of the map put
+  them back on the platform. The game makes lifts only on a map whose
+  navigation is made in parts.
 - **Walls.** A ray at 0.75 world units above the ground goes from the
   middle of each square to the middle of the next. If it hits the map, a
   machine or a piece of scenery, there is no step. This finds a wall, a
@@ -1098,6 +1113,20 @@ for tick, as before it.
   stopped. A ray finds a tree, a rock or a different vehicle in front, and
   the driver goes round it. The driver of a Ghost points the nose against
   the direction in which the Ghost slides.
+- **Edges.** A driver that reverses stops when there is no ground 2.5 or
+  3.5 world units behind the vehicle, and reverses slowly when there is
+  none 5 or 7.5 world units behind it. A driver that goes forward to get
+  clear of something does not go faster than 5 world units a second,
+  prefers a direction that has ground for 12.5 world units, and stops for
+  an edge. A vehicle that starts to move after it stood (it waited for its
+  route or for its team) is not stuck while it moves faster than 0.5 world
+  units a second in the first 4 seconds. Before these changes, the
+  Warthogs of the south-east base of Coldsnap went off the edge of the
+  base in two ways: forward when the game took a slow start for a stuck
+  vehicle, and backward when they reversed for a run at a step. In a test
+  game of 7 minutes (11 bots that prefer Warthogs), drivers were below the
+  base for 37 seconds before the changes and for 0 seconds after them, and
+  9 vehicles went up the lifts and 8 went into the gate of that base.
 - **The fight.** When an enemy is less than 28 world units away and the
   vehicle is not on the navigation, the driver goes round the enemy across
   the ground in the same way.
@@ -1157,9 +1186,45 @@ and fight there. These things do not operate well:
   bridges and get out.
 
 With `HALO_BOT_LOG` set, the lines that start with `bots: country:` give
-the size of the map of the ground, each gate, each search, and where each
-driver is every 3 seconds. `HALO_BOT_COUNTRYTRACE=1` adds a line for each
-driver every third of a second.
+the size of the map of the ground, each gate, each lift, each search, and
+where each driver is every 3 seconds. A line that starts with `bots: drv`
+gives each driver of a ground vehicle each second: its place, its speed,
+its throttle and how it drives (`mode 1`: far across the map, `mode 2`: by
+the map of the ground, `mode 3`: by the navigation). `HALO_BOT_COUNTRYTRACE=1`
+adds a line for each driver every third of a second.
+
+### Ground vehicles on all maps
+
+On each map, the driver of a Warthog, a Ghost or a Scorpion drives by the
+map of the ground of the section above: the same route, the same steering
+and the same speeds as on the very large maps. Before, a driver on an
+ordinary map followed the areas of the navigation. A driver uses the areas
+where the map of the ground has no way or the vehicle is not on it, and for
+12 seconds after the vehicle did not move 4 times. A turret is not driven.
+On a map whose navigation is whole, the map of the ground is made only for
+the part that the navigation has, and 30 world units round it (the shell of
+Death Island goes out to the horizon). The game makes it in 0.1 seconds or
+less on these maps and keeps it in `navcache/<map>_0.country`.
+
+These are games of 7 minutes of capture the flag with 11 bots that prefer
+vehicles (`HALO_BOT_CRAFT=vehicles`), with `HALO_RANDOM_SEED=5`, each one
+time by the areas (`HALO_BOT_COUNTRY=0`) and one time by the map of the
+ground. The speed is the mean speed of a driver that is on its way (not
+when it waits for its team and not when it goes round an enemy), in world
+units a second. Slow is the part of that time below 1.5 world units a
+second.
+
+| Map | Speed, areas | Speed, ground | Slow, areas | Slow, ground | Kills from vehicles, areas | Kills from vehicles, ground |
+| --- | --- | --- | --- | --- | --- | --- |
+| Blood Gulch | 3.3 | 3.6 | 24% | 25% | 13 | 13 |
+| Sidewinder | 2.7 | 3.9 | 37% | 20% | 12 | 14 |
+| Danger Canyon | 3.8 | 3.7 | 21% | 23% | 10 | 13 |
+| Death Island | 3.5 | 4.3 | 24% | 12% | 4 | 11 |
+| Ice Fields | 1.0 | 2.1 | 81% | 53% | 9 | 25 |
+| Timberland | 2.7 | 3.2 | 29% | 21% | 1 | 8 |
+
+A driver that has a gunner and goes round an enemy that nobody in the
+vehicle sees can go round for a long time. This is not changed.
 
 ### The bots in a Warthog
 

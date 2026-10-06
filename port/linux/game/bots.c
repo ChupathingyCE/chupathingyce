@@ -1232,6 +1232,7 @@ struct bot_state
 	long notice_from[BOT_MAXIMUM_PLAYERS]; /* when each first came into view, this time (0: has not) */
 	long notice_hold[BOT_MAXIMUM_PLAYERS]; /* and not taken in at all before this (someone only just in the game) */
 	long born_tick; /* when this life of ours began */
+	long drive_areas_until; /* driving by the areas until then, the ground having held it up (bot_country.c) */
 	/* looking about on the way somewhere */
 	long look_about_ticks; /* >0: glancing aside; <=0: counting down to the next */
 	real look_about_yaw; /* off the way we're going */
@@ -2305,6 +2306,8 @@ static int bot_nearest_enemy_on_the_ground(struct player_datum *player, real_poi
 	return best < 1.0e8f;
 }
 
+#define BOT_COUNTRY_EVERYWHERE 1
+static int bot_country_everywhere(void);
 static int bot_drive_far(struct bot_state *bot, struct player_datum *me, real_point3d const *position, long target, real target_distance,
 	int teams, real_point3d *place)
 {
@@ -2341,7 +2344,7 @@ static int bot_drive_far(struct bot_state *bot, struct player_datum *me, real_po
 static int bot_drive_is_beyond(real_point3d const *position, real_point3d const *place)
 {
 	long here, there;
-	if (!bot_country_ready())
+	if (!bot_country_ready() || !bot_nav_in_parts())
 		return FALSE;
 	if (!aas_ready())
 		return TRUE;
@@ -2355,9 +2358,23 @@ static int bot_drive_is_beyond(real_point3d const *position, real_point3d const 
 /* (... the vehicle itself is, wherever it is bound) */
 static int bot_drive_off_the_areas(real_point3d const *position)
 {
-	if (!bot_country_ready())
+	if (!bot_country_ready() || !bot_nav_in_parts())
 		return FALSE;
 	return !aas_ready() || aas_nearest_area(AAS_VEHICLE, position, 6.f, NULL) == NONE;
+}
+
+/* The ground worked out on every map, and driven over by the lie of it as
+   the very large ones are (HALO_BOT_COUNTRY=0: only on those, as it was) */
+static int bot_country_everywhere(void)
+{
+	static int asked, on;
+	if (!asked)
+	{
+		char const *text = getenv("HALO_BOT_COUNTRY");
+		asked = TRUE;
+		on = text ? atoi(text) != 0 : BOT_COUNTRY_EVERYWHERE;
+	}
+	return on;
 }
 
 /* A vehicle its driver gave up across country, where it stands: there is no
@@ -5974,7 +5991,7 @@ static void nav_update(void)
 		bot_air_build(); /* (the map from above, for what flies: bot_flight.c; after the places are known) */
 		/* (... and for what crosses it on the ground, a map too large for
 		   the areas to cover: bot_country.c. No other map has one) */
-		if (bot_nav_in_parts())
+		if (bot_nav_in_parts() || bot_country_everywhere())
 			bot_country_build();
 		else
 			bot_country_dispose();
@@ -7098,6 +7115,9 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 	long look_reason = _bot_look_ahead;
 	int weapon_chosen = FALSE;
 	real drive_throttle = 0.f;
+	int drive_mode = 0; /* (for the log: 1 far across country, 2 by the ground, 3 by the areas) */
+	int drive_held = FALSE, drive_round = FALSE;
+	real_point3d drive_to = { 0.f, 0.f, 0.f };
 	int zombie = FALSE; /* infection: one of the infected (infection.c) */
 	long look_period;
 
@@ -8568,6 +8588,8 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				bot_log("countryjump: bot%ld's vehicle put at %.0f %.0f %.0f", player_absolute_index, at.x, at.y, at.z);
 			}
 		}
+		drive_mode = 1;
+		drive_to = far_place;
 		bot_country_drive(&bot->traveller, &body, &far_place, &across);
 		if (across.off)
 		{
@@ -8645,6 +8667,8 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		int circling = FALSE;
 		int errand_on_foot = FALSE; /* (what it is bound for is got on foot, and is not far) */
 		int picking_up = FALSE; /* (... is one of ours with their flag, to be taken home) */
+		int by_country = FALSE;
+		struct bot_country_result across;
 
 		{
 			/* someone on the gun? */
@@ -8896,14 +8920,48 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		/* over the vehicle areas (a vehicle's width off walls, no stairs,
 		   no jumps): the route pulled straight, round corners, slowing for
 		   sharp ones, backing out when stuck, never over our own people */
-		if (bot_drive_off_the_areas(&position))
 		{
-			/* (out on a very large map where the areas do not reach: over
-			   the ground by the lie of it, as it came, bot_country.c) */
-			struct bot_country_result across;
-			bot_country_drive(&bot->traveller, &body, &next, &across);
+			int off_the_areas = bot_drive_off_the_areas(&position);
+			by_country = off_the_areas || (bot_country_everywhere() && bot_country_ready() && !bot_nav_in_parts() &&
+				bot_vehicle_kind(object_get(vehicle_index)->definition_index) != _bot_vehicle_turret &&
+				!(game_time_get() < bot->drive_areas_until && game_time_get() >= bot->drive_areas_until - BOT_SECONDS(12.f)));
+			if (by_country)
+			{
+				bot_country_drive(&bot->traveller, &body, &next, &across);
+				/* (standing for its own people, or where it was going: that
+				   is not being held up) */
+				if (hold || (across.arrived && !circling))
+				{
+					bot->traveller.stuck_point = position;
+					bot->traveller.stuck_tick = game_time_get();
+					across.held_up = FALSE;
+				}
+				/* (a map whose areas are whole: where the ground has no
+				   way, or this is not on it, the areas say; and for a
+				   while when it has been held up time and again going by
+				   the ground, where on a map without them it would be
+				   got out of) */
+				if (!off_the_areas && (across.none || across.off))
+					by_country = FALSE;
+				else if (!off_the_areas && across.held_up)
+				{
+					by_country = FALSE;
+					bot->drive_areas_until = game_time_get() + BOT_SECONDS(12.f);
+					bot->traveller.stuck_count = 0;
+					if (bot_logging())
+						bot_log("bot%ld t%ld the %s by the areas for a while (held up going by the ground) at %.0f %.0f %.0f", player_absolute_index, game_time_get(),
+							tag_get_name(object_get(vehicle_index)->definition_index), position.x, position.y, position.z);
+				}
+			}
+		}
+		drive_mode = by_country ? 2 : 3;
+		if (by_country)
+		{
+			/* (out on a very large map where the areas do not reach, or on
+			   any map: over the ground by the lie of it, bot_country.c) */
 			memset(&result, 0, sizeof(result));
 			result.moving = across.moving && !(across.arrived && !circling);
+			result.arrived = across.arrived;
 			result.steer_yaw = across.yaw;
 			result.throttle = across.throttle;
 			result.no_route = across.none || across.off;
@@ -8973,6 +9031,9 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		move_yaw = result.moving ? result.steer_yaw : move_yaw;
 		drive_throttle = result.throttle;
 		moving = result.moving && !hold;
+		drive_held = hold;
+		drive_round = circling;
+		drive_to = next;
 		if (moving && !bot->drive_off)
 		{
 			bot->drive_off = TRUE;
@@ -10197,6 +10258,17 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				move_speed = 1.f;
 			}
 		}
+	}
+	/* (what each driver on the ground is doing, a line a second) */
+	if (drive_mode && bot_logging() && game_time_get() % 30 == 0)
+	{
+		struct object_datum *ride = object_get(vehicle_index);
+		bot_log("drv bot%ld t%ld %s at %.1f %.1f %.1f speed %.2f throttle %.2f mode %d%s%s%s to %.0f %.0f %.0f", player_absolute_index, game_time_get(),
+			tag_get_name(ride->definition_index), position.x, position.y, position.z,
+			(real)sqrt(ride->object.translational_velocity.i * ride->object.translational_velocity.i +
+				ride->object.translational_velocity.j * ride->object.translational_velocity.j) * 30.f,
+			moving ? drive_throttle : 0.f, drive_mode, drive_held ? " held" : "", drive_round ? " round" : "", moving ? "" : " stopped",
+			drive_to.x, drive_to.y, drive_to.z);
 	}
 	if (moving)
 	{
