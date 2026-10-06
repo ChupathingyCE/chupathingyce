@@ -50,7 +50,9 @@ import java.util.zip.ZipInputStream;
  */
 final class Updater {
     private static final String REPOSITORY = "ChupathingyCE/chupathingyce";
-    private static final String USER_AGENT = "chupathingyce-updater";
+    private static final String USER_AGENT = "ChupathingyCE/" + BuildConfig.HALO_VERSION + " (Android arm64)";
+    /** the logcat tag, the native side's (port/android/host/host.h) */
+    private static final String LOG_TAG = "chupathingyce";
     private static final int TIMEOUT_MILLISECONDS = 20000;
     /** the most a download (a release's zip, about 25 MB) or the app in it may be */
     private static final long MAXIMUM_UPDATE_SIZE = 256L * 1024 * 1024;
@@ -219,7 +221,7 @@ final class Updater {
                 connection.disconnect();
             }
         } catch (Exception e) {
-            android.util.Log.i("halo", "update: could not check for a new version: " + e);
+            android.util.Log.i(LOG_TAG, "update: could not check for a new version: " + e);
             return null;
         }
     }
@@ -299,7 +301,7 @@ final class Updater {
                     install(activity);
                 });
             } catch (Exception e) {
-                android.util.Log.i("halo", "update: failed: " + e);
+                android.util.Log.i(LOG_TAG, "update: failed: " + e);
                 activity.runOnUiThread(() -> {
                     progress.dismiss();
                     new AlertDialog.Builder(activity)

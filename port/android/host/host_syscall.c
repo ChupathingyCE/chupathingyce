@@ -100,7 +100,7 @@ static void log_bytes(int fd, const char *bytes, size_t size)
 		if (c == '\n' || stream->length == sizeof(stream->line) - 1)
 		{
 			stream->line[stream->length] = 0;
-			__android_log_write(fd == 2 ? ANDROID_LOG_WARN : ANDROID_LOG_INFO, "halo", stream->line);
+			__android_log_write(fd == 2 ? ANDROID_LOG_WARN : ANDROID_LOG_INFO, HOST_LOG_TAG, stream->line);
 			stream->length = 0;
 			if (c == '\n')
 				continue;

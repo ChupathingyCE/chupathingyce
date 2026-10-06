@@ -52,6 +52,7 @@ from .linux_build import (
     updater_defines,
 )
 from .ninja_syntax import Writer
+from .version import VERSION_SOURCES
 
 LINUX_PORT_DIR = Path("port/linux")
 LINUX_PORT_CONFIG = LINUX_PORT_DIR / "port.json"
@@ -318,7 +319,7 @@ class Lp64Build:
                 add(source, f"{posix_cflags} -I{STB_DIR}", native=True)
             elif source.name.startswith("posix_"):
                 add(source, posix_cflags, native=True)
-            elif source.name == "updater.c":
+            elif source.name in VERSION_SOURCES:
                 add(lp64(source), f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
             elif source.name == "text_hires.c":
                 # (it includes stb_truetype by a path from its own folder: the

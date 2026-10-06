@@ -197,6 +197,8 @@ BOOL platform_sdl_initialize(void)
 		return FALSE;
 	}
 	platform_sdl_started = TRUE;
+	/* which build this is, first in its log (build_identity.c) */
+	build_identity_log();
 #ifndef HALO_ANDROID
 	/* found (or offered to the player, platform_offer_game_data) before the
 	game's window opens, and checked to be the Xbox maps */

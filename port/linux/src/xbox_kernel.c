@@ -30,7 +30,7 @@ void platform_log(const char *format, ...)
 	FILE *handle;
 #endif
 
-	fputs("halo-linux: ", stderr);
+	fputs(PLATFORM_LOG_PREFIX, stderr);
 	va_start(arguments, format);
 #ifdef HALO_64BIT
 	vsnprintf(buffer, sizeof(buffer), format, arguments);
@@ -70,7 +70,7 @@ void platform_log(const char *format, ...)
 		handle = fopen("debug.txt", "a");
 	if (handle)
 	{
-		fprintf(handle, "halo-linux: %s\n", buffer);
+		fprintf(handle, PLATFORM_LOG_PREFIX "%s\n", buffer);
 		fclose(handle);
 	}
 #endif

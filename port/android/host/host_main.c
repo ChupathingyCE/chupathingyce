@@ -46,13 +46,13 @@ void host_logf(int priority, const char *format, ...)
 	va_list arguments;
 
 	va_start(arguments, format);
-	__android_log_vprint(priority, "halo", format, arguments);
+	__android_log_vprint(priority, HOST_LOG_TAG, format, arguments);
 	va_end(arguments);
 }
 
 void host_log(int priority, const char *text)
 {
-	__android_log_write(priority, "halo", text);
+	__android_log_write(priority, HOST_LOG_TAG, text);
 }
 
 void host_fatal(const char *format, ...)
@@ -63,14 +63,14 @@ void host_fatal(const char *format, ...)
 	va_start(arguments, format);
 	vsnprintf(message, sizeof(message), format, arguments);
 	va_end(arguments);
-	__android_log_write(ANDROID_LOG_FATAL, "halo", message);
+	__android_log_write(ANDROID_LOG_FATAL, HOST_LOG_TAG, message);
 	SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "ChupathingyCE", message, NULL);
 	_exit(1);
 }
 
 void host_abort(const char *reason)
 {
-	__android_log_print(ANDROID_LOG_FATAL, "halo", "guest abort: %s", reason);
+	__android_log_print(ANDROID_LOG_FATAL, HOST_LOG_TAG, "guest abort: %s", reason);
 	abort();
 }
 
@@ -366,7 +366,7 @@ static void *game_main(void *unused)
 		FILE *report;
 
 		if (!host_memory_fixed_unavailable())
-			host_fatal("cannot load the game image; see logcat (tag \"halo\") for details");
+			host_fatal("cannot load the game image; see logcat (tag \"" HOST_LOG_TAG "\") for details");
 
 		snprintf(path, sizeof(path), "%s/memory_map.txt", data_root);
 		report = fopen(path, "w");
@@ -375,7 +375,7 @@ static void *game_main(void *unused)
 			fclose(report);
 		host_fatal("The game cannot start: the memory it needs at 0x80000000 is taken by Android's "
 			"Java runtime on this device.\n\nRestarting the device may help. Please report it with "
-			"memory_map.txt from\n%s\n(or adb logcat -s halo).", data_root);
+			"memory_map.txt from\n%s\n(or adb logcat -s " HOST_LOG_TAG ").", data_root);
 	}
 	SDL_free(image);
 
