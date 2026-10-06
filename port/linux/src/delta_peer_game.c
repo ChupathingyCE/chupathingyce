@@ -74,7 +74,9 @@ static int local_platform(void)
 	return _delta_platform_pc_windows;
 #elif defined(__APPLE__)
 	return _delta_platform_pc_macos;
-#elif defined(__ANDROID__)
+#elif defined(HALO_ANDROID)
+	/* (the Android game is a guest built as Linux code: HALO_ANDROID, not
+	the NDK's __ANDROID__, is what it has; tools/android_build.py) */
 	return _delta_platform_android;
 #elif defined(__linux__)
 	/* (Steam sets SteamDeck=1 in its games' environment on the Deck) */
