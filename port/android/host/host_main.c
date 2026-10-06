@@ -16,7 +16,11 @@ maps/) is the app's external files directory,
 on first run; saves go to its save/ subdirectory. The settings,
 config.toml, live there too (port/linux/src/port_config.c, which the game
 reads); this file reads only debug.sample_seconds from it, for the sampler
-that runs here.
+that runs here, and the Vulkan renderer's settings: display.renderer, to
+choose between the two game images (halo_guest.elf, drawing with OpenGL ES,
+and halo_guest_vk.elf, with Vulkan: port/android/VULKAN.md), display.vk_driver
+(host_vk_driver.c), debug.vk_validation and the debug settings of the
+renderer.
 */
 
 #include "host.h"
@@ -38,6 +42,8 @@ that runs here.
 #include <unistd.h>
 
 void host_install_signal_handlers(void);
+
+int host_renderer_vulkan;
 
 /* ---------- logging and termination */
 
@@ -77,6 +83,7 @@ void host_abort(const char *reason)
 void host_exit(int code)
 {
 	host_logf(HOST_LOG_INFO, "the game exited (%d)", code);
+	host_vk_exit();
 	/* the process ends with the game; Android restarts it from the
 	launcher next time */
 	_exit(code);
@@ -205,27 +212,50 @@ static void environment_set(struct environment *environment, const char *name, c
 		free(entry);
 }
 
-/* debug.sample_seconds from config.toml, as text for the sampler, or 0 */
-static int config_sample_seconds(const char *path, char *text, size_t size)
+/* the settings of config.toml that this file reads */
+struct host_settings
+{
+	char sample_seconds[32]; /* debug.sample_seconds, as text for the sampler; empty for none */
+	char vk_driver[256]; /* display.vk_driver: empty (the default) for the phone's own driver, "auto", or an archive */
+	char renderer[32]; /* display.renderer: "gl" (the default, also when empty) or "vulkan" */
+	int vk_validation; /* debug.vk_validation */
+	int gpu_stats; /* debug.gpu_stats */
+	int vk_present_marker; /* debug.vk_present_marker */
+	int vk_self_test; /* debug.vk_self_test */
+};
+
+static void config_read(const char *path, struct host_settings *settings)
 {
 	toml_result_t result = toml_parse_file_ex(path);
-	int found = 0;
 
+	memset(settings, 0, sizeof(*settings));
+	/* the defaults of port_config.c's rows, for a file not written yet (the first start) or without them */
+	snprintf(settings->renderer, sizeof(settings->renderer), "gl");
 	if (!result.ok)
-		return 0;
+		return;
 	{
 		toml_datum_t seconds = toml_seek(result.toptab, "debug.sample_seconds");
+		toml_datum_t driver = toml_seek(result.toptab, "display.vk_driver");
+		toml_datum_t renderer = toml_seek(result.toptab, "display.renderer");
+		toml_datum_t validation = toml_seek(result.toptab, "debug.vk_validation");
+		toml_datum_t statistics = toml_seek(result.toptab, "debug.gpu_stats");
+		toml_datum_t marker = toml_seek(result.toptab, "debug.vk_present_marker");
+		toml_datum_t self_test = toml_seek(result.toptab, "debug.vk_self_test");
 		double value = seconds.type == TOML_FP64 ? seconds.u.fp64 :
 			seconds.type == TOML_INT64 ? (double)seconds.u.int64 : 0.0;
 
 		if (value > 0.0)
-		{
-			snprintf(text, size, "%g", value);
-			found = 1;
-		}
+			snprintf(settings->sample_seconds, sizeof(settings->sample_seconds), "%g", value);
+		if (driver.type == TOML_STRING)
+			snprintf(settings->vk_driver, sizeof(settings->vk_driver), "%s", driver.u.s);
+		if (renderer.type == TOML_STRING)
+			snprintf(settings->renderer, sizeof(settings->renderer), "%s", renderer.u.s);
+		settings->vk_validation = validation.type == TOML_BOOLEAN && validation.u.boolean;
+		settings->gpu_stats = statistics.type == TOML_BOOLEAN && statistics.u.boolean;
+		settings->vk_present_marker = marker.type == TOML_BOOLEAN && marker.u.boolean;
+		settings->vk_self_test = self_test.type == TOML_BOOLEAN && self_test.u.boolean;
 	}
 	toml_free(result);
-	return found;
 }
 
 /* POSIX TZ for the current local offset (the guest's musl has no zone
@@ -291,7 +321,10 @@ static void *game_main(void *unused)
 	char path[600];
 	size_t image_size = 0;
 	void *image;
+	char vulkan_refused[300] = ""; /* why Vulkan, asked for, cannot be tried */
+	int want_vulkan = 0;
 	uint32_t boot;
+	struct host_settings settings;
 
 	(void)unused;
 	external = SDL_GetAndroidExternalStoragePath();
@@ -358,9 +391,41 @@ static void *game_main(void *unused)
 	}
 	snprintf(path, sizeof(path), "%s/config.toml", data_root);
 
-	image = SDL_LoadFile("halo_guest.elf", &image_size);
-	if (!image)
-		host_fatal("cannot read the game image from the APK: %s", SDL_GetError());
+	config_read(path, &settings);
+	/* the renderer decides the image (host.h): the Vulkan one when asked for and Vulkan comes up */
+	if (!strcmp(settings.renderer, "vulkan"))
+		want_vulkan = 1;
+	else if (settings.renderer[0] && strcmp(settings.renderer, "gl"))
+		host_logf(HOST_LOG_WARN, "display.renderer \"%s\" is not \"gl\" or \"vulkan\"; using GL ES", settings.renderer);
+
+	if (want_vulkan)
+	{
+		/* SDL's video is up (above), and the image's range was reserved from JNI_OnLoad */
+		char line[600];
+
+		host_renderer_vulkan = host_vk_startup(settings.vk_driver, settings.vk_validation, line, sizeof(line));
+		host_logf(HOST_LOG_INFO, "renderer: %s", line);
+		if (host_renderer_vulkan)
+		{
+			image = SDL_LoadFile("halo_guest_vk.elf", &image_size);
+			if (!image)
+			{
+				snprintf(vulkan_refused, sizeof(vulkan_refused), "the APK has no halo_guest_vk.elf: %s", SDL_GetError());
+				host_vk_exit();
+				host_renderer_vulkan = 0;
+			}
+		}
+	}
+	else
+		host_logf(HOST_LOG_INFO, "renderer: GL ES");
+	if (!host_renderer_vulkan)
+	{
+		if (vulkan_refused[0])
+			host_logf(HOST_LOG_WARN, "renderer: GL ES (Vulkan was asked for: %s)", vulkan_refused);
+		image = SDL_LoadFile("halo_guest.elf", &image_size);
+		if (!image)
+			host_fatal("cannot read the game image from the APK: %s", SDL_GetError());
+	}
 	if (host_load_image(image, image_size) != 0)
 	{
 		FILE *report;
@@ -379,12 +444,11 @@ static void *game_main(void *unused)
 	}
 	SDL_free(image);
 
-	{
-		char seconds[32];
-
-		if (config_sample_seconds(path, seconds, sizeof(seconds)))
-			host_debug_start_sampler(seconds);
-	}
+	if (settings.sample_seconds[0])
+		host_debug_start_sampler(settings.sample_seconds);
+	host_gl_statistics = settings.gpu_stats;
+	host_vk_present_marker = settings.vk_present_marker;
+	host_vk_self_test = settings.vk_self_test;
 	boot = make_boot(&environment);
 	host_logf(HOST_LOG_INFO, "data %s, saves %s", data_root, save_root);
 	host_run_guest_main(boot);

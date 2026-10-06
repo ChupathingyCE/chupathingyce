@@ -91,7 +91,8 @@ android {
 
     packaging {
         jniLibs {
-            useLegacyPackaging false
+            // the Vulkan renderer loads libadrenotools and its hooks by their path in the native library folder
+            useLegacyPackaging true
         }
     }
 
