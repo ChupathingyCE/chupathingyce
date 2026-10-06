@@ -374,6 +374,8 @@ static char const *const port_game_data_input_names[] =
 	"direct ip connect update", "network settings update",
 	"port settings help", "color picker update", "3wide player profile list update", "port lobby update",
 	"port lobby preview update",
+	/* (the main menu's line under the version number: the renderer, and its driver) */
+	"port renderer textbox",
 	/* (the gametype editor's: the Xbox's stops the game on the buttons'
 	row; the Xbox's read only player_ui's gametype, not Server Setup's) */
 	"game settings lists text update", "get edit game settings name", "mp edit profile set rule text",

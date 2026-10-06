@@ -303,6 +303,17 @@ increases, and it never decreases. The minor number and the patch number
 must be less than 100: the build stops if they are not. `versionName` is
 the full version, for example `0.6.2b-nightly.3`.
 
+## Graphics: OpenGL ES and Vulkan
+
+The game draws with OpenGL ES by default. A Vulkan renderer is there to try,
+for phones whose OpenGL ES driver draws the game wrongly: in `config.toml`,
+in the `[display]` section, set `renderer = "vulkan"` and start the game
+again. If Vulkan cannot start, the game uses OpenGL ES, and the log says why.
+On a phone with a Qualcomm Adreno GPU, `vk_driver = "auto"` also uses Turnip,
+the open-source Vulkan driver, which the launcher downloads once into the
+game's data folder. [VULKAN.md](VULKAN.md) has the settings and how it is
+built.
+
 ## Widescreen
 
 The game shows 480 lines in the shape of the display, not the 640x480 of

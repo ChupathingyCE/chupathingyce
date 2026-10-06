@@ -111,6 +111,20 @@ static const struct config_setting config_settings[] =
 	{ "display.screen_width", _config_integer, "0", "HALO_SCREEN_WIDTH", _environment_value, _platform_android,
 		"Columns of the 480-line picture: 0 for the display's shape, 640 for the\n"
 		"Xbox's 4:3." },
+	/* read by the Android host (port/android/host/host_vk_driver.c) */
+	{ "display.vk_driver", _config_string, "\"\"", "HALO_VK_DRIVER", _environment_value, _platform_android,
+		"The Vulkan driver the Vulkan renderer runs on: empty for the phone's own;\n"
+		"\"auto\" for Turnip, the open-source driver, on an Adreno GPU (the app\n"
+		"downloads the build for its series; the phone's own on any other GPU); or the\n"
+		"name of a driver archive (an adrenotools zip) left in the game's folder. One\n"
+		"that does not load is logged and the phone's own is used." },
+	/* read by the Android host before the game starts, to choose the game
+	image built with that renderer (port/android/VULKAN.md) */
+	{ "display.renderer", _config_string, "\"gl\"", "HALO_RENDERER", _environment_value, _platform_android,
+		"How the game draws: \"gl\" (OpenGL ES over the phone's driver) or \"vulkan\"\n"
+		"(over display.vk_driver; OpenGL ES if Vulkan cannot start). Takes effect the\n"
+		"next time the game starts. See the Android README, \"Graphics: OpenGL ES and\n"
+		"Vulkan\"." },
 	{ "display.vsync", _config_boolean, "true", "HALO_NO_VSYNC", _environment_set_is_false, _platform_all,
 		"Wait for the display between frames; false draws as fast as possible." },
 	{ "display.max_fps", _config_integer, "0", "HALO_MAX_FPS", _environment_value, _platform_desktop,
@@ -429,6 +443,15 @@ static const struct config_setting config_settings[] =
 	{ "debug.sample_seconds", _config_real, "0.0", "HALO_SAMPLE", _environment_value, _platform_android,
 		"Log where every game thread is this often, in seconds (read by the\n"
 		"app, port/android/host/host_debug.c); 0 never." },
+	{ "debug.vk_present_marker", _config_boolean, "false", "HALO_VK_PRESENT_MARKER", _environment_set_is_true, _platform_android,
+		"Under the Vulkan renderer, draw a red square at the top left and a green one\n"
+		"at the top right of the picture, so that a screenshot shows which way up it is." },
+	{ "debug.vk_self_test", _config_boolean, "false", "HALO_VK_SELF_TEST", _environment_set_is_true, _platform_android,
+		"Under the Vulkan renderer, try the renderer's clears and the copying of a\n"
+		"draw's data on small targets of its own at start-up; the log says ok or FAILED." },
+	{ "debug.vk_validation", _config_boolean, "false", "HALO_VK_VALIDATION", _environment_set_is_true, _platform_android,
+		"Turn on Vulkan's validation layer in the Vulkan renderer, when the app\n"
+		"carries it (configure.py --android-vulkan-validation)." },
 };
 
 #define NUMBER_OF_CONFIG_SETTINGS (sizeof(config_settings) / sizeof(config_settings[0]))
