@@ -55,6 +55,11 @@ struct bot_move_state
 	int reach_phase; /* a gap: 0 the run-up, 1 the run */
 	long reach_runup_ticks; /* a gap: how long getting to the start of the run took */
 	real reach_peak;
+	real reach_pace; /* a gap: how fast it is run at (0: not worked out yet; 1: flat out) */
+	int reach_no_jump; /* ... and run off the edge of, not jumped from (it lands near, and well below) */
+	real reach_beyond; /* ... and how far on from the near end of where it lands it is meant to come down */
+	int reach_hole; /* a gap that is walked over: 0 not looked at, 1 walked, 2 a hole a body goes down (jumped) */
+	int reach_no_room; /* a gap with nowhere behind its edge to take a run from */
 	long reach_rise_ticks; /* a ladder: when we last got higher */
 	real reach_rise_z;
 	/* reachabilities failed at: not taken again for a while */
@@ -367,6 +372,7 @@ real bot_wrap(real a);
 real bot_distance2d(real_point3d const *a, real_point3d const *b);
 real bot_yaw_to(real_point3d const *from, real_point3d const *to);
 int bot_ground(real_point3d const *point, real depth, long ignore, real *ground_z);
+real bot_ground_level(real_point3d const *point, real depth, long ignore);
 real bot_probe(real_point3d const *from, real yaw, real length, long ignore);
 int bot_unit_alive(long unit_index);
 /* one of our side on foot in the lane ahead */

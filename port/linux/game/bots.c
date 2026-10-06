@@ -179,6 +179,18 @@ int bot_ground(real_point3d const *point, real depth, long ignore, real *ground_
 	return TRUE;
 }
 
+/* how level the ground under a point is: its normal's up (1 flat, 0.707 the
+   steepest a body walks), or 0 where there is none */
+real bot_ground_level(real_point3d const *point, real depth, long ignore)
+{
+	struct collision_result collision;
+	real_vector3d vector = { 0.f, 0.f, 0.f };
+	vector.k = -depth;
+	if (!collision_test_vector(bot_move_flags, point, &vector, ignore, &collision))
+		return 0.f;
+	return collision.plane.n.k;
+}
+
 int bot_unit_alive(long unit_index)
 {
 	struct object_datum *unit = unit_index != NONE ? object_try_and_get(unit_index) : NULL;
@@ -7173,10 +7185,12 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		{
 			struct biped_definition *definition = biped_definition_get(object_get(me->unit_index)->definition_index);
 			told = TRUE;
-			bot_log("bots: biped slope %.1f deg (min normal k %.3f), uphill falloff %.1f cutoff %.1f, jump %.3f, height %.2f radius %.2f",
+			bot_log("bots: biped slope %.1f deg (min normal k %.3f), uphill falloff %.1f cutoff %.1f, jump %.3f, height %.2f radius %.2f; uphill k %.3f to %.3f scale %.2f, downhill k %.3f to %.3f scale %.2f",
 				definition->biped.maximum_slope_angle * 57.2958f, definition->biped.runtime_minimum_normal_k,
 				definition->biped.uphill_falloff_angle * 57.2958f, definition->biped.uphill_cutoff_angle * 57.2958f,
-				definition->biped.jump_velocity, definition->biped.collision_height_standing, definition->biped.collision_radius);
+				definition->biped.jump_velocity, definition->biped.collision_height_standing, definition->biped.collision_radius,
+				definition->biped.runtime_uphill_k0, definition->biped.runtime_uphill_k1, definition->biped.uphill_velocity_scale,
+				definition->biped.runtime_downhill_k0, definition->biped.runtime_downhill_k1, definition->biped.downhill_velocity_scale);
 		}
 	}
 	if (bot->unit_index != me->unit_index)

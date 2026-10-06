@@ -901,6 +901,55 @@ is the quickest way, also up to a place and then across from it. A jump
 that fails costs more each time it fails, and the bots keep what they
 learned in the save root.
 
+**Jumps across gaps.** The navigation calls each place a gap where a jump
+at a full run gets to the other side or farther: a break in a walkway, and
+also a ledge that is 3 world units away and 2 below. The bots took all of
+them at a full run with a jump. These are the changes:
+
+- A bot keeps its full speed where the jump comes down on floor at the
+  height of the other side. Where it does not (a ledge with nothing behind
+  it), the bot runs at the speed that puts it 0.05 to 0.5 world units onto
+  the ledge. When the ledge is more than 0.5 world units below and near,
+  the bot runs off the edge and does not jump.
+- In the air, a bot steers to the place where it must come down. The game
+  lets a body in the air change its speed by about 1 world unit a second
+  each second. The bot computes where it comes down with the speed that it
+  has, and pushes against the difference.
+- A bot jumps only when it moves toward the other side (the speed along
+  the line of the jump, not the speed in a different direction). Without
+  that speed at the edge, it goes back for its run. Before, a bot that
+  came to the edge sideways or backward jumped and fell into the gap.
+- Some gaps that the navigation says a bot walks across (a slot less than
+  0.2 world units wide) are as wide as a body where a bot crosses them
+  (between two decks of Boarding Action, across a corner). A bot looks at
+  three points of the gap. If one has no floor 0.6 world units below, the
+  bot jumps the gap.
+- A bot that pushes at something on its way to a jump or a gap, with the
+  next point of the way more than 0.12 world units above its feet (the
+  bank of the stream of Beaver Creek), hops after 0.17 seconds.
+- A bot that stands 0.6 world units or more below the two ends of a jump
+  or a gap stops that jump at once and plans its route again. Before, it
+  made the run and the jump on the floor below, against the wall, for 3
+  seconds. The time for a way that goes down includes the time of the
+  fall.
+
+These are games of 5 minutes of slayer on eight maps (Beaver Creek,
+Boarding Action, Chill Out, Damnation, Longest, Prisoner, Chiron TL-34,
+Hang 'Em High), 6 to 10 bots:
+
+| | Before | After |
+| --- | --- | --- |
+| Jumps, gaps, drops and ladders that failed, for each 10 minutes of a bot (seed 5) | 5.0 | 3.0 |
+| The same (seed 7) | 5.9 | 3.2 |
+| Gaps that failed (seed 5) | 72 of 592 | 38 of 522 |
+| Gaps that failed (seed 7) | 84 | 35 of 542 |
+| Kills in the eight games (seed 7) | 602 | 588 |
+
+With `HALO_BOT_LOG` set, the log has a line for each jump, gap, drop and
+ladder that a bot makes or does not make. `HALO_BOT_REACHTRACE=1` adds a
+line for each second tick of one, and `HALO_BOT_WALKTRACE=1` a line for
+each third tick of a walk that does not get on.
+
 With a rocket launcher, a bot shoots at the floor at the feet of an enemy
 who is on the ground and less than 22 world units away, and it shoots from
 2.8 world units or more (the blast is 2 world units). In a game without
