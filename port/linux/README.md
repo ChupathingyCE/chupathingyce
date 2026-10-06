@@ -927,6 +927,61 @@ In a fight, a bot with a weak weapon in its hands and a better weapon on
 its back changes to the better weapon. No bot has the needler as its
 favourite weapon.
 
+A bot does not walk past a rocket launcher, a sniper rifle or a fuel rod
+gun. When one lies less than 8 world units away, the bot takes it if it is
+better than the worse of its two weapons. It does not do this when an enemy
+is less than 12 world units away, when it was hit a moment ago, or when the
+swap takes its favourite weapon. On a far map (the next section), a bot on
+its trip goes to a power weapon or a powerup when the way by the item is
+not more than 9 to 27 world units longer than the way straight to the
+enemies (4 to 12 seconds on foot, by the character of the bot). In four
+test games of 5 minutes on Gephyrophobia, no bot had a sniper rifle in its
+hands before this, and bots had one 3 to 11 times in each game after it.
+`HALO_BOT_OLDITEMS=1` turns these two rules off, for a comparison.
+
+**Weapons that a map adds.** The bots know the weapons, the powerups and
+the vehicles of the game by the names of their tags. For a tag with a
+different name, and for all the tags of a map whose names are removed (a
+protected map: each name is `<protected>`), the bots use what the tag
+says, and treat the thing as the thing of the game that it is most like:
+
+| The tag says | The bots use it as |
+|---|---|
+| a weapon with no trigger | the flag or the ball |
+| more than 3 projectiles in each shot | a shotgun |
+| a projectile that turns to its target and is slow | a needler |
+| a range of 20 world units or less, slow, 6 shots or more a second | a flamethrower |
+| a trigger that charges for 1.5 seconds or more, and a fast projectile | a sniper rifle. The bot holds the trigger until the weapon fires. |
+| a trigger that charges for 0.25 seconds or more | a plasma pistol |
+| 2 zoom levels, or 1 zoom level with 2.5 shots a second or fewer and a fast projectile | a sniper rifle |
+| a slow projectile that explodes, 4 shots a second or fewer | a rocket launcher. If the projectile falls: a fuel rod gun. |
+| 6 shots or more a second | an assault rifle if it has rounds, a plasma rifle if not |
+| all others | a pistol |
+| 30 shots or more a second with no damage (a charge that a player puts down) | nothing: the bots do not go to it |
+
+A powerup gets its kind from the type in its tag (overshield, active
+camouflage, health, grenades), and a vehicle with no name gets its kind
+from its physics and its seats. A tag with a name that the bots know stays
+what its name says, thus the maps of the game are not changed. In a test
+with the names of Yoyorast Island hidden (`HALO_BOT_NONAMES=1`), each
+weapon of the game got its own kind. On Snow Grove, a protected map, all
+weapons were unknown before this. In two test games there, the bots had a
+sniper rifle or the laser in their hands 69 and 77 times and fired the
+laser 53 and 64 times. `HALO_BOT_WEAPONS=1` writes each weapon of a map to
+the log, with its kind.
+
+**How quickly a bot sees an enemy.** A bot sees only an enemy in its view,
+and not at once: the time is longer for an enemy that is far, at the side
+of the view, or not moving, and shorter for one that shoots. An enemy that
+got a new body less than 3 seconds ago takes 0.01 to 0.2 seconds more, and
+so does each enemy for a bot that got a new body less than 3 seconds ago.
+This time is half as long when the enemy moves or shoots. In a test game
+on Chill Out (8 bots, skill 3), the middle time from in view to seen, for
+these enemies, went from 0.23 to 0.33 seconds; the shortest stayed at 0.1
+seconds. The number of kills did not change (91 and 91).
+`HALO_BOT_OFF=fresh` turns the added time off, and `HALO_BOT_NOTICELOG=1`
+writes each time to the log.
+
 `HALO_BOT_OFF=human` gives the bots their movement without the first list
 above, for a comparison.
 
@@ -1265,7 +1320,8 @@ seats than its own does these things:
   with the flag is on foot more than 150 world units from its base, a
   pilot with an empty seat flies to it and lands next to it.
 - With nobody in it and 2 or more of its team on foot at the place where
-  it took the aircraft, it flies back there for them.
+  it took the aircraft, it flies back there for them. It starts back only
+  when it is more than 200 world units from that place.
 
 A bot that just got out of such an aircraft and is still next to it walks
 first the way that is open the farthest (rays at the height of the chest),
@@ -1299,14 +1355,31 @@ points at it, and nothing of the map is between. In one test game all 8
 jets left their hangars this way in the first 35 seconds. Before this, no
 jet left.
 
+The Longswords of Coldsnap leave through two larger volumes (62 and 60
+world units across) that put them on top of the mountain. A pilot of a
+Longsword flies into its volume on its wings. Volumes that are larger than
+90 world units are parts of a base, not gates, and no pilot flies to them.
+In a test game of 5 minutes with bots that prefer the Longsword, two
+Longswords left their hangars and killed 16. Before this, a Longsword
+stayed in its hangar with its pilot and the bots in its seats.
+
+**The guns of the jets.** A gun whose projectile goes 5 world units a tick
+or faster has a range of 15 ticks of its projectile (150 world units at
+most), whatever range its tag gives. A pilot shoots missiles that do not
+fall at aircraft also. In a test game of 10 minutes on Hugeass, the jets
+killed 8.
+
+A pilot that leaves an aircraft because the aircraft is stuck does not
+take it again, and no other bot takes it, for 180 seconds.
+
 In a test game of 9.5 minutes on Hugeass, two Pelicans took 3 and 5 bots
 to the flags, a bot of each team took the flag and got in again, and one
 Pelican landed 12.5 world units from its own flag and the team scored.
 These things are not complete:
 
-- The weapons of the jets and the bomb of the Longsword were not measured
-  well. A pilot lets a bomb go when the game computes that it falls less
-  than 5 world units from the enemy.
+- A pilot lets a bomb of the Longsword go when the game computes that it
+  falls less than 5 world units from the enemy. The pilots of the jets of
+  Coldsnap get few kills.
 - A jet does not land at a flag that is under a roof.
 - A pilot that carries people does not shoot.
 
@@ -1412,6 +1485,11 @@ longer than the others:
   ticks it looks only at its target.
 - A bot far from a target that moves keeps its route until the target has
   moved a fifth of the distance between them (4 world units at most).
+
+`HALO_GAME_SPEED=<n>` runs a test game at n times its speed (the game
+does more ticks for each frame; each tick is the same as at the usual
+speed). A game with only bots runs 6 to 9 times as fast on one processor
+core, and a game on a very large map about 2 times.
 
 `HALO_BOT_PROFILE=1` writes the time that the parts of the bots use to the
 log every 5 seconds, with the longest tick, and a line for each bot that

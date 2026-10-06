@@ -35,6 +35,12 @@ and narrows each bot's own accuracy, reactions and agility toward the best.
 #include "game/game_engine.h"
 #include "game/game_engine_king.h"
 #include "items/projectile_definitions.h"
+#include "items/equipment_definitions.h"
+#include "effects/effect_definitions.h"
+#include "units/vehicle_definitions.h"
+#include "game/game_globals.h"
+#include "objects/damage.h"
+#include "objects/damage_effect_definitions.h"
 #include "items/projectiles.h"
 #include "items/weapon_definitions.h"
 #include "items/weapons.h"
@@ -188,6 +194,21 @@ int bot_unit_alive(long unit_index)
 
 /* (asked many times a tick of the same few tags: remembered, per map) */
 static long bot_name_cache_map = 1;
+/* What the bots know of a weapon, a powerup or a vehicle they know by the
+   name of its tag: a rocket launcher is the thing whose tag is called one.
+   A map made for Halo PC has things of its own with names of their own, and
+   some maps have had the names of all their tags taken out (every one of
+   them reads "<protected>"): there, nothing was anything, and a rocket
+   launcher was picked up, kept and fired as a pistol is.
+
+   So a thing whose name is none the bots know gets the name of the thing
+   of the game's own that it works like, by what its tags say it does
+   (bot_alias_name), and is that to every question asked of its name. A
+   thing with a name they know is what its name says, as before. */
+static char const *bot_alias_name(long definition_index);
+#define BOT_CHARGE_LEAST 0.25f /* seconds: a trigger that charges for less is not a charged weapon */
+#define BOT_CHARGE_BEAM 1.5f /* seconds: one that charges this long fires only when it is done */
+
 static int bot_name_has(long definition_index, char const *text)
 {
 	static struct { long definition_index; char const *text; int result; long map; } cache[1024];
@@ -202,6 +223,11 @@ static int bot_name_has(long definition_index, char const *text)
 	cache[slot].definition_index = definition_index;
 	cache[slot].text = text;
 	cache[slot].result = name && strstr(name, text) != NULL;
+	if (!cache[slot].result)
+	{
+		char const *alias = bot_alias_name(definition_index);
+		cache[slot].result = alias && strstr(alias, text) != NULL;
+	}
 	return cache[slot].result;
 }
 
@@ -865,8 +891,8 @@ static real bot_skill_aggression(void)
 
 /* testing: turn this session's changes off per team, to pit them against
    the old behaviour in the same game (HALO_BOT_OFF_T0 / _T1: a list of
-   switch, melee, threat, via, teabag, costslot, pace, notice, human, or
-   "all") */
+   switch, melee, threat, via, teabag, costslot, pace, notice, human,
+   fresh, or "all") */
 enum
 {
 	BOT_F_SWITCH = 2, BOT_F_MELEE = 4, BOT_F_THREAT = 8, BOT_F_VIA = 16,
@@ -874,6 +900,8 @@ enum
 	/* moving and looking as a person's hands do (the look eased into and
 	   out of, the movement a thumb's, a person's strafing) */
 	BOT_F_HUMAN = 1024,
+	/* the moment longer to take in someone only just in the game */
+	BOT_F_FRESH = 2048,
 };
 static unsigned bot_off;
 
@@ -883,7 +911,7 @@ static unsigned bot_off_parse(char const *text)
 	{
 		{ "switch", BOT_F_SWITCH }, { "melee", BOT_F_MELEE }, { "threat", BOT_F_THREAT },
 		{ "via", BOT_F_VIA }, { "teabag", BOT_F_TEABAG }, { "costslot", BOT_F_COSTSLOT }, { "pace", BOT_F_PACE },
-		{ "notice", BOT_F_NOTICE }, { "human", BOT_F_HUMAN },
+		{ "notice", BOT_F_NOTICE }, { "human", BOT_F_HUMAN }, { "fresh", BOT_F_FRESH },
 		{ "all", 0xFFFFu },
 	};
 	unsigned mask = 0;
@@ -1201,6 +1229,9 @@ struct bot_state
 	real notice[BOT_MAXIMUM_PLAYERS];
 	long notice_time[BOT_MAXIMUM_PLAYERS];
 	long notice_unit[BOT_MAXIMUM_PLAYERS];
+	long notice_from[BOT_MAXIMUM_PLAYERS]; /* when each first came into view, this time (0: has not) */
+	long notice_hold[BOT_MAXIMUM_PLAYERS]; /* and not taken in at all before this (someone only just in the game) */
+	long born_tick; /* when this life of ours began */
 	/* looking about on the way somewhere */
 	long look_about_ticks; /* >0: glancing aside; <=0: counting down to the next */
 	real look_about_yaw; /* off the way we're going */
@@ -1324,6 +1355,7 @@ struct bot_weapon
 	int precision;
 	int none;
 	int spent; /* can't fire any more (a plasma weapon's battery run down) */
+	int held_to_fire; /* fires only once its trigger has been held down a good while (a beam that charges) */
 	int rounds_capacity; /* in it and carried, full up (0: not a weapon that takes rounds) */
 	real value;
 };
@@ -1335,7 +1367,7 @@ static real bot_item_value(long definition_index)
 {
 	static struct { char const *name; real value; } const table[] =
 	{
-		{ "rocket launcher", 10.f }, { "sniper rifle", 9.f }, { "fuel rod", 8.5f }, { "plasma_cannon", 8.5f } /* (the fuel rod's tag) */, { "shotgun", 8.f },
+		{ "rocket launcher", 10.f }, { "sniper", 9.f }, { "fuel rod", 8.5f }, { "plasma_cannon", 8.5f } /* (the fuel rod's tag) */, { "shotgun", 8.f },
 		{ "flamethrower", 7.f }, { "over shield", 9.5f }, { "overshield", 9.5f }, { "active camo", 9.f },
 		{ "camouflage", 9.f }, { "pistol\\pistol", 6.f }, { "assault rifle", 5.f }, { "plasma rifle", 4.5f },
 		{ "needler", 4.f }, { "plasma pistol", 3.f }, { "frag grenade", 2.f }, { "plasma grenade", 2.f },
@@ -1358,6 +1390,9 @@ static real bot_item_value(long definition_index)
 		if (weapon_definition_get(definition_index)->weapon.triggers.count <= 0)
 			return 0.f;
 		real potential = weapon_definition_get_damage_potential(definition_index, &rate) * 0.05f; /* (once: MIN is a macro) */
+		/* (something laid down and set off: nothing to pick up for a fight) */
+		if (rate >= 30.f && potential <= 0.f)
+			return 0.6f;
 		return 3.f + MIN(4.f, potential);
 	}
 	return 1.f;
@@ -1366,6 +1401,153 @@ static real bot_item_value(long definition_index)
 static int bot_is_power_item(long definition_index)
 {
 	return bot_item_value(definition_index) >= 7.f;
+}
+
+/* how far the blast of what a weapon fires reaches (the danger radius the
+   game works out for the effect it goes off with: 0 none) */
+static real bot_projectile_blast(struct projectile_definition const *projectile)
+{
+	struct effect_definition const *effect = projectile && projectile->projectile.effect.index != NONE ?
+		(struct effect_definition const *)tag_get(EFFECT_DEFINITION_TAG, projectile->projectile.effect.index) : NULL;
+	return effect ? effect->runtime_danger_radius : 0.f;
+}
+
+/* (testing, HALO_BOT_NONAMES: every tag as if its name had been taken out) */
+static int bot_names_hidden(void)
+{
+	static int asked, hidden;
+	if (!asked)
+	{
+		asked = TRUE;
+		hidden = getenv("HALO_BOT_NONAMES") != NULL;
+	}
+	return hidden;
+}
+
+/* the name of the thing of the game's own that this works like, for a thing
+   whose own name says nothing to the bots (NULL: it has a name they know,
+   or it is like nothing of the game's) */
+static char const *bot_alias_name(long definition_index)
+{
+	static char const *const known[] =
+	{
+		"assault rifle", "plasma pistol", "pistol", "sniper", "shotgun", "rocket", "plasma rifle", "needler", "fuel rod", "plasma_cannon",
+		"flamethrower", "flag", "ball", "ammo", "over shield", "overshield", "camouflage", "active camo", "health", "grenade",
+		"ghost", "banshee", "scorpion", "warthog", "turret",
+	};
+	static struct { long definition_index; long map; char const *alias; } cache[256];
+	unsigned long slot = bot_hash((unsigned long)definition_index * 2654435761u) & 255;
+	char const *name;
+	char const *alias = NULL;
+	unsigned long group;
+	long k;
+
+	if (definition_index == NONE)
+		return NULL;
+	if (cache[slot].definition_index == definition_index && cache[slot].map == bot_name_cache_map)
+		return cache[slot].alias;
+	name = tag_get_name(definition_index);
+	group = tag_get_group_tag(definition_index);
+	cache[slot].definition_index = definition_index;
+	cache[slot].map = bot_name_cache_map;
+	cache[slot].alias = NULL;
+	if (name && !bot_names_hidden())
+	{
+		for (k = 0; k < (long)(sizeof(known) / sizeof(known[0])); k++)
+			if (strstr(name, known[k]))
+				return NULL;
+	}
+	if (group == WEAPON_DEFINITION_TAG)
+	{
+		struct weapon_definition *definition = weapon_definition_get(definition_index);
+		if (definition->weapon.triggers.count <= 0)
+			alias = "flag ball"; /* (held, and not fired: the game's objective, whichever) */
+		else
+		{
+			struct weapon_trigger_definition *trigger = TAG_BLOCK_GET_ELEMENT(&definition->weapon.triggers, 0, struct weapon_trigger_definition);
+			struct projectile_definition *projectile = trigger->projectile.index != NONE ? projectile_definition_get(trigger->projectile.index) : NULL;
+			real rate = MAX(trigger->initial_rate_of_fire, trigger->final_rate_of_fire);
+			real speed = projectile ? projectile->projectile.initial_velocity : 0.f;
+			real blast = bot_projectile_blast(projectile);
+			real fired = 0.f;
+			real potential = weapon_definition_get_damage_potential(definition_index, &fired);
+			int rounds = definition->weapon.magazines.count > 0 &&
+				TAG_BLOCK_GET_ELEMENT(&definition->weapon.magazines, 0, struct weapon_magazine_definition)->rounds_loaded_maximum > 0;
+			if (!projectile)
+				alias = NULL;
+			/* (something laid down and set off, a charge: no gun at all) */
+			else if (rate >= 30.f && potential <= 0.f)
+				alias = NULL;
+			else if (trigger->projectiles_per_shot > 3)
+				alias = "shotgun";
+			else if (projectile->projectile.guided_angular_velocity > 0.3f && speed < 1.f)
+				alias = "needler";
+			else if (projectile->projectile.maximum_range > 0.f && projectile->projectile.maximum_range <= 20.f && speed < 0.5f && rate >= 6.f)
+				alias = "flamethrower";
+			/* (charged up before it fires. A long charge and a shot that is
+			   there at once is a beam, a gun for range; a short one is the
+			   plasma pistol's. A charge too short to notice is how a burst
+			   is made, and says nothing) */
+			else if (trigger->charging_time >= BOT_CHARGE_BEAM && speed >= 15.f)
+				alias = "sniper rifle";
+			else if (trigger->charging_time >= BOT_CHARGE_LEAST)
+				alias = "plasma pistol";
+			else if (definition->weapon.zoom_level_count >= 2 || (definition->weapon.zoom_level_count >= 1 && rate <= 2.5f && speed >= 15.f))
+				alias = "sniper rifle";
+			/* (slow, a few a second at most, and it goes off: a rocket, or
+			   something lobbed when it falls as it goes) */
+			else if (speed < 1.2f && rate <= 4.f && (blast >= 1.f || potential <= 1.f))
+				alias = projectile->projectile.air_gravity_scale >= 0.5f ? "plasma_cannon fuel rod" : "rocket launcher";
+			else if (rate >= 6.f)
+				alias = rounds ? "assault rifle" : "plasma rifle";
+			else
+				alias = "pistol\\pistol";
+		}
+	}
+	else if (group == EQUIPMENT_DEFINITION_TAG)
+	{
+		struct equipment_definition *definition = equipment_definition_get(definition_index);
+		switch (definition->equipment.powerup_type)
+		{
+		case _equipment_powerup_overshield: alias = "over shield"; break;
+		case _equipment_powerup_active_camouflage: alias = "active camouflage"; break;
+		case _equipment_powerup_health: alias = "health pack"; break;
+		case _equipment_powerup_grenade: alias = definition->equipment.grenade_type == 1 ? "plasma grenade" : "frag grenade"; break;
+		}
+	}
+	else if (group == VEHICLE_DEFINITION_TAG && (bot_names_hidden() || !name || strstr(name, "protected")))
+	{
+		/* (only a vehicle with no name at all: one with a name of its own
+		   is flown and driven by its kind already, bot_vehicle_kind) */
+		switch (bot_vehicle_kind(definition_index))
+		{
+		case _bot_vehicle_scout: alias = "ghost"; break;
+		case _bot_vehicle_fighter: alias = "banshee"; break;
+		case _bot_vehicle_tank: alias = "scorpion"; break;
+		case _bot_vehicle_jeep: alias = "warthog"; break;
+		case _bot_vehicle_turret: alias = "turret"; break;
+		}
+	}
+	cache[slot].alias = alias;
+	return alias;
+}
+
+/* what kind of gun a weapon is (_bot_gun_...): by its name, for the game's
+   own and whatever is named after them */
+static long bot_weapon_kind_of(long definition_index)
+{
+	static struct { char const *name; long kind; } const kinds[] =
+	{
+		{ "assault rifle", _bot_gun_assault_rifle }, { "plasma pistol", _bot_gun_plasma_pistol }, { "pistol", _bot_gun_pistol },
+		{ "sniper", _bot_gun_sniper }, { "shotgun", _bot_gun_shotgun }, { "rocket", _bot_gun_rocket },
+		{ "plasma rifle", _bot_gun_plasma_rifle }, { "needler", _bot_gun_needler }, { "fuel rod", _bot_gun_fuel_rod }, { "plasma_cannon", _bot_gun_fuel_rod },
+		{ "flamethrower", _bot_gun_flamethrower },
+	};
+	long k;
+	for (k = 0; k < (long)(sizeof(kinds) / sizeof(kinds[0])); k++)
+		if (bot_name_has(definition_index, kinds[k].name))
+			return kinds[k].kind;
+	return _bot_gun_other;
 }
 
 static void bot_weapon_describe(long weapon_index, struct bot_weapon *result)
@@ -1389,22 +1571,7 @@ static void bot_weapon_describe(long weapon_index, struct bot_weapon *result)
 	result->value = bot_item_value(weapon->definition_index);
 	result->heat = weapon->weapon.heat;
 	result->spent = weapon->weapon.age >= 1.f; /* (weapon_can_be_fired) */
-	{
-		static struct { char const *name; long kind; } const kinds[] =
-		{
-			{ "assault rifle", _bot_gun_assault_rifle }, { "plasma pistol", _bot_gun_plasma_pistol }, { "pistol", _bot_gun_pistol },
-			{ "sniper", _bot_gun_sniper }, { "shotgun", _bot_gun_shotgun }, { "rocket", _bot_gun_rocket },
-			{ "plasma rifle", _bot_gun_plasma_rifle }, { "needler", _bot_gun_needler }, { "fuel rod", _bot_gun_fuel_rod }, { "plasma_cannon", _bot_gun_fuel_rod },
-			{ "flamethrower", _bot_gun_flamethrower },
-		};
-		long k;
-		for (k = 0; k < (long)(sizeof(kinds) / sizeof(kinds[0])); k++)
-			if (bot_name_has(weapon->definition_index, kinds[k].name))
-			{
-				result->kind = kinds[k].kind;
-				break;
-			}
-	}
+	result->kind = bot_weapon_kind_of(weapon->definition_index);
 	result->uses_ammunition = definition->weapon.magazines.count > 0 &&
 		TAG_BLOCK_GET_ELEMENT(&definition->weapon.magazines, 0, struct weapon_magazine_definition)->rounds_loaded_maximum > 0;
 	if (result->uses_ammunition)
@@ -1424,7 +1591,8 @@ static void bot_weapon_describe(long weapon_index, struct bot_weapon *result)
 	}
 	trigger = TAG_BLOCK_GET_ELEMENT(&definition->weapon.triggers, 0, struct weapon_trigger_definition);
 	result->automatic = trigger->initial_rate_of_fire >= 5.f || trigger->final_rate_of_fire >= 5.f;
-	result->charging = trigger->charging_time > 0.f;
+	result->charging = trigger->charging_time >= BOT_CHARGE_LEAST;
+	result->held_to_fire = trigger->charging_time >= BOT_CHARGE_BEAM && result->kind != _bot_gun_plasma_pistol;
 	if (trigger->projectile.index != NONE)
 	{
 		struct projectile_definition *projectile = projectile_definition_get(trigger->projectile.index);
@@ -1635,7 +1803,13 @@ static int bot_friend_in_line(struct player_datum *me, real_point3d const *eye, 
    the eye sooner than someone standing still. Once seen they stay seen
    while in sight, and for a few seconds out of it. Better reactions (the
    skill level) notice sooner.
+   Someone only just in the game, and anyone at all to one who only just
+   is, takes a moment longer first: a hundredth to a fifth of a second,
+   the less when they are moving or shooting. (Nobody takes in the whole
+   of a place the instant they are in it, nor a man the instant he is
+   there.)
    Called for an enemy there's a clear line to; TRUE when they're seen */
+#define BOT_FRESH_SECONDS 3.f /* how long after coming to life that goes on for */
 #define BOT_VIEW_HALF_ANGLE 0.96f /* radians: 55 degrees either side */
 #define BOT_VIEW_CENTER_ANGLE 0.26f /* 15 degrees: what we're looking right at */
 /* the ticks from one look round to the next (bot_think_inner) */
@@ -1656,7 +1830,10 @@ static int bot_notices(struct bot_state *bot, long player_absolute_index, long u
 		return TRUE;
 	/* (out of view a good while, or a new life of theirs: forgotten) */
 	if (now - bot->notice_time[player_absolute_index] > BOT_SECONDS(4.f) || bot->notice_unit[player_absolute_index] != unit_index)
+	{
 		bot->notice[player_absolute_index] = 0.f;
+		bot->notice_from[player_absolute_index] = 0;
+	}
 	bot->notice_unit[player_absolute_index] = unit_index;
 	if (bot->notice[player_absolute_index] >= 1.f || unit_index == bot->target_unit)
 	{
@@ -1684,6 +1861,22 @@ static int bot_notices(struct bot_state *bot, long player_absolute_index, long u
 	bot->notice_time[player_absolute_index] = now;
 	object_get_velocities(object_get_ultimate_parent(unit_index), &velocity, NULL);
 	moving = velocity.i * velocity.i + velocity.j * velocity.j + velocity.k * velocity.k > 0.02f * 0.02f;
+	if (!bot->notice_from[player_absolute_index])
+	{
+		long theirs = now - bots_spawned_time[player_absolute_index];
+		long ours = now - bot->born_tick;
+		bot->notice_from[player_absolute_index] = MAX(now, 1);
+		bot->notice_hold[player_absolute_index] = now;
+		if (BOT_ON(BOT_F_FRESH) && ((theirs >= 0 && theirs < BOT_SECONDS(BOT_FRESH_SECONDS)) || (ours >= 0 && ours < BOT_SECONDS(BOT_FRESH_SECONDS))))
+		{
+			real wait = 0.01f + 0.19f * bot_random(bot);
+			if (moving || firing)
+				wait *= 0.5f;
+			bot->notice_hold[player_absolute_index] = now + MAX(1, (long)(wait * BOT_TICKS_PER_SECOND + 0.5f));
+		}
+	}
+	if (now < bot->notice_hold[player_absolute_index])
+		return FALSE;
 	off = PIN((angle - BOT_VIEW_CENTER_ANGLE) / (BOT_VIEW_HALF_ANGLE - BOT_VIEW_CENTER_ANGLE), 0.f, 1.f);
 	seconds = 0.1f + 0.5f * off * off + 0.006f * distance;
 	if (firing)
@@ -1698,6 +1891,10 @@ static int bot_notices(struct bot_state *bot, long player_absolute_index, long u
 	if (bot->notice[player_absolute_index] < 1.f)
 		return FALSE;
 	bot->notice[player_absolute_index] = 1.f;
+	if (bot_env_set("HALO_BOT_NOTICELOG"))
+		bot_log("notice: %ld ticks from in view to seen, %ld of them held, at %.0f, %s, %ld ticks into their life and %ld into ours",
+			now - bot->notice_from[player_absolute_index], bot->notice_hold[player_absolute_index] - bot->notice_from[player_absolute_index],
+			distance, firing ? "firing" : moving ? "moving" : "still", now - bots_spawned_time[player_absolute_index], now - bot->born_tick);
 	return TRUE;
 }
 
@@ -3479,7 +3676,9 @@ static long bot_haul_choose(struct bot_state *bot, struct player_datum *me, long
 		bot->haul_dropped = FALSE;
 	}
 	/* nobody aboard, and some of ours on foot at home: back for them */
-	if (riders == 0 && bot->haul_flown && !threatened && bots_map_far > 0.f && distance3d(position, &bot->haul_home) > 60.f &&
+	/* (from a good way off; and, once on its way back, all the way) */
+	if (riders == 0 && bot->haul_flown && !threatened && bots_map_far > 0.f &&
+		distance3d(position, &bot->haul_home) > (bot->haul_job == _bot_haul_home ? 20.f : 200.f) &&
 		bot_team_on_foot_near(me, &bot->haul_home, 120.f) >= 2)
 	{
 		*place = bot->haul_home;
@@ -4065,6 +4264,7 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 		real distance;
 		real falloff;
 		real most;
+		int detour; /* a thing to go a little out of the way for, on the trip */
 	} items[BOT_ITEM_CANDIDATES];
 	long item_count = 0;
 
@@ -4108,6 +4308,13 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 		if (bot->goal_kind == _bot_goal_roam)
 			bot->goal_ticks = 0;
 	}
+
+	/* (what the trip is worth, when it is on: below, and to a thing lying a
+	   little off the way) */
+	real trip_worth = nobody_near && unit->object.parent_object_index == NONE && !bot_env_set("HALO_BOT_OLDITEMS") ?
+		(9.f + 6.f * bot->personality.aggression) * bots_map_far * (objective_game ? BOT_OBJECTIVE_HUNT : 1.f) : 0.f;
+	/* (how far out of its way it goes for one: 4 to 12 seconds of walking, by its greed) */
+	real trip_detour = (4.f + 8.f * bot->personality.greed) * AAS_FOOT_SPEED_BOT;
 
 	memset(&best, 0, sizeof(best));
 	best.kind = _bot_goal_none;
@@ -4267,6 +4474,17 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 			/* (the most it can come to: were it as near as it looks) */
 			items[item_count].most = bot_hunch(score / (1.f + distance / items[item_count].falloff) / (1.f + 0.35f * bot->item_streak),
 				_bot_goal_item, &object->object.position, iterator.index);
+			/* A far map, and off to where the others are: a rocket launcher,
+			   a sniper rifle, an overshield that lies a little off the way
+			   is picked up on the way. The trip is worth more than any of
+			   them, and it was walked past the lot; what it gets with the
+			   thing is the thing and the trip both, when the way round by
+			   it is not much longer than the way straight there. Not one
+			   it would not take, nor ammunition for what it has. */
+			items[item_count].detour = trip_worth > 0.f && value >= 7.f && score >= 4.f &&
+				distance + distance3d(&object->object.position, &others_at) - nobody_distance < trip_detour;
+			if (items[item_count].detour)
+				items[item_count].most += trip_worth * 1.4f;
 			item_count++;
 		}
 	}
@@ -4315,6 +4533,9 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 			score /= 1.f + distance / items[most].falloff;
 			/* one item after another after another: time to go somewhere else */
 			score /= 1.f + 0.35f * bot->item_streak;
+			/* (on the trip, and it is nearly on the way by the walk to it too) */
+			if (items[most].detour && distance + distance3d(&object->object.position, &others_at) - nobody_distance < trip_detour)
+				score += trip_worth * 1.4f;
 			bot_consider(&best, score, _bot_goal_item, &object->object.position, items[most].object_index, 20 * BOT_TICKS_PER_SECOND, TRUE);
 		}
 		items[most] = items[--item_count];
@@ -5932,6 +6153,13 @@ static void bots_world_tick(void)
 	nav_update();
 	bot_country_update();
 	bot_air_trails_update();
+	/* (testing, HALO_GAME_SPEED=<n>: the game at n times its speed, for a
+	   long game of bots in a short time; the ticks are the same ticks) */
+	if (now < 90 && getenv("HALO_GAME_SPEED"))
+	{
+		extern void game_time_set_speed(real speed);
+		game_time_set_speed((real)atof(getenv("HALO_GAME_SPEED")));
+	}
 	/* (testing, HALO_BOT_VEHKILL=<tick>: every vehicle with nobody in it is
 	   killed then, and what becomes of the first few is told every five
 	   seconds after: do they go, and do they come back) */
@@ -6048,6 +6276,43 @@ static void bots_world_tick(void)
 			bot_log("machine t%ld %s at %.1f %.1f %.1f power %.2f (group %d) position %.2f (group %d)", now, tag_get_name(object->definition_index),
 				object->object.position.x, object->object.position.y, object->object.position.z, device->device.power,
 				(int)device->device.power_group_index, device->device.position, (int)device->device.position_group_index);
+		}
+	}
+	/* testing: HALO_BOT_WEAPONS, every weapon the map has, as its tags say
+	   and as the bots take it */
+	if (bot_env_set("HALO_BOT_WEAPONS") && now == 30)
+	{
+		struct tag_iterator tags;
+		long definition_index;
+		tag_iterator_new(&tags, WEAPON_DEFINITION_TAG);
+		while ((definition_index = tag_iterator_next(&tags)) != NONE)
+		{
+			struct weapon_definition *definition = weapon_definition_get(definition_index);
+			real rate = 0.f;
+			real potential = definition->weapon.triggers.count > 0 ? weapon_definition_get_damage_potential(definition_index, &rate) : 0.f;
+			long t;
+			bot_log("weapon %s (as %s): value %.1f, kind %ld, %ld triggers, %ld magazines (%d loaded, %d carried), zoom %d, flags %lx, damage potential %.0f at %.1f a second",
+				tag_get_name(definition_index), bot_alias_name(definition_index) ? bot_alias_name(definition_index) : "itself",
+				bot_item_value(definition_index), bot_weapon_kind_of(definition_index), (long)definition->weapon.triggers.count,
+				(long)definition->weapon.magazines.count,
+				definition->weapon.magazines.count > 0 ? (int)TAG_BLOCK_GET_ELEMENT(&definition->weapon.magazines, 0, struct weapon_magazine_definition)->rounds_loaded_maximum : 0,
+				definition->weapon.magazines.count > 0 ? (int)TAG_BLOCK_GET_ELEMENT(&definition->weapon.magazines, 0, struct weapon_magazine_definition)->rounds_total_maximum : 0,
+				(int)definition->weapon.zoom_level_count, (unsigned long)definition->weapon.flags, potential, rate);
+			for (t = 0; t < definition->weapon.triggers.count; t++)
+			{
+				struct weapon_trigger_definition *trigger = TAG_BLOCK_GET_ELEMENT(&definition->weapon.triggers, t, struct weapon_trigger_definition);
+				struct projectile_definition *projectile = trigger->projectile.index != NONE ? projectile_definition_get(trigger->projectile.index) : NULL;
+				struct damage_effect_definition *impact = projectile && projectile->projectile.impact_damage.index != NONE ?
+					damage_effect_definition_get(projectile->projectile.impact_damage.index) : NULL;
+				bot_log("weapon   trigger %ld: %.1f to %.1f a second, %d a shot, charge %.2f, error %.3f to %.3f; %s: speed %.2f to %.2f a tick, range %.0f, falls %.2f, guided %.2f, danger %.1f, blast %.1f; hit: radius %.1f to %.1f",
+					t, trigger->initial_rate_of_fire, trigger->final_rate_of_fire, (int)trigger->projectiles_per_shot, trigger->charging_time,
+					trigger->projectile_error_angle_lower_bound, trigger->projectile_error_angle_upper_bound,
+					projectile ? tag_get_name(trigger->projectile.index) : "-", projectile ? projectile->projectile.initial_velocity : 0.f,
+					projectile ? projectile->projectile.final_velocity : 0.f, projectile ? projectile->projectile.maximum_range : 0.f,
+					projectile ? projectile->projectile.air_gravity_scale : 0.f, projectile ? projectile->projectile.guided_angular_velocity : 0.f,
+					projectile ? projectile->projectile.danger_radius : 0.f, bot_projectile_blast(projectile), impact ? impact->falloff_radius : 0.f,
+					impact ? impact->cutoff_radius : 0.f);
+			}
 		}
 	}
 	if (bot_env_set("HALO_BOT_ITEMS") && now == 30)
@@ -6496,6 +6761,17 @@ static void bot_fire_control(struct bot_state *bot, struct bot_weapon const *wea
 	   firing; the disciplined wait for the shot, and pace it) */
 	on_target = off_yaw < tolerance * (1.9f - 0.8f * bot->personality.discipline) &&
 		off_pitch < tolerance * (2.5f - 1.f * bot->personality.discipline);
+	if (weapon->held_to_fire)
+	{
+		/* a beam that charges: held down from when they are about in
+		   front, and the aim kept on them until it goes */
+		if (off_yaw < 0.35f && off_pitch < 0.35f)
+		{
+			action->primary_trigger = 1.f;
+			action->control_flags |= FLAG(_unit_control_weapon_primary_trigger_bit);
+		}
+		return;
+	}
 	switch (weapon->kind)
 	{
 	case _bot_gun_assault_rifle:
@@ -6944,6 +7220,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		bot->has_personality = TRUE;
 		bot->random = seed;
 		bot->unit_index = me->unit_index;
+		bot->born_tick = game_time_get();
 		bot->target_unit = NONE;
 		bot->goal_object = NONE;
 		bot->region = NONE;
@@ -7411,9 +7688,13 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		if (definition != bot->last_weapon_definition)
 		{
 			if (bot->last_weapon_definition != 0 && definition != NONE && bot_logging())
-				bot_log("bot%ld weapon %s", player_absolute_index, tag_get_name(definition));
+				bot_log("bot%ld weapon %s%s%s%s", player_absolute_index, tag_get_name(definition), bot_alias_name(definition) ? " (as " : "",
+					bot_alias_name(definition) ? bot_alias_name(definition) : "", bot_alias_name(definition) ? ")" : "");
 			bot->last_weapon_definition = definition;
 		}
+		/* (testing: a beam that has to be held down, when it goes off) */
+		if (weapon.held_to_fire && bot_logging() && unit->unit.weapon_last_used_at_game_time[unit->unit.current_weapon_index] == game_time_get() - 1)
+			bot_log("bot%ld beam fired at %.0f", player_absolute_index, target_distance);
 	}
 	if (vehicle_index == NONE || !driving)
 	{
@@ -7617,8 +7898,15 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		real worst = bot_worst_held(unit, &worst_slot);
 		int all_poor = bot_all_held_poor(unit);
 		int full_hands = bot_weapons_held(unit) >= 2;
-		if (all_poor || (target == NONE && full_hands && worst_slot != NONE &&
-			bot_weapon_is_poor(unit->unit.weapon_object_indices[worst_slot]) && !bot_slot_is_favorite(bot, unit, worst_slot)))
+		int want_proper = all_poor || (target == NONE && full_hands && worst_slot != NONE &&
+			bot_weapon_is_poor(unit->unit.weapon_object_indices[worst_slot]) && !bot_slot_is_favorite(bot, unit, worst_slot));
+		/* (... and a rocket launcher, a sniper rifle, a fuel rod gun lying
+		   a few steps off is not walked past, whatever is in hand, when
+		   it is better than the worse of the two: not in a fight at arm's
+		   length, and not to be rid of its favourite) */
+		int want_power = !bot_env_set("HALO_BOT_OLDITEMS") && !(target != NONE && target_distance < 12.f) && bot->hit_ticks <= 0 &&
+			!(full_hands && worst_slot != NONE && bot_slot_is_favorite(bot, unit, worst_slot));
+		if (want_proper || want_power)
 		{
 			struct object_iterator nearby;
 			struct object_datum *item;
@@ -7631,10 +7919,14 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			{
 				real d;
 				int nearer = FALSE;
+				int power;
 				if (!bot_item_lying(item) || bot_ignoring(bot, nearby.index))
 					continue;
 				d = distance3d(&item->object.position, &position);
-				if (d >= best_d || fabs(item->object.position.z - position.z) > 1.5f)
+				power = want_power && bot_item_value(item->definition_index) >= 8.5f && (!full_hands || bot_weapon_worth(nearby.index) > worst + 1.f);
+				if (d >= (want_proper ? best_d : MIN(best_d, 8.f)) || fabs(item->object.position.z - position.z) > 1.5f)
+					continue;
+				if (!want_proper && !power)
 					continue;
 				if (!bot_weapon_is_proper(nearby.index) || bot_holds_weapon_type(unit, item->definition_index) ||
 					(full_hands && bot_weapon_worth(nearby.index) <= worst))
@@ -7835,6 +8127,11 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				order.range = PIN(gun.range, 40.f, 120.f);
 				if (gun.projectile_speed > 0.f)
 					order.shot_speed = gun.projectile_speed * BOT_TICKS_PER_SECOND;
+				/* (a gun whose rounds cross the map in a second, a jet's: it
+				   carries a good deal further than the tag's range says, which
+				   for most of them is none at all) */
+				if (gun.projectile_speed >= 5.f)
+					order.range = MAX(order.range, MIN(150.f, gun.projectile_speed * 15.f));
 				if (gun_definition->weapon.triggers.count > 1 && TEST_FLAG(gun_definition->weapon.flags, _weapon_secondary_trigger_overrides_grenades_bit))
 				{
 					struct weapon_trigger_definition *other = TAG_BLOCK_GET_ELEMENT(&gun_definition->weapon.triggers, 1, struct weapon_trigger_definition);
@@ -7997,6 +8294,16 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		/* (a craft just taken: it stands where it stood) */
 		if (bot->haul_vehicle != vehicle_index)
 		{
+			if (bot_logging())
+			{
+				long gun_index = unit_get(vehicle_index)->unit.weapon_object_indices[0];
+				struct weapon_datum *gun_object = gun_index != NONE ? weapon_try_and_get(gun_index) : NULL;
+				bot_log("bot%ld t%ld flies the %s: %s, its gun carries %.0f at %.0f a second; its other gun %s (%.2f a tick, falls %.2f%s); gun flags %lx, %ld triggers", player_absolute_index,
+					game_time_get(), tag_get_name(object_get(vehicle_index)->definition_index), order.armed ? "armed" : "no gun", order.range, order.shot_speed,
+					order.heavy ? "is used" : "none", order.heavy_speed, order.heavy_gravity, order.heavy_bomb ? ", a bomb" : "",
+					gun_object ? (unsigned long)weapon_definition_get(gun_object->definition_index)->weapon.flags : 0UL,
+					gun_object ? (long)weapon_definition_get(gun_object->definition_index)->weapon.triggers.count : 0L);
+			}
 			bot->haul_vehicle = vehicle_index;
 			bot->haul_home = position;
 			bot->haul_leg = 0;
@@ -8216,6 +8523,11 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			if (!bot_ignoring(bot, vehicle_index))
 			{
 				bot_ignore(bot, vehicle_index, (flight.stuck ? 30 : 12) * BOT_TICKS_PER_SECOND);
+				/* (a craft that would not leave the ground, its shields gone
+				   or wedged where it lies: nobody else into it either, for
+				   as long as it lies there) */
+				if (flight.stuck)
+					bot_vehicle_strand(vehicle_index, BOT_SECONDS(180.f));
 				if (bot_logging())
 					bot_log("bot%ld t%ld out of the %s (%s)", player_absolute_index, game_time_get(),
 						tag_get_name(object_get(vehicle_index)->definition_index), flight.stuck ? "held up" : "landed");

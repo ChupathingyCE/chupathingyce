@@ -897,7 +897,8 @@ long bot_country_portals_of(long vehicle_index)
    that name it, the one whose volume is in sight from here and nearest the
    way it faces (a jet in a closed hangar, with a gate in the wall ahead of
    it that puts it down in the sky outside). NONE: none. */
-long bot_country_gate(long vehicle_index, real_point3d const *from, real facing_yaw, real within, long keep, real_point3d *entry, real_point3d *exit_point)
+long bot_country_gate(long vehicle_index, real_point3d const *from, real facing_yaw, real within, long keep, real_point3d *entry, real_point3d *exit_point,
+	real *across)
 {
 	struct object_datum *vehicle = vehicle_index != NONE ? object_try_and_get(vehicle_index) : NULL;
 	long best = NONE;
@@ -916,9 +917,11 @@ long bot_country_gate(long vehicle_index, real_point3d const *from, real facing_
 		for (i = 0; i < portal->name_count; i++)
 			if (portal->names[i] == vehicle->object.name_index)
 				named = TRUE;
-		/* (a frame to go into: not a volume the size of the base it stands
-		   in, which a script asks about for some other reason) */
-		if (!named || off > within || portal->size > 40.f)
+		/* (a frame to go into, or a mouth a large craft flies into: not a
+		   volume the size of the base it stands in, which a script asks
+		   about for some other reason; the largest gate of Coldsnap is 62
+		   across, the smallest of its bases 133) */
+		if (!named || off > within || portal->size > 90.f)
 			continue;
 		way.i = portal->entry.x - from->x;
 		way.j = portal->entry.y - from->y;
@@ -942,6 +945,7 @@ long bot_country_gate(long vehicle_index, real_point3d const *from, real facing_
 			best = p;
 			*entry = portal->entry;
 			*exit_point = portal->exit;
+			*across = portal->size;
 		}
 	}
 	return best;

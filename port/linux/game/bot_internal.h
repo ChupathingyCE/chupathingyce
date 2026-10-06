@@ -215,6 +215,8 @@ struct bot_pilot
 	long gate; /* the way out of where it stands that the map's script gives it (bot_country.c: NONE none) */
 	long gate_tick;
 	real_point3d gate_entry;
+	real gate_across; /* how wide its volume is: a frame to be put into, or a mouth to fly into */
+	int wings_out; /* a plane under a roof with a long clear way before it: on its wings, not its jets */
 	long taken_tick; /* when the craft was taken */
 	int gate_from_rest; /* the gate is the one before where it stood: for it, roof or no roof */
 	real exit_open; /* how far the way out it has found is clear */
@@ -310,7 +312,8 @@ boolean bot_country_on(real_point3d const *point);
 boolean bot_country_nearest(real_point3d const *point, long rings, real_point3d *ground);
 long bot_country_portals_of(long vehicle_index); /* the ways the map's script carries this vehicle (a set of them) */
 /* (for a craft: the one of them in sight from where it stands, and into it) */
-long bot_country_gate(long vehicle_index, real_point3d const *from, real facing_yaw, real within, long keep, real_point3d *entry, real_point3d *exit_point);
+long bot_country_gate(long vehicle_index, real_point3d const *from, real facing_yaw, real within, long keep, real_point3d *entry, real_point3d *exit_point,
+	real *across);
 boolean bot_country_gate_enter(long vehicle_index, long gate);
 boolean bot_country_walk(real_point3d const *from, real_point3d const *to, real_point3d *next, boolean *soon, boolean *off);
 boolean bot_country_way(real_point3d const *from, real_point3d const *to, long portals, boolean drops, real ahead, real_point3d *next,

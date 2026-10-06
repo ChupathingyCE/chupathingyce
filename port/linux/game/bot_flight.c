@@ -1553,7 +1553,7 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 	   in a hangar with no mouth, and a frame in its wall that the map's
 	   script carries it from to the sky outside, bot_country.c) */
 	/* (through it: the map's script has put the craft down somewhere else) */
-	if (pilot->gate != NONE && distance3d(position, &pilot->gate_entry) > 160.f)
+	if (pilot->gate != NONE && distance3d(position, &pilot->gate_entry) > 300.f)
 	{
 		pilot->gate = NONE;
 		pilot->gate_from_rest = FALSE;
@@ -1568,7 +1568,8 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 	{
 		real_point3d out;
 		long gate = (now - pilot->gate_tick > BOT_SECONDS(1.f) || pilot->gate_tick == 0) ?
-			bot_country_gate(body->vehicle_index, position, body->facing_yaw, 60.f, pilot->gate, &pilot->gate_entry, &out) : pilot->gate;
+			bot_country_gate(body->vehicle_index, position, body->facing_yaw, plane ? 260.f : 60.f, pilot->gate, &pilot->gate_entry, &out, &pilot->gate_across) :
+			pilot->gate;
 		if (now - pilot->gate_tick > BOT_SECONDS(1.f) || pilot->gate_tick == 0)
 			pilot->gate_tick = now;
 		pilot->gate = gate;
@@ -1582,7 +1583,7 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 	{
 		real_point3d out;
 		pilot->gate_tick = now;
-		pilot->gate = bot_country_gate(body->vehicle_index, position, body->facing_yaw, 150.f, pilot->gate, &pilot->gate_entry, &out);
+		pilot->gate = bot_country_gate(body->vehicle_index, position, body->facing_yaw, 260.f, pilot->gate, &pilot->gate_entry, &out, &pilot->gate_across);
 		if (pilot->gate != NONE && bot_logging() && phase_before == pilot->phase && now % 30 == 0)
 			bot_log("pilot %ld t%ld gate %ld at %.0f %.0f %.0f, %.0f off", body->unit_index & 0xffff, now, pilot->gate, pilot->gate_entry.x,
 				pilot->gate_entry.y, pilot->gate_entry.z, distance3d(position, &pilot->gate_entry));
@@ -1615,6 +1616,15 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 		}
 		height = pilot->gate_entry.z;
 		pilot->indoors = TRUE;
+		/* (a mouth many lengths wide, for the large craft: flown into, on
+		   its wings, from as far off as it is seen) */
+		pilot->wings_out = plane && pilot->gate_across > 40.f && turn < 0.6f;
+		if (pilot->wings_out)
+		{
+			pitch = (real)atan2(pilot->gate_entry.z - position->z, MAX(bot_distance2d(position, &pilot->gate_entry), 8.f));
+			pitch = PIN(pitch, -0.3f, 0.4f) + 0.08f;
+			throttle = 1.f;
+		}
 		/* (At the tube's mouth, square to it, with nothing of the map
 		   between the craft's middle and the volume's: it is put in the
 		   volume, as a Warthog at a gate's frame is, bot_country_drive,
@@ -1673,10 +1683,22 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 			if (bot_vehicle_kind(craft->definition_index) == _bot_vehicle_plane)
 				height = MAX(height, pilot->rest_z + 2.5f);
 			pilot->indoors = TRUE;
+			/* (a plane with two hundred units of nothing before it is
+			   under no roof that matters: the top of a mountain with a
+			   ledge over it, a cavern the size of a valley. On its wings.) */
+			pilot->wings_out = plane && pilot->exit_open > 200.f && fabs(bot_angle_difference(yaw, body->facing_yaw)) < 0.5f;
+			if (pilot->wings_out)
+			{
+				pitch = PIN(pitch, -0.2f, 0.4f) + 0.08f;
+				throttle = 1.f;
+			}
 		}
 	}
 	else
+	{
 		pilot->indoors = FALSE;
+		pilot->wings_out = FALSE;
+	}
 
 	if (pilot->indoors && bot_logging() && bot_air_trace() && now % 15 == 0)
 		bot_log("indoors %ld t%ld at %.1f %.1f %.1f facing %.2f speed %.1f: to %.1f %.1f %.1f (%s %ld, open %.0f) yaw %.2f pitch %.2f throttle %.2f",
@@ -1738,7 +1760,9 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 					pilot->over_tick = now;
 			}
 		}
-		if (guns_bear && off < 0.03f + 0.5f / MAX(distance, 4.f) && distance < MIN(MAX(order->range, 30.f), 75.f))
+		/* (a quick craft opens up from as far as its gun carries: it is on
+		   them and past in a second or two) */
+		if (guns_bear && off < 0.03f + 0.5f / MAX(distance, 4.f) && distance < MIN(MAX(order->range, 30.f), quick > 0.5f ? 150.f : 75.f))
 			result->fire = TRUE;
 		/* Its other gun: slow, and falling as it goes (a Banshee's fuel rod
 		   is a second getting thirty units, and a unit lower by then). At
@@ -1758,7 +1782,10 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 		/* (A bomb is let go from wherever it will fall on them from, a long
 		   way up and off as that may be: the same reckoning, with no aim
 		   to it, the craft's own way being the bomb's.) */
-		else if (order->heavy && !order->airborne && distance < (order->heavy_bomb ? 400.f : 17.f + 40.f * quick) && distance > 6.f)
+		/* (... and a missile that flies level, from further off than one that falls) */
+		/* (... and at another craft too, which one that falls is no use against) */
+		else if (order->heavy && (!order->airborne || (order->heavy_gravity <= 0.f && !order->heavy_bomb)) &&
+			distance < (order->heavy_bomb ? 400.f : 17.f + 40.f * quick + (order->heavy_gravity <= 0.f ? 60.f * quick : 0.f)) && distance > 6.f)
 		{
 			if (pilot->heavy_press > 0)
 			{
@@ -1969,8 +1996,10 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 		real climbing = body->velocity.k * BOT_TICKS_PER_SECOND;
 		real level = (real)sqrt(body->velocity.i * body->velocity.i + body->velocity.j * body->velocity.j) * BOT_TICKS_PER_SECOND;
 		boolean landing = pilot->phase == _pilot_land;
-		if (landing || pilot->indoors)
+		if (landing || (pilot->indoors && !pilot->wings_out))
 			pilot->hovering = TRUE;
+		else if (pilot->indoors && pilot->wings_out && position->z > pilot->rest_z + 1.5f)
+			pilot->hovering = FALSE;
 		/* (fallen out of the sky, somehow, slow and under its height: jets) */
 		else if (!pilot->hovering && position->z < height - 4.f && climbing <= 0.f && speed < top_speed * 0.4f)
 			pilot->hovering = TRUE;
