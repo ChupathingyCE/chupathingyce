@@ -513,7 +513,7 @@ check it too):
   "serial": 42,
   "issued": 1791331200,
   "wires": {
-    "chupa-18a": { "announce": 19, "minimum": 11, "maximum": 19 }
+    "chupa-20a": { "announce": 21, "minimum": 11, "maximum": 21 }
   },
   "disabled_capabilities": [],
   "platform_policy": {}
@@ -525,7 +525,7 @@ check it too):
 - **`serial`**: 1 to 4294967295; each table published gets a higher one.
   **`issued`**: when it was made (Unix seconds), for people; optional.
 - **Rows by wire, not by build.** Each build has a wire ID (`DELTA_WIRE` in
-  `delta.h`, `chupa-18a` today): the revision of the game protocol it
+  `delta.h`, `chupa-20a` today): the revision of the game protocol it
   actually speaks. A row says which OpenCE numbers that wire was proven to
   play with: the number a host announces, and the range of hosts' numbers a
   client joins (each 1 to 65535, `minimum <= announce <= maximum`). An old
