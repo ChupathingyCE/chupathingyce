@@ -4176,9 +4176,14 @@ static void game_engine_update_teleporter(
 host puts a vehicle destroyed, or left empty away from where the map put
 it, back there after the time (the clients get the host's: the distributed
 netcode). Vehicles otherwise stay where they are left (the Xbox game's). */
+/* A vehicle the map names (its scripts carry it through a gate by that
+name, or make it anew when it is gone) comes back as that named vehicle,
+made as the map's script would make it: a copy with no name is one the
+scripts do not know, and they would make another beside it. And where a
+script has made one anew already, that one is the vehicle from then on. */
 enum
 {
-	MAXIMUM_VEHICLE_HOMES = 64
+	MAXIMUM_VEHICLE_HOMES = 256
 };
 
 static struct
@@ -4189,6 +4194,7 @@ static struct
 	real_vector3d forward;
 	real_vector3d up;
 	long idle_since;
+	short name_index;
 } game_engine_vehicle_homes[MAXIMUM_VEHICLE_HOMES];
 static short game_engine_vehicle_home_count = NONE;
 
@@ -4198,6 +4204,16 @@ static void game_engine_update_vehicle_respawn(
 	long respawn_ticks = game_variant_options_get()->vehicle_respawn_time * TICKS_PER_SECOND;
 	long now = game_time_get();
 	short index;
+
+	/* (testing, HALO_VEHICLE_RESPAWN_SECONDS: the time, whatever the gametype's) */
+	{
+		static long forced = NONE;
+
+		if (forced == NONE)
+			forced = getenv("HALO_VEHICLE_RESPAWN_SECONDS") ? atol(getenv("HALO_VEHICLE_RESPAWN_SECONDS")) : -2;
+		if (forced >= 0)
+			respawn_ticks = forced * TICKS_PER_SECOND;
+	}
 
 	if (respawn_ticks <= 0 || network_game_distributed_client() || now % TICKS_PER_SECOND)
 		return;
@@ -4219,12 +4235,26 @@ static void game_engine_update_vehicle_respawn(
 			object_get_orientation(iterator.index, &game_engine_vehicle_homes[home].forward,
 				&game_engine_vehicle_homes[home].up);
 			game_engine_vehicle_homes[home].idle_since = NONE;
+			game_engine_vehicle_homes[home].name_index = object->object.name_index;
 		}
 	}
 	for (index = 0; index < game_engine_vehicle_home_count; index++)
 	{
-		struct unit_datum *vehicle = unit_try_and_get(game_engine_vehicle_homes[index].object_index);
+		struct unit_datum *vehicle;
 		boolean waiting = TRUE;
+
+		/* (the one of that name now: the map's own script may have made it) */
+		if (game_engine_vehicle_homes[index].name_index != NONE)
+		{
+			long named_index = object_index_from_name_index(game_engine_vehicle_homes[index].name_index);
+
+			if (named_index != NONE && named_index != game_engine_vehicle_homes[index].object_index)
+			{
+				game_engine_vehicle_homes[index].object_index = named_index;
+				game_engine_vehicle_homes[index].idle_since = NONE;
+			}
+		}
+		vehicle = unit_try_and_get(game_engine_vehicle_homes[index].object_index);
 
 		if (vehicle && !TEST_FLAG(vehicle->object.damage_flags, _object_dead_bit))
 		{
@@ -4253,13 +4283,24 @@ static void game_engine_update_vehicle_respawn(
 		{
 			struct object_placement_data placement_data;
 
+			long new_index = NONE;
+
 			if (vehicle)
 				object_delete(game_engine_vehicle_homes[index].object_index);
-			object_placement_data_new(&placement_data, game_engine_vehicle_homes[index].definition_index, NONE);
-			placement_data.position = game_engine_vehicle_homes[index].position;
-			placement_data.forward = game_engine_vehicle_homes[index].forward;
-			placement_data.up = game_engine_vehicle_homes[index].up;
-			game_engine_vehicle_homes[index].object_index = object_new(&placement_data);
+			if (game_engine_vehicle_homes[index].name_index != NONE &&
+				object_index_from_name_index(game_engine_vehicle_homes[index].name_index) == NONE)
+			{
+				new_index = object_new_by_name(game_engine_vehicle_homes[index].name_index);
+			}
+			if (new_index == NONE)
+			{
+				object_placement_data_new(&placement_data, game_engine_vehicle_homes[index].definition_index, NONE);
+				placement_data.position = game_engine_vehicle_homes[index].position;
+				placement_data.forward = game_engine_vehicle_homes[index].forward;
+				placement_data.up = game_engine_vehicle_homes[index].up;
+				new_index = object_new(&placement_data);
+			}
+			game_engine_vehicle_homes[index].object_index = new_index;
 			game_engine_vehicle_homes[index].idle_since = NONE;
 		}
 	}

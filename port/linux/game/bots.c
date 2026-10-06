@@ -1061,6 +1061,19 @@ struct bot_state
 	real goal_score; /* how much the current goal was worth when chosen */
 	long team; /* for the danger map */
 	long seat_retries;
+	/* a pilot who carries people: */
+	real_point3d haul_home; /* where the craft was taken */
+	long haul_leg; /* (testing, HALO_BOT_FLYTO: which part of the trip it is on) */
+	long haul_tick; /* since when it has stood where it stands */
+	int haul_down; /* on the ground */
+	long haul_job; /* what it is about: waiting for people, setting them down, ... (_bot_haul_...) */
+	int haul_flown; /* it has been off the ground since it was taken */
+	int haul_dropped; /* it has set people down by where they are bound, and waits for them */
+	long haul_vehicle; /* the craft all this is of */
+	int haul_spent; /* it has set people down and left them: not again until it has been home */
+	int haul_arrived; /* it has come down where it stands out of the air (not: it stands where it was taken) */
+	long left_vehicle; /* what it last got out of, while it is still by it (NONE: clear of it) */
+	long left_tick;
 	long glance_ticks; /* standing guard: where we're looking */
 	real glance_yaw;
 	real last_health;
@@ -2229,6 +2242,60 @@ static void bot_ignore(struct bot_state *bot, long object_index, long ticks)
 
 boolean unit_get_seat_entrance_point(long unit_index, long target_unit_index, short seat_index,
 	real_point3d *entry_position, real_point3d *exit_position, real_point3d *seat_transform);
+boolean unit_enter_seat(long unit_index, long target_unit_index, short seat_index);
+
+/* from how far off the door of a seat a bot is put in a craft that carries
+   people (the game's own reach is one unit: bots.c, where it boards) */
+#define BOT_BOARD_REACH 3.5f
+
+/* a craft that carries people: something that flies with seats in it besides
+   its pilot's (a Pelican; not a Banshee, nor a jet) */
+static int bot_vehicle_transport(long vehicle_index)
+{
+	struct object_datum *vehicle = object_get(vehicle_index);
+	return bot_vehicle_flies(vehicle->definition_index) && bot_vehicle_seats(vehicle_index) > 1;
+}
+
+boolean ctf_bot_flag(long team_index, long *weapon_index, real_point3d *base); /* game_engine_ctf.c */
+boolean unit_seat_label_allows_weapon(long unit_index, char const *seat_label, long weapon_index); /* units.c */
+
+/* the flag or the ball a unit has, NONE none */
+static long bot_held_objective(struct unit_datum *unit)
+{
+	long i;
+	for (i = 0; i < MAXIMUM_WEAPONS_PER_UNIT; i++)
+	{
+		long weapon_index = unit->unit.weapon_object_indices[i];
+		struct object_datum *weapon = weapon_index != NONE ? object_try_and_get(weapon_index) : NULL;
+		if (weapon && (bot_name_has(weapon->definition_index, "flag") || bot_name_has(weapon->definition_index, "ball")))
+			return weapon_index;
+	}
+	return NONE;
+}
+
+/* Would someone keep the flag (or the ball) in this seat? The game lets a
+   unit hold in a seat only what its animations have for that seat
+   (units.c, unit_can_use_weapon): in most seats at a wheel or a gun that
+   is nothing, and what must be held in the hands to be had at all falls
+   to the ground as they sit down. Asked of the thing in hand, or (NONE in
+   hand) of a flag of the game's. */
+static int bot_seat_keeps(long unit_index, long vehicle_index, short seat, long weapon_index)
+{
+	struct unit_definition *definition = (struct unit_definition *)object_definition_get(object_get(vehicle_index)->definition_index);
+	struct unit_seat *one;
+	if (seat < 0 || seat >= definition->unit.seats.count)
+		return FALSE;
+	one = TAG_BLOCK_GET_ELEMENT(&definition->unit.seats, seat, struct unit_seat);
+	if (weapon_index == NONE)
+	{
+		real_point3d base;
+		if (!ctf_bot_flag(0, &weapon_index, &base) || weapon_index == NONE)
+			ctf_bot_flag(1, &weapon_index, &base);
+	}
+	if (weapon_index == NONE || !object_try_and_get(weapon_index))
+		return !unit_seat_is_driver(vehicle_index, seat) && !unit_seat_is_gunner(vehicle_index, seat);
+	return unit_seat_label_allows_weapon(unit_index, one->label, weapon_index);
+}
 
 /* where to stand to get into the seat we want: the wheel if nobody's
    driving, else the gun, else any free seat; FALSE when it's full */
@@ -2239,6 +2306,11 @@ static int bot_vehicle_entry_seat(long unit_index, long vehicle_index, real_poin
 	int has_driver = unit_scripting_unit_driver(vehicle_index) != NONE;
 	struct unit_datum *enterer = unit_try_and_get(unit_index);
 	int carrier = bot_nav_in_parts() && enterer && (bot_holds_named(enterer, "flag") || bot_holds_named(enterer, "ball"));
+	/* (A craft with seats for a squad, a Pelican: of the seats that would do
+	   as well, the one whose door is nearest. They are yards apart, on both
+	   sides of it and at its tail.) */
+	int nearest_door = enterer && enterer->object.parent_object_index == NONE && bot_vehicle_transport(vehicle_index);
+	real best_off = 1.0e9f;
 	short best = NONE;
 	int best_rank = 99;
 	short seat;
@@ -2260,8 +2332,14 @@ static int bot_vehicle_entry_seat(long unit_index, long vehicle_index, real_poin
 		   seat that keeps it there, beside someone who drives. At the
 		   wheel or on the gun the hands are full, and the flag is left on
 		   the ground where the Warthog stood.) */
+		/* (Which seats those are is the map's to say, bot_seat_keeps: a
+		   Pelican's hold on one map and not on the next, a jet's own
+		   seat on both of the two that have them. A seat beside someone
+		   who drives, first; or the wheel itself, of something nobody
+		   has, where the flag stays in the hands at it.) */
 		if (carrier)
-			rank = has_driver && !unit_seat_is_driver(vehicle_index, seat) && !unit_seat_is_gunner(vehicle_index, seat) ? 0 : 99;
+			rank = !bot_seat_keeps(unit_index, vehicle_index, seat, bot_held_objective(enterer)) ? 99 :
+				unit_seat_is_driver(vehicle_index, seat) ? (has_driver ? 99 : 1) : (has_driver ? 0 : 99);
 		/* nobody at the wheel: the wheel (a gun on a parked vehicle is a
 		   sitting duck); someone driving: the gun, then any seat */
 		else if (unit_seat_is_driver(vehicle_index, seat))
@@ -2270,14 +2348,19 @@ static int bot_vehicle_entry_seat(long unit_index, long vehicle_index, real_poin
 			rank = has_driver ? 0 : 99;
 		else
 			rank = has_driver ? 2 : 99;
-		if (rank < best_rank)
+		if (rank < best_rank || (nearest_door && rank == best_rank && rank < 99))
 		{
 			real_point3d exit_point;
 			real_point3d seat_point;
 			if (unit_get_seat_entrance_point(unit_index, vehicle_index, seat, entry, &exit_point, &seat_point))
 			{
-				best_rank = rank;
-				best = seat;
+				real off = nearest_door ? distance3d(entry, &enterer->object.position) : 0.f;
+				if (rank < best_rank || off < best_off)
+				{
+					best_rank = rank;
+					best = seat;
+					best_off = off;
+				}
 			}
 		}
 	}
@@ -2421,6 +2504,61 @@ static int bot_unit_is_bot(long unit_index)
 		if (bot_states[i].has_personality && bot_states[i].unit_index == unit_index)
 			return TRUE;
 	return FALSE;
+}
+
+/* (carrying people by air: bot_haul_choose, further down) */
+enum
+{
+	_bot_haul_none = 0, /* nothing of the kind: it flies as any craft does */
+	_bot_haul_load, /* on the ground, for people to get in */
+	_bot_haul_drop, /* to where they are bound, and down, and they get out */
+	_bot_haul_pick_up, /* to one of ours on foot with their flag, and down by them */
+	_bot_haul_deliver, /* home, with their flag aboard */
+	_bot_haul_home, /* home empty, for more of them */
+};
+
+static char const *const bot_haul_names[] = { "none", "load", "drop", "pick up", "deliver", "home" };
+
+/* who is in a craft besides its pilot: all of them; those in seats that are
+   not guns (they are there to be taken somewhere); and one with a flag */
+static void bot_transport_aboard(long vehicle_index, long pilot_unit, long *riders, long *passengers, long *carrier)
+{
+	struct object_datum *vehicle = object_get(vehicle_index);
+	long child;
+	*riders = *passengers = 0;
+	*carrier = NONE;
+	for (child = vehicle->object.first_child_object_index; child != NONE; child = object_get(child)->object.next_object_index)
+	{
+		struct unit_datum *rider = (struct unit_datum *)object_try_and_get_and_verify_type(child, _object_mask_unit);
+		if (!rider || rider->unit.parent_seat_index < 0 || child == pilot_unit || !bot_unit_alive(child))
+			continue;
+		(*riders)++;
+		if (!unit_seat_is_gunner(vehicle_index, rider->unit.parent_seat_index))
+			(*passengers)++;
+		if (bot_held_objective(rider) != NONE)
+			*carrier = child;
+	}
+}
+
+/* what the bot at a craft's controls is about with it (_bot_haul_...; none:
+   a person flies it, or nobody); and whether it stands on the ground */
+static long bot_haul_job_of(long vehicle_index, int *down)
+{
+	long driver = unit_scripting_unit_driver(vehicle_index);
+	long i;
+	if (down)
+		*down = FALSE;
+	for (i = 0; driver != NONE && i < BOT_MAXIMUM_PLAYERS; i++)
+		if (bot_states[i].has_personality && bot_states[i].unit_index == driver)
+		{
+			/* (set down for people to get out: it has flown them there,
+			   and is not still standing where they got in) */
+			if (down)
+				*down = bot_states[i].haul_down && (bot_states[i].haul_arrived ||
+					(bot_states[i].haul_job != _bot_haul_drop && bot_states[i].haul_job != _bot_haul_deliver));
+			return bot_states[i].haul_job;
+		}
+	return _bot_haul_none;
 }
 
 /* capture the flag roles: the most patient, least aggressive quarter of a
@@ -2667,8 +2805,12 @@ static void bot_ctf_candidates(struct bot_state *bot, struct player_datum *playe
 				struct unit_datum *driver_unit = driver != NONE ? unit_try_and_get(driver) : NULL;
 				struct player_datum *driver_player = driver_unit && driver_unit->unit.player_index != NONE ?
 					player_try_and_get(driver_unit->unit.player_index) : NULL;
-				if (to_vehicle > 60.f || object->object.parent_object_index != NONE || !driver_player ||
-					bot_is_enemy((short)player->team_index, driver_player) || !bot_vehicle_entry(player->unit_index, iterator.index, &entry))
+				/* (... or at the controls of something nobody has, where the
+				   map lets the flag be held there: a jet. The seat is still
+				   bot_vehicle_entry_seat's, and none means none will do.) */
+				if (to_vehicle > 60.f || object->object.parent_object_index != NONE ||
+					(driver != NONE && (!driver_player || bot_is_enemy((short)player->team_index, driver_player))) ||
+					bot_vehicle_has_enemy(iterator.index, player) || !bot_vehicle_entry(player->unit_index, iterator.index, &entry))
 				{
 					continue;
 				}
@@ -2773,7 +2915,11 @@ static void bot_ctf_candidates(struct bot_state *bot, struct player_datum *playe
 				real_point3d entry;
 				real to_vehicle = distance3d(&object->object.position, position);
 				long driver = unit_scripting_unit_driver(iterator.index);
-				if (to_vehicle > 25.f || object->object.parent_object_index != NONE || bot_ignoring(bot, iterator.index) ||
+				/* (a craft that carries people, on the ground for them: from further off) */
+				int its_down = FALSE;
+				int waits = driver != NONE && bot_vehicle_transport(iterator.index) &&
+					bot_haul_job_of(iterator.index, &its_down) == _bot_haul_load && its_down;
+				if (to_vehicle > (waits ? 80.f : 25.f) || object->object.parent_object_index != NONE || bot_ignoring(bot, iterator.index) ||
 					!bot_vehicle_entry(player->unit_index, iterator.index, &entry) ||
 					bot_vehicle_has_enemy(iterator.index, player)) /* (one of them at its gun and nobody driving: theirs) */
 				{
@@ -2787,8 +2933,8 @@ static void bot_ctf_candidates(struct bot_state *bot, struct player_datum *playe
 					if (!driver_player || bot_is_enemy((short)player->team_index, driver_player))
 						continue;
 				}
-				bot_consider(best, score * (0.9f + 0.8f * bot->personality.vehicle_love) / (1.f + to_vehicle / 40.f), _bot_goal_vehicle, &entry,
-					iterator.index, 20 * BOT_TICKS_PER_SECOND, TRUE);
+				bot_consider(best, (waits ? MAX(score, 12.f) * 1.5f : score * (0.9f + 0.8f * bot->personality.vehicle_love)) / (1.f + to_vehicle / (waits ? 80.f : 40.f)),
+					_bot_goal_vehicle, &entry, iterator.index, 20 * BOT_TICKS_PER_SECOND, TRUE);
 			}
 		}
 	}
@@ -3170,6 +3316,176 @@ static int bot_ctf_drive_target(struct bot_state *bot, struct player_datum *play
 		return TRUE;
 	}
 	return FALSE;
+}
+
+/* ---------- carrying people by air
+
+A craft with seats in it besides its pilot's (a Pelican, a Longsword) is a
+way for a squad to be somewhere: its pilot waits on the ground while the
+others get in, flies them to where they are bound (their flag; the hill;
+whoever of the other side is nearest), comes down there and waits on the
+ground again while they get out; and, in a game of flags, stays for whoever
+of them takes the flag, and flies them home with it. */
+
+/* those of our side on foot within a way of a place (not us) */
+static long bot_team_on_foot_near(struct player_datum *me, real_point3d const *place, real within)
+{
+	struct data_iterator iterator;
+	struct player_datum *other;
+	long count = 0;
+	data_iterator_new(&iterator, player_data);
+	while ((other = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+	{
+		if (other == me || other->unit_index == NONE || !bot_unit_alive(other->unit_index) || other->team_index != me->team_index ||
+			object_get(other->unit_index)->object.parent_object_index != NONE)
+		{
+			continue;
+		}
+		if (distance3d(&object_get(other->unit_index)->object.position, place) < within)
+			count++;
+	}
+	return count;
+}
+
+static long bot_haul_choose(struct bot_state *bot, struct player_datum *me, long vehicle_index, real_point3d const *position,
+	int threatened, int hurt, real_point3d *place, real *short_of)
+{
+	long now = game_time_get();
+	long me_index = (long)(bot - bot_states);
+	long riders, passengers, carrier_aboard;
+	long stood = now - bot->haul_tick;
+	long room = bot_vehicle_room(vehicle_index);
+	int ctf = game_engine == &ctf_engine && me->team_index >= 0 && me->team_index <= 1;
+	long my_flag = NONE, their_flag = NONE;
+	real_point3d my_base, their_base;
+	int loading;
+
+	/* (down this far short of a flag: a Pelican is twenty units long, and
+	   one standing over the flag is a wall round it for whoever is to walk
+	   up to it) */
+	real clear = object_get(vehicle_index)->object.bounding_sphere_radius + 5.f;
+
+	*short_of = 0.f;
+	*place = *position;
+	bot_transport_aboard(vehicle_index, me->unit_index, &riders, &passengers, &carrier_aboard);
+	if (ctf && (!ctf_bot_flag(me->team_index, &my_flag, &my_base) || !ctf_bot_flag(1 - me->team_index, &their_flag, &their_base)))
+		ctf = FALSE;
+	/* their flag aboard: home with it, whatever else */
+	if (ctf && carrier_aboard != NONE)
+	{
+		bot->haul_dropped = FALSE;
+		*place = my_base;
+		*short_of = clear;
+		return _bot_haul_deliver;
+	}
+	/* one of ours on foot with it, a long way from home: to them, and down
+	   by them (down by them already: there, until they are in) */
+	if (ctf && their_flag != NONE && object_try_and_get(their_flag) && object_get(their_flag)->object.parent_object_index != NONE && room > 0)
+	{
+		long carrier = object_get_ultimate_parent(their_flag);
+		struct unit_datum *carrier_unit = (struct unit_datum *)object_try_and_get_and_verify_type(carrier, _object_mask_unit);
+		struct player_datum *carrier_player = carrier_unit && carrier_unit->unit.player_index != NONE ? player_try_and_get(carrier_unit->unit.player_index) : NULL;
+		if (carrier_player && carrier_player->team_index == me->team_index && !TEST_FLAG(_object_mask_vehicle, carrier_unit->object.type) &&
+			carrier != me->unit_index)
+		{
+			real off = distance3d(&carrier_unit->object.position, position);
+			if (distance3d(&carrier_unit->object.position, &my_base) > 150.f || (bot->haul_down && off < 40.f))
+			{
+				bot->haul_dropped = FALSE;
+				if (!(bot->haul_down && off < 25.f))
+				{
+					*place = carrier_unit->object.position;
+					*short_of = 6.f;
+				}
+				return _bot_haul_pick_up;
+			}
+		}
+	}
+	/* On the ground where it was taken (or home again): a while for people
+	   to get in. A moment whatever; longer while someone is on the way to
+	   it, or a person of ours stands by it, or some of ours are about who
+	   have not made up their minds; not with every seat taken, and not
+	   under fire. */
+	loading = bot->haul_down && !bot->haul_dropped && (!bot->haul_flown || distance3d(position, &bot->haul_home) < 30.f);
+	if (loading && room > 0 && !threatened)
+	{
+		long coming = bot_riders_coming(vehicle_index, me_index, 80.f);
+		bot->haul_spent = FALSE;
+		if (stood < BOT_SECONDS(4.f) || (coming > 0 && stood < BOT_SECONDS(30.f)) ||
+			(bot_people_by_vehicle(me, vehicle_index, 14.f, FALSE) > 0 && stood < BOT_SECONDS(20.f)) ||
+			(riders < 2 && stood < BOT_SECONDS(14.f) && bot_team_on_foot_near(me, position, 70.f) > 0))
+		{
+			return _bot_haul_load;
+		}
+	}
+	if (ctf)
+	{
+		struct object_datum *theirs = their_flag != NONE ? object_try_and_get(their_flag) : NULL;
+		if (theirs && theirs->object.parent_object_index == NONE && !bot_ctf_defender(bot, me))
+		{
+			/* people aboard: to their flag, and down by it */
+			if (passengers > 0 && !bot->haul_dropped && !bot->haul_spent)
+			{
+				*place = theirs->object.position;
+				*short_of = clear;
+				return _bot_haul_drop;
+			}
+			/* set down, and they are getting out, or are about it: on the
+			   ground here for whoever of them takes it (for so long, and
+			   while any of them lives; not with its pilot's shields gone) */
+			if (bot->haul_dropped && bot->haul_down && stood < BOT_SECONDS(50.f) &&
+				((passengers > 0 && stood < BOT_SECONDS(6.f)) || bot_team_on_foot_near(me, &theirs->object.position, 90.f) > 0) &&
+				!(hurt && stood > BOT_SECONDS(8.f)))
+			{
+				return _bot_haul_drop;
+			}
+		}
+		/* (done with that, whoever is still aboard: not down by it again
+		   until it has been home) */
+		if (bot->haul_dropped)
+			bot->haul_spent = TRUE;
+		bot->haul_dropped = FALSE;
+	}
+	else if (bot->haul_dropped && bot->haul_down && passengers > 0 && stood < BOT_SECONDS(6.f))
+		return _bot_haul_drop; /* (they are getting out) */
+	else if (passengers > 0 && !bot->haul_spent)
+	{
+		/* (no flags: the hill, in a game of one; else whoever of them is
+		   nearest, and down a little way short of them) */
+		real_point3d at;
+		real off = 0.f;
+		if (bot->haul_dropped)
+			bot->haul_spent = TRUE;
+		bot->haul_dropped = FALSE;
+		if (bot->haul_spent)
+			;
+		else if (game_engine == &king_engine && king_bot_hill(&at))
+		{
+			*place = at;
+			*short_of = clear;
+			return _bot_haul_drop;
+		}
+		else if (bot_nearest_enemy(me, position, &at, &off))
+		{
+			*place = at;
+			*short_of = 45.f;
+			return _bot_haul_drop;
+		}
+	}
+	else
+	{
+		if (bot->haul_dropped)
+			bot->haul_spent = TRUE;
+		bot->haul_dropped = FALSE;
+	}
+	/* nobody aboard, and some of ours on foot at home: back for them */
+	if (riders == 0 && bot->haul_flown && !threatened && bots_map_far > 0.f && distance3d(position, &bot->haul_home) > 60.f &&
+		bot_team_on_foot_near(me, &bot->haul_home, 120.f) >= 2)
+	{
+		*place = bot->haul_home;
+		return _bot_haul_home;
+	}
+	return _bot_haul_none;
 }
 
 /* ---------- roles
@@ -4073,12 +4389,21 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 				struct player_datum *driver_player = driver_unit && driver_unit->unit.player_index != NONE ?
 					player_try_and_get(driver_unit->unit.player_index) : NULL;
 				int person = !bot_unit_is_bot(driver);
+				/* (a craft that carries people, on the ground for them to get
+				   in: from further off, and sooner than most things. Not who
+				   keeps the flag at home.) */
+				int its_down = FALSE;
+				long its_job = bot_vehicle_transport(iterator.index) ? bot_haul_job_of(iterator.index, &its_down) : _bot_haul_none;
+				int waits = (its_job == _bot_haul_load || its_job == _bot_haul_pick_up) && its_down &&
+					!(game_engine == &ctf_engine && bot_ctf_defender(bot, player));
 				if (!teams || !driver_player || bot_is_enemy((short)player->team_index, driver_player))
 					continue;
-				if (distance > (person ? 60.f : 30.f))
+				if (distance > (person ? 60.f : waits ? 80.f : 30.f))
 					continue;
 				score = (person ? 30.f + 5.f * bot->personality.vehicle_love : 7.f + 4.f * bot->personality.vehicle_love) /
 					(1.f + distance / 25.f);
+				if (waits)
+					score += (12.f + 8.f * bot->personality.teamwork) * MAX(bots_map_far, 0.3f) / (1.f + distance / 60.f);
 				if (role == _bot_role_gunner)
 					score *= 2.5f;
 				/* (standing a few steps off with one of ours at the wheel and
@@ -5606,6 +5931,61 @@ static void bots_world_tick(void)
 	bots_last_graph_tick = now;
 	nav_update();
 	bot_country_update();
+	bot_air_trails_update();
+	/* (testing, HALO_BOT_VEHKILL=<tick>: every vehicle with nobody in it is
+	   killed then, and what becomes of the first few is told every five
+	   seconds after: do they go, and do they come back) */
+	if (getenv("HALO_BOT_VEHKILL"))
+	{
+		extern void unit_kill(long unit_index);
+		extern long object_index_from_name_index(short name_index);
+		static struct { long index; short name; long definition; real_point3d at; } killed[24];
+		static long killed_count;
+		long when = atol(getenv("HALO_BOT_VEHKILL"));
+		if (now < when)
+			killed_count = 0;
+		if (now == when)
+		{
+			struct object_iterator vehicles;
+			struct object_datum *vehicle;
+			object_iterator_new(&vehicles, _object_mask_vehicle, 0);
+			while ((vehicle = (struct object_datum *)object_iterator_next(&vehicles)) != NULL)
+			{
+				if (unit_scripting_unit_driver(vehicles.index) != NONE || bot_vehicle_room(vehicles.index) < bot_vehicle_seats(vehicles.index))
+					continue;
+				if (killed_count < 24)
+				{
+					killed[killed_count].index = vehicles.index;
+					killed[killed_count].name = vehicle->object.name_index;
+					killed[killed_count].definition = vehicle->definition_index;
+					killed[killed_count].at = vehicle->object.position;
+					killed_count++;
+				}
+				unit_kill(vehicles.index);
+			}
+			bot_log("vehkill t%ld: %ld vehicles killed", now, killed_count);
+		}
+		if (now > when && (now - when) % 150 == 0)
+		{
+			struct object_iterator vehicles;
+			long total = 0, k;
+			object_iterator_new(&vehicles, _object_mask_vehicle, 0);
+			while (object_iterator_next(&vehicles))
+				total++;
+			bot_log("vehkill t%ld: %ld vehicles in the game", now, total);
+			for (k = 0; k < killed_count; k++)
+			{
+				struct object_datum *old = object_try_and_get(killed[k].index);
+				long named = killed[k].name >= 0 ? object_index_from_name_index(killed[k].name) : NONE;
+				struct object_datum *by_name = named != NONE ? object_try_and_get(named) : NULL;
+				bot_log("vehkill   %s (name %d) at %.0f %.0f %.0f: the one killed %s%s; by its name %s%s", tag_get_name(killed[k].definition), (int)killed[k].name,
+					killed[k].at.x, killed[k].at.y, killed[k].at.z, old ? "is there" : "is gone",
+					old && TEST_FLAG(old->object.damage_flags, _object_dead_bit) ? " (dead)" : old ? " (alive)" : "",
+					by_name ? (named == killed[k].index ? "the same one" : "a new one") : killed[k].name >= 0 ? "none" : "(it has no name)",
+					by_name && TEST_FLAG(by_name->object.damage_flags, _object_dead_bit) ? " (dead)" : "");
+			}
+		}
+	}
 	bots_targets_tally();
 	bot_player_count = player_data ? player_data->actual_count : 0;
 	/* the vehicles about (the game places them a little after the map
@@ -5689,6 +6069,30 @@ static void bots_world_tick(void)
 				long gun_index = craft->unit.weapon_object_indices[0];
 				struct weapon_datum *gun = gun_index != NONE ? weapon_try_and_get(gun_index) : NULL;
 				bot_log("vehicle   aim pitch %.3f, gun %s", speeds[27], gun ? tag_get_name(gun->definition_index) : "none");
+				if (bot_vehicle_flies(object->definition_index))
+				{
+					struct unit_definition *unit_definition = (struct unit_definition *)object_definition_get(object->definition_index);
+					short seat;
+					for (seat = 0; seat < unit_definition->unit.seats.count; seat++)
+					{
+						struct unit_seat *one = TAG_BLOCK_GET_ELEMENT(&unit_definition->unit.seats, seat, struct unit_seat);
+						real_point3d entry = { 0.f, 0.f, 0.f }, exit_point, seat_point = { 0.f, 0.f, 0.f };
+						/* (as the first player's unit would get in, if there is one) */
+						long anyone = NONE;
+						struct data_iterator people;
+						struct player_datum *person;
+						boolean got;
+						data_iterator_new(&people, player_data);
+						while ((person = (struct player_datum *)data_iterator_next(&people)) != NULL && anyone == NONE)
+							anyone = person->unit_index;
+						got = anyone != NONE && unit_get_seat_entrance_point(anyone, vehicles.index, seat, &entry, &exit_point, &seat_point);
+						bot_log("vehicle   seat %d '%s' flags %lx%s%s: entrance %s %.1f %.1f %.1f (%.1f off its middle, %.1f over it), seat %.1f %.1f %.1f; a flag in it %s", (int)seat,
+							one->label, (unsigned long)one->flags, unit_seat_is_driver(vehicles.index, seat) ? " driver" : "",
+							unit_seat_is_gunner(vehicles.index, seat) ? " gunner" : "", got ? "at" : "none", entry.x, entry.y, entry.z,
+							bot_distance2d(&entry, &object->object.position), entry.z - object->object.position.z, seat_point.x, seat_point.y, seat_point.z,
+							anyone == NONE ? "?" : bot_seat_keeps(anyone, vehicles.index, seat, NONE) ? "is kept" : "is dropped");
+					}
+				}
 				if (gun)
 				{
 					struct weapon_definition *gun_definition = weapon_definition_get(gun->definition_index);
@@ -6580,6 +6984,12 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		bot->drive_since = game_time_get();
 		bot->drive_off = FALSE;
 	}
+	/* (just out of something: which, and when) */
+	if (vehicle_index == NONE && bot->last_vehicle != NONE && bot->last_vehicle != 0)
+	{
+		bot->left_vehicle = bot->last_vehicle;
+		bot->left_tick = game_time_get();
+	}
 	bot->last_vehicle = vehicle_index;
 	bot->last_seat_kind = driving ? 1 : gunner ? 2 : 3;
 	memset(&result, 0, sizeof(result));
@@ -7005,6 +7415,12 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			bot->last_weapon_definition = definition;
 		}
 	}
+	if (vehicle_index == NONE || !driving)
+	{
+		bot->haul_vehicle = NONE;
+		bot->haul_job = _bot_haul_none;
+		bot->haul_down = FALSE;
+	}
 	if (vehicle_index == NONE)
 	{
 		int arrived = bot_distance2d(&position, &bot->goal) < 1.2f;
@@ -7025,6 +7441,10 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			real_point3d entry;
 			if (bot_vehicle_has_enemy(bot->goal_object, me))
 				goal_gone = TRUE; /* taken by them */
+			/* (just out of it, and meant to be: not straight back in, unless
+			   it is with the flag we got out for) */
+			else if (bot_ignoring(bot, bot->goal_object) && bot_held_objective(unit) == NONE)
+				goal_gone = TRUE;
 			else if (bot_vehicle_entry(me->unit_index, bot->goal_object, &entry))
 				bot->goal = entry;
 			else
@@ -7311,12 +7731,41 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		if (bot_nav_in_parts() && (bot_holds_named(unit, "flag") || bot_holds_named(unit, "ball")))
 		{
 			/* (riding home with the flag: out by our own, and in with it) */
+			/* (out of something that flies: when it stands, wherever its
+			   pilot has put it down for us; not over the place at its height) */
 			long my_flag = NONE;
 			real_point3d my_base;
+			struct object_datum *ride = object_get(vehicle_index);
+			int flies = bot_vehicle_flies(ride->definition_index);
+			int ride_down = FALSE;
+			long ride_job = bot_haul_job_of(vehicle_index, &ride_down);
+			int stands = magnitude3d(&ride->object.translational_velocity) < 0.02f;
 			if (teams && me->team_index >= 0 && me->team_index <= 1 && ctf_bot_flag(me->team_index, &my_flag, &my_base) &&
-				distance3d(&position, &my_base) < 16.f && game_time_get() % 6 < 3)
+				(flies ? stands && (distance3d(&position, &my_base) < 16.f || (ride_job == _bot_haul_deliver && ride_down)) :
+					distance3d(&position, &my_base) < 16.f) && game_time_get() % 6 < 3)
 			{
 				action->control_flags |= FLAG(_unit_control_action_bit);
+			}
+		}
+		/* Carried somewhere by air (bot_haul_choose), and its pilot has put
+		   it down there: out. Not whoever is on one of its guns: that is
+		   worth more where it is. */
+		else if (bot_vehicle_transport(vehicle_index) && !gunner)
+		{
+			int ride_down = FALSE;
+			long ride_job = bot_haul_job_of(vehicle_index, &ride_down);
+			struct object_datum *ride = object_get(vehicle_index);
+			if (ride_job == _bot_haul_drop && ride_down && magnitude3d(&ride->object.translational_velocity) < 0.02f)
+			{
+				if (game_time_get() % 6 < 3)
+					action->control_flags |= FLAG(_unit_control_action_bit);
+				if (!bot_ignoring(bot, vehicle_index))
+				{
+					bot_ignore(bot, vehicle_index, 20 * BOT_TICKS_PER_SECOND);
+					if (bot_logging())
+						bot_log("bot%ld t%ld out of the %s (set down) at %.0f %.0f %.0f", player_absolute_index, game_time_get(),
+							tag_get_name(ride->definition_index), position.x, position.y, position.z);
+				}
 			}
 		}
 		else if (!gunner && bot->seat_retries < 2 && ++bot->seat_check_ticks > 20)
@@ -7358,6 +7807,8 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		struct bot_flight_result flight;
 		real_point3d enemy = position;
 		int know_enemy = FALSE;
+		int hauling = FALSE;
+		int held_down = FALSE;
 		long quarry = NONE;
 
 		memset(&order, 0, sizeof(order));
@@ -7391,7 +7842,10 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 					{
 						struct projectile_definition *projectile = projectile_definition_get(other->projectile.index);
 						real slows_over = projectile->projectile.air_damage_range_upper_bound - projectile->projectile.air_damage_range_lower_bound;
-						order.heavy = projectile->projectile.initial_velocity > 0.f;
+						/* (... or a bomb: no speed of its own at all, the
+						   craft's as it lets go, and the fall) */
+						order.heavy = projectile->projectile.initial_velocity > 0.f || projectile->projectile.air_gravity_scale > 0.f;
+						order.heavy_bomb = projectile->projectile.initial_velocity <= 0.f;
 						/* (a fuel rod heats the gun right up, and it will not fire
 						   another until that has gone: weapons.c) */
 						order.heavy_ready = TRUE;
@@ -7457,9 +7911,43 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		   their base, and stays up, over whoever of them is out in the
 		   open (above), or over their base when none of them is. */
 		{
+			/* (... unless its pilot can fly their flag home himself: a
+			   seat the map lets it be held in. Then down by it, out, and
+			   back in with it: the nearest of ours who can, while nobody
+			   of ours on foot is nearer it.) */
 			real_point3d errand;
 			int get_out = FALSE;
-			if (teams && bot_ctf_drive_target(bot, me, &errand, &get_out) && !(get_out && order.armed) &&
+			int errand_found = teams && bot_ctf_drive_target(bot, me, &errand, &get_out);
+			int fetch = FALSE;
+			if (errand_found && get_out && order.armed && unit->unit.parent_seat_index >= 0)
+			{
+				long their_flag = NONE;
+				real_point3d their_base;
+				long other_riders = 0, other_passengers = 0, other_carrier = NONE;
+				bot_transport_aboard(vehicle_index, me->unit_index, &other_riders, &other_passengers, &other_carrier);
+				/* (Not a flag under a roof, for a craft that cannot be flown in
+				   to it: down on the roof over it is nowhere.) */
+				if (ctf_bot_flag(1 - me->team_index, &their_flag, &their_base) && their_flag != NONE &&
+					bot_seat_keeps(me->unit_index, vehicle_index, unit->unit.parent_seat_index, their_flag) && other_passengers == 0 &&
+					bot_team_on_foot_near(me, &errand, 40.f) == 0 &&
+					(bot_air_open(&errand) || bot_vehicle_kind(object_get(vehicle_index)->definition_index) == _bot_vehicle_plane))
+				{
+					real mine = distance3d(&position, &errand);
+					long i;
+					fetch = TRUE;
+					for (i = 0; i < BOT_MAXIMUM_PLAYERS; i++)
+					{
+						struct bot_state const *other = &bot_states[i];
+						if (other != bot && other->has_personality && other->unit_index != NONE && other->team == bot->team && bot_unit_alive(other->unit_index) &&
+							other->haul_vehicle != NONE && object_try_and_get(other->haul_vehicle) &&
+							distance3d(&object_get(other->haul_vehicle)->object.position, &errand) < mine - 5.f)
+						{
+							fetch = FALSE;
+						}
+					}
+				}
+			}
+			if (errand_found && !(get_out && order.armed && !fetch) &&
 				!(target != NONE && target_distance < 40.f && order.armed))
 			{
 				order.destination = errand;
@@ -7506,7 +7994,124 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				order.patrol = TRUE;
 			}
 		}
-		bot_fly(&bot->pilot, &body, &order, &flight);
+		/* (a craft just taken: it stands where it stood) */
+		if (bot->haul_vehicle != vehicle_index)
+		{
+			bot->haul_vehicle = vehicle_index;
+			bot->haul_home = position;
+			bot->haul_leg = 0;
+			bot->haul_tick = game_time_get();
+			bot->haul_down = TRUE;
+			bot->haul_flown = FALSE;
+			bot->haul_dropped = FALSE;
+			bot->haul_spent = FALSE;
+			bot->haul_arrived = FALSE;
+			bot->haul_job = _bot_haul_none;
+		}
+		/* With their flag in our own hands at its controls (a seat the map
+		   lets it be held in: a jet's, on the maps that have them): home,
+		   down by our own, and out with it. */
+		if (teams && game_engine == &ctf_engine && me->team_index >= 0 && me->team_index <= 1 && bot_held_objective(unit) != NONE)
+		{
+			long my_flag = NONE;
+			real_point3d my_base;
+			if (ctf_bot_flag(me->team_index, &my_flag, &my_base))
+			{
+				memset(&order.velocity, 0, sizeof(order.velocity));
+				order.destination = my_base;
+				order.attack = order.patrol = order.airborne = FALSE;
+				order.land = TRUE;
+				order.stay = FALSE;
+				order.short_of = object_get(vehicle_index)->object.bounding_sphere_radius + 5.f;
+				bot->haul_job = _bot_haul_none;
+				hauling = TRUE; /* (not held on the ground for anyone) */
+			}
+		}
+		/* Carrying people (above, bot_haul_choose). */
+		else if (teams && bot_vehicle_transport(vehicle_index))
+		{
+			real_point3d place;
+			real short_of = 0.f;
+			long job = bot_haul_choose(bot, me, vehicle_index, &position, (target != NONE && target_distance < 40.f) || bot->hit_ticks > 0 || order.hurt,
+				order.hurt, &place, &short_of);
+			if (job != bot->haul_job && bot_logging())
+				bot_log("bot%ld t%ld the %s: %s (was %s) at %.0f %.0f %.0f, to %.0f %.0f %.0f", player_absolute_index, game_time_get(),
+					tag_get_name(object_get(vehicle_index)->definition_index), bot_haul_names[job], bot_haul_names[bot->haul_job],
+					position.x, position.y, position.z, place.x, place.y, place.z);
+			/* (come down for one thing is not come down for the next) */
+			if (job != bot->haul_job && !(job == _bot_haul_drop && bot->haul_dropped))
+				bot->haul_arrived = FALSE;
+			bot->haul_job = job;
+			if (job != _bot_haul_none)
+			{
+				memset(&order.velocity, 0, sizeof(order.velocity));
+				order.destination = place;
+				order.attack = order.patrol = order.airborne = FALSE;
+				order.land = order.stay = TRUE;
+				order.short_of = short_of;
+				order.tail_to = job == _bot_haul_drop || job == _bot_haul_deliver;
+				hauling = TRUE;
+				/* (on the ground, and to stay there: nothing, and it stands) */
+				held_down = bot->haul_down && (job == _bot_haul_load || distance3d(&place, &position) < 1.f);
+			}
+		}
+		else
+			bot->haul_job = _bot_haul_none;
+		{
+			/* (testing, HALO_BOT_FLYTO=x,y,z: every pilot to that place and
+			   down at it, a few seconds on the ground, back to where the
+			   craft was taken and down there, and round again) */
+			static int asked;
+			static real_point3d there;
+			static int have;
+			if (!asked)
+			{
+				char const *text = getenv("HALO_BOT_FLYTO");
+				asked = TRUE;
+				have = text && sscanf(text, "%f,%f,%f", &there.x, &there.y, &there.z) == 3;
+			}
+			if (have)
+			{
+				held_down = FALSE;
+				if (bot->haul_down && game_time_get() - bot->haul_tick > BOT_SECONDS(6.f))
+				{
+					bot->haul_leg++;
+					bot->haul_down = FALSE;
+				}
+				memset(&order.velocity, 0, sizeof(order.velocity));
+				order.destination = bot->haul_leg % 2 ? bot->haul_home : there;
+				order.attack = order.patrol = order.airborne = FALSE;
+				order.land = order.stay = TRUE;
+			}
+		}
+		if (held_down)
+		{
+			memset(&flight, 0, sizeof(flight));
+			flight.yaw = body.facing_yaw;
+			flight.landed = TRUE;
+			/* (standing because it means to: not held up) */
+			bot->pilot.stuck_point = position;
+			bot->pilot.stuck_tick = game_time_get();
+		}
+		else
+			bot_fly(&bot->pilot, &body, &order, &flight);
+		if (flight.landed && !bot->haul_down)
+		{
+			bot->haul_down = TRUE;
+			bot->haul_arrived = TRUE;
+			bot->haul_tick = game_time_get();
+			if (bot->haul_job == _bot_haul_drop)
+				bot->haul_dropped = TRUE;
+			if (bot_logging())
+				bot_log("bot%ld t%ld down in the %s at %.1f %.1f %.1f, %.1f from where it was bound", player_absolute_index, game_time_get(),
+					tag_get_name(object_get(vehicle_index)->definition_index), position.x, position.y, position.z, bot_distance2d(&position, &order.destination));
+		}
+		else if (!flight.landed && magnitude3d(&body.velocity) * BOT_TICKS_PER_SECOND > 2.f)
+		{
+			bot->haul_down = FALSE;
+			bot->haul_arrived = FALSE;
+			bot->haul_flown = TRUE;
+		}
 		if (bot_env_set("HALO_BOT_SHOTS") && bot_logging())
 		{
 			/* (testing: how near what the craft fires passes who it is fired
@@ -7518,7 +8123,11 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			{
 				struct projectile_datum *projectile = (struct projectile_datum *)shot;
 				real speed = magnitude3d(&shot->object.translational_velocity);
-				if (projectile->projectile.ignore_object_index == vehicle_index && projectile->projectile.odometer < speed * 1.5f && speed > 0.f)
+				/* (our own, from the craft's guns: not something of theirs
+				   that has gone through us, nor a rider's rifle) */
+				if (projectile->projectile.ignore_object_index == vehicle_index && projectile->projectile.odometer < speed * 1.5f && speed > 0.f &&
+					shot->object.owner_object_index != NONE && object_try_and_get(shot->object.owner_object_index) &&
+					(shot->object.owner_object_index == vehicle_index || object_get(shot->object.owner_object_index)->object.parent_object_index == vehicle_index))
 				{
 					struct projectile_definition *definition = projectile_definition_get(shot->definition_index);
 					real fall = definition->projectile.air_gravity_scale * 0.003565f;
@@ -7557,9 +8166,26 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 						them.y += order.velocity.j * 0.125f;
 						them.z += order.velocity.k * 0.125f;
 					}
-					bot_log("shot bot%ld t%ld %s miss %.2f in %ld ticks from %.0f off, they move %.3f a tick",
-						player_absolute_index, game_time_get(), fall > 0.f ? "heavy" : "bolt", nearest, when,
-						distance3d(&shot->object.position, &order.destination), magnitude3d(&order.velocity));
+					{
+						/* (how far off the line to them the shot left, the craft's
+						   nose points, and its pilot looks: radians) */
+						real_vector3d to_them;
+						real off = MAX(distance3d(&shot->object.position, &order.destination), 0.01f);
+						struct object_datum *craft_object = object_get(vehicle_index);
+						real shot_off, nose_off, look_off;
+						to_them.i = (order.destination.x - shot->object.position.x) / off;
+						to_them.j = (order.destination.y - shot->object.position.y) / off;
+						to_them.k = (order.destination.z - shot->object.position.z) / off;
+						shot_off = (real)acos(PIN((shot->object.translational_velocity.i * to_them.i + shot->object.translational_velocity.j * to_them.j +
+							shot->object.translational_velocity.k * to_them.k) / speed, -1.f, 1.f));
+						nose_off = (real)acos(PIN(craft_object->object.forward.i * to_them.i + craft_object->object.forward.j * to_them.j +
+							craft_object->object.forward.k * to_them.k, -1.f, 1.f));
+						look_off = (real)acos(PIN(unit->unit.aiming_vector.i * to_them.i + unit->unit.aiming_vector.j * to_them.j +
+							unit->unit.aiming_vector.k * to_them.k, -1.f, 1.f));
+						bot_log("shot bot%ld t%ld %s (%s) miss %.2f in %ld ticks from %.0f off, they move %.3f a tick; off the line to them: the shot %.2f, the nose %.2f, the look %.2f; phase %ld%s%s",
+							player_absolute_index, game_time_get(), fall > 0.f ? "heavy" : "bolt", tag_get_name(shot->definition_index), nearest, when,
+							off, magnitude3d(&order.velocity), shot_off, nose_off, look_off, bot->pilot.phase, flight.fire ? " firing" : "", flight.fire_heavy ? " heavy" : "");
+					}
 				}
 			}
 		}
@@ -8642,9 +9268,13 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		/* (on its own floor: right over it on the roof, or under it, is not at
 		   it, and the route down or up to it is what goes on, not a stand
 		   over the spot and a hop) */
-		if ((bot->goal_kind == _bot_goal_item || bot->goal_kind == _bot_goal_vehicle) &&
+		/* (a craft with seats in its hold: by the door of the one we want, as
+		   near as its hull lets a body stand) */
+		if (((bot->goal_kind == _bot_goal_item || bot->goal_kind == _bot_goal_vehicle) &&
 			bot_distance2d(&position, &bot->goal) < (bot->goal_kind == _bot_goal_vehicle ? 1.2f : 1.3f) &&
-			fabs(position.z - bot->goal.z) < (bot->goal_kind == _bot_goal_vehicle ? 2.f : 1.f))
+			fabs(position.z - bot->goal.z) < (bot->goal_kind == _bot_goal_vehicle ? 2.f : 1.f)) ||
+			(bot->goal_kind == _bot_goal_vehicle && bot->goal_object != NONE && object_try_and_get(bot->goal_object) &&
+			 bot_vehicle_transport(bot->goal_object) && distance3d(&position, &bot->goal) < BOT_BOARD_REACH - 0.5f))
 		{
 			long worst_slot = NONE;
 			struct object_datum *item = bot->goal_object != NONE ? object_try_and_get(bot->goal_object) : NULL;
@@ -8772,6 +9402,32 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				look_reason = _bot_look_act;
 				if ((off < 0.55f || at_hand) && (bot->action_ticks / 6) % 2 == 0)
 					action->control_flags |= FLAG(_unit_control_action_bit);
+				/* A craft that carries a squad. Its seats' doors are in its
+				   hold and up at its cockpit, a step or a jump from where a
+				   body on the ground can stand, and the game takes someone in
+				   only from within a unit of one (units.c,
+				   unit_find_nearby_seat): a person gets there by a hop, or up
+				   its ramp. A bot that has come to the craft's side and has
+				   not been offered the seat is put in it: by the same call
+				   the game makes for the button, from a few units and no
+				   more, into a craft that stands still and upright. */
+				if (!at_hand && bot->action_ticks > 10 && item && bot_vehicle_transport(bot->goal_object) &&
+					magnitude3d(&item->object.translational_velocity) < 0.03f && magnitude3d(&item->object.angular_velocity) < 0.03f &&
+					item->object.up.k > 0.7f && !bot_vehicle_has_enemy(bot->goal_object, me))
+				{
+					real_point3d way_out, seat_at;
+					short seat = NONE;
+					if (bot_vehicle_entry_seat(me->unit_index, bot->goal_object, &door, NULL, &seat) && seat != NONE &&
+						unit_get_seat_entrance_point(me->unit_index, bot->goal_object, seat, &door, &way_out, &seat_at) &&
+						MIN(distance3d(&door, &unit->object.bounding_sphere_center), MIN(distance3d(&way_out, &unit->object.bounding_sphere_center),
+							distance3d(&seat_at, &unit->object.bounding_sphere_center))) < BOT_BOARD_REACH)
+					{
+						if (bot_logging())
+							bot_log("bot%ld t%ld put in seat %d of the %s, %.1f from its door", player_absolute_index, game_time_get(), (int)seat,
+								tag_get_name(item->definition_index), distance3d(&door, &unit->object.bounding_sphere_center));
+						unit_enter_seat(me->unit_index, bot->goal_object, seat);
+					}
+				}
 			}
 			/* couldn't: pick something else. (A swap the game offers is under
 			   way, the worse gun coming to hand first: three seconds. Something
@@ -9173,6 +9829,62 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				player_absolute_index, game_time_get(), position.x, position.y, position.z, bot->yaw, desired_yaw, move_yaw, moving,
 				bot->goal_kind, bot->goal.x, bot->goal.y, bot->goal_objective, bot->mover.move.area, bot->mover.move.reach, result.travel,
 				target != NONE, threatened, moved, bot->strafe_sign, move_speed, bot->target_unit != NONE, look_reason);
+	}
+	/* Just out of a craft that carries people, and still in among it: a
+	   Pelican's hold has its hull on three sides, and the way the route
+	   says is through one of them as like as not. Clear of it first: of the
+	   ways about, level, at the height of the chest, the one that is open
+	   furthest, the way we were going sooner than its opposite. */
+	if (vehicle_index == NONE && bot->left_vehicle != NONE && bot->left_vehicle != 0)
+	{
+		struct object_datum *craft = object_try_and_get(bot->left_vehicle);
+		if (!craft || !TEST_FLAG(_object_mask_vehicle, craft->object.type) || !bot_vehicle_transport(bot->left_vehicle) ||
+			game_time_get() - bot->left_tick > BOT_SECONDS(8.f) ||
+			distance3d(&position, &craft->object.position) > craft->object.bounding_sphere_radius + 1.5f ||
+			magnitude3d(&craft->object.translational_velocity) > 0.05f)
+		{
+			bot->left_vehicle = NONE;
+		}
+		else if (!(bot->goal_kind == _bot_goal_vehicle && bot->goal_object == bot->left_vehicle))
+		{
+			real_point3d chest = position;
+			real wanted = moving ? move_yaw : bot_yaw_to(&position, &bot->goal);
+			real best = -1.0e9f;
+			real best_yaw = wanted;
+			real best_free = 0.f;
+			long d;
+			chest.z += 0.45f;
+			for (d = 0; d < 16; d++)
+			{
+				struct collision_result wall;
+				real_vector3d way;
+				real yaw = d * 0.3926991f;
+				real free = 9.f;
+				real score;
+				way.i = (real)cos(yaw) * 9.f;
+				way.j = (real)sin(yaw) * 9.f;
+				way.k = 0.f;
+				if (collision_test_vector(FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_structure_bit) |
+						FLAG(_collision_test_objects_bit) | FLAG(_collision_test_objects_vehicles_bit) | FLAG(_collision_test_objects_scenery_bit),
+						&chest, &way, me->unit_index, &wall))
+				{
+					free = wall.t * 9.f;
+				}
+				score = free + 2.5f * (real)cos(bot_angle_difference(yaw, wanted));
+				if (score > best)
+				{
+					best = score;
+					best_yaw = yaw;
+					best_free = free;
+				}
+			}
+			if (best_free > 1.5f)
+			{
+				moving = TRUE;
+				move_yaw = best_yaw;
+				move_speed = 1.f;
+			}
+		}
 	}
 	if (moving)
 	{

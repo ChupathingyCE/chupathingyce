@@ -162,6 +162,7 @@ struct country_portal
 	long exit_floor;
 	short names[COUNTRY_PORTAL_NAMES];
 	long name_count;
+	real size; /* the volume's longest side: a gate is a frame; a volume a base wide is something else */
 };
 
 struct country_field
@@ -842,6 +843,7 @@ static void country_portal_found(short trigger_volume_index, short object_name_i
 			portal->entry.x = (volume->bounds.x0 + volume->bounds.x1) * 0.5f;
 			portal->entry.y = (volume->bounds.y0 + volume->bounds.y1) * 0.5f;
 			portal->entry.z = (volume->bounds.z0 + volume->bounds.z1) * 0.5f;
+			portal->size = MAX(volume->bounds.x1 - volume->bounds.x0, MAX(volume->bounds.y1 - volume->bounds.y0, volume->bounds.z1 - volume->bounds.z0));
 		}
 		else
 		{
@@ -852,6 +854,7 @@ static void country_portal_found(short trigger_volume_index, short object_name_i
 			middle.z = volume->extents.k * 0.5f;
 			matrix4x3_from_point_and_vectors(&matrix, &volume->position, &volume->forward, &volume->up);
 			matrix4x3_transform_point(&matrix, &middle, &portal->entry);
+			portal->size = MAX((real)fabs(volume->extents.i), MAX((real)fabs(volume->extents.j), (real)fabs(volume->extents.k)));
 		}
 	}
 	for (i = 0; i < portal->name_count; i++)
@@ -888,6 +891,75 @@ long bot_country_portals_of(long vehicle_index)
 		return 0;
 	memcpy(country.portal_sets[country.portal_set_count], set, country.portal_count);
 	return country.portal_set_count++;
+}
+
+/* A craft's way out of where it stands by the map's script: of the ways
+   that name it, the one whose volume is in sight from here and nearest the
+   way it faces (a jet in a closed hangar, with a gate in the wall ahead of
+   it that puts it down in the sky outside). NONE: none. */
+long bot_country_gate(long vehicle_index, real_point3d const *from, real facing_yaw, real within, long keep, real_point3d *entry, real_point3d *exit_point)
+{
+	struct object_datum *vehicle = vehicle_index != NONE ? object_try_and_get(vehicle_index) : NULL;
+	long best = NONE;
+	real best_score = 1.0e9f;
+	long p, i;
+	if (!country.ready || !vehicle || vehicle->object.name_index < 0)
+		return NONE;
+	for (p = 0; p < country.portal_count; p++)
+	{
+		struct country_portal const *portal = &country.portals[p];
+		struct collision_result wall;
+		real_vector3d way;
+		real off = distance3d(from, &portal->entry);
+		real turn, score;
+		boolean named = FALSE;
+		for (i = 0; i < portal->name_count; i++)
+			if (portal->names[i] == vehicle->object.name_index)
+				named = TRUE;
+		/* (a frame to go into: not a volume the size of the base it stands
+		   in, which a script asks about for some other reason) */
+		if (!named || off > within || portal->size > 40.f)
+			continue;
+		way.i = portal->entry.x - from->x;
+		way.j = portal->entry.y - from->y;
+		way.k = portal->entry.z - from->z;
+		{
+			boolean hit = collision_test_vector(FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_structure_bit), from, &way, vehicle_index, &wall);
+			if (getenv("HALO_BOT_AIRTRACE") && bot_logging())
+				bot_log("gate: craft %lx t%ld at %.1f %.1f %.1f: portal %ld at %.1f %.1f %.1f (%.0f across), %.0f off, %s %.1f along at %.1f %.1f %.1f", vehicle_index & 0xffff,
+					game_time_get(), from->x, from->y, from->z, p, portal->entry.x, portal->entry.y, portal->entry.z, portal->size, off, hit ? "a wall" : "clear", hit ? wall.t * off : off,
+					hit ? wall.point.x : 0.f, hit ? wall.point.y : 0.f, hit ? wall.point.z : 0.f);
+			if (hit && wall.t * off < off - 4.f)
+				continue;
+		}
+		turn = (real)fabs(bot_angle_difference(bot_yaw_to(from, &portal->entry), facing_yaw));
+		/* (the one it is making for already, sooner than another that is a
+		   little nearer now: not from one to the next and back) */
+		score = off + 40.f * turn - (p == keep ? 60.f : 0.f);
+		if (score < best_score)
+		{
+			best_score = score;
+			best = p;
+			*entry = portal->entry;
+			*exit_point = portal->exit;
+		}
+	}
+	return best;
+}
+
+/* ... and into it: set down in its volume, as bot_country_drive sets a
+   Warthog down in one, for the script to do the rest (FALSE: it is in
+   already, and the script has not taken it: nothing more to do here) */
+boolean bot_country_gate_enter(long vehicle_index, long gate)
+{
+	struct country_portal const *portal;
+	if (!country.ready || gate < 0 || gate >= country.portal_count || !object_try_and_get(vehicle_index))
+		return FALSE;
+	portal = &country.portals[gate];
+	if (scenario_trigger_volume_test_object(portal->volume, vehicle_index))
+		return FALSE;
+	object_set_position(vehicle_index, (real_point3d *)&portal->entry, NULL, NULL);
+	return TRUE;
 }
 
 static void country_debug_box(void)
@@ -1781,11 +1853,18 @@ ready:
 	{
 		struct country_portal *portal = &country.portals[i];
 		if (bot_logging())
-			bot_log("country: portal %ld, volume %s at %.0f %.0f %.0f (%s) to flag %s at %.0f %.0f %.0f (%s), for %ld by name", i,
-				TAG_BLOCK_GET_ELEMENT(&global_scenario_get()->trigger_volumes, portal->volume, struct scenario_trigger_volume)->name,
+			bot_log("country: portal %ld, volume %s (%.0f across) at %.0f %.0f %.0f (%s) to flag %s at %.0f %.0f %.0f (%s), for %ld by name", i,
+				TAG_BLOCK_GET_ELEMENT(&global_scenario_get()->trigger_volumes, portal->volume, struct scenario_trigger_volume)->name, portal->size,
 				portal->entry.x, portal->entry.y, portal->entry.z, portal->entry_floor != NONE ? "a floor under it" : "no floor",
 				TAG_BLOCK_GET_ELEMENT(&global_scenario_get()->cutscene_flags, portal->flag, struct scenario_cutscene_flag)->name,
 				portal->exit.x, portal->exit.y, portal->exit.z, portal->exit_floor != NONE ? "a floor under it" : "no floor", portal->name_count);
+		if (bot_logging() && getenv("HALO_BOT_AIRTRACE"))
+		{
+			struct scenario_trigger_volume const *volume = TAG_BLOCK_GET_ELEMENT(&global_scenario_get()->trigger_volumes, portal->volume, struct scenario_trigger_volume);
+			bot_log("country: portal %ld volume type %d: position %.1f %.1f %.1f extents %.1f %.1f %.1f forward %.2f %.2f %.2f up %.2f %.2f %.2f", i, (int)volume->type,
+				volume->position.x, volume->position.y, volume->position.z, volume->extents.i, volume->extents.j, volume->extents.k,
+				volume->forward.i, volume->forward.j, volume->forward.k, volume->up.i, volume->up.j, volume->up.k);
+		}
 	}
 	if (bot_logging())
 		bot_log("country: %ld x %ld squares of %.1f, %ld floors to cross by and %ld slopes to come down (%ld surfaces over their middles), %ld portals, %.2f s",

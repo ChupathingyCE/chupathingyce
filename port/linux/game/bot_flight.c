@@ -44,6 +44,7 @@ is and where the sky stops.
 #include "units/units.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -56,6 +57,9 @@ is and where the sky stops.
 #define AIR_NO_SKY 1.0e9f /* a square with nothing over its ground */
 #define AIR_SKY_MARGIN 1.5f /* under the sky by this */
 #define AIR_ROUTE_EXPANSIONS 60000 /* squares a search looks at, at most */
+#define AIR_HOVER_SLOWING 0.45f /* a plane on its jets: how fast it may be going (a second's) for each unit it has left to stop in */
+#define AIR_HOVER_LEAN 0.2f /* ... and how far it leans for each unit a second it wants (radians) */
+#define AIR_DRAG 0.02f /* what the air takes of a plane's speed each tick, about (found by flying one) */
 
 /* ---------- the air map */
 
@@ -834,6 +838,24 @@ static real air_ray(real_point3d const *from, real yaw, real pitch, real length,
 	return collision.t * length;
 }
 
+/* ... of what stands still: the map's shell, its scenery and machines (not
+   someone walking through, nor a vehicle left there) */
+static real air_ray_fixed(real_point3d const *from, real yaw, real pitch, real length, long ignore)
+{
+	struct collision_result collision;
+	real_vector3d vector;
+	vector.i = (real)(cos(yaw) * cos(pitch)) * length;
+	vector.j = (real)(sin(yaw) * cos(pitch)) * length;
+	vector.k = (real)sin(pitch) * length;
+	if (!collision_test_vector(FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_structure_bit) |
+			FLAG(_collision_test_objects_bit) | FLAG(_collision_test_objects_scenery_bit) | FLAG(_collision_test_objects_machines_bit),
+			from, &vector, ignore, &collision))
+	{
+		return length;
+	}
+	return collision.t * length;
+}
+
 /* how far off a way (a yaw and a pitch) the pilot's look is now, radians */
 static real air_look_off(struct bot_flight_order const *order, real yaw, real pitch)
 {
@@ -869,7 +891,7 @@ static real air_lob(real_point3d const *from, real_vector3d const *carried, real
 		going.j = (aim.y - from->y) / length * order->heavy_speed + carried->j;
 		going.k = (aim.z - from->z) / length * order->heavy_speed + carried->k;
 		nearest = 1.0e9f;
-		for (tick = 0; tick < 150; tick++)
+		for (tick = 0; tick < (order->heavy_bomb ? 600 : 150); tick++)
 		{
 			real off = distance3d(&at, &they);
 			real pace;
@@ -909,6 +931,18 @@ static real air_lob(real_point3d const *from, real_vector3d const *carried, real
 	return nearest;
 }
 
+/* (testing, HALO_BOT_AIRTRACE: what a plane on its jets is about, twice a second) */
+static boolean bot_air_trace(void)
+{
+	static int asked, set;
+	if (!asked)
+	{
+		asked = TRUE;
+		set = getenv("HALO_BOT_AIRTRACE") != NULL;
+	}
+	return set;
+}
+
 static boolean air_sight(real_point3d const *from, real_point3d const *to, long ignore)
 {
 	struct collision_result collision;
@@ -918,6 +952,223 @@ static boolean air_sight(real_point3d const *from, real_point3d const *to, long 
 	vector.k = to->z - from->z;
 	return !collision_test_vector(FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_structure_bit),
 		from, &vector, ignore, &collision);
+}
+
+/* The way in to a place under a roof, for a plane that is to come down
+   there: a hangar cut into a hillside, with the flag at the back of it. From
+   the place, a little over its floor, rays level all round; along each, the
+   first of it that is out under the sky, with room for the craft's wings on
+   both sides all the way. The shortest of them is the way in, and a place
+   out in the open in line with it is where the craft comes to first. */
+static boolean air_way_in(real_point3d const *place, long ignore, real_point3d *outside)
+{
+	real_point3d from = *place;
+	real best = 1.0e9f;
+	long d;
+	from.z += 2.5f;
+	for (d = 0; d < 24; d++)
+	{
+		real way = d * 0.2617994f;
+		real open = air_ray_fixed(&from, way, 0.f, 300.f, ignore);
+		real along;
+		real step = MAX(air.cell * 0.5f, 2.f);
+		if (bot_logging() && bot_air_trace())
+		{
+			real_point3d end = from;
+			end.x += (real)cos(way) * (open - 1.f);
+			end.y += (real)sin(way) * (open - 1.f);
+			bot_log("way in: from %.0f %.0f %.0f way %.2f open %.0f; its end %s, %.0f clear over it", from.x, from.y, from.z, way, open,
+				bot_air_open(&end) ? "open" : "roofed", air_ray_fixed(&end, 0.f, 1.5707963f, 60.f, ignore));
+		}
+		if (open < 20.f)
+			continue;
+		for (along = step; along < MIN(open - 3.f, best); along += step)
+		{
+			real_point3d at = from;
+			at.x += (real)cos(way) * along;
+			at.y += (real)sin(way) * along;
+			if (bot_air_open(&at) && air_ray_fixed(&at, 0.f, 1.5707963f, 60.f, ignore) >= 60.f)
+			{
+				/* (out; and room for it on the way: a ray along each wing's tip) */
+				real_point3d left = from, right = from;
+				real out_to = MIN(along + 30.f, open - 3.f);
+				left.x -= (real)sin(way) * 2.5f;
+				left.y += (real)cos(way) * 2.5f;
+				right.x += (real)sin(way) * 2.5f;
+				right.y -= (real)cos(way) * 2.5f;
+				if (air_ray_fixed(&left, way, 0.f, along, ignore) >= along && air_ray_fixed(&right, way, 0.f, along, ignore) >= along && out_to > along + 4.f)
+				{
+					best = along;
+					*outside = from;
+					outside->x += (real)cos(way) * out_to;
+					outside->y += (real)sin(way) * out_to;
+				}
+				break;
+			}
+		}
+	}
+	return best < 1.0e8f;
+}
+
+/* ---------- the ways out from under roofs
+
+A hangar is cut into a hillside, with a craft standing at the back of it and
+the flag beside the craft; its floor has a plinth in the middle, its mouth a
+lip over it. No ray from the flag finds the way out. But every craft that is
+flown out of one (by a bot or by a person) shows it: where it went, from
+where it stood to the open air, is kept, a point every few units; and a
+craft that is to come down at a place under a roof goes to the open end of
+the way that passes nearest the place, and back along it. */
+
+#define AIR_TRAILS 16
+#define AIR_TRAIL_POINTS 32
+#define AIR_TRAIL_STEP 6.f
+
+struct air_trail
+{
+	long vehicle; /* (being made: whose) */
+	boolean done; /* out: its last point is in the open, a little way beyond the mouth */
+	long tick;
+	long count;
+	real_point3d points[AIR_TRAIL_POINTS];
+};
+
+static struct air_trail air_trails[AIR_TRAILS];
+
+static boolean air_roofed(real_point3d const *position, long ignore)
+{
+	real ground = bot_air_ground(position->x, position->y, 0.f);
+	real up;
+	if (ground <= AIR_NO_GROUND * 0.5f || position->z >= ground - 1.f)
+		return FALSE;
+	up = MIN(ground - position->z + 2.f, 80.f);
+	return air_ray_fixed(position, 0.f, 1.5707963f, up, ignore) < up;
+}
+
+void bot_air_trails_update(void)
+{
+	extern long game_time_get(void);
+	extern long unit_scripting_unit_driver(long unit_index);
+	struct object_iterator iterator;
+	struct object_datum *object;
+	long now = game_time_get();
+	long i;
+	if (!air.ready)
+		return;
+	if (now < 5)
+		memset(air_trails, 0, sizeof(air_trails));
+	/* (a way being made by a craft that is gone, or left standing: no way) */
+	for (i = 0; i < AIR_TRAILS; i++)
+	{
+		struct air_trail *trail = &air_trails[i];
+		if (trail->count > 0 && !trail->done && (!object_try_and_get(trail->vehicle) || unit_scripting_unit_driver(trail->vehicle) == NONE))
+			trail->count = 0;
+	}
+	object_iterator_new(&iterator, _object_mask_vehicle, 0);
+	while ((object = (struct object_datum *)object_iterator_next(&iterator)) != NULL)
+	{
+		struct air_trail *trail = NULL;
+		boolean roofed;
+		if (!bot_vehicle_flies(object->definition_index) || unit_scripting_unit_driver(iterator.index) == NONE)
+			continue;
+		for (i = 0; i < AIR_TRAILS; i++)
+			if (air_trails[i].count > 0 && !air_trails[i].done && air_trails[i].vehicle == iterator.index)
+				trail = &air_trails[i];
+		/* (looked at a few times a second: it is slow under a roof) */
+		if ((now + (iterator.index & 7)) % 4 != 0)
+			continue;
+		roofed = air_roofed(&object->object.position, iterator.index);
+		if (!trail)
+		{
+			struct air_trail *oldest = NULL;
+			if (!roofed)
+				continue;
+			/* (one from here already: that one will do) */
+			for (i = 0; i < AIR_TRAILS; i++)
+				if (air_trails[i].count > 0 && air_trails[i].done && distance3d(&air_trails[i].points[0], &object->object.position) < 8.f)
+					break;
+			if (i < AIR_TRAILS)
+				continue;
+			for (i = 0; i < AIR_TRAILS; i++)
+				if (air_trails[i].count == 0 || (air_trails[i].done && (!oldest || (oldest->count > 0 && air_trails[i].tick < oldest->tick))))
+				{
+					oldest = &air_trails[i];
+					if (oldest->count == 0)
+						break;
+				}
+			if (!oldest)
+				continue;
+			oldest->vehicle = iterator.index;
+			oldest->done = FALSE;
+			oldest->tick = now;
+			oldest->count = 1;
+			oldest->points[0] = object->object.position;
+			continue;
+		}
+		if (roofed)
+		{
+			if (distance3d(&trail->points[trail->count - 1], &object->object.position) < AIR_TRAIL_STEP)
+				continue;
+			if (trail->count >= AIR_TRAIL_POINTS - 2)
+			{
+				/* (a long way: every other point of it will do) */
+				long kept = 0;
+				for (i = 0; i < trail->count; i += 2)
+					trail->points[kept++] = trail->points[i];
+				trail->count = kept;
+			}
+			trail->points[trail->count++] = object->object.position;
+		}
+		else if (trail->count >= 2)
+		{
+			/* out: the mouth, and a place a little way beyond it the way it came out */
+			real_point3d const *before = &trail->points[trail->count - 1];
+			real_point3d mouth = object->object.position;
+			real_point3d beyond = mouth;
+			real along = bot_distance2d(before, &mouth);
+			real way = along > 0.5f ? bot_yaw_to(before, &mouth) : (real)atan2(object->object.forward.j, object->object.forward.i);
+			real open = air_ray_fixed(&mouth, way, 0.f, 40.f, iterator.index);
+			beyond.x += (real)cos(way) * MAX(open - 6.f, 0.f);
+			beyond.y += (real)sin(way) * MAX(open - 6.f, 0.f);
+			trail->points[trail->count++] = mouth;
+			trail->points[trail->count++] = beyond;
+			trail->done = TRUE;
+			trail->tick = now;
+			if (bot_logging())
+				bot_log("air: a way out from under a roof kept: from %.0f %.0f %.0f by %ld turns to %.0f %.0f %.0f", trail->points[0].x, trail->points[0].y,
+					trail->points[0].z, trail->count, beyond.x, beyond.y, beyond.z);
+		}
+		else
+			trail->count = 0;
+	}
+}
+
+/* the way out that passes nearest a place, with nothing between the place
+   and where it passes: which, and at which of its points */
+static boolean air_trail_to(real_point3d const *place, long *trail_index, long *point_index)
+{
+	real best = 45.f;
+	long i, k;
+	*trail_index = NONE;
+	for (i = 0; i < AIR_TRAILS; i++)
+	{
+		struct air_trail const *trail = &air_trails[i];
+		if (trail->count < 3 || !trail->done)
+			continue;
+		for (k = 0; k < trail->count - 2; k++)
+		{
+			real off = distance3d(&trail->points[k], place);
+			real_point3d at = *place;
+			at.z += 2.5f;
+			if (off < best && air_sight(&trail->points[k], &at, NONE))
+			{
+				best = off;
+				*trail_index = i;
+				*point_index = k;
+			}
+		}
+	}
+	return *trail_index != NONE;
 }
 
 /* One tick of flying. The order says where to and what for; the result is
@@ -950,10 +1201,63 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 		air_ray(position, 0.f, 1.5707963f, MIN(ground_here - position->z + 2.f, 80.f), body->vehicle_index) < MIN(ground_here - position->z + 2.f, 80.f);
 	real yaw, pitch, throttle = 1.f;
 	real height;
+	boolean plane = bot_vehicle_kind(craft->definition_index) == _bot_vehicle_plane;
 	long phase_before = pilot->phase;
 	char const *why = ""; /* (testing: what it changed its mind for) */
+	struct bot_flight_order inbound;
 
 	memset(result, 0, sizeof(*result));
+	/* (a plane bound for the ground at a place under a roof: to the open
+	   air outside the way in to it, and in along that; bot_fly's end) */
+	if (plane && order->land && pilot->vehicle == body->vehicle_index && !bot_air_open(&order->destination))
+	{
+		if (pilot->way_in == 0 || distance3d(&pilot->way_in_for, &order->destination) > 6.f)
+		{
+			if (now - pilot->way_in_tick > BOT_SECONDS(3.f) || now < pilot->way_in_tick)
+			{
+				long trail_index = NONE, point_index = 0;
+				pilot->way_in_tick = now;
+				pilot->way_in = 0;
+				pilot->way_in_trail = NONE;
+				pilot->way_in_for = order->destination;
+				if (air_trail_to(&order->destination, &trail_index, &point_index))
+				{
+					pilot->way_in = 1;
+					pilot->way_in_trail = trail_index;
+					pilot->way_in_last = point_index;
+					pilot->way_in_next = air_trails[trail_index].count - 2;
+					pilot->way_in_outside = air_trails[trail_index].points[air_trails[trail_index].count - 1];
+				}
+				else if (air_way_in(&order->destination, body->vehicle_index, &pilot->way_in_outside))
+					pilot->way_in = 1;
+				if (bot_logging())
+					bot_log("pilot %ld t%ld the way in to %.0f %.0f %.0f: %s %.0f %.0f %.0f%s", body->unit_index & 0xffff, now, order->destination.x,
+						order->destination.y, order->destination.z, pilot->way_in ? "from" : "none", pilot->way_in_outside.x, pilot->way_in_outside.y,
+						pilot->way_in_outside.z, pilot->way_in_trail != NONE ? " (the way a craft came out)" : "");
+			}
+		}
+		/* (in already, as it happens: under the same roof as the place, and
+		   the place in sight) */
+		if (pilot->way_in == 1 && air_roofed(position, body->vehicle_index) && distance3d(position, &order->destination) < 60.f)
+		{
+			real_point3d at = order->destination;
+			at.z += 2.5f;
+			if (air_sight(position, &at, body->vehicle_index))
+				pilot->way_in = 3;
+		}
+		if (pilot->way_in == 1 || pilot->way_in == 2)
+		{
+			inbound = *order;
+			inbound.destination = pilot->way_in == 1 ? pilot->way_in_outside : air_trails[pilot->way_in_trail].points[pilot->way_in_next];
+			inbound.short_of = 0.f;
+			order = &inbound;
+			to_place = bot_distance2d(position, &order->destination);
+			steer_to = order->destination;
+		}
+	}
+	else
+		pilot->way_in = 0;
+
 	if (pilot->vehicle != body->vehicle_index)
 	{
 		bot_pilot_reset(pilot);
@@ -962,6 +1266,16 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 		pilot->rest_z = position->z;
 		pilot->stuck_point = *position;
 		pilot->stuck_tick = now;
+		pilot->hover_yaw = body->facing_yaw;
+		pilot->gate = NONE;
+		pilot->way_in_trail = NONE;
+		pilot->taken_tick = now;
+		{
+			/* (standing on the ground, as like as not: its middle this far over it) */
+			real_point3d under = *position;
+			real ground_z;
+			pilot->rest_over = bot_ground(&under, 6.f, body->vehicle_index, &ground_z) ? PIN(position->z - ground_z, 0.2f, 5.f) : 1.5f;
+		}
 	}
 
 	/* ---- the route: a new one when the place has moved a good way, or
@@ -1128,15 +1442,24 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 		if (sight)
 			pilot->sight_tick = now;
 	}
-	else if (order->land && to_place < MAX(14.f, speed * 1.5f))
+	else if (order->land && (to_place < (plane ? MAX(30.f, speed * 2.5f + 20.f) : MAX(14.f, speed * 1.5f)) ||
+		(plane && pilot->phase == _pilot_land && (to_place < 90.f || pilot->way_in >= 2))) &&
+		!(plane && pilot->phase != _pilot_land && position->z < order->destination.z - 10.f))
+	{
+		/* (a plane that has begun to come down goes on with it: it is on
+		   its jets, and slow, and no nearer for having slowed) */
 		pilot->phase = _pilot_land;
+	}
 	else if (pilot->phase != _pilot_cruise)
 		pilot->phase = _pilot_cruise;
 
 	/* ---- nobody to shoot at where it is bound (their base, with all of
 	   them indoors; somewhere to look): round and round over the place, a
 	   little way off it, at full speed: not stopped over it */
-	if (order->patrol && pilot->phase == _pilot_cruise)
+	/* (and a plane that has come to where it is to go down a long way under
+	   it, a hangar's mouth high in a cliff: round and up on its wings, which
+	   climb ten times as fast as its jets) */
+	if ((order->patrol || (plane && order->land && position->z < order->destination.z - 10.f)) && pilot->phase == _pilot_cruise)
 	{
 		real round = 16.f + 60.f * quick;
 		if (to_place < round + 12.f)
@@ -1177,13 +1500,33 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 		   another craft, from no lower than it is) */
 		if (order->attack && order->armed)
 			height = MAX(height, order->destination.z + (order->airborne ? 0.f : 5.f + 6.f * quick));
+		/* (to come down at a place: there no lower than it is) */
+		if (order->land && to_place < 400.f)
+			height = MAX(height, order->destination.z + 4.f);
 		if (lowest_sky < AIR_NO_SKY * 0.5f)
 			height = MIN(height, MAX(lowest_sky - AIR_SKY_MARGIN, highest + need * 0.5f));
 	}
 
 	yaw = bot_yaw_to(position, &steer_to);
 	pitch = (real)atan2(height - position->z, ahead * 0.5f);
-	if (bot_vehicle_kind(craft->definition_index) == _bot_vehicle_fighter)
+	if (plane && !pilot->hovering)
+	{
+		/* A plane on its wings. They carry three quarters of it at the speed
+		   it flies, and its nose a little up does the rest: so it goes a
+		   little under where its pilot looks, and it is a second coming
+		   round to a new look. A steady hand for it: the way up or down to
+		   its height over a good stretch ahead, no steeper than it climbs,
+		   and the look moved slowly by what it is seen to do. */
+		pitch = (real)atan2(height - position->z, MAX(ahead * 1.5f, 40.f));
+		pitch = PIN(pitch, -0.4f, 0.45f);
+		if (speed > 2.f)
+		{
+			real going = (real)asin(PIN(body->velocity.k * BOT_TICKS_PER_SECOND / speed, -1.f, 1.f));
+			pilot->trim = PIN(pilot->trim + 0.01f * (pitch - going), -0.25f, 0.35f);
+		}
+		pitch += pilot->trim;
+	}
+	else if (bot_vehicle_kind(craft->definition_index) == _bot_vehicle_fighter)
 	{
 		/* A fighter does not go where its pilot looks, quite: its nose sits
 		   a quarter of a radian over the look (vehicles.c: for a person,
@@ -1206,7 +1549,84 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 	/* ---- under a roof (a hangar, a cave: the ground of this square is over
 	   us): out first, level, to the nearest square that is open to the sky
 	   at this height and has nothing between us and it; then up */
-	if (under_roof && pilot->phase != _pilot_land)
+	/* (... or by the gate the map gives the craft, where it has one: a jet
+	   in a hangar with no mouth, and a frame in its wall that the map's
+	   script carries it from to the sky outside, bot_country.c) */
+	/* (through it: the map's script has put the craft down somewhere else) */
+	if (pilot->gate != NONE && distance3d(position, &pilot->gate_entry) > 160.f)
+	{
+		pilot->gate = NONE;
+		pilot->gate_from_rest = FALSE;
+		pilot->taken_tick = now - BOT_SECONDS(60.f);
+		pilot->exit_valid = FALSE;
+	}
+	/* (Where it stood when it was taken, too, roof over it or none: a jet
+	   is put down before its gate, a few lengths from it and square to it,
+	   and that is the way the map means it to leave.) */
+	if (!under_roof && pilot->phase != _pilot_land && now - pilot->taken_tick < BOT_SECONDS(12.f) &&
+		distance3d(position, &pilot->stuck_point) < 60.f && (pilot->gate_tick == 0 || pilot->gate_from_rest))
+	{
+		real_point3d out;
+		long gate = (now - pilot->gate_tick > BOT_SECONDS(1.f) || pilot->gate_tick == 0) ?
+			bot_country_gate(body->vehicle_index, position, body->facing_yaw, 60.f, pilot->gate, &pilot->gate_entry, &out) : pilot->gate;
+		if (now - pilot->gate_tick > BOT_SECONDS(1.f) || pilot->gate_tick == 0)
+			pilot->gate_tick = now;
+		pilot->gate = gate;
+		pilot->gate_from_rest = gate != NONE && fabs(bot_angle_difference(bot_yaw_to(position, &pilot->gate_entry), body->facing_yaw)) < 0.7f;
+		if (!pilot->gate_from_rest)
+			pilot->gate = NONE;
+	}
+	else if (!under_roof)
+		pilot->gate_from_rest = FALSE;
+	if (under_roof && pilot->phase != _pilot_land && (now - pilot->gate_tick > BOT_SECONDS(1.f) || now < pilot->gate_tick))
+	{
+		real_point3d out;
+		pilot->gate_tick = now;
+		pilot->gate = bot_country_gate(body->vehicle_index, position, body->facing_yaw, 150.f, pilot->gate, &pilot->gate_entry, &out);
+		if (pilot->gate != NONE && bot_logging() && phase_before == pilot->phase && now % 30 == 0)
+			bot_log("pilot %ld t%ld gate %ld at %.0f %.0f %.0f, %.0f off", body->unit_index & 0xffff, now, pilot->gate, pilot->gate_entry.x,
+				pilot->gate_entry.y, pilot->gate_entry.z, distance3d(position, &pilot->gate_entry));
+	}
+	if (!under_roof && !pilot->gate_from_rest)
+		pilot->gate = NONE;
+	if ((under_roof || pilot->gate_from_rest) && pilot->phase != _pilot_land && pilot->gate != NONE)
+	{
+		real off = distance3d(position, &pilot->gate_entry);
+		real turn;
+		pilot->exit_valid = TRUE;
+		pilot->exit_point = pilot->gate_entry;
+		pilot->exit_open = off;
+		yaw = bot_yaw_to(position, &pilot->gate_entry);
+		turn = (real)fabs(bot_angle_difference(yaw, body->facing_yaw));
+		/* The gate is a tube in the hangar's wall, hardly wider than the
+		   craft and lower than it is wide, with the volume a few lengths
+		   down it. The craft goes at its mouth level, along the floor or a
+		   little over it as the volume is (not up at it: the mouth's top
+		   is a step over a craft's own), round to it slowly while it does
+		   not point at it, and fast once it does; and up a little, slowly,
+		   when something on the floor has stopped it. */
+		pitch = (real)atan2(pilot->gate_entry.z - position->z, MAX(bot_distance2d(position, &pilot->gate_entry), 8.f));
+		pitch = PIN(pitch, -0.15f, 0.2f);
+		throttle = turn > 0.9f ? 0.3f : turn > 0.3f ? 0.5f : 1.f;
+		if (!plane && speed < 1.5f && now - pilot->stuck_tick > BOT_SECONDS(1.5f))
+		{
+			pitch = (now / 45) % 2 ? 0.45f : -0.1f;
+			throttle = 0.5f;
+		}
+		height = pilot->gate_entry.z;
+		pilot->indoors = TRUE;
+		/* (At the tube's mouth, square to it, with nothing of the map
+		   between the craft's middle and the volume's: it is put in the
+		   volume, as a Warthog at a gate's frame is, bot_country_drive,
+		   and the map's script does the rest. Flying a jet down a tube a
+		   wing's width across is not something the bots do.) */
+		if ((off < 4.f + speed * 0.15f || (off < 24.f && turn < 0.3f && fabs(pilot->gate_entry.z - position->z) < 1.8f &&
+				air_sight(position, &pilot->gate_entry, body->vehicle_index))) &&
+			bot_country_gate_enter(body->vehicle_index, pilot->gate) && bot_logging())
+			bot_log("pilot %ld t%ld into gate %ld at %.0f %.0f %.0f", body->unit_index & 0xffff, now, pilot->gate, pilot->gate_entry.x,
+				pilot->gate_entry.y, pilot->gate_entry.z);
+	}
+	else if (under_roof && pilot->phase != _pilot_land)
 	{
 		if (now - pilot->exit_tick > BOT_SECONDS(0.5f) || !pilot->exit_valid)
 		{
@@ -1230,6 +1650,7 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 					{
 						best = score;
 						pilot->exit_valid = TRUE;
+						pilot->exit_open = open;
 						pilot->exit_point.x = position->x + (real)(cos(way) * cos(pitches[k])) * MIN(open, 60.f);
 						pilot->exit_point.y = position->y + (real)(sin(way) * cos(pitches[k])) * MIN(open, 60.f);
 						pilot->exit_point.z = position->z + (real)sin(pitches[k]) * MIN(open, 60.f);
@@ -1242,7 +1663,11 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 			yaw = bot_yaw_to(position, &pilot->exit_point);
 			pitch = (real)atan2(pilot->exit_point.z - position->z, MAX(bot_distance2d(position, &pilot->exit_point), 2.f));
 			pitch = PIN(pitch, -0.2f, 0.55f);
-			throttle = MIN(throttle, 0.3f + 0.4f * (1.f - quick));
+			/* (out of it as fast as it goes, with a long clear way out ahead
+			   and its nose on it: a jet guns it out of its hangar. Slowly
+			   while it is still coming round to the way, or the way is short.) */
+			if (!(pilot->exit_open > 70.f && fabs(bot_angle_difference(yaw, body->facing_yaw)) < 0.3f && quick > 0.5f))
+				throttle = MIN(throttle, 0.3f + 0.4f * (1.f - quick));
 			height = pilot->exit_point.z;
 			/* (a plane: off the floor first, a little, and along over it) */
 			if (bot_vehicle_kind(craft->definition_index) == _bot_vehicle_plane)
@@ -1253,6 +1678,10 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 	else
 		pilot->indoors = FALSE;
 
+	if (pilot->indoors && bot_logging() && bot_air_trace() && now % 15 == 0)
+		bot_log("indoors %ld t%ld at %.1f %.1f %.1f facing %.2f speed %.1f: to %.1f %.1f %.1f (%s %ld, open %.0f) yaw %.2f pitch %.2f throttle %.2f",
+			body->unit_index & 0xffff, now, position->x, position->y, position->z, body->facing_yaw, speed, pilot->exit_point.x, pilot->exit_point.y,
+			pilot->exit_point.z, pilot->gate != NONE ? "gate" : "way out", pilot->gate, pilot->exit_open, yaw, pitch, throttle);
 	switch (pilot->indoors ? NONE : pilot->phase)
 	{
 	case NONE:
@@ -1296,7 +1725,7 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 			guns_bear = swung < 0.8f;
 			/* (coming round onto them: slowly, in its own length, not in a
 			   great sweep out over the sea) */
-			if (swung > 1.2f && !order->airborne)
+			if (swung > 1.2f && !order->airborne && quick <= 0.5f)
 				throttle = 0.35f;
 			/* (and at the end of it, a craft that can: hanging there a little
 			   way off and over them, its guns on them, creeping in while it
@@ -1326,7 +1755,10 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 			pitch = MAX(pitch - 0.45f, -1.1f);
 			result->fire = FALSE;
 		}
-		else if (order->heavy && !order->airborne && distance < 17.f + 40.f * quick && distance > 6.f)
+		/* (A bomb is let go from wherever it will fall on them from, a long
+		   way up and off as that may be: the same reckoning, with no aim
+		   to it, the craft's own way being the bomb's.) */
+		else if (order->heavy && !order->airborne && distance < (order->heavy_bomb ? 400.f : 17.f + 40.f * quick) && distance > 6.f)
 		{
 			if (pilot->heavy_press > 0)
 			{
@@ -1338,7 +1770,18 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 			{
 				real lob_yaw = yaw, lob_pitch = pitch;
 				real lands = air_lob(position, &body->velocity, &order->destination, &order->velocity, order, &lob_yaw, &lob_pitch);
-				if (lands < 1.f)
+				if (order->heavy_bomb)
+				{
+					/* (not from so near that it is under it when it goes off) */
+					if (lands < 5.f && position->z > order->destination.z + 12.f && distance > 40.f)
+					{
+						pilot->heavy_press = 3;
+						result->fire_heavy = TRUE;
+						if (bot_logging())
+							bot_log("pilot %ld t%ld bomb away, %.0f off and %.0f up", body->unit_index & 0xffff, now, to_place, position->z - order->destination.z);
+					}
+				}
+				else if (lands < 1.f)
 				{
 					yaw = lob_yaw;
 					pitch = lob_pitch;
@@ -1375,18 +1818,22 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 		real ground_z;
 		real_point3d under = *position;
 		boolean low = bot_ground(&under, 3.f, body->vehicle_index, &ground_z);
+		if (plane)
+			break; /* (its own way down: below) */
 		yaw = to_place > 3.f ? bot_yaw_to(position, &order->destination) : body->facing_yaw;
 		throttle = to_place > 6.f ? 0.35f : speed > 2.f ? -0.3f : 0.1f;
 		pitch = to_place > 10.f ? MIN(pitch, -0.1f) : -0.35f;
-		if ((low && position->z - ground_z < 2.2f && speed < 6.f) || now - pilot->land_tick > BOT_SECONDS(7.f))
+		if (order->stay)
+			result->landed = low && position->z - ground_z < 2.2f && speed < 2.f;
+		else if ((low && position->z - ground_z < 2.2f && speed < 6.f) || now - pilot->land_tick > BOT_SECONDS(7.f))
 			result->get_out = TRUE;
-		result->descend = bot_vehicle_kind(craft->definition_index) == _bot_vehicle_plane;
 		break;
 	}
 	default:
 		/* on the way: slower into a turn, and for the end of it when the
 		   place is where it stops */
-		if (fabs(bot_angle_difference(yaw, body->facing_yaw)) > 1.1f)
+		/* (a slow craft; a jet keeps its speed, and goes round wide) */
+		if (fabs(bot_angle_difference(yaw, body->facing_yaw)) > 1.1f && quick <= 0.5f)
 			throttle = 0.55f;
 		if (!order->attack && !order->patrol && to_place < MAX(20.f, speed * 2.f))
 			throttle = MIN(throttle, MAX(0.25f, to_place / MAX(20.f, speed * 2.f)));
@@ -1395,7 +1842,10 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 		break;
 	}
 	if (pilot->phase != _pilot_land)
+	{
 		pilot->land_tick = now;
+		pilot->down = FALSE;
+	}
 	if (pilot->phase != _pilot_run)
 		pilot->over_tick = 0;
 
@@ -1405,7 +1855,10 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 	   show whole, another craft, a bridge) and it is up and over; that way
 	   shut too, and it is round; something off one wing only, and it leans
 	   away from that */
-	if (pilot->phase != _pilot_land && !(pilot->phase == _pilot_run && pilot->over_tick != 0 && speed < 3.f))
+	/* (nor on its way into a gate: that is a frame in a wall, and the wall is
+	   where it is going) */
+	if (pilot->phase != _pilot_land && !(pilot->phase == _pilot_run && pilot->over_tick != 0 && speed < 3.f) &&
+		!((under_roof || pilot->gate_from_rest) && pilot->gate != NONE))
 	{
 		real look = MAX(8.f, speed * 1.2f);
 		real way_yaw = speed > 1.5f ? (real)atan2(body->velocity.j, body->velocity.i) : body->facing_yaw;
@@ -1469,11 +1922,22 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 
 	/* ---- held up (against a cliff, on its back, wedged): after a while of
 	   it, out */
-	if (distance3d(position, &pilot->stuck_point) > 4.f || pilot->phase == _pilot_land || throttle < 0.3f)
+	if (distance3d(position, &pilot->stuck_point) > (plane && pilot->hovering ? 2.5f : 4.f) || pilot->phase == _pilot_land ||
+		(throttle < 0.3f && !plane))
 	{
 		/* (... or standing in the air because it means to) */
 		pilot->stuck_point = *position;
 		pilot->stuck_tick = now;
+	}
+	else if (plane)
+	{
+		/* (a plane rises on its jets from where it stands, and is a while
+		   about it: longer for it) */
+		if (now - pilot->stuck_tick > BOT_SECONDS(9.f))
+		{
+			result->get_out = TRUE;
+			result->stuck = TRUE;
+		}
 	}
 	else if (now - pilot->stuck_tick > BOT_SECONDS(3.f))
 	{
@@ -1490,28 +1954,233 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 	result->yaw = yaw;
 	result->pitch = PIN(pitch, -1.2f, 1.2f);
 	result->throttle = throttle;
-	/* (a plane hovers on its jets while it is slow: more of them to rise) */
-	/* (not a fighter: the same button is its brake, vehicles.c) */
-	if (bot_vehicle_kind(craft->definition_index) == _bot_vehicle_plane && pilot->phase != _pilot_land && throttle > 0.f)
+	/* A plane (vehicles.c, update_human_plane_physics). It has two ways of
+	   staying up. Its wings: at full throttle it is driven hard along its
+	   nose, is at its top speed in a second, and is lifted by that speed;
+	   it goes where its pilot looks, as a Banshee does. Its jets: with the
+	   throttle shut they hold it up, all but (the jump button for a little
+	   more than its weight, the crouch button for a good deal less), along
+	   its own up: so it is a helicopter then, going the way it leans, nose
+	   down to get on and nose up to stop. On its jets from where it stands
+	   up to the height it flies at, under a roof, and down to the ground;
+	   on its wings between. */
+	if (plane)
 	{
-		/* A plane (vehicles.c, update_human_plane_physics) is held up by its
-		   jets while it is slow and by its wings when it is fast, and the
-		   jets fade as the throttle opens: at half throttle and under, the
-		   jump button lifts it and it creeps forward; at full throttle the
-		   button does nothing and it must be going at nearly its top speed
-		   to stay up. So: on the jets (half throttle, the button while it
-		   is under its height) indoors, at the start, and whenever it has
-		   sunk; and on the wings, by its nose, once it is up. */
-		boolean sunk = position->z < height - 3.f && body->velocity.k <= 0.f;
-		if (pilot->indoors || pilot->hovering || sunk)
+		real climbing = body->velocity.k * BOT_TICKS_PER_SECOND;
+		real level = (real)sqrt(body->velocity.i * body->velocity.i + body->velocity.j * body->velocity.j) * BOT_TICKS_PER_SECOND;
+		boolean landing = pilot->phase == _pilot_land;
+		if (landing || pilot->indoors)
+			pilot->hovering = TRUE;
+		/* (fallen out of the sky, somehow, slow and under its height: jets) */
+		else if (!pilot->hovering && position->z < height - 4.f && climbing <= 0.f && speed < top_speed * 0.4f)
+			pilot->hovering = TRUE;
+		if (!pilot->hovering)
+			throttle = 1.f;
+		else
 		{
-			pilot->hovering = pilot->indoors || position->z < height - 1.f;
-			/* (well under: nearly all jets, straight up; by its height:
-			   along, the button holding it there) */
-			throttle = position->z < height - 2.f ? 0.3f : 0.55f;
-			result->climb = position->z < height - 0.3f || (position->z < height + 1.f && body->velocity.k < -0.01f);
-			pitch = PIN(pitch, -0.1f, 0.2f);
+			real_point3d to = *position;
+			real want_z = height;
+			real limit = 0.f;
+			real more = 0.f; /* (further to go beyond the point it is making for) */
+			real face = yaw;
+			boolean settle = FALSE;
+			if (landing)
+			{
+				real ground_z = order->destination.z;
+				real_point3d under = *position;
+				boolean low = bot_ground(&under, 12.f, body->vehicle_index, &ground_z);
+				real over = low ? position->z - ground_z : 12.f;
+				real left = MAX(to_place - order->short_of, 0.f);
+				to = order->destination;
+				if (to_place > 5.f)
+					pilot->hover_yaw = bot_yaw_to(position, &to);
+				face = pilot->hover_yaw;
+				/* (as far as short of it by what the order says) */
+				to.x -= (real)cos(face) * MIN(order->short_of, to_place);
+				to.y -= (real)sin(face) * MIN(order->short_of, to_place);
+				limit = top_speed;
+				if (pilot->way_in == 1)
+				{
+					/* (to the open air outside the way in, at its height; and
+					   there, round to face it, and in) */
+					want_z = MAX(order->destination.z, to_place > 20.f ? height - clearance + 5.f : order->destination.z);
+					if ((to_place < 6.f && level < 3.f) || now - pilot->land_tick > BOT_SECONDS(40.f))
+					{
+						pilot->way_in = pilot->way_in_trail != NONE ? 2 : 3;
+						pilot->land_tick = now;
+					}
+				}
+				else if (pilot->way_in == 2)
+				{
+					/* (in along the way a craft came out by, turn by turn, at
+					   the height it had) */
+					limit = 8.f;
+					want_z = order->destination.z;
+					more = (pilot->way_in_next - pilot->way_in_last) * AIR_TRAIL_STEP + 10.f;
+					if (to_place < 6.f || now - pilot->land_tick > BOT_SECONDS(25.f))
+					{
+						pilot->land_tick = now;
+						if (--pilot->way_in_next < pilot->way_in_last)
+							pilot->way_in = 3;
+					}
+				}
+				else if (!pilot->down)
+				{
+					/* (in over the place at the height the ground on the way
+					   wants, then down the last of it as it comes up to it) */
+					want_z = to_place > 14.f ? MAX(height - clearance + 5.f, order->destination.z + pilot->rest_over + 5.f) :
+						order->destination.z + pilot->rest_over + 1.5f + left * 0.4f + (level > 4.f ? 2.f : 0.f);
+					if (pilot->way_in == 3)
+					{
+						/* (under the roof: along over its floor, no faster than
+						   it can stop; and no further than what stands in it) */
+						limit = 8.f;
+						want_z = order->destination.z + pilot->rest_over + (left > 6.f ? 2.f : 1.f);
+						if (left > 4.f && air_ray(position, body->facing_yaw, 0.f, 9.f, body->vehicle_index) < 9.f &&
+							fabs(bot_angle_difference(face, body->facing_yaw)) < 0.3f)
+						{
+							left = 0.f;
+						}
+					}
+					if ((left < 3.f && level < 2.5f) || (left < 8.f && level < 1.f) || now - pilot->land_tick > BOT_SECONDS(40.f))
+					{
+						pilot->down = TRUE;
+						pilot->down_tick = now;
+						pilot->still_ticks = 0;
+					}
+				}
+				else
+				{
+					/* (straight down, slower as the ground comes up) */
+					/* (round first, where it is to stand tail to the place:
+					   a Pelican's hold opens at its tail, and whoever gets
+					   out of one that stands nose to the flag has its hull
+					   between them and it) */
+					boolean round = order->tail_to && now - pilot->down_tick < BOT_SECONDS(7.f) &&
+						fabs(bot_angle_difference(bot_wrap(pilot->hover_yaw + 3.1415927f), body->facing_yaw)) > 0.4f;
+					settle = TRUE;
+					to = *position;
+					if (order->tail_to)
+						face = bot_wrap(pilot->hover_yaw + 3.1415927f);
+					want_z = round ? position->z : position->z - MIN(4.f, 0.6f + 0.8f * MAX(over - pilot->rest_over, 0.f)) / 1.2f;
+					pilot->still_ticks = speed < 0.6f ? pilot->still_ticks + 1 : 0;
+					if ((low && over < pilot->rest_over + 0.5f && speed < 1.5f) || pilot->still_ticks > BOT_SECONDS(1.f))
+					{
+						result->landed = TRUE;
+						pilot->rest_z = position->z;
+						if (!order->stay)
+							result->get_out = TRUE;
+					}
+				}
+			}
+			else if (pilot->indoors)
+			{
+				to = pilot->exit_point;
+				limit = 9.f;
+				face = bot_yaw_to(position, &to);
+			}
+			else
+			{
+				/* (up from where it stands, round to the way it is going; and
+				   on its wings from there) */
+				/* (a little way up, no more: it climbs faster by its wings
+				   than by its jets, and what is over it here, the lip of a
+				   hangar's mouth, is not over it a length further on) */
+				to = pilot->stuck_point;
+				want_z = MIN(height, pilot->rest_z + 3.f);
+				if (position->z > want_z - 1.f && fabs(bot_angle_difference(yaw, body->facing_yaw)) < 0.8f)
+					pilot->hovering = FALSE;
+			}
+			if (pilot->hovering && (pilot->indoors || pilot->way_in >= 2) && !settle)
+			{
+				/* (under a roof: its own height over the floor it is over and
+				   the floor a length ahead, whatever that floor does: a
+				   plinth in the middle of a hangar, a ramp; and a little more
+				   while something holds it) */
+				real_point3d under = *position, before = *position;
+				real floor_z;
+				real floor = position->z - 20.f;
+				before.x += (real)cos(face) * 7.f;
+				before.y += (real)sin(face) * 7.f;
+				if (bot_ground(&under, 10.f, body->vehicle_index, &floor_z))
+					floor = floor_z;
+				if (bot_ground(&before, 10.f, body->vehicle_index, &floor_z))
+					floor = MAX(floor, floor_z);
+				if (!(pilot->way_in == 3 && to_place < 14.f))
+					want_z = MAX(want_z, floor + pilot->rest_over + 1.6f);
+				if (now - pilot->stuck_tick > BOT_SECONDS(1.5f) && limit > 0.f)
+					want_z += MIN((now - pilot->stuck_tick - BOT_SECONDS(1.5f)) / (real)BOT_TICKS_PER_SECOND, 3.f);
+			}
+			if (pilot->hovering)
+			{
+				/* how fast along its nose: toward the place while that lies
+				   ahead, and no faster than it can stop from in what is left */
+				real nose_i = craft->object.forward.i, nose_j = craft->object.forward.j;
+				real flat = (real)sqrt(nose_i * nose_i + nose_j * nose_j);
+				real forward, ahead_of_it, want, wanted_climb;
+				if (flat < 0.05f)
+				{
+					nose_i = (real)cos(body->facing_yaw);
+					nose_j = (real)sin(body->facing_yaw);
+					flat = 1.f;
+				}
+				nose_i /= flat;
+				nose_j /= flat;
+				forward = (body->velocity.i * nose_i + body->velocity.j * nose_j) * BOT_TICKS_PER_SECOND;
+				ahead_of_it = (to.x - position->x) * nose_i + (to.y - position->y) * nose_j;
+				/* (the air stops it in a second or two with its engine shut:
+				   as fast as it is far, about) */
+				want = AIR_HOVER_SLOWING * MAX((real)fabs(ahead_of_it) + (ahead_of_it > 0.f ? more : 0.f) - 1.f, 0.f);
+				want = ahead_of_it < 0.f ? -MIN(want, 2.f) : MIN(want, limit);
+				yaw = face;
+				pitch = PIN(-AIR_HOVER_LEAN * (want - forward), -0.35f, 0.6f);
+				/* (Leaning gets it two units a second and no more, the air
+				   being as thick as it is. Faster than that is its engine's
+				   to do: a little throttle, which drives it at a little
+				   speed and leaves most of its jets.) */
+				throttle = 0.f;
+				if (want > 2.5f)
+				{
+					real full = top_speed / BOT_TICKS_PER_SECOND; /* (the throttle that is all of it) */
+					real low = 0.f, high = 1.f;
+					long pass;
+					for (pass = 0; pass < 12; pass++)
+					{
+						/* (vehicles.c: driven at 0.05 of what it lacks of the
+						   throttle's speed, by the square of how far open that
+						   is; the air takes about 0.02 of what it has) */
+						real part = (low + high) * 0.5f;
+						real goes = part * full * 0.05f * part * part / (AIR_DRAG + 0.05f * part * part) * BOT_TICKS_PER_SECOND;
+						if (goes < want)
+							low = part;
+						else
+							high = part;
+					}
+					throttle = PIN(low * full + 0.02f * (want - forward), 0.f, full);
+					pitch = PIN(pitch, -0.2f, 0.3f);
+				}
+				wanted_climb = PIN(1.2f * (want_z - position->z), settle ? -4.f : -5.f, 6.f);
+				result->climb = climbing < wanted_climb;
+				result->descend = !result->climb && climbing > wanted_climb + 0.4f;
+				result->fire = FALSE;
+				result->fire_heavy = FALSE;
+				if (result->landed)
+				{
+					/* (down: nothing, and it stands) */
+					result->climb = FALSE;
+					result->descend = FALSE;
+					pitch = 0.f;
+				}
+				if (bot_logging() && now % 15 == 0 && bot_air_trace())
+					bot_log("plane %ld t%ld %s at %.1f %.1f %.1f to %.1f %.1f (%.1f off, %.1f ahead) want z %.1f; forward %.1f want %.1f, climbing %.1f want %.1f: pitch %.2f throttle %.2f%s%s%s",
+						body->unit_index & 0xffff, now, landing ? pilot->down ? "down" : "landing" : pilot->indoors ? "indoors" : "up",
+						position->x, position->y, position->z, to.x, to.y, bot_distance2d(position, &to), ahead_of_it, want_z, forward, want,
+						climbing, wanted_climb, pitch, throttle, result->climb ? " jets" : "", result->descend ? " sink" : "", result->landed ? " LANDED" : "");
+			}
 		}
+		result->pitch = PIN(pitch, -1.2f, 1.2f);
+		result->yaw = yaw;
+		result->throttle = throttle;
 	}
 	/* (testing: something flown into: its speed gone from one tick to the next) */
 	if (bot_logging() && pilot->speed_before > 3.f && speed < pilot->speed_before * 0.55f)

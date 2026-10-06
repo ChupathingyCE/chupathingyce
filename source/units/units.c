@@ -11786,3 +11786,18 @@ void unit_network_forget_weapon(
 	if (unit->unit.desired_weapon_index == slot || unit->unit.desired_weapon_index == NONE)
 		unit->unit.desired_weapon_index = unit_weapon_next_index(unit_index, NONE, 0);
 }
+
+/* would a unit sitting in a seat with this label have this weapon in hand
+there (as unit_can_use_weapon says of the seat it is in): for the bots,
+which ask before they sit down with a flag */
+boolean unit_seat_label_allows_weapon(
+	long unit_index,
+	char const *seat_label,
+	long weapon_index)
+{
+	return unit_set_or_test_seat_and_weapon_label(
+		unit_index,
+		seat_label,
+		weapon_get_label(weapon_index),
+		FALSE);
+}

@@ -1093,9 +1093,9 @@ and fight there. These things do not operate well:
   this was not tested again). The flag of the north-west base is on a
   platform above a canyon that the map of the ground does not have: 3 of
   the 6 deaths with no killer were bots on foot there.
-- **The aircraft.** A pilot does not use the gates, and thus the jets of
-  Coldsnap stay in their hangars. The game does not fly the large aircraft
-  (the type `human plane`) well.
+- **The aircraft.** See [The bots in a Pelican, a Longsword and a
+  jet](#the-bots-in-a-pelican-a-longsword-and-a-jet). The flag of the
+  south-east base of Coldsnap is under a roof, and no aircraft goes to it.
 - **On foot, far from all.** A bot on foot whose destination is more than
   220 world units away does not walk to it.
 - **Hugeass.** Some drivers of Warthogs stop at the top of the hangar
@@ -1206,10 +1206,131 @@ they fly away from an enemy that is near. The hits that remain are against
 the wall of a building next to which the Banshee starts, and against a
 second Banshee.
 
-A vehicle that has the physics of the Pelican (the type `human plane`) goes
-to the same code, but that code is not complete for it. In one test game on
-Hugeass, bots got into such a vehicle 3 times, did not get it out of the
-hangar, and got out after 6 seconds each time.
+### The bots in a Pelican, a Longsword and a jet
+
+These are the aircraft of some Halo PC maps (Hugeass, Coldsnap). The numbers
+in this section are from test games of capture the flag with 11 bots on
+these two maps.
+
+**The Pelican and the Longsword** have the physics of the Pelican (the type
+`human plane`). Such an aircraft flies in two ways. With the throttle
+closed, its jets hold it up: the jump button gives a little more than its
+weight, the crouch button much less, and it moves the way it leans. With
+the throttle open, it goes along its nose at its top speed and its wings
+hold it up. The air stops it quickly: about 2 percent of its speed in each
+tick.
+
+- **Up.** A pilot goes up 3 world units on the jets, turns to its route,
+  and opens the throttle. Under a roof, it stays on the jets, 1.6 world
+  units above the floor below it and the floor 7 world units ahead, at 6
+  to 9 world units a second, until it is out.
+- **Down.** A pilot closes the throttle at a distance of 2.5 seconds of
+  flight plus 20 world units from the place, comes over it on the jets, and
+  goes down at 4 world units a second or less. In one test game, 14
+  landings out of 14 were 3.5 world units or less from the place.
+- **Under a roof.** The game keeps the way that each aircraft takes out of
+  a place under a roof (a point each 6 world units, for aircraft that bots
+  fly and aircraft that people fly). An aircraft that must land under a
+  roof goes to the open end of the nearest such way and follows it back.
+  Thus a Pelican of Hugeass goes back into its hangar and lands on its
+  pad. A place under a roof that no aircraft came out of has no way in.
+- **To get in.** The doors of the seats of these aircraft are in the hold
+  and at the cockpit, more than 1 world unit from where a body can stand,
+  and the game lets a player in only from 1 world unit. A bot that stands
+  less than 3.5 world units from the door of its seat, next to an aircraft
+  that does not move, is put into the seat (with the function that the
+  action button calls). A bot takes the seat whose door is nearest.
+
+**To carry people.** In a team game, the pilot of an aircraft with more
+seats than its own does these things:
+
+- It stays on the ground where it took the aircraft: 4 seconds always, up
+  to 30 seconds while a bot of its team comes to the aircraft from less
+  than 80 world units, up to 20 seconds while a person of its team stands
+  less than 14 world units away, and up to 14 seconds while fewer than 2
+  are in it and one of its team is on foot less than 70 world units away.
+  Bots on foot that are not defenders come to such an aircraft from up to
+  80 world units.
+- With people in it, it flies to the flag of the other team (in King of
+  the Hill, to the hill; in other team games, to 45 world units from the
+  nearest enemy). It lands short of the flag by its own size plus 5 world
+  units, with its tail to the flag, and the bots in seats that are not
+  guns get out.
+- It stays there on the ground, up to 50 seconds, while one of its team is
+  on foot less than 90 world units from the flag. It leaves when its pilot
+  has no shields after 8 seconds.
+- When one of its team takes the flag, that bot gets into a seat in which
+  the map lets a player hold the flag, and the pilot flies to the flag of
+  its own team, lands, and the bot gets out and walks to it. If the bot
+  with the flag is on foot more than 150 world units from its base, a
+  pilot with an empty seat flies to it and lands next to it.
+- With nobody in it and 2 or more of its team on foot at the place where
+  it took the aircraft, it flies back there for them.
+
+A bot that just got out of such an aircraft and is still next to it walks
+first the way that is open the farthest (rays at the height of the chest),
+because the hull is between it and its route.
+
+**Which seats keep the flag** is different on each map. The game asks the
+same question that it asks when a player sits down (the animations of the
+player for that seat and the flag). On Hugeass, all the seats of the
+Pelican and the seat of the jet keep the flag. On Coldsnap, no seat of the
+Pelican keeps it, four seats of the Longsword do, and the seat of the jet
+does. A bot with the flag takes only a seat that keeps it. When the seat of
+a pilot keeps the flag, a pilot that is alone lands at a flag that is under
+the open sky, gets out, takes it, gets in again, and flies it to its base.
+The pilot nearest the flag does this, and only when nobody of its team is
+on foot less than 40 world units from the flag.
+
+**The jets** have the physics of the Banshee, and the code of the Banshee
+flies them. A jet goes 30 world units a second (the game does not let a
+vehicle go faster than 1 world unit a tick, whatever its tag says). A pilot
+of a jet keeps the throttle open in a turn, and leaves a hangar at full
+throttle when the way out is clear for more than 70 world units and the
+nose is on it.
+
+**The gates of Coldsnap.** A jet of Coldsnap stands in front of a tube in
+the wall of its hangar, and the script of the map moves a jet that is in
+the tube to the sky. The tube is 6 world units wide and 3.3 high at one
+base, and 4.2 wide and 1.6 high at the other. A pilot goes to the tube
+level along the floor, and the game puts the jet into the trigger volume
+when the jet is less than 24 world units from the middle of the volume,
+points at it, and nothing of the map is between. In one test game all 8
+jets left their hangars this way in the first 35 seconds. Before this, no
+jet left.
+
+In a test game of 9.5 minutes on Hugeass, two Pelicans took 3 and 5 bots
+to the flags, a bot of each team took the flag and got in again, and one
+Pelican landed 12.5 world units from its own flag and the team scored.
+These things are not complete:
+
+- The weapons of the jets and the bomb of the Longsword were not measured
+  well. A pilot lets a bomb go when the game computes that it falls less
+  than 5 world units from the enemy.
+- A jet does not land at a flag that is under a roof.
+- A pilot that carries people does not shoot.
+
+With `HALO_BOT_LOG` set, a line with `the <vehicle>: <job>` tells each
+change of what a pilot that carries people does (`load`, `drop`, `pick
+up`, `deliver`, `home`). `HALO_BOT_AIRTRACE=1` adds two lines a second for
+an aircraft on its jets or under a roof.
+
+### Vehicles that come back
+
+When the game type has a time for vehicles to come back, the game puts
+back a vehicle that is destroyed, or that is empty and away from its
+place, after that time. A vehicle that the map names comes back as the
+vehicle of that name, made as the script of the map makes it. Before, it
+came back as a copy with no name: the scripts of a map did not know the
+copy (a gate of Coldsnap did not move it), and a script that makes a
+vehicle again when it is gone made a second one. The game now does this
+for 256 vehicles of a map, not 64 (Coldsnap has 65).
+
+In a test, all the empty vehicles of Coldsnap and Hugeass were killed at
+10 seconds. With a time of 30 seconds, all of them were back with their
+names at the end of the test, 80 seconds later. With no time (the setting `never`), only the
+vehicles that the scripts of the maps make again came back (the Longsword,
+and two kinds of walker); the wrecks of the others stayed.
 
 ### The characters of the bots
 

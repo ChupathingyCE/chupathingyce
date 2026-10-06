@@ -207,6 +207,25 @@ struct bot_pilot
 	int away; /* off from them hurt, to mend: not round for another run until it has */
 	long over_tick; /* at the end of a run, over them with its guns on them: since when (0: not yet) */
 	real trim; /* how far off its pilot's look the craft really climbs or sinks: found as it flies */
+	real rest_over; /* how far over the ground under it its middle was, standing where it was taken */
+	real hover_yaw; /* a plane on its jets, close over where it is going: the way it faces, kept */
+	int down; /* ... and over the place: straight down now */
+	long down_tick;
+	long still_ticks; /* ... and for how long it has not moved */
+	long gate; /* the way out of where it stands that the map's script gives it (bot_country.c: NONE none) */
+	long gate_tick;
+	real_point3d gate_entry;
+	long taken_tick; /* when the craft was taken */
+	int gate_from_rest; /* the gate is the one before where it stood: for it, roof or no roof */
+	real exit_open; /* how far the way out it has found is clear */
+	/* down at a place under a roof (a hangar in a hillside): the way in to it */
+	int way_in; /* 0 none; 1 known, and making for the open air outside its mouth; 2 in along it; 3 in, and to the place */
+	long way_in_tick;
+	real_point3d way_in_for; /* the place it is the way in to */
+	real_point3d way_in_outside; /* out in the open, in line with the way in */
+	long way_in_trail; /* the way some craft came out by, gone back along (NONE: straight in) */
+	long way_in_next; /* ... the turn of it being made for, */
+	long way_in_last; /* ... and the last of them, the one nearest the place */
 };
 
 /* where a pilot is to go, and what for */
@@ -221,6 +240,7 @@ struct bot_flight_order
 	real shot_speed; /* ... at this speed, world units a second */
 	int heavy; /* it has another gun as well, on the other trigger (a fuel rod, a bomb) */
 	int heavy_ready; /* ... which will fire now (it has cooled from its last) */
+	int heavy_bomb; /* ... and is let go, not fired: it has the craft's speed and no other */
 	real heavy_speed; /* ... whose shot leaves at this speed (a tick's), */
 	real heavy_slowing; /* ... loses this much of it each tick, */
 	real heavy_slowest; /* ... down to this, */
@@ -230,6 +250,9 @@ struct bot_flight_order
 	int hurt; /* its pilot's shields are down: no time to be flying at anyone */
 	real vitality; /* (testing: how whoever it is after stands, shields and health together) */
 	int land; /* the craft is only the way there: down by the place, and out */
+	int stay; /* ... or down by it and not out: it is there to set people down, or to take them up */
+	real short_of; /* ... this far short of the place itself, on the way it comes at it */
+	int tail_to; /* ... and its tail to the place: the people in it leave by its tail */
 };
 
 struct bot_flight_result
@@ -243,6 +266,7 @@ struct bot_flight_result
 	int get_out;
 	int stuck; /* ... because it is wedged: not this craft again for a while */
 	int arrived;
+	int landed; /* down on the ground, and still */
 };
 
 /* the map from above, for flying over: made when the map's navigation is */
@@ -285,6 +309,9 @@ void bot_country_update(void); /* once a tick: its searches carried on */
 boolean bot_country_on(real_point3d const *point);
 boolean bot_country_nearest(real_point3d const *point, long rings, real_point3d *ground);
 long bot_country_portals_of(long vehicle_index); /* the ways the map's script carries this vehicle (a set of them) */
+/* (for a craft: the one of them in sight from where it stands, and into it) */
+long bot_country_gate(long vehicle_index, real_point3d const *from, real facing_yaw, real within, long keep, real_point3d *entry, real_point3d *exit_point);
+boolean bot_country_gate_enter(long vehicle_index, long gate);
 boolean bot_country_walk(real_point3d const *from, real_point3d const *to, real_point3d *next, boolean *soon, boolean *off);
 boolean bot_country_way(real_point3d const *from, real_point3d const *to, long portals, boolean drops, real ahead, real_point3d *next,
 	boolean *soon, boolean *off, real *left);
@@ -293,6 +320,7 @@ boolean bot_nav_in_parts(void); /* (bot_nav.c: a map too large for its floors to
 void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *body, real_point3d const *to, struct bot_country_result *result);
 
 void bot_air_build(void);
+void bot_air_trails_update(void); /* once a tick: the ways craft come out from under roofs, kept */
 void bot_air_dispose(void);
 boolean bot_air_ready(void);
 /* the highest ground, and the lowest sky, within radius of a point */
