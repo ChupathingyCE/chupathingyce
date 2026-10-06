@@ -69,6 +69,8 @@ struct node
 	int taken;
 	int pieces_in;
 	int reject;
+	/* the kill switch's bits */
+	delta_u32 disabled;
 	char last_log[256];
 };
 
@@ -145,6 +147,11 @@ static int table_valid(const unsigned char *table, int size)
 	return 1;
 }
 
+static int node_capability_disabled(void *context, int capability)
+{
+	return (((struct node *)context)->disabled >> capability) & 1;
+}
+
 static delta_u32 node_table_serial(void *context)
 {
 	return ((struct node *)context)->table_serial;
@@ -207,6 +214,7 @@ static void node_start(int index, delta_u32 ipv4, unsigned short port, delta_u32
 	env.legacy_table_serial = node_table_serial;
 	env.legacy_table_signed = node_table_signed;
 	env.legacy_table_offer = node_table_offer;
+	env.capability_disabled = node_capability_disabled;
 	memset(&local, 0, sizeof(local));
 	local.capabilities = capabilities;
 	local.legacy_version = 18;
@@ -824,6 +832,67 @@ static void test_strangers(void)
 	CHECK((nodes[1].peer.agreed & ~PLATFORM_BIT) == 0);
 }
 
+/* the legacy table's kill switch: a capability it turns off is never
+offered (HELLO, WELCOME), agreed or shared by the room, and goes when it is
+turned off mid-game */
+static void test_kill_switch(void)
+{
+	int joined[3] = { 0, 1, 1 };
+	struct delta_peer_machine machine;
+	delta_u32 now = 300000;
+	int step;
+
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT | PROFILE_BIT, _delta_platform_pc_linux, 0x10, 0);
+	node_start(1, 0x0300007F, 40001, PLATFORM_BIT | PROFILE_BIT, _delta_platform_pc_macos, 0x11, 0);
+	node_start(2, 0x0400007F, 40002, PLATFORM_BIT | PROFILE_BIT, _delta_platform_pc_windows, 0x12, 0);
+	/* (client 1's table turns profile off) */
+	nodes[1].disabled = PROFILE_BIT;
+	game_reset();
+	game_add(1);
+	game_add(2);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(nodes[1].peer.client_state == _delta_peer_client_delta && nodes[1].peer.agreed == PLATFORM_BIT);
+	CHECK(nodes[0].peer.peers[1].hello.capabilities == PLATFORM_BIT && nodes[0].peer.peers[1].agreed == PLATFORM_BIT);
+	CHECK(nodes[2].peer.agreed == (PLATFORM_BIT | PROFILE_BIT));
+	CHECK(!delta_peer_room_has(&nodes[0].peer, _delta_capability_profile));
+	CHECK(delta_peer_room_has(&nodes[0].peer, _delta_capability_platform));
+	/* (no profile sent by it, none kept by it) */
+	CHECK(delta_peer_machine(&nodes[0].peer, 1, &machine) && !(machine.flags & DELTA_ROSTER_PROFILE));
+	CHECK(delta_peer_machine(&nodes[1].peer, 2, &machine) && !(machine.flags & DELTA_ROSTER_PROFILE));
+
+	/* the host's table turns platform off mid-game: the room shares
+	nothing, it sends no platform keys, and its clients' sessions agree to
+	none of it from its WELCOME of a new session */
+	nodes[0].disabled = PLATFORM_BIT;
+	for (step = 0; step < 30; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(!delta_peer_room_has(&nodes[0].peer, _delta_capability_platform));
+	CHECK(!delta_peer_room_has(&nodes[2].peer, _delta_capability_platform));
+	CHECK(delta_peer_machine(&nodes[0].peer, 2, &machine) && !(machine.flags & DELTA_ROSTER_PLATFORM));
+	delta_peer_stop(&nodes[2].peer);
+	deliver(now);
+	for (step = 0; step < 8; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(nodes[2].peer.client_state == _delta_peer_client_delta && nodes[2].peer.agreed == PROFILE_BIT);
+	CHECK((nodes[2].peer.welcome.capabilities & PLATFORM_BIT) == 0);
+
+	/* a client whose own table turns platform off mid-game keeps no
+	machine's platform key */
+	nodes[0].disabled = 0;
+	delta_peer_stop(&nodes[2].peer);
+	deliver(now);
+	for (step = 0; step < 8; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(delta_peer_machine(&nodes[2].peer, 0, &machine) && (machine.flags & DELTA_ROSTER_PLATFORM));
+	nodes[2].disabled = PLATFORM_BIT;
+	for (step = 0; step < 30; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(delta_peer_machine(&nodes[2].peer, 1, &machine) && !(machine.flags & DELTA_ROSTER_PLATFORM));
+	CHECK(!delta_peer_room_has(&nodes[2].peer, _delta_capability_platform));
+	queued = 0;
+}
+
 /* ---------- the legacy table's relay */
 
 /* frames every step milliseconds until the time */
@@ -1130,6 +1199,7 @@ int main(int argc, char **argv)
 	test_fallback();
 	test_limits();
 	test_strangers();
+	test_kill_switch();
 	test_relay();
 	test_relay_refused();
 	test_random(iterations);

@@ -120,6 +120,10 @@ struct delta_peer_env
 	delta_u32 (*legacy_table_serial)(void *context);
 	int (*legacy_table_signed)(void *context, unsigned char *buffer, int size);
 	int (*legacy_table_offer)(void *context, const unsigned char *table, int size);
+	/* (may be NULL: none) whether the legacy table's kill switch turns a
+	capability off (delta_capability_disabled): never offered, agreed or
+	used while it does, whatever local.capabilities has */
+	int (*capability_disabled)(void *context, int capability);
 	/* (may be NULL: delta.h's defaults) the platform policy's row for a
 	platform, which the signed legacy table may tune
 	(delta_peer_platform_policy): key holds the defaults on the way in */

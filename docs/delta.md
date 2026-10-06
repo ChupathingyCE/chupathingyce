@@ -562,7 +562,10 @@ check it too):
   release (merge the code, new wire ID), as today.
 - **`disabled_capabilities`**: the kill switch for a Delta capability found
   unsafe, until a fixed build ships: names from the capability registry
-  (`platform`, `chat`, ...). Names a build doesn't know are ignored.
+  (`platform`, `chat`, ...). Names a build doesn't know are ignored. Delta
+  Peer never offers, agrees to or uses a capability the table in use turns
+  off: not in HELLO or WELCOME, not in the room's set, and a table that
+  turns one off mid-game takes it out of the room at the next roster.
 - **`platform_policy`** (reserved, optional): per-platform limits Delta Peer
   reads, such as how many players a host or a joining machine of that
   platform may have, keyed by platform name (`xbox`, `xbox360`, `wiiu`,

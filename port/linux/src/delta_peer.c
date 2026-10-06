@@ -69,6 +69,23 @@ static int valid_machine(int machine_index)
 	return machine_index >= 0 && machine_index < DELTA_PEER_MAXIMUM_MACHINES;
 }
 
+/* what this machine offers now: what it has, but a capability the legacy
+table's kill switch turns off (delta_capability_disabled) */
+static delta_u32 offered(const struct delta_peer *peer)
+{
+	delta_u32 capabilities = peer->local.capabilities;
+	int capability;
+
+	if (!peer->env.capability_disabled)
+		return capabilities;
+	for (capability = 0; capability < NUMBER_OF_DELTA_CAPABILITIES; capability++)
+	{
+		if ((capabilities & CAPABILITY(capability)) && peer->env.capability_disabled(peer->env.context, capability))
+			capabilities &= ~CAPABILITY(capability);
+	}
+	return capabilities;
+}
+
 static void policy(const struct delta_peer *peer, int platform, struct delta_platform_key *key)
 {
 	delta_platform_policy_default(platform, key);
@@ -114,9 +131,9 @@ static void local_machine(const struct delta_peer *peer, struct delta_peer_machi
 	memset(machine, 0, sizeof(*machine));
 	machine->known = 1;
 	machine->flags = DELTA_ROSTER_DELTA | DELTA_ROSTER_PLATFORM;
-	machine->capabilities = peer->local.capabilities;
+	machine->capabilities = offered(peer);
 	machine->key = peer->local.key;
-	if (peer->local.has_profile && (peer->local.capabilities & CAPABILITY(_delta_capability_profile)))
+	if (peer->local.has_profile && (machine->capabilities & CAPABILITY(_delta_capability_profile)))
 	{
 		machine->flags |= DELTA_ROSTER_PROFILE;
 		machine->profile = peer->local.profile;
@@ -505,8 +522,8 @@ static void host_send_welcome(struct delta_peer *peer, int machine_index)
 	int index;
 
 	memset(&welcome, 0, sizeof(welcome));
-	welcome.capabilities = peer->local.capabilities;
-	welcome.agreed = client->agreed;
+	welcome.capabilities = offered(peer);
+	welcome.agreed = client->agreed & welcome.capabilities;
 	welcome.legacy_version = peer->local.legacy_version;
 	welcome.host_machine_index = DELTA_WIRE_NO_MACHINE;
 	for (index = 0; index < peer->game_machine_count; index++)
@@ -558,7 +575,7 @@ static void host_hello(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4, u
 	client->session = header->session;
 	client->session_time = now;
 	client->hello = hello;
-	client->agreed = hello.capabilities & peer->local.capabilities;
+	client->agreed = hello.capabilities & offered(peer);
 	relay_start(peer, &client->relay, now, hello.legacy_table_serial);
 	if (peer->table_in.active && peer->table_in.from == machine_index)
 		peer->table_in.active = 0;
@@ -620,7 +637,7 @@ static void host_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4,
 		struct delta_wire_profile profile;
 
 		if (machine_index < 0 ||
-			!(peer->peers[machine_index].agreed & CAPABILITY(_delta_capability_profile)) ||
+			!(peer->peers[machine_index].agreed & offered(peer) & CAPABILITY(_delta_capability_profile)) ||
 			!delta_wire_read_profile(payload, header.length, &profile))
 		{
 			peer->dropped++;
@@ -725,7 +742,7 @@ static void host_send_rosters(struct delta_peer *peer)
 			}
 			if (index < peer->game_machine_count)
 			{
-				host_roster_entry(peer, peer->game_machines[index].machine_index, client->agreed,
+				host_roster_entry(peer, peer->game_machines[index].machine_index, client->agreed & offered(peer),
 					&roster.entries[roster.count++]);
 			}
 		}
@@ -757,7 +774,7 @@ void delta_peer_host_frame(struct delta_peer *peer, delta_u32 now, const struct 
 	}
 
 	memset(peer->machines, 0, sizeof(peer->machines));
-	room_capabilities = peer->local.capabilities;
+	room_capabilities = offered(peer);
 	room_players = peer->local.ignore_platform_limits ? DELTA_PEER_NO_LIMIT : host_limit(peer);
 	for (index = 0; index < peer->game_machine_count; index++)
 	{
@@ -773,9 +790,9 @@ void delta_peer_host_frame(struct delta_peer *peer, delta_u32 now, const struct 
 		{
 			machine->known = 1;
 			machine->flags = DELTA_ROSTER_DELTA;
-			machine->capabilities = client->agreed;
+			machine->capabilities = client->agreed & offered(peer);
 			machine->key = client->hello.key;
-			if (client->agreed & CAPABILITY(_delta_capability_platform))
+			if (machine->capabilities & CAPABILITY(_delta_capability_platform))
 				machine->flags |= DELTA_ROSTER_PLATFORM;
 			if (client->has_profile)
 			{
@@ -853,7 +870,7 @@ static void client_send_hello(struct delta_peer *peer, delta_u32 now)
 	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
 
 	memset(&hello, 0, sizeof(hello));
-	hello.capabilities = peer->local.capabilities;
+	hello.capabilities = offered(peer);
 	hello.legacy_version = peer->local.legacy_version;
 	hello.machine_index = peer->machine_index;
 	hello.legacy_table_serial = handshake_serial(peer);
@@ -867,7 +884,7 @@ static void client_send_profile(struct delta_peer *peer)
 {
 	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
 
-	if ((peer->agreed & CAPABILITY(_delta_capability_profile)) && peer->local.has_profile)
+	if ((peer->agreed & offered(peer) & CAPABILITY(_delta_capability_profile)) && peer->local.has_profile)
 	{
 		peer_send(peer, peer->host_ipv4, peer->host_port, data,
 			delta_wire_write_profile(data, peer->session, &peer->local.profile));
@@ -1001,7 +1018,7 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 			break;
 		peer->welcome = welcome;
 		/* (never more than this machine offered, whatever the host says) */
-		peer->agreed = welcome.agreed & welcome.capabilities & peer->local.capabilities;
+		peer->agreed = welcome.agreed & welcome.capabilities & offered(peer);
 		peer->client_state = _delta_peer_client_delta;
 		say(peer, "Delta Peer: the host speaks Delta (build %s, %s, network version %u); capabilities 0x%x, agreed 0x%x",
 			welcome.build[0] ? welcome.build : "?", platform_name(welcome.key.platform),
@@ -1037,16 +1054,16 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 			peer->dropped++;
 			break;
 		}
-		if ((roster.room_capabilities & peer->agreed) != peer->room_capabilities)
+		if ((roster.room_capabilities & peer->agreed & offered(peer)) != peer->room_capabilities)
 		{
 			say(peer, "Delta Peer: every machine of the game shares capabilities 0x%x",
-				(unsigned)(roster.room_capabilities & peer->agreed));
+				(unsigned)(roster.room_capabilities & peer->agreed & offered(peer)));
 		}
-		peer->room_capabilities = roster.room_capabilities & peer->agreed;
+		peer->room_capabilities = roster.room_capabilities & peer->agreed & offered(peer);
 		peer->room_players = roster.room_players ? roster.room_players : DELTA_PEER_NO_LIMIT;
 		for (index = 0; index < roster.count; index++)
 		{
-			const struct delta_wire_roster_entry *entry = &roster.entries[index];
+			struct delta_wire_roster_entry *entry = &roster.entries[index];
 			struct delta_peer_machine *machine;
 
 			if (!valid_machine(entry->machine_index))
@@ -1059,6 +1076,12 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 				continue;
 			}
 			machine = &peer->machines[entry->machine_index];
+			/* (what this machine no longer offers is not kept: the kill
+			switch, mid-game) */
+			if (!(offered(peer) & CAPABILITY(_delta_capability_platform)))
+				entry->flags &= ~DELTA_ROSTER_PLATFORM;
+			if (!(offered(peer) & CAPABILITY(_delta_capability_profile)))
+				entry->flags &= ~DELTA_ROSTER_PROFILE;
 			/* (said when a machine's platform is first known, or changes) */
 			if ((entry->flags & DELTA_ROSTER_PLATFORM) &&
 				(!(machine->flags & DELTA_ROSTER_PLATFORM) || machine->key.platform != entry->key.platform))

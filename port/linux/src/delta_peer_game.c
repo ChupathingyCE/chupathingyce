@@ -179,6 +179,13 @@ static delta_u32 game_random(void *context)
 	return value;
 }
 
+/* the legacy table's kill switch */
+static int game_capability_disabled(void *context, int capability)
+{
+	(void)context;
+	return delta_capability_disabled(capability);
+}
+
 /* the legacy table's relay: delta.c's table (none taken or sent with a
 local table in use, or no key) */
 static delta_u32 game_legacy_table_serial(void *context)
@@ -229,6 +236,7 @@ int delta_peer_protocol(void)
 		env.legacy_table_serial = game_legacy_table_serial;
 		env.legacy_table_signed = game_legacy_table_signed;
 		env.legacy_table_offer = game_legacy_table_offer;
+		env.capability_disabled = game_capability_disabled;
 		env.platform_policy = game_platform_policy;
 		memset(&local, 0, sizeof(local));
 		local.capabilities = (delta_u32)1 << _delta_capability_platform | (delta_u32)1 << _delta_capability_profile;
