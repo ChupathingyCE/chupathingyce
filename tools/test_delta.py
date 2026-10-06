@@ -309,7 +309,9 @@ def checker(keys, tmp_path_factory):
     program = tmp_path_factory.mktemp("delta_check") / "delta_check"
     link = ["-Wl,-undefined,dynamic_lookup", "-Wl,-dead_strip"] if sys.platform == "darwin" else \
         ["-no-pie", "-Wl,--unresolved-symbols=ignore-all"]
-    built = subprocess.run(["clang", *flags, "-DHALO_GAME_BROWSER", f"-DHALO_DELTA_TEST_KEY={key}", "-O1", *link, "-o", str(program),
+    # (a failed fetch is tried again a tenth of a second later, not thirty minutes)
+    built = subprocess.run(["clang", *flags, "-DHALO_GAME_BROWSER", f"-DHALO_DELTA_TEST_KEY={key}",
+                            "-DDELTA_RETRY_INTERVAL=100", "-O1", *link, "-o", str(program),
                             *sources, "tools/delta_check.c", "port/third_party/monocypher/monocypher.c",
                             "port/third_party/monocypher/monocypher-ed25519.c", "-lpthread"],
                            capture_output=True, text=True, cwd=ROOT)
@@ -462,3 +464,17 @@ def test_loader_fetches_site_then_github(keys, checker, tmp_path):
 def test_loader_fetches_nothing_without_a_list_server(keys, checker, tmp_path):
     output = run_checker(checker, tmp_path, "start", "state", url="")
     assert "request:" not in output
+
+
+def test_loader_says_once_that_no_table_is_published(checker, tmp_path):
+    """neither Delta List nor GitHub has a table (404 from both): said once a
+    run, however many times it looks again; a server it cannot reach is said
+    each time"""
+    output = run_checker(checker, tmp_path, "start", "sleep", 1000, url="https://list.example")
+    assert output.count(f"request: {SITE}\n") >= 3 and output.count(f"request: {GITHUB}\n") >= 3
+    assert output.count("no legacy table is published") == 1
+    assert "log: Delta: no legacy table from" not in output
+    output = run_checker(checker, tmp_path, "start", "sleep", 1000, url="https://unreachable.example")
+    assert "no legacy table is published" not in output
+    assert output.count("no legacy table from Delta List (could not connect)") >= 3
+    assert output.count("no legacy table from GitHub (it has none)") >= 3

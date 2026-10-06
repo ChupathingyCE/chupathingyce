@@ -59,11 +59,17 @@ skips what it does not know.
 #define DELTA_CACHE_NAME "delta_legacy.signed"
 #define DELTA_GITHUB_URL "https://raw.githubusercontent.com/ChupathingyCE/chupathingyce/delta-table/legacy.json"
 
+/* (fetched this often, and this long after a failure, in milliseconds; a
+test's build may give its own) */
+#ifndef DELTA_REFRESH_INTERVAL
+#define DELTA_REFRESH_INTERVAL (4 * 60 * 60 * 1000)
+#endif
+#ifndef DELTA_RETRY_INTERVAL
+#define DELTA_RETRY_INTERVAL (30 * 60 * 1000)
+#endif
+
 enum
 {
-	/* (fetched this often, and this long after a failure) */
-	REFRESH_INTERVAL = 4 * 60 * 60 * 1000,
-	RETRY_INTERVAL = 30 * 60 * 1000,
 	/* (how deep the document's objects and arrays may nest) */
 	JSON_DEPTH = 8,
 	/* (the most disabled capabilities read) */
@@ -741,15 +747,23 @@ static void delta_load(void)
 
 #ifdef HALO_GAME_BROWSER
 
-/* the document at url and its signature (url.sig), from source */
-static enum delta_result delta_fetch(const char *url, const char *source)
+/* the document at url and its signature (url.sig), from source; none there
+(the server says it has no document: absent set, nothing logged) is
+_delta_invalid too */
+static enum delta_result delta_fetch(const char *url, const char *source, int *absent)
 {
 	/* (one byte past the cap shows a document cut short) */
 	static char document[DELTA_LEGACY_DOCUMENT_SIZE + 2];
 	char signature[256], signature_url[600], error[256];
 	int status;
 
+	*absent = 0;
 	status = posix_browser_request(url, NULL, NULL, document, sizeof(document), error, sizeof(error));
+	if (status == 404)
+	{
+		*absent = 1;
+		return _delta_invalid;
+	}
 	if (status != 200)
 	{
 		platform_log("Delta: no legacy table from %s (%s)", source, status ? "the server refused" : error);
@@ -768,20 +782,37 @@ static enum delta_result delta_fetch(const char *url, const char *source)
 
 static void delta_refresh(int *failed)
 {
+	/* (none published anywhere: said once a run, not at every retry) */
+	static int absence_said;
 	const char *base = config_string("network.browser_url");
 	char url[512];
 	size_t length = strlen(base);
+	int site_absent, github_absent;
 
 	/* (with or without the final slash) */
 	while (length && base[length - 1] == '/')
 		length--;
 	snprintf(url, sizeof(url), "%.*s/v1/delta/legacy", (int)length, base);
 	*failed = 0;
-	if (delta_fetch(url, "Delta List") != _delta_invalid)
+	if (delta_fetch(url, "Delta List", &site_absent) != _delta_invalid ||
+		delta_fetch(DELTA_GITHUB_URL, "GitHub", &github_absent) != _delta_invalid)
+	{
+		absence_said = 0;
 		return;
-	if (delta_fetch(DELTA_GITHUB_URL, "GitHub") != _delta_invalid)
-		return;
+	}
 	*failed = 1;
+	if (site_absent && github_absent)
+	{
+		if (!absence_said)
+			platform_log("Delta: no legacy table is published (Delta List and GitHub have none); looked for "
+				"again quietly");
+		absence_said = 1;
+		return;
+	}
+	if (site_absent)
+		platform_log("Delta: no legacy table from Delta List (it has none)");
+	if (github_absent)
+		platform_log("Delta: no legacy table from GitHub (it has none)");
 }
 
 static void *delta_thread(void *unused)
@@ -794,9 +825,15 @@ static void *delta_thread(void *unused)
 
 		if (!delta_legacy_override())
 			delta_refresh(&failed);
-		interval = failed ? RETRY_INTERVAL : REFRESH_INTERVAL;
+		interval = failed ? DELTA_RETRY_INTERVAL : DELTA_REFRESH_INTERVAL;
 		clock_gettime(CLOCK_REALTIME, &deadline);
 		deadline.tv_sec += interval / 1000;
+		deadline.tv_nsec += (long)(interval % 1000) * 1000000L;
+		if (deadline.tv_nsec >= 1000000000L)
+		{
+			deadline.tv_sec++;
+			deadline.tv_nsec -= 1000000000L;
+		}
 		pthread_mutex_lock(&delta_lock);
 		/* (until the deadline: nothing signals it yet) */
 		while (pthread_cond_timedwait(&delta_wake, &delta_lock, &deadline) == 0)

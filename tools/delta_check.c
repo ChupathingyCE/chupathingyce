@@ -10,13 +10,15 @@ the steps it is given, in order, and prints what each did:
 	state         "state A MI MA serial S override O disabled D signed N"
 	start         delta_legacy_start: the cache, and the fetching thread
 	wait S        until the serial in use is S (up to ten seconds)
+	sleep MS      that many milliseconds
 
 The save root (where the cache is) is $DELTA_CHECK_ROOT, the local override
 (network.legacy_table) $DELTA_CHECK_OVERRIDE, and the list server
 (network.browser_url) $DELTA_CHECK_URL. The requests are answered from
 files in the save root's "served" folder, named by the URL with every
-character but letters, digits and dots made "_"; a request without one
-fails, and each is logged ("request: URL"). The log goes to the standard
+character but letters, digits and dots made "_"; a request without one is
+answered 404 (one to a host named "unreachable" cannot connect), and each
+is logged ("request: URL"). The log goes to the standard
 output, "log: " before each line.
 */
 
@@ -110,12 +112,14 @@ int posix_browser_request(const char *url, const char *body, const char *content
 			c : '_';
 	}
 	path[used] = 0;
-	data = config_file_read(path, &size);
-	if (!data)
+	if (strstr(url, "unreachable"))
 	{
 		snprintf(error, (size_t)error_size, "could not connect");
 		return 0;
 	}
+	data = config_file_read(path, &size);
+	if (!data)
+		return 404;
 	snprintf(response, (size_t)response_size, "%s", data);
 	free(data);
 	return 200;
@@ -159,6 +163,8 @@ int main(int count, char **arguments)
 				usleep(10000);
 			printf("wait %d\n", delta_legacy_serial() == serial);
 		}
+		else if (!strcmp(arguments[index], "sleep") && index + 1 < count)
+			usleep((useconds_t)strtoul(arguments[++index], NULL, 10) * 1000);
 		else
 		{
 			printf("unknown step %s\n", arguments[index]);

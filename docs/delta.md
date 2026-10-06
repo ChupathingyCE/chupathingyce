@@ -614,7 +614,9 @@ plays with its built-in numbers (and a local override).
   `raw.githubusercontent.com/ChupathingyCE/chupathingyce/delta-table/legacy.json`
   (and `legacy.json.sig`). A branch of its own keeps the table's updates out
   of main's history. Both copies are signed with the same key, so neither
-  host is trusted; the newest serial of whatever is reached wins.
+  host is trusted; the newest serial of whatever is reached wins. While
+  neither has a table (both answer 404), the log says so once a
+  run, not at every retry.
 - **Delta Peer:** in the handshake each side says its table's serial; the side
   with the newer one sends its signed table. A machine that never reaches the
   site still gets it from the first host or client that has it. It is
