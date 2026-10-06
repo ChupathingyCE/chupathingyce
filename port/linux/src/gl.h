@@ -99,6 +99,7 @@ this list to generate the guest's entry points */
 	X(glBindBuffer) \
 	X(glBufferData) \
 	X(glBufferSubData) \
+	X(glCopyBufferSubData) \
 	X(glBindBufferBase) \
 	X(glBindBufferRange) \
 	X(glGenVertexArrays) \
@@ -334,6 +335,7 @@ pointers, sees the declarations without these aliases */
 #define glBindBuffer halo_glBindBuffer
 #define glBufferData halo_glBufferData
 #define glBufferSubData halo_glBufferSubData
+#define glCopyBufferSubData halo_glCopyBufferSubData
 #define glBindBufferBase halo_glBindBufferBase
 #define glBindBufferRange halo_glBindBufferRange
 #define glGenVertexArrays halo_glGenVertexArrays
