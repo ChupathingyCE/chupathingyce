@@ -403,6 +403,12 @@ unsigned long p2p_resolve(const char *host)
 
 void p2p_register_url_scheme(const char *scheme, const char *description)
 {
+#ifdef HALO_SERVER
+	/* (the dedicated server opens no links: the game on the same machine
+	stays their program) */
+	(void)scheme;
+	(void)description;
+#else
 	if (config_real("debug.exit_after") > 0.0 || config_boolean("debug.hidden_window") ||
 		config_boolean("debug.null_renderer"))
 		return;
@@ -410,6 +416,7 @@ void p2p_register_url_scheme(const char *scheme, const char *description)
 	pthread_mutex_unlock(&p2p_lock);
 	posix_register_url_scheme(scheme, description);
 	pthread_mutex_lock(&p2p_lock);
+#endif
 }
 
 void p2p_hex(const unsigned char *bytes, int size, char *text)
