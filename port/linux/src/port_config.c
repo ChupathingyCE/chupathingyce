@@ -289,6 +289,11 @@ static const struct config_setting config_settings[] =
 		"falls back on its own, and nobody waits for it); \"opence\" turns\n"
 		"Delta off (OpenCE's protocol alone, as an OpenCE build). \"delta\"\n"
 		"plays as auto for now: Delta-only games come later." },
+	{ "network.share_profile", _config_boolean, "false", "HALO_NET_SHARE_PROFILE", _environment_value,
+		_platform_all,
+		"Show the other ChupathingyCE players of a game this copy's player ID\n"
+		"(the game list's, which links to its profile), over Delta. Off by\n"
+		"default: the ID is the same in every game." },
 	{ "network.platform_limits", _config_string, "\"on\"", "HALO_NET_PLATFORM_LIMITS", _environment_value,
 		_platform_all,
 		"Delta's platform limits for this machine: \"on\" has hosts keep a\n"

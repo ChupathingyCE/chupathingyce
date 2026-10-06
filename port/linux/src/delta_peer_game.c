@@ -115,8 +115,10 @@ static int hex_digit(char character)
 	return -1;
 }
 
-/* the profile's claim: this copy's public player ID (the site's), when it
-has a player key; the revision is not known to the game yet (0) */
+/* the profile's claim: this copy's public player ID (the site's), only if
+its player chose to share it (network.share_profile: a profile is opt-in,
+and the ID is the same in every game); the revision is not known to the
+game yet (0). This copy still sees the profiles others share */
 static int local_profile(struct delta_wire_profile *profile)
 {
 #ifdef HALO_GAME_BROWSER
@@ -124,7 +126,7 @@ static int local_profile(struct delta_wire_profile *profile)
 	int index;
 
 	memset(profile, 0, sizeof(*profile));
-	if (browser_headless() || !browser_player_id(hex, sizeof(hex)))
+	if (!config_boolean("network.share_profile") || browser_headless() || !browser_player_id(hex, sizeof(hex)))
 		return 0;
 	for (index = 0; index < DELTA_WIRE_PLAYER_ID_SIZE; index++)
 	{
