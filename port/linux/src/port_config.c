@@ -53,6 +53,8 @@ enum
 	_platform_desktop = 1,
 	_platform_android = 2,
 	_platform_all = _platform_desktop | _platform_android,
+	/* (of the desktop builds, only Windows) */
+	_platform_windows = 4,
 };
 
 struct config_setting
@@ -116,6 +118,12 @@ static const struct config_setting config_settings[] =
 	{ "display.max_fps", _config_integer, "0", "HALO_MAX_FPS", _environment_value, _platform_desktop,
 		"With vsync off, the most frames a second: 0 for twice the display's\n"
 		"refresh rate, -1 for no limit (which can hang some Intel graphics)." },
+	{ "display.anti_aliasing", _config_string, "\"off\"", "HALO_ANTI_ALIASING", _environment_value, _platform_all,
+		"Smoothing of jagged edges, which the Xbox did not have: \"off\"; \"fxaa\"\n"
+		"or \"smaa\" smooth the 3D view once it is drawn (the HUD and menus stay\n"
+		"sharp); \"ssaa2x\" draws at twice the resolution each way (four times\n"
+		"the work); \"msaa2x\", \"msaa4x\" or \"msaa8x\" draw with that many samples\n"
+		"a pixel. Android has \"fxaa\" for \"smaa\", and no \"ssaa2x\"." },
 	{ "display.interpolation", _config_boolean, "true", "HALO_INTERPOLATION", _environment_value, _platform_all,
 		"Draw a frame for every display refresh, blending between the game's 30\n"
 		"ticks a second; false keeps the original 30 frames a second." },
@@ -131,6 +139,10 @@ static const struct config_setting config_settings[] =
 		"Draw the menus' and HUD's text with the fonts in port/assets/fonts\n"
 		"(Overpass) at the resolution the game draws at, and the menus' titles\n"
 		"from port/assets/titles; false draws the maps' bitmap fonts and titles." },
+	{ "display.shadow_resolution", _config_integer, "128", "HALO_SHADOW_RESOLUTION", _environment_value,
+		_platform_all,
+		"The size the objects' shadows are drawn at, in pixels each way: 128 as\n"
+		"on the Xbox, or 256, 512 or 1024 for smoother edges, as soft." },
 	{ "display.menus", _config_string, "\"xbox\"", "HALO_MENUS", _environment_value, _platform_all,
 		"The menus: \"xbox\" for the Xbox's (with Online Games), \"pc\" for the\n"
 		"PC version's main menu (port/assets/menus, and a menus folder here for\n"
@@ -160,6 +172,12 @@ static const struct config_setting config_settings[] =
 		_environment_value, _platform_all,
 		"The scoreboard panel's colour: \"red, green, blue, alpha\", each 0 to 255\n"
 		"(alpha 0 is see-through, 255 solid)." },
+	{ "display.per_pixel_lighting", _config_boolean, "false", "HALO_PER_PIXEL_LIGHTING", _environment_value,
+		_platform_all,
+		"Light the models (characters, weapons, vehicles, scenery) for each\n"
+		"pixel by the lights the game gives them, without the facets the light\n"
+		"of each vertex shows across curved surfaces; false lights each vertex,\n"
+		"as the Xbox does." },
 
 	{ "audio.enabled", _config_boolean, "true", "HALO_NO_AUDIO", _environment_set_is_false, _platform_all,
 		"Play sound." },
@@ -175,6 +193,11 @@ static const struct config_setting config_settings[] =
 		"The audio device's buffer, in sample frames at 48 kHz (64 to 8192): larger\n"
 		"rides out stalls that cut the sound out, smaller has less delay. 2048\n"
 		"(43 ms) on macOS, 512 (11 ms) elsewhere." },
+
+	{ "audio.reverb", _config_boolean, "true", "HALO_REVERB", _environment_value, _platform_all,
+		"Reverberate the world's sounds as the place the player is in does (the\n"
+		"maps' sound environments, as the Xbox's I3DL2 reverb did); false keeps\n"
+		"them dry." },
 
 	{ "input.touch_controls", _config_string, "\"on\"", "HALO_TOUCH_CONTROLS", _environment_value, _platform_android,
 		"The on-screen touch controls in a game: \"on\" shows them on a\n"
@@ -291,6 +314,39 @@ static const struct config_setting config_settings[] =
 		"in everyone's server browser: anyone can see and join it) or, false,\n"
 		"PRIVATE (only players with its invite link can join). Server Setup's\n"
 		"LISTING changes it for each game." },
+	{ "network.coop_public", _config_boolean, "false", "HALO_NET_COOP_PUBLIC", _environment_value, _platform_all,
+		"Whether an online co-op game (Create Game > Internet, a SINGLEPLAYER\n"
+		"map) starts as PUBLIC or, false, PRIVATE: Server Setup's LISTING in\n"
+		"co-op, which writes its choice here." },
+	{ "network.coop_friendly_fire", _config_string, "\"on\"", "HALO_NET_COOP_FRIENDLY_FIRE", _environment_value,
+		_platform_all,
+		"Whether the players of an online co-op game hurt each other: \"off\",\n"
+		"\"on\", \"shields_only\" or \"explosives_only\" (Server Setup's FRIENDLY\n"
+		"FIRE in co-op, which writes its choice here). Their AI allies they\n"
+		"always can, as in the campaign." },
+	{ "network.coop_player_collisions", _config_boolean, "true", "HALO_NET_COOP_PLAYER_COLLISIONS", _environment_value,
+		_platform_all,
+		"Whether the players of an online co-op game bump into each other;\n"
+		"false, they walk through each other (the AI's characters they still\n"
+		"bump into). Server Setup's PLAYER COLLISIONS in co-op writes its\n"
+		"choice here." },
+	{ "network.coop_enemies_mode", _config_string, "\"per_player\"", "HALO_NET_COOP_ENEMIES_MODE", _environment_value,
+		_platform_all,
+		"Online co-op's extra enemies: \"none\", \"per_player\" (each squad of\n"
+		"enemies grows by coop_enemies for each player past the first) or\n"
+		"\"multiplier\" (each is coop_enemies_multiplier times as large, for any\n"
+		"number of players). Server Setup's EXTRA ENEMIES in co-op writes its\n"
+		"choice here." },
+	{ "network.coop_enemies", _config_integer, "50", "HALO_NET_COOP_ENEMIES", _environment_value, _platform_all,
+		"Online co-op's extra enemies per player, a percentage: for each player\n"
+		"past the first, each squad of enemies a level places gets this much of\n"
+		"itself more (100: as many again; 25 to 200). Server Setup's PER PLAYER\n"
+		"in co-op writes its choice here." },
+	{ "network.coop_enemies_multiplier", _config_integer, "2", "HALO_NET_COOP_ENEMIES_MULTIPLIER", _environment_value,
+		_platform_all,
+		"Online co-op's static multiplier of its enemies: each squad of enemies\n"
+		"a level places is this many times as large (2 to 32). Server Setup's\n"
+		"MULTIPLIER in co-op writes its choice here." },
 	{ "network.brokers_file", _config_string, "\"brokers.txt\"",
 		"HALO_NET_BROKERS_FILE", _environment_value, _platform_all,
 		"The file of the public MQTT brokers through which the machines of an\n"
@@ -325,6 +381,10 @@ static const struct config_setting config_settings[] =
 	{ "update.auto", _config_boolean, "true", "HALO_UPDATE_AUTO", _environment_value, _platform_all,
 		"Look for a new version when the game starts, and offer to update to it;\n"
 		"false never looks (the game's \"Do not ask again\" writes false here)." },
+	{ "crash_reports.upload", _config_string, "\"ask\"", "HALO_CRASH_REPORTS", _environment_value, _platform_windows,
+		"Send a report of each crash (a minidump and halo.log) to the developers'\n"
+		"Sentry project (port/windows/src/win32_crash.c): \"yes\" sends them, \"no\"\n"
+		"never does, \"ask\" asks at the next crash and writes the answer here." },
 
 	{ "debug.network_test", _config_string, "\"\"", "HALO_NETWORK_TEST", _environment_value, _platform_all,
 		"Automated system link sessions for testing (port/linux/game/network_test.c):\n"
@@ -435,6 +495,8 @@ static const struct config_setting config_settings[] =
 
 #ifdef HALO_ANDROID
 #define CONFIG_PLATFORM _platform_android
+#elif defined(_WIN32)
+#define CONFIG_PLATFORM (_platform_desktop | _platform_windows)
 #else
 #define CONFIG_PLATFORM _platform_desktop
 #endif

@@ -124,6 +124,14 @@ KCP_DIR = Path("port/third_party/kcp")
 QRCODEGEN_DIR = Path("port/third_party/qrcodegen")
 MONOCYPHER_DIR = Path("port/third_party/monocypher")
 MUSL_MATH_DIR = Path("port/third_party/musl-math")
+# the port's zlib (port/third_party/zlib/zlib_prefixed.h): what inflates the
+# maps, the menus' and the HUD's PNGs and the updates, data from anywhere,
+# instead of the game's own 1.1.3 (its inflate only, its names prefixed z_)
+ZLIB_DIR = Path("port/third_party/zlib")
+ZLIB_SOURCES = ("adler32.c", "crc32.c", "inffast.c", "inflate.c", "inftrees.c", "uncompr.c", "zutil.c")
+# (its names prefixed, and the one Z_PREFIX leaves, its error messages, which
+# the game's zlib names the same)
+ZLIB_DEFINES = ("-DZ_PREFIX", "-Dz_errmsg=z_port_errmsg")
 # the self-updater's TLS (port/linux/src/posix_update.c)
 MBEDTLS_DIR = Path("port/third_party/mbedtls")
 STB_DIR = Path("port/third_party/stb")
@@ -357,8 +365,11 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
     semantics_header = units.semantics_header
     platform_semantics_header = units.platform_semantics_header
     browser_defines = ["-DHALO_GAME_BROWSER"] if units.game_browser else []
+    # (a debug build checks its stack frames, and stops at the first one
+    # overrun, as it stops at the first failed assertion; a release build
+    # does not, so that an overrun nobody has met cannot end a game)
     abi = " ".join(_retarget(LINUX_ABI_FLAGS, units.target_flags) + [march_flag(sln)]
-                   + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else [])
+                   + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else ["-fstack-protector-strong"])
                    + browser_defines + CUSTOM_EDITION_DEFINES + units.extra_flags)
     port_include = PORT_DIR / "include"
     sdk_flags = f"-idirafter {XDK_INCLUDE}"
@@ -390,6 +401,9 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
         f"-include {prefix_header}",
         f"-include {semantics_header}",
         f"-I{port_include}",
+        # the headers of the port's own game units (port/linux/game), for
+        # the game sources that call them
+        f"-iquote {Path(config['game_sources'])}",
         game_defines_and_includes(config),
         sdk_flags,
     ])
@@ -417,6 +431,7 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
         f"-I{KCP_DIR}",
         f"-I{QRCODEGEN_DIR}",
         f"-I{MONOCYPHER_DIR}",
+        f"-I{ZLIB_DIR}",
         "-Isource -Isource/cseries",
         sdk_flags,
         *units.include_flags,
@@ -475,6 +490,9 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
     # (port/third_party/monocypher; p2p_crypto.c)
     for name in ("monocypher.c", "monocypher-ed25519.c"):
         add_object(MONOCYPHER_DIR / name, " ".join([abi, "-std=gnu11", "-w"]))
+    # the port's zlib
+    for name in ZLIB_SOURCES:
+        add_object(ZLIB_DIR / name, " ".join([abi, "-std=gnu11", *ZLIB_DEFINES, "-w"]))
     # the game's sin, pow and the rest, the same on every port
     # (port/include/halo_math.h)
     for source in musl_math_sources():

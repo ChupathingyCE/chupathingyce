@@ -40,7 +40,7 @@ macos_build.py; the Android app's version is its own, build.gradle) */
 
 #ifndef HALO_ANDROID
 
-#include "memory/zlib/zlib.h"
+#include "zlib_prefixed.h"
 
 #include <SDL3/SDL.h>
 #include <stdio.h>
@@ -228,9 +228,9 @@ static int zip_extract_entry(SDL_IOStream *zip, unsigned long local_offset, int 
 				break;
 			}
 		}
-		/* (the game's zlib is 1.1, which can want a byte past the end of a
-		raw stream before it says the stream has ended: all of the input
-		unpacked is enough, as the size and the CRC are checked) */
+		/* (all of the input unpacked is enough, as the size and the CRC are
+		checked: the game's zlib 1.1, used here before, could want a byte past
+		the end of a raw stream before it said the stream had ended) */
 		if (ended || !remaining)
 		{
 			if (written != size)

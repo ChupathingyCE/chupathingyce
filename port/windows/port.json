@@ -17,6 +17,7 @@
     "user32",
     "advapi32",
     "winhttp",
-    "crypt32"
+    "crypt32",
+    "dbghelp"
   ]
 }
