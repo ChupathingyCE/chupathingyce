@@ -286,10 +286,13 @@ Where each build gets its signature:
   and `chupathingyce-android-release-unsigned.apk`. A build with the debug
   key of the runner does not install over a build with ChupathingyCE's key.
 - Nightly builds and releases (the workflows of ChupathingyCE/command):
-  the workflow writes `keystore.properties` from its secrets, signs the
-  debug and the release builds with ChupathingyCE's key, and checks the
-  certificate. To get a signed build of a pull request, start the "Build"
-  workflow of ChupathingyCE/command with the commit of the pull request.
+  the "Build" workflow of this repository builds the commit with its
+  version, as above (no key). The command workflow then signs both APKs
+  again with ChupathingyCE's key (`zipalign`, then `apksigner sign`),
+  checks the certificate, the app ID and the version, and publishes them.
+  The key never leaves the private repository. To get a signed build of a
+  pull request, start the "Build" workflow of ChupathingyCE/command with
+  the commit of the pull request.
 
 ### Versions
 

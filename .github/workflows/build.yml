@@ -5,10 +5,15 @@ name: Build
 # x86, x64 and arm64) and its container, for every pushed commit and pull
 # request, uploaded as artifacts: whether a change builds. tools/ci_build.py does each build; see it for the options.
 #
-# Releases and nightlies are not made here: ChupathingyCE's release
-# workflows build them from the versions they pin, signed, and publish them
-# to this repository's Releases (tools/version.py). These builds are
-# VERSION's -dev, and never look for updates.
+# These builds are VERSION's -dev, and never look for updates. Releases and
+# nightlies are built here too, by hand or by ChupathingyCE's release
+# workflows (ChupathingyCE/command), which run this workflow on main with a
+# commit and its version (tools/version.py): the builds are that commit's,
+# as that version, and a release's look for newer releases. Those workflows
+# then sign the Android app with ChupathingyCE's key (this repository has no
+# key: the debug app has the runner's debug key, the release app is
+# unsigned) and publish the builds to this repository's Releases. Each run
+# also uploads chupathingyce-build-info: the commit and version it built.
 #
 # Kept cheap:
 # - one job per platform builds both configurations, so its set-up (tools,
@@ -28,21 +33,85 @@ on:
     paths-ignore:
       - "**.md"
   workflow_dispatch:
+    inputs:
+      commit:
+        description: The commit to build (a SHA; empty, the branch's)
+        type: string
+        default: ""
+      version:
+        description: The version (0.5.0b, 0.5.0b-nightly.42; empty, VERSION's -dev)
+        type: string
+        default: ""
+      release:
+        description: A release's build (its updater looks for newer releases; the version must be VERSION's)
+        type: boolean
+        default: false
+      request:
+        description: An ID that the caller finds this run by (in its name)
+        type: string
+        default: ""
 
+# (a run started with a version is named for it, so that the release
+# workflows find their run; the others keep GitHub's name)
+run-name: ${{ inputs.version && format('Build {0} at {1} {2}', inputs.version, inputs.commit, inputs.request) || '' }}
+
+# (a run started by hand is never canceled by a push, and cancels none)
 concurrency:
-  group: build-${{ github.ref }}
+  group: ${{ github.event_name == 'workflow_dispatch' && format('build-dispatch-{0}', github.run_id) || format('build-{0}', github.ref) }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 env:
+  # (empty unless started with a version: VERSION's -dev, tools/version.py)
+  HALO_VERSION: ${{ inputs.version }}
+  HALO_RELEASE_BUILD: ${{ inputs.release && '1' || '0' }}
   CI_COMPILER_LAUNCHER: ccache
   CCACHE_DIR: ${{ github.workspace }}/.ccache
   CCACHE_BASEDIR: ${{ github.workspace }}
   CCACHE_MAXSIZE: 1G
 
 jobs:
+  info:
+    # what this run builds: the commit (inputs.commit, else the run's) and
+    # the version, which the release workflows check before they publish
+    # its builds
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
+
+      - name: Build info
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REQUEST: ${{ inputs.request }}
+        run: |
+          mkdir -p dist/chupathingyce-build-info
+          python3 - > dist/chupathingyce-build-info/build-info.json <<'EOF'
+          import json, os, subprocess
+          from tools.version import release_build, version
+          print(json.dumps({
+              "commit": subprocess.run(["git", "rev-parse", "HEAD"], check=True, capture_output=True,
+                                       text=True).stdout.strip(),
+              "version": version(),
+              "release": release_build(),
+              "event": os.environ["EVENT"],
+              "ref": os.environ["REF"],
+              "request": os.environ["REQUEST"],
+          }, indent=2))
+          EOF
+          cat dist/chupathingyce-build-info/build-info.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chupathingyce-build-info
+          path: dist/chupathingyce-build-info
+          retention-days: 3
+
   linux:
     # Arch Linux has what the build needs as packages: clang 22 (for the
     # profile-guided optimisation in pgo/) and 32-bit SDL 3.
@@ -57,6 +126,8 @@ jobs:
             clang lld gcc lib32-glibc lib32-gcc-libs lib32-sdl3
 
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
 
       - uses: actions/cache@v4
         with:
@@ -100,6 +171,8 @@ jobs:
           pacman -Syu --noconfirm --needed git zstd python ninja ccache clang lld gcc sdl3
 
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
 
       - uses: actions/cache@v4
         with:
@@ -149,6 +222,8 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
 
       - uses: actions/cache@v4
         with:
@@ -204,6 +279,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
 
       - uses: actions/download-artifact@v4
         with:
@@ -262,6 +339,8 @@ jobs:
           echo "$RUNNER_TEMP/tools" >> "$GITHUB_PATH"
 
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
 
       - uses: actions/cache@v4
         with:
@@ -285,9 +364,11 @@ jobs:
       # No keystore.properties here (pull requests and forks have no
       # secrets): the debug app has the runner's own debug key
       # (chupathingyce-android-debug-testkey.apk), which does not install
-      # over ChupathingyCE's builds, and the release app is unsigned, only
-      # checked to build. The release workflows (ChupathingyCE/command) sign
-      # both with ChupathingyCE's key (port/android/README.md).
+      # over ChupathingyCE's builds, and the release app is unsigned
+      # (chupathingyce-android-release-unsigned.apk). The release workflows
+      # (ChupathingyCE/command) take both from a run of this workflow and
+      # sign them again with ChupathingyCE's key, zipalign and apksigner
+      # (port/android/README.md).
       - name: Debug
         run: python3 tools/ci_build.py android debug
 
@@ -333,6 +414,8 @@ jobs:
           "$env:RUNNER_TEMP\tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
 
       - uses: actions/cache@v4
         with:
@@ -391,6 +474,8 @@ jobs:
           "$env:RUNNER_TEMP\tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
 
       - uses: actions/cache@v4
         with:
@@ -439,6 +524,8 @@ jobs:
         run: brew install ninja ccache
 
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
 
       - uses: actions/cache@v4
         with:
