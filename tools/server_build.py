@@ -43,6 +43,7 @@ from .linux_build import (
     MBEDTLS_DIR,
     MONOCYPHER_DIR,
     PORT_CONFIG,
+    QRCODEGEN_DIR,
     Linux32Units,
     _load_port_config,
     compile_launcher,
@@ -63,7 +64,10 @@ SERVER_PLATFORM_SOURCES = [SERVER_PLATFORM_DIR / "server_platform.c", SERVER_PLA
 # the page's files are embedded by tools/embed_webui.py)
 SERVER_NATIVE_SOURCES = [SERVER_PLATFORM_DIR / "sdl_headless.c", SERVER_PLATFORM_DIR / "backtrace.c",
                          SERVER_PLATFORM_DIR / "control_protocol.c", SERVER_PLATFORM_DIR / "control_web.c",
-                         SERVER_PLATFORM_DIR / "control_tls.c", SERVER_PLATFORM_DIR / "server_control.c"]
+                         SERVER_PLATFORM_DIR / "control_tls.c", SERVER_PLATFORM_DIR / "server_control.c",
+                         SERVER_PLATFORM_DIR / "control_roles.c", SERVER_PLATFORM_DIR / "control_accounts.c",
+                         SERVER_PLATFORM_DIR / "server_roles.c", SERVER_PLATFORM_DIR / "control_link_protocol.c",
+                         SERVER_PLATFORM_DIR / "control_link.c"]
 SERVER_WEBUI_DIR = SERVER_DIR / "webui"
 # the window, input and self-updater the server has none of
 SERVER_EXCLUDED = {
@@ -242,7 +246,7 @@ def generate_server_build(n: Writer, sln: Any) -> None:
     # (SDL's headers; Monocypher's, for the control API's credentials; Mbed
     # TLS's, for its HTTPS beyond the machine: control_tls.c, whose library
     # the game list's requests already link)
-    include_flags = [f"-I{SDL_INCLUDE}", f"-I{MONOCYPHER_DIR}", f"-I{MBEDTLS_DIR / 'include'}"]
+    include_flags = [f"-I{SDL_INCLUDE}", f"-I{MONOCYPHER_DIR}", f"-I{MBEDTLS_DIR / 'include'}", f"-I{QRCODEGEN_DIR}"]
 
     n.comment(f"The dedicated server (ninja server; tools/server_build.py): {', '.join(arches)}, "
               f"{'static, musl' if static else 'glibc'}")
