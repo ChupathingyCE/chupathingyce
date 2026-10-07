@@ -16,6 +16,8 @@ game reached through an invite. See browser.c.
 (p2p_internal.h's P2P_LINK_SIZE, without "halo://join/") */
 #define BROWSER_INVITE_LENGTH 64
 #define BROWSER_NAME_LENGTH 16
+/* a player's name (UTF-16, as the game's: 11 characters and a 0) */
+#define BROWSER_PLAYER_NAME_LENGTH 12
 #define BROWSER_MAP_LENGTH 64
 #define BROWSER_MAXIMUM_GAMES 64
 /* a host's roster: the players it announces (as many as a game takes), and
@@ -27,7 +29,7 @@ those a listed game keeps (as many as the Online Games screen shows) */
 struct browser_roster_player
 {
 	/* (UTF-16, as the game's names) */
-	unsigned short name[12];
+	unsigned short name[BROWSER_PLAYER_NAME_LENGTH];
 	/* its team, -1 in a game without teams */
 	short team;
 };
@@ -56,7 +58,7 @@ struct browser_game
 struct browser_report_player
 {
 	/* (UTF-16, as the game's names) */
-	unsigned short name[12];
+	unsigned short name[BROWSER_PLAYER_NAME_LENGTH];
 	short team;
 	short place;
 	int score;
@@ -157,7 +159,7 @@ int browser_headless(void);
 /* the local players of a game that just ended, by name: their lines in its
 carnage report confirmed with this copy's player key (browser.c); and the
 public player ID it confirms them as */
-void browser_claim_game(const unsigned short (*names)[12], int count);
+void browser_claim_game(const unsigned short (*names)[BROWSER_PLAYER_NAME_LENGTH], int count);
 int browser_player_id(char *text, int size);
 
 /* the profile page (halo.milenko.org/profile), signed in as this copy's

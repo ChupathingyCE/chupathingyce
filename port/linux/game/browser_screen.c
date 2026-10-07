@@ -470,7 +470,7 @@ static void open_link_profile(
 {
 	long profile_index = player_ui_get_player1_last_used_profile_index();
 	struct player_profile profile;
-	unsigned short name[12];
+	unsigned short name[BROWSER_PLAYER_NAME_LENGTH];
 	long index;
 
 	csmemset(name, 0, sizeof(name));

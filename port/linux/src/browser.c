@@ -127,7 +127,7 @@ static struct
 	/* the local players' lines of a finished game, to confirm (the game's
 	thread asks, the browser thread sends) */
 	char claim_invite[BROWSER_INVITE_LENGTH + 1];
-	unsigned short claim_names[MAXIMUM_CLAIM_NAMES][12];
+	unsigned short claim_names[MAXIMUM_CLAIM_NAMES][BROWSER_PLAYER_NAME_LENGTH];
 	int claim_count;
 	int claim_attempts;
 	unsigned long claim_time;
@@ -142,7 +142,7 @@ static struct
 	so that an answer about a code no longer shown is dropped */
 	int connect_state;
 	int connect_serial;
-	unsigned short connect_name[12];
+	unsigned short connect_name[BROWSER_PLAYER_NAME_LENGTH];
 	char connect_code[16];
 	char connect_token[CONNECT_TOKEN_LENGTH + 1];
 	unsigned long connect_time;
@@ -397,7 +397,7 @@ static int safe_for_key(const char *url)
 static void send_claims(void)
 {
 	char invite[BROWSER_INVITE_LENGTH + 1];
-	unsigned short names[MAXIMUM_CLAIM_NAMES][12];
+	unsigned short names[MAXIMUM_CLAIM_NAMES][BROWSER_PLAYER_NAME_LENGTH];
 	unsigned char key[PLAYER_KEY_SIZE];
 	char key_text[2 * PLAYER_KEY_SIZE + 1];
 	char url[512], body[512], name[64], response[256], error[256];
@@ -425,9 +425,9 @@ static void send_claims(void)
 	{
 		int status;
 
-		utf8_from_name(names[index], 12, name, sizeof(name));
+		utf8_from_name(names[index], BROWSER_PLAYER_NAME_LENGTH, name, sizeof(name));
 		snprintf(body, sizeof(body), "{\"invite\": \"%s\", \"key\": \"%s\", \"name\": ", invite, key_text);
-		json_name(body + strlen(body), (int)(sizeof(body) - strlen(body) - 2), names[index], 12);
+		json_name(body + strlen(body), (int)(sizeof(body) - strlen(body) - 2), names[index], BROWSER_PLAYER_NAME_LENGTH);
 		strcat(body, "}");
 		status = posix_browser_request(url, body, "application/json", response, sizeof(response), error,
 			sizeof(error));
@@ -527,7 +527,7 @@ static void start_connect(int serial, const unsigned short *name)
 	if (name[0])
 	{
 		strcat(body, ", \"name\": ");
-		json_name(body + strlen(body), (int)(sizeof(body) - strlen(body) - 2), name, 12);
+		json_name(body + strlen(body), (int)(sizeof(body) - strlen(body) - 2), name, BROWSER_PLAYER_NAME_LENGTH);
 	}
 	strcat(body, "}");
 	status = posix_browser_request(url, body, "application/json", response, sizeof(response), error, sizeof(error));
@@ -676,7 +676,7 @@ static void ask_connect(int serial, const char *token, int answer)
 
 static void update_connect(void)
 {
-	unsigned short name[12];
+	unsigned short name[BROWSER_PLAYER_NAME_LENGTH];
 	char token[CONNECT_TOKEN_LENGTH + 1];
 	int state, serial, answer, ask;
 
@@ -737,7 +737,7 @@ static void roster_text(const struct browser_roster_player *roster, int count, c
 	{
 		char name[64];
 
-		utf8_from_name(roster[index].name, 12, name, sizeof(name));
+		utf8_from_name(roster[index].name, BROWSER_PLAYER_NAME_LENGTH, name, sizeof(name));
 		used += snprintf(text + used, (size_t)(size - used), "%s%d:%s", index ? "|" : "", roster[index].team, name);
 	}
 }
@@ -965,7 +965,7 @@ static void parse_roster(char *text, struct browser_game *game)
 			{
 				struct browser_roster_player *player = &game->roster[game->roster_count];
 
-				name_from_utf8(colon + 1, player->name, 12);
+				name_from_utf8(colon + 1, player->name, BROWSER_PLAYER_NAME_LENGTH);
 				player->team = (short)atoi(entry);
 			}
 			game->roster_count++;
@@ -1225,7 +1225,7 @@ static char *report_json(int teams, int red_score, int blue_score, int duration_
 		unsigned long address = tag_invite ? public_address(player->address) : 0;
 
 		used = append(report, size, used, "%s{\"name\": ", index ? ", " : "");
-		used = clamped(used + json_name(report + used, (int)(size - (size_t)used), player->name, 12), size);
+		used = clamped(used + json_name(report + used, (int)(size - (size_t)used), player->name, BROWSER_PLAYER_NAME_LENGTH), size);
 		used = append(report, size, used,
 			", \"team\": %d, \"place\": %d, \"score\": %d, \"kills\": %d, \"assists\": %d, \"deaths\": %d, "
 			"\"betrayals\": %d, \"suicides\": %d, \"shots_fired\": %d, \"shots_hit\": %d, \"multikills\": %d, "
@@ -1304,7 +1304,7 @@ void browser_client_report(int teams, int red_score, int blue_score, int duratio
 
 /* the local players of a game that ended: their lines confirmed with the
 player key, once the host has reported the game (if it is listed) */
-void browser_claim_game(const unsigned short (*names)[12], int count)
+void browser_claim_game(const unsigned short (*names)[BROWSER_PLAYER_NAME_LENGTH], int count)
 {
 	char invite[BROWSER_INVITE_LENGTH + 1];
 

@@ -482,7 +482,7 @@ static long stats_departed_json(
 {
 	char name[96];
 
-	browser_json_name(name, sizeof(name), (unsigned short const *)player->name, 12);
+	browser_json_name(name, sizeof(name), (unsigned short const *)player->name, BROWSER_PLAYER_NAME_LENGTH);
 	used = stats_append(text, size, used,
 		"{\"name\": %s, \"team\": %ld, \"color\": %d, \"kills\": %d, \"assists\": %d, \"deaths\": %d, "
 		"\"betrayals\": %d, \"suicides\": %d, \"shots_fired\": %ld, \"shots_hit\": %ld, \"multikills\": %d, "
@@ -531,7 +531,7 @@ static void stats_client_report(
 	count = game_engine_report_lines(players, MAXIMUM_STATS_PLAYERS);
 	if (count <= 0)
 		return;
-	browser_json_name(name, sizeof(name), (unsigned short const *)reporter->name, 12);
+	browser_json_name(name, sizeof(name), (unsigned short const *)reporter->name, BROWSER_PLAYER_NAME_LENGTH);
 	browser_json_name(host, sizeof(host), (unsigned short const *)game->name, 16);
 	used = stats_append(extra, sizeof(extra), used,
 		"\"map\": \"");
