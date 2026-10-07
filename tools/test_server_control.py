@@ -11,6 +11,7 @@ server/tests/control_harness.c, a stand-in for the game's main thread),
 driven over real sockets on the loopback address: the page's files and
 headers, logins and sessions, CSRF, bearer tokens, the limits, the
 console's sv_admin_* commands, and junk requests."""
+import json
 import os
 import random
 import re
@@ -194,7 +195,6 @@ class Response:
                 self.cookies.append(value.strip())
 
     def json(self):
-        import json
         return json.loads(self.body)
 
     @property
@@ -207,7 +207,6 @@ class Response:
 
 
 def http(harness, method, path, headers=None, body=None):
-    import json
     lines = [f"{method} {path} HTTP/1.1", f"Host: 127.0.0.1:{harness.port}"]
     payload = b""
     if body is not None:
@@ -345,13 +344,13 @@ def test_admin_console(harness, tmp_path):
     credentials = tmp_path / "control_credentials.txt"
     assert len(re.findall(r"^v1 argon2id ", credentials.read_text(), re.M)) == 1
     output = harness.console("sv_admin_add ops", "can log in with it now")
-    bob = next(line.strip() for line in output if re.fullmatch(r"\s*chce_[0-9a-f]{64}\s*", line))
+    ops_token = next(line.strip() for line in output if re.fullmatch(r"\s*chce_[0-9a-f]{64}\s*", line))
     text = credentials.read_text()
-    assert len(re.findall(r"^v1 argon2id ", text, re.M)) == 2 and bob not in text and harness.token not in text
+    assert len(re.findall(r"^v1 argon2id ", text, re.M)) == 2 and ops_token not in text and harness.token not in text
     assert (credentials.stat().st_mode & 0o777) == 0o600
     assert "already" in "\n".join(harness.console("sv_admin_add ops", "already"))
     assert "a name is" in "\n".join(harness.console("sv_admin_add \"x\"", "a name is"))
-    response = login(harness, bob)
+    response = login(harness, ops_token)
     assert response.status == 200 and response.json()["name"] == "ops"
     jar = {"Cookie": f"chce_session={response.session}"}
     listing = "\n".join(harness.console("sv_admin_list", "web session"))
@@ -360,7 +359,7 @@ def test_admin_console(harness, tmp_path):
     output = harness.console("sv_admin_rotate ops", "stop working now")
     new = next(line.strip() for line in output if re.fullmatch(r"\s*chce_[0-9a-f]{64}\s*", line))
     assert http(harness, "GET", "/v1/status", jar).status == 401
-    assert login(harness, bob).status == 401
+    assert login(harness, ops_token).status == 401
     assert login(harness, new).status == 200
     assert login(harness).status == 200
 
