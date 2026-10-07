@@ -317,27 +317,45 @@ static void player_key_path(char *path, int size)
 
 static int player_key(unsigned char *key)
 {
+	/* (one thread loads it, or makes it the first time, while another that
+	wants it waits: the browser's thread and the game's both ask, and the
+	second, finding the file just made and not yet written, had the key
+	missing for the whole run; held across the file's reading, not
+	browser_lock) */
+	static pthread_mutex_t load_lock = PTHREAD_MUTEX_INITIALIZER;
 	int loaded;
-	unsigned char *cached = player_key_cached;
 	char path[1024];
 
+	pthread_mutex_lock(&load_lock);
 	pthread_mutex_lock(&browser_lock);
 	loaded = player_key_loaded;
 	pthread_mutex_unlock(&browser_lock);
 	if (!loaded)
 	{
+		unsigned char read_key[PLAYER_KEY_SIZE];
+
 		player_key_path(path, sizeof(path));
-		loaded = posix_browser_private_key(path, cached, PLAYER_KEY_SIZE) ? 1 : -1;
+		loaded = posix_browser_private_key(path, read_key, PLAYER_KEY_SIZE) ? 1 : -1;
 		if (loaded < 0)
 			platform_log("Game list: no player key (%s): finished games are not confirmed", path);
 		pthread_mutex_lock(&browser_lock);
-		player_key_loaded = loaded;
+		/* (unless a restored key took its place meanwhile) */
+		if (player_key_loaded)
+			loaded = player_key_loaded;
+		else
+		{
+			if (loaded > 0)
+				memcpy(player_key_cached, read_key, PLAYER_KEY_SIZE);
+			player_key_loaded = loaded;
+		}
 		pthread_mutex_unlock(&browser_lock);
+		memset(read_key, 0, sizeof(read_key));
 	}
+	pthread_mutex_unlock(&load_lock);
 	if (loaded < 0)
 		return 0;
 	pthread_mutex_lock(&browser_lock);
-	memcpy(key, cached, PLAYER_KEY_SIZE);
+	memcpy(key, player_key_cached, PLAYER_KEY_SIZE);
 	pthread_mutex_unlock(&browser_lock);
 	return 1;
 }
