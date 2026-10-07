@@ -432,7 +432,8 @@ static const struct config_setting config_settings[] =
 		"too (the end replaces it); 0 only at its end." },
 	{ "network.events_folder", _config_string, "\"\"", "HALO_EVENTS_FOLDER", _environment_value, _platform_all,
 		"Delta Stats: a folder to keep a copy of each batch sent, a JSON file each\n"
-		"(beside this file unless a full path); empty for none." },
+		"(a full path is best: a relative one is from the working folder); empty\n"
+		"for none." },
 #endif
 	{ "discord.application_id", _config_string, "\"1553978809840050229\"", "HALO_DISCORD_APPLICATION",
 		_environment_value, _platform_desktop,
