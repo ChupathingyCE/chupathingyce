@@ -535,7 +535,8 @@ static byte *ce_retail_read_resource(
 	copy = malloc(resource->size);
 	if (copy && !ce_read(map->file, resource->offset, copy, resource->size))
 	{
-		free(copy);
+		if (copy)
+			free(copy);
 		copy = NULL;
 	}
 	*size = resource->size;
@@ -568,7 +569,8 @@ static byte *ce_retail_resource_bitmaps(
 				*count = (long)bitmap_count;
 			}
 		}
-		free(copy);
+		if (copy)
+			free(copy);
 	}
 	return bitmaps;
 }
@@ -601,7 +603,8 @@ static void ce_retail_read_stand_ins(
 			ce_retail_stand_ins = grown;
 			ce_retail_stand_in_count += count;
 		}
-		free(bitmaps);
+		if (bitmaps)
+			free(bitmaps);
 	}
 }
 
@@ -1106,7 +1109,8 @@ boolean ce_resources_check(
 		else if (instance->group_tag == 'snd!')
 			valid = ce_sound_check(image, instance, types[index] != 0, map_file_size);
 	}
-	free(types);
+	if (types)
+		free(types);
 	return valid;
 }
 
@@ -1330,7 +1334,8 @@ static void ce_sounds_decode(
 				data = malloc((size_t)size);
 				frames = data && ce_read(source, offset, data, (unsigned long)size) ?
 					ce_vorbis_decode(data, size, &channels, &rate, &samples) : -1;
-				free(data);
+				if (data)
+					free(data);
 				/* (and no more than the sound cache could hold of it) */
 				if (frames <= 0 || channels != (encoding ? 2 : 1) || rate != (sample_rate ? 44100 : 22050) ||
 					frames > 0x1000000)

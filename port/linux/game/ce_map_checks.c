@@ -403,7 +403,8 @@ static boolean ce_bsps_check(
 			return ce_refuse("no memory to check structure BSP %ld (%lu bytes)", index, reference.file_size);
 		valid = ce_file_read(file, reference.file_offset, bsp.data, reference.file_size) &&
 			ce_bsp_check(&bsp, &bytes);
-		free(bsp.data);
+		if (bsp.data)
+			free(bsp.data);
 		if (!valid)
 			return ce_refuse("structure BSP %ld could not be read", index);
 		if (bytes > *bsp_bytes)
@@ -529,7 +530,8 @@ static boolean ce_map_check_tags(
 done:
 	if (model_data)
 		free(model_data);
-	free(image.data);
+	if (image.data)
+		free(image.data);
 	return valid;
 }
 

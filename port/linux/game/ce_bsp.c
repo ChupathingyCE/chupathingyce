@@ -336,7 +336,8 @@ void ce_bsp_unloaded(
 
 	for (index = 0; index < ce_bsp_vertex_memory_count; index++)
 		XPhysicalFree(ce_bsp_vertex_memory[index]);
-	free(ce_bsp_vertex_memory);
+	if (ce_bsp_vertex_memory)
+		free(ce_bsp_vertex_memory);
 	ce_bsp_vertex_memory = NULL;
 	ce_bsp_vertex_memory_count = 0;
 	/* (its vertex buffers' room, for the next BSP's) */

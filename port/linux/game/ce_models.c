@@ -548,10 +548,12 @@ void ce_models_tags_unloaded(
 
 	for (index = 0; index < ce_vertex_memory_count; index++)
 		XPhysicalFree(ce_vertex_memory[index]);
-	free(ce_vertex_memory);
+	if (ce_vertex_memory)
+		free(ce_vertex_memory);
 	ce_vertex_memory = NULL;
 	ce_vertex_memory_count = 0;
-	free((void *)ce_multipurpose_bitmaps);
+	if ((void *)ce_multipurpose_bitmaps)
+		free((void *)ce_multipurpose_bitmaps);
 	ce_multipurpose_bitmaps = NULL;
 	ce_multipurpose_bitmap_count = 0;
 }
