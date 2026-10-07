@@ -39,7 +39,9 @@ static void record(const struct control_audit_event *event)
 	{
 		if (!strcmp(event->action, actions[index].action))
 		{
-			snprintf(by, sizeof(by), "%s:%s", event->via ? event->via : "", event->actor ? event->actor : "");
+			/* ("console", or "web:milenko") */
+			snprintf(by, sizeof(by), "%s%s%s", event->via ? event->via : "", event->actor && event->actor[0] ? ":" : "",
+				event->actor ? event->actor : "");
 			event_upload_moderation(actions[index].kind, event->target ? event->target : "", by,
 				event->reason ? event->reason : "");
 			return;
