@@ -338,7 +338,7 @@ static BOOL file_has_room(unsigned long bytes)
 	{
 		cache.full = TRUE;
 		platform_log("shader cache: %s is full (%lu MB): new shaders are no longer added", cache.path,
-			SHADER_CACHE_MAXIMUM_BYTES >> 20);
+			(unsigned long)(SHADER_CACHE_MAXIMUM_BYTES >> 20));
 		return FALSE;
 	}
 	cache.file_bytes += bytes;
