@@ -152,8 +152,10 @@ static char const *const ce_resource_map_names[NUMBER_OF_CE_RESOURCE_MAPS] = { "
 0 none) */
 static byte *ce_indexed_tags;
 static long ce_indexed_tag_count;
-/* the map's Ogg Vorbis sounds' samples, decoded to 16-bit PCM (maps\ce\ce_sounds.pcm) */
+/* the map's Ogg Vorbis sounds' samples, decoded to 16-bit PCM (maps\ce\ce_sounds.pcm),
+and its path */
 static HANDLE ce_decoded_sounds_file;
+static char ce_decoded_sounds_path[256];
 /* the space left in the map's tag cache (ce_resources_allocate) */
 static unsigned long ce_free_next, ce_free_end;
 
@@ -1272,6 +1274,7 @@ static void ce_sounds_decode(
 	{
 		CloseHandle(ce_decoded_sounds_file);
 		ce_decoded_sounds_file = NULL;
+		DeleteFileA(ce_decoded_sounds_path);
 	}
 	sprintf(path, "%sce\\ce_sounds.pcm", cache_files_map_directory());
 	for (index = 0; index < tag_count; index++)
@@ -1299,14 +1302,34 @@ static void ce_sounds_decode(
 			repaired++;
 		if (!source || *(short *)(sound + CE_SOUND_COMPRESSION_OFFSET) != CE_SOUND_COMPRESSION_OGG)
 			continue;
+		/* (this copy of the game's own file: two copies sharing the maps
+		folder each write theirs. An older one is deleted first; on Windows
+		one another copy has open cannot be, and the next name is tried.
+		Elsewhere the file is deleted once it is open, read through its
+		handle alone, so another copy's new one is another file) */
 		if (!file)
 		{
-			file = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
+			int attempt;
+
+			file = INVALID_HANDLE_VALUE;
+			for (attempt = 0; attempt < 8 && file == INVALID_HANDLE_VALUE; attempt++)
+			{
+				if (attempt)
+					sprintf(path, "%sce\\ce_sounds%d.pcm", cache_files_map_directory(), attempt);
+				if (!DeleteFileA(path) && GetLastError() != ERROR_FILE_NOT_FOUND &&
+					GetLastError() != ERROR_PATH_NOT_FOUND)
+				{
+					continue;
+				}
+				file = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_NEW, 0, NULL);
+			}
 			if (file == INVALID_HANDLE_VALUE)
 			{
 				error(_error_silent, "Custom Edition maps: cannot write %s; Ogg Vorbis sounds will not play", path);
 				return;
 			}
+			sprintf(ce_decoded_sounds_path, "%s", path);
+			DeleteFileA(path);
 		}
 		encoding = *(short *)(sound + CE_SOUND_ENCODING_OFFSET);
 		sample_rate = *(short *)(sound + CE_SOUND_SAMPLE_RATE_OFFSET);
