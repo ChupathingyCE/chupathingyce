@@ -432,8 +432,10 @@ static void send_claims(void)
 		status = posix_browser_request(url, body, "application/json", response, sizeof(response), error,
 			sizeof(error));
 		response[strcspn(response, "\r\n")] = 0;
-		if (status == 200)
+		if (status == 200 && !strncmp(response, "ok ", 3))
 			platform_log("Game list: %s's line confirmed (player %s)", name, response + 3);
+		else if (status == 200)
+			platform_log("Game list: %s's line confirmed", name);
 		else if (status == 404 || !status)
 			retry = 1;
 		else
@@ -847,9 +849,11 @@ static void send_report(void)
 			status = posix_browser_request(url, body, "application/json", response, sizeof(response), error,
 				sizeof(error));
 			response[strcspn(response, "\r\n")] = 0;
-			if (status == 200)
+			if (status == 200 && !strncmp(response, "ok ", 3))
 				platform_log("Game list: the game's carnage report is at %s/games/%s",
 					config_string("network.browser_url"), response + 3);
+			else if (status == 200)
+				platform_log("Game list: the game's carnage report was sent");
 			else
 				platform_log("Game list: could not send the carnage report (%s)", status ? response : error);
 			free(body);
