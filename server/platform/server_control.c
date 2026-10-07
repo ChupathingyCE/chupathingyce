@@ -53,6 +53,7 @@ platform_log) are kept in a ring here, any public address in them hidden
 (control_protocol.h), whatever debug.log_addresses says.
 */
 
+#include "server_control.h"
 #include "control_protocol.h"
 #include "control_web.h"
 
@@ -112,11 +113,6 @@ enum
 	MAXIMUM_CREDENTIALS = 8,
 	/* the console's line, at most (a command's, command_line.h) */
 	CONSOLE_LINE_SIZE = CONTROL_MAXIMUM_COMMAND,
-
-	/* a command's flags, as server_commands.c reads them */
-	CONTROL_JSON = 1,
-	CONTROL_NOTICE = 2,
-	CONTROL_QUIET = 4,
 };
 
 enum

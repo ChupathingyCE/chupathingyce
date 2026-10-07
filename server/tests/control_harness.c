@@ -27,17 +27,7 @@ runs until it is killed.
 #include <string.h>
 #include <time.h>
 
-enum
-{
-	CONTROL_JSON = 1,
-	CONTROL_NOTICE = 2,
-	CONTROL_QUIET = 4,
-};
-
-void server_control_start(void);
-int server_control_next(char *line, int line_size, char *source, int source_size, int *flags);
-void server_control_finish(int ticket, int ok, const char *output);
-void server_control_log(const char *text);
+#include "../platform/server_control.h"
 
 /* ---------- the platform layer's, stood in for */
 
