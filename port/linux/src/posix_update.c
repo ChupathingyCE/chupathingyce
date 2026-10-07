@@ -314,6 +314,9 @@ struct download
 	unsigned long long received, total, maximum;
 };
 
+/* (a release is tens of megabytes: a body past this fills no disk) */
+#define MAXIMUM_DOWNLOAD_SIZE (512ull * 1024 * 1024)
+
 static int body_write(struct download *download, const unsigned char *data, size_t size)
 {
 	/* (no more than the caller expects: a body that goes on is refused) */
@@ -446,6 +449,12 @@ static int https_get(const char *url, struct download *download, char *location,
 		{
 			length = strtoull(value, NULL, 10);
 			have_length = 1;
+			if (length > MAXIMUM_DOWNLOAD_SIZE)
+			{
+				snprintf(error, (size_t)error_size, "the download from %s is too large", host);
+				connection_free(&connection);
+				return 0;
+			}
 		}
 		else if (!strcasecmp(line, "Transfer-Encoding") && strcasestr(value, "chunked"))
 		{
