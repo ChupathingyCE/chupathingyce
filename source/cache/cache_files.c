@@ -1453,9 +1453,9 @@ long scenario_tags_load(
 			}
 			/* port: the bitmaps the high-res HUD stands for (port/linux/game/hud_hires_tags.c) */
 			{
-				extern void hud_hires_tags_loaded(void);
+				extern void hud_hires_tags_loaded(long scenario_index);
 
-				hud_hires_tags_loaded();
+				hud_hires_tags_loaded(cache_file_globals.tag_header->scenario_tag_index);
 			}
 #ifdef HALO_GAME_BROWSER
 			/* the Multiplayer menu's ONLINE GAMES (interface/ui_widget.c) */

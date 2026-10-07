@@ -657,8 +657,10 @@ void *ce_tags_pointer(
 	static byte scratch[0x40000];
 	static long misses;
 
-	if (!size || !cache_file_tags_are_ce() || (address >= CE_IMAGE_TAG_CACHE_BASE && size > 0 &&
-		ce_range_within(address - CE_IMAGE_TAG_CACHE_BASE, (unsigned long)size, CE_IMAGE_TAG_CACHE_SIZE)))
+	/* (the bounds first: they pass for nearly every read) */
+	if (!size || (address >= CE_IMAGE_TAG_CACHE_BASE && size > 0 &&
+		ce_range_within(address - CE_IMAGE_TAG_CACHE_BASE, (unsigned long)size, CE_IMAGE_TAG_CACHE_SIZE)) ||
+		!cache_file_tags_are_ce())
 	{
 		return xbox_pointer(address);
 	}

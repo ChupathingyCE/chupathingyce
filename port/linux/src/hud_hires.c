@@ -5,11 +5,14 @@ The high-res HUD's textures (hud_hires.h): which one stands for a bitmap being
 uploaded, and each one's GL texture.
 
 Which bitmap is at an address the game knows (from the loaded map's tags:
-port/linux/game/hud_hires_tags.c). Each texture is decoded from its PNG when
+port/linux/game/hud_hires_tags.c). Each texture is uploaded from its PNG when
 first drawn and kept: up to 69 of the HUD's, about 225 MB with their mip
 levels, though a game draws only some (the scopes' only when zoomed), and
 the titles of the menus shown, about 3 MB each (11 MB for the carnage
-report's, a whole panel).
+report's, a whole panel). The HUD's PNGs in a map are decoded as it loads,
+on a thread of their own, so that the HUD's first frame only uploads them
+(decoding them there held that frame up); what is decoded and not drawn is
+let go when the map is unloaded.
 They are drawn with linear filtering and their mip levels (d3d8_gl.c,
 configure_sampler), as they are larger than they appear.
 
@@ -25,6 +28,7 @@ the port's zlib (port/third_party/zlib: a menus folder's PNGs are anyone's).
 
 #include "zlib_prefixed.h"
 
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -37,13 +41,35 @@ a 4096 by 4096 sheet (the largest shipped, 2048 by 2048, takes 32 MB), and
 no more for a small file that names a large size (a menus folder's) */
 #define MAXIMUM_DECODED_SIZE (192UL << 20)
 
+/* a texture's PNG decoded ahead of its first draw (decode_state) */
+enum
+{
+	_decode_none,
+	_decode_queued,
+	_decode_decoding,
+	_decode_done,
+};
+
 static struct
 {
 	unsigned int texture;
 	unsigned long levels;
 	int failed;
 	int other_pixels_logged;
+	/* (decoded ahead: these, the decoding thread's until it is done, under
+	decode_lock) */
+	int decode_state;
+	unsigned char *pixels;
+	unsigned long width, height;
 } textures[MAXIMUM_TEXTURES];
+
+/* (the thread, detached, is waited for by its decode_running) */
+static pthread_mutex_t decode_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t decode_finished = PTHREAD_COND_INITIALIZER;
+static int decode_running, decode_stopping;
+
+static unsigned char *png_decode(const unsigned char *data, unsigned long size, unsigned long *png_width,
+	unsigned long *png_height);
 
 long hud_hires_asset_count(void)
 {
@@ -241,10 +267,11 @@ failed:
 	return NULL;
 }
 
-unsigned int hud_hires_png_texture(const void *png, unsigned long size, unsigned long *levels)
+/* a GL texture of a decoded PNG's texels (which it frees), as below */
+static unsigned int png_pixels_texture(unsigned char *pixels, unsigned long width, unsigned long height,
+	unsigned long *levels)
 {
-	unsigned long width = 0, height = 0, largest;
-	unsigned char *pixels = png_decode(png, size, &width, &height);
+	unsigned long largest;
 	GLuint texture;
 
 	if (!pixels)
@@ -265,6 +292,14 @@ unsigned int hud_hires_png_texture(const void *png, unsigned long size, unsigned
 	return texture;
 }
 
+unsigned int hud_hires_png_texture(const void *png, unsigned long size, unsigned long *levels)
+{
+	unsigned long width = 0, height = 0;
+	unsigned char *pixels = png_decode(png, size, &width, &height);
+
+	return png_pixels_texture(pixels, width, height, levels);
+}
+
 unsigned int hud_hires_override_texture(long asset, unsigned long *levels)
 {
 	const struct hud_hires_embedded *embedded;
@@ -277,7 +312,29 @@ unsigned int hud_hires_override_texture(long asset, unsigned long *levels)
 		return textures[asset].texture;
 	}
 	embedded = &hud_hires_embedded[asset];
-	textures[asset].texture = hud_hires_png_texture(embedded->png, embedded->png_size, &textures[asset].levels);
+	{
+		unsigned char *pixels = NULL;
+		unsigned long width = 0, height = 0;
+		int decoded = 0;
+
+		/* (its PNG decoded as the map loaded, or being decoded: waited for) */
+		pthread_mutex_lock(&decode_lock);
+		while (textures[asset].decode_state == _decode_decoding)
+			pthread_cond_wait(&decode_finished, &decode_lock);
+		if (textures[asset].decode_state == _decode_done)
+		{
+			pixels = textures[asset].pixels;
+			width = textures[asset].width;
+			height = textures[asset].height;
+			textures[asset].pixels = NULL;
+			decoded = 1;
+		}
+		textures[asset].decode_state = _decode_none;
+		pthread_mutex_unlock(&decode_lock);
+		if (!decoded)
+			pixels = png_decode((const unsigned char *)embedded->png, embedded->png_size, &width, &height);
+		textures[asset].texture = png_pixels_texture(pixels, width, height, &textures[asset].levels);
+	}
 	if (!textures[asset].texture)
 	{
 		platform_log("high-res hud: could not decode the texture for %s bitmap %d", embedded->tag, embedded->bitmap);
@@ -286,4 +343,106 @@ unsigned int hud_hires_override_texture(long asset, unsigned long *levels)
 	}
 	*levels = textures[asset].levels;
 	return textures[asset].texture;
+}
+
+/* ---------- decoding ahead */
+
+static void *decode_thread_main(void *unused)
+{
+	long asset, count = hud_hires_asset_count();
+
+	(void)unused;
+	for (asset = 0; asset < count; asset++)
+	{
+		const struct hud_hires_embedded *embedded = &hud_hires_embedded[asset];
+		unsigned long width = 0, height = 0;
+		unsigned char *pixels;
+
+		pthread_mutex_lock(&decode_lock);
+		if (decode_stopping)
+		{
+			pthread_mutex_unlock(&decode_lock);
+			break;
+		}
+		if (textures[asset].decode_state != _decode_queued)
+		{
+			pthread_mutex_unlock(&decode_lock);
+			continue;
+		}
+		textures[asset].decode_state = _decode_decoding;
+		pthread_mutex_unlock(&decode_lock);
+		pixels = png_decode((const unsigned char *)embedded->png, embedded->png_size, &width, &height);
+		pthread_mutex_lock(&decode_lock);
+		textures[asset].pixels = pixels;
+		textures[asset].width = width;
+		textures[asset].height = height;
+		textures[asset].decode_state = _decode_done;
+		pthread_cond_broadcast(&decode_finished);
+		pthread_mutex_unlock(&decode_lock);
+	}
+	pthread_mutex_lock(&decode_lock);
+	decode_running = 0;
+	pthread_cond_broadcast(&decode_finished);
+	pthread_mutex_unlock(&decode_lock);
+	return NULL;
+}
+
+void hud_hires_map_unloaded(void)
+{
+	long asset;
+
+	pthread_mutex_lock(&decode_lock);
+	decode_stopping = 1;
+	while (decode_running)
+		pthread_cond_wait(&decode_finished, &decode_lock);
+	pthread_mutex_unlock(&decode_lock);
+	for (asset = 0; asset < MAXIMUM_TEXTURES; asset++)
+	{
+		free(textures[asset].pixels);
+		textures[asset].pixels = NULL;
+		textures[asset].decode_state = _decode_none;
+	}
+}
+
+void hud_hires_map_loaded(const long *assets, long count)
+{
+	long index, queued = 0;
+	pthread_t thread;
+
+	hud_hires_map_unloaded();
+#ifdef HALO_SERVER
+	/* (the dedicated server draws nothing) */
+	(void)assets;
+	(void)count;
+	return;
+#endif
+	/* (none for a test's run that draws nothing, or with the high-res HUD
+	off: then each is decoded when first drawn, as titles are) */
+	if (!config_boolean("display.high_res_hud") || config_boolean("debug.null_renderer"))
+		return;
+	for (index = 0; index < count; index++)
+	{
+		long asset = assets[index];
+
+		if (asset >= 0 && asset < hud_hires_asset_count() && !hud_hires_embedded[asset].title &&
+			!textures[asset].texture && !textures[asset].failed)
+		{
+			textures[asset].decode_state = _decode_queued;
+			queued++;
+		}
+	}
+	if (!queued)
+		return;
+	decode_stopping = 0;
+	decode_running = 1;
+	if (pthread_create(&thread, NULL, decode_thread_main, NULL) == 0)
+	{
+		pthread_detach(thread);
+	}
+	else
+	{
+		decode_running = 0;
+		for (index = 0; index < MAXIMUM_TEXTURES; index++)
+			textures[index].decode_state = _decode_none;
+	}
 }
