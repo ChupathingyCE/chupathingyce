@@ -353,7 +353,7 @@ void delta_peer_game_stop(int host);
 
 /* the platform policy's row for a platform (delta.h's defaults, in key on
 the way in). The signed legacy table's "platform_policy" section is to tune
-it here (branch delta-legacy-table); for now the defaults stand */
+it here; for now the defaults stand */
 void delta_peer_platform_policy(int platform, struct delta_platform_key *key);
 
 /* this machine's platform key; a game's machine's (0 if not known) */
@@ -369,6 +369,5 @@ int delta_peer_game_room_has(int capability);
 int delta_peer_game_room_limit(int limit);
 /* the client's handshake (enum delta_peer_client_state) */
 int delta_peer_game_client_state(void);
-
 
 #endif

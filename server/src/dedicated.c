@@ -3,10 +3,9 @@ DEDICATED.C
 
 The dedicated server (server/README.md): with HALO_DEDICATED naming a
 playlist file in the data folder (playlists/slayer.txt, beside maps), the
-game hosts system link games by itself, one playlist
-entry after another, with no player of its own. Built into the game browser's
-builds (configure.py --game-browser); without HALO_DEDICATED it does
-nothing.
+game hosts system link games by itself, one playlist entry after another,
+with no player of its own. Built into the game browser's builds
+(configure.py --game-browser); without HALO_DEDICATED it does nothing.
 
 It runs without a window: nothing drawn (d3d8_gl.c), no sound, no movies,
 no display needed (SDL's dummy drivers), so it runs on a server with no
@@ -94,10 +93,6 @@ void network_game_server_dedicated_start_countdown(struct network_game_server *s
 void p2p_set_hosting_allowed(int allowed);
 void p2p_set_hosting_public(int public);
 void p2p_set_hosting_dedicated(int dedicated);
-void network_game_accept_remote_connections(boolean accept);
-void game_engine_playlist_initialize(void);
-void game_engine_playlist_begin(void);
-void game_connection_set(short connection);
 void main_set_multiplayer_map_name(char const *map_name);
 void game_engine_override_map_name(char const *map_name);
 long game_engine_total_score(void);
@@ -135,7 +130,6 @@ static struct
 	/* listed in the server browser (HALO_DEDICATED_PUBLIC) */
 	boolean public_game;
 
-	boolean hosting;
 	boolean entry_set;
 	boolean entry_teams;
 	word last_state;
@@ -162,6 +156,19 @@ static struct
 } dedicated;
 
 /* ---------- private code */
+
+/* a map as the game loads it (a bare name is a multiplayer level's:
+levels\test\<name>\<name>; a Custom Edition or HaloMD map's, <name>@ce or
+<name>@md, stays bare, as the menus' map list plays it: cache_files_windows.c) */
+static void level_path(
+	char const *map,
+	char *path)
+{
+	if (!strchr(map, '\\') && !strchr(map, '@'))
+		snprintf(path, DEDICATED_MAP_SIZE, "levels\\test\\%s\\%s", map, map);
+	else
+		snprintf(path, DEDICATED_MAP_SIZE, "%s", map);
+}
 
 /* the playlist, in the data folder (the game's d:, beside maps) */
 static void load_playlist(
@@ -194,13 +201,7 @@ static void load_playlist(
 			*comment = 0;
 		if (sscanf(line, "%127s %31s", map, variant) != 2)
 			continue;
-		/* (a bare name is a multiplayer level's: levels\test\<name>\<name>;
-		a Custom Edition or HaloMD map's, <name>@ce or <name>@md, stays bare,
-		as the menus' map list plays it: cache_files_windows.c) */
-		if (!strchr(map, '\\') && !strchr(map, '@'))
-			snprintf(dedicated.maps[dedicated.entry_count], sizeof(dedicated.maps[0]), "levels\\test\\%s\\%s", map, map);
-		else
-			snprintf(dedicated.maps[dedicated.entry_count], sizeof(dedicated.maps[0]), "%s", map);
+		level_path(map, dedicated.maps[dedicated.entry_count]);
 		snprintf(dedicated.variants[dedicated.entry_count], sizeof(dedicated.variants[0]), "%s", variant);
 		dedicated.entry_count++;
 	}
@@ -232,7 +233,7 @@ static void initialize(
 		dedicated.minimum_players = 1;
 	if (dedicated.minimum_players > HALO_PORT_MAXIMUM_NETWORK_PLAYERS)
 		dedicated.minimum_players = HALO_PORT_MAXIMUM_NETWORK_PLAYERS;
-	/* (12 while the server is tested) */
+	/* (12 unless set) */
 	dedicated.maximum_players = maximum ? atol(maximum) : 12;
 	if (dedicated.maximum_players > HALO_PORT_MAXIMUM_NETWORK_PLAYERS)
 		dedicated.maximum_players = HALO_PORT_MAXIMUM_NETWORK_PLAYERS;
@@ -434,7 +435,6 @@ void dedicated_server_update(
 	server = global_network_game_server_get();
 	if (!server)
 	{
-		dedicated.hosting = FALSE;
 		dedicated.entry_set = FALSE;
 		/* (not while a movie plays: the intro's end loads the main menu,
 		which ends any network game) */
@@ -446,7 +446,7 @@ void dedicated_server_update(
 		}
 		dedicated.tried = TRUE;
 		dedicated.tried_time = system_milliseconds();
-		dedicated.hosting = host();
+		host();
 		return;
 	}
 
@@ -669,11 +669,7 @@ void dedicated_server_play(
 	char const *map,
 	char const *variant)
 {
-	/* (a bare name is a multiplayer level's, as the playlist's) */
-	if (!strchr(map, '\\') && !strchr(map, '@'))
-		snprintf(dedicated.chosen_map, sizeof(dedicated.chosen_map), "levels\\test\\%s\\%s", map, map);
-	else
-		snprintf(dedicated.chosen_map, sizeof(dedicated.chosen_map), "%s", map);
+	level_path(map, dedicated.chosen_map);
 	snprintf(dedicated.chosen_variant, sizeof(dedicated.chosen_variant), "%s", variant);
 	dedicated.chosen_pending = TRUE;
 	/* (a game a command chose before, set in the lobby, is replaced; one being

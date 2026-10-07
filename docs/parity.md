@@ -5,7 +5,8 @@ that is technically possible. Where builds differ, the difference must be
 chosen on purpose and written down here.
 
 This audit was made on 2026-10-06 against `sync-network-20` (02fee99f).
-Delta was read on `release-0.6.8b`. File:line references are to this
+Delta was read on `release-0.6.8b`. Since 0.7.0b every build plays Halo PC
+and HaloMD maps; the rest is as audited. File:line references are to this
 branch unless another branch is named. Each difference is marked:
 
 - **(a) required**: something forces it (an OS API is missing, memory, the
@@ -31,10 +32,11 @@ their commit's subject. Every other accidental one is listed under
   on; the server forces it on at `tools/server_build.py:239`).
 - `HALO_64BIT` is set for Windows x64, Linux x64, macOS and the 64-bit
   servers (`tools/windows_build.py:221`, `tools/lp64_build.py:73`).
-- `HALO_CUSTOM_EDITION` is set for Linux x86 (`tools/linux_build.py:373`),
-  Linux x64, macOS and the servers (`tools/lp64_build.py:75`), and Windows
-  x64 (`tools/windows_build.py:223`). It is not set for Windows x86 or
-  Android.
+- `HALO_CUSTOM_EDITION` is set for every build: Linux x86
+  (`tools/linux_build.py`, `CUSTOM_EDITION_DEFINES`), Linux x64, macOS and
+  the servers (`tools/lp64_build.py`), Windows x86 and x64
+  (`tools/windows_build.py`) and Android (`tools/android_build.py`), since
+  0.7.0b.
 - In `port_config.c`, the `_platform_*` flags (`:51-58`, chosen at
   `:496-502`) only decide which settings a build writes into its
   config.toml. Every build can read every setting.
@@ -61,7 +63,7 @@ Abbreviations:
 | Discord invites and presence | yes, "In Menus" (fixed) | yes | yes, "In Menus" (fixed) | yes | yes | no (a) | yes | no Discord |
 | Delta Peer + legacy table (release-0.6.8b) | yes | yes | yes | yes | yes | yes, but said "Linux" (fixed on parity-delta) | yes; the Windows build said "Windows" (fixed on parity-delta) | yes |
 | Hardware id (host bans) | yes | yes | yes | yes | **none** before (fixed) | yes | yes | yes |
-| Halo PC / HaloMD maps | **no (b)** | yes | yes | yes | yes | no (a, memory) | yes | yes |
+| Halo PC / HaloMD maps | yes (0.7.0b) | yes | yes | yes | yes | yes (0.7.0b) | yes | yes |
 | PC menus or Xbox menus (`display.menus`) | both | both | both | both | both | both; Quit does nothing (a) | both | n/a |
 | Port settings screens (Video, Mouse...) | PC menus only (c) | same | same | same | same | same; Mouse Settings shown (b) | same | n/a |
 | High-res HUD and text | yes | yes | yes | yes | yes | yes, at 480 lines (a) | yes | n/a |
@@ -141,9 +143,8 @@ the server. No build script names them and none excludes them.
 
 ## Left to schedule (accidental, not small)
 
-1. **Halo PC / HaloMD maps on Windows x86.** Being handled on branch
-   `ce-everywhere` (the other worker), together with Android. Not touched
-   here.
+1. **Halo PC / HaloMD maps on Windows x86 and Android.** Done in 0.7.0b
+   (branch `ce-everywhere`).
 2. **The macOS self-updater** (`updater.c:53-57`). Replacing a signed
    `.app` bundle (directory swap, quarantine attribute, codesign) differs
    from the flat-file `.old` scheme. About 1-2 days with testing. It should

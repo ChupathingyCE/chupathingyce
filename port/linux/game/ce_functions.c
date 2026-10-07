@@ -31,16 +31,12 @@ Every block and field read lies in the map's tag cache, or is passed over.
 #include "cseries.h"
 #include "cseries_windows.h"
 #include "errors.h"
+#include "ce_map_checks.h"
 
 /* ---------- constants */
 
 enum
 {
-	CE_TAG_INSTANCE_SIZE = 0x20,
-	/* (cache_files.c's: where a Custom Edition map's tags are) */
-	CE_TAG_CACHE_BASE = 0x40440000,
-	CE_TAG_CACHE_SIZE = 0x01700000,
-
 	/* (periodic_functions.c's NUMBER_OF_PERIODIC_FUNCTIONS and
 	NUMBER_OF_TRANSITION_FUNCTIONS) */
 	CE_PERIODIC_FUNCTION_COUNT = 12,
@@ -126,20 +122,6 @@ enum
 	CE_FUNCTIONS_MAXIMUM_LOGGED = 8,
 };
 
-/* ---------- structures */
-
-/* (cache_files.c's) */
-struct ce_tag_instance
-{
-	unsigned long group_tag;
-	unsigned long parent_group_tags[2];
-	unsigned long tag_index;
-	unsigned long name;
-	unsigned long base_address;
-	unsigned long indexed;
-	unsigned long unused;
-};
-
 /* ---------- globals */
 
 static struct
@@ -156,8 +138,8 @@ static byte *ce_functions_pointer(
 	unsigned long address,
 	unsigned long size)
 {
-	if (address < CE_TAG_CACHE_BASE || address - CE_TAG_CACHE_BASE > CE_TAG_CACHE_SIZE ||
-		size > CE_TAG_CACHE_SIZE - (address - CE_TAG_CACHE_BASE))
+	if (address < CE_IMAGE_TAG_CACHE_BASE || address - CE_IMAGE_TAG_CACHE_BASE > CE_IMAGE_TAG_CACHE_SIZE ||
+		size > CE_IMAGE_TAG_CACHE_SIZE - (address - CE_IMAGE_TAG_CACHE_BASE))
 	{
 		return NULL;
 	}

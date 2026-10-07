@@ -5,7 +5,7 @@ The on-screen touch controls between the overlay and the game. The overlay
 (app/.../TouchControls.java) is an Android view over SDL's surface: it
 hands its stick, buttons and view swipes over JNI on the UI thread, and the
 game reads them through host imports when it reads port 0's controller
-(port/linux/src/xinput_sdl.c). The game hands back what the overlay needs
+(port/linux/src/touch_input.c). The game hands back what the overlay needs
 to know: whether a menu or a cinematic is up and the input.touch_controls
 setting (host_touch_scene), and how hard port 0 rumbles.
 */
@@ -25,7 +25,8 @@ menus, a cinematic or the app in the background */
 #define TOUCH_STALE_NS 150000000LL
 
 /* SDL's 15 gamepad buttons, then the left and right triggers */
-#define TOUCH_INPUTS 17
+#define TOUCH_BUTTONS 15
+#define TOUCH_INPUTS (TOUCH_BUTTONS + 2)
 
 static pthread_mutex_t touch_lock = PTHREAD_MUTEX_INITIALIZER;
 /* the SDL axes (left x, y, right x, y, left trigger, right trigger), then
@@ -49,7 +50,8 @@ static int64_t now_ns(void)
 /* the inputs of a state as bits: buttons, then the triggers */
 static uint32_t touch_inputs(const int32_t *state)
 {
-	return ((uint32_t)state[6] & 0x7fff) | (state[4] ? 1u << 15 : 0) | (state[5] ? 1u << 16 : 0);
+	return ((uint32_t)state[6] & ((1u << TOUCH_BUTTONS) - 1)) | (state[4] ? 1u << TOUCH_BUTTONS : 0) |
+		(state[5] ? 1u << (TOUCH_BUTTONS + 1) : 0);
 }
 
 JNIEXPORT void JNICALL Java_com_halo_decomp_TouchControls_nativeState(
@@ -87,10 +89,10 @@ void host_touch_read(int32_t *state)
 	{
 		if (touch_pressed_ns[input] && now - touch_pressed_ns[input] < TOUCH_TAP_NS)
 		{
-			if (input < 15)
+			if (input < TOUCH_BUTTONS)
 				state[6] |= 1 << input;
-			else if (!state[4 + input - 15])
-				state[4 + input - 15] = 32767;
+			else if (!state[4 + input - TOUCH_BUTTONS])
+				state[4 + input - TOUCH_BUTTONS] = 32767;
 		}
 	}
 	pthread_mutex_unlock(&touch_lock);
@@ -157,8 +159,8 @@ JNIEXPORT jint JNICALL Java_com_halo_decomp_TouchControls_nativeRumble(JNIEnv *e
 	return amplitude;
 }
 
-/* the guest's, at every read of port 0: HALO_TOUCH_SCENE_* bits
-(port/linux/src/xinput_sdl.c) */
+/* the guest's, at every read of port 0: _touch_scene_* bits
+(port/linux/src/touch_input.c) */
 void host_touch_scene(int scene)
 {
 	touch_scene = scene;

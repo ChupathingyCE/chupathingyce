@@ -7,8 +7,8 @@ The game list server's requests (browser_http.h), for browser.c
 response simple: the server sends the body as it is and closes the
 connection when it is done.
 
-The server's certificate must chain to one of the system's certificate
-authorities and name the host, as for the updater.
+The server's certificate must chain to one of the certificate authorities
+(SSL_CERT_FILE's, else the system's) and name the host.
 
 Built with the host's ABI, as the other posix_*.c. The Windows build
 compiles it too (tools/windows_build.py), on Winsock, with Windows' own
@@ -485,7 +485,6 @@ int posix_browser_request_as(const char *url, const char *form, const char *cont
 	free(long_request);
 	return status;
 }
-
 
 #ifdef _WIN32
 

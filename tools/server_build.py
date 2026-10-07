@@ -10,7 +10,7 @@ program links only the C library. It needs SDL's headers to compile (the
 renderer's OpenGL declarations, which it never calls), fetched once from
 SDL's release (SDL_TARBALL_URL), never its library.
 
-Linked against musl (Alpine Linux, as tools/server_docker.py builds it, or
+Linked against musl (Alpine Linux, as tools/ci_build.py --alpine builds it, or
 any musl host), the server is one static executable that runs on any Linux
 of its architecture: no libraries, no loader, no glibc version to match.
 Against glibc (a developer's machine) it is an ordinary dynamically linked

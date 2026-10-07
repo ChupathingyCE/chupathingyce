@@ -487,9 +487,9 @@ static void fuzz_requests(int rounds)
 			while (cut && changes--)
 				copy[random_next() % cut] = (char)(random_next() % 256);
 			result = control_parse_request(copy, cut, &request, &status, &reason);
+			/* (its body parses or not, and breaks nothing) */
 			if (cut == good_length && changes < 0 && result == CONTROL_PARSE_DONE)
-				CHECK(control_parse_command_body(request.body, request.content_length, command, sizeof(command),
-					&reason) || 1);
+				control_parse_command_body(request.body, request.content_length, command, sizeof(command), &reason);
 			free(copy);
 		}
 		/* random command bodies */

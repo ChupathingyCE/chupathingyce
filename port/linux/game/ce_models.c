@@ -58,8 +58,6 @@ map keeps its channels, which the renderer has one order of.
 
 enum
 {
-	CE_TAG_INSTANCE_SIZE = 0x20,
-
 	/* a model's geometries, a geometry's parts */
 	MODEL_GEOMETRIES_OFFSET = 0xd0,
 	GEOMETRY_SIZE = 0x30,
@@ -128,18 +126,6 @@ struct xbox_vertex
 	short texture_coordinates[2];
 	char node_indices[2];
 	short node_weight;
-};
-
-/* (cache_files.c's) */
-struct ce_tag_instance
-{
-	unsigned long group_tag;
-	unsigned long parent_group_tags[2];
-	unsigned long tag_index;
-	unsigned long name;
-	unsigned long base_address;
-	unsigned long indexed;
-	unsigned long unused;
 };
 
 /* ---------- prototypes */
@@ -630,15 +616,6 @@ enum
 
 #define CE_ALIGNED(size) (((size) + 15) & ~15UL)
 
-static short ce_read_short(
-	byte const *at)
-{
-	short value;
-
-	memcpy(&value, at, sizeof(value));
-	return value;
-}
-
 static long ce_read_long32(
 	byte const *at)
 {
@@ -802,7 +779,7 @@ static boolean ce_part_check(
 
 /* every gbxmodel of a map being checked: its blocks in the tags, its
 indices each naming one of what it indexes, its parts' strips and vertices
-in the model data; the room its conversion takes of the tag cache added to
+in the model data; the room their conversion takes of the tag cache in
 *bytes (ce_models_tags_loaded) */
 boolean ce_models_check(
 	struct ce_image const *image,
@@ -1070,9 +1047,9 @@ static boolean ce_animation_graph_check(
 and every object's against its model, whose nodes the game keeps for it (one
 without a model, one): its overlays and replacements, which the game poses
 the object's nodes with, node for node (objects.c, units.c, devices.c), of no
-more nodes than the model. A graph of more nodes is otherwise let be, as Halo PC's engine let
-it (beavercreek_rev_beta's DMR has a pistol's graph of 7 nodes and a model of
-1): its base animations pose an object only when they are of its model's
+more nodes than the model. A graph of more nodes is otherwise let be, as Halo
+PC's engine let it (beavercreek_rev_beta's DMR has a pistol's graph of 7
+nodes and a model of 1): its base animations pose an object only when they are of its model's
 nodes (model_animations.c), and a limp body of more is posed in a copy of the
 biped's nodes (biped_limp_noodle.c) */
 boolean ce_animations_check(

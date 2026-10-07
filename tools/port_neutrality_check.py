@@ -9,7 +9,7 @@ build and the other 32-bit ports compile. Platform units (port/linux) may
 differ on purpose, and are reported for review.
 
     tools/port_neutrality_check.py [--base upstream/main] [--head HEAD]
-        [--workdir DIR] [--sysroot DIR]
+        [--workdir DIR] [--sysroot DIR] [--include-after DIR]
 
 The revisions are checked out as worktrees in --workdir (default
 build/neutrality), which must be on a case-sensitive file system: the port's
@@ -105,7 +105,8 @@ def main() -> None:
     parser.add_argument("--workdir", type=Path, default=ROOT / "build" / "neutrality")
     parser.add_argument("--sysroot", type=Path)
     parser.add_argument("--include-after", type=Path, action="append", default=None,
-                        help="more headers, after the system's (SDL3's); default Homebrew's include folder if any")
+                        help="more headers, after the system's (SDL3's); with --sysroot, default "
+                        "Homebrew's include folder if it has SDL3")
     args = parser.parse_args()
     args.workdir.mkdir(parents=True, exist_ok=True)
     if not case_sensitive(args.workdir):

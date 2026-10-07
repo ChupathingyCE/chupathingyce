@@ -4,8 +4,8 @@ DELTA_FUZZ.C
 libFuzzer's entry for Delta Peer (tools/test_delta_peer.py builds it with
 -fsanitize=fuzzer,address,undefined where clang has libFuzzer, and runs it
 for a bounded number of inputs): each input is one datagram, given to every
-parser and to a host's and a client's session that have shaken hands (and
-relay a legacy table), with a frame of both now and then.
+parser and to a host's and a client's session (the client's HELLO unanswered,
+each with a legacy table to relay), with a frame of both now and then.
 
     clang -fsanitize=fuzzer,address,undefined -iquote port/linux/include \
         port/linux/tests/delta_fuzz.c port/linux/src/delta_peer.c port/linux/src/delta_wire.c

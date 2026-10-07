@@ -104,10 +104,13 @@ is on.
 | [docs/building.md](docs/building.md) | Building the server: the targets, musl and glibc, and how it differs from the game. |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in the server, release by release. |
 
-In this folder: `src/` is the dedicated server's director, compiled into the
-game (`dedicated.c`) and the game list's probe (`probe.c`); `platform/` is
-the server's own platform layer, with no window, input or sound; `playlists/`
-the playlists; `deploy/` the container and services.
+In this folder: `src/` is compiled into the game: the dedicated server's
+director (`dedicated.c`), its commands (`server_commands.c`), the command
+line (`command_line.c`) and the game list's probe (`probe.c`); `platform/` is
+the server's own platform layer, with no window, input or sound, and its
+console, control API and web admin page; `webui/` that page's files;
+`tests/` the control API's tests; `docs/` the server's documents;
+`playlists/` the playlists; `deploy/` the container and services.
 
 ## If something's wrong
 

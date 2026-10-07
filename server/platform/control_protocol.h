@@ -229,6 +229,11 @@ int control_limiter_take_check(struct control_limiter *limiter, int64_t now);
 void control_limiter_failed(struct control_limiter *limiter, const uint8_t address[16], int64_t now);
 void control_limiter_succeeded(struct control_limiter *limiter, const uint8_t address[16]);
 
+/* ---------- hexadecimal */
+
+/* count bytes as lowercase hexadecimal in text (2 * count + 1 bytes) */
+void control_hex_text(const uint8_t *bytes, size_t count, char *text);
+
 /* ---------- the log */
 
 /* a line of the server's log as the API hands it out: its end of line gone,

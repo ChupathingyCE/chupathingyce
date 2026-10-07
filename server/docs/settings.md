@@ -1,7 +1,7 @@
 # Settings
 
 The server is set up with environment variables, one per setting. (A
-settings file of its own may come later; see the [changelog](../CHANGELOG.md).)
+settings file of its own may come later.)
 
 ## The server
 
@@ -10,7 +10,7 @@ settings file of its own may come later; see the [changelog](../CHANGELOG.md).)
 | `HALO_DEDICATED` | (none) | The playlist, a path inside the data folder: `playlists/free_for_all.txt`. Required: without it the server only says how to start one. |
 | `HALO_DEDICATED_NAME` | `Dedicated` | The server's name on the lists. 15 characters at most, the game's limit. |
 | `HALO_DEDICATED_MINIMUM_PLAYERS` | `1` | The players a game waits for before its countdown starts. |
-| `HALO_DEDICATED_MAXIMUM_PLAYERS` | `12` | The players a game takes, up to 128 (see below). |
+| `HALO_DEDICATED_MAXIMUM_PLAYERS` | `12` | The players a game takes, up to 128 (`sv_maxplayers` in [admin.md](admin.md) changes it while running). |
 | `HALO_DEDICATED_IDLE_LIMIT` | `5` | A game in which nobody scores for this many minutes ends. `0`: never. |
 | `HALO_DEDICATED_PUBLIC` | `true` | A public game, listed in every in-game Server Browser (OpenCE's and ChupathingyCE's) through internet play's brokers. `false`: not listed there; the game list still lists it, and its invite still works. |
 | `HALO_DEDICATED_COMMANDS` | (none) | A file of [commands](admin.md#startup-commands) in the data folder, run once the server first hosts. |
@@ -74,7 +74,7 @@ it does not know.
 
 In the data folder: `debug.txt` (its log), `bans.txt` (its bans, read on
 every join: [admin.md](admin.md#bans)), `cheaters.txt` (players dropped for
-cheating), and `control_credentials.txt` (the control API's token's hash,
+cheating), and `control_credentials.txt` (the control API's credentials, its tokens' hashes,
 once the API is turned on).
 
 ## Probing a game

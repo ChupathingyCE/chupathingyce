@@ -68,7 +68,6 @@ rest of a map's tags as it reads the Xbox's maps, trusting them.
 enum
 {
 	CE_HEADER_SIZE = 0x800,
-	CE_TAG_INSTANCE_SIZE = 0x20,
 	/* (a tag handle's index: 16 bits) */
 	CE_MAXIMUM_TAG_COUNT = 0xffff,
 	/* the files read: no larger than a signed 32-bit offset reaches */
@@ -111,18 +110,6 @@ enum
 };
 
 /* ---------- structures */
-
-/* (cache_files.c's) */
-struct ce_tag_instance
-{
-	unsigned long group_tag;
-	unsigned long parent_group_tags[2];
-	unsigned long tag_index;
-	unsigned long name;
-	unsigned long base_address;
-	unsigned long indexed;
-	unsigned long unused;
-};
 
 struct ce_tag_header
 {
@@ -622,6 +609,12 @@ boolean ce_map_checking(
 	return ce_checking;
 }
 
+char const *ce_map_family_name(
+	void)
+{
+	return ce_map_cache_version == CE_CACHE_VERSION_RETAIL ? "HaloMD" : "Custom Edition";
+}
+
 /* an element of a tag block or the bytes of a tag data the game reads
 (tag_groups.c), at an Xbox address: with a Custom Edition map loaded, whose
 tags were checked only as far as the port reads them, not read outside its
@@ -669,7 +662,7 @@ boolean ce_map_check(
 	unsigned long file_size = GetFileSize(file, &file_size_high);
 	unsigned long started = system_milliseconds();
 	boolean valid;
-	char const *family = ce_map_cache_version == CE_CACHE_VERSION_RETAIL ? "HaloMD" : "Custom Edition";
+	char const *family = ce_map_family_name();
 
 	ce_refusal[0] = 0;
 	ce_checking = TRUE;

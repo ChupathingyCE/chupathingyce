@@ -146,9 +146,15 @@ static int json_take(struct json *json, char c)
 	return 0;
 }
 
-static int json_hex(char c)
+static int delta_hex_digit(char c)
 {
-	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+	return -1;
 }
 
 /* a string: its text between the quotes, its escapes checked but not
@@ -186,7 +192,7 @@ static int json_string(struct json *json, const char **text, int *length, int *e
 
 				for (index = 1; index <= 4; index++)
 				{
-					if (json->at + index >= json->end || !json_hex(json->at[index]))
+					if (json->at + index >= json->end || delta_hex_digit(json->at[index]) < 0)
 						return 0;
 				}
 				json->at += 4;
@@ -495,17 +501,6 @@ static int delta_has_key(void)
 			return 1;
 	}
 	return 0;
-}
-
-static int delta_hex_digit(char c)
-{
-	if (c >= '0' && c <= '9')
-		return c - '0';
-	if (c >= 'a' && c <= 'f')
-		return c - 'a' + 10;
-	if (c >= 'A' && c <= 'F')
-		return c - 'A' + 10;
-	return -1;
 }
 
 /* the signature's 128 hex digits (and white space after them) into bytes */

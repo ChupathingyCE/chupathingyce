@@ -60,19 +60,6 @@ static int hex_value(int character)
 	return -1;
 }
 
-static void hex_text(const uint8_t *bytes, size_t count, char *text)
-{
-	static const char digits[] = "0123456789abcdef";
-	size_t index;
-
-	for (index = 0; index < count; index++)
-	{
-		text[2 * index] = digits[bytes[index] >> 4];
-		text[2 * index + 1] = digits[bytes[index] & 15];
-	}
-	text[2 * count] = 0;
-}
-
 /* exactly count bytes of lowercase hexadecimal: 1, else 0 */
 static int hex_bytes(const char *text, size_t length, uint8_t *bytes, size_t count)
 {
@@ -765,7 +752,7 @@ const char *control_status_text(int status)
 void control_token_text(const uint8_t bytes[CONTROL_TOKEN_BYTES], char token[CONTROL_TOKEN_LENGTH + 1])
 {
 	memcpy(token, "chce_", 5);
-	hex_text(bytes, CONTROL_TOKEN_BYTES, token + 5);
+	control_hex_text(bytes, CONTROL_TOKEN_BYTES, token + 5);
 }
 
 int control_token_valid(const char *text)
@@ -820,7 +807,7 @@ int control_credential_make(const char *token, const char *name, const uint8_t i
 {
 	memset(credential, 0, sizeof(*credential));
 	snprintf(credential->name, sizeof(credential->name), "%s", name);
-	hex_text(id_bytes, CONTROL_ID_LENGTH / 2, credential->id);
+	control_hex_text(id_bytes, CONTROL_ID_LENGTH / 2, credential->id);
 	memcpy(credential->salt, salt, CONTROL_SALT_BYTES);
 	credential->kib = kib;
 	credential->passes = passes;
@@ -832,8 +819,8 @@ void control_credential_line(const struct control_credential *credential, char l
 	char salt[2 * CONTROL_SALT_BYTES + 1];
 	char hash[2 * CONTROL_HASH_BYTES + 1];
 
-	hex_text(credential->salt, CONTROL_SALT_BYTES, salt);
-	hex_text(credential->hash, CONTROL_HASH_BYTES, hash);
+	control_hex_text(credential->salt, CONTROL_SALT_BYTES, salt);
+	control_hex_text(credential->hash, CONTROL_HASH_BYTES, hash);
 	snprintf(line, CONTROL_CREDENTIAL_LINE, "v1 argon2id %s %s %lu %lu %s %s", credential->name, credential->id,
 		(unsigned long)credential->kib, (unsigned long)credential->passes, salt, hash);
 }
@@ -1049,6 +1036,21 @@ void control_limiter_succeeded(struct control_limiter *limiter, const uint8_t ad
 		memset(entry, 0, sizeof(*entry));
 	else if (entry)
 		entry->failures = 0;
+}
+
+/* ---------- hexadecimal */
+
+void control_hex_text(const uint8_t *bytes, size_t count, char *text)
+{
+	static const char digits[] = "0123456789abcdef";
+	size_t index;
+
+	for (index = 0; index < count; index++)
+	{
+		text[2 * index] = digits[bytes[index] >> 4];
+		text[2 * index + 1] = digits[bytes[index] & 15];
+	}
+	text[2 * count] = 0;
 }
 
 /* ---------- the log */
