@@ -281,15 +281,13 @@ static void utf8_name(unsigned short const *name, char *text, long size);
 System Link's Start would pick: the one last used, else the first saved.
 (A profile's index is the saved game files' (saved_game_files.c), its valid
 bit set: 0 is none, and player_profile_get made of it a profile named for
-whichever saved file came first, a game type on a new install.) None saved,
-the player keeps the profile it has */
-static void join_first_player(
-	void)
+whichever saved file came first, a game type on a new install.) Its index
+and profile, or NONE for none saved */
+static long first_player_profile(
+	struct player_profile *profile)
 {
 	long profile_index = player_ui_get_player1_last_used_profile_index();
-	struct player_profile profile;
 
-	player_ui_local_player_joined_multiplayer_game(0);
 	if (profile_index == NONE || !TEST_FLAG(profile_index, _saved_game_file_index_valid_bit))
 	{
 		long profile_indices[100];
@@ -299,10 +297,25 @@ static void join_first_player(
 		profile_index = profile_count ? profile_indices[0] : NONE;
 	}
 	if (profile_index != NONE && TEST_FLAG(profile_index, _saved_game_file_index_valid_bit) &&
-		player_profile_get(profile_index, &profile))
+		player_profile_get(profile_index, profile))
 	{
-		player_ui_set_active_player_profile(0, profile_index, &profile);
+		return profile_index;
 	}
+	return NONE;
+}
+
+/* the first player joined with it (none saved: the player keeps the profile
+it has) */
+static void join_first_player(
+	void)
+{
+	struct player_profile profile;
+	long profile_index;
+
+	player_ui_local_player_joined_multiplayer_game(0);
+	profile_index = first_player_profile(&profile);
+	if (profile_index != NONE)
+		player_ui_set_active_player_profile(0, profile_index, &profile);
 }
 
 /* a game picked: its invite joined (the tunnel to its host), then its game
@@ -479,15 +492,13 @@ with (its name goes to the page, to say who it links) */
 static void quick_connect(
 	void)
 {
-	long profile_index = player_ui_get_player1_last_used_profile_index();
 	struct player_profile profile;
 	unsigned short name[12];
 	long index;
 
 	csmemset(name, 0, sizeof(name));
-	if (profile_index == NONE)
-		profile_index = 0;
-	if (player_profile_get(profile_index, &profile))
+	/* (the profile join_first_player takes: no saved file that is not one) */
+	if (first_player_profile(&profile) != NONE)
 	{
 		for (index = 0; index < NUMBEROF(name) - 1 && index < MAXIMUM_PLAYER_PROFILE_NAME_LENGTH &&
 			profile.player_name[index]; index++)
