@@ -121,6 +121,12 @@ map whose scripts test (players) in many places a tick took more than the
 Xbox's 48 (coldsnap's), and its game halted */
 #define HALO_PORT_MAXIMUM_OBJECT_LISTS_PER_MAP 1024 /* (48) */
 #define HALO_PORT_MAXIMUM_LISTED_OBJECTS_PER_MAP 8192 /* (128) */
+/* widgets (light volumes, antennas, flags, glows, lightning), each made with
+its object and kept for its life: an assault rifle's flashlight beam, held or
+dropped, and a plasma bolt's light volume; a full pool draws the object
+without its widget */
+#define HALO_PORT_MAXIMUM_WIDGETS 2048 /* (64) */
+#define HALO_PORT_MAXIMUM_LIGHT_VOLUMES 2048 /* (256) */
 
 /* ---------- effects, particles, lights and sounds */
 

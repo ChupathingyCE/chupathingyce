@@ -867,8 +867,11 @@ static boolean animation_graph_check(
 {
 	struct animation_graph *graph = base;
 	struct animation *animations = xbox_pointer(graph->animations.address);
-	/* (0 not walked, 1 on the list being walked, 2 walked) */
+	/* (0 not walked, 1 on the list being walked, 2 walked; this build's
+	Halo PC maps are checked by their own loader, ce_map_checks.c, so a
+	graph here is the Xbox tools': at most their maximum) */
 	byte states[MAXIMUM_ANIMATIONS_PER_GRAPH];
+	long maximum_count = MAXIMUM_ANIMATIONS_PER_GRAPH;
 	long first_index;
 
 	if (!node_tree_check(validation, xbox_pointer(graph->nodes.address), graph->nodes.count, sizeof(struct animation_graph_node),
@@ -879,12 +882,12 @@ static boolean animation_graph_check(
 		return FALSE;
 	}
 
-	if (graph->animations.count > MAXIMUM_ANIMATIONS_PER_GRAPH)
+	if (graph->animations.count > maximum_count)
 	{
 		tag_validate_refuse(validation, "has %ld animations", graph->animations.count);
 		return FALSE;
 	}
-	memset(states, 0, sizeof(states));
+	memset(states, 0, (size_t)graph->animations.count);
 	for (first_index = 0; first_index < graph->animations.count; first_index++)
 	{
 		short animation_index = (short)first_index;
@@ -1109,7 +1112,7 @@ static struct tag_schema_field const animation_graph_fields[] =
 {
 	TAG_SCHEMA_BLOCK(struct animation_graph, object_overlays, animation_graph_object_overlay_schema,
 		MAXIMUM_OBJECT_OVERLAYS_PER_GRAPH),
-	TAG_SCHEMA_BLOCK(struct animation_graph, unit_seats, animation_graph_unit_seat_schema,
+	TAG_SCHEMA_TOOL_BLOCK(struct animation_graph, unit_seats, animation_graph_unit_seat_schema,
 		MAXIMUM_UNIT_SEATS_PER_GRAPH),
 	TAG_SCHEMA_BLOCK(struct animation_graph, weapon_animations, animation_graph_weapon_animations_schema, 1),
 	TAG_SCHEMA_BLOCK(struct animation_graph, vehicle_animations, vehicle_animation_schema, 1),
@@ -1121,7 +1124,7 @@ static struct tag_schema_field const animation_graph_fields[] =
 	TAG_SCHEMA_BLOCK(struct animation_graph, sound_references, animation_graph_sound_reference_schema,
 		MAXIMUM_SOUND_REFERENCES_PER_ANIMATION_GRAPH),
 	TAG_SCHEMA_BLOCK(struct animation_graph, nodes, animation_graph_node_schema, MAXIMUM_NODES_PER_ANIMATION),
-	TAG_SCHEMA_BLOCK(struct animation_graph, animations, animation_schema, MAXIMUM_ANIMATIONS_PER_GRAPH),
+	TAG_SCHEMA_TOOL_BLOCK(struct animation_graph, animations, animation_schema, MAXIMUM_ANIMATIONS_PER_GRAPH),
 	TAG_SCHEMA_CHECK(animation_graph_check),
 	TAG_SCHEMA_END
 };

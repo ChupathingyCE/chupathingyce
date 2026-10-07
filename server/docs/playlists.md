@@ -44,7 +44,7 @@ bloodgulch@pc    slayer
 
 All of them need Custom Edition's `bitmaps.map`, `sounds.map` and `loc.map`
 in `maps_ce/`, and the x64 or arm64 server. Players need the same map file
-to join such a game. OpenCE (build-145) players can join a Custom Edition
+to join such a game. OpenCE (build-147) players can join a Custom Edition
 map's game with the map in their `custom_maps/`; HaloMD and Halo PC retail
 games are ChupathingyCE's only (an OpenCE player is told the map is
 missing).

@@ -547,6 +547,9 @@ static void validate_block_extent(
 		tag_validate_refuse(validation, "has %ld elements", block->count);
 		return;
 	}
+	/* (a block of the tools' maximum, _tag_schema_tool_maximum_bit, is cut
+	too: this build's Halo PC maps, which go past them, are checked by their
+	own loader, ce_map_checks.c, not here) */
 	if (field->maximum > 0 && block->count > field->maximum)
 	{
 		tag_validate_correct(validation, "has %ld elements, more than the game's %ld: cut to %ld",

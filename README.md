@@ -10,7 +10,7 @@
 <a href="https://discord.gg/4BUm2FwuCB">Discord</a>
 </p>
 
-> **Compatible with [OpenCE](https://github.com/OpenCommunityEdition/OpenCE) build-145 (network version 22).** OpenCE build-145 players join our games, and our builds join games hosted on network versions 11 through 22 (OpenCE build-76 through build-145). Games hosted on older builds (network version 10) can't be joined; their hosts need to update.
+> **Compatible with [OpenCE](https://github.com/OpenCommunityEdition/OpenCE) build-147 (network version 23).** OpenCE build-147 players join our games, and our builds join games hosted on network versions 11 through 23 (OpenCE build-76 through build-147). Games hosted on older builds (network version 10) can't be joined; their hosts need to update.
 > Players on OpenCE and players on ChupathingyCE play together.
 
 ChupathingyCE is a community build of **OpenCE**, the port of the Halo: Combat
@@ -131,7 +131,7 @@ badged, and it can be joined only by players who have that map: the game
 says which file is missing and where it goes. The Xbox maps from your disc
 image are still needed. ChupathingyCE doesn't come with any of these files.
 
-**Playing with OpenCE players.** OpenCE (build-145) plays Custom Edition
+**Playing with OpenCE players.** OpenCE (build-147) plays Custom Edition
 maps from its `custom_maps` folder. A game on a Custom Edition map is named
 the same way for both, so OpenCE players with the map join our games and we
 join theirs. HaloMD and Halo PC retail games are ChupathingyCE's only: an

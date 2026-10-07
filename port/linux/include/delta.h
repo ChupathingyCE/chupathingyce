@@ -155,7 +155,7 @@ legacy table (port/linux/src/delta.c; docs/delta.md, "The legacy table as
 config") has a row of OpenCE numbers for each wire, which CI adds to only
 after a cross-play test of that wire; a build reads its own wire's row alone.
 Give each release that changes what the machines send a new one. */
-#define DELTA_WIRE "chupa-22a"
+#define DELTA_WIRE "chupa-23a"
 
 /* OpenCE's network versions (HALO_PORT_NETWORK_VERSION in its builds), the
 first of its releases with each, and whether the version's change is one the
@@ -180,7 +180,8 @@ command repository's watch adds a row when it follows OpenCE's raise
 	X(19, "build-132", additive) /* co-op's player collisions switch, in a padding byte of the game settings */ \
 	X(20, "build-133", additive) /* password games' internet listings (another listing layout); game messages as 19 */ \
 	X(21, "build-141", additive) /* killing blows and resting bodies resent, co-op BSP switches by the host's crossing */ \
-	X(22, "build-145", additive) /* a Custom Edition map named custom_maps\\<name> in the game's settings */
+	X(22, "build-145", additive) /* a Custom Edition map named custom_maps\\<name> in the game's settings */ \
+	X(23, "build-147", additive) /* a Custom Edition map's blocks past the Xbox tools' limits kept, its version in the game's settings; Xbox maps as 22 */
 
 /* ---------- the legacy table (port/linux/src/delta.c)
 
