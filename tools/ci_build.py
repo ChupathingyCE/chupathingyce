@@ -155,10 +155,9 @@ def main() -> int:
         shutil.copy2(ROOT / "build/macos/third_party/SDL3/LICENSE.txt", dist / "SDL3-LICENSE.txt")
     if args.platform in ("windows", "windows64"):
         # the symbols of halo.exe and SDL3.dll, apart (players do not need
-        # them): the workflow uploads them to Sentry, which turns the crash
-        # reports' minidumps into function names and lines
-        # (port/windows/src/win32_crash.c), and tools/symbolize_crash.py
-        # reads debug.txt's crash lines with them
+        # them): tools/symbolize_crash.py reads debug.txt's crash lines and
+        # the crash reports' calls (port/windows/src/win32_crash.c) with
+        # them, and a debugger the reports' minidumps
         symbols = ROOT / "dist" / f"chupathingyce-{args.platform}-{args.config}-symbols"
         sdl_arch = "x64" if args.platform == "windows64" else "x86"
         if symbols.exists():

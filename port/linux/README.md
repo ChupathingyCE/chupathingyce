@@ -96,6 +96,7 @@ These files are in the data root:
 | File | Contents |
 | --- | --- |
 | `debug.txt` | The log of the game. At start-up, the game shows the data root in the terminal. A crash writes its report (the faulting address and the calls that led to it) here as well; the `reference address` line at the top of each session places those addresses in the build. |
+| `crashes/` | Crash reports that wait to be sent (Linux and macOS; refer to "Crash reports"). |
 | `init.txt` | Console commands that the game does at start-up. For example, `map_name levels\a10\a10` starts the first campaign level. |
 
 The settings are in `config.toml` next to the executable. Refer to
@@ -105,6 +106,30 @@ The settings are in `config.toml` next to the executable. Refer to
 If the game stops because of a fatal signal, it writes the address and a
 backtrace to the standard error. To find the function at the address, enter
 `addr2line -e build/linux/halo <address>`.
+
+### Crash reports
+
+Releases and nightlies on Linux and macOS also write a crash report when
+the game stops because of `SIGSEGV`, `SIGBUS`, `SIGILL`, `SIGFPE` or
+`SIGABRT` (`port/linux/src/posix_crash.c`). The report goes to `crashes/`
+in the data root. When the game starts the next time, it does what
+`crash_reports.upload` says: `"yes"` sends the reports to the ChupathingyCE
+site (`network.browser_url`, `POST /v1/crash`) in the background, `"no"`
+deletes them, and `"ask"` asks the player first. `crashes/` keeps at most 8
+reports.
+
+A report has the same format as on Windows
+(`port/linux/src/crash_report.h`), without a minidump: the build, the
+system, the signal, up to 32 calls (each a module and an offset in it, for
+example `halo+0x2715b4`), and the last 200 lines of `debug.txt` from before
+the crash, with each public IP address replaced with `[address]`. To find
+the function of a call on macOS, enter `atos -o halo -l 0x100000000
+0x1002715b4` (the offset plus `0x100000000`); on Linux, enter
+`addr2line -e halo 0x2715b4`.
+
+Local builds send no crash reports. To test the crash reports with such a
+build, set the `HALO_CRASH_REPORTS_ANY_BUILD` environment variable. Android
+and the dedicated server have no crash reports.
 
 ## Controls
 
@@ -321,7 +346,7 @@ the setting for one start of the game. It has priority over the file.
 | `network.legacy_table` | `""` | `HALO_LEGACY_TABLE` | For testing, and for admins: a legacy table file, not signed, next to `config.toml` unless a full path. Its row for the wire of the build sets the OpenCE network versions that the game announces and joins, in place of the signed tables. The log shows a warning at start. Refer to `docs/delta.md`. Empty: none. |
 | `discord.application_id` | the application of the project | `HALO_DISCORD_APPLICATION` | The Discord application for invites. Empty: no Discord. |
 | `update.auto` | `true` | `HALO_UPDATE_AUTO` | `true`: at start-up, the game looks for a new version. Refer to "Updates". `false`: the game does not look. |
-| `crash_reports.upload` | `"ask"` | `HALO_CRASH_REPORTS` | Windows only. `"yes"`: the game sends a report of each crash to the developers. `"no"`: the game sends no reports. `"ask"`: the game asks at the next crash and writes the answer here. Refer to "Crash reports" in [port/windows/README.md](../windows/README.md#crash-reports). |
+| `crash_reports.upload` | `"ask"` | `HALO_CRASH_REPORTS` | Desktop builds (releases and nightlies). `"yes"`: the game sends a report of each crash to the developers, through `network.browser_url`. `"no"`: the game sends no reports. `"ask"`: the game asks after the next crash (on Linux and macOS, when it starts the next time) and writes the answer here. Refer to "Crash reports" below and in [port/windows/README.md](../windows/README.md#crash-reports). |
 | `debug.update_answer` | `""` | `HALO_UPDATE_ANSWER` | The answer to the update question, for automatic tests: `yes`, `no` or `never`. Empty: the game asks. |
 | `debug.exit_after` | `0.0` | `HALO_EXIT_AFTER` | The game stops after this number of seconds. `0`: never. |
 | `debug.screenshot_directory`, `debug.screenshot_every` | `""`, `0` | `HALO_SCREENSHOT_DIR`, `HALO_SCREENSHOT_EVERY` | The game writes each Nth frame to this folder as a BMP file. |

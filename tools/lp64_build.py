@@ -1,5 +1,6 @@
 """Ninja rules shared by the native 64-bit builds (``ninja macos``,
-``ninja linux64``).
+``ninja linux64``) and the 64-bit dedicated servers (``ninja server-x64``,
+``ninja server-arm64``).
 
 The game and most of the platform layer are the Linux build's
 (tools/linux_build.py, port/linux); the 64-bit builds compile them as native
@@ -19,7 +20,6 @@ See port/macos/README.md.
 """
 
 import json
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, Set
@@ -44,6 +44,7 @@ from .linux_build import (
     ZLIB_DEFINES,
     ZLIB_DIR,
     ZLIB_SOURCES,
+    _quote,
     compile_launcher,
     game_sources,
     game_browser_defines,
@@ -152,11 +153,6 @@ class Lp64Unit:
     # a unit with the host's ABI (and a 32-bit wchar_t): never optimised
     # together with the others at link time
     native: bool = False
-
-
-def _quote(path: Any) -> str:
-    text = str(path).replace(os.sep, "/")
-    return f'"{text}"' if " " in text else text
 
 
 def load_json(path: Path) -> Dict[str, Any]:
@@ -340,19 +336,17 @@ class Lp64Build:
         for source in host.host_sources:
             if source.as_posix() not in excluded:
                 add(source, posix_cflags, native=True)
+        native_third_party = [*host.target_flags, "-std=gnu11", OPTIMISATION, "-g", "-w", *host.third_party_flags]
         for source in sorted((MBEDTLS_DIR / "library").glob("*.c")):
-            add(source, " ".join([*host.target_flags, "-std=gnu11", OPTIMISATION, "-g", "-w",
-                                  *host.third_party_flags, mbedtls_include, f"-I{MBEDTLS_DIR / 'library'}"]),
+            add(source, " ".join([*native_third_party, mbedtls_include, f"-I{MBEDTLS_DIR / 'library'}"]),
                 native=True)
         for source in miniupnpc_sources():
-            add(source, " ".join([*host.target_flags, "-std=gnu11", OPTIMISATION, "-g", "-w",
-                                  *host.third_party_flags, *MINIUPNPC_DEFINES,
+            add(source, " ".join([*native_third_party, *MINIUPNPC_DEFINES,
                                   f"-I{MINIUPNPC_DIR / 'include'}", f"-I{MINIUPNPC_DIR / 'src'}"]),
                 native=True)
         # the menus' XML parser (port/third_party/expat; menu_files.c), with the
         # host's ABI: it holds nothing of the Xbox's, and its API is its own
         # types (expat.h, which menu_files.c includes unrewritten)
-        native_third_party = [*host.target_flags, "-std=gnu11", OPTIMISATION, "-g", "-w", *host.third_party_flags]
         for name in EXPAT_SOURCES:
             add(EXPAT_DIR / name, " ".join([*native_third_party, f"-I{EXPAT_DIR}"]), native=True)
         # Link Profile's QR encoder (port/third_party/qrcodegen; browser.c),

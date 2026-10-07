@@ -7,8 +7,8 @@ Everything the game allocates (system_malloc is GlobalAlloc) can end up in
 a structure that holds 32-bit pointers: tag data built at run time, script
 values, Direct3D resource headers. So the heap lives in the Xbox address
 space too (cseries/xbox_address.h), below the contiguous window: Xbox addresses
-XBOX_HEAP_BASE to XBOX_HEAP_END, committed read-write at start-up and backed
-by the host on first touch.
+XBOX_HEAP_BASE to XBOX_HEAP_END, committed read-write at the first allocation
+and backed by the host on first touch.
 
 Blocks carry a 16-byte header. Requests up to 64 KB come from power-of-two
 size classes with free lists; larger ones are rounded to 64 KB and reuse
@@ -160,13 +160,16 @@ void xbox_heap_free(void *pointer)
 	if (!pointer)
 		return;
 	block = block_of(pointer);
+	/* (checked under the lock: two threads freeing the same block would
+	both see it in use, and list it twice) */
+	pthread_mutex_lock(&heap_lock);
 	if (block->magic != HEAP_MAGIC || block->free)
 	{
+		pthread_mutex_unlock(&heap_lock);
 		platform_log("Xbox heap: bad free of %p", pointer);
 		return;
 	}
 	index = small_class(block->capacity);
-	pthread_mutex_lock(&heap_lock);
 	block->free = TRUE;
 	if (index < SMALL_CLASS_COUNT && block->capacity == ((size_t)16 << index))
 	{

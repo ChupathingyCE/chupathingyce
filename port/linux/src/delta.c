@@ -82,7 +82,7 @@ enum
 static const char *const delta_capability_names[] =
 {
 	"platform", "profile", "server_messages", "chat", "ce_maps", "md_maps", "coop", "ai_sync", "vote",
-	"console_slots",
+	"console_slots", "moderation",
 };
 _Static_assert(sizeof(delta_capability_names) / sizeof(*delta_capability_names) == NUMBER_OF_DELTA_CAPABILITIES,
 	"a name for each capability");
@@ -98,6 +98,9 @@ struct delta_table
 };
 
 static pthread_mutex_t delta_lock = PTHREAD_MUTEX_INITIALIZER;
+/* (the cache's file: one writer at a time, the fetching thread's or the
+game's, taken before delta_lock) */
+static pthread_mutex_t delta_cache_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_once_t delta_once = PTHREAD_ONCE_INIT;
 /* (the fetching thread waits on it for its next time) */
 static pthread_cond_t delta_wake = PTHREAD_COND_INITIALIZER;
@@ -143,9 +146,15 @@ static int json_take(struct json *json, char c)
 	return 0;
 }
 
-static int json_hex(char c)
+static int delta_hex_digit(char c)
 {
-	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+	return -1;
 }
 
 /* a string: its text between the quotes, its escapes checked but not
@@ -183,7 +192,7 @@ static int json_string(struct json *json, const char **text, int *length, int *e
 
 				for (index = 1; index <= 4; index++)
 				{
-					if (json->at + index >= json->end || !json_hex(json->at[index]))
+					if (json->at + index >= json->end || delta_hex_digit(json->at[index]) < 0)
 						return 0;
 				}
 				json->at += 4;
@@ -425,7 +434,12 @@ static int delta_table_parse(const char *document, size_t size, struct delta_tab
 		else if (json_is(key, length, "delta_legacy"))
 			bit = 1, ok = json_integer(&json, 0, 1000000, &format);
 		else if (json_is(key, length, "serial"))
-			bit = 2, ok = json_integer(&json, 1, 4294967295LL, &value), table->serial = (unsigned int)value;
+		{
+			/* (not 0xFFFFFFFF: on the wire that is a machine taking no tables) */
+			bit = 2, ok = json_integer(&json, 1, 4294967294LL, &value);
+			if (ok)
+				table->serial = (unsigned int)value;
+		}
 		else if (json_is(key, length, "issued"))
 			bit = 4, ok = json_integer(&json, 0, 1LL << 53, &table->issued);
 		else if (json_is(key, length, "wires"))
@@ -487,17 +501,6 @@ static int delta_has_key(void)
 			return 1;
 	}
 	return 0;
-}
-
-static int delta_hex_digit(char c)
-{
-	if (c >= '0' && c <= '9')
-		return c - '0';
-	if (c >= 'a' && c <= 'f')
-		return c - 'a' + 10;
-	if (c >= 'A' && c <= 'F')
-		return c - 'A' + 10;
-	return -1;
 }
 
 /* the signature's 128 hex digits (and white space after them) into bytes */
@@ -657,8 +660,28 @@ static enum delta_result delta_take(const char *document, size_t size, const cha
 		table.has_row ? table.minimum : HALO_PORT_NETWORK_VERSION_MINIMUM,
 		table.has_row ? table.maximum : HALO_PORT_NETWORK_VERSION_MAXIMUM,
 		table.has_row ? "" : " (no row for " DELTA_WIRE ": the built-in numbers)");
+	/* (from the cache's own copy, and only while the table is still the
+	one in use: another thread may take a newer one, and free this one,
+	meanwhile) */
 	if (cache)
-		delta_cache_write(signed_table, signed_size);
+	{
+		char *copy = malloc((size_t)signed_size);
+		int current;
+
+		if (copy)
+		{
+			pthread_mutex_lock(&delta_cache_lock);
+			pthread_mutex_lock(&delta_lock);
+			current = delta.serial == table.serial && delta.signed_table == signed_table;
+			if (current)
+				memcpy(copy, signed_table, (size_t)signed_size);
+			pthread_mutex_unlock(&delta_lock);
+			if (current)
+				delta_cache_write(copy, signed_size);
+			pthread_mutex_unlock(&delta_cache_lock);
+			free(copy);
+		}
+	}
 	return _delta_taken;
 }
 

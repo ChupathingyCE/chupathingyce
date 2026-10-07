@@ -158,12 +158,13 @@ static struct
 	struct stats_player players[MAXIMUM_STATS_PLAYERS];
 	short departed_count;
 	struct stats_player departed[MAXIMUM_DEPARTED_PLAYERS];
-	/* the damage of the kill being counted (damage.c) */
+	/* the damage of the kill being counted (damage.c; NONE: unknown, as for
+	a client's first kill, which damage.c did not see) */
 	long kill_damage;
 	boolean over;
 	unsigned long over_time;
 	boolean client_reported;
-} game_stats = { FALSE, 0, 0 };
+} game_stats = { .recording = FALSE, .kill_damage = NONE };
 
 /* ---------- private code */
 
@@ -485,7 +486,7 @@ static long stats_departed_json(
 {
 	char name[96];
 
-	browser_json_name(name, sizeof(name), (unsigned short const *)player->name, 12);
+	browser_json_name(name, sizeof(name), (unsigned short const *)player->name, BROWSER_PLAYER_NAME_LENGTH);
 	used = stats_append(text, size, used,
 		"{\"name\": %s, \"team\": %ld, \"color\": %d, \"kills\": %d, \"assists\": %d, \"deaths\": %d, "
 		"\"betrayals\": %d, \"suicides\": %d, \"shots_fired\": %ld, \"shots_hit\": %ld, \"multikills\": %d, "
@@ -534,7 +535,7 @@ static void stats_client_report(
 	count = game_engine_report_lines(players, MAXIMUM_STATS_PLAYERS);
 	if (count <= 0)
 		return;
-	browser_json_name(name, sizeof(name), (unsigned short const *)reporter->name, 12);
+	browser_json_name(name, sizeof(name), (unsigned short const *)reporter->name, BROWSER_PLAYER_NAME_LENGTH);
 	browser_json_name(host, sizeof(host), (unsigned short const *)game->name, 16);
 	used = stats_append(extra, sizeof(extra), used,
 		"\"map\": \"");

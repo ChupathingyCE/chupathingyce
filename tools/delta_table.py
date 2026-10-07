@@ -10,11 +10,11 @@ The table is a JSON document, legacy.json:
      "platform_policy": {"xbox": {"host_players": 16}}}
 
 ("platform_policy" is optional and reserved: per-platform limits Delta Peer
-reads, each bounded by the build's own hard limits), and its signature,
+is to read, each bounded by the build's own hard limits), and its signature,
 legacy.json.sig: the Ed25519 signature of legacy.json's exact bytes, as 128
-hex digits and a line feed. A build reads only its own
-wire's row (DELTA_WIRE in port/linux/include/delta.h), and takes it only if
-it widens the numbers the build was made with. At most 16384 bytes.
+hex digits and a line feed. A build reads only its own wire's row
+(DELTA_WIRE in port/linux/include/delta.h), and takes it only if it widens
+the numbers the build was made with. At most 16384 bytes.
 
     delta_table.py make --serial N [--from OLD.json] [--out legacy.json]
         this build's wire and numbers (delta.h, halo_port_limits.h) as a
@@ -119,7 +119,7 @@ def parse(document: bytes, own_wire: str = None) -> dict:
             raise TableError(f"it has no {key}")
     if _integer(table["delta_legacy"], 0, 1000000, "delta_legacy") != FORMAT:
         raise TableError(f"its format is {table['delta_legacy']}, not {FORMAT}")
-    _integer(table["serial"], 1, 2 ** 32 - 1, "serial")
+    _integer(table["serial"], 1, 2 ** 32 - 2, "serial")
     if "issued" in table:
         _integer(table["issued"], 0, 2 ** 53, "issued")
     if not isinstance(table["wires"], dict):
@@ -323,7 +323,7 @@ def main() -> int:
         elif arguments.command == "verify":
             keys = [bytes.fromhex(arguments.public_key)] if arguments.public_key else header_keys()
             if not keys or any(len(key) != 32 for key in keys):
-                print(f"no key in delta_key.h: give --public-key", file=sys.stderr)
+                print("no key in delta_key.h: give --public-key", file=sys.stderr)
                 return 1
             table = check(arguments.document.read_bytes(), Path(f"{arguments.document}.sig").read_text(), keys)
             row = table["wires"].get(wire())

@@ -78,7 +78,19 @@ enum
 	DELTA_PEER_TABLE_STALE = 5000,
 	DELTA_PEER_TABLE_SENDS = 4,
 	/* (and says TABLE_HAVE to a machine at most once a second) */
-	DELTA_PEER_TABLE_HAVE_GAP = 1000
+	DELTA_PEER_TABLE_HAVE_GAP = 1000,
+
+	/* moderation (milliseconds where a time): the host takes MOD_ACTION
+	from a machine at most this often (and at once); checks a machine's
+	signatures (PROOF, BIND_ANSWER) at most this often; says MOD_CHALLENGE
+	again (to a machine that has not signed in), MOD_STATE (to one that
+	has) and a waiting MOD_BIND with the roster; a bind waits this long for
+	its answer; a client keeps a notice or result to show this long */
+	DELTA_PEER_MODERATION_ACTION_RATE = 1,
+	DELTA_PEER_MODERATION_ACTION_BURST = 3,
+	DELTA_PEER_MODERATION_SIGNATURE_RATE = 2,
+	DELTA_PEER_MODERATION_SIGNATURE_BURST = 2,
+	DELTA_PEER_MODERATION_BIND_TIME = 120000
 };
 
 /* the room's limits (delta_peer_room_limit) */
@@ -128,6 +140,83 @@ struct delta_peer_env
 	platform, which the signed legacy table may tune
 	(delta_peer_platform_policy): key holds the defaults on the way in */
 	void (*platform_policy)(void *context, int platform, struct delta_platform_key *key);
+	/* (a client's; may be NULL: it never signs) the moderator key's
+	signature of message, and the key: 1, else 0 (no player key). Called
+	only when the player acts (signs in, answers a bind) */
+	int (*moderation_sign)(void *context, const unsigned char *message, int size,
+		unsigned char key[DELTA_WIRE_MODERATION_KEY_SIZE], unsigned char signature[DELTA_WIRE_MODERATION_SIGNATURE_SIZE]);
+	/* (a client's; may be NULL: none needed) the binding a challenge from
+	the host at ipv4 must carry: 1 and it in binding (the invite's host
+	identity this machine joined through), 0 if any will do (a LAN host),
+	-1 if this machine cannot tell and signs nothing */
+	int (*moderation_binding)(void *context, delta_u32 host_ipv4, char *binding, int size);
+};
+
+/* a host's moderation (the dedicated server's: delta_moderation.h's
+struct, the session's view); a host with none does not offer moderation */
+struct delta_peer_moderation_host
+{
+	void *context;
+	/* a machine proved its moderator key this session (key), or it is
+	forgotten (key NULL: the session ended, the machine left) */
+	void (*machine_key)(void *context, int machine_index, const unsigned char *key);
+	/* the role a key has now (enum delta_moderation_role), its permissions
+	and its longest timed ban */
+	int (*key_role)(void *context, const unsigned char *key, delta_u32 *permissions, delta_u32 *ban_minutes);
+	/* a signed action of a machine's key (its signature, sequence and kind
+	checked; its permission is the host's to check): 1 if done, and what to
+	tell the player in result */
+	int (*action)(void *context, int machine_index, const unsigned char *key, int action, int target_machine,
+		int minutes, const char *reason, char *result, int result_size);
+	/* a bind's answer, signed by key (for the request the host sent) */
+	void (*bind_answer)(void *context, int machine_index, delta_u32 request, int accepted, const unsigned char *key);
+};
+
+/* the host's moderation with a client's session */
+struct delta_peer_host_moderation
+{
+	/* the challenge said (its nonce and binding) */
+	int challenged;
+	unsigned char nonce[DELTA_WIRE_MODERATION_NONCE_SIZE];
+	int binding_length;
+	char binding[DELTA_WIRE_MODERATION_BINDING_SIZE + 1];
+	/* its key proved */
+	int verified;
+	unsigned char key[DELTA_WIRE_MODERATION_KEY_SIZE];
+	/* the last action's sequence */
+	delta_u32 sequence;
+	struct delta_rate action_rate;
+	struct delta_rate signature_rate;
+	/* MOD_STATE as last sent */
+	int state_sent;
+	struct delta_wire_mod_state state;
+	/* a bind waiting for its answer */
+	int binding_request;
+	struct delta_wire_mod_bind bind;
+	delta_u32 bind_time;
+};
+
+/* a client's moderation with its host */
+struct delta_peer_client_moderation
+{
+	int challenged;
+	unsigned char nonce[DELTA_WIRE_MODERATION_NONCE_SIZE];
+	int binding_length;
+	char binding[DELTA_WIRE_MODERATION_BINDING_SIZE + 1];
+	/* PROOF sent (the player signed in); MOD_STATE heard */
+	int signed_in;
+	int has_state;
+	struct delta_wire_mod_state state;
+	delta_u32 sequence;
+	/* the last result and notice heard (count: how many so far) */
+	delta_u32 result_count;
+	struct delta_wire_mod_result result;
+	delta_u32 notice_count;
+	struct delta_wire_mod_notice notice;
+	/* a bind waiting for the player's answer */
+	int bind_waiting;
+	struct delta_wire_mod_bind bind;
+	delta_u32 bind_time;
 };
 
 /* this machine */
@@ -209,6 +298,7 @@ struct delta_peer_host_peer
 	int has_profile;
 	struct delta_wire_profile profile;
 	struct delta_peer_relay relay;
+	struct delta_peer_host_moderation moderation;
 };
 
 /* a signed legacy table coming in, piece by piece: one at a time, from one
@@ -238,6 +328,10 @@ struct delta_peer
 	int game_machine_count;
 	struct delta_peer_host_peer peers[DELTA_PEER_MAXIMUM_MACHINES];
 	struct delta_rate rates[DELTA_PEER_MAXIMUM_MACHINES];
+	/* a table from each machine checked, and when (as the rates, the
+	machine's for the game: a new session keeps it) */
+	unsigned char table_checked[DELTA_PEER_MAXIMUM_MACHINES];
+	delta_u32 table_check_time[DELTA_PEER_MAXIMUM_MACHINES];
 	int roster_dirty;
 	delta_u32 roster_time;
 	int roster_sent;
@@ -269,6 +363,15 @@ struct delta_peer
 	unsigned char room_players;
 	signed char player_machines[DELTA_PEER_MAXIMUM_PLAYERS];
 
+	/* moderation: the host's (NULL: none, and not offered), and the
+	client's with its host */
+	const struct delta_peer_moderation_host *moderation_host;
+	int moderation_binding_length;
+	char moderation_binding[DELTA_WIRE_MODERATION_BINDING_SIZE + 1];
+	int moderation_roles_dirty;
+	delta_u32 moderation_time;
+	struct delta_peer_client_moderation client_moderation;
+
 	/* counted for the tests and the log */
 	unsigned long dropped;
 };
@@ -293,6 +396,45 @@ void delta_peer_stop(struct delta_peer *peer);
 /* a datagram that came to the Delta socket */
 void delta_peer_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4, unsigned short port,
 	const unsigned char *data, int size);
+
+/* ---------- moderation (docs/delta.md, Moderation)
+
+The host's: a client that agreed to moderation is sent a challenge (a nonce
+of its session, and the host's binding); it signs in by signing it with its
+moderator key; its actions are signed the same way, each with a sequence
+above the last. The host's moderation (set_moderation_host) decides what a
+key may do. */
+
+/* the host's moderation (NULL: none; moderation is then not offered to
+clients that say HELLO from now) */
+void delta_peer_set_moderation_host(struct delta_peer *peer, const struct delta_peer_moderation_host *host);
+/* the host's binding: what its challenges carry (none: a LAN host) */
+void delta_peer_set_moderation_binding(struct delta_peer *peer, const char *binding);
+/* (host) a machine's key proved this session: 1 and it in key */
+int delta_peer_moderation_key(const struct delta_peer *peer, int machine_index, unsigned char *key);
+/* (host) whether a machine's session agreed to moderation */
+int delta_peer_moderation_capable(const struct delta_peer *peer, int machine_index);
+/* (host) a notice to a machine's player (kind: _delta_moderation_notice_*):
+1 if sent */
+int delta_peer_moderation_notice(struct delta_peer *peer, int machine_index, int kind, const char *text);
+/* (host) asks a machine's player to link the game to an account (the
+server's panel's) on a server: 1 if sent; the answer comes to bind_answer */
+int delta_peer_moderation_bind(struct delta_peer *peer, delta_u32 now, int machine_index, delta_u32 request,
+	const char *account, const char *server);
+/* (host) the roles changed: MOD_STATE said again to every machine signed in */
+void delta_peer_moderation_roles_changed(struct delta_peer *peer);
+
+/* (client) whether the host agreed to moderation, and has said its
+challenge */
+int delta_peer_client_moderation_ready(const struct delta_peer *peer);
+/* (client) the player signs in: PROOF sent, 1; 0 if not ready, no key, or
+the challenge's binding is not the host this machine joined (a relay) */
+int delta_peer_client_moderation_sign_in(struct delta_peer *peer);
+/* (client) an action signed and sent: its sequence, 0 if not */
+delta_u32 delta_peer_client_moderation_action(struct delta_peer *peer, int action, int target_machine, int minutes,
+	const char *reason);
+/* (client) the player's answer to the waiting bind: 1 if sent */
+int delta_peer_client_moderation_bind_answer(struct delta_peer *peer, int accepted);
 
 /* what is known of a machine (0 if nothing) */
 int delta_peer_machine(const struct delta_peer *peer, int machine_index, struct delta_peer_machine *machine);
@@ -349,7 +491,7 @@ void delta_peer_game_stop(int host);
 
 /* the platform policy's row for a platform (delta.h's defaults, in key on
 the way in). The signed legacy table's "platform_policy" section is to tune
-it here (branch delta-legacy-table); for now the defaults stand */
+it here; for now the defaults stand */
 void delta_peer_platform_policy(int platform, struct delta_platform_key *key);
 
 /* this machine's platform key; a game's machine's (0 if not known) */
@@ -365,6 +507,5 @@ int delta_peer_game_room_has(int capability);
 int delta_peer_game_room_limit(int limit);
 /* the client's handshake (enum delta_peer_client_state) */
 int delta_peer_game_client_state(void);
-
 
 #endif

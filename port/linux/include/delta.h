@@ -65,6 +65,10 @@ enum delta_capability
 	(struct delta_platform_key), which every Delta machine sends. The bit
 	stays taken and is never set */
 	_delta_capability_console_slots = 9,
+	/* a dedicated server's moderators: a player signs in with a key made
+	from their player key, and kicks and bans from the game
+	(docs/delta.md, Moderation) */
+	_delta_capability_moderation = 10,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };
@@ -176,7 +180,6 @@ command repository's watch adds a row when it follows OpenCE's raise
 	X(18, "build-129", additive) /* followed from OpenCE: additive */ \
 	X(19, "build-132", additive) /* co-op's player collisions switch, in a padding byte of the game settings */ \
 	X(20, "build-133", additive) /* password games' internet listings (another listing layout); game messages as 19 */
-
 
 /* ---------- the legacy table (port/linux/src/delta.c)
 

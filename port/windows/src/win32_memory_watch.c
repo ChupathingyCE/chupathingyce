@@ -41,6 +41,10 @@ static unsigned long watch_address(const void *pointer)
 
 void platform_log(const char *format, ...);
 
+/* (each page: 0 not watched, 1 watched and read-only, 2 made writable by a
+watched write. A fault on a page at 2 is a write another thread made as
+this one was making the page writable, and is made again; one on a page at
+0, freed memory or none of the watch's, is a crash) */
 static volatile unsigned char page_protected[WATCH_PAGE_COUNT];
 static volatile LONG page_generation[WATCH_PAGE_COUNT];
 static volatile LONG current_generation = 1;
@@ -61,7 +65,7 @@ static void mark_written(unsigned long page)
 	DWORD previous;
 
 	page_generation[page] = InterlockedIncrement(&current_generation);
-	page_protected[page] = 0;
+	page_protected[page] = 2;
 	VirtualProtect(WATCH_POINTER(PLATFORM_CONTIGUOUS_BASE + page * WATCH_PAGE_SIZE), WATCH_PAGE_SIZE,
 		PAGE_READWRITE, &previous);
 }
@@ -75,11 +79,13 @@ static LONG CALLBACK watch_handler(EXCEPTION_POINTERS *exception)
 	{
 		unsigned long address = WATCH_ADDRESS((void *)record->ExceptionInformation[1]);
 
-		if (in_window(address) && page_protected[page_index(address)])
+		if (in_window(address) && page_protected[page_index(address)] == 1)
 		{
 			mark_written(page_index(address));
 			return EXCEPTION_CONTINUE_EXECUTION;
 		}
+		if (in_window(address) && page_protected[page_index(address)] == 2)
+			return EXCEPTION_CONTINUE_EXECUTION;
 	}
 	return EXCEPTION_CONTINUE_SEARCH;
 }
@@ -104,7 +110,7 @@ void memory_watch_protect(unsigned long address, unsigned long size)
 		last = WATCH_PAGE_COUNT - 1;
 	for (page = first; page <= last; page++)
 	{
-		if (!page_protected[page])
+		if (page_protected[page] != 1)
 		{
 			DWORD previous;
 
@@ -155,7 +161,7 @@ void memory_watch_prepare_write(void *address, unsigned long size)
 		last = WATCH_PAGE_COUNT - 1;
 	for (page = first; page <= last; page++)
 	{
-		if (page_protected[page])
+		if (page_protected[page] == 1)
 			mark_written(page);
 	}
 }

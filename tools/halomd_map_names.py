@@ -67,14 +67,10 @@ def main() -> int:
     mods = json.loads(data.decode("utf-8"))["Mods"]
     names = sorted({(mod["identifier"].lower(), mod["name"].strip()) for mod in mods
                     if mod.get("identifier") and mod.get("name")})
-    lines = [HEADER]
-    for identifier, name in names:
-        if not all(c.isalnum() or c in "_-." for c in identifier):
-            continue
-        lines.append(f'\t{{ "{identifier}", {wide_literal(name)} }},\n')
-    lines.append("};\n")
-    OUTPUT.write_text("".join(lines), encoding="utf-8")
-    print(f"{OUTPUT.relative_to(ROOT)}: {len(names)} maps")
+    rows = [f'\t{{ "{identifier}", {wide_literal(name)} }},\n' for identifier, name in names
+            if all(c.isalnum() or c in "_-." for c in identifier)]
+    OUTPUT.write_text(HEADER + "".join(rows) + "};\n", encoding="utf-8")
+    print(f"{OUTPUT.relative_to(ROOT)}: {len(rows)} maps")
     return 0
 
 

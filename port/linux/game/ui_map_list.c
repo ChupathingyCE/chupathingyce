@@ -299,10 +299,11 @@ static void *ce_tags_pointer(
 	return ce_tags + (address - CE_TAGS_ADDRESS);
 }
 
-/* the data of the tag of a group and name, or NULL */
+/* the data of the tag of a group and name (size bytes of it in the tags), or NULL */
 static byte *ce_tag_find(
 	unsigned long group_tag,
-	char const *name)
+	char const *name,
+	unsigned long size)
 {
 	unsigned long *header = ce_tags_pointer(CE_TAGS_ADDRESS, 0x10);
 	unsigned long *instances;
@@ -324,7 +325,7 @@ hold, so that the size does not overflow) */
 		char const *instance_name = ce_tags_pointer(instance[4], strlen(name) + 1);
 
 		if (instance[0] == group_tag && instance_name && !memcmp(instance_name, name, strlen(name) + 1))
-			return ce_tags_pointer(instance[5], 0x6c);
+			return ce_tags_pointer(instance[5], size);
 	}
 	return NULL;
 }
@@ -336,7 +337,7 @@ static long ce_string_list_read(
 	long length,
 	long maximum_count)
 {
-	unsigned long *block = (unsigned long *)ce_tag_find('ustr', name);
+	unsigned long *block = (unsigned long *)ce_tag_find('ustr', name, 0x0c);
 	unsigned long *references;
 	long count, index;
 
@@ -369,7 +370,7 @@ Direct3D texture in contiguous memory, as the texture cache would make it */
 static void ce_pictures_read(
 	HANDLE ui_file)
 {
-	byte *group = ce_tag_find('bitm', "ui\\shell\\bitmaps\\mp_map_grafix");
+	byte *group = ce_tag_find('bitm', "ui\\shell\\bitmaps\\mp_map_grafix", 0x6c);
 	HANDLE bitmaps_file = INVALID_HANDLE_VALUE;
 	unsigned long *block;
 	byte *elements;

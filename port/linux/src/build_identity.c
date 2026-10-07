@@ -100,6 +100,31 @@ const char *build_identity_user_agent(void)
 	return user_agent;
 }
 
+const char *build_identity_version(void)
+{
+	return HALO_VERSION;
+}
+
+const char *build_identity_channel(void)
+{
+	return HALO_CHANNEL;
+}
+
+const char *build_identity_commit(void)
+{
+	return HALO_COMMIT;
+}
+
+const char *build_identity_platform(void)
+{
+	return BUILD_IDENTITY_PLATFORM;
+}
+
+const char *build_identity_architecture(void)
+{
+	return BUILD_IDENTITY_ARCHITECTURE;
+}
+
 void build_identity_log(void)
 {
 	static int logged;

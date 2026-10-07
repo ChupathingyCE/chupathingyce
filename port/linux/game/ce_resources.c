@@ -53,10 +53,6 @@ enum
 	_ce_resource_strings,
 	NUMBER_OF_CE_RESOURCE_MAPS,
 
-	CE_TAG_INSTANCE_SIZE = 0x20,
-	/* (cache_files.c's: where a Custom Edition map's tags are) */
-	CE_TAG_CACHE_BASE = 0x40440000,
-	CE_TAG_CACHE_SIZE = 0x01700000,
 	/* a bitmap's flags the Xbox's tags keep (bitmap_utilities.c: power of
 	two, compressed, palettized, swizzled, linear, v16u16) */
 	CE_BITMAP_XBOX_FORMAT_FLAGS = 0x3f,
@@ -105,18 +101,6 @@ enum
 
 /* ---------- structures */
 
-/* (cache_files.c's) */
-struct ce_tag_instance
-{
-	unsigned long group_tag;
-	unsigned long parent_group_tags[2];
-	unsigned long tag_index;
-	unsigned long name;
-	unsigned long base_address;
-	unsigned long indexed;
-	unsigned long unused;
-};
-
 struct ce_resource
 {
 	unsigned long path_offset;
@@ -152,8 +136,10 @@ static char const *const ce_resource_map_names[NUMBER_OF_CE_RESOURCE_MAPS] = { "
 0 none) */
 static byte *ce_indexed_tags;
 static long ce_indexed_tag_count;
-/* the map's Ogg Vorbis sounds' samples, decoded to 16-bit PCM (maps\ce\ce_sounds.pcm) */
+/* the map's Ogg Vorbis sounds' samples, decoded to 16-bit PCM (maps\ce\ce_sounds.pcm),
+and its path */
 static HANDLE ce_decoded_sounds_file;
+static char ce_decoded_sounds_path[256];
 /* the space left in the map's tag cache (ce_resources_allocate) */
 static unsigned long ce_free_next, ce_free_end;
 
@@ -271,22 +257,6 @@ static unsigned long ce_resource_minimum_size(
 	}
 }
 
-static unsigned long ce_read_long(
-	byte const *at)
-{
-	unsigned long value;
-
-	memcpy(&value, at, sizeof(value));
-	return value;
-}
-
-static void ce_write_long(
-	byte *at,
-	unsigned long value)
-{
-	memcpy(at, &value, sizeof(value));
-}
-
 /* a tag block at field of a resource (copy, size bytes, to be at base): its
 elements, each element_size bytes, all in the resource, made an Xbox address
 there; their count and offset in the resource; FALSE if they are not in it */
@@ -354,7 +324,8 @@ static void ce_relocate_editor_data(
 	}
 }
 
-/* (a + b, FALSE if that passes limit) */
+/* (*cursor moved past count elements of element_size, FALSE if that passes
+limit) */
 static boolean ce_advance(
 	unsigned long *cursor,
 	unsigned long count,
@@ -1158,9 +1129,9 @@ boolean ce_resources_tags_loaded(
 	ce_free_next = ce_free_end = 0;
 	if (!ce_indexed_tags)
 		return FALSE;
-	image.data = xbox_pointer(CE_TAG_CACHE_BASE);
-	image.base = CE_TAG_CACHE_BASE;
-	image.size = first_free - CE_TAG_CACHE_BASE;
+	image.data = xbox_pointer(CE_IMAGE_TAG_CACHE_BASE);
+	image.base = CE_IMAGE_TAG_CACHE_BASE;
+	image.size = first_free - CE_IMAGE_TAG_CACHE_BASE;
 	if (!ce_resources_place(&image, tag_instances, tag_count, end_free, ce_indexed_tags, &next, &copied))
 		return FALSE;
 	/* every bitmap (in the map or copied in): Halo PC's flags past the
@@ -1272,6 +1243,7 @@ static void ce_sounds_decode(
 	{
 		CloseHandle(ce_decoded_sounds_file);
 		ce_decoded_sounds_file = NULL;
+		DeleteFileA(ce_decoded_sounds_path);
 	}
 	sprintf(path, "%sce\\ce_sounds.pcm", cache_files_map_directory());
 	for (index = 0; index < tag_count; index++)
@@ -1299,14 +1271,34 @@ static void ce_sounds_decode(
 			repaired++;
 		if (!source || *(short *)(sound + CE_SOUND_COMPRESSION_OFFSET) != CE_SOUND_COMPRESSION_OGG)
 			continue;
+		/* (this copy of the game's own file: two copies sharing the maps
+		folder each write theirs. An older one is deleted first; on Windows
+		one another copy has open cannot be, and the next name is tried.
+		Elsewhere the file is deleted once it is open, read through its
+		handle alone, so another copy's new one is another file) */
 		if (!file)
 		{
-			file = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
+			int attempt;
+
+			file = INVALID_HANDLE_VALUE;
+			for (attempt = 0; attempt < 8 && file == INVALID_HANDLE_VALUE; attempt++)
+			{
+				if (attempt)
+					sprintf(path, "%sce\\ce_sounds%d.pcm", cache_files_map_directory(), attempt);
+				if (!DeleteFileA(path) && GetLastError() != ERROR_FILE_NOT_FOUND &&
+					GetLastError() != ERROR_PATH_NOT_FOUND)
+				{
+					continue;
+				}
+				file = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_NEW, 0, NULL);
+			}
 			if (file == INVALID_HANDLE_VALUE)
 			{
 				error(_error_silent, "Custom Edition maps: cannot write %s; Ogg Vorbis sounds will not play", path);
 				return;
 			}
+			sprintf(ce_decoded_sounds_path, "%s", path);
+			DeleteFileA(path);
 		}
 		encoding = *(short *)(sound + CE_SOUND_ENCODING_OFFSET);
 		sample_rate = *(short *)(sound + CE_SOUND_SAMPLE_RATE_OFFSET);

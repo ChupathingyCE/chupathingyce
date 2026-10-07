@@ -438,6 +438,411 @@ int delta_wire_write_table_have(unsigned char *data, delta_u32 session, delta_u3
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TABLE_HAVE_SIZE;
 }
 
+/* ---------- moderation */
+
+/* whether length bytes of data are printable ASCII */
+static int printable(const unsigned char *data, int length)
+{
+	int index;
+
+	for (index = 0; index < length; index++)
+	{
+		if (data[index] < 0x20 || data[index] > 0x7E)
+			return 0;
+	}
+	return 1;
+}
+
+/* length bytes of text into out (maximum + 1), printable ASCII kept and
+the rest '?' */
+static void read_moderation_text(const unsigned char *data, int length, char *out, int maximum)
+{
+	int index;
+
+	for (index = 0; index < length && index < maximum; index++)
+		out[index] = data[index] >= 0x20 && data[index] <= 0x7E ? (char)data[index] : '?';
+	out[index] = 0;
+}
+
+/* the length of text as sent: up to its end, at most maximum */
+static int moderation_text_length(const char *text, int maximum)
+{
+	int length = 0;
+
+	while (length < maximum && text[length])
+		length++;
+	return length;
+}
+
+static void copy_bytes(unsigned char *destination, const unsigned char *source, int size)
+{
+	int index;
+
+	for (index = 0; index < size; index++)
+		destination[index] = source[index];
+}
+
+/* MOD_CHALLENGE
+	0  nonce (32)
+	32 binding length (1, at most 64)
+	33 reserved (3)
+	36 binding (printable ASCII) */
+
+int delta_wire_read_mod_challenge(const unsigned char *payload, int size, struct delta_wire_mod_challenge *challenge)
+{
+	int length;
+
+	clear(challenge, (int)sizeof(*challenge));
+	if (!payload || size < DELTA_WIRE_MOD_CHALLENGE_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	length = payload[32];
+	if (length > DELTA_WIRE_MODERATION_BINDING_SIZE || size < DELTA_WIRE_MOD_CHALLENGE_SIZE + length ||
+		!printable(payload + DELTA_WIRE_MOD_CHALLENGE_SIZE, length))
+	{
+		return 0;
+	}
+	copy_bytes(challenge->nonce, payload, DELTA_WIRE_MODERATION_NONCE_SIZE);
+	challenge->binding_length = length;
+	read_moderation_text(payload + DELTA_WIRE_MOD_CHALLENGE_SIZE, length, challenge->binding,
+		DELTA_WIRE_MODERATION_BINDING_SIZE);
+	return 1;
+}
+
+int delta_wire_write_mod_challenge(unsigned char *data, delta_u32 session,
+	const struct delta_wire_mod_challenge *challenge)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+	int length = challenge->binding_length;
+
+	if (length < 0 || length > DELTA_WIRE_MODERATION_BINDING_SIZE ||
+		!printable((const unsigned char *)challenge->binding, length))
+	{
+		return 0;
+	}
+	clear(payload, DELTA_WIRE_MOD_CHALLENGE_SIZE);
+	copy_bytes(payload, challenge->nonce, DELTA_WIRE_MODERATION_NONCE_SIZE);
+	payload[32] = (unsigned char)length;
+	copy_bytes(payload + DELTA_WIRE_MOD_CHALLENGE_SIZE, (const unsigned char *)challenge->binding, length);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_mod_challenge, DELTA_WIRE_MOD_CHALLENGE_SIZE + length,
+		session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_MOD_CHALLENGE_SIZE + length;
+}
+
+/* MOD_PROOF
+	0  moderator key (32)
+	32 signature (64) */
+
+int delta_wire_read_mod_proof(const unsigned char *payload, int size, struct delta_wire_mod_proof *proof)
+{
+	clear(proof, (int)sizeof(*proof));
+	if (!payload || size < DELTA_WIRE_MOD_PROOF_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	copy_bytes(proof->key, payload, DELTA_WIRE_MODERATION_KEY_SIZE);
+	copy_bytes(proof->signature, payload + 32, DELTA_WIRE_MODERATION_SIGNATURE_SIZE);
+	return 1;
+}
+
+int delta_wire_write_mod_proof(unsigned char *data, delta_u32 session, const struct delta_wire_mod_proof *proof)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+	copy_bytes(payload, proof->key, DELTA_WIRE_MODERATION_KEY_SIZE);
+	copy_bytes(payload + 32, proof->signature, DELTA_WIRE_MODERATION_SIGNATURE_SIZE);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_mod_proof, DELTA_WIRE_MOD_PROOF_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_MOD_PROOF_SIZE;
+}
+
+/* MOD_STATE
+	0  role (1)
+	1  reserved (3)
+	4  permissions (4)
+	8  the longest timed ban, minutes (4) */
+
+int delta_wire_read_mod_state(const unsigned char *payload, int size, struct delta_wire_mod_state *state)
+{
+	clear(state, (int)sizeof(*state));
+	if (!payload || size < DELTA_WIRE_MOD_STATE_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	state->role = payload[0];
+	state->permissions = read_u32(payload + 4);
+	state->ban_minutes = read_u32(payload + 8);
+	return 1;
+}
+
+int delta_wire_write_mod_state(unsigned char *data, delta_u32 session, const struct delta_wire_mod_state *state)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+	clear(payload, DELTA_WIRE_MOD_STATE_SIZE);
+	payload[0] = state->role;
+	write_u32(payload + 4, state->permissions);
+	write_u32(payload + 8, state->ban_minutes);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_mod_state, DELTA_WIRE_MOD_STATE_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_MOD_STATE_SIZE;
+}
+
+/* MOD_ACTION
+	0  sequence (4)
+	4  action (1)
+	5  target machine (1)
+	6  minutes (2)
+	8  reason length (1, at most 63)
+	9  reserved (3)
+	12 signature (64)
+	76 reason (printable ASCII) */
+
+int delta_wire_read_mod_action(const unsigned char *payload, int size, struct delta_wire_mod_action *action)
+{
+	int length;
+
+	clear(action, (int)sizeof(*action));
+	if (!payload || size < DELTA_WIRE_MOD_ACTION_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	length = payload[8];
+	if (length > DELTA_WIRE_MODERATION_REASON_SIZE || size < DELTA_WIRE_MOD_ACTION_SIZE + length ||
+		!printable(payload + DELTA_WIRE_MOD_ACTION_SIZE, length))
+	{
+		return 0;
+	}
+	action->sequence = read_u32(payload);
+	action->action = payload[4];
+	action->target = payload[5];
+	action->minutes = read_u16(payload + 6);
+	action->reason_length = length;
+	copy_bytes(action->signature, payload + 12, DELTA_WIRE_MODERATION_SIGNATURE_SIZE);
+	read_moderation_text(payload + DELTA_WIRE_MOD_ACTION_SIZE, length, action->reason,
+		DELTA_WIRE_MODERATION_REASON_SIZE);
+	return 1;
+}
+
+int delta_wire_write_mod_action(unsigned char *data, delta_u32 session, const struct delta_wire_mod_action *action)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+	int length = action->reason_length;
+
+	if (length < 0 || length > DELTA_WIRE_MODERATION_REASON_SIZE ||
+		!printable((const unsigned char *)action->reason, length))
+	{
+		return 0;
+	}
+	clear(payload, DELTA_WIRE_MOD_ACTION_SIZE);
+	write_u32(payload, action->sequence);
+	payload[4] = action->action;
+	payload[5] = action->target;
+	write_u16(payload + 6, action->minutes);
+	payload[8] = (unsigned char)length;
+	copy_bytes(payload + 12, action->signature, DELTA_WIRE_MODERATION_SIGNATURE_SIZE);
+	copy_bytes(payload + DELTA_WIRE_MOD_ACTION_SIZE, (const unsigned char *)action->reason, length);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_mod_action, DELTA_WIRE_MOD_ACTION_SIZE + length,
+		session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_MOD_ACTION_SIZE + length;
+}
+
+/* MOD_RESULT
+	0  sequence (4)
+	4  ok (1)
+	5  text length (1, at most 127)
+	6  reserved (2)
+	8  text */
+
+int delta_wire_read_mod_result(const unsigned char *payload, int size, struct delta_wire_mod_result *result)
+{
+	int length;
+
+	clear(result, (int)sizeof(*result));
+	if (!payload || size < DELTA_WIRE_MOD_RESULT_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	length = payload[5];
+	if (length > DELTA_WIRE_MODERATION_TEXT_SIZE || size < DELTA_WIRE_MOD_RESULT_SIZE + length)
+		return 0;
+	result->sequence = read_u32(payload);
+	result->ok = (unsigned char)(payload[4] ? 1 : 0);
+	read_moderation_text(payload + DELTA_WIRE_MOD_RESULT_SIZE, length, result->text, DELTA_WIRE_MODERATION_TEXT_SIZE);
+	return 1;
+}
+
+int delta_wire_write_mod_result(unsigned char *data, delta_u32 session, const struct delta_wire_mod_result *result)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+	int length = moderation_text_length(result->text, DELTA_WIRE_MODERATION_TEXT_SIZE);
+
+	clear(payload, DELTA_WIRE_MOD_RESULT_SIZE);
+	write_u32(payload, result->sequence);
+	payload[4] = (unsigned char)(result->ok ? 1 : 0);
+	payload[5] = (unsigned char)length;
+	write_text(payload + DELTA_WIRE_MOD_RESULT_SIZE, result->text, length);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_mod_result, DELTA_WIRE_MOD_RESULT_SIZE + length, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_MOD_RESULT_SIZE + length;
+}
+
+/* MOD_NOTICE
+	0  kind (1)
+	1  text length (1, at most 127)
+	2  reserved (2)
+	4  text */
+
+int delta_wire_read_mod_notice(const unsigned char *payload, int size, struct delta_wire_mod_notice *notice)
+{
+	int length;
+
+	clear(notice, (int)sizeof(*notice));
+	if (!payload || size < DELTA_WIRE_MOD_NOTICE_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	length = payload[1];
+	if (length > DELTA_WIRE_MODERATION_TEXT_SIZE || size < DELTA_WIRE_MOD_NOTICE_SIZE + length)
+		return 0;
+	notice->kind = payload[0];
+	read_moderation_text(payload + DELTA_WIRE_MOD_NOTICE_SIZE, length, notice->text, DELTA_WIRE_MODERATION_TEXT_SIZE);
+	return 1;
+}
+
+int delta_wire_write_mod_notice(unsigned char *data, delta_u32 session, const struct delta_wire_mod_notice *notice)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+	int length = moderation_text_length(notice->text, DELTA_WIRE_MODERATION_TEXT_SIZE);
+
+	clear(payload, DELTA_WIRE_MOD_NOTICE_SIZE);
+	payload[0] = notice->kind;
+	payload[1] = (unsigned char)length;
+	write_text(payload + DELTA_WIRE_MOD_NOTICE_SIZE, notice->text, length);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_mod_notice, DELTA_WIRE_MOD_NOTICE_SIZE + length, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_MOD_NOTICE_SIZE + length;
+}
+
+/* MOD_BIND
+	0  request (4)
+	4  account length (1, at most 31)
+	5  server name length (1, at most 31)
+	6  reserved (2)
+	8  account, then server name */
+
+int delta_wire_read_mod_bind(const unsigned char *payload, int size, struct delta_wire_mod_bind *bind)
+{
+	int account, server;
+
+	clear(bind, (int)sizeof(*bind));
+	if (!payload || size < DELTA_WIRE_MOD_BIND_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	account = payload[4];
+	server = payload[5];
+	if (account > DELTA_WIRE_MODERATION_NAME_SIZE || server > DELTA_WIRE_MODERATION_NAME_SIZE ||
+		size < DELTA_WIRE_MOD_BIND_SIZE + account + server)
+	{
+		return 0;
+	}
+	bind->request = read_u32(payload);
+	read_moderation_text(payload + DELTA_WIRE_MOD_BIND_SIZE, account, bind->account, DELTA_WIRE_MODERATION_NAME_SIZE);
+	read_moderation_text(payload + DELTA_WIRE_MOD_BIND_SIZE + account, server, bind->server,
+		DELTA_WIRE_MODERATION_NAME_SIZE);
+	return 1;
+}
+
+int delta_wire_write_mod_bind(unsigned char *data, delta_u32 session, const struct delta_wire_mod_bind *bind)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+	int account = moderation_text_length(bind->account, DELTA_WIRE_MODERATION_NAME_SIZE);
+	int server = moderation_text_length(bind->server, DELTA_WIRE_MODERATION_NAME_SIZE);
+
+	clear(payload, DELTA_WIRE_MOD_BIND_SIZE);
+	write_u32(payload, bind->request);
+	payload[4] = (unsigned char)account;
+	payload[5] = (unsigned char)server;
+	write_text(payload + DELTA_WIRE_MOD_BIND_SIZE, bind->account, account);
+	write_text(payload + DELTA_WIRE_MOD_BIND_SIZE + account, bind->server, server);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_mod_bind, DELTA_WIRE_MOD_BIND_SIZE + account + server,
+		session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_MOD_BIND_SIZE + account + server;
+}
+
+/* MOD_BIND_ANSWER
+	0  request (4)
+	4  accepted (1)
+	5  reserved (3)
+	8  moderator key (32)
+	40 signature (64) */
+
+int delta_wire_read_mod_bind_answer(const unsigned char *payload, int size, struct delta_wire_mod_bind_answer *answer)
+{
+	clear(answer, (int)sizeof(*answer));
+	if (!payload || size < DELTA_WIRE_MOD_BIND_ANSWER_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	answer->request = read_u32(payload);
+	answer->accepted = (unsigned char)(payload[4] ? 1 : 0);
+	copy_bytes(answer->key, payload + 8, DELTA_WIRE_MODERATION_KEY_SIZE);
+	copy_bytes(answer->signature, payload + 40, DELTA_WIRE_MODERATION_SIGNATURE_SIZE);
+	return 1;
+}
+
+int delta_wire_write_mod_bind_answer(unsigned char *data, delta_u32 session,
+	const struct delta_wire_mod_bind_answer *answer)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+	clear(payload, DELTA_WIRE_MOD_BIND_ANSWER_SIZE);
+	write_u32(payload, answer->request);
+	payload[4] = (unsigned char)(answer->accepted ? 1 : 0);
+	copy_bytes(payload + 8, answer->key, DELTA_WIRE_MODERATION_KEY_SIZE);
+	copy_bytes(payload + 40, answer->signature, DELTA_WIRE_MODERATION_SIGNATURE_SIZE);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_mod_bind_answer, DELTA_WIRE_MOD_BIND_ANSWER_SIZE,
+		session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_MOD_BIND_ANSWER_SIZE;
+}
+
+/* the signed messages: a label, the nonce, then the fields */
+
+static int moderation_label(unsigned char *message, const char *label, const unsigned char *nonce)
+{
+	int length = 0;
+
+	while (label[length])
+	{
+		message[length] = (unsigned char)label[length];
+		length++;
+	}
+	copy_bytes(message + length, nonce, DELTA_WIRE_MODERATION_NONCE_SIZE);
+	return length + DELTA_WIRE_MODERATION_NONCE_SIZE;
+}
+
+int delta_wire_moderation_proof_message(unsigned char *message, const unsigned char *nonce, const char *binding,
+	int binding_length)
+{
+	int length = moderation_label(message, "delta moderation proof v1\n", nonce);
+
+	if (binding_length < 0 || binding_length > DELTA_WIRE_MODERATION_BINDING_SIZE)
+		binding_length = 0;
+	copy_bytes(message + length, (const unsigned char *)binding, binding_length);
+	return length + binding_length;
+}
+
+int delta_wire_moderation_action_message(unsigned char *message, const unsigned char *nonce,
+	const struct delta_wire_mod_action *action)
+{
+	int length = moderation_label(message, "delta moderation action v1\n", nonce);
+	int reason = action->reason_length;
+
+	if (reason < 0 || reason > DELTA_WIRE_MODERATION_REASON_SIZE)
+		reason = 0;
+	write_u32(message + length, action->sequence);
+	message[length + 4] = action->action;
+	message[length + 5] = action->target;
+	write_u16(message + length + 6, action->minutes);
+	copy_bytes(message + length + 8, (const unsigned char *)action->reason, reason);
+	return length + 8 + reason;
+}
+
+int delta_wire_moderation_bind_message(unsigned char *message, const unsigned char *nonce, delta_u32 request,
+	int accepted, const char *binding, int binding_length)
+{
+	int length = moderation_label(message, "delta moderation bind v1\n", nonce);
+
+	if (binding_length < 0 || binding_length > DELTA_WIRE_MODERATION_BINDING_SIZE)
+		binding_length = 0;
+	write_u32(message + length, request);
+	message[length + 4] = (unsigned char)(accepted ? 1 : 0);
+	copy_bytes(message + length + 5, (const unsigned char *)binding, binding_length);
+	return length + 5 + binding_length;
+}
+
 /* ---------- rate limits */
 
 int delta_rate_take(struct delta_rate *rate, delta_u32 now, int rate_per_second, int burst)
@@ -457,8 +862,8 @@ int delta_rate_take(struct delta_rate *rate, delta_u32 now, int rate_per_second,
 		/* (a long pause refills it whole; time running backward adds none) */
 		if (elapsed > 0x7FFFFFFFu)
 			elapsed = 0;
-		if (elapsed > (delta_u32)burst * 1000u)
-			elapsed = (delta_u32)burst * 1000u;
+		if (elapsed > limit)
+			elapsed = limit;
 		rate->tokens_milli += elapsed * (delta_u32)rate_per_second;
 		if (rate->tokens_milli > limit)
 			rate->tokens_milli = limit;

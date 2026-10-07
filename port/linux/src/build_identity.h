@@ -22,6 +22,15 @@ const char *build_identity(void);
 (macOS arm64)" */
 const char *build_identity_user_agent(void);
 
+/* its parts, as build_identity has them: "0.7.0b", "release" (or nightly,
+dev, custom), "61eb5615", "macOS" (Windows, Linux, Android), "arm64" (x64,
+x86) */
+const char *build_identity_version(void);
+const char *build_identity_channel(void);
+const char *build_identity_commit(void);
+const char *build_identity_platform(void);
+const char *build_identity_architecture(void);
+
 /* the log's header, first in debug.txt for this run (before the game's own
 "halobeta xbox" line) and on standard error: build_identity, then the
 network's numbers (OpenCE network version, Delta, the legacy table,

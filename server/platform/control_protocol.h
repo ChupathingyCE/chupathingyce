@@ -21,8 +21,9 @@ enum
 {
 	/* a request's line and headers, at most */
 	CONTROL_MAXIMUM_HEAD = 8192,
-	/* its body, at most (a command is at most 255 characters) */
-	CONTROL_MAXIMUM_BODY = 4096,
+	/* its body, at most (a command is at most 255 characters; a playlist's or
+	game type's file, sent whole, 8 KB) */
+	CONTROL_MAXIMUM_BODY = 16384,
 	/* its target (path and query), at most */
 	CONTROL_MAXIMUM_TARGET = 256,
 	CONTROL_MAXIMUM_HEADERS = 32,
@@ -134,6 +135,14 @@ int control_parse_command_body(const char *body, size_t length, char *command, s
 else 0 and why in reason */
 int control_parse_login_body(const char *body, size_t length, char *token, size_t token_size, const char **reason);
 
+/* a JSON object of string fields, {"a": "...", "b": "..."}: each field of
+names (count of them) into its out (sizes[i] bytes; empty if absent); a
+field not named, a repeated one, or anything but strings refused (strings
+printable ASCII; with a field's bit in multiline, line ends too: a file's
+text). 1, else 0 and why (the outs wiped) */
+int control_parse_fields(const char *body, size_t length, const char *const *names, char **outs,
+	const size_t *sizes, int count, unsigned int multiline, const char **reason);
+
 /* whether text is a session id's or CSRF token's form (64 lowercase hex
 digits) */
 int control_session_text_valid(const char *text);
@@ -180,6 +189,11 @@ int control_credential_make(const char *token, const char *name, const uint8_t i
 parse: 1 if the line is one, else 0 */
 void control_credential_line(const struct control_credential *credential, char line[CONTROL_CREDENTIAL_LINE]);
 int control_credential_parse(const char *line, struct control_credential *credential);
+
+/* text's Argon2id hash at a salt and cost (a token's, a password's): 1,
+else 0 (no memory) */
+int control_argon2id(const char *text, const uint8_t salt[CONTROL_SALT_BYTES], uint32_t kib, uint32_t passes,
+	uint8_t hash[CONTROL_HASH_BYTES]);
 
 /* whether a token is a credential's (Argon2id, its hash compared in constant
 time): 1, 0 if not, -1 if there was no memory to check */
@@ -228,6 +242,11 @@ int control_limiter_allowed(struct control_limiter *limiter, const uint8_t addre
 int control_limiter_take_check(struct control_limiter *limiter, int64_t now);
 void control_limiter_failed(struct control_limiter *limiter, const uint8_t address[16], int64_t now);
 void control_limiter_succeeded(struct control_limiter *limiter, const uint8_t address[16]);
+
+/* ---------- hexadecimal */
+
+/* count bytes as lowercase hexadecimal in text (2 * count + 1 bytes) */
+void control_hex_text(const uint8_t *bytes, size_t count, char *text);
 
 /* ---------- the log */
 

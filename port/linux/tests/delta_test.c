@@ -14,6 +14,9 @@ every parser and of both sides' sessions.
 
 #include "../src/delta_peer.h"
 
+#include "monocypher.h"
+#include "monocypher-ed25519.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,6 +35,7 @@ static int failures;
 
 #define PLATFORM_BIT ((delta_u32)1 << _delta_capability_platform)
 #define PROFILE_BIT ((delta_u32)1 << _delta_capability_profile)
+#define MODERATION_BIT ((delta_u32)1 << _delta_capability_moderation)
 
 /* ---------- a simulated network */
 
@@ -262,7 +266,7 @@ static void deliver(delta_u32 now)
 	}
 }
 
-/* the game: machine 0 the host's own, then one a client node (node index
+/* the game: machine 0 the host's own, then each a client node (node index
 = machine index) */
 static struct delta_peer_game_machine game_machines[DELTA_PEER_MAXIMUM_MACHINES];
 static int game_machine_count;
@@ -543,7 +547,7 @@ static void test_rate(void)
 	CHECK(taken == 10);
 	/* (time wrapping, or going back, gives none and breaks nothing) */
 	CHECK(!delta_rate_take(&rate, 1500, 10, 20));
-	CHECK(delta_rate_take(&rate, 0xFFFFFFF0u, 10, 20) == 0 || 1);
+	delta_rate_take(&rate, 0xFFFFFFF0u, 10, 20);
 }
 
 /* ---------- sessions */
@@ -1008,6 +1012,24 @@ static void test_relay_refused(void)
 	run_frames(&now, start + 20000, 100, 2, joined);
 	CHECK(nodes[0].table_serial == 12 && nodes[0].taken == 1);
 
+	/* a client that leaves Delta and says HELLO again at once: its new
+	session's table still waits out the machine's minute */
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, PLATFORM_BIT, _delta_platform_pc_linux, 0, 13);
+	nodes[0].reject = 1;
+	game_reset();
+	game_add(1);
+	start = now;
+	run_frames(&now, start + 10000, 100, 2, joined);
+	CHECK(nodes[0].checks == 1);
+	delta_peer_stop(&nodes[1].peer);
+	deliver(now);
+	run_frames(&now, start + 30000, 100, 2, joined);
+	CHECK(nodes[0].checks == 1 && nodes[1].peer.client_state == _delta_peer_client_delta);
+	run_frames(&now, start + 3 * 60000, 100, 2, joined);
+	/* (then one a minute: the new session's three passes) */
+	CHECK(nodes[0].checks == 3);
+
 	/* pieces of two tables at once from two machines: one at a time */
 	{
 		unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
@@ -1045,6 +1067,561 @@ static void test_relay_refused(void)
 	}
 }
 
+/* ---------- moderation */
+
+/* a moderator key, from a seed byte */
+struct moderator
+{
+	unsigned char secret[64];
+	unsigned char key[32];
+};
+
+static void moderator_make(struct moderator *moderator, unsigned char seed_byte)
+{
+	unsigned char seed[32];
+
+	memset(seed, seed_byte, sizeof(seed));
+	crypto_ed25519_key_pair(moderator->secret, moderator->key, seed);
+}
+
+/* a client node's moderation: its key (NULL: none), the binding it expects
+(binding_result as moderation_binding answers), what it signed */
+static struct
+{
+	struct moderator *key[MAXIMUM_NODES];
+	int binding_result[MAXIMUM_NODES];
+	char binding[MAXIMUM_NODES][DELTA_WIRE_MODERATION_BINDING_SIZE + 1];
+	int signatures[MAXIMUM_NODES];
+} client_moderation;
+
+static int node_moderation_sign(void *context, const unsigned char *message, int size, unsigned char *key,
+	unsigned char *signature)
+{
+	int index = (int)((struct node *)context - nodes);
+	struct moderator *moderator = client_moderation.key[index];
+
+	if (!moderator)
+		return 0;
+	memcpy(key, moderator->key, 32);
+	crypto_ed25519_sign(signature, moderator->secret, message, (size_t)size);
+	client_moderation.signatures[index]++;
+	return 1;
+}
+
+static int node_moderation_binding(void *context, delta_u32 host_ipv4, char *binding, int size)
+{
+	int index = (int)((struct node *)context - nodes);
+
+	(void)host_ipv4;
+	snprintf(binding, (size_t)size, "%s", client_moderation.binding[index]);
+	return client_moderation.binding_result[index];
+}
+
+/* the host's moderation: one key with a role, what it was told */
+static struct
+{
+	unsigned char moderator_key[32];
+	int role;
+	int known[DELTA_PEER_MAXIMUM_MACHINES];
+	unsigned char keys[DELTA_PEER_MAXIMUM_MACHINES][32];
+	int forgotten;
+	int actions;
+	int last_action, last_target, last_minutes;
+	char last_reason[64];
+	int answers;
+	int last_accepted;
+	delta_u32 last_request;
+	int answered_with_key;
+} host_moderation;
+
+static void host_machine_key(void *context, int machine_index, const unsigned char *key)
+{
+	(void)context;
+	if (key)
+	{
+		host_moderation.known[machine_index] = 1;
+		memcpy(host_moderation.keys[machine_index], key, 32);
+	}
+	else
+	{
+		host_moderation.known[machine_index] = 0;
+		host_moderation.forgotten++;
+	}
+}
+
+static int host_key_role(void *context, const unsigned char *key, delta_u32 *permissions, delta_u32 *ban_minutes)
+{
+	(void)context;
+	if (memcmp(key, host_moderation.moderator_key, 32))
+		return 0;
+	*permissions = DELTA_MODERATION_VIEW | DELTA_MODERATION_KICK | DELTA_MODERATION_BAN_TIMED;
+	*ban_minutes = 7 * 24 * 60;
+	return host_moderation.role;
+}
+
+static int host_action(void *context, int machine_index, const unsigned char *key, int action, int target_machine,
+	int minutes, const char *reason, char *result, int result_size)
+{
+	(void)context;
+	(void)machine_index;
+	host_moderation.actions++;
+	host_moderation.last_action = action;
+	host_moderation.last_target = target_machine;
+	host_moderation.last_minutes = minutes;
+	snprintf(host_moderation.last_reason, sizeof(host_moderation.last_reason), "%s", reason);
+	if (memcmp(key, host_moderation.moderator_key, 32) || !host_moderation.role)
+	{
+		snprintf(result, (size_t)result_size, "not a moderator here");
+		return 0;
+	}
+	snprintf(result, (size_t)result_size, "done %d", action);
+	return 1;
+}
+
+static void host_bind_answer(void *context, int machine_index, delta_u32 request, int accepted,
+	const unsigned char *key)
+{
+	(void)context;
+	(void)machine_index;
+	host_moderation.answers++;
+	host_moderation.last_request = request;
+	host_moderation.last_accepted = accepted;
+	host_moderation.answered_with_key = key != NULL;
+}
+
+static const struct delta_peer_moderation_host test_moderation_host =
+{
+	NULL, host_machine_key, host_key_role, host_action, host_bind_answer
+};
+
+/* a node's env given the moderation callbacks (after node_start) */
+static void node_moderation(int index)
+{
+	nodes[index].peer.env.moderation_sign = node_moderation_sign;
+	nodes[index].peer.env.moderation_binding = node_moderation_binding;
+}
+
+static void test_wire_moderation(void)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	unsigned char message[DELTA_WIRE_MODERATION_MESSAGE_SIZE];
+	struct delta_wire_header header;
+	struct delta_wire_mod_challenge challenge, challenge_back;
+	struct delta_wire_mod_proof proof, proof_back;
+	struct delta_wire_mod_state state, state_back;
+	struct delta_wire_mod_action action, action_back;
+	struct delta_wire_mod_result result, result_back;
+	struct delta_wire_mod_notice notice, notice_back;
+	struct delta_wire_mod_bind bind, bind_back;
+	struct delta_wire_mod_bind_answer answer, answer_back;
+	int size;
+	int index;
+
+	/* CHALLENGE */
+	memset(&challenge, 0, sizeof(challenge));
+	for (index = 0; index < 32; index++)
+		challenge.nonce[index] = (unsigned char)(index * 3);
+	snprintf(challenge.binding, sizeof(challenge.binding), "0123456789abcdef0123456789abcdef");
+	challenge.binding_length = 32;
+	size = delta_wire_write_mod_challenge(data, 5, &challenge);
+	CHECK(size == 12 + DELTA_WIRE_MOD_CHALLENGE_SIZE + 32);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_mod_challenge);
+	CHECK(delta_wire_read_mod_challenge(data + 12, header.length, &challenge_back));
+	CHECK(!memcmp(challenge_back.nonce, challenge.nonce, 32) && challenge_back.binding_length == 32 &&
+		!strcmp(challenge_back.binding, challenge.binding));
+	CHECK(!delta_wire_read_mod_challenge(data + 12, header.length - 1, &challenge_back));
+	data[12 + DELTA_WIRE_MOD_CHALLENGE_SIZE + 3] = 0x01;
+	CHECK(!delta_wire_read_mod_challenge(data + 12, header.length, &challenge_back));
+	data[12 + 32] = DELTA_WIRE_MODERATION_BINDING_SIZE + 1;
+	CHECK(!delta_wire_read_mod_challenge(data + 12, DELTA_WIRE_MAXIMUM_PAYLOAD, &challenge_back));
+	challenge.binding_length = DELTA_WIRE_MODERATION_BINDING_SIZE + 1;
+	CHECK(delta_wire_write_mod_challenge(data, 5, &challenge) == 0);
+	challenge.binding_length = 0;
+	size = delta_wire_write_mod_challenge(data, 5, &challenge);
+	CHECK(size == 12 + DELTA_WIRE_MOD_CHALLENGE_SIZE && delta_wire_read_mod_challenge(data + 12, size - 12,
+		&challenge_back) && !challenge_back.binding_length && !challenge_back.binding[0]);
+
+	/* PROOF */
+	memset(&proof, 0x5A, sizeof(proof));
+	size = delta_wire_write_mod_proof(data, 5, &proof);
+	CHECK(size == 12 + DELTA_WIRE_MOD_PROOF_SIZE);
+	CHECK(delta_wire_read_mod_proof(data + 12, size - 12, &proof_back) && !memcmp(&proof, &proof_back, sizeof(proof)));
+	CHECK(!delta_wire_read_mod_proof(data + 12, size - 13, &proof_back));
+
+	/* STATE */
+	memset(&state, 0, sizeof(state));
+	state.role = 2;
+	state.permissions = 0x1FF;
+	state.ban_minutes = 10080;
+	size = delta_wire_write_mod_state(data, 5, &state);
+	CHECK(size == 12 + DELTA_WIRE_MOD_STATE_SIZE);
+	CHECK(delta_wire_read_mod_state(data + 12, size - 12, &state_back) && state_back.role == 2 &&
+		state_back.permissions == 0x1FF && state_back.ban_minutes == 10080);
+	CHECK(!delta_wire_read_mod_state(data + 12, size - 13, &state_back));
+
+	/* ACTION: the reason printable, or refused */
+	memset(&action, 0, sizeof(action));
+	action.sequence = 77;
+	action.action = _delta_moderation_action_ban;
+	action.target = 3;
+	action.minutes = 60;
+	snprintf(action.reason, sizeof(action.reason), "camping the flag");
+	action.reason_length = (int)strlen(action.reason);
+	memset(action.signature, 0x33, sizeof(action.signature));
+	size = delta_wire_write_mod_action(data, 5, &action);
+	CHECK(size == 12 + DELTA_WIRE_MOD_ACTION_SIZE + action.reason_length);
+	CHECK(delta_wire_read_mod_action(data + 12, size - 12, &action_back));
+	CHECK(action_back.sequence == 77 && action_back.action == 3 && action_back.target == 3 && action_back.minutes == 60 &&
+		!strcmp(action_back.reason, "camping the flag") && !memcmp(action_back.signature, action.signature, 64));
+	CHECK(!delta_wire_read_mod_action(data + 12, size - 13, &action_back));
+	data[12 + DELTA_WIRE_MOD_ACTION_SIZE] = 0x07;
+	CHECK(!delta_wire_read_mod_action(data + 12, size - 12, &action_back));
+	action.reason[0] = '\n';
+	CHECK(delta_wire_write_mod_action(data, 5, &action) == 0);
+	action.reason_length = DELTA_WIRE_MODERATION_REASON_SIZE + 1;
+	CHECK(delta_wire_write_mod_action(data, 5, &action) == 0);
+
+	/* RESULT and NOTICE: text read as printable */
+	memset(&result, 0, sizeof(result));
+	result.sequence = 9;
+	result.ok = 1;
+	snprintf(result.text, sizeof(result.text), "kicked Odb718");
+	size = delta_wire_write_mod_result(data, 5, &result);
+	CHECK(delta_wire_read_mod_result(data + 12, size - 12, &result_back) && result_back.sequence == 9 &&
+		result_back.ok == 1 && !strcmp(result_back.text, "kicked Odb718"));
+	CHECK(!delta_wire_read_mod_result(data + 12, size - 13, &result_back));
+	data[12 + DELTA_WIRE_MOD_RESULT_SIZE] = 0x01;
+	CHECK(delta_wire_read_mod_result(data + 12, size - 12, &result_back) && result_back.text[0] == '?');
+	memset(&notice, 0, sizeof(notice));
+	notice.kind = _delta_moderation_notice_warning;
+	memset(notice.text, 'w', DELTA_WIRE_MODERATION_TEXT_SIZE);
+	size = delta_wire_write_mod_notice(data, 5, &notice);
+	CHECK(size == 12 + DELTA_WIRE_MOD_NOTICE_SIZE + DELTA_WIRE_MODERATION_TEXT_SIZE);
+	CHECK(delta_wire_read_mod_notice(data + 12, size - 12, &notice_back) && notice_back.kind == 1 &&
+		(int)strlen(notice_back.text) == DELTA_WIRE_MODERATION_TEXT_SIZE);
+	data[12 + 1] = DELTA_WIRE_MODERATION_TEXT_SIZE + 1;
+	CHECK(!delta_wire_read_mod_notice(data + 12, DELTA_WIRE_MAXIMUM_PAYLOAD, &notice_back));
+
+	/* BIND and its answer */
+	memset(&bind, 0, sizeof(bind));
+	bind.request = 0xABCDEF01u;
+	snprintf(bind.account, sizeof(bind.account), "milenko");
+	snprintf(bind.server, sizeof(bind.server), "Delta Slayer");
+	size = delta_wire_write_mod_bind(data, 5, &bind);
+	CHECK(size == 12 + DELTA_WIRE_MOD_BIND_SIZE + 7 + 12);
+	CHECK(delta_wire_read_mod_bind(data + 12, size - 12, &bind_back) && bind_back.request == bind.request &&
+		!strcmp(bind_back.account, "milenko") && !strcmp(bind_back.server, "Delta Slayer"));
+	CHECK(!delta_wire_read_mod_bind(data + 12, size - 13, &bind_back));
+	memset(&answer, 0x44, sizeof(answer));
+	answer.accepted = 1;
+	size = delta_wire_write_mod_bind_answer(data, 5, &answer);
+	CHECK(size == 12 + DELTA_WIRE_MOD_BIND_ANSWER_SIZE);
+	CHECK(delta_wire_read_mod_bind_answer(data + 12, size - 12, &answer_back) && answer_back.accepted == 1 &&
+		answer_back.request == answer.request && !memcmp(answer_back.key, answer.key, 32) &&
+		!memcmp(answer_back.signature, answer.signature, 64));
+	CHECK(!delta_wire_read_mod_bind_answer(data + 12, size - 13, &answer_back));
+	CHECK(!delta_wire_read_mod_bind_answer(NULL, 200, &answer_back));
+
+	/* the signed messages: labeled, and each field in them */
+	{
+		unsigned char other[DELTA_WIRE_MODERATION_MESSAGE_SIZE];
+		int length, other_length;
+
+		length = delta_wire_moderation_proof_message(message, challenge.nonce, "abc", 3);
+		other_length = delta_wire_moderation_bind_message(other, challenge.nonce, 0, 0, "abc", 3);
+		CHECK(length != other_length || memcmp(message, other, (size_t)length));
+		action.reason[0] = 'c';
+		action.reason_length = 4;
+		length = delta_wire_moderation_action_message(message, challenge.nonce, &action);
+		action.minutes++;
+		other_length = delta_wire_moderation_action_message(other, challenge.nonce, &action);
+		CHECK(length == other_length && memcmp(message, other, (size_t)length));
+		CHECK(length <= DELTA_WIRE_MODERATION_MESSAGE_SIZE);
+	}
+}
+
+/* the host (0) with moderation, a moderator (1), a player who is not (2) */
+static void moderation_start(delta_u32 *now, int *joined)
+{
+	static struct moderator moderator, player;
+	int step;
+
+	moderator_make(&moderator, 1);
+	moderator_make(&player, 2);
+	memset(&client_moderation, 0, sizeof(client_moderation));
+	memset(&host_moderation, 0, sizeof(host_moderation));
+	memcpy(host_moderation.moderator_key, moderator.key, 32);
+	host_moderation.role = _delta_moderation_role_moderator;
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT | MODERATION_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, PLATFORM_BIT | MODERATION_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(2, 0x0400007F, 40002, PLATFORM_BIT | MODERATION_BIT, _delta_platform_pc_macos, 0, 0);
+	delta_peer_set_moderation_host(&nodes[0].peer, &test_moderation_host);
+	delta_peer_set_moderation_binding(&nodes[0].peer, "00112233445566778899aabbccddeeff");
+	node_moderation(1);
+	node_moderation(2);
+	client_moderation.key[1] = &moderator;
+	client_moderation.key[2] = &player;
+	client_moderation.binding_result[1] = 1;
+	snprintf(client_moderation.binding[1], sizeof(client_moderation.binding[1]), "00112233445566778899aabbccddeeff");
+	client_moderation.binding_result[2] = 0;
+	game_reset();
+	game_add(1);
+	game_add(2);
+	joined[0] = 0;
+	joined[1] = joined[2] = 1;
+	for (step = 0; step < 4; step++, *now += 300)
+		frame(*now, 3, joined, 1);
+}
+
+static void test_moderation(void)
+{
+	int joined[3];
+	delta_u32 now = 1000;
+	struct datagram captured;
+	int step;
+	int index;
+
+	moderation_start(&now, joined);
+	CHECK(nodes[1].peer.agreed & MODERATION_BIT);
+	CHECK(delta_peer_moderation_capable(&nodes[0].peer, 1) && delta_peer_moderation_capable(&nodes[0].peer, 2));
+	CHECK(delta_peer_client_moderation_ready(&nodes[1].peer));
+	/* (nothing signed, nothing known, until the player acts) */
+	CHECK(!client_moderation.signatures[1] && !delta_peer_moderation_key(&nodes[0].peer, 1, NULL));
+	CHECK(!delta_peer_client_moderation_action(&nodes[1].peer, _delta_moderation_action_kick, 2, 0, ""));
+
+	/* the moderator signs in: the host knows its key, and says its role */
+	CHECK(delta_peer_client_moderation_sign_in(&nodes[1].peer));
+	deliver(now);
+	{
+		unsigned char key[32];
+
+		CHECK(delta_peer_moderation_key(&nodes[0].peer, 1, key) && !memcmp(key, host_moderation.moderator_key, 32));
+	}
+	CHECK(host_moderation.known[1]);
+	CHECK(nodes[1].peer.client_moderation.has_state &&
+		nodes[1].peer.client_moderation.state.role == _delta_moderation_role_moderator &&
+		(nodes[1].peer.client_moderation.state.permissions & DELTA_MODERATION_KICK));
+
+	/* a kick: done, and its result back */
+	queued = 0;
+	CHECK(delta_peer_client_moderation_action(&nodes[1].peer, _delta_moderation_action_kick, 2, 0, "spawn killing") == 1);
+	CHECK(queued == 1);
+	captured = queue[0];
+	deliver(now);
+	CHECK(host_moderation.actions == 1 && host_moderation.last_action == _delta_moderation_action_kick &&
+		host_moderation.last_target == 2 && !strcmp(host_moderation.last_reason, "spawn killing"));
+	CHECK(nodes[1].peer.client_moderation.result_count == 1 && nodes[1].peer.client_moderation.result.ok &&
+		nodes[1].peer.client_moderation.result.sequence == 1);
+
+	/* the same datagram again (a replay): not done twice */
+	now += 2000;
+	delta_peer_receive(&nodes[0].peer, now, captured.from_ipv4, captured.from_port, captured.data, captured.size);
+	CHECK(host_moderation.actions == 1);
+
+	/* its sequence raised, its signature no longer the fields': refused */
+	captured.data[12] = 50;
+	delta_peer_receive(&nodes[0].peer, now, captured.from_ipv4, captured.from_port, captured.data, captured.size);
+	CHECK(host_moderation.actions == 1);
+
+	/* the budget: three at once, then one a second */
+	now += 5000;
+	queued = 0;
+	for (index = 0; index < 5; index++)
+		delta_peer_client_moderation_action(&nodes[1].peer, _delta_moderation_action_warn, 2, 0, "a");
+	deliver(now);
+	CHECK(host_moderation.actions == 4);
+	now += 1000;
+	delta_peer_client_moderation_action(&nodes[1].peer, _delta_moderation_action_warn, 2, 0, "b");
+	deliver(now);
+	CHECK(host_moderation.actions == 5);
+
+	/* an unknown action: refused by the session, with a result */
+	now += 1000;
+	delta_peer_client_moderation_action(&nodes[1].peer, 99, 2, 0, "");
+	deliver(now);
+	CHECK(host_moderation.actions == 5 && !nodes[1].peer.client_moderation.result.ok);
+
+	/* the player without a role signs in: known, role none; its kick is the
+	host's to refuse */
+	CHECK(delta_peer_client_moderation_sign_in(&nodes[2].peer));
+	deliver(now);
+	CHECK(host_moderation.known[2] && nodes[2].peer.client_moderation.has_state &&
+		nodes[2].peer.client_moderation.state.role == _delta_moderation_role_none);
+	delta_peer_client_moderation_action(&nodes[2].peer, _delta_moderation_action_kick, 1, 0, "");
+	deliver(now);
+	CHECK(host_moderation.actions == 6 && !nodes[2].peer.client_moderation.result.ok);
+
+	/* roles changed: the new role said */
+	host_moderation.role = _delta_moderation_role_admin;
+	delta_peer_moderation_roles_changed(&nodes[0].peer);
+	now += 300;
+	frame(now, 3, joined, 1);
+	CHECK(nodes[1].peer.client_moderation.state.role == _delta_moderation_role_admin);
+
+	/* a notice */
+	CHECK(delta_peer_moderation_notice(&nodes[0].peer, 2, _delta_moderation_notice_warning, "Stop team killing."));
+	deliver(now);
+	CHECK(nodes[2].peer.client_moderation.notice_count == 1 &&
+		!strcmp(nodes[2].peer.client_moderation.notice.text, "Stop team killing."));
+
+	/* a bind: asked, answered yes, signed */
+	CHECK(delta_peer_moderation_bind(&nodes[0].peer, now, 2, 4242, "odb", "Delta Slayer"));
+	deliver(now);
+	CHECK(nodes[2].peer.client_moderation.bind_waiting && !strcmp(nodes[2].peer.client_moderation.bind.account, "odb"));
+	CHECK(delta_peer_client_moderation_bind_answer(&nodes[2].peer, 1));
+	deliver(now);
+	CHECK(host_moderation.answers == 1 && host_moderation.last_request == 4242 && host_moderation.last_accepted &&
+		host_moderation.answered_with_key);
+	/* (once: the same answer again is not taken) */
+	CHECK(!delta_peer_client_moderation_bind_answer(&nodes[2].peer, 1));
+
+	/* a bind not answered in time: given up as declined */
+	CHECK(delta_peer_moderation_bind(&nodes[0].peer, now, 1, 7, "milenko", "Delta Slayer"));
+	deliver(now);
+	for (step = 0; step < 3; step++)
+	{
+		now += DELTA_PEER_MODERATION_BIND_TIME / 2 + 1;
+		frame(now, 3, joined, 1);
+	}
+	CHECK(host_moderation.answers == 2 && !host_moderation.last_accepted && !host_moderation.answered_with_key);
+	CHECK(!nodes[1].peer.client_moderation.bind_waiting);
+
+	/* the moderator leaves: its key forgotten */
+	game_remove(1);
+	joined[1] = 0;
+	for (step = 0; step < 2; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(!host_moderation.known[1] && host_moderation.forgotten >= 1);
+	CHECK(!delta_peer_moderation_key(&nodes[0].peer, 1, NULL));
+}
+
+static void test_moderation_refused(void)
+{
+	int joined[3];
+	delta_u32 now = 1000;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	unsigned char message[DELTA_WIRE_MODERATION_MESSAGE_SIZE];
+	struct delta_wire_mod_proof proof;
+	struct moderator stranger;
+	int length;
+	int step;
+
+	moderation_start(&now, joined);
+
+	/* a challenge whose binding is not the host this machine joined (a
+	relay): nothing signed */
+	snprintf(client_moderation.binding[1], sizeof(client_moderation.binding[1]), "ffffffffffffffffffffffffffffffff");
+	CHECK(!delta_peer_client_moderation_sign_in(&nodes[1].peer));
+	CHECK(!client_moderation.signatures[1]);
+	/* (a machine that cannot tell signs nothing either) */
+	client_moderation.binding_result[1] = -1;
+	CHECK(!delta_peer_client_moderation_sign_in(&nodes[1].peer));
+
+	/* a proof of another nonce: refused */
+	moderator_make(&stranger, 9);
+	memset(&proof, 0, sizeof(proof));
+	memcpy(proof.key, stranger.key, 32);
+	{
+		unsigned char nonce[32];
+
+		memset(nonce, 7, sizeof(nonce));
+		length = delta_wire_moderation_proof_message(message, nonce, "00112233445566778899aabbccddeeff", 32);
+	}
+	crypto_ed25519_sign(proof.signature, stranger.secret, message, (size_t)length);
+	length = delta_wire_write_mod_proof(data, nodes[1].peer.session, &proof);
+	delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, 40001, data, length);
+	CHECK(!host_moderation.known[1]);
+
+	/* the right nonce, without the host's binding: refused */
+	length = delta_wire_moderation_proof_message(message, nodes[1].peer.client_moderation.nonce, "", 0);
+	crypto_ed25519_sign(proof.signature, stranger.secret, message, (size_t)length);
+	length = delta_wire_write_mod_proof(data, nodes[1].peer.session, &proof);
+	now += 1000;
+	delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, 40001, data, length);
+	CHECK(!host_moderation.known[1]);
+
+	/* a key of small order, whose "signature" fits any message: refused */
+	memset(&proof, 0, sizeof(proof));
+	proof.key[0] = 1;
+	proof.signature[0] = 1;
+	length = delta_wire_write_mod_proof(data, nodes[1].peer.session, &proof);
+	now += 1000;
+	delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, 40001, data, length);
+	CHECK(!host_moderation.known[1]);
+
+	/* signed right, but from another session: refused */
+	length = delta_wire_moderation_proof_message(message, nodes[1].peer.client_moderation.nonce,
+		"00112233445566778899aabbccddeeff", 32);
+	crypto_ed25519_sign(proof.signature, stranger.secret, message, (size_t)length);
+	memcpy(proof.key, stranger.key, 32);
+	length = delta_wire_write_mod_proof(data, nodes[1].peer.session + 1, &proof);
+	now += 1000;
+	delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, 40001, data, length);
+	CHECK(!host_moderation.known[1]);
+	/* (the same, of its session: taken) */
+	length = delta_wire_write_mod_proof(data, nodes[1].peer.session, &proof);
+	delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, 40001, data, length);
+	CHECK(host_moderation.known[1] && !memcmp(host_moderation.keys[1], stranger.key, 32));
+
+	/* signature checks: two at once, then two a second (a third at once is
+	dropped unchecked, even signed right) */
+	{
+		struct moderator other;
+		unsigned char good[DELTA_WIRE_MAXIMUM_DATAGRAM];
+		int good_length;
+
+		moderator_make(&other, 10);
+		memset(&proof, 0, sizeof(proof));
+		memcpy(proof.key, other.key, 32);
+		length = delta_wire_moderation_proof_message(message, nodes[1].peer.client_moderation.nonce,
+			"00112233445566778899aabbccddeeff", 32);
+		crypto_ed25519_sign(proof.signature, other.secret, message, (size_t)length);
+		good_length = delta_wire_write_mod_proof(good, nodes[1].peer.session, &proof);
+		proof.signature[0] ^= 1;
+		length = delta_wire_write_mod_proof(data, nodes[1].peer.session, &proof);
+		now += 5000;
+		delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, 40001, data, length);
+		delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, 40001, data, length);
+		delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, 40001, good, good_length);
+		CHECK(!memcmp(host_moderation.keys[1], stranger.key, 32));
+		now += 1000;
+		delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, 40001, good, good_length);
+		CHECK(!memcmp(host_moderation.keys[1], other.key, 32));
+	}
+
+	/* a host without moderation: not offered, no challenge */
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT | MODERATION_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, PLATFORM_BIT | MODERATION_BIT, _delta_platform_pc_linux, 0, 0);
+	node_moderation(1);
+	game_reset();
+	game_add(1);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(nodes[1].peer.client_state == _delta_peer_client_delta && !(nodes[1].peer.agreed & MODERATION_BIT));
+	CHECK(!delta_peer_client_moderation_ready(&nodes[1].peer));
+
+	/* the kill switch on the client: moderation not agreed */
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT | MODERATION_BIT, _delta_platform_pc_linux, 0, 0);
+	delta_peer_set_moderation_host(&nodes[0].peer, &test_moderation_host);
+	node_start(1, 0x0300007F, 40001, PLATFORM_BIT | MODERATION_BIT, _delta_platform_pc_linux, 0, 0);
+	nodes[1].disabled = MODERATION_BIT;
+	node_moderation(1);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(nodes[1].peer.client_state == _delta_peer_client_delta && !(nodes[1].peer.agreed & MODERATION_BIT));
+	CHECK(!delta_peer_moderation_capable(&nodes[0].peer, 1));
+	/* (and on the host) */
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT | MODERATION_BIT, _delta_platform_pc_linux, 0, 0);
+	delta_peer_set_moderation_host(&nodes[0].peer, &test_moderation_host);
+	nodes[0].disabled = MODERATION_BIT;
+	node_start(1, 0x0300007F, 40001, PLATFORM_BIT | MODERATION_BIT, _delta_platform_pc_linux, 0, 0);
+	node_moderation(1);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(nodes[1].peer.client_state == _delta_peer_client_delta && !(nodes[1].peer.agreed & MODERATION_BIT));
+	CHECK(!delta_peer_client_moderation_ready(&nodes[1].peer));
+}
+
 /* ---------- random input */
 
 static void random_bytes(unsigned char *data, int size)
@@ -1065,8 +1642,64 @@ static int mutated_message(unsigned char *data, delta_u32 session)
 	int size;
 	int flips;
 
-	switch (next_random() % 8)
+	switch (next_random() % 12)
 	{
+	case 8:
+	{
+		struct delta_wire_mod_challenge challenge;
+
+		random_bytes((unsigned char *)&challenge, (int)sizeof(challenge));
+		challenge.binding_length = (int)(next_random() % 40);
+		memset(challenge.binding, 'a', sizeof(challenge.binding));
+		size = delta_wire_write_mod_challenge(data, session, &challenge);
+		break;
+	}
+	case 9:
+	{
+		struct delta_wire_mod_action action;
+
+		random_bytes((unsigned char *)&action, (int)sizeof(action));
+		action.action = (unsigned char)(next_random() % 7);
+		action.reason_length = (int)(next_random() % 20);
+		memset(action.reason, 'r', sizeof(action.reason));
+		size = delta_wire_write_mod_action(data, session, &action);
+		break;
+	}
+	case 10:
+	{
+		struct delta_wire_mod_proof proof;
+		struct delta_wire_mod_bind_answer answer;
+
+		random_bytes((unsigned char *)&proof, (int)sizeof(proof));
+		random_bytes((unsigned char *)&answer, (int)sizeof(answer));
+		size = next_random() % 2 ? delta_wire_write_mod_proof(data, session, &proof) :
+			delta_wire_write_mod_bind_answer(data, session, &answer);
+		break;
+	}
+	case 11:
+	{
+		struct delta_wire_mod_state state;
+		struct delta_wire_mod_result result;
+		struct delta_wire_mod_notice notice;
+		struct delta_wire_mod_bind bind;
+
+		random_bytes((unsigned char *)&state, (int)sizeof(state));
+		random_bytes((unsigned char *)&result, (int)sizeof(result));
+		result.text[DELTA_WIRE_MODERATION_TEXT_SIZE] = 0;
+		random_bytes((unsigned char *)&notice, (int)sizeof(notice));
+		notice.text[DELTA_WIRE_MODERATION_TEXT_SIZE] = 0;
+		random_bytes((unsigned char *)&bind, (int)sizeof(bind));
+		bind.account[DELTA_WIRE_MODERATION_NAME_SIZE] = 0;
+		bind.server[DELTA_WIRE_MODERATION_NAME_SIZE] = 0;
+		switch (next_random() % 4)
+		{
+		case 0: size = delta_wire_write_mod_state(data, session, &state); break;
+		case 1: size = delta_wire_write_mod_result(data, session, &result); break;
+		case 2: size = delta_wire_write_mod_notice(data, session, &notice); break;
+		default: size = delta_wire_write_mod_bind(data, session, &bind); break;
+		}
+		break;
+	}
 	case 6:
 	{
 		static unsigned char bytes[DELTA_WIRE_TABLE_CHUNK];
@@ -1136,8 +1769,19 @@ static void test_random(long iterations)
 	delta_u32 now = 100000;
 	long iteration;
 
-	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT | PROFILE_BIT, _delta_platform_pc_linux, 0x33, 3);
-	node_start(1, 0x0300007F, 40001, PLATFORM_BIT | PROFILE_BIT, _delta_platform_pc_linux, 0x44, 0);
+	static struct moderator moderator;
+
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT | PROFILE_BIT | MODERATION_BIT, _delta_platform_pc_linux,
+		0x33, 3);
+	node_start(1, 0x0300007F, 40001, PLATFORM_BIT | PROFILE_BIT | MODERATION_BIT, _delta_platform_pc_linux, 0x44, 0);
+	memset(&client_moderation, 0, sizeof(client_moderation));
+	memset(&host_moderation, 0, sizeof(host_moderation));
+	moderator_make(&moderator, 1);
+	memcpy(host_moderation.moderator_key, moderator.key, 32);
+	host_moderation.role = _delta_moderation_role_owner;
+	delta_peer_set_moderation_host(&nodes[0].peer, &test_moderation_host);
+	node_moderation(1);
+	client_moderation.key[1] = &moderator;
 	game_reset();
 	game_add(1);
 	for (iteration = 0; iteration < iterations; iteration++)
@@ -1167,6 +1811,34 @@ static void test_random(long iterations)
 				CHECK(table.data + table.length <= data + size);
 			}
 			delta_wire_read_table_have(data + DELTA_WIRE_HEADER_SIZE, header.length, &serial);
+			{
+				struct delta_wire_mod_challenge challenge;
+				struct delta_wire_mod_proof proof;
+				struct delta_wire_mod_state state;
+				struct delta_wire_mod_action action;
+				struct delta_wire_mod_result result;
+				struct delta_wire_mod_notice notice;
+				struct delta_wire_mod_bind bind;
+				struct delta_wire_mod_bind_answer answer;
+				const unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+				if (delta_wire_read_mod_challenge(payload, header.length, &challenge))
+					CHECK(challenge.binding_length <= DELTA_WIRE_MODERATION_BINDING_SIZE &&
+						(int)strlen(challenge.binding) == challenge.binding_length);
+				delta_wire_read_mod_proof(payload, header.length, &proof);
+				delta_wire_read_mod_state(payload, header.length, &state);
+				if (delta_wire_read_mod_action(payload, header.length, &action))
+					CHECK(action.reason_length <= DELTA_WIRE_MODERATION_REASON_SIZE &&
+						(int)strlen(action.reason) == action.reason_length);
+				if (delta_wire_read_mod_result(payload, header.length, &result))
+					CHECK(strlen(result.text) <= DELTA_WIRE_MODERATION_TEXT_SIZE);
+				if (delta_wire_read_mod_notice(payload, header.length, &notice))
+					CHECK(strlen(notice.text) <= DELTA_WIRE_MODERATION_TEXT_SIZE);
+				if (delta_wire_read_mod_bind(payload, header.length, &bind))
+					CHECK(strlen(bind.account) <= DELTA_WIRE_MODERATION_NAME_SIZE &&
+						strlen(bind.server) <= DELTA_WIRE_MODERATION_NAME_SIZE);
+				delta_wire_read_mod_bind_answer(payload, header.length, &answer);
+			}
 			if (delta_wire_read_roster(data + DELTA_WIRE_HEADER_SIZE, header.length, &roster))
 				CHECK(roster.count <= DELTA_WIRE_MAXIMUM_ROSTER_ENTRIES);
 			for (index = 0; index < DELTA_WIRE_BUILD_SIZE + 1 && hello.build[index]; index++)
@@ -1179,6 +1851,15 @@ static void test_random(long iterations)
 		delta_peer_receive(&nodes[1].peer, now, next_random() % 4 ? HOST_IPV4 : next_random(),
 			(unsigned short)(next_random() % 4 ? DELTA_PEER_PORT : next_random()), data, size);
 		queued = 0;
+		/* (the player now and then signs in and acts, as the game would) */
+		if (iteration % 97 == 0)
+			delta_peer_client_moderation_sign_in(&nodes[1].peer);
+		if (iteration % 89 == 0)
+			delta_peer_client_moderation_action(&nodes[1].peer, (int)(next_random() % 6), 1, 60, "random");
+		if (iteration % 101 == 0)
+			delta_peer_moderation_bind(&nodes[0].peer, now, 1, next_random(), "a", "b");
+		if (iteration % 103 == 0)
+			delta_peer_client_moderation_bind_answer(&nodes[1].peer, (int)(next_random() % 2));
 		/* (the game moving on: frames, machines coming and going) */
 		if (iteration % 16 == 0)
 		{
@@ -1223,6 +1904,9 @@ int main(int argc, char **argv)
 	test_kill_switch();
 	test_relay();
 	test_relay_refused();
+	test_wire_moderation();
+	test_moderation();
+	test_moderation_refused();
 	test_random(iterations);
 	if (failures)
 	{

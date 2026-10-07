@@ -60,19 +60,6 @@ static int hex_value(int character)
 	return -1;
 }
 
-static void hex_text(const uint8_t *bytes, size_t count, char *text)
-{
-	static const char digits[] = "0123456789abcdef";
-	size_t index;
-
-	for (index = 0; index < count; index++)
-	{
-		text[2 * index] = digits[bytes[index] >> 4];
-		text[2 * index + 1] = digits[bytes[index] & 15];
-	}
-	text[2 * count] = 0;
-}
-
 /* exactly count bytes of lowercase hexadecimal: 1, else 0 */
 static int hex_bytes(const char *text, size_t length, uint8_t *bytes, size_t count)
 {
@@ -489,7 +476,8 @@ static void skip_json_space(const char **cursor, const char *end)
 
 /* a JSON string at the cursor, into out (size bytes): printable ASCII and
 tabs only; 1, else 0 and why */
-static int parse_json_string(const char **cursor, const char *end, char *out, size_t size, const char **reason)
+static int parse_json_string(const char **cursor, const char *end, char *out, size_t size, const char **reason,
+	int multiline)
 {
 	const char *at = *cursor;
 	size_t length = 0;
@@ -524,6 +512,15 @@ static int parse_json_string(const char **cursor, const char *end, char *out, si
 			{
 			case '"': case '\\': case '/': break;
 			case 't': character = '\t'; break;
+			case 'n': case 'r':
+				/* (a file's text: its lines) */
+				if (!multiline)
+				{
+					*reason = "an escape a command may not have";
+					return 0;
+				}
+				character = character == 'n' ? '\n' : '\r';
+				break;
 			case 'u':
 			{
 				int index;
@@ -555,7 +552,8 @@ static int parse_json_string(const char **cursor, const char *end, char *out, si
 				return 0;
 			}
 		}
-		if ((character < 0x20 && character != '\t') || character > 0x7e)
+		if ((character < 0x20 && character != '\t' && !(multiline && (character == '\n' || character == '\r'))) ||
+			character > 0x7e)
 		{
 			*reason = "a command is printable ASCII";
 			return 0;
@@ -594,7 +592,7 @@ static int parse_one_field_body(const char *body, size_t length, const char *fie
 	}
 	cursor++;
 	skip_json_space(&cursor, end);
-	if (!parse_json_string(&cursor, end, key, sizeof(key), reason))
+	if (!parse_json_string(&cursor, end, key, sizeof(key), reason, 0))
 	{
 		if (cursor < end && *cursor == '}')
 			*reason = !strcmp(field, "command") ? "no command" : "no token";
@@ -613,7 +611,7 @@ static int parse_one_field_body(const char *body, size_t length, const char *fie
 	}
 	cursor++;
 	skip_json_space(&cursor, end);
-	if (!parse_json_string(&cursor, end, command, command_size, reason))
+	if (!parse_json_string(&cursor, end, command, command_size, reason, 0))
 		return 0;
 	skip_json_space(&cursor, end);
 	if (cursor >= end || *cursor != '}')
@@ -647,6 +645,95 @@ int control_parse_login_body(const char *body, size_t length, char *token, size_
 		return 0;
 	}
 	return 1;
+}
+
+int control_parse_fields(const char *body, size_t length, const char *const *names, char **outs,
+	const size_t *sizes, int count, unsigned int multiline, const char **reason)
+{
+	const char *cursor = body;
+	const char *end = body + length;
+	unsigned int seen = 0;
+	int index;
+
+	*reason = "";
+	for (index = 0; index < count; index++)
+	{
+		if (sizes[index])
+			outs[index][0] = 0;
+	}
+	skip_json_space(&cursor, end);
+	if (cursor >= end || *cursor != '{')
+	{
+		*reason = "the body is not a JSON object";
+		return 0;
+	}
+	cursor++;
+	skip_json_space(&cursor, end);
+	if (cursor < end && *cursor == '}')
+		cursor++;
+	else
+	{
+		for (;;)
+		{
+			char key[32];
+			int field = -1;
+
+			if (!parse_json_string(&cursor, end, key, sizeof(key), reason, 0))
+				goto refused;
+			for (index = 0; index < count && index < 32; index++)
+			{
+				if (!strcmp(key, names[index]))
+					field = index;
+			}
+			if (field < 0)
+			{
+				*reason = "a field the request does not take";
+				goto refused;
+			}
+			if (seen & (1u << field))
+			{
+				*reason = "a field given twice";
+				goto refused;
+			}
+			seen |= 1u << field;
+			skip_json_space(&cursor, end);
+			if (cursor >= end || *cursor != ':')
+			{
+				*reason = "a colon was expected";
+				goto refused;
+			}
+			cursor++;
+			skip_json_space(&cursor, end);
+			if (!parse_json_string(&cursor, end, outs[field], sizes[field], reason,
+				(multiline >> field) & 1))
+				goto refused;
+			skip_json_space(&cursor, end);
+			if (cursor < end && *cursor == ',')
+			{
+				cursor++;
+				skip_json_space(&cursor, end);
+				continue;
+			}
+			if (cursor < end && *cursor == '}')
+			{
+				cursor++;
+				break;
+			}
+			*reason = "the object is not closed";
+			goto refused;
+		}
+	}
+	skip_json_space(&cursor, end);
+	if (cursor != end)
+	{
+		*reason = "more after the object";
+		goto refused;
+	}
+	return 1;
+refused:
+	for (index = 0; index < count; index++)
+		crypto_wipe(outs[index], sizes[index]);
+	return 0;
 }
 
 int control_session_text_valid(const char *text)
@@ -765,7 +852,7 @@ const char *control_status_text(int status)
 void control_token_text(const uint8_t bytes[CONTROL_TOKEN_BYTES], char token[CONTROL_TOKEN_LENGTH + 1])
 {
 	memcpy(token, "chce_", 5);
-	hex_text(bytes, CONTROL_TOKEN_BYTES, token + 5);
+	control_hex_text(bytes, CONTROL_TOKEN_BYTES, token + 5);
 }
 
 int control_token_valid(const char *text)
@@ -793,7 +880,7 @@ int control_credential_name_valid(const char *text)
 
 /* a token's Argon2id hash, at a credential's salt and cost: 1, else 0 (no
 memory) */
-static int hash_token(const char *token, const uint8_t salt[CONTROL_SALT_BYTES], uint32_t kib, uint32_t passes,
+int control_argon2id(const char *token, const uint8_t salt[CONTROL_SALT_BYTES], uint32_t kib, uint32_t passes,
 	uint8_t hash[CONTROL_HASH_BYTES])
 {
 	crypto_argon2_config config;
@@ -820,11 +907,11 @@ int control_credential_make(const char *token, const char *name, const uint8_t i
 {
 	memset(credential, 0, sizeof(*credential));
 	snprintf(credential->name, sizeof(credential->name), "%s", name);
-	hex_text(id_bytes, CONTROL_ID_LENGTH / 2, credential->id);
+	control_hex_text(id_bytes, CONTROL_ID_LENGTH / 2, credential->id);
 	memcpy(credential->salt, salt, CONTROL_SALT_BYTES);
 	credential->kib = kib;
 	credential->passes = passes;
-	return hash_token(token, salt, kib, passes, credential->hash);
+	return control_argon2id(token, salt, kib, passes, credential->hash);
 }
 
 void control_credential_line(const struct control_credential *credential, char line[CONTROL_CREDENTIAL_LINE])
@@ -832,8 +919,8 @@ void control_credential_line(const struct control_credential *credential, char l
 	char salt[2 * CONTROL_SALT_BYTES + 1];
 	char hash[2 * CONTROL_HASH_BYTES + 1];
 
-	hex_text(credential->salt, CONTROL_SALT_BYTES, salt);
-	hex_text(credential->hash, CONTROL_HASH_BYTES, hash);
+	control_hex_text(credential->salt, CONTROL_SALT_BYTES, salt);
+	control_hex_text(credential->hash, CONTROL_HASH_BYTES, hash);
 	snprintf(line, CONTROL_CREDENTIAL_LINE, "v1 argon2id %s %s %lu %lu %s %s", credential->name, credential->id,
 		(unsigned long)credential->kib, (unsigned long)credential->passes, salt, hash);
 }
@@ -933,7 +1020,7 @@ int control_credential_check(const struct control_credential *credential, const 
 	uint8_t hash[CONTROL_HASH_BYTES];
 	int same;
 
-	if (!hash_token(token, credential->salt, credential->kib, credential->passes, hash))
+	if (!control_argon2id(token, credential->salt, credential->kib, credential->passes, hash))
 		return -1;
 	same = crypto_verify32(hash, credential->hash) == 0;
 	crypto_wipe(hash, sizeof(hash));
@@ -1049,6 +1136,21 @@ void control_limiter_succeeded(struct control_limiter *limiter, const uint8_t ad
 		memset(entry, 0, sizeof(*entry));
 	else if (entry)
 		entry->failures = 0;
+}
+
+/* ---------- hexadecimal */
+
+void control_hex_text(const uint8_t *bytes, size_t count, char *text)
+{
+	static const char digits[] = "0123456789abcdef";
+	size_t index;
+
+	for (index = 0; index < count; index++)
+	{
+		text[2 * index] = digits[bytes[index] >> 4];
+		text[2 * index + 1] = digits[bytes[index] & 15];
+	}
+	text[2 * count] = 0;
 }
 
 /* ---------- the log */
