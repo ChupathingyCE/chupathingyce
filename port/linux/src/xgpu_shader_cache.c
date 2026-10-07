@@ -227,6 +227,11 @@ static void file_rewrite(void)
 			success = write_pair_record(file, pair->vertex_hash, pair->fragment_hash);
 	}
 	success = fclose(file) == 0 && success;
+#ifdef _WIN32
+	/* (Windows' rename does not replace a file that is there) */
+	if (success)
+		remove(cache.path);
+#endif
 	if (success && rename(temporary, cache.path) == 0)
 		return;
 	remove(temporary);
