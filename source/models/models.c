@@ -499,7 +499,7 @@ static boolean model_rigid_render_radius(
 				buffer->count <= 0 || buffer->count > MAXIMUM_VERTICES_PER_MODEL_GEOMETRY_PART ||
 				(buffer->type != _rasterizer_vertex_type_model_compressed && buffer->type != _rasterizer_vertex_type_model_uncompressed)) return FALSE;
 			stride = rasterizer_geometry_get_vertex_size(buffer->type);
-			IDirect3DVertexBuffer8_Lock(buffer->hardware_format, 0, 0, &vertices, D3DLOCK_READONLY);
+			IDirect3DVertexBuffer8_Lock(XBOX_POINTER(IDirect3DVertexBuffer8, buffer->hardware_format), 0, 0, &vertices, D3DLOCK_READONLY);
 			if (!vertices) valid = FALSE;
 			for (i = 0; valid && i < buffer->count; ++i)
 			{
@@ -511,7 +511,7 @@ static boolean model_rigid_render_radius(
 				if (!(squared >= 0.0f && squared < FLT_MAX)) valid = FALSE;
 				else maximum_squared = MAX(maximum_squared, squared);
 			}
-			IDirect3DVertexBuffer8_Unlock(buffer->hardware_format);
+			IDirect3DVertexBuffer8_Unlock(XBOX_POINTER(IDirect3DVertexBuffer8, buffer->hardware_format));
 			if (!valid) return FALSE;
 			vertex_count += buffer->count;
 		}
