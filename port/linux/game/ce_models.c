@@ -202,9 +202,19 @@ static unsigned long ce_part_vertices(
 	vertices = XPhysicalAlloc(count * XBOX_VERTEX_SIZE, -1, 0, PAGE_READWRITE);
 	if (!vertices)
 		return 0;
-	ce_vertex_memory = realloc(ce_vertex_memory, (ce_vertex_memory_count + 1) * sizeof(void *));
-	if (ce_vertex_memory)
+	{
+		/* (kept, to be freed with the map: a failed realloc keeps the list as
+		it was) */
+		void **grown = realloc(ce_vertex_memory, (ce_vertex_memory_count + 1) * sizeof(void *));
+
+		if (!grown)
+		{
+			XPhysicalFree(vertices);
+			return 0;
+		}
+		ce_vertex_memory = grown;
 		ce_vertex_memory[ce_vertex_memory_count++] = vertices;
+	}
 	for (index = 0; index < count; index++)
 	{
 		struct ce_vertex const *in = (struct ce_vertex const *)(model_data + vertex_offset +
