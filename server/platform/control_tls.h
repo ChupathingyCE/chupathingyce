@@ -3,8 +3,8 @@ CONTROL_TLS.H
 
 HTTPS for the dedicated server's control API and web admin page when they
 listen beyond the machine (server/docs/admin.md): Mbed TLS
-(port/third_party/mbedtls), TLS 1.2 and 1.3, ECDHE and AEAD cipher suites
-only, no renegotiation, no session tickets, ALPN http/1.1.
+(port/third_party/mbedtls), TLS 1.2 (control_tls.c says why not 1.3),
+ECDHE and AEAD cipher suites only, no renegotiation, no session tickets, ALPN http/1.1.
 
 The certificate is the operator's own (PEM files in the data folder, as
 certbot writes them: HALO_DEDICATED_CONTROL_CERT and _KEY), or else one the

@@ -31,8 +31,9 @@ MBEDTLS = ROOT / "port" / "third_party" / "mbedtls"
 SOURCES = [ROOT / "server" / "tests" / "tls_test.c", ROOT / "server" / "platform" / "control_tls.c"]
 # (the build machine's Python may have no TLS 1.3, as macOS's own LibreSSL
 # Python: then TLS 1.2 alone is tried)
-NEWEST = ssl.TLSVersion.TLSv1_3 if ssl.HAS_TLSv1_3 else ssl.TLSVersion.TLSv1_2
-NEWEST_NAME = "TLSv1.3" if ssl.HAS_TLSv1_3 else "TLSv1.2"
+# (the server speaks TLS 1.2 alone: control_tls.c)
+NEWEST = ssl.TLSVersion.TLSv1_2
+NEWEST_NAME = "TLSv1.2"
 SANITIZERS = ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
 
 

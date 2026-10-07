@@ -22,7 +22,6 @@ already open keep the one they began with until they are freed.
 #include "mbedtls/sha256.h"
 #include "mbedtls/ssl.h"
 #include "mbedtls/x509_crt.h"
-#include "psa/crypto.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -412,7 +411,11 @@ static struct tls_context *context_load(const char *cert_path, const char *key_p
 	}
 	mbedtls_ssl_conf_rng(&context->config, mbedtls_ctr_drbg_random, &tls.drbg);
 	mbedtls_ssl_conf_min_tls_version(&context->config, MBEDTLS_SSL_VERSION_TLS1_2);
-	mbedtls_ssl_conf_max_tls_version(&context->config, MBEDTLS_SSL_VERSION_TLS1_3);
+	/* (TLS 1.2 alone: Mbed TLS's TLS 1.3 keeps its keys in PSA's global key
+	slots, which this build of it does not lock, and the game list's thread
+	(posix_browser.c) speaks TLS 1.3 at the same time. TLS 1.2 with ECDHE and
+	AEAD suites only is as sound for this) */
+	mbedtls_ssl_conf_max_tls_version(&context->config, MBEDTLS_SSL_VERSION_TLS1_2);
 	mbedtls_ssl_conf_ciphersuites(&context->config, cipher_suites);
 #if defined(MBEDTLS_SSL_RENEGOTIATION)
 	mbedtls_ssl_conf_renegotiation(&context->config, MBEDTLS_SSL_RENEGOTIATION_DISABLED);
@@ -463,12 +466,6 @@ int control_tls_start(const char *data_root, const char *cert_path, const char *
 	{
 		set_error(error, error_size, "give both the certificate and its key (HALO_DEDICATED_CONTROL_CERT and "
 			"HALO_DEDICATED_CONTROL_KEY), or neither", 0);
-		return 0;
-	}
-	/* (Mbed TLS's TLS 1.3 uses PSA's crypto; initializing again is harmless) */
-	if (psa_crypto_init() != PSA_SUCCESS)
-	{
-		set_error(error, error_size, "cannot start the crypto", 0);
 		return 0;
 	}
 	mbedtls_entropy_init(&tls.entropy);
