@@ -19,7 +19,7 @@ struct player_action;
 
 /* how many bots a game this machine hosts has (0: none) */
 long bots_configured(void);
-/* ... set for the games to come (and this lobby); skill 1 to 5 */
+/* ... set for the games to come (and this lobby); skill 1 to 10 */
 void bots_set_count(long count);
 /* ... or how many players they fill a game up to with the people in it,
 making way for people who join (0: off) */

@@ -14704,7 +14704,7 @@ static boolean hs_compile_and_evaluate_command(
 			return network_game_server_ban_player(name);
 		}
 	}
-	/* port: the bots' commands ("bots <count>", "bot_skill <1-5>":
+	/* port: the bots' commands ("bots <count>", "bot_skill <1-10>":
 	port/linux/game/bots.c), which are no script's either */
 	{
 		boolean bots_console_command(char const *text);

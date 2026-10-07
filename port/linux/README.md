@@ -334,8 +334,8 @@ the setting for one start of the game. It has priority over the file.
 | `network.stun_servers` | Google and Cloudflare | `HALO_NET_STUN` | The public STUN servers (`host:port`, with commas between them) that give the internet address of a machine. |
 | `bots.count` | `0` | `HALO_BOTS` | The number of bots in the multiplayer games that this machine hosts. `0`: no bots. Refer to "Bots". |
 | `bots.fill` | `0` | `HALO_BOTS_FILL` | The games that this machine hosts have this number of players: bots fill the places that people do not have. A bot goes when a person joins and comes back when a person goes. `0`: `bots.count` bots. Refer to "Bots". |
-| `bots.skill` | `3` | `HALO_BOT_SKILL` | How good the bots are: `1` easy, `2` normal, `3` hard, `4` legendary, `5` near perfect. |
-| `bots.skill_spread` | `0` | `HALO_BOT_SKILL_SPREAD` | How many levels below `bots.skill` a bot can be, from `0` to `4`. Each bot gets its skill for the game from that range: `bots.skill = 5` with a spread of `2` gives bots from `3` to `5`. `0`: all the bots have `bots.skill`. Refer to "Bots". |
+| `bots.skill` | `5` | `HALO_BOT_SKILL` | How good the bots are, from `1` to `10`: `1` easy, `3` normal, `5` hard, `8` legendary, `10` near perfect. The levels went from `1` to `5` before: the old `5` is `10`, and the old `3` is between `5` and `6`. |
+| `bots.skill_spread` | `0` | `HALO_BOT_SKILL_SPREAD` | How many levels below `bots.skill` a bot can be, from `0` to `9`. Each bot gets its skill for the game from that range: `bots.skill = 10` with a spread of `4` gives bots from `6` to `10`. `0`: all the bots have `bots.skill`. Refer to "Bots". |
 | `infection.rounds`, `infection.round_minutes`, `infection.countdown` | `3`, `4`, `10` | `HALO_INFECTION_ROUNDS`, `HALO_INFECTION_ROUND_MINUTES`, `HALO_INFECTION_COUNTDOWN` | The rounds of a game of infection, the minutes of a round (`0`: no limit) and the seconds before the first zombie. Refer to "Infection". |
 | `infection.zombie_speed`, `infection.zombie_damage`, `infection.zombie_health` | `1.3`, `8.0`, `1.5` | `HALO_INFECTION_ZOMBIE_SPEED`, `HALO_INFECTION_ZOMBIE_DAMAGE`, `HALO_INFECTION_ZOMBIE_HEALTH` | How fast a zombie moves (a player is `1`), how hard it hits and how much damage it can take (the Flood of the campaign is `1`). |
 | `discord.application_id` | the application of the project | `HALO_DISCORD_APPLICATION` | The Discord application for invites. Empty: no Discord. |
@@ -759,15 +759,20 @@ they get weapons and powerups, drive and ride the vehicles, carry the flag
 and the ball, and hold the hill.
 
 - `bots.count` in `config.toml` gives the number of bots (`0` by default:
-  no bots). `bots.skill` gives how good they are, from `1` to `5`.
-- In the console, `bots <number>` and `bot_skill <1-5>` change these values
+  no bots). `bots.skill` gives how good they are, from `1` to `10`
+  (`5` by default). The ten levels are even steps from the easiest bot to
+  the best one. The levels went from `1` to `5` before, with the same
+  easiest and best bots: the old `5` is `10`, the old `4` is near `8`, the
+  old `3` is between `5` and `6`, and the old `2` is near `3`. Change a
+  value that you set for the old levels.
+- In the console, `bots <number>` and `bot_skill <1-10>` change these values
   until the game stops. A new number of bots applies in the lobby. A game in
   progress keeps its bots.
 - `bots.skill_spread` gives the bots different skills. With a spread of
-  `2` and a skill of `5`, each bot has a skill between 3 and 5 (not only
-  whole levels: 3.4 is possible). A bot keeps its skill for the game and
+  `4` and a skill of `10`, each bot has a skill between 6 and 10 (not only
+  whole levels: 7.3 is possible). A bot keeps its skill for the game and
   gets a different one in the next game. In the console, `bot_skill_spread
-  <0-4>` changes the value.
+  <0-9>` changes the value.
 - The name of a bot starts with `[bot]`: `[bot]Anvil`. The lobby, the
   scores, the kill messages and the names above the players show this
   name. A name has 11 letters at most, thus the names of the bots are
@@ -1052,7 +1057,7 @@ changes:
 - A bot that goes to an item does not turn to a weapon that is worth less
   on its way.
 
-These are tests on Battle Creek with bots of skill 5. In the first test
+These are tests on Battle Creek with bots of skill 10. In the first test
 one bot goes to the rocket launcher on the arch (the way goes up a rock, a
 ledge and a ridge). In the next tests one bot goes to the roofs of the
 bases. The way to the east roof is a rock, a strip 0.7 world units above
@@ -1081,7 +1086,7 @@ Race and Derelict:
 | The mean time of a leg | 12.5 s | 11.9 s |
 | Legs that a bot stopped after 60 seconds | 20 | 15 |
 
-In games of 5 minutes of slayer on eight maps (8 bots, skill 5), the
+In games of 5 minutes of slayer on eight maps (8 bots, skill 10), the
 jumps, gaps, drops and ladders that failed went from 2.8 to 2.4 for each
 10 minutes of a bot. The bots took 222 gaps (467 before) and 167 jumps up
 (99 before).
@@ -1095,7 +1100,7 @@ cost of a gap (see above), the route of a bot goes around the barricade.
 In a game of capture the flag of 7 minutes with 8 bots, no bot hopped
 across a barricade.
 
-**Hops at nothing.** In games on six maps, a bot of skill 5 jumped 6 times
+**Hops at nothing.** In games on six maps, a bot of skill 10 jumped 6 times
 a minute with no enemy in view. Most of these jumps had no cause that a
 person can see. These are the changes:
 
@@ -1118,7 +1123,7 @@ person can see. These are the changes:
   world units or more up), a bot hops when it is at the step and on the
   ground. Before, it hopped each 20 ticks.
 
-These are six games of 5 minutes with 8 bots of skill 5 (Battle Creek,
+These are six games of 5 minutes with 8 bots of skill 10 (Battle Creek,
 Chill Out, Damnation, Prisoner, Hang 'Em High: slayer; Longest: capture the
 flag), with `HALO_BOT_REFINE=0` (before) and without it. The numbers are
 for each 10 minutes of a bot on foot:
@@ -1233,7 +1238,7 @@ has two Warthogs for 12 players, so most bots walk there.
   within 14 world units, and hears one within 6. When the grenade is
   within reach of its blast, the bot moves away from it, and jumps when
   it is very near. When the grenade is ahead on the bot's way, the bot
-  does not go nearer until it has gone off. A bot of skill 5 starts 2
+  does not go nearer until it has gone off. A bot of skill 10 starts 2
   ticks after it sees the grenade, and a bot of skill 1 after 12 ticks. A
   bot of skill 1 notices one grenade in three.
 - A bot that sees its target hold a grenade and look at it moves back or
@@ -1251,23 +1256,23 @@ has two Warthogs for 12 players, so most bots walk there.
   where that enemy comes into view. The chance is much higher where that
   place has walls close on the two sides.
 
-In two team games with 8 bots of skill 5, a grenade went off a median of
+In two team games with 8 bots of skill 10, a grenade went off a median of
 1.6 world units from the place that it was thrown at (4.6 before), and
 57% of them within 2 world units (18% before).
 
-In six team games with 8 bots of skill 5, the bots of one team did not
+In six team games with 8 bots of skill 10, the bots of one team did not
 keep away from grenades (`HALO_BOT_OFF_T0=wary`). Bots of that team were
 in a blast 165 times, 120 of them within 2 world units. Bots of the
 other team were in a blast 87 times, 57 of them within 2 world units.
 
 **Jumps at a run.** These are the changes:
 
-- A bot of skill above 3 that runs at a ledge jumps from the distance at
+- A bot of skill 6 or more that runs at a ledge jumps from the distance at
   which its feet are above the top when it gets there. Before, each bot
   went to the foot of the ledge, turned to it and jumped. The bot must
   come within 45 degrees of square to the ledge, and the ledge must be
-  0.65 world units high or less. A bot of skill 5 does this most.
-- A bot of skill above 3 also jumps a gap from its run when it is 0.45
+  0.65 world units high or less. A bot of skill 10 does this most.
+- A bot of skill 6 or more also jumps a gap from its run when it is 0.45
   world units or less from the line of the jump (0.25 before).
 - A bot folds its legs in a jump only for a ledge higher than 0.55 world
   units. Before, it folded them in each jump up, and in some jumps in a
@@ -1277,7 +1282,7 @@ other team were in a blast 87 times, 57 of them within 2 world units.
   to 0.76 high, and 19 of 26 onto ledges 0.76 to 0.80 high. Bake the maps
   again after this change.
 
-These are six games with 8 bots of skill 5 (the six maps of the table
+These are six games with 8 bots of skill 10 (the six maps of the table
 above), with `HALO_BOT_REFINE=31` (before) and without it:
 
 | | Before | After |
@@ -1287,18 +1292,19 @@ above), with `HALO_BOT_REFINE=31` (before) and without it:
 | Jumped gaps that were jumped from the run | 27% | 37% |
 | Jumps up that failed | 5.1% | 3.8% |
 
-**Skill 5 sees sooner.** The time before a bot notices an enemy in view
-is half as long at skill 5 as it was (0.3 seconds for an enemy at the
-edge of the view 40 world units away). The change is from skill 4 to
-skill 5.
+**Skill 10 sees sooner.** The time before a bot notices an enemy in view
+is half as long at skill 10 as it was (0.3 seconds for an enemy at the
+edge of the view 40 world units away). The change is from skill 8 to
+skill 10.
 
 **How a good player moves in a fight.** These are the changes for bots of
-skill above 3 (all of the change at skill 5, half of it at skill 4):
+skill 6 or more (all of the change at skill 10, about half of it at
+skill 8, a tenth of it at skill 6):
 
-- The bot always moves to a side in a fight. Before, a bot of skill 5
+- The bot always moves to a side in a fight. Before, a bot of skill 10
   with little agility did not move to a side for a third of the time.
 - Each time the bot changes its side, it most often goes the other way
-  (85% at skill 5). It does not choose the side that has a wall or a drop
+  (85% at skill 10). It does not choose the side that has a wall or a drop
   one step away when the other side is free.
 - The bot holds a side for about 0.4 to 1.4 seconds. A body needs a third of a
   second to stop and a third more to be at speed the other way, so a
@@ -1322,7 +1328,7 @@ One fault is fixed for all bots: a bot that stepped quickly from side to
 side was taken for a bot that was stuck, and was turned away and made to
 jump.
 
-In eight games without teams on eight maps (8 bots of skill 5, each
+In eight games without teams on eight maps (8 bots of skill 10, each
 second bot without these changes, `HALO_BOT_OFF_EVEN=agile`), a bot with
 the changes moved across its enemy for 46% of the time that it fought on
 its own feet (29% without), was in the air for 19% of that time (32%
@@ -1331,10 +1337,10 @@ without). The kills were the same (1501 and 1469).
 
 **All the enemies in a room.** A bot started to notice an enemy only when
 that enemy was the best one to shoot at. The second enemy in a room was
-not noticed while the bot fought the first. A bot of skill above 3 now
+not noticed while the bot fought the first. A bot of skill 6 or more now
 notices each enemy in its view within 40 world units. It also notices an
-enemy outside its view who is on its motion tracker, 1.5 to 2 times
-slower. An enemy who aims at the bot counts for more when the bot chooses
+enemy outside its view who is on its motion tracker, 1.5 times slower at
+skill 10 and up to 2.4 times slower at skill 6. An enemy who aims at the bot counts for more when the bot chooses
 its target. In eight games without teams (each second bot without the
 change, `HALO_BOT_OFF_EVEN=aware`), a bot with the change died 65 times of
 1318 to an enemy that it had not noticed (5%), and a bot without it 390
@@ -1348,7 +1354,7 @@ way and has not seen it:
   look at the bot, and the bot has a shotgun or a flamethrower (in its
   hands or on its back).
 - A bot with a shotgun or a flamethrower does this 85% of the times at
-  skill 5. Other bots do it by their character (10% to 55%, more for a
+  skill 10. Other bots do it by their character (10% to 55%, more for a
   bot that holds a place, less for a bot that rushes), and less at a
   lower skill.
 - The bot goes to a place near it that the enemy cannot see, or stays
@@ -1374,18 +1380,18 @@ before the enemy is in reach. The bots that lay in wait had as many kills
 (2814 and 2841) and died a little less (2792 and 2863 times).
 
 **When things come back.** The game puts a new item at each item place of
-the map every so many seconds of the game clock. A bot of skill above 3
-knows these times for the power weapons and the powerups (a bot of skill 4
-only for the rocket launcher, the sniper rifle, the fuel rod gun, the
-overshield and the camouflage). When nothing lies at such a place and the
+the map every so many seconds of the game clock. A bot of skill 6 or more
+knows these times for the power weapons and the powerups (a bot of skill 6,
+7 or 8 only for the rocket launcher, the sniper rifle, the fuel rod gun,
+the overshield and the camouflage). When nothing lies at such a place and the
 next item is due in the time of the walk plus 3 seconds (plus 5 at skill
-4), the bot goes there and waits, up to a walk of 22 seconds. It does not
+8 and plus 6.5 at skill 6), the bot goes there and waits, up to a walk of 22 seconds. It does not
 go for a weapon that it has, for a weapon that is not better than its
 worse one, or for a powerup when it has one. In a team game it leaves the
 place to a bot of its team that is nearer. On the way it shoots but stops
 only for an enemy who is near.
 
-In 16 team games (8 bots of skill 5, one team without the four changes of
+In 16 team games (8 bots of skill 10, one team without the four changes of
 this section), the team with them took 26% of its power items in the 3
 seconds after they came (15% for the other team), and an item lay 8.9
 seconds before that team took it (12.9 seconds, the median).
@@ -1491,7 +1497,8 @@ of the view, or not moving, and shorter for one that shoots. An enemy that
 got a new body less than 3 seconds ago takes 0.01 to 0.2 seconds more, and
 so does each enemy for a bot that got a new body less than 3 seconds ago.
 This time is half as long when the enemy moves or shoots. In a test game
-on Chill Out (8 bots, skill 3), the middle time from in view to seen, for
+on Chill Out (8 bots of the old skill 3, between 5 and 6 now), the middle
+time from in view to seen, for
 these enemies, went from 0.23 to 0.33 seconds; the shortest stayed at 0.1
 seconds. The number of kills did not change (91 and 91).
 `HALO_BOT_OFF=fresh` turns the added time off, and `HALO_BOT_NOTICELOG=1`

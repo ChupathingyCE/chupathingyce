@@ -24,7 +24,7 @@ worth joining before anyone else is there.
 | --- | --- | --- |
 | `HALO_BOTS` | `0` | This many bots in every game. |
 | `HALO_BOTS_FILL` | `0` | Fill every game up to this many players with bots. A bot leaves when a person joins, and comes back when one leaves. `0` means `HALO_BOTS` bots, whoever joins. |
-| `HALO_BOT_SKILL` | `3` | How good they are: `1` easy to `5` near perfect. |
+| `HALO_BOT_SKILL` | `5` | How good they are: `1` easy to `10` near perfect. |
 
 The bots come in with the first person to join: the server doesn't play
 games of bots alone, and a game ends 30 seconds after the last person

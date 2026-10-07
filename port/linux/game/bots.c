@@ -23,8 +23,14 @@ A bot, each tick:
 
 Every bot has a personality: how aggressive it is, how it likes to fight,
 how much it wants vehicles and power weapons, how often it throws grenades
-and jumps. Skill (bot_skill 1-5) scales reaction time, turn rate and aim,
+and jumps. Skill (bot_skill 1-10) scales reaction time, turn rate and aim,
 and narrows each bot's own accuracy, reactions and agility toward the best.
+
+The ten levels are spread evenly over the scale this file works on, which
+goes from 1 to 5 (bot_skill_inner): bot_skill 1 is its 1, bot_skill 10 its
+5, and each level between is four ninths of a step on it. That scale is what
+bot_skill_now holds and what the comments here mean by "the level", "level
+5" and "the levels over 3": bot_skill 10, and bot_skill 6 and up.
 */
 
 #include "bot_internal.h"
@@ -71,13 +77,14 @@ struct player_starting_location *player_get_starting_location(short starting_loc
 void game_engine_player_added(long player_index);
 long player_new(long machine_index, long player_index, short local_player_index, struct network_player const *network_player);
 
-long bot_skill = 3; /* 1 easy, 2 normal, 3 hard, 4 legendary, 5 near perfect */
+long bot_skill = 5; /* 1 easy, 3 normal, 5 hard, 8 legendary, 10 near perfect */
 /* ... and how many levels under that a bot may be: each bot's own level is
    drawn between the two for the game (bots.skill_spread; 0: all of them at
    bot_skill) */
 long bot_skill_spread = 0;
-/* (the level of the bot that is thinking: bot_skill_of) */
-static real bot_skill_now = 3.f;
+/* (the level of the bot that is thinking, on the scale of 1 to 5 that this
+   file works on: bot_skill_of) */
+static real bot_skill_now = 1.f + 4.f * 4.f / 9.f;
 
 /* flag juggling (a carrier dropping the flag ahead on the run and snatching
 it up again, to be home quicker): 1 to have the bots do it */
@@ -1023,15 +1030,24 @@ static void bot_skill_traits(struct bot_personality *personality)
 /* A bot's own level: bot_skill, or with a spread somewhere from so many
    levels under it up to it, drawn for the game (the same bot keeps its
    level through the game; another game, another draw). */
+/* (bot_skill's ten levels on the scale of 1 to 5 that everything here was
+   made to: 1 is 1, 10 is 5, evenly between. What was bot_skill 5 is 10,
+   and what was 3 lies between 5 and 6.) */
+#define BOT_SKILL_TOP 10
+static real bot_skill_inner(real level)
+{
+	return 1.f + (PIN(level, 1.f, (real)BOT_SKILL_TOP) - 1.f) * 4.f / (real)(BOT_SKILL_TOP - 1);
+}
+
 static real bot_skill_of(long slot)
 {
-	real high = (real)PIN(bot_skill, 1, 5);
-	real low = (real)MAX(1, PIN(bot_skill, 1, 5) - PIN(bot_skill_spread, 0, 4));
+	real high = (real)PIN(bot_skill, 1, BOT_SKILL_TOP);
+	real low = (real)MAX(1, PIN(bot_skill, 1, BOT_SKILL_TOP) - PIN(bot_skill_spread, 0, BOT_SKILL_TOP - 1));
 	unsigned long seed;
 	if (high <= low)
-		return high;
+		return bot_skill_inner(high);
 	seed = bot_hash(bot_hash((unsigned long)(slot * 2246822519UL) ^ 0x51ed270bUL) ^ bots_match());
-	return low + (high - low) * (real)(seed & 0xFFFF) / 65535.f;
+	return bot_skill_inner(low + (high - low) * (real)(seed & 0xFFFF) / 65535.f);
 }
 
 static void bot_make_personality(long slot, struct bot_personality *personality)
@@ -1409,7 +1425,7 @@ static struct bot_skill_parameters const bot_skills[5] =
 	{ 2, 22.0f, 0.005f, 0.65f },
 };
 
-/* the skill level, 0 (bot_skill 1) .. 1 (bot_skill 5): of the bot that is
+/* the skill level, 0 (bot_skill 1) .. 1 (bot_skill 10): of the bot that is
    thinking, which with a spread is anywhere between two levels */
 static real bot_skill_fraction(void)
 {
@@ -1432,7 +1448,7 @@ static real bot_skill_pro(void)
 	return BOT_ON(BOT_F_AGILE) && bot_refined_is(1024) ? PIN((bot_skill_now - 3.f) / 2.f, 0.f, 1.f) : 0.f;
 }
 
-/* how well the skill level (bot_skill 1-5) moves in a fight: 0.3 .. 1 */
+/* how well the skill level (1 to 5: bot_skill_inner) moves in a fight: 0.3 .. 1 */
 static real bot_skill_movement(void)
 {
 	static real const movement[5] = { 0.3f, 0.6f, 0.85f, 1.f, 1.f };
@@ -8511,11 +8527,12 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		bot->has_personality = TRUE;
 		bot->unit_index = NONE;
 		if (bot_logging())
-			bot_log("bot%ld is a %s (%s): grudge %.1f temper %+.1f swagger %.1f trigger %.1f melee %.1f vengeful %.1f composure %.1f loyal %.1f sporting %.1f showboat %.1f camping %.1f herd %+.1f skill %.2f",
+			bot_log("bot%ld is a %s (%s): grudge %.1f temper %+.1f swagger %.1f trigger %.1f melee %.1f vengeful %.1f composure %.1f loyal %.1f sporting %.1f showboat %.1f camping %.1f herd %+.1f skill %.2f of 5 (bot_skill %.1f of 10)",
 				player_absolute_index, bot_style_names[bot->personality.style], bot_signature_names[bot->personality.signature],
 				bot->personality.grudge, bot->personality.temper, bot->personality.swagger, bot->personality.discipline, bot->personality.melee,
 				bot->personality.vengeful, bot->personality.composure, bot->personality.loyalty, bot->personality.sporting,
-				bot->personality.showboat, bot->personality.camping, bot->personality.herd, bot_skill_now);
+				bot->personality.showboat, bot->personality.camping, bot->personality.herd, bot_skill_now,
+				1.f + (bot_skill_now - 1.f) * 9.f / 4.f);
 	}
 	/* (straight to our slot: looking through every player, for every bot,
 	   every tick, is a lot of looking in a big game) */
@@ -12925,12 +12942,12 @@ static void bots_settings_apply(void)
 
 		bot_skill_set = TRUE;
 		if (skill >= 1)
-			bot_skill = PIN(skill, 1, 5);
+			bot_skill = PIN(skill, 1, BOT_SKILL_TOP);
 	}
 	if (!bot_skill_spread_set)
 	{
 		bot_skill_spread_set = TRUE;
-		bot_skill_spread = PIN(config_integer("bots.skill_spread"), 0, 4);
+		bot_skill_spread = PIN(config_integer("bots.skill_spread"), 0, BOT_SKILL_TOP - 1);
 	}
 }
 
@@ -12969,7 +12986,7 @@ void bots_set_fill(long fill)
 void bots_set_skill(long skill)
 {
 	bot_skill_set = TRUE;
-	bot_skill = PIN(skill, 1, 5);
+	bot_skill = PIN(skill, 1, BOT_SKILL_TOP);
 }
 
 long bots_get_skill(void)
@@ -12981,7 +12998,7 @@ long bots_get_skill(void)
 void bots_set_skill_spread(long spread)
 {
 	bot_skill_spread_set = TRUE;
-	bot_skill_spread = PIN(spread, 0, 4);
+	bot_skill_spread = PIN(spread, 0, BOT_SKILL_TOP - 1);
 }
 
 long bots_get_skill_spread(void)
@@ -13017,7 +13034,7 @@ long bots_navigation_bsp(void)
 	return nav_aas_tried && aas_ready() ? nav_aas_bsp : -1;
 }
 
-/* the console's "bots [count]" and "bot_skill [1-5]" (hs.c): TRUE when the
+/* the console's "bots [count]" and "bot_skill [1-10]" (hs.c): TRUE when the
 text was one of them. The count is the lobby's at once, and a game in
 progress keeps the bots it started with. */
 boolean bots_console_command(char const *text)
@@ -13068,7 +13085,7 @@ boolean bots_console_command(char const *text)
 	{
 		if (value != NONE)
 			bots_set_skill(value);
-		console_printf(FALSE, "bot_skill: %ld (1 easy, 2 normal, 3 hard, 4 legendary, 5 near perfect)", bots_get_skill());
+		console_printf(FALSE, "bot_skill: %ld of 10 (1 easy, 3 normal, 5 hard, 8 legendary, 10 near perfect)", bots_get_skill());
 	}
 	return TRUE;
 }

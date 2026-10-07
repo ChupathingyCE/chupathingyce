@@ -341,13 +341,15 @@ static const struct config_setting config_settings[] =
 		"a bot leaves when a person joins and comes back when one leaves, in\n"
 		"the lobby and in the game. 0: bots.count bots, whoever joins (the\n"
 		"console's \"bots_fill <n>\")." },
-	{ "bots.skill", _config_integer, "3", "HALO_BOT_SKILL", _environment_value, _platform_all,
-		"How good the bots are: 1 easy, 2 normal, 3 hard, 4 legendary, 5 near\n"
-		"perfect (the console's \"bot_skill <n>\")." },
+	{ "bots.skill", _config_integer, "5", "HALO_BOT_SKILL", _environment_value, _platform_all,
+		"How good the bots are, from 1 to 10: 1 easy, 3 normal, 5 hard, 8\n"
+		"legendary, 10 near perfect (the console's \"bot_skill <n>\"). The\n"
+		"levels went from 1 to 5 before: what was 5 is 10, and what was 3 is\n"
+		"between 5 and 6." },
 	{ "bots.skill_spread", _config_integer, "0", "HALO_BOT_SKILL_SPREAD", _environment_value, _platform_all,
 		"How many levels under bots.skill a bot may be: each bot's skill is\n"
 		"drawn for the game from that many levels under bots.skill up to it\n"
-		"(skill 5 with a spread of 2: bots from 3 to 5). 0: every bot at\n"
+		"(skill 10 with a spread of 4: bots from 6 to 10). 0: every bot at\n"
 		"bots.skill (the console's \"bot_skill_spread <n>\")." },
 
 	{ "infection.rounds", _config_integer, "3", "HALO_INFECTION_ROUNDS", _environment_value, _platform_all,
