@@ -3,7 +3,7 @@ DELTA_CHECK.C
 
 A check of the legacy table's loader (port/linux/src/delta.c), built by
 tools/test_delta.py with the platform layer's flags and a test key
-(HALO_DELTA_TEST_KEY), and stand-ins for the settings and the log. It runs
+(HALO_DELTA_TEST_KEY, and HALO_DELTA_TEST_RECOVERY_KEY), and stand-ins for the settings and the log. It runs
 the steps it is given, in order, and prints what each did:
 
 	offer FILE    a signed table from another machine: "offer 1" if taken
