@@ -52,6 +52,11 @@ static int local_address(const unsigned char *bytes, int length)
 	}
 }
 
+int log_address_local(const unsigned char *bytes, int length)
+{
+	return (length == 4 || length == 16) && local_address(bytes, length);
+}
+
 const char *log_address(const unsigned char *bytes, int length, int port, char *text, int size)
 {
 	char address[48];

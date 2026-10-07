@@ -16,6 +16,9 @@ when there was no answer. Blocks for up to about ten seconds: call it from
 a thread of its own. */
 int posix_browser_request(const char *url, const char *body, const char *content_type, char *response,
 	int response_size, char *error, int error_size);
+/* the same, as user_agent (the crash reports': build_identity_user_agent) */
+int posix_browser_request_as(const char *url, const char *body, const char *content_type, const char *user_agent,
+	char *response, int response_size, char *error, int error_size);
 
 int posix_browser_private_key(const char *path, unsigned char *key, int size);
 int posix_browser_replace_key(const char *path, const unsigned char *key, int size);
