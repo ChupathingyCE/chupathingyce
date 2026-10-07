@@ -634,6 +634,31 @@ ChupathingyCE's command repository:
 A build with no key (all zeros) fetches no table and accepts none: it
 plays with its built-in numbers (and a local override).
 
+### Epochs
+
+A serial's top byte is its **epoch** (serials 1 to 0x00FFFFFF are epoch 0,
+0x01000001 starts epoch 1, and so on), and each key signs tables of epochs
+up to its own last one (`delta_key_last_epochs` in `delta_key.h`): the
+primary key's is 0, the recovery key's 255. A table whose epoch is past its
+signing key's last is dropped whole, like one that doesn't verify.
+
+That makes a leaked primary key recoverable. Serials only go forward, so a
+leaked key that signs the highest serial it can (0x00FFFFFF) would leave
+every build refusing every later table; but the recovery key signs a table
+of the next epoch (`delta-table.yml` with `use_recovery` and `new_epoch`),
+every build takes it as newer, and the leaked key can sign nothing past it.
+Until a release adds a new primary key (whose last epoch is the one the
+recovery key opened, the leaked key then dropped), tables are signed with
+the recovery key. The wire is unchanged (a serial is still 4 bytes, and
+0xFFFFFFFF still means "takes no tables"), and every table published before
+is epoch 0, as valid as before. Builds from before epochs (0.7.0b and
+older) take any key's table of any epoch, so for them the recovery
+remains a release.
+
+`tools/delta_table.py next-serial --from legacy.json [--new-epoch]` gives
+the next serial, and `verify` checks the epoch against `delta_key.h`'s keys
+(`--last-epoch` with `--public-key`).
+
 ### How it travels
 
 - **Built in:** each build carries the table as it was at release. That is
@@ -810,9 +835,8 @@ below the shipped numbers: a table whose row would is dropped whole by
 every build of that wire.
 
 What a newer table can't fix is a table no newer one can follow: one signed
-with a leaked primary key at the highest serial. That needs the recovery
-key, and how far it reaches is the owner's decision (the plan's rollback
-options).
+with a leaked primary key at the highest serial. The recovery key opens the
+next epoch for that ("Epochs", above).
 
 ## An open network
 

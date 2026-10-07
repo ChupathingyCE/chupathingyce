@@ -56,6 +56,8 @@ skips what it does not know.
 #define DELTA_LEGACY_FORMAT 1
 #define DELTA_SIGNATURE_SIZE 64
 #define DELTA_KEY_COUNT (sizeof(delta_public_keys) / sizeof(*delta_public_keys))
+/* a serial's epoch, its top byte (delta_key.h) */
+#define DELTA_EPOCH(serial) ((unsigned int)(serial) >> 24)
 #define DELTA_CACHE_NAME "delta_legacy.signed"
 #define DELTA_GITHUB_URL "https://raw.githubusercontent.com/ChupathingyCE/chupathingyce/delta-table/legacy.json"
 
@@ -561,7 +563,8 @@ static int delta_signature_parse(const char *text, size_t length, unsigned char 
 	return 1;
 }
 
-static int delta_signature_check(const char *document, size_t size, const unsigned char *signature)
+/* the key that signed the document (its index in delta_public_keys), or -1 */
+static int delta_signature_signer(const char *document, size_t size, const unsigned char *signature)
 {
 	size_t index;
 
@@ -571,10 +574,10 @@ static int delta_signature_check(const char *document, size_t size, const unsign
 		if (delta_key_set(delta_public_keys[index]) &&
 			crypto_ed25519_check(signature, delta_public_keys[index], (const unsigned char *)document, size) == 0)
 		{
-			return 1;
+			return (int)index;
 		}
 	}
-	return 0;
+	return -1;
 }
 
 /* ---------- the table in use */
@@ -637,7 +640,7 @@ static enum delta_result delta_take(const char *document, size_t size, const cha
 	struct delta_table table;
 	const char *why;
 	char *signed_table;
-	int signed_size;
+	int signed_size, signer = -1;
 
 	if (size > DELTA_LEGACY_DOCUMENT_SIZE)
 	{
@@ -645,7 +648,7 @@ static enum delta_result delta_take(const char *document, size_t size, const cha
 		return _delta_invalid;
 	}
 	if (!delta_signature_parse(signature_text, signature_length, signature) ||
-		!delta_signature_check(document, size, signature))
+		(signer = delta_signature_signer(document, size, signature)) < 0)
 	{
 		platform_log("Delta: dropped the legacy table from %s: its signature does not match", source);
 		return _delta_invalid;
@@ -653,6 +656,14 @@ static enum delta_result delta_take(const char *document, size_t size, const cha
 	if (!delta_table_parse(document, size, &table, &why))
 	{
 		platform_log("Delta: dropped the legacy table from %s: %s", source, why);
+		return _delta_invalid;
+	}
+	/* (only the keys whose last epoch reaches it sign a serial's epoch: the
+	recovery key alone opens a new one, delta_key.h) */
+	if (DELTA_EPOCH(table.serial) > delta_key_last_epochs[signer])
+	{
+		platform_log("Delta: dropped the legacy table %u from %s: its epoch (%u) is past its key's last (%u)",
+			table.serial, source, DELTA_EPOCH(table.serial), (unsigned int)delta_key_last_epochs[signer]);
 		return _delta_invalid;
 	}
 	if (!delta_table_widens(&table))

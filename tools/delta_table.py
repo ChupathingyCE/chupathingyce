@@ -27,8 +27,12 @@ it widens the numbers the build was made with. At most 16384 bytes.
         built-in numbers; --take-back WIRE=A,MIN,MAX sets a wire's row back
         to its release's own numbers
     delta_table.py sign --key KEY.pem legacy.json      writes legacy.json.sig
-    delta_table.py verify [--public-key HEX] legacy.json
-        checks legacy.json.sig against the key (or delta_key.h's keys)
+    delta_table.py verify [--public-key HEX [--last-epoch N]] legacy.json
+        checks legacy.json.sig against the key (or delta_key.h's keys), and
+        that the key may sign the serial's epoch
+    delta_table.py next-serial [--from legacy.json] [--new-epoch]
+        the next table's serial: one more, or the next epoch's first (a
+        serial's top byte is its epoch: only the recovery key opens one)
     delta_table.py keygen --out KEY.pem
         a new key pair: the private key into KEY.pem (readable by you alone:
         keep it out of every repository; CI has it as a secret), the public
@@ -308,15 +312,46 @@ def header_keys():
     return keys
 
 
-def check(document: bytes, signature_text: str, keys) -> dict:
-    """the signed table, checked as the game does: size, signature, then the
-    document (but not against a build's numbers); TableError if not"""
+def epoch(serial: int) -> int:
+    """a serial's epoch: its top byte (delta_key.h)"""
+    return serial >> 24
+
+
+def next_serial(previous: int, new_epoch: bool = False) -> int:
+    """the serial after previous: one more, or with new_epoch the first of
+    the next epoch, which only the recovery key may sign"""
+    if not new_epoch:
+        if epoch(previous + 1) != epoch(previous):
+            raise TableError(f"serial {previous} is its epoch's last: a new epoch needs the recovery key")
+        return previous + 1
+    if epoch(previous) >= 255:
+        raise TableError("no epoch after 255")
+    return ((epoch(previous) + 1) << 24) | 1
+
+
+def header_last_epochs():
+    """delta_key.h's last epoch of each key, in its keys' order"""
+    text = KEY_HEADER.read_text().split("#else", 1)[0]
+    match = re.search(r"delta_key_last_epochs\[\]\s*=\s*\{([^}]*)\}", text)
+    return [int(value) for value in re.findall(r"\d+", match.group(1))] if match else []
+
+
+def check(document: bytes, signature_text: str, keys, last_epochs=None) -> dict:
+    """the signed table, checked as the game does: size, signature, the
+    signing key's last epoch (each key's in last_epochs, by default every
+    one), then the document (but not against a build's numbers); TableError
+    if not"""
     if len(document) > DOCUMENT_SIZE:
         raise TableError(f"it is {len(document)} bytes, more than {DOCUMENT_SIZE}")
     signature = signature_from_text(signature_text)
-    if not any(verify_bytes(key, document, signature) for key in keys):
+    signer = next((index for index, key in enumerate(keys) if verify_bytes(key, document, signature)), None)
+    if signer is None:
         raise TableError("its signature does not match")
-    return parse(document)
+    table = parse(document)
+    last = (last_epochs or [255] * len(keys))[signer]
+    if epoch(table["serial"]) > last:
+        raise TableError(f"its epoch ({epoch(table['serial'])}) is past its key's last ({last})")
+    return table
 
 
 def signed_table(document: bytes, signature: bytes) -> bytes:
@@ -346,7 +381,12 @@ def main() -> int:
     command.add_argument("document", type=Path)
     command = commands.add_parser("verify")
     command.add_argument("--public-key", help="a public key's 64 hex digits, in place of delta_key.h's")
+    command.add_argument("--last-epoch", type=int, default=255,
+                         help="--public-key's last epoch (delta_key.h: the primary's 0, the recovery key's 255)")
     command.add_argument("document", type=Path)
+    command = commands.add_parser("next-serial")
+    command.add_argument("--from", dest="previous", type=Path, help="the table published now (none: the first)")
+    command.add_argument("--new-epoch", action="store_true", help="the next epoch's first (the recovery key's)")
     command = commands.add_parser("keygen")
     command.add_argument("--out", type=Path, required=True)
     arguments = parser.parse_args()
@@ -373,12 +413,18 @@ def main() -> int:
             print(f"{arguments.document}.sig")
         elif arguments.command == "verify":
             keys = [bytes.fromhex(arguments.public_key)] if arguments.public_key else header_keys()
+            epochs = [arguments.last_epoch] if arguments.public_key else header_last_epochs()
             if not keys or any(len(key) != 32 for key in keys):
                 print(f"no key in delta_key.h: give --public-key", file=sys.stderr)
                 return 1
-            table = check(arguments.document.read_bytes(), Path(f"{arguments.document}.sig").read_text(), keys)
+            table = check(arguments.document.read_bytes(), Path(f"{arguments.document}.sig").read_text(), keys,
+                          epochs)
             row = table["wires"].get(wire())
-            print(f"{arguments.document}: signed, serial {table['serial']}; {wire()}: {row or 'no row'}")
+            print(f"{arguments.document}: signed, serial {table['serial']} (epoch {epoch(table['serial'])}); "
+                  f"{wire()}: {row or 'no row'}")
+        elif arguments.command == "next-serial":
+            previous = parse(arguments.previous.read_bytes())["serial"] if arguments.previous else 0
+            print(next_serial(previous, arguments.new_epoch))
         else:
             key = keygen(arguments.out)
             print(f"private key: {arguments.out} (keep it out of every repository: a CI secret)")
