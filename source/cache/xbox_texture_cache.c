@@ -622,10 +622,23 @@ static void texture_cache_initialize_hardware_format(
 			(2 << D3DFORMAT_DIMENSION_SHIFT) |
 			D3DFORMAT_BORDERSOURCE_COLOR |
 			D3DFORMAT_DMACHANNEL_A;
+		/* port: (the pitch in whole steps, a Halo PC map's rounded up:
+		texture_cache_bitmap_valid) */
 		texture->Size =
-			((bitmap_mipmap_get_row_pitch(bitmap, 0) / D3DTEXTURE_PITCH_ALIGNMENT - 1) << D3DSIZE_PITCH_SHIFT) |
+			(((bitmap_mipmap_get_row_pitch(bitmap, 0) + D3DTEXTURE_PITCH_ALIGNMENT - 1) / D3DTEXTURE_PITCH_ALIGNMENT - 1) <<
+				D3DSIZE_PITCH_SHIFT) |
 			((bitmap->height - 1) << D3DSIZE_HEIGHT_SHIFT) |
 			(bitmap->width - 1);
+#ifdef HALO_CUSTOM_EDITION
+		/* port: a Custom Edition map's linear bitmap has its rows as Halo PC
+		lays them out, a row's texels after the last's, whatever the pitch */
+		{
+			extern boolean cache_file_tags_are_ce(void);
+
+			if (cache_file_tags_are_ce())
+				texture->Common |= D3DCOMMON_PORT_PC_LAYOUT;
+		}
+#endif
 	}
 	else
 	{
@@ -801,11 +814,24 @@ static boolean texture_cache_bitmap_valid(
 	if (valid && linear)
 	{
 		long row_pitch = bitmap_mipmap_get_row_pitch(bitmap, 0);
+		long steps = (row_pitch+D3DTEXTURE_PITCH_ALIGNMENT-1)/D3DTEXTURE_PITCH_ALIGNMENT;
+		boolean any_pitch = FALSE;
 
+#ifdef HALO_CUSTOM_EDITION
+		/* port: a Custom Edition map's linear rows need not be whole steps
+		of the pitch: Halo PC's are a row's texels long, and are read so
+		(texture_cache_initialize_hardware_format). Sanctuary's kill icons
+		were never drawn (OpenCE's build-147 found them: xshxdex98) */
+		{
+			extern boolean cache_file_tags_are_ce(void);
+
+			any_pitch = cache_file_tags_are_ce();
+		}
+#endif
 		valid =
 			row_pitch>0 &&
-			row_pitch%D3DTEXTURE_PITCH_ALIGNMENT==0 &&
-			row_pitch/D3DTEXTURE_PITCH_ALIGNMENT<=(long)((D3DSIZE_PITCH_MASK>>D3DSIZE_PITCH_SHIFT)+1);
+			(row_pitch%D3DTEXTURE_PITCH_ALIGNMENT==0 || any_pitch) &&
+			steps<=(long)((D3DSIZE_PITCH_MASK>>D3DSIZE_PITCH_SHIFT)+1);
 	}
 	if (!valid && !reported)
 	{

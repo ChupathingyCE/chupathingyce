@@ -376,8 +376,9 @@ static BOOL decode_level(const struct xgpu_texture_description *description, uns
 	if (description->linear || description->pc_layout)
 	{
 		/* (a linear texture's rows are its pitch apart; Halo PC's, a level's
-		width) */
-		unsigned long pitch = description->linear ? description->pitch : width * information.bytes;
+		width, a linear one's too) */
+		unsigned long pitch = description->linear && !description->pc_layout ? description->pitch :
+			width * information.bytes;
 		/* only the texels a row's pitch holds: a Size word whose pitch is
 		narrower than its width (a map's bitmap) read past the texture's
 		pitch * height bytes; the rest of such a row is black (a YUV texel
