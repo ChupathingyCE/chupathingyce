@@ -14,11 +14,11 @@ platform layer and the system side (posix_*.c, win32_*.c) alike.
 standard error, debug.txt) */
 #define PLATFORM_LOG_PREFIX "chupathingyce: "
 
-/* "ChupathingyCE 0.6.8b (release, release config, commit 65d3130d, built
+/* "ChupathingyCE 0.7.0b (release, release config, commit 65d3130d, built
 2026-10-06) macOS arm64" */
 const char *build_identity(void);
 
-/* the User-Agent of this build's own requests: "ChupathingyCE/0.6.8b
+/* the User-Agent of this build's own requests: "ChupathingyCE/0.7.0b
 (macOS arm64)" */
 const char *build_identity_user_agent(void);
 
