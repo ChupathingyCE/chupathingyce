@@ -288,6 +288,22 @@ def test_make_row_widens_only(tmp_path):
         assert make_table(tmp_path, "--serial", "5", "--row", bad).returncode == 1, bad
 
 
+def test_make_take_back(tmp_path):
+    old = tmp_path / "old.json"
+    wide = dict(floor(), announce=floor()["announce"] + 2, maximum=floor()["maximum"] + 2)
+    old.write_bytes(document(serial=4, row=wide, extra={"chupa-01z": {"announce": 30, "minimum": 11, "maximum": 30}}))
+    own = delta_table.wire()
+    shipped = f"{floor()['announce']},{floor()['minimum']},{floor()['maximum']}"
+    result = make_table(tmp_path, "--serial", "5", "--from", str(old), "--take-back", f"{own}={shipped}",
+                        "--take-back", "chupa-01z=20,11,20")
+    assert result.returncode == 0, result.stderr
+    table = json.loads(result.stdout)
+    assert table["wires"][own] == floor()
+    assert table["wires"]["chupa-01z"] == {"announce": 20, "minimum": 11, "maximum": 20}
+    below = f"{floor()['announce'] - 1},{floor()['minimum']},{floor()['maximum']}"
+    assert make_table(tmp_path, "--serial", "5", "--from", str(old), "--take-back", f"{own}={below}").returncode == 1
+
+
 def test_make_from_keeps_other_wires(tmp_path):
     old = tmp_path / "old.json"
     old.write_bytes(document(serial=4, extra={"chupa-17a": {"announce": 17, "minimum": 11, "maximum": 19}}))

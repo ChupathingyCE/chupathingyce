@@ -893,12 +893,19 @@ reported, not counted.
 
 ### Taking a follow back
 
-A table only widens what a build shipped with, and serials only go
-forward, so a widened row can't be taken back by a newer table today. The
-kill switch (`disabled_capabilities`) still turns Delta features off, but
-not the legacy number. Which way to add a way back is the owner's decision
-(the plan's rollback options); until then, a follow that turns out wrong
-is fixed by a release.
+A follow found wrong is taken back with a newer table whose row for that
+wire is the release's own numbers again (or has no row): builds check a row
+against what they shipped with, not against the table before, so going
+back to the shipped numbers is allowed with the primary key today
+(`tools/delta_table.py make --serial N --from legacy.json --take-back
+chupa-20a=20,11,20`, then delta-table.yml signs it as usual). Nothing can go
+below the shipped numbers: a table whose row would is dropped whole by
+every build of that wire.
+
+What a newer table can't fix is a table no newer one can follow: one signed
+with a leaked primary key at the highest serial. That needs the recovery
+key, and how far it reaches is the owner's decision (the plan's rollback
+options).
 
 ## An open network
 
