@@ -160,13 +160,16 @@ void xbox_heap_free(void *pointer)
 	if (!pointer)
 		return;
 	block = block_of(pointer);
+	/* (checked under the lock: two threads freeing the same block would
+	both see it in use, and list it twice) */
+	pthread_mutex_lock(&heap_lock);
 	if (block->magic != HEAP_MAGIC || block->free)
 	{
+		pthread_mutex_unlock(&heap_lock);
 		platform_log("Xbox heap: bad free of %p", pointer);
 		return;
 	}
 	index = small_class(block->capacity);
-	pthread_mutex_lock(&heap_lock);
 	block->free = TRUE;
 	if (index < SMALL_CLASS_COUNT && block->capacity == ((size_t)16 << index))
 	{
