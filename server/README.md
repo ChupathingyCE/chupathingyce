@@ -81,9 +81,54 @@ one machine, use [Docker or systemd](docs/docker.md).
 - Stops on SIGTERM or SIGINT, and withdraws its game from the lists.
 - Takes commands, named after Halo PC's (`sv_players`, `sv_kick`, `sv_ban`,
   `sv_map`, `sv_mapcycle_next`, ...): typed on its console, from a startup
-  file, or through its control API (HTTP and JSON, off unless turned on,
-  with a token of its own) and the web admin page on the same port. See
-  [docs/admin.md](docs/admin.md).
+  file, or through its control API (off unless turned on) and the control
+  panel on the same port. See [docs/admin.md](docs/admin.md).
+- Has moderators, admins and owners of its own, with accounts, a second
+  factor, in-game moderation and an audit file
+  ([docs/moderation.md](docs/moderation.md)).
+- Makes and edits playlists, game types and its settings while it runs
+  ([docs/playlists.md](docs/playlists.md)).
+
+## Run your own server: moderators and the control panel
+
+Everything here works without halo.milenko.org. Details, the roles table
+and the security notes: [docs/moderation.md](docs/moderation.md).
+
+1. **Turn on the control panel.** `HALO_DEDICATED_CONTROL=8080` keeps it on
+   this machine (reach it with `ssh -N -L 8080:127.0.0.1:8080 you@server`);
+   `HALO_DEDICATED_CONTROL=0.0.0.0:8443` opens it to the network, HTTPS
+   only. The server prints the certificate's SHA-256 fingerprint: check the
+   browser shows the same, once.
+2. **Make the owner's account.** The first start prints a one-time setup
+   link (on the console, not in the log). Open it, choose a name and a
+   password, log in, and set up a second factor in My account (any
+   authenticator app).
+3. **Invite your moderators.** People, then Make an invitation: send the
+   link privately. Each person chooses their own password and second
+   factor. People can require a second factor of everyone.
+4. **Moderators in the game.** A moderator binds their account to their
+   ChupathingyCE game (My account: join, then Ask my game), or you add them
+   by their moderator key: `sv_mod_add <player> moderator` on the console,
+   once they have signed in from the game's Moderation screen, or a line in
+   `moderators.txt`. They then warn, kick and ban from the game.
+5. **Back up** `control_accounts.txt`, `moderators.txt` and the rest of the
+   data folder's `control_*` files, privately: they hold the accounts'
+   password hashes and second factors.
+
+Roles: a **moderator** warns, kicks and bans for up to 7 days; an
+**admin** also bans for longer, unbans, changes maps, playlists and
+settings, and invites moderators; an **owner** also manages roles. The
+console and control tokens act as the owner. Every change is checked
+against its role wherever it came from, limited per person, and written to
+`control_audit.log` (who, what, whom, why, when; never addresses).
+
+**Security notes.** Off by default: no panel, no API, no moderators, no
+link. On the loopback address unless told otherwise; HTTPS beyond it.
+Passwords as Argon2id hashes, guessing slowed per address and per account,
+codes good once, sessions in HttpOnly SameSite cookies with CSRF tokens.
+Moderators are known by a key their game proves, never by a name or
+hardware id. Linking to halo.milenko.org is optional (`sv_link`), outbound
+only, capped at admin, and undone at once with `sv_unlink`.
 
 ## Who can join
 
@@ -99,6 +144,7 @@ is on.
 | --- | --- |
 | [docs/settings.md](docs/settings.md) | Every setting, the command line, exit statuses, and the files the server writes. |
 | [docs/admin.md](docs/admin.md) | Running a server: its commands, its console, startup commands, the control API and web admin page (and reaching them safely). |
+| [docs/moderation.md](docs/moderation.md) | Moderators and the control panel: roles, accounts, second factors, invitations, in-game moderation, HTTPS, the link to halo.milenko.org, and security notes. |
 | [docs/playlists.md](docs/playlists.md) | Playlists: the maps (Xbox, `@ce`, `@md`), the game types, and the ones included. |
 | [docs/docker.md](docs/docker.md) | The container image, the systemd services, more servers on one host, and the game list's probe. |
 | [docs/building.md](docs/building.md) | Building the server: the targets, musl and glibc, and how it differs from the game. |

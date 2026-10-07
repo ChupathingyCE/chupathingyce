@@ -26,7 +26,7 @@ boundaries:
 | **Delta Peer** | ChupathingyCE machines in one game | protocol major, capabilities, and our own messages | `delta_peer.c`, UDP port 5160 |
 | **Delta List** | game or server, and the site | announcing and listing games | `/v1/announce`, `/v1/withdraw`, `/v1/games`, the console list |
 | **Delta Stats** | game or server, and the site | end-of-game reports and the event stream | `/v1/report`, `/v1/client_report`; events planned |
-| **Delta Control** | an admin, and a server | commands, the control API, the web page | `sv_` commands, `HALO_DEDICATED_CONTROL` |
+| **Delta Control** | an admin or moderator, and a server | roles, commands, the control API and panel, in-game moderation, the site link | `sv_` commands, `HALO_DEDICATED_CONTROL`, `moderators.txt`, `sv_link` |
 | **Delta Link** | a player or server, and the site | linking with a code, and site-relayed control | `/v1/link`, `/v1/connect`, `/v1/claim` (profiles); servers planned |
 
 The legacy number (OpenCE's `HALO_PORT_NETWORK_VERSION`) is not part of
@@ -539,24 +539,123 @@ additions:
 
 ## Delta Control
 
-What exists today: the `sv_` command table, the server's console, its
-control API (`HALO_DEDICATED_CONTROL`, off by default, localhost only), and
-the web page on it. Planned: playlists and game types as files, persistent
-settings. Delta Control's rule: only the command table runs, never a shell,
-and every action is audited.
+Everything that runs a dedicated server: its `sv_` command table, its
+console, its control API and control panel (HTTP on the loopback address,
+HTTPS beyond it), in-game moderation over Delta Peer, and the optional link
+to the site. The operator's guide is `server/docs/moderation.md`. Its rule:
+only the command table runs, never a shell; every change is checked against
+a role and audited, on the server and (for the site's) on the site.
+Player-hosted games keep OpenCE's own kick and ban; Delta Control is the
+dedicated server's.
+
+### Roles
+
+Roles, lowest first: none (0), moderator (1), admin (2), owner (3). The
+permission bits are the same on the server, in Delta Peer's MOD_STATE and in
+the site's role lists:
+
+| Bit | Permission | Roles |
+| --- | --- | --- |
+| 0x001 | view: status, players, bans, log, audit, playlists, settings | moderator, admin, owner |
+| 0x002 | warn | moderator, admin, owner |
+| 0x004 | kick | moderator, admin, owner |
+| 0x008 | ban for up to 7 days | moderator, admin, owner |
+| 0x010 | ban for longer, or for ever | admin, owner |
+| 0x020 | unban | admin, owner |
+| 0x040 | maps, the playlist, the game | admin, owner |
+| 0x080 | settings, game types | admin, owner |
+| 0x100 | roles: accounts, moderators, the link | owner |
+| 0x200 | invite roles below one's own | admin, owner |
+| 0x400 | the console's own (tokens, accounts) | the console |
+
+The console, startup commands and control API tokens act as the owner. A
+command's permission is decided by `control_command_permission`
+(`server/platform/control_roles.c`), checked by the control thread before
+it queues a request and again by the main thread before it runs it.
+
+### Identity
+
+A moderator is known by a **moderator key**: an Ed25519 key pair whose seed
+is SHA-256("halo-ce-universal moderator key\n" || player key), the player
+key being the game list's (`game_list_player.key`, never sent to a game
+server). The public key (64 hex digits) is the identity. A game proves it
+with Delta Peer's `moderation` capability (see Delta Peer, Moderation);
+names and hardware ids never give a role. The site derives the same key
+whenever a game sends it its player key, and keeps the public key on the
+profile.
+
+A key's role is the highest of: the server's `moderators.txt`; a control
+panel account bound to the key (the server asks the game over Delta Peer,
+its player confirms); the site's role list, when the server is linked,
+never above `HALO_DEDICATED_LINK_ROLE` (admin unless set).
+
+### Accounts and remote access
+
+The control panel has an account for each person: a name, an Argon2id
+password hash, a role, an optional TOTP second factor (RFC 6238, SHA-1,
+30 s, 6 digits; the owner may require it), an optional bound moderator key.
+The first owner is made from a one-time setup code the server prints on its
+console; others from invitations (single use, 48 hours, hashes kept). Wrong
+passwords and codes back off per account (a minute after five, doubling to
+an hour) and per address (counted by a keyed hash, never kept). Sessions are
+HttpOnly, SameSite=Strict cookies (Secure over HTTPS) with CSRF tokens.
+
+Beyond the loopback address the panel is HTTPS only (Mbed TLS, TLS 1.2,
+ECDHE and AEAD): the server's own ECDSA P-256 certificate, whose SHA-256
+fingerprint it prints and the login page shows, or the operator's (PEM,
+reloaded on renewal). No ACME client: it needs port 80 and a domain, and
+certbot's files are taken as they are.
+
+### The link to the site
+
+Optional and outbound: the server dials the site; no port is opened.
+
+1. `sv_link`: the server makes an Ed25519 key pair and a 32-byte secret,
+   and sends the public key and the secret over HTTPS (the site's
+   certificate checked): `POST /v1/control/link/start` `{"public_key",
+   "secret", "name", "version"}` answers `{"code", "expires", "token"}`.
+2. The owner signs in on the site and enters the code at `/servers/link`
+   (good 10 minutes, once). The server asks `POST /v1/control/link/status`
+   `{"token"}` every 3 s until `{"state": "linked", "server_id", "owner"}`,
+   and keeps `delta_link.key` (0600).
+3. Then every few seconds, `POST /v1/control/poll`, signed:
+   `{"server_id", "time", "nonce", "payload", "signature"}`, the signature
+   Ed25519 over `"delta control request v1\n" + path + "\n" + server_id +
+   "\n" + time + "\n" + nonce + "\n" + payload`; the site refuses a time more
+   than 300 s off, a nonce seen before, a revoked server. The payload has the
+   server's state (name, map, players' names and numbers; never addresses or
+   hardware ids) and the results of the commands it ran.
+4. The site answers `{"payload", "mac"}`, the MAC BLAKE2b-256 keyed with the
+   secret over `"delta control response v1\n" + nonce + "\n" + payload`; the
+   server takes nothing from an answer whose MAC is wrong. The payload has
+   the commands the site's accounts sent (`sv_warn`, `sv_kick`, `sv_ban`,
+   `sv_unban`, `sv_map`, `sv_mapcycle_next`, `sv_end_game`, `sv_name`,
+   `sv_maxplayers`, with a reason) and, when it changed, the role list
+   (handles, roles, their profiles' moderator keys).
+5. Each command is authorized on both sides: the site by the account's role
+   on that server, the server by its copy of the role list, its own
+   permission table and its cap. Both audit it.
+6. Unlinking: `sv_unlink` deletes the credential at once and tells the site
+   (`POST /v1/control/unlink`); unlinked on the site, the next poll's MAC'd
+   answer says so and the server deletes it. `HALO_DEDICATED_LINK=false`
+   turns the link off for good.
+
+HTTPS requests in the server go one at a time across its threads (Mbed TLS
+is built without locks), so polls are short; long polling waits for a build
+of Mbed TLS with its threading on.
+
+### The event log's hook
+
+`server_roles_set_recorder()` (`server/src/server_roles.h`) hands every
+audited change, as a `struct control_audit_event` (time, via, actor, role,
+action, target, reason, ok, detail; never an address), to a recorder: Delta
+Stats' event log records moderation through it.
 
 ## Delta Link
 
 - **Players** (exists): Link Profile ties a game install to a site profile
   with a code (`/v1/link`, `/v1/connect`, `/v1/claim`).
-- **Servers** (planned): `sv_link` shows a code; entered on a profile, it
-  ties the server to that account. The server then keeps one outbound
-  connection to the site, so no ports are opened. Over it the site relays
-  Delta Control commands, signed with the site's key and limited to the
-  command table, and the server sends status, logs and Delta Stats events.
-  Off by default; `sv_unlink` on the server always wins; controlling a
-  server from the site needs the site's two-factor sign-in; both ends log
-  every command.
+- **Servers** (exists): see Delta Control, The link to the site.
 
 ## How it meets everything else
 
