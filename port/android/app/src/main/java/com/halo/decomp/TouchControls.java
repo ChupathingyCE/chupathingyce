@@ -47,33 +47,32 @@ public final class TouchControls extends View implements SensorEventListener, In
     private static final int TOGGLE = -3, EDIT = -4, EXPORT = -6, IMPORT = -7;
     private static final class Button {
         final String label;
-        final float radius;
         final int bit, trigger;
-        Button(String label, float radius, int bit, int trigger) {
-            this.label = label; this.radius = radius;
+        Button(String label, int bit, int trigger) {
+            this.label = label;
             this.bit = bit; this.trigger = trigger;
         }
     }
     // Button bits follow SDL_GamepadButton; triggers are SDL axes 4 and 5.
     private final Button[] buttons = {
-        new Button("A / Jump", 36, 0, -1),
-        new Button("B / Melee", 32, 1, -1),
-        new Button("X / Reload", 34, 2, -1),
-        new Button("Y / Weapon", 32, 3, -1),
-        new Button("Fire", 39, -1, 5),
-        new Button("Grenade", 35, -1, 4),
-        new Button("Crouch", 32, 7, -1),
-        new Button("Zoom", 32, 8, -1),
-        new Button("Light", 27, 9, -1),
-        new Button("Gren. type", 29, 10, -1),
-        new Button("Pause", 28, 6, -1),
-        new Button("Back", 28, 4, -1),
-        new Button("Up", 25, 11, -1),
-        new Button("Down", 25, 12, -1),
-        new Button("Left", 25, 13, -1),
-        new Button("Right", 25, 14, -1),
-        new Button("", 64, -1, -1), // movement stick keeps its saved index
-        new Button("Fire", 39, -1, 5)
+        new Button("A / Jump", 0, -1),
+        new Button("B / Melee", 1, -1),
+        new Button("X / Reload", 2, -1),
+        new Button("Y / Weapon", 3, -1),
+        new Button("Fire", -1, 5),
+        new Button("Grenade", -1, 4),
+        new Button("Crouch", 7, -1),
+        new Button("Zoom", 8, -1),
+        new Button("Light", 9, -1),
+        new Button("Gren. type", 10, -1),
+        new Button("Pause", 6, -1),
+        new Button("Back", 4, -1),
+        new Button("Up", 11, -1),
+        new Button("Down", 12, -1),
+        new Button("Left", 13, -1),
+        new Button("Right", 14, -1),
+        new Button("", -1, -1), // movement stick keeps its saved index
+        new Button("Fire", -1, 5)
     };
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final SparseIntArray owners = new SparseIntArray();
@@ -247,7 +246,6 @@ public final class TouchControls extends View implements SensorEventListener, In
         if (!visible) return Integer.MIN_VALUE;
         for (int i = 0; i < layout.size(); i++) {
             if (!layout.shown(i) || layout.type(i) == LEFT) continue;
-            Button b = buttons[layout.type(i)];
             if (inside(x, y, layout.x(i), layout.y(i), layout.radius(i))) return i;
         }
         if (layout.shown(LEFT) && !held(LEFT) && inside(x, y, layout.x(LEFT), layout.y(LEFT), layout.radius(LEFT)*1.28f)) return LEFT;
@@ -255,14 +253,13 @@ public final class TouchControls extends View implements SensorEventListener, In
     }
 
     private void moveStick(int control, float x, float y) {
-        int axis = 0;
         float dx = (x - layout.x(control)) / layout.radius(control);
         float dy = (y - layout.y(control)) / layout.radius(control);
         float length = (float)Math.sqrt(dx*dx + dy*dy);
         if (length < 0.12f) { dx = 0; dy = 0; }
         else if (length > 1) { dx /= length; dy /= length; }
-        axes[axis] = Math.round(dx * 32767);
-        axes[axis+1] = Math.round(dy * 32767);
+        axes[0] = Math.round(dx * 32767);
+        axes[1] = Math.round(dy * 32767);
     }
 
     /**
@@ -366,8 +363,7 @@ public final class TouchControls extends View implements SensorEventListener, In
         } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) {
             int control = owners.get(id, Integer.MIN_VALUE);
             if (control >= 0 && layout.type(control) == LEFT) {
-                int axis = 0;
-                axes[axis] = axes[axis+1] = 0;
+                axes[0] = axes[1] = 0;
             }
             if (id == lookPointer) lookPointer = -1;
             owners.delete(id);
