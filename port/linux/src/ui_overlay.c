@@ -624,11 +624,17 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	float scale, origin_x, origin_y;
 	int shape_count, index, count = 0, atlas_full = 0;
 
+	/* (a frame's cutouts go with it, drawn or not: a minimized window's
+	would fill the four and leave old ones cut out once it is shown) */
 	if (!overlay.quad_count && !overlay.text_count)
+	{
+		overlay.cutout_count = 0;
 		return;
+	}
 	if (!set_up() || width <= 0 || height <= 0)
 	{
 		overlay.quad_count = overlay.text_count = overlay.text_used = 0;
+		overlay.cutout_count = 0;
 		return;
 	}
 	/* (the layout's 480 lines fill the picture's height; a wider picture
