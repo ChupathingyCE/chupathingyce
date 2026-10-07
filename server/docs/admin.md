@@ -24,7 +24,7 @@ A name with spaces goes in double quotes: `sv_kick "Master Chief"`.
 | Command | What it does |
 | --- | --- |
 | `help [command]` | Lists the commands, or tells what one does. |
-| `sv_status` | The server: name, version and network version, state (lobby, loading, in game, carnage report), map and game type, playlist entry, players, whether it is public, uptime. |
+| `sv_status` | The server: name, version and network version, the OpenCE build it follows (the legacy table's, [Delta](../../docs/delta.md#following-opence)), state (lobby, loading, in game, carnage report), map and game type, playlist entry, players, whether it is public, uptime. |
 | `sv_players` | The players: number, name, team, score and ping (in a game), and their machine's hardware id. |
 | `sv_kick <player>` | Drops the player, and every other player on their machine (split screen). They see "game closed" and may join again. |
 | `sv_ban <player> [duration]` | Drops the player and keeps their machine out: for ever, or for a while (`30m`, `2h`, `7d`, `1w`, `1d12h`; a bare number is minutes). Every player in the game is told. |
@@ -176,7 +176,8 @@ curl -s -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:8080/v1/log?since=0"
 ```
 
 ```json
-{"name": "My Server", "version": "0.7.0b", "network_version": 20, "state": "in_game",
+{"name": "My Server", "version": "0.7.0b", "network_version": 20,
+ "following": "Following OpenCE build-145 (table 2)", "state": "in_game",
  "map": "bloodgulch", "game_type": "slayer", "chosen": false, "next_map": null,
  "next_game_type": null, "playlist": "playlists/slayer.txt", "entry": 2, "entries": 5,
  "players": 3, "maximum_players": 12, "minimum_players": 1, "public": true,
