@@ -27,9 +27,13 @@ enum
 
 /* the console's and the API's thread started */
 void server_control_start(void);
-/* the next command queued, in line, where it came from, in source, and its
-flags: its ticket, which server_control_finish takes, or 0 for none */
-int server_control_next(char *line, int line_size, char *source, int source_size, int *flags);
+/* the next command queued, in line, where it came from, in source, its
+flags, and the permissions and role of the account or key it came with:
+its ticket, which server_control_finish takes, or 0 for none */
+int server_control_next(char *line, int line_size, char *source, int source_size, int *flags,
+	unsigned int *permissions, int *role);
+/* a command's payload (a request's body), by its ticket */
+const char *server_control_payload(int ticket);
 /* a command run: whether it succeeded, and its output */
 void server_control_finish(int ticket, int ok, const char *output);
 /* a line of the server's log, for the API's recent log */

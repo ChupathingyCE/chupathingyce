@@ -22,8 +22,10 @@ HALO_GAME_BROWSER; network.protocol = "opence" turns all of it off.
 #include "delta_peer.h"
 #include "delta_maps.h"
 #include "halo_map_families.h"
+#include "delta_moderation.h"
 #ifdef HALO_GAME_BROWSER
 #include "browser.h"
+#include "p2p.h"
 #endif
 
 #include <stdio.h>
@@ -60,6 +62,9 @@ static struct
 	/* the client's: the host's map (MAP) last checked against this
 	machine's file, by its number (delta_peer_host_map) */
 	delta_u32 map_checked;
+	/* the host's moderation binding, when last read (its invite's) */
+	unsigned long binding_time;
+	int binding_read;
 } delta_game = { 0 };
 
 /* whether two settings' words are the same, case aside (ASCII; no
@@ -241,6 +246,52 @@ static int game_legacy_table_offer(void *context, const unsigned char *table, in
 	return delta_legacy_relay() && delta_legacy_offer((const char *)table, size);
 }
 
+/* moderation: the moderator key's signature (browser.c's; signed only when
+the player acts) */
+static int game_moderation_sign(void *context, const unsigned char *message, int size, unsigned char *key,
+	unsigned char *signature)
+{
+	(void)context;
+#ifdef HALO_GAME_BROWSER
+	return browser_moderator_sign(message, size, key, signature);
+#else
+	(void)message;
+	(void)size;
+	(void)key;
+	(void)signature;
+	return 0;
+#endif
+}
+
+/* the binding a host's challenge must carry: a host reached through the
+invite tunnel (its virtual address, 100.64.0.0/10) is the invite's, whose
+first 32 hex digits are its key's hash; a host on the LAN binds nothing */
+static int game_moderation_binding(void *context, delta_u32 host_ipv4, char *binding, int size)
+{
+	unsigned char bytes[4];
+
+	(void)context;
+	memcpy(bytes, &host_ipv4, sizeof(bytes));
+	if (!(bytes[0] == 100 && (bytes[1] & 0xC0) == 64))
+		return 0;
+#ifdef HALO_GAME_BROWSER
+	{
+		char invite[128];
+
+		if (size > 32 && p2p_joined_invite(invite, (int)sizeof(invite)) && strlen(invite) >= 32)
+		{
+			memcpy(binding, invite, 32);
+			binding[32] = 0;
+			return 1;
+		}
+	}
+#else
+	(void)binding;
+	(void)size;
+#endif
+	return -1;
+}
+
 int delta_peer_protocol(void)
 {
 	if (!delta_game.ready)
@@ -273,9 +324,16 @@ int delta_peer_protocol(void)
 		env.legacy_table_offer = game_legacy_table_offer;
 		env.capability_disabled = game_capability_disabled;
 		env.platform_policy = game_platform_policy;
+		env.moderation_sign = game_moderation_sign;
+		env.moderation_binding = game_moderation_binding;
 		memset(&local, 0, sizeof(local));
 		local.capabilities = (delta_u32)1 << _delta_capability_platform | (delta_u32)1 << _delta_capability_profile |
 			(delta_u32)1 << _delta_capability_ce_maps;
+		/* (moderation: a client signs with its player key's moderator key; a
+		host offers it only with the dedicated server's moderation) */
+#ifdef HALO_GAME_BROWSER
+		local.capabilities |= (delta_u32)1 << _delta_capability_moderation;
+#endif
 		local.legacy_version = HALO_PORT_NETWORK_VERSION;
 		delta_peer_local_key(&local.key);
 		snprintf(local.build, sizeof(local.build), "ChupathingyCE %s", updater_version());
@@ -469,6 +527,24 @@ void delta_peer_game_host_frame(const struct delta_peer_game_machine *machines, 
 	else if (!delta_game.peer.roster_sent)
 		platform_log("Delta Peer: hosting with Delta on port %d", DELTA_PEER_PORT);
 	delta_game.port_refused = 0;
+#ifdef HALO_GAME_BROWSER
+	/* (the moderation challenges' binding: the invite's host, read once a
+	second until it has one) */
+	if (!delta_game.binding_read || GetTickCount() - delta_game.binding_time > 1000)
+	{
+		char invite[128];
+
+		delta_game.binding_time = GetTickCount();
+		if (p2p_hosting_invite(invite, (int)sizeof(invite)) && strlen(invite) >= 32)
+		{
+			invite[32] = 0;
+			delta_peer_set_moderation_binding(&delta_game.peer, invite);
+		}
+		else
+			delta_peer_set_moderation_binding(&delta_game.peer, "");
+		delta_game.binding_read = 1;
+	}
+#endif
 	receive();
 	delta_peer_host_frame(&delta_game.peer, GetTickCount(), machines, count, player_machines);
 	host_map();
@@ -650,4 +726,85 @@ int delta_peer_game_host_summary(struct delta_peer_host_summary *summary)
 			summary->machines[kind]++;
 	}
 	return 1;
+}
+
+/* ---------- moderation (delta_moderation.h) */
+
+void delta_peer_game_set_moderation_host(const struct delta_peer_moderation_host *host)
+{
+	delta_peer_protocol();
+	delta_peer_set_moderation_host(&delta_game.peer, host);
+}
+
+int delta_peer_game_moderation_key(int machine_index, unsigned char *key)
+{
+	return delta_game.ready && delta_game.role == _role_host &&
+		delta_peer_moderation_key(&delta_game.peer, machine_index, key);
+}
+
+int delta_peer_game_moderation_capable(int machine_index)
+{
+	return delta_game.ready && delta_game.role == _role_host &&
+		delta_peer_moderation_capable(&delta_game.peer, machine_index);
+}
+
+int delta_peer_game_moderation_notice(int machine_index, int kind, const char *text)
+{
+	return delta_game.ready && delta_game.role == _role_host &&
+		delta_peer_moderation_notice(&delta_game.peer, machine_index, kind, text);
+}
+
+int delta_peer_game_moderation_bind(int machine_index, unsigned int request, const char *account, const char *server)
+{
+	return delta_game.ready && delta_game.role == _role_host &&
+		delta_peer_moderation_bind(&delta_game.peer, GetTickCount(), machine_index, request, account, server);
+}
+
+void delta_peer_game_moderation_roles_changed(void)
+{
+	if (delta_game.ready)
+		delta_peer_moderation_roles_changed(&delta_game.peer);
+}
+
+void delta_peer_game_client_moderation(struct delta_peer_game_moderation *moderation)
+{
+	const struct delta_peer_client_moderation *client = &delta_game.peer.client_moderation;
+
+	memset(moderation, 0, sizeof(*moderation));
+	if (!delta_game.ready || delta_game.role != _role_client || !delta_peer_client_moderation_ready(&delta_game.peer))
+		return;
+	moderation->available = 1;
+	moderation->signed_in = client->signed_in;
+	moderation->has_state = client->has_state;
+	moderation->role = client->has_state ? client->state.role : 0;
+	moderation->permissions = client->has_state ? client->state.permissions : 0;
+	moderation->ban_minutes = client->has_state ? client->state.ban_minutes : 0;
+	moderation->result_count = client->result_count;
+	moderation->result_ok = client->result.ok;
+	memcpy(moderation->result, client->result.text, sizeof(moderation->result));
+	moderation->notice_count = client->notice_count;
+	moderation->notice_kind = client->notice.kind;
+	memcpy(moderation->notice, client->notice.text, sizeof(moderation->notice));
+	moderation->bind_waiting = client->bind_waiting;
+	memcpy(moderation->bind_account, client->bind.account, sizeof(moderation->bind_account));
+	memcpy(moderation->bind_server, client->bind.server, sizeof(moderation->bind_server));
+}
+
+int delta_peer_game_moderation_sign_in(void)
+{
+	return delta_game.ready && delta_game.role == _role_client &&
+		delta_peer_client_moderation_sign_in(&delta_game.peer);
+}
+
+unsigned int delta_peer_game_moderation_action(int action, int target_machine, int minutes, const char *reason)
+{
+	if (!delta_game.ready || delta_game.role != _role_client)
+		return 0;
+	return delta_peer_client_moderation_action(&delta_game.peer, action, target_machine, minutes, reason);
+}
+
+int delta_peer_game_moderation_bind_answer(int accepted)
+{
+	return delta_game.ready && delta_game.role == _role_client &&
+		delta_peer_client_moderation_bind_answer(&delta_game.peer, accepted);
 }

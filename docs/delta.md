@@ -26,7 +26,7 @@ boundaries:
 | **Delta Peer** | ChupathingyCE machines in one game | protocol major, capabilities, and our own messages | `delta_peer.c`, UDP port 5160 |
 | **Delta List** | game or server, and the site | announcing and listing games | `/v1/announce`, `/v1/withdraw`, `/v1/games`, the console list |
 | **Delta Stats** | game or server, and the site | end-of-game reports and the event stream | `/v1/report`, `/v1/client_report`; events planned |
-| **Delta Control** | an admin, and a server | commands, the control API, the web page | `sv_` commands, `HALO_DEDICATED_CONTROL` |
+| **Delta Control** | an admin or moderator, and a server | roles, commands, the control API and panel, in-game moderation, the site link | `sv_` commands, `HALO_DEDICATED_CONTROL`, `moderators.txt`, `sv_link` |
 | **Delta Link** | a player or server, and the site | linking with a code, and site-relayed control | `/v1/link`, `/v1/connect`, `/v1/claim` (profiles); servers planned |
 
 The legacy number (OpenCE's `HALO_PORT_NETWORK_VERSION`) is not part of
@@ -133,11 +133,14 @@ shares.
 | 7 | `ai_sync` | AI sync extensions |
 | 8 | `vote` | map and game type votes |
 | 9 | `console_slots` | retired before use: a console's slots are its platform key's limits (below). Never set, never reused |
+| 10 | `moderation` | a dedicated server's moderators sign in and act from the game (below, "Moderation") |
 
 The registry lives in the repository next to the compatibility table and is
 the single source for the bit numbers. Built so far: `platform`, `profile`
 and `ce_maps`. Their values are claims, shown as claims, never used for game
 state:
+and `moderation` (see "Moderation"). The first two's values are claims,
+shown as claims, never used for game state:
 
 - **`platform`**: each machine's platform key (below), and so each player's
   platform: `delta_peer_player_platform(player)` for the scoreboard's icons
@@ -260,7 +263,15 @@ a later version may append):
 | 6 | PROFILE | client to host | profile revision (4), player ID (16) |
 | 7 | TABLE | either | serial (4), the signed table's whole size (4, at most 16513), offset (4, a multiple of 1024), length (2: 1024, or the rest), reserved (2), the piece's bytes |
 | 8 | TABLE_HAVE | either | serial (4: 0 the built-in table, 0xFFFFFFFF takes no tables) |
-| 9 | MAP | host to client | family (1), flags (1: 0x01 the size and hash are the file's), name length (1, at most 63), reserved (1), file size (8: low word, then high), BLAKE2b-256 hash of the whole file (32; zeros without the flag), file name (letters, digits, `_`, `-`, `.` and space; no `..`) |
+| 9 | MOD_CHALLENGE | host to client | nonce (32), binding length (1, at most 64), reserved (3), binding (printable ASCII) |
+| 10 | MOD_PROOF | client to host | moderator key (32), signature (64) |
+| 11 | MOD_STATE | host to client | role (1), reserved (3), permissions (4), longest timed ban in minutes (4) |
+| 12 | MOD_ACTION | client to host | sequence (4), action (1), target machine (1), minutes (2; 0 for ever), reason length (1, at most 63), reserved (3), signature (64), reason (printable ASCII) |
+| 13 | MOD_RESULT | host to client | sequence (4), ok (1), text length (1, at most 127), reserved (2), text |
+| 14 | MOD_NOTICE | host to client | kind (1: 1 warning, 2 notice), text length (1, at most 127), reserved (2), text |
+| 15 | MOD_BIND | host to client | request (4), account length (1, at most 31), server name length (1, at most 31), reserved (2), account, server name |
+| 16 | MOD_BIND_ANSWER | client to host | request (4), accepted (1), reserved (3), moderator key (32), signature (64) |
+| 17 | MAP | host to client | family (1), flags (1: 0x01 the size and hash are the file's), name length (1, at most 63), reserved (1), file size (8: low word, then high), BLAKE2b-256 hash of the whole file (32; zeros without the flag), file name (letters, digits, `_`, `-`, `.` and space; no `..`) |
 
 A roster covers every machine of the game, in as many datagrams as it takes
 (32 machines each). A client forgets a machine the roster has not named for
@@ -283,6 +294,10 @@ Limits and timeouts (`delta_peer.h`):
 | legacy table: signature checks of one machine's tables | 1 a minute |
 | legacy table: a host sending to machines at once | 4 |
 | MAP | on change, and every 5 s |
+| moderation: MOD_ACTION a host takes from one machine | 1 a second, 3 at once |
+| moderation: signature checks of one machine's PROOF and BIND_ANSWER | 2 a second, 2 at once |
+| moderation: MOD_CHALLENGE (not signed in), MOD_STATE (signed in) and a waiting MOD_BIND said again | every 5 s (MOD_STATE at once when roles change) |
+| moderation: a MOD_BIND answered within | 2 minutes, else declined |
 
 Who is heard: a host reads a datagram only from an address of a machine of
 its game (anything else is dropped before parsing), and ties a HELLO to the
@@ -335,6 +350,59 @@ plays, with `ce_maps` agreed by both:
   session, with `ce_maps` agreed and not turned off by the kill switch; a
   name that is not a plain file name, a Halo PC map without its hash, or
   unknown flags are refused, never mended. A host takes no MAP.
+### Moderation
+
+A dedicated server's moderators act from the game over Delta Peer (the
+`moderation` capability). A host offers it only when it has moderation (the
+dedicated server registers its own, `delta_moderation.h`); a game a player
+hosts offers none. OpenCE players can be warned, kicked and banned like
+anyone (the server acts through the game's own kick and ban), but only a
+Delta client can be an in-game moderator.
+
+- **The moderator key.** Each copy of the game makes an Ed25519 key pair
+  from its player key: the seed is SHA-256 of
+  `"halo-ce-universal moderator key\n"` and the 32-byte player key. The
+  public half (64 hex digits) is the moderator key a server's moderators
+  file names; the site makes the same one from the key a game sends it, so
+  a site account's linked games give its moderator keys. The player key
+  never leaves the machine but to the site.
+- **Nothing is revealed until the player acts.** The host sends each client
+  that agreed to `moderation` a MOD_CHALLENGE: a nonce of 32 random bytes
+  for the session, and its binding. The client signs only when its player
+  signs in (the Moderation screen, Y over the pause menu) or answers a link.
+- **Binding.** A host on the internet binds its challenges to its identity:
+  the first 32 hex digits of its invite (the hash of its tunnel key, which
+  does not change while it runs). A client that reached its host through
+  the invite tunnel signs nothing unless the binding is the invite it
+  joined, so a server cannot pass another server's challenge on to a
+  moderator and use the signature there. On a LAN a host binds nothing and
+  any binding is signed (as the game itself, LAN play is not authenticated).
+- **Sign in.** MOD_PROOF carries the key and its signature of
+  `"delta moderation proof v1\n"`, the nonce and the binding. The host
+  checks it (never a key of small order), tells its moderation which
+  machine has the key, and answers MOD_STATE: the key's role (0 none, 1
+  moderator, 2 admin, 3 owner), its permissions and its longest timed ban.
+  A machine's key is forgotten when its session ends.
+- **Actions.** MOD_ACTION is signed over `"delta moderation action v1\n"`,
+  the nonce, the sequence, action, target machine, minutes and reason; its
+  sequence must be above the session's last, so a replay does nothing.
+  Actions: 1 warn, 2 kick, 3 ban (minutes, 0 for ever), 4 end the game, 5
+  next map; a host refuses one it does not know. Whether the key may do it
+  is the host's moderation's decision (the server's permission table), and
+  MOD_RESULT says what happened.
+- **Notices.** MOD_NOTICE is a warning (or notice) the server shows the
+  player for a few seconds.
+- **Linking an account.** The server's control panel can ask a player's
+  game to link to a panel account: MOD_BIND names the account and the
+  server; the game asks its player (the Moderation screen); MOD_BIND_ANSWER
+  carries the key and its signature of `"delta moderation bind v1\n"`, the
+  nonce, the request, the answer and the binding. A bind not answered in 2
+  minutes is a decline. Without Delta Peer (an OpenCE client) there is no
+  link: such a player cannot be an in-game moderator anyway.
+
+Permissions (MOD_STATE, `delta_wire.h`): 0x001 view, 0x002 warn, 0x004
+kick, 0x008 ban up to the timed limit, 0x010 any ban, 0x020 unban, 0x040
+map (end the game, next map), 0x080 settings, 0x100 roles.
 
 ### The protocol setting
 
@@ -564,24 +632,123 @@ for the site's "Played on" profile badges.
 
 ## Delta Control
 
-What exists today: the `sv_` command table, the server's console, its
-control API (`HALO_DEDICATED_CONTROL`, off by default, localhost only), and
-the web page on it. Planned: playlists and game types as files, persistent
-settings. Delta Control's rule: only the command table runs, never a shell,
-and every action is audited.
+Everything that runs a dedicated server: its `sv_` command table, its
+console, its control API and control panel (HTTP on the loopback address,
+HTTPS beyond it), in-game moderation over Delta Peer, and the optional link
+to the site. The operator's guide is `server/docs/moderation.md`. Its rule:
+only the command table runs, never a shell; every change is checked against
+a role and audited, on the server and (for the site's) on the site.
+Player-hosted games keep OpenCE's own kick and ban; Delta Control is the
+dedicated server's.
+
+### Roles
+
+Roles, lowest first: none (0), moderator (1), admin (2), owner (3). The
+permission bits are the same on the server, in Delta Peer's MOD_STATE and in
+the site's role lists:
+
+| Bit | Permission | Roles |
+| --- | --- | --- |
+| 0x001 | view: status, players, bans, log, audit, playlists, settings | moderator, admin, owner |
+| 0x002 | warn | moderator, admin, owner |
+| 0x004 | kick | moderator, admin, owner |
+| 0x008 | ban for up to 7 days | moderator, admin, owner |
+| 0x010 | ban for longer, or for ever | admin, owner |
+| 0x020 | unban | admin, owner |
+| 0x040 | maps, the playlist, the game | admin, owner |
+| 0x080 | settings, game types | admin, owner |
+| 0x100 | roles: accounts, moderators, the link | owner |
+| 0x200 | invite roles below one's own | admin, owner |
+| 0x400 | the console's own (tokens, accounts) | the console |
+
+The console, startup commands and control API tokens act as the owner. A
+command's permission is decided by `control_command_permission`
+(`server/platform/control_roles.c`), checked by the control thread before
+it queues a request and again by the main thread before it runs it.
+
+### Identity
+
+A moderator is known by a **moderator key**: an Ed25519 key pair whose seed
+is SHA-256("halo-ce-universal moderator key\n" || player key), the player
+key being the game list's (`game_list_player.key`, never sent to a game
+server). The public key (64 hex digits) is the identity. A game proves it
+with Delta Peer's `moderation` capability (see Delta Peer, Moderation);
+names and hardware ids never give a role. The site derives the same key
+whenever a game sends it its player key, and keeps the public key on the
+profile.
+
+A key's role is the highest of: the server's `moderators.txt`; a control
+panel account bound to the key (the server asks the game over Delta Peer,
+its player confirms); the site's role list, when the server is linked,
+never above `HALO_DEDICATED_LINK_ROLE` (admin unless set).
+
+### Accounts and remote access
+
+The control panel has an account for each person: a name, an Argon2id
+password hash, a role, an optional TOTP second factor (RFC 6238, SHA-1,
+30 s, 6 digits; the owner may require it), an optional bound moderator key.
+The first owner is made from a one-time setup code the server prints on its
+console; others from invitations (single use, 48 hours, hashes kept). Wrong
+passwords and codes back off per account (a minute after five, doubling to
+an hour) and per address (counted by a keyed hash, never kept). Sessions are
+HttpOnly, SameSite=Strict cookies (Secure over HTTPS) with CSRF tokens.
+
+Beyond the loopback address the panel is HTTPS only (Mbed TLS, TLS 1.2,
+ECDHE and AEAD): the server's own ECDSA P-256 certificate, whose SHA-256
+fingerprint it prints and the login page shows, or the operator's (PEM,
+reloaded on renewal). No ACME client: it needs port 80 and a domain, and
+certbot's files are taken as they are.
+
+### The link to the site
+
+Optional and outbound: the server dials the site; no port is opened.
+
+1. `sv_link`: the server makes an Ed25519 key pair and a 32-byte secret,
+   and sends the public key and the secret over HTTPS (the site's
+   certificate checked): `POST /v1/control/link/start` `{"public_key",
+   "secret", "name", "version"}` answers `{"code", "expires", "token"}`.
+2. The owner signs in on the site and enters the code at `/servers/link`
+   (good 10 minutes, once). The server asks `POST /v1/control/link/status`
+   `{"token"}` every 3 s until `{"state": "linked", "server_id", "owner"}`,
+   and keeps `delta_link.key` (0600).
+3. Then every few seconds, `POST /v1/control/poll`, signed:
+   `{"server_id", "time", "nonce", "payload", "signature"}`, the signature
+   Ed25519 over `"delta control request v1\n" + path + "\n" + server_id +
+   "\n" + time + "\n" + nonce + "\n" + payload`; the site refuses a time more
+   than 300 s off, a nonce seen before, a revoked server. The payload has the
+   server's state (name, map, players' names and numbers; never addresses or
+   hardware ids) and the results of the commands it ran.
+4. The site answers `{"payload", "mac"}`, the MAC BLAKE2b-256 keyed with the
+   secret over `"delta control response v1\n" + nonce + "\n" + payload`; the
+   server takes nothing from an answer whose MAC is wrong. The payload has
+   the commands the site's accounts sent (`sv_warn`, `sv_kick`, `sv_ban`,
+   `sv_unban`, `sv_map`, `sv_mapcycle_next`, `sv_end_game`, `sv_name`,
+   `sv_maxplayers`, with a reason) and, when it changed, the role list
+   (handles, roles, their profiles' moderator keys).
+5. Each command is authorized on both sides: the site by the account's role
+   on that server, the server by its copy of the role list, its own
+   permission table and its cap. Both audit it.
+6. Unlinking: `sv_unlink` deletes the credential at once and tells the site
+   (`POST /v1/control/unlink`); unlinked on the site, the next poll's MAC'd
+   answer says so and the server deletes it. `HALO_DEDICATED_LINK=false`
+   turns the link off for good.
+
+HTTPS requests in the server go one at a time across its threads (Mbed TLS
+is built without locks), so polls are short; long polling waits for a build
+of Mbed TLS with its threading on.
+
+### The event log's hook
+
+`server_roles_set_recorder()` (`server/src/server_roles.h`) hands every
+audited change, as a `struct control_audit_event` (time, via, actor, role,
+action, target, reason, ok, detail; never an address), to a recorder: Delta
+Stats' event log records moderation through it.
 
 ## Delta Link
 
 - **Players** (exists): Link Profile ties a game install to a site profile
   with a code (`/v1/link`, `/v1/connect`, `/v1/claim`).
-- **Servers** (planned): `sv_link` shows a code; entered on a profile, it
-  ties the server to that account. The server then keeps one outbound
-  connection to the site, so no ports are opened. Over it the site relays
-  Delta Control commands, signed with the site's key and limited to the
-  command table, and the server sends status, logs and Delta Stats events.
-  Off by default; `sv_unlink` on the server always wins; controlling a
-  server from the site needs the site's two-factor sign-in; both ends log
-  every command.
+- **Servers** (exists): see Delta Control, The link to the site.
 
 ## How it meets everything else
 
@@ -973,8 +1140,9 @@ asking players for anything:
    `profile`). Built; `server_messages` next, then the LAN superset.
 5. The protocol choice (Auto, Delta only, OpenCE only) and the browsers'
    protocol labels; a dedicated server's listing marks it (flag 128).
-6. Moderators for dedicated servers through Delta Link profiles; Delta
-   Stats events.
+6. Moderators for dedicated servers: Delta Peer's `moderation` (built),
+   then site-granted moderators through Delta Link profiles; Delta Stats
+   events.
 7. The legacy table as config. Built: wire IDs, the signed document and
    its tool, the game's loader (cache, Delta List, GitHub), the local
    override, the real keys and delivery over Delta Peer. Next: CI publishing

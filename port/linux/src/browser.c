@@ -1747,6 +1747,50 @@ int browser_player_id(char *text, int size)
 	return 1;
 }
 
+/* the moderator key's seed: SHA-256 of a label and the player key, so the
+key is no other use's (the site makes the same from the key it is sent) */
+static int moderator_seed(unsigned char *seed)
+{
+	static const char label[] = "halo-ce-universal moderator key\n";
+	unsigned char key[PLAYER_KEY_SIZE];
+	unsigned char data[sizeof(label) - 1 + PLAYER_KEY_SIZE];
+
+	if (browser_headless() || !player_key(key))
+		return 0;
+	memcpy(data, label, sizeof(label) - 1);
+	memcpy(data + sizeof(label) - 1, key, PLAYER_KEY_SIZE);
+	p2p_sha256(data, (int)sizeof(data), seed);
+	memset(key, 0, sizeof(key));
+	memset(data, 0, sizeof(data));
+	return 1;
+}
+
+int browser_moderator_sign(const unsigned char *message, int size, unsigned char *public_key,
+	unsigned char *signature)
+{
+	unsigned char seed[P2P_SEED_SIZE];
+
+	if (!moderator_seed(seed))
+		return 0;
+	p2p_ed25519_public(seed, public_key, NULL);
+	p2p_ed25519_sign(seed, public_key, message, size, signature);
+	memset(seed, 0, sizeof(seed));
+	return 1;
+}
+
+int browser_moderator_key(char *text, int size)
+{
+	unsigned char seed[P2P_SEED_SIZE];
+	unsigned char public_key[P2P_KEY_SIZE];
+
+	if (size <= 2 * P2P_KEY_SIZE || !moderator_seed(seed))
+		return 0;
+	p2p_ed25519_public(seed, public_key, NULL);
+	memset(seed, 0, sizeof(seed));
+	p2p_hex(public_key, P2P_KEY_SIZE, text);
+	return 1;
+}
+
 int browser_get_games(struct browser_game *games, int maximum_count)
 {
 	int count;

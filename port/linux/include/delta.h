@@ -68,6 +68,10 @@ enum delta_capability
 	(struct delta_platform_key), which every Delta machine sends. The bit
 	stays taken and is never set */
 	_delta_capability_console_slots = 9,
+	/* a dedicated server's moderators: a player signs in with a key made
+	from their player key, and kicks and bans from the game
+	(docs/delta.md, Moderation) */
+	_delta_capability_moderation = 10,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };

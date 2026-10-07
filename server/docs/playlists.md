@@ -76,3 +76,45 @@ game; if there isn't one, that player waits for a second.
 | `slayer.txt` | Slayer and Team Slayer, every map. |
 | `bloodgulch.txt` | Blood Gulch only, Team Slayer and Slayer in turn, for the biggest games. |
 | `gearbox.txt` | Halo PC's stock maps as Custom Edition has them (`@ce`), Slayer and Team Slayer in turn. |
+| `gearbox.txt` | Halo PC's own maps (`@ce`), Slayer and Team Slayer in turn. |
+
+## Playlists made on the server
+
+`sv_playlist_new`, `sv_playlist_add`, `sv_playlist_remove`,
+`sv_playlist_move`, `sv_playlist_delete` and `sv_playlist_use` (or the
+control panel's Playlists) make and edit playlists in the data folder's
+`admin/playlists/`, which must be writable. The `playlists/` folder (the
+server's own, read-only in our container images, replaced by a release) is
+read and never written: a playlist of the same name edited here is saved
+in `admin/playlists/` and played instead. `sv_playlist_use <name>` plays
+one from the next game (at once in the lobby) and keeps it across restarts,
+until `HALO_DEDICATED` is changed. `sv_mapcycle_add` and `sv_mapcycle_del`
+change the playlist played. A playlist is checked whole before it is saved:
+every map one the server has, every game type a built-in or a file that
+reads right.
+
+## Game type files
+
+`admin/gametypes/<name>.toml`, made with `sv_gametype_new <name> <base>`
+and changed with `sv_gametype_set <name> <setting> <value>` (or by hand),
+are game types a playlist names like a built-in's. A file names its base,
+a built-in game type, and the settings it changes: those of the game's own
+editor, and score limits past its caps (up to 9999).
+
+```toml
+# admin/gametypes/oddball50.toml
+base = "oddball"
+name = "Oddball 50"
+score_limit = 50
+time_limit = 20
+
+[players]
+lives = 0
+health = 150
+```
+
+`sv_gametype <name>` lists every setting, its value, and the file's;
+`sv_gametypes` lists the files and the built-ins. A file that does not read
+right is refused when it is saved, and a playlist entry naming one is
+skipped (the log says why). Players need nothing new: the game type is sent
+as the game's own variant.

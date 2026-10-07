@@ -82,7 +82,7 @@ enum
 static const char *const delta_capability_names[] =
 {
 	"platform", "profile", "server_messages", "chat", "ce_maps", "md_maps", "coop", "ai_sync", "vote",
-	"console_slots",
+	"console_slots", "moderation",
 };
 _Static_assert(sizeof(delta_capability_names) / sizeof(*delta_capability_names) == NUMBER_OF_DELTA_CAPABILITIES,
 	"a name for each capability");

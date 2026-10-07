@@ -377,7 +377,39 @@ int posix_browser_request(const char *url, const char *form, const char *content
 		error_size);
 }
 
+static int request_as(const char *url, const char *form, const char *content_type, const char *user_agent,
+	char *response, int response_size, char *error, int error_size);
+
+/* (one request at a time across the program's threads: Mbed TLS, as it is
+built here, has no locks of its own, and its PSA random generator and key
+slots are shared; the game list's thread, the crash reporter's and a
+dedicated server's Delta Control link each make requests) */
+#ifdef _WIN32
+static SRWLOCK request_lock = SRWLOCK_INIT;
+#else
+static pthread_mutex_t request_lock = PTHREAD_MUTEX_INITIALIZER;
+#endif
+
 int posix_browser_request_as(const char *url, const char *form, const char *content_type, const char *user_agent,
+	char *response, int response_size, char *error, int error_size)
+{
+	int status;
+
+#ifdef _WIN32
+	AcquireSRWLockExclusive(&request_lock);
+#else
+	pthread_mutex_lock(&request_lock);
+#endif
+	status = request_as(url, form, content_type, user_agent, response, response_size, error, error_size);
+#ifdef _WIN32
+	ReleaseSRWLockExclusive(&request_lock);
+#else
+	pthread_mutex_unlock(&request_lock);
+#endif
+	return status;
+}
+
+static int request_as(const char *url, const char *form, const char *content_type, const char *user_agent,
 	char *response, int response_size, char *error, int error_size)
 {
 	char host[256], port[16], path[512];
