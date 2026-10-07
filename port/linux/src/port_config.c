@@ -410,6 +410,29 @@ static const struct config_setting config_settings[] =
 		"its scores as this machine saw them, with this copy's player ID, so that\n"
 		"games whose host does not report them are recorded too. False sends\n"
 		"nothing." },
+	{ "network.report_events", _config_boolean, "false", "HALO_NET_REPORT_EVENTS", _environment_value, _platform_all,
+		"Delta Stats: record the games this machine hosts (kills with weapons and\n"
+		"positions, accuracy, medals, objectives, vehicles, pickups, positions a\n"
+		"few seconds apart) and send them to network.browser_url when each ends,\n"
+		"for the site's match pages, heatmaps and leaderboards. Players' names\n"
+		"and a hash of their hardware ID; never an address. Off by default." },
+	{ "network.events_token", _config_string, "\"\"", "HALO_EVENTS_TOKEN", _environment_value, _platform_all,
+		"A dedicated server's Delta Stats token, from the game list's operator:\n"
+		"its games count as a trusted server's. Empty: the game must be listed\n"
+		"there, from this machine, for its events to be taken." },
+	{ "network.events_positions", _config_integer, "2", "HALO_EVENTS_POSITIONS", _environment_value, _platform_all,
+		"Delta Stats: seconds between the samples of each player's position\n"
+		"(1 to 60; 0 none). Fewer make smaller batches and coarser heatmaps." },
+	{ "network.events_limit", _config_integer, "40000", "HALO_EVENTS_LIMIT", _environment_value, _platform_all,
+		"Delta Stats: the most events a game keeps (64 to 200000, about 60\n"
+		"bytes each); past it the position samples thin out first." },
+	{ "network.events_part_minutes", _config_integer, "30", "HALO_EVENTS_PART_MINUTES", _environment_value,
+		_platform_all,
+		"Delta Stats: a long game is sent as it stands every this many minutes\n"
+		"too (the end replaces it); 0 only at its end." },
+	{ "network.events_folder", _config_string, "\"\"", "HALO_EVENTS_FOLDER", _environment_value, _platform_all,
+		"Delta Stats: a folder to keep a copy of each batch sent, a JSON file each\n"
+		"(beside this file unless a full path); empty for none." },
 #endif
 	{ "discord.application_id", _config_string, "\"1553978809840050229\"", "HALO_DISCORD_APPLICATION",
 		_environment_value, _platform_desktop,

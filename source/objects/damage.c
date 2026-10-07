@@ -1822,6 +1822,25 @@ void object_cause_damage(
 
 				victim_player_index = victim ? victim->unit.player_index : NONE;
 			}
+#ifdef HALO_GAME_BROWSER
+			{
+				/* port: Delta Stats' recorder, on the host (port/linux/game/
+				game_events.c): who hurt whom with what, before the aftermath
+				counts a kill */
+				void game_events_damage(long object_index, long definition_index, long owner_player_index,
+					long owner_object_index, short category, boolean area_of_effect, boolean headshot, real amount,
+					boolean killing);
+
+				game_events_damage(current_object_index, damage->definition_index, damage->owner_player_index,
+					damage->owner_object_index, damage_definition->category,
+					TEST_FLAG(damage->flags, _damage_area_of_effect_bit),
+					TEST_FLAG(being_damaged_flags, _object_being_damaged_killed_instantly_bit) ||
+						(TEST_FLAG(damage_material->flags, _damage_material_head_bit) &&
+							TEST_FLAG(damage_definition->flags, _damage_can_cause_multiplayer_headshots_bit)),
+					shield_damage + body_damage,
+					TEST_FLAG(being_damaged_flags, _object_being_damaged_body_depleted_bit));
+			}
+#endif
 			object_damage_aftermath(
 				current_object_index,
 				damage,

@@ -373,6 +373,13 @@ static int connection_read(struct connection *connection, unsigned char *buffer,
 int posix_browser_request(const char *url, const char *form, const char *content_type, char *response,
 	int response_size, char *error, int error_size)
 {
+	return posix_browser_send(url, form, form ? strlen(form) : 0, content_type, NULL, response, response_size, error,
+		error_size);
+}
+
+int posix_browser_send(const char *url, const char *body_data, size_t body_length, const char *content_type,
+	const char *headers, char *response, int response_size, char *error, int error_size)
+{
 	char host[256], port[16], path[512];
 	char request[4096];
 	char *long_request = NULL;
@@ -401,10 +408,12 @@ int posix_browser_request(const char *url, const char *form, const char *content
 			return 0;
 		}
 	}
-	if (form)
+	if (body_data)
 	{
-		/* (a long body, as a carnage report: a request of its own size) */
-		size_t size = strlen(form) + 1024;
+		/* (a long body, as a carnage report: a request of its own size; the
+		body may be binary, a gzip member) */
+		size_t size = body_length + (headers ? strlen(headers) : 0) + 1024;
+		int head;
 
 		long_request = malloc(size);
 		if (!long_request)
@@ -412,21 +421,25 @@ int posix_browser_request(const char *url, const char *form, const char *content
 			set_error(error, error_size, "out of memory", 0);
 			return 0;
 		}
-		length = snprintf(long_request, size,
+		head = snprintf(long_request, size,
 			"POST %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: " BROWSER_USER_AGENT "\r\n"
-			"Content-Type: %s\r\nContent-Length: %zu\r\n\r\n%s",
-			path, host, content_type ? content_type : "application/x-www-form-urlencoded", strlen(form), form);
-		if (length <= 0 || (size_t)length >= size)
+			"Content-Type: %s\r\nContent-Length: %zu\r\n%s\r\n",
+			path, host, content_type ? content_type : "application/x-www-form-urlencoded", body_length,
+			headers ? headers : "");
+		if (head <= 0 || (size_t)head + body_length >= size)
 		{
 			free(long_request);
 			set_error(error, error_size, "the request is too long", 0);
 			return 0;
 		}
+		memcpy(long_request + head, body_data, body_length);
+		length = head + (int)body_length;
 	}
 	else
 	{
 		length = snprintf(request, sizeof(request),
-			"GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: " BROWSER_USER_AGENT "\r\n\r\n", path, host);
+			"GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: " BROWSER_USER_AGENT "\r\n%s\r\n", path, host,
+			headers ? headers : "");
 	}
 	if (!long_request && (length <= 0 || (size_t)length >= sizeof(request)))
 	{
