@@ -135,6 +135,7 @@ symbols in this file:
 #include "scenario/scenario_definitions.h"
 #include "sound/sound_manager.h"
 #include "tag_schema.h"
+#include "halo_map_families.h"
 
 /* ---------- constants */
 
@@ -1105,6 +1106,84 @@ void cache_files_show_multiplayer_unavailable(
 	platform_show_message("Halo: multiplayer unavailable", message);
 
 	return;
+}
+
+/* port: whether this machine has the map a network game is on (a client
+joining it: network_client_manager.c); when not, tells the player which map
+is missing and the folder to copy it into, in the error the main menu shows
+next, rather than the damaged disc error that precaching a map that is not
+there gives (cache_files_give_time_to_precache). A Halo PC map (<file>@ce,
+@pc or @md) is looked for in its family's folders (halo_map_families.h), an
+Xbox map in maps. (After OpenCE's build-145, which tells its players so.) */
+boolean cache_files_map_present(
+	char const *map_name)
+{
+	void platform_log(char const *format, ...);
+	char const *cache_files_map_directory(void);
+	wchar_t error_text[512];
+	char file[64];
+	char message[512];
+	short family;
+	short index;
+
+	if (!map_name || !map_name[0])
+		return TRUE;
+	family = map_family_parse(map_name, file, sizeof(file));
+#ifdef HALO_CUSTOM_EDITION
+	if (family != _map_family_xbox)
+	{
+		char path[256];
+
+		if (map_family_find(family, file, path, sizeof(path)))
+			return TRUE;
+		snprintf(message, sizeof(message), "You don't have the %s map %.63s. If you have it, copy %.63s.map into %s.",
+			map_family_badge(family), file, file, map_family_folder(family));
+	}
+	else
+#endif
+	{
+		char path[256];
+		HANDLE handle;
+
+		if (family != _map_family_xbox)
+		{
+			snprintf(message, sizeof(message), "The map %.63s is a %s map, which this build doesn't play.", file,
+				map_family_badge(family));
+		}
+		else
+		{
+			if (cache_files_precache_map_loaded(map_name))
+				return TRUE;
+			snprintf(path, sizeof(path), "%s%s.map", cache_files_map_directory(), file);
+			handle = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+			if (handle != INVALID_HANDLE_VALUE)
+			{
+				CloseHandle(handle);
+				return TRUE;
+			}
+#ifdef HALO_CUSTOM_EDITION
+			/* (a host that names a Halo PC map as the game's own maps are
+			named: OpenCE's builds before build-145) */
+			if (map_family_find(_map_family_custom_edition, file, path, sizeof(path)))
+			{
+				snprintf(message, sizeof(message),
+					"The host's map %.63s is a Halo PC map named for an older version of the game.", file);
+			}
+			else
+#endif
+			{
+				snprintf(message, sizeof(message), "You don't have the map %.63s. If you have it, copy %.63s.map into maps.",
+					file, file);
+			}
+		}
+	}
+	platform_log("map missing: %s", message);
+	for (index = 0; message[index] && index < NUMBEROF(error_text) - 1; index++)
+		error_text[index] = (wchar_t)(unsigned char)message[index];
+	error_text[index] = 0;
+	display_error_text_when_main_menu_loaded(error_text);
+
+	return FALSE;
 }
 
 boolean cache_files_give_time_to_precache(
