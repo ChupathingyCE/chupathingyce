@@ -107,6 +107,14 @@ enum
 	CE_DATA_ARRAY_FIRST_FREE_OFFSET = 0x2c,
 	CE_DATA_ARRAY_COUNT_OFFSET = 0x2e,
 	CE_SCRIPT_SYNTAX_NODE_SIZE = 0x14, /* (hs_compile.c's hs_syntax_node) */
+
+	/* OpenSauce's header, in the padding of a Custom Edition cache's: its
+	signature, then its version (a short) and its flags (a short), which ask
+	for what only OpenSauce provides (memory upgrades, mod data files, game
+	state upgrades and the like) */
+	CE_OPENSAUCE_HEADER_OFFSET = 0x70,
+	CE_OPENSAUCE_HEADER_SIGNATURE = 'yelo',
+	CE_OPENSAUCE_HEADER_FLAGS_OFFSET = 0x06,
 };
 
 /* ---------- structures */
@@ -171,6 +179,27 @@ static boolean ce_file_read(
 	if (SetFilePointer(file, (long)offset, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER)
 		return FALSE;
 	return ReadFile(file, buffer, size, &bytes_read, NULL) && bytes_read == size;
+}
+
+/* whether a cache needs OpenSauce: its header says so, by setting any of
+its flags. A cache that carries OpenSauce's header with none set (SPV3's
+releases that also run on stock Custom Edition) needs nothing of it, and its
+OpenSauce tags (project_yellow) nothing here reads. One that asks for
+OpenSauce's memory upgrades has tags laid out past Custom Edition's tag cache,
+which the checks below would refuse with no reason a player could act on.
+(As OpenCE's build-145 refuses them, MrBruh's finding.) */
+static boolean ce_needs_opensauce(
+	HANDLE file)
+{
+	byte header[8];
+	unsigned long signature;
+	unsigned short flags;
+
+	if (!ce_file_read(file, CE_OPENSAUCE_HEADER_OFFSET, header, sizeof(header)))
+		return FALSE;
+	memcpy(&signature, header, sizeof(signature));
+	memcpy(&flags, header + CE_OPENSAUCE_HEADER_FLAGS_OFFSET, sizeof(flags));
+	return signature == (unsigned long)CE_OPENSAUCE_HEADER_SIGNATURE && flags != 0;
 }
 
 /* the instance at a tag handle, if it is the handle of one */
@@ -670,6 +699,8 @@ boolean ce_map_check(
 		valid = ce_refuse("its size could not be read, or is over 2 GB");
 	else if (file_length < CE_HEADER_SIZE || (unsigned long)file_length > file_size)
 		valid = ce_refuse("it is cut short: its header says %ld bytes, the file has %lu", file_length, file_size);
+	else if (ce_needs_opensauce(file))
+		valid = ce_refuse("it needs OpenSauce (its OpenSauce header asks for memory upgrades or mod data)");
 	else
 		valid = ce_map_check_tags(file, file_size, (unsigned long)tag_data_offset, (unsigned long)tag_data_size);
 	ce_checking = FALSE;
