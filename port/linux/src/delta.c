@@ -428,7 +428,12 @@ static int delta_table_parse(const char *document, size_t size, struct delta_tab
 		else if (json_is(key, length, "delta_legacy"))
 			bit = 1, ok = json_integer(&json, 0, 1000000, &format);
 		else if (json_is(key, length, "serial"))
-			bit = 2, ok = json_integer(&json, 1, 4294967295LL, &value), table->serial = (unsigned int)value;
+		{
+			/* (not 0xFFFFFFFF: on the wire that is a machine taking no tables) */
+			bit = 2, ok = json_integer(&json, 1, 4294967294LL, &value);
+			if (ok)
+				table->serial = (unsigned int)value;
+		}
 		else if (json_is(key, length, "issued"))
 			bit = 4, ok = json_integer(&json, 0, 1LL << 53, &table->issued);
 		else if (json_is(key, length, "wires"))

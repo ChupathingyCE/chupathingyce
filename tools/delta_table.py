@@ -119,7 +119,7 @@ def parse(document: bytes, own_wire: str = None) -> dict:
             raise TableError(f"it has no {key}")
     if _integer(table["delta_legacy"], 0, 1000000, "delta_legacy") != FORMAT:
         raise TableError(f"its format is {table['delta_legacy']}, not {FORMAT}")
-    _integer(table["serial"], 1, 2 ** 32 - 1, "serial")
+    _integer(table["serial"], 1, 2 ** 32 - 2, "serial")
     if "issued" in table:
         _integer(table["issued"], 0, 2 ** 53, "issued")
     if not isinstance(table["wires"], dict):

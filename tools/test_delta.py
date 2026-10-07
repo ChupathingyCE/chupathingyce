@@ -173,6 +173,7 @@ def document(serial=10, row=None, wire=None, extra=None, **fields):
     b'{"delta_legacy": 2, "serial": 3, "wires": {}}',
     b'{"delta_legacy": 1, "serial": 3.5, "wires": {}}',
     b'{"delta_legacy": 1, "serial": 0, "wires": {}}',
+    b'{"delta_legacy": 1, "serial": 4294967295, "wires": {}}',
     b'{"delta_legacy": 1, "serial": 3, "wires": {"w": {"announce": 5, "minimum": 6, "maximum": 7}}}',
     b'{"delta_legacy": 1, "serial": 3, "wires": {"w": {"announce": 70000, "minimum": 1, "maximum": 70000}}}',
     b'\xff\xfe',
@@ -376,6 +377,7 @@ def test_loader_ignores_older_and_equal(keys, checker, tmp_path):
     ("not a range", lambda: document(row={"announce": 40, "minimum": 1, "maximum": 30})),
     ("deep", lambda: document().replace(b'"issued"', b'"x": ' + b"[" * 50 + b"]" * 50 + b', "issued"')),
     ("no serial", lambda: b'{"delta_legacy": 1, "wires": {}}'),
+    ("serial of none", lambda: document(serial=0xFFFFFFFF)),
     ("nul", lambda: document().replace(b'"issued"', b'"\x00": 1, "issued"')),
 ])
 def test_loader_drops_bad_tables(keys, checker, tmp_path, name, make):
