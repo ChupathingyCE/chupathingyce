@@ -283,7 +283,7 @@ Useful `configure.py` options:
 | Option | What it does |
 | --- | --- |
 | `--release` | A release build, as players get. Without it, a failed check stops the game. |
-| `--portable` | A Linux or Windows build that runs on any x86-64 computer, to give to others. |
+| `--portable` | A Linux or Windows build that runs on any x86-64 computer, or a universal Mac application, to give to others. |
 | `--no-game-browser` | Leaves out the server list, stats and dedicated servers, as OpenCE's builds are. |
 | `--pgo=off`, `--lto=off` | Faster builds, without profile-guided or link-time optimisation. |
 
@@ -304,7 +304,8 @@ are for checking changes.
 - HaloMD map names: from [MacGamingMods](https://macgamingmods.com)' public
   HaloMD mod list, so the menus can show each map's own name.
 - Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths,
-  extract-xiso, and Project Nayuki's QR Code generator. Their licenses are
+  extract-xiso, Expat, Monocypher, zlib, SMAA, and Project Nayuki's QR Code
+  generator. Their licenses are
   beside them in `port/third_party`.
 
 ### Contributors
