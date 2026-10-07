@@ -223,11 +223,17 @@ static void initialize(
 		return;
 	snprintf(dedicated.playlist, sizeof(dedicated.playlist), "%s", playlist);
 	load_playlist(playlist);
+	/* (each 1 to 128, as sv_maxplayers takes: the game keeps them in a
+	byte, where 256 was 0 and 300 was 44) */
 	dedicated.minimum_players = minimum ? atol(minimum) : 1;
 	if (dedicated.minimum_players < 1)
 		dedicated.minimum_players = 1;
+	if (dedicated.minimum_players > HALO_PORT_MAXIMUM_NETWORK_PLAYERS)
+		dedicated.minimum_players = HALO_PORT_MAXIMUM_NETWORK_PLAYERS;
 	/* (12 while the server is tested) */
 	dedicated.maximum_players = maximum ? atol(maximum) : 12;
+	if (dedicated.maximum_players > HALO_PORT_MAXIMUM_NETWORK_PLAYERS)
+		dedicated.maximum_players = HALO_PORT_MAXIMUM_NETWORK_PLAYERS;
 	if (dedicated.maximum_players < dedicated.minimum_players)
 		dedicated.maximum_players = dedicated.minimum_players;
 	/* (a game nobody scores in ends: 5 minutes unless set) */
