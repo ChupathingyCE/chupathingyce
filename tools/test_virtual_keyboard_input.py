@@ -9,10 +9,31 @@ import subprocess
 import tempfile
 import unittest
 
-if __package__:
-    from .test_custom_maps import c_block, function
-else:
-    from test_custom_maps import c_block, function
+import re
+
+
+def c_block(source, start):
+    """the C block that begins at start: up to its closing brace"""
+    opening = source.index("{", start)
+    depth = 0
+    tokens = re.finditer(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[{}]',
+                         source[opening:], re.S)
+    for token in tokens:
+        if token.group() == "{":
+            depth += 1
+        elif token.group() == "}":
+            depth -= 1
+            if not depth:
+                return source[start:opening + token.end()]
+    raise ValueError("Unclosed C block")
+
+
+def function(source, name):
+    """a function's definition, by its name"""
+    match = re.search(r"(?m)^(?:static\s+)?[\w *]+\b" + re.escape(name) + r"\s*\([^;{]*\)\s*\{", source)
+    if not match:
+        raise ValueError(f"Production definition not found: {name}")
+    return c_block(source, match.start())
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -58,9 +79,9 @@ enum {
     SDL_SCANCODE_DOWN, SDL_SCANCODE_LEFT, SDL_SCANCODE_RIGHT,
     SDL_SCANCODE_ESCAPE, SDL_SCANCODE_D, SDL_SCANCODE_A, SDL_SCANCODE_W,
     SDL_SCANCODE_S, SDL_SCANCODE_F1, SDL_SCANCODE_SPACE, SDL_SCANCODE_BACKSPACE,
-    SDL_SCANCODE_DELETE, SDL_SCANCODE_E, SDL_SCANCODE_TAB
+    SDL_SCANCODE_DELETE, SDL_SCANCODE_E, SDL_SCANCODE_TAB, SDL_SCANCODE_C
 };
-enum {XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B, XINPUT_GAMEPAD_X, XINPUT_GAMEPAD_Y};
+enum {XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B, XINPUT_GAMEPAD_X, XINPUT_GAMEPAD_Y, XINPUT_GAMEPAD_BLACK};
 enum {XINPUT_GAMEPAD_DPAD_UP=1, XINPUT_GAMEPAD_DPAD_DOWN=2,
     XINPUT_GAMEPAD_DPAD_LEFT=4, XINPUT_GAMEPAD_DPAD_RIGHT=8,
     XINPUT_GAMEPAD_START=16, XINPUT_GAMEPAD_BACK=32, SDL_BUTTON_X1=4};
