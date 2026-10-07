@@ -53,6 +53,10 @@ enum
 	/* (asked again this long after a failure) */
 	RETRY_INTERVAL = 15000,
 	THREAD_INTERVAL = 250,
+	/* a copy of the game that quits waits this long at most for its
+	listing's withdrawal (the list drops it by itself later otherwise) */
+	EXIT_WITHDRAW_WAIT = 2500,
+	EXIT_WITHDRAW_POLL = 50,
 	RESPONSE_SIZE = 32768,
 	/* the player key (game_list_player.key in the save root) */
 	PLAYER_KEY_SIZE = 32,
@@ -110,7 +114,8 @@ static struct
 	int host_reported;
 	int host_changed;
 
-	/* the browser thread's own */
+	/* the browser thread's own (written under the lock, which the exit's
+	withdrawal reads it under) */
 	char listed_invite[BROWSER_INVITE_LENGTH + 1];
 	unsigned long announce_time;
 	struct hosted_game announced;
@@ -731,18 +736,26 @@ static void update_connect(void)
 
 /* ---------- hosting (the browser thread) */
 
-static void withdraw(void)
+/* the listing of the invite taken off the list */
+static void withdraw_invite(const char *invite)
 {
 	char url[512], form[128], response[256], error[256];
 
-	if (!browser.listed_invite[0])
-		return;
 	server_url("/v1/withdraw", url, sizeof(url));
 	form[0] = 0;
-	form_add(form, sizeof(form), "invite", browser.listed_invite);
+	form_add(form, sizeof(form), "invite", invite);
 	posix_browser_request(url, form, NULL, response, sizeof(response), error, sizeof(error));
+}
+
+static void withdraw(void)
+{
+	if (!browser.listed_invite[0])
+		return;
+	withdraw_invite(browser.listed_invite);
 	platform_log("Game list: the game is no longer listed");
+	pthread_mutex_lock(&browser_lock);
 	browser.listed_invite[0] = 0;
+	pthread_mutex_unlock(&browser_lock);
 }
 
 /* a roster as the list takes it: "team:name|team:name" (UTF-8; a name has
@@ -799,7 +812,9 @@ static void announce(const char *invite, const struct hosted_game *game)
 	{
 		if (strcmp(browser.listed_invite, invite))
 			platform_log("Game list: the game is listed on %s", config_string("network.browser_url"));
+		pthread_mutex_lock(&browser_lock);
 		snprintf(browser.listed_invite, sizeof(browser.listed_invite), "%s", invite);
+		pthread_mutex_unlock(&browser_lock);
 	}
 	else
 	{
@@ -1129,14 +1144,51 @@ static void *browser_thread(void *unused)
 	return NULL;
 }
 
+/* the exit's withdrawal (withdraw_at_exit), on a thread of its own: the
+invite, and whether the request is over (under the lock) */
+static char exit_withdraw_invite[BROWSER_INVITE_LENGTH + 1];
+static int exit_withdraw_done;
+
+static void *exit_withdraw_thread(void *unused)
+{
+	(void)unused;
+	withdraw_invite(exit_withdraw_invite);
+	pthread_mutex_lock(&browser_lock);
+	exit_withdraw_done = 1;
+	pthread_mutex_unlock(&browser_lock);
+	return NULL;
+}
+
 /* a copy of the game that quits while its game is listed takes it off the
-list (without this the server drops it only once it stops hearing of it) */
+list (without this the server drops it only once it stops hearing of it),
+waiting no longer than EXIT_WITHDRAW_WAIT: a server that does not answer
+does not hold up quitting */
 static void withdraw_at_exit(void)
 {
+	pthread_t thread;
+	int waited, done = 0;
+
 	/* (the browser thread may be mid-request: the listing is withdrawn by
 	whichever of the two gets there) */
-	if (browser.listed_invite[0])
-		withdraw();
+	pthread_mutex_lock(&browser_lock);
+	memcpy(exit_withdraw_invite, browser.listed_invite, sizeof(exit_withdraw_invite));
+	pthread_mutex_unlock(&browser_lock);
+	if (!exit_withdraw_invite[0])
+		return;
+	if (pthread_create(&thread, NULL, exit_withdraw_thread, NULL) != 0)
+		return;
+	pthread_detach(thread);
+	for (waited = 0; waited < EXIT_WITHDRAW_WAIT && !done; waited += EXIT_WITHDRAW_POLL)
+	{
+		Sleep(EXIT_WITHDRAW_POLL);
+		pthread_mutex_lock(&browser_lock);
+		done = exit_withdraw_done;
+		pthread_mutex_unlock(&browser_lock);
+	}
+	if (done)
+		platform_log("Game list: the game is no longer listed");
+	else
+		platform_log("Game list: no answer from the list in time; it drops the game by itself");
 }
 
 static void start_thread(void)
