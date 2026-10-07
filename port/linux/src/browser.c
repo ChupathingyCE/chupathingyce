@@ -1048,8 +1048,17 @@ static void update_list(void)
 		own[0] = 0;
 	if (status == 200)
 	{
-		for (line = strtok(response, "\n"); line && count < BROWSER_MAXIMUM_GAMES; line = strtok(NULL, "\n"))
+		/* (split by hand: strtok's place is the whole process's, and the
+		game's thread uses it too) */
+		char *next;
+
+		for (line = response; line && count < BROWSER_MAXIMUM_GAMES; line = next)
 		{
+			next = strchr(line, '\n');
+			if (next)
+				*next++ = 0;
+			if (!line[0])
+				continue;
 			if (parse_game(line, &games[count]) && games[count].version >= delta_legacy_minimum() &&
 				games[count].version <= delta_legacy_maximum() &&
 				strcmp(games[count].invite, own))
