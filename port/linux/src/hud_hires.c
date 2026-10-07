@@ -415,8 +415,10 @@ void hud_hires_map_loaded(const long *assets, long count)
 	pthread_t thread;
 
 	hud_hires_map_unloaded();
-#ifdef HALO_SERVER
-	/* (the dedicated server draws nothing) */
+#if defined(HALO_SERVER) || defined(HALO_ANDROID)
+	/* (the dedicated server draws nothing; Android, whose memory is the
+	tightest, decodes each when first drawn: holding a map's decoded HUD
+	pictures takes about 130 MB more at once) */
 	(void)assets;
 	(void)count;
 	return;
