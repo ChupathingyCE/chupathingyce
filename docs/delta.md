@@ -419,8 +419,9 @@ Known history, from `port/linux/NETCODE.md` and OpenCE's commits:
 
 Built (command repository, `watch.yml` and `tools/follow.py`), running every
 half hour since October 5, 2026; it followed versions 15 and 16 that day.
-The cross-play test in step 4 is not built yet: until it is, the classifier
-alone decides, and anything it can't call additive goes to a person.
+The cross-play test in step 4 is built (`tools/crossplay_test.py`), and a
+gate runs it on every wire still in use (see "Following OpenCE", below):
+a pass widens the legacy table, so the builds already out follow too.
 
 1. **Watch.** The command repo's watch workflow sees an OpenCE release that
    changes the number.
@@ -566,7 +567,12 @@ check it too):
 - **Rows are added only by CI.** When OpenCE raises, CI runs the cross-play
   test of each wire still in use against the new OpenCE build; a pass adds
   that number to the wire's row and publishes a new serial. A fail means a
-  release (merge the code, new wire ID), as today.
+  release (merge the code, new wire ID), as today ("Following OpenCE").
+- **`follows`** (optional, in a row): the OpenCE build the cross-play test
+  proved the row with (`"build-145"`: letters, digits, `.`, `-` and `_`, at
+  most 31). Shown in the log and the server's status ("Following OpenCE
+  build-145 (table 2)"); a row without it shows the network version. Builds
+  before it skip it as an unknown key.
 - **`disabled_capabilities`**: the kill switch for a Delta capability found
   unsafe, until a fixed build ships: names from the capability registry
   (`platform`, `chat`, ...). Names a build doesn't know are ignored. Delta
@@ -702,9 +708,104 @@ keep working.
 | `delta_capability_disabled(bit)` | the kill switch |
 | `delta_legacy_override()` | whether a local, unsigned table is in use |
 | `delta_legacy_relay()` | whether Delta Peer relays tables: not with an override, nor with no key |
+| `delta_legacy_following(text, size)` | "Following OpenCE build-145 (table 2)", for the log's header and `sv_status` |
 
 `tools/test_delta.py` checks the tool and builds `delta.c` with a test key
 (`tools/delta_check.c`) to check what the game takes and drops.
+
+## Following OpenCE
+
+When OpenCE raises its network version, every ChupathingyCE player and
+server should stay visible to OpenCE players and joinable, without a new
+download, whenever our wire still plays with theirs; and we should know
+within hours when it doesn't.
+
+1. **Detect.** The command repository's watch (`watch.yml`, started by
+   donut_watch on the site's host) sees a new OpenCE release with another
+   network version, and starts the gate (`crossplay.yml`; the variable
+   `CROSSPLAY=off` stops that).
+2. **Plan** (`tools/crossplay.py plan` in command). The wires in use: the
+   last two releases' `DELTA_WIRE`s. For each, its row now (the published
+   table's, or the release's built-in numbers) and the row a pass would
+   give it: `announce` and `maximum` raised to the new number, `minimum`
+   kept, `follows` the OpenCE build. A row that already reaches the number
+   is not tested.
+3. **Test** (`tools/crossplay_test.py`, on a self-hosted runner). Release
+   builds of OpenCE's tag and of each release, cached by commit. Each
+   release plays with the proposed row as a local table (the claim the
+   table would make):
+   - our host with OpenCE clients, and OpenCE's host with ours, on an Xbox
+     map: join, spawn (positions at the same ticks), every death counted on
+     every machine with the body dead within 2 seconds and none left
+     standing, the clients' shots, the score at the end of Slayer, the end
+     of the game, the next game (CTF), a client joining the game in
+     progress, a client leaving and coming back;
+   - our dedicated server with an OpenCE client and one of ours;
+   - each build against itself, as a baseline: a step that fails there too
+     is the build's or its test hooks', not cross-play's, and is reported
+     without failing the run.
+
+   The result is JSON, a pass or fail per step with what was seen, and
+   every copy's logs. About six minutes a wire.
+4. **Decide** (`tools/crossplay.py decide`).
+   - A pass: the rows (`WIRE=ANNOUNCE,MINIMUM,MAXIMUM@build-N`) go to
+     `delta-table.yml`, which makes the table (`tools/delta_table.py make
+     --row`, which only widens), signs it and commits it to the
+     `delta-table` branch. With `AUTO_PUBLISH` (a repository variable, or
+     the run's input) that happens at once; otherwise Donut posts the
+     command and a person runs it.
+   - A fail publishes nothing. An issue on chupathingyce ("OpenCE build-N
+     needs a release") lists the failing steps, and Donut posts to
+     #upstream-watch. The release work takes it from there: merge OpenCE's
+     change, a new wire ID, its own row once its gate passes.
+5. **Spread.** The site pulls the `delta-table` branch every five minutes
+   (checking the signature, newer serials only) and serves it at
+   `/v1/delta/legacy`. Builds fetch it at start and every four hours, and
+   pass it to each other over Delta Peer. A build that takes it announces
+   the new number in its listings and advertisements, so OpenCE's
+   browser (an exact match) lists its games, and joins the new range.
+6. **Show it.** The log says "Delta: legacy table N from ...: announcing X,
+   joining A to B; following OpenCE build-N", and its header "Following
+   OpenCE build-N (table N)"; the server's `sv_status` and
+   `/v1/status` (`following`) too. The site's Delta page lists what each
+   release follows, and its game list labels a game of an older number
+   ("OpenCE v11: needs an older OpenCE").
+
+### Running the test by hand
+
+On Linux (the loopback addresses beyond 127.0.0.1 need nothing set up),
+with the NTSC Xbox maps:
+
+```
+python3 tools/crossplay_test.py build --repo . --ref v0.7.0b --out /tmp/ours --server
+python3 tools/crossplay_test.py build --repo ../opence --ref build-145 --out /tmp/theirs
+echo '{"delta_legacy": 1, "serial": 1, "wires": {"chupa-20a": {"announce": 22, "minimum": 11, "maximum": 22}}}' > row.json
+python3 tools/crossplay_test.py run --ours /tmp/ours/build/linux/halo \
+    --server /tmp/ours/build/server-x86/chupathingyce-server \
+    --theirs /tmp/theirs/build/linux/halo --maps ~/halo/maps \
+    --ours-table row.json --work /tmp/crossplay --out result.json
+```
+
+Every copy has its own home, data and save folders under `--work`, and
+nothing goes online. `check --work /tmp/crossplay --out result.json` checks
+a run's logs again. The tool's header lists the steps and what passes.
+
+What OpenCE build-145's own hooks can't do (seen against itself too): its
+host starts no game once a client of the network test has changed team in
+its lobby, and drops a lobby quiet for 15 seconds, so the test starts each
+game 4 seconds after setting it up, and its host's next game (CTF) is not
+counted. Every OpenCE copy also logs a release build's assertion in
+`sound_dsound_xbox.c` (#980, a gain out of range) a few times; it is
+reported, not counted.
+
+### Taking a follow back
+
+A table only widens what a build shipped with, and serials only go
+forward, so a widened row can't be taken back by a newer table today. The
+kill switch (`disabled_capabilities`) still turns Delta features off, but
+not the legacy number. Which way to add a way back is the owner's decision
+(the plan's rollback options); until then, a follow that turns out wrong
+is fixed by a release.
 
 ## An open network
 
