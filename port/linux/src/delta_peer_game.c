@@ -20,6 +20,8 @@ HALO_GAME_BROWSER; network.protocol = "opence" turns all of it off.
 #include "halo_port_limits.h"
 #include "delta.h"
 #include "delta_peer.h"
+#include "delta_maps.h"
+#include "halo_map_families.h"
 #ifdef HALO_GAME_BROWSER
 #include "browser.h"
 #endif
@@ -30,6 +32,12 @@ HALO_GAME_BROWSER; network.protocol = "opence" turns all of it off.
 
 /* updater.c's (server_platform.c's in the dedicated server) */
 const char *updater_version(void);
+/* the game's: the network game's map (main.c), a network game left at the
+next frame (network_game_globals.c) and an error of the port's own text the
+main menu shows next (ui_widget.c; the game's 16-bit wchar_t) */
+char *main_get_multiplayer_map_name(void);
+void network_game_abort(void);
+void display_error_text_when_main_menu_loaded(const unsigned short *text);
 
 enum
 {
@@ -49,6 +57,9 @@ static struct
 	unsigned short port;
 	/* a host whose port was taken said so once */
 	int port_refused;
+	/* the client's: the host's map (MAP) last checked against this
+	machine's file, by its number (delta_peer_host_map) */
+	delta_u32 map_checked;
 } delta_game = { 0 };
 
 /* whether two settings' words are the same, case aside (ASCII; no
@@ -263,7 +274,8 @@ int delta_peer_protocol(void)
 		env.capability_disabled = game_capability_disabled;
 		env.platform_policy = game_platform_policy;
 		memset(&local, 0, sizeof(local));
-		local.capabilities = (delta_u32)1 << _delta_capability_platform | (delta_u32)1 << _delta_capability_profile;
+		local.capabilities = (delta_u32)1 << _delta_capability_platform | (delta_u32)1 << _delta_capability_profile |
+			(delta_u32)1 << _delta_capability_ce_maps;
 		local.legacy_version = HALO_PORT_NETWORK_VERSION;
 		delta_peer_local_key(&local.key);
 		snprintf(local.build, sizeof(local.build), "ChupathingyCE %s", updater_version());
@@ -347,8 +359,83 @@ static void receive(void)
 	}
 }
 
+/* ---------- Halo PC maps' identity (ce_maps) */
+
+/* the host's: the game's map, as MAP carries it, for the session to send
+(none while its file's hash is being made) */
+static void host_map(void)
+{
+	struct delta_wire_map map;
+	const char *name = main_get_multiplayer_map_name();
+
+	if (name && name[0] && delta_maps_identity(name, &map) == 1)
+		delta_peer_set_map(&delta_game.peer, &map);
+	else
+		delta_peer_set_map(&delta_game.peer, NULL);
+}
+
+/* the client's: the host's Halo PC map checked against this machine's file
+of the same family and name, once each time MAP says another. One that
+differs is no game to play (its objects would not be the host's): the
+player is told which file and where it lives, and the game is left. One
+this machine has not is the legacy join's to say (cache_files.c) */
+static void client_map(void)
+{
+	struct delta_wire_map theirs, mine;
+	delta_u32 generation = delta_peer_host_map(&delta_game.peer, &theirs);
+	char name[DELTA_WIRE_MAP_NAME_SIZE + 8];
+	int result;
+
+	if (!generation || generation == delta_game.map_checked)
+		return;
+	if (!theirs.family || !(theirs.flags & DELTA_WIRE_MAP_HASHED))
+	{
+		delta_game.map_checked = generation;
+		return;
+	}
+	if (!delta_maps_name(&theirs, name, (int)sizeof(name)))
+	{
+		platform_log("Delta Peer: the host's map %s is of a family this build does not know (%u)", theirs.name,
+			(unsigned)theirs.family);
+		delta_game.map_checked = generation;
+		return;
+	}
+	result = delta_maps_identity(name, &mine);
+	/* (being hashed: asked again next frame) */
+	if (!result)
+		return;
+	delta_game.map_checked = generation;
+	if (result < 0)
+		return;
+	if (mine.size_low == theirs.size_low && mine.size_high == theirs.size_high &&
+		!memcmp(mine.hash, theirs.hash, sizeof(mine.hash)))
+	{
+		platform_log("Delta Peer: map identity: %s is the host's (size and hash match)", name);
+		return;
+	}
+	{
+		char message[256];
+		unsigned short text[256];
+		int index;
+
+		platform_log("Delta Peer: map identity: this machine's %s differs from the host's (size %lu MB here, %lu MB "
+			"there): leaving the game", name,
+			(unsigned long)((((unsigned long long)mine.size_high << 32) | mine.size_low) >> 20),
+			(unsigned long)((((unsigned long long)theirs.size_high << 32) | theirs.size_low) >> 20));
+		snprintf(message, sizeof(message),
+			"Your %s map %.63s.map is not the host's: the two files differ. Replace the one in %s with the host's.",
+			map_family_badge(theirs.family), theirs.name, map_family_folder(theirs.family));
+		for (index = 0; message[index] && index < (int)(sizeof(text) / sizeof(text[0])) - 1; index++)
+			text[index] = (unsigned short)(unsigned char)message[index];
+		text[index] = 0;
+		display_error_text_when_main_menu_loaded(text);
+		network_game_abort();
+	}
+}
+
 static void stop(void)
 {
+	delta_game.map_checked = 0;
 	delta_peer_stop(&delta_game.peer);
 	close_socket();
 	delta_game.role = _role_none;
@@ -384,6 +471,7 @@ void delta_peer_game_host_frame(const struct delta_peer_game_machine *machines, 
 	delta_game.port_refused = 0;
 	receive();
 	delta_peer_host_frame(&delta_game.peer, GetTickCount(), machines, count, player_machines);
+	host_map();
 }
 
 void delta_peer_game_client_frame(int joined, delta_u32 host_ipv4, int host_speaks_delta, int machine_index,
@@ -412,6 +500,7 @@ void delta_peer_game_client_frame(int joined, delta_u32 host_ipv4, int host_spea
 		(unsigned char)(machine_index >= 0 && machine_index < DELTA_PEER_MAXIMUM_MACHINES ? machine_index :
 			DELTA_WIRE_NO_MACHINE),
 		player_machines);
+	client_map();
 }
 
 void delta_peer_game_stop(int host)

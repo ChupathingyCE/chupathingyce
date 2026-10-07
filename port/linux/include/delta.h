@@ -51,9 +51,12 @@ enum delta_capability
 	_delta_capability_server_messages = 2,
 	/* text chat between Delta players */
 	_delta_capability_chat = 3,
-	/* Halo PC maps' identity (name and hash) */
+	/* Halo PC maps' identity (MAP: the game's map's family, file name,
+	size and hash), for every family past the Xbox's: Custom Edition,
+	HaloMD and Halo PC retail (port/linux/src/delta_maps.c) */
 	_delta_capability_ce_maps = 4,
-	/* HaloMD maps' identity */
+	/* retired before use: ce_maps carries every Halo PC family's identity.
+	The bit stays taken and is never set */
 	_delta_capability_md_maps = 5,
 	/* network co-op beyond OpenCE's */
 	_delta_capability_coop = 6,

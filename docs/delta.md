@@ -127,16 +127,16 @@ shares.
 | 1 | `profile` | player ID and profile revision; the profile itself comes from the site |
 | 2 | `server_messages` | a host's messages to players: welcome, notices, "next map" |
 | 3 | `chat` | text chat between Delta players |
-| 4 | `ce_maps` | Halo PC map identity (name and hash), so a client knows what it needs |
-| 5 | `md_maps` | the same for HaloMD maps |
+| 4 | `ce_maps` | Halo PC map identity (family, file name, size and hash) for every Halo PC family: Custom Edition, HaloMD and Halo PC retail (see "Map identity") |
+| 5 | `md_maps` | retired before use: `ce_maps` carries every Halo PC family. Never set, never reused |
 | 6 | `coop` | network co-op extensions beyond OpenCE's |
 | 7 | `ai_sync` | AI sync extensions |
 | 8 | `vote` | map and game type votes |
 | 9 | `console_slots` | retired before use: a console's slots are its platform key's limits (below). Never set, never reused |
 
 The registry lives in the repository next to the compatibility table and is
-the single source for the bit numbers. Built so far: `platform` and
-`profile`. Their values are claims, shown as claims, never used for game
+the single source for the bit numbers. Built so far: `platform`, `profile`
+and `ce_maps`. Their values are claims, shown as claims, never used for game
 state:
 
 - **`platform`**: each machine's platform key (below), and so each player's
@@ -146,6 +146,9 @@ state:
   profile revision (0 until the game knows it); the profile itself is the
   site's. Opt-in: a copy shares its own only with `network.share_profile`,
   since the ID is the same in every game.
+- **`ce_maps`**: the game's map's identity, host to client (MAP, below), so
+  a client with another file of the same name leaves rather than playing a
+  map that is not the host's. See "Map identity".
 
 Machines share what both sides of each pair agreed to: the host puts a
 machine's platform or profile in a client's roster only if both that machine
@@ -257,6 +260,7 @@ a later version may append):
 | 6 | PROFILE | client to host | profile revision (4), player ID (16) |
 | 7 | TABLE | either | serial (4), the signed table's whole size (4, at most 16513), offset (4, a multiple of 1024), length (2: 1024, or the rest), reserved (2), the piece's bytes |
 | 8 | TABLE_HAVE | either | serial (4: 0 the built-in table, 0xFFFFFFFF takes no tables) |
+| 9 | MAP | host to client | family (1), flags (1: 0x01 the size and hash are the file's), name length (1, at most 63), reserved (1), file size (8: low word, then high), BLAKE2b-256 hash of the whole file (32; zeros without the flag), file name (letters, digits, `_`, `-`, `.` and space; no `..`) |
 
 A roster covers every machine of the game, in as many datagrams as it takes
 (32 machines each). A client forgets a machine the roster has not named for
@@ -278,6 +282,7 @@ Limits and timeouts (`delta_peer.h`):
 | legacy table: passes to one machine | 3 a session, the next a minute after one ends |
 | legacy table: signature checks of one machine's tables | 1 a minute |
 | legacy table: a host sending to machines at once | 4 |
+| MAP | on change, and every 5 s |
 
 Who is heard: a host reads a datagram only from an address of a machine of
 its game (anything else is dropped before parsing), and ties a HELLO to the
@@ -286,6 +291,50 @@ address and port, of its session. Everything else is dropped and counted.
 `port/linux/tests/delta_test.c` (unit tests and a seeded random-input test of
 every parser and both sessions) and `delta_fuzz.c` (libFuzzer) run in CI
 (`tools/test_delta_peer.py`).
+
+### Map identity
+
+The legacy protocol names a game's map by a string alone, and two Halo PC
+maps of one file name can be different maps (a map's versions, or two
+authors' `bigass`). Between our machines, Delta Peer says which file the host
+plays, with `ce_maps` agreed by both:
+
+- **The families** (`halo_map_families.h`), each with the folder its files go
+  in beside `maps/` (the Xbox's own): 0 the Xbox's (`maps/`), 1 Halo PC
+  Custom Edition (`<file>@ce`, `maps_ce/`, with Custom Edition's
+  `bitmaps.map`, `sounds.map` and `loc.map`), 2 HaloMD (`<file>@md`,
+  `maps_md/`), 3 Halo PC retail (`<file>@pc`, `maps_pc/`). A family number a
+  build does not know is carried as it is, and its client checks nothing.
+- **Names on the legacy wire** stay OpenCE's: a host names a Custom Edition
+  map `custom_maps\<file>` in the game's settings (OpenCE's build-145 form,
+  network version 22), and HaloMD and Halo PC retail maps
+  `maps_md\<file>.md` and `maps_pc\<file>.pc`, which OpenCE's clients do not
+  have and are told they miss. Our clients read those back as `<file>@ce`,
+  `@md` and `@pc`. MAP is what carries the real identity between our
+  machines.
+- **The host** sends MAP to each client that agreed to `ce_maps`: when the
+  game's map changes, and again every 5 s (a datagram lost). An Xbox map is
+  sent by name alone, without the flag: every copy of the game has the same
+  Xbox maps. A Halo PC map is sent with its file's size and hash, once the
+  hash is made; until then nothing is sent.
+- **The hash** is BLAKE2b-256 (Monocypher's) of every byte of the file,
+  made on a thread of its own (`port/linux/src/delta_maps.c`) so no frame
+  waits for it, and kept by the file's path, size and modification time
+  (16 files). On an Apple M4, a 17 MB map hashes in about 20 ms, so a map of
+  several hundred megabytes in under a second, beside the game.
+- **The client** looks for its own file of the MAP's family and name
+  (`map_family_find`, in the family's folders and their fallbacks), hashes it
+  the same way, and compares the size and hash once for each MAP that says
+  another map. The same: logged once, and the game goes on. Different: it
+  logs both sizes, tells the player (the main menu's error) that their
+  `<file>.map` is not the host's and which folder to replace it in, and
+  leaves the game. No such file: nothing more is said here, as the legacy
+  join already tells the player the map is missing and where it goes
+  (`cache_files_map_present`).
+- **Hostile input**: a MAP is read only from the client's host, of its
+  session, with `ce_maps` agreed and not turned off by the kill switch; a
+  name that is not a plain file name, a Halo PC map without its hash, or
+  unknown flags are refused, never mended. A host takes no MAP.
 
 ### The protocol setting
 

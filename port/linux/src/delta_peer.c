@@ -21,10 +21,11 @@ enum
 	_mode_host
 };
 
-/* the capabilities this build knows (the retired console_slots bit never
-counts) */
+/* the capabilities this build knows (the retired md_maps and console_slots
+bits never count) */
 #define KNOWN_CAPABILITIES \
-	((((delta_u32)1 << NUMBER_OF_DELTA_CAPABILITIES) - 1) & ~((delta_u32)1 << _delta_capability_console_slots))
+	((((delta_u32)1 << NUMBER_OF_DELTA_CAPABILITIES) - 1) & ~((delta_u32)1 << _delta_capability_md_maps) & \
+		~((delta_u32)1 << _delta_capability_console_slots))
 #define CAPABILITY(bit) ((delta_u32)1 << (bit))
 
 static void say(struct delta_peer *peer, const char *format, ...)
@@ -172,6 +173,8 @@ static void forget_all(struct delta_peer *peer)
 	memset(&peer->host_rate, 0, sizeof(peer->host_rate));
 	memset(&peer->host_relay, 0, sizeof(peer->host_relay));
 	peer->table_in.active = 0;
+	memset(&peer->host_map, 0, sizeof(peer->host_map));
+	peer->host_map_generation = 0;
 	memset(peer->machines, 0, sizeof(peer->machines));
 	peer->room_capabilities = 0;
 	peer->room_players = DELTA_PEER_NO_LIMIT;
@@ -757,6 +760,64 @@ static void host_send_rosters(struct delta_peer *peer)
 	}
 }
 
+/* the game's map to each client that agreed to ce_maps: at once when it
+changed, then every DELTA_PEER_MAP_INTERVAL */
+static void host_send_maps(struct delta_peer *peer, delta_u32 now)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int index;
+
+	if (!peer->map_generation || !(offered(peer) & CAPABILITY(_delta_capability_ce_maps)))
+		return;
+	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+	{
+		struct delta_peer_host_peer *client = &peer->peers[index];
+		int size;
+
+		if (!client->used || !(client->agreed & CAPABILITY(_delta_capability_ce_maps)))
+			continue;
+		if (client->map_sent_generation == peer->map_generation &&
+			!elapsed(now, client->map_time, DELTA_PEER_MAP_INTERVAL))
+		{
+			continue;
+		}
+		size = delta_wire_write_map(data, client->session, &peer->map);
+		if (!size)
+			return;
+		peer_send(peer, client->ipv4, client->port, data, size);
+		client->map_sent_generation = peer->map_generation;
+		client->map_time = now;
+	}
+}
+
+void delta_peer_set_map(struct delta_peer *peer, const struct delta_wire_map *map)
+{
+	int index;
+
+	if (!map)
+	{
+		memset(&peer->map, 0, sizeof(peer->map));
+		peer->map_generation = 0;
+		return;
+	}
+	if (peer->map_generation && !memcmp(&peer->map, map, sizeof(peer->map)))
+		return;
+	peer->map = *map;
+	/* (never 0, which is none) */
+	peer->map_generation = peer->map_generation + 1 ? peer->map_generation + 1 : 1;
+	/* (each client is sent it at once: a generation it had before a none
+	may be this one's number) */
+	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+		peer->peers[index].map_sent_generation = 0;
+}
+
+delta_u32 delta_peer_host_map(const struct delta_peer *peer, struct delta_wire_map *map)
+{
+	if (map)
+		*map = peer->host_map;
+	return peer->host_map_generation;
+}
+
 void delta_peer_host_frame(struct delta_peer *peer, delta_u32 now, const struct delta_peer_game_machine *machines,
 	int count, const signed char *player_machines)
 {
@@ -846,6 +907,7 @@ void delta_peer_host_frame(struct delta_peer *peer, delta_u32 now, const struct 
 		peer->roster_time = now;
 		peer->roster_dirty = 0;
 	}
+	host_send_maps(peer, now);
 
 	{
 		int sends = 0;
@@ -911,6 +973,8 @@ static void client_legacy(struct delta_peer *peer, const char *why)
 	peer->room_players = DELTA_PEER_NO_LIMIT;
 	memset(&peer->host_relay, 0, sizeof(peer->host_relay));
 	peer->table_in.active = 0;
+	memset(&peer->host_map, 0, sizeof(peer->host_map));
+	peer->host_map_generation = 0;
 	memset(peer->machines, 0, sizeof(peer->machines));
 	if (valid_machine(own))
 		peer->machines[own] = local;
@@ -1134,6 +1198,24 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 		}
 		relay_have(peer, &peer->host_relay, payload, header.length);
 		break;
+	case _delta_message_map:
+	{
+		struct delta_wire_map map;
+
+		if (peer->client_state != _delta_peer_client_delta ||
+			!(peer->agreed & offered(peer) & CAPABILITY(_delta_capability_ce_maps)) ||
+			!delta_wire_read_map(payload, header.length, &map))
+		{
+			peer->dropped++;
+			break;
+		}
+		if (!peer->host_map_generation || memcmp(&peer->host_map, &map, sizeof(map)))
+		{
+			peer->host_map = map;
+			peer->host_map_generation = peer->host_map_generation + 1 ? peer->host_map_generation + 1 : 1;
+		}
+		break;
+	}
 	default:
 		break;
 	}

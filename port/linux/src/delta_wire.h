@@ -58,6 +58,13 @@ enum
 	DELTA_WIRE_TABLE_CHUNKS = (DELTA_LEGACY_SIGNED_SIZE + DELTA_WIRE_TABLE_CHUNK - 1) / DELTA_WIRE_TABLE_CHUNK,
 	DELTA_WIRE_TABLE_HAVE_SIZE = 4,
 
+	/* MAP: its fixed fields, then the map file's name (at most this long:
+	letters, digits, '_', '-', '.' and ' ') */
+	DELTA_WIRE_MAP_SIZE = 44,
+	DELTA_WIRE_MAP_NAME_SIZE = 63,
+	/* the map file's hash: BLAKE2b-256 of every byte of it */
+	DELTA_WIRE_MAP_HASH_SIZE = 32,
+
 	/* a machine index none has (a dedicated server's own machine, or a
 	client not yet given one) */
 	DELTA_WIRE_NO_MACHINE = 0xFF
@@ -90,7 +97,19 @@ enum delta_message_type
 	_delta_message_table = 7,
 	/* either way: the serial of the legacy table the sender has now
 	(DELTA_WIRE_TABLE_NONE: it takes none) */
-	_delta_message_table_have = 8
+	_delta_message_table_have = 8,
+	/* host to client, if both agreed to ce_maps: the game's map (its family,
+	its file's name, size and hash), whenever it changes and with each
+	roster */
+	_delta_message_map = 9
+};
+
+/* MAP's flags */
+enum
+{
+	/* the size and hash are the map file's (a Halo PC map's); without it
+	the map is the Xbox's own, named alone */
+	DELTA_WIRE_MAP_HASHED = 0x01
 };
 
 struct delta_wire_header
@@ -174,6 +193,22 @@ struct delta_wire_table
 	const unsigned char *data;
 };
 
+struct delta_wire_map
+{
+	/* the map's family (halo_map_families.h: 0 the Xbox's, 1 Custom
+	Edition, 2 HaloMD, 3 Halo PC; a number this build does not know is
+	carried as it is) */
+	unsigned char family;
+	/* DELTA_WIRE_MAP_* */
+	unsigned char flags;
+	/* the file's size in bytes, low and high words */
+	delta_u32 size_low;
+	delta_u32 size_high;
+	unsigned char hash[DELTA_WIRE_MAP_HASH_SIZE];
+	/* the file's name, without its family's suffix or ".map" */
+	char name[DELTA_WIRE_MAP_NAME_SIZE + 1];
+};
+
 struct delta_wire_roster
 {
 	/* the capabilities every machine in the game has now (0 while one has
@@ -203,6 +238,9 @@ int delta_wire_read_profile(const unsigned char *payload, int size, struct delta
 cap, an offset off the grid or past the end, a length not the piece's) */
 int delta_wire_read_table(const unsigned char *payload, int size, struct delta_wire_table *table);
 int delta_wire_read_table_have(const unsigned char *payload, int size, delta_u32 *serial);
+/* (a name that is empty or not a plain file name, longer than its field, or
+of a Halo PC family without its hash is refused, never mended) */
+int delta_wire_read_map(const unsigned char *payload, int size, struct delta_wire_map *map);
 
 /* a whole datagram of the message into data (DELTA_WIRE_MAXIMUM_DATAGRAM
 bytes); returns its size, 0 if it does not fit */
@@ -212,6 +250,12 @@ int delta_wire_write_roster(unsigned char *data, delta_u32 session, const struct
 int delta_wire_write_profile(unsigned char *data, delta_u32 session, const struct delta_wire_profile *profile);
 int delta_wire_write_table(unsigned char *data, delta_u32 session, const struct delta_wire_table *table);
 int delta_wire_write_table_have(unsigned char *data, delta_u32 session, delta_u32 serial);
+/* (0 for a map delta_wire_read_map would refuse) */
+int delta_wire_write_map(unsigned char *data, delta_u32 session, const struct delta_wire_map *map);
+/* whether a map's name is one MAP carries: 1 to DELTA_WIRE_MAP_NAME_SIZE
+characters, each a letter, digit, '_', '-', '.' or ' ', and not "." or
+".." or holding ".." */
+int delta_wire_map_name_valid(const char *name);
 /* LEGACY and BYE: a header alone */
 int delta_wire_write_empty(unsigned char *data, int major, int type, delta_u32 session);
 
