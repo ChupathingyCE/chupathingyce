@@ -497,3 +497,66 @@ int delta_peer_game_client_state(void)
 	return delta_game.ready && delta_game.role == _role_client ? delta_game.peer.client_state :
 		_delta_peer_client_off;
 }
+
+/* ---------- Delta List (browser.c) */
+
+static const char *const platform_names[NUMBER_OF_DELTA_PLATFORMS] = {
+	"unknown", "pc_windows", "pc_macos", "pc_linux", "android", "steam_deck", "xbox", "xbox360", "wiiu", "switch"
+};
+
+const char *delta_peer_platform_name(int platform)
+{
+	return platform >= 0 && platform < NUMBER_OF_DELTA_PLATFORMS ? platform_names[platform] : "unknown";
+}
+
+int delta_peer_platform_number(const char *name)
+{
+	int platform;
+
+	for (platform = 0; name && platform < NUMBER_OF_DELTA_PLATFORMS; platform++)
+	{
+		if (!strcmp(name, platform_names[platform]))
+			return platform;
+	}
+	return -1;
+}
+
+int delta_peer_game_host_summary(struct delta_peer_host_summary *summary)
+{
+	const struct delta_peer *peer = &delta_game.peer;
+	int index;
+
+	memset(summary, 0, sizeof(*summary));
+	delta_peer_protocol();
+	summary->key = peer->local.key;
+	summary->capabilities = peer->local.capabilities;
+	if (delta_game.role != _role_host && delta_peer_protocol() != _delta_peer_protocol_opence)
+		return 0;
+	summary->delta = delta_peer_advertised_flags() != 0;
+	if (!summary->delta)
+		return 1;
+	for (index = 0; index < peer->game_machine_count; index++)
+	{
+		const struct delta_peer_game_machine *game_machine = &peer->game_machines[index];
+		const struct delta_peer_machine *machine = &peer->machines[game_machine->machine_index];
+		int kind;
+
+		if (game_machine->local)
+		{
+			if (peer->local.key.flags & DELTA_PLATFORM_KEY_DEDICATED)
+				continue;
+			kind = peer->local.key.platform;
+		}
+		else if (!machine->known)
+			kind = DELTA_PEER_MACHINE_LEGACY;
+		else if (machine->flags & DELTA_ROSTER_PLATFORM)
+			kind = machine->key.platform;
+		else
+			kind = _delta_platform_unknown;
+		if (kind < 0 || kind > DELTA_PEER_MACHINE_LEGACY)
+			kind = _delta_platform_unknown;
+		if (summary->machines[kind] < 255)
+			summary->machines[kind]++;
+	}
+	return 1;
+}

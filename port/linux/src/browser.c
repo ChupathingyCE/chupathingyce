@@ -33,6 +33,7 @@ with it under the lock.
 #include "p2p.h"
 #include "p2p_internal.h"
 #include "browser.h"
+#include "delta_peer.h"
 #include "qrcodegen.h"
 
 #include <stdarg.h>
@@ -97,6 +98,11 @@ struct hosted_game
 	int teams;
 	int roster_count;
 	struct browser_roster_player roster[BROWSER_HOSTED_ROSTER];
+	/* what the announcement says of the host (Delta List): its platform
+	key, whether it hosts with Delta, its machines by platform
+	(delta_peer_game_host_summary: 0, not known yet) */
+	int has_delta;
+	struct delta_peer_host_summary delta;
 };
 
 static pthread_mutex_t browser_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -306,6 +312,7 @@ request must come from that address (the game list checks). So a key
 confirms its own player's lines, in games they played. */
 
 static int json_name(char *out, int size, const unsigned short *name, int length);
+static const char *local_platform_name(void);
 
 static int player_key_loaded;
 static unsigned char player_key_cached[PLAYER_KEY_SIZE];
@@ -426,7 +433,8 @@ static void send_claims(void)
 		int status;
 
 		utf8_from_name(names[index], 12, name, sizeof(name));
-		snprintf(body, sizeof(body), "{\"invite\": \"%s\", \"key\": \"%s\", \"name\": ", invite, key_text);
+		snprintf(body, sizeof(body), "{\"invite\": \"%s\", \"key\": \"%s\", \"platform\": \"%s\", \"name\": ", invite,
+			key_text, local_platform_name());
 		json_name(body + strlen(body), (int)(sizeof(body) - strlen(body) - 2), names[index], 12);
 		strcat(body, "}");
 		status = posix_browser_request(url, body, "application/json", response, sizeof(response), error,
@@ -742,6 +750,76 @@ static void roster_text(const struct browser_roster_player *roster, int count, c
 	}
 }
 
+/* updater.c's (server_platform.c's in the dedicated server) */
+const char *updater_version(void);
+
+/* (a listed game's machine kinds are Delta Peer's) */
+typedef char browser_machine_kinds_check[BROWSER_MACHINE_KINDS == DELTA_PEER_MACHINE_KINDS ? 1 : -1];
+
+/* the build's architecture, as the list takes it */
+static const char *build_architecture(void)
+{
+#if defined(__aarch64__) || defined(__arm64__) || defined(HALO_ANDROID)
+	return "arm64";
+#elif defined(__x86_64__) || defined(_M_X64)
+	return "x64";
+#elif defined(__i386__) || defined(_M_IX86)
+	return "x86";
+#elif defined(__arm__) || defined(_M_ARM)
+	return "arm";
+#else
+	return "";
+#endif
+}
+
+/* this machine's platform (Delta's registry name), as a player's copy
+says it when it confirms its line or reports a game: the site's "Played
+on" badges */
+static const char *local_platform_name(void)
+{
+	struct delta_platform_key key;
+
+	delta_peer_local_key(&key);
+	return delta_peer_platform_name(key.platform);
+}
+
+/* the announcement's fields about the host (Delta List, docs/delta.md):
+the Delta major it hosts with (0: the legacy protocol alone), its platform
+key, architecture, build, capabilities and its game's machines by platform
+(counts only). A list from before them ignores them */
+static void host_fields(char *form, int size, const struct hosted_game *game)
+{
+	unsigned char key[8];
+	char text[256], hex[2 * sizeof(key) + 1];
+	int kind, used = 0;
+
+	if (game->has_delta)
+	{
+		snprintf(text, sizeof(text), "%d", game->delta.delta ? DELTA_MAJOR : 0);
+		form_add(form, size, "delta", text);
+	}
+	delta_wire_write_key(key, &game->delta.key);
+	p2p_hex(key, (int)sizeof(key), hex);
+	form_add(form, size, "platform_key", hex);
+	form_add(form, size, "arch", build_architecture());
+	form_add(form, size, "build", updater_version());
+	snprintf(text, sizeof(text), "%08x", (unsigned int)game->delta.capabilities);
+	form_add(form, size, "capabilities", text);
+	if (!game->has_delta || !game->delta.delta)
+		return;
+	text[0] = 0;
+	for (kind = 0; kind < DELTA_PEER_MACHINE_KINDS && used < (int)sizeof(text) - 32; kind++)
+	{
+		if (game->delta.machines[kind])
+		{
+			used += snprintf(text + used, sizeof(text) - (size_t)used, "%s%s:%d", used ? "," : "",
+				kind == DELTA_PEER_MACHINE_LEGACY ? "legacy" : delta_peer_platform_name(kind), game->delta.machines[kind]);
+		}
+	}
+	if (text[0])
+		form_add(form, size, "machines", text);
+}
+
 static void announce(const char *invite, const struct hosted_game *game)
 {
 	/* (the form: a roster of BROWSER_HOSTED_ROSTER names, URL encoded) */
@@ -767,6 +845,7 @@ static void announce(const char *invite, const struct hosted_game *game)
 	form_add(form, sizeof(form), "teams", game->teams ? "1" : "0");
 	snprintf(text, sizeof(text), "%d", delta_legacy_announce());
 	form_add(form, sizeof(form), "version", text);
+	host_fields(form, sizeof(form), game);
 	/* (last: a full one may be cut short, and a list from before rosters
 	takes no field of the name) */
 	roster_text(game->roster, game->roster_count, roster, sizeof(roster));
@@ -891,10 +970,11 @@ static void send_client_report(void)
 		pthread_mutex_lock(&browser_lock);
 		if (browser.client_report == report)
 		{
-			size = strlen(report) + sizeof(key_text) + 32;
+			size = strlen(report) + sizeof(key_text) + 64;
 			body = malloc(size);
 			if (body)
-				snprintf(body, size, "{\"key\": \"%s\", %s", key_text, report + 1);
+				snprintf(body, size, "{\"key\": \"%s\", \"platform\": \"%s\", %s", key_text, local_platform_name(),
+					report + 1);
 		}
 		pthread_mutex_unlock(&browser_lock);
 		memset(key, 0, sizeof(key));
@@ -976,13 +1056,55 @@ static void parse_roster(char *text, struct browser_game *game)
 	}
 }
 
+/* the host's fields (?fields=17: platform, hosting, protocol, machines;
+docs/delta.md, Delta List): what is not known is left 0 */
+static void parse_host(char **fields, struct browser_game *game)
+{
+	char *entry;
+	int platform = delta_peer_platform_number(fields[0]);
+
+	if (platform >= 0)
+	{
+		game->has_platform = 1;
+		game->host_platform = (unsigned char)platform;
+	}
+	game->hosting = !strcmp(fields[1], "official") ? BROWSER_HOSTING_OFFICIAL :
+		!strcmp(fields[1], "dedicated") ? BROWSER_HOSTING_DEDICATED :
+		!strcmp(fields[1], "player") ? BROWSER_HOSTING_PLAYER : BROWSER_HOSTING_UNKNOWN;
+	game->protocol = !strcmp(fields[2], "delta") ? BROWSER_PROTOCOL_DELTA :
+		!strcmp(fields[2], "opence") ? BROWSER_PROTOCOL_OPENCE : BROWSER_PROTOCOL_UNKNOWN;
+	/* ("pc_linux:2,xbox:1,legacy:1") */
+	for (entry = fields[3]; entry && *entry;)
+	{
+		char *next = strchr(entry, ',');
+		char *colon;
+
+		if (next)
+			*next++ = 0;
+		colon = strchr(entry, ':');
+		if (colon)
+		{
+			int count, kind;
+
+			*colon = 0;
+			count = atoi(colon + 1);
+			kind = !strcmp(entry, "legacy") ? BROWSER_MACHINE_KINDS - 1 : delta_peer_platform_number(entry);
+			if (kind < 0)
+				kind = _delta_platform_unknown;
+			if (count > 0)
+				game->machines[kind] = (unsigned char)(game->machines[kind] + count > 255 ? 255 : game->machines[kind] + count);
+		}
+		entry = next;
+	}
+}
+
 static int parse_game(char *line, struct browser_game *game)
 {
-	char *fields[12];
+	char *fields[17];
 	int count = 0;
 	char *cursor = line;
 
-	while (count < 12)
+	while (count < 17)
 	{
 		fields[count++] = cursor;
 		cursor = strchr(cursor, '\t');
@@ -1013,6 +1135,12 @@ static int parse_game(char *line, struct browser_game *game)
 		fields[11][strcspn(fields[11], "\r\n")] = 0;
 		parse_roster(fields[11], game);
 	}
+	/* (then region, which this browser does not show, and the host's) */
+	if (count >= 17)
+	{
+		fields[16][strcspn(fields[16], "\r\n")] = 0;
+		parse_host(fields + 13, game);
+	}
 	return 1;
 }
 
@@ -1035,7 +1163,8 @@ static void update_list(void)
 	if (!wanted || !config_string("network.browser_url")[0])
 		return;
 
-	server_url("/v1/games.txt", url, sizeof(url));
+	/* (with the host's fields: a list from before them sends what it has) */
+	server_url("/v1/games.txt?fields=17", url, sizeof(url));
 	status = posix_browser_request(url, NULL, NULL, response, sizeof(response), error, sizeof(error));
 	games = malloc(sizeof(*games) * BROWSER_MAXIMUM_GAMES);
 	if (!games)
@@ -1138,6 +1267,8 @@ void browser_host_update(const unsigned short *name, const char *map, short engi
 		memcpy(game.roster, roster, (size_t)roster_count * sizeof(*roster));
 		game.roster_count = roster_count;
 	}
+	/* (on the game's thread, as Delta Peer's hooks) */
+	game.has_delta = delta_peer_game_host_summary(&game.delta);
 
 	pthread_mutex_lock(&browser_lock);
 	if (memcmp(&game, &browser.hosted, sizeof(game)))

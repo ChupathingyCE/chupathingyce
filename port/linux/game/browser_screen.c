@@ -796,6 +796,82 @@ static char const *type_name(
 	return text;
 }
 
+/* ---------- a listed game's host, as the list says it (docs/delta.md, Delta
+List: a ChupathingyCE host's own word; nothing of an older or OpenCE host) */
+
+/* its platform (delta.h's registry), short for the row's tag and in full
+for the details */
+static char const *const platform_tags[] = { "", "WIN", "MAC", "LNX", "AND", "DECK", "XBOX", "360", "WIIU", "NX" };
+static char const *const platform_names[] = {
+	"Unknown", "Windows", "Mac", "Linux", "Android", "Steam Deck", "Xbox", "Xbox 360", "Wii U", "Switch",
+};
+
+/* the row's tag before the name: the host's platform, SRV for a dedicated
+server; "" when the list does not say */
+static char const *host_tag(
+	struct browser_game const *game)
+{
+	if (game->hosting == BROWSER_HOSTING_DEDICATED || game->hosting == BROWSER_HOSTING_OFFICIAL)
+		return "SRV";
+	if (game->has_platform && game->host_platform < NUMBEROF(platform_tags))
+		return platform_tags[game->host_platform];
+	return "";
+}
+
+/* the details' Host line ("Linux, Delta", "Official server (Linux), Delta",
+"OpenCE (legacy)"); NULL when the list does not say */
+static char const *host_text(
+	struct browser_game const *game,
+	char *text,
+	long size)
+{
+	char const *platform = game->has_platform && game->host_platform < NUMBEROF(platform_names) ?
+		platform_names[game->host_platform] : NULL;
+	char const *protocol = game->protocol == BROWSER_PROTOCOL_DELTA ? "Delta" :
+		game->protocol == BROWSER_PROTOCOL_OPENCE ? "OpenCE (legacy)" : NULL;
+	char host[48];
+
+	if (game->hosting == BROWSER_HOSTING_DEDICATED || game->hosting == BROWSER_HOSTING_OFFICIAL)
+	{
+		snprintf(host, sizeof(host), "%s%s%s%s", game->hosting == BROWSER_HOSTING_OFFICIAL ? "Official server" :
+			"Dedicated", platform ? " (" : "", platform ? platform : "", platform ? ")" : "");
+	}
+	else
+		snprintf(host, sizeof(host), "%s", platform ? platform : "");
+	if (!host[0] && !protocol)
+		return NULL;
+	snprintf(text, (size_t)size, "%s%s%s", host, host[0] && protocol ? ", " : "", protocol ? protocol : "");
+	return text;
+}
+
+/* the game's machines by platform, as its Delta host counts them ("2 PC,
+1 Xbox"; counts only); "" when the list does not say */
+static char const *machines_text(
+	struct browser_game const *game,
+	char *text,
+	long size)
+{
+	/* (the registry's numbers grouped as players say them; the last, those
+	without Delta) */
+	static struct { char const *name; unsigned char first, last; } const groups[] = {
+		{ "PC", 1, 3 }, { "Steam Deck", 5, 5 }, { "Android", 4, 4 }, { "Xbox", 6, 6 }, { "Xbox 360", 7, 7 },
+		{ "Wii U", 8, 8 }, { "Switch", 9, 9 }, { "other", 0, 0 }, { "OpenCE", BROWSER_MACHINE_KINDS - 1, BROWSER_MACHINE_KINDS - 1 },
+	};
+	long used = 0, group;
+
+	text[0] = 0;
+	for (group = 0; group < (long)NUMBEROF(groups) && used < size - 24; group++)
+	{
+		int count = 0, kind;
+
+		for (kind = groups[group].first; kind <= groups[group].last; kind++)
+			count += game->machines[kind];
+		if (count)
+			used += snprintf(text + used, (size_t)(size - used), "%s%d %s", used ? ", " : "", count, groups[group].name);
+	}
+	return text;
+}
+
 static void draw_bitmap_picture(struct bitmap_data *bitmap, short art_width, short art_height, short x0, short y0,
 	short x1, short y1);
 
@@ -1205,6 +1281,9 @@ void browser_screen_render(
 		color = game->open ? COLOR_TEXT : COLOR_DIM;
 		utf8_name(game->name, name, sizeof(name));
 		ui_overlay_text(UI_FONT_BOLD, 10.0f, COLUMN_NAME, y + 5, UI_ALIGN_LEFT, color, name);
+		/* (the host's platform, in the room before the name) */
+		if (host_tag(game)[0])
+			ui_overlay_text(UI_FONT_BOLD, 6.5f, (LIST_X + COLUMN_NAME) / 2.0f, y + 7.5f, UI_ALIGN_CENTER, COLOR_DIM, host_tag(game));
 		map_name = map_display_name(game->map, text, sizeof(text));
 		if (map_family(game->map) != _map_family_xbox)
 		{
@@ -1305,20 +1384,33 @@ void browser_screen_render(
 		DETAIL_LINE("Map:", map_display_name(selected->map, map_name, sizeof(map_name)));
 		if (ce_state != _ce_map_none)
 			draw_pc_badge(map_family(selected->map), BADGE_SIZE, x + 6, y - DETAIL_LINE_STEP, 10.0f);
-		DETAIL_LINE("Rules:", type_name(selected, text, sizeof(text)));
+		/* (the score to win on the Rules line: room for the Host line) */
+		type_name(selected, text, sizeof(text));
 		if (selected->score_limit)
-		{
-			snprintf(text, sizeof(text), "%d", selected->score_limit);
-			DETAIL_LINE("Score Limit:", text);
-		}
+			snprintf(text + strlen(text), sizeof(text) - strlen(text), ", to %d", selected->score_limit);
+		DETAIL_LINE("Rules:", text);
 		snprintf(text, sizeof(text), "%d of %d", selected->players, selected->maximum_players);
 		DETAIL_LINE("Players:", text);
+		if (host_text(selected, text, sizeof(text)))
+		{
+			DETAIL_LINE("Host:", text);
+		}
 #undef DETAIL_LINE
 
 		/* who is in it (the host's roster, when it sends one: two columns of
 		seven, the last place saying how many more) */
 		ui_overlay_rect(444, DETAIL_Y + 10, 0.75f, DETAIL_HEIGHT - 20, 0, COLOR_ROW_RULE);
 		ui_overlay_text(UI_FONT_BOLD, 8.5f, 453, DETAIL_Y + 10, UI_ALIGN_LEFT, COLOR_LABEL, "IN GAME");
+		/* (its machines by platform, as its Delta host counts them, beside) */
+		if (machines_text(selected, text, sizeof(text))[0])
+		{
+			float size = 8.5f;
+
+			while (size > 6.5f && ui_overlay_text_width(UI_FONT_REGULAR, size, text) > LIST_X + LIST_WIDTH - 8 - 500)
+				size -= 0.5f;
+			ui_overlay_text(UI_FONT_REGULAR, size, LIST_X + LIST_WIDTH - 8, DETAIL_Y + 10 + (8.5f - size) / 2,
+				UI_ALIGN_RIGHT, COLOR_DIM, text);
+		}
 		if (!selected->players && !selected->roster_count)
 			ui_overlay_text(UI_FONT_REGULAR, 8.5f, 453, DETAIL_Y + 27, UI_ALIGN_LEFT, COLOR_DIM, "No one yet");
 		else if (!selected->roster_count)
