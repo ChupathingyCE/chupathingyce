@@ -26,12 +26,40 @@
 <main>
   <section id="login" class="panel login" hidden>
     <h1>Log in</h1>
-    <p class="hint">Paste a control token. The server printed one the first time its control API was turned on; <code>sv_admin_add</code> on its console makes more.</p>
-    <form id="login-form" autocomplete="off">
-      <label for="token">Token</label>
-      <input id="token" name="token" type="password" spellcheck="false" autocapitalize="off" placeholder="chce_..." required>
+    <form id="login-form" autocomplete="on">
+      <label for="user">Name</label>
+      <input id="user" name="username" autocomplete="username" spellcheck="false" autocapitalize="off" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <label for="code" id="code-label" hidden>Code from your authenticator app</label>
+      <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" hidden>
       <button type="submit" class="primary">Log in</button>
       <p class="error" id="login-error" role="alert"></p>
+    </form>
+    <details class="hint">
+      <summary>Log in with a control token</summary>
+      <form id="token-form" autocomplete="off">
+        <label for="token">Token</label>
+        <input id="token" name="token" type="password" spellcheck="false" autocapitalize="off" placeholder="chce_...">
+        <button type="submit">Log in with the token</button>
+      </form>
+      <p>The server printed one the first time its control API was turned on; <code>sv_admin_add</code> on its console makes more. A token acts as the owner.</p>
+    </details>
+    <p class="hint" id="fingerprint-hint" hidden></p>
+  </section>
+
+  <section id="setup" class="panel login" hidden>
+    <h1 id="setup-title">Make the owner's account</h1>
+    <p class="hint" id="setup-hint">The server printed this one-time code on its console. Choose a name and a password of at least 12 characters; set up a second factor after you log in.</p>
+    <form id="setup-form" autocomplete="on">
+      <label for="setup-code">Code</label>
+      <input id="setup-code" spellcheck="false" autocapitalize="off" required>
+      <label for="setup-user">Name (a-z, 0-9, _ . -)</label>
+      <input id="setup-user" name="username" autocomplete="username" spellcheck="false" autocapitalize="off" required>
+      <label for="setup-password">Password</label>
+      <input id="setup-password" name="new-password" type="password" autocomplete="new-password" minlength="12" required>
+      <button type="submit" class="primary" id="setup-submit">Make the account</button>
+      <p class="error" id="setup-error" role="alert"></p>
     </form>
   </section>
 
@@ -42,7 +70,11 @@
       <button type="button" role="tab" data-tab="maps">Maps</button>
       <button type="button" role="tab" data-tab="bans">Bans</button>
       <button type="button" role="tab" data-tab="log">Log</button>
+      <button type="button" role="tab" data-tab="playlists" data-needs="64">Playlists</button>
       <button type="button" role="tab" data-tab="settings">Settings</button>
+      <button type="button" role="tab" data-tab="people" data-needs="512">People</button>
+      <button type="button" role="tab" data-tab="audit">Audit</button>
+      <button type="button" role="tab" data-tab="account">My account</button>
     </nav>
 
     <p class="notice" id="notice" role="status" hidden></p>
@@ -56,11 +88,11 @@
       <h2>Players <span class="count" id="players-count"></span></h2>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>#</th><th>Name</th><th>Team</th><th class="num">Score</th><th class="num">Ping</th><th>Actions</th></tr></thead>
+          <thead><tr><th>#</th><th>Name</th><th>Team</th><th class="num">Score</th><th class="num">Ping</th><th>Role</th><th>Actions</th></tr></thead>
           <tbody id="players-body"></tbody>
         </table>
       </div>
-      <p class="hint">A kick drops every player on that machine (split screen); they may join again. A ban keeps the machine out by its hardware id and address.</p>
+      <p class="hint">A kick drops every player on that machine (split screen); they may join again. A ban keeps the machine out by its hardware id and address. A warning shows in a ChupathingyCE player's game. Role: the moderator role of a player whose game proved its moderator key.</p>
     </section>
 
     <section class="panel" data-panel="maps" hidden>
@@ -103,9 +135,73 @@
       <pre class="log" id="log-lines"></pre>
     </section>
 
+    <section class="panel" data-panel="playlists" hidden>
+      <h2>Playlists</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th class="num">Games</th><th>File</th><th></th></tr></thead>
+          <tbody id="playlists-body"></tbody>
+        </table>
+      </div>
+      <form id="playlist-new-form" class="row">
+        <label>New playlist <input id="playlist-new-name" pattern="[a-z0-9][a-z0-9_-]{0,30}" required></label>
+        <label>Copy of <select id="playlist-new-from"><option value="">(empty)</option></select></label>
+        <button type="submit">Make</button>
+      </form>
+      <div id="playlist-editor" hidden>
+        <h2>Playlist <span class="count" id="editor-name"></span></h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Map</th><th>Game type</th><th></th></tr></thead>
+            <tbody id="editor-body"></tbody>
+          </table>
+        </div>
+        <form id="editor-add-form" class="row">
+          <label>Map <select id="editor-map" required></select></label>
+          <label>Game type <select id="editor-type" required></select></label>
+          <button type="submit">Add</button>
+          <button type="button" id="editor-use" class="primary">Play this playlist</button>
+          <button type="button" id="editor-delete" class="quiet">Delete</button>
+        </form>
+      </div>
+      <h2>Game types</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>Base</th><th></th></tr></thead>
+          <tbody id="gametypes-body"></tbody>
+        </table>
+      </div>
+      <form id="gametype-new-form" class="row">
+        <label>New game type <input id="gametype-new-name" pattern="[a-z0-9][a-z0-9_-]{0,30}" required></label>
+        <label>Based on <select id="gametype-new-base"></select></label>
+        <button type="submit">Make</button>
+      </form>
+      <div id="gametype-editor" hidden>
+        <h2>Game type <span class="count" id="gametype-name"></span></h2>
+        <dl class="facts" id="gametype-facts"></dl>
+        <form id="gametype-set-form" class="row">
+          <label>Setting <select id="gametype-key"></select></label>
+          <label>Value <input id="gametype-value" required></label>
+          <button type="submit">Set</button>
+        </form>
+      </div>
+    </section>
+
     <section class="panel" data-panel="settings" hidden>
       <h2>Settings</h2>
-      <p class="hint">These last until the server restarts; its environment sets what it starts with.</p>
+      <p class="hint">Saved in admin/settings.toml. A setting in the server's environment wins over the file.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Setting</th><th>Now</th><th>From</th></tr></thead>
+          <tbody id="settings-body"></tbody>
+        </table>
+      </div>
+      <form id="set-form" class="row">
+        <label>Setting <select id="set-key"></select></label>
+        <label>Value <input id="set-value" required></label>
+        <button type="submit">Save</button>
+      </form>
+      <h2>Until the server restarts</h2>
       <form id="name-form" class="row">
         <label>Server name <input id="name-input" maxlength="15" required></label>
         <button type="submit">Set name</button>
@@ -113,6 +209,84 @@
       <form id="max-form" class="row">
         <label>Most players <input id="max-input" type="number" min="1" max="128" required></label>
         <button type="submit">Set</button>
+      </form>
+      <h2>halo.milenko.org</h2>
+      <p class="hint" id="link-state"></p>
+      <div class="row" id="link-buttons" hidden>
+        <button type="button" id="link-start">Link to my account</button>
+        <button type="button" id="link-stop" class="quiet">Unlink</button>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="people" hidden>
+      <h2>Accounts</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>Role</th><th>Second factor</th><th>Game</th><th></th></tr></thead>
+          <tbody id="accounts-body"></tbody>
+        </table>
+      </div>
+      <form id="invite-form" class="row">
+        <label>Invite a <select id="invite-role"><option value="moderator">moderator</option><option value="admin">admin</option><option value="owner">owner</option></select></label>
+        <button type="submit" class="primary">Make an invitation</button>
+      </form>
+      <p class="notice" id="invite-link" hidden></p>
+      <h2>Invitations waiting</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Role</th><th>For</th><th>Made by</th><th>Left</th><th></th></tr></thead>
+          <tbody id="invites-body"></tbody>
+        </table>
+      </div>
+      <label class="check" id="require-label"><input type="checkbox" id="require-2fa"> Every account needs a second factor</label>
+      <h2>Moderators file</h2>
+      <p class="hint">moderators.txt in the data folder: people known by the moderator key their game proves, with no account here. Add a player in the game with <code>sv_mod_add &lt;player&gt; &lt;role&gt;</code>.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Role</th><th>Name</th><th>Key</th><th></th></tr></thead>
+          <tbody id="moderators-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="audit" hidden>
+      <h2>Audit</h2>
+      <p class="hint">Every change, who made it and why: control_audit.log in the data folder. The last 200.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>When</th><th>Who</th><th>Via</th><th>Action</th><th>Target</th><th>Reason</th><th>Done</th></tr></thead>
+          <tbody id="audit-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="account" hidden>
+      <h2>My account</h2>
+      <dl class="facts" id="account-facts"></dl>
+      <h2>Second factor</h2>
+      <p class="hint" id="totp-state"></p>
+      <button type="button" id="totp-begin">Set up an authenticator app</button>
+      <div id="totp-setup" hidden>
+        <p class="hint">Scan this with your authenticator app (or type the secret into it), then enter the code it shows.</p>
+        <canvas id="totp-qr" width="232" height="232"></canvas>
+        <p><code id="totp-secret"></code></p>
+        <form id="totp-enable-form" class="row">
+          <label>Code <input id="totp-code" inputmode="numeric" maxlength="6" required></label>
+          <button type="submit" class="primary">Turn it on</button>
+        </form>
+      </div>
+      <h2>Game</h2>
+      <p class="hint" id="bind-state"></p>
+      <form id="bind-form" class="row">
+        <label>I am player <input id="bind-player" type="number" min="1" max="128" required></label>
+        <button type="submit">Ask my game</button>
+        <button type="button" id="unbind" class="quiet">Unbind</button>
+      </form>
+      <h2>Password</h2>
+      <form id="password-form" class="row">
+        <label>Now <input id="password-old" type="password" autocomplete="current-password" required></label>
+        <label>New <input id="password-new" type="password" autocomplete="new-password" minlength="12" required></label>
+        <button type="submit">Change</button>
       </form>
     </section>
   </div>
@@ -127,9 +301,12 @@
         <option value="2h">2 hours</option>
         <option value="1d" selected>1 day</option>
         <option value="7d">7 days</option>
-        <option value="30d">30 days</option>
-        <option value="forever">Forever</option>
+        <option value="30d" data-full="1">30 days</option>
+        <option value="forever" data-full="1">Forever</option>
       </select>
+    </label>
+    <label id="confirm-reason-label" hidden>Reason
+      <input id="confirm-reason" maxlength="60">
     </label>
     <div class="row end">
       <button value="cancel" type="submit">Cancel</button>
