@@ -243,6 +243,9 @@ static struct
 	/* (the machines that are ground too, a bridge, a lift's deck: put in a
 	   moment after the game starts, when they stand as they will) */
 	boolean machines_in;
+	/* per square: something of the map's scenery stands in it or by it (a
+	   tree, a rock): looked at for room wherever it is, not at an edge alone */
+	unsigned char *scenery;
 	struct country_portal portals[COUNTRY_PORTALS];
 	long portal_count;
 	/* (the sets of portals the map's vehicles have: which portals are in each) */
@@ -290,6 +293,7 @@ void bot_country_dispose(void)
 	free(country.lean_y);
 	free(country.wide);
 	free(country.judged);
+	free(country.scenery);
 	free(country.clear);
 	free(country.walls);
 	free(country.step_mask);
@@ -675,14 +679,18 @@ static long country_clear(long f)
 			   from over the floor's middle, along the lie of the floor:
 			   something within a vehicle's half width and a bit, and this is
 			   the edge too.) */
-			if (known == 2)
+			/* (... and out in the open too, where a tree or a rock stands:
+			   the squares say nothing of those, the way went through them,
+			   and the driver was left to see the tree when it was at it) */
+			if (known == 2 || (known == 3 && country.scenery && country.scenery[country.square[f]]))
 			{
 				unsigned long const flags = FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_structure_bit) |
 					FLAG(_collision_test_objects_bit) | FLAG(_collision_test_objects_machines_bit) | FLAG(_collision_test_objects_scenery_bit);
+				long before = known;
 				real_point3d from;
 				country_floor_point(f, &from);
 				from.z += 0.7f;
-				for (d = 0; d < 8 && known == 2; d++)
+				for (d = 0; d < 8 && known == before; d++)
 				{
 					struct collision_result collision;
 					real_vector3d out;
@@ -1275,6 +1283,53 @@ static void country_forget_near(unsigned char const *marked)
 			}
 		}
 	}
+}
+
+/* The squares the map's scenery stands in or by (what of it has something
+   to run into: a tree, a rock, a barricade), marked; and the room of the
+   floors there forgotten, to be looked at again with that in mind
+   (country_clear). The ways worked out so far go with it. */
+static void country_scenery_mark(void)
+{
+	struct object_iterator iterator;
+	struct object_datum *object;
+	long cells = country.width * country.height;
+	long marked = 0, things = 0;
+	long c, f;
+	if (!bot_refined_is(64))
+		return;
+	free(country.scenery);
+	country.scenery = (unsigned char *)calloc(MAX(1, cells), 1);
+	if (!country.scenery)
+		return;
+	object_iterator_new(&iterator, _object_mask_scenery, 0);
+	while ((object = (struct object_datum *)object_iterator_next(&iterator)) != NULL)
+	{
+		real reach = object->object.bounding_sphere_radius + COUNTRY_BODY_ROOM;
+		long x0, x1, y0, y1, x, y;
+		if (object_definition_get(object->definition_index)->object.collision_model.index == NONE || object->object.bounding_sphere_radius < 0.2f)
+			continue;
+		things++;
+		x0 = (long)floor((object->object.bounding_sphere_center.x - reach - country.x0) / country.cell);
+		x1 = (long)floor((object->object.bounding_sphere_center.x + reach - country.x0) / country.cell);
+		y0 = (long)floor((object->object.bounding_sphere_center.y - reach - country.y0) / country.cell);
+		y1 = (long)floor((object->object.bounding_sphere_center.y + reach - country.y0) / country.cell);
+		for (y = MAX(y0, 0); y <= MIN(y1, country.height - 1); y++)
+			for (x = MAX(x0, 0); x <= MIN(x1, country.width - 1); x++)
+				country.scenery[y * country.width + x] = 1;
+	}
+	for (c = 0; c < cells; c++)
+	{
+		if (!country.scenery[c])
+			continue;
+		marked++;
+		for (f = country.first[c]; f < country.first[c + 1]; f++)
+			country.clear[f] &= 3; /* (at an edge or not, as the squares say: kept. The room: again) */
+	}
+	if (marked > 0)
+		country_fields_forget();
+	if (bot_logging())
+		bot_log("country: %ld things of the map's scenery to drive round, by %ld squares", things, marked);
 }
 
 static void country_machines(void)
@@ -2770,6 +2825,7 @@ void bot_country_update(void)
 	{
 		country.machines_in = TRUE;
 		country_machines();
+		country_scenery_mark();
 	}
 	if (country.ready)
 		country_field_advance();
@@ -3484,11 +3540,90 @@ static real country_thing_ray(real_point3d const *from, real_vector3d const *alo
 	return collision.t * length;
 }
 
+/* What a driver sees ahead. A ray at the bonnet's height down the middle of
+   the way saw a tree dead ahead, from a second off; one a wheel's width to
+   the side of that it did not see at all, and the wing took it. So: three
+   rays, down the middle and down each side of the vehicle, as far as it
+   takes to stop in and half as much again, of what stands on the ground
+   (a tree, a rock, a vehicle, parked or not) and of a face of the map that
+   is no ground (a wall, a bank too steep to be a slope). How far the
+   nearest of it is; the length, nothing. */
+#define COUNTRY_SEE_FURTHEST 45.f
+#define COUNTRY_BRAKING 3.f /* what a Warthog's brakes take off its speed, units a second each second (found by driving one) */
+static char country_lane_saw[64]; /* (testing: what the last look down a lane met first) */
+static real country_lane(real_point3d const *eye, real yaw, real slope, real half, real length, long ignore)
+{
+	unsigned long const flags = FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_structure_bit) | FLAG(_collision_test_objects_bit) |
+		FLAG(_collision_test_objects_scenery_bit) | FLAG(_collision_test_objects_vehicles_bit);
+	real nearest = length;
+	long ray;
+	for (ray = 0; ray < 3; ray++)
+	{
+		struct collision_result collision;
+		real_point3d from = *eye;
+		real_vector3d vector;
+		real side = ray == 0 ? 0.f : ray == 1 ? half : -half;
+		real reach = length;
+		long pass;
+		from.x -= (real)sin(yaw) * side;
+		from.y += (real)cos(yaw) * side;
+		vector.i = (real)(cos(yaw) * cos(slope));
+		vector.j = (real)(sin(yaw) * cos(slope));
+		vector.k = (real)sin(slope);
+		/* (the ground rising to meet the ray is not in the way, and is
+		   looked past once: what stands on the rise is) */
+		for (pass = 0; pass < 2 && reach > 0.5f; pass++)
+		{
+			real_vector3d along;
+			along.i = vector.i * reach, along.j = vector.j * reach, along.k = vector.k * reach;
+			if (!collision_test_vector(flags, &from, &along, ignore, &collision))
+				break;
+			if (collision.type == _collision_result_object || collision.plane.n.k < COUNTRY_LEVEL)
+			{
+				if (length - reach + collision.t * reach < nearest && getenv("HALO_BOT_COUNTRYTRACE"))
+				{
+					if (collision.type == _collision_result_object && object_try_and_get(collision.object_index))
+						snprintf(country_lane_saw, sizeof(country_lane_saw), "%.40s", strrchr(tag_get_name(object_get(collision.object_index)->definition_index), '\\') ?
+							strrchr(tag_get_name(object_get(collision.object_index)->definition_index), '\\') + 1 : tag_get_name(object_get(collision.object_index)->definition_index));
+					else
+						snprintf(country_lane_saw, sizeof(country_lane_saw), "map:%.1f:%.1f", collision.plane.n.k, collision.point.z - (eye->z - 0.6f));
+				}
+				nearest = MIN(nearest, length - reach + collision.t * reach);
+				break;
+			}
+			/* (on from where it met the ground, a little over it, along it) */
+			reach -= collision.t * reach + 0.5f;
+			from.x = collision.point.x + vector.i * 0.5f;
+			from.y = collision.point.y + vector.j * 0.5f;
+			from.z = collision.point.z + 0.7f;
+			vector.k = MAX(vector.k, 0.f);
+		}
+	}
+	return nearest;
+}
+
 /* One tick of driving across country to a place: which way to steer and
    how hard to go. */
 /* is there ground that way, a little way off and about as high as here: not
    the top of a cliff, the lip of a platform (a way with nothing in it is
    the freest there is, and the last to take) */
+/* (a wall of the map that way, nearer than so far: what is looked for under
+   a place that is in the rock is not found, and that is no edge. A Warthog
+   with a wall a length behind it took the wall for one, would not back
+   toward it, and with another before its nose stood between the two until
+   the game ended: 40% of all the driving on Ice Fields) */
+static boolean country_wall_within(real_point3d const *from, real yaw, real reach, long ignore)
+{
+	struct collision_result collision;
+	real_point3d eye = *from;
+	real_vector3d way;
+	if (!bot_refined_is(64))
+		return FALSE;
+	eye.z += 1.f;
+	way.i = (real)cos(yaw) * reach, way.j = (real)sin(yaw) * reach, way.k = 0.f;
+	return collision_test_vector(FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_structure_bit), &eye, &way, ignore, &collision);
+}
+
 static boolean country_ground_as_far(real_point3d const *from, real yaw, real furthest, long ignore)
 {
 	real reach;
@@ -3500,7 +3635,7 @@ static boolean country_ground_as_far(real_point3d const *from, real yaw, real fu
 		at.y += (real)sin(yaw) * reach;
 		at.z += 1.f;
 		if (!bot_ground(&at, 3.5f + (reach > 5.f ? reach - 5.f : 0.f), ignore, &ground))
-			return FALSE;
+			return country_wall_within(from, yaw, reach, ignore); /* (a wall: no edge this side of it) */
 	}
 	return TRUE;
 }
@@ -3508,6 +3643,24 @@ static boolean country_ground_as_far(real_point3d const *from, real yaw, real fu
 static boolean country_ground_that_way(real_point3d const *from, real yaw, long ignore)
 {
 	return country_ground_as_far(from, yaw, 5.f, ignore);
+}
+
+/* Ground under a place a way ahead, looked for from over it (as high as a
+   hill would have risen by there) down to as low as one would have fallen.
+   Under a roof that place over it is in the rock, and a ray from in the
+   rock meets nothing: every way on out of a tunnel was an edge, and the
+   Warthogs of Ice Fields stood in its tunnels for minutes, stopped for
+   edges that were floor. So, with nothing found from over it: from the
+   vehicle's own height, down as far. */
+static boolean country_ground_under(real_point3d const *over, real from_z, real reach, long ignore, real *ground)
+{
+	real_point3d at = *over;
+	if (bot_ground(&at, 3.f + 1.7f * reach, ignore, ground))
+		return TRUE;
+	if (!bot_refined_is(64))
+		return FALSE;
+	at.z = from_z + 1.f;
+	return bot_ground(&at, 3.f + 0.7f * reach, ignore, ground);
 }
 
 /* (... at one place that way) */
@@ -3518,7 +3671,7 @@ static boolean country_ground_at(real_point3d const *from, real yaw, real reach,
 	at.x += (real)cos(yaw) * reach;
 	at.y += (real)sin(yaw) * reach;
 	at.z += 1.f;
-	return bot_ground(&at, 3.5f + (reach > 5.f ? reach - 5.f : 0.f), ignore, &ground);
+	return bot_ground(&at, 3.5f + (reach > 5.f ? reach - 5.f : 0.f), ignore, &ground) || country_wall_within(from, yaw, reach, ignore);
 }
 
 /* Carried up a lift: along its points at a steady pace, its nose the way it
@@ -3614,6 +3767,8 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 	real yaw;
 	real throttle = 1.f;
 	real turn;
+	real seen_ahead = -1.f, seen_reach = 0.f; /* (testing: what the driver saw ahead, of how far it looked) */
+	int seen_found = -1, seen_ours = 0;
 
 	memset(result, 0, sizeof(*result));
 	if (traveller->vehicle != body->vehicle_index)
@@ -3694,6 +3849,7 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 					result->moving = TRUE;
 					result->yaw = heading;
 					result->throttle = 0.f;
+					result->note = "in the air over the country";
 					traveller->stuck_point = *position;
 					traveller->stuck_tick = now;
 					return;
@@ -3707,6 +3863,7 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 		   The way not worked out yet: where it is until it is, a few
 		   seconds. Off toward the place meanwhile is off the edge of a
 		   base on a mountain as often as not) */
+		result->note = soon ? "the way is not worked out yet" : off ? "not on the country" : "no way";
 		if (soon)
 		{
 			result->moving = TRUE;
@@ -3851,6 +4008,95 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 	   vehicle lies on the ground; something there, and it is round the side
 	   with more room: a way picked once and held (not so much to one hand
 	   of wherever the nose is now, which is a spin), and slower. */
+	if (bot_refined_is(64) && bot_vehicle_kind(vehicle->definition_index) != _bot_vehicle_turret)
+	{
+		/* As far as it takes to stop in and half as much again (not past where
+		   the way turns: what stands beyond that is not in it), across its own
+		   width, the way it is going. Something there: of the ways to
+		   either hand (a little, more, a good deal), the least turn that is
+		   clear past it and has ground under it, and is nearest the way it
+		   was bound; slower by how soon it would be at it, hard on the
+		   brake when that is half a second. One of our own on foot in the
+		   way is gone round as a tree is, or stopped for. */
+		real_point3d eye = *position;
+		real slope = (real)asin(PIN(vehicle->object.forward.k, -1.f, 1.f));
+		real half = PIN(vehicle->object.bounding_sphere_radius * 0.4f, 0.8f, 1.7f);
+		real going = speed > 3.f ? (real)atan2(body->velocity.j, body->velocity.i) : heading;
+		real reach = MIN(PIN(speed * speed / (2.f * COUNTRY_BRAKING) * 1.5f + speed * 0.5f + 5.f, 6.f, COUNTRY_SEE_FURTHEST), MAX(bot_distance2d(position, &next) + 1.5f, 4.f));
+		boolean looks = !result->into_portal && !(country_way_narrow && country_way_lined_up);
+		real ahead = reach;
+		boolean ours = FALSE;
+		eye.z += 0.6f;
+		if (looks)
+		{
+			country_lane_saw[0] = 0;
+			ahead = country_lane(&eye, going, slope, half, reach, body->vehicle_index);
+			if (getenv("HALO_BOT_COUNTRYTRACE") && ahead < reach * 0.95f && now % 3 == 0)
+				bot_log("countrysaw %ld t%ld %s at %.1f of %.1f, speed %.1f", body->unit_index & 0xffff, now, country_lane_saw, ahead, reach, speed);
+			ours = bot_body_friendly_ahead(body, position, going, MIN(reach, 4.f + speed * 1.2f), half + 0.7f);
+		}
+		seen_ahead = ahead, seen_reach = reach, seen_ours = ours;
+		if ((ahead < reach * 0.95f || ours) && traveller->swerve_ticks <= 0)
+		{
+			static real const turns[6] = { 0.3f, -0.3f, 0.6f, -0.6f, 0.95f, -0.95f };
+			real past = MIN(reach, ahead + 7.f);
+			real best_score = -1.0e9f;
+			real best_yaw = going;
+			boolean found = FALSE;
+			long t;
+			for (t = 0; t < 6; t++)
+			{
+				real way = bot_wrap(going + turns[t]);
+				real clear, score;
+				if (bot_body_friendly_ahead(body, position, way, MIN(past, 4.f + speed * 1.2f), half + 0.5f))
+					continue;
+				clear = country_lane(&eye, way, slope, half, past, body->vehicle_index);
+				if (clear < past * 0.95f && clear < ahead + 3.f)
+					continue;
+				if (!country_ground_that_way(position, way, body->vehicle_index))
+					continue;
+				/* (clear, and the less of a turn from where the way leads the better) */
+				score = clear - 6.f * (real)fabs(bot_angle_difference(way, yaw)) - 2.f * (real)fabs(turns[t]);
+				if (score > best_score)
+				{
+					best_score = score;
+					best_yaw = way;
+					found = TRUE;
+				}
+			}
+			seen_found = found;
+			if (found)
+			{
+				traveller->swerve = best_yaw;
+				traveller->swerve_ticks = BOT_SECONDS(0.35f);
+			}
+			else if (ours)
+				throttle = MIN(throttle, speed > 1.f ? -0.6f : 0.f); /* (no way round them: stopped for) */
+		}
+		if (ahead < reach * 0.95f || ours)
+		{
+			/* (a Warthog on its brakes loses three units a second each second:
+			   from twelve it is twenty-four units stopping, and from six,
+			   six. Within what it stops in and a length: the brake; within
+			   half as much again: off the throttle) */
+			real off = (ours ? MIN(ahead, 4.f) : ahead) - half - 1.2f;
+			real stops_in = speed * speed / (2.f * COUNTRY_BRAKING);
+			throttle = MIN(throttle, off < stops_in + 1.f ? (speed > 2.5f ? -1.f : 0.3f) : off < stops_in * 1.5f + 2.f ? 0.f : 0.6f);
+		}
+		if (traveller->swerve_ticks > 0)
+		{
+			traveller->swerve_ticks--;
+			yaw = traveller->swerve;
+		}
+		/* (nose to a wall, of the map or not, and stopped at it: straight back) */
+		if (speed < 1.f && now >= traveller->escape_until && !result->into_portal && now - traveller->stuck_tick <= BOT_SECONDS(1.5f) &&
+			country_ray(&eye, heading, slope, 2.5f, body->vehicle_index) < 2.2f)
+		{
+			traveller->escape_yaw = bot_wrap(heading + BOT_PI);
+			traveller->escape_until = now + BOT_SECONDS(1.2f);
+		}
+	}
+	else
 	{
 		real_point3d eye = *position;
 		real_vector3d along = vehicle->object.forward;
@@ -3947,7 +4193,7 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 				at.x += (real)cos(going) * reach;
 				at.y += (real)sin(going) * reach;
 				at.z += 1.f + reach;
-				if (!bot_ground(&at, 3.f + 1.7f * reach, body->vehicle_index, &ground))
+				if (!country_ground_under(&at, position->z, reach, body->vehicle_index, &ground))
 				{
 					throttle = slide < 1.f ? -1.f : slide > 2.2f ? 1.f : 0.f;
 					result->edge = TRUE;
@@ -3971,7 +4217,7 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 				at.x += (real)cos(heading) * reach;
 				at.y += (real)sin(heading) * reach;
 				at.z += 1.f + reach;
-				if (!bot_ground(&at, 3.f + 1.7f * reach, body->vehicle_index, &ground))
+				if (!country_ground_under(&at, position->z, reach, body->vehicle_index, &ground))
 				{
 					if (fabs(wanted) > 0.5f)
 					{
@@ -3981,6 +4227,7 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 					else
 						throttle = 0.f; /* (the way on is over it, the country says, and it is not: left to be held up) */
 					result->edge = TRUE;
+					result->note = "stopped at an edge";
 					break;
 				}
 			}
@@ -4113,13 +4360,25 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 			real back = bot_wrap(heading + BOT_PI);
 			if (!country_ground_at(position, back, 2.5f, body->vehicle_index) || !country_ground_at(position, back, 3.5f, body->vehicle_index))
 			{
+				if (bot_logging() && now % 30 == 0)
+					bot_log("country: unit %ld t%ld backing and no ground behind: at %.1f %.1f %.1f heading %.2f, wanted yaw %.2f throttle %.2f, %s%s%s", body->unit_index & 0xffff, now,
+						position->x, position->y, position->z, heading, yaw, throttle, now < traveller->escape_until ? "getting clear" : "",
+						traveller->run_up_until > now ? " a run-up" : "", result->edge ? " (an edge ahead too)" : "");
 				throttle = backward > 1.5f ? 1.f : 0.f;
 				traveller->run_up_until = 0;
 				if (now < traveller->escape_until)
 					traveller->escape_until = now;
-				traveller->stuck_point = *position;
-				traveller->stuck_tick = now;
+				/* (stopping for it is not being stuck, while it is still
+				   going. Standing, with an edge before it as well, it is: on
+				   a shelf a length and a half long, where it stood for good,
+				   backing from the one edge and stopping for the other) */
+				if (backward > 0.5f || !bot_refined_is(64))
+				{
+					traveller->stuck_point = *position;
+					traveller->stuck_tick = now;
+				}
 				result->edge = TRUE;
+				result->note = "backing: an edge behind";
 			}
 			/* (the edge a little further off: slowly, to stop at it. The
 			   run at the step to Coldsnap's gate wants all the platform
@@ -4136,10 +4395,14 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 	result->yaw = yaw;
 	result->throttle = throttle;
 	result->moving = TRUE;
-	if (bot_logging() && getenv("HALO_BOT_COUNTRYTRACE") && now % 10 == 0)
-		bot_log("countrytrace %ld t%ld at %.1f %.1f %.1f heading %.2f speed %.1f by %.1f %.1f %.1f yaw %.2f throttle %.2f%s%s%s swerve %ld stuck %ld", body->unit_index & 0xffff, now,
+	if (!result->note && throttle <= 0.f && speed < 1.f)
+		result->note = result->edge ? "an edge" : now < traveller->escape_until ? "getting clear" : country_way_narrow ? "onto something narrow" :
+			traveller->swerve_ticks > 0 ? "round something" : "the throttle shut";
+	if (bot_logging() && getenv("HALO_BOT_COUNTRYTRACE") && now % 3 == 0)
+		bot_log("countrytrace %ld t%ld at %.1f %.1f %.1f heading %.2f speed %.1f by %.1f %.1f %.1f yaw %.2f throttle %.2f%s%s%s swerve %ld stuck %ld; sees %.1f of %.1f%s, a way round %d", body->unit_index & 0xffff, now,
 			position->x, position->y, position->z, heading, speed, next.x, next.y, next.z, yaw, throttle, result->edge ? " edge" : country_way_narrow ? " narrow" : "",
-			now < traveller->escape_until ? " escaping" : "", result->into_portal ? " portal" : "", traveller->swerve_ticks, traveller->stuck_count);
+			now < traveller->escape_until ? " escaping" : "", result->into_portal ? " portal" : "", traveller->swerve_ticks, traveller->stuck_count,
+			seen_ahead, seen_reach, seen_ours ? " (one of ours)" : "", seen_found);
 	if (bot_logging() && now % 90 == 0)
 		bot_log("country: unit %ld t%ld at %.0f %.0f %.0f speed %.0f to %.0f %.0f %.0f (%.0f off) by %.0f %.0f %.0f yaw %.2f throttle %.2f%s%s",
 			body->unit_index & 0xffff, now, position->x, position->y, position->z, speed, to->x, to->y, to->z, to_place,

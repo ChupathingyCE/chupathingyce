@@ -61,6 +61,8 @@ struct bot_move_state
 	int reach_hole; /* a gap that is walked over: 0 not looked at, 1 walked, 2 a hole a body goes down (jumped) */
 	int reach_no_room; /* a gap with nowhere behind its edge to take a run from */
 	long reach_settle_ticks; /* held back from a jump it was going across the line of */
+	real reach_slowest, reach_off_speed; /* (testing: the slowest it went before it left the ground, and how fast it left it) */
+	long reach_off_ticks; /* (... and how long after it set about it) */
 	long jump_hold; /* ticks more the jump button is held, for a jump the game has not taken yet */
 	long stand_ticks; /* how long it has been standing up (its legs not tucked) */
 	real progress_path; /* the furthest it has been from where it was last looked at for being stuck */
@@ -134,6 +136,10 @@ struct bot_mover
 	unsigned long random;
 	real yaw;
 	real teamwork;
+	/* how much in its stride it takes a jump: 0 (level 3 and under: to the
+	   foot of it, round to face it, and up) to 1 (level 5: at a run, from
+	   where the run brings it) */
+	real fluency;
 	struct bot_move_state move;
 };
 
@@ -219,6 +225,12 @@ struct bot_pilot
 	real_point3d stuck_point; /* held up: where it was, since when */
 	long stuck_tick;
 	real speed_before; /* how fast it was going a tick ago */
+	real_vector3d velocity_before; /* ... and which way */
+	real bomb_before; /* a bombing pass: how far off them its bomb would have fallen, let go a tick ago */
+	long bomb_tick; /* ... when that was reckoned */
+	int bomb_pass; /* off from a pass: out as far as the next one needs */
+	real cruise_over; /* how far over the least height the ground lets it have it likes to fly, on its way */
+	long cruise_until; /* ... until it thinks again */
 	long heavy_tick; /* its other gun (a Banshee's fuel rod): when it last let go of the trigger */
 	long heavy_press; /* ... and for how many ticks more it holds it */
 	real swerve; /* round something in its way: to which hand, until when */
@@ -262,6 +274,9 @@ struct bot_flight_order
 	int heavy; /* it has another gun as well, on the other trigger (a fuel rod, a bomb) */
 	int heavy_ready; /* ... which will fire now (it has cooled from its last) */
 	int heavy_bomb; /* ... and is let go, not fired: it has the craft's speed and no other */
+	real heavy_kills; /* ... whose blast kills someone unhurt this far off, */
+	real heavy_hurts; /* ... and hurts this far off */
+	int bomb; /* a bombing pass: over the place, high, and the bomb let go to fall on it (a bomb with a great blast, and none of ours by the place) */
 	real heavy_speed; /* ... whose shot leaves at this speed (a tick's), */
 	real heavy_slowing; /* ... loses this much of it each tick, */
 	real heavy_slowest; /* ... down to this, */
@@ -329,6 +344,7 @@ struct bot_country_result
 	boolean into_portal; /* the point is the way into a portal: straight into it */
 	boolean escaping; /* getting clear of something: by its own steering, not the navigation's */
 	boolean edge; /* going at an edge with nothing under it: stopping */
+	char const *note; /* (testing: why it does what it does, when that is not driving on) */
 };
 
 void bot_country_build(void);
@@ -374,6 +390,14 @@ enum
 long bot_vehicle_kind(long definition_index);
 boolean bot_vehicle_flies(long definition_index);
 real bot_vehicle_top_speed(long definition_index);
+/* (testing, HALO_BOT_REFINE=<a sum>: each of the later changes to how the
+   bots move, on or off. 1, 2, 4, 8, 16: on foot (bot_move.c). 32: a craft
+   keeps its height on its way, and is as large as it is. 64: a driver sees
+   what stands in its way from further off, across its vehicle's width.
+   128: with a long way to go, the nearest vehicle. 256: grenades thrown
+   by reckoning, further, and kept away from. 512: jumps taken at a run by
+   the better bots, and the legs tucked up only for a ledge that wants it.) */
+int bot_refined_is(int which);
 void bot_pilot_reset(struct bot_pilot *pilot);
 void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_flight_order const *order, struct bot_flight_result *result);
 

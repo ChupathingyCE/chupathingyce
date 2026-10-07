@@ -964,8 +964,9 @@ each third tick of a walk that does not get on.
 
 **Jumps up onto ledges and rocks.** These are the changes:
 
-- A bot jumps onto a ledge that is 0.72 world units above it or less. The
-  limit was 0.6. The jump of a player gets 0.69 world units high. When a
+- A bot jumps onto a ledge that is 0.76 world units above it or less. The
+  limit was 0.6, and then 0.72 (see "Jumps at a run" below for the test
+  of 0.76). The jump of a player gets 0.69 world units high. When a
   body folds its legs in the air, the game lifts it 0.16 world units more,
   and the bots fold their legs. In a test, a bot got onto a ledge 0.69
   world units above it each time that it left the ground in front of the
@@ -1142,6 +1143,161 @@ mean time of 11.9 seconds. With `HALO_BOT_REFINE=0` they completed 844 in
 of each bot on foot to the log each so many ticks. `HALO_BOT_REFINE=0`
 turns these five changes off (a sum of 1, 2, 4, 8 and 16 turns on the
 change for held up, corners, walked steps, stuck and hops at a step).
+
+**Aircraft.** These are the changes:
+
+- On its way to a place, a craft keeps the height that it has. Before, it
+  came down to its least height above the ground (10 world units for a
+  Pelican) and followed each rise of the ground. It now comes down only
+  along a slope of 1 in 4 to the place where it lands or fights. Each
+  pilot also likes some more height than the least (4 to 70 world units,
+  drawn again each half minute).
+- The room that a craft keeps is by its size. The obstacle rays came from
+  a wing 2 world units out, and a Pelican is 11 world units across (a
+  Longsword is 24). The rays now come from the ends of the craft, and the
+  least height above the ground is more for a large craft.
+- A run down at someone ends when the ground is nearer than the craft
+  sinks in 1.3 seconds.
+- A Longsword with a bomb bombs. It was a craft that carries people,
+  because it has seats, and thus it did not attack. Its bomb kills 71
+  world units away and hurts 80 world units away. The pilot now goes for
+  the place where the bomb kills the most enemies, with no player of its
+  own team within 95 world units. It does not choose enemies under a roof
+  that is more than 35 world units above them. It flies level over the
+  place, higher than the blast reaches (125 world units above where the
+  bomb lands). It lets the bomb go when the game's own arithmetic for the
+  fall puts it within 21 world units of the place. Then it flies on at
+  that height for 11 seconds, the way that has no cliff in it. The bots do
+  not get into a Longsword that a bot flies.
+
+These are two games of capture the flag on Hugeass with 11 bots, with
+`HALO_BOT_CRAFT=pelican` (the bots prefer Pelicans), with
+`HALO_BOT_REFINE=31` (before) and without it:
+
+| | Before | After |
+| --- | --- | --- |
+| Height of a Pelican above the ground on its way (median) | 15 | 70 |
+| Part of that time under 6 world units | 16% | 2% |
+| Bombs from Longswords, and kills from Longswords | 0 and 10 | 15 and 22 |
+
+The count of bombs before is from two games of the same kind before
+this change.
+
+**Drivers.** These are the changes:
+
+- The driving data now has the trees and the rocks of a map. A floor
+  with one of them within 1.8 world units costs four times as much, and a
+  straight line of the route does not go through it.
+- A driver looks down three lines (the middle and the two sides of the
+  vehicle) as far as the vehicle goes before it stops, and half as much
+  again. Before, it looked down one line in the middle for 0.9 seconds of
+  its speed. When there is something on a line (scenery, a vehicle, a wall
+  or a steep bank), the driver steers to the nearest side that is clear,
+  and uses the brake when the thing is nearer than the vehicle stops in.
+- A driver goes around a player of its own team who is on foot in its
+  way, or stops.
+- A driver did not go back when there was a wall behind it, because it
+  found no ground there and thought that it was an edge. With a wall
+  before it as well, it stood there for the rest of the game. On Ice
+  Fields, the drivers stood like this for 40% of their time. A wall is
+  now not an edge.
+- A vehicle with an edge before it and an edge behind it is now stuck,
+  and its driver gets out.
+
+These are eight games of capture the flag with 12 bots (Blood Gulch,
+Sidewinder, Timberland, Danger Canyon, Ice Fields, Death Island, Hugeass,
+Coldsnap), with `HALO_BOT_REFINE=31` (before) and without it. A "knock" is
+a change of more than 2 world units a second in the speed of a vehicle in
+one tick:
+
+| | Before | After |
+| --- | --- | --- |
+| Knocks with a tree, a rock or a barricade in front | 20 | 9 |
+| Knocks with a wall or a bank in front | 85 | 56 |
+| All knocks in a minute of driving | 0.97 | 0.72 |
+| Time on foot | 77% | 72% |
+| Time at a wheel | 16% | 19% |
+
+**The nearest vehicle.** On a large map, a bot with more than 40 world
+units to walk takes a vehicle when one is nearer than half of that
+distance. It takes the nearest one that it can get into: one with nobody
+at the wheel, or one that a player of its team drives and that stands
+still within 25 world units (the gun first, then a passenger seat). A bot
+on its way to a vehicle changes to a different empty vehicle when that
+one is a quarter nearer. The stock capture the flag game of Blood Gulch
+has two Warthogs for 12 players, so most bots walk there.
+
+**Grenades.** These are the changes:
+
+- A bot keeps away from a live grenade. It sees one that is in its view
+  within 14 world units, and hears one within 6. When the grenade is
+  within reach of its blast, the bot moves away from it, and jumps when
+  it is very near. When the grenade is ahead on the bot's way, the bot
+  does not go nearer until it has gone off. A bot of skill 5 starts 2
+  ticks after it sees the grenade, and a bot of skill 1 after 12 ticks. A
+  bot of skill 1 notices one grenade in three.
+- A bot that sees its target hold a grenade and look at it moves back or
+  to the side until the grenade has landed.
+- The look of a bot stays on the throw until the grenade leaves the
+  hand. Before, the look went back to the target one tick after the
+  button, and the grenade went where the look was.
+- The pitch of a throw is from the speed of the throw and the fall of
+  the grenade. The bot uses the flat way when it is clear, and the high
+  way when it is not (through a door to a floor above, over a wall).
+- A bot throws into a fight from as far as the hand throws (28 world
+  units on level ground). The limit was 17.
+- A bot that has an enemy on the motion tracker, 5 to 17 world units
+  away, out of sight and coming nearer, can throw a grenade to the place
+  where that enemy comes into view. The chance is much higher where that
+  place has walls close on the two sides.
+
+In two team games with 8 bots of skill 5, a grenade went off a median of
+1.6 world units from the place that it was thrown at (4.6 before), and
+57% of them within 2 world units (18% before).
+
+In six team games with 8 bots of skill 5, the bots of one team did not
+keep away from grenades (`HALO_BOT_OFF_T0=wary`). Bots of that team were
+in a blast 165 times, 120 of them within 2 world units. Bots of the
+other team were in a blast 87 times, 57 of them within 2 world units.
+
+**Jumps at a run.** These are the changes:
+
+- A bot of skill above 3 that runs at a ledge jumps from the distance at
+  which its feet are above the top when it gets there. Before, each bot
+  went to the foot of the ledge, turned to it and jumped. The bot must
+  come within 45 degrees of square to the ledge, and the ledge must be
+  0.65 world units high or less. A bot of skill 5 does this most.
+- A bot of skill above 3 also jumps a gap from its run when it is 0.45
+  world units or less from the line of the jump (0.25 before).
+- A bot folds its legs in a jump only for a ledge higher than 0.55 world
+  units. Before, it folded them in each jump up, and in some jumps in a
+  fight.
+- A bot jumps onto a ledge 0.76 world units high (0.72 before). In
+  tests with a higher limit, bots made 72 of 81 jumps onto ledges 0.72
+  to 0.76 high, and 19 of 26 onto ledges 0.76 to 0.80 high. Bake the maps
+  again after this change.
+
+These are six games with 8 bots of skill 5 (the six maps of the table
+above), with `HALO_BOT_REFINE=31` (before) and without it:
+
+| | Before | After |
+| --- | --- | --- |
+| Jumps up that left the ground at more than 1.9 world units a second | 27% | 38% |
+| Time that a jump up took more than its walk (median) | 0.53 s | 0.35 s |
+| Jumped gaps that were jumped from the run | 27% | 37% |
+| Jumps up that failed | 5.1% | 3.8% |
+
+**Skill 5 sees sooner.** The time before a bot notices an enemy in view
+is half as long at skill 5 as it was (0.3 seconds for an enemy at the
+edge of the view 40 world units away). The change is from skill 4 to
+skill 5.
+
+`HALO_BOT_REFINE` has more parts: 32 (the height and the size of craft),
+64 (the drivers), 128 (the nearest vehicle), 256 (the grenades) and 512
+(the jumps at a run and the legs). `HALO_BOT_REFINE=31` turns these five
+off. `HALO_BOT_TUCKRISE=<world units>` sets the ledge above which a bot
+folds its legs, and `HALO_BOT_FLUENT=<1, 2 or 3>` turns on the jumps from
+the run for gaps (1) and for ledges (2).
 
 These settings are for tests: `HALO_BOT_GAPCOST=0` (a gap costs its run
 only), `HALO_BOT_STEEP=0` (jumps onto steep slopes stay ways),

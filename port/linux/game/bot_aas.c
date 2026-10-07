@@ -67,7 +67,7 @@ there. Reachabilities that bots keep failing at cost more (learned).
 #define AAS_FOOT_SPEED 2.25f
 #define AAS_VEHICLE_SPEED 6.f
 #define AAS_CACHES 96
-#define AAS_CACHE_VERSION 30
+#define AAS_CACHE_VERSION 31
 #define AAS_DEAD_FAILURES 4 /* failed this often: not a way */
 
 /* what a way that has failed costs, in seconds over its time: a jump or a
@@ -91,7 +91,11 @@ static float aas_failure_penalty(long failures)
    of Battle Creek's bases are 0.69 above the wall beside them, which is the
    way up, and nothing went up there. (HALO_BOT_JUMPRISE: another, to try;
    the areas are worked out afresh with it) */
-#define AAS_JUMP_RISE 0.72f
+/* (0.72 until the ledges between that and what the tuck reaches were tried,
+   in games with the limit set higher: of 81 jumps at ledges 0.72 to 0.76
+   up, 72 were made; of 26 at ledges 0.76 to 0.80, 19; of 15 at ledges 0.80
+   to 0.85, 11. So: 0.76.) */
+#define AAS_JUMP_RISE 0.76f
 static real aas_jump_rise(void)
 {
 	static int asked;
