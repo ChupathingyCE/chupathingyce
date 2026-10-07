@@ -3,10 +3,10 @@
 Status (October 6, 2026): in progress. Delta List, Stats, Link and Control
 run today under the names in the table below; the legacy number's table and
 its automation are built (see "The legacy number"), and so is the signed
-legacy table's loader, waiting for its key (see "The legacy table as
-config"); Delta Peer's first layer is built: its port, the advertisement's
-flag, the handshake with silent fallback, platform keys, and the `platform`
-and `profile` capabilities (see "Delta Peer"). The site's page for players:
+legacy table's loader (see "The legacy table as config"); Delta Peer's
+first layer is built: its port, the advertisement's flag, the handshake
+with silent fallback, platform keys, and the `platform` and `profile`
+capabilities (see "Delta Peer"). The site's page for players:
 https://halo.milenko.org/delta
 
 Delta is the name for everything ChupathingyCE's machines say to each other
@@ -385,7 +385,7 @@ breaking:
 	X(11, "build-76", breaking) /* the gametype's PC options in the settings record */ \
 	X(12, "build-118", additive) /* network co-op */ \
 	...
-	X(16, "build-125", additive) /* co-op: every machine stays on the host's BSP */
+	X(20, "build-133", additive) /* password games' internet listings (another listing layout); game messages as 19 */
 ```
 
 `tools/test_delta.py` (in CI) checks `halo_port_limits.h` against it: hosts
@@ -414,6 +414,10 @@ Known history, from `port/linux/NETCODE.md` and OpenCE's commits:
 | 14 | build-123 | co-op devices' positions, units opening and closing | additive |
 | 15 | build-124 | co-op allegiances, loading zones, falling players | additive |
 | 16 | build-125 | co-op: every machine stays on the host's BSP | additive |
+| 17 | build-128 | followed from OpenCE | additive |
+| 18 | build-129 | followed from OpenCE | additive |
+| 19 | build-132 | co-op's player collisions switch, in a padding byte of the game settings | additive |
+| 20 | build-133 | password games' internet listings (another listing layout) | additive |
 
 ### Automation
 
@@ -648,8 +652,8 @@ plays with its built-in numbers (and a local override).
   (and `legacy.json.sig`). A branch of its own keeps the table's updates out
   of main's history. Both copies are signed with the same key, so neither
   host is trusted; the newest serial of whatever is reached wins. While
-  neither has a table (both answer 404), the log says so once a
-  run, not at every retry.
+  neither has a table (both answer 404), the log says so once a run, not
+  at every retry.
 - **Delta Peer:** in the handshake each side says its table's serial; the side
   with the newer one sends its signed table. A machine that never reaches the
   site still gets it from the first host or client that has it. It is
