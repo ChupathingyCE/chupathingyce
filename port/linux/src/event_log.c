@@ -326,7 +326,7 @@ static void text_tag(struct text *text, int tag)
 }
 
 /* a number for JSON (none that is not finite) */
-static double finite(double value)
+static double json_number(double value)
 {
 	return isfinite(value) ? value : 0.0;
 }
@@ -334,7 +334,7 @@ static double finite(double value)
 /* a world position, within the site's bounds (5000 units) */
 static double world(float value)
 {
-	double kept = finite(value);
+	double kept = json_number(value);
 
 	return kept > 5000.0 ? 5000.0 : kept < -5000.0 ? -5000.0 : kept;
 }
@@ -895,8 +895,8 @@ static void write_player(struct text *text, int slot, int end_tick)
 		totals->suicides < 0 ? 0 : totals->suicides, player->best_spree);
 	if (player->has_totals && totals->place > 0)
 		text_append(text, ", \"place\": %d", totals->place);
-	text_append(text, ", \"damage_dealt\": %.1f, \"damage_taken\": %.1f", finite(player->damage_dealt),
-		finite(player->damage_taken));
+	text_append(text, ", \"damage_dealt\": %.1f, \"damage_taken\": %.1f", json_number(player->damage_dealt),
+		json_number(player->damage_taken));
 	text_append(text, ", \"grenades\": {\"frag\": %d, \"plasma\": %d}", player->grenades[0], player->grenades[1]);
 	text_append(text, ", \"objectives\": {\"flag_grabs\": %d, \"flag_returns\": %d, \"flag_scores\": %d, "
 		"\"ball_time\": %d, \"ball_kills\": %d, \"hill_time\": %d, \"laps\": %d}",
@@ -918,7 +918,7 @@ static void write_player(struct text *text, int slot, int end_tick)
 		else
 			text_append(text, "\"other\"");
 		text_append(text, ", \"shots\": %d, \"hits\": %d, \"kills\": %d, \"headshots\": %d, \"damage\": %.1f}",
-			weapon->shots, weapon_hits, weapon->kills, weapon->headshots, finite(weapon->damage));
+			weapon->shots, weapon_hits, weapon->kills, weapon->headshots, json_number(weapon->damage));
 		shots = clamp_add(shots, weapon->shots);
 		hits = clamp_add(hits, weapon_hits);
 		any = 1;
