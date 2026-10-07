@@ -569,7 +569,7 @@ static long country_steps(long f, long direction, long *to)
 	known = country.step_mask[f * 8 + direction];
 	if (known != COUNTRY_STEPS_UNKNOWN)
 	{
-		for (g = country.first[n]; known && count < COUNTRY_STEPS; g++, known >>= 1)
+		for (g = country.first[n]; known && count < COUNTRY_STEPS && g < country.first[n + 1]; g++, known >>= 1)
 			if (known & 1)
 				to[count++] = g;
 		return count;
@@ -1463,7 +1463,7 @@ static void country_machines(void)
 		free(added);
 		return;
 	}
-	qsort(added, count, sizeof(struct country_addition), country_compare_additions);
+	bot_sort_stable(added, count, sizeof(struct country_addition), country_compare_additions);
 	total = country.floor_count + count;
 	first = (long *)malloc((cells + 1) * sizeof(long));
 	z = (float *)malloc(total * sizeof(float));
@@ -1969,7 +1969,7 @@ static boolean country_cache_read(FILE *file)
 	for (c = 0; ok && c < cells; c++)
 	{
 		long f;
-		ok = first[c] <= first[c + 1];
+		ok = first[c] <= first[c + 1] && first[c + 1] <= (int)header.floor_count; /* (each within the floors there are, before any is written to) */
 		country.first[c] = first[c];
 		for (f = first[c]; ok && f < first[c + 1]; f++)
 			country.square[f] = c;
@@ -2088,7 +2088,10 @@ void bot_country_build(void)
 	country.height = (long)((maximum_y - country.y0) / country.cell) + 2;
 	cells = country.width * country.height;
 	if (country_cache_load())
+	{
+		country_squeeze_noting = FALSE; /* (noted while it is built, and it was not) */
 		goto ready;
+	}
 	counts = (long *)calloc(cells + 1, sizeof(long));
 	hit_first = (long *)malloc((cells + 1) * sizeof(long));
 	country.first = (long *)malloc((cells + 1) * sizeof(long));
@@ -2118,7 +2121,7 @@ void bot_country_build(void)
 		{
 			long h;
 			if (pass == 0)
-				qsort(&hits[hit_first[c]], hit_first[c + 1] - hit_first[c], sizeof(struct country_hit), country_compare_hits);
+				bot_sort_stable(&hits[hit_first[c]], hit_first[c + 1] - hit_first[c], sizeof(struct country_hit), country_compare_hits);
 			else
 				country.first[c] = floors;
 			for (h = hit_first[c]; h < hit_first[c + 1]; h++)

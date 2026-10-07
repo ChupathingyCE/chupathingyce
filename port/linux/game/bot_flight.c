@@ -120,8 +120,11 @@ static struct
 	long searches_this_tick;
 } air;
 
+static void air_trails_forget(void);
+
 void bot_air_dispose(void)
 {
+	air_trails_forget();
 	free(air.ground);
 	free(air.sky);
 	free(air.over);
@@ -773,7 +776,7 @@ long bot_air_route(real_point3d const *from, real_point3d const *to, real need, 
 			}
 		}
 		if (!found)
-			return 0;
+			return -1; /* (looked, and there is none: not "no search to be had this tick") */
 	}
 	/* back from the goal, then the turns of it: from each kept square, the
 	   furthest one along that is in a straight line with room */
@@ -1090,6 +1093,12 @@ struct air_trail
 
 static struct air_trail air_trails[AIR_TRAILS];
 
+/* (the ways out of one map's roofs are not another's: with the air map) */
+static void air_trails_forget(void)
+{
+	memset(air_trails, 0, sizeof(air_trails));
+}
+
 static boolean air_roofed(real_point3d const *position, long ignore)
 {
 	real ground = bot_air_ground(position->x, position->y, 0.f);
@@ -1355,8 +1364,12 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 
 	/* ---- the route: a new one when the place has moved a good way, or
 	   every two seconds (three turns a second of a fast craft are a mile) */
-	if (pilot->route_count <= 0 || now - pilot->route_tick > BOT_SECONDS(2.f) ||
-		bot_distance2d(&pilot->route_to, &order->destination) > MAX(12.f, to_place * 0.2f))
+	/* (... but one that found no way is not looked for again the tick after,
+	   and every tick for four seconds: each is the whole search, and the one
+	   search a tick is every pilot's) */
+	if ((pilot->route_count <= 0 || now - pilot->route_tick > BOT_SECONDS(2.f) ||
+		bot_distance2d(&pilot->route_to, &order->destination) > MAX(12.f, to_place * 0.2f)) &&
+		!(pilot->route_count > 0 && pilot->route_none_tick > 0 && now - pilot->route_none_tick < BOT_SECONDS(1.f)))
 	{
 		real_point3d turns[BOT_PILOT_TURNS];
 		long count = bot_air_route(position, &order->destination, need, turns, BOT_PILOT_TURNS);
@@ -1368,6 +1381,8 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 			pilot->route_tick = now;
 			pilot->route_to = order->destination;
 		}
+		else if (count < 0 && pilot->route_count > 0 && now - pilot->route_tick <= BOT_SECONDS(6.f))
+			pilot->route_none_tick = now;
 		else if (pilot->route_count <= 0 || now - pilot->route_tick > BOT_SECONDS(6.f))
 		{
 			/* (no way found, or no search to be had this tick: straight at it,

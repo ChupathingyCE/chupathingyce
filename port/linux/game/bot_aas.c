@@ -67,7 +67,7 @@ there. Reachabilities that bots keep failing at cost more (learned).
 #define AAS_FOOT_SPEED 2.25f
 #define AAS_VEHICLE_SPEED 6.f
 #define AAS_CACHES 96
-#define AAS_CACHE_VERSION 31
+#define AAS_CACHE_VERSION 32
 #define AAS_DEAD_FAILURES 4 /* failed this often: not a way */
 
 /* what a way that has failed costs, in seconds over its time: a jump or a
@@ -676,6 +676,57 @@ struct aas_candidate
 	long walkover; /* floor a step up or down just over a slot: walked */
 };
 
+/* Sorted, and what compares equal left in the order it was in. (The C
+   library's qsort leaves that order to itself, and each library's is its
+   own: the ways along a straight ledge all cost the same, the first of them
+   that stands is the one kept, and which was first was one thing built on
+   Linux and another on Windows.) */
+void bot_sort_stable(void *base, size_t count, size_t size, int (*compare)(void const *, void const *))
+{
+	char *from = (char *)base;
+	char *spare;
+	char *to;
+	size_t width;
+	if (count < 2 || size == 0)
+		return;
+	spare = (char *)malloc(count * size);
+	if (!spare)
+	{
+		qsort(base, count, size, compare);
+		return;
+	}
+	to = spare;
+	for (width = 1; width < count; width *= 2)
+	{
+		size_t start;
+		char *swap;
+		for (start = 0; start < count; start += 2 * width)
+		{
+			size_t middle = MIN(start + width, count);
+			size_t end = MIN(start + 2 * width, count);
+			size_t left = start, right = middle, out = start;
+			while (left < middle && right < end)
+			{
+				/* (the right one only when it is less: equal, the left, which came first) */
+				if (compare(from + right * size, from + left * size) < 0)
+					memcpy(to + out++ * size, from + right++ * size, size);
+				else
+					memcpy(to + out++ * size, from + left++ * size, size);
+			}
+			if (left < middle)
+				memcpy(to + out * size, from + left * size, (middle - left) * size);
+			else if (right < end)
+				memcpy(to + out * size, from + right * size, (end - right) * size);
+		}
+		swap = from;
+		from = to;
+		to = swap;
+	}
+	if (from != (char *)base)
+		memcpy(base, from, count * size);
+	free(spare);
+}
+
 static int aas_candidate_compare(void const *a, void const *b)
 {
 	struct aas_candidate const *ca = (struct aas_candidate const *)a;
@@ -792,7 +843,7 @@ static void aas_walk_reaches(long type, struct aas_reaches *reaches)
 			candidate->high_span = t;
 		}
 	}
-	qsort(list.items, list.count, sizeof(struct aas_candidate), aas_candidate_compare);
+	bot_sort_stable(list.items, list.count, sizeof(struct aas_candidate), aas_candidate_compare);
 	for (i = 0; i < list.count;)
 	{
 		struct aas_candidate const *first = &list.items[i];
@@ -914,6 +965,26 @@ static void aas_dissolve_specks(long type, struct aas_reaches *walks)
 done:
 	free(linked);
 	free(speck);
+}
+
+/* How much floor a gap wants straight behind its edge, to be run at from:
+   0.7 of a world unit, for a long one. A body is at a run in a quarter of
+   a unit, and a gap of a unit and a half to a floor no higher is cleared
+   from half that speed: for those, a step and a half of floor (0.35). The
+   ledges beside the middle of Longest are jumped onto from the shelf the
+   overshield and the camouflage lie on, which is 0.3 to 0.5 deep along that
+   side; with 0.7 asked for, the way from the powerups to the shotguns was
+   down to the floor and up a ladder. (HALO_BOT_GAPRUN=<units>: the short
+   one, for tests.) */
+#define AAS_GAP_RUNUP 0.7f
+#define AAS_GAP_RUNUP_SHORT 0.35f
+#define AAS_GAP_SHORT 1.9f /* a gap no longer than this, to a floor no higher, is a short one */
+static real aas_gap_runup(real across, real rise)
+{
+	static real shorter = -1.f;
+	if (shorter < 0.f)
+		shorter = getenv("HALO_BOT_GAPRUN") ? (real)atof(getenv("HALO_BOT_GAPRUN")) : AAS_GAP_RUNUP_SHORT;
+	return across <= AAS_GAP_SHORT && rise <= 0.05f ? shorter : AAS_GAP_RUNUP;
 }
 
 /* the ledges: up with a jump, down off them, and across gaps (on foot) */
@@ -1144,7 +1215,7 @@ static void aas_ledge_reaches(long type, struct aas_reaches *reaches)
 			}
 		}
 	}
-	qsort(list.items, list.count, sizeof(struct aas_candidate), aas_candidate_compare);
+	bot_sort_stable(list.items, list.count, sizeof(struct aas_candidate), aas_candidate_compare);
 	for (i = 0; i < list.count;)
 	{
 		long j = i;
@@ -1175,8 +1246,8 @@ static void aas_ledge_reaches(long type, struct aas_reaches *reaches)
 				if (length < 0.01f)
 					continue;
 				back = edge;
-				back.x += dx / length * 0.7f;
-				back.y += dy / length * 0.7f;
+				back.x += dx / length * aas_gap_runup(length, land.z - edge.z);
+				back.y += dy / length * aas_gap_runup(length, land.z - edge.z);
 				if (!navm_line_walkable(&edge, &back, 0.f, 0.f))
 					continue;
 			}
@@ -1827,7 +1898,7 @@ static boolean aas_cache_read(FILE *file, char const *map, unsigned long const *
 		!memcmp(header.signature, signature, 4 * sizeof(unsigned long)) && header.span_count == navm.span_count && header.span_hash == aas_span_hash_now;
 	for (type = 0; ok && type < NUMBER_OF_AAS_TYPES; type++)
 		ok = header.area_count[type] >= 0 && header.area_count[type] < 16 * 1024 * 1024 &&
-			header.reach_count[type] >= 0 && header.reach_count[type] < 64 * 1024 * 1024; /* (before anything's sized by them) */
+			header.reach_count[type] >= 0 && header.reach_count[type] < 16 * 1024 * 1024; /* (before anything's sized by them: what a 32-bit size holds of either) */
 	for (type = 0; ok && type < NUMBER_OF_AAS_TYPES; type++)
 	{
 		struct aas_world *world = &aas_worlds[type];
@@ -1850,6 +1921,7 @@ static boolean aas_cache_read(FILE *file, char const *map, unsigned long const *
 			for (r = 0; ok && r < world->reach_count; r++)
 				ok = world->reaches[r].from >= 0 && world->reaches[r].from < world->area_count &&
 					world->reaches[r].to >= 0 && world->reaches[r].to < world->area_count &&
+					world->reaches[r].travel >= 0 && world->reaches[r].travel < NUMBER_OF_AAS_TRAVEL_TYPES && /* (counted by it) */
 					(r == 0 || world->reaches[r].from >= world->reaches[r - 1].from);
 			for (r = 0; ok && r < navm.span_count; r++)
 				ok = world->span_area[r] == NONE || (world->span_area[r] >= 0 && world->span_area[r] < world->area_count);
@@ -2098,9 +2170,15 @@ static void aas_failures_load(void)
 			struct aas_world *world = &aas_worlds[type];
 			long r;
 			long dead = 0;
-			if (!world->failures || world->reach_count <= 0 ||
-				fread(world->failures, 1, (size_t)world->reach_count, file) != (size_t)world->reach_count)
+			/* (a world with no ways has none written, and what follows it
+			   is still to be read; a file cut short leaves nothing behind) */
+			if (world->reach_count <= 0)
+				continue;
+			if (!world->failures)
+				break;
+			if (fread(world->failures, 1, (size_t)world->reach_count, file) != (size_t)world->reach_count)
 			{
+				memset(world->failures, 0, (size_t)world->reach_count);
 				break;
 			}
 			if (!aas_shared_writable(&world->penalty))
@@ -2241,14 +2319,18 @@ static void aas_finish_world(long type)
 	{
 		real speed = aas_speed(type);
 		long pairs = 0;
+		unsigned long long pairs_in_all = 0;
 		long i, j;
 
 		world->reach_from = (long *)malloc(MAX(1, world->reach_count) * sizeof(long));
 		world->incoming_time = (float *)malloc(MAX(1, world->reach_count) * sizeof(float));
 		world->pair_base = (long *)malloc(MAX(1, world->area_count) * sizeof(long));
 		for (a = 0; a < world->area_count; a++)
-			pairs += world->areas[a].reach_count * world->areas[a].incoming_count;
-		world->pair_time = (float *)malloc(MAX(1, pairs) * sizeof(float));
+			pairs_in_all += (unsigned long long)world->areas[a].reach_count * (unsigned long long)world->areas[a].incoming_count;
+		/* (no map comes near it; a file that says so is not a map's, and its
+		   sum is not left to wrap round to a few bytes) */
+		pairs = pairs_in_all < 64ULL * 1024 * 1024 ? (long)pairs_in_all : -1;
+		world->pair_time = pairs >= 0 ? (float *)malloc(MAX(1, pairs) * sizeof(float)) : NULL;
 		if (!world->reach_from || !world->incoming_time || !world->pair_base || !world->pair_time)
 		{
 			aas_no_memory("the routes' times");
@@ -2432,7 +2514,7 @@ boolean aas_build(void)
 			if (!aas_build_failed)
 				aas_teleporter_reaches(type, &reaches);
 			if (reaches.count > 0)
-				qsort(reaches.items, reaches.count, sizeof(struct aas_reach), aas_reach_from_compare);
+				bot_sort_stable(reaches.items, reaches.count, sizeof(struct aas_reach), aas_reach_from_compare);
 			aas_worlds[type].reaches = reaches.items;
 			aas_worlds[type].reach_count = reaches.count;
 			if (aas_build_failed)

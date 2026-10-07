@@ -773,10 +773,10 @@ and the ball, and hold the hill.
   whole levels: 7.3 is possible). A bot keeps its skill for the game and
   gets a different one in the next game. In the console, `bot_skill_spread
   <0-9>` changes the value.
-- The name of a bot starts with `[bot]`: `[bot]Anvil`. The lobby, the
+- The name of a bot ends with `[Bot]`: `Anvil [Bot]`. The lobby, the
   scores, the kill messages and the names above the players show this
-  name. A name has 11 letters at most, thus the names of the bots are
-  short.
+  name. A name has 11 letters at most, thus the names of the bots have 5
+  letters or fewer.
 - `bots.fill` gives a number of players, not a number of bots: the bots
   fill the places that people do not have. A bot goes when a person joins,
   and a bot comes back when a person goes, in the lobby and during the
@@ -1400,14 +1400,137 @@ The four changes together did not change who wins between bots: in 32
 team games the teams with them had 5298 kills and the teams without them
 5211.
 
+**Jumps across gaps, and the way up to high places.** These rules are for
+a bot on foot near a jump:
+
+- A bot does not come to the start of a gap faster than it can stop. It
+  slows down when there is no floor behind the start, unless it runs on
+  the line of the jump already.
+- Where the floor goes down or is steep before the edge (the top of a
+  rock, a rounded edge), the bot jumps before it comes to the edge. A body
+  that runs across such an edge is in the air, and the game does not let
+  it jump from there.
+- A gap of 1.9 world units or less, to a floor that is not higher, needs
+  0.35 world units of floor for the run (0.7 before). Longest has such
+  gaps from each powerup to the shotgun on the other side.
+- A bot that falls off the start of the same jump two times in 20 seconds
+  uses another way for some time. Before, it fell there again and again.
+- A bot that comes down past the place where a jump ends is at the end of
+  the jump. Before, it went back to do the jump again.
+- Near a jump (3 world units), a bot does not sidestep and does not hop,
+  also in a fight.
+- A bot that is held up two times in 3 seconds at one place makes a larger
+  step to the side with more room.
+- A bot does not give up a place because it did not come nearer during a
+  fight. A bot waits 7 seconds longer before it gives up a rocket
+  launcher, a sniper rifle or a powerup.
+- In a race, a bot fights only an enemy that is 2.5 world units away or
+  less (4.5 when that enemy shoots at it), does not lie in wait, and does
+  not stop at a checkpoint to fight there.
+
+The tests are with bots of skill 10:
+
+| Test | Before | After |
+|---|---|---|
+| Battle Creek, one bot to the roof of the west base (16 games) | 12 of 16 got there | 16 of 16, 26 seconds |
+| Battle Creek, one bot to two places on the roof of the east base | 16 of 16 | 16 of 16, 14 and 16 seconds |
+| Battle Creek, one bot to the rocket launcher | | 16 of 16, 18 seconds |
+| Battle Creek, 16 games of 4 bots: the rocket launcher was taken | 55 of 68 times, 50 seconds after it came (the median) | 83 of 90 times, 41 seconds |
+| The same games: bots gave the rocket launcher up | 121 times | 17 times |
+| Longest, two bots go round the overshield, a shotgun, the camouflage and the other shotgun | 167 places in 4 games, 11.6 seconds for each, 12 jumps failed | 556 places in 12 games, 10.5 seconds for each, 17 jumps or ladders failed |
+| Longest, from a powerup to the shotgun | a drop and a ladder, 7.2 to 7.6 seconds | a jump, 5.3 to 5.6 seconds |
+| Longest, from a shotgun up the ramp and across to the powerup | 14.2 and 18.0 seconds | 15.3 seconds |
+| Race on Wizard, score for each bot in a minute | 2.0 (5.0 without the changes of the section before this) | 11.6 |
+| Race on Chiron TL-34 | 12 to 13 | 12 to 13 |
+| 11 maps, four bots go round the items of each | 831 places, 11.8 seconds for each, 10 given up | 862 places, 11.7 seconds, 10 given up |
+
+In the Battle Creek games with 8 bots, the rocket launcher was taken 42 of
+50 times and 46 seconds after it came (27 of 34 times and 41 seconds
+before). A bot of skill 10 lives about 20 seconds in such a game, and most bots
+that go to the rocket launcher die on the way. In ordinary games the bots
+are almost never on the roofs of the bases: nothing lies there. On
+Longest, most bots stop for a run before the jump to a powerup, and do not
+jump from the run up the ramp.
+
+The navigation data has a new version for the shorter run. Bake the maps
+again (`bake-navigation.cmd`), or the game makes the data in the first
+game on each map.
+
+**What a reading of the code found.** These faults were in the code before,
+and are corrected:
+
+- A bot did not hear shots. It took the time that a player got a weapon in
+  the hands for the time of a shot. Thus it "heard" a player who changed
+  weapons or got a new body, saw a player with active camouflage who
+  changed weapons, and saw such a player sooner. Now it uses the time of
+  the last shot of the weapon (or of the weapon of the vehicle, for its
+  gunner). In 32 team games, the team with the correction had 3855 kills
+  and the team without it 4143: the fault let a bot shoot sooner at an
+  enemy with a new body.
+- More than one bot went to the same empty vehicle with one seat.
+- A bot at the wheel with a person of its team next to the vehicle, who
+  did not get in, waited as long as the person stood there. Now it
+  drives away after some seconds.
+- A bot that drove by the navigation areas took the end of each straight
+  part for a corner, and slowed down there unless it drove to the east.
+- A bot that could not get out of a vehicle on the one tick that it tried
+  stayed in the vehicle.
+- A flag carrier or a ball carrier in a vehicle seat was not known as an
+  enemy or as a teammate.
+- A flag carrier on a very large map went again and again to a vehicle
+  that it could not get to.
+- A squad on a small map could have the centre of the world as its place
+  to go.
+- A bot that stood off the navigation areas, and went in circles or was
+  held up there, marked a way as bad that it was not on. All bots then
+  did not use that way.
+- A sidestep that a bot started before a fight or before a jump continued
+  after it, in the old direction.
+- The time that the bots add to a jump that was slow one time did not go
+  back to zero.
+- A vehicle that the bots gave up stayed given up in the next game on the
+  same map.
+- A weapon that a player took and put on the back counted as a weapon
+  that lies at its place, thus the bots did not go there for the next
+  one.
+- A bot that goes makes its place free for a person: the person then
+  counted as a bot for the jobs of the team (driver, sniper).
+- A pilot that found no route looked for one again on each tick for 4
+  seconds, and the other pilots got no route in that time.
+- The order of ways with the same cost was the order of the C library,
+  which is not the same on Windows and on Linux. Now the order is the
+  same on all systems. The data on Linux did not change (all 97 files of
+  22 maps are the same, byte for byte).
+- A damaged file of navigation data could make the game write outside its
+  memory. The game now examines the numbers in the file first.
+
+The code of the bots was also compiled with the undefined behaviour
+sanitizer of the compiler. In 22 games on 21 maps (all game types, with
+vehicles and aircraft) it found nothing. The address sanitizer cannot run
+with the 64-bit build, which needs a fixed address that the sanitizer also
+uses.
+
+These faults are known and not corrected: the test for a bot that goes in
+circles uses a route without the ways that the bot avoids; a bot that
+stands still against an edge for half a second gives the jump up before
+its other rules for that jump can act; on a gap with no room for a run,
+the bot goes to a point behind the edge that can be in a wall; the search
+of a driver across open country stops after a time on the clock, thus two
+games with the same seed are not always the same; a floor square next to
+the end of a wall counts as next to a drop.
+
 `HALO_BOT_REFINE` has more parts: 32 (the height and the size of craft),
 64 (the drivers), 128 (the nearest vehicle), 256 (the grenades), 512
 (the jumps at a run and the legs), 1024 (how a good player moves in a
-fight), 2048 (lying in wait), 4096 (all the enemies in a room) and 8192
-(when things come back). `HALO_BOT_REFINE=1023` turns the last four off,
-and `HALO_BOT_REFINE=31` turns these nine off. The names `agile`, `camp`,
-`aware` and `timing` in `HALO_BOT_OFF`, `HALO_BOT_OFF_T0` and
-`HALO_BOT_OFF_T1` turn the same four off for all bots or for one team, and
+fight), 2048 (lying in wait), 4096 (all the enemies in a room), 8192
+(when things come back), 16384 (the rules near a jump, above) and 32768
+(the corrections from the reading of the code that change what a bot
+does). `HALO_BOT_REFINE=32767` turns the last one off, `HALO_BOT_REFINE=16383`
+the last two, `HALO_BOT_REFINE=1023` the last six, and
+`HALO_BOT_REFINE=31` turns these eleven off. The names `agile`, `camp`,
+`aware`, `timing` and `hear` (shots heard by the shot) in `HALO_BOT_OFF`,
+`HALO_BOT_OFF_T0` and `HALO_BOT_OFF_T1` turn these off for all bots or for
+one team, and
 `HALO_BOT_OFF_EVEN` does this for each second bot (for a game without
 teams). `HALO_NETWORK_TEST_SCORE=<n>` sets the score that ends a test
 game. `HALO_BOT_TUCKRISE=<world units>` sets the ledge above which a bot

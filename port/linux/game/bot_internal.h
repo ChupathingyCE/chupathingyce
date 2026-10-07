@@ -9,6 +9,8 @@ there).
 #ifndef __BOT_INTERNAL_H
 #define __BOT_INTERNAL_H
 
+#include <stddef.h>
+
 #include "bot_port.h"
 #include "bot_nav.h"
 
@@ -61,6 +63,12 @@ struct bot_move_state
 	int reach_hole; /* a gap that is walked over: 0 not looked at, 1 walked, 2 a hole a body goes down (jumped) */
 	int reach_no_room; /* a gap with nowhere behind its edge to take a run from */
 	long reach_settle_ticks; /* held back from a jump it was going across the line of */
+	long slip_reach; /* a jump or a gap it fell off the start of before beginning (NONE none), */
+	long slip_tick; /* ... and when */
+	long called_tick; /* when the way was last asked: a gap in that, and what was under way is over */
+	long held_count; /* how many times running it has been held up in one place, */
+	long held_tick; /* ... when last, */
+	real_point3d held_point; /* ... and where */
 	real reach_slowest, reach_off_speed; /* (testing: the slowest it went before it left the ground, and how fast it left it) */
 	long reach_off_ticks; /* (... and how long after it set about it) */
 	long jump_hold; /* ticks more the jump button is held, for a jump the game has not taken yet */
@@ -170,6 +178,7 @@ struct bot_move_result
 	real look_pitch;
 	real path_yaw; /* which way the route goes (to look along it) */
 	int exact; /* close to where a jump, a gap, a ladder or a drop starts: the feet exactly where it says */
+	int delicate; /* a jump, a gap, a ladder or a drop a few steps on by the way: along the way, and no stepping off it to be harder to hit */
 	int arrived;
 	int no_route; /* can't get there from here */
 	long travel; /* what we're doing (_aas_travel_*) */
@@ -210,6 +219,7 @@ struct bot_pilot
 	long route_count;
 	long route_next;
 	long route_tick; /* when it was found */
+	long route_none_tick; /* when a search for a new one last found none */
 	real_point3d route_to; /* ... and where to */
 	long phase; /* on the way, a run at someone, off from one, landing */
 	long phase_tick;
@@ -399,8 +409,13 @@ real bot_vehicle_top_speed(long definition_index);
    the better bots, and the legs tucked up only for a ledge that wants it.
    1024: a good player's movement in a fight. 2048: lying in wait. 4096:
    everyone in a room kept track of. 8192: off to where a thing comes back
-   before it does.) */
+   before it does. 16384: landing by a gap no faster than it can stop from,
+   and a gap fallen off the start of twice held against it. 32768: what a
+   reading of the code found: gunfire heard by the shot, one bot to a
+   one-seat vehicle, and the rest of that list.) */
 int bot_refined_is(int which);
+/* (sorted, with what compares equal left as it was: the same on every C library) */
+void bot_sort_stable(void *base, size_t count, size_t size, int (*compare)(void const *, void const *));
 void bot_pilot_reset(struct bot_pilot *pilot);
 void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_flight_order const *order, struct bot_flight_result *result);
 
