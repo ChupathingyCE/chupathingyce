@@ -32,6 +32,7 @@ static int failures;
 
 #define PLATFORM_BIT ((delta_u32)1 << _delta_capability_platform)
 #define PROFILE_BIT ((delta_u32)1 << _delta_capability_profile)
+#define MAPS_BIT ((delta_u32)1 << _delta_capability_ce_maps)
 
 /* ---------- a simulated network */
 
@@ -416,6 +417,80 @@ static void test_wire_table(void)
 	size = delta_wire_write_table_have(data, 9, 77);
 	CHECK(delta_wire_read_table_have(data + 12, size - 12, &serial) && serial == 77);
 	CHECK(!delta_wire_read_table_have(data + 12, 3, &serial) && serial == 0);
+}
+
+static void sample_map(struct delta_wire_map *map, int family, const char *name, int byte)
+{
+	memset(map, 0, sizeof(*map));
+	map->family = (unsigned char)family;
+	map->flags = family ? DELTA_WIRE_MAP_HASHED : 0;
+	map->size_low = 0x12345678u;
+	map->size_high = family ? 1 : 0;
+	if (family)
+		memset(map->hash, byte, sizeof(map->hash));
+	snprintf(map->name, sizeof(map->name), "%s", name);
+}
+
+static void test_wire_map(void)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	struct delta_wire_header header;
+	struct delta_wire_map map, back;
+	char long_name[DELTA_WIRE_MAP_NAME_SIZE + 2];
+	int size;
+
+	sample_map(&map, 1, "infinity", 0xAB);
+	size = delta_wire_write_map(data, 9, &map);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_MAP_SIZE + 8);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_map && header.session == 9);
+	CHECK(delta_wire_read_map(data + 12, header.length, &back) && !memcmp(&back, &map, sizeof(map)));
+	/* (cut short, or its name past the payload) */
+	CHECK(!delta_wire_read_map(data + 12, header.length - 1, &back) && !back.name[0]);
+	CHECK(!delta_wire_read_map(data + 12, DELTA_WIRE_MAP_SIZE - 1, &back));
+	CHECK(!delta_wire_read_map(NULL, 100, &back));
+	/* (trailing bytes are a later version's) */
+	CHECK(delta_wire_read_map(data + 12, header.length + 20, &back) && !strcmp(back.name, "infinity"));
+	/* an Xbox map: named, no hash */
+	sample_map(&map, 0, "bloodgulch", 0);
+	size = delta_wire_write_map(data, 9, &map);
+	CHECK(size > 0 && delta_wire_read_map(data + 12, size - 12, &back) && back.family == 0 && !back.flags);
+	/* refused, never mended: a Halo PC map without its hash, names that are
+	paths or empty, unknown flags, a name longer than its field */
+	sample_map(&map, 2, "deathisland", 1);
+	map.flags = 0;
+	CHECK(delta_wire_write_map(data, 9, &map) == 0);
+	sample_map(&map, 1, "..", 1);
+	CHECK(delta_wire_write_map(data, 9, &map) == 0);
+	sample_map(&map, 1, "a\\b", 1);
+	CHECK(delta_wire_write_map(data, 9, &map) == 0);
+	sample_map(&map, 1, "", 1);
+	CHECK(delta_wire_write_map(data, 9, &map) == 0);
+	sample_map(&map, 1, "x..y", 1);
+	CHECK(delta_wire_write_map(data, 9, &map) == 0);
+	sample_map(&map, 3, "ok name-1.v2", 1);
+	size = delta_wire_write_map(data, 9, &map);
+	CHECK(size > 0);
+	data[12 + 1] = 0x80;
+	CHECK(!delta_wire_read_map(data + 12, size - 12, &back));
+	data[12 + 1] = DELTA_WIRE_MAP_HASHED;
+	data[12 + DELTA_WIRE_MAP_SIZE + 2] = '/';
+	CHECK(!delta_wire_read_map(data + 12, size - 12, &back));
+	data[12 + DELTA_WIRE_MAP_SIZE + 2] = 0;
+	CHECK(!delta_wire_read_map(data + 12, size - 12, &back));
+	data[12 + DELTA_WIRE_MAP_SIZE + 2] = 0x7F;
+	CHECK(!delta_wire_read_map(data + 12, size - 12, &back));
+	data[12 + DELTA_WIRE_MAP_SIZE + 2] = 'n';
+	data[12 + 2] = DELTA_WIRE_MAP_NAME_SIZE + 1;
+	CHECK(!delta_wire_read_map(data + 12, DELTA_WIRE_MAXIMUM_PAYLOAD, &back));
+	memset(long_name, 'a', sizeof(long_name) - 1);
+	long_name[sizeof(long_name) - 1] = 0;
+	CHECK(!delta_wire_map_name_valid(long_name));
+	long_name[DELTA_WIRE_MAP_NAME_SIZE] = 0;
+	CHECK(delta_wire_map_name_valid(long_name));
+	/* (a family this build does not know is carried as it is) */
+	sample_map(&map, 200, "future", 7);
+	size = delta_wire_write_map(data, 9, &map);
+	CHECK(size > 0 && delta_wire_read_map(data + 12, size - 12, &back) && back.family == 200);
 }
 
 static void test_wire(void)
@@ -914,6 +989,91 @@ static void test_kill_switch(void)
 	queued = 0;
 }
 
+/* ---------- Halo PC maps' identity */
+
+static void test_maps(void)
+{
+	int joined[4] = { 0, 1, 1, 1 };
+	struct delta_wire_map map, heard;
+	delta_u32 generation;
+	delta_u32 now = 400000;
+	int step;
+
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT | MAPS_BIT, _delta_platform_pc_linux, 0, 0);
+	/* (one client with ce_maps, one without, one whose table turns it off) */
+	node_start(1, 0x0300007F, 40001, PLATFORM_BIT | MAPS_BIT, _delta_platform_pc_macos, 0, 0);
+	node_start(2, 0x0400007F, 40002, PLATFORM_BIT, _delta_platform_pc_windows, 0, 0);
+	node_start(3, 0x0500007F, 40003, PLATFORM_BIT | MAPS_BIT, _delta_platform_pc_linux, 0, 0);
+	nodes[3].disabled = MAPS_BIT;
+	game_reset();
+	game_add(1);
+	game_add(2);
+	game_add(3);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(nodes[1].peer.agreed & MAPS_BIT);
+	CHECK(delta_peer_host_map(&nodes[1].peer, NULL) == 0);
+
+	/* the host's map: to the client that agreed, at once */
+	sample_map(&map, 1, "infinity", 0x5A);
+	delta_peer_set_map(&nodes[0].peer, &map);
+	frame(now, 4, joined, 1);
+	generation = delta_peer_host_map(&nodes[1].peer, &heard);
+	CHECK(generation && !memcmp(&heard, &map, sizeof(map)));
+	CHECK(delta_peer_host_map(&nodes[2].peer, NULL) == 0);
+	CHECK(delta_peer_host_map(&nodes[3].peer, NULL) == 0);
+	/* (the same map again changes nothing; sent again in a while, still
+	the same generation) */
+	delta_peer_set_map(&nodes[0].peer, &map);
+	for (step = 0; step < 30; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_host_map(&nodes[1].peer, NULL) == generation);
+
+	/* a lost MAP is sent again within the interval */
+	sample_map(&map, 2, "deathisland", 0x11);
+	nodes[0].mute = 1;
+	delta_peer_set_map(&nodes[0].peer, &map);
+	frame(now, 4, joined, 1);
+	nodes[0].mute = 0;
+	CHECK(delta_peer_host_map(&nodes[1].peer, NULL) == generation);
+	for (step = 0; step < 20; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_host_map(&nodes[1].peer, &heard) != generation && heard.family == 2 &&
+		!strcmp(heard.name, "deathisland"));
+
+	/* a MAP from a stranger, or of another session, is dropped */
+	{
+		unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+		int size;
+
+		generation = delta_peer_host_map(&nodes[1].peer, NULL);
+		sample_map(&map, 1, "evil", 0x66);
+		size = delta_wire_write_map(data, nodes[1].peer.session + 1, &map);
+		delta_peer_receive(&nodes[1].peer, now, HOST_IPV4, DELTA_PEER_PORT, data, size);
+		size = delta_wire_write_map(data, nodes[1].peer.session, &map);
+		delta_peer_receive(&nodes[1].peer, now, 0x0900007F, DELTA_PEER_PORT, data, size);
+		CHECK(delta_peer_host_map(&nodes[1].peer, &heard) == generation && strcmp(heard.name, "evil"));
+		/* (and none to a host) */
+		delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, nodes[1].port, data, size);
+	}
+
+	/* the host's table turns ce_maps off: nothing more is sent */
+	nodes[0].disabled = MAPS_BIT;
+	generation = delta_peer_host_map(&nodes[1].peer, NULL);
+	sample_map(&map, 1, "hangemhigh", 0x22);
+	delta_peer_set_map(&nodes[0].peer, &map);
+	for (step = 0; step < 30; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_host_map(&nodes[1].peer, NULL) == generation);
+	nodes[0].disabled = 0;
+
+	/* leaving forgets the host's map */
+	joined[1] = 0;
+	frame(now, 4, joined, 1);
+	CHECK(delta_peer_host_map(&nodes[1].peer, NULL) == 0);
+	queued = 0;
+}
+
 /* ---------- the legacy table's relay */
 
 /* frames every step milliseconds until the time */
@@ -1083,8 +1243,23 @@ static int mutated_message(unsigned char *data, delta_u32 session)
 	int size;
 	int flips;
 
-	switch (next_random() % 8)
+	switch (next_random() % 9)
 	{
+	case 8:
+	{
+		struct delta_wire_map map;
+
+		random_bytes((unsigned char *)&map, (int)sizeof(map));
+		map.family = (unsigned char)(map.family % 5);
+		map.flags = map.family ? DELTA_WIRE_MAP_HASHED : 0;
+		map.name[next_random() % 12] = 0;
+		for (size = 0; map.name[size]; size++)
+			map.name[size] = (char)('a' + (unsigned char)map.name[size] % 26);
+		if (!map.name[0] && map.family)
+			snprintf(map.name, sizeof(map.name), "m");
+		size = delta_wire_write_map(data, session, &map);
+		break;
+	}
 	case 6:
 	{
 		static unsigned char bytes[DELTA_WIRE_TABLE_CHUNK];
@@ -1154,8 +1329,8 @@ static void test_random(long iterations)
 	delta_u32 now = 100000;
 	long iteration;
 
-	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT | PROFILE_BIT, _delta_platform_pc_linux, 0x33, 3);
-	node_start(1, 0x0300007F, 40001, PLATFORM_BIT | PROFILE_BIT, _delta_platform_pc_linux, 0x44, 0);
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT | PROFILE_BIT | MAPS_BIT, _delta_platform_pc_linux, 0x33, 3);
+	node_start(1, 0x0300007F, 40001, PLATFORM_BIT | PROFILE_BIT | MAPS_BIT, _delta_platform_pc_linux, 0x44, 0);
 	game_reset();
 	game_add(1);
 	for (iteration = 0; iteration < iterations; iteration++)
@@ -1185,6 +1360,15 @@ static void test_random(long iterations)
 				CHECK(table.data + table.length <= data + size);
 			}
 			delta_wire_read_table_have(data + DELTA_WIRE_HEADER_SIZE, header.length, &serial);
+			{
+				struct delta_wire_map map;
+
+				if (delta_wire_read_map(data + DELTA_WIRE_HEADER_SIZE, header.length, &map))
+				{
+					CHECK(delta_wire_map_name_valid(map.name) || (!map.family && !map.name[0]));
+					CHECK(!map.family || (map.flags & DELTA_WIRE_MAP_HASHED));
+				}
+			}
 			if (delta_wire_read_roster(data + DELTA_WIRE_HEADER_SIZE, header.length, &roster))
 				CHECK(roster.count <= DELTA_WIRE_MAXIMUM_ROSTER_ENTRIES);
 			for (index = 0; index < DELTA_WIRE_BUILD_SIZE + 1 && hello.build[index]; index++)
@@ -1233,12 +1417,14 @@ int main(int argc, char **argv)
 		random_state = 1;
 	verbose = getenv("DELTA_TEST_VERBOSE") != NULL;
 	test_wire();
+	test_wire_map();
 	test_rate();
 	test_handshake();
 	test_fallback();
 	test_limits();
 	test_strangers();
 	test_kill_switch();
+	test_maps();
 	test_relay();
 	test_relay_refused();
 	test_random(iterations);

@@ -438,6 +438,111 @@ int delta_wire_write_table_have(unsigned char *data, delta_u32 session, delta_u3
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TABLE_HAVE_SIZE;
 }
 
+/* ---------- MAP
+	0  family (1)
+	1  flags (1: DELTA_WIRE_MAP_HASHED)
+	2  name length (1, at most 63)
+	3  reserved (1)
+	4  size, low word (4)
+	8  size, high word (4)
+	12 hash (32: BLAKE2b-256 of the file; zeros without the flag)
+	44 name (its length) */
+
+static int map_name_character(char character)
+{
+	return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+		(character >= '0' && character <= '9') || character == '_' || character == '-' || character == '.' ||
+		character == ' ';
+}
+
+int delta_wire_map_name_valid(const char *name)
+{
+	int length = 0;
+
+	if (!name)
+		return 0;
+	for (length = 0; name[length]; length++)
+	{
+		if (length >= DELTA_WIRE_MAP_NAME_SIZE || !map_name_character(name[length]))
+			return 0;
+		if (name[length] == '.' && name[length + 1] == '.')
+			return 0;
+	}
+	return length > 0 && !(length == 1 && name[0] == '.');
+}
+
+/* whether a map is one MAP carries: a plain name, and a Halo PC map's
+hash */
+static int map_valid(const struct delta_wire_map *map)
+{
+	if (map->flags & ~DELTA_WIRE_MAP_HASHED)
+		return 0;
+	if (map->family == 0)
+		return !(map->flags & DELTA_WIRE_MAP_HASHED) && (!map->name[0] || delta_wire_map_name_valid(map->name));
+	return (map->flags & DELTA_WIRE_MAP_HASHED) && delta_wire_map_name_valid(map->name);
+}
+
+int delta_wire_read_map(const unsigned char *payload, int size, struct delta_wire_map *map)
+{
+	int length;
+	int index;
+
+	clear(map, (int)sizeof(*map));
+	if (!payload || size < DELTA_WIRE_MAP_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	length = payload[2];
+	if (length > DELTA_WIRE_MAP_NAME_SIZE || size < DELTA_WIRE_MAP_SIZE + length)
+		return 0;
+	map->family = payload[0];
+	map->flags = payload[1];
+	map->size_low = read_u32(payload + 4);
+	map->size_high = read_u32(payload + 8);
+	for (index = 0; index < DELTA_WIRE_MAP_HASH_SIZE; index++)
+		map->hash[index] = payload[12 + index];
+	for (index = 0; index < length; index++)
+	{
+		/* (a 0 or any other character a file's name may not have refuses
+		it: never mended into another name) */
+		if (!map_name_character((char)payload[DELTA_WIRE_MAP_SIZE + index]))
+		{
+			clear(map, (int)sizeof(*map));
+			return 0;
+		}
+		map->name[index] = (char)payload[DELTA_WIRE_MAP_SIZE + index];
+	}
+	map->name[length] = 0;
+	if (!map_valid(map))
+	{
+		clear(map, (int)sizeof(*map));
+		return 0;
+	}
+	return 1;
+}
+
+int delta_wire_write_map(unsigned char *data, delta_u32 session, const struct delta_wire_map *map)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+	int length = 0;
+	int index;
+
+	if (!map_valid(map))
+		return 0;
+	while (map->name[length])
+		length++;
+	payload[0] = map->family;
+	payload[1] = map->flags;
+	payload[2] = (unsigned char)length;
+	payload[3] = 0;
+	write_u32(payload + 4, map->size_low);
+	write_u32(payload + 8, map->size_high);
+	for (index = 0; index < DELTA_WIRE_MAP_HASH_SIZE; index++)
+		payload[12 + index] = (map->flags & DELTA_WIRE_MAP_HASHED) ? map->hash[index] : 0;
+	for (index = 0; index < length; index++)
+		payload[DELTA_WIRE_MAP_SIZE + index] = (unsigned char)map->name[index];
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_map, DELTA_WIRE_MAP_SIZE + length, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_MAP_SIZE + length;
+}
+
 /* ---------- rate limits */
 
 int delta_rate_take(struct delta_rate *rate, delta_u32 now, int rate_per_second, int burst)

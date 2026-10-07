@@ -81,7 +81,8 @@ static void start(void)
 	env.legacy_table_signed = table_signed;
 	env.legacy_table_offer = table_offer;
 	memset(&local, 0, sizeof(local));
-	local.capabilities = 3;
+	/* (platform, profile and ce_maps) */
+	local.capabilities = 0x13;
 	local.legacy_version = 18;
 	delta_platform_policy_default(_delta_platform_pc_linux, &local.key);
 	local.has_profile = 1;
@@ -97,6 +98,15 @@ static void start(void)
 	players[0] = 0;
 	players[1] = 1;
 	delta_peer_host_frame(&host, 1000, machines, 2, players);
+	{
+		struct delta_wire_map map;
+
+		memset(&map, 0, sizeof(map));
+		map.family = 1;
+		map.flags = DELTA_WIRE_MAP_HASHED;
+		strcpy(map.name, "fuzz");
+		delta_peer_set_map(&host, &map);
+	}
 	delta_peer_client_frame(&client, 1000, 1, HOST_IPV4, DELTA_PEER_PORT, 1, 1, players);
 }
 
@@ -130,6 +140,15 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, size_t size)
 			__builtin_trap();
 		}
 		delta_wire_read_table_have(data + DELTA_WIRE_HEADER_SIZE, header.length, &serial);
+		{
+			struct delta_wire_map map;
+
+			if (delta_wire_read_map(data + DELTA_WIRE_HEADER_SIZE, header.length, &map) &&
+				((map.family && !(map.flags & DELTA_WIRE_MAP_HASHED)) || map.name[DELTA_WIRE_MAP_NAME_SIZE]))
+			{
+				__builtin_trap();
+			}
+		}
 	}
 	/* (time moves, so the rate limits refill) */
 	now += 50;

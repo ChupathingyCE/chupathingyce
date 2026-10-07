@@ -78,7 +78,10 @@ enum
 	DELTA_PEER_TABLE_STALE = 5000,
 	DELTA_PEER_TABLE_SENDS = 4,
 	/* (and says TABLE_HAVE to a machine at most once a second) */
-	DELTA_PEER_TABLE_HAVE_GAP = 1000
+	DELTA_PEER_TABLE_HAVE_GAP = 1000,
+	/* the game's map (MAP) is sent to a client at once when it changes, and
+	again this often (a datagram lost) */
+	DELTA_PEER_MAP_INTERVAL = 5000
 };
 
 /* the room's limits (delta_peer_room_limit) */
@@ -209,6 +212,10 @@ struct delta_peer_host_peer
 	int has_profile;
 	struct delta_wire_profile profile;
 	struct delta_peer_relay relay;
+	/* the game's map as last sent to it (the host's map_generation; 0:
+	none), and when */
+	delta_u32 map_sent_generation;
+	delta_u32 map_time;
 };
 
 /* a signed legacy table coming in, piece by piece: one at a time, from one
@@ -245,6 +252,10 @@ struct delta_peer
 	int roster_dirty;
 	delta_u32 roster_time;
 	int roster_sent;
+	/* the game's map (delta_peer_set_map), and a number raised each time it
+	changes (0: none set) */
+	struct delta_wire_map map;
+	delta_u32 map_generation;
 
 	/* the client's */
 	int client_state;
@@ -258,6 +269,10 @@ struct delta_peer
 	delta_u32 agreed;
 	struct delta_rate host_rate;
 	struct delta_peer_relay host_relay;
+	/* the host's map (MAP), and a number raised each time it changes (0:
+	none heard) */
+	struct delta_wire_map host_map;
+	delta_u32 host_map_generation;
 
 	/* both: the legacy table relayed; this machine's signed table as it
 	goes out (its serial: 0 not read yet), and one coming in */
@@ -297,6 +312,15 @@ void delta_peer_stop(struct delta_peer *peer);
 /* a datagram that came to the Delta socket */
 void delta_peer_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4, unsigned short port,
 	const unsigned char *data, int size);
+
+/* the host's: the game's map, sent to each client that agreed to ce_maps
+(NULL: none, nothing sent). Called each frame; a map the same as the last
+changes nothing */
+void delta_peer_set_map(struct delta_peer *peer, const struct delta_wire_map *map);
+/* the client's: the host's map as MAP said it last, and the number raised
+each time it changed (0 if none heard: a host without Delta, or that did not
+agree to ce_maps) */
+delta_u32 delta_peer_host_map(const struct delta_peer *peer, struct delta_wire_map *map);
 
 /* what is known of a machine (0 if nothing) */
 int delta_peer_machine(const struct delta_peer *peer, int machine_index, struct delta_peer_machine *machine);
