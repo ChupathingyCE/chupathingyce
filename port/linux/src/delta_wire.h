@@ -105,7 +105,7 @@ struct delta_wire_header
 
 struct delta_wire_hello
 {
-	/* DELTA_CAPABILITY bits (1 << _delta_capability_...) */
+	/* capability bits (1 << _delta_capability_...) */
 	delta_u32 capabilities;
 	/* the OpenCE network version it plays (HALO_PORT_NETWORK_VERSION) */
 	unsigned short legacy_version;

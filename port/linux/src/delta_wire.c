@@ -457,8 +457,8 @@ int delta_rate_take(struct delta_rate *rate, delta_u32 now, int rate_per_second,
 		/* (a long pause refills it whole; time running backward adds none) */
 		if (elapsed > 0x7FFFFFFFu)
 			elapsed = 0;
-		if (elapsed > (delta_u32)burst * 1000u)
-			elapsed = (delta_u32)burst * 1000u;
+		if (elapsed > limit)
+			elapsed = limit;
 		rate->tokens_milli += elapsed * (delta_u32)rate_per_second;
 		if (rate->tokens_milli > limit)
 			rate->tokens_milli = limit;

@@ -689,7 +689,7 @@ static void host_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4,
 	}
 }
 
-/* the roster's entries for a client that agreed to these */
+/* a machine's roster entry, for a client that agreed to recipient_agreed */
 static void host_roster_entry(const struct delta_peer *peer, int machine_index, delta_u32 recipient_agreed,
 	struct delta_wire_roster_entry *entry)
 {

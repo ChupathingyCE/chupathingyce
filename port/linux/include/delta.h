@@ -177,7 +177,6 @@ command repository's watch adds a row when it follows OpenCE's raise
 	X(19, "build-132", additive) /* co-op's player collisions switch, in a padding byte of the game settings */ \
 	X(20, "build-133", additive) /* password games' internet listings (another listing layout); game messages as 19 */
 
-
 /* ---------- the legacy table (port/linux/src/delta.c)
 
 The numbers in use (delta_legacy_announce, _minimum and _maximum, in

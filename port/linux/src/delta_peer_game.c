@@ -95,9 +95,9 @@ static int local_platform(void)
 
 void delta_peer_platform_policy(int platform, struct delta_platform_key *key)
 {
-	/* delta-legacy-table: the signed table's "platform_policy" section,
-	once it has one, replaces the platform's row here; until then
-	delta.h's defaults (in key) stand */
+	/* the signed table's "platform_policy" section, once it has one,
+	replaces the platform's row here; until then delta.h's defaults (in
+	key) stand */
 	(void)platform;
 	(void)key;
 }
@@ -127,6 +127,7 @@ void delta_peer_local_key(struct delta_platform_key *key)
 #endif
 }
 
+#ifdef HALO_GAME_BROWSER
 static int hex_digit(char character)
 {
 	if (character >= '0' && character <= '9')
@@ -137,6 +138,8 @@ static int hex_digit(char character)
 		return character - 'A' + 10;
 	return -1;
 }
+
+#endif
 
 /* the profile's claim: this copy's public player ID (the site's), only if
 its player chose to share it (network.share_profile: a profile is opt-in,
@@ -162,7 +165,6 @@ static int local_profile(struct delta_wire_profile *profile)
 	}
 	return 1;
 #else
-	(void)hex_digit;
 	memset(profile, 0, sizeof(*profile));
 	return 0;
 #endif

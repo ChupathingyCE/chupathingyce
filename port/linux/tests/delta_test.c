@@ -262,7 +262,7 @@ static void deliver(delta_u32 now)
 	}
 }
 
-/* the game: machine 0 the host's own, then one a client node (node index
+/* the game: machine 0 the host's own, then each a client node (node index
 = machine index) */
 static struct delta_peer_game_machine game_machines[DELTA_PEER_MAXIMUM_MACHINES];
 static int game_machine_count;
@@ -543,7 +543,7 @@ static void test_rate(void)
 	CHECK(taken == 10);
 	/* (time wrapping, or going back, gives none and breaks nothing) */
 	CHECK(!delta_rate_take(&rate, 1500, 10, 20));
-	CHECK(delta_rate_take(&rate, 0xFFFFFFF0u, 10, 20) == 0 || 1);
+	delta_rate_take(&rate, 0xFFFFFFF0u, 10, 20);
 }
 
 /* ---------- sessions */
