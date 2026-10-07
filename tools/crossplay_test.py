@@ -102,7 +102,8 @@ DEATH_SEEN_TICKS = 2 * TICKS_PER_SECOND
 POSITION_TOLERANCE = 2.0
 
 TICK_LINE = re.compile(r"network test: tick (\d+)(.*?) \| items .*? \| (playing|game over) to (-?\d+) \|.*? \| "
-    r"hits (\d+) dealt (\d+) rejected (\d+) replayed (\d+) \| local (-?\d+)")
+    r"hits (\d+) dealt (\d+) rejected (\d+) replayed (\d+) \| local (-?\d+)"
+    r"(?:.*? \| vehicles (\d+) objects (\d+))?")
 PLAYER = re.compile(r" player (\d+): (dead|\((-?[\d.]+) (-?[\d.]+) (-?[\d.]+)\) h(-?[\d.]+)/(-?[\d.]+).*?) "
     r"s(-?\d+) k(-?\d+) d(-?\d+) f(-?\d+) t(-?\d+) m(-?\d+)(?= player \d+:|$)")
 VERSION_LINES = re.compile(r"(network version|legacy table: |legacy table is|joining a host|newer version of the network|"
@@ -120,7 +121,7 @@ def log(*args):
 class Copy:
     """One copy of the game (or the server) with folders of its own."""
 
-    def __init__(self, work, name, binary, kind, maps, env, seed=None, table=None):
+    def __init__(self, work, name, binary, kind, maps, env, seed=None, table=None, ce_maps=None):
         self.name = name
         self.kind = kind
         self.folder = os.path.join(work, name)
@@ -135,6 +136,10 @@ class Copy:
         self.binary = os.path.join(self.folder, "bin", os.path.basename(binary))
         shutil.copy2(binary, self.binary)
         os.symlink(os.path.abspath(maps), os.path.join(self.folder, "data", "maps"))
+        if ce_maps:
+            # (Custom Edition maps and their resource maps: OpenCE's
+            # custom_maps, which ChupathingyCE reads too)
+            os.symlink(os.path.abspath(ce_maps), os.path.join(self.folder, "data", "custom_maps"))
         if seed:
             # (map caches made beforehand: OpenCE's precache on a new save
             # root can take longer than the test gives it)
@@ -264,6 +269,10 @@ def read_games(lines):
                 state["health"] = float(player.group(6))
             players[int(player.group(1))] = state
         counters = {"hits": int(match.group(5)), "dealt": int(match.group(6)), "rejected": int(match.group(7))}
+        if match.group(10) is not None:
+            # (builds with the counting hook: the world's vehicles and objects)
+            counters["vehicles"] = int(match.group(10))
+            counters["objects"] = int(match.group(11))
         games[-1].ticks.append((tick, players, match.group(3) == "playing", int(match.group(4)), counters))
     return games, scripted
 
@@ -462,6 +471,26 @@ def check_direction(host, client, late, back, variants):
     steps["next_game"] = step(second and second_client,
         f"game 2 ({variants[1]}) played on the host: {second}, on the client: {second_client}")
 
+    # the world: with the counting hook, the vehicles each machine has, at
+    # the same seconds (a map's placed vehicles all there on every machine)
+    counts = []
+    for copy, game, host_game in pairs:
+        seconds = Seconds(host_game)
+        host_counts = {entry[0]: entry[4] for entry in host_game.ticks}
+        for entry in game.ticks:
+            tick, _ = seconds.near(entry[0], within=2)
+            if tick is not None and "vehicles" in entry[4] and "vehicles" in host_counts.get(tick, {}):
+                counts.append((copy.name.split("/")[-1], entry[0], host_counts[tick]["vehicles"], entry[4]["vehicles"],
+                               host_counts[tick]["objects"], entry[4]["objects"]))
+    if counts:
+        first = counts[min(5, len(counts) - 1)]
+        differ = [c for c in counts if c[2] != c[3]]
+        # (two seconds allowed to differ: a second's lag at a game's start or
+        # end, as the clients see the world change)
+        steps["vehicles"] = step(len(differ) <= 2, f"vehicles (host, client) at {len(counts)} seconds: e.g. {first[2]} and "
+            f"{first[3]}, objects {first[4]} and {first[5]}; seconds that differ: {len(differ)}"
+            + (f", first (client, tick, host, client): {[c[:4] for c in differ[:5]]}" if differ else ""))
+
     # join in progress: a second client joins game 1 under way, and the first,
     # having left, comes back to it
     parts = []
@@ -542,6 +571,15 @@ def addresses(base):
     return [f"127.0.0.{base + offset}" for offset in range(3)]
 
 
+def host_map(name, kind):
+    """the map as each build's network test names it: a Custom Edition map
+    is custom_maps\\NAME to OpenCE (its name in the game's protocol too) and
+    NAME@ce to ChupathingyCE"""
+    if "\\" in name and kind == "ours":
+        return name.split("\\", 1)[1] + "@ce"
+    return name
+
+
 def plan(args):
     global JOIN_DELAY, START_DELAY
     JOIN_DELAY = getattr(args, "join_delay", None) or JOIN_DELAY
@@ -561,7 +599,8 @@ def plan(args):
             continue
         host_address, client_address, late_address = addresses(base + offset)
         # (no scripted input on the host: in the lobby it would pick other maps)
-        host = dict(host_test, HALO_NET_ADDRESS=host_address, HALO_NET_BROADCAST=f"{client_address},{late_address}")
+        host = dict(host_test, HALO_NET_ADDRESS=host_address, HALO_NET_BROADCAST=f"{client_address},{late_address}",
+            HALO_NETWORK_TEST=f"host:{host_map(args.map, host_kind)}:{','.join(variants)}")
         client = dict(join_test, HALO_NET_ADDRESS=client_address, HALO_NET_BROADCAST=host_address,
             HALO_TEST_INPUT=f"bot:{17 + number}")
         late = dict(join_test, HALO_NET_ADDRESS=late_address, HALO_NET_BROADCAST=host_address,
@@ -606,10 +645,10 @@ def run(args):
         for name, kind, env, delay, until in direction["copies"]:
             binary, seed = builds[kind]
             copy = Copy(args.work, name, binary, "ours" if kind == "server" else kind, args.maps, env, seed,
-                args.ours_table)
+                args.ours_table, args.ce_maps)
             if kind == "server":
                 with open(os.path.join(copy.folder, "data", "crossplay-playlist.txt"), "w") as file:
-                    file.write(f"{args.map} slayer\n")
+                    file.write(f"{args.map.replace('custom_maps' + chr(92), '')}{'@ce' if chr(92) in args.map else ''} slayer\n")
             direction["live"].append({"copy": copy, "delay": delay, "until": until})
     started = time.time()
     # the cross-play directions (and the server) first, then the baselines:
@@ -700,7 +739,8 @@ def report(args, directions, seconds):
                 continue
             if host_kind == "theirs" and step_name in THEIR_HOST_QUIRKS:
                 value["their_host_quirk"] = True
-            elif baseline and step_name in baseline[0] and not baseline[0][step_name]["pass"]:
+            elif baseline and step_name in baseline[0] and not baseline[0][step_name]["pass"] and \
+                    baseline[0].get("join", {}).get("pass"):
                 value["baseline_fails"] = True
             else:
                 passed = False
@@ -762,6 +802,8 @@ def main():
     run_parser.add_argument("--ours", required=True, help="ChupathingyCE's game (a Linux build)")
     run_parser.add_argument("--theirs", required=True, help="OpenCE's game (a Linux build)")
     run_parser.add_argument("--server", help="ChupathingyCE's dedicated server, for the server step")
+    run_parser.add_argument("--ce-maps", help="a folder of Custom Edition maps (and bitmaps.map, sounds.map, loc.map), "
+                            "as both builds' custom_maps; then --map custom_maps\\NAME plays one")
     run_parser.add_argument("--ours-table", help="a legacy table file for our copies (HALO_LEGACY_TABLE)")
     run_parser.add_argument("--theirs-seed", help="a save root to start OpenCE's copies from (map caches made)")
     run_parser.add_argument("--ours-seed", help="the same for our copies")
