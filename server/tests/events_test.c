@@ -157,7 +157,7 @@ static void play_sample(void)
 	simple(910, EVENT_LOG_PING, jo, EVENT_LOG_NONE, 85, 0, 0, 0);
 	event_log_moderation(EVENT_LOG_MODERATION_KICK, "guest\x01", "console", "team killing");
 	event_log_moderation(EVENT_LOG_MODERATION_BAN, "Nobody", "admin:milenko", "");
-	event_log_player_left(guest, 950, EVENT_LOG_LEFT_KICK);
+	event_log_player_left(guest, 950, EVENT_LOG_LEFT_QUIT);
 	totals(walter, 2, 1, 2, 1, 0);
 	totals(jo, 1, 2, 1, 2, 1);
 }

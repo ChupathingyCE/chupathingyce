@@ -100,6 +100,7 @@ def test_sample_batch(program):
     assert batch["moderation"][1] == {"t": pytest.approx(30.33), "kind": "ban", "player": -1, "name": "Nobody",
                                       "by": "admin:milenko", "reason": ""}
     sessions = {s["player"]: s for s in batch["sessions"]}
+    # (left after a moderator's kick: kicked)
     assert sessions[2] == {"player": 2, "joined": 3.0, "left": pytest.approx(31.67), "reason": "kick"}
     assert sessions[0]["left"] is None
     assert batch["limits"]["dropped"] == {}

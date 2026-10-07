@@ -162,6 +162,9 @@ struct log_player
 	int chain;
 	int last_kill_tick;
 	int medals[NUMBER_OF_MEDALS];
+	/* a moderator's kick or ban of them, which their leaving is then
+	(EVENT_LOG_LEFT_*; 0 none) */
+	int removed;
 };
 
 /* a growing text */
@@ -1155,8 +1158,9 @@ void event_log_player_left(int slot, int tick, int how)
 	if (player->sessions[player->session_count - 1].left < 0)
 	{
 		player->sessions[player->session_count - 1].left = tick;
-		player->sessions[player->session_count - 1].how = how;
+		player->sessions[player->session_count - 1].how = player->removed && how == EVENT_LOG_LEFT_QUIT ? player->removed : how;
 	}
+	player->removed = 0;
 	player->spree = 0;
 	player->chain = 0;
 }
@@ -1282,6 +1286,8 @@ void event_log_moderation(int kind, char const *who, char const *by, char const 
 			break;
 		}
 	}
+	if (record.player != EVENT_LOG_NONE && (kind == EVENT_LOG_MODERATION_KICK || kind == EVENT_LOG_MODERATION_BAN))
+		event_log.players[record.player].removed = kind == EVENT_LOG_MODERATION_KICK ? EVENT_LOG_LEFT_KICK : EVENT_LOG_LEFT_BAN;
 	record.tag[0] = (short)event_log_tag(reason);
 	record.tag[1] = (short)event_log_tag(by);
 	record.tag[2] = record.player == EVENT_LOG_NONE ? (short)event_log_tag(who) : (short)EVENT_LOG_NONE;
