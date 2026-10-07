@@ -282,7 +282,7 @@ static int utf8(unsigned int codepoint, char *out)
 
 static const char *const button_words[NUMBER_OF_UI_BUTTONS] =
 {
-	"A", "B", "X", "Y", "Start", "LT", "RT", "LB", "RB", "<", ">",
+	"A", "B", "X", "Y", "Start", "LT", "RT", "LB", "RB", "<", ">", "Back"
 };
 
 float ui_overlay_button_width(int button, float size)
