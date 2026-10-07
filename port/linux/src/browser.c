@@ -1057,11 +1057,19 @@ static void update_list(void)
 	if (!wanted || !config_string("network.browser_url")[0])
 		return;
 
-	server_url("/v1/games.txt", url, sizeof(url));
-	status = posix_browser_request(url, NULL, NULL, response, sizeof(response), error, sizeof(error));
+	/* (no room: tried again after the failure's wait, not at once with
+	another request) */
 	games = malloc(sizeof(*games) * BROWSER_MAXIMUM_GAMES);
 	if (!games)
+	{
+		pthread_mutex_lock(&browser_lock);
+		browser.list_time = p2p_now();
+		browser.list_failed = 1;
+		pthread_mutex_unlock(&browser_lock);
 		return;
+	}
+	server_url("/v1/games.txt", url, sizeof(url));
+	status = posix_browser_request(url, NULL, NULL, response, sizeof(response), error, sizeof(error));
 	if (!p2p_hosting_invite(own, sizeof(own)))
 		own[0] = 0;
 	if (status == 200)
