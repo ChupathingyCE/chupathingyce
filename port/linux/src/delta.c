@@ -94,6 +94,9 @@ struct delta_table
 	/* (this build's wire's row, if the table has one) */
 	int has_row;
 	int announce, minimum, maximum;
+	/* ... and the OpenCE build the cross-play gate proved it with
+	("build-145"; empty: not said) */
+	char follows[DELTA_FOLLOWS_SIZE];
 	unsigned long disabled;
 };
 
@@ -105,6 +108,7 @@ static pthread_cond_t delta_wake = PTHREAD_COND_INITIALIZER;
 static struct
 {
 	int announce, minimum, maximum;
+	char follows[DELTA_FOLLOWS_SIZE];
 	unsigned long disabled;
 	/* the signed table in use (malloc'd), and its serial; none: 0 */
 	unsigned int serial;
@@ -309,7 +313,32 @@ static int json_skip(struct json *json)
 	return 1;
 }
 
-/* a wire's row: {"announce": A, "minimum": Mi, "maximum": Ma} */
+/* a row's "follows": an OpenCE build's tag, letters, digits, '.', '-' and
+'_' (shown in the log and the server's status as it is) */
+static int json_follows(struct json *json, struct delta_table *table)
+{
+	const char *text;
+	int length, escaped, index;
+
+	if (!json_string(json, &text, &length, &escaped) || escaped || length < 1 || length >= DELTA_FOLLOWS_SIZE)
+		return 0;
+	for (index = 0; index < length; index++)
+	{
+		char c = text[index];
+
+		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-' ||
+			c == '_'))
+		{
+			return 0;
+		}
+	}
+	memcpy(table->follows, text, (size_t)length);
+	table->follows[length] = 0;
+	return 1;
+}
+
+/* a wire's row: {"announce": A, "minimum": Mi, "maximum": Ma}, and
+optionally "follows": "build-N" */
 static int json_row(struct json *json, struct delta_table *table)
 {
 	int seen = 0;
@@ -333,6 +362,14 @@ static int json_row(struct json *json, struct delta_table *table)
 			field = &table->minimum, bit = 2;
 		else if (!escaped && json_is(key, length, "maximum"))
 			field = &table->maximum, bit = 4;
+		else if (!escaped && json_is(key, length, "follows"))
+		{
+			/* (once) */
+			if ((seen & 8) || !json_follows(json, table))
+				return 0;
+			seen |= 8;
+			continue;
+		}
 		if (!field)
 		{
 			if (!json_skip(json))
@@ -344,7 +381,7 @@ static int json_row(struct json *json, struct delta_table *table)
 		*field = (int)value;
 		seen |= bit;
 	} while (json_take(json, ','));
-	return json_take(json, '}') && seen == 7;
+	return json_take(json, '}') && (seen & 7) == 7;
 }
 
 /* "wires": {"<wire>": row, ...}: this build's row read, the others checked */
@@ -554,6 +591,7 @@ static void delta_use_built_in(void)
 	delta.announce = HALO_PORT_NETWORK_VERSION;
 	delta.minimum = HALO_PORT_NETWORK_VERSION_MINIMUM;
 	delta.maximum = HALO_PORT_NETWORK_VERSION_MAXIMUM;
+	delta.follows[0] = 0;
 	delta.disabled = 0;
 }
 
@@ -648,15 +686,17 @@ static enum delta_result delta_take(const char *document, size_t size, const cha
 		delta.announce = table.announce;
 		delta.minimum = table.minimum;
 		delta.maximum = table.maximum;
+		memcpy(delta.follows, table.follows, sizeof(delta.follows));
 	}
 	delta.disabled = table.disabled;
 	pthread_mutex_unlock(&delta_lock);
 
-	platform_log("Delta: legacy table %u from %s: announcing %d, joining %d to %d%s", table.serial, source,
+	platform_log("Delta: legacy table %u from %s: announcing %d, joining %d to %d%s%s%s", table.serial, source,
 		table.has_row ? table.announce : HALO_PORT_NETWORK_VERSION,
 		table.has_row ? table.minimum : HALO_PORT_NETWORK_VERSION_MINIMUM,
 		table.has_row ? table.maximum : HALO_PORT_NETWORK_VERSION_MAXIMUM,
-		table.has_row ? "" : " (no row for " DELTA_WIRE ": the built-in numbers)");
+		table.has_row ? "" : " (no row for " DELTA_WIRE ": the built-in numbers)",
+		table.has_row && table.follows[0] ? "; following OpenCE " : "", table.has_row ? table.follows : "");
 	if (cache)
 		delta_cache_write(signed_table, signed_size);
 	return _delta_taken;
@@ -705,6 +745,7 @@ static int delta_load_override(void)
 		delta.announce = table.announce;
 		delta.minimum = table.minimum;
 		delta.maximum = table.maximum;
+		memcpy(delta.follows, table.follows, sizeof(delta.follows));
 	}
 	if (ok)
 		delta.disabled = table.disabled;
@@ -948,6 +989,33 @@ int delta_capability_disabled(int capability)
 	disabled = (delta.disabled >> capability) & 1;
 	pthread_mutex_unlock(&delta_lock);
 	return disabled;
+}
+
+void delta_legacy_following(char *text, int size)
+{
+	char follows[DELTA_FOLLOWS_SIZE];
+	unsigned int serial;
+	int announce, override;
+
+	pthread_once(&delta_once, delta_load);
+	pthread_mutex_lock(&delta_lock);
+	memcpy(follows, delta.follows, sizeof(follows));
+	serial = delta.serial;
+	announce = delta.announce;
+	override = delta.override;
+	pthread_mutex_unlock(&delta_lock);
+	if (size <= 0)
+		return;
+	if (follows[0])
+		snprintf(text, size, "Following OpenCE %s", follows);
+	else
+		snprintf(text, size, "Following OpenCE network version %d", announce);
+	if (override)
+		snprintf(text + strlen(text), (size_t)size - strlen(text), " (a local table)");
+	else if (serial)
+		snprintf(text + strlen(text), (size_t)size - strlen(text), " (table %u)", serial);
+	else
+		snprintf(text + strlen(text), (size_t)size - strlen(text), " (built in)");
 }
 
 int delta_legacy_override(void)

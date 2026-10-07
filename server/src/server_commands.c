@@ -51,6 +51,7 @@ change.
 #include "halo_map_families.h"
 #include "command_line.h"
 #include "dedicated.h"
+#include "delta.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -466,7 +467,7 @@ static void print_status(
 	struct network_game_server *server = global_network_game_server_get();
 	struct network_game *game = server ? network_game_server_get_game(server) : NULL;
 	long players = game ? game->player_count : 0;
-	char uptime[32];
+	char uptime[32], following[64];
 
 	dedicated_server_get_status(&status);
 	if (json)
@@ -475,8 +476,10 @@ static void print_status(
 		command_output_json_string(output, status.name);
 		command_output_printf(output, ", \"version\": ");
 		command_output_json_string(output, updater_version());
-		command_output_printf(output, ", \"network_version\": %d, \"state\": \"%s\", \"map\": ",
-			delta_legacy_announce(), state_name(status.state, TRUE));
+		delta_legacy_following(following, (int)sizeof(following));
+		command_output_printf(output, ", \"network_version\": %d, \"following\": ", delta_legacy_announce());
+		command_output_json_string(output, following);
+		command_output_printf(output, ", \"state\": \"%s\", \"map\": ", state_name(status.state, TRUE));
 		command_output_json_string(output, map_display_name(status.map));
 		command_output_printf(output, ", \"game_type\": ");
 		command_output_json_string(output, status.variant);
@@ -499,7 +502,9 @@ static void print_status(
 	}
 	command_line_duration_text((long)status.uptime_seconds, uptime, sizeof(uptime));
 	command_output_printf(output, "name: %s\n", status.name);
-	command_output_printf(output, "version: %s (network version %d)\n", updater_version(), delta_legacy_announce());
+	delta_legacy_following(following, (int)sizeof(following));
+	command_output_printf(output, "version: %s (network version %d; %s)\n", updater_version(), delta_legacy_announce(),
+		following);
 	command_output_printf(output, "state: %s\n", state_name(status.state, FALSE));
 	command_output_printf(output, "map: %s, game type: %s (%s)\n", map_display_name(status.map), status.variant,
 		status.chosen ? "chosen by a command" : "the playlist's");

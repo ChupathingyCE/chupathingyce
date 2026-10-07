@@ -200,6 +200,12 @@ is newer than the one in use and widens no less than the built-in numbers;
 int delta_legacy_offer(const char *signed_table, int size);
 /* whether the table in use turns a capability off (its kill switch) */
 int delta_capability_disabled(int capability);
+/* what the build follows, for its log and status: "Following OpenCE
+build-145 (table 2)" (the table's row names the OpenCE build the cross-play
+gate proved it with), "Following OpenCE network version 20 (built in)" */
+#define DELTA_FOLLOWS_SIZE 32
+void delta_legacy_following(char *text, int size);
+
 /* whether a local, unsigned table (network.legacy_table) is in use */
 int delta_legacy_override(void);
 /* whether this machine relays signed tables (Delta Peer: takes them from

@@ -103,7 +103,7 @@ const char *build_identity_user_agent(void)
 void build_identity_log(void)
 {
 	static int logged;
-	char network[256], table[32], path[1024];
+	char network[256], table[32], following[64], path[1024];
 	FILE *file;
 
 	if (logged)
@@ -118,6 +118,7 @@ void build_identity_log(void)
 	snprintf(network, sizeof(network), "OpenCE network version %d (joins %d-%d); Delta %d, wire %s, legacy table: %s; "
 		"protocol %s", delta_legacy_announce(), delta_legacy_minimum(), delta_legacy_maximum(), DELTA_MAJOR,
 		DELTA_WIRE, table, config_string("network.protocol"));
+	delta_legacy_following(following, (int)sizeof(following));
 	/* debug.txt: a line between this run and the one before, and (in the
 	32-bit builds, whose platform_log is standard error's alone) the header */
 	snprintf(path, sizeof(path), "%s/debug.txt", platform_data_root());
@@ -126,10 +127,12 @@ void build_identity_log(void)
 	{
 		fputs("\n", file);
 #ifndef HALO_64BIT
-		fprintf(file, PLATFORM_LOG_PREFIX "%s\n" PLATFORM_LOG_PREFIX "%s\n", build_identity(), network);
+		fprintf(file, PLATFORM_LOG_PREFIX "%s\n" PLATFORM_LOG_PREFIX "%s\n" PLATFORM_LOG_PREFIX "%s\n", build_identity(),
+			network, following);
 #endif
 		fclose(file);
 	}
 	platform_log("%s", build_identity());
 	platform_log("%s", network);
+	platform_log("%s", following);
 }
