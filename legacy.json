@@ -1,0 +1,13 @@
+{
+  "delta_legacy": 1,
+  "serial": 1,
+  "issued": 1791335965,
+  "wires": {
+    "chupa-20a": {
+      "announce": 20,
+      "minimum": 11,
+      "maximum": 20
+    }
+  },
+  "disabled_capabilities": []
+}
