@@ -155,6 +155,19 @@ static struct
 
 /* ---------- private code */
 
+/* a map as the game loads it (a bare name is a multiplayer level's:
+levels\test\<name>\<name>; a Custom Edition or HaloMD map's, <name>@ce or
+<name>@md, stays bare, as the menus' map list plays it: cache_files_windows.c) */
+static void level_path(
+	char const *map,
+	char *path)
+{
+	if (!strchr(map, '\\') && !strchr(map, '@'))
+		snprintf(path, DEDICATED_MAP_SIZE, "levels\\test\\%s\\%s", map, map);
+	else
+		snprintf(path, DEDICATED_MAP_SIZE, "%s", map);
+}
+
 /* the playlist, in the data folder (the game's d:, beside maps) */
 static void load_playlist(
 	char const *name)
@@ -186,13 +199,7 @@ static void load_playlist(
 			*comment = 0;
 		if (sscanf(line, "%127s %31s", map, variant) != 2)
 			continue;
-		/* (a bare name is a multiplayer level's: levels\test\<name>\<name>;
-		a Custom Edition or HaloMD map's, <name>@ce or <name>@md, stays bare,
-		as the menus' map list plays it: cache_files_windows.c) */
-		if (!strchr(map, '\\') && !strchr(map, '@'))
-			snprintf(dedicated.maps[dedicated.entry_count], sizeof(dedicated.maps[0]), "levels\\test\\%s\\%s", map, map);
-		else
-			snprintf(dedicated.maps[dedicated.entry_count], sizeof(dedicated.maps[0]), "%s", map);
+		level_path(map, dedicated.maps[dedicated.entry_count]);
 		snprintf(dedicated.variants[dedicated.entry_count], sizeof(dedicated.variants[0]), "%s", variant);
 		dedicated.entry_count++;
 	}
@@ -649,11 +656,7 @@ void dedicated_server_play(
 	char const *map,
 	char const *variant)
 {
-	/* (a bare name is a multiplayer level's, as the playlist's) */
-	if (!strchr(map, '\\') && !strchr(map, '@'))
-		snprintf(dedicated.chosen_map, sizeof(dedicated.chosen_map), "levels\\test\\%s\\%s", map, map);
-	else
-		snprintf(dedicated.chosen_map, sizeof(dedicated.chosen_map), "%s", map);
+	level_path(map, dedicated.chosen_map);
 	snprintf(dedicated.chosen_variant, sizeof(dedicated.chosen_variant), "%s", variant);
 	dedicated.chosen_pending = TRUE;
 	/* (a game a command chose before, set in the lobby, is replaced; one being
