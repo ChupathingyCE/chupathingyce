@@ -696,11 +696,18 @@ is by the time the game runs. */
 static unsigned long long platform_clock_nanoseconds(void)
 {
 	static unsigned long long start;
-	struct timespec now;
 	unsigned long long value, expected = 0;
+#ifdef __APPLE__
+	/* (macOS's CLOCK_MONOTONIC is read through gettimeofday, at about twice
+	the cost of its raw clock; the game reads the clock hundreds of times a
+	frame) */
+	value = clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW);
+#else
+	struct timespec now;
 
 	clock_gettime(CLOCK_MONOTONIC, &now);
 	value = (unsigned long long)now.tv_sec * 1000000000ULL + (unsigned long long)now.tv_nsec;
+#endif
 	__atomic_compare_exchange_n(&start, &expected, value - 10000000000ULL, 0, __ATOMIC_RELAXED, __ATOMIC_RELAXED);
 	return value - __atomic_load_n(&start, __ATOMIC_RELAXED);
 }
