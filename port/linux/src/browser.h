@@ -24,6 +24,28 @@ game reached through an invite. See browser.c.
 those a listed game keeps (as many as the Online Games screen shows) */
 #define BROWSER_HOSTED_ROSTER 128
 #define BROWSER_LISTED_ROSTER 16
+/* a listed game's machines by platform: Delta's registry
+(NUMBER_OF_DELTA_PLATFORMS), then those without Delta */
+#define BROWSER_MACHINE_KINDS 11
+
+/* how a listed game is hosted, and on what protocol, as the list says
+(docs/delta.md, Delta List): not known (an older host, or one listed by its
+invite) is 0 */
+enum
+{
+	BROWSER_HOSTING_UNKNOWN,
+	BROWSER_HOSTING_PLAYER,
+	BROWSER_HOSTING_DEDICATED,
+	/* one of ChupathingyCE's own dedicated servers */
+	BROWSER_HOSTING_OFFICIAL,
+};
+enum
+{
+	BROWSER_PROTOCOL_UNKNOWN,
+	BROWSER_PROTOCOL_DELTA,
+	/* OpenCE's protocol alone: an OpenCE host, or one with Delta off */
+	BROWSER_PROTOCOL_OPENCE,
+};
 
 /* a player of a game's roster */
 struct browser_roster_player
@@ -52,6 +74,14 @@ struct browser_game
 	the players kept */
 	short roster_count;
 	struct browser_roster_player roster[BROWSER_LISTED_ROSTER];
+	/* its host, as the list says (BROWSER_HOSTING_*, BROWSER_PROTOCOL_*):
+	its platform (delta.h's enum delta_platform; has_platform 0 when not
+	said), and its machines by platform (all 0 when not said) */
+	unsigned char has_platform;
+	unsigned char host_platform;
+	unsigned char hosting;
+	unsigned char protocol;
+	unsigned char machines[BROWSER_MACHINE_KINDS];
 };
 
 /* one player's line of a finished game's carnage report */

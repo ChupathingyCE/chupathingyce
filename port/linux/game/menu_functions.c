@@ -3681,6 +3681,40 @@ static short lobby_browser_score_limit(struct p2p_listing const *game)
 
 	return listed ? listed->score_limit : 0;
 }
+
+/* the Rules line's host, when the list has it (docs/delta.md, Delta List):
+" (MAC HOST, DELTA)", " (DEDICATED, LINUX, DELTA)", " (OPENCE)"; "" if not */
+static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *text, short size)
+{
+	static wchar_t const *const platforms[] = {
+		L"", L"WINDOWS", L"MAC", L"LINUX", L"ANDROID", L"STEAM DECK", L"XBOX", L"XBOX 360", L"WII U", L"SWITCH",
+	};
+	struct browser_game const *listed = lobby_browser_listed_game(game);
+	boolean dedicated;
+	wchar_t const *platform;
+
+	text[0] = 0;
+	if (!listed)
+		return;
+	dedicated = listed->hosting == BROWSER_HOSTING_DEDICATED || listed->hosting == BROWSER_HOSTING_OFFICIAL;
+	platform = listed->has_platform && listed->host_platform < NUMBEROF(platforms) ? platforms[listed->host_platform] : L"";
+	usnprintf(text, size - 1, L"%s%s%s%s%s%s%s",
+		dedicated ? (listed->hosting == BROWSER_HOSTING_OFFICIAL ? L"OFFICIAL SERVER" : L"DEDICATED") : L"",
+		dedicated && platform[0] ? L", " : L"", platform, !dedicated && platform[0] ? L" HOST" : L"",
+		(dedicated || platform[0]) && listed->protocol ? L", " : L"",
+		listed->protocol == BROWSER_PROTOCOL_DELTA ? L"DELTA" : L"",
+		listed->protocol == BROWSER_PROTOCOL_OPENCE ? L"OPENCE" : L"");
+	text[size - 1] = 0;
+	if (text[0])
+	{
+		wchar_t inner[64];
+
+		ustrncpy(inner, text, NUMBEROF(inner) - 1);
+		inner[NUMBEROF(inner) - 1] = 0;
+		usnprintf(text, size - 1, L" (%s)", inner);
+		text[size - 1] = 0;
+	}
+}
 #else
 static void lobby_browser_add_listed(void)
 {
@@ -3697,6 +3731,13 @@ static short lobby_browser_score_limit(struct p2p_listing const *game)
 {
 	(void)game;
 	return 0;
+}
+
+static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *text, short size)
+{
+	(void)game;
+	(void)size;
+	text[0] = 0;
 }
 #endif
 
@@ -3726,6 +3767,7 @@ static void lobby_browser_rules_text(struct p2p_listing const *game, wchar_t *te
 	wchar_t gametype[P2P_LISTING_GAMETYPE_SIZE + 1];
 	wchar_t map[ROW_TEXT_LENGTH];
 	wchar_t score[16];
+	wchar_t host[64];
 	short score_limit = lobby_browser_score_limit(game);
 	short family;
 
@@ -3734,10 +3776,12 @@ static void lobby_browser_rules_text(struct p2p_listing const *game, wchar_t *te
 	score[0] = 0;
 	if (score_limit > 0)
 		usnprintf(score, NUMBEROF(score) - 1, L" to %d", score_limit);
-	/* (a dedicated server's game says so: its listing's flag, p2p_lobby.c) */
-	usnprintf(text, size - 1, L"%s%s on %s%s%s%s%s", gametype[0] ? gametype : engine_names[PIN(game->engine_type, 0, 5)],
+	/* (a dedicated server's game says so: its listing's flag, p2p_lobby.c;
+	a game list's game, its host as the list says) */
+	lobby_browser_host_text(game, host, NUMBEROF(host));
+	usnprintf(text, size - 1, L"%s%s on %s%s%s%s%s%s", gametype[0] ? gametype : engine_names[PIN(game->engine_type, 0, 5)],
 		score, map, family == _map_family_halomd ? L" (HALOMD)" : family != _map_family_xbox ? L" (HALO PC)" : L"",
-		game->dedicated ? L" (DEDICATED)" : L"",
+		game->dedicated && !host[0] ? L" (DEDICATED)" : L"", host,
 		!game->open ? L": full or starting" : game->in_progress ? L": under way" : L"",
 		game->locked ? L", password" : L"");
 	text[size - 1] = 0;

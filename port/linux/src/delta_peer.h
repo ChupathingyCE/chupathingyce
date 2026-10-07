@@ -394,4 +394,37 @@ int delta_peer_game_room_limit(int limit);
 /* the client's handshake (enum delta_peer_client_state) */
 int delta_peer_game_client_state(void);
 
+/* ---------- what Delta List says of a hosted game (browser.c's
+announcement; docs/delta.md, Delta List) */
+
+/* a game's machines by platform: the registry's numbers, then those
+without Delta (OpenCE's) */
+#define DELTA_PEER_MACHINE_LEGACY NUMBER_OF_DELTA_PLATFORMS
+#define DELTA_PEER_MACHINE_KINDS (NUMBER_OF_DELTA_PLATFORMS + 1)
+
+struct delta_peer_host_summary
+{
+	/* hosting with Delta now (its socket open: the advertisement's
+	DELTA_ADVERTISED_FLAG); 0 for a game hosted on the legacy protocol
+	alone (network.protocol = "opence", or its port taken) */
+	int delta;
+	/* this machine's platform key and the capabilities it offers */
+	struct delta_platform_key key;
+	delta_u32 capabilities;
+	/* the game's machines by platform, as Delta Peer knows them: a Delta
+	machine that does not share its platform is unknown; a dedicated
+	server leaves itself out (it has no players). Counts only, and only
+	while delta */
+	unsigned char machines[DELTA_PEER_MACHINE_KINDS];
+};
+
+/* the hosted game's summary (on the game's thread, as the hooks); 0 if
+this machine is not hosting */
+int delta_peer_game_host_summary(struct delta_peer_host_summary *summary);
+/* a platform's registry name ("pc_linux"; "unknown" for a number this
+build does not know), and a name's number (-1 for none) */
+const char *delta_peer_platform_name(int platform);
+int delta_peer_platform_number(const char *name);
+
+
 #endif

@@ -509,6 +509,42 @@ additions:
 - the plain-text console list keeps its format; new fields go only at the
   end of a line, never changing existing ones.
 
+### The host's fields (built)
+
+A host's announcement (`POST /v1/announce`, form encoded; `browser.c`'s
+`host_fields`) adds, after `version` and before the roster (which stays
+last):
+
+| Field | What it is |
+| --- | --- |
+| `delta` | the Delta major the game is hosted with (`DELTA_MAJOR`), or `0` for the legacy protocol alone (`network.protocol = "opence"`, or the Delta port taken); left out until Delta Peer has run a frame |
+| `platform_key` | the host machine's platform key (see "Platform keys"), 16 hexadecimal digits |
+| `arch` | `x64`, `x86`, `arm64` or `arm` |
+| `build` | the build's version (`0.7.1b`) |
+| `capabilities` | the capabilities it offers, 8 hexadecimal digits |
+| `machines` | while hosting with Delta: the game's machines by platform, `pc_linux:2,xbox:1,legacy:1` (`legacy`: a machine without Delta; `unknown`: a Delta machine that does not share its platform; a dedicated server leaves itself out). Counts only, never a player (`delta_peer_game_host_summary`) |
+
+Compatibility both ways: a site from before these fields ignores them (it
+reads the fields it knows), and the site reads each on its own, leaving out
+one it can't read rather than refusing the announcement, so older builds
+(which send none) and newer ones (a longer platform key, a platform it
+doesn't know) are listed as ever.
+
+From them the site lists each game's `platform`, `hosting` (`official`: our
+`[D]` servers, by their hosts; `dedicated`; `player`), `protocol` (`delta`,
+`opence`), `family` (`xbox`, `ce`, `pc`, `md`, by the map's suffix) and
+`machines`; OpenCE's public games (the brokers) are `opence` and nothing
+more. The game's browser reads them from `/v1/games.txt?fields=17` (fields
+14 to 17: platform, hosting, protocol, machines) and shows them: the Online
+Games screen's rows (a platform tag before the name, `SRV` for a server),
+its details (a Host line; the machines beside IN GAME) and the PC menus'
+Server Browser's Rules line. The console list adds platform, hosting and
+protocol after its tenth field, which Warthog's reader passes over.
+
+A player's own copy also says its platform (`"platform"`) when it confirms
+its line (`/v1/claim`) or reports a game it joined (`/v1/client_report`),
+for the site's "Played on" profile badges.
+
 ## Delta Stats
 
 - **Reports** (exists): end-of-game totals, with the host, verified and
