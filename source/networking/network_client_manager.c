@@ -2679,10 +2679,9 @@ static void network_game_client_update_precache_status(
 			struct message_client_map_is_precached_pregame map_is_precached = {0};
 			message_header *message;
 
-			csstrncpy(
-				map_is_precached.map_name,
-				map_name,
-				sizeof(map_is_precached.map_name));
+			/* port: a Halo PC map named as the game's protocol names it, as
+			the host's settings did (halo_map_families.h) */
+			map_family_wire_name(map_name, map_is_precached.map_name, sizeof(map_is_precached.map_name));
 
 			message = create_network_game_message(
 				_message_client_map_is_precached_pregame,

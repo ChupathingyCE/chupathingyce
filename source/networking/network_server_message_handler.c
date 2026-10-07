@@ -2570,6 +2570,13 @@ static boolean network_game_server_handle_message_client_map_is_precached_pregam
 			&packet_version,
 			_network_game_packet_class_client_pregame))
 		{
+			/* port: a Halo PC map's name as this port names it (an OpenCE
+			client says custom_maps\\<name>: halo_map_families.h) */
+			char map_name[sizeof(map_is_precached.map_name) + 1];
+
+			csmemcpy(map_name, map_is_precached.map_name, sizeof(map_is_precached.map_name));
+			map_name[sizeof(map_is_precached.map_name)] = 0;
+			map_family_from_wire_name(map_name, map_is_precached.map_name, sizeof(map_is_precached.map_name));
 			network_game_server_client_machine_is_precached(
 				server,
 				client_machine,
