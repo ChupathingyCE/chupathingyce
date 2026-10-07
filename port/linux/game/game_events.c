@@ -399,6 +399,15 @@ static void begin_game(long tick)
 		name_utf8(network_game->name, 16, game.server_name, sizeof(game.server_name));
 	}
 	name_utf8(variant->human_readable_game_description, 12, game.gametype, sizeof(game.gametype));
+	/* (a built-in variant has no name of its own: its game type's) */
+	if (!game.gametype[0])
+	{
+		static char const *const engines[] = { "", "CTF", "Slayer", "Oddball", "King of the Hill", "Race" };
+		long engine = variant->game_engine_index;
+
+		snprintf(game.gametype, sizeof(game.gametype), "%s%s", variant->universal_variant.teams && engine == 2 ? "Team " : "",
+			engine >= 0 && engine < (long)NUMBEROF(engines) ? engines[engine] : "");
+	}
 	game.engine = (int)variant->game_engine_index;
 	game.teams = variant->universal_variant.teams ? 1 : 0;
 	game.score_limit = (int)variant->universal_variant.score_to_win;
@@ -506,11 +515,12 @@ static void send_game(boolean final, int reason)
 	end.end_time = event_upload_time();
 	event_upload_invite(invite, sizeof(invite));
 	snprintf(game_id, sizeof(game_id), "%s", event_log_game_id());
+	count = event_log_count();
 	json = event_log_finish(&end, invite, final, &length);
 	if (json)
 	{
-		platform_log("Delta Stats: game %s %s: %u bytes, %d events (%d dropped)", game_id,
-			final ? "over" : "so far", (unsigned int)length, event_log_count(), event_log_dropped());
+		platform_log("Delta Stats: game %s %s: %u bytes, %ld events (%d dropped)", game_id,
+			final ? "over" : "so far", (unsigned int)length, count, event_log_dropped());
 		event_upload_submit(json, length, game_id);
 	}
 }
