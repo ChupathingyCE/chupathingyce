@@ -34,6 +34,7 @@ and narrows each bot's own accuracy, reactions and agility toward the best.
 #include "game/game_allegiance.h"
 #include "game/game_engine.h"
 #include "game/game_engine_king.h"
+#include "items/item_definitions.h"
 #include "items/projectile_definitions.h"
 #include "items/equipment_definitions.h"
 #include "effects/effect_definitions.h"
@@ -955,6 +956,14 @@ enum
 	BOT_F_FRESH = 2048,
 	/* off from a live grenade */
 	BOT_F_WARY = 4096,
+	/* a pro's movement in a fight (the levels over 3) */
+	BOT_F_AGILE = 8192,
+	/* lying in wait for someone coming */
+	BOT_F_CAMP = 16384,
+	/* everyone in the room kept track of, not the one being shot at alone (the levels over 3) */
+	BOT_F_AWARE = 32768,
+	/* off to where a thing comes back, before it does (the levels over 3) */
+	BOT_F_TIMING = 65536,
 };
 static unsigned bot_off;
 
@@ -965,7 +974,8 @@ static unsigned bot_off_parse(char const *text)
 		{ "switch", BOT_F_SWITCH }, { "melee", BOT_F_MELEE }, { "threat", BOT_F_THREAT },
 		{ "via", BOT_F_VIA }, { "teabag", BOT_F_TEABAG }, { "costslot", BOT_F_COSTSLOT }, { "pace", BOT_F_PACE },
 		{ "notice", BOT_F_NOTICE }, { "human", BOT_F_HUMAN }, { "fresh", BOT_F_FRESH }, { "wary", BOT_F_WARY },
-		{ "all", 0xFFFFu },
+		{ "agile", BOT_F_AGILE }, { "camp", BOT_F_CAMP }, { "aware", BOT_F_AWARE }, { "timing", BOT_F_TIMING },
+		{ "all", 0xFFFFFu },
 	};
 	unsigned mask = 0;
 	long i;
@@ -1151,6 +1161,7 @@ struct bot_state
 	struct bot_mover mover;
 	/* stuck */
 	real_point3d progress_point;
+	real progress_path; /* ... and how far it has walked since */
 	long progress_ticks;
 	long unstick_ticks;
 	real unstick_yaw;
@@ -1202,6 +1213,30 @@ struct bot_state
 	long grenade_ambush_tick; /* when it last thought of a grenade for someone coming on the tracker */
 	long grenade_dodge_until; /* someone seen about to throw one at it: off, this way, until then */
 	real grenade_dodge_yaw;
+	long strafe_held; /* how long it has gone the way it is strafing */
+	int foe_close; /* whoever it is fighting has a gun for close in (a shotgun), or none: looked at now and then */
+	long foe_tick;
+	long blast_seen; /* something on its way at it that goes off (a rocket): which, since when, and whether it is one to see it */
+	long blast_seen_tick;
+	int blast_heeded;
+	/* lying in wait: 0 not, 1 out of sight (going there, or there) for someone coming, 2 out at them */
+	long ambush_phase;
+	long ambush_unit; /* ... who */
+	real_point3d ambush_spot; /* ... where it waits */
+	long ambush_until; /* ... and for how long at the most (or, out at them: until when) */
+	long ambush_tick; /* when it last thought of it */
+	real ambush_spring; /* ... how near they are let come */
+	real_point3d ambush_at; /* ... where they were when it last knew, */
+	long ambush_known; /* ... and when that was */
+	long ambush_again; /* not thought of again for the same one before this */
+	long ambush_slot; /* the gun to have out for it (NONE: the one in hand) */
+	long ambush_player; /* whose body ambush_unit is */
+	/* (testing: how it has moved in its fights, bot_logging) */
+	long stat_fight, stat_still, stat_side, stat_turns, stat_air;
+	long stat_how[8], stat_how_still[8];
+	long stat_jump_tick, stat_jump_cause, stat_air_by[16]; /* (... and what put it in the air: the cause of its last jump, 0 for none) */
+	long stat_dir[6]; /* (in the fight on its own feet: in the air, still, at them, back from them, across, on a slant) */
+	real stat_way, stat_hurt, stat_health;
 	long opened_on_target; /* the target we opened on with a grenade */
 	/* the last grenade's target, watched a few seconds to see if it told */
 	long grenade_watch_unit;
@@ -1387,6 +1422,14 @@ static real bot_skill_fraction(void)
 static real bot_skill_sharpness(void)
 {
 	return 1.f - (1.f - BOT_TOP_LEVEL_NOTICE) * PIN(bot_skill_now - 4.f, 0.f, 1.f);
+}
+
+/* How much of a good player's movement a bot has, over what its level gave
+   it before: none up to level 3, all of it at level 5. (HALO_BOT_REFINE
+   with 1024 taken off it, or "agile" in HALO_BOT_OFF: none) */
+static real bot_skill_pro(void)
+{
+	return BOT_ON(BOT_F_AGILE) && bot_refined_is(1024) ? PIN((bot_skill_now - 3.f) / 2.f, 0.f, 1.f) : 0.f;
 }
 
 /* how well the skill level (bot_skill 1-5) moves in a fight: 0.3 .. 1 */
@@ -1597,6 +1640,33 @@ static void bot_projectile_blast_reach(struct projectile_definition const *proje
 	*kills_within = 0.f;
 	*hurts_within = 0.f;
 	bot_blast_of_projectile(projectile, 0, kills_within, hurts_within);
+}
+
+/* (the same, kept for each kind of projectile once it has been worked out:
+   asked for every tick by those keeping clear of what is in the air. The
+   kinds are a map's own: forgotten with it, bots_map_loaded) */
+static struct { long definition_index; real kills_within, hurts_within; } bot_blast_known[32];
+static long bot_blast_known_count;
+static void bot_projectile_blast_reach_of(long definition_index, real *kills_within, real *hurts_within)
+{
+	long i;
+	for (i = 0; i < bot_blast_known_count; i++)
+	{
+		if (bot_blast_known[i].definition_index == definition_index)
+		{
+			*kills_within = bot_blast_known[i].kills_within;
+			*hurts_within = bot_blast_known[i].hurts_within;
+			return;
+		}
+	}
+	bot_projectile_blast_reach(projectile_definition_get(definition_index), kills_within, hurts_within);
+	if (bot_blast_known_count < (long)(sizeof(bot_blast_known) / sizeof(bot_blast_known[0])))
+	{
+		bot_blast_known[bot_blast_known_count].definition_index = definition_index;
+		bot_blast_known[bot_blast_known_count].kills_within = *kills_within;
+		bot_blast_known[bot_blast_known_count].hurts_within = *hurts_within;
+		bot_blast_known_count++;
+	}
 }
 
 /* a bomb's blast that hurts this far off or further is flown over them
@@ -1932,6 +2002,36 @@ static int bot_unit_looking_away(long unit_index, real_point3d const *eye)
 		unit->unit.aiming_vector.k * toward.k) / length < 0.2f;
 }
 
+/* someone with their gun on us, near enough (the cosine of how far off) */
+static int bot_unit_aiming_at(long unit_index, real_point3d const *eye, real cosine)
+{
+	struct unit_datum *unit = unit_try_and_get(unit_index);
+	real_vector3d toward;
+	real length;
+	if (!unit)
+		return FALSE;
+	toward.i = eye->x - unit->object.bounding_sphere_center.x;
+	toward.j = eye->y - unit->object.bounding_sphere_center.y;
+	toward.k = eye->z - unit->object.bounding_sphere_center.z;
+	length = (real)sqrt(toward.i * toward.i + toward.j * toward.j + toward.k * toward.k);
+	return length > 0.1f && (unit->unit.aiming_vector.i * toward.i + unit->unit.aiming_vector.j * toward.j +
+		unit->unit.aiming_vector.k * toward.k) / length > cosine;
+}
+
+/* whose body this is: their place among the players (NONE: nobody's) */
+static long bot_unit_player_index(long unit_index)
+{
+	struct data_iterator iterator;
+	struct player_datum *player;
+	data_iterator_new(&iterator, player_data);
+	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+	{
+		if (player->unit_index == unit_index)
+			return iterator.datum_index & 0xFFFF;
+	}
+	return NONE;
+}
+
 static long bot_player_count; /* players in the game, this tick */
 static real bot_finding_teamwork = 0.5f; /* the looking bot's, for bot_find_target */
 
@@ -2028,6 +2128,7 @@ static int bot_friend_in_line(struct player_datum *me, real_point3d const *eye, 
 #define BOT_VIEW_CENTER_ANGLE 0.26f /* 15 degrees: what we're looking right at */
 /* the ticks from one look round to the next (bot_think_inner) */
 static long bot_look_period = 1;
+static struct player_datum *bot_player_at_index(long index);
 
 static int bot_notices(struct bot_state *bot, long player_absolute_index, long unit_index, real_point3d const *eye, real distance, int hit_lately)
 {
@@ -2036,6 +2137,7 @@ static int bot_notices(struct bot_state *bot, long player_absolute_index, long u
 	real_point3d at;
 	real_vector3d velocity;
 	real dx, dy, dz, length, cosine, angle, off, seconds;
+	real behind = 1.f; /* (known of by the motion tracker, not seen: so many times as long) */
 	int moving, firing;
 	long slot;
 	if (!BOT_ON(BOT_F_NOTICE))
@@ -2068,9 +2170,21 @@ static int bot_notices(struct bot_state *bot, long player_absolute_index, long u
 		/* not in view. Shooting us from there, though (the hits say from
 		   where): as good as at the edge of it */
 		real_vector3d const *aim = &unit->unit.aiming_vector;
-		if (!(hit_lately && firing && length > 0.01f && -(aim->i * dx + aim->j * dy + aim->k * dz) / length > 0.96f))
-			return FALSE;
-		angle = BOT_VIEW_HALF_ANGLE;
+		/* (... or, to a good player, on the motion tracker: the dot beside
+		   him or behind him is someone he knows is in the room, and is
+		   ready for. Slower than someone in view, and the slower the less
+		   of a good player.) */
+		if (hit_lately && firing && length > 0.01f && -(aim->i * dx + aim->j * dy + aim->k * dz) / length > 0.96f)
+			angle = BOT_VIEW_HALF_ANGLE;
+		else
+		{
+			real pro = BOT_ON(BOT_F_AWARE) && bot_refined_is(4096) ? PIN((bot_skill_now - 3.f) / 2.f, 0.f, 1.f) : 0.f;
+			struct player_datum *me = pro > 0.f ? bot_player_at_index((long)(bot - bot_states)) : NULL;
+			if (!me || !bot_on_tracker(DATUM_INDEX_NEW((long)(bot - bot_states), (unsigned short)((struct datum_header *)me)->identifier), eye, unit_index))
+				return FALSE;
+			angle = BOT_VIEW_HALF_ANGLE;
+			behind = 2.5f - 1.f * pro;
+		}
 	}
 	bot->notice_time[player_absolute_index] = now;
 	object_get_velocities(object_get_ultimate_parent(unit_index), &velocity, NULL);
@@ -2099,7 +2213,7 @@ static int bot_notices(struct bot_state *bot, long player_absolute_index, long u
 		seconds *= 1.4f;
 	/* (reactions 0.7 at the top skill to 1.4 at the bottom, and the lower
 	   levels slower again: up to 2.8 times as long) */
-	seconds *= bot->personality.reaction * (2.f - bot_skill_fraction());
+	seconds *= bot->personality.reaction * (2.f - bot_skill_fraction()) * behind;
 	/* (and the top level sooner again: from level 4 to level 5, down to
 	   half of that. At 5 someone at the edge of the view 40 units off is
 	   seen in three tenths of a second, where it was six) */
@@ -2120,6 +2234,27 @@ static int bot_notices(struct bot_state *bot, long player_absolute_index, long u
    scope), from a vehicle's seat half as far again (it is looking across
    country, not about a room), and a vehicle from twice as far as that:
    always with a clear line to them, and noticed the slower the further. */
+/* (testing, HALO_BOT_PROPARTS: which parts of a good player's movement are
+   on. 1: backing off from a shotgun, 2: sooner into cover) */
+static int bot_pro_part(int which)
+{
+	static int read;
+	static long parts = 0x7fffffff;
+	if (!read)
+	{
+		read = TRUE;
+		if (getenv("HALO_BOT_PROPARTS"))
+			parts = atol(getenv("HALO_BOT_PROPARTS"));
+	}
+	return (parts & which) != 0;
+}
+/* lying in wait: out on someone not yet in sight only when they are this
+   near (round the corner, a step off). Measured: let come into sight within
+   reach, the one who lay in wait won 14 fights of 18; out to meet them from
+   6 or 7 units off, 27 of 49, which is no better than not hiding at all. */
+#define BOT_AMBUSH_CORNER (bot_env_set("HALO_BOT_CORNER") ? (real)atof(getenv("HALO_BOT_CORNER")) : 3.f)
+#define BOT_PRO_FEWER_JUMPS (bot_env_set("HALO_BOT_PROJUMPS") ? (real)atof(getenv("HALO_BOT_PROJUMPS")) : 0.8f)
+#define BOT_AWARE_WITHIN 40.f /* how far off a good player takes in those he is not shooting at */
 #define BOT_SIGHT_ON_FOOT 90.f
 #define BOT_SIGHT_SCOPED 150.f
 #define BOT_SIGHT_FROM_A_VEHICLE 1.5f
@@ -2197,9 +2332,10 @@ static long bot_find_target(struct bot_state *bot, int hit_lately, long my_unit,
 			toward.j = eye->y - unit->object.bounding_sphere_center.y;
 			toward.k = eye->z - unit->object.bounding_sphere_center.z;
 			length = (real)sqrt(toward.i * toward.i + toward.j * toward.j + toward.k * toward.k);
+			/* (a good player more so: whoever has him in their sights is who he turns on) */
 			if (enemy && length > 0.1f && (enemy->unit.aiming_vector.i * toward.i + enemy->unit.aiming_vector.j * toward.j +
 				enemy->unit.aiming_vector.k * toward.k) / length > 0.97f)
-				score *= 0.7f;
+				score *= 0.7f - (BOT_ON(BOT_F_AWARE) && bot_refined_is(4096) ? 0.15f * PIN((bot_skill_now - 3.f) / 2.f, 0.f, 1.f) : 0.f);
 			if (enemy && enemy->unit.current_weapon_index >= 0 && enemy->unit.current_weapon_index < MAXIMUM_WEAPONS_PER_UNIT &&
 				enemy->unit.weapon_object_indices[enemy->unit.current_weapon_index] != NONE &&
 				object_try_and_get(enemy->unit.weapon_object_indices[enemy->unit.current_weapon_index]) &&
@@ -2209,8 +2345,21 @@ static long bot_find_target(struct bot_state *bot, int hit_lately, long my_unit,
 		/* rockets are for vehicles */
 		if (prefer_vehicles && unit->object.parent_object_index != NONE)
 			score *= 0.4f;
+		/* (Someone who would not be the one to shoot at is taken in all the
+		   same, by a good player: seeing them was only begun when they were
+		   the best of those in sight, so the second man into a room was not
+		   seen at all while the first was being shot, and was a stranger
+		   again when the first went down.) */
 		if (score >= best_score)
+		{
+			if (BOT_ON(BOT_F_AWARE) && bot_refined_is(4096) && bot_skill_now > 3.f && distance < BOT_AWARE_WITHIN &&
+				bot_line_clear(bot_sight_flags, eye, &unit->object.bounding_sphere_center, my_root) &&
+				bot_sees_camouflaged(player->unit_index, distance, FALSE))
+			{
+				bot_notices(bot, iterator.datum_index & 0xFFFF, player->unit_index, eye, distance, hit_lately);
+			}
 			continue;
+		}
 		if (!bot_line_clear(bot_sight_flags, eye, &unit->object.bounding_sphere_center, my_root))
 			continue;
 		if (!bot_sees_camouflaged(player->unit_index, distance, player->unit_index == current))
@@ -3137,6 +3286,10 @@ static int bot_within_reach(real_point3d const *point)
 
 /* TRUE when this one is now the best (its score is the hunch's, not the
    one passed in: compare with this, not with the score) */
+static void bots_spawn_spots_update(void);
+static int bots_spawn_spot_at(real_point3d const *point);
+static void bot_consider_spawns(struct bot_state *bot, long me, struct player_datum *player, struct unit_datum *unit, real_point3d const *position,
+	int teams, real held, struct bot_candidate *best);
 static int bot_consider(struct bot_candidate *best, real score, long kind, real_point3d const *point, long object, long ticks, int objective)
 {
 	if (!bot_within_reach(point))
@@ -4910,6 +5063,9 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 		}
 		items[most] = items[--item_count];
 	}
+
+	/* (and what is not lying there yet, but will be) */
+	bot_consider_spawns(bot, me, player, unit, position, teams, held, &best);
 
 	/* vehicles: an empty one to drive, or a seat with a teammate: a
 	   person driving gets a gunner before anything else */
@@ -6687,6 +6843,7 @@ static void bots_world_tick(void)
 	nav_update();
 	bot_country_update();
 	bot_air_trails_update();
+	bots_spawn_spots_update();
 	/* (testing, HALO_GAME_SPEED=<n>: the game at n times its speed, for a
 	   long game of bots in a short time; the ticks are the same ticks) */
 	if (now < 90 && getenv("HALO_GAME_SPEED"))
@@ -7345,10 +7502,15 @@ static void bots_world_tick(void)
 			if (bot_logging())
 			{
 				long by = bots_killer[died[i]];
-				bot_log("death t%ld player %ld (%s) at %.0f %.0f %.0f by player %ld (%s)", now, died[i],
+				struct player_datum *who = bot_player_at_index(died[i]);
+				struct player_datum *whom = by != NONE ? bot_player_at_index(by) : NULL;
+				int saw = by != NONE && by >= 0 && by < BOT_MAXIMUM_PLAYERS && bot_states[died[i]].has_personality ? bot_states[died[i]].notice[by] >= 1.f : -1;
+				bot_log("death t%ld player %ld (%s) at %.0f %.0f %.0f by player %ld (%s) sides %d %d, %s", now, died[i],
 					bots_last_ride[died[i]] != NONE ? tag_get_name(bots_last_ride[died[i]]) : "on foot",
 					last_position[died[i]].x, last_position[died[i]].y, last_position[died[i]].z, by,
-					by == NONE ? "-" : bots_last_ride[by] != NONE ? tag_get_name(bots_last_ride[by]) : "on foot");
+					by == NONE ? "-" : bots_last_ride[by] != NONE ? tag_get_name(bots_last_ride[by]) : "on foot",
+					who ? (int)who->team_index : -1, whom ? (int)whom->team_index : -1,
+					saw < 0 ? "-" : saw ? "had seen them" : "had not seen them");
 			}
 		}
 	}
@@ -7845,7 +8007,7 @@ static long bot_grenade_danger(struct bot_state const *bot, long my_unit, real_p
 		/* (stuck to us: nothing to be done about that) */
 		if (object_get_ultimate_parent(iterator.index) == object_get_ultimate_parent(my_unit))
 			continue;
-		bot_projectile_blast_reach(definition, &kills_within, &hurts_within);
+		bot_projectile_blast_reach_of(object->definition_index, &kills_within, &hurts_within);
 		if (hurts_within < 1.f)
 			continue;
 		if (object->object.parent_object_index == NONE && going->i * going->i + going->j * going->j > 0.05f * 0.05f)
@@ -7876,6 +8038,340 @@ static long bot_grenade_danger(struct bot_state const *bot, long my_unit, real_p
 		*off_out = off;
 	}
 	return found;
+}
+
+/* Something with a blast that is flying at this bot (a rocket, a fuel rod's
+   bolt; not a grenade, which is the above's): one in the air that will
+   pass, or land, within reach of its blast of where the bot stands, inside
+   the next second and a half. Seen when it is in view with nothing between,
+   or is close. The soonest: which way it is going, how many ticks off it
+   is, how wide of the bot it will pass and how far its blast hurts. */
+#define BOT_BLAST_SEEN_WITHIN 45.f
+#define BOT_BLAST_HEARD_WITHIN 6.f
+#define BOT_BLAST_TICKS 45.f
+static long bot_blast_incoming(struct bot_state const *bot, long my_unit, real_point3d const *eye, real_point3d const *position,
+	real_point3d *at_out, real_vector3d *going_out, real *ticks_out, real *wide_out, real *hurts_out)
+{
+	struct object_iterator iterator;
+	struct object_datum *object;
+	long found = NONE;
+	real soonest = BOT_BLAST_TICKS;
+	object_iterator_new(&iterator, _object_mask_projectile, 0);
+	while ((object = (struct object_datum *)object_iterator_next(&iterator)) != NULL)
+	{
+		real_vector3d const *going = &object->object.translational_velocity;
+		real_point3d const *at = &object->object.position;
+		real speed2 = going->i * going->i + going->j * going->j + going->k * going->k;
+		real dx, dy, dz, ticks, wide, kills_within, hurts_within;
+		if (object->object.parent_object_index != NONE || speed2 < 0.12f * 0.12f)
+			continue;
+		dx = position->x - at->x;
+		dy = position->y - at->y;
+		dz = position->z + 0.3f - at->z;
+		if (fabs(dx) > BOT_BLAST_SEEN_WITHIN || fabs(dy) > BOT_BLAST_SEEN_WITHIN)
+			continue;
+		ticks = (dx * going->i + dy * going->j + dz * going->k) / speed2;
+		if (ticks <= 0.f || ticks >= soonest)
+			continue;
+		if (bot_name_has(object->definition_index, "grenade"))
+			continue;
+		bot_projectile_blast_reach_of(object->definition_index, &kills_within, &hurts_within);
+		if (hurts_within < 1.5f)
+			continue;
+		dx -= going->i * ticks;
+		dy -= going->j * ticks;
+		dz -= going->k * ticks;
+		wide = (real)sqrt(dx * dx + dy * dy + dz * dz);
+		if (wide > hurts_within + 0.5f)
+			continue;
+		if (distance3d(eye, at) > BOT_BLAST_HEARD_WITHIN)
+		{
+			real ex = at->x - eye->x, ey = at->y - eye->y;
+			real length = (real)sqrt(ex * ex + ey * ey);
+			if (length > 0.1f && (ex * (real)cos(bot->yaw) + ey * (real)sin(bot->yaw)) / length < (real)cos(BOT_VIEW_HALF_ANGLE))
+				continue;
+			if (!bot_line_clear(bot_sight_flags, eye, at, my_unit))
+				continue;
+		}
+		found = iterator.index;
+		soonest = ticks;
+		*at_out = *at;
+		*going_out = *going;
+		*ticks_out = ticks;
+		*wide_out = wide;
+		*hurts_out = hurts_within;
+	}
+	return found;
+}
+
+/* ---------- when things come back
+
+The game puts a new one of each thing a map has lying about (a rocket
+launcher, an overshield) at its place every so many seconds, by the game's
+clock: at every tick that the thing's time goes into (game_engine.c,
+game_engine_update_item_spawn), whether the last one was taken or not. A
+good player knows the big ones' times and is standing there when they come.
+The places of the big things of this map and game, how often each comes,
+what it is, and whether one is lying there now (looked at a few times a
+second). */
+#define BOT_SPAWN_SPOTS 48
+#define BOT_SPAWN_WORTH 7.f /* (bot_item_value: the power weapons and the powerups) */
+static struct bot_spawn_spot
+{
+	real_point3d position;
+	long period; /* ticks from one to the next */
+	long definition_index; /* what comes */
+	real value;
+	int weapon;
+	int lying; /* one is there now */
+	long since; /* ... or was, at this tick */
+} bots_spawn_spots[BOT_SPAWN_SPOTS];
+static long bots_spawn_spot_count;
+static struct scenario *bots_spawn_spots_scenario;
+static struct game_engine *bots_spawn_spots_engine;
+
+static void bots_spawn_spots_update(void)
+{
+	struct scenario *scenario = global_scenario_get();
+	long now = game_time_get();
+	long i;
+	if (scenario != bots_spawn_spots_scenario || game_engine != bots_spawn_spots_engine || now < 2)
+	{
+		short equipment_index;
+		bots_spawn_spots_scenario = scenario;
+		bots_spawn_spots_engine = game_engine;
+		bots_spawn_spot_count = 0;
+		if (!scenario || !game_engine)
+			return;
+		for (equipment_index = 0; equipment_index < scenario->netgame_equipment.count && bots_spawn_spot_count < BOT_SPAWN_SPOTS; equipment_index++)
+		{
+			struct scenario_netgame_equipment *equipment =
+				TAG_BLOCK_GET_ELEMENT(&scenario->netgame_equipment, equipment_index, struct scenario_netgame_equipment);
+			struct item_collection_definition *collection;
+			struct bot_spawn_spot *spot = &bots_spawn_spots[bots_spawn_spot_count];
+			long period = 30 * BOT_TICKS_PER_SECOND;
+			long permutation;
+			if (!match_game_type(game_engine->type, NUMBEROF(equipment->game_type), equipment->game_type) || equipment->item_collection.index == NONE)
+				continue;
+			collection = (struct item_collection_definition *)tag_get(ITEM_COLLECTION_DEFINITION_TAG, equipment->item_collection.index);
+			if (equipment->spawn_time != 0)
+				period = equipment->spawn_time * BOT_TICKS_PER_SECOND;
+			else if (collection->spawn_time != 0)
+				period = collection->spawn_time * BOT_TICKS_PER_SECOND;
+			/* (what comes: the best of what the place gives, where it gives one of several) */
+			spot->value = 0.f;
+			spot->definition_index = NONE;
+			for (permutation = 0; permutation < collection->permutations.count; permutation++)
+			{
+				struct item_permutation_definition *item = TAG_BLOCK_GET_ELEMENT(&collection->permutations, permutation, struct item_permutation_definition);
+				if (item->item.index != NONE && bot_item_value(item->item.index) > spot->value)
+				{
+					spot->value = bot_item_value(item->item.index);
+					spot->definition_index = item->item.index;
+				}
+			}
+			if (spot->value < BOT_SPAWN_WORTH || spot->definition_index == NONE)
+				continue;
+			spot->weapon = object_definition_get(spot->definition_index)->object.type == _object_type_weapon;
+			if (spot->weapon && game_variant_options_get()->no_map_weapons)
+				continue;
+			spot->position = equipment->position;
+			spot->period = period;
+			spot->lying = FALSE;
+			spot->since = 0;
+			bots_spawn_spot_count++;
+			if (bot_logging())
+				bot_log("comes back every %ld s at %.1f %.1f %.1f: %s", period / BOT_TICKS_PER_SECOND, equipment->position.x, equipment->position.y,
+					equipment->position.z, tag_get_name(spot->definition_index));
+		}
+	}
+	if (bots_spawn_spot_count > 0 && now % 6 == 0)
+	{
+		struct object_iterator iterator;
+		struct object_datum *object;
+		int lying[BOT_SPAWN_SPOTS];
+		memset(lying, 0, sizeof(lying));
+		object_iterator_new(&iterator, _object_mask_weapon | _object_mask_equipment, 0);
+		while ((object = (struct object_datum *)object_iterator_next(&iterator)) != NULL)
+		{
+			if (object->object.parent_object_index != NONE)
+				continue;
+			for (i = 0; i < bots_spawn_spot_count; i++)
+			{
+				if (object->definition_index == bots_spawn_spots[i].definition_index &&
+					fabs(object->object.position.x - bots_spawn_spots[i].position.x) < 1.2f &&
+					fabs(object->object.position.y - bots_spawn_spots[i].position.y) < 1.2f &&
+					fabs(object->object.position.z - bots_spawn_spots[i].position.z) < 2.f)
+				{
+					lying[i] = TRUE;
+				}
+			}
+		}
+		for (i = 0; i < bots_spawn_spot_count; i++)
+		{
+			struct bot_spawn_spot *spot = &bots_spawn_spots[i];
+			/* (testing: how long each lay before it was taken, and by whom:
+			   whoever is nearest it, if they are right there) */
+			if (spot->lying && !lying[i] && bot_logging())
+			{
+				struct data_iterator players;
+				struct player_datum *player;
+				long taker = NONE;
+				int side = -1;
+				real nearest = 3.f;
+				data_iterator_new(&players, player_data);
+				while ((player = (struct player_datum *)data_iterator_next(&players)) != NULL)
+				{
+					real off;
+					if (player->unit_index == NONE || !bot_unit_alive(player->unit_index))
+						continue;
+					off = distance3d(&object_get(object_get_ultimate_parent(player->unit_index))->object.position, &spot->position);
+					if (off < nearest)
+					{
+						nearest = off;
+						taker = players.datum_index & 0xFFFF;
+						side = player->team_index;
+					}
+				}
+				bot_log("taken t%ld %s at %.0f %.0f, %.1f s after it came, by player %ld side %d", now, tag_get_name(spot->definition_index),
+					spot->position.x, spot->position.y, (real)(now % spot->period) / BOT_TICKS_PER_SECOND, taker, side);
+			}
+			/* (... and who was nearest when it came, and how near) */
+			if (!spot->lying && lying[i] && bot_logging())
+			{
+				struct data_iterator players;
+				struct player_datum *player;
+				long who = NONE;
+				int side = -1, waiting = FALSE;
+				real nearest = 1.0e9f;
+				data_iterator_new(&players, player_data);
+				while ((player = (struct player_datum *)data_iterator_next(&players)) != NULL)
+				{
+					real off;
+					if (player->unit_index == NONE || !bot_unit_alive(player->unit_index))
+						continue;
+					off = distance3d(&object_get(object_get_ultimate_parent(player->unit_index))->object.position, &spot->position);
+					if (off < nearest)
+					{
+						long index = players.datum_index & 0xFFFF;
+						nearest = off;
+						who = index;
+						side = player->team_index;
+						waiting = index < BOT_MAXIMUM_PLAYERS && bot_states[index].goal_kind == _bot_goal_hold &&
+							distance3d(&bot_states[index].goal, &spot->position) < 1.f;
+					}
+				}
+				bot_log("came t%ld %s at %.0f %.0f: nearest player %ld side %d, %.1f off%s", now, tag_get_name(spot->definition_index),
+					spot->position.x, spot->position.y, who, side, nearest, waiting ? ", there for it" : "");
+			}
+			spot->lying = lying[i];
+			if (lying[i])
+				spot->since = now;
+		}
+	}
+}
+
+static int bots_spawn_spot_at(real_point3d const *point)
+{
+	long i;
+	for (i = 0; i < bots_spawn_spot_count; i++)
+		if (distance3d(point, &bots_spawn_spots[i].position) < 0.2f)
+			return TRUE;
+	return FALSE;
+}
+
+/* Off to where one of the big things comes back, to be there as it does: for
+   a good player (the levels over 3; the top level every one of them, to the
+   second; the one below it the biggest only, and a few seconds early). A
+   place with nothing lying at it now, whose next one is due about when the
+   walk there ends; not for what it has already (the same gun, a powerup
+   still on it), nor where one of its own side is already waiting. */
+#define BOT_TIMING_WALK 22.f /* no further off than this many seconds */
+#define BOT_TIMING_WORTH (bot_env_set("HALO_BOT_TIMEWORTH") ? (real)atof(getenv("HALO_BOT_TIMEWORTH")) : 1.6f)
+static void bot_consider_spawns(struct bot_state *bot, long me, struct player_datum *player, struct unit_datum *unit, real_point3d const *position,
+	int teams, real held, struct bot_candidate *best)
+{
+	real pro = BOT_ON(BOT_F_TIMING) && bot_refined_is(8192) ? PIN((bot_skill_now - 3.f) / 2.f, 0.f, 1.f) : 0.f;
+	long now = game_time_get();
+	long i, k;
+	if (pro <= 0.f || !aas_ready() || bot->carrying_objective || unit->object.parent_object_index != NONE)
+		return;
+	for (i = 0; i < bots_spawn_spot_count; i++)
+	{
+		struct bot_spawn_spot const *spot = &bots_spawn_spots[i];
+		real left = (real)(spot->period - now % spot->period) / BOT_TICKS_PER_SECOND;
+		real early = 3.f + 4.f * (1.f - pro);
+		real distance = distance3d(position, &spot->position);
+		real walk, score;
+		struct bot_body walker;
+		int soon = FALSE;
+		float time;
+		/* (it has come: what it was waiting for is over, and the thing
+		   itself is what it is after now) */
+		if (spot->lying && bot->goal_kind == _bot_goal_hold && distance3d(&bot->goal, &spot->position) < 1.f)
+		{
+			bot->goal_ticks = 0;
+			bot->goal_score = 0.f;
+		}
+		if (spot->lying || (spot->value < 8.5f && pro < 0.75f))
+			continue;
+		/* (too far to be there for it, as the crow flies) */
+		if (distance / aas_speed(AAS_FOOT) > MIN(BOT_TIMING_WALK, left + early))
+			continue;
+		if (spot->weapon)
+		{
+			long slot = NONE;
+			real worst = bot_worst_held(unit, &slot);
+			if (bot_holds_weapon_type(unit, spot->definition_index))
+				continue;
+			if (bot_weapons_held(unit) >= 2 && spot->value <= worst + 1.f)
+				continue;
+			score = (spot->value - MIN(held, spot->value)) + (7.f + 6.f * bot->personality.greed) * (held >= 7.f ? 0.3f : 1.f);
+		}
+		else
+		{
+			if (unit->object.shield_vitality > 1.05f || unit->unit.active_camouflage > 0.5f)
+				continue;
+			score = 7.f + 9.f * bot->personality.greed;
+		}
+		/* (one of its own side there for it already, or nearer and on the way) */
+		for (k = 0; k < BOT_MAXIMUM_PLAYERS; k++)
+		{
+			struct bot_state const *other = &bot_states[k];
+			struct player_datum *theirs;
+			if (k == me || !other->has_personality || other->unit_index == NONE || other->goal_kind != _bot_goal_hold ||
+				distance3d(&other->goal, &spot->position) > 1.f || !(theirs = bot_player_at_index(k)))
+			{
+				continue;
+			}
+			/* (the nearer of the two is the one whose it is) */
+			if (teams && theirs->team_index == player->team_index && object_try_and_get(other->unit_index) &&
+				distance3d(&object_get(other->unit_index)->object.position, &spot->position) < distance)
+			{
+				score *= 0.2f;
+			}
+		}
+		memset(&walker, 0, sizeof(walker));
+		walker.position = *position;
+		walker.vehicle_index = NONE;
+		time = bot_travel_time_soon(&walker, AAS_FOOT, &spot->position, &soon);
+		if (time < 0.f)
+			continue;
+		walk = time;
+		if (walk > BOT_TIMING_WALK || left > walk + early)
+			continue;
+		/* (worth more than the hunt, to one who knows it is coming: the
+		   rocket launcher is what the next minute of the game turns on.
+		   And gone to as the game's objective is: shooting on the way, and
+		   stopping only for someone right there) */
+		score = score * BOT_TIMING_WORTH * pro / (1.f + walk * aas_speed(AAS_FOOT) / BOT_POWER_FALLOFF);
+		if (bot_consider(best, score, _bot_goal_hold, &spot->position, NONE, (long)((left + 2.f) * BOT_TICKS_PER_SECOND), TRUE) && bot_logging() &&
+			!(bot->goal_kind == _bot_goal_hold && distance3d(&bot->goal, &spot->position) < 1.f))
+		{
+			bot_log("bot%ld t%ld side %d may go to where %s comes back in %.1f s, %.1f s off (worth %.1f)", me, now, (int)player->team_index,
+				tag_get_name(spot->definition_index), left, walk, score);
+		}
+	}
 }
 
 static void bot_think_inner(long player_absolute_index, struct player_action *action);
@@ -7963,6 +8459,8 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 	struct bot_move_result result;
 	real_point3d far_place; /* (a driver's, when it is bound somewhere far: bot_drive_far) */
 	int moved = FALSE; /* this tick's movement is the route's (bot_move.c) */
+	int how = 0; /* (testing: which part of the movement had this tick. 1: the fight, 2: travel) */
+	int ambush_hold = FALSE; /* lying in wait: not a shot until they are near */
 	int driving_moved = FALSE;
 	int committed = FALSE; /* in the middle of a jump, a gap, a ladder: see it through */
 	int look_forced = FALSE; /* the route needs us facing a way (a ladder) */
@@ -8029,6 +8527,20 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 	}
 	(void)iterator;
 	bot_off = me ? bot_off_for_team(me->team_index) : 0;
+	/* (testing, HALO_BOT_OFF_EVEN: the same for the bots whose place in the
+	   game is an even number, whatever side they are on: half of the bots of
+	   a game with no sides) */
+	{
+		static int read;
+		static unsigned even;
+		if (!read)
+		{
+			read = TRUE;
+			even = bot_off_parse(getenv("HALO_BOT_OFF_EVEN"));
+		}
+		if ((player_absolute_index & 1) == 0)
+			bot_off |= even;
+	}
 	if (me)
 		bot_learn_from_score(bot, me);
 	if (!me || me->unit_index == NONE || !bot_unit_alive(me->unit_index))
@@ -8970,6 +9482,211 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		bot->via_valid = FALSE;
 		bot->via_plan.samples = 0;
 	}
+
+	/* ---- lying in wait. Someone coming this way who has not seen the bot:
+	   on the motion tracker and not in sight yet, or in sight with their
+	   back half turned and the bot holding a gun for close in (a shotgun, a
+	   flamethrower: in its hands or on its back). A bot that has such a gun
+	   nearly always, and any other when it is one to sit in a place and
+	   feels like it, gets out of their sight close by (or stays where it
+	   is, out of it already), crouches (a crouching man is not on a motion
+	   tracker), has the close gun out, looks where they are coming from
+	   and holds its fire. When they are within a few steps, or at the
+	   corner, or have seen it, it comes out and is on them. It gives it up
+	   if they go off, if someone else turns up, or when it has waited as
+	   long as it has patience for. */
+	if (BOT_ON(BOT_F_CAMP) && bot_refined_is(2048) && vehicle_index == NONE && !zombie)
+	{
+		long now = game_time_get();
+		if (bot->ambush_phase != 0)
+		{
+			char const *over = NULL, *spring = NULL;
+			int seen = target != NONE && target == bot->ambush_unit;
+			if (!bot_unit_alive(bot->ambush_unit) || !object_try_and_get(bot->ambush_unit))
+				over = "they are dead";
+			else if (weapon.none || bot->carrying_objective)
+				over = "something to carry";
+			else
+			{
+				if (seen)
+				{
+					bot->ambush_at = object_get(object_get_ultimate_parent(bot->ambush_unit))->object.position;
+					bot->ambush_known = now;
+				}
+				else if (bot->tracked_unit == bot->ambush_unit && bot->tracked_age < 12)
+				{
+					bot->ambush_at = bot->tracked_at;
+					bot->ambush_known = now - bot->tracked_age;
+				}
+				if (bot->ambush_phase == 1)
+				{
+					real off = distance3d(&bot->ambush_at, &position);
+					/* (it knows who is coming and from where: seen the
+					   moment they are in sight, with no time to make out
+					   who it is) */
+					if (bot->ambush_player >= 0 && bot->ambush_player < BOT_MAXIMUM_PLAYERS)
+					{
+						bot->notice[bot->ambush_player] = 1.f;
+						bot->notice_time[bot->ambush_player] = now;
+						bot->notice_unit[bot->ambush_player] = bot->ambush_unit;
+					}
+					if (target != NONE && !seen)
+						over = "someone else";
+					else if (threatened)
+						spring = "it is found out";
+					else if (seen && target_distance <= bot->ambush_spring)
+						spring = "they are in reach";
+					else if (seen && target_distance < 14.f && bot_unit_aiming_at(target, &eye, 0.96f) && bot->seen_ticks > 8)
+						spring = "they have seen it";
+					else if (!seen && now - bot->ambush_known < 20 && off < BOT_AMBUSH_CORNER)
+						spring = "they are at the corner";
+					else if (now > bot->ambush_until)
+						over = "it has waited long enough";
+					else if (!seen && now - bot->ambush_known > BOT_SECONDS(4.f))
+						over = "they have gone";
+					else if (off > 35.f)
+						over = "they are far off";
+				}
+				else if (now > bot->ambush_until)
+					over = "";
+			}
+			if (spring)
+			{
+				bot->ambush_phase = 2;
+				bot->ambush_until = now + BOT_SECONDS(5.f);
+				/* (... and its finger on the trigger) */
+				if (seen)
+					bot->seen_ticks = MAX(bot->seen_ticks, 60);
+				/* (found out from a way off: the gun off its back was for
+				   close in, and this is not: whichever suits) */
+				if (distance3d(&bot->ambush_at, &position) > 6.5f)
+					bot->ambush_slot = NONE;
+				if (bot_logging())
+					bot_log("bot%ld t%ld side %d comes out on player %ld: %s, %.1f off%s", player_absolute_index, now, (int)me->team_index,
+						(long)bot_unit_player_index(bot->ambush_unit), spring, distance3d(&bot->ambush_at, &position), seen ? "" : " (not in sight)");
+			}
+			else if (over)
+			{
+				if (bot_logging() && *over)
+					bot_log("bot%ld t%ld lies in wait no longer: %s", player_absolute_index, now, over);
+				bot->ambush_phase = 0;
+			}
+			/* (out, and they are not in sight yet: to where they are) */
+			if (bot->ambush_phase == 2 && target == NONE && now - bot->ambush_known < BOT_SECONDS(3.f))
+			{
+				bot_set_goal(bot, _bot_goal_enemy, &bot->ambush_at, NONE, BOT_SECONDS(2.f));
+				bot->goal_score = 30.f;
+				bot->goal_objective = FALSE;
+			}
+		}
+		else if (now - bot->ambush_tick >= 15)
+		{
+			bot->ambush_tick = now;
+			if (!committed && !body.airborne && !threatened && !bot->in_cover && !weapon.none && !bot->carrying_objective && !bot_on_objective(bot) &&
+				bot->teabag_ticks <= 0 && aas_ready())
+			{
+				long foe = NONE;
+				real_point3d foe_at = position;
+				int seen = FALSE;
+				/* (the gun for it: the one in hand, or the one on its back) */
+				int close_gun = weapon.kind == _bot_gun_shotgun || weapon.kind == _bot_gun_flamethrower;
+				long slot = NONE;
+				if (!close_gun && unit->unit.current_weapon_index >= 0 && unit->unit.current_weapon_index <= 1)
+				{
+					short other_slot = (short)(unit->unit.current_weapon_index == 0 ? 1 : 0);
+					long other_index = unit->unit.weapon_object_indices[other_slot];
+					if (other_index != NONE && object_try_and_get(other_index))
+					{
+						struct bot_weapon other;
+						bot_weapon_describe(other_index, &other);
+						if ((other.kind == _bot_gun_shotgun || other.kind == _bot_gun_flamethrower) && !other.spent &&
+							(!other.uses_ammunition || other.rounds_loaded > 0))
+						{
+							close_gun = TRUE;
+							slot = other_slot;
+						}
+					}
+				}
+				if (target != NONE)
+				{
+					struct object_datum *them = object_get(object_get_ultimate_parent(target));
+					if (close_gun && target_distance > 8.f && target_distance < 30.f && them->object.parent_object_index == NONE &&
+						TEST_FLAG(_object_mask_biped, them->object.type) && !bot_unit_aiming_at(target, &eye, 0.9f))
+					{
+						foe = target;
+						foe_at = them->object.position;
+						seen = TRUE;
+					}
+				}
+				else if (bot->tracked_unit != NONE && bot->tracked_age < 20 && bot_unit_alive(bot->tracked_unit) && object_try_and_get(bot->tracked_unit) &&
+					object_get(bot->tracked_unit)->object.parent_object_index == NONE)
+				{
+					real off = distance3d(&bot->tracked_at, &position);
+					if (off > 5.f && off < 22.f && fabs(bot->tracked_at.z - position.z) < 3.f)
+					{
+						foe = bot->tracked_unit;
+						foe_at = bot->tracked_at;
+					}
+				}
+				if (foe != NONE && !(foe == bot->ambush_unit && now < bot->ambush_again))
+				{
+					real_vector3d const *going = &object_get(foe)->object.translational_velocity;
+					real dx = position.x - foe_at.x, dy = position.y - foe_at.y;
+					real length = (real)sqrt(dx * dx + dy * dy);
+					/* (coming this way: at a walk or better, and more at us than not) */
+					if (length > 0.5f && (going->i * dx + going->j * dy) / length > 0.025f)
+					{
+						real keen = close_gun ? 0.85f : 0.1f + 0.45f * bot->personality.camping;
+						if (bot->personality.style == _bot_style_lurker)
+							keen += 0.2f;
+						else if (bot->personality.style == _bot_style_rusher)
+							keen *= 0.6f;
+						if (bot->goal_kind == _bot_goal_hold && bot_distance2d(&position, &bot->goal) < 3.f)
+							keen += 0.2f;
+						keen *= 0.4f + 0.6f * bot_skill_fraction();
+						bot->ambush_unit = foe;
+						bot->ambush_again = now + BOT_SECONDS(8.f);
+						if (bot_random(bot) < keen)
+						{
+							real_point3d spot = position;
+							real_point3d theirs = foe_at;
+							int found;
+							theirs.z += 0.5f;
+							/* (out of their sight where it stands: there, then) */
+							found = !seen && !bot_line_clear(bot_sight_flags, &eye, &theirs, me->unit_index);
+							if (!found)
+								found = bot_find_cover(bot, &body, &theirs, me->unit_index, &spot);
+							if (found)
+							{
+								/* (a gun for close in: not a shot until they are right there.
+								   Any other: the first shot as soon as they are in
+								   sight, which is what it hid and took aim for. Held
+								   back until they were nearer, it was the one shot at
+								   first in half its fights.) */
+								real room = close_gun ? 4.5f : 30.f;
+								bot->ambush_phase = 1;
+								bot->ambush_spot = spot;
+								bot->ambush_until = now + BOT_SECONDS(5.f + 8.f * bot->personality.patience);
+								bot->ambush_spring = room;
+								bot->ambush_at = foe_at;
+								bot->ambush_known = now;
+								bot->ambush_slot = slot;
+								bot->ambush_player = bot_unit_player_index(foe);
+								bot->in_cover = FALSE;
+								if (bot_logging())
+									bot_log("bot%ld t%ld side %d lies in wait for player %ld, %.1f off and %s: %.1f from here, until they are within %.1f%s",
+										player_absolute_index, now, (int)me->team_index, (long)bot_unit_player_index(foe), length,
+										seen ? "in sight" : "on the motion tracker", bot_distance2d(&position, &spot), room,
+										slot != NONE ? ", with the gun off its back" : "");
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	else
+		bot->ambush_phase = 0;
 
 	BOT_PROFILE_MARK("movement");
 	/* ---- movement */
@@ -10074,6 +10791,56 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				action->control_flags |= FLAG(_unit_control_crouch_modifier_bit);
 		}
 	}
+	else if (bot->ambush_phase == 1 && !committed)
+	{
+		/* lying in wait: to the place, and down, and still */
+		real off = bot_distance2d(&position, &bot->ambush_spot);
+		how = 3;
+		if (off > 0.6f)
+		{
+			bot_go(bot, &body, &bot->ambush_spot, _bot_move_goal_position, 0.4f, &result);
+			moved = TRUE;
+			if (result.moving)
+			{
+				move_yaw = result.yaw;
+				path_yaw = result.path_yaw;
+				move_speed = result.speed;
+				moving = TRUE;
+			}
+			else if (off > 1.5f)
+			{
+				if (bot_logging())
+					bot_log("bot%ld t%ld lies in wait no longer: no way to the place", player_absolute_index, game_time_get());
+				bot->ambush_phase = 0;
+			}
+		}
+		if (!moving)
+		{
+			moving = TRUE;
+			moved = FALSE;
+			move_speed = 0.f;
+		}
+		if (off < 2.f)
+			action->control_flags |= FLAG(_unit_control_crouch_modifier_bit);
+		if (result.look)
+		{
+			desired_yaw = result.look_yaw;
+			desired_pitch = result.look_pitch;
+			look_reason = _bot_look_move;
+			look_forced = TRUE;
+		}
+		else if (target == NONE)
+		{
+			/* (the way they are coming from) */
+			desired_yaw = bot_yaw_to(&eye, &bot->ambush_at);
+			desired_pitch = (real)atan2(bot->ambush_at.z + 0.5f - eye.z, MAX(0.5f, bot_distance2d(&bot->ambush_at, &eye)));
+			look_reason = _bot_look_noise;
+		}
+		ambush_hold = TRUE;
+		/* (no grenade to tell them it is there, either) */
+		if (bot->grenade_cooldown < 3)
+			bot->grenade_cooldown = 3;
+	}
 	else if (zombie && target != NONE && target_distance < 5.f && !committed &&
 		(!aas_ready() || aas_line_in_areas(AAS_FOOT, &position, &object_get(object_get_ultimate_parent(target))->object.position)))
 	{
@@ -10133,8 +10900,11 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		real to_target = bot_yaw_to(&position, &bot->last_seen);
 		real preferred = weapon.preferred_distance * (1.4f - 0.8f * bot->personality.aggression);
 		real forward = 0.f;
+		how = 1;
 		int hurt = unit->object.shield_vitality < 0.2f && unit->object.body_vitality < 0.5f;
 		real skill_move = bot_skill_movement();
+		/* (how much of a good player's footwork it has: the levels over 3) */
+		real pro = bot_skill_pro();
 		int closing = FALSE; /* in for a blow */
 
 		/* how it fights: the rusher in close (not with a gun that wants
@@ -10157,6 +10927,11 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			closing = TRUE;
 		}
 
+		/* (out of where it lay in wait: in on them, as near as its gun likes
+		   best, while they are still turning round) */
+		if (bot->ambush_phase == 2 && target == bot->ambush_unit && !closing && target_distance < 8.f)
+			preferred = MIN(preferred, weapon.kind == _bot_gun_shotgun || weapon.kind == _bot_gun_flamethrower ? 1.2f : 3.5f);
+
 		if (--bot->strafe_ticks <= 0)
 		{
 			/* how often it changes direction: the skill level and its own
@@ -10174,12 +10949,74 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				real jiggle = 0.1f + 0.2f * skill;
 				real seconds = kind < jiggle ? 0.2f + 0.15f * bot_random(bot) :
 					kind < jiggle + 0.25f ? 0.9f + 0.9f * bot_random(bot) : 0.4f + 0.5f * bot_random(bot);
+				/* (a good player: no step so short that it goes nowhere. A
+				   body takes a third of a second to stop and as long again
+				   to be at speed the other way, so a side held a quarter of
+				   a second is a man wobbling on the spot, which is what the
+				   quickest of the bots did a tenth of their fights. His
+				   holds are from four tenths of a second to a second and a
+				   bit, and no telling which.) */
+				if (pro > 0.f)
+					seconds = kind < 0.2f ? 0.9f + 0.5f * bot_random(bot) : 0.4f + 0.45f * bot_random(bot);
 				bot->strafe_ticks = BOT_SECONDS(seconds * (1.5f - 0.5f * skill) * (threatened ? 0.85f : 1.f));
 			}
-			bot->strafe_sign = bot_random(bot) < 0.5f ? -1.f : 1.f;
-			/* (the least skilled don't always strafe: they walk at them) */
-			if (bot_random(bot) > 0.35f + 0.65f * skill)
-				bot->strafe_sign = 0.f;
+			{
+				real before = bot->strafe_sign;
+				bot->strafe_sign = bot_random(bot) < 0.5f ? -1.f : 1.f;
+				/* (the least skilled don't always strafe: they walk at them.
+				   A good player always does) */
+				if (bot_random(bot) > 0.35f + 0.65f * skill && bot_random(bot) >= pro)
+					bot->strafe_sign = 0.f;
+				else if (pro > 0.f)
+				{
+					/* (the other way from the last, most times: a hold is a
+					   turn then, not the same way gone on with; and not the
+					   way that has a wall or a drop a step along it, when
+					   the other way has room) */
+					if (before != 0.f && bot_random(bot) < 0.5f + 0.35f * pro)
+						bot->strafe_sign = -before;
+					if (aas_ready() && !bot_move_direction_safe(&body, bot_wrap(to_target + bot->strafe_sign * 1.4f), 1.1f) &&
+						bot_move_direction_safe(&body, bot_wrap(to_target - bot->strafe_sign * 1.4f), 1.1f))
+					{
+						bot->strafe_sign = -bot->strafe_sign;
+					}
+				}
+			}
+			bot->strafe_held = 0;
+		}
+		else
+			bot->strafe_held++;
+		/* a good player, hit: the other way, there and then (whoever hit
+		   him had his line; a moment on and the line is behind him), if he
+		   has gone this way long enough for it to be a turn and not a
+		   stutter */
+		if (pro > 0.f && bot->hit_ticks == 45 && bot->strafe_held > 13 && bot->strafe_sign != 0.f && bot_random(bot) < 0.55f * pro &&
+			(!aas_ready() || bot_move_direction_safe(&body, bot_wrap(to_target - bot->strafe_sign * 1.4f), 1.1f)))
+		{
+			bot->strafe_sign = -bot->strafe_sign;
+			bot->strafe_ticks = BOT_SECONDS(0.45f + 0.4f * bot_random(bot));
+			bot->strafe_held = 0;
+		}
+		/* (what they are fighting with, looked at twice a second: a gun for
+		   close in, or none at all) */
+		if (pro > 0.f && game_time_get() - bot->foe_tick >= 15)
+		{
+			struct unit_datum *foe = (struct unit_datum *)object_try_and_get_and_verify_type(target, _object_mask_biped);
+			bot->foe_tick = game_time_get();
+			bot->foe_close = FALSE;
+			if (foe && foe->object.parent_object_index == NONE)
+			{
+				short slot = foe->unit.current_weapon_index;
+				long theirs = slot >= 0 && slot < MAXIMUM_WEAPONS_PER_UNIT ? foe->unit.weapon_object_indices[slot] : NONE;
+				if (theirs == NONE || !object_try_and_get(theirs))
+					bot->foe_close = TRUE;
+				else
+				{
+					struct bot_weapon gun;
+					bot_weapon_describe(theirs, &gun);
+					bot->foe_close = gun.none || gun.kind == _bot_gun_shotgun || gun.kind == _bot_gun_flamethrower;
+				}
+			}
 		}
 		/* the upper hand: now and then look for higher ground close by that
 		   still sees them (up a ledge, a ladder, over a gap for the daring),
@@ -10237,7 +11074,9 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			int breaking_off = bot->personality.style == _bot_style_hit_and_run && mine < 0.4f && !finishing && !closing &&
 				!bot_on_objective(bot); /* (its way of fighting is for its own time) */
 			if (!bot->in_cover && (broken || breaking_off) && !bot_holds_named(unit, "flag") && !bot_holds_named(unit, "ball") &&
-				(breaking_off || bot->personality.aggression < 0.45f + 0.25f * bot->personality.patience) &&
+				/* (a good player, more readily: one shot from dead and
+				   losing, round a corner is where he goes) */
+				(breaking_off || bot->personality.aggression < 0.45f + 0.25f * bot->personality.patience + (bot_pro_part(2) ? 0.3f * pro : 0.f)) &&
 				--bot->cover_check_ticks <= 0)
 			{
 				bot->cover_check_ticks = 10;
@@ -10295,6 +11134,15 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		{
 			forward = -1.f;
 		}
+		/* a good player keeps off someone with a shotgun, a flamethrower or
+		   bare hands when his own gun reaches: back, sidestepping, firing,
+		   for as long as they are within a few steps (a shotgun is worth
+		   nothing from eight units; walked up to, it is worth everything) */
+		if (pro > 0.f && bot_pro_part(1) && bot->foe_close && !closing && !bot->in_cover && !weapon.none && weapon.kind != _bot_gun_shotgun &&
+			weapon.kind != _bot_gun_flamethrower && target_distance < 4.f + 4.5f * pro && forward >= 0.f)
+		{
+			forward = -1.f;
+		}
 		if (forward == 0.f && bot->strafe_sign == 0.f)
 			forward = 0.4f;
 		if (!moved && bot->fight_spot_valid && bot_distance2d(&position, &bot->fight_spot) > 0.7f && !hurt)
@@ -10328,6 +11176,12 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				move_yaw = result.yaw;
 				move_speed = result.speed;
 				moving = TRUE;
+				/* (a good player weaves on the way round too, where it is a walk) */
+				if (pro > 0.f && !result.look && result.travel == _aas_travel_walk && !bot_move_committed(&bot->mover) && bot->strafe_sign != 0.f &&
+					bot_move_direction_safe(&body, bot_wrap(move_yaw + bot->strafe_sign * 0.5f * pro), 0.8f))
+				{
+					move_yaw = bot_wrap(move_yaw + bot->strafe_sign * 0.5f * pro);
+				}
 			}
 			else
 			{
@@ -10337,7 +11191,9 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		}
 		if (!moving)
 		{
-			move_yaw = bot_wrap(to_target + (real)atan2(bot->strafe_sign * 0.8f, forward));
+			/* (going in at them or back from them: on a slant, and a good
+			   player on a wider one: more across than along) */
+			move_yaw = bot_wrap(to_target + (real)atan2(bot->strafe_sign * (0.8f + 0.7f * pro), forward));
 			moving = TRUE;
 			/* not shot at: a slow sidestep that keeps the aim steady; under
 			   fire, flat out */
@@ -10374,6 +11230,26 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 							found = TRUE;
 							if (i >= 2)
 								bot->strafe_sign = -bot->strafe_sign;
+						}
+					}
+				}
+				/* (a good player with no room for a step that long takes a
+				   shorter one: on a walkway, a beam, a ledge, he shuffles a
+				   foot one way and a foot the other, and is not the man
+				   standing still up there) */
+				if (!found && pro > 0.f)
+				{
+					real base = bot->strafe_sign != 0.f ? bot->strafe_sign : 1.f;
+					static real const turns[6] = { 1.57f, -1.57f, 0.8f, -0.8f, 2.4f, -2.4f };
+					for (i = 0; i < 6 && !found; i++)
+					{
+						real candidate = bot_wrap(to_target + base * turns[i]);
+						if (bot_move_direction_safe(&body, candidate, 0.3f))
+						{
+							move_yaw = candidate;
+							found = TRUE;
+							if (i & 1)
+								bot->strafe_sign = -base;
 						}
 					}
 				}
@@ -10429,6 +11305,10 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			   when nobody's shooting at them; the least hardly ever) */
 			real chance = (threatened ? 0.003f + 0.05f * bot->personality.jumpiness :
 				MAX(0.f, bot->personality.jumpiness - 0.6f) * 0.03f) * skill_move * 1.5f;
+			/* (a good player's are few: in the air there is no turning, and
+			   for a second he goes where anyone can see he is going. His
+			   feet stay on the ground, where the sidestep is.) */
+			chance *= 1.f - BOT_PRO_FEWER_JUMPS * pro;
 			/* its habit: in the air half the fight, shot at or not */
 			if (bot->personality.signature == _bot_signature_jump_shot)
 				chance = MAX(chance, 0.035f);
@@ -10457,7 +11337,11 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 	else
 	{
 		/* travel */
-		if (bot->goal_kind == _bot_goal_hold && bot_distance2d(&position, &bot->goal) < 1.5f && !committed)
+		how = 2;
+		/* (a place it is holding for what comes back there: on the floor
+		   the thing lies on, not under the ledge it is up on) */
+		if (bot->goal_kind == _bot_goal_hold && bot_distance2d(&position, &bot->goal) < 1.5f && !committed &&
+			!(fabs(position.z - bot->goal.z) > 1.f && bots_spawn_spot_at(&bot->goal)))
 		{
 			/* holding a spot: pacing about it, never standing still */
 			moving = FALSE; /* (the pacing below) */
@@ -10538,9 +11422,15 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				   weave (more the more skilled, and when shot at) */
 				if (--bot->strafe_ticks <= 0)
 				{
+					real pro = bot_skill_pro();
+					real before = bot->strafe_sign;
 					bot->strafe_ticks = (long)((10 + bot_random(bot) * 25) * (threatened ? 0.7f : 1.f) * (1.6f - 0.6f * bot_skill_movement()) *
 						(1.4f - 0.7f * bot->personality.agility));
 					bot->strafe_sign = bot_random(bot) < 0.5f ? -1.f : 1.f;
+					/* (a good player: one side then the other, not the same
+					   side twice as often as not) */
+					if (pro > 0.f && before != 0.f && bot_random(bot) < 0.5f + 0.35f * pro)
+						bot->strafe_sign = -before;
 				}
 				if (bot_move_direction_safe(&body, bot_wrap(move_yaw + bot->strafe_sign * 0.45f * (0.5f + bot_skill_movement())), 0.8f))
 					move_yaw = bot_wrap(move_yaw + bot->strafe_sign * 0.45f * (0.5f + bot_skill_movement()));
@@ -11067,14 +11957,143 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		}
 	}
 
+	/* ---- a rocket on its way (a good player's: the levels over 3): out
+	   from under it. Across its path, the way that takes the bot further
+	   from where it will land and that is clear; a jump as it comes in, so
+	   that what it hits is the ground the bot was on. After a moment to see
+	   it, as a grenade is. */
+	if (bot_skill_pro() > 0.f && vehicle_index == NONE && !committed && bot->grenade_scare == NONE)
+	{
+		real pro = bot_skill_pro();
+		real_point3d at = position;
+		real_vector3d going = { 0.f, 0.f, 0.f };
+		real ticks = 0.f, wide = 0.f, hurts = 0.f;
+		long rocket = bot_blast_incoming(bot, me->unit_index, &eye, &position, &at, &going, &ticks, &wide, &hurts);
+		if (rocket == NONE)
+			bot->blast_seen = NONE;
+		else
+		{
+			if (bot->blast_seen != rocket)
+			{
+				bot->blast_seen = rocket;
+				bot->blast_seen_tick = game_time_get();
+				bot->blast_heeded = bot_random(bot) < 0.3f + 0.7f * pro;
+				if (bot_logging())
+					bot_log("bot%ld t%ld a rocket %.0f ticks off, %.1f wide (it hurts within %.1f)%s", player_absolute_index, game_time_get(), ticks, wide, hurts,
+						bot->blast_heeded ? "" : ": not seen");
+			}
+			if (bot->blast_heeded && game_time_get() - bot->blast_seen_tick >= 2 + (long)(8.f * (1.f - pro)))
+			{
+				/* (the side of its path the bot is on already, first) */
+				real along = (real)atan2(going.j, going.i);
+				real cross = going.i * (position.y - at.y) - going.j * (position.x - at.x);
+				real side = cross >= 0.f ? 1.f : -1.f;
+				static real const turns[5] = { 1.57f, 1.1f, 2.1f, -1.57f, 0.5f };
+				long t;
+				for (t = 0; t < 5; t++)
+				{
+					real way = bot_wrap(along + side * turns[t]);
+					if (!aas_ready() || bot_move_direction_safe(&body, way, 1.5f))
+					{
+						moving = TRUE;
+						moved = FALSE;
+						move_speed = 1.f;
+						move_yaw = way;
+						if (ticks > 4.f && ticks < 15.f && body.can_jump && wide < hurts * 0.8f && bot_move_direction_safe(&body, way, 2.5f))
+						{
+							jump = TRUE;
+							bot_jump_cause = 13;
+						}
+						break;
+					}
+				}
+			}
+		}
+	}
+
+	/* (testing: how it moves in a fight on foot. Of the ticks with someone
+	   to shoot within 25: how many it stood still, how many it went mostly
+	   sideways to them, how many times it turned from one side to the
+	   other, and what it lost of shields and health. Every ten seconds of
+	   fighting.) */
+	if (bot_logging() && vehicle_index == NONE)
+	{
+		real health = unit->object.shield_vitality + unit->object.body_vitality;
+		if (target != NONE && target_distance < 25.f)
+		{
+			real_vector3d const *going = &unit->object.translational_velocity;
+			real speed = (real)sqrt(going->i * going->i + going->j * going->j);
+			real toward = bot_yaw_to(&position, &bot->last_seen);
+			real across = going->j * (real)cos(toward) - going->i * (real)sin(toward);
+			/* (which part moved it: the fight on its own feet 1, the fight by
+			   the route 3, in cover 4; travel 2, and travel for the game's
+			   objective 5, for a thing 6; anything else 0) */
+			long which = how == 1 ? (bot->in_cover ? 4 : moved ? 3 : 1) : how == 2 ? (bot->goal_objective ? 5 :
+				bot->goal_kind == _bot_goal_item || bot->goal_kind == _bot_goal_vehicle ? 6 : 2) : 0;
+			bot->stat_fight++;
+			if (which == 1 && body.airborne)
+			{
+				bot->stat_air++;
+				bot->stat_air_by[game_time_get() - bot->stat_jump_tick < 50 ? (bot->stat_jump_cause & 15) : 0]++;
+			}
+			if (which == 1)
+			{
+				real along = going->i * (real)cos(toward) + going->j * (real)sin(toward);
+				bot->stat_dir[body.airborne ? 0 : speed < 0.015f ? 1 : fabs(across) > 0.8f * speed ? 4 : fabs(across) > 0.45f * speed ? 5 : along > 0.f ? 2 : 3]++;
+			}
+			bot->stat_how[which]++;
+			if (speed < 0.015f)
+				bot->stat_how_still[which]++;
+			if (speed < 0.015f)
+				bot->stat_still++;
+			else if (which == 1 && fabs(across) > 0.3f * speed)
+			{
+				if (fabs(across) > 0.6f * speed)
+					bot->stat_side++;
+				if (bot->stat_way * across < 0.f)
+					bot->stat_turns++;
+				bot->stat_way = across;
+			}
+			if (which == 1 && health < bot->stat_health)
+				bot->stat_hurt += bot->stat_health - health;
+			if (bot->stat_fight >= 300)
+			{
+				bot_log("moves bot%ld side %d: fight %ld still %ld sideways %ld turns %ld hurt %.2f air %ld how %ld/%ld %ld/%ld %ld/%ld %ld/%ld %ld/%ld %ld/%ld %ld/%ld",
+					player_absolute_index, (int)me->team_index,
+					bot->stat_fight, bot->stat_still, bot->stat_side, bot->stat_turns, bot->stat_hurt, bot->stat_air,
+					bot->stat_how[0], bot->stat_how_still[0], bot->stat_how[1], bot->stat_how_still[1], bot->stat_how[2], bot->stat_how_still[2],
+					bot->stat_how[3], bot->stat_how_still[3], bot->stat_how[4], bot->stat_how_still[4], bot->stat_how[5], bot->stat_how_still[5],
+					bot->stat_how[6], bot->stat_how_still[6]);
+				bot_log("moved bot%ld side %d: air %ld still %ld toward %ld back %ld across %ld slant %ld", player_absolute_index, (int)me->team_index,
+					bot->stat_dir[0], bot->stat_dir[1], bot->stat_dir[2], bot->stat_dir[3], bot->stat_dir[4], bot->stat_dir[5]);
+				bot_log("aired bot%ld side %d: fell %ld fight %ld travel %ld unstuck %ld route %ld grenade %ld rocket %ld other %ld", player_absolute_index,
+					(int)me->team_index, bot->stat_air_by[0], bot->stat_air_by[1], bot->stat_air_by[2], bot->stat_air_by[4], bot->stat_air_by[9],
+					bot->stat_air_by[12], bot->stat_air_by[13], bot->stat_air_by[3] + bot->stat_air_by[5]);
+				memset(bot->stat_air_by, 0, sizeof(bot->stat_air_by));
+				memset(bot->stat_dir, 0, sizeof(bot->stat_dir));
+				memset(bot->stat_how, 0, sizeof(bot->stat_how));
+				memset(bot->stat_how_still, 0, sizeof(bot->stat_how_still));
+				bot->stat_fight = bot->stat_still = bot->stat_side = bot->stat_turns = bot->stat_air = 0;
+				bot->stat_hurt = 0.f;
+			}
+		}
+		bot->stat_health = health;
+	}
+
 	BOT_PROFILE_MARK("getting unstuck");
 	/* ---- getting unstuck (moving about on our own, in a fight: the route
 	   has its own) */
 	if (moving && !moved && vehicle_index == NONE)
 	{
+		/* (how far it has gone in the second, not only how far it has got:
+		   a quick step one way and back the other ends where it began, and
+		   is not a bot stuck. It was taken for one, turned off some other
+		   way and made to jump, twice as often for the bots that step
+		   quickest.) */
+		bot->progress_path += (real)sqrt(body.velocity.i * body.velocity.i + body.velocity.j * body.velocity.j);
 		if (++bot->progress_ticks >= BOT_TICKS_PER_SECOND)
 		{
-			if (bot_distance2d(&position, &bot->progress_point) < 0.6f && bot->unstick_ticks <= 0)
+			if (bot_distance2d(&position, &bot->progress_point) < 0.6f && bot->progress_path < 1.1f && bot->unstick_ticks <= 0)
 			{
 				bot->unstick_ticks = 15 + (long)(bot_random(bot) * 20);
 				bot->unstick_yaw = bot_wrap(move_yaw + BOT_PI * (0.5f + bot_random(bot)));
@@ -11083,14 +12102,17 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			}
 			bot->progress_point = position;
 			bot->progress_ticks = 0;
+			bot->progress_path = 0.f;
 		}
 		if (bot->unstick_ticks > 0)
 		{
 			bot->unstick_ticks--;
 			move_yaw = bot->unstick_yaw;
 			if (bot->unstick_ticks % 12 == 0)
+			{
 				jump = TRUE;
 				bot_jump_cause = 4;
+			}
 		}
 		else if (!aas_ready())
 		{
@@ -11105,7 +12127,10 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		}
 	}
 	else
+	{
 		bot->progress_ticks = 0;
+		bot->progress_path = 0.f;
+	}
 	if (bot->jump_cooldown > 0)
 		bot->jump_cooldown--;
 	if (bot->attack_jump_cooldown > 0)
@@ -11129,6 +12154,11 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		{
 			action->control_flags |= FLAG(_unit_control_jump_bit);
 			bot->jump_cooldown = 16 + (long)(bot_random(bot) * 10.f);
+		}
+		if ((action->control_flags & FLAG(_unit_control_jump_bit)) && body.can_jump)
+		{
+			bot->stat_jump_tick = game_time_get();
+			bot->stat_jump_cause = bot_jump_cause;
 		}
 	}
 
@@ -11332,6 +12362,10 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				player_absolute_index, game_time_get(), position.x, position.y, position.z, bot->yaw, desired_yaw, move_yaw, moving,
 				bot->goal_kind, bot->goal.x, bot->goal.y, bot->goal_objective, bot->mover.move.area, bot->mover.move.reach, result.travel,
 				target != NONE, threatened, moved, bot->strafe_sign, move_speed, bot->target_unit != NONE, look_reason);
+		if (trace && (trace_all || atol(trace) == player_absolute_index) && target != NONE)
+			bot_log("tracef bot%ld t%ld how %d moved %d cover %d left %ld held %ld sign %.0f dist %.1f to %.2f move %.2f moving %d speed %.2f vel %.3f %.3f",
+				player_absolute_index, game_time_get(), how, moved, bot->in_cover, bot->strafe_ticks, bot->strafe_held, bot->strafe_sign, target_distance,
+				bot_yaw_to(&position, &bot->last_seen), move_yaw, moving, move_speed, unit->object.translational_velocity.i, unit->object.translational_velocity.j);
 	}
 	/* Just out of a craft that carries people, and still in among it: a
 	   Pelican's hold has its hull on three sides, and the way the route
@@ -11580,7 +12614,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				bot->melee_cooldown = 18 + (long)(bot_random(bot) * 5.f);
 			}
 		}
-		else if (!(driving && vehicle_index != NONE && off_yaw > 0.3f) &&
+		else if (!(driving && vehicle_index != NONE && off_yaw > 0.3f) && !ambush_hold &&
 			!bot_friend_in_line(me, &eye, &object_get(target)->object.bounding_sphere_center, vehicle_index))
 			bot_fire_control(bot, &weapon, off_yaw, off_pitch, target_distance, object_get(target)->object.shield_vitality, action);
 
@@ -11812,6 +12846,15 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			action->desired_weapon_index = other_slot;
 	}
 
+	/* lying in wait with the gun for it on its back: that one out, and kept
+	   out whatever else was thought of */
+	if (bot->ambush_phase != 0 && bot->ambush_slot != NONE && vehicle_index == NONE && !weapon.none)
+	{
+		action->desired_weapon_index = unit->unit.current_weapon_index == bot->ambush_slot ? NONE : (short)bot->ambush_slot;
+		if (bot->weapon_switch_ticks < 20)
+			bot->weapon_switch_ticks = 20;
+	}
+
 	/* testing, HALO_BOT_MOTION=<ticks>: every so many ticks, where each bot on
 	   foot is, how it is going, what it has pressed and what it is about:
 	   what its movement looks like, to be measured (/tmp tools: motion.py) */
@@ -11957,6 +13000,8 @@ long bots_get_skill_spread(void)
 void bots_map_loaded(void)
 {
 	struct scenario *scenario = global_scenario_get();
+
+	bot_blast_known_count = 0;
 
 	/* (and when the navigation is being baked, bot_bake.c: whoever plays) */
 	if (game_connection() != _game_connection_network_server || !scenario ||

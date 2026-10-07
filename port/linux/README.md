@@ -1292,10 +1292,119 @@ is half as long at skill 5 as it was (0.3 seconds for an enemy at the
 edge of the view 40 world units away). The change is from skill 4 to
 skill 5.
 
+**How a good player moves in a fight.** These are the changes for bots of
+skill above 3 (all of the change at skill 5, half of it at skill 4):
+
+- The bot always moves to a side in a fight. Before, a bot of skill 5
+  with little agility did not move to a side for a third of the time.
+- Each time the bot changes its side, it most often goes the other way
+  (85% at skill 5). It does not choose the side that has a wall or a drop
+  one step away when the other side is free.
+- The bot holds a side for about 0.4 to 1.4 seconds. A body needs a third of a
+  second to stop and a third more to be at speed the other way, so a
+  shorter hold moves the bot nowhere.
+- When the bot is hit after 0.45 seconds or more on one side, it can turn
+  to the other side at once.
+- The bot jumps a fifth as often in a fight. A bot in the air cannot turn.
+- When the bot goes nearer to the enemy or back from it, it goes more
+  across than along.
+- The bot goes back from an enemy with a shotgun, a flamethrower or no
+  weapon who is less than 8.5 world units away, when its own weapon is
+  not one of these.
+- The bot goes into cover sooner when its shields are gone and it is
+  losing.
+- On a walkway or a beam with no room for a full step, the bot takes
+  short steps to the sides. Before, it stood still.
+- The bot moves out of the way of a rocket or a fuel rod bolt that it
+  sees coming, across its path, and jumps when it is close.
+
+One fault is fixed for all bots: a bot that stepped quickly from side to
+side was taken for a bot that was stuck, and was turned away and made to
+jump.
+
+In eight games without teams on eight maps (8 bots of skill 5, each
+second bot without these changes, `HALO_BOT_OFF_EVEN=agile`), a bot with
+the changes moved across its enemy for 46% of the time that it fought on
+its own feet (29% without), was in the air for 19% of that time (32%
+without), and lost 0.116 of its shields and health a second (0.131
+without). The kills were the same (1501 and 1469).
+
+**All the enemies in a room.** A bot started to notice an enemy only when
+that enemy was the best one to shoot at. The second enemy in a room was
+not noticed while the bot fought the first. A bot of skill above 3 now
+notices each enemy in its view within 40 world units. It also notices an
+enemy outside its view who is on its motion tracker, 1.5 to 2 times
+slower. An enemy who aims at the bot counts for more when the bot chooses
+its target. In eight games without teams (each second bot without the
+change, `HALO_BOT_OFF_EVEN=aware`), a bot with the change died 65 times of
+1318 to an enemy that it had not noticed (5%), and a bot without it 390
+times of 1377 (28%).
+
+**Lying in wait.** A bot can wait out of sight for an enemy who comes its
+way and has not seen it:
+
+- The enemy is on the motion tracker, 5 to 22 world units away and not
+  in sight, or the enemy is in sight 8 to 30 world units away, does not
+  look at the bot, and the bot has a shotgun or a flamethrower (in its
+  hands or on its back).
+- A bot with a shotgun or a flamethrower does this 85% of the times at
+  skill 5. Other bots do it by their character (10% to 55%, more for a
+  bot that holds a place, less for a bot that rushes), and less at a
+  lower skill.
+- The bot goes to a place near it that the enemy cannot see, or stays
+  where it is when the enemy cannot see it there. It crouches (a player
+  who crouches is not on a motion tracker), takes the shotgun from its
+  back, looks to where the enemy comes from, and does not shoot or throw
+  a grenade.
+- The bot comes out when the enemy is in sight and in reach (4.5 world
+  units for a shotgun or a flamethrower, in sight at all for another
+  weapon), when the enemy is 3 world units away round the corner, or when
+  the enemy has seen it. It sees that enemy at once, and shoots at once.
+  With a shotgun, it goes in to 1.2 world units.
+- The bot gives up when the enemy goes away, when another enemy comes in
+  sight, or after 5 to 13 seconds (by its patience).
+
+In 16 games without teams (each second bot without this,
+`HALO_BOT_OFF_EVEN=camp`), bots lay in wait 877 times and came out on the
+enemy 291 times. Of the fights between the two that ended in the next 8
+seconds, the bot that had waited won 99 and lost 56. When the enemy came
+into reach before it saw the bot, the bot won 55 and lost 15. With a
+shotgun or a flamethrower the bot won 17 and lost 16: it is seen too often
+before the enemy is in reach. The bots that lay in wait had as many kills
+(2814 and 2841) and died a little less (2792 and 2863 times).
+
+**When things come back.** The game puts a new item at each item place of
+the map every so many seconds of the game clock. A bot of skill above 3
+knows these times for the power weapons and the powerups (a bot of skill 4
+only for the rocket launcher, the sniper rifle, the fuel rod gun, the
+overshield and the camouflage). When nothing lies at such a place and the
+next item is due in the time of the walk plus 3 seconds (plus 5 at skill
+4), the bot goes there and waits, up to a walk of 22 seconds. It does not
+go for a weapon that it has, for a weapon that is not better than its
+worse one, or for a powerup when it has one. In a team game it leaves the
+place to a bot of its team that is nearer. On the way it shoots but stops
+only for an enemy who is near.
+
+In 16 team games (8 bots of skill 5, one team without the four changes of
+this section), the team with them took 26% of its power items in the 3
+seconds after they came (15% for the other team), and an item lay 8.9
+seconds before that team took it (12.9 seconds, the median).
+
+The four changes together did not change who wins between bots: in 32
+team games the teams with them had 5298 kills and the teams without them
+5211.
+
 `HALO_BOT_REFINE` has more parts: 32 (the height and the size of craft),
-64 (the drivers), 128 (the nearest vehicle), 256 (the grenades) and 512
-(the jumps at a run and the legs). `HALO_BOT_REFINE=31` turns these five
-off. `HALO_BOT_TUCKRISE=<world units>` sets the ledge above which a bot
+64 (the drivers), 128 (the nearest vehicle), 256 (the grenades), 512
+(the jumps at a run and the legs), 1024 (how a good player moves in a
+fight), 2048 (lying in wait), 4096 (all the enemies in a room) and 8192
+(when things come back). `HALO_BOT_REFINE=1023` turns the last four off,
+and `HALO_BOT_REFINE=31` turns these nine off. The names `agile`, `camp`,
+`aware` and `timing` in `HALO_BOT_OFF`, `HALO_BOT_OFF_T0` and
+`HALO_BOT_OFF_T1` turn the same four off for all bots or for one team, and
+`HALO_BOT_OFF_EVEN` does this for each second bot (for a game without
+teams). `HALO_NETWORK_TEST_SCORE=<n>` sets the score that ends a test
+game. `HALO_BOT_TUCKRISE=<world units>` sets the ledge above which a bot
 folds its legs, and `HALO_BOT_FLUENT=<1, 2 or 3>` turns on the jumps from
 the run for gaps (1) and for ledges (2).
 

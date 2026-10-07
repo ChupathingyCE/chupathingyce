@@ -175,6 +175,9 @@ static void network_test_read_settings(
 	snprintf(network_test.pickup_weapon, sizeof(network_test.pickup_weapon), "%s",
 		config_string("debug.network_test_pickup_weapon"));
 	network_test.score_to_win = (long)config_integer("debug.network_test_score");
+	/* (HALO_NETWORK_TEST_SCORE: the same, for a run without a settings file) */
+	if (getenv("HALO_NETWORK_TEST_SCORE"))
+		network_test.score_to_win = atol(getenv("HALO_NETWORK_TEST_SCORE"));
 	if (network_test.mode != _network_test_off)
 		platform_log("network test: %s", setting);
 }

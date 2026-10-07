@@ -396,7 +396,10 @@ real bot_vehicle_top_speed(long definition_index);
    what stands in its way from further off, across its vehicle's width.
    128: with a long way to go, the nearest vehicle. 256: grenades thrown
    by reckoning, further, and kept away from. 512: jumps taken at a run by
-   the better bots, and the legs tucked up only for a ledge that wants it.) */
+   the better bots, and the legs tucked up only for a ledge that wants it.
+   1024: a good player's movement in a fight. 2048: lying in wait. 4096:
+   everyone in a room kept track of. 8192: off to where a thing comes back
+   before it does.) */
 int bot_refined_is(int which);
 void bot_pilot_reset(struct bot_pilot *pilot);
 void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_flight_order const *order, struct bot_flight_result *result);
