@@ -248,6 +248,7 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries.h"
+#include "halo_map_families.h" /* port: map_family_wire_name */
 #include "bungie_net/common/message_header.h"
 #include "bungie_net/network/transport.h"
 #include "bungie_net/network/transport_endpoint_winsock.h"
@@ -770,6 +771,22 @@ boolean network_game_server_send_message_to_client_machine(
 	return network_game_server_write(connection, buffer, size, NULL, 1);
 }
 
+/* port: the game's settings as they go to the other machines: a Halo PC
+map's name as the game's protocol has it (custom_maps\\<name>, OpenCE's
+build-145's; halo_map_families.h), into wire, which game is then */
+static void const *network_game_server_wire_game(
+	void const *game,
+	long game_size,
+	struct network_game *wire)
+{
+	if (game_size != (long)sizeof(*wire))
+		return game;
+	csmemcpy(wire, game, sizeof(*wire));
+	map_family_wire_name(((struct network_game const *)game)->map.name, wire->map.name, sizeof(wire->map.name));
+
+	return wire;
+}
+
 boolean network_game_server_send_game_settings_to_client_machine(
 	struct network_game_server *server,
 	struct network_game_server_client_machine *machine,
@@ -777,8 +794,10 @@ boolean network_game_server_send_game_settings_to_client_machine(
 	long game_size)
 {
 	struct message_server_game_settings_update message;
+	struct network_game wire_game;
 	long offset;
 
+	game = network_game_server_wire_game(game, game_size, &wire_game);
 	for (offset = 0; offset < game_size; offset += sizeof(message.data))
 	{
 		void *encoded_message;
@@ -1054,6 +1073,7 @@ boolean network_game_server_send_game_settings_to_all_machines(
 	long game_size)
 {
 	struct message_server_game_settings_update message;
+	struct network_game wire_game;
 	long offset;
 	boolean result = TRUE;
 
@@ -1062,6 +1082,7 @@ boolean network_game_server_send_game_settings_to_all_machines(
 		0x1C8,
 		server);
 
+	game = network_game_server_wire_game(game, game_size, &wire_game);
 	/* every piece goes out even if one fails for a machine: the others
 	would otherwise keep the old settings (a machine whose connection failed
 	is closed, and is skipped when the update is sent again) */
@@ -1692,6 +1713,9 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 			ustrncpy(advertisement.game_name, game->name, NETWORK_GAME_NAME_LENGTH - 1);
 			advertisement.engine_type = (short)game->variant.game_engine_index;
 			csmemcpy(&advertisement.map, &game->map, sizeof(game->map));
+			/* port: the map as the game's protocol names it (a Halo PC map's:
+			halo_map_families.h) */
+			map_family_wire_name(game->map.name, advertisement.map.name, sizeof(advertisement.map.name));
 			advertisement.machine_count = game->machine_count;
 			advertisement.player_count = game->player_count;
 			advertisement.maximum_player_count = game->maximum_players;

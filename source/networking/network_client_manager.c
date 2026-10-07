@@ -391,6 +391,7 @@ symbols in this file:
 #include "networking/network_messages.h"
 #include "networking/network_server_manager.h"
 #include "text/unicode.h"
+#include "halo_map_families.h" /* port: map_family_from_wire_name */
 
 /* ---------- constants */
 
@@ -1306,6 +1307,15 @@ boolean network_game_client_game_settings_updated(
 		{
 			network_event("invalid message_server_game_settings_update message received: its players");
 			return FALSE;
+		}
+		/* port: a Halo PC map named as the game's protocol names it
+		(custom_maps\\<name>) as this port names it (<name>@ce:
+		halo_map_families.h), for everything that reads it from here */
+		{
+			char map_name[sizeof(message_packet->map.name)];
+
+			map_family_from_wire_name(message_packet->map.name, map_name, sizeof(map_name));
+			csmemcpy(message_packet->map.name, map_name, sizeof(map_name));
 		}
 		if (csstrcmp(message_packet->map.name, client->game.map.name))
 		{
@@ -2549,6 +2559,14 @@ static boolean add_advertised_game(
 			sizeof(advertisement->map));
 		/* (from any machine on the network: not trusted to end) */
 		advertised_game->map.name[NUMBEROF(advertised_game->map.name) - 1] = '\0';
+		/* port: a Halo PC map's name as this port names it
+		(halo_map_families.h) */
+		{
+			char map_name[sizeof(advertised_game->map.name)];
+
+			map_family_from_wire_name(advertised_game->map.name, map_name, sizeof(map_name));
+			csmemcpy(advertised_game->map.name, map_name, sizeof(map_name));
+		}
 
 		advertised_game->machine_count = advertisement->machine_count;
 		advertised_game->player_count = advertisement->player_count;
