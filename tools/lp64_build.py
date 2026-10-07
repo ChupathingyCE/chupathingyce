@@ -1,5 +1,6 @@
 """Ninja rules shared by the native 64-bit builds (``ninja macos``,
-``ninja linux64``).
+``ninja linux64``) and the 64-bit dedicated servers (``ninja server-x64``,
+``ninja server-arm64``).
 
 The game and most of the platform layer are the Linux build's
 (tools/linux_build.py, port/linux); the 64-bit builds compile them as native

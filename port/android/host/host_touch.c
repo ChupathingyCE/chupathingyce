@@ -5,7 +5,7 @@ The on-screen touch controls between the overlay and the game. The overlay
 (app/.../TouchControls.java) is an Android view over SDL's surface: it
 hands its stick, buttons and view swipes over JNI on the UI thread, and the
 game reads them through host imports when it reads port 0's controller
-(port/linux/src/xinput_sdl.c). The game hands back what the overlay needs
+(port/linux/src/touch_input.c). The game hands back what the overlay needs
 to know: whether a menu or a cinematic is up and the input.touch_controls
 setting (host_touch_scene), and how hard port 0 rumbles.
 */
@@ -157,8 +157,8 @@ JNIEXPORT jint JNICALL Java_com_halo_decomp_TouchControls_nativeRumble(JNIEnv *e
 	return amplitude;
 }
 
-/* the guest's, at every read of port 0: HALO_TOUCH_SCENE_* bits
-(port/linux/src/xinput_sdl.c) */
+/* the guest's, at every read of port 0: _touch_scene_* bits
+(port/linux/src/touch_input.c) */
 void host_touch_scene(int scene)
 {
 	touch_scene = scene;

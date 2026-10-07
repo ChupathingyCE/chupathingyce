@@ -122,7 +122,7 @@ void host_touch_read(int *state);
 void host_touch_look_read(float *delta);
 /* port 0's motors, for the phone's vibration */
 void host_touch_rumble(unsigned int low, unsigned int high);
-/* tells the overlay when to show: HALO_TOUCH_SCENE_* (xinput_sdl.c) */
+/* tells the overlay when to show: _touch_scene_* bits (touch_input.c) */
 void host_touch_scene(int scene);
 
 #endif

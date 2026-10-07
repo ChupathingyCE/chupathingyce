@@ -131,7 +131,7 @@ public final class TouchControls extends View implements SensorEventListener, In
     private static native void nativeState(int lx, int ly, int rx, int ry,
                                           int lt, int rt, int buttons);
 
-    /** the game's HALO_TOUCH_SCENE bits (port/linux/src/touch_input.c) */
+    /** the game's _touch_scene_* bits (port/linux/src/touch_input.c) */
     private static native int nativeScene();
     private static final int SCENE_KNOWN = 1, SCENE_MENUS = 2, SCENE_ON = 4, SCENE_OFF = 8;
     private int scene;
@@ -498,7 +498,7 @@ public final class TouchControls extends View implements SensorEventListener, In
         int rotation = ((WindowManager)getContext().getSystemService(Context.WINDOW_SERVICE))
             .getDefaultDisplay().getRotation();
         if (gyroAim.sample(event.timestamp, event.values[0], event.values[1], rotation, gyroDelta))
-            // The existing direct-look path accepts logical pixels (0.0022 radians per pixel).
+            // nativeLook takes logical pixels (0.0022 radians per pixel).
             nativeLook(-gyroDelta[0]/0.0022f*sensitivity, -gyroDelta[1]/0.0022f*sensitivity);
     }
 
