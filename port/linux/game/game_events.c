@@ -55,7 +55,6 @@ Called each frame from game_stats_update (main.c).
 #include "../src/browser.h"
 #include "../src/event_log.h"
 
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -286,7 +285,8 @@ static boolean object_position(long object_index, float *position)
 	position[0] = origin.x;
 	position[1] = origin.y;
 	position[2] = origin.z;
-	return isfinite(position[0]) && isfinite(position[1]) && isfinite(position[2]);
+	/* (finite: the game's math.h has no isfinite) */
+	return position[0] - position[0] == 0.0f && position[1] - position[1] == 0.0f && position[2] - position[2] == 0.0f;
 }
 
 /* the vehicle a unit rides (NONE), and its seat */
