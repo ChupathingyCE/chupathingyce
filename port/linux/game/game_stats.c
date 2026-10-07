@@ -155,12 +155,13 @@ static struct
 	struct stats_player players[MAXIMUM_STATS_PLAYERS];
 	short departed_count;
 	struct stats_player departed[MAXIMUM_DEPARTED_PLAYERS];
-	/* the damage of the kill being counted (damage.c) */
+	/* the damage of the kill being counted (damage.c; NONE: unknown, as for
+	a client's first kill, which damage.c did not see) */
 	long kill_damage;
 	boolean over;
 	unsigned long over_time;
 	boolean client_reported;
-} game_stats = { FALSE, 0, 0 };
+} game_stats = { .recording = FALSE, .kill_damage = NONE };
 
 /* ---------- private code */
 
