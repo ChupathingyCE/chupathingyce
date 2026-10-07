@@ -263,6 +263,47 @@ def test_tampered_and_other_key(keys):
         delta_table.check(data, signature.hex()[:-2], [keys[1]])
 
 
+def make_table(tmp_path, *arguments):
+    return subprocess.run([sys.executable, str(ROOT / "tools" / "delta_table.py"), "make", *arguments],
+                          capture_output=True, text=True)
+
+
+def test_make_row_widens_only(tmp_path):
+    old = tmp_path / "old.json"
+    old.write_bytes(document(serial=4, row=floor()))
+    own = delta_table.wire()
+    wide = f"{floor()['announce'] + 2},{floor()['minimum']},{floor()['maximum'] + 2}"
+    result = make_table(tmp_path, "--serial", "5", "--from", str(old), "--row", f"{own}={wide}",
+                        "--row", "chupa-99z=30,25,31")
+    assert result.returncode == 0, result.stderr
+    table = json.loads(result.stdout)
+    assert table["wires"][own]["announce"] == floor()["announce"] + 2
+    assert table["wires"]["chupa-99z"] == {"announce": 30, "minimum": 25, "maximum": 31}
+    narrow = f"{floor()['announce'] - 1},{floor()['minimum']},{floor()['maximum']}"
+    assert make_table(tmp_path, "--serial", "5", "--from", str(old), "--row", f"{own}={narrow}").returncode == 1
+    result = make_table(tmp_path, "--serial", "5", "--from", str(old), "--row", f"{own}={wide}@build-145")
+    assert json.loads(result.stdout)["wires"][own]["follows"] == "build-145"
+    for bad in ("chupa-20a=22,23,22", "chupa-20a=22", "Chupa=1,1,1", "chupa-20a=0,0,0", "chupa-20a=22,11,22@build 1",
+                "chupa-20a=22,11,22@" + "b" * 32):
+        assert make_table(tmp_path, "--serial", "5", "--row", bad).returncode == 1, bad
+
+
+def test_make_take_back(tmp_path):
+    old = tmp_path / "old.json"
+    wide = dict(floor(), announce=floor()["announce"] + 2, maximum=floor()["maximum"] + 2)
+    old.write_bytes(document(serial=4, row=wide, extra={"chupa-01z": {"announce": 30, "minimum": 11, "maximum": 30}}))
+    own = delta_table.wire()
+    shipped = f"{floor()['announce']},{floor()['minimum']},{floor()['maximum']}"
+    result = make_table(tmp_path, "--serial", "5", "--from", str(old), "--take-back", f"{own}={shipped}",
+                        "--take-back", "chupa-01z=20,11,20")
+    assert result.returncode == 0, result.stderr
+    table = json.loads(result.stdout)
+    assert table["wires"][own] == floor()
+    assert table["wires"]["chupa-01z"] == {"announce": 20, "minimum": 11, "maximum": 20}
+    below = f"{floor()['announce'] - 1},{floor()['minimum']},{floor()['maximum']}"
+    assert make_table(tmp_path, "--serial", "5", "--from", str(old), "--take-back", f"{own}={below}").returncode == 1
+
+
 def test_make_from_keeps_other_wires(tmp_path):
     old = tmp_path / "old.json"
     old.write_bytes(document(serial=4, extra={"chupa-17a": {"announce": 17, "minimum": 11, "maximum": 19}}))
@@ -270,7 +311,10 @@ def test_make_from_keeps_other_wires(tmp_path):
                              "--from", str(old)], capture_output=True, text=True, check=True)
     table = json.loads(result.stdout)
     assert table["wires"]["chupa-17a"]["maximum"] == 19
-    assert table["wires"][delta_table.wire()] == floor()
+    # (a published row wider than the built-in numbers stays: making the table
+    # again from the same commit never narrows what builds follow)
+    assert table["wires"][delta_table.wire()] == dict(floor(), announce=floor()["announce"] + 1,
+                                                      maximum=floor()["maximum"] + 1)
     result = subprocess.run([sys.executable, str(ROOT / "tools" / "delta_table.py"), "make", "--serial", "4",
                              "--from", str(old)], capture_output=True, text=True)
     assert result.returncode == 1
@@ -387,6 +431,29 @@ def test_loader_drops_bad_tables(keys, checker, tmp_path, name, make):
     assert "log: Delta: dropped" in output, name
     assert " serial 0 " in state_line(output)[0], name
     assert not (tmp_path / "delta_legacy.signed").exists()
+
+
+def test_follows(keys, checker, tmp_path):
+    row = dict(floor(), announce=floor()["announce"] + 1, maximum=floor()["maximum"] + 1)
+    assert run_checker(checker, tmp_path, "following").strip().endswith(
+        f"following Following OpenCE network version {floor()['announce']} (built in)")
+    table = write_signed(keys, tmp_path / "t11", document(serial=11, row=dict(row, follows="build-145")))
+    output = run_checker(checker, tmp_path, "offer", table, "following")
+    assert "offer 1" in output and "following OpenCE build-145" in output
+    assert "following Following OpenCE build-145 (table 11)" in output
+    # (a newer table without it: the number)
+    table = write_signed(keys, tmp_path / "t12", document(serial=12, row=row))
+    output = run_checker(checker, tmp_path, "offer", table, "following")
+    assert f"following Following OpenCE network version {row['announce']} (table 12)" in output
+
+
+@pytest.mark.parametrize("follows", ['"build 145"', '"' + "b" * 32 + '"', "145", '""'])
+def test_follows_checked(keys, checker, tmp_path, follows):
+    data = document(serial=11).replace(b'"maximum": ', b'"follows": ' + follows.encode() + b', "maximum": ', 1)
+    with pytest.raises(delta_table.TableError):
+        delta_table.parse(data)
+    output = run_checker(checker, tmp_path, "offer", write_signed(keys, tmp_path / "bad", data), "state")
+    assert "offer 0" in output
 
 
 def test_loader_drops_tampered_and_unsigned(keys, checker, tmp_path):
