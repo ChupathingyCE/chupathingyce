@@ -19,9 +19,22 @@ enum
 	/* (cache_files.c's: where a Custom Edition map's tags are) */
 	CE_IMAGE_TAG_CACHE_BASE = 0x40440000,
 	CE_IMAGE_TAG_CACHE_SIZE = 0x01700000,
+	CE_TAG_INSTANCE_SIZE = 0x20,
 };
 
 /* ---------- structures */
+
+/* (cache_files.c's) */
+struct ce_tag_instance
+{
+	unsigned long group_tag;
+	unsigned long parent_group_tags[2];
+	unsigned long tag_index;
+	unsigned long name;
+	unsigned long base_address;
+	unsigned long indexed;
+	unsigned long unused;
+};
 
 /* bytes standing for the Xbox addresses [base, base + size): the map's tag
 cache itself, or a copy of it (or of a BSP) being checked */

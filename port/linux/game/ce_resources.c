@@ -53,10 +53,6 @@ enum
 	_ce_resource_strings,
 	NUMBER_OF_CE_RESOURCE_MAPS,
 
-	CE_TAG_INSTANCE_SIZE = 0x20,
-	/* (cache_files.c's: where a Custom Edition map's tags are) */
-	CE_TAG_CACHE_BASE = 0x40440000,
-	CE_TAG_CACHE_SIZE = 0x01700000,
 	/* a bitmap's flags the Xbox's tags keep (bitmap_utilities.c: power of
 	two, compressed, palettized, swizzled, linear, v16u16) */
 	CE_BITMAP_XBOX_FORMAT_FLAGS = 0x3f,
@@ -104,18 +100,6 @@ enum
 };
 
 /* ---------- structures */
-
-/* (cache_files.c's) */
-struct ce_tag_instance
-{
-	unsigned long group_tag;
-	unsigned long parent_group_tags[2];
-	unsigned long tag_index;
-	unsigned long name;
-	unsigned long base_address;
-	unsigned long indexed;
-	unsigned long unused;
-};
 
 struct ce_resource
 {
@@ -1158,9 +1142,9 @@ boolean ce_resources_tags_loaded(
 	ce_free_next = ce_free_end = 0;
 	if (!ce_indexed_tags)
 		return FALSE;
-	image.data = xbox_pointer(CE_TAG_CACHE_BASE);
-	image.base = CE_TAG_CACHE_BASE;
-	image.size = first_free - CE_TAG_CACHE_BASE;
+	image.data = xbox_pointer(CE_IMAGE_TAG_CACHE_BASE);
+	image.base = CE_IMAGE_TAG_CACHE_BASE;
+	image.size = first_free - CE_IMAGE_TAG_CACHE_BASE;
 	if (!ce_resources_place(&image, tag_instances, tag_count, end_free, ce_indexed_tags, &next, &copied))
 		return FALSE;
 	/* every bitmap (in the map or copied in): Halo PC's flags past the

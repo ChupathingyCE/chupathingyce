@@ -65,7 +65,6 @@ way (cache_files_windows.c).
 
 enum
 {
-	CE_TAG_INSTANCE_SIZE = 0x20,
 	/* (a tag block's or tag data's count or size: larger ones would not
 	fit in a tag cache in any case) */
 	CE_MAXIMUM_ELEMENTS = 0x10000,
@@ -114,18 +113,6 @@ enum
 };
 
 /* ---------- structures */
-
-/* (cache_files.c's) */
-struct ce_tag_instance
-{
-	unsigned long group_tag;
-	unsigned long parent_group_tags[2];
-	unsigned long tag_index;
-	unsigned long name;
-	unsigned long base_address;
-	unsigned long indexed;
-	unsigned long unused;
-};
 
 /* what was repaired, for the log */
 struct ce_repair_counts

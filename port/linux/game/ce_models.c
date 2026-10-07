@@ -58,8 +58,6 @@ map keeps its channels, which the renderer has one order of.
 
 enum
 {
-	CE_TAG_INSTANCE_SIZE = 0x20,
-
 	/* a model's geometries, a geometry's parts */
 	MODEL_GEOMETRIES_OFFSET = 0xd0,
 	GEOMETRY_SIZE = 0x30,
@@ -128,18 +126,6 @@ struct xbox_vertex
 	short texture_coordinates[2];
 	char node_indices[2];
 	short node_weight;
-};
-
-/* (cache_files.c's) */
-struct ce_tag_instance
-{
-	unsigned long group_tag;
-	unsigned long parent_group_tags[2];
-	unsigned long tag_index;
-	unsigned long name;
-	unsigned long base_address;
-	unsigned long indexed;
-	unsigned long unused;
 };
 
 /* ---------- prototypes */

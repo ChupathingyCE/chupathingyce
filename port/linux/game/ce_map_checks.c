@@ -68,7 +68,6 @@ rest of a map's tags as it reads the Xbox's maps, trusting them.
 enum
 {
 	CE_HEADER_SIZE = 0x800,
-	CE_TAG_INSTANCE_SIZE = 0x20,
 	/* (a tag handle's index: 16 bits) */
 	CE_MAXIMUM_TAG_COUNT = 0xffff,
 	/* the files read: no larger than a signed 32-bit offset reaches */
@@ -111,18 +110,6 @@ enum
 };
 
 /* ---------- structures */
-
-/* (cache_files.c's) */
-struct ce_tag_instance
-{
-	unsigned long group_tag;
-	unsigned long parent_group_tags[2];
-	unsigned long tag_index;
-	unsigned long name;
-	unsigned long base_address;
-	unsigned long indexed;
-	unsigned long unused;
-};
 
 struct ce_tag_header
 {
