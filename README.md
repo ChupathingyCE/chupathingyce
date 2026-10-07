@@ -372,6 +372,11 @@ there.
   first.
 - Sabriel and ugoboom: the Halo PC map reports and regression lists behind
   most of the Custom Edition fixes.
+- MrBruh ([OpenCE](https://github.com/OpenCommunityEdition/OpenCE) build-145's Custom
+  Edition loader, from DamnationCE's work by
+  [xshxdex98](https://github.com/xshxdex98)): maps that need OpenSauce refused
+  with a clear reason, the missing-map message when joining, and the
+  `custom_maps\<name>` naming our hosts and clients share with OpenCE.
 
 Halo is a trademark of Microsoft. ChupathingyCE is a fan project, not made or
 endorsed by Microsoft, Bungie or 343 Industries, and includes none of the
