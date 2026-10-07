@@ -51,6 +51,11 @@ change.
 #include "halo_map_families.h"
 #include "command_line.h"
 #include "dedicated.h"
+#ifdef HALO_SERVER
+/* (the server program's control unit, built with the host's ABI: plain
+types only) */
+#include "../platform/server_control.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -69,14 +74,6 @@ enum
 	MAXIMUM_LISTED_BANS = 500,
 	/* the maps sv_maps lists, at most */
 	MAXIMUM_LISTED_MAPS = 512,
-
-	/* the control unit's flags for a command (server_control.c): its output
-	as JSON; a notice of the control's own to log, not a command; a command
-	not logged (the API's reads, which a web page asks for every few
-	seconds) */
-	CONTROL_JSON = 1,
-	CONTROL_NOTICE = 2,
-	CONTROL_QUIET = 4,
 };
 
 /* (network_server_manager_internal.h's) */
@@ -92,13 +89,6 @@ boolean network_distributed_unban(long index);
 /* (the version: server_platform.c's, updater.c's in the game) */
 const char *updater_version(void);
 char const *cache_files_map_directory(void);
-#ifdef HALO_SERVER
-/* (the server program's control unit, server/platform/server_control.c:
-plain types only, it is built with the host's) */
-void server_control_start(void);
-int server_control_next(char *line, int line_size, char *source, int source_size, int *flags);
-void server_control_finish(int ticket, int ok, char const *output);
-#endif
 
 /* ---------- structures */
 
