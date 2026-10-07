@@ -7233,6 +7233,57 @@ static short game_engine_nearest_team(
 	return team;
 }
 
+#ifdef HALO_CUSTOM_EDITION
+/* port: a Halo PC map's multiplayer vehicles are chosen by their
+placements, as retail Halo's are and as the maps were made for: a vehicle
+placement (0x78 bytes of the scenario tag) has its multiplayer spawn flags
+at 0x5a, whose low four bits place it by default in slayer, ctf, king and
+oddball. In those game types, unless the variant has no vehicles, only the
+placements whose bit names the game type are placed (and then as the
+variant's vehicle set allows: game_engine_vehicle_placement_allowed), and a
+script may make any vehicle (game_engine_remap_vehicle). Race has no bit,
+and keeps this build's rule. OpenCE's build-145 plays Custom Edition maps
+so, and a game of one must place the same vehicles on every machine. */
+enum
+{
+	CE_VEHICLE_SPAWN_FLAGS_OFFSET = 0x5a,
+};
+
+static short game_engine_ce_vehicle_default_bit(
+	void)
+{
+	switch (global_variant.game_engine_index)
+	{
+	case game_engine_slayer: return 0;
+	case game_engine_ctf: return 1;
+	case game_engine_king: return 2;
+	case game_engine_oddball: return 3;
+	default: return NONE;
+	}
+}
+
+boolean game_engine_ce_vehicles_by_placement(
+	void)
+{
+	extern boolean cache_file_tags_are_ce(void);
+
+	return game_engine && cache_file_tags_are_ce() &&
+		global_variant.universal_variant.vehicle_set != _game_engine_vehicles_none &&
+		game_engine_ce_vehicle_default_bit() != NONE;
+}
+
+boolean game_engine_ce_vehicle_placement_allowed(
+	struct scenario_object_datum const *placement)
+{
+	word spawn_flags;
+
+	if (!game_engine_ce_vehicles_by_placement())
+		return TRUE;
+	csmemcpy(&spawn_flags, (byte const *)placement + CE_VEHICLE_SPAWN_FLAGS_OFFSET, sizeof(spawn_flags));
+	return TEST_FLAG(spawn_flags, game_engine_ce_vehicle_default_bit());
+}
+#endif
+
 boolean game_engine_vehicle_placement_allowed(
 	struct scenario_object_datum const *placement,
 	struct tag_block *palette)
@@ -7339,6 +7390,12 @@ long game_engine_remap_vehicle(
 {
 	long result = vehicle_definition_index;
 
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a Halo PC map's placements were chosen by their spawn flags,
+	and its scripts may make any vehicle (game_engine_ce_vehicles_by_placement) */
+	if (game_engine_ce_vehicles_by_placement())
+		return result;
+#endif
 	if (game_engine)
 	{
 		/* (port: NONE for one the map's globals lack) */
