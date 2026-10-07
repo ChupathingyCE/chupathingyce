@@ -1108,15 +1108,48 @@ void cache_files_show_multiplayer_unavailable(
 	return;
 }
 
+/* port: the version of the map a network game is on, which the host sends
+in its game record's map version (which the Xbox game left 0): a Halo PC
+map's header checksum, which differs between versions of a map, as OpenCE's
+build-147 sends a Custom Edition map's. 0, which a client checks nothing
+for, for the Xbox's maps, whose builds of other regions play together. */
+unsigned long cache_files_map_version(
+	char const *map_name)
+{
+#ifdef HALO_CUSTOM_EDITION
+	char file[64];
+	char path[256];
+	short family = map_family_parse(map_name, file, sizeof(file));
+	struct cache_file_header header;
+	unsigned long bytes_read = 0;
+	HANDLE handle;
+
+	if (family == _map_family_xbox || !map_family_find(family, file, path, sizeof(path)))
+		return 0;
+	handle = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	if (handle == INVALID_HANDLE_VALUE)
+		return 0;
+	if (!ReadFile(handle, &header, sizeof(header), &bytes_read, NULL) || bytes_read != sizeof(header))
+		header.checksum = 0;
+	CloseHandle(handle);
+	return header.checksum;
+#else
+	(void)map_name;
+	return 0;
+#endif
+}
+
 /* port: whether this machine has the map a network game is on (a client
 joining it: network_client_manager.c); when not, tells the player which map
 is missing and the folder to copy it into, in the error the main menu shows
 next, rather than the damaged disc error that precaching a map that is not
 there gives (cache_files_give_time_to_precache). A Halo PC map (<file>@ce,
 @pc or @md) is looked for in its family's folders (halo_map_families.h), an
-Xbox map in maps. (After OpenCE's build-145, which tells its players so.) */
+Xbox map in maps. (After OpenCE's build-145, which tells its players so.) A Halo PC map must be the host's version
+(version, cache_files_map_version's on the host; 0 for any). */
 boolean cache_files_map_present(
-	char const *map_name)
+	char const *map_name,
+	unsigned long version)
 {
 	void platform_log(char const *format, ...);
 	char const *cache_files_map_directory(void);
@@ -1135,9 +1168,22 @@ boolean cache_files_map_present(
 		char path[256];
 
 		if (map_family_find(family, file, path, sizeof(path)))
-			return TRUE;
-		snprintf(message, sizeof(message), "You don't have the %s map %.63s. If you have it, copy %.63s.map into %s.",
-			map_family_badge(family), file, file, map_family_folder(family));
+		{
+			unsigned long own = cache_files_map_version(map_name);
+
+			/* (the host's version of it, when the host says which) */
+			if (!version || own == version)
+				return TRUE;
+			platform_log("map version: %s is %08lx here, %08lx on the host", map_name, own, version);
+			snprintf(message, sizeof(message),
+				"Your %s map %.63s is another version than the host's. Copy the host's %.63s.map into %s.",
+				map_family_badge(family), file, file, map_family_folder(family));
+		}
+		else
+		{
+			snprintf(message, sizeof(message), "You don't have the %s map %.63s. If you have it, copy %.63s.map into %s.",
+				map_family_badge(family), file, file, map_family_folder(family));
+		}
 	}
 	else
 #endif
