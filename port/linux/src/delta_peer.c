@@ -159,6 +159,7 @@ static void forget_all(struct delta_peer *peer)
 	peer->game_machine_count = 0;
 	memset(peer->peers, 0, sizeof(peer->peers));
 	memset(peer->rates, 0, sizeof(peer->rates));
+	memset(peer->table_checked, 0, sizeof(peer->table_checked));
 	peer->roster_dirty = 0;
 	peer->roster_sent = 0;
 	peer->client_state = _delta_peer_client_off;
@@ -429,11 +430,18 @@ static void relay_table(struct delta_peer *peer, struct delta_peer_relay *relay,
 		return;
 	in->active = 0;
 	relay_name(from, name, (int)sizeof(name));
-	/* (a signature check a minute a machine: a later pass brings it again) */
-	if (relay->checked && !elapsed(now, relay->check_time, DELTA_PEER_TABLE_CHECK_GAP))
+	/* (a signature check a minute a machine: a later pass brings it again;
+	a client's is kept by machine, as a new session would start it over) */
+	if (from >= 0 ? peer->table_checked[from] && !elapsed(now, peer->table_check_time[from],
+		DELTA_PEER_TABLE_CHECK_GAP) : relay->checked && !elapsed(now, relay->check_time, DELTA_PEER_TABLE_CHECK_GAP))
 	{
 		say(peer, "Delta Peer: legacy table %u from %s set aside: one check a minute", (unsigned)in->serial, name);
 		return;
+	}
+	if (from >= 0)
+	{
+		peer->table_checked[from] = 1;
+		peer->table_check_time[from] = now;
 	}
 	relay->checked = 1;
 	relay->check_time = now;

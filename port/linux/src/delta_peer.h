@@ -238,6 +238,10 @@ struct delta_peer
 	int game_machine_count;
 	struct delta_peer_host_peer peers[DELTA_PEER_MAXIMUM_MACHINES];
 	struct delta_rate rates[DELTA_PEER_MAXIMUM_MACHINES];
+	/* a table from each machine checked, and when (as the rates, the
+	machine's for the game: a new session keeps it) */
+	unsigned char table_checked[DELTA_PEER_MAXIMUM_MACHINES];
+	delta_u32 table_check_time[DELTA_PEER_MAXIMUM_MACHINES];
 	int roster_dirty;
 	delta_u32 roster_time;
 	int roster_sent;
