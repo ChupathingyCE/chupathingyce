@@ -98,6 +98,9 @@ struct delta_table
 };
 
 static pthread_mutex_t delta_lock = PTHREAD_MUTEX_INITIALIZER;
+/* (the cache's file: one writer at a time, the fetching thread's or the
+game's, taken before delta_lock) */
+static pthread_mutex_t delta_cache_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_once_t delta_once = PTHREAD_ONCE_INIT;
 /* (the fetching thread waits on it for its next time) */
 static pthread_cond_t delta_wake = PTHREAD_COND_INITIALIZER;
@@ -657,8 +660,28 @@ static enum delta_result delta_take(const char *document, size_t size, const cha
 		table.has_row ? table.minimum : HALO_PORT_NETWORK_VERSION_MINIMUM,
 		table.has_row ? table.maximum : HALO_PORT_NETWORK_VERSION_MAXIMUM,
 		table.has_row ? "" : " (no row for " DELTA_WIRE ": the built-in numbers)");
+	/* (from the cache's own copy, and only while the table is still the
+	one in use: another thread may take a newer one, and free this one,
+	meanwhile) */
 	if (cache)
-		delta_cache_write(signed_table, signed_size);
+	{
+		char *copy = malloc((size_t)signed_size);
+		int current;
+
+		if (copy)
+		{
+			pthread_mutex_lock(&delta_cache_lock);
+			pthread_mutex_lock(&delta_lock);
+			current = delta.serial == table.serial && delta.signed_table == signed_table;
+			if (current)
+				memcpy(copy, signed_table, (size_t)signed_size);
+			pthread_mutex_unlock(&delta_lock);
+			if (current)
+				delta_cache_write(copy, signed_size);
+			pthread_mutex_unlock(&delta_cache_lock);
+			free(copy);
+		}
+	}
 	return _delta_taken;
 }
 
