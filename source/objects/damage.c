@@ -1834,8 +1834,8 @@ void object_cause_damage(
 				game_events_damage(current_object_index, damage->definition_index, damage->owner_player_index,
 					damage->owner_object_index, damage_definition->category,
 					TEST_FLAG(damage->flags, _damage_area_of_effect_bit),
-					TEST_FLAG(being_damaged_flags, _object_being_damaged_killed_instantly_bit) ||
-						(TEST_FLAG(damage_material->flags, _damage_material_head_bit) &&
+					TEST_FLAG(damage_material->flags, _damage_material_head_bit) &&
+						(TEST_FLAG(damage_definition->flags, _damage_can_cause_headshots_bit) ||
 							TEST_FLAG(damage_definition->flags, _damage_can_cause_multiplayer_headshots_bit)),
 					shield_damage + body_damage,
 					TEST_FLAG(being_damaged_flags, _object_being_damaged_body_depleted_bit));

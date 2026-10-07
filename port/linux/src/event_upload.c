@@ -198,9 +198,26 @@ static void *upload_thread(void *unused)
 	return NULL;
 }
 
+/* the batches waiting as the program exits (a dedicated server stopped
+just after its game's end): sent now, each tried once */
+static void flush_at_exit(void)
+{
+	int index, count;
+
+	pthread_mutex_lock(&upload_lock);
+	count = upload.count;
+	for (index = 0; index < upload.count; index++)
+		upload.waiting[index].due = p2p_now();
+	pthread_mutex_unlock(&upload_lock);
+	while (count-- > 0)
+		send_one();
+}
+
 static void start_thread(void)
 {
 	pthread_t thread;
+
+	atexit(flush_at_exit);
 
 	if (pthread_create(&thread, NULL, upload_thread, NULL) == 0)
 		pthread_detach(thread);
