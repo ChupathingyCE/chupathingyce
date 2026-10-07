@@ -945,8 +945,6 @@ static void send_client_report(void)
 
 /* ---------- browsing (the browser thread) */
 
-/* one line of /v1/games.txt: invite name map engine players
-maximum_players open version age score_limit teams */
 /* a listed game's roster, from the list's "team:name|team:name" */
 static void parse_roster(char *text, struct browser_game *game)
 {
@@ -976,6 +974,8 @@ static void parse_roster(char *text, struct browser_game *game)
 	}
 }
 
+/* one line of /v1/games.txt: invite name map engine players
+maximum_players open version age score_limit teams roster */
 static int parse_game(char *line, struct browser_game *game)
 {
 	char *fields[12];
@@ -1442,6 +1442,20 @@ int browser_key_link(const char *text)
 	return 1;
 }
 
+/* a waiting key's hexadecimal digits as its bytes */
+static void key_from_hex(const char *digits, unsigned char *key)
+{
+	int index;
+
+	for (index = 0; index < PLAYER_KEY_SIZE; index++)
+	{
+		unsigned int byte;
+
+		sscanf(digits + 2 * index, "%2x", &byte);
+		key[index] = (unsigned char)byte;
+	}
+}
+
 /* a key link waiting (as on the command line, a copy started with one): its
 key, and the player IDs of the key in use and of it */
 int browser_take_key_link(char *new_id, char *old_id, int size)
@@ -1464,13 +1478,7 @@ int browser_take_key_link(char *new_id, char *old_id, int size)
 	pthread_mutex_unlock(&browser_lock);
 	if (!digits[0] || size <= 2 * PLAYER_ID_SIZE)
 		return 0;
-	for (index = 0; index < PLAYER_KEY_SIZE; index++)
-	{
-		unsigned int byte;
-
-		sscanf(digits + 2 * index, "%2x", &byte);
-		key[index] = (unsigned char)byte;
-	}
+	key_from_hex(digits, key);
 	player_id_from_key(key, new_id);
 	if (!browser_player_id(old_id, size))
 		old_id[0] = 0;
@@ -1484,18 +1492,12 @@ void browser_answer_key_link(int install)
 {
 	unsigned char key[PLAYER_KEY_SIZE];
 	char path[1024];
-	int index, ok = 0;
+	int ok = 0;
 
 	pthread_mutex_lock(&browser_lock);
 	if (install && browser.pending_key[0])
 	{
-		for (index = 0; index < PLAYER_KEY_SIZE; index++)
-		{
-			unsigned int byte;
-
-			sscanf(browser.pending_key + 2 * index, "%2x", &byte);
-			key[index] = (unsigned char)byte;
-		}
+		key_from_hex(browser.pending_key, key);
 		player_key_path(path, sizeof(path));
 		ok = posix_browser_replace_key(path, key, PLAYER_KEY_SIZE);
 		if (ok)
