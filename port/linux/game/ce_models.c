@@ -592,15 +592,6 @@ enum
 
 #define CE_ALIGNED(size) (((size) + 15) & ~15UL)
 
-static short ce_read_short(
-	byte const *at)
-{
-	short value;
-
-	memcpy(&value, at, sizeof(value));
-	return value;
-}
-
 static long ce_read_long32(
 	byte const *at)
 {

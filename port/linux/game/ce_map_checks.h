@@ -12,6 +12,8 @@ structure BSPs, and the reason a map is refused.
 
 #ifdef HALO_CUSTOM_EDITION
 
+#include <string.h>
+
 /* ---------- constants */
 
 enum
@@ -44,6 +46,41 @@ struct ce_image
 	unsigned long base;
 	unsigned long size;
 };
+
+/* ---------- inline code */
+
+/* a tag's field, of any alignment */
+static inline unsigned long ce_read_long(
+	byte const *at)
+{
+	unsigned long value;
+
+	memcpy(&value, at, sizeof(value));
+	return value;
+}
+
+static inline void ce_write_long(
+	byte *at,
+	unsigned long value)
+{
+	memcpy(at, &value, sizeof(value));
+}
+
+static inline short ce_read_short(
+	byte const *at)
+{
+	short value;
+
+	memcpy(&value, at, sizeof(value));
+	return value;
+}
+
+static inline void ce_write_short(
+	byte *at,
+	short value)
+{
+	memcpy(at, &value, sizeof(value));
+}
 
 /* ---------- prototypes */
 

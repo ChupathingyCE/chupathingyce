@@ -255,22 +255,6 @@ static unsigned long ce_resource_minimum_size(
 	}
 }
 
-static unsigned long ce_read_long(
-	byte const *at)
-{
-	unsigned long value;
-
-	memcpy(&value, at, sizeof(value));
-	return value;
-}
-
-static void ce_write_long(
-	byte *at,
-	unsigned long value)
-{
-	memcpy(at, &value, sizeof(value));
-}
-
 /* a tag block at field of a resource (copy, size bytes, to be at base): its
 elements, each element_size bytes, all in the resource, made an Xbox address
 there; their count and offset in the resource; FALSE if they are not in it */

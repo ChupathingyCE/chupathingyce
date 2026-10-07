@@ -174,38 +174,6 @@ static long ce_loaded_tag_count;
 
 /* ---------- private code */
 
-static unsigned long ce_read_long(
-	byte const *at)
-{
-	unsigned long value;
-
-	memcpy(&value, at, sizeof(value));
-	return value;
-}
-
-static void ce_write_long(
-	byte *at,
-	unsigned long value)
-{
-	memcpy(at, &value, sizeof(value));
-}
-
-static short ce_read_short(
-	byte const *at)
-{
-	short value;
-
-	memcpy(&value, at, sizeof(value));
-	return value;
-}
-
-static void ce_write_short(
-	byte *at,
-	short value)
-{
-	memcpy(at, &value, sizeof(value));
-}
-
 static struct ce_tag_instance *ce_instance(
 	void *tag_instances,
 	long index)
