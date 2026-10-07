@@ -17,6 +17,7 @@ and the debug keyboard that the game's console reads.
 #include "xiso.h"
 #include "touch_input.h"
 #include "delta.h"
+#include "crash_report.h"
 
 #include <SDL3/SDL.h>
 #include <stdio.h>
@@ -153,6 +154,67 @@ static void data_check_maps(void)
 }
 #endif
 
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
+/* crash reports (posix_crash.c; Windows's are win32_crash.c's): the handler
+for this run's crashes, then the reports earlier ones left, sent, deleted or
+asked about as crash_reports.upload says */
+static void crash_reports_start(void)
+{
+	static const SDL_MessageBoxButtonData buttons[] = {
+		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Yes" },
+		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "No" },
+	};
+	static const char text[] =
+		"ChupathingyCE crashed the last time it ran.\n\n"
+		"Do you want to send crash reports to the developers? They help us find and fix crashes.\n\n"
+		"A report holds the game's version, where in the game it crashed and the calls that led there, and the "
+		"end of its log, debug.txt, with IP addresses taken out. Reports go to the ChupathingyCE site "
+		"(network.browser_url) and its developers.\n\n"
+		"The answer is kept in config.toml (crash_reports.upload): Yes sends the report of this crash and of "
+		"every later one, No never sends one.";
+	SDL_MessageBoxData question = { SDL_MESSAGEBOX_WARNING, NULL, "ChupathingyCE crashed", text, 2, buttons, NULL };
+	char folder[1024], log[1024];
+	const char *consent;
+	int pending, answer = 0;
+
+	if (!crash_reports_armed())
+		return;
+#ifdef HALO_GAME_BROWSER
+	/* (a probe has none: its crashes are the site's to see) */
+	if (browser_headless())
+		return;
+#endif
+	snprintf(folder, sizeof(folder), "%s/crashes", platform_data_root());
+	snprintf(log, sizeof(log), "%s/debug.txt", platform_data_root());
+	if (!posix_crash_install(folder, log) || !(pending = posix_crash_pending()))
+		return;
+	consent = config_string("crash_reports.upload");
+	if (!strcmp(consent, "no"))
+	{
+		posix_crash_discard();
+		return;
+	}
+	if (strcmp(consent, "yes"))
+	{
+		/* (not for runs nobody is watching: the reports wait) */
+		if (config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0 ||
+			!SDL_ShowMessageBox(&question, &answer))
+		{
+			return;
+		}
+		config_write("crash_reports.upload", answer ? "yes" : "no");
+		if (!answer)
+		{
+			platform_log("crash report: the player declined; none will be sent");
+			posix_crash_discard();
+			return;
+		}
+	}
+	platform_log("crash report: sending %d", pending);
+	posix_crash_send();
+}
+#endif
+
 BOOL platform_sdl_initialize(void)
 {
 	if (platform_sdl_started)
@@ -206,6 +268,9 @@ BOOL platform_sdl_initialize(void)
 	data_check_maps();
 	/* (a new version looked for meanwhile, updater_poll asking about it) */
 	updater_start();
+#ifndef _WIN32
+	crash_reports_start();
+#endif
 #endif
 	/* (the legacy table: a newer one fetched meanwhile) */
 	delta_legacy_start();

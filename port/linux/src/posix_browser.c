@@ -373,6 +373,13 @@ static int connection_read(struct connection *connection, unsigned char *buffer,
 int posix_browser_request(const char *url, const char *form, const char *content_type, char *response,
 	int response_size, char *error, int error_size)
 {
+	return posix_browser_request_as(url, form, content_type, BROWSER_USER_AGENT, response, response_size, error,
+		error_size);
+}
+
+int posix_browser_request_as(const char *url, const char *form, const char *content_type, const char *user_agent,
+	char *response, int response_size, char *error, int error_size)
+{
 	char host[256], port[16], path[512];
 	char request[4096];
 	char *long_request = NULL;
@@ -404,7 +411,7 @@ int posix_browser_request(const char *url, const char *form, const char *content
 	if (form)
 	{
 		/* (a long body, as a carnage report: a request of its own size) */
-		size_t size = strlen(form) + 1024;
+		size_t size = strlen(form) + strlen(user_agent) + 1024;
 
 		long_request = malloc(size);
 		if (!long_request)
@@ -413,9 +420,9 @@ int posix_browser_request(const char *url, const char *form, const char *content
 			return 0;
 		}
 		length = snprintf(long_request, size,
-			"POST %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: " BROWSER_USER_AGENT "\r\n"
+			"POST %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: %s\r\n"
 			"Content-Type: %s\r\nContent-Length: %zu\r\n\r\n%s",
-			path, host, content_type ? content_type : "application/x-www-form-urlencoded", strlen(form), form);
+			path, host, user_agent, content_type ? content_type : "application/x-www-form-urlencoded", strlen(form), form);
 		if (length <= 0 || (size_t)length >= size)
 		{
 			free(long_request);
@@ -426,7 +433,7 @@ int posix_browser_request(const char *url, const char *form, const char *content
 	else
 	{
 		length = snprintf(request, sizeof(request),
-			"GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: " BROWSER_USER_AGENT "\r\n\r\n", path, host);
+			"GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: %s\r\n\r\n", path, host, user_agent);
 	}
 	if (!long_request && (length <= 0 || (size_t)length >= sizeof(request)))
 	{
