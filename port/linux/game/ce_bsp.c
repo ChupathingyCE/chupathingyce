@@ -59,6 +59,8 @@ enum
 	CE_CLUSTER_SIZE = 0x68,
 	CE_MAXIMUM_CLUSTERS = 512,
 	CE_CLUSTER_PORTAL_SIZE = 0x40,
+	/* (as many as the lightmaps: more would not fit in the tag cache) */
+	CE_MAXIMUM_CLUSTER_PORTALS = 0x10000,
 	CE_CLUSTER_PORTAL_VERTICES_OFFSET = 0x34,
 	CE_PORTAL_VERTEX_SIZE = 0xc,
 	CE_MAXIMUM_PORTAL_VERTICES = 128,
@@ -170,7 +172,7 @@ than sphere_intersects_cluster_portal projects into an array on the stack */
 		if (!ce_image_block(image, &((struct structure_bsp *)structure)->clusters, CE_CLUSTER_SIZE,
 			CE_MAXIMUM_CLUSTERS, "a structure BSP's clusters", &cluster_count, &clusters) ||
 			!ce_image_block(image, &((struct structure_bsp *)structure)->cluster_portals, CE_CLUSTER_PORTAL_SIZE,
-			CE_MAXIMUM_BSP_LIGHTMAPS, "a structure BSP's cluster portals", &portal_count, &portals))
+			CE_MAXIMUM_CLUSTER_PORTALS, "a structure BSP's cluster portals", &portal_count, &portals))
 		{
 			return FALSE;
 		}

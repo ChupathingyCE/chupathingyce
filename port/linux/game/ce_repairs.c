@@ -329,8 +329,7 @@ static void ce_object_type_repair(
 	if (group_type >= (short)NUMBEROF(ce_object_type_groups) || type == group_type)
 		return;
 	error(_error_silent, "%s map: object %s is typed %d, not its group's %d (made its group's)",
-		ce_map_cache_version == CE_CACHE_VERSION_RETAIL ? "HaloMD" : "Custom Edition",
-		ce_image_tag_name(image, instance), type, group_type);
+		ce_map_family_name(), ce_image_tag_name(image, instance), type, group_type);
 	memcpy(object, &group_type, sizeof(group_type));
 	counts->object_types++;
 }
@@ -385,12 +384,13 @@ static void ce_model_shaders_repair(
 	for (index = 0; index < count; index++)
 	{
 		byte *reference = shaders + index * MODEL_SHADER_SIZE;
-		struct ce_tag_instance *shader = ce_instance_by_index(tag_instances, tag_count, ce_read_long(reference + 0xc));
+		struct ce_tag_instance *shader = ce_instance_by_index(tag_instances, tag_count,
+			ce_read_long(reference + TAG_REFERENCE_INDEX_OFFSET));
 
 		if (shader && ce_is_shader(shader))
 		{
-			if (shader->tag_index != ce_read_long(reference + 0xc))
-				ce_write_long(reference + 0xc, shader->tag_index);
+			if (shader->tag_index != ce_read_long(reference + TAG_REFERENCE_INDEX_OFFSET))
+				ce_write_long(reference + TAG_REFERENCE_INDEX_OFFSET, shader->tag_index);
 			continue;
 		}
 		/* (the model's first shader that is one, else the map's first) */
@@ -401,7 +401,7 @@ static void ce_model_shaders_repair(
 			for (other = 0; other < count && !substitute; other++)
 			{
 				struct ce_tag_instance *candidate = ce_instance_by_index(tag_instances, tag_count,
-					ce_read_long(shaders + other * MODEL_SHADER_SIZE + 0xc));
+					ce_read_long(shaders + other * MODEL_SHADER_SIZE + TAG_REFERENCE_INDEX_OFFSET));
 
 				if (candidate && ce_is_shader(candidate))
 					substitute = candidate;
@@ -415,7 +415,7 @@ static void ce_model_shaders_repair(
 				return;
 		}
 		ce_write_long(reference, substitute->group_tag);
-		ce_write_long(reference + 0xc, substitute->tag_index);
+		ce_write_long(reference + TAG_REFERENCE_INDEX_OFFSET, substitute->tag_index);
 		counts->model_shaders++;
 	}
 }
@@ -530,7 +530,7 @@ static void ce_repairs_log(
 	}
 	error(_error_silent, "%s map: %ld predicted resources dropped and %ld given their tags' salts, %ld object "
 		"types, %ld modifier shaders and %ld model shaders repaired, %ld node links looping back or out of the nodes, "
-		"%ld tags' parent groups", ce_map_cache_version == CE_CACHE_VERSION_RETAIL ? "HaloMD" : "Custom Edition",
+		"%ld tags' parent groups", ce_map_family_name(),
 		counts->predicted_resources_dropped, counts->predicted_resources_salted, counts->object_types,
 		counts->modifier_shaders, counts->model_shaders, counts->node_links, counts->parent_groups);
 }
@@ -604,7 +604,7 @@ void ce_repairs_apply(
 	}
 	{
 		struct ce_tag_instance *scenario = ce_instance_by_index(tag_instances, tag_count, scenario_tag_index);
-		byte *data = scenario && scenario->group_tag == 'scnr' ?
+		byte *data = scenario && scenario->group_tag == SCENARIO_GROUP ?
 			ce_image_pointer(image, scenario->base_address, SCENARIO_PREDICTED_RESOURCES_OFFSET + 0xc) : NULL;
 
 		if (data)

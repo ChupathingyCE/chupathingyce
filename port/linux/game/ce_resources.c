@@ -338,7 +338,8 @@ static void ce_relocate_editor_data(
 	}
 }
 
-/* (a + b, FALSE if that passes limit) */
+/* (*cursor moved past count elements of element_size, FALSE if that passes
+limit) */
 static boolean ce_advance(
 	unsigned long *cursor,
 	unsigned long count,

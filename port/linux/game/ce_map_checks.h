@@ -87,6 +87,10 @@ enum
 };
 extern long ce_map_cache_version;
 
+/* the family of the map being checked or loaded, for messages: "Custom
+Edition" or "HaloMD" */
+char const *ce_map_family_name(void);
+
 #endif
 
 #endif

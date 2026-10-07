@@ -609,6 +609,12 @@ boolean ce_map_checking(
 	return ce_checking;
 }
 
+char const *ce_map_family_name(
+	void)
+{
+	return ce_map_cache_version == CE_CACHE_VERSION_RETAIL ? "HaloMD" : "Custom Edition";
+}
+
 /* an element of a tag block or the bytes of a tag data the game reads
 (tag_groups.c), at an Xbox address: with a Custom Edition map loaded, whose
 tags were checked only as far as the port reads them, not read outside its
@@ -656,7 +662,7 @@ boolean ce_map_check(
 	unsigned long file_size = GetFileSize(file, &file_size_high);
 	unsigned long started = system_milliseconds();
 	boolean valid;
-	char const *family = ce_map_cache_version == CE_CACHE_VERSION_RETAIL ? "HaloMD" : "Custom Edition";
+	char const *family = ce_map_family_name();
 
 	ce_refusal[0] = 0;
 	ce_checking = TRUE;

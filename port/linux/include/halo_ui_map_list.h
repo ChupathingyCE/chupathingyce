@@ -4,8 +4,9 @@ HALO_UI_MAP_LIST.H
 The menus' list of multiplayer maps on the native builds
 (port/linux/game/ui_map_list.c): the Xbox's thirteen, as they were, then the
 Custom Edition maps, named with [CE], with Halo PC's names, descriptions and
-pictures of them, then HaloMD's maps, named with [MD] (halo_map_families.h). The multiplayer map list, its rows and the
-lobby (source/interface) ask it in place of the game's fixed thirteen.
+pictures of them, then HaloMD's maps, named with [MD] (halo_map_families.h).
+The multiplayer map list, its rows and the lobby (source/interface) ask it in
+place of the game's fixed thirteen.
 */
 
 #ifndef HALO_UI_MAP_LIST_H
