@@ -218,10 +218,14 @@ static unsigned long ce_part_vertices(
 	}
 	for (index = 0; index < count; index++)
 	{
-		struct ce_vertex const *in = (struct ce_vertex const *)(model_data + vertex_offset +
-			index * CE_VERTEX_SIZE);
+		/* (copied out: the map's offset need not be aligned, as ce_models_check
+		reads it) */
+		struct ce_vertex vertex;
+		struct ce_vertex const *in = &vertex;
 		struct xbox_vertex *out = &vertices[index];
 		short node;
+
+		csmemcpy(&vertex, model_data + vertex_offset + index * CE_VERTEX_SIZE, sizeof(vertex));
 
 		out->position[0] = in->position[0];
 		out->position[1] = in->position[1];
