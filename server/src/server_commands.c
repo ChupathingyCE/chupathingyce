@@ -82,7 +82,6 @@ enum
 /* (network_server_manager_internal.h's) */
 word network_game_server_get_state(struct network_game_server *server, short *state_data);
 struct network_game *network_game_server_get_game(struct network_game_server *server);
-boolean network_game_server_lobby_is_open(struct network_game_server *server);
 /* (network_distributed.c's: the host's bans, bans.txt) */
 long distributed_player_ping(short player_index);
 void network_distributed_ban_until(long machine_index, unsigned long address, char const *names, char const *reason,
@@ -1112,8 +1111,8 @@ static boolean command_console_only(
 	return FALSE;
 }
 
-/* a command line run: its output (text, or JSON for sv_status and
-sv_players when json) in output; whether it did what it was asked */
+/* a command line run: its output (text, or JSON when json, for the
+commands that have it) in output; whether it did what it was asked */
 static boolean execute(
 	char const *text,
 	boolean json,

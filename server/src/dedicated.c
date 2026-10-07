@@ -3,10 +3,9 @@ DEDICATED.C
 
 The dedicated server (server/README.md): with HALO_DEDICATED naming a
 playlist file in the data folder (playlists/slayer.txt, beside maps), the
-game hosts system link games by itself, one playlist
-entry after another, with no player of its own. Built into the game browser's
-builds (configure.py --game-browser); without HALO_DEDICATED it does
-nothing.
+game hosts system link games by itself, one playlist entry after another,
+with no player of its own. Built into the game browser's builds
+(configure.py --game-browser); without HALO_DEDICATED it does nothing.
 
 It runs without a window: nothing drawn (d3d8_gl.c), no sound, no movies,
 no display needed (SDL's dummy drivers), so it runs on a server with no
@@ -94,10 +93,6 @@ void network_game_server_dedicated_start_countdown(struct network_game_server *s
 void p2p_set_hosting_allowed(int allowed);
 void p2p_set_hosting_public(int public);
 void p2p_set_hosting_dedicated(int dedicated);
-void network_game_accept_remote_connections(boolean accept);
-void game_engine_playlist_initialize(void);
-void game_engine_playlist_begin(void);
-void game_connection_set(short connection);
 void main_set_multiplayer_map_name(char const *map_name);
 void game_engine_override_map_name(char const *map_name);
 long game_engine_total_score(void);
@@ -135,7 +130,6 @@ static struct
 	/* listed in the server browser (HALO_DEDICATED_PUBLIC) */
 	boolean public_game;
 
-	boolean hosting;
 	boolean entry_set;
 	boolean entry_teams;
 	word last_state;
@@ -226,7 +220,7 @@ static void initialize(
 	dedicated.minimum_players = minimum ? atol(minimum) : 1;
 	if (dedicated.minimum_players < 1)
 		dedicated.minimum_players = 1;
-	/* (12 while the server is tested) */
+	/* (12 unless set) */
 	dedicated.maximum_players = maximum ? atol(maximum) : 12;
 	if (dedicated.maximum_players < dedicated.minimum_players)
 		dedicated.maximum_players = dedicated.minimum_players;
@@ -426,14 +420,13 @@ void dedicated_server_update(
 	server = global_network_game_server_get();
 	if (!server)
 	{
-		dedicated.hosting = FALSE;
 		dedicated.entry_set = FALSE;
 		/* (not while a movie plays: the intro's end loads the main menu,
 		which ends any network game) */
 		if (!main_menu_is_active() || bink_playback_active() || system_milliseconds() < dedicated.retry_time)
 			return;
 		dedicated.retry_time = system_milliseconds() + RETRY_MILLISECONDS;
-		dedicated.hosting = host();
+		host();
 		return;
 	}
 

@@ -50,7 +50,7 @@ body {
 
 [hidden] { display: none !important; }
 
-code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 
 .bar {
   display: flex;

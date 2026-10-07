@@ -5,6 +5,7 @@ The dedicated server's web admin page as bytes (control_web.h). Built with
 the host's ABI, as server_control.c, which uses it.
 */
 
+#include "control_protocol.h"
 #include "control_web.h"
 
 #include "monocypher.h"
@@ -13,19 +14,6 @@ the host's ABI, as server_control.c, which uses it.
 #include <string.h>
 
 /* ---------- private code */
-
-static void hex_text(const uint8_t *bytes, size_t count, char *text)
-{
-	static const char digits[] = "0123456789abcdef";
-	size_t index;
-
-	for (index = 0; index < count; index++)
-	{
-		text[2 * index] = digits[bytes[index] >> 4];
-		text[2 * index + 1] = digits[bytes[index] & 15];
-	}
-	text[2 * count] = 0;
-}
 
 static void id_hash(const struct control_web_sessions *sessions, const char *id_text, uint8_t hash[32])
 {
@@ -102,9 +90,9 @@ int control_web_session_create(struct control_web_sessions *sessions, const uint
 	session = &sessions->entries[chosen];
 	crypto_wipe(session, sizeof(*session));
 	session->used = 1;
-	hex_text(id_bytes, CONTROL_WEB_SECRET_BYTES, id_text);
+	control_hex_text(id_bytes, CONTROL_WEB_SECRET_BYTES, id_text);
 	id_hash(sessions, id_text, session->id_hash);
-	hex_text(csrf_bytes, CONTROL_WEB_SECRET_BYTES, session->csrf);
+	control_hex_text(csrf_bytes, CONTROL_WEB_SECRET_BYTES, session->csrf);
 	snprintf(session->name, sizeof(session->name), "%s", name);
 	snprintf(session->credential_id, sizeof(session->credential_id), "%s", credential_id);
 	session->created = now;
