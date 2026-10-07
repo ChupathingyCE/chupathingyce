@@ -263,6 +263,28 @@ def test_tampered_and_other_key(keys):
         delta_table.check(data, signature.hex()[:-2], [keys[1]])
 
 
+def make_table(tmp_path, *arguments):
+    return subprocess.run([sys.executable, str(ROOT / "tools" / "delta_table.py"), "make", *arguments],
+                          capture_output=True, text=True)
+
+
+def test_make_row_widens_only(tmp_path):
+    old = tmp_path / "old.json"
+    old.write_bytes(document(serial=4, row=floor()))
+    own = delta_table.wire()
+    wide = f"{floor()['announce'] + 2},{floor()['minimum']},{floor()['maximum'] + 2}"
+    result = make_table(tmp_path, "--serial", "5", "--from", str(old), "--row", f"{own}={wide}",
+                        "--row", "chupa-99z=30,25,31")
+    assert result.returncode == 0, result.stderr
+    table = json.loads(result.stdout)
+    assert table["wires"][own]["announce"] == floor()["announce"] + 2
+    assert table["wires"]["chupa-99z"] == {"announce": 30, "minimum": 25, "maximum": 31}
+    narrow = f"{floor()['announce'] - 1},{floor()['minimum']},{floor()['maximum']}"
+    assert make_table(tmp_path, "--serial", "5", "--from", str(old), "--row", f"{own}={narrow}").returncode == 1
+    for bad in ("chupa-20a=22,23,22", "chupa-20a=22", "Chupa=1,1,1", "chupa-20a=0,0,0"):
+        assert make_table(tmp_path, "--serial", "5", "--row", bad).returncode == 1, bad
+
+
 def test_make_from_keeps_other_wires(tmp_path):
     old = tmp_path / "old.json"
     old.write_bytes(document(serial=4, extra={"chupa-17a": {"announce": 17, "minimum": 11, "maximum": 19}}))
@@ -270,7 +292,10 @@ def test_make_from_keeps_other_wires(tmp_path):
                              "--from", str(old)], capture_output=True, text=True, check=True)
     table = json.loads(result.stdout)
     assert table["wires"]["chupa-17a"]["maximum"] == 19
-    assert table["wires"][delta_table.wire()] == floor()
+    # (a published row wider than the built-in numbers stays: making the table
+    # again from the same commit never narrows what builds follow)
+    assert table["wires"][delta_table.wire()] == dict(floor(), announce=floor()["announce"] + 1,
+                                                      maximum=floor()["maximum"] + 1)
     result = subprocess.run([sys.executable, str(ROOT / "tools" / "delta_table.py"), "make", "--serial", "4",
                              "--from", str(old)], capture_output=True, text=True)
     assert result.returncode == 1

@@ -16,9 +16,13 @@ hex digits and a line feed. A build reads only its own wire's row
 (DELTA_WIRE in port/linux/include/delta.h), and takes it only if it widens
 the numbers the build was made with. At most 16384 bytes.
 
-    delta_table.py make --serial N [--from OLD.json] [--out legacy.json]
+    delta_table.py make --serial N [--from OLD.json] [--row WIRE=A,MIN,MAX ...] [--out legacy.json]
         this build's wire and numbers (delta.h, halo_port_limits.h) as a
-        table; --from keeps another table's rows for the other wires
+        table; --from keeps another table's rows for the other wires;
+        --row sets a wire's row (announce, minimum, maximum) as the
+        cross-play gate proved it (tools/crossplay_test.py), and may only
+        widen that wire's row in --from and, for this build's wire, its
+        built-in numbers
     delta_table.py sign --key KEY.pem legacy.json      writes legacy.json.sig
     delta_table.py verify [--public-key HEX] legacy.json
         checks legacy.json.sig against the key (or delta_key.h's keys)
@@ -159,9 +163,32 @@ def check_widens(table: dict, own_wire: str, floor: dict) -> None:
         raise TableError(f"wire {own_wire}'s row {row} narrows the built-in {floor}")
 
 
-def make(serial: int, issued: int = None, previous: dict = None) -> bytes:
+def parse_row(text: str) -> tuple:
+    """--row's WIRE=ANNOUNCE,MINIMUM,MAXIMUM"""
+    match = re.fullmatch(r"([a-z0-9-]{1,31})=(\d{1,5}),(\d{1,5}),(\d{1,5})", text)
+    if not match:
+        raise TableError(f"--row {text}: not WIRE=ANNOUNCE,MINIMUM,MAXIMUM")
+    announce, minimum, maximum = (int(match.group(index)) for index in (2, 3, 4))
+    if not (1 <= minimum <= announce <= maximum <= MAXIMUM_VERSION):
+        raise TableError(f"--row {text}: needs 1 <= minimum <= announce <= maximum <= {MAXIMUM_VERSION}")
+    return match.group(1), {"announce": announce, "minimum": minimum, "maximum": maximum}
+
+
+def widens(row: dict, floor: dict) -> bool:
+    return row["announce"] >= floor["announce"] and row["minimum"] <= floor["minimum"] and \
+        row["maximum"] >= floor["maximum"]
+
+
+def make(serial: int, issued: int = None, previous: dict = None, rows: dict = None) -> bytes:
     wires = dict(previous["wires"]) if previous else {}
     wires[wire()] = built_in()
+    if previous and wire() in previous["wires"] and widens(previous["wires"][wire()], wires[wire()]):
+        wires[wire()] = previous["wires"][wire()]
+    for name, row in (rows or {}).items():
+        floor = wires.get(name)
+        if floor and not widens(row, floor):
+            raise TableError(f"--row {name}: {row} narrows {floor} (a table only widens)")
+        wires[name] = row
     table = {
         "delta_legacy": FORMAT,
         "serial": serial,
@@ -291,6 +318,7 @@ def main() -> int:
     command.add_argument("--serial", type=int, required=True)
     command.add_argument("--issued", type=int)
     command.add_argument("--from", dest="previous", type=Path, help="a table whose other wires' rows to keep")
+    command.add_argument("--row", action="append", default=[], help="WIRE=ANNOUNCE,MINIMUM,MAXIMUM, a wire's row")
     command.add_argument("--out", type=Path)
     command = commands.add_parser("sign")
     command.add_argument("--key", type=Path, required=True)
@@ -307,7 +335,8 @@ def main() -> int:
             previous = parse(arguments.previous.read_bytes()) if arguments.previous else None
             if previous and arguments.serial <= previous["serial"]:
                 raise TableError(f"serial {arguments.serial} is not newer than {previous['serial']}")
-            document = make(arguments.serial, arguments.issued, previous)
+            rows = dict(parse_row(row) for row in arguments.row)
+            document = make(arguments.serial, arguments.issued, previous, rows)
             if arguments.out:
                 arguments.out.write_bytes(document)
             else:
