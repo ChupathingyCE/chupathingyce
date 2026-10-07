@@ -1251,6 +1251,11 @@ static void stream_complete_head(struct sdl_stream *stream, DWORD status, DWORD 
 	struct voice_packet *entry = &stream->packets[stream->packet_head];
 	XMEDIAPACKET packet = entry->packet;
 
+	/* a packet completed before it played to its end (flushed): the cursor
+	was its place in it, and the mixer may take the next packet while the
+	lock is let go below, so it starts at the beginning */
+	if (!entry->finished)
+		stream->cursor = 0;
 	packet_release(entry);
 	entry->finished = FALSE;
 	stream->packet_head = (stream->packet_head + 1) % MAXIMUM_STREAM_PACKETS;
