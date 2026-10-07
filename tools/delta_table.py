@@ -24,7 +24,8 @@ it widens the numbers the build was made with. At most 16384 bytes.
         cross-play gate proved it (tools/crossplay_test.py), with the
         OpenCE build it was proved against ("follows"), and may only
         widen that wire's row in --from and, for this build's wire, its
-        built-in numbers
+        built-in numbers; --take-back WIRE=A,MIN,MAX sets a wire's row back
+        to its release's own numbers
     delta_table.py sign --key KEY.pem legacy.json      writes legacy.json.sig
     delta_table.py verify [--public-key HEX] legacy.json
         checks legacy.json.sig against the key (or delta_key.h's keys)
@@ -188,7 +189,7 @@ def widens(row: dict, floor: dict) -> bool:
         row["maximum"] >= floor["maximum"]
 
 
-def make(serial: int, issued: int = None, previous: dict = None, rows: dict = None) -> bytes:
+def make(serial: int, issued: int = None, previous: dict = None, rows: dict = None, take_back: dict = None) -> bytes:
     wires = dict(previous["wires"]) if previous else {}
     wires[wire()] = built_in()
     if previous and wire() in previous["wires"] and widens(previous["wires"][wire()], wires[wire()]):
@@ -197,6 +198,13 @@ def make(serial: int, issued: int = None, previous: dict = None, rows: dict = No
         floor = wires.get(name)
         if floor and not widens(row, floor):
             raise TableError(f"--row {name}: {row} narrows {floor} (a table only widens)")
+        wires[name] = row
+    # (a follow taken back: the row set to the wire's shipped numbers again,
+    # which builds of that wire take, being no less than what they shipped
+    # with; this build's own wire never below its built-in numbers)
+    for name, row in (take_back or {}).items():
+        if name == wire() and not widens(row, built_in()):
+            raise TableError(f"--take-back {name}: {row} is below this build's own numbers {built_in()}")
         wires[name] = row
     table = {
         "delta_legacy": FORMAT,
@@ -329,6 +337,9 @@ def main() -> int:
     command.add_argument("--from", dest="previous", type=Path, help="a table whose other wires' rows to keep")
     command.add_argument("--row", action="append", default=[],
                          help="WIRE=ANNOUNCE,MINIMUM,MAXIMUM[@OPENCE_BUILD], a wire's row (and the OpenCE build it follows)")
+    command.add_argument("--take-back", action="append", default=[], metavar="WIRE=A,MIN,MAX",
+                         help="a wire's row set back to its release's own numbers (a follow taken back); exactly "
+                              "the shipped numbers: a row below them makes every build of the wire drop the table")
     command.add_argument("--out", type=Path)
     command = commands.add_parser("sign")
     command.add_argument("--key", type=Path, required=True)
@@ -346,7 +357,8 @@ def main() -> int:
             if previous and arguments.serial <= previous["serial"]:
                 raise TableError(f"serial {arguments.serial} is not newer than {previous['serial']}")
             rows = dict(parse_row(row) for row in arguments.row)
-            document = make(arguments.serial, arguments.issued, previous, rows)
+            take_back = dict(parse_row(row) for row in arguments.take_back)
+            document = make(arguments.serial, arguments.issued, previous, rows, take_back)
             if arguments.out:
                 arguments.out.write_bytes(document)
             else:
