@@ -139,7 +139,9 @@ static struct
 	boolean entry_set;
 	boolean entry_teams;
 	word last_state;
-	unsigned long retry_time;
+	/* (hosting tried, and when: tried again RETRY_MILLISECONDS on) */
+	boolean tried;
+	unsigned long tried_time;
 	unsigned long postgame_time;
 	unsigned long frame_time;
 	unsigned long score_time;
@@ -436,9 +438,14 @@ void dedicated_server_update(
 		dedicated.entry_set = FALSE;
 		/* (not while a movie plays: the intro's end loads the main menu,
 		which ends any network game) */
-		if (!main_menu_is_active() || bink_playback_active() || system_milliseconds() < dedicated.retry_time)
+		/* (the time since, unsigned: the milliseconds wrap after 49.7 days) */
+		if (!main_menu_is_active() || bink_playback_active() ||
+			(dedicated.tried && system_milliseconds() - dedicated.tried_time < RETRY_MILLISECONDS))
+		{
 			return;
-		dedicated.retry_time = system_milliseconds() + RETRY_MILLISECONDS;
+		}
+		dedicated.tried = TRUE;
+		dedicated.tried_time = system_milliseconds();
 		dedicated.hosting = host();
 		return;
 	}
