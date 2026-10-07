@@ -65,6 +65,7 @@ long config_integer(char const *name);
 const char *updater_version(void);
 const char *build_identity_user_agent(void);
 int browser_dedicated(void);
+char *getenv(char const *name);
 /* (network_server_manager_internal.h's) */
 struct network_game *network_game_server_get_game(struct network_game_server *server);
 /* Delta Peer's (port/linux/src/delta_peer_game.c): a player's platform
@@ -425,6 +426,21 @@ static void begin_game(long tick)
 		}
 		game.platform[used] = 0;
 	}
+	/* (a dedicated server's playlist: its file's name, playlists/slayer.txt
+	as "slayer") */
+	if (browser_dedicated() && getenv("HALO_DEDICATED"))
+	{
+		char const *name = getenv("HALO_DEDICATED");
+		char const *slash = strrchr(name, '/');
+		char *dot;
+
+		if (strrchr(name, '\\') > slash)
+			slash = strrchr(name, '\\');
+		snprintf(game.playlist, sizeof(game.playlist), "%s", slash ? slash + 1 : name);
+		dot = strrchr(game.playlist, '.');
+		if (dot)
+			*dot = 0;
+	}
 	if (browser_dedicated())
 		snprintf(game.platform + strlen(game.platform), sizeof(game.platform) - strlen(game.platform), "%s",
 			game.platform[0] ? "-server" : "server");
@@ -551,6 +567,7 @@ static void track_player(struct tracked *tracked, struct player_datum *player, l
 		platform > 0 && platform < (int)NUMBEROF(platforms) ? platforms[platform] : "");
 	identity.team = (int)player->team_index;
 	identity.bot = FALSE;
+	identity.color = player->network_player_data.primary_color_index;
 	tracked->slot = event_log_player((int)tick, &identity);
 	tracked->present = TRUE;
 	tracked->next_position_tick = tick + (DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index) % 30);
@@ -872,7 +889,8 @@ static void update_health(long tick)
 	}
 }
 
-/* how the game ended, as far as it says: a score at its limit, else time */
+/* how the game ended, as far as it says: everyone gone, a score at its
+limit, else time */
 static int end_reason(void)
 {
 	static struct browser_report_player ranking[MAXIMUM_LINES];
@@ -880,6 +898,14 @@ static int end_reason(void)
 	long limit = variant->universal_variant.score_to_win;
 	long count, index;
 
+	{
+		long present = 0;
+
+		for (index = 0; index < MAXIMUM_TRACKED; index++)
+			present += game_events.players[index].used && game_events.players[index].present;
+		if (!present)
+			return EVENT_LOG_END_EMPTY;
+	}
 	if (limit <= 0)
 		return EVENT_LOG_END_TIME;
 	if (variant->universal_variant.teams)
@@ -1028,6 +1054,9 @@ void game_events_player_killed(
 
 		if (object_position(killer_unit, record.position))
 			record.bits |= EVENT_LOG_KILL_KILLER_POSITION;
+		/* (dead as the blow landed: a grenade or a rocket of theirs) */
+		if (!unit)
+			record.bits |= EVENT_LOG_KILL_FROM_GRAVE;
 		if (unit)
 		{
 			short seat;
@@ -1089,6 +1118,7 @@ void game_events_update(
 	}
 	update_players(tick);
 	update_health(tick);
+	event_upload_moderation_drain();
 	{
 		long minutes = config_integer("network.events_part_minutes");
 

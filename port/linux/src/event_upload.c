@@ -249,7 +249,48 @@ static void keep_copy(const char *json, size_t length, const char *game_id)
 	fclose(file);
 }
 
+/* moderators' actions waiting for the game's thread */
+enum { MAXIMUM_MODERATION = 32 };
+static struct
+{
+	int count;
+	struct
+	{
+		int kind;
+		char who[EVENT_LOG_NAME_SIZE];
+		char by[64];
+		char reason[EVENT_LOG_TAG_SIZE];
+	} actions[MAXIMUM_MODERATION];
+} moderation;
+
 /* ---------- public code */
+
+void event_upload_moderation(int kind, char const *who, char const *by, char const *reason)
+{
+	pthread_mutex_lock(&upload_lock);
+	if (moderation.count < MAXIMUM_MODERATION)
+	{
+		moderation.actions[moderation.count].kind = kind;
+		snprintf(moderation.actions[moderation.count].who, sizeof(moderation.actions[0].who), "%s", who ? who : "");
+		snprintf(moderation.actions[moderation.count].by, sizeof(moderation.actions[0].by), "%s", by ? by : "");
+		snprintf(moderation.actions[moderation.count].reason, sizeof(moderation.actions[0].reason), "%s", reason ? reason : "");
+		moderation.count++;
+	}
+	pthread_mutex_unlock(&upload_lock);
+}
+
+void event_upload_moderation_drain(void)
+{
+	int index, count;
+
+	pthread_mutex_lock(&upload_lock);
+	count = moderation.count;
+	for (index = 0; index < count; index++)
+		event_log_moderation(moderation.actions[index].kind, moderation.actions[index].who, moderation.actions[index].by,
+			moderation.actions[index].reason);
+	moderation.count = 0;
+	pthread_mutex_unlock(&upload_lock);
+}
 
 int event_upload_enabled(void)
 {

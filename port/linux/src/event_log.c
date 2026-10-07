@@ -94,7 +94,7 @@ static char const *const spree_medals[] = { "killing_spree", "killing_frenzy", "
 /* every medal this file gives, for the players' totals */
 static char const *const medal_keys[] = {
 	"double_kill", "triple_kill", "killtacular", "killtrocity", "killing_spree", "killing_frenzy", "running_riot",
-	"rampage", "beat_down", "sniper_kill", "grenade_stick", "splatter",
+	"rampage", "beat_down", "sniper_kill", "grenade_stick", "splatter", "killjoy", "from_the_grave",
 };
 enum { NUMBER_OF_MEDALS = sizeof(medal_keys) / sizeof(medal_keys[0]) };
 
@@ -550,6 +550,9 @@ static void count_kill(struct event_log_record const *record)
 	struct log_player *victim = valid_slot(record->other) ? &event_log.players[record->other] : NULL;
 	int counts = killer && killer != victim && !(record->bits & (EVENT_LOG_KILL_SUICIDE | EVENT_LOG_KILL_BETRAYAL));
 
+	/* a killjoy: the end of someone else's spree of five or more */
+	if (victim && counts && victim->spree >= 5)
+		add_medal(record->tick, record->player, "killjoy");
 	if (victim)
 	{
 		victim->deaths_counted++;
@@ -589,6 +592,8 @@ static void count_kill(struct event_log_record const *record)
 		add_medal(record->tick, record->player, "grenade_stick");
 	if (record->value[0] == EVENT_LOG_DAMAGE_VEHICLE && valid_tag(record->tag[1]))
 		add_medal(record->tick, record->player, "splatter");
+	if (record->bits & EVENT_LOG_KILL_FROM_GRAVE)
+		add_medal(record->tick, record->player, "from_the_grave");
 }
 
 /* a record's totals, counted whether or not it is kept */
@@ -699,6 +704,8 @@ static void write_kills(struct text *text)
 			text_append(text, ", \"stuck\": true");
 		if (record->bits & EVENT_LOG_KILL_VICTIM_RIDING)
 			text_append(text, ", \"victim_riding\": true");
+		if (record->bits & EVENT_LOG_KILL_FROM_GRAVE)
+			text_append(text, ", \"from_grave\": true");
 		text_append(text, "}");
 		any = 1;
 	}
@@ -884,6 +891,8 @@ static void write_player(struct text *text, int slot, int end_tick)
 	}
 	text_append(text, ", \"team\": %d, \"bot\": %s", player->has_totals ? totals->team : player->identity.team,
 		player->identity.bot ? "true" : "false");
+	if (player->identity.color >= 0 && player->identity.color < 18)
+		text_append(text, ", \"color\": %d", player->identity.color);
 	/* (the game's counts; the kills and deaths seen, for a player whose
 	totals never came) */
 	text_append(text, ", \"score\": %d, \"kills\": %d, \"deaths\": %d, \"assists\": %d, \"betrayals\": %d, "
@@ -1049,6 +1058,7 @@ void event_log_begin(struct event_log_game const *game, unsigned char const rand
 	event_log.game.server_name[sizeof(event_log.game.server_name) - 1] = 0;
 	event_log.game.build[sizeof(event_log.game.build) - 1] = 0;
 	event_log.game.platform[sizeof(event_log.game.platform) - 1] = 0;
+	event_log.game.playlist[sizeof(event_log.game.playlist) - 1] = 0;
 	for (index = 0; index < 16; index++)
 	{
 		event_log.id[2 * index] = digits[random_id[index] >> 4];
@@ -1320,6 +1330,11 @@ char *event_log_finish(struct event_log_end const *end, char const *invite, int 
 	{
 		text_append(&text, ", \"invite\": ");
 		text_string(&text, invite);
+	}
+	if (event_log.game.playlist[0])
+	{
+		text_append(&text, ", \"playlist\": ");
+		text_string(&text, event_log.game.playlist);
 	}
 	text_append(&text, ", \"map\": ");
 	text_string(&text, event_log.game.map);

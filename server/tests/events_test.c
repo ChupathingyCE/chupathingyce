@@ -36,6 +36,7 @@ static void game(char const *map, int engine, int teams)
 	snprintf(game.server_name, sizeof(game.server_name), "Test \"server\"");
 	snprintf(game.build, sizeof(game.build), "0.7.0b");
 	snprintf(game.platform, sizeof(game.platform), "linux-x64");
+	snprintf(game.playlist, sizeof(game.playlist), "team_slayer");
 	game.start_time = 1791234567u;
 	for (index = 0; index < 16; index++)
 		id[index] = (unsigned char)(index * 17);
@@ -52,6 +53,7 @@ static int player(int tick, char const *name, char const *hardware_id, int team)
 	identity.client = hardware_id[0] ? EVENT_LOG_CLIENT_CHUPATHINGYCE : EVENT_LOG_CLIENT_OTHER;
 	snprintf(identity.platform, sizeof(identity.platform), "%s", hardware_id[0] ? "linux" : "");
 	identity.team = team;
+	identity.color = hardware_id[0] ? 3 : -1;
 	return event_log_player(tick, &identity);
 }
 
@@ -175,6 +177,26 @@ int main(int argc, char **argv)
 		free(json);
 		/* (nothing more once it is finished) */
 		return finish(1300, 1, &length) == NULL ? 0 : 2;
+	}
+	if (argc >= 2 && !strcmp(argv[1], "medals"))
+	{
+		/* Walter's spree of five, which Jo ends from the grave */
+		int walter, jo, guest, index;
+		struct event_log_game game_with_playlist;
+
+		play_sample();
+		(void)game_with_playlist;
+		walter = 0, jo = 1, guest = 2;
+		event_log_player_rejoined(guest, 1300);
+		for (index = 0; index < 5; index++)
+			kill(2000 + 200 * index, walter, index % 2 ? jo : guest, "weapons\\pistol\\bullet", EVENT_LOG_DAMAGE_BULLET, 0);
+		kill(3500, jo, walter, "weapons\\frag grenade\\explosion", EVENT_LOG_DAMAGE_GRENADE, EVENT_LOG_KILL_FROM_GRAVE);
+		json = finish(3600, 1, &length);
+		if (!json)
+			return 1;
+		fwrite(json, 1, length, stdout);
+		free(json);
+		return 0;
 	}
 	if (argc >= 2 && !strcmp(argv[1], "part"))
 	{

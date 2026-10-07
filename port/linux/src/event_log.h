@@ -105,6 +105,8 @@ enum
 	EVENT_LOG_KILL_VICTIM_POSITION = 1 << 4,
 	/* a stuck grenade */
 	EVENT_LOG_KILL_STICK = 1 << 5,
+	/* the killer was dead when it landed (a grenade, a rocket in flight) */
+	EVENT_LOG_KILL_FROM_GRAVE = 1 << 7,
 	/* the victim rode a vehicle */
 	EVENT_LOG_KILL_VICTIM_RIDING = 1 << 6,
 };
@@ -219,6 +221,8 @@ struct event_log_player_identity
 	char platform[16];
 	int team;
 	int bot;
+	/* the armor color (0 to 17, the game's), -1 unknown */
+	int color;
 };
 
 /* a player's totals at the end of the game (or as they left), as the game
@@ -256,6 +260,8 @@ struct event_log_game
 	char server_name[EVENT_LOG_NAME_SIZE];
 	char build[EVENT_LOG_NAME_SIZE];
 	char platform[24];
+	/* a dedicated server's playlist (its file's name: "slayer"), "" none */
+	char playlist[EVENT_LOG_NAME_SIZE];
 	/* the game's unix time at its start (unsigned: no 64-bit member) */
 	unsigned int start_time;
 };
@@ -271,8 +277,7 @@ struct event_log_end
 
 /* ---------- event_log.c: the game's log */
 
-/* the most events a game keeps (from the next game); the seconds between
-a player's position samples (from the next game) */
+/* the most events a game keeps (from the next game) */
 void event_log_set_capacity(int capacity);
 int event_log_capacity(void);
 
@@ -348,6 +353,11 @@ network.events_folder if set, and sent to the game list on a thread of its
 own, again later if it could not be (the latest part of a game replaces
 the one before it, waiting) */
 void event_upload_submit(char *json, size_t length, char const *game_id);
+/* a moderator's action from another thread (Delta Control's recorder),
+kept until the game's thread takes it (event_upload_moderation_drain:
+event_log_moderation for each); thread-safe */
+void event_upload_moderation(int kind, char const *who, char const *by, char const *reason);
+void event_upload_moderation_drain(void);
 /* random bytes (the game's ID) */
 void event_upload_random(unsigned char *bytes, int count);
 /* the server's process: CPU used since the last call (thousandths of a

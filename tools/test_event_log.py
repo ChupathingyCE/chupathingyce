@@ -105,6 +105,17 @@ def test_sample_batch(program):
     assert batch["limits"]["dropped"] == {}
 
 
+def test_killjoy_from_the_grave_playlist_and_color(program):
+    batch = json.loads(run(program, "medals"))
+    walter, jo, guest = batch["players"]
+    assert batch["game"]["playlist"] == "team_slayer"
+    assert walter["color"] == 3 and "color" not in guest
+    # (Walter's fifth kill in a row: a Killing Spree; Jo ends it, dead already)
+    assert walter["medals"].get("killing_spree") == 1
+    assert jo["medals"].get("killjoy") == 1 and jo["medals"].get("from_the_grave") == 1
+    assert batch["kills"][-1]["from_grave"] is True
+
+
 def test_a_part_then_the_end(program):
     first, last = run(program, "part").split(b"\f")
     first, last = json.loads(first), json.loads(last)
