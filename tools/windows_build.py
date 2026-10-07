@@ -9,8 +9,9 @@ configure.py runs on Windows. See port/windows/README.md for the design.
 
 ``ninja windows64`` compiles the same units for x64 Windows
 (x86_64-pc-windows-msvc) into ``build/windows64/halo.exe``, with the 64-bit
-builds' code paths (HALO_64BIT: source/cseries/xbox_address.h) and Halo PC's
-Custom Edition maps, as ``ninja linux64`` and ``ninja macos`` have them.
+builds' code paths (HALO_64BIT: source/cseries/xbox_address.h), as
+``ninja linux64`` and ``ninja macos`` have them. Both play Halo PC's Custom
+Edition maps (HALO_CUSTOM_EDITION).
 Windows keeps `long` 32 bits wide on x64 (LLP64), as the Xbox's compiler
 did, so the sources need none of the LP64 builds' `long` rewrite
 (tools/lp64_build.py).
@@ -29,7 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .version import release_build, version
+from .version import VERSION_SOURCES, identity_defines, release_build, version
 from .linux_build import (CUSTOM_EDITION_DEFINES, LINUX_PROFILE, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
                           XDK_INCLUDE, game_browser_defines, lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
                           game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
@@ -69,16 +70,23 @@ EXPAT_SOURCES = ("xmlparse.c", "xmlrole.c", "xmltok.c", "random_rand_s.c")
 KCP_DIR = Path("port/third_party/kcp")
 QRCODEGEN_DIR = Path("port/third_party/qrcodegen")
 MONOCYPHER_DIR = Path("port/third_party/monocypher")
+# the port's zlib (port/third_party/zlib/zlib_prefixed.h), which inflates
+# the maps, the menus' and the HUD's PNGs and the updates
+ZLIB_DIR = Path("port/third_party/zlib")
+ZLIB_SOURCES = ("adler32.c", "crc32.c", "inffast.c", "inflate.c", "inftrees.c", "uncompr.c", "zutil.c")
+# (its names prefixed, and the one Z_PREFIX leaves, its error messages, which
+# the game's zlib names the same)
+ZLIB_DEFINES = ("-DZ_PREFIX", "-Dz_errmsg=z_port_errmsg")
 
 
 def updater_defines(release: bool) -> str:
     """the version's defines (port/linux/src/updater.c, the self-updater, has
     them, and gives the version to the rest): the version (tools/version.py),
     whether this build is a release's (only those look for updates), and its
-    configuration"""
+    configuration; and the channel and commit (build_identity.c)"""
     flavor = "release" if release else "debug"
     return (f'-DHALO_VERSION=\\"{version()}\\" -DHALO_RELEASE_BUILD={int(release_build())} '
-            f'-DHALO_BUILD_FLAVOR=\\"{flavor}\\"')
+            f'-DHALO_BUILD_FLAVOR=\\"{flavor}\\" {identity_defines()}')
 
 WINDOWS_ABI_FLAGS = [
     "--target=i686-pc-windows-msvc",
@@ -185,7 +193,10 @@ WINDOWS32 = WindowsTarget(
     name="windows",
     triple="i686-pc-windows-msvc",
     sdl_arch="x86",
-    abi_flags=WINDOWS_ABI_FLAGS,
+    # Halo PC's Custom Edition maps (linux_build.py, CUSTOM_EDITION_DEFINES),
+    # as the 32-bit Linux build has them: their tag cache is mapped at the
+    # host address they are linked to (port/linux/src/xbox_memory.c)
+    abi_flags=[*WINDOWS_ABI_FLAGS, *CUSTOM_EDITION_DEFINES],
     game_flags=GAME_FLAGS,
     platform_flags=PLATFORM_FLAGS,
     win32_flags=WIN32_FLAGS,
@@ -430,8 +441,12 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
                        + ui_fonts_build(n, prefix, build / "generated" / "ui_fonts.c", sln))
 
     # (the game browser, the game list and dedicated servers, as every
-    # desktop build has them: HALO_GAME_BROWSER, configure.py)
-    abi = " ".join(target.abi_flags + [march_flag(sln)] + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else [])
+    # desktop build has them: HALO_GAME_BROWSER, configure.py; a debug build
+    # checks its stack frames (/GS), and stops at the first one overrun, as
+    # at the first failed assertion; a release build does not, so that an
+    # overrun nobody has met cannot end a game)
+    abi = " ".join(target.abi_flags + [march_flag(sln)] + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False)
+                                                           else ["-fstack-protector-strong"])
                    + game_browser_defines(sln))
     sdl_include = SDL_DIR / "include"
     libs = " ".join(
@@ -476,6 +491,9 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
             # halo_menus.h), but not the Linux build's C runtime wrappers
             # next to them, which no game unit includes in quotes
             f"-iquote {LINUX_DIR / 'include'}",
+            # the headers of the port's own game units (port/linux/game), for
+            # the game sources that call them
+            f"-iquote {Path(linux_config['game_sources'])}",
             game_defines_and_includes(linux_config),
             # the Xbox SDK declarations (port/include/xdk) come before the
             # Windows SDK, which has headers of the same names
@@ -505,6 +523,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
             f"-I{KCP_DIR}",
             f"-I{QRCODEGEN_DIR}",
             f"-I{MONOCYPHER_DIR}",
+            f"-I{ZLIB_DIR}",
             # halo_linux_winsock_names.h, but not the Linux build's C runtime
             # wrappers next to it
             f"-iquote {LINUX_DIR / 'include'}",
@@ -523,7 +542,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         for source in sorted(linux_platform.glob("*.c")):
             if source.name in replaced:
                 continue
-            if source.name == "updater.c":
+            if source.name in VERSION_SOURCES:
                 add_object(source, f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
             elif source.name == "posix_browser.c":
                 # (the game list's requests: on Winsock, with Mbed TLS, as
@@ -544,6 +563,9 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         for source in sorted((PORT_DIR / "src").glob("*.c")):
             if source.name == "win32_upnp.c":
                 add_object(source, f"{win32_cflags} {miniupnpc_include}")
+            elif source.name == "win32_crash.c":
+                # the build's number and configuration name its crash reports
+                add_object(source, f"{win32_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
             else:
                 add_object(source, win32_cflags if source.name.startswith("win32_") else platform_cflags)
         # internet play's UPnP (port/third_party/miniupnpc), on Winsock, as
@@ -568,6 +590,9 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         # (port/third_party/monocypher; p2p_crypto.c)
         for name in ("monocypher.c", "monocypher-ed25519.c"):
             add_object(MONOCYPHER_DIR / name, " ".join([abi, "-std=gnu11", "-w"]))
+        # the port's zlib
+        for name in ZLIB_SOURCES:
+            add_object(ZLIB_DIR / name, " ".join([abi, "-std=gnu11", *ZLIB_DEFINES, "-w"]))
         # the game's sin, pow and the rest, the same on every port
         # (port/include/halo_math.h)
         for source in musl_math_sources():

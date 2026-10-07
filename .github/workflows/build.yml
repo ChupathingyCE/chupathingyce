@@ -142,7 +142,9 @@ jobs:
         run: python tools/ci_build.py linux release
 
       - name: Test
-        run: python -m pytest -q tools/test_linux_port.py tools/test_touch_menu.py tools/test_server_control.py tools/test_delta.py
+        run: |
+          python -m pytest -q tools/test_linux_port.py tools/test_touch_menu.py tools/test_server_control.py tools/test_delta.py tools/test_delta_peer.py
+          python tools/test_light_storage.py
 
       - name: Compile cache
         run: ccache --show-stats
@@ -434,6 +436,9 @@ jobs:
 
       - name: Release
         run: python tools/ci_build.py windows release
+
+      - name: Test light storage
+        run: python tools/test_light_storage.py
 
       - name: Compile cache
         run: ccache --show-stats

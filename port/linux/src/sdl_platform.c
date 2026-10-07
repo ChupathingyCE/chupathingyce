@@ -16,6 +16,7 @@ and the debug keyboard that the game's console reads.
 #include "p2p.h"
 #include "xiso.h"
 #include "touch_input.h"
+#include "delta.h"
 
 #include <SDL3/SDL.h>
 #include <stdio.h>
@@ -91,6 +92,67 @@ void updater_poll(SDL_Window *window);
 /* (and the version, for the window's title) */
 const char *updater_version(void);
 
+#ifndef HALO_ANDROID
+/* the maps folder checked to hold the Xbox maps (platform_maps_folder_check).
+When it holds Halo PC's instead, or no ui.map, the player is told where each
+kind goes and the game quits, rather than failing to load Halo PC's ui.map
+as the Xbox's (game_load). Halo PC maps in maps/ itself, which only play
+from maps/ce or md_maps, are warned of */
+static void data_check_maps(void)
+{
+	struct platform_maps_folder maps;
+	char message[2048];
+	char where[1200];
+	BOOL quiet = config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0;
+
+#ifdef HALO_GAME_BROWSER
+	quiet = quiet || browser_headless();
+#endif
+	platform_maps_folder_check(&maps);
+	snprintf(where, sizeof(where),
+		"Put the Xbox maps from your Halo: Combat Evolved disc image in %s/maps. Halo PC "
+		"(Custom Edition) maps go in a ce folder inside it (maps/ce), and HaloMD maps in an "
+		"md_maps folder beside it.",
+		maps.root);
+	switch (maps.state)
+	{
+	case _maps_folder_xbox:
+		if (!maps.stray_pc_maps)
+			return;
+		snprintf(message, sizeof(message),
+			"These maps in the maps folder are Halo PC maps, which play only from maps/ce or md_maps: %s%s.\n\n%s",
+			maps.stray_names, maps.stray_pc_maps > PLATFORM_MAPS_FOLDER_NAMED ? " and more" : "", where);
+		platform_log("maps folder: %ld Halo PC maps in %s/maps (%s)", maps.stray_pc_maps, maps.root,
+			maps.stray_names);
+		if (!quiet)
+			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "ChupathingyCE", message, NULL);
+		return;
+	case _maps_folder_halo_pc:
+		snprintf(message, sizeof(message),
+			"The maps folder holds Halo PC maps, not the Xbox maps: its ui.map is from %s.\n\n%s\n\n"
+			"To copy the Xbox maps out of your disc image again, move this maps folder aside and "
+			"start ChupathingyCE.",
+			maps.ui_version == 609 ? "Halo PC (Custom Edition)" : "Halo PC", where);
+		break;
+	default:
+		snprintf(message, sizeof(message),
+			"Halo's Xbox maps were not found: %s/maps has no ui.map.%s\n\n%s\n\n"
+			"To copy the Xbox maps out of your disc image, move the maps folder aside and start "
+			"ChupathingyCE.",
+			maps.root, maps.stray_pc_maps || maps.pc_maps_beside ?
+				" Its Halo PC maps play only alongside the Xbox maps." : "",
+			where);
+		break;
+	}
+	platform_log("maps folder: %s/maps is not the Xbox maps (ui.map version %ld): quitting", maps.root,
+		maps.ui_version);
+	platform_log("%s", message);
+	if (!quiet)
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "ChupathingyCE", message, NULL);
+	exit(EXIT_FAILURE);
+}
+#endif
+
 BOOL platform_sdl_initialize(void)
 {
 	if (platform_sdl_started)
@@ -135,13 +197,18 @@ BOOL platform_sdl_initialize(void)
 		return FALSE;
 	}
 	platform_sdl_started = TRUE;
+	/* which build this is, first in its log (build_identity.c) */
+	build_identity_log();
 #ifndef HALO_ANDROID
 	/* found (or offered to the player, platform_offer_game_data) before the
-	game's window opens */
+	game's window opens, and checked to be the Xbox maps */
 	platform_data_root();
+	data_check_maps();
 	/* (a new version looked for meanwhile, updater_poll asking about it) */
 	updater_start();
 #endif
+	/* (the legacy table: a newer one fetched meanwhile) */
+	delta_legacy_start();
 	return TRUE;
 }
 
@@ -858,7 +925,16 @@ void platform_display_apply(void)
 	if (!platform_window)
 		return;
 #endif
+#ifdef __APPLE__
+	{
+		/* (the context's own interval, as at start-up: SDL's stays off) */
+		void macos_set_swap_interval(int interval);
+
+		macos_set_swap_interval(config_boolean("display.vsync") ? 1 : 0);
+	}
+#else
 	SDL_GL_SetSwapInterval(config_boolean("display.vsync") ? 1 : 0);
+#endif
 }
 
 void platform_video_drawable_size(int *width, int *height)

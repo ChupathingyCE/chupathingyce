@@ -8,14 +8,16 @@ replaced and the game started again.
 The download is a plain HTTP/1.1 GET over TLS 1.2 or 1.3, following
 redirects (GitHub sends release downloads to its file host). The server's
 certificate must chain to one of the system's certificate authorities (the
-bundle the distribution keeps for OpenSSL, curl and the rest, or the file
-SSL_CERT_FILE names) and name the host; nothing is sent before that is
-checked.
+bundle the distribution keeps for OpenSSL, curl and the rest) and name the
+host; nothing is sent before that is checked. The file SSL_CERT_FILE names
+is used only on a system with no bundle, with a warning on stderr: whatever
+sets the environment would otherwise choose whom updates are trusted from.
 
 Built with the host's ABI, as the other posix_*.c.
 */
 
 #include "update.h"
+#include "build_identity.h"
 
 #include "mbedtls/error.h"
 #include "mbedtls/net_sockets.h"
@@ -35,7 +37,6 @@ Built with the host's ABI, as the other posix_*.c.
 #include <sys/types.h>
 #include <unistd.h>
 
-#define UPDATE_USER_AGENT "halo-ce-universal-updater"
 #define MAXIMUM_REDIRECTS 8
 #define TIMEOUT_MILLISECONDS 20000
 #define MAXIMUM_HEADER_SIZE 16384
@@ -62,12 +63,6 @@ static void load_certificates(void)
 
 	crypto_ready = psa_crypto_init() == PSA_SUCCESS;
 	mbedtls_x509_crt_init(&certificates);
-	if (environment && *environment && mbedtls_x509_crt_parse_file(&certificates, environment) >= 0 &&
-		certificates.version)
-	{
-		certificates_loaded = 1;
-		return;
-	}
 	for (index = 0; index < sizeof(certificate_bundles) / sizeof(*certificate_bundles); index++)
 	{
 		/* (a bundle's certificates that do not parse are left out: the
@@ -76,8 +71,22 @@ static void load_certificates(void)
 			mbedtls_x509_crt_parse_file(&certificates, certificate_bundles[index]) >= 0 && certificates.version)
 		{
 			certificates_loaded = 1;
+			if (environment && *environment)
+			{
+				fprintf(stderr, PLATFORM_LOG_PREFIX "update: SSL_CERT_FILE is ignored; the update server is checked "
+					"against %s\n", certificate_bundles[index]);
+			}
 			return;
 		}
+	}
+	/* no bundle of the system's: the environment's, said loudly, since it
+	decides which servers updates are taken from */
+	if (environment && *environment && mbedtls_x509_crt_parse_file(&certificates, environment) >= 0 &&
+		certificates.version)
+	{
+		certificates_loaded = 1;
+		fprintf(stderr, PLATFORM_LOG_PREFIX "update: WARNING: no system certificate authorities were found; the update "
+			"server is checked against SSL_CERT_FILE (%s) instead\n", environment);
 	}
 }
 
@@ -395,9 +404,9 @@ static int https_get(const char *url, struct download *download, char *location,
 		return 0;
 	}
 	snprintf(request, sizeof(request),
-		"GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: " UPDATE_USER_AGENT "\r\n"
+		"GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: %s\r\n"
 		"Accept: */*\r\nConnection: close\r\n\r\n",
-		path, host);
+		path, host, build_identity_user_agent());
 	if (!connection_write(&connection, request, strlen(request)) ||
 		!connection_read_line(&connection, line, sizeof(line)) ||
 		sscanf(line, "HTTP/%*d.%*d %d", &status) != 1)

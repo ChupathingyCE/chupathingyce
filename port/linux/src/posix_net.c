@@ -22,6 +22,7 @@ with the host ABI.
 #include <sys/ioctl.h>
 #ifdef __APPLE__
 #include <crt_externs.h>
+#include <uuid/uuid.h>
 #include <stdlib.h>
 #else
 #include <sys/random.h>
@@ -1053,3 +1054,21 @@ void posix_discord_close(int handle)
 	if (handle >= 0)
 		close(handle);
 }
+
+#ifdef __APPLE__
+/* the Mac's hardware UUID (System Information's, IOPlatformUUID), as text, 0
+if it cannot be read (p2p.c's hardware id; Linux has /etc/machine-id, which
+macOS does not) */
+int posix_hardware_id_source(char *text, int size)
+{
+	uuid_t identifier;
+	struct timespec wait = { 1, 0 };
+	uuid_string_t string;
+
+	if (size <= 0 || gethostuuid(identifier, &wait) != 0)
+		return 0;
+	uuid_unparse_upper(identifier, string);
+	snprintf(text, (size_t)size, "%s", string);
+	return text[0] != 0;
+}
+#endif

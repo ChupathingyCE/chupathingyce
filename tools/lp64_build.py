@@ -41,6 +41,9 @@ from .linux_build import (
     STB_DIR,
     TOML_DIR,
     XDK_INCLUDE,
+    ZLIB_DEFINES,
+    ZLIB_DIR,
+    ZLIB_SOURCES,
     compile_launcher,
     game_sources,
     game_browser_defines,
@@ -49,6 +52,7 @@ from .linux_build import (
     updater_defines,
 )
 from .ninja_syntax import Writer
+from .version import VERSION_SOURCES
 
 LINUX_PORT_DIR = Path("port/linux")
 LINUX_PORT_CONFIG = LINUX_PORT_DIR / "port.json"
@@ -265,7 +269,11 @@ class Lp64Build:
         game_cflags = " ".join([
             abi, " ".join(host.game_flags),
             f"-include {_quote(prefix_header)}", f"-include {_quote(self.semantics_header)}",
-            defines, f"-I{_quote(port_include)}", includes, f"-idirafter {xdk}",
+            defines, f"-I{_quote(port_include)}",
+            # the headers of the port's own game units (port/linux/game), for
+            # the game sources that call them
+            f"-iquote {_quote(lp64(Path(linux_config['game_sources'])))}",
+            includes, f"-idirafter {xdk}",
         ])
         for source in game_sources(linux_config):
             if source.as_posix() not in excluded:
@@ -292,6 +300,8 @@ class Lp64Build:
             f"-I{QRCODEGEN_DIR}",
             # (public games' signatures', likewise)
             f"-I{MONOCYPHER_DIR}",
+            # (the port's zlib's, likewise: its API is its own types)
+            f"-I{ZLIB_DIR}",
             f"-I{_quote(lp64(Path('source')))} -I{_quote(lp64(Path('source/cseries')))}",
             host.host_include, f"-idirafter {xdk}",
         ])
@@ -309,7 +319,7 @@ class Lp64Build:
                 add(source, f"{posix_cflags} -I{STB_DIR}", native=True)
             elif source.name.startswith("posix_"):
                 add(source, posix_cflags, native=True)
-            elif source.name == "updater.c":
+            elif source.name in VERSION_SOURCES:
                 add(lp64(source), f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
             elif source.name == "text_hires.c":
                 # (it includes stb_truetype by a path from its own folder: the
@@ -352,6 +362,10 @@ class Lp64Build:
         # with the host's ABI: its API is bytes and size_t
         for name in ("monocypher.c", "monocypher-ed25519.c"):
             add(MONOCYPHER_DIR / name, " ".join(native_third_party), native=True)
+        # the port's zlib (port/third_party/zlib; hud_hires.c, updater.c,
+        # xgpu_post.c), with the host's ABI: its API is its own types (uLong)
+        for name in ZLIB_SOURCES:
+            add(ZLIB_DIR / name, " ".join([*native_third_party, *ZLIB_DEFINES]), native=True)
         third_party = " ".join([abi, "-std=gnu11", "-w"])
         add(lp64(TOML_DIR / "tomlc17.c"), third_party)
         add(lp64(KCP_DIR / "ikcp.c"), third_party)

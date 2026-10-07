@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .ninja_syntax import Writer
-from .version import release_build, version
+from .version import VERSION_SOURCES, identity_defines, release_build, version
 
 PORT_DIR = Path("port/linux")
 PORT_CONFIG = PORT_DIR / "port.json"
@@ -124,6 +124,14 @@ KCP_DIR = Path("port/third_party/kcp")
 QRCODEGEN_DIR = Path("port/third_party/qrcodegen")
 MONOCYPHER_DIR = Path("port/third_party/monocypher")
 MUSL_MATH_DIR = Path("port/third_party/musl-math")
+# the port's zlib (port/third_party/zlib/zlib_prefixed.h): what inflates the
+# maps, the menus' and the HUD's PNGs and the updates, data from anywhere,
+# instead of the game's own 1.1.3 (its inflate only, its names prefixed z_)
+ZLIB_DIR = Path("port/third_party/zlib")
+ZLIB_SOURCES = ("adler32.c", "crc32.c", "inffast.c", "inflate.c", "inftrees.c", "uncompr.c", "zutil.c")
+# (its names prefixed, and the one Z_PREFIX leaves, its error messages, which
+# the game's zlib names the same)
+ZLIB_DEFINES = ("-DZ_PREFIX", "-Dz_errmsg=z_port_errmsg")
 # the self-updater's TLS (port/linux/src/posix_update.c)
 MBEDTLS_DIR = Path("port/third_party/mbedtls")
 STB_DIR = Path("port/third_party/stb")
@@ -143,10 +151,10 @@ def updater_defines(release: bool) -> str:
     """the version's defines (port/linux/src/updater.c, the self-updater, has
     them, and gives the version to the rest): the version (tools/version.py),
     whether this build is a release's (only those look for updates), and its
-    configuration"""
+    configuration; and the channel and commit (build_identity.c)"""
     flavor = "release" if release else "debug"
     return (f'-DHALO_VERSION=\\"{version()}\\" -DHALO_RELEASE_BUILD={int(release_build())} '
-            f'-DHALO_BUILD_FLAVOR=\\"{flavor}\\"')
+            f'-DHALO_BUILD_FLAVOR=\\"{flavor}\\" {identity_defines()}')
 
 PLATFORM_FLAGS = [
     "-std=gnu11",
@@ -199,17 +207,19 @@ def musl_math_cflags(abi: str) -> str:
                      f"-include {MUSL_MATH_DIR}/include/libm.h"])
 
 
-# Halo PC's Custom Edition maps (maps/ce/<name>.map, played as <name>@ce):
-# the port code of source/cache, sound, interface and text and
-# port/linux/game/ce_*.c (HALO_CUSTOM_EDITION). The native desktop builds
-# (Linux here, macOS: macos_build.py) have them; the Windows and Android
-# builds do not yet.
+# Halo PC's Custom Edition maps (maps/ce/<name>.map, played as <name>@ce)
+# and HaloMD's (md_maps/<name>.map, played as <name>@md): the port code of
+# source/cache, sound, interface and text and port/linux/game/ce_*.c
+# (HALO_CUSTOM_EDITION). Every build has them: Linux here (32-bit and
+# 64-bit) and the dedicated server, macOS (lp64_build.py), Windows (32-bit
+# and 64-bit: windows_build.py) and Android (android_build.py). Only the
+# Xbox builds (Warthog) do not.
 CUSTOM_EDITION_DEFINES = ["-DHALO_CUSTOM_EDITION"]
 
 
 def game_browser_defines(sln: Any) -> List[str]:
     """configure.py --game-browser: the game list and server browser
-    (port/linux/src/browser.c), off in the builds the project ships"""
+    (port/linux/src/browser.c), on unless --no-game-browser"""
     return ["-DHALO_GAME_BROWSER"] if getattr(sln, "game_browser", False) else []
 
 
@@ -357,8 +367,11 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
     semantics_header = units.semantics_header
     platform_semantics_header = units.platform_semantics_header
     browser_defines = ["-DHALO_GAME_BROWSER"] if units.game_browser else []
+    # (a debug build checks its stack frames, and stops at the first one
+    # overrun, as it stops at the first failed assertion; a release build
+    # does not, so that an overrun nobody has met cannot end a game)
     abi = " ".join(_retarget(LINUX_ABI_FLAGS, units.target_flags) + [march_flag(sln)]
-                   + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else [])
+                   + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else ["-fstack-protector-strong"])
                    + browser_defines + CUSTOM_EDITION_DEFINES + units.extra_flags)
     port_include = PORT_DIR / "include"
     sdk_flags = f"-idirafter {XDK_INCLUDE}"
@@ -390,6 +403,9 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
         f"-include {prefix_header}",
         f"-include {semantics_header}",
         f"-I{port_include}",
+        # the headers of the port's own game units (port/linux/game), for
+        # the game sources that call them
+        f"-iquote {Path(config['game_sources'])}",
         game_defines_and_includes(config),
         sdk_flags,
     ])
@@ -417,6 +433,7 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
         f"-I{KCP_DIR}",
         f"-I{QRCODEGEN_DIR}",
         f"-I{MONOCYPHER_DIR}",
+        f"-I{ZLIB_DIR}",
         "-Isource -Isource/cseries",
         sdk_flags,
         *units.include_flags,
@@ -436,7 +453,7 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
             add_object(source, f"{posix_cflags} -I{STB_DIR}", posix=True)
         elif source.name.startswith("posix_"):
             add_object(source, posix_cflags, posix=True)
-        elif source.name == "updater.c":
+        elif source.name in VERSION_SOURCES:
             add_object(source, f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
         else:
             add_object(source, platform_cflags)
@@ -475,6 +492,9 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
     # (port/third_party/monocypher; p2p_crypto.c)
     for name in ("monocypher.c", "monocypher-ed25519.c"):
         add_object(MONOCYPHER_DIR / name, " ".join([abi, "-std=gnu11", "-w"]))
+    # the port's zlib
+    for name in ZLIB_SOURCES:
+        add_object(ZLIB_DIR / name, " ".join([abi, "-std=gnu11", *ZLIB_DEFINES, "-w"]))
     # the game's sin, pow and the rest, the same on every port
     # (port/include/halo_math.h)
     for source in musl_math_sources():

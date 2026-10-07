@@ -16,6 +16,7 @@ from tools.linux_build import generate_linux_build, linux_configure_inputs
 from tools.linux64_build import generate_linux64_build, linux64_configure_inputs
 from tools.macos_build import generate_macos_build, macos_configure_inputs
 from tools.server_build import generate_server_build, server_configure_inputs
+from tools.version import commit_inputs
 from tools.windows_build import generate_windows_build, windows_configure_inputs
 
 # arguments
@@ -41,7 +42,7 @@ parser.add_argument(
     "--game-browser",
     action=argparse.BooleanOptionalAction,
     default=True,
-    help="native ports (Linux, macOS): the game list and server browser of halo.milenko.org "
+    help="every build (Linux, Windows, macOS, Android; always the server's): the game list and server browser of halo.milenko.org "
     "(HALO_GAME_BROWSER; port/linux/src/browser.c); on unless --no-game-browser",
 )
 parser.add_argument(
@@ -147,6 +148,8 @@ n.build(
         *windows_configure_inputs(),
         *macos_configure_inputs(),
         *server_configure_inputs(),
+        # (the commit the builds record: tools/version.py)
+        *commit_inputs(),
     ],
 )
 n.newline()

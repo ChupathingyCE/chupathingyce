@@ -476,7 +476,7 @@ static void print_status(
 		command_output_printf(output, ", \"version\": ");
 		command_output_json_string(output, updater_version());
 		command_output_printf(output, ", \"network_version\": %d, \"state\": \"%s\", \"map\": ",
-			(int)HALO_PORT_NETWORK_VERSION, state_name(status.state, TRUE));
+			delta_legacy_announce(), state_name(status.state, TRUE));
 		command_output_json_string(output, map_display_name(status.map));
 		command_output_printf(output, ", \"game_type\": ");
 		command_output_json_string(output, status.variant);
@@ -499,7 +499,7 @@ static void print_status(
 	}
 	command_line_duration_text((long)status.uptime_seconds, uptime, sizeof(uptime));
 	command_output_printf(output, "name: %s\n", status.name);
-	command_output_printf(output, "version: %s (network version %d)\n", updater_version(), (int)HALO_PORT_NETWORK_VERSION);
+	command_output_printf(output, "version: %s (network version %d)\n", updater_version(), delta_legacy_announce());
 	command_output_printf(output, "state: %s\n", state_name(status.state, FALSE));
 	command_output_printf(output, "map: %s, game type: %s (%s)\n", map_display_name(status.map), status.variant,
 		status.chosen ? "chosen by a command" : "the playlist's");

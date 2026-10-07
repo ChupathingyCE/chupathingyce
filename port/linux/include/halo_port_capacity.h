@@ -24,12 +24,13 @@ state above the tag cache (which ends at 0x819A6000), inside the Xbox memory
 window (0x80000000 up, port/linux/src/platform.h) and below everything
 the window hands out top-down (texture and sound caches, Direct3D resources).
 
-The CPU part holds about 13.6 MB of pools at the sizes below (the Xbox pools
+The CPU part holds about 17.2 MB of pools at the sizes below (the Xbox pools
 fill 3,165,260 of its 0x305000 bytes); the GPU part holds only the decal
-vertices, as on the Xbox. */
+vertices, as on the Xbox. A change to a pool's size changes the game state's
+layout: saved games of builds before it no longer load. */
 
 #define HALO_PORT_GAME_STATE_BASE_ADDRESS 0x81A00000 /* (0x80061000) */
-#define HALO_PORT_GAME_STATE_CPU_SIZE 0xFC0000 /* (0x305000) */
+#define HALO_PORT_GAME_STATE_CPU_SIZE 0x13C0000 /* (0x305000) */
 #define HALO_PORT_GAME_STATE_GPU_SIZE 0x40000 /* (0x40000) */
 #define HALO_PORT_GAME_STATE_SIZE (HALO_PORT_GAME_STATE_CPU_SIZE+HALO_PORT_GAME_STATE_GPU_SIZE)
 
@@ -49,12 +50,20 @@ The desktop builds (Linux, macOS and Windows, 32-bit and 64-bit) are not
 held to the Xbox's memory: their window is 512 MB (port/linux/src/platform.h) and
 their cache 128 MB, about twice Foundation's busiest frame; with it the
 window still has about 300 MB free. Nothing of the cache's size reaches
-the network or the game state. Android's window stays the development
-kit's 128 MB (its guest image is linked above it) and it plays no Halo PC
-maps yet, so its cache stays the Xbox's, as the console's does
-(HALO_XBOX_CONSOLE, the Xbox builds). */
+the network or the game state.
 
-#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
+Android's window stays the development kit's 128 MB (its guest image is
+linked just above it), 82 MB of it above the game state. Besides the
+texture cache, Portent and Foundation take about 23 MB of that in a game
+(the sound cache and Direct3D's resources), so Android's cache is twice
+the Xbox's, 44 MB, and leaves about 15 MB free: Portent's busiest frames
+fit, Foundation's (66 MB) do not, and some of its surfaces can show the
+wrong pixels there. The Xbox builds (HALO_XBOX_CONSOLE) keep the Xbox's
+cache. */
+
+#if defined(HALO_ANDROID)
+#define HALO_PORT_TEXTURE_CACHE_SIZE 0x2C00000 /* (0x1600000) */
+#elif !defined(HALO_XBOX_CONSOLE)
 #define HALO_PORT_TEXTURE_CACHE_SIZE 0x8000000 /* (0x1600000) */
 #else
 #define HALO_PORT_TEXTURE_CACHE_SIZE 0x1600000 /* (0x1600000) */
@@ -80,6 +89,17 @@ state. Android and the Xbox builds keep the Xbox's. */
 #define HALO_PORT_MAXIMUM_RENDERED_ENVIRONMENT_SURFACES 16384 /* (16384) */
 #define HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES 32768 /* (32768) */
 #endif
+
+/* ---------- AI
+
+Network co-op adds enemies for its players (port/linux/game/coop_enemies.c):
+the actors, and their knowledge of the units about them (props: with many
+players, more each), have room for several times a level's own. */
+
+#define HALO_PORT_MAXIMUM_ACTORS 1024 /* (256) */
+#define HALO_PORT_MAXIMUM_PROPS 8192 /* (768) */
+#define HALO_PORT_MAXIMUM_SWARMS 128 /* (32) */
+#define HALO_PORT_MAXIMUM_SWARM_COMPONENTS 1024 /* (256) */
 
 /* ---------- objects */
 

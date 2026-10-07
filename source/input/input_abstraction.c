@@ -281,6 +281,16 @@ boolean input_abstraction_port_reload(
 		keyboard_controls[controller_index].reload_ticks != 0;
 }
 
+/* port: whether the controller's player holds the keyboard's crouch key: a
+keyboard always moves at full speed, so it crouches while moving, as Halo
+PC's keyboard does (player_control.c) */
+boolean input_abstraction_port_crouch(
+	short controller_index)
+{
+	return controller_index >= 0 && controller_index < MAXIMUM_GAMEPADS &&
+		keyboard_controls[controller_index].ticks[_game_control_crouch] != 0;
+}
+
 boolean input_abstraction_port_action_only(
 	short controller_index)
 {

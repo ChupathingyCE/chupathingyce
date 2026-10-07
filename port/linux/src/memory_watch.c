@@ -160,7 +160,7 @@ static void segv_handler(int signal_number, siginfo_t *information, void *contex
 	frame = ucontext->uc_mcontext.gregs[REG_RBP];
 	stack = ucontext->uc_mcontext.gregs[REG_RSP];
 #endif
-	length = snprintf(line, sizeof(line), "halo: fault at %p, pc %llx fp %llx sp %llx\n",
+	length = snprintf(line, sizeof(line), PLATFORM_LOG_PREFIX "fault at %p, pc %llx fp %llx sp %llx\n",
 		information->si_addr, pc, frame, stack);
 	write(STDERR_FILENO, line, (size_t)length);
 	crash_debug_line(line);
@@ -172,7 +172,7 @@ static void segv_handler(int signal_number, siginfo_t *information, void *contex
 
 		for (index = 0; index < count; index++)
 		{
-			snprintf(line, sizeof(line), "halo: called from %p\n", frames[index]);
+			snprintf(line, sizeof(line), PLATFORM_LOG_PREFIX "called from %p\n", frames[index]);
 			crash_debug_line(line);
 		}
 	}
@@ -230,7 +230,8 @@ static void fault_handler(int signal_number, siginfo_t *information, void *conte
 		void *frames[48];
 		int count, length;
 
-		length = snprintf(line, sizeof(line), "halo-linux: segmentation fault at %p, eip %08x ebp %08x esp %08x\n",
+		length = snprintf(line, sizeof(line),
+			PLATFORM_LOG_PREFIX "segmentation fault at %p, eip %08x ebp %08x esp %08x\n",
 			information->si_addr, (unsigned)ucontext->uc_mcontext.gregs[REG_EIP],
 			(unsigned)ucontext->uc_mcontext.gregs[REG_EBP], (unsigned)ucontext->uc_mcontext.gregs[REG_ESP]);
 		write(STDERR_FILENO, line, (size_t)length);
@@ -239,7 +240,7 @@ static void fault_handler(int signal_number, siginfo_t *information, void *conte
 			/* the return address a call through a bad pointer left behind */
 			const unsigned *stack = (const unsigned *)ucontext->uc_mcontext.gregs[REG_ESP];
 
-			length = snprintf(line, sizeof(line), "halo-linux: stack %08x %08x %08x %08x %08x %08x\n",
+			length = snprintf(line, sizeof(line), PLATFORM_LOG_PREFIX "stack %08x %08x %08x %08x %08x %08x\n",
 				stack[0], stack[1], stack[2], stack[3], stack[4], stack[5]);
 			write(STDERR_FILENO, line, (size_t)length);
 			crash_debug_line(line);
@@ -251,7 +252,7 @@ static void fault_handler(int signal_number, siginfo_t *information, void *conte
 
 			for (frame = 0; frame < count; frame++)
 			{
-				snprintf(line, sizeof(line), "halo-linux: called from %p\n", frames[frame]);
+				snprintf(line, sizeof(line), PLATFORM_LOG_PREFIX "called from %p\n", frames[frame]);
 				crash_debug_line(line);
 			}
 		}

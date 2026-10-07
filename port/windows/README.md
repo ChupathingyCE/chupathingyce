@@ -64,10 +64,10 @@ It is the 64-bit build of the other systems (`HALO_64BIT`: see
 - It is not optimized with a profile. The committed profiles are those of
   the 32-bit builds.
 
-It plays the Custom Edition maps of Halo PC (`maps/ce/`) and HaloMD's maps
-(`md_maps/`), it plays with the
-32-bit builds and the other ports over the network, and it is a dedicated
-server too (`server/README.md`). Its releases are a separate download,
+Like the 32-bit build, it plays the Custom Edition maps of Halo PC
+(`maps/ce/`) and HaloMD's maps (`md_maps/`). It plays with the 32-bit builds
+and the other ports over the network, and it is a dedicated server too
+(`server/README.md`). Its releases are a separate download,
 `chupathingyce-windows64-release.zip`, which its self-updater asks for.
 
 ## Start the game
@@ -83,6 +83,7 @@ The game finds the game data as on Linux. Refer to "Start the game" in
 | Saved games | `%APPDATA%\halo`, or `paths.saves` in `config.toml` |
 | Log | `debug.txt` in the data root (the folder that contains `maps\`) |
 | Log of the port | The console. The release build has no console: `halo.log` next to `halo.exe` |
+| Crash reports | `crashes\` next to `halo.exe`, until the game sends them |
 
 ## How the port operates
 
@@ -94,6 +95,16 @@ Thus the Windows build needs fewer changes than the Linux build.
 
 The executable is large-address-aware, because the platform layer reserves
 the Xbox memory at `0x80000000`.
+
+The game plays the Custom Edition maps of Halo PC (`maps/ce/`) and HaloMD's
+maps (`md_maps/`), as the Linux build does (`HALO_CUSTOM_EDITION`). Their
+tags are linked to `0x40440000`, outside the Xbox memory. When the game
+starts, the platform layer takes those 23 MB at that address
+(`port/linux/src/xbox_memory.c`, with `VirtualAlloc`). The executable is
+at `0x00400000` and the system libraries are near the top of the lower
+2 GB, so the address is normally free. If it is not (`cannot reserve Custom
+Edition maps' tag cache` in the log), the game does not open those maps,
+and the Xbox maps play as usual.
 
 ### Headers
 
@@ -118,7 +129,8 @@ These files use only the Windows SDK:
 | --- | --- |
 | `src/win32_files.c`, `src/win32_net.c` | The file and socket functions of `port/linux/src/posix.h`. |
 | `src/win32_posix.c` | The POSIX functions on Windows threads, critical sections, condition variables, `VirtualAlloc` and the performance counter. |
-| `src/win32_memory_watch.c` | The write tracking of textures, with a vectored exception handler. It also writes reports of crashes. |
+| `src/win32_memory_watch.c` | The write tracking of textures, with a vectored exception handler. |
+| `src/win32_crash.c` | The crash reports. Refer to "Crash reports". |
 
 `port.json` gives the Linux files that these files replace, and the Windows
 libraries of the link.
@@ -139,6 +151,57 @@ prevents this:
 MSVC gives file scope to a structure tag in a prototype. clang does not.
 Thus the build also includes the declarations of the Linux build
 (`build/windows/halo_msvc_tags.h`).
+
+## Crash reports
+
+A crash writes the faulting address and the calls that led to it to
+`debug.txt` and to the log. The builds of the workflow (the releases)
+also send a crash report to the Sentry project of the developers:
+
+1. The game starts a second copy of `halo.exe` (`halo.exe --crash-report`).
+   This copy writes a minidump of the game to `crashes\` next to
+   `halo.exe`, and the game stops. A minidump contains the stacks and the
+   registers of the threads, and the list of the modules. It does not
+   contain the other memory of the game.
+2. At the first crash, the copy asks the player whether to send crash
+   reports. `crash_reports.upload` in `config.toml` keeps the answer:
+   `"yes"` sends this report and all the reports after it, and `"no"` sends
+   no reports and does not ask again. The answer `"no"` deletes the
+   minidump.
+3. The copy sends the minidump and a copy of `halo.log` to Sentry, then
+   deletes them. If it cannot send them (for example, with no network
+   connection), the game sends them when it starts the next time
+   (`halo.exe --crash-upload`, in the background). `crashes\` keeps at
+   most 8 reports.
+
+Sentry finds the function names and the source lines of the minidump in
+the PDBs (`halo.pdb`, `SDL3.pdb`). The `release` job of the workflow
+uploads the PDBs and the executables of each build of main to Sentry. This
+needs the `SENTRY_AUTH_TOKEN` secret of the repository: an organization
+auth token from the settings of the Sentry organization (the token gives
+the organization and its region). The `SENTRY_PROJECT` variable of the
+repository can give the slug of the project; without it, the job uses the
+id of the project in the DSN. For a personal token instead, also set the
+`SENTRY_ORG` variable (the slug of the organization) and the `SENTRY_URL`
+variable (`https://de.sentry.io`).
+
+Each release also has the PDBs as `halo-windows-<configuration>-symbols.zip`.
+`tools/symbolize_crash.py` uses them to add the function names and the
+source lines to the crash lines of a `debug.txt` or a `halo.log`:
+
+```
+python tools/symbolize_crash.py debug.txt halo.exe
+```
+
+Give the `halo.exe` of the build that crashed, with its `halo.pdb` next to
+it. The tool needs `llvm-symbolizer` (LLVM).
+
+Builds without a build number (a local build, or a build of a branch other
+than main) send no crash reports. To test the crash reports with such a
+build, set the `HALO_CRASH_REPORTS_ANY_BUILD` environment variable.
+
+The crash reports also include the crashes of `abort()` and of an invalid
+argument to a function of the C runtime.
 
 ## Limits
 

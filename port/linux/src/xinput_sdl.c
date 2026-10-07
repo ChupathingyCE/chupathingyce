@@ -470,6 +470,47 @@ void halo_input_name(int input, char *name, size_t size)
 		snprintf(name, size, "%s", "");
 }
 
+/* a binding's name as the keyboard's layout labels the key: config.toml
+names a key by where it sits (its scancode, named as on a US keyboard), so
+WASD stays under the fingers on any layout, as Halo PC's DirectInput keys
+did, but the menus show what is printed on it: the zoom key "Z" (the key
+right of the left Shift) shows as Y on a German keyboard. A key with no
+character of its own (Space, Left Shift, the keypad's) keeps its name, as
+does one whose character the menus' font has not (beyond Latin-1). */
+void halo_input_shown_name(const char *binding, char *shown, size_t size)
+{
+	int input = halo_input_from_name(binding);
+	SDL_Keycode key;
+
+	snprintf(shown, size, "%s", binding);
+#ifdef HALO_ANDROID
+	/* (the Android guest's SDL has no keyboard layouts to ask: the US
+	names, which match a hardware keyboard's usual labels there) */
+	(void)input;
+	(void)key;
+	return;
+#else
+	if (input < 0 || input >= SDL_SCANCODE_COUNT)
+		return;
+	/* (as in key events: the French number row shows its numbers, and a
+	non-Latin layout's letters the US ones) */
+	key = SDL_GetKeyFromScancode((SDL_Scancode)input, SDL_KMOD_NONE, true);
+	if (key == ',')
+		snprintf(shown, size, "%s", "Comma");
+	else if (key > ' ' && key < 0x7f)
+		snprintf(shown, size, "%c", key >= 'a' && key <= 'z' ? (char)(key - 'a' + 'A') : (char)key);
+	else if (key >= 0xa1 && key <= 0xff && size >= 2)
+	{
+		/* (Latin-1, a byte the menus take as its character; the small
+		letters made capitals but for sharp s and y with diaeresis) */
+		if (key >= 0xe0 && key <= 0xfe && key != 0xf7)
+			key -= 0x20;
+		shown[0] = (char)key;
+		shown[1] = 0;
+	}
+#endif
+}
+
 static void bindings_read(void)
 {
 	int action;
@@ -579,8 +620,8 @@ void test_input_hold_action(int hold)
 /* debug.test_input "menu:<buttons>": the buttons pressed one a second, from
 the first poll, for testing the menus: a, b, x, y, lb, rb (white and black),
 up, down, left, right, start, back, key:<a key's name> (a key of the
-keyboard, as SDL names it: key:C), or wait (none), separated by spaces or
-commas */
+keyboard, as SDL names it: key:C; key:W+C holds both), or wait (none),
+separated by spaces or commas */
 static char test_input_menu[512];
 static Uint64 test_input_menu_since;
 
@@ -608,21 +649,29 @@ static const char *test_input_menu_token(size_t *length)
 }
 
 /* (a key goes in with the keyboard's, as if typed, before the keys drive
-the controller) */
+the controller; key:W+C holds both) */
 static void test_input_menu_keys(struct platform_input_state *input)
 {
 	size_t length;
 	const char *token = test_input_menu_token(&length);
-	char name[32];
-	SDL_Scancode scancode;
+	char names[64];
+	char *name, *next;
 
-	if (!token || length <= 4 || length - 4 >= sizeof(name) || strncmp(token, "key:", 4))
+	if (!token || length <= 4 || length - 4 >= sizeof(names) || strncmp(token, "key:", 4))
 		return;
-	memcpy(name, token + 4, length - 4);
-	name[length - 4] = 0;
-	scancode = SDL_GetScancodeFromName(name);
-	if (scancode != SDL_SCANCODE_UNKNOWN)
-		input->keys[scancode] = 1;
+	memcpy(names, token + 4, length - 4);
+	names[length - 4] = 0;
+	for (name = names; name; name = next)
+	{
+		SDL_Scancode scancode;
+
+		next = strchr(name, '+');
+		if (next)
+			*next++ = 0;
+		scancode = SDL_GetScancodeFromName(name);
+		if (scancode != SDL_SCANCODE_UNKNOWN)
+			input->keys[scancode] = 1;
+	}
 }
 
 static void test_input_menu_gamepad(XINPUT_GAMEPAD *pad)

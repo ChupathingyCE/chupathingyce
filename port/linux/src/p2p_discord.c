@@ -176,14 +176,10 @@ static void send_activity(void)
 	else
 	{
 		size = snprintf(json, sizeof(json),
-#ifdef HALO_64BIT
 			"{\"cmd\":\"SET_ACTIVITY\",\"nonce\":\"%lu\",\"args\":{\"pid\":%lu,\"activity\":{"
 			"\"details\":\"In Menus\","
 			"\"assets\":{\"large_image\":\"logo\",\"large_text\":\"Halo: Combat Evolved\"},"
 			"\"instance\":false}}}",
-#else
-			"{\"cmd\":\"SET_ACTIVITY\",\"nonce\":\"%lu\",\"args\":{\"pid\":%lu}}",
-#endif
 			++discord.nonce, (unsigned long)posix_process_id());
 	}
 	discord_send(_opcode_frame, json, size);
