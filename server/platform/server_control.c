@@ -1667,7 +1667,10 @@ static void *control_thread(void *argument)
 				if (now >= connection->deadline)
 				{
 					pthread_mutex_lock(&queue_mutex);
-					if (tickets[connection->ticket].state == TICKET_QUEUED)
+					/* (answered since it was looked at above: no one else
+					will release it) */
+					if (tickets[connection->ticket].state == TICKET_QUEUED ||
+						tickets[connection->ticket].state == TICKET_DONE)
 						release_ticket(connection->ticket);
 					else
 						tickets[connection->ticket].state = TICKET_ABANDONED;
