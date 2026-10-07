@@ -14,6 +14,9 @@ TAG_GROUPS.C
 void *ce_tags_pointer(unsigned long address, long size);
 boolean cache_file_tags_are_ce(void);
 boolean tag_index_is_group(long tag_index, long group_tag);
+/* (whether the map being loaded, or loaded, is a Custom Edition map:
+cache_files.c) */
+extern boolean cache_file_is_ce;
 #endif
 
 /* ---------- constants */
@@ -131,18 +134,17 @@ void* tag_data_get_pointer(
 	}
 
 #ifdef HALO_CUSTOM_EDITION
-	/* port: (a Custom Edition map's, only in its tag cache: ce_map_checks.c) */
-	return ce_tags_pointer((unsigned long)data->address + offset, size);
-#elif defined(HALO_64BIT)
+	/* port: (a Custom Edition map's, only in its tag cache: ce_map_checks.c;
+	the other maps' as below, without the call) */
+	if (cache_file_is_ce)
+		return ce_tags_pointer((unsigned long)data->address + offset, size);
+#endif
+#if defined(HALO_64BIT)
 	return (void *)((byte *)TAG_DATA_ADDRESS(data) + offset);
 #else
 	return (void *)((byte *)data->address + offset);
 #endif
 }
-
-#if defined(HALO_CUSTOM_EDITION) && !defined(HALO_64BIT)
-extern boolean cache_file_is_ce;
-#endif
 
 void *tag_block_get_element_with_size(
 	const struct tag_block *block,
@@ -180,9 +182,12 @@ void *tag_block_get_element_with_size(
 	}
 
 #ifdef HALO_CUSTOM_EDITION
-	/* port: (a Custom Edition map's, only in its tag cache: ce_map_checks.c) */
-	return ce_tags_pointer((unsigned long)block->address + index * element_size, element_size);
-#elif defined(HALO_64BIT)
+	/* port: (a Custom Edition map's, only in its tag cache: ce_map_checks.c;
+	the other maps' as below, without the call) */
+	if (cache_file_is_ce)
+		return ce_tags_pointer((unsigned long)block->address + index * element_size, element_size);
+#endif
+#if defined(HALO_64BIT)
 	return (void *)((byte *)TAG_BLOCK_ADDRESS(block) + (index * element_size));
 #else
 	return (void *)((byte *)block->address + (index * element_size));
