@@ -51,6 +51,10 @@ void backtrace_symbols_fd(void *const *frames, int count, int descriptor);
 #define WATCH_PAGE_COUNT (PLATFORM_CONTIGUOUS_SIZE / WATCH_PAGE_SIZE)
 #endif
 
+/* (each page: 0 not watched, 1 watched and read-only, 2 made writable by a
+watched write. A fault on a page at 2 is a write another thread made as
+this one was making the page writable, and is made again; one on a page at
+0, freed memory or none of the watch's, is a crash) */
 #ifdef HALO_64BIT
 static unsigned char page_protected[WATCH_PAGE_COUNT_MAXIMUM];
 static unsigned int page_generation[WATCH_PAGE_COUNT_MAXIMUM];
@@ -100,7 +104,7 @@ static void mark_written(unsigned long page)
 #endif
 {
 	page_generation[page] = __sync_add_and_fetch(&current_generation, 1);
-	page_protected[page] = 0;
+	page_protected[page] = 2;
 #ifdef HALO_64BIT
 	mprotect(page_pointer(page), watch_page_size, PROT_READ | PROT_WRITE);
 #else
@@ -209,11 +213,13 @@ static void fault_handler(int signal_number, siginfo_t *information, void *conte
 		unsigned long page = page_index(address);
 #endif
 
-		if (page_protected[page])
+		if (page_protected[page] == 1)
 		{
 			mark_written(page);
 			return;
 		}
+		if (page_protected[page] == 2)
+			return;
 	}
 #ifdef HALO_64BIT
 	/* a genuine crash: report it, then hand it to whatever handled the
@@ -343,7 +349,7 @@ void memory_watch_protect(unsigned int address, unsigned int size)
 #endif
 	for (page = first; page <= last; page++)
 	{
-		if (!page_protected[page])
+		if (page_protected[page] != 1)
 		{
 			page_protected[page] = 1;
 #ifdef HALO_64BIT
@@ -436,7 +442,7 @@ void memory_watch_prepare_write(void *address, unsigned long size)
 #endif
 	for (page = first; page <= last; page++)
 	{
-		if (page_protected[page])
+		if (page_protected[page] == 1)
 			mark_written(page);
 	}
 }

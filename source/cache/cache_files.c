@@ -1192,8 +1192,12 @@ long scenario_tags_load(
 						&read_complete, TRUE);
 					while (!read_complete)
 						SwitchToThread();
-					ce_models_tags_loaded(global_tag_instances, ce_header->tag_count, model_data,
-						ce_header->vertex_data_size);
+					if (!ce_models_tags_loaded(global_tag_instances, ce_header->tag_count, model_data,
+						ce_header->vertex_data_size))
+					{
+						error(_error_silent, "Custom Edition map %s: its models could not all be made",
+							scenario_name);
+					}
 					/* (its function fields naming functions there are none
 					of made valid ones first: port/linux/game/ce_functions.c) */
 					{
@@ -1207,6 +1211,11 @@ long scenario_tags_load(
 						ce_shaders_tags_loaded(global_tag_instances, ce_header->tag_count);
 					}
 					system_free(model_data);
+				}
+				else
+				{
+					error(_error_silent, "Custom Edition map %s: no memory for its model data (%ld bytes): its models "
+						"could not be made", scenario_name, ce_header->model_data_size);
 				}
 			}
 

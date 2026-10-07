@@ -552,7 +552,7 @@ check it too):
 
 - **`delta_legacy`**: the document's format, 1. A build drops a table of a
   format it doesn't read.
-- **`serial`**: 1 to 4294967295; each table published gets a higher one.
+- **`serial`**: 1 to 4294967294 (0xFFFFFFFF says "takes no tables" on the wire); each table published gets a higher one.
   **`issued`**: when it was made (Unix seconds), for people; optional.
 - **Rows by wire, not by build.** Each build has a wire ID (`DELTA_WIRE` in
   `delta.h`, `chupa-20a` today): the revision of the game protocol it

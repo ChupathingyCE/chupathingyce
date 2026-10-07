@@ -1008,6 +1008,24 @@ static void test_relay_refused(void)
 	run_frames(&now, start + 20000, 100, 2, joined);
 	CHECK(nodes[0].table_serial == 12 && nodes[0].taken == 1);
 
+	/* a client that leaves Delta and says HELLO again at once: its new
+	session's table still waits out the machine's minute */
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, PLATFORM_BIT, _delta_platform_pc_linux, 0, 13);
+	nodes[0].reject = 1;
+	game_reset();
+	game_add(1);
+	start = now;
+	run_frames(&now, start + 10000, 100, 2, joined);
+	CHECK(nodes[0].checks == 1);
+	delta_peer_stop(&nodes[1].peer);
+	deliver(now);
+	run_frames(&now, start + 30000, 100, 2, joined);
+	CHECK(nodes[0].checks == 1 && nodes[1].peer.client_state == _delta_peer_client_delta);
+	run_frames(&now, start + 3 * 60000, 100, 2, joined);
+	/* (then one a minute: the new session's three passes) */
+	CHECK(nodes[0].checks == 3);
+
 	/* pieces of two tables at once from two machines: one at a time */
 	{
 		unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];

@@ -317,27 +317,45 @@ static void player_key_path(char *path, int size)
 
 static int player_key(unsigned char *key)
 {
+	/* (one thread loads it, or makes it the first time, while another that
+	wants it waits: the browser's thread and the game's both ask, and the
+	second, finding the file just made and not yet written, had the key
+	missing for the whole run; held across the file's reading, not
+	browser_lock) */
+	static pthread_mutex_t load_lock = PTHREAD_MUTEX_INITIALIZER;
 	int loaded;
-	unsigned char *cached = player_key_cached;
 	char path[1024];
 
+	pthread_mutex_lock(&load_lock);
 	pthread_mutex_lock(&browser_lock);
 	loaded = player_key_loaded;
 	pthread_mutex_unlock(&browser_lock);
 	if (!loaded)
 	{
+		unsigned char read_key[PLAYER_KEY_SIZE];
+
 		player_key_path(path, sizeof(path));
-		loaded = posix_browser_private_key(path, cached, PLAYER_KEY_SIZE) ? 1 : -1;
+		loaded = posix_browser_private_key(path, read_key, PLAYER_KEY_SIZE) ? 1 : -1;
 		if (loaded < 0)
 			platform_log("Game list: no player key (%s): finished games are not confirmed", path);
 		pthread_mutex_lock(&browser_lock);
-		player_key_loaded = loaded;
+		/* (unless a restored key took its place meanwhile) */
+		if (player_key_loaded)
+			loaded = player_key_loaded;
+		else
+		{
+			if (loaded > 0)
+				memcpy(player_key_cached, read_key, PLAYER_KEY_SIZE);
+			player_key_loaded = loaded;
+		}
 		pthread_mutex_unlock(&browser_lock);
+		memset(read_key, 0, sizeof(read_key));
 	}
+	pthread_mutex_unlock(&load_lock);
 	if (loaded < 0)
 		return 0;
 	pthread_mutex_lock(&browser_lock);
-	memcpy(key, cached, PLAYER_KEY_SIZE);
+	memcpy(key, player_key_cached, PLAYER_KEY_SIZE);
 	pthread_mutex_unlock(&browser_lock);
 	return 1;
 }
@@ -432,8 +450,10 @@ static void send_claims(void)
 		status = posix_browser_request(url, body, "application/json", response, sizeof(response), error,
 			sizeof(error));
 		response[strcspn(response, "\r\n")] = 0;
-		if (status == 200)
+		if (status == 200 && !strncmp(response, "ok ", 3))
 			platform_log("Game list: %s's line confirmed (player %s)", name, response + 3);
+		else if (status == 200)
+			platform_log("Game list: %s's line confirmed", name);
 		else if (status == 404 || !status)
 			retry = 1;
 		else
@@ -847,9 +867,11 @@ static void send_report(void)
 			status = posix_browser_request(url, body, "application/json", response, sizeof(response), error,
 				sizeof(error));
 			response[strcspn(response, "\r\n")] = 0;
-			if (status == 200)
+			if (status == 200 && !strncmp(response, "ok ", 3))
 				platform_log("Game list: the game's carnage report is at %s/games/%s",
 					config_string("network.browser_url"), response + 3);
+			else if (status == 200)
+				platform_log("Game list: the game's carnage report was sent");
 			else
 				platform_log("Game list: could not send the carnage report (%s)", status ? response : error);
 			free(body);
@@ -1035,17 +1057,34 @@ static void update_list(void)
 	if (!wanted || !config_string("network.browser_url")[0])
 		return;
 
-	server_url("/v1/games.txt", url, sizeof(url));
-	status = posix_browser_request(url, NULL, NULL, response, sizeof(response), error, sizeof(error));
+	/* (no room: tried again after the failure's wait, not at once with
+	another request) */
 	games = malloc(sizeof(*games) * BROWSER_MAXIMUM_GAMES);
 	if (!games)
+	{
+		pthread_mutex_lock(&browser_lock);
+		browser.list_time = p2p_now();
+		browser.list_failed = 1;
+		pthread_mutex_unlock(&browser_lock);
 		return;
+	}
+	server_url("/v1/games.txt", url, sizeof(url));
+	status = posix_browser_request(url, NULL, NULL, response, sizeof(response), error, sizeof(error));
 	if (!p2p_hosting_invite(own, sizeof(own)))
 		own[0] = 0;
 	if (status == 200)
 	{
-		for (line = strtok(response, "\n"); line && count < BROWSER_MAXIMUM_GAMES; line = strtok(NULL, "\n"))
+		/* (split by hand: strtok's place is the whole process's, and the
+		game's thread uses it too) */
+		char *next;
+
+		for (line = response; line && count < BROWSER_MAXIMUM_GAMES; line = next)
 		{
+			next = strchr(line, '\n');
+			if (next)
+				*next++ = 0;
+			if (!line[0])
+				continue;
 			if (parse_game(line, &games[count]) && games[count].version >= delta_legacy_minimum() &&
 				games[count].version <= delta_legacy_maximum() &&
 				strcmp(games[count].invite, own))

@@ -338,6 +338,9 @@ struct vertex_shader_object
 	/* a shader lit for each pixel failed to compile or link: lit as the
 	vertex shader lights it from then on */
 	BOOL lighting_failed;
+	/* shader[] and lit_shader[] tried already (bits 0 and 1, and 2 and 3 lit):
+	one that failed (0) is not compiled again at each draw */
+	unsigned char shaders_tried;
 };
 
 /* ---------- programs */
@@ -2453,9 +2456,11 @@ static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immed
 {
 	int variant = immediate ? 1 : 0;
 	GLuint *shader = lit ? &program->lit_shader[variant] : &program->shader[variant];
+	unsigned char tried = (unsigned char)(1 << (variant + (lit ? 2 : 0)));
 
-	if (!*shader)
+	if (!*shader && !(program->shaders_tried & tried))
 	{
+		program->shaders_tried |= tried;
 		char *source = nv2a_vertex_shader_to_glsl(program->instructions, program->instruction_count,
 			immediate ? 0 : device.vertex_shader->packed_mask, lit ? &program->lighting : NULL);
 

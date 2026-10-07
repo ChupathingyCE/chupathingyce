@@ -204,9 +204,10 @@
       if (error instanceof Unauthorized) return;
     }
     if (csrf && current === tab && (current === 'status' || current === 'players' || current === 'log')) {
+      // (not while the page is hidden: showing it again refreshes)
       timer = setTimeout(() => {
+        timer = 0;
         if (!document.hidden) refresh(true);
-        else timer = setTimeout(() => refresh(true), POLL_STATUS_MS);
       }, current === 'log' ? POLL_LOG_MS : POLL_STATUS_MS);
     }
   }
@@ -433,11 +434,11 @@
       pre.replaceChildren();
     }
     if (data.missed && logNext) pre.append(element('span', '... (lines missed)\n'));
-    const text = data.lines.map((line) => {
+    // (a node a line, so that LOG_KEEP counts lines)
+    pre.append(...data.lines.map((line) => {
       const when = new Date(line.time * 1000);
-      return when.toLocaleTimeString([], { hour12: false }) + '  ' + line.text + '\n';
-    }).join('');
-    if (text) pre.append(document.createTextNode(text));
+      return document.createTextNode(when.toLocaleTimeString([], { hour12: false }) + '  ' + line.text + '\n');
+    }));
     while (pre.childNodes.length > LOG_KEEP) pre.removeChild(pre.firstChild);
     logNext = data.next;
     if ($('log-follow').checked) pre.scrollTop = pre.scrollHeight;

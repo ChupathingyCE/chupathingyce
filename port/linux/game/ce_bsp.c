@@ -278,9 +278,20 @@ void ce_bsp_loaded(
 				error(_error_silent, "Custom Edition maps: no memory for a BSP material's vertices");
 				return;
 			}
-			ce_bsp_vertex_memory = realloc(ce_bsp_vertex_memory, (ce_bsp_vertex_memory_count + 1) * sizeof(void *));
-			if (ce_bsp_vertex_memory)
+			{
+				/* (kept, to be freed with the map: a failed realloc keeps the
+				list as it was) */
+				void **grown = realloc(ce_bsp_vertex_memory, (ce_bsp_vertex_memory_count + 1) * sizeof(void *));
+
+				if (!grown)
+				{
+					XPhysicalFree(compressed);
+					error(_error_silent, "Custom Edition maps: no memory for a BSP material's vertices");
+					return;
+				}
+				ce_bsp_vertex_memory = grown;
 				ce_bsp_vertex_memory[ce_bsp_vertex_memory_count++] = compressed;
+			}
 			ce_unit_vectors(uncompressed, vertex_count, ENVIRONMENT_VERTEX_UNCOMPRESSED_SIZE,
 				ENVIRONMENT_VERTEX_VECTORS_OFFSET, ENVIRONMENT_VERTEX_VECTOR_COUNT);
 			rasterizer_geometry_compress_vertices(_rasterizer_vertex_type_environment_uncompressed, vertex_count,

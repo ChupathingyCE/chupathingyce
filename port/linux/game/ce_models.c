@@ -145,6 +145,7 @@ struct ce_tag_instance
 /* ---------- prototypes */
 
 unsigned long ce_resources_allocate(unsigned long size);
+unsigned long ce_resources_free_mark(void);
 unsigned long compress_real_vector3d_to_int32_clamp(union real_vector3d const *v);
 short compress_real_to_int16_clamp(real z);
 
@@ -202,15 +203,29 @@ static unsigned long ce_part_vertices(
 	vertices = XPhysicalAlloc(count * XBOX_VERTEX_SIZE, -1, 0, PAGE_READWRITE);
 	if (!vertices)
 		return 0;
-	ce_vertex_memory = realloc(ce_vertex_memory, (ce_vertex_memory_count + 1) * sizeof(void *));
-	if (ce_vertex_memory)
+	{
+		/* (kept, to be freed with the map: a failed realloc keeps the list as
+		it was) */
+		void **grown = realloc(ce_vertex_memory, (ce_vertex_memory_count + 1) * sizeof(void *));
+
+		if (!grown)
+		{
+			XPhysicalFree(vertices);
+			return 0;
+		}
+		ce_vertex_memory = grown;
 		ce_vertex_memory[ce_vertex_memory_count++] = vertices;
+	}
 	for (index = 0; index < count; index++)
 	{
-		struct ce_vertex const *in = (struct ce_vertex const *)(model_data + vertex_offset +
-			index * CE_VERTEX_SIZE);
+		/* (copied out: the map's offset need not be aligned, as ce_models_check
+		reads it) */
+		struct ce_vertex vertex;
+		struct ce_vertex const *in = &vertex;
 		struct xbox_vertex *out = &vertices[index];
 		short node;
+
+		csmemcpy(&vertex, model_data + vertex_offset + index * CE_VERTEX_SIZE, sizeof(vertex));
 
 		out->position[0] = in->position[0];
 		out->position[1] = in->position[1];
@@ -413,6 +428,10 @@ boolean ce_models_tags_loaded(
 {
 	long models = 0, parts_converted = 0;
 	long index;
+	/* (the parts made here are all at or above it: a geometry whose parts
+	are there was converted already, through another tag of the same model
+	or a geometries block two models share, and is not converted again) */
+	unsigned long converted = ce_resources_free_mark();
 
 	for (index = 0; index < tag_count; index++)
 	{
@@ -431,10 +450,15 @@ boolean ce_models_tags_loaded(
 		{
 			byte *geometry_data = (byte *)xbox_pointer(geometries) + geometry * GEOMETRY_SIZE;
 			unsigned long part_count = *(unsigned long *)(geometry_data + GEOMETRY_PARTS_OFFSET);
-			byte const *ce_parts = xbox_pointer(*(unsigned long *)(geometry_data + GEOMETRY_PARTS_OFFSET + 4));
-			unsigned long xbox_parts_address = part_count ? ce_resources_allocate(part_count * XBOX_PART_SIZE) : 0;
+			unsigned long ce_parts_address = *(unsigned long *)(geometry_data + GEOMETRY_PARTS_OFFSET + 4);
+			byte const *ce_parts;
+			unsigned long xbox_parts_address;
 			unsigned long part;
 
+			if (part_count && converted && ce_parts_address >= converted)
+				continue;
+			ce_parts = xbox_pointer(ce_parts_address);
+			xbox_parts_address = part_count ? ce_resources_allocate(part_count * XBOX_PART_SIZE) : 0;
 			if (part_count && !xbox_parts_address)
 			{
 				error(_error_silent, "Custom Edition maps: no room for the models' parts");
