@@ -161,6 +161,13 @@ carnage report confirmed with this copy's player key (browser.c); and the
 public player ID it confirms them as */
 void browser_claim_game(const unsigned short (*names)[BROWSER_PLAYER_NAME_LENGTH], int count);
 int browser_player_id(char *text, int size);
+/* the moderator key (Delta Peer's moderation, docs/delta.md): an Ed25519
+key pair made from this copy's player key, whose public half a dedicated
+server's moderators file names. Its signature of a message and its public
+key: 1, else 0 (no player key). The public key alone as 64 hex digits */
+int browser_moderator_sign(const unsigned char *message, int size, unsigned char *public_key,
+	unsigned char *signature);
+int browser_moderator_key(char *text, int size);
 
 /* the profile page (halo.milenko.org/profile), signed in as this copy's
 player, opened in the web browser (MY PROFILE) */

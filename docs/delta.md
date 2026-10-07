@@ -133,11 +133,12 @@ shares.
 | 7 | `ai_sync` | AI sync extensions |
 | 8 | `vote` | map and game type votes |
 | 9 | `console_slots` | retired before use: a console's slots are its platform key's limits (below). Never set, never reused |
+| 10 | `moderation` | a dedicated server's moderators sign in and act from the game (below, "Moderation") |
 
 The registry lives in the repository next to the compatibility table and is
-the single source for the bit numbers. Built so far: `platform` and
-`profile`. Their values are claims, shown as claims, never used for game
-state:
+the single source for the bit numbers. Built so far: `platform`, `profile`
+and `moderation` (see "Moderation"). The first two's values are claims,
+shown as claims, never used for game state:
 
 - **`platform`**: each machine's platform key (below), and so each player's
   platform: `delta_peer_player_platform(player)` for the scoreboard's icons
@@ -257,6 +258,14 @@ a later version may append):
 | 6 | PROFILE | client to host | profile revision (4), player ID (16) |
 | 7 | TABLE | either | serial (4), the signed table's whole size (4, at most 16513), offset (4, a multiple of 1024), length (2: 1024, or the rest), reserved (2), the piece's bytes |
 | 8 | TABLE_HAVE | either | serial (4: 0 the built-in table, 0xFFFFFFFF takes no tables) |
+| 9 | MOD_CHALLENGE | host to client | nonce (32), binding length (1, at most 64), reserved (3), binding (printable ASCII) |
+| 10 | MOD_PROOF | client to host | moderator key (32), signature (64) |
+| 11 | MOD_STATE | host to client | role (1), reserved (3), permissions (4), longest timed ban in minutes (4) |
+| 12 | MOD_ACTION | client to host | sequence (4), action (1), target machine (1), minutes (2; 0 for ever), reason length (1, at most 63), reserved (3), signature (64), reason (printable ASCII) |
+| 13 | MOD_RESULT | host to client | sequence (4), ok (1), text length (1, at most 127), reserved (2), text |
+| 14 | MOD_NOTICE | host to client | kind (1: 1 warning, 2 notice), text length (1, at most 127), reserved (2), text |
+| 15 | MOD_BIND | host to client | request (4), account length (1, at most 31), server name length (1, at most 31), reserved (2), account, server name |
+| 16 | MOD_BIND_ANSWER | client to host | request (4), accepted (1), reserved (3), moderator key (32), signature (64) |
 
 A roster covers every machine of the game, in as many datagrams as it takes
 (32 machines each). A client forgets a machine the roster has not named for
@@ -278,6 +287,10 @@ Limits and timeouts (`delta_peer.h`):
 | legacy table: passes to one machine | 3 a session, the next a minute after one ends |
 | legacy table: signature checks of one machine's tables | 1 a minute |
 | legacy table: a host sending to machines at once | 4 |
+| moderation: MOD_ACTION a host takes from one machine | 1 a second, 3 at once |
+| moderation: signature checks of one machine's PROOF and BIND_ANSWER | 2 a second, 2 at once |
+| moderation: MOD_CHALLENGE (not signed in), MOD_STATE (signed in) and a waiting MOD_BIND said again | every 5 s (MOD_STATE at once when roles change) |
+| moderation: a MOD_BIND answered within | 2 minutes, else declined |
 
 Who is heard: a host reads a datagram only from an address of a machine of
 its game (anything else is dropped before parsing), and ties a HELLO to the
@@ -286,6 +299,60 @@ address and port, of its session. Everything else is dropped and counted.
 `port/linux/tests/delta_test.c` (unit tests and a seeded random-input test of
 every parser and both sessions) and `delta_fuzz.c` (libFuzzer) run in CI
 (`tools/test_delta_peer.py`).
+
+### Moderation
+
+A dedicated server's moderators act from the game over Delta Peer (the
+`moderation` capability). A host offers it only when it has moderation (the
+dedicated server registers its own, `delta_moderation.h`); a game a player
+hosts offers none. OpenCE players can be warned, kicked and banned like
+anyone (the server acts through the game's own kick and ban), but only a
+Delta client can be an in-game moderator.
+
+- **The moderator key.** Each copy of the game makes an Ed25519 key pair
+  from its player key: the seed is SHA-256 of
+  `"halo-ce-universal moderator key\n"` and the 32-byte player key. The
+  public half (64 hex digits) is the moderator key a server's moderators
+  file names; the site makes the same one from the key a game sends it, so
+  a site account's linked games give its moderator keys. The player key
+  never leaves the machine but to the site.
+- **Nothing is revealed until the player acts.** The host sends each client
+  that agreed to `moderation` a MOD_CHALLENGE: a nonce of 32 random bytes
+  for the session, and its binding. The client signs only when its player
+  signs in (the Moderation screen, Y over the pause menu) or answers a link.
+- **Binding.** A host on the internet binds its challenges to its identity:
+  the first 32 hex digits of its invite (the hash of its tunnel key, which
+  does not change while it runs). A client that reached its host through
+  the invite tunnel signs nothing unless the binding is the invite it
+  joined, so a server cannot pass another server's challenge on to a
+  moderator and use the signature there. On a LAN a host binds nothing and
+  any binding is signed (as the game itself, LAN play is not authenticated).
+- **Sign in.** MOD_PROOF carries the key and its signature of
+  `"delta moderation proof v1\n"`, the nonce and the binding. The host
+  checks it (never a key of small order), tells its moderation which
+  machine has the key, and answers MOD_STATE: the key's role (0 none, 1
+  moderator, 2 admin, 3 owner), its permissions and its longest timed ban.
+  A machine's key is forgotten when its session ends.
+- **Actions.** MOD_ACTION is signed over `"delta moderation action v1\n"`,
+  the nonce, the sequence, action, target machine, minutes and reason; its
+  sequence must be above the session's last, so a replay does nothing.
+  Actions: 1 warn, 2 kick, 3 ban (minutes, 0 for ever), 4 end the game, 5
+  next map; a host refuses one it does not know. Whether the key may do it
+  is the host's moderation's decision (the server's permission table), and
+  MOD_RESULT says what happened.
+- **Notices.** MOD_NOTICE is a warning (or notice) the server shows the
+  player for a few seconds.
+- **Linking an account.** The server's control panel can ask a player's
+  game to link to a panel account: MOD_BIND names the account and the
+  server; the game asks its player (the Moderation screen); MOD_BIND_ANSWER
+  carries the key and its signature of `"delta moderation bind v1\n"`, the
+  nonce, the request, the answer and the binding. A bind not answered in 2
+  minutes is a decline. Without Delta Peer (an OpenCE client) there is no
+  link: such a player cannot be an in-game moderator anyway.
+
+Permissions (MOD_STATE, `delta_wire.h`): 0x001 view, 0x002 warn, 0x004
+kick, 0x008 ban up to the timed limit, 0x010 any ban, 0x020 unban, 0x040
+map (end the game, next map), 0x080 settings, 0x100 roles.
 
 ### The protocol setting
 
@@ -774,8 +841,9 @@ asking players for anything:
    `profile`). Built; `server_messages` next, then the LAN superset.
 5. The protocol choice (Auto, Delta only, OpenCE only) and the browsers'
    protocol labels; a dedicated server's listing marks it (flag 128).
-6. Moderators for dedicated servers through Delta Link profiles; Delta
-   Stats events.
+6. Moderators for dedicated servers: Delta Peer's `moderation` (built),
+   then site-granted moderators through Delta Link profiles; Delta Stats
+   events.
 7. The legacy table as config. Built: wire IDs, the signed document and
    its tool, the game's loader (cache, Delta List, GitHub), the local
    override, the real keys and delivery over Delta Peer. Next: CI publishing

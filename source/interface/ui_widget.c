@@ -691,6 +691,11 @@ boolean browser_screen_active(void);
 void browser_screen_open(void);
 void browser_screen_process(void);
 void browser_screen_render(void);
+/* port: moderation on a dedicated server (port/linux/game/moderation_screen.c) */
+boolean moderation_screen_active(void);
+void moderation_screen_update(boolean menu_open);
+void moderation_screen_process(void);
+void moderation_screen_render(void);
 /* the menus' pointer, while it is up (its own taps and clicks) */
 void browser_screen_pointer(struct halo_ui_pointer const *pointer);
 /* (ONLINE GAMES, below: its list moves focus item by item) */
@@ -7478,6 +7483,8 @@ void render_ui_widgets(
 #ifdef HALO_GAME_BROWSER
 	if (browser_screen_active())
 		browser_screen_render();
+	if (first_players_render)
+		moderation_screen_render();
 #endif
 	ui_debug_draw_targets(first_players_render);
 
@@ -8519,6 +8526,14 @@ void process_ui_widgets(
 	if (browser_screen_active())
 	{
 		browser_screen_process();
+
+		return;
+	}
+	/* port: moderation's screen, over a menu of a dedicated server's game */
+	moderation_screen_update(widget_globals.active_widgets[0] != NULL);
+	if (moderation_screen_active())
+	{
+		moderation_screen_process();
 
 		return;
 	}
