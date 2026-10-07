@@ -64,6 +64,10 @@ Abbreviations:
 | Delta Peer + legacy table (release-0.6.8b) | yes | yes | yes | yes | yes | yes, but said "Linux" (fixed on parity-delta) | yes; the Windows build said "Windows" (fixed on parity-delta) | yes |
 | Hardware id (host bans) | yes | yes | yes | yes | **none** before (fixed) | yes | yes | yes |
 | Halo PC / HaloMD maps | yes (0.7.0b) | yes | yes | yes | yes | yes (0.7.0b) | yes | yes |
+| Halo PC maps' folders (0.7.1b: `maps_ce`, `maps_md`, `maps_pc`; the older `maps/ce`, `md_maps`, OpenCE's `custom_maps` read) | yes | yes | yes | yes | yes | yes | yes | yes |
+| Moving the older map folders (`game.move_old_map_folders`) | asked once (message box) | same | same | same | same | moved without asking (c: the app's own storage, no message box there yet) | same as Linux | never unless set (c: read-only volumes, nobody to ask) |
+| Custom Edition maps with OpenCE build-145 (`custom_maps\<name>`) and the missing-map message | yes | yes | yes | yes | yes | yes | yes | yes |
+| Delta Peer map identity (name and hash, `ce_maps`) | yes | yes | yes | yes | yes | yes | yes | yes |
 | PC menus or Xbox menus (`display.menus`) | both | both | both | both | both | both; Quit does nothing (a) | both | n/a |
 | Port settings screens (Video, Mouse...) | PC menus only (c) | same | same | same | same | same; Mouse Settings shown (b) | same | n/a |
 | High-res HUD and text | yes | yes | yes | yes | yes | yes, at 480 lines (a) | yes | n/a |

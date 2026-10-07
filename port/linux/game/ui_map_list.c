@@ -16,10 +16,10 @@ UI_MAP_LIST_PICTURE_BASE and up (ui_widget.c asks ui_map_list_picture). Its
 name is two lines in the map list's narrow boxes (the name, then [CE] or
 [MD]), and one in the lobby's.
 
-Those are Halo PC's own, read from its ui.map in maps\ce as Halo PC shows
+Those are Halo PC's own, read from its ui.map in maps_ce as Halo PC shows
 them: the names of its map list (ui\shell\main_menu\mp_map_list), their
 descriptions (...\mp_map_select\map_data) and their pictures
-(ui\shell\bitmaps\mp_map_grafix, its pixels in maps\ce\bitmaps.map), each
+(ui\shell\bitmaps\mp_map_grafix, its pixels in maps_ce\bitmaps.map), each
 the map's by Halo PC's order of its maps (ce_maps); a map of another's
 making is named by its file, with Halo PC's picture for an unknown level.
 Without Halo PC's ui.map, the names are ce_maps' and an Xbox map's picture
@@ -429,7 +429,7 @@ static void ce_pictures_read(
 			{
 				char path[512];
 
-				snprintf(path, sizeof(path), "%sce\\bitmaps.map", cache_files_map_directory());
+				map_family_resource("bitmaps", path, sizeof(path));
 				bitmaps_file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 				if (bitmaps_file == INVALID_HANDLE_VALUE)
 					break;
@@ -469,7 +469,7 @@ static void ce_pictures_read(
 		CloseHandle(bitmaps_file);
 }
 
-/* what Halo PC's ui.map (maps\ce\ui.map) has of its map list, read the first
+/* what Halo PC's ui.map (maps_ce\ui.map) has of its map list, read the first
 time it is asked for */
 static void ce_ui_read(
 	void)
@@ -481,7 +481,7 @@ static void ce_ui_read(
 	if (ce_ui.read)
 		return;
 	ce_ui.read = TRUE;
-	snprintf(path, sizeof(path), "%sce\\ui.map", cache_files_map_directory());
+	map_family_resource("ui", path, sizeof(path));
 	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (file == INVALID_HANDLE_VALUE)
 		return;
@@ -556,7 +556,15 @@ static void add_pc_entry(
 		if (known_name)
 			wide_copy(name, DISPLAY_NAME_LENGTH - 7, known_name);
 	}
-	for (known = 0; family == _map_family_custom_edition && known < (short)NUMBEROF(ce_maps); known++)
+	else if (family == _map_family_halo_pc)
+	{
+		/* (Halo PC retail's maps are the stock ones Custom Edition has
+		too, named and pictured as those) */
+		description = L"A Halo PC map";
+		mark = L"PC";
+	}
+	for (known = 0; (family == _map_family_custom_edition || family == _map_family_halo_pc) &&
+		known < (short)NUMBEROF(ce_maps); known++)
 	{
 		if (!_stricmp(file, ce_maps[known].file))
 		{
@@ -613,14 +621,14 @@ static void file_found(
 /* ---------- public code */
 
 /* the list anew: the Xbox's maps (the game's thirteen names, in its order),
-then the Custom Edition maps found, then HaloMD's */
+then the Custom Edition maps found, then HaloMD's, then Halo PC retail's */
 void ui_map_list_refresh(
 	char *const *xbox_maps)
 {
 	static struct found_files found;
 	/* (the counts last logged, to log each change once) */
-	static long logged_counts[NUMBER_OF_MAP_FAMILIES] = { -1, -1, -1 };
-	long counts[NUMBER_OF_MAP_FAMILIES] = { XBOX_MAP_COUNT, 0, 0 };
+	static long logged_counts[NUMBER_OF_MAP_FAMILIES] = { -1, -1, -1, -1 };
+	long counts[NUMBER_OF_MAP_FAMILIES] = { XBOX_MAP_COUNT, 0, 0, 0 };
 	short index, family;
 
 	ui_map_list_count_value = 0;
@@ -648,8 +656,8 @@ void ui_map_list_refresh(
 	if (memcmp(counts, logged_counts, sizeof(counts)))
 	{
 		memcpy(logged_counts, counts, sizeof(counts));
-		error(_error_silent, "the menus' map list: %ld Custom Edition maps, %ld HaloMD maps",
-			counts[_map_family_custom_edition], counts[_map_family_halomd]);
+		error(_error_silent, "the menus' map list: %ld Custom Edition maps, %ld HaloMD maps, %ld Halo PC maps",
+			counts[_map_family_custom_edition], counts[_map_family_halomd], counts[_map_family_halo_pc]);
 	}
 }
 
@@ -744,7 +752,7 @@ struct bitmap_data *ui_map_list_family_picture(
 	short family,
 	char const *file)
 {
-	long index = family == _map_family_custom_edition ? ce_map_index(file) : NONE;
+	long index = family == _map_family_custom_edition || family == _map_family_halo_pc ? ce_map_index(file) : NONE;
 
 	ce_ui_read();
 	if (index == NONE)
@@ -774,7 +782,7 @@ void ui_map_list_family_name(
 	wchar_t *name,
 	long size)
 {
-	long index = family == _map_family_custom_edition ? ce_map_index(file) : NONE;
+	long index = family == _map_family_custom_edition || family == _map_family_halo_pc ? ce_map_index(file) : NONE;
 	wchar_t const *known = family == _map_family_halomd ? halomd_map_name(file) : NULL;
 	long length;
 

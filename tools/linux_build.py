@@ -207,8 +207,9 @@ def musl_math_cflags(abi: str) -> str:
                      f"-include {MUSL_MATH_DIR}/include/libm.h"])
 
 
-# Halo PC's Custom Edition maps (maps/ce/<name>.map, played as <name>@ce)
-# and HaloMD's (md_maps/<name>.map, played as <name>@md): the port code of
+# Halo PC's maps: Custom Edition's (maps_ce/<name>.map, played as
+# <name>@ce), HaloMD's (maps_md/<name>.map, <name>@md) and Halo PC retail's
+# (maps_pc/<name>.map, <name>@pc): the port code of
 # source/cache, sound, interface and text and port/linux/game/ce_*.c
 # (HALO_CUSTOM_EDITION). Every build has them: Linux here (32-bit and
 # 64-bit) and the dedicated server, macOS (lp64_build.py), Windows (32-bit

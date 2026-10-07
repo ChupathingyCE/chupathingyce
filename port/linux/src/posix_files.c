@@ -7,6 +7,7 @@ the host ABI and _FILE_OFFSET_BITS=64.
 
 #include <dirent.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
@@ -121,6 +122,23 @@ int posix_set_read_only(const char *path, int read_only)
 	mode = st.st_mode & 07777;
 	mode = read_only ? (mode & ~(mode_t)0222) : (mode | S_IWUSR);
 	return chmod(path, mode);
+}
+
+int posix_is_link(const char *path)
+{
+	struct stat st;
+
+	return lstat(path, &st) == 0 && S_ISLNK(st.st_mode);
+}
+
+int posix_rename_directory(const char *from, const char *to)
+{
+	struct stat st;
+
+	/* (rename replaces an empty directory: never one that is there) */
+	if (lstat(to, &st) == 0)
+		return -1;
+	return rename(from, to);
 }
 
 int posix_make_directory(const char *path)

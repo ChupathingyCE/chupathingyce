@@ -22,21 +22,38 @@ Creek), `bloodgulch`, `boardingaction`, `carousel` (Derelict), `chillout`,
 maps, as the players do. The server needs `ui.map` and every one of them,
 not just the playlist's.
 
-**Halo PC (Custom Edition) maps**, in `maps/ce/`, go in as `<name>@ce`:
+**Halo PC (Custom Edition) maps**, in `maps_ce/` beside `maps/`, go in as
+`<name>@ce`:
 
 ```
 timberland@ce    team_slayer
 ```
 
-**HaloMD maps**, in `md_maps/`, go in as `<name>@md`:
+**HaloMD maps**, in `maps_md/`, go in as `<name>@md`:
 
 ```
 bgplus_5@md      ctf
 ```
 
-Both need Custom Edition's `bitmaps.map`, `sounds.map` and `loc.map` in
-`maps/ce/`, and the x64 or arm64 server. Players need the same map file to
-join such a game.
+**Halo PC's own maps** (the retail game's, from your Halo PC disc), in
+`maps_pc/`, go in as `<name>@pc`:
+
+```
+bloodgulch@pc    slayer
+```
+
+All of them need Custom Edition's `bitmaps.map`, `sounds.map` and `loc.map`
+in `maps_ce/`, and the x64 or arm64 server. Players need the same map file
+to join such a game. OpenCE (build-145) players can join a Custom Edition
+map's game with the map in their `custom_maps/`; HaloMD and Halo PC retail
+games are ChupathingyCE's only (an OpenCE player is told the map is
+missing).
+
+The older folders still work: `maps/ce/` (ChupathingyCE 0.7.0b and before),
+`md_maps/`, and OpenCE's `custom_maps/` for Custom Edition maps. A file
+named `<name>@ce.map` (`@md`, `@pc`) in `maps/` plays too. The server never
+moves folders itself unless `HALO_MOVE_OLD_MAP_FOLDERS=yes` (see
+[Settings](settings.md)).
 
 ## Game types
 
@@ -58,4 +75,4 @@ game; if there isn't one, that player waits for a second.
 | `team_slayer.txt` | Team Slayer on every map. |
 | `slayer.txt` | Slayer and Team Slayer, every map. |
 | `bloodgulch.txt` | Blood Gulch only, Team Slayer and Slayer in turn, for the biggest games. |
-| `gearbox.txt` | Halo PC's own maps (`@ce`), Slayer and Team Slayer in turn. |
+| `gearbox.txt` | Halo PC's stock maps as Custom Edition has them (`@ce`), Slayer and Team Slayer in turn. |

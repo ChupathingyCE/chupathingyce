@@ -3,7 +3,7 @@ CE_RESOURCES.C
 
 Custom Edition maps' indexed tags (cache_files.c, Custom Edition maps). A
 Custom Edition map keeps most of its bitmaps, sounds, fonts and strings in
-the resource maps beside it (maps\ce\bitmaps.map, sounds.map, loc.map): such
+the resource maps beside it (maps_ce\bitmaps.map, sounds.map, loc.map): such
 a tag's instance is marked indexed, and its base address is the index of its
 resource. When the map's tags load, each indexed tag's resource is copied
 into the map's tag cache, in the space between its tags and its structure
@@ -39,6 +39,7 @@ by their tags' paths (below).
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmaps.h"
 #include "ce_map_checks.h"
+#include "halo_map_families.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -136,7 +137,7 @@ static char const *const ce_resource_map_names[NUMBER_OF_CE_RESOURCE_MAPS] = { "
 0 none) */
 static byte *ce_indexed_tags;
 static long ce_indexed_tag_count;
-/* the map's Ogg Vorbis sounds' samples, decoded to 16-bit PCM (maps\ce\ce_sounds.pcm),
+/* the map's Ogg Vorbis sounds' samples, decoded to 16-bit PCM (z:\ce_sounds.pcm),
 and its path */
 static HANDLE ce_decoded_sounds_file;
 static char ce_decoded_sounds_path[256];
@@ -169,7 +170,8 @@ static boolean ce_resource_map_open(
 
 	if (map->file)
 		return TRUE;
-	sprintf(path, "%sce\\%s.map", cache_files_map_directory(), ce_resource_map_names[type]);
+	/* (in maps_ce, or its older places: halo_map_families.h) */
+	map_family_resource(ce_resource_map_names[type], path, sizeof(path));
 	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
 	if (file == INVALID_HANDLE_VALUE)
 		return ce_refuse("there is no %s", path);
@@ -1221,7 +1223,7 @@ plays on PCM channels: sound_preferences.c), those whose samples are in
 sounds.map and those whose samples are in the map itself (kokiriforest's and
 rainbow road's ambience, most of mermaids_plaza's sounds, which this engine
 played as noise when they were left as they were): each permutation's
-samples decoded (ce_vorbis.c) into maps\ce\ce_sounds.pcm, where they are then
+samples decoded (ce_vorbis.c) into z:\ce_sounds.pcm, where they are then
 read from, and the sound and its permutations marked uncompressed. Their
 channels and rate stay the sound's (an Ogg of others is left as it was,
 which the game does not play). (The sounds' blocks and samples were checked:
@@ -1245,7 +1247,9 @@ static void ce_sounds_decode(
 		ce_decoded_sounds_file = NULL;
 		DeleteFileA(ce_decoded_sounds_path);
 	}
-	sprintf(path, "%sce\\ce_sounds.pcm", cache_files_map_directory());
+	/* (in the save root's cache, z:\, never in a maps folder: a player's
+	maps may be read only, or shared by several copies of the game) */
+	sprintf(path, "z:\\ce_sounds.pcm");
 	for (index = 0; index < tag_count; index++)
 	{
 		struct ce_tag_instance *instance = (struct ce_tag_instance *)((byte *)tag_instances +
@@ -1271,8 +1275,8 @@ static void ce_sounds_decode(
 			repaired++;
 		if (!source || *(short *)(sound + CE_SOUND_COMPRESSION_OFFSET) != CE_SOUND_COMPRESSION_OGG)
 			continue;
-		/* (this copy of the game's own file: two copies sharing the maps
-		folder each write theirs. An older one is deleted first; on Windows
+		/* (this copy of the game's own file: two copies sharing the save
+		root each write theirs. An older one is deleted first; on Windows
 		one another copy has open cannot be, and the next name is tried.
 		Elsewhere the file is deleted once it is open, read through its
 		handle alone, so another copy's new one is another file) */
@@ -1284,7 +1288,7 @@ static void ce_sounds_decode(
 			for (attempt = 0; attempt < 8 && file == INVALID_HANDLE_VALUE; attempt++)
 			{
 				if (attempt)
-					sprintf(path, "%sce\\ce_sounds%d.pcm", cache_files_map_directory(), attempt);
+					sprintf(path, "z:\\ce_sounds%d.pcm", attempt);
 				if (!DeleteFileA(path) && GetLastError() != ERROR_FILE_NOT_FOUND &&
 					GetLastError() != ERROR_PATH_NOT_FOUND)
 				{

@@ -95,37 +95,66 @@ executable, and the saves in `~/.local/share/halo-linux` (or
 places, so switching from one to the other keeps your saves and settings.
 
 **Common mistake:** the `maps` folder must hold the Xbox maps from your disc
-image, not Halo PC's. Halo PC (Custom Edition) maps go in `maps/ce/` inside
-it, and HaloMD maps in `md_maps/` beside it (see below). On a Mac, Linux and
+image, not Halo PC's. Halo PC maps go in folders of their own beside it:
+`maps_ce`, `maps_md` and `maps_pc` (see below). On a Mac, Linux and
 Windows, if `maps` holds Halo PC maps or has no `ui.map`, the game says so
 and quits.
 
 ## Halo PC maps
 
-Every ChupathingyCE build also plays Halo PC (Custom Edition) multiplayer
-maps: Windows (32-bit and 64-bit), Mac, Linux (32-bit and 64-bit), Android
-and the dedicated server. Copy the `.map` files from your own Halo PC (Custom Edition)
-install into a `ce` folder inside the game's `maps` folder:
+Every ChupathingyCE build also plays Halo PC multiplayer maps: Windows
+(32-bit and 64-bit), Mac, Linux (32-bit and 64-bit), Android and the
+dedicated server. Each kind has a folder of its own beside the game's
+`maps` folder:
 
-| Platform | Put Halo PC maps in |
+| Folder | What goes in it | Played online as |
+| --- | --- | --- |
+| `maps_ce` | Halo PC Custom Edition maps, with Custom Edition's `bitmaps.map`, `sounds.map` and `loc.map` | `<name>@ce` |
+| `maps_md` | HaloMD maps (below) | `<name>@md` |
+| `maps_pc` | the maps of your own Halo PC (retail) disc | `<name>@pc` |
+
+Where the game's `maps` folder is:
+
+| Platform | The folder holding `maps`, `maps_ce`, `maps_md` and `maps_pc` |
 | --- | --- |
-| Mac | `~/Library/Application Support/ChupathingyCE/maps/ce/` |
-| Linux | `maps/ce/` next to the `halo` executable |
-| Windows | `maps\ce\` next to `halo.exe` |
-| Android | `maps/ce/` in `/sdcard/Android/data/dev.horrible.chupathingyce/files` |
+| Mac | `~/Library/Application Support/ChupathingyCE/` |
+| Linux | next to the `halo` executable |
+| Windows | next to `halo.exe` |
+| Android | `/sdcard/Android/data/dev.horrible.chupathingyce/files` |
 
-Include `bitmaps.map`, `sounds.map` and `loc.map`, which the maps share. Halo PC's
-own `ui.map` adds its map names and pictures. The maps appear in the multiplayer
-map list after the Xbox maps, marked HALO PC. In Online Games, a game on a Halo PC
-map is badged, and it can be joined only by players who have that map: the game
-says which file is missing. The Xbox maps from your disc image are still needed.
-A map file named `<name>@ce.map`, as some other builds name them, is found too,
-in `maps/ce/` or in `maps/`.
+Copy the `.map` files from your own Halo PC install. Include `bitmaps.map`,
+`sounds.map` and `loc.map` from Custom Edition in `maps_ce`: every Halo PC
+map reads them. Halo PC's own `ui.map` there adds its map names and
+pictures. The maps appear in the multiplayer map list after the Xbox maps,
+marked [CE], [MD] or [PC]. In Online Games, a game on a Halo PC map is
+badged, and it can be joined only by players who have that map: the game
+says which file is missing and where it goes. The Xbox maps from your disc
+image are still needed. ChupathingyCE doesn't come with any of these files.
+
+**Playing with OpenCE players.** OpenCE (build-145) plays Custom Edition
+maps from its `custom_maps` folder. A game on a Custom Edition map is named
+the same way for both, so OpenCE players with the map join our games and we
+join theirs. HaloMD and Halo PC retail games are ChupathingyCE's only: an
+OpenCE player is told the map is missing. Between ChupathingyCE players,
+the map's identity (its name and a hash of its file) is checked, so a
+player with a different file of the same name is told so.
+
+**Older folders.** Earlier ChupathingyCE versions kept Custom Edition maps
+in `maps/ce/` and HaloMD maps in `md_maps/`, and OpenCE keeps its Custom
+Edition maps in `custom_maps/`. The game still plays the maps in all three.
+At its first start it offers to move `maps/ce/` to `maps_ce` and `md_maps/`
+to `maps_md` (each folder is moved whole: nothing is copied or deleted, and
+a folder that can't be moved stays where it is). `custom_maps/` is OpenCE's
+and stays where it is. `game.move_old_map_folders` in `config.toml` says
+`"ask"`, `"yes"` or `"no"`; Android moves them without asking. A map file
+named `<name>@ce.map` (`@md`, `@pc`), as some other builds name them, is
+found in its folder or in `maps/` itself.
 
 **Common mistake:** don't point `maps` itself at a Halo PC maps folder, or copy
 Halo PC maps straight into it. The game can't start with Halo PC's `ui.map`
 in place of the Xbox one, and Halo PC maps in `maps/` itself don't play. Keep
-the Xbox maps in `maps/` and the Halo PC maps in `maps/ce/`.
+the Xbox maps in `maps/` and the Halo PC maps in `maps_ce`, `maps_md` or
+`maps_pc`.
 
 On Android, two limits apply. The maps need a fixed 23 MB of the app's
 memory, which Android's Java runtime takes on some devices with a very large
@@ -139,27 +168,17 @@ wrong textures in their busiest views. See [port/android/README.md](port/android
 
 ChupathingyCE also plays HaloMD's multiplayer maps (the Mac Halo community's
 maps, made for Halo PC 1.0), in every build. Bring your own: download
-the maps you want from HaloMD's mod list, and put their `.map` files in an
-`md_maps` folder beside the game's `maps` folder:
+the maps you want from HaloMD's mod list, and put their `.map` files in
+`maps_md`, beside the game's `maps` folder.
 
-| Platform | Put HaloMD maps in |
-| --- | --- |
-| Mac | `~/Library/Application Support/ChupathingyCE/md_maps/` |
-| Linux | `md_maps/` next to the `halo` executable |
-| Windows | `md_maps\` next to `halo.exe` |
-| Android | `md_maps/` in `/sdcard/Android/data/dev.horrible.chupathingyce/files` |
-
-They need the Halo PC (Custom Edition) files above too: `bitmaps.map`,
-`sounds.map` and `loc.map` from your own Halo PC install, in `maps/ce/`. A
-HaloMD map keeps Halo's own textures and sounds in those shared files, and
-the game reads them from Custom Edition's copies. ChupathingyCE doesn't come
-with any of these files.
+They need Custom Edition's `bitmaps.map`, `sounds.map` and `loc.map` in
+`maps_ce` too: a HaloMD map keeps Halo's own textures and sounds in those
+shared files, and the game reads them from Custom Edition's copies.
 
 The maps appear in the multiplayer map list after the Halo PC maps, marked
 [MD], with their names from HaloMD's list. Online, a HaloMD map is played as
 `<name>@md` (`bgplus_5@md`), badged HALOMD in Online Games, and joined only by
-players who have the same map file. A HaloMD map already in `maps/ce/` still
-plays, and a file named `<name>@md.map` in `md_maps/` or `maps/` is found too.
+players who have the same map file.
 
 HaloMD's plug-ins aren't part of ChupathingyCE. A few maps were made for one:
 the visible-object and bigger-BSP limits they raised are already raised here,

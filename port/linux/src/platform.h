@@ -121,15 +121,27 @@ struct platform_maps_folder
 	/* the data root, whole */
 	char root[1024];
 	long ui_version;
-	/* Halo PC maps in maps/ itself (not named <name>@ce.map or
-	<name>@md.map): how many, and the first PLATFORM_MAPS_FOLDER_NAMED's
+	/* Halo PC maps in maps/ itself (not named <name>@ce.map, <name>@md.map
+	or <name>@pc.map): how many, and the first PLATFORM_MAPS_FOLDER_NAMED's
 	names */
 	long stray_pc_maps;
 	char stray_names[256];
-	/* and in maps/ce and md_maps */
+	/* and in maps_ce, maps_md and maps_pc (and the older maps/ce, md_maps
+	and OpenCE's custom_maps) */
 	long pc_maps_beside;
 };
 void platform_maps_folder_check(struct platform_maps_folder *maps);
+/* the older folders of Halo PC maps that can be moved into their new ones
+beside maps (maps/ce to maps_ce, md_maps to maps_md: halo_map_families.h),
+each one's move described on a line of description (size bytes): how many.
+A folder is movable when its new one does not exist yet and neither it nor
+the folder it is in is a link (whose folder may be elsewhere, a player's own
+or another game's). OpenCE's custom_maps is read but never moved: it is
+OpenCE's, and may be shared with an OpenCE install. */
+int platform_old_map_folders(char *description, unsigned long size);
+/* moves them, each folder whole (a rename: nothing is copied or deleted, and
+one that cannot be moved stays where it is), and logs each: how many moved */
+int platform_old_map_folders_move(void);
 /* the macOS application's folder for its data and settings, when the game
 runs as an application (ChupathingyCE.app): ~/Library/Application
 Support/ChupathingyCE, made if need be, into path; 0 otherwise (and on

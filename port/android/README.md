@@ -66,18 +66,23 @@ To install the data from a computer:
 | Item | Location in `/sdcard/Android/data/dev.horrible.chupathingyce/files` |
 | --- | --- |
 | Saved games (`z:\` and `u:\`) | `save` |
-| Halo PC (Custom Edition) maps, with `bitmaps.map`, `sounds.map` and `loc.map` | `maps/ce` |
-| HaloMD maps | `md_maps` |
+| Halo PC (Custom Edition) maps, with `bitmaps.map`, `sounds.map` and `loc.map` | `maps_ce` |
+| HaloMD maps | `maps_md` |
+| Halo PC (retail) maps | `maps_pc` |
 | Log | `debug.txt` |
 | Settings | `config.toml` |
 
 To make a copy of the saved games, enter
 `adb pull /sdcard/Android/data/dev.horrible.chupathingyce/files/save`.
 
-The app plays Halo PC (Custom Edition) and HaloMD maps as the other builds
-do: refer to "Halo PC maps" in the main [README](../../README.md#halo-pc-maps).
-Copy the files from a computer, for example
-`adb push <folder>/. /sdcard/Android/data/dev.horrible.chupathingyce/files/maps/ce/`.
+The app plays Halo PC (Custom Edition, HaloMD and retail) maps as the other
+builds do: refer to "Halo PC maps" in the main
+[README](../../README.md#halo-pc-maps). Copy the files from a computer, for
+example
+`adb push <folder>/. /sdcard/Android/data/dev.horrible.chupathingyce/files/maps_ce/`.
+The older `maps/ce` and `md_maps` of earlier versions are moved into
+`maps_ce` and `maps_md` when the game starts (unless
+`game.move_old_map_folders` is `"no"`).
 Refer to "Limits".
 
 ## Controls

@@ -46,7 +46,7 @@ else
 	context=/opt/halo-dedicated/image-${image#halo-dedicated-}
 fi
 
-ssh "$host" 'sudo mkdir -p /opt/halo-dedicated/data/maps /opt/halo-dedicated/data/md_maps /opt/halo-dedicated/data/playlists /opt/halo-dedicated/data/saves '"$context/bin/$arch"' && sudo chown -R "$(id -un)" /opt/halo-dedicated'
+ssh "$host" 'sudo mkdir -p /opt/halo-dedicated/data/maps /opt/halo-dedicated/data/md_maps /opt/halo-dedicated/data/maps_ce /opt/halo-dedicated/data/maps_md /opt/halo-dedicated/data/maps_pc /opt/halo-dedicated/data/playlists /opt/halo-dedicated/data/saves '"$context/bin/$arch"' && sudo chown -R "$(id -un)" /opt/halo-dedicated'
 scp "$binary" "$host:$context/bin/$arch/chupathingyce-server"
 scp "$here/Dockerfile" "$host:$context/"
 scp "$here"/../playlists/*.txt "$host:/opt/halo-dedicated/data/playlists/"

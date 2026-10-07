@@ -62,9 +62,11 @@ host's 127.0.0.1.
 with Docker, over SSH, as the `halo-dedicated` systemd service:
 
 1. Copy the maps to the host's `/opt/halo-dedicated/data/maps`: `ui.map`
-   and the multiplayer maps (Halo PC maps and their `bitmaps.map`,
-   `sounds.map` and `loc.map` in `maps/ce/`, HaloMD maps in
-   `/opt/halo-dedicated/data/md_maps`).
+   and the multiplayer maps; Custom Edition maps with their `bitmaps.map`,
+   `sounds.map` and `loc.map` to `/opt/halo-dedicated/data/maps_ce`,
+   HaloMD maps to `/opt/halo-dedicated/data/maps_md`, Halo PC retail maps to
+   `/opt/halo-dedicated/data/maps_pc` (the older `maps/ce/` and `md_maps`
+   are still read).
 2. Run `server/deploy/deploy.sh user@host path/to/chupathingyce-server`,
    with the server for the host's architecture. It copies the server and
    the playlists, builds the image for that architecture, and installs and

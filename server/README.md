@@ -42,7 +42,10 @@ small VPS will do.
 2. Make a data folder with a `maps` folder in it, and copy in the game's
    `ui.map` and the multiplayer maps (all of them: about 300 MB). Use the
    maps of the North American (NTSC) Xbox disc, as the players do. Halo PC
-   maps go in `maps/ce`, HaloMD maps in `md_maps` ([Playlists](docs/playlists.md)).
+   maps go in folders beside `maps`: Custom Edition maps (with Custom
+   Edition's `bitmaps.map`, `sounds.map` and `loc.map`) in `maps_ce`,
+   HaloMD maps in `maps_md`, Halo PC retail maps in `maps_pc`
+   ([Playlists](docs/playlists.md)).
 3. Put a playlist in the data folder's `playlists` folder (the download's,
    or your own), and start the server:
 

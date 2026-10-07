@@ -47,8 +47,8 @@ sound libraries to start. An SDL3 built by hand is found through
 `LIBRARY_PATH` when linking and `LD_LIBRARY_PATH` when starting. It is not
 optimised with a profile (the committed profiles are the 32-bit build's).
 Its releases are their own download, `chupathingyce-linux64-release.zip`,
-which its self-updater asks for. It plays Halo PC's Custom Edition maps
-(`maps/ce/`) and plays with the 32-bit builds and the other ports over the
+which its self-updater asks for. It plays Halo PC's maps (`maps_ce/`,
+`maps_md/`, `maps_pc/`) and plays with the 32-bit builds and the other ports over the
 network, and it is a dedicated server too (`server/README.md`).
 
 ## Start the game
@@ -618,8 +618,9 @@ ChupathingyCE's own parts of the server browser:
   network version, not its own. A game that is also listed on the brokers
   shows once, with its listing (the same invite token). Joining a game of
   the list joins its invite, as for a link.
-- A game on a Halo PC (Custom Edition) map, listed as `<map>@ce`, shows PC
-  after the map's name. It can be joined only with the map in `maps/ce/`,
+- A game on a Halo PC map, listed as `<map>@ce` (`@md`, `@pc`), shows PC
+  (MD) after the map's name. It can be joined only with the map in its
+  folder (`maps_ce/`, `maps_md/`, `maps_pc/`),
   on a build that plays Halo PC maps (`HALO_CUSTOM_EDITION`); otherwise
   the Server Browser says what is missing (`game/server_browser.c`).
 - Column titles sort the games (players, name, map, gametype, ping). Select

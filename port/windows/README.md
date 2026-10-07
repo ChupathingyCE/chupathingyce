@@ -65,7 +65,7 @@ It is the 64-bit build of the other systems (`HALO_64BIT`: see
   the 32-bit builds.
 
 Like the 32-bit build, it plays the Custom Edition maps of Halo PC
-(`maps/ce/`) and HaloMD's maps (`md_maps/`). It plays with the 32-bit builds
+(`maps_ce/`), HaloMD's maps (`maps_md/`) and Halo PC's own (`maps_pc/`). It plays with the 32-bit builds
 and the other ports over the network, and it is a dedicated server too
 (`server/README.md`). Its releases are a separate download,
 `chupathingyce-windows64-release.zip`, which its self-updater asks for.
@@ -96,8 +96,8 @@ Thus the Windows build needs fewer changes than the Linux build.
 The executable is large-address-aware, because the platform layer reserves
 the Xbox memory at `0x80000000`.
 
-The game plays the Custom Edition maps of Halo PC (`maps/ce/`) and HaloMD's
-maps (`md_maps/`), as the Linux build does (`HALO_CUSTOM_EDITION`). Their
+The game plays the Custom Edition maps of Halo PC (`maps_ce/`), HaloMD's
+maps (`maps_md/`) and Halo PC's own (`maps_pc/`), as the Linux build does (`HALO_CUSTOM_EDITION`). Their
 tags are linked to `0x40440000`, outside the Xbox memory. When the game
 starts, the platform layer takes those 23 MB at that address
 (`port/linux/src/xbox_memory.c`, with `VirtualAlloc`). The executable is

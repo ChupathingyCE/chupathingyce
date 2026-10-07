@@ -163,9 +163,9 @@ static struct server_command const server_commands[] =
 		command_unban },
 	{ "sv_banlist", "sv_banlist", "The bans in bans.txt: number, when, hardware id, players, how long.", 1, 1, FALSE,
 		command_banlist },
-	{ "sv_map", "sv_map <map> <game type>", "Plays a map (bloodgulch, a Halo PC map as name@ce, a HaloMD map as "
-		"name@md) and game type (slayer, ctf, ...) now; then the playlist goes on.", 3, 3, FALSE, command_map },
-	{ "sv_maps", "sv_maps", "The maps this server can play (its multiplayer maps: Xbox, name@ce, name@md) and "
+	{ "sv_map", "sv_map <map> <game type>", "Plays a map (bloodgulch, a Custom Edition map as name@ce, a HaloMD map as "
+		"name@md, a Halo PC map as name@pc) and game type (slayer, ctf, ...) now; then the playlist goes on.", 3, 3, FALSE, command_map },
+	{ "sv_maps", "sv_maps", "The maps this server can play (its multiplayer maps: Xbox, name@ce, name@md, name@pc) and "
 		"the game types sv_map takes.", 1, 1, FALSE, command_maps },
 	{ "sv_mapcycle", "sv_mapcycle", "The playlist, and which entry is played.", 1, 1, FALSE, command_mapcycle },
 	{ "sv_mapcycle_next", "sv_mapcycle_next", "Skips to the playlist's next entry now.", 1, 1, TRUE,
@@ -787,7 +787,7 @@ static boolean command_map(
 	(void)json;
 	if (!command_line_map_name_valid(line->words[1]))
 	{
-		command_output_printf(output, "%s is not a map's name (bloodgulch, name@ce, name@md)\n", line->words[1]);
+		command_output_printf(output, "%s is not a map's name (bloodgulch, name@ce, name@md, name@pc)\n", line->words[1]);
 		return FALSE;
 	}
 	csmemset(&empty, 0, sizeof(empty));

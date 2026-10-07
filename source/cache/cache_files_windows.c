@@ -437,8 +437,9 @@ static struct cache_file_runtime_globals cache_file_globals;
 
 #ifdef HALO_CUSTOM_EDITION
 /* port: the maps past the Xbox's (halo_map_families.h): Halo PC's Custom
-Edition maps (version 609), played as <name>@ce, and HaloMD's (Halo PC
-retail's version 7), played as <name>@md, each found in its family's folders
+Edition maps (version 609), played as <name>@ce, HaloMD's (Halo PC
+retail's version 7), played as <name>@md, and Halo PC retail's own maps
+(version 7), played as <name>@pc, each found in its family's folders
 (port/linux/game/map_families.c). Such a map is read where it is, not
 copied into one of the Xbox's cache slots and decompressed (it is not
 compressed): it has a slot of its own, after theirs, which every read goes
@@ -447,9 +448,6 @@ platform.h) */
 #include "halo_map_families.h"
 
 #define CE_MAP_FILE_INDEX NUMBER_OF_CACHED_MAP_FILES
-/* (each family's cache version: Custom Edition's, and Halo PC retail's) */
-#define CE_CACHE_VERSION_CE 609
-#define CE_CACHE_VERSION_HALOMD 7
 
 static struct cached_map_file ce_map_file;
 static char ce_map_name[64];
@@ -472,7 +470,7 @@ static boolean ce_map_name_is(
 	return map_family_parse(map_name, NULL, 0) != _map_family_xbox;
 }
 
-/* the map named <name>@ce or <name>@md opened in its slot (once): FALSE if
+/* the map named <name>@ce, @md or @pc opened in its slot (once): FALSE if
 there is none, or it is not one, or it is refused (ce_map_check). The map
 open before stays open until another is accepted */
 static boolean ce_map_open(
@@ -523,12 +521,11 @@ static boolean ce_map_open(
 	}
 	/* (its family's version, as it was when it was found: map_family_find) */
 	if (bytes_read != sizeof(header) || !cache_file_header_verify(&header, path, FALSE) ||
-		header.version != (family == _map_family_halomd ? CE_CACHE_VERSION_HALOMD : CE_CACHE_VERSION_CE))
+		header.version != map_family_cache_version(family))
 	{
 		error(_error_silent, "%s map %s refused: %s is not a cache file of this version",
-			family == _map_family_halomd ? "HaloMD" : "Custom Edition", map_name, path);
-		console_warning("%s map %s refused: not a cache file of this version",
-			family == _map_family_halomd ? "HaloMD" : "Custom Edition", map_name);
+			map_family_kind(family), map_name, path);
+		console_warning("%s map %s refused: not a cache file of this version", map_family_kind(family), map_name);
 	}
 	/* every offset, count and size in it that the port reads checked, before
 	it has a slot (port/linux/game/ce_map_checks.c) */
@@ -542,8 +539,8 @@ static boolean ce_map_open(
 		ce_map_file.header = header;
 		memset(ce_map_name, 0, sizeof(ce_map_name));
 		strncpy(ce_map_name, map_name, sizeof(ce_map_name) - 1);
-		error(_error_silent, "%s map %s: %s, build %.32s",
-			family == _map_family_halomd ? "HaloMD" : "Custom Edition", map_name, path, ce_map_file.header.build);
+		error(_error_silent, "%s map %s: %s, build %.32s", map_family_kind(family), map_name, path,
+			ce_map_file.header.build);
 		return TRUE;
 	}
 	/* (the map open before stays open, and its version the one loaded) */

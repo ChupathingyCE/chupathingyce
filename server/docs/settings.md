@@ -24,7 +24,7 @@ carnage report shows for 20 seconds, then the next entry's lobby opens.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `HALO_DATA_ROOT` | the current folder, else the program's | The data folder: `maps/` (with `ui.map`), `maps/ce/`, `md_maps/`, `playlists/`. The server's log, `debug.txt`, goes here. |
+| `HALO_DATA_ROOT` | the current folder, else the program's | The data folder: `maps/` (with `ui.map`), `maps_ce/`, `maps_md/`, `maps_pc/`, `playlists/` (the older `maps/ce/`, `md_maps/` and OpenCE's `custom_maps/` are read too). The server's log, `debug.txt`, goes here. |
 | `HALO_SAVE_ROOT` | `~/.local/share/halo-linux` | Where the server keeps its saves (the game's profile and scratch files, about 33 MB). Give each server on a machine its own. |
 
 The server also writes `config.toml`, its settings at their defaults, beside

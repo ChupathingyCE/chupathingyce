@@ -37,8 +37,9 @@ shows in every OpenCE and ChupathingyCE server browser (Join Game > Server
 Browser), and is withdrawn when the server stops.
 
 The playlist: one entry a line, a map (its name, "bloodgulch", its path, a
-Custom Edition map in maps\ce as <name>@ce, "timberland@ce", or a HaloMD map
-in md_maps as <name>@md, "phoenix3_15@md": halo_map_families.h) and a game
+Custom Edition map in maps_ce as <name>@ce, "timberland@ce", a HaloMD map
+in maps_md as <name>@md, "phoenix3_15@md", or a Halo PC retail map in
+maps_pc as <name>@pc: halo_map_families.h) and a game
 type (game_engine_get_variant_by_name's names: slayer, team_slayer, ctf,
 king, oddball, race, ...); # starts a comment.
 
@@ -158,8 +159,8 @@ static struct
 /* ---------- private code */
 
 /* a map as the game loads it (a bare name is a multiplayer level's:
-levels\test\<name>\<name>; a Custom Edition or HaloMD map's, <name>@ce or
-<name>@md, stays bare, as the menus' map list plays it: cache_files_windows.c) */
+levels\test\<name>\<name>; a Halo PC map's, <name>@ce, <name>@md or
+<name>@pc, stays bare, as the menus' map list plays it: cache_files_windows.c) */
 static void level_path(
 	char const *map,
 	char *path)

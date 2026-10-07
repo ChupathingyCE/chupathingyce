@@ -53,8 +53,8 @@ the whole name, 1 its beginning, 0 not */
 int command_line_name_match(const char *name, const char *text);
 
 /* whether text is a map's name as a command may give it: a file's name
-(letters, digits, _ - .), with @ce or @md after it for a Halo PC or HaloMD
-map, at most 63 characters, no path */
+(letters, digits, _ - .), with @ce, @md or @pc after it for a Custom Edition,
+HaloMD or Halo PC retail map, at most 63 characters, no path */
 int command_line_map_name_valid(const char *text);
 
 /* whether text is a name the server may go by: 1 to 15 printable ASCII
