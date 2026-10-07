@@ -86,7 +86,7 @@ Abbreviations:
 | `sv_*` console, control API, web admin | no | no | no | no | no | no | no | yes (c) |
 | `screenshot_count` (TIFF) | yes | **no (b)** | yes | **no (b)** | **no (b)** | yes | **no (b)** | n/a |
 | Debug frame dumps (`debug.screenshot_*`) | yes | yes | yes | yes | yes | yes | yes | n/a |
-| Crash reports | local, and Sentry upload switched off (b) | same, symbols now kept (fixed) | local log | local log | local log | logcat | local log | backtrace |
+| Crash reports (`crash_report.h`, to the site's `/v1/crash`) | minidump + walked stack, sent after the crash (fixed) | same | signal report, sent at the next start (fixed; c) | same | same | logcat only (b) | same as L64 | backtrace in its log (c) |
 | mesa_glthread hint | no (a: Mesa is rare on Windows) | no | yes | yes | yes (ignored) | no | yes | n/a |
 
 ### Settings that exist only on some builds
@@ -103,8 +103,8 @@ From the `_platform_*` flags in `port_config.c`:
   - Accidental: Android's PC menus still offer Mouse Settings (see below).
 - **Android only.** `display.screen_width`, `input.touch_controls`,
   `debug.sample_seconds` (`:113`, `:202`, `:489`). Required.
-- **Windows only.** `crash_reports.upload` (`:384`). Uploading is
-  Windows-only because only `win32_crash.c` exists. See "Left to schedule".
+- **Desktop only.** `crash_reports.upload`. Android has no crash reports
+  yet. See "Left to schedule".
 - **Different defaults.** These are chosen, and the reason is in a comment:
   - macOS: `display.fullscreen` is false (`:72-77`) and
     `audio.buffer_frames` is 2048 (`:79-86`).
@@ -161,13 +161,13 @@ the server. No build script names them and none excludes them.
      fix needs care with `p2p_lock`.
 
    About half a day, and it needs an on-device test.
-5. **Windows crash uploads are off in every build.** `crash_reports_enabled`
-   needs `HALO_BUILD_NUMBER > 0` (`win32_crash.c:734`), and no build has
-   defined it since versions replaced build numbers (a687c8ce). Turning
-   uploads back on (keyed to `HALO_RELEASE_BUILD`) is a one-line change.
-   It sends minidumps to Sentry, so it is the owner's call. Crash upload on
-   Linux, macOS and Android does not exist. A Breakpad-style minidump on
-   POSIX is about 2-4 days per OS.
+5. **Crash reports on Android.** Windows, Linux and macOS send crash
+   reports to the site (`crash_report.h`; branch `crash-reports`). Android
+   has only logcat: its game runs in the guest, and the host's SIGSEGV
+   handler (`host_memory.c`) sees the guest's faults. A report there needs
+   the host to write `posix_crash.c`'s report file, with the guest's frames
+   from `_Unwind_Backtrace` or the guest's frame pointers, and the guest to
+   send it at the next start. About 1-2 days, with an on-device test.
 6. **PC menus on Android.**
    - Mouse Settings and Controls Setup are shown although Android has no
      pointer (`tools/port_settings.py:87-100`; profile edit XML). Tagging
@@ -199,3 +199,10 @@ the server. No build script names them and none excludes them.
   Its `sv_*` console, control API and web page belong to the server alone.
 - **Port settings screens are in the PC menus only.** The Xbox menus stay
   retail.
+- **Crash reports: a minidump on Windows only, and the question at the next
+  start on Linux and macOS.** Windows writes the minidump from a second
+  process after the crash and asks at once. A signal handler cannot do that
+  safely, so Linux and macOS write a small report (the signal and the
+  calls) and send it, or ask about it, when the game starts the next time.
+  The report's format and the setting are the same. The dedicated server
+  logs its crashes only.

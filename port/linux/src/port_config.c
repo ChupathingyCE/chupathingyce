@@ -419,10 +419,12 @@ static const struct config_setting config_settings[] =
 	{ "update.auto", _config_boolean, "true", "HALO_UPDATE_AUTO", _environment_value, _platform_all,
 		"Look for a new version when the game starts, and offer to update to it;\n"
 		"false never looks (the game's \"Do not ask again\" writes false here)." },
-	{ "crash_reports.upload", _config_string, "\"ask\"", "HALO_CRASH_REPORTS", _environment_value, _platform_windows,
-		"Send a report of each crash (a minidump and halo.log) to the developers'\n"
-		"Sentry project (port/windows/src/win32_crash.c): \"yes\" sends them, \"no\"\n"
-		"never does, \"ask\" asks at the next crash and writes the answer here." },
+	{ "crash_reports.upload", _config_string, "\"ask\"", "HALO_CRASH_REPORTS", _environment_value, _platform_desktop,
+		"Send a report of each crash to the developers, through network.browser_url\n"
+		"(port/linux/src/crash_report.h: the build, where it crashed, the end of the\n"
+		"log without IP addresses, and on Windows a minidump): \"yes\" sends them,\n"
+		"\"no\" never does, \"ask\" asks after the next crash and writes the answer\n"
+		"here." },
 
 	{ "debug.network_test", _config_string, "\"\"", "HALO_NETWORK_TEST", _environment_value, _platform_all,
 		"Automated system link sessions for testing (port/linux/game/network_test.c):\n"

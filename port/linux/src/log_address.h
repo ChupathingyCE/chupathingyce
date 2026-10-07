@@ -39,6 +39,10 @@ order); port in host byte order, or negative for none. Writes text (size
 bytes, LOG_ADDRESS_SIZE enough for any) and returns it */
 const char *log_address(const unsigned char *bytes, int length, int port, char *text, int size);
 
+/* whether an address (as log_address takes it) is no one's on the internet:
+one written as it is */
+int log_address_local(const unsigned char *bytes, int length);
+
 /* the same for an IPv4 address in network byte order (a sockaddr_in's), and
 a port in network byte order (0: none) */
 const char *log_address_ipv4(unsigned long network_address, unsigned short network_port, char *text, int size);
