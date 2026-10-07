@@ -490,10 +490,12 @@ ignored.
 ```
 {"schema": 1,
  "server": {"name", "build", "platform"},
- "game": {"id" (32 hex, random), "part", "final", "invite"?, "map", "engine",
+ "game": {"id" (32 hex, random), "part", "final", "invite"?, "playlist"? (a
+          dedicated server's playlist file's name), "map", "engine",
           "gametype", "teams", "score_limit", "started", "ended" (unix),
           "end_reason": score|time|admin|empty|error|other, "team_scores"?},
- "players": [{"name", "ident"?, "client", "platform"?, "team", "bot",
+ "players": [{"name", "ident"?, "client", "platform"?, "team", "bot", "color"?
+              (armor, 0-17),
               "score", "place", "kills", "deaths", "assists", "betrayals",
               "suicides", "best_spree", "damage_dealt", "damage_taken",
               "shots", "hits", "grenades": {"frag", "plasma"},
@@ -507,7 +509,7 @@ ignored.
  "kills": [{"t", "killer", "victim", "weapon" (damage tag), "damage":
             bullet|plasma|melee|grenade|explosion|vehicle|fall|other,
             "killer_pos"?, "victim_pos"?, "killer_vehicle"?, "headshot"?,
-            "betrayal"?, "suicide"?, "stuck"?, "victim_riding"?}],
+            "betrayal"?, "suicide"?, "stuck"?, "victim_riding"?, "from_grave"?}],
  "medals": [{"t", "player", "medal"}],
  "objectives": [{"t", "player", "team", "kind": flag_grab|flag_return|
                  flag_score|ball_grab|ball_drop|hill_enter|hill_exit|race_lap,
@@ -527,7 +529,9 @@ How each is known: kills and damage at the blow (`damage.c`), shots per
 projectile a trigger makes (`weapons.c`; grenades thrown count as shots of
 the grenade), hits per projectile that damaged another player (melee
 excluded); medals and sprees are worked out from the kills as Halo does
-(multikills within 4 seconds; sprees at 5, 10, 15, 20); objectives, rides,
+(multikills within 4 seconds; sprees at 5, 10, 15, 20; Killjoy for ending
+a spree of 5 or more; From the Grave for a kill that lands after its
+killer died; Beat Down, Sniper Kill, Stuck, Splatter); objectives, rides,
 pickups, powerups and spawns from each player's state each frame; positions
 every `network.events_positions` seconds (2) per living player; ping every
 10 seconds; health each minute (dedicated servers only).
@@ -540,8 +544,15 @@ in `limits`. Totals are counted before anything is dropped, so they stay
 exact. The site refuses a batch over 2 MB sent or 8 MB of JSON.
 
 Moderation: `event_log_moderation(kind, who, by, reason)` (event_log.h)
-records a kick, ban or other action in the game under way; Delta Control's
-audit keeps its own record of the same action. Anti-cheat `flags` are a
+records a kick, ban, warning or other action in the game under way, and a
+kicked or banned player's leaving is recorded as such. Delta Control's
+audit hands each action to `server_roles_set_recorder()`'s recorder, on any
+thread; `server/platform/server_events.c` queues it
+(`event_upload_moderation`) for the game's thread. That glue lives on the
+`delta-stats-moderation` branch: merge `server-moderation` first, then
+`delta-stats`, then the glue (or merge `delta-stats-moderation`, which has
+all three). A game that ends with everyone gone is sent as `empty`; a
+server that stops mid-game sends nothing for it. Anti-cheat `flags` are a
 schema slot with nothing filling it yet.
 
 ### The upload
