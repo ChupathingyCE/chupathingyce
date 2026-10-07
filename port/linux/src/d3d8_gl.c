@@ -611,7 +611,9 @@ xgpu_gl_state_invalidate, after which every value is set again. Unknown
 values are all ones, which no real value matches (floats become NaN, which
 compares unequal to everything). */
 
-#ifdef HALO_ANDROID
+/* (each attribute pointed at on its own, glVertexAttribPointer: OpenGL ES,
+and macOS, whose OpenGL 4.1 has no vertex attribute binding of 4.3) */
+#if defined(HALO_ANDROID) || defined(__APPLE__)
 struct attribute_pointer
 {
 	GLuint buffer;
@@ -676,7 +678,7 @@ static struct
 	GLuint array_buffer;
 	GLuint element_array_buffer;
 	unsigned char attribute_enabled[XGPU_VERTEX_ATTRIBUTE_COUNT];
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(__APPLE__)
 	struct attribute_pointer attribute_pointers[XGPU_VERTEX_ATTRIBUTE_COUNT];
 #else
 	struct attribute_format attribute_formats[XGPU_VERTEX_ATTRIBUTE_COUNT];
@@ -773,7 +775,7 @@ stride (on desktop GL; ES points each attribute on its own). */
 static void state_attribute_stream(GLuint index, GLuint binding, GLuint buffer, GLint size, GLenum type,
 	GLboolean normalized, BOOL integer, GLsizei stride, unsigned long buffer_offset, unsigned long relative_offset)
 {
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(__APPLE__)
 	struct attribute_pointer *pointer = &gl_state.attribute_pointers[index];
 	unsigned long offset = buffer_offset + relative_offset;
 
