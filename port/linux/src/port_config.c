@@ -41,9 +41,9 @@ enum config_environment
 	/* the variable's text is the value ("0", "false", "no" and "off" are
 	false for a boolean) */
 	_environment_value,
-	/* the variable being set at all makes it true */
+	/* the variable being set makes it true */
 	_environment_set_is_true,
-	/* the variable being set at all makes it false */
+	/* the variable being set makes it false */
 	_environment_set_is_false,
 };
 
@@ -995,6 +995,13 @@ static int config_text_is_false(const char *text)
 	return !strcmp(lower, "0") || !strcmp(lower, "false") || !strcmp(lower, "no") || !strcmp(lower, "off");
 }
 
+/* whether an environment variable that only has to be set (a
+_environment_set_is_*) is: one empty or false is not */
+static int config_environment_set(const char *text)
+{
+	return text[0] && !config_text_is_false(text);
+}
+
 static void config_set_from_text(struct config_value *value, enum config_type type, const char *text)
 {
 	switch (type)
@@ -1359,7 +1366,9 @@ static void config_load(void)
 		const struct config_setting *setting = &config_settings[index];
 		const char *environment = getenv(setting->environment);
 
-		if (!environment)
+		/* (one set to "", "0", "false", "no" or "off" is as if it were not:
+		HALO_LOG_ADDRESSES=0 never turns a setting on) */
+		if (!environment || (setting->environment_style != _environment_value && !config_environment_set(environment)))
 			continue;
 		switch (setting->environment_style)
 		{

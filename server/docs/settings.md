@@ -61,7 +61,10 @@ is fine). Settings in the environment override it.
 
 Players' addresses are left out of `debug.txt` and the output, as in the
 game; `HALO_LOG_ADDRESSES=1` logs them whole, for an operator chasing a
-problem.
+problem (the log then says so at the first one). `0`, `false`, `no` and
+`off` leave it off, as for every switch here that only has to be set. Logs
+written with it on hold everyone's address: delete them once the problem is
+found.
 
 ## The command line
 
