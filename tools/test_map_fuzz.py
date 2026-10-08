@@ -34,7 +34,20 @@ import tempfile
 import zlib
 from pathlib import Path
 
-import pytest
+try:
+    import pytest
+except ImportError:
+    # (the longer runs, from the command line, without pytest: its decorators
+    # do nothing)
+    class pytest:  # noqa: N801
+        @staticmethod
+        def fixture(*arguments, **keywords):
+            return arguments[0] if arguments and callable(arguments[0]) else (lambda function: function)
+
+        class mark:  # noqa: N801
+            @staticmethod
+            def parametrize(*arguments, **keywords):
+                return lambda function: function
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
