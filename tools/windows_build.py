@@ -453,7 +453,9 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         [_quote(sdl_lib / "SDL3.lib")]
         + [f"-l{lib}" for lib in config.get("libraries", [])]
     )
-    base_ldflags = list(target.ldflags)
+    # (the linker's map beside the program, halo.map: its functions'
+    # addresses, kept with the symbols, tools/ci_build.py)
+    base_ldflags = list(target.ldflags) + ["-Wl,/MAP"]
     if getattr(sln, "port_release", False):
         # no console window (the port's log goes to halo.log instead,
         # win32_posix.c): under Wine (Proton, gamescope) the console window

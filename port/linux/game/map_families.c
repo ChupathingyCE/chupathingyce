@@ -429,3 +429,73 @@ void map_family_list(
 }
 
 #endif
+
+/* ---------- downloaded maps
+
+Maps that came from elsewhere than the player's own disc or folders (a map
+download, once there is one) are played as any other, but their scripts are
+held to tighter rules (hs.c, hs_scenario_functions_check): they may not call
+what changes the player's settings or other players' games, nor set the
+globals that outlive the map. A map is downloaded if the downloader marked
+it so (map_downloaded_mark), or if game.downloaded_maps names it (or is "*",
+every map), which lets the rules be tried before there is a downloader. */
+
+enum
+{
+	MAXIMUM_DOWNLOADED_MAPS = 32,
+	DOWNLOADED_MAP_NAME_LENGTH = 64,
+};
+
+static char map_downloaded_names[MAXIMUM_DOWNLOADED_MAPS][DOWNLOADED_MAP_NAME_LENGTH];
+static long map_downloaded_count;
+
+const char *config_string(const char *name);
+
+/* (a name compared as the game names maps: its file's, any case) */
+static boolean map_downloaded_name_is(
+	char const *name,
+	long length,
+	char const *map_name)
+{
+	char const *stripped = strrchr(map_name, '\\');
+
+	stripped = stripped ? stripped + 1 : map_name;
+	return length > 0 && (long)strlen(stripped) == length && !_strnicmp(name, stripped, length);
+}
+
+void map_downloaded_mark(
+	char const *map_name)
+{
+	long index;
+
+	if (!map_name || !*map_name || map_is_downloaded(map_name))
+		return;
+	index = map_downloaded_count < MAXIMUM_DOWNLOADED_MAPS ? map_downloaded_count++ : MAXIMUM_DOWNLOADED_MAPS - 1;
+	snprintf(map_downloaded_names[index], DOWNLOADED_MAP_NAME_LENGTH, "%s", map_name);
+}
+
+boolean map_is_downloaded(
+	char const *map_name)
+{
+	char const *setting = config_string("game.downloaded_maps");
+	long index;
+
+	if (!map_name || !*map_name)
+		return FALSE;
+	for (index = 0; index < map_downloaded_count; index++)
+	{
+		if (map_downloaded_name_is(map_downloaded_names[index], (long)strlen(map_downloaded_names[index]), map_name))
+			return TRUE;
+	}
+	/* (game.downloaded_maps: names separated by commas or spaces, or "*") */
+	while (setting && *setting)
+	{
+		long length = (long)strcspn(setting, ", ");
+
+		if ((length == 1 && *setting == '*') || map_downloaded_name_is(setting, length, map_name))
+			return TRUE;
+		setting += length;
+		setting += strspn(setting, ", ");
+	}
+	return FALSE;
+}

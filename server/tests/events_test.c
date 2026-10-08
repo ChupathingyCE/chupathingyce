@@ -178,6 +178,22 @@ int main(int argc, char **argv)
 		/* (nothing more once it is finished) */
 		return finish(1300, 1, &length) == NULL ? 0 : 2;
 	}
+	if (argc >= 2 && !strcmp(argv[1], "abandon"))
+	{
+		/* a game torn down before its end (game_events_update): its batch
+		thrown away through event_log_free, and nothing after, which
+		event_log_free takes too */
+		play_sample();
+		json = finish(1200, 1, &length);
+		if (!json)
+			return 1;
+		event_log_free(json);
+		json = finish(1300, 1, &length);
+		if (json)
+			return 2;
+		event_log_free(json);
+		return 0;
+	}
 	if (argc >= 2 && !strcmp(argv[1], "medals"))
 	{
 		/* Walter's spree of five, which Jo ends from the grave */
