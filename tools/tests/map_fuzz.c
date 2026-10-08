@@ -793,11 +793,19 @@ static void fuzz_xbox(unsigned char const *data, size_t size)
 	{
 		long corrections = tag_validate_corrections();
 
-		if (corrections && (!tag_validate_tags(tag_cache, header->tag_data_size, header->file_length, "fuzz") ||
-			tag_validate_corrections()))
+		if (corrections)
 		{
-			fprintf(stderr, "map_fuzz: the tags as corrected are not clean when checked again\n");
-			abort();
+			boolean valid;
+
+			if (fuzz_verbose)
+				fprintf(stderr, "map_fuzz: %ld corrections; checked again:\n", (long)corrections);
+			valid = tag_validate_tags(tag_cache, header->tag_data_size, header->file_length, "fuzz");
+			if (!valid || tag_validate_corrections())
+			{
+				fprintf(stderr, "map_fuzz: the tags as corrected are not clean when checked again (%s, %ld more)\n",
+					valid ? "accepted" : "refused", (long)tag_validate_corrections());
+				abort();
+			}
 		}
 	}
 
