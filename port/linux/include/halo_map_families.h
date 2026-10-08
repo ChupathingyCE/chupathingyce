@@ -72,6 +72,12 @@ void map_family_wire_name(char const *map, char *wire, long size);
 <file>@ce of an older ChupathingyCE host among them), into map; its family */
 short map_family_from_wire_name(char const *wire, char *map, long size);
 
+/* whether a map (as scenario_tags_load names it: <file>, <file>@ce, ...)
+came from a download, whose scripts are held to tighter rules (hs.c):
+marked by the downloader, or named by game.downloaded_maps */
+boolean map_is_downloaded(char const *map_name);
+void map_downloaded_mark(char const *map_name);
+
 #ifdef HALO_CUSTOM_EDITION
 /* a family's cache version: 609 for Custom Edition's, 7 for HaloMD's and
 Halo PC retail's */

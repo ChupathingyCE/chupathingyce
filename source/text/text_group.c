@@ -283,10 +283,18 @@ wchar_t *unicode_string_list_get_string(long tag_index, short string_index)
 				string_index,
 				struct string_list_entry);
 
-			if (entry->string.size > 0)
+			/* port: through tag_data_get_pointer, which keeps a Custom
+			Edition map's within its tags (its string lists' data is
+			otherwise unchecked: ce_map_checks.c), and only a string of at
+			least one character, which is terminated within it (a size of 1
+			wrote before its data) */
+			if (entry->string.size >= (long)sizeof(wchar_t))
 			{
-				result = xbox_pointer(entry->string.address);
-				result[entry->string.size / sizeof(wchar_t) - 1] = L'\0';
+				result = tag_data_get_pointer(&entry->string, 0, entry->string.size);
+				if (result)
+					result[entry->string.size / sizeof(wchar_t) - 1] = L'\0';
+				else
+					result = L"";
 			}
 		}
 		else if (fallback_string(tag_index, string_index))

@@ -3425,6 +3425,58 @@ static boolean multiplayer_profiles_list_initialize(
 	return TRUE;
 }
 
+/* port: whether a widget of a map's may not run an event handler's function.
+A widget's handlers name the functions they run by their index in the
+function table, which nothing checks: any map's widget could run any of the
+main menu's functions (deleting player and playlist profiles, saving them,
+running the demos) and the port's own (writing config.toml, quitting,
+connecting), on its created event too, as its screen opens. The shipped
+game maps' widgets (their pause screens) run none of these: those of the
+port's own menus' tags (pc_menu_tag) may run the port's, and the main menu's
+map (ui.map) the main menu's. Each refusal is logged once */
+static boolean ui_widget_function_denied(
+	struct widget_instance *widget,
+	word function_index)
+{
+	extern boolean pc_menu_tag(long tag_index);
+	static short const main_menu_functions[] =
+	{
+		41, /* mp profile change name */
+		60, /* mp profile save changes */
+		64, 65, 66, 67, /* player profile begin and end editing, change name, save changes */
+		68, 69, 70, 71, /* player profile controller settings */
+		74, 75, 76, 77, 78, 79, 80, /* profile deletion and creation */
+		86, 87, /* the demos */
+	};
+	static boolean logged = FALSE;
+	char const *map_name = cache_file_loaded_map_name();
+	boolean denied = FALSE;
+	short index;
+
+	if (pc_menu_tag(widget->definition_tag_index))
+		return FALSE;
+	if (function_index >= PC_MENU_FUNCTION_BASE && function_index < 0x8000)
+	{
+		denied = TRUE;
+	}
+	else if (map_name && csstrcmp(map_name, "ui"))
+	{
+		for (index = 0; index < (short)NUMBEROF(main_menu_functions); index++)
+		{
+			if (function_index == (word)main_menu_functions[index])
+				denied = TRUE;
+		}
+	}
+	if (denied && !logged)
+	{
+		logged = TRUE;
+		error(_error_silent, "the map %s's widget may not run event handler function %d; it is skipped",
+			map_name ? map_name : "", function_index);
+	}
+
+	return denied;
+}
+
 boolean ui_widget_event_handler_function_invoke(
 	struct widget_instance *widget,
 	struct event_record *event,
@@ -3436,6 +3488,10 @@ boolean ui_widget_event_handler_function_invoke(
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 478,
 		widget != NULL && widget_deleted != NULL,
 		"(widget != NULL) && (widget_deleted != NULL)");
+	/* port: a map's own widgets (not the menus' tags the port adds) may not
+	run what changes the player's files or settings: ui_widget_function_denied */
+	if (ui_widget_function_denied(widget, function_index))
+		return TRUE;
 	/* port: the menus' own functions (port/linux/game/menu_functions.c) */
 	if (function_index >= PC_MENU_FUNCTION_BASE && function_index < 0x8000)
 	{
