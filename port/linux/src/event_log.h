@@ -323,6 +323,10 @@ memory. final: the game's end (the log is empty after); else a part of
 the game so far (sent during a long game: the log goes on). invite: the
 game's listed invite, "" if none. */
 char *event_log_finish(struct event_log_end const *end, char const *invite, int final, size_t *length);
+/* a batch event_log_finish gave, NULL or not, freed as it was allocated
+(the C library's free: the game's units free through their own allocator,
+debug_free, which takes neither another allocator's memory nor NULL) */
+void event_log_free(char *json);
 
 /* a moderator's action (EVENT_LOG_MODERATION_*) in the game under way, if
 one is recorded (the game's thread only: the server's commands run there):
