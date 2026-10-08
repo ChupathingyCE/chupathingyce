@@ -506,7 +506,8 @@ breaking:
 	X(20, "build-133", additive) /* password games' internet listings (another listing layout); game messages as 19 */ \
 	X(21, "build-141", additive) /* killing blows and resting bodies resent, co-op BSP switches by the host's crossing */ \
 	X(22, "build-145", additive) /* a Custom Edition map named custom_maps\\<name> in the game's settings */ \
-	X(23, "build-147", additive) /* a Custom Edition map's blocks past the Xbox tools' limits kept, its version in the game's settings; Xbox maps as 22 */
+	X(23, "build-147", additive) /* a Custom Edition map's blocks past the Xbox tools' limits kept, its version in the game's settings; Xbox maps as 22 */ \
+	X(24, "build-149", additive) /* the gametype's PC vehicle set: every vehicle the map places */
 ```
 
 `tools/test_delta.py` (in CI) checks `halo_port_limits.h` against it: hosts
@@ -542,6 +543,7 @@ Known history, from `port/linux/NETCODE.md` and OpenCE's commits:
 | 21 | build-141 | killing blows and resting bodies sent again, co-op's BSP switched by the host's crossing alone, co-op's garbage throttle | additive |
 | 22 | build-145 | a Custom Edition map named `custom_maps\<name>` in the game's settings (a joining machine without it is told which map it misses) | additive |
 | 23 | build-147 | a Custom Edition map's blocks past the Xbox tools' limits kept whole, its vehicles placed by their spawn flags, and its header checksum sent as the map's version (a client of another version leaves); Xbox maps play as 22 | additive |
+| 24 | build-149 | the gametype's PC vehicle set (0xFE), every vehicle the map places; on a Custom Edition map every placement whose spawn flags name the game type (a client of 23 places none of it) | additive |
 
 ### Automation
 
@@ -927,7 +929,7 @@ check it too):
   "serial": 42,
   "issued": 1791331200,
   "wires": {
-    "chupa-23a": { "announce": 23, "minimum": 11, "maximum": 23 }
+    "chupa-24a": { "announce": 24, "minimum": 11, "maximum": 24 }
   },
   "disabled_capabilities": [],
   "platform_policy": {}
@@ -939,7 +941,7 @@ check it too):
 - **`serial`**: 1 to 4294967294 (0xFFFFFFFF says "takes no tables" on the wire); each table published gets a higher one.
   **`issued`**: when it was made (Unix seconds), for people; optional.
 - **Rows by wire, not by build.** Each build has a wire ID (`DELTA_WIRE` in
-  `delta.h`, `chupa-23a` today; `chupa-20a` was 0.7.0b's): the revision of the game protocol it
+  `delta.h`, `chupa-24a` today; `chupa-23a` was 0.7.1b's, `chupa-20a` 0.7.0b's): the revision of the game protocol it
   actually speaks. A row says which OpenCE numbers that wire was proven to
   play with: the number a host announces, and the range of hosts' numbers a
   client joins (each 1 to 65535, `minimum <= announce <= maximum`). An old
