@@ -257,6 +257,9 @@ to install, and no port forwarding. See [server/README.md](server/README.md).
 
 ## ChupathingyCE, OpenCE and Delta
 
+ChupathingyCE is a fork of OpenCE with some extra features, meant to stay
+compatible with it.
+
 - **OpenCE** ([OpenCommunityEdition/OpenCE](https://github.com/OpenCommunityEdition/OpenCE))
   is the port ChupathingyCE started from. We merge its changes on our own
   schedule, and ChupathingyCE has its own releases and version numbers, so it
@@ -270,15 +273,10 @@ to install, and no port forwarding. See [server/README.md](server/README.md).
   how multiplayer plays still needs a ChupathingyCE release. The line at the
   top of this page says which OpenCE builds this release matches.
 - **Delta** is ChupathingyCE's network family ([docs/delta.md](docs/delta.md)):
-  everything our machines and services say beyond OpenCE's game protocol.
-  In any game with OpenCE players, ChupathingyCE speaks that protocol so
-  everyone plays together; OpenCE's version number is Delta's legacy layer,
-  kept for that. Delta is also where ChupathingyCE's own netcode grows, with
-  OpenCE's protocol kept as the fallback for mixed games. Between
-  ChupathingyCE machines, Delta Peer negotiates what each side supports, so small changes stop splitting
-  players. The game list, stats and profile links on
-  [halo.milenko.org](https://halo.milenko.org) and the dedicated server's
-  admin tools are Delta List, Delta Stats, Delta Link and Delta Control.
+  the extras ChupathingyCE machines and services add on top of OpenCE's
+  game protocol, such as the game list, stats, profile links and dedicated
+  server admin tools on [halo.milenko.org](https://halo.milenko.org). Games
+  with OpenCE players use OpenCE's protocol, so everyone plays together.
 - Fixes to the shared game code are offered back to OpenCE as pull requests.
 
 ## Building it yourself
