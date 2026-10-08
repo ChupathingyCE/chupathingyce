@@ -161,7 +161,7 @@ console, control API and web admin page; `webui/` that page's files;
 `tests/` the control API's tests; `docs/` the server's documents;
 `playlists/` the playlists; `deploy/` the container and services.
 
-## Stats (Delta Stats, opt in)
+## Stats (Delta Stats)
 
 A server can send each game's events to halo.milenko.org when it ends, for
 the site's match pages, heatmaps, records and leaderboards: kills (weapon,
@@ -172,11 +172,11 @@ ping, and the server's own minute (frame time, CPU, memory). Players are
 their names and a keyed hash of their hardware ID. No address of anyone is
 ever sent. Co-op games are never recorded.
 
-It is off unless you turn it on:
+It is on by default; set `HALO_NET_REPORT_EVENTS=false` to turn it off:
 
 | Setting | Default | |
 | --- | --- | --- |
-| `HALO_NET_REPORT_EVENTS` | `false` | `true` records and sends each game. |
+| `HALO_NET_REPORT_EVENTS` | `true` | `false` stops recording and sending games. |
 | `HALO_EVENTS_TOKEN` | (none) | A token from the site's operator: the games count as a trusted server's. Without one, the site takes a game only while the server lists it, from the same address (as the carnage report). |
 | `HALO_EVENTS_POSITIONS` | `2` | Seconds between position samples (0 none). |
 | `HALO_EVENTS_LIMIT` | `40000` | The most events a game keeps (about 60 bytes each); past it the position samples thin out first. |

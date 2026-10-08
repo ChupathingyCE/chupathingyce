@@ -420,12 +420,12 @@ static const struct config_setting config_settings[] =
 		"its scores as this machine saw them, with this copy's player ID, so that\n"
 		"games whose host does not report them are recorded too. False sends\n"
 		"nothing." },
-	{ "network.report_events", _config_boolean, "false", "HALO_NET_REPORT_EVENTS", _environment_value, _platform_all,
+	{ "network.report_events", _config_boolean, "true", "HALO_NET_REPORT_EVENTS", _environment_value, _platform_all,
 		"Delta Stats: record the games this machine hosts (kills with weapons and\n"
 		"positions, accuracy, medals, objectives, vehicles, pickups, positions a\n"
 		"few seconds apart) and send them to network.browser_url when each ends,\n"
 		"for the site's match pages, heatmaps and leaderboards. Players' names\n"
-		"and a hash of their hardware ID; never an address. Off by default." },
+		"and a hash of their hardware ID; never an address. False turns it off." },
 	{ "network.events_token", _config_string, "\"\"", "HALO_EVENTS_TOKEN", _environment_value, _platform_all,
 		"A dedicated server's Delta Stats token, from the game list's operator:\n"
 		"its games count as a trusted server's. Empty: the game must be listed\n"

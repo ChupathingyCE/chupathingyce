@@ -626,10 +626,10 @@ for the site's "Played on" profile badges.
 
 ### Who records
 
-Only a host records, and only when its operator or player turns it on
-(`network.report_events`, `HALO_NET_REPORT_EVENTS`; off by default): our
-[D] servers, community servers that opt in, and ChupathingyCE players who
-host and opt in. Everything is what the host saw, so it is exact; nothing a
+Only a host records. It is on by default and the host's operator or
+player can turn it off (`network.report_events`, `HALO_NET_REPORT_EVENTS`
+set to false): our [D] servers, community servers and ChupathingyCE
+players who host, unless they opt out. Everything is what the host saw, so it is exact; nothing a
 client says is taken. Co-op (campaign) games are never recorded.
 
 ### Players

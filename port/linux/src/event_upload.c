@@ -3,8 +3,7 @@ EVENT_UPLOAD.C
 
 Delta Stats' uploads (event_log.h, docs/delta.md "Delta Stats"): the
 batches of the games this machine hosts, when network.report_events is on
-(off by default; the dedicated server's operator turns it on with
-HALO_NET_REPORT_EVENTS=true), compressed and sent to the game list
+(on by default; HALO_NET_REPORT_EVENTS=false turns it off), compressed and sent to the game list
 (network.browser_url) as POST /v1/events, on a thread of this file's.
 
 Who may send: a server with a token the game list's operator made for it
