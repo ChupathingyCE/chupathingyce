@@ -452,7 +452,8 @@ static int map_name_character(char character)
 {
 	return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
 		(character >= '0' && character <= '9') || character == '_' || character == '-' || character == '.' ||
-		character == ' ';
+		character == ' ' || character == '[' || character == ']' || character == '(' || character == ')' ||
+		character == '+';
 }
 
 int delta_wire_map_name_valid(const char *name)
