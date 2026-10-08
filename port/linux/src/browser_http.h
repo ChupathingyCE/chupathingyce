@@ -21,10 +21,6 @@ int posix_browser_request(const char *url, const char *body, const char *content
 /* the same, as user_agent (the crash reports': build_identity_user_agent) */
 int posix_browser_request_as(const char *url, const char *body, const char *content_type, const char *user_agent,
 	char *response, int response_size, char *error, int error_size);
-
-/* the same, as user_agent (the crash reports': build_identity_user_agent) */
-int posix_browser_request_as(const char *url, const char *body, const char *content_type, const char *user_agent,
-	char *response, int response_size, char *error, int error_size);
 /* the same, with a body of body_length bytes (any bytes: a gzip member) when
 body is not NULL, and more header lines ("Name: value\r\n" each) when
 headers is not NULL */

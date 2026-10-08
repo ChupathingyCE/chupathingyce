@@ -362,7 +362,9 @@ void event_upload_system_sample(int *cpu_permille, int *resident_kb)
 {
 	*cpu_permille = -1;
 	*resident_kb = -1;
-#ifndef _WIN32
+	/* (not in the Android app's game, which has no getrusage: the sample's
+	CPU and memory are left unknown there) */
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
 	{
 		struct rusage usage;
 		struct timeval now;
