@@ -41,9 +41,9 @@ enum config_environment
 	/* the variable's text is the value ("0", "false", "no" and "off" are
 	false for a boolean) */
 	_environment_value,
-	/* the variable being set at all makes it true */
+	/* the variable being set makes it true */
 	_environment_set_is_true,
-	/* the variable being set at all makes it false */
+	/* the variable being set makes it false */
 	_environment_set_is_false,
 };
 
@@ -145,8 +145,10 @@ static const struct config_setting config_settings[] =
 		"on the Xbox, or 256, 512 or 1024 for smoother edges, as soft." },
 	{ "display.menus", _config_string, "\"xbox\"", "HALO_MENUS", _environment_value, _platform_all,
 		"The menus: \"xbox\" for the Xbox's (with Online Games), \"pc\" for the\n"
-		"PC version's main menu (port/assets/menus, and a menus folder here for\n"
-		"your own; not all of it is wired yet)." },
+		"PC version's screens and Server Browser, rebuilt from port/assets/menus\n"
+		"(a menus folder here for your own) with this port's fonts and redrawn\n"
+		"pictures, not Halo PC's files. Read when the game starts: restart it\n"
+		"after a change. Not all of the PC screens are wired yet." },
 	{ "display.player_names", _config_string, "\"all\"", "HALO_PLAYER_NAMES", _environment_value, _platform_all,
 		"In multiplayer, whose names are drawn above their heads: \"all\",\n"
 		"\"allies\", \"enemies\" or \"none\". An enemy's shows only within the\n"
@@ -418,8 +420,9 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"When an internet game this machine joined ends, send network.browser_url\n"
 		"its scores as this machine saw them, with this copy's player ID, so that\n"
-		"games whose host does not report them are recorded too. False sends\n"
-		"nothing." },
+		"games whose host does not report them are recorded too, and confirm\n"
+		"this machine's players' lines in the host's report of it (/v1/claim),\n"
+		"which puts the game on their profile. False sends neither." },
 	{ "network.report_events", _config_boolean, "true", "HALO_NET_REPORT_EVENTS", _environment_value, _platform_all,
 		"Delta Stats: record the games this machine hosts (kills with weapons and\n"
 		"positions, accuracy, medals, objectives, vehicles, pickups, positions a\n"
@@ -1003,6 +1006,13 @@ static int config_text_is_false(const char *text)
 	return !strcmp(lower, "0") || !strcmp(lower, "false") || !strcmp(lower, "no") || !strcmp(lower, "off");
 }
 
+/* whether an environment variable that only has to be set (a
+_environment_set_is_*) is: one empty or false is not */
+static int config_environment_set(const char *text)
+{
+	return text[0] && !config_text_is_false(text);
+}
+
 static void config_set_from_text(struct config_value *value, enum config_type type, const char *text)
 {
 	switch (type)
@@ -1092,6 +1102,37 @@ static long config_setting_index(const char *name)
 	return -1;
 }
 
+/* a key in the file that is no setting, likely misspelt or in the wrong
+section: said in the log, with the section of a setting of that name */
+static void config_report_unknown_key(int line, const char *name)
+{
+	const char *key = strrchr(name, '.');
+	const char *found = NULL;
+	size_t index, count = 0;
+
+	key = key ? key + 1 : name;
+	for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
+	{
+		const char *dot = strchr(config_settings[index].name, '.');
+
+		if (dot && !strcmp(dot + 1, key))
+		{
+			found = config_settings[index].name;
+			count++;
+		}
+	}
+	/* (only a name one setting has: the section is then sure) */
+	if (count == 1)
+	{
+		platform_log("config.toml line %d: unknown setting %s, ignored (%s goes under [%.*s])", line, name, key,
+			(int)(strchr(found, '.') - found), found);
+	}
+	else
+	{
+		platform_log("config.toml line %d: unknown setting %s, ignored", line, name);
+	}
+}
+
 /* keys in the file that are no setting, likely misspelt */
 static void config_report_unknown_keys(toml_datum_t table)
 {
@@ -1106,7 +1147,7 @@ static void config_report_unknown_keys(toml_datum_t table)
 			continue;
 		if (section.type != TOML_TABLE)
 		{
-			platform_log("config.toml line %d: unknown setting %s", section.lineno, table.u.tab.key[section_index]);
+			config_report_unknown_key(section.lineno, table.u.tab.key[section_index]);
 			continue;
 		}
 		for (key_index = 0; key_index < section.u.tab.size; key_index++)
@@ -1115,7 +1156,7 @@ static void config_report_unknown_keys(toml_datum_t table)
 
 			snprintf(name, sizeof(name), "%s.%s", table.u.tab.key[section_index], section.u.tab.key[key_index]);
 			if (config_setting_index(name) < 0)
-				platform_log("config.toml line %d: unknown setting %s", section.u.tab.value[key_index].lineno, name);
+				config_report_unknown_key(section.u.tab.value[key_index].lineno, name);
 		}
 	}
 }
@@ -1306,6 +1347,29 @@ static void config_load(void)
 	}
 
 	config_path(path, sizeof(path));
+#ifdef __APPLE__
+	{
+		/* a config.toml beside the application, or in it, which the game never
+		reads (its is in Application Support): said, for whoever edits it */
+		const char *base = SDL_GetBasePath();
+		const char *bundle = base ? strstr(base, ".app/Contents/") : NULL;
+
+		if (bundle)
+		{
+			const char *folder_end = bundle;
+			char other[1024];
+
+			while (folder_end > base && folder_end[-1] != '/')
+				folder_end--;
+			snprintf(other, sizeof(other), "%sconfig.toml", base);
+			if (SDL_GetPathInfo(other, NULL))
+				platform_log("settings: %s is not read; the game's settings are %s", other, path);
+			snprintf(other, sizeof(other), "%.*sconfig.toml", (int)(folder_end - base), base);
+			if (SDL_GetPathInfo(other, NULL))
+				platform_log("settings: %s is not read; the game's settings are %s", other, path);
+		}
+	}
+#endif
 	text = config_read_file(path, &size);
 	if (text)
 	{
@@ -1346,7 +1410,8 @@ static void config_load(void)
 		}
 		else
 		{
-			platform_log("config.toml: %s; using the defaults", result.errmsg);
+			platform_log("config.toml cannot be read (%s): every setting is at its default until that is fixed "
+				"(a word value needs quotes: menus = \"pc\")", result.errmsg);
 		}
 		toml_free(result);
 		free(text);
@@ -1367,7 +1432,9 @@ static void config_load(void)
 		const struct config_setting *setting = &config_settings[index];
 		const char *environment = getenv(setting->environment);
 
-		if (!environment)
+		/* (one set to "", "0", "false", "no" or "off" is as if it were not:
+		HALO_LOG_ADDRESSES=0 never turns a setting on) */
+		if (!environment || (setting->environment_style != _environment_value && !config_environment_set(environment)))
 			continue;
 		switch (setting->environment_style)
 		{

@@ -193,7 +193,7 @@ Halo.
 | Join a game | **Multiplayer → Online Games**, pick a game, press **A**. Or press **Join** on [halo.milenko.org](https://halo.milenko.org). |
 | Host a game | **Multiplayer → Online Games → Y (Create Game)**, or host from System Link as usual. Your game is listed online by itself, on halo.milenko.org and in OpenCE's in-game Server Browser (`public_lobby`/`host_public` under `[network]` in `config.toml` turn that off). |
 | Invite a friend | When you host, the game copies an invite link (`halo://join/…`). Send it; opening it joins your game. |
-| See your stats | Your service record is on [halo.milenko.org](https://halo.milenko.org), found by your name. Games you join count even when the host doesn't run ChupathingyCE: when an online game you joined ends, the game sends halo.milenko.org the scoreboard as your game saw it (names, kills, deaths, scores, medals, weapons) with your player ID. To turn that off, set `report_joined_games = false` under `[network]` in `config.toml`. |
+| See your stats | Your service record is on [halo.milenko.org](https://halo.milenko.org), found by your name. Games you join count even when the host doesn't run ChupathingyCE: when an online game you joined ends, the game sends halo.milenko.org the scoreboard as your game saw it (names, kills, deaths, scores, medals, weapons) with your player ID. Your copy also confirms your line in the host's report, which puts the game on your profile. To turn both off for games you join, set `report_joined_games = false` under `[network]` in `config.toml`. |
 | Stop sharing your hosted games' stats | Set `report_events = false` under `[network]` in `config.toml`. It's on by default: the games you host send their Delta Stats (kills with positions, accuracy, medals, objectives) to halo.milenko.org for its match pages and heatmaps. Never anyone's address. |
 | Make an account | On [halo.milenko.org/profile](https://halo.milenko.org/profile), or press **Start** in Online Games to make one for the player you already are. |
 | Link the game without a browser (Steam Deck, Game Mode) | In Online Games, press **RB** (or **C** on the keyboard) for Link Profile. On your phone or computer, go to [halo.milenko.org/connect](https://halo.milenko.org/connect), enter the code the game shows (or scan its QR code), then press **A** in the game to confirm. |
@@ -217,7 +217,12 @@ Most of what you can change lives in the game's menus, but everything the
 port adds is in one file, `config.toml`. The game writes it the first time it
 starts, with every setting listed, commented out at its default, and a line
 or two saying what each one does. To change one, remove the `#` in front of it
-and edit the value; the game reads the file when it starts.
+and edit the value; the game reads the file when it starts, so restart it
+after a change. If a change seems to do nothing, look in `debug.txt` for lines
+starting `config.toml` or `settings:`: they name a misspelled setting, one in
+the wrong `[section]`, a value missing its quotes (`menus = "pc"`, not
+`menus = pc`, which leaves every setting at its default), or, on a Mac, a
+`config.toml` that is not the one the game reads.
 
 | Platform | config.toml is |
 | --- | --- |

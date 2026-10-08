@@ -1,12 +1,13 @@
 # Delta: ChupathingyCE's network family
 
-Status (October 6, 2026): in progress. Delta List, Stats, Link and Control
-run today under the names in the table below; the legacy number's table and
-its automation are built (see "The legacy number"), and so is the signed
-legacy table's loader (see "The legacy table as config"); Delta Peer's
-first layer is built: its port, the advertisement's flag, the handshake
-with silent fallback, platform keys, and the `platform` and `profile`
-capabilities (see "Delta Peer"). The site's page for players:
+Status (October 8, 2026, for 0.7.1b): in progress. Delta List, Stats, Link
+and Control run under the names in the table below; the legacy number's
+table, its signed loader and the cross-play gate that publishes it are
+built (see "The legacy number" and "Following OpenCE"); Delta Peer's first
+layer is built: its port, the advertisement's flag, the handshake with
+silent fallback, platform keys, and the `platform`, `profile`, `ce_maps`
+and `moderation` capabilities (see "Delta Peer"). Delta Stats' event log,
+server moderators and linking servers to the site come with 0.7.1b. The site's page for players:
 https://halo.milenko.org/delta
 
 Delta is the name for everything ChupathingyCE's machines say to each other
@@ -27,7 +28,7 @@ boundaries:
 | **Delta List** | game or server, and the site | announcing and listing games | `/v1/announce`, `/v1/withdraw`, `/v1/games`, the console list |
 | **Delta Stats** | game or server, and the site | end-of-game reports and the event stream | `/v1/report`, `/v1/client_report`, `/v1/events` |
 | **Delta Control** | an admin or moderator, and a server | roles, commands, the control API and panel, in-game moderation, the site link | `sv_` commands, `HALO_DEDICATED_CONTROL`, `moderators.txt`, `sv_link` |
-| **Delta Link** | a player or server, and the site | linking with a code, and site-relayed control | `/v1/link`, `/v1/connect`, `/v1/claim` (profiles); servers planned |
+| **Delta Link** | a player or server, and the site | linking with a code, and site-relayed control | `/v1/link`, `/v1/connect`, `/v1/claim` (profiles); `sv_link` (servers, 0.7.1b) |
 
 The legacy number (OpenCE's `HALO_PORT_NETWORK_VERSION`) is not part of
 Delta. Delta works around it (see "The legacy number" below).
@@ -136,11 +137,9 @@ shares.
 | 10 | `moderation` | a dedicated server's moderators sign in and act from the game (below, "Moderation") |
 
 The registry lives in the repository next to the compatibility table and is
-the single source for the bit numbers. Built so far: `platform`, `profile`
-and `ce_maps`. Their values are claims, shown as claims, never used for game
-state:
-and `moderation` (see "Moderation"). The first two's values are claims,
-shown as claims, never used for game state:
+the single source for the bit numbers. Built so far: `platform`, `profile`,
+`ce_maps` and `moderation` (see "Moderation"). The first two's values are
+claims, shown as claims, never used for game state:
 
 - **`platform`**: each machine's platform key (below), and so each player's
   platform: `delta_peer_player_platform(player)` for the scoreboard's icons
@@ -148,7 +147,8 @@ shown as claims, never used for game state:
 - **`profile`**: a machine's player ID (the game list's, 16 bytes) and its
   profile revision (0 until the game knows it); the profile itself is the
   site's. Opt-in: a copy shares its own only with `network.share_profile`,
-  since the ID is the same in every game.
+  since the ID is the same in every game. Profiles are exchanged, but
+  nothing in the game shows them yet.
 - **`ce_maps`**: the game's map's identity, host to client (MAP, below), so
   a client with another file of the same name leaves rather than playing a
   map that is not the host's. See "Map identity".
@@ -304,8 +304,9 @@ its game (anything else is dropped before parsing), and ties a HELLO to the
 machine of its address and machine index; a client reads only its host's
 address and port, of its session. Everything else is dropped and counted.
 `port/linux/tests/delta_test.c` (unit tests and a seeded random-input test of
-every parser and both sessions) and `delta_fuzz.c` (libFuzzer) run in CI
-(`tools/test_delta_peer.py`).
+every parser and both sessions) run in CI (`tools/test_delta_peer.py`);
+`delta_fuzz.c` (libFuzzer) runs there too where clang can link
+`-fsanitize=fuzzer`, and is skipped where it can't (Apple's clang).
 
 ### Map identity
 
@@ -641,7 +642,9 @@ again with its own secret and never shows it. A player becomes a confirmed
 player (a player ID, so a profile) only the way carnage reports confirm
 them: their own copy of the game claims their line of the same game's
 report with its player key (`/v1/claim`); the site then marks the same
-line of the events. A host's word about who a player is is never taken. No
+line of the events. A copy claims a game it joined only with
+`network.report_joined_games` on (the default), the setting that also sends
+its own report of the game; a game it hosted, always. A host's word about who a player is is never taken. No
 IP address is ever recorded or sent, by the game or the site.
 
 ### The batch (schema 1)
@@ -712,10 +715,7 @@ records a kick, ban, warning or other action in the game under way, and a
 kicked or banned player's leaving is recorded as such. Delta Control's
 audit hands each action to `server_roles_set_recorder()`'s recorder, on any
 thread; `server/platform/server_events.c` queues it
-(`event_upload_moderation`) for the game's thread. That glue lives on the
-`delta-stats-moderation` branch: merge `server-moderation` first, then
-`delta-stats`, then the glue (or merge `delta-stats-moderation`, which has
-all three). A game that ends with everyone gone is sent as `empty`; a
+(`event_upload_moderation`) for the game's thread. A game that ends with everyone gone is sent as `empty`; a
 server that stops mid-game sends nothing for it. Anti-cheat `flags` are a
 schema slot with nothing filling it yet.
 
@@ -1254,7 +1254,7 @@ asking players for anything:
 
 - **Untrusted by default.** Every message is parsed as hostile input: sizes
   bounded before reading, counts capped, strings checked, and every parser
-  fuzzed in CI. The host stays authoritative; a peer's claim (platform,
+  under unit tests and a fuzzer. The host stays authoritative; a peer's claim (platform,
   profile, build) is shown as a claim.
 - **Encrypted where the game is.** On the internet Delta Peer runs inside the
   invite tunnel (encrypted, bound to the invite's host); listings are signed
@@ -1277,19 +1277,21 @@ asking players for anything:
    Done: `delta.h` and `test_delta.py`.
 2. The announced number and join range checked against the table. Done;
    generating them from it comes with the signed table.
-3. The watch workflow's classifier (done); following becomes a reviewed
-   merge of OpenCE's code gated by CI's cross-play test (next), starting
-   with OpenCE's network versions 19 and 20.
+3. The watch workflow's classifier and the cross-play gate (done, in the
+   command repository: "Following OpenCE"). A network version our wire
+   doesn't play with is still a reviewed merge of OpenCE's code and a
+   release.
 4. Delta Peer: the port, the flag, the handshake with fallback, fuzzing,
    platform keys and their policy, and its first capabilities (`platform`,
-   `profile`). Built; `server_messages` next, then the LAN superset.
+   `profile`, `ce_maps`, `moderation`). Built; `server_messages` and the
+   LAN superset are next.
 5. The protocol choice (Auto, Delta only, OpenCE only) and the browsers'
    protocol labels; a dedicated server's listing marks it (flag 128).
-6. Moderators for dedicated servers: Delta Peer's `moderation` (built),
-   then site-granted moderators through Delta Link profiles; Delta Stats
-   events.
+6. Moderators for dedicated servers: Delta Peer's `moderation`,
+   site-granted roles through a server's link to the site (`sv_link`), and
+   Delta Stats events with moderation in them. Built, in 0.7.1b.
 7. The legacy table as config. Built: wire IDs, the signed document and
    its tool, the game's loader (cache, Delta List, GitHub), the local
-   override, the real keys and delivery over Delta Peer. Next: CI publishing
-   after cross-play.
+   override, the real keys, delivery over Delta Peer, epochs, and CI
+   publishing after the cross-play gate.
 8. The per-peer host experiment, and the proposal to OpenCE.
