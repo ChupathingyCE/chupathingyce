@@ -940,7 +940,8 @@ boolean cache_file_header_verify(
 			&& !CACHE_FILE_VERSION_IS_PC(header->version)
 #endif
 		) ||
-		csstrlen(header->name) > 31)
+		/* port: its name ends within its field (csstrlen read on past it) */
+		!memchr(header->name, 0, sizeof(header->name)))
 	{
 		if (fatal)
 		{
