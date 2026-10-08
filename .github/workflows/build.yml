@@ -455,6 +455,20 @@ jobs:
           path: dist/chupathingyce-windows-release
           retention-days: 3
 
+      # (halo.exe's symbols and map, which ChupathingyCE's release keeps
+      # privately for the crash reports; not published)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symbols-windows-debug
+          path: dist/chupathingyce-windows-debug-symbols
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symbols-windows-release
+          path: dist/chupathingyce-windows-release-symbols
+          retention-days: 3
+
   windows64:
     # The native 64-bit Windows build (ninja windows64), on the same runner
     # image as the 32-bit one, with Visual Studio's x64 libraries.
@@ -514,6 +528,20 @@ jobs:
         with:
           name: chupathingyce-windows64-release
           path: dist/chupathingyce-windows64-release
+          retention-days: 3
+
+      # (halo.exe's symbols and map, which ChupathingyCE's release keeps
+      # privately for the crash reports; not published)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symbols-windows64-debug
+          path: dist/chupathingyce-windows64-debug-symbols
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symbols-windows64-release
+          path: dist/chupathingyce-windows64-release-symbols
           retention-days: 3
 
   macos:
