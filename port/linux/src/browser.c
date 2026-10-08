@@ -33,6 +33,7 @@ with it under the lock.
 #include "p2p.h"
 #include "p2p_internal.h"
 #include "browser.h"
+#include "delta_peer.h"
 #include "qrcodegen.h"
 
 #include <stdarg.h>
@@ -53,6 +54,10 @@ enum
 	/* (asked again this long after a failure) */
 	RETRY_INTERVAL = 15000,
 	THREAD_INTERVAL = 250,
+	/* a copy of the game that quits waits this long at most for its
+	listing's withdrawal (the list drops it by itself later otherwise) */
+	EXIT_WITHDRAW_WAIT = 2500,
+	EXIT_WITHDRAW_POLL = 50,
 	RESPONSE_SIZE = 32768,
 	/* the player key (game_list_player.key in the save root) */
 	PLAYER_KEY_SIZE = 32,
@@ -97,6 +102,11 @@ struct hosted_game
 	int teams;
 	int roster_count;
 	struct browser_roster_player roster[BROWSER_HOSTED_ROSTER];
+	/* what the announcement says of the host (Delta List): its platform
+	key, whether it hosts with Delta, its machines by platform
+	(delta_peer_game_host_summary: 0, not known yet) */
+	int has_delta;
+	struct delta_peer_host_summary delta;
 };
 
 static pthread_mutex_t browser_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -110,7 +120,8 @@ static struct
 	int host_reported;
 	int host_changed;
 
-	/* the browser thread's own */
+	/* the browser thread's own (written under the lock, which the exit's
+	withdrawal reads it under) */
 	char listed_invite[BROWSER_INVITE_LENGTH + 1];
 	unsigned long announce_time;
 	struct hosted_game announced;
@@ -127,7 +138,7 @@ static struct
 	/* the local players' lines of a finished game, to confirm (the game's
 	thread asks, the browser thread sends) */
 	char claim_invite[BROWSER_INVITE_LENGTH + 1];
-	unsigned short claim_names[MAXIMUM_CLAIM_NAMES][12];
+	unsigned short claim_names[MAXIMUM_CLAIM_NAMES][BROWSER_PLAYER_NAME_LENGTH];
 	int claim_count;
 	int claim_attempts;
 	unsigned long claim_time;
@@ -142,7 +153,7 @@ static struct
 	so that an answer about a code no longer shown is dropped */
 	int connect_state;
 	int connect_serial;
-	unsigned short connect_name[12];
+	unsigned short connect_name[BROWSER_PLAYER_NAME_LENGTH];
 	char connect_code[16];
 	char connect_token[CONNECT_TOKEN_LENGTH + 1];
 	unsigned long connect_time;
@@ -306,6 +317,7 @@ request must come from that address (the game list checks). So a key
 confirms its own player's lines, in games they played. */
 
 static int json_name(char *out, int size, const unsigned short *name, int length);
+static const char *local_platform_name(void);
 
 static int player_key_loaded;
 static unsigned char player_key_cached[PLAYER_KEY_SIZE];
@@ -317,27 +329,45 @@ static void player_key_path(char *path, int size)
 
 static int player_key(unsigned char *key)
 {
+	/* (one thread loads it, or makes it the first time, while another that
+	wants it waits: the browser's thread and the game's both ask, and the
+	second, finding the file just made and not yet written, had the key
+	missing for the whole run; held across the file's reading, not
+	browser_lock) */
+	static pthread_mutex_t load_lock = PTHREAD_MUTEX_INITIALIZER;
 	int loaded;
-	unsigned char *cached = player_key_cached;
 	char path[1024];
 
+	pthread_mutex_lock(&load_lock);
 	pthread_mutex_lock(&browser_lock);
 	loaded = player_key_loaded;
 	pthread_mutex_unlock(&browser_lock);
 	if (!loaded)
 	{
+		unsigned char read_key[PLAYER_KEY_SIZE];
+
 		player_key_path(path, sizeof(path));
-		loaded = posix_browser_private_key(path, cached, PLAYER_KEY_SIZE) ? 1 : -1;
+		loaded = posix_browser_private_key(path, read_key, PLAYER_KEY_SIZE) ? 1 : -1;
 		if (loaded < 0)
 			platform_log("Game list: no player key (%s): finished games are not confirmed", path);
 		pthread_mutex_lock(&browser_lock);
-		player_key_loaded = loaded;
+		/* (unless a restored key took its place meanwhile) */
+		if (player_key_loaded)
+			loaded = player_key_loaded;
+		else
+		{
+			if (loaded > 0)
+				memcpy(player_key_cached, read_key, PLAYER_KEY_SIZE);
+			player_key_loaded = loaded;
+		}
 		pthread_mutex_unlock(&browser_lock);
+		memset(read_key, 0, sizeof(read_key));
 	}
+	pthread_mutex_unlock(&load_lock);
 	if (loaded < 0)
 		return 0;
 	pthread_mutex_lock(&browser_lock);
-	memcpy(key, cached, PLAYER_KEY_SIZE);
+	memcpy(key, player_key_cached, PLAYER_KEY_SIZE);
 	pthread_mutex_unlock(&browser_lock);
 	return 1;
 }
@@ -397,7 +427,7 @@ static int safe_for_key(const char *url)
 static void send_claims(void)
 {
 	char invite[BROWSER_INVITE_LENGTH + 1];
-	unsigned short names[MAXIMUM_CLAIM_NAMES][12];
+	unsigned short names[MAXIMUM_CLAIM_NAMES][BROWSER_PLAYER_NAME_LENGTH];
 	unsigned char key[PLAYER_KEY_SIZE];
 	char key_text[2 * PLAYER_KEY_SIZE + 1];
 	char url[512], body[512], name[64], response[256], error[256];
@@ -425,15 +455,18 @@ static void send_claims(void)
 	{
 		int status;
 
-		utf8_from_name(names[index], 12, name, sizeof(name));
-		snprintf(body, sizeof(body), "{\"invite\": \"%s\", \"key\": \"%s\", \"name\": ", invite, key_text);
-		json_name(body + strlen(body), (int)(sizeof(body) - strlen(body) - 2), names[index], 12);
+		utf8_from_name(names[index], BROWSER_PLAYER_NAME_LENGTH, name, sizeof(name));
+		snprintf(body, sizeof(body), "{\"invite\": \"%s\", \"key\": \"%s\", \"platform\": \"%s\", \"name\": ", invite,
+			key_text, local_platform_name());
+		json_name(body + strlen(body), (int)(sizeof(body) - strlen(body) - 2), names[index], BROWSER_PLAYER_NAME_LENGTH);
 		strcat(body, "}");
 		status = posix_browser_request(url, body, "application/json", response, sizeof(response), error,
 			sizeof(error));
 		response[strcspn(response, "\r\n")] = 0;
-		if (status == 200)
+		if (status == 200 && !strncmp(response, "ok ", 3))
 			platform_log("Game list: %s's line confirmed (player %s)", name, response + 3);
+		else if (status == 200)
+			platform_log("Game list: %s's line confirmed", name);
 		else if (status == 404 || !status)
 			retry = 1;
 		else
@@ -527,7 +560,7 @@ static void start_connect(int serial, const unsigned short *name)
 	if (name[0])
 	{
 		strcat(body, ", \"name\": ");
-		json_name(body + strlen(body), (int)(sizeof(body) - strlen(body) - 2), name, 12);
+		json_name(body + strlen(body), (int)(sizeof(body) - strlen(body) - 2), name, BROWSER_PLAYER_NAME_LENGTH);
 	}
 	strcat(body, "}");
 	status = posix_browser_request(url, body, "application/json", response, sizeof(response), error, sizeof(error));
@@ -676,7 +709,7 @@ static void ask_connect(int serial, const char *token, int answer)
 
 static void update_connect(void)
 {
-	unsigned short name[12];
+	unsigned short name[BROWSER_PLAYER_NAME_LENGTH];
 	char token[CONNECT_TOKEN_LENGTH + 1];
 	int state, serial, answer, ask;
 
@@ -711,18 +744,26 @@ static void update_connect(void)
 
 /* ---------- hosting (the browser thread) */
 
-static void withdraw(void)
+/* the listing of the invite taken off the list */
+static void withdraw_invite(const char *invite)
 {
 	char url[512], form[128], response[256], error[256];
 
-	if (!browser.listed_invite[0])
-		return;
 	server_url("/v1/withdraw", url, sizeof(url));
 	form[0] = 0;
-	form_add(form, sizeof(form), "invite", browser.listed_invite);
+	form_add(form, sizeof(form), "invite", invite);
 	posix_browser_request(url, form, NULL, response, sizeof(response), error, sizeof(error));
+}
+
+static void withdraw(void)
+{
+	if (!browser.listed_invite[0])
+		return;
+	withdraw_invite(browser.listed_invite);
 	platform_log("Game list: the game is no longer listed");
+	pthread_mutex_lock(&browser_lock);
 	browser.listed_invite[0] = 0;
+	pthread_mutex_unlock(&browser_lock);
 }
 
 /* a roster as the list takes it: "team:name|team:name" (UTF-8; a name has
@@ -737,9 +778,79 @@ static void roster_text(const struct browser_roster_player *roster, int count, c
 	{
 		char name[64];
 
-		utf8_from_name(roster[index].name, 12, name, sizeof(name));
+		utf8_from_name(roster[index].name, BROWSER_PLAYER_NAME_LENGTH, name, sizeof(name));
 		used += snprintf(text + used, (size_t)(size - used), "%s%d:%s", index ? "|" : "", roster[index].team, name);
 	}
+}
+
+/* updater.c's (server_platform.c's in the dedicated server) */
+const char *updater_version(void);
+
+/* (a listed game's machine kinds are Delta Peer's) */
+typedef char browser_machine_kinds_check[BROWSER_MACHINE_KINDS == DELTA_PEER_MACHINE_KINDS ? 1 : -1];
+
+/* the build's architecture, as the list takes it */
+static const char *build_architecture(void)
+{
+#if defined(__aarch64__) || defined(__arm64__) || defined(HALO_ANDROID)
+	return "arm64";
+#elif defined(__x86_64__) || defined(_M_X64)
+	return "x64";
+#elif defined(__i386__) || defined(_M_IX86)
+	return "x86";
+#elif defined(__arm__) || defined(_M_ARM)
+	return "arm";
+#else
+	return "";
+#endif
+}
+
+/* this machine's platform (Delta's registry name), as a player's copy
+says it when it confirms its line or reports a game: the site's "Played
+on" badges */
+static const char *local_platform_name(void)
+{
+	struct delta_platform_key key;
+
+	delta_peer_local_key(&key);
+	return delta_peer_platform_name(key.platform);
+}
+
+/* the announcement's fields about the host (Delta List, docs/delta.md):
+the Delta major it hosts with (0: the legacy protocol alone), its platform
+key, architecture, build, capabilities and its game's machines by platform
+(counts only). A list from before them ignores them */
+static void host_fields(char *form, int size, const struct hosted_game *game)
+{
+	unsigned char key[8];
+	char text[256], hex[2 * sizeof(key) + 1];
+	int kind, used = 0;
+
+	if (game->has_delta)
+	{
+		snprintf(text, sizeof(text), "%d", game->delta.delta ? DELTA_MAJOR : 0);
+		form_add(form, size, "delta", text);
+	}
+	delta_wire_write_key(key, &game->delta.key);
+	p2p_hex(key, (int)sizeof(key), hex);
+	form_add(form, size, "platform_key", hex);
+	form_add(form, size, "arch", build_architecture());
+	form_add(form, size, "build", updater_version());
+	snprintf(text, sizeof(text), "%08x", (unsigned int)game->delta.capabilities);
+	form_add(form, size, "capabilities", text);
+	if (!game->has_delta || !game->delta.delta)
+		return;
+	text[0] = 0;
+	for (kind = 0; kind < DELTA_PEER_MACHINE_KINDS && used < (int)sizeof(text) - 32; kind++)
+	{
+		if (game->delta.machines[kind])
+		{
+			used += snprintf(text + used, sizeof(text) - (size_t)used, "%s%s:%d", used ? "," : "",
+				kind == DELTA_PEER_MACHINE_LEGACY ? "legacy" : delta_peer_platform_name(kind), game->delta.machines[kind]);
+		}
+	}
+	if (text[0])
+		form_add(form, size, "machines", text);
 }
 
 static void announce(const char *invite, const struct hosted_game *game)
@@ -767,6 +878,7 @@ static void announce(const char *invite, const struct hosted_game *game)
 	form_add(form, sizeof(form), "teams", game->teams ? "1" : "0");
 	snprintf(text, sizeof(text), "%d", delta_legacy_announce());
 	form_add(form, sizeof(form), "version", text);
+	host_fields(form, sizeof(form), game);
 	/* (last: a full one may be cut short, and a list from before rosters
 	takes no field of the name) */
 	roster_text(game->roster, game->roster_count, roster, sizeof(roster));
@@ -779,7 +891,9 @@ static void announce(const char *invite, const struct hosted_game *game)
 	{
 		if (strcmp(browser.listed_invite, invite))
 			platform_log("Game list: the game is listed on %s", config_string("network.browser_url"));
+		pthread_mutex_lock(&browser_lock);
 		snprintf(browser.listed_invite, sizeof(browser.listed_invite), "%s", invite);
+		pthread_mutex_unlock(&browser_lock);
 	}
 	else
 	{
@@ -847,9 +961,11 @@ static void send_report(void)
 			status = posix_browser_request(url, body, "application/json", response, sizeof(response), error,
 				sizeof(error));
 			response[strcspn(response, "\r\n")] = 0;
-			if (status == 200)
+			if (status == 200 && !strncmp(response, "ok ", 3))
 				platform_log("Game list: the game's carnage report is at %s/games/%s",
 					config_string("network.browser_url"), response + 3);
+			else if (status == 200)
+				platform_log("Game list: the game's carnage report was sent");
 			else
 				platform_log("Game list: could not send the carnage report (%s)", status ? response : error);
 			free(body);
@@ -891,10 +1007,11 @@ static void send_client_report(void)
 		pthread_mutex_lock(&browser_lock);
 		if (browser.client_report == report)
 		{
-			size = strlen(report) + sizeof(key_text) + 32;
+			size = strlen(report) + sizeof(key_text) + 64;
 			body = malloc(size);
 			if (body)
-				snprintf(body, size, "{\"key\": \"%s\", %s", key_text, report + 1);
+				snprintf(body, size, "{\"key\": \"%s\", \"platform\": \"%s\", %s", key_text, local_platform_name(),
+					report + 1);
 		}
 		pthread_mutex_unlock(&browser_lock);
 		memset(key, 0, sizeof(key));
@@ -945,8 +1062,6 @@ static void send_client_report(void)
 
 /* ---------- browsing (the browser thread) */
 
-/* one line of /v1/games.txt: invite name map engine players
-maximum_players open version age score_limit teams */
 /* a listed game's roster, from the list's "team:name|team:name" */
 static void parse_roster(char *text, struct browser_game *game)
 {
@@ -967,7 +1082,7 @@ static void parse_roster(char *text, struct browser_game *game)
 			{
 				struct browser_roster_player *player = &game->roster[game->roster_count];
 
-				name_from_utf8(colon + 1, player->name, 12);
+				name_from_utf8(colon + 1, player->name, BROWSER_PLAYER_NAME_LENGTH);
 				player->team = (short)atoi(entry);
 			}
 			game->roster_count++;
@@ -976,13 +1091,57 @@ static void parse_roster(char *text, struct browser_game *game)
 	}
 }
 
+/* the host's fields (?fields=17: platform, hosting, protocol, machines;
+docs/delta.md, Delta List): what is not known is left 0 */
+static void parse_host(char **fields, struct browser_game *game)
+{
+	char *entry;
+	int platform = delta_peer_platform_number(fields[0]);
+
+	if (platform >= 0)
+	{
+		game->has_platform = 1;
+		game->host_platform = (unsigned char)platform;
+	}
+	game->hosting = !strcmp(fields[1], "official") ? BROWSER_HOSTING_OFFICIAL :
+		!strcmp(fields[1], "dedicated") ? BROWSER_HOSTING_DEDICATED :
+		!strcmp(fields[1], "player") ? BROWSER_HOSTING_PLAYER : BROWSER_HOSTING_UNKNOWN;
+	game->protocol = !strcmp(fields[2], "delta") ? BROWSER_PROTOCOL_DELTA :
+		!strcmp(fields[2], "opence") ? BROWSER_PROTOCOL_OPENCE : BROWSER_PROTOCOL_UNKNOWN;
+	/* ("pc_linux:2,xbox:1,legacy:1") */
+	for (entry = fields[3]; entry && *entry;)
+	{
+		char *next = strchr(entry, ',');
+		char *colon;
+
+		if (next)
+			*next++ = 0;
+		colon = strchr(entry, ':');
+		if (colon)
+		{
+			int count, kind;
+
+			*colon = 0;
+			count = atoi(colon + 1);
+			kind = !strcmp(entry, "legacy") ? BROWSER_MACHINE_KINDS - 1 : delta_peer_platform_number(entry);
+			if (kind < 0)
+				kind = _delta_platform_unknown;
+			if (count > 0)
+				game->machines[kind] = (unsigned char)(game->machines[kind] + count > 255 ? 255 : game->machines[kind] + count);
+		}
+		entry = next;
+	}
+}
+
+/* one line of /v1/games.txt: invite name map engine players
+maximum_players open version age score_limit teams roster */
 static int parse_game(char *line, struct browser_game *game)
 {
-	char *fields[12];
+	char *fields[17];
 	int count = 0;
 	char *cursor = line;
 
-	while (count < 12)
+	while (count < 17)
 	{
 		fields[count++] = cursor;
 		cursor = strchr(cursor, '\t');
@@ -1013,6 +1172,12 @@ static int parse_game(char *line, struct browser_game *game)
 		fields[11][strcspn(fields[11], "\r\n")] = 0;
 		parse_roster(fields[11], game);
 	}
+	/* (then region, which this browser does not show, and the host's) */
+	if (count >= 17)
+	{
+		fields[16][strcspn(fields[16], "\r\n")] = 0;
+		parse_host(fields + 13, game);
+	}
 	return 1;
 }
 
@@ -1035,17 +1200,35 @@ static void update_list(void)
 	if (!wanted || !config_string("network.browser_url")[0])
 		return;
 
-	server_url("/v1/games.txt", url, sizeof(url));
-	status = posix_browser_request(url, NULL, NULL, response, sizeof(response), error, sizeof(error));
+	/* (no room: tried again after the failure's wait, not at once with
+	another request) */
 	games = malloc(sizeof(*games) * BROWSER_MAXIMUM_GAMES);
 	if (!games)
+	{
+		pthread_mutex_lock(&browser_lock);
+		browser.list_time = p2p_now();
+		browser.list_failed = 1;
+		pthread_mutex_unlock(&browser_lock);
 		return;
+	}
+	/* (with the host's fields: a list from before them sends what it has) */
+	server_url("/v1/games.txt?fields=17", url, sizeof(url));
+	status = posix_browser_request(url, NULL, NULL, response, sizeof(response), error, sizeof(error));
 	if (!p2p_hosting_invite(own, sizeof(own)))
 		own[0] = 0;
 	if (status == 200)
 	{
-		for (line = strtok(response, "\n"); line && count < BROWSER_MAXIMUM_GAMES; line = strtok(NULL, "\n"))
+		/* (split by hand: strtok's place is the whole process's, and the
+		game's thread uses it too) */
+		char *next;
+
+		for (line = response; line && count < BROWSER_MAXIMUM_GAMES; line = next)
 		{
+			next = strchr(line, '\n');
+			if (next)
+				*next++ = 0;
+			if (!line[0])
+				continue;
 			if (parse_game(line, &games[count]) && games[count].version >= delta_legacy_minimum() &&
 				games[count].version <= delta_legacy_maximum() &&
 				strcmp(games[count].invite, own))
@@ -1090,14 +1273,51 @@ static void *browser_thread(void *unused)
 	return NULL;
 }
 
+/* the exit's withdrawal (withdraw_at_exit), on a thread of its own: the
+invite, and whether the request is over (under the lock) */
+static char exit_withdraw_invite[BROWSER_INVITE_LENGTH + 1];
+static int exit_withdraw_done;
+
+static void *exit_withdraw_thread(void *unused)
+{
+	(void)unused;
+	withdraw_invite(exit_withdraw_invite);
+	pthread_mutex_lock(&browser_lock);
+	exit_withdraw_done = 1;
+	pthread_mutex_unlock(&browser_lock);
+	return NULL;
+}
+
 /* a copy of the game that quits while its game is listed takes it off the
-list (without this the server drops it only once it stops hearing of it) */
+list (without this the server drops it only once it stops hearing of it),
+waiting no longer than EXIT_WITHDRAW_WAIT: a server that does not answer
+does not hold up quitting */
 static void withdraw_at_exit(void)
 {
+	pthread_t thread;
+	int waited, done = 0;
+
 	/* (the browser thread may be mid-request: the listing is withdrawn by
 	whichever of the two gets there) */
-	if (browser.listed_invite[0])
-		withdraw();
+	pthread_mutex_lock(&browser_lock);
+	memcpy(exit_withdraw_invite, browser.listed_invite, sizeof(exit_withdraw_invite));
+	pthread_mutex_unlock(&browser_lock);
+	if (!exit_withdraw_invite[0])
+		return;
+	if (pthread_create(&thread, NULL, exit_withdraw_thread, NULL) != 0)
+		return;
+	pthread_detach(thread);
+	for (waited = 0; waited < EXIT_WITHDRAW_WAIT && !done; waited += EXIT_WITHDRAW_POLL)
+	{
+		Sleep(EXIT_WITHDRAW_POLL);
+		pthread_mutex_lock(&browser_lock);
+		done = exit_withdraw_done;
+		pthread_mutex_unlock(&browser_lock);
+	}
+	if (done)
+		platform_log("Game list: the game is no longer listed");
+	else
+		platform_log("Game list: no answer from the list in time; it drops the game by itself");
 }
 
 static void start_thread(void)
@@ -1138,6 +1358,8 @@ void browser_host_update(const unsigned short *name, const char *map, short engi
 		memcpy(game.roster, roster, (size_t)roster_count * sizeof(*roster));
 		game.roster_count = roster_count;
 	}
+	/* (on the game's thread, as Delta Peer's hooks) */
+	game.has_delta = delta_peer_game_host_summary(&game.delta);
 
 	pthread_mutex_lock(&browser_lock);
 	if (memcmp(&game, &browser.hosted, sizeof(game)))
@@ -1225,7 +1447,7 @@ static char *report_json(int teams, int red_score, int blue_score, int duration_
 		unsigned long address = tag_invite ? public_address(player->address) : 0;
 
 		used = append(report, size, used, "%s{\"name\": ", index ? ", " : "");
-		used = clamped(used + json_name(report + used, (int)(size - (size_t)used), player->name, 12), size);
+		used = clamped(used + json_name(report + used, (int)(size - (size_t)used), player->name, BROWSER_PLAYER_NAME_LENGTH), size);
 		used = append(report, size, used,
 			", \"team\": %d, \"place\": %d, \"score\": %d, \"kills\": %d, \"assists\": %d, \"deaths\": %d, "
 			"\"betrayals\": %d, \"suicides\": %d, \"shots_fired\": %d, \"shots_hit\": %d, \"multikills\": %d, "
@@ -1304,12 +1526,15 @@ void browser_client_report(int teams, int red_score, int blue_score, int duratio
 
 /* the local players of a game that ended: their lines confirmed with the
 player key, once the host has reported the game (if it is listed) */
-void browser_claim_game(const unsigned short (*names)[12], int count)
+void browser_claim_game(const unsigned short (*names)[BROWSER_PLAYER_NAME_LENGTH], int count)
 {
 	char invite[BROWSER_INVITE_LENGTH + 1];
 
+	/* (a game it joined only with network.report_joined_games: a claim
+	tells the site this copy played in it, as a report of it would) */
 	if (count <= 0 || !config_string("network.browser_url")[0] ||
-		(!p2p_hosting_invite(invite, sizeof(invite)) && !p2p_joined_invite(invite, sizeof(invite))))
+		(!p2p_hosting_invite(invite, sizeof(invite)) &&
+			(!config_boolean("network.report_joined_games") || !p2p_joined_invite(invite, sizeof(invite)))))
 		return;
 	if (count > MAXIMUM_CLAIM_NAMES)
 		count = MAXIMUM_CLAIM_NAMES;
@@ -1442,6 +1667,20 @@ int browser_key_link(const char *text)
 	return 1;
 }
 
+/* a waiting key's hexadecimal digits as its bytes */
+static void key_from_hex(const char *digits, unsigned char *key)
+{
+	int index;
+
+	for (index = 0; index < PLAYER_KEY_SIZE; index++)
+	{
+		unsigned int byte;
+
+		sscanf(digits + 2 * index, "%2x", &byte);
+		key[index] = (unsigned char)byte;
+	}
+}
+
 /* a key link waiting (as on the command line, a copy started with one): its
 key, and the player IDs of the key in use and of it */
 int browser_take_key_link(char *new_id, char *old_id, int size)
@@ -1464,13 +1703,7 @@ int browser_take_key_link(char *new_id, char *old_id, int size)
 	pthread_mutex_unlock(&browser_lock);
 	if (!digits[0] || size <= 2 * PLAYER_ID_SIZE)
 		return 0;
-	for (index = 0; index < PLAYER_KEY_SIZE; index++)
-	{
-		unsigned int byte;
-
-		sscanf(digits + 2 * index, "%2x", &byte);
-		key[index] = (unsigned char)byte;
-	}
+	key_from_hex(digits, key);
 	player_id_from_key(key, new_id);
 	if (!browser_player_id(old_id, size))
 		old_id[0] = 0;
@@ -1484,18 +1717,12 @@ void browser_answer_key_link(int install)
 {
 	unsigned char key[PLAYER_KEY_SIZE];
 	char path[1024];
-	int index, ok = 0;
+	int ok = 0;
 
 	pthread_mutex_lock(&browser_lock);
 	if (install && browser.pending_key[0])
 	{
-		for (index = 0; index < PLAYER_KEY_SIZE; index++)
-		{
-			unsigned int byte;
-
-			sscanf(browser.pending_key + 2 * index, "%2x", &byte);
-			key[index] = (unsigned char)byte;
-		}
+		key_from_hex(browser.pending_key, key);
 		player_key_path(path, sizeof(path));
 		ok = posix_browser_replace_key(path, key, PLAYER_KEY_SIZE);
 		if (ok)
@@ -1520,6 +1747,50 @@ int browser_player_id(char *text, int size)
 		return 0;
 	player_id_from_key(key, text);
 	memset(key, 0, sizeof(key));
+	return 1;
+}
+
+/* the moderator key's seed: SHA-256 of a label and the player key, so the
+key is no other use's (the site makes the same from the key it is sent) */
+static int moderator_seed(unsigned char *seed)
+{
+	static const char label[] = "halo-ce-universal moderator key\n";
+	unsigned char key[PLAYER_KEY_SIZE];
+	unsigned char data[sizeof(label) - 1 + PLAYER_KEY_SIZE];
+
+	if (browser_headless() || !player_key(key))
+		return 0;
+	memcpy(data, label, sizeof(label) - 1);
+	memcpy(data + sizeof(label) - 1, key, PLAYER_KEY_SIZE);
+	p2p_sha256(data, (int)sizeof(data), seed);
+	memset(key, 0, sizeof(key));
+	memset(data, 0, sizeof(data));
+	return 1;
+}
+
+int browser_moderator_sign(const unsigned char *message, int size, unsigned char *public_key,
+	unsigned char *signature)
+{
+	unsigned char seed[P2P_SEED_SIZE];
+
+	if (!moderator_seed(seed))
+		return 0;
+	p2p_ed25519_public(seed, public_key, NULL);
+	p2p_ed25519_sign(seed, public_key, message, size, signature);
+	memset(seed, 0, sizeof(seed));
+	return 1;
+}
+
+int browser_moderator_key(char *text, int size)
+{
+	unsigned char seed[P2P_SEED_SIZE];
+	unsigned char public_key[P2P_KEY_SIZE];
+
+	if (size <= 2 * P2P_KEY_SIZE || !moderator_seed(seed))
+		return 0;
+	p2p_ed25519_public(seed, public_key, NULL);
+	memset(seed, 0, sizeof(seed));
+	p2p_hex(public_key, P2P_KEY_SIZE, text);
 	return 1;
 }
 

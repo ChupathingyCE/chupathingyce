@@ -24,7 +24,8 @@ int gl_functions_load(void)
 		!strcmp(#name, "glDebugMessageCallback") || !strcmp(#name, "glBufferStorage") || \
 		!strcmp(#name, "glMemoryBarrier") || !strcmp(#name, "glVertexAttribFormat") || \
 		!strcmp(#name, "glVertexAttribIFormat") || !strcmp(#name, "glVertexAttribBinding") || \
-		!strcmp(#name, "glBindVertexBuffer") || !strcmp(#name, "glGetQueryBufferObjectuiv"))
+		!strcmp(#name, "glBindVertexBuffer") || !strcmp(#name, "glGetQueryBufferObjectuiv") || \
+		!strcmp(#name, "glBindTextures"))
 #define GL_LOAD_FUNCTION(name) \
 	halo_##name = (__typeof__(halo_##name))SDL_GL_GetProcAddress(#name); \
 	if (!halo_##name && !GL_OPTIONAL_FUNCTION(name)) \

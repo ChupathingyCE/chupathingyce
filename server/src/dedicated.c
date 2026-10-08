@@ -3,10 +3,9 @@ DEDICATED.C
 
 The dedicated server (server/README.md): with HALO_DEDICATED naming a
 playlist file in the data folder (playlists/slayer.txt, beside maps), the
-game hosts system link games by itself, one playlist
-entry after another, with no player of its own. Built into the game browser's
-builds (configure.py --game-browser); without HALO_DEDICATED it does
-nothing.
+game hosts system link games by itself, one playlist entry after another,
+with no player of its own. Built into the game browser's builds
+(configure.py --game-browser); without HALO_DEDICATED it does nothing.
 
 It runs without a window: nothing drawn (d3d8_gl.c), no sound, no movies,
 no display needed (SDL's dummy drivers), so it runs on a server with no
@@ -38,16 +37,29 @@ shows in every OpenCE and ChupathingyCE server browser (Join Game > Server
 Browser), and is withdrawn when the server stops.
 
 The playlist: one entry a line, a map (its name, "bloodgulch", its path, a
-Custom Edition map in maps\ce as <name>@ce, "timberland@ce", or a HaloMD map
-in md_maps as <name>@md, "phoenix3_15@md": halo_map_families.h) and a game
+Custom Edition map in maps_ce as <name>@ce, "timberland@ce", a HaloMD map
+in maps_md as <name>@md, "phoenix3_15@md", or a Halo PC retail map in
+maps_pc as <name>@pc: halo_map_families.h) and a game
 type (game_engine_get_variant_by_name's names: slayer, team_slayer, ctf,
 king, oddball, race, ...); # starts a comment.
+
+A game type is a built-in's name, or a game type file's in the data
+folder's admin/gametypes (server_admin.c: server_gametype_resolve), whose
+settings the lobby is given with the game type's PC options, as the game's
+own editor gives them (player_ui_set_game_variant_options).
 
 The server's commands (server_commands.c: its console, its startup
 commands and its control API, server/docs/admin.md) change what the
 director does through dedicated.h: a map and game type played at once
 (after which the playlist goes on where it was), the next entry at once,
-the game ending, and the seats and the name, which the lobby takes.
+the game ending, the seats, the name and the idle limit, which the lobby
+takes, and another playlist (or the same one saved again), from the next
+game.
+
+The settings: the environment's (HALO_DEDICATED_*), else the settings file's
+(admin/settings.toml, which the web admin page and sv_set write), else their
+defaults. The playlist sv_playlist_use chose (kept in the settings file) is
+played instead of HALO_DEDICATED's until HALO_DEDICATED is changed.
 */
 
 #ifdef HALO_GAME_BROWSER
@@ -62,6 +74,8 @@ the game ending, and the seats and the name, which the lobby takes.
 #include "text/unicode.h"
 #include "networking/network_server_manager.h"
 #include "dedicated.h"
+#include "server_admin.h"
+#include "server_config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -94,10 +108,6 @@ void network_game_server_dedicated_start_countdown(struct network_game_server *s
 void p2p_set_hosting_allowed(int allowed);
 void p2p_set_hosting_public(int public);
 void p2p_set_hosting_dedicated(int dedicated);
-void network_game_accept_remote_connections(boolean accept);
-void game_engine_playlist_initialize(void);
-void game_engine_playlist_begin(void);
-void game_connection_set(short connection);
 void main_set_multiplayer_map_name(char const *map_name);
 void game_engine_override_map_name(char const *map_name);
 long game_engine_total_score(void);
@@ -125,7 +135,18 @@ static struct
 	long entry_count;
 	char maps[MAXIMUM_ENTRIES][DEDICATED_MAP_SIZE];
 	char variants[MAXIMUM_ENTRIES][DEDICATED_VARIANT_SIZE];
+	/* each entry's game type is played in teams (read as the playlist is,
+	and again when a game type's file changes) */
+	boolean teams[MAXIMUM_ENTRIES];
 	char playlist[DEDICATED_MAP_SIZE];
+	/* a playlist to play from the next game (sv_playlist_use), from its
+	first entry or where the one played was */
+	boolean pending;
+	boolean pending_keep_place;
+	long pending_count;
+	char pending_maps[MAXIMUM_ENTRIES][DEDICATED_MAP_SIZE];
+	char pending_variants[MAXIMUM_ENTRIES][DEDICATED_VARIANT_SIZE];
+	char pending_playlist[DEDICATED_MAP_SIZE];
 	long entry;
 	long minimum_players;
 	long maximum_players;
@@ -135,11 +156,12 @@ static struct
 	/* listed in the server browser (HALO_DEDICATED_PUBLIC) */
 	boolean public_game;
 
-	boolean hosting;
 	boolean entry_set;
 	boolean entry_teams;
 	word last_state;
-	unsigned long retry_time;
+	/* (hosting tried, and when: tried again RETRY_MILLISECONDS on) */
+	boolean tried;
+	unsigned long tried_time;
 	unsigned long postgame_time;
 	unsigned long frame_time;
 	unsigned long score_time;
@@ -161,14 +183,31 @@ static struct
 
 /* ---------- private code */
 
-/* the playlist, in the data folder (the game's d:, beside maps) */
-static void load_playlist(
-	char const *name)
+/* a map as the game loads it (a bare name is a multiplayer level's:
+levels\test\<name>\<name>; a Halo PC map's, <name>@ce, <name>@md or
+<name>@pc, stays bare, as the menus' map list plays it: cache_files_windows.c) */
+static void level_path(
+	char const *map,
+	char *path)
+{
+	if (!strchr(map, '\\') && !strchr(map, '@'))
+		snprintf(path, DEDICATED_MAP_SIZE, "levels\\test\\%s\\%s", map, map);
+	else
+		snprintf(path, DEDICATED_MAP_SIZE, "%s", map);
+}
+
+/* a playlist, in the data folder (the game's d:, beside maps), into maps
+and variants: how many entries, or -1 if it cannot be read */
+static long read_playlist(
+	char const *name,
+	char maps[MAXIMUM_ENTRIES][DEDICATED_MAP_SIZE],
+	char variants[MAXIMUM_ENTRIES][DEDICATED_VARIANT_SIZE])
 {
 	char path[256];
 	FILE *file;
 	char line[256];
 	char *cursor;
+	long count = 0;
 
 	snprintf(path, sizeof(path), "d:\\%s", name);
 	for (cursor = path; *cursor; cursor++)
@@ -181,9 +220,9 @@ static void load_playlist(
 	if (!file)
 	{
 		error(_error_silent, "dedicated: cannot read the playlist %s", path);
-		return;
+		return -1;
 	}
-	while (fgets(line, sizeof(line), file) && dedicated.entry_count < MAXIMUM_ENTRIES)
+	while (fgets(line, sizeof(line), file) && count < MAXIMUM_ENTRIES)
 	{
 		char map[128], variant[32];
 		char *comment = strchr(line, '#');
@@ -192,48 +231,130 @@ static void load_playlist(
 			*comment = 0;
 		if (sscanf(line, "%127s %31s", map, variant) != 2)
 			continue;
-		/* (a bare name is a multiplayer level's: levels\test\<name>\<name>;
-		a Custom Edition or HaloMD map's, <name>@ce or <name>@md, stays bare,
-		as the menus' map list plays it: cache_files_windows.c) */
-		if (!strchr(map, '\\') && !strchr(map, '@'))
-			snprintf(dedicated.maps[dedicated.entry_count], sizeof(dedicated.maps[0]), "levels\\test\\%s\\%s", map, map);
-		else
-			snprintf(dedicated.maps[dedicated.entry_count], sizeof(dedicated.maps[0]), "%s", map);
-		snprintf(dedicated.variants[dedicated.entry_count], sizeof(dedicated.variants[0]), "%s", variant);
-		dedicated.entry_count++;
+		level_path(map, maps[count]);
+		snprintf(variants[count], DEDICATED_VARIANT_SIZE, "%s", variant);
+		count++;
 	}
 	fclose(file);
-	error(_error_silent, "dedicated: %ld playlist entries from %s", dedicated.entry_count, path);
+	error(_error_silent, "dedicated: %ld playlist entries from %s", count, path);
+	return count;
+}
+
+/* whether a game type (by its playlist name) is played in teams */
+static boolean variant_has_teams(
+	char const *name)
+{
+	struct game_variant variant;
+	struct game_variant_options options;
+	char problem[160];
+
+	if (!server_gametype_resolve(name, &variant, &options, problem, sizeof(problem)))
+		return FALSE;
+	return variant.universal_variant.teams ? TRUE : FALSE;
+}
+
+static void read_teams(
+	void)
+{
+	long entry;
+
+	for (entry = 0; entry < dedicated.entry_count; entry++)
+		dedicated.teams[entry] = variant_has_teams(dedicated.variants[entry]);
+}
+
+/* the playlist from a path: TRUE if it has entries */
+static boolean load_playlist(
+	char const *name)
+{
+	long count = read_playlist(name, dedicated.maps, dedicated.variants);
+
+	dedicated.entry_count = count > 0 ? count : 0;
+	dedicated.entry = 0;
+	snprintf(dedicated.playlist, sizeof(dedicated.playlist), "%s", name);
+	read_teams();
+	return dedicated.entry_count > 0;
+}
+
+/* a whole number setting: the environment's, else the settings file's, else
+its default */
+static long setting_number(
+	char const *environment,
+	struct server_settings const *settings,
+	short setting,
+	long default_value)
+{
+	char const *value = getenv(environment);
+
+	if (value && value[0])
+		return atol(value);
+	if (settings->set[setting])
+		return settings->values[setting];
+	return default_value;
 }
 
 static void initialize(
 	void)
 {
 	char const *playlist = getenv("HALO_DEDICATED");
-	char const *minimum = getenv("HALO_DEDICATED_MINIMUM_PLAYERS");
-	char const *maximum = getenv("HALO_DEDICATED_MAXIMUM_PLAYERS");
 	char const *name = getenv("HALO_DEDICATED_NAME");
-	char const *idle_limit = getenv("HALO_DEDICATED_IDLE_LIMIT");
 	char const *public_game = getenv("HALO_DEDICATED_PUBLIC");
+	static struct server_settings settings;
 	long index;
 
 	dedicated.initialized = TRUE;
 	dedicated.start_time = system_milliseconds();
 	if (!playlist || !playlist[0])
 		return;
-	snprintf(dedicated.playlist, sizeof(dedicated.playlist), "%s", playlist);
-	load_playlist(playlist);
-	dedicated.minimum_players = minimum ? atol(minimum) : 1;
+	/* (a settings file that cannot be read is left out, and logged: the
+	server starts as it would without one) */
+	if (!server_admin_read_settings(&settings))
+		csmemset(&settings, 0, sizeof(settings));
+	/* the playlist sv_playlist_use chose, while HALO_DEDICATED is what it was
+	then; else HALO_DEDICATED's */
+	if (settings.set[SERVER_SETTING_PLAYLIST] && !strcmp(settings.playlist_environment, playlist))
+	{
+		if (load_playlist(settings.playlist))
+		{
+			error(_error_silent, "dedicated: playing %s, which sv_playlist_use chose (HALO_DEDICATED is %s)",
+				settings.playlist, playlist);
+		}
+		else
+		{
+			error(_error_silent, "dedicated: %s, which sv_playlist_use chose, has no games: playing HALO_DEDICATED's %s",
+				settings.playlist, playlist);
+			load_playlist(playlist);
+		}
+	}
+	else
+	{
+		if (settings.set[SERVER_SETTING_PLAYLIST])
+		{
+			error(_error_silent, "dedicated: HALO_DEDICATED has changed since sv_playlist_use chose %s: playing %s",
+				settings.playlist, playlist);
+		}
+		load_playlist(playlist);
+	}
+	dedicated.minimum_players = setting_number("HALO_DEDICATED_MINIMUM_PLAYERS", &settings,
+		SERVER_SETTING_MINIMUM_PLAYERS, 1);
+	/* (each 1 to 128, as sv_maxplayers takes: the game keeps them in a
+	byte, where 256 was 0 and 300 was 44) */
 	if (dedicated.minimum_players < 1)
 		dedicated.minimum_players = 1;
-	/* (12 while the server is tested) */
-	dedicated.maximum_players = maximum ? atol(maximum) : 12;
+	if (dedicated.minimum_players > HALO_PORT_MAXIMUM_NETWORK_PLAYERS)
+		dedicated.minimum_players = HALO_PORT_MAXIMUM_NETWORK_PLAYERS;
+	/* (12 unless set) */
+	dedicated.maximum_players = setting_number("HALO_DEDICATED_MAXIMUM_PLAYERS", &settings,
+		SERVER_SETTING_MAXIMUM_PLAYERS, 12);
+	if (dedicated.maximum_players > HALO_PORT_MAXIMUM_NETWORK_PLAYERS)
+		dedicated.maximum_players = HALO_PORT_MAXIMUM_NETWORK_PLAYERS;
 	if (dedicated.maximum_players < dedicated.minimum_players)
 		dedicated.maximum_players = dedicated.minimum_players;
 	/* (a game nobody scores in ends: 5 minutes unless set) */
-	dedicated.idle_limit = idle_limit ? atol(idle_limit) : 5;
+	dedicated.idle_limit = setting_number("HALO_DEDICATED_IDLE_LIMIT", &settings, SERVER_SETTING_IDLE_LIMIT, 5);
 	if (dedicated.idle_limit < 0)
 		dedicated.idle_limit = 0;
+	if ((!name || !name[0]) && settings.set[SERVER_SETTING_NAME])
+		name = settings.name;
 	if (!name || !name[0])
 		name = "Dedicated";
 	for (index = 0; index < 15 && name[index]; index++)
@@ -243,6 +364,8 @@ static void initialize(
 	dedicated.public_game = !public_game || !public_game[0] ||
 		!(!_stricmp(public_game, "false") || !strcmp(public_game, "0") || !_stricmp(public_game, "no") ||
 			!_stricmp(public_game, "off"));
+	if ((!public_game || !public_game[0]) && settings.set[SERVER_SETTING_PUBLIC])
+		dedicated.public_game = settings.values[SERVER_SETTING_PUBLIC] ? TRUE : FALSE;
 	error(_error_silent, "dedicated: %s game (HALO_DEDICATED_PUBLIC)", dedicated.public_game ? "a public" :
 		"not a public");
 	dedicated.active = dedicated.entry_count > 0;
@@ -252,10 +375,29 @@ static void initialize(
 static boolean entry_has_teams(
 	long entry)
 {
-	struct game_variant variant;
+	return entry >= 0 && entry < dedicated.entry_count ? dedicated.teams[entry] : FALSE;
+}
 
-	game_engine_get_variant_by_name(&variant, dedicated.variants[entry]);
-	return variant.universal_variant.teams ? TRUE : FALSE;
+/* the playlist sv_playlist_use gave, now: from its first entry, or where
+the one played was (the same playlist saved again) */
+static void apply_pending_playlist(
+	boolean advance)
+{
+	long entry = dedicated.entry;
+
+	dedicated.pending = FALSE;
+	csmemcpy(dedicated.maps, dedicated.pending_maps, sizeof(dedicated.maps));
+	csmemcpy(dedicated.variants, dedicated.pending_variants, sizeof(dedicated.variants));
+	dedicated.entry_count = dedicated.pending_count;
+	snprintf(dedicated.playlist, sizeof(dedicated.playlist), "%s", dedicated.pending_playlist);
+	read_teams();
+	if (dedicated.pending_keep_place)
+		dedicated.entry = (entry + (advance ? 1 : 0)) % dedicated.entry_count;
+	else
+		dedicated.entry = 0;
+	dedicated.entry_set = FALSE;
+	error(_error_silent, "dedicated: the playlist is %s (%ld entries), from entry %ld", dedicated.playlist,
+		dedicated.entry_count, dedicated.entry + 1);
 }
 
 /* a team game cannot start with one player (it needs a player on each of two
@@ -326,7 +468,8 @@ static boolean set_entry(
 	struct network_game_server *server)
 {
 	struct game_variant variant;
-	struct game_variant empty;
+	struct game_variant_options options;
+	char problem[160];
 	char const *map = dedicated.maps[dedicated.entry];
 	char const *variant_name = dedicated.variants[dedicated.entry];
 
@@ -340,8 +483,6 @@ static boolean set_entry(
 		map = dedicated.chosen_map;
 		variant_name = dedicated.chosen_variant;
 	}
-	csmemset(&empty, 0, sizeof(empty));
-	game_engine_get_variant_by_name(&variant, variant_name);
 	if (map_is_campaign_level(map))
 	{
 		error(_error_silent, "dedicated: %s is a campaign level, which a dedicated server does not host; "
@@ -352,9 +493,9 @@ static boolean set_entry(
 			dedicated.entry = (dedicated.entry + 1) % dedicated.entry_count;
 		return FALSE;
 	}
-	if (!csmemcmp(&variant, &empty, sizeof(variant)))
+	if (!server_gametype_resolve(variant_name, &variant, &options, problem, sizeof(problem)))
 	{
-		error(_error_silent, "dedicated: no game type %s; skipping the entry", variant_name);
+		error(_error_silent, "dedicated: %s; skipping the entry", problem);
 		if (dedicated.chosen_playing)
 			dedicated.chosen_playing = FALSE;
 		else
@@ -364,9 +505,15 @@ static boolean set_entry(
 	main_set_multiplayer_map_name(map);
 	game_engine_override_map_name(map);
 	network_game_server_change_map_name(server, map);
+	/* (the game type's PC options too, as the game's gametype editor gives
+	them: the server's change of game type takes the menus' when they are
+	for the same variant) */
 	player_ui_set_game_variant(&variant);
+	player_ui_set_game_variant_options(&options);
 	network_game_server_change_game_variant(server, &variant);
 	dedicated.entry_teams = variant.universal_variant.teams ? TRUE : FALSE;
+	if (!dedicated.chosen_playing)
+		dedicated.teams[dedicated.entry] = dedicated.entry_teams;
 	error(_error_silent, "dedicated: next %s on %s", variant_name, map);
 	return TRUE;
 }
@@ -426,14 +573,18 @@ void dedicated_server_update(
 	server = global_network_game_server_get();
 	if (!server)
 	{
-		dedicated.hosting = FALSE;
 		dedicated.entry_set = FALSE;
 		/* (not while a movie plays: the intro's end loads the main menu,
 		which ends any network game) */
-		if (!main_menu_is_active() || bink_playback_active() || system_milliseconds() < dedicated.retry_time)
+		/* (the time since, unsigned: the milliseconds wrap after 49.7 days) */
+		if (!main_menu_is_active() || bink_playback_active() ||
+			(dedicated.tried && system_milliseconds() - dedicated.tried_time < RETRY_MILLISECONDS))
+		{
 			return;
-		dedicated.retry_time = system_milliseconds() + RETRY_MILLISECONDS;
-		dedicated.hosting = host();
+		}
+		dedicated.tried = TRUE;
+		dedicated.tried_time = system_milliseconds();
+		host();
 		return;
 	}
 
@@ -444,12 +595,20 @@ void dedicated_server_update(
 		the entry that was next before it) */
 		if (dedicated.last_state != DEDICATED_SERVER_STATE_PREGAME && dedicated.entry_set)
 		{
+			boolean chosen = dedicated.chosen_playing;
+
 			if (dedicated.chosen_playing)
 				dedicated.chosen_playing = FALSE;
-			else
+			else if (!dedicated.pending)
 				dedicated.entry = (dedicated.entry + 1) % dedicated.entry_count;
+			/* (another playlist, or this one saved again, from now) */
+			if (dedicated.pending)
+				apply_pending_playlist(!chosen);
 			dedicated.entry_set = FALSE;
 		}
+		/* (one given in the lobby, or before the server first hosted) */
+		if (dedicated.pending && (!dedicated.entry_set || network_game_server_lobby_is_open(server)))
+			apply_pending_playlist(FALSE);
 		if (dedicated.last_state != DEDICATED_SERVER_STATE_PREGAME)
 			dedicated.postgame_skipped = FALSE;
 		/* (a command's game, once the lobby takes it) */
@@ -602,6 +761,8 @@ void dedicated_server_get_status(
 		snprintf(status->next_variant, sizeof(status->next_variant), "%s", dedicated.chosen_variant);
 	}
 	snprintf(status->playlist, sizeof(status->playlist), "%s", dedicated.playlist);
+	if (dedicated.pending)
+		snprintf(status->next_playlist, sizeof(status->next_playlist), "%s", dedicated.pending_playlist);
 	status->minimum_players = dedicated.minimum_players;
 	status->maximum_players = dedicated.maximum_players;
 	status->idle_limit = dedicated.idle_limit;
@@ -656,11 +817,7 @@ void dedicated_server_play(
 	char const *map,
 	char const *variant)
 {
-	/* (a bare name is a multiplayer level's, as the playlist's) */
-	if (!strchr(map, '\\') && !strchr(map, '@'))
-		snprintf(dedicated.chosen_map, sizeof(dedicated.chosen_map), "levels\\test\\%s\\%s", map, map);
-	else
-		snprintf(dedicated.chosen_map, sizeof(dedicated.chosen_map), "%s", map);
+	level_path(map, dedicated.chosen_map);
 	snprintf(dedicated.chosen_variant, sizeof(dedicated.chosen_variant), "%s", variant);
 	dedicated.chosen_pending = TRUE;
 	/* (a game a command chose before, set in the lobby, is replaced; one being
@@ -718,6 +875,55 @@ void dedicated_server_set_maximum_players(
 	long maximum_players)
 {
 	dedicated.maximum_players = maximum_players;
+}
+
+void dedicated_server_set_minimum_players(
+	long minimum_players)
+{
+	dedicated.minimum_players = minimum_players;
+}
+
+void dedicated_server_set_idle_limit(
+	long idle_limit)
+{
+	dedicated.idle_limit = idle_limit;
+}
+
+boolean dedicated_server_use_playlist(
+	char const *path,
+	boolean keep_place,
+	char *problem,
+	long problem_size)
+{
+	long count = read_playlist(path, dedicated.pending_maps, dedicated.pending_variants);
+
+	if (count <= 0)
+	{
+		snprintf(problem, (size_t)problem_size, count < 0 ? "cannot read %s" : "%s has no games", path);
+		return FALSE;
+	}
+	dedicated.pending = TRUE;
+	dedicated.pending_count = count;
+	/* (the same playlist again goes on where it was) */
+	dedicated.pending_keep_place = keep_place && !_stricmp(path, dedicated.playlist);
+	snprintf(dedicated.pending_playlist, sizeof(dedicated.pending_playlist), "%s", path);
+	/* (in the lobby, or before the server hosts: now) */
+	{
+		struct network_game_server *server = global_network_game_server_get();
+
+		if (!server || (network_game_server_get_state(server, NULL) == DEDICATED_SERVER_STATE_PREGAME &&
+			network_game_server_lobby_is_open(server) && !dedicated.chosen_playing))
+		{
+			apply_pending_playlist(FALSE);
+		}
+	}
+	return TRUE;
+}
+
+void dedicated_server_gametypes_changed(
+	void)
+{
+	read_teams();
 }
 
 void dedicated_server_set_name(

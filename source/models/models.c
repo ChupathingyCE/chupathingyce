@@ -83,6 +83,10 @@ symbols in this file:
 #include "shaders/shaders.h"
 #include "rasterizer/rasterizer_console_vars.h"
 #include "rasterizer/rasterizer_model_types.h"
+#include "cache/cache_files.h"
+#include "items/equipment_definitions.h"
+#include <float.h>
+#include <xtl.h>
 
 /* ---------- constants */
 
@@ -237,6 +241,7 @@ typedef char verify_rasterizer_model_begin_parameters_size[sizeof(struct rasteri
 static void render_model_parts(
 	struct model const *model,
 	char const *region_permutation_indices,
+	short region_permutation_count,
 	struct render_skinning const *skinning,
 	long object_index,
 	short geometry_detail_level_index,
@@ -270,6 +275,7 @@ static struct profile_section render_model_section = { "render_model", NONE, TRU
 static void render_model_parts(
 	struct model const *model,
 	char const *region_permutation_indices,
+	short region_permutation_count,
 	struct render_skinning const *skinning,
 	long object_index,
 	short geometry_detail_level_index,
@@ -287,9 +293,11 @@ static void render_model_parts(
 		short sort_filth_count = 0;
 		short region_index;
 		short i, j;
-		/* port: no more regions than a model has room for (a map's count; the
-		permutations passed in are that long at most) */
-		short region_count = (short)MIN(model->regions.count, MAXIMUM_REGIONS_PER_MODEL);
+		/* port: no more regions than the permutations passed in hold: an
+		object's MAXIMUM_REGIONS_PER_OBJECT, or the default's
+		MAXIMUM_REGIONS_PER_MODEL (a map's count; retail models have 8 at
+		most) */
+		short region_count = (short)MIN(model->regions.count, region_permutation_count);
 
 		for (region_index = 0; region_index<region_count; region_index++)
 		{
@@ -379,7 +387,9 @@ static void render_model_parts(
 										&part->vertex_buffer,
 										NONE,
 										&centroid,
-										&sort_filth[sort_filth_count]);
+										/* port: no sort record once all of sort_filth is
+										used (it wrote one past it) */
+										sort_filth_count<MAXIMUM_PARTS_PER_MODEL_GEOMETRY ? &sort_filth[sort_filth_count] : NULL);
 
 									if (sort_filth_count<MAXIMUM_PARTS_PER_MODEL_GEOMETRY &&
 										sort_filth[sort_filth_count].group_index!=NONE &&
@@ -456,6 +466,82 @@ static void render_model_parts(
 }
 
 /* ---------- public code */
+
+static boolean model_rigid_render_radius(
+	struct model const *model,
+	real_point3d const *center,
+	real *radius)
+{
+	struct model_node const *root;
+	real maximum_squared = 0.0f;
+	long geometry_index, vertex_count = 0;
+	if (model->nodes.count != 1 || !model->nodes.address ||
+		model->geometries.count <= 0 || model->geometries.count > MAXIMUM_GEOMETRIES_PER_MODEL ||
+		!model->geometries.address) return FALSE;
+	root = TAG_BLOCK_GET_ELEMENT(&model->nodes, 0, struct model_node);
+	/* Include every LOD/permutation. A one-node model has a fixed mesh in
+	 * root-node space; skeletal animation needs a different bounds policy. */
+	for (geometry_index = 0; geometry_index < model->geometries.count; ++geometry_index)
+	{
+		struct model_geometry const *geometry = TAG_BLOCK_GET_ELEMENT(&model->geometries, geometry_index, struct model_geometry);
+		long part_index;
+		if (geometry->parts.count < 0 || geometry->parts.count > MAXIMUM_PARTS_PER_MODEL_GEOMETRY ||
+			(geometry->parts.count && !geometry->parts.address)) return FALSE;
+		for (part_index = 0; part_index < geometry->parts.count; ++part_index)
+		{
+			struct model_geometry_part const *part = TAG_BLOCK_GET_ELEMENT(&geometry->parts, part_index, struct model_geometry_part);
+			struct vertex_buffer const *buffer = &part->vertex_buffer;
+			byte *vertices = NULL;
+			long stride, i;
+			boolean valid = TRUE;
+			if (TEST_FLAG(part->flags, _model_geometry_part_stripped_bit)) continue;
+			if (TEST_FLAG(part->flags, _model_geometry_part_local_nodes_bit) || !buffer->hardware_format || buffer->offset ||
+				buffer->count <= 0 || buffer->count > MAXIMUM_VERTICES_PER_MODEL_GEOMETRY_PART ||
+				(buffer->type != _rasterizer_vertex_type_model_compressed && buffer->type != _rasterizer_vertex_type_model_uncompressed)) return FALSE;
+			stride = rasterizer_geometry_get_vertex_size(buffer->type);
+			IDirect3DVertexBuffer8_Lock(XBOX_POINTER(IDirect3DVertexBuffer8, buffer->hardware_format), 0, 0, &vertices, D3DLOCK_READONLY);
+			if (!vertices) valid = FALSE;
+			for (i = 0; valid && i < buffer->count; ++i)
+			{
+				real_point3d point;
+				real squared;
+				matrix4x3_transform_point(&root->runtime_default_inverse_matrix,
+					(real_point3d const *)(vertices + i * stride), &point);
+				squared = distance_squared3d(&point, center);
+				if (!(squared >= 0.0f && squared < FLT_MAX)) valid = FALSE;
+				else maximum_squared = MAX(maximum_squared, squared);
+			}
+			IDirect3DVertexBuffer8_Unlock(XBOX_POINTER(IDirect3DVertexBuffer8, buffer->hardware_format));
+			if (!valid) return FALSE;
+			vertex_count += buffer->count;
+		}
+	}
+	if (!vertex_count) return FALSE;
+	/* Round outward so the extremal vertex stays inside the sphere. */
+	*radius = nextafterf(sqrtf(maximum_squared), FLT_MAX);
+	return TRUE;
+}
+
+void models_fix_powerup_render_bounds(void)
+{
+	struct tag_iterator iterator;
+	long index;
+	tag_iterator_new(&iterator, EQUIPMENT_DEFINITION_TAG);
+	while ((index = tag_iterator_next(&iterator)) != NONE)
+	{
+		struct equipment_definition *equipment = equipment_definition_get(index);
+		real radius;
+		if ((equipment->equipment.powerup_type == _equipment_powerup_overshield ||
+			equipment->equipment.powerup_type == _equipment_powerup_active_camouflage) &&
+			equipment->object.model.index != NONE && equipment->object.animation_graph.index == NONE &&
+			model_rigid_render_radius(model_definition_get(equipment->object.model.index), &equipment->object.bounding_offset, &radius) &&
+			radius > equipment->object.render_bounding_radius)
+		{
+			/* Derived tag data only: leave physics, pickup radius and saves intact. */
+			equipment->object.render_bounding_radius = radius;
+		}
+	}
+}
 
 void model_interpolate_node_orientations(
 	struct model const *model,
@@ -772,8 +858,9 @@ short model_get_marker_by_name(
 			struct model_marker_instance* instance = TAG_BLOCK_GET_ELEMENT(&marker->instances, i, struct model_marker_instance);
 
 			/* port: a marker on a region or node the model doesn't have is
-			skipped (a map's indices) */
-			if ((region_permutations && instance->region_index>=MAXIMUM_REGIONS_PER_MODEL) ||
+			skipped (a map's indices); the permutations passed in are an
+			object's (retail's markers are on regions 5 at most) */
+			if ((region_permutations && instance->region_index>=MAXIMUM_REGIONS_PER_OBJECT) ||
 				instance->node_index>=MIN(model->nodes.count, MAXIMUM_NODES_PER_MODEL))
 			{
 				model_data_error(model, "marker");
@@ -903,6 +990,11 @@ void render_model(
 		struct rasterizer_model_begin_parameters model_parameters;
 		short geometry_detail_level_index;
 		short node_index;
+		/* port: how many regions the permutations passed in hold (an
+		object's; the default's otherwise) */
+		short region_permutation_count = region_permutation_indices ?
+			MAXIMUM_REGIONS_PER_OBJECT :
+			MAXIMUM_REGIONS_PER_MODEL;
 		/* port: no more nodes than relative_node_matrices holds (a map's count) */
 		short node_count = (short)MIN(model->nodes.count, MAXIMUM_NODES_PER_MODEL);
 
@@ -1001,7 +1093,7 @@ void render_model(
 
 						/* port: and the region and node are ones the model has room
 						for (a map's indices) */
-						if (instance->region_index<MAXIMUM_REGIONS_PER_MODEL &&
+						if (instance->region_index<region_permutation_count &&
 							instance->node_index<node_count &&
 							region_permutation_indices[instance->region_index]==instance->permutation_index)
 						{
@@ -1027,7 +1119,7 @@ void render_model(
 
 				/* port: the regions and permutations render_model_parts draws (a
 				map's counts and indices) */
-				for (region_index = 0; region_index<MIN(model->regions.count, MAXIMUM_REGIONS_PER_MODEL); region_index++)
+				for (region_index = 0; region_index<MIN(model->regions.count, region_permutation_count); region_index++)
 				{
 					struct model_region *region = TAG_BLOCK_GET_ELEMENT(&model->regions, region_index, struct model_region);
 					char permutation_index = region_permutation_indices[region_index];
@@ -1175,6 +1267,7 @@ void render_model(
 		render_model_parts(
 			model,
 			region_permutation_indices,
+			region_permutation_count,
 			&model_parameters.skinning,
 			unique_identifier,
 			geometry_detail_level_index,
@@ -1204,6 +1297,10 @@ boolean model_data_report_once(
 {
 	static void const *reported_data[32];
 	static long next_reported_index = 0;
+	/* (and no more than this many reports in all: with more bad tags than
+	the list holds, each would push another out and be reported again
+	every frame) */
+	static long report_count = 0;
 	long reported_index;
 
 	for (reported_index = 0; reported_index<(long)NUMBEROF(reported_data); reported_index++)
@@ -1213,6 +1310,11 @@ boolean model_data_report_once(
 			return FALSE;
 		}
 	}
+	if (report_count >= 4 * (long)NUMBEROF(reported_data))
+	{
+		return FALSE;
+	}
+	report_count++;
 	reported_data[next_reported_index] = data;
 	next_reported_index = (next_reported_index+1)%(long)NUMBEROF(reported_data);
 

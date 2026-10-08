@@ -5,23 +5,34 @@ table as config"; the game's side is port/linux/src/delta.c).
 The table is a JSON document, legacy.json:
 
     {"delta_legacy": 1, "serial": 42, "issued": 1791331200,
-     "wires": {"chupa-20a": {"announce": 21, "minimum": 11, "maximum": 21}},
+     "wires": {"chupa-23a": {"announce": 23, "minimum": 11, "maximum": 23,
+                             "follows": "build-147"}},
      "disabled_capabilities": [],
      "platform_policy": {"xbox": {"host_players": 16}}}
 
 ("platform_policy" is optional and reserved: per-platform limits Delta Peer
-reads, each bounded by the build's own hard limits), and its signature,
+is to read, each bounded by the build's own hard limits), and its signature,
 legacy.json.sig: the Ed25519 signature of legacy.json's exact bytes, as 128
-hex digits and a line feed. A build reads only its own
-wire's row (DELTA_WIRE in port/linux/include/delta.h), and takes it only if
-it widens the numbers the build was made with. At most 16384 bytes.
+hex digits and a line feed. A build reads only its own wire's row
+(DELTA_WIRE in port/linux/include/delta.h), and takes it only if it widens
+the numbers the build was made with. At most 16384 bytes.
 
-    delta_table.py make --serial N [--from OLD.json] [--out legacy.json]
+    delta_table.py make --serial N [--from OLD.json] [--row WIRE=A,MIN,MAX[@build-N] ...] [--out legacy.json]
         this build's wire and numbers (delta.h, halo_port_limits.h) as a
-        table; --from keeps another table's rows for the other wires
+        table; --from keeps another table's rows for the other wires;
+        --row sets a wire's row (announce, minimum, maximum) as the
+        cross-play gate proved it (tools/crossplay_test.py), with the
+        OpenCE build it was proved against ("follows"), and may only
+        widen that wire's row in --from and, for this build's wire, its
+        built-in numbers; --take-back WIRE=A,MIN,MAX sets a wire's row back
+        to its release's own numbers
     delta_table.py sign --key KEY.pem legacy.json      writes legacy.json.sig
-    delta_table.py verify [--public-key HEX] legacy.json
-        checks legacy.json.sig against the key (or delta_key.h's keys)
+    delta_table.py verify [--public-key HEX [--last-epoch N]] legacy.json
+        checks legacy.json.sig against the key (or delta_key.h's keys), and
+        that the key may sign the serial's epoch
+    delta_table.py next-serial [--from legacy.json] [--new-epoch]
+        the next table's serial: one more, or the next epoch's first (a
+        serial's top byte is its epoch: only the recovery key opens one)
     delta_table.py keygen --out KEY.pem
         a new key pair: the private key into KEY.pem (readable by you alone:
         keep it out of every repository; CI has it as a secret), the public
@@ -53,6 +64,8 @@ MAXIMUM_VERSION = 65535
 # platform_policy (reserved for Delta Peer's per-platform limits): platform
 # and limit names, and each limit a small whole number
 NAME = re.compile(r"[a-z0-9_]{1,32}")
+# a row's "follows": the OpenCE build the cross-play gate proved it with
+FOLLOWS = re.compile(r"[A-Za-z0-9._-]{1,31}")
 POLICY_MAXIMUM = 4096
 # (an Ed25519 public key's DER: this prefix, then its 32 bytes)
 ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
@@ -119,7 +132,7 @@ def parse(document: bytes, own_wire: str = None) -> dict:
             raise TableError(f"it has no {key}")
     if _integer(table["delta_legacy"], 0, 1000000, "delta_legacy") != FORMAT:
         raise TableError(f"its format is {table['delta_legacy']}, not {FORMAT}")
-    _integer(table["serial"], 1, 2 ** 32 - 1, "serial")
+    _integer(table["serial"], 1, 2 ** 32 - 2, "serial")
     if "issued" in table:
         _integer(table["issued"], 0, 2 ** 53, "issued")
     if not isinstance(table["wires"], dict):
@@ -131,6 +144,8 @@ def parse(document: bytes, own_wire: str = None) -> dict:
             _integer(row[key], 1, MAXIMUM_VERSION, f"wire {name}'s {key}")
         if not row["minimum"] <= row["announce"] <= row["maximum"]:
             raise TableError(f"wire {name}'s row is not a range")
+        if "follows" in row and not (isinstance(row["follows"], str) and FOLLOWS.fullmatch(row["follows"])):
+            raise TableError(f"wire {name}'s follows is not an OpenCE build's tag")
     policy = table.get("platform_policy", {})
     if not isinstance(policy, dict):
         raise TableError("platform_policy is not an object")
@@ -159,9 +174,42 @@ def check_widens(table: dict, own_wire: str, floor: dict) -> None:
         raise TableError(f"wire {own_wire}'s row {row} narrows the built-in {floor}")
 
 
-def make(serial: int, issued: int = None, previous: dict = None) -> bytes:
+def parse_row(text: str) -> tuple:
+    """--row's WIRE=ANNOUNCE,MINIMUM,MAXIMUM[@OPENCE_BUILD]"""
+    match = re.fullmatch(r"([a-z0-9-]{1,31})=(\d{1,5}),(\d{1,5}),(\d{1,5})(?:@([A-Za-z0-9._-]{1,31}))?", text)
+    if not match:
+        raise TableError(f"--row {text}: not WIRE=ANNOUNCE,MINIMUM,MAXIMUM[@OPENCE_BUILD]")
+    announce, minimum, maximum = (int(match.group(index)) for index in (2, 3, 4))
+    if not (1 <= minimum <= announce <= maximum <= MAXIMUM_VERSION):
+        raise TableError(f"--row {text}: needs 1 <= minimum <= announce <= maximum <= {MAXIMUM_VERSION}")
+    row = {"announce": announce, "minimum": minimum, "maximum": maximum}
+    if match.group(5):
+        row["follows"] = match.group(5)
+    return match.group(1), row
+
+
+def widens(row: dict, floor: dict) -> bool:
+    return row["announce"] >= floor["announce"] and row["minimum"] <= floor["minimum"] and \
+        row["maximum"] >= floor["maximum"]
+
+
+def make(serial: int, issued: int = None, previous: dict = None, rows: dict = None, take_back: dict = None) -> bytes:
     wires = dict(previous["wires"]) if previous else {}
     wires[wire()] = built_in()
+    if previous and wire() in previous["wires"] and widens(previous["wires"][wire()], wires[wire()]):
+        wires[wire()] = previous["wires"][wire()]
+    for name, row in (rows or {}).items():
+        floor = wires.get(name)
+        if floor and not widens(row, floor):
+            raise TableError(f"--row {name}: {row} narrows {floor} (a table only widens)")
+        wires[name] = row
+    # (a follow taken back: the row set to the wire's shipped numbers again,
+    # which builds of that wire take, being no less than what they shipped
+    # with; this build's own wire never below its built-in numbers)
+    for name, row in (take_back or {}).items():
+        if name == wire() and not widens(row, built_in()):
+            raise TableError(f"--take-back {name}: {row} is below this build's own numbers {built_in()}")
+        wires[name] = row
     table = {
         "delta_legacy": FORMAT,
         "serial": serial,
@@ -264,15 +312,46 @@ def header_keys():
     return keys
 
 
-def check(document: bytes, signature_text: str, keys) -> dict:
-    """the signed table, checked as the game does: size, signature, then the
-    document (but not against a build's numbers); TableError if not"""
+def epoch(serial: int) -> int:
+    """a serial's epoch: its top byte (delta_key.h)"""
+    return serial >> 24
+
+
+def next_serial(previous: int, new_epoch: bool = False) -> int:
+    """the serial after previous: one more, or with new_epoch the first of
+    the next epoch, which only the recovery key may sign"""
+    if not new_epoch:
+        if epoch(previous + 1) != epoch(previous):
+            raise TableError(f"serial {previous} is its epoch's last: a new epoch needs the recovery key")
+        return previous + 1
+    if epoch(previous) >= 255:
+        raise TableError("no epoch after 255")
+    return ((epoch(previous) + 1) << 24) | 1
+
+
+def header_last_epochs():
+    """delta_key.h's last epoch of each key, in its keys' order"""
+    text = KEY_HEADER.read_text().split("#else", 1)[0]
+    match = re.search(r"delta_key_last_epochs\[\]\s*=\s*\{([^}]*)\}", text)
+    return [int(value) for value in re.findall(r"\d+", match.group(1))] if match else []
+
+
+def check(document: bytes, signature_text: str, keys, last_epochs=None) -> dict:
+    """the signed table, checked as the game does: size, signature, the
+    signing key's last epoch (each key's in last_epochs, by default every
+    one), then the document (but not against a build's numbers); TableError
+    if not"""
     if len(document) > DOCUMENT_SIZE:
         raise TableError(f"it is {len(document)} bytes, more than {DOCUMENT_SIZE}")
     signature = signature_from_text(signature_text)
-    if not any(verify_bytes(key, document, signature) for key in keys):
+    signer = next((index for index, key in enumerate(keys) if verify_bytes(key, document, signature)), None)
+    if signer is None:
         raise TableError("its signature does not match")
-    return parse(document)
+    table = parse(document)
+    last = (last_epochs or [255] * len(keys))[signer]
+    if epoch(table["serial"]) > last:
+        raise TableError(f"its epoch ({epoch(table['serial'])}) is past its key's last ({last})")
+    return table
 
 
 def signed_table(document: bytes, signature: bytes) -> bytes:
@@ -291,13 +370,23 @@ def main() -> int:
     command.add_argument("--serial", type=int, required=True)
     command.add_argument("--issued", type=int)
     command.add_argument("--from", dest="previous", type=Path, help="a table whose other wires' rows to keep")
+    command.add_argument("--row", action="append", default=[],
+                         help="WIRE=ANNOUNCE,MINIMUM,MAXIMUM[@OPENCE_BUILD], a wire's row (and the OpenCE build it follows)")
+    command.add_argument("--take-back", action="append", default=[], metavar="WIRE=A,MIN,MAX",
+                         help="a wire's row set back to its release's own numbers (a follow taken back); exactly "
+                              "the shipped numbers: a row below them makes every build of the wire drop the table")
     command.add_argument("--out", type=Path)
     command = commands.add_parser("sign")
     command.add_argument("--key", type=Path, required=True)
     command.add_argument("document", type=Path)
     command = commands.add_parser("verify")
     command.add_argument("--public-key", help="a public key's 64 hex digits, in place of delta_key.h's")
+    command.add_argument("--last-epoch", type=int, default=255,
+                         help="--public-key's last epoch (delta_key.h: the primary's 0, the recovery key's 255)")
     command.add_argument("document", type=Path)
+    command = commands.add_parser("next-serial")
+    command.add_argument("--from", dest="previous", type=Path, help="the table published now (none: the first)")
+    command.add_argument("--new-epoch", action="store_true", help="the next epoch's first (the recovery key's)")
     command = commands.add_parser("keygen")
     command.add_argument("--out", type=Path, required=True)
     arguments = parser.parse_args()
@@ -307,7 +396,9 @@ def main() -> int:
             previous = parse(arguments.previous.read_bytes()) if arguments.previous else None
             if previous and arguments.serial <= previous["serial"]:
                 raise TableError(f"serial {arguments.serial} is not newer than {previous['serial']}")
-            document = make(arguments.serial, arguments.issued, previous)
+            rows = dict(parse_row(row) for row in arguments.row)
+            take_back = dict(parse_row(row) for row in arguments.take_back)
+            document = make(arguments.serial, arguments.issued, previous, rows, take_back)
             if arguments.out:
                 arguments.out.write_bytes(document)
             else:
@@ -322,12 +413,18 @@ def main() -> int:
             print(f"{arguments.document}.sig")
         elif arguments.command == "verify":
             keys = [bytes.fromhex(arguments.public_key)] if arguments.public_key else header_keys()
+            epochs = [arguments.last_epoch] if arguments.public_key else header_last_epochs()
             if not keys or any(len(key) != 32 for key in keys):
-                print(f"no key in delta_key.h: give --public-key", file=sys.stderr)
+                print("no key in delta_key.h: give --public-key", file=sys.stderr)
                 return 1
-            table = check(arguments.document.read_bytes(), Path(f"{arguments.document}.sig").read_text(), keys)
+            table = check(arguments.document.read_bytes(), Path(f"{arguments.document}.sig").read_text(), keys,
+                          epochs)
             row = table["wires"].get(wire())
-            print(f"{arguments.document}: signed, serial {table['serial']}; {wire()}: {row or 'no row'}")
+            print(f"{arguments.document}: signed, serial {table['serial']} (epoch {epoch(table['serial'])}); "
+                  f"{wire()}: {row or 'no row'}")
+        elif arguments.command == "next-serial":
+            previous = parse(arguments.previous.read_bytes())["serial"] if arguments.previous else 0
+            print(next_serial(previous, arguments.new_epoch))
         else:
             key = keygen(arguments.out)
             print(f"private key: {arguments.out} (keep it out of every repository: a CI secret)")

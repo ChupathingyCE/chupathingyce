@@ -59,6 +59,8 @@ enum
 	CE_CLUSTER_SIZE = 0x68,
 	CE_MAXIMUM_CLUSTERS = 512,
 	CE_CLUSTER_PORTAL_SIZE = 0x40,
+	/* (as many as the lightmaps: more would not fit in the tag cache) */
+	CE_MAXIMUM_CLUSTER_PORTALS = 0x10000,
 	CE_CLUSTER_PORTAL_VERTICES_OFFSET = 0x34,
 	CE_PORTAL_VERTEX_SIZE = 0xc,
 	CE_MAXIMUM_PORTAL_VERTICES = 128,
@@ -170,7 +172,7 @@ than sphere_intersects_cluster_portal projects into an array on the stack */
 		if (!ce_image_block(image, &((struct structure_bsp *)structure)->clusters, CE_CLUSTER_SIZE,
 			CE_MAXIMUM_CLUSTERS, "a structure BSP's clusters", &cluster_count, &clusters) ||
 			!ce_image_block(image, &((struct structure_bsp *)structure)->cluster_portals, CE_CLUSTER_PORTAL_SIZE,
-			CE_MAXIMUM_BSP_LIGHTMAPS, "a structure BSP's cluster portals", &portal_count, &portals))
+			CE_MAXIMUM_CLUSTER_PORTALS, "a structure BSP's cluster portals", &portal_count, &portals))
 		{
 			return FALSE;
 		}
@@ -278,9 +280,20 @@ void ce_bsp_loaded(
 				error(_error_silent, "Custom Edition maps: no memory for a BSP material's vertices");
 				return;
 			}
-			ce_bsp_vertex_memory = realloc(ce_bsp_vertex_memory, (ce_bsp_vertex_memory_count + 1) * sizeof(void *));
-			if (ce_bsp_vertex_memory)
+			{
+				/* (kept, to be freed with the map: a failed realloc keeps the
+				list as it was) */
+				void **grown = realloc(ce_bsp_vertex_memory, (ce_bsp_vertex_memory_count + 1) * sizeof(void *));
+
+				if (!grown)
+				{
+					XPhysicalFree(compressed);
+					error(_error_silent, "Custom Edition maps: no memory for a BSP material's vertices");
+					return;
+				}
+				ce_bsp_vertex_memory = grown;
 				ce_bsp_vertex_memory[ce_bsp_vertex_memory_count++] = compressed;
+			}
 			ce_unit_vectors(uncompressed, vertex_count, ENVIRONMENT_VERTEX_UNCOMPRESSED_SIZE,
 				ENVIRONMENT_VERTEX_VECTORS_OFFSET, ENVIRONMENT_VERTEX_VECTOR_COUNT);
 			rasterizer_geometry_compress_vertices(_rasterizer_vertex_type_environment_uncompressed, vertex_count,
@@ -323,7 +336,8 @@ void ce_bsp_unloaded(
 
 	for (index = 0; index < ce_bsp_vertex_memory_count; index++)
 		XPhysicalFree(ce_bsp_vertex_memory[index]);
-	free(ce_bsp_vertex_memory);
+	if (ce_bsp_vertex_memory)
+		free(ce_bsp_vertex_memory);
 	ce_bsp_vertex_memory = NULL;
 	ce_bsp_vertex_memory_count = 0;
 	/* (its vertex buffers' room, for the next BSP's) */

@@ -56,6 +56,8 @@ skips what it does not know.
 #define DELTA_LEGACY_FORMAT 1
 #define DELTA_SIGNATURE_SIZE 64
 #define DELTA_KEY_COUNT (sizeof(delta_public_keys) / sizeof(*delta_public_keys))
+/* a serial's epoch, its top byte (delta_key.h) */
+#define DELTA_EPOCH(serial) ((unsigned int)(serial) >> 24)
 #define DELTA_CACHE_NAME "delta_legacy.signed"
 #define DELTA_GITHUB_URL "https://raw.githubusercontent.com/ChupathingyCE/chupathingyce/delta-table/legacy.json"
 
@@ -82,7 +84,7 @@ enum
 static const char *const delta_capability_names[] =
 {
 	"platform", "profile", "server_messages", "chat", "ce_maps", "md_maps", "coop", "ai_sync", "vote",
-	"console_slots",
+	"console_slots", "moderation",
 };
 _Static_assert(sizeof(delta_capability_names) / sizeof(*delta_capability_names) == NUMBER_OF_DELTA_CAPABILITIES,
 	"a name for each capability");
@@ -94,10 +96,16 @@ struct delta_table
 	/* (this build's wire's row, if the table has one) */
 	int has_row;
 	int announce, minimum, maximum;
+	/* ... and the OpenCE build the cross-play gate proved it with
+	("build-145"; empty: not said) */
+	char follows[DELTA_FOLLOWS_SIZE];
 	unsigned long disabled;
 };
 
 static pthread_mutex_t delta_lock = PTHREAD_MUTEX_INITIALIZER;
+/* (the cache's file: one writer at a time, the fetching thread's or the
+game's, taken before delta_lock) */
+static pthread_mutex_t delta_cache_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_once_t delta_once = PTHREAD_ONCE_INIT;
 /* (the fetching thread waits on it for its next time) */
 static pthread_cond_t delta_wake = PTHREAD_COND_INITIALIZER;
@@ -105,6 +113,7 @@ static pthread_cond_t delta_wake = PTHREAD_COND_INITIALIZER;
 static struct
 {
 	int announce, minimum, maximum;
+	char follows[DELTA_FOLLOWS_SIZE];
 	unsigned long disabled;
 	/* the signed table in use (malloc'd), and its serial; none: 0 */
 	unsigned int serial;
@@ -143,9 +152,15 @@ static int json_take(struct json *json, char c)
 	return 0;
 }
 
-static int json_hex(char c)
+static int delta_hex_digit(char c)
 {
-	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+	return -1;
 }
 
 /* a string: its text between the quotes, its escapes checked but not
@@ -183,7 +198,7 @@ static int json_string(struct json *json, const char **text, int *length, int *e
 
 				for (index = 1; index <= 4; index++)
 				{
-					if (json->at + index >= json->end || !json_hex(json->at[index]))
+					if (json->at + index >= json->end || delta_hex_digit(json->at[index]) < 0)
 						return 0;
 				}
 				json->at += 4;
@@ -309,7 +324,32 @@ static int json_skip(struct json *json)
 	return 1;
 }
 
-/* a wire's row: {"announce": A, "minimum": Mi, "maximum": Ma} */
+/* a row's "follows": an OpenCE build's tag, letters, digits, '.', '-' and
+'_' (shown in the log and the server's status as it is) */
+static int json_follows(struct json *json, struct delta_table *table)
+{
+	const char *text;
+	int length, escaped, index;
+
+	if (!json_string(json, &text, &length, &escaped) || escaped || length < 1 || length >= DELTA_FOLLOWS_SIZE)
+		return 0;
+	for (index = 0; index < length; index++)
+	{
+		char c = text[index];
+
+		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-' ||
+			c == '_'))
+		{
+			return 0;
+		}
+	}
+	memcpy(table->follows, text, (size_t)length);
+	table->follows[length] = 0;
+	return 1;
+}
+
+/* a wire's row: {"announce": A, "minimum": Mi, "maximum": Ma}, and
+optionally "follows": "build-N" */
 static int json_row(struct json *json, struct delta_table *table)
 {
 	int seen = 0;
@@ -333,6 +373,14 @@ static int json_row(struct json *json, struct delta_table *table)
 			field = &table->minimum, bit = 2;
 		else if (!escaped && json_is(key, length, "maximum"))
 			field = &table->maximum, bit = 4;
+		else if (!escaped && json_is(key, length, "follows"))
+		{
+			/* (once) */
+			if ((seen & 8) || !json_follows(json, table))
+				return 0;
+			seen |= 8;
+			continue;
+		}
 		if (!field)
 		{
 			if (!json_skip(json))
@@ -344,7 +392,7 @@ static int json_row(struct json *json, struct delta_table *table)
 		*field = (int)value;
 		seen |= bit;
 	} while (json_take(json, ','));
-	return json_take(json, '}') && seen == 7;
+	return json_take(json, '}') && (seen & 7) == 7;
 }
 
 /* "wires": {"<wire>": row, ...}: this build's row read, the others checked */
@@ -425,7 +473,12 @@ static int delta_table_parse(const char *document, size_t size, struct delta_tab
 		else if (json_is(key, length, "delta_legacy"))
 			bit = 1, ok = json_integer(&json, 0, 1000000, &format);
 		else if (json_is(key, length, "serial"))
-			bit = 2, ok = json_integer(&json, 1, 4294967295LL, &value), table->serial = (unsigned int)value;
+		{
+			/* (not 0xFFFFFFFF: on the wire that is a machine taking no tables) */
+			bit = 2, ok = json_integer(&json, 1, 4294967294LL, &value);
+			if (ok)
+				table->serial = (unsigned int)value;
+		}
 		else if (json_is(key, length, "issued"))
 			bit = 4, ok = json_integer(&json, 0, 1LL << 53, &table->issued);
 		else if (json_is(key, length, "wires"))
@@ -489,17 +542,6 @@ static int delta_has_key(void)
 	return 0;
 }
 
-static int delta_hex_digit(char c)
-{
-	if (c >= '0' && c <= '9')
-		return c - '0';
-	if (c >= 'a' && c <= 'f')
-		return c - 'a' + 10;
-	if (c >= 'A' && c <= 'F')
-		return c - 'A' + 10;
-	return -1;
-}
-
 /* the signature's 128 hex digits (and white space after them) into bytes */
 static int delta_signature_parse(const char *text, size_t length, unsigned char *signature)
 {
@@ -524,7 +566,8 @@ static int delta_signature_parse(const char *text, size_t length, unsigned char 
 	return 1;
 }
 
-static int delta_signature_check(const char *document, size_t size, const unsigned char *signature)
+/* the key that signed the document (its index in delta_public_keys), or -1 */
+static int delta_signature_signer(const char *document, size_t size, const unsigned char *signature)
 {
 	size_t index;
 
@@ -534,10 +577,10 @@ static int delta_signature_check(const char *document, size_t size, const unsign
 		if (delta_key_set(delta_public_keys[index]) &&
 			crypto_ed25519_check(signature, delta_public_keys[index], (const unsigned char *)document, size) == 0)
 		{
-			return 1;
+			return (int)index;
 		}
 	}
-	return 0;
+	return -1;
 }
 
 /* ---------- the table in use */
@@ -554,6 +597,7 @@ static void delta_use_built_in(void)
 	delta.announce = HALO_PORT_NETWORK_VERSION;
 	delta.minimum = HALO_PORT_NETWORK_VERSION_MINIMUM;
 	delta.maximum = HALO_PORT_NETWORK_VERSION_MAXIMUM;
+	delta.follows[0] = 0;
 	delta.disabled = 0;
 }
 
@@ -599,7 +643,7 @@ static enum delta_result delta_take(const char *document, size_t size, const cha
 	struct delta_table table;
 	const char *why;
 	char *signed_table;
-	int signed_size;
+	int signed_size, signer = -1;
 
 	if (size > DELTA_LEGACY_DOCUMENT_SIZE)
 	{
@@ -607,7 +651,7 @@ static enum delta_result delta_take(const char *document, size_t size, const cha
 		return _delta_invalid;
 	}
 	if (!delta_signature_parse(signature_text, signature_length, signature) ||
-		!delta_signature_check(document, size, signature))
+		(signer = delta_signature_signer(document, size, signature)) < 0)
 	{
 		platform_log("Delta: dropped the legacy table from %s: its signature does not match", source);
 		return _delta_invalid;
@@ -615,6 +659,14 @@ static enum delta_result delta_take(const char *document, size_t size, const cha
 	if (!delta_table_parse(document, size, &table, &why))
 	{
 		platform_log("Delta: dropped the legacy table from %s: %s", source, why);
+		return _delta_invalid;
+	}
+	/* (only the keys whose last epoch reaches it sign a serial's epoch: the
+	recovery key alone opens a new one, delta_key.h) */
+	if (DELTA_EPOCH(table.serial) > delta_key_last_epochs[signer])
+	{
+		platform_log("Delta: dropped the legacy table %u from %s: its epoch (%u) is past its key's last (%u)",
+			table.serial, source, DELTA_EPOCH(table.serial), (unsigned int)delta_key_last_epochs[signer]);
 		return _delta_invalid;
 	}
 	if (!delta_table_widens(&table))
@@ -648,17 +700,39 @@ static enum delta_result delta_take(const char *document, size_t size, const cha
 		delta.announce = table.announce;
 		delta.minimum = table.minimum;
 		delta.maximum = table.maximum;
+		memcpy(delta.follows, table.follows, sizeof(delta.follows));
 	}
 	delta.disabled = table.disabled;
 	pthread_mutex_unlock(&delta_lock);
 
-	platform_log("Delta: legacy table %u from %s: announcing %d, joining %d to %d%s", table.serial, source,
+	platform_log("Delta: legacy table %u from %s: announcing %d, joining %d to %d%s%s%s", table.serial, source,
 		table.has_row ? table.announce : HALO_PORT_NETWORK_VERSION,
 		table.has_row ? table.minimum : HALO_PORT_NETWORK_VERSION_MINIMUM,
 		table.has_row ? table.maximum : HALO_PORT_NETWORK_VERSION_MAXIMUM,
-		table.has_row ? "" : " (no row for " DELTA_WIRE ": the built-in numbers)");
+		table.has_row ? "" : " (no row for " DELTA_WIRE ": the built-in numbers)",
+		table.has_row && table.follows[0] ? "; following OpenCE " : "", table.has_row ? table.follows : "");
+	/* (from the cache's own copy, and only while the table is still the
+	one in use: another thread may take a newer one, and free this one,
+	meanwhile) */
 	if (cache)
-		delta_cache_write(signed_table, signed_size);
+	{
+		char *copy = malloc((size_t)signed_size);
+		int current;
+
+		if (copy)
+		{
+			pthread_mutex_lock(&delta_cache_lock);
+			pthread_mutex_lock(&delta_lock);
+			current = delta.serial == table.serial && delta.signed_table == signed_table;
+			if (current)
+				memcpy(copy, signed_table, (size_t)signed_size);
+			pthread_mutex_unlock(&delta_lock);
+			if (current)
+				delta_cache_write(copy, signed_size);
+			pthread_mutex_unlock(&delta_cache_lock);
+			free(copy);
+		}
+	}
 	return _delta_taken;
 }
 
@@ -705,6 +779,7 @@ static int delta_load_override(void)
 		delta.announce = table.announce;
 		delta.minimum = table.minimum;
 		delta.maximum = table.maximum;
+		memcpy(delta.follows, table.follows, sizeof(delta.follows));
 	}
 	if (ok)
 		delta.disabled = table.disabled;
@@ -948,6 +1023,33 @@ int delta_capability_disabled(int capability)
 	disabled = (delta.disabled >> capability) & 1;
 	pthread_mutex_unlock(&delta_lock);
 	return disabled;
+}
+
+void delta_legacy_following(char *text, int size)
+{
+	char follows[DELTA_FOLLOWS_SIZE];
+	unsigned int serial;
+	int announce, override;
+
+	pthread_once(&delta_once, delta_load);
+	pthread_mutex_lock(&delta_lock);
+	memcpy(follows, delta.follows, sizeof(follows));
+	serial = delta.serial;
+	announce = delta.announce;
+	override = delta.override;
+	pthread_mutex_unlock(&delta_lock);
+	if (size <= 0)
+		return;
+	if (follows[0])
+		snprintf(text, size, "Following OpenCE %s", follows);
+	else
+		snprintf(text, size, "Following OpenCE network version %d", announce);
+	if (override)
+		snprintf(text + strlen(text), (size_t)size - strlen(text), " (a local table)");
+	else if (serial)
+		snprintf(text + strlen(text), (size_t)size - strlen(text), " (table %u)", serial);
+	else
+		snprintf(text + strlen(text), (size_t)size - strlen(text), " (built in)");
 }
 
 int delta_legacy_override(void)

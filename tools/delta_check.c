@@ -3,11 +3,12 @@ DELTA_CHECK.C
 
 A check of the legacy table's loader (port/linux/src/delta.c), built by
 tools/test_delta.py with the platform layer's flags and a test key
-(HALO_DELTA_TEST_KEY), and stand-ins for the settings and the log. It runs
+(HALO_DELTA_TEST_KEY, and HALO_DELTA_TEST_RECOVERY_KEY), and stand-ins for the settings and the log. It runs
 the steps it is given, in order, and prints what each did:
 
 	offer FILE    a signed table from another machine: "offer 1" if taken
 	state         "state A MI MA serial S override O disabled D signed N"
+	following     "following TEXT" (delta_legacy_following)
 	start         delta_legacy_start: the cache, and the fetching thread
 	wait S        until the serial in use is S (up to ten seconds)
 	sleep MS      that many milliseconds
@@ -151,6 +152,13 @@ int main(int count, char **arguments)
 			printf("state %d %d %d serial %u override %d disabled %d signed %d\n", delta_legacy_announce(),
 				delta_legacy_minimum(), delta_legacy_maximum(), delta_legacy_serial(), delta_legacy_override(),
 				disabled, delta_legacy_signed(buffer, sizeof(buffer)));
+		}
+		else if (!strcmp(arguments[index], "following"))
+		{
+			char text[64];
+
+			delta_legacy_following(text, (int)sizeof(text));
+			printf("following %s\n", text);
 		}
 		else if (!strcmp(arguments[index], "start"))
 			delta_legacy_start();

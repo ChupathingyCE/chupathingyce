@@ -3130,15 +3130,38 @@ boolean server_has_enough_machines(
 boolean server_ok_to_countdown(
 	struct network_game_server *server)
 {
-	if (server_has_enough_machines(server) &&
-		server_has_a_player_on_each_machine(server) &&
-		!server_needs_more_teams(server) &&
-		server->game.player_count >= server->game.minimum_players)
+	boolean enough_machines = server_has_enough_machines(server);
+	boolean a_player_on_each = server_has_a_player_on_each_machine(server);
+	boolean teams_full = !server_needs_more_teams(server);
+	boolean enough_players = server->game.player_count >= server->game.minimum_players;
+	boolean ok = enough_machines && a_player_on_each && teams_full && enough_players;
+
+	/* port: a host nobody watches leaves no trace of why its lobby does not
+	start. The reason, logged as it changes (network_event is the engine's
+	log, the host's debug.txt): one letter per condition that fails */
 	{
-		return TRUE;
+		static int last_reason = -1;
+		int reason = (enough_machines ? 0 : 1) | (a_player_on_each ? 0 : 2) |
+			(teams_full ? 0 : 4) | (enough_players ? 0 : 8);
+
+		if (reason != last_reason)
+		{
+			last_reason = reason;
+			network_event(
+				"lobby countdown %s: machines %s, a player on each machine %s, teams %s, players %ld of %ld, paused %s%s%s%s",
+				ok ? "ready" : "held",
+				enough_machines ? "yes" : "NO",
+				a_player_on_each ? "yes" : "NO",
+				teams_full ? "yes" : "NO",
+				(long)server->game.player_count, (long)server->game.minimum_players,
+				server->countdown_state.paused ? "yes" : "no",
+				reason ? " (failed:" : "",
+				(reason & 1) ? " machines" : "",
+				reason ? ")" : "");
+		}
 	}
 
-	return FALSE;
+	return ok;
 }
 
 void network_game_server_invalidate_network_machine(
@@ -3346,6 +3369,8 @@ void network_game_server_change_map_name(
 		map_name,
 		NETWORK_GAME_MAP_NAME_LENGTH - 1);
 	server->game.map.name[NETWORK_GAME_MAP_NAME_LENGTH - 1] = 0;
+	/* port: a Halo PC map's version (cache_files_map_version) */
+	server->game.map.version = (long)cache_files_map_version(server->game.map.name);
 
 	if (!network_game_server_send_game_data_pregame(server))
 	{
@@ -3531,7 +3556,15 @@ static boolean network_game_server_client_machine_timed_out(
 	if (TEST_FLAG(machine->flags, _network_client_machine_level_loaded_bit))
 		return silence > NETWORK_GAME_SERVER_CLIENT_TIMEOUT;
 	/* (joining the game in progress: waiting for its players to be added,
-	or loading) */
+	or loading; port: one that adds none in the time a machine has to in
+	the pregame holds its slot for nothing) */
+	if (!network_game_server_machine_has_players(server, machine->machine_index) &&
+		!network_game_server_machine_has_waiting_players(server, machine->machine_index) &&
+		system_milliseconds() - network_game_server_client_machine_join_times[machine->machine_index] >
+			NETWORK_GAME_SERVER_PLAYERLESS_MACHINE_TIMEOUT)
+	{
+		return TRUE;
+	}
 	return silence > NETWORK_GAME_SERVER_LATE_JOINER_TIMEOUT;
 }
 
@@ -4096,6 +4129,7 @@ static void network_game_server_cooperative_round(
 	server->game.variant_options.friendly_fire = friendly_fire;
 	csstrncpy(server->game.map.name, network_game_server_cooperative_next_map, sizeof(server->game.map.name) - 1);
 	server->game.map.name[sizeof(server->game.map.name) - 1] = 0;
+	server->game.map.version = (long)cache_files_map_version(server->game.map.name);
 	main_set_multiplayer_map_name(server->game.map.name);
 	server->game.maximum_teams = 1;
 	network_game_server_cooperative_next_map[0] = 0;
@@ -4177,7 +4211,7 @@ static boolean network_game_server_setup_game_from_playlist(
 		network_game_generate_local_machine_name(machine_name);
 		ustrncpy(server->game.name, machine_name, NETWORK_GAME_NAME_LENGTH - 1);
 		server->game.name[NETWORK_GAME_NAME_LENGTH - 1] = L'\0';
-		server->game.map.version = 0;
+		server->game.map.version = (long)cache_files_map_version(server->game.map.name);
 		server->game.minimum_players = network_game_solo_game() ? 1 : 2;
 		server->game.maximum_players = MAXIMUM_NETWORK_PLAYER_COUNT;
 		network_game_server_port_settings_apply(server);

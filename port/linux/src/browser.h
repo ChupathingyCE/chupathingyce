@@ -16,18 +16,42 @@ game reached through an invite. See browser.c.
 (p2p_internal.h's P2P_LINK_SIZE, without "halo://join/") */
 #define BROWSER_INVITE_LENGTH 64
 #define BROWSER_NAME_LENGTH 16
+/* a player's name (UTF-16, as the game's: 11 characters and a 0) */
+#define BROWSER_PLAYER_NAME_LENGTH 12
 #define BROWSER_MAP_LENGTH 64
 #define BROWSER_MAXIMUM_GAMES 64
 /* a host's roster: the players it announces (as many as a game takes), and
 those a listed game keeps (as many as the Online Games screen shows) */
 #define BROWSER_HOSTED_ROSTER 128
 #define BROWSER_LISTED_ROSTER 16
+/* a listed game's machines by platform: Delta's registry
+(NUMBER_OF_DELTA_PLATFORMS), then those without Delta */
+#define BROWSER_MACHINE_KINDS 11
+
+/* how a listed game is hosted, and on what protocol, as the list says
+(docs/delta.md, Delta List): not known (an older host, or one listed by its
+invite) is 0 */
+enum
+{
+	BROWSER_HOSTING_UNKNOWN,
+	BROWSER_HOSTING_PLAYER,
+	BROWSER_HOSTING_DEDICATED,
+	/* one of ChupathingyCE's own dedicated servers */
+	BROWSER_HOSTING_OFFICIAL,
+};
+enum
+{
+	BROWSER_PROTOCOL_UNKNOWN,
+	BROWSER_PROTOCOL_DELTA,
+	/* OpenCE's protocol alone: an OpenCE host, or one with Delta off */
+	BROWSER_PROTOCOL_OPENCE,
+};
 
 /* a player of a game's roster */
 struct browser_roster_player
 {
 	/* (UTF-16, as the game's names) */
-	unsigned short name[12];
+	unsigned short name[BROWSER_PLAYER_NAME_LENGTH];
 	/* its team, -1 in a game without teams */
 	short team;
 };
@@ -50,13 +74,21 @@ struct browser_game
 	the players kept */
 	short roster_count;
 	struct browser_roster_player roster[BROWSER_LISTED_ROSTER];
+	/* its host, as the list says (BROWSER_HOSTING_*, BROWSER_PROTOCOL_*):
+	its platform (delta.h's enum delta_platform; has_platform 0 when not
+	said), and its machines by platform (all 0 when not said) */
+	unsigned char has_platform;
+	unsigned char host_platform;
+	unsigned char hosting;
+	unsigned char protocol;
+	unsigned char machines[BROWSER_MACHINE_KINDS];
 };
 
 /* one player's line of a finished game's carnage report */
 struct browser_report_player
 {
 	/* (UTF-16, as the game's names) */
-	unsigned short name[12];
+	unsigned short name[BROWSER_PLAYER_NAME_LENGTH];
 	short team;
 	short place;
 	int score;
@@ -157,8 +189,15 @@ int browser_headless(void);
 /* the local players of a game that just ended, by name: their lines in its
 carnage report confirmed with this copy's player key (browser.c); and the
 public player ID it confirms them as */
-void browser_claim_game(const unsigned short (*names)[12], int count);
+void browser_claim_game(const unsigned short (*names)[BROWSER_PLAYER_NAME_LENGTH], int count);
 int browser_player_id(char *text, int size);
+/* the moderator key (Delta Peer's moderation, docs/delta.md): an Ed25519
+key pair made from this copy's player key, whose public half a dedicated
+server's moderators file names. Its signature of a message and its public
+key: 1, else 0 (no player key). The public key alone as 64 hex digits */
+int browser_moderator_sign(const unsigned char *message, int size, unsigned char *public_key,
+	unsigned char *signature);
+int browser_moderator_key(char *text, int size);
 
 /* the profile page (halo.milenko.org/profile), signed in as this copy's
 player, opened in the web browser (MY PROFILE) */

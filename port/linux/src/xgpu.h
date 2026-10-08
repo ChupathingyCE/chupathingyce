@@ -33,7 +33,7 @@ extern struct xgpu_capabilities xgpu_capabilities;
 
 /* port/android/guest/runtime/guest_host.h */
 int host_gl_has_extension(const char *name);
-unsigned int host_gl_read_buffer_word(unsigned int buffer, unsigned int offset);
+void host_gl_read_buffer(unsigned int buffer, unsigned int offset, unsigned int size, void *data);
 void host_gl_buffer_write(unsigned int target, unsigned int offset, unsigned int size, const void *data);
 void host_gl_fence_frame(unsigned int slot);
 void host_gl_wait_frame(unsigned int slot);
@@ -51,6 +51,14 @@ void xgpu_gl_state_invalidate(void);
 written */
 GLuint xgpu_compile_shader(GLenum type, const char *code, const char *what);
 GLuint xgpu_link_program(GLuint vertex_shader, GLuint fragment_shader, const char *what);
+
+/* the draws' shaders by their text (xgpu_shader_cache.c): a text compiled
+before gives the same shader; program_get tells it each pair it links; and
+at start-up the texts and pairs of earlier runs are all compiled and linked,
+each program handed to linked() */
+GLuint xgpu_shader_cache_compile(GLenum type, const char *source, const char *what);
+void xgpu_shader_cache_linked(GLuint vertex_shader, GLuint fragment_shader);
+void xgpu_shader_cache_warm(void (*linked)(GLuint vertex_shader, GLuint fragment_shader, GLuint program));
 
 /* ---------- generated source text */
 
@@ -146,6 +154,9 @@ struct nv2a_pixel_shader_key
 	proportion to how far alpha is past the reference, not all of the pixel
 	or none of it, so that cut-out edges (foliage, grates) are smoothed too */
 	unsigned char alpha_test_samples;
+	/* Discrete meter thresholds in texture 0's red are read at level zero,
+	without filtering. Coverage/brightness still use the filtered lookup. */
+	unsigned char point_threshold;
 };
 
 char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key);
@@ -194,6 +205,7 @@ struct xgpu_texture_description
 	unsigned long pitch; /* linear textures */
 	BOOL hires;         /* a high-res HUD texture drawn in the texture's place (hud_hires.h) */
 	BOOL hires_coverage; /* ... whose green is its coverage (a meter's) */
+	BOOL hires_point_threshold; /* ... whose red holds discrete segment data */
 };
 
 void xgpu_texture_describe(DWORD format_word, DWORD size_word, struct xgpu_texture_description *description);
@@ -227,6 +239,9 @@ struct xgpu_render_target
 	GLuint multisample;
 	int samples;
 	BOOL unresolved;
+	/* changes whenever the target is drawn into or cleared (d3d8_gl.c,
+	bind_targets) */
+	unsigned long written;
 };
 
 /* the GL texture holding a render target with this physical address, or 0 */

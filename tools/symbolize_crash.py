@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Puts function names and source lines on the crash lines of a Windows
-build's debug.txt or halo.log (port/windows/src/win32_crash.c):
+build's debug.txt or halo.log (port/windows/src/win32_crash.c), or on the
+calls of a crash report as the site keeps it (halo.exe+0x1a2b3c, one a
+line: port/linux/src/crash_report.h):
 
     python tools/symbolize_crash.py debug.txt path/to/halo.exe
 
 halo.exe must be the build that crashed, with its halo.pdb beside it (a
 release's halo-windows-<config>-symbols.zip has the PDB; the zip of the
 same name without -symbols has halo.exe). The lines come from
-llvm-symbolizer, which reads the PDB. The crash reports that reach Sentry
-need none of this: Sentry symbolizes them itself.
+llvm-symbolizer, which reads the PDB.
 """
 
 import argparse
@@ -23,6 +24,9 @@ from pathlib import Path
 BASE = re.compile(r"crash: halo\.exe at (?:0x)?([0-9A-Fa-f]+)")
 EXCEPTION = re.compile(r"crash: exception \w+ at (?:0x)?([0-9A-Fa-f]+)")
 CALLER = re.compile(r"crash: called from (?:0x)?([0-9A-Fa-f]+)")
+# a crash report's call: an offset in halo.exe already
+FRAME = re.compile(r"\bhalo\.exe\+0x([0-9A-Fa-f]+)")
+ANY_FRAME = re.compile(r"[\w.?-]\+0x[0-9A-Fa-f]+")
 
 
 def image_layout(executable: Path) -> tuple:
@@ -66,7 +70,17 @@ def main() -> int:
     # a caller's is its return address, one past the call
     base = linked
     wanted = {}
+    first_frame = True
     for index, line in enumerate(lines):
+        match = FRAME.search(line)
+        if match:
+            # (a report's first call is where it crashed; the rest are return
+            # addresses, one past their calls)
+            wanted[index] = int(match.group(1), 16) - (0 if first_frame else 1)
+            first_frame = False
+            continue
+        # (another module's call continues the report's calls)
+        first_frame = not ANY_FRAME.search(line)
         match = BASE.search(line)
         if match:
             base = int(match.group(1), 16)

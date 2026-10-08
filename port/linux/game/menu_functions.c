@@ -858,6 +858,7 @@ static void profile_name_show(struct widget_instance *description)
 	static struct player_profile profile;
 	static long read_index = NONE;
 	static unsigned long read_time;
+	static boolean read_good;
 	long index = player_ui_get_active_player_profile_index(0);
 
 	if (!description)
@@ -869,13 +870,17 @@ static void profile_name_show(struct widget_instance *description)
 	}
 	else if ((index = player_ui_get_player1_last_used_profile_index()) == NONE)
 		return;
-	else if (index != read_index || system_milliseconds() - read_time > 1000)
+	else
 	{
-		read_index = NONE;
-		if (!player_profile_get(index, &profile))
+		/* (one that cannot be read too: tried again a second later) */
+		if (index != read_index || system_milliseconds() - read_time > 1000)
+		{
+			read_index = index;
+			read_good = player_profile_get(index, &profile);
+			read_time = system_milliseconds();
+		}
+		if (!read_good)
 			return;
-		read_index = index;
-		read_time = system_milliseconds();
 	}
 	text_set(named(description, "current_profile_name", 0), profile.player_name);
 }
@@ -2183,7 +2188,7 @@ static struct
 	/* Server Setup's PASSWORD (a public internet game's; empty: none), kept
 	while the game runs, never written down */
 	char game_password[PASSWORD_LENGTH + 1];
-} multiplayer = { 0, 0, 0, { 0 }, 0, { 0 }, 0, 0, 0, 0, { 0 }, NUMBEROF(maximum_players) - 1 };
+} multiplayer = { .maximum_players_index = NUMBEROF(maximum_players) - 1 };
 
 /* ---- a text field (Direct Link's link, the game's name): the keyboard
 types into it (Ctrl+V pastes), its row's A (enter) is done, B (escape)
@@ -3167,8 +3172,8 @@ scenario's path or name */
 static void map_display_name(char const *map_name, wchar_t *text)
 {
 	char const *const *names;
-	short last, index;
-	short count = ui_widget_port_multiplayer_maps(&names, &last);
+	short index;
+	short count = ui_widget_port_multiplayer_maps(&names, NULL);
 
 	for (index = 0; index < count; index++)
 	{
@@ -3527,7 +3532,7 @@ static short lobby_browser_rows_place(struct widget_instance *list)
 /* ---- the server browser's second source (configure.py --game-browser):
 the games of a game list, network.browser_url (port/linux/src/browser.c;
 halo.milenko.org by default), merged into the listings' as listings of
-their own. A game both list is shown once, as its listing (the same invite
+their own. A game both lists have is shown once, as its listing (the same invite
 token). One on a Halo PC map, which its host lists as <map>@ce (Custom
 Edition) or <map>@md (HaloMD), is marked PC or MD, and joined only where it
 can be played (with the map in its family's folders: server_browser.c), as
@@ -3681,6 +3686,40 @@ static short lobby_browser_score_limit(struct p2p_listing const *game)
 
 	return listed ? listed->score_limit : 0;
 }
+
+/* the Rules line's host, when the list has it (docs/delta.md, Delta List):
+" (MAC HOST, DELTA)", " (DEDICATED, LINUX, DELTA)", " (OPENCE)"; "" if not */
+static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *text, short size)
+{
+	static wchar_t const *const platforms[] = {
+		L"", L"WINDOWS", L"MAC", L"LINUX", L"ANDROID", L"STEAM DECK", L"XBOX", L"XBOX 360", L"WII U", L"SWITCH",
+	};
+	struct browser_game const *listed = lobby_browser_listed_game(game);
+	boolean dedicated;
+	wchar_t const *platform;
+
+	text[0] = 0;
+	if (!listed)
+		return;
+	dedicated = listed->hosting == BROWSER_HOSTING_DEDICATED || listed->hosting == BROWSER_HOSTING_OFFICIAL;
+	platform = listed->has_platform && listed->host_platform < NUMBEROF(platforms) ? platforms[listed->host_platform] : L"";
+	usnprintf(text, size - 1, L"%s%s%s%s%s%s%s",
+		dedicated ? (listed->hosting == BROWSER_HOSTING_OFFICIAL ? L"OFFICIAL SERVER" : L"DEDICATED") : L"",
+		dedicated && platform[0] ? L", " : L"", platform, !dedicated && platform[0] ? L" HOST" : L"",
+		(dedicated || platform[0]) && listed->protocol ? L", " : L"",
+		listed->protocol == BROWSER_PROTOCOL_DELTA ? L"DELTA" : L"",
+		listed->protocol == BROWSER_PROTOCOL_OPENCE ? L"OPENCE" : L"");
+	text[size - 1] = 0;
+	if (text[0])
+	{
+		wchar_t inner[64];
+
+		ustrncpy(inner, text, NUMBEROF(inner) - 1);
+		inner[NUMBEROF(inner) - 1] = 0;
+		usnprintf(text, size - 1, L" (%s)", inner);
+		text[size - 1] = 0;
+	}
+}
 #else
 static void lobby_browser_add_listed(void)
 {
@@ -3697,6 +3736,13 @@ static short lobby_browser_score_limit(struct p2p_listing const *game)
 {
 	(void)game;
 	return 0;
+}
+
+static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *text, short size)
+{
+	(void)game;
+	(void)size;
+	text[0] = 0;
 }
 #endif
 
@@ -3726,6 +3772,7 @@ static void lobby_browser_rules_text(struct p2p_listing const *game, wchar_t *te
 	wchar_t gametype[P2P_LISTING_GAMETYPE_SIZE + 1];
 	wchar_t map[ROW_TEXT_LENGTH];
 	wchar_t score[16];
+	wchar_t host[64];
 	short score_limit = lobby_browser_score_limit(game);
 	short family;
 
@@ -3734,10 +3781,12 @@ static void lobby_browser_rules_text(struct p2p_listing const *game, wchar_t *te
 	score[0] = 0;
 	if (score_limit > 0)
 		usnprintf(score, NUMBEROF(score) - 1, L" to %d", score_limit);
-	/* (a dedicated server's game says so: its listing's flag, p2p_lobby.c) */
-	usnprintf(text, size - 1, L"%s%s on %s%s%s%s%s", gametype[0] ? gametype : engine_names[PIN(game->engine_type, 0, 5)],
+	/* (a dedicated server's game says so: its listing's flag, p2p_lobby.c;
+	a game list's game, its host as the list says) */
+	lobby_browser_host_text(game, host, NUMBEROF(host));
+	usnprintf(text, size - 1, L"%s%s on %s%s%s%s%s%s", gametype[0] ? gametype : engine_names[PIN(game->engine_type, 0, 5)],
 		score, map, family == _map_family_halomd ? L" (HALOMD)" : family != _map_family_xbox ? L" (HALO PC)" : L"",
-		game->dedicated ? L" (DEDICATED)" : L"",
+		game->dedicated && !host[0] ? L" (DEDICATED)" : L"", host,
 		!game->open ? L": full or starting" : game->in_progress ? L": under way" : L"",
 		game->locked ? L", password" : L"");
 	text[size - 1] = 0;
@@ -4651,7 +4700,7 @@ static void lobby_rows_color(struct widget_instance *list, struct network_game c
 static void lobby_map_show(struct widget_instance *description, char const *map_name)
 {
 	char const *const *names;
-	short last, count = ui_widget_port_multiplayer_maps(&names, &last), map = 19, index;
+	short count = ui_widget_port_multiplayer_maps(&names, NULL), map = 19, index;
 	short level = campaign_level_of(map_name);
 	struct widget_instance *widget;
 
@@ -5393,7 +5442,7 @@ static void gametype_edit_list_update(struct widget_instance *list)
 		gametype_edit_read();
 	focused = list_scroll(list, &gametype_edit.first, gametype_edit.count, GAMETYPE_EDIT_ROWS);
 	if (focused != NONE)
-		gametype_edit.chosen = (short)MIN(focused, gametype_edit.count - 1);
+		gametype_edit.chosen = (short)MAX(0, MIN(focused, gametype_edit.count - 1));
 	rows_update(list, (short)MIN(gametype_edit.count, GAMETYPE_EDIT_ROWS), gametype_edit_row_text);
 	visible_set(named(description, "gametype_right_item", 0), gametype_edit.count > 0);
 	if (gametype_edit.chosen < gametype_edit.count)

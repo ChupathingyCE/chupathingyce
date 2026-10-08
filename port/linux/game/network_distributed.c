@@ -103,6 +103,8 @@ void p2p_hardware_id_sanitize(char *destination, int size, const char *source);
 void p2p_discord_sanitize(char *destination, int size, const char *source, int name);
 void p2p_discord_identity(char *id, int id_size, char *name, int name_size);
 unsigned long p2p_peer_endpoint_address(unsigned long virtual_address);
+/* network_connection.c's */
+boolean network_connection_last_read_was_unreliable(void);
 unsigned long system_milliseconds(void);
 void console_warning(const char *format, ...);
 
@@ -123,6 +125,10 @@ host's copies go as its own ticks have them) ... */
 #define CLIENT_CLOCK_FAST_WINDOWS 5
 /* the longest notice's text (_distributed_message_notice) */
 #define MAXIMUM_NOTICE_LENGTH 160
+/* how far a datagram's tick may be from the latest a message from its
+sender had, either way (distributed_sender_times): as long as a machine may
+go silent before it is dropped */
+#define DISTRIBUTED_TIME_WINDOW_TICKS (15 * TICKS_PER_SECOND)
 /* a Discord user's id and name as kept, with their ends (p2p.h's
 P2P_DISCORD_ID_SIZE and P2P_DISCORD_NAME_SIZE) */
 #define DISCORD_ID_SIZE 24
@@ -164,6 +170,10 @@ enum
 	(or the other way round) before it is put where the host has it: its
 	own prediction reaches the host and comes back in about a round trip */
 	SEAT_DISAGREEMENT_TICKS = 15,
+	/* how long a client waits for a player's killing blow once the host's
+	states say the player died, before the unit dies without it (an
+	actor's waits as long: network_objects.c) */
+	DEATH_BLOW_WAIT_TICKS = TICKS_PER_SECOND / 2,
 	/* the machines, and the host: a client's messages' sender */
 	MAXIMUM_SENDERS = HALO_PORT_MAXIMUM_NETWORK_MACHINES + 1,
 	HOST_SENDER = HALO_PORT_MAXIMUM_NETWORK_MACHINES,
@@ -463,6 +473,10 @@ static struct distributed_death
 	short killing_player_index;
 	boolean friendly_fire;
 	boolean killed_by_vehicle;
+	/* a client: when the host's states first said the player's living unit
+	here was dead (NONE: not), to wait for the killing blow
+	(DEATH_BLOW_WAIT_TICKS) */
+	long dead_since;
 } distributed_deaths[MAXIMUM_TRACKED_PLAYERS];
 /* the host: a kill this tick, whose statistics the clients should have
 with it */
@@ -586,6 +600,14 @@ static long distributed_game_state_time;
 /* the latest tick of each kind of unreliable message had from each sender
 (a machine, or the host), NONE for none */
 static long distributed_received_times[MAXIMUM_SENDERS][NUMBER_OF_DISTRIBUTED_MESSAGES];
+/* the latest tick of any message had from each sender, NONE for none: a
+datagram, which anyone can send as from another machine, is dropped when
+its tick is further from it than DISTRIBUTED_TIME_WINDOW_TICKS (one stamped
+far ahead would have every newer one of the sender's taken for stale, and
+its clock for fast); a message over the sender's stream, which only it can
+send, is taken whatever its tick, and moves it
+(distributed_message_time_bounded) */
+static long distributed_sender_times[MAXIMUM_SENDERS];
 /* the host: each client machine's clock, measured (CLIENT_CLOCK_WINDOW_MILLISECONDS):
 its latest tick, and its tick and the host's time as the window began
 (NONE: none begun); how many windows in a row it went fast, and whether
@@ -1240,6 +1262,7 @@ static boolean distributed_machine_loaded(
 		sizeof(distributed_machine_players[machine_index]));
 	for (type = 0; type < NUMBER_OF_DISTRIBUTED_MESSAGES; type++)
 		distributed_received_times[machine_index][type] = NONE;
+	distributed_sender_times[machine_index] = NONE;
 	csmemset(&distributed_round_trips[machine_index], 0, sizeof(distributed_round_trips[machine_index]));
 	csmemset(distributed_viewers[machine_index], 0, sizeof(distributed_viewers[machine_index]));
 	csmemset(&distributed_client_clocks[machine_index], 0, sizeof(distributed_client_clocks[machine_index]));
@@ -2154,12 +2177,22 @@ static void distributed_handle_unit_state(
 	unit_index = distributed_living_unit(player);
 	if (!alive)
 	{
-		/* died on the host (who counts it; the damage that killed it,
-		network_damage.c, usually kills it here first) */
-		if (unit_index != NONE)
-			unit_kill_no_statistics(unit_index);
+		/* died on the host, who counts it. Its killing blow (network_damage.c)
+		kills it here with the death the host's had, so it is given a while
+		to come before the unit dies without one, as it falls. */
+		if (unit_index != NONE && state->player_index < MAXIMUM_TRACKED_PLAYERS)
+		{
+			long *dead_since = &distributed_deaths[state->player_index].dead_since;
+
+			if (*dead_since == NONE)
+				*dead_since = game_time_get();
+			else if (game_time_get() - *dead_since >= DEATH_BLOW_WAIT_TICKS)
+				unit_kill_no_statistics(unit_index);
+		}
 		return;
 	}
+	if (state->player_index < MAXIMUM_TRACKED_PLAYERS)
+		distributed_deaths[state->player_index].dead_since = NONE;
 	/* spawned on the host: the host's unit is the player's here too, once
 	this machine has it (network_objects.c) */
 	if (state->unit_index == NONE || !network_objects_client_has(state->unit_index) ||
@@ -2815,8 +2848,8 @@ static void distributed_handle_actions(
 		action.control_flags = relayed.control_flags[0];
 		action.desired_facing.yaw = distributed_angle_unpack(relayed.yaw, FALSE);
 		action.desired_facing.pitch = distributed_angle_unpack(relayed.pitch, TRUE);
-		action.throttle.i = (real)relayed.throttle_i / 127.0f;
-		action.throttle.j = (real)relayed.throttle_j / 127.0f;
+		action.throttle.i = PIN((real)relayed.throttle_i / 127.0f, -1.0f, 1.0f);
+		action.throttle.j = PIN((real)relayed.throttle_j / 127.0f, -1.0f, 1.0f);
 		action.primary_trigger = (real)relayed.primary_trigger / 255.0f;
 		action.desired_weapon_index = relayed.desired_weapon_index;
 		action.desired_grenade_index = relayed.desired_grenade_index;
@@ -3242,6 +3275,7 @@ void network_distributed_new_game(
 	distributed_host_update_number = NONE;
 	for (player_index = 0; player_index < MAXIMUM_TRACKED_PLAYERS; player_index++)
 	{
+		distributed_deaths[player_index].dead_since = NONE;
 		distributed_sent_units[player_index].flags = 0;
 		distributed_sent_units[player_index].unit_index = NONE;
 		distributed_sent_units[player_index].vehicle_index = NONE;
@@ -3252,6 +3286,7 @@ void network_distributed_new_game(
 		distributed_batches[sender].size = 0;
 		for (type = 0; type < NUMBER_OF_DISTRIBUTED_MESSAGES; type++)
 			distributed_received_times[sender][type] = NONE;
+		distributed_sender_times[sender] = NONE;
 	}
 	for (player_index = 0; player_index < MAXIMUM_TRACKED_PLAYERS; player_index++)
 	{
@@ -3349,6 +3384,61 @@ void network_distributed_tick(
 	distributed_batches_flush();
 	distributed_machines.in_tick = FALSE;
 	distributed_machines.valid = FALSE;
+}
+
+/* whether a message's tick is near enough the latest had from its sender
+to be taken (distributed_sender_times); from_stream: it came over the
+sender's stream (or a client's connection to the host), not in a datagram */
+static boolean distributed_message_time_bounded(
+	long machine_index,
+	long game_time,
+	boolean from_stream)
+{
+	short sender = machine_index == NONE ? HOST_SENDER : (short)machine_index;
+	long *latest;
+	unsigned long distance;
+	short type;
+
+	if (sender < 0 || sender >= MAXIMUM_SENDERS)
+		return FALSE;
+	latest = &distributed_sender_times[sender];
+	if (*latest == NONE)
+	{
+		*latest = game_time;
+		return TRUE;
+	}
+	/* (unsigned: no tick, however far, overflows it) */
+	distance = game_time > *latest ?
+		(unsigned long)game_time - (unsigned long)*latest :
+		(unsigned long)*latest - (unsigned long)game_time;
+	if (distance > DISTRIBUTED_TIME_WINDOW_TICKS)
+	{
+		static unsigned long last_logged_time;
+		static boolean logged;
+
+		if (!from_stream)
+		{
+			unsigned long now = system_milliseconds();
+
+			if (!logged || now - last_logged_time >= 1000)
+			{
+				error(_error_silent, "distributed message stamped %ld ticks from its sender's latest in a datagram; dropped",
+					game_time > *latest ? (long)distance : -(long)distance);
+				last_logged_time = now;
+				logged = TRUE;
+			}
+			return FALSE;
+		}
+		/* (the sender's own word: what a datagram sent as from it had moved
+		its latest to is forgotten) */
+		*latest = game_time;
+		for (type = 0; type < NUMBER_OF_DISTRIBUTED_MESSAGES; type++)
+			distributed_received_times[sender][type] = NONE;
+		return TRUE;
+	}
+	if (game_time > *latest)
+		*latest = game_time;
+	return TRUE;
 }
 
 /* whether an unreliable message of the kind is older than one had already
@@ -4016,6 +4106,12 @@ boolean distributed_machine_clock_fast(
 		distributed_client_clocks[machine_index].fast;
 }
 
+/* whether the messages handled now came in a batch (the unreliable ones;
+one sent reliably comes on its own): a killing blow sent again reliably is
+not overtaken by the newer damage sent with the ticks since
+(distributed_message_stale) */
+static boolean distributed_handling_batch;
+
 /* a message of the distributed kind; machine_index is the sender's on the
 host, NONE on a client */
 void network_distributed_handle_message(
@@ -4054,7 +4150,11 @@ void network_distributed_handle_message(
 			offset += length;
 			/* (no batch in a batch) */
 			if (((struct distributed_message_header const *)buffer)->type != _distributed_message_batch)
+			{
+				distributed_handling_batch = TRUE;
 				network_distributed_handle_message(machine_index, buffer, (word)(sizeof(message_header) + length));
+				distributed_handling_batch = FALSE;
+			}
 		}
 		return;
 	}
@@ -4111,6 +4211,15 @@ void network_distributed_handle_message(
 	}
 	distributed_statistics.received++;
 
+	/* (the kinds a client sends only over its stream: in a datagram, which
+	anyone can send as from it, they are not its) */
+	if ((header.type == _distributed_message_client_ready ||
+			header.type == _distributed_message_client_identity ||
+			header.type == _distributed_message_hit_reports) &&
+		!distributed_handling_stream_message)
+	{
+		return;
+	}
 	/* (each kind from the host, or from a client) */
 	switch (header.type)
 	{
@@ -4127,14 +4236,25 @@ void network_distributed_handle_message(
 	default:
 		if (game_connection() != _game_connection_network_client)
 			return;
-		/* (the host's latest tick, which this client's input messages tell
-		it back) */
-		if (distributed_host_time == NONE || header.game_time > distributed_host_time)
-			distributed_host_time = header.game_time;
 		break;
 	}
-	if (distributed_message_stale(machine_index, &header))
+	if (!distributed_message_time_bounded(machine_index, header.game_time,
+		machine_index == NONE ? !network_connection_last_read_was_unreliable() : distributed_handling_stream_message))
+	{
 		return;
+	}
+	/* (a client: the host's latest tick, which its input messages tell it
+	back) */
+	if (machine_index == NONE &&
+		(distributed_host_time == NONE || header.game_time > distributed_host_time))
+	{
+		distributed_host_time = header.game_time;
+	}
+	if ((distributed_handling_batch || header.type != _distributed_message_damage_events) &&
+		distributed_message_stale(machine_index, &header))
+	{
+		return;
+	}
 	/* (the host: a client's clock, by its messages' ticks; and its players'
 	predictions not taken while its game runs fast) */
 	if (machine_index != NONE)

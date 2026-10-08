@@ -314,6 +314,9 @@ struct download
 	unsigned long long received, total, maximum;
 };
 
+/* (a release is tens of megabytes: a body past this fills no disk) */
+#define MAXIMUM_DOWNLOAD_SIZE (512ull * 1024 * 1024)
+
 static int body_write(struct download *download, const unsigned char *data, size_t size)
 {
 	/* (no more than the caller expects: a body that goes on is refused) */
@@ -338,11 +341,19 @@ static int read_body(struct connection *connection, struct download *download, i
 		for (;;)
 		{
 			char line[128];
+			char *after;
 			unsigned long long remaining;
 
 			if (!connection_read_line(connection, line, sizeof(line)))
 				return 0;
-			remaining = strtoull(line, NULL, 16);
+			/* (a size in hexadecimal, perhaps with extensions after a ";": a
+			line without one is no chunk, and not the last) */
+			remaining = strtoull(line, &after, 16);
+			if (after == line || (*after && *after != ';' && *after != ' ' && *after != '\t' &&
+				*after != '\r' && *after != '\n'))
+			{
+				return 0;
+			}
 			if (!remaining)
 				return 1;
 			while (remaining)
@@ -438,6 +449,12 @@ static int https_get(const char *url, struct download *download, char *location,
 		{
 			length = strtoull(value, NULL, 10);
 			have_length = 1;
+			if (length > MAXIMUM_DOWNLOAD_SIZE)
+			{
+				snprintf(error, (size_t)error_size, "the download from %s is too large", host);
+				connection_free(&connection);
+				return 0;
+			}
 		}
 		else if (!strcasecmp(line, "Transfer-Encoding") && strcasestr(value, "chunked"))
 		{

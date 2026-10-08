@@ -248,6 +248,7 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries.h"
+#include "halo_map_families.h" /* port: map_family_wire_name */
 #include "bungie_net/common/message_header.h"
 #include "bungie_net/network/transport.h"
 #include "bungie_net/network/transport_endpoint_winsock.h"
@@ -305,6 +306,20 @@ enum
 };
 
 #define MINIMUM_TRANSPORT_ERROR_MESSAGE_SIZE (sizeof(word) + TRANSPORT_ERROR_MESSAGE_TEXT_LENGTH + sizeof(byte))
+
+/* port: the text of a transport error message as it is logged: printable
+ASCII only (it is a machine's to send), ending with the buffer */
+static char const *transport_error_message_text(
+	byte const *error_message)
+{
+	static char text[TRANSPORT_ERROR_MESSAGE_TEXT_LENGTH + 1];
+	long index;
+
+	for (index = 0; index < TRANSPORT_ERROR_MESSAGE_TEXT_LENGTH && error_message[index]; index++)
+		text[index] = error_message[index] >= 0x20 && error_message[index] < 0x7F ? (char)error_message[index] : '?';
+	text[index] = 0;
+	return text;
+}
 
 enum
 {
@@ -756,6 +771,22 @@ boolean network_game_server_send_message_to_client_machine(
 	return network_game_server_write(connection, buffer, size, NULL, 1);
 }
 
+/* port: the game's settings as they go to the other machines: a Halo PC
+map's name as the game's protocol has it (custom_maps\\<name>, OpenCE's
+build-145's; halo_map_families.h), into wire, which game is then */
+static void const *network_game_server_wire_game(
+	void const *game,
+	long game_size,
+	struct network_game *wire)
+{
+	if (game_size != (long)sizeof(*wire))
+		return game;
+	csmemcpy(wire, game, sizeof(*wire));
+	map_family_wire_name(((struct network_game const *)game)->map.name, wire->map.name, sizeof(wire->map.name));
+
+	return wire;
+}
+
 boolean network_game_server_send_game_settings_to_client_machine(
 	struct network_game_server *server,
 	struct network_game_server_client_machine *machine,
@@ -763,8 +794,10 @@ boolean network_game_server_send_game_settings_to_client_machine(
 	long game_size)
 {
 	struct message_server_game_settings_update message;
+	struct network_game wire_game;
 	long offset;
 
+	game = network_game_server_wire_game(game, game_size, &wire_game);
 	for (offset = 0; offset < game_size; offset += sizeof(message.data))
 	{
 		void *encoded_message;
@@ -1040,6 +1073,7 @@ boolean network_game_server_send_game_settings_to_all_machines(
 	long game_size)
 {
 	struct message_server_game_settings_update message;
+	struct network_game wire_game;
 	long offset;
 	boolean result = TRUE;
 
@@ -1048,6 +1082,7 @@ boolean network_game_server_send_game_settings_to_all_machines(
 		0x1C8,
 		server);
 
+	game = network_game_server_wire_game(game, game_size, &wire_game);
 	/* every piece goes out even if one fails for a machine: the others
 	would otherwise keep the old settings (a machine whose connection failed
 	is closed, and is skipped when the update is sent again) */
@@ -1369,12 +1404,12 @@ boolean network_game_server_handle_client_message(
 				{
 					byte *error_message = (byte *)(message + 1);
 
-					/* (the text need not end in the message) */
+					/* (the text need not end in the message; printable only, so
+					that it forges no line of the log) */
 					network_event(
-						"server received low-level error message from a client: error= #%d (%.*s)",
+						"server received low-level error message from a client: error= #%d (%s)",
 						error_message[TRANSPORT_ERROR_MESSAGE_TEXT_LENGTH],
-						(int)TRANSPORT_ERROR_MESSAGE_TEXT_LENGTH,
-						error_message);
+						transport_error_message_text(error_message));
 				}
 				else
 				{
@@ -1576,10 +1611,9 @@ boolean network_game_server_handle_datagram(
 					byte *error_message = (byte *)(message + 1);
 
 					network_event(
-						"server received low-level error message: error= #%d (%.*s); sender= '%s'",
+						"server received low-level error message: error= #%d (%s); sender= '%s'",
 						error_message[TRANSPORT_ERROR_MESSAGE_TEXT_LENGTH],
-						(int)TRANSPORT_ERROR_MESSAGE_TEXT_LENGTH,
-						error_message,
+						transport_error_message_text(error_message),
 						transport_address_to_string(source_address));
 				}
 				else
@@ -1679,6 +1713,9 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 			ustrncpy(advertisement.game_name, game->name, NETWORK_GAME_NAME_LENGTH - 1);
 			advertisement.engine_type = (short)game->variant.game_engine_index;
 			csmemcpy(&advertisement.map, &game->map, sizeof(game->map));
+			/* port: the map as the game's protocol names it (a Halo PC map's:
+			halo_map_families.h) */
+			map_family_wire_name(game->map.name, advertisement.map.name, sizeof(advertisement.map.name));
 			advertisement.machine_count = game->machine_count;
 			advertisement.player_count = game->player_count;
 			advertisement.maximum_player_count = game->maximum_players;
@@ -2533,6 +2570,13 @@ static boolean network_game_server_handle_message_client_map_is_precached_pregam
 			&packet_version,
 			_network_game_packet_class_client_pregame))
 		{
+			/* port: a Halo PC map's name as this port names it (an OpenCE
+			client says custom_maps\\<name>: halo_map_families.h) */
+			char map_name[sizeof(map_is_precached.map_name) + 1];
+
+			csmemcpy(map_name, map_is_precached.map_name, sizeof(map_is_precached.map_name));
+			map_name[sizeof(map_is_precached.map_name)] = 0;
+			map_family_from_wire_name(map_name, map_is_precached.map_name, sizeof(map_is_precached.map_name));
 			network_game_server_client_machine_is_precached(
 				server,
 				client_machine,

@@ -51,11 +51,33 @@ change.
 #include "halo_map_families.h"
 #include "command_line.h"
 #include "dedicated.h"
+#include "delta.h"
+#ifdef HALO_SERVER
+/* (the server program's control unit, built with the host's ABI: plain
+types only) */
+#include "../platform/server_control.h"
+#endif
+#include "server_admin.h"
+#include "server_moderation.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+#ifndef HALO_SERVER
+/* (the game's own dedicated mode, HALO_DEDICATED in the game: no roles,
+audit, link or Delta Control, only the startup commands, the owner's) */
+#define server_command_permission(line, changes) ((void)(line), *(changes) = 0, 0u)
+#define server_audit(via, actor, role, action, target, reason, ok, detail) ((void)0)
+#define server_roles_actor_allowed(actor, retry_after) ((void)(actor), (void)(retry_after), 1)
+#define server_role_name(role) ((void)(role), "owner")
+#define server_roles_start() ((void)0)
+#define server_moderation_update() ((void)0)
+#define server_moderation_notice(machine, warning, title, text) ((void)(machine), FALSE)
+#define server_moderation_machine_key(machine, key) ((void)(machine), (void)(key), FALSE)
+#define server_roles_key_role(key, permissions, who, who_size) 0
+#endif
 
 /* ---------- constants */
 
@@ -69,20 +91,11 @@ enum
 	MAXIMUM_LISTED_BANS = 500,
 	/* the maps sv_maps lists, at most */
 	MAXIMUM_LISTED_MAPS = 512,
-
-	/* the control unit's flags for a command (server_control.c): its output
-	as JSON; a notice of the control's own to log, not a command; a command
-	not logged (the API's reads, which a web page asks for every few
-	seconds) */
-	CONTROL_JSON = 1,
-	CONTROL_NOTICE = 2,
-	CONTROL_QUIET = 4,
 };
 
 /* (network_server_manager_internal.h's) */
 word network_game_server_get_state(struct network_game_server *server, short *state_data);
 struct network_game *network_game_server_get_game(struct network_game_server *server);
-boolean network_game_server_lobby_is_open(struct network_game_server *server);
 /* (network_distributed.c's: the host's bans, bans.txt) */
 long distributed_player_ping(short player_index);
 void network_distributed_ban_until(long machine_index, unsigned long address, char const *names, char const *reason,
@@ -93,13 +106,6 @@ boolean network_distributed_unban(long index);
 /* (the version: server_platform.c's, updater.c's in the game) */
 const char *updater_version(void);
 char const *cache_files_map_directory(void);
-#ifdef HALO_SERVER
-/* (the server program's control unit, server/platform/server_control.c:
-plain types only, it is built with the host's) */
-void server_control_start(void);
-int server_control_next(char *line, int line_size, char *source, int source_size, int *flags);
-void server_control_finish(int ticket, int ok, char const *output);
-#endif
 
 /* ---------- structures */
 
@@ -146,6 +152,18 @@ static boolean command_maxplayers(struct command_line const *line, boolean json,
 static boolean command_name(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_maps(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_console_only(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_warn(struct command_line const *line, boolean json, struct command_output *output);
+static void note_target(char const *target, char const *reason);
+static void log_output(char const *output);
+static char const *actor_display(void);
+#ifdef HALO_SERVER
+static boolean command_mod_list(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_mod_add(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_mod_remove(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_link(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_unlink(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_link_status(struct command_line const *line, boolean json, struct command_output *output);
+#endif
 
 /* ---------- globals */
 
@@ -156,17 +174,20 @@ static struct server_command const server_commands[] =
 		command_status },
 	{ "sv_players", "sv_players", "The players: number, name, team, score, ping and hardware id.", 1, 1, FALSE,
 		command_players },
-	{ "sv_kick", "sv_kick <player>", "Drops a player (a number from sv_players, or a name) and every player of "
-		"their machine. They may join again.", 2, 2, TRUE, command_kick },
-	{ "sv_ban", "sv_ban <player> [duration]", "Drops a player and keeps their machine out (by its hardware id and "
-		"address, in bans.txt), for ever or for a while: 30m, 2h, 7d, 1d12h.", 2, 3, TRUE, command_ban },
+	{ "sv_warn", "sv_warn <player> <reason>", "Warns a player: their game shows the reason, if it is a "
+		"ChupathingyCE game (Delta Peer); the warning is in the audit file either way.", 3, 3, TRUE, command_warn },
+	{ "sv_kick", "sv_kick <player> [reason]", "Drops a player (a number from sv_players, or a name) and every "
+		"player of their machine. They may join again.", 2, 3, TRUE, command_kick },
+	{ "sv_ban", "sv_ban <player> [duration] [reason]", "Drops a player and keeps their machine out (by its "
+		"hardware id and address, in bans.txt), for ever or for a while: 30m, 2h, 7d, 1d12h.", 2, 4, TRUE,
+		command_ban },
 	{ "sv_unban", "sv_unban <ban>", "Takes a ban (its number in sv_banlist) out of bans.txt.", 2, 2, FALSE,
 		command_unban },
 	{ "sv_banlist", "sv_banlist", "The bans in bans.txt: number, when, hardware id, players, how long.", 1, 1, FALSE,
 		command_banlist },
-	{ "sv_map", "sv_map <map> <game type>", "Plays a map (bloodgulch, a Halo PC map as name@ce, a HaloMD map as "
-		"name@md) and game type (slayer, ctf, ...) now; then the playlist goes on.", 3, 3, FALSE, command_map },
-	{ "sv_maps", "sv_maps", "The maps this server can play (its multiplayer maps: Xbox, name@ce, name@md) and "
+	{ "sv_map", "sv_map <map> <game type>", "Plays a map (bloodgulch, a Custom Edition map as name@ce, a HaloMD map as "
+		"name@md, a Halo PC map as name@pc) and game type (slayer, ctf, ...) now; then the playlist goes on.", 3, 3, FALSE, command_map },
+	{ "sv_maps", "sv_maps", "The maps this server can play (its multiplayer maps: Xbox, name@ce, name@md, name@pc) and "
 		"the game types sv_map takes.", 1, 1, FALSE, command_maps },
 	{ "sv_mapcycle", "sv_mapcycle", "The playlist, and which entry is played.", 1, 1, FALSE, command_mapcycle },
 	{ "sv_mapcycle_next", "sv_mapcycle_next", "Skips to the playlist's next entry now.", 1, 1, TRUE,
@@ -177,6 +198,60 @@ static struct server_command const server_commands[] =
 		"lobby, or the lobby now).", 1, 2, FALSE, command_maxplayers },
 	{ "sv_name", "sv_name [name]", "Shows or sets the server's name on the lists (15 characters at most).", 1, 2, FALSE,
 		command_name },
+	/* (the playlists, game types and settings: server_admin.c) */
+	{ "sv_playlists", "sv_playlists", "The playlists: the server's own (playlists/) and those made here "
+		"(admin/playlists/), and which is played.", 1, 1, FALSE, server_admin_playlists },
+	{ "sv_playlist", "sv_playlist <name>", "A playlist's games, and any that cannot be played.", 2, 2, FALSE,
+		server_admin_playlist },
+	{ "sv_playlist_new", "sv_playlist_new <name> [from]", "Makes a playlist, empty or a copy of another.", 2, 3, FALSE,
+		server_admin_playlist_new },
+	{ "sv_playlist_add", "sv_playlist_add <name> <map> <game type> [position]", "Adds a game to a playlist (at the "
+		"end, or at a position).", 4, 5, FALSE, server_admin_playlist_add },
+	{ "sv_playlist_remove", "sv_playlist_remove <name> <number>", "Takes a game out of a playlist.", 3, 3, FALSE,
+		server_admin_playlist_remove },
+	{ "sv_playlist_move", "sv_playlist_move <name> <from> <to>", "Moves a playlist's game to another position.",
+		4, 4, FALSE, server_admin_playlist_move },
+	{ "sv_playlist_delete", "sv_playlist_delete <name>", "Deletes a playlist made here (never the server's own).",
+		2, 2, FALSE, server_admin_playlist_delete },
+	{ "sv_playlist_use", "sv_playlist_use <name>", "Plays a playlist from the next game (in the lobby, now), and "
+		"keeps it across restarts.", 2, 2, FALSE, server_admin_playlist_use },
+	{ "sv_playlist_save", "sv_playlist_save <name>", "Saves a playlist's whole file (the control API's: POST "
+		"/v1/file).", 2, 2, FALSE, server_admin_playlist_save },
+	{ "sv_mapcycle_add", "sv_mapcycle_add <map> <game type>", "Adds a game to the end of the playlist played (saved "
+		"in admin/playlists).", 3, 3, FALSE, server_admin_mapcycle_add },
+	{ "sv_mapcycle_del", "sv_mapcycle_del <number>", "Takes a game out of the playlist played (saved in "
+		"admin/playlists).", 2, 2, FALSE, server_admin_mapcycle_del },
+	{ "sv_gametypes", "sv_gametypes", "The game types: the built-ins and the files in admin/gametypes.", 1, 1, FALSE,
+		server_admin_gametypes },
+	{ "sv_gametype", "sv_gametype <name>", "A game type's settings.", 2, 2, FALSE, server_admin_gametype },
+	{ "sv_gametype_new", "sv_gametype_new <name> <base>", "Makes a game type file from a built-in or another.",
+		3, 3, FALSE, server_admin_gametype_new },
+	{ "sv_gametype_set", "sv_gametype_set <name> <setting> <value>", "Changes a game type file's setting "
+		"(sv_gametype lists them).", 4, 4, FALSE, server_admin_gametype_set },
+	{ "sv_gametype_delete", "sv_gametype_delete <name>", "Deletes a game type file no playlist plays.", 2, 2, FALSE,
+		server_admin_gametype_delete },
+	{ "sv_gametype_save", "sv_gametype_save <name>", "Saves a game type's whole file (the control API's: POST "
+		"/v1/file).", 2, 2, FALSE, server_admin_gametype_save },
+	{ "sv_settings", "sv_settings", "The settings: each one's value, and where it comes from.", 1, 1, FALSE,
+		server_admin_settings },
+	{ "sv_set", "sv_set <setting> <value>", "Changes a setting and saves it (admin/settings.toml).", 3, 3, FALSE,
+		server_admin_set },
+#ifdef HALO_SERVER
+	/* (Delta Control's roles: server/docs/moderation.md) */
+	{ "sv_mod_list", "sv_mod_list", "The moderators: the moderators file's, the control panel's accounts bound to "
+		"a game, and the site's.", 1, 1, FALSE, command_mod_list },
+	{ "sv_mod_add", "sv_mod_add <player|key> <role> [name]", "Gives a player (once their game has proved its "
+		"moderator key: sv_players) or a moderator key a role: moderator, admin or owner (moderators.txt).", 3, 4,
+		FALSE, command_mod_add },
+	{ "sv_mod_remove", "sv_mod_remove <key|name>", "Takes a moderator out of moderators.txt.", 2, 2, FALSE,
+		command_mod_remove },
+	{ "sv_link", "sv_link", "Links the server to an account on halo.milenko.org (Delta Control): prints a code "
+		"to enter there.", 1, 1, FALSE, command_link },
+	{ "sv_unlink", "sv_unlink", "Unlinks the server from halo.milenko.org: its credential stops working.", 1, 1,
+		FALSE, command_unlink },
+	{ "sv_link_status", "sv_link_status", "Whether the server is linked to halo.milenko.org, and to whom.", 1, 1,
+		FALSE, command_link_status },
+#endif
 	/* (the console's own: server_control.c runs them before they get here) */
 	{ "sv_admin_list", "sv_admin_list", "The control API's credentials (console only).", 1, 1, FALSE,
 		command_console_only },
@@ -186,6 +261,18 @@ static struct server_command const server_commands[] =
 		"web sessions stop working (console only).", 2, 2, FALSE, command_console_only },
 	{ "sv_admin_remove", "sv_admin_remove <name>", "Takes a credential out; its token and web sessions stop "
 		"working (console only).", 2, 2, FALSE, command_console_only },
+	{ "sv_account_list", "sv_account_list", "The control panel's accounts (console only).", 1, 1, FALSE,
+		command_console_only },
+	{ "sv_account_invite", "sv_account_invite <role>", "An invitation for a new account of a role, printed once "
+		"(console only).", 2, 2, FALSE, command_console_only },
+	{ "sv_account_role", "sv_account_role <name> <role>", "Changes an account's role (console only).", 3, 3, FALSE,
+		command_console_only },
+	{ "sv_account_remove", "sv_account_remove <name>", "Takes an account out; its sessions end (console only).",
+		2, 2, FALSE, command_console_only },
+	{ "sv_account_reset", "sv_account_reset <name>", "A code to set an account's password again (and turn off its "
+		"second factor), printed once (console only).", 2, 2, FALSE, command_console_only },
+	{ "sv_account_setup", "sv_account_setup", "A new setup code for the first owner's account, while there is none "
+		"(console only).", 1, 1, FALSE, command_console_only },
 };
 
 /* the game types sv_map takes (game_engine_get_variant_by_name's) */
@@ -197,11 +284,33 @@ static char const *const server_game_types[] =
 
 static char server_command_output[OUTPUT_SIZE];
 
+/* who runs a command (its source), and the permissions they have */
+struct command_actor
+{
+	/* console, startup, api, web, game, site */
+	char const *via;
+	/* who: the source's rest ("alice 1a2b3c4d", "Odb718 1a2b3c4d") */
+	char const *name;
+	int role;
+	unsigned int permissions;
+};
+
+static struct
+{
+	struct command_actor const *actor;
+	/* the command running's payload (a file's text the API brought) */
+	char const *payload;
+	/* what it was done to, and why, for the audit (the commands set them) */
+	char target[96];
+	char reason[96];
+} server_command_running;
+
 static struct
 {
 	boolean started;
 	boolean startup_run;
 	long startup_count;
+	unsigned long link_status_time;
 	char startup[MAXIMUM_STARTUP_COMMANDS][COMMAND_LINE_MAXIMUM_LENGTH + 1];
 } server_commands_globals;
 
@@ -382,6 +491,44 @@ static boolean find_player(
 	return FALSE;
 }
 
+/* a machine's first player: their number in sv_players (and their name,
+name may be NULL), or 0 if it has none */
+long server_commands_machine_player(
+	long machine_index,
+	char *name,
+	long name_size)
+{
+	static struct server_player players[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
+	long count = get_players(players, NUMBEROF(players));
+	long index;
+
+	for (index = 0; index < count; index++)
+	{
+		if (players[index].machine_index != machine_index)
+			continue;
+		if (name && name_size > 0)
+			snprintf(name, (size_t)name_size, "%s", players[index].name);
+		return players[index].number;
+	}
+	return 0;
+}
+
+/* the machine of the player numbered so in sv_players, or -1 */
+long server_commands_player_machine(
+	long number)
+{
+	static struct server_player players[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
+	long count = get_players(players, NUMBEROF(players));
+	long index;
+
+	for (index = 0; index < count; index++)
+	{
+		if (players[index].number == number)
+			return players[index].machine_index;
+	}
+	return -1;
+}
+
 /* the names of every player of a machine, "a, b" */
 static void machine_names(
 	long machine_index,
@@ -427,7 +574,7 @@ static boolean file_is_multiplayer_map(
 
 /* whether the server has a map (as a command names it) to play: a
 multiplayer map's file, in its family's folders */
-static boolean map_playable(
+boolean server_map_playable(
 	char const *map,
 	struct command_output *output)
 {
@@ -466,7 +613,7 @@ static void print_status(
 	struct network_game_server *server = global_network_game_server_get();
 	struct network_game *game = server ? network_game_server_get_game(server) : NULL;
 	long players = game ? game->player_count : 0;
-	char uptime[32];
+	char uptime[32], following[64];
 
 	dedicated_server_get_status(&status);
 	if (json)
@@ -475,8 +622,10 @@ static void print_status(
 		command_output_json_string(output, status.name);
 		command_output_printf(output, ", \"version\": ");
 		command_output_json_string(output, updater_version());
-		command_output_printf(output, ", \"network_version\": %d, \"state\": \"%s\", \"map\": ",
-			delta_legacy_announce(), state_name(status.state, TRUE));
+		delta_legacy_following(following, (int)sizeof(following));
+		command_output_printf(output, ", \"network_version\": %d, \"following\": ", delta_legacy_announce());
+		command_output_json_string(output, following);
+		command_output_printf(output, ", \"state\": \"%s\", \"map\": ", state_name(status.state, TRUE));
 		command_output_json_string(output, map_display_name(status.map));
 		command_output_printf(output, ", \"game_type\": ");
 		command_output_json_string(output, status.variant);
@@ -499,7 +648,9 @@ static void print_status(
 	}
 	command_line_duration_text((long)status.uptime_seconds, uptime, sizeof(uptime));
 	command_output_printf(output, "name: %s\n", status.name);
-	command_output_printf(output, "version: %s (network version %d)\n", updater_version(), delta_legacy_announce());
+	delta_legacy_following(following, (int)sizeof(following));
+	command_output_printf(output, "version: %s (network version %d; %s)\n", updater_version(), delta_legacy_announce(),
+		following);
 	command_output_printf(output, "state: %s\n", state_name(status.state, FALSE));
 	command_output_printf(output, "map: %s, game type: %s (%s)\n", map_display_name(status.map), status.variant,
 		status.chosen ? "chosen by a command" : "the playlist's");
@@ -568,12 +719,28 @@ static boolean command_players(
 	else if (!count)
 		command_output_printf(output, "no players\n");
 	else
-		command_output_printf(output, "%3s  %-11s  %-4s  %5s  %5s  %s\n", "#", "name", "team", "score", "ping", "id");
+	{
+		command_output_printf(output, "%3s  %-11s  %-4s  %5s  %5s  %-32s  %s\n", "#", "name", "team", "score", "ping",
+			"id", "moderator key");
+	}
 	for (index = 0; index < count; index++)
 	{
 		struct server_player const *player = &players[index];
 		char const *hardware_id = network_game_server_machine_hardware_id(player->machine_index);
 		char const *team = !teams ? NULL : player->team_index == 0 ? "red" : player->team_index == 1 ? "blue" : NULL;
+		unsigned char key[32];
+		char key_text[72] = "";
+		int role = 0;
+
+		/* (the moderator key the player's game proved, and its role here) */
+		if (server_moderation_machine_key(player->machine_index, key))
+		{
+			unsigned char const *byte;
+
+			for (byte = key; byte < key + 32; byte++)
+				snprintf(key_text + 2 * (byte - key), 3, "%02x", *byte);
+			role = server_roles_key_role(key, NULL, NULL, 0);
+		}
 
 		if (json)
 		{
@@ -597,6 +764,11 @@ static boolean command_players(
 				command_output_json_string(output, hardware_id);
 			else
 				command_output_printf(output, "null");
+			command_output_printf(output, ", \"moderator_key\": ");
+			if (key_text[0])
+				command_output_printf(output, "\"%s\", \"role\": \"%s\"", key_text, server_role_name(role));
+			else
+				command_output_printf(output, "null, \"role\": null");
 			command_output_printf(output, "}");
 		}
 		else
@@ -611,8 +783,9 @@ static boolean command_players(
 				snprintf(ping, sizeof(ping), "%ld", player->ping);
 			else
 				snprintf(ping, sizeof(ping), "-");
-			command_output_printf(output, "%3ld  %-11s  %-4s  %5s  %5s  %s\n", player->number, player->name,
-				team ? team : "-", score, ping, hardware_id && hardware_id[0] ? hardware_id : "none");
+			command_output_printf(output, "%3ld  %-11s  %-4s  %5s  %5s  %-32s  %s%s%s%s\n", player->number, player->name,
+				team ? team : "-", score, ping, hardware_id && hardware_id[0] ? hardware_id : "none",
+				key_text[0] ? key_text : "-", role ? " (" : "", role ? server_role_name(role) : "", role ? ")" : "");
 		}
 	}
 	if (json)
@@ -635,6 +808,10 @@ static boolean command_kick(
 	if (!find_player(line->words[1], &player, output))
 		return FALSE;
 	machine_names(player.machine_index, names, sizeof(names));
+	note_target(names, line->count == 3 ? line->words[2] : NULL);
+	/* (a ChupathingyCE game is told why before it goes) */
+	if (line->count == 3)
+		server_moderation_notice(player.machine_index, TRUE, "Kicked", line->words[2]);
 	if (!network_game_server_drop_machine(player.machine_index, _rejection_code_game_is_closed))
 	{
 		command_output_printf(output, "%s cannot be kicked: their machine has not joined\n", player.name);
@@ -652,14 +829,14 @@ static boolean command_ban(
 {
 	struct server_player player;
 	char names[96];
-	char reason[64];
+	char reason[96];
 	char duration_text[32];
 	long duration = 0;
 	unsigned long until = 0;
 	char const *hardware_id;
 
 	(void)json;
-	if (line->count == 3 && !command_line_duration(line->words[2], &duration))
+	if (line->count >= 3 && !command_line_duration(line->words[2], &duration))
 	{
 		command_output_printf(output, "%s is not a duration: 30m, 2h, 7d, 1d12h, or forever\n", line->words[2]);
 		return FALSE;
@@ -667,14 +844,14 @@ static boolean command_ban(
 	if (!find_player(line->words[1], &player, output))
 		return FALSE;
 	machine_names(player.machine_index, names, sizeof(names));
+	note_target(names, line->count == 4 ? line->words[3] : NULL);
 	command_line_duration_text(duration, duration_text, sizeof(duration_text));
+	/* (bans.txt's reason: by whom, how long, and why) */
+	snprintf(reason, sizeof(reason), "banned by %s%s%s%s%s", actor_display(), duration ? " for " : "",
+		duration ? duration_text : "", line->count == 4 ? ": " : "", line->count == 4 ? line->words[3] : "");
 	if (duration)
-	{
 		until = (unsigned long)time(NULL) + (unsigned long)duration;
-		snprintf(reason, sizeof(reason), "banned by the server for %s", duration_text);
-	}
-	else
-		snprintf(reason, sizeof(reason), "banned by the server");
+	server_moderation_notice(player.machine_index, TRUE, "Banned", line->count == 4 ? line->words[3] : duration_text);
 	hardware_id = network_game_server_machine_hardware_id(player.machine_index);
 	if (!network_game_server_drop_machine(player.machine_index, _rejection_code_blacklisted_machine))
 	{
@@ -788,7 +965,7 @@ static boolean command_map(
 	(void)json;
 	if (!command_line_map_name_valid(line->words[1]))
 	{
-		command_output_printf(output, "%s is not a map's name (bloodgulch, name@ce, name@md)\n", line->words[1]);
+		command_output_printf(output, "%s is not a map's name (bloodgulch, name@ce, name@md, name@pc)\n", line->words[1]);
 		return FALSE;
 	}
 	csmemset(&empty, 0, sizeof(empty));
@@ -799,7 +976,7 @@ static boolean command_map(
 			line->words[2]);
 		return FALSE;
 	}
-	if (!map_playable(line->words[1], output))
+	if (!server_map_playable(line->words[1], output))
 		return FALSE;
 	dedicated_server_play(line->words[1], line->words[2]);
 	error(_error_silent, "dedicated: a command plays %s on %s", line->words[2], line->words[1]);
@@ -1102,6 +1279,180 @@ static boolean command_maps(
 	return TRUE;
 }
 
+static boolean command_warn(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	struct server_player player;
+	char names[96];
+	boolean shown;
+
+	(void)json;
+	if (!find_player(line->words[1], &player, output))
+		return FALSE;
+	machine_names(player.machine_index, names, sizeof(names));
+	note_target(names, line->words[2]);
+	shown = server_moderation_notice(player.machine_index, TRUE, "Warning", line->words[2]);
+	error(_error_silent, "dedicated: warned %s", names);
+	command_output_printf(output, "warned %s%s\n", names, shown ? "" :
+		" (their game cannot show it: not a ChupathingyCE game; the warning is in the audit file)");
+	return TRUE;
+}
+
+#ifdef HALO_SERVER
+static boolean command_mod_list(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	long count = server_roles_moderator_count();
+	long index;
+
+	(void)line;
+	if (json)
+		command_output_printf(output, "{\"moderators\": [");
+	else if (!count)
+		command_output_printf(output, "no moderators in moderators.txt\n");
+	for (index = 0; index < count; index++)
+	{
+		char key[72], name[40];
+		int role;
+
+		if (!server_roles_moderator_get((int)index, &role, key, sizeof(key), name, sizeof(name)))
+			break;
+		if (json)
+		{
+			command_output_printf(output, "%s{\"role\": \"%s\", \"key\": \"%s\", \"name\": ", index ? ", " : "",
+				server_role_name(role), key);
+			command_output_json_string(output, name);
+			command_output_printf(output, "}");
+		}
+		else
+			command_output_printf(output, "%-9s  %s  %s\n", server_role_name(role), key, name);
+	}
+	if (json)
+		command_output_printf(output, "], \"count\": %ld}", count);
+	else
+		command_output_printf(output, "(and the control panel's accounts bound to a game, and the site's, if the "
+			"server is linked)\n");
+	return TRUE;
+}
+
+static boolean command_mod_add(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	unsigned char key[32];
+	char problem[160];
+	char name[40];
+	int role = server_role_parse(line->words[2]);
+
+	(void)json;
+	if (role <= 0)
+	{
+		command_output_printf(output, "%s is not a role: moderator, admin or owner\n", line->words[2]);
+		return FALSE;
+	}
+	name[0] = 0;
+	if (line->count == 4)
+		snprintf(name, sizeof(name), "%s", line->words[3]);
+	/* a key given whole, else a player of the game whose game proved theirs */
+	if (!server_key_parse(line->words[1], key))
+	{
+		struct server_player player;
+
+		if (!find_player(line->words[1], &player, output))
+			return FALSE;
+		if (!server_moderation_machine_key(player.machine_index, key))
+		{
+			command_output_printf(output, "%s's game has not proved a moderator key: they sign in from the game's "
+				"Moderation screen (a ChupathingyCE game; Delta Peer), or give the key itself\n", player.name);
+			return FALSE;
+		}
+		if (!name[0])
+			snprintf(name, sizeof(name), "%s", player.name);
+	}
+	note_target(name[0] ? name : line->words[1], NULL);
+	if (!server_roles_moderator_set(role, key, name, problem, sizeof(problem)))
+	{
+		command_output_printf(output, "%s\n", problem);
+		return FALSE;
+	}
+	server_moderation_roles_changed();
+	command_output_printf(output, "%s is %s (moderators.txt)\n", name[0] ? name : line->words[1],
+		server_role_name(role));
+	return TRUE;
+}
+
+static boolean command_mod_remove(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	char problem[160];
+	char found[64];
+
+	(void)json;
+	note_target(line->words[1], NULL);
+	if (!server_roles_moderator_remove(line->words[1], found, sizeof(found), problem, sizeof(problem)))
+	{
+		command_output_printf(output, "%s\n", problem);
+		return FALSE;
+	}
+	server_moderation_roles_changed();
+	command_output_printf(output, "%s taken out of moderators.txt\n", found);
+	return TRUE;
+}
+
+static boolean command_link(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	struct dedicated_status status;
+	char text[512];
+	int ok;
+
+	(void)line;
+	(void)json;
+	dedicated_server_get_status(&status);
+	ok = server_link_start(status.name, updater_version(), text, sizeof(text));
+	command_output_printf(output, "%s\n", text);
+	return ok ? TRUE : FALSE;
+}
+
+static boolean command_unlink(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	char text[256];
+	int ok;
+
+	(void)line;
+	(void)json;
+	ok = server_link_stop(text, sizeof(text));
+	command_output_printf(output, "%s\n", text);
+	return ok ? TRUE : FALSE;
+}
+
+static boolean command_link_status(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	char text[512];
+
+	(void)line;
+	server_link_status(json ? 1 : 0, text, sizeof(text));
+	command_output_printf(output, "%s%s", text, json ? "" : "\n");
+	return TRUE;
+}
+
+#endif
+
 static boolean command_console_only(
 	struct command_line const *line,
 	boolean json,
@@ -1112,16 +1463,42 @@ static boolean command_console_only(
 	return FALSE;
 }
 
-/* a command line run: its output (text, or JSON for sv_status and
-sv_players when json) in output; whether it did what it was asked */
+/* the permission a command needs, by its name (for refusals) */
+static char const *permission_name(
+	unsigned int permission)
+{
+	switch (permission)
+	{
+	case SERVER_PERMISSION_VIEW: return "view (any role)";
+	case SERVER_PERMISSION_WARN: return "warn (moderator)";
+	case SERVER_PERMISSION_KICK: return "kick (moderator)";
+	case SERVER_PERMISSION_BAN_TIMED: return "ban for a while (moderator)";
+	case SERVER_PERMISSION_BAN: return "ban for longer, or for ever (admin)";
+	case SERVER_PERMISSION_UNBAN: return "unban (admin)";
+	case SERVER_PERMISSION_MAP: return "map and playlist (admin)";
+	case SERVER_PERMISSION_SETTINGS: return "settings (admin)";
+	case SERVER_PERMISSION_ROLES: return "roles (owner)";
+	default: return "console";
+	}
+}
+
+/* a command line run for someone: its output (text, or JSON for the reads
+when json) in output; whether it did what it was asked. Refused if they
+lack its permission (server/docs/moderation.md), or have made too many
+changes lately; a change is written to the audit file whether it was done
+or not */
 static boolean execute(
 	char const *text,
 	boolean json,
-	struct command_output *output)
+	struct command_output *output,
+	struct command_actor const *actor)
 {
 	struct command_line line;
 	char problem[96];
 	long index;
+	int changes = 0;
+	unsigned int needed;
+	boolean ok;
 
 	if (!command_line_parse(text, &line, problem, sizeof(problem)))
 	{
@@ -1136,6 +1513,18 @@ static boolean execute(
 
 		if (strcmp(command->name, line.words[0]))
 			continue;
+		needed = server_command_permission(text, &changes);
+		if (needed && !(actor->permissions & needed))
+		{
+			command_output_printf(output, "%s needs the %s permission, which %s does not have\n", line.words[0],
+				permission_name(needed), actor->name[0] ? actor->name : actor->via);
+			if (changes)
+			{
+				server_audit(actor->via, actor->name, actor->role, line.words[0], NULL, "refused: no permission",
+					FALSE, output->text);
+			}
+			return FALSE;
+		}
 		if (line.count < command->minimum_words || line.count > command->maximum_words)
 		{
 			command_output_printf(output, "usage: %s\n", command->usage);
@@ -1146,11 +1535,104 @@ static boolean execute(
 			command_output_printf(output, "the server is not hosting a game yet\n");
 			return FALSE;
 		}
-		return command->execute(&line, json, output);
+		/* (the console's and the startup commands' are the owner's own, and
+		not limited) */
+		if (changes && strcmp(actor->via, "console") && strcmp(actor->via, "startup"))
+		{
+			char who[COMMAND_LINE_MAXIMUM_LENGTH];
+			int retry_after = 0;
+
+			snprintf(who, sizeof(who), "%s %s", actor->via, actor->name);
+			if (!server_roles_actor_allowed(who, &retry_after))
+			{
+				command_output_printf(output, "too many changes in a short while: try again in %d seconds\n",
+					retry_after);
+				server_audit(actor->via, actor->name, actor->role, line.words[0], NULL, "refused: rate limit",
+					FALSE, NULL);
+				return FALSE;
+			}
+		}
+		server_command_running.actor = actor;
+		server_command_running.target[0] = 0;
+		server_command_running.reason[0] = 0;
+		ok = command->execute(&line, json, output);
+		if (changes)
+		{
+			server_audit(actor->via, actor->name, actor->role, line.words[0], server_command_running.target[0] ?
+				server_command_running.target : NULL, server_command_running.reason[0] ?
+				server_command_running.reason : NULL, ok, output->text);
+		}
+		server_command_running.actor = NULL;
+		return ok;
 	}
 	command_output_printf(output, "no command %s (help lists them)\n", line.words[0]);
 	return FALSE;
 }
+
+/* ---------- the running command's */
+
+/* whom it is done to, and why (the audit file's) */
+static void note_target(
+	char const *target,
+	char const *reason)
+{
+	snprintf(server_command_running.target, sizeof(server_command_running.target), "%s", target ? target : "");
+	snprintf(server_command_running.reason, sizeof(server_command_running.reason), "%s", reason ? reason : "");
+}
+
+/* who runs it, as a player reads it: "the server", or "Odb718
+(moderator)" (a source's name is "<name> <id>": the id is the log's) */
+static char const *actor_display(
+	void)
+{
+	static char text[96];
+	struct command_actor const *actor = server_command_running.actor;
+	char name[48];
+	char *space;
+
+	if (!actor || !strcmp(actor->via, "console") || !strcmp(actor->via, "startup") || !strcmp(actor->via, "api"))
+		return "the server";
+	snprintf(name, sizeof(name), "%s", actor->name);
+	space = strchr(name, ' ');
+	if (space)
+		*space = 0;
+	snprintf(text, sizeof(text), "%s (%s)", name, server_role_name(actor->role));
+	return text;
+}
+
+char const *server_commands_payload(
+	void)
+{
+	return server_command_running.payload;
+}
+
+/* the game's own (server_moderation.c, Delta Peer): an action a moderator's
+game asked for, run as a command of theirs */
+boolean server_commands_run_as(
+	char const *text,
+	char const *via,
+	char const *name,
+	int role,
+	unsigned int permissions,
+	char *result,
+	long result_size)
+{
+	struct command_actor actor;
+	struct command_output output;
+	boolean ok;
+
+	actor.via = via;
+	actor.name = name;
+	actor.role = role;
+	actor.permissions = permissions;
+	error(_error_silent, "control: %s %s: %s", via, name, text);
+	command_output_begin(&output, server_command_output, sizeof(server_command_output));
+	ok = execute(text, FALSE, &output, &actor);
+	log_output(server_command_output);
+	snprintf(result, (size_t)result_size, "%s", server_command_output);
+	return ok;
+}
+
 
 /* the startup commands (HALO_DEDICATED_COMMANDS, a file in the data folder,
 as the playlist is), read as the server starts */
@@ -1224,29 +1706,93 @@ static void log_output(
 	}
 }
 
+#ifdef HALO_SERVER
+/* the server's state for the site (Delta Control's link): sv_status's, and
+the players' numbers, names, teams and scores, and whether each has proved
+a moderator key; never an address or a hardware id */
+static void link_status(
+	void)
+{
+	static char text[16 * 1024];
+	static struct server_player players[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
+	struct command_output output;
+	struct network_game_server *server = global_network_game_server_get();
+	struct network_game *game = server ? network_game_server_get_game(server) : NULL;
+	boolean teams = game_has_teams(game);
+	long count = get_players(players, NUMBEROF(players));
+	long index;
+
+	struct dedicated_status status;
+
+	dedicated_server_get_status(&status);
+	command_output_begin(&output, text, sizeof(text));
+	command_output_printf(&output, "{\"name\": ");
+	command_output_json_string(&output, status.name);
+	command_output_printf(&output, ", \"version\": ");
+	command_output_json_string(&output, updater_version());
+	command_output_printf(&output, ", \"state\": \"%s\", \"map\": ", state_name(status.state, TRUE));
+	command_output_json_string(&output, map_display_name(status.map));
+	command_output_printf(&output, ", \"game_type\": ");
+	command_output_json_string(&output, status.variant);
+	command_output_printf(&output, ", \"playlist\": ");
+	command_output_json_string(&output, status.playlist);
+	command_output_printf(&output, ", \"player_count\": %ld, \"maximum_players\": %ld, \"uptime_seconds\": %lu, "
+		"\"players\": [", count, status.maximum_players, status.uptime_seconds);
+	for (index = 0; index < count; index++)
+	{
+		struct server_player const *player = &players[index];
+		char const *team = !teams ? NULL : player->team_index == 0 ? "red" : player->team_index == 1 ? "blue" : NULL;
+		unsigned char key[32];
+
+		command_output_printf(&output, "%s{\"number\": %ld, \"name\": ", index ? ", " : "", player->number);
+		command_output_json_string(&output, player->name);
+		command_output_printf(&output, ", \"team\": %s%s%s, \"score\": ", team ? "\"" : "", team ? team : "null",
+			team ? "\"" : "");
+		if (player->scored)
+			command_output_printf(&output, "%ld", player->score);
+		else
+			command_output_printf(&output, "null");
+		command_output_printf(&output, ", \"moderator_key_verified\": %s}",
+			server_moderation_machine_key(player->machine_index, key) ? "true" : "false");
+	}
+	command_output_printf(&output, "]}");
+	if (!output.truncated)
+		server_link_set_status(text);
+	(void)game;
+}
+#endif
+
 /* ---------- public code */
 
 void server_commands_update(
 	void)
 {
+	static struct command_actor const startup_actor = { "startup", "", SERVER_ROLE_OWNER, SERVER_PERMISSION_ALL };
 	struct command_output output;
 
 	if (!server_commands_globals.started)
 	{
 		server_commands_globals.started = TRUE;
+		server_roles_start();
 		load_startup_commands();
 #ifdef HALO_SERVER
 		server_control_start();
+		server_link_begin();
 #endif
 	}
+	server_moderation_update();
 #ifdef HALO_SERVER
 	/* the console's and the control API's, as they came */
 	for (;;)
 	{
 		char line[COMMAND_LINE_MAXIMUM_LENGTH + 1];
-		char source[64];
+		char source[96];
 		int flags = 0;
-		int ticket = server_control_next(line, sizeof(line), source, sizeof(source), &flags);
+		unsigned int permissions = 0;
+		int role = 0;
+		int ticket = server_control_next(line, sizeof(line), source, sizeof(source), &flags, &permissions, &role);
+		struct command_actor actor;
+		char *space;
 		boolean ok;
 
 		if (!ticket)
@@ -1258,8 +1804,19 @@ void server_commands_update(
 		}
 		if (!(flags & CONTROL_QUIET))
 			error(_error_silent, "control: %s: %s", source, line);
+		/* (the source: "console", "api <name> <id>", "web <name> <id>",
+		"site <handle>") */
+		space = strchr(source, ' ');
+		if (space)
+			*space = 0;
+		actor.via = source;
+		actor.name = space ? space + 1 : "";
+		actor.role = role;
+		actor.permissions = permissions;
+		server_command_running.payload = server_control_payload(ticket);
 		command_output_begin(&output, server_command_output, sizeof(server_command_output));
-		ok = execute(line, (flags & CONTROL_JSON) ? TRUE : FALSE, &output);
+		ok = execute(line, (flags & CONTROL_JSON) ? TRUE : FALSE, &output, &actor);
+		server_command_running.payload = NULL;
 		/* (JSON cut short is no JSON) */
 		if ((flags & CONTROL_JSON) && output.truncated)
 		{
@@ -1270,6 +1827,45 @@ void server_commands_update(
 		else if (output.truncated)
 			csstrcpy(output.text + output.size - 5, "...\n");
 		server_control_finish(ticket, ok, server_command_output);
+	}
+#endif
+#ifdef HALO_SERVER
+	/* the site's (Delta Control's link), one a frame: run as the site's
+	account, with the role this server's copy of the site's list gives it */
+	{
+		char line[COMMAND_LINE_MAXIMUM_LENGTH + 1];
+		char handle[48];
+		unsigned int id;
+
+		if (server_link_next_command(line, sizeof(line), handle, sizeof(handle), &id))
+		{
+			struct command_actor actor;
+			boolean ok;
+
+			actor.via = "site";
+			actor.name = handle;
+			actor.role = server_roles_site_handle_role(handle);
+			actor.permissions = server_role_permissions(actor.role);
+			error(_error_silent, "control: site %s: %s", handle, line);
+			command_output_begin(&output, server_command_output, sizeof(server_command_output));
+			if (!actor.role)
+			{
+				command_output_printf(&output, "%s has no role on this server\n", handle);
+				server_audit("site", handle, 0, line, NULL, "refused: no role", FALSE, NULL);
+				ok = FALSE;
+			}
+			else
+				ok = execute(line, FALSE, &output, &actor);
+			log_output(server_command_output);
+			server_link_finish_command(id, ok ? 1 : 0, server_command_output);
+		}
+		/* the server's state, for the site, every few seconds */
+		if (system_milliseconds() - server_commands_globals.link_status_time >= 5000 ||
+			!server_commands_globals.link_status_time)
+		{
+			server_commands_globals.link_status_time = system_milliseconds();
+			link_status();
+		}
 	}
 #endif
 	/* the startup commands, once the server first hosts */
@@ -1284,7 +1880,7 @@ void server_commands_update(
 
 			error(_error_silent, "dedicated: startup: %s", line);
 			command_output_begin(&output, server_command_output, sizeof(server_command_output));
-			execute(line, FALSE, &output);
+			execute(line, FALSE, &output, &startup_actor);
 			log_output(server_command_output);
 		}
 	}

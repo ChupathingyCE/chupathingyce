@@ -51,9 +51,12 @@ enum delta_capability
 	_delta_capability_server_messages = 2,
 	/* text chat between Delta players */
 	_delta_capability_chat = 3,
-	/* Halo PC maps' identity (name and hash) */
+	/* Halo PC maps' identity (MAP: the game's map's family, file name,
+	size and hash), for every family past the Xbox's: Custom Edition,
+	HaloMD and Halo PC retail (port/linux/src/delta_maps.c) */
 	_delta_capability_ce_maps = 4,
-	/* HaloMD maps' identity */
+	/* retired before use: ce_maps carries every Halo PC family's identity.
+	The bit stays taken and is never set */
 	_delta_capability_md_maps = 5,
 	/* network co-op beyond OpenCE's */
 	_delta_capability_coop = 6,
@@ -65,6 +68,10 @@ enum delta_capability
 	(struct delta_platform_key), which every Delta machine sends. The bit
 	stays taken and is never set */
 	_delta_capability_console_slots = 9,
+	/* a dedicated server's moderators: a player signs in with a key made
+	from their player key, and kicks and bans from the game
+	(docs/delta.md, Moderation) */
+	_delta_capability_moderation = 10,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };
@@ -152,7 +159,7 @@ legacy table (port/linux/src/delta.c; docs/delta.md, "The legacy table as
 config") has a row of OpenCE numbers for each wire, which CI adds to only
 after a cross-play test of that wire; a build reads its own wire's row alone.
 Give each release that changes what the machines send a new one. */
-#define DELTA_WIRE "chupa-20a"
+#define DELTA_WIRE "chupa-23a"
 
 /* OpenCE's network versions (HALO_PORT_NETWORK_VERSION in its builds), the
 first of its releases with each, and whether the version's change is one the
@@ -175,8 +182,10 @@ command repository's watch adds a row when it follows OpenCE's raise
 	X(17, "build-128", additive) /* followed from OpenCE: additive */ \
 	X(18, "build-129", additive) /* followed from OpenCE: additive */ \
 	X(19, "build-132", additive) /* co-op's player collisions switch, in a padding byte of the game settings */ \
-	X(20, "build-133", additive) /* password games' internet listings (another listing layout); game messages as 19 */
-
+	X(20, "build-133", additive) /* password games' internet listings (another listing layout); game messages as 19 */ \
+	X(21, "build-141", additive) /* killing blows and resting bodies resent, co-op BSP switches by the host's crossing */ \
+	X(22, "build-145", additive) /* a Custom Edition map named custom_maps\\<name> in the game's settings */ \
+	X(23, "build-147", additive) /* a Custom Edition map's blocks past the Xbox tools' limits kept, its version in the game's settings; Xbox maps as 22 */
 
 /* ---------- the legacy table (port/linux/src/delta.c)
 
@@ -200,6 +209,12 @@ is newer than the one in use and widens no less than the built-in numbers;
 int delta_legacy_offer(const char *signed_table, int size);
 /* whether the table in use turns a capability off (its kill switch) */
 int delta_capability_disabled(int capability);
+/* what the build follows, for its log and status: "Following OpenCE
+build-145 (table 2)" (the table's row names the OpenCE build the cross-play
+gate proved it with), "Following OpenCE network version 20 (built in)" */
+#define DELTA_FOLLOWS_SIZE 32
+void delta_legacy_following(char *text, int size);
+
 /* whether a local, unsigned table (network.legacy_table) is in use */
 int delta_legacy_override(void);
 /* whether this machine relays signed tables (Delta Peer: takes them from

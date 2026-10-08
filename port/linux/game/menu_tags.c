@@ -451,7 +451,17 @@ static void *allocate(long size)
 		return NULL;
 	}
 	memset(block, 0, size > 0 ? size : 1);
-	menu_tags.blocks = realloc(menu_tags.blocks, (menu_tags.block_count + 1) * sizeof(*menu_tags.blocks));
+	{
+		void **blocks = realloc(menu_tags.blocks, (menu_tags.block_count + 1) * sizeof(*menu_tags.blocks));
+
+		if (!blocks)
+		{
+			free(block);
+			build.failed = TRUE;
+			return NULL;
+		}
+		menu_tags.blocks = blocks;
+	}
 	menu_tags.blocks[menu_tags.block_count++] = block;
 	return block;
 }
@@ -1351,7 +1361,19 @@ static void instance_set(struct cache_file_tag_instance *instances, long group_t
 	instance->parent_group_tags[0] = NONE;
 	instance->parent_group_tags[1] = NONE;
 	instance->tag_index = tag_index;
+	/* (the name is read by tag_loaded: of none, when the copy failed, which
+	fails the build) */
+#ifdef HALO_64BIT
+	if (!copy)
+	{
+		if (!menu_tags.empty_name)
+			menu_tags.empty_name = allocate(1);
+		copy = menu_tags.empty_name;
+	}
 	instance->name = XBOX_ADDRESS(copy);
+#else
+	instance->name = copy ? copy : "";
+#endif
 	instance->base_address = XBOX_ADDRESS(definition);
 }
 
@@ -1658,6 +1680,30 @@ static void pause_patch(struct cache_file_tag_instance *instances)
 		platform_log("menus: the pause menu has SETTINGS%s", host ? " and END GAME" : "");
 }
 
+/* whether display.menus asks for the PC version's menus: "pc" in any case
+(a value neither "pc" nor "xbox" is said once in the log, and is the Xbox's) */
+static boolean menus_pc_chosen(void)
+{
+	static boolean said;
+	char const *value = config_string("display.menus");
+	char lower[8];
+	size_t index;
+
+	for (index = 0; index + 1 < sizeof(lower) && value[index]; index++)
+		lower[index] = (char)(value[index] >= 'A' && value[index] <= 'Z' ? value[index] - 'A' + 'a' : value[index]);
+	lower[index] = 0;
+	if (value[index])
+		lower[0] = 0;
+	if (!strcmp(lower, "pc"))
+		return TRUE;
+	if (strcmp(lower, "xbox") && !said)
+	{
+		platform_log("menus: display.menus \"%s\" is not \"xbox\" or \"pc\": the Xbox's", value);
+		said = TRUE;
+	}
+	return FALSE;
+}
+
 void menu_tags_loaded(
 	char const *map_name)
 {
@@ -1668,8 +1714,7 @@ void menu_tags_loaded(
 	boolean game_map = strcmp(map_name, "ui") != 0;
 
 	/* (ui.map, and a multiplayer map: its pause menu's SETTINGS) */
-	if ((game_map && tag_loaded('Soul', MULTIPLAYER_COLLECTION) == NONE) ||
-		strcmp(config_string("display.menus"), "pc"))
+	if ((game_map && tag_loaded('Soul', MULTIPLAYER_COLLECTION) == NONE) || !menus_pc_chosen())
 	{
 		return;
 	}
@@ -1685,6 +1730,8 @@ void menu_tags_loaded(
 	build.spinner_tags = malloc((widget_count + 1) * sizeof(long));
 	build.bitmap_tags = malloc((menus->bitmap_count + 1) * sizeof(long));
 	build.strings_tags = malloc((menus->string_list_count + 1) * sizeof(long));
+	if (!build.widget_tags || !build.text_tags || !build.spinner_tags || !build.bitmap_tags || !build.strings_tags)
+		goto failed;
 	for (index = 0; index < widget_count; index++)
 	{
 		own_lists += (menus->widgets[index].text != NULL) + (menus->widgets[index].strings != NULL);

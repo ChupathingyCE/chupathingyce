@@ -5,7 +5,8 @@ that is technically possible. Where builds differ, the difference must be
 chosen on purpose and written down here.
 
 This audit was made on 2026-10-06 against `sync-network-20` (02fee99f).
-Delta was read on `release-0.6.8b`. File:line references are to this
+Delta was read on `release-0.6.8b`. Since 0.7.0b every build plays Halo PC
+and HaloMD maps; the rest is as audited. File:line references are to this
 branch unless another branch is named. Each difference is marked:
 
 - **(a) required**: something forces it (an OS API is missing, memory, the
@@ -31,10 +32,11 @@ their commit's subject. Every other accidental one is listed under
   on; the server forces it on at `tools/server_build.py:239`).
 - `HALO_64BIT` is set for Windows x64, Linux x64, macOS and the 64-bit
   servers (`tools/windows_build.py:221`, `tools/lp64_build.py:73`).
-- `HALO_CUSTOM_EDITION` is set for Linux x86 (`tools/linux_build.py:373`),
-  Linux x64, macOS and the servers (`tools/lp64_build.py:75`), and Windows
-  x64 (`tools/windows_build.py:223`). It is not set for Windows x86 or
-  Android.
+- `HALO_CUSTOM_EDITION` is set for every build: Linux x86
+  (`tools/linux_build.py`, `CUSTOM_EDITION_DEFINES`), Linux x64, macOS and
+  the servers (`tools/lp64_build.py`), Windows x86 and x64
+  (`tools/windows_build.py`) and Android (`tools/android_build.py`), since
+  0.7.0b.
 - In `port_config.c`, the `_platform_*` flags (`:51-58`, chosen at
   `:496-502`) only decide which settings a build writes into its
   config.toml. Every build can read every setting.
@@ -61,7 +63,11 @@ Abbreviations:
 | Discord invites and presence | yes, "In Menus" (fixed) | yes | yes, "In Menus" (fixed) | yes | yes | no (a) | yes | no Discord |
 | Delta Peer + legacy table (release-0.6.8b) | yes | yes | yes | yes | yes | yes, but said "Linux" (fixed on parity-delta) | yes; the Windows build said "Windows" (fixed on parity-delta) | yes |
 | Hardware id (host bans) | yes | yes | yes | yes | **none** before (fixed) | yes | yes | yes |
-| Halo PC / HaloMD maps | **no (b)** | yes | yes | yes | yes | no (a, memory) | yes | yes |
+| Halo PC / HaloMD maps | yes (0.7.0b) | yes | yes | yes | yes | yes (0.7.0b) | yes | yes |
+| Halo PC maps' folders (0.7.1b: `maps_ce`, `maps_md`, `maps_pc`; the older `maps/ce`, `md_maps`, OpenCE's `custom_maps` read) | yes | yes | yes | yes | yes | yes | yes | yes |
+| Moving the older map folders (`game.move_old_map_folders`) | asked once (message box) | same | same | same | same | moved without asking (c: the app's own storage, no message box there yet) | same as Linux | never unless set (c: read-only volumes, nobody to ask) |
+| Custom Edition maps with OpenCE build-147 (`custom_maps\<name>`, vehicles by spawn flags, map version) and the missing-map message | yes | yes | yes | yes | yes | yes | yes | yes |
+| Delta Peer map identity (name and hash, `ce_maps`) | yes | yes | yes | yes | yes | yes | yes | yes |
 | PC menus or Xbox menus (`display.menus`) | both | both | both | both | both | both; Quit does nothing (a) | both | n/a |
 | Port settings screens (Video, Mouse...) | PC menus only (c) | same | same | same | same | same; Mouse Settings shown (b) | same | n/a |
 | High-res HUD and text | yes | yes | yes | yes | yes | yes, at 480 lines (a) | yes | n/a |
@@ -86,7 +92,7 @@ Abbreviations:
 | `sv_*` console, control API, web admin | no | no | no | no | no | no | no | yes (c) |
 | `screenshot_count` (TIFF) | yes | **no (b)** | yes | **no (b)** | **no (b)** | yes | **no (b)** | n/a |
 | Debug frame dumps (`debug.screenshot_*`) | yes | yes | yes | yes | yes | yes | yes | n/a |
-| Crash reports | local, and Sentry upload switched off (b) | same, symbols now kept (fixed) | local log | local log | local log | logcat | local log | backtrace |
+| Crash reports (`crash_report.h`, to the site's `/v1/crash`) | minidump + walked stack, sent after the crash (fixed) | same | signal report, sent at the next start (fixed; c) | same | same | logcat only (b) | same as L64 | backtrace in its log (c) |
 | mesa_glthread hint | no (a: Mesa is rare on Windows) | no | yes | yes | yes (ignored) | no | yes | n/a |
 
 ### Settings that exist only on some builds
@@ -103,8 +109,8 @@ From the `_platform_*` flags in `port_config.c`:
   - Accidental: Android's PC menus still offer Mouse Settings (see below).
 - **Android only.** `display.screen_width`, `input.touch_controls`,
   `debug.sample_seconds` (`:113`, `:202`, `:489`). Required.
-- **Windows only.** `crash_reports.upload` (`:384`). Uploading is
-  Windows-only because only `win32_crash.c` exists. See "Left to schedule".
+- **Desktop only.** `crash_reports.upload`. Android has no crash reports
+  yet. See "Left to schedule".
 - **Different defaults.** These are chosen, and the reason is in a comment:
   - macOS: `display.fullscreen` is false (`:72-77`) and
     `audio.buffer_frames` is 2048 (`:79-86`).
@@ -141,9 +147,8 @@ the server. No build script names them and none excludes them.
 
 ## Left to schedule (accidental, not small)
 
-1. **Halo PC / HaloMD maps on Windows x86.** Being handled on branch
-   `ce-everywhere` (the other worker), together with Android. Not touched
-   here.
+1. **Halo PC / HaloMD maps on Windows x86 and Android.** Done in 0.7.0b
+   (branch `ce-everywhere`).
 2. **The macOS self-updater** (`updater.c:53-57`). Replacing a signed
    `.app` bundle (directory swap, quarantine attribute, codesign) differs
    from the flat-file `.old` scheme. About 1-2 days with testing. It should
@@ -161,13 +166,13 @@ the server. No build script names them and none excludes them.
      fix needs care with `p2p_lock`.
 
    About half a day, and it needs an on-device test.
-5. **Windows crash uploads are off in every build.** `crash_reports_enabled`
-   needs `HALO_BUILD_NUMBER > 0` (`win32_crash.c:734`), and no build has
-   defined it since versions replaced build numbers (a687c8ce). Turning
-   uploads back on (keyed to `HALO_RELEASE_BUILD`) is a one-line change.
-   It sends minidumps to Sentry, so it is the owner's call. Crash upload on
-   Linux, macOS and Android does not exist. A Breakpad-style minidump on
-   POSIX is about 2-4 days per OS.
+5. **Crash reports on Android.** Windows, Linux and macOS send crash
+   reports to the site (`crash_report.h`; branch `crash-reports`). Android
+   has only logcat: its game runs in the guest, and the host's SIGSEGV
+   handler (`host_memory.c`) sees the guest's faults. A report there needs
+   the host to write `posix_crash.c`'s report file, with the guest's frames
+   from `_Unwind_Backtrace` or the guest's frame pointers, and the guest to
+   send it at the next start. About 1-2 days, with an on-device test.
 6. **PC menus on Android.**
    - Mouse Settings and Controls Setup are shown although Android has no
      pointer (`tools/port_settings.py:87-100`; profile edit XML). Tagging
@@ -199,3 +204,10 @@ the server. No build script names them and none excludes them.
   Its `sv_*` console, control API and web page belong to the server alone.
 - **Port settings screens are in the PC menus only.** The Xbox menus stay
   retail.
+- **Crash reports: a minidump on Windows only, and the question at the next
+  start on Linux and macOS.** Windows writes the minidump from a second
+  process after the crash and asks at once. A signal handler cannot do that
+  safely, so Linux and macOS write a small report (the signal and the
+  calls) and send it, or ask about it, when the game starts the next time.
+  The report's format and the setting are the same. The dedicated server
+  logs its crashes only.

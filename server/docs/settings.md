@@ -1,7 +1,9 @@
 # Settings
 
-The server is set up with environment variables, one per setting. (A
-settings file of its own may come later; see the [changelog](../CHANGELOG.md).)
+The server is set up with environment variables, one per setting, and a
+settings file, `admin/settings.toml` in the data folder, which `sv_set` and
+the control panel's Settings write. A setting in the environment wins over
+the file.
 
 ## The server
 
@@ -10,12 +12,21 @@ settings file of its own may come later; see the [changelog](../CHANGELOG.md).)
 | `HALO_DEDICATED` | (none) | The playlist, a path inside the data folder: `playlists/free_for_all.txt`. Required: without it the server only says how to start one. |
 | `HALO_DEDICATED_NAME` | `Dedicated` | The server's name on the lists. 15 characters at most, the game's limit. |
 | `HALO_DEDICATED_MINIMUM_PLAYERS` | `1` | The players a game waits for before its countdown starts. |
-| `HALO_DEDICATED_MAXIMUM_PLAYERS` | `12` | The players a game takes, up to 128 (see below). |
+| `HALO_DEDICATED_MAXIMUM_PLAYERS` | `12` | The players a game takes, up to 128 (`sv_maxplayers` in [admin.md](admin.md) changes it while running). |
 | `HALO_DEDICATED_IDLE_LIMIT` | `5` | A game in which nobody scores for this many minutes ends. `0`: never. |
 | `HALO_DEDICATED_PUBLIC` | `true` | A public game, listed in every in-game Server Browser (OpenCE's and ChupathingyCE's) through internet play's brokers. `false`: not listed there; the game list still lists it, and its invite still works. |
 | `HALO_DEDICATED_COMMANDS` | (none) | A file of [commands](admin.md#startup-commands) in the data folder, run once the server first hosts. |
 | `HALO_DEDICATED_CONSOLE` | on in a terminal | Commands typed on the server's standard input ([the console](admin.md#the-console)). `true`: read them even when it is not a terminal; `false`: never. |
-| `HALO_DEDICATED_CONTROL` | (off) | The [control API](admin.md#the-control-api)'s address: a port (`8080`, on 127.0.0.1 only) or an address and port (`127.0.0.1:8080`, `[::1]:8080`; any other is warned of). Its token is made and printed the first time. The [web admin page](admin.md#the-web-admin-page) is on the same address. |
+| `HALO_DEDICATED_CONTROL` | (off) | The [control API](admin.md#the-control-api)'s address: a port (`8080`, on 127.0.0.1 only) or an address and port (`127.0.0.1:8080`, `[::1]:8080`, `0.0.0.0:8443`). Its token is made and printed the first time, and the first owner's setup link. The [control panel](moderation.md#the-control-panel) is on the same address: plain HTTP on the loopback address, HTTPS beyond it. |
+| `HALO_DEDICATED_CONTROL_TLS` | `auto` | `auto`: HTTPS beyond the loopback address; `on`: always; `off`: never (refused on a public address). [moderation.md](moderation.md#remote-access-safely) |
+| `HALO_DEDICATED_CONTROL_CERT`, `HALO_DEDICATED_CONTROL_KEY` | (the server's own) | Your own certificate and key for the control panel's HTTPS (PEM, as certbot writes them; a path in the data folder or absolute). A renewal is taken within a minute. |
+| `HALO_DEDICATED_LINK` | `true` | `false` turns the [link to halo.milenko.org](moderation.md#the-link-to-halomilenkoorg-optional) off for good. Until `sv_link`, it does nothing either way. |
+| `HALO_DEDICATED_LINK_URL` | `HALO_NET_BROWSER` | The site the server links to (HTTPS). |
+| `HALO_DEDICATED_LINK_ROLE` | `admin` | The most a role from the site may be on this server: `admin` or `moderator`. |
+
+The settings file's keys (`sv_settings` lists them, with where each value
+comes from): `name`, `maximum_players`, `minimum_players`, `idle_limit`,
+`public` (from the next start), and the playlist `sv_playlist_use` chose.
 
 A game everyone has left ends after 30 seconds. After each game the
 carnage report shows for 20 seconds, then the next entry's lobby opens.
@@ -24,7 +35,7 @@ carnage report shows for 20 seconds, then the next entry's lobby opens.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `HALO_DATA_ROOT` | the current folder, else the program's | The data folder: `maps/` (with `ui.map`), `maps/ce/`, `md_maps/`, `playlists/`. The server's log, `debug.txt`, goes here. |
+| `HALO_DATA_ROOT` | the current folder, else the program's | The data folder: `maps/` (with `ui.map`), `maps_ce/`, `maps_md/`, `maps_pc/`, `playlists/` (the older `maps/ce/`, `md_maps/` and OpenCE's `custom_maps/` are read too). The server's log, `debug.txt`, goes here. |
 | `HALO_SAVE_ROOT` | `~/.local/share/halo-linux` | Where the server keeps its saves (the game's profile and scratch files, about 33 MB). Give each server on a machine its own. |
 
 The server also writes `config.toml`, its settings at their defaults, beside
@@ -50,7 +61,10 @@ is fine). Settings in the environment override it.
 
 Players' addresses are left out of `debug.txt` and the output, as in the
 game; `HALO_LOG_ADDRESSES=1` logs them whole, for an operator chasing a
-problem.
+problem (the log then says so at the first one). `0`, `false`, `no` and
+`off` leave it off, as for every switch here that only has to be set. Logs
+written with it on hold everyone's address: delete them once the problem is
+found.
 
 ## The command line
 
@@ -74,8 +88,14 @@ it does not know.
 
 In the data folder: `debug.txt` (its log), `bans.txt` (its bans, read on
 every join: [admin.md](admin.md#bans)), `cheaters.txt` (players dropped for
-cheating), and `control_credentials.txt` (the control API's token's hash,
-once the API is turned on).
+cheating), `control_credentials.txt` (the control API's credentials, its tokens' hashes,
+once the API is turned on), `control_accounts.txt` (the control panel's
+accounts), `control_audit.log` (every change: [moderation.md](moderation.md)),
+`moderators.txt` (moderators by moderator key), `control_tls.crt` and
+`control_tls.key` (the panel's own certificate, when it is HTTPS),
+`delta_link.key` (the link to halo.milenko.org, once linked), and
+`admin/` (playlists, game types and settings made on the server:
+[playlists.md](playlists.md)). Keep them private, and back them up.
 
 ## Probing a game
 

@@ -141,7 +141,7 @@ const char *SDL_GetBasePath(void)
 	return base;
 }
 
-/* the folder, and those above it it needs */
+/* the folder, and the ones above it that it needs */
 bool SDL_CreateDirectory(const char *path)
 {
 	char partial[PATH_MAX];

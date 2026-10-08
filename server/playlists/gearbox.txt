@@ -1,5 +1,5 @@
-# [D] Gearbox: Halo PC's own multiplayer maps (maps/ce/, played as
-# <name>@ce), Slayer and Team Slayer in turn (server/src/dedicated.c). The
+# [D] Gearbox: Halo PC's own multiplayer maps as Custom Edition has them
+# (maps_ce/, or the older maps/ce/; played as <name>@ce), Slayer and Team Slayer in turn (server/src/dedicated.c). The
 # twelve entries give every map both game types once a cycle. While a single
 # player waits, a team entry is left for the next Slayer one.
 # One entry a line: the map, then the game type, played in order.

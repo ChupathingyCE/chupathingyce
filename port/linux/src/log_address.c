@@ -24,11 +24,21 @@ enum
 };
 
 static pthread_once_t salt_once = PTHREAD_ONCE_INIT;
+static pthread_once_t whole_once = PTHREAD_ONCE_INIT;
 static unsigned char salt[SALT_SIZE];
 
 static void make_salt(void)
 {
 	posix_random_bytes(salt, sizeof(salt));
+}
+
+/* said once, before the first public address the log has whole: a log
+written so is not one to post, and a server's operator should know why it
+has them */
+static void say_whole(void)
+{
+	platform_log("Log: debug.log_addresses is on (or HALO_LOG_ADDRESSES is set): other machines' internet "
+		"addresses are written whole; do not post this log");
 }
 
 /* whether an address is no one's on the internet (log_address.h) */
@@ -52,6 +62,11 @@ static int local_address(const unsigned char *bytes, int length)
 	}
 }
 
+int log_address_local(const unsigned char *bytes, int length)
+{
+	return (length == 4 || length == 16) && local_address(bytes, length);
+}
+
 const char *log_address(const unsigned char *bytes, int length, int port, char *text, int size)
 {
 	char address[48];
@@ -66,6 +81,8 @@ const char *log_address(const unsigned char *bytes, int length, int port, char *
 	}
 	if (local_address(bytes, length) || config_boolean("debug.log_addresses"))
 	{
+		if (!local_address(bytes, length))
+			pthread_once(&whole_once, say_whole);
 		if (length == 4)
 		{
 			snprintf(address, sizeof(address), "%u.%u.%u.%u", bytes[0], bytes[1], bytes[2], bytes[3]);

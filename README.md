@@ -10,7 +10,7 @@
 <a href="https://discord.gg/4BUm2FwuCB">Discord</a>
 </p>
 
-> **Compatible with [OpenCE](https://github.com/OpenCommunityEdition/OpenCE) build-133 through build-138 (network version 20).** Our builds join games hosted on network versions 11 through 20. Games hosted on older builds (network version 10) can't be joined; their hosts need to update.
+> **Compatible with [OpenCE](https://github.com/OpenCommunityEdition/OpenCE) build-147 (network version 23).** OpenCE build-147 players join our games, and our builds join games hosted on network versions 11 through 23 (OpenCE build-76 through build-147). Games hosted on older builds (network version 10) can't be joined; their hosts need to update.
 > Players on OpenCE and players on ChupathingyCE play together.
 
 ChupathingyCE is a community build of **OpenCE**, the port of the Halo: Combat
@@ -95,37 +95,66 @@ executable, and the saves in `~/.local/share/halo-linux` (or
 places, so switching from one to the other keeps your saves and settings.
 
 **Common mistake:** the `maps` folder must hold the Xbox maps from your disc
-image, not Halo PC's. Halo PC (Custom Edition) maps go in `maps/ce/` inside
-it, and HaloMD maps in `md_maps/` beside it (see below). On a Mac, Linux and
+image, not Halo PC's. Halo PC maps go in folders of their own beside it:
+`maps_ce`, `maps_md` and `maps_pc` (see below). On a Mac, Linux and
 Windows, if `maps` holds Halo PC maps or has no `ui.map`, the game says so
 and quits.
 
 ## Halo PC maps
 
-Every ChupathingyCE build also plays Halo PC (Custom Edition) multiplayer
-maps: Windows (32-bit and 64-bit), Mac, Linux (32-bit and 64-bit), Android
-and the dedicated server. Copy the `.map` files from your own Halo PC (Custom Edition)
-install into a `ce` folder inside the game's `maps` folder:
+Every ChupathingyCE build also plays Halo PC multiplayer maps: Windows
+(32-bit and 64-bit), Mac, Linux (32-bit and 64-bit), Android and the
+dedicated server. Each kind has a folder of its own beside the game's
+`maps` folder:
 
-| Platform | Put Halo PC maps in |
+| Folder | What goes in it | Played online as |
+| --- | --- | --- |
+| `maps_ce` | Halo PC Custom Edition maps, with Custom Edition's `bitmaps.map`, `sounds.map` and `loc.map` | `<name>@ce` |
+| `maps_md` | HaloMD maps (below) | `<name>@md` |
+| `maps_pc` | the maps of your own Halo PC (retail) disc | `<name>@pc` |
+
+Where the game's `maps` folder is:
+
+| Platform | The folder holding `maps`, `maps_ce`, `maps_md` and `maps_pc` |
 | --- | --- |
-| Mac | `~/Library/Application Support/ChupathingyCE/maps/ce/` |
-| Linux | `maps/ce/` next to the `halo` executable |
-| Windows | `maps\ce\` next to `halo.exe` |
-| Android | `maps/ce/` in `/sdcard/Android/data/dev.horrible.chupathingyce/files` |
+| Mac | `~/Library/Application Support/ChupathingyCE/` |
+| Linux | next to the `halo` executable |
+| Windows | next to `halo.exe` |
+| Android | `/sdcard/Android/data/dev.horrible.chupathingyce/files` |
 
-Include `bitmaps.map`, `sounds.map` and `loc.map`, which the maps share. Halo PC's
-own `ui.map` adds its map names and pictures. The maps appear in the multiplayer
-map list after the Xbox maps, marked HALO PC. In Online Games, a game on a Halo PC
-map is badged, and it can be joined only by players who have that map: the game
-says which file is missing. The Xbox maps from your disc image are still needed.
-A map file named `<name>@ce.map`, as some other builds name them, is found too,
-in `maps/ce/` or in `maps/`.
+Copy the `.map` files from your own Halo PC install. Include `bitmaps.map`,
+`sounds.map` and `loc.map` from Custom Edition in `maps_ce`: every Halo PC
+map reads them. Halo PC's own `ui.map` there adds its map names and
+pictures. The maps appear in the multiplayer map list after the Xbox maps,
+marked [CE], [MD] or [PC]. In Online Games, a game on a Halo PC map is
+badged, and it can be joined only by players who have that map: the game
+says which file is missing and where it goes. The Xbox maps from your disc
+image are still needed. ChupathingyCE doesn't come with any of these files.
+
+**Playing with OpenCE players.** OpenCE (build-147) plays Custom Edition
+maps from its `custom_maps` folder. A game on a Custom Edition map is named
+the same way for both, so OpenCE players with the map join our games and we
+join theirs. HaloMD and Halo PC retail games are ChupathingyCE's only: an
+OpenCE player is told the map is missing. Between ChupathingyCE players,
+the map's identity (its name and a hash of its file) is checked, so a
+player with a different file of the same name is told so.
+
+**Older folders.** Earlier ChupathingyCE versions kept Custom Edition maps
+in `maps/ce/` and HaloMD maps in `md_maps/`, and OpenCE keeps its Custom
+Edition maps in `custom_maps/`. The game still plays the maps in all three.
+At its first start it offers to move `maps/ce/` to `maps_ce` and `md_maps/`
+to `maps_md` (each folder is moved whole: nothing is copied or deleted, and
+a folder that can't be moved stays where it is). `custom_maps/` is OpenCE's
+and stays where it is. `game.move_old_map_folders` in `config.toml` says
+`"ask"`, `"yes"` or `"no"`; Android moves them without asking. A map file
+named `<name>@ce.map` (`@md`, `@pc`), as some other builds name them, is
+found in its folder or in `maps/` itself.
 
 **Common mistake:** don't point `maps` itself at a Halo PC maps folder, or copy
 Halo PC maps straight into it. The game can't start with Halo PC's `ui.map`
 in place of the Xbox one, and Halo PC maps in `maps/` itself don't play. Keep
-the Xbox maps in `maps/` and the Halo PC maps in `maps/ce/`.
+the Xbox maps in `maps/` and the Halo PC maps in `maps_ce`, `maps_md` or
+`maps_pc`.
 
 On Android, two limits apply. The maps need a fixed 23 MB of the app's
 memory, which Android's Java runtime takes on some devices with a very large
@@ -139,27 +168,17 @@ wrong textures in their busiest views. See [port/android/README.md](port/android
 
 ChupathingyCE also plays HaloMD's multiplayer maps (the Mac Halo community's
 maps, made for Halo PC 1.0), in every build. Bring your own: download
-the maps you want from HaloMD's mod list, and put their `.map` files in an
-`md_maps` folder beside the game's `maps` folder:
+the maps you want from HaloMD's mod list, and put their `.map` files in
+`maps_md`, beside the game's `maps` folder.
 
-| Platform | Put HaloMD maps in |
-| --- | --- |
-| Mac | `~/Library/Application Support/ChupathingyCE/md_maps/` |
-| Linux | `md_maps/` next to the `halo` executable |
-| Windows | `md_maps\` next to `halo.exe` |
-| Android | `md_maps/` in `/sdcard/Android/data/dev.horrible.chupathingyce/files` |
-
-They need the Halo PC (Custom Edition) files above too: `bitmaps.map`,
-`sounds.map` and `loc.map` from your own Halo PC install, in `maps/ce/`. A
-HaloMD map keeps Halo's own textures and sounds in those shared files, and
-the game reads them from Custom Edition's copies. ChupathingyCE doesn't come
-with any of these files.
+They need Custom Edition's `bitmaps.map`, `sounds.map` and `loc.map` in
+`maps_ce` too: a HaloMD map keeps Halo's own textures and sounds in those
+shared files, and the game reads them from Custom Edition's copies.
 
 The maps appear in the multiplayer map list after the Halo PC maps, marked
 [MD], with their names from HaloMD's list. Online, a HaloMD map is played as
 `<name>@md` (`bgplus_5@md`), badged HALOMD in Online Games, and joined only by
-players who have the same map file. A HaloMD map already in `maps/ce/` still
-plays, and a file named `<name>@md.map` in `md_maps/` or `maps/` is found too.
+players who have the same map file.
 
 HaloMD's plug-ins aren't part of ChupathingyCE. A few maps were made for one:
 the visible-object and bigger-BSP limits they raised are already raised here,
@@ -174,7 +193,8 @@ Halo.
 | Join a game | **Multiplayer → Online Games**, pick a game, press **A**. Or press **Join** on [halo.milenko.org](https://halo.milenko.org). |
 | Host a game | **Multiplayer → Online Games → Y (Create Game)**, or host from System Link as usual. Your game is listed online by itself, on halo.milenko.org and in OpenCE's in-game Server Browser (`public_lobby`/`host_public` under `[network]` in `config.toml` turn that off). |
 | Invite a friend | When you host, the game copies an invite link (`halo://join/…`). Send it; opening it joins your game. |
-| See your stats | Your service record is on [halo.milenko.org](https://halo.milenko.org), found by your name. Games you join count even when the host doesn't run ChupathingyCE: when an online game you joined ends, the game sends halo.milenko.org the scoreboard as your game saw it (names, kills, deaths, scores, medals, weapons) with your player ID. To turn that off, set `report_joined_games = false` under `[network]` in `config.toml`. |
+| See your stats | Your service record is on [halo.milenko.org](https://halo.milenko.org), found by your name. Games you join count even when the host doesn't run ChupathingyCE: when an online game you joined ends, the game sends halo.milenko.org the scoreboard as your game saw it (names, kills, deaths, scores, medals, weapons) with your player ID. Your copy also confirms your line in the host's report, which puts the game on your profile. To turn both off for games you join, set `report_joined_games = false` under `[network]` in `config.toml`. |
+| Stop sharing your hosted games' stats | Set `report_events = false` under `[network]` in `config.toml`. It's on by default: the games you host send their Delta Stats (kills with positions, accuracy, medals, objectives) to halo.milenko.org for its match pages and heatmaps. Never anyone's address. |
 | Make an account | On [halo.milenko.org/profile](https://halo.milenko.org/profile), or press **Start** in Online Games to make one for the player you already are. |
 | Link the game without a browser (Steam Deck, Game Mode) | In Online Games, press **RB** (or **C** on the keyboard) for Link Profile. On your phone or computer, go to [halo.milenko.org/connect](https://halo.milenko.org/connect), enter the code the game shows (or scan its QR code), then press **A** in the game to confirm. |
 | Use the PC menus | Set `menus = "pc"` under `[display]` in `config.toml`. **Multiplayer → Join Game → Server Browser** lists OpenCE's public games and the games of halo.milenko.org, each once. |
@@ -197,7 +217,12 @@ Most of what you can change lives in the game's menus, but everything the
 port adds is in one file, `config.toml`. The game writes it the first time it
 starts, with every setting listed, commented out at its default, and a line
 or two saying what each one does. To change one, remove the `#` in front of it
-and edit the value; the game reads the file when it starts.
+and edit the value; the game reads the file when it starts, so restart it
+after a change. If a change seems to do nothing, look in `debug.txt` for lines
+starting `config.toml` or `settings:`: they name a misspelled setting, one in
+the wrong `[section]`, a value missing its quotes (`menus = "pc"`, not
+`menus = pc`, which leaves every setting at its default), or, on a Mac, a
+`config.toml` that is not the one the game reads.
 
 | Platform | config.toml is |
 | --- | --- |
@@ -238,24 +263,26 @@ to install, and no port forwarding. See [server/README.md](server/README.md).
 
 ## ChupathingyCE, OpenCE and Delta
 
+ChupathingyCE is a fork of OpenCE with some extra features, meant to stay
+compatible with it.
+
 - **OpenCE** ([OpenCommunityEdition/OpenCE](https://github.com/OpenCommunityEdition/OpenCE))
   is the port ChupathingyCE started from. We merge its changes on our own
   schedule, and ChupathingyCE has its own releases and version numbers, so it
   doesn't change under you every few hours.
 - **Playing together.** OpenCE players and ChupathingyCE players join each
   other's games. OpenCE raises its network version often, and its builds join
-  only hosts of their exact number. ChupathingyCE follows those raises on its
-  own: a workflow watches OpenCE's releases, checks that a raise doesn't
-  change multiplayer, and releases a matching build, usually within the hour.
-  The line at the top of this page says which OpenCE builds match this one.
+  only hosts of their exact number. ChupathingyCE follows those raises
+  without a new download: a cross-play test runs against each new OpenCE
+  build, and once it passes, a signed table tells existing ChupathingyCE
+  builds which network versions to announce and join. A raise that changes
+  how multiplayer plays still needs a ChupathingyCE release. The line at the
+  top of this page says which OpenCE builds this release matches.
 - **Delta** is ChupathingyCE's network family ([docs/delta.md](docs/delta.md)):
-  everything our machines and services say beyond OpenCE's game protocol,
-  which stays OpenCE's byte for byte. OpenCE's version number is Delta's
-  legacy layer, kept for compatibility. Between ChupathingyCE machines, Delta
-  Peer negotiates what each side supports, so small changes stop splitting
-  players. The game list, stats and profile links on
-  [halo.milenko.org](https://halo.milenko.org) and the dedicated server's
-  admin tools are Delta List, Delta Stats, Delta Link and Delta Control.
+  the extras ChupathingyCE machines and services add on top of OpenCE's
+  game protocol, such as the game list, stats, profile links and dedicated
+  server admin tools on [halo.milenko.org](https://halo.milenko.org). Games
+  with OpenCE players use OpenCE's protocol, so everyone plays together.
 - Fixes to the shared game code are offered back to OpenCE as pull requests.
 
 ## Building it yourself
@@ -283,7 +310,7 @@ Useful `configure.py` options:
 | Option | What it does |
 | --- | --- |
 | `--release` | A release build, as players get. Without it, a failed check stops the game. |
-| `--portable` | A Linux or Windows build that runs on any x86-64 computer, to give to others. |
+| `--portable` | A Linux or Windows build that runs on any x86-64 computer, or a universal Mac application, to give to others. |
 | `--no-game-browser` | Leaves out the server list, stats and dedicated servers, as OpenCE's builds are. |
 | `--pgo=off`, `--lto=off` | Faster builds, without profile-guided or link-time optimisation. |
 
@@ -304,7 +331,8 @@ are for checking changes.
 - HaloMD map names: from [MacGamingMods](https://macgamingmods.com)' public
   HaloMD mod list, so the menus can show each map's own name.
 - Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths,
-  extract-xiso, and Project Nayuki's QR Code generator. Their licenses are
+  extract-xiso, Expat, Monocypher, zlib, SMAA, and Project Nayuki's QR Code
+  generator. Their licenses are
   beside them in `port/third_party`.
 
 ### Contributors
@@ -352,6 +380,11 @@ there.
   first.
 - Sabriel and ugoboom: the Halo PC map reports and regression lists behind
   most of the Custom Edition fixes.
+- MrBruh ([OpenCE](https://github.com/OpenCommunityEdition/OpenCE) build-145's Custom
+  Edition loader, from DamnationCE's work by
+  [xshxdex98](https://github.com/xshxdex98)): maps that need OpenSauce refused
+  with a clear reason, the missing-map message when joining, and the
+  `custom_maps\<name>` naming our hosts and clients share with OpenCE.
 
 Halo is a trademark of Microsoft. ChupathingyCE is a fan project, not made or
 endorsed by Microsoft, Bungie or 343 Industries, and includes none of the

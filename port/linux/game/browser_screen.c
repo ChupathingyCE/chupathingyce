@@ -7,12 +7,11 @@ on a screen of its own over the menus, as the game's virtual keyboard is
 (interface/virtual_keyboard.c): drawn and driven by code, not a widget of
 the user interface's tags.
 
-X on the System Link screen opens it (ui_widget.c; the list screen marks
-when it is up, ui_widget_game_data_input_functions.c). Up and down pick a
-game, left and right turn the page, A joins it through its invite, as a web
-page's Join or an invite link would, and B goes back. Once the invite's host
-answers, its game shows in the System Link list through the tunnel, to be
-picked there as any.
+The Multiplayer menu's ONLINE GAMES item opens it (ui_widget.c). Up and
+down pick a game, left and right turn the page, A joins it through its
+invite, as a web page's Join or an invite link would, and B goes back. Once
+the invite's host answers and advertises its game through the tunnel, the
+game is joined and its lobby opened (wait_for_host).
 
 A game on a Custom Edition map (Halo PC's, announced as <file>@ce) or a
 HaloMD map (announced as <file>@md: halo_map_families.h) is named as the
@@ -23,8 +22,8 @@ joined only with the map in its family's folders (and on a build with Halo
 PC map support, HALO_CUSTOM_EDITION): else its details say what is missing,
 and A says so rather than join.
 
-Start opens the player's profile page in the web browser; RB opens Quick
-Connect over the list, for where no web browser opens: a code (and a QR
+Start opens the player's profile page in the web browser; RB opens Link
+Profile over the list, for where no web browser opens: a code (and a QR
 code) to type at the game list's /connect page on another device, then the
 profile it was typed for, to confirm with A or refuse with B (browser.c).
 
@@ -69,8 +68,6 @@ enum
 	BROWSER_EVENT_BUTTON = 3,
 
 	ROWS_PER_PAGE = 9,
-	ROW_HEIGHT = 26,
-	LIST_TOP = 112,
 	STATUS_DURATION = 6000,
 	/* a picked game's host answers this soon, or it is given up on */
 	CONNECT_TIMEOUT = 15000,
@@ -79,8 +76,8 @@ enum
 	/* nor a button this soon after Link Profile's panel opens or closes (a
 	press seen twice would close it, or the screen) */
 	CONNECT_SETTLE = 400,
-	/* whether the selected game's Custom Edition map is in maps\ce, asked
-	again this often */
+	/* whether the selected game's Halo PC map is in its family's folders,
+	asked again this often */
 	CE_MAP_CHECK_INTERVAL = 1000,
 	/* the places the pointer presses a button, drawn each frame */
 	MAXIMUM_TARGETS = 24,
@@ -91,19 +88,12 @@ enum
 {
 	/* an Xbox map */
 	_ce_map_none,
-	/* a Custom Edition map, in maps\ce */
+	/* a Halo PC (Custom Edition or HaloMD) map, in its family's folders */
 	_ce_map_present,
-	/* a Custom Edition map this machine lacks */
+	/* a Halo PC map this machine lacks */
 	_ce_map_missing,
-	/* a Custom Edition map, on a build that plays none (32-bit) */
+	/* a Halo PC map, on a build without HALO_CUSTOM_EDITION */
 	_ce_map_unsupported,
-};
-
-/* ui_widget.c owns the same private enum (virtual_keyboard.c keeps a copy) */
-enum
-{
-	_ui_audio_feedback_none,
-	_ui_audio_feedback_cursor,
 };
 
 /* the game's engines, short (as players say them) to fit the column */
@@ -121,9 +111,8 @@ static char const *const map_names[][2] =
 	{ "putput", "Chiron TL-34" }, { "ratrace", "Rat Race" }, { "sidewinder", "Sidewinder" }, { "wizard", "Wizard" },
 };
 
-
-/* the list's orders (LT and RT step through them, and LB back; RB is
-Link Profile's) */
+/* the list's orders (RT steps through them, LT and LB back; RB is Link
+Profile's) */
 enum
 {
 	SORT_PLAYERS,
@@ -281,15 +270,13 @@ static void utf8_name(unsigned short const *name, char *text, long size);
 System Link's Start would pick: the one last used, else the first saved.
 (A profile's index is the saved game files' (saved_game_files.c), its valid
 bit set: 0 is none, and player_profile_get made of it a profile named for
-whichever saved file came first, a game type on a new install.) None saved,
-the player keeps the profile it has */
-static void join_first_player(
-	void)
+whichever saved file came first, a game type on a new install.) Its index
+and profile, or NONE for none saved */
+static long first_player_profile(
+	struct player_profile *profile)
 {
 	long profile_index = player_ui_get_player1_last_used_profile_index();
-	struct player_profile profile;
 
-	player_ui_local_player_joined_multiplayer_game(0);
 	if (profile_index == NONE || !TEST_FLAG(profile_index, _saved_game_file_index_valid_bit))
 	{
 		long profile_indices[100];
@@ -299,10 +286,25 @@ static void join_first_player(
 		profile_index = profile_count ? profile_indices[0] : NONE;
 	}
 	if (profile_index != NONE && TEST_FLAG(profile_index, _saved_game_file_index_valid_bit) &&
-		player_profile_get(profile_index, &profile))
+		player_profile_get(profile_index, profile))
 	{
-		player_ui_set_active_player_profile(0, profile_index, &profile);
+		return profile_index;
 	}
+	return NONE;
+}
+
+/* the first player joined with it (none saved: the player keeps the profile
+it has) */
+static void join_first_player(
+	void)
+{
+	struct player_profile profile;
+	long profile_index;
+
+	player_ui_local_player_joined_multiplayer_game(0);
+	profile_index = first_player_profile(&profile);
+	if (profile_index != NONE)
+		player_ui_set_active_player_profile(0, profile_index, &profile);
 }
 
 /* a game picked: its invite joined (the tunnel to its host), then its game
@@ -476,18 +478,16 @@ static char const *ce_map_blocker(
 
 /* RB: a Link Profile code, for the profile the screen's games are joined
 with (its name goes to the page, to say who it links) */
-static void quick_connect(
+static void open_link_profile(
 	void)
 {
-	long profile_index = player_ui_get_player1_last_used_profile_index();
 	struct player_profile profile;
-	unsigned short name[12];
+	unsigned short name[BROWSER_PLAYER_NAME_LENGTH];
 	long index;
 
 	csmemset(name, 0, sizeof(name));
-	if (profile_index == NONE)
-		profile_index = 0;
-	if (player_profile_get(profile_index, &profile))
+	/* (the profile join_first_player takes: no saved file that is not one) */
+	if (first_player_profile(&profile) != NONE)
 	{
 		for (index = 0; index < NUMBEROF(name) - 1 && index < MAXIMUM_PLAYER_PROFILE_NAME_LENGTH &&
 			profile.player_name[index]; index++)
@@ -501,7 +501,7 @@ static void quick_connect(
 	browser_connect_get(&browser_screen.connect);
 }
 
-static void close_quick_connect(
+static void close_link_profile(
 	void)
 {
 	browser_screen.connect_open = FALSE;
@@ -511,7 +511,7 @@ static void close_quick_connect(
 
 /* the panel's buttons: A and B answer its question while it asks one, RB
 asks for a new code once the last is done with, B closes it */
-static void quick_connect_button(
+static void link_profile_button(
 	short button)
 {
 	struct browser_connect const *connect = &browser_screen.connect;
@@ -532,11 +532,11 @@ static void quick_connect_button(
 				browser_connect_answer(FALSE);
 		}
 		else
-			close_quick_connect();
+			close_link_profile();
 		break;
 	case _gamepad_analog_button_black:
 		if (done)
-			quick_connect();
+			open_link_profile();
 		break;
 	default: break;
 	}
@@ -559,7 +559,7 @@ void browser_screen_open(
 	browser_screen.status[0] = 0;
 	browser_screen.connecting = FALSE;
 	if (browser_screen.connect_open)
-		close_quick_connect();
+		close_link_profile();
 	browser_screen.opened_time = system_milliseconds();
 	/* (the menu's A, still queued, is not a pick) */
 	event_manager_flush();
@@ -599,7 +599,7 @@ static void press(
 	/* (Link Profile's panel takes the buttons while it is up) */
 	if (browser_screen.connect_open)
 	{
-		quick_connect_button(button);
+		link_profile_button(button);
 		return;
 	}
 	switch (button)
@@ -638,7 +638,7 @@ static void press(
 		break;
 	case _gamepad_analog_button_black:
 		if (!browser_screen.connecting)
-			quick_connect();
+			open_link_profile();
 		break;
 	case _gamepad_analog_button_b:
 		/* (B while a host is waited for: the wait given up) */
@@ -796,6 +796,82 @@ static char const *type_name(
 	return text;
 }
 
+/* ---------- a listed game's host, as the list says it (docs/delta.md, Delta
+List: a ChupathingyCE host's own word; nothing of an older or OpenCE host) */
+
+/* its platform (delta.h's registry), short for the row's tag and in full
+for the details */
+static char const *const platform_tags[] = { "", "WIN", "MAC", "LNX", "AND", "DECK", "XBOX", "360", "WIIU", "NX" };
+static char const *const platform_names[] = {
+	"Unknown", "Windows", "Mac", "Linux", "Android", "Steam Deck", "Xbox", "Xbox 360", "Wii U", "Switch",
+};
+
+/* the row's tag before the name: the host's platform, SRV for a dedicated
+server; "" when the list does not say */
+static char const *host_tag(
+	struct browser_game const *game)
+{
+	if (game->hosting == BROWSER_HOSTING_DEDICATED || game->hosting == BROWSER_HOSTING_OFFICIAL)
+		return "SRV";
+	if (game->has_platform && game->host_platform < NUMBEROF(platform_tags))
+		return platform_tags[game->host_platform];
+	return "";
+}
+
+/* the details' Host line ("Linux, Delta", "Official server (Linux), Delta",
+"OpenCE (legacy)"); NULL when the list does not say */
+static char const *host_text(
+	struct browser_game const *game,
+	char *text,
+	long size)
+{
+	char const *platform = game->has_platform && game->host_platform < NUMBEROF(platform_names) ?
+		platform_names[game->host_platform] : NULL;
+	char const *protocol = game->protocol == BROWSER_PROTOCOL_DELTA ? "Delta" :
+		game->protocol == BROWSER_PROTOCOL_OPENCE ? "OpenCE (legacy)" : NULL;
+	char host[48];
+
+	if (game->hosting == BROWSER_HOSTING_DEDICATED || game->hosting == BROWSER_HOSTING_OFFICIAL)
+	{
+		snprintf(host, sizeof(host), "%s%s%s%s", game->hosting == BROWSER_HOSTING_OFFICIAL ? "Official server" :
+			"Dedicated", platform ? " (" : "", platform ? platform : "", platform ? ")" : "");
+	}
+	else
+		snprintf(host, sizeof(host), "%s", platform ? platform : "");
+	if (!host[0] && !protocol)
+		return NULL;
+	snprintf(text, (size_t)size, "%s%s%s", host, host[0] && protocol ? ", " : "", protocol ? protocol : "");
+	return text;
+}
+
+/* the game's machines by platform, as its Delta host counts them ("2 PC,
+1 Xbox"; counts only); "" when the list does not say */
+static char const *machines_text(
+	struct browser_game const *game,
+	char *text,
+	long size)
+{
+	/* (the registry's numbers grouped as players say them; the last, those
+	without Delta) */
+	static struct { char const *name; unsigned char first, last; } const groups[] = {
+		{ "PC", 1, 3 }, { "Steam Deck", 5, 5 }, { "Android", 4, 4 }, { "Xbox", 6, 6 }, { "Xbox 360", 7, 7 },
+		{ "Wii U", 8, 8 }, { "Switch", 9, 9 }, { "other", 0, 0 }, { "OpenCE", BROWSER_MACHINE_KINDS - 1, BROWSER_MACHINE_KINDS - 1 },
+	};
+	long used = 0, group;
+
+	text[0] = 0;
+	for (group = 0; group < (long)NUMBEROF(groups) && used < size - 24; group++)
+	{
+		int count = 0, kind;
+
+		for (kind = groups[group].first; kind <= groups[group].last; kind++)
+			count += game->machines[kind];
+		if (count)
+			used += snprintf(text + used, (size_t)(size - used), "%s%d %s", used ? ", " : "", count, groups[group].name);
+	}
+	return text;
+}
+
 static void draw_bitmap_picture(struct bitmap_data *bitmap, short art_width, short art_height, short x0, short y0,
 	short x1, short y1);
 
@@ -878,17 +954,27 @@ static void add_target(
 
 /* a prompt along the foot, pressed by the pointer from the rule above it
 to the screen's bottom and halfway into the gaps beside it */
+static float prompt_colored(
+	int button,
+	char const *words,
+	float x,
+	unsigned int button_color,
+	unsigned int words_color)
+{
+	float left = x;
+
+	x += ui_overlay_button(button, 15.0f, x, 455.0f, button_color) + 3.0f;
+	x += ui_overlay_text(UI_FONT_BOLD, 12.0f, x, 456.5f, UI_ALIGN_LEFT, words_color, words);
+	add_target(left - 10.0f, 444.0f, x + 10.0f, 480.0f, button);
+	return x + 20.0f;
+}
+
 static float prompt(
 	int button,
 	char const *words,
 	float x)
 {
-	float left = x;
-
-	x += ui_overlay_button(button, 15.0f, x, 455.0f, 0xFFFFFFFF) + 3.0f;
-	x += ui_overlay_text(UI_FONT_BOLD, 12.0f, x, 456.5f, UI_ALIGN_LEFT, COLOR_PROMPT, words);
-	add_target(left - 10.0f, 444.0f, x + 10.0f, 480.0f, button);
-	return x + 20.0f;
+	return prompt_colored(button, words, x, 0xFFFFFFFF, COLOR_PROMPT);
 }
 
 /* a prompt that does nothing for the selected game, greyed (pressed as the
@@ -898,12 +984,7 @@ static float prompt_off(
 	char const *words,
 	float x)
 {
-	float left = x;
-
-	x += ui_overlay_button(button, 15.0f, x, 455.0f, COLOR_BUTTON_OFF) + 3.0f;
-	x += ui_overlay_text(UI_FONT_BOLD, 12.0f, x, 456.5f, UI_ALIGN_LEFT, COLOR_PROMPT_OFF, words);
-	add_target(left - 10.0f, 444.0f, x + 10.0f, 480.0f, button);
-	return x + 20.0f;
+	return prompt_colored(button, words, x, COLOR_BUTTON_OFF, COLOR_PROMPT_OFF);
 }
 
 /* the badge of a game on a Halo PC map (HALO PC, or HALOMD for a HaloMD
@@ -1032,7 +1113,7 @@ static void draw_qr(
 		UI_ALIGN_CENTER, COLOR_DIM, "or scan this with your phone");
 }
 
-static void draw_quick_connect(
+static void draw_link_profile(
 	void)
 {
 	struct browser_connect const *connect = &browser_screen.connect;
@@ -1166,7 +1247,7 @@ void browser_screen_render(
 	text over all its shapes: none of the list's may lie under the panel) */
 	if (browser_screen.connect_open)
 	{
-		draw_quick_connect();
+		draw_link_profile();
 		return;
 	}
 
@@ -1205,6 +1286,9 @@ void browser_screen_render(
 		color = game->open ? COLOR_TEXT : COLOR_DIM;
 		utf8_name(game->name, name, sizeof(name));
 		ui_overlay_text(UI_FONT_BOLD, 10.0f, COLUMN_NAME, y + 5, UI_ALIGN_LEFT, color, name);
+		/* (the host's platform, in the room before the name) */
+		if (host_tag(game)[0])
+			ui_overlay_text(UI_FONT_BOLD, 6.5f, (LIST_X + COLUMN_NAME) / 2.0f, y + 7.5f, UI_ALIGN_CENTER, COLOR_DIM, host_tag(game));
 		map_name = map_display_name(game->map, text, sizeof(text));
 		if (map_family(game->map) != _map_family_xbox)
 		{
@@ -1305,20 +1389,33 @@ void browser_screen_render(
 		DETAIL_LINE("Map:", map_display_name(selected->map, map_name, sizeof(map_name)));
 		if (ce_state != _ce_map_none)
 			draw_pc_badge(map_family(selected->map), BADGE_SIZE, x + 6, y - DETAIL_LINE_STEP, 10.0f);
-		DETAIL_LINE("Rules:", type_name(selected, text, sizeof(text)));
+		/* (the score to win on the Rules line: room for the Host line) */
+		type_name(selected, text, sizeof(text));
 		if (selected->score_limit)
-		{
-			snprintf(text, sizeof(text), "%d", selected->score_limit);
-			DETAIL_LINE("Score Limit:", text);
-		}
+			snprintf(text + strlen(text), sizeof(text) - strlen(text), ", to %d", selected->score_limit);
+		DETAIL_LINE("Rules:", text);
 		snprintf(text, sizeof(text), "%d of %d", selected->players, selected->maximum_players);
 		DETAIL_LINE("Players:", text);
+		if (host_text(selected, text, sizeof(text)))
+		{
+			DETAIL_LINE("Host:", text);
+		}
 #undef DETAIL_LINE
 
 		/* who is in it (the host's roster, when it sends one: two columns of
 		seven, the last place saying how many more) */
 		ui_overlay_rect(444, DETAIL_Y + 10, 0.75f, DETAIL_HEIGHT - 20, 0, COLOR_ROW_RULE);
 		ui_overlay_text(UI_FONT_BOLD, 8.5f, 453, DETAIL_Y + 10, UI_ALIGN_LEFT, COLOR_LABEL, "IN GAME");
+		/* (its machines by platform, as its Delta host counts them, beside) */
+		if (machines_text(selected, text, sizeof(text))[0])
+		{
+			float size = 8.5f;
+
+			while (size > 6.5f && ui_overlay_text_width(UI_FONT_REGULAR, size, text) > LIST_X + LIST_WIDTH - 8 - 500)
+				size -= 0.5f;
+			ui_overlay_text(UI_FONT_REGULAR, size, LIST_X + LIST_WIDTH - 8, DETAIL_Y + 10 + (8.5f - size) / 2,
+				UI_ALIGN_RIGHT, COLOR_DIM, text);
+		}
 		if (!selected->players && !selected->roster_count)
 			ui_overlay_text(UI_FONT_REGULAR, 8.5f, 453, DETAIL_Y + 27, UI_ALIGN_LEFT, COLOR_DIM, "No one yet");
 		else if (!selected->roster_count)

@@ -41,9 +41,9 @@ enum config_environment
 	/* the variable's text is the value ("0", "false", "no" and "off" are
 	false for a boolean) */
 	_environment_value,
-	/* the variable being set at all makes it true */
+	/* the variable being set makes it true */
 	_environment_set_is_true,
-	/* the variable being set at all makes it false */
+	/* the variable being set makes it false */
 	_environment_set_is_false,
 };
 
@@ -145,8 +145,10 @@ static const struct config_setting config_settings[] =
 		"on the Xbox, or 256, 512 or 1024 for smoother edges, as soft." },
 	{ "display.menus", _config_string, "\"xbox\"", "HALO_MENUS", _environment_value, _platform_all,
 		"The menus: \"xbox\" for the Xbox's (with Online Games), \"pc\" for the\n"
-		"PC version's main menu (port/assets/menus, and a menus folder here for\n"
-		"your own; not all of it is wired yet)." },
+		"PC version's screens and Server Browser, rebuilt from port/assets/menus\n"
+		"(a menus folder here for your own) with this port's fonts and redrawn\n"
+		"pictures, not Halo PC's files. Read when the game starts: restart it\n"
+		"after a change. Not all of the PC screens are wired yet." },
 	{ "display.player_names", _config_string, "\"all\"", "HALO_PLAYER_NAMES", _environment_value, _platform_all,
 		"In multiplayer, whose names are drawn above their heads: \"all\",\n"
 		"\"allies\", \"enemies\" or \"none\". An enemy's shows only within the\n"
@@ -281,6 +283,16 @@ static const struct config_setting config_settings[] =
 		"The language the game asks the Xbox for: \"ja\", \"de\", \"fr\", \"es\" or \"it\";\n"
 		"empty for English. The game data decides what is translated." },
 
+	{ "game.move_old_map_folders", _config_string, "\"ask\"", "HALO_MOVE_OLD_MAP_FOLDERS", _environment_value,
+		_platform_all,
+		"Halo PC maps have folders of their own beside maps: maps_ce (Custom\n"
+		"Edition, with its bitmaps.map, sounds.map and loc.map), maps_md (HaloMD)\n"
+		"and maps_pc (Halo PC). The older maps/ce and md_maps are still played\n"
+		"from. \"ask\": the game offers once to move them into the new folders\n"
+		"(each folder moved whole, never copied; one that cannot be moved stays\n"
+		"where it is); \"yes\": moved without asking; \"no\": left where they are.\n"
+		"Android moves them unless this is \"no\"." },
+
 	{ "paths.data", _config_string, "\"\"", "HALO_DATA_ROOT", _environment_value, _platform_desktop,
 		"The folder holding the game data's maps folder; empty looks in the\n"
 		"working directory and its assets folder. Windows paths are easiest in\n"
@@ -408,8 +420,33 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"When an internet game this machine joined ends, send network.browser_url\n"
 		"its scores as this machine saw them, with this copy's player ID, so that\n"
-		"games whose host does not report them are recorded too. False sends\n"
-		"nothing." },
+		"games whose host does not report them are recorded too, and confirm\n"
+		"this machine's players' lines in the host's report of it (/v1/claim),\n"
+		"which puts the game on their profile. False sends neither." },
+	{ "network.report_events", _config_boolean, "true", "HALO_NET_REPORT_EVENTS", _environment_value, _platform_all,
+		"Delta Stats: record the games this machine hosts (kills with weapons and\n"
+		"positions, accuracy, medals, objectives, vehicles, pickups, positions a\n"
+		"few seconds apart) and send them to network.browser_url when each ends,\n"
+		"for the site's match pages, heatmaps and leaderboards. Players' names\n"
+		"and a hash of their hardware ID; never an address. False turns it off." },
+	{ "network.events_token", _config_string, "\"\"", "HALO_EVENTS_TOKEN", _environment_value, _platform_all,
+		"A dedicated server's Delta Stats token, from the game list's operator:\n"
+		"its games count as a trusted server's. Empty: the game must be listed\n"
+		"there, from this machine, for its events to be taken." },
+	{ "network.events_positions", _config_integer, "2", "HALO_EVENTS_POSITIONS", _environment_value, _platform_all,
+		"Delta Stats: seconds between the samples of each player's position\n"
+		"(1 to 60; 0 none). Fewer make smaller batches and coarser heatmaps." },
+	{ "network.events_limit", _config_integer, "40000", "HALO_EVENTS_LIMIT", _environment_value, _platform_all,
+		"Delta Stats: the most events a game keeps (64 to 200000, about 60\n"
+		"bytes each); past it the position samples thin out first." },
+	{ "network.events_part_minutes", _config_integer, "30", "HALO_EVENTS_PART_MINUTES", _environment_value,
+		_platform_all,
+		"Delta Stats: a long game is sent as it stands every this many minutes\n"
+		"too (the end replaces it); 0 only at its end." },
+	{ "network.events_folder", _config_string, "\"\"", "HALO_EVENTS_FOLDER", _environment_value, _platform_all,
+		"Delta Stats: a folder to keep a copy of each batch sent, a JSON file each\n"
+		"(a full path is best: a relative one is from the working folder); empty\n"
+		"for none." },
 #endif
 	{ "discord.application_id", _config_string, "\"1553978809840050229\"", "HALO_DISCORD_APPLICATION",
 		_environment_value, _platform_desktop,
@@ -419,10 +456,12 @@ static const struct config_setting config_settings[] =
 	{ "update.auto", _config_boolean, "true", "HALO_UPDATE_AUTO", _environment_value, _platform_all,
 		"Look for a new version when the game starts, and offer to update to it;\n"
 		"false never looks (the game's \"Do not ask again\" writes false here)." },
-	{ "crash_reports.upload", _config_string, "\"ask\"", "HALO_CRASH_REPORTS", _environment_value, _platform_windows,
-		"Send a report of each crash (a minidump and halo.log) to the developers'\n"
-		"Sentry project (port/windows/src/win32_crash.c): \"yes\" sends them, \"no\"\n"
-		"never does, \"ask\" asks at the next crash and writes the answer here." },
+	{ "crash_reports.upload", _config_string, "\"ask\"", "HALO_CRASH_REPORTS", _environment_value, _platform_desktop,
+		"Send a report of each crash to the developers, through network.browser_url\n"
+		"(port/linux/src/crash_report.h: the build, where it crashed, the end of the\n"
+		"log without IP addresses, and on Windows a minidump): \"yes\" sends them,\n"
+		"\"no\" never does, \"ask\" asks after the next crash and writes the answer\n"
+		"here." },
 
 	{ "debug.network_test", _config_string, "\"\"", "HALO_NETWORK_TEST", _environment_value, _platform_all,
 		"Automated system link sessions for testing (port/linux/game/network_test.c):\n"
@@ -477,6 +516,18 @@ static const struct config_setting config_settings[] =
 		"machines of twice it), to test the netcode as over the internet; 0 none." },
 	{ "debug.network_loss", _config_real, "0.0", "HALO_NETWORK_LOSS", _environment_value, _platform_all,
 		"Percent of datagrams received that are dropped, for the same; 0 none." },
+	{ "debug.network_corrupt", _config_real, "0.0", "HALO_NETWORK_CORRUPT", _environment_value, _platform_all,
+		"Percent of the datagrams received that are damaged at random, to test\n"
+		"that nothing a machine sends can crash the game; 0 none." },
+	{ "debug.network_corrupt_stream", _config_real, "0.0", "HALO_NETWORK_CORRUPT_STREAM", _environment_value,
+		_platform_all,
+		"Percent of the reads of streams that are damaged at random, for the\n"
+		"same (a damaged stream is closed, so a little goes a long way); 0 none." },
+	{ "debug.network_corrupt_after", _config_real, "0.0", "HALO_NETWORK_CORRUPT_AFTER", _environment_value,
+		_platform_all,
+		"Seconds after the start before anything is damaged, so that a game can\n"
+		"be set up and started first (a host's messages to its own client are\n"
+		"damaged too)." },
 	{ "debug.test_input", _config_string, "\"\"", "HALO_TEST_INPUT", _environment_value, _platform_all,
 		"\"bot:<seed>\" plays controller 1 with a scripted pattern (automated\n"
 		"network tests); \"look:<seed>\" stands still, only turning and looking\n"
@@ -575,7 +626,15 @@ static void config_path(char *path, size_t size)
 {
 #ifdef __APPLE__
 	char folder[1024];
+	const char *save_root = getenv("HALO_SAVE_ROOT");
 
+	/* (a copy given a save root of its own, a test's, keeps its settings
+	there too, not in the player's) */
+	if (save_root && *save_root)
+	{
+		snprintf(path, size, "%s/config.toml", save_root);
+		return;
+	}
 	/* (the application's folder: not the application, which is signed) */
 	if (platform_app_folder(folder, sizeof(folder)))
 	{
@@ -947,6 +1006,13 @@ static int config_text_is_false(const char *text)
 	return !strcmp(lower, "0") || !strcmp(lower, "false") || !strcmp(lower, "no") || !strcmp(lower, "off");
 }
 
+/* whether an environment variable that only has to be set (a
+_environment_set_is_*) is: one empty or false is not */
+static int config_environment_set(const char *text)
+{
+	return text[0] && !config_text_is_false(text);
+}
+
 static void config_set_from_text(struct config_value *value, enum config_type type, const char *text)
 {
 	switch (type)
@@ -1036,6 +1102,37 @@ static long config_setting_index(const char *name)
 	return -1;
 }
 
+/* a key in the file that is no setting, likely misspelt or in the wrong
+section: said in the log, with the section of a setting of that name */
+static void config_report_unknown_key(int line, const char *name)
+{
+	const char *key = strrchr(name, '.');
+	const char *found = NULL;
+	size_t index, count = 0;
+
+	key = key ? key + 1 : name;
+	for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
+	{
+		const char *dot = strchr(config_settings[index].name, '.');
+
+		if (dot && !strcmp(dot + 1, key))
+		{
+			found = config_settings[index].name;
+			count++;
+		}
+	}
+	/* (only a name one setting has: the section is then sure) */
+	if (count == 1)
+	{
+		platform_log("config.toml line %d: unknown setting %s, ignored (%s goes under [%.*s])", line, name, key,
+			(int)(strchr(found, '.') - found), found);
+	}
+	else
+	{
+		platform_log("config.toml line %d: unknown setting %s, ignored", line, name);
+	}
+}
+
 /* keys in the file that are no setting, likely misspelt */
 static void config_report_unknown_keys(toml_datum_t table)
 {
@@ -1050,7 +1147,7 @@ static void config_report_unknown_keys(toml_datum_t table)
 			continue;
 		if (section.type != TOML_TABLE)
 		{
-			platform_log("config.toml line %d: unknown setting %s", section.lineno, table.u.tab.key[section_index]);
+			config_report_unknown_key(section.lineno, table.u.tab.key[section_index]);
 			continue;
 		}
 		for (key_index = 0; key_index < section.u.tab.size; key_index++)
@@ -1059,7 +1156,7 @@ static void config_report_unknown_keys(toml_datum_t table)
 
 			snprintf(name, sizeof(name), "%s.%s", table.u.tab.key[section_index], section.u.tab.key[key_index]);
 			if (config_setting_index(name) < 0)
-				platform_log("config.toml line %d: unknown setting %s", section.u.tab.value[key_index].lineno, name);
+				config_report_unknown_key(section.u.tab.value[key_index].lineno, name);
 		}
 	}
 }
@@ -1250,6 +1347,29 @@ static void config_load(void)
 	}
 
 	config_path(path, sizeof(path));
+#ifdef __APPLE__
+	{
+		/* a config.toml beside the application, or in it, which the game never
+		reads (its is in Application Support): said, for whoever edits it */
+		const char *base = SDL_GetBasePath();
+		const char *bundle = base ? strstr(base, ".app/Contents/") : NULL;
+
+		if (bundle)
+		{
+			const char *folder_end = bundle;
+			char other[1024];
+
+			while (folder_end > base && folder_end[-1] != '/')
+				folder_end--;
+			snprintf(other, sizeof(other), "%sconfig.toml", base);
+			if (SDL_GetPathInfo(other, NULL))
+				platform_log("settings: %s is not read; the game's settings are %s", other, path);
+			snprintf(other, sizeof(other), "%.*sconfig.toml", (int)(folder_end - base), base);
+			if (SDL_GetPathInfo(other, NULL))
+				platform_log("settings: %s is not read; the game's settings are %s", other, path);
+		}
+	}
+#endif
 	text = config_read_file(path, &size);
 	if (text)
 	{
@@ -1290,7 +1410,8 @@ static void config_load(void)
 		}
 		else
 		{
-			platform_log("config.toml: %s; using the defaults", result.errmsg);
+			platform_log("config.toml cannot be read (%s): every setting is at its default until that is fixed "
+				"(a word value needs quotes: menus = \"pc\")", result.errmsg);
 		}
 		toml_free(result);
 		free(text);
@@ -1311,7 +1432,9 @@ static void config_load(void)
 		const struct config_setting *setting = &config_settings[index];
 		const char *environment = getenv(setting->environment);
 
-		if (!environment)
+		/* (one set to "", "0", "false", "no" or "off" is as if it were not:
+		HALO_LOG_ADDRESSES=0 never turns a setting on) */
+		if (!environment || (setting->environment_style != _environment_value && !config_environment_set(environment)))
 			continue;
 		switch (setting->environment_style)
 		{

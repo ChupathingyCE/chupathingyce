@@ -173,6 +173,7 @@ def document(serial=10, row=None, wire=None, extra=None, **fields):
     b'{"delta_legacy": 2, "serial": 3, "wires": {}}',
     b'{"delta_legacy": 1, "serial": 3.5, "wires": {}}',
     b'{"delta_legacy": 1, "serial": 0, "wires": {}}',
+    b'{"delta_legacy": 1, "serial": 4294967295, "wires": {}}',
     b'{"delta_legacy": 1, "serial": 3, "wires": {"w": {"announce": 5, "minimum": 6, "maximum": 7}}}',
     b'{"delta_legacy": 1, "serial": 3, "wires": {"w": {"announce": 70000, "minimum": 1, "maximum": 70000}}}',
     b'\xff\xfe',
@@ -228,6 +229,14 @@ def keys(tmp_path_factory):
     return private, public
 
 
+@pytest.fixture(scope="module")
+def recovery_keys(keys, tmp_path_factory):
+    """a second test key pair, the tests' recovery key"""
+    directory = tmp_path_factory.mktemp("delta_recovery_key")
+    private = directory / "delta_test_recovery_key.pem"
+    return private, delta_table.keygen(private)
+
+
 def signed(keys, data):
     return delta_table.sign_bytes(keys[0], data)
 
@@ -262,6 +271,65 @@ def test_tampered_and_other_key(keys):
         delta_table.check(data, signature.hex()[:-2], [keys[1]])
 
 
+def make_table(tmp_path, *arguments):
+    return subprocess.run([sys.executable, str(ROOT / "tools" / "delta_table.py"), "make", *arguments],
+                          capture_output=True, text=True)
+
+
+def test_make_row_widens_only(tmp_path):
+    old = tmp_path / "old.json"
+    old.write_bytes(document(serial=4, row=floor()))
+    own = delta_table.wire()
+    wide = f"{floor()['announce'] + 2},{floor()['minimum']},{floor()['maximum'] + 2}"
+    result = make_table(tmp_path, "--serial", "5", "--from", str(old), "--row", f"{own}={wide}",
+                        "--row", "chupa-99z=30,25,31")
+    assert result.returncode == 0, result.stderr
+    table = json.loads(result.stdout)
+    assert table["wires"][own]["announce"] == floor()["announce"] + 2
+    assert table["wires"]["chupa-99z"] == {"announce": 30, "minimum": 25, "maximum": 31}
+    narrow = f"{floor()['announce'] - 1},{floor()['minimum']},{floor()['maximum']}"
+    assert make_table(tmp_path, "--serial", "5", "--from", str(old), "--row", f"{own}={narrow}").returncode == 1
+    result = make_table(tmp_path, "--serial", "5", "--from", str(old), "--row", f"{own}={wide}@build-145")
+    assert json.loads(result.stdout)["wires"][own]["follows"] == "build-145"
+    for bad in ("chupa-20a=22,23,22", "chupa-20a=22", "Chupa=1,1,1", "chupa-20a=0,0,0", "chupa-20a=22,11,22@build 1",
+                "chupa-20a=22,11,22@" + "b" * 32):
+        assert make_table(tmp_path, "--serial", "5", "--row", bad).returncode == 1, bad
+
+
+def test_make_take_back(tmp_path):
+    old = tmp_path / "old.json"
+    wide = dict(floor(), announce=floor()["announce"] + 2, maximum=floor()["maximum"] + 2)
+    old.write_bytes(document(serial=4, row=wide, extra={"chupa-01z": {"announce": 30, "minimum": 11, "maximum": 30}}))
+    own = delta_table.wire()
+    shipped = f"{floor()['announce']},{floor()['minimum']},{floor()['maximum']}"
+    result = make_table(tmp_path, "--serial", "5", "--from", str(old), "--take-back", f"{own}={shipped}",
+                        "--take-back", "chupa-01z=20,11,20")
+    assert result.returncode == 0, result.stderr
+    table = json.loads(result.stdout)
+    assert table["wires"][own] == floor()
+    assert table["wires"]["chupa-01z"] == {"announce": 20, "minimum": 11, "maximum": 20}
+    below = f"{floor()['announce'] - 1},{floor()['minimum']},{floor()['maximum']}"
+    assert make_table(tmp_path, "--serial", "5", "--from", str(old), "--take-back", f"{own}={below}").returncode == 1
+
+
+def test_epochs():
+    assert delta_table.epoch(3) == 0 and delta_table.epoch(0x01000001) == 1
+    assert delta_table.next_serial(3) == 4
+    assert delta_table.next_serial(3, new_epoch=True) == 0x01000001
+    assert delta_table.next_serial(0x01000001, new_epoch=True) == 0x02000001
+    with pytest.raises(delta_table.TableError):
+        delta_table.next_serial(0x00FFFFFF)
+    assert delta_table.header_last_epochs() == [0, 255]
+
+
+def test_check_epochs(keys, recovery_keys):
+    data = document(serial=0x01000001)
+    with pytest.raises(delta_table.TableError):
+        delta_table.check(data, signed(keys, data).hex(), [keys[1], recovery_keys[1]], [0, 255])
+    assert delta_table.check(data, signed(recovery_keys, data).hex(), [keys[1], recovery_keys[1]],
+                             [0, 255])["serial"] == 0x01000001
+
+
 def test_make_from_keeps_other_wires(tmp_path):
     old = tmp_path / "old.json"
     old.write_bytes(document(serial=4, extra={"chupa-17a": {"announce": 17, "minimum": 11, "maximum": 19}}))
@@ -269,7 +337,10 @@ def test_make_from_keeps_other_wires(tmp_path):
                              "--from", str(old)], capture_output=True, text=True, check=True)
     table = json.loads(result.stdout)
     assert table["wires"]["chupa-17a"]["maximum"] == 19
-    assert table["wires"][delta_table.wire()] == floor()
+    # (a published row wider than the built-in numbers stays: making the table
+    # again from the same commit never narrows what builds follow)
+    assert table["wires"][delta_table.wire()] == dict(floor(), announce=floor()["announce"] + 1,
+                                                      maximum=floor()["maximum"] + 1)
     result = subprocess.run([sys.executable, str(ROOT / "tools" / "delta_table.py"), "make", "--serial", "4",
                              "--from", str(old)], capture_output=True, text=True)
     assert result.returncode == 1
@@ -279,7 +350,7 @@ def test_make_from_keeps_other_wires(tmp_path):
 
 
 @pytest.fixture(scope="module")
-def checker(keys, tmp_path_factory):
+def checker(keys, recovery_keys, tmp_path_factory):
     """delta_check, built with the flags ninja gives delta.c and the test key"""
     target = "build/macos/obj/port/linux/src/delta.o" if sys.platform == "darwin" else \
         "build/linux/obj/port/linux/src/delta.o"
@@ -306,11 +377,13 @@ def checker(keys, tmp_path_factory):
         else:
             flags.append(word)
     key = ",".join(f"0x{byte:02x}" for byte in keys[1])
+    recovery = ",".join(f"0x{byte:02x}" for byte in recovery_keys[1])
     program = tmp_path_factory.mktemp("delta_check") / "delta_check"
     link = ["-Wl,-undefined,dynamic_lookup", "-Wl,-dead_strip"] if sys.platform == "darwin" else \
         ["-no-pie", "-Wl,--unresolved-symbols=ignore-all"]
     # (a failed fetch is tried again a tenth of a second later, not thirty minutes)
     built = subprocess.run(["clang", *flags, "-DHALO_GAME_BROWSER", f"-DHALO_DELTA_TEST_KEY={key}",
+                            f"-DHALO_DELTA_TEST_RECOVERY_KEY={recovery}",
                             "-DDELTA_RETRY_INTERVAL=100", "-O1", *link, "-o", str(program),
                             *sources, "tools/delta_check.c", "port/third_party/monocypher/monocypher.c",
                             "port/third_party/monocypher/monocypher-ed25519.c", "-lpthread"],
@@ -376,6 +449,7 @@ def test_loader_ignores_older_and_equal(keys, checker, tmp_path):
     ("not a range", lambda: document(row={"announce": 40, "minimum": 1, "maximum": 30})),
     ("deep", lambda: document().replace(b'"issued"', b'"x": ' + b"[" * 50 + b"]" * 50 + b', "issued"')),
     ("no serial", lambda: b'{"delta_legacy": 1, "wires": {}}'),
+    ("serial of none", lambda: document(serial=0xFFFFFFFF)),
     ("nul", lambda: document().replace(b'"issued"', b'"\x00": 1, "issued"')),
 ])
 def test_loader_drops_bad_tables(keys, checker, tmp_path, name, make):
@@ -385,6 +459,56 @@ def test_loader_drops_bad_tables(keys, checker, tmp_path, name, make):
     assert "log: Delta: dropped" in output, name
     assert " serial 0 " in state_line(output)[0], name
     assert not (tmp_path / "delta_legacy.signed").exists()
+
+
+def test_follows(keys, checker, tmp_path):
+    row = dict(floor(), announce=floor()["announce"] + 1, maximum=floor()["maximum"] + 1)
+    assert run_checker(checker, tmp_path, "following").strip().endswith(
+        f"following Following OpenCE network version {floor()['announce']} (built in)")
+    table = write_signed(keys, tmp_path / "t11", document(serial=11, row=dict(row, follows="build-145")))
+    output = run_checker(checker, tmp_path, "offer", table, "following")
+    assert "offer 1" in output and "following OpenCE build-145" in output
+    assert "following Following OpenCE build-145 (table 11)" in output
+    # (a newer table without it: the number)
+    table = write_signed(keys, tmp_path / "t12", document(serial=12, row=row))
+    output = run_checker(checker, tmp_path, "offer", table, "following")
+    assert f"following Following OpenCE network version {row['announce']} (table 12)" in output
+
+
+@pytest.mark.parametrize("follows", ['"build 145"', '"' + "b" * 32 + '"', "145", '""'])
+def test_follows_checked(keys, checker, tmp_path, follows):
+    data = document(serial=11).replace(b'"maximum": ', b'"follows": ' + follows.encode() + b', "maximum": ', 1)
+    with pytest.raises(delta_table.TableError):
+        delta_table.parse(data)
+    output = run_checker(checker, tmp_path, "offer", write_signed(keys, tmp_path / "bad", data), "state")
+    assert "offer 0" in output
+
+
+def test_loader_epochs(keys, recovery_keys, checker, tmp_path):
+    """a leaked primary key at its highest serial is followed by the recovery
+    key's next epoch, which the primary can never sign"""
+    highest = write_signed(keys, tmp_path / "highest", document(serial=0x00FFFFFF))
+    primary_next = write_signed(keys, tmp_path / "primary_next", document(serial=0x01000001))
+    recovery_next = write_signed(recovery_keys, tmp_path / "recovery_next", document(serial=0x01000001),
+                                 signed(recovery_keys, document(serial=0x01000001)))
+    primary_after = write_signed(keys, tmp_path / "primary_after", document(serial=0x01000002))
+    recovery_after = write_signed(recovery_keys, tmp_path / "recovery_after", document(serial=0x01000002),
+                                  signed(recovery_keys, document(serial=0x01000002)))
+    output = run_checker(checker, tmp_path, "offer", highest, "offer", primary_next, "state", "offer", recovery_next,
+                         "state", "offer", primary_after, "offer", recovery_after, "state")
+    offers = [line for line in output.splitlines() if line.startswith("offer ")]
+    assert offers == ["offer 1", "offer 0", "offer 1", "offer 0", "offer 1"]
+    states = state_line(output)
+    assert f" serial {0x00FFFFFF} " in states[0]
+    assert f" serial {0x01000001} " in states[1]
+    assert f" serial {0x01000002} " in states[2]
+    assert "its epoch (1) is past its key's last (0)" in output
+    # (a recovery-signed table of epoch 0 is taken as any other)
+    table = write_signed(recovery_keys, tmp_path / "recovery_old", document(serial=12),
+                         signed(recovery_keys, document(serial=12)))
+    other = tmp_path / "other"
+    other.mkdir()
+    assert "offer 1" in run_checker(checker, other, "offer", table)
 
 
 def test_loader_drops_tampered_and_unsigned(keys, checker, tmp_path):

@@ -353,8 +353,8 @@ static BOOL name_ends_with(const char *name, const char *ending)
 }
 
 /* the Halo PC maps in a folder (an Xbox path): how many, and the first
-few's names after names' (the maps named <name>@ce.map or <name>@md.map,
-which are played from maps/ as Halo PC's, left out if asked) */
+few's names after names' (the maps named <name>@ce.map, <name>@md.map or
+<name>@pc.map, which are played from maps/ as Halo PC's, left out if asked) */
 static long pc_maps_in(const char *xbox_folder, BOOL skip_suffixed, char *names, unsigned long names_size)
 {
 	char folder[1024];
@@ -371,7 +371,8 @@ static long pc_maps_in(const char *xbox_folder, BOOL skip_suffixed, char *names,
 		char path[1300];
 
 		if (!name_ends_with(name, ".map") ||
-			(skip_suffixed && (name_ends_with(name, "@ce.map") || name_ends_with(name, "@md.map"))))
+			(skip_suffixed && (name_ends_with(name, "@ce.map") || name_ends_with(name, "@md.map") ||
+				name_ends_with(name, "@pc.map"))))
 		{
 			continue;
 		}
@@ -414,13 +415,103 @@ void platform_maps_folder_check(struct platform_maps_folder *maps)
 	platform_translate_path("d:\\maps\\ui.map", path, sizeof(path));
 	maps->ui_version = map_file_version(path);
 	maps->stray_pc_maps = pc_maps_in("d:\\maps", TRUE, maps->stray_names, sizeof(maps->stray_names));
-	maps->pc_maps_beside = pc_maps_in("d:\\maps\\ce", FALSE, NULL, 0) + pc_maps_in("d:\\md_maps", FALSE, NULL, 0);
+	maps->pc_maps_beside = pc_maps_in("d:\\maps_ce", FALSE, NULL, 0) + pc_maps_in("d:\\maps_md", FALSE, NULL, 0) +
+		pc_maps_in("d:\\maps_pc", FALSE, NULL, 0) + pc_maps_in("d:\\maps\\ce", FALSE, NULL, 0) +
+		pc_maps_in("d:\\md_maps", FALSE, NULL, 0) + pc_maps_in("d:\\custom_maps", FALSE, NULL, 0);
 	if (maps->ui_version == XBOX_MAP_VERSION)
 		maps->state = _maps_folder_xbox;
 	else if (map_version_is_pc(maps->ui_version))
 		maps->state = _maps_folder_halo_pc;
 	else
 		maps->state = _maps_folder_no_ui;
+}
+
+/* ---------- the older map folders */
+
+static const struct
+{
+	const char *from;
+	const char *to;
+	/* the folder from is in, which must be no link either (or NULL: the
+	data root) */
+	const char *parent;
+} old_map_folders[] =
+{
+	{ "d:\\maps\\ce", "d:\\maps_ce", "d:\\maps" },
+	{ "d:\\md_maps", "d:\\maps_md", NULL },
+};
+
+/* the two folders' paths, and whether the old one can be moved to the new */
+static BOOL old_map_folder_movable(int index, char *from, char *to, unsigned long size)
+{
+	struct posix_file_information information;
+	char parent[1024];
+
+	platform_translate_path(old_map_folders[index].from, from, size);
+	platform_translate_path(old_map_folders[index].to, to, size);
+	if (posix_stat(from, &information) != 0 || !(information.flags & _posix_file_is_directory))
+		return FALSE;
+	if (posix_stat(to, &information) == 0 || posix_is_link(to))
+		return FALSE;
+	if (posix_is_link(from))
+		return FALSE;
+	if (old_map_folders[index].parent)
+	{
+		platform_translate_path(old_map_folders[index].parent, parent, sizeof(parent));
+		if (posix_is_link(parent))
+			return FALSE;
+	}
+	return TRUE;
+}
+
+int platform_old_map_folders(char *description, unsigned long size)
+{
+	int count = 0;
+	int index;
+
+	if (size)
+		description[0] = 0;
+	for (index = 0; index < (int)(sizeof(old_map_folders) / sizeof(old_map_folders[0])); index++)
+	{
+		char from[1024], to[1024];
+
+		if (!old_map_folder_movable(index, from, to, sizeof(from)))
+			continue;
+		if (size)
+		{
+			size_t length = strlen(description);
+
+			/* (as the player sees them: maps/ce, maps_ce) */
+			snprintf(description + length, size - length, "%s%s to %s", length ? "\n" : "",
+				index == 0 ? "maps/ce" : "md_maps", index == 0 ? "maps_ce" : "maps_md");
+		}
+		count++;
+	}
+	return count;
+}
+
+int platform_old_map_folders_move(void)
+{
+	int moved = 0;
+	int index;
+
+	for (index = 0; index < (int)(sizeof(old_map_folders) / sizeof(old_map_folders[0])); index++)
+	{
+		char from[1024], to[1024];
+
+		if (!old_map_folder_movable(index, from, to, sizeof(from)))
+			continue;
+		if (posix_rename_directory(from, to) == 0)
+		{
+			platform_log("map folders: moved %s to %s", from, to);
+			moved++;
+		}
+		else
+		{
+			platform_log("map folders: could not move %s to %s; its maps stay there and still play", from, to);
+		}
+	}
+	return moved;
 }
 
 /* ---------- file handles */

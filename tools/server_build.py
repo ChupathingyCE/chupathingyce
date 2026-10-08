@@ -10,7 +10,7 @@ program links only the C library. It needs SDL's headers to compile (the
 renderer's OpenGL declarations, which it never calls), fetched once from
 SDL's release (SDL_TARBALL_URL), never its library.
 
-Linked against musl (Alpine Linux, as tools/server_docker.py builds it, or
+Linked against musl (Alpine Linux, as tools/ci_build.py --alpine builds it, or
 any musl host), the server is one static executable that runs on any Linux
 of its architecture: no libraries, no loader, no glibc version to match.
 Against glibc (a developer's machine) it is an ordinary dynamically linked
@@ -40,8 +40,10 @@ from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .embed_webui import webui_inputs
 from .linux64_build import LINUX64_GAME_FLAGS, LINUX64_POSIX_FLAGS
 from .linux_build import (
+    MBEDTLS_DIR,
     MONOCYPHER_DIR,
     PORT_CONFIG,
+    QRCODEGEN_DIR,
     Linux32Units,
     _load_port_config,
     compile_launcher,
@@ -58,11 +60,14 @@ SERVER_PLATFORM_DIR = SERVER_DIR / "platform"
 # the ones it leaves out)
 SERVER_PLATFORM_SOURCES = [SERVER_PLATFORM_DIR / "server_platform.c", SERVER_PLATFORM_DIR / "server_input.c"]
 # and with the host's ABI: SDL's few utility functions, glibc's backtrace,
-# and the console, control API and web admin page (server/docs/admin.md;
+# and the console, control API and web admin page, and their HTTPS (server/docs/admin.md;
 # the page's files are embedded by tools/embed_webui.py)
 SERVER_NATIVE_SOURCES = [SERVER_PLATFORM_DIR / "sdl_headless.c", SERVER_PLATFORM_DIR / "backtrace.c",
                          SERVER_PLATFORM_DIR / "control_protocol.c", SERVER_PLATFORM_DIR / "control_web.c",
-                         SERVER_PLATFORM_DIR / "server_control.c"]
+                         SERVER_PLATFORM_DIR / "control_tls.c", SERVER_PLATFORM_DIR / "server_control.c",
+                         SERVER_PLATFORM_DIR / "control_roles.c", SERVER_PLATFORM_DIR / "control_accounts.c",
+                         SERVER_PLATFORM_DIR / "server_roles.c", SERVER_PLATFORM_DIR / "control_link_protocol.c",
+                         SERVER_PLATFORM_DIR / "control_link.c", SERVER_PLATFORM_DIR / "server_events.c"]
 SERVER_WEBUI_DIR = SERVER_DIR / "webui"
 # the window, input and self-updater the server has none of
 SERVER_EXCLUDED = {
@@ -238,8 +243,10 @@ def generate_server_build(n: Writer, sln: Any) -> None:
     server_sln = SimpleNamespace(**vars(sln))
     server_sln.game_browser = True
     libs = "-lm -lpthread"
-    # (SDL's headers; Monocypher's, for the control API's credentials)
-    include_flags = [f"-I{SDL_INCLUDE}", f"-I{MONOCYPHER_DIR}"]
+    # (SDL's headers; Monocypher's, for the control API's credentials; Mbed
+    # TLS's, for its HTTPS beyond the machine: control_tls.c, whose library
+    # the game list's requests already link)
+    include_flags = [f"-I{SDL_INCLUDE}", f"-I{MONOCYPHER_DIR}", f"-I{MBEDTLS_DIR / 'include'}", f"-I{QRCODEGEN_DIR}"]
 
     n.comment(f"The dedicated server (ninja server; tools/server_build.py): {', '.join(arches)}, "
               f"{'static, musl' if static else 'glibc'}")

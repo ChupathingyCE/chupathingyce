@@ -2617,6 +2617,15 @@ static void trigger_create_projectiles(
 					}
 				}
 			}
+#ifdef HALO_GAME_BROWSER
+			{
+				/* port: Delta Stats' recorder, on the host (port/linux/game/
+				game_events.c): the shots its owner fired, for their accuracy */
+				void game_events_shots(long owner_object_index, long weapon_definition_index, short count);
+
+				game_events_shots(owner_object_index, weapon->definition_index, projectile_count);
+			}
+#endif
 		}
 	}
 

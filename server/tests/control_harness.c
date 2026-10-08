@@ -16,8 +16,12 @@ thing the main thread is handed:
   notice: <the control's own log line>
   audit: <source>: <command>      (a command that is logged)
   quiet: <command>                (a read, not logged)
-The stand-in answers sv_status, sv_players, sv_banlist, sv_mapcycle and
-sv_maps with fixed JSON, and every other command with "ran <command>". It
+The stand-in checks each command's permission as server_commands.c does
+(refused: "refused <command>"), answers sv_status, sv_players, sv_banlist,
+sv_mapcycle and sv_maps with fixed JSON, a file's save with "saved <n>
+bytes", and every other command with "ran <command>"; it answers the
+control panel's bind requests as a player's game would, accepted, with the
+key 11...11 (player 1), declined (player 2), or not Delta (any other). It
 runs until it is killed.
 */
 
@@ -27,17 +31,9 @@ runs until it is killed.
 #include <string.h>
 #include <time.h>
 
-enum
-{
-	CONTROL_JSON = 1,
-	CONTROL_NOTICE = 2,
-	CONTROL_QUIET = 4,
-};
+#include "../platform/server_control.h"
 
-void server_control_start(void);
-int server_control_next(char *line, int line_size, char *source, int source_size, int *flags);
-void server_control_finish(int ticket, int ok, const char *output);
-void server_control_log(const char *text);
+#include "../src/server_roles.h"
 
 /* ---------- the platform layer's, stood in for */
 
@@ -105,12 +101,21 @@ int main(void)
 	for (;;)
 	{
 		char line[256];
-		char source[80];
+		char source[96];
 		int flags = 0;
+		unsigned int permissions = 0;
+		int role = 0;
 		int ticket;
+		unsigned int request;
+		int player;
+		char account[40];
 
-		while ((ticket = server_control_next(line, sizeof(line), source, sizeof(source), &flags)) != 0)
+		while ((ticket = server_control_next(line, sizeof(line), source, sizeof(source), &flags, &permissions,
+			&role)) != 0)
 		{
+			unsigned int needed;
+			int changes = 0;
+
 			if (flags & CONTROL_NOTICE)
 			{
 				printf("notice: %s\n", line);
@@ -120,8 +125,35 @@ int main(void)
 			if (flags & CONTROL_QUIET)
 				printf("quiet: %s\n", line);
 			else
-				printf("audit: %s: %s\n", source, line);
+				printf("audit: %s: %s (%s %x)\n", source, line, server_role_name(role), permissions);
+			needed = server_command_permission(line, &changes);
+			if (needed && !(permissions & needed))
+			{
+				char refused[300];
+
+				snprintf(refused, sizeof(refused), "refused %s\n", line);
+				server_control_finish(ticket, 0, refused);
+				continue;
+			}
+			if (server_control_payload(ticket))
+			{
+				char saved[64];
+
+				snprintf(saved, sizeof(saved), "saved %lu bytes\n", (unsigned long)strlen(server_control_payload(ticket)));
+				server_control_finish(ticket, 1, saved);
+				continue;
+			}
 			server_control_finish(ticket, 1, answer(line, (flags & CONTROL_JSON) != 0));
+		}
+		while (server_roles_bind_take(&request, &player, account, sizeof(account)))
+		{
+			static const unsigned char key[32] = { 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+				0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+				0x11, 0x11, 0x11, 0x11 };
+
+			printf("bind: %s, player %d\n", account, player);
+			server_roles_bind_answer(request, player == 1 ? SERVER_BIND_ACCEPTED : player == 2 ? SERVER_BIND_DECLINED :
+				SERVER_BIND_NOT_DELTA, player == 1 ? key : NULL);
 		}
 		/* (a log line now and then, one with a public address) */
 		if (!(++frame % 200))
