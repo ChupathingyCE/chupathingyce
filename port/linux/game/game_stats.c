@@ -426,6 +426,10 @@ static long stats_append_path(
 			text[used++] = '\\';
 		if ((unsigned char)character < 0x20)
 			character = ' ';
+		/* (and ASCII only: a map's tag paths may be any bytes, which would
+		not be the report's UTF-8) */
+		if ((unsigned char)character >= 0x7F)
+			character = '?';
 		text[used++] = character;
 	}
 	text[used] = 0;
