@@ -145,8 +145,10 @@ static const struct config_setting config_settings[] =
 		"on the Xbox, or 256, 512 or 1024 for smoother edges, as soft." },
 	{ "display.menus", _config_string, "\"xbox\"", "HALO_MENUS", _environment_value, _platform_all,
 		"The menus: \"xbox\" for the Xbox's (with Online Games), \"pc\" for the\n"
-		"PC version's main menu (port/assets/menus, and a menus folder here for\n"
-		"your own; not all of it is wired yet)." },
+		"PC version's screens and Server Browser, rebuilt from port/assets/menus\n"
+		"(a menus folder here for your own) with this port's fonts and redrawn\n"
+		"pictures, not Halo PC's files. Read when the game starts: restart it\n"
+		"after a change. Not all of the PC screens are wired yet." },
 	{ "display.player_names", _config_string, "\"all\"", "HALO_PLAYER_NAMES", _environment_value, _platform_all,
 		"In multiplayer, whose names are drawn above their heads: \"all\",\n"
 		"\"allies\", \"enemies\" or \"none\". An enemy's shows only within the\n"
