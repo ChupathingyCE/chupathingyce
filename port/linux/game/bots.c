@@ -55,6 +55,9 @@ bot_skill_now holds and what the comments here mean by "the level", "level
 #include "objects/objects.h"
 #include "physics/collisions.h"
 #include "physics/collision_bsp_definitions.h"
+#include "physics/collision_model_definitions.h"
+#include "objects/object_definitions.h"
+#include "math/periodic_functions.h"
 #include "scenario/scenario.h"
 #include "scenario/scenario_definitions.h"
 #include "cache/cache_files.h"
@@ -1004,6 +1007,9 @@ enum
 	BOT_F_TIMING = 65536,
 	/* gunfire heard by the shot, not by the gun coming to hand */
 	BOT_F_HEAR = 131072,
+	/* the head whenever the shot goes through what is left of the shield,
+	   and a click a shot as the gun comes ready (the levels over 3) */
+	BOT_F_HEAD = 262144,
 };
 static unsigned bot_off;
 
@@ -1015,7 +1021,7 @@ static unsigned bot_off_parse(char const *text)
 		{ "via", BOT_F_VIA }, { "teabag", BOT_F_TEABAG }, { "costslot", BOT_F_COSTSLOT }, { "pace", BOT_F_PACE },
 		{ "notice", BOT_F_NOTICE }, { "human", BOT_F_HUMAN }, { "fresh", BOT_F_FRESH }, { "wary", BOT_F_WARY },
 		{ "agile", BOT_F_AGILE }, { "camp", BOT_F_CAMP }, { "aware", BOT_F_AWARE }, { "timing", BOT_F_TIMING },
-		{ "hear", BOT_F_HEAR },
+		{ "hear", BOT_F_HEAR }, { "head", BOT_F_HEAD },
 		{ "all", 0xFFFFFu },
 	};
 	unsigned mask = 0;
@@ -1566,6 +1572,8 @@ struct bot_weapon
 	int held_to_fire; /* fires only once its trigger has been held down a good while (a beam that charges) */
 	int rounds_capacity; /* in it and carried, full up (0: not a weapon that takes rounds) */
 	real value;
+	real cycle; /* ticks from one shot to the next, at its quickest (0: not known) */
+	long last_fired; /* the game tick of its last shot (0: none yet) */
 };
 
 /* how good a weapon (or powerup) is to have: power weapons first; then the
@@ -1934,6 +1942,9 @@ static void bot_weapon_describe(long weapon_index, struct bot_weapon *result)
 	}
 	trigger = TAG_BLOCK_GET_ELEMENT(&definition->weapon.triggers, 0, struct weapon_trigger_definition);
 	result->automatic = trigger->initial_rate_of_fire >= 5.f || trigger->final_rate_of_fire >= 5.f;
+	result->cycle = MAX(trigger->initial_rate_of_fire, trigger->final_rate_of_fire) > 0.f ?
+		BOT_TICKS_PER_SECOND / MAX(trigger->initial_rate_of_fire, trigger->final_rate_of_fire) : 0.f;
+	result->last_fired = weapon->weapon.game_time_last_fired;
 	result->charging = trigger->charging_time >= BOT_CHARGE_LEAST;
 	result->held_to_fire = trigger->charging_time >= BOT_CHARGE_BEAM && result->kind != _bot_gun_plasma_pistol;
 	if (trigger->projectile.index != NONE)
@@ -2200,6 +2211,8 @@ static int bot_aware_part(int which)
 static long bot_look_period = 1;
 static struct player_datum *bot_player_at_index(long index);
 
+/* (testing, HALO_BOT_NOTICELOG: when each was first in front of each bot, this time) */
+static long bot_notice_cone[BOT_MAXIMUM_PLAYERS][BOT_MAXIMUM_PLAYERS];
 static int bot_notices(struct bot_state *bot, long player_absolute_index, long unit_index, real_point3d const *eye, real distance, int hit_lately)
 {
 	struct unit_datum *unit = unit_try_and_get(unit_index);
@@ -2218,6 +2231,7 @@ static int bot_notices(struct bot_state *bot, long player_absolute_index, long u
 	{
 		bot->notice[player_absolute_index] = 0.f;
 		bot->notice_from[player_absolute_index] = 0;
+		bot_notice_cone[bot - bot_states][player_absolute_index] = 0;
 	}
 	bot->notice_unit[player_absolute_index] = unit_index;
 	if (bot->notice[player_absolute_index] >= 1.f || unit_index == bot->target_unit)
@@ -2233,6 +2247,8 @@ static int bot_notices(struct bot_state *bot, long player_absolute_index, long u
 		dz * (real)sin(bot->pitch)) / length : 1.f;
 	angle = (real)acos(PIN(cosine, -1.f, 1.f));
 	firing = bot_unit_fired_within(unit_index, unit, BOT_SECONDS(0.7f));
+	if (angle <= BOT_VIEW_HALF_ANGLE && !bot_notice_cone[bot - bot_states][player_absolute_index])
+		bot_notice_cone[bot - bot_states][player_absolute_index] = MAX(now, 1);
 	if (angle > BOT_VIEW_HALF_ANGLE)
 	{
 		/* not in view. Shooting us from there, though (the hits say from
@@ -2292,9 +2308,10 @@ static int bot_notices(struct bot_state *bot, long player_absolute_index, long u
 		return FALSE;
 	bot->notice[player_absolute_index] = 1.f;
 	if (bot_env_set("HALO_BOT_NOTICELOG"))
-		bot_log("notice: %ld ticks from in view to seen, %ld of them held, at %.0f, %s, %ld ticks into their life and %ld into ours",
+		bot_log("notice: %ld ticks from in view to seen, %ld of them held, at %.0f, %s, %ld ticks into their life and %ld into ours; in front %ld ticks, off centre %.2f, worth %.2f s",
 			now - bot->notice_from[player_absolute_index], bot->notice_hold[player_absolute_index] - bot->notice_from[player_absolute_index],
-			distance, firing ? "firing" : moving ? "moving" : "still", now - bots_spawned_time[player_absolute_index], now - bot->born_tick);
+			distance, firing ? "firing" : moving ? "moving" : "still", now - bots_spawned_time[player_absolute_index], now - bot->born_tick,
+			bot_notice_cone[bot - bot_states][player_absolute_index] ? now - bot_notice_cone[bot - bot_states][player_absolute_index] : -1L, angle, seconds);
 	return TRUE;
 }
 
@@ -2332,6 +2349,77 @@ static int bot_pro_part(int which)
 #define BOT_SIGHT_FROM_A_VEHICLE 1.5f
 #define BOT_SIGHT_OF_VEHICLES 2.f
 #define BOT_SIGHT_FURTHEST 300.f
+
+/* Whether a hit on the head with this gun now kills them, or is the shot
+   that will: one shot takes what is left of their shield with some over,
+   and what a shield does not take goes on to the body (damage.c), where a
+   hit on the head with a gun that can cause headshots is the end of them.
+   The sniper rifle's shot does that through a full shield; the pistol's
+   once the shield is down to its last shot. (By the gun's least damage, the
+   shot's own projectiles each: what it takes off for certain.) */
+static int bot_head_kills(long weapon_index, long target)
+{
+	struct object_datum *gun = weapon_index != NONE ? object_try_and_get(weapon_index) : NULL;
+	struct object_datum *them = object_try_and_get(target);
+	struct weapon_definition *definition;
+	struct weapon_trigger_definition *trigger;
+	struct projectile_definition *projectile;
+	struct damage_effect_definition *impact;
+	struct object_definition *body;
+	struct collision_model *collision;
+	struct damage_resistance const *resistance;
+	struct damage_resistance_material const *head = NULL;
+	real shot, shield, taken, through, maximum;
+	long m;
+	if (!gun || !them || !TEST_FLAG(_object_mask_weapon, gun->object.type))
+		return FALSE;
+	definition = weapon_definition_get(gun->definition_index);
+	if (!definition || definition->weapon.triggers.count <= 0)
+		return FALSE;
+	trigger = TAG_BLOCK_GET_ELEMENT(&definition->weapon.triggers, 0, struct weapon_trigger_definition);
+	projectile = trigger->projectile.index != NONE ? projectile_definition_get(trigger->projectile.index) : NULL;
+	impact = projectile && projectile->projectile.impact_damage.index != NONE ? damage_effect_definition_get(projectile->projectile.impact_damage.index) : NULL;
+	/* (_damage_can_cause_headshots_bit, and not _damage_only_hurts_shields_bit) */
+	if (!impact || !TEST_FLAG(impact->damage.flags, 1) || TEST_FLAG(impact->damage.flags, 6))
+		return FALSE;
+	if (them->object.shield_vitality <= 0.f)
+		return TRUE;
+	body = object_definition_get(them->definition_index);
+	collision = body && body->object.collision_model.index != NONE ? collision_model_definition_get(body->object.collision_model.index) : NULL;
+	if (!collision)
+		return FALSE;
+	resistance = &collision->resistance;
+	if (resistance->shield_material_type < 0 || resistance->shield_material_type >= MAXIMUM_NUMBER_OF_MATERIAL_TYPES)
+		return FALSE;
+	/* (the head's material: _damage_material_head_bit) */
+	for (m = 0; m < resistance->materials.count && !head; m++)
+	{
+		struct damage_resistance_material const *material = TAG_BLOCK_GET_ELEMENT(&resistance->materials, m, struct damage_resistance_material);
+		if (TEST_FLAG(material->flags, 0))
+			head = material;
+	}
+	if (!head)
+		return FALSE;
+	/* (object_damage_shield, as it goes for a hit there: the shield's share,
+	   less near the end of it, and what is over when it is gone) */
+	shot = impact->damage.damage_lower_bound;
+	taken = (1.f - head->shield_leak_fraction) * shot;
+	if (them->object.shield_vitality <= resistance->shield_failure_threshold && resistance->shield_failure_threshold > 0.f)
+	{
+		taken *= (1.f - resistance->maximum_shield_failure) *
+			transition_function_evaluate(resistance->shield_failure_function, them->object.shield_vitality / resistance->shield_failure_threshold) +
+			resistance->maximum_shield_failure;
+	}
+	through = shot - MAX(taken, 0.f);
+	maximum = them->object.maximum_shield_vitality;
+	shield = head->shield_damage_multiplier * MAX(taken, 0.f) * impact->damage.material_modifiers[resistance->shield_material_type];
+	/* (the pistol's third shot takes the last third of the shield to the
+	   last crumb, and the crumb over is enough: the game kills on any of a
+	   headshot that reaches the body. So within a hair of it counts.) */
+	if (maximum > 0.f && shield / maximum >= them->object.shield_vitality - 0.002f)
+		through += MAX(shield - maximum * them->object.shield_vitality, 0.f) + 0.01f;
+	return through * head->body_damage_multiplier > 0.f;
+}
 
 static long bot_find_target(struct bot_state *bot, int hit_lately, long my_unit, short my_team, real_point3d const *eye, real range, long current, int prefer_vehicles, real *distance_out)
 {
@@ -7741,6 +7829,8 @@ static real bot_weapon_fit(struct bot_weapon const *w, real d, real shields)
 static void bot_fire_control(struct bot_state *bot, struct bot_weapon const *weapon, real off_yaw, real off_pitch,
 	real target_distance, real target_shield, struct player_action *action)
 {
+	/* (how much of a good player's trigger finger: the levels over 3) */
+	real pace = BOT_ON(BOT_F_HEAD) && bot_refined_is(65536) ? PIN((bot_skill_now - 3.f) / 2.f, 0.f, 1.f) : 0.f;
 	real tolerance = (real)atan2(0.45f, MAX(target_distance, 0.5f)) + 0.01f;
 	int on_target;
 	int pull = FALSE;
@@ -7864,6 +7954,33 @@ static void bot_fire_control(struct bot_state *bot, struct bot_weapon const *wea
 				(long)(bot_random(bot) * 3.f);
 		}
 		break;
+	}
+	/* A good player's finger on a gun that fires a shot a click (the pistol,
+	   the sniper rifle, the shotgun): the next click as the gun comes ready
+	   for it, and held until it goes. A click while the gun was still
+	   working the last shot went for nothing (weapons.c: a latched trigger
+	   fires from idle, and a press while it recovers is no press), and a
+	   pause was then a whole wait over again: the bots of the top level got
+	   a shot from one click in three, and fired the pistol at half its rate
+	   and the sniper rifle at half its. The levels over 3, the top one
+	   wholly: the wait from the last shot, not from the last click, and as
+	   little of it as the gun allows (the pistol a little more as the
+	   distance goes, for its spread). */
+	if (pace > 0.f && !weapon->automatic && weapon->cycle > 0.f &&
+		(weapon->kind == _bot_gun_pistol || weapon->kind == _bot_gun_sniper || weapon->kind == _bot_gun_shotgun))
+	{
+		long now = game_time_get();
+		long since = weapon->last_fired > 0 ? now - weapon->last_fired : 1000;
+		real wait = weapon->cycle * 0.92f;
+		int aimed = weapon->kind == _bot_gun_sniper ? off_yaw < tolerance * 0.6f && off_pitch < tolerance :
+			weapon->kind == _bot_gun_shotgun ? target_distance < 9.f && on_target : on_target;
+		if (weapon->kind == _bot_gun_pistol && target_distance > 15.f)
+			wait += (target_distance - 15.f) / 6.f * (0.5f + bot->personality.discipline);
+		wait += (1.f - pace) * 8.f * bot_random(bot);
+		pull = FALSE;
+		/* (let go the tick after it went, so that the next is a click) */
+		if (since > 1 && since >= (long)wait && aimed)
+			pull = TRUE;
 	}
 	if (pull)
 	{
@@ -9148,7 +9265,14 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		   rifle): for the head, the better the bot the more often (a
 		   headshot is the kill). Their eyes: where their head is, standing
 		   or crouched */
-		if (weapon.precision && target_object->object.shield_vitality < 0.05f &&
+		/* (... and whenever the shot will go through what is left of the
+		   shield: the sniper rifle's always, the pistol's for the shot that
+		   takes the last of it. Through a full shield a headshot with the
+		   sniper rifle is the kill, and the bots of the top level took two
+		   seconds over someone standing still.) */
+		if (weapon.precision && (target_object->object.shield_vitality < 0.05f ||
+				(BOT_ON(BOT_F_HEAD) && bot_refined_is(65536) && unit->unit.current_weapon_index >= 0 &&
+					bot_head_kills(unit->unit.weapon_object_indices[unit->unit.current_weapon_index], target))) &&
 			TEST_FLAG(_object_mask_biped, target_object->object.type) && target_object->object.parent_object_index == NONE &&
 			bot_skill_fraction() * 0.8f + 0.2f > bot->headshot_roll)
 		{
@@ -13100,6 +13224,119 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				bot->goal_kind, target != NONE, moved, bot->mover.move.reach, (long)result.travel, bot->target_unit != NONE);
 			if (action->control_flags & FLAG(_unit_control_jump_bit))
 				bot_log("jc bot%ld t%ld cause %d target %d reach %ld", player_absolute_index, game_time_get(), bot_jump_cause, target != NONE, bot->mover.move.reach);
+		}
+	}
+	/* (testing, HALO_BOT_ENGAGELOG: each time a bot was after someone, from
+	   when it took them for its target to when it let them go: how long, how
+	   much of that with them in sight, how long to its first shot and how
+	   much of it shooting, in cover, lying in wait, and how it ended) */
+	{
+		static int log = -1;
+		static struct
+		{
+			long unit, start, last, ticks, sight, first, fire, cover, wait, victim, switching, shot_tick;
+			long sight_by[4], fire_by[4], goal_kind, goal_objective, shots;
+			real distance, vitality;
+			int gun;
+		} engaged[BOT_MAXIMUM_PLAYERS];
+		if (log < 0)
+			log = bot_logging() && bot_env_set("HALO_BOT_ENGAGELOG");
+		if (log)
+		{
+			long now = game_time_get();
+			long on = vehicle_index == NONE ? bot->target_unit : NONE;
+			if (engaged[player_absolute_index].unit != 0 && (engaged[player_absolute_index].unit != on || now - engaged[player_absolute_index].last > 1))
+			{
+				struct unit_datum *them = unit_try_and_get(engaged[player_absolute_index].unit);
+				int dead = !them || TEST_FLAG(them->object.damage_flags, _object_dead_bit);
+				bot_log("engaged bot%ld t%ld victim %ld for %ld in sight %ld first shot %ld firing %ld cover %ld wait %ld switching %ld from %.1f gun %d vitality %.2f to %.2f end %s%s",
+					player_absolute_index, engaged[player_absolute_index].start, engaged[player_absolute_index].victim,
+					engaged[player_absolute_index].ticks, engaged[player_absolute_index].sight, engaged[player_absolute_index].first,
+					engaged[player_absolute_index].fire, engaged[player_absolute_index].cover, engaged[player_absolute_index].wait,
+					engaged[player_absolute_index].switching,
+					engaged[player_absolute_index].distance, engaged[player_absolute_index].gun, engaged[player_absolute_index].vitality,
+					them && !dead ? them->object.shield_vitality + them->object.body_vitality : 0.f,
+					dead ? "dead" : now - engaged[player_absolute_index].last > 1 ? "gap" : on == NONE ? "lost" : "other", "");
+				bot_log("engagedby bot%ld t%ld fight %ld/%ld travel %ld/%ld wait %ld/%ld none %ld/%ld goal %ld objective %ld gun %d took %.2f %s shots %ld",
+					player_absolute_index, engaged[player_absolute_index].start,
+					engaged[player_absolute_index].fire_by[1], engaged[player_absolute_index].sight_by[1],
+					engaged[player_absolute_index].fire_by[2], engaged[player_absolute_index].sight_by[2],
+					engaged[player_absolute_index].fire_by[3], engaged[player_absolute_index].sight_by[3],
+					engaged[player_absolute_index].fire_by[0], engaged[player_absolute_index].sight_by[0],
+					engaged[player_absolute_index].goal_kind, engaged[player_absolute_index].goal_objective, engaged[player_absolute_index].gun,
+					engaged[player_absolute_index].vitality - (them && !dead ? them->object.shield_vitality + them->object.body_vitality : 0.f),
+					dead ? "dead" : now - engaged[player_absolute_index].last > 1 ? "gap" : on == NONE ? "lost" : "other", engaged[player_absolute_index].shots);
+				/* (left for someone else, and the one left still there to be shot: who each was) */
+				if (!dead && on != NONE && now - engaged[player_absolute_index].last <= 1 && them && unit_try_and_get(on))
+				{
+					struct unit_datum *next = unit_try_and_get(on);
+					int clear = bot_line_clear(bot_sight_flags, &eye, &them->object.bounding_sphere_center, object_get_ultimate_parent(me->unit_index));
+					bot_log("left bot%ld t%ld: %s; was %.1f off, vitality %.2f%s%s%s; now %.1f off, vitality %.2f%s%s%s%s",
+						player_absolute_index, now, clear ? "in sight" : "hidden",
+						distance3d(&eye, &them->object.bounding_sphere_center), them->object.shield_vitality + them->object.body_vitality,
+						bot_unit_aiming_at(engaged[player_absolute_index].unit, &eye, 0.97f) ? " aiming at us" : "",
+						bot_unit_busy(engaged[player_absolute_index].unit, &eye) ? " busy" : "",
+						them->unit.player_index != NONE && (them->unit.player_index & 0xFFFF) == 0 ? " (the one standing)" : "",
+						distance3d(&eye, &next->object.bounding_sphere_center), next->object.shield_vitality + next->object.body_vitality,
+						bot_unit_aiming_at(on, &eye, 0.97f) ? " aiming at us" : "",
+						bot_unit_busy(on, &eye) ? " busy" : "",
+						game_engine_has_teams() && bot_targeted_by(on, (short)me->team_index, me->unit_index) ? " ganged" : "",
+						bot->hit_ticks > 0 ? " (hit lately)" : "");
+				}
+				engaged[player_absolute_index].unit = 0;
+			}
+			if (on != NONE && engaged[player_absolute_index].unit == 0)
+			{
+				struct unit_datum *them = unit_try_and_get(on);
+				memset(&engaged[player_absolute_index], 0, sizeof(engaged[0]));
+				engaged[player_absolute_index].unit = on;
+				engaged[player_absolute_index].start = now;
+				engaged[player_absolute_index].first = -1;
+				engaged[player_absolute_index].distance = target != NONE ? target_distance : -1.f;
+				engaged[player_absolute_index].gun = (int)weapon.kind;
+				engaged[player_absolute_index].vitality = them ? them->object.shield_vitality + them->object.body_vitality : 0.f;
+				engaged[player_absolute_index].victim = them && them->unit.player_index != NONE ? (long)(them->unit.player_index & 0xFFFF) : -1;
+			}
+			if (on != NONE)
+			{
+				int firing = (action->control_flags & FLAG(_unit_control_weapon_primary_trigger_bit)) != 0 || action->primary_trigger > 0.f;
+				engaged[player_absolute_index].last = now;
+				engaged[player_absolute_index].ticks++;
+				if (target != NONE)
+				{
+					engaged[player_absolute_index].sight++;
+					engaged[player_absolute_index].sight_by[how & 3]++;
+					if (firing)
+						engaged[player_absolute_index].fire_by[how & 3]++;
+					if (how == 2)
+					{
+						engaged[player_absolute_index].goal_kind = bot->goal_kind;
+						engaged[player_absolute_index].goal_objective = bot->goal_objective;
+					}
+				}
+				if (firing)
+				{
+					engaged[player_absolute_index].fire++;
+					if (engaged[player_absolute_index].first < 0)
+						engaged[player_absolute_index].first = now - engaged[player_absolute_index].start;
+				}
+				if (bot->in_cover)
+					engaged[player_absolute_index].cover++;
+				{
+					long gun_index = unit->unit.current_weapon_index >= 0 && unit->unit.current_weapon_index < MAXIMUM_WEAPONS_PER_UNIT ?
+						unit->unit.weapon_object_indices[unit->unit.current_weapon_index] : NONE;
+					struct weapon_datum const *gun = gun_index != NONE ? weapon_try_and_get(gun_index) : NULL;
+					if (gun && gun->weapon.game_time_last_fired >= now - 1 && gun->weapon.game_time_last_fired != engaged[player_absolute_index].shot_tick)
+					{
+						engaged[player_absolute_index].shot_tick = gun->weapon.game_time_last_fired;
+						engaged[player_absolute_index].shots++;
+					}
+				}
+				if (bot->ambush_phase == 1)
+					engaged[player_absolute_index].wait++;
+				if (bot->weapon_switch_ticks > 0)
+					engaged[player_absolute_index].switching++;
+			}
 		}
 	}
 	{

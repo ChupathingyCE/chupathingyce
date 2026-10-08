@@ -1519,16 +1519,49 @@ of a driver across open country stops after a time on the clock, thus two
 games with the same seed are not always the same; a floor square next to
 the end of a wall counts as next to a drop.
 
+**How quickly a good bot kills.** Measured at skill 10, the time from an
+enemy in view to the bot seeing it, the time to the first shot and the kill
+rate between bots had not changed since the bots of the section before
+this one. Two things made the bots slow with a gun that fires a shot a
+click:
+
+- A bot clicked its pistol, sniper rifle or shotgun on a clock of its own,
+  and a click while the gun was still working the last shot does nothing.
+  One click in three fired: the pistol fired at half its rate and the
+  sniper rifle at half its rate. Now a bot of a level over 5 clicks when
+  the gun is ready (the top level at once, with the pistol a little later
+  at a distance, for its spread).
+- A bot aimed for the head only when the shield was gone. A head hit kills
+  when the shot also takes the rest of the shield: with the sniper rifle
+  always, and with the pistol on the third shot. Now a bot aims for the
+  head for that shot as well.
+
+At skill 10, in 8 games without teams: a bot with the sniper rifle killed
+someone with full shields in 1.0 seconds (1.5 before, the median), and a
+bot with the pistol took 4% more off whoever it shot at in a second. With
+half the bots without the change, the bots with it made 53% of the kills
+in 8 games without teams, and 57% in 32 team games. A bot of skill 5 or
+lower clicks as before. `HALO_BOT_OFF=head` turns both off, and so does
+`HALO_BOT_REFINE=65535`. `HALO_BOT_ENGAGELOG=1` writes to the log each
+time that a bot went after someone, and how that ended.
+
+A player who stands still and does not shoot is killed less often than
+with the bots of two sections before this one (1.3 times a minute in place
+of 1.9, with 8 bots of skill 10). The bots kill each other as often as
+before. The cause was not found.
+
 `HALO_BOT_REFINE` has more parts: 32 (the height and the size of craft),
 64 (the drivers), 128 (the nearest vehicle), 256 (the grenades), 512
 (the jumps at a run and the legs), 1024 (how a good player moves in a
 fight), 2048 (lying in wait), 4096 (all the enemies in a room), 8192
 (when things come back), 16384 (the rules near a jump, above) and 32768
 (the corrections from the reading of the code that change what a bot
-does). `HALO_BOT_REFINE=32767` turns the last one off, `HALO_BOT_REFINE=16383`
-the last two, `HALO_BOT_REFINE=1023` the last six, and
-`HALO_BOT_REFINE=31` turns these eleven off. The names `agile`, `camp`,
-`aware`, `timing` and `hear` (shots heard by the shot) in `HALO_BOT_OFF`,
+does) and 65536 (the click and the head, above). `HALO_BOT_REFINE=65535`
+turns the last one off, `HALO_BOT_REFINE=32767` the last two,
+`HALO_BOT_REFINE=16383` the last three, `HALO_BOT_REFINE=1023` the last
+seven, and `HALO_BOT_REFINE=31` turns these twelve off. The names `agile`,
+`camp`, `aware`, `timing`, `hear` (shots heard by the shot) and `head` in
+`HALO_BOT_OFF`,
 `HALO_BOT_OFF_T0` and `HALO_BOT_OFF_T1` turn these off for all bots or for
 one team, and
 `HALO_BOT_OFF_EVEN` does this for each second bot (for a game without
