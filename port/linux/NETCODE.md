@@ -179,7 +179,8 @@ times (a client waits for a player's blow before its body dies without one),
 and switches co-op's BSP on the host's crossing alone; version 22 names a
 Halo Custom Edition map `custom_maps\<name>` in the game's settings, and a
 client without the map it names is told which map it misses and where to
-put it.
+put it; version 24 sends the gametype's PC vehicle set, with which every
+machine places all of the map's vehicles.
 
 A host never checks a joining client's version: the client reads the
 host's from its advertisement and joins only a version it plays with. That

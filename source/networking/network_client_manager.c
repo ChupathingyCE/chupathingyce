@@ -2400,7 +2400,8 @@ static boolean network_game_client_map_name_is_valid(
 {
 	/* (a scenario's tag path, of which the cache takes the name after the
 	last backslash: letters, digits and a few more, none that a path reads
-	otherwise; '@' too, of a ChupathingyCE host's Halo PC map: name@ce) */
+	otherwise; '@' too, of a ChupathingyCE host's Halo PC map: name@ce; and
+	the [ ] ( ) + that Custom Edition maps' names use, [H2]_Lockout) */
 	char const *character;
 	char const *leaf;
 
@@ -2410,7 +2411,8 @@ static boolean network_game_client_map_name_is_valid(
 	{
 		if (!((*character >= 'a' && *character <= 'z') || (*character >= 'A' && *character <= 'Z') ||
 			(*character >= '0' && *character <= '9') || *character == '_' || *character == '-' ||
-			*character == '.' || *character == ' ' || *character == '\\' || *character == '@'))
+			*character == '.' || *character == ' ' || *character == '\\' || *character == '@' ||
+			*character == '[' || *character == ']' || *character == '(' || *character == ')' || *character == '+'))
 		{
 			return FALSE;
 		}

@@ -5,8 +5,8 @@ table as config"; the game's side is port/linux/src/delta.c).
 The table is a JSON document, legacy.json:
 
     {"delta_legacy": 1, "serial": 42, "issued": 1791331200,
-     "wires": {"chupa-23a": {"announce": 23, "minimum": 11, "maximum": 23,
-                             "follows": "build-147"}},
+     "wires": {"chupa-24a": {"announce": 24, "minimum": 11, "maximum": 24,
+                             "follows": "build-154"}},
      "disabled_capabilities": [],
      "platform_policy": {"xbox": {"host_players": 16}}}
 

@@ -601,6 +601,11 @@ void game_stats_player_extra(long player_index, char *text, long size, short *mu
 void game_stats_game_extra(boolean host, char *text, long size);
 #endif
 
+#ifdef HALO_CUSTOM_EDITION
+/* cache_files.c's */
+boolean cache_file_tags_are_ce(void);
+#endif
+
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
 /* port/linux/game/network_distributed.c's */
@@ -7298,6 +7303,8 @@ boolean game_engine_vehicle_placement_allowed(
 		return TRUE;
 	side = global_variant.universal_variant.teams ? game_engine_nearest_team(&placement->position) : 0;
 	set = options->vehicle_set[side];
+	if (set == VARIANT_VEHICLE_SET_PC)
+		return TRUE;
 	type = game_engine_variant_vehicle_type(TAG_BLOCK_GET_ELEMENT(palette, placement->palette_entry_index,
 		struct scenario_object_palette_entry)->reference.index);
 	/* (the map's own: the multiplayer ones of the globals, as the Xbox
@@ -7398,6 +7405,13 @@ long game_engine_remap_vehicle(
 	if (game_engine_ce_vehicles_by_placement())
 		return result;
 #endif
+	/* port: and the PC vehicle set's are every one the map places
+	(game_engine_vehicle_placement_allowed) */
+	if (game_engine && (game_variant_options_get()->vehicle_set[0] == VARIANT_VEHICLE_SET_PC ||
+		game_variant_options_get()->vehicle_set[1] == VARIANT_VEHICLE_SET_PC))
+	{
+		return result;
+	}
 	if (game_engine)
 	{
 		/* (port: NONE for one the map's globals lack) */
@@ -8563,6 +8577,12 @@ static void game_engine_update_item_spawn(
 					definition_index,
 					NONE);
 				placement_data.position = equipment->position;
+				/* port: Halo PC faces a Custom Edition map's items the way
+				their placements do, where the Xbox copied only the position */
+#ifdef HALO_CUSTOM_EDITION
+				if (cache_file_tags_are_ce())
+					vector3d_from_angle(&placement_data.forward, equipment->facing);
+#endif
 				object_index = object_new(&placement_data);
 				if (object_index != NONE)
 				{

@@ -1685,6 +1685,9 @@ void object_cause_damage(
 			being_damaged_flags = 0;
 			body_part = NONE;
 			friendly_damage = _friendly_damage_all;
+			/* port: none for an object without a collision model, which
+			Delta Stats' recorder asks about below */
+			damage_material = NULL;
 
 			if (collision_model_index != NONE)
 			{
@@ -1897,7 +1900,7 @@ void object_cause_damage(
 				game_events_damage(current_object_index, damage->definition_index, damage->owner_player_index,
 					damage->owner_object_index, damage_definition->category,
 					TEST_FLAG(damage->flags, _damage_area_of_effect_bit),
-					TEST_FLAG(damage_material->flags, _damage_material_head_bit) &&
+					damage_material && TEST_FLAG(damage_material->flags, _damage_material_head_bit) &&
 						(TEST_FLAG(damage_definition->flags, _damage_can_cause_headshots_bit) ||
 							TEST_FLAG(damage_definition->flags, _damage_can_cause_multiplayer_headshots_bit)),
 					shield_damage + body_damage,
