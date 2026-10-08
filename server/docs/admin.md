@@ -193,7 +193,7 @@ curl -s -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:8080/v1/log?since=0"
 ```
 
 ```json
-{"name": "My Server", "version": "0.7.0b", "network_version": 20,
+{"name": "My Server", "version": "0.7.1d", "network_version": 24,
  "following": "Following OpenCE build-145 (table 2)", "state": "in_game",
  "map": "bloodgulch", "game_type": "slayer", "chosen": false, "next_map": null,
  "next_game_type": null, "playlist": "playlists/slayer.txt", "entry": 2, "entries": 5,
