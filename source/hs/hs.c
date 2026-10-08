@@ -13325,17 +13325,14 @@ download brought, or game.downloaded_maps names) may not call or set, on top
 of what no map's may (hs_function_allowed_in_maps,
 hs_external_global_settable_by_maps): what changes the player's settings
 (their profile's), other players' games (ending a game for everyone, the
-HUD text every player sees, the game's speed on a host), the checkpoint
-written without its checks, and the globals that outlive the map (they keep
-their values into the maps played after it, a host's other players' among
-them) */
+HUD text every player sees), and the globals that outlive the map (they
+keep their values into the maps played after it, a host's other players'
+among them) */
 static char const *const hs_functions_denied_to_downloaded_maps[]=
 {
 	"player0_look_invert_pitch",
 	"sv_end_game",
 	"sv_say",
-	"game_speed",
-	"game_save_totally_unsafe",
 	NULL
 };
 
