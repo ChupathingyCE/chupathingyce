@@ -81,8 +81,8 @@ OpenCE's public listings and LAN work without it.
   reserved bytes (the flags byte at `HALO_PORT_ADVERTISED_FLAGS_OFFSET`;
   0x01 and 0x02 are taken, so 0x04), only while its Delta socket is open
   (another copy on the same address may hold 5160: that game is then hosted
-  without Delta, and says so). OpenCE machines ignore the bit. The game
-  protocol itself is unchanged, byte for byte.
+  without Delta, and says so). OpenCE machines ignore the bit, and the
+  game's own messages are not changed by it.
 
 ### Handshake
 

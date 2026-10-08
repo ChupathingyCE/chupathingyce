@@ -263,15 +263,19 @@ to install, and no port forwarding. See [server/README.md](server/README.md).
   doesn't change under you every few hours.
 - **Playing together.** OpenCE players and ChupathingyCE players join each
   other's games. OpenCE raises its network version often, and its builds join
-  only hosts of their exact number. ChupathingyCE follows those raises on its
-  own: a workflow watches OpenCE's releases, checks that a raise doesn't
-  change multiplayer, and releases a matching build, usually within the hour.
-  The line at the top of this page says which OpenCE builds match this one.
+  only hosts of their exact number. ChupathingyCE follows those raises
+  without a new download: a cross-play test runs against each new OpenCE
+  build, and once it passes, a signed table tells existing ChupathingyCE
+  builds which network versions to announce and join. A raise that changes
+  how multiplayer plays still needs a ChupathingyCE release. The line at the
+  top of this page says which OpenCE builds this release matches.
 - **Delta** is ChupathingyCE's network family ([docs/delta.md](docs/delta.md)):
-  everything our machines and services say beyond OpenCE's game protocol,
-  which stays OpenCE's byte for byte. OpenCE's version number is Delta's
-  legacy layer, kept for compatibility. Between ChupathingyCE machines, Delta
-  Peer negotiates what each side supports, so small changes stop splitting
+  everything our machines and services say beyond OpenCE's game protocol.
+  In any game with OpenCE players, ChupathingyCE speaks that protocol so
+  everyone plays together; OpenCE's version number is Delta's legacy layer,
+  kept for that. Delta is also where ChupathingyCE's own netcode grows, with
+  OpenCE's protocol kept as the fallback for mixed games. Between
+  ChupathingyCE machines, Delta Peer negotiates what each side supports, so small changes stop splitting
   players. The game list, stats and profile links on
   [halo.milenko.org](https://halo.milenko.org) and the dedicated server's
   admin tools are Delta List, Delta Stats, Delta Link and Delta Control.
