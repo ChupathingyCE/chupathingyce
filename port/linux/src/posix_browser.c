@@ -7,8 +7,8 @@ The game list server's requests (browser_http.h), for browser.c
 response simple: the server sends the body as it is and closes the
 connection when it is done.
 
-The server's certificate must chain to one of the certificate authorities
-(SSL_CERT_FILE's, else the system's) and name the host.
+The server's certificate must chain to one of the system's certificate
+authorities and name the host, as for the updater.
 
 Built with the host's ABI, as the other posix_*.c. The Windows build
 compiles it too (tools/windows_build.py), on Winsock, with Windows' own
@@ -373,25 +373,26 @@ static int connection_read(struct connection *connection, unsigned char *buffer,
 int posix_browser_request(const char *url, const char *form, const char *content_type, char *response,
 	int response_size, char *error, int error_size)
 {
-	return posix_browser_request_as(url, form, content_type, BROWSER_USER_AGENT, response, response_size, error,
+	return posix_browser_send(url, form, form ? strlen(form) : 0, content_type, NULL, response, response_size, error,
 		error_size);
 }
 
-static int request_as(const char *url, const char *form, const char *content_type, const char *user_agent,
-	char *response, int response_size, char *error, int error_size);
+static int request_as(const char *url, const char *body_data, size_t body_length, const char *content_type,
+	const char *user_agent, const char *headers, char *response, int response_size, char *error, int error_size);
 
 /* (one request at a time across the program's threads: Mbed TLS, as it is
 built here, has no locks of its own, and its PSA random generator and key
-slots are shared; the game list's thread, the crash reporter's and a
-dedicated server's Delta Control link each make requests) */
+slots are shared; the game list's thread, the crash reporter's, Delta
+Stats' uploads and a dedicated server's Delta Control link each make
+requests) */
 #ifdef _WIN32
 static SRWLOCK request_lock = SRWLOCK_INIT;
 #else
 static pthread_mutex_t request_lock = PTHREAD_MUTEX_INITIALIZER;
 #endif
 
-int posix_browser_request_as(const char *url, const char *form, const char *content_type, const char *user_agent,
-	char *response, int response_size, char *error, int error_size)
+static int locked_request(const char *url, const char *body_data, size_t body_length, const char *content_type,
+	const char *user_agent, const char *headers, char *response, int response_size, char *error, int error_size)
 {
 	int status;
 
@@ -400,7 +401,8 @@ int posix_browser_request_as(const char *url, const char *form, const char *cont
 #else
 	pthread_mutex_lock(&request_lock);
 #endif
-	status = request_as(url, form, content_type, user_agent, response, response_size, error, error_size);
+	status = request_as(url, body_data, body_length, content_type, user_agent, headers, response, response_size, error,
+		error_size);
 #ifdef _WIN32
 	ReleaseSRWLockExclusive(&request_lock);
 #else
@@ -409,8 +411,22 @@ int posix_browser_request_as(const char *url, const char *form, const char *cont
 	return status;
 }
 
-static int request_as(const char *url, const char *form, const char *content_type, const char *user_agent,
+int posix_browser_request_as(const char *url, const char *form, const char *content_type, const char *user_agent,
 	char *response, int response_size, char *error, int error_size)
+{
+	return locked_request(url, form, form ? strlen(form) : 0, content_type, user_agent, NULL, response, response_size,
+		error, error_size);
+}
+
+int posix_browser_send(const char *url, const char *body_data, size_t body_length, const char *content_type,
+	const char *headers, char *response, int response_size, char *error, int error_size)
+{
+	return locked_request(url, body_data, body_length, content_type, BROWSER_USER_AGENT, headers, response,
+		response_size, error, error_size);
+}
+
+static int request_as(const char *url, const char *body_data, size_t body_length, const char *content_type,
+	const char *user_agent, const char *headers, char *response, int response_size, char *error, int error_size)
 {
 	char host[256], port[16], path[512];
 	char request[4096];
@@ -440,10 +456,12 @@ static int request_as(const char *url, const char *form, const char *content_typ
 			return 0;
 		}
 	}
-	if (form)
+	if (body_data)
 	{
-		/* (a long body, as a carnage report: a request of its own size) */
-		size_t size = strlen(form) + strlen(user_agent) + 1024;
+		/* (a long body, as a carnage report: a request of its own size; the
+		body may be binary, a gzip member) */
+		size_t size = body_length + (headers ? strlen(headers) : 0) + strlen(user_agent) + 1024;
+		int head;
 
 		long_request = malloc(size);
 		if (!long_request)
@@ -451,21 +469,25 @@ static int request_as(const char *url, const char *form, const char *content_typ
 			set_error(error, error_size, "out of memory", 0);
 			return 0;
 		}
-		length = snprintf(long_request, size,
+		head = snprintf(long_request, size,
 			"POST %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: %s\r\n"
-			"Content-Type: %s\r\nContent-Length: %zu\r\n\r\n%s",
-			path, host, user_agent, content_type ? content_type : "application/x-www-form-urlencoded", strlen(form), form);
-		if (length <= 0 || (size_t)length >= size)
+			"Content-Type: %s\r\nContent-Length: %zu\r\n%s\r\n",
+			path, host, user_agent, content_type ? content_type : "application/x-www-form-urlencoded", body_length,
+			headers ? headers : "");
+		if (head <= 0 || (size_t)head + body_length >= size)
 		{
 			free(long_request);
 			set_error(error, error_size, "the request is too long", 0);
 			return 0;
 		}
+		memcpy(long_request + head, body_data, body_length);
+		length = head + (int)body_length;
 	}
 	else
 	{
 		length = snprintf(request, sizeof(request),
-			"GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: %s\r\n\r\n", path, host, user_agent);
+			"GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: %s\r\n%s\r\n", path, host, user_agent,
+			headers ? headers : "");
 	}
 	if (!long_request && (length <= 0 || (size_t)length >= sizeof(request)))
 	{
@@ -517,6 +539,7 @@ static int request_as(const char *url, const char *form, const char *content_typ
 	free(long_request);
 	return status;
 }
+
 
 #ifdef _WIN32
 

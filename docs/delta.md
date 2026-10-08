@@ -25,7 +25,7 @@ boundaries:
 | --- | --- | --- | --- |
 | **Delta Peer** | ChupathingyCE machines in one game | protocol major, capabilities, and our own messages | `delta_peer.c`, UDP port 5160 |
 | **Delta List** | game or server, and the site | announcing and listing games | `/v1/announce`, `/v1/withdraw`, `/v1/games`, the console list |
-| **Delta Stats** | game or server, and the site | end-of-game reports and the event stream | `/v1/report`, `/v1/client_report`; events planned |
+| **Delta Stats** | game or server, and the site | end-of-game reports and the event stream | `/v1/report`, `/v1/client_report`, `/v1/events` |
 | **Delta Control** | an admin or moderator, and a server | roles, commands, the control API and panel, in-game moderation, the site link | `sv_` commands, `HALO_DEDICATED_CONTROL`, `moderators.txt`, `sv_link` |
 | **Delta Link** | a player or server, and the site | linking with a code, and site-relayed control | `/v1/link`, `/v1/connect`, `/v1/claim` (profiles); servers planned |
 
@@ -619,16 +619,137 @@ for the site's "Played on" profile badges.
 ## Delta Stats
 
 - **Reports** (exists): end-of-game totals, with the host, verified and
-  player tiers.
-- **Events** (planned): a host's per-game event log (kills with weapon and
-  position, accuracy, objectives, sessions, ping, server health, moderation
-  and anti-cheat flags), sent once at game end. Never IP addresses; players
-  are identified by name and hashed hardware id.
-- **Trust:** our own [D] servers are authoritative. Other servers are "host"
-  tier unless an admin links them (Delta Link) and the site decides to
-  trust them.
-- The event schema has its own version number, independent of everything
-  else.
+  player tiers (`/v1/report`, `/v1/client_report`, `/v1/claim`).
+- **Events** (built: `port/linux/src/event_log.c`, `event_upload.c`,
+  `port/linux/game/game_events.c`; the site's `analytics.py`): what happened
+  in a game, recorded by its host and sent when it ends.
+
+### Who records
+
+Only a host records, and only when its operator or player turns it on
+(`network.report_events`, `HALO_NET_REPORT_EVENTS`; off by default): our
+[D] servers, community servers that opt in, and ChupathingyCE players who
+host and opt in. Everything is what the host saw, so it is exact; nothing a
+client says is taken. Co-op (campaign) games are never recorded.
+
+### Players
+
+A player is their name, their client (`chupathingyce` when their machine
+speaks Delta, else `other`) and platform, and `ident`: a keyed BLAKE2b hash
+of the hardware ID their machine gave the host. The site hashes `ident`
+again with its own secret and never shows it. A player becomes a confirmed
+player (a player ID, so a profile) only the way carnage reports confirm
+them: their own copy of the game claims their line of the same game's
+report with its player key (`/v1/claim`); the site then marks the same
+line of the events. A host's word about who a player is is never taken. No
+IP address is ever recorded or sent, by the game or the site.
+
+### The batch (schema 1)
+
+JSON, gzip on the wire. `t` is seconds since the game started; positions
+are world units `[x, y, z]`; players are indexes into `players`, `-1`
+nobody (the world). Later versions only add fields; unknown fields are
+ignored.
+
+```
+{"schema": 1,
+ "server": {"name", "build", "platform"},
+ "game": {"id" (32 hex, random), "part", "final", "invite"?, "playlist"? (a
+          dedicated server's playlist file's name), "map", "engine",
+          "gametype", "teams", "score_limit", "started", "ended" (unix),
+          "end_reason": score|time|admin|empty|error|other, "team_scores"?},
+ "players": [{"name", "ident"?, "client", "platform"?, "team", "bot", "color"?
+              (armor, 0-17),
+              "score", "place", "kills", "deaths", "assists", "betrayals",
+              "suicides", "best_spree", "damage_dealt", "damage_taken",
+              "shots", "hits", "grenades": {"frag", "plasma"},
+              "objectives": {"flag_grabs", "flag_returns", "flag_scores",
+                             "ball_time", "ball_kills", "hill_time", "laps"},
+              "weapons": [{"weapon" (tag folder), "shots", "hits", "kills",
+                           "headshots", "damage"}],
+              "vehicles": [{"vehicle", "seat", "seconds"}],
+              "pickups": {tag: count}, "medals": {key: count}}],
+ "sessions": [{"player", "joined", "left", "reason": end|quit|kick|ban|timeout}],
+ "kills": [{"t", "killer", "victim", "weapon" (damage tag), "damage":
+            bullet|plasma|melee|grenade|explosion|vehicle|fall|other,
+            "killer_pos"?, "victim_pos"?, "killer_vehicle"?, "headshot"?,
+            "betrayal"?, "suicide"?, "stuck"?, "victim_riding"?, "from_grave"?}],
+ "medals": [{"t", "player", "medal"}],
+ "objectives": [{"t", "player", "team", "kind": flag_grab|flag_return|
+                 flag_score|ball_grab|ball_drop|hill_enter|hill_exit|race_lap,
+                 "pos"}],
+ "pickups": [{"t", "player", "item", "pos"}],
+ "rides": [[from, to, player, vehicle, seat]],
+ "spawns": [[t, player, x, y, z]],
+ "positions": [[t, player, x, y, z]],
+ "pings": [[t, player, ms]],
+ "health": [{"time", "players", "tick_ms", "tick_ms_max", "cpu", "memory_mb"}],
+ "moderation": [{"t", "kind", "player", "name", "by", "reason"}],
+ "flags": [{"t", "player", "kind", "severity", "detail"}],
+ "limits": {"events", "capacity", "sample_seconds", "dropped": {type: n}}}
+```
+
+How each is known: kills and damage at the blow (`damage.c`), shots per
+projectile a trigger makes (`weapons.c`; grenades thrown count as shots of
+the grenade), hits per projectile that damaged another player (melee
+excluded); medals and sprees are worked out from the kills as Halo does
+(multikills within 4 seconds; sprees at 5, 10, 15, 20; Killjoy for ending
+a spree of 5 or more; From the Grave for a kill that lands after its
+killer died; Beat Down, Sniper Kill, Stuck, Splatter); objectives, rides,
+pickups, powerups and spawns from each player's state each frame; positions
+every `network.events_positions` seconds (2) per living player; ping every
+10 seconds; health each minute (dedicated servers only).
+
+Limits: a game keeps at most `network.events_limit` events (40000, about 60
+bytes each). When full, position and ping samples thin out (every other
+second, then every other of those, ...), then pickups, rides, spawns and
+medals give way to kills, objectives and moderation; every drop is counted
+in `limits`. Totals are counted before anything is dropped, so they stay
+exact. The site refuses a batch over 2 MB sent or 8 MB of JSON.
+
+Moderation: `event_log_moderation(kind, who, by, reason)` (event_log.h)
+records a kick, ban, warning or other action in the game under way, and a
+kicked or banned player's leaving is recorded as such. Delta Control's
+audit hands each action to `server_roles_set_recorder()`'s recorder, on any
+thread; `server/platform/server_events.c` queues it
+(`event_upload_moderation`) for the game's thread. That glue lives on the
+`delta-stats-moderation` branch: merge `server-moderation` first, then
+`delta-stats`, then the glue (or merge `delta-stats-moderation`, which has
+all three). A game that ends with everyone gone is sent as `empty`; a
+server that stops mid-game sends nothing for it. Anti-cheat `flags` are a
+schema slot with nothing filling it yet.
+
+### The upload
+
+`POST <network.browser_url>/v1/events`, `Content-Type: application/json`,
+`Content-Encoding: gzip`, and `Authorization: Bearer <token>` for a trusted
+server (`network.events_token`, `HALO_EVENTS_TOKEN`; made on the site's host
+with `analytics.py server-add`, only its hash kept there; sent only over
+HTTPS or to this computer). Without a token, the site takes a batch only
+while the same address lists the game whose `invite` it carries. Answers:
+`200 {"ok", "match", "tier", "duplicate", "ignored"}`; `400` a bad field
+(named); `401` a wrong token; `403` not a game this address lists; `409` a
+different batch of a finished game; `413` too large; `422` co-op; `429`
+too many (one each 20 seconds, 60 an hour, per server).
+
+A batch is sent 5 seconds after its game ends (after the carnage report),
+again later after no answer, a 5xx or a 429 (doubling from 30 seconds, for
+about a day), and at once when the program exits. A long game is also sent
+as it stands every `network.events_part_minutes` (30) with `"final":
+false`; the site keeps the latest part and replaces it with the end.
+`network.events_folder` keeps a copy of each batch.
+
+### On the site
+
+Stored in `reports.db` (`analytics.py`): matches and players' lines always;
+kills 180 days, timelines 180, replays (positions) 30, heatmap squares 365,
+server health 90, moderation 365; past a size budget
+(`--events-budget-mb`, 400) the oldest replays, then timelines, then kills
+go first. Pages: `/matches/N`, `/players/<who>/stats`, `/maps`,
+`/maps/<map>`, `/servers`, `/servers/N`, `/records`; the interface is on
+the site's `/api`. Leaderboards and records count ranked matches only (two
+or more players, no bots, a minute or more). A confirmed player can hide
+their stats or their heatmaps from their profile.
 
 ## Delta Control
 

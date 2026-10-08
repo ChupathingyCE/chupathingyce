@@ -67,7 +67,7 @@ SERVER_NATIVE_SOURCES = [SERVER_PLATFORM_DIR / "sdl_headless.c", SERVER_PLATFORM
                          SERVER_PLATFORM_DIR / "control_tls.c", SERVER_PLATFORM_DIR / "server_control.c",
                          SERVER_PLATFORM_DIR / "control_roles.c", SERVER_PLATFORM_DIR / "control_accounts.c",
                          SERVER_PLATFORM_DIR / "server_roles.c", SERVER_PLATFORM_DIR / "control_link_protocol.c",
-                         SERVER_PLATFORM_DIR / "control_link.c"]
+                         SERVER_PLATFORM_DIR / "control_link.c", SERVER_PLATFORM_DIR / "server_events.c"]
 SERVER_WEBUI_DIR = SERVER_DIR / "webui"
 # the window, input and self-updater the server has none of
 SERVER_EXCLUDED = {

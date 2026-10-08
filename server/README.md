@@ -161,6 +161,34 @@ console, control API and web admin page; `webui/` that page's files;
 `tests/` the control API's tests; `docs/` the server's documents;
 `playlists/` the playlists; `deploy/` the container and services.
 
+## Stats (Delta Stats, opt in)
+
+A server can send each game's events to halo.milenko.org when it ends, for
+the site's match pages, heatmaps, records and leaderboards: kills (weapon,
+how, where the killer and victim were), shots and hits by weapon, medals and
+sprees, flag, ball, hill and lap events, vehicle rides, weapon and powerup
+pickups, spawns, joins and leaves, each player's position every 2 seconds,
+ping, and the server's own minute (frame time, CPU, memory). Players are
+their names and a keyed hash of their hardware ID. No address of anyone is
+ever sent. Co-op games are never recorded.
+
+It is off unless you turn it on:
+
+| Setting | Default | |
+| --- | --- | --- |
+| `HALO_NET_REPORT_EVENTS` | `false` | `true` records and sends each game. |
+| `HALO_EVENTS_TOKEN` | (none) | A token from the site's operator: the games count as a trusted server's. Without one, the site takes a game only while the server lists it, from the same address (as the carnage report). |
+| `HALO_EVENTS_POSITIONS` | `2` | Seconds between position samples (0 none). |
+| `HALO_EVENTS_LIMIT` | `40000` | The most events a game keeps (about 60 bytes each); past it the position samples thin out first. |
+| `HALO_EVENTS_PART_MINUTES` | `30` | A long game is also sent as it stands this often. |
+| `HALO_EVENTS_FOLDER` | (none) | A folder to keep your own copy of each batch (JSON). |
+
+The log takes at most 2.4 MB of memory (the default limit), and a 15-minute
+game of 16 players is about a 30 KB upload (gzip); encoding and compressing
+even an hour's game takes a few milliseconds. The format and the upload are in docs/delta.md, "Delta
+Stats". Tell your players: the site's Delta page says what is collected,
+and players can hide their stats from their profile.
+
 ## If something's wrong
 
 - **It stops at once with "no maps".** The data folder needs
