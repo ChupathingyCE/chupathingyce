@@ -1093,6 +1093,37 @@ static long config_setting_index(const char *name)
 	return -1;
 }
 
+/* a key in the file that is no setting, likely misspelt or in the wrong
+section: said in the log, with the section of a setting of that name */
+static void config_report_unknown_key(int line, const char *name)
+{
+	const char *key = strrchr(name, '.');
+	const char *found = NULL;
+	size_t index, count = 0;
+
+	key = key ? key + 1 : name;
+	for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
+	{
+		const char *dot = strchr(config_settings[index].name, '.');
+
+		if (dot && !strcmp(dot + 1, key))
+		{
+			found = config_settings[index].name;
+			count++;
+		}
+	}
+	/* (only a name one setting has: the section is then sure) */
+	if (count == 1)
+	{
+		platform_log("config.toml line %d: unknown setting %s, ignored (%s goes under [%.*s])", line, name, key,
+			(int)(strchr(found, '.') - found), found);
+	}
+	else
+	{
+		platform_log("config.toml line %d: unknown setting %s, ignored", line, name);
+	}
+}
+
 /* keys in the file that are no setting, likely misspelt */
 static void config_report_unknown_keys(toml_datum_t table)
 {
@@ -1107,7 +1138,7 @@ static void config_report_unknown_keys(toml_datum_t table)
 			continue;
 		if (section.type != TOML_TABLE)
 		{
-			platform_log("config.toml line %d: unknown setting %s", section.lineno, table.u.tab.key[section_index]);
+			config_report_unknown_key(section.lineno, table.u.tab.key[section_index]);
 			continue;
 		}
 		for (key_index = 0; key_index < section.u.tab.size; key_index++)
@@ -1116,7 +1147,7 @@ static void config_report_unknown_keys(toml_datum_t table)
 
 			snprintf(name, sizeof(name), "%s.%s", table.u.tab.key[section_index], section.u.tab.key[key_index]);
 			if (config_setting_index(name) < 0)
-				platform_log("config.toml line %d: unknown setting %s", section.u.tab.value[key_index].lineno, name);
+				config_report_unknown_key(section.u.tab.value[key_index].lineno, name);
 		}
 	}
 }
@@ -1307,6 +1338,29 @@ static void config_load(void)
 	}
 
 	config_path(path, sizeof(path));
+#ifdef __APPLE__
+	{
+		/* a config.toml beside the application, or in it, which the game never
+		reads (its is in Application Support): said, for whoever edits it */
+		const char *base = SDL_GetBasePath();
+		const char *bundle = base ? strstr(base, ".app/Contents/") : NULL;
+
+		if (bundle)
+		{
+			const char *folder_end = bundle;
+			char other[1024];
+
+			while (folder_end > base && folder_end[-1] != '/')
+				folder_end--;
+			snprintf(other, sizeof(other), "%sconfig.toml", base);
+			if (SDL_GetPathInfo(other, NULL))
+				platform_log("settings: %s is not read; the game's settings are %s", other, path);
+			snprintf(other, sizeof(other), "%.*sconfig.toml", (int)(folder_end - base), base);
+			if (SDL_GetPathInfo(other, NULL))
+				platform_log("settings: %s is not read; the game's settings are %s", other, path);
+		}
+	}
+#endif
 	text = config_read_file(path, &size);
 	if (text)
 	{
@@ -1347,7 +1401,8 @@ static void config_load(void)
 		}
 		else
 		{
-			platform_log("config.toml: %s; using the defaults", result.errmsg);
+			platform_log("config.toml cannot be read (%s): every setting is at its default until that is fixed "
+				"(a word value needs quotes: menus = \"pc\")", result.errmsg);
 		}
 		toml_free(result);
 		free(text);

@@ -217,7 +217,12 @@ Most of what you can change lives in the game's menus, but everything the
 port adds is in one file, `config.toml`. The game writes it the first time it
 starts, with every setting listed, commented out at its default, and a line
 or two saying what each one does. To change one, remove the `#` in front of it
-and edit the value; the game reads the file when it starts.
+and edit the value; the game reads the file when it starts, so restart it
+after a change. If a change seems to do nothing, look in `debug.txt` for lines
+starting `config.toml` or `settings:`: they name a misspelled setting, one in
+the wrong `[section]`, a value missing its quotes (`menus = "pc"`, not
+`menus = pc`, which leaves every setting at its default), or, on a Mac, a
+`config.toml` that is not the one the game reads.
 
 | Platform | config.toml is |
 | --- | --- |
