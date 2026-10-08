@@ -70,6 +70,8 @@ enum
 	CE_HEADER_SIZE = 0x800,
 	/* (a tag handle's index: 16 bits) */
 	CE_MAXIMUM_TAG_COUNT = 0xffff,
+	/* a tag's name, with its terminator (Halo's tools' paths) */
+	CE_MAXIMUM_TAG_NAME_LENGTH = 256,
 	/* the files read: no larger than a signed 32-bit offset reaches */
 	CE_MAXIMUM_FILE_SIZE = 0x7fffffff,
 
@@ -231,6 +233,11 @@ static boolean ce_tag_index_check(
 			return ce_refuse("tag %ld's handle is %08lx", index, instance->tag_index);
 		if (!name || !memchr(name, 0, image->base + image->size - instance->name))
 			return ce_refuse("tag %ld's name is not in its tag data", index);
+		/* (no longer than a tag's path is: the game copies and formats
+		names into buffers of that size, game_state.c's, objects.c's) */
+		if (!memchr(name, 0, MIN(image->base + image->size - instance->name,
+			(unsigned long)CE_MAXIMUM_TAG_NAME_LENGTH)))
+			return ce_refuse("tag %ld's name is longer than %d characters", index, CE_MAXIMUM_TAG_NAME_LENGTH - 1);
 		if (instance->indexed)
 		{
 			switch (instance->group_tag)
