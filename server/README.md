@@ -12,8 +12,10 @@ nothing a player sits in front of: no window, no sound, no controller. It is
 one file, with no libraries to install, and it runs on any Linux of its
 architecture.
 
-You don't need to open or forward any ports. Players reach your server the
-same way they reach anyone's invite link, even behind a home router.
+On a home connection you don't need to open or forward any ports. Players
+reach your server the same way they reach anyone's invite link, even behind a
+home router. On a cloud server (Oracle, AWS, Google, Azure and the like), open
+one UDP port: see "It shows, but nobody can join" below.
 
 ## Which download
 
@@ -198,8 +200,31 @@ and players can hide their stats from their profile.
   folder: `playlists/my_playlist.txt`, not a path from elsewhere.
 - **It doesn't show on the site.** The log is `debug.txt` in the data folder.
   The server needs to reach the internet (HTTPS to halo.milenko.org, and UDP).
-- **It shows, but nobody can join.** The player probably has another
-  version; the message they see says which.
+- **It shows, but nobody can join.** If the player sees a message, it
+  probably names a version mismatch. If they just can't connect (the log
+  says `could not connect` or `lost the connection` for their player), the
+  server's firewall is dropping the game's traffic. Cloud servers block
+  incoming UDP by default, and players whose router changes ports can only
+  reach a server that lets them in. Fix it in three steps:
+  1. Give internet play a fixed port: `HALO_NET_TUNNEL_PORT=2302` (any
+     free port). The log's `this machine's public address is ...:2302` line
+     shows the port in use.
+  2. Allow incoming UDP on that port in the provider's firewall: on Oracle
+     Cloud, an ingress rule in the subnet's security list (or the instance's
+     network security group), source `0.0.0.0/0`, protocol UDP, destination
+     port 2302. Other providers call it a security group or firewall rule.
+  3. Allow it on the machine too. Oracle's Ubuntu images reject everything
+     but SSH in iptables: `sudo iptables -I INPUT -p udp --dport 2302 -j ACCEPT`,
+     then `sudo netfilter-persistent save` to keep it. With ufw:
+     `sudo ufw allow 2302/udp`.
+
+  Internet play carries everything, Delta Peer included, over that one port.
+  System link on a LAN uses UDP 5150 and 5160 instead.
+- **"cannot commit the Xbox heap", then a crash** (64-bit server before
+  0.7.1b, on a machine with 1 GB of memory or less). The server asked the
+  system to set aside more memory than the machine has, though it uses far
+  less. 0.7.1b no longer asks for that. On an older version, use the x86
+  (32-bit) server, or add swap.
 - **It sits in the lobby and never starts.** Check that every multiplayer
   map is in `maps`, not just the playlist's. With
   `HALO_DEDICATED_MINIMUM_PLAYERS` above 1, it waits for that many.

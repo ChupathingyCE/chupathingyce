@@ -21,6 +21,7 @@ load, so this stays simple rather than clever.
 #ifdef HALO_64BIT
 
 #include <errno.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 
@@ -55,11 +56,15 @@ static BOOL heap_initialize(void)
 
 	if (heap_next)
 		return TRUE;
+	/* (no swap reserved: nearly 1 GB of address space, of which the game
+	touches a small part; a machine with 1 GB of memory refuses it otherwise) */
 	if (mmap(base, XBOX_HEAP_END - XBOX_HEAP_BASE, PROT_READ | PROT_WRITE,
-		MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) != base)
+		MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0) != base)
 	{
-		platform_log("cannot commit the Xbox heap (%s)", strerror(errno));
-		return FALSE;
+		platform_log("cannot commit the Xbox heap (%s): the system refused %u MB of address space (a memory "
+			"limit such as ulimit -v, or vm.overcommit_memory = 2)", strerror(errno),
+			(XBOX_HEAP_END - XBOX_HEAP_BASE) >> 20);
+		abort();
 	}
 	heap_next = base;
 	heap_end = xbox_pointer(XBOX_HEAP_END);

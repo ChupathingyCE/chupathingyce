@@ -148,15 +148,18 @@ static void contiguous_arena_reserve(void)
 	}
 #endif
 #ifdef HALO_64BIT
+	/* (no swap reserved for these, as for the heap, xbox_heap.c: pages are
+	backed when touched, and a small machine refuses the whole window
+	otherwise) */
 	if (mmap(xbox_pointer(PLATFORM_CONTIGUOUS_BASE), PLATFORM_CONTIGUOUS_SIZE, PROT_READ | PROT_WRITE,
-		MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) != xbox_pointer(PLATFORM_CONTIGUOUS_BASE))
+		MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0) != xbox_pointer(PLATFORM_CONTIGUOUS_BASE))
 	{
 		platform_log("cannot commit the Xbox contiguous memory window (%s)", strerror(errno));
 		abort();
 	}
 	/* Custom Edition maps' tag cache (platform.h) */
 	if (mmap(xbox_pointer(PLATFORM_CE_TAG_CACHE_BASE), PLATFORM_CE_TAG_CACHE_SIZE, PROT_READ | PROT_WRITE,
-		MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) != xbox_pointer(PLATFORM_CE_TAG_CACHE_BASE))
+		MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0) != xbox_pointer(PLATFORM_CE_TAG_CACHE_BASE))
 	{
 		platform_log("cannot commit Custom Edition maps' tag cache (%s)", strerror(errno));
 	}
@@ -258,7 +261,7 @@ static void clear_block(void *address, size_t size)
 	uintptr_t end = ((uintptr_t)address + size) & ~mask;
 
 	if (end <= start || mmap((void *)start, end - start, PROT_READ | PROT_WRITE,
-		MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) != (void *)start)
+		MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0) != (void *)start)
 	{
 		memset(address, 0, size);
 		return;
