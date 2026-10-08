@@ -773,6 +773,21 @@ Games:
   connect, or B to cancel. A code operates for two minutes, and the question
   for two minutes. Press RB (or C) for a new code.
 
+You link once. The link stays until you change the save root or the player
+key: the profile keeps the link, and the games the key played before it
+count too. Linking by code needs no key import.
+
+To use a key from another computer (or a backup of the profile's key) on
+Linux, either copy `game_list_player.key` into the save root, or start the
+game with the key's link as its argument: `halo 'halo://key/<64 hexadecimal
+digits>'` (the profile page's "Copy key link"). The game asks before it
+replaces its key. The file is the 32 bytes of the key. The game ignores a
+key file that another user owns or that others can read, and then has no
+key at all: `chmod 600 game_list_player.key`. The profile page's Install in
+Game button needs a desktop that opens `halo://` links for the game
+(it registers itself at start); on a Steam Deck's Game Mode, or in a
+sandbox, use the argument.
+
 Link Profile uses these requests to the server (`src/browser.c`, on the
 thread of the game list): `POST /v1/connect/start` with the key (and the
 name of the profile) gives `ok <code> <seconds> <token>`.
