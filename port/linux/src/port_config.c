@@ -420,8 +420,9 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"When an internet game this machine joined ends, send network.browser_url\n"
 		"its scores as this machine saw them, with this copy's player ID, so that\n"
-		"games whose host does not report them are recorded too. False sends\n"
-		"nothing." },
+		"games whose host does not report them are recorded too, and confirm\n"
+		"this machine's players' lines in the host's report of it (/v1/claim),\n"
+		"which puts the game on their profile. False sends neither." },
 	{ "network.report_events", _config_boolean, "true", "HALO_NET_REPORT_EVENTS", _environment_value, _platform_all,
 		"Delta Stats: record the games this machine hosts (kills with weapons and\n"
 		"positions, accuracy, medals, objectives, vehicles, pickups, positions a\n"

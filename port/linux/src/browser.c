@@ -1530,8 +1530,11 @@ void browser_claim_game(const unsigned short (*names)[BROWSER_PLAYER_NAME_LENGTH
 {
 	char invite[BROWSER_INVITE_LENGTH + 1];
 
+	/* (a game it joined only with network.report_joined_games: a claim
+	tells the site this copy played in it, as a report of it would) */
 	if (count <= 0 || !config_string("network.browser_url")[0] ||
-		(!p2p_hosting_invite(invite, sizeof(invite)) && !p2p_joined_invite(invite, sizeof(invite))))
+		(!p2p_hosting_invite(invite, sizeof(invite)) &&
+			(!config_boolean("network.report_joined_games") || !p2p_joined_invite(invite, sizeof(invite)))))
 		return;
 	if (count > MAXIMUM_CLAIM_NAMES)
 		count = MAXIMUM_CLAIM_NAMES;
