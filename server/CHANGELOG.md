@@ -4,7 +4,7 @@ What changed in the ChupathingyCE Dedicated Server. The server is released
 with the game and has its version; the game's own changes are in its
 release notes.
 
-## Next
+## 0.7.1b
 
 - Delta Control: moderators for every server, no site needed
   ([docs/moderation.md](docs/moderation.md)). Roles (owner, admin,

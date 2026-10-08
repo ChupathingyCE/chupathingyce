@@ -148,7 +148,7 @@ listing it and while it is listed.
 
 ```
 HALO_PROBE=068f5721cffe... chupathingyce-server
-probe: {"ok": true, "name": "Milenko Slayer", "map": "chillout", "engine": "slayer", "players": 0, "maximum_players": 12, "open": true, "teams": false, "network_version": 20, "compatible": true, "machines": 1, "score_limit": 25, "in_progress": false}
+probe: {"ok": true, "name": "Milenko Slayer", "map": "chillout", "engine": "slayer", "players": 0, "maximum_players": 12, "open": true, "teams": false, "network_version": 24, "compatible": true, "machines": 1, "score_limit": 25, "in_progress": false}
 ```
 
 It needs only `maps/ui.map` in the data folder (and about 33 MB for its
