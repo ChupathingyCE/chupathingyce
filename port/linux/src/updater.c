@@ -2,7 +2,8 @@
 UPDATER.C
 
 The desktop ports' self-updater (Linux and Windows; the Android app updates
-itself in Java, port/android).
+itself in Java, port/android). On macOS a release's build looks for a new
+version the same way, and Yes opens the release's download page instead.
 
 A release's build (HALO_RELEASE_BUILD: built from the release's tag,
 v<version>, by ChupathingyCE's release workflow; tools/version.py) knows its
@@ -51,10 +52,14 @@ macos_build.py; the Android app's version is its own, build.gradle) */
 #define HALO_RELEASE_BUILD 0
 #endif
 #ifdef __APPLE__
-/* (the macOS application does not update itself yet) */
-#undef HALO_RELEASE_BUILD
-#define HALO_RELEASE_BUILD 0
+/* (the macOS application does not replace itself yet: a release's build
+looks for a new version and offers its download page) */
+#define UPDATER_DOWNLOAD_PAGE_ONLY 1
+#else
+#define UPDATER_DOWNLOAD_PAGE_ONLY 0
 #endif
+/* the latest release's page, where the macOS application is downloaded */
+#define UPDATE_RELEASE_PAGE "https://github.com/" UPDATE_REPOSITORY "/releases/latest"
 #ifndef HALO_BUILD_FLAVOR
 #define HALO_BUILD_FLAVOR "release"
 #endif
@@ -765,14 +770,24 @@ void updater_start(void)
 {
 	char *slash;
 
-	if (!update_executable_path(updater_executable, sizeof(updater_executable)))
-		return;
-	snprintf(updater_directory, sizeof(updater_directory), "%s", updater_executable);
-	slash = strrchr(updater_directory, PATH_SEPARATOR[0]);
-	if (!slash)
-		return;
-	*slash = 0;
-	updater_clean_up();
+	/* (the macOS application only offers the download page: no files of its
+	own to find or clean up) */
+	if (UPDATER_DOWNLOAD_PAGE_ONLY)
+	{
+		/* (the check's answer is kept in the save root while it is read) */
+		snprintf(updater_directory, sizeof(updater_directory), "%s", platform_save_root());
+	}
+	else
+	{
+		if (!update_executable_path(updater_executable, sizeof(updater_executable)))
+			return;
+		snprintf(updater_directory, sizeof(updater_directory), "%s", updater_executable);
+		slash = strrchr(updater_directory, PATH_SEPARATOR[0]);
+		if (!slash)
+			return;
+		*slash = 0;
+		updater_clean_up();
+	}
 	/* (not for builds other than a release's, the player's no, or runs nobody
 	is watching, but for a test with its answer) */
 	if (!HALO_RELEASE_BUILD || !config_boolean("update.auto") ||
@@ -835,7 +850,9 @@ void updater_poll(SDL_Window *window)
 	if (test_answer[0])
 	{
 		platform_log("update: answering %s (debug.update_answer)", test_answer);
-		if (!strcmp(test_answer, "yes"))
+		if (!strcmp(test_answer, "yes") && UPDATER_DOWNLOAD_PAGE_ONLY)
+			platform_log("update: would open " UPDATE_RELEASE_PAGE);
+		else if (!strcmp(test_answer, "yes"))
 			updater_update();
 		else if (!strcmp(test_answer, "never"))
 			config_write_boolean("update.auto", 0);
@@ -853,10 +870,20 @@ void updater_poll(SDL_Window *window)
 	fullscreen = window && (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN);
 	if (fullscreen)
 		SDL_SetWindowFullscreen(window, false);
-	snprintf(message, sizeof(message),
-		"A new version of ChupathingyCE is out (%s; this is %s).\n\n"
-		"Do you want to update? The game will close and start the new version.",
-		updater_latest_version, HALO_VERSION);
+	if (UPDATER_DOWNLOAD_PAGE_ONLY)
+	{
+		snprintf(message, sizeof(message),
+			"A new version of ChupathingyCE is out (%s; this is %s).\n\n"
+			"Do you want to open its download page? Your saves and settings stay as they are.",
+			updater_latest_version, HALO_VERSION);
+	}
+	else
+	{
+		snprintf(message, sizeof(message),
+			"A new version of ChupathingyCE is out (%s; this is %s).\n\n"
+			"Do you want to update? The game will close and start the new version.",
+			updater_latest_version, HALO_VERSION);
+	}
 	{
 		SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, window, "ChupathingyCE: new version", message,
 			3, question_buttons, NULL };
@@ -879,6 +906,12 @@ void updater_poll(SDL_Window *window)
 			else
 				platform_log("update: could not write update.auto to config.toml");
 		}
+	}
+	else if (answer == 1 && UPDATER_DOWNLOAD_PAGE_ONLY)
+	{
+		platform_log("update: opening " UPDATE_RELEASE_PAGE);
+		if (!SDL_OpenURL(UPDATE_RELEASE_PAGE))
+			platform_log("update: could not open the download page: %s", SDL_GetError());
 	}
 	else if (answer == 1)
 	{

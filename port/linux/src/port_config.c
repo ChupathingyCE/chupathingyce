@@ -623,7 +623,15 @@ static void config_path(char *path, size_t size)
 {
 #ifdef __APPLE__
 	char folder[1024];
+	const char *save_root = getenv("HALO_SAVE_ROOT");
 
+	/* (a copy given a save root of its own, a test's, keeps its settings
+	there too, not in the player's) */
+	if (save_root && *save_root)
+	{
+		snprintf(path, size, "%s/config.toml", save_root);
+		return;
+	}
 	/* (the application's folder: not the application, which is signed) */
 	if (platform_app_folder(folder, sizeof(folder)))
 	{
