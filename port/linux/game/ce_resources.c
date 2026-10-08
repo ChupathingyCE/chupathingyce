@@ -87,6 +87,10 @@ enum
 	CE_PERMUTATION_SAMPLES_OFFSET = 0x40,
 	CE_PERMUTATION_MOUTH_DATA_OFFSET = 0x54,
 	CE_PERMUTATION_SUBTITLE_DATA_OFFSET = 0x68,
+	/* the most a map's decoded sounds take on disk (z:\ce_sounds.pcm), 512
+	MB: a map's Ogg Vorbis streams may decode to any length (silence takes
+	almost nothing compressed); the shipped maps' take a few megabytes */
+	CE_MAXIMUM_DECODED_SOUNDS_SIZE = 0x20000000,
 	/* (the played permutations are a 32-bit mask: sound_definitions.c) */
 	CE_MAXIMUM_PLAYED_PERMUTATIONS = 32,
 
@@ -1347,7 +1351,8 @@ static void ce_sounds_decode(
 					continue;
 				}
 				bytes = (unsigned long)frames * (unsigned long)channels * sizeof(short);
-				if (written > 0x7fffffff - bytes || !WriteFile(file, samples, bytes, &bytes_written, NULL) ||
+				if (bytes > CE_MAXIMUM_DECODED_SOUNDS_SIZE - written ||
+					!WriteFile(file, samples, bytes, &bytes_written, NULL) ||
 					bytes_written != bytes)
 				{
 					ce_vorbis_free(samples);
