@@ -1294,6 +1294,11 @@ void event_log_moderation(int kind, char const *who, char const *by, char const 
 	event_log_add(&record);
 }
 
+void event_log_free(char *json)
+{
+	free(json);
+}
+
 int event_log_count(void)
 {
 	return event_log.count;

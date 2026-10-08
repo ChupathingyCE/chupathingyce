@@ -128,6 +128,16 @@ def test_a_part_then_the_end(program):
     assert last["players"][0]["kills"] >= first["players"][0]["kills"]
 
 
+def test_an_abandoned_game_is_freed_as_allocated(program):
+    run(program, "abandon")
+    # (the game's units free through debug_free, cseries.h's free, which
+    # takes neither the C library's memory nor NULL: a batch freed there
+    # crashed hosts whose game stopped before its end)
+    source = (ROOT / "port" / "linux" / "game" / "game_events.c").read_text()
+    assert not re.search(r"(?<![\w.>])free\s*\(", source)
+    assert "event_log_free(json)" in source
+
+
 @pytest.mark.parametrize("capacity", [64, 2000, 40000])
 def test_limits(program, capacity):
     output = run(program, "limits", capacity).decode()

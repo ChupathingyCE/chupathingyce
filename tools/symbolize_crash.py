@@ -6,10 +6,10 @@ line: port/linux/src/crash_report.h):
 
     python tools/symbolize_crash.py debug.txt path/to/halo.exe
 
-halo.exe must be the build that crashed, with its halo.pdb beside it (a
-release's halo-windows-<config>-symbols.zip has the PDB; the zip of the
-same name without -symbols has halo.exe). The lines come from
-llvm-symbolizer, which reads the PDB.
+halo.exe must be the build that crashed (32- or 64-bit), with its halo.pdb
+beside it (a release's symbols, chupathingyce-<platform>-<config>-symbols,
+have the PDB and the linker's map; the release's zip has halo.exe). The
+lines come from llvm-symbolizer, which reads the PDB.
 """
 
 import argparse
@@ -34,9 +34,15 @@ def image_layout(executable: Path) -> tuple:
     optional header's ImageBase and SizeOfImage)"""
     data = executable.read_bytes()
     pe = struct.unpack_from("<I", data, 0x3C)[0]
-    if data[pe:pe + 4] != b"PE\0\0" or struct.unpack_from("<H", data, pe + 24)[0] != 0x10B:
-        sys.exit(f"{executable} is not a 32-bit Windows executable")
-    return struct.unpack_from("<I", data, pe + 24 + 28)[0], struct.unpack_from("<I", data, pe + 24 + 56)[0]
+    magic = struct.unpack_from("<H", data, pe + 24)[0] if data[pe:pe + 4] == b"PE\0\0" else 0
+    if magic == 0x10B:
+        base = struct.unpack_from("<I", data, pe + 24 + 28)[0]
+    elif magic == 0x20B:
+        # (PE32+, the 64-bit build: an 8-byte ImageBase)
+        base = struct.unpack_from("<Q", data, pe + 24 + 24)[0]
+    else:
+        sys.exit(f"{executable} is not a Windows executable")
+    return base, struct.unpack_from("<I", data, pe + 24 + 56)[0]
 
 
 def symbolize(symbolizer: str, executable: Path, addresses: list) -> dict:

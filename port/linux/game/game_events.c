@@ -1091,7 +1091,7 @@ void game_events_update(
 
 			csmemset(&end, 0, sizeof(end));
 			json = event_log_finish(&end, "", TRUE, &length);
-			free(json);
+			event_log_free(json);
 			game_events.recording = FALSE;
 			platform_log("Delta Stats: the game stopped before its end: not sent");
 		}
