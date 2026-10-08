@@ -1550,18 +1550,40 @@ with the bots of two sections before this one (1.3 times a minute in place
 of 1.9, with 8 bots of skill 10). The bots kill each other as often as
 before. The cause was not found.
 
+**Pressure.** A bot of a level over 5 (all of it at 10) also does this:
+
+- It finishes whoever it has hurt. When the target that it shot in the
+  last 1.5 seconds has less than three quarters of its shield and health,
+  the bot changes to another enemy only when that enemy is a good deal
+  better, or is less than 12 world units away and aims at it. In a game
+  without teams, when the hurt target goes behind something, the bot goes
+  after it.
+- It knows of an enemy who came back to life less than 2 seconds ago and
+  less than 30 to 45 world units away (a sporting bot does not), and goes
+  after an enemy that it knows of also when it is on its way to an
+  ordinary weapon.
+- It lies in wait less with a gun that is not for close in.
+
+Not in a race. In 8 games without teams, the bots with this saw the
+target dead at the end of 44% of their fights (35% without), and changed
+to someone else in 46% (56%). The kills between bots with and without it
+were even: 50% without teams, 49% in 32 team games, and 49% in duels of
+two bots (47% for two bots that are the same). `HALO_BOT_OFF=press` turns
+it off, and so does `HALO_BOT_REFINE=131071`.
+
 `HALO_BOT_REFINE` has more parts: 32 (the height and the size of craft),
 64 (the drivers), 128 (the nearest vehicle), 256 (the grenades), 512
 (the jumps at a run and the legs), 1024 (how a good player moves in a
 fight), 2048 (lying in wait), 4096 (all the enemies in a room), 8192
 (when things come back), 16384 (the rules near a jump, above) and 32768
 (the corrections from the reading of the code that change what a bot
-does) and 65536 (the click and the head, above). `HALO_BOT_REFINE=65535`
-turns the last one off, `HALO_BOT_REFINE=32767` the last two,
-`HALO_BOT_REFINE=16383` the last three, `HALO_BOT_REFINE=1023` the last
-seven, and `HALO_BOT_REFINE=31` turns these twelve off. The names `agile`,
-`camp`, `aware`, `timing`, `hear` (shots heard by the shot) and `head` in
-`HALO_BOT_OFF`,
+does), 65536 (the click and the head, above) and 131072 (the pressure,
+above). `HALO_BOT_REFINE=131071` turns the last one off,
+`HALO_BOT_REFINE=65535` the last two, `HALO_BOT_REFINE=32767` the last
+three, `HALO_BOT_REFINE=16383` the last four, `HALO_BOT_REFINE=1023` the
+last eight, and `HALO_BOT_REFINE=31` turns these thirteen off. The names
+`agile`, `camp`, `aware`, `timing`, `hear` (shots heard by the shot),
+`head` and `press` in `HALO_BOT_OFF`,
 `HALO_BOT_OFF_T0` and `HALO_BOT_OFF_T1` turn these off for all bots or for
 one team, and
 `HALO_BOT_OFF_EVEN` does this for each second bot (for a game without

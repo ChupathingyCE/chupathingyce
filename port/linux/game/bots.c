@@ -1010,6 +1010,9 @@ enum
 	/* the head whenever the shot goes through what is left of the shield,
 	   and a click a shot as the gun comes ready (the levels over 3) */
 	BOT_F_HEAD = 262144,
+	/* a good player's pressure: whoever it has hurt is finished, and whoever
+	   has just come back to life near it is gone after (the levels over 3) */
+	BOT_F_PRESS = 524288,
 };
 static unsigned bot_off;
 
@@ -1021,8 +1024,8 @@ static unsigned bot_off_parse(char const *text)
 		{ "via", BOT_F_VIA }, { "teabag", BOT_F_TEABAG }, { "costslot", BOT_F_COSTSLOT }, { "pace", BOT_F_PACE },
 		{ "notice", BOT_F_NOTICE }, { "human", BOT_F_HUMAN }, { "fresh", BOT_F_FRESH }, { "wary", BOT_F_WARY },
 		{ "agile", BOT_F_AGILE }, { "camp", BOT_F_CAMP }, { "aware", BOT_F_AWARE }, { "timing", BOT_F_TIMING },
-		{ "hear", BOT_F_HEAR }, { "head", BOT_F_HEAD },
-		{ "all", 0xFFFFFu },
+		{ "hear", BOT_F_HEAR }, { "head", BOT_F_HEAD }, { "press", BOT_F_PRESS },
+		{ "all", 0xFFFFFFu },
 	};
 	unsigned mask = 0;
 	long i;
@@ -2421,6 +2424,17 @@ static int bot_head_kills(long weapon_index, long target)
 	return through * head->body_damage_multiplier > 0.f;
 }
 
+extern struct game_engine race_engine;
+/* (how much of a good player's pressure: the levels over 3) */
+static real bot_press(void)
+{
+	/* (not in a race, which is run, not fought) */
+	return BOT_ON(BOT_F_PRESS) && bot_refined_is(131072) && game_engine != &race_engine ? PIN((bot_skill_now - 3.f) / 2.f, 0.f, 1.f) : 0.f;
+}
+
+/* someone with their gun on us and near: a reason to leave anyone */
+#define BOT_PRESS_THREAT 12.f
+
 static long bot_find_target(struct bot_state *bot, int hit_lately, long my_unit, short my_team, real_point3d const *eye, real range, long current, int prefer_vehicles, real *distance_out)
 {
 	struct data_iterator iterator;
@@ -2428,6 +2442,21 @@ static long bot_find_target(struct bot_state *bot, int hit_lately, long my_unit,
 	long best = NONE;
 	real best_score = 1.0e9f;
 	long my_root = object_get_ultimate_parent(my_unit);
+	/* A good player finishes whoever he has hurt. Someone it has had in its
+	   sights in the last second and a half with the shield gone or going
+	   (it or another took it off) is the one it stays on: anyone else is
+	   taken only if they are a good deal better, or near and have their gun
+	   on it; and if the one it was on has gone behind something, it goes
+	   after them rather than turning to someone fresh. The bots of the top
+	   level left the one they were shooting for someone else three times
+	   in five, and a player they had hurt walked away from them. */
+	real press = bot_press();
+	int finishing = FALSE;
+	if (press > 0.f && current != NONE && bot->lost_ticks < BOT_SECONDS(1.5f) && bot_unit_alive(current))
+	{
+		struct object_datum *them = object_try_and_get(current);
+		finishing = them && them->object.shield_vitality + them->object.body_vitality < 1.5f;
+	}
 
 	data_iterator_new(&iterator, player_data);
 	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
@@ -2452,6 +2481,8 @@ static long bot_find_target(struct bot_state *bot, int hit_lately, long my_unit,
 		/* stay on the one we're shooting unless another is much better */
 		if (player->unit_index == current)
 			score *= 0.5f;
+		else if (finishing && !(distance < BOT_PRESS_THREAT && bot_unit_aiming_at(player->unit_index, eye, 0.97f)))
+			score *= 1.f + 2.f * press;
 		/* help a teammate: gang up on whoever they're fighting */
 		if (game_engine_has_teams() && bot_targeted_by(player->unit_index, my_team, my_unit))
 			score *= 1.f - 0.45f * bot_finding_teamwork;
@@ -2529,6 +2560,17 @@ static long bot_find_target(struct bot_state *bot, int hit_lately, long my_unit,
 		best = player->unit_index;
 		best_score = score;
 		*distance_out = distance;
+	}
+	/* (the one it was finishing gone behind something: after them, not
+	   someone fresh, unless that one is near with a gun on it. Not in a
+	   game with teams, where behind something is where their friends are:
+	   there it cost a team one kill in twenty.) */
+	if (finishing && !game_engine_has_teams() && best != NONE && best != current &&
+		!(*distance_out < BOT_PRESS_THREAT && bot_unit_aiming_at(best, eye, 0.97f)))
+	{
+		struct object_datum *them = object_try_and_get(current);
+		if (them && !bot_line_clear(bot_sight_flags, eye, &them->object.bounding_sphere_center, my_root))
+			return NONE;
 	}
 	return best;
 }
@@ -9119,6 +9161,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			real best = 1.0e9f;
 			long found = NONE;
 			real_point3d found_at;
+			long now_tick = game_time_get();
 			bot->tracked_check_ticks = 8 + (long)(bot_random(bot) * 6.f);
 			data_iterator_new(&others, player_data);
 			while ((other = (struct player_datum *)data_iterator_next(&others)) != NULL)
@@ -9136,7 +9179,14 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 				noise = FALSE;
 				if (!bot_on_tracker(my_datum, &eye, other->unit_index))
 				{
-					if (!bot_heard(&eye, other->unit_index, &heard_at))
+					/* (... or, to a good player, someone just back in the game
+					   nearby: he knows where the places are that people come
+					   back at, and saw who went down. Not a sporting one.) */
+					long index = others.datum_index & 0xFFFF;
+					int back = bot_press() > 0.f && index < BOT_MAXIMUM_PLAYERS && bot->personality.sporting < 0.75f &&
+						now_tick - bots_spawned_time[index] >= 0 && now_tick - bots_spawned_time[index] < BOT_SECONDS(2.f) &&
+						distance < 30.f + 15.f * bot_press();
+					if (!back && !bot_heard(&eye, other->unit_index, &heard_at))
 						continue;
 					noise = TRUE; /* (heard: roughly where) */
 				}
@@ -9169,7 +9219,12 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		   nothing that matters more (armed, not after an objective, and
 		   not one to hang back) */
 		if (target == NONE && bot->target_unit == NONE && bot->tracked_unit != NONE && bot->tracked_age < 2 * BOT_TICKS_PER_SECOND &&
-			vehicle_index == NONE && !weapon.none && !bot->goal_objective && bot->personality.aggression > 0.35f &&
+			vehicle_index == NONE && !weapon.none &&
+			/* (a good player: also from the way to an ordinary thing, which
+			   will be there after) */
+			(!bot->goal_objective || (bot_press() > 0.f && bot->goal_kind == _bot_goal_item && !bot_goal_is_game_object(bot->goal_object) &&
+				!bot_goal_is_power_weapon(bot) && !bot_goal_is_powerup(bot))) &&
+			bot->personality.aggression > 0.35f * (1.f - bot_press()) &&
 			(weapon.value >= 4.f || bot->personality.aggression > 0.75f) && bot->goal_kind != _bot_goal_enemy &&
 			!(bot->goal_kind == _bot_goal_item && bot_goal_is_powerup(bot)) && bot_unit_alive(bot->tracked_unit))
 		{
@@ -9936,7 +9991,9 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 					/* (coming this way: at a walk or better, and more at us than not) */
 					if (length > 0.5f && (going->i * dx + going->j * dy) / length > 0.025f)
 					{
-						real keen = close_gun ? 0.85f : 0.1f + 0.45f * bot->personality.camping;
+						/* (a good player with a gun that is not for close in
+						   keeps on at them, most of the time) */
+						real keen = close_gun ? 0.85f : (0.1f + 0.45f * bot->personality.camping) * (1.f - 0.6f * bot_press());
 						if (bot->personality.style == _bot_style_lurker)
 							keen += 0.2f;
 						else if (bot->personality.style == _bot_style_rusher)
