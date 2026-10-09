@@ -88,7 +88,7 @@ static void test_free(void *p) {if(p){assert(live_allocations);live_allocations-
 #undef malloc
 #undef calloc
 #undef free
-static struct {short width,height;int kind;long handle;} art_records[64];
+static struct {short width,height;enum mcc_pause_art_kind kind;long handle;} art_records[64];
 static unsigned art_count,art_calls,fail_art;
 static long art(short width,short height,enum mcc_pause_art_kind kind) {
     unsigned i;
