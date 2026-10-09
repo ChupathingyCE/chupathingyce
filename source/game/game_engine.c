@@ -5122,6 +5122,12 @@ void game_engine_player_killed(
 	if (!game_engine)
 		return;
 
+	/* MCC team-change respawns carry neutral attribution to the netcode. */
+	{
+		extern void mcc_ui_team_respawn_death(long *, long *, long, boolean *);
+		mcc_ui_team_respawn_death(&killing_player_index, &killing_object_index, dead_player_index, &friendly_fire);
+	}
+
 	/* port: the host's kill of a player changing teams (team_change.c, as
 	Halo PC's CHANGE TEAMS): nobody's kill, nothing counted, no penalty, no
 	message; its clients hear a death of no killer */

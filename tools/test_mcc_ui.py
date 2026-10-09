@@ -75,6 +75,8 @@ static int mcc=1,connection,coop,saved=1,profile=1,have_settings=1,profile_begin
 static int revert_count,reset_count,restart_count,save_count,persist_count,menu_count,quit_count,end_count,settings_collision;
 static int posted_button=-1,posted_controller=-1,deleted_count,opened_count,legacy_count,port_count;
 static int message_count,script_count,team_sent,denied_count,top_dispatch,quit_controller=-1,balance_allowed=1;
+static boolean free_widget_on_delete,round_active=TRUE;
+static struct widget_instance *released_widget;
 static long opened_tag;
 static wchar_t const *message;
 static char const *widget_tag_name="ui\\shell\\multiplayer_game\\pause_game\\blue_team_button";
@@ -93,7 +95,9 @@ static void main_reset_map(void){reset_count++;}
 static void main_revert_map(void){revert_count++;}
 static void main_goto_main_menu(void){menu_count++;}
 static boolean game_engine_running(void){return TRUE;}
-static void game_engine_end_game(void){end_count++;}
+static boolean game_engine_can_score(void){return round_active;}
+static void ui_widget_delete(struct widget_instance *widget);
+static void game_engine_end_game(void){int i;end_count++;for(i=0;i<4;i++)if(widget_globals.active_widgets[i])ui_widget_delete(widget_globals.active_widgets[i]);}
 static boolean network_coop_active(void){return coop;}
 static boolean mcc_maps_level_campaign(char const *name){(void)name;return TRUE;}
 static char *main_get_map_name(void){return "mcc_maps\\a10";}
@@ -112,7 +116,7 @@ static void event_manager_post_button(short controller,short button){posted_butt
 static long tag_loaded(long group,char const *name){(void)group;(void)name;return have_settings?(settings_collision?100:200):NONE;}
 static boolean pc_menu_profile_edit_begin(void){profile_begin++;return profile;}
 static boolean ui_widget_port_open(struct widget_instance *widget,char const *name,boolean *deleted){(void)widget;assert(strstr(name,"pc\\main_menu\\settings_select"));settings_open++;*deleted=TRUE;return TRUE;}
-static struct widget_instance *widget_instance_get_topmost_parent(struct widget_instance *widget){while(widget->parent)widget=widget->parent;return widget;}
+static struct widget_instance *widget_instance_get_topmost_parent(struct widget_instance *widget){assert(widget!=released_widget);while(widget->parent)widget=widget->parent;return widget;}
 static boolean ui_widget_port_dispatch_event(struct widget_instance *widget,short type,short controller,boolean *deleted){(void)widget;(void)deleted;assert(type==32&&controller==2);top_dispatch++;return TRUE;}
 static void error(int priority,char const *text,...){(void)priority;(void)text;}
 static void console_warning(char const *text,...){(void)text;}
@@ -126,11 +130,10 @@ static void widget_instance_give_focus_by_tag(struct widget_instance *widget,lon
 static void widget_instance_reload_recursive(struct widget_instance *widget){(void)widget;}
 static void ui_widget_reload_by_tag(long tag){(void)tag;}
 static struct widget_instance *widget_instance_find_by_tag_index(long tag){(void)tag;return NULL;}
-static void ui_widget_delete(struct widget_instance *widget){int i;deleted_count++;for(i=0;i<4;i++)if(widget_globals.active_widgets[i]==widget)widget_globals.active_widgets[i]=NULL;}
-boolean mcc_ui_new_game(struct widget_instance *widget);
-static boolean ui_widget_launch_widget(struct widget_instance *widget,long tag){if(mcc_ui_new_game(widget))return FALSE;opened_count++;opened_tag=tag;return TRUE;}
+static void ui_widget_delete(struct widget_instance *widget){int i;assert(widget!=released_widget);deleted_count++;for(i=0;i<4;i++)if(widget_globals.active_widgets[i]==widget)widget_globals.active_widgets[i]=NULL;if(free_widget_on_delete){released_widget=widget;memset(widget,0xDD,sizeof(*widget));free(widget);}}
+static boolean ui_widget_launch_widget(struct widget_instance *widget,long tag){assert(widget!=released_widget);opened_count++;opened_tag=tag;return TRUE;}
 static struct widget_instance *ui_widget_load_by_name_or_tag(char const *name,long tag,struct widget_instance *widget,short controller,long a,long b,long c){(void)name;(void)tag;(void)widget;(void)controller;(void)a;(void)b;(void)c;return NULL;}
-static void widget_instance_go_back_to_previous(struct widget_instance *widget){(void)widget;}
+static void widget_instance_go_back_to_previous(struct widget_instance *widget){assert(widget!=released_widget);}
 static void unspatialized_impulse_sound_new(long tag,float volume){(void)tag;(void)volume;}
 static void pop_widget(void **stack,struct widget_stack_data *data){(void)data;*stack=NULL;}
 static void ui_play_audio_feedback_sound(long sound){(void)sound;}
@@ -220,10 +223,21 @@ int main(int argc,char **argv){
         CHECK(!fire(&widget,0,&action)&&message_count==1&&!team_sent&&!deleted_count,41);return 0;
     }
     if(!strcmp(argv[1],"new-game")){
+        struct widget_instance *heap_widget=malloc(sizeof(*heap_widget));
+        CHECK(heap_widget!=NULL,42);*heap_widget=widget;
         widget_tag_name="ui\\shell\\multiplayer_game\\pause_game\\new_game_button";
         fire(&widget,28,&mouse);CHECK(posted_button==0,37);
-        connection=2;fire(&widget,posted_button,&open);CHECK(end_count==1&&!opened_count,38);
-        connection=1;fire(&widget,0,&open);CHECK(end_count==1&&message_count==1&&!opened_count,39);
+        /* The actual engine synchronously frees the whole tree. Pending
+         * close/go-back flags must not touch it again after MCC handles it. */
+        open.flags|=(1u<<_event_handler_close_current_widget_bit)|(1u<<_event_handler_go_back_to_previous_widget_bit);
+        connection=2;widget_globals.active_widgets[2]=heap_widget;free_widget_on_delete=TRUE;
+        CHECK(fire(heap_widget,posted_button,&open)&&end_count==1&&!opened_count&&deleted_count==1,38);
+        CHECK(!widget_globals.active_widgets[2]&&released_widget==heap_widget,43);
+        free_widget_on_delete=FALSE;widget_globals.active_widgets[2]=&widget;
+        connection=1;CHECK(!fire(&widget,0,&open)&&end_count==1&&message_count==1&&!opened_count&&deleted_count==1,39);
+        connection=2;round_active=FALSE;
+        CHECK(!fire(&widget,0,&open)&&end_count==1&&message_count==2&&deleted_count==1,44);
+        open.flags=8;
         mcc=FALSE;fire(&widget,0,&open);CHECK(opened_count==1&&end_count==1,40);return 0;
     }
     if(!strcmp(argv[1],"isolation")){

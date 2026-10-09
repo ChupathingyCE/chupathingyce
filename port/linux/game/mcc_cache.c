@@ -14,6 +14,7 @@
 #include "mcc_grenades.h"
 #include "mcc_script_parameters.h"
 #include "mcc_texture_cache.h"
+#include "mcc_ui_teams.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -224,6 +225,7 @@ boolean mcc_cache_contains(void const *address, long bytes)
 
 void mcc_cache_tags_unload(void)
 {
+    mcc_ui_teams_reset();
     mcc_checkpoint_dispose();
     mcc_grenades_reset();
     mcc_parameters_dispose();

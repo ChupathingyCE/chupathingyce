@@ -79,7 +79,7 @@ static boolean mcc_ui_restart(short controller)
     return TRUE;
 }
 
-boolean mcc_ui_new_game(struct widget_instance *widget)
+boolean mcc_ui_new_game(struct widget_instance *widget, boolean *deleted)
 {
     struct mcc_ui_widget_prefix const *prefix = (void const *)widget;
     char const *name;
@@ -90,8 +90,16 @@ boolean mcc_ui_new_game(struct widget_instance *widget)
     controller = mcc_ui_controller(widget, NULL);
     /* End the round normally: connected players reach the carnage report
      * and the host can pick the next map in the native lobby. */
-    if (global_network_game_server_get() && game_engine_running()) game_engine_end_game();
-    else mcc_ui_failure(controller, L"Only the host can choose a new game.");
+    if (!global_network_game_server_get())
+        mcc_ui_failure(controller, L"Only the host can choose a new game.");
+    else if (!game_engine_running() || !game_engine_can_score())
+        mcc_ui_failure(controller, L"This round is already ending.");
+    else {
+        /* game_engine_end_game closes the complete widget tree immediately.
+         * The dispatcher must never inspect this widget again afterward. */
+        *deleted = TRUE;
+        game_engine_end_game();
+    }
     return TRUE;
 }
 

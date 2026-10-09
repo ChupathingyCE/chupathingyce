@@ -307,11 +307,11 @@ nonmodal initial MCC rejection, preserved inactive Xbox/CE dispatch and
 later-BSP rollback, released MCC ownership, and UI recovery before any
 failed-map gameplay initialization.
 
-Fourteen focused UI tests compile the actual widget event dispatcher and MCC
+Focused UI tests compile the actual widget event dispatcher and MCC
 callback adapter. They cover mouse/controller confirmation, checkpoint
 revert/save, restart permissions, campaign/multiplayer/cooperative quit,
 red/blue team choice and balance feedback, New Game routing, trusted native
-Settings, unsupported events and isolation of non-MCC widgets. Twenty-six
+Settings, unsupported events and isolation of non-MCC widgets. The
 team-ingress tests exercise the actual server settings handler and MCC
 adapter, including malformed lengths, wrong packet type, unjoined or wrong
 machines, altered identity fields, live-player matching, campaign rejection,
@@ -320,6 +320,16 @@ tests; they do not by themselves establish that every custom menu renders
 or navigates correctly. A bounded native Mercury singleplayer check also
 confirmed checkpoint revert, restart into the opening cinematic, Settings
 and Cancel, and Quit returning to `ui.map`.
+The combined MCC and existing cache-format suite passes 404 tests with four
+optional fixture skips on the Windows x86 toolchain. The New Game lifetime
+case synchronously frees the active menu and checks that event dispatch
+does not navigate through or delete it again.
+
+Deferred team-change deaths have their own records keyed by full player and
+unit handles. Only the matching no-statistics death receives neutral kill
+attribution before network replication; this preserves native respawn and
+objective cleanup without a Slayer suicide penalty. Tests include ordinary
+deaths, recycled handles, client authority and unloading the map.
 
 The reported red/green Mercury cliff bands match the native allocation
 failure texture: `DEFAULT_BITMAP_PIXEL0/1` are transparent red and opaque
@@ -330,8 +340,16 @@ chain, expanded to ARGB for the native renderer. About 189 MiB of the
 contiguous span was only about 11 MiB. Repeated retries explain the
 associated stalls. The direct MCC binding above removes this staging
 constraint. The reported black cliff faces are consistent with a failed
-bump/lightmap sample, but the screenshots alone do not prove their cause;
-native camera-angle regression testing remains necessary.
+bump/lightmap sample, but the screenshots alone do not prove their cause.
+A bounded native comparison rendered twelve camera angles at the captured
+failure location. Both builds showed normal cliff textures in that fresh
+run: the intermittent baseline failure was not reproduced, so those frames
+are a regression check rather than a before/after reproduction. The fixed
+Debug renderer also completed Mercury -> Xbox UI -> Xbox A10 -> Nitra ->
+Mercury -> Xbox UI in one process without assertions, texture allocation
+failures or stale-resource errors. Final multiplayer and cooperative menu
+interaction still needs playtesting; the automated action-routing tests do
+not replace that check.
 
 An independent script audit compared 748 live function calls, using 103
 distinct function names, against the Xbox definitions. It found no

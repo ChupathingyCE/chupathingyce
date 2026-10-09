@@ -14,6 +14,67 @@
 #include "mcc_ui_teams.h"
 #include <string.h>
 
+struct mcc_team_respawn {
+    boolean active;
+    boolean no_statistics;
+    long player_index;
+    long unit_index;
+};
+static struct mcc_team_respawn mcc_team_respawns[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
+
+void mcc_ui_teams_reset(void)
+{
+    memset(mcc_team_respawns, 0, sizeof(mcc_team_respawns));
+}
+
+static void mcc_ui_team_respawn_track(long player_index, long unit_index)
+{
+    unsigned long slot = DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index);
+    if (slot >= NUMBEROF(mcc_team_respawns) || unit_index == NONE) return;
+    mcc_team_respawns[slot].active = TRUE;
+    mcc_team_respawns[slot].no_statistics = FALSE;
+    mcc_team_respawns[slot].player_index = player_index;
+    mcc_team_respawns[slot].unit_index = unit_index;
+}
+
+void mcc_ui_team_respawn_damage(long player_index, long unit_index, boolean active)
+{
+    unsigned long slot = DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index);
+    struct mcc_team_respawn *pending;
+    if (!mcc_cache_tags_loaded() || slot >= NUMBEROF(mcc_team_respawns)) return;
+    pending = &mcc_team_respawns[slot];
+    if (pending->active && pending->player_index == player_index && pending->unit_index == unit_index)
+        pending->no_statistics = active;
+}
+
+void mcc_ui_team_respawn_death(long *killer, long *object, long dead, boolean *friendly)
+{
+    unsigned long slot = DATUM_INDEX_TO_ABSOLUTE_INDEX(dead);
+    struct mcc_team_respawn pending;
+    struct player_datum *player;
+    struct unit_datum *unit;
+    if (!mcc_cache_tags_loaded() || slot >= NUMBEROF(mcc_team_respawns)) return;
+    pending = mcc_team_respawns[slot];
+    /* The next death consumes the record even if an unrelated death won the
+     * race, or a recycled player/unit slot has a different salt. */
+    mcc_team_respawns[slot].active = FALSE;
+    if (!pending.active || !pending.no_statistics || pending.player_index != dead ||
+        game_connection() != _game_connection_network_server ||
+        !global_scenario || global_scenario->type != 1 ||
+        !killer || !object || !friendly || *killer != dead ||
+        *object != pending.unit_index || !*friendly) return;
+    player = player_try_and_get(dead);
+    unit = unit_try_and_get(pending.unit_index);
+    if (!player || player->unit_index != pending.unit_index || !unit ||
+        !TEST_FLAG(unit->object.damage_flags, _object_die_act_of_god_no_statistics_bit)) return;
+    /* The native no-statistics death still invokes Slayer's score callback
+     * as a suicide. Neutral attribution keeps the normal death, objectives
+     * and respawn processing, and is replicated by the following engine hook. */
+    *killer = NONE;
+    *object = NONE;
+    *friendly = FALSE;
+}
+
 boolean mcc_ui_team_balance_allows(short machine, short controller, short team)
 {
     struct data_iterator iterator;
@@ -82,7 +143,10 @@ boolean mcc_ui_team_request(struct network_game_server *server,
         player->team_index = request.team_index;
         /* A normal new unit carries its team's ownership/color to every
          * client. Drop objectives and respawn, without a suicide score. */
-        if (player->unit_index != NONE) unit_kill_no_statistics(player->unit_index);
+        if (player->unit_index != NONE) {
+            mcc_ui_team_respawn_track(iterator.datum_index, player->unit_index);
+            unit_kill_no_statistics(player->unit_index);
+        }
         network_event("mcc: player %ld requested team %d", slot, (int)request.team_index);
         return TRUE;
     }

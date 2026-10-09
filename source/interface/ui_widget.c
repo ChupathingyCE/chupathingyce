@@ -2700,13 +2700,6 @@ static struct widget_instance *ui_widget_launch_widget(
 	struct widget_instance *new_widget;
 	short local_player_index;
 
-	/* MCC's in-map New Game button ends its round into the native lobby. */
-	{
-		extern boolean mcc_ui_new_game(struct widget_instance *);
-		if (mcc_ui_new_game(widget)) return NULL;
-	}
-
-#ifndef HALO_XBOX_CONSOLE
 	/* port: the menus of multiplayer with other machines (not split screen's
 	or co-op's) open only on maps of a build that plays multiplayer with the
 	others (cache_files.c, cache_files_multiplayer_region); otherwise the
@@ -4241,6 +4234,18 @@ static void event_handler_dispatch(
 		/* port: not from a widget its function deleted (it went back:
 		menu_functions.c's profile_save_changes), which the Xbox's opened
 		from regardless */
+		/* MCC New Game can synchronously close every widget. Finish the event
+		with its deletion result before any navigation can reuse that tree. */
+		{
+			extern boolean mcc_ui_new_game(struct widget_instance *, boolean *);
+			if (TEST_FLAG(handler->flags, _event_handler_open_widget_bit) &&
+				!widget_deleted && handler->widget_tag.index != NONE &&
+				mcc_ui_new_game(widget, &widget_deleted))
+			{
+				*calling_widget_deleted = widget_deleted;
+				return;
+			}
+		}
 		if (TEST_FLAG(handler->flags, _event_handler_open_widget_bit) &&
 			!widget_deleted &&
 			handler->widget_tag.index != NONE)
