@@ -29,12 +29,16 @@ def media_tool(tmp_path_factory):
     work = tmp_path_factory.mktemp("mcc-media")
     audio = (ROOT / "port/linux/game/mcc_audio.c").read_text()
     bitmap = (ROOT / "port/linux/game/mcc_bitmaps.c").read_text()
+    native_bitmap = (ROOT / "source/bitmaps/bitmaps.c").read_text()
+    native_swizzle = (ROOT / "source/rasterizer/rasterizer_swizzle.c").read_text()
     hud = (ROOT / "port/linux/game/mcc_hud.c").read_text()
     declarations = "\n".join(structure(audio, name) for name in ["mcc_audio_storage", "mcc_pcm", "mcc_ima"])
     tables = "\n".join(re.search(r"static int const " + name + r"\[.*?\};", audio, re.S).group()
                        for name in ["mcc_ima_steps", "mcc_ima_changes"])
     functions = "\n".join(function(audio, name) for name in ["mcc_ima_advance", "mcc_ima_quantize",
         "mcc_pcm_sample", "mcc_resampled", "mcc_audio_store", "mcc_audio_contains"])
+    functions += "\n" + function(native_swizzle, "rasterizer_xbox_bitmap_get_max_mipmap_count")
+    functions += "\n" + function(native_bitmap, "bitmap_2d_address")
     functions += "\n" + "\n".join(function(bitmap, name) for name in ["mcc_bitmap_bytes", "mcc_pixel",
         "mcc_channels", "mcc_bitmap_decode", "mcc_morton_axis", "mcc_bitmap_pack"])
     functions += "\n" + function(hud, "mcc_hud_scale")
@@ -54,8 +58,20 @@ def media_tool(tmp_path_factory):
 struct sound_permutation {struct {uint32_t file_offset,size;} samples; uint32_t sample_buffer_size; int compression;};
 struct mcc_runtime {void *audio;};
 struct hud_placement_definition {struct {float i,j;} scale; short multiplayer_scaling_flags;};
-struct bitmap_data {short type,width,height,depth,format,mipmap_count;unsigned short flags;};
-static unsigned rasterizer_xbox_bitmap_get_max_mipmap_count(struct bitmap_data *b) {return b->mipmap_count;}
+struct bitmap_data {short type,width,height,depth,format,mipmap_count;unsigned short flags;void *base_address;};
+typedef unsigned char byte;
+#define FALSE 0
+#define _bitmap_type_2d 0
+#define _bitmap_has_power_of_two_dimensions_bit 0
+#define _bitmap_compressed_bit 1
+#define _bitmap_swizzled_bit 3
+#define _bitmap_linear_bit 4
+#define TEST_FLAG(value,bit) ((value)&(1u<<(bit)))
+#define match_assert(file,line,condition) do {if(!(condition))abort();} while(0)
+#define match_vassert(file,line,condition,description) match_assert(file,line,condition)
+static int bitmap_verify(struct bitmap_data *bitmap,int pixels) {(void)bitmap;(void)pixels;return 1;}
+static short floor_log2(unsigned value) {short result=0;while(value>1){value>>=1;result++;}return result;}
+static long bitmap_format_get_bits_per_pixel(short format) {return format==14 ? 4 : 8;}
 uint32_t global_vector_palette[256];
 #define BCDEC_STATIC
 #define BCDEC_IMPLEMENTATION
@@ -141,6 +157,33 @@ int main(int argc,char **argv) {
         }
         if(packed[0]!=0xDD || packed[769]!=0xDD)return 22;
         if(mcc_bitmap_pack(&bitmap,input,29,packed+1,768))return 23;
+        return 0;
+    }
+    if (!strcmp(argv[1],"compressed-tail")) {
+        struct bitmap_data bitmap={0};
+        unsigned char input[144],packed[258];unsigned format,i,level,offset;
+        bitmap.type=0;bitmap.width=16;bitmap.height=4;bitmap.depth=1;bitmap.mipmap_count=4;
+        for(format=14;format<=16;format++) {
+            unsigned block=format==14 ? 8 : 16,source_bytes=block*9,allocation=format==14 ? 128 : 256;
+            bitmap.format=(short)format;bitmap.flags=3;bitmap.base_address=packed+1;
+            if(rasterizer_xbox_bitmap_get_max_mipmap_count(&bitmap)!=2)return 32;
+            for(i=0;i<source_bytes;i++)input[i]=(unsigned char)(i+1);
+            memset(packed,0xDD,sizeof(packed));
+            if(!mcc_bitmap_pack(&bitmap,input,source_bytes,packed+1,allocation))return 33;
+            offset=0;
+            for(level=0;level<=4;level++) {
+                unsigned size=MAX((16u>>level)/4,1)*block;
+                unsigned char *address=bitmap_2d_address(&bitmap,0,0,(short)level);
+                if(address!=packed+1+offset || memcmp(address,input+offset,size))return 34;
+                offset+=size;
+            }
+            if(offset!=source_bytes || packed[0]!=0xDD || packed[allocation+1]!=0xDD)return 35;
+            for(i=source_bytes;i<allocation;i++)if(packed[1+i])return 36;
+            if(mcc_bitmap_pack(&bitmap,input,source_bytes-1,packed+1,allocation))return 37;
+            if(format!=14 && mcc_bitmap_pack(&bitmap,input,source_bytes,packed+1,128))return 38;
+            /* Keeping CPU mips must not expand the GPU descriptor's count. */
+            if(rasterizer_xbox_bitmap_get_max_mipmap_count(&bitmap)!=2)return 39;
+        }
         return 0;
     }
     if (!strcmp(argv[1],"pixels")) {
@@ -237,6 +280,10 @@ def test_hardware_packing_swizzle_rows_faces_and_mips(media_tool):
     run(media_tool, "pack")
 
 
+def test_cpu_dxt_tiny_mips_preserve_source_at_native_addresses(media_tool):
+    run(media_tool, "compressed-tail")
+
+
 def test_shared_bitmap_consumers_get_independent_metadata(tmp_path):
     clang = shutil.which("clang")
     if not clang:
@@ -319,6 +366,107 @@ int main(void) {
         command[1:1] = ["--target=i686-pc-windows-msvc", "-fuse-ld=lld", "-D_CRT_SECURE_NO_WARNINGS"]
     else:
         command[1:1] = ["-m32"]
+    result = subprocess.run(command, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    run(output)
+
+
+def test_mcc_owned_pixels_survive_pressure_without_legacy_cache(tmp_path):
+    """Direct bindings retain original pixels above the legacy staging budget."""
+    clang = shutil.which("clang")
+    if not clang:
+        pytest.skip("clang is needed for MCC bitmap ownership tests")
+    bitmap = (ROOT / "port/linux/game/mcc_bitmaps.c").read_text()
+    declarations = "\n".join(structure(bitmap, n) for n in ["mcc_texture", "mcc_bitmap_clone", "mcc_textures"])
+    routines = "\n".join(function(bitmap, n) for n in ["mcc_bitmaps_valid", "mcc_bitmaps_pixels", "mcc_bitmaps_dispose"])
+    source = r'''
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include "halo_port_capacity.h"
+#define FALSE 0
+struct bitmap_data {
+    uint32_t tag_index,pixels_offset,pixels_size;
+    short width,height,depth,format,mipmap_count;
+    void *base_address;
+};
+struct mcc_runtime {void *bitmaps;};
+static int bitmap_verify(struct bitmap_data *bitmap,int import) {
+    (void)import;
+    return bitmap->width==2048 && bitmap->height==2048 && bitmap->depth==1 &&
+        bitmap->format==11 && bitmap->mipmap_count==11;
+}
+static long rasterizer_xbox_bitmap_get_pixel_data_size(struct bitmap_data *bitmap) {
+    (void)bitmap;return 22369664;
+}
+''' + declarations + '\n' + routines + r'''
+int main(void) {
+    enum {count=13,chain_bytes=22369664};
+    struct bitmap_data bitmaps[count],copy;
+    struct mcc_texture items[count];
+    struct mcc_textures textures={0};
+    struct mcc_runtime runtime;
+    uint32_t bytes,i,frame,offset=0x60000000;
+    memset(bitmaps,0,sizeof(bitmaps));memset(items,0,sizeof(items));
+    textures.items=items;textures.count=count;runtime.bitmaps=&textures;
+    /* Thirteen real 2K ARGB mip chains exceed the desktop cache's 256MiB.
+     * Only boundary pages need touching: the API must return, never copy,
+     * the owned immutable allocation, so no legacy allocator is linked. */
+    if((uint64_t)count*chain_bytes<=HALO_PORT_TEXTURE_CACHE_SIZE)return 1;
+    for(i=0;i<count;i++) {
+        struct bitmap_data *bitmap=&bitmaps[i];struct mcc_texture *item=&items[i];
+        bitmap->tag_index=0xE1000000+i;bitmap->pixels_offset=offset;bitmap->pixels_size=chain_bytes;
+        bitmap->width=bitmap->height=2048;bitmap->depth=1;bitmap->format=11;bitmap->mipmap_count=11;
+        item->bitmap=bitmap;item->handle=bitmap->tag_index;item->offset=offset;item->size=chain_bytes;
+        item->pixels=malloc(chain_bytes);if(!item->pixels)return 2;
+        item->pixels[0]=(unsigned char)i;item->pixels[chain_bytes-1]=(unsigned char)(255-i);
+        offset+=chain_bytes;
+    }
+    for(frame=0;frame<3;frame++)for(i=0;i<count;i++) {
+        unsigned n=frame&1 ? count-1-i : i;
+        unsigned char const *pixels=mcc_bitmaps_pixels(&runtime,&bitmaps[n],&bytes);
+        if(pixels!=items[n].pixels || bytes!=chain_bytes || pixels[0]!=n || pixels[bytes-1]!=255-n)return 3;
+    }
+    copy=bitmaps[0];bytes=123;
+    if(mcc_bitmaps_pixels(&runtime,&copy,&bytes) || bytes)return 4;
+    bitmaps[0].tag_index++;bytes=123;
+    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],&bytes) || bytes)return 5;
+    bitmaps[0]=copy;bitmaps[0].pixels_offset++;bytes=123;
+    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],&bytes) || bytes)return 6;
+    bitmaps[0]=copy;bitmaps[0].pixels_size--;bytes=123;
+    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],&bytes) || bytes)return 7;
+    bitmaps[0]=copy;bitmaps[0].width=0;bytes=123;
+    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],&bytes) || bytes)return 8;
+    bitmaps[0]=copy;items[0].size=bitmaps[0].pixels_size=chain_bytes-1;bytes=123;
+    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],&bytes) || bytes)return 9;
+    items[0].size=bitmaps[0].pixels_size=chain_bytes;
+    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],NULL)!=items[0].pixels)return 10;
+    bytes=123;if(mcc_bitmaps_pixels(NULL,&bitmaps[0],&bytes) || bytes)return 11;
+    bytes=123;if(mcc_bitmaps_pixels(&runtime,NULL,&bytes) || bytes)return 12;
+    runtime.bitmaps=NULL;bytes=123;
+    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],&bytes) || bytes)return 13;
+    for(i=0;i<count;i++)free(items[i].pixels);
+    {
+        struct mcc_textures *owned=calloc(1,sizeof(*owned));
+        unsigned char foreign=0;
+        owned->items=calloc(2,sizeof(*owned->items));owned->count=2;
+        owned->items[0].pixels=malloc(128);owned->items[0].bitmap=&bitmaps[0];
+        owned->items[1].pixels=malloc(128);owned->items[1].bitmap=&bitmaps[1];
+        bitmaps[0].base_address=owned->items[0].pixels;bitmaps[1].base_address=&foreign;
+        runtime.bitmaps=owned;mcc_bitmaps_dispose(&runtime);
+        if(runtime.bitmaps || bitmaps[0].base_address || bitmaps[1].base_address!=&foreign)return 14;
+        mcc_bitmaps_dispose(&runtime);
+    }
+    return 0;
+}
+'''
+    path = tmp_path / "residency.c"
+    path.write_text(source)
+    output = tmp_path / ("residency.exe" if sys.platform == "win32" else "residency")
+    command = [clang, "-std=gnu99", "-O2", "-Wall", "-Wextra", "-Werror",
+               "-I", str(ROOT / "port/linux/include"), str(path), "-o", str(output)]
+    if sys.platform == "win32":
+        command[1:1] = ["--target=i686-pc-windows-msvc", "-fuse-ld=lld", "-D_CRT_SECURE_NO_WARNINGS"]
     result = subprocess.run(command, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     run(output)

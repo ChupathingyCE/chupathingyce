@@ -125,17 +125,13 @@ int mcc_tags_prepare(struct mcc_runtime *r)
             }
         }
         if (group == 'DeLa') {
-            uint32_t count, j;
+            uint32_t count;
             unsigned char *events = mcc_block(r, p + 0x54, 0x48, &count);
             if (count && !events) return FALSE;
-            /* MCC widget callback indices are not Xbox callback indices.
-             * Native menu tags provide the navigation for this application. */
-            for (j = 0; j < count; ++j) {
-                uint32_t flags = mcc_word(events + j * 0x48) & ~0x80u;
-                uint16_t no_function = 0;
-                memcpy(events + j * 0x48, &flags, 4);
-                memcpy(events + j * 0x48 + 6, &no_function, 2);
-            }
+            /* The first 102 callback IDs retain their Xbox meanings. MCC's
+             * additional callbacks are interpreted by mcc_ui.c only for an
+             * MCC-owned widget. Preserve the handlers, including mouse input,
+             * confirmation actions, scripts and their navigation flags. */
         }
         if (!mcc_hud(r, group, p)) return FALSE;
     }

@@ -2700,6 +2700,12 @@ static struct widget_instance *ui_widget_launch_widget(
 	struct widget_instance *new_widget;
 	short local_player_index;
 
+	/* MCC's in-map New Game button ends its round into the native lobby. */
+	{
+		extern boolean mcc_ui_new_game(struct widget_instance *);
+		if (mcc_ui_new_game(widget)) return NULL;
+	}
+
 #ifndef HALO_XBOX_CONSOLE
 	/* port: the menus of multiplayer with other machines (not split screen's
 	or co-op's) open only on maps of a build that plays multiplayer with the

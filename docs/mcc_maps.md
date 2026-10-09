@@ -86,10 +86,13 @@ are not an MCC implementation dependency. The independent components are:
 | `port/linux/game/mcc_cache_format.c` | Portable little-endian version-13 reader and file-range audit. |
 | `port/linux/game/mcc_cache.c` | MCC path admission, read-only file lifetime, conversion and streaming dispatch. |
 | `port/linux/game/mcc_main.c` | MCC load-failure recovery through the native main-menu lifecycle. |
+| `port/linux/game/mcc_ui.c` and `mcc_ui_network.inl` | MCC in-map widget actions, settings routing, checkpoint/quit behavior and synchronized network restarts. |
+| `port/linux/game/mcc_ui_teams.c` | Authenticated team-only requests during MCC multiplayer rounds, with host balance checks and normal respawn replication. |
 | `port/linux/src/mcc_memory.c` | Separate 64 MiB linked tag window; never replaces an existing allocation. |
 | `port/linux/game/mcc_geometry.c` | New model descriptors, model vertex/index conversion, external BSP vertex streams and node palettes. |
 | `port/linux/game/mcc_audio.c` | MCC sound decoding, resampling and Xbox ADPCM encoding into an MCC virtual stream. |
 | `port/linux/game/mcc_bitmaps.c` | MCC pixel layout, BC7 decoding and shader/HUD channel normalization into an MCC virtual stream. |
+| `port/linux/game/mcc_texture_cache.c` and `port/linux/src/mcc_texture_bridge.c` | Direct bindings of checked MCC pixel allocations and lazy GPU textures, independent of the Xbox/CE staging cache. |
 | `port/linux/game/mcc_tags.c` | MCC metadata, shader-type, HUD placement and widget normalization. |
 | `port/linux/game/mcc_hud.c` | MCC bitmap/placement scaling, including nested weapon and grenade HUD items. |
 | `port/linux/game/mcc_scripts.c` | Name-based MCC function/global linking and supported MCC native functions. |
@@ -169,6 +172,21 @@ that require different channel layouts gets separate MCC-owned tag and
 pixel copies, with the relevant consumer's reference redirected. The tag
 index can grow into a separate checked allocation for those copies.
 
+MCC textures bind their immutable converted allocations directly through an
+MCC-owned hardware-header registry. Exact registered header identity grants
+access to the pixels; a copied descriptor or arbitrary physical-address word
+does not. GPU textures upload lazily and remain owned until MCC unload,
+which unbinds and deletes them before freeing their source pixels. This
+avoids another pixel copy and allocation in the Xbox/CE texture staging
+cache, whose capacity and policy remain unchanged. BC7 decoding retains
+the full decoded texels; there is no additional lossy recompression or
+resolution reduction. Host memory and GPU texture capacity still bound
+the maps the machine can render. The same owned pixels remain available
+to CPU object-lighting samples. Two-dimensional DXT resources preserve
+their complete 2-by-2 and 1-by-1 source mip blocks for those samples, while
+the GPU descriptor retains its native mip limit. Unload clears only CPU
+base pointers that still name the MCC-owned allocation.
+
 The audio adapter accepts embedded PCM16, Xbox ADPCM and Ogg Vorbis
 permutations. It uses independent bounds checks and codec state. Mono
 output uses the game's 22,050 Hz format; stereo output follows the admitted
@@ -216,9 +234,12 @@ the active syntax fits the existing interpreter's 19,001-node limit.
 - Reusing stock schemas and gameplay/render systems does not implement
   every MCC engine extension. MCC-only object behaviors, new shader
   semantics and UI callbacks require separate
-  semantic work and representative maps. MCC widget callback indices
-  are cleared because they do not name Xbox callbacks; native menus
-  supply navigation. HUD placement normalization and overlay handling
+  semantic work and representative maps. MCC widget event bytes are
+  preserved: compatible callback IDs use the existing engine functions,
+  while identified MCC-specific actions dispatch through the MCC adapter.
+  Unsupported callbacks fail without performing the event's close/open
+  actions. Native Settings remains available from MCC pause menus.
+  HUD placement normalization and overlay handling
   still require visual comparison against the map's intended appearance.
 - No claim is made here of complete campaign/gameplay fidelity or
   synchronization under all conditions, performance parity, or tested
@@ -248,11 +269,18 @@ models and BSP, malformed vertex ranges/indices/nodes/normals, and partial
 GPU allocation failure cleanup and local/global 64-node palettes. The harness uses the real engine vertex
 compressor and mocked GPU buffers; it verifies that no buffers remain after
 disposal. This establishes conversion and ownership behavior, not visual
-correctness. Eleven media tests pass for independent Xbox ADPCM decoding,
+correctness. Thirteen media tests pass for independent Xbox ADPCM decoding,
 mono/stereo encoding and resampling, BC7 known-color decoding, DXT edge
 clipping, channel transforms, independent bitmap-tag copies, HUD scaling,
 Morton/cube/mip packing, row padding and MCC multiplayer text normalization,
-and virtual sound-stream bounds. Live Mercury
+virtual sound-stream bounds, exact owned pixel access above the legacy
+texture-cache budget, and complete tiny DXT mip chains sampled using the
+actual native CPU address function. Seven additional texture-bridge tests compile the
+actual bridge and native descriptor/size routines with a mocked GPU. They
+cover exact identity, copied-header rejection, upload failure/retry,
+unload/re-registration, P8 palette changes, 2D/linear/cube/volume descriptors,
+and repeated frames binding thirteen 2K ARGB mip chains (290,805,632 bytes)
+without pixel staging allocations or repeated uploads. Live Mercury
 audio conversion processed 4,676 permutations into 103,256,532 ADPCM bytes;
 this is a conversion-stage result, not a listening test. Its bitmap stage
 converts 1,268 original/copied resources into 522,484,864 bytes. The native
@@ -278,6 +306,32 @@ main-menu recovery functions. They check balanced time/collision state,
 nonmodal initial MCC rejection, preserved inactive Xbox/CE dispatch and
 later-BSP rollback, released MCC ownership, and UI recovery before any
 failed-map gameplay initialization.
+
+Fourteen focused UI tests compile the actual widget event dispatcher and MCC
+callback adapter. They cover mouse/controller confirmation, checkpoint
+revert/save, restart permissions, campaign/multiplayer/cooperative quit,
+red/blue team choice and balance feedback, New Game routing, trusted native
+Settings, unsupported events and isolation of non-MCC widgets. Twenty-six
+team-ingress tests exercise the actual server settings handler and MCC
+adapter, including malformed lengths, wrong packet type, unjoined or wrong
+machines, altered identity fields, live-player matching, campaign rejection,
+balance rules and unchanged pregame/stock dispatch. These are action-routing
+tests; they do not by themselves establish that every custom menu renders
+or navigates correctly. A bounded native Mercury singleplayer check also
+confirmed checkpoint revert, restart into the opening cinematic, Settings
+and Cancel, and Quit returning to `ui.map`.
+
+The reported red/green Mercury cliff bands match the native allocation
+failure texture: `DEFAULT_BITMAP_PIXEL0/1` are transparent red and opaque
+green. The captured `stabbed.txt` identifies the 2K cliff normal map as a
+failed 22,369,664-byte allocation. Its source is a 5,592,432-byte BC7 mip
+chain, expanded to ARGB for the native renderer. About 189 MiB of the
+256 MiB staging cache was locked in that frame; its largest available
+contiguous span was only about 11 MiB. Repeated retries explain the
+associated stalls. The direct MCC binding above removes this staging
+constraint. The reported black cliff faces are consistent with a failed
+bump/lightmap sample, but the screenshots alone do not prove their cause;
+native camera-angle regression testing remains necessary.
 
 An independent script audit compared 748 live function calls, using 103
 distinct function names, against the Xbox definitions. It found no
@@ -367,6 +421,8 @@ Run the isolated tests with a C compiler and Python/pytest available:
 python -m pytest -q tools/test_mcc_cache_format.py
 python -m pytest -q tools/test_mcc_geometry.py
 python -m pytest -q tools/test_mcc_media.py tools/test_mcc_tag_validation.py
+python -m pytest -q tools/test_mcc_texture_bridge.py
+python -m pytest -q tools/test_mcc_ui.py tools/test_mcc_ui_teams.py tools/test_mcc_ui_network.py
 python -m pytest -q tools/test_mcc_maps.py
 python -m pytest -q tools/test_mcc_menu.py
 python -m pytest -q tools/test_mcc_saved_games.py

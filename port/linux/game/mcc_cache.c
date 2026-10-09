@@ -13,6 +13,7 @@
 #include "mcc_checkpoint.h"
 #include "mcc_grenades.h"
 #include "mcc_script_parameters.h"
+#include "mcc_texture_cache.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -227,6 +228,7 @@ void mcc_cache_tags_unload(void)
     mcc_grenades_reset();
     mcc_parameters_dispose();
     mcc_loaded = FALSE;
+    mcc_texture_cache_dispose();
     mcc_geometry_dispose(&mcc_loaded_cache);
     mcc_audio_dispose(&mcc_loaded_cache);
     mcc_bitmaps_dispose(&mcc_loaded_cache);
@@ -355,4 +357,12 @@ boolean mcc_cache_bitmap_valid(struct bitmap_data *bitmap)
 {
     extern int mcc_bitmaps_valid(struct mcc_runtime *runtime, struct bitmap_data *bitmap);
     return mcc_loaded && mcc_bitmaps_valid(&mcc_loaded_cache, bitmap);
+}
+
+void const *mcc_cache_bitmap_pixels(struct bitmap_data const *bitmap,unsigned long *bytes)
+{
+    uint32_t size=0;
+    void const *pixels=mcc_loaded ? mcc_bitmaps_pixels(&mcc_loaded_cache,bitmap,&size) : NULL;
+    if (bytes) *bytes=size;
+    return pixels;
 }

@@ -314,6 +314,10 @@ static int mcc_bitmap_pack(struct bitmap_data *bitmap,unsigned char const *sourc
     unsigned face,faces=bitmap->type==2 ? 6 : 1;
     unsigned maximum=rasterizer_xbox_bitmap_get_max_mipmap_count(bitmap);
     unsigned bytes=mcc_bitmap_bytes(bitmap->format);
+    /* CPU object lighting can select the final 2x2/1x1 DXT mips even though
+     * the GPU descriptor stops at 4 texels. A 2D chain has identical CPU/GPU
+     * prefix layout, so retain its complete source tail in owned storage. */
+    if (bitmap->type==0 && (bitmap->flags&2)) maximum=bitmap->mipmap_count;
     memset(target,0,target_size);
     for (face=0;face<faces;face++) {
         unsigned level;
@@ -399,8 +403,8 @@ static int mcc_texture_prepare(struct mcc_runtime *runtime,struct mcc_textures *
     if ((normalized.flags&16) && (normalized.type!=0 || normalized.mipmap_count || (normalized.flags&2))) return 0;
     hardware_size=(uint32_t)rasterizer_xbox_bitmap_get_pixel_data_size(&normalized);
     /* The generic bitmap verifier includes the tiny DXT mip tail, whereas
-     * native hardware stops at a 4-texel dimension. Keep enough owned padding
-     * for both size contracts; cache reads never extend into another image. */
+     * native hardware stops at a 4-texel dimension. Own enough storage for
+     * both contracts, including the 2D tail sampled by CPU object lighting. */
     allocation=(MAX(hardware_size,(uint32_t)(convert ? decoded_size : raw_size))+127u)&~127u;
     if (!hardware_size || allocation>MCC_BITMAP_ALLOCATION_LIMIT || allocation>MCC_BITMAP_LIMIT-textures->end) return 0;
     raw=malloc((size_t)raw_size);
@@ -420,7 +424,8 @@ static int mcc_texture_prepare(struct mcc_runtime *runtime,struct mcc_textures *
     free(raw);raw=NULL;
     hardware=malloc(allocation);
     if (hardware) memset(hardware,0,allocation);
-    if (!hardware || !mcc_bitmap_pack(&normalized,pixels,(uint32_t)(convert ? decoded_size : raw_size),hardware,hardware_size)) goto failed;
+    if (!hardware || !mcc_bitmap_pack(&normalized,pixels,(uint32_t)(convert ? decoded_size : raw_size),hardware,
+        normalized.type==0 && (normalized.flags&2) ? allocation : hardware_size)) goto failed;
     free(pixels);pixels=hardware;hardware=NULL;
     bitmap->format=normalized.format;
     bitmap->flags=normalized.flags;
@@ -536,12 +541,35 @@ int mcc_bitmaps_valid(struct mcc_runtime *runtime,struct bitmap_data *bitmap)
     return 0;
 }
 
+/* The renderer may bind the immutable MCC allocation directly. A copied
+ * descriptor, another map's bitmap, or a changed stream range cannot borrow
+ * this storage. The caller receives bytes only after ownership validation. */
+void const *mcc_bitmaps_pixels(struct mcc_runtime *runtime,struct bitmap_data const *bitmap,uint32_t *bytes)
+{
+    struct mcc_textures *textures=runtime ? runtime->bitmaps : NULL;
+    uint32_t index;
+    if (bytes) *bytes=0;
+    if (!textures || !bitmap || !mcc_bitmaps_valid(runtime,(struct bitmap_data *)bitmap)) return NULL;
+    for (index=0;index<textures->count;index++) {
+        struct mcc_texture const *texture=&textures->items[index];
+        if (texture->bitmap!=bitmap) continue;
+        if (bytes) *bytes=texture->size;
+        return texture->pixels;
+    }
+    return NULL;
+}
+
 void mcc_bitmaps_dispose(struct mcc_runtime *runtime)
 {
     struct mcc_textures *textures=runtime->bitmaps;
     uint32_t index;
     if (!textures) return;
-    for (index=0;index<textures->count;index++) if (textures->items[index].pixels) free(textures->items[index].pixels);
+    for (index=0;index<textures->count;index++) {
+        struct mcc_texture *texture=&textures->items[index];
+        if (texture->bitmap && texture->bitmap->base_address==texture->pixels)
+            texture->bitmap->base_address=NULL;
+        if (texture->pixels) free(texture->pixels);
+    }
     if (textures->items) free(textures->items);
     if (textures->clones) free(textures->clones);
     free(textures);runtime->bitmaps=NULL;
