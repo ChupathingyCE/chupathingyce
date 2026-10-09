@@ -81,7 +81,8 @@ int main(void) { return tag_validate_corrections() != 0; }
                                      "collection", "collection_outside", "device", "device_outside",
                                      "trimmed_structure", "graph_large", "graph_cycle", "graph_node_cycle",
                                      "graph_orphan", "bitmap_owned", "bitmap_unowned", "first_person_slots",
-                                     "grenades_zero", "grenades_one", "grenades_two", "grenades_four", "grenades_excess"])
+                                     "grenades_zero", "grenades_one", "grenades_two", "grenades_four", "grenades_excess",
+                                     "syntax_full", "syntax_overflow", "syntax_outside", "syntax_overlap", "syntax_legacy"])
 def test_mcc_validation(validation_tool, case):
     result = subprocess.run([str(validation_tool), case], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr

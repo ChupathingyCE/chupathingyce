@@ -14,6 +14,10 @@
 #include <stdint.h>
 #include <string.h>
 
+typedef char mcc_syntax_wire_size_matches_runtime[
+    sizeof(struct data_array) + MCC_SYNTAX_CAPACITY * sizeof(struct hs_syntax_node) ==
+        MCC_SYNTAX_MAXIMUM_DATA_BYTES ? 1 : -1];
+
 static byte mcc_syntax_colors[MCC_SYNTAX_CAPACITY];
 static byte mcc_syntax_edges[MCC_SYNTAX_CAPACITY];
 static unsigned short mcc_syntax_stack[MCC_SYNTAX_CAPACITY];

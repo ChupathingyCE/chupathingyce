@@ -3,6 +3,7 @@
 #include "tag_schema.h"
 #include "mcc_runtime.h"
 #include "mcc_tag_validate.h"
+#include "mcc_syntax.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,7 +16,10 @@ struct test_header {
     long vertex_count; void *vertices; long index_count; void *indices; unsigned long signature;
 };
 struct test_child { short enumeration; short pad; struct tag_data data; struct tag_reference reference; };
-struct test_root { struct tag_block children; short index; short enumeration; struct tag_data file; };
+struct test_root {
+    struct tag_block children; short index; short enumeration; struct tag_data file;
+    struct tag_data hs_syntax_data, other_data;
+};
 struct test_bsp { void *root; long vcount; void *vertices; long icount; void *indices; unsigned long signature; };
 struct test_device { short kind; unsigned short flags; struct tag_data identifier, profile; };
 struct test_padded_inner { short kind; byte unused[14]; };
@@ -58,10 +62,12 @@ static struct tag_schema_field const root_fields[] = {
     TAG_SCHEMA_BLOCK_INDEX(struct test_root, index, TAG_SCHEMA_ROOT, offsetof(struct test_root, children), 0),
     TAG_SCHEMA_ENUM(struct test_root, enumeration, 4, 0),
     TAG_SCHEMA_FILE_DATA(struct test_root, file, 256),
+    TAG_SCHEMA_DATA(struct test_root, hs_syntax_data, 56L + 20L * 19001),
+    TAG_SCHEMA_DATA(struct test_root, other_data, 128),
     TAG_SCHEMA_CHECK(check_root),
     TAG_SCHEMA_END
 };
-static struct tag_schema_definition const root_schema = TAG_SCHEMA_DEFINITION(root, struct test_root, root_fields);
+static struct tag_schema_definition const root_schema = TAG_SCHEMA_DEFINITION(scenario, struct test_root, root_fields);
 static struct tag_schema_field const padded_inner_fields[] = {
     TAG_SCHEMA_ENUM(struct test_padded_inner, kind, 3, 0), TAG_SCHEMA_END
 };
@@ -143,6 +149,7 @@ int main(int argc, char **argv)
     CHECK(argc == 2);
     memset(&runtime, 0, sizeof(runtime));
     runtime.capacity = 65536; runtime.used = 4096; runtime.source.size = 1024;
+    if (!strncmp(argv[1], "syntax_", 7)) runtime.capacity = runtime.used = 1048576;
     runtime.tags = calloc(runtime.capacity, 1); CHECK(runtime.tags != NULL);
     header = (struct test_header *)runtime.tags;
     instance = (struct test_instance *)(runtime.tags + 0x28);
@@ -227,8 +234,37 @@ int main(int argc, char **argv)
         CHECK(tag_validate_tags(header, runtime.used, runtime.source.size, "legacy"));
         CHECK(tag_validate_corrections() == 3);
     }
+    if (!strncmp(argv[1], "syntax_", 7)) {
+        root->hs_syntax_data.address = runtime.tags + 0x1000;
+        root->hs_syntax_data.size = MCC_SYNTAX_MAXIMUM_DATA_BYTES;
+        ((byte *)root->hs_syntax_data.address)[MCC_SYNTAX_MAXIMUM_DATA_BYTES - 1] = 0xA5;
+        root->other_data.address = runtime.tags + 0xB0000;
+        root->other_data.size = 256;
+        if (!strcmp(argv[1], "syntax_overflow")) root->hs_syntax_data.size += 20;
+        if (!strcmp(argv[1], "syntax_outside")) {
+            root->hs_syntax_data.address = runtime.tags + runtime.used - 1; expected = 0;
+        }
+        if (!strcmp(argv[1], "syntax_overlap")) {
+            root->other_data.address = (byte *)root->hs_syntax_data.address + 32; expected = 0;
+        }
+        if (!strcmp(argv[1], "syntax_legacy")) {
+            CHECK(tag_validate_tags(header, runtime.used, runtime.source.size, "legacy syntax"));
+            CHECK(root->hs_syntax_data.size == 56L + 20L * 19001);
+            root->hs_syntax_data.size = MCC_SYNTAX_MAXIMUM_DATA_BYTES;
+        }
+    }
     CHECK(mcc_tags_validate(&runtime) == expected);
     CHECK(!mcc_validation_callback_active());
+    if (!strncmp(argv[1], "syntax_", 7) && expected) {
+        CHECK(root->hs_syntax_data.size == MCC_SYNTAX_MAXIMUM_DATA_BYTES);
+        CHECK(root->hs_syntax_data.address == runtime.tags + 0x1000);
+        CHECK(((byte *)root->hs_syntax_data.address)[MCC_SYNTAX_MAXIMUM_DATA_BYTES - 1] == 0xA5);
+        CHECK(root->other_data.size == 128);
+        if (!strcmp(argv[1], "syntax_legacy")) {
+            CHECK(tag_validate_tags(header, runtime.used, runtime.source.size, "legacy syntax again"));
+            CHECK(root->hs_syntax_data.size == 56L + 20L * 19001);
+        }
+    }
     if (!strcmp(argv[1],"first_person_slots")) CHECK(((struct test_first_person *)instance[1].root)->animations.count==30);
     if (!strcmp(argv[1],"grenades_four")) {
         CHECK(((struct test_grenades *)instance[1].root)->grenades.count==4);

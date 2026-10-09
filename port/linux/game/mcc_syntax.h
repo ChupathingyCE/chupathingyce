@@ -4,6 +4,8 @@
 /* MCC Halo 1's cache syntax array uses signed 16-bit counts. Its final
  * addressable slot is 32766; this does not change the Xbox/CE 19001 limit. */
 #define MCC_SYNTAX_CAPACITY 32767
+/* Serialized 56-byte data-array header followed by 20-byte syntax nodes. */
+#define MCC_SYNTAX_MAXIMUM_DATA_BYTES (56L + 20L * MCC_SYNTAX_CAPACITY)
 
 struct data_array;
 struct scenario;
