@@ -120,14 +120,15 @@ static int mg_indices(struct mcc_runtime *r,struct triangle_buffer *descriptor,
 }
 
 /* Check every floating-point attribute before calling the engine compressor;
- * it assumes finite normals and asserts on components outside [-1.005,1.005]. */
+ * it assumes finite normals and asserts on components outside [-1.005,1.005].
+ * The compiler builtin is available even with the Linux port's C89 headers. */
 static int mg_float_vertices(void const *data,uint32_t count,uint32_t stride,
     uint32_t float_count,uint32_t vector_start,uint32_t vector_components) {
     uint32_t i,j;
     for (i=0;i<count;i++) {
         float const *v=(float const *)((unsigned char const *)data+i*stride);
         for (j=0;j<float_count;j++) {
-            if (!isfinite(v[j])) return 0;
+            if (!__builtin_isfinite(v[j])) return 0;
             if (j>=vector_start && j<vector_start+vector_components && fabsf(v[j])>1.005f) return 0;
         }
     }
@@ -179,7 +180,7 @@ static int mg_part(struct mcc_runtime *r,struct model const *model,unsigned char
     if (!mg_float_vertices(vertices,count,68,14,3,9)) goto fail;
     for (i=0;i<count;i++) {
         int j;
-        if (!isfinite(vertices[i].node_weights[0]) || !isfinite(vertices[i].node_weights[1])) goto fail;
+        if (!__builtin_isfinite(vertices[i].node_weights[0]) || !__builtin_isfinite(vertices[i].node_weights[1])) goto fail;
         for (j=0;j<2;j++) {
             short node=vertices[i].nodes[j];
             if (node<0 || node>=(local ? palette_count : model->nodes.count)) goto fail;
