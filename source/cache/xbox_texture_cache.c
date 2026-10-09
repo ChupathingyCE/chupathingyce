@@ -673,6 +673,15 @@ static void texture_cache_initialize_hardware_format(
 		if (ce_hud_bitmap_is_meter(bitmap))
 			texture->Common |= D3DCOMMON_PORT_PC_METER;
 	}
+	/* port: a Custom Edition map's bitmap in MCC's high-quality compression,
+	made DXT5's format: its blocks BC7's (port/linux/game/ce_repairs.c) */
+	{
+		extern boolean cache_file_tags_are_ce(void);
+		extern boolean ce_bitmap_is_bc7(void const *bitmap);
+
+		if (!TEST_FLAG(bitmap->flags, _bitmap_linear_bit) && cache_file_tags_are_ce() && ce_bitmap_is_bc7(bitmap))
+			texture->Format = (texture->Format & ~D3DFORMAT_FORMAT_MASK) | (D3DFMT_PORT_BC7 << D3DFORMAT_FORMAT_SHIFT);
+	}
 	/* port: a Custom Edition map's model multipurpose map, its channels
 	Halo PC's (port/linux/game/ce_models.c) */
 	{
