@@ -24,6 +24,10 @@ boolean mcc_ui_trusted_action(struct widget_instance *widget, word function);
 boolean mcc_ui_event_function(struct widget_instance *widget,
     struct event_record *event, word function, boolean *deleted, boolean *result);
 boolean mcc_ui_settings_needed(char const *map_name);
+/* Native profile-clear and widget-close lifecycle notifications. These
+ * affect only the profile editor opened by the MCC action adapter. */
+void mcc_ui_settings_profile_released(void);
+void mcc_ui_settings_close(short controller);
 /* Handles only the MCC-owned multiplayer New Game button. The caller must
  * finish dispatch immediately when handled, including a host-only denial.
  * A successful transition synchronously deletes the active widget tree. */

@@ -320,7 +320,9 @@ static long mcc_pause_screen(short mode, short layout)
             mcc_pause_dialog(layout, pauses, CONFIRM_RESTART), 8);
     }
     if (teams) buttons[count++] = mcc_pause_button(layout, button_width, button_height, LABEL_TEAMS, 0, mcc_pause_team_screen(layout), 8);
-    if (!campaign && mcc_pause.assets.settings)
+    /* The native profile editor is 640x480. Its lower controls do not fit
+     * split-screen viewports; those players use Settings from the main menu. */
+    if (!campaign && mcc_pause.assets.settings && layout == MCC_PAUSE_FULL)
         buttons[count++] = mcc_pause_button(layout, button_width, button_height, LABEL_SETTINGS, MCC_PAUSE_ACTION_SETTINGS, NONE, 128);
     if (!campaign && (host || mode == MP_LOCAL))
         buttons[count++] = mcc_pause_button(layout, button_width, button_height, LABEL_RESTART, 0,

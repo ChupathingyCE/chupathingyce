@@ -26,8 +26,10 @@ def ui_tool(tmp_path_factory):
     native = (ROOT / "source/interface/ui_widget.c").read_text()
     events = (ROOT / "source/interface/ui_widget_event_handler_functions.c").read_text()
     tags = (ROOT / "port/linux/game/mcc_tags.c").read_text()
+    profiles = (ROOT / "source/interface/player_ui.c").read_text()
     actions = re.search(r"enum\s*\{.*?\};", ui_header, re.S).group()
-    names = ["mcc_ui_owns_widget", "mcc_ui_trusted_action", "mcc_ui_settings_needed", "mcc_ui_scenario_type", "mcc_ui_controller",
+    names = ["mcc_ui_settings_profile_released", "mcc_ui_settings_close", "mcc_ui_settings_begin",
+             "mcc_ui_owns_widget", "mcc_ui_trusted_action", "mcc_ui_settings_needed", "mcc_ui_scenario_type", "mcc_ui_controller",
              "mcc_ui_failure", "mcc_ui_host_required", "mcc_ui_restart", "mcc_ui_end_round", "mcc_ui_new_game",
              "mcc_ui_request_team", "mcc_ui_choose_team", "mcc_ui_close_for_controller",
              "mcc_ui_event_function"]
@@ -45,6 +47,7 @@ typedef unsigned short word;
 #define FALSE 0
 #define NONE (-1)
 #define NUMBEROF(a) (sizeof(a)/sizeof(*(a)))
+#define csmemcpy memcpy
 #define MAXIMUM_NUMBER_OF_LOCAL_PLAYERS 4
 #define PC_MENU_FUNCTION_BASE 256
 #define TEST_FLAG(value,bit) ((value)&(1u<<(bit)))
@@ -79,6 +82,19 @@ static struct network_game game;
 static struct network_player sent_player;
 static int mcc=1,connection,coop,saved=1,profile=1,have_settings=1,profile_begin,settings_open;
 static int campaign=1,pc_menus=1,pause_owned=1;
+static int settings_load=1,settings_controller=-1,last_profile=1004,available_profile=1005,assigned_controller=-1;
+static long settings_history_tag;
+static short mcc_settings_controller=NONE;
+struct player_profile {int value;};
+struct game_variant {int value;};
+static struct {
+    long edit_profile_index;
+    struct {long active_profile_index;} local_players[4];
+    struct {union {struct player_profile player;struct game_variant variant;} original,current;} edit_profile;
+} player_ui_globals;
+static struct {int original,current;} player_ui_edit_options;
+enum {_saved_game_file_type_player_profile=1,_saved_game_file_type_game_variant=2};
+static struct widget_instance settings_widgets[4];
 static int revert_count,reset_count,restart_count,save_count,persist_count,menu_count,quit_count,end_count,settings_collision;
 static int posted_button=-1,posted_controller=-1,deleted_count,opened_count,legacy_count,port_count;
 static int message_count,script_count,team_sent,denied_count,top_dispatch,quit_controller=-1,balance_allowed=1;
@@ -108,7 +124,8 @@ static void main_goto_main_menu(void){menu_count++;}
 static boolean game_engine_running(void){return TRUE;}
 static boolean game_engine_can_score(void){return round_active;}
 static void ui_widget_delete(struct widget_instance *widget);
-static void game_engine_end_game(void){int i;end_count++;for(i=0;i<4;i++)if(widget_globals.active_widgets[i])ui_widget_delete(widget_globals.active_widgets[i]);}
+static void ui_widgets_close_all(void);
+static void game_engine_end_game(void){end_count++;ui_widgets_close_all();}
 static boolean network_coop_active(void){return coop;}
 static boolean mcc_maps_level_campaign(char const *name){(void)name;return campaign;}
 static char *main_get_map_name(void){return "mcc_maps\\a10";}
@@ -126,8 +143,16 @@ static boolean network_game_client_update_local_player_data(void *client,struct 
 static boolean mcc_ui_team_balance_allows(short machine,short controller,short team){(void)machine;(void)controller;(void)team;return balance_allowed;}
 static void event_manager_post_button(short controller,short button){posted_button=button;posted_controller=controller;}
 static long tag_loaded(long group,char const *name){(void)group;(void)name;return have_settings?(settings_collision?100:200):NONE;}
-static boolean pc_menu_profile_edit_begin(void){profile_begin++;return profile;}
-static boolean ui_widget_port_open(struct widget_instance *widget,char const *name,boolean *deleted){(void)widget;assert(strstr(name,"pc\\main_menu\\settings_select"));settings_open++;*deleted=TRUE;return TRUE;}
+static int saved_game_file_get_type(long index){return index>=1000&&index<=1005?1:index==2000?2:0;}
+static boolean player_profile_get(long index,struct player_profile *out){profile_begin++;if(!profile)return FALSE;out->value=(int)index;return TRUE;}
+static boolean playlist_profile_get(long index,struct game_variant *out){out->value=(int)index;return TRUE;}
+static void playlist_profile_get_options(long index,int *out){*out=(int)index;}
+static long player_ui_get_player1_last_used_profile_index(void){return last_profile;}
+static void player_profiles_enumerate_available_to_local_player_index(short controller,word *count,long *index,boolean defaults){assert(controller==0&&!defaults&&*count==1);*count=available_profile==NONE?0:1;*index=available_profile;}
+static void player_ui_set_active_player_profile(short controller,long index,struct player_profile *p){assert(p->value==index);assigned_controller=controller;player_ui_globals.local_players[controller].active_profile_index=index;}
+void mcc_ui_settings_profile_released(void);
+void mcc_ui_settings_close(short controller);
+static void player_ui_end_editing_profile(void);
 static struct widget_instance *widget_instance_get_topmost_parent(struct widget_instance *widget){assert(widget!=released_widget);while(widget->parent)widget=widget->parent;return widget;}
 static boolean ui_widget_port_dispatch_event(struct widget_instance *widget,short type,short controller,boolean *deleted){(void)widget;(void)deleted;assert(type==32&&controller==2);top_dispatch++;return TRUE;}
 static void error(int priority,char const *text,...){(void)priority;(void)text;}
@@ -144,13 +169,28 @@ static void ui_widget_reload_by_tag(long tag){(void)tag;}
 static struct widget_instance *widget_instance_find_by_tag_index(long tag){(void)tag;return NULL;}
 static void ui_widget_delete(struct widget_instance *widget){int i;assert(widget!=released_widget);deleted_count++;for(i=0;i<4;i++)if(widget_globals.active_widgets[i]==widget)widget_globals.active_widgets[i]=NULL;if(free_widget_on_delete){released_widget=widget;memset(widget,0xDD,sizeof(*widget));free(widget);}}
 static boolean ui_widget_launch_widget(struct widget_instance *widget,long tag){assert(widget!=released_widget);opened_count++;opened_tag=tag;return TRUE;}
-static struct widget_instance *ui_widget_load_by_name_or_tag(char const *name,long tag,struct widget_instance *widget,short controller,long a,long b,long c){(void)name;(void)tag;(void)widget;(void)controller;(void)a;(void)b;(void)c;return NULL;}
+static struct widget_instance *ui_widget_load_by_name_or_tag(char const *name,long tag,struct widget_instance *widget,short controller,long a,long b,long c){
+    (void)tag;(void)widget;(void)b;(void)c;
+    if(!name||!strstr(name,"pc\\main_menu\\settings_select"))return NULL;
+    assert(controller>=0&&controller<4);
+    if(!settings_load)return NULL;
+    if(widget_globals.active_widgets[controller])ui_widget_delete(widget_globals.active_widgets[controller]);
+    settings_widgets[controller]=(struct widget_instance){200,"native settings",controller};
+    widget_globals.active_widgets[controller]=&settings_widgets[controller];
+    settings_controller=controller;settings_history_tag=a;settings_open++;return &settings_widgets[controller];
+}
 static void widget_instance_go_back_to_previous(struct widget_instance *widget){assert(widget!=released_widget);}
 static void unspatialized_impulse_sound_new(long tag,float volume){(void)tag;(void)volume;}
 static void pop_widget(void **stack,struct widget_stack_data *data){(void)data;*stack=NULL;}
 static void dispose_widget_stack(void **stack){assert(*stack);stack_disposed++;*stack=NULL;}
+static boolean virtual_keyboard_active(void){return FALSE;}
+static void virtual_keyboard_close(void){}
 static void ui_play_audio_feedback_sound(long sound){(void)sound;}
-''' + actions + '\n' + function(native, "ui_widgets_close_all_for_local_player") + '\n' + \
+''' + actions + '\n' + '\n'.join(function(profiles, name) for name in [
+        "player_ui_get_active_player_profile_index", "player_ui_get_edit_player_profile", "player_ui_get_edit_playlist_profile",
+        "player_ui_begin_editing_profile", "clear_profile_edit_data", "player_ui_end_editing_profile"
+    ]) + '\n' + function(native, "ui_widgets_close_all_for_local_player") + '\n' + \
+        function(native, "ui_widgets_close_all") + '\n' + \
         structure(ui, "mcc_ui_widget_prefix") + '\n' + '\n'.join(function(ui, name) for name in names) + '\n' + \
         '\n'.join(function(events, name) for name in ["network_game_remove_local_player", "ui_widget_function_denied",
                                                       "ui_widget_event_handler_function_invoke"]) + '\n' + \
@@ -162,7 +202,7 @@ static int mcc_hud(struct mcc_runtime *r,uint32_t group,unsigned char *p){(void)
 ''' + '\n'.join(function(tags, name) for name in ["mcc_word", "mcc_block", "mcc_tags_prepare"]) + r'''
 #define CHECK(c,n) do{if(!(c)){fprintf(stderr,"check %d failed\n",n);return n;}}while(0)
 static boolean fire(struct widget_instance *widget,short button,struct ui_widget_event_handler_reference *handler){
-    boolean deleted=FALSE;struct event_record event={1,2};struct ui_widget_definition definition={0};
+    boolean deleted=FALSE;struct event_record event={1,widget->local_player_index};struct ui_widget_definition definition={0};
     if(button==handler->event_type)event_handler_dispatch(widget,&definition,&event,handler,&deleted);
     return deleted;
 }
@@ -172,6 +212,8 @@ int main(int argc,char **argv){
     struct ui_widget_event_handler_reference open={8,0,0,{101},{NONE},{0}};
     struct ui_widget_event_handler_reference action={132,0,11,{NONE},{NONE},{0}};
     for(i=0;i<102;i++)event_handler_function_list.functions[i]=legacy_function;
+    for(i=0;i<4;i++)player_ui_globals.local_players[i].active_profile_index=1000+i;
+    player_ui_globals.edit_profile_index=NONE;
     event_handler_function_list.functions[72]=network_game_remove_local_player;
     widget_globals.active_widgets[2]=&widget;
     if(argc!=2)return 99;
@@ -381,6 +423,99 @@ int main(int argc,char **argv){
         global_scenario=&scenario;scenario.type=2;
         CHECK(!fire(&widget,0,&action)&&!profile_begin&&!settings_open&&message_count==2,93);return 0;
     }
+    if(!strcmp(argv[1],"settings-controller")){
+        struct widget_instance *heap_widget=malloc(sizeof(*heap_widget));
+        struct widget_instance other={300,"other notification",0};
+        CHECK(heap_widget!=NULL,94);*heap_widget=widget;heap_widget->definition_tag_index=300;
+        scenario.type=1;action.flags=128;action.function=MCC_PAUSE_ACTION_SETTINGS;
+        widget_globals.active_widgets[0]=&other;widget_globals.active_widgets[2]=heap_widget;free_widget_on_delete=TRUE;
+        CHECK(fire(heap_widget,0,&action)&&released_widget==heap_widget&&settings_controller==2,95);
+        CHECK(player_ui_globals.edit_profile_index==1002&&player_ui_get_edit_player_profile()->value==1002,96);
+        CHECK(mcc_settings_controller==2&&settings_history_tag==300&&widget_globals.active_widgets[0]==&other,97);
+        CHECK(player_ui_globals.local_players[0].active_profile_index==1000&&assigned_controller==NONE,98);
+        free_widget_on_delete=FALSE;ui_widgets_close_all_for_local_player(2);
+        CHECK(!player_ui_get_edit_player_profile()&&mcc_settings_controller==NONE,99);return 0;
+    }
+    if(!strcmp(argv[1],"settings-split-denied")){
+        int count;widget.definition_tag_index=300;scenario.type=1;action.flags=128;
+        for(count=2;count<=4;count++){
+            local_players=count;action.function=MCC_PAUSE_ACTION_SETTINGS;
+            CHECK(!fire(&widget,0,&action)&&!profile_begin&&!settings_open&&!deleted_count,100);
+            widget.definition_tag_index=100;action.function=137;
+            CHECK(!fire(&widget,0,&action)&&!profile_begin&&!settings_open&&!deleted_count,101);
+            widget.definition_tag_index=300;
+        }
+        CHECK(message_count==6&&widget_globals.active_widgets[2]==&widget,102);return 0;
+    }
+    if(!strcmp(argv[1],"settings-busy")){
+        widget.definition_tag_index=300;scenario.type=1;action.flags=128;action.function=MCC_PAUSE_ACTION_SETTINGS;
+        player_ui_begin_editing_profile(1000);player_ui_get_edit_player_profile()->value=765;
+        CHECK(!fire(&widget,0,&action)&&profile_begin==1&&!settings_open,103);
+        CHECK(player_ui_globals.edit_profile_index==1000&&player_ui_get_edit_player_profile()->value==765,104);
+        mcc_ui_settings_close(NONE);CHECK(player_ui_globals.edit_profile_index==1000,105);
+        player_ui_end_editing_profile();player_ui_begin_editing_profile(2000);
+        CHECK(!fire(&widget,0,&action)&&player_ui_get_edit_playlist_profile()!=NULL&&!settings_open,106);
+        player_ui_end_editing_profile();CHECK(fire(&widget,0,&action)&&mcc_settings_controller==2,107);
+        CHECK(!fire(&widget,0,&action)&&settings_open==1&&profile_begin==2,108);return 0;
+    }
+    if(!strcmp(argv[1],"settings-lifecycle")){
+        struct widget_stack_data history={0};
+        widget.definition_tag_index=300;scenario.type=1;action.flags=128;action.function=MCC_PAUSE_ACTION_SETTINGS;
+        CHECK(fire(&widget,0,&action)&&mcc_settings_controller==2,109);
+        /* Moving to a nested subpage deletes the root widget but must keep
+         * its native edit buffer; only closing the whole owner clears it. */
+        ui_widget_delete(widget_globals.active_widgets[2]);
+        settings_widgets[2].definition_tag_index=201;widget_globals.active_widgets[2]=&settings_widgets[2];
+        widget_globals.widget_stack[2]=&history;mcc_ui_settings_close(1);
+        CHECK(player_ui_get_edit_player_profile()!=NULL&&mcc_settings_controller==2,110);
+        ui_widgets_close_all_for_local_player(2);
+        CHECK(!player_ui_get_edit_player_profile()&&mcc_settings_controller==NONE&&!widget_globals.widget_stack[2],111);
+        widget.local_player_index=1;widget_globals.active_widgets[1]=&widget;
+        CHECK(fire(&widget,0,&action)&&settings_controller==1&&player_ui_globals.edit_profile_index==1001,112);
+        /* Cancel/save's native profile-clear releases ownership before any
+         * later unrelated editor begins; closing old UI cannot cancel it. */
+        player_ui_end_editing_profile();CHECK(mcc_settings_controller==NONE,113);
+        player_ui_begin_editing_profile(1000);ui_widgets_close_all_for_local_player(1);
+        CHECK(player_ui_globals.edit_profile_index==1000,114);
+        player_ui_end_editing_profile();widget_globals.active_widgets[1]=&widget;
+        CHECK(fire(&widget,0,&action)&&mcc_settings_controller==1,115);
+        ui_widgets_close_all();CHECK(!player_ui_get_edit_player_profile()&&mcc_settings_controller==NONE,116);
+        widget_globals.active_widgets[1]=&widget;CHECK(fire(&widget,0,&action),117);
+        mcc_ui_settings_close(NONE);CHECK(!player_ui_get_edit_player_profile()&&mcc_settings_controller==NONE,118);return 0;
+    }
+    if(!strcmp(argv[1],"settings-open-failure")){
+        widget.definition_tag_index=300;scenario.type=1;action.flags=128;action.function=MCC_PAUSE_ACTION_SETTINGS;
+        settings_load=FALSE;
+        CHECK(!fire(&widget,0,&action)&&!deleted_count&&!settings_open&&mcc_settings_controller==NONE,119);
+        CHECK(!player_ui_get_edit_player_profile()&&widget_globals.active_widgets[2]==&widget,120);
+        settings_load=TRUE;profile=FALSE;
+        CHECK(!fire(&widget,0,&action)&&!settings_open&&mcc_settings_controller==NONE,121);
+        profile=TRUE;player_ui_globals.local_players[2].active_profile_index=2000;
+        CHECK(!fire(&widget,0,&action)&&!player_ui_get_edit_playlist_profile()&&mcc_settings_controller==NONE,127);
+        player_ui_globals.local_players[2].active_profile_index=1002;
+        profile=TRUE;CHECK(fire(&widget,0,&action)&&settings_open==1&&player_ui_globals.edit_profile_index==1002,122);return 0;
+    }
+    if(!strcmp(argv[1],"settings-replaced-editor")){
+        widget.definition_tag_index=300;scenario.type=1;action.flags=128;action.function=MCC_PAUSE_ACTION_SETTINGS;
+        CHECK(fire(&widget,0,&action)&&mcc_settings_controller==2,128);
+        /* Any later native editor entry invalidates MCC's ownership even
+         * when it does not call the normal end-edit helper first. */
+        player_ui_begin_editing_profile(1000);
+        CHECK(mcc_settings_controller==NONE&&player_ui_globals.edit_profile_index==1000,129);
+        ui_widgets_close_all();CHECK(player_ui_globals.edit_profile_index==1000,130);return 0;
+    }
+    if(!strcmp(argv[1],"settings-profile-fallback")){
+        widget.definition_tag_index=300;scenario.type=1;action.flags=128;action.function=MCC_PAUSE_ACTION_SETTINGS;
+        player_ui_globals.local_players[2].active_profile_index=NONE;
+        CHECK(!fire(&widget,0,&action)&&!profile_begin&&assigned_controller==NONE,123);
+        widget.local_player_index=0;widget_globals.active_widgets[0]=&widget;
+        player_ui_globals.local_players[0].active_profile_index=NONE;
+        CHECK(fire(&widget,0,&action)&&player_ui_globals.edit_profile_index==1004&&assigned_controller==0,124);
+        ui_widgets_close_all_for_local_player(0);player_ui_globals.local_players[0].active_profile_index=NONE;last_profile=NONE;
+        widget_globals.active_widgets[0]=&widget;
+        CHECK(fire(&widget,0,&action)&&player_ui_globals.edit_profile_index==1005&&assigned_controller==0,125);
+        CHECK(player_ui_globals.local_players[2].active_profile_index==NONE,126);return 0;
+    }
     if(!strcmp(argv[1],"trusted-isolation")){
         action.function=MCC_PAUSE_ACTION_RESUME;
         CHECK(!mcc_ui_trusted_action(&widget,action.function)&&!fire(&widget,0,&action)&&!deleted_count,64);
@@ -427,7 +562,9 @@ int main(int argc,char **argv){
                                  "quit", "team", "team-balance", "settings", "save", "new-game", "isolation", "unsupported", "script",
                                  "trusted-pause", "trusted-teams", "trusted-end", "trusted-settings", "trusted-isolation", "settings-namespace",
                                  "split-resume", "split-team", "split-team-denied", "split-quit", "split-quit-sync", "local-quit",
-                                 "network-stale-solo", "campaign-stale-catalog", "settings-no-scenario"])
+                                 "network-stale-solo", "campaign-stale-catalog", "settings-no-scenario",
+                                 "settings-controller", "settings-split-denied", "settings-busy", "settings-lifecycle",
+                                 "settings-open-failure", "settings-profile-fallback", "settings-replaced-editor"])
 def test_mcc_widget_events(ui_tool, case):
     result = subprocess.run([str(ui_tool), case], capture_output=True, text=True)
     assert result.returncode == 0, (case, result.returncode, result.stdout, result.stderr)

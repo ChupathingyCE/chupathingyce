@@ -206,6 +206,9 @@ static int context_check(boolean do_bounds) {
         CHECK(bits&(1u<<(MCC_PAUSE_ACTION_QUIT-MCC_PAUSE_ACTION_RESUME)));
         if(network&&!host)CHECK(!(bits&((1u<<1)|(1u<<2)|(1u<<3)|(1u<<5))));
         if(campaign)CHECK(!(bits&((1u<<5)|(1u<<6)|(1u<<7)|(1u<<8))));
+        /* The native Settings screen requires a full viewport, including
+         * when the first player owns the half-screen in a three-player game. */
+        CHECK(!!(bits&(1u<<8))==(!campaign&&assets.settings&&count==1));
         if(!campaign)CHECK(!(bits&((1u<<1)|(1u<<3))));
         if(!network||campaign||!teams)CHECK(!(bits&((1u<<6)|(1u<<7))));
         if(!campaign&&network&&teams)CHECK((bits&((1u<<6)|(1u<<7)))==((1u<<6)|(1u<<7)));

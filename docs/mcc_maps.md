@@ -82,10 +82,12 @@ without changing their contents.
 | Multiplayer host | Resume, Restart Game, End Game and Leave Game; Choose Team in team games. |
 | Multiplayer client | Resume and Leave Game; Choose Team in team games. |
 
-Multiplayer additionally offers **Settings** when `display.menus=pc`.
-It opens the trusted native player Settings screen through the usual
-profile-edit route. Campaign and cooperative pause menus do not offer
-Settings. Restart, revert and leaving/end-game actions use confirmation
+Multiplayer additionally offers **Settings** when `display.menus=pc` and
+there is one local player. It opens the trusted native player Settings
+screen for the initiating controller. Split-screen players use Settings
+from the main menu, since the native editor needs a full viewport.
+Campaign and cooperative pause menus do not offer Settings. Restart,
+revert and leaving/end-game actions use confirmation
 dialogs with Cancel selected initially. B returns from a confirmation to
 the pause screen; Start closes the current player's menu and its navigation
 history. At the main pause screen, either resumes play. Resume and team
@@ -100,6 +102,11 @@ host-controlled. A network restart retains the selected map, variant,
 options and players through the native lobby/countdown route. End Game is
 host-only and ends the round. Team changes remain subject to authenticated
 player identity, host authority and balance checks.
+
+The MCC Settings route uses the initiating controller's profile and widget
+history. It does not replace another active profile editor. Its ownership
+ends on native Save/Cancel, menu closure, replacement editing or map unload,
+so a later native editor cannot be closed by stale MCC state.
 
 Campaign layouts display the scenario's current mission objectives through
 the native objective-text callback. Owned objective and confirmation text
@@ -297,7 +304,7 @@ the active syntax fits the existing interpreter's 19,001-node limit.
   pause menus use the separately generated definitions above. Unsupported
   embedded callbacks fail without performing the event's close/open actions.
   Native Settings is available only in MCC multiplayer with
-  `display.menus=pc`.
+  `display.menus=pc` and one local player.
   HUD placement normalization and overlay handling
   still require visual comparison against the map's intended appearance.
 - No claim is made here of complete campaign/gameplay fidelity or
@@ -384,8 +391,8 @@ or navigates correctly. The New Game lifetime
 case synchronously frees the active menu and checks that event dispatch
 does not navigate through or delete it again.
 
-The generated-pause suites and UI action suite pass 56 focused tests:
-fifteen builder, twelve runtime and twenty-nine action tests. They compile the real
+The generated-pause suites and UI action suite pass 63 focused tests:
+fifteen builder, twelve runtime and thirty-six action tests. They compile the real
 builder and runtime with native tag/bitmap structures and a mocked graphics
 backend. Coverage includes all 256 selection contexts, 24 root layouts,
 viewport bounds, objective callback 18, UTF-16 strings, Cancel-first
@@ -396,7 +403,7 @@ isolation. Guarded heap
 checks and injected allocation/art/graphics failures verify cleanup,
 deduplication, atomic publication, preservation of the original tag table,
 and restoration on unload. The combined MCC and existing cache-format suite
-passes 455 tests with four optional-fixture skips on the Windows x86
+passes 462 tests with four optional-fixture skips on the Windows x86
 toolchain, with the supplied Mercury fixture enabled.
 
 Native validation of the generated Mercury campaign menu confirmed the
@@ -413,12 +420,21 @@ one-shot ownership, stale/disposed sessions and unchanged ordinary postgame
 behavior. These are bounded interaction checks; extended network and
 split-screen playtesting remains useful.
 
+After the Settings ownership correction, a further native Nitra check
+opened the correct profile, returned through Cancel and Escape, reopened
+Settings successfully, and used OK with no changes to return to the pause
+menu. Seven additional action tests cover controller identity, overlapping
+editors, cleanup, failed opens and replacement-editor ownership.
+
 A two-process local network co-op check displayed the same campaign layout
 on both machines, with only Resume and Leave on the client. The host's
 Revert restored the saved game and logged the co-op rewind. Restart carried
 both players through the lobby and reloaded Mercury's opening cinematic on
-both machines. These checks exercise the real renderer and transport, but
-do not substitute for extended Internet or multi-controller playtesting.
+both machines. The client then left to the main menu while the host kept
+playing; the host's Leave Game also returned to the main menu. Both test
+processes exited normally. These checks exercise the real renderer and
+transport, but do not substitute for extended Internet or multi-controller
+playtesting.
 
 Deferred team-change deaths have their own records keyed by full player and
 unit handles. Only the matching no-statistics death receives neutral kill

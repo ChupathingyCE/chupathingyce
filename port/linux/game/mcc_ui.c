@@ -14,6 +14,7 @@
 #include "networking/network_game_manager.h"
 #include "networking/network_client_manager.h"
 #include "saved games/game_state.h"
+#include "saved games/player_profile.h"
 #include "scenario/scenario.h"
 #include "scenario/scenario_definitions.h"
 #include "tag_files/tag_groups.h"
@@ -36,10 +37,57 @@ struct mcc_ui_widget_prefix {
 typedef char mcc_ui_controller_offset[offsetof(struct mcc_ui_widget_prefix, controller) == 8 ? 1 : -1];
 
 char const *config_string(char const *name);
-boolean pc_menu_profile_edit_begin(void);
 boolean pc_menu_tag(long tag_index);
-boolean ui_widget_port_open(struct widget_instance *widget, char const *name, boolean *deleted);
 boolean ui_widget_port_dispatch_event(struct widget_instance *widget, short type, short controller, boolean *deleted);
+
+static short mcc_settings_controller = NONE;
+
+void mcc_ui_settings_profile_released(void)
+{
+    mcc_settings_controller = NONE;
+}
+
+void mcc_ui_settings_close(short controller)
+{
+    if (mcc_settings_controller != NONE &&
+        (controller == NONE || controller == mcc_settings_controller)) {
+        mcc_settings_controller = NONE;
+        player_ui_end_editing_profile();
+    }
+}
+
+static boolean mcc_ui_settings_begin(short controller)
+{
+    long index;
+    boolean fallback = FALSE;
+    struct player_profile *profile;
+    if (controller < 0 || controller >= 4 || local_player_count() != 1 ||
+        player_ui_get_edit_player_profile() || player_ui_get_edit_playlist_profile()) return FALSE;
+    mcc_settings_controller = NONE;
+    index = player_ui_get_active_player_profile_index(controller);
+    if (index != NONE) player_ui_begin_editing_profile(index);
+    /* Retain the native player-1 convenience for console/quickstart games
+     * without assigning that profile to a different local controller. */
+    if (!player_ui_get_edit_player_profile() && controller == 0) {
+        word count = 1;
+        fallback = TRUE;
+        index = player_ui_get_player1_last_used_profile_index();
+        if (index != NONE) player_ui_begin_editing_profile(index);
+        if (!player_ui_get_edit_player_profile()) {
+            index = NONE;
+            player_profiles_enumerate_available_to_local_player_index(controller, &count, &index, FALSE);
+            if (count && index != NONE) player_ui_begin_editing_profile(index);
+        }
+    }
+    profile = player_ui_get_edit_player_profile();
+    if (!profile) {
+        player_ui_end_editing_profile();
+        return FALSE;
+    }
+    if (fallback) player_ui_set_active_player_profile(controller, index, profile);
+    mcc_settings_controller = controller;
+    return TRUE;
+}
 
 static boolean mcc_ui_owns_widget(struct widget_instance *widget)
 {
@@ -248,13 +296,24 @@ boolean mcc_ui_event_function(struct widget_instance *widget,
         break;
     case 137: /* Open trusted native settings, never the map's PC configuration widgets. */
         if (!mcc_ui_scenario_type(1) || strcmp(config_string("display.menus"), "pc") ||
+            local_player_count() != 1 ||
             !pc_menu_tag(tag_loaded('DeLa', "pc\\main_menu\\settings_select\\player_setup\\player_profile_edit\\player_profile_edit_screen")) ||
-            !pc_menu_profile_edit_begin()) {
+            !mcc_ui_settings_begin(controller)) {
             *result = mcc_ui_failure(controller, L"Settings could not be opened for this player.");
             break;
         }
-        *result = ui_widget_port_open(widget,
-            "pc\\main_menu\\settings_select\\player_setup\\player_profile_edit\\player_profile_edit_screen", deleted);
+        {
+            struct mcc_ui_widget_prefix const *root = (void const *)widget_instance_get_topmost_parent(widget);
+            long root_tag = root->definition;
+            /* The native port-open helper always uses stack zero. Capture
+             * the caller's history first and open on its actual controller;
+             * a successful load synchronously frees the old widget tree. */
+            *result = ui_widget_load_by_name_or_tag(
+                "pc\\main_menu\\settings_select\\player_setup\\player_profile_edit\\player_profile_edit_screen",
+                NONE, NULL, controller, root_tag, NONE, NONE) != NULL;
+            if (*result) *deleted = TRUE;
+            else mcc_ui_settings_close(controller);
+        }
         break;
     case 155: /* PC pause/options creation has no engine state to initialize. */
     case 156:

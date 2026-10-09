@@ -116,6 +116,8 @@ failed:
 void mcc_pause_runtime_unload(void)
 {
     long i,j;
+    extern void mcc_ui_settings_close(short);
+    mcc_ui_settings_close(NONE);
     if(pause_runtime.table) {
         cache_files_set_tag_instances(pause_runtime.original,pause_runtime.original_count);
         free(pause_runtime.table);

@@ -103,6 +103,7 @@ static void test_free(void *p) {
     assert(*slot);a=*slot;*slot=a->next;memset(p,0xEA,a->bytes);free(a);live_allocations--;
 }
 static boolean mcc_cache_tags_loaded(void){return active;}
+void mcc_ui_settings_close(short controller){assert(controller==NONE);}
 static short game_connection(void){return (short)connection;}
 static void *global_network_game_server_get(void){return connection==_game_connection_network_server?&variant:NULL;}
 #define game_engine_get_variant() (&variant)
