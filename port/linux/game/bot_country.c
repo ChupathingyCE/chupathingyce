@@ -157,7 +157,7 @@ enum
 
 #define COUNTRY_STEPS 4 /* floors of one square that a floor beside it can step onto, at most */
 #define COUNTRY_STEPS_UNKNOWN 0xff
-/* a vehicle this near a portal's middle is put in it (bot_country_drive) */
+/* a vehicle this near a portal's middle is put in it (country_into_portal) */
 #define COUNTRY_PORTAL_REACH 3.5f
 
 /* ---------- structures */
@@ -283,6 +283,8 @@ static float const country_length[8] = { 1.f, 1.f, 1.f, 1.f, 1.41421356f, 1.4142
 
 long game_time_get(void);
 static void country_debug_way(void);
+static long country_floor_near(real_point3d const *point, long rings);
+static long country_floor_under(real_point3d const *point, long rings);
 
 /* ---------- the country */
 
@@ -676,11 +678,9 @@ static long country_joined(long f, long direction)
 	return country_corner_open(f, direction) ? country_step(f, direction) : NONE;
 }
 
-/* How much room there is round a floor: 1 at the edge of the ground (a
-   square beside it, along x or y, that it does not step onto: the foot of
-   a wall, the lip of a cliff, the side of a bridge); 2 next to one that is,
-   along or cornerwise; 3 with two squares of ground all round it. Looked
-   at once, and kept. */
+/* Whether a floor is at the edge of the ground: a square beside it, along x
+   or y, that it does not step onto (the foot of a wall, the lip of a cliff,
+   the side of a bridge). Looked at once, and kept. */
 static boolean country_at_edge(long f)
 {
 	long known = country.clear[f] & 3;
@@ -692,6 +692,9 @@ static boolean country_at_edge(long f)
 	return known == 1;
 }
 
+/* How much room there is round a floor: 1 at the edge of the ground
+   (country_at_edge); 2 next to one that is, along or cornerwise; 3 with two
+   squares of ground all round it. Looked at once, and kept. */
 static long country_clear(long f)
 {
 	long known = (country.clear[f] >> 2) & 3;
@@ -926,9 +929,6 @@ static int country_compare_hits(void const *a, void const *b)
 	return x < y ? -1 : x > y;
 }
 
-static long country_floor_near(real_point3d const *point, long rings);
-static long country_floor_under(real_point3d const *point, long rings);
-
 void hs_find_scripted_teleports(void (*found)(short trigger_volume_index, short object_name_index, short cutscene_flag_index, void *context), void *context);
 
 static void country_portal_found(short trigger_volume_index, short object_name_index, short cutscene_flag_index, void *context)
@@ -1070,7 +1070,7 @@ long bot_country_gate(long vehicle_index, real_point3d const *from, real facing_
 	return best;
 }
 
-/* ... and into it: set down in its volume, as bot_country_drive sets a
+/* ... and into it: set down in its volume, as country_into_portal sets a
    Warthog down in one, for the script to do the rest (FALSE: it is in
    already, and the script has not taken it: nothing more to do here) */
 boolean bot_country_gate_enter(long vehicle_index, long gate)
@@ -1963,7 +1963,7 @@ static void country_lift_add(long i, long foot, long top, long exit_floor)
 		long y = c / country.width + country_dy[hands[hand]];
 		boolean open = TRUE;
 		long g;
-		if (x >= 0 && y >= 0 && x < country.width && y < country.height)
+		if (country_square_in(x, y))
 		{
 			long n = y * country.width + x;
 			for (g = country.first[n]; g < country.first[n + 1]; g++)
@@ -2239,6 +2239,53 @@ static void country_lay_out(struct collision_bsp *bsp)
 	country.height = (long)((maximum_y - country.y0) / country.cell) + 2;
 }
 
+/* Whether surface h of a square (its surfaces are first to end, the lowest
+   first) is a floor: level enough, and with room over it (to the next
+   surface up, a floor's underside or another floor), which is `room`. */
+static boolean country_hit_floor(struct country_hit const *hits, long h, long first, long end, real *room_out)
+{
+	long over;
+	real room = 1.0e9f;
+	if (hits[h].up <= 0.f)
+		return FALSE;
+	/* (the same floor twice over, two surfaces that meet under the
+	   middle: the one) */
+	if (h > first && hits[h - 1].up > 0.f && hits[h].z - hits[h - 1].z < 0.05f)
+		return FALSE;
+	for (over = h + 1; over < end; over++)
+	{
+		if (hits[over].z > hits[h].z + 0.1f)
+		{
+			room = hits[over].z - hits[h].z;
+			break;
+		}
+	}
+	if (room < COUNTRY_HEADROOM)
+		return FALSE;
+	*room_out = room;
+	return TRUE;
+}
+
+/* The per-floor arrays, for `floors` floors (FALSE: no memory). */
+static boolean country_floor_arrays_allocate(long floors)
+{
+	country.floor_count = floors;
+	country.z = (float *)malloc(MAX(1, floors) * sizeof(float));
+	country.room = (float *)malloc(MAX(1, floors) * sizeof(float));
+	country.square = (long *)malloc(MAX(1, floors) * sizeof(long));
+	country.steep = (unsigned char *)malloc(MAX(1, floors));
+	country.slope = (float *)malloc(MAX(1, floors) * sizeof(float));
+	country.lean_x = (float *)malloc(MAX(1, floors) * sizeof(float));
+	country.lean_y = (float *)malloc(MAX(1, floors) * sizeof(float));
+	country.judged = (unsigned short *)calloc(MAX(1, floors), sizeof(unsigned short));
+	country.clear = (unsigned char *)calloc(MAX(1, floors), 1);
+	country.walls = (unsigned short *)calloc(MAX(1, floors), sizeof(unsigned short));
+	country.step_mask = (unsigned char *)malloc(MAX(1, floors) * 8);
+	if (country.step_mask)
+		memset(country.step_mask, COUNTRY_STEPS_UNKNOWN, MAX(1, floors) * 8);
+	return country.z && country.room && country.square && country.steep && country.slope && country.lean_x && country.lean_y && country.judged && country.clear && country.walls && country.step_mask;
+}
+
 /* The floors of the country, from the surfaces over each square's middle
    (FALSE: no memory). `total` is how many surfaces there were, `level` how
    many of the floors are level enough to cross by. */
@@ -2287,23 +2334,8 @@ static boolean country_floors_find(struct collision_bsp *bsp, long *total_out, l
 				country.first[c] = floors;
 			for (h = hit_first[c]; h < hit_first[c + 1]; h++)
 			{
-				long over;
-				real room = 1.0e9f;
-				if (hits[h].up <= 0.f)
-					continue;
-				/* (the same floor twice over, two surfaces that meet under the
-				   middle: the one) */
-				if (h > hit_first[c] && hits[h - 1].up > 0.f && hits[h].z - hits[h - 1].z < 0.05f)
-					continue;
-				for (over = h + 1; over < hit_first[c + 1]; over++)
-				{
-					if (hits[over].z > hits[h].z + 0.1f)
-					{
-						room = hits[over].z - hits[h].z;
-						break;
-					}
-				}
-				if (room < COUNTRY_HEADROOM)
+				real room;
+				if (!country_hit_floor(hits, h, hit_first[c], hit_first[c + 1], &room))
 					continue;
 				if (pass == 1)
 				{
@@ -2321,21 +2353,7 @@ static boolean country_floors_find(struct collision_bsp *bsp, long *total_out, l
 		}
 		if (pass == 0)
 		{
-			country.floor_count = floors;
-			country.z = (float *)malloc(MAX(1, floors) * sizeof(float));
-			country.room = (float *)malloc(MAX(1, floors) * sizeof(float));
-			country.square = (long *)malloc(MAX(1, floors) * sizeof(long));
-			country.steep = (unsigned char *)malloc(MAX(1, floors));
-			country.slope = (float *)malloc(MAX(1, floors) * sizeof(float));
-			country.lean_x = (float *)malloc(MAX(1, floors) * sizeof(float));
-			country.lean_y = (float *)malloc(MAX(1, floors) * sizeof(float));
-			country.judged = (unsigned short *)calloc(MAX(1, floors), sizeof(unsigned short));
-			country.clear = (unsigned char *)calloc(MAX(1, floors), 1);
-			country.walls = (unsigned short *)calloc(MAX(1, floors), sizeof(unsigned short));
-			country.step_mask = (unsigned char *)malloc(MAX(1, floors) * 8);
-			if (country.step_mask)
-				memset(country.step_mask, COUNTRY_STEPS_UNKNOWN, MAX(1, floors) * 8);
-			if (!country.z || !country.room || !country.square || !country.steep || !country.slope || !country.lean_x || !country.lean_y || !country.judged || !country.clear || !country.walls || !country.step_mask)
+			if (!country_floor_arrays_allocate(floors))
 				goto no_memory;
 		}
 		else
@@ -2415,9 +2433,7 @@ static void country_portals_make(void)
 {
 	long i;
 	country.portal_set_count = 1; /* (the first: none of them) */
-	/* the ways the map's script carries vehicles, and the floors they are
-	   between (into a volume over a floor: its middle may be in the air over
-	   it; out at a flag: put down on the floor under it) */
+	/* (the ways the map's script carries vehicles) */
 	hs_find_scripted_teleports(country_portal_found, NULL);
 	for (i = 0; i < country.portal_count; i++)
 		country.portals[i].lift = NONE;
@@ -2911,6 +2927,91 @@ static void country_field_relax(struct country_field *field, long n, float throu
 	}
 }
 
+/* the floors that step onto floor c, settled at cost `key`, reached from
+   it */
+static void country_field_relax_steps(struct country_field *field, long c, float key)
+{
+	long d;
+	for (d = 0; d < 8; d++)
+	{
+		/* (the floors that step onto this one: those it steps onto, a
+		   step being the same both ways; each steps here the way back,
+		   onto this one of the floors it has that way) */
+		static long const opposite[8] = { 1, 0, 3, 2, 7, 6, 5, 4 };
+		long to[COUNTRY_STEPS];
+		long count = country_corner_open(c, d) ? country_steps(c, d, to) : 0;
+		long k;
+		for (k = 0; k < count; k++)
+		{
+			long n = to[k];
+			long back[COUNTRY_STEPS];
+			long back_count, which;
+			float through;
+			if (field->next[n] != _country_next_none && !(field->next[n] & _country_next_tentative))
+				continue;
+			if (!country_corner_open(n, opposite[d]))
+				continue;
+			back_count = country_steps(n, opposite[d], back);
+			for (which = 0; which < back_count && back[which] != c; which++)
+				;
+			if (which == back_count)
+				continue;
+			through = key + country_step_cost(n, c, d);
+			country_field_relax(field, n, through, (unsigned char)((opposite[d] | (which << 3)) | _country_next_tentative));
+		}
+	}
+}
+
+/* what comes down onto floor c from the squares beside it: off a ledge, down
+   a cliff. One way, and only for a field that is a vehicle's: on foot it is
+   a fall */
+static void country_field_relax_drops(struct country_field *field, long c, float key)
+{
+	long d;
+	for (d = 0; field->drops && d < 8; d++)
+	{
+		/* (from the square beside it, or from the one beyond that: a
+		   ledge's lip, country_drop) */
+		static long const opposite[4] = { 1, 0, 3, 2 };
+		long sq = country.square[c];
+		long reach = d < 4 ? 1 : 2;
+		long x = sq % country.width + country_dx[d & 3] * reach, y = sq / country.width + country_dy[d & 3] * reach;
+		long n;
+		if (!country_square_in(x, y))
+			continue;
+		for (n = country.first[y * country.width + x]; n < country.first[y * country.width + x + 1]; n++)
+		{
+			float through;
+			if (country.z[n] <= country.z[c] || (reach == 2 && country.z[n] < country.z[c] + 3.f) || country_drop(n, opposite[d & 3]) != c)
+				continue;
+			if (field->next[n] != _country_next_none && !(field->next[n] & _country_next_tentative))
+				continue;
+			through = key + country.cell + 4.f;
+			country_field_relax(field, n, through, (unsigned char)((_country_next_drop + opposite[d & 3]) | _country_next_tentative));
+		}
+	}
+}
+
+/* a portal that comes out at floor c: from where it goes in, this way */
+static void country_field_relax_portals(struct country_field *field, long c, float key)
+{
+	long d;
+	for (d = 0; d < country.portal_count; d++)
+	{
+		struct country_portal const *portal = &country.portals[d];
+		long n = portal->entry_floor;
+		float through = key + 6.f;
+		if (portal->exit_floor != c || n == NONE || !country.portal_sets[field->portals][d])
+			continue;
+		/* (a lift is for what is driven: someone on foot walks up it) */
+		if (portal->lift != NONE && !field->drops)
+			continue;
+		if (field->next[n] != _country_next_none && !(field->next[n] & _country_next_tentative))
+			continue;
+		country_field_relax(field, n, through, (unsigned char)((_country_next_portal + d) | _country_next_tentative));
+	}
+}
+
 /* the search of the field being worked out, carried on: so many squares of
    it this tick, of all that is asked of it */
 static void country_field_advance(void)
@@ -2936,7 +3037,7 @@ static void country_field_advance(void)
 		   not, and a first field over hills is all of them) */
 		if ((country.steps_used & 127) == 127 && bot_time_microseconds() - started > COUNTRY_MICROSECONDS_PER_TICK)
 			break;
-		long c, d;
+		long c;
 		c = country_heap_pop(&key);
 		if (key > country.cost[c] || !(field->next[c] & _country_next_tentative))
 			continue; /* (bettered since, or done) */
@@ -2953,74 +3054,9 @@ static void country_field_advance(void)
 			country.heap_count = 0;
 			break;
 		}
-		for (d = 0; d < 8; d++)
-		{
-			/* (the floors that step onto this one: those it steps onto, a
-			   step being the same both ways; each steps here the way back,
-			   onto this one of the floors it has that way) */
-			static long const opposite[8] = { 1, 0, 3, 2, 7, 6, 5, 4 };
-			long to[COUNTRY_STEPS];
-			long count = country_corner_open(c, d) ? country_steps(c, d, to) : 0;
-			long k;
-			for (k = 0; k < count; k++)
-			{
-				long n = to[k];
-				long back[COUNTRY_STEPS];
-				long back_count, which;
-				float through;
-				if (field->next[n] != _country_next_none && !(field->next[n] & _country_next_tentative))
-					continue;
-				if (!country_corner_open(n, opposite[d]))
-					continue;
-				back_count = country_steps(n, opposite[d], back);
-				for (which = 0; which < back_count && back[which] != c; which++)
-					;
-				if (which == back_count)
-					continue;
-				through = key + country_step_cost(n, c, d);
-				country_field_relax(field, n, through, (unsigned char)((opposite[d] | (which << 3)) | _country_next_tentative));
-			}
-		}
-		/* (what comes down onto this floor from the squares beside it: off a
-		   ledge, down a cliff. One way, and only for a field that is a
-		   vehicle's: on foot it is a fall) */
-		for (d = 0; field->drops && d < 8; d++)
-		{
-			/* (from the square beside it, or from the one beyond that: a
-			   ledge's lip, country_drop) */
-			static long const opposite[4] = { 1, 0, 3, 2 };
-			long sq = country.square[c];
-			long reach = d < 4 ? 1 : 2;
-			long x = sq % country.width + country_dx[d & 3] * reach, y = sq / country.width + country_dy[d & 3] * reach;
-			long n;
-			if (!country_square_in(x, y))
-				continue;
-			for (n = country.first[y * country.width + x]; n < country.first[y * country.width + x + 1]; n++)
-			{
-				float through;
-				if (country.z[n] <= country.z[c] || (reach == 2 && country.z[n] < country.z[c] + 3.f) || country_drop(n, opposite[d & 3]) != c)
-					continue;
-				if (field->next[n] != _country_next_none && !(field->next[n] & _country_next_tentative))
-					continue;
-				through = key + country.cell + 4.f;
-				country_field_relax(field, n, through, (unsigned char)((_country_next_drop + opposite[d & 3]) | _country_next_tentative));
-			}
-		}
-		/* (a portal that comes out here: from where it goes in, this way) */
-		for (d = 0; d < country.portal_count; d++)
-		{
-			struct country_portal const *portal = &country.portals[d];
-			long n = portal->entry_floor;
-			float through = key + 6.f;
-			if (portal->exit_floor != c || n == NONE || !country.portal_sets[field->portals][d])
-				continue;
-			/* (a lift is for what is driven: someone on foot walks up it) */
-			if (portal->lift != NONE && !field->drops)
-				continue;
-			if (field->next[n] != _country_next_none && !(field->next[n] & _country_next_tentative))
-				continue;
-			country_field_relax(field, n, through, (unsigned char)((_country_next_portal + d) | _country_next_tentative));
-		}
+		country_field_relax_steps(field, c, key);
+		country_field_relax_drops(field, c, key);
+		country_field_relax_portals(field, c, key);
 	}
 	if (country.heap_count == 0)
 	{
@@ -3057,63 +3093,15 @@ void bot_country_update(void)
 		country_field_advance();
 }
 
-/* The field to a place: one that is kept and ends within `slack` squares of
-   it, the nearest such. (From a long way off, the way to anywhere near the
-   place is the way to the place: whoever is being driven at across a mile
-   of map has moved by the time a field to where they stood is made, and a
-   field for every step they take is never finished. The slack is the
-   caller's, by how far off it is.) With none, one is begun; and until it is
-   done, one that ends within three times the slack does. */
-static struct country_field *country_field_to(long goal, long portals, boolean drops, long slack, long start, float limit)
+/* A new field to a place, in the field that was asked for longest ago (of
+   the whole ones, or of the partial ones, as `start` says), and its search
+   begun (NULL: no memory). */
+static struct country_field *country_field_begin(long goal, long portals, boolean drops, long start, float limit)
 {
 	long cells = country.floor_count;
-	long gx = country.square[goal] % country.width, gy = country.square[goal] / country.width;
 	struct country_field *oldest = NULL;
-	struct country_field *nearest = NULL, *meanwhile = NULL;
-	long nearest_off = 0, meanwhile_off = 0;
 	long i;
 
-	for (i = 0; i < COUNTRY_FIELDS; i++)
-	{
-		struct country_field *field = &country.fields[i];
-		long off;
-		if (!field->used || field->portals != portals || field->drops != drops)
-			continue;
-		/* (a partial one: for whoever it was made for, or anyone on the
-		   part of it that was searched) */
-		if (field->partial && (start == NONE || (field->stop_at != start &&
-			(field->next[start] == _country_next_none || (field->next[start] & _country_next_tentative)))))
-		{
-			continue;
-		}
-		off = MAX(labs(country.square[field->goal] % country.width - gx), labs(country.square[field->goal] / country.width - gy));
-		off = MAX(off, (long)(fabs(country.z[field->goal] - country.z[goal]) / country.cell));
-		if (off <= slack && (!nearest || off < nearest_off))
-		{
-			nearest = field;
-			nearest_off = off;
-		}
-		if (off <= slack * 3 && field->complete && (!meanwhile || off < meanwhile_off))
-		{
-			meanwhile = field;
-			meanwhile_off = off;
-		}
-	}
-	if (nearest)
-	{
-		nearest->last = ++country.clock;
-		/* (still being made, and another near enough is done: that, for now) */
-		if (!nearest->complete && meanwhile)
-		{
-			meanwhile->last = ++country.clock;
-			return meanwhile;
-		}
-		return nearest;
-	}
-	if (meanwhile)
-		meanwhile->last = ++country.clock;
-	if (country.building != NONE)
-		return meanwhile;
 	for (i = start == NONE ? 0 : COUNTRY_FIELDS_WHOLE; i < (start == NONE ? COUNTRY_FIELDS_WHOLE : COUNTRY_FIELDS); i++)
 		if (!oldest || !country.fields[i].used || (oldest->used && country.fields[i].last < oldest->last))
 			oldest = &country.fields[i];
@@ -3161,7 +3149,68 @@ static struct country_field *country_field_to(long goal, long portals, boolean d
 		bot_log("country: a field to %.0f %.0f %.0f (portal set %ld%s)", at.x, at.y, at.z, portals, drops ? ", off ledges" : "");
 	}
 	country_field_advance();
-	return meanwhile ? meanwhile : oldest;
+	return oldest;
+}
+
+/* The field to a place: one that is kept and ends within `slack` squares of
+   it, the nearest such. (From a long way off, the way to anywhere near the
+   place is the way to the place: whoever is being driven at across a mile
+   of map has moved by the time a field to where they stood is made, and a
+   field for every step they take is never finished. The slack is the
+   caller's, by how far off it is.) With none, one is begun; and until it is
+   done, one that ends within three times the slack does. */
+static struct country_field *country_field_to(long goal, long portals, boolean drops, long slack, long start, float limit)
+{
+	long gx = country.square[goal] % country.width, gy = country.square[goal] / country.width;
+	struct country_field *nearest = NULL, *meanwhile = NULL, *begun;
+	long nearest_off = 0, meanwhile_off = 0;
+	long i;
+
+	for (i = 0; i < COUNTRY_FIELDS; i++)
+	{
+		struct country_field *field = &country.fields[i];
+		long off;
+		if (!field->used || field->portals != portals || field->drops != drops)
+			continue;
+		/* (a partial one: for whoever it was made for, or anyone on the
+		   part of it that was searched) */
+		if (field->partial && (start == NONE || (field->stop_at != start &&
+			(field->next[start] == _country_next_none || (field->next[start] & _country_next_tentative)))))
+		{
+			continue;
+		}
+		off = MAX(labs(country.square[field->goal] % country.width - gx), labs(country.square[field->goal] / country.width - gy));
+		off = MAX(off, (long)(fabs(country.z[field->goal] - country.z[goal]) / country.cell));
+		if (off <= slack && (!nearest || off < nearest_off))
+		{
+			nearest = field;
+			nearest_off = off;
+		}
+		if (off <= slack * 3 && field->complete && (!meanwhile || off < meanwhile_off))
+		{
+			meanwhile = field;
+			meanwhile_off = off;
+		}
+	}
+	if (nearest)
+	{
+		nearest->last = ++country.clock;
+		/* (still being made, and another near enough is done: that, for now) */
+		if (!nearest->complete && meanwhile)
+		{
+			meanwhile->last = ++country.clock;
+			return meanwhile;
+		}
+		return nearest;
+	}
+	if (meanwhile)
+		meanwhile->last = ++country.clock;
+	if (country.building != NONE)
+		return meanwhile;
+	begun = country_field_begin(goal, portals, drops, start, limit);
+	if (!begun)
+		return NULL;
+	return meanwhile ? meanwhile : begun;
 }
 
 /* ---------- the way */
@@ -3363,15 +3412,15 @@ static void country_way_lie(struct country_field const *field, long start, real 
 	}
 }
 
+static boolean country_way(real_point3d const *from, real_point3d const *to, long portals, boolean drops, real ahead, real_point3d *next,
+	boolean *soon, boolean *off, real *left, boolean on_foot);
+
 /* Over the ground from a point toward a place: the point to make for now,
    some way ahead along the way there. FALSE when there is none to give:
    *soon when that is because the way is still being worked out (ask again),
    *off when the point is not on the country at all (under a roof, in a
    building: the navigation's to get out of), and neither when the country
    does not join the two. *left: how far it still is by the way, about. */
-static boolean country_way(real_point3d const *from, real_point3d const *to, long portals, boolean drops, real ahead, real_point3d *next,
-	boolean *soon, boolean *off, real *left, boolean on_foot);
-
 boolean bot_country_way(real_point3d const *from, real_point3d const *to, long portals, boolean drops, real ahead, real_point3d *next,
 	boolean *soon, boolean *off, real *left)
 {
@@ -3556,6 +3605,16 @@ static boolean country_way_gate(struct country_walk const *walk, real_point3d co
 	return TRUE;
 }
 
+/* The point to make for is the way into portal p: its volume's middle, at
+   height z. */
+static void country_way_into(long p, real z, real_point3d *next)
+{
+	*next = country.portals[p].entry;
+	next->z = z;
+	country_way_into_portal = TRUE;
+	country_way_portal = p;
+}
+
 /* The point to make for at the furthest floor the way got to (walk->best):
    the place itself, the way into a portal, or the floor, with how much of
    a turn the way takes there. */
@@ -3574,10 +3633,7 @@ static void country_way_onward(struct country_walk const *walk, real_point3d con
 	if (field->next[best] >= _country_next_portal && best != walk->start)
 	{
 		/* (as far as the way into a portal: on into it) */
-		*next = country.portals[field->next[best] - _country_next_portal].entry;
-		next->z = country.z[best];
-		country_way_into_portal = TRUE;
-		country_way_portal = field->next[best] - _country_next_portal;
+		country_way_into(field->next[best] - _country_next_portal, country.z[best], next);
 		return;
 	}
 	country_floor_point(best, next);
@@ -3647,10 +3703,7 @@ static boolean country_way(real_point3d const *from, real_point3d const *to, lon
 	/* (at the way into a portal: into it, its volume's middle) */
 	if (field->next[start] >= _country_next_portal)
 	{
-		*next = country.portals[field->next[start] - _country_next_portal].entry;
-		next->z = from->z;
-		country_way_into_portal = TRUE;
-		country_way_portal = field->next[start] - _country_next_portal;
+		country_way_into(field->next[start] - _country_next_portal, from->z, next);
 		return TRUE;
 	}
 	walk.field = field;
@@ -4026,9 +4079,9 @@ static boolean country_carry(struct bot_traveller *traveller, struct bot_body co
    there, standing, with its nose to the second, and driven straight at
    it for so long; where it is then is written, and it is done again.
    TRUE while it is driving that vehicle. */
-static boolean country_drive_test(struct bot_traveller *traveller, struct bot_body const *body, struct object_datum *vehicle, real speed, real heading,
-	struct bot_country_result *result)
+static boolean country_drive_test(struct bot_traveller *traveller, struct bot_body const *body, real speed, real heading, struct bot_country_result *result)
 {
+	struct object_datum *vehicle = object_get(body->vehicle_index);
 	real_point3d const *position = &body->position;
 	long now = game_time_get();
 	if (getenv("HALO_BOT_DRIVETEST"))
@@ -4084,32 +4137,37 @@ static boolean country_drive_test(struct bot_traveller *traveller, struct bot_bo
 	return FALSE;
 }
 
+/* Off the country, and a floor a way under it: in the air, coming down off a
+   ledge. As it goes. TRUE when that is so (and the tick is done). */
+static boolean country_in_the_air(struct bot_traveller *traveller, real_point3d const *position, real heading, struct bot_country_result *result)
+{
+	long square = country_square_at(position->x, position->y);
+	long f;
+	for (f = square != NONE ? country.first[square] : 0; square != NONE && f < country.first[square + 1]; f++)
+	{
+		if (country.z[f] < position->z - 2.5f && country.z[f] + country.room[f] > position->z)
+		{
+			result->moving = TRUE;
+			result->yaw = heading;
+			result->throttle = 0.f;
+			result->note = "in the air over the country";
+			traveller->stuck_point = *position;
+			traveller->stuck_tick = game_time_get();
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
 /* No way from here (bot_country_way gave none: soon, or off the country, or
-   neither). Off the country, and floor a way under it: in the air, coming
-   down off a ledge. As it goes. */
+   neither). */
 static void country_without_way(struct bot_traveller *traveller, struct bot_body const *body, real speed, real heading, boolean soon, boolean off,
 	struct bot_country_result *result)
 {
 	real_point3d const *position = &body->position;
 	long now = game_time_get();
-	if (off)
-	{
-		long square = country_square_at(position->x, position->y);
-		long f;
-		for (f = square != NONE ? country.first[square] : 0; square != NONE && f < country.first[square + 1]; f++)
-		{
-			if (country.z[f] < position->z - 2.5f && country.z[f] + country.room[f] > position->z)
-			{
-				result->moving = TRUE;
-				result->yaw = heading;
-				result->throttle = 0.f;
-				result->note = "in the air over the country";
-				traveller->stuck_point = *position;
-				traveller->stuck_tick = now;
-				return;
-			}
-		}
-	}
+	if (off && country_in_the_air(traveller, position, heading, result))
+		return;
 	result->soon = soon;
 	result->off = off;
 	result->none = !soon && !off;
@@ -4164,9 +4222,10 @@ static void country_pace_for_way(real_point3d const *position, real_point3d cons
 /* Up a lift: from within a length of its foot, with nothing of the map
    between, and going slowly, the vehicle is carried up it. TRUE when it has
    been set going (and the tick is done). */
-static boolean country_lift_board(struct bot_traveller *traveller, struct bot_body const *body, struct object_datum *vehicle, struct country_portal const *portal,
-	real speed, struct bot_country_result *result)
+static boolean country_lift_board(struct bot_traveller *traveller, struct bot_body const *body, struct country_portal const *portal, real speed,
+	struct bot_country_result *result)
 {
+	struct object_datum *vehicle = object_get(body->vehicle_index);
 	real_point3d const *position = &body->position;
 	long now = game_time_get();
 	struct country_lift const *lift = &country.lifts[portal->lift];
@@ -4219,9 +4278,10 @@ static boolean country_lift_board(struct bot_traveller *traveller, struct bot_bo
    map between, the vehicle is set down in it, and the script does the
    rest as it would for anyone who had parked there. TRUE when a lift has
    taken it (the tick is done). */
-static boolean country_into_portal(struct bot_traveller *traveller, struct bot_body const *body, struct object_datum *vehicle, real speed, real turn,
-	struct bot_country_result *result, real *throttle)
+static boolean country_into_portal(struct bot_traveller *traveller, struct bot_body const *body, real speed, real turn, struct bot_country_result *result,
+	real *throttle)
 {
+	struct object_datum *vehicle = object_get(body->vehicle_index);
 	real_point3d const *position = &body->position;
 	long now = game_time_get();
 	struct country_portal const *portal = &country.portals[country_way_portal];
@@ -4239,7 +4299,7 @@ static boolean country_into_portal(struct bot_traveller *traveller, struct bot_b
 		/* (a lift: slowly, up it) */
 		if (speed > 4.f)
 			*throttle = 0.f;
-		if (country_lift_board(traveller, body, vehicle, portal, speed, result))
+		if (country_lift_board(traveller, body, portal, speed, result))
 			return TRUE;
 	}
 	else if (off < COUNTRY_PORTAL_REACH && fabs(position->z - portal->entry.z) < 2.5f)
@@ -4291,18 +4351,14 @@ struct country_drive
 };
 
 /* What stands in the way that the country does not show: a tree, a rock,
-   another vehicle. A ray ahead at the bonnet's height, the way the
-   vehicle lies on the ground; something there, and it is round the side
-   with more room: a way picked once and held (not so much to one hand
-   of wherever the nose is now, which is a spin), and slower.
-   As far as it takes to stop in and half as much again (not past where
-   the way turns: what stands beyond that is not in it), across its own
-   width, the way it is going. Something there: of the ways to
-   either hand (a little, more, a good deal), the least turn that is
-   clear past it and has ground under it, and is nearest the way it
-   was bound; slower by how soon it would be at it, hard on the
-   brake when that is half a second. One of our own on foot in the
-   way is gone round as a tree is, or stopped for. */
+   another vehicle. Looked for as far as it takes to stop in and half as much
+   again (not past where the way turns: what stands beyond that is not in
+   it), across its own width, the way it is going. Something there: of the
+   ways to either hand (a little, more, a good deal), the least turn that is
+   clear past it and has ground under it, and is nearest the way it was
+   bound; slower by how soon it would be at it, hard on the brake when that
+   is half a second. One of our own on foot in the way is gone round as a
+   tree is, or stopped for. */
 static void country_see_things(struct country_drive *drive)
 {
 	struct bot_traveller *traveller = drive->traveller;
@@ -4387,8 +4443,11 @@ static void country_see_things(struct country_drive *drive)
 	}
 }
 
-/* ... and for a turret, or with the refined look off: one ray down the
-   nose and two a little to each hand, and round to the side with more room. */
+/* ... and for a turret, or with the refined look off: a ray ahead at the
+   bonnet's height, the way the vehicle lies on the ground, and two a little
+   to each hand. Something there, and it is round the side with more room: a
+   way picked once and held (not so much to one hand of wherever the nose is
+   now, which is a spin), and slower. */
 static void country_see_things_plain(struct country_drive *drive)
 {
 	struct bot_traveller *traveller = drive->traveller;
@@ -4434,7 +4493,7 @@ static void country_see_things_plain(struct country_drive *drive)
 	}
 }
 
-/* (nose to a wall, of the map or not, and stopped at it: straight back) */
+/* Nose to a wall, of the map or not, and stopped at it: straight back. */
 static void country_nose_to_wall(struct country_drive *drive)
 {
 	struct bot_traveller *traveller = drive->traveller;
@@ -4451,6 +4510,85 @@ static void country_nose_to_wall(struct country_drive *drive)
 	{
 		traveller->escape_yaw = bot_wrap(heading + BOT_PI);
 		traveller->escape_until = now + BOT_SECONDS(1.2f);
+	}
+}
+
+/* A hovering vehicle goes where it is pushed, not where it points: its nose
+   is put to the far side of the way it is drifting off the line, and it is
+   not slowed by pushing backward along a nose that points somewhere it is
+   not going. */
+static void country_hover_drift(struct country_drive *drive, real going)
+{
+	real drift = (real)sin(bot_angle_difference(going, drive->yaw)) * drive->speed; /* (to the left of the line, a second) */
+	drive->yaw = bot_wrap(drive->yaw - PIN(drift / 7.f, -0.7f, 0.7f));
+	/* (... which wants a push to do anything) */
+	if (fabs(drift) > 1.5f && drive->throttle < 0.5f && fabs(bot_angle_difference(drive->yaw, drive->heading)) < 1.2f)
+		drive->throttle = 0.5f;
+}
+
+/* Going at an edge that is no part of the way: nothing under the place it
+   will be in a second or so. Stopped for, whatever else. */
+static void country_edge_going_at(struct country_drive *drive, real going, real slide)
+{
+	struct bot_traveller *traveller = drive->traveller;
+	struct bot_body const *body = drive->body;
+	real_point3d const *position = &body->position;
+	real speed = drive->speed;
+	long now = game_time_get();
+	real reach;
+	for (reach = MAX(3.f, speed * 0.45f); reach <= MAX(6.f, speed * 1.35f) + 0.1f; reach += MAX(3.f, speed * 0.45f))
+	{
+		real_point3d at = *position;
+		real ground;
+		/* (from over it, as high as a hill would have risen by there,
+		   down to as low as one would have fallen: a slope is not an
+		   edge, up or down) */
+		at.x += (real)cos(going) * reach;
+		at.y += (real)sin(going) * reach;
+		at.z += 1.f + reach;
+		if (!country_ground_under(&at, position->z, reach, body->vehicle_index, &ground))
+		{
+			drive->throttle = slide < 1.f ? -1.f : slide > 2.2f ? 1.f : 0.f;
+			drive->result->edge = TRUE;
+			/* (stopping for it is not being stuck) */
+			traveller->stuck_point = *position;
+			traveller->stuck_tick = now;
+			break;
+		}
+	}
+}
+
+/* Stopped at an edge, its nose out over it and the way on to one side: not
+   round on the lip, which is over it sideways. Back from it first, its tail
+   to where it came from. */
+static void country_edge_stopped_at(struct country_drive *drive, real wanted)
+{
+	struct bot_traveller *traveller = drive->traveller;
+	struct bot_body const *body = drive->body;
+	real_point3d const *position = &body->position;
+	real heading = drive->heading;
+	long now = game_time_get();
+	real reach;
+	for (reach = 2.5f; reach <= 4.6f; reach += 2.f)
+	{
+		real_point3d at = *position;
+		real ground;
+		at.x += (real)cos(heading) * reach;
+		at.y += (real)sin(heading) * reach;
+		at.z += 1.f + reach;
+		if (!country_ground_under(&at, position->z, reach, body->vehicle_index, &ground))
+		{
+			if (fabs(wanted) > 0.5f)
+			{
+				traveller->escape_yaw = bot_wrap(heading + BOT_PI);
+				traveller->escape_until = now + BOT_SECONDS(1.2f);
+			}
+			else
+				drive->throttle = 0.f; /* (the way on is over it, the country says, and it is not: left to be held up) */
+			drive->result->edge = TRUE;
+			drive->result->note = "stopped at an edge";
+			break;
+		}
 	}
 }
 
@@ -4472,23 +4610,13 @@ static void country_handling(struct country_drive *drive)
 	real heading = drive->heading;
 	real_point3d const *position = &body->position;
 	long now = game_time_get();
-	/* (what hovers goes where it is pushed, not where it points: its
-	   nose is put to the far side of the way it is drifting off the line,
-	   and it is not slowed by pushing backward along a nose that points
-	   somewhere it is not going) */
 	boolean hovers = bot_vehicle_kind(vehicle->definition_index) == _bot_vehicle_scout;
 	real going = speed > 3.f ? (real)atan2(body->velocity.j, body->velocity.i) : heading;
 	real slide = (real)fabs(bot_angle_difference(going, heading));
 	real wanted, most;
 	real fall = (next->z - position->z) / MAX(bot_distance2d(position, next), 2.f);
 	if (hovers && traveller->swerve_ticks <= 0 && speed > 2.f)
-	{
-		real drift = (real)sin(bot_angle_difference(going, drive->yaw)) * speed; /* (to the left of the line, a second) */
-		drive->yaw = bot_wrap(drive->yaw - PIN(drift / 7.f, -0.7f, 0.7f));
-		/* (... which wants a push to do anything) */
-		if (fabs(drift) > 1.5f && drive->throttle < 0.5f && fabs(bot_angle_difference(drive->yaw, heading)) < 1.2f)
-			drive->throttle = 0.5f;
-	}
+		country_hover_drift(drive, going);
 	wanted = bot_angle_difference(drive->yaw, heading);
 	most = hovers ? 3.2f : speed > 11.f ? 0.22f : speed > 8.f ? 0.32f : speed > 5.f ? 0.5f : 3.2f;
 	/* (full lock under power is the tail round, on snow: round a tight
@@ -4503,60 +4631,10 @@ static void country_handling(struct country_drive *drive)
 		drive->throttle = MIN(drive->throttle, 0.f);
 	if (fabs(wanted) > most)
 		drive->yaw = bot_wrap(heading + (wanted > 0.f ? most : -most));
-	/* (going at an edge that is no part of the way: nothing under the
-	   place it will be in a second or so. Stopped for, whatever else) */
 	if (speed > 3.f && !country_way_dropping && !result->into_portal)
-	{
-		real reach;
-		for (reach = MAX(3.f, speed * 0.45f); reach <= MAX(6.f, speed * 1.35f) + 0.1f; reach += MAX(3.f, speed * 0.45f))
-		{
-			real_point3d at = *position;
-			real ground;
-			/* (from over it, as high as a hill would have risen by there,
-			   down to as low as one would have fallen: a slope is not an
-			   edge, up or down) */
-			at.x += (real)cos(going) * reach;
-			at.y += (real)sin(going) * reach;
-			at.z += 1.f + reach;
-			if (!country_ground_under(&at, position->z, reach, body->vehicle_index, &ground))
-			{
-				drive->throttle = slide < 1.f ? -1.f : slide > 2.2f ? 1.f : 0.f;
-				result->edge = TRUE;
-				/* (stopping for it is not being stuck) */
-				traveller->stuck_point = *position;
-				traveller->stuck_tick = now;
-				break;
-			}
-		}
-	}
-	/* (... and stopped at one, its nose out over it and the way on to one
-	   side: not round on the lip, which is over it sideways. Back from
-	   it first, its tail to where it came from) */
+		country_edge_going_at(drive, going, slide);
 	else if (speed <= 3.f && drive->throttle > 0.f && !country_way_dropping && !result->into_portal && now >= traveller->escape_until)
-	{
-		real reach;
-		for (reach = 2.5f; reach <= 4.6f; reach += 2.f)
-		{
-			real_point3d at = *position;
-			real ground;
-			at.x += (real)cos(heading) * reach;
-			at.y += (real)sin(heading) * reach;
-			at.z += 1.f + reach;
-			if (!country_ground_under(&at, position->z, reach, body->vehicle_index, &ground))
-			{
-				if (fabs(wanted) > 0.5f)
-				{
-					traveller->escape_yaw = bot_wrap(heading + BOT_PI);
-					traveller->escape_until = now + BOT_SECONDS(1.2f);
-				}
-				else
-					drive->throttle = 0.f; /* (the way on is over it, the country says, and it is not: left to be held up) */
-				result->edge = TRUE;
-				result->note = "stopped at an edge";
-				break;
-			}
-		}
-	}
+		country_edge_stopped_at(drive, wanted);
 	if (hovers)
 	{
 		if (drive->throttle < 0.f && slide > 0.5f)
@@ -4786,7 +4864,7 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 	}
 	if (country_carry(traveller, body, result))
 		return;
-	if (country_drive_test(traveller, body, vehicle, speed, heading, result))
+	if (country_drive_test(traveller, body, speed, heading, result))
 		return;
 	if (!bot_country_way(position, to, bot_country_portals_of(body->vehicle_index), TRUE, MAX(14.f, speed * 1.6f), &next, &soon, &off, NULL))
 	{
@@ -4801,7 +4879,7 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 	if (to_place < 10.f)
 		throttle = MIN(throttle, 0.6f);
 	country_pace_for_way(position, &next, speed, turn, &throttle);
-	if (result->into_portal && country_into_portal(traveller, body, vehicle, speed, turn, result, &throttle))
+	if (result->into_portal && country_into_portal(traveller, body, speed, turn, result, &throttle))
 		return;
 	result->arrived = to_place < 5.f;
 
