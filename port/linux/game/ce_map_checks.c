@@ -68,9 +68,10 @@ rest of a map's tags as it reads the Xbox's maps, trusting them.
 enum
 {
 	CE_HEADER_SIZE = 0x800,
-	CE_TAG_INSTANCE_SIZE = 0x20,
 	/* (a tag handle's index: 16 bits) */
 	CE_MAXIMUM_TAG_COUNT = 0xffff,
+	/* a tag's name, with its terminator (Halo's tools' paths) */
+	CE_MAXIMUM_TAG_NAME_LENGTH = 256,
 	/* the files read: no larger than a signed 32-bit offset reaches */
 	CE_MAXIMUM_FILE_SIZE = 0x7fffffff,
 
@@ -108,21 +109,17 @@ enum
 	CE_DATA_ARRAY_FIRST_FREE_OFFSET = 0x2c,
 	CE_DATA_ARRAY_COUNT_OFFSET = 0x2e,
 	CE_SCRIPT_SYNTAX_NODE_SIZE = 0x14, /* (hs_compile.c's hs_syntax_node) */
+
+	/* OpenSauce's header, in the padding of a Custom Edition cache's: its
+	signature, then its version (a short) and its flags (a short), which ask
+	for what only OpenSauce provides (memory upgrades, mod data files, game
+	state upgrades and the like) */
+	CE_OPENSAUCE_HEADER_OFFSET = 0x70,
+	CE_OPENSAUCE_HEADER_SIGNATURE = 'yelo',
+	CE_OPENSAUCE_HEADER_FLAGS_OFFSET = 0x06,
 };
 
 /* ---------- structures */
-
-/* (cache_files.c's) */
-struct ce_tag_instance
-{
-	unsigned long group_tag;
-	unsigned long parent_group_tags[2];
-	unsigned long tag_index;
-	unsigned long name;
-	unsigned long base_address;
-	unsigned long indexed;
-	unsigned long unused;
-};
 
 struct ce_tag_header
 {
@@ -186,6 +183,27 @@ static boolean ce_file_read(
 	return ReadFile(file, buffer, size, &bytes_read, NULL) && bytes_read == size;
 }
 
+/* whether a cache needs OpenSauce: its header says so, by setting any of
+its flags. A cache that carries OpenSauce's header with none set (SPV3's
+releases that also run on stock Custom Edition) needs nothing of it, and its
+OpenSauce tags (project_yellow) nothing here reads. One that asks for
+OpenSauce's memory upgrades has tags laid out past Custom Edition's tag cache,
+which the checks below would refuse with no reason a player could act on.
+(As OpenCE's build-145 refuses them, MrBruh's finding.) */
+static boolean ce_needs_opensauce(
+	HANDLE file)
+{
+	byte header[8];
+	unsigned long signature;
+	unsigned short flags;
+
+	if (!ce_file_read(file, CE_OPENSAUCE_HEADER_OFFSET, header, sizeof(header)))
+		return FALSE;
+	memcpy(&signature, header, sizeof(signature));
+	memcpy(&flags, header + CE_OPENSAUCE_HEADER_FLAGS_OFFSET, sizeof(flags));
+	return signature == (unsigned long)CE_OPENSAUCE_HEADER_SIGNATURE && flags != 0;
+}
+
 /* the instance at a tag handle, if it is the handle of one */
 static struct ce_tag_instance const *ce_tag_instance_get(
 	struct ce_tag_instance const *instances,
@@ -215,6 +233,11 @@ static boolean ce_tag_index_check(
 			return ce_refuse("tag %ld's handle is %08lx", index, instance->tag_index);
 		if (!name || !memchr(name, 0, image->base + image->size - instance->name))
 			return ce_refuse("tag %ld's name is not in its tag data", index);
+		/* (no longer than a tag's path is: the game copies and formats
+		names into buffers of that size, game_state.c's, objects.c's) */
+		if (!memchr(name, 0, MIN(image->base + image->size - instance->name,
+			(unsigned long)CE_MAXIMUM_TAG_NAME_LENGTH)))
+			return ce_refuse("tag %ld's name is longer than %d characters", index, CE_MAXIMUM_TAG_NAME_LENGTH - 1);
 		if (instance->indexed)
 		{
 			switch (instance->group_tag)
@@ -387,7 +410,8 @@ static boolean ce_bsps_check(
 			return ce_refuse("no memory to check structure BSP %ld (%lu bytes)", index, reference.file_size);
 		valid = ce_file_read(file, reference.file_offset, bsp.data, reference.file_size) &&
 			ce_bsp_check(&bsp, &bytes);
-		free(bsp.data);
+		if (bsp.data)
+			free(bsp.data);
 		if (!valid)
 			return ce_refuse("structure BSP %ld could not be read", index);
 		if (bytes > *bsp_bytes)
@@ -513,7 +537,8 @@ static boolean ce_map_check_tags(
 done:
 	if (model_data)
 		free(model_data);
-	free(image.data);
+	if (image.data)
+		free(image.data);
 	return valid;
 }
 
@@ -622,6 +647,12 @@ boolean ce_map_checking(
 	return ce_checking;
 }
 
+char const *ce_map_family_name(
+	void)
+{
+	return ce_map_cache_version == CE_CACHE_VERSION_RETAIL ? "HaloMD" : "Custom Edition";
+}
+
 /* an element of a tag block or the bytes of a tag data the game reads
 (tag_groups.c), at an Xbox address: with a Custom Edition map loaded, whose
 tags were checked only as far as the port reads them, not read outside its
@@ -635,8 +666,10 @@ void *ce_tags_pointer(
 	static byte scratch[0x40000];
 	static long misses;
 
-	if (!size || !cache_file_tags_are_ce() || (address >= CE_IMAGE_TAG_CACHE_BASE && size > 0 &&
-		ce_range_within(address - CE_IMAGE_TAG_CACHE_BASE, (unsigned long)size, CE_IMAGE_TAG_CACHE_SIZE)))
+	/* (the bounds first: they pass for nearly every read) */
+	if (!size || (address >= CE_IMAGE_TAG_CACHE_BASE && size > 0 &&
+		ce_range_within(address - CE_IMAGE_TAG_CACHE_BASE, (unsigned long)size, CE_IMAGE_TAG_CACHE_SIZE)) ||
+		!cache_file_tags_are_ce())
 	{
 		return xbox_pointer(address);
 	}
@@ -669,7 +702,7 @@ boolean ce_map_check(
 	unsigned long file_size = GetFileSize(file, &file_size_high);
 	unsigned long started = system_milliseconds();
 	boolean valid;
-	char const *family = ce_map_cache_version == CE_CACHE_VERSION_RETAIL ? "HaloMD" : "Custom Edition";
+	char const *family = ce_map_family_name();
 
 	ce_refusal[0] = 0;
 	ce_checking = TRUE;
@@ -677,6 +710,8 @@ boolean ce_map_check(
 		valid = ce_refuse("its size could not be read, or is over 2 GB");
 	else if (file_length < CE_HEADER_SIZE || (unsigned long)file_length > file_size)
 		valid = ce_refuse("it is cut short: its header says %ld bytes, the file has %lu", file_length, file_size);
+	else if (ce_needs_opensauce(file))
+		valid = ce_refuse("it needs OpenSauce (its OpenSauce header asks for memory upgrades or mod data)");
 	else
 		valid = ce_map_check_tags(file, file_size, (unsigned long)tag_data_offset, (unsigned long)tag_data_size);
 	ce_checking = FALSE;

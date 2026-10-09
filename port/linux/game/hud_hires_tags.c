@@ -17,6 +17,7 @@ reused for another bitmap, or a map unloaded, is a write, which asks again.
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmap_group_lookup.h"
 #include "tag_files/tag_groups.h"
+#include "scenario/scenario_definitions.h"
 
 /* the platform layer's (port/linux/src) */
 void platform_log(char const *format, ...);
@@ -24,8 +25,10 @@ long hud_hires_asset_count(void);
 char const *hud_hires_asset_tag(long asset);
 long hud_hires_asset_bitmap(long asset);
 long hud_hires_asset_fits(long asset, long width, long height);
+void hud_hires_map_loaded(const long *assets, long count);
+void hud_hires_map_unloaded(void);
 
-void hud_hires_tags_loaded(void);
+void hud_hires_tags_loaded(long scenario_index);
 void hud_hires_tags_unloaded(void);
 long hud_hires_asset_at(unsigned long address, long width, long height);
 
@@ -48,7 +51,7 @@ static long hires_bitmap_count = 0;
 /* ---------- public code */
 
 void hud_hires_tags_loaded(
-	void)
+	long scenario_index)
 {
 	long asset_count = hud_hires_asset_count();
 	long asset;
@@ -80,6 +83,17 @@ void hud_hires_tags_loaded(
 	}
 	platform_log("high-res hud: %ld of %ld bitmaps in this map (%ld not in it)",
 		hires_bitmap_count, asset_count, missing);
+	/* (their PNGs decoded now, ahead of the HUD's first frame: not the main
+	menu's, which draws no HUD) */
+	if (scenario_definition_get(scenario_index)->type != _scenario_type_main_menu)
+	{
+		long assets[MAXIMUM_HIRES_BITMAPS];
+		long index;
+
+		for (index = 0; index < hires_bitmap_count; index++)
+			assets[index] = hires_bitmaps[index].asset;
+		hud_hires_map_loaded(assets, hires_bitmap_count);
+	}
 
 	return;
 }
@@ -88,6 +102,7 @@ void hud_hires_tags_unloaded(
 	void)
 {
 	hires_bitmap_count = 0;
+	hud_hires_map_unloaded();
 
 	return;
 }

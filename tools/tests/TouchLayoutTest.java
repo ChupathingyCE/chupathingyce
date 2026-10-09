@@ -15,7 +15,7 @@ public final class TouchLayoutTest {
               "Dragging must keep the full stick inside the screen without a toolbar exclusion");
         layout.move(TouchLayout.FIRE_LEFT, 10000, 10000);
         check(layout.x(TouchLayout.FIRE_LEFT)+39 <= 960 && layout.y(TouchLayout.FIRE_LEFT)+39 <= 540,
-              "Dragging beyond the bottom/right edge must keep the stick reachable");
+              "Dragging beyond the bottom/right edge must keep the button reachable");
         layout.move(0, 230, 320);
         layout.move(5, 440, 390);
         TouchLayout reopened = new TouchLayout();

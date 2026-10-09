@@ -210,6 +210,15 @@ unsigned long xgpu_texture_face_size(const struct xgpu_texture_description *desc
 	return size;
 }
 
+/* whether the size is one D3DDevice_GetDeviceCaps allows (d3d8_gl.c): up
+to 4096 by 4096, and 512 each way for a volume */
+static BOOL texture_size_supported(const struct xgpu_texture_description *description)
+{
+	if (description->depth > 1)
+		return description->width <= 512 && description->height <= 512 && description->depth <= 512;
+	return description->width <= 4096 && description->height <= 4096;
+}
+
 unsigned long xgpu_texture_level_pitch(const struct xgpu_texture_description *description, unsigned long level)
 {
 	struct format_information information = format_information(description->format);
@@ -303,20 +312,22 @@ static unsigned long yuv_to_argb(long y, long u, long v)
 		clamp_byte((298 * c + 516 * d + 128) >> 8));
 }
 
+/* a texel's 16 and 32 bits, read only for the kinds that have them (the last
+texel of a 1-byte texture read 3 bytes past it) */
+#define TEXEL16(source) ((unsigned long)(source)[0] | ((unsigned long)(source)[1] << 8))
+#define TEXEL32(source) (TEXEL16(source) | ((unsigned long)(source)[2] << 16) | ((unsigned long)(source)[3] << 24))
+
 static unsigned long convert_texel(unsigned char kind, const unsigned char *source, const D3DCOLOR *palette,
 	unsigned long x, const unsigned char *row)
 {
-	unsigned long v16 = source[0] | ((unsigned long)source[1] << 8);
-	unsigned long v32 = v16 | ((unsigned long)source[2] << 16) | ((unsigned long)source[3] << 24);
-
 	switch (kind)
 	{
-	case _texel_a8r8g8b8: return v32;
-	case _texel_x8r8g8b8: return v32 | 0xff000000UL;
-	case _texel_r5g6b5: return argb(255, expand5(v16 >> 11), expand6((v16 >> 5) & 0x3f), expand5(v16 & 0x1f));
-	case _texel_a1r5g5b5: return argb((v16 & 0x8000) ? 255 : 0, expand5((v16 >> 10) & 0x1f), expand5((v16 >> 5) & 0x1f), expand5(v16 & 0x1f));
-	case _texel_x1r5g5b5: return argb(255, expand5((v16 >> 10) & 0x1f), expand5((v16 >> 5) & 0x1f), expand5(v16 & 0x1f));
-	case _texel_a4r4g4b4: return argb(expand4(v16 >> 12), expand4((v16 >> 8) & 0xf), expand4((v16 >> 4) & 0xf), expand4(v16 & 0xf));
+	case _texel_a8r8g8b8: return TEXEL32(source);
+	case _texel_x8r8g8b8: return TEXEL32(source) | 0xff000000UL;
+	case _texel_r5g6b5: return argb(255, expand5(TEXEL16(source) >> 11), expand6((TEXEL16(source) >> 5) & 0x3f), expand5(TEXEL16(source) & 0x1f));
+	case _texel_a1r5g5b5: return argb((TEXEL16(source) & 0x8000) ? 255 : 0, expand5((TEXEL16(source) >> 10) & 0x1f), expand5((TEXEL16(source) >> 5) & 0x1f), expand5(TEXEL16(source) & 0x1f));
+	case _texel_x1r5g5b5: return argb(255, expand5((TEXEL16(source) >> 10) & 0x1f), expand5((TEXEL16(source) >> 5) & 0x1f), expand5(TEXEL16(source) & 0x1f));
+	case _texel_a4r4g4b4: return argb(expand4(TEXEL16(source) >> 12), expand4((TEXEL16(source) >> 8) & 0xf), expand4((TEXEL16(source) >> 4) & 0xf), expand4(TEXEL16(source) & 0xf));
 	case _texel_l8: return argb(255, source[0], source[0], source[0]);
 	case _texel_al8: return argb(source[0], source[0], source[0], source[0]);
 	case _texel_a8: return argb(source[0], 255, 255, 255);
@@ -325,14 +336,14 @@ static unsigned long convert_texel(unsigned char kind, const unsigned char *sour
 	/* V8U8 shares this format: U (the low byte) reads as red, V as green */
 	case _texel_g8b8: return argb(255, source[0], source[1], 0);
 	case _texel_r8b8: return argb(255, source[1], 0, source[0]);
-	case _texel_r6g5b5: return argb(255, expand6(v16 >> 10), expand5((v16 >> 5) & 0x1f), expand5(v16 & 0x1f));
+	case _texel_r6g5b5: return argb(255, expand6(TEXEL16(source) >> 10), expand5((TEXEL16(source) >> 5) & 0x1f), expand5(TEXEL16(source) & 0x1f));
 	case _texel_l16: return argb(255, source[1], source[1], source[1]);
 	case _texel_v16u16: return argb(255, source[1], source[3], 0);
 	case _texel_a8b8g8r8: return argb(source[3], source[0], source[1], source[2]);
 	case _texel_b8g8r8a8: return argb(source[0], source[1], source[2], source[3]);
 	case _texel_r8g8b8a8: return argb(source[0], source[3], source[2], source[1]);
-	case _texel_r5g5b5a1: return argb((v16 & 1) ? 255 : 0, expand5(v16 >> 11), expand5((v16 >> 6) & 0x1f), expand5((v16 >> 1) & 0x1f));
-	case _texel_r4g4b4a4: return argb(expand4(v16 & 0xf), expand4(v16 >> 12), expand4((v16 >> 8) & 0xf), expand4((v16 >> 4) & 0xf));
+	case _texel_r5g5b5a1: return argb((TEXEL16(source) & 1) ? 255 : 0, expand5(TEXEL16(source) >> 11), expand5((TEXEL16(source) >> 6) & 0x1f), expand5((TEXEL16(source) >> 1) & 0x1f));
+	case _texel_r4g4b4a4: return argb(expand4(TEXEL16(source) & 0xf), expand4(TEXEL16(source) >> 12), expand4((TEXEL16(source) >> 8) & 0xf), expand4((TEXEL16(source) >> 4) & 0xf));
 	case _texel_yuy2:
 	{
 		const unsigned char *pair = row + (x & ~1UL) * 2;
@@ -347,12 +358,13 @@ static unsigned long convert_texel(unsigned char kind, const unsigned char *sour
 	}
 	case _texel_d24s8: return argb(255, source[3], source[3], source[3]);
 	case _texel_d16: return argb(255, source[1], source[1], source[1]);
-	default: return v32;
+	default: return TEXEL32(source);
 	}
 }
 
-/* one level (or 3D slice set) of an uncompressed texture into BGRA */
-static void decode_level(const struct xgpu_texture_description *description, unsigned long level,
+/* one level (or 3D slice set) of an uncompressed texture into BGRA; FALSE
+when out of memory */
+static BOOL decode_level(const struct xgpu_texture_description *description, unsigned long level,
 	const unsigned char *source, const D3DCOLOR *palette, unsigned long *destination)
 {
 	struct format_information information = format_information(description->format);
@@ -364,24 +376,34 @@ static void decode_level(const struct xgpu_texture_description *description, uns
 	if (description->linear || description->pc_layout)
 	{
 		/* (a linear texture's rows are its pitch apart; Halo PC's, a level's
-		width) */
-		unsigned long pitch = description->linear ? description->pitch : width * information.bytes;
+		width, a linear one's too) */
+		unsigned long pitch = description->linear && !description->pc_layout ? description->pitch :
+			width * information.bytes;
+		/* only the texels a row's pitch holds: a Size word whose pitch is
+		narrower than its width (a map's bitmap) read past the texture's
+		pitch * height bytes; the rest of such a row is black (a YUV texel
+		reads its pair's four bytes) */
+		unsigned long row_texels = information.bytes ? pitch / information.bytes : 0;
 
+		if (information.kind == _texel_yuy2 || information.kind == _texel_uyvy)
+			row_texels &= ~1UL;
 		for (z = 0; z < depth; z++)
 		for (y = 0; y < height; y++)
 		{
 			const unsigned char *row = source + (z * height + y) * pitch;
 
 			for (x = 0; x < width; x++)
-				destination[(z * height + y) * width + x] = convert_texel(information.kind, row + x * information.bytes,
-					palette, x, row);
+				destination[(z * height + y) * width + x] = x < row_texels ?
+					convert_texel(information.kind, row + x * information.bytes, palette, x, row) : 0;
 		}
-		return;
+		return TRUE;
 	}
 	{
 		struct swizzle_masks masks = swizzle_masks(width, height, depth);
 		unsigned long *x_offsets = malloc(width * sizeof(unsigned long));
 
+		if (!x_offsets)
+			return FALSE;
 		for (x = 0; x < width; x++)
 			x_offsets[x] = spread(masks.x, x);
 		for (z = 0; z < depth; z++)
@@ -402,6 +424,7 @@ static void decode_level(const struct xgpu_texture_description *description, uns
 		}
 		free(x_offsets);
 	}
+	return TRUE;
 }
 
 #ifdef HALO_ANDROID
@@ -562,6 +585,8 @@ static void texture_dump(GLenum target, const struct xgpu_texture_description *d
 	if (!directory || target != GL_TEXTURE_2D)
 		return;
 	pixels = malloc(width * height * 4);
+	if (!pixels)
+		return;
 	glGetTexImage(GL_TEXTURE_2D, 0, GL_BGRA, GL_UNSIGNED_BYTE, pixels);
 	snprintf(path, sizeof(path), "%s/tex%05lu_fmt%02x_%lux%lu.tga", directory, dump_index++,
 		(unsigned)description->format, width, height);
@@ -596,6 +621,12 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 	decode_compressed = description->compressed && !xgpu_capabilities.s3tc;
 #endif
 	converted = description->compressed && !decode_compressed ? NULL : malloc(largest * sizeof(unsigned long));
+	if (!converted && !(description->compressed && !decode_compressed))
+	{
+		platform_log("textures: no memory to convert a %lux%lux%lu texture; it is not drawn",
+			description->width, description->height, description->depth);
+		return;
+	}
 	glBindTexture(target, texture);
 	xgpu_gl_state_invalidate();
 	/* the channel each channel is sampled from, set on every upload: a
@@ -676,7 +707,13 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 						(unsigned long)depth, converted);
 				else
 #endif
-				decode_level(description, level, source, palette, converted);
+				if (!decode_level(description, level, source, palette, converted))
+				{
+					platform_log("textures: no memory to convert a %lux%lux%lu texture; it is not drawn",
+						description->width, description->height, description->depth);
+					free(converted);
+					return;
+				}
 				if (target == GL_TEXTURE_3D)
 					glTexImage3D(image_target, (GLint)level, GL_RGBA8, width, height, depth, 0, GL_BGRA, GL_UNSIGNED_BYTE, converted);
 				else
@@ -703,6 +740,10 @@ struct texture_entry
 	unsigned long last_used_frame;
 	/* the high-res HUD texture drawn in its place (hud_hires.h), or -1 */
 	long override;
+	/* the newest generation of its pages (memory_watch_generation) as of the
+	memory watch serial read before it was found: the same while no watched
+	page has been written since (0: never found) */
+	unsigned long watched_serial, watched_generation;
 };
 
 #define TEXTURE_BUCKET_COUNT 4096
@@ -715,7 +756,7 @@ static struct texture_entry *texture_buckets[TEXTURE_BUCKET_COUNT];
 texture that is not palettized is remembered with the memory watch serial it
 started at: while no watched page has been written since, and no texture
 has been dropped, the same lookup finds the same current texture. */
-#define RECENT_TEXTURE_COUNT 64
+#define RECENT_TEXTURE_COUNT 512
 
 static struct
 {
@@ -727,9 +768,14 @@ static struct
 static unsigned long texture_drop_serial = 1;
 static unsigned long texture_frame = 0;
 
+/* (every bit of the three mixed into the top ones: textures are aligned,
+and few sizes and formats are common) */
 static unsigned long bucket_index(DWORD data, DWORD format_word, DWORD size_word)
 {
-	return ((data >> 7) ^ (format_word * 2654435761UL) ^ size_word) % TEXTURE_BUCKET_COUNT;
+	unsigned long hash = (unsigned long)data * 2654435761UL ^ (unsigned long)format_word * 2246822519UL ^
+		(unsigned long)size_word * 3266489917UL;
+
+	return ((hash & 0xffffffffUL) >> 20) % TEXTURE_BUCKET_COUNT;
 }
 
 /* palettized textures are cached per palette contents: the game rewrites
@@ -782,6 +828,7 @@ static GLuint texture_entry_result(struct texture_entry *entry, GLenum *target,
 		{
 			description->hires = TRUE;
 			description->hires_coverage = hud_hires_override_coverage(entry->override);
+			description->hires_point_threshold = hud_hires_override_point_threshold(entry->override);
 			return texture;
 		}
 	}
@@ -804,25 +851,33 @@ GLuint xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, GLenum *
 	unsigned long recent = bucket_index(data, format_word, size_word) % RECENT_TEXTURE_COUNT;
 	unsigned long watch_serial = memory_watch_serial();
 
+	/* (a texture that is not palettized has the one entry, until one is
+	dropped: remembered, a page written since only means checking it) */
+	entry = NULL;
 	if (!palettized && recent_textures[recent].entry && recent_textures[recent].data == data &&
 		recent_textures[recent].format_word == format_word && recent_textures[recent].size_word == size_word &&
-		recent_textures[recent].watch_serial == watch_serial &&
 		recent_textures[recent].drop_serial == texture_drop_serial)
 	{
 		entry = recent_textures[recent].entry;
-		entry->last_used_frame = texture_frame;
-		return texture_entry_result(entry, target, description);
+		if (recent_textures[recent].watch_serial == watch_serial)
+		{
+			entry->last_used_frame = texture_frame;
+			return texture_entry_result(entry, target, description);
+		}
 	}
 
-	for (entry = *bucket; entry; entry = entry->next)
+	if (!entry)
 	{
-		if (entry->data == data && entry->format_word == format_word && entry->size_word == size_word)
+		for (entry = *bucket; entry; entry = entry->next)
 		{
-			if (entry->palette_hash == hash)
-				break;
-			variant_count++;
-			if (!oldest_variant || entry->last_used_frame < oldest_variant->last_used_frame)
-				oldest_variant = entry;
+			if (entry->data == data && entry->format_word == format_word && entry->size_word == size_word)
+			{
+				if (entry->palette_hash == hash)
+					break;
+				variant_count++;
+				if (!oldest_variant || entry->last_used_frame < oldest_variant->last_used_frame)
+					oldest_variant = entry;
+			}
 		}
 	}
 	if (!entry && variant_count >= MAXIMUM_PALETTE_VARIANTS)
@@ -835,6 +890,12 @@ GLuint xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, GLenum *
 	if (!entry)
 	{
 		entry = calloc(1, sizeof(*entry));
+		if (!entry)
+		{
+			xgpu_texture_describe(format_word, size_word, description);
+			*target = GL_TEXTURE_2D;
+			return 0;
+		}
 		entry->data = data;
 		entry->format_word = format_word;
 		entry->size_word = size_word;
@@ -847,7 +908,15 @@ GLuint xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, GLenum *
 #else
 		entry->address = (unsigned long)PLATFORM_PHYSICAL_TO_VIRTUAL(data);
 #endif
-		entry->size = xgpu_texture_face_size(&entry->description) * (entry->description.cube_map ? 6 : 1);
+		/* (a size beyond D3DDevice_GetDeviceCaps' is never uploaded: its
+		byte counts would not fit in 32 bits) */
+		entry->size = texture_size_supported(&entry->description) ?
+			xgpu_texture_face_size(&entry->description) * (entry->description.cube_map ? 6 : 1) : 0;
+		if (!entry->size)
+		{
+			platform_log("textures: a %lux%lux%lu texture is larger than the device takes; it is not drawn",
+				entry->description.width, entry->description.height, entry->description.depth);
+		}
 		entry->generation = 0;
 		entry->override = -1;
 		glGenTextures(1, &entry->texture);
@@ -857,7 +926,17 @@ GLuint xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, GLenum *
 
 	if (no_cache < 0)
 		no_cache = config_boolean("debug.texture_no_cache");
-	generation = memory_watch_generation(entry->address, entry->size);
+	/* (its pages' newest generation, found again only once a watched page
+	has been written: a large texture's pages, scanned for every draw that
+	bound it, were much of a frame with many objects) */
+	if (entry->watched_serial && entry->watched_serial == watch_serial)
+		generation = entry->watched_generation;
+	else
+	{
+		generation = memory_watch_generation(entry->address, entry->size);
+		entry->watched_serial = watch_serial;
+		entry->watched_generation = generation;
+	}
 	if (!entry->generation || generation > entry->generation || no_cache)
 	{
 		/* (whose layout, as the bitmap now here is laid out) */
@@ -871,7 +950,7 @@ GLuint xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, GLenum *
 			entry->generation = 1;
 		/* (which bitmap is here may have changed with the pixels) */
 		entry->override = -1;
-		if (!palettized && !entry->description.cube_map && entry->description.depth == 1)
+		if (entry->size && !palettized && !entry->description.cube_map && entry->description.depth == 1)
 		{
 			unsigned long levels;
 
@@ -882,10 +961,10 @@ GLuint xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, GLenum *
 				entry->override = -1;
 		}
 #ifdef HALO_64BIT
-		if (entry->override < 0 && platform_is_contiguous(xbox_pointer(entry->address)) &&
+		if (entry->override < 0 && entry->size && platform_is_contiguous(xbox_pointer(entry->address)) &&
 			platform_is_contiguous(xbox_pointer(entry->address + entry->size - 1)))
 #else
-		if (entry->override < 0 && platform_is_contiguous((void *)entry->address) &&
+		if (entry->override < 0 && entry->size && platform_is_contiguous((void *)entry->address) &&
 			platform_is_contiguous((void *)(entry->address + entry->size - 1)))
 #endif
 		{

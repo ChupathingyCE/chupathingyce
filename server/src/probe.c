@@ -1,7 +1,7 @@
 /*
 PROBE.C
 
-The game list's probe (server/README.md): with HALO_PROBE naming an
+The game list's probe (server/docs/docker.md): with HALO_PROBE naming an
 invite (its digits, as halo://join/ is followed by), the game reads the
 game that invite leads to and quits. halo.milenko.org lists games hosted
 by copies without the game list this way: a signed-in player gives their
@@ -23,7 +23,7 @@ It runs without a window, sound or a player, as the dedicated server
 
 The line: {"ok": true, "name": ..., "map": ..., "engine": "slayer",
 "players": 3, "maximum_players": 12, "open": true, "teams": false,
-"network_version": 10, "compatible": true, "machines": 3, "score_limit":
+"network_version": 20, "compatible": true, "machines": 3, "score_limit":
 25, "in_progress": true}, or {"ok": false, "error": ...}.
 
 That is all a game's advertisement holds: no player's name or score. Those
@@ -49,7 +49,7 @@ enum
 {
 	/* how long the host has to advertise its game, from the tunnel's join */
 	PROBE_TIMEOUT_MILLISECONDS = 20000,
-	/* frames, as the dedicated server's: the rest of the frame waits */
+	/* frames, 30 a second: the rest of the frame waits */
 	PROBE_FRAME_MILLISECONDS = 1000 / 30,
 	/* "halo://join/" and the longest invite */
 	PROBE_LINK_LENGTH = 12 + 64 + 1,

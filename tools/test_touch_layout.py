@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile and run the touch layout regression checks with JDK 17+."""
+"""Compile and run the touch layout and gyroscope aim checks with JDK 17+."""
 import subprocess
 from pathlib import Path
 
@@ -14,5 +14,4 @@ subprocess.run([
     str(root / "tools/tests/TouchLayoutTest.java")
 ], check=True)
 subprocess.run(["java", "-cp", str(classes), "com.halo.decomp.TouchLayoutTest"], check=True)
-
 subprocess.run(["java", "-cp", str(classes), "com.halo.decomp.GyroscopeAimTest"], check=True)

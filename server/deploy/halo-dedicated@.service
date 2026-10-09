@@ -2,8 +2,9 @@
 # the instance (halo-dedicated@team): the same image, with its settings in
 # /opt/halo-dedicated/instances/<name>.env and its own data folder
 # /opt/halo-dedicated/instances/<name> (saves, debug.txt), the maps (the
-# Xbox's and Halo PC's in maps, HaloMD's in md_maps) and playlists the first
-# server's, read-only. On the host's network, as the
+# Xbox's in maps, Custom Edition's in maps_ce, HaloMD's in maps_md, Halo PC
+# retail's in maps_pc; the older maps/ce and md_maps still read) and
+# playlists the first server's, read-only. On the host's network, as the
 # first (through a bridge's NAT, hole punching does not reach players behind
 # their own), each server's system link on a loopback address of its own
 # (HALO_NET_ADDRESS: two cannot share the port on one address).
@@ -22,6 +23,9 @@ ExecStart=/usr/bin/docker run --rm --name halo-dedicated-%i --network host \
 	-v /opt/halo-dedicated/instances/%i:/data \
 	-v /opt/halo-dedicated/data/maps:/data/maps:ro \
 	-v /opt/halo-dedicated/data/md_maps:/data/md_maps:ro \
+	-v /opt/halo-dedicated/data/maps_ce:/data/maps_ce:ro \
+	-v /opt/halo-dedicated/data/maps_md:/data/maps_md:ro \
+	-v /opt/halo-dedicated/data/maps_pc:/data/maps_pc:ro \
 	-v /opt/halo-dedicated/data/playlists:/data/playlists:ro \
 	halo-dedicated
 ExecStop=/usr/bin/docker stop -t 10 halo-dedicated-%i

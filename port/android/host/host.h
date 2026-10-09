@@ -16,7 +16,10 @@ port/android/include/halo_android_abi.h for the guest contract.
 
 #include "halo_android_abi.h"
 
-/* ---------- logging (logcat tag "halo") */
+/* ---------- logging (logcat tag HOST_LOG_TAG) */
+
+/* ChupathingyCE's, as the platform layer's log prefix (build_identity.h) */
+#define HOST_LOG_TAG "chupathingyce"
 
 void host_logf(int priority, const char *format, ...) __attribute__((format(printf, 2, 3)));
 #define HOST_LOG_INFO 4

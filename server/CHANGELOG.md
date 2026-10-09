@@ -4,6 +4,39 @@ What changed in the ChupathingyCE Dedicated Server. The server is released
 with the game and has its version; the game's own changes are in its
 release notes.
 
+## 0.7.1b
+
+- Delta Control: moderators for every server, no site needed
+  ([docs/moderation.md](docs/moderation.md)). Roles (owner, admin,
+  moderator), each with its permissions, checked for every command wherever
+  it comes from, limited per person, and written to `control_audit.log`.
+- Moderators by moderator key (a key each ChupathingyCE game makes from its
+  player key and proves): `moderators.txt`, `sv_mod_list`, `sv_mod_add`,
+  `sv_mod_remove`; `sv_players` shows a proved key and its role.
+- In-game moderation over Delta Peer's `moderation` capability: a
+  moderator's game warns, kicks, bans, ends the game or skips the map, each
+  action signed.
+- `sv_warn`; reasons for `sv_kick` and `sv_ban`.
+- The control panel: an account for each person (name, Argon2id password,
+  TOTP second factor the owner may require), a one-time setup link for the
+  first owner, invitations and password resets, `sv_account_*` on the
+  console, backoff per account and per address. Pages for people, the audit
+  file, playlists and game types, settings, one's own account.
+- HTTPS for the control panel beyond the loopback address: the server's own
+  certificate (its fingerprint printed) or yours
+  (`HALO_DEDICATED_CONTROL_CERT`, `_KEY`), `HALO_DEDICATED_CONTROL_TLS`.
+  **Changed:** a non-loopback `HALO_DEDICATED_CONTROL` is HTTPS now; set
+  `HALO_DEDICATED_CONTROL_TLS=off` on a private network to keep plain HTTP.
+- The optional link to halo.milenko.org (`sv_link`, `sv_unlink`,
+  `sv_link_status`, `HALO_DEDICATED_LINK`, `_LINK_URL`, `_LINK_ROLE`): roles
+  given on the site, commands from the site's Servers page, outbound only.
+- Playlists made and edited on the server (`sv_playlist_*`,
+  `sv_mapcycle_add`, `sv_mapcycle_del`), game type files
+  (`sv_gametype_*`), and a settings file (`sv_settings`, `sv_set`).
+- Control API: `/v1/query`, `/v1/file`, `/v1/audit`, `/v1/playlists`,
+  `/v1/gametypes`, `/v1/settings`, `/v1/moderators`, `/v1/link`, and the
+  accounts' endpoints. A request body may be 16 KB.
+
 ## 0.6.3b
 
 - The server is a program of its own, `chupathingyce-server`, for Linux

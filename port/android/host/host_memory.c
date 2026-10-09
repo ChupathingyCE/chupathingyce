@@ -26,6 +26,7 @@ passed on to the previous handler.
 #include <fcntl.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -59,6 +60,8 @@ static pthread_mutex_t memory_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static uint64_t window_base, window_end;
 static uint64_t image_base, image_end;
+/* Custom Edition maps' tag cache, if it was had (reserve_fixed) */
+static uint64_t ce_base, ce_end;
 
 static uint64_t round_up(uint64_t value)
 {
@@ -130,6 +133,25 @@ enum
 	RANGE_UNKNOWN
 };
 
+/* why the fixed ranges could not be had: each reason also goes to the
+log, and the report (host_memory_report_low_mappings) starts with them, so
+memory_map.txt alone tells which case it was */
+static char findings[2048];
+
+static void finding(int priority, const char *format, ...)
+{
+	char line[512];
+	size_t used = strlen(findings);
+	va_list arguments;
+
+	va_start(arguments, format);
+	vsnprintf(line, sizeof(line), format, arguments);
+	va_end(arguments);
+	host_logf(priority, "%s", line);
+	if (used + strlen(line) + 2 < sizeof(findings))
+		snprintf(findings + used, sizeof(findings) - used, "%s\n", line);
+}
+
 struct range_usage
 {
 	uint64_t pages_in_use;
@@ -153,7 +175,7 @@ static int range_usage_pagemap(uint64_t from, uint64_t to, struct range_usage *u
 
 	if (descriptor < 0)
 	{
-		host_logf(HOST_LOG_WARN, "cannot read /proc/self/pagemap (%s)", strerror(errno));
+		finding(HOST_LOG_WARN, "cannot read /proc/self/pagemap (%s)", strerror(errno));
 		return RANGE_UNKNOWN;
 	}
 	usage->method = "pagemap";
@@ -168,7 +190,7 @@ static int range_usage_pagemap(uint64_t from, uint64_t to, struct range_usage *u
 		bytes = pread(descriptor, entries, wanted * sizeof(entries[0]), (off_t)(page * sizeof(entries[0])));
 		if (bytes <= 0 || bytes % sizeof(entries[0]))
 		{
-			host_logf(HOST_LOG_WARN, "cannot read /proc/self/pagemap at %08llx (%s)",
+			finding(HOST_LOG_WARN, "cannot read /proc/self/pagemap at %08llx (%s)",
 				(unsigned long long)(page * PAGE), bytes < 0 ? strerror(errno) : "short read");
 			close(descriptor);
 			return RANGE_UNKNOWN;
@@ -186,8 +208,9 @@ static int range_usage_pagemap(uint64_t from, uint64_t to, struct range_usage *u
 }
 
 /* the Swap: line of the /proc/self/smaps entry starting at start, in kB; -1
-if it cannot be read */
-static long mapping_swap_kb(uint64_t start)
+if it cannot be read (or no entry starts there); with end, the entry must
+also end there */
+static long mapping_swap_kb_ending(uint64_t start, uint64_t end)
 {
 	FILE *smaps = fopen("/proc/self/smaps", "r");
 	char line[512];
@@ -205,7 +228,7 @@ static long mapping_swap_kb(uint64_t start)
 		{
 			if (inside)
 				break;
-			inside = lo == start;
+			inside = lo == start && (!end || hi == end);
 			continue;
 		}
 		if (inside && sscanf(line, "Swap: %ld kB", &kb) == 1)
@@ -218,9 +241,30 @@ static long mapping_swap_kb(uint64_t start)
 	return result;
 }
 
+static long mapping_swap_kb(uint64_t start)
+{
+	return mapping_swap_kb_ending(start, 0);
+}
+
+/* whether any of from..to is swapped out, when the mapping holding it has
+swap somewhere: smaps counts swap per mapping, so the range is made a
+mapping of its own for a moment (MADV_DONTDUMP splits it off and changes
+nothing about its pages: neither ART nor the game ever dumps core), read,
+and merged back (MADV_DODUMP). -1 if that cannot be done */
+static long range_swap_kb(uint64_t from, uint64_t to)
+{
+	long kb;
+
+	if (madvise((void *)from, (size_t)(to - from), MADV_DONTDUMP) != 0)
+		return -1;
+	kb = mapping_swap_kb_ending(from, to);
+	madvise((void *)from, (size_t)(to - from), MADV_DODUMP);
+	return kb;
+}
+
 /* without pagemap (some kernels or policies refuse it): mincore() tells
-which pages are resident, and the mapping's smaps entry tells whether any
-of it is swapped out, which mincore cannot see */
+which pages are resident, and smaps whether any of the range is swapped
+out, which mincore cannot see */
 static int range_usage_mincore(uint64_t mapping_start, uint64_t from, uint64_t to, struct range_usage *usage)
 {
 	unsigned char residency[4096];
@@ -228,10 +272,24 @@ static int range_usage_mincore(uint64_t mapping_start, uint64_t from, uint64_t t
 	long swapped = mapping_swap_kb(mapping_start);
 
 	usage->method = "mincore";
+	if (swapped > 0)
+	{
+		/* (swap somewhere in the space: only the range's own matters) */
+		long range_swapped = range_swap_kb(from, to);
+
+		if (range_swapped == 0)
+		{
+			finding(HOST_LOG_INFO, "ART's large object space at %08llx: %ld kB of it swapped out, none of %08llx-%08llx",
+				(unsigned long long)mapping_start, swapped, (unsigned long long)from, (unsigned long long)to);
+			swapped = 0;
+		}
+		else
+			swapped = range_swapped;
+	}
 	if (swapped != 0)
 	{
-		host_logf(HOST_LOG_WARN, "ART's large object space at %08llx: %s", (unsigned long long)mapping_start,
-			swapped < 0 ? "cannot read its smaps entry" : "part of it is swapped out");
+		finding(HOST_LOG_WARN, "ART's large object space at %08llx: %s", (unsigned long long)mapping_start,
+			swapped < 0 ? "cannot read its smaps entry" : "part of the range is swapped out");
 		return RANGE_UNKNOWN;
 	}
 	while (address < to)
@@ -243,7 +301,7 @@ static int range_usage_mincore(uint64_t mapping_start, uint64_t from, uint64_t t
 			length = sizeof(residency) * PAGE;
 		if (mincore((void *)address, length, residency) != 0)
 		{
-			host_logf(HOST_LOG_WARN, "mincore at %08llx failed (%s)", (unsigned long long)address, strerror(errno));
+			finding(HOST_LOG_WARN, "mincore at %08llx failed (%s)", (unsigned long long)address, strerror(errno));
 			return RANGE_UNKNOWN;
 		}
 		for (index = 0; index < length / PAGE; index++)
@@ -298,14 +356,14 @@ static int reclaim_art_overlap(uint64_t address, uint64_t size)
 		to = hi < address + size ? hi : address + size;
 		if (strcmp(name, ART_LARGE_OBJECT_SPACE))
 		{
-			host_logf(HOST_LOG_ERROR, "a fixed guest range is overlapped by %08llx-%08llx (%s), which is not ART's large object space; left alone",
+			finding(HOST_LOG_ERROR, "a fixed guest range is overlapped by %08llx-%08llx (%s), which is not ART's large object space; left alone",
 				lo, hi, name[0] ? name : "unnamed");
 			continue;
 		}
 		switch (range_usage(lo, from, to, &usage))
 		{
 		case RANGE_IN_USE:
-			host_logf(HOST_LOG_ERROR,
+			finding(HOST_LOG_ERROR,
 				"ART's large object space %08llx-%08llx holds objects over %08llx-%08llx "
 				"(%llu pages in use, %08llx-%08llx, by %s); left alone",
 				lo, hi, (unsigned long long)from, (unsigned long long)to,
@@ -313,7 +371,7 @@ static int reclaim_art_overlap(uint64_t address, uint64_t size)
 				(unsigned long long)usage.highest_in_use + PAGE, usage.method);
 			continue;
 		case RANGE_UNKNOWN:
-			host_logf(HOST_LOG_ERROR,
+			finding(HOST_LOG_ERROR,
 				"ART's large object space %08llx-%08llx covers %08llx-%08llx, and whether that part is in use "
 				"cannot be told; left alone", lo, hi, (unsigned long long)from, (unsigned long long)to);
 			continue;
@@ -378,6 +436,17 @@ void host_memory_report_low_mappings(FILE *file)
 	FILE *maps = fopen("/proc/self/maps", "r");
 	char line[512];
 
+	char model[PROP_VALUE_MAX] = "", heap[PROP_VALUE_MAX] = "", release[PROP_VALUE_MAX] = "";
+
+	__system_property_get("ro.product.model", model);
+	__system_property_get("dalvik.vm.heapsize", heap);
+	__system_property_get("ro.build.version.release", release);
+	if (file)
+	{
+		fprintf(file, "device: %s, Android %s, Java heap %s\n", model[0] ? model : "unknown",
+			release[0] ? release : "unknown", heap[0] ? heap : "unknown");
+		fprintf(file, "why:\n%s\nmappings below 4 GB:\n", findings[0] ? findings : "(no reason recorded)\n");
+	}
 	if (!maps)
 		return;
 	while (fgets(line, sizeof(line), maps))
@@ -443,19 +512,34 @@ static int reserve_fixed(void)
 	if (reserve(HALO_GUEST_WINDOW_BASE, HALO_GUEST_WINDOW_SIZE, 1) != 0)
 	{
 		fixed_error = errno;
-		host_logf(HOST_LOG_ERROR, "cannot reserve the Xbox memory window at %08llx (%s)",
+		finding(HOST_LOG_ERROR, "cannot reserve the Xbox memory window at %08llx (%s)",
 			(unsigned long long)HALO_GUEST_WINDOW_BASE, strerror(errno));
 		return -1;
 	}
 	if (reserve(HALO_GUEST_IMAGE_BASE, HALO_GUEST_IMAGE_RESERVE, 1) != 0)
 	{
 		fixed_error = errno;
-		host_logf(HOST_LOG_ERROR, "cannot reserve the guest image range at %08llx (%s)",
+		finding(HOST_LOG_ERROR, "cannot reserve the guest image range at %08llx (%s)",
 			(unsigned long long)HALO_GUEST_IMAGE_BASE, strerror(errno));
 		munmap((void *)(uintptr_t)HALO_GUEST_WINDOW_BASE, HALO_GUEST_WINDOW_SIZE);
 		return -1;
 	}
 	fixed_reserved = 1;
+	/* Custom Edition maps' tag cache (halo_android_abi.h): wanted, not
+	needed. ART's main space starts at 0x12c00000 and is as large as its
+	heap (dalvik.vm.heapsize), so on a device whose heap is larger than
+	about 700 MB it covers this range, and is left alone: only an idle
+	slice of the large object space is ever taken back (reserve) */
+	if (reserve(HALO_GUEST_CE_TAG_CACHE_BASE, HALO_GUEST_CE_TAG_CACHE_SIZE, 1) == 0)
+	{
+		ce_base = HALO_GUEST_CE_TAG_CACHE_BASE;
+		ce_end = ce_base + HALO_GUEST_CE_TAG_CACHE_SIZE;
+	}
+	else
+	{
+		host_logf(HOST_LOG_WARN, "cannot reserve Custom Edition maps' tag cache at %08llx (%s): Halo PC maps will not load",
+			(unsigned long long)HALO_GUEST_CE_TAG_CACHE_BASE, strerror(errno));
+	}
 	return 0;
 }
 
@@ -624,7 +708,8 @@ int host_low_owns(uintptr_t address, size_t size)
 {
 	int result;
 
-	if (in_range(address, size, window_base, window_end) || in_range(address, size, image_base, image_end))
+	if (in_range(address, size, window_base, window_end) || in_range(address, size, image_base, image_end) ||
+		(ce_end && in_range(address, size, ce_base, ce_end)))
 		return 1;
 	pthread_mutex_lock(&memory_lock);
 	result = pool_of(address, size) != NULL;
@@ -679,7 +764,7 @@ long host_guest_munmap(uint64_t address, uint64_t size)
 
 	if (address + length > LOW_LIMIT)
 		return -EINVAL;
-	if (in_range(address, length, window_base, window_end))
+	if (in_range(address, length, window_base, window_end) || (ce_end && in_range(address, length, ce_base, ce_end)))
 	{
 		mmap((void *)address, length, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0);
 		return 0;
@@ -705,6 +790,10 @@ long host_guest_mprotect(uint64_t address, uint64_t size, int protection)
 
 #define WATCH_PAGE_COUNT (HALO_GUEST_WINDOW_SIZE / PAGE)
 
+/* (each page: 0 not watched, 1 watched and read-only, 2 made writable by a
+watched write. A fault on a page at 2 is a write another thread made as
+this one was making the page writable, and is made again; one on a page at
+0, freed memory or none of the watch's, is a crash) */
 static uint8_t page_protected[WATCH_PAGE_COUNT];
 static uint32_t page_generation[WATCH_PAGE_COUNT];
 static volatile uint32_t current_generation = 1;
@@ -723,7 +812,7 @@ static uint64_t watch_page(uint64_t address)
 static void mark_written(uint64_t page)
 {
 	page_generation[page] = __sync_add_and_fetch(&current_generation, 1);
-	page_protected[page] = 0;
+	page_protected[page] = 2;
 	mprotect((void *)(HALO_GUEST_WINDOW_BASE + page * PAGE), PAGE, PROT_READ | PROT_WRITE);
 }
 
@@ -790,11 +879,13 @@ static void segv_handler(int signal_number, siginfo_t *information, void *contex
 	{
 		uint64_t page = watch_page(address);
 
-		if (page_protected[page])
+		if (page_protected[page] == 1)
 		{
 			mark_written(page);
 			return;
 		}
+		if (page_protected[page] == 2)
+			return;
 	}
 	report_crash(signal_number, information, context);
 	chain(&previous_segv, signal_number, information, context);
@@ -844,7 +935,7 @@ void host_memory_watch_protect(uint32_t address, uint32_t size)
 		last = WATCH_PAGE_COUNT - 1;
 	for (page = first; page <= last; page++)
 	{
-		if (!page_protected[page])
+		if (page_protected[page] != 1)
 		{
 			page_protected[page] = 1;
 			mprotect((void *)(HALO_GUEST_WINDOW_BASE + page * PAGE), PAGE, PROT_READ);
@@ -892,7 +983,7 @@ void host_memory_watch_prepare_write(uint32_t address, uint32_t size)
 		last = WATCH_PAGE_COUNT - 1;
 	for (page = first; page <= last; page++)
 	{
-		if (page_protected[page])
+		if (page_protected[page] == 1)
 			mark_written(page);
 	}
 }

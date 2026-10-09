@@ -302,7 +302,8 @@ int command_line_map_name_valid(
 	if (length == 0 || length > 63)
 		return 0;
 	base_length = length;
-	if (length > 3 && (!strcmp(text + length - 3, "@ce") || !strcmp(text + length - 3, "@md")))
+	if (length > 3 && (!strcmp(text + length - 3, "@ce") || !strcmp(text + length - 3, "@md") ||
+		!strcmp(text + length - 3, "@pc")))
 		base_length = length - 3;
 	if (!base_length)
 		return 0;

@@ -91,7 +91,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
     build_dir: Path = sln.build_dir / "macos"
     obj_dir = build_dir / "obj"
     output = build_dir / "halo"
-    cc = getattr(sln, "macos_cc", None) or "clang"
+    cc = "clang"
     portable = getattr(sln, "port_portable", False)
     # the Mac's own architecture; an application for other Macs, both (Apple
     # silicon and Intel: a universal application)

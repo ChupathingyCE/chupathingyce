@@ -75,16 +75,18 @@ int ce_vorbis_decode(const unsigned char *data, int size, int *channels, int *sa
 			capacity *= 2;
 		}
 	}
-	free(buffer);
+	if (buffer)
+		free(buffer);
 	stb_vorbis_close(vorbis);
 	return -1;
 }
 
 /* the samples ce_vorbis_decode gave (freed as stb_vorbis allocated them: the
-game's units free through its own allocator) */
+game's units free through its own allocator, which takes no NULL: debug_free) */
 void ce_vorbis_free(short *samples)
 {
-	free(samples);
+	if (samples)
+		free(samples);
 }
 
 #endif

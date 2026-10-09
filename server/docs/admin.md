@@ -1,5 +1,9 @@
 # Running a server: commands, console and control API
 
+Who may run which command (moderators, admins, owners), the control panel's
+accounts, remote access over HTTPS and the optional link to halo.milenko.org
+are in [moderation.md](moderation.md).
+
 A running server takes commands, named after Halo PC's dedicated server's
 (`sv_players`, `sv_kick`, `sv_map`, ...), from three places:
 
@@ -24,20 +28,27 @@ A name with spaces goes in double quotes: `sv_kick "Master Chief"`.
 | Command | What it does |
 | --- | --- |
 | `help [command]` | Lists the commands, or tells what one does. |
-| `sv_status` | The server: name, version and network version, state (lobby, loading, in game, carnage report), map and game type, playlist entry, players, whether it is public, uptime. |
+| `sv_status` | The server: name, version and network version, the OpenCE build it follows (the legacy table's, [Delta](../../docs/delta.md#following-opence)), state (lobby, loading, in game, carnage report), map and game type, playlist entry, players, whether it is public, uptime. |
 | `sv_players` | The players: number, name, team, score and ping (in a game), and their machine's hardware id. |
-| `sv_kick <player>` | Drops the player, and every other player on their machine (split screen). They see "game closed" and may join again. |
-| `sv_ban <player> [duration]` | Drops the player and keeps their machine out: for ever, or for a while (`30m`, `2h`, `7d`, `1w`, `1d12h`; a bare number is minutes). Every player in the game is told. |
+| `sv_warn <player> <reason>` | Warns the player: a ChupathingyCE game shows the reason (Delta Peer); the warning is in the audit file either way. |
+| `sv_kick <player> [reason]` | Drops the player, and every other player on their machine (split screen). They see "game closed" and may join again; a ChupathingyCE game is told the reason first. |
+| `sv_ban <player> [duration] [reason]` | Drops the player and keeps their machine out: for ever, or for a while (`30m`, `2h`, `7d`, `1w`, `1d12h`; a bare number is minutes). Every player in the game is told. bans.txt's reason says by whom, how long and why. |
 | `sv_unban <ban>` | Takes a ban out, by its number in `sv_banlist`. |
 | `sv_banlist` | The bans: number, when, hardware id, how long is left, the players' names and why. Never their addresses. |
-| `sv_map <map> <game type>` | Plays that map and game type now: the game in progress ends at once (no carnage report), and after the new one the playlist goes on where it was. In the lobby it is set at once. Maps: `bloodgulch`, a Halo PC map as `<name>@ce`, a HaloMD map as `<name>@md` ([Playlists](playlists.md)). Game types: `slayer`, `team_slayer`, `ctf`, `king`, `oddball`, `race`, ... |
-| `sv_maps` | The maps this server can play (its multiplayer maps: Xbox, `<name>@ce`, `<name>@md`) and the game types `sv_map` takes. |
+| `sv_map <map> <game type>` | Plays that map and game type now: the game in progress ends at once (no carnage report), and after the new one the playlist goes on where it was. In the lobby it is set at once. Maps: `bloodgulch`, a Custom Edition map as `<name>@ce`, a HaloMD map as `<name>@md`, a Halo PC map as `<name>@pc` ([Playlists](playlists.md)). Game types: `slayer`, `team_slayer`, `ctf`, `king`, `oddball`, `race`, ... |
+| `sv_maps` | The maps this server can play (its multiplayer maps: Xbox, `<name>@ce`, `<name>@md`, `<name>@pc`) and the game types `sv_map` takes. |
 | `sv_mapcycle` | The playlist, and which entry is playing or next. |
 | `sv_mapcycle_next` | Skips to the playlist's next entry now (the game in progress ends without its carnage report). |
 | `sv_end_game` | Ends the game in progress, as its score limit would: the carnage report shows, then the next entry's lobby opens. |
 | `sv_maxplayers [count]` | Shows or sets the most players a game takes (1 to 128; no fewer than `HALO_DEDICATED_MINIMUM_PLAYERS`). In the lobby at once, otherwise from the next lobby. |
 | `sv_name [name]` | Shows or sets the server's name on the lists (15 characters at most). In the lobby at once, otherwise from the next lobby. |
+| `sv_playlists`, `sv_playlist <name>`, `sv_playlist_new`, `sv_playlist_add`, `sv_playlist_remove`, `sv_playlist_move`, `sv_playlist_delete`, `sv_playlist_use`, `sv_mapcycle_add`, `sv_mapcycle_del` | Playlists made and edited on the server ([playlists.md](playlists.md#playlists-made-on-the-server)). |
+| `sv_gametypes`, `sv_gametype <name>`, `sv_gametype_new`, `sv_gametype_set`, `sv_gametype_delete` | Game type files ([playlists.md](playlists.md#game-type-files)). |
+| `sv_settings`, `sv_set <setting> <value>` | The settings file ([settings.md](settings.md)). |
+| `sv_mod_list`, `sv_mod_add`, `sv_mod_remove` | Moderators by moderator key ([moderation.md](moderation.md#the-consoles-commands)). |
+| `sv_link`, `sv_unlink`, `sv_link_status` | The link to halo.milenko.org ([moderation.md](moderation.md#the-link-to-halomilenkoorg-optional)). |
 | `sv_admin_list`, `sv_admin_add <name>`, `sv_admin_rotate <name>`, `sv_admin_remove <name>` | The control API's credentials, one for each admin ([below](#a-token-for-each-admin)). The console's only. |
+| `sv_account_list`, `sv_account_invite <role>`, `sv_account_role`, `sv_account_remove`, `sv_account_reset`, `sv_account_setup` | The control panel's accounts ([moderation.md](moderation.md#accounts-and-invitations)). The console's only. |
 
 A team game cannot start with one player; with one player waiting, the
 server plays the next entry without teams instead, whether the team game
@@ -114,11 +125,12 @@ Off unless `HALO_DEDICATED_CONTROL` is set:
 | `8080` | `127.0.0.1:8080`, this machine only |
 | `127.0.0.1:8080` | the same |
 | `[::1]:8080` | IPv6's loopback |
-| `0.0.0.0:8080`, `192.0.2.10:8080` | every address, or that one: beyond this machine. The server warns of it in its log. |
+| `0.0.0.0:8443`, `192.0.2.10:8443` | every address, or that one: beyond this machine, HTTPS only ([moderation.md](moderation.md#remote-access-safely)). |
 
-It is plain HTTP. Keep it on the loopback address and reach it through
-an SSH tunnel or a private network (below). If something else must reach
-it, put a reverse proxy with TLS in front, and firewall the port.
+On the loopback address it is plain HTTP: reach it through an SSH tunnel
+(below), or put a reverse proxy with TLS in front. Beyond the loopback
+address it is HTTPS, with the server's own certificate (its fingerprint
+printed at start) or yours.
 
 ### The token
 
@@ -156,11 +168,16 @@ Authorization: Bearer chce_4f0c...e91a
 | `GET /v1/bans` | `sv_banlist` as JSON: `{"bans": [{"number": 1, "when": "2026-10-05 02:18:03", "id": "c382...", "players": "Player", "reason": "...", "until": 1791182883, "seconds_left": 1793}], "count": 1}`. `until` and `seconds_left` are `null` for a ban for ever. |
 | `GET /v1/mapcycle` | `sv_mapcycle` as JSON: the playlist's `entries` (`number`, `map`, `game_type`), the `entry` playing, `state`, and what a command `chosen` now or set `next` (or `null`). |
 | `GET /v1/maps` | `sv_maps` as JSON: `{"maps": ["beavercreek", ...], "game_types": ["slayer", ...]}`. |
+| `GET /v1/playlists`, `/v1/gametypes`, `/v1/settings`, `/v1/moderators`, `/v1/link` | `sv_playlists`, `sv_gametypes`, `sv_settings`, `sv_mod_list`, `sv_link_status` as JSON. |
+| `POST /v1/query` with `{"command": "sv_playlist big"}` | A read command's JSON (`sv_playlist`, `sv_gametype`, ...). |
+| `POST /v1/file` with `{"kind": "playlist", "name": "big", "text": "..."}` | A playlist's (or, `"gametype"`, a game type's) file, saved whole, checked first: `{"ok", "output"}`. |
+| `GET /v1/audit` | The audit file's last 200 lines (JSON objects). |
 | `GET /v1/log?since=<n>` | The server's recent log lines after line `n` (`0` or none: the oldest kept), at most 500: `{"lines": [{"n": 1, "time": 1791168674, "text": "..."}], "next": 212, "missed": false}`. Ask again with `since=` the `next` you got for the lines after those. `missed` is true when lines after `since` were no longer kept (the last 1024 are). A `next` lower than your `since` means the server restarted. |
 
 Errors are `{"error": "..."}` with an HTTP status: 400 (a request it does
 not take), 401 (no token, or the wrong one), 403 (a web session's change
-without its CSRF token, or from another site), 404, 405, 413 (too large), 415
+without its CSRF token, or from another site; or a role that does not
+allow it), 404, 405, 413 (too large), 415
 (not JSON), 429 (too many wrong tokens: wait as `Retry-After` says), 503
 (the server did not answer in time, as while a map loads: try again).
 
@@ -176,7 +193,8 @@ curl -s -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:8080/v1/log?since=0"
 ```
 
 ```json
-{"name": "My Server", "version": "0.6.2b", "network_version": 11, "state": "in_game",
+{"name": "My Server", "version": "0.7.1d", "network_version": 24,
+ "following": "Following OpenCE build-145 (table 2)", "state": "in_game",
  "map": "bloodgulch", "game_type": "slayer", "chosen": false, "next_map": null,
  "next_game_type": null, "playlist": "playlists/slayer.txt", "entry": 2, "entries": 5,
  "players": 3, "maximum_players": 12, "minimum_players": 1, "public": true,
@@ -219,11 +237,16 @@ ssh -N -L 8080:127.0.0.1:8080 you@your-server
 curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/v1/status
 ```
 
+**Straight over the network**: `HALO_DEDICATED_CONTROL=0.0.0.0:8443` is
+HTTPS ([moderation.md](moderation.md#remote-access-safely)): check the
+certificate's fingerprint once, then log in with your account.
+
 **Tailscale** (or another private network): listen on the server's
-Tailscale address only, `HALO_DEDICATED_CONTROL=100.x.y.z:8080`, and reach
-it from your other machines on the tailnet. The server warns that it
-listens beyond the machine; that is expected here. Use Tailscale's access
-rules to say which machines may reach the port.
+Tailscale address only, `HALO_DEDICATED_CONTROL=100.x.y.z:8443`, and reach
+it from your other machines on the tailnet (HTTPS; or plain HTTP with
+`HALO_DEDICATED_CONTROL_TLS=off`, which a private address allows, with a
+warning). Use Tailscale's access rules to say which machines may reach the
+port.
 
 **A reverse proxy with TLS** (Caddy, nginx), for something on the internet
 that must reach it: keep the server on `127.0.0.1:8080`, proxy to it, and
@@ -241,9 +264,10 @@ writable by that user.
   container shares the host's network: `HALO_DEDICATED_CONTROL=8080` is the
   host's `127.0.0.1:8080`, reachable from the host only. Nothing else to do.
 - On Docker's own network (`-p`), the server must listen on the container's
-  interface, `HALO_DEDICATED_CONTROL=0.0.0.0:8080` (it warns, which is
-  expected here), and the port is published to the host's loopback only:
-  `-p 127.0.0.1:8080:8080`. A bare `-p 8080:8080` publishes it to the
+  interface, `HALO_DEDICATED_CONTROL=0.0.0.0:8080` (HTTPS, then: open
+  `https://127.0.0.1:8080/` and check the fingerprint; or plain HTTP with
+  `HALO_DEDICATED_CONTROL_TLS=off`, as Docker's network is private), and the
+  port is published to the host's loopback only: `-p 127.0.0.1:8080:8080`. A bare `-p 8080:8080` publishes it to the
   world, past most host firewalls.
 - Several servers on one host each need a port of their own.
 
@@ -295,7 +319,9 @@ browser, on a computer or a phone:
 
 It is on whenever the control API is (`HALO_DEDICATED_CONTROL`), and off
 otherwise. Open `http://127.0.0.1:8080/` (through one of the ways below)
-and log in with a control token. The page is the server's own: its few
+and log in with your account (the first owner's is made from the setup
+link the server prints: [moderation.md](moderation.md#the-first-owner)), or
+with a control token. The page is the server's own: its few
 files are built into the program, no fonts, scripts or anything else come
 from elsewhere, and nothing on the server's disk is ever served.
 

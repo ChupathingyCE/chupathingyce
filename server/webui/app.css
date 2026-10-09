@@ -50,7 +50,7 @@ body {
 
 [hidden] { display: none !important; }
 
-code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 
 .bar {
   display: flex;
@@ -224,3 +224,12 @@ dialog label { margin-top: 8px; }
   .row > button { flex: 1 1 auto; }
   th, td { padding: 6px 5px; }
 }
+
+/* Delta Control: accounts, people, audit */
+td.mono, code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+tr.refused td { color: var(--muted); }
+canvas#totp-qr { display: block; margin: 12px 0; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+details.hint { margin-top: 16px; }
+details.hint summary { cursor: pointer; }
+td.actions select { padding: 3px 6px; font-size: 13px; margin-right: 6px; }
+#fingerprint-hint { overflow-wrap: anywhere; }

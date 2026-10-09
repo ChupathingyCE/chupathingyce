@@ -2,8 +2,8 @@
 UI_OVERLAY.H
 
 The overlay (configure.py --game-browser, HALO_GAME_BROWSER): the screens
-this port draws over the game's own (the game list's Online Games, its
-filters, the profile), at the window's resolution, after the game's
+this port draws over the game's own (the game list's Online Games and its
+Link Profile panel), at the window's resolution, after the game's
 640x480 picture is scaled into it. A screen lays itself out in the menus'
 640x480; the overlay maps that to the picture's place in the window, so
 text and buttons are sharp at any size. ui_overlay.c.

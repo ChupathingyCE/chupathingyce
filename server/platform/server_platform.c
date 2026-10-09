@@ -27,6 +27,7 @@ never hosts.
 #include "posix.h"
 #include "browser.h"
 #include "halo_port_limits.h"
+#include "delta.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -39,16 +40,6 @@ never hosts.
 #define HALO_VERSION "dev"
 #endif
 
-#if defined(__x86_64__)
-#define SERVER_ARCHITECTURE "x64"
-#elif defined(__aarch64__)
-#define SERVER_ARCHITECTURE "arm64"
-#elif defined(__i386__)
-#define SERVER_ARCHITECTURE "x86"
-#else
-#define SERVER_ARCHITECTURE "unknown"
-#endif
-
 /* SIGTERM or SIGINT arrived: the next pump stops the server */
 static volatile sig_atomic_t stop_requested;
 
@@ -56,8 +47,7 @@ static volatile sig_atomic_t stop_requested;
 
 static void print_version(void)
 {
-	printf("ChupathingyCE Dedicated Server %s (linux-%s, network version %d)\n", HALO_VERSION,
-		SERVER_ARCHITECTURE, (int)HALO_PORT_NETWORK_VERSION);
+	printf("%s, network version %d\n", build_identity(), delta_legacy_announce());
 }
 
 static void print_usage(FILE *stream)
@@ -186,8 +176,11 @@ static void server_arguments(void)
 		print_usage(stderr);
 		exit(2);
 	}
-	platform_log("ChupathingyCE Dedicated Server %s (linux-%s)", HALO_VERSION, SERVER_ARCHITECTURE);
+	/* which server this is, first in its log (build_identity.c) */
+	build_identity_log();
 	server_check_data();
+	/* (the legacy table: a newer one fetched meanwhile) */
+	delta_legacy_start();
 	/* a write to a connection the other end closed fails instead of ending
 	the server (as sdl_platform.c); SIGTERM and SIGINT stop it at the next
 	frame */

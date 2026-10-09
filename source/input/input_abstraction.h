@@ -60,6 +60,10 @@ byte input_abstraction_port_accept(
 	short controller_index);
 boolean input_abstraction_port_action_only(
 	short controller_index);
+boolean input_abstraction_port_crouch(
+	short controller_index);
+real input_abstraction_port_primary_trigger(
+	short controller_index);
 
 /* ---------- globals */
 

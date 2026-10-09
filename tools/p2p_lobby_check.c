@@ -9,14 +9,18 @@ bad signatures, other keys and small-order keys turned away; and a listing
 from a host (this program, through stand-ins for p2p.c and p2p_signal.c) to
 a browser (this program again): taken, and a tampered one, one on another's
 slot, an older one, a retained one of long ago, a tombstone and a listing
-older than it each handled as they must be. Prints PASS or the failures.
+older than it each handled as they must be; and a game with a password,
+listed locked (its token nowhere in the listing), opened by its password
+alone. Prints PASS or the failures.
 */
 
 #include "p2p_internal.h"
+#include "halo_port_limits.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /* ---------- stand-ins for the rest of internet play */
 
@@ -34,6 +38,10 @@ void posix_random_bytes(void *buffer, unsigned long size) { memset(buffer, 0x5a,
 unsigned long p2p_now(void) { return clock_now; }
 int config_boolean(const char *name) { (void)name; return 1; }
 void platform_log(const char *format, ...) { (void)format; }
+/* (delta.c's legacy number: the built-in one) */
+int delta_legacy_announce(void) { return HALO_PORT_NETWORK_VERSION; }
+int delta_legacy_minimum(void) { return HALO_PORT_NETWORK_VERSION_MINIMUM; }
+int delta_legacy_maximum(void) { return HALO_PORT_NETWORK_VERSION_MAXIMUM; }
 
 void p2p_hex(const unsigned char *bytes, int size, char *text)
 {
@@ -190,6 +198,25 @@ static int games(struct p2p_listing *listing)
 	return count;
 }
 
+/* a copy of a listing with another time, signed again (as its host would
+have, then) */
+static void restamp(const unsigned char *payload, int size, long offset, unsigned char *copy)
+{
+	static const char label[] = "hceu-lobby-1";
+	unsigned char data[sizeof(label) - 1 + 512];
+	unsigned long when = (unsigned long)time(NULL) + (unsigned long)offset;
+	int signed_size = size - P2P_SIGNATURE_SIZE;
+
+	memcpy(copy, payload, (size_t)size);
+	copy[10] = (unsigned char)(when >> 24);
+	copy[11] = (unsigned char)(when >> 16);
+	copy[12] = (unsigned char)(when >> 8);
+	copy[13] = (unsigned char)when;
+	memcpy(data, label, sizeof(label) - 1);
+	memcpy(data + sizeof(label) - 1, copy, (size_t)signed_size);
+	p2p_sign(data, (int)(sizeof(label) - 1) + signed_size, copy + signed_size);
+}
+
 /* a payload heard on the host's slot (or another), then the browser's pass */
 static void hear(const unsigned char *payload, int size, int retained, const char *slot)
 {
@@ -207,7 +234,7 @@ static void hear(const unsigned char *payload, int size, int retained, const cha
 static void lobby_checks(void)
 {
 	static const unsigned char token[P2P_TOKEN_SIZE] = { 7, 7, 7 };
-	unsigned char first[512], tampered[512];
+	unsigned char first[512], tampered[512], old[512];
 	int first_size, count;
 	struct p2p_listing listing;
 	char expected_invite[P2P_LINK_SIZE];
@@ -269,6 +296,19 @@ static void lobby_checks(void)
 	clock_now += 91000;
 	lobby_update(token, 3, 16);
 	check(games(NULL) == 0, "a listing unheard for 90 s expires");
+	/* signed long ago, published again by someone who kept it: ignored,
+	live or retained */
+	restamp(published, published_size, -2 * 3600, old);
+	hear(old, published_size, 0, NULL);
+	check(games(NULL) == 0, "a live listing of long ago is ignored");
+	hear(old, published_size, 1, NULL);
+	check(games(NULL) == 0, "a retained listing of long ago is ignored");
+	/* a host whose clock is half an hour off: still listed live */
+	restamp(published, published_size, -1800, old);
+	hear(old, published_size, 0, NULL);
+	check(games(NULL) == 1, "a live listing half an hour off is taken");
+	clock_now += 91000;
+	lobby_update(token, 3, 16);
 	/* the slot's retained copy, of about now: taken (the host published it
 	again on its 30 s) */
 	lobby_update(token, 3, 16);
@@ -289,6 +329,30 @@ static void lobby_checks(void)
 	lobby_update(token, 3, 16);
 	hear(published, published_size, 0, NULL);
 	check(games(NULL) == 1, "a listing newer than the tombstone is taken");
+	/* a password: listed locked, its token sealed */
+	p2p_set_hosting_password("hunter2");
+	clock_now += 6000;
+	lobby_update(token, 3, 16);
+	hear(published, published_size, 0, NULL);
+	check(games(&listing) == 1 && listing.locked && !listing.invite[0], "a game with a password is listed locked");
+	{
+		int offset, found = 0;
+
+		for (offset = 0; offset + P2P_TOKEN_SIZE <= published_size; offset++)
+			found |= !memcmp(published + offset, token, P2P_TOKEN_SIZE);
+		check(!found, "a locked listing does not hold its token");
+	}
+	check(!p2p_listing_unlock(&listing, "hunter3") && !listing.invite[0], "a wrong password opens nothing");
+	check(!p2p_listing_unlock(&listing, "") && !listing.invite[0], "no password opens nothing");
+	check(p2p_listing_unlock(&listing, "hunter2") && !strcmp(listing.invite, expected_invite),
+		"the password opens the host's invite");
+	/* the password taken off: listed open again */
+	p2p_set_hosting_password(NULL);
+	clock_now += 6000;
+	lobby_update(token, 3, 16);
+	hear(published, published_size, 0, NULL);
+	check(games(&listing) == 1 && !listing.locked && !strcmp(listing.invite, expected_invite),
+		"a game whose password is taken off is listed open");
 }
 
 int main(void)

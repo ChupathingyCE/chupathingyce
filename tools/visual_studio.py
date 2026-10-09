@@ -41,7 +41,8 @@ from tools.embed_assets import UI_FONT_FILES  # noqa: E402
 from tools.linux_build import (MBEDTLS_DIR, MINIUPNPC_DIR, MUSL_MATH_DIR, STB_DIR, XDK_INCLUDE, game_sources,  # noqa: E402
                                miniupnpc_sources, musl_math_sources)
 from tools.lp64_build import lp64_excluded  # noqa: E402
-from tools.windows_build import MONOCYPHER_DIR  # noqa: E402
+from tools.version import VERSION_SOURCES  # noqa: E402
+from tools.windows_build import MONOCYPHER_DIR, ZLIB_DEFINES, ZLIB_DIR, ZLIB_SOURCES  # noqa: E402
 from tools.windows_build import (COMMENT, EXPAT_DIR, EXPAT_SOURCES, EXPORTED_INLINE, KCP_DIR, LINUX_DIR,  # noqa: E402
                                  PORT_DIR, QRCODEGEN_DIR, SDL_SHA256, SDL_VERSION, TOML_DIR, WIN32_FLAGS,
                                  WINDOWS32, WINDOWS64, WindowsTarget)
@@ -238,22 +239,26 @@ def main() -> None:
         other_defines, other_flags = split_flags(WIN32_FLAGS)
         platform_includes = [
             win(posix_include), win(crt_include), win(linux_platform), win(PORT_DIR / "include"), win(TOML_DIR),
-            win(EXPAT_DIR), win(KCP_DIR), win(QRCODEGEN_DIR), win(MONOCYPHER_DIR),
+            win(EXPAT_DIR), win(KCP_DIR), win(QRCODEGEN_DIR), win(MONOCYPHER_DIR), win(ZLIB_DIR),
             win(Path("source")), win(Path("source/cseries")), sdl_include, win(XDK_INCLUDE)]
         return {
             # (-w hides everything, the errors a build asks for too: a build
             # that has such errors names its warnings itself, after the
             # project's level)
             "Game": group(
-                game_flags + [f"-iquote{win(LINUX_DIR / 'include')}"], game_defines + list(game.get("defines", [])),
+                # (and the headers of the port's own game units, port/linux/game, for
+                # the game sources that call them)
+                game_flags + [f"-iquote{win(LINUX_DIR / 'include')}", f"-iquote{win(Path(linux_config['game_sources']))}"],
+                game_defines + list(game.get("defines", [])),
                 [win(crt_include), win(PORT_DIR / "include")] + [win(Path(d)) for d in game.get("include_dirs", [])]
                 + [win(XDK_INCLUDE)],
                 [win(prefix_header), win(GENERATED / "halo_msvc_tags.h")], "-w" not in target.game_flags),
             "Platform": group(
                 platform_flags + [f"-iquote{win(LINUX_DIR / 'include')}"], platform_defines,
                 platform_includes, [win(prefix_header)], True),
-            # (updater.c, with the version the prebuild step writes: a string on
-            # the command line does not survive MSBuild's quoting)
+            # (updater.c and build_identity.c, with the version, the channel and
+            # the commit the prebuild step writes: a string on the command line
+            # does not survive MSBuild's quoting)
             "PlatformUpdater": group(
                 platform_flags + [f"-iquote{win(LINUX_DIR / 'include')}"], platform_defines,
                 platform_includes, [win(prefix_header), version_header], True),
@@ -278,6 +283,8 @@ def main() -> None:
                 other_defines + ["MINIUPNP_STATICLIB"],
                 [win(MINIUPNPC_DIR / "include"), win(MINIUPNPC_DIR / "src")], [], False),
             "ThirdParty": group(["-std=gnu11"], [], [], [], False),
+            # (the port's zlib, its names prefixed: port/third_party/zlib)
+            "Zlib": group(["-std=gnu11"], split_flags(list(ZLIB_DEFINES))[0], [], [], False),
             # (the menus' XML parser: port/third_party/expat; menu_files.c)
             "Expat": group(["-std=gnu11"], [], [win(EXPAT_DIR)], [], False),
             "MuslMath": group(["-std=gnu11"], [], [win(MUSL_MATH_DIR / "include")],
@@ -306,9 +313,12 @@ def main() -> None:
     for source in sorted(linux_platform.glob("*.c")):
         if source.name in replaced:
             continue
-        # (updater.c: the version, and no release's build, so a build of
-        # one's own never looks for updates)
-        add(source, {"updater.c": "PlatformUpdater", "posix_browser.c": "Win32Browser",
+        # (updater.c and build_identity.c: the version, and no release's
+        # build, so a build of one's own never looks for updates)
+        if source.name in VERSION_SOURCES:
+            add(source, "PlatformUpdater")
+            continue
+        add(source, {"posix_browser.c": "Win32Browser",
                      "posix_ui_font.c": "PlatformFont"}.get(source.name, "Platform"))
     # the game list's TLS (port/third_party/mbedtls; posix_browser.c)
     for source in sorted((MBEDTLS_DIR / "library").glob("*.c")):
@@ -330,6 +340,10 @@ def main() -> None:
         add(MONOCYPHER_DIR / name, "ThirdParty")
     for name in EXPAT_SOURCES:
         add(EXPAT_DIR / name, "Expat")
+    # the port's zlib, which inflates the maps, the menus' and the HUD's PNGs
+    # and the updates
+    for name in ZLIB_SOURCES:
+        add(ZLIB_DIR / name, "Zlib")
     for source in musl_math_sources():
         add(source, "MuslMath")
 
@@ -410,6 +424,9 @@ def main() -> None:
     for platform, target in PLATFORMS:
         defines, flags = split_flags(target.abi_flags)
         flags.append("-march=x86-64")
+        # (the stack frames checked, as a ninja build that is not a release
+        # does: tools/windows_build.py; after BufferSecurityCheck's /GS-)
+        flags.append("-fstack-protector-strong")
         # (the game browser, the game list and dedicated servers: tools/linux_build.py's game_browser_defines)
         defines.append("HALO_GAME_BROWSER")
         abi_options[platform] = f"{' '.join(clang(flag) for flag in flags)} $(HaloOptimisation)"

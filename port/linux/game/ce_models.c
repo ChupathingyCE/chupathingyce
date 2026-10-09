@@ -58,8 +58,6 @@ map keeps its channels, which the renderer has one order of.
 
 enum
 {
-	CE_TAG_INSTANCE_SIZE = 0x20,
-
 	/* a model's geometries, a geometry's parts */
 	MODEL_GEOMETRIES_OFFSET = 0xd0,
 	GEOMETRY_SIZE = 0x30,
@@ -130,21 +128,10 @@ struct xbox_vertex
 	short node_weight;
 };
 
-/* (cache_files.c's) */
-struct ce_tag_instance
-{
-	unsigned long group_tag;
-	unsigned long parent_group_tags[2];
-	unsigned long tag_index;
-	unsigned long name;
-	unsigned long base_address;
-	unsigned long indexed;
-	unsigned long unused;
-};
-
 /* ---------- prototypes */
 
 unsigned long ce_resources_allocate(unsigned long size);
+unsigned long ce_resources_free_mark(void);
 unsigned long compress_real_vector3d_to_int32_clamp(union real_vector3d const *v);
 short compress_real_to_int16_clamp(real z);
 
@@ -202,15 +189,29 @@ static unsigned long ce_part_vertices(
 	vertices = XPhysicalAlloc(count * XBOX_VERTEX_SIZE, -1, 0, PAGE_READWRITE);
 	if (!vertices)
 		return 0;
-	ce_vertex_memory = realloc(ce_vertex_memory, (ce_vertex_memory_count + 1) * sizeof(void *));
-	if (ce_vertex_memory)
+	{
+		/* (kept, to be freed with the map: a failed realloc keeps the list as
+		it was) */
+		void **grown = realloc(ce_vertex_memory, (ce_vertex_memory_count + 1) * sizeof(void *));
+
+		if (!grown)
+		{
+			XPhysicalFree(vertices);
+			return 0;
+		}
+		ce_vertex_memory = grown;
 		ce_vertex_memory[ce_vertex_memory_count++] = vertices;
+	}
 	for (index = 0; index < count; index++)
 	{
-		struct ce_vertex const *in = (struct ce_vertex const *)(model_data + vertex_offset +
-			index * CE_VERTEX_SIZE);
+		/* (copied out: the map's offset need not be aligned, as ce_models_check
+		reads it) */
+		struct ce_vertex vertex;
+		struct ce_vertex const *in = &vertex;
 		struct xbox_vertex *out = &vertices[index];
 		short node;
+
+		csmemcpy(&vertex, model_data + vertex_offset + index * CE_VERTEX_SIZE, sizeof(vertex));
 
 		out->position[0] = in->position[0];
 		out->position[1] = in->position[1];
@@ -413,6 +414,10 @@ boolean ce_models_tags_loaded(
 {
 	long models = 0, parts_converted = 0;
 	long index;
+	/* (the parts made here are all at or above it: a geometry whose parts
+	are there was converted already, through another tag of the same model
+	or a geometries block two models share, and is not converted again) */
+	unsigned long converted = ce_resources_free_mark();
 
 	for (index = 0; index < tag_count; index++)
 	{
@@ -431,10 +436,15 @@ boolean ce_models_tags_loaded(
 		{
 			byte *geometry_data = (byte *)xbox_pointer(geometries) + geometry * GEOMETRY_SIZE;
 			unsigned long part_count = *(unsigned long *)(geometry_data + GEOMETRY_PARTS_OFFSET);
-			byte const *ce_parts = xbox_pointer(*(unsigned long *)(geometry_data + GEOMETRY_PARTS_OFFSET + 4));
-			unsigned long xbox_parts_address = part_count ? ce_resources_allocate(part_count * XBOX_PART_SIZE) : 0;
+			unsigned long ce_parts_address = *(unsigned long *)(geometry_data + GEOMETRY_PARTS_OFFSET + 4);
+			byte const *ce_parts;
+			unsigned long xbox_parts_address;
 			unsigned long part;
 
+			if (part_count && converted && ce_parts_address >= converted)
+				continue;
+			ce_parts = xbox_pointer(ce_parts_address);
+			xbox_parts_address = part_count ? ce_resources_allocate(part_count * XBOX_PART_SIZE) : 0;
 			if (part_count && !xbox_parts_address)
 			{
 				error(_error_silent, "Custom Edition maps: no room for the models' parts");
@@ -538,10 +548,12 @@ void ce_models_tags_unloaded(
 
 	for (index = 0; index < ce_vertex_memory_count; index++)
 		XPhysicalFree(ce_vertex_memory[index]);
-	free(ce_vertex_memory);
+	if (ce_vertex_memory)
+		free(ce_vertex_memory);
 	ce_vertex_memory = NULL;
 	ce_vertex_memory_count = 0;
-	free((void *)ce_multipurpose_bitmaps);
+	if ((void *)ce_multipurpose_bitmaps)
+		free((void *)ce_multipurpose_bitmaps);
 	ce_multipurpose_bitmaps = NULL;
 	ce_multipurpose_bitmap_count = 0;
 }
@@ -605,15 +617,6 @@ enum
 };
 
 #define CE_ALIGNED(size) (((size) + 15) & ~15UL)
-
-static short ce_read_short(
-	byte const *at)
-{
-	short value;
-
-	memcpy(&value, at, sizeof(value));
-	return value;
-}
 
 static long ce_read_long32(
 	byte const *at)
@@ -778,7 +781,7 @@ static boolean ce_part_check(
 
 /* every gbxmodel of a map being checked: its blocks in the tags, its
 indices each naming one of what it indexes, its parts' strips and vertices
-in the model data; the room its conversion takes of the tag cache added to
+in the model data; the room their conversion takes of the tag cache in
 *bytes (ce_models_tags_loaded) */
 boolean ce_models_check(
 	struct ce_image const *image,
@@ -1046,9 +1049,9 @@ static boolean ce_animation_graph_check(
 and every object's against its model, whose nodes the game keeps for it (one
 without a model, one): its overlays and replacements, which the game poses
 the object's nodes with, node for node (objects.c, units.c, devices.c), of no
-more nodes than the model. A graph of more nodes is otherwise let be, as Halo PC's engine let
-it (beavercreek_rev_beta's DMR has a pistol's graph of 7 nodes and a model of
-1): its base animations pose an object only when they are of its model's
+more nodes than the model. A graph of more nodes is otherwise let be, as Halo
+PC's engine let it (beavercreek_rev_beta's DMR has a pistol's graph of 7
+nodes and a model of 1): its base animations pose an object only when they are of its model's
 nodes (model_animations.c), and a limp body of more is posed in a copy of the
 biped's nodes (biped_limp_noodle.c) */
 boolean ce_animations_check(

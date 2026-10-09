@@ -12,6 +12,8 @@ structure BSPs, and the reason a map is refused.
 
 #ifdef HALO_CUSTOM_EDITION
 
+#include <string.h>
+
 /* ---------- constants */
 
 enum
@@ -19,9 +21,22 @@ enum
 	/* (cache_files.c's: where a Custom Edition map's tags are) */
 	CE_IMAGE_TAG_CACHE_BASE = 0x40440000,
 	CE_IMAGE_TAG_CACHE_SIZE = 0x01700000,
+	CE_TAG_INSTANCE_SIZE = 0x20,
 };
 
 /* ---------- structures */
+
+/* (cache_files.c's) */
+struct ce_tag_instance
+{
+	unsigned long group_tag;
+	unsigned long parent_group_tags[2];
+	unsigned long tag_index;
+	unsigned long name;
+	unsigned long base_address;
+	unsigned long indexed;
+	unsigned long unused;
+};
 
 /* bytes standing for the Xbox addresses [base, base + size): the map's tag
 cache itself, or a copy of it (or of a BSP) being checked */
@@ -31,6 +46,41 @@ struct ce_image
 	unsigned long base;
 	unsigned long size;
 };
+
+/* ---------- inline code */
+
+/* a tag's field, of any alignment */
+static inline unsigned long ce_read_long(
+	byte const *at)
+{
+	unsigned long value;
+
+	memcpy(&value, at, sizeof(value));
+	return value;
+}
+
+static inline void ce_write_long(
+	byte *at,
+	unsigned long value)
+{
+	memcpy(at, &value, sizeof(value));
+}
+
+static inline short ce_read_short(
+	byte const *at)
+{
+	short value;
+
+	memcpy(&value, at, sizeof(value));
+	return value;
+}
+
+static inline void ce_write_short(
+	byte *at,
+	short value)
+{
+	memcpy(at, &value, sizeof(value));
+}
 
 /* ---------- prototypes */
 
@@ -73,6 +123,10 @@ enum
 	CE_CACHE_VERSION_RETAIL = 7,
 };
 extern long ce_map_cache_version;
+
+/* the family of the map being checked or loaded, for messages: "Custom
+Edition" or "HaloMD" */
+char const *ce_map_family_name(void);
 
 #endif
 

@@ -60,9 +60,15 @@ struct control_web_session
 	/* a keyed hash of its id (the id itself is not kept) */
 	uint8_t id_hash[32];
 	char csrf[CONTROL_WEB_SECRET_LENGTH + 1];
-	/* the credential that logged in (its name and id) */
+	/* the credential that logged in (its name and id): a control token's, or
+	an account's (account set) */
 	char name[32];
 	char credential_id[CONTROL_ID_LENGTH + 1];
+	int account;
+	/* an account's second factor being set up: the secret offered, until a
+	code from it is given */
+	int totp_pending;
+	uint8_t totp_secret[20];
 	int64_t created;
 	int64_t last_used;
 };

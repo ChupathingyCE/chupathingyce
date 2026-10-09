@@ -28,10 +28,11 @@ the SDK headers are read, exactly as game code sees them. */
 #define HALO_LINUX_WINSOCK_NAMES_UNDEFINE
 #include "halo_linux_winsock_names.h"
 #undef HALO_LINUX_WINSOCK_NAMES_UNDEFINE
+#include "build_identity.h"
 
 /* ---------- logging */
 
-/* prints "halo-linux: <message>" to stderr */
+/* prints PLATFORM_LOG_PREFIX <message> to stderr (build_identity.h) */
 void platform_log(const char *format, ...) __attribute__((format(printf, 1, 2)));
 
 /* reports an SDK entry point the Linux port does not implement, once per
@@ -102,6 +103,45 @@ const char *platform_data_root(void);
 out of an Xbox disc image into destination (sdl_platform.c), and quits if
 the player declines; nonzero once destination has one */
 BOOL platform_offer_game_data(const char *destination);
+/* what the data root's maps folder holds, which should be the Xbox maps
+(sdl_platform.c tells the player when it is not, rather than the game
+failing on Halo PC's ui.map) */
+enum
+{
+	_maps_folder_xbox,
+	/* its ui.map is Halo PC's (retail's, version 7, or Custom Edition's, 609) */
+	_maps_folder_halo_pc,
+	/* it has no ui.map (or one that is not a map) */
+	_maps_folder_no_ui,
+};
+#define PLATFORM_MAPS_FOLDER_NAMED 4
+struct platform_maps_folder
+{
+	int state;
+	/* the data root, whole */
+	char root[1024];
+	long ui_version;
+	/* Halo PC maps in maps/ itself (not named <name>@ce.map, <name>@md.map
+	or <name>@pc.map): how many, and the first PLATFORM_MAPS_FOLDER_NAMED's
+	names */
+	long stray_pc_maps;
+	char stray_names[256];
+	/* and in maps_ce, maps_md and maps_pc (and the older maps/ce, md_maps
+	and OpenCE's custom_maps) */
+	long pc_maps_beside;
+};
+void platform_maps_folder_check(struct platform_maps_folder *maps);
+/* the older folders of Halo PC maps that can be moved into their new ones
+beside maps (maps/ce to maps_ce, md_maps to maps_md: halo_map_families.h),
+each one's move described on a line of description (size bytes): how many.
+A folder is movable when its new one does not exist yet and neither it nor
+the folder it is in is a link (whose folder may be elsewhere, a player's own
+or another game's). OpenCE's custom_maps is read but never moved: it is
+OpenCE's, and may be shared with an OpenCE install. */
+int platform_old_map_folders(char *description, unsigned long size);
+/* moves them, each folder whole (a rename: nothing is copied or deleted, and
+one that cannot be moved stays where it is), and logs each: how many moved */
+int platform_old_map_folders_move(void);
 /* the macOS application's folder for its data and settings, when the game
 runs as an application (ChupathingyCE.app): ~/Library/Application
 Support/ChupathingyCE, made if need be, into path; 0 otherwise (and on
@@ -140,7 +180,8 @@ port/windows/src/win32_memory_watch.c has the same */
 maps) are linked to a tag cache of their own, outside the Xbox window: their
 tags at 0x40440000 and their structure BSPs at its top. The layer maps it
 at start-up (xbox_memory.c): in the 64-bit build's Xbox address space, below
-its heap (xbox_heap.c); in a 32-bit build, at that host address. Nonzero
+its heap (xbox_heap.c); in a 32-bit build, at that host address (on
+Android, in the range the host reserved for it: halo_android_abi.h). Nonzero
 once it is mapped: a Custom Edition map is not opened without it
 (cache_files_windows.c) */
 #define PLATFORM_CE_TAG_CACHE_BASE 0x40440000U

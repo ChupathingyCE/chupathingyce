@@ -11,6 +11,7 @@ server/tests/control_harness.c, a stand-in for the game's main thread),
 driven over real sockets on the loopback address: the page's files and
 headers, logins and sessions, CSRF, bearer tokens, the limits, the
 console's sv_admin_* commands, and junk requests."""
+import json
 import os
 import random
 import re
@@ -29,18 +30,32 @@ sys.path.insert(0, str(ROOT))
 from tools.embed_webui import generate as generate_webui  # noqa: E402
 
 MONOCYPHER = ROOT / "port" / "third_party" / "monocypher" / "monocypher.c"
+QRCODEGEN = ROOT / "port" / "third_party" / "qrcodegen"
+MBEDTLS = ROOT / "port" / "third_party" / "mbedtls"
+PLATFORM = ROOT / "server" / "platform"
 SOURCES = [
     ROOT / "server" / "tests" / "control_test.c",
     ROOT / "server" / "src" / "command_line.c",
-    ROOT / "server" / "platform" / "control_protocol.c",
-    ROOT / "server" / "platform" / "control_web.c",
+    ROOT / "server" / "src" / "server_config.c",
+    PLATFORM / "control_protocol.c",
+    PLATFORM / "control_web.c",
+    PLATFORM / "control_roles.c",
+    PLATFORM / "control_accounts.c",
+    PLATFORM / "control_link_protocol.c",
     MONOCYPHER,
+    MONOCYPHER.parent / "monocypher-ed25519.c",
 ]
 HARNESS_SOURCES = [
     ROOT / "server" / "tests" / "control_harness.c",
-    ROOT / "server" / "platform" / "server_control.c",
-    ROOT / "server" / "platform" / "control_protocol.c",
-    ROOT / "server" / "platform" / "control_web.c",
+    ROOT / "server" / "src" / "command_line.c",
+    PLATFORM / "server_control.c",
+    PLATFORM / "server_roles.c",
+    PLATFORM / "control_protocol.c",
+    PLATFORM / "control_web.c",
+    PLATFORM / "control_roles.c",
+    PLATFORM / "control_accounts.c",
+    PLATFORM / "control_tls.c",
+    QRCODEGEN / "qrcodegen.c",
     MONOCYPHER,
 ]
 SANITIZERS = ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
@@ -58,15 +73,28 @@ def compiler():
     return None
 
 
+_MBEDTLS_ARCHIVES = {}
+
+
+def mbedtls_archive(cc, folder):
+    """Mbed TLS's library as a static archive (built once a run, in folder):
+    the accounts' TOTP (HMAC-SHA-1) and the control panel's TLS use it."""
+    if cc not in _MBEDTLS_ARCHIVES:
+        from tools.test_server_tls import build_mbedtls
+        _MBEDTLS_ARCHIVES[cc] = build_mbedtls(cc, folder)
+    return _MBEDTLS_ARCHIVES[cc]
+
+
 def build(cc, binary, extra, sources=None, standard="c11"):
     """Compiles sources (the unit tests', by default) and the page's files
     into binary; the compiler's result."""
     webui = binary.parent / f"{binary.name}_webui.c"
     generate_webui(webui)
+    archive = mbedtls_archive(cc, binary.parent / "mbedtls")
     return subprocess.run(
         [cc, f"-std={standard}", "-Wall", "-Wextra", "-Werror", "-O1", "-g", *extra,
-         f"-I{ROOT / 'port' / 'third_party' / 'monocypher'}",
-         *(str(source) for source in (sources or SOURCES)), str(webui), "-o", str(binary),
+         f"-I{ROOT / 'port' / 'third_party' / 'monocypher'}", f"-I{MBEDTLS / 'include'}", f"-I{QRCODEGEN}",
+         *(str(source) for source in (sources or SOURCES)), str(webui), str(archive), "-o", str(binary),
          *(["-lpthread"] if sources else [])],
         capture_output=True, text=True,
     )
@@ -111,19 +139,20 @@ class Harness:
     """A running harness: its port, its output's lines (read as they come),
     the token it printed, and its console (standard input)."""
 
-    def __init__(self, binary, data, listen="127.0.0.1"):
+    def __init__(self, binary, data, listen="127.0.0.1", extra=None, expect="listen on"):
+        data.mkdir(parents=True, exist_ok=True)
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             self.port = probe.getsockname()[1]
         environment = dict(os.environ, HARNESS_DATA=str(data), HALO_DEDICATED_CONTROL=f"{listen}:{self.port}",
-                           HALO_DEDICATED_CONSOLE="true", ASAN_OPTIONS="detect_leaks=0")
+                           HALO_DEDICATED_CONSOLE="true", ASAN_OPTIONS="detect_leaks=0", **(extra or {}))
         self.process = subprocess.Popen([str(binary)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE, env=environment, text=True)
         self.lines = []
         self.errors = []
         threading.Thread(target=self._read, args=(self.process.stdout, self.lines), daemon=True).start()
         threading.Thread(target=self._read, args=(self.process.stderr, self.errors), daemon=True).start()
-        self.wait_for("listen on")
+        self.wait_for(expect)
         tokens = [line.strip() for line in self.lines if re.fullmatch(r"\s*chce_[0-9a-f]{64}\s*", line)]
         self.token = tokens[0] if tokens else None
 
@@ -194,7 +223,6 @@ class Response:
                 self.cookies.append(value.strip())
 
     def json(self):
-        import json
         return json.loads(self.body)
 
     @property
@@ -207,7 +235,6 @@ class Response:
 
 
 def http(harness, method, path, headers=None, body=None):
-    import json
     lines = [f"{method} {path} HTTP/1.1", f"Host: 127.0.0.1:{harness.port}"]
     payload = b""
     if body is not None:
@@ -292,7 +319,7 @@ def test_web_session_lifecycle(harness):
     result = http(harness, "POST", "/v1/command", good, kick)
     assert result.status == 200 and result.json() == {"ok": True, "output": "ran sv_kick 1\n"}
     audit = harness.wait_for("sv_kick 1", start)
-    assert re.fullmatch(r"audit: web admin [0-9a-f]{8}: sv_kick 1", audit)
+    assert re.fullmatch(r"audit: web admin [0-9a-f]{8}: sv_kick 1 \(owner 3ff\)", audit)
     assert harness.wait_for("web login: admin")
 
     # a login from another origin or site is refused (login CSRF)
@@ -317,7 +344,7 @@ def test_web_session_lifecycle(harness):
     assert http(harness, "GET", "/v1/status", bearer).status == 200
     start = len(harness.lines)
     assert http(harness, "POST", "/v1/command", bearer, {"command": "sv_name x"}).json()["ok"]
-    assert re.fullmatch(r"audit: api admin [0-9a-f]{8}: sv_name x", harness.wait_for("sv_name x", start))
+    assert re.fullmatch(r"audit: api admin [0-9a-f]{8}: sv_name x \(owner 3ff\)", harness.wait_for("sv_name x", start))
     assert http(harness, "GET", "/v1/session", bearer).status == 400
     # (the token never in the output, but where it was printed once)
     assert sum(harness.token in line for line in harness.lines) == 1
@@ -345,13 +372,13 @@ def test_admin_console(harness, tmp_path):
     credentials = tmp_path / "control_credentials.txt"
     assert len(re.findall(r"^v1 argon2id ", credentials.read_text(), re.M)) == 1
     output = harness.console("sv_admin_add ops", "can log in with it now")
-    bob = next(line.strip() for line in output if re.fullmatch(r"\s*chce_[0-9a-f]{64}\s*", line))
+    ops_token = next(line.strip() for line in output if re.fullmatch(r"\s*chce_[0-9a-f]{64}\s*", line))
     text = credentials.read_text()
-    assert len(re.findall(r"^v1 argon2id ", text, re.M)) == 2 and bob not in text and harness.token not in text
+    assert len(re.findall(r"^v1 argon2id ", text, re.M)) == 2 and ops_token not in text and harness.token not in text
     assert (credentials.stat().st_mode & 0o777) == 0o600
     assert "already" in "\n".join(harness.console("sv_admin_add ops", "already"))
     assert "a name is" in "\n".join(harness.console("sv_admin_add \"x\"", "a name is"))
-    response = login(harness, bob)
+    response = login(harness, ops_token)
     assert response.status == 200 and response.json()["name"] == "ops"
     jar = {"Cookie": f"chce_session={response.session}"}
     listing = "\n".join(harness.console("sv_admin_list", "web session"))
@@ -360,7 +387,7 @@ def test_admin_console(harness, tmp_path):
     output = harness.console("sv_admin_rotate ops", "stop working now")
     new = next(line.strip() for line in output if re.fullmatch(r"\s*chce_[0-9a-f]{64}\s*", line))
     assert http(harness, "GET", "/v1/status", jar).status == 401
-    assert login(harness, bob).status == 401
+    assert login(harness, ops_token).status == 401
     assert login(harness, new).status == 200
     assert login(harness).status == 200
 
@@ -371,19 +398,29 @@ def test_admin_console(harness, tmp_path):
     assert login(harness).status == 200
     # (never the API's)
     bearer = {"Authorization": f"Bearer {harness.token}"}
-    result = http(harness, "POST", "/v1/command", bearer, {"command": "sv_admin_add evil"}).json()
-    assert result["output"] == "ran sv_admin_add evil\n"
+    result = http(harness, "POST", "/v1/command", bearer, {"command": "sv_admin_add evil"})
+    assert result.status == 403
     assert len(re.findall(r"^v1 argon2id ", credentials.read_text(), re.M)) == 1
     harness.wait_for("a credential taken out: ops")
 
 
-def test_web_warns_beyond_loopback(harness_binary, tmp_path):
-    """Listening beyond the loopback address is warned of."""
-    running = Harness(harness_binary, tmp_path, listen="0.0.0.0")
+def test_web_beyond_loopback_is_https(harness_binary, tmp_path):
+    """Listening beyond the loopback address is HTTPS, its certificate's
+    fingerprint printed; plain HTTP there is refused (TLS off) on a public
+    address, and warned of on a private one."""
+    running = Harness(harness_binary, tmp_path / "a", listen="0.0.0.0")
     try:
-        assert running.wait_for("WARNING: the control API and web admin page listen beyond this machine")
+        assert running.wait_for("listen on 0.0.0.0")
+        assert "(HTTPS;" in running.wait_for("listen on 0.0.0.0")
+        assert running.wait_for("certificate's SHA-256 fingerprint is")
     finally:
         running.stop()
+    refused = Harness(harness_binary, tmp_path / "b", listen="0.0.0.0", extra={"HALO_DEDICATED_CONTROL_TLS": "off"},
+                      expect="control API is off")
+    try:
+        assert refused.wait_for("is a public address")
+    finally:
+        refused.stop()
 
 
 def test_web_fuzz(harness):

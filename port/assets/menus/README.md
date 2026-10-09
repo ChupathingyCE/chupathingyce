@@ -52,6 +52,8 @@ the 640x480 menu screen (the PNG is a whole multiple of it), or a frame of a
 bitmap of the map: `<frame map="ui\shell\...\profile_options" index="1"/>`. (Or
 `frames="a.png b.png"` with one `width` and `height` for all.) A widget draws
 its bitmap from the top left, one unit to a texel, cut to the widget's size.
+A map's frame with a `width` and `height` is drawn scaled to that size
+instead, from `x` and `y` in the widget (0 if not given).
 A list's item shows frame 1 while it has the focus and frame 0 otherwise, if
 the bitmap has exactly two frames; the game's functions choose others.
 
@@ -133,7 +135,8 @@ The port's functions: `port quit game` quits; `port setting load` (on a
 spinner's `created`) shows its setting's value and `port setting save` (on
 its `deleted`) writes the value shown to `config.toml`, if it changed. Of
 the PC version's: `main menu quit game` quits, `profile set edit begin`
-begins editing the first player profile, `mouse emit back event` and
+begins editing the first player profile (and makes one, New001, if there
+is none), `mouse emit back event` and
 `mouse emit x event` push B and X, `emit custom activation event` and
 `single prev cl item activated` run the screen's or the list's
 `custom_activation` handlers, and its back handlers go back. Its

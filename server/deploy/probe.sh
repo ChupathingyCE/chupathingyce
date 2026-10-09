@@ -1,6 +1,6 @@
 #!/bin/sh
-# The game list's probe on the dedicated server's host (server/README.md,
-# "Probing a game"): the game that an invite leads to, read by the game
+# The game list's probe on the dedicated server's host (server/docs/docker.md,
+# "The game list's probe"): the game that an invite leads to, read by the game
 # (HALO_PROBE) in a container of its own, which goes when it is done:
 #   probe.sh <invite>
 # prints the game's "probe: {...}" line. Runs as root (sudo, from
@@ -17,7 +17,7 @@ if [ ${#invite} -ne 64 ] && [ ${#invite} -ne 44 ]; then
 	echo 'probe: {"ok": false, "error": "not an invite"}'
 	exit 1
 fi
-# (no more than a few at once: the rest wait their turn)
+# (one at a time: the rest wait their turn, up to a minute)
 exec 9>/run/halo-probe.lock
 flock -w 60 9
 # (not root, without capabilities: it reads what a stranger's host sends)

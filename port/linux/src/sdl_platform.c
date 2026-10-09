@@ -16,6 +16,8 @@ and the debug keyboard that the game's console reads.
 #include "p2p.h"
 #include "xiso.h"
 #include "touch_input.h"
+#include "delta.h"
+#include "crash_report.h"
 
 #include <SDL3/SDL.h>
 #include <stdio.h>
@@ -91,6 +93,186 @@ void updater_poll(SDL_Window *window);
 /* (and the version, for the window's title) */
 const char *updater_version(void);
 
+/* the older folders of Halo PC maps (maps/ce, md_maps) moved into the new
+ones (maps_ce, maps_md) once, as game.move_old_map_folders says: asked, in
+the game's message box, when someone is there to answer; the answer kept.
+Android, whose game data is the app's own, moves them without asking */
+static void old_map_folders_offer(BOOL quiet)
+{
+	static const SDL_MessageBoxButtonData buttons[] = {
+		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Move them" },
+		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Leave them" },
+	};
+	const char *setting = config_string("game.move_old_map_folders");
+	char moves[256];
+	char text[1024];
+	SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "ChupathingyCE: map folders", text, 2,
+		buttons, NULL };
+	int answer = 0;
+
+	if (!strcmp(setting, "no") || !platform_old_map_folders(moves, sizeof(moves)))
+		return;
+#ifndef HALO_ANDROID
+	if (strcmp(setting, "yes"))
+	{
+		if (quiet)
+		{
+			platform_log("map folders: older folders of Halo PC maps (%s) are played from where they are; "
+				"game.move_old_map_folders = \"yes\" moves them", moves);
+			return;
+		}
+		snprintf(text, sizeof(text),
+			"Halo PC maps have folders of their own beside the maps folder now: maps_ce for Custom Edition "
+			"maps, maps_md for HaloMD maps and maps_pc for the maps of your Halo PC disc.\n\n"
+			"Move your older folders there?\n\n%s\n\n"
+			"Each folder is moved whole: nothing is copied or deleted. If you leave them, their maps still "
+			"play from where they are.",
+			moves);
+		if (!SDL_ShowMessageBox(&question, &answer))
+			return;
+		config_write("game.move_old_map_folders", answer ? "yes" : "no");
+		if (!answer)
+		{
+			platform_log("map folders: the player left the older folders where they are (%s)", moves);
+			return;
+		}
+	}
+#else
+	(void)quiet;
+	(void)question;
+	(void)answer;
+	(void)text;
+#endif
+	platform_old_map_folders_move();
+}
+
+#ifndef HALO_ANDROID
+/* the maps folder checked to hold the Xbox maps (platform_maps_folder_check).
+When it holds Halo PC's instead, or no ui.map, the player is told where each
+kind goes and the game quits, rather than failing to load Halo PC's ui.map
+as the Xbox's (game_load). Halo PC maps in maps/ itself, which only play
+from maps_ce, maps_md or maps_pc, are warned of. Then the older folders of
+Halo PC maps are offered a move into the new ones (game.move_old_map_folders) */
+static void data_check_maps(void)
+{
+	struct platform_maps_folder maps;
+	char message[2048];
+	char where[1200];
+	BOOL quiet = config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0 ||
+		config_boolean("debug.null_renderer");
+
+#ifdef HALO_GAME_BROWSER
+	quiet = quiet || browser_headless();
+#endif
+	platform_maps_folder_check(&maps);
+	snprintf(where, sizeof(where),
+		"Put the Xbox maps from your Halo: Combat Evolved disc image in %s/maps. Halo PC "
+		"maps go in folders beside it: Custom Edition maps (with Custom Edition's bitmaps.map, "
+		"sounds.map and loc.map) in maps_ce, HaloMD maps in maps_md, and the maps of your "
+		"Halo PC disc in maps_pc.",
+		maps.root);
+	switch (maps.state)
+	{
+	case _maps_folder_xbox:
+		old_map_folders_offer(quiet);
+		if (!maps.stray_pc_maps)
+			return;
+		snprintf(message, sizeof(message),
+			"These maps in the maps folder are Halo PC maps, which play only from maps_ce, maps_md or "
+			"maps_pc: %s%s.\n\n%s",
+			maps.stray_names, maps.stray_pc_maps > PLATFORM_MAPS_FOLDER_NAMED ? " and more" : "", where);
+		platform_log("maps folder: %ld Halo PC maps in %s/maps (%s)", maps.stray_pc_maps, maps.root,
+			maps.stray_names);
+		if (!quiet)
+			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "ChupathingyCE", message, NULL);
+		return;
+	case _maps_folder_halo_pc:
+		snprintf(message, sizeof(message),
+			"The maps folder holds Halo PC maps, not the Xbox maps: its ui.map is from %s.\n\n%s\n\n"
+			"To copy the Xbox maps out of your disc image again, move this maps folder aside and "
+			"start ChupathingyCE.",
+			maps.ui_version == 609 ? "Halo PC (Custom Edition)" : "Halo PC", where);
+		break;
+	default:
+		snprintf(message, sizeof(message),
+			"Halo's Xbox maps were not found: %s/maps has no ui.map.%s\n\n%s\n\n"
+			"To copy the Xbox maps out of your disc image, move the maps folder aside and start "
+			"ChupathingyCE.",
+			maps.root, maps.stray_pc_maps || maps.pc_maps_beside ?
+				" Its Halo PC maps play only alongside the Xbox maps." : "",
+			where);
+		break;
+	}
+	platform_log("maps folder: %s/maps is not the Xbox maps (ui.map version %ld): quitting", maps.root,
+		maps.ui_version);
+	platform_log("%s", message);
+	if (!quiet)
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "ChupathingyCE", message, NULL);
+	exit(EXIT_FAILURE);
+}
+#endif
+
+#if !defined(_WIN32) && !defined(HALO_ANDROID)
+/* crash reports (posix_crash.c; Windows's are win32_crash.c's): the handler
+for this run's crashes, then the reports earlier ones left, sent, deleted or
+asked about as crash_reports.upload says */
+static void crash_reports_start(void)
+{
+	static const SDL_MessageBoxButtonData buttons[] = {
+		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Yes" },
+		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "No" },
+	};
+	static const char text[] =
+		"ChupathingyCE crashed the last time it ran.\n\n"
+		"Do you want to send crash reports to the developers? They help us find and fix crashes.\n\n"
+		"A report holds the game's version, where in the game it crashed and the calls that led there, and the "
+		"end of its log, debug.txt, with IP addresses taken out. Reports go to the ChupathingyCE site "
+		"(network.browser_url) and its developers.\n\n"
+		"The answer is kept in config.toml (crash_reports.upload): Yes sends the report of this crash and of "
+		"every later one, No never sends one.";
+	SDL_MessageBoxData question = { SDL_MESSAGEBOX_WARNING, NULL, "ChupathingyCE crashed", text, 2, buttons, NULL };
+	char folder[1024], log[1024];
+	const char *consent;
+	int pending, answer = 0;
+
+	if (!crash_reports_armed())
+		return;
+#ifdef HALO_GAME_BROWSER
+	/* (a probe has none: its crashes are the site's to see) */
+	if (browser_headless())
+		return;
+#endif
+	snprintf(folder, sizeof(folder), "%s/crashes", platform_data_root());
+	snprintf(log, sizeof(log), "%s/debug.txt", platform_data_root());
+	if (!posix_crash_install(folder, log) || !(pending = posix_crash_pending()))
+		return;
+	consent = config_string("crash_reports.upload");
+	if (!strcmp(consent, "no"))
+	{
+		posix_crash_discard();
+		return;
+	}
+	if (strcmp(consent, "yes"))
+	{
+		/* (not for runs nobody is watching: the reports wait) */
+		if (config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0 ||
+			!SDL_ShowMessageBox(&question, &answer))
+		{
+			return;
+		}
+		config_write("crash_reports.upload", answer ? "yes" : "no");
+		if (!answer)
+		{
+			platform_log("crash report: the player declined; none will be sent");
+			posix_crash_discard();
+			return;
+		}
+	}
+	platform_log("crash report: sending %d", pending);
+	posix_crash_send();
+}
+#endif
+
 BOOL platform_sdl_initialize(void)
 {
 	if (platform_sdl_started)
@@ -135,13 +317,24 @@ BOOL platform_sdl_initialize(void)
 		return FALSE;
 	}
 	platform_sdl_started = TRUE;
+	/* which build this is, first in its log (build_identity.c) */
+	build_identity_log();
 #ifndef HALO_ANDROID
 	/* found (or offered to the player, platform_offer_game_data) before the
-	game's window opens */
+	game's window opens, and checked to be the Xbox maps */
 	platform_data_root();
+	data_check_maps();
 	/* (a new version looked for meanwhile, updater_poll asking about it) */
 	updater_start();
+#ifndef _WIN32
+	crash_reports_start();
 #endif
+#else
+	/* (the desktop's are moved from data_check_maps) */
+	old_map_folders_offer(TRUE);
+#endif
+	/* (the legacy table: a newer one fetched meanwhile) */
+	delta_legacy_start();
 	return TRUE;
 }
 
@@ -858,7 +1051,16 @@ void platform_display_apply(void)
 	if (!platform_window)
 		return;
 #endif
+#ifdef __APPLE__
+	{
+		/* (the context's own interval, as at start-up: SDL's stays off) */
+		void macos_set_swap_interval(int interval);
+
+		macos_set_swap_interval(config_boolean("display.vsync") ? 1 : 0);
+	}
+#else
 	SDL_GL_SetSwapInterval(config_boolean("display.vsync") ? 1 : 0);
+#endif
 }
 
 void platform_video_drawable_size(int *width, int *height)

@@ -27,6 +27,8 @@ union real_vector3d;
 
 /* ---------- prototypes/MODELS.C */
 
+void models_fix_powerup_render_bounds(void);
+
 void model_interpolate_node_orientations(
 	struct model const *model,
 	struct real_orientation *original_node_orientations,
@@ -84,6 +86,8 @@ void render_model(
 	long unique_identifier,
 	short forced_shader_permutation_index,
 	unsigned long flags);
+boolean model_data_report_once(
+	void const *data);
 
 /* ---------- globals */
 

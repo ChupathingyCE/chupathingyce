@@ -36,6 +36,13 @@ keeps its heaps low in the address space and fills it upwards */
 #define HALO_GUEST_WINDOW_BASE 0x80000000u
 #define HALO_GUEST_WINDOW_SIZE 0x08000000u
 
+/* Custom Edition maps' tag cache (port/linux/src/platform.h): Halo PC's maps
+are linked to it. The host reserves it with the fixed ranges if it can; if
+ART holds it, those maps do not load and the rest of the game plays as
+usual (port/android/host/host_memory.c) */
+#define HALO_GUEST_CE_TAG_CACHE_BASE 0x40440000u
+#define HALO_GUEST_CE_TAG_CACHE_SIZE 0x01700000u
+
 #define HALO_GUEST_MAGIC 0x4f4c4148u /* 'HALO' */
 #define HALO_GUEST_ABI_VERSION 1
 

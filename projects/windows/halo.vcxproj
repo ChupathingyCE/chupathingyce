@@ -67,15 +67,15 @@
     <HaloOptimisation Condition="'$(Configuration)'!='Debug'">/clang:-O2</HaloOptimisation>
     <!-- x64: the 64-bit game (HALO_64BIT), which plays Halo PC's Custom Edition maps and HaloMD's
          (HALO_CUSTOM_EDITION), as ninja windows64 builds it -->
-    <HaloAbiOptions Condition="'$(Platform)'!='x64'">/clang:--target=i686-pc-windows-msvc /clang:-fms-extensions /clang:-fcommon /clang:-fno-strict-aliasing /clang:-fwrapv /clang:-fno-delete-null-pointer-checks /clang:-fno-omit-frame-pointer /clang:-ffp-contract=off /clang:-march=x86-64 $(HaloOptimisation)</HaloAbiOptions>
-    <HaloAbiOptions Condition="'$(Platform)'=='x64'">/clang:--target=x86_64-pc-windows-msvc /clang:-fms-extensions /clang:-fcommon /clang:-fno-strict-aliasing /clang:-fwrapv /clang:-fno-delete-null-pointer-checks /clang:-fno-omit-frame-pointer /clang:-ffp-contract=off /clang:-march=x86-64 $(HaloOptimisation)</HaloAbiOptions>
-    <HaloAbiDefines Condition="'$(Platform)'!='x64'">_USE_32BIT_TIME_T;_CRT_SECURE_NO_WARNINGS;_CRT_NONSTDC_NO_WARNINGS;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_NON_CONFORMING_SWPRINTFS;_CRT_NON_CONFORMING_WCSTOK;HALO_GAME_BROWSER</HaloAbiDefines>
+    <HaloAbiOptions Condition="'$(Platform)'!='x64'">/clang:--target=i686-pc-windows-msvc /clang:-fms-extensions /clang:-fcommon /clang:-fno-strict-aliasing /clang:-fwrapv /clang:-fno-delete-null-pointer-checks /clang:-fno-omit-frame-pointer /clang:-ffp-contract=off /clang:-march=x86-64 /clang:-fstack-protector-strong $(HaloOptimisation)</HaloAbiOptions>
+    <HaloAbiOptions Condition="'$(Platform)'=='x64'">/clang:--target=x86_64-pc-windows-msvc /clang:-fms-extensions /clang:-fcommon /clang:-fno-strict-aliasing /clang:-fwrapv /clang:-fno-delete-null-pointer-checks /clang:-fno-omit-frame-pointer /clang:-ffp-contract=off /clang:-march=x86-64 /clang:-fstack-protector-strong $(HaloOptimisation)</HaloAbiOptions>
+    <HaloAbiDefines Condition="'$(Platform)'!='x64'">_USE_32BIT_TIME_T;_CRT_SECURE_NO_WARNINGS;_CRT_NONSTDC_NO_WARNINGS;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_NON_CONFORMING_SWPRINTFS;_CRT_NON_CONFORMING_WCSTOK;HALO_CUSTOM_EDITION;HALO_GAME_BROWSER</HaloAbiDefines>
     <HaloAbiDefines Condition="'$(Platform)'=='x64'">_CRT_SECURE_NO_WARNINGS;_CRT_NONSTDC_NO_WARNINGS;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_NON_CONFORMING_SWPRINTFS;_CRT_NON_CONFORMING_WCSTOK;HALO_64BIT;HALO_CUSTOM_EDITION;HALO_GAME_BROWSER</HaloAbiDefines>
     <!-- Debug only: the callers of a header's __inline function that a unit also defines for everyone use
          that one; not inlined, their own copies would be duplicates (tools/visual_studio.py) -->
     <HaloDebugOnlyREAL_MATH_EXTERNAL_REAL_LOCAL_RANDOM Condition="'$(Configuration)'=='Debug'">REAL_MATH_EXTERNAL_REAL_LOCAL_RANDOM</HaloDebugOnlyREAL_MATH_EXTERNAL_REAL_LOCAL_RANDOM>
-    <HaloGameOptions Condition="'$(Platform)'!='x64'">$(HaloAbiOptions) /clang:-std=gnu89 /clang:-Wno-error=incompatible-pointer-types /clang:-Wno-error=incompatible-function-pointer-types /clang:-Wno-error=int-conversion /clang:-Wno-error=implicit-function-declaration /clang:-Wno-error=implicit-int /clang:-Wno-error=return-type "/clang:-iquote$(HaloRoot)port\linux\include"</HaloGameOptions>
-    <HaloGameOptions Condition="'$(Platform)'=='x64'">$(HaloAbiOptions) /clang:-std=gnu89 /clang:-Wno-error=incompatible-pointer-types /clang:-Wno-error=incompatible-function-pointer-types /clang:-Wno-error=implicit-int /clang:-Wno-error=return-type /clang:-ferror-limit=0 /clang:-Wno-everything /clang:-Werror=int-to-pointer-cast /clang:-Werror=pointer-to-int-cast /clang:-Werror=void-pointer-to-int-cast /clang:-Werror=int-conversion /clang:-Werror=pointer-integer-compare /clang:-Werror=implicit-function-declaration "/clang:-iquote$(HaloRoot)port\linux\include"</HaloGameOptions>
+    <HaloGameOptions Condition="'$(Platform)'!='x64'">$(HaloAbiOptions) /clang:-std=gnu89 /clang:-Wno-error=incompatible-pointer-types /clang:-Wno-error=incompatible-function-pointer-types /clang:-Wno-error=int-conversion /clang:-Wno-error=implicit-function-declaration /clang:-Wno-error=implicit-int /clang:-Wno-error=return-type "/clang:-iquote$(HaloRoot)port\linux\include" "/clang:-iquote$(HaloRoot)port\linux\game"</HaloGameOptions>
+    <HaloGameOptions Condition="'$(Platform)'=='x64'">$(HaloAbiOptions) /clang:-std=gnu89 /clang:-Wno-error=incompatible-pointer-types /clang:-Wno-error=incompatible-function-pointer-types /clang:-Wno-error=implicit-int /clang:-Wno-error=return-type /clang:-ferror-limit=0 /clang:-Wno-everything /clang:-Werror=int-to-pointer-cast /clang:-Werror=pointer-to-int-cast /clang:-Werror=void-pointer-to-int-cast /clang:-Werror=int-conversion /clang:-Werror=pointer-integer-compare /clang:-Werror=implicit-function-declaration "/clang:-iquote$(HaloRoot)port\linux\include" "/clang:-iquote$(HaloRoot)port\linux\game"</HaloGameOptions>
     <HaloGameDefines>$(HaloAbiDefines);DEBUG;xbox</HaloGameDefines>
     <HaloGameIncludes>$(HaloRoot)port\windows\include\crt;$(HaloRoot)port\windows\include;$(HaloRoot)source;$(HaloRoot)port\third_party\stb;$(HaloRoot)source\main;$(HaloRoot)source\cseries;$(HaloRoot)source\sound;$(HaloRoot)source\bink;$(HaloRoot)source\saved films;$(HaloRoot)source\saved games;$(HaloRoot)source\cache;$(HaloRoot)source\units;$(HaloRoot)source\text;$(HaloRoot)source\tag_files;$(HaloRoot)source\structures;$(HaloRoot)source\shell;$(HaloRoot)source\shaders;$(HaloRoot)source\scenario;$(HaloRoot)source\render;$(HaloRoot)source\rasterizer;$(HaloRoot)source\physics;$(HaloRoot)source\objects;$(HaloRoot)source\objects\widgets;$(HaloRoot)source\networking;$(HaloRoot)source\models;$(HaloRoot)source\memory;$(HaloRoot)source\memory\zlib;$(HaloRoot)source\math;$(HaloRoot)source\tool;$(HaloRoot)source\items;$(HaloRoot)source\interface;$(HaloRoot)source\input;$(HaloRoot)source\hs;$(HaloRoot)source\game;$(HaloRoot)source\effects;$(HaloRoot)source\editor;$(HaloRoot)source\dialogs;$(HaloRoot)source\devices;$(HaloRoot)source\cutscene;$(HaloRoot)source\camera;$(HaloRoot)source\bungie_net;$(HaloRoot)source\bitmaps;$(HaloRoot)source\ai;$(HaloRoot)port\include\xdk</HaloGameIncludes>
     <HaloGameForced>$(HaloRoot)port\windows\include\halo_windows_prefix.h;$(HaloRoot)port\windows\generated\halo_msvc_tags.h</HaloGameForced>
@@ -84,19 +84,19 @@
     <HaloPlatformOptions Condition="'$(Platform)'!='x64'">$(HaloAbiOptions) /clang:-std=gnu11 /clang:-Wall /clang:-Wno-unused-function /clang:-Wno-unknown-pragmas /clang:-Wno-microsoft-anon-tag /clang:-Wno-pragma-pack /clang:-Wno-ignored-attributes /clang:-Wno-duplicate-decl-specifier /clang:-Wno-missing-braces /clang:-Wno-unused-variable /clang:-Wno-ignored-pragmas /clang:-Wno-microsoft-enum-forward-reference /clang:-Wno-language-extension-token "/clang:-iquote$(HaloRoot)port\linux\include"</HaloPlatformOptions>
     <HaloPlatformOptions Condition="'$(Platform)'=='x64'">$(HaloAbiOptions) /clang:-std=gnu11 /clang:-Wall /clang:-Wno-unused-function /clang:-Wno-unknown-pragmas /clang:-Wno-microsoft-anon-tag /clang:-Wno-pragma-pack /clang:-Wno-ignored-attributes /clang:-Wno-duplicate-decl-specifier /clang:-Wno-missing-braces /clang:-Wno-unused-variable /clang:-Wno-ignored-pragmas /clang:-Wno-microsoft-enum-forward-reference /clang:-Wno-language-extension-token /clang:-Werror=incompatible-pointer-types /clang:-Werror=int-to-pointer-cast /clang:-Werror=pointer-to-int-cast /clang:-Werror=void-pointer-to-int-cast /clang:-Werror=int-conversion "/clang:-iquote$(HaloRoot)port\linux\include"</HaloPlatformOptions>
     <HaloPlatformDefines>$(HaloAbiDefines);HALO_LINUX_PLATFORM_LAYER</HaloPlatformDefines>
-    <HaloPlatformIncludes>$(HaloRoot)port\windows\include\posix;$(HaloRoot)port\windows\include\crt;$(HaloRoot)port\linux\src;$(HaloRoot)port\windows\include;$(HaloRoot)port\third_party\tomlc17;$(HaloRoot)port\third_party\expat;$(HaloRoot)port\third_party\kcp;$(HaloRoot)port\third_party\qrcodegen;$(HaloRoot)port\third_party\monocypher;$(HaloRoot)source;$(HaloRoot)source\cseries;$(HaloSDL)\include;$(HaloRoot)port\include\xdk</HaloPlatformIncludes>
+    <HaloPlatformIncludes>$(HaloRoot)port\windows\include\posix;$(HaloRoot)port\windows\include\crt;$(HaloRoot)port\linux\src;$(HaloRoot)port\windows\include;$(HaloRoot)port\third_party\tomlc17;$(HaloRoot)port\third_party\expat;$(HaloRoot)port\third_party\kcp;$(HaloRoot)port\third_party\qrcodegen;$(HaloRoot)port\third_party\monocypher;$(HaloRoot)port\third_party\zlib;$(HaloRoot)source;$(HaloRoot)source\cseries;$(HaloSDL)\include;$(HaloRoot)port\include\xdk</HaloPlatformIncludes>
     <HaloPlatformForced>$(HaloRoot)port\windows\include\halo_windows_prefix.h</HaloPlatformForced>
     <HaloPlatformWarnings>Level3</HaloPlatformWarnings>
     <HaloPlatformUpdaterOptions Condition="'$(Platform)'!='x64'">$(HaloAbiOptions) /clang:-std=gnu11 /clang:-Wall /clang:-Wno-unused-function /clang:-Wno-unknown-pragmas /clang:-Wno-microsoft-anon-tag /clang:-Wno-pragma-pack /clang:-Wno-ignored-attributes /clang:-Wno-duplicate-decl-specifier /clang:-Wno-missing-braces /clang:-Wno-unused-variable /clang:-Wno-ignored-pragmas /clang:-Wno-microsoft-enum-forward-reference /clang:-Wno-language-extension-token "/clang:-iquote$(HaloRoot)port\linux\include"</HaloPlatformUpdaterOptions>
     <HaloPlatformUpdaterOptions Condition="'$(Platform)'=='x64'">$(HaloAbiOptions) /clang:-std=gnu11 /clang:-Wall /clang:-Wno-unused-function /clang:-Wno-unknown-pragmas /clang:-Wno-microsoft-anon-tag /clang:-Wno-pragma-pack /clang:-Wno-ignored-attributes /clang:-Wno-duplicate-decl-specifier /clang:-Wno-missing-braces /clang:-Wno-unused-variable /clang:-Wno-ignored-pragmas /clang:-Wno-microsoft-enum-forward-reference /clang:-Wno-language-extension-token /clang:-Werror=incompatible-pointer-types /clang:-Werror=int-to-pointer-cast /clang:-Werror=pointer-to-int-cast /clang:-Werror=void-pointer-to-int-cast /clang:-Werror=int-conversion "/clang:-iquote$(HaloRoot)port\linux\include"</HaloPlatformUpdaterOptions>
     <HaloPlatformUpdaterDefines>$(HaloAbiDefines);HALO_LINUX_PLATFORM_LAYER</HaloPlatformUpdaterDefines>
-    <HaloPlatformUpdaterIncludes>$(HaloRoot)port\windows\include\posix;$(HaloRoot)port\windows\include\crt;$(HaloRoot)port\linux\src;$(HaloRoot)port\windows\include;$(HaloRoot)port\third_party\tomlc17;$(HaloRoot)port\third_party\expat;$(HaloRoot)port\third_party\kcp;$(HaloRoot)port\third_party\qrcodegen;$(HaloRoot)port\third_party\monocypher;$(HaloRoot)source;$(HaloRoot)source\cseries;$(HaloSDL)\include;$(HaloRoot)port\include\xdk</HaloPlatformUpdaterIncludes>
+    <HaloPlatformUpdaterIncludes>$(HaloRoot)port\windows\include\posix;$(HaloRoot)port\windows\include\crt;$(HaloRoot)port\linux\src;$(HaloRoot)port\windows\include;$(HaloRoot)port\third_party\tomlc17;$(HaloRoot)port\third_party\expat;$(HaloRoot)port\third_party\kcp;$(HaloRoot)port\third_party\qrcodegen;$(HaloRoot)port\third_party\monocypher;$(HaloRoot)port\third_party\zlib;$(HaloRoot)source;$(HaloRoot)source\cseries;$(HaloSDL)\include;$(HaloRoot)port\include\xdk</HaloPlatformUpdaterIncludes>
     <HaloPlatformUpdaterForced>$(HaloRoot)port\windows\include\halo_windows_prefix.h;$(HaloGenerated)halo_version.h</HaloPlatformUpdaterForced>
     <HaloPlatformUpdaterWarnings>Level3</HaloPlatformUpdaterWarnings>
     <HaloPlatformFontOptions Condition="'$(Platform)'!='x64'">$(HaloAbiOptions) /clang:-std=gnu11 /clang:-Wall /clang:-Wno-unused-function /clang:-Wno-unknown-pragmas /clang:-Wno-microsoft-anon-tag /clang:-Wno-pragma-pack /clang:-Wno-ignored-attributes /clang:-Wno-duplicate-decl-specifier /clang:-Wno-missing-braces /clang:-Wno-unused-variable /clang:-Wno-ignored-pragmas /clang:-Wno-microsoft-enum-forward-reference /clang:-Wno-language-extension-token "/clang:-iquote$(HaloRoot)port\linux\include"</HaloPlatformFontOptions>
     <HaloPlatformFontOptions Condition="'$(Platform)'=='x64'">$(HaloAbiOptions) /clang:-std=gnu11 /clang:-Wall /clang:-Wno-unused-function /clang:-Wno-unknown-pragmas /clang:-Wno-microsoft-anon-tag /clang:-Wno-pragma-pack /clang:-Wno-ignored-attributes /clang:-Wno-duplicate-decl-specifier /clang:-Wno-missing-braces /clang:-Wno-unused-variable /clang:-Wno-ignored-pragmas /clang:-Wno-microsoft-enum-forward-reference /clang:-Wno-language-extension-token /clang:-Werror=incompatible-pointer-types /clang:-Werror=int-to-pointer-cast /clang:-Werror=pointer-to-int-cast /clang:-Werror=void-pointer-to-int-cast /clang:-Werror=int-conversion "/clang:-iquote$(HaloRoot)port\linux\include"</HaloPlatformFontOptions>
     <HaloPlatformFontDefines>$(HaloAbiDefines);HALO_LINUX_PLATFORM_LAYER</HaloPlatformFontDefines>
-    <HaloPlatformFontIncludes>$(HaloRoot)port\windows\include\posix;$(HaloRoot)port\windows\include\crt;$(HaloRoot)port\linux\src;$(HaloRoot)port\windows\include;$(HaloRoot)port\third_party\tomlc17;$(HaloRoot)port\third_party\expat;$(HaloRoot)port\third_party\kcp;$(HaloRoot)port\third_party\qrcodegen;$(HaloRoot)port\third_party\monocypher;$(HaloRoot)source;$(HaloRoot)source\cseries;$(HaloSDL)\include;$(HaloRoot)port\include\xdk;$(HaloRoot)port\third_party\stb</HaloPlatformFontIncludes>
+    <HaloPlatformFontIncludes>$(HaloRoot)port\windows\include\posix;$(HaloRoot)port\windows\include\crt;$(HaloRoot)port\linux\src;$(HaloRoot)port\windows\include;$(HaloRoot)port\third_party\tomlc17;$(HaloRoot)port\third_party\expat;$(HaloRoot)port\third_party\kcp;$(HaloRoot)port\third_party\qrcodegen;$(HaloRoot)port\third_party\monocypher;$(HaloRoot)port\third_party\zlib;$(HaloRoot)source;$(HaloRoot)source\cseries;$(HaloSDL)\include;$(HaloRoot)port\include\xdk;$(HaloRoot)port\third_party\stb</HaloPlatformFontIncludes>
     <HaloPlatformFontForced>$(HaloRoot)port\windows\include\halo_windows_prefix.h</HaloPlatformFontForced>
     <HaloPlatformFontWarnings>Level3</HaloPlatformFontWarnings>
     <HaloWin32BrowserOptions Condition="'$(Platform)'!='x64'">$(HaloAbiOptions) /clang:-std=gnu11 /clang:-Wall</HaloWin32BrowserOptions>
@@ -132,6 +132,11 @@
     <HaloThirdPartyIncludes></HaloThirdPartyIncludes>
     <HaloThirdPartyForced></HaloThirdPartyForced>
     <HaloThirdPartyWarnings>TurnOffAllWarnings</HaloThirdPartyWarnings>
+    <HaloZlibOptions>$(HaloAbiOptions) /clang:-std=gnu11</HaloZlibOptions>
+    <HaloZlibDefines>$(HaloAbiDefines);Z_PREFIX;z_errmsg=z_port_errmsg</HaloZlibDefines>
+    <HaloZlibIncludes></HaloZlibIncludes>
+    <HaloZlibForced></HaloZlibForced>
+    <HaloZlibWarnings>TurnOffAllWarnings</HaloZlibWarnings>
     <HaloExpatOptions>$(HaloAbiOptions) /clang:-std=gnu11</HaloExpatOptions>
     <HaloExpatDefines>$(HaloAbiDefines)</HaloExpatDefines>
     <HaloExpatIncludes>$(HaloRoot)port\third_party\expat</HaloExpatIncludes>
@@ -167,7 +172,7 @@
       <!-- as the ninja build links: nothing folded or dropped -->
       <OptimizeReferences>false</OptimizeReferences>
       <EnableCOMDATFolding>false</EnableCOMDATFolding>
-      <AdditionalDependencies>$(HaloSDL)\lib\$(HaloSDLArch)\SDL3.lib;ws2_32.lib;iphlpapi.lib;bcrypt.lib;winmm.lib;user32.lib;advapi32.lib;winhttp.lib;crypt32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(HaloSDL)\lib\$(HaloSDLArch)\SDL3.lib;ws2_32.lib;iphlpapi.lib;bcrypt.lib;winmm.lib;user32.lib;advapi32.lib;winhttp.lib;crypt32.lib;dbghelp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <!-- each platform's link, as its ninja build's (tools/windows_build.py, ldflags). x86: the Xbox memory window
@@ -4083,6 +4088,38 @@
       <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
       <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\coop_enemies.c">
+      <ObjectFileName>$(IntDir)coop_enemies_99806fed.obj</ObjectFileName>
+      <WarningLevel>$(HaloGameWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\coop_scripts.c">
+      <ObjectFileName>$(IntDir)coop_scripts_f39b935b.obj</ObjectFileName>
+      <WarningLevel>$(HaloGameWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\coop_spectate.c">
+      <ObjectFileName>$(IntDir)coop_spectate_90fc480b.obj</ObjectFileName>
+      <WarningLevel>$(HaloGameWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\game_events.c">
+      <ObjectFileName>$(IntDir)game_events_79f1ed5e.obj</ObjectFileName>
+      <WarningLevel>$(HaloGameWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\game\game_list_claims.c">
       <ObjectFileName>$(IntDir)game_list_claims_085256ee.obj</ObjectFileName>
       <WarningLevel>$(HaloGameWarnings)</WarningLevel>
@@ -4139,8 +4176,32 @@
       <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
       <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\moderation_screen.c">
+      <ObjectFileName>$(IntDir)moderation_screen_6820338e.obj</ObjectFileName>
+      <WarningLevel>$(HaloGameWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\game\msvc_comdat.c">
       <ObjectFileName>$(IntDir)msvc_comdat_5a5de46f.obj</ObjectFileName>
+      <WarningLevel>$(HaloGameWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\network_actors.c">
+      <ObjectFileName>$(IntDir)network_actors_3cbeca48.obj</ObjectFileName>
+      <WarningLevel>$(HaloGameWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\network_coop.c">
+      <ObjectFileName>$(IntDir)network_coop_d5925e59.obj</ObjectFileName>
       <WarningLevel>$(HaloGameWarnings)</WarningLevel>
       <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
@@ -4211,6 +4272,78 @@
       <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
       <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\tag_schema_collision.c">
+      <ObjectFileName>$(IntDir)tag_schema_collision_7a61ba96.obj</ObjectFileName>
+      <WarningLevel>$(HaloGameWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\tag_schema_effects.c">
+      <ObjectFileName>$(IntDir)tag_schema_effects_937c0851.obj</ObjectFileName>
+      <WarningLevel>$(HaloGameWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\tag_schema_groups.c">
+      <ObjectFileName>$(IntDir)tag_schema_groups_ba9691cf.obj</ObjectFileName>
+      <WarningLevel>$(HaloGameWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\tag_schema_models.c">
+      <ObjectFileName>$(IntDir)tag_schema_models_064feed9.obj</ObjectFileName>
+      <WarningLevel>$(HaloGameWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\tag_schema_objects.c">
+      <ObjectFileName>$(IntDir)tag_schema_objects_06d67a17.obj</ObjectFileName>
+      <WarningLevel>$(HaloGameWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\tag_schema_render.c">
+      <ObjectFileName>$(IntDir)tag_schema_render_b5563451.obj</ObjectFileName>
+      <WarningLevel>$(HaloGameWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\tag_schema_scenario.c">
+      <ObjectFileName>$(IntDir)tag_schema_scenario_f71e44a6.obj</ObjectFileName>
+      <WarningLevel>$(HaloGameWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\tag_validate.c">
+      <ObjectFileName>$(IntDir)tag_validate_77574285.obj</ObjectFileName>
+      <WarningLevel>$(HaloGameWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\tag_validate_report.c">
+      <ObjectFileName>$(IntDir)tag_validate_report_d7e13bc2.obj</ObjectFileName>
+      <WarningLevel>$(HaloGameWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\game\touch_game.c">
       <ObjectFileName>$(IntDir)touch_game_3ffbcb10.obj</ObjectFileName>
       <WarningLevel>$(HaloGameWarnings)</WarningLevel>
@@ -4251,8 +4384,32 @@
       <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
       <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)server\src\server_admin.c">
+      <ObjectFileName>$(IntDir)server_admin_baa0224f.obj</ObjectFileName>
+      <WarningLevel>$(HaloGameWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)server\src\server_commands.c">
       <ObjectFileName>$(IntDir)server_commands_0244a532.obj</ObjectFileName>
+      <WarningLevel>$(HaloGameWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)server\src\server_config.c">
+      <ObjectFileName>$(IntDir)server_config_71d5cdd3.obj</ObjectFileName>
+      <WarningLevel>$(HaloGameWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)server\src\server_moderation.c">
+      <ObjectFileName>$(IntDir)server_moderation_d49c6c40.obj</ObjectFileName>
       <WarningLevel>$(HaloGameWarnings)</WarningLevel>
       <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
@@ -4275,6 +4432,22 @@
       <ForcedIncludeFiles>$(HaloPlatformForced)</ForcedIncludeFiles>
       <AdditionalOptions>$(HaloPlatformOptions) %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\build_identity.c">
+      <ObjectFileName>$(IntDir)build_identity_1aa38c73.obj</ObjectFileName>
+      <WarningLevel>$(HaloPlatformUpdaterWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloPlatformUpdaterDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloPlatformUpdaterIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloPlatformUpdaterForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloPlatformUpdaterOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\crash_report.c">
+      <ObjectFileName>$(IntDir)crash_report_c8da2350.obj</ObjectFileName>
+      <WarningLevel>$(HaloPlatformWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloPlatformDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloPlatformIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloPlatformForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloPlatformOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\src\d3d8_gl.c">
       <ObjectFileName>$(IntDir)d3d8_gl_7b102500.obj</ObjectFileName>
       <WarningLevel>$(HaloPlatformWarnings)</WarningLevel>
@@ -4291,8 +4464,72 @@
       <ForcedIncludeFiles>$(HaloPlatformForced)</ForcedIncludeFiles>
       <AdditionalOptions>$(HaloPlatformOptions) %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\delta.c">
+      <ObjectFileName>$(IntDir)delta_0c761471.obj</ObjectFileName>
+      <WarningLevel>$(HaloPlatformWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloPlatformDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloPlatformIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloPlatformForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloPlatformOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\delta_maps.c">
+      <ObjectFileName>$(IntDir)delta_maps_c4ed1633.obj</ObjectFileName>
+      <WarningLevel>$(HaloPlatformWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloPlatformDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloPlatformIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloPlatformForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloPlatformOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\delta_peer.c">
+      <ObjectFileName>$(IntDir)delta_peer_7147cdd6.obj</ObjectFileName>
+      <WarningLevel>$(HaloPlatformWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloPlatformDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloPlatformIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloPlatformForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloPlatformOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\delta_peer_game.c">
+      <ObjectFileName>$(IntDir)delta_peer_game_afc6487c.obj</ObjectFileName>
+      <WarningLevel>$(HaloPlatformWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloPlatformDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloPlatformIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloPlatformForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloPlatformOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\delta_wire.c">
+      <ObjectFileName>$(IntDir)delta_wire_b6b250a1.obj</ObjectFileName>
+      <WarningLevel>$(HaloPlatformWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloPlatformDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloPlatformIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloPlatformForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloPlatformOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\src\dsound_sdl.c">
       <ObjectFileName>$(IntDir)dsound_sdl_459c3ff0.obj</ObjectFileName>
+      <WarningLevel>$(HaloPlatformWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloPlatformDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloPlatformIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloPlatformForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloPlatformOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\event_gzip.c">
+      <ObjectFileName>$(IntDir)event_gzip_a5513982.obj</ObjectFileName>
+      <WarningLevel>$(HaloPlatformWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloPlatformDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloPlatformIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloPlatformForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloPlatformOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\event_log.c">
+      <ObjectFileName>$(IntDir)event_log_d9b86e6f.obj</ObjectFileName>
+      <WarningLevel>$(HaloPlatformWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloPlatformDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloPlatformIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloPlatformForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloPlatformOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\event_upload.c">
+      <ObjectFileName>$(IntDir)event_upload_df135a9f.obj</ObjectFileName>
       <WarningLevel>$(HaloPlatformWarnings)</WarningLevel>
       <PreprocessorDefinitions>$(HaloPlatformDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(HaloPlatformIncludes)</AdditionalIncludeDirectories>
@@ -4524,6 +4761,22 @@
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\src\xbox_xapi.c">
       <ObjectFileName>$(IntDir)xbox_xapi_8c88da3b.obj</ObjectFileName>
+      <WarningLevel>$(HaloPlatformWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloPlatformDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloPlatformIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloPlatformForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloPlatformOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\xgpu_post.c">
+      <ObjectFileName>$(IntDir)xgpu_post_d3cf4a40.obj</ObjectFileName>
+      <WarningLevel>$(HaloPlatformWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloPlatformDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloPlatformIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloPlatformForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloPlatformOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\xgpu_shader_cache.c">
+      <ObjectFileName>$(IntDir)xgpu_shader_cache_8469911f.obj</ObjectFileName>
       <WarningLevel>$(HaloPlatformWarnings)</WarningLevel>
       <PreprocessorDefinitions>$(HaloPlatformDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(HaloPlatformIncludes)</AdditionalIncludeDirectories>
@@ -5325,6 +5578,13 @@
       <AdditionalIncludeDirectories>$(HaloMbedtlsIncludes)</AdditionalIncludeDirectories>
       <AdditionalOptions>$(HaloMbedtlsOptions) %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\windows\src\win32_crash.c">
+      <ObjectFileName>$(IntDir)win32_crash_9f39db37.obj</ObjectFileName>
+      <WarningLevel>$(HaloWin32Warnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloWin32Defines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloWin32Includes)</AdditionalIncludeDirectories>
+      <AdditionalOptions>$(HaloWin32Options) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)port\windows\src\win32_files.c">
       <ObjectFileName>$(IntDir)win32_files_cd5489e1.obj</ObjectFileName>
       <WarningLevel>$(HaloWin32Warnings)</WarningLevel>
@@ -5537,6 +5797,48 @@
       <PreprocessorDefinitions>$(HaloExpatDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(HaloExpatIncludes)</AdditionalIncludeDirectories>
       <AdditionalOptions>$(HaloExpatOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zlib\adler32.c">
+      <ObjectFileName>$(IntDir)adler32_2ecd4956.obj</ObjectFileName>
+      <WarningLevel>$(HaloZlibWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloZlibDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>$(HaloZlibOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zlib\crc32.c">
+      <ObjectFileName>$(IntDir)crc32_dbebd916.obj</ObjectFileName>
+      <WarningLevel>$(HaloZlibWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloZlibDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>$(HaloZlibOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zlib\inffast.c">
+      <ObjectFileName>$(IntDir)inffast_ef97d034.obj</ObjectFileName>
+      <WarningLevel>$(HaloZlibWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloZlibDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>$(HaloZlibOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zlib\inflate.c">
+      <ObjectFileName>$(IntDir)inflate_c4996869.obj</ObjectFileName>
+      <WarningLevel>$(HaloZlibWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloZlibDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>$(HaloZlibOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zlib\inftrees.c">
+      <ObjectFileName>$(IntDir)inftrees_659717f2.obj</ObjectFileName>
+      <WarningLevel>$(HaloZlibWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloZlibDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>$(HaloZlibOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zlib\uncompr.c">
+      <ObjectFileName>$(IntDir)uncompr_4da858ef.obj</ObjectFileName>
+      <WarningLevel>$(HaloZlibWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloZlibDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>$(HaloZlibOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zlib\zutil.c">
+      <ObjectFileName>$(IntDir)zutil_d2bbe7af.obj</ObjectFileName>
+      <WarningLevel>$(HaloZlibWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloZlibDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>$(HaloZlibOptions) %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\__cos.c">
       <ObjectFileName>$(IntDir)__cos_63395aba.obj</ObjectFileName>

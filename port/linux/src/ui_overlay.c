@@ -282,7 +282,7 @@ static int utf8(unsigned int codepoint, char *out)
 
 static const char *const button_words[NUMBER_OF_UI_BUTTONS] =
 {
-	"A", "B", "X", "Y", "Start", "LT", "RT", "LB", "RB", "<", ">",
+	"A", "B", "X", "Y", "Start", "LT", "RT", "LB", "RB", "<", ">", "Back"
 };
 
 float ui_overlay_button_width(int button, float size)
@@ -600,9 +600,8 @@ static void lay_out_text(int index, float scale, float origin_x, float origin_y,
 }
 
 static void put_vertex(struct vertex *vertex, float x, float y, float u, float v, float local_x, float local_y,
-	const struct quad *quad, float half_width, float half_height, float radius, float thickness, unsigned int color)
+	float half_width, float half_height, float radius, float thickness, unsigned int color)
 {
-	(void)quad;
 	vertex->x = x;
 	vertex->y = y;
 	vertex->u = u;
@@ -624,11 +623,17 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	float scale, origin_x, origin_y;
 	int shape_count, index, count = 0, atlas_full = 0;
 
+	/* (a frame's cutouts go with it, drawn or not: a minimized window's
+	would fill the four and leave old ones cut out once it is shown) */
 	if (!overlay.quad_count && !overlay.text_count)
+	{
+		overlay.cutout_count = 0;
 		return;
+	}
 	if (!set_up() || width <= 0 || height <= 0)
 	{
 		overlay.quad_count = overlay.text_count = overlay.text_used = 0;
+		overlay.cutout_count = 0;
 		return;
 	}
 	/* (the layout's 480 lines fill the picture's height; a wider picture
@@ -705,12 +710,12 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 			radius = quad->radius * scale;
 			thickness = quad->thickness > 0.0f ? fmaxf(1.0f, quad->thickness * scale) : 0.0f;
 			grow = 1.0f;
-			put_vertex(&v[0], left - grow, top - grow, -1.0f, 0.0f, -half_width - grow, -half_height - grow, quad, half_width, half_height, radius, thickness, top_color);
-			put_vertex(&v[1], right + grow, top - grow, -1.0f, 0.0f, half_width + grow, -half_height - grow, quad, half_width, half_height, radius, thickness, top_color);
-			put_vertex(&v[2], left - grow, bottom + grow, -1.0f, 0.0f, -half_width - grow, half_height + grow, quad, half_width, half_height, radius, thickness, bottom_color);
-			put_vertex(&v[3], right + grow, top - grow, -1.0f, 0.0f, half_width + grow, -half_height - grow, quad, half_width, half_height, radius, thickness, top_color);
-			put_vertex(&v[4], right + grow, bottom + grow, -1.0f, 0.0f, half_width + grow, half_height + grow, quad, half_width, half_height, radius, thickness, bottom_color);
-			put_vertex(&v[5], left - grow, bottom + grow, -1.0f, 0.0f, -half_width - grow, half_height + grow, quad, half_width, half_height, radius, thickness, bottom_color);
+			put_vertex(&v[0], left - grow, top - grow, -1.0f, 0.0f, -half_width - grow, -half_height - grow, half_width, half_height, radius, thickness, top_color);
+			put_vertex(&v[1], right + grow, top - grow, -1.0f, 0.0f, half_width + grow, -half_height - grow, half_width, half_height, radius, thickness, top_color);
+			put_vertex(&v[2], left - grow, bottom + grow, -1.0f, 0.0f, -half_width - grow, half_height + grow, half_width, half_height, radius, thickness, bottom_color);
+			put_vertex(&v[3], right + grow, top - grow, -1.0f, 0.0f, half_width + grow, -half_height - grow, half_width, half_height, radius, thickness, top_color);
+			put_vertex(&v[4], right + grow, bottom + grow, -1.0f, 0.0f, half_width + grow, half_height + grow, half_width, half_height, radius, thickness, bottom_color);
+			put_vertex(&v[5], left - grow, bottom + grow, -1.0f, 0.0f, -half_width - grow, half_height + grow, half_width, half_height, radius, thickness, bottom_color);
 		}
 		else
 		{
@@ -719,16 +724,15 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 			top = quad->y;
 			right = left + quad->width;
 			bottom = top + quad->height;
-			put_vertex(&v[0], left, top, quad->u0, quad->v0, 0, 0, quad, 0, 0, 0, 0, top_color);
-			put_vertex(&v[1], right, top, quad->u1, quad->v0, 0, 0, quad, 0, 0, 0, 0, top_color);
-			put_vertex(&v[2], left, bottom, quad->u0, quad->v1, 0, 0, quad, 0, 0, 0, 0, top_color);
-			put_vertex(&v[3], right, top, quad->u1, quad->v0, 0, 0, quad, 0, 0, 0, 0, top_color);
-			put_vertex(&v[4], right, bottom, quad->u1, quad->v1, 0, 0, quad, 0, 0, 0, 0, top_color);
-			put_vertex(&v[5], left, bottom, quad->u0, quad->v1, 0, 0, quad, 0, 0, 0, 0, top_color);
+			put_vertex(&v[0], left, top, quad->u0, quad->v0, 0, 0, 0, 0, 0, 0, top_color);
+			put_vertex(&v[1], right, top, quad->u1, quad->v0, 0, 0, 0, 0, 0, 0, top_color);
+			put_vertex(&v[2], left, bottom, quad->u0, quad->v1, 0, 0, 0, 0, 0, 0, top_color);
+			put_vertex(&v[3], right, top, quad->u1, quad->v0, 0, 0, 0, 0, 0, 0, top_color);
+			put_vertex(&v[4], right, bottom, quad->u1, quad->v1, 0, 0, 0, 0, 0, 0, top_color);
+			put_vertex(&v[5], left, bottom, quad->u0, quad->v1, 0, 0, 0, 0, 0, 0, top_color);
 		}
 		count += 6;
 	}
-
 
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 	glViewport(0, 0, window_width, window_height);

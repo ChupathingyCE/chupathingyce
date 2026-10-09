@@ -17,8 +17,8 @@ Paths are UTF-8, as SDL gives them.
 #include <string.h>
 
 #include "update.h"
+#include "build_identity.h"
 
-#define UPDATE_USER_AGENT L"halo-ce-universal-updater"
 #define TIMEOUT_MILLISECONDS 20000
 
 /* (WinHTTP's TLS 1.3 flag, missing from older SDKs) */
@@ -42,7 +42,7 @@ static void set_error(char *error, int error_size, const char *what)
 int update_download(const char *url, const char *path, unsigned long long maximum, update_progress_proc progress,
 	void *context, char *error, int error_size)
 {
-	wchar_t wide_url[2048], wide_path[MAX_PATH * 2], host[256], url_path[2048];
+	wchar_t wide_url[2048], wide_path[MAX_PATH * 2], host[256], url_path[2048], user_agent[128];
 	URL_COMPONENTS components;
 	HINTERNET session = NULL, connection = NULL, request = NULL;
 	HANDLE file = INVALID_HANDLE_VALUE;
@@ -52,7 +52,8 @@ int update_download(const char *url, const char *path, unsigned long long maximu
 	unsigned long long received = 0;
 	int succeeded = 0;
 
-	if (!wide_from_utf8(url, wide_url, 2048) || !wide_from_utf8(path, wide_path, MAX_PATH * 2))
+	if (!wide_from_utf8(url, wide_url, 2048) || !wide_from_utf8(path, wide_path, MAX_PATH * 2) ||
+		!wide_from_utf8(build_identity_user_agent(), user_agent, 128))
 	{
 		snprintf(error, (size_t)error_size, "a bad address or path");
 		return 0;
@@ -68,7 +69,7 @@ int update_download(const char *url, const char *path, unsigned long long maximu
 		snprintf(error, (size_t)error_size, "not an https:// address: %s", url);
 		return 0;
 	}
-	session = WinHttpOpen(UPDATE_USER_AGENT, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
+	session = WinHttpOpen(user_agent, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
 		WINHTTP_NO_PROXY_BYPASS, 0);
 	if (!session)
 	{

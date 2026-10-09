@@ -52,6 +52,9 @@
     <Filter Include="port\third_party\tomlc17">
       <UniqueIdentifier>{41bb7e86-002b-a713-7be5-2b896897c8e4}</UniqueIdentifier>
     </Filter>
+    <Filter Include="port\third_party\zlib">
+      <UniqueIdentifier>{8608b3f6-50d3-857e-1666-ea1e81dd9122}</UniqueIdentifier>
+    </Filter>
     <Filter Include="port\windows">
       <UniqueIdentifier>{51e6cd5e-f72a-ca70-2574-f634148915e3}</UniqueIdentifier>
     </Filter>
@@ -1659,6 +1662,18 @@
     <ClCompile Include="$(HaloRoot)port\linux\game\ce_vorbis.c">
       <Filter>port\linux\game</Filter>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\coop_enemies.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\coop_scripts.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\coop_spectate.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\game_events.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\game\game_list_claims.c">
       <Filter>port\linux\game</Filter>
     </ClCompile>
@@ -1680,7 +1695,16 @@
     <ClCompile Include="$(HaloRoot)port\linux\game\menu_tags.c">
       <Filter>port\linux\game</Filter>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\moderation_screen.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\game\msvc_comdat.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\network_actors.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\network_coop.c">
       <Filter>port\linux\game</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\game\network_damage.c">
@@ -1707,6 +1731,33 @@
     <ClCompile Include="$(HaloRoot)port\linux\game\tag_import.c">
       <Filter>port\linux\game</Filter>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\tag_schema_collision.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\tag_schema_effects.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\tag_schema_groups.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\tag_schema_models.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\tag_schema_objects.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\tag_schema_render.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\tag_schema_scenario.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\tag_validate.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\tag_validate_report.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\game\touch_game.c">
       <Filter>port\linux\game</Filter>
     </ClCompile>
@@ -1722,7 +1773,16 @@
     <ClCompile Include="$(HaloRoot)server\src\probe.c">
       <Filter>server\src</Filter>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)server\src\server_admin.c">
+      <Filter>server\src</Filter>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)server\src\server_commands.c">
+      <Filter>server\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)server\src\server_config.c">
+      <Filter>server\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)server\src\server_moderation.c">
       <Filter>server\src</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\src\bink_null.c">
@@ -1731,13 +1791,43 @@
     <ClCompile Include="$(HaloRoot)port\linux\src\browser.c">
       <Filter>port\linux\src</Filter>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\build_identity.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\crash_report.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\src\d3d8_gl.c">
       <Filter>port\linux\src</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\src\d3d8_resources.c">
       <Filter>port\linux\src</Filter>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\delta.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\delta_maps.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\delta_peer.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\delta_peer_game.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\delta_wire.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\src\dsound_sdl.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\event_gzip.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\event_log.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\event_upload.c">
       <Filter>port\linux\src</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\src\gl_functions.c">
@@ -1825,6 +1915,12 @@
       <Filter>port\linux\src</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\src\xbox_xapi.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\xgpu_post.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\xgpu_shader_cache.c">
       <Filter>port\linux\src</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\src\xgpu_text.c">
@@ -2166,6 +2262,9 @@
     <ClCompile Include="$(HaloRoot)port\third_party\mbedtls\library\x509write_csr.c">
       <Filter>port\third_party\mbedtls\library</Filter>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\windows\src\win32_crash.c">
+      <Filter>port\windows\src</Filter>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)port\windows\src\win32_files.c">
       <Filter>port\windows\src</Filter>
     </ClCompile>
@@ -2258,6 +2357,27 @@
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\third_party\expat\random_rand_s.c">
       <Filter>port\third_party\expat</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zlib\adler32.c">
+      <Filter>port\third_party\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zlib\crc32.c">
+      <Filter>port\third_party\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zlib\inffast.c">
+      <Filter>port\third_party\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zlib\inflate.c">
+      <Filter>port\third_party\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zlib\inftrees.c">
+      <Filter>port\third_party\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zlib\uncompr.c">
+      <Filter>port\third_party\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zlib\zutil.c">
+      <Filter>port\third_party\zlib</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\__cos.c">
       <Filter>port\third_party\musl-math\src</Filter>

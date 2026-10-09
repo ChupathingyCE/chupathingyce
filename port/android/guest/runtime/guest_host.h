@@ -95,8 +95,9 @@ int host_sdl_resume_audio_stream_device(unsigned int stream);
 void host_gl_get_string(unsigned int name, int index, char *buffer, unsigned int size);
 /* nonzero if the context supports the named extension */
 int host_gl_has_extension(const char *name);
-/* a 32-bit word of a GL buffer object, waiting for the GPU */
-unsigned int host_gl_read_buffer_word(unsigned int buffer, unsigned int offset);
+/* copies size bytes at offset of a GL buffer object into data, waiting for
+the GPU's writes to it */
+void host_gl_read_buffer(unsigned int buffer, unsigned int offset, unsigned int size, void *data);
 /* unsynchronized write into the buffer bound to target */
 void host_gl_buffer_write(unsigned int target, unsigned int offset, unsigned int size, const void *data);
 /* fences the GPU work queued so far as that of ring slot `slot`; waits for
@@ -122,7 +123,7 @@ void host_touch_read(int *state);
 void host_touch_look_read(float *delta);
 /* port 0's motors, for the phone's vibration */
 void host_touch_rumble(unsigned int low, unsigned int high);
-/* tells the overlay when to show: HALO_TOUCH_SCENE_* (xinput_sdl.c) */
+/* tells the overlay when to show: _touch_scene_* bits (touch_input.c) */
 void host_touch_scene(int scene);
 
 #endif

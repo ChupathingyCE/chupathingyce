@@ -51,6 +51,10 @@ void backtrace_symbols_fd(void *const *frames, int count, int descriptor);
 #define WATCH_PAGE_COUNT (PLATFORM_CONTIGUOUS_SIZE / WATCH_PAGE_SIZE)
 #endif
 
+/* (each page: 0 not watched, 1 watched and read-only, 2 made writable by a
+watched write. A fault on a page at 2 is a write another thread made as
+this one was making the page writable, and is made again; one on a page at
+0, freed memory or none of the watch's, is a crash) */
 #ifdef HALO_64BIT
 static unsigned char page_protected[WATCH_PAGE_COUNT_MAXIMUM];
 static unsigned int page_generation[WATCH_PAGE_COUNT_MAXIMUM];
@@ -100,7 +104,7 @@ static void mark_written(unsigned long page)
 #endif
 {
 	page_generation[page] = __sync_add_and_fetch(&current_generation, 1);
-	page_protected[page] = 0;
+	page_protected[page] = 2;
 #ifdef HALO_64BIT
 	mprotect(page_pointer(page), watch_page_size, PROT_READ | PROT_WRITE);
 #else
@@ -160,7 +164,7 @@ static void segv_handler(int signal_number, siginfo_t *information, void *contex
 	frame = ucontext->uc_mcontext.gregs[REG_RBP];
 	stack = ucontext->uc_mcontext.gregs[REG_RSP];
 #endif
-	length = snprintf(line, sizeof(line), "halo: fault at %p, pc %llx fp %llx sp %llx\n",
+	length = snprintf(line, sizeof(line), PLATFORM_LOG_PREFIX "fault at %p, pc %llx fp %llx sp %llx\n",
 		information->si_addr, pc, frame, stack);
 	write(STDERR_FILENO, line, (size_t)length);
 	crash_debug_line(line);
@@ -172,7 +176,7 @@ static void segv_handler(int signal_number, siginfo_t *information, void *contex
 
 		for (index = 0; index < count; index++)
 		{
-			snprintf(line, sizeof(line), "halo: called from %p\n", frames[index]);
+			snprintf(line, sizeof(line), PLATFORM_LOG_PREFIX "called from %p\n", frames[index]);
 			crash_debug_line(line);
 		}
 	}
@@ -209,11 +213,13 @@ static void fault_handler(int signal_number, siginfo_t *information, void *conte
 		unsigned long page = page_index(address);
 #endif
 
-		if (page_protected[page])
+		if (page_protected[page] == 1)
 		{
 			mark_written(page);
 			return;
 		}
+		if (page_protected[page] == 2)
+			return;
 	}
 #ifdef HALO_64BIT
 	/* a genuine crash: report it, then hand it to whatever handled the
@@ -230,7 +236,8 @@ static void fault_handler(int signal_number, siginfo_t *information, void *conte
 		void *frames[48];
 		int count, length;
 
-		length = snprintf(line, sizeof(line), "halo-linux: segmentation fault at %p, eip %08x ebp %08x esp %08x\n",
+		length = snprintf(line, sizeof(line),
+			PLATFORM_LOG_PREFIX "segmentation fault at %p, eip %08x ebp %08x esp %08x\n",
 			information->si_addr, (unsigned)ucontext->uc_mcontext.gregs[REG_EIP],
 			(unsigned)ucontext->uc_mcontext.gregs[REG_EBP], (unsigned)ucontext->uc_mcontext.gregs[REG_ESP]);
 		write(STDERR_FILENO, line, (size_t)length);
@@ -239,7 +246,7 @@ static void fault_handler(int signal_number, siginfo_t *information, void *conte
 			/* the return address a call through a bad pointer left behind */
 			const unsigned *stack = (const unsigned *)ucontext->uc_mcontext.gregs[REG_ESP];
 
-			length = snprintf(line, sizeof(line), "halo-linux: stack %08x %08x %08x %08x %08x %08x\n",
+			length = snprintf(line, sizeof(line), PLATFORM_LOG_PREFIX "stack %08x %08x %08x %08x %08x %08x\n",
 				stack[0], stack[1], stack[2], stack[3], stack[4], stack[5]);
 			write(STDERR_FILENO, line, (size_t)length);
 			crash_debug_line(line);
@@ -251,7 +258,7 @@ static void fault_handler(int signal_number, siginfo_t *information, void *conte
 
 			for (frame = 0; frame < count; frame++)
 			{
-				snprintf(line, sizeof(line), "halo-linux: called from %p\n", frames[frame]);
+				snprintf(line, sizeof(line), PLATFORM_LOG_PREFIX "called from %p\n", frames[frame]);
 				crash_debug_line(line);
 			}
 		}
@@ -342,7 +349,7 @@ void memory_watch_protect(unsigned int address, unsigned int size)
 #endif
 	for (page = first; page <= last; page++)
 	{
-		if (!page_protected[page])
+		if (page_protected[page] != 1)
 		{
 			page_protected[page] = 1;
 #ifdef HALO_64BIT
@@ -435,7 +442,7 @@ void memory_watch_prepare_write(void *address, unsigned long size)
 #endif
 	for (page = first; page <= last; page++)
 	{
-		if (page_protected[page])
+		if (page_protected[page] == 1)
 			mark_written(page);
 	}
 }

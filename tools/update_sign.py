@@ -18,7 +18,8 @@ It uses the openssl command (OpenSSL 3, or the one $OPENSSL names) for
 Ed25519, so nothing beyond Python's own library is needed:
 
     update_sign.py sign <key.pem> <version> <zip>...     writes each <zip>.sig
-    update_sign.py verify <version> <zip>...             checks them against update_key.h's keys
+    update_sign.py verify [--public <hex>] <version> <zip>...
+                                                         checks them against update_key.h's keys
     update_sign.py public <key.pem>                      the key's public half, for update_key.h
 
 A key is made with: openssl genpkey -algorithm ed25519 -out key.pem

@@ -209,7 +209,9 @@ enum
 	NUMBER_OF_VARIANT_VEHICLES,
 	MAXIMUM_VARIANT_VEHICLE_COUNT = 4,
 	/* a team's vehicles: those of a vehicle set (universal_variant's
-	vehicle_set values), else its counts */
+	vehicle_set values), else every one the map places, as Halo PC places
+	them (PC), else its counts */
+	VARIANT_VEHICLE_SET_PC = 0xFE,
 	VARIANT_VEHICLE_SET_CUSTOM = 0xFF
 };
 
@@ -348,6 +350,12 @@ struct scenario_object_datum;
 struct tag_block;
 void game_engine_vehicle_placement_begin(
 	void);
+#ifdef HALO_CUSTOM_EDITION
+/* port: whether a Halo PC map's vehicles are chosen by their placements'
+spawn flags in this game, and whether a placement is (game_engine.c) */
+boolean game_engine_ce_vehicles_by_placement(void);
+boolean game_engine_ce_vehicle_placement_allowed(struct scenario_object_datum const *placement);
+#endif
 boolean game_engine_vehicle_placement_allowed(
 	struct scenario_object_datum const *placement,
 	struct tag_block *palette);

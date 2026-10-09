@@ -391,6 +391,7 @@ symbols in this file:
 #include "networking/network_messages.h"
 #include "networking/network_server_manager.h"
 #include "text/unicode.h"
+#include "halo_map_families.h" /* port: map_family_from_wire_name */
 
 /* ---------- constants */
 
@@ -411,6 +412,12 @@ enum
 	long as the host waits for a silent machine, network_server_manager.c):
 	network_game_client_network_lost */
 	NETWORK_GAME_CLIENT_LINK_DOWN_TIMEOUT = 15000,
+	/* port: how long a frame the client spends on the messages that came
+	(a host that floods it with them would hold each frame for as long as
+	they took): those left wait in the queue, in order, for the next
+	frame's, and the stream what the queue has no room for. One is always
+	handled (network_game_client_process_messages) */
+	MAXIMUM_MESSAGE_MILLISECONDS_PER_IDLE = 50,
 };
 
 enum network_game_client_state
@@ -753,6 +760,9 @@ static boolean add_advertised_game(
 	struct message_server_game_advertise *advertisement);
 static boolean network_game_client_process_incoming_messages(
 	struct network_game_client *client);
+static boolean network_game_client_process_messages(
+	struct network_game_client *client,
+	boolean budgeted);
 static boolean network_game_client_process_last_messages(
 	struct network_game_client *client);
 static void network_game_client_update_precache_status(
@@ -760,6 +770,8 @@ static void network_game_client_update_precache_status(
 static boolean network_game_client_map_name_is_valid(
 	char const *map_name,
 	long size);
+static boolean network_game_client_game_record_is_valid(
+	struct network_game *game);
 static boolean network_game_client_idle_searching(
 	struct network_game_client *client);
 static boolean network_game_client_idle_joining(
@@ -804,6 +816,14 @@ static struct
 	byte flags;
 } network_game_client_advertised_versions[MAXIMUM_NETWORK_ADVERTISED_GAMES];
 
+
+#ifdef HALO_GAME_BROWSER
+/* port: the joined game's advertisement's flags (HALO_PORT_ADVERTISED_FLAGS_OFFSET),
+for Delta Peer (network_game_client_delta_frame); 0 for the host's own game */
+static byte network_game_client_joined_flags;
+static void network_game_client_delta_frame(struct network_game_client *client);
+void delta_peer_game_stop(int host);
+#endif
 
 struct network_game_client network_game_client_dont_use_directly;
 boolean allow_out_of_sync = FALSE;
@@ -910,6 +930,9 @@ void network_game_client_dispose(
 		network_game_client_dont_use_directly_in_use = FALSE;
 	}
 
+#ifdef HALO_GAME_BROWSER
+	delta_peer_game_stop(FALSE);
+#endif
 	network_event("network client disposed");
 
 	return;
@@ -1248,6 +1271,10 @@ boolean network_game_client_idle(
 		break;
 	}
 
+#ifdef HALO_GAME_BROWSER
+	network_game_client_delta_frame(client);
+#endif
+
 	return success;
 }
 
@@ -1264,14 +1291,48 @@ boolean network_game_client_game_settings_updated(
 		message_packet->machine_count <= MAXIMUM_NETWORK_MACHINE_COUNT &&
 		message_packet->player_count >= 0 &&
 		message_packet->player_count <= MAXIMUM_NUMBER_OF_PLAYERS &&
+		/* port: and the most players, which caps player_count as players are
+		added (network_game_add_player) */
+		message_packet->maximum_players > 0 &&
+		message_packet->maximum_players <= MAXIMUM_NUMBER_OF_PLAYERS &&
 		network_game_client_map_name_is_valid(message_packet->map.name, sizeof(message_packet->map.name)) &&
 		VALID_INDEX(message_packet->difficulty, NUMBER_OF_GAME_DIFFICULTY_LEVELS))
 	{
 		struct network_game previous_game;
 
-		if (csstrcmp(message_packet->map.name, client->game.map.name))
+		/* port: the record's players: no two the same machine's same
+		controller, no machine with more than its local players; the
+		strings ending in their fields */
+		if (!network_game_client_game_record_is_valid(message_packet))
+		{
+			network_event("invalid message_server_game_settings_update message received: its players");
+			return FALSE;
+		}
+		/* port: a Halo PC map named as the game's protocol names it
+		(custom_maps\\<name>) as this port names it (<name>@ce:
+		halo_map_families.h), for everything that reads it from here */
+		{
+			char map_name[sizeof(message_packet->map.name)];
+
+			map_family_from_wire_name(message_packet->map.name, map_name, sizeof(map_name));
+			csmemcpy(message_packet->map.name, map_name, sizeof(map_name));
+		}
+		if (csstrcmp(message_packet->map.name, client->game.map.name) ||
+			message_packet->map.version != client->game.map.version)
 		{
 			char build[0x20];
+
+			/* port: a map this machine has not (a Custom Edition map not in
+			its folder, or another version of it than the host's, say): the
+			player told which and where to copy it (the main menu's error, in
+			place of the failed join's), and the game left, rather than
+			precaching it, which would give the damaged disc error
+			(cache_files.c) */
+			if (!network_game_is_splitscreen_local() &&
+				!cache_files_map_present(message_packet->map.name, (unsigned long)message_packet->map.version))
+			{
+				return FALSE;
+			}
 
 			/* port: a map of a build this version does not play with others
 			(its objects would not be the host's): said, and the game left */
@@ -1591,7 +1652,13 @@ boolean network_game_client_handle_game_update(
 	/* (the host's time at the start, and a game in progress's past 16 bits
 	of ticks: the host's whole time, if it is ahead; never back, which the
 	host would take for old messages) */
-	if (network_game_client_late_join_clock_pending)
+	/* port: and never one the game's arithmetic on its time (a second more,
+	a time limit) could take past a long */
+	if (message_packet->game_time < 0 || message_packet->game_time > 0x3FFFFFFF)
+	{
+		network_event("ignoring the host's game tick #%ld", message_packet->game_time);
+	}
+	else if (network_game_client_late_join_clock_pending)
 	{
 		network_game_client_late_join_clock_pending = FALSE;
 		if (message_packet->game_time > game_time_get())
@@ -1941,7 +2008,10 @@ boolean network_game_client_add_player_to_game(
 					struct network_player const *added = player;
 					long slot;
 
-					player = &client->game.players[client->game.player_count - 1];
+					/* (the slot network_game_add_player gave it, not one
+					worked out from player_count) */
+					player = VALID_INDEX(added->player_list_index, MAXIMUM_NUMBER_OF_PLAYERS) ?
+						&client->game.players[added->player_list_index] : NULL;
 					for (slot = 0; slot < MAXIMUM_NUMBER_OF_PLAYERS; slot++)
 					{
 						if (network_player_is_valid(&client->game.players[slot]) &&
@@ -1954,7 +2024,7 @@ boolean network_game_client_add_player_to_game(
 					}
 				}
 
-				success = network_game_spawn_player(player);
+				success = player && network_game_spawn_player(player);
 
 				if (success)
 				{
@@ -2013,6 +2083,16 @@ boolean network_game_client_initiate_join_game(
 	client->join_in_progress = TRUE;
 	client->connect_process = 0;
 	client->connection_attempt_time = system_milliseconds();
+#ifdef HALO_GAME_BROWSER
+	/* (an advertised game's flags; the host's own game, joined through
+	127.0.0.1, is no advertised one) */
+	{
+		long game_index = game - client->available_games;
+
+		network_game_client_joined_flags = game_index >= 0 && game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES ?
+			network_game_client_advertised_versions[game_index].flags : 0;
+	}
+#endif
 
 	csmemcpy(
 		&client->join_parameters,
@@ -2319,10 +2399,73 @@ static boolean network_game_client_map_name_is_valid(
 	long size)
 {
 	/* (a scenario's tag path, of which the cache takes the name after the
-	last backslash) */
-	return memchr(map_name, '\0', size) != NULL &&
-		!strchr(map_name, '/') &&
-		!strstr(map_name, "..");
+	last backslash: letters, digits and a few more, none that a path reads
+	otherwise; '@' too, of a ChupathingyCE host's Halo PC map: name@ce; and
+	the [ ] ( ) + that Custom Edition maps' names use, [H2]_Lockout) */
+	char const *character;
+	char const *leaf;
+
+	if (!memchr(map_name, '\0', size))
+		return FALSE;
+	for (character = map_name; *character; character++)
+	{
+		if (!((*character >= 'a' && *character <= 'z') || (*character >= 'A' && *character <= 'Z') ||
+			(*character >= '0' && *character <= '9') || *character == '_' || *character == '-' ||
+			*character == '.' || *character == ' ' || *character == '\\' || *character == '@' ||
+			*character == '[' || *character == ']' || *character == '(' || *character == ')' || *character == '+'))
+		{
+			return FALSE;
+		}
+	}
+	if (strstr(map_name, ".."))
+		return FALSE;
+	leaf = strrchr(map_name, '\\');
+	leaf = leaf ? leaf + 1 : map_name;
+	/* port: and not one of Windows's devices (con, nul, com1...), whatever
+	follows it: maps\com1.map opens the serial port there */
+	{
+		static char const *const devices[] = { "con", "prn", "aux", "nul", "com", "lpt" };
+		long stem = (long)strcspn(leaf, ".@ ");
+		short device;
+
+		for (device = 0; device < (short)NUMBEROF(devices); device++)
+		{
+			if (!_strnicmp(leaf, devices[device], 3) &&
+				(stem == 3 || (device >= 4 && stem == 4 && leaf[3] >= '0' && leaf[3] <= '9')))
+			{
+				return FALSE;
+			}
+		}
+	}
+	return *leaf && leaf[strspn(leaf, ". ")] != 0;
+}
+
+/* port: the players of a settings record the host sends: each valid one
+the only one of its machine's controller (so no machine has more than its
+local players); the record's strings made to end in their fields */
+static boolean network_game_client_game_record_is_valid(
+	struct network_game *game)
+{
+	short machine_players[HALO_PORT_MAXIMUM_NETWORK_MACHINES][MAXIMUM_LOCAL_PLAYERS];
+	short index;
+
+	game->name[NUMBEROF(game->name) - 1] = 0;
+	game->variant.human_readable_game_description[NUMBEROF(game->variant.human_readable_game_description) - 1] = 0;
+	for (index = 0; index < NUMBEROF(game->machines); index++)
+		game->machines[index].name[NUMBEROF(game->machines[index].name) - 1] = 0;
+	csmemset(machine_players, 0, sizeof(machine_players));
+	for (index = 0; index < NUMBEROF(game->players); index++)
+	{
+		struct network_player *player = &game->players[index];
+
+		player->name[NUMBEROF(player->name) - 1] = 0;
+		if (!network_player_is_valid(player))
+			continue;
+		if (machine_players[player->machine_index][player->controller_index]++)
+			return FALSE;
+	}
+
+	return TRUE;
 }
 
 static boolean add_advertised_game(
@@ -2439,6 +2582,14 @@ static boolean add_advertised_game(
 			sizeof(advertisement->map));
 		/* (from any machine on the network: not trusted to end) */
 		advertised_game->map.name[NUMBEROF(advertised_game->map.name) - 1] = '\0';
+		/* port: a Halo PC map's name as this port names it
+		(halo_map_families.h) */
+		{
+			char map_name[sizeof(advertised_game->map.name)];
+
+			map_family_from_wire_name(advertised_game->map.name, map_name, sizeof(map_name));
+			csmemcpy(advertised_game->map.name, map_name, sizeof(map_name));
+		}
 
 		advertised_game->machine_count = advertisement->machine_count;
 		advertised_game->player_count = advertisement->player_count;
@@ -2475,10 +2626,20 @@ static boolean add_advertised_game(
 static boolean network_game_client_process_incoming_messages(
 	struct network_game_client *client)
 {
+	return network_game_client_process_messages(client, TRUE);
+}
+
+/* (budgeted: no longer than MAXIMUM_MESSAGE_MILLISECONDS_PER_IDLE, else
+every message queued) */
+static boolean network_game_client_process_messages(
+	struct network_game_client *client,
+	boolean budgeted)
+{
 	boolean success = TRUE;
 	word message_packet_size;
 	struct transport_address source_address;
 	word message_packet[MAXIMUM_NETWORK_MESSAGE_SIZE / sizeof(word)];
+	unsigned long start_time = system_milliseconds();
 
 	message_packet_size = sizeof(message_packet);
 
@@ -2498,6 +2659,8 @@ static boolean network_game_client_process_incoming_messages(
 		}
 
 		message_packet_size = sizeof(message_packet);
+		if (budgeted && system_milliseconds() - start_time >= MAXIMUM_MESSAGE_MILLISECONDS_PER_IDLE)
+			break;
 	}
 
 	return success;
@@ -2514,7 +2677,8 @@ static boolean network_game_client_process_last_messages(
 {
 	short state = client->state;
 
-	if (!network_game_client_process_incoming_messages(client))
+	/* (all of them: the connection goes) */
+	if (!network_game_client_process_messages(client, FALSE))
 	{
 		network_event("network_game_client_process_incoming_messages() failed after the connection failed");
 	}
@@ -2538,10 +2702,9 @@ static void network_game_client_update_precache_status(
 			struct message_client_map_is_precached_pregame map_is_precached = {0};
 			message_header *message;
 
-			csstrncpy(
-				map_is_precached.map_name,
-				map_name,
-				sizeof(map_is_precached.map_name));
+			/* port: a Halo PC map named as the game's protocol names it, as
+			the host's settings did (halo_map_families.h) */
+			map_family_wire_name(map_name, map_is_precached.map_name, sizeof(map_is_precached.map_name));
 
 			message = create_network_game_message(
 				_message_client_map_is_precached_pregame,
@@ -2990,7 +3153,7 @@ boolean network_game_client_advertised_game_compatible(
 	boolean tell)
 {
 	long game_index = client ? game - client->available_games : NONE;
-	unsigned int ours = HALO_PORT_NETWORK_VERSION;
+	unsigned int ours = (unsigned int)delta_legacy_announce();
 	unsigned int theirs;
 	boolean distributed;
 	char message[400];
@@ -3000,18 +3163,18 @@ boolean network_game_client_advertised_game_compatible(
 	theirs = network_game_client_advertised_versions[game_index].version;
 	distributed = (network_game_client_advertised_versions[game_index].flags &
 		HALO_PORT_ADVERTISED_DISTRIBUTED_FLAG) != 0;
-	if (theirs >= HALO_PORT_NETWORK_VERSION_MINIMUM && theirs <= HALO_PORT_NETWORK_VERSION_MAXIMUM && distributed)
+	if (theirs >= (unsigned int)delta_legacy_minimum() && theirs <= (unsigned int)delta_legacy_maximum() && distributed)
 	{
 		network_event("joining a host of network version %u (this machine's is %u)", theirs, ours);
 		return TRUE;
 	}
-	if (theirs >= HALO_PORT_NETWORK_VERSION_MINIMUM && theirs <= HALO_PORT_NETWORK_VERSION_MAXIMUM)
+	if (theirs >= (unsigned int)delta_legacy_minimum() && theirs <= (unsigned int)delta_legacy_maximum())
 	{
 		csprintf(message,
 			"The host is using the lockstep network code, which this version no longer has.\n\n"
 			"Ask the host to update the game.");
 	}
-	else if (theirs > HALO_PORT_NETWORK_VERSION_MAXIMUM)
+	else if (theirs > (unsigned int)delta_legacy_maximum())
 	{
 		csprintf(message,
 			"The host is using a newer version of the network code than you.\n\n"
@@ -3234,5 +3397,49 @@ long network_game_client_invite_host_advertisement(
 		return 1;
 	}
 	return 0;
+}
+#endif
+
+#ifdef HALO_GAME_BROWSER
+#include "memory/byte_swapping.h"
+#include "../../port/linux/src/delta_peer.h"
+
+/* port: Delta Peer's view of the joined game (port/linux/src/delta_peer.h):
+whether this client is in another machine's game, the host's address (as the
+game's sockets have it: a peer's virtual address over the invite tunnel),
+whether its advertisement has Delta's flag, this machine's index and each
+player's machine. Nothing of the game changes here, and the game never
+waits for Delta */
+static void network_game_client_delta_frame(
+	struct network_game_client *client)
+{
+	static signed char player_machines[DELTA_PEER_MAXIMUM_PLAYERS];
+	boolean joined = (client->state == _network_game_client_state_pregame ||
+		client->state == _network_game_client_state_ingame ||
+		client->state == _network_game_client_state_postgame) &&
+		client->connection && !global_network_game_server_get();
+	delta_u32 host = 0;
+	long index;
+
+	/* (this machine hosting: the host's session has its own machine) */
+	if (global_network_game_server_get())
+		return;
+	if (joined)
+	{
+		struct transport_address reliable, unreliable;
+
+		csmemset(&reliable, 0, sizeof(reliable));
+		csmemset(&unreliable, 0, sizeof(unreliable));
+		network_connection_get_address(client->connection, &reliable, &unreliable);
+		host = (delta_u32)SWAP4(reliable.address.ipv4_address);
+	}
+	for (index = 0; index < DELTA_PEER_MAXIMUM_PLAYERS; index++)
+	{
+		player_machines[index] = (signed char)(joined && index < MAXIMUM_NUMBER_OF_PLAYERS &&
+			network_player_is_valid(&client->game.players[index]) ? client->game.players[index].machine_index : -1);
+	}
+	delta_peer_game_client_frame(joined && host, host,
+		(network_game_client_joined_flags & DELTA_ADVERTISED_FLAG) != 0, network_game_client_get_machine_index(client),
+		player_machines);
 }
 #endif

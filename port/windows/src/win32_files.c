@@ -199,6 +199,20 @@ int posix_set_read_only(const char *path, int read_only)
 	return SetFileAttributesA(path, attributes) ? 0 : fail();
 }
 
+int posix_is_link(const char *path)
+{
+	DWORD attributes = GetFileAttributesA(path);
+
+	return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT);
+}
+
+int posix_rename_directory(const char *from, const char *to)
+{
+	/* (MoveFileA never replaces what is there, and moves within a volume
+	only) */
+	return MoveFileA(from, to) ? 0 : fail();
+}
+
 int posix_make_directory(const char *path)
 {
 	return CreateDirectoryA(path, NULL) ? 0 : fail();

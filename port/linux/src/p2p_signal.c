@@ -104,8 +104,9 @@ enum
 	PROOF_SIZE = NONCE_SIZE + TAG_SIZE,
 	BUFFER_SIZE = 4096,
 	MAXIMUM_MESSAGE_SIZE = 512,
-	/* a listing's most (p2p_lobby.c's MAXIMUM_LISTING_SIZE, and some) */
-	MAXIMUM_LISTING_SIZE = 256,
+	/* a listing's most (p2p_lobby.c's MAXIMUM_LISTING_SIZE, 268 with a
+	password's sealed token, and some) */
+	MAXIMUM_LISTING_SIZE = 320,
 	/* the publishes awaiting acknowledgement on a broker */
 	MAXIMUM_IN_FLIGHT = 4,
 	/* the topics a broker is subscribed to (_topic_*) */
@@ -639,7 +640,9 @@ static int broker_publish_listing(struct broker *broker, const unsigned char *pa
 	if (size)
 		memcpy(broker->in_flight[free_index].payload, payload, (size_t)size);
 	broker_publish_slot(broker, broker->in_flight[free_index].identifier, payload, size, 0);
-	return 1;
+	/* (not sent if the send closed the broker: published again once it is
+	connected, as its will cleared the slot) */
+	return broker->state == _broker_ready;
 }
 
 /* whether the broker carries the server browser: retained messages and
@@ -673,6 +676,10 @@ static void broker_sync_topics(struct broker *broker)
 			broker_topic(broker, had, 0, 0);
 		if (wanted[index][0])
 			broker_topic(broker, wanted[index], 1, index == _topic_own_slot);
+		/* (a send that failed closed the broker, which forgot its topics:
+		they are asked for again once it is ready again) */
+		if (broker->state != _broker_ready)
+			return;
 		/* (once subscribed to the slots, the hosts are asked to publish:
 		retained copies come at once, but may be old) */
 		if (index == _topic_slots && wanted[index][0])

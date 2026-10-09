@@ -16,9 +16,7 @@ player key. Called each frame from the main loop (main.c).
 #include "game/players.h"
 #include "memory/data.h"
 #include "networking/network_game_globals.h"
-
-/* the platform layer's (port/linux/src/browser.h) */
-void browser_claim_game(const unsigned short (*names)[12], int count);
+#include "../src/browser.h"
 
 enum
 {
@@ -37,7 +35,7 @@ void game_list_claims_update(
 		(global_network_game_server_get() || global_network_game_client_get());
 	if (over && !game_over_seen)
 	{
-		unsigned short names[MAXIMUM_CLAIMED_PLAYERS][12];
+		unsigned short names[MAXIMUM_CLAIMED_PLAYERS][BROWSER_PLAYER_NAME_LENGTH];
 		struct data_iterator iterator;
 		struct player_datum *player;
 		int count = 0;
@@ -52,7 +50,7 @@ void game_list_claims_update(
 				count++;
 			}
 		}
-		browser_claim_game((const unsigned short (*)[12])names, count);
+		browser_claim_game((const unsigned short (*)[BROWSER_PLAYER_NAME_LENGTH])names, count);
 	}
 	game_over_seen = over;
 }

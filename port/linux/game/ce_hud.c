@@ -37,8 +37,6 @@ hud_definitions.hpp agrees).
 
 enum
 {
-	CE_TAG_INSTANCE_SIZE = 0x20,
-
 	/* a tag block: its count and its elements' address; a tag reference:
 	its tag index */
 	TAG_BLOCK_COUNT_OFFSET = 0x00,
@@ -111,20 +109,6 @@ enum
 	TAG_BLOCK_SIZE = 0x0c,
 	PLACEMENT_SIZE = 0x10,
 	CE_HUD_MAXIMUM_ELEMENTS = 0x1000,
-};
-
-/* ---------- structures */
-
-/* (cache_files.c's) */
-struct ce_tag_instance
-{
-	unsigned long group_tag;
-	unsigned long parent_group_tags[2];
-	unsigned long tag_index;
-	unsigned long name;
-	unsigned long base_address;
-	unsigned long indexed;
-	unsigned long unused;
 };
 
 /* ---------- globals */

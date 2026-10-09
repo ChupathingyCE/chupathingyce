@@ -71,6 +71,12 @@ int posix_disk_space(const char *path,
 /* permissions and directories */
 int posix_set_read_only(const char *path, int read_only);
 int posix_make_directory(const char *path);
+/* whether path itself is a symbolic link (or, on Windows, a junction or
+another reparse point), not following it; 0 if it is not or isn't there */
+int posix_is_link(const char *path);
+/* renames the directory (or link) from to to, which must not exist: one
+move, never a copy; 0 on success */
+int posix_rename_directory(const char *from, const char *to);
 
 /* directory enumeration; the handle is opaque */
 void *posix_directory_open(const char *path);

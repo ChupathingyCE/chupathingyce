@@ -5,7 +5,10 @@ Tests of the dedicated server's command lines (server/src/command_line.c)
 and its control API's requests, credentials, limits and log
 (server/platform/control_protocol.c), and its web admin page's sessions,
 checks, headers and files (server/platform/control_web.c, with the page's
-files as tools/embed_webui.py embeds them): well-formed input, malformed,
+files as tools/embed_webui.py embeds them), Delta Control's roles, accounts
+and link (control_roles.c, control_accounts.c, control_link_protocol.c),
+and the server's playlists, game types and settings as text
+(server/src/server_config.c): well-formed input, malformed,
 oversized and cut-short input, and a few thousand random requests (built
 with AddressSanitizer and UndefinedBehaviorSanitizer where the compiler has
 them). Built and run by tools/test_server_control.py; exits nonzero on a
@@ -13,8 +16,15 @@ failure.
 */
 
 #include "../src/command_line.h"
+#include "../src/server_config.h"
 #include "../platform/control_protocol.h"
 #include "../platform/control_web.h"
+#include "../platform/control_roles.h"
+#include "../platform/control_accounts.h"
+#include "../platform/control_link_protocol.h"
+
+#include "monocypher.h"
+#include "monocypher-ed25519.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -273,7 +283,7 @@ static void test_requests(void)
 		&request, &status) == CONTROL_PARSE_ERROR && status == 417);
 	CHECK(parse("POST /v1/command HTTP/1.1\r\nHost: x\r\n\r\n", &request, &status) == CONTROL_PARSE_ERROR &&
 		status == 411);
-	CHECK(parse("POST /v1/command HTTP/1.1\r\nHost: x\r\nContent-Length: 4097\r\n\r\n", &request, &status) ==
+	CHECK(parse("POST /v1/command HTTP/1.1\r\nHost: x\r\nContent-Length: 16385\r\n\r\n", &request, &status) ==
 		CONTROL_PARSE_ERROR && status == 413);
 	CHECK(parse("POST /v1/command HTTP/1.1\r\nHost: x\r\nContent-Length: 99999999999\r\n\r\n", &request, &status) ==
 		CONTROL_PARSE_ERROR && status == 413);
@@ -487,9 +497,9 @@ static void fuzz_requests(int rounds)
 			while (cut && changes--)
 				copy[random_next() % cut] = (char)(random_next() % 256);
 			result = control_parse_request(copy, cut, &request, &status, &reason);
+			/* (its body parses or not, and breaks nothing) */
 			if (cut == good_length && changes < 0 && result == CONTROL_PARSE_DONE)
-				CHECK(control_parse_command_body(request.body, request.content_length, command, sizeof(command),
-					&reason) || 1);
+				control_parse_command_body(request.body, request.content_length, command, sizeof(command), &reason);
 			free(copy);
 		}
 		/* random command bodies */
@@ -966,6 +976,563 @@ static void test_web_files(void)
 	}
 }
 
+/* ---------- Delta Control's roles (control_roles.c) */
+
+static void test_roles(void)
+{
+	struct control_moderator moderator;
+	struct control_actor_limiter limiter;
+	struct control_audit_event event;
+	const char *reason = "";
+	char line[512];
+	uint8_t key[32];
+	char text[65];
+	int changes = 0;
+	int index;
+	int64_t retry = 0;
+
+	/* the roles: each holds the one below's permissions, and more */
+	CHECK(!control_role_permissions(CONTROL_ROLE_NONE));
+	CHECK((control_role_permissions(CONTROL_ROLE_MODERATOR) & (CONTROL_PERMISSION_KICK | CONTROL_PERMISSION_WARN |
+		CONTROL_PERMISSION_BAN_TIMED | CONTROL_PERMISSION_VIEW)) == (CONTROL_PERMISSION_KICK | CONTROL_PERMISSION_WARN |
+		CONTROL_PERMISSION_BAN_TIMED | CONTROL_PERMISSION_VIEW));
+	CHECK(!(control_role_permissions(CONTROL_ROLE_MODERATOR) & (CONTROL_PERMISSION_BAN | CONTROL_PERMISSION_UNBAN |
+		CONTROL_PERMISSION_MAP | CONTROL_PERMISSION_SETTINGS | CONTROL_PERMISSION_ROLES | CONTROL_PERMISSION_INVITE)));
+	CHECK((control_role_permissions(CONTROL_ROLE_ADMIN) & control_role_permissions(CONTROL_ROLE_MODERATOR)) ==
+		control_role_permissions(CONTROL_ROLE_MODERATOR));
+	CHECK(control_role_permissions(CONTROL_ROLE_ADMIN) & CONTROL_PERMISSION_UNBAN);
+	CHECK(control_role_permissions(CONTROL_ROLE_ADMIN) & CONTROL_PERMISSION_MAP);
+	CHECK(!(control_role_permissions(CONTROL_ROLE_ADMIN) & CONTROL_PERMISSION_ROLES));
+	CHECK(control_role_permissions(CONTROL_ROLE_OWNER) & CONTROL_PERMISSION_ROLES);
+	/* (no role is the console's) */
+	for (index = 0; index < CONTROL_ROLE_COUNT; index++)
+		CHECK(!(control_role_permissions(index) & CONTROL_PERMISSION_CONSOLE));
+	CHECK(control_role_parse("moderator") == CONTROL_ROLE_MODERATOR && control_role_parse("owner") == CONTROL_ROLE_OWNER);
+	CHECK(control_role_parse("none") < 0 && control_role_parse("Owner") < 0 && control_role_parse("") < 0);
+
+	/* the commands' permissions */
+	CHECK(control_command_permission("sv_status", &changes) == CONTROL_PERMISSION_VIEW && !changes);
+	CHECK(control_command_permission("sv_kick 3", &changes) == CONTROL_PERMISSION_KICK && changes);
+	CHECK(control_command_permission("sv_warn 3 \"stop that\"", &changes) == CONTROL_PERMISSION_WARN && changes);
+	CHECK(control_command_permission("sv_ban 3 2h", NULL) == CONTROL_PERMISSION_BAN_TIMED);
+	CHECK(control_command_permission("sv_ban 3 7d", NULL) == CONTROL_PERMISSION_BAN_TIMED);
+	CHECK(control_command_permission("sv_ban 3 1w", NULL) == CONTROL_PERMISSION_BAN_TIMED);
+	CHECK(control_command_permission("sv_ban 3 1d12h \"why\"", NULL) == CONTROL_PERMISSION_BAN_TIMED);
+	CHECK(control_command_permission("sv_ban \"Master Chief\" 30 x", NULL) == CONTROL_PERMISSION_BAN_TIMED);
+	CHECK(control_command_permission("sv_ban 3 8d", NULL) == CONTROL_PERMISSION_BAN);
+	CHECK(control_command_permission("sv_ban 3 7d1s", NULL) == CONTROL_PERMISSION_BAN);
+	CHECK(control_command_permission("sv_ban 3", NULL) == CONTROL_PERMISSION_BAN);
+	CHECK(control_command_permission("sv_ban 3 forever", NULL) == CONTROL_PERMISSION_BAN);
+	CHECK(control_command_permission("sv_ban 3 0", NULL) == CONTROL_PERMISSION_BAN);
+	CHECK(control_command_permission("sv_unban 1", NULL) == CONTROL_PERMISSION_UNBAN);
+	CHECK(control_command_permission("sv_map bloodgulch ctf", NULL) == CONTROL_PERMISSION_MAP);
+	CHECK(control_command_permission("sv_playlist_use x", NULL) == CONTROL_PERMISSION_MAP);
+	CHECK(control_command_permission("sv_name", &changes) == CONTROL_PERMISSION_VIEW && !changes);
+	CHECK(control_command_permission("sv_name x", &changes) == CONTROL_PERMISSION_SETTINGS && changes);
+	CHECK(control_command_permission("sv_maxplayers 8", NULL) == CONTROL_PERMISSION_SETTINGS);
+	CHECK(control_command_permission("sv_gametype_set x score_limit 50", NULL) == CONTROL_PERMISSION_SETTINGS);
+	CHECK(control_command_permission("sv_mod_add 3 moderator", NULL) == CONTROL_PERMISSION_ROLES);
+	CHECK(control_command_permission("sv_mod_list", NULL) == CONTROL_PERMISSION_ROLES);
+	CHECK(control_command_permission("sv_link", NULL) == CONTROL_PERMISSION_ROLES);
+	CHECK(control_command_permission("sv_admin_add x", NULL) == CONTROL_PERMISSION_CONSOLE);
+	CHECK(control_command_permission("sv_account_invite owner", NULL) == CONTROL_PERMISSION_CONSOLE);
+	CHECK(!control_command_permission("sv_nothing", NULL));
+	CHECK(!control_command_permission("", NULL) && !control_command_permission("# a comment", NULL));
+	CHECK(!control_command_permission("sv_kick \"unclosed", NULL));
+
+	/* keys */
+	for (index = 0; index < 32; index++)
+		key[index] = (uint8_t)(index * 7 + 1);
+	control_key_text(key, text);
+	{
+		uint8_t back[32];
+		char upper[65];
+		char short_text[9];
+
+		CHECK(control_key_parse(text, back) && !memcmp(back, key, 32));
+		for (index = 0; index < 64; index++)
+			upper[index] = (char)(text[index] >= 'a' ? text[index] - 32 : text[index]);
+		upper[64] = 0;
+		CHECK(control_key_parse(upper, back) && !memcmp(back, key, 32));
+		CHECK(!control_key_parse("00", back));
+		upper[10] = 'g';
+		CHECK(!control_key_parse(upper, back));
+		control_key_short(key, short_text);
+		CHECK(strlen(short_text) == 8 && !strncmp(short_text, text, 8));
+	}
+	CHECK(control_display_name_valid("Odb718") && control_display_name_valid("Master Chief"));
+	CHECK(!control_display_name_valid("") && !control_display_name_valid("   ") && !control_display_name_valid("a\"b"));
+	CHECK(!control_display_name_valid("0123456789012345678901234567890123"));
+
+	/* the moderators file's lines */
+	snprintf(line, sizeof(line), "moderator %s Odb718\n", text);
+	CHECK(control_moderator_parse(line, &moderator, &reason) == 1 && moderator.role == CONTROL_ROLE_MODERATOR &&
+		!memcmp(moderator.key, key, 32) && !strcmp(moderator.name, "Odb718"));
+	snprintf(line, sizeof(line), "  admin\t%s   Master Chief  \r\n", text);
+	CHECK(control_moderator_parse(line, &moderator, &reason) == 1 && moderator.role == CONTROL_ROLE_ADMIN &&
+		!strcmp(moderator.name, "Master Chief"));
+	snprintf(line, sizeof(line), "owner %s", text);
+	CHECK(control_moderator_parse(line, &moderator, &reason) == 1 && !moderator.name[0]);
+	CHECK(control_moderator_parse("# a comment", &moderator, &reason) == 0);
+	CHECK(control_moderator_parse("\n", &moderator, &reason) == 0);
+	snprintf(line, sizeof(line), "god %s x", text);
+	CHECK(control_moderator_parse(line, &moderator, &reason) < 0);
+	CHECK(control_moderator_parse("moderator 1234 x", &moderator, &reason) < 0);
+	snprintf(line, sizeof(line), "moderator %s a\"b", text);
+	CHECK(control_moderator_parse(line, &moderator, &reason) < 0);
+	moderator.role = CONTROL_ROLE_OWNER;
+	snprintf(moderator.name, sizeof(moderator.name), "Milenko");
+	memcpy(moderator.key, key, 32);
+	CHECK(control_moderator_line(&moderator, line, sizeof(line)) > 0);
+	{
+		struct control_moderator back;
+
+		CHECK(control_moderator_parse(line, &back, &reason) == 1 && back.role == CONTROL_ROLE_OWNER &&
+			!memcmp(back.key, key, 32) && !strcmp(back.name, "Milenko"));
+	}
+	moderator.role = CONTROL_ROLE_NONE;
+	CHECK(control_moderator_line(&moderator, line, sizeof(line)) < 0);
+	/* (random lines: never more than the line, never a crash) */
+	for (index = 0; index < 2000; index++)
+	{
+		char junk[120];
+		int length = (int)(random_next() % (sizeof(junk) - 1));
+		int at;
+
+		for (at = 0; at < length; at++)
+			junk[at] = (char)(random_next() % 4 ? " moderatoradmin0123456789abcdef\t\n#\"x"[random_next() % 36] :
+				(char)(random_next() & 0xFF));
+		junk[length] = 0;
+		control_moderator_parse(junk, &moderator, &reason);
+	}
+
+	/* how often a person acts: a burst, then so many a minute; one person's
+	limit is not another's */
+	control_actor_limiter_initialize(&limiter);
+	for (index = 0; index < CONTROL_ACTOR_BURST; index++)
+		CHECK(control_actor_allowed(&limiter, "web alice", 1000, &retry));
+	CHECK(!control_actor_allowed(&limiter, "web alice", 1000, &retry) && retry >= 1 && retry <= 3);
+	CHECK(control_actor_allowed(&limiter, "web bob", 1000, &retry));
+	CHECK(!control_actor_allowed(&limiter, "web alice", 1500, &retry));
+	CHECK(control_actor_allowed(&limiter, "web alice", 1000 + 3000, &retry));
+	CHECK(!control_actor_allowed(&limiter, "web alice", 1000 + 3000, &retry));
+	/* (a minute on, the burst again) */
+	for (index = 0; index < CONTROL_ACTOR_BURST; index++)
+		CHECK(control_actor_allowed(&limiter, "web alice", 1000 + 3000 + 60000, &retry));
+	/* (more people than slots: the least recently seen goes) */
+	for (index = 0; index < CONTROL_ACTOR_SLOTS * 2; index++)
+	{
+		char who[32];
+
+		snprintf(who, sizeof(who), "game p%d", index);
+		CHECK(control_actor_allowed(&limiter, who, 200000 + index, &retry));
+	}
+
+	/* the audit file's lines: JSON, with what is given, and no control
+	characters */
+	memset(&event, 0, sizeof(event));
+	event.time = 1791168674;
+	event.via = "web";
+	event.actor = "alice";
+	event.role = CONTROL_ROLE_MODERATOR;
+	event.action = "sv_kick";
+	event.target = "Odb\"718";
+	event.reason = "camping\n\\";
+	event.ok = 1;
+	event.detail = "kicked Odb718\nsecond line";
+	CHECK(control_audit_line(&event, line, sizeof(line)) > 0);
+	CHECK(!strcmp(line, "{\"time\": 1791168674, \"via\": \"web\", \"actor\": \"alice\", \"role\": \"moderator\", "
+		"\"action\": \"sv_kick\", \"target\": \"Odb\\\"718\", \"reason\": \"camping?\\\\\", \"detail\": "
+		"\"kicked Odb718\", \"ok\": true}\n"));
+	event.target = event.reason = event.detail = NULL;
+	event.ok = 0;
+	CHECK(control_audit_line(&event, line, sizeof(line)) > 0 && !strstr(line, "target") && strstr(line, "\"ok\": false"));
+	CHECK(control_audit_line(&event, line, 20) < 0);
+}
+
+/* ---------- Delta Control's accounts (control_accounts.c) */
+
+static void test_accounts(void)
+{
+	struct control_account account, back;
+	struct control_invite invite, invite_back;
+	struct control_account_backoff backoff;
+	uint8_t id[4] = { 1, 2, 3, 4 };
+	uint8_t salt[16] = { 9 };
+	uint8_t code_bytes[CONTROL_CODE_BYTES] = { 7 };
+	char line[CONTROL_ACCOUNT_LINE];
+	char code[CONTROL_CODE_TEXT + 1];
+	const char *reason;
+	int64_t retry = 0;
+	int64_t last = 0;
+	int value;
+	int index;
+
+	CHECK(control_account_name_valid("alice") && control_account_name_valid("odb718") &&
+		control_account_name_valid("a.b-c_d"));
+	CHECK(!control_account_name_valid("") && !control_account_name_valid("Alice") && !control_account_name_valid("_a") &&
+		!control_account_name_valid("a b") && !control_account_name_valid("0123456789012345678901234567890123"));
+	CHECK(control_password_acceptable("correct horse battery", &reason));
+	CHECK(!control_password_acceptable("short", &reason));
+	CHECK(!control_password_acceptable("aaaaaaaaaaaaaaaa", &reason));
+	CHECK(!control_password_acceptable("tab\tinside password", &reason));
+
+	/* an account (a cheap Argon2id cost for the test), its password, its
+	line and back */
+	CHECK(control_account_make("alice", id, CONTROL_ROLE_ADMIN, "correct horse battery", salt, 8, 1, 1791168674,
+		&account));
+	CHECK(control_account_check(&account, "correct horse battery") == 1);
+	CHECK(control_account_check(&account, "correct horse batterY") == 0);
+	account.has_totp = 1;
+	for (index = 0; index < CONTROL_TOTP_SECRET_BYTES; index++)
+		account.totp_secret[index] = (uint8_t)index;
+	account.totp_last_step = 59704;
+	account.has_key = 1;
+	memset(account.key, 0xAB, sizeof(account.key));
+	CHECK(control_account_line(&account, line, sizeof(line)) > 0);
+	CHECK(control_account_parse(line, &back) && !strcmp(back.name, "alice") && !strcmp(back.id, "01020304") &&
+		back.role == CONTROL_ROLE_ADMIN && back.has_totp && !memcmp(back.totp_secret, account.totp_secret, 20) &&
+		back.totp_last_step == 59704 && back.has_key && back.key[5] == 0xAB && back.created == 1791168674 &&
+		!memcmp(back.hash, account.hash, 32));
+	CHECK(control_account_check(&back, "correct horse battery") == 1);
+	/* (a new password: the old one no longer) */
+	salt[0] = 10;
+	CHECK(control_account_set_password(&back, "another long password", salt, 8, 1));
+	CHECK(control_account_check(&back, "correct horse battery") == 0 &&
+		control_account_check(&back, "another long password") == 1);
+	/* (lines it does not take) */
+	CHECK(!control_account_parse("v1 account alice", &back));
+	CHECK(!control_account_parse("v2 account alice 01020304 admin 8 1 00 00 - 0 - 0", &back));
+	{
+		char changed[CONTROL_ACCOUNT_LINE];
+		char *role;
+
+		snprintf(changed, sizeof(changed), "%s", line);
+		role = strstr(changed, " admin ");
+		memcpy(role, " gods  ", 7);
+		CHECK(!control_account_parse(changed, &back));
+		snprintf(changed, sizeof(changed), "%s  ", line);
+		CHECK(!control_account_parse(changed, &back));
+	}
+	for (index = 0; index < 3000; index++)
+	{
+		char junk[CONTROL_ACCOUNT_LINE];
+		int length = (int)(random_next() % (sizeof(junk) - 1));
+		int at;
+
+		snprintf(junk, sizeof(junk), "%s", line);
+		for (at = 0; at < 1 + (int)(random_next() % 4); at++)
+			junk[random_next() % (strlen(line) ? strlen(line) : 1)] = (char)(random_next() & 0x7F);
+		if (index % 3 == 0)
+			junk[length % (strlen(line) + 1)] = 0;
+		control_account_parse(junk, &back);
+	}
+
+	/* invitations: the code's hash kept, not the code */
+	control_code_text("inv_", code_bytes, code, sizeof(code));
+	CHECK(strlen(code) == CONTROL_CODE_TEXT && control_code_valid("inv_", code) && !control_code_valid("set_", code));
+	CHECK(!control_code_valid("inv_", "inv_00") && !control_code_valid("inv_", "inv_zz"));
+	memset(&invite, 0, sizeof(invite));
+	snprintf(invite.id, sizeof(invite.id), "aabbccdd");
+	invite.role = CONTROL_ROLE_MODERATOR;
+	control_code_hash(code, invite.code_hash);
+	invite.expires = 1791999999;
+	snprintf(invite.made_by, sizeof(invite.made_by), "alice");
+	CHECK(control_invite_line(&invite, line, sizeof(line)) > 0 && !strstr(line, code + 4));
+	CHECK(control_invite_parse(line, &invite_back) && invite_back.role == CONTROL_ROLE_MODERATOR &&
+		!memcmp(invite_back.code_hash, invite.code_hash, 32) && invite_back.expires == 1791999999 &&
+		!invite_back.account[0] && !strcmp(invite_back.made_by, "alice"));
+	snprintf(invite.account, sizeof(invite.account), "bob");
+	CHECK(control_invite_line(&invite, line, sizeof(line)) > 0 && control_invite_parse(line, &invite_back) &&
+		!strcmp(invite_back.account, "bob"));
+	CHECK(control_require_2fa_parse("v1 require_2fa 1", &value) && value == 1);
+	CHECK(control_require_2fa_parse("v1 require_2fa 0\n", &value) && value == 0);
+	CHECK(!control_require_2fa_parse("v1 require_2fa 2", &value) && !control_require_2fa_parse("v1 require_2fa", &value));
+
+	/* TOTP: RFC 6238's SHA-1 vectors (their last six digits) */
+	{
+		static const uint8_t secret[20] = { '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '1', '2', '3', '4', '5',
+			'6', '7', '8', '9', '0' };
+		char result[8];
+		char base32[40];
+		char uri[256];
+
+		CHECK(control_totp_code(secret, 59 / 30, result) && !strcmp(result, "287082"));
+		CHECK(control_totp_code(secret, 1111111109 / 30, result) && !strcmp(result, "081804"));
+		CHECK(control_totp_code(secret, 1234567890 / 30, result) && !strcmp(result, "005924"));
+		CHECK(control_totp_code(secret, 2000000000 / 30, result) && !strcmp(result, "279037"));
+		/* (a step either side; each code once; never an older one) */
+		last = 0;
+		CHECK(control_totp_check(secret, "081804", 1111111109 + 30, &last) && last == 1111111109 / 30);
+		CHECK(!control_totp_check(secret, "081804", 1111111109 + 30, &last));
+		CHECK(!control_totp_check(secret, "081804", 1111111109 + 95, &(int64_t){ 0 }));
+		last = 0;
+		CHECK(!control_totp_check(secret, "08180", 1111111109, &last) && !control_totp_check(secret, "08180a",
+			1111111109, &last) && !control_totp_check(secret, "", 1111111109, &last));
+		control_base32(secret, 20, base32, sizeof(base32));
+		CHECK(!strcmp(base32, "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"));
+		CHECK(control_totp_uri(secret, "ChupathingyCE Server", "alice", uri, sizeof(uri)) > 0 &&
+			!strcmp(uri, "otpauth://totp/ChupathingyCE%20Server:alice?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer="
+			"ChupathingyCE%20Server&algorithm=SHA1&digits=6&period=30"));
+	}
+
+	/* one account's backoff: five wrong, a minute locked, doubling to an
+	hour; a right one clears it */
+	memset(&backoff, 0, sizeof(backoff));
+	for (index = 0; index < CONTROL_ACCOUNT_FAILURES - 1; index++)
+	{
+		control_backoff_failed(&backoff, 100);
+		CHECK(control_backoff_allowed(&backoff, 100, &retry));
+	}
+	control_backoff_failed(&backoff, 100);
+	CHECK(!control_backoff_allowed(&backoff, 100, &retry) && retry == CONTROL_ACCOUNT_LOCK_SECONDS);
+	CHECK(control_backoff_allowed(&backoff, 100 + CONTROL_ACCOUNT_LOCK_SECONDS, &retry));
+	control_backoff_failed(&backoff, 200);
+	CHECK(!control_backoff_allowed(&backoff, 200, &retry) && retry == 2 * CONTROL_ACCOUNT_LOCK_SECONDS);
+	for (index = 0; index < 20; index++)
+		control_backoff_failed(&backoff, 300);
+	CHECK(!control_backoff_allowed(&backoff, 300, &retry) && retry == CONTROL_ACCOUNT_LOCK_MAXIMUM);
+	control_backoff_succeeded(&backoff);
+	CHECK(control_backoff_allowed(&backoff, 300, &retry));
+}
+
+/* ---------- request bodies of string fields (control_parse_fields) */
+
+static void test_fields(void)
+{
+	static const char *const names[] = { "user", "password", "text" };
+	char user[16], password[32], text[64];
+	char *outs[] = { user, password, text };
+	const size_t sizes[] = { sizeof(user), sizeof(password), sizeof(text) };
+	const char *reason;
+	const char *body;
+
+#define FIELDS(text_, multiline) control_parse_fields(text_, strlen(text_), names, outs, sizes, 3, multiline, &reason)
+	body = "{\"user\": \"alice\", \"password\": \"a \\\"b\\\" c\"}";
+	CHECK(FIELDS(body, 0) && !strcmp(user, "alice") && !strcmp(password, "a \"b\" c") && !text[0]);
+	CHECK(FIELDS("{}", 0) && !user[0]);
+	CHECK(FIELDS("  { \"text\" : \"x\" }  ", 0) && !strcmp(text, "x"));
+	CHECK(!FIELDS("{\"user\": \"a\", \"user\": \"b\"}", 0) && !user[0]);
+	CHECK(!FIELDS("{\"other\": \"a\"}", 0));
+	CHECK(!FIELDS("{\"user\": 1}", 0));
+	CHECK(!FIELDS("{\"user\": \"a\",}", 0));
+	CHECK(!FIELDS("{\"user\": \"a\"} x", 0));
+	CHECK(!FIELDS("[\"user\"]", 0));
+	CHECK(!FIELDS("{\"user\": \"0123456789abcdefg\"}", 0));
+	/* (line ends only where a field may have them: a file's text) */
+	CHECK(!FIELDS("{\"user\": \"a\\nb\"}", 1u << 2));
+	CHECK(FIELDS("{\"text\": \"bloodgulch slayer\\nprisoner ctf\\n\"}", 1u << 2) &&
+		!strcmp(text, "bloodgulch slayer\nprisoner ctf\n"));
+	CHECK(!FIELDS("{\"text\": \"a\\nb\"}", 0));
+	CHECK(!FIELDS("{\"user\": \"\\u0001\"}", 0));
+#undef FIELDS
+}
+
+/* ---------- the server's files' text (server_config.c) */
+
+static void test_server_config(int rounds)
+{
+	struct server_playlist playlist, back;
+	struct server_gametype gametype;
+	struct server_settings settings;
+	char error[SERVER_CONFIG_ERROR_SIZE];
+	char text[SERVER_PLAYLIST_TEXT_SIZE + 1];
+	const char *good = "# a playlist\nbloodgulch slayer\nprisoner team_slayer\n\ntimberland@ce ctf # a Halo PC map\n";
+	int index;
+
+	CHECK(server_playlist_parse(good, strlen(good), 1, &playlist, error, sizeof(error)) && playlist.count == 3 &&
+		!strcmp(playlist.entries[2].map, "timberland@ce") && !strcmp(playlist.entries[1].game_type, "team_slayer"));
+	CHECK(server_playlist_format(&playlist, "big", text, sizeof(text)) > 0);
+	CHECK(server_playlist_parse(text, strlen(text), 1, &back, error, sizeof(error)) && back.count == 3 &&
+		!memcmp(&back, &playlist, sizeof(back)));
+	CHECK(!server_playlist_parse("bloodgulch\n", 11, 1, &playlist, error, sizeof(error)) && strstr(error, "line 1"));
+	CHECK(!server_playlist_parse("../x slayer\n", 12, 1, &playlist, error, sizeof(error)));
+	CHECK(!server_playlist_parse("a b c\n", 6, 1, &playlist, error, sizeof(error)));
+	/* (not strict, as a playlist file has always been read: the rest of a
+	line left out) */
+	CHECK(server_playlist_parse("a b c\n", 6, 0, &playlist, error, sizeof(error)) && playlist.count == 1);
+	CHECK(server_config_name_valid("big_maps") && !server_config_name_valid("Big") && !server_config_name_valid("../x"));
+	CHECK(server_gametype_parse("base = \"oddball\"\nscore_limit = 50\n", 34, &gametype, error, sizeof(error)));
+	CHECK(gametype.set[SERVER_GAMETYPE_SCORE_LIMIT] && gametype.values[SERVER_GAMETYPE_SCORE_LIMIT] == 50);
+	CHECK(server_gametype_format(&gametype, "oddball50", text, sizeof(text)) > 0);
+	CHECK(server_gametype_parse(text, strlen(text), &gametype, error, sizeof(error)) &&
+		gametype.values[SERVER_GAMETYPE_SCORE_LIMIT] == 50);
+	CHECK(!server_gametype_parse("score_limit = 50\n", 17, &gametype, error, sizeof(error)));
+	CHECK(!server_gametype_parse("base = \"oddball\"\nscore_limit = 100000\n", 38, &gametype, error, sizeof(error)));
+	CHECK(!server_gametype_parse("base = \"oddball\"\nnothing = 1\n", 29, &gametype, error, sizeof(error)));
+	CHECK(server_settings_parse("name = \"Friday\"\nmaximum_players = 16\n", 37, &settings, error, sizeof(error)));
+	CHECK(!server_settings_parse("maximum_players = 500\n", 22, &settings, error, sizeof(error)));
+	/* random text: never a crash, nor more than the buffers */
+	for (index = 0; index < rounds; index++)
+	{
+		static const char alphabet[] = "abcdefghijklmnopqrstuvwxyz_0123456789@=\"#[].-\n\t \r";
+		int length = (int)(random_next() % 600);
+		int at;
+
+		for (at = 0; at < length; at++)
+			text[at] = random_next() % 8 ? alphabet[random_next() % (sizeof(alphabet) - 1)] : (char)(random_next() & 0xFF);
+		text[length] = 0;
+		server_playlist_parse(text, (size_t)length, (int)(index & 1), &playlist, error, sizeof(error));
+		server_gametype_parse(text, (size_t)length, &gametype, error, sizeof(error));
+		server_settings_parse(text, (size_t)length, &settings, error, sizeof(error));
+	}
+}
+
+/* ---------- Delta Control's link (control_link_protocol.c) */
+
+static void test_link(int rounds)
+{
+	static struct control_link_poll poll;
+	static char body[64 * 1024];
+	static char payload[64 * 1024];
+	static struct control_json_token tokens[256];
+	uint8_t seed[32], public_key[32], secret[32], nonce[16];
+	char answer[2048];
+	char line[300];
+	const char *why;
+	int index;
+	int length;
+
+	for (index = 0; index < 32; index++)
+	{
+		seed[index] = (uint8_t)(index + 1);
+		secret[index] = (uint8_t)(0x40 + index);
+	}
+	for (index = 0; index < 16; index++)
+		nonce[index] = (uint8_t)(0xA0 + index);
+	control_link_public_key(seed, public_key);
+
+	/* a signed request: its signature checks with the public key, over
+	exactly the message the site rebuilds */
+	length = control_link_signed_body("/v1/control/poll", "s_1", seed, 1791168674, nonce, "{\"wait\": 0}", body,
+		sizeof(body));
+	CHECK(length > 0);
+	CHECK(control_json_parse(body, (size_t)length, tokens, 256) > 0);
+	{
+		int signature_token = control_json_member(body, tokens, 0, "signature");
+		char signature_text[130];
+		uint8_t signature[64];
+		char message[256];
+		int message_length = snprintf(message, sizeof(message), "delta control request v1\n/v1/control/poll\ns_1\n"
+			"1791168674\na0a1a2a3a4a5a6a7a8a9aaabacadaeaf\n{\"wait\": 0}");
+
+		CHECK(signature_token >= 0 && control_json_text(body, &tokens[signature_token], signature_text,
+			sizeof(signature_text)) && strlen(signature_text) == 128);
+		for (index = 0; index < 64; index++)
+		{
+			unsigned int byte;
+
+			sscanf(signature_text + 2 * index, "%2x", &byte);
+			signature[index] = (uint8_t)byte;
+		}
+		CHECK(!crypto_ed25519_check(signature, public_key, (const uint8_t *)message, (size_t)message_length));
+		message[message_length - 2] = '1';
+		CHECK(crypto_ed25519_check(signature, public_key, (const uint8_t *)message, (size_t)message_length));
+	}
+	CHECK(control_link_signed_body("/v1/control/poll", "s_1", seed, 1, nonce, "{}", body, 20) < 0);
+
+	/* an answer: taken only with the right MAC, of this request's nonce */
+	{
+		const char *inner = "{\"commands\": [{\"id\": 7, \"actor\": \"odb\", \"command\": \"sv_kick 2\", \"reason\": "
+			"\"spawn \\\"camping\\\"\"}], \"roles\": {\"version\": 3, \"entries\": [{\"handle\": \"odb\", \"role\": "
+			"\"moderator\", \"keys\": [\"72f7b19d4735618403dab4fe9e4c8c0d13e510709552140a17cd9b9ed2a798ec\"]}, "
+			"{\"handle\": \"milenko\", \"role\": \"owner\", \"keys\": []}]}, \"unlinked\": false, \"poll_seconds\": 1}";
+		char quoted[2048];
+		uint8_t mac[32];
+		char mac_text[65];
+		crypto_blake2b_ctx context;
+
+		crypto_blake2b_keyed_init(&context, 32, secret, 32);
+		crypto_blake2b_update(&context, (const uint8_t *)"delta control response v1\na0a1a2a3a4a5a6a7a8a9aaabacadaeaf\n",
+			26 + 32 + 1);
+		crypto_blake2b_update(&context, (const uint8_t *)inner, strlen(inner));
+		crypto_blake2b_final(&context, mac);
+		control_hex_text(mac, 32, mac_text);
+		control_json_string(inner, quoted, sizeof(quoted));
+		snprintf(answer, sizeof(answer), "{\"payload\": %s, \"mac\": \"%s\"}", quoted, mac_text);
+		CHECK(control_link_open_answer(answer, strlen(answer), secret, nonce, payload, sizeof(payload)) &&
+			!strcmp(payload, inner));
+		CHECK(control_link_parse_poll(payload, strlen(payload), &poll));
+		CHECK(poll.command_count == 1 && poll.commands[0].id == 7 && !strcmp(poll.commands[0].actor, "odb") &&
+			!strcmp(poll.commands[0].command, "sv_kick 2") && !strcmp(poll.commands[0].reason, "spawn \"camping\""));
+		CHECK(poll.has_roles && poll.roles_version == 3 && poll.role_count == 2 &&
+			poll.roles[0].role == CONTROL_ROLE_MODERATOR && poll.roles[0].key_count == 1 &&
+			poll.roles[0].keys[0][0] == 0x72 && poll.roles[1].role == CONTROL_ROLE_OWNER && !poll.unlinked &&
+			poll.poll_seconds == 1);
+		/* (another nonce, another secret, a changed payload: refused) */
+		nonce[0] ^= 1;
+		CHECK(!control_link_open_answer(answer, strlen(answer), secret, nonce, payload, sizeof(payload)));
+		nonce[0] ^= 1;
+		secret[3] ^= 1;
+		CHECK(!control_link_open_answer(answer, strlen(answer), secret, nonce, payload, sizeof(payload)));
+		secret[3] ^= 1;
+		answer[30] = answer[30] == 'x' ? 'y' : 'x';
+		CHECK(!control_link_open_answer(answer, strlen(answer), secret, nonce, payload, sizeof(payload)));
+	}
+	/* polls the server does not take */
+	CHECK(!control_link_parse_poll("[]", 2, &poll));
+	CHECK(!control_link_parse_poll("{\"commands\": [{\"id\": -1, \"actor\": \"a\", \"command\": \"x\"}]}", 56, &poll));
+	CHECK(!control_link_parse_poll("{\"roles\": {\"version\": 1, \"entries\": [{\"handle\": \"a\", \"role\": \"god\"}]}}", 72,
+		&poll));
+	CHECK(!control_link_parse_poll("{\"roles\": {\"version\": 1, \"entries\": [{\"handle\": \"a\", \"role\": \"admin\", "
+		"\"keys\": [\"12\"]}]}}", 87, &poll));
+	CHECK(!control_link_parse_poll("{\"unlinked\": \"yes\"}", 19, &poll));
+	CHECK(control_link_parse_poll("{\"unlinked\": true}", 18, &poll) && poll.unlinked && !poll.command_count);
+	/* the link's start and state */
+	{
+		char code[16], token[72], state[16], server_id[64], owner[32];
+		int expires = 0;
+		const char *start = "{\"code\": \"ABCD-EFGH\", \"expires\": 600, \"token\": \"0123abcd\"}";
+		const char *linked = "{\"state\": \"linked\", \"server_id\": \"s_42\", \"owner\": \"milenko\"}";
+
+		CHECK(control_link_parse_start(start, strlen(start), code, sizeof(code), token, sizeof(token), &expires) &&
+			!strcmp(code, "ABCD-EFGH") && !strcmp(token, "0123abcd") && expires == 600);
+		CHECK(!control_link_parse_start("{\"code\": \"\"}", 12, code, sizeof(code), token, sizeof(token), &expires));
+		CHECK(control_link_parse_status(linked, strlen(linked), state, sizeof(state), server_id, sizeof(server_id), owner,
+			sizeof(owner)) && !strcmp(state, "linked") && !strcmp(server_id, "s_42") && !strcmp(owner, "milenko"));
+		CHECK(!control_link_parse_status("{\"state\": \"linked\", \"server_id\": \"../x\"}", 42, state, sizeof(state),
+			server_id, sizeof(server_id), owner, sizeof(owner)));
+	}
+	/* the commands the link takes, and their reasons */
+	CHECK(control_link_command_line("sv_kick 3", "camping", line, sizeof(line), &why) &&
+		!strcmp(line, "sv_kick 3 \"camping\""));
+	CHECK(control_link_command_line("sv_warn 3", "say \"hi\"\\", line, sizeof(line), &why) &&
+		!strcmp(line, "sv_warn 3 \"say \\\"hi\\\"\\\\\""));
+	CHECK(control_link_command_line("sv_map bloodgulch ctf", "ignored", line, sizeof(line), &why) &&
+		!strcmp(line, "sv_map bloodgulch ctf"));
+	CHECK(!control_link_command_line("sv_mod_add 3 owner", NULL, line, sizeof(line), &why));
+	CHECK(!control_link_command_line("sv_set name x", NULL, line, sizeof(line), &why));
+	CHECK(!control_link_command_line("sv_admin_add x", NULL, line, sizeof(line), &why));
+	CHECK(!control_link_command_line("sv_kickx 3", NULL, line, sizeof(line), &why));
+	CHECK(!control_link_command_line("sv_kick 3; sv_unlink", NULL, line, sizeof(line), &why));
+	CHECK(!control_link_command_line("sv_kick 3", "a\nb", line, sizeof(line), &why));
+	/* JSON: random text, cut answers, deep nesting */
+	{
+		char deep[64];
+
+		memset(deep, '[', 40);
+		memset(deep + 40, ']', 20);
+		CHECK(control_json_parse(deep, 60, tokens, 256) < 0);
+		CHECK(control_json_parse("{\"a\": tru}", 10, tokens, 256) < 0);
+		CHECK(control_json_parse("{\"a\": \"\\x\"}", 11, tokens, 256) < 0);
+		CHECK(control_json_parse("{\"a\": 1,}", 9, tokens, 256) < 0);
+		CHECK(control_json_parse("{\"a\": [1, 2, {\"b\": null}]}", 26, tokens, 256) == 8);
+	}
+	for (index = 0; index < rounds; index++)
+	{
+		static const char alphabet[] = "{}[]\":, \\0123456789abcdetrufalsn-.u\n";
+		int size = (int)(random_next() % 300);
+		int at;
+
+		for (at = 0; at < size; at++)
+			payload[at] = random_next() % 16 ? alphabet[random_next() % (sizeof(alphabet) - 1)] :
+				(char)(random_next() & 0xFF);
+		payload[size] = 0;
+		control_link_parse_poll(payload, (size_t)size, &poll);
+		control_link_open_answer(payload, (size_t)size, secret, nonce, body, sizeof(body));
+	}
+}
+
 int main(int argc, char **argv)
 {
 	int rounds = argc > 1 ? atoi(argv[1]) : 5000;
@@ -981,6 +1548,11 @@ int main(int argc, char **argv)
 	test_sessions();
 	test_web_headers();
 	test_web_files();
+	test_roles();
+	test_accounts();
+	test_fields();
+	test_server_config(rounds);
+	test_link(rounds);
 	printf("%d checks, %d failures\n", checks, failures);
 	return failures ? 1 : 0;
 }

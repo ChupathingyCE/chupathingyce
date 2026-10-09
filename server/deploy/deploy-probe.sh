@@ -1,6 +1,6 @@
 #!/bin/sh
 # Installs the game list's probe on the dedicated server's host
-# (server/README.md): the halo-probe image (the dedicated server's
+# (server/docs/docker.md): the halo-probe image (the dedicated server's
 # Dockerfile, with this game), probe.sh, and the probe user, whose key may
 # only probe. Run from the repository:
 #   server/deploy/deploy-probe.sh user@host path/to/chupathingyce-server "ssh-ed25519 AAAA... site"
