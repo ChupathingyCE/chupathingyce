@@ -37,7 +37,6 @@ boolean navm_build(void); /* for the loaded map: from the cache, or worked out (
 void navm_dispose(void);
 
 real navm_wall_clearance(real_point3d const *point, real *floor_z); /* room around a point (-1: not on the grid) */
-boolean navm_floor_at(real_point3d const *point, real above, real below, real *floor_z);
 boolean navm_line_walkable(real_point3d const *from, real_point3d const *to, real wall_min, real edge_min);
 /* ...and ending on the floor that `to` is on (navm_line_walkable follows the floor toward `to` and does not read its height) */
 boolean navm_line_arrives(real_point3d const *from, real_point3d const *to, real wall_min, real edge_min, boolean over_slots);

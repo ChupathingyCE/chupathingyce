@@ -69,6 +69,8 @@ there. Reachabilities that bots keep failing at cost more (learned).
 #define AAS_CACHES 96
 #define AAS_CACHE_VERSION 32
 #define AAS_DEAD_FAILURES 4 /* failed this often: not a way */
+#define AAS_CACHE_MAGIC 0x53414148UL /* HAAS */
+#define AAS_MAXIMUM_PLACES 256
 
 /* what a way that has failed costs, in seconds over its time: a jump or a
    gap has no cost of its own for being one (it is as good as the floor
@@ -78,11 +80,11 @@ static float aas_failure_penalty(long failures)
 {
 	return failures < 1 ? 0.f : failures >= AAS_DEAD_FAILURES ? 1000.f : (float)(1 << MIN(7, failures));
 }
-#define AAS_CACHE_MAGIC 0x53414148UL /* HAAS */
-#define AAS_MAXIMUM_PLACES 256
 
 /* a Spartan's jump: up at 2.1 units a second, 3.2 units a second a second
    down again, running at 2.25 */
+#define AAS_JUMP_VELOCITY 2.1f
+#define AAS_GRAVITY 3.21f
 #define AAS_GAP_RISE 0.5f /* a running jump lands this much higher at most (it tops out at 0.69) */
 /* How high a ledge is jumped up onto. The jump tops out at 0.69, and with
    the legs tucked up, as the bots tuck them, the feet are another 0.16 over
@@ -108,8 +110,6 @@ static real aas_jump_rise(void)
 	}
 	return rise;
 }
-#define AAS_JUMP_VELOCITY 2.1f
-#define AAS_GRAVITY 3.21f
 
 struct aas_cache
 {
@@ -210,8 +210,6 @@ static unsigned long aas_stamp_value;
 static long *aas_queue;
 static long *aas_depth;
 
-/* ---------- small things */
-
 /* ---------- values several routes share
 
 A route that has not searched the whole map yet goes on with the penalties
@@ -260,6 +258,8 @@ static float *aas_shared_writable(float **values)
 	*values = copy;
 	return copy;
 }
+
+/* ---------- small things */
 
 static real aas_distance(real_point3d const *a, real_point3d const *b)
 {
@@ -322,9 +322,6 @@ static void aas_new_search(void)
 	}
 }
 
-/* the area a span is in, or the nearest within steps (over the floor):
-   where someone at a ledge, a ladder or a pad (all by walls, so not in an
-   area themselves) gets on and off the areas */
 #define AAS_ATTACH_STEPS 40
 #define AAS_ATTACH_NONE 255
 
@@ -347,9 +344,9 @@ struct aas_nearest_memo
 };
 
 static struct aas_nearest_memo aas_nearest_memos[AAS_NEAREST_MEMOS];
+static unsigned long aas_nearest_generation = 1;
 /* (testing: every kept answer against the search) */
 static boolean aas_route_check(void);
-static unsigned long aas_nearest_generation = 1;
 
 static void aas_nearest_forget(void)
 {
@@ -372,9 +369,6 @@ static struct aas_nearest_memo *aas_nearest_memo_for(long type, real_point3d con
 	return &aas_nearest_memos[hash & (AAS_NEAREST_MEMOS - 1)];
 }
 
-/* ...worked out for every span at once, as far as AAS_ATTACH_STEPS (out
-   from the areas, a step at a time): asked for all the time, of a great
-   many spans */
 /* A build that ran out of memory. What it has by then is not all of the
    map's areas or the ways between them. It is not used and not kept
    (aas_build). */
@@ -387,6 +381,9 @@ static void aas_no_memory(char const *what)
 	aas_build_failed = TRUE;
 }
 
+/* the nearest area to every span at once, as far as AAS_ATTACH_STEPS (out
+   from the areas, a step at a time): asked for all the time, of a great
+   many spans */
 static void aas_find_attachments(long type, boolean reachable_only)
 {
 	struct aas_world *world = &aas_worlds[type];
@@ -440,6 +437,9 @@ static void aas_find_attachments(long type, boolean reachable_only)
 	}
 }
 
+/* the area a span is in, or the nearest within steps (over the floor):
+   where someone at a ledge, a ladder or a pad (all by walls, so not in an
+   area themselves) gets on and off the areas */
 static long aas_attach(long type, long s, long steps, long *found)
 {
 	struct aas_world *world = &aas_worlds[type];
@@ -507,29 +507,19 @@ static long aas_attach(long type, long s, long steps, long *found)
 #define AAS_BUCKETS 600
 #define AAS_GRID 193 /* the rectangle being grown, around its seed at the middle (twice the most cells a side, and some) */
 
-static void aas_build_areas(long type)
+struct aas_rectangle
 {
-	struct aas_world *world = &aas_worlds[type];
-	long *grid = (long *)malloc(AAS_GRID * AAS_GRID * sizeof(long));
-	long *order = (long *)malloc(MAX(1, navm.span_count) * sizeof(long));
-	long *bucket = (long *)calloc(AAS_BUCKETS + 2, sizeof(long));
-	long capacity = 4096;
+	long lx, hx, ly, hy; /* in the grid, both ends in */
+};
+
+/* the eligible spans, the roomiest first (a counting sort, most room first);
+   how many */
+static long aas_order_by_room(long type, long *order, long *bucket)
+{
 	long eligible = 0;
 	long s;
 	long i;
 
-	world->span_area = (long *)malloc(MAX(1, navm.span_count) * sizeof(long));
-	world->areas = (struct aas_area *)malloc(capacity * sizeof(struct aas_area));
-	world->area_count = 0;
-	if (!grid || !order || !bucket || !world->span_area || !world->areas)
-	{
-		aas_no_memory("the areas");
-		goto done;
-	}
-	for (s = 0; s < navm.span_count; s++)
-		world->span_area[s] = NONE;
-
-	/* the roomiest first (a counting sort, most room first) */
 	for (s = 0; s < navm.span_count; s++)
 	{
 		if (aas_eligible(type, s))
@@ -549,117 +539,171 @@ static void aas_build_areas(long type)
 			order[bucket[AAS_BUCKETS - MIN(key, AAS_BUCKETS)]++] = s;
 		}
 	}
+	return eligible;
+}
 
+/* one more column (direction 0: +x, 1: -x) or row (2: +y, 3: -y) onto the
+   rectangle, if every cell of it is roomy, free and joined to the one before
+   it; whether it was */
+static boolean aas_grow_side(long type, struct aas_world const *world, long *grid, long *fresh, long direction, struct aas_rectangle *rect)
+{
+	boolean ok = TRUE;
+	long count;
+	long k;
+
+	if (direction < 2)
+	{
+		/* a column: +x (0) or -x (1) */
+		long from_x = direction == 0 ? rect->hx : rect->lx;
+		if ((direction == 0 ? rect->hx + 1 >= AAS_GRID : rect->lx - 1 < 0) || rect->hx - rect->lx + 1 >= AAS_MAXIMUM_SIDE)
+			ok = FALSE;
+		count = rect->hy - rect->ly + 1;
+		for (k = 0; ok && k < count; k++)
+		{
+			long t = aas_neighbor(type, grid[(rect->ly + k) * AAS_GRID + from_x], direction);
+			if (!aas_eligible(type, t) || world->span_area[t] != NONE)
+				ok = FALSE;
+			else if (k > 0 && aas_neighbor(type, fresh[k - 1], 2) != t)
+				ok = FALSE; /* not joined to the one below it in the new column */
+			else
+				fresh[k] = t;
+		}
+		if (ok)
+		{
+			long to_x = direction == 0 ? ++rect->hx : --rect->lx;
+			for (k = 0; k < count; k++)
+				grid[(rect->ly + k) * AAS_GRID + to_x] = fresh[k];
+		}
+	}
+	else
+	{
+		/* a row: +y (2) or -y (3) */
+		long from_y = direction == 2 ? rect->hy : rect->ly;
+		if ((direction == 2 ? rect->hy + 1 >= AAS_GRID : rect->ly - 1 < 0) || rect->hy - rect->ly + 1 >= AAS_MAXIMUM_SIDE)
+			ok = FALSE;
+		count = rect->hx - rect->lx + 1;
+		for (k = 0; ok && k < count; k++)
+		{
+			long t = aas_neighbor(type, grid[from_y * AAS_GRID + rect->lx + k], direction);
+			if (!aas_eligible(type, t) || world->span_area[t] != NONE)
+				ok = FALSE;
+			else if (k > 0 && aas_neighbor(type, fresh[k - 1], 0) != t)
+				ok = FALSE;
+			else
+				fresh[k] = t;
+		}
+		if (ok)
+		{
+			long to_y = direction == 2 ? ++rect->hy : --rect->ly;
+			for (k = 0; k < count; k++)
+				grid[to_y * AAS_GRID + rect->lx + k] = fresh[k];
+		}
+	}
+	return ok;
+}
+
+/* the rectangle grown from a seed span, a column or a row at a time, each
+   side until it can go no further; left in the grid */
+static struct aas_rectangle aas_grow_area(long type, struct aas_world const *world, long *grid, long seed)
+{
+	struct aas_rectangle rect = { AAS_GRID / 2, AAS_GRID / 2, AAS_GRID / 2, AAS_GRID / 2 };
+	boolean stopped[4] = { FALSE, FALSE, FALSE, FALSE };
+	long fresh[AAS_GRID];
+
+	grid[rect.ly * AAS_GRID + rect.lx] = seed;
+	while (!stopped[0] || !stopped[1] || !stopped[2] || !stopped[3])
+	{
+		long direction;
+		for (direction = 0; direction < 4; direction++)
+		{
+			if (stopped[direction])
+				continue;
+			if (!aas_grow_side(type, world, grid, fresh, direction, &rect))
+				stopped[direction] = TRUE;
+		}
+	}
+	return rect;
+}
+
+/* the next area, the grown rectangle's: its spans, bounds and middle (FALSE:
+   no memory for it) */
+static boolean aas_area_add(long type, struct aas_world *world, long *grid, struct aas_rectangle const *rect, long *capacity)
+{
+	struct aas_area *area;
+	long x, y;
+
+	if (world->area_count >= *capacity)
+	{
+		struct aas_area *grown;
+		*capacity *= 2;
+		grown = (struct aas_area *)realloc(world->areas, *capacity * sizeof(struct aas_area));
+		if (!grown)
+		{
+			aas_no_memory("the areas");
+			return FALSE;
+		}
+		world->areas = grown;
+	}
+	area = &world->areas[world->area_count];
+	memset(area, 0, sizeof(*area));
+	area->z0 = 1.0e9f;
+	area->z1 = -1.0e9f;
+	for (y = rect->ly; y <= rect->hy; y++)
+	{
+		for (x = rect->lx; x <= rect->hx; x++)
+		{
+			long u = grid[y * AAS_GRID + x];
+			world->span_area[u] = world->area_count;
+			area->z0 = MIN(area->z0, navm.spans[u].floor);
+			area->z1 = MAX(area->z1, navm.spans[u].floor);
+			area->clearance = MAX(area->clearance, aas_room(type, u) / 100.f);
+		}
+	}
+	{
+		long corner = grid[rect->ly * AAS_GRID + rect->lx];
+		area->x0 = navm.x0 + aas_cell_x(corner) * NAVM_CELL;
+		area->y0 = navm.y0 + aas_cell_y(corner) * NAVM_CELL;
+		area->x1 = area->x0 + (rect->hx - rect->lx + 1) * NAVM_CELL;
+		area->y1 = area->y0 + (rect->hy - rect->ly + 1) * NAVM_CELL;
+		navm_span_point(grid[((rect->ly + rect->hy) / 2) * AAS_GRID + (rect->lx + rect->hx) / 2], &area->center);
+	}
+	world->area_count++;
+	return TRUE;
+}
+
+static void aas_build_areas(long type)
+{
+	struct aas_world *world = &aas_worlds[type];
+	long *grid = (long *)malloc(AAS_GRID * AAS_GRID * sizeof(long));
+	long *order = (long *)malloc(MAX(1, navm.span_count) * sizeof(long));
+	long *bucket = (long *)calloc(AAS_BUCKETS + 2, sizeof(long));
+	long capacity = 4096;
+	long eligible;
+	long s;
+	long i;
+
+	world->span_area = (long *)malloc(MAX(1, navm.span_count) * sizeof(long));
+	world->areas = (struct aas_area *)malloc(capacity * sizeof(struct aas_area));
+	world->area_count = 0;
+	if (!grid || !order || !bucket || !world->span_area || !world->areas)
+	{
+		aas_no_memory("the areas");
+		goto done;
+	}
+	for (s = 0; s < navm.span_count; s++)
+		world->span_area[s] = NONE;
+
+	eligible = aas_order_by_room(type, order, bucket);
 	for (i = 0; i < eligible; i++)
 	{
 		long seed = order[i];
-		long lx = AAS_GRID / 2, hx = AAS_GRID / 2, ly = AAS_GRID / 2, hy = AAS_GRID / 2;
-		boolean stopped[4] = { FALSE, FALSE, FALSE, FALSE };
-		long fresh[AAS_GRID];
-		struct aas_area *area;
-		long x, y;
+		struct aas_rectangle rect;
 
 		if (world->span_area[seed] != NONE)
 			continue;
-		grid[ly * AAS_GRID + lx] = seed;
-		while (!stopped[0] || !stopped[1] || !stopped[2] || !stopped[3])
-		{
-			long direction;
-			for (direction = 0; direction < 4; direction++)
-			{
-				boolean ok = TRUE;
-				long count;
-				long k;
-				if (stopped[direction])
-					continue;
-				if (direction < 2)
-				{
-					/* a column: +x (0) or -x (1) */
-					long from_x = direction == 0 ? hx : lx;
-					if ((direction == 0 ? hx + 1 >= AAS_GRID : lx - 1 < 0) || hx - lx + 1 >= AAS_MAXIMUM_SIDE)
-						ok = FALSE;
-					count = hy - ly + 1;
-					for (k = 0; ok && k < count; k++)
-					{
-						long t = aas_neighbor(type, grid[(ly + k) * AAS_GRID + from_x], direction);
-						if (!aas_eligible(type, t) || world->span_area[t] != NONE)
-							ok = FALSE;
-						else if (k > 0 && aas_neighbor(type, fresh[k - 1], 2) != t)
-							ok = FALSE; /* not joined to the one below it in the new column */
-						else
-							fresh[k] = t;
-					}
-					if (ok)
-					{
-						long to_x = direction == 0 ? ++hx : --lx;
-						for (k = 0; k < count; k++)
-							grid[(ly + k) * AAS_GRID + to_x] = fresh[k];
-					}
-				}
-				else
-				{
-					/* a row: +y (2) or -y (3) */
-					long from_y = direction == 2 ? hy : ly;
-					if ((direction == 2 ? hy + 1 >= AAS_GRID : ly - 1 < 0) || hy - ly + 1 >= AAS_MAXIMUM_SIDE)
-						ok = FALSE;
-					count = hx - lx + 1;
-					for (k = 0; ok && k < count; k++)
-					{
-						long t = aas_neighbor(type, grid[from_y * AAS_GRID + lx + k], direction);
-						if (!aas_eligible(type, t) || world->span_area[t] != NONE)
-							ok = FALSE;
-						else if (k > 0 && aas_neighbor(type, fresh[k - 1], 0) != t)
-							ok = FALSE;
-						else
-							fresh[k] = t;
-					}
-					if (ok)
-					{
-						long to_y = direction == 2 ? ++hy : --ly;
-						for (k = 0; k < count; k++)
-							grid[to_y * AAS_GRID + lx + k] = fresh[k];
-					}
-				}
-				if (!ok)
-					stopped[direction] = TRUE;
-			}
-		}
-		if (world->area_count >= capacity)
-		{
-			struct aas_area *grown;
-			capacity *= 2;
-			grown = (struct aas_area *)realloc(world->areas, capacity * sizeof(struct aas_area));
-			if (!grown)
-			{
-				aas_no_memory("the areas");
-				break;
-			}
-			world->areas = grown;
-		}
-		area = &world->areas[world->area_count];
-		memset(area, 0, sizeof(*area));
-		area->z0 = 1.0e9f;
-		area->z1 = -1.0e9f;
-		for (y = ly; y <= hy; y++)
-		{
-			for (x = lx; x <= hx; x++)
-			{
-				long u = grid[y * AAS_GRID + x];
-				world->span_area[u] = world->area_count;
-				area->z0 = MIN(area->z0, navm.spans[u].floor);
-				area->z1 = MAX(area->z1, navm.spans[u].floor);
-				area->clearance = MAX(area->clearance, aas_room(type, u) / 100.f);
-			}
-		}
-		{
-			long corner = grid[ly * AAS_GRID + lx];
-			area->x0 = navm.x0 + aas_cell_x(corner) * NAVM_CELL;
-			area->y0 = navm.y0 + aas_cell_y(corner) * NAVM_CELL;
-			area->x1 = area->x0 + (hx - lx + 1) * NAVM_CELL;
-			area->y1 = area->y0 + (hy - ly + 1) * NAVM_CELL;
-			navm_span_point(grid[((ly + hy) / 2) * AAS_GRID + (lx + hx) / 2], &area->center);
-		}
-		world->area_count++;
+		rect = aas_grow_area(type, world, grid, seed);
+		if (!aas_area_add(type, world, grid, &rect, &capacity))
+			break;
 	}
 done:
 	free(grid);
@@ -812,6 +856,13 @@ static struct aas_reach *aas_reach_new(struct aas_reaches *list, long from, long
 	return reach;
 }
 
+static void aas_midpoint(real_point3d *middle, real_point3d const *a, real_point3d const *b)
+{
+	middle->x = (a->x + b->x) * 0.5f;
+	middle->y = (a->y + b->y) * 0.5f;
+	middle->z = (a->z + b->z) * 0.5f;
+}
+
 /* walking from one area into the next: the edges they share, a run of
    cells long each */
 static void aas_walk_reaches(long type, struct aas_reaches *reaches)
@@ -871,15 +922,9 @@ static void aas_walk_reaches(long type, struct aas_reaches *reaches)
 		navm_span_point(first->high_span, &b0);
 		navm_span_point(last->low_span, &a1);
 		navm_span_point(last->high_span, &b1);
-		reach->left.x = (a0.x + b0.x) * 0.5f;
-		reach->left.y = (a0.y + b0.y) * 0.5f;
-		reach->left.z = (a0.z + b0.z) * 0.5f;
-		reach->right.x = (a1.x + b1.x) * 0.5f;
-		reach->right.y = (a1.y + b1.y) * 0.5f;
-		reach->right.z = (a1.z + b1.z) * 0.5f;
-		reach->start.x = (reach->left.x + reach->right.x) * 0.5f;
-		reach->start.y = (reach->left.y + reach->right.y) * 0.5f;
-		reach->start.z = (reach->left.z + reach->right.z) * 0.5f;
+		aas_midpoint(&reach->left, &a0, &b0);
+		aas_midpoint(&reach->right, &a1, &b1);
+		aas_midpoint(&reach->start, &reach->left, &reach->right);
 		reach->edge = reach->start;
 		reach->end = reach->start;
 		/* (into a squeeze, nowhere in it more than a hand's width clear of
@@ -889,6 +934,36 @@ static void aas_walk_reaches(long type, struct aas_reaches *reaches)
 		i = j;
 	}
 	free(list.items);
+}
+
+/* whether a real area (not a speck) is within steps of a span, over the floor */
+static boolean aas_real_area_near(struct aas_world const *world, unsigned char const *speck, long s, long steps)
+{
+	long head = 0, tail = 0;
+	aas_new_search();
+	aas_stamp[s] = aas_stamp_value;
+	aas_queue[tail] = s;
+	aas_depth[tail++] = 0;
+	while (head < tail)
+	{
+		long u = aas_queue[head];
+		long depth = aas_depth[head++];
+		long d;
+		if (world->span_area[u] != NONE && !speck[world->span_area[u]])
+			return TRUE;
+		if (depth >= steps)
+			continue;
+		for (d = 0; d < 8; d++)
+		{
+			long t = navm_walk_neighbor(u, d);
+			if (t == NONE || aas_stamp[t] == aas_stamp_value || tail >= navm.span_count)
+				continue;
+			aas_stamp[t] = aas_stamp_value;
+			aas_queue[tail] = t;
+			aas_depth[tail++] = depth + 1;
+		}
+	}
+	return FALSE;
 }
 
 /* specks: a few cells that happen to be a body's width off everything,
@@ -923,39 +998,11 @@ static void aas_dissolve_specks(long type, struct aas_reaches *walks)
 	}
 	for (s = 0; s < navm.span_count; s++)
 	{
-		long head = 0, tail = 0;
-		long found = NONE;
 		a = world->span_area[s];
 		if (a == NONE || speck[a] != 1)
 			continue;
 		/* a real area within a few steps over the floor? */
-		aas_new_search();
-		aas_stamp[s] = aas_stamp_value;
-		aas_queue[tail] = s;
-		aas_depth[tail++] = 0;
-		while (head < tail && found == NONE)
-		{
-			long u = aas_queue[head];
-			long depth = aas_depth[head++];
-			long d;
-			if (world->span_area[u] != NONE && !speck[world->span_area[u]])
-			{
-				found = u;
-				break;
-			}
-			if (depth >= steps)
-				continue;
-			for (d = 0; d < 8; d++)
-			{
-				long t = navm_walk_neighbor(u, d);
-				if (t == NONE || aas_stamp[t] == aas_stamp_value || tail >= navm.span_count)
-					continue;
-				aas_stamp[t] = aas_stamp_value;
-				aas_queue[tail] = t;
-				aas_depth[tail++] = depth + 1;
-			}
-		}
-		speck[a] = found != NONE ? 2 : 3; /* (2: to go; 3: on its own, stays) */
+		speck[a] = aas_real_area_near(world, speck, s, steps) ? 2 : 3; /* (2: to go; 3: on its own, stays) */
 	}
 	for (s = 0; s < navm.span_count; s++)
 	{
@@ -1051,186 +1098,241 @@ static boolean aas_drop_falls_beyond(long s, long d, long k, long found)
 	return careful;
 }
 
+/* how a scan out from a ledge has gone so far */
+struct aas_ledge_state
+{
+	boolean below; /* floor down below on the way: over it only to somewhere at our height (a pit to cross) */
+	boolean step_below; /* ...only a step down: not even then */
+	boolean dropped; /* a drop found: on over the pit for a ledge to jump to */
+	boolean opening; /* room to walk off here */
+	boolean crossed_floor; /* floor at our height passed over on the way out */
+	float dropped_floor; /* (the pit's floor: that's no ledge) */
+};
+
+/* what one column of the scan holds */
+struct aas_ledge_column
+{
+	long found; /* the span to go to, and how */
+	long travel;
+	boolean level; /* floor at about our height */
+	boolean level_open; /* the level floor is room to stand, not a sliver by a wall */
+	long level_span;
+	boolean below; /* floor down below in this column */
+	boolean step_below;
+};
+
+/* whether a gap that far across, to a floor that much higher, can be cleared
+   at a run */
+static boolean aas_gap_jumpable(long d, long k, real rise)
+{
+	real distance = k * NAVM_CELL * navm_step_length[d];
+	real under = AAS_JUMP_VELOCITY * AAS_JUMP_VELOCITY - 2.f * AAS_GRAVITY * rise;
+	real air = under >= 0.f ? (AAS_JUMP_VELOCITY + (real)sqrt(under)) / AAS_GRAVITY : 0.f;
+	return distance <= 0.9f * AAS_FOOT_SPEED * air;
+}
+
+/* one span of a column k cells out from edge span s, in direction d: whether
+   it is a floor at our height or below, and a ledge to jump up to, a drop or a
+   gap to it (column->found; a later span can replace a jump) */
+static void aas_ledge_classify(long type, long s, long d, long k, long u, struct aas_ledge_state const *state, struct aas_ledge_column *column)
+{
+	struct navm_span const *span = &navm.spans[s];
+	struct navm_span const *other = &navm.spans[u];
+	long const jump_cells = NAVM_CELLS(0.6f); /* a ledge to jump up: this close */
+	long const gap_cells = NAVM_CELLS(0.4f); /* a gap: at least this wide */
+	real maximum_drop = type == AAS_VEHICLE ? AAS_VEHICLE_DROP : AAS_FOOT_DROP;
+	real rise = other->floor - span->floor;
+	/* a floor down below on the way: a drop there, not a gap
+	   over it */
+	if (rise < -NAVM_STEP && rise > -2.5f && (other->flags & _navm_span_walkable))
+	{
+		column->below = TRUE;
+		/* (just down a step from us, got back up from with a hop:
+		   nothing to jump over) */
+		if (rise >= -NAVM_JUMP)
+			column->step_below = TRUE;
+	}
+	if (rise > -NAVM_STEP && rise <= NAVM_STEP && (other->flags & _navm_span_walkable) && !(other->flags & _navm_span_blocked))
+	{
+		column->level = TRUE; /* floor at our height: not a clean ledge or gap beyond (the top of a railing,
+		                         too narrow to stand on, isn't: jumped over, if the checks below allow) */
+		if (other->wall >= AAS_FOOT_CLEARANCE)
+			column->level_open = TRUE;
+		column->level_span = u;
+	}
+	if (!(other->flags & _navm_span_walkable) || (other->flags & _navm_span_blocked))
+		return;
+	if (type == AAS_VEHICLE && other->ceiling - other->floor < NAVM_VEHICLE_HEIGHT)
+		return;
+	/* (jumped up: the jump's top is 0.69 up, the legs tucked a bit
+	   more; a ledge right at that is a jump that fails as often as
+	   not, so a margin) */
+	/* (cornerwise as well as square on: the way onto the west
+	   base of Battle Creek is off the end of a wall a body wide,
+	   onto a roof whose edge is a step to one side of it) */
+	if ((d < 4 ? k <= jump_cells : k * navm_step_length[d] <= jump_cells) && type == AAS_FOOT && rise > NAVM_STEP && rise <= aas_jump_rise() &&
+		span->ceiling - span->floor >= rise + NAVM_HEIGHT)
+	{
+		column->found = u;
+		column->travel = _aas_travel_jump;
+	}
+	else if (!state->dropped && k <= NAVM_CELLS(d < 4 ? 1.f : 0.6f) && rise < -(type == AAS_VEHICLE ? NAVM_VEHICLE_STEP : NAVM_STEP) &&
+		-rise <= maximum_drop && other->ceiling >= span->floor + NAVM_HEIGHT && column->found == NONE && state->opening &&
+		(type != AAS_FOOT || (other->wall >= 14 && other->edge >= 14)))
+	{
+		/* (somewhere a body lands and stays: not a shelf under the
+		   ledge too narrow to stand on, which it slides off) */
+		column->found = u;
+		column->travel = _aas_travel_drop;
+	}
+	else if (type == AAS_FOOT && k >= gap_cells && (!state->below || (rise >= -NAVM_JUMP && !state->step_below)) && rise <= AAS_GAP_RISE &&
+		rise >= -3.5f && (!state->dropped || rise >= -NAVM_JUMP || other->floor > state->dropped_floor + NAVM_JUMP) && column->found == NONE &&
+		other->wall >= 20)
+	{
+		/* a gap: far enough to need a jump, near enough to make (over
+		   to the same height, or across and down onto something
+		   lower: a platform, a ledge below) */
+		if (aas_gap_jumpable(d, k, rise))
+		{
+			column->found = u;
+			column->travel = _aas_travel_gap;
+		}
+	}
+}
+
+/* the candidate for the way k cells out from edge span s to the span found
+   (a is the area at the ledge, a_span where it is entered: looked for once) */
+static void aas_ledge_candidate(long type, struct aas_candidates *list, long s, long d, long k, long found, long travel, boolean walkover, long *a, long *a_span)
+{
+	long attach_steps = NAVM_CELLS(type == AAS_VEHICLE ? 1.6f : 1.2f);
+	struct aas_candidate *candidate;
+	long b_span = NONE;
+	long b;
+	if (*a == NONE)
+		*a = aas_attach(type, s, attach_steps, a_span);
+	b = aas_attach(type, found, attach_steps, &b_span);
+	if (*a != NONE && b != NONE && *a != b && (candidate = aas_candidate_new(list)) != NULL)
+	{
+		real_point3d p0, p1;
+		candidate->from = *a;
+		candidate->to = b;
+		candidate->travel = travel;
+		candidate->walkover = walkover;
+		candidate->start_span = *a_span;
+		candidate->edge_span = s;
+		candidate->end_span = b_span;
+		candidate->low_span = found;
+		navm_span_point(*a_span, &p0);
+		navm_span_point(s, &p1);
+		candidate->cost = aas_distance2d(&p0, &p1);
+		navm_span_point(b_span, &p0);
+		navm_span_point(found, &p1);
+		candidate->cost += aas_distance2d(&p0, &p1) + k * NAVM_CELL * 0.25f;
+		if (travel == _aas_travel_drop && type == AAS_FOOT)
+			candidate->careful = aas_drop_falls_beyond(s, d, k, found);
+	}
+}
+
 /* one direction off one edge span: the ledges to jump up to, the drops, and
    the gaps, each as a candidate (aas_ledge_reaches picks among them) */
 static void aas_ledge_scan(long type, struct aas_candidates *list, long s, long d)
 {
-	struct navm_span const *span = &navm.spans[s];
-	long attach_steps = NAVM_CELLS(type == AAS_VEHICLE ? 1.6f : 1.2f);
 	long const reach_cells = NAVM_CELLS(3.2f); /* how far out from a ledge to look */
-	long const jump_cells = NAVM_CELLS(0.6f); /* a ledge to jump up: this close */
-	long const gap_cells = NAVM_CELLS(0.4f); /* a gap: at least this wide */
-	real maximum_drop = type == AAS_VEHICLE ? AAS_VEHICLE_DROP : AAS_FOOT_DROP;
+	struct aas_ledge_state state = { FALSE, FALSE, FALSE, TRUE, FALSE, 0.f };
 	long k;
 	long a = NONE;
 	long a_span = NONE;
-	boolean below = FALSE; /* floor down below on the way: over it only to somewhere at our height (a pit to cross) */
-	boolean step_below = FALSE; /* ...only a step down: not even then */
-	boolean dropped = FALSE; /* a drop found: on over the pit for a ledge to jump to */
-	boolean opening = TRUE; /* room to walk off here */
-	boolean crossed_floor = FALSE; /* floor at our height passed over on the way out */
-	float dropped_floor = 0.f; /* (the pit's floor: that's no ledge) */
 	if (aas_neighbor(type, s, d) != NONE)
 		return;
 	if (type == AAS_FOOT)
-		opening = aas_edge_opening(s, d);
+		state.opening = aas_edge_opening(s, d);
 	for (k = 1; k <= reach_cells; k++)
 	{
 		long x = aas_cell_x(s) + navm_dx[d] * k;
 		long y = aas_cell_y(s) + navm_dy[d] * k;
-		long u;
-		long found = NONE;
-		long travel = NONE;
-		boolean level = FALSE;
-		boolean level_open = FALSE; /* the level floor is room to stand, not a sliver by a wall */
-		boolean column_below = FALSE;
-		boolean column_step_below = FALSE;
-		long level_span = NONE;
+		struct aas_ledge_column column = { NONE, NONE, FALSE, FALSE, NONE, FALSE, FALSE };
 		boolean walkover = FALSE;
+		long u;
 		if (x < 0 || y < 0 || x >= navm.width || y >= navm.height)
 			break;
 		for (u = navm_first_span_at(x, y); u != NONE; u = navm.spans[u].next)
-		{
-			struct navm_span const *other = &navm.spans[u];
-			real rise = other->floor - span->floor;
-			/* a floor down below on the way: a drop there, not a gap
-			   over it */
-			if (k >= 1 && rise < -NAVM_STEP && rise > -2.5f && (other->flags & _navm_span_walkable))
-			{
-				column_below = TRUE;
-				/* (just down a step from us, got back up from with a hop:
-				   nothing to jump over) */
-				if (rise >= -NAVM_JUMP)
-					column_step_below = TRUE;
-			}
-			if (rise > -NAVM_STEP && rise <= NAVM_STEP && (other->flags & _navm_span_walkable) && !(other->flags & _navm_span_blocked))
-			{
-				level = TRUE; /* floor at our height: not a clean ledge or gap beyond (the top of a railing,
-				                 too narrow to stand on, isn't: jumped over, if the checks below allow) */
-				if (other->wall >= AAS_FOOT_CLEARANCE)
-					level_open = TRUE;
-				level_span = u;
-			}
-			if (!(other->flags & _navm_span_walkable) || (other->flags & _navm_span_blocked))
-				continue;
-			if (type == AAS_VEHICLE && other->ceiling - other->floor < NAVM_VEHICLE_HEIGHT)
-				continue;
-			/* (jumped up: the jump's top is 0.69 up, the legs tucked a bit
-			   more; a ledge right at that is a jump that fails as often as
-			   not, so a margin) */
-			/* (cornerwise as well as square on: the way onto the west
-			   base of Battle Creek is off the end of a wall a body wide,
-			   onto a roof whose edge is a step to one side of it) */
-			if ((d < 4 ? k <= jump_cells : k * navm_step_length[d] <= jump_cells) && type == AAS_FOOT && rise > NAVM_STEP && rise <= aas_jump_rise() &&
-				span->ceiling - span->floor >= rise + NAVM_HEIGHT)
-			{
-				found = u;
-				travel = _aas_travel_jump;
-			}
-			else if (!dropped && k <= NAVM_CELLS(d < 4 ? 1.f : 0.6f) && rise < -(type == AAS_VEHICLE ? NAVM_VEHICLE_STEP : NAVM_STEP) &&
-				-rise <= maximum_drop && other->ceiling >= span->floor + NAVM_HEIGHT && found == NONE && opening &&
-				(type != AAS_FOOT || (other->wall >= 14 && other->edge >= 14)))
-			{
-				/* (somewhere a body lands and stays: not a shelf under the
-				   ledge too narrow to stand on, which it slides off) */
-				found = u;
-				travel = _aas_travel_drop;
-			}
-			else if (type == AAS_FOOT && k >= gap_cells && (!below || (rise >= -NAVM_JUMP && !step_below)) && rise <= AAS_GAP_RISE && rise >= -3.5f &&
-				(!dropped || rise >= -NAVM_JUMP || other->floor > dropped_floor + NAVM_JUMP) && found == NONE && other->wall >= 20)
-			{
-				/* a gap: far enough to need a jump, near enough to make (over
-			   to the same height, or across and down onto something
-			   lower: a platform, a ledge below) */
-				real distance = k * NAVM_CELL * navm_step_length[d];
-				real under = AAS_JUMP_VELOCITY * AAS_JUMP_VELOCITY - 2.f * AAS_GRAVITY * rise;
-				real air = under >= 0.f ? (AAS_JUMP_VELOCITY + (real)sqrt(under)) / AAS_GRAVITY : 0.f;
-				if (distance <= 0.9f * AAS_FOOT_SPEED * air)
-				{
-					found = u;
-					travel = _aas_travel_gap;
-				}
-			}
-		}
+			aas_ledge_classify(type, s, d, k, u, &state, &column);
 		/* floor at about our height (a step up or down at most) just the
 		   other side of a slot no wider than a hand: the bevel at the
 		   foot of a sill, the crack between two plates. Not walked
 		   onto cell by cell, there being no floor in the slot, but a
 		   body goes over it without noticing: a way across, walked */
-		if (found == NONE && type == AAS_FOOT && level && level_span != NONE && k >= 2 && k <= NAVM_CELLS(0.2f) + 1 && !crossed_floor &&
-			NAVM_CELL < 0.15f)
+		if (column.found == NONE && type == AAS_FOOT && column.level && column.level_span != NONE && k >= 2 && k <= NAVM_CELLS(0.2f) + 1 &&
+			!state.crossed_floor && NAVM_CELL < 0.15f)
 		{
-			found = level_span;
-			travel = _aas_travel_gap;
+			column.found = column.level_span;
+			column.travel = _aas_travel_gap;
 			walkover = TRUE;
 		}
-		if (level)
-			crossed_floor = TRUE;
-		if (found != NONE)
+		if (column.level)
+			state.crossed_floor = TRUE;
+		if (column.found != NONE)
 		{
-			struct aas_candidate *candidate;
-			long b_span = NONE;
-			long b;
-			if (a == NONE)
-				a = aas_attach(type, s, attach_steps, &a_span);
-			b = aas_attach(type, found, attach_steps, &b_span);
-			if (a != NONE && b != NONE && a != b && (candidate = aas_candidate_new(list)) != NULL)
-			{
-				real_point3d p0, p1;
-				candidate->from = a;
-				candidate->to = b;
-				candidate->travel = travel;
-				candidate->walkover = walkover;
-				candidate->start_span = a_span;
-				candidate->edge_span = s;
-				candidate->end_span = b_span;
-				candidate->low_span = found;
-				navm_span_point(a_span, &p0);
-				navm_span_point(s, &p1);
-				candidate->cost = aas_distance2d(&p0, &p1);
-				navm_span_point(b_span, &p0);
-				navm_span_point(found, &p1);
-				candidate->cost += aas_distance2d(&p0, &p1) + k * NAVM_CELL * 0.25f;
-				if (travel == _aas_travel_drop && type == AAS_FOOT)
-					candidate->careful = aas_drop_falls_beyond(s, d, k, found);
-			}
+			aas_ledge_candidate(type, list, s, d, k, column.found, column.travel, walkover, &a, &a_span);
 			/* down into a pit: and across it too, if there's a ledge
 			   the far side at about our height (a jump over, as
 			   people make for the rockets on a shelf) */
-			if (travel == _aas_travel_drop && type == AAS_FOOT)
+			if (column.travel == _aas_travel_drop && type == AAS_FOOT)
 			{
-				dropped = TRUE;
-				dropped_floor = navm.spans[found].floor;
+				state.dropped = TRUE;
+				state.dropped_floor = navm.spans[column.found].floor;
 				continue;
 			}
 			break;
 		}
 		/* (a sliver of floor at our height between us and a step up,
 		   too near the wall to stand in: on over it for the step) */
-		if (level && (level_open || k > NAVM_CELLS(0.8f) || type != AAS_FOOT))
+		if (column.level && (column.level_open || k > NAVM_CELLS(0.8f) || type != AAS_FOOT))
 			break;
-		below |= column_below;
-		step_below |= column_step_below;
+		state.below |= column.below;
+		state.step_below |= column.step_below;
 	}
+}
+
+/* what a body is stopped by (a jump's arc, in aas_gap_clear, leaves out the
+   backs of surfaces) */
+#define AAS_SOLID_TESTS (FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_back_facing_surfaces_bit) | \
+	FLAG(_collision_test_structure_bit) | FLAG(_collision_test_objects_bit) | FLAG(_collision_test_objects_scenery_bit))
+
+/* whether anything is in the way of a straight line from a to b */
+static boolean aas_ray_blocked(unsigned long flags, real_point3d const *a, real_point3d const *b, struct collision_result *collision)
+{
+	real_vector3d vector;
+	vector.i = b->x - a->x;
+	vector.j = b->y - a->y;
+	vector.k = b->z - a->z;
+	return collision_test_vector(flags, a, &vector, NONE, collision);
+}
+
+/* a point moved sideways (side: -1 or 1) of the line it is on, by a body's
+   half width */
+static void aas_shift_aside(real_point3d *point, real dx, real dy, real length, long side)
+{
+	point->x += -dy / length * 0.18f * side;
+	point->y += dx / length * 0.18f * side;
 }
 
 /* a gap wants room to run at it from, straight behind its edge */
 static boolean aas_gap_has_runup(struct aas_candidate const *candidate)
 {
 	real_point3d edge, land, back;
-	real dx, dy, length;
+	real dx, dy, length, runup;
 	navm_span_point(candidate->edge_span, &edge);
 	navm_span_point(candidate->low_span, &land);
 	dx = edge.x - land.x, dy = edge.y - land.y;
 	length = (real)sqrt(dx * dx + dy * dy);
 	if (length < 0.01f)
 		return FALSE;
+	runup = aas_gap_runup(length, land.z - edge.z);
 	back = edge;
-	back.x += dx / length * aas_gap_runup(length, land.z - edge.z);
-	back.y += dy / length * aas_gap_runup(length, land.z - edge.z);
-	if (!navm_line_walkable(&edge, &back, 0.f, 0.f))
-		return FALSE;
-	return TRUE;
+	back.x += dx / length * runup;
+	back.y += dy / length * runup;
+	return navm_line_walkable(&edge, &back, 0.f, 0.f);
 }
 
 /* a gap's jump: whether it is clear of anything in the way (and, in *barrier,
@@ -1243,7 +1345,6 @@ static boolean aas_gap_clear(struct aas_candidate const *candidate, boolean *bar
 		FLAG(_collision_test_objects_bit) | FLAG(_collision_test_objects_scenery_bit);
 	struct collision_result collision;
 	real_point3d from, to;
-	real_vector3d vector;
 	real heights[3] = { 0.75f, 1.0f, 1.3f }; /* (in the air: over a railing, a knee-high lip) */
 	long h;
 	boolean clear = TRUE;
@@ -1254,10 +1355,7 @@ static boolean aas_gap_clear(struct aas_candidate const *candidate, boolean *bar
 		real_point3d a = from, b = to;
 		a.z += heights[h];
 		b.z += heights[h];
-		vector.i = b.x - a.x;
-		vector.j = b.y - a.y;
-		vector.k = b.z - a.z;
-		if (collision_test_vector(flags, &a, &vector, NONE, &collision))
+		if (aas_ray_blocked(flags, &a, &b, &collision))
 		{
 			clear = FALSE;
 			if (getenv("HALO_BOT_GAPLOG"))
@@ -1276,14 +1374,11 @@ static boolean aas_gap_clear(struct aas_candidate const *candidate, boolean *bar
 		for (side = -1; side <= 1 && clear && length > 0.01f; side += 2)
 		{
 			real_point3d a = from, b = to;
-			a.x += -dy / length * 0.18f * side, a.y += dx / length * 0.18f * side;
-			b.x += -dy / length * 0.18f * side, b.y += dx / length * 0.18f * side;
+			aas_shift_aside(&a, dx, dy, length, side);
+			aas_shift_aside(&b, dx, dy, length, side);
 			a.z += 1.0f;
 			b.z += 1.0f;
-			vector.i = b.x - a.x;
-			vector.j = b.y - a.y;
-			vector.k = b.z - a.z;
-			if (collision_test_vector(flags, &a, &vector, NONE, &collision))
+			if (aas_ray_blocked(flags, &a, &b, &collision))
 				clear = FALSE;
 		}
 	}
@@ -1299,10 +1394,7 @@ static boolean aas_gap_clear(struct aas_candidate const *candidate, boolean *bar
 			real_point3d a = from, b = to;
 			a.z += lows[h];
 			b.z += lows[h];
-			vector.i = b.x - a.x;
-			vector.j = b.y - a.y;
-			vector.k = b.z - a.z;
-			if (collision_test_vector(flags, &a, &vector, NONE, &collision))
+			if (aas_ray_blocked(flags, &a, &b, &collision))
 			{
 				if (h == 0)
 					clear = FALSE;
@@ -1312,45 +1404,32 @@ static boolean aas_gap_clear(struct aas_candidate const *candidate, boolean *bar
 		}
 	}
 	return clear;
-	return TRUE;
 }
 
-/* a jump up or a drop: whether it is clear over the ledge and up or down its
-   face (and, in *hop, whether a lip at the edge is hopped over) */
-static boolean aas_face_clear(long type, struct aas_candidate const *candidate, boolean *hop)
+/* a jump up or a drop: whether it is clear level across the ledge, at the
+   knee and the waist, on past the edge onto the high floor */
+static boolean aas_face_clear_across(long type, struct aas_candidate const *candidate, real_point3d const *low, real_point3d const *high)
 {
-	unsigned long const flags = FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_back_facing_surfaces_bit) |
-		FLAG(_collision_test_structure_bit) | FLAG(_collision_test_objects_bit) | FLAG(_collision_test_objects_scenery_bit);
+	unsigned long const flags = AAS_SOLID_TESTS;
 	struct collision_result collision;
-	real_point3d low, high;
 	real_vector3d vector;
 	real heights[2] = { candidate->travel == _aas_travel_drop && type == AAS_FOOT ? 0.5f : 0.4f, 0.75f }; /* (lower down, on a drop on foot: a hop over it, below) */
 	long h;
 	boolean clear = TRUE;
-	if (candidate->travel == _aas_travel_jump)
-	{
-		navm_span_point(candidate->edge_span, &low);
-		navm_span_point(candidate->low_span, &high);
-	}
-	else
-	{
-		navm_span_point(candidate->edge_span, &high);
-		navm_span_point(candidate->low_span, &low);
-	}
 	for (h = 0; h < 2 && clear; h++)
 	{
 		/* (on past the edge onto the high floor a little: a
 		   railing, a pane, a clip wall just back from the edge) */
-		real_point3d a = low, b = high;
-		real dx = high.x - low.x;
-		real dy = high.y - low.y;
+		real_point3d a = *low, b = *high;
+		real dx = high->x - low->x;
+		real dy = high->y - low->y;
 		real length = (real)sqrt(dx * dx + dy * dy);
 		if (length > 0.01f)
 		{
 			b.x += dx / length * 0.6f;
 			b.y += dy / length * 0.6f;
 		}
-		a.z = b.z = high.z + heights[h];
+		a.z = b.z = high->z + heights[h];
 		vector.i = b.x - a.x;
 		vector.j = b.y - a.y;
 		vector.k = 0.f;
@@ -1364,13 +1443,73 @@ static boolean aas_face_clear(long type, struct aas_candidate const *candidate, 
 			for (side = -1; side <= 1 && clear; side += 2)
 			{
 				real_point3d c = a;
-				c.x += -dy / length * 0.18f * side;
-				c.y += dx / length * 0.18f * side;
+				aas_shift_aside(&c, dx, dy, length, side);
 				if (collision_test_vector(flags, &c, &vector, NONE, &collision))
 					clear = FALSE;
 			}
 		}
 	}
+	return clear;
+}
+
+/* a drop on foot: whether a curb or a railing's foot at the edge is low
+   enough to hop over (in *hop, whether there is one) */
+static boolean aas_face_clear_hop(real_point3d const *low, real_point3d const *high, boolean *hop)
+{
+	unsigned long const flags = AAS_SOLID_TESTS;
+	struct collision_result collision;
+	/* a curb, a railing's foot at the edge (knee high, under
+	   the heights above): no walking off, but a hop over it
+	   and down is fine, as a gap is jumped */
+	real dx = low->x - high->x;
+	real dy = low->y - high->y;
+	real length = (real)sqrt(dx * dx + dy * dy);
+	real lift;
+	boolean clear = TRUE;
+	/* (every few centimetres up to the waist: a bar at the
+	   knee, open under, is only a few thick) */
+	for (lift = 0.1f; lift < 0.5f && clear; lift += 0.05f)
+	{
+		real_point3d a = *high, b = *low;
+		a.z = b.z = high->z + lift;
+		if (length > 0.01f)
+		{
+			a.x -= dx / length * 0.3f;
+			a.y -= dy / length * 0.3f;
+		}
+		if (aas_ray_blocked(flags, &a, &b, &collision))
+		{
+			*hop = TRUE;
+			/* (shin high at the most: over anything more,
+			   with a drop beyond it, a jump lands on it as
+			   often as past it) */
+			if (lift >= 0.3f)
+				clear = FALSE;
+		}
+	}
+	return clear;
+}
+
+/* a jump up or a drop: whether it is clear over the ledge and up or down its
+   face (and, in *hop, whether a lip at the edge is hopped over) */
+static boolean aas_face_clear(long type, struct aas_candidate const *candidate, boolean *hop)
+{
+	unsigned long const flags = AAS_SOLID_TESTS;
+	struct collision_result collision;
+	real_point3d low, high;
+	real_vector3d vector;
+	boolean clear;
+	if (candidate->travel == _aas_travel_jump)
+	{
+		navm_span_point(candidate->edge_span, &low);
+		navm_span_point(candidate->low_span, &high);
+	}
+	else
+	{
+		navm_span_point(candidate->edge_span, &high);
+		navm_span_point(candidate->low_span, &low);
+	}
+	clear = aas_face_clear_across(type, candidate, &low, &high);
 	if (clear)
 	{
 		/* up (or down) the face, on the low side */
@@ -1383,41 +1522,8 @@ static boolean aas_face_clear(long type, struct aas_candidate const *candidate, 
 			clear = FALSE;
 	}
 	if (clear && candidate->travel == _aas_travel_drop && type == AAS_FOOT) /* (a vehicle can't hop) */
-	{
-		/* a curb, a railing's foot at the edge (knee high, under
-		   the heights above): no walking off, but a hop over it
-		   and down is fine, as a gap is jumped */
-		real dx = low.x - high.x;
-		real dy = low.y - high.y;
-		real length = (real)sqrt(dx * dx + dy * dy);
-		real lift;
-		/* (every few centimetres up to the waist: a bar at the
-		   knee, open under, is only a few thick) */
-		for (lift = 0.1f; lift < 0.5f && clear; lift += 0.05f)
-		{
-			real_point3d a = high, b = low;
-			a.z = b.z = high.z + lift;
-			if (length > 0.01f)
-			{
-				a.x -= dx / length * 0.3f;
-				a.y -= dy / length * 0.3f;
-			}
-			vector.i = b.x - a.x;
-			vector.j = b.y - a.y;
-			vector.k = 0.f;
-			if (collision_test_vector(flags, &a, &vector, NONE, &collision))
-			{
-				*hop = TRUE;
-				/* (shin high at the most: over anything more,
-				   with a drop beyond it, a jump lands on it as
-				   often as past it) */
-				if (lift >= 0.3f)
-					clear = FALSE;
-			}
-		}
-	}
+		clear = aas_face_clear_hop(&low, &high, hop);
 	return clear;
-	return TRUE;
 }
 
 /* the reachability for a candidate that stands (FALSE: no memory for it) */
@@ -1518,6 +1624,8 @@ static void aas_ledge_reaches(long type, struct aas_reaches *reaches)
 		long j = i;
 		long tries = 0;
 		boolean made = FALSE;
+		/* (sorted by cost among equal keys: only the key2.. ties matter
+		   for walks; for these, the cheapest comes first) */
 		while (j < list.count && list.items[j].from == list.items[i].from && list.items[j].to == list.items[i].to &&
 			list.items[j].travel == list.items[i].travel)
 		{
@@ -1527,8 +1635,6 @@ static void aas_ledge_reaches(long type, struct aas_reaches *reaches)
 			j++;
 			if (made || tries >= 6)
 				continue;
-			/* (sorted by cost among equal keys: only the key2.. ties matter
-			   for walks; for these, the cheapest comes first) */
 			if (candidate->travel == _aas_travel_gap && !candidate->walkover && !aas_gap_has_runup(candidate))
 				continue;
 			if (candidate->travel == _aas_travel_gap)
@@ -1606,8 +1712,7 @@ static long aas_ladder_top(struct navm_climbable const *ladder, real_point3d con
 				   from underneath; the floor to get off at is lower down) */
 				if (distance < best_distance)
 				{
-					unsigned long const flags = FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_back_facing_surfaces_bit) |
-						FLAG(_collision_test_structure_bit) | FLAG(_collision_test_objects_bit) | FLAG(_collision_test_objects_scenery_bit);
+					unsigned long const flags = AAS_SOLID_TESTS;
 					struct collision_result collision;
 					real_point3d from = foot;
 					real_vector3d up = { 0.f, 0.f, 0.f };
@@ -1635,6 +1740,9 @@ static void aas_ladder_reaches(struct aas_reaches *reaches)
 		long foot_span;
 		long a, a_span = NONE;
 		long best;
+		long b_span = NONE;
+		long b;
+		struct aas_reach *reach;
 		if (ladder->top_z - ladder->bottom_z < 0.8f)
 			continue;
 		foot.x = ladder->center.x + ladder->normal_x * 0.35f;
@@ -1645,28 +1753,30 @@ static void aas_ladder_reaches(struct aas_reaches *reaches)
 		if (a == NONE)
 			continue;
 		best = aas_ladder_top(ladder, &foot, a);
+		b = aas_attach(AAS_FOOT, best, NAVM_CELLS(1.6f), &b_span);
+		if (b == NONE || b == a || !(reach = aas_reach_new(reaches, a, b, _aas_travel_ladder)))
 		{
-			long b_span = NONE;
-			long b = aas_attach(AAS_FOOT, best, NAVM_CELLS(1.6f), &b_span);
-			struct aas_reach *reach;
-			if (b == NONE || b == a || !(reach = aas_reach_new(reaches, a, b, _aas_travel_ladder)))
-			{
-				if (bot_logging())
-					bot_log("aas: ladder at %.1f %.1f %.1f-%.1f: no way off the top", ladder->center.x, ladder->center.y, ladder->bottom_z, ladder->top_z);
-				continue;
-			}
-			navm_span_point(a_span, &reach->start);
-			reach->edge = foot;
-			reach->edge.z = navm.spans[foot_span].floor;
-			navm_span_point(b_span, &reach->end);
-			navm_span_point(best, &reach->left); /* the floor at the top */
-			reach->face_i = ladder->normal_x;
-			reach->face_j = ladder->normal_y;
-			reach->time = aas_distance2d(&reach->start, &reach->edge) / AAS_FOOT_SPEED + (ladder->top_z - ladder->bottom_z) / 1.f + 1.5f;
 			if (bot_logging())
-				bot_log("aas: ladder at %.1f %.1f from %.1f up to %.1f", ladder->center.x, ladder->center.y, reach->edge.z, reach->left.z);
+				bot_log("aas: ladder at %.1f %.1f %.1f-%.1f: no way off the top", ladder->center.x, ladder->center.y, ladder->bottom_z, ladder->top_z);
+			continue;
 		}
+		navm_span_point(a_span, &reach->start);
+		reach->edge = foot;
+		reach->edge.z = navm.spans[foot_span].floor;
+		navm_span_point(b_span, &reach->end);
+		navm_span_point(best, &reach->left); /* the floor at the top */
+		reach->face_i = ladder->normal_x;
+		reach->face_j = ladder->normal_y;
+		reach->time = aas_distance2d(&reach->start, &reach->edge) / AAS_FOOT_SPEED + (ladder->top_z - ladder->bottom_z) / 1.f + 1.5f;
+		if (bot_logging())
+			bot_log("aas: ladder at %.1f %.1f from %.1f up to %.1f", ladder->center.x, ladder->center.y, reach->edge.z, reach->left.z);
 	}
+}
+
+/* a scenario_netgame_flag (position first, 0x94 each) */
+static byte *aas_netgame_flag(struct scenario *scenario, long index)
+{
+	return (byte *)xbox_pointer(scenario->netgame_flags.address) + index * 0x94;
 }
 
 /* teleporters (multiplayer flags: a source pad sends you to the target
@@ -1674,10 +1784,11 @@ static void aas_ladder_reaches(struct aas_reaches *reaches)
 static void aas_teleporter_reaches(long type, struct aas_reaches *reaches)
 {
 	struct scenario *scenario = global_scenario_get();
+	long attach_steps = NAVM_CELLS(type == AAS_VEHICLE ? 2.4f : 1.6f);
 	long i;
 	for (i = 0; i < scenario->netgame_flags.count; i++)
 	{
-		byte *source = (byte *)xbox_pointer(scenario->netgame_flags.address) + i * 0x94;
+		byte *source = aas_netgame_flag(scenario, i);
 		real_point3d const *from = (real_point3d const *)source;
 		short channel = *(short *)(source + 0x12);
 		long j;
@@ -1685,15 +1796,15 @@ static void aas_teleporter_reaches(long type, struct aas_reaches *reaches)
 			continue;
 		for (j = 0; j < scenario->netgame_flags.count; j++)
 		{
-			byte *target = (byte *)xbox_pointer(scenario->netgame_flags.address) + j * 0x94;
+			byte *target = aas_netgame_flag(scenario, j);
 			real_point3d const *to = (real_point3d const *)target;
 			long a_span = NONE, b_span = NONE;
 			long a, b;
 			struct aas_reach *reach;
 			if (*(short *)(target + 0x10) != _netgame_flag_teleporter_target || *(short *)(target + 0x12) != channel)
 				continue;
-			a = aas_attach(type, navm_span_at(from, 0.6f, 1.5f), NAVM_CELLS(type == AAS_VEHICLE ? 2.4f : 1.6f), &a_span);
-			b = aas_attach(type, navm_span_at(to, 0.6f, 1.5f), NAVM_CELLS(type == AAS_VEHICLE ? 2.4f : 1.6f), &b_span);
+			a = aas_attach(type, navm_span_at(from, 0.6f, 1.5f), attach_steps, &a_span);
+			b = aas_attach(type, navm_span_at(to, 0.6f, 1.5f), attach_steps, &b_span);
 			if (a == NONE || b == NONE || a == b || !(reach = aas_reach_new(reaches, a, b, _aas_travel_teleport)))
 				break;
 			navm_span_point(a_span, &reach->start);
@@ -1742,9 +1853,7 @@ static void aas_collect_places(void)
 	}
 	for (i = 0; i < scenario->netgame_flags.count && aas_places_count < AAS_MAXIMUM_PLACES; i++)
 	{
-		/* scenario_netgame_flag: position first, 0x94 each */
-		byte *element = (byte *)xbox_pointer(scenario->netgame_flags.address) + i * 0x94;
-		aas_places[aas_places_count++] = *(real_point3d *)element;
+		aas_places[aas_places_count++] = *(real_point3d *)aas_netgame_flag(scenario, i);
 	}
 }
 
@@ -1765,85 +1874,78 @@ static long aas_seed_areas(struct aas_world *world, long seeds, long flag, long 
 	return tail;
 }
 
-/* reachable: got to from where people start (a vehicle's areas: under
-   areas reachable on foot); playable: near the places people fight over
-   (not up the canyon walls) */
-static void aas_find_flags(long type)
+/* a foot area's flags: reachable, from where players start (a weapon lying
+   somewhere says nothing about whether there's a way to it), and escapable,
+   with a way back from there (not a pit, not a ledge nobody gets off) */
+static void aas_find_foot_flags(struct aas_world *world, long *queue)
+{
+	long head = 0, tail = 0;
+	long a;
+	long seeds = aas_spawn_count > 0 ? aas_spawn_count : aas_places_count;
+	tail = aas_seed_areas(world, seeds, _aas_area_reachable, queue);
+	while (head < tail)
+	{
+		long area = queue[head++];
+		long r;
+		for (r = world->areas[area].first_reach; r < world->areas[area].first_reach + world->areas[area].reach_count; r++)
+		{
+			long to = world->reaches[r].to;
+			if (world->failures && world->failures[r] >= AAS_DEAD_FAILURES)
+				continue; /* (not a way: bots keep failing at it) */
+			if (!(world->areas[to].flags & _aas_area_reachable))
+			{
+				world->areas[to].flags |= _aas_area_reachable;
+				queue[tail++] = to;
+			}
+		}
+	}
+	if (tail == 0)
+		for (a = 0; a < world->area_count; a++)
+			world->areas[a].flags |= _aas_area_reachable | _aas_area_escapable;
+	else if (world->incoming)
+	{
+		/* (backwards from the places) */
+		head = 0;
+		tail = aas_seed_areas(world, seeds, _aas_area_escapable, queue);
+		while (head < tail)
+		{
+			struct aas_area const *area = &world->areas[queue[head++]];
+			long i;
+			for (i = area->first_incoming; i < area->first_incoming + area->incoming_count; i++)
+			{
+				long r = world->incoming[i];
+				long from = world->reaches[r].from;
+				if (world->failures && world->failures[r] >= AAS_DEAD_FAILURES)
+					continue;
+				if (!(world->areas[from].flags & _aas_area_escapable))
+				{
+					world->areas[from].flags |= _aas_area_escapable;
+					queue[tail++] = from;
+				}
+			}
+		}
+	}
+}
+
+/* a vehicle area is reachable where the foot area under it is */
+static void aas_find_vehicle_flags(struct aas_world *world)
+{
+	long a;
+	for (a = 0; a < world->area_count; a++)
+	{
+		long foot = aas_nearest_area(AAS_FOOT, &world->areas[a].center, 1.5f, NULL);
+		if (foot != NONE && (aas_worlds[AAS_FOOT].areas[foot].flags & _aas_area_reachable))
+			world->areas[a].flags |= _aas_area_reachable;
+	}
+}
+
+/* playable: reachable, and near the places people fight over */
+static void aas_find_playable(long type)
 {
 	struct aas_world *world = &aas_worlds[type];
-	long *queue = (long *)malloc(MAX(1, world->area_count) * sizeof(long));
-	long head = 0, tail = 0;
 	real top = -1.0e9f;
 	long a;
 	long p;
-
-	aas_nearest_forget();
-	if (!queue)
-	{
-		aas_no_memory("the areas' flags");
-		return;
-	}
-	for (a = 0; a < world->area_count; a++)
-		world->areas[a].flags = 0;
-	if (type == AAS_FOOT)
-	{
-		/* (from where players start: a weapon lying somewhere says nothing
-		   about whether there's a way to it) */
-		long seeds = aas_spawn_count > 0 ? aas_spawn_count : aas_places_count;
-		tail = aas_seed_areas(world, seeds, _aas_area_reachable, queue);
-		while (head < tail)
-		{
-			long area = queue[head++];
-			long r;
-			for (r = world->areas[area].first_reach; r < world->areas[area].first_reach + world->areas[area].reach_count; r++)
-			{
-				long to = world->reaches[r].to;
-				if (world->failures && world->failures[r] >= AAS_DEAD_FAILURES)
-					continue; /* (not a way: bots keep failing at it) */
-				if (!(world->areas[to].flags & _aas_area_reachable))
-				{
-					world->areas[to].flags |= _aas_area_reachable;
-					queue[tail++] = to;
-				}
-			}
-		}
-		if (tail == 0)
-			for (a = 0; a < world->area_count; a++)
-				world->areas[a].flags |= _aas_area_reachable | _aas_area_escapable;
-		else if (world->incoming)
-		{
-			/* and a way back from there (not a pit, not a ledge nobody gets
-			   off): backwards from the places */
-			head = 0;
-			tail = aas_seed_areas(world, seeds, _aas_area_escapable, queue);
-			while (head < tail)
-			{
-				struct aas_area const *area = &world->areas[queue[head++]];
-				long i;
-				for (i = area->first_incoming; i < area->first_incoming + area->incoming_count; i++)
-				{
-					long r = world->incoming[i];
-					long from = world->reaches[r].from;
-					if (world->failures && world->failures[r] >= AAS_DEAD_FAILURES)
-						continue;
-					if (!(world->areas[from].flags & _aas_area_escapable))
-					{
-						world->areas[from].flags |= _aas_area_escapable;
-						queue[tail++] = from;
-					}
-				}
-			}
-		}
-	}
-	else
-	{
-		for (a = 0; a < world->area_count; a++)
-		{
-			long foot = aas_nearest_area(AAS_FOOT, &world->areas[a].center, 1.5f, NULL);
-			if (foot != NONE && (aas_worlds[AAS_FOOT].areas[foot].flags & _aas_area_reachable))
-				world->areas[a].flags |= _aas_area_reachable;
-		}
-	}
 	for (p = 0; p < aas_places_count; p++)
 		top = MAX(top, aas_places[p].z);
 	for (a = 0; a < world->area_count; a++)
@@ -1867,6 +1969,30 @@ static void aas_find_flags(long type)
 			}
 		}
 	}
+}
+
+/* reachable: got to from where people start (a vehicle's areas: under
+   areas reachable on foot); playable: near the places people fight over
+   (not up the canyon walls) */
+static void aas_find_flags(long type)
+{
+	struct aas_world *world = &aas_worlds[type];
+	long *queue = (long *)malloc(MAX(1, world->area_count) * sizeof(long));
+	long a;
+
+	aas_nearest_forget();
+	if (!queue)
+	{
+		aas_no_memory("the areas' flags");
+		return;
+	}
+	for (a = 0; a < world->area_count; a++)
+		world->areas[a].flags = 0;
+	if (type == AAS_FOOT)
+		aas_find_foot_flags(world, queue);
+	else
+		aas_find_vehicle_flags(world);
+	aas_find_playable(type);
 	free(queue);
 }
 
@@ -1932,6 +2058,48 @@ static unsigned long aas_span_hash(void)
 	return hash;
 }
 
+/* whether a header is of this build's kind of cache file */
+static boolean aas_cache_header_current(struct aas_cache_header const *header)
+{
+	return header->magic == AAS_CACHE_MAGIC && header->version == AAS_CACHE_VERSION && header->sizes[0] == sizeof(struct aas_area) &&
+		header->sizes[1] == sizeof(struct aas_reach);
+}
+
+/* one type's links between areas that exist, in the order of the area each
+   one leaves (as they are written: each area's are found by it,
+   aas_finish_world), and its spans' areas that exist */
+static boolean aas_cache_world_valid(struct aas_world const *world)
+{
+	boolean ok = world->area_count >= 0 && world->reach_count >= 0;
+	long r;
+	for (r = 0; ok && r < world->reach_count; r++)
+		ok = world->reaches[r].from >= 0 && world->reaches[r].from < world->area_count &&
+			world->reaches[r].to >= 0 && world->reaches[r].to < world->area_count &&
+			world->reaches[r].travel >= 0 && world->reaches[r].travel < NUMBER_OF_AAS_TRAVEL_TYPES && /* (counted by it) */
+			(r == 0 || world->reaches[r].from >= world->reaches[r - 1].from);
+	for (r = 0; ok && r < navm.span_count; r++)
+		ok = world->span_area[r] == NONE || (world->span_area[r] >= 0 && world->span_area[r] < world->area_count);
+	return ok;
+}
+
+/* one type's areas, ways and spans' areas, as the file has them (FALSE: not
+   whole, or no memory) */
+static boolean aas_cache_read_world(FILE *file, struct aas_world *world, long area_count, long reach_count)
+{
+	boolean ok;
+	world->area_count = area_count;
+	world->reach_count = reach_count;
+	world->areas = (struct aas_area *)malloc(MAX(1, world->area_count) * sizeof(struct aas_area));
+	world->reaches = (struct aas_reach *)malloc(MAX(1, world->reach_count) * sizeof(struct aas_reach));
+	world->span_area = (long *)malloc(MAX(1, navm.span_count) * sizeof(long));
+	ok = world->areas && world->reaches && world->span_area &&
+		fread(world->areas, sizeof(struct aas_area), (size_t)world->area_count, file) == (size_t)world->area_count &&
+		fread(world->reaches, sizeof(struct aas_reach), (size_t)world->reach_count, file) == (size_t)world->reach_count &&
+		fread(world->span_area, sizeof(long), (size_t)navm.span_count, file) == (size_t)navm.span_count;
+	/* (a damaged file: links between areas that exist, or build afresh) */
+	return ok && aas_cache_world_valid(world);
+}
+
 /* the areas from a cache file of this map, made from the heightfield as it
    is: TRUE when they are whole */
 static boolean aas_cache_read(FILE *file, char const *map, unsigned long const *signature)
@@ -1940,41 +2108,14 @@ static boolean aas_cache_read(FILE *file, char const *map, unsigned long const *
 	boolean ok;
 	long type;
 
-	ok = fread(&header, sizeof(header), 1, file) == 1 && header.magic == AAS_CACHE_MAGIC && header.version == AAS_CACHE_VERSION &&
-		header.sizes[0] == sizeof(struct aas_area) && header.sizes[1] == sizeof(struct aas_reach) && !strncmp(header.map, map, sizeof(header.map)) &&
+	ok = fread(&header, sizeof(header), 1, file) == 1 && aas_cache_header_current(&header) && !strncmp(header.map, map, sizeof(header.map)) &&
 		memchr(header.map, 0, sizeof(header.map)) &&
 		!memcmp(header.signature, signature, 4 * sizeof(unsigned long)) && header.span_count == navm.span_count && header.span_hash == aas_span_hash_now;
 	for (type = 0; ok && type < NUMBER_OF_AAS_TYPES; type++)
 		ok = header.area_count[type] >= 0 && header.area_count[type] < 16 * 1024 * 1024 &&
 			header.reach_count[type] >= 0 && header.reach_count[type] < 16 * 1024 * 1024; /* (before anything's sized by them: what a 32-bit size holds of either) */
 	for (type = 0; ok && type < NUMBER_OF_AAS_TYPES; type++)
-	{
-		struct aas_world *world = &aas_worlds[type];
-		world->area_count = header.area_count[type];
-		world->reach_count = header.reach_count[type];
-		world->areas = (struct aas_area *)malloc(MAX(1, world->area_count) * sizeof(struct aas_area));
-		world->reaches = (struct aas_reach *)malloc(MAX(1, world->reach_count) * sizeof(struct aas_reach));
-		world->span_area = (long *)malloc(MAX(1, navm.span_count) * sizeof(long));
-		ok = world->areas && world->reaches && world->span_area &&
-			fread(world->areas, sizeof(struct aas_area), (size_t)world->area_count, file) == (size_t)world->area_count &&
-			fread(world->reaches, sizeof(struct aas_reach), (size_t)world->reach_count, file) == (size_t)world->reach_count &&
-			fread(world->span_area, sizeof(long), (size_t)navm.span_count, file) == (size_t)navm.span_count;
-		/* (a damaged file: links between areas that exist, or build afresh) */
-		if (ok)
-		{
-			long r;
-			ok = world->area_count >= 0 && world->reach_count >= 0;
-			/* (and in the order of the area each one leaves, as they are
-			   written: each area's are found by it, aas_finish_world) */
-			for (r = 0; ok && r < world->reach_count; r++)
-				ok = world->reaches[r].from >= 0 && world->reaches[r].from < world->area_count &&
-					world->reaches[r].to >= 0 && world->reaches[r].to < world->area_count &&
-					world->reaches[r].travel >= 0 && world->reaches[r].travel < NUMBER_OF_AAS_TRAVEL_TYPES && /* (counted by it) */
-					(r == 0 || world->reaches[r].from >= world->reaches[r - 1].from);
-			for (r = 0; ok && r < navm.span_count; r++)
-				ok = world->span_area[r] == NONE || (world->span_area[r] >= 0 && world->span_area[r] < world->area_count);
-		}
-	}
+		ok = aas_cache_read_world(file, &aas_worlds[type], header.area_count[type], header.reach_count[type]);
 	if (!ok)
 	{
 		/* (nothing of a file that was not whole) */
@@ -2042,8 +2183,7 @@ boolean aas_baked_current(char const *map_name, long bsp_index)
 	file = fopen(path, "rb");
 	if (!file)
 		return FALSE;
-	ok = fread(&header, sizeof(header), 1, file) == 1 && header.magic == AAS_CACHE_MAGIC && header.version == AAS_CACHE_VERSION &&
-		header.sizes[0] == sizeof(struct aas_area) && header.sizes[1] == sizeof(struct aas_reach);
+	ok = fread(&header, sizeof(header), 1, file) == 1 && aas_cache_header_current(&header);
 	/* (and all of it there) */
 	if (ok)
 	{
@@ -2057,6 +2197,16 @@ boolean aas_baked_current(char const *map_name, long bsp_index)
 	}
 	fclose(file);
 	return ok;
+}
+
+/* one type's part of the file; whether all of it was written */
+static boolean aas_cache_write_world(FILE *file, struct aas_world const *world)
+{
+	boolean whole;
+	whole = fwrite(world->areas, sizeof(struct aas_area), (size_t)world->area_count, file) == (size_t)world->area_count;
+	whole = fwrite(world->reaches, sizeof(struct aas_reach), (size_t)world->reach_count, file) == (size_t)world->reach_count && whole;
+	whole = fwrite(world->span_area, sizeof(long), (size_t)navm.span_count, file) == (size_t)navm.span_count && whole;
+	return whole;
 }
 
 static void aas_cache_save(void)
@@ -2088,12 +2238,7 @@ static void aas_cache_save(void)
 	}
 	whole = fwrite(&header, sizeof(header), 1, file) == 1;
 	for (type = 0; type < NUMBER_OF_AAS_TYPES; type++)
-	{
-		struct aas_world *world = &aas_worlds[type];
-		whole = fwrite(world->areas, sizeof(struct aas_area), (size_t)world->area_count, file) == (size_t)world->area_count && whole;
-		whole = fwrite(world->reaches, sizeof(struct aas_reach), (size_t)world->reach_count, file) == (size_t)world->reach_count && whole;
-		whole = fwrite(world->span_area, sizeof(long), (size_t)navm.span_count, file) == (size_t)navm.span_count && whole;
-	}
+		whole = aas_cache_write_world(file, &aas_worlds[type]) && whole;
 	whole = fclose(file) == 0 && whole;
 	navm_baked_file(whole, path);
 }
@@ -2193,6 +2338,63 @@ static void aas_failures_save(void)
 	fclose(file);
 }
 
+/* what the file has of the ways' failures, for one type (FALSE: the rest of
+   the file is not to be read) */
+static boolean aas_failures_read_world(FILE *file, long type)
+{
+	struct aas_world *world = &aas_worlds[type];
+	long r;
+	long dead = 0;
+	/* (a world with no ways has none written, and what follows it
+	   is still to be read; a file cut short leaves nothing behind) */
+	if (world->reach_count <= 0)
+		return TRUE;
+	if (!world->failures)
+		return FALSE;
+	if (fread(world->failures, 1, (size_t)world->reach_count, file) != (size_t)world->reach_count)
+	{
+		memset(world->failures, 0, (size_t)world->reach_count);
+		return FALSE;
+	}
+	if (!aas_shared_writable(&world->penalty))
+		return FALSE;
+	for (r = 0; r < world->reach_count; r++)
+	{
+		if (world->failures[r] > 0)
+			world->failures[r]--;
+		world->penalty[r] = aas_failure_penalty(world->failures[r]) + (world->handicap ? world->handicap[r] : 0.f);
+		dead += world->failures[r] >= 2;
+	}
+	if (bot_logging() && dead)
+		bot_log("aas: %s: %ld ways bots have been failing at, from before", type == AAS_VEHICLE ? "vehicle" : "foot", dead);
+	return TRUE;
+}
+
+/* ...and what each way on foot was found to take (aas_failures_save) */
+static void aas_failures_read_handicaps(FILE *file)
+{
+	struct aas_world *world = &aas_worlds[AAS_FOOT];
+	long r;
+	long known = 0;
+	if (world->handicap && aas_shared_writable(&world->penalty))
+	{
+		for (r = 0; r < world->reach_count; r++)
+		{
+			int half = fgetc(file);
+			if (half == EOF)
+				break;
+			if (half > 0)
+			{
+				world->handicap[r] = half * 0.5f;
+				world->penalty[r] = aas_failure_penalty(world->failures[r]) + world->handicap[r];
+				known++;
+			}
+		}
+		if (bot_logging() && known)
+			bot_log("aas: foot: %ld jumps and gaps reckoned as they were found to go, from before", known);
+	}
+}
+
 static void aas_failures_load(void)
 {
 	char path[512];
@@ -2213,56 +2415,10 @@ static void aas_failures_load(void)
 		!memcmp(&header[4], signature, sizeof(signature)))
 	{
 		for (type = 0; type < NUMBER_OF_AAS_TYPES; type++)
-		{
-			struct aas_world *world = &aas_worlds[type];
-			long r;
-			long dead = 0;
-			/* (a world with no ways has none written, and what follows it
-			   is still to be read; a file cut short leaves nothing behind) */
-			if (world->reach_count <= 0)
-				continue;
-			if (!world->failures)
+			if (!aas_failures_read_world(file, type))
 				break;
-			if (fread(world->failures, 1, (size_t)world->reach_count, file) != (size_t)world->reach_count)
-			{
-				memset(world->failures, 0, (size_t)world->reach_count);
-				break;
-			}
-			if (!aas_shared_writable(&world->penalty))
-				break;
-			for (r = 0; r < world->reach_count; r++)
-			{
-				if (world->failures[r] > 0)
-					world->failures[r]--;
-				world->penalty[r] = aas_failure_penalty(world->failures[r]) + (world->handicap ? world->handicap[r] : 0.f);
-				dead += world->failures[r] >= 2;
-			}
-			if (bot_logging() && dead)
-				bot_log("aas: %s: %ld ways bots have been failing at, from before", type == AAS_VEHICLE ? "vehicle" : "foot", dead);
-		}
 		if (type == NUMBER_OF_AAS_TYPES)
-		{
-			struct aas_world *world = &aas_worlds[AAS_FOOT];
-			long r;
-			long known = 0;
-			if (world->handicap && aas_shared_writable(&world->penalty))
-			{
-				for (r = 0; r < world->reach_count; r++)
-				{
-					int half = fgetc(file);
-					if (half == EOF)
-						break;
-					if (half > 0)
-					{
-						world->handicap[r] = half * 0.5f;
-						world->penalty[r] = aas_failure_penalty(world->failures[r]) + world->handicap[r];
-						known++;
-					}
-				}
-				if (bot_logging() && known)
-					bot_log("aas: foot: %ld jumps and gaps reckoned as they were found to go, from before", known);
-			}
-		}
+			aas_failures_read_handicaps(file);
 	}
 	fclose(file);
 }
@@ -2290,6 +2446,53 @@ void aas_dispose(void)
 boolean aas_ready(void)
 {
 	return aas_is_ready;
+}
+
+/* what the routes' search reads, side by side (aas_route_advance): the
+   very numbers it would work out from the reachabilities as it goes */
+static void aas_find_route_times(struct aas_world *world, long type)
+{
+	real speed = aas_speed(type);
+	long pairs = 0;
+	unsigned long long pairs_in_all = 0;
+	long a, r, i, j;
+
+	world->reach_from = (long *)malloc(MAX(1, world->reach_count) * sizeof(long));
+	world->incoming_time = (float *)malloc(MAX(1, world->reach_count) * sizeof(float));
+	world->pair_base = (long *)malloc(MAX(1, world->area_count) * sizeof(long));
+	for (a = 0; a < world->area_count; a++)
+		pairs_in_all += (unsigned long long)world->areas[a].reach_count * (unsigned long long)world->areas[a].incoming_count;
+	/* (no map comes near it; a file that says so is not a map's, and its
+	   sum is not left to wrap round to a few bytes) */
+	pairs = pairs_in_all < 64ULL * 1024 * 1024 ? (long)pairs_in_all : -1;
+	world->pair_time = pairs >= 0 ? (float *)malloc(MAX(1, pairs) * sizeof(float)) : NULL;
+	if (!world->reach_from || !world->incoming_time || !world->pair_base || !world->pair_time)
+	{
+		aas_no_memory("the routes' times");
+		free(world->pair_time);
+		world->pair_time = NULL;
+		return;
+	}
+	for (r = 0; r < world->reach_count; r++)
+	{
+		world->reach_from[r] = world->reaches[r].from;
+		world->incoming_time[r] = world->reaches[world->incoming[r]].time;
+	}
+	pairs = 0;
+	for (a = 0; a < world->area_count; a++)
+	{
+		struct aas_area const *area = &world->areas[a];
+		world->pair_base[a] = pairs;
+		for (i = 0; i < area->reach_count; i++)
+		{
+			struct aas_reach const *out = &world->reaches[area->first_reach + i];
+			for (j = 0; j < area->incoming_count; j++)
+			{
+				struct aas_reach const *in = &world->reaches[world->incoming[area->first_incoming + j]];
+				world->pair_time[pairs++] = aas_distance(&in->end, &out->start) / speed;
+			}
+		}
+	}
 }
 
 /* reachabilities in order of the area they leave; the index of those
@@ -2336,51 +2539,7 @@ static void aas_finish_world(long type)
 	}
 	free(count);
 
-	/* what the routes' search reads, side by side (aas_route_advance): the
-	   very numbers it would work out from the reachabilities as it goes */
-	{
-		real speed = aas_speed(type);
-		long pairs = 0;
-		unsigned long long pairs_in_all = 0;
-		long i, j;
-
-		world->reach_from = (long *)malloc(MAX(1, world->reach_count) * sizeof(long));
-		world->incoming_time = (float *)malloc(MAX(1, world->reach_count) * sizeof(float));
-		world->pair_base = (long *)malloc(MAX(1, world->area_count) * sizeof(long));
-		for (a = 0; a < world->area_count; a++)
-			pairs_in_all += (unsigned long long)world->areas[a].reach_count * (unsigned long long)world->areas[a].incoming_count;
-		/* (no map comes near it; a file that says so is not a map's, and its
-		   sum is not left to wrap round to a few bytes) */
-		pairs = pairs_in_all < 64ULL * 1024 * 1024 ? (long)pairs_in_all : -1;
-		world->pair_time = pairs >= 0 ? (float *)malloc(MAX(1, pairs) * sizeof(float)) : NULL;
-		if (!world->reach_from || !world->incoming_time || !world->pair_base || !world->pair_time)
-		{
-			aas_no_memory("the routes' times");
-			free(world->pair_time);
-			world->pair_time = NULL;
-			return;
-		}
-		for (r = 0; r < world->reach_count; r++)
-		{
-			world->reach_from[r] = world->reaches[r].from;
-			world->incoming_time[r] = world->reaches[world->incoming[r]].time;
-		}
-		pairs = 0;
-		for (a = 0; a < world->area_count; a++)
-		{
-			struct aas_area const *area = &world->areas[a];
-			world->pair_base[a] = pairs;
-			for (i = 0; i < area->reach_count; i++)
-			{
-				struct aas_reach const *out = &world->reaches[area->first_reach + i];
-				for (j = 0; j < area->incoming_count; j++)
-				{
-					struct aas_reach const *in = &world->reaches[world->incoming[area->first_incoming + j]];
-					world->pair_time[pairs++] = aas_distance(&in->end, &out->start) / speed;
-				}
-			}
-		}
-	}
+	aas_find_route_times(world, type);
 }
 
 /* The regions: areas joined by any way at all, either way (a drop joins as
@@ -2510,19 +2669,18 @@ static void aas_log_summary(unsigned long long start)
    walks) near a point */
 static void aas_debug_reach_near(void)
 {
-	if (getenv("HALO_BOT_REACHNEAR"))
+	real_point3d near_point = { 0.f, 0.f, 0.f };
+	long r;
+	if (!getenv("HALO_BOT_REACHNEAR"))
+		return;
+	sscanf(getenv("HALO_BOT_REACHNEAR"), "%f,%f", &near_point.x, &near_point.y);
+	for (r = 0; r < aas_worlds[AAS_FOOT].reach_count; r++)
 	{
-		real_point3d near_point = { 0.f, 0.f, 0.f };
-		long r;
-		sscanf(getenv("HALO_BOT_REACHNEAR"), "%f,%f", &near_point.x, &near_point.y);
-		for (r = 0; r < aas_worlds[AAS_FOOT].reach_count; r++)
-		{
-			struct aas_reach const *reach = &aas_worlds[AAS_FOOT].reaches[r];
-			if (reach->travel != _aas_travel_walk && aas_distance2d(&reach->edge, &near_point) < 3.f)
-				bot_log("aas: near reach %ld travel %d start %.2f %.2f %.2f edge %.2f %.2f %.2f end %.2f %.2f %.2f land %.2f %.2f %.2f",
-					r, reach->travel, reach->start.x, reach->start.y, reach->start.z, reach->edge.x, reach->edge.y, reach->edge.z,
-					reach->end.x, reach->end.y, reach->end.z, reach->left.x, reach->left.y, reach->left.z);
-		}
+		struct aas_reach const *reach = &aas_worlds[AAS_FOOT].reaches[r];
+		if (reach->travel != _aas_travel_walk && aas_distance2d(&reach->edge, &near_point) < 3.f)
+			bot_log("aas: near reach %ld travel %d start %.2f %.2f %.2f edge %.2f %.2f %.2f end %.2f %.2f %.2f land %.2f %.2f %.2f",
+				r, reach->travel, reach->start.x, reach->start.y, reach->start.z, reach->edge.x, reach->edge.y, reach->edge.z,
+				reach->end.x, reach->end.y, reach->end.z, reach->left.x, reach->left.y, reach->left.z);
 	}
 }
 
@@ -2530,36 +2688,35 @@ static void aas_debug_reach_near(void)
    at with a script: every floor, every area, every reachability */
 static void aas_debug_dump(void)
 {
-	if (getenv("HALO_BOT_NAVDUMP"))
+	FILE *file;
+	long u, a, r;
+	if (!getenv("HALO_BOT_NAVDUMP"))
+		return;
+	file = fopen(getenv("HALO_BOT_NAVDUMP"), "w");
+	if (!file)
+		return;
+	fprintf(file, "grid %f %f %ld %ld %f\n", navm.x0, navm.y0, navm.width, navm.height, (double)NAVM_CELL);
+	for (u = 0; u < navm.span_count; u++)
+		fprintf(file, "s %ld %ld %.3f %.3f %d %d %d %ld\n", navm.spans[u].column % navm.width, navm.spans[u].column / navm.width,
+			navm.spans[u].floor, navm.spans[u].ceiling, navm.spans[u].flags, navm.spans[u].wall, navm.spans[u].edge,
+			aas_worlds[AAS_FOOT].span_area[u]);
+	for (a = 0; a < aas_worlds[AAS_FOOT].area_count; a++)
 	{
-		FILE *file = fopen(getenv("HALO_BOT_NAVDUMP"), "w");
-		if (file)
-		{
-			long u, a, r;
-			fprintf(file, "grid %f %f %ld %ld %f\n", navm.x0, navm.y0, navm.width, navm.height, (double)NAVM_CELL);
-			for (u = 0; u < navm.span_count; u++)
-				fprintf(file, "s %ld %ld %.3f %.3f %d %d %d %ld\n", navm.spans[u].column % navm.width, navm.spans[u].column / navm.width,
-					navm.spans[u].floor, navm.spans[u].ceiling, navm.spans[u].flags, navm.spans[u].wall, navm.spans[u].edge,
-					aas_worlds[AAS_FOOT].span_area[u]);
-			for (a = 0; a < aas_worlds[AAS_FOOT].area_count; a++)
-			{
-				struct aas_area const *area = &aas_worlds[AAS_FOOT].areas[a];
-				fprintf(file, "a %ld %.2f %.2f %.2f %.2f %.3f %.3f %ld\n", a, area->x0, area->y0, area->x1, area->y1, area->z0, area->z1, (long)area->flags);
-			}
-			for (r = 0; r < aas_worlds[AAS_FOOT].reach_count; r++)
-			{
-				struct aas_reach const *reach = &aas_worlds[AAS_FOOT].reaches[r];
-				fprintf(file, "r %ld %d %ld %ld %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %d %d\n", r, reach->travel, reach->from, reach->to,
-					reach->start.x, reach->start.y, reach->start.z, reach->edge.x, reach->edge.y, reach->edge.z,
-					reach->end.x, reach->end.y, reach->end.z, reach->time, aas_worlds[AAS_FOOT].failures ? aas_worlds[AAS_FOOT].failures[r] : 0,
-					(int)reach->careful);
-			}
-			for (r = 0; r < navm.climbable_count; r++)
-				fprintf(file, "l %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f\n", navm.climbables[r].center.x, navm.climbables[r].center.y, navm.climbables[r].center.z,
-					navm.climbables[r].normal_x, navm.climbables[r].normal_y, navm.climbables[r].bottom_z, navm.climbables[r].top_z, navm.climbables[r].half_width);
-			fclose(file);
-		}
+		struct aas_area const *area = &aas_worlds[AAS_FOOT].areas[a];
+		fprintf(file, "a %ld %.2f %.2f %.2f %.2f %.3f %.3f %ld\n", a, area->x0, area->y0, area->x1, area->y1, area->z0, area->z1, (long)area->flags);
 	}
+	for (r = 0; r < aas_worlds[AAS_FOOT].reach_count; r++)
+	{
+		struct aas_reach const *reach = &aas_worlds[AAS_FOOT].reaches[r];
+		fprintf(file, "r %ld %d %ld %ld %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %d %d\n", r, reach->travel, reach->from, reach->to,
+			reach->start.x, reach->start.y, reach->start.z, reach->edge.x, reach->edge.y, reach->edge.z,
+			reach->end.x, reach->end.y, reach->end.z, reach->time, aas_worlds[AAS_FOOT].failures ? aas_worlds[AAS_FOOT].failures[r] : 0,
+			(int)reach->careful);
+	}
+	for (r = 0; r < navm.climbable_count; r++)
+		fprintf(file, "l %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f\n", navm.climbables[r].center.x, navm.climbables[r].center.y, navm.climbables[r].center.z,
+			navm.climbables[r].normal_x, navm.climbables[r].normal_y, navm.climbables[r].bottom_z, navm.climbables[r].top_z, navm.climbables[r].half_width);
+	fclose(file);
 }
 
 /* testing (HALO_BOT_NAVIMAGE=u:\x.ppm): a picture, top floor of each
@@ -2567,74 +2724,74 @@ static void aas_debug_dump(void)
    white the starts of reachabilities other than walks */
 static void aas_debug_image(void)
 {
-	if (getenv("HALO_BOT_NAVIMAGE"))
+	FILE *file;
+	unsigned char *image;
+	long y;
+	if (!getenv("HALO_BOT_NAVIMAGE"))
+		return;
+	file = fopen(getenv("HALO_BOT_NAVIMAGE"), "wb");
+	if (!file)
+		return;
+	image = (unsigned char *)calloc((size_t)(navm.width * navm.height), 3);
+	fprintf(file, "P6 %ld %ld 255\n", navm.width, navm.height);
+	for (y = 0; y < navm.height && image; y++)
 	{
-		FILE *file = fopen(getenv("HALO_BOT_NAVIMAGE"), "wb");
-		if (file)
+		long x;
+		for (x = 0; x < navm.width; x++)
 		{
-			long y;
-			unsigned char *image = (unsigned char *)calloc((size_t)(navm.width * navm.height), 3);
-			fprintf(file, "P6 %ld %ld 255\n", navm.width, navm.height);
-			for (y = 0; y < navm.height && image; y++)
+			long u;
+			long top = NONE;
+			unsigned char *rgb = &image[((navm.height - 1 - y) * navm.width + x) * 3];
+			for (u = navm_first_span_at(x, y); u != NONE; u = navm.spans[u].next)
+				if (aas_worlds[AAS_FOOT].span_area[u] != NONE && (aas_worlds[AAS_FOOT].areas[aas_worlds[AAS_FOOT].span_area[u]].flags & _aas_area_reachable))
+					top = u;
+			if (top == NONE)
 			{
-				long x;
-				for (x = 0; x < navm.width; x++)
+				/* the top floor here: walkable (dark yellow), scenery
+				   (dark red), no room (grey) */
+				long last = NONE;
+				for (u = navm_first_span_at(x, y); u != NONE; u = navm.spans[u].next)
+					last = u;
+				if (last != NONE)
 				{
-					long u;
-					long top = NONE;
-					unsigned char *rgb = &image[((navm.height - 1 - y) * navm.width + x) * 3];
-					for (u = navm_first_span_at(x, y); u != NONE; u = navm.spans[u].next)
-						if (aas_worlds[AAS_FOOT].span_area[u] != NONE && (aas_worlds[AAS_FOOT].areas[aas_worlds[AAS_FOOT].span_area[u]].flags & _aas_area_reachable))
-							top = u;
-					if (top == NONE)
-					{
-						/* the top floor here: walkable (dark yellow), scenery
-						   (dark red), no room (grey) */
-						long last = NONE;
-						for (u = navm_first_span_at(x, y); u != NONE; u = navm.spans[u].next)
-							last = u;
-						if (last != NONE)
-						{
-							if (navm.spans[last].flags & _navm_span_blocked)
-								rgb[0] = 110;
-							else if (navm.spans[last].flags & _navm_span_walkable)
-								rgb[0] = rgb[1] = 90;
-							else
-								rgb[0] = rgb[1] = rgb[2] = 50;
-						}
-						continue;
-					}
-					{
-						unsigned long h = (unsigned long)aas_worlds[AAS_FOOT].span_area[top] * 2654435761UL;
-						int vehicle = aas_worlds[AAS_VEHICLE].span_area[top] != NONE;
-						rgb[0] = (unsigned char)(40 + (h >> 8) % 120 + (vehicle ? 80 : 0));
-						rgb[1] = (unsigned char)(40 + (h >> 16) % 120 + (vehicle ? 80 : 0));
-						rgb[2] = (unsigned char)(40 + (h >> 24) % 120);
-					}
+					if (navm.spans[last].flags & _navm_span_blocked)
+						rgb[0] = 110;
+					else if (navm.spans[last].flags & _navm_span_walkable)
+						rgb[0] = rgb[1] = 90;
+					else
+						rgb[0] = rgb[1] = rgb[2] = 50;
 				}
+				continue;
 			}
-			if (image)
 			{
-				long r;
-				for (r = 0; r < aas_worlds[AAS_FOOT].reach_count; r++)
-				{
-					struct aas_reach const *reach = &aas_worlds[AAS_FOOT].reaches[r];
-					long column;
-					if (reach->travel == _aas_travel_walk)
-						continue;
-					column = navm_column_of(reach->edge.x, reach->edge.y);
-					if (column != NONE)
-					{
-						unsigned char *rgb = &image[((navm.height - 1 - column / navm.width) * navm.width + column % navm.width) * 3];
-						rgb[0] = rgb[1] = rgb[2] = 255;
-					}
-				}
-				fwrite(image, 3, (size_t)(navm.width * navm.height), file);
-				free(image);
+				unsigned long h = (unsigned long)aas_worlds[AAS_FOOT].span_area[top] * 2654435761UL;
+				int vehicle = aas_worlds[AAS_VEHICLE].span_area[top] != NONE;
+				rgb[0] = (unsigned char)(40 + (h >> 8) % 120 + (vehicle ? 80 : 0));
+				rgb[1] = (unsigned char)(40 + (h >> 16) % 120 + (vehicle ? 80 : 0));
+				rgb[2] = (unsigned char)(40 + (h >> 24) % 120);
 			}
-			fclose(file);
 		}
 	}
+	if (image)
+	{
+		long r;
+		for (r = 0; r < aas_worlds[AAS_FOOT].reach_count; r++)
+		{
+			struct aas_reach const *reach = &aas_worlds[AAS_FOOT].reaches[r];
+			long column;
+			if (reach->travel == _aas_travel_walk)
+				continue;
+			column = navm_column_of(reach->edge.x, reach->edge.y);
+			if (column != NONE)
+			{
+				unsigned char *rgb = &image[((navm.height - 1 - column / navm.width) * navm.width + column % navm.width) * 3];
+				rgb[0] = rgb[1] = rgb[2] = 255;
+			}
+		}
+		fwrite(image, 3, (size_t)(navm.width * navm.height), file);
+		free(image);
+	}
+	fclose(file);
 }
 
 /* the testing switches' reports */
@@ -3640,19 +3797,120 @@ static real aas_reach_entry_distance(real_point3d const *from, struct aas_reach 
    search is simply finished: aas_route_reach) */
 #define AAS_WATCHED_REACHES 256
 
-long aas_route_reach(long type, long area, real_point3d const *from, long goal_area, aas_avoid_function avoid, void *context, long slot, float *time_out)
+/* the way out of an area that is quickest from a spot, by these times from
+   the ways to the goal, and how long it takes (1.0e30: none) */
+static long aas_best_way_out(long type, long area, real_point3d const *from, float const *time, aas_avoid_function avoid, void *context,
+	float *best_time_out)
+{
+	struct aas_world const *world = &aas_worlds[type];
+	real speed = aas_speed(type);
+	long best = NONE;
+	float best_time = 1.0e30f;
+	long r;
+	for (r = world->areas[area].first_reach; r < world->areas[area].first_reach + world->areas[area].reach_count; r++)
+	{
+		float t;
+		if (time[r] >= 1.0e29f)
+			continue;
+		if (avoid && avoid(context, r))
+			continue;
+		t = aas_reach_entry_distance(from, &world->reaches[r]) / speed + time[r];
+		if (t < best_time)
+		{
+			best_time = t;
+			best = r;
+		}
+	}
+	*best_time_out = best_time;
+	return best;
+}
+
+/* the same, with the search carried on only as far as the ways out of the
+   area need (they are watched: aas_route_advance) */
+static long aas_best_way_out_watched(long type, struct aas_cache *cache, long area, real_point3d const *from, aas_avoid_function avoid,
+	void *context, float *best_time_out)
 {
 	struct aas_world *world = &aas_worlds[type];
-	struct aas_cache *cache;
-	float const *time;
+	float const *time = cache->time;
 	long watched[AAS_WATCHED_REACHES];
 	float offsets[AAS_WATCHED_REACHES];
 	long watched_count = 0;
 	long best = NONE;
 	float best_time = 1.0e30f;
+	real speed = aas_speed(type);
 	long r;
 	long i;
-	real speed = aas_speed(type);
+	/* the ways out it may take, and how long to each */
+	for (r = world->areas[area].first_reach; r < world->areas[area].first_reach + world->areas[area].reach_count; r++)
+	{
+		if (avoid && avoid(context, r))
+			continue;
+		watched[watched_count] = r;
+		offsets[watched_count] = aas_reach_entry_distance(from, &world->reaches[r]) / speed;
+		watched_count++;
+	}
+	if (!cache->complete && watched_count > 0)
+	{
+		/* settled already? The quickest of the final ones, when it is
+		   no more than the frontier: the others' times are more than
+		   that before the way to them is added */
+		for (i = 0; i < watched_count; i++)
+		{
+			float t;
+			if (!(time[watched[i]] <= cache->frontier))
+				continue;
+			t = offsets[i] + time[watched[i]];
+			if (t < best_time)
+				best_time = t;
+		}
+		if (!(best_time <= cache->frontier))
+			aas_route_advance(world, cache, watched, offsets, watched_count);
+		best_time = 1.0e30f;
+	}
+	for (i = 0; i < watched_count; i++)
+	{
+		float t;
+		if (time[watched[i]] >= 1.0e29f)
+			continue;
+		t = offsets[i] + time[watched[i]];
+		if (t < best_time)
+		{
+			best_time = t;
+			best = watched[i];
+		}
+	}
+	*best_time_out = best_time;
+	return best;
+}
+
+/* testing: the way chosen against the whole search's */
+static void aas_route_reach_check(long type, struct aas_cache *cache, long area, real_point3d const *from, long goal_area, aas_avoid_function avoid,
+	void *context, long best, float best_time)
+{
+	static unsigned long checked, wrong;
+	struct aas_world const *world = &aas_worlds[type];
+	float const *whole = aas_route_check_times(type, cache);
+	if (whole)
+	{
+		float expected_time;
+		long expected = aas_best_way_out(type, area, from, whole, avoid, context, &expected_time);
+		checked++;
+		if ((expected != best || (best != NONE && expected_time != best_time)) && wrong++ < 20)
+			bot_log("aas: ROUTE CHECK: from area %ld to area %ld by reach %ld in %f, the whole search's %ld in %f (frontier %f complete %d)",
+				area, goal_area, best, best_time, expected, expected_time, cache->frontier, (int)cache->complete);
+		if (checked % 20000 == 0)
+			bot_log("aas: route check: %lu routes checked, %lu wrong", checked, wrong);
+		if (aas_route_checking > 1 && checked % 97 == 0 && world->reach_count > 0)
+			aas_reach_failed(type, (long)(checked / 97 * 7919 % (unsigned long)MIN(world->reach_count, 400)));
+	}
+}
+
+long aas_route_reach(long type, long area, real_point3d const *from, long goal_area, aas_avoid_function avoid, void *context, long slot, float *time_out)
+{
+	struct aas_world *world = &aas_worlds[type];
+	struct aas_cache *cache;
+	long best;
+	float best_time;
 
 	if (time_out)
 		*time_out = -1.f;
@@ -3661,7 +3919,7 @@ long aas_route_reach(long type, long area, real_point3d const *from, long goal_a
 	if (area == goal_area)
 	{
 		if (time_out)
-			*time_out = aas_distance(from, &world->areas[goal_area].center) / speed;
+			*time_out = aas_distance(from, &world->areas[goal_area].center) / aas_speed(type);
 		return NONE;
 	}
 	/* (another part of the map, joined to this one by nothing either way:
@@ -3672,103 +3930,19 @@ long aas_route_reach(long type, long area, real_point3d const *from, long goal_a
 	cache = aas_route(type, goal_area, slot);
 	if (!cache)
 		return NONE;
-	time = cache->time;
 	if (world->areas[area].reach_count > AAS_WATCHED_REACHES)
 	{
 		/* (never, as the areas are made) the whole search, and every way out */
 		if (!cache->complete)
 			aas_route_advance(world, cache, NULL, NULL, 0);
-		for (r = world->areas[area].first_reach; r < world->areas[area].first_reach + world->areas[area].reach_count; r++)
-		{
-			float t;
-			if (time[r] >= 1.0e29f)
-				continue;
-			if (avoid && avoid(context, r))
-				continue;
-			t = aas_reach_entry_distance(from, &world->reaches[r]) / speed + time[r];
-			if (t < best_time)
-			{
-				best_time = t;
-				best = r;
-			}
-		}
+		best = aas_best_way_out(type, area, from, cache->time, avoid, context, &best_time);
 	}
 	else
-	{
-		/* the ways out it may take, and how long to each */
-		for (r = world->areas[area].first_reach; r < world->areas[area].first_reach + world->areas[area].reach_count; r++)
-		{
-			if (avoid && avoid(context, r))
-				continue;
-			watched[watched_count] = r;
-			offsets[watched_count] = aas_reach_entry_distance(from, &world->reaches[r]) / speed;
-			watched_count++;
-		}
-		if (!cache->complete && watched_count > 0)
-		{
-			/* settled already? The quickest of the final ones, when it is
-			   no more than the frontier: the others' times are more than
-			   that before the way to them is added */
-			for (i = 0; i < watched_count; i++)
-			{
-				float t;
-				if (!(time[watched[i]] <= cache->frontier))
-					continue;
-				t = offsets[i] + time[watched[i]];
-				if (t < best_time)
-					best_time = t;
-			}
-			if (!(best_time <= cache->frontier))
-				aas_route_advance(world, cache, watched, offsets, watched_count);
-			best_time = 1.0e30f;
-		}
-		for (i = 0; i < watched_count; i++)
-		{
-			float t;
-			if (time[watched[i]] >= 1.0e29f)
-				continue;
-			t = offsets[i] + time[watched[i]];
-			if (t < best_time)
-			{
-				best_time = t;
-				best = watched[i];
-			}
-		}
-	}
+		best = aas_best_way_out_watched(type, cache, area, from, avoid, context, &best_time);
 	if (time_out && best != NONE)
 		*time_out = best_time;
 	if (aas_route_check())
-	{
-		static unsigned long checked, wrong;
-		float const *whole = aas_route_check_times(type, cache);
-		if (whole)
-		{
-			long expected = NONE;
-			float expected_time = 1.0e30f;
-			for (r = world->areas[area].first_reach; r < world->areas[area].first_reach + world->areas[area].reach_count; r++)
-			{
-				float t;
-				if (whole[r] >= 1.0e29f)
-					continue;
-				if (avoid && avoid(context, r))
-					continue;
-				t = aas_reach_entry_distance(from, &world->reaches[r]) / speed + whole[r];
-				if (t < expected_time)
-				{
-					expected_time = t;
-					expected = r;
-				}
-			}
-			checked++;
-			if ((expected != best || (best != NONE && expected_time != best_time)) && wrong++ < 20)
-				bot_log("aas: ROUTE CHECK: from area %ld to area %ld by reach %ld in %f, the whole search's %ld in %f (frontier %f complete %d)",
-					area, goal_area, best, best_time, expected, expected_time, cache->frontier, (int)cache->complete);
-			if (checked % 20000 == 0)
-				bot_log("aas: route check: %lu routes checked, %lu wrong", checked, wrong);
-			if (aas_route_checking > 1 && checked % 97 == 0 && world->reach_count > 0)
-				aas_reach_failed(type, (long)(checked / 97 * 7919 % (unsigned long)MIN(world->reach_count, 400)));
-		}
-	}
+		aas_route_reach_check(type, cache, area, from, goal_area, avoid, context, best, best_time);
 	return best;
 }
 
@@ -3948,8 +4122,7 @@ static void aas_debug_probe(void)
 		return;
 	for (h = 1; h <= 16; h++)
 	{
-		unsigned long const flags = FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_back_facing_surfaces_bit) |
-			FLAG(_collision_test_structure_bit) | FLAG(_collision_test_objects_bit) | FLAG(_collision_test_objects_scenery_bit);
+		unsigned long const flags = AAS_SOLID_TESTS;
 		struct collision_result collision;
 		real_point3d a;
 		real_vector3d v;

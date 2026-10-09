@@ -344,7 +344,6 @@ struct bot_country_result
 	boolean none; /* the country does not join here to there */
 	boolean held_up; /* stuck time and again: out */
 	boolean into_portal; /* the point is the way into a portal: straight into it */
-	boolean escaping; /* getting clear of something: by its own steering, not the navigation's */
 	boolean edge; /* going at an edge with nothing under it: stopping */
 	char const *note; /* (testing: why it does what it does, when that is not driving on) */
 };
@@ -372,8 +371,6 @@ boolean bot_air_ready(void);
 /* the highest ground, and the lowest sky, within radius of a point */
 real bot_air_ground(real x, real y, real radius);
 boolean bot_air_open(real_point3d const *point); /* under the sky there, not under a roof */
-real bot_air_sky(real x, real y, real radius);
-long bot_air_route(real_point3d const *from, real_point3d const *to, real need, real_point3d *points, long maximum);
 /* a vehicle's kind, as its physics are (vehicles.c: the tank, the jeep, the
    boat, the plane, the scout (a Ghost), the fighter (a Banshee), a turret) */
 enum
@@ -389,7 +386,6 @@ enum
 };
 long bot_vehicle_kind(long definition_index);
 boolean bot_vehicle_flies(long definition_index);
-real bot_vehicle_top_speed(long definition_index);
 /* (testing, HALO_BOT_REFINE=<a sum>: each of the later changes to how the
    bots move, on or off. 1, 2, 4, 8, 16: on foot (bot_move.c). 32: a craft
    keeps its height on its way, and is as large as it is. 64: a driver sees
@@ -406,7 +402,6 @@ real bot_vehicle_top_speed(long definition_index);
 int bot_refined_is(int which);
 /* (sorted, with what compares equal left as it was: the same on every C library) */
 void bot_sort_stable(void *base, size_t count, size_t size, int (*compare)(void const *, void const *));
-void bot_pilot_reset(struct bot_pilot *pilot);
 void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_flight_order const *order, struct bot_flight_result *result);
 
 /* ---------- shared helpers (bot_states.c) */
