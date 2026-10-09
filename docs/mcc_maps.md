@@ -336,11 +336,19 @@ not exhaustive playthroughs.
 
 The final combined MCC and existing cache-format suite passed 298 tests
 with six optional-fixture skips, including the BSP lifecycle and score-hint
-checks. The final native Windows build and a further rendered Nitra load
-also passed. The full general legacy Linux harness could
-not run with the Windows/MSVC toolchain: its POSIX thread/clock interfaces,
-libm linkage and CRT syntax require the existing Linux CI environment.
-No full Linux harness or Linux runtime pass is claimed here.
+checks, both locally and in Windows CI. The Linux MCC CI subset passed
+252 tests with five optional-fixture skips. The final native Windows build
+and a further rendered Nitra load also passed.
+
+The original Linux regression suite requires POSIX interfaces and could
+not run fully on the local Windows/MSVC toolchain. GitHub CI subsequently
+built Linux Debug and Release and ran that suite successfully: 236 tests
+passed, four skipped, and the separate light-storage checks passed.
+Windows Debug, Release and light-storage CI checks also passed, as did
+Android Debug and Release. The [complete build run](https://github.com/chestahh/GulchCE/actions/runs/37975964199)
+and [MCC validation run](https://github.com/chestahh/GulchCE/actions/runs/37975964090)
+cover implementation commit `a196ae0c`. These build/test results do not
+establish Linux or Android gameplay behavior.
 
 Run the isolated tests with a C compiler and Python/pytest available:
 
