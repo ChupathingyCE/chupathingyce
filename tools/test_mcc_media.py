@@ -41,6 +41,7 @@ def media_tool(tmp_path_factory):
     functions += "\n" + function(native_bitmap, "bitmap_2d_address")
     functions += "\n" + "\n".join(function(bitmap, name) for name in ["mcc_bitmap_bytes", "mcc_pixel",
         "mcc_channels", "mcc_bitmap_decode", "mcc_morton_axis", "mcc_bitmap_pack"])
+    functions += "\n" + function(hud, "mcc_hud_offset")
     functions += "\n" + function(hud, "mcc_hud_scale")
     functions += "\n" + function(hud, "mcc_hud_score_text")
     source = r'''
@@ -57,7 +58,7 @@ def media_tool(tmp_path_factory):
 #define MCC_AUDIO_FRAME_LIMIT 0x1000000u
 struct sound_permutation {struct {uint32_t file_offset,size;} samples; uint32_t sample_buffer_size; int compression;};
 struct mcc_runtime {void *audio;};
-struct hud_placement_definition {struct {float i,j;} scale; short multiplayer_scaling_flags;};
+struct hud_placement_definition {struct {short x,y;} offset;struct {float i,j;} scale; short multiplayer_scaling_flags;};
 struct bitmap_data {short type,width,height,depth,format,mipmap_count;unsigned short flags;void *base_address;};
 typedef unsigned char byte;
 #define FALSE 0
@@ -107,13 +108,16 @@ int main(int argc,char **argv) {
         return 0;
     }
     if (!strcmp(argv[1],"hud")) {
-        struct hud_placement_definition p={{2.0f,4.0f},4};
-        mcc_hud_scale(&p,1,1);
-        if(p.scale.i!=1.0f || p.scale.j!=2.0f || p.multiplayer_scaling_flags) return 9;
-        mcc_hud_scale(&p,0,1);
-        if(p.scale.i!=1.0f || p.scale.j!=2.0f) return 10;
-        p.multiplayer_scaling_flags=4;mcc_hud_scale(&p,0,0);
-        if(p.scale.i!=1.0f || p.scale.j!=2.0f) return 11;
+        struct hud_placement_definition p={{20,-12},{2.0f,4.0f},4};
+        mcc_hud_scale(&p,1);
+        if(p.scale.i!=0.5f || p.scale.j!=1.0f || p.multiplayer_scaling_flags ||
+            p.offset.x!=10 || p.offset.y!=-6) return 9;
+        p.scale.i=2.0f;p.scale.j=4.0f;p.multiplayer_scaling_flags=4;
+        mcc_hud_scale(&p,0);
+        if(p.scale.i!=1.0f || p.scale.j!=2.0f || p.multiplayer_scaling_flags) return 10;
+        p.scale.i=2.0f;p.scale.j=4.0f;p.multiplayer_scaling_flags=7;
+        mcc_hud_scale(&p,0);
+        if(p.scale.i!=1.0f || p.scale.j!=2.0f || p.multiplayer_scaling_flags!=3) return 11;
         return 0;
     }
     if (!strcmp(argv[1],"score-hint")) {
@@ -268,7 +272,7 @@ def test_virtual_audio_ranges_do_not_alias_raw_file(media_tool):
     run(media_tool, "contains")
 
 
-def test_hud_high_resolution_flags_apply_once(media_tool):
+def test_hud_canvas_and_bitmap_scale_are_independent(media_tool):
     run(media_tool, "hud")
 
 

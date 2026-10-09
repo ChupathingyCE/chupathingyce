@@ -166,13 +166,36 @@ static int mcc_bitmap_mark(struct mcc_runtime *runtime,struct mcc_textures *text
 static int mcc_meter_usage(struct mcc_runtime *runtime,struct mcc_textures *textures,
     struct meter_hud_element_definition *meter)
 {
-    return mcc_bitmap_mark(runtime,textures,(uint32_t *)&meter->meter_bitmap.index,meter->sequence_index,4);
+    /* MCC meter flag 5 keeps Xbox fill/shape channels. The native meter
+     * already consumes that order; only Gearbox-style meters need a clone
+     * with luminance and alpha exchanged. */
+    unsigned channels=meter->meter_flags&0x20 ? 1 : 4;
+    return mcc_bitmap_mark(runtime,textures,(uint32_t *)&meter->meter_bitmap.index,meter->sequence_index,channels);
 }
 
 static int mcc_static_usage(struct mcc_runtime *runtime,struct mcc_textures *textures,
     struct static_hud_element_definition *element)
 {
     return mcc_bitmap_mark(runtime,textures,(uint32_t *)&element->interface_bitmap.index,element->sequence_index,1);
+}
+
+static int mcc_bitmap_model_usage(struct mcc_runtime *runtime,struct mcc_textures *textures,
+    unsigned char *shader)
+{
+    static unsigned const offsets[]={0xB0,0xC8,0xE8,0x170};
+    uint16_t flags;
+    unsigned n;
+    memcpy(&flags,shader+0x28,sizeof(flags));
+    /* MCC's model flag 6 selects original Xbox mask channels. These masks
+     * already have reflection in red and change color in blue; applying the
+     * Gearbox swizzle would turn opaque DXT1 alpha into full-surface tint.
+     * Select per reference: another shader may use this same bitmap with
+     * the flag clear and must still receive its own reordered clone. */
+    for (n=0;n<4;n++) {
+        unsigned channels=n==1 && !(flags&0x40) ? 2 : 1;
+        if (!mcc_bitmap_mark(runtime,textures,(uint32_t *)(shader+offsets[n]),NONE,channels)) return 0;
+    }
+    return 1;
 }
 
 static int mcc_bitmap_usages(struct mcc_runtime *runtime,struct mcc_textures *textures)
@@ -182,12 +205,7 @@ static int mcc_bitmap_usages(struct mcc_runtime *runtime,struct mcc_textures *te
         uint32_t *entry=(uint32_t *)(runtime->tag_index+index*0x20);
         if (entry[0]=='soso') {
             unsigned char *shader=mcc_runtime_pointer(runtime,entry[5],0x174);
-            static unsigned const offsets[]={0xB0,0xC8,0xE8,0x170};
-            unsigned n;
-            if (!shader) return 0;
-            for (n=0;n<4;n++) {
-                if (!mcc_bitmap_mark(runtime,textures,(uint32_t *)(shader+offsets[n]),NONE,n==1 ? 2 : 1)) return 0;
-            }
+            if (!shader || !mcc_bitmap_model_usage(runtime,textures,shader)) return 0;
         } else if (entry[0]==UNIT_HUD_INTERFACE_DEFINITION_TAG) {
             struct unit_hud_interface_definition *hud=mcc_runtime_pointer(runtime,entry[5],sizeof(*hud));
             struct auxilary_meter_definition *meters;

@@ -146,10 +146,12 @@ are not an MCC implementation dependency. The independent components are:
 | `port/linux/src/mcc_memory.c` | Separate 64 MiB linked tag window; never replaces an existing allocation. |
 | `port/linux/game/mcc_geometry.c` | New model descriptors, model vertex/index conversion, external BSP vertex streams and node palettes. |
 | `port/linux/game/mcc_audio.c` | MCC sound decoding, resampling and Xbox ADPCM encoding into an MCC virtual stream. |
+| `port/linux/game/mcc_vorbis.c` | Private namespaced Vorbis decoder, bounded Ogg validation and empty residue vector compatibility. |
 | `port/linux/game/mcc_bitmaps.c` | MCC pixel layout, BC7 decoding and shader/HUD channel normalization into an MCC virtual stream. |
 | `port/linux/game/mcc_texture_cache.c` and `port/linux/src/mcc_texture_bridge.c` | Direct bindings of checked MCC pixel allocations and lazy GPU textures, independent of the Xbox/CE staging cache. |
 | `port/linux/game/mcc_tags.c` | MCC metadata, shader-type, HUD placement and widget normalization. |
 | `port/linux/game/mcc_hud.c` | MCC bitmap/placement scaling, including nested weapon and grenade HUD items. |
+| `port/linux/game/mcc_hud_draw.c` | MCC canvas, glyph geometry and text advances; neutral dispatch for Xbox/CE. |
 | `port/linux/game/mcc_scripts.c` | Name-based MCC function/global linking and supported MCC native functions. |
 | `port/linux/game/mcc_syntax.c` | MCC's 32,767-slot syntax validation and traversal workspace. |
 | `port/linux/game/mcc_script_parameters.c` and `mcc_script_runtime.inl` | MCC parameter metadata/scopes and interpreter frames inside the existing HS stack. |
@@ -198,7 +200,8 @@ This is an independently written implementation of documented wire formats,
 informed by reading the existing engine's public interfaces and schemas.
 No Custom Edition implementation was copied or renamed. Generic engine
 operations, including vertex compression and GPU buffer construction, are
-shared. The existing generic `stb_vorbis` library decodes Ogg, and the new
+shared. MCC compiles a private namespaced instance of the unchanged generic
+`stb_vorbis` library to decode Ogg; Xbox/CE retain their existing instance. The
 MIT-licensed `port/third_party/bcdec` dependency decodes BC7 and DXT blocks;
 its accompanying license and provenance are retained. This statement does
 not claim the legal two-team meaning of formal clean-room reverse
@@ -231,11 +234,26 @@ DXT1/3/5 and MCC's BC7 format 18. BC7 is decoded to ARGB8888 for the existing
 renderer. Pixel rows, Morton ordering and cube/mip layout are packed by
 the independent MCC adapter. The MCC environment bitmap flag is metadata, so it is cleared
 when constructing the Xbox descriptor. Compressed and palette flags are
-derived from the resulting format. Model multipurpose maps and HUD meter
-maps receive MCC-specific channel conversion. A bitmap used by consumers
+derived from the resulting format. Model flag `0x40` and HUD meter flag
+`0x20` identify resources already in Xbox channel order. Those channels
+are preserved; references with the flags clear receive Gearbox-to-Xbox
+channel conversion. A bitmap used by consumers
 that require different channel layouts gets separate MCC-owned tag and
 pixel copies, with the relevant consumer's reference redirected. The tag
 index can grow into a separate checked allocation for those copies.
+
+MCC HUD placements use a 960p canvas, converted to the native 480p canvas
+in MCC-owned tags. Bitmap half-scale flags are a separate factor, so high
+resolution images retain their original texels. Anchors, number advances,
+waypoint/damage margins and direct icon geometry are normalized; the
+motion-sensor radius and font-relative icon offsets/advances already use
+native units and are retained. Five native
+HUD/UI files contain additive dispatch only: every pre-existing statement
+is retained. Xbox/CE dispatch is neutral before any bitmap lookup or draw.
+The pause A/B glyphs and pickup icons use their own bitmap flags, with
+matching cursor advances so text remains beside the correctly sized icons.
+Pause glyphs align to the active UI font's capitals instead of inheriting
+a map's custom HUD icon baseline.
 
 MCC textures bind their immutable converted allocations directly through an
 MCC-owned hardware-header registry. Exact registered header identity grants
@@ -308,12 +326,20 @@ For that exact full-chain size pattern, the converter retains every complete
 mip level and logs the omitted tail; it never reads beyond the declared range.
 Arbitrary truncation, missing base images and other unknown flags still fail.
 
-Some Ruby maps have a separate Vorbis decoding incompatibility. The current
-decoder reports an invalid residue stream for `sound\\music\\spooky1\\in` in
-`a30` and `a50`; comparison with an independent libvorbis decoder found an
-actual PCM difference. This change does not suppress the decoder error.
-Passing script validation therefore does not establish that every Ruby map
-can load or complete a campaign.
+Ruby's `sound\\music\\spooky1\\in` (including `b30` tag #3583) uses an
+empty residue vector codebook. The generic decoder aborted the rest of the
+residue after encountering it, producing an error and incorrect PCM. MCC's
+private decoder normalizes only empty additive residue vector references
+before the first overlap packet, matching Xiph's zero-contribution behavior.
+Empty scalar floor/classification books are not covered by that rule.
+Ogg checksums, page continuity, EOS, sample count and remaining decoder errors
+are still checked. Decoder buffers return to their own allocator, independently
+of the game's debug allocator and the later ADPCM format conversion.
+
+An independent PCM comparison across all ten Ruby maps covered 50,186 Vorbis
+references and 8,325 distinct streams: all decoded successfully and every
+sample differed from libsndfile/libvorbis by at most one signed-16-bit unit.
+These codec checks do not establish a complete campaign playthrough.
 
 ## Current boundaries
 
@@ -599,6 +625,7 @@ Run the isolated tests with a C compiler and Python/pytest available:
 python -m pytest -q tools/test_mcc_cache_format.py
 python -m pytest -q tools/test_mcc_geometry.py
 python -m pytest -q tools/test_mcc_media.py tools/test_mcc_tag_validation.py
+python -m pytest -q tools/test_mcc_hud.py tools/test_mcc_shader_channels.py tools/test_mcc_vorbis.py
 python -m pytest -q tools/test_mcc_texture_bridge.py
 python -m pytest -q tools/test_mcc_ui.py tools/test_mcc_ui_teams.py tools/test_mcc_ui_network.py
 python -m pytest -q tools/test_mcc_pause.py tools/test_mcc_pause_runtime.py
@@ -635,4 +662,7 @@ memory limits and must not be applied indiscriminately.
 | Mission-segment boolean/string contract | [Sapien's generated function documentation](https://github.com/Sigmmma/c20/blob/master/src/data/hs_docs/h1/hs_doc_sapien.txt) and [shipped MCC c10 scripts](https://github.com/NervyDestroyer/Halo-MCC-Scripts/blob/main/H1/levels/c10/scripts/mission_c10.hsc); Ruby's 225 calls also take one string, with boolean conditions used before `sleep`. |
 | Parameter wire records and local references | [Scenario schema](https://github.com/SnowyMouse/invader/blob/master/src/tag/hek/definition/scenario.json) defines 36-byte records, maximum 16 and local-variable flag bit 4; [public script compiler](https://github.com/SnowyMouse/invader/blob/master/src/tag/parser/compile/scenario/pre_compile.cpp) confirms primitive/global/local flags and the parameter slot in node data. |
 | Sound compression formats and cached sound data | [Invader sound compiler](https://github.com/SnowyMouse/invader/blob/master/src/tag/parser/compile/sound.cpp), existing Xbox sound definitions; fixture samples and tag fields checked directly. |
+| MCC HUD canvas and independent bitmap half-scale | [Restored tagset author's format notes](https://github.com/Aerocatia/halopc-restored#hud-scale-is-still-480p); Ruby shield offsets and number advances are exactly twice their stock Xbox counterparts. |
+| Xbox-order model and HUD meter flags | [Invader model shader schema](https://github.com/SnowyMouse/invader/blob/master/src/tag/hek/definition/shader_model.json), [HUD meter schema](https://github.com/SnowyMouse/invader/blob/master/src/tag/hek/definition/hud_interface_types.json); Ruby and Mercury contain mixed flag states. |
+| Empty Vorbis residue vectors contribute zero | [Xiph Vorbis 1.3.7 codebook implementation](https://github.com/xiph/vorbis/blob/v1.3.7/lib/codebook.c), `vorbis_book_decodevs_add`, `vorbis_book_decodev_add`, `vorbis_book_decodevv_add`; synthetic multi-pass streams and independent Ruby PCM comparison. |
 | Header and historical format differences | [Reclaimers map documentation](https://c20.reclaimers.net/h1/maps/), [SnowyMouse CEA format research](https://gist.github.com/SnowyMouse/39168bddd597549038a35d78aee39513); historical chunk compression is outside this implementation's scope. |

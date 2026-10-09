@@ -1,5 +1,6 @@
-/* MCC HUD normalization, based on the public HEK field layouts. Bitmap
- * high-resolution flags and placement flags request one half-size operation. */
+/* MCC HUD normalization. MCC placements use a 960p canvas; the native
+ * viewport uses 480p. Bitmap half-HUD flags apply in addition to that canvas
+ * conversion. Keep the original bitmap pixels and sprite texture coordinates. */
 #include "cseries.h"
 #include "bitmaps/bitmap_group.h"
 #include "interface/unit_hud_interface_definition.h"
@@ -102,20 +103,27 @@ static int mcc_hud_half_bitmap(struct mcc_runtime *r,uint32_t handle,int *half)
     return 1;
 }
 
-static void mcc_hud_scale(struct hud_placement_definition *placement,int half,int use_placement_flag)
+static void mcc_hud_offset(struct hud_placement_definition *placement)
 {
-    if (half || (use_placement_flag && (placement->multiplayer_scaling_flags&4))) {
-        placement->scale.i*=0.5f;
-        placement->scale.j*=0.5f;
-        placement->multiplayer_scaling_flags&=~4;
-    }
+    placement->offset.x/=2;
+    placement->offset.y/=2;
+    /* MCC does not apply the old PC placement high-resolution flag. */
+    placement->multiplayer_scaling_flags&=~4;
+}
+
+static void mcc_hud_scale(struct hud_placement_definition *placement,int half)
+{
+    float factor=half ? 0.25f : 0.5f;
+    mcc_hud_offset(placement);
+    placement->scale.i*=factor;
+    placement->scale.j*=factor;
 }
 
 static int mcc_hud_bitmap_element(struct mcc_runtime *r,unsigned char *element)
 {
     int half;
     if (!mcc_hud_half_bitmap(r,mcc_hud_word(element+0x30),&half)) return 0;
-    mcc_hud_scale((void *)element,half,1);
+    mcc_hud_scale((void *)element,half);
     return 1;
 }
 
@@ -125,7 +133,7 @@ static int mcc_hud_items(struct mcc_runtime *r,unsigned char *definition,uint32_
     unsigned char *items=mcc_hud_block(r,definition+16,stride,&count);
     int half;
     if (!items || !mcc_hud_half_bitmap(r,mcc_hud_word(definition+12),&half)) return 0;
-    for (i=0;i<count;i++) mcc_hud_scale((void *)(items+i*stride),half,0);
+    for (i=0;i<count;i++) mcc_hud_scale((void *)(items+i*stride),half);
     return 1;
 }
 
@@ -140,6 +148,7 @@ int mcc_hud_bitmaps_prepare(struct mcc_runtime *r)
             p=mcc_runtime_pointer(r,entry[5],0x56C);
             if (!p) return 0;
             for (n=0;n<NUMBEROF(elements);n++) if (!mcc_hud_bitmap_element(r,p+elements[n])) return 0;
+            mcc_hud_offset((void *)(p+0x35C)); /* radar blip anchor */
             block=mcc_hud_block(r,p+0x3A4,0x84,&count);
             if (!block) return 0;
             for (n=0;n<count;n++) if (!mcc_hud_bitmap_element(r,block+n*0x84)) return 0;
@@ -161,10 +170,33 @@ int mcc_hud_bitmaps_prepare(struct mcc_runtime *r)
                 if (!block) return 0;
                 for (n=0;n<count;n++) if (!mcc_hud_items(r,block+n*0x68+0x24,k ? 0x88 : 0x6C)) return 0;
             }
+            block=mcc_hud_block(r,p+0x78,0xA0,&count);
+            if (!block) return 0;
+            for (n=0;n<count;n++) mcc_hud_offset((void *)(block+n*0xA0+0x24));
         } else if (entry[0]=='grhi') {
             p=mcc_runtime_pointer(r,entry[5],0x1F8);
             if (!p || !mcc_hud_bitmap_element(r,p+0x24) || !mcc_hud_bitmap_element(r,p+0x8C) ||
                 !mcc_hud_items(r,p+0x14C,0x88)) return 0;
+            mcc_hud_offset((void *)(p+0xF4));
+        } else if (entry[0]=='hudg') {
+            struct hud_globals_definition *globals=mcc_runtime_pointer(r,entry[5],sizeof(*globals));
+            if (!globals) return 0;
+            mcc_hud_offset(&globals->messaging.placement);
+            globals->waypoint.top_offset*=0.5f;
+            globals->waypoint.bottom_offset*=0.5f;
+            globals->waypoint.left_offset*=0.5f;
+            globals->waypoint.right_offset*=0.5f;
+            globals->damage_indicators.top_offset/=2;
+            globals->damage_indicators.bottom_offset/=2;
+            globals->damage_indicators.left_offset/=2;
+            globals->damage_indicators.right_offset/=2;
+        } else if (entry[0]=='hud#') {
+            /* The number renderer owns bitmap scaling; these are screen
+             * advances, not sprite texture coordinates. */
+            p=mcc_runtime_pointer(r,entry[5],0x64);
+            if (!p) return 0;
+            ((signed char *)p)[0x11]/=2; /* screen_width */
+            ((signed char *)p)[0x14]/=2; /* decimal_point_width */
         } else if (entry[0]=='bitm') {
             struct bitmap_group *bitmap=mcc_runtime_pointer(r,entry[5],sizeof(*bitmap));
             if (!bitmap) return 0;

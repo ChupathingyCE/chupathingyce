@@ -1,12 +1,11 @@
-/* MCC audio normalization. Generic stb_vorbis is the only codec dependency;
+/* MCC audio normalization. An MCC-owned Vorbis adapter handles codec differences;
  * no Custom Edition state or sound conversion routine is used. A damaged or
  * unsupported permutation rejects the map, rather than quietly silencing it. */
 #include "cseries.h"
 #include "errors.h"
 #include "sound/sound_definitions.h"
 #include "mcc_runtime.h"
-#define STB_VORBIS_HEADER_ONLY
-#include "stb_vorbis.c"
+#include "mcc_vorbis.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -15,7 +14,7 @@
 #define MCC_AUDIO_FRAME_LIMIT 0x1000000u
 
 struct mcc_audio_storage { unsigned char *bytes; uint32_t used, capacity; };
-struct mcc_pcm { short *samples; uint32_t frames, rate; int channels; };
+struct mcc_pcm { short *samples; uint32_t frames, rate; int channels, vorbis_owned; };
 struct mcc_ima { int value, step; };
 
 /* The IMA ADPCM quantizer tables are part of the public codec format. */
@@ -61,38 +60,9 @@ static int mcc_pcm_open(unsigned char const *bytes, uint32_t size, int compressi
     memset(pcm,0,sizeof(*pcm));
     pcm->channels=channels; pcm->rate=rate;
     if (compression==3) {
-        int error=0, got;
-        uint32_t capacity=8192;
-        stb_vorbis *stream=stb_vorbis_open_memory(bytes,(int)size,&error,NULL);
-        stb_vorbis_info info;
-        if (!stream) return 0;
-        info=stb_vorbis_get_info(stream);
-        if (info.channels<1 || info.channels>2 || info.sample_rate<8000 || info.sample_rate>192000) {
-            stb_vorbis_close(stream); return 0;
-        }
-        pcm->channels=info.channels; pcm->rate=info.sample_rate;
-        pcm->samples=malloc(capacity*pcm->channels*sizeof(short));
-        if (!pcm->samples) {stb_vorbis_close(stream); return 0;}
-        for (;;) {
-            if (pcm->frames==capacity) {
-                short *larger;
-                if (capacity>=MCC_AUDIO_FRAME_LIMIT) break;
-                capacity*=2;
-                larger=realloc(pcm->samples,capacity*pcm->channels*sizeof(short));
-                if (!larger) break;
-                pcm->samples=larger;
-            }
-            got=stb_vorbis_get_samples_short_interleaved(stream,pcm->channels,
-                pcm->samples+pcm->frames*pcm->channels,(int)((capacity-pcm->frames)*pcm->channels));
-            if (!got) {
-                error=stb_vorbis_get_error(stream);
-                stb_vorbis_close(stream);
-                return pcm->frames>0 && error==VORBIS__no_error;
-            }
-            pcm->frames+=(uint32_t)got;
-        }
-        stb_vorbis_close(stream);
-        return 0;
+        pcm->vorbis_owned=1;
+        return mcc_vorbis_decode(bytes,size,MCC_AUDIO_FRAME_LIMIT,
+            &pcm->samples,&pcm->frames,&pcm->rate,&pcm->channels);
     }
     if (compression==0) {
         if (size%(2*channels)) return 0;
@@ -126,6 +96,18 @@ static int mcc_pcm_open(unsigned char const *bytes, uint32_t size, int compressi
         }
     }
     return 1;
+}
+
+static void mcc_pcm_close(struct mcc_pcm *pcm)
+{
+    /* mcc_vorbis uses the C runtime allocator; cseries remaps this module's free
+     * to debug_free. Preserve ownership even after the permutation is converted
+     * to ADPCM, so each allocation returns to the allocator that created it. */
+    if (pcm->samples) {
+        if (pcm->vorbis_owned) mcc_vorbis_free(pcm->samples);
+        else free(pcm->samples);
+    }
+    pcm->samples=NULL;
 }
 
 static int mcc_pcm_sample(struct mcc_pcm const *pcm, uint32_t frame, int channel, int channels)
@@ -237,7 +219,7 @@ int mcc_audio_prepare(struct mcc_runtime *runtime)
                     ok=mcc_audio_store(storage,&pcm,channels,output_rate,permutation);
                     if (ok) converted++;
                 }
-                if (pcm.samples) free(pcm.samples);
+                mcc_pcm_close(&pcm);
                 if (!ok) goto failed;
             }
         }

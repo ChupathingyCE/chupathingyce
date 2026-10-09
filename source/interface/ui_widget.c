@@ -627,6 +627,7 @@ symbols in this file:
 
 struct widget_instance;
 
+#include "mcc_hud_draw.h"
 #include "cseries.h"
 #include "errors.h"
 #include "bitmaps/bitmap_group.h"
@@ -4966,6 +4967,8 @@ static void render_state_bitmap(
 	if (bitmap && _texture_cache_bitmap_get_hardware_format(
 		(struct bitmap_data *)bitmap, FALSE, TRUE))
 	{
+		if (mcc_hud_icon_draw(bitmap_group_index, bitmap, clip, cursor_bounds, color, icon, TRUE))
+			return;
 		scale = hud_globals_get_scale(local_player_count() > 1) * glyph_scale;
 		point.x = (short)(icon->offset.x * scale + cursor_bounds->x0 + 1.0f);
 		point.y = (short)(cursor_bounds->y1 - icon->offset.y * scale - 2.0f);

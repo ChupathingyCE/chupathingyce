@@ -114,6 +114,7 @@ symbols in this file:
 
 /* ---------- headers */
 
+#include "mcc_hud_draw.h"
 #include "cseries/cseries.h"
 
 #include "cseries/errors.h"
@@ -818,6 +819,8 @@ static void render_state_bitmap(
 	if (bitmap && _texture_cache_bitmap_get_hardware_format(
 		(struct bitmap_data *)bitmap, FALSE, TRUE))
 	{
+		if (mcc_hud_icon_draw(bitmap_group_index, bitmap, clip, cursor_bounds, color, icon, FALSE))
+			return;
 #ifdef HALO_CUSTOM_EDITION
 		extern boolean ce_hud_bitmap_is_xbox_button(void const *bitmap);
 
