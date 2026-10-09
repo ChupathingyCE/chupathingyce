@@ -403,6 +403,183 @@ static boolean bake_apply_map(
 	return applied;
 }
 
+/* the map is loaded and its game running: its navigation was built as it
+loaded (bots.c, bots_map_loaded), and written. On to the next structure BSP,
+or done with the map */
+static void bake_map_built(
+	struct bake_map *map)
+{
+	/* (the BSP the navigation in hand is of: the one the map loaded
+	with, or the one switched to below; not, if the map's script has
+	changed it since, the one the game is on now) */
+	long built = bots_navigation_bsp();
+
+	if (aas_ready() && built >= 0 && built < MAXIMUM_BAKED_BSPS && navm_baked_files() >= bake.files_before + 2 &&
+		aas_baked_current(map->name, built))
+	{
+		/* a map with other structure BSPs (one its script switches to
+		as the game starts, in a few Custom Edition maps): each of them
+		too, switched to here and worked out as the first was. Every
+		one, or the map is not baked: one that cannot be switched to
+		is a failure, not the end of the list. */
+		struct scenario *scenario = global_scenario_get();
+		long count = scenario ? scenario->structure_bsp_references.count : 1;
+		long next;
+
+		bake.bsps_done |= 1UL << built;
+		for (next = 0; next < count && next < MAXIMUM_BAKED_BSPS && (bake.bsps_done & (1UL << next)); next++)
+			;
+		if (count > MAXIMUM_BAKED_BSPS)
+		{
+			platform_log("bake: %s has %ld structure BSPs, more than are baked (%d)", map->name, count, (int)MAXIMUM_BAKED_BSPS);
+			bake_leave(map, _bake_map_failed);
+		}
+		else if (next >= count)
+		{
+			if (!navm_baked_bsps_write(map->name, count))
+			{
+				platform_log("bake: %s: its count of structure BSPs could not be written to the game data's navcache folder", map->name);
+				bake_leave(map, _bake_map_failed);
+			}
+			else
+				bake_leave(map, _bake_map_baked);
+		}
+		else if (next == global_structure_bsp_index || scenario_switch_structure_bsp((short)next))
+		{
+			/* (already on it: the map's script got there first, and the
+			navigation in hand is still the last one's) */
+			bake.files_before = navm_baked_files();
+			bots_map_loaded();
+			if (bots_navigation_bsp() != next)
+			{
+				platform_log("bake: %s: no navigation could be worked out for its structure BSP %ld", map->name, next);
+				bake_leave(map, navm_map_too_large() ? _bake_map_too_large : _bake_map_failed);
+			}
+		}
+		else
+		{
+			platform_log("bake: %s: its structure BSP %ld could not be switched to", map->name, next);
+			bake_leave(map, _bake_map_failed);
+		}
+	}
+	else if (!aas_ready() && navm_map_too_large())
+	{
+		/* (not a failure: there is nothing to bake, and the bots play
+		the map without navigation) */
+		platform_log("bake: %s is too large for the bots' navigation: left out", map->name);
+		bake_leave(map, _bake_map_too_large);
+	}
+	else
+	{
+		platform_log("bake: %s: %s", map->name, aas_ready() ? "its navigation could not be written to the game data's navcache folder" :
+			"no navigation could be worked out");
+		bake_leave(map, _bake_map_failed);
+	}
+}
+
+/* the main menu, no game hosted yet: the lobby for this map, hosted */
+static void bake_host_map(
+	struct bake_map *map,
+	real seconds)
+{
+	/* (the main menu settling first) */
+	bake.menu_seconds += seconds;
+	if (bake.menu_seconds < 0.5f)
+		return;
+	/* a lobby opens with the playlist's first map, whatever it is to
+	play: without that map the game has no lobby at all (it is the
+	damaged disc message, which waits for a button), and nothing bakes */
+	if (!bake.lobby_checked)
+	{
+		struct game_variant variant;
+		char first[256];
+		char const *name;
+		short i;
+
+		bake.lobby_checked = TRUE;
+		game_engine_playlist_initialize();
+		game_engine_get_current_stage(&variant, first);
+		name = strrchr(first, '\\') ? strrchr(first, '\\') + 1 : first;
+		for (i = 0; i < bake.map_count && bake_names_differ(bake.maps[i].name, name); i++)
+			;
+		if (i == bake.map_count)
+		{
+			platform_log("bake: %s%s.map is missing, the map every multiplayer lobby opens with: nothing can be baked",
+				cache_files_map_directory(), name);
+			bake_finish();
+			return;
+		}
+	}
+	bake.map_start = bot_time_microseconds();
+	bake.files_before = navm_baked_files();
+	bake.bsps_done = 0;
+	main_set_multiplayer_map_name(map->name);
+	player_ui_fast_setup_network_server();
+	/* (nobody joins it) */
+	network_game_accept_remote_connections(FALSE);
+	/* the same game every time: a map's trees and rocks are of the
+	shapes the game's random numbers pick, and the navigation goes
+	around them, so the same seed bakes the same files */
+	if (global_network_game_server_get())
+		network_game_set_random_seed(BAKE_RANDOM_SEED);
+	if (!global_network_game_server_get() || !global_network_game_client_get())
+	{
+		platform_log("bake: %s: could not host a game", map->name);
+		map->state = _bake_map_failed;
+		bake.menu_seconds = 0.0f;
+		return;
+	}
+	bake.hosting = TRUE;
+	bake.started = FALSE;
+	bake.player_added = FALSE;
+	bake.lobby_seconds = 0.0f;
+	bake.apply_seconds = 0.0f;
+	platform_log("bake: %s (%d of %d)", map->name, (int)bake.map_index + 1, (int)bake.map_count);
+}
+
+/* the lobby: the map and the game type, and once they are set and its
+player is in it (as pressing A in the lobby adds one), the game */
+static void bake_run_lobby(
+	struct bake_map *map,
+	struct network_game_client *client,
+	real seconds)
+{
+	bake.lobby_seconds += seconds;
+	if ((bot_time_microseconds() - bake.map_start) / 1.0e6 > BAKE_LOBBY_TIMEOUT_SECONDS)
+	{
+		platform_log("bake: %s: its game did not start", map->name);
+		bake_leave(map, _bake_map_failed);
+		return;
+	}
+	if (!bake.started)
+	{
+		struct network_game *settings = network_game_client_get_game(client);
+
+		/* (the settings come back from the server a moment after a change) */
+		bake.apply_seconds -= seconds;
+		if (bake.apply_seconds <= 0.0f)
+		{
+			bake.apply_seconds = 0.25f;
+			bake_apply_map(map, TRUE);
+		}
+		if (!bake.player_added && bake.lobby_seconds >= 0.25f)
+			bake.player_added = network_game_client_add_player(client, 0);
+		if (bake.lobby_seconds >= 0.25f && settings && settings->player_count > 0 && bake_apply_map(map, FALSE))
+		{
+			bake.started = TRUE;
+			bake.apply_seconds = 0.0f;
+			network_game_client_request_immediate_start();
+		}
+	}
+	else
+	{
+		/* asked to start and still in the lobby: asked again */
+		bake.apply_seconds += seconds;
+		if (bake.apply_seconds >= 5.0f)
+			bake.started = FALSE;
+	}
+}
+
 /* ---------- public code */
 
 boolean bot_bake_enabled(
@@ -450,76 +627,9 @@ void bot_bake_update(
 		return;
 	}
 
-	/* the map is loaded and its game running: its navigation was built as
-	it loaded (bots.c, bots_map_loaded), and written */
 	if (bake.hosting && bake.started && client && !main_menu_loaded && game_in_progress() && game_engine_running())
 	{
-		/* (the BSP the navigation in hand is of: the one the map loaded
-		with, or the one switched to below; not, if the map's script has
-		changed it since, the one the game is on now) */
-		long built = bots_navigation_bsp();
-
-		if (aas_ready() && built >= 0 && built < MAXIMUM_BAKED_BSPS && navm_baked_files() >= bake.files_before + 2 &&
-			aas_baked_current(map->name, built))
-		{
-			/* a map with other structure BSPs (one its script switches to
-			as the game starts, in a few Custom Edition maps): each of them
-			too, switched to here and worked out as the first was. Every
-			one, or the map is not baked: one that cannot be switched to
-			is a failure, not the end of the list. */
-			struct scenario *scenario = global_scenario_get();
-			long count = scenario ? scenario->structure_bsp_references.count : 1;
-			long next;
-
-			bake.bsps_done |= 1UL << built;
-			for (next = 0; next < count && next < MAXIMUM_BAKED_BSPS && (bake.bsps_done & (1UL << next)); next++)
-				;
-			if (count > MAXIMUM_BAKED_BSPS)
-			{
-				platform_log("bake: %s has %ld structure BSPs, more than are baked (%d)", map->name, count, (int)MAXIMUM_BAKED_BSPS);
-				bake_leave(map, _bake_map_failed);
-			}
-			else if (next >= count)
-			{
-				if (!navm_baked_bsps_write(map->name, count))
-				{
-					platform_log("bake: %s: its count of structure BSPs could not be written to the game data's navcache folder", map->name);
-					bake_leave(map, _bake_map_failed);
-				}
-				else
-					bake_leave(map, _bake_map_baked);
-			}
-			else if (next == global_structure_bsp_index || scenario_switch_structure_bsp((short)next))
-			{
-				/* (already on it: the map's script got there first, and the
-				navigation in hand is still the last one's) */
-				bake.files_before = navm_baked_files();
-				bots_map_loaded();
-				if (bots_navigation_bsp() != next)
-				{
-					platform_log("bake: %s: no navigation could be worked out for its structure BSP %ld", map->name, next);
-					bake_leave(map, navm_map_too_large() ? _bake_map_too_large : _bake_map_failed);
-				}
-			}
-			else
-			{
-				platform_log("bake: %s: its structure BSP %ld could not be switched to", map->name, next);
-				bake_leave(map, _bake_map_failed);
-			}
-		}
-		else if (!aas_ready() && navm_map_too_large())
-		{
-			/* (not a failure: there is nothing to bake, and the bots play
-			the map without navigation) */
-			platform_log("bake: %s is too large for the bots' navigation: left out", map->name);
-			bake_leave(map, _bake_map_too_large);
-		}
-		else
-		{
-			platform_log("bake: %s: %s", map->name, aas_ready() ? "its navigation could not be written to the game data's navcache folder" :
-				"no navigation could be worked out");
-			bake_leave(map, _bake_map_failed);
-		}
+		bake_map_built(map);
 		return;
 	}
 
@@ -528,59 +638,7 @@ void bot_bake_update(
 
 	if (!bake.hosting)
 	{
-		/* (the main menu settling first) */
-		bake.menu_seconds += seconds;
-		if (bake.menu_seconds < 0.5f)
-			return;
-		/* a lobby opens with the playlist's first map, whatever it is to
-		play: without that map the game has no lobby at all (it is the
-		damaged disc message, which waits for a button), and nothing bakes */
-		if (!bake.lobby_checked)
-		{
-			struct game_variant variant;
-			char first[256];
-			char const *name;
-			short i;
-
-			bake.lobby_checked = TRUE;
-			game_engine_playlist_initialize();
-			game_engine_get_current_stage(&variant, first);
-			name = strrchr(first, '\\') ? strrchr(first, '\\') + 1 : first;
-			for (i = 0; i < bake.map_count && bake_names_differ(bake.maps[i].name, name); i++)
-				;
-			if (i == bake.map_count)
-			{
-				platform_log("bake: %s%s.map is missing, the map every multiplayer lobby opens with: nothing can be baked",
-					cache_files_map_directory(), name);
-				bake_finish();
-				return;
-			}
-		}
-		bake.map_start = bot_time_microseconds();
-		bake.files_before = navm_baked_files();
-		bake.bsps_done = 0;
-		main_set_multiplayer_map_name(map->name);
-		player_ui_fast_setup_network_server();
-		/* (nobody joins it) */
-		network_game_accept_remote_connections(FALSE);
-		/* the same game every time: a map's trees and rocks are of the
-		shapes the game's random numbers pick, and the navigation goes
-		around them, so the same seed bakes the same files */
-		if (global_network_game_server_get())
-			network_game_set_random_seed(BAKE_RANDOM_SEED);
-		if (!global_network_game_server_get() || !global_network_game_client_get())
-		{
-			platform_log("bake: %s: could not host a game", map->name);
-			map->state = _bake_map_failed;
-			bake.menu_seconds = 0.0f;
-			return;
-		}
-		bake.hosting = TRUE;
-		bake.started = FALSE;
-		bake.player_added = FALSE;
-		bake.lobby_seconds = 0.0f;
-		bake.apply_seconds = 0.0f;
-		platform_log("bake: %s (%d of %d)", map->name, (int)bake.map_index + 1, (int)bake.map_count);
+		bake_host_map(map, seconds);
 		return;
 	}
 
@@ -594,40 +652,5 @@ void bot_bake_update(
 		return;
 	}
 
-	/* the lobby: the map and the game type, and once they are set and its
-	player is in it (as pressing A in the lobby adds one), the game */
-	bake.lobby_seconds += seconds;
-	if ((bot_time_microseconds() - bake.map_start) / 1.0e6 > BAKE_LOBBY_TIMEOUT_SECONDS)
-	{
-		platform_log("bake: %s: its game did not start", map->name);
-		bake_leave(map, _bake_map_failed);
-		return;
-	}
-	if (!bake.started)
-	{
-		struct network_game *settings = network_game_client_get_game(client);
-
-		/* (the settings come back from the server a moment after a change) */
-		bake.apply_seconds -= seconds;
-		if (bake.apply_seconds <= 0.0f)
-		{
-			bake.apply_seconds = 0.25f;
-			bake_apply_map(map, TRUE);
-		}
-		if (!bake.player_added && bake.lobby_seconds >= 0.25f)
-			bake.player_added = network_game_client_add_player(client, 0);
-		if (bake.lobby_seconds >= 0.25f && settings && settings->player_count > 0 && bake_apply_map(map, FALSE))
-		{
-			bake.started = TRUE;
-			bake.apply_seconds = 0.0f;
-			network_game_client_request_immediate_start();
-		}
-	}
-	else
-	{
-		/* asked to start and still in the lobby: asked again */
-		bake.apply_seconds += seconds;
-		if (bake.apply_seconds >= 5.0f)
-			bake.started = FALSE;
-	}
+	bake_run_lobby(map, client, seconds);
 }
