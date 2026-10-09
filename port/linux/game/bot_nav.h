@@ -35,14 +35,11 @@ Worked out once per map and kept in the save folder (u:\navcache).
 
 boolean navm_build(void); /* for the loaded map: from the cache, or worked out (then cached) */
 void navm_dispose(void);
-boolean navm_ready(void);
 
 real navm_wall_clearance(real_point3d const *point, real *floor_z); /* room around a point (-1: not on the grid) */
-real navm_edge_distance(real_point3d const *point); /* how far to a drop */
 boolean navm_floor_at(real_point3d const *point, real above, real below, real *floor_z);
 boolean navm_line_walkable(real_point3d const *from, real_point3d const *to, real wall_min, real edge_min);
-boolean navm_line_passable(real_point3d const *from, real_point3d const *to, real wall_min); /* ...over a hand's width of missing floor, too */
-/* ...and ending on the floor that `to` is on (the two above follow the floor toward `to` and do not read its height) */
+/* ...and ending on the floor that `to` is on (navm_line_walkable follows the floor toward `to` and does not read its height) */
 boolean navm_line_arrives(real_point3d const *from, real_point3d const *to, real wall_min, real edge_min, boolean over_slots);
 
 /* ---------- the area awareness system */
@@ -161,8 +158,6 @@ void aas_reach_failed(long type, long reach);
    for as long as the map is up) */
 void aas_reach_handicap(long type, long reach, float seconds);
 float aas_reach_handicap_of(long type, long reach);
-/* a jumped gap's fall for a jump that misses (a great deal where there is no floor under it) */
-real aas_reach_fall(long type, long reach); /* learned: it went wrong; it costs more from now on */
 
 /* places of interest (spawns, items, flags, teleporters) */
 long aas_place_count(void);

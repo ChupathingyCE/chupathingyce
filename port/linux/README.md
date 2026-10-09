@@ -1571,6 +1571,36 @@ were even: 50% without teams, 49% in 32 team games, and 49% in duels of
 two bots (47% for two bots that are the same). `HALO_BOT_OFF=press` turns
 it off, and so does `HALO_BOT_REFINE=131071`.
 
+**A second reading of the code.** These faults were corrected:
+
+- A bot that lay in wait was taken for a bot that was stuck, and it
+  jumped about once a second where it lay (139 jumps in 118 waits in two
+  test games, 0 now).
+- A bot that came back to life a moment ago was taken for a person in
+  the choice of a squad's leader, and so it was made the leader.
+- On a new life, some values that mean "nothing" were 0 in place of
+  NONE. With some test switches, a good player's dodge of a rocket was off
+  until the first grenade.
+- A bot's grenade hit rate and its last bad route went on into the next
+  game. A bot that had changed its seat in a vehicle twice did not try
+  again in the next vehicle.
+- A gunner's shots were heard as far as the weapon in the gunner's hands
+  carries, not as far as the vehicle's gun carries.
+- The places that bots run to at random could include places that were
+  removed from the map's list.
+- On the tick that a jump or a ladder ended, the fight took the bot to be
+  still on it, and the bot did not strafe.
+- A Longsword whose bomb went while its gun was not ready again flew on
+  over the place that it had bombed.
+- A route search that ran out of memory could be taken for a finished
+  search. A damaged navigation file could make the game read past the
+  name of the map.
+
+Some code that nothing used was taken out, and the test switches of
+finished work were set to their values. The kills between bots, the time
+to each item on 11 maps, the race on Wizard and the vehicle maps are as
+before. The undefined behaviour sanitizer found nothing in 22 games.
+
 `HALO_BOT_REFINE` has more parts: 32 (the height and the size of craft),
 64 (the drivers), 128 (the nearest vehicle), 256 (the grenades), 512
 (the jumps at a run and the legs), 1024 (how a good player moves in a

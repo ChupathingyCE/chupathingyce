@@ -167,12 +167,16 @@ static long air_surface_polygon(struct collision_bsp *bsp, long s, real_point3d 
 	return count;
 }
 
-/* a polygon cut to x >= edge (sign 1) or x <= edge (sign -1) on an axis */
+/* a polygon cut to x >= edge (sign 1) or x <= edge (sign -1) on an axis
+   (into room for AIR_CLIP_MOST corners: a surface is convex, and each cut
+   adds one corner at the most; one that is not is cut short, not let run
+   over the end) */
+#define AIR_CLIP_MOST 24
 static long air_clip(real_point3d *out, real_point3d const *in, long count, long axis, real edge, real sign)
 {
 	long i;
 	long written = 0;
-	for (i = 0; i < count; i++)
+	for (i = 0; i < count && written <= AIR_CLIP_MOST - 2; i++)
 	{
 		real_point3d const *a = &in[i];
 		real_point3d const *b = &in[(i + 1) % count];
@@ -226,7 +230,7 @@ static void air_surfaces(struct collision_bsp *bsp, int sky_pass)
 		{
 			for (cx = cx0; cx <= cx1; cx++)
 			{
-				real_point3d a[24], b[24];
+				real_point3d a[AIR_CLIP_MOST], b[AIR_CLIP_MOST];
 				real x = air.x0 + cx * air.cell;
 				real y = air.y0 + cy * air.cell;
 				real low = 1.0e9f, high = -1.0e9f;
@@ -444,7 +448,7 @@ static void air_scenery(void)
 		count++;
 		for (y = middle->y - radius; y <= middle->y + radius && rays < AIR_SCENERY_RAYS; y += step)
 		{
-			for (x = middle->x - radius; x <= middle->x + radius; x += step)
+			for (x = middle->x - radius; x <= middle->x + radius && rays < AIR_SCENERY_RAYS; x += step)
 			{
 				struct collision_result collision;
 				real_point3d from;
@@ -687,8 +691,8 @@ static void air_cell_center(long c, real_point3d *point)
 
 /* A route through the air from one place to another for a craft that needs
    `need` of room: the turns of it, the last of them the place itself (or
-   the nearest square to it with room). 0: none (no way round; the search's
-   turn this tick taken: fly as before). */
+   the nearest square to it with room). -1: none, no way round; 0: none
+   yet, the search's turn this tick taken (fly as before). */
 long bot_air_route(real_point3d const *from, real_point3d const *to, real need, real_point3d *points, long maximum)
 {
 	static long const step_x[8] = { 1, -1, 0, 0, 1, 1, -1, -1 };
@@ -2091,6 +2095,21 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 				over_them, lands, near_enough);
 		pilot->bomb_before = lands;
 		pilot->bomb_tick = now;
+	}
+	/* (the bomb let go and the gun not ready for another, which ends the
+	   bombing above before its press is out: the pass is over all the same.
+	   It was flown on at the place it had just bombed.) */
+	else if (pilot->phase == _pilot_cruise && pilot->heavy_press > 0 && order->heavy_bomb)
+	{
+		pilot->heavy_press = 0;
+		pilot->heavy_tick = now;
+		pilot->phase = _pilot_break;
+		pilot->phase_tick = now;
+		pilot->away = FALSE;
+		pilot->bomb_pass = TRUE;
+		pilot->break_yaw = air_way_on(position, speed > 2.f ? (real)atan2(body->velocity.j, body->velocity.i) : body->facing_yaw,
+			MAX(speed, 10.f) * AIR_BOMB_LEAVING, need, clearance);
+		why = " (bomb gone)";
 	}
 	else if (pilot->phase != _pilot_run && pilot->heavy_press > 0 && order->heavy_bomb)
 		pilot->heavy_press = 0;

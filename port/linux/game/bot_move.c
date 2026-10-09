@@ -48,26 +48,6 @@ static real bot_move_distance(real_point3d const *a, real_point3d const *b)
 	return (real)sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-int bot_refined_is(int which);
-/* (testing, HALO_BOT_R5PARTS: which of the mover's rules of the round that
-   REFINE 16384 switches are on. 1: a gap fallen off the start of twice, 2: a
-   jump made past where it lands, 4: no weaving by a jump, 8: no faster to a
-   gap than stops, 16: the jump before the ground falls away, 32: floor
-   along the run at a gap, 64: a good step out when it is held up twice in
-   one place) */
-static int bot_r5(int part)
-{
-	static int asked;
-	static long parts = 0x7fffffff;
-	if (!asked)
-	{
-		asked = TRUE;
-		if (getenv("HALO_BOT_R5PARTS"))
-			parts = atol(getenv("HALO_BOT_R5PARTS"));
-	}
-	return (parts & part) != 0 && bot_refined_is(16384);
-}
-
 int bot_refined_is(int which)
 {
 	static int asked, on = 0x7fffffff;
@@ -78,11 +58,6 @@ int bot_refined_is(int which)
 			on = atoi(getenv("HALO_BOT_REFINE"));
 	}
 	return (on & which) != 0;
-}
-
-int bot_refined(void)
-{
-	return bot_refined_is(31);
 }
 
 void bot_move_reset(struct bot_move_state *move)
@@ -102,7 +77,6 @@ void bot_move_reset(struct bot_move_state *move)
 	move->area = NONE;
 	move->cost_slot = NONE;
 	move->reach = NONE;
-	move->corridor_goal_area = NONE;
 	move->last_first_reach = NONE;
 	move->last_goal_area = NONE;
 	move->route_goal_area = NONE;
@@ -854,7 +828,7 @@ static boolean bot_move_gap_run_on(struct bot_body const *body, struct aas_reach
 	   cornerwise; a bot coming up beside the line ran off the square end
 	   four tenths of a unit short of the corner, with the jump not yet
 	   asked for, one time in seven.) */
-	if (bot_r5(32))
+	if (bot_refined_is(16384))
 	{
 		real to_landing = bot_yaw_to(position, &reach->left);
 		real gain = (real)cos(bot_angle_difference(to_landing, run));
@@ -1057,7 +1031,7 @@ static real bot_move_rise_between(struct bot_body const *body, real_point3d cons
 }
 
 /* travelling a reachability: TRUE while it's still under way */
-static boolean bot_move_travel(struct bot_mover *bot, struct bot_body const *body, struct bot_move_result *result)
+static boolean bot_move_travel_on(struct bot_mover *bot, struct bot_body const *body, struct bot_move_result *result)
 {
 	struct bot_move_state *move = &bot->move;
 	struct aas_reach const *reach;
@@ -1202,7 +1176,7 @@ static boolean bot_move_travel(struct bot_mover *bot, struct bot_body const *bod
 		   from each time it is come to. That was let pass for ever, and the
 		   bot went round and up and off again until it was sent somewhere
 		   else.) */
-		if (move->slip_reach == move->reach && game_time_get() - move->slip_tick < BOT_SECONDS(20.f) && bot_r5(1))
+		if (move->slip_reach == move->reach && game_time_get() - move->slip_tick < BOT_SECONDS(20.f) && bot_refined_is(16384))
 		{
 			move->slip_reach = NONE;
 			bot_move_reach_failed(bot, "fell off before it, twice");
@@ -1228,7 +1202,7 @@ static boolean bot_move_travel(struct bot_mover *bot, struct bot_body const *bod
 	   rock doing it, jumped at the rock again from the ground and was out
 	   of time: the jump at a run onto the rock by the west base of Battle
 	   Creek, one time in four.) */
-	if (bot_r5(2) && move->reach_started && (reach->travel == _aas_travel_jump || reach->travel == _aas_travel_gap) &&
+	if (bot_refined_is(16384) && move->reach_started && (reach->travel == _aas_travel_jump || reach->travel == _aas_travel_gap) &&
 		area != NONE && area != reach->from && area != reach->to && !body->airborne && position->z > reach->end.z - 0.25f &&
 		position->z < aas_area(move->type, area)->z1 + 0.25f && move->reach_ticks > 8)
 	{
@@ -1498,7 +1472,6 @@ static boolean bot_move_travel(struct bot_mover *bot, struct bot_body const *bod
 		if (!move->reach_started)
 		{
 			real_point3d ahead = *position;
-			real speed = (real)sqrt(body->velocity.i * body->velocity.i + body->velocity.j * body->velocity.j) * BOT_TICKS_PER_SECOND;
 			real past = (position->x - reach->edge.x) * (real)cos(run) + (position->y - reach->edge.y) * (real)sin(run);
 			real across = (real)fabs(-(position->x - reach->edge.x) * (real)sin(run) + (position->y - reach->edge.y) * (real)cos(run));
 			real toward, enough;
@@ -1606,7 +1579,7 @@ static boolean bot_move_travel(struct bot_mover *bot, struct bot_body const *bod
 			   the ground a fifth of a unit short of the edge, every time.) */
 			if (past > -0.1f || (reach->careful == AAS_HOP && past > -0.7f && toward > 1.3f) ||
 				(past > -0.4f && !bot_ground(&ahead, 0.8f, body->unit_index, NULL) && toward > 1.5f) || early ||
-				(bot_r5(16) && !move->reach_no_jump && move->reach_pace > 0.f && reach->careful != AAS_HOP && past > -BOT_GAP_STEEP_BACK && toward > 1.2f &&
+				(bot_refined_is(16384) && !move->reach_no_jump && move->reach_pace > 0.f && reach->careful != AAS_HOP && past > -BOT_GAP_STEEP_BACK && toward > 1.2f &&
 					body->can_jump && bot_move_ground_goes(body, &ahead)))
 			{
 				/* (going across it, with floor to stand on meanwhile: a
@@ -1820,6 +1793,18 @@ static boolean bot_move_travel(struct bot_mover *bot, struct bot_body const *bod
 	return TRUE;
 }
 
+/* (a travel that is over, or failed, leaves the route's walk as it would
+   have been: its kind stayed on the result, and for that tick the fight
+   took the bot for one on a jump or a ladder, and did not strafe) */
+static boolean bot_move_travel(struct bot_mover *bot, struct bot_body const *body, struct bot_move_result *result)
+{
+	long travel = result->travel;
+	if (bot_move_travel_on(bot, body, result))
+		return TRUE;
+	result->travel = travel;
+	return FALSE;
+}
+
 /* someone else is on this reachability (a ladder) */
 static boolean bot_move_reach_busy(struct bot_mover const *bot, long reach)
 {
@@ -1851,7 +1836,6 @@ static void bot_move_drive(struct bot_mover *bot, struct bot_body const *body, r
 	struct bot_move_result *result)
 {
 	struct bot_move_state *move = &bot->move;
-	struct object_datum *vehicle = object_get(body->vehicle_index);
 	real speed = (real)sqrt(body->velocity.i * body->velocity.i + body->velocity.j * body->velocity.j) * BOT_TICKS_PER_SECOND;
 	real heading = body->facing_yaw;
 	real_point3d aim = *target;
@@ -1924,7 +1908,6 @@ static void bot_move_drive(struct bot_mover *bot, struct bot_body const *body, r
 		if (speed > 2.f)
 			move->stuck_count = 0;
 	}
-	(void)vehicle;
 }
 
 /* a flying vehicle (a banshee): straight there, over things */
@@ -2515,7 +2498,7 @@ void bot_move_to_goal(struct bot_mover *bot, struct bot_body const *body, struct
 	   and a bot going up to the rocket launcher on the arch of Battle Creek
 	   with a fight below was weaved off the rocks: thirty seconds on the
 	   way up, down twice, and shot.) */
-	if (type == AAS_FOOT && bot_r5(4))
+	if (type == AAS_FOOT && bot_refined_is(16384))
 	{
 		long i;
 		for (i = move->corridor_count - 1; i >= 0 && i >= move->corridor_count - 8; i--)
@@ -2548,7 +2531,7 @@ void bot_move_to_goal(struct bot_mover *bot, struct bot_body const *body, struct
 	   and is enough: a body in the air only gathers speed while it is
 	   walked forward. (The gap: the first thing on the way that is not a
 	   walk.) */
-	if (type == AAS_FOOT && move->reach == NONE && result->moving && bot_r5(8))
+	if (type == AAS_FOOT && move->reach == NONE && result->moving && bot_refined_is(16384))
 	{
 		long i;
 		for (i = move->corridor_count - 1; i >= 0 && i >= move->corridor_count - 8; i--)
@@ -2732,7 +2715,7 @@ finish:
 			   there four seconds, gave the way up, and came back to do it
 			   again, eleven times in a game. Bots with someone in sight
 			   were weaved clear of it; one with nobody about was not.) */
-			if (bot_r5(64))
+			if (bot_refined_is(16384))
 			{
 				if (move->held_count > 0 && game_time_get() - move->held_tick < BOT_SECONDS(3.f) && bot_distance2d(position, &move->held_point) < 0.6f)
 				{

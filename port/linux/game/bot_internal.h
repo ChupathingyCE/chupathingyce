@@ -96,9 +96,6 @@ struct bot_move_state
 	real_point3d route_goal_spot;
 	real_point3d route_goal_origin;
 	int corridor_complete; /* to the goal's area, or to a reachability that's more than a walk */
-	long corridor_goal_area;
-	long corridor_type;
-	long corridor_ticks;
 	/* stuck */
 	real_point3d progress_point;
 	long progress_ticks;
@@ -128,7 +125,6 @@ struct bot_move_state
 	long back_until;
 	int spot_latched; /* off the areas: over the nearest spot of them already (as near as it gets) */
 	long wait_ticks; /* waiting a turn at a ladder */
-	real last_distance;
 	long dodge_ticks;
 	real dodge_sign;
 	real_point3d corner; /* where we last headed (testing) */
@@ -188,10 +184,6 @@ struct bot_move_result
 	int get_out;
 };
 
-/* testing: HALO_BOT_REFINE=0 moves the bots as they moved before the last
-   round of refinements to their walking (one switch for the lot, for a
-   comparison in the same build) */
-int bot_refined(void);
 
 void bot_move_reset(struct bot_move_state *move);
 /* one tick's movement toward goal (on foot, or driving) */
@@ -361,7 +353,6 @@ void bot_country_build(void);
 void bot_country_dispose(void);
 boolean bot_country_ready(void);
 void bot_country_update(void); /* once a tick: its searches carried on */
-boolean bot_country_on(real_point3d const *point);
 boolean bot_country_nearest(real_point3d const *point, long rings, real_point3d *ground);
 long bot_country_portals_of(long vehicle_index); /* the ways the map's script carries this vehicle (a set of them) */
 /* (for a craft: the one of them in sight from where it stands, and into it) */
@@ -371,7 +362,6 @@ boolean bot_country_gate_enter(long vehicle_index, long gate);
 boolean bot_country_walk(real_point3d const *from, real_point3d const *to, real_point3d *next, boolean *soon, boolean *off);
 boolean bot_country_way(real_point3d const *from, real_point3d const *to, long portals, boolean drops, real ahead, real_point3d *next,
 	boolean *soon, boolean *off, real *left);
-real bot_country_distance(real_point3d const *from, real_point3d const *to, long portals);
 boolean bot_nav_in_parts(void); /* (bot_nav.c: a map too large for its floors to be worked out whole) */
 void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *body, real_point3d const *to, struct bot_country_result *result);
 

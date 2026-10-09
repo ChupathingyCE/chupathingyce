@@ -1211,7 +1211,8 @@ static boolean navm_cache_read(FILE *file, char const *map, unsigned long const 
 
 	ok = fread(&header, sizeof(header), 1, file) == 1 && header.magic == NAVM_CACHE_MAGIC &&
 		(header.version == NAVM_CACHE_VERSION || header.version == NAVM_CACHE_VERSION_BLOCKS) &&
-		header.span_size == sizeof(struct navm_span) && !strcmp(header.map, map) && !memcmp(header.signature, signature, 4 * sizeof(unsigned long)) &&
+		header.span_size == sizeof(struct navm_span) && !strncmp(header.map, map, sizeof(header.map)) &&
+		memchr(header.map, 0, sizeof(header.map)) && !memcmp(header.signature, signature, 4 * sizeof(unsigned long)) &&
 		header.width > 0 && header.height > 0 && header.width <= NAVM_MAXIMUM_SIDE && header.height <= NAVM_MAXIMUM_SIDE &&
 		/* (the two sides are in range by now, and their product is worked
 		   out in 64 bits: never one that has wrapped round to a small number) */
@@ -1465,11 +1466,6 @@ void navm_dispose(void)
 	navm.cell = NAVM_CELL_COARSEST; /* (never nought: it's divided by) */
 }
 
-boolean navm_ready(void)
-{
-	return navm.ready;
-}
-
 /* the most columns a map's grid may have with all of them worked out (a
    long each, twice over meanwhile); a larger map has parts of it worked out
    (navm_choose_parts) */
@@ -1640,17 +1636,6 @@ real navm_wall_clearance(real_point3d const *point, real *floor_z)
 	return navm.spans[s].wall / 100.f;
 }
 
-real navm_edge_distance(real_point3d const *point)
-{
-	long s;
-	if (!navm.ready)
-		return -1.f;
-	s = navm_span_at(point, 0.5f, 1.2f);
-	if (s == NONE)
-		return -1.f;
-	return navm.spans[s].edge / 100.f;
-}
-
 boolean navm_floor_at(real_point3d const *point, real above, real below, real *floor_z)
 {
 	long s = navm.ready ? navm_span_at(point, above, below) : NONE;
@@ -1777,15 +1762,6 @@ static boolean navm_line_follow(real_point3d const *from, real_point3d const *to
 boolean navm_line_walkable(real_point3d const *from, real_point3d const *to, real wall_min, real edge_min)
 {
 	return navm_line_follow(from, to, wall_min, edge_min, FALSE, NULL);
-}
-
-/* the same, for getting along on foot where it's tight: over a slot in
-   the floor no wider than a hand (the bevel at the foot of a sill, the
-   crack between two plates: nothing a body notices), and up or down a
-   step at a time */
-boolean navm_line_passable(real_point3d const *from, real_point3d const *to, real wall_min)
-{
-	return navm_line_follow(from, to, wall_min, 0.f, TRUE, NULL);
 }
 
 /* ... to a place: the floor the line ends on is the very one `to` is on

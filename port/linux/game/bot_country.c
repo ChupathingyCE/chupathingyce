@@ -266,8 +266,9 @@ static struct
 	long steps_used;
 } country;
 
-/* (testing, HALO_BOT_COUNTRYKERB=<height>: another kerb than COUNTRY_KERB) */
-static real country_kerb = COUNTRY_KERB;
+/* (the kerb a wheel goes up as it is; testing, HALO_BOT_COUNTRYKERB=<height>:
+   another highest kerb than COUNTRY_KERB_HIGHEST) */
+static real const country_kerb = COUNTRY_KERB;
 static real country_kerb_highest = COUNTRY_KERB_HIGHEST;
 
 static long const country_dx[8] = { 1, -1, 0, 0, 1, 1, -1, -1 };
@@ -2559,11 +2560,6 @@ static long country_floor_under(real_point3d const *point, long rings)
 	return best;
 }
 
-boolean bot_country_on(real_point3d const *point)
-{
-	return country.ready && country_floor_under(point, 2) != NONE;
-}
-
 /* the floor a field to a place starts from: the nearest to it, across and
    up or down (a place on a roof, on a ledge: the ground by it), and one
    that is part of a good stretch of ground when there is one */
@@ -3493,18 +3489,6 @@ void bot_country_debug_way(void)
 		steps++;
 	}
 	bot_log("countryway: there, %.0f along in %ld steps", along, steps);
-}
-
-/* how far it is over the ground between two points, world units; below 0
-   when it is not known (yet, or at all) */
-real bot_country_distance(real_point3d const *from, real_point3d const *to, long portals)
-{
-	real_point3d next;
-	boolean soon, off;
-	real left = -1.f;
-	if (!bot_country_way(from, to, portals, TRUE, 0.f, &next, &soon, &off, &left))
-		return -1.f;
-	return left;
 }
 
 /* ---------- driving it */
