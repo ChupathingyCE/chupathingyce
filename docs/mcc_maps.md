@@ -151,6 +151,7 @@ are not an MCC implementation dependency. The independent components are:
 | `port/linux/game/mcc_tags.c` | MCC metadata, shader-type, HUD placement and widget normalization. |
 | `port/linux/game/mcc_hud.c` | MCC bitmap/placement scaling, including nested weapon and grenade HUD items. |
 | `port/linux/game/mcc_scripts.c` | Name-based MCC function/global linking and supported MCC native functions. |
+| `port/linux/game/mcc_syntax.c` | MCC's 32,767-slot syntax validation and traversal workspace. |
 | `port/linux/game/mcc_script_parameters.c` and `mcc_script_runtime.inl` | MCC parameter metadata/scopes and interpreter frames inside the existing HS stack. |
 | `port/linux/game/mcc_objects.c` | MCC multiplayer vehicle placement masks. |
 | `port/linux/game/mcc_grenades.c` | MCC slots 2/3, salted unit inventories, pickup/throw/drop behavior and HUD. |
@@ -260,8 +261,15 @@ removing sound.
 
 Compiled script function and engine-global indices are linked by the
 names retained in the script strings. The adapter provides
-`objects_distance_to_object` and maps `player_effect_set_max_vibrate` to
-the engine's rumble operation. Other unresolved names reject the map.
+`objects_distance_to_object` and `mcc_mission_segment`, and maps
+`player_effect_set_max_vibrate` to the engine's rumble operation.
+Other unresolved names reject the map. `mcc_mission_segment` evaluates its
+string argument normally, records a bounded local diagnostic event and
+returns true for a supplied string. This acknowledges the event locally;
+it does not implement the MCC telemetry service. The boolean result retains
+the conditional `sleep` calls used in shipped and Ruby campaign scripts.
+It does not call `core_save_name`: that Xbox function writes a raw debug
+save, and remains unchanged and unavailable to map scripts.
 Compiled MCC static/stub scripts support up to 16 typed parameters.
 Signatures, scoped local references and call arguments are checked before
 loading. The MCC interpreter extension keeps arguments, mutable local
@@ -270,8 +278,23 @@ references survive sleeps and release on return or thread termination.
 Nested and recursive calls retain separate scopes. The existing 512-byte
 stack remains the recursion/depth bound. Dynamic console calls with
 parameters are not supported by this extension; the cached map's calls
-are the supported path. Reserving 32,767 nodes on disk is accepted when
-the active syntax fits the existing interpreter's 19,001-node limit.
+are the supported path. MCC syntax now retains its full 32,767-slot arena,
+including unused slots for dynamic console expressions. This is the Halo 1
+MCC format's signed 16-bit capacity, not 65,535. MCC's independent validator
+checks the complete node span, occupied count, salted references and cycles
+before the interpreter follows links. Its traversal and parameter workspaces
+cover the full arena. Three additive dispatches in `hs.c` select MCC's
+validation/allocation-admission path; Xbox and Custom Edition keep their
+original 19,001-slot constants, validation storage and statements.
+Syntax remains in MCC-owned tag memory, with unchanged datum handles and
+thread/checkpoint layouts. No shared data-array structure or allocator changes.
+
+Ruby's Rebalanced was audited across all ten campaign maps: each reserves
+32,767 slots. `a10` has a high-water count of 19,723, including 18,480 occupied
+nodes; the other nine high-water counts are below 19,001. Its existing holes
+are retained rather than compacting or renumbering the graph. Across these
+maps, the only unsupported native name was `mcc_mission_segment` (225 calls,
+42 in boolean contexts and 183 with a discarded return value).
 
 ## Current boundaries
 
@@ -564,7 +587,7 @@ python -m pytest -q tools/test_mcc_maps.py
 python -m pytest -q tools/test_mcc_menu.py
 python -m pytest -q tools/test_mcc_saved_games.py
 python -m pytest -q tools/test_mcc_checkpoint.py tools/test_mcc_grenades.py tools/test_mcc_network.py
-python -m pytest -q tools/test_mcc_parameters.py tools/test_mcc_scripts.py
+python -m pytest -q tools/test_mcc_parameters.py tools/test_mcc_scripts.py tools/test_mcc_syntax.py
 python -m pytest -q tools/test_mcc_lifecycle.py
 ```
 
@@ -589,6 +612,8 @@ memory limits and must not be applied indiscriminately.
 | MCC BSP external environment/lightmap vertex streams | [Invader BSP compiler](https://github.com/SnowyMouse/invader/blob/master/src/tag/parser/compile/scenario_structure_bsp.cpp), [build layout](https://github.com/SnowyMouse/invader/blob/master/src/build/build_workload.cpp), [BSP schema](https://github.com/SnowyMouse/invader/blob/master/src/tag/hek/definition/scenario_structure_bsp.json); fixture header has `0x2B5D0C` bytes at file offset `0x800`. |
 | BC7 format 18, environment flag bit 9 and external resource flag bit 8 | [Invader bitmap schema](https://github.com/SnowyMouse/invader/blob/master/src/tag/hek/definition/bitmap.json); fixture contains 38 BC7 records and environment-flagged bitmaps. |
 | MCC script parameters, expanded syntax capacity | [Invader scenario schema](https://github.com/SnowyMouse/invader/blob/master/src/tag/hek/definition/scenario.json), [MCC editing kit change documentation](https://c20.reclaimers.net/h1/h1-ek/); fixture syntax is `56 + 32767 * 20` bytes. |
+| MCC Halo 1 syntax limit is 32,767 | [Invader engine configuration](https://github.com/SnowyMouse/invader/blob/696830ff80af227e84e7237c2ef26eb2301ed110/src/hek/map.cpp#L94) uses `INT16_MAX`; all ten Ruby map headers reserve exactly this count. |
+| Mission-segment boolean/string contract | [Sapien's generated function documentation](https://github.com/Sigmmma/c20/blob/master/src/data/hs_docs/h1/hs_doc_sapien.txt) and [shipped MCC c10 scripts](https://github.com/NervyDestroyer/Halo-MCC-Scripts/blob/main/H1/levels/c10/scripts/mission_c10.hsc); Ruby's 225 calls also take one string, with boolean conditions used before `sleep`. |
 | Parameter wire records and local references | [Scenario schema](https://github.com/SnowyMouse/invader/blob/master/src/tag/hek/definition/scenario.json) defines 36-byte records, maximum 16 and local-variable flag bit 4; [public script compiler](https://github.com/SnowyMouse/invader/blob/master/src/tag/parser/compile/scenario/pre_compile.cpp) confirms primitive/global/local flags and the parameter slot in node data. |
 | Sound compression formats and cached sound data | [Invader sound compiler](https://github.com/SnowyMouse/invader/blob/master/src/tag/parser/compile/sound.cpp), existing Xbox sound definitions; fixture samples and tag fields checked directly. |
 | Header and historical format differences | [Reclaimers map documentation](https://c20.reclaimers.net/h1/maps/), [SnowyMouse CEA format research](https://gist.github.com/SnowyMouse/39168bddd597549038a35d78aee39513); historical chunk compression is outside this implementation's scope. |

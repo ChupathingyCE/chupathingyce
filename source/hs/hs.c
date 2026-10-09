@@ -13295,6 +13295,12 @@ the line that says so: a map that isn't run with its scripts says why */
 static char const *hs_scenario_syntax_data_problem(
 	struct scenario const *scenario)
 {
+	{
+		extern int mcc_syntax_scenario_valid(struct scenario const *scenario);
+		int mcc_valid = mcc_syntax_scenario_valid(scenario);
+		if (mcc_valid >= 0)
+			return mcc_valid != 0;
+	}
 	long const syntax_data_size =
 		sizeof(struct data_array)+MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO*sizeof(struct hs_syntax_node);
 	/* (the tag cache the map's tags are in: a Custom Edition map's is its
@@ -13841,6 +13847,14 @@ console's expressions, compiled later, may call and set anything */
 static void hs_scenario_functions_check(
 	struct scenario *scenario)
 {
+	{
+		extern boolean mcc_syntax_functions_check(struct scenario *scenario, struct data_array *syntax,
+			short (*node_refusal)(struct hs_syntax_node const *, char const **),
+			unsigned long *disabled_scripts, unsigned long *disabled_globals);
+		if (mcc_syntax_functions_check(scenario, hs_syntax_data, hs_syntax_node_refusal,
+			hs_scenario_disabled_scripts, hs_scenario_disabled_globals))
+			return;
+	}
 	long expression_index;
 	short script_index;
 	short global_index;
@@ -14049,6 +14063,11 @@ static void hs_allocate(
 	char const *problem = NULL;
 
 	scenario = global_scenario_index != NONE ? global_scenario_get() : NULL;
+	{
+		extern int mcc_syntax_scenario_valid(struct scenario const *scenario);
+		if (mcc_syntax_scenario_valid(scenario) > 0)
+			return;
+	}
 	/* port: as the map holds it only when it is sound */
 	if (scenario)
 	{

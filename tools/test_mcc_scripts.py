@@ -26,8 +26,9 @@ def native_mcc_harness(tmp_path_factory):
     command += ["-I" + str(ROOT / path) for path in includes]
     def build(name):
         binary = directory / (name + ".exe")
+        extra = [str(ROOT / "port/linux/game/mcc_syntax.c")] if name == "mcc_scripts" else []
         result = subprocess.run(command + [str(ROOT / "tools/harness/tests" / (name + ".c")),
-                                str(ROOT / "port/linux/game" / (name + ".c")), "-o", str(binary)],
+                                str(ROOT / "port/linux/game" / (name + ".c"))] + extra + ["-o", str(binary)],
                                 capture_output=True, text=True)
         assert result.returncode == 0, result.stderr
         return binary
@@ -39,8 +40,9 @@ def scripts_tool(native_mcc_harness):
     return native_mcc_harness("mcc_scripts")
 
 
-@pytest.mark.parametrize("case", ["link", "alias", "extension", "global", "unknown",
-                                  "bad_child", "child_salt", "short_data", "capacity", "unterminated"])
+@pytest.mark.parametrize("case", ["link", "alias", "extension", "segment", "global", "unknown",
+                                  "bad_child", "child_salt", "short_data", "capacity", "full_capacity",
+                                  "negative_count", "unterminated"])
 def test_mcc_script_linking(scripts_tool, case):
     result = subprocess.run([str(scripts_tool), case], capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stdout + result.stderr

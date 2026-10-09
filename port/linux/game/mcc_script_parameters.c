@@ -12,11 +12,12 @@
 #include "mcc_cache.h"
 #include "mcc_runtime.h"
 #include "mcc_script_parameters.h"
+#include "mcc_syntax.h"
 #include <stdint.h>
 #include <string.h>
 
 #define MCC_PARAMETER_SCRIPTS 512
-#define MCC_PARAMETER_NODES 19001
+#define MCC_PARAMETER_NODES MCC_SYNTAX_CAPACITY
 extern struct data_array *hs_syntax_data;
 extern short const hs_external_global_count;
 static struct mcc_script_signature mcc_signatures[MCC_PARAMETER_SCRIPTS];

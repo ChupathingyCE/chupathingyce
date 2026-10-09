@@ -81,11 +81,11 @@ int main(int argc,char **argv) {
     struct hs_stack_frame *frame;
     struct mcc_hs_arguments *state;
     CHECK(argc==2);
-    runtime.used=131072;runtime.tags=malloc(runtime.used);CHECK(runtime.tags);
+    runtime.used=1048576;runtime.tags=malloc(runtime.used);CHECK(runtime.tags);
     memset(runtime.tags,0,runtime.used);runtime.report.tag_base=(uint32_t)(uintptr_t)runtime.tags;
     scenario=(void *)(runtime.tags+256);scripts=(void *)(runtime.tags+4096);
     hs_syntax_data=(void *)(runtime.tags+8192);nodes=(void *)(hs_syntax_data+1);
-    parameter=runtime.tags+12000;globals=(void *)(runtime.tags+13000);
+    parameter=runtime.tags+0xE0000;globals=(void *)(runtime.tags+0xF0000);
     scenario->hs_scripts.count=2;scenario->hs_scripts.address=scripts;
     scenario->hs_globals.address=globals;
     scripts[0].script_type=_hs_script_static;scripts[0].return_type=type;scripts[0].root_expression_index=0x10000;
@@ -123,9 +123,29 @@ int main(int argc,char **argv) {
             nodes[i+4].datum_header=1;nodes[i+4].flags=9;nodes[i+4].type=type;
             nodes[i+4].next_node_index=i==15?NONE:0x10005+i;
         }
+    } else if(!strcmp(argv[1],"high_node")) {
+        hs_syntax_data->count=32767;
+        nodes[32766]=nodes[0];nodes[0].datum_header=0;
+        scripts[0].root_expression_index=0x17FFE;
+    } else if(!strcmp(argv[1],"negative_count")) {
+        hs_syntax_data->count=(short)32768;valid=0;
     } else if(!strcmp(argv[1],"disabled"))disabled=1;
     loaded=0;CHECK(mcc_parameters_prepare(&runtime,scenario,hs_syntax_data)==valid);loaded=1;
     if(!valid){CHECK(!mcc_parameters_signature(0));free(runtime.tags);return 0;}
+    if(!strcmp(argv[1],"high_node")) {
+        struct hs_thread_datum saved;
+        CHECK(mcc_parameter_type(nodes+32766,&owner)==type&&owner==0);
+        CHECK(mcc_parameter_compile(nodes+32766)==1);
+        memset(&thread,0,sizeof(thread));frame=(void *)(thread.stack_data+32);
+        frame->previous=(void *)thread.stack_data;frame->expression_index=0x10002;thread.stack=frame;
+        CHECK(mcc_hs_script_evaluate(0,0,TRUE));
+        saved=thread;memset(&thread,0,sizeof(thread));thread=saved;
+        frame->size=0;CHECK(mcc_hs_script_evaluate(0,0,FALSE));
+        CHECK(((struct mcc_hs_arguments *)frame->data)->result==42);
+        frame->size=0;CHECK(mcc_hs_script_evaluate(0,0,FALSE));
+        CHECK(returned==1&&last_result==42&&!errors);
+        goto done;
+    }
     CHECK(mcc_parameter_type(nodes,&owner)==type&&owner==0);
     CHECK(mcc_parameter_compile(nodes)==1);
     if(!strcmp(argv[1],"maximum")){CHECK(mcc_parameters_signature(0)->count==16);goto done;}

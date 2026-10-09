@@ -20,11 +20,14 @@
 #undef memcpy
 #undef strcmp
 #undef strcpy
+#undef strlen
 
 static boolean loaded;
 static struct data_array list_data;
 struct data_array *object_list_header_data = &list_data;
 static long arguments[2], returned;
+static int segment_events;
+static char last_event[256];
 static struct object_datum mock_object;
 static int deleted_lists;
 word const hs_object_type_masks[6] = {0xFFFF, 3, 2, 4, 0x380, 0x40};
@@ -38,9 +41,19 @@ long object_list_from_ai_reference(long reference) { return reference == NONE ? 
 void object_list_delete(long list) { (void)list; ++deleted_lists; }
 
 void *csmemcpy(void *to, void const *from, unsigned long bytes) { return memcpy(to, from, bytes); }
+void *csmemset(void *to, long value, unsigned long bytes) { return memset(to, value, bytes); }
 long csstrcasecmp(char const *a, char const *b) { return _stricmp(a, b); }
-void error(short priority, char const *format, ...) { (void)priority; (void)format; }
+void error(short priority, char const *format, ...) {
+    va_list args;
+    if (priority != _error_log) return;
+    ++segment_events;
+    va_start(args, format);
+    _vsnprintf(last_event, sizeof(last_event) - 1, format, args);
+    va_end(args);
+    last_event[sizeof(last_event) - 1] = 0;
+}
 boolean mcc_cache_tags_loaded(void) { return loaded; }
+boolean mcc_cache_contains(void const *data, unsigned long bytes) { (void)data; (void)bytes; return loaded; }
 int mcc_parameters_prepare(struct mcc_runtime *runtime, struct scenario *scenario, struct data_array *syntax) {
     (void)runtime; (void)scenario; (void)syntax; return 1;
 }
@@ -108,9 +121,14 @@ int main(int argc, char **argv) {
     syntax->size = sizeof(*nodes);
     syntax->maximum_count = 32767;
     syntax->count = 4;
+    syntax->actual_count = 4;
+    syntax->first_free_absolute_index = 4;
+    syntax->valid = TRUE;
+    syntax->signature = 'd@t@';
     syntax->data = nodes;
     nodes[0].datum_header = nodes[1].datum_header = nodes[2].datum_header = nodes[3].datum_header = 1;
     nodes[0].flags = 8;
+    nodes[0].next_node_index = NONE;
     nodes[0].data = 0x10001;
     nodes[0].function_index = 777;
     nodes[1].type = _hs_function_name;
@@ -127,19 +145,37 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1], "bad_child")) { nodes[0].data = 0x10008; expected = 0; }
     if (!strcmp(argv[1], "child_salt")) { nodes[0].data = 0x20001; expected = 0; }
     if (!strcmp(argv[1], "short_data")) { scenario->hs_syntax_data.size = sizeof(*syntax) + 4 * sizeof(*nodes); expected = 0; }
-    if (!strcmp(argv[1], "capacity")) { syntax->count = 19002; expected = 0; }
+    if (!strcmp(argv[1], "capacity")) syntax->count = 19002;
+    if (!strcmp(argv[1], "negative_count")) { syntax->count = -1; expected = 0; }
+    if (!strcmp(argv[1], "full_capacity")) {
+        syntax->count = 32767;
+        syntax->actual_count = 6;
+        nodes[32765] = nodes[0]; nodes[32765].data = 0x17FFE;
+        nodes[32766] = nodes[1]; nodes[32766].next_node_index = NONE;
+    }
     if (!strcmp(argv[1], "unterminated")) { memset(strings, 'x', 128); expected = 0; }
     if (!strcmp(argv[1], "alias")) strcpy(strings, "player_effect_set_max_vibrate");
     if (!strcmp(argv[1], "extension")) strcpy(strings, "objects_distance_to_object");
+    if (!strcmp(argv[1], "segment")) {
+        strcpy(strings, "mcc_mission_segment");
+        nodes[0].type = _hs_type_boolean;
+        nodes[2].type = _hs_type_string;
+        nodes[2].next_node_index = NONE;
+    }
     if (!strcmp(argv[1], "global")) {
         nodes[0].flags = 5; nodes[0].data = 0x8001; strcpy(strings, "known_global");
     }
     CHECK(mcc_scripts_prepare(&runtime) == expected);
     if (!expected) { free(runtime.tags); return 0; }
-    CHECK(syntax->maximum_count == 19001);
+    CHECK(syntax->maximum_count == 32767);
     CHECK(syntax->data == nodes);
+    if (!strcmp(argv[1], "full_capacity")) {
+        CHECK(nodes[32765].function_index == 321 && nodes[32766].function_index == 321);
+    }
     CHECK(!mcc_script_function(MCC_HS_DISTANCE_TO_OBJECT));
+    CHECK(!mcc_script_function(MCC_HS_MISSION_SEGMENT));
     CHECK(mcc_script_find("objects_distance_to_object") == NONE);
+    CHECK(mcc_script_find("mcc_mission_segment") == NONE);
     loaded = TRUE;
     {
         struct hs_syntax_node ai = {0};
@@ -158,6 +194,7 @@ int main(int argc, char **argv) {
         loaded = TRUE;
     }
     CHECK(mcc_script_find("player_effect_set_max_vibrate") == 322);
+    CHECK(mcc_script_find("MCC_MISSION_SEGMENT") == MCC_HS_MISSION_SEGMENT);
     if (!strcmp(argv[1], "global")) CHECK((unsigned short)nodes[0].short_value == 0x8009);
     else if (!strcmp(argv[1], "alias")) CHECK(nodes[0].function_index == 322);
     else if (!strcmp(argv[1], "extension")) {
@@ -176,6 +213,46 @@ int main(int argc, char **argv) {
         extension->evaluate(MCC_HS_DISTANCE_TO_OBJECT, 0, TRUE);
         result.bits = returned;
         CHECK(result.value == -1.f);
+    } else if (!strcmp(argv[1], "segment")) {
+        char long_segment[200];
+        CHECK(nodes[0].function_index == MCC_HS_MISSION_SEGMENT);
+        CHECK(nodes[1].function_index == MCC_HS_MISSION_SEGMENT);
+        CHECK(mcc_script_call_valid(&nodes[0], syntax));
+        extension = mcc_script_function(MCC_HS_MISSION_SEGMENT);
+        CHECK(extension && extension->return_type == _hs_type_boolean);
+        CHECK(extension->parameter_count == 1 && extension->parameter_types[0] == _hs_type_string);
+        nodes[2].type = _hs_type_real;
+        CHECK(!mcc_script_call_valid(&nodes[0], syntax));
+        nodes[2].type = _hs_type_string;
+        nodes[1].next_node_index = NONE;
+        CHECK(!mcc_script_call_valid(&nodes[0], syntax));
+        nodes[1].next_node_index = 0x20002;
+        CHECK(!mcc_script_call_valid(&nodes[0], syntax));
+        nodes[1].next_node_index = 0x10002;
+        nodes[2].next_node_index = 0x10003;
+        CHECK(!mcc_script_call_valid(&nodes[0], syntax));
+        nodes[2].next_node_index = NONE;
+        arguments[0] = (long)(uintptr_t)"cine1_intro";
+        returned = -123;
+        extension->evaluate(MCC_HS_MISSION_SEGMENT, 0, FALSE);
+        CHECK(returned == -123 && !segment_events); /* argument expression still yielding */
+        extension->evaluate(MCC_HS_MISSION_SEGMENT, 0, TRUE);
+        CHECK(returned == TRUE && segment_events == 1);
+        CHECK(!strcmp(last_event, "mcc: mission segment 'cine1_intro'"));
+        arguments[0] = (long)(uintptr_t)"03_escape"; /* use the evaluated argument each time */
+        extension->evaluate(MCC_HS_MISSION_SEGMENT, 0, TRUE);
+        CHECK(returned == TRUE && segment_events == 2);
+        CHECK(!strcmp(last_event, "mcc: mission segment '03_escape'"));
+        memset(long_segment, 'x', sizeof(long_segment)); long_segment[199] = 0;
+        arguments[0] = (long)(uintptr_t)long_segment;
+        extension->evaluate(MCC_HS_MISSION_SEGMENT, 0, TRUE);
+        CHECK(returned == TRUE && segment_events == 3 && strlen(last_event) == 151);
+        arguments[0] = 0;
+        extension->evaluate(MCC_HS_MISSION_SEGMENT, 0, TRUE);
+        CHECK(returned == FALSE && segment_events == 3);
+        loaded = FALSE;
+        CHECK(!mcc_script_function(MCC_HS_MISSION_SEGMENT));
+        CHECK(mcc_script_find("mcc_mission_segment") == NONE);
     } else CHECK(nodes[0].function_index == 321 && nodes[1].function_index == 321);
     free(runtime.tags);
     return 0;

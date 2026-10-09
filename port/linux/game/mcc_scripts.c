@@ -14,6 +14,7 @@
 #include "mcc_cache.h"
 #include "mcc_scripts.h"
 #include "mcc_script_parameters.h"
+#include "mcc_syntax.h"
 #include <string.h>
 
 boolean hs_macro_function_parse(short index, long expression);
@@ -81,16 +82,40 @@ static struct {
         NULL, 2, { _hs_type_object_list } }, _hs_type_object
 };
 
+static void mcc_mission_segment_evaluate(short function, long thread, boolean initialize)
+{
+    long *arguments = hs_macro_function_evaluate(function, thread, initialize);
+    char const *segment;
+    if (!arguments) return;
+    segment = (char const *)(uintptr_t)arguments[0];
+    /* This port acknowledges a local segment event, without MCC's external
+     * telemetry service. Keep the boolean result: shipped scripts use it in
+     * conditional expressions before cinematics. core_save_name is unrelated
+     * in the Xbox runtime and would create a debug save, not a segment event.
+     * Argument expressions still run normally, including any sleep/yield. */
+    if (segment) error(_error_log, "mcc: mission segment '%.128s'", segment);
+    hs_return(thread, segment != NULL);
+}
+
+static struct hs_function_definition mcc_mission_segment_definition = {
+    _hs_type_boolean, 0, "mcc_mission_segment", hs_macro_function_parse,
+    mcc_mission_segment_evaluate, "Records a local mission segment and acknowledges it.",
+    NULL, 1, { _hs_type_string }
+};
+
 struct hs_function_definition *mcc_script_function(short index)
 {
-    return mcc_cache_tags_loaded() && index == MCC_HS_DISTANCE_TO_OBJECT ?
-        &mcc_distance_definition.definition : NULL;
+    if (!mcc_cache_tags_loaded()) return NULL;
+    if (index == MCC_HS_DISTANCE_TO_OBJECT) return &mcc_distance_definition.definition;
+    if (index == MCC_HS_MISSION_SEGMENT) return &mcc_mission_segment_definition;
+    return NULL;
 }
 
 short mcc_script_find(char const *name)
 {
     if (!mcc_cache_tags_loaded() || !name) return NONE;
     if (!csstrcasecmp(name, "objects_distance_to_object")) return MCC_HS_DISTANCE_TO_OBJECT;
+    if (!csstrcasecmp(name, "mcc_mission_segment")) return MCC_HS_MISSION_SEGMENT;
     if (!csstrcasecmp(name, "player_effect_set_max_vibrate"))
         return hs_find_function_by_name("player_effect_set_max_rumble");
     return NONE;
@@ -135,10 +160,8 @@ int mcc_scripts_prepare(struct mcc_runtime *runtime)
         (uint32_t)scenario->hs_syntax_data.size);
     strings = mcc_runtime_pointer(runtime, (uint32_t)(uintptr_t)scenario->hs_string_constants.address,
         (uint32_t)scenario->hs_string_constants.size);
-    if (!syntax || !strings || syntax->size != sizeof(*nodes) || syntax->count < 0 ||
-        syntax->count > 19001 || syntax->maximum_count < syntax->count ||
-        (uint32_t)scenario->hs_syntax_data.size < sizeof(*syntax) + (uint32_t)syntax->maximum_count * sizeof(*nodes)) {
-        error(_error_silent, "mcc: script syntax does not fit this interpreter's 19001-node capacity");
+    if (!syntax || !strings || !mcc_syntax_graph_valid(syntax, scenario->hs_syntax_data.size)) {
+        error(_error_silent, "mcc: invalid script syntax header or graph (MCC capacity: %d nodes)", MCC_SYNTAX_CAPACITY);
         return FALSE;
     }
     nodes = (struct hs_syntax_node *)(syntax + 1);
@@ -156,6 +179,7 @@ int mcc_scripts_prepare(struct mcc_runtime *runtime)
             name = mcc_script_string(strings, scenario->hs_string_constants.size, nodes[child].string_offset);
             if (!name) return FALSE;
             if (!csstrcasecmp(name, "objects_distance_to_object")) index = MCC_HS_DISTANCE_TO_OBJECT;
+            else if (!csstrcasecmp(name, "mcc_mission_segment")) index = MCC_HS_MISSION_SEGMENT;
             else if (!csstrcasecmp(name, "player_effect_set_max_vibrate"))
                 index = hs_find_function_by_name("player_effect_set_max_rumble");
             else index = hs_find_function_by_name(name);
@@ -172,12 +196,8 @@ int mcc_scripts_prepare(struct mcc_runtime *runtime)
             ++missing;
         }
     }
-    /* MCC reserves 32767 slots; this map uses fewer. The runtime's existing
-     * interpreter may use only its own 19001 slots, all present in the file. */
-    if (syntax->maximum_count > 19001) {
-        syntax->maximum_count = 19001;
-        scenario->hs_syntax_data.size = sizeof(*syntax) + 19001 * sizeof(*nodes);
-    }
-    syntax->data = xbox_address(nodes);
+    /* Retain the MCC arena, including free slots for console expressions.
+     * Its separate validator owns the larger traversal workspace. */
+    syntax->data = nodes;
     return missing == 0 && mcc_parameters_prepare(runtime, scenario, syntax);
 }
