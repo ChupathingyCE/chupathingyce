@@ -178,6 +178,10 @@ in red, green, blue and alpha, where the Xbox's model shaders read specular,
 self-illumination, color change and the auxiliary mask (ce_models.c,
 xbox_textures.c) */
 #define D3DCOMMON_PORT_PC_MULTIPURPOSE 0x10000000
+/* port: a texture format the NV2A has none of: BC7 (BPTC) blocks, a Custom
+Edition map's bitmap in MCC's high-quality compression, its 4x4 blocks 16
+bytes as DXT5's are (ce_repairs.c, xbox_texture_cache.c, xbox_textures.c) */
+#define D3DFMT_PORT_BC7 0x42
 #define D3DPALETTE_COMMON_PALETTESIZE_SHIFT 30
 
 /* a texture's Format word: the NV2A's texture format register
