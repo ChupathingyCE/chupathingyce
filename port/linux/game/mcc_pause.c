@@ -69,7 +69,7 @@ static char const *const mcc_pause_labels[LABEL_COUNT] = {
     "Restart this game? Current progress will be lost.",
     "Save your last checkpoint and return to the main menu?",
     "Are you sure you want to leave this game?",
-    "End this round and return to the lobby?", "ATTENTION", "CHOOSE TEAM", "RESTART LEVEL", "[A] SELECT   [B] BACK"
+    "End this round and return to the lobby?", "ATTENTION", "CHOOSE TEAM", "RESTART LEVEL", "%a-button SELECT   %b-button BACK"
 };
 
 static struct {
@@ -377,7 +377,9 @@ static long mcc_pause_screen(short mode, short layout)
         short footer_width = campaign ? (layout == MCC_PAUSE_QUARTER ? 264 : 180) : 202;
         long footer = mcc_pause_widget("button_key", 1, footer_width, 18, layout, LABEL_FOOTER);
         widget = mcc_pause_definition(footer);
-        if (widget) { widget->font.index = mcc_pause.assets.small_font[layout]; widget->justification = 2; }
+        /* Native icon text advances through each token; centering the
+         * individual fragments would separate the glyphs from their labels. */
+        if (widget) { widget->font.index = mcc_pause.assets.small_font[layout]; widget->justification = 0; }
         children[child_count] = footer;
         xs[child_count] = campaign ? (layout == MCC_PAUSE_QUARTER ? 28 : 87) : x;
         ys[child_count++] = campaign ? (layout == MCC_PAUSE_FULL ? 296 : layout == MCC_PAUSE_HALF ? 176 : 216) :

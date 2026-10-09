@@ -92,7 +92,8 @@ dialogs with Cancel selected initially. B returns from a confirmation to
 the pause screen; Start closes the current player's menu and its navigation
 history. At the main pause screen, either resumes play. Resume and team
 selection also close only the initiating player's menu, preserving other
-local players' screens. Each pause layout includes an A/B text footer.
+local players' screens. Each pause layout uses the native A/B button-icon
+tokens in its footer, drawing the map's HUD button glyphs beside Select/Back.
 Only local campaign pauses
 the simulation; network games continue while a menu is open.
 
@@ -425,6 +426,12 @@ opened the correct profile, returned through Cancel and Escape, reopened
 Settings successfully, and used OK with no changes to return to the pause
 menu. Seven additional action tests cover controller identity, overlapping
 editors, cleanup, failed opens and replacement-editor ownership.
+
+The footer's native A/B glyphs were visually checked in Mercury singleplayer,
+Nitra multiplayer, and both host and client menus in a two-process Mercury
+co-op session. The glyph fix changes only the MCC-owned label and alignment;
+the existing icon renderer is unchanged. All 27 pause builder/runtime tests
+passed after the correction.
 
 A two-process local network co-op check displayed the same campaign layout
 on both machines, with only Resume and Leave on the client. The host's
