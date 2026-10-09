@@ -6,8 +6,8 @@
     python tools/ci_build.py android release
     python tools/ci_build.py server-x64 release --alpine
 
-Builds are portable (any x86-64 processor; for the arm64 server, any
-64-bit ARM), so they run on other computers. Debug builds skip link-time and profile-guided optimisation,
+Builds are portable (any x86-64 processor; for the arm64 server and
+Windows build, any 64-bit ARM), so they run on other computers. Debug builds skip link-time and profile-guided optimisation,
 which only make the build slower; release builds use both, as a local
 release build does (profile-guided optimisation needs clang 22 or later,
 and is skipped with an older one). CI_COMPILER_LAUNCHER (ccache, say) is
@@ -57,6 +57,8 @@ OUTPUTS = {
     "windows": ["build/windows/halo.exe", "build/windows/SDL3.dll"],
     # the native 64-bit build (ninja windows64; tools/windows_build.py)
     "windows64": ["build/windows64/halo.exe", "build/windows64/SDL3.dll"],
+    # the 64-bit ARM build (ninja windows-arm64), cross-compiled on x64 too
+    "windows-arm64": ["build/windows-arm64/halo.exe", "build/windows-arm64/SDL3.dll"],
     "android": [],  # the APK, below
     # the application (universal and self-contained: --portable), whole
     "macos": ["build/macos/ChupathingyCE.app"],
@@ -153,14 +155,14 @@ def main() -> int:
     if args.platform == "macos":
         # (the SDL3 inside it, the build's own: zlib license)
         shutil.copy2(ROOT / "build/macos/third_party/SDL3/LICENSE.txt", dist / "SDL3-LICENSE.txt")
-    if args.platform in ("windows", "windows64"):
+    if args.platform in ("windows", "windows64", "windows-arm64"):
         # the symbols of halo.exe and SDL3.dll, apart (players do not need
         # them): tools/symbolize_crash.py reads debug.txt's crash lines and
         # the crash reports' calls (port/windows/src/win32_crash.c) with
         # them, and a debugger the reports' minidumps; halo.map, the
         # linker's map, names the functions without LLVM's tools
         symbols = ROOT / "dist" / f"chupathingyce-{args.platform}-{args.config}-symbols"
-        sdl_arch = "x64" if args.platform == "windows64" else "x86"
+        sdl_arch = {"windows64": "x64", "windows-arm64": "arm64"}.get(args.platform, "x86")
         if symbols.exists():
             shutil.rmtree(symbols)
         symbols.mkdir(parents=True)
