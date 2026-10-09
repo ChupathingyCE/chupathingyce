@@ -3521,6 +3521,11 @@ static boolean ui_widget_function_denied(
 	boolean denied = FALSE;
 	short index;
 
+	/* Only exact MCC-owned pause widgets may use their private actions. */
+	{
+		extern boolean mcc_ui_trusted_action(struct widget_instance *, word);
+		if (mcc_ui_trusted_action(widget, function_index)) return FALSE;
+	}
 	if (pc_menu_tag(widget->definition_tag_index))
 		return FALSE;
 	if (function_index >= PC_MENU_FUNCTION_BASE && function_index < 0x8000)

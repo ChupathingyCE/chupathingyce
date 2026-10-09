@@ -5622,6 +5622,20 @@ void network_game_reset_to_pregame_ui(
 	void)
 {
 	ui_widgets_close_all();
+	/* An MCC restart retains this round's settings and returns directly to
+	 * the ready lobby. The ordinary host map picker pauses its countdown. */
+	{
+		extern boolean mcc_ui_network_restart_pregame(void);
+		if (mcc_ui_network_restart_pregame())
+		{
+			char const *screen = network_game_is_splitscreen_local() ?
+				"ui\\shell\\main_menu\\multiplayer_type_select\\split_screen\\pregame\\splitscreen_pregame_wrapper_normal" :
+				pc_menus_screen("ui\\shell\\main_menu\\multiplayer_type_select\\connected\\pregame\\connected_pregame_screen");
+			if (!ui_widget_load_by_name_or_tag(screen, NONE, NULL, NONE, NONE, NONE, NONE))
+				error(_error_silent, "mcc: failed to load restart pregame screen");
+			return;
+		}
+	}
 	if (network_game_is_splitscreen_local())
 	{
 		if (network_game_is_quickstart_local())
@@ -6422,6 +6436,19 @@ static void widget_instance_render_text_box(
 			}
 		}
 		ui_widget_port_text_wrap(*text, &bounds, width);
+	}
+	/* MCC owns these text boxes; wrap their instance copies to the panel
+	 * width without changing the map's objective strings or other menus. */
+	{
+		extern boolean mcc_pause_text_wrap_needed(long);
+		if (mcc_pause_text_wrap_needed(widget->definition_tag_index))
+		{
+			ui_widget_port_text_wrap(*text, &bounds, (short)(bounds.x1 - bounds.x0));
+			clip.x0 = MAX(clip.x0, bounds.x0);
+			clip.y0 = MAX(clip.y0, bounds.y0);
+			clip.x1 = MIN(clip.x1, bounds.x1);
+			clip.y1 = MIN(clip.y1, bounds.y1);
+		}
 	}
 	if (string_has_icons_to_draw(*text))
 	{
@@ -9768,6 +9795,29 @@ static boolean ui_check_for_pause_game(
 					pressed_by_first_local_player = FALSE;
 			}
 			local_player_count++;
+		}
+		/* MCC selects its owned stock-style pause tree; embedded map menus
+		 * remain available to custom scripts but are never the pause entry. */
+		{
+			extern boolean mcc_pause_runtime_active(void);
+			extern long mcc_pause_runtime_screen(short, boolean);
+			if (mcc_pause_runtime_active())
+			{
+				if ((!network_game || game_engine_allow_pause()) &&
+					pressing_local_player_index == controller_index)
+				{
+					if (widget_globals.active_widgets[controller_index])
+						ui_widgets_close_all_for_local_player(controller_index);
+					else if (network_game || local_player_count <= 1 || !game_time_get_paused())
+					{
+						long screen = mcc_pause_runtime_screen(local_player_count, pressed_by_first_local_player);
+						if (screen == NONE || !ui_widget_load_by_name_or_tag(NULL, screen, NULL,
+							controller_index, NONE, NONE, NONE))
+							error(_error_silent, "mcc: failed to open native pause menu");
+					}
+				}
+				return pause_pressed;
+			}
 		}
 		if (network_game)
 		{

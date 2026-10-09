@@ -4,6 +4,21 @@
 struct widget_instance;
 struct event_record;
 
+/* Positive signed-short callback IDs reserved for generated MCC pause tags. */
+enum {
+    MCC_PAUSE_ACTION_RESUME = 0x7000,
+    MCC_PAUSE_ACTION_REVERT,
+    MCC_PAUSE_ACTION_RESTART,
+    MCC_PAUSE_ACTION_SAVE,
+    MCC_PAUSE_ACTION_QUIT,
+    MCC_PAUSE_ACTION_END_GAME,
+    MCC_PAUSE_ACTION_RED_TEAM,
+    MCC_PAUSE_ACTION_BLUE_TEAM,
+    MCC_PAUSE_ACTION_SETTINGS
+};
+
+boolean mcc_ui_trusted_action(struct widget_instance *widget, word function);
+
 /* TRUE means this MCC-owned callback supplied result. FALSE leaves the
  * established callback dispatcher entirely responsible for the widget. */
 boolean mcc_ui_event_function(struct widget_instance *widget,

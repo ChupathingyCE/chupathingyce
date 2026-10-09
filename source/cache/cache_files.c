@@ -687,6 +687,11 @@ void scenario_tags_unload(
 #endif
 	sound_cache_close();
 	texture_cache_close();
+	/* MCC's appended pause table unwinds before the native menu table. */
+	{
+		extern void mcc_pause_runtime_unload(void);
+		mcc_pause_runtime_unload();
+	}
 	/* port: the menus' tags go, and the map's own table comes back
 	(port/linux/game/menu_tags.c): after the texture cache, which writes to
 	the bitmaps it has loaded as it closes, theirs among them */
@@ -1765,6 +1770,14 @@ long scenario_tags_load(
 			global_tag_instances = xbox_pointer(cache_file_globals.tag_header->tag_instances);
 			cache_file_globals.tags_loaded = TRUE;
 			menu_tags_loaded(cache_file_globals.header.name);
+			{
+				extern boolean mcc_pause_runtime_load(void);
+				if (!mcc_pause_runtime_load())
+				{
+					scenario_tags_unload();
+					return NONE;
+				}
+			}
 			result = cache_file_globals.tag_header->scenario_tag_index;
 		}
 		else

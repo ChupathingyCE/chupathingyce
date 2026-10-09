@@ -5,10 +5,35 @@
 
 static struct network_game_server *mcc_restart_server;
 static struct network_game mcc_restart_game;
+static struct network_game_server *mcc_restart_ui_server;
+static long mcc_restart_ui_round;
 
 void mcc_ui_network_server_dispose(struct network_game_server *server)
 {
     if (server == mcc_restart_server) mcc_restart_server = NULL;
+    if (server == mcc_restart_ui_server) mcc_restart_ui_server = NULL;
+}
+
+boolean mcc_ui_network_restart_pregame(void)
+{
+    struct network_game_server *server = global_network_game_server_get();
+    if (!mcc_restart_ui_server) return FALSE;
+    if (!server || server != mcc_restart_ui_server) {
+        mcc_restart_ui_server = NULL;
+        return FALSE;
+    }
+    mcc_restart_ui_server = NULL;
+    if (server->state != _network_game_server_state_pregame ||
+        server->game.number_of_games_played != mcc_restart_ui_round ||
+        server->game.map.version != mcc_restart_game.map.version ||
+        strcmp(server->game.map.name, mcc_restart_game.map.name)) return FALSE;
+    /* The host's own switch-to-pregame message arrives after reset returns.
+     * Ordinary postgame UI opens map selection and pauses the countdown.
+     * Consume this exact restart at that boundary, after the UI map loads;
+     * MCC tags may already be unloaded, so ownership is the pending token. */
+    network_game_server_pause_countdown(server, FALSE);
+    network_game_server_begin_game_start_countdown(server, 3000);
+    return TRUE;
 }
 
 boolean mcc_ui_network_restart_settings(struct network_game_server *server)
@@ -61,9 +86,10 @@ boolean mcc_ui_restart_network_game(void)
     }
     success = network_game_server_reset_to_pregame(server);
     if (success) {
-        /* The normal pregame waits for every machine to precache and load.
-         * No host-only reset or silent client rewind is used. */
-        network_game_server_begin_game_start_countdown(server, 3000);
+        /* Start the ordinary precache/countdown path once the host's local
+         * client receives the reliable reset and opens the pregame UI. */
+        mcc_restart_ui_server = server;
+        mcc_restart_ui_round = server->game.number_of_games_played;
         network_event("mcc: restarting the current network map");
     }
     return success;

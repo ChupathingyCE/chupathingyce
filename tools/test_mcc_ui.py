@@ -22,11 +22,14 @@ def ui_tool(tmp_path_factory):
     if not compiler:
         pytest.skip("a C compiler is needed for MCC widget tests")
     ui = (ROOT / "port/linux/game/mcc_ui.c").read_text()
+    ui_header = (ROOT / "port/linux/game/mcc_ui.h").read_text()
     native = (ROOT / "source/interface/ui_widget.c").read_text()
     events = (ROOT / "source/interface/ui_widget_event_handler_functions.c").read_text()
     tags = (ROOT / "port/linux/game/mcc_tags.c").read_text()
-    names = ["mcc_ui_owns_widget", "mcc_ui_settings_needed", "mcc_ui_controller",
-             "mcc_ui_failure", "mcc_ui_host_required", "mcc_ui_restart", "mcc_ui_new_game", "mcc_ui_choose_team",
+    actions = re.search(r"enum\s*\{.*?\};", ui_header, re.S).group()
+    names = ["mcc_ui_owns_widget", "mcc_ui_trusted_action", "mcc_ui_settings_needed", "mcc_ui_scenario_type", "mcc_ui_controller",
+             "mcc_ui_failure", "mcc_ui_host_required", "mcc_ui_restart", "mcc_ui_end_round", "mcc_ui_new_game",
+             "mcc_ui_request_team", "mcc_ui_choose_team", "mcc_ui_close_for_controller",
              "mcc_ui_event_function"]
     source = r'''
 #include <assert.h>
@@ -69,12 +72,18 @@ struct widget_stack_data {int unused;};
 static struct {struct widget_instance *active_widgets[4];void *widget_stack[4];} widget_globals;
 struct network_player {int valid;short machine_index,controller_index;char team_index;};
 struct network_game {struct {struct {boolean teams;} universal_variant;} variant;struct network_player players[4];};
+struct scenario {short type;};
+static struct scenario scenario;
+static struct scenario *global_scenario = &scenario;
 static struct network_game game;
 static struct network_player sent_player;
 static int mcc=1,connection,coop,saved=1,profile=1,have_settings=1,profile_begin,settings_open;
+static int campaign=1,pc_menus=1,pause_owned=1;
 static int revert_count,reset_count,restart_count,save_count,persist_count,menu_count,quit_count,end_count,settings_collision;
 static int posted_button=-1,posted_controller=-1,deleted_count,opened_count,legacy_count,port_count;
 static int message_count,script_count,team_sent,denied_count,top_dispatch,quit_controller=-1,balance_allowed=1;
+static int local_players=1,left_count,left_controller=-1,stack_disposed;
+static boolean quit_closes_widgets;
 static boolean free_widget_on_delete,round_active=TRUE;
 static struct widget_instance *released_widget;
 static long opened_tag;
@@ -82,10 +91,12 @@ static wchar_t const *message;
 static char const *widget_tag_name="ui\\shell\\multiplayer_game\\pause_game\\blue_team_button";
 static char owned[0x60],unowned[0x60];
 static boolean mcc_cache_tags_loaded(void){return mcc;}
+static boolean mcc_level_name(char const *name){return name&&!strncmp(name,"mcc_maps\\",9);}
+static boolean mcc_pause_owns(long tag){return pause_owned&&tag==300;}
 static void *tag_get(long group,long index){(void)group;return index==100?owned:unowned;}
 static char *tag_get_name(long index){(void)index;return (char *)widget_tag_name;}
 static boolean mcc_cache_contains(void const *p,long size){return p==owned && size<=sizeof(owned);}
-static char const *config_string(char const *name){(void)name;return "pc";}
+static char const *config_string(char const *name){(void)name;return pc_menus?"pc":"xbox";}
 static short game_connection(void){return connection;}
 static void display_error_text_deferred(wchar_t const *text,short controller){assert(controller>=0&&controller<4);message_count++;message=text;}
 static void *global_network_game_server_get(void){return connection==_game_connection_network_server?&game:NULL;}
@@ -99,14 +110,15 @@ static boolean game_engine_can_score(void){return round_active;}
 static void ui_widget_delete(struct widget_instance *widget);
 static void game_engine_end_game(void){int i;end_count++;for(i=0;i<4;i++)if(widget_globals.active_widgets[i])ui_widget_delete(widget_globals.active_widgets[i]);}
 static boolean network_coop_active(void){return coop;}
-static boolean mcc_maps_level_campaign(char const *name){(void)name;return TRUE;}
+static boolean mcc_maps_level_campaign(char const *name){(void)name;return campaign;}
 static char *main_get_map_name(void){return "mcc_maps\\a10";}
 static boolean game_state_port_saved_game_valid(void){return saved;}
 static void game_state_save_to_persistent_storage(void){persist_count++;}
 static void game_state_save(void){save_count++;saved=TRUE;}
-static void network_game_client_local_player_quit(short controller){quit_count++;quit_controller=controller;}
-static short local_player_count(void){return 1;}
-static void player_ui_local_player_left_multiplayer_game(short controller){(void)controller;}
+static void ui_widgets_close_all_for_local_player(short controller);
+static void network_game_client_local_player_quit(short controller){quit_count++;quit_controller=controller;if(quit_closes_widgets){ui_widgets_close_all_for_local_player(controller);local_players--;}}
+static short local_player_count(void){return (short)local_players;}
+static void player_ui_local_player_left_multiplayer_game(short controller){left_count++;left_controller=controller;}
 static struct network_game *network_game_get_game(void){return connection?&game:NULL;}
 static short network_game_client_get_local_machine_index(void){return 2;}
 static boolean network_player_is_valid(struct network_player const *player){return player->valid;}
@@ -136,8 +148,10 @@ static struct widget_instance *ui_widget_load_by_name_or_tag(char const *name,lo
 static void widget_instance_go_back_to_previous(struct widget_instance *widget){assert(widget!=released_widget);}
 static void unspatialized_impulse_sound_new(long tag,float volume){(void)tag;(void)volume;}
 static void pop_widget(void **stack,struct widget_stack_data *data){(void)data;*stack=NULL;}
+static void dispose_widget_stack(void **stack){assert(*stack);stack_disposed++;*stack=NULL;}
 static void ui_play_audio_feedback_sound(long sound){(void)sound;}
-''' + structure(ui, "mcc_ui_widget_prefix") + '\n' + '\n'.join(function(ui, name) for name in names) + '\n' + \
+''' + actions + '\n' + function(native, "ui_widgets_close_all_for_local_player") + '\n' + \
+        structure(ui, "mcc_ui_widget_prefix") + '\n' + '\n'.join(function(ui, name) for name in names) + '\n' + \
         '\n'.join(function(events, name) for name in ["network_game_remove_local_player", "ui_widget_function_denied",
                                                       "ui_widget_event_handler_function_invoke"]) + '\n' + \
         function(native, "event_handler_dispatch") + r'''
@@ -205,13 +219,14 @@ int main(int argc,char **argv){
         game.variant.universal_variant.teams=FALSE;CHECK(!fire(&widget,0,&action)&&message_count==1,20);return 0;
     }
     if(!strcmp(argv[1],"settings")){
+        campaign=FALSE;scenario.type=1;
         action.function=137;action.flags=136;action.widget_tag.index=300;
         CHECK(fire(&widget,0,&action)&&settings_open==1&&profile_begin==1,21);
         CHECK(!opened_count,22);have_settings=FALSE;
         CHECK(!fire(&widget,0,&action)&&message_count==1&&settings_open==1,23);
         have_settings=TRUE;settings_collision=TRUE;
         CHECK(!fire(&widget,0,&action)&&profile_begin==1&&settings_open==1&&message_count==2,36);
-        CHECK(mcc_ui_settings_needed("a10"),24);mcc=FALSE;CHECK(!mcc_ui_settings_needed("a10"),25);return 0;
+        CHECK(mcc_ui_settings_needed("mcc_maps\\dangercanyon"),24);mcc=FALSE;CHECK(!mcc_ui_settings_needed("mcc_maps\\dangercanyon"),25);return 0;
     }
     if(!strcmp(argv[1],"save")){
         action.function=179;fire(&widget,0,&action);CHECK(save_count==1&&persist_count==1,26);
@@ -239,6 +254,144 @@ int main(int argc,char **argv){
         CHECK(!fire(&widget,0,&open)&&end_count==1&&message_count==2&&deleted_count==1,44);
         open.flags=8;
         mcc=FALSE;fire(&widget,0,&open);CHECK(opened_count==1&&end_count==1,40);return 0;
+    }
+    if(!strcmp(argv[1],"trusted-pause")){
+        widget.definition_tag_index=300;
+        CHECK(tag_get('DeLa',300)==unowned&&mcc_ui_trusted_action(&widget,MCC_PAUSE_ACTION_RESUME),45);
+        action.function=MCC_PAUSE_ACTION_RESUME;
+        CHECK(fire(&widget,0,&action)&&deleted_count==1&&!legacy_count,46);
+        widget_globals.active_widgets[2]=&widget;action.function=MCC_PAUSE_ACTION_REVERT;
+        CHECK(fire(&widget,0,&action)&&revert_count==1,47);
+        widget_globals.active_widgets[2]=&widget;action.function=MCC_PAUSE_ACTION_RESTART;
+        CHECK(fire(&widget,0,&action)&&reset_count==1,48);
+        action.flags=128;action.function=MCC_PAUSE_ACTION_SAVE;
+        CHECK(!fire(&widget,0,&action)&&save_count==1&&persist_count==1,49);
+        action.function=MCC_PAUSE_ACTION_QUIT;
+        CHECK(!fire(&widget,0,&action)&&menu_count==1&&persist_count==2,50);
+        connection=1;coop=TRUE;
+        CHECK(!fire(&widget,0,&action)&&quit_count==4&&persist_count==2,51);
+        campaign=FALSE;scenario.type=1;coop=FALSE;
+        CHECK(fire(&widget,0,&action)&&quit_count==5&&quit_controller==2,52);return 0;
+    }
+    if(!strcmp(argv[1],"trusted-teams")){
+        widget.definition_tag_index=300;widget_tag_name="generated\\arbitrary_button_name";
+        connection=1;campaign=FALSE;scenario.type=1;game.variant.universal_variant.teams=TRUE;
+        game.players[1]=(struct network_player){1,2,2,1};
+        action.function=MCC_PAUSE_ACTION_RED_TEAM;
+        CHECK(fire(&widget,0,&action)&&team_sent==1&&sent_player.team_index==0,53);
+        widget_globals.active_widgets[2]=&widget;action.function=MCC_PAUSE_ACTION_BLUE_TEAM;
+        CHECK(fire(&widget,0,&action)&&team_sent==2&&sent_player.team_index==1,54);
+        balance_allowed=FALSE;CHECK(!fire(&widget,0,&action)&&team_sent==2&&message_count==1,55);return 0;
+    }
+    if(!strcmp(argv[1],"split-resume")||!strcmp(argv[1],"split-team")||
+       !strcmp(argv[1],"split-team-denied")||!strcmp(argv[1],"split-quit")||
+       !strcmp(argv[1],"split-quit-sync")||!strcmp(argv[1],"local-quit")){
+        struct widget_instance *heap_widget=malloc(sizeof(*heap_widget));
+        struct widget_instance other={300,"other player's pause",1};
+        struct widget_stack_data history={0},other_history={0};
+        boolean team=!strncmp(argv[1],"split-team",10),resume=!strcmp(argv[1],"split-resume");
+        boolean denied=!strcmp(argv[1],"split-team-denied"),local=!strcmp(argv[1],"local-quit");
+        CHECK(heap_widget!=NULL,73);*heap_widget=widget;heap_widget->definition_tag_index=300;
+        campaign=FALSE;scenario.type=1;connection=local?0:1;local_players=local?1:2;
+        widget_globals.active_widgets[1]=&other;widget_globals.widget_stack[1]=&other_history;
+        widget_globals.active_widgets[2]=heap_widget;widget_globals.widget_stack[2]=&history;
+        free_widget_on_delete=TRUE;quit_closes_widgets=!strcmp(argv[1],"split-quit-sync");
+        action.flags=128;action.function=resume?MCC_PAUSE_ACTION_RESUME:
+            team?MCC_PAUSE_ACTION_RED_TEAM:MCC_PAUSE_ACTION_QUIT;
+        if(team){game.variant.universal_variant.teams=TRUE;game.players[1]=(struct network_player){1,2,2,1};}
+        if(denied){
+            balance_allowed=FALSE;
+            CHECK(!fire(heap_widget,0,&action)&&!deleted_count&&!stack_disposed&&!team_sent&&message_count==1,74);
+            CHECK(widget_globals.active_widgets[2]==heap_widget&&widget_globals.widget_stack[2]==&history,75);
+            free(heap_widget);
+        }else{
+            /* The real close-for-controller helper frees the caller and its
+             * history. Native quit may do so first; dispatch must not reuse it. */
+            CHECK(fire(heap_widget,0,&action)&&deleted_count==1&&stack_disposed==1,76);
+            CHECK(released_widget==heap_widget&&!widget_globals.active_widgets[2]&&!widget_globals.widget_stack[2],77);
+            CHECK(!opened_count&&!legacy_count&&!persist_count,78);
+            if(team)CHECK(team_sent==1&&sent_player.team_index==0&&!quit_count,79);
+            else if(resume)CHECK(!team_sent&&!quit_count&&!menu_count,80);
+            else if(local)CHECK(menu_count==1&&!quit_count&&!left_count,81);
+            else CHECK(quit_count==1&&quit_controller==2&&left_count==1&&left_controller==2&&!menu_count,82);
+        }
+        CHECK(widget_globals.active_widgets[1]==&other&&widget_globals.widget_stack[1]==&other_history,83);
+        return 0;
+    }
+    if(!strcmp(argv[1],"trusted-end")){
+        struct widget_instance *heap_widget=malloc(sizeof(*heap_widget));
+        CHECK(heap_widget!=NULL,56);*heap_widget=widget;heap_widget->definition_tag_index=300;
+        widget_globals.active_widgets[2]=heap_widget;free_widget_on_delete=TRUE;
+        connection=2;campaign=FALSE;scenario.type=1;action.function=MCC_PAUSE_ACTION_END_GAME;
+        /* Builder confirmations use run-function only for END_GAME. */
+        action.flags=128;
+        CHECK(fire(heap_widget,0,&action)&&end_count==1&&deleted_count==1&&!opened_count,57);
+        CHECK(released_widget==heap_widget&&!widget_globals.active_widgets[2],58);
+        widget.definition_tag_index=300;connection=1;free_widget_on_delete=FALSE;
+        CHECK(!fire(&widget,0,&action)&&end_count==1&&message_count==1,59);return 0;
+    }
+    if(!strcmp(argv[1],"trusted-settings")){
+        widget.definition_tag_index=300;action.function=MCC_PAUSE_ACTION_SETTINGS;action.flags=128;
+        CHECK(!fire(&widget,0,&action)&&!profile_begin&&!settings_open&&message_count==1,60);
+        campaign=FALSE;scenario.type=1;pc_menus=FALSE;
+        CHECK(!fire(&widget,0,&action)&&!profile_begin&&!settings_open&&message_count==2,61);
+        pc_menus=TRUE;
+        CHECK(fire(&widget,0,&action)&&profile_begin==1&&settings_open==1,62);
+        settings_collision=TRUE;
+        CHECK(!fire(&widget,0,&action)&&profile_begin==1&&settings_open==1&&message_count==3,63);return 0;
+    }
+    if(!strcmp(argv[1],"settings-namespace")){
+        CHECK(!mcc_ui_settings_needed("mcc_maps\\a10"),69);
+        CHECK(!mcc_ui_settings_needed("mercury_falling")&&!mcc_ui_settings_needed("a10"),70);
+        campaign=FALSE;CHECK(mcc_ui_settings_needed("mcc_maps\\dangercanyon"),71);
+        CHECK(!mcc_ui_settings_needed("ui")&&!mcc_ui_settings_needed("custom_maps\\dangercanyon")&&
+            !mcc_ui_settings_needed("dangercanyon")&&!mcc_ui_settings_needed(NULL),72);return 0;
+    }
+    if(!strcmp(argv[1],"network-stale-solo")){
+        /* Network startup changes its own map, leaving main_get_map_name()
+         * and the solo catalog classification at the previous campaign. */
+        int role;widget.definition_tag_index=300;scenario.type=1;campaign=TRUE;action.flags=128;
+        CHECK(!strcmp(main_get_map_name(),"mcc_maps\\a10"),84);
+        for(role=1;role<=2;role++){
+            connection=role;action.function=MCC_PAUSE_ACTION_SETTINGS;
+            CHECK(fire(&widget,0,&action)&&settings_open==role&&profile_begin==role,85);
+            widget_globals.active_widgets[2]=&widget;action.function=MCC_PAUSE_ACTION_QUIT;
+            CHECK(fire(&widget,0,&action)&&quit_count==role&&quit_controller==2,86);
+            CHECK(!persist_count&&!menu_count,87);
+        }
+        return 0;
+    }
+    if(!strcmp(argv[1],"campaign-stale-catalog")){
+        /* Saving/reloading a live scenario must not depend on later catalog
+         * changes or the last multiplayer selection. */
+        widget.definition_tag_index=300;scenario.type=0;campaign=FALSE;action.flags=128;
+        action.function=MCC_PAUSE_ACTION_SETTINGS;
+        CHECK(!fire(&widget,0,&action)&&!profile_begin&&!settings_open,88);
+        action.function=MCC_PAUSE_ACTION_SAVE;
+        CHECK(!fire(&widget,0,&action)&&save_count==1&&persist_count==1,89);
+        action.function=MCC_PAUSE_ACTION_QUIT;
+        CHECK(!fire(&widget,0,&action)&&persist_count==2&&menu_count==1&&!quit_count,90);
+        coop=TRUE;connection=1;
+        CHECK(!fire(&widget,0,&action)&&persist_count==2&&quit_count==4,91);return 0;
+    }
+    if(!strcmp(argv[1],"settings-no-scenario")){
+        widget.definition_tag_index=300;global_scenario=NULL;campaign=FALSE;action.flags=128;
+        action.function=MCC_PAUSE_ACTION_SETTINGS;
+        CHECK(!fire(&widget,0,&action)&&!profile_begin&&!settings_open&&message_count==1,92);
+        global_scenario=&scenario;scenario.type=2;
+        CHECK(!fire(&widget,0,&action)&&!profile_begin&&!settings_open&&message_count==2,93);return 0;
+    }
+    if(!strcmp(argv[1],"trusted-isolation")){
+        action.function=MCC_PAUSE_ACTION_RESUME;
+        CHECK(!mcc_ui_trusted_action(&widget,action.function)&&!fire(&widget,0,&action)&&!deleted_count,64);
+        widget.definition_tag_index=301;
+        CHECK(!mcc_ui_trusted_action(&widget,action.function)&&!fire(&widget,0,&action)&&!deleted_count,65);
+        widget.definition_tag_index=300;pause_owned=FALSE;
+        CHECK(!fire(&widget,0,&action)&&!deleted_count,66);
+        pause_owned=TRUE;mcc=FALSE;
+        CHECK(!fire(&widget,0,&action)&&!deleted_count,67);
+        mcc=TRUE;action.function=MCC_PAUSE_ACTION_SETTINGS+1;
+        CHECK(!mcc_ui_trusted_action(&widget,action.function)&&!fire(&widget,0,&action)&&!deleted_count,68);return 0;
     }
     if(!strcmp(argv[1],"isolation")){
         mcc=FALSE;action.flags=128;fire(&widget,0,&action);CHECK(legacy_count==1&&!revert_count,29);
@@ -271,7 +424,10 @@ int main(int argc,char **argv){
 
 
 @pytest.mark.parametrize("case", ["metadata", "confirmation", "client-denial", "no-checkpoint", "restart",
-                                 "quit", "team", "team-balance", "settings", "save", "new-game", "isolation", "unsupported", "script"])
+                                 "quit", "team", "team-balance", "settings", "save", "new-game", "isolation", "unsupported", "script",
+                                 "trusted-pause", "trusted-teams", "trusted-end", "trusted-settings", "trusted-isolation", "settings-namespace",
+                                 "split-resume", "split-team", "split-team-denied", "split-quit", "split-quit-sync", "local-quit",
+                                 "network-stale-solo", "campaign-stale-catalog", "settings-no-scenario"])
 def test_mcc_widget_events(ui_tool, case):
     result = subprocess.run([str(ui_tool), case], capture_output=True, text=True)
     assert result.returncode == 0, (case, result.returncode, result.stdout, result.stderr)

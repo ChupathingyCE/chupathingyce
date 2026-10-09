@@ -5,17 +5,22 @@
 #include "cseries.h"
 #include "game/game.h"
 #include "game/game_engine.h"
+#include "game/players.h"
 #include "interface/event_manager.h"
+#include "interface/player_ui.h"
 #include "interface/ui_widget.h"
 #include "main/main.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
 #include "networking/network_client_manager.h"
 #include "saved games/game_state.h"
+#include "scenario/scenario.h"
+#include "scenario/scenario_definitions.h"
 #include "tag_files/tag_groups.h"
 #include "tag_files/tag_files.h"
 #include "mcc_cache.h"
 #include "mcc_maps.h"
+#include "mcc_pause.h"
 #include "mcc_ui.h"
 #include "mcc_ui_network.h"
 #include "mcc_ui_teams.h"
@@ -40,13 +45,31 @@ static boolean mcc_ui_owns_widget(struct widget_instance *widget)
 {
     struct mcc_ui_widget_prefix const *prefix = (void const *)widget;
     return widget && mcc_cache_tags_loaded() && prefix->definition != NONE &&
-        mcc_cache_contains(tag_get('DeLa', prefix->definition), 0x60);
+        (mcc_pause_owns(prefix->definition) ||
+         mcc_cache_contains(tag_get('DeLa', prefix->definition), 0x60));
+}
+
+boolean mcc_ui_trusted_action(struct widget_instance *widget, word function)
+{
+    struct mcc_ui_widget_prefix const *prefix = (void const *)widget;
+    return widget && mcc_cache_tags_loaded() &&
+        function >= MCC_PAUSE_ACTION_RESUME && function <= MCC_PAUSE_ACTION_SETTINGS &&
+        mcc_pause_owns(prefix->definition);
 }
 
 boolean mcc_ui_settings_needed(char const *map_name)
 {
-    return map_name && strcmp(map_name, "ui") && mcc_cache_tags_loaded() &&
+    return map_name && mcc_level_name(map_name) && mcc_cache_tags_loaded() &&
+        !mcc_maps_level_campaign(map_name) &&
         !strcmp(config_string("display.menus"), "pc");
+}
+
+static boolean mcc_ui_scenario_type(short type)
+{
+    /* main_get_map_name is the last solo selection; network rounds load
+     * their own map without replacing it. Classify live actions using the
+     * currently loaded MCC scenario, independently of the menu catalog. */
+    return mcc_cache_tags_loaded() && global_scenario && global_scenario->type == type;
 }
 
 static short mcc_ui_controller(struct widget_instance *widget, struct event_record *event)
@@ -79,44 +102,39 @@ static boolean mcc_ui_restart(short controller)
     return TRUE;
 }
 
+static boolean mcc_ui_end_round(short controller, boolean *deleted)
+{
+    /* End the round normally: connected players reach the carnage report
+     * and the host can pick the next map in the native lobby. */
+    if (!global_network_game_server_get())
+        return mcc_ui_failure(controller, L"Only the host can choose a new game.");
+    if (!game_engine_running() || !game_engine_can_score())
+        return mcc_ui_failure(controller, L"This round is already ending.");
+    /* game_engine_end_game closes the complete widget tree immediately.
+     * The dispatcher must never inspect this widget again afterward. */
+    *deleted = TRUE;
+    game_engine_end_game();
+    return TRUE;
+}
+
 boolean mcc_ui_new_game(struct widget_instance *widget, boolean *deleted)
 {
     struct mcc_ui_widget_prefix const *prefix = (void const *)widget;
     char const *name;
-    short controller;
     if (!mcc_ui_owns_widget(widget)) return FALSE;
     name = tag_get_name(prefix->definition);
     if (!name || strcmp(name, "ui\\shell\\multiplayer_game\\pause_game\\new_game_button")) return FALSE;
-    controller = mcc_ui_controller(widget, NULL);
-    /* End the round normally: connected players reach the carnage report
-     * and the host can pick the next map in the native lobby. */
-    if (!global_network_game_server_get())
-        mcc_ui_failure(controller, L"Only the host can choose a new game.");
-    else if (!game_engine_running() || !game_engine_can_score())
-        mcc_ui_failure(controller, L"This round is already ending.");
-    else {
-        /* game_engine_end_game closes the complete widget tree immediately.
-         * The dispatcher must never inspect this widget again afterward. */
-        *deleted = TRUE;
-        game_engine_end_game();
-    }
+    mcc_ui_end_round(mcc_ui_controller(widget, NULL), deleted);
     return TRUE;
 }
 
-static boolean mcc_ui_choose_team(struct widget_instance *widget, short controller)
+static boolean mcc_ui_request_team(short team, short controller)
 {
     struct network_game *game = network_game_get_game();
-    struct mcc_ui_widget_prefix const *prefix = (void const *)widget;
-    char const *name = tag_get_name(prefix->definition), *leaf;
-    short team, machine = network_game_client_get_local_machine_index();
+    short machine = network_game_client_get_local_machine_index();
     long i;
     if (!game || !game->variant.universal_variant.teams)
         return mcc_ui_failure(controller, L"This game does not use teams.");
-    leaf = name ? strrchr(name, '\\') : NULL;
-    leaf = leaf ? leaf + 1 : name;
-    if (leaf && !strcmp(leaf, "red_team_button")) team = 0;
-    else if (leaf && !strcmp(leaf, "blue_team_button")) team = 1;
-    else return mcc_ui_failure(controller, L"This team choice is not supported.");
     if (!mcc_ui_team_balance_allows(machine, controller, team))
         return mcc_ui_failure(controller, L"The host's automatic team balance prevents this team change.");
     for (i = 0; i < (long)NUMBEROF(game->players); i++) {
@@ -132,6 +150,26 @@ static boolean mcc_ui_choose_team(struct widget_instance *widget, short controll
     return mcc_ui_failure(controller, L"The team change could not be sent to the host.");
 }
 
+static boolean mcc_ui_choose_team(struct widget_instance *widget, short controller)
+{
+    struct mcc_ui_widget_prefix const *prefix = (void const *)widget;
+    char const *name = tag_get_name(prefix->definition), *leaf;
+    leaf = name ? strrchr(name, '\\') : NULL;
+    leaf = leaf ? leaf + 1 : name;
+    if (leaf && !strcmp(leaf, "red_team_button")) return mcc_ui_request_team(0, controller);
+    if (leaf && !strcmp(leaf, "blue_team_button")) return mcc_ui_request_team(1, controller);
+    return mcc_ui_failure(controller, L"This team choice is not supported.");
+}
+
+static void mcc_ui_close_for_controller(short controller, boolean *deleted)
+{
+    /* A generated confirmation has its pause screen in this controller's
+     * history. Close both, preserving every other split-screen player's UI.
+     * Publish deletion before the native helper can free the caller. */
+    *deleted = TRUE;
+    ui_widgets_close_all_for_local_player(controller);
+}
+
 boolean mcc_ui_event_function(struct widget_instance *widget,
     struct event_record *event, word function, boolean *deleted, boolean *result)
 {
@@ -139,6 +177,44 @@ boolean mcc_ui_event_function(struct widget_instance *widget,
     if (!mcc_ui_owns_widget(widget)) return FALSE;
     controller = mcc_ui_controller(widget, event);
     *result = TRUE;
+    if (function >= MCC_PAUSE_ACTION_RESUME && function <= MCC_PAUSE_ACTION_SETTINGS) {
+        if (!mcc_ui_trusted_action(widget, function)) {
+            *result = FALSE;
+            return TRUE;
+        }
+        switch (function) {
+        case MCC_PAUSE_ACTION_RESUME:
+            mcc_ui_close_for_controller(controller, deleted);
+            return TRUE;
+        case MCC_PAUSE_ACTION_REVERT: function = 11; break;
+        case MCC_PAUSE_ACTION_RESTART: function = 12; break;
+        case MCC_PAUSE_ACTION_SAVE: function = 179; break;
+        case MCC_PAUSE_ACTION_QUIT:
+            if (network_coop_active() || mcc_ui_scenario_type(0)) function = 13;
+            else {
+                /* Cache all caller state and mark deletion before native
+                 * leave helpers, which may synchronously close widgets. */
+                boolean split_screen = local_player_count() > 1;
+                *deleted = TRUE;
+                if (global_network_game_client_get()) {
+                    network_game_client_local_player_quit(controller);
+                    if (split_screen) player_ui_local_player_left_multiplayer_game(controller);
+                } else main_goto_main_menu();
+                mcc_ui_close_for_controller(controller, deleted);
+                return TRUE;
+            }
+            break;
+        case MCC_PAUSE_ACTION_END_GAME:
+            *result = mcc_ui_end_round(controller, deleted);
+            return TRUE;
+        case MCC_PAUSE_ACTION_RED_TEAM:
+        case MCC_PAUSE_ACTION_BLUE_TEAM:
+            *result = mcc_ui_request_team(function == MCC_PAUSE_ACTION_RED_TEAM ? 0 : 1, controller);
+            if (*result) mcc_ui_close_for_controller(controller, deleted);
+            return TRUE;
+        case MCC_PAUSE_ACTION_SETTINGS: function = 137; break;
+        }
+    }
     switch (function) {
     case 11: /* Confirm revert to checkpoint. */
         if (!mcc_ui_host_required(controller)) { *result = FALSE; break; }
@@ -157,7 +233,7 @@ boolean mcc_ui_event_function(struct widget_instance *widget,
             short i;
             for (i = 0; i < 4; i++) network_game_client_local_player_quit(i);
         } else {
-            if (mcc_maps_level_campaign(main_get_map_name()) && game_state_port_saved_game_valid())
+            if (mcc_ui_scenario_type(0) && game_state_port_saved_game_valid())
                 game_state_save_to_persistent_storage();
             main_goto_main_menu();
         }
@@ -171,7 +247,8 @@ boolean mcc_ui_event_function(struct widget_instance *widget,
             function == 108 ? 0 : function == 109 ? 1 : function == 110 ? 10 : function == 111 ? 11 : 2);
         break;
     case 137: /* Open trusted native settings, never the map's PC configuration widgets. */
-        if (!pc_menu_tag(tag_loaded('DeLa', "pc\\main_menu\\settings_select\\player_setup\\player_profile_edit\\player_profile_edit_screen")) ||
+        if (!mcc_ui_scenario_type(1) || strcmp(config_string("display.menus"), "pc") ||
+            !pc_menu_tag(tag_loaded('DeLa', "pc\\main_menu\\settings_select\\player_setup\\player_profile_edit\\player_profile_edit_screen")) ||
             !pc_menu_profile_edit_begin()) {
             *result = mcc_ui_failure(controller, L"Settings could not be opened for this player.");
             break;
@@ -198,7 +275,7 @@ boolean mcc_ui_event_function(struct widget_instance *widget,
             *result = mcc_ui_failure(controller, L"The checkpoint could not be saved.");
             break;
         }
-        if (!network_coop_active() && mcc_maps_level_campaign(main_get_map_name()))
+        if (!network_coop_active() && mcc_ui_scenario_type(0))
             game_state_save_to_persistent_storage();
         break;
     default:
