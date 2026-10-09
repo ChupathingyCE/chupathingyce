@@ -398,6 +398,8 @@ symbols in this file:
 #endif
 #include "halo_perf_log.h" /* port: console.perf_log */
 #include "plasma_lighting.h" /* port: port/linux/game/plasma_lighting.c */
+#include "mcc_cache.h"
+#include "mcc_main.h"
 
 /* port: the main loop's stage, for the console's bring-up watchdog
 (port/xbox/src/xbox_port.c); nothing elsewhere */
@@ -1435,6 +1437,9 @@ short main_get_solo_level_from_name(
 	char lower_name[128] = { 0 };
 	short level;
 
+	if (mcc_level_name(name))
+		return NONE;
+
 	/* port: a Halo PC map (name@ce, @pc or @md) is never one of the
 	campaign's levels, whatever its name holds (OpenCE's build-145 found
 	this of its Custom Edition maps) */
@@ -1627,6 +1632,8 @@ static void main_new_map(
 	}
 	else
 	{
+		if (mcc_main_load_failed(options->map_name))
+			return;
 		error(_error_immediate, "game_load() failed.");
 	}
 

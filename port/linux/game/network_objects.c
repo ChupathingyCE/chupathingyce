@@ -80,6 +80,7 @@ static void delta_host_vitals_pass(long machine_index);
 static void delta_host_send_names(boolean everything, long machine_index);
 static void distributed_client_delete(long object_index);
 #endif
+#include "mcc_network.h"
 
 #include <math.h>
 
@@ -3010,6 +3011,7 @@ void network_objects_host_tick(
 	if (game_time_get() % INVENTORY_INTERVAL_TICKS == 0)
 		distributed_host_send_inventories();
 	distributed_host_send_damage_animations();
+	mcc_network_host_tick();
 }
 
 /* ---------- a client */
@@ -4301,6 +4303,7 @@ void network_objects_client_tick(
 		objects_client_check_all = TRUE;
 	distributed_client_ready_picked_up_weapons();
 	distributed_client_note_own_inventories();
+	mcc_network_client_tick();
 	distributed_client_send_vehicles();
 	distributed_client_carry_unsteered_vehicles();
 #ifdef HALO_GAME_BROWSER
@@ -4323,6 +4326,7 @@ void network_objects_new_game(
 	short local_player_index;
 	short index;
 
+	mcc_network_new_game();
 #ifdef HALO_PORT_CONSOLE_LIMITS
 	objects_cross_play_new_game();
 #endif

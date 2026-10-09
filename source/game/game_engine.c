@@ -624,6 +624,9 @@ boolean cache_file_tags_are_ce(void);
 #ifdef HALO_PORT_CONSOLE_LIMITS
 #include "../../port/linux/game/network_game_layout.h"
 #endif
+#include "mcc_cache.h"
+#include "mcc_objects.h"
+#include "mcc_player.h"
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -8295,6 +8298,9 @@ long game_engine_remap_vehicle(
 {
 	long result = vehicle_definition_index;
 
+	if (mcc_vehicle_placement_rules())
+		return result;
+
 #ifdef HALO_CUSTOM_EDITION
 	/* port: a Halo PC map's placements were chosen by their spawn flags,
 	and its scripts may make any vehicle (game_engine_ce_vehicles_by_placement) */
@@ -9498,6 +9504,8 @@ static void game_engine_update_item_spawn(
 					definition_index,
 					NONE);
 				placement_data.position = equipment->position;
+				if (mcc_cache_tags_loaded())
+					vector3d_from_angle(&placement_data.forward, equipment->facing);
 				/* port: Halo PC faces a Custom Edition map's items the way
 				their placements do, where the Xbox copied only the position */
 #ifdef HALO_CUSTOM_EDITION
@@ -9801,6 +9809,9 @@ void game_engine_postspawn_player_update(
 			unit->unit.grenade_counts[
 				_unit_grenade_covenant_plasma] =
 				(char)starting_plasma_grenade_count;
+			mcc_player_postspawn_grenades(unit_index,
+				global_variant.universal_variant.weapon_set == _game_engine_weapons_no_grenades &&
+				!game_engine_infinite_grenades_internal());
 		}
 	}
 

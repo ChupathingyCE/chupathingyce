@@ -127,6 +127,8 @@ enum
 	(network_shield_effects). A host announcing 36 or later sends it: stock,
 	or from 38 each machine's own (6) */
 	_distributed_message_shield_effects = 91,
+	/* MCC-only extra grenade slots; ordinary inventory packets stay exact. */
+	_distributed_message_mcc_grenades = 83,
 
 	NUMBER_OF_DISTRIBUTED_MESSAGES
 };
