@@ -355,6 +355,41 @@ static int mcc_bitmap_pack(struct bitmap_data *bitmap,unsigned char const *sourc
     return out==target_size;
 }
 
+/* Recent MCC campaign lightmaps carry bit 12 in addition to the environment
+ * flag. Its wider MCC meaning is not assumed here: admit only the observed
+ * lightmap-group RGB565 layout with a complete, tightly packed pixel range.
+ * The normal descriptor verifier still checks every other bit and field. */
+static int mcc_bitmap_lightmap_flags(struct bitmap_data *bitmap,short usage)
+{
+    if (!(bitmap->flags&0x1000)) return 1;
+    if (usage!=4 || bitmap->flags!=0x1281 || bitmap->type!=0 || bitmap->format!=6 ||
+        bitmap->width<=0 || bitmap->height<=0 || bitmap->depth!=1 || bitmap->mipmap_count ||
+        (uint64_t)(unsigned)bitmap->width*(unsigned)bitmap->height*2!=(uint32_t)bitmap->pixels_size) return 0;
+    bitmap->flags&=~0x1000;
+    return 1;
+}
+
+/* Some MCC HUD textures declare a complete DXT1 chain but size its sub-4x4
+ * tail as width*height/2 instead of whole compression blocks. Recognize only
+ * that exact size formula and retain the complete prefix. Arbitrary short
+ * ranges, missing base levels and other formats remain load failures. */
+static void mcc_bitmap_complete_mips(struct bitmap_data *bitmap)
+{
+    uint64_t packed=0;
+    unsigned level,maximum,complete=0;
+    if (bitmap->type!=0 || bitmap->format!=14 || bitmap->flags!=0x81 || bitmap->depth!=1 ||
+        bitmap->width<4 || bitmap->height<4 ||
+        (bitmap->width&(bitmap->width-1)) || (bitmap->height&(bitmap->height-1))) return;
+    maximum=(unsigned)floor_log2(MAX(bitmap->width,bitmap->height));
+    if (bitmap->mipmap_count!=(short)maximum) return;
+    for (level=0;level<=maximum;level++) {
+        unsigned width=MAX(bitmap->width>>level,1),height=MAX(bitmap->height>>level,1);
+        packed+=(uint64_t)width*height/2;
+        if (width>=4 && height>=4) complete=level;
+    }
+    if (packed==(uint32_t)bitmap->pixels_size) bitmap->mipmap_count=(short)complete;
+}
+
 static int mcc_texture_prepare(struct mcc_runtime *runtime,struct mcc_textures *textures,struct mcc_texture *texture)
 {
     struct bitmap_data *bitmap=texture->bitmap, normalized=*bitmap;
@@ -374,7 +409,8 @@ static int mcc_texture_prepare(struct mcc_runtime *runtime,struct mcc_textures *
         error(_error_silent,"mcc bitmap: tag %08lx has conflicting pixel-channel uses",texture->handle);
         return 0;
     }
-    for (level=0;level<=(unsigned)bitmap->mipmap_count;level++) {
+    mcc_bitmap_complete_mips(&normalized);
+    for (level=0;level<=(unsigned)normalized.mipmap_count;level++) {
         unsigned w=MAX(bitmap->width>>level,1),h=MAX(bitmap->height>>level,1),d=MAX(bitmap->depth>>level,1);
         uint64_t slice=bytes_per_pixel ? (uint64_t)w*h*bytes_per_pixel :
             (uint64_t)((w+3)/4)*((h+3)/4)*(bitmap->format==14 ? 8 : 16);
@@ -383,6 +419,10 @@ static int mcc_texture_prepare(struct mcc_runtime *runtime,struct mcc_textures *
     }
     if (raw_size>(uint32_t)bitmap->pixels_size || raw_size>MCC_BITMAP_ALLOCATION_LIMIT ||
         (convert && decoded_size>MCC_BITMAP_ALLOCATION_LIMIT)) return 0;
+    if (normalized.flags&0x1000) {
+        struct bitmap_group *group=mcc_bitmap_tag(runtime,texture->handle,BITMAP_GROUP_TAG,sizeof(*group));
+        if (!group || !mcc_bitmap_lightmap_flags(&normalized,group->usage)) return 0;
+    }
     if (convert) {
         normalized.format=11;
         normalized.flags&=~(2|4|8|32|0x100);
@@ -412,7 +452,7 @@ static int mcc_texture_prepare(struct mcc_runtime *runtime,struct mcc_textures *
     if (pixels) memset(pixels,0,allocation);
     if (!raw || !pixels || !mcc_runtime_read(runtime,bitmap->pixels_offset,(uint32_t)raw_size,raw)) goto failed;
     if (convert) {
-        for (level=0;level<=(unsigned)bitmap->mipmap_count;level++) {
+        for (level=0;level<=(unsigned)normalized.mipmap_count;level++) {
             unsigned w=MAX(bitmap->width>>level,1),h=MAX(bitmap->height>>level,1),d=MAX(bitmap->depth>>level,1),slice;
             unsigned source_bytes=bytes_per_pixel ? w*h*bytes_per_pixel : ((w+3)/4)*((h+3)/4)*(bitmap->format==14 ? 8 : 16);
             for (slice=0;slice<faces*d;slice++) {
@@ -427,8 +467,12 @@ static int mcc_texture_prepare(struct mcc_runtime *runtime,struct mcc_textures *
     if (!hardware || !mcc_bitmap_pack(&normalized,pixels,(uint32_t)(convert ? decoded_size : raw_size),hardware,
         normalized.type==0 && (normalized.flags&2) ? allocation : hardware_size)) goto failed;
     free(pixels);pixels=hardware;hardware=NULL;
+    if (bitmap->mipmap_count!=normalized.mipmap_count)
+        error(_error_silent,"mcc bitmap: tag %08lx omitted incomplete DXT1 mip tail (levels %d through %d)",
+            texture->handle,normalized.mipmap_count+1,bitmap->mipmap_count);
     bitmap->format=normalized.format;
     bitmap->flags=normalized.flags;
+    bitmap->mipmap_count=normalized.mipmap_count;
     bitmap->pixels_offset=MCC_BITMAP_BASE+textures->end;
     bitmap->pixels_size=allocation;
     bitmap->tag_index=texture->handle;

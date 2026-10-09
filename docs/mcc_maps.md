@@ -288,6 +288,8 @@ validation/allocation-admission path; Xbox and Custom Edition keep their
 original 19,001-slot constants, validation storage and statements.
 Syntax remains in MCC-owned tag memory, with unchanged datum handles and
 thread/checkpoint layouts. No shared data-array structure or allocator changes.
+The MCC tag walker also retains the full syntax byte span during its later
+schema pass; the shared Xbox/CE schema still specifies 19,001 slots.
 
 Ruby's Rebalanced was audited across all ten campaign maps: each reserves
 32,767 slots. `a10` has a high-water count of 19,723, including 18,480 occupied
@@ -295,6 +297,23 @@ nodes; the other nine high-water counts are below 19,001. Its existing holes
 are retained rather than compacting or renumbering the graph. Across these
 maps, the only unsupported native name was `mcc_mission_segment` (225 calls,
 42 in boolean contexts and 183 with a discarded return value).
+
+Native Ruby loading exposed two additional MCC bitmap layouts. RGB565
+lightmaps with flags `0x1281` are normalized only when their owning group is
+a lightmap, they have no mipmaps, and the pixel range is complete and tightly
+packed. Bit 12's broader meaning is not inferred. The existing descriptor
+verifier still checks the normalized result. Four maps also contain a Wraith
+HUD DXT1 texture whose tiny mip tail is sized using unrounded pixel counts.
+For that exact full-chain size pattern, the converter retains every complete
+mip level and logs the omitted tail; it never reads beyond the declared range.
+Arbitrary truncation, missing base images and other unknown flags still fail.
+
+Some Ruby maps have a separate Vorbis decoding incompatibility. The current
+decoder reports an invalid residue stream for `sound\\music\\spooky1\\in` in
+`a30` and `a50`; comparison with an independent libvorbis decoder found an
+actual PCM difference. This change does not suppress the decoder error.
+Passing script validation therefore does not establish that every Ruby map
+can load or complete a campaign.
 
 ## Current boundaries
 
