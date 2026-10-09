@@ -9,7 +9,8 @@
 > GulchCE work.
 
 This branch adds an independent loader for modern Halo 1 MCC version-13
-caches and an **MCC MAPS** choice in the map menus. It is an experimental
+caches and **MCC SINGLEPLAYER** / **MCC MULTIPLAYER** choices in the map
+menus. It is an experimental
 runtime adapter, with explicit format limits below. A successful menu
 probe or file audit is not proof that a map plays correctly.
 
@@ -31,11 +32,14 @@ an example: its filename is `a10.map`, while its header names
 `mercury_falling`. The namespaces prevent it replacing either Xbox `a10`
 or Custom Edition `custom_maps\a10`.
 
-Open the map-kind chooser and select **MCC MAPS**. New Game lists both
-campaign and multiplayer MCC maps; campaign maps proceed to difficulty
+Open the map-kind chooser and select **MCC SINGLEPLAYER** for campaign
+maps or **MCC MULTIPLAYER** for multiplayer maps. The cache header's scenario
+type determines the category, independently of the filename; both lists
+read the same `mcc_maps` folder. New Game's campaign maps proceed to difficulty
 selection, and multiplayer maps can be explored alone. The network host
 map screen routes campaign maps to cooperative setup and multiplayer maps
-to gametypes. Split-screen multiplayer lists only multiplayer maps. These
+to gametypes. Split-screen multiplayer skips **MCC SINGLEPLAYER**, just as
+it skips the existing singleplayer categories. These
 are menu routes in the implementation; multiplayer interoperability and
 complete campaigns require gameplay testing.
 Each selected MCC campaign map is treated as an independent scenario.
@@ -252,10 +256,11 @@ and virtual sound-stream bounds. Live Mercury
 audio conversion processed 4,676 permutations into 103,256,532 ADPCM bytes;
 this is a conversion-stage result, not a listening test. Its bitmap stage
 converts 1,268 original/copied resources into 522,484,864 bytes. The native
-MCC schema validator has 30 passing tests. Twenty-five catalog/path tests cover
+MCC schema validator has 30 passing tests. Thirty catalog/path tests cover
 the real catalog and runtime admission routines, including same-name maps
 in all three namespaces, version/scenario filters, rescan, case handling,
-catalog capacity, filename limits, traversal rejection and checkpoint
+catalog capacity, filename limits, traversal rejection, scenario-type
+filtering with stable identities (including empty lists) and checkpoint
 identity allocation/failure. Nine checkpoint menu tests verify separate
 MCC, Xbox and CE routes, mixed save lists, missing-map handling and bounded
 difficulty values.
@@ -323,9 +328,9 @@ copy, released MCC state and returned to the Xbox UI. The same process then
 loaded Xbox `a10` and valid MCC Nitra, executed post-load console markers,
 initialized rendering and exited successfully without assertions.
 
-Native keyboard/mouse navigation also opened the fifth **MCC MAPS** tab,
-which listed A10 and Dangercanyon with campaign/multiplayer descriptions.
-A10 proceeded through difficulty selection into rendered Mercury gameplay;
+Native keyboard/mouse navigation also verified the MCC menu routes and
+campaign/multiplayer descriptions. A10 proceeded through difficulty
+selection into rendered Mercury gameplay;
 Dangercanyon proceeded through Slayer, server setup and the LAN lobby into
 rendered Nitra multiplayer gameplay. These bounded checks do not establish
 a complete campaign playthrough. Separate
@@ -334,7 +339,7 @@ a complete campaign playthrough. Separate
 capacity warning was also present in a prior log; these short checks are
 not exhaustive playthroughs.
 
-The final combined MCC and existing cache-format suite passed 298 tests
+The initial combined MCC and existing cache-format suite passed 298 tests
 with six optional-fixture skips, including the BSP lifecycle and score-hint
 checks, both locally and in Windows CI. The Linux MCC CI subset passed
 252 tests with five optional-fixture skips. The final native Windows build
@@ -350,6 +355,12 @@ and [MCC validation run](https://github.com/chestahh/GulchCE/actions/runs/379759
 cover implementation commit `a196ae0c`. These build/test results do not
 establish Linux or Android gameplay behavior.
 
+The subsequent menu split passed 68 focused catalog, menu and saved-game
+tests and a native Windows build. The tests cover header-based classification,
+empty categories, both spinner directions, solo and host launch paths,
+local multiplayer's singleplayer exclusion, returning from difficulty
+selection, and switching categories without retaining stale selections.
+
 Run the isolated tests with a C compiler and Python/pytest available:
 
 ```text
@@ -357,6 +368,7 @@ python -m pytest -q tools/test_mcc_cache_format.py
 python -m pytest -q tools/test_mcc_geometry.py
 python -m pytest -q tools/test_mcc_media.py tools/test_mcc_tag_validation.py
 python -m pytest -q tools/test_mcc_maps.py
+python -m pytest -q tools/test_mcc_menu.py
 python -m pytest -q tools/test_mcc_saved_games.py
 python -m pytest -q tools/test_mcc_checkpoint.py tools/test_mcc_grenades.py tools/test_mcc_network.py
 python -m pytest -q tools/test_mcc_parameters.py tools/test_mcc_scripts.py

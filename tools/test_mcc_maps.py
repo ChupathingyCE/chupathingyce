@@ -163,7 +163,24 @@ int main(int argc,char **argv) {
         return 0;
     }
     root=argv[1];count=mcc_maps_count(FALSE);
-    printf("count=%d\nmultiplayer=%d\n",count,mcc_maps_count(TRUE));
+    printf("count=%d\nmultiplayer=%d\nsingleplayer=%d\n",count,mcc_maps_count(TRUE),mcc_maps_type_count(TRUE));
+    if(mcc_maps_type_count(FALSE)!=mcc_maps_count(TRUE) ||
+       mcc_maps_type_count(TRUE)+mcc_maps_type_count(FALSE)!=count)return 30;
+    {
+        int campaign;
+        for(campaign=0;campaign<=1;campaign++) {
+            short total=mcc_maps_type_count((boolean)campaign),previous=NONE;
+            if(mcc_maps_type_index(-1,(boolean)campaign)!=NONE ||
+               mcc_maps_type_index(total,(boolean)campaign)!=NONE)return 31;
+            for(i=0;i<total;i++) {
+                short index=mcc_maps_type_index(i,(boolean)campaign);
+                if(index<=previous || index>=count || mcc_maps_campaign(index)!=campaign)return 32;
+                if(argc==3 && !strcmp(argv[2],"types"))
+                    printf("%s_%d=%s\n",campaign ? "singleplayer" : "multiplayer",i,mcc_maps_level_name(index));
+                previous=index;
+            }
+        }
+    }
     for(i=0;i<count;i++) {
         char const *level=mcc_maps_level_name(i);
         short found=mcc_maps_find(level),row=mcc_maps_index(i,FALSE);
@@ -235,6 +252,22 @@ def test_versions_and_folders_are_isolated(catalog_tool, tmp_path):
     assert maps == ["mcc_maps\\a10|1", "mcc_maps\\bloodgulch|0"]
     assert fields["largest_read"] == "2048"
     assert fields["scans"] == "1"
+
+
+@pytest.mark.parametrize("entries,singleplayer,multiplayer", [
+    ({}, [], []),
+    ({"only_sp": 0}, ["only_sp"], []),
+    ({"only_mp": 1}, [], ["only_mp"]),
+    ({"a10": 1, "bloodgulch": 0}, ["bloodgulch"], ["a10"]),
+    ({"a_mp": 1, "b_sp": 0, "c_mp": 1, "d_sp": 0}, ["b_sp", "d_sp"], ["a_mp", "c_mp"]),
+])
+def test_scenario_type_lists_keep_catalog_identity(catalog_tool, tmp_path, entries, singleplayer, multiplayer):
+    install(tmp_path, {name + ".map": header(scenario=kind) for name, kind in entries.items()})
+    fields, _ = run(catalog_tool, tmp_path, "types")
+    for label, expected in [("singleplayer", singleplayer), ("multiplayer", multiplayer)]:
+        assert int(fields[label]) == len(expected)
+        assert [fields[f"{label}_{row}"] for row in range(len(expected))] == [
+            "mcc_maps\\" + name for name in expected]
 
 
 def test_filename_identity_case_and_duplicate_filter(catalog_tool, tmp_path):

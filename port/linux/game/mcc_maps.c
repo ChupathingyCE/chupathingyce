@@ -222,6 +222,34 @@ short mcc_maps_index(short row, boolean multiplayer_only)
 	return NONE;
 }
 
+short mcc_maps_type_count(boolean campaign)
+{
+	short index, count = 0;
+
+	mcc_maps_scan();
+	for (index = 0; index < mcc_menu_catalog.count; index++)
+	{
+		if (mcc_menu_catalog.maps[index].campaign == campaign)
+			count++;
+	}
+	return count;
+}
+
+short mcc_maps_type_index(short row, boolean campaign)
+{
+	short index;
+
+	mcc_maps_scan();
+	if (row < 0)
+		return NONE;
+	for (index = 0; index < mcc_menu_catalog.count; index++)
+	{
+		if (mcc_menu_catalog.maps[index].campaign == campaign && row-- == 0)
+			return index;
+	}
+	return NONE;
+}
+
 short mcc_maps_find(char const *level_name)
 {
 	short index;
