@@ -1,7 +1,7 @@
 {
   "delta_legacy": 1,
-  "serial": 4,
-  "issued": 1791448287,
+  "serial": 5,
+  "issued": 1791596703,
   "wires": {
     "chupa-20a": {
       "announce": 23,
@@ -10,10 +10,10 @@
       "follows": "build-147"
     },
     "chupa-24a": {
-      "announce": 24,
+      "announce": 25,
       "minimum": 11,
-      "maximum": 24,
-      "follows": "build-154"
+      "maximum": 25,
+      "follows": "build-169"
     }
   },
   "disabled_capabilities": []
