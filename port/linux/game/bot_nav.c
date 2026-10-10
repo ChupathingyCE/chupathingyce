@@ -284,8 +284,11 @@ static int navm_old_rules(void)
 	return old;
 }
 
-/* clip a polygon to x >= edge (sign 1) or x <= edge (sign -1) on axis */
-static long navm_clip(real_point3d *out, real_point3d const *in, long count, long axis, real edge, real sign)
+/* clip a polygon to x >= edge (sign 1) or x <= edge (sign -1) on axis,
+   into out (room for capacity corners). A convex polygon gains one corner
+   at most; one that is not can gain more, and one that would not fit is
+   none (0), rather than written past the end. */
+static long navm_clip(real_point3d *out, long capacity, real_point3d const *in, long count, long axis, real edge, real sign)
 {
 	long i;
 	long written = 0;
@@ -295,6 +298,8 @@ static long navm_clip(real_point3d *out, real_point3d const *in, long count, lon
 		real_point3d const *b = &in[(i + 1) % count];
 		real da = (a->n[axis] - edge) * sign;
 		real db = (b->n[axis] - edge) * sign;
+		if (written + 2 > capacity)
+			return 0;
 		if (da >= 0.f)
 			out[written++] = *a;
 		if ((da >= 0.f) != (db >= 0.f))
@@ -308,6 +313,11 @@ static long navm_clip(real_point3d *out, real_point3d const *in, long count, lon
 	}
 	return written;
 }
+
+/* the corners a surface's polygon clipped to a column can have (it has 16
+   at most, navm_surface_polygon, and each of the four sides it is clipped
+   by can add to them) */
+#define NAVM_CLIP_CORNERS 48
 
 /* the way back, for the four straight directions */
 static long const navm_opposite[4] = { 1, 0, 3, 2 };
@@ -644,18 +654,20 @@ static void navm_column_range(real minimum_x, real maximum_x, real minimum_y, re
    when it only touches the column) */
 static void navm_rasterize_column(struct navm_raster *raster, long cx, long cy, real_point3d const *polygon, long count, real_plane3d const *plane, int walkable)
 {
-	real_point3d a[24], b[24];
+	real_point3d a[NAVM_CLIP_CORNERS], b[NAVM_CLIP_CORNERS];
 	real x0 = navm.x0 + cx * NAVM_CELL;
 	real y0 = navm.y0 + cy * NAVM_CELL;
 	long n = count;
 	long i;
 	real low = 1.0e9f, high = -1.0e9f;
 	real floor_z = 0.f;
+	if (count > NAVM_CLIP_CORNERS)
+		return;
 	memcpy(a, polygon, count * sizeof(real_point3d));
-	n = navm_clip(b, a, n, 0, x0, 1.f);
-	n = navm_clip(a, b, n, 0, x0 + NAVM_CELL, -1.f);
-	n = navm_clip(b, a, n, 1, y0, 1.f);
-	n = navm_clip(a, b, n, 1, y0 + NAVM_CELL, -1.f);
+	n = navm_clip(b, NAVM_CLIP_CORNERS, a, n, 0, x0, 1.f);
+	n = navm_clip(a, NAVM_CLIP_CORNERS, b, n, 0, x0 + NAVM_CELL, -1.f);
+	n = navm_clip(b, NAVM_CLIP_CORNERS, a, n, 1, y0, 1.f);
+	n = navm_clip(a, NAVM_CLIP_CORNERS, b, n, 1, y0 + NAVM_CELL, -1.f);
 	if (n < 3)
 		return;
 	for (i = 0; i < n; i++)
@@ -1908,16 +1920,17 @@ int bot_logging(void)
 
 int bot_env_set(char const *name)
 {
-	/* (the few debugging switches: read once each) */
-	static char const *names[8];
-	static int values[8];
+	/* (the debugging switches: read once each, kept by their names, copied:
+	   a name the caller made up and let go of is not left pointed at) */
+	static char names[16][32];
+	static int values[16];
 	int i;
-	for (i = 0; i < 8 && names[i]; i++)
+	for (i = 0; i < 16 && names[i][0]; i++)
 		if (!strcmp(names[i], name))
 			return values[i];
-	if (i == 8)
+	if (i == 16 || strlen(name) >= sizeof(names[i]))
 		return getenv(name) != NULL;
-	names[i] = name;
+	strcpy(names[i], name);
 	values[i] = getenv(name) != NULL;
 	return values[i];
 }

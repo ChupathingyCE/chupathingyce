@@ -539,6 +539,11 @@ static void bake_host_map(
 	if (!global_network_game_server_get() || !global_network_game_client_get())
 	{
 		platform_log("bake: %s: could not host a game", map->name);
+		/* (half of one made, a server without its client or the other way
+		   round: put away, so that the next map begins from nothing and not
+		   in what is left of this one, which the main menu would wait on) */
+		dispose_global_network_game_client();
+		dispose_global_network_game_server();
 		map->state = _bake_map_failed;
 		bake.menu_seconds = 0.0f;
 		return;
