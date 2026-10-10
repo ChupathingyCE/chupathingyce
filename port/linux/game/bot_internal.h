@@ -419,4 +419,29 @@ int bot_unit_alive(long unit_index);
 /* one of our side on foot in the lane ahead */
 int bot_body_friendly_ahead(struct bot_body const *body, real_point3d const *from, real yaw, real length, real half_width);
 
+/* ---------- how a game went (bot_stats.c; HALO_BOT_STATS) */
+
+enum
+{
+	_bot_stat_stuck = 0, /* a bot gave up on a way it was stuck on */
+	_bot_stat_route_failed, /* a way between two areas found wanting */
+	_bot_stat_carrier_ride, /* a bot got into a vehicle with the flag */
+	_bot_stat_flag_pickup,
+	_bot_stat_flag_drop,
+	_bot_stat_flag_return,
+	NUMBER_OF_BOT_STATS
+};
+
+int bot_stats_enabled(void);
+void bot_stats_reset(void);
+void bot_stats_note(int stat);
+/* a bot alive this tick: where it is, its seat (0 on foot, 1 driving, 2
+   on a gun, 3 riding), whether it has reason to stand (someone to shoot,
+   a place it holds), and whether it is escorting a carrier of ours or
+   helping a person of its side */
+void bot_stats_bot_tick(long index, real_point3d const *position, int seat_kind, int busy, int escorting, int with_people);
+void bot_stats_world_tick(long now);
+/* whether a player (its datum index) is one of the bots (bots.c) */
+int bot_player_is_bot(long player_index);
+
 #endif

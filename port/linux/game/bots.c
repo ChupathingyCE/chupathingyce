@@ -1375,6 +1375,8 @@ struct bot_state
 	long flank_time;
 	int on_objective_route; /* going for the objective by a way of its own (dying on it: another way next time) */
 	int carrying_objective; /* the flag or the ball in hand */
+	int escorting; /* with one of ours who has their flag, round them (bot_escort_goal) */
+	int with_person; /* helping a person of our side: on their gun, beside them, after them */
 	/* rubbing it in: over the body of whoever it just killed */
 	long last_fired_unit;
 	long last_fired_time;
@@ -3316,6 +3318,12 @@ static int bot_holds_object(struct unit_datum *unit, long object_index)
    place: a bot's own record of its body is set when it next thinks, and a
    bot that came back to life a moment ago, not yet thought, was taken for a
    person (and made its squad's leader, a person going first) */
+int bot_player_is_bot(long player_index)
+{
+	long index = player_index != NONE ? DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index) : NONE;
+	return index >= 0 && index < BOT_MAXIMUM_PLAYERS && bot_states[index].has_personality;
+}
+
 static int bot_unit_is_bot(long unit_index)
 {
 	struct unit_datum *unit = unit_try_and_get(unit_index);
@@ -7996,6 +8004,7 @@ static void bots_world_tick(void)
 	bot_country_update();
 	bot_air_trails_update();
 	bots_spawn_spots_update();
+	bot_stats_world_tick(now);
 	/* (testing, HALO_GAME_SPEED=<n>: the game at n times its speed, for a
 	   long game of bots in a short time; the ticks are the same ticks) */
 	if (now < 90 && getenv("HALO_GAME_SPEED"))
@@ -13071,6 +13080,13 @@ static long bot_look_round(struct bot_think *t)
 /* what it is riding now against what it rode last tick: told, and what the change means kept */
 static void bot_note_ride(long player_absolute_index, struct bot_state *bot, long vehicle_index, int driving, int gunner)
 {
+	/* (into something with the flag: counted, for how games go) */
+	if (vehicle_index != NONE && vehicle_index != bot->last_vehicle && bot_stats_enabled())
+	{
+		struct unit_datum *rider = bot->unit_index != NONE ? unit_try_and_get(bot->unit_index) : NULL;
+		if (rider && bot_held_objective(rider) != NONE)
+			bot_stats_note(_bot_stat_carrier_ride);
+	}
 	if (bot_logging() && (vehicle_index != bot->last_vehicle || (driving ? 1 : gunner ? 2 : 3) != bot->last_seat_kind))
 	{
 		if (vehicle_index != NONE)
@@ -14753,6 +14769,12 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		if (bot->weapon_switch_ticks < 20)
 			bot->weapon_switch_ticks = 20;
 	}
+
+	if (bot_stats_enabled())
+		bot_stats_bot_tick(player_absolute_index, &t->position,
+			t->vehicle_index == NONE ? 0 : t->driving ? 1 : t->gunner ? 2 : 3,
+			t->target != NONE || bot->goal_kind == _bot_goal_hold || bot->ambush_phase != 0 || bot->in_cover,
+			bot->escorting, bot->with_person);
 
 	bot_log_motion(t);
 	bot_log_engagement(t);

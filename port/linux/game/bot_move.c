@@ -788,6 +788,7 @@ static int bot_move_fluent(int which)
 static void bot_move_reach_failed(struct bot_mover *bot, char const *why)
 {
 	struct bot_move_state *move = &bot->move;
+	bot_stats_note(_bot_stat_route_failed);
 	if (bot_logging())
 	{
 		struct aas_reach const *reach = aas_reach(move->reach_type, move->reach);
@@ -2092,6 +2093,8 @@ static void bot_move_drive(struct bot_mover *bot, struct bot_body const *body, r
 			move->reverse_ticks = BOT_SECONDS(1.f + bot_mover_random(bot) * 0.6f);
 			move->reverse_steer = bot_angle_difference(want, heading) > 0.f ? -0.6f : 0.6f;
 			move->stuck_count++;
+			if (move->stuck_count == 4)
+				bot_stats_note(_bot_stat_stuck);
 			if (move->stuck_count >= 4)
 				result->get_out = TRUE; /* not getting anywhere in this: on foot */
 		}
@@ -2295,6 +2298,7 @@ static void bot_move_circling(struct bot_mover *bot, struct bot_body const *body
 					area, move->corridor[0]);
 			if (!bot_move_crowded(bot))
 				aas_reach_failed(move->type, move->corridor[0]);
+			bot_stats_note(_bot_stat_route_failed);
 			bot_move_avoid(move, move->corridor[0], BOT_SECONDS(12));
 			move->circle_ticks = 0;
 		}
@@ -2494,6 +2498,7 @@ static void bot_move_stuck(struct bot_mover *bot, struct bot_body const *body, s
 				}
 				if (move->stuck_count >= 3)
 				{
+					bot_stats_note(_bot_stat_stuck);
 					if (move->reach != NONE)
 						bot_move_reach_failed(bot, "stuck");
 					else if (move->corridor_count > 0)
@@ -2502,7 +2507,10 @@ static void bot_move_stuck(struct bot_mover *bot, struct bot_body const *body, s
 						   the areas think a body fits through: everyone learns,
 						   as for a jump that fails; not in a crowd) */
 						if (!bot_move_crowded(bot))
+						{
 							aas_reach_failed(move->type, move->corridor[0]);
+							bot_stats_note(_bot_stat_route_failed);
+						}
 						bot_move_avoid(move, move->corridor[0], BOT_SECONDS(8));
 					}
 					move->stuck_count = 0;

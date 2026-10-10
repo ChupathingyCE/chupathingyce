@@ -1632,6 +1632,9 @@
     <ClCompile Include="$(HaloRoot)port\linux\game\bot_port.c">
       <Filter>port\linux\game</Filter>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\bot_stats.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\game\bots.c">
       <Filter>port\linux\game</Filter>
     </ClCompile>
