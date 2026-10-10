@@ -8,7 +8,7 @@ Lock, Format and Size - over texels in guest memory. Power-of-two textures
 are swizzled (Morton order, one level after another); textures with a Size
 field are linear, with a pitch, and are addressed with texel coordinates.
 DXT textures are stored as plain 4x4 blocks. Everything except DXT is
-converted to 32-bit BGRA on upload.
+converted to 32-bit BGRA on upload (BC7, a Custom Edition map's, decoded).
 
 A cached texture stays valid until any page it was read from is written;
 memory_watch.c detects that by write-protecting the pages.
@@ -42,19 +42,19 @@ enum texel_kind
 	_texel_l8, _texel_al8, _texel_a8, _texel_a8l8, _texel_p8, _texel_g8b8, _texel_r8b8, _texel_r6g5b5,
 	_texel_l16, _texel_v16u16, _texel_a8b8g8r8, _texel_b8g8r8a8, _texel_r8g8b8a8, _texel_r5g5b5a1,
 	_texel_r4g4b4a4, _texel_yuy2, _texel_uyvy, _texel_d24s8, _texel_d16,
-	_texel_dxt1, _texel_dxt3, _texel_dxt5,
+	_texel_dxt1, _texel_dxt3, _texel_dxt5, _texel_bc7,
 };
 
 struct format_information
 {
 	unsigned char kind;
-	unsigned char bytes; /* per texel; per 4x4 block for DXT */
+	unsigned char bytes; /* per texel; per 4x4 block for DXT and BC7 */
 	unsigned char linear;
 };
 
 static struct format_information format_information(DWORD format)
 {
-	static const struct format_information table[0x42] =
+	static const struct format_information table[0x43] =
 	{
 		[0x00] = { _texel_l8, 1, 0 },
 		[0x01] = { _texel_al8, 1, 0 },
@@ -110,6 +110,7 @@ static struct format_information format_information(DWORD format)
 		[0x3f] = { _texel_a8b8g8r8, 4, 1 },
 		[0x40] = { _texel_b8g8r8a8, 4, 1 },
 		[0x41] = { _texel_r8g8b8a8, 4, 1 },
+		[D3DFMT_PORT_BC7] = { _texel_bc7, 16, 0 },
 	};
 	struct format_information unknown = { _texel_a8r8g8b8, 4, 0 };
 
@@ -120,7 +121,7 @@ static struct format_information format_information(DWORD format)
 
 static BOOL kind_compressed(unsigned char kind)
 {
-	return kind == _texel_dxt1 || kind == _texel_dxt3 || kind == _texel_dxt5;
+	return kind == _texel_dxt1 || kind == _texel_dxt3 || kind == _texel_dxt5 || kind == _texel_bc7;
 }
 
 /* ---------- geometry of a texture in memory */
@@ -427,6 +428,247 @@ static BOOL decode_level(const struct xgpu_texture_description *description, uns
 	return TRUE;
 }
 
+/* ---------- BC7 decoding, for Custom Edition maps' bitmaps in MCC's
+high-quality compression (D3DFMT_PORT_BC7), decoded on every driver: the
+format, BPTC, is not one every GL the port runs on has (ES 3.0, GL 3.3) */
+
+/* each mode's subsets, partition bits, rotation bits, index selection bits,
+color and alpha bits, endpoint and shared p-bits, and index bits (primary,
+secondary) */
+static const struct
+{
+	unsigned char subsets, partition_bits, rotation_bits, selection_bits, color_bits, alpha_bits,
+		endpoint_pbits, shared_pbits, index_bits, secondary_index_bits;
+} bc7_modes[8] =
+{
+	{ 3, 4, 0, 0, 4, 0, 1, 0, 3, 0 },
+	{ 2, 6, 0, 0, 6, 0, 0, 1, 3, 0 },
+	{ 3, 6, 0, 0, 5, 0, 0, 0, 2, 0 },
+	{ 2, 6, 0, 0, 7, 0, 1, 0, 2, 0 },
+	{ 1, 0, 2, 1, 5, 6, 0, 0, 2, 3 },
+	{ 1, 0, 2, 0, 7, 8, 0, 0, 2, 2 },
+	{ 1, 0, 0, 0, 7, 7, 1, 0, 4, 0 },
+	{ 2, 6, 0, 0, 5, 5, 1, 0, 2, 0 },
+};
+
+/* the two-subset partitions, a bit a texel set for those of the second */
+static const unsigned short bc7_partitions2[64] =
+{
+	0xcccc, 0x8888, 0xeeee, 0xecc8, 0xc880, 0xfeec, 0xfec8, 0xec80,
+	0xc800, 0xffec, 0xfe80, 0xe800, 0xffe8, 0xff00, 0xfff0, 0xf000,
+	0xf710, 0x008e, 0x7100, 0x08ce, 0x008c, 0x7310, 0x3100, 0x8cce,
+	0x088c, 0x3110, 0x6666, 0x366c, 0x17e8, 0x0ff0, 0x718e, 0x399c,
+	0xaaaa, 0xf0f0, 0x5a5a, 0x33cc, 0x3c3c, 0x55aa, 0x9696, 0xa55a,
+	0x73ce, 0x13c8, 0x324c, 0x3bdc, 0x6996, 0xc33c, 0x9966, 0x0660,
+	0x0272, 0x04e4, 0x4e40, 0x2720, 0xc936, 0x936c, 0x39c6, 0x639c,
+	0x9336, 0x9cc6, 0x817e, 0xe718, 0xccf0, 0x0fcc, 0x7744, 0xee22,
+};
+
+/* the three-subset partitions, two bits a texel (the first texel lowest) */
+static const unsigned long bc7_partitions3[64] =
+{
+	0xaa685050, 0x6a5a5040, 0x5a5a4200, 0x5450a0a8, 0xa5a50000, 0xa0a05050, 0x5555a0a0, 0x5a5a5050,
+	0xaa550000, 0xaa555500, 0xaaaa5500, 0x90909090, 0x94949494, 0xa4a4a4a4, 0xa9a59450, 0x2a0a4250,
+	0xa5945040, 0x0a425054, 0xa5a5a500, 0x55a0a0a0, 0xa8a85454, 0x6a6a4040, 0xa4a45000, 0x1a1a0500,
+	0x0050a4a4, 0xaaa59090, 0x14696914, 0x69691400, 0xa08585a0, 0xaa821414, 0x50a4a450, 0x6a5a0200,
+	0xa9a58000, 0x5090a0a8, 0xa8a09050, 0x24242424, 0x00aa5500, 0x24924924, 0x24499224, 0x50a50a50,
+	0x500aa550, 0xaaaa4444, 0x66660000, 0xa5a0a5a0, 0x50a050a0, 0x69286928, 0x44aaaa44, 0x66666600,
+	0xaa444444, 0x54a854a8, 0x95809580, 0x96969600, 0xa85454a8, 0x80959580, 0xaa141414, 0x96960000,
+	0xaaaa1414, 0xa05050a0, 0xa0a5a5a0, 0x96000000, 0x40804080, 0xa9a8a9a8, 0xaaaaaa44, 0x2a4a5254,
+};
+
+/* the texel of each subset past the first whose index is a bit short */
+static const unsigned char bc7_anchors2[64] =
+{
+	15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,
+	15, 2, 8, 2, 2, 8, 8, 15, 2, 8, 2, 2, 8, 8, 2, 2,
+	15, 15, 6, 8, 2, 8, 15, 15, 2, 8, 2, 2, 2, 15, 15, 6,
+	6, 2, 6, 8, 15, 15, 2, 2, 15, 15, 15, 15, 15, 2, 2, 15,
+};
+static const unsigned char bc7_anchors3[2][64] =
+{
+	{
+		3, 3, 15, 15, 8, 3, 15, 15, 8, 8, 6, 6, 6, 5, 3, 3,
+		3, 3, 8, 15, 3, 3, 6, 10, 5, 8, 8, 6, 8, 5, 15, 15,
+		8, 15, 3, 5, 6, 10, 8, 15, 15, 3, 15, 5, 15, 15, 15, 15,
+		3, 15, 5, 5, 5, 8, 5, 10, 5, 10, 8, 13, 15, 12, 3, 3,
+	},
+	{
+		15, 8, 8, 3, 15, 15, 3, 8, 15, 15, 15, 15, 15, 15, 15, 8,
+		15, 8, 15, 3, 15, 8, 15, 8, 3, 15, 6, 10, 15, 15, 10, 8,
+		15, 3, 15, 10, 10, 8, 9, 10, 6, 15, 8, 15, 3, 6, 6, 8,
+		15, 3, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 3, 15, 15, 8,
+	},
+};
+
+static const unsigned char bc7_weights2[4] = { 0, 21, 43, 64 };
+static const unsigned char bc7_weights3[8] = { 0, 9, 18, 27, 37, 46, 55, 64 };
+static const unsigned char bc7_weights4[16] = { 0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64 };
+
+/* the next `count` bits of a block, its lowest first */
+static unsigned long bc7_bits(const unsigned char *block, unsigned long *position, unsigned long count)
+{
+	unsigned long value = 0, bit;
+
+	for (bit = 0; bit < count; bit++, (*position)++)
+		value |= (unsigned long)((block[*position >> 3] >> (*position & 7)) & 1) << bit;
+	return value;
+}
+
+static unsigned long bc7_interpolate(unsigned long e0, unsigned long e1, unsigned long index, unsigned long bits)
+{
+	unsigned long weight = bits == 2 ? bc7_weights2[index] : bits == 3 ? bc7_weights3[index] : bc7_weights4[index];
+
+	return (e0 * (64 - weight) + e1 * weight + 32) >> 6;
+}
+
+/* one 4x4 block's texels, as 32-bit ARGB words (a reserved mode's are
+transparent black) */
+static void bc7_decode_block(const unsigned char *block, unsigned long texels[16])
+{
+	unsigned long position = 0, mode, partition = 0, rotation = 0, selection = 0;
+	unsigned long subsets, channel, endpoint, texel;
+	unsigned long endpoints[6][4];
+	unsigned long subset_of[16];
+	unsigned long indices[16], secondary_indices[16];
+
+	for (mode = 0; mode < 8 && !(block[0] & (1 << mode)); mode++)
+		;
+	if (mode == 8)
+	{
+		for (texel = 0; texel < 16; texel++)
+			texels[texel] = 0;
+		return;
+	}
+	position = mode + 1;
+	subsets = bc7_modes[mode].subsets;
+	partition = bc7_bits(block, &position, bc7_modes[mode].partition_bits);
+	rotation = bc7_bits(block, &position, bc7_modes[mode].rotation_bits);
+	selection = bc7_bits(block, &position, bc7_modes[mode].selection_bits);
+	/* (the endpoints' red, then green, blue and alpha) */
+	for (channel = 0; channel < 4; channel++)
+	{
+		unsigned long bits = channel < 3 ? bc7_modes[mode].color_bits : bc7_modes[mode].alpha_bits;
+
+		for (endpoint = 0; endpoint < subsets * 2; endpoint++)
+			endpoints[endpoint][channel] = bits ? bc7_bits(block, &position, bits) : 255;
+	}
+	/* (each endpoint's p-bit, or each subset's shared one, below its
+	channels' bits; then each channel made 8 bits) */
+	for (endpoint = 0; endpoint < subsets * 2; endpoint++)
+	{
+		unsigned long pbit = 0;
+		BOOL has_pbit = bc7_modes[mode].endpoint_pbits || bc7_modes[mode].shared_pbits;
+
+		if (bc7_modes[mode].endpoint_pbits)
+			pbit = bc7_bits(block, &position, 1);
+		else if (bc7_modes[mode].shared_pbits && !(endpoint & 1))
+			pbit = bc7_bits(block, &position, 1);
+		else if (bc7_modes[mode].shared_pbits)
+			pbit = (block[(position - 1) >> 3] >> ((position - 1) & 7)) & 1;
+		for (channel = 0; channel < 4; channel++)
+		{
+			unsigned long bits = channel < 3 ? bc7_modes[mode].color_bits : bc7_modes[mode].alpha_bits;
+			unsigned long value = endpoints[endpoint][channel];
+
+			if (!bits)
+				continue;
+			if (has_pbit)
+			{
+				value = (value << 1) | pbit;
+				bits++;
+			}
+			value <<= 8 - bits;
+			endpoints[endpoint][channel] = value | (value >> bits);
+		}
+	}
+	for (texel = 0; texel < 16; texel++)
+	{
+		if (subsets == 2)
+			subset_of[texel] = (bc7_partitions2[partition] >> texel) & 1;
+		else if (subsets == 3)
+			subset_of[texel] = (bc7_partitions3[partition] >> (texel * 2)) & 3;
+		else
+			subset_of[texel] = 0;
+	}
+	/* (each subset's anchor texel's index a bit short, its top bit 0) */
+	for (texel = 0; texel < 16; texel++)
+	{
+		BOOL anchor = texel == 0 ||
+			(subsets == 2 && texel == bc7_anchors2[partition]) ||
+			(subsets == 3 && (texel == bc7_anchors3[0][partition] || texel == bc7_anchors3[1][partition]));
+
+		indices[texel] = bc7_bits(block, &position, bc7_modes[mode].index_bits - (anchor ? 1 : 0));
+	}
+	for (texel = 0; texel < 16; texel++)
+	{
+		secondary_indices[texel] = bc7_modes[mode].secondary_index_bits ?
+			bc7_bits(block, &position, bc7_modes[mode].secondary_index_bits - (texel == 0 ? 1 : 0)) : 0;
+	}
+	for (texel = 0; texel < 16; texel++)
+	{
+		unsigned long *e0 = endpoints[subset_of[texel] * 2], *e1 = endpoints[subset_of[texel] * 2 + 1];
+		unsigned long color_index = indices[texel], color_bits = bc7_modes[mode].index_bits;
+		unsigned long alpha_index = indices[texel], alpha_bits = bc7_modes[mode].index_bits;
+		unsigned long value[4], swap;
+
+		if (bc7_modes[mode].secondary_index_bits)
+		{
+			if (selection)
+			{
+				color_index = secondary_indices[texel];
+				color_bits = bc7_modes[mode].secondary_index_bits;
+			}
+			else
+			{
+				alpha_index = secondary_indices[texel];
+				alpha_bits = bc7_modes[mode].secondary_index_bits;
+			}
+		}
+		for (channel = 0; channel < 3; channel++)
+			value[channel] = bc7_interpolate(e0[channel], e1[channel], color_index, color_bits);
+		value[3] = bc7_modes[mode].alpha_bits ? bc7_interpolate(e0[3], e1[3], alpha_index, alpha_bits) : 255;
+		/* (a rotation's channel swapped with alpha) */
+		if (rotation)
+		{
+			swap = value[3];
+			value[3] = value[rotation - 1];
+			value[rotation - 1] = swap;
+		}
+		texels[texel] = argb(value[3], value[0], value[1], value[2]);
+	}
+}
+
+static void bc7_decode_level(const unsigned char *source, unsigned long width, unsigned long height,
+	unsigned long depth, unsigned long *destination)
+{
+	unsigned long blocks_x = (width + 3) / 4, blocks_y = (height + 3) / 4;
+	unsigned long z, bx, by, x, y;
+
+	for (z = 0; z < depth; z++)
+	{
+		for (by = 0; by < blocks_y; by++)
+		{
+			for (bx = 0; bx < blocks_x; bx++)
+			{
+				unsigned long texels[16];
+
+				bc7_decode_block(source + ((z * blocks_y + by) * blocks_x + bx) * 16, texels);
+				for (y = 0; y < 4; y++)
+				{
+					for (x = 0; x < 4; x++)
+					{
+						unsigned long px = bx * 4 + x, py = by * 4 + y;
+
+						if (px < width && py < height)
+							destination[(z * height + py) * width + px] = texels[y * 4 + x];
+					}
+				}
+			}
+		}
+	}
+}
+
 #ifdef HALO_ANDROID
 /* ---------- DXT decoding, for ES drivers without S3TC (Mali) */
 
@@ -620,6 +862,8 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 #ifdef HALO_ANDROID
 	decode_compressed = description->compressed && !xgpu_capabilities.s3tc;
 #endif
+	if (information.kind == _texel_bc7)
+		decode_compressed = TRUE;
 	converted = description->compressed && !decode_compressed ? NULL : malloc(largest * sizeof(unsigned long));
 	if (!converted && !(description->compressed && !decode_compressed))
 	{
@@ -701,6 +945,10 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 			}
 			else
 			{
+				if (information.kind == _texel_bc7)
+					bc7_decode_level(source, (unsigned long)width, (unsigned long)height, (unsigned long)depth,
+						converted);
+				else
 #ifdef HALO_ANDROID
 				if (decode_compressed)
 					dxt_decode_level(information.kind, source, (unsigned long)width, (unsigned long)height,

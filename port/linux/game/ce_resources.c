@@ -63,6 +63,10 @@ enum
 	CE_BITMAP_EXTERNAL_FLAG = 0x100,
 	/* (xbox_texture_cache.c's _bitmap_cached_bit) */
 	CE_BITMAP_CACHED_FLAG = 0x80,
+	/* MCC's high-quality compression (BC7), drawn as DXT5's format with
+	its blocks decoded as BC7's (ce_repairs.c), and DXT5 (bitmaps.h) */
+	CE_BITMAP_FORMAT_BC7 = 18,
+	CE_BITMAP_FORMAT_DXT5 = 16,
 
 	/* ce_indexed_tags' mark of a sound whose samples are decoded (in
 	ce_sounds.pcm) */
@@ -982,6 +986,10 @@ static boolean ce_bitmaps_check(
 		memcpy(&bitmap, bitmaps + index * CE_BITMAP_DATA_SIZE, sizeof(bitmap));
 		external = indexed || (bitmap.flags & CE_BITMAP_EXTERNAL_FLAG);
 		bitmap.flags &= CE_BITMAP_XBOX_FORMAT_FLAGS;
+		/* (a BC7 bitmap is checked as the DXT5 one it is made: its blocks
+		are the same size) */
+		if (bitmap.format == CE_BITMAP_FORMAT_BC7)
+			bitmap.format = CE_BITMAP_FORMAT_DXT5;
 		if (!bitmap_verify(&bitmap, FALSE))
 		{
 			return ce_refuse("bitmap %ld of %s (%dx%dx%d, type %d, format %d) is not one the game draws", index, name,
