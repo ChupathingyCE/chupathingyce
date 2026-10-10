@@ -507,7 +507,8 @@ breaking:
 	X(21, "build-141", additive) /* killing blows and resting bodies resent, co-op BSP switches by the host's crossing */ \
 	X(22, "build-145", additive) /* a Custom Edition map named custom_maps\\<name> in the game's settings */ \
 	X(23, "build-147", additive) /* a Custom Edition map's blocks past the Xbox tools' limits kept, its version in the game's settings; Xbox maps as 22 */ \
-	X(24, "build-149", additive) /* the gametype's PC vehicle set: every vehicle the map places */
+	X(24, "build-149", additive) /* the gametype's PC vehicle set: every vehicle the map places */ \
+	X(25, "build-169", additive) /* units' integrated lights in the object states; a banned machine told so */
 ```
 
 `tools/test_delta.py` (in CI) checks `halo_port_limits.h` against it: hosts
@@ -544,6 +545,7 @@ Known history, from `port/linux/NETCODE.md` and OpenCE's commits:
 | 22 | build-145 | a Custom Edition map named `custom_maps\<name>` in the game's settings (a joining machine without it is told which map it misses) | additive |
 | 23 | build-147 | a Custom Edition map's blocks past the Xbox tools' limits kept whole, its vehicles placed by their spawn flags, and its header checksum sent as the map's version (a client of another version leaves); Xbox maps play as 22 | additive |
 | 24 | build-149 | the gametype's PC vehicle set (0xFE), every vehicle the map places; on a Custom Edition map every placement whose spawn flags name the game type (a client of 23 places none of it) | additive |
+| 25 | build-169 | units' integrated lights (flashlights) in the host's object states, two bits of their flags (a client of 24 ignores them and keeps toggling a light on presses); a banned machine told it is kept out, an existing rejection code | additive |
 
 ### Automation
 
