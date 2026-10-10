@@ -952,6 +952,29 @@ there for approximately another minute before a normal timed exit. This
 enabled and output muted. It produced neither camera assertions nor an
 access violation. No new network co-op playtest was performed for this fix.
 
+## OpenCE upstream integration through d03f6e27
+
+The October 10 upstream merge includes independent Custom Edition directory
+listing, profile creation from Settings, co-op elevator prediction, custom
+HUD digits on separate bitmaps, and an optional first-person shield flare.
+The shared menu, HUD and network changes retain the existing MCC dispatches;
+MCC loaders, script adapters, rendering conversion and network message
+formats are unchanged. The arm-shield setting defaults to off.
+
+Upstream's directory fix revealed the same shared-iterator hazard in MCC's
+catalog: startup profile cleanup can enumerate directories concurrently.
+MCC discovery now owns and closes a separate platform directory handle,
+without accessing the Xbox or CE catalogs. Catalog tests exercise filtering,
+missing/empty directories, handle cleanup, sorting and rescan behavior.
+
+The Windows x86 release build passed. B40 and Precipice each passed a
+40-second hidden native startup/simulation check, run sequentially, with
+normal exits and no detected assertions. These are bounded smoke checks,
+not full campaign or live co-op playtests. Android remains unverified:
+the local Windows configuration has no Android target. Upstream's
+Linux-oriented harness checks were run with local Windows compiler/linker
+flag adjustments; the test bodies and production code were not substituted.
+
 ## Public format evidence
 
 These are wire-format references, not copied implementation code. Current
