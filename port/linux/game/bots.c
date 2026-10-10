@@ -85,6 +85,10 @@ long bot_skill = 5; /* 1 easy, 3 normal, 5 hard, 8 legendary, 10 near perfect */
    drawn between the two for the game (bots.skill_spread; 0: all of them at
    bot_skill) */
 long bot_skill_spread = 0;
+/* ... and whether the score moves them within that (bots.balance): the
+   bots of a side that is ahead toward the bottom of it, those of one behind
+   toward the top, the further the more (bot_balance_shift) */
+long bot_balance = 0;
 /* (the level of the bot that is thinking, on the scale of 1 to 5 that this
    file works on: bot_skill_of) */
 static real bot_skill_now = 1.f + 4.f * 4.f / 9.f;
@@ -1102,15 +1106,88 @@ static real bot_skill_inner(real level)
 	return 1.f + (PIN(level, 1.f, (real)BOT_SKILL_TOP) - 1.f) * 4.f / (real)(BOT_SKILL_TOP - 1);
 }
 
+/* Keeping a game close (bots.balance): how far ahead the side (or, with no
+   sides, the player) of the bot at this place in the game is, from -1 (well
+   behind) to 1 (well ahead). Well: a third of the score to win (at least
+   two: a capture, a couple of kills), its own sides' or players' scores
+   against the best of the rest. Worked out once a second. */
+static real bot_balance_lead(long slot)
+{
+	static long worked_tick = NONE;
+	static real leads[BOT_MAXIMUM_PLAYERS];
+	long now = game_time_get();
+	if (slot < 0 || slot >= BOT_MAXIMUM_PLAYERS || !player_data || !game_engine)
+		return 0.f;
+	if (worked_tick == NONE || now < worked_tick || now - worked_tick >= BOT_TICKS_PER_SECOND)
+	{
+		struct data_iterator iterator;
+		struct player_datum *player;
+		long scores[BOT_MAXIMUM_PLAYERS];
+		long teams_score[2] = { 0, 0 };
+		int teams = game_engine_has_teams();
+		long to_win = game_engine_get_variant()->universal_variant.score_to_win;
+		real well = MAX(2.f, (to_win > 0 ? (real)to_win : 25.f) / 3.f);
+		long i;
+		worked_tick = now;
+		for (i = 0; i < BOT_MAXIMUM_PLAYERS; i++)
+		{
+			scores[i] = NONE;
+			leads[i] = 0.f;
+		}
+		data_iterator_new(&iterator, player_data);
+		while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+		{
+			long index = DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index);
+			if (index < 0 || index >= BOT_MAXIMUM_PLAYERS)
+				continue;
+			scores[index] = game_engine->get_player_score(iterator.datum_index, FALSE);
+			if (teams && player->team_index >= 0 && player->team_index <= 1)
+				teams_score[player->team_index] = game_engine->get_player_score(iterator.datum_index, TRUE);
+		}
+		data_iterator_new(&iterator, player_data);
+		while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+		{
+			long index = DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index);
+			long lead;
+			if (index < 0 || index >= BOT_MAXIMUM_PLAYERS)
+				continue;
+			if (teams)
+			{
+				if (player->team_index < 0 || player->team_index > 1)
+					continue;
+				lead = teams_score[player->team_index] - teams_score[1 - player->team_index];
+			}
+			else
+			{
+				long best_other = NONE;
+				long j;
+				for (j = 0; j < BOT_MAXIMUM_PLAYERS; j++)
+					if (j != index && scores[j] != NONE && scores[j] > best_other)
+						best_other = scores[j];
+				if (best_other == NONE)
+					continue;
+				lead = scores[index] - best_other;
+			}
+			leads[index] = PIN((real)lead / well, -1.f, 1.f);
+		}
+	}
+	return leads[slot];
+}
+
 static real bot_skill_of(long slot)
 {
 	real high = (real)PIN(bot_skill, 1, BOT_SKILL_TOP);
 	real low = (real)MAX(1, PIN(bot_skill, 1, BOT_SKILL_TOP) - PIN(bot_skill_spread, 0, BOT_SKILL_TOP - 1));
 	unsigned long seed;
+	real level;
 	if (high <= low)
 		return bot_skill_inner(high);
 	seed = bot_hash(bot_hash((unsigned long)(slot * 2246822519UL) ^ 0x51ed270bUL) ^ bots_match());
-	return bot_skill_inner(low + (high - low) * (real)(seed & 0xFFFF) / 65535.f);
+	level = low + (high - low) * (real)(seed & 0xFFFF) / 65535.f;
+	/* (ahead: down toward the bottom of the spread; behind: up toward its top) */
+	if (bot_balance)
+		level = PIN(level - bot_balance_lead(slot) * (high - low), low, high);
+	return bot_skill_inner(level);
 }
 
 static void bot_make_personality(long slot, struct bot_personality *personality)
@@ -1375,7 +1452,10 @@ struct bot_state
 	long flank_time;
 	int on_objective_route; /* going for the objective by a way of its own (dying on it: another way next time) */
 	int carrying_objective; /* the flag or the ball in hand */
-	int escorting; /* with one of ours who has their flag, round them (bot_escort_goal) */
+	int escorting; /* with one of ours who has their flag, round them (bot_escort_slot) */
+	long escort_tick; /* when it last was (0: never) */
+	real_point3d escort_guarded; /* ... and where the one it escorts was then */
+	long with_person_tick; /* when it was last a person's wingman (0: never) */
 	int with_person; /* helping a person of our side: on their gun, beside them, after them */
 	/* rubbing it in: over the body of whoever it just killed */
 	long last_fired_unit;
@@ -2417,6 +2497,9 @@ static real bot_press(void)
 /* someone with their gun on us and near: a reason to leave anyone */
 #define BOT_PRESS_THREAT 12.f
 
+/* an escort shoots first at whoever is this near the one it escorts (bot_escort_slot) */
+#define BOT_ESCORT_GUARD 15.f
+
 static long bot_find_target(struct bot_state *bot, int hit_lately, long my_unit, short my_team, real_point3d const *eye, real range, long current, int prefer_vehicles, real *distance_out)
 {
 	struct data_iterator iterator;
@@ -2512,6 +2595,9 @@ static long bot_find_target(struct bot_state *bot, int hit_lately, long my_unit,
 		/* rockets are for vehicles */
 		if (prefer_vehicles && unit->object.parent_object_index != NONE)
 			score *= 0.4f;
+		/* (an escort: those near the one it escorts first) */
+		if (bot->escorting && distance3d(&unit->object.position, &bot->escort_guarded) < BOT_ESCORT_GUARD)
+			score *= 0.5f;
 		/* (Someone who would not be the one to shoot at is taken in all the
 		   same, by a good player: seeing them was only begun when they were
 		   the best of those in sight, so the second man into a room was not
@@ -3328,9 +3414,17 @@ static int bot_unit_is_bot(long unit_index)
 {
 	struct unit_datum *unit = unit_try_and_get(unit_index);
 	long index;
+	/* (testing, HALO_BOT_STAND_IN=<n>: the bots in the first n places of the
+	   game are taken by the others for people, so that what the bots do
+	   for people can be watched in a game of bots) */
+	static long stand_ins = -1;
+	if (stand_ins < 0)
+		stand_ins = getenv("HALO_BOT_STAND_IN") ? MAX(0, atol(getenv("HALO_BOT_STAND_IN"))) : 0;
 	if (!unit || unit->unit.player_index == NONE)
 		return FALSE;
 	index = DATUM_INDEX_TO_ABSOLUTE_INDEX(unit->unit.player_index);
+	if (index < stand_ins)
+		return FALSE;
 	return index >= 0 && index < BOT_MAXIMUM_PLAYERS && bot_states[index].has_personality;
 }
 
@@ -3366,6 +3460,24 @@ static void bot_transport_aboard(long vehicle_index, long pilot_unit, long *ride
 		if (bot_held_objective(rider) != NONE)
 			*carrier = child;
 	}
+}
+
+/* a person of this side in one of its seats (not a bot) */
+static int bot_vehicle_person_aboard(long vehicle_index, long team)
+{
+	struct object_datum *vehicle = object_get(vehicle_index);
+	long child;
+	for (child = vehicle->object.first_child_object_index; child != NONE; child = object_get(child)->object.next_object_index)
+	{
+		struct unit_datum *rider = (struct unit_datum *)object_try_and_get_and_verify_type(child, _object_mask_unit);
+		struct player_datum *rider_player = rider && rider->unit.player_index != NONE ? player_try_and_get(rider->unit.player_index) : NULL;
+		if (rider && rider->unit.parent_seat_index >= 0 && bot_unit_alive(child) && rider_player && rider_player->team_index == team &&
+			!bot_unit_is_bot(child))
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
 }
 
 /* what the bot at a craft's controls is about with it (_bot_haul_...; none:
@@ -3414,6 +3526,129 @@ static int bot_ctf_defender(struct bot_state const *bot, struct player_datum con
 		}
 	}
 	return teammates >= 3 && keener < MAX(1, teammates / 4);
+}
+
+/* Escorts. One of ours with their flag: the nearest few of our attackers
+   (not those who guard ours) go with them, each in a place of its own
+   round them: one ahead on the way home, clearing it; one behind, between
+   them and whoever chases; one at their side. The rest go on with what
+   they were doing. Chosen again twice a second, and when the carrier
+   changes. */
+#define BOT_ESCORTS_MOST 3
+#define BOT_ESCORT_FROM 80.f /* nobody further off than this from the carrier */
+#define BOT_ESCORT_AHEAD 8.f
+#define BOT_ESCORT_BEHIND 6.f
+#define BOT_ESCORT_BESIDE 6.f
+/* (a person's wingman, bot_wingman_person: from this near, so far behind them and to the side) */
+#define BOT_WINGMAN_FROM 45.f
+#define BOT_WINGMAN_BEHIND 5.f
+#define BOT_WINGMAN_BESIDE 3.f
+
+static struct
+{
+	long tick;
+	long carrier;
+	long escorts[BOT_ESCORTS_MOST]; /* bots' places in the game, NONE none */
+} bot_escorts[2] = { { NONE, NONE, { NONE, NONE, NONE } }, { NONE, NONE, { NONE, NONE, NONE } } };
+
+static long bot_wingman_person(long index, long team, real_point3d const *my_base, real_point3d const *their_base);
+
+/* the place among our carrier's escorts of the bot at this place in the
+   game (NONE: not one of them) */
+static long bot_escort_slot(long index, long team, long carrier)
+{
+	long now = game_time_get();
+	long slot;
+
+	if (team < 0 || team > 1)
+		return NONE;
+	if (bot_escorts[team].carrier != carrier || bot_escorts[team].tick == NONE || now < bot_escorts[team].tick ||
+		now - bot_escorts[team].tick >= BOT_SECONDS(0.5f))
+	{
+		struct data_iterator iterator;
+		struct player_datum *other;
+		real nearest[BOT_ESCORTS_MOST];
+		long teammates = 0;
+		long wanted;
+		real_point3d at = object_get(carrier)->object.position;
+
+		for (slot = 0; slot < BOT_ESCORTS_MOST; slot++)
+		{
+			bot_escorts[team].escorts[slot] = NONE;
+			nearest[slot] = BOT_ESCORT_FROM;
+		}
+		data_iterator_new(&iterator, player_data);
+		while ((other = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+		{
+			long i = DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index);
+			real distance;
+			long root;
+			if (other->team_index != team)
+				continue;
+			teammates++;
+			if (i < 0 || i >= BOT_MAXIMUM_PLAYERS || !bot_states[i].has_personality || other->unit_index == NONE ||
+				!bot_unit_alive(other->unit_index) || bot_ctf_defender(&bot_states[i], other))
+			{
+				continue;
+			}
+			/* (on foot, or in the carrier's own ride) */
+			root = object_get_ultimate_parent(other->unit_index);
+			if (other->unit_index == carrier || (root != other->unit_index && root != carrier))
+				continue;
+			distance = distance3d(&object_get(root)->object.position, &at);
+			for (slot = 0; slot < BOT_ESCORTS_MOST; slot++)
+			{
+				if (distance < nearest[slot])
+				{
+					long move;
+					for (move = BOT_ESCORTS_MOST - 1; move > slot; move--)
+					{
+						nearest[move] = nearest[move - 1];
+						bot_escorts[team].escorts[move] = bot_escorts[team].escorts[move - 1];
+					}
+					nearest[slot] = distance;
+					bot_escorts[team].escorts[slot] = i;
+					break;
+				}
+			}
+		}
+		/* (one for a side of three or fewer, two for up to six, three for more) */
+		wanted = teammates <= 3 ? 1 : teammates <= 6 ? 2 : 3;
+		for (slot = wanted; slot < BOT_ESCORTS_MOST; slot++)
+			bot_escorts[team].escorts[slot] = NONE;
+		bot_escorts[team].carrier = carrier;
+		bot_escorts[team].tick = now;
+	}
+	for (slot = 0; slot < BOT_ESCORTS_MOST; slot++)
+		if (bot_escorts[team].escorts[slot] == index)
+			return slot;
+	return NONE;
+}
+
+/* where an escort in that place goes: round the carrier, by the way home */
+static void bot_escort_point(long slot, real_point3d const *carrier_at, real_point3d const *home, real_point3d *point)
+{
+	real toward = bot_distance2d(carrier_at, home);
+	real dx = toward > 1.f ? (home->x - carrier_at->x) / toward : 1.f;
+	real dy = toward > 1.f ? (home->y - carrier_at->y) / toward : 0.f;
+
+	*point = *carrier_at;
+	if (slot == 0)
+	{
+		real ahead = MIN(BOT_ESCORT_AHEAD, toward);
+		point->x += dx * ahead;
+		point->y += dy * ahead;
+	}
+	else if (slot == 1)
+	{
+		point->x -= dx * BOT_ESCORT_BEHIND;
+		point->y -= dy * BOT_ESCORT_BEHIND;
+	}
+	else
+	{
+		point->x += -dy * BOT_ESCORT_BESIDE;
+		point->y += dx * BOT_ESCORT_BESIDE;
+	}
 }
 
 /* a candidate goal: the best one wins */
@@ -3751,6 +3986,27 @@ static void bot_ctf_candidates(struct bot_state *bot, struct player_datum *playe
 		}
 		return;
 	}
+	/* a person of ours going forward, and this bot their wingman: with them,
+	   a few steps behind and to one side (whichever side this bot is on now) */
+	if (!theirs || theirs->object.parent_object_index == NONE)
+	{
+		struct player_datum *person = bot_player_at_index(bot_wingman_person((long)(bot - bot_states), team, &my_base, &their_base));
+		if (person && person->unit_index != NONE)
+		{
+			real_point3d at = object_get(person->unit_index)->object.position;
+			real_point3d place = at;
+			real toward = bot_distance2d(&at, &their_base);
+			real dx = toward > 1.f ? (their_base.x - at.x) / toward : 1.f;
+			real dy = toward > 1.f ? (their_base.y - at.y) / toward : 0.f;
+			real side = (position->x - at.x) * -dy + (position->y - at.y) * dx >= 0.f ? 1.f : -1.f;
+			real distance = distance3d(&at, position);
+			place.x += -dx * BOT_WINGMAN_BEHIND + -dy * BOT_WINGMAN_BESIDE * side;
+			place.y += -dy * BOT_WINGMAN_BEHIND + dx * BOT_WINGMAN_BESIDE * side;
+			bot->with_person_tick = game_time_get();
+			bot_consider(best, (24.f + 16.f * bot->personality.teamwork) * focus / (1.f + distance / 120.f),
+				distance3d(&place, position) > 2.5f ? _bot_goal_enemy : _bot_goal_hold, &place, NONE, BOT_SECONDS(1.f), TRUE);
+		}
+	}
 	if (!theirs)
 		return;
 	if (theirs->object.parent_object_index == NONE)
@@ -3760,6 +4016,12 @@ static void bot_ctf_candidates(struct bot_state *bot, struct player_datum *playe
 		   the way too */
 		real distance = distance3d(&theirs->object.position, position);
 		real score = armed * focus * (20.f + 10.f * bot->personality.aggression) / (1.f + distance / 120.f);
+		/* (an escort a moment ago, and it fell close by: up with it again) */
+		if (bot->escort_tick != 0 && game_time_get() >= bot->escort_tick && game_time_get() - bot->escort_tick < BOT_SECONDS(6.f) && distance < 30.f &&
+			distance3d(&theirs->object.position, &their_base) > 2.f)
+		{
+			score *= 3.f;
+		}
 		bot_consider(best, score, _bot_goal_item, &theirs->object.position, their_flag, 40 * BOT_TICKS_PER_SECOND, TRUE);
 		if (distance > 50.f && unit->object.parent_object_index == NONE)
 		{
@@ -3801,8 +4063,37 @@ static void bot_ctf_candidates(struct bot_state *bot, struct player_datum *playe
 		long carrier = object_get_ultimate_parent(their_flag);
 		real_point3d at = object_get(carrier)->object.position;
 		real distance = distance3d(&at, position);
-		if (distance > 5.f)
+		long slot = bot_escort_slot((long)(bot - bot_states), team, carrier);
+		if (slot != NONE)
 		{
+			/* (an escort: to its place round them, and with them; in their
+			   ride, if they have one and it has a seat) */
+			real_point3d place;
+			real_point3d spot;
+			bot->escort_tick = game_time_get();
+			bot->escort_guarded = at;
+			bot_escort_point(slot, &at, &my_base, &place);
+			/* (somewhere a body can stand: else by them) */
+			if (aas_ready())
+				place = aas_nearest_area(AAS_FOOT, &place, 4.f, &spot) != NONE ? spot : at;
+			if (TEST_FLAG(_object_mask_vehicle, object_get(carrier)->object.type))
+			{
+				real_point3d entry;
+				if (unit->object.parent_object_index == NONE && distance < 30.f && !bot_ignoring(bot, carrier) &&
+					bot_vehicle_entry(player->unit_index, carrier, &entry))
+				{
+					bot_consider(best, 60.f * focus / (1.f + distance / 30.f), _bot_goal_vehicle, &entry, carrier, 10 * BOT_TICKS_PER_SECOND, TRUE);
+				}
+			}
+			else
+				/* (there: kept there, as they go, a moment at a time) */
+				bot_consider(best, (30.f + 20.f * bot->personality.teamwork) * focus / (1.f + distance / 150.f),
+					distance3d(&place, position) > 2.5f ? _bot_goal_enemy : _bot_goal_hold, &place, NONE, BOT_SECONDS(1.f), TRUE);
+		}
+		else if (distance > 5.f)
+		{
+			/* (not an escort: a little ahead of them toward home, if
+			   nothing better turns up) */
 			real toward = bot_distance2d(&at, &my_base);
 			if (toward > 1.f)
 			{
@@ -4747,6 +5038,99 @@ static struct player_datum *bot_player_at_index(long index)
 	return ((struct datum_header *)player)->identifier ? player : NULL;
 }
 
+/* whether the person at this place in the game is getting anywhere (moved
+   a few steps within the last few seconds): see above */
+static int bot_person_going(long index, struct player_datum const *player, long now)
+{
+	real_point3d const *at = &object_get(object_get_ultimate_parent(player->unit_index))->object.position;
+	if (bots_person_unit[index] != player->unit_index || bots_person_moved[index] > now ||
+		distance3d(at, &bots_person_anchor[index]) > BOT_LEADER_STEPS)
+	{
+		bots_person_unit[index] = player->unit_index;
+		bots_person_anchor[index] = *at;
+		bots_person_moved[index] = now;
+	}
+	return now - bots_person_moved[index] <= BOT_SECONDS(BOT_LEADER_STILL_SECONDS);
+}
+
+/* A wingman. In a game of flags, a person of ours on foot and going
+   forward (nearer their base than half as far again as ours, moving), not
+   with the flag: the nearest of our attackers on foot goes with them, a
+   few steps behind and to one side, one bot to a person. Chosen again
+   twice a second. */
+
+static struct
+{
+	long tick;
+	long person_of[BOT_MAXIMUM_PLAYERS]; /* each bot's person (their place in the game), NONE none */
+} bot_wingmen[2] = { { NONE }, { NONE } };
+
+static int bot_ctf_defender(struct bot_state const *bot, struct player_datum const *player);
+
+/* the person the bot at this place in the game goes with (NONE: nobody) */
+static long bot_wingman_person(long index, long team, real_point3d const *my_base, real_point3d const *their_base)
+{
+	long now = game_time_get();
+	if (team < 0 || team > 1 || index < 0 || index >= BOT_MAXIMUM_PLAYERS)
+		return NONE;
+	if (bot_wingmen[team].tick == NONE || now < bot_wingmen[team].tick || now - bot_wingmen[team].tick >= BOT_SECONDS(0.5f))
+	{
+		struct data_iterator people;
+		struct player_datum *person;
+		long i;
+		for (i = 0; i < BOT_MAXIMUM_PLAYERS; i++)
+			bot_wingmen[team].person_of[i] = NONE;
+		bot_wingmen[team].tick = now;
+		data_iterator_new(&people, player_data);
+		while ((person = (struct player_datum *)data_iterator_next(&people)) != NULL)
+		{
+			long person_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(people.datum_index);
+			struct unit_datum *person_unit;
+			real_point3d const *at;
+			struct data_iterator bots;
+			struct player_datum *other;
+			long nearest = NONE;
+			real nearest_distance = BOT_WINGMAN_FROM;
+			if (person->team_index != team || person->unit_index == NONE || !bot_unit_alive(person->unit_index) ||
+				bot_unit_is_bot(person->unit_index) || person_index < 0 || person_index >= BOT_MAXIMUM_PLAYERS)
+			{
+				continue;
+			}
+			person_unit = unit_get(person->unit_index);
+			if (person_unit->object.parent_object_index != NONE || bot_held_objective(person_unit) != NONE ||
+				!bot_person_going(person_index, person, now))
+			{
+				continue;
+			}
+			at = &person_unit->object.position;
+			if (distance3d(at, their_base) > 1.5f * distance3d(at, my_base))
+				continue;
+			data_iterator_new(&bots, player_data);
+			while ((other = (struct player_datum *)data_iterator_next(&bots)) != NULL)
+			{
+				long other_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(bots.datum_index);
+				real distance;
+				if (other->team_index != team || other_index < 0 || other_index >= BOT_MAXIMUM_PLAYERS ||
+					!bot_states[other_index].has_personality || other->unit_index == NONE || !bot_unit_alive(other->unit_index) ||
+					object_get(other->unit_index)->object.parent_object_index != NONE ||
+					bot_wingmen[team].person_of[other_index] != NONE || bot_ctf_defender(&bot_states[other_index], other))
+				{
+					continue;
+				}
+				distance = distance3d(&object_get(other->unit_index)->object.position, at);
+				if (distance < nearest_distance)
+				{
+					nearest_distance = distance;
+					nearest = other_index;
+				}
+			}
+			if (nearest != NONE)
+				bot_wingmen[team].person_of[nearest] = person_index;
+		}
+	}
+	return bot_wingmen[team].person_of[index];
+}
+
 static struct bot_squad *bot_squad_update(long team, unsigned long seed)
 {
 	struct bot_squad *squad;
@@ -4774,20 +5158,9 @@ static struct bot_squad *bot_squad_update(long team, unsigned long seed)
 		if (player->team_index != team || player->unit_index == NONE || !bot_unit_alive(player->unit_index))
 			continue;
 		human = !bot_unit_is_bot(player->unit_index);
-		if (human && index >= 0 && index < BOT_MAXIMUM_PLAYERS)
-		{
-			real_point3d const *at = &object_get(object_get_ultimate_parent(player->unit_index))->object.position;
-			if (bots_person_unit[index] != player->unit_index || bots_person_moved[index] > now ||
-				distance3d(at, &bots_person_anchor[index]) > BOT_LEADER_STEPS)
-			{
-				bots_person_unit[index] = player->unit_index;
-				bots_person_anchor[index] = *at;
-				bots_person_moved[index] = now;
-			}
-			/* (going nowhere: not the one to lead) */
-			if (now - bots_person_moved[index] > BOT_SECONDS(BOT_LEADER_STILL_SECONDS))
-				continue;
-		}
+		/* (going nowhere: not the one to lead) */
+		if (human && index >= 0 && index < BOT_MAXIMUM_PLAYERS && !bot_person_going(index, player, now))
+			continue;
 		{
 			unsigned long rank = bot_hash((unsigned long)index ^ bots_match());
 			int better = best == NONE || (human && !best_human);
@@ -5319,8 +5692,13 @@ static void bot_goal_vehicles(struct bot_goal_pass *g)
 				/* on big maps everyone wants wheels */
 				real desire = MIN(1.2f, bot->personality.vehicle_love * 0.8f + nav_vehicle_bonus);
 				int flies = bot_vehicle_flies(object->definition_index) && bot_air_ready();
+				/* (a person of ours in it, on its gun or beside the wheel,
+				   waiting for someone to drive: from further off) */
+				int person_waits = teams && game_engine != &race_engine && bot_vehicle_person_aboard(iterator.index, player->team_index) &&
+					!(bot_vehicle_flies(object->definition_index) && !bot_air_ready());
 				if (distance > 40.f + 50.f * bot->personality.vehicle_love + 60.f * nav_vehicle_bonus &&
-					!(flies && navm_in_parts() && distance < 150.f)) /* (a map in parts: a craft is the only way out of this one) */
+					!(flies && navm_in_parts() && distance < 150.f) && /* (a map in parts: a craft is the only way out of this one) */
+					!(person_waits && distance < 80.f))
 				{
 					continue;
 				}
@@ -5332,6 +5710,9 @@ static void bot_goal_vehicles(struct bot_goal_pass *g)
 				/* a race is won on wheels */
 				if (game_engine == &race_engine)
 					score = (20.f + 10.f * bot->personality.vehicle_love) / (1.f + distance / 60.f);
+				/* a person waiting in it for a driver: before anything but a fight */
+				if (person_waits && !(game_engine == &ctf_engine && bot_ctf_defender(bot, player)))
+					score = MAX(score, (40.f + 10.f * bot->personality.vehicle_love) / (1.f + distance / 40.f));
 				/* on your own a warthog is only good for running people over */
 				if (!teams && !bot_driver_shoots(iterator.index) && game_engine != &race_engine)
 					score *= 0.35f;
@@ -14770,6 +15151,11 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			bot->weapon_switch_ticks = 20;
 	}
 
+	bot->escorting = bot->escort_tick != 0 && game_time_get() >= bot->escort_tick && game_time_get() - bot->escort_tick < BOT_SECONDS(1.5f);
+	if (bot_stats_enabled())
+		bot->with_person = (bot->with_person_tick != 0 && game_time_get() >= bot->with_person_tick &&
+			game_time_get() - bot->with_person_tick < BOT_SECONDS(1.5f)) ||
+			(t->teams && t->vehicle_index != NONE && bot_vehicle_person_aboard(t->vehicle_index, me->team_index));
 	if (bot_stats_enabled())
 		bot_stats_bot_tick(player_absolute_index, &t->position,
 			t->vehicle_index == NONE ? 0 : t->driving ? 1 : t->gunner ? 2 : 3,
@@ -14797,6 +15183,8 @@ void platform_log(char const *format, ...);
 static long bots_count_setting = NONE;
 static boolean bot_skill_set;
 static boolean bot_skill_spread_set;
+static boolean bot_balance_set;
+int config_boolean(char const *name);
 
 void bot_log(char const *format, ...)
 {
@@ -14823,6 +15211,11 @@ static void bots_settings_apply(void)
 	{
 		bot_skill_spread_set = TRUE;
 		bot_skill_spread = PIN(config_integer("bots.skill_spread"), 0, BOT_SKILL_TOP - 1);
+	}
+	if (!bot_balance_set)
+	{
+		bot_balance_set = TRUE;
+		bot_balance = config_boolean("bots.balance") ? 1 : 0;
 	}
 }
 
@@ -14876,6 +15269,18 @@ void bots_set_skill_spread(long spread)
 	bot_skill_spread = PIN(spread, 0, BOT_SKILL_TOP - 1);
 }
 
+void bots_set_balance(long on)
+{
+	bot_balance_set = TRUE;
+	bot_balance = on ? 1 : 0;
+}
+
+long bots_get_balance(void)
+{
+	bots_settings_apply();
+	return bot_balance;
+}
+
 long bots_get_skill_spread(void)
 {
 	bots_settings_apply();
@@ -14924,7 +15329,8 @@ boolean bots_console_command(char const *text)
 	while (*text && *text != ' ' && *text != '\t' && *text != ')' && length < (long)sizeof(word) - 1)
 		word[length++] = (char)tolower((unsigned char)*text++);
 	word[length] = 0;
-	if (strcmp(word, "bots") && strcmp(word, "bot_skill") && strcmp(word, "bots_fill") && strcmp(word, "bot_skill_spread"))
+	if (strcmp(word, "bots") && strcmp(word, "bot_skill") && strcmp(word, "bots_fill") && strcmp(word, "bot_skill_spread") &&
+		strcmp(word, "bots_balance"))
 		return FALSE;
 	while (*text == ' ' || *text == '\t')
 		text++;
@@ -14938,6 +15344,16 @@ boolean bots_console_command(char const *text)
 			console_printf(FALSE, "bots_fill: bots fill the games this machine hosts to %ld players, making way for people", bots_fill());
 		else
 			console_printf(FALSE, "bots_fill: off (0): the games have \"bots\" bots, whoever joins");
+	}
+	else if (!strcmp(word, "bots_balance"))
+	{
+		if (value != NONE)
+			bots_set_balance(value);
+		if (bots_get_balance())
+			console_printf(FALSE, "bots_balance: on (the bots of a side ahead play toward the bottom of bot_skill_spread, of one behind toward its top%s)",
+				bots_get_skill_spread() > 0 ? "" : "; with a spread of 0 there is nothing to move");
+		else
+			console_printf(FALSE, "bots_balance: off (0): each bot keeps the skill drawn for it");
 	}
 	else if (!strcmp(word, "bot_skill_spread"))
 	{

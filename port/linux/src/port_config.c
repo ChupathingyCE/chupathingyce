@@ -489,6 +489,12 @@ static const struct config_setting config_settings[] =
 		"drawn for the game from that many levels under bots.skill up to it\n"
 		"(skill 10 with a spread of 4: bots from 6 to 10). 0: every bot at\n"
 		"bots.skill (the console's \"bot_skill_spread <n>\")." },
+	{ "bots.balance", _config_boolean, "false", "HALO_BOTS_BALANCE", _environment_value, _platform_all,
+		"Keep the games close: true moves each bot's skill within\n"
+		"bots.skill_spread as the score goes, the bots of a side that is ahead\n"
+		"toward the bottom of the spread and those of one behind toward its\n"
+		"top, the further ahead or behind the more (the console's\n"
+		"\"bots_balance <0|1>\"). Nothing to move with a spread of 0." },
 
 	{ "infection.rounds", _config_integer, "3", "HALO_INFECTION_ROUNDS", _environment_value, _platform_all,
 		"Infection (the game type \"infection\": a dedicated server's playlist,\n"

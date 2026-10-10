@@ -34,6 +34,7 @@ import math
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -43,9 +44,15 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 STATS_LINE = re.compile(r"bot stats: (.*)$")
+# the games running, to be stopped if this is (Ctrl+C, a kill)
+RUNNING: List[subprocess.Popen] = []
+# (the network test going on to its next game: this one is over)
+GAME_OVER = re.compile(r"network test: game [2-9]")
 
 # (figure, how it is shown, how it is made from a game's counts)
 PER_TEN_MINUTES = ["captures", "pickups", "drops", "returns", "carrier_rides", "kills"]
+# (a game's own figures, not rates: how far apart the sides' scores ended)
+PER_GAME = ["score_gap"]
 PER_BOT_HOUR = ["stuck", "route_failed"]
 SHARES = ["idle", "driving", "gunning", "riding", "escort", "with_people"]
 
@@ -98,21 +105,41 @@ def run_game(build: Path, data: Path, work: Path, slot: int, map_name: str, vari
         "HALO_NET_ADDRESS": f"127.0.0.{20 + slot}", "HALO_NET_BROADCAST": f"127.0.0.{20 + slot}",
         "HALO_NETWORK_TEST": f"local:{map_name}:{variant}", "HALO_NETWORK_TEST_START": "4",
         "HALO_BOTS": str(bots), "HALO_RANDOM_SEED": str(seed), "HALO_BOT_SKILL": str(args.skill),
-        "HALO_BOT_STATS": "30", "HALO_GAME_SPEED": str(args.speed),
+        "HALO_BOT_STATS": "10", "HALO_GAME_SPEED": str(args.speed),
     })
     for item in args.env:
         name, _, value = item.partition("=")
         environment[name] = value
-    limit = args.seconds / args.speed + 20
+    # (until the game has had its seconds: a game behind its pace, the
+    # computer busy, is waited for, up to many times as long as it should take)
+    limit = args.seconds / args.speed * 8 + 90
     stats = None
+    begun = time.time()
     with open(folder / "out.txt", "w") as log:
         process = subprocess.Popen([str(program)], cwd=folder, env=environment, stdout=log, stderr=subprocess.STDOUT)
-        try:
-            process.wait(timeout=limit)
-        except subprocess.TimeoutExpired:
+        RUNNING.append(process)
+        lines_seen = 0
+        changed = time.time()
+        while process.poll() is None and time.time() - begun < limit:
+            time.sleep(2)
+            text = (folder / "out.txt").read_text(errors="replace")
+            times = [float(found) for found in re.findall(r"bot stats: \S+ t=(\d+)", text)]
+            # (its seconds had, or the game over: the next begun, or no more
+            # counts for a while once there were some, the scores up)
+            if (times and max(times) >= args.seconds) or GAME_OVER.search(text) or " over=1" in text:
+                break
+            if len(times) != lines_seen:
+                lines_seen = len(times)
+                changed = time.time()
+            elif lines_seen and time.time() - changed > 40 + 30 / args.speed:
+                break
+        if process.poll() is None:
             process.kill()
             process.wait()
+        RUNNING.remove(process)
     for line in (folder / "out.txt").read_text(errors="replace").splitlines():
+        if GAME_OVER.search(line):
+            break
         match = STATS_LINE.search(line)
         if match:
             fields = dict(field.split("=", 1) for field in match.group(1).split() if "=" in field)
@@ -130,6 +157,7 @@ def run_game(build: Path, data: Path, work: Path, slot: int, map_name: str, vari
         except ValueError:
             pass
     figures["captures"] = figures.get("caps0", 0.0) + figures.get("caps1", 0.0)
+    figures["score_gap"] = abs(figures.get("score0", 0.0) - figures.get("score1", 0.0))
     return figures
 
 
@@ -142,7 +170,7 @@ def rates(game: Dict[str, float]) -> Dict[str, float]:
         result[name] = game.get(name, 0.0) / minutes * 10.0
     for name in PER_BOT_HOUR:
         result[name] = game.get(name, 0.0) / bot_hours
-    for name in SHARES:
+    for name in SHARES + PER_GAME:
         result[name] = game.get(name, 0.0)
     return result
 
@@ -158,7 +186,7 @@ def mean_and_error(values: List[float]) -> Tuple[float, float]:
 
 
 def unit(name: str) -> str:
-    return "/10 min" if name in PER_TEN_MINUTES else "/bot-hour" if name in PER_BOT_HOUR else "%"
+    return "/10 min" if name in PER_TEN_MINUTES else "/bot-hour" if name in PER_BOT_HOUR else "a game" if name in PER_GAME else "%"
 
 
 def report(title: str, first: List[Dict[str, float]], second: Optional[List[Dict[str, float]]]) -> None:
@@ -167,7 +195,7 @@ def report(title: str, first: List[Dict[str, float]], second: Optional[List[Dict
         print(f"  {'':24}{'mean':>10}{'± error':>10}")
     else:
         print(f"  {'':24}{'build':>10}{'compare':>10}{'diff':>10}{'z':>7}")
-    for name in PER_TEN_MINUTES + PER_BOT_HOUR + SHARES:
+    for name in PER_TEN_MINUTES + PER_BOT_HOUR + SHARES + PER_GAME:
         a, a_error = mean_and_error([rates(game)[name] for game in first])
         label = f"{name} {unit(name)}"
         if second is None:
@@ -177,6 +205,13 @@ def report(title: str, first: List[Dict[str, float]], second: Optional[List[Dict
         error = math.sqrt(a_error ** 2 + b_error ** 2)
         z = (a - b) / error if error > 0 else 0.0
         print(f"  {label:<24}{a:10.2f}{b:10.2f}{a - b:+10.2f}{z:7.1f}")
+
+
+def stop_games(*_) -> None:
+    for process in list(RUNNING):
+        if process.poll() is None:
+            process.kill()
+    os._exit(1)
 
 
 def main() -> int:
@@ -196,6 +231,8 @@ def main() -> int:
     parser.add_argument("--keep", action="store_true", help="keep each game's folder and log")
     parser.add_argument("--json", type=Path, help="write every game's figures here")
     args = parser.parse_args()
+    signal.signal(signal.SIGTERM, stop_games)
+    signal.signal(signal.SIGINT, stop_games)
 
     if not (args.data / "maps").is_dir():
         sys.exit(f"{args.data}: no maps folder in it")

@@ -29,6 +29,9 @@ void bots_set_skill(long skill);
 long bots_get_skill(void);
 void bots_set_skill_spread(long spread);
 long bots_get_skill_spread(void);
+/* whether the score moves the bots' skill within the spread (bots.balance) */
+void bots_set_balance(long on);
+long bots_get_balance(void);
 /* a bot's name: a different one for each slot */
 char const *bot_name(long slot);
 /* a player at this absolute index is a bot from now on: none of the last

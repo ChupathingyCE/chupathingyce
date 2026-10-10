@@ -14,7 +14,8 @@ last line of a game is its whole). The figures:
 	t               seconds of game time
 	bots            bots in the game
 	bot_seconds     seconds the bots were alive, all of them together
-	caps0, caps1    each team's score in a game of flags (captures)
+	caps0, caps1    each team's captures in a game of flags
+	score0, score1  each team's score in a game with sides
 	pickups         times a flag was taken up (from its stand or the ground)
 	drops           times a carried flag fell (its carrier killed, or out of a seat)
 	returns         times a flag went home without being captured
@@ -30,6 +31,7 @@ last line of a game is its whole). The figures:
 	escort          per cent of bot_seconds escorting one of ours with the flag
 	with_people     per cent of bot_seconds helping a person of their side
 	                (on their gun, beside them, following them in)
+	over=1          on the line written as the game ends (its scores shown)
 */
 
 #include "bot_internal.h"
@@ -56,6 +58,7 @@ static struct
 	long every; /* ticks between lines (0: off) */
 	long first_tick; /* the game's first tick counted (NONE: none yet) */
 	long last_tick;
+	int over; /* the end of the game told (its scores shown) */
 	long counts[NUMBER_OF_BOT_STATS];
 	long alive_ticks;
 	long idle_ticks;
@@ -165,7 +168,7 @@ static real bot_stats_share(long ticks)
 	return bot_stats.alive_ticks > 0 ? 100.f * (real)ticks / (real)bot_stats.alive_ticks : 0.f;
 }
 
-static void bot_stats_report(long now)
+static void bot_stats_report(long now, int over)
 {
 	struct data_iterator iterator;
 	struct player_datum *player;
@@ -183,17 +186,19 @@ static void bot_stats_report(long now)
 		deaths += player->statistics.deaths;
 		suicides += player->statistics.suicides;
 	}
-	platform_log("bot stats: map=%s t=%ld bots=%ld bot_seconds=%ld caps0=%ld caps1=%ld pickups=%ld drops=%ld returns=%ld "
+	platform_log("bot stats: map=%s t=%ld bots=%ld bot_seconds=%ld caps0=%ld caps1=%ld score0=%ld score1=%ld pickups=%ld drops=%ld returns=%ld "
 		"carrier_rides=%ld kills=%ld deaths=%ld suicides=%ld stuck=%ld route_failed=%ld "
-		"idle=%.1f driving=%.1f gunning=%.1f riding=%.1f escort=%.1f with_people=%.1f",
+		"idle=%.1f driving=%.1f gunning=%.1f riding=%.1f escort=%.1f with_people=%.1f%s",
 		name ? name + 1 : map ? map : "?", (now - bot_stats.first_tick) / BOT_TICKS_PER_SECOND, bots,
 		bot_stats.alive_ticks / BOT_TICKS_PER_SECOND,
 		game_engine == &ctf_engine ? ctf_bot_score(0) : 0L, game_engine == &ctf_engine ? ctf_bot_score(1) : 0L,
+		game_engine_has_teams() ? game_engine_get_team_score(0) : 0L, game_engine_has_teams() ? game_engine_get_team_score(1) : 0L,
 		bot_stats.counts[_bot_stat_flag_pickup], bot_stats.counts[_bot_stat_flag_drop], bot_stats.counts[_bot_stat_flag_return],
 		bot_stats.counts[_bot_stat_carrier_ride], kills, deaths, suicides,
 		bot_stats.counts[_bot_stat_stuck], bot_stats.counts[_bot_stat_route_failed],
 		bot_stats_share(bot_stats.idle_ticks), bot_stats_share(bot_stats.seat_ticks[1]), bot_stats_share(bot_stats.seat_ticks[2]),
-		bot_stats_share(bot_stats.seat_ticks[3]), bot_stats_share(bot_stats.escort_ticks), bot_stats_share(bot_stats.with_people_ticks));
+		bot_stats_share(bot_stats.seat_ticks[3]), bot_stats_share(bot_stats.escort_ticks), bot_stats_share(bot_stats.with_people_ticks),
+		over ? " over=1" : "");
 }
 
 void bot_stats_world_tick(long now)
@@ -208,5 +213,11 @@ void bot_stats_world_tick(long now)
 	bot_stats.last_tick = now;
 	bot_stats_flags();
 	if (now > bot_stats.first_tick && (now - bot_stats.first_tick) % bot_stats.every == 0)
-		bot_stats_report(now);
+		bot_stats_report(now, FALSE);
+	/* (and once more as it ends) */
+	if (!bot_stats.over && game_engine_showing_postgame())
+	{
+		bot_stats.over = TRUE;
+		bot_stats_report(now, TRUE);
+	}
 }

@@ -376,6 +376,7 @@ the setting for one start of the game. It has priority over the file.
 | `bots.count` | `0` | `HALO_BOTS` | The number of bots in the multiplayer games that this machine hosts. `0`: no bots. Refer to "Bots". |
 | `bots.fill` | `0` | `HALO_BOTS_FILL` | The games that this machine hosts have this number of players: bots fill the places that people do not have. A bot goes when a person joins and comes back when a person goes. `0`: `bots.count` bots. Refer to "Bots". |
 | `bots.skill` | `5` | `HALO_BOT_SKILL` | How good the bots are, from `1` to `10`: `1` easy, `3` normal, `5` hard, `8` legendary, `10` near perfect. The levels went from `1` to `5` before: the old `5` is `10`, and the old `3` is between `5` and `6`. |
+| `bots.balance` | `false` | `HALO_BOTS_BALANCE` | `true`: the score moves the skill of each bot in the range of `bots.skill_spread`, down for a team that is ahead and up for a team that is behind. Refer to "Bots". |
 | `bots.skill_spread` | `0` | `HALO_BOT_SKILL_SPREAD` | How many levels below `bots.skill` a bot can be, from `0` to `9`. Each bot gets its skill for the game from that range: `bots.skill = 10` with a spread of `4` gives bots from `6` to `10`. `0`: all the bots have `bots.skill`. Refer to "Bots". |
 | `infection.rounds`, `infection.round_minutes`, `infection.countdown` | `3`, `4`, `10` | `HALO_INFECTION_ROUNDS`, `HALO_INFECTION_ROUND_MINUTES`, `HALO_INFECTION_COUNTDOWN` | The rounds of a game of infection, the minutes of a round (`0`: no limit) and the seconds before the first zombie. Refer to "Infection". |
 | `infection.zombie_speed`, `infection.zombie_damage`, `infection.zombie_health` | `1.3`, `8.0`, `1.5` | `HALO_INFECTION_ZOMBIE_SPEED`, `HALO_INFECTION_ZOMBIE_DAMAGE`, `HALO_INFECTION_ZOMBIE_HEALTH` | How fast a zombie moves (a player is `1`), how hard it hits and how much damage it can take (the Flood of the campaign is `1`). |
@@ -862,6 +863,14 @@ and the ball, and hold the hill.
   whole levels: 7.3 is possible). A bot keeps its skill for the game and
   gets a different one in the next game. In the console, `bot_skill_spread
   <0-9>` changes the value.
+- `bots.balance = true` keeps the games close. The skill of each bot then
+  moves in the range of `bots.skill_spread` as the score changes: the bots
+  of a team that is ahead play near the bottom of the range, and the bots
+  of a team that is behind play near the top. The move is full when a team
+  is ahead by a third of the score to win (2 at least). In a game with no
+  teams, each bot compares its score with the best score of the other
+  players. With a spread of `0`, nothing changes. In the console,
+  `bots_balance <0|1>` changes the value.
 - The name of a bot ends with `[Bot]`: `Anvil [Bot]`. The lobby, the
   scores, the kill messages and the names above the players show this
   name. A name has 11 letters at most, thus the names of the bots have 5
@@ -2430,6 +2439,77 @@ used 2 ms or more in one tick. `HALO_BOT_ROUTE_CHECK=1` compares each
 result with a search of the full map. The code is in `game/bots.c` (what a
 bot does), `game/bot_move.c` (how it moves), and `game/bot_nav.c` and
 `game/bot_aas.c` (the navigation data).
+
+### The flag carrier, escorts and wingmen
+
+In a game of capture the flag:
+
+- A bot with the flag of the other team gets into a vehicle of its team that
+  is near (30 world units or less), next to the driver, when home is 40 world
+  units away or more. It uses only a seat where the map lets it keep the
+  flag. If the map lets it keep the flag at the wheel (a jet on some maps),
+  it drives a vehicle that nobody has. It gets out near its own flag, or
+  when the vehicle stops for 3 seconds before it is home.
+- A bot that drives near a team member with the flag (30 world units or
+  less) goes to them, waits for them to get in, and then drives home.
+- The attackers that are nearest to a team member with the flag go with
+  them: one bot for a team of 3 players or fewer, two bots for 6 or fewer,
+  three bots for more. One goes ahead on the way home, one goes behind
+  (between the carrier and the players who chase them), and one goes at the
+  side. If the carrier is in a vehicle, they get in it if it has a seat. If
+  the carrier dies, an escort that is near takes the flag. The defenders
+  stay with their flag.
+- A person of the team who goes forward (closer to the other base than
+  one and a half times the distance to their own base) on foot, without
+  the flag, gets a wingman: the nearest attacking bot (45 world units or
+  less) goes with them, a few steps behind and to the side.
+
+In all the team games, a bot drives a vehicle of its team that has nobody
+at the wheel and a person in another seat (the gun, or next to the driver):
+from 80 world units or less, before it does other things (but not before a
+fight, and not a defender in capture the flag). A person who drives gets a
+gunner first, as before.
+
+`HALO_BOT_STAND_IN=<n>` is for tests: the other bots treat the bots in the
+first n places of the game as persons. Thus a game with only bots shows
+what the bots do for persons.
+
+### Measure the bots
+
+`HALO_BOT_STATS=<seconds>` writes a line that starts with `bot stats:` to the
+log at that interval of game time (60 seconds when the value is not a
+number). Each value counts from the start of the game, thus the last line of
+a game is the result of that game:
+
+- `caps0`, `caps1`: the captures of each team (capture the flag), and
+  `score0`, `score1`: the score of each team (all the team games).
+- `pickups`, `drops`, `returns`: a flag that a player takes, a flag that a
+  carrier drops, and a flag that goes home without a capture.
+- `carrier_rides`: a bot that gets into a vehicle with the flag.
+- `kills`, `deaths`, `suicides`: the totals of the bots.
+- `stuck`: a bot that stops trying a way where it is stuck.
+  `route_failed`: a way between two areas that a bot cannot use.
+- `idle`, `driving`, `gunning`, `riding`, `escort`, `with_people`: the
+  percentage of the time of the bots that they stand on foot with no
+  target and no place to hold, drive, use a gun of a vehicle, ride in
+  another seat, escort a carrier, and help a person (their gun, their
+  vehicle, or as a wingman).
+
+`tools/bot_games.py` plays a set of games with no window and gives these
+values for each map and for all the maps: per 10 minutes of game,
+per hour of bot time, and as percentages. With `--compare`, it plays the
+same games with a second build (the same seeds) and gives the difference
+and its standard errors (2 or more: the difference is probably not
+chance). For example:
+
+```
+python3 tools/bot_games.py --build build/linux64/halo --compare old/halo \
+    --data ~/halo --games bloodgulch:ctf:12,sidewinder:ctf:14 --seeds 1-6
+```
+
+`--data` is a folder with the `maps` folder (and a `navcache` folder, if
+you baked the navigation). The two builds must both write `bot stats:`
+lines.
 
 ## Infection
 
