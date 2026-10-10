@@ -127,3 +127,20 @@ void host_touch_rumble(unsigned int low, unsigned int high);
 void host_touch_scene(int scene);
 
 #endif
+
+/* ---------- movies (port/android/host/host_movie.c)
+
+The port has no Bink decoder (the RAD SDK is proprietary), so the movies
+(port/linux/src/bink_null.c) are played by the Android side: the guest asks
+for one here and the host decodes the disc's own file (bink/*.bik) over the
+game. The handle is the movie's 1-based id. */
+int host_movie_open(const char *name);
+/* whether the host has a file for the movie a requested path names (the
+engine's own file check answers with it on Android) */
+int host_movie_exists(const char *name);
+unsigned long host_movie_width(int movie);
+unsigned long host_movie_height(int movie);
+unsigned long host_movie_frames(int movie);
+unsigned long host_movie_frame(int movie);
+int host_movie_finished(int movie);
+void host_movie_close(int movie);

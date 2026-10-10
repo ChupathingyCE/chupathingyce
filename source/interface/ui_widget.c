@@ -2146,9 +2146,12 @@ boolean ui_widgets_active(
 boolean main_menu_screen_is_active(
 	void)
 {
+	/* port: the port's menus name the screen "main_menu" (the Xbox game's own
+	widget is "the_main_menu"), and the attract mode waits on this */
 	if (we_are_at_the_main_menu == TRUE &&
 		widget_globals.active_widgets[0] &&
-		strcmp(widget_globals.active_widgets[0]->name, "the_main_menu") == 0)
+		(strcmp(widget_globals.active_widgets[0]->name, "the_main_menu") == 0 ||
+			strcmp(widget_globals.active_widgets[0]->name, "main_menu") == 0))
 	{
 		return TRUE;
 	}

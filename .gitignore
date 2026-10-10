@@ -36,3 +36,5 @@ dist/
 port/android/keystore.properties
 *.keystore
 *.jks
+# Decodificador de Bink: se compila con port/android/binkplayer/build.sh
+libbinkplayer.so
