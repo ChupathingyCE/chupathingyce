@@ -36,3 +36,6 @@ dist/
 port/android/keystore.properties
 *.keystore
 *.jks
+
+# a locally supplied torrent (never commit a link to the game data)
+port/android/app/src/main/assets/game.torrent
