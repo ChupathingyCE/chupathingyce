@@ -3391,7 +3391,12 @@ void main_loop(
 #endif
 			bink_playback_update();
 
-			if ((!game_in_editor() && (input_key_is_down(_key_end) || input_key_is_down(_key_escape))) || editor_should_exit())
+			/* port: not the Xbox's End and Escape, a devkit keyboard's way out of
+			a game: the keyboard reaches the game only through the console and
+			text fields, where they are keys of their own (Escape closes the
+			console), and a map reset from them took down the main menu or froze
+			a game */
+			if (editor_should_exit())
 			{
 				main_movie_stop();
 
