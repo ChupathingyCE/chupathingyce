@@ -190,8 +190,10 @@ def main() -> int:
     # MIT license asks copies to carry its notice
     shutil.copy2(ROOT / "port/third_party/expat/COPYING", dist / "expat-COPYING.txt")
     # internet play's MQTT brokers, a file beside the game (network.brokers_file;
-    # Android's APK has its own copy)
-    if args.platform != "android":
+    # Android's APK has its own copy; the macOS application reads its settings
+    # folder in Application Support, never beside the app, so it uses the
+    # game's own list)
+    if args.platform not in ("android", "macos"):
         shutil.copy2(ROOT / "port/assets/network/brokers.txt", dist / "brokers.txt")
     return 0
 
