@@ -47,9 +47,16 @@ struct hud_globals_definition *hud_globals=&hud;
 real global_gravity=0.0035651792f;
 real sound_gain_under_dialog=.7f;
 struct cheat_globals cheat;
-short const hs_external_global_count=3;
-static struct hs_external_global_definition globals[3]={{"sound_gain_under_dialog",_hs_type_real,0,&sound_gain_under_dialog},
-    {"cheat_infinite_ammo",_hs_type_boolean,0,&cheat.infinite_ammo},{"unsafe",_hs_type_real,0,NULL}};
+real object_light_ambient_base=.03f,object_light_ambient_scale=1.0f;
+boolean loud_dialog_hack,ignore_player;
+short const hs_external_global_count=7;
+static struct hs_external_global_definition globals[7]={{"sound_gain_under_dialog",_hs_type_real,0,&sound_gain_under_dialog},
+    {"cheat_infinite_ammo",_hs_type_boolean,0,&cheat.infinite_ammo},{"unsafe",_hs_type_real,0,NULL},
+    {"object_light_ambient_base",_hs_type_real,0,&object_light_ambient_base},
+    {"object_light_ambient_scale",_hs_type_real,0,&object_light_ambient_scale},
+    {"loud_dialog_hack",_hs_type_boolean,0,&loud_dialog_hack},
+    {"ai_debug_ignore_player",_hs_type_boolean,0,&ignore_player}};
+short hs_find_global_by_name(char const *name) {return !strcmp(name,"ai_debug_ignore_player") ? (short)0x8006 : NONE;}
 struct hs_external_global_definition *hs_global_external_get(short index) {return &globals[index];}
 void *csmemset(void *p,long c,unsigned long n) {return memset(p,c,n);}
 void *csmemcpy(void *p,void const *q,unsigned long n) {return memcpy(p,q,n);}
@@ -59,6 +66,8 @@ unsigned long csstrlen(char const *s) {return (unsigned long)strlen(s);}
 void error(short p,char const *f,...) {(void)p;(void)f;}
 boolean mcc_cache_tags_loaded(void) {return loaded;}
 short game_connection(void) {return connection;}
+long game_time_get(void) {return 123;}
+long distributed_latest_host_time(void) {return 456;}
 struct scenario *global_scenario_get(void) {return &scenario;}
 long local_player_get_player_index(short local) {return local==0 ? 0 : local==1 ? 2 : NONE;}
 void *datum_try_and_get(struct data_array *data,long index) {
@@ -85,6 +94,7 @@ boolean hs_parse(long x,short type) {(void)x;(void)type;return TRUE;}
 long *hs_macro_function_evaluate(short f,long t,boolean initialize) {(void)f;(void)t;return initialize ? args : NULL;}
 void hs_return(long thread,long value) {(void)thread;result=value;}
 void mcc_sleep_forever_evaluate(short f,long t,boolean i) {(void)f;(void)t;(void)i;}
+void mcc_script_finished_evaluate(short f,long t,boolean i) {(void)f;(void)t;(void)i;}
 static long bits(real n) {union {real n;long b;} u;u.n=n;return u.b;}
 static real number(long b) {union {real n;long b;} u;u.b=b;return u.n;}
 static void call(char const *name) {
@@ -103,7 +113,25 @@ int main(int argc,char **argv) {
     scenario.cutscene_flags.address=flags;scenario.cutscene_flags.count=2;
     flags[1].position.x=10;
     mcc_campaign_begin();
-    if(!strcmp(argv[1],"bits")) {
+    if(!strcmp(argv[1],"oct11")) {
+        args[0]=8;call("list_count_not_dead");CHECK(result==2);
+        units[2].object.damage_flags=1u<<_object_dead_bit;
+        call("list_count_not_dead");CHECK(result==1);
+        args[0]=NONE;call("list_count_not_dead");CHECK(result==0);
+        args[0]=1234;call("list_count_not_dead");CHECK(result==0);
+        call("game_time_authoritative");CHECK(result==123);
+        connection=_game_connection_network_client;call("game_time_authoritative");CHECK(result==456);
+        args[0]=bits(.1f);call("sound_set_effects_gain");CHECK(mcc_campaign_effects_gain()==1);
+        connection=_game_connection_local;call("sound_set_effects_gain");
+        call("sound_get_effects_gain");CHECK(number(result)==.1f);
+        mcc_campaign_snapshot(saved);mcc_campaign_begin();CHECK(mcc_campaign_effects_gain()==1);
+        CHECK(mcc_campaign_restore(saved,sizeof(saved)));CHECK(mcc_campaign_effects_gain()==.1f);
+        args[0]=0x7fc00000;call("sound_set_effects_gain");CHECK(mcc_campaign_effects_gain()==.1f);
+        args[0]=bits(-1);call("sound_set_effects_gain");CHECK(mcc_campaign_effects_gain()==.1f);
+        memcpy(bad,saved,sizeof(saved));bad[0]=1;
+        CHECK(mcc_campaign_restore(bad,MCC_CAMPAIGN_SNAPSHOT_V1_BYTES));CHECK(mcc_campaign_effects_gain()==1);
+        loaded=FALSE;CHECK(mcc_campaign_effects_gain()==1);
+    } else if(!strcmp(argv[1],"bits")) {
         struct hs_function_definition *f;
         args[0]=6;args[1]=3;call("bitwise_and");CHECK(result==2);
         call("bitwise_or");CHECK(result==7);
@@ -181,14 +209,27 @@ int main(int argc,char **argv) {
     } else if(!strcmp(argv[1],"validation")) {
         mcc_campaign_snapshot(saved);CHECK(mcc_campaign_validate(saved,sizeof(saved)));
         CHECK(!mcc_campaign_validate(saved,sizeof(saved)-1));
-        memcpy(bad,saved,sizeof(saved));bad[0]=2;CHECK(!mcc_campaign_restore(bad,sizeof(bad)));
-        memcpy(bad,saved,sizeof(saved));bad[12]=2;CHECK(!mcc_campaign_restore(bad,sizeof(bad)));
+        memcpy(bad,saved,sizeof(saved));bad[0]=3;CHECK(!mcc_campaign_restore(bad,sizeof(bad)));
+        memcpy(bad,saved,sizeof(saved));bad[12]=8;CHECK(!mcc_campaign_restore(bad,sizeof(bad)));
         memcpy(bad,saved,sizeof(saved));{long nan=0x7fc00000;memcpy(bad+4,&nan,4);}CHECK(!mcc_campaign_restore(bad,sizeof(bad)));
         memcpy(bad,saved,sizeof(saved));bad[16]=4;CHECK(!mcc_campaign_restore(bad,sizeof(bad)));
         CHECK(global_gravity==original);
         CHECK(mcc_campaign_global_settable(0));CHECK(mcc_campaign_global_settable(1));
-        CHECK(!mcc_campaign_global_settable(2));CHECK(!mcc_campaign_global_settable(3));CHECK(!mcc_campaign_global_settable(-1));
+        CHECK(!mcc_campaign_global_settable(2));CHECK(!mcc_campaign_global_settable(7));CHECK(!mcc_campaign_global_settable(-1));
+        for(i=3;i<7;i++) CHECK(mcc_campaign_global_settable((short)i));
         loaded=FALSE;CHECK(!mcc_campaign_global_settable(0));
+    } else if(!strcmp(argv[1],"lighting_controls")) {
+        object_light_ambient_base=.6f;object_light_ambient_scale=.8f;loud_dialog_hack=TRUE;ignore_player=TRUE;
+        mcc_campaign_snapshot(saved);mcc_campaign_begin();
+        CHECK(object_light_ambient_base==.03f && object_light_ambient_scale==1 && !loud_dialog_hack && !ignore_player);
+        connection=_game_connection_network_client;
+        CHECK(mcc_campaign_restore(saved,sizeof(saved)));
+        CHECK(object_light_ambient_base==.6f && object_light_ambient_scale==.8f && loud_dialog_hack && !ignore_player);
+        connection=_game_connection_local;CHECK(mcc_campaign_restore(saved,sizeof(saved)) && ignore_player);
+        memcpy(bad,saved,sizeof(saved));{long nan=0x7fc00000;memcpy(bad+756,&nan,4);}
+        CHECK(!mcc_campaign_restore(bad,sizeof(bad)));
+        mcc_campaign_dispose();
+        CHECK(object_light_ambient_base==.03f && object_light_ambient_scale==1 && !loud_dialog_hack && !ignore_player);
     } else return 2;
     mcc_campaign_dispose();return 0;
 }

@@ -80,7 +80,7 @@ int main(void) { return tag_validate_corrections() != 0; }
                                      "legacy_isolation", "callbacks", "misaligned", "stream_hole",
                                      "collection", "collection_outside", "device", "device_outside",
                                      "trimmed_structure", "graph_large", "graph_cycle", "graph_node_cycle",
-                                     "graph_orphan", "bitmap_owned", "bitmap_unowned", "first_person_slots",
+                                     "graph_orphan", "graph_root_sibling", "graph_root_outside", "graph_root_orphan", "bitmap_owned", "bitmap_unowned", "first_person_slots",
                                      "grenades_zero", "grenades_one", "grenades_two", "grenades_four", "grenades_excess",
                                      "anchor_0", "anchor_4", "anchor_5", "anchor_6", "anchor_7", "anchor_8", "anchor_9", "anchor_-1",
                                      "names_512", "names_513", "names_640",

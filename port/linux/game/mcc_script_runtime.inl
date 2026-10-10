@@ -5,6 +5,19 @@
 #include "mcc_campaign.h"
 long hs_cast(long thread_index, short actual_type, short desired_type, long value);
 
+void mcc_script_finished_evaluate(short function, long thread_index, boolean initialize)
+{
+    long *args=hs_macro_function_evaluate(function,thread_index,initialize);
+    long target=NONE;
+    short script;
+    if (!args) return;
+    script=args[0] ? hs_find_script_by_name((char const *)args[0]) : NONE;
+    if (script!=NONE) target=hs_find_thread_by_script(script);
+    /* Dormant and sleep_forever threads use -2. Only -1 means that the
+     * native script thread has terminated; sleeping is not completion. */
+    hs_return(thread_index,target!=NONE && hs_thread_get(target)->sleep_until==NONE);
+}
+
 void mcc_sleep_forever_evaluate(short function, long thread_index, boolean initialize)
 {
     struct hs_thread_datum *thread=hs_thread_get(thread_index);

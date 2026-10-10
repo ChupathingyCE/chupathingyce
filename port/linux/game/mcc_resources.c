@@ -12,7 +12,7 @@ struct mcc_resource_file {
     FILE *stream;
     char *names;
     struct mcc_resource_item *items;
-    uint32_t count;
+    uint32_t count,data_bytes;
 };
 struct mcc_resources { struct mcc_resource_file files[2]; };
 
@@ -61,6 +61,7 @@ static int mcc_resource_open(struct mcc_resource_file *file,unsigned type)
             item->offset<16 || item->offset>names || item->size>names-item->offset) goto failed;
     }
     file->count=count;
+    file->data_bytes=names;
     qsort(file->items,count,sizeof(*file->items),mcc_resource_compare);
     return 1;
 failed:
@@ -72,7 +73,8 @@ int mcc_resources_read(struct mcc_runtime *runtime,unsigned type,char const *nam
 {
     struct mcc_resources *resources;
     struct mcc_resource_file *file;
-    uint32_t lo=0,hi;
+    uint32_t lo=0,hi,i;
+    struct mcc_resource_item const *relocated=NULL;
     if (!runtime || type<1 || type>2 || !name || !out || !bytes) return 0;
     resources=runtime->resources;
     if (!resources) {
@@ -93,7 +95,20 @@ int mcc_resources_read(struct mcc_runtime *runtime,unsigned type,char const *nam
         if (bytes<=item->size && !strcmp(file->names+item->name,name))
             return !fseek(file->stream,(long)offset,SEEK_SET) && fread(out,1,bytes,file->stream)==bytes;
     }
-    return 0;
+    /* Shared caches can be repacked independently of a scenario. A stale
+     * offset must never select unrelated bytes: accept a unique full name
+     * and exact size from the supplied cache's validated directory instead.
+     * Prefix reads still require their original offset. */
+    if (offset<16 || offset>file->data_bytes || bytes>file->data_bytes-offset) return 0;
+    for (i=0;i<file->count;i++) {
+        struct mcc_resource_item const *item=&file->items[i];
+        if (!strcmp(file->names+item->name,name)) {
+            if (relocated || bytes!=item->size) return 0;
+            relocated=item;
+        }
+    }
+    return relocated && !fseek(file->stream,(long)relocated->offset,SEEK_SET) &&
+        fread(out,1,bytes,file->stream)==bytes;
 }
 
 void mcc_resources_dispose(struct mcc_runtime *runtime)

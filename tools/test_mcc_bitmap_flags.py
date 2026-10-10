@@ -77,6 +77,7 @@ static int mcc_runtime_read(struct mcc_runtime *r,uint32_t offset,uint32_t size,
 }
 static long rasterizer_xbox_bitmap_get_pixel_data_size(struct bitmap_data *b) {
     uint32_t bytes=0;unsigned level;
+    if(b->flags&16)return (((b->width*(b->format==11 ? 4 : 2)+63)&~63u)*b->height+127u)&~127u;
     for(level=0;level<=(unsigned)b->mipmap_count;level++) {
         unsigned w=MAX(b->width>>level,1),h=MAX(b->height>>level,1);
         bytes+=b->format==14 ? ((w+3)/4)*((h+3)/4)*8 : w*h*2;
@@ -141,6 +142,11 @@ int main(int argc,char **argv) {
         else if(!strcmp(argv[1],"tail-wrong-format")) {bitmap.format=15;expect=0;}
         else return 3;
     }
+    else if(!strncmp(argv[1],"npot",4)) {
+        bitmap.width=6;bitmap.height=3;bitmap.format=3;bitmap.flags=0x81;bitmap.mipmap_count=1;
+        bitmap.pixels_size=42;runtime.size=42;runtime.group.usage=1;
+        if(!strcmp(argv[1],"npot-short")){bitmap.pixels_size=41;expect=0;}
+    }
     else if(!strcmp(argv[1],"known")){}
     else if(!strcmp(argv[1],"ordinary")) {bitmap.flags=0x81;runtime.group.usage=0;}
     else if(!strcmp(argv[1],"wrong-group")) {runtime.group.usage=0;expect=0;}
@@ -160,6 +166,15 @@ int main(int argc,char **argv) {
     if(!expect) {
         if(runtime.reads || memcmp(&bitmap,&original,sizeof(bitmap)))return 5;
         return 0;
+    }
+    if(!strncmp(argv[1],"npot",4)) {
+        if(bitmap.width!=6 || bitmap.height!=3 || bitmap.format!=11 || bitmap.mipmap_count ||
+            bitmap.flags!=0x90 || bitmap.pixels_size!=256 || runtime.reads!=1)return 20;
+        for(i=0;i<18;i++) {
+            unsigned char const *p=texture.pixels+(i/6)*64+(i%6)*4;
+            if(p[0]!=runtime.source[i*2] || p[1]!=p[0] || p[2]!=p[0] || p[3]!=runtime.source[i*2+1])return 21;
+        }
+        free(texture.pixels);return 0;
     }
     if(tail) {
         if(bitmap.flags!=0x83 || bitmap.format!=14 || bitmap.mipmap_count!=7 ||
@@ -193,7 +208,7 @@ int main(int argc,char **argv) {
 
 @pytest.mark.parametrize("case", ["known", "ordinary", "wrong-group", "missing-group", "missing-environment",
                                   "unknown-flag", "extra-pixels", "short-pixels", "bad-signature",
-                                  "wrong-format", "non-power-two", "mipmaps", "tag-streams"])
+                                  "wrong-format", "non-power-two", "mipmaps", "tag-streams", "npot", "npot-short"])
 def test_mcc_lightmap_conversion(bitmap_converter, case):
     result = subprocess.run([str(bitmap_converter), case], capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stdout + result.stderr

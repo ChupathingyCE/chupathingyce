@@ -141,6 +141,8 @@ def test_many_node_palette_is_owned_by_part(geometry_tool, tmp_path, local):
     (0xB00+204, "H", 7),
     (0xB00+56, "h", 9),
     (0xB00+12, "f", float("nan")),
+    (0xB00, "f", float("nan")),
+    (0xB00+48, "f", float("inf")),
 ])
 def test_invalid_model_data_is_refused(geometry_tool, tmp_path, offset, encoding, value):
     data = geometry_map()
@@ -156,5 +158,20 @@ def test_optional_real_geometry(geometry_tool):
     if not fixture:
         pytest.skip("set MCC_TEST_MAP to opt in to local fixture conversion")
     code, fields = run(geometry_tool, Path(fixture))
+    assert code == 0
+    assert int(fields["created_buffers"]) > 0
+
+
+@pytest.mark.parametrize("uvs", [False, True])
+def test_missing_model_tangent_frames_are_reconstructed(geometry_tool, tmp_path, uvs):
+    data = geometry_map()
+    for vertex in range(3):
+        struct.pack_into("<6f", data, 0xB00+vertex*68+24, *([float("nan")]*6))
+    if uvs:
+        struct.pack_into("<2f", data, 0xB00+68+48, 1., 0.)
+        struct.pack_into("<2f", data, 0xB00+136+48, 0., 1.)
+    path = tmp_path/"missing_tangents.map"
+    path.write_bytes(data)
+    code, fields = run(geometry_tool, path)
     assert code == 0
     assert int(fields["created_buffers"]) > 0

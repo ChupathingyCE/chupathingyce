@@ -48,6 +48,27 @@ def test_mcc_script_linking(scripts_tool, case):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.mark.parametrize("skull", ["sputnik", "catch", "boom"])
+@pytest.mark.parametrize("case", ["skull_read", "skull_wrong_type", "skull_disable", "skull_enable", "skull_computed"])
+def test_additional_disabled_skulls(scripts_tool, skull, case):
+    result = subprocess.run([str(scripts_tool), case, "debug_ice_cream_flavor_status_"+skull],
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("case", ["prediction_enable", "prediction_disable", "prediction_computed"])
+def test_prediction_policy(scripts_tool, case):
+    result = subprocess.run([str(scripts_tool), case], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("kind", ["real", "long", "boolean"])
+def test_disabled_skull_result_matches_native_constant_type(scripts_tool, kind):
+    result = subprocess.run([str(scripts_tool), "skull_disable", "debug_ice_cream_flavor_status_sputnik", kind],
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_mcc_vehicle_masks_and_legacy_isolation(native_mcc_harness):
     result = subprocess.run([str(native_mcc_harness("mcc_objects"))], capture_output=True,
                             text=True, timeout=10)

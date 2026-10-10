@@ -975,6 +975,79 @@ the local Windows configuration has no Android target. Upstream's
 Linux-oriented harness checks were run with local Windows compiler/linker
 flag adjustments; the test bodies and production code were not substituted.
 
+## Additional campaign compatibility (October 2026)
+
+The MCC function table additionally supports `list_count_not_dead`,
+`script_finished`, `game_time_authoritative`, `sound_get_effects_gain`, and
+`sound_set_effects_gain`. Living-object counts skip dead and stale objects.
+`script_finished` checks the named script thread's completed state; dormant,
+sleeping, and unknown scripts are not reported as completed. The authoritative
+clock uses local/server game ticks, or the latest received host tick on clients.
+
+Effects gain is an MCC-owned multiplier (default 1, accepted range 0–4).
+It affects non-music sound classes without changing saved user volume settings.
+The small additive connection in the common sound mixer returns a neutral
+multiplier outside an active MCC campaign. The MCC writable-global whitelist
+also permits `object_light_ambient_base`, `object_light_ambient_scale`,
+`loud_dialog_hack`, and `ai_debug_ignore_player`. Original values are captured
+and restored when MCC unloads. AI-ignore changes remain host-authoritative.
+The existing Xbox/Custom Edition global tables and script implementations are
+not extended or replaced.
+
+These values accompany the existing MCC campaign checkpoint/network state.
+The version-2 campaign snapshot is 764 bytes; version-1 752-byte checkpoints
+are migrated with defaults for the added state. Network compatibility advances
+from 27 to 28: **all peers must use matching versions**, including when playing
+Xbox or Custom Edition maps. There is no separate MCC transport or matchmaking.
+
+Boom, Sputnik, and Catch skull globals report disabled. Literal assignments
+that keep them disabled are accepted; enabling them or computing an assignment
+is refused rather than pretending their gameplay effects exist. Similarly,
+`object_prediction` reports enabled and accepts a literal enable only, matching
+the existing engine prediction policy. Converted constant expressions preserve
+their expected result types, including a void result for a `set` statement.
+
+Several data corrections are confined to MCC conversion:
+
+- An animation graph's unused root sibling is cleared only after validating
+  the reachable child tree and parent relationships. Orphans and child cycles
+  still fail validation. This handles DP's brute graph.
+- Invalid model tangent frames can be reconstructed from valid geometry and
+  UV derivatives. Degenerate UVs use a deterministic perpendicular basis.
+  Invalid positions, normals, UVs, or indices still fail; valid frames are
+  retained. This repairs ML's pelican data without modifying the source map.
+- Shared-resource lookup can resolve a relocated payload by a unique full
+  resource name and exact size in the supplied cache's validated directory.
+  Duplicate names, size mismatches, and invalid ranges are refused. This is
+  structural validation, not a content hash: supply the correct package's
+  resources. Mercury Falling needs this for a relocated footstep sample.
+- Non-power-of-two 2D bitmaps retain their dimensions in a linear ARGB texture.
+  Their declared source mip chain is validated, but only the base level is
+  retained because the native linear texture path has no mipmaps. This handles
+  Aerowalk's 1920×1080 HUD bitmap.
+
+Judgement's `game_time_authoritative` conversion is supported, but the supplied
+Workshop package declares `InheritSharedFiles: FromMCC` and references 687
+external bitmap descriptors. It does not bundle the shared resources. The
+available Aerowalk and Mercury caches do not contain all required textures;
+the loader correctly refuses missing data instead of substituting unrelated
+assets. A complete Judgement load requires its matching MCC shared resources.
+
+Regression tests exercise actual MCC handlers, script conversion, snapshot
+migration, malformed resources, animation graphs, geometry, textures, and the
+sound-mixer connection. Native smoke tests use an isolated Windows data root,
+one hidden process at a time, and a console marker after 150 simulation ticks.
+These bounded startup checks do not establish complete campaign playthroughs,
+audible playback, online co-op, or Android compatibility.
+The Windows x86 build and 929 regression checks passed (six optional skips).
+Crashsite, DP, ML, Mercury Falling, Mercury 2, and Aerowalk passed bounded
+native startup/simulation checks with normal timed exits. Aerowalk and
+Mercury used their respective package resources in isolated data roots.
+Android could not be built in this local configuration: `ninja android` has
+no target. Crashsite advances simulation but also reports the existing
+"too many transparent geometry groups" capacity warning; its rendering is
+not certified by the successful load check.
+
 ## Public format evidence
 
 These are wire-format references, not copied implementation code. Current

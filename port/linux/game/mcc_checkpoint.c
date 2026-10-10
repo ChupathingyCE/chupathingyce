@@ -161,8 +161,11 @@ int mcc_checkpoint_validate(void const *image, unsigned long total,
     /* The footer stays at the same CPU address. Version 1 had only inventory;
      * those maps could not use these formerly unsupported campaign functions. */
     if (version == 1) tail += MCC_CAMPAIGN_SNAPSHOT_BYTES;
+    else if (version == 2 && campaign_bytes == MCC_CAMPAIGN_SNAPSHOT_V1_BYTES)
+        tail += MCC_CAMPAIGN_SNAPSHOT_BYTES - MCC_CAMPAIGN_SNAPSHOT_V1_BYTES;
     if (memcmp(footer, "MCCS", 4) || (version != 1 && version != 2) ||
-        (version == 1 ? campaign_bytes != 0 : campaign_bytes != MCC_CAMPAIGN_SNAPSHOT_BYTES) ||
+        (version == 1 ? campaign_bytes != 0 :
+            (campaign_bytes != MCC_CAMPAIGN_SNAPSHOT_BYTES && campaign_bytes != MCC_CAMPAIGN_SNAPSHOT_V1_BYTES)) ||
         bytes < 8 + campaign_bytes || bytes - campaign_bytes > MCC_CHECKPOINT_PAYLOAD_LIMIT ||
         mcc_checkpoint_word(footer + 12) != mcc_checkpoint_checksum(tail, bytes) ||
         mcc_checkpoint_word(footer + 16) != (uint32_t)header->cache_file_checksum ||
@@ -191,6 +194,8 @@ int mcc_checkpoint_restore(void const *image, unsigned long total,
     campaign_bytes = mcc_checkpoint_word(tail + MCC_CHECKPOINT_TOTAL_PAYLOAD + 20);
     version = mcc_checkpoint_word(tail + MCC_CHECKPOINT_TOTAL_PAYLOAD + 4);
     if (version == 1) tail += MCC_CAMPAIGN_SNAPSHOT_BYTES;
+    else if (version == 2 && campaign_bytes == MCC_CAMPAIGN_SNAPSHOT_V1_BYTES)
+        tail += MCC_CAMPAIGN_SNAPSHOT_BYTES - MCC_CAMPAIGN_SNAPSHOT_V1_BYTES;
     if (mcc_grenades_restore(tail, bytes - campaign_bytes)) {
         if (campaign_bytes) return mcc_campaign_restore(tail + bytes - campaign_bytes, campaign_bytes);
         mcc_campaign_begin();

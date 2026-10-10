@@ -143,6 +143,68 @@ static int mg_palette_index(unsigned char *palette,unsigned char *count,short no
     return (*count)++;
 }
 
+/* Recover only missing tangent frames. Position, normal, UV and strip
+ * indices must be valid first. Use an incident triangle's UV derivative;
+ * degenerate UVs get a deterministic perpendicular basis instead. */
+static int mg_model_tangents(struct model_vertex_uncompressed *vertices,
+    uint32_t count,unsigned short const *indices,uint32_t triangles) {
+    uint32_t i,j,k,repaired=0;
+    long *heads,*links,link;
+    int needed=0;
+    for (i=0;i<triangles+2;i++) if (indices[i]>=count) return 0;
+    for (i=0;i<count;i++) {
+        float const *v=(float const *)&vertices[i];
+        for (j=0;j<6;j++) if (!__builtin_isfinite(v[j]) || (j>=3 && fabsf(v[j])>1.005f)) return 0;
+        if (!__builtin_isfinite(v[12]) || !__builtin_isfinite(v[13])) return 0;
+        for (j=6;j<12;j++) if (!__builtin_isfinite(v[j]) || fabsf(v[j])>1.005f) needed=1;
+    }
+    if (!needed) return 1;
+    heads=malloc(count*sizeof(*heads));links=malloc(triangles*3*sizeof(*links));
+    if (!heads || !links) {free(heads);free(links);return 0;}
+    for (i=0;i<count;i++) heads[i]=-1;
+    for (k=0;k<triangles;k++) for (j=0;j<3;j++) {
+        i=indices[k+j];links[k*3+j]=heads[i];heads[i]=(long)(k*3+j);
+    }
+    for (i=0;i<count;i++) {
+        float *v=(float *)&vertices[i], n[3],t[3]={0,0,0},b[3]={0,0,0};
+        float length,dot,hand=1.0f;
+        int bad=0;
+        for (j=6;j<12;j++) if (!__builtin_isfinite(v[j]) || fabsf(v[j])>1.005f) bad=1;
+        if (!bad) continue;
+        length=v[3]*v[3]+v[4]*v[4]+v[5]*v[5];
+        if (!(length>0.000001f)) {free(heads);free(links);return 0;}
+        length=sqrtf(length);
+        for (j=0;j<3;j++) n[j]=v[j+3]/length;
+        for (link=heads[i];link!=-1;link=links[link]) {
+            float const *a,*c,*d;
+            float u1,u2,v1,v2,det;
+            k=(uint32_t)link/3;
+            a=(float *)&vertices[indices[k]];c=(float *)&vertices[indices[k+1]];d=(float *)&vertices[indices[k+2]];
+            u1=c[12]-a[12];u2=d[12]-a[12];v1=c[13]-a[13];v2=d[13]-a[13];det=u1*v2-u2*v1;
+            if (!__builtin_isfinite(det) || fabsf(det)<0.000001f) continue;
+            for (j=0;j<3;j++) {t[j]=((c[j]-a[j])*v2-(d[j]-a[j])*v1)/det;b[j]=((d[j]-a[j])*u1-(c[j]-a[j])*u2)/det;}
+            dot=t[0]*n[0]+t[1]*n[1]+t[2]*n[2];
+            for (j=0;j<3;j++) t[j]-=dot*n[j];
+            length=t[0]*t[0]+t[1]*t[1]+t[2]*t[2];
+            if (__builtin_isfinite(length) && length>0.000001f) break;
+        }
+        if (link==-1) {
+            if (fabsf(n[2])<0.9f) {t[0]=-n[1];t[1]=n[0];t[2]=0;}
+            else {t[0]=0;t[1]=-n[2];t[2]=n[1];}
+            length=t[0]*t[0]+t[1]*t[1]+t[2]*t[2];
+        }
+        length=sqrtf(length);
+        for (j=0;j<3;j++) t[j]/=length;
+        v[6]=n[1]*t[2]-n[2]*t[1];v[7]=n[2]*t[0]-n[0]*t[2];v[8]=n[0]*t[1]-n[1]*t[0];
+        if (link!=-1 && v[6]*b[0]+v[7]*b[1]+v[8]*b[2]<0) hand=-1.0f;
+        for (j=0;j<3;j++) {v[6+j]*=hand;v[9+j]=t[j];}
+        ++repaired;
+    }
+    free(heads);free(links);
+    if (repaired) error(_error_silent,"MCC geometry: reconstructed %lu invalid model tangent frames",(unsigned long)repaired);
+    return mg_float_vertices(vertices,count,68,14,3,9);
+}
+
 static int mg_part(struct mcc_runtime *r,struct model const *model,unsigned char const *wire,
     uint32_t part_index,uint32_t part_count,struct mcc_render_part *part) {
     uint32_t count=mg_u32(wire+0x58), triangles=mg_u32(wire+0x48);
@@ -177,7 +239,7 @@ static int mg_part(struct mcc_runtime *r,struct model const *model,unsigned char
     if (!vertices || !compressed || !indices) goto fail;
     if (!mcc_runtime_read(r,r->report.model_file_offset+vertex_offset,raw_bytes,vertices) ||
         !mcc_runtime_read(r,r->report.model_file_offset+r->report.model_vertex_bytes+index_offset,index_bytes,indices)) goto fail;
-    if (!mg_float_vertices(vertices,count,68,14,3,9)) goto fail;
+    if (!mg_model_tangents(vertices,count,indices,triangles)) goto fail;
     for (i=0;i<count;i++) {
         int j;
         if (!__builtin_isfinite(vertices[i].node_weights[0]) || !__builtin_isfinite(vertices[i].node_weights[1])) goto fail;

@@ -19,7 +19,7 @@ def checkpoint_tool(tmp_path_factory):
     (work / "saved games").mkdir()
     (work / "memory").mkdir()
     (work / "objects").mkdir()
-    (work / "cseries.h").write_text("#pragma once\ntypedef unsigned char boolean,byte;\n")
+    (work / "cseries.h").write_text("#pragma once\ntypedef unsigned char boolean,byte;\ntypedef float real;\n")
     (work / "errors.h").write_text("#define _error_silent 0\nvoid error(int level,char const *format,...);\n")
     (work / "saved games/game_state.h").write_text(
         "#pragma once\n#include <stdint.h>\nstruct game_state_header {uint32_t allocation_checksum;"
@@ -59,7 +59,7 @@ boolean mcc_cache_tags_loaded(void) {return loaded;}
 static int campaign_restores;
 void mcc_campaign_snapshot(void *out) {memset(out,0,MCC_CAMPAIGN_SNAPSHOT_BYTES);((unsigned char *)out)[0]=1;}
 int mcc_campaign_validate(void const *in,unsigned long bytes) {
-    return bytes==MCC_CAMPAIGN_SNAPSHOT_BYTES && ((unsigned char const *)in)[0]==1;
+    return (bytes==MCC_CAMPAIGN_SNAPSHOT_BYTES || bytes==MCC_CAMPAIGN_SNAPSHOT_V1_BYTES) && ((unsigned char const *)in)[0]==1;
 }
 int mcc_campaign_restore(void const *in,unsigned long bytes) {
     if(!mcc_campaign_validate(in,bytes))return 0;campaign_restores++;return 1;
@@ -149,6 +149,16 @@ int main(int argc,char **argv) {
             mcc_checkpoint_put(f+20,0);
             result=game_state_image_accept(saved,sizeof(saved));
             if(restores!=1 || campaign_restores!=1)return 12;
+        } else if(!strcmp(argv[1],"campaign_v1")) {
+            unsigned char *f=saved+(footer-live),*p=saved+(tail-live);
+            unsigned long shift=MCC_CAMPAIGN_SNAPSHOT_BYTES-MCC_CAMPAIGN_SNAPSHOT_V1_BYTES;
+            unsigned long bytes=payload_size+MCC_CAMPAIGN_SNAPSHOT_V1_BYTES;
+            memmove(p+shift,p,bytes);
+            mcc_checkpoint_put(f+8,bytes);
+            mcc_checkpoint_put(f+12,mcc_checkpoint_checksum(p+shift,bytes));
+            mcc_checkpoint_put(f+20,MCC_CAMPAIGN_SNAPSHOT_V1_BYTES);
+            result=game_state_image_accept(saved,sizeof(saved));
+            if(restores!=1 || campaign_restores!=1)return 13;
         } else if(!strcmp(argv[1],"roundtrip")||!strcmp(argv[1],"core")) {
             live[4095]=33;result=game_state_image_accept(saved,sizeof(saved));
             if(restores!=1||campaign_restores!=1||live[4095]!=0xA5)return 5;
@@ -206,7 +216,7 @@ int main(int argc,char **argv) {
 @pytest.mark.parametrize("case", ["stock", "capacity", "capture_fail", "maximum", "oversize",
                                       "roundtrip", "core", "cleanup", "payload", "footer", "version",
                                       "reserved", "name", "checksum", "highwater", "native", "handles",
-                                      "unit_salt", "unit_type", "unit_pointer", "unit_array", "v1", "campaign"])
+                                      "unit_salt", "unit_type", "unit_pointer", "unit_array", "v1", "campaign", "campaign_v1"])
 def test_mcc_checkpoint_and_native_hooks(checkpoint_tool, case):
     result = subprocess.run([str(checkpoint_tool), case], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr + f" ({case}: {result.returncode})"

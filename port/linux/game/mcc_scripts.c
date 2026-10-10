@@ -205,7 +205,26 @@ static boolean mcc_disabled_skull(char const *name)
 {
     return name && (!csstrcasecmp(name,"debug_ice_cream_flavor_status_i_would_have_been_your_daddy") ||
         !csstrcasecmp(name,"debug_ice_cream_flavor_status_grunt_birthday_party") ||
-        !csstrcasecmp(name,"debug_ice_cream_flavor_status_bandanna"));
+        !csstrcasecmp(name,"debug_ice_cream_flavor_status_bandanna") ||
+        !csstrcasecmp(name,"debug_ice_cream_flavor_status_sputnik") ||
+        !csstrcasecmp(name,"debug_ice_cream_flavor_status_catch") ||
+        !csstrcasecmp(name,"debug_ice_cream_flavor_status_boom"));
+}
+
+static boolean mcc_boolean_result(struct hs_syntax_node *node,boolean value)
+{
+    union { real number;long bits; } result;
+    switch (node->type) {
+    case _hs_type_void: result.bits=0;break;
+    case _hs_type_boolean: case _hs_type_short_integer: case _hs_type_long_integer:
+        result.bits=value!=FALSE;break;
+    case _hs_type_real: result.number=value ? 1.0f : 0.0f;break;
+    default: return FALSE;
+    }
+    /* The native cache recompiler requires primitive constants to have
+     * matching stored/desired types, including discarded (void) results. */
+    node->flags=9;node->constant_type=node->type;node->data=result.bits;node->source_offset=NONE;
+    return TRUE;
 }
 
 int mcc_scripts_prepare(struct mcc_runtime *runtime)
@@ -248,6 +267,20 @@ int mcc_scripts_prepare(struct mcc_runtime *runtime)
              * They are read-only constants, not writable legacy globals. */
             if (!csstrcasecmp(name,"set")) {
                 struct hs_syntax_node *target = datum_try_and_get(syntax,nodes[child].next_node_index);
+                char const *target_name=target ? mcc_script_string(strings,scenario->hs_string_constants.size,target->string_offset) : NULL;
+                if (target && (target->flags&5)==5 && target_name && !csstrcasecmp(target_name,"object_prediction")) {
+                    struct hs_syntax_node *value=datum_try_and_get(syntax,target->next_node_index);
+                    /* OpenCE prediction remains enabled and host-controlled.
+                     * A literal enable agrees with that policy. Do not claim
+                     * to support disabling it or discard a computed value. */
+                    if (value && (value->flags&7)==1 && value->type==_hs_type_boolean &&
+                        value->constant_type==_hs_type_boolean && value->boolean_value && value->next_node_index==NONE) {
+                        if (!mcc_boolean_result(node,TRUE)) return FALSE;
+                        continue;
+                    }
+                    error(_error_silent,"mcc: object_prediction supports only a literal enable");
+                    return FALSE;
+                }
                 if (target && (target->flags & 1) && mcc_disabled_skull(
                     mcc_script_string(strings,scenario->hs_string_constants.size,target->string_offset))) {
                     struct hs_syntax_node *value=datum_try_and_get(syntax,target->next_node_index);
@@ -257,8 +290,7 @@ int mcc_scripts_prepare(struct mcc_runtime *runtime)
                     if (value && (value->flags&7)==1 && value->type==_hs_type_boolean &&
                         value->constant_type==_hs_type_boolean && !value->boolean_value &&
                         value->next_node_index==NONE) {
-                        node->flags=9;node->constant_type=_hs_type_boolean;
-                        node->data=FALSE;node->source_offset=NONE;
+                        if (!mcc_boolean_result(node,FALSE)) return FALSE;
                         continue;
                     }
                     error(_error_silent,"mcc: scripts cannot enable unsupported skull gameplay");
@@ -278,6 +310,10 @@ int mcc_scripts_prepare(struct mcc_runtime *runtime)
         } else if ((node->flags & 5) == 5 && ((uint16_t)node->data & 0x8000)) {
             name = mcc_script_string(strings, scenario->hs_string_constants.size, node->string_offset);
             if (!name) return FALSE;
+            if (!csstrcasecmp(name,"object_prediction")) {
+                if (node->type!=_hs_type_boolean) return FALSE;
+                node->flags&=~4;node->constant_type=_hs_type_boolean;node->data=TRUE;continue;
+            }
             if (mcc_disabled_skull(name)) {
                 if (node->type != _hs_type_boolean) return FALSE;
                 node->flags &= ~4;

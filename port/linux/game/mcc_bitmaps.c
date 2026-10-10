@@ -421,6 +421,7 @@ static int mcc_texture_prepare(struct mcc_runtime *runtime,struct mcc_textures *
     int convert=bitmap->format==18 || texture->channels==2 || texture->channels==4 ||
         ((bitmap->flags&16) && bitmap->format>=14 && bitmap->format<=17);
     int bytes_per_pixel=mcc_bitmap_bytes(bitmap->format);
+    int non_power_two=bitmap->type==0 && ((bitmap->width&(bitmap->width-1)) || (bitmap->height&(bitmap->height-1)));
     uint32_t input_offset=0,output_offset=0,hardware_size,allocation,stream_offset=0,i;
     if (bitmap->width<=0 || bitmap->height<=0 || bitmap->depth<=0 || bitmap->type<0 || bitmap->type>2 ||
         bitmap->width>8192 || bitmap->height>8192 || bitmap->depth>512 || bitmap->mipmap_count<0 || bitmap->mipmap_count>13 ||
@@ -441,6 +442,15 @@ static int mcc_texture_prepare(struct mcc_runtime *runtime,struct mcc_textures *
     }
     if (raw_size>(uint32_t)bitmap->pixels_size || raw_size>MCC_BITMAP_ALLOCATION_LIMIT ||
         (convert && decoded_size>MCC_BITMAP_ALLOCATION_LIMIT)) return 0;
+    if (non_power_two) {
+        /* Preserve arbitrary MCC HUD dimensions using the engine's linear
+         * ARGB layout. Validate the entire declared source chain above,
+         * then retain its base level: Xbox linear textures have no mips. */
+        if (decoded_size>MCC_BITMAP_ALLOCATION_LIMIT) return 0;
+        convert=1;normalized.flags=(normalized.flags&~1u)|16u;
+        normalized.mipmap_count=0;
+        decoded_size=(uint64_t)(unsigned)bitmap->width*(unsigned)bitmap->height*4;
+    }
     if (normalized.flags&0x1000) {
         struct bitmap_group *group=mcc_bitmap_tag(runtime,texture->handle,BITMAP_GROUP_TAG,sizeof(*group));
         if (!group || !mcc_bitmap_lightmap_flags(&normalized,group->usage)) return 0;
@@ -514,7 +524,8 @@ static int mcc_texture_prepare(struct mcc_runtime *runtime,struct mcc_textures *
         normalized.type==0 && (normalized.flags&2) ? allocation : hardware_size)) goto failed;
     free(pixels);pixels=hardware;hardware=NULL;
     if (bitmap->mipmap_count!=normalized.mipmap_count)
-        error(_error_silent,"mcc bitmap: tag %08lx omitted incomplete DXT1 mip tail (levels %d through %d)",
+        error(_error_silent,non_power_two ? "mcc bitmap: tag %08lx retained linear base level (omitted levels %d through %d)" :
+            "mcc bitmap: tag %08lx omitted incomplete DXT1 mip tail (levels %d through %d)",
             texture->handle,normalized.mipmap_count+1,bitmap->mipmap_count);
     bitmap->format=normalized.format;
     bitmap->flags=normalized.flags;

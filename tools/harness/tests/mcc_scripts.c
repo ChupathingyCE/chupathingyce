@@ -21,6 +21,7 @@
 #undef strcmp
 #undef strcpy
 #undef strlen
+#undef strstr
 
 short const hs_external_global_count=443;
 static boolean loaded;
@@ -109,7 +110,7 @@ int main(int argc, char **argv) {
     uint32_t pointer;
     int expected = 1;
     short segment_index;
-    CHECK(argc == 2);
+    CHECK(argc >= 2 && argc <= 4);
     segment_index = !strcmp(argv[1], "core_segment") ? MCC_HS_CORE_SEGMENT : MCC_HS_MISSION_SEGMENT;
     runtime.used = 0x100000;
     runtime.capacity=runtime.used+65536;
@@ -208,10 +209,24 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[1],"developer_capacity")) scenario->hs_globals.count=1024-hs_external_global_count;
         else runtime.capacity=runtime.used;
     }
+    if (argc>=3) strcpy(strings+(!strcmp(argv[1],"skull_read") || !strcmp(argv[1],"skull_wrong_type") ? 0 : 4),argv[2]);
+    if (argc==4) nodes[0].type=!strcmp(argv[3],"real") ? _hs_type_real :
+        !strcmp(argv[3],"long") ? _hs_type_long_integer : _hs_type_boolean;
+    if (strstr(argv[1],"prediction")==argv[1]) {
+        strcpy(strings,"set");strcpy(strings+4,"object_prediction");nodes[0].type=_hs_type_void;
+        nodes[2].flags=5;nodes[2].data=0x8001;nodes[2].string_offset=4;nodes[2].type=_hs_type_boolean;
+        nodes[3].flags=9;nodes[3].type=nodes[3].constant_type=_hs_type_boolean;nodes[3].data=(long)0xffffff01;
+        if (!strcmp(argv[1],"prediction_disable")) {nodes[3].data=0;expected=0;}
+        if (!strcmp(argv[1],"prediction_computed")) {nodes[3].flags=13;expected=0;}
+    }
     CHECK(mcc_scripts_prepare(&runtime) == expected);
+    if (strstr(argv[1],"prediction")==argv[1]) {
+        if (expected) CHECK(nodes[0].flags==9 && nodes[0].data==0 && nodes[0].type==_hs_type_void && nodes[0].constant_type==nodes[0].type);
+        free(runtime.tags);return 0;
+    }
     if (!strcmp(argv[1],"skull_disable")) {
-        CHECK(nodes[0].flags==9 && nodes[0].data==FALSE && nodes[0].constant_type==_hs_type_boolean);
-        CHECK(nodes[0].type==_hs_type_void && nodes[0].next_node_index==NONE);
+        CHECK(nodes[0].flags==9 && nodes[0].data==FALSE && nodes[0].constant_type==nodes[0].type);
+        CHECK((argc==4 || nodes[0].type==_hs_type_void) && nodes[0].next_node_index==NONE);
         free(runtime.tags);return 0;
     }
     if (!strcmp(argv[1],"developer_write")) {

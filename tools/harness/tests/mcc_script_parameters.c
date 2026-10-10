@@ -31,6 +31,9 @@ static long last_result;
 static struct hs_thread_datum *hs_thread_get(long index) {return index==1 ? &other_thread : &thread;}
 #define _hs_thread_sleeping_bit 1
 static long hs_find_thread_by_script(short script) { return script==0 ? 0 : script==1 ? 1 : NONE; }
+short hs_find_script_by_name(char const *name) {return !strcmp(name,"target") ? 1 : NONE;}
+static long finished_argument;
+long *hs_macro_function_evaluate(short f,long t,boolean i) {(void)f;(void)t;return i ? &finished_argument : NULL;}
 boolean mcc_cache_tags_loaded(void) {return loaded;}
 void error(short priority,char const *message,...) {(void)priority;(void)message;}
 void *csmemset(void *p,long value,unsigned long size) {return memset(p,(int)value,size);}
@@ -102,6 +105,20 @@ int main(int argc,char **argv) {
     nodes[2].flags=10;nodes[2].script_index=0;nodes[2].data=0x10003;
     nodes[3].type=_hs_function_name;nodes[3].next_node_index=0x10004;
     nodes[4].data=42;
+    if(!strcmp(argv[1],"finished")) {
+        finished_argument=(long)"target";
+        other_thread.sleep_until=NONE;
+        mcc_script_finished_evaluate(0,0,TRUE);CHECK(last_result==TRUE);
+        other_thread.sleep_until=NONE-1;
+        mcc_script_finished_evaluate(0,0,TRUE);CHECK(last_result==FALSE);
+        other_thread.sleep_until=123;
+        mcc_script_finished_evaluate(0,0,TRUE);CHECK(last_result==FALSE);
+        finished_argument=(long)"missing";
+        mcc_script_finished_evaluate(0,0,TRUE);CHECK(last_result==FALSE);
+        finished_argument=0;mcc_script_finished_evaluate(0,0,TRUE);CHECK(last_result==FALSE);
+        last_result=123;mcc_script_finished_evaluate(0,0,FALSE);CHECK(last_result==123);
+        free(runtime.tags);return 0;
+    }
     if(!strncmp(argv[1],"sleep_",6)) {
         int named=strcmp(argv[1],"sleep_self")!=0;
         struct hs_thread_datum saved;

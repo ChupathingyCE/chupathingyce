@@ -217,6 +217,9 @@ int main(int argc, char **argv)
         if (!strcmp(argv[1],"graph_cycle")) {animations[256].next_animation_index=0; expected=0;}
         if (!strcmp(argv[1],"graph_node_cycle")) {nodes[1].first_child_node_index=0; expected=0;}
         if (!strcmp(argv[1],"graph_orphan")) {nodes[0].first_child_node_index=NONE; expected=0;}
+        if (!strcmp(argv[1],"graph_root_sibling")) nodes[0].next_sibling_node_index=1;
+        if (!strcmp(argv[1],"graph_root_outside")) nodes[0].next_sibling_node_index=3;
+        if (!strcmp(argv[1],"graph_root_orphan")) {nodes[0].next_sibling_node_index=1;nodes[0].first_child_node_index=NONE;expected=0;}
     }
     if (!strncmp(argv[1],"bitmap",6)) {
         header->count=2; instance[1]=instance[0]; instance[1].group='bitm'; instance[1].handle++;
@@ -300,6 +303,8 @@ int main(int argc, char **argv)
         }
     }
     if (!strcmp(argv[1],"first_person_slots")) CHECK(((struct test_first_person *)instance[1].root)->animations.count==30);
+    if (!strcmp(argv[1],"graph_root_sibling") || !strcmp(argv[1],"graph_root_outside"))
+        CHECK(((struct test_graph_node *)((struct test_graph *)instance[1].root)->nodes.address)->next_sibling_node_index==NONE);
     if (!strcmp(argv[1],"grenades_four")) {
         CHECK(((struct test_grenades *)instance[1].root)->grenades.count==4);
         CHECK(((struct test_equipment *)instance[2].root)->grenade_type==3);

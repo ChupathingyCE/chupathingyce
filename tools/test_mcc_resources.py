@@ -50,13 +50,13 @@ def fixture_blob(kind=2):
 
 @pytest.mark.parametrize("case", ["valid", "bitmap", "prefix", "wrong_name", "wrong_type", "truncated",
     "metadata_overlap", "past_end", "names_outside", "unterminated", "large_count", "inner_offset",
-    "too_long", "missing", "ce_only", "wrap_offset"])
+    "too_long", "missing", "ce_only", "wrap_offset", "relocated", "relocated_prefix", "ambiguous"])
 def test_resource_reader(resource_tool, tmp_path, case):
     folder = tmp_path / ("custom_maps" if case == "ce_only" else "mcc_maps")
     folder.mkdir()
     kind = 1 if case == "bitmap" else 2
     blob = fixture_blob(kind)
-    expected = case in {"valid", "bitmap", "prefix"}
+    expected = case in {"valid", "bitmap", "prefix", "inner_offset", "relocated"}
     offset, length, name = 16, 4, r"sound\test__0__0"
     index = struct.unpack_from("<I", blob, 8)[0]
     if case == "wrong_name": name = "different"
@@ -71,6 +71,11 @@ def test_resource_reader(resource_tool, tmp_path, case):
     if case == "too_long": length = 5
     if case == "prefix": length = 2
     if case == "wrap_offset": offset = 0xffffffff
+    if case == "relocated": offset = 20
+    if case == "relocated_prefix": offset, length = 20, 2
+    if case == "ambiguous":
+        offset = 18
+        struct.pack_into("<I", blob, index, 0)
     if case != "missing": (folder / ("bitmaps.map" if kind == 1 else "sounds.map")).write_bytes(blob)
     result = subprocess.run([str(resource_tool), str(kind), name, str(offset), str(length), str(int(expected))],
                             cwd=tmp_path, capture_output=True, timeout=10)

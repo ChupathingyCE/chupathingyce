@@ -231,8 +231,10 @@ static int mcc_animation_graph_check(struct mcc_validation_context *context,
     memset(reached, 0, sizeof(reached)); head = tail = 0;
     if (nodes->count) {
         byte const *root = nodes->address;
-        /* Root parent is unused, and MCC commonly stores zero there. */
-        if (mcc_integer(root + sibling->offset, 2, 0) != NONE) return 0;
+        long root_sibling=mcc_integer(root + sibling->offset, 2, 0);
+        /* Validate the complete child tree before normalizing the unused
+         * root sibling. Some MCC graphs point it back into that tree. */
+        if (root_sibling!=NONE && (root_sibling<0 || root_sibling>=nodes->count)) return 0;
         queue[tail++] = 0; reached[0] = 1;
     }
     while (head < tail) {
@@ -249,6 +251,11 @@ static int mcc_animation_graph_check(struct mcc_validation_context *context,
         }
     }
     if (tail != nodes->count) return 0;
+    if (nodes->count && mcc_integer((byte *)nodes->address+sibling->offset,2,0)!=NONE) {
+        short none=NONE;
+        memcpy((byte *)nodes->address+sibling->offset,&none,sizeof(none));
+        mcc_problem(context,0,"unused root sibling cleared after validating the complete node tree");
+    }
     if (!animations->count) return 1;
     states = malloc(animations->count);
     if (!states) return 0;
