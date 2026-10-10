@@ -110,7 +110,7 @@ enum
 	/* the publishes awaiting acknowledgement on a broker */
 	MAXIMUM_IN_FLIGHT = 4,
 	/* the topics a broker is subscribed to (_topic_*) */
-	NUMBER_OF_TOPICS = 5,
+	NUMBER_OF_TOPICS = 6,
 	/* a broker's publishes: at most PUBLISH_BURST at once, one more each
 	PUBLISH_INTERVAL milliseconds (EMQX drops a connection's publishes past
 	about 10 a second, without a word) */
@@ -157,6 +157,8 @@ enum
 	/* the reads of a broker's messages in one pass of the thread, whose
 	tunnels a flood of them would otherwise starve */
 	MAXIMUM_BROKER_READS = 8,
+	/* how often a host advertises its invite to a party */
+	PARTY_ADVERTISE_INTERVAL = 3000,
 };
 
 enum
@@ -171,6 +173,8 @@ enum
 {
 	_topic_host,
 	_topic_join,
+	/* a party (network.party): the hosts' advertisements (p2p_signal.c) */
+	_topic_party,
 	/* the server browser's (p2p_lobby.c): the own slot, queries, all slots */
 	_topic_own_slot,
 	_topic_query,
@@ -191,8 +195,11 @@ enum
 {
 	_message_join = 'J',
 	_message_accept = 'A',
+	/* a party's advertisement of an invite (its host's key hash and token) */
+	_message_party = 'P',
 	/* 3: a JOIN proves its key before the host makes a session */
 	MESSAGE_VERSION = 3,
+	PARTY_VERSION = 1,
 };
 
 struct broker
@@ -346,6 +353,17 @@ static struct
 	unsigned long join_nonce_time;
 	int join_answered;
 	unsigned char join_host_nonce[NONCE_SIZE];
+
+	/* a party (p2p_signal_party): its derived token, seal key and topic,
+	and, while this machine hosts, the invite it advertises */
+	int party_active;
+	unsigned char party_token[P2P_TOKEN_SIZE];
+	unsigned char party_key[P2P_SHA256_SIZE];
+	char party_topic[TOPIC_SIZE];
+	int party_advertising;
+	unsigned char party_host_hash[P2P_KEY_HASH_SIZE];
+	unsigned char party_host_token[P2P_TOKEN_SIZE];
+	unsigned long party_publish_time;
 } signalling;
 
 static int elapsed(unsigned long since, unsigned long time)
@@ -663,6 +681,7 @@ static void broker_sync_topics(struct broker *broker)
 		return;
 	wanted[_topic_host] = signalling.hosting ? signalling.host_topic : "";
 	wanted[_topic_join] = signalling.joining ? signalling.join_topic : "";
+	wanted[_topic_party] = signalling.party_active ? signalling.party_topic : "";
 	wanted[_topic_own_slot] = lobby && signalling.lobby_listed ? signalling.own_slot : "";
 	wanted[_topic_query] = lobby && signalling.lobby_listed ? P2P_LOBBY_QUERY_TOPIC : "";
 	wanted[_topic_slots] = lobby && signalling.lobby_browsing ? P2P_LOBBY_SLOT_PREFIX "+" : "";
@@ -699,6 +718,27 @@ static void publish_everywhere(const char *topic, const unsigned char *payload, 
 		if (broker->state == _broker_ready && broker_may_publish(broker, 0))
 			broker_publish(broker, topic, payload, size);
 	}
+}
+
+/* seals and publishes the invite this host advertises to its party (a
+no-op without one, or while it is not hosting) */
+static void party_advertise_now(void)
+{
+	unsigned char message[2 + P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE];
+	unsigned char sealed[sizeof(message) + P2P_SEAL_OVERHEAD];
+	int size = 0;
+
+	if (!signalling.party_active || !signalling.party_advertising)
+		return;
+	message[size++] = _message_party;
+	message[size++] = PARTY_VERSION;
+	memcpy(message + size, signalling.party_host_hash, P2P_KEY_HASH_SIZE);
+	size += P2P_KEY_HASH_SIZE;
+	memcpy(message + size, signalling.party_host_token, P2P_TOKEN_SIZE);
+	size += P2P_TOKEN_SIZE;
+	size = p2p_seal(signalling.party_key, message, size, sealed);
+	publish_everywhere(signalling.party_topic, sealed, size);
+	signalling.party_publish_time = p2p_now();
 }
 
 /* the listing's publishes due on a broker: the listing, or a tombstone and
@@ -1247,6 +1287,14 @@ static void accept_received(const unsigned char *message, int size)
 	send_join();
 }
 
+/* a party's advertisement (already opened): reach the host it names */
+static void party_received(const unsigned char *message, int size)
+{
+	if (size < 2 + P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE)
+		return;
+	p2p_party_host(message + 2, message + 2 + P2P_KEY_HASH_SIZE);
+}
+
 static void publish_received(struct broker *broker, const char *topic, const unsigned char *payload, int size,
 	int retained)
 {
@@ -1276,6 +1324,12 @@ static void publish_received(struct broker *broker, const char *topic, const uns
 		message_size = p2p_open(signalling.join_key, payload, size, message);
 		if (message_size >= 2 && message[0] == _message_accept && message[1] == MESSAGE_VERSION)
 			accept_received(message, message_size);
+	}
+	else if (signalling.party_active && !strcmp(topic, signalling.party_topic))
+	{
+		message_size = p2p_open(signalling.party_key, payload, size, message);
+		if (message_size >= 2 && message[0] == _message_party && message[1] == PARTY_VERSION)
+			party_received(message, message_size);
 	}
 }
 
@@ -1712,6 +1766,9 @@ void p2p_signal_update(const int *read, int read_count, const int *write, int wr
 	}
 	if (signalling.joining && elapsed(signalling.join_sent_time, JOIN_INTERVAL))
 		send_join();
+	if (signalling.party_active && signalling.party_advertising &&
+		elapsed(signalling.party_publish_time, PARTY_ADVERTISE_INTERVAL))
+		party_advertise_now();
 }
 
 int p2p_signal_connected(void)
@@ -1837,4 +1894,55 @@ void p2p_signal_lobby_quit(void)
 		broker_send(broker, 0xE0, disconnect, broker->protocol == 5 ? 2 : 0);
 		broker_flush(broker);
 	}
+}
+
+/* ---------- parties (network.party) */
+
+void p2p_signal_party(const char *name)
+{
+	unsigned char digest[P2P_SHA256_SIZE];
+	size_t length;
+
+	signalling.party_active = 0;
+	signalling.party_advertising = 0;
+	signalling.party_topic[0] = 0;
+	if (!name)
+		return;
+	while (*name == ' ' || *name == '\t' || *name == '\r' || *name == '\n')
+		name++;
+	length = strlen(name);
+	while (length > 0)
+	{
+		char last = name[length - 1];
+
+		if (last != ' ' && last != '\t' && last != '\r' && last != '\n')
+			break;
+		length--;
+	}
+	if (!length)
+		return;
+	/* the name alone makes the token, the topic and the key the hosts'
+	invites are advertised with: anyone who knows the name can join */
+	p2p_sha256(name, (int)length, digest);
+	memcpy(signalling.party_token, digest, P2P_TOKEN_SIZE);
+	derive(signalling.party_token, "party-seal", NULL, signalling.party_key);
+	make_topic(signalling.party_token, "party", NULL, signalling.party_topic);
+	signalling.party_active = 1;
+	/* the brokers must connect for the party to be heard */
+	p2p_signal_start();
+	sync_all_topics();
+	platform_log("Internet play: a party is set; a host of it is found without an invite");
+}
+
+void p2p_signal_advertise_party(const unsigned char *host_hash, const unsigned char *token)
+{
+	if (!host_hash || !token)
+	{
+		signalling.party_advertising = 0;
+		return;
+	}
+	memcpy(signalling.party_host_hash, host_hash, P2P_KEY_HASH_SIZE);
+	memcpy(signalling.party_host_token, token, P2P_TOKEN_SIZE);
+	signalling.party_advertising = 1;
+	party_advertise_now();
 }

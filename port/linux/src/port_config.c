@@ -320,6 +320,27 @@ static const struct config_setting config_settings[] =
 		"clipboard) that lets whoever has it join over the internet; opening a\n"
 		"link (or copying one before switching to the game) joins. Only people\n"
 		"with the invite can join. Off keeps system link to the local network." },
+	{ "network.party", _config_string, "\"public\"", "HALO_NET_PARTY", _environment_value, _platform_all,
+		"A party: machines whose network.party is the same find each other\n"
+		"over the internet, so a party's lobby shows in their system link\n"
+		"lists with no invite to pass around. The default finds the public\n"
+		"lobby. Anyone who knows the name can join, so choose a hard name for\n"
+		"a party of your own. Empty: off; invite links only." },
+	{ "network.party_advertise", _config_boolean, "false", "HALO_NET_PARTY_ADVERTISE", _environment_value,
+		_platform_all,
+		"List a game this machine hosts in its party (network.party), so the\n"
+		"others find it; false keeps a hosted game private (only an invite\n"
+		"link reaches it). A party lobby host sets this, or uses\n"
+		"network.party_lobby, which implies it." },
+	{ "network.party_lobby", _config_string, "\"\"", "HALO_NET_PARTY_LOBBY", _environment_value, _platform_all,
+		"Host an always-on public lobby of this map (with an optional :variant\n"
+		"after it, as \"bloodgulch:slayer\") and list it in the party, so\n"
+		"players who set the party find it and join. Empty: no lobby; the game\n"
+		"hosts only when a player does." },
+	{ "network.party_lobby_start", _config_real, "60.0", "HALO_NET_PARTY_LOBBY_START", _environment_value,
+		_platform_all,
+		"Seconds after a party lobby appears that its match starts, and after\n"
+		"each game before the next. 0 starts at once." },
 	{ "network.join_from_clipboard", _config_boolean, "true", "HALO_NET_JOIN_FROM_CLIPBOARD", _environment_value,
 		_platform_all,
 		"Join the game of an invite link found on the clipboard when the game\n"

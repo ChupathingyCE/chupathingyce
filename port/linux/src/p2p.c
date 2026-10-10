@@ -334,6 +334,9 @@ static struct
 	int game_player_maximum;
 	int reported_player_count;
 	int reported_player_maximum;
+	/* a game this machine hosts is listed in its party (network.party_
+	advertise, or network.party_lobby) */
+	int party_advertise;
 
 	/* joining: until the host is reached, or JOIN_TIMEOUT */
 	int join_requested;
@@ -2512,6 +2515,34 @@ void p2p_invite_received(const char *text)
 		platform_log("Internet play: that is not an invite");
 }
 
+/* a party's host was advertised (p2p_signal.c); the p2p thread's, under
+p2p_lock */
+void p2p_party_host(const unsigned char *host_hash, const unsigned char *token)
+{
+	unsigned char host[P2P_IDENTIFIER_SIZE];
+	int index;
+
+	p2p_identifier();
+	p2p_identifier_from_hash(host_hash, host);
+	/* our own advertisement (a broker sends it back) */
+	if (!memcmp(host, identifier, P2P_IDENTIFIER_SIZE))
+		return;
+	/* a machine that hosts its own game does not join another's, and only
+	one session is reached at a time (the next advertisement may name
+	another host if this one is gone) */
+	if (p2p.hosting || p2p.joining || p2p.join_requested)
+		return;
+	for (index = 0; index < P2P_MAXIMUM_PEERS; index++)
+	{
+		if (p2p.peers[index].used && p2p.peers[index].connected)
+			return;
+	}
+	memcpy(p2p.join_host, host, sizeof(host));
+	memcpy(p2p.join_host_hash, host_hash, P2P_KEY_HASH_SIZE);
+	memcpy(p2p.join_token, token, P2P_TOKEN_SIZE);
+	p2p.join_requested = 1;
+}
+
 static void update_joining(void)
 {
 	char name[2 * P2P_IDENTIFIER_SIZE + 1];
@@ -2606,6 +2637,14 @@ static void update_hosting(void)
 		p2p.stun_started = 1;
 		p2p_signal_start();
 		p2p_signal_host(p2p.token);
+		if (p2p.party_advertise)
+		{
+			/* a party finds this game without an invite (network.party) */
+			unsigned char hash[P2P_KEY_HASH_SIZE];
+
+			p2p_key_hash(p2p_public_key(), hash);
+			p2p_signal_advertise_party(hash, p2p.token);
+		}
 		{
 			char shown[128];
 
@@ -2625,6 +2664,7 @@ static void update_hosting(void)
 	else if (!want && p2p.hosting)
 	{
 		p2p.hosting = 0;
+		p2p_signal_advertise_party(NULL, NULL);
 		p2p_signal_stop_hosting();
 		p2p_discord_set_hosting(NULL, 0, 0);
 	}
@@ -3184,6 +3224,13 @@ void p2p_initialize(unsigned long local_address)
 	p2p_identifier();
 	if (p2p.running || !config_boolean("network.online"))
 		return;
+	/* a party finds hosts without an invite (network.party); it starts
+	signalling, so its brokers connect even before a game is hosted or
+	joined. An automated test keeps to itself, so it joins no party. */
+	p2p.party_advertise = config_boolean("network.party_advertise") ||
+		*config_string("network.party_lobby");
+	if (!*config_string("debug.network_test"))
+		p2p_signal_party(config_string("network.party"));
 	if (tunnel_port < 0 || tunnel_port > 65535)
 	{
 		platform_log("Internet play: network.tunnel_port %ld is not a port (0 to 65535); the game selects one",

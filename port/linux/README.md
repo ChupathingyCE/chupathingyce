@@ -327,6 +327,10 @@ the setting for one start of the game. It has priority over the file.
 | `network.address` | `""` | `HALO_NET_ADDRESS` | The IPv4 address of this machine for system link. Refer to "Play on one computer". |
 | `network.broadcast` | `""` | `HALO_NET_BROADCAST` | IPv4 addresses, with commas between them, that get the broadcasts of the game. Empty: 255.255.255.255. |
 | `network.online` | `true` | `HALO_NET_ONLINE` | `true`: internet play. `false`: system link on the local network only. |
+| `network.party` | `"public"` | `HALO_NET_PARTY` | The party to find hosts in: machines with the same name see the games of each other over the internet, without an invite. Refer to "Parties". |
+| `network.party_advertise` | `false` | `HALO_NET_PARTY_ADVERTISE` | `true`: list a game this machine hosts in its party, so the others find it. `false`: only an invite link reaches it. |
+| `network.party_lobby` | `""` | `HALO_NET_PARTY_LOBBY` | Host an always-on public lobby of this map (`"bloodgulch"`, or `"bloodgulch:slayer"`) and list it in the party. Refer to "Parties". |
+| `network.party_lobby_start` | `60.0` | `HALO_NET_PARTY_LOBBY_START` | Seconds after a party lobby appears that its match starts, and after each game before the next. `0` starts at once. |
 | `network.join_from_clipboard` | `true` | `HALO_NET_JOIN_FROM_CLIPBOARD` | `true`: when the game comes to the front, it joins the game of an invite link on the clipboard. |
 | `network.tunnel_port` | `0` | `HALO_NET_TUNNEL_PORT` | The UDP port for internet play. `0`: the game selects a port. Refer to "Internet play". |
 | `network.allow_upnp` | `true` | `HALO_NET_ALLOW_UPNP` | `true`: internet play can ask the router to forward its port (UPnP). `false`: the game does not ask. Refer to "Internet play". |
@@ -628,6 +632,46 @@ ChupathingyCE's own parts of the server browser:
   a title again to sort the other way. The chosen game stays chosen while
   the list changes. The lines below the rows show the players (by name,
   when the host sends a roster) and the rules of the chosen game.
+
+### Parties
+
+A party is a name that machines share instead of an invite link
+(`network.party`, `HALO_NET_PARTY`). Machines in the same party find each
+other through the signalling brokers, so the games of the party show in
+their system link lists without anyone opening or copying a link.
+
+The default party is `public`, and the public lobby needs no setup:
+
+1. Start the game and go to Multiplayer, System Link.
+2. The public lobby appears in the list. Join it.
+
+A game this machine hosts is private by default (only an invite link
+reaches it). To list it in the party, set `network.party_advertise = true`.
+For a party of your own, set the same `network.party` name on every machine
+(a hard name keeps strangers out) and set `network.party_advertise = true`
+on the machine that hosts.
+
+#### An always-on public lobby
+
+The public lobby itself is a machine that keeps a game open, with
+`network.party_lobby` set to its map (and, after a colon, its variant):
+
+```toml
+[network]
+party = "public"
+party_lobby = "bloodgulch:slayer"
+party_lobby_start = 60.0
+```
+
+The game then hosts that lobby without the menus, waits
+`network.party_lobby_start` seconds, plays the game, and returns to the
+lobby for the next. `debug.hidden_window = true` runs it without a window.
+Other machines need no settings: their default party is `public`.
+
+Anyone who knows a party's name can join it, so choose a hard name for a
+party of your own. The brokers see only a hash of the name, and the invite
+of a host is sealed with a key from it. A party does not stop invite links
+from working; a machine can use both.
 
 ### Security
 
