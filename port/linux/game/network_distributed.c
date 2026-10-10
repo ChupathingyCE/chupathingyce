@@ -4011,6 +4011,7 @@ static boolean distributed_message_stale(
 	case _distributed_message_coop_device_states:
 #ifdef HALO_MCC_NETWORK
 	case _distributed_message_mcc_grenades:
+	case _distributed_message_mcc_campaign:
 #endif
 		break;
 	default:
@@ -5010,6 +5011,7 @@ void network_distributed_handle_message(
 	case _distributed_message_pings: entry_size = sizeof(struct distributed_player_ping); break;
 #ifdef HALO_MCC_NETWORK
 	case _distributed_message_mcc_grenades: entry_size = mcc_network_inventory_entry_size(); break;
+	case _distributed_message_mcc_campaign: entry_size = mcc_network_campaign_entry_size(); break;
 #endif
 	case _distributed_message_actor_states: entry_size = network_actors_entry_size(); break;
 	case _distributed_message_structure_bsp: entry_size = sizeof(struct distributed_structure_bsp); break;
@@ -5227,6 +5229,9 @@ void network_distributed_handle_message(
 #ifdef HALO_MCC_NETWORK
 	case _distributed_message_mcc_grenades:
 		mcc_network_handle_inventories(entries, header.count);
+		break;
+	case _distributed_message_mcc_campaign:
+		mcc_network_handle_campaign(entries, header.count);
 		break;
 #endif
 	case _distributed_message_object_changes:

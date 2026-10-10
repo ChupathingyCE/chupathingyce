@@ -132,6 +132,8 @@ enum
 	(GulchCE's number: off our wire. MCC maps' messages go over Delta when
 	they come; until then HALO_MCC_NETWORK stays undefined.) */
 	_distributed_message_mcc_grenades = 83,
+	/* MCC-only campaign gravity and breadcrumb state. */
+	_distributed_message_mcc_campaign = 84,
 #endif
 
 	NUMBER_OF_DISTRIBUTED_MESSAGES

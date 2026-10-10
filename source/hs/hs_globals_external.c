@@ -2982,6 +2982,12 @@ typedef char verify_hs_external_global_settable_in_maps_size[
 boolean hs_external_global_settable_by_maps(
 	short global_index)
 {
+	/* port: MCC's separately scoped campaign controls (mcc_campaign.c). */
+	{
+		extern boolean mcc_campaign_global_settable(short index);
+		if (mcc_campaign_global_settable(global_index))
+			return TRUE;
+	}
 	return global_index>=0 &&
 		global_index<(short)NUMBEROF(hs_external_global_settable_in_maps) &&
 		hs_external_global_settable_in_maps[global_index];
