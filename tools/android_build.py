@@ -702,7 +702,10 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     # config.toml (port/android/host/host_main.c)
     staged_brokers = assets_dir / "brokers.txt"
     n.build(outputs=staged_brokers, rule="android_copy", inputs=Path("port/assets/network/brokers.txt"))
-    n.build(outputs="android", rule="phony", inputs=[libmain, staged_sdl, staged_image, staged_brokers])
+    # Include MCC's decoder notice in the APK as well as the release archive.
+    staged_bcdec_license = assets_dir / "bcdec-LICENSE.txt"
+    n.build(outputs=staged_bcdec_license, rule="android_copy", inputs=Path("port/third_party/bcdec/LICENSE"))
+    n.build(outputs="android", rule="phony", inputs=[libmain, staged_sdl, staged_image, staged_brokers, staged_bcdec_license])
 
     apk = PORT_DIR / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
     n.rule(
@@ -714,7 +717,7 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         pool="console",
     )
     sdl_mouse_listener = SDL_DIR / "android-project/app/src/main/java/org/libsdl/app/SDLControllerManager.java"
-    n.build(outputs=apk, rule="android_gradle", inputs=[libmain, staged_sdl, staged_image, staged_brokers],
+    n.build(outputs=apk, rule="android_gradle", inputs=[libmain, staged_sdl, staged_image, staged_brokers, staged_bcdec_license],
             implicit=[sdl_mouse_listener])
     n.build(outputs="android_apk", rule="phony", inputs=apk)
     n.newline()
