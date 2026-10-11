@@ -13,6 +13,7 @@ pointer itself in a 32-bit one */
 #define MCC_POINTER(address) xbox_pointer(address)
 
 struct mcc_runtime {
+    char level_name[64]; /* Canonical MCC package/map, retained through conversion. */
     unsigned char *tags;
     unsigned char *tag_index;
     uint32_t used;
