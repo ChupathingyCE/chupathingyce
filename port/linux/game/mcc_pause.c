@@ -302,9 +302,11 @@ static long mcc_pause_screen(short mode, short layout)
     short width = layout == MCC_PAUSE_QUARTER ? 320 : 640, height = layout == MCC_PAUSE_FULL ? 480 : 240;
     short count = 0, child_count = 0, xs[6] = {0}, ys[6] = {0}, bx[6] = {0}, by[6] = {0};
     short row = campaign ? (layout == MCC_PAUSE_QUARTER ? 24 : 28) : (layout == MCC_PAUSE_FULL ? 35 : 27);
+    short campaign_growth = campaign && mcc_pause.assets.settings && layout == MCC_PAUSE_FULL ? 36 : 0;
     short button_width = campaign && layout == MCC_PAUSE_QUARTER ? 264 : 202;
     short button_height = row < 28 ? row - 1 : 27, x, y, panel_height, i;
     struct mcc_pause_widget *widget;
+    if (campaign_growth) row = 30;
     root = mcc_pause_widget("pause", 0, width, height, layout, NONE);
     widget = mcc_pause_definition(root); if (!widget) return NONE;
     widget->flags = 1 | (pauses ? 2 : 0);
@@ -313,6 +315,8 @@ static long mcc_pause_screen(short mode, short layout)
      * flags would also dismiss other split-screen players' menus. */
     mcc_pause_events(root, MCC_PAUSE_ACTION_RESUME, NONE, 128, TRUE);
     buttons[count++] = mcc_pause_button(layout, button_width, button_height, LABEL_RESUME, MCC_PAUSE_ACTION_RESUME, NONE, 128);
+    if (campaign_growth)
+        buttons[count++] = mcc_pause_button(layout, button_width, button_height, LABEL_SETTINGS, MCC_PAUSE_ACTION_SETTINGS, NONE, 128);
     if (campaign && mode != COOP_CLIENT) {
         buttons[count++] = mcc_pause_button(layout, button_width, button_height, LABEL_REVERT, 0,
             mcc_pause_dialog(layout, pauses, CONFIRM_REVERT), 8);
@@ -336,11 +340,11 @@ static long mcc_pause_screen(short mode, short layout)
         x = layout == MCC_PAUSE_QUARTER ? 28 : 72;
         y = layout == MCC_PAUSE_FULL ? 171 : (layout == MCC_PAUSE_HALF ? 51 : 26);
         children[child_count] = mcc_pause_panel(layout, layout == MCC_PAUSE_QUARTER ? 296 : 218,
-            layout == MCC_PAUSE_QUARTER ? 228 : 159);
+            layout == MCC_PAUSE_QUARTER ? 228 : 159 + campaign_growth);
         xs[child_count] = layout == MCC_PAUSE_QUARTER ? 12 : 64;
         ys[child_count++] = layout == MCC_PAUSE_FULL ? 162 : (layout == MCC_PAUSE_HALF ? 42 : 10);
         if (layout != MCC_PAUSE_QUARTER) {
-            children[child_count] = mcc_pause_panel(layout, 285, 159);
+            children[child_count] = mcc_pause_panel(layout, 285, 159 + campaign_growth);
             xs[child_count] = 287; ys[child_count++] = y - 9;
         }
     } else {
@@ -382,7 +386,7 @@ static long mcc_pause_screen(short mode, short layout)
         if (widget) { widget->font.index = mcc_pause.assets.small_font[layout]; widget->justification = 0; }
         children[child_count] = footer;
         xs[child_count] = campaign ? (layout == MCC_PAUSE_QUARTER ? 28 : 87) : x;
-        ys[child_count++] = campaign ? (layout == MCC_PAUSE_FULL ? 296 : layout == MCC_PAUSE_HALF ? 176 : 216) :
+        ys[child_count++] = campaign ? (layout == MCC_PAUSE_FULL ? 296 + campaign_growth : layout == MCC_PAUSE_HALF ? 176 : 216) :
             y - 10 + panel_height - 24;
     }
     mcc_pause_children(root, children, xs, ys, child_count);

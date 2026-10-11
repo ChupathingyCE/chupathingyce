@@ -91,11 +91,13 @@ without changing their contents.
 | Multiplayer host | Resume, Restart Game, End Game and Leave Game; Choose Team in team games. |
 | Multiplayer client | Resume and Leave Game; Choose Team in team games. |
 
-Multiplayer additionally offers **Settings** when `display.menus=pc` and
-there is one local player. It opens the trusted native player Settings
-screen for the initiating controller. Split-screen players use Settings
+All full-screen MCC pause menus offer **Settings**, including campaign,
+network co-op and multiplayer, with either main-menu style. This opens
+OpenCE’s native in-game audio, video and controls screens for the initiating
+controller, using upstream’s option filtering and profile saving. Campaign
+menus use 30-pixel row spacing and taller panels to accommodate the option. Split-screen players use Settings
 from the main menu, since the native editor needs a full viewport.
-Campaign and cooperative pause menus do not offer Settings. Restart,
+Restart,
 revert and leaving/end-game actions use confirmation
 dialogs with Cancel selected initially. B returns from a confirmation to
 the pause screen; Start closes the current player's menu and its navigation
@@ -438,8 +440,7 @@ decoded texture storage to exceed the former single 512 MiB offset range.
   This remains relevant to script-opened custom interfaces; the default
   pause menus use the separately generated definitions above. Unsupported
   embedded callbacks fail without performing the event's close/open actions.
-  Native Settings is available only in MCC multiplayer with
-  `display.menus=pc` and one local player.
+  Native Settings is available in all MCC modes with one local player.
   HUD placement normalization and overlay handling
   still require visual comparison against the map's intended appearance.
 - No claim is made here of complete campaign/gameplay fidelity or
@@ -514,7 +515,7 @@ revert/save, restart permissions, campaign/multiplayer/cooperative quit,
 red/blue team choice and balance feedback, New Game routing, trusted native
 Settings, unsupported events and isolation of non-MCC widgets. Generated
 actions also check exact widget ownership, stale or copied handles,
-multiplayer-only Settings and canonical map-name admission. Controller-local
+Settings across campaign and multiplayer and canonical map-name admission. Controller-local
 closing tests retain another player's active menu, dispose the initiating
 player's navigation history, and leave rejected team requests open. The
 team-ingress tests exercise the actual server settings handler and MCC

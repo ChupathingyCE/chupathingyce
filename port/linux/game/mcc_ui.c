@@ -47,6 +47,21 @@ void mcc_ui_settings_profile_released(void)
     mcc_settings_controller = NONE;
 }
 
+boolean mcc_ui_settings_profile_reopen(long profile_index)
+{
+    short controller = mcc_settings_controller;
+    if (!mcc_cache_tags_loaded() || controller == NONE ||
+        !player_ui_get_edit_player_profile() ||
+        player_ui_get_edit_profile_index() != profile_index) return FALSE;
+    /* Native Gamepads saves and reopens the same profile. Keep ownership
+     * across that reload, but never claim an unrelated profile editor. */
+    player_ui_begin_editing_profile(profile_index);
+    if (player_ui_get_edit_player_profile() &&
+        player_ui_get_edit_profile_index() == profile_index)
+        mcc_settings_controller = controller;
+    return TRUE;
+}
+
 void mcc_ui_settings_close(short controller)
 {
     if (mcc_settings_controller != NONE &&
@@ -107,9 +122,7 @@ boolean mcc_ui_trusted_action(struct widget_instance *widget, word function)
 
 boolean mcc_ui_settings_needed(char const *map_name)
 {
-    return map_name && mcc_level_name(map_name) && mcc_cache_tags_loaded() &&
-        !mcc_maps_level_campaign(map_name) &&
-        !strcmp(config_string("display.menus"), "pc");
+    return map_name && mcc_level_name(map_name) && mcc_cache_tags_loaded();
 }
 
 static boolean mcc_ui_scenario_type(short type)
@@ -295,7 +308,7 @@ boolean mcc_ui_event_function(struct widget_instance *widget,
             function == 108 ? 0 : function == 109 ? 1 : function == 110 ? 10 : function == 111 ? 11 : 2);
         break;
     case 137: /* Open trusted native settings, never the map's PC configuration widgets. */
-        if (!mcc_ui_scenario_type(1) || strcmp(config_string("display.menus"), "pc") ||
+        if ((!mcc_ui_scenario_type(0) && !mcc_ui_scenario_type(1)) ||
             local_player_count() != 1 ||
             !pc_menu_tag(tag_loaded('DeLa', "pc\\main_menu\\settings_select\\player_setup\\player_profile_edit\\player_profile_edit_screen")) ||
             !mcc_ui_settings_begin(controller)) {

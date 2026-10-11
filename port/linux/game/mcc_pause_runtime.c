@@ -160,7 +160,7 @@ boolean mcc_pause_runtime_load(void)
         assets.small_font[i]=small;
     }
     assets.art=mcc_pause_art_add;
-    assets.settings=!strcmp(config_string("display.menus"),"pc");
+    assets.settings=TRUE;
     /* Discover the bounded, deduplicated art inventory before assigning the
      * final widget indices. Neither pass publishes partial definitions. */
     if(!mcc_pause_build(pause_runtime.original_count+MCC_PAUSE_MAX_ART,0x6000,&assets) || pause_runtime.failed) goto failed;

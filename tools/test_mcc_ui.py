@@ -28,7 +28,7 @@ def ui_tool(tmp_path_factory):
     tags = (ROOT / "port/linux/game/mcc_tags.c").read_text()
     profiles = (ROOT / "source/interface/player_ui.c").read_text()
     actions = re.search(r"enum\s*\{.*?\};", ui_header, re.S).group()
-    names = ["mcc_ui_settings_profile_released", "mcc_ui_settings_close", "mcc_ui_settings_begin",
+    names = ["mcc_ui_settings_profile_released", "mcc_ui_settings_profile_reopen", "mcc_ui_settings_close", "mcc_ui_settings_begin",
              "mcc_ui_owns_widget", "mcc_ui_trusted_action", "mcc_ui_settings_needed", "mcc_ui_scenario_type", "mcc_ui_controller",
              "mcc_ui_failure", "mcc_ui_host_required", "mcc_ui_restart", "mcc_ui_end_round", "mcc_ui_new_game",
              "mcc_ui_request_team", "mcc_ui_choose_team", "mcc_ui_close_for_controller",
@@ -187,7 +187,7 @@ static boolean virtual_keyboard_active(void){return FALSE;}
 static void virtual_keyboard_close(void){}
 static void ui_play_audio_feedback_sound(long sound){(void)sound;}
 ''' + actions + '\n' + '\n'.join(function(profiles, name) for name in [
-        "player_ui_get_active_player_profile_index", "player_ui_get_edit_player_profile", "player_ui_get_edit_playlist_profile",
+        "player_ui_get_edit_profile_index", "player_ui_get_active_player_profile_index", "player_ui_get_edit_player_profile", "player_ui_get_edit_playlist_profile",
         "player_ui_begin_editing_profile", "clear_profile_edit_data", "player_ui_end_editing_profile"
     ]) + '\n' + function(native, "ui_widgets_close_all_for_local_player") + '\n' + \
         function(native, "ui_widgets_close_all") + '\n' + \
@@ -376,16 +376,18 @@ int main(int argc,char **argv){
     }
     if(!strcmp(argv[1],"trusted-settings")){
         widget.definition_tag_index=300;action.function=MCC_PAUSE_ACTION_SETTINGS;action.flags=128;
-        CHECK(!fire(&widget,0,&action)&&!profile_begin&&!settings_open&&message_count==1,60);
+        CHECK(fire(&widget,0,&action)&&profile_begin==1&&settings_open==1,60);
+        mcc_ui_settings_close(NONE);
         campaign=FALSE;scenario.type=1;pc_menus=FALSE;
-        CHECK(!fire(&widget,0,&action)&&!profile_begin&&!settings_open&&message_count==2,61);
+        CHECK(fire(&widget,0,&action)&&profile_begin==2&&settings_open==2,61);
+        mcc_ui_settings_close(NONE);
         pc_menus=TRUE;
-        CHECK(fire(&widget,0,&action)&&profile_begin==1&&settings_open==1,62);
+        CHECK(fire(&widget,0,&action)&&profile_begin==3&&settings_open==3,62);
         settings_collision=TRUE;
-        CHECK(!fire(&widget,0,&action)&&profile_begin==1&&settings_open==1&&message_count==3,63);return 0;
+        CHECK(!fire(&widget,0,&action)&&profile_begin==3&&settings_open==3&&message_count==1,63);return 0;
     }
     if(!strcmp(argv[1],"settings-namespace")){
-        CHECK(!mcc_ui_settings_needed("mcc_maps\\a10"),69);
+        CHECK(mcc_ui_settings_needed("mcc_maps\\a10"),69);
         CHECK(!mcc_ui_settings_needed("mercury_falling")&&!mcc_ui_settings_needed("a10"),70);
         campaign=FALSE;CHECK(mcc_ui_settings_needed("mcc_maps\\dangercanyon"),71);
         CHECK(!mcc_ui_settings_needed("ui")&&!mcc_ui_settings_needed("custom_maps\\dangercanyon")&&
@@ -410,7 +412,8 @@ int main(int argc,char **argv){
          * changes or the last multiplayer selection. */
         widget.definition_tag_index=300;scenario.type=0;campaign=FALSE;action.flags=128;
         action.function=MCC_PAUSE_ACTION_SETTINGS;
-        CHECK(!fire(&widget,0,&action)&&!profile_begin&&!settings_open,88);
+        CHECK(fire(&widget,0,&action)&&profile_begin==1&&settings_open==1,88);
+        mcc_ui_settings_close(NONE);
         action.function=MCC_PAUSE_ACTION_SAVE;
         CHECK(!fire(&widget,0,&action)&&save_count==1&&persist_count==1,89);
         action.function=MCC_PAUSE_ACTION_QUIT;
@@ -497,6 +500,18 @@ int main(int argc,char **argv){
         player_ui_globals.local_players[2].active_profile_index=1002;
         profile=TRUE;CHECK(fire(&widget,0,&action)&&settings_open==1&&player_ui_globals.edit_profile_index==1002,122);return 0;
     }
+    if(!strcmp(argv[1],"settings-profile-reopen")){
+        widget.definition_tag_index=300;scenario.type=0;action.flags=128;action.function=MCC_PAUSE_ACTION_SETTINGS;
+        CHECK(fire(&widget,0,&action)&&mcc_settings_controller==2,131);
+        CHECK(!mcc_ui_settings_profile_reopen(1000)&&mcc_settings_controller==2,132);
+        CHECK(mcc_ui_settings_profile_reopen(1002)&&mcc_settings_controller==2,133);
+        CHECK(player_ui_get_edit_profile_index()==1002,134);
+        ui_widgets_close_all();
+        CHECK(!player_ui_get_edit_player_profile()&&mcc_settings_controller==NONE,135);
+        player_ui_begin_editing_profile(1000);
+        CHECK(!mcc_ui_settings_profile_reopen(1000)&&player_ui_get_edit_profile_index()==1000,136);
+        return 0;
+    }
     if(!strcmp(argv[1],"settings-replaced-editor")){
         widget.definition_tag_index=300;scenario.type=1;action.flags=128;action.function=MCC_PAUSE_ACTION_SETTINGS;
         CHECK(fire(&widget,0,&action)&&mcc_settings_controller==2,128);
@@ -566,7 +581,7 @@ int main(int argc,char **argv){
                                  "split-resume", "split-team", "split-team-denied", "split-quit", "split-quit-sync", "local-quit",
                                  "network-stale-solo", "campaign-stale-catalog", "settings-no-scenario",
                                  "settings-controller", "settings-split-denied", "settings-busy", "settings-lifecycle",
-                                 "settings-open-failure", "settings-profile-fallback", "settings-replaced-editor"])
+                                 "settings-open-failure", "settings-profile-fallback", "settings-replaced-editor", "settings-profile-reopen"])
 def test_mcc_widget_events(ui_tool, case):
     result = subprocess.run([str(ui_tool), case], capture_output=True, text=True)
     assert result.returncode == 0, (case, result.returncode, result.stdout, result.stderr)
@@ -612,10 +627,12 @@ int main(void)
     campaign_tag=1;check("a10",1,1);check("custom_maps\\a10",1,1);
     campaign_tag=0;multiplayer_tag=1;check("bloodgulch",1,0);
     pc=0;check("bloodgulch",0,0);check("ui",0,0);pc=1;
-    /* Even an MCC map carrying the native campaign widget must not get
-       that widget patched, nor get an extra set of campaign Settings tags. */
+    /* MCC owns its campaign widgets, but requests native Settings with
+       either main-menu style, without the native campaign widget patch. */
     mcc=1;campaign_tag=1;multiplayer_tag=0;
     check("mcc_maps\\a10",0,0);
+    wants_settings=1;check("mcc_maps\\a10",1,0);
+    pc=0;check("mcc_maps\\a10",1,0);pc=1;
     /* MCC multiplayer retains native Settings without the campaign patch. */
     wants_settings=1;check("mcc_maps\\dangercanyon",1,0);
     wants_settings=0;pc=0;check("mcc_maps\\dangercanyon",0,0);

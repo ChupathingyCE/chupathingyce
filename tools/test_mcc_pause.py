@@ -191,6 +191,13 @@ static int context_check(boolean do_bounds) {
                 if(!strcmp(definition->name,"button_key"))footer=child;
             }
             CHECK(list!=NONE&&footer!=NONE);
+            if(campaign&&layout==0&&assets.settings) {
+                struct ui_widget_definition const *buttons=widget(children[list].widget_tag.index);
+                struct ui_widget_child_reference const *rows=buttons->child_widgets.address;
+                CHECK(widget(children[0].widget_tag.index)->bounds.y1==195);
+                CHECK(children[footer].vertical_offset==332);
+                CHECK(rows[1].vertical_offset-rows[0].vertical_offset==30);
+            }
             CHECK(children[footer].vertical_offset>=children[list].vertical_offset+
                 widget(children[list].widget_tag.index)->bounds.y1);
             CHECK(widget(children[footer].widget_tag.index)->text_font.index==assets.small_font[layout]);
@@ -205,10 +212,10 @@ static int context_check(boolean do_bounds) {
         CHECK(bits&1u); /* Resume is always reachable. */
         CHECK(bits&(1u<<(MCC_PAUSE_ACTION_QUIT-MCC_PAUSE_ACTION_RESUME)));
         if(network&&!host)CHECK(!(bits&((1u<<1)|(1u<<2)|(1u<<3)|(1u<<5))));
-        if(campaign)CHECK(!(bits&((1u<<5)|(1u<<6)|(1u<<7)|(1u<<8))));
+        if(campaign)CHECK(!(bits&((1u<<5)|(1u<<6)|(1u<<7))));
         /* The native Settings screen requires a full viewport, including
          * when the first player owns the half-screen in a three-player game. */
-        CHECK(!!(bits&(1u<<8))==(!campaign&&assets.settings&&count==1));
+        CHECK(!!(bits&(1u<<8))==(assets.settings&&count==1));
         if(!campaign)CHECK(!(bits&((1u<<1)|(1u<<3))));
         if(!network||campaign||!teams)CHECK(!(bits&((1u<<6)|(1u<<7))));
         if(!campaign&&network&&teams)CHECK((bits&((1u<<6)|(1u<<7)))==((1u<<6)|(1u<<7)));
