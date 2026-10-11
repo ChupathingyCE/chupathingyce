@@ -78,6 +78,7 @@ symbols in this file:
 #include "tag_files/tag_groups.h"
 #include "units/unit_definitions.h"
 #include "units/units.h"
+#include "mcc_hud_draw.h" /* port: port/linux/game/mcc_hud_draw.c */
 
 #include <math.h>
 #include <string.h>
@@ -1751,6 +1752,10 @@ static void render_weapon_hud(
 			&definition->statics,
 			element_index,
 			struct weapon_hud_static_element);
+		/* port: MCC child anchors; other formats retain their parent pointer. */
+		struct hud_absolute_placement_definition mcc_placement;
+		struct hud_absolute_placement_definition const *placement = mcc_hud_child_placement(
+			&definition->absolute_placement, element, &mcc_placement);
 
 		if (!TEST_FLAG(element->header.runtime_flags, _hud_element_runtime_invalid_bit) &&
 			TEST_FLAG(map_type_flags, element->header.use_on_map_type) &&
@@ -1767,7 +1772,7 @@ static void render_weapon_hud(
 			state_index = element->header.state_type;
 			hud_draw_static_element(
 				local_player_index,
-				&definition->absolute_placement,
+				placement,
 				&element->static_element,
 				state_flags[state_index],
 				hud_state->last_weapon_flash_time[state_index]);
@@ -1786,6 +1791,10 @@ static void render_weapon_hud(
 			&definition->meters,
 			element_index,
 			struct weapon_hud_meter_element);
+		/* port: MCC child anchors; other formats retain their parent pointer. */
+		struct hud_absolute_placement_definition mcc_placement;
+		struct hud_absolute_placement_definition const *placement = mcc_hud_child_placement(
+			&definition->absolute_placement, element, &mcc_placement);
 
 		if (!TEST_FLAG(element->header.runtime_flags, _hud_element_runtime_invalid_bit) &&
 			TEST_FLAG(map_type_flags, element->header.use_on_map_type) &&
@@ -1797,7 +1806,7 @@ static void render_weapon_hud(
 			value = (byte)number_values[state_index];
 			hud_draw_meter(
 				local_player_index,
-				&definition->absolute_placement,
+				placement,
 				&element->meter_element,
 				value,
 				value,
@@ -1815,6 +1824,10 @@ static void render_weapon_hud(
 			&definition->numbers,
 			element_index,
 			struct weapon_hud_number_element);
+		/* port: MCC child anchors; other formats retain their parent pointer. */
+		struct hud_absolute_placement_definition mcc_placement;
+		struct hud_absolute_placement_definition const *placement = mcc_hud_child_placement(
+			&definition->absolute_placement, element, &mcc_placement);
 
 		if (!TEST_FLAG(element->header.runtime_flags, _hud_element_runtime_invalid_bit) &&
 			TEST_FLAG(map_type_flags, element->header.use_on_map_type) &&
@@ -1877,7 +1890,7 @@ static void render_weapon_hud(
 #endif
 			hud_draw_numbers(
 				local_player_index,
-				&definition->absolute_placement,
+				placement,
 				&element->number_element,
 				value,
 				decimal_value,
@@ -1899,6 +1912,10 @@ static void render_weapon_hud(
 			&definition->overlays,
 			element_index,
 			struct weapon_hud_overlays_element);
+		/* port: MCC child anchors; other formats retain their parent pointer. */
+		struct hud_absolute_placement_definition mcc_placement;
+		struct hud_absolute_placement_definition const *placement = mcc_hud_child_placement(
+			&definition->absolute_placement, element, &mcc_placement);
 
 		if (!TEST_FLAG(element->runtime_flags, _hud_element_runtime_invalid_bit) &&
 			TEST_FLAG(map_type_flags, element->use_on_map_type) &&
@@ -1907,7 +1924,7 @@ static void render_weapon_hud(
 			state_index = element->state_type;
 			hud_draw_weapon_overlays(
 				local_player_index,
-				&definition->absolute_placement,
+				placement,
 				&element->overlays,
 				overlay_flags[state_index],
 				hud_state->last_weapon_flash_time[state_index],
