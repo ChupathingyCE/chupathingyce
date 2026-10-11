@@ -87,6 +87,11 @@ int delta_peer_game_machine_identity_text(int machine_index, char *text, int siz
 #include "chat.h"
 #endif
 #include "mcc_network.h"
+#ifdef HALO_MCC_NETWORK
+#include "mcc_object_names_network.h"
+#include "map_share.h"
+#include "profile_sections.h"
+#endif
 
 #include <limits.h>
 #include <stdio.h>
@@ -4012,6 +4017,7 @@ static boolean distributed_message_stale(
 #ifdef HALO_MCC_NETWORK
 	case _distributed_message_mcc_grenades:
 	case _distributed_message_mcc_campaign:
+	case _distributed_message_mcc_object_names:
 #endif
 		break;
 	default:
@@ -5012,6 +5018,7 @@ void network_distributed_handle_message(
 #ifdef HALO_MCC_NETWORK
 	case _distributed_message_mcc_grenades: entry_size = mcc_network_inventory_entry_size(); break;
 	case _distributed_message_mcc_campaign: entry_size = mcc_network_campaign_entry_size(); break;
+	case _distributed_message_mcc_object_names: entry_size = mcc_object_names_entry_size(); break;
 #endif
 	case _distributed_message_actor_states: entry_size = network_actors_entry_size(); break;
 	case _distributed_message_structure_bsp: entry_size = sizeof(struct distributed_structure_bsp); break;
@@ -5232,6 +5239,9 @@ void network_distributed_handle_message(
 		break;
 	case _distributed_message_mcc_campaign:
 		mcc_network_handle_campaign(entries, header.count);
+		break;
+	case _distributed_message_mcc_object_names:
+		mcc_object_names_receive(entries, header.count, header.game_time);
 		break;
 #endif
 	case _distributed_message_object_changes:

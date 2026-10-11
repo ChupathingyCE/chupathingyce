@@ -134,6 +134,8 @@ enum
 	_distributed_message_mcc_grenades = 83,
 	/* MCC-only campaign gravity and breadcrumb state. */
 	_distributed_message_mcc_campaign = 84,
+	/* Expanded MCC scenario-name presence, in bounded chunks. */
+	_distributed_message_mcc_object_names = 89,
 #endif
 
 	NUMBER_OF_DISTRIBUTED_MESSAGES
