@@ -216,37 +216,60 @@ final class XisoExtractor {
     private void extract(File destination, Progress progress) throws IOException {
         long[] root = findVolume();
 
-        /* the root's maps folder */
+        /* the root's folders: maps (the game) and bink (the movies) */
         ByteBuffer table = readDirectory(root[0], root[1], "The disc image's file system is damaged.");
         List<Entry> directories = new ArrayList<>();
         walk(table, 0, 0, true, directories, new int[1]);
         Entry maps = null;
+        Entry bink = null;
         for (Entry entry : directories) {
             if (entry.name.equalsIgnoreCase("maps"))
                 maps = entry;
+            if (entry.name.equalsIgnoreCase("bink"))
+                bink = entry;
         }
         if (maps == null)
             throw new ExtractException("The disc image has no maps folder: it is not a Halo disc.");
 
-        /* its files */
-        table = readDirectory(maps.sector, maps.size, "The disc image's maps folder is damaged.");
-        List<Entry> files = new ArrayList<>();
-        walk(table, 0, 0, false, files, new int[1]);
+        List<Entry> mapFiles = readFiles(maps, "The disc image's maps folder is damaged.");
+        /* (a disc the app made may carry no movies: then there is none) */
+        List<Entry> binkFiles = bink != null ? readFiles(bink, "The disc image's bink folder is damaged.") : null;
+
         long total = 0;
         boolean hasUi = false;
-        for (Entry file : files) {
+        for (Entry file : mapFiles) {
             total += file.size;
             hasUi |= file.name.equalsIgnoreCase("ui.map");
         }
         if (!hasUi)
             throw new ExtractException("The disc image's maps folder has no ui.map: it is not a Halo disc.");
+        for (Entry file : binkFiles != null ? binkFiles : new ArrayList<Entry>())
+            total += file.size;
 
-        File partial = new File(destination, "maps.partial");
-        File finished = new File(destination, "maps");
+        ByteBuffer buffer = ByteBuffer.allocateDirect(COPY_BUFFER_SIZE);
+        long done = copyFolder(destination, "maps", mapFiles, buffer, 0, total, progress);
+        if (binkFiles != null)
+            copyFolder(destination, "bink", binkFiles, buffer, done, total, progress);
+    }
+
+    private List<Entry> readFiles(Entry directory, String error) throws IOException {
+        ByteBuffer table = readDirectory(directory.sector, directory.size, error);
+        List<Entry> files = new ArrayList<>();
+        walk(table, 0, 0, false, files, new int[1]);
+        return files;
+    }
+
+    /* copies one folder's files to destination/<name>, through a .partial
+       that is moved into place once they are all there, so an interrupted
+       extraction never leaves a half-written folder behind */
+    private long copyFolder(File destination, String name, List<Entry> files, ByteBuffer buffer,
+            long done, long total, Progress progress) throws IOException {
+        File partial = new File(destination, name + ".partial");
+        File finished = new File(destination, name);
+
         if (!partial.isDirectory() && !partial.mkdirs())
             throw new ExtractException("Could not create " + partial + ".");
-        ByteBuffer buffer = ByteBuffer.allocateDirect(COPY_BUFFER_SIZE);
-        long done = 0;
+
         for (Entry file : files) {
             File path = new File(partial, file.name);
             long offset = partition + file.sector * SECTOR_SIZE;
@@ -274,7 +297,7 @@ final class XisoExtractor {
             }
         }
 
-        /* (the maps folder may be there, empty: the app makes it for adb) */
+        /* (the folder may be there, empty: the app makes it for adb) */
         if (!finished.isDirectory() && !finished.mkdirs())
             throw new ExtractException("Could not create " + finished + ".");
         for (Entry file : files) {
@@ -286,5 +309,7 @@ final class XisoExtractor {
                 throw new ExtractException("Could not move " + file.name + " into " + finished + ".");
         }
         partial.delete();
+
+        return done;
     }
 }
