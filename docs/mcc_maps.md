@@ -1048,6 +1048,33 @@ no target. Crashsite advances simulation but also reports the existing
 "too many transparent geometry groups" capacity warning; its rendering is
 not certified by the successful load check.
 
+## OpenCE upstream integration through 09597313
+
+The October 11 integration includes upstream's optional first-person legs,
+shield color/glow, campaign pause spacing, vehicle-home ownership, and stale
+player-handle fixes. The visual options retain upstream's stock defaults
+(legs/glow off, shield color default). MCC's pause ownership guards and
+dedicated loading/conversion modules remain unchanged. Network compatibility
+stays at GulchCE's version 28; this integration adds no wire format.
+
+The new `object_mesh` reader needs one MCC connection: larger MCC models have
+compressed vertices whose bone indices refer to a per-part palette. Mesh
+extraction now resolves that palette through the existing MCC cache API before
+the upstream bounds checks. Non-MCC buffers return no palette and retain the
+upstream path. An executable regression test covers native indices, a
+non-identity MCC palette including bone 40, and invalid secondary indices.
+
+The Windows x86 build, 929 existing regression checks (six skips), the added
+mesh test, and upstream's 22 stale-player lifetime checks passed. The upstream
+test runner needed local Windows compiler/linker flag adjustments only;
+the test bodies and production functions were unchanged. Android remains
+unverified because the local Windows build has no `android` target.
+Mercury 2 (70 seconds) and DP (65 seconds) passed sequential hidden native
+startup/simulation checks with legs, shield glow/color and the viewmodel
+shield enabled. Both produced the delayed simulation marker and exited
+normally without detected assertions. These are bounded checks, not full
+campaign, visual-fidelity, or live co-op verification.
+
 ## Public format evidence
 
 These are wire-format references, not copied implementation code. Current
