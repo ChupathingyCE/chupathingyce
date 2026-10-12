@@ -9,7 +9,9 @@ The prototypes match the declarations in bink_playback.c; the RAD SDK's
 RADEXPLINK is __stdcall.
 */
 
-#ifndef HALO_BINK_FFMPEG#include "platform.h"
+#ifndef HALO_BINK_FFMPEG
+
+#include "platform.h"
 
 typedef void *(__stdcall *rad_memory_allocate_proc)(unsigned long size);
 typedef void (__stdcall *rad_memory_free_proc)(void *memory);
