@@ -1,7 +1,6 @@
 /* Geometry adapter for MCC caches. Wire model and BSP streams are read only;
  * Xbox render descriptors are constructed in MCC-owned allocations. */
 #include "cseries.h"
-#include "cseries_windows.h"
 #include "errors.h"
 #include "tag_files/tag_groups.h"
 #include "models/model_definitions.h"
@@ -10,14 +9,6 @@
 #include "rasterizer/rasterizer_model_types.h"
 #include "structures/structure_bsp_definitions.h"
 #include "mcc_runtime.h"
-
-/* (rasterizer_xbox_hardware_geometry.c's) */
-boolean rasterizer_vertex_buffer_new(struct vertex_buffer *vertex_buffer, long vertex_type, long count,
-    void const *vertices, long buffer_size);
-void rasterizer_vertex_buffer_delete(struct vertex_buffer *vertex_buffer);
-boolean rasterizer_triangle_buffer_new(struct triangle_buffer *triangle_buffer, short triangle_type, long count,
-    void const *triangles);
-void rasterizer_triangle_buffer_delete(struct triangle_buffer *triangle_buffer);
 
 #include <math.h>
 #include <stdlib.h>
@@ -81,15 +72,6 @@ static void *mg_block(struct mcc_runtime *r, struct tag_block const *b, uint32_t
     return mcc_runtime_pointer(r,(uint32_t)(uintptr_t)b->address,(uint32_t)b->count*stride);
 }
 
-/* port: a BSP's compressed vertices, which its tag's data names by a 32-bit
-address, in memory such an address reaches: the game's heap (the Xbox
-address space's in a 64-bit build, cseries/xbox_address.h). A model's
-buffers are copied by the rasterizer and stay host memory. */
-static void mg_allocation_free(void *allocation,int bsp) {
-    if (!allocation) return;
-    if (bsp) system_free(allocation); else free(allocation);
-}
-
 static struct mcc_geometry_buffer *mg_record(struct mcc_runtime *r,void *descriptor,
     void *payload,uint32_t bytes,void *allocation,uint32_t allocation_bytes,int index,int bsp) {
     struct mcc_geometry_state *state=r->geometry;
@@ -107,7 +89,7 @@ static struct mcc_geometry_buffer *mg_vertices(struct mcc_runtime *r,
     struct vertex_buffer *descriptor,short type,uint32_t count,void *payload,uint32_t bytes,
     void *allocation,uint32_t allocation_bytes,int bsp) {
     struct mcc_geometry_buffer *b=mg_record(r,descriptor,payload,bytes,allocation,allocation_bytes,0,bsp);
-    if (!b) { mg_allocation_free(allocation,bsp); return NULL; }
+    if (!b) { if (allocation) free(allocation); return NULL; }
     if (!rasterizer_vertex_buffer_new(descriptor,type,(long)count,payload,(long)bytes)) return NULL;
     return b;
 }
@@ -220,7 +202,8 @@ static int mg_part(struct mcc_runtime *r,struct model const *model,unsigned char
     memset(part,0,sizeof(*part));
     if (!count || count>65535 || !triangles || triangles>65535 || mg_u16(wire+0x44)!=1 ||
         mg_u16(wire+0x54)!=4 || model->nodes.count<1 || model->nodes.count>64 ||
-        (mg_u16(wire+4)!=0xFFFFu && mg_u16(wire+4)>=(uint32_t)model->shaders.count) ||
+        model->shaders.count<0 ||
+        (mg_u16(wire+4)!=0xFFFFu && !model->shaders.count) ||
         ((signed char)wire[6]!=-1 && (unsigned char)wire[6]>=part_count) ||
         ((signed char)wire[7]!=-1 && (unsigned char)wire[7]>=part_count))
         return mg_error("invalid model part descriptor");
@@ -258,6 +241,11 @@ static int mg_part(struct mcc_runtime *r,struct model const *model,unsigned char
     /* Only the common 32-byte material/centroid prefix is shared by the two
      * formats. Blocks and hardware descriptors are new runtime objects. */
     memcpy(part,wire,0x20);
+    /* Match the engine schema's required-index correction for a missing
+     * material. MacWorld's damaged Elite torso references one past the end.
+     * Keep the geometry; the caller reports the visible fallback. */
+    if (mg_u16(wire+4)!=0xFFFFu && mg_u16(wire+4)>=(uint32_t)model->shaders.count)
+        part->shader=0;
     part->flags&=~2u;
     if (local) {
         for (i=0;i<2;i++) {
@@ -316,12 +304,21 @@ int mcc_geometry_prepare(struct mcc_runtime *r) {
             if (!parts || block->count>128) return mg_error("invalid model parts block");
             new_parts=mcc_runtime_allocate(r,(uint32_t)block->count*sizeof(*new_parts));
             if (block->count && !new_parts) return mg_error("no room for model part descriptors");
-            for (p=0;p<block->count;p++) if (!mg_part(r,model,parts+p*0x84,(uint32_t)p,(uint32_t)block->count,&new_parts[p])) return 0;
-            destination->address=xbox_address(new_parts);
-            destination->definition=XBOX_NULL;
+            for (p=0;p<block->count;p++) {
+                if (!mg_part(r,model,parts+p*0x84,(uint32_t)p,(uint32_t)block->count,&new_parts[p])) {
+                    error(_error_silent,"MCC geometry: tag #%lu, geometry %ld, part %ld, shader %u (model has %ld shaders)",
+                        (unsigned long)i,g,p,(unsigned)mg_u16(parts+p*0x84+4),model->shaders.count);
+                    return 0;
+                }
+                if (new_parts[p].shader!=(short)mg_u16(parts+p*0x84+4))
+                    error(_error_silent,"MCC geometry: tag #%lu, geometry %ld, part %ld: missing material %u; using material 0 (appearance may differ)",
+                        (unsigned long)i,g,p,(unsigned)mg_u16(parts+p*0x84+4));
+            }
+            destination->address=new_parts;
+            destination->definition=NULL;
         }
-        model->geometries.address=xbox_address(new_geometries);
-        model->geometries.definition=XBOX_NULL;
+        model->geometries.address=new_geometries;
+        model->geometries.definition=NULL;
         model->flags&=~2u;
         known=malloc(sizeof(*known));
         if (!known) return 0;
@@ -332,7 +329,7 @@ int mcc_geometry_prepare(struct mcc_runtime *r) {
 }
 
 static void *mg_bsp_pointer(void *base,uint32_t size,uint32_t address,uint32_t bytes) {
-    uint32_t start=MCC_ADDRESS(base);
+    uintptr_t start=(uintptr_t)base;
     if (address<start || !mg_range((uint32_t)(address-start),bytes,size)) return NULL;
     return (unsigned char *)base+(address-start);
 }
@@ -355,17 +352,17 @@ static int mg_bsp_material(struct mcc_runtime *r,struct mcc_cache_bsp const *b,
     if (!count) return 1;
     raw_bytes=count*56+lit*20;
     compressed_bytes=count*32+lit*8;
-    raw=malloc(raw_bytes); compressed=system_malloc(compressed_bytes);
+    raw=malloc(raw_bytes); compressed=malloc(compressed_bytes);
     if (!raw || !compressed) {
         if (raw) free(raw);
-        if (compressed) system_free(compressed);
+        if (compressed) free(compressed);
         return 0;
     }
     if (!mcc_runtime_read(r,b->vertex_file_offset+vo,count*56,raw) ||
         (lit && !mcc_runtime_read(r,b->vertex_file_offset+lo,lit*20,raw+count*56)) ||
         !mg_float_vertices(raw,count,56,14,3,9) ||
         !mg_float_vertices(raw+count*56,lit,20,5,0,3)) {
-        free(raw); system_free(compressed); return mg_error("invalid BSP vertex payload");
+        free(raw); free(compressed); return mg_error("invalid BSP vertex payload");
     }
     rasterizer_geometry_compress_vertices(_rasterizer_vertex_type_environment_uncompressed,
         (long)count,compressed,(long)(count*32),raw,(long)(count*56));
@@ -379,7 +376,7 @@ static int mg_bsp_material(struct mcc_runtime *r,struct mcc_cache_bsp const *b,
     if (lit && !mg_vertices(r,&m->lightmap_vertices,_rasterizer_vertex_type_environment_lightmap_compressed,
         lit,compressed+count*32,lit*8,NULL,0,1)) return 0;
     m->compressed_vertex_data.size=(long)compressed_bytes;
-    m->compressed_vertex_data.address=xbox_address(compressed);
+    m->compressed_vertex_data.address=compressed;
     return 1;
 }
 
@@ -396,7 +393,7 @@ int mcc_geometry_bsp_load(struct mcc_runtime *r,uint32_t handle,uint32_t offset,
     for (i=0;i<r->report.bsp_count;i++) {
         struct mcc_cache_bsp const *candidate=&r->report.bsps[i];
         if (candidate->tag_handle==handle && candidate->file_offset==offset && candidate->size==size &&
-            candidate->address==MCC_ADDRESS(address)) { b=candidate; break; }
+            candidate->address==(uint32_t)(uintptr_t)address) { b=candidate; break; }
     }
     if (!b || !mcc_runtime_read(r,offset,size,address)) return mg_error("BSP request differs from validated reference");
     structure=mg_bsp_pointer(address,size,b->structure_address,sizeof(*structure));
@@ -427,7 +424,7 @@ fail:
 static void mg_release(struct mcc_geometry_buffer *b) {
     if (b->is_index) rasterizer_triangle_buffer_delete((struct triangle_buffer *)b->descriptor);
     else rasterizer_vertex_buffer_delete((struct vertex_buffer *)b->descriptor);
-    mg_allocation_free(b->allocation,b->is_bsp);
+    if (b->allocation) free(b->allocation);
     free(b);
 }
 
@@ -464,8 +461,8 @@ void *mcc_geometry_buffer_data(struct mcc_runtime *r,void const *hardware,
     if (bytes) *bytes=0;
     if (!state || !hardware) return NULL;
     for (b=state->buffers;b;b=b->next) {
-        void *current=xbox_pointer(b->is_index ? ((struct triangle_buffer *)b->descriptor)->hardware_format :
-            ((struct vertex_buffer *)b->descriptor)->hardware_format);
+        void *current=b->is_index ? ((struct triangle_buffer *)b->descriptor)->hardware_format :
+            ((struct vertex_buffer *)b->descriptor)->hardware_format;
         if (b->is_index==index_buffer && current==hardware) {
             if (bytes) *bytes=b->bytes;
             return b->payload;
