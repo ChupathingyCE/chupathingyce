@@ -13,7 +13,9 @@ through the renderer and at the game's volume, with no per-platform player.
 
 The contract (from bink_playback.c): the handle's first five members are read
 directly by the game, and BinkCopyToBuffer writes into a linear X8R8G8B8
-texture it has locked.
+texture it has locked. The sound goes back the other way: the game hands Bink
+its own DirectSound (BinkSetSoundSystem, BinkOpenDirectSound) and the movie's
+decoded sound is queued into a stream of it, as the game's own sounds are.
 */
 
 #ifdef HALO_BINK_FFMPEG
@@ -61,9 +63,8 @@ struct BINK
 	int submitted;              /* the frame BinkDoFrame was asked for */
 	uint64_t start_ticks;       /* when the movie started, for BinkWait */
 	double frame_seconds;
-	SwrContext *to_sdl;
-	SDL_AudioStream *stream;
-	SDL_AudioDeviceID device;
+	SwrContext *to_sound;
+	LPDIRECTSOUNDSTREAM stream;  /* one of the game's DirectSound streams */
 	uint8_t *audio_out;
 	int audio_out_size;
 	int sound_system_ready;
@@ -82,55 +83,105 @@ void __stdcall BinkSetIOSize(unsigned long io_size)
 	(void)io_size;
 }
 
-/* The game hands Bink its DirectSound (the port's own, dsound_sdl.c) and Bink
-mixes the movie into it. FFmpeg's audio goes to SDL's output here, scaled by the
-game's own volume, which is what the game means by "the game's volume". */
+/* BINK OPEN DIRECT SOUND
+
+The game hands Bink its DirectSound (the port's own software mixer,
+dsound_sdl.c, the one its own sounds play through) before opening a movie:
+the movie's decoded sound is queued into a stream of it, so it is mixed
+with the game's sounds and at the game's volume (port_config's
+audio.volume). A game with no DirectSound plays the movie without sound,
+as it did before there was a decoder. */
+static LPDIRECTSOUND bink_dsound;
+
 void *__stdcall BinkOpenDirectSound(unsigned long param)
 {
-	(void)param;
-	return (void *)1;
+	bink_dsound = (LPDIRECTSOUND)param;
+	return param ? (void *)param : NULL;
 }
 
 long __stdcall BinkSetSoundSystem(bink_sound_system_open_proc open, unsigned long param)
 {
-	(void)open;
-	(void)param;
-	return 1;
+	/* (the game's check: true when the sound system was taken) */
+	return (open && open(param)) ? 1 : 0;
 }
 
+/* the movie's sound, as a stream of the game's DirectSound: 16-bit PCM,
+stereo, at the movie's own rate, the format the port's mixer takes for a
+voice (it resamples it as it does the game's sounds) */
 static int bink_audio_open(struct BINK *bink)
 {
-	SDL_AudioSpec have;
-	SDL_AudioSpec want;
+	DSSTREAMDESC description;
+	tWAVEFORMATEX format;
 
-	if (bink->audio_stream < 0)
-		return 0;
-	SDL_zero(want);
-	want.format = SDL_AUDIO_F32;
-	want.channels = 2;
-	want.freq = 48000;
-	bink->device = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &want);
-	if (!bink->device)
+	if (!bink_dsound || !bink->audio || bink->audio->sample_rate <= 0)
 	{
-		platform_log("Bink video: no audio output (%s); playing the movie without sound", SDL_GetError());
+		platform_log("Bink video: no DirectSound from the game; playing the movie without sound");
 		return 0;
 	}
-	if (!SDL_GetAudioDeviceFormat(bink->device, &have, NULL))
+	memset(&format, 0, sizeof(format));
+	format.wFormatTag = WAVE_FORMAT_PCM;
+	format.nChannels = 2;
+	format.nSamplesPerSec = (unsigned long)bink->audio->sample_rate;
+	format.wBitsPerSample = 16;
+	format.nBlockAlign = (unsigned short)(format.nChannels * format.wBitsPerSample / 8);
+	format.nAvgBytesPerSec = format.nSamplesPerSec * format.nBlockAlign;
+	memset(&description, 0, sizeof(description));
+	/* (a few packets ahead is enough: the game retires one per frame) */
+	description.dwMaxAttachedPackets = 8;
+	description.lpwfxFormat = &format;
+	if (IDirectSound_CreateSoundStream(bink_dsound, &description, &bink->stream, NULL) < 0 ||
+		!bink->stream)
 	{
-		SDL_CloseAudioDevice(bink->device);
-		bink->device = 0;
+		platform_log("Bink video: the game's DirectSound refused the movie's stream; playing it without sound");
+		bink->stream = NULL;
 		return 0;
 	}
-	bink->stream = SDL_OpenAudioDeviceStream(bink->device, &have, NULL, NULL);
-	if (!bink->stream)
-	{
-		SDL_CloseAudioDevice(bink->device);
-		bink->device = 0;
-		return 0;
-	}
-	SDL_ResumeAudioStreamDevice(bink->stream);
 	return 1;
 }
+
+/* The frame the audio decoder just produced, queued into the game's stream
+as the game queues its own sounds: from here the mixer owns the packet (it
+resamples it, mixes it with the game's sounds and retires it once played,
+from DirectSoundDoWork, which the game calls every frame). */
+static void bink_audio_queue(struct BINK *bink)
+{
+	unsigned long status;
+	XMEDIAPACKET packet;
+	uint8_t *out[1];
+	int samples = bink->audio_frame->nb_samples * 2;  /* (the stream is stereo) */
+	int got;
+
+	if (samples <= 0 || !bink->to_sound || !bink->stream)
+		return;
+	if (samples * (int)sizeof(short) > bink->audio_out_size)
+	{
+		uint8_t *grown = realloc(bink->audio_out, (size_t)samples * sizeof(short));
+
+		if (!grown)
+			return;
+		bink->audio_out = grown;
+		bink->audio_out_size = samples * (int)sizeof(short);
+	}
+	out[0] = bink->audio_out;
+	got = swr_convert(bink->to_sound, out, samples,
+		(const uint8_t **)bink->audio_frame->extended_data, bink->audio_frame->nb_samples);
+	if (got <= 0)
+		return;
+	if (IDirectSoundStream_GetStatus(bink->stream, &status) < 0 ||
+		!(status & XMO_STATUSF_ACCEPT_INPUT_DATA))
+	{
+		/* (the game has not played out a queued packet yet: its frame clock
+		is ahead of the movie's sound, which an underrun here would sound
+		like; the frame is dropped rather than piled up late) */
+		return;
+	}
+	memset(&packet, 0, sizeof(packet));
+	packet.pvBuffer = bink->audio_out;
+	packet.dwMaxSize = (unsigned long)(got * 2 * (int)sizeof(short));
+	if (IDirectSoundStream_Process(bink->stream, &packet, NULL) < 0)
+		platform_log("Bink video: the game's DirectSound refused an audio packet");
+}
+
 
 HBINK __stdcall BinkOpen(const char *name, unsigned long flags)
 {
@@ -220,9 +271,9 @@ HBINK __stdcall BinkOpen(const char *name, unsigned long flags)
 
 				if (in_layout.nb_channels <= 0)
 					av_channel_layout_default(&in_layout, 2);
-				if (swr_alloc_set_opts2(&bink->to_sdl, &stereo, AV_SAMPLE_FMT_FLT, 48000,
-						&in_layout, bink->audio->sample_fmt, bink->audio->sample_rate,
-						0, NULL) >= 0 && swr_init(bink->to_sdl) >= 0)
+				if (swr_alloc_set_opts2(&bink->to_sound, &stereo, AV_SAMPLE_FMT_S16,
+						bink->audio->sample_rate, &in_layout, bink->audio->sample_fmt,
+						bink->audio->sample_rate, 0, NULL) >= 0 && swr_init(bink->to_sound) >= 0)
 				{
 					bink->sound_system_ready = bink_audio_open(bink) != 0;
 				}
@@ -249,60 +300,69 @@ fail:
 	return NULL;
 }
 
-/* decodes into pixels the frame the movie is on, reading ahead when needed */
+/* The audio packet into the game's stream. The decoder holds a frame back,
+so it is drained after every packet (that frame is the movie's sound):
+sending first and asking later loses it, because the decoder answers EAGAIN
+while it still has one to give, and the packet would be dropped unheard. */
+static void bink_audio_decode(struct BINK *bink)
+{
+	int sent = avcodec_send_packet(bink->audio, bink->packet);
+
+	if (sent < 0 && sent != AVERROR(EAGAIN))
+		return;
+	while (avcodec_receive_frame(bink->audio, bink->audio_frame) >= 0)
+		bink_audio_queue(bink);
+	if (sent == AVERROR(EAGAIN) && avcodec_send_packet(bink->audio, bink->packet) >= 0)
+		/* (already drained: the packet fits now) */
+		while (avcodec_receive_frame(bink->audio, bink->audio_frame) >= 0)
+			bink_audio_queue(bink);
+}
+
+/* the next video frame, decoded into pixels: the decoder may hold frames the
+game has not asked for yet, so it is drained first and fed only when it asks
+for more (a frame per packet, as FFmpeg's decoders delay by one) */
+static int bink_next_video_frame(struct BINK *bink)
+{
+	for (;;)
+	{
+		int received = avcodec_receive_frame(bink->video, bink->decoded);
+
+		if (received == 0)
+		{
+			sws_scale(bink->to_rgba, (const uint8_t *const *)bink->decoded->data,
+				bink->decoded->linesize, 0, (int)bink->Height, bink->rgba->data, bink->rgba->linesize);
+			memcpy(bink->pixels, bink->rgba->data[0], (size_t)bink->pixels_pitch * bink->Height);
+			bink->decoded_frame++;
+			return 1;
+		}
+		if (received == AVERROR_EOF)
+			return 0;
+
+		/* (EAGAIN: it wants another packet) */
+		for (;;)
+		{
+			if (av_read_frame(bink->format, bink->packet) < 0)
+				return 0;
+			if (bink->packet->stream_index == bink->video_stream)
+			{
+				avcodec_send_packet(bink->video, bink->packet);
+				av_packet_unref(bink->packet);
+				break;
+			}
+			if (bink->packet->stream_index == bink->audio_stream && bink->sound_system_ready)
+				bink_audio_decode(bink);
+			av_packet_unref(bink->packet);
+		}
+	}
+}
+
+
+/* decodes into pixels until the frame the game asked for is the one there */
 static void bink_decode_to(struct BINK *bink, int frame)
 {
 	while (bink->decoded_frame < frame)
-	{
-		int got = 0;
-
-		if (av_read_frame(bink->format, bink->packet) < 0)
+		if (!bink_next_video_frame(bink))
 			return;
-		if (bink->packet->stream_index == bink->video_stream)
-		{
-			if (avcodec_send_packet(bink->video, bink->packet) >= 0 &&
-				avcodec_receive_frame(bink->video, bink->decoded) >= 0)
-			{
-				sws_scale(bink->to_rgba, (const uint8_t *const *)bink->decoded->data,
-					bink->decoded->linesize, 0, (int)bink->Height,
-					bink->rgba->data, bink->rgba->linesize);
-				memcpy(bink->pixels, bink->rgba->data[0], (size_t)bink->pixels_pitch * bink->Height);
-				bink->decoded_frame++;
-				got = 1;
-			}
-		}
-		else if (bink->packet->stream_index == bink->audio_stream && bink->sound_system_ready)
-		{
-			if (avcodec_send_packet(bink->audio, bink->packet) >= 0 &&
-				avcodec_receive_frame(bink->audio, bink->audio_frame) >= 0)
-			{
-				int wanted = bink->audio_frame->nb_samples * 2;
-
-				if (wanted > bink->audio_out_size)
-				{
-					uint8_t *grown = realloc(bink->audio_out, (size_t)wanted);
-
-					if (grown)
-					{
-						bink->audio_out = grown;
-						bink->audio_out_size = wanted;
-					}
-				}
-				if (bink->audio_out && bink->to_sdl)
-				{
-					uint8_t *out[1] = { bink->audio_out };
-					int got_audio = swr_convert(bink->to_sdl, out, wanted,
-						(const uint8_t **)bink->audio_frame->extended_data,
-						bink->audio_frame->nb_samples);
-
-					if (got_audio > 0)
-						SDL_PutAudioStreamData(bink->stream, bink->audio_out, got_audio * 2 * sizeof(float));
-				}
-			}
-		}
-		av_packet_unref(bink->packet);
-		(void)got;
-	}
 }
 
 long __stdcall BinkDoFrame(HBINK bink)
@@ -403,10 +463,9 @@ void __stdcall BinkClose(HBINK bink)
 	if (!bink)
 		return;
 	if (bink->stream)
-		SDL_DestroyAudioStream(bink->stream);
-	if (bink->device)
-		SDL_CloseAudioDevice(bink->device);
-	swr_free(&bink->to_sdl);
+		/* (Release flushes what it has queued and takes it out of the mixer) */
+		IDirectSoundStream_Release(bink->stream);
+	swr_free(&bink->to_sound);
 	sws_freeContext(bink->to_rgba);
 	av_frame_free(&bink->rgba);
 	av_frame_free(&bink->decoded);
