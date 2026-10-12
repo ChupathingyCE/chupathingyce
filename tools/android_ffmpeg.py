@@ -250,7 +250,13 @@ def main():
         raise SystemExit("android_ffmpeg.py: missing " + ", ".join(missing))
     # (the stamp tools/android_build.py waits for: the headers exist from here,
     # whatever the build's order)
-    (root / "ffmpeg.stamp").write_text("\n".join(str(part) for part in LIBRARIES) + "\n")
+    # (the guest objects take this stamp as an input: write it only when
+    # its content changes, so that a rebuild of these libraries does not
+    # recompile the whole guest)
+    stamp = root / "ffmpeg.stamp"
+    content = "\n".join(str(part) for part in LIBRARIES) + "\n"
+    if not stamp.is_file() or stamp.read_text() != content:
+        stamp.write_text(content)
     print("android_ffmpeg.py: " + ", ".join(f"{library}.a" for library in LIBRARIES))
 
 

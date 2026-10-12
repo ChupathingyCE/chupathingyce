@@ -382,6 +382,7 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         name="android_ffmpeg",
         command=f"$python tools/android_ffmpeg.py {ffmpeg_guest} --ndk {ndk}",
         description="ANDROID FFMPEG (the guest's movies)",
+        restat=True,
         pool="console",
     )
     ffmpeg_stamp = ffmpeg_guest / "ffmpeg.stamp"
