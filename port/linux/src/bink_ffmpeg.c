@@ -30,6 +30,7 @@ decoded sound is queued into a stream of it, as the game's own sounds are.
 #include <libswscale/swscale.h>
 #include <SDL3/SDL.h>
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -188,8 +189,18 @@ HBINK __stdcall BinkOpen(const char *name, unsigned long flags)
 	struct BINK *bink;
 	const AVCodec *codec;
 	double fps;
+	char path[1024];
 
 	(void)flags;
+	/* the movie's name is the game's own path ("d:\bink\intro_es.bik"): the
+	port's file layer is what knows where the game's data is (the disc's
+	folder on Linux, the app's assets on Android) */
+	if (name && name[0] && name[1] == ':')
+		platform_translate_path(name, path, sizeof(path));
+	else if (name)
+		snprintf(path, sizeof(path), "%s", name);
+	else
+		return NULL;
 	if (!name)
 		return NULL;
 	bink = calloc(1, sizeof(*bink));
@@ -199,27 +210,41 @@ HBINK __stdcall BinkOpen(const char *name, unsigned long flags)
 	bink->audio_stream = -1;
 	bink->decoded_frame = -1;
 	bink->submitted = -1;
-	if (avformat_open_input(&bink->format, name, NULL, NULL) < 0)
+	if (avformat_open_input(&bink->format, path, NULL, NULL) < 0)
 	{
-		platform_log("Bink video: \"%s\" cannot be opened", name);
+		platform_log("Bink video: \"%s\" cannot be opened", path);
 		free(bink);
 		return NULL;
 	}
+	platform_log("Bink video: %s opened (%d streams)", path, bink->format->nb_streams);
 	if (avformat_find_stream_info(bink->format, NULL) < 0)
+	{
+		platform_log("Bink video: %s: find_stream_info failed", path);
 		goto fail;
+	}
 	bink->video_stream = av_find_best_stream(bink->format, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
 	if (bink->video_stream < 0)
+	{
+		platform_log("Bink video: %s: no video stream", path);
 		goto fail;
+	}
 	codec = avcodec_find_decoder(bink->format->streams[bink->video_stream]->codecpar->codec_id);
 	if (!codec)
+	{
+		platform_log("Bink video: %s: no decoder for codec %d", path,
+			(int)bink->format->streams[bink->video_stream]->codecpar->codec_id);
 		goto fail;
+	}
 	bink->video = avcodec_alloc_context3(codec);
 	if (!bink->video)
 		goto fail;
 	if (avcodec_parameters_to_context(bink->video, bink->format->streams[bink->video_stream]->codecpar) < 0)
 		goto fail;
 	if (avcodec_open2(bink->video, codec, NULL) < 0)
+	{
+		platform_log("Bink video: %s: open2 (%dx%d) failed", path, bink->video->width, bink->video->height);
 		goto fail;
+	}
 
 	bink->Width = (unsigned long)bink->video->width;
 	bink->Height = (unsigned long)bink->video->height;
