@@ -285,6 +285,7 @@ symbols in this file:
 #include "cseries/errors.h"
 #include "networking/network_messages.h"
 #endif
+#include "mcc_seats.h" /* port: port/linux/game/mcc_seats.c */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -1965,6 +1966,9 @@ static boolean player_handle_action(
 	case _player_action_result_evict_from_vehicle:
 	{
 		long nearby_unit_index;
+		/* port: MCC biped seats use host-validated interaction. */
+		if (mcc_seat_action(player_index, player->action_object_index, player->action_seat_index))
+			break;
 
 		if (unit_can_enter_seat(
 			player->unit_index,
@@ -3930,6 +3934,10 @@ static void player_examine_nearby_unit(
 	long player_index,
 	long unit_index)
 {
+	/* port: the legacy biped interaction remains empty outside MCC. */
+	short seat_index;
+	if (mcc_seat_nearby(player_index, unit_index, &seat_index))
+		player_set_action_result(player_index, _player_action_result_enter_vehicle, unit_index, seat_index);
 	return;
 }
 
