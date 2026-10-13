@@ -3,10 +3,10 @@
 #include "cseries.h"
 #include "errors.h"
 #include "cache/cache_files.h"
-#include "game/game.h"
 #include "scenario/scenario_definitions.h"
 #include "interface/ui_widget.h"
 #include "mcc_cache.h"
+#include "mcc_identity.h"
 #include "mcc_maps.h"
 #include "mcc_runtime.h"
 #include "mcc_resources.h"
@@ -25,22 +25,8 @@
 #include <string.h>
 #include <stdint.h>
 
-#if defined(HALO_CONSOLE) || defined(HALO_XBOX_CONSOLE)
-/* port: no MCC maps on the consoles: their memory has no room for an MCC
-map's 64 MB of tags, and they have no mcc_memory.c */
-static void *mcc_memory_reserve(uint32_t address, uint32_t size)
-{
-    (void)address; (void)size;
-    return NULL;
-}
-static void mcc_memory_release(void *allocation, uint32_t size)
-{
-    (void)allocation; (void)size;
-}
-#else
 void *mcc_memory_reserve(uint32_t address, uint32_t size);
 void mcc_memory_release(void *allocation, uint32_t size);
-#endif
 int mcc_tags_prepare(struct mcc_runtime *runtime);
 int mcc_scripts_prepare(struct mcc_runtime *runtime);
 short mcc_geometry_part_palette(struct mcc_runtime *runtime, void const *buffer, byte const **nodes);
@@ -93,7 +79,7 @@ static int mcc_scenario_identity(struct mcc_runtime *runtime, char const *name)
     memcpy(identity, MCC_MAPS_LEVEL_PREFIX, sizeof(MCC_MAPS_LEVEL_PREFIX) - 1);
     memcpy(identity + sizeof(MCC_MAPS_LEVEL_PREFIX) - 1,
         name + sizeof(MCC_MAPS_LEVEL_PREFIX) - 1, length + 1);
-    address = MCC_ADDRESS(identity);
+    address = (uint32_t)(uintptr_t)identity;
     memcpy(runtime->tag_index + index * 32 + 16, &address, sizeof(address));
     return TRUE;
 }
@@ -131,7 +117,7 @@ boolean mcc_cache_available(char const *name)
 {
     struct mcc_cache_identity identity;
     struct mcc_cache_source source;
-    FILE *stream = mcc_open(name, &source, &identity);
+    FILE *stream = mcc_open(mcc_identity_local_name(name), &source, &identity);
     if (!stream) return FALSE;
     fclose(stream);
     return TRUE;
@@ -141,20 +127,40 @@ unsigned long mcc_cache_checksum(char const *name)
 {
     struct mcc_cache_identity identity;
     struct mcc_cache_source source;
-    FILE *stream=mcc_open(name,&source,&identity);
+    FILE *stream;
     uint32_t checksum=0;
+    name=mcc_identity_local_name(name);
+    stream=mcc_open(name,&source,&identity);
     if (!stream) return 0;
     if (!mcc_resources_probe(name,&source,&checksum)) checksum=0;
     fclose(stream);
     return checksum;
 }
 
+int mcc_content_probe(char const *name,unsigned char digest[32])
+{
+    struct mcc_cache_identity identity;
+    struct mcc_cache_source source;
+    FILE *stream=mcc_open(name,&source,&identity);
+    int ok;
+    if (!stream) return 0;
+    ok=mcc_resources_fingerprint_probe(name,&source,digest);
+    fclose(stream);
+    return ok;
+}
+
 boolean mcc_cache_present(char const *name, unsigned long checksum, char *message, long size)
 {
     struct mcc_cache_identity identity;
     struct mcc_cache_source source;
-    FILE *stream = mcc_open(name, &source, &identity);
+    FILE *stream;
     uint32_t actual;
+    if (!mcc_identity_check(name)) {
+        snprintf(message,(size_t)size,"The resolved MCC map or resources changed since admission. Rejoin with the host's matching package.");
+        return FALSE;
+    }
+    name=mcc_identity_local_name(name);
+    stream=mcc_open(name,&source,&identity);
     if (!stream) {
         snprintf(message, (size_t)size, "The MCC map %.63s is missing or is not a valid version-13 cache. Copy its .map file into mcc_maps.", name ? name : "");
         return FALSE;
@@ -257,14 +263,9 @@ struct cache_file_tag_header *mcc_cache_tags_load(char const *name, void *header
     uint32_t package_checksum;
     char const *problem = "the map could not be opened";
     mcc_cache_tags_unload();
-    /* port: offline games only for now: MCC maps' own network messages are
-     * off our wire (mcc_network.c) until they go over Delta */
-    problem = "MCC maps play offline for now";
-    if (game_connection() == _game_connection_network_client ||
-        game_connection() == _game_connection_network_server) goto failed;
-    mcc_stream = mcc_open(name, &runtime->source, &identity);
+    mcc_stream = mcc_open(mcc_identity_local_name(name), &runtime->source, &identity);
     if (!mcc_stream) goto failed;
-    if (!mcc_package_name(name, runtime->level_name)) goto failed;
+    if (!mcc_package_name(mcc_identity_local_name(name), runtime->level_name)) goto failed;
     /* The virtual streams are disjoint from the on-disk file. */
     problem = "the file overlaps the MCC virtual resource range";
     if (identity.file_length >= 0x50000000u) goto failed;
@@ -278,6 +279,8 @@ struct cache_file_tag_header *mcc_cache_tags_load(char const *name, void *header
     if (!mcc_resources_select(runtime,raw) || !mcc_resources_checksum(runtime,
         (runtime->report.external_bitmap_count ? 1u : 0u)|(runtime->report.external_sound_count ? 2u : 0u),
         &package_checksum)) goto failed;
+    problem = "the loaded MCC content does not match the admitted SHA-256 fingerprint";
+    if (!mcc_identity_loaded(name,runtime)) goto failed;
     runtime->capacity = MCC_CACHE_TAG_CAPACITY;
     runtime->tags = mcc_memory_reserve(runtime->report.tag_base, runtime->capacity);
     problem = "the MCC tag address window is unavailable";
@@ -349,12 +352,12 @@ boolean mcc_cache_bsp_load(struct scenario_structure_bsp_reference const *refere
     for (i = 0; mcc_loaded && i < mcc_loaded_cache.report.bsp_count; ++i) {
         struct mcc_cache_bsp const *bsp = &mcc_loaded_cache.report.bsps[i];
         if (bsp->tag_handle != (uint32_t)reference->structure_bsp.index) continue;
-        if (bsp->address != MCC_ADDRESS(xbox_pointer(reference->base_address)) ||
+        if (bsp->address != (uint32_t)(uintptr_t)reference->base_address ||
             bsp->file_offset != (uint32_t)reference->file_offset || bsp->size != (uint32_t)reference->file_size)
             return FALSE;
         if (!mcc_geometry_bsp_load(&mcc_loaded_cache, bsp->tag_handle, bsp->file_offset,
-            bsp->size, xbox_pointer(reference->base_address), structure)) return FALSE;
-        *header = xbox_pointer(reference->base_address);
+            bsp->size, reference->base_address, structure)) return FALSE;
+        *header = reference->base_address;
         if (!mcc_bsp_validate(&mcc_loaded_cache, (long)bsp->tag_handle, *header, (long)bsp->size)) {
             mcc_geometry_bsp_unload(&mcc_loaded_cache);
             return FALSE;
