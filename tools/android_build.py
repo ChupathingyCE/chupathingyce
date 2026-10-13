@@ -406,9 +406,13 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         description="ANDROID AS $out",
     )
 
+    # (the guest's own <sys/cdefs.h>, port/android/guest/compat: clang's headers
+    # want it and musl has none; searched after the rest, so it stands in only
+    # where nothing else does)
+    compat_include = PORT_DIR / "guest" / "compat" / "include"
     libc_includes = [
         f"-isystem {libc_include}", f"-isystem {arch}", f"-isystem {MUSL_DIR}/arch/generic",
-        f"-isystem {MUSL_DIR}/include",
+        f"-isystem {MUSL_DIR}/include", f"-idirafter {compat_include}",
     ]
     # (the game browser, the game list and dedicated servers, as every other
     # build has them: HALO_GAME_BROWSER, configure.py; and Halo PC's Custom
