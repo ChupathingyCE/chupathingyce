@@ -212,9 +212,16 @@ def main():
     compiler_stamp.write_text(compiler)
     print("android_ffmpeg.py: building with the guest's compiler")
     with open(root / "build.log", "w") as log:
-        run(["make", "-j", str(os.cpu_count() or 4), f"CC={wrapper}",
-             f"AR={toolchain / 'bin' / 'llvm-ar'}", f"RANLIB={toolchain / 'bin' / 'llvm-ranlib'}"],
-            cwd=build, stdout=log, stderr=subprocess.STDOUT)
+        try:
+            run(["make", "-j", str(os.cpu_count() or 4), f"CC={wrapper}",
+                 f"AR={toolchain / 'bin' / 'llvm-ar'}", f"RANLIB={toolchain / 'bin' / 'llvm-ranlib'}"],
+                cwd=build, stdout=log, stderr=subprocess.STDOUT)
+        except subprocess.CalledProcessError:
+            # (the compiler's own words are the only clue to a failure, and this
+            # log is their only home: show the tail before giving up)
+            print(f"android_ffmpeg.py: make failed, the tail of {root / 'build.log'}:")
+            print("\n".join((root / "build.log").read_text(errors="replace").splitlines()[-40:]))
+            raise
 
     # FFmpeg's configure answered some of its tests against Android's bionic
     # (the configure has to run a working compiler): its objects call errno and

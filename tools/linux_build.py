@@ -210,8 +210,10 @@ FFMPEG_LIBS = ["libavformat", "libavcodec", "libswscale", "libswresample", "liba
 def ffmpeg_flags() -> Tuple[List[str], List[str]]:
     """the compiler flags and libraries of the system's FFmpeg, or nothing"""
     try:
-        cflags = subprocess.check_output(["pkg-config", "--cflags", *FFMPEG_LIBS], text=True).split()
-        libs = subprocess.check_output(["pkg-config", "--libs", *FFMPEG_LIBS], text=True).split()
+        cflags = subprocess.check_output(["pkg-config", "--cflags", *FFMPEG_LIBS], text=True,
+                                         stderr=subprocess.DEVNULL).split()
+        libs = subprocess.check_output(["pkg-config", "--libs", *FFMPEG_LIBS], text=True,
+                                       stderr=subprocess.DEVNULL).split()
     except (OSError, subprocess.CalledProcessError):
         return [], []
     return ["-DHALO_BINK_FFMPEG", *cflags], libs
