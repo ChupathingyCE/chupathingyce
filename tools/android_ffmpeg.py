@@ -101,6 +101,8 @@ def write_guest_compiler(root, tree, ndk):
     libc_include = tree / "build" / "android" / "guest" / "libc_include"
     arch = tree / "port" / "android" / "guest" / "libc" / "arch" / "arm64_32"
     convert = tree / "tools" / "android_asm_convert.py"
+    # (the guest's own <sys/cdefs.h>: clang's headers want it, musl has none)
+    compat = tree / "port" / "android" / "guest" / "compat" / "include"
     wrapper = root / "guest-cc.sh"
     wrapper.write_text(f"""#!/bin/bash
 # android_ffmpeg.py wrote this: the compiler FFmpeg builds the guest with.
@@ -130,7 +132,7 @@ if [ "$compile" != 1 ] || [ -z "$src" ] || [ -z "$out" ]; then
 fi
 "$CLANG" "${{filtered[@]}}" {GUEST_FLAGS} \\
     -isystem "{libc_include}" -isystem "{arch}" -isystem "{musl}/arch/generic" \\
-    -isystem "{musl}/include" -isystem "{resource}/include" \\
+    -isystem "{musl}/include" -isystem "{resource}/include" -idirafter "{compat}" \\
     -S "$src" -o "$out.darwin.s"
 python3 "{convert}" "$out.darwin.s" "$out.s"
 "$CLANG" --target=aarch64-linux-android -c "$out.s" -o "$out"
