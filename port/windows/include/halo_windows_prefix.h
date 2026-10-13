@@ -11,8 +11,8 @@ much shorter than the Linux build's halo_linux_prefix.h.
 #ifndef __HALO_WINDOWS_PREFIX_H
 #define __HALO_WINDOWS_PREFIX_H
 
-#if !defined(_M_IX86) && !(defined(_M_X64) && defined(HALO_64BIT))
-#error the Windows port targets 32-bit x86, or x64 with HALO_64BIT: game data structures assume 32-bit pointers
+#if !defined(_M_IX86) && !((defined(_M_X64) || defined(_M_ARM64)) && defined(HALO_64BIT))
+#error the Windows port targets 32-bit x86, or x64 or ARM64 with HALO_64BIT: game data structures assume 32-bit pointers
 #endif
 
 #define HALO_WINDOWS 1

@@ -66,7 +66,11 @@ looks for a new version and offers its download page) */
 
 /* ChupathingyCE's releases */
 #define UPDATE_REPOSITORY "ChupathingyCE/chupathingyce"
-#if defined(_WIN32) && defined(HALO_64BIT)
+#if defined(_WIN32) && defined(HALO_64BIT) && defined(_M_ARM64)
+/* (the 64-bit ARM Windows build's own download, ninja windows-arm64: tools/ci_build.py) */
+#define UPDATE_PLATFORM "windows-arm64"
+#define PATH_SEPARATOR "\\"
+#elif defined(_WIN32) && defined(HALO_64BIT)
 /* (the 64-bit Windows build's own download, ninja windows64: tools/ci_build.py) */
 #define UPDATE_PLATFORM "windows64"
 #define PATH_SEPARATOR "\\"

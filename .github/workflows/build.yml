@@ -1,8 +1,8 @@
 name: Build
 
 # Debug and release builds of the native ports (Linux and Windows, 32- and
-# 64-bit, Android, macOS), and release builds of the dedicated server (Linux
-# x86, x64 and arm64) and its container, for every pushed commit and pull
+# 64-bit, Windows on 64-bit ARM, Android, macOS), and release builds of the
+# dedicated server (Linux x86, x64 and arm64) and its container, for every pushed commit and pull
 # request, uploaded as artifacts: whether a change builds. tools/ci_build.py does each build; see it for the options.
 #
 # These builds are VERSION's -dev, and never look for updates. Releases and
@@ -503,7 +503,7 @@ jobs:
           restore-keys: ccache-windows64-
 
       # SDL's development package, which configure.py fetches (the 32-bit
-      # job's: it holds both builds' libraries)
+      # job's: it holds every Windows build's libraries)
       - uses: actions/cache@v4
         with:
           path: build/windows/third_party
@@ -542,6 +542,83 @@ jobs:
         with:
           name: symbols-windows64-release
           path: dist/chupathingyce-windows64-release-symbols
+          retention-days: 3
+
+  windows-arm64:
+    # The 64-bit ARM Windows build (ninja windows-arm64), cross-compiled on
+    # the x64 builds' runner image, with Visual Studio's ARM64 libraries:
+    # the x64 build's settings for the other processor. (Nothing runs it:
+    # the runner cannot.)
+    runs-on: windows-2025
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install the toolchain
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -OutFile ninja.zip https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-win.zip
+          Invoke-WebRequest -OutFile ccache.zip https://github.com/ccache/ccache/releases/download/v4.10.2/ccache-4.10.2-windows-x86_64.zip
+          # (each download checked against the hash it had when it was pinned)
+          if ((Get-FileHash ninja.zip -Algorithm SHA256).Hash -ne "F550FEC705B6D6FF58F2DB3C374C2277A37691678D6ABA463ADCBB129108467A") { throw "ninja.zip: unexpected SHA-256" }
+          if ((Get-FileHash ccache.zip -Algorithm SHA256).Hash -ne "6252F081876A9A9F700FAE13A5AEC5D0D486B28261D7F1F72AC11C7AD9DF4DA9") { throw "ccache.zip: unexpected SHA-256" }
+          Expand-Archive ninja.zip -DestinationPath "$env:RUNNER_TEMP\tools"
+          Expand-Archive ccache.zip -DestinationPath $env:RUNNER_TEMP
+          Copy-Item "$env:RUNNER_TEMP\ccache-4.10.2-windows-x86_64\ccache.exe" "$env:RUNNER_TEMP\tools"
+          Remove-Item ninja.zip, ccache.zip
+          "$env:RUNNER_TEMP\tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
+
+      - uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-windows-arm64-${{ github.sha }}
+          restore-keys: ccache-windows-arm64-
+
+      # SDL's development package, which configure.py fetches (the 32-bit
+      # job's: it holds every Windows build's libraries)
+      - uses: actions/cache@v4
+        with:
+          path: build/windows/third_party
+          key: windows-third-party-${{ hashFiles('tools/windows_build.py') }}
+
+      - name: Debug
+        run: python tools/ci_build.py windows-arm64 debug
+
+      - name: Release
+        run: python tools/ci_build.py windows-arm64 release
+
+      - name: Compile cache
+        run: ccache --show-stats
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chupathingyce-windows-arm64-debug
+          path: dist/chupathingyce-windows-arm64-debug
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chupathingyce-windows-arm64-release
+          path: dist/chupathingyce-windows-arm64-release
+          retention-days: 3
+
+      # (halo.exe's symbols and map, which ChupathingyCE's release keeps
+      # privately for the crash reports; not published)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symbols-windows-arm64-debug
+          path: dist/chupathingyce-windows-arm64-debug-symbols
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symbols-windows-arm64-release
+          path: dist/chupathingyce-windows-arm64-release-symbols
           retention-days: 3
 
   macos:

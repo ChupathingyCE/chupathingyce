@@ -70,6 +70,22 @@ and the other ports over the network, and it is a dedicated server too
 (`server/README.md`). Its releases are a separate download,
 `chupathingyce-windows64-release.zip`, which its self-updater asks for.
 
+### 64-bit ARM
+
+`ninja windows-arm64` builds the same 64-bit game as native ARM64 code
+(`aarch64-pc-windows-msvc`), `build/windows-arm64/halo.exe`, with `SDL3.dll`
+for ARM64 next to it, for Windows on ARM laptops. It has the x64 build's
+flags and differences, and needs Visual Studio's ARM64 MSVC libraries (the
+"MSVC ARM64 build tools" component). It cross-compiles on an x64 machine,
+as CI builds it.
+
+- `char` is signed, as on the Xbox and x64 (`-fsigned-char`, which is
+  already Windows ARM64's default).
+- The crash reports unwind ARM64 code from its unwind data, and report the
+  `pc`, `fp`, `sp` and `lr` registers.
+- Its releases are their own download, `chupathingyce-windows-arm64-release.zip`,
+  which its self-updater asks for.
+
 ## Start the game
 
 Enter `build\windows\halo.exe`.

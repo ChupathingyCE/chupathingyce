@@ -65,9 +65,9 @@ static void windows_startup(void)
 /* ---------- backtraces */
 
 /* Unwinds context, a frame at a time, with the unwind information every x64
-function has (its frame pointer, when it keeps one, points partway into its
-frame: there is no chain to follow); the return addresses, at most count,
-go to frames. Also the crash reports' (win32_memory_watch.c). */
+and ARM64 function has (an x64 frame pointer, when it keeps one, points
+partway into its frame: there is no chain to follow); the return addresses,
+at most count, go to frames. Also the crash reports' (win32_memory_watch.c). */
 int win32_unwind(CONTEXT *context, void **frames, int count)
 {
 	int captured = 0;
@@ -76,6 +76,26 @@ int win32_unwind(CONTEXT *context, void **frames, int count)
 	{
 		DWORD64 image_base, establisher_frame;
 		void *handler_data;
+#ifdef _M_ARM64
+		RUNTIME_FUNCTION *function = RtlLookupFunctionEntry(context->Pc, &image_base, NULL);
+
+		if (function)
+		{
+			RtlVirtualUnwind(UNW_FLAG_NHANDLER, image_base, context->Pc, function, context, &handler_data,
+				&establisher_frame, NULL);
+		}
+		else
+		{
+			/* a leaf function: the return address is in the link register
+			(the same again: no further to go) */
+			if (context->Lr == context->Pc)
+				break;
+			context->Pc = context->Lr;
+		}
+		if (!context->Pc)
+			break;
+		frames[captured++] = (void *)context->Pc;
+#else
 		RUNTIME_FUNCTION *function = RtlLookupFunctionEntry(context->Rip, &image_base, NULL);
 
 		if (function)
@@ -94,6 +114,7 @@ int win32_unwind(CONTEXT *context, void **frames, int count)
 		if (!context->Rip)
 			break;
 		frames[captured++] = (void *)context->Rip;
+#endif
 	}
 	return captured;
 }

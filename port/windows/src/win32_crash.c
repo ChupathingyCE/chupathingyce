@@ -650,7 +650,12 @@ static void crash_write_report(HANDLE process, DWORD thread_id, ULONG_PTR except
 	body_text(&report, line);
 
 	memset(&frame, 0, sizeof(frame));
-#ifdef HALO_64BIT
+#if defined(_M_ARM64)
+	machine = IMAGE_FILE_MACHINE_ARM64;
+	frame.AddrPC.Offset = context.Pc;
+	frame.AddrFrame.Offset = context.Fp;
+	frame.AddrStack.Offset = context.Sp;
+#elif defined(HALO_64BIT)
 	machine = IMAGE_FILE_MACHINE_AMD64;
 	frame.AddrPC.Offset = context.Rip;
 	frame.AddrFrame.Offset = context.Rbp;
@@ -923,10 +928,21 @@ static LONG WINAPI crash_filter(EXCEPTION_POINTERS *exception)
 #ifdef HALO_64BIT
 	{
 		CONTEXT unwound = *context;
-		const DWORD64 *stack = (const DWORD64 *)context->Rsp;
 		DWORD64 image = (DWORD64)GetModuleHandleA(NULL);
 		void *frames[32];
 		int count, depth;
+#ifdef _M_ARM64
+		const DWORD64 *stack = (const DWORD64 *)context->Sp;
+
+		crash_line("crash: exception %08lx at %p (accessing %p), pc %016llx fp %016llx sp %016llx lr %016llx",
+			record->ExceptionCode, record->ExceptionAddress,
+			record->NumberParameters >= 2 ? (void *)record->ExceptionInformation[1] : NULL,
+			context->Pc, context->Fp, context->Sp, context->Lr);
+		/* (halo.exe's place this run: the addresses below, less it, are the
+		build's own) */
+		crash_line("crash: pc at +%llx", context->Pc - image);
+#else
+		const DWORD64 *stack = (const DWORD64 *)context->Rsp;
 
 		crash_line("crash: exception %08lx at %p (accessing %p), rip %016llx rbp %016llx rsp %016llx",
 			record->ExceptionCode, record->ExceptionAddress,
@@ -935,6 +951,7 @@ static LONG WINAPI crash_filter(EXCEPTION_POINTERS *exception)
 		/* (halo.exe's place this run: the addresses below, less it, are the
 		build's own) */
 		crash_line("crash: rip at +%llx", context->Rip - image);
+#endif
 		if (!IsBadReadPtr(stack, 4 * sizeof(DWORD64)))
 			crash_line("crash: stack %016llx %016llx %016llx %016llx", stack[0], stack[1], stack[2], stack[3]);
 		/* the calls, from the unwind information (win32_posix.c) */
