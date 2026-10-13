@@ -136,6 +136,8 @@ enum
 	_distributed_message_mcc_campaign = 84,
 	/* Expanded MCC scenario-name presence, in bounded chunks. */
 	_distributed_message_mcc_object_names = 89,
+	/* MCC host-authorized speed, ordered on the reliable stream, even paused. */
+	_distributed_message_mcc_game_speed = 90,
 #endif
 
 	NUMBER_OF_DISTRIBUTED_MESSAGES

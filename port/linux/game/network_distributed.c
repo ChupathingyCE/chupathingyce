@@ -90,6 +90,7 @@ int delta_peer_game_machine_identity_text(int machine_index, char *text, int siz
 #include "mcc_script_effects.h"
 #ifdef HALO_MCC_NETWORK
 #include "mcc_object_names_network.h"
+#include "mcc_game_speed.h"
 #include "map_share.h"
 #include "profile_sections.h"
 #endif
@@ -4836,6 +4837,8 @@ static void distributed_note_client_clock(
 	unsigned long now = system_milliseconds();
 	unsigned long elapsed;
 
+	/* MCC clocks include only host-approved speed changes. Other maps use wall time. */
+	now = mcc_game_speed_clock(now);
 	if (machine_index < 0 || machine_index >= HALO_PORT_MAXIMUM_NETWORK_MACHINES)
 		return;
 	clock = &distributed_client_clocks[machine_index];
@@ -5023,6 +5026,12 @@ void network_distributed_handle_message(
 #ifdef HALO_MCC_NETWORK
 	case _distributed_message_mcc_grenades: entry_size = mcc_network_inventory_entry_size(); break;
 	case _distributed_message_mcc_campaign: entry_size = mcc_network_campaign_entry_size(); break;
+	case _distributed_message_mcc_game_speed:
+		/* A clock command is host-only and ordered, never accepted from datagrams. */
+		if (machine_index != NONE || network_connection_last_read_was_unreliable() ||
+			header.count != 1 || size != sizeof(header) + sizeof(real)) return;
+		entry_size = sizeof(real);
+		break;
 	case _distributed_message_mcc_object_names: entry_size = mcc_object_names_entry_size(); break;
 #endif
 	case _distributed_message_actor_states: entry_size = network_actors_entry_size(); break;
@@ -5244,6 +5253,9 @@ void network_distributed_handle_message(
 		break;
 	case _distributed_message_mcc_campaign:
 		mcc_network_handle_campaign(entries, header.count);
+		break;
+	case _distributed_message_mcc_game_speed:
+		mcc_game_speed_receive(entries, header.count);
 		break;
 	case _distributed_message_mcc_object_names:
 		mcc_object_names_receive(entries, header.count, header.game_time);
