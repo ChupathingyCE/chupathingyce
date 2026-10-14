@@ -30,6 +30,8 @@ const struct server_builtin server_builtins[] =
 	{ "race", SERVER_ENGINE_RACE },
 	{ "team_race", SERVER_ENGINE_RACE },
 	{ "rally", SERVER_ENGINE_RACE },
+	{ "bomb", SERVER_ENGINE_BOMB },
+	{ "grifball", SERVER_ENGINE_BOMB },
 };
 
 const int server_builtin_count = (int)(sizeof(server_builtins) / sizeof(server_builtins[0]));
@@ -43,7 +45,7 @@ static const struct server_choice base_choices[] =
 {
 	{ "slayer", 0 }, { "team_slayer", 1 }, { "elimination", 2 }, { "ctf", 3 }, { "ironctf", 4 }, { "king", 5 },
 	{ "team_king", 6 }, { "oddball", 7 }, { "team_oddball", 8 }, { "stalker", 9 }, { "accumulation", 10 },
-	{ "race", 11 }, { "team_race", 12 }, { "rally", 13 },
+	{ "race", 11 }, { "team_race", 12 }, { "rally", 13 }, { "bomb", 14 }, { "grifball", 15 },
 };
 
 /* (game_engine.c's game_engine_weapons) */
@@ -104,6 +106,10 @@ static const struct server_choice ball_type_choices[] =
 static const struct server_choice race_type_choices[] = { { "normal", 0 }, { "any_order", 1 }, { "rally", 2 } };
 
 static const struct server_choice team_scoring_choices[] = { { "minimum", 0 }, { "maximum", 1 }, { "sum", 2 } };
+
+/* (game_engine.h's Bomb traits presets: the player traits a game starts
+with) */
+static const struct server_choice bomb_traits_choices[] = { { "none", 0 }, { "grifball", 1 } };
 
 #define SECONDS(maximum) SERVER_FIELD_INTEGER, 0, (maximum), NO_CHOICES
 #define BOOLEAN SERVER_FIELD_BOOLEAN, 0, 1, NO_CHOICES
@@ -182,6 +188,15 @@ const struct server_gametype_field server_gametype_fields[SERVER_GAMETYPE_FIELDS
 
 	{ "race.type", CHOICE(race_type_choices), SERVER_ENGINE_RACE, "Race type", NULL },
 	{ "race.team_scoring", CHOICE(team_scoring_choices), SERVER_ENGINE_RACE, "Team scoring", NULL },
+
+	{ "bomb.arm_time", SECONDS(60), SERVER_ENGINE_BOMB, "Arm time", "seconds in the goal to score; 0: on contact" },
+	{ "bomb.reset_time", SECONDS(600), SERVER_ENGINE_BOMB, "Bomb reset", "seconds a dropped bomb lies; 0: never" },
+	{ "bomb.round_time", SECONDS(3600), SERVER_ENGINE_BOMB, "Round time", "seconds; 0: no limit" },
+	{ "bomb.new_round_on_score", BOOLEAN, SERVER_ENGINE_BOMB, "A goal starts a new round", NULL },
+	{ "bomb.melee_only", BOOLEAN, SERVER_ENGINE_BOMB, "Melee only",
+		"no weapons, grenades or powerups; the map's energy sword if it has one" },
+	{ "bomb.traits", CHOICE(bomb_traits_choices), SERVER_ENGINE_BOMB, "Player traits",
+		"grifball: one hit kills, the carrier fast and overshielded" },
 };
 
 /* ---------- the settings file's */
@@ -582,6 +597,7 @@ const char *server_engine_name(int engine)
 	case SERVER_ENGINE_ODDBALL: return "oddball";
 	case SERVER_ENGINE_KING: return "king";
 	case SERVER_ENGINE_RACE: return "race";
+	case SERVER_ENGINE_BOMB: return "bomb";
 	}
 	return "none";
 }
