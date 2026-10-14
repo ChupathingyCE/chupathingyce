@@ -443,6 +443,9 @@ void game_engine_bomb_give_sword(long unit_index);
 /* the HUD's lines for a player: the round's score and time, and the bomb's
 carrier; FALSE when there are none */
 boolean game_engine_bomb_hud_text(long player_index, wchar_t *score_line, wchar_t *carrier_line, long size);
+/* whether a weapon's pickup line is not shown (the bomb's: the HUD's line
+says who has it) */
+boolean game_engine_bomb_hides_pickup(long weapon_definition_index);
 /* the network test's (network_test.c): the bomb, a team's goal, a team's
 score, the round */
 long game_engine_bomb_weapon(void);

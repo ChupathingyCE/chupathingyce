@@ -912,7 +912,7 @@ static wchar_t *bomb_format_score_name(wchar_t *buffer)
 
 static wchar_t *bomb_format_team_name(long team_index, wchar_t *buffer)
 {
-	usprintf(buffer, L"%d", VALID_INDEX(team_index, NUMBER_OF_BOMB_TEAMS) ? bomb_globals.scores[team_index] : 0L);
+	usprintf(buffer, L"%d", VALID_INDEX(team_index, NUMBER_OF_BOMB_TEAMS) ? (int)bomb_globals.scores[team_index] : 0);
 	return buffer;
 }
 
@@ -951,16 +951,16 @@ static boolean bomb_engine_format_message(long player_index, long message, long 
 	switch (message)
 	{
 	case _bomb_message_you_scored:
-		usnprintf(buffer, buffer_size, L"You scored! %d to %d", bomb_globals.scores[team_index],
-			bomb_globals.scores[other_team_index]);
+		usnprintf(buffer, buffer_size, L"You scored! %d to %d", (int)bomb_globals.scores[team_index],
+			(int)bomb_globals.scores[other_team_index]);
 		break;
 	case _bomb_message_ally_scored:
-		usnprintf(buffer, buffer_size, L"Your team scored! %d to %d", bomb_globals.scores[team_index],
-			bomb_globals.scores[other_team_index]);
+		usnprintf(buffer, buffer_size, L"Your team scored! %d to %d", (int)bomb_globals.scores[team_index],
+			(int)bomb_globals.scores[other_team_index]);
 		break;
 	case _bomb_message_enemy_scored:
-		usnprintf(buffer, buffer_size, L"The enemy scored. %d to %d", bomb_globals.scores[team_index],
-			bomb_globals.scores[other_team_index]);
+		usnprintf(buffer, buffer_size, L"The enemy scored. %d to %d", (int)bomb_globals.scores[team_index],
+			(int)bomb_globals.scores[other_team_index]);
 		break;
 	case _bomb_message_you_have_the_bomb:
 		usnprintf(buffer, buffer_size, L"You have the bomb!");
@@ -975,10 +975,10 @@ static boolean bomb_engine_format_message(long player_index, long message, long 
 		usnprintf(buffer, buffer_size, L"The bomb was reset.");
 		break;
 	case _bomb_message_new_round:
-		usnprintf(buffer, buffer_size, L"Round %d", bomb_globals.round);
+		usnprintf(buffer, buffer_size, L"Round %d", (int)bomb_globals.round);
 		break;
 	case _bomb_message_round_over:
-		usnprintf(buffer, buffer_size, L"Time is up. Round %d", bomb_globals.round);
+		usnprintf(buffer, buffer_size, L"Time is up. Round %d", (int)bomb_globals.round);
 		break;
 	default:
 		return FALSE;
@@ -1028,8 +1028,9 @@ static void bomb_show_score(long player_index, long team_index)
 
 static void bomb_show_carry(long player_index)
 {
-	game_show_score_you_ally_enemy(player_index, _bomb_message_you_have_the_bomb, _bomb_message_ally_has_the_bomb,
-		_bomb_message_enemy_has_the_bomb, player_index);
+	/* (nothing more: the HUD's line says who has the bomb,
+	game_engine_bomb_hud_text) */
+	(void)player_index;
 }
 
 static void bomb_show_reset(void)
@@ -1064,8 +1065,8 @@ boolean game_engine_bomb_hud_text(
 	time_string[0] = 0;
 	if (bomb_globals.round_ticks != NONE)
 		ticks_to_unicode_time_string(MAX(bomb_globals.round_ticks, 0), NUMBEROF(time_string), time_string);
-	usnprintf(score_line, size, L"RED %d - %d BLUE     ROUND %d%s%s", bomb_globals.scores[_team_red],
-		bomb_globals.scores[_team_blue], bomb_globals.round, time_string[0] ? L"     " : L"", time_string);
+	usnprintf(score_line, size, L"RED %d - %d BLUE     ROUND %d%s%s", (int)bomb_globals.scores[_team_red],
+		(int)bomb_globals.scores[_team_blue], (int)bomb_globals.round, time_string[0] ? L"     " : L"", time_string);
 	score_line[size - 1] = 0;
 	if (bomb_globals.carrier == player_index)
 	{
@@ -1074,12 +1075,22 @@ boolean game_engine_bomb_hud_text(
 		if (arm_time > 0 && bomb_globals.arm_ticks > 0)
 		{
 			usnprintf(carrier_line, size, L"ARMING %d",
-				(arm_time * TICKS_PER_SECOND - bomb_globals.arm_ticks + TICKS_PER_SECOND - 1) / TICKS_PER_SECOND);
+				(int)((arm_time * TICKS_PER_SECOND - bomb_globals.arm_ticks + TICKS_PER_SECOND - 1) / TICKS_PER_SECOND));
 		}
 		else
 		{
-			usnprintf(carrier_line, size, L"YOU HAVE THE BOMB: TAKE IT TO THE %s GOAL",
-				team_index == _team_red ? L"BLUE" : L"RED");
+			long goal_team = (team_index + 1) % NUMBER_OF_BOMB_TEAMS;
+			long tenths = 0;
+
+			/* (and how far it is, in the nav points' meters: the goal's
+			arrow at the screen's edge shows none) */
+			if (bomb_globals.has_goal[goal_team] && player->unit_index != NONE)
+			{
+				tenths = (long)(sqrt(distance_squared3d(&bomb_globals.goals[goal_team],
+					&object_get(player->unit_index)->object.position)) * 30.48f);
+			}
+			usnprintf(carrier_line, size, L"YOU HAVE THE BOMB: TAKE IT TO THE %s GOAL   %d.%dm",
+				goal_team == _team_red ? L"RED" : L"BLUE", (int)(tenths / 10), (int)(tenths % 10));
 		}
 	}
 	else if (bomb_globals.carrier != NONE)
@@ -1227,6 +1238,15 @@ boolean game_engine_bomb_read_network_state(
 	bomb_events.rounds = state.round_count;
 	bomb_events.round_overs = state.round_over_count;
 	return TRUE;
+}
+
+/* the stock "Picked up the odd ball" line, which a Bomb game does not show
+(hud.c): the HUD's own line says who has the bomb */
+boolean game_engine_bomb_hides_pickup(
+	long weapon_definition_index)
+{
+	return bomb_running() && weapon_definition_index != NONE &&
+		weapon_definition_index == get_ball_definition_index();
 }
 
 /* ---------- the network test's (port/linux/game/network_test.c) */
