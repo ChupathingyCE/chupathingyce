@@ -36,6 +36,12 @@ struct vehicle_runtime_datum;
 
 /* ---------- prototypes/VEHICLES.C */
 
+#ifdef HALO_FEATURE_BOTS
+/* port: vehicle classes the bot driver policy can operate. */
+boolean vehicle_supports_bot_driver(long vehicle_index);
+boolean vehicle_is_fixed_turret(long vehicle_index);
+#endif
+
 void vehicle_hover(
 	long vehicle_index,
 	boolean hover);

@@ -1,0 +1,8 @@
+{
+  "name": "bots",
+  "order": 20,
+  "default": false,
+  "help": "Experimental multiplayer bots and navigation",
+  "extension": true,
+  "settings": "settings.inc"
+}

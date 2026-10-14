@@ -132,6 +132,9 @@ symbols in this file:
 #include "text/text_group.h"
 #include "text/unicode.h"
 #include "units/units.h"
+#ifdef HALO_FEATURE_BOTS
+#include "halo_bot_objectives.h" /* port: read-only host-local bot snapshots */
+#endif
 
 /* ---------- constants */
 
@@ -1592,6 +1595,91 @@ long game_engine_ctf_write_network_state(
 	csmemcpy(buffer, &state, sizeof(state));
 	return sizeof(state);
 }
+
+/* port: standard CTF's read-only bot adapter. No scores or ownership are
+   changed here, and a carried flag never exposes its carrier's position. */
+#ifdef HALO_FEATURE_BOTS
+typedef char ctf_bot_teams_match_engine[HALO_BOT_CTF_TEAMS == NUMBER_OF_CTF_TEAMS ? 1 : -1];
+boolean game_engine_ctf_bot_variant_supported(struct game_variant const *variant)
+{
+	return variant && variant->game_engine_index == game_engine_ctf &&
+		variant->universal_variant.teams && !variant->game_engine_variant.ctf.assault &&
+		!variant->game_engine_variant.ctf.flag_must_reset &&
+		variant->game_engine_variant.ctf.single_flag_time == 0;
+}
+
+static boolean ctf_bot_point_valid(real_point3d const *point)
+{
+	return point && valid_real(point->x) && valid_real(point->y) && valid_real(point->z) &&
+		point->x >= -100000.f && point->x <= 100000.f &&
+		point->y >= -100000.f && point->y <= 100000.f &&
+		point->z >= -100000.f && point->z <= 100000.f;
+}
+
+static boolean ctf_bot_copy_flag(short team, struct halo_bot_ctf_flag *flag)
+{
+	struct weapon_datum *weapon;
+	struct unit_datum *carrier;
+	struct player_datum *player;
+	assert(team >= 0 && team < HALO_BOT_CTF_TEAMS);
+	assert(flag);
+	if (!ctf_globals.flags[team] || !ctf_bot_point_valid(&ctf_globals.flags[team]->position))
+		return FALSE;
+	flag->stand = ctf_globals.flags[team]->position;
+	flag->position = flag->stand;
+	flag->object_index = NONE;
+	flag->carrier_player_index = NONE;
+	weapon = weapon_try_and_get(ctf_globals.weapon_indices[team]);
+	if (!weapon || !weapon_is_flag(ctf_globals.weapon_indices[team]) ||
+		weapon->object.owner_team_index != team)
+		return TRUE; /* missing flags are not actionable */
+	flag->object_index = ctf_globals.weapon_indices[team];
+	if (weapon->object.parent_object_index == NONE)
+	{
+		if (!ctf_bot_point_valid(&weapon->object.position)) return FALSE;
+		flag->position = weapon->object.position;
+		flag->state = TEST_FLAG(weapon->weapon.flags, _ctf_weapon_handled_bit) ?
+			_halo_bot_flag_dropped : _halo_bot_flag_home;
+		return TRUE;
+	}
+	carrier = unit_try_and_get(weapon->object.parent_object_index);
+	player = carrier ? player_try_and_get(carrier->unit.player_index) : NULL;
+	if (!player || player->unit_index != weapon->object.parent_object_index ||
+		player->team_index != 1 - team || TEST_FLAG(carrier->object.damage_flags, _object_dead_bit) ||
+		!unit_has_weapon(player->unit_index, flag->object_index))
+		return TRUE;
+	flag->state = _halo_bot_flag_carried;
+	flag->carrier_player_index = carrier->unit.player_index;
+	return TRUE;
+}
+
+boolean game_engine_ctf_bot_snapshot(struct halo_bot_ctf_snapshot *snapshot)
+{
+	struct halo_bot_ctf_snapshot copy;
+	short team;
+	if (!snapshot) return FALSE;
+	csmemset(snapshot, 0, sizeof(*snapshot));
+	csmemset(&copy, 0, sizeof(copy));
+	for (team = 0; team < HALO_BOT_CTF_TEAMS; team++)
+	{
+		snapshot->flags[team].object_index = NONE;
+		snapshot->flags[team].carrier_player_index = NONE;
+	}
+	if (!game_engine_ctf_bot_variant_supported(game_engine_get_variant()) ||
+		network_game_distributed_client()) return FALSE;
+	copy.can_score = game_engine_can_score();
+	copy.flag_at_home_to_score = game_engine_get_variant()->game_engine_variant.ctf.flag_at_home_to_score;
+	for (team = 0; team < HALO_BOT_CTF_TEAMS; team++)
+	{
+		if (!ctf_bot_copy_flag(team, &copy.flags[team])) return FALSE;
+		copy.scores[team] = ctf_globals.scores[team];
+		copy.return_events[team] = ctf_events.returns[team];
+		copy.returners[team] = ctf_events.returners[team];
+	}
+	*snapshot = copy;
+	return TRUE;
+}
+#endif
 
 boolean game_engine_ctf_read_network_state(
 	byte const *buffer,

@@ -54,6 +54,20 @@ def test_selection(tmp_path, monkeypatch):
     assert Path("source/features/beta/beta.c") in on
 
 
+def test_bot_feature_selection():
+    selected = features.defines(SimpleNamespace(feature_bots=True))
+    assert selected == [
+        "-DHALO_FEATURE_BOTS", "-DHALO_EXTENSION_1=bots",
+        "-DHALO_FEATURE_SETTINGS_1=bots",
+    ]
+    assert features.defines(SimpleNamespace(feature_bots=False)) == []
+    config = {"game": {"root": "source"}}
+    enabled = linux_build.game_sources(config, SimpleNamespace(feature_bots=True))
+    disabled = linux_build.game_sources(config, SimpleNamespace(feature_bots=False))
+    assert Path("source/features/bots/bots.c") in enabled
+    assert not any("source/features/bots/" in str(path) for path in disabled)
+
+
 def test_drop_in(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     module = Path("source/features/experiment")

@@ -1,0 +1,284 @@
+#include <assert.h>
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include "engine_ai/claims.h"
+typedef int boolean;
+typedef unsigned char byte;
+typedef float real;
+typedef struct { float x,y,z; } real_point3d;
+#define TRUE 1
+#define FALSE 0
+#define NONE -1
+#define csmemset memset
+#define TEST_FLAG(a,b) (((a) & (1UL << (b))) != 0)
+#define SET_FLAG(a,b,v) ((a)=(v)?(a)|(1UL<<(b)):(a)&~(1UL<<(b)))
+#define VALID_INDEX(i,n) ((i)>=0 && (i)<(n))
+#define match_assert(file,line,condition) assert(condition)
+#define NUMBER_OF_CTF_TEAMS 2
+#define valid_real isfinite
+#define DATUM_INDEX_TO_ABSOLUTE_INDEX(a) ((a) & 0xffff)
+enum { game_engine_slayer=2, game_engine_ctf=1, _ctf_weapon_handled_bit=6,
+       _object_dead_bit=0, TICKS_PER_SECOND=30 };
+struct game_variant {
+    long game_engine_index;
+    struct { int teams; } universal_variant;
+    struct { struct { int assault,flag_must_reset,single_flag_time,flag_at_home_to_score; } ctf; } game_engine_variant;
+};
+/* HEADERS */
+struct object_fields { long owner_team_index,parent_object_index; unsigned long damage_flags; real_point3d position; };
+struct weapon_datum { struct object_fields object; struct { unsigned long flags; } weapon; };
+struct unit_datum { struct object_fields object;
+    struct { long player_index,weapon_object_indices[2],current_weapon_index; } unit; };
+struct player_datum { long unit_index,team_index;
+    struct { struct { struct { long flag_returns,flag_grabs,flag_scores; } ctf_statistics; } multiplayer_statistics; } statistics; };
+struct scenario_netgame_flag { real_point3d position; };
+static struct scenario_netgame_flag stands[2]={{{0,0,0}},{{100,0,0}}};
+static struct { struct scenario_netgame_flag *flags[2]; long weapon_indices[2],scores[2];
+    boolean flag_warnings[2]; long flag_warning_ticks[2]; } ctf_globals;
+static struct { long returns[2],grabs[2],captures[2],returners[2],grabbers[2],capturers[2]; } ctf_events;
+static struct weapon_datum weapons[2];
+static struct unit_datum units[2];
+static struct player_datum players[2];
+static struct game_variant variant;
+static long now;
+static int client, scoring=1, weapon_missing[2];
+static struct { short ambition_count; struct bot_ambition ambitions[BOT_AMBITIONS_MAXIMUM];
+    struct engine_ai_claims item_claims; struct engine_ai_claims seat_claims; boolean ctf_observed; struct halo_bot_ctf_snapshot ctf_previous; } bot_manager_globals;
+static int logged_captures,logged_returns;
+static void platform_log(char const *format, ...) {
+    if(strstr(format,"captures")) logged_captures++;
+    if(strstr(format,"touch return")) logged_returns++;
+}
+static struct game_variant *game_engine_get_variant(void) { return &variant; }
+static int ctf_enabled=1;
+static int config_boolean(char const *name) { assert(!strcmp(name,"bots.ctf")); return ctf_enabled; }
+static int game_engine_has_teams(void) { return variant.universal_variant.teams; }
+static int network_game_distributed_client(void) { return client; }
+static int game_engine_can_score(void) { return scoring; }
+static long game_time_get(void) { return now; }
+static struct weapon_datum *weapon_try_and_get(long i) {
+    return i>=10 && i<=11 && !weapon_missing[i-10] ? &weapons[i-10] : NULL;
+}
+static int weapon_is_flag(long i) { return i==10 || i==11; }
+static struct unit_datum *unit_try_and_get(long i) { return i>=100 && i<=101 ? &units[i-100] : NULL; }
+static struct player_datum *player_try_and_get(long i) { return i>=200 && i<=201 ? &players[i-200] : NULL; }
+static int unit_has_weapon(long u,long w) {
+    struct unit_datum *unit=unit_try_and_get(u);
+    return unit && (unit->unit.weapon_object_indices[0]==w || unit->unit.weapon_object_indices[1]==w);
+}
+static struct weapon_datum *weapon_get(long i) { struct weapon_datum *w=weapon_try_and_get(i); assert(w); return w; }
+static struct unit_datum *unit_get(long i) { struct unit_datum *u=unit_try_and_get(i); assert(u); return u; }
+static struct player_datum *player_get(long i) { struct player_datum *p=player_try_and_get(i); assert(p); return p; }
+static long distributed_player_to_byte(long i) { return i-200; }
+static int failures, depowered;
+static void ctf_show_touch_return(long i) { assert(player_try_and_get(i)); }
+static void ctf_show_grab(long i) { assert(player_try_and_get(i)); }
+static void ctf_show_capture(long i,long t) { assert(player_get(i)->team_index==t); }
+static void ctf_flag_failure_sound(long i) { assert(player_try_and_get(i)); failures++; }
+static void ctf_client_flag_failure_update(long i) { assert(client && player_try_and_get(i)); }
+static int game_engine_player_has_flag(long i) {
+    struct player_datum *p=player_get(i); struct unit_datum *u=unit_try_and_get(p->unit_index);
+    return u && (weapon_is_flag(u->unit.weapon_object_indices[0]) || weapon_is_flag(u->unit.weapon_object_indices[1]));
+}
+static void game_engine_player_depower_active_camo(long i) { assert(player_try_and_get(i)); depowered++; }
+/* Normal unit/physics operations are the fixture seam, not bot-side ownership writes. */
+static void unit_drop_current_weapon(long i,int force) {
+    struct unit_datum *u=unit_get(i); long w=u->unit.weapon_object_indices[u->unit.current_weapon_index];
+    assert(force); weapon_get(w)->object.parent_object_index=NONE;
+    u->unit.weapon_object_indices[u->unit.current_weapon_index]=NONE; u->unit.current_weapon_index=NONE;
+}
+static void game_engine_flag_reset(long w,real_point3d const *position) {
+    struct weapon_datum *weapon=weapon_get(w); assert(weapon->object.parent_object_index==NONE);
+    weapon->object.position=*position;
+}
+/* FUNCTIONS */
+static void reset(void) {
+    int i;
+    memset(&variant,0,sizeof(variant)); variant.game_engine_index=game_engine_ctf;
+    variant.universal_variant.teams=1; variant.game_engine_variant.ctf.flag_at_home_to_score=1;
+    memset(&bot_manager_globals,0,sizeof(bot_manager_globals));
+    engine_ai_claims_reset(&bot_manager_globals.item_claims);
+    engine_ai_claims_reset(&bot_manager_globals.seat_claims);
+    now=0; client=0; scoring=1; logged_captures=logged_returns=0; ctf_enabled=1; failures=depowered=0;
+    memset(&ctf_events,0,sizeof(ctf_events)); memset(&ctf_globals,0,sizeof(ctf_globals));
+    ctf_globals.scores[0]=ctf_globals.scores[1]=0;
+    for(i=0;i<2;i++) {
+        weapon_missing[i]=0; memset(&weapons[i],0,sizeof(weapons[i])); memset(&units[i],0,sizeof(units[i]));
+        weapons[i].object.owner_team_index=i; weapons[i].object.parent_object_index=NONE;
+        weapons[i].object.position=stands[i].position;
+        units[i].unit.player_index=200+i; units[i].unit.weapon_object_indices[0]=NONE;
+        units[i].unit.weapon_object_indices[1]=NONE; units[i].unit.current_weapon_index=NONE;
+        memset(&players[i],0,sizeof(players[i])); players[i].unit_index=100+i; players[i].team_index=i;
+        ctf_globals.flags[i]=&stands[i]; ctf_globals.weapon_indices[i]=10+i;
+    }
+}
+/* Vehicle seat claims: one bot per team and seat, no invalid key, released
+   with the bot, expiring when not renewed. */
+static void seat_claim_tests(void) {
+    long vehicle=0x12340005L, other=0x56780005L;
+    short seat;
+    reset();
+    assert(bot_manager_claim_seat(0,vehicle,0,1,60));
+    assert(bot_manager_claim_seat(0,vehicle,0,1,60)); /* renewed by its owner */
+    assert(!bot_manager_claim_seat(0,vehicle,0,2,60)); /* the driver's seat is taken */
+    assert(bot_manager_seat_claimed_by_other(0,vehicle,0,2) && !bot_manager_seat_claimed_by_other(0,vehicle,0,1));
+    assert(bot_manager_claim_seat(0,vehicle,1,2,60) && bot_manager_claim_seat(0,vehicle,2,3,60));
+    assert(bot_manager_vehicle_claimed_by_other(0,vehicle,1) && !bot_manager_vehicle_claimed_by_other(0,vehicle+1,1));
+    /* the other team's scope is independent; the salt is not part of the key */
+    assert(bot_manager_claim_seat(1,vehicle,0,4,60) && bot_manager_seat_claimed_by_other(0,other,0,2));
+    /* invalid seats, vehicles, bots, durations and teams claim nothing */
+    assert(!bot_manager_claim_seat(0,vehicle,-1,1,60) && !bot_manager_claim_seat(0,vehicle,BOT_MANAGER_SEATS,1,60));
+    assert(!bot_manager_claim_seat(0,NONE,0,1,60) && !bot_manager_claim_seat(0,vehicle,3,0,60));
+    assert(!bot_manager_claim_seat(0,vehicle,3,1,0) && !bot_manager_claim_seat(2,vehicle,3,1,60));
+    assert(!bot_manager_seat_claimed_by_other(0,vehicle,BOT_MANAGER_SEATS,2) && !bot_manager_seat_claimed_by_other(-1,vehicle,0,2));
+    bot_manager_release_seat(0,vehicle,BOT_MANAGER_SEATS,1); bot_manager_release_seat(0,NONE,0,1);
+    /* releasing one seat frees it for a teammate */
+    bot_manager_release_seat(0,vehicle,1,2); assert(bot_manager_claim_seat(0,vehicle,1,5,60));
+    /* a bot's departure releases its seats and items together */
+    assert(bot_manager_claim_item(0,10,1,60));
+    bot_manager_release_bot(0,1);
+    assert(!bot_manager_seat_claimed_by_other(0,vehicle,0,2) && !bot_manager_item_claimed_by_other(0,10,2));
+    assert(bot_manager_seat_claimed_by_other(0,vehicle,2,1));
+    /* an unrenewed claim expires */
+    now=61; assert(!bot_manager_seat_claimed_by_other(0,vehicle,2,1) && bot_manager_claim_seat(0,vehicle,2,1,60));
+    /* every seat of a vehicle can be claimed, by different bots */
+    reset();
+    for (seat=0; seat<BOT_MANAGER_SEATS; seat++) assert(bot_manager_claim_seat(0,vehicle,seat,(short)(seat+1),60));
+    assert(bot_manager_vehicle_claimed_by_other(0,vehicle,BOT_MANAGER_SEATS+1));
+    /* free for all shares one scope */
+    reset(); variant.universal_variant.teams=0;
+    assert(bot_manager_claim_seat(5,vehicle,0,1,60) && bot_manager_seat_claimed_by_other(9,vehicle,0,2));
+}
+int main(void) {
+    struct halo_bot_ctf_snapshot state;
+    struct bot_ambition goal;
+    int i;
+    seat_claim_tests();
+    reset(); assert(!game_engine_ctf_bot_variant_supported(NULL));
+    assert(game_engine_ctf_bot_variant_supported(&variant));
+    variant.game_engine_variant.ctf.assault=1; assert(!game_engine_ctf_bot_variant_supported(&variant));
+    variant.game_engine_variant.ctf.assault=0; variant.game_engine_variant.ctf.flag_must_reset=1;
+    assert(!game_engine_ctf_bot_variant_supported(&variant));
+    variant.game_engine_variant.ctf.flag_must_reset=0; variant.game_engine_variant.ctf.single_flag_time=-1;
+    assert(!game_engine_ctf_bot_variant_supported(&variant));
+    variant.game_engine_variant.ctf.single_flag_time=0; variant.universal_variant.teams=0;
+    assert(!game_engine_ctf_bot_variant_supported(&variant)); reset();
+    assert(!game_engine_ctf_bot_snapshot(NULL)); assert(game_engine_ctf_bot_snapshot(&state));
+    for(i=0;i<2;i++) assert(state.flags[i].state==_halo_bot_flag_home && state.flags[i].object_index==10+i);
+    ctf_enabled=0; bot_manager_publish_ambitions(); assert(!bot_manager_globals.ambition_count);
+    assert(!bot_manager_globals.ctf_observed); ctf_enabled=1;
+    bot_manager_publish_ambitions(); assert(bot_manager_globals.ambition_count==4);
+    ctf_globals.scores[0]=1; bot_manager_publish_ambitions(); assert(logged_captures==1);
+    assert(game_engine_ctf_bot_snapshot(&state) && state.scores[0]==1);
+    bot_manager_publish_ambitions(); assert(logged_captures==1);
+    assert(bot_manager_ctf_goal(0,200,1,NONE,&goal)); assert(goal.kind==_bot_ambition_take && goal.object_index==11);
+    assert(bot_manager_ctf_goal(0,202,2,NONE,&goal)); assert(goal.kind==_bot_ambition_guard);
+    assert(bot_manager_ctf_goal(1,201,3,NONE,&goal)); assert(goal.object_index==10);
+    assert(!bot_manager_ctf_goal(-1,200,1,NONE,&goal)); assert(!bot_manager_ctf_goal(2,200,1,NONE,&goal));
+    assert(!bot_manager_ctf_goal(0,NONE,1,NONE,&goal)); assert(!bot_manager_ctf_goal(0,200,0,NONE,&goal));
+    assert(!bot_manager_ctf_goal(0,200,1,NONE,NULL));
+    bot_manager_release_bot(0,1);
+    assert(bot_manager_ctf_goal(0,202,2,NONE,&goal) && goal.kind==_bot_ambition_take);
+    now=121; assert(bot_manager_ctf_goal(0,200,1,NONE,&goal) && goal.kind==_bot_ambition_take);
+    weapons[0].weapon.flags=1UL<<_ctf_weapon_handled_bit;
+    bot_manager_publish_ambitions();
+    assert(bot_manager_ctf_goal(0,200,1,NONE,&goal) && goal.kind==_bot_ambition_return && goal.object_index==10);
+    assert(bot_manager_ctf_goal(0,200,1,10,&goal) && goal.kind==_bot_ambition_take);
+    weapons[1].object.parent_object_index=100; units[0].unit.weapon_object_indices[0]=11;
+    weapons[1].object.position.x=999; /* hidden carrier position must not escape */
+    assert(game_engine_ctf_bot_snapshot(&state));
+    assert(state.flags[1].state==_halo_bot_flag_carried && state.flags[1].carrier_player_index==200);
+    assert(state.flags[1].position.x==100);
+    bot_manager_publish_ambitions();
+    assert(bot_manager_ctf_goal(0,200,1,NONE,&goal) && goal.kind==_bot_ambition_deliver);
+    assert(goal.position.x==0 && goal.radius<1.f && goal.carrier_player_index==200);
+    assert(bot_manager_ctf_goal(0,202,2,NONE,&goal) && goal.kind!=_bot_ambition_deliver);
+    /* Both flags carried: only allies hunt, using public stands, not private positions. */
+    weapons[0].object.parent_object_index=101; units[1].unit.weapon_object_indices[0]=10;
+    weapons[0].object.position.x=777;
+    bot_manager_publish_ambitions();
+    assert(bot_manager_ctf_goal(0,200,1,NONE,&goal) && goal.kind==_bot_ambition_deliver);
+    assert(bot_manager_ctf_goal(0,202,2,NONE,&goal) && goal.kind==_bot_ambition_hunt);
+    assert(goal.position.x==100 && goal.carrier_player_index==201 && goal.acting_team_index==0);
+    assert(bot_manager_ctf_goal(1,201,3,NONE,&goal) && goal.kind==_bot_ambition_deliver);
+    assert(bot_manager_ctf_goal(1,203,4,NONE,&goal) && goal.kind==_bot_ambition_hunt);
+    assert(goal.position.x==0 && goal.carrier_player_index==200);
+    weapons[0].object.parent_object_index=NONE; units[1].unit.weapon_object_indices[0]=NONE;
+    units[0].object.damage_flags=1UL<<_object_dead_bit;
+    assert(game_engine_ctf_bot_snapshot(&state) && state.flags[1].state==_halo_bot_flag_missing);
+    units[0].object.damage_flags=0; units[0].unit.player_index=999;
+    assert(game_engine_ctf_bot_snapshot(&state) && state.flags[1].state==_halo_bot_flag_missing);
+    units[0].unit.player_index=200; players[0].unit_index=101;
+    assert(game_engine_ctf_bot_snapshot(&state) && state.flags[1].state==_halo_bot_flag_missing);
+    reset(); weapon_missing[0]=1;
+    assert(game_engine_ctf_bot_snapshot(&state) && state.flags[0].state==_halo_bot_flag_missing);
+    assert(state.flags[0].object_index==NONE);
+    reset(); ctf_globals.flags[1]=NULL; assert(!game_engine_ctf_bot_snapshot(&state));
+    assert(state.flags[0].object_index==NONE && state.flags[0].state==_halo_bot_flag_missing);
+    reset(); weapons[0].object.position.x=NAN; assert(!game_engine_ctf_bot_snapshot(&state));
+    reset(); weapons[0].object.position.x=INFINITY; assert(!game_engine_ctf_bot_snapshot(&state));
+    reset(); weapons[0].object.position.x=100001.f; assert(!game_engine_ctf_bot_snapshot(&state));
+    reset(); client=1; assert(!game_engine_ctf_bot_snapshot(&state));
+    bot_manager_publish_ambitions(); assert(bot_manager_globals.ambition_count==0);
+    reset(); scoring=0; bot_manager_publish_ambitions(); assert(bot_manager_globals.ambition_count==0);
+    reset(); variant.game_engine_index=game_engine_slayer;
+    bot_manager_publish_ambitions(); assert(bot_manager_globals.ambition_count==0);
+    /* Real engine pickup, friendly-return, capture and drop callbacks. */
+    reset(); assert(ctf_weapon_pickup(11,200));
+    assert(ctf_events.grabs[1]==1 && players[0].statistics.multiplayer_statistics.ctf_statistics.flag_grabs==1);
+    weapons[1].object.parent_object_index=100; units[0].unit.weapon_object_indices[0]=11;
+    units[0].unit.current_weapon_index=0; units[0].object.position=stands[0].position;
+    bot_manager_publish_ambitions(); assert(bot_manager_ctf_goal(0,200,1,NONE,&goal));
+    assert(goal.kind==_bot_ambition_deliver);
+    /* Own flag away blocks scoring. Returning it succeeds without inventory. */
+    weapons[0].weapon.flags=1UL<<_ctf_weapon_handled_bit;
+    ctf_engine_player_update(200); assert(!ctf_globals.scores[0] && failures==1 && depowered==1);
+    assert(!ctf_weapon_pickup(10,200)); assert(ctf_events.returns[0]==1);
+    assert(players[0].statistics.multiplayer_statistics.ctf_statistics.flag_returns==1);
+    bot_manager_publish_ambitions(); assert(logged_returns==1);
+    assert(game_engine_ctf_bot_snapshot(&state) && state.return_events[0]==1 && state.returners[0]==0);
+    bot_manager_publish_ambitions(); assert(logged_returns==1);
+    /* Counter wrapping still reports touch; automatic returns never masquerade as touch. */
+    ctf_events.returns[0]=255; ctf_events.returners[0]=255;
+    bot_manager_publish_ambitions(); assert(logged_returns==1);
+    ctf_events.returns[0]=0; ctf_events.returners[0]=0;
+    bot_manager_publish_ambitions(); assert(logged_returns==2);
+    assert(!TEST_FLAG(weapons[0].weapon.flags,_ctf_weapon_handled_bit));
+    units[0].object.position.x=1.f; ctf_engine_player_update(200); assert(!ctf_globals.scores[0]);
+    units[0].object.position.x=0.99f; ctf_engine_player_update(200);
+    assert(ctf_globals.scores[0]==1 && ctf_events.captures[0]==1);
+    assert(players[0].statistics.multiplayer_statistics.ctf_statistics.flag_scores==1);
+    assert(units[0].unit.current_weapon_index==NONE && weapons[1].object.parent_object_index==NONE);
+    assert(game_engine_ctf_bot_snapshot(&state) && state.flags[1].state==_halo_bot_flag_home);
+    bot_manager_publish_ambitions(); assert(bot_manager_ctf_goal(0,200,1,NONE,&goal));
+    assert(goal.kind==_bot_ambition_take);
+    /* Symmetric scoring; unavailable scoring/client paths cannot award captures. */
+    reset(); assert(ctf_weapon_pickup(10,201)); weapons[0].object.parent_object_index=101;
+    units[1].unit.weapon_object_indices[0]=10; units[1].unit.current_weapon_index=0;
+    units[1].object.position=stands[1].position;
+    scoring=0; ctf_engine_player_update(201); assert(!ctf_globals.scores[1]);
+    scoring=1; client=1; ctf_engine_player_update(201); assert(!ctf_globals.scores[1]);
+    client=0; ctf_engine_player_update(201); assert(ctf_globals.scores[1]==1);
+    assert(game_engine_ctf_bot_snapshot(&state) && state.flags[0].state==_halo_bot_flag_home);
+    /* A supported variant can permit scoring while the own flag is away. */
+    reset(); variant.game_engine_variant.ctf.flag_at_home_to_score=0;
+    assert(ctf_weapon_pickup(11,200)); weapons[1].object.parent_object_index=100;
+    units[0].unit.weapon_object_indices[0]=11; units[0].unit.current_weapon_index=0;
+    units[0].object.position=stands[0].position;
+    weapons[0].weapon.flags=1UL<<_ctf_weapon_handled_bit;
+    assert(game_engine_ctf_bot_snapshot(&state) && !state.flag_at_home_to_score);
+    ctf_engine_player_update(200); assert(ctf_globals.scores[0]==1);
+    assert(TEST_FLAG(weapons[0].weapon.flags,_ctf_weapon_handled_bit));
+    /* Forced inventory drop and dead carriers invalidate a copied delivery goal. */
+    reset(); assert(ctf_weapon_pickup(11,200)); weapons[1].object.parent_object_index=100;
+    units[0].unit.weapon_object_indices[0]=11; units[0].unit.current_weapon_index=0;
+    assert(game_engine_ctf_bot_snapshot(&state) && state.flags[1].state==_halo_bot_flag_carried);
+    units[0].object.damage_flags=1UL<<_object_dead_bit;
+    assert(game_engine_ctf_bot_snapshot(&state) && state.flags[1].state==_halo_bot_flag_missing);
+    unit_drop_current_weapon(100,TRUE);
+    assert(game_engine_ctf_bot_snapshot(&state) && state.flags[1].state==_halo_bot_flag_dropped);
+    ctf_reset_flag(11); assert(game_engine_ctf_bot_snapshot(&state) && state.flags[1].state==_halo_bot_flag_home);
+    puts("CTF engine lifecycle, snapshots and game-owned goals passed"); return 0;
+}
