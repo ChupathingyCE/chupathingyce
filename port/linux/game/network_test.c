@@ -19,6 +19,8 @@ Automated system link sessions for testing the netcode without the menus
   players to the next map;
 - "join" searches for games and joins the first it finds, as picking it in
   the system link list does;
+- "watch" (a dedicated server's) logs the game each second and plays the
+  scripted bomb carry (debug.network_test_bomb), setting nothing up;
 - "download:<name>[:<checksum>]" downloads the Custom Edition map <name>
   from the community map repositories once the main menu is up, as the
   Online Games screen does when a game needs it (map_download.c; the host's
@@ -111,6 +113,9 @@ enum
 	_network_test_download,
 	_network_test_offer,
 	_network_test_find,
+	/* a host the test doesn't set up (the dedicated server): it only logs,
+	and plays the scripted parts that need no host's menus (the bomb's) */
+	_network_test_watch,
 };
 
 static struct
@@ -216,6 +221,10 @@ static void network_test_read_settings(
 	else if (!strcmp(setting, "join"))
 	{
 		network_test.mode = _network_test_join;
+	}
+	else if (!strcmp(setting, "watch"))
+	{
+		network_test.mode = _network_test_watch;
 	}
 	else if (!strncmp(setting, "find:", 5) && setting[5])
 	{
