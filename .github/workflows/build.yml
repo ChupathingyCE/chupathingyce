@@ -754,11 +754,12 @@ jobs:
   macos:
     # Apple silicon, with Xcode's clang: the universal application (Apple
     # silicon and Intel, self-contained: tools/macos_build.py, --portable),
-    # with its own SDL3, built once and cached. The application goes up as
-    # a tar, which keeps its symbolic links and permissions (its signature
-    # needs them).
+    # with its own SDL3, built once and cached; with the OpenGL renderer and
+    # again with the Metal renderer (configure.py --macos-metal), each
+    # configuration of both. The applications go up as tars, which keep
+    # their symbolic links and permissions (their signatures need them).
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Install the toolchain
         run: brew install ninja ccache
@@ -786,10 +787,26 @@ jobs:
       - name: Release
         run: python3 tools/ci_build.py macos release
 
+      # (the Metal build graph's and renderer's checks need no Metal device)
+      - name: Test Metal
+        run: |
+          python3 -m unittest tools.test_macos_metal_build \
+            tools.test_metal_upload_bounds tools.test_metal_overlay
+
+      - name: Metal debug
+        run: python3 tools/ci_build.py macos-metal debug
+
+      - name: Metal release
+        run: python3 tools/ci_build.py macos-metal release
+
+      - name: Compile cache
+        run: ccache --show-stats
+
       - name: Package
         run: |
-          tar -C dist -cf chupathingyce-macos-debug.tar chupathingyce-macos-debug
-          tar -C dist -cf chupathingyce-macos-release.tar chupathingyce-macos-release
+          for build in macos-debug macos-release macos-metal-debug macos-metal-release; do
+            tar -C dist -cf chupathingyce-$build.tar chupathingyce-$build
+          done
 
       - uses: actions/upload-artifact@v4
         with:
@@ -801,6 +818,17 @@ jobs:
         with:
           name: chupathingyce-macos-release
           path: chupathingyce-macos-release.tar
+          retention-days: 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chupathingyce-macos-metal-debug
+          path: chupathingyce-macos-metal-debug.tar
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chupathingyce-macos-metal-release
+          path: chupathingyce-macos-metal-release.tar
           retention-days: 3
 
       - uses: actions/cache/save@v4

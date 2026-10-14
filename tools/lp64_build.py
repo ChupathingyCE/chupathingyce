@@ -332,8 +332,13 @@ class Lp64Build:
         # the high-res HUD's textures (port/assets/hud; port/linux/src/hud_hires.c),
         # with the platform units' flags: its table is hud_hires.h's, from the
         # 64-bit tree
+        # Generated assets contain no Xbox inline functions; compile them
+        # without the platform semantics header and its weak-name checks.
+        generated_cflags = (platform_cflags
+                            .replace(f"-include {_quote(self.platform_semantics_header)}", "")
+                            + " -Wno-nonportable-include-path")
         for source in generated_sources:
-            add(source, platform_cflags)
+            add(source, generated_cflags)
         # the host's own platform units, with its ABI
         for source in host.host_sources:
             if source.as_posix() not in excluded:
