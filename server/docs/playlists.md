@@ -59,7 +59,31 @@ moves folders itself unless `HALO_MOVE_OLD_MAP_FOLDERS=yes` (see
 
 `slayer`, `team_slayer`, `ctf`, `ironctf`, `king`, `team_king`, `oddball`,
 `team_oddball`, `race`, `team_race`, `rally`, `elimination`, `stalker`,
-`accumulation`.
+`accumulation`, `bomb`, `grifball`, `grifball_open_pitch`.
+
+### Bomb and Grifball
+
+`bomb`, `grifball` and `grifball_open_pitch` are Chupathingy's own game
+types ([docs/bomb.md](../../docs/bomb.md)). Two teams carry a bomb (the
+map's oddball ball) into the other team's goal (its CTF flag stand). They
+play on any map with two CTF bases.
+
+| Game type | Rules |
+| --- | --- |
+| `bomb` | 3 seconds in the goal to score; a goal starts a new round; first to 3. Normal weapons, no vehicles |
+| `grifball` | One hit kills, no shields, melee only (the map's energy sword if it has one). The carrier is 150% fast, takes two thirds of the damage and is overshielded. Rounds of 3 minutes, a goal ends the round, first to 3. Respawn 3 seconds |
+| `grifball_open_pitch` | Grifball for big maps (Blood Gulch): everyone 175% fast, the carrier 200%, rounds of 5 minutes |
+
+Only players on a Chupathingy build with Bomb can play these. A client
+without it (an OpenCE client, or an older Chupathingy) is dropped from the
+lobby or the game about 4 seconds after it joins, and every player is told
+why. The server plays on. Its other games are unchanged, and OpenCE clients
+play those as before.
+
+A game type file can start from these (`base = "grifball"`) and change their
+own fields: `bomb.arm_time`, `bomb.reset_time` and `bomb.round_time`
+(seconds), `bomb.new_round_on_score`, `bomb.melee_only`, and `bomb.traits`
+(`"none"`, `"grifball"`, `"open_pitch"`).
 
 A team game needs at least two players. While only one player is waiting,
 the server skips ahead to the next game in the playlist that isn't a team
@@ -77,6 +101,7 @@ game; if there isn't one, that player waits for a second.
 | `bloodgulch.txt` | Blood Gulch only, Team Slayer and Slayer in turn, for the biggest games. |
 | `gearbox.txt` | Halo PC's stock maps as Custom Edition has them (`@ce`), Slayer and Team Slayer in turn. |
 | `gearbox.txt` | Halo PC's own maps (`@ce`), Slayer and Team Slayer in turn. |
+| `grifball.txt` | Grifball: Open Pitch on Blood Gulch, then Grifball on the smaller CTF maps. Chupathingy clients only. |
 
 ## Playlists made on the server
 

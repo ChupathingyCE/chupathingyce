@@ -1,0 +1,6 @@
+# Grifball (docs/bomb.md): Chupathingy clients only; others are dropped
+# map            game type
+bloodgulch       grifball_open_pitch
+hangemhigh       grifball
+bloodgulch       grifball_open_pitch
+chillout         grifball
