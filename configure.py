@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import tools.features as features
 from tools import ninja_syntax
 from tools.android_build import android_configure_inputs, generate_android_build
 from tools.android64_build import android64_configure_inputs, generate_android64_build
@@ -46,6 +47,7 @@ parser.add_argument(
     help="every build (Linux, Windows, macOS, Android; always the server's): the game list and server browser of halo.milenko.org "
     "(HALO_GAME_BROWSER; port/linux/src/browser.c); on unless --no-game-browser",
 )
+features.add_arguments(parser)
 parser.add_argument(
     "--lto",
     choices=["full", "thin", "off"],
@@ -99,6 +101,7 @@ sln = SimpleNamespace(
     compiler_launcher=args.compiler_launcher,
     port_release=args.release,
     game_browser=args.game_browser,
+    **features.selection(args),
     port_lto=args.lto,
     port_portable=args.portable,
     port_pgo=args.pgo,
@@ -148,6 +151,10 @@ n.build(
     implicit=[
         configure_script,
         Path("tools/ninja_syntax.py"),
+        Path("tools/features.py"),
+        *features.manifests(),
+        features.FEATURES_DIR,
+        *sorted(path for path in features.FEATURES_DIR.rglob("*") if path.is_dir()),
         *linux_configure_inputs(),
         *linux64_configure_inputs(),
         *android_configure_inputs(),

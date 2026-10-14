@@ -24,6 +24,12 @@ edits and comments stay.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define HALO_SETTINGS_PATH_(name) features/name/settings.inc
+#define HALO_SETTINGS_STRING_(path) #path
+#define HALO_SETTINGS_STRING(path) HALO_SETTINGS_STRING_(path)
+#define HALO_SETTINGS_FILE(name) HALO_SETTINGS_STRING(HALO_SETTINGS_PATH_(name))
+
 #ifndef _WIN32
 #include <unistd.h>
 #endif
@@ -632,6 +638,31 @@ static const struct config_setting config_settings[] =
 	{ "debug.sample_seconds", _config_real, "0.0", "HALO_SAMPLE", _environment_value, _platform_android,
 		"Log where every game thread is this often, in seconds (read by the\n"
 		"app, port/android/host/host_debug.c); 0 never." },
+
+#ifdef HALO_FEATURE_SETTINGS_1
+#include HALO_SETTINGS_FILE(HALO_FEATURE_SETTINGS_1)
+#endif
+#ifdef HALO_FEATURE_SETTINGS_2
+#include HALO_SETTINGS_FILE(HALO_FEATURE_SETTINGS_2)
+#endif
+#ifdef HALO_FEATURE_SETTINGS_3
+#include HALO_SETTINGS_FILE(HALO_FEATURE_SETTINGS_3)
+#endif
+#ifdef HALO_FEATURE_SETTINGS_4
+#include HALO_SETTINGS_FILE(HALO_FEATURE_SETTINGS_4)
+#endif
+#ifdef HALO_FEATURE_SETTINGS_5
+#include HALO_SETTINGS_FILE(HALO_FEATURE_SETTINGS_5)
+#endif
+#ifdef HALO_FEATURE_SETTINGS_6
+#include HALO_SETTINGS_FILE(HALO_FEATURE_SETTINGS_6)
+#endif
+#ifdef HALO_FEATURE_SETTINGS_7
+#include HALO_SETTINGS_FILE(HALO_FEATURE_SETTINGS_7)
+#endif
+#ifdef HALO_FEATURE_SETTINGS_8
+#include HALO_SETTINGS_FILE(HALO_FEATURE_SETTINGS_8)
+#endif
 };
 
 #define NUMBER_OF_CONFIG_SETTINGS (sizeof(config_settings) / sizeof(config_settings[0]))
@@ -900,7 +931,6 @@ static void config_append_setting(struct config_text *text, const struct config_
 static char *config_default_text(void)
 {
 	struct config_text text = { NULL, 0, 0 };
-	char section[32] = "";
 	size_t index;
 
 #ifdef HALO_ANDROID
@@ -928,22 +958,56 @@ static char *config_default_text(void)
 		"# named with it, which wins over this file.\n"
 		CONFIG_VERSION_TEXT);
 #endif
+	/* Each section is emitted once, with every setting for it together. The
+	feature manifests may add settings after the platform's existing table;
+	grouping them in one pass per first section keeps the output valid TOML.
+	The work is bounded by the square of the fixed settings table length. */
 	for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
 	{
 		const struct config_setting *setting = &config_settings[index];
 		const char *dot = strchr(setting->name, '.');
+		size_t section_length;
+		size_t previous_index;
+		size_t setting_index;
+		boolean section_seen = FALSE;
+		char section[32];
 		char buffer[64];
 
 		if (!(setting->platforms & CONFIG_PLATFORM) || !dot)
 			continue;
-		if (strncmp(section, setting->name, (size_t)(dot - setting->name)) ||
-			section[dot - setting->name] != 0)
+		section_length = (size_t)(dot - setting->name);
+		assert(section_length < sizeof(section));
+		for (previous_index = 0; previous_index < index; previous_index++)
 		{
-			snprintf(section, sizeof(section), "%.*s", (int)(dot - setting->name), setting->name);
-			snprintf(buffer, sizeof(buffer), "\n[%s]\n", section);
-			config_append(&text, buffer);
+			const struct config_setting *previous = &config_settings[previous_index];
+			const char *previous_dot = strchr(previous->name, '.');
+
+			if ((previous->platforms & CONFIG_PLATFORM) && previous_dot &&
+				(size_t)(previous_dot - previous->name) == section_length &&
+				!strncmp(previous->name, setting->name, section_length))
+			{
+				section_seen = TRUE;
+				break;
+			}
 		}
-		config_append_setting(&text, setting);
+		if (section_seen)
+			continue;
+
+		snprintf(section, sizeof(section), "%.*s", (int)section_length, setting->name);
+		snprintf(buffer, sizeof(buffer), "\n[%s]\n", section);
+		config_append(&text, buffer);
+		for (setting_index = 0; setting_index < NUMBER_OF_CONFIG_SETTINGS; setting_index++)
+		{
+			const struct config_setting *candidate = &config_settings[setting_index];
+			const char *candidate_dot = strchr(candidate->name, '.');
+
+			if ((candidate->platforms & CONFIG_PLATFORM) && candidate_dot &&
+				(size_t)(candidate_dot - candidate->name) == section_length &&
+				!strncmp(candidate->name, setting->name, section_length))
+			{
+				config_append_setting(&text, candidate);
+			}
+		}
 	}
 	return text.buffer;
 }

@@ -185,6 +185,7 @@ struct game_options;
 #include "rasterizer/common/rasterizer_common.h"
 #endif
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#include "extensions/extension_api.h" /* port: host-local game features */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -675,6 +676,8 @@ void game_initialize_for_new_map(
 
 	game_globals->active = TRUE;
 	objects_place();
+	/* port: bot and editor extensions finish map setup after stock objects. */
+	halo_extensions_objects_placed();
 	if (!game_in_editor())
 		ai_place();
 	/* (the map's objects, placed as on the host: a distributed client's own
@@ -879,6 +882,8 @@ void game_precache_new_map(
 void game_dispose_from_old_map(
 	void)
 {
+	/* port: retire feature-owned map data before the game state is unloaded. */
+	halo_extensions_dispose_from_old_map();
 	rasterizer_dispose_from_old_map();
 	game_state_dispose_from_old_map();
 	cheats_dispose_from_old_map();
