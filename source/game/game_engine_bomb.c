@@ -46,6 +46,7 @@ netcode shows them from the host's state (game_engine_bomb_write_network_state).
 #include "../../port/linux/src/delta_peer.h"
 
 #include <math.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -161,6 +162,49 @@ static boolean bomb_running(void)
 	return game_engine && game_engine->type == game_engine_bomb;
 }
 
+/* ---------- the playtest's log (debug.txt): every grab, drop, score,
+reset, round and traits change, with the tick, the machine's role and a
+position; "bomb: DISAGREE" for a client that sees the game otherwise than
+its host */
+
+static void bomb_log(char const *format, ...)
+{
+	char line[256];
+	va_list arguments;
+	int length;
+
+	length = snprintf(line, sizeof(line), "bomb: %s tick %ld ", network_game_distributed_client() ? "client" : "host",
+		(long)game_time_get());
+	if (length < 0 || length >= (int)sizeof(line))
+		return;
+	va_start(arguments, format);
+	vsnprintf(line + length, sizeof(line) - (size_t)length, format, arguments);
+	va_end(arguments);
+	error(_error_log, "%s", line);
+}
+
+/* a player's absolute index, team and position, for the log */
+static void bomb_log_player(char const *what, long player_index)
+{
+	struct player_datum *player = player_index != NONE ? player_get(player_index) : NULL;
+	real_point3d position = *global_origin3d;
+
+	if (player && player->unit_index != NONE)
+		position = object_get(player->unit_index)->object.position;
+	bomb_log("%s player %ld team %ld at (%.2f %.2f %.2f)", what,
+		player_index != NONE ? (long)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index) : -1L, player ? (long)player->team_index : -1L,
+		position.x, position.y, position.z);
+}
+
+static void bomb_log_traits(char const *whose, struct game_traits const *traits)
+{
+	bomb_log("traits (%s): everyone health %d damage %d resistance %d speed %d shields %d; carrier health %d damage %d "
+		"resistance %d speed %d shields %d highlight %d", whose, traits->everyone.health, traits->everyone.damage,
+		traits->everyone.resistance, traits->everyone.speed, traits->everyone.shields, traits->carrier.health,
+		traits->carrier.damage, traits->carrier.resistance, traits->carrier.speed, traits->carrier.shields,
+		traits->carrier.highlight);
+}
+
 /* ---------- player traits */
 
 static short bomb_trait_pin(short value, short minimum, short maximum)
@@ -266,6 +310,7 @@ static void bomb_read_host_traits(void)
 		sets[index]->highlight = wires[index]->highlight;
 	}
 	game_engine_traits_clean(&bomb_globals.host_traits);
+	bomb_log_traits("the host's, by TRAITS", &bomb_globals.host_traits);
 }
 
 /* the traits the game plays by: a client's from its host (TRAITS), else
@@ -382,6 +427,21 @@ void game_engine_bomb_host_traits(
 		wires[index]->highlight = sets[index]->highlight;
 	}
 	delta_peer_game_set_traits(&wire);
+	{
+		static struct game_traits logged;
+		static boolean have_logged = FALSE;
+
+		if (!have_logged || csmemcmp(&logged, &traits, sizeof(traits)))
+		{
+			logged = traits;
+			have_logged = TRUE;
+			if (bomb_running())
+				bomb_log_traits("hosted", &traits);
+			else
+				error(_error_log, "bomb: host traits set for the hosted game (%d health, %d speed)",
+					traits.everyone.health, traits.everyone.speed);
+		}
+	}
 }
 
 /* ---------- the map */
@@ -568,6 +628,9 @@ static void bomb_start_round(boolean timed_out)
 	long round_time = game_engine_get_variant()->game_engine_variant.bomb.round_time;
 	short counts[NUMBER_OF_BOMB_TEAMS] = { 0, 0 };
 
+	bomb_log("round %ld ends (%s); round %ld starts, red %ld blue %ld", (long)bomb_globals.round,
+		timed_out ? "time" : "goal", (long)bomb_globals.round + 1, (long)bomb_globals.scores[0],
+		(long)bomb_globals.scores[1]);
 	bomb_globals.round++;
 	bomb_globals.round_ticks = round_time > 0 ? round_time * TICKS_PER_SECOND : NONE;
 	bomb_globals.round_start_time = game_time_get();
@@ -757,6 +820,8 @@ static void bomb_award_score(long player_index)
 	bomb_events.scores++;
 	bomb_events.scorer = distributed_player_to_byte(player_index);
 	bomb_events.scorer_team = (byte)team_index;
+	bomb_log_player("score", player_index);
+	bomb_log("score: red %ld blue %ld", (long)bomb_globals.scores[0], (long)bomb_globals.scores[1]);
 	bomb_show_score(player_index, team_index);
 	bomb_reset();
 	if (bomb_globals.scores[team_index] < bomb_globals.score_to_win &&
@@ -774,10 +839,16 @@ static void bomb_engine_player_update(long player_index)
 	boolean carrying = player->unit_index != NONE && bomb_globals.weapon_index != NONE &&
 		unit_has_weapon(player->unit_index, bomb_globals.weapon_index);
 
-	if (carrying)
+	if (carrying && bomb_globals.carrier != player_index)
+	{
 		bomb_globals.carrier = player_index;
-	else if (bomb_globals.carrier == player_index)
+		bomb_log_player("grab", player_index);
+	}
+	else if (!carrying && bomb_globals.carrier == player_index)
+	{
 		bomb_globals.carrier = NONE;
+		bomb_log_player("drop", player_index);
+	}
 	if (carrying && game_engine_can_score() && VALID_INDEX(absolute_index, HALO_PORT_MAXIMUM_NETWORK_PLAYERS))
 		bomb_globals.carry_ticks[absolute_index]++;
 
@@ -843,6 +914,8 @@ static void bomb_engine_weapon_update(long weapon_index, struct weapon_datum *we
 		(unsigned long)(game_time_get() - weapon->item.last_owned_time) > (unsigned long)(reset_time * TICKS_PER_SECOND) &&
 		TEST_FLAG(weapon->object.flags, _object_connected_to_map_bit) && weapon->object.parent_object_index == NONE)
 	{
+		bomb_log("reset: untouched at (%.2f %.2f %.2f)", weapon->object.position.x, weapon->object.position.y,
+			weapon->object.position.z);
 		bomb_reset();
 		bomb_events.resets++;
 		bomb_show_reset();
@@ -967,7 +1040,10 @@ static void bomb_engine_player_killed_player(long killing_player_index, long kil
 			bomb_globals.kills_as_carrier[killer]++;
 	}
 	if (dead_player_index == bomb_globals.carrier)
+	{
+		bomb_log_player("drop (the carrier killed)", dead_player_index);
 		bomb_globals.carrier = NONE;
+	}
 }
 
 static boolean bomb_engine_format_message(long player_index, long message, long message_data, wchar_t *buffer,
@@ -1191,9 +1267,13 @@ struct bomb_network_state
 	byte reset_count;
 	byte round_count;
 	byte round_over_count;
+	/* the carrier the host sees now (distributed_player_to_byte), for the
+	client's check of its own */
+	byte carrier_now;
+	byte pad[3];
 };
 
-typedef char verify_bomb_network_state_size[sizeof(struct bomb_network_state) == 0x20 ? 1 : -1];
+typedef char verify_bomb_network_state_size[sizeof(struct bomb_network_state) == 0x24 ? 1 : -1];
 
 long game_engine_bomb_write_network_state(
 	byte *buffer,
@@ -1218,6 +1298,7 @@ long game_engine_bomb_write_network_state(
 	state.reset_count = bomb_events.resets;
 	state.round_count = bomb_events.rounds;
 	state.round_over_count = bomb_events.round_overs;
+	state.carrier_now = distributed_player_to_byte(bomb_globals.carrier);
 	csmemcpy(buffer, &state, sizeof(state));
 	return sizeof(state);
 }
@@ -1232,6 +1313,51 @@ boolean game_engine_bomb_read_network_state(
 	if (size != (long)sizeof(state))
 		return FALSE;
 	csmemcpy(&state, buffer, sizeof(state));
+	/* the playtest's checks: what this client had against the host's (its
+	carrier from the units' hands, its round clock counted down itself) */
+	if (!first)
+	{
+		static long carrier_disagreements = 0;
+		long host_carrier = distributed_player_from_byte(state.carrier_now);
+
+		if (host_carrier != bomb_globals.carrier)
+		{
+			/* (a pickup a state's interval old is no disagreement: twice
+			running is) */
+			if (++carrier_disagreements == 2)
+			{
+				bomb_log("DISAGREE carrier: host %ld, client %ld",
+					host_carrier != NONE ? (long)DATUM_INDEX_TO_ABSOLUTE_INDEX(host_carrier) : -1L,
+					bomb_globals.carrier != NONE ? (long)DATUM_INDEX_TO_ABSOLUTE_INDEX(bomb_globals.carrier) : -1L);
+			}
+		}
+		else
+			carrier_disagreements = 0;
+		if (state.scores[0] < bomb_globals.scores[0] || state.scores[1] < bomb_globals.scores[1])
+		{
+			bomb_log("DISAGREE score: host red %ld blue %ld, client red %ld blue %ld (the host's went down)",
+				(long)state.scores[0], (long)state.scores[1], (long)bomb_globals.scores[0], (long)bomb_globals.scores[1]);
+		}
+		if (state.round < bomb_globals.round)
+			bomb_log("DISAGREE round: host %ld, client %ld", (long)state.round, (long)bomb_globals.round);
+		if (state.round == bomb_globals.round && state.round_ticks != NONE && bomb_globals.round_ticks != NONE &&
+			(state.round_ticks - bomb_globals.round_ticks > 2 * TICKS_PER_SECOND ||
+				bomb_globals.round_ticks - state.round_ticks > 2 * TICKS_PER_SECOND))
+		{
+			bomb_log("DISAGREE round time: host %ld ticks left, client %ld", (long)state.round_ticks,
+				(long)bomb_globals.round_ticks);
+		}
+		if (state.score_count != bomb_events.scores)
+		{
+			bomb_log("score (the host's): player %d team %d, red %ld blue %ld", (int)state.scorer, (int)state.scorer_team,
+				(long)state.scores[0], (long)state.scores[1]);
+		}
+		if (state.reset_count != bomb_events.resets)
+			bomb_log("reset (the host's)");
+		if (state.round_count != bomb_events.rounds)
+			bomb_log("round %ld starts (the host's; %s)", (long)state.round,
+				state.round_over_count != bomb_events.round_overs ? "time" : "goal");
+	}
 	/* (the bomb: a weapon of the host's, else none yet) */
 	bomb_globals.weapon_index = state.weapon_index != NONE &&
 		object_try_and_get_and_verify_type(state.weapon_index, _object_mask_weapon) ? state.weapon_index : NONE;

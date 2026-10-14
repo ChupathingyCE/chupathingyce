@@ -3319,6 +3319,52 @@ void network_distributed_new_game(
 }
 
 /* after each tick (game_time.c) */
+/* every 10 seconds of a network game, each player's network health in the
+log (debug.txt), for playtests: "net health:", the ping (ms, the host's
+round trip to the player's machine; a client's as the host told it) and its
+jitter (the host's), this machine's corrections of its own players (the
+host pulling a prediction back: a rubber band) since the last line, and the
+messages sent and received */
+static void distributed_log_health(
+	void)
+{
+	static long last_tick = -1;
+	static long last_corrections = 0;
+	short player_index;
+	char line[1024];
+	int length = 0;
+
+	if (game_time_get() < last_tick)
+		last_tick = -1;
+	if (last_tick >= 0 && game_time_get() - last_tick < 10 * TICKS_PER_SECOND)
+		return;
+	last_tick = game_time_get();
+	length = snprintf(line, sizeof(line), "net health: %s tick %ld corrections +%ld sent %ld received %ld |",
+		game_connection() == _game_connection_network_server ? "host" : "client", (long)game_time_get(),
+		distributed_statistics.corrections - last_corrections, distributed_statistics.sent,
+		distributed_statistics.received);
+	last_corrections = distributed_statistics.corrections;
+	for (player_index = 0; player_index < MAXIMUM_TRACKED_PLAYERS && length > 0 && length < (int)sizeof(line) - 64;
+		player_index++)
+	{
+		long machine_index;
+		long ping;
+
+		if (!distributed_player(player_index))
+			continue;
+		ping = distributed_player_ping(player_index);
+		machine_index = distributed_player_machines[player_index];
+		length += snprintf(line + length, sizeof(line) - (size_t)length, " player %d ping %ld", (int)player_index, ping);
+		if (game_connection() == _game_connection_network_server && machine_index >= 0 &&
+			machine_index < HALO_PORT_MAXIMUM_NETWORK_MACHINES && distributed_round_trips[machine_index].valid)
+		{
+			length += snprintf(line + length, sizeof(line) - (size_t)length, " jitter %ld",
+				(long)(distributed_round_trips[machine_index].deviation * 1000.0f / TICKS_PER_SECOND + 0.5f));
+		}
+	}
+	error(_error_log, "%s", line);
+}
+
 void network_distributed_tick(
 	void)
 {
@@ -3327,6 +3373,8 @@ void network_distributed_tick(
 	if (game_time_get() == distributed_last_sent_time)
 		return;
 	distributed_last_sent_time = game_time_get();
+	if (connection == _game_connection_network_server || connection == _game_connection_network_client)
+		distributed_log_health();
 	distributed_machines.in_tick = TRUE;
 	if (connection == _game_connection_network_server)
 	{
