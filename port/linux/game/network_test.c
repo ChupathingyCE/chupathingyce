@@ -932,7 +932,7 @@ void network_test_update(
 
 	/* the game running: report (from the start of each game: the next
 	game's time starts over) */
-	if (game_in_progress())
+	if (game_engine_running() && !main_menu_loaded)
 		network_test.played = TRUE;
 	if (game_in_progress() && game_time_get() < network_test.logged_time)
 		network_test.logged_time = 0;
@@ -1240,7 +1240,7 @@ void network_test_update(
 		/* (a start the lobby held, as a Bomb game's does while a machine's
 		Delta handshake is under way, is asked again, as a player would
 		press it again) */
-		else if (!network_test.played && !game_in_progress() && global_network_game_server_get())
+		else if (!network_test.played && global_network_game_server_get())
 		{
 			network_test.setup_seconds += seconds;
 			if (network_test.setup_seconds >= 5.0f)
