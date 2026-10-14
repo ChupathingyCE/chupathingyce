@@ -5351,6 +5351,17 @@ long game_engine_report_lines(
 			game_stats_player_extra(ranking[index].player_index, extras[index], BROWSER_REPORT_EXTRA_SIZE,
 				&multikills);
 			line->multikills = multikills;
+			/* (a Bomb game's own members: docs/bomb.md, Reports) */
+			{
+				char bomb[192];
+				size_t used = strlen(extras[index]);
+
+				if (game_engine_bomb_report_player(ranking[index].player_index, bomb, sizeof(bomb)) &&
+					used + strlen(bomb) + 3 < BROWSER_REPORT_EXTRA_SIZE)
+				{
+					snprintf(extras[index] + used, BROWSER_REPORT_EXTRA_SIZE - used, "%s%s", used ? ", " : "", bomb);
+				}
+			}
 			line->extra = extras[index];
 		}
 	}
@@ -6339,6 +6350,25 @@ struct game_variant *build_game_variant_grifball(
 
 	return variant;
 }
+
+/* port: Open Pitch, Grifball for a big map (Blood Gulch): everyone 175%
+fast and the carrier 200%, rounds of five minutes */
+struct game_variant *build_game_variant_grifball_open_pitch(
+	struct game_variant *variant)
+{
+	struct game_variant result;
+
+	build_game_variant_grifball(&result);
+	csmemset(result.human_readable_game_description, 0, sizeof(result.human_readable_game_description));
+	ustrncpy(result.human_readable_game_description, L"Open Pitch",
+		NUMBEROF(result.human_readable_game_description) - 1);
+	result.game_engine_variant.bomb.round_time = 300;
+	result.game_engine_variant.bomb.traits = _bomb_traits_open_pitch;
+
+	*variant = result;
+
+	return variant;
+}
 #endif
 
 struct game_variant *build_game_variant_slayer_pro(
@@ -6877,6 +6907,8 @@ struct game_variant *game_engine_get_variant_by_name(
 		result = *build_game_variant_bomb(&temporary);
 	else if (csstrcmp(name, "grifball") == 0)
 		result = *build_game_variant_grifball(&temporary);
+	else if (csstrcmp(name, "grifball_open_pitch") == 0)
+		result = *build_game_variant_grifball_open_pitch(&temporary);
 #endif
 
 	*variant = result;

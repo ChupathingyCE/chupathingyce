@@ -32,6 +32,7 @@ const struct server_builtin server_builtins[] =
 	{ "rally", SERVER_ENGINE_RACE },
 	{ "bomb", SERVER_ENGINE_BOMB },
 	{ "grifball", SERVER_ENGINE_BOMB },
+	{ "grifball_open_pitch", SERVER_ENGINE_BOMB },
 };
 
 const int server_builtin_count = (int)(sizeof(server_builtins) / sizeof(server_builtins[0]));
@@ -46,6 +47,7 @@ static const struct server_choice base_choices[] =
 	{ "slayer", 0 }, { "team_slayer", 1 }, { "elimination", 2 }, { "ctf", 3 }, { "ironctf", 4 }, { "king", 5 },
 	{ "team_king", 6 }, { "oddball", 7 }, { "team_oddball", 8 }, { "stalker", 9 }, { "accumulation", 10 },
 	{ "race", 11 }, { "team_race", 12 }, { "rally", 13 }, { "bomb", 14 }, { "grifball", 15 },
+	{ "grifball_open_pitch", 16 },
 };
 
 /* (game_engine.c's game_engine_weapons) */
@@ -109,7 +111,7 @@ static const struct server_choice team_scoring_choices[] = { { "minimum", 0 }, {
 
 /* (game_engine.h's Bomb traits presets: the player traits a game starts
 with) */
-static const struct server_choice bomb_traits_choices[] = { { "none", 0 }, { "grifball", 1 } };
+static const struct server_choice bomb_traits_choices[] = { { "none", 0 }, { "grifball", 1 }, { "open_pitch", 2 } };
 
 #define SECONDS(maximum) SERVER_FIELD_INTEGER, 0, (maximum), NO_CHOICES
 #define BOOLEAN SERVER_FIELD_BOOLEAN, 0, 1, NO_CHOICES

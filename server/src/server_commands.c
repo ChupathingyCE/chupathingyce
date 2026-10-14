@@ -290,6 +290,7 @@ static char const *const server_game_types[] =
 {
 	"slayer", "team_slayer", "ctf", "ironctf", "king", "team_king", "oddball", "team_oddball", "race",
 	"team_race", "rally", "elimination", "stalker", "accumulation", "bomb", "grifball",
+	"grifball_open_pitch",
 };
 
 static char server_command_output[OUTPUT_SIZE];

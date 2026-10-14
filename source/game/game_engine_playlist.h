@@ -71,6 +71,8 @@ struct game_variant *build_game_variant_bomb(
 	struct game_variant *variant);
 struct game_variant *build_game_variant_grifball(
 	struct game_variant *variant);
+struct game_variant *build_game_variant_grifball_open_pitch(
+	struct game_variant *variant);
 #endif
 struct game_variant *build_game_variant_team_king(
 	struct game_variant *variant);

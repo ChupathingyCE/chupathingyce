@@ -46,6 +46,7 @@ netcode shows them from the host's state (game_engine_bomb_write_network_state).
 #include "../../port/linux/src/delta_peer.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 /* ---------- constants */
@@ -116,6 +117,13 @@ static struct
 	long sword_definition_index;
 	/* the players drawn in the carrier's color (by absolute index) */
 	boolean highlighted[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
+	/* each player's (by absolute index), for the game's report: ticks with
+	the bomb, carriers killed, kills while carrying (every machine counts
+	them from what it sees: the carrier and the deaths are every
+	machine's) */
+	long carry_ticks[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
+	short carrier_kills[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
+	short kills_as_carrier[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
 	/* a client's: its host's traits (TRAITS), by the number Delta Peer
 	raises */
 	delta_u32 host_traits_generation;
@@ -206,6 +214,18 @@ void game_engine_traits_default(
 		traits->carrier.resistance = 150;
 		traits->carrier.shields = _trait_shields_overshield;
 	}
+	if (variant->game_engine_variant.bomb.traits == _bomb_traits_open_pitch)
+	{
+		/* Grifball's, and fast: 175% everyone, the carrier 200% (on top:
+		115% of 175%, kept to the speed's most) */
+		traits->everyone.health = 10;
+		traits->everyone.damage = 200;
+		traits->everyone.speed = 175;
+		traits->everyone.shields = _trait_shields_none;
+		traits->carrier.speed = 115;
+		traits->carrier.resistance = 150;
+		traits->carrier.shields = _trait_shields_overshield;
+	}
 }
 
 void game_engine_traits_clean(
@@ -281,7 +301,7 @@ static void bomb_player_traits(long player_index, struct player_traits *traits)
 		traits->health = (short)(traits->health * game_traits->carrier.health / 100);
 		traits->damage = (short)(traits->damage * game_traits->carrier.damage / 100);
 		traits->resistance = (short)(traits->resistance * game_traits->carrier.resistance / 100);
-		traits->speed = (short)(traits->speed * game_traits->carrier.speed / 100);
+		traits->speed = (short)MIN(traits->speed * game_traits->carrier.speed / 100, PLAYER_TRAIT_SPEED_MAXIMUM);
 		if (game_traits->carrier.shields != _trait_shields_unchanged)
 			traits->shields = game_traits->carrier.shields;
 		traits->highlight = game_traits->carrier.highlight;
@@ -758,6 +778,8 @@ static void bomb_engine_player_update(long player_index)
 		bomb_globals.carrier = player_index;
 	else if (bomb_globals.carrier == player_index)
 		bomb_globals.carrier = NONE;
+	if (carrying && game_engine_can_score() && VALID_INDEX(absolute_index, HALO_PORT_MAXIMUM_NETWORK_PLAYERS))
+		bomb_globals.carry_ticks[absolute_index]++;
 
 	/* the traits (every machine: a client predicts its own player's speed,
 	which the host's movement checks scale by) */
@@ -933,9 +955,17 @@ static void bomb_engine_player_damaged_player(long damaging_player_index, long d
 static void bomb_engine_player_killed_player(long killing_player_index, long killing_object_index,
 	long dead_player_index, boolean friendly_fire)
 {
-	(void)killing_player_index;
+	long killer = killing_player_index != NONE ? DATUM_INDEX_TO_ABSOLUTE_INDEX(killing_player_index) : NONE;
+
 	(void)killing_object_index;
-	(void)friendly_fire;
+	if (VALID_INDEX(killer, HALO_PORT_MAXIMUM_NETWORK_PLAYERS) && killing_player_index != dead_player_index &&
+		!friendly_fire && game_engine_can_score())
+	{
+		if (dead_player_index == bomb_globals.carrier)
+			bomb_globals.carrier_kills[killer]++;
+		if (killing_player_index == bomb_globals.carrier)
+			bomb_globals.kills_as_carrier[killer]++;
+	}
 	if (dead_player_index == bomb_globals.carrier)
 		bomb_globals.carrier = NONE;
 }
@@ -1247,6 +1277,77 @@ boolean game_engine_bomb_hides_pickup(
 {
 	return bomb_running() && weapon_definition_index != NONE &&
 		weapon_definition_index == get_ball_definition_index();
+}
+
+/* ---------- the game's report (game_engine.c, port/linux/game/game_stats.c;
+docs/bomb.md, Reports) */
+
+static char const *bomb_preset_name(void)
+{
+	switch (game_engine_get_variant()->game_engine_variant.bomb.traits)
+	{
+	case _bomb_traits_grifball: return "grifball";
+	case _bomb_traits_open_pitch: return "open_pitch";
+	}
+	return "bomb";
+}
+
+/* a player's line's members: their goals, carries, seconds with the bomb,
+carriers killed and kills as the carrier (none in another game type) */
+long game_engine_bomb_report_player(
+	long player_index,
+	char *text,
+	long size)
+{
+	struct player_datum *player;
+	long index;
+	int written;
+
+	if (size > 0)
+		text[0] = 0;
+	if (!bomb_running() || player_index == NONE || size <= 0)
+		return 0;
+	player = player_get(player_index);
+	index = DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index);
+	if (!VALID_INDEX(index, HALO_PORT_MAXIMUM_NETWORK_PLAYERS))
+		return 0;
+	written = snprintf(text, (size_t)size, "\"bomb_goals\": %d, \"bomb_carries\": %d, \"bomb_carry_time\": %ld, "
+		"\"bomb_carrier_kills\": %d, \"bomb_kills_as_carrier\": %d",
+		(int)player->statistics.multiplayer_statistics.ctf_statistics.flag_scores,
+		(int)player->statistics.multiplayer_statistics.ctf_statistics.flag_grabs,
+		(long)(bomb_globals.carry_ticks[index] / TICKS_PER_SECOND), (int)bomb_globals.carrier_kills[index],
+		(int)bomb_globals.kills_as_carrier[index]);
+	if (written < 0 || written >= size)
+	{
+		text[0] = 0;
+		return 0;
+	}
+	return written;
+}
+
+/* the game's members: Bomb's own object (its preset, the rounds played and
+won by each team, its round and arm times) */
+long game_engine_bomb_report_game(
+	char *text,
+	long size)
+{
+	struct bomb_variant const *bomb;
+	int written;
+
+	if (size > 0)
+		text[0] = 0;
+	if (!bomb_running() || size <= 0)
+		return 0;
+	bomb = &game_engine_get_variant()->game_engine_variant.bomb;
+	written = snprintf(text, (size_t)size, "\"bomb\": {\"preset\": \"%s\", \"rounds\": %ld, \"team_rounds\": [%ld, %ld], "
+		"\"round_time\": %ld, \"arm_time\": %ld}", bomb_preset_name(), (long)bomb_globals.round,
+		(long)bomb_globals.scores[0], (long)bomb_globals.scores[1], (long)bomb->round_time, (long)bomb->arm_time);
+	if (written < 0 || written >= size)
+	{
+		text[0] = 0;
+		return 0;
+	}
+	return written;
 }
 
 /* ---------- the network test's (port/linux/game/network_test.c) */

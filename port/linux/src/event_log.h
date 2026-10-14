@@ -136,6 +136,11 @@ enum
 	EVENT_LOG_OBJECTIVE_HILL_ENTER,
 	EVENT_LOG_OBJECTIVE_HILL_EXIT,
 	EVENT_LOG_OBJECTIVE_RACE_LAP,
+	/* Bomb's (game_engine_bomb.c): the bomb picked up, dropped (or its
+	carrier killed), carried into the goal */
+	EVENT_LOG_OBJECTIVE_BOMB_GRAB,
+	EVENT_LOG_OBJECTIVE_BOMB_DROP,
+	EVENT_LOG_OBJECTIVE_BOMB_SCORE,
 	EVENT_LOG_NUMBER_OF_OBJECTIVES
 };
 

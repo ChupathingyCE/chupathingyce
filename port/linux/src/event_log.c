@@ -73,6 +73,7 @@ static char const *const damage_names[EVENT_LOG_NUMBER_OF_DAMAGES] = {
 
 static char const *const objective_names[EVENT_LOG_NUMBER_OF_OBJECTIVES] = {
 	"flag_grab", "flag_return", "flag_score", "ball_grab", "ball_drop", "hill_enter", "hill_exit", "race_lap",
+	"bomb_grab", "bomb_drop", "bomb_score",
 };
 
 static char const *const seat_names[EVENT_LOG_NUMBER_OF_SEATS] = { "driver", "gunner", "passenger" };

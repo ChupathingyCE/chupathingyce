@@ -247,6 +247,7 @@ static struct
 {
 	{ build_game_variant_bomb, L"Bomb" },
 	{ build_game_variant_grifball, L"Grifball" },
+	{ build_game_variant_grifball_open_pitch, L"Open Pitch" },
 };
 #define NUMBER_OF_PORT_DEFAULT_PLAYLIST_PROFILES \
 	(short)(sizeof(playlist_profile_port_defaults) / sizeof(playlist_profile_port_defaults[0]))

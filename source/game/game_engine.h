@@ -149,6 +149,9 @@ enum
 {
 	_bomb_traits_none = 0,
 	_bomb_traits_grifball,
+	/* Grifball's, everyone faster (175%), the carrier faster still (200%):
+	Open Pitch, for a big map */
+	_bomb_traits_open_pitch,
 	NUMBER_OF_BOMB_TRAITS
 };
 
@@ -446,6 +449,11 @@ boolean game_engine_bomb_hud_text(long player_index, wchar_t *score_line, wchar_
 /* whether a weapon's pickup line is not shown (the bomb's: the HUD's line
 says who has it) */
 boolean game_engine_bomb_hides_pickup(long weapon_definition_index);
+/* the game's report's Bomb members (JSON, without braces, into text): a
+player's line's, and the game's; their length, 0 for none (another game
+type) */
+long game_engine_bomb_report_player(long player_index, char *text, long size);
+long game_engine_bomb_report_game(char *text, long size);
 /* the network test's (network_test.c): the bomb, a team's goal, a team's
 score, the round */
 long game_engine_bomb_weapon(void);
