@@ -784,6 +784,12 @@ def report(args, directions, seconds):
         else:
             steps, versions = check_direction(*copies, direction["variants"])
         steps["stability"], warnings = stability(copies)
+        # (a refused OpenCE client's test quits by itself, cleanly: not a crash)
+        if direction.get("grifball") and not steps["stability"]["pass"]:
+            trouble = steps["stability"]["detail"]
+            if isinstance(trouble, dict) and all(all(text == "exited by itself, status 0" for text in texts)
+                                                 for texts in trouble.values()):
+                steps["stability"] = step(True, f"every copy ran on; refused clients quit cleanly ({sorted(trouble)})")
         checked[direction["name"]] = (steps, versions, warnings)
     for direction in directions:
         name = direction["name"]

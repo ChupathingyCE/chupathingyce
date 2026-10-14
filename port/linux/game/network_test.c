@@ -136,6 +136,8 @@ static struct
 	(2 or more: split screen), and how many it has added */
 	short local_players;
 	short local_players_added;
+	/* a game has run (a held start is asked again only before the first) */
+	boolean played;
 	real joined_seconds;
 	boolean team_set;
 	real kill_interval;
@@ -930,6 +932,8 @@ void network_test_update(
 
 	/* the game running: report (from the start of each game: the next
 	game's time starts over) */
+	if (game_in_progress())
+		network_test.played = TRUE;
 	if (game_in_progress() && game_time_get() < network_test.logged_time)
 		network_test.logged_time = 0;
 	if (game_in_progress() && !main_menu_loaded && game_time_get() - network_test.logged_time >= TICKS_PER_SECOND)
@@ -1228,8 +1232,22 @@ void network_test_update(
 			if (network_test.setup_seconds >= network_test.start_delay)
 			{
 				network_test.started = TRUE;
+				network_test.setup_seconds = 0.0f;
 				network_game_client_request_immediate_start();
 				platform_log("network test: starting the game");
+			}
+		}
+		/* (a start the lobby held, as a Bomb game's does while a machine's
+		Delta handshake is under way, is asked again, as a player would
+		press it again) */
+		else if (!network_test.played && !game_in_progress() && global_network_game_server_get())
+		{
+			network_test.setup_seconds += seconds;
+			if (network_test.setup_seconds >= 5.0f)
+			{
+				network_test.setup_seconds = 0.0f;
+				network_game_client_request_immediate_start();
+				platform_log("network test: starting the game again");
 			}
 		}
 		break;
