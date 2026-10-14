@@ -1590,6 +1590,13 @@ static void distributed_host_send_inventories(
 			continue;
 		/* (one carrying nothing, as it has come to for a while: its last
 		weapon out of its hands everywhere, and then no more of it) */
+		/* (a Bomb game's player, empty handed in a melee-only game, is
+		sent all the same: a client's copy of the unit starts with the unit's
+		own grenades, which the host's count of none takes away) */
+#ifdef HALO_GAME_BROWSER
+		if (unit->unit.player_index != NONE && game_engine_traits_active())
+			carries = TRUE;
+#endif
 		if (carries)
 			objects_host_inventories[absolute_index].carried_time = game_time_get();
 		else if (objects_host_inventories[absolute_index].carried_time == NONE ||
