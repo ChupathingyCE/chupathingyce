@@ -11,7 +11,11 @@ know, which are put right when the map's tags load:
     bitmap is twice the size of the one its Xbox counterpart draws (the
     shield meter's, the ammunition meters'), with the same scale. The Xbox
     draws a bitmap at its size times the scale (hud_draw.c), so a flagged
-    placement's scale is halved and the flag cleared.
+    placement's scale is halved and the flag cleared. A number's digits are
+    drawn at the HUD's scale, not its placement's (hud_draw.c), so a
+    number keeps the flag, and hud_draw_numbers draws a flagged number's
+    digits at half size (a custom HUD's ammunition and grenade counts:
+    grifball's Halo 3 HUD drew them twice Halo PC's size, over its panels).
   - A HUD meter's bitmap: the meter shader (rasterizer_xbox_dynavobgeom.c)
     compares the texel's color with the meter's value (the order the meter
     fills in) and draws only where there is alpha (its shape). Halo PC keeps
@@ -362,7 +366,6 @@ static void ce_hud_weapon_interface(
 	ce_hud_block_meter_bitmaps(hud + WEAPON_HUD_METERS_OFFSET, WEAPON_HUD_METER_SIZE, WEAPON_HUD_ELEMENT_OFFSET);
 	ce_hud_block_placements(hud + WEAPON_HUD_STATICS_OFFSET, WEAPON_HUD_STATIC_SIZE, WEAPON_HUD_ELEMENT_OFFSET);
 	ce_hud_block_placements(hud + WEAPON_HUD_METERS_OFFSET, WEAPON_HUD_METER_SIZE, WEAPON_HUD_ELEMENT_OFFSET);
-	ce_hud_block_placements(hud + WEAPON_HUD_NUMBERS_OFFSET, WEAPON_HUD_NUMBER_SIZE, WEAPON_HUD_ELEMENT_OFFSET);
 	ce_hud_items_placements(hud + WEAPON_HUD_CROSSHAIRS_OFFSET, WEAPON_HUD_CROSSHAIRS_SIZE,
 		WEAPON_HUD_CROSSHAIR_ITEM_SIZE);
 	ce_hud_items_placements(hud + WEAPON_HUD_OVERLAYS_OFFSET, WEAPON_HUD_OVERLAYS_SIZE, WEAPON_HUD_OVERLAY_ITEM_SIZE);
@@ -373,7 +376,6 @@ static void ce_hud_grenade_interface(
 {
 	ce_hud_placement(hud + GRENADE_HUD_BACKGROUND_OFFSET);
 	ce_hud_placement(hud + GRENADE_HUD_COUNT_BACKGROUND_OFFSET);
-	ce_hud_placement(hud + GRENADE_HUD_COUNT_NUMBERS_OFFSET);
 	ce_hud_block_placements(hud + GRENADE_HUD_OVERLAY_ITEMS_OFFSET, WEAPON_HUD_OVERLAY_ITEM_SIZE, 0);
 }
 

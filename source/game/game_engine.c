@@ -546,6 +546,7 @@ symbols in this file:
 
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmap_group_lookup.h"
+#include "cache/cache_files.h"
 #include "effects/player_effects.h"
 #include "game_allegiance.h"
 #include "game.h"
@@ -7977,11 +7978,15 @@ static void game_engine_update_weapons(
 					? definition->item.scale
 					: 1.f;
 
+			/* port: a Custom Edition map's item may have any scale, which
+			Halo PC's engine drew it at (grifball's gravity hammer has
+			0.001, so it all but vanishes on the ground) */
 			match_assert(
 				"c:\\halo\\SOURCE\\game\\game_engine.c",
 				0x83E,
-				(item->object.scale >= 0.5f) &&
-					(item->object.scale <= 3.f));
+				CACHE_FILE_TAGS_ARE_CE() ||
+					((item->object.scale >= 0.5f) &&
+					(item->object.scale <= 3.f)));
 		}
 
 		/*

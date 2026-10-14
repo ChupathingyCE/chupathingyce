@@ -443,6 +443,9 @@ void game_engine_bomb_host_traits(struct game_variant const *variant);
 if the map has one players can use */
 boolean game_engine_bomb_melee_only(void);
 void game_engine_bomb_give_sword(long unit_index);
+/* whether the map's scripts are off: a Bomb game on a court with a game of
+its own (game_engine_bomb.c, bomb_courts) */
+boolean game_engine_bomb_scripts_off(void);
 /* the HUD's lines for a player: the round's score and time, and the bomb's
 carrier; FALSE when there are none */
 boolean game_engine_bomb_hud_text(long player_index, wchar_t *score_line, wchar_t *carrier_line, long size);

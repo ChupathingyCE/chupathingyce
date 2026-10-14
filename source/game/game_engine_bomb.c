@@ -63,6 +63,8 @@ enum
 	BOMB_ROUND_ANNOUNCEMENT_TICKS = 2 * TICKS_PER_SECOND,
 	/* the round's last seconds, counted aloud */
 	BOMB_ROUND_WARNING_TICKS = 5 * TICKS_PER_SECOND,
+	/* the most weapons a court gives (bomb_courts) */
+	MAXIMUM_BOMB_COURT_WEAPONS = 2,
 };
 
 /* how near the carrier stands to the goal's marker to arm it (CTF's) */
@@ -116,6 +118,10 @@ static struct
 	long arm_ticks;
 	/* the map's energy sword players can use (NONE: none: fists alone) */
 	long sword_definition_index;
+	/* a court's (bomb_courts): its scripts off, and its weapons players
+	get in place of the sword (NONE: a weapon the map doesn't have) */
+	boolean court;
+	long court_weapons[MAXIMUM_BOMB_COURT_WEAPONS];
 	/* the players drawn in the carrier's color (by absolute index) */
 	boolean highlighted[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
 	/* each player's (by absolute index), for the game's report: ticks with
@@ -145,6 +151,28 @@ static struct
 	byte rounds;
 	byte round_overs;
 } bomb_events;
+
+/* the Custom Edition maps that are Grifball courts with a game of their
+own, by their version (cache_files_map_version: the first 32 bits of the
+whole file's hash): their scripts are off while Bomb plays on them (they
+run the map's own ball, goals, score and the game's end), and its players
+get the court's own weapons, the first in their hands */
+static struct bomb_court
+{
+	unsigned long version;
+	char const *weapons[MAXIMUM_BOMB_COURT_WEAPONS];
+} const bomb_courts[] =
+{
+	/* grifball@ce, HaloNet's Grifball court (166 MB, a CTF map): its
+	scripts make its own ball (weapons\grifball\grifball), blow it up at
+	a goal with a tank shell's explosion that kills whoever is near, and
+	kill a player out of bounds; its energy sword detonates when dropped,
+	so bomb_find_sword passes it by */
+	{ 0x62b910c6UL, {
+		"h3mt\\weapons\\covenant\\gravity_hammer\\gravity_hammer",
+		"weapons\\energy_sword\\energy_sword backup",
+	} },
+};
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -481,6 +509,44 @@ static long bomb_find_sword(void)
 	return NONE;
 }
 
+/* the court the map is (bomb_courts), if it is one: its weapons found */
+static void bomb_find_court(void)
+{
+	unsigned long version;
+	long court_index;
+	short index;
+
+	bomb_globals.court = FALSE;
+	for (index = 0; index < MAXIMUM_BOMB_COURT_WEAPONS; index++)
+		bomb_globals.court_weapons[index] = NONE;
+	if (!CACHE_FILE_TAGS_ARE_CE() || !cache_file_loaded_map_name())
+		return;
+	version = cache_files_map_version(cache_file_loaded_map_name());
+	for (court_index = 0; court_index < (long)NUMBEROF(bomb_courts); court_index++)
+	{
+		if (bomb_courts[court_index].version != version)
+			continue;
+		bomb_globals.court = TRUE;
+		for (index = 0; index < MAXIMUM_BOMB_COURT_WEAPONS; index++)
+		{
+			if (bomb_courts[court_index].weapons[index])
+			{
+				bomb_globals.court_weapons[index] =
+					tag_loaded(WEAPON_DEFINITION_TAG, bomb_courts[court_index].weapons[index]);
+			}
+		}
+		bomb_log("court %s (%08lx): its scripts off, its weapons %lx %lx", cache_file_loaded_map_name(), version,
+			(unsigned long)bomb_globals.court_weapons[0], (unsigned long)bomb_globals.court_weapons[1]);
+		return;
+	}
+}
+
+boolean game_engine_bomb_scripts_off(
+	void)
+{
+	return bomb_running() && bomb_globals.court;
+}
+
 boolean game_engine_bomb_melee_only(
 	void)
 {
@@ -491,15 +557,37 @@ boolean game_engine_bomb_melee_only(
 void game_engine_bomb_give_sword(
 	long unit_index)
 {
-	struct object_placement_data placement_data;
-	long weapon_index;
+	long definitions[MAXIMUM_BOMB_COURT_WEAPONS];
+	boolean added;
+	short index;
 
-	if (!game_engine_bomb_melee_only() || unit_index == NONE || bomb_globals.sword_definition_index == NONE)
+	if (!game_engine_bomb_melee_only() || unit_index == NONE)
 		return;
-	object_placement_data_new(&placement_data, bomb_globals.sword_definition_index, NONE);
-	weapon_index = object_new(&placement_data);
-	if (weapon_index != NONE && !unit_add_weapon_to_inventory(unit_index, weapon_index, 2))
-		object_delete(weapon_index);
+	/* (a court's own weapons, or the map's sword) */
+	for (index = 0; index < MAXIMUM_BOMB_COURT_WEAPONS; index++)
+		definitions[index] = bomb_globals.court ? bomb_globals.court_weapons[index] : NONE;
+	if (!bomb_globals.court)
+		definitions[0] = bomb_globals.sword_definition_index;
+	/* (the last first, in place of the loadout's; each one after it into
+	the unit's hands, so that the first ends there) */
+	added = FALSE;
+	for (index = MAXIMUM_BOMB_COURT_WEAPONS - 1; index >= 0; index--)
+	{
+		struct object_placement_data placement_data;
+		long weapon_index;
+
+		if (definitions[index] == NONE)
+			continue;
+		object_placement_data_new(&placement_data, definitions[index], NONE);
+		weapon_index = object_new(&placement_data);
+		if (weapon_index != NONE && unit_add_weapon_to_inventory(unit_index, weapon_index,
+			added ? _unit_add_weapon_starting : _unit_add_weapon_replace))
+		{
+			added = TRUE;
+		}
+		else if (weapon_index != NONE)
+			object_delete(weapon_index);
+	}
 }
 
 static long bomb_create(void)
@@ -670,6 +758,7 @@ static boolean bomb_engine_initialize_for_new_map(void)
 	bomb_globals.carrier = NONE;
 	bomb_globals.score_to_win = game_engine_get_variant()->universal_variant.score_to_win;
 	bomb_globals.sword_definition_index = bomb_find_sword();
+	bomb_find_court();
 
 	for (team_index = 0; team_index < NUMBER_OF_BOMB_TEAMS; team_index++)
 	{
