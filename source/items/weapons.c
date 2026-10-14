@@ -370,6 +370,10 @@ struct trigger_firing_effect
 
 /* ---------- prototypes */
 
+/* port/linux/game/network_objects.c's: whether a client of the distributed
+netcode is deleting the host's object on the host's word */
+boolean network_objects_client_deleting(void);
+
 static short weapon_magazine_count(
 	struct weapon_definition const *weapon_definition);
 static short weapon_trigger_count(
@@ -924,8 +928,10 @@ void weapon_set_total_rounds(
 void weapon_delete(
 	long weapon_index)
 {
-	/* port: not for a Custom Edition map's (objects.c, object_delete) */
-	if (game_engine_running() && !CACHE_FILE_TAGS_ARE_CE())
+	/* port: not for a Custom Edition map's (objects.c, object_delete), nor
+	a client's copy of the host's flag or ball, deleted on the host's word
+	(objects.c's object_delete_initial_recursive) */
+	if (game_engine_running() && !CACHE_FILE_TAGS_ARE_CE() && !network_objects_client_deleting())
 	{
 #if defined(HALO_CONSOLE) || defined(HALO_XBOX_CONSOLE)
 		/* port: on the consoles a warning in debug.txt, and the game goes on:
