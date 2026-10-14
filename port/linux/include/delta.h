@@ -82,6 +82,10 @@ enum delta_capability
 	from their player key, and kicks and bans from the game
 	(docs/delta.md, Moderation) */
 	_delta_capability_moderation = 10,
+	/* Bomb game types (Bomb, Grifball: docs/bomb.md) and their player traits
+	(TRAITS). Room-wide: a host plays a Bomb game type only with machines
+	that agreed to it, and drops any other (delta_peer_machine_lacks) */
+	_delta_capability_bomb = 11,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };

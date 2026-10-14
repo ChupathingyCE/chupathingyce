@@ -3970,6 +3970,21 @@ boolean network_distributed_unban(
 	return TRUE;
 }
 
+/* (the host: network_server_manager.c) a notice about the game: in a game,
+to every client and here; in the lobby, here alone (the console and the
+log) */
+void network_distributed_host_notice(
+	char const *text)
+{
+	if (game_in_progress())
+		distributed_send_notice(text);
+	else
+	{
+		console_warning("%s", text);
+		error(_error_log, "%s", text);
+	}
+}
+
 /* (the host: network_server_manager.c, its kick command) players kicked by
 the host, which may join again: every machine told, nothing kept (no line
 in BANS_FILE) */

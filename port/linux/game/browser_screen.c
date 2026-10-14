@@ -133,7 +133,7 @@ enum
 /* the game's engines, short (as players say them) to fit the column */
 static char const *const engine_names[] =
 {
-	"", "CTF", "Slayer", "Oddball", "King", "Race",
+	"", "CTF", "Slayer", "Oddball", "King", "Race", "Bomb",
 };
 
 /* the multiplayer maps' names in the menus */

@@ -2186,7 +2186,9 @@ void platform_text_field(int typing);
 int config_boolean(char const *name);
 void ui_widget_port_post_button(short controller_index, short button_index);
 
-static wchar_t const *const engine_names[] = { L"", L"CTF", L"SLAYER", L"ODDBALL", L"KING OF THE HILL", L"RACE" };
+/* (and Bomb, game_engine_bomb.c: a game of ChupathingyCE machines alone) */
+static wchar_t const *const engine_names[] = { L"", L"CTF", L"SLAYER", L"ODDBALL", L"KING OF THE HILL", L"RACE", L"BOMB" };
+#define ENGINE_NAME(engine) engine_names[PIN(engine, 0, (long)NUMBEROF(engine_names) - 1)]
 static short const maximum_players[] = { 2, 4, 8, 12, 16, 24, 32, 48, 64, 96, 128 };
 
 static struct
@@ -2667,10 +2669,11 @@ static void gametype_list_update(struct widget_instance *list)
 		text_set(named(description, "gametype_right_name", 0), text);
 		if (playlist_profile_get(multiplayer.gametypes[multiplayer.bank[multiplayer.gametype_chosen]], &variant))
 		{
-			long engine = PIN(variant.game_engine_index, 0, 5);
+			long engine = PIN(variant.game_engine_index, 0, (long)NUMBEROF(engine_names) - 1);
 
+			/* (the pictures are the Xbox's game types': none of Bomb's) */
 			if ((widget = named(description, "gametype_right_pic", 0)) != NULL)
-				widget->animation.current_frame_index = (short)engine;
+				widget->animation.current_frame_index = (short)(engine <= 5 ? engine : 0);
 			usnprintf(text, NUMBEROF(text) - 1, L"%s\r\n%s\r\nScore to win: %ld", engine_names[engine],
 				variant.universal_variant.teams ? L"Teams" : L"Free for all", variant.universal_variant.score_to_win);
 			text[NUMBEROF(text) - 1] = 0;
@@ -3199,7 +3202,7 @@ static short campaign_level_of(char const *map_name)
 CO-OP for one with none (network co-op: ui_widget_port_cooperative_level_choose) */
 static wchar_t const *game_type_name(long engine_type)
 {
-	return engine_type == 0 ? L"CO-OP" : engine_names[PIN(engine_type, 0, 5)];
+	return engine_type == 0 ? L"CO-OP" : ENGINE_NAME(engine_type);
 }
 
 /* a map's name as the menus show it (a campaign level's too, hosted as
@@ -3627,7 +3630,7 @@ static void lobby_browser_listed_map(struct browser_game const *game, char *map,
 static void lobby_browser_add_listed(void)
 {
 	/* (its gametypes as a listing names them) */
-	static char const *const gametypes[] = { "Game", "CTF", "Slayer", "Oddball", "King", "Race" };
+	static char const *const gametypes[] = { "Game", "CTF", "Slayer", "Oddball", "King", "Race", "Bomb" };
 	short index;
 
 	lobby_browser_listed.count = 0;
@@ -3820,7 +3823,7 @@ static void lobby_browser_rules_text(struct p2p_listing const *game, wchar_t *te
 	/* (a dedicated server's game says so: its listing's flag, p2p_lobby.c;
 	a game list's game, its host as the list says) */
 	lobby_browser_host_text(game, host, NUMBEROF(host));
-	usnprintf(text, size - 1, L"%s%s on %s%s%s%s%s%s", gametype[0] ? gametype : engine_names[PIN(game->engine_type, 0, 5)],
+	usnprintf(text, size - 1, L"%s%s on %s%s%s%s%s%s", gametype[0] ? gametype : ENGINE_NAME(game->engine_type),
 		score, map, family == _map_family_halomd ? L" (HALOMD)" : family != _map_family_xbox ? L" (HALO PC)" : L"",
 		game->dedicated && !host[0] ? L" (DEDICATED)" : L"", host,
 		!game->open ? L": full or starting" : game->in_progress ? L": under way" : L"",
@@ -4825,7 +4828,7 @@ static void lobby_update(struct widget_instance *list)
 		ustrncpy(gametype, game->variant.human_readable_game_description, NUMBEROF(gametype) - 1);
 		gametype[NUMBEROF(gametype) - 1] = 0;
 		usnprintf(text, NUMBEROF(text) - 1, L"%s\r\n%s\r\n%d of %d players\r\n\r\n%s", gametype,
-			engine_names[PIN(game->variant.game_engine_index, 0, 5)], lobby_player_count, game->maximum_players,
+			ENGINE_NAME(game->variant.game_engine_index), lobby_player_count, game->maximum_players,
 			seconds > 0 ? L"Starting in:" : game->machine_count < 2 ? L"Waiting for players" : L"");
 		text[NUMBEROF(text) - 1] = 0;
 		if (seconds > 0)
@@ -5449,7 +5452,7 @@ static void gametype_setup_type(wchar_t *text)
 	ustrncpy(name, gametype_edit.setup_variant.human_readable_game_description, NUMBEROF(name) - 1);
 	name[NUMBEROF(name) - 1] = 0;
 	usnprintf(text, ROW_TEXT_LENGTH - 1, L"%s (%s%s)", name,
-		engine_names[PIN(gametype_edit.setup_variant.game_engine_index, 0, 5)],
+		ENGINE_NAME(gametype_edit.setup_variant.game_engine_index),
 		gametype_edit.setup_variant.universal_variant.teams ? L", TEAMS" : L"");
 	text[ROW_TEXT_LENGTH - 1] = 0;
 }
@@ -5518,10 +5521,11 @@ static void gametype_edit_list_update(struct widget_instance *list)
 		text_set(named(description, "gametype_right_name", 0), text);
 		if (playlist_profile_get(profile_index, &variant))
 		{
-			long engine = PIN(variant.game_engine_index, 0, 5);
+			long engine = PIN(variant.game_engine_index, 0, (long)NUMBEROF(engine_names) - 1);
 
+			/* (the pictures are the Xbox's game types': none of Bomb's) */
 			if ((widget = named(description, "gametype_right_pic", 0)) != NULL)
-				widget->animation.current_frame_index = (short)engine;
+				widget->animation.current_frame_index = (short)(engine <= 5 ? engine : 0);
 			usnprintf(text, NUMBEROF(text) - 1, L"%s\r\n%s\r\nScore to win: %ld", engine_names[engine],
 				variant.universal_variant.teams ? L"Teams" : L"Free for all", variant.universal_variant.score_to_win);
 			text[NUMBEROF(text) - 1] = 0;
@@ -5669,11 +5673,14 @@ ui\multiplayer_game_text, as the Xbox's: capture the flag 3, slayer 4,
 oddball 5, king of the hill 6, race 7, unknown 8) */
 static void gametype_engine_name(struct widget_instance *text_box)
 {
-	static short const strings[] = { 8, 3, 4, 5, 6, 7 };
+	static short const strings[] = { 8, 3, 4, 5, 6, 7, 8 };
 	struct game_variant *variant = edit_variant();
 
 	if (variant)
-		text_box->parameters.text_box.string_list_index = strings[PIN(variant->game_engine_index, 0, 5)];
+	{
+		text_box->parameters.text_box.string_list_index =
+			strings[PIN(variant->game_engine_index, 0, (long)NUMBEROF(strings) - 1)];
+	}
 }
 
 /* ---------- public code */

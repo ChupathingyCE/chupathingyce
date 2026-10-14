@@ -2735,6 +2735,11 @@ long game_engine_remap_equipment(
 		weapon_list_index == _weapon_list_plasma_grenade;
 	if (!remap_equipment)
 	{
+#ifdef HALO_GAME_BROWSER
+		/* port: a melee-only Bomb game has no powerups */
+		if (equipment && game_engine_bomb_melee_only())
+			return NONE;
+#endif
 		if (equipment)
 		{
 			if (equipment->equipment.powerup_type == _equipment_powerup_overshield)
@@ -3257,6 +3262,12 @@ boolean match_game_type(
 	boolean result;
 	long index;
 
+#ifdef HALO_GAME_BROWSER
+	/* port: Bomb plays on a map as CTF does: the starting locations and
+	equipment marked for CTF are Bomb's too (docs/bomb.md) */
+	if (game_type == game_engine_bomb)
+		game_type = game_engine_ctf;
+#endif
 	if (game_engine)
 	{
 		result = FALSE;
@@ -3616,6 +3627,45 @@ static void game_engine_rasterize_time_left(
 	return;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* port: a Bomb game type's lines (game_engine_bomb.c), at the top of each
+player's view: the round's score and time, and who carries the bomb */
+static void game_engine_rasterize_bomb(
+	long player_index)
+{
+	wchar_t score_line[96];
+	wchar_t carrier_line[96];
+	rectangle2d bounds;
+	real_argb_color color;
+
+	if (!game_engine_bomb_hud_text(player_index, score_line, carrier_line, NUMBEROF(score_line)))
+		return;
+	bounds = render.camera.window_bounds;
+	offset_rectangle2d(&bounds, -render.camera.viewport_bounds.x0, -render.camera.viewport_bounds.y0);
+	bounds.y0 += 8;
+	bounds.y1 = bounds.y0 + 15;
+	color.alpha = 1.0f;
+	color.red = 0.45882353f;
+	color.green = 0.7294118f;
+	color.blue = 1.0f;
+	draw_string_set_draw_mode(hud_globals->messaging.multi_player_font.index, NONE, 2, 0, &color);
+	draw_string_set_color(&color);
+	rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, score_line);
+	if (carrier_line[0])
+	{
+		bounds.y0 += 16;
+		bounds.y1 += 16;
+		color.red = 1.0f;
+		color.green = 0.85f;
+		color.blue = 0.2f;
+		draw_string_set_draw_mode(hud_globals->messaging.multi_player_font.index, NONE, 2, 0, &color);
+		draw_string_set_color(&color);
+		rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, carrier_line);
+	}
+	draw_string_set_format(NONE, 0, 0);
+}
+#endif
+
 static void game_engine_post_rasterize_in_game(
 	void)
 {
@@ -3641,6 +3691,10 @@ static void game_engine_post_rasterize_in_game(
 	if (game_engine && player)
 		internal_rasterize_target_name(player_index);
 	game_engine_rasterize_time_left();
+#ifdef HALO_GAME_BROWSER
+	if (game_engine && player)
+		game_engine_rasterize_bomb(player_index);
+#endif
 
 	gamepad = input_get_gamepad_state(local_player_index);
 	fade = game_engine_globals.hud_message_timers[local_player_index];
@@ -3794,6 +3848,18 @@ void game_variant_options_default(
 		_radar_players_none : _radar_players_all;
 	options->vehicle_set[0] = options->vehicle_set[1] =
 		variant ? (byte)variant->universal_variant.vehicle_set : 0;
+#ifdef HALO_GAME_BROWSER
+	/* port: a melee-only Bomb game type: no weapons to start with, none on
+	the map (game_engine_bomb.c gives the map's sword, if it has one) */
+	if (variant && variant->game_engine_index == game_engine_bomb &&
+		TEST_FLAG(variant->game_engine_variant.bomb.flags, _bomb_melee_only_bit))
+	{
+		options->loadout = _loadout_custom;
+		options->primary_weapon = _loadout_weapon_none;
+		options->secondary_weapon = _loadout_weapon_none;
+		options->no_map_weapons = TRUE;
+	}
+#endif
 
 	return;
 }
@@ -4809,6 +4875,11 @@ boolean game_engine_has_shield(
 
 	if (game_engine && player_index!=NONE)
 		has_shield = !TEST_FLAG(global_variant.universal_variant.flags, _game_variant_no_shields_bit);
+#ifdef HALO_GAME_BROWSER
+	/* port: a Bomb game type's player traits (its carrier's overshield) */
+	if (game_engine && player_index != NONE && game_engine_traits_shields(player_index) != NONE)
+		has_shield = (boolean)game_engine_traits_shields(player_index);
+#endif
 
 	return has_shield;
 }
@@ -5498,6 +5569,11 @@ boolean game_engine_force_autopickup(
 
 	if (game_engine && global_variant.game_engine_index==game_engine_ctf && weapon_is_flag(weapon_index))
 		force_autopickup = TRUE;
+#ifdef HALO_GAME_BROWSER
+	/* port: Bomb's bomb, picked up as a flag is (running over it) */
+	if (game_engine && global_variant.game_engine_index == game_engine_bomb && weapon_is_flag(weapon_index))
+		force_autopickup = TRUE;
+#endif
 
 	return force_autopickup;
 }
@@ -6197,6 +6273,74 @@ struct game_variant *build_game_variant_team_king(
 	return variant;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* port: Bomb (game_engine_bomb.c): CTF's settings, with the bomb */
+struct game_variant *build_game_variant_bomb(
+	struct game_variant *variant)
+{
+	struct game_variant result = { 0 };
+
+	ustrncpy(result.human_readable_game_description, L"Bomb", NUMBEROF(result.human_readable_game_description) - 1);
+	result.game_engine_index = game_engine_bomb;
+	SET_FLAG(result.universal_variant.flags, _game_variant_draw_object_in_motion_sensor_bit, TRUE);
+	SET_FLAG(result.universal_variant.flags, _game_variant_allow_friendly_navpoints_bit, TRUE);
+	result.universal_variant.goal_radar = _radar_nav_point;
+	result.universal_variant.teams = TRUE;
+	result.flags = 1;
+	result.universal_variant.health = 1.0f;
+	result.universal_variant.respawn_time = 150;
+	result.universal_variant.suicide_penalty = 150;
+	result.universal_variant.score_to_win = 3;
+	result.universal_variant.weapon_set = _game_engine_weapons_normal;
+	result.universal_variant.vehicle_set = _game_engine_vehicles_none;
+	result.game_engine_variant.bomb.arm_time = 3;
+	result.game_engine_variant.bomb.reset_time = 30;
+	result.game_engine_variant.bomb.round_time = 0;
+	result.game_engine_variant.bomb.flags = FLAG(_bomb_new_round_on_score_bit);
+	result.game_engine_variant.bomb.traits = _bomb_traits_none;
+
+	*variant = result;
+
+	return variant;
+}
+
+/* port: Grifball, Bomb as the official rules have it, in Halo CE: one hit
+kills (its traits: game_engine_traits_default), melee only, no shields,
+rounds of three minutes that a goal ends, first to three rounds; respawns
+in 3 seconds at your own goal; friendly fire and the motion tracker on
+(game_variant_options_default) */
+struct game_variant *build_game_variant_grifball(
+	struct game_variant *variant)
+{
+	struct game_variant result = { 0 };
+
+	ustrncpy(result.human_readable_game_description, L"Grifball",
+		NUMBEROF(result.human_readable_game_description) - 1);
+	result.game_engine_index = game_engine_bomb;
+	SET_FLAG(result.universal_variant.flags, _game_variant_draw_object_in_motion_sensor_bit, TRUE);
+	SET_FLAG(result.universal_variant.flags, _game_variant_allow_friendly_navpoints_bit, TRUE);
+	SET_FLAG(result.universal_variant.flags, _game_variant_no_shields_bit, TRUE);
+	result.universal_variant.goal_radar = _radar_nav_point;
+	result.universal_variant.teams = TRUE;
+	result.flags = 1;
+	result.universal_variant.health = 1.0f;
+	result.universal_variant.respawn_time = 3 * TICKS_PER_SECOND;
+	result.universal_variant.suicide_penalty = 0;
+	result.universal_variant.score_to_win = 3;
+	result.universal_variant.weapon_set = _game_engine_weapons_no_grenades;
+	result.universal_variant.vehicle_set = _game_engine_vehicles_none;
+	result.game_engine_variant.bomb.arm_time = 0;
+	result.game_engine_variant.bomb.reset_time = 30;
+	result.game_engine_variant.bomb.round_time = 180;
+	result.game_engine_variant.bomb.flags = FLAG(_bomb_new_round_on_score_bit) | FLAG(_bomb_melee_only_bit);
+	result.game_engine_variant.bomb.traits = _bomb_traits_grifball;
+
+	*variant = result;
+
+	return variant;
+}
+#endif
+
 struct game_variant *build_game_variant_slayer_pro(
 	struct game_variant *variant)
 {
@@ -6728,6 +6872,12 @@ struct game_variant *game_engine_get_variant_by_name(
 		result = *build_game_variant_king(&temporary);
 	else if (csstrcmp(name, "team_king") == 0)
 		result = *build_game_variant_team_king(&temporary);
+#ifdef HALO_GAME_BROWSER
+	else if (csstrcmp(name, "bomb") == 0)
+		result = *build_game_variant_bomb(&temporary);
+	else if (csstrcmp(name, "grifball") == 0)
+		result = *build_game_variant_grifball(&temporary);
+#endif
 
 	*variant = result;
 
@@ -6861,7 +7011,13 @@ void game_engine_variant_cleanup(
 	struct game_variant original = *variant;
 
 	variant->human_readable_game_description[NUMBEROF(variant->human_readable_game_description) - 1] = 0;
+#ifdef HALO_GAME_BROWSER
+	/* port: and Bomb (game_engine_bomb.c), which only the builds with Delta
+	Peer have */
+	variant->game_engine_index = PIN(variant->game_engine_index, 1, game_engine_bomb);
+#else
 	variant->game_engine_index = PIN(variant->game_engine_index, 1, 5);
+#endif
 	variant->universal_variant.teams = !!variant->universal_variant.teams;
 	variant->universal_variant.odd_man_out = !!variant->universal_variant.odd_man_out;
 	variant->universal_variant.respawn_time_growth = MAX(variant->universal_variant.respawn_time_growth, 0);
@@ -6897,6 +7053,20 @@ void game_engine_variant_cleanup(
 		variant->game_engine_variant.oddball.ball_spawn_count =
 			PIN(variant->game_engine_variant.oddball.ball_spawn_count, 0, MAXIMUM_ODDBALLS);
 		break;
+
+#ifdef HALO_GAME_BROWSER
+	case game_engine_bomb:
+		/* (a team game: its goals are the teams') */
+		variant->universal_variant.teams = TRUE;
+		variant->game_engine_variant.bomb.arm_time = PIN(variant->game_engine_variant.bomb.arm_time, 0, 60);
+		variant->game_engine_variant.bomb.reset_time = PIN(variant->game_engine_variant.bomb.reset_time, 0, 600);
+		variant->game_engine_variant.bomb.round_time = PIN(variant->game_engine_variant.bomb.round_time, 0, 3600);
+		variant->game_engine_variant.bomb.flags &= FLAG(_bomb_new_round_on_score_bit) | FLAG(_bomb_melee_only_bit);
+		if (variant->game_engine_variant.bomb.traits >= NUMBER_OF_BOMB_TRAITS)
+			variant->game_engine_variant.bomb.traits = _bomb_traits_none;
+		csmemset(variant->game_engine_variant.bomb.pad, 0, sizeof(variant->game_engine_variant.bomb.pad));
+		break;
+#endif
 	}
 
 	if (csmemcmp(&original, variant, sizeof(original)) != 0)
@@ -6974,6 +7144,11 @@ static void game_engine_predict_resources(
 
 	if (global_variant.game_engine_index == game_engine_oddball)
 		object_definition_predict(list_index_to_weapon_definition_index(_weapon_list_ball));
+#ifdef HALO_GAME_BROWSER
+	/* port: Bomb's bomb is the ball */
+	if (global_variant.game_engine_index == game_engine_bomb)
+		object_definition_predict(list_index_to_weapon_definition_index(_weapon_list_ball));
+#endif
 
 	if (global_variant.game_engine_index == game_engine_ctf)
 		object_definition_predict(list_index_to_weapon_definition_index(_weapon_list_flag));
@@ -7405,6 +7580,10 @@ real game_engine_get_damage_multiplier(
 			result *= 0.5f;
 		}
 	}
+#ifdef HALO_GAME_BROWSER
+	/* port: a Bomb game type's player traits (game_engine_bomb.c) */
+	result *= game_engine_traits_damage_multiplier(damaging_player_index, damaged_player_index);
+#endif
 
 	return result;
 }
@@ -8822,6 +9001,10 @@ void game_engine_postspawn_player_update(
 		if (game_variant_options_get()->loadout == _loadout_custom)
 		{
 			game_engine_give_loadout(unit_index);
+#ifdef HALO_GAME_BROWSER
+			/* port: a melee-only Bomb game's sword, if the map has one */
+			game_engine_bomb_give_sword(unit_index);
+#endif
 		}
 		else if (!TEST_FLAG(global_variant.universal_variant.flags, _game_variant_generic_starting_equipment_bit))
 		{
@@ -9223,6 +9406,10 @@ long game_engine_king_write_network_state(byte *buffer, long size);
 boolean game_engine_king_read_network_state(byte const *buffer, long size, boolean first);
 long game_engine_race_write_network_state(byte *buffer, long size);
 boolean game_engine_race_read_network_state(byte const *buffer, long size, boolean first);
+#ifdef HALO_GAME_BROWSER
+long game_engine_bomb_write_network_state(byte *buffer, long size);
+boolean game_engine_bomb_read_network_state(byte const *buffer, long size, boolean first);
+#endif
 
 /* the distributed netcode (port/linux/game/network_damage.c): a player's
 score as the game type has it (with its killing blows' messages), 0 for
@@ -9259,6 +9446,9 @@ long game_engine_write_network_state(
 	case game_engine_oddball: written = game_engine_oddball_write_network_state(buffer, size); break;
 	case game_engine_king: written = game_engine_king_write_network_state(buffer, size); break;
 	case game_engine_race: written = game_engine_race_write_network_state(buffer, size); break;
+#ifdef HALO_GAME_BROWSER
+	case game_engine_bomb: written = game_engine_bomb_write_network_state(buffer, size); break;
+#endif
 	default: written = 0; break;
 	}
 	return sizeof(postgame_state) + written;
@@ -9286,6 +9476,9 @@ void game_engine_read_network_state(
 	case game_engine_oddball: read = game_engine_oddball_read_network_state(buffer, size, first); break;
 	case game_engine_king: read = game_engine_king_read_network_state(buffer, size, first); break;
 	case game_engine_race: read = game_engine_race_read_network_state(buffer, size, first); break;
+#ifdef HALO_GAME_BROWSER
+	case game_engine_bomb: read = game_engine_bomb_read_network_state(buffer, size, first); break;
+#endif
 	default: read = TRUE; break;
 	}
 	/* (a state the game type refused is not had: the first it takes is,

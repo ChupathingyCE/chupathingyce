@@ -379,6 +379,11 @@ static void player_totals(struct player_datum const *player, int place, int scor
 	case game_engine_race:
 		totals->laps = statistics->multiplayer_statistics.race_statistics.laps;
 		break;
+	/* (Bomb's scores and carries are CTF's: game_engine_bomb.c) */
+	case game_engine_bomb:
+		totals->flag_grabs = statistics->multiplayer_statistics.ctf_statistics.flag_grabs;
+		totals->flag_scores = statistics->multiplayer_statistics.ctf_statistics.flag_scores;
+		break;
 	}
 }
 
@@ -403,7 +408,7 @@ static void begin_game(long tick)
 	/* (a built-in variant has no name of its own: its game type's) */
 	if (!game.gametype[0])
 	{
-		static char const *const engines[] = { "", "CTF", "Slayer", "Oddball", "King of the Hill", "Race" };
+		static char const *const engines[] = { "", "CTF", "Slayer", "Oddball", "King of the Hill", "Race", "Bomb" };
 		long engine = variant->game_engine_index;
 
 		snprintf(game.gametype, sizeof(game.gametype), "%s%s", variant->universal_variant.teams && engine == 2 ? "Team " : "",

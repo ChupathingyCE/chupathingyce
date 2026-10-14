@@ -45,7 +45,11 @@ seconds later stands them at a vehicle's driver's entrance, where a joining
 machine's player holds the action button, as getting in does)
 and debug.network_test_pickup (the last player stands on a weapon lying
 about that many seconds in, and a joining machine's player holds the action
-button a second later, to pick it up).
+button a second later, to pick it up), and debug.network_test_bomb (in a
+Bomb game, the last player stands on the bomb that many seconds in, and
+three seconds later in the goal its team attacks, which scores; again each
+time that long after: every machine logs the teams' scores and the round
+each second, "network test: bomb ...").
 
 Called from the main loop every frame (main.c).
 */
@@ -128,12 +132,17 @@ static struct
 	boolean joined;
 	boolean map_set;
 	boolean player_added;
+	/* debug.network_test_local_players: the host's players on this machine
+	(2 or more: split screen), and how many it has added */
+	short local_players;
+	short local_players_added;
 	real joined_seconds;
 	boolean team_set;
 	real kill_interval;
 	real shoot_interval;
 	real vehicle_time;
 	real pickup_time;
+	real bomb_interval;
 	char pickup_weapon[64];
 	long score_to_win;
 	long logged_time;
@@ -229,6 +238,8 @@ static void network_test_read_settings(
 	network_test.shoot_interval = (real)config_real("debug.network_test_shoot");
 	network_test.vehicle_time = (real)config_real("debug.network_test_vehicle");
 	network_test.pickup_time = (real)config_real("debug.network_test_pickup");
+	network_test.bomb_interval = (real)config_real("debug.network_test_bomb");
+	network_test.local_players = (short)PIN(config_integer("debug.network_test_local_players"), 1, 4);
 	snprintf(network_test.pickup_weapon, sizeof(network_test.pickup_weapon), "%s",
 		config_string("debug.network_test_pickup_weapon"));
 	network_test.score_to_win = (long)config_integer("debug.network_test_score");
@@ -822,6 +833,52 @@ static void network_test_pickup(
 	}
 }
 
+#ifdef HALO_GAME_BROWSER
+/* debug.network_test_bomb: both machines stand the last player on the bomb
+(the host's object: the same on both; a client's own player is where it
+has it), and three seconds later in the goal its team attacks, where the
+host scores it */
+static void network_test_bomb(
+	boolean to_goal)
+{
+	struct data_iterator iterator;
+	struct player_datum *player;
+	struct player_datum *last = NULL;
+	long bomb_index = game_engine_bomb_weapon();
+	real_point3d position;
+
+	data_iterator_new(&iterator, player_data);
+	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+		last = player;
+	if (!last || last->unit_index == NONE || bomb_index == NONE)
+		return;
+	if (to_goal)
+	{
+		if (!unit_has_weapon(last->unit_index, bomb_index) ||
+			!game_engine_bomb_goal((last->team_index + 1) % 2, &position))
+		{
+			platform_log("network test: bomb: the last player has no bomb to carry");
+			return;
+		}
+		position.z += 0.1f;
+		object_set_position(last->unit_index, &position, NULL, NULL);
+		platform_log("network test: bomb: the last player carries it into the goal of team %ld",
+			(long)((last->team_index + 1) % 2));
+		return;
+	}
+	if (object_get(bomb_index)->object.parent_object_index != NONE)
+	{
+		platform_log("network test: bomb: someone carries it already");
+		return;
+	}
+	position = object_get(bomb_index)->object.position;
+	position.z += 0.1f;
+	object_set_position(last->unit_index, &position, NULL, NULL);
+	platform_log("network test: bomb: the last player stands on it (%.2f %.2f %.2f)", position.x, position.y,
+		position.z);
+}
+#endif
+
 void network_test_update(
 	boolean main_menu_loaded,
 	real seconds)
@@ -919,6 +976,35 @@ void network_test_update(
 				test_input_hold_action(hold);
 			}
 		}
+#ifdef HALO_GAME_BROWSER
+		/* (the teams' scores in a Bomb game, as each machine has them) */
+		if (game_engine_bomb_round() > 0)
+		{
+			long bomb_index = game_engine_bomb_weapon();
+			long carrier = NONE;
+			struct data_iterator iterator;
+			struct player_datum *player;
+
+			data_iterator_new(&iterator, player_data);
+			while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+			{
+				if (bomb_index != NONE && player->unit_index != NONE && unit_has_weapon(player->unit_index, bomb_index))
+					carrier = DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index);
+			}
+			platform_log("network test: bomb: tick %ld red %ld blue %ld round %ld carrier %ld", game_time_get(),
+				game_engine_bomb_team_score(0), game_engine_bomb_team_score(1), game_engine_bomb_round(), carrier);
+		}
+		if (network_test.bomb_interval > 0.0f && game_engine_bomb_round() > 0)
+		{
+			long interval = MAX(TICKS_PER_SECOND * 5, (long)(network_test.bomb_interval * TICKS_PER_SECOND));
+			long phase = game_time_get() % interval;
+
+			if (game_time_get() >= interval && phase < TICKS_PER_SECOND)
+				network_test_bomb(FALSE);
+			if (game_time_get() >= interval && phase >= 3 * TICKS_PER_SECOND && phase < 4 * TICKS_PER_SECOND)
+				network_test_bomb(TRUE);
+		}
+#endif
 		if (network_test.mode == _network_test_host && network_test.vehicle_time > 0.0f)
 		{
 			long enter_time = (long)(network_test.vehicle_time * TICKS_PER_SECOND);
@@ -1124,7 +1210,21 @@ void network_test_update(
 				network_test.map_set = TRUE;
 			}
 			if (!network_test.player_added && network_test.setup_seconds >= 2.0f && global_network_game_client_get())
+			{
 				network_test.player_added = network_game_client_add_player(global_network_game_client_get(), 0);
+				if (network_test.player_added)
+					network_test.local_players_added = 1;
+			}
+			/* (split screen: the other controllers' players, a second on in
+			turn, as pressing A on each does) */
+			if (network_test.player_added && network_test.local_players_added < network_test.local_players &&
+				network_test.setup_seconds >= 2.0f + network_test.local_players_added &&
+				global_network_game_client_get() &&
+				network_game_client_add_player(global_network_game_client_get(), network_test.local_players_added))
+			{
+				platform_log("network test: split screen player %d added", network_test.local_players_added + 1);
+				network_test.local_players_added++;
+			}
 			if (network_test.setup_seconds >= network_test.start_delay)
 			{
 				network_test.started = TRUE;

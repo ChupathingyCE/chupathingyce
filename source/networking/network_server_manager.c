@@ -488,6 +488,8 @@ void p2p_set_game_listing(const char *name, const char *map, const char *gametyp
 protocol, which it leaves as it is: the hosted game's machines and players
 told to it each idle, and the game gone */
 static void network_game_server_delta_frame(struct network_game_server *server);
+static void network_game_server_bomb_refusals(struct network_game_server *server);
+static boolean network_game_server_bomb_ready(struct network_game_server *server);
 void delta_peer_game_stop(int host);
 #endif
 
@@ -3134,7 +3136,13 @@ boolean server_ok_to_countdown(
 	boolean a_player_on_each = server_has_a_player_on_each_machine(server);
 	boolean teams_full = !server_needs_more_teams(server);
 	boolean enough_players = server->game.player_count >= server->game.minimum_players;
-	boolean ok = enough_machines && a_player_on_each && teams_full && enough_players;
+#ifdef HALO_GAME_BROWSER
+	/* port: a Bomb game type waits for its machines' Delta handshakes */
+	boolean bomb_ready = network_game_server_bomb_ready(server);
+#else
+	boolean bomb_ready = TRUE;
+#endif
+	boolean ok = enough_machines && a_player_on_each && teams_full && enough_players && bomb_ready;
 
 	/* port: a host nobody watches leaves no trace of why its lobby does not
 	start. The reason, logged as it changes (network_event is the engine's
@@ -3142,13 +3150,13 @@ boolean server_ok_to_countdown(
 	{
 		static int last_reason = -1;
 		int reason = (enough_machines ? 0 : 1) | (a_player_on_each ? 0 : 2) |
-			(teams_full ? 0 : 4) | (enough_players ? 0 : 8);
+			(teams_full ? 0 : 4) | (enough_players ? 0 : 8) | (bomb_ready ? 0 : 16);
 
 		if (reason != last_reason)
 		{
 			last_reason = reason;
 			network_event(
-				"lobby countdown %s: machines %s, a player on each machine %s, teams %s, players %ld of %ld, paused %s%s%s%s",
+				"lobby countdown %s: machines %s, a player on each machine %s, teams %s, players %ld of %ld, paused %s%s%s%s%s",
 				ok ? "ready" : "held",
 				enough_machines ? "yes" : "NO",
 				a_player_on_each ? "yes" : "NO",
@@ -3157,6 +3165,7 @@ boolean server_ok_to_countdown(
 				server->countdown_state.paused ? "yes" : "no",
 				reason ? " (failed:" : "",
 				(reason & 1) ? " machines" : "",
+				(reason & 16) ? " bomb handshakes" : "",
 				reason ? ")" : "");
 		}
 	}
@@ -5116,6 +5125,120 @@ static void network_game_server_delta_frame(
 		player_machines[index] = (signed char)(index < MAXIMUM_NETWORK_PLAYER_COUNT &&
 			network_player_is_valid(&server->game.players[index]) ? server->game.players[index].machine_index : -1);
 	}
+	/* a Bomb game type's player traits, to the machines that agreed to bomb
+(none for any other game) */
+	game_engine_bomb_host_traits(&server->game.variant);
 	delta_peer_game_host_frame(machines, count, player_machines);
+	network_game_server_bomb_refusals(server);
+}
+
+void network_distributed_host_notice(char const *text);
+
+/* Bomb game types (docs/bomb.md) are played only between machines that agree
+to Delta Peer's bomb capability: an OpenCE machine (or an older build of
+ours) would read the game as Race and refuse its state. Such a machine is
+dropped once its handshake's window is over, in the lobby or a game in
+progress (it may join again: the next game may be another), with a notice;
+the host plays on. Nothing happens in any other game */
+static void network_game_server_bomb_refusals(
+	struct network_game_server *server)
+{
+	static unsigned long refused_addresses[MAXIMUM_NETWORK_MACHINE_COUNT];
+	long index;
+
+	for (index = 0; index < MAXIMUM_NETWORK_MACHINE_COUNT; index++)
+	{
+		struct network_game_server_client_machine *machine = &server->client_machines[index];
+		unsigned long address;
+
+		if (server->game.variant.game_engine_index != game_engine_bomb ||
+			!network_game_server_client_machine_is_joined_to_game(server, machine) ||
+			network_game_server_client_machine_is_local(server, machine) ||
+			machine->machine_index < 0 || machine->machine_index >= MAXIMUM_NETWORK_MACHINE_COUNT)
+		{
+			refused_addresses[index] = 0;
+			continue;
+		}
+		if (!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_bomb))
+			continue;
+		address = (unsigned long)network_game_server_machine_ipv4_address(server, machine->machine_index);
+		/* (once: the drop takes effect when the server next looks at its
+		machines) */
+		if (refused_addresses[index] == address && address)
+			continue;
+		refused_addresses[index] = address;
+		if (network_game_server_drop_machine(machine->machine_index, _rejection_code_version_too_old))
+		{
+			char names[96];
+			char notice[160];
+			long length = 0;
+			long player_index;
+
+			names[0] = 0;
+			for (player_index = 0; player_index < MAXIMUM_NETWORK_PLAYER_COUNT; player_index++)
+			{
+				struct network_player const *player = &server->game.players[player_index];
+				short character;
+
+				if (!network_player_is_valid(player) || player->machine_index != machine->machine_index)
+					continue;
+				if (length && length + 2 < (long)sizeof(names))
+				{
+					names[length++] = ',';
+					names[length++] = ' ';
+				}
+				for (character = 0; character < NUMBEROF(player->name) && player->name[character] &&
+					length < (long)sizeof(names) - 1; character++)
+				{
+					names[length++] = player->name[character] >= 0x20 && player->name[character] < 0x7F ?
+						(char)player->name[character] : '?';
+				}
+				names[length] = 0;
+			}
+			/* (the game type's own name, in ASCII: Bomb, Grifball) */
+			{
+				char gametype[16];
+				short character;
+
+				for (character = 0; character < 12 && server->game.variant.human_readable_game_description[character];
+					character++)
+				{
+					wchar_t wide = server->game.variant.human_readable_game_description[character];
+
+					gametype[character] = wide >= 0x20 && wide < 0x7F ? (char)wide : '?';
+				}
+				gametype[character] = 0;
+				snprintf(notice, sizeof(notice), "%s left: %s needs Chupathingy (a build with Bomb) on every machine",
+					names[0] ? names : "A player", gametype[0] ? gametype : "Bomb");
+			}
+			network_event("bomb: client machine #%ld has no bomb capability (OpenCE, or an older build): dropped",
+				(long)machine->machine_index);
+			network_distributed_host_notice(notice);
+		}
+	}
+}
+
+/* whether a Bomb game type's lobby may count down: no machine still in its
+Delta handshake's window (it may yet be one to drop) */
+static boolean network_game_server_bomb_ready(
+	struct network_game_server *server)
+{
+	long index;
+
+	if (server->game.variant.game_engine_index != game_engine_bomb)
+		return TRUE;
+	for (index = 0; index < MAXIMUM_NETWORK_MACHINE_COUNT; index++)
+	{
+		struct network_game_server_client_machine *machine = &server->client_machines[index];
+
+		if (network_game_server_client_machine_is_joined_to_game(server, machine) &&
+			!network_game_server_client_machine_is_local(server, machine) &&
+			machine->machine_index >= 0 && machine->machine_index < MAXIMUM_NETWORK_MACHINE_COUNT &&
+			delta_peer_game_machine_pending(machine->machine_index))
+		{
+			return FALSE;
+		}
+	}
+	return TRUE;
 }
 #endif

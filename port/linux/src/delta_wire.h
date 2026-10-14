@@ -65,6 +65,21 @@ enum
 	/* the map file's hash: BLAKE2b-256 of every byte of it */
 	DELTA_WIRE_MAP_HASH_SIZE = 32,
 
+	/* TRAITS: its fields (the game's kind, reserved), then everyone's and the
+	bomb carrier's player traits */
+	DELTA_WIRE_TRAITS_SIZE = 28,
+	DELTA_WIRE_PLAYER_TRAITS_SIZE = 12,
+	/* a trait's range, in percent (the game's own: game_engine.h's
+	player_traits); a value past one is refused, never mended */
+	DELTA_WIRE_TRAIT_HEALTH_MINIMUM = 10,
+	DELTA_WIRE_TRAIT_HEALTH_MAXIMUM = 400,
+	DELTA_WIRE_TRAIT_DAMAGE_MINIMUM = 25,
+	DELTA_WIRE_TRAIT_DAMAGE_MAXIMUM = 400,
+	DELTA_WIRE_TRAIT_RESISTANCE_MINIMUM = 25,
+	DELTA_WIRE_TRAIT_RESISTANCE_MAXIMUM = 400,
+	DELTA_WIRE_TRAIT_SPEED_MINIMUM = 50,
+	DELTA_WIRE_TRAIT_SPEED_MAXIMUM = 200,
+
 	/* a machine index none has (a dedicated server's own machine, or a
 	client not yet given one) */
 	DELTA_WIRE_NO_MACHINE = 0xFF,
@@ -190,7 +205,31 @@ enum delta_message_type
 	/* host to client, if both agreed to ce_maps: the game's map (its family,
 	its file's name, size and hash), whenever it changes and with each
 	roster */
-	_delta_message_map = 17
+	_delta_message_map = 17,
+	/* host to client, if both agreed to bomb: the game's player traits (for
+	a Bomb game type), whenever they change and every few seconds */
+	_delta_message_traits = 18
+};
+
+/* TRAITS's game kinds: what the traits are for */
+enum
+{
+	/* none: no traits (the host's game is no Bomb game type) */
+	DELTA_WIRE_TRAITS_NONE = 0,
+	DELTA_WIRE_TRAITS_BOMB = 1
+};
+
+/* a player trait's shields */
+enum
+{
+	/* the game type's (its variant's shields option) */
+	DELTA_WIRE_SHIELDS_UNCHANGED = 0,
+	DELTA_WIRE_SHIELDS_NONE = 1,
+	DELTA_WIRE_SHIELDS_NORMAL = 2,
+	/* charged past full, as the overshield powerup charges them, and
+	charged again while not hit */
+	DELTA_WIRE_SHIELDS_OVERSHIELD = 3,
+	NUMBER_OF_DELTA_WIRE_SHIELDS
 };
 
 /* MAP's flags */
@@ -296,6 +335,32 @@ struct delta_wire_map
 	unsigned char hash[DELTA_WIRE_MAP_HASH_SIZE];
 	/* the file's name, without its family's suffix or ".map" */
 	char name[DELTA_WIRE_MAP_NAME_SIZE + 1];
+};
+
+/* a set of player traits: percents (100 changes nothing) */
+struct delta_wire_player_traits
+{
+	/* of the unit's vitality (10: a tenth: it dies of a tenth the damage) */
+	unsigned short health;
+	/* of the damage it deals */
+	unsigned short damage;
+	/* of the damage it resists (150: it takes two thirds) */
+	unsigned short resistance;
+	/* of its speed */
+	unsigned short speed;
+	/* DELTA_WIRE_SHIELDS_* */
+	unsigned char shields;
+	/* drawn in a bright color of its own (1), else its team's (0) */
+	unsigned char highlight;
+};
+
+struct delta_wire_traits
+{
+	/* DELTA_WIRE_TRAITS_* */
+	unsigned char kind;
+	/* every player's, and the bomb carrier's on top of them */
+	struct delta_wire_player_traits everyone;
+	struct delta_wire_player_traits carrier;
 };
 
 struct delta_wire_roster
@@ -407,6 +472,13 @@ int delta_wire_write_table(unsigned char *data, delta_u32 session, const struct 
 int delta_wire_write_table_have(unsigned char *data, delta_u32 session, delta_u32 serial);
 /* (0 for a map delta_wire_read_map would refuse) */
 int delta_wire_write_map(unsigned char *data, delta_u32 session, const struct delta_wire_map *map);
+/* (a kind, shields or highlight this build does not know, or a percent
+past its range, is refused) */
+int delta_wire_read_traits(const unsigned char *payload, int size, struct delta_wire_traits *traits);
+/* (0 for traits delta_wire_read_traits would refuse) */
+int delta_wire_write_traits(unsigned char *data, delta_u32 session, const struct delta_wire_traits *traits);
+/* whether traits are ones TRAITS carries (in their ranges, known values) */
+int delta_wire_traits_valid(const struct delta_wire_traits *traits);
 /* whether a map's name is one MAP carries: 1 to DELTA_WIRE_MAP_NAME_SIZE
 characters, each a letter, digit, '_', '-', '.' or ' ', and not "." or
 ".." or holding ".." */

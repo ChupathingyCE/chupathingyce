@@ -38,7 +38,10 @@ enum game_engine_type
 	game_engine_oddball,
 	game_engine_king,
 	game_engine_race,
-	game_engine_terminator,
+	/* port: Bomb (game_engine_bomb.c), in the slot Bungie's cut terminator
+	game type had; played only between ChupathingyCE machines that agree on
+	Delta Peer's bomb capability (docs/bomb.md) */
+	game_engine_bomb,
 	game_engine_stub,
 	number_of_game_engines,
 	first_usable_game_engine_index = game_engine_ctf,
@@ -129,6 +132,41 @@ struct race_variant
 	long team_scoring;
 };
 
+/* port: Bomb's rules (game_engine_bomb.c) */
+enum
+{
+	/* a goal starts a new round: every player respawns and the bomb resets */
+	_bomb_new_round_on_score_bit = 0,
+	/* melee only: no starting weapons, none on the map, no grenades or
+	powerups; a map's player-usable energy sword, if it has one, in hand
+	(game_variant_options_default) */
+	_bomb_melee_only_bit,
+};
+
+/* port: the player traits a Bomb gametype starts with
+(game_engine_traits_default) */
+enum
+{
+	_bomb_traits_none = 0,
+	_bomb_traits_grifball,
+	NUMBER_OF_BOMB_TRAITS
+};
+
+struct bomb_variant
+{
+	/* seconds the carrier stands in the goal to score; 0: on contact */
+	long arm_time;
+	/* seconds a dropped bomb lies before it resets; 0: never */
+	long reset_time;
+	/* seconds a round lasts (it ends without a score); 0: no limit */
+	long round_time;
+	/* _bomb_*_bit */
+	byte flags;
+	/* _bomb_traits_* */
+	byte traits;
+	byte pad[10];
+};
+
 union game_engine_variant
 {
 	struct ctf_variant ctf;
@@ -136,7 +174,10 @@ union game_engine_variant
 	struct king_variant king;
 	struct oddball_variant oddball;
 	struct race_variant race;
+	struct bomb_variant bomb;
 };
+
+typedef char verify_game_engine_variant_size[sizeof(union game_engine_variant) == 0x18 ? 1 : -1];
 
 struct game_variant
 {
@@ -331,6 +372,83 @@ typedef char verify_game_engine_format_message_offset[
 	offsetof(struct game_engine, format_message) == 0x64 ? 1 : -1];
 typedef char verify_game_engine_player_update_offset[
 	offsetof(struct game_engine, player_update) == 0x70 ? 1 : -1];
+#endif
+
+/* port: player traits (docs/bomb.md, "Player traits"): percents of a
+player's health, of the damage it deals and resists, and of its speed (100
+changes nothing), and its shields. A Bomb game type plays by them: every
+player's, and its bomb carrier's on top; its host sends them over Delta
+Peer (TRAITS: delta_wire.h has the same ranges) */
+enum
+{
+	PLAYER_TRAIT_HEALTH_MINIMUM = 10,
+	PLAYER_TRAIT_HEALTH_MAXIMUM = 400,
+	PLAYER_TRAIT_DAMAGE_MINIMUM = 25,
+	PLAYER_TRAIT_DAMAGE_MAXIMUM = 400,
+	PLAYER_TRAIT_RESISTANCE_MINIMUM = 25,
+	PLAYER_TRAIT_RESISTANCE_MAXIMUM = 400,
+	PLAYER_TRAIT_SPEED_MINIMUM = 50,
+	PLAYER_TRAIT_SPEED_MAXIMUM = 200,
+};
+
+enum
+{
+	/* the variant's (its no shields option) */
+	_trait_shields_unchanged = 0,
+	_trait_shields_none,
+	_trait_shields_normal,
+	/* charged past full, as the overshield powerup charges them (three
+	times), and charged again whenever they drain */
+	_trait_shields_overshield,
+	NUMBER_OF_TRAIT_SHIELDS
+};
+
+struct player_traits
+{
+	short health;
+	short damage;
+	short resistance;
+	short speed;
+	/* _trait_shields_* */
+	byte shields;
+	/* drawn in a bright color of its own */
+	byte highlight;
+	byte pad[2];
+};
+
+struct game_traits
+{
+	struct player_traits everyone;
+	struct player_traits carrier;
+};
+
+#ifdef HALO_GAME_BROWSER
+/* (game_engine_bomb.c) a variant's traits (none but a Bomb game type's), and
+traits kept in their ranges */
+void game_engine_traits_default(struct game_variant const *variant, struct game_traits *traits);
+void game_engine_traits_clean(struct game_traits *traits);
+/* whether the game plays by traits now (a Bomb game type) */
+boolean game_engine_traits_active(void);
+/* the traits' damage multiplier (1 when none), and whether a player has
+shields by them (NONE: the game type's own rule) */
+real game_engine_traits_damage_multiplier(long damaging_player_index, long damaged_player_index);
+long game_engine_traits_shields(long player_index);
+/* the host's: its game's traits, for Delta Peer to send (none for a game
+that is no Bomb game type) */
+void game_engine_bomb_host_traits(struct game_variant const *variant);
+/* a melee-only Bomb game: and the map's energy sword in the unit's hands,
+if the map has one players can use */
+boolean game_engine_bomb_melee_only(void);
+void game_engine_bomb_give_sword(long unit_index);
+/* the HUD's lines for a player: the round's score and time, and the bomb's
+carrier; FALSE when there are none */
+boolean game_engine_bomb_hud_text(long player_index, wchar_t *score_line, wchar_t *carrier_line, long size);
+/* the network test's (network_test.c): the bomb, a team's goal, a team's
+score, the round */
+long game_engine_bomb_weapon(void);
+boolean game_engine_bomb_goal(long team_index, union real_point3d *position);
+long game_engine_bomb_team_score(long team_index);
+long game_engine_bomb_round(void);
 #endif
 
 /* port: the most a game type's state for the distributed netcode's clients

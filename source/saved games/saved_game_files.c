@@ -2258,7 +2258,8 @@ static short enumerate_default_playlist_profiles(
 	{
 		while (profile_index < number_of_profiles)
 		{
-			wchar_t *display_name = unicode_string_list_get_string(string_list_index, profile_index);
+			/* port: and the port's own built-ins' (playlist_profile.c) */
+			wchar_t const *display_name = playlist_profile_default_name(profile_index, string_list_index);
 
 			_snprintf(path, MAXIMUM_FILENAME_LENGTH, "z:\\saved\\playlists\\default_playlist\\%02d\\blam.lst", profile_index);
 
@@ -2335,7 +2336,8 @@ static short enumerate_default_player_profiles(
 	{
 		while (profile_index < NUMBER_OF_DEFAULT_PROFILES)
 		{
-			wchar_t *display_name = unicode_string_list_get_string(string_list_index, profile_index);
+			/* port: and the port's own built-ins' (playlist_profile.c) */
+			wchar_t const *display_name = playlist_profile_default_name(profile_index, string_list_index);
 
 			_snprintf(path, MAXIMUM_FILENAME_LENGTH, "z:\\saved\\player_profiles\\default_profile\\%02d.sav", profile_index);
 
