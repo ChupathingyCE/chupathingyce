@@ -490,6 +490,7 @@ told to it each idle, and the game gone */
 static void network_game_server_delta_frame(struct network_game_server *server);
 static void network_game_server_bomb_refusals(struct network_game_server *server);
 static boolean network_game_server_bomb_ready(struct network_game_server *server);
+int delta_peer_game_machine_pending(int machine_index);
 void delta_peer_game_stop(int host);
 #endif
 
@@ -2532,6 +2533,23 @@ void network_game_server_update_ticks(
 				}
 			}
 
+#ifdef HALO_GAME_BROWSER
+			/* port: a Bomb game type adds no player of a machine still in its
+			Delta handshake's window: it loads nothing of the game until it
+			is known to have the bomb capability (else it is dropped,
+			network_game_server_bomb_refusals) */
+			if (server->game.variant.game_engine_index == game_engine_bomb)
+			{
+				long machine_index = server->queued_player_valid ? server->queued_player.machine_index :
+					server->waiting_player_count > 0 ? server->waiting_players[0].machine_index : NONE;
+
+				if (VALID_INDEX(machine_index, MAXIMUM_NETWORK_MACHINE_COUNT) &&
+					delta_peer_game_machine_pending(machine_index))
+				{
+					break;
+				}
+			}
+#endif
 			if (!server->queued_player_valid && server->waiting_player_count > 0)
 			{
 				csmemcpy(&server->queued_player, &server->waiting_players[0], sizeof(server->queued_player));
@@ -5208,7 +5226,7 @@ static void network_game_server_bomb_refusals(
 					gametype[character] = wide >= 0x20 && wide < 0x7F ? (char)wide : '?';
 				}
 				gametype[character] = 0;
-				snprintf(notice, sizeof(notice), "%s left: %s needs Chupathingy (a build with Bomb) on every machine",
+				snprintf(notice, sizeof(notice), "%s cannot play %s: it is played only between Chupathingy builds with Bomb",
 					names[0] ? names : "A player", gametype[0] ? gametype : "Bomb");
 			}
 			network_event("bomb: client machine #%ld has no bomb capability (OpenCE, or an older build): dropped",
