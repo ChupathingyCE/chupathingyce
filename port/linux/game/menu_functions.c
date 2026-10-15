@@ -3680,6 +3680,7 @@ static void lobby_browser_add_listed(void)
 		game->engine_type = (unsigned char)engine;
 		game->open = listed->open;
 		game->has_teams = listed->teams;
+		game->version = listed->version;
 		game->ping = -1;
 	}
 }
