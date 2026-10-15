@@ -829,7 +829,19 @@ void network_test_update(
 	if (!network_test.checked)
 		network_test_read_settings();
 	if (network_test.mode == _network_test_off)
+	{
+		/* The menu's world is animated too. Freeze that test scene after
+		   its first simulation second instead of comparing wall-clock phases.
+		   UI/input still update; ordinary launches never pause here. */
+		const char *capture = getenv("HALO_RENDER_REGRESSION");
+		if (main_menu_loaded && capture && !strcmp(capture, "1") &&
+			game_time_get() >= TICKS_PER_SECOND && !game_time_get_paused())
+		{
+			game_time_set_paused(TRUE);
+			platform_log("network test: renderer regression menu paused at tick %ld", game_time_get());
+		}
 		return;
+	}
 	if (network_test.mode == _network_test_download)
 	{
 		network_test_download(main_menu_loaded);
@@ -1128,6 +1140,17 @@ void network_test_update(
 			if (network_test.setup_seconds >= network_test.start_delay)
 			{
 				network_test.started = TRUE;
+				/* Renderer-regression captures need the same spawn and item
+				   state, not the host seed drawn from each run's local RNG.
+				   Test-only and opt-in; normal games and tests are unchanged. */
+				{
+					const char *capture = getenv("HALO_RENDER_REGRESSION");
+					if (capture && !strcmp(capture, "1"))
+					{
+						network_game_set_random_seed(0x12345678);
+						platform_log("network test: renderer regression seed 12345678");
+					}
+				}
 				network_game_client_request_immediate_start();
 				platform_log("network test: starting the game");
 			}

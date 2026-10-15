@@ -15,13 +15,15 @@ import os
 import platform
 import subprocess
 from pathlib import Path
-from typing import Any, List
+from typing import Any
 
+from .android_build import SDL_TAG, SDL_URL, check_sdl_commit
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .linux_build import OPTIMISATION
 from .lp64_build import (
     Lp64Build,
     Lp64Host,
+    Lp64Unit,
     _quote,
     load_json,
     lp64_configure_inputs,
@@ -40,7 +42,6 @@ HOMEBREW = Path("/opt/homebrew")
 # an application for other Macs (configure.py --portable) is built with an
 # SDL3 of its own, for MACOS_MINIMUM (Homebrew's is for the Mac that has it):
 # the Android build's release, built here with CMake
-from .android_build import SDL_TAG, SDL_URL, check_sdl_commit  # noqa: E402
 PORTABLE_SDL_DIR = Path("build/macos/third_party/SDL3")
 PORTABLE_SDL_BUILD = Path("build/macos/third_party/SDL3-build")
 
@@ -77,11 +78,67 @@ MACOS_POSIX_FLAGS = [
 ]
 
 
-def macos_configure_inputs() -> List[Path]:
+def macos_configure_inputs() -> list[Path]:
     """Files whose change must re-run configure.py."""
     if not PORT_CONFIG.is_file():
         return [Path(__file__)]
-    return [PORT_CONFIG, Path(__file__), *lp64_configure_inputs(), *hud_configure_inputs()]
+    return [PORT_CONFIG, Path(__file__), PORT_DIR / "metal" / "renderer",
+            *lp64_configure_inputs(), *hud_configure_inputs()]
+
+
+def generate_macos_metal_build(n: Writer, sln: Any, architectures: list[str]) -> None:
+    """Opt-in development probe only; never replaces or links into the game."""
+    if not getattr(sln, "macos_metal", False):
+        return
+    build_dir = sln.build_dir / "macos"
+    source = PORT_DIR / "metal" / "metal_smoke.m"
+    n.rule(
+        name="macos_metal_smoke",
+        command=("clang $target -std=gnu11 -fobjc-arc -Wall -Wextra -Werror "
+                 "-DHALO_MACOS_METAL_EXPERIMENTAL=1 $in -framework Foundation "
+                 "-framework Metal -o $out"),
+        description="MACOS METAL SMOKE $out",
+    )
+    slices = []
+    output = build_dir / "metal-smoke"
+    for arch in architectures:
+        executable = output if len(architectures) == 1 else build_dir / f"metal-smoke-{arch}"
+        n.build(outputs=executable, rule="macos_metal_smoke", inputs=source,
+                variables={"target": f"--target={arch}-apple-macos{MACOS_MINIMUM}"})
+        slices.append(executable)
+    if len(architectures) > 1:
+        n.rule(name="macos_metal_lipo", command="lipo -create -output $out $in",
+               description="MACOS METAL LIPO $out")
+        n.build(outputs=output, rule="macos_metal_lipo", inputs=slices)
+    n.build(outputs="macos-metal-smoke", rule="phony", inputs=output)
+
+
+class MetalLp64Build(Lp64Build):
+    """macOS-only renderer substitutions; shared build inputs remain unchanged."""
+
+    def units(self, host: Lp64Host, generated_sources: list[Path]) -> list[Lp64Unit]:
+        units = super().units(host, generated_sources)
+        renderer = PORT_DIR / "metal" / "renderer"
+        replacements = {path.name: path for path in renderer.glob("*.c")}
+        replacements["d3d8_gl.c"] = renderer / "d3d8_device.c"
+        result = []
+        platform_flags = next(unit.cflags for unit in units if unit.source.name == "d3d8_gl.c")
+        skip = {"xgpu_post.c", "xgpu_shader_cache.c", "xgpu_text.c"}
+        consumed = set()
+        for unit in units:
+            if unit.source.name in skip:
+                continue
+            if self.lp64_dir in unit.source.parents:
+                unit.cflags = f"-I{self.lp64(renderer)} {unit.cflags} -DHALO_MACOS_METAL_EXPERIMENTAL=1"
+                if unit.source.name in replacements:
+                    replacement = replacements[unit.source.name]
+                    consumed.add(replacement)
+                    unit.source = self.lp64(replacement)
+            result.append(unit)
+        for source in sorted(set(replacements.values()) - consumed):
+            result.append(Lp64Unit(self.lp64(source),
+                f"-I{self.lp64(renderer)} {platform_flags} -DHALO_MACOS_METAL_EXPERIMENTAL=1"))
+        return result
 
 
 def generate_macos_build(n: Writer, sln: Any) -> None:
@@ -96,6 +153,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
     # the Mac's own architecture; an application for other Macs, both (Apple
     # silicon and Intel: a universal application)
     architectures = ["arm64", "x86_64"] if portable else ["arm64" if platform.machine() == "arm64" else "x86_64"]
+    generate_macos_metal_build(n, sln, architectures)
     if portable and not fetch_portable_sdl():
         raise SystemExit("the portable macOS build needs SDL3's sources (git clone failed)")
     # (its SDL: the headers before Homebrew's, the library built below)
@@ -103,7 +161,10 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
     sdl_include = f"-I{PORTABLE_SDL_DIR / 'include'} " if portable else ""
 
     n.comment("Native macOS build (ninja macos)")
-    lp64 = Lp64Build(n, sln, "macos", cc)
+    metal = getattr(sln, "macos_metal", False)
+    build_type = MetalLp64Build if metal else Lp64Build
+    lp64 = build_type(n, sln, "macos", cc,
+                     extra_roots=[PORT_DIR / "metal" / "renderer"] if metal else [])
     n.rule(
         name="macos_link",
         command="$macos_cc $ldflags -o $out @$out.rsp $libs",
@@ -150,11 +211,19 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
             host_sources=sorted((PORT_DIR / "src").glob("*.c")),
         )
         objects = lp64.objects(host, generated_sources, arch_obj_dir)
+        if metal:
+            for source in (PORT_DIR / "metal" / "gpu_metal.m", PORT_DIR / "metal" / "metal_host.m"):
+                obj = arch_obj_dir / source.with_suffix(".o")
+                n.build(outputs=obj, rule="macos_cc", inputs=source, variables={
+                    "cflags": f"{target} -std=gnu11 -fobjc-arc -O2 -g -Wall "
+                              f"-I{PORT_DIR / 'metal'} -I{PORT_DIR / 'metal' / 'renderer'} "
+                              f"{sdl_include}-idirafter {HOMEBREW / 'include'}"})
+                objects.append(obj)
 
         libraries = config.get("libraries", [])
         if portable:
             libraries = [library for library in libraries if library not in ("avcodec", "avformat", "swscale", "avutil")]
-        frameworks = config.get("frameworks", [])
+        frameworks = [*config.get("frameworks", []), *(["Metal", "QuartzCore", "Foundation", "MetalFX"] if metal else [])]
         n.build(
             outputs=arch_output,
             rule="macos_link",
