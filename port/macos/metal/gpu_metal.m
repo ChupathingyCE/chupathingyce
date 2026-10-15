@@ -21,6 +21,7 @@ need not return to a Cocoa run loop between frames.
 
 #include "renderer/gpu.h"
 #include "macos_metal.h"
+#include "metal_archive.h"
 #include "metal_state_cache.h"
 
 #import <Metal/Metal.h>
@@ -1969,6 +1970,16 @@ replaced by an empty archive. */
 static id<MTLBinaryArchive> archive;
 static NSURL *archive_url;
 static BOOL archive_dirty;
+/* the descriptors added to the archive, and so their functions, kept for its
+life: serializing reads them again, and one freed meanwhile faulted there */
+static NSMutableArray *archive_descriptors;
+/* the segments earlier runs wrote, read only: lookups only, never written
+again. Serializing an archive loaded from a file, after adding to it,
+faulted inside Metal (-[_MTLBinaryArchive airntSerializeToURL:...], on the
+second and later launches with debug.gl_debug off). So each run adds what it
+compiles to an archive of its own (archive), written as one more segment
+(metal_archive.h). */
+static NSArray *archive_reads;
 /* the archive's reads (pipelines loaded from it, in parallel at warm_end)
 share this lock, and its writes (pipelines added, the file written) hold it
 alone: Metal's headers promise nothing about using one archive from several
@@ -1999,34 +2010,54 @@ static void archive_open(void)
 			[name replaceCharactersInRange:NSMakeRange(index, 1) withString:@"_"];
 	}
 	[files createDirectoryAtURL:folder withIntermediateDirectories:YES attributes:nil error:nil];
-	archive_url = [folder URLByAppendingPathComponent:[name stringByAppendingString:@".binarchive"]];
-	for (NSURL *old in [files contentsOfDirectoryAtURL:folder includingPropertiesForKeys:nil options:0 error:nil])
 	{
-		if (![old.lastPathComponent isEqualToString:archive_url.lastPathComponent])
+		NSString *prefix = [name stringByAppendingString:@"."];
+		NSMutableArray<NSURL *> *segments = [NSMutableArray array];
+		NSMutableArray *reads = [NSMutableArray array];
+
+		for (NSURL *old in [files contentsOfDirectoryAtURL:folder includingPropertiesForKeys:nil options:0 error:nil])
 		{
-			platform_log("Metal: deleting a stale pipeline archive, %s", old.lastPathComponent.UTF8String);
-			[files removeItemAtURL:old error:nil];
+			if (metal_archive_segment_is_current(old.lastPathComponent.UTF8String, prefix.UTF8String))
+				[segments addObject:old];
+			else
+			{
+				platform_log("Metal: deleting a stale pipeline archive, %s", old.lastPathComponent.UTF8String);
+				[files removeItemAtURL:old error:nil];
+			}
 		}
-	}
-	if ([files fileExistsAtPath:archive_url.path])
-	{
-		descriptor.url = archive_url;
-		archive = [device newBinaryArchiveWithDescriptor:descriptor error:&error];
-		if (!archive)
+		/* (too many segments: all deleted, and the archive starts again) */
+		if (segments.count >= METAL_ARCHIVE_SEGMENTS_MAX)
 		{
-			platform_log("Metal: the pipeline archive can't be read (%s); starting a new one",
-				error.localizedDescription.UTF8String);
-			[files removeItemAtURL:archive_url error:nil];
+			platform_log("Metal: %lu pipeline archive segments; starting again", (unsigned long)segments.count);
+			for (NSURL *old in segments)
+				[files removeItemAtURL:old error:nil];
+			[segments removeAllObjects];
 		}
+		for (NSURL *old in segments)
+		{
+			id<MTLBinaryArchive> read;
+
+			descriptor.url = old;
+			read = [device newBinaryArchiveWithDescriptor:descriptor error:&error];
+			if (read)
+				[reads addObject:read];
+			else
+			{
+				platform_log("Metal: the pipeline archive %s can't be read (%s); deleting it",
+					old.lastPathComponent.UTF8String, error.localizedDescription.UTF8String);
+				[files removeItemAtURL:old error:nil];
+			}
+		}
+		archive_reads = reads.count ? reads : nil;
+		archive_url = [folder URLByAppendingPathComponent:[NSString stringWithFormat:@"%@%lld-%d.binarchive", prefix,
+			(long long)time(NULL), (int)getpid()]];
 	}
+	descriptor.url = nil;
+	archive = [device newBinaryArchiveWithDescriptor:descriptor error:&error];
 	if (!archive)
-	{
-		descriptor.url = nil;
-		archive = [device newBinaryArchiveWithDescriptor:descriptor error:&error];
-		if (!archive)
-			platform_log("Metal: no pipeline archive: %s", error.localizedDescription.UTF8String);
-	}
-	platform_log("Metal: pipeline archive %s", archive_url.lastPathComponent.UTF8String);
+		platform_log("Metal: no pipeline archive: %s", error.localizedDescription.UTF8String);
+	platform_log("Metal: pipeline archive: %lu earlier segments read, this run's to %s",
+		(unsigned long)archive_reads.count, archive_url.lastPathComponent.UTF8String);
 }
 
 /* writes the archive out if pipelines were added since */
@@ -2038,7 +2069,12 @@ static void archive_save(void)
 	if (!archive || !archive_dirty)
 		return;
 	pthread_rwlock_wrlock(&archive_lock);
-	if ([archive serializeToURL:archive_url error:&error])
+	/* (to a file beside it, renamed into place: an archive read from the
+	file maps it, and writing over it faulted in Metal's serializer) */
+	NSURL *written = [archive_url URLByAppendingPathExtension:@"new"];
+	[[NSFileManager defaultManager] removeItemAtURL:written error:nil];
+	if ([archive serializeToURL:written error:&error] &&
+		rename(written.fileSystemRepresentation, archive_url.fileSystemRepresentation) == 0)
 	{
 		platform_log("Metal: wrote the pipeline archive in %.0f ms", (CACurrentMediaTime() - started) * 1e3);
 		archive_dirty = NO;
@@ -2106,9 +2142,9 @@ static id pipeline_make(MTLRenderPipelineDescriptor *descriptor)
 
 	if (descriptor.vertexFunction && descriptor.fragmentFunction)
 	{
-		if (archive)
+		if (archive_reads)
 		{
-			descriptor.binaryArchives = @[archive];
+			descriptor.binaryArchives = archive_reads;
 			pthread_rwlock_rdlock(&archive_lock);
 			pipeline = [device newRenderPipelineStateWithDescriptor:descriptor
 				options:MTLPipelineOptionFailOnBinaryArchiveMiss reflection:nil error:nil];
@@ -2124,7 +2160,12 @@ static id pipeline_make(MTLRenderPipelineDescriptor *descriptor)
 			{
 				pthread_rwlock_wrlock(&archive_lock);
 				if ([archive addRenderPipelineFunctionsWithDescriptor:descriptor error:nil])
+				{
+					if (!archive_descriptors)
+						archive_descriptors = [NSMutableArray array];
+					[archive_descriptors addObject:descriptor];
 					archive_dirty = YES;
+				}
 				pthread_rwlock_unlock(&archive_lock);
 			}
 		}
