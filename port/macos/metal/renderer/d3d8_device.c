@@ -31,6 +31,7 @@ Conventions carried over from the Xbox:
 #include "port_config.h"
 #include "halo_display.h"
 #include "metal_overlay.h"
+#include "aa_size.h"
 #include "metal_platform.h"
 #include "shader_list_learn.h"
 #include "halo_stereo.h"
@@ -235,6 +236,16 @@ static void screen_mode_choose(long *width, float scale[2])
 		keeps its shape and the display blit letterboxes it */
 		if (*width != wanted && *width != (wanted & ~1L))
 			scale[0] = scale[1] = scale[0] < scale[1] ? scale[0] : scale[1];
+		/* Match the desktop OpenGL renderer's SSAA: original-resolution
+		mode returns FALSE from platform_screen_mode, so never supersamples. */
+		if (!strcmp(config_string("display.anti_aliasing"), "ssaa2x"))
+		{
+			float factor = metal_ssaa_factor(*width * scale[0], SCREEN_HEIGHT * scale[1],
+				screen_maximum_texture_size);
+
+			scale[0] *= factor;
+			scale[1] *= factor;
+		}
 	}
 #endif
 }
