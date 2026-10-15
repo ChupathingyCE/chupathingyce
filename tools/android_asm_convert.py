@@ -192,6 +192,12 @@ class Converter:
             return
         if self.in_dropped_section:
             return
+        if op in (".ascii", ".asciz", ".string", ".stringz"):
+            # el operando es un literal de datos, no una referencia a simbolo:
+            # adentro puede haber bytes que parecen identificadores (un "_"
+            # suelto es 0x5F, una "A" es 0x41) y manglearlos rompe el dato
+            self.emit(f"\t{op} {args}")
+            return
         if op in DROP_DIRECTIVES or op.endswith("_version_min"):
             return
         if op in (".tbss", ".tlv", ".tdata") or "@TLVP" in args:

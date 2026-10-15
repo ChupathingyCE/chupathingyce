@@ -196,6 +196,43 @@ PROFILE_USE_FLAGS = [
 ]
 
 
+# voice chat's codec (port/third_party/opus; network_voice.c): the
+# floating-point library in plain C, its files as sources.txt lists them
+OPUS_DIR = Path("port/third_party/opus")
+# FFmpeg (LGPL) decodes the movies, which the port has no decoder for
+# (bink_ffmpeg.c implements the SDK's own entry points behind it). It is taken
+# from the system when it is there; without it the tree keeps bink_null.c and
+# the game skips the movies, exactly as it did before. The portable build's own
+# system root carries no FFmpeg, so its absence is the normal case there.
+FFMPEG_LIBS = ["libavformat", "libavcodec", "libswscale", "libswresample", "libavutil"]
+
+
+def ffmpeg_flags() -> Tuple[List[str], List[str]]:
+    """the compiler flags and libraries of the system's FFmpeg, or nothing"""
+    try:
+        cflags = subprocess.check_output(["pkg-config", "--cflags", *FFMPEG_LIBS], text=True,
+                                         stderr=subprocess.DEVNULL).split()
+        libs = subprocess.check_output(["pkg-config", "--libs", *FFMPEG_LIBS], text=True,
+                                       stderr=subprocess.DEVNULL).split()
+    except (OSError, subprocess.CalledProcessError):
+        return [], []
+    return ["-DHALO_BINK_FFMPEG", *cflags], libs
+
+
+OPUS_DEFINES = ("-DOPUS_BUILD", "-DVAR_ARRAYS", "-DHAVE_LRINTF", "-DHAVE_LRINT")
+
+
+def opus_sources() -> List[Path]:
+    """Opus's library sources (port/third_party/opus/sources.txt)"""
+    return [OPUS_DIR / line.strip() for line in (OPUS_DIR / "sources.txt").read_text().splitlines() if line.strip()]
+
+
+def opus_cflags(abi: str) -> str:
+    """the flags Opus's sources build with, on the platform layer's ABI"""
+    return " ".join([abi, "-std=gnu11", "-O2", *OPUS_DEFINES, *(f"-I{OPUS_DIR / name}" for name in
+                                                            ("include", "celt", "silk", "silk/float")), "-w"])
+
+
 def musl_math_sources() -> List[Path]:
     """musl's maths functions the game uses (port/third_party/musl-math)"""
     return sorted((MUSL_MATH_DIR / "src").glob("*.c"))
@@ -470,7 +507,8 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
     # does not, so that an overrun nobody has met cannot end a game)
     abi = " ".join(_retarget(LINUX_ABI_FLAGS, units.target_flags) + target
                    + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else ["-fstack-protector-strong"])
-                   + browser_defines + CUSTOM_EDITION_DEFINES + units.extra_flags)
+                   + browser_defines + CUSTOM_EDITION_DEFINES + units.extra_flags
+                   + ffmpeg_flags()[0])
     port_include = PORT_DIR / "include"
     sdk_flags = f"-idirafter {XDK_INCLUDE}"
     posix_flags = _retarget(POSIX_FLAGS, units.target_flags)
@@ -690,6 +728,7 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     sdl_outputs = [build_dir / sdl.libsdl.name, sdl.license] if sdl else []
 
     libs = " ".join(f"-l{lib}" for lib in config.get("libraries", []))
+    libs = " ".join([libs, *ffmpeg_flags()[1]]).strip()
     units = Linux32Units(sln=sln, config=config, game_browser=getattr(sln, "game_browser", False),
                          semantics_header=semantics_header, platform_semantics_header=platform_semantics_header,
                          embedded_assets=embedded_assets, sysroot_flags=sysroot_cflags)
