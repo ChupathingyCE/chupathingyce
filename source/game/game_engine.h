@@ -443,6 +443,9 @@ void game_engine_bomb_host_traits(struct game_variant const *variant);
 if the map has one players can use */
 boolean game_engine_bomb_melee_only(void);
 void game_engine_bomb_give_sword(long unit_index);
+/* whether a weapon is a melee-only game's unseen fists (the pistol, given
+where the map has no sword): not drawn, no HUD of its own, can't shoot */
+boolean game_engine_bomb_hides_weapon(long definition_index);
 /* the HUD's lines for a player: the round's score and time, and the bomb's
 carrier; FALSE when there are none */
 boolean game_engine_bomb_hud_text(long player_index, wchar_t *score_line, wchar_t *carrier_line, long size);

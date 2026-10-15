@@ -127,6 +127,7 @@ symbols in this file:
 #ifdef HALO_64BIT
 #include "rasterizer/rasterizer_model_types.h"
 #endif
+#include "game/game_engine.h"
 
 /* ---------- constants */
 
@@ -520,8 +521,14 @@ void first_person_weapon_draw(
 						model_effect.type= _render_model_effect_type_none;
 					}
 
+					/* (port: the arms alone for a melee-only Bomb game's unseen
+					fists, game_engine_bomb.c) */
 					if (first_person_weapon->weapon_node_remapping_table_valid &&
-						weapon_definition->weapon.interface_definition.first_person_model.index!=NONE)
+						weapon_definition->weapon.interface_definition.first_person_model.index!=NONE
+#ifdef HALO_GAME_BROWSER
+						&& !game_engine_bomb_hides_weapon(weapon->definition_index)
+#endif
+						)
 					{
 						model_remap_node_matrices_to_match_animation_graph(
 							weapon_definition->weapon.interface_definition.first_person_model.index,

@@ -123,7 +123,16 @@ A melee-only variant's PC options default to no starting weapons, no
 weapons on the map, and no grenades or powerups (`game_variant_options_default`,
 `game_engine_remap_equipment`). On a map with a player-usable energy sword
 (a weapon tag named for a sword, with a first-person model and animations,
-that doesn't vanish when dropped), every player spawns with it.
+that doesn't vanish when dropped), every player spawns with it. Without
+one (Blood Gulch), every player spawns with the globals' multiplayer pistol
+as their fists: none of it is drawn (the first-person arms are, so the
+pistol whip shows as a punch), it holds no rounds and can't fire, zoom or
+reload, its HUD is the bare crosshair, and it is never left lying or picked
+up (the host deletes one that is dropped, a dead player's too). Carrying
+the bomb holsters it, as any second weapon. Every machine applies these
+rules from the variant and the weapon's definition
+(`game_engine_bomb_hides_weapon`). A unit with no weapon at all still
+melees with its fists' blow and the pistol's third-person swing.
 
 ## Grifball
 
@@ -139,7 +148,7 @@ The official rules, adapted to Halo CE:
 | Motion tracker | on |
 | The carrier | 150% speed, an overshield, 150% damage resistance (takes two thirds of the damage), a highlighted color |
 | Rounds | 3 minutes; a goal ends the round; first to 3 rounds wins |
-| Weapons | the map's player-usable energy sword if it has one; otherwise fists (melee only: no map weapons, no grenades, no powerups) |
+| Weapons | the map's player-usable energy sword if it has one; otherwise fists, an unseen pistol (melee only: no map weapons, no grenades, no powerups) |
 | Gravity | 100% (the old 50% is gone) |
 | Vehicles | none |
 

@@ -138,6 +138,12 @@ static struct
 	long arm_ticks;
 	/* the map's energy sword players can use (NONE: none: fists alone) */
 	long sword_definition_index;
+	/* ... and where it has none, the globals' pistol, given unseen: the
+	"fists" (its pistol whip, with first person arms; it can't shoot and
+	isn't drawn, dropped or picked up: game_engine_bomb_hides_weapon) */
+	long fist_definition_index;
+	/* the host giving them (no one picks them up otherwise) */
+	boolean giving_fists;
 	/* the players drawn in the carrier's color (by absolute index) */
 	boolean highlighted[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
 	/* each player's (by absolute index), for the game's report: ticks with
@@ -535,12 +541,45 @@ void game_engine_bomb_give_sword(
 	struct object_placement_data placement_data;
 	long weapon_index;
 
-	if (!game_engine_bomb_melee_only() || unit_index == NONE || bomb_globals.sword_definition_index == NONE)
+	long definition_index = bomb_globals.sword_definition_index != NONE ? bomb_globals.sword_definition_index :
+		bomb_globals.fist_definition_index;
+
+	/* (a client has the host's: network_objects.c) */
+	if (!game_engine_bomb_melee_only() || unit_index == NONE || definition_index == NONE ||
+		network_game_distributed_client())
+	{
 		return;
-	object_placement_data_new(&placement_data, bomb_globals.sword_definition_index, NONE);
+	}
+	object_placement_data_new(&placement_data, definition_index, NONE);
 	weapon_index = object_new(&placement_data);
-	if (weapon_index != NONE && !unit_add_weapon_to_inventory(unit_index, weapon_index, 2))
+	if (weapon_index == NONE)
+		return;
+	/* (the fists hold no rounds) */
+	if (definition_index == bomb_globals.fist_definition_index)
+	{
+		struct weapon_datum *weapon = weapon_get(weapon_index);
+		short magazine;
+
+		for (magazine = 0; magazine < (short)NUMBEROF(weapon->weapon.magazines); magazine++)
+		{
+			weapon->weapon.magazines[magazine].rounds_total = 0;
+			weapon->weapon.magazines[magazine].rounds_loaded = 0;
+		}
+	}
+	bomb_globals.giving_fists = TRUE;
+	if (!unit_add_weapon_to_inventory(unit_index, weapon_index, 2))
 		object_delete(weapon_index);
+	bomb_globals.giving_fists = FALSE;
+}
+
+/* whether a weapon is a melee-only game's unseen fists (every machine's
+rule: none of it is drawn, its HUD is a bare crosshair, it can't shoot,
+zoom or reload, and it is never left lying or picked up) */
+boolean game_engine_bomb_hides_weapon(
+	long definition_index)
+{
+	return definition_index != NONE && bomb_running() && definition_index == bomb_globals.fist_definition_index &&
+		game_engine_bomb_melee_only();
 }
 
 static long bomb_create(void)
@@ -713,6 +752,16 @@ static boolean bomb_engine_initialize_for_new_map(void)
 	bomb_blast_find_effects();
 	bomb_globals.score_to_win = game_engine_get_variant()->universal_variant.score_to_win;
 	bomb_globals.sword_definition_index = bomb_find_sword();
+	/* (the multiplayer weapon list's pistol: game_engine.c's
+	_weapon_list_pistol) */
+	bomb_globals.fist_definition_index = bomb_globals.sword_definition_index == NONE ?
+		list_index_to_weapon_definition_index(4) : NONE;
+	if (bomb_globals.fist_definition_index != NONE &&
+		weapon_definition_get(bomb_globals.fist_definition_index)->weapon.interface_definition.first_person_animations.index ==
+			NONE)
+	{
+		bomb_globals.fist_definition_index = NONE;
+	}
 
 	for (team_index = 0; team_index < NUMBER_OF_BOMB_TEAMS; team_index++)
 	{
@@ -1216,6 +1265,27 @@ static void bomb_engine_update(void)
 				0.0f, "default", NONE, (short)((team_index + 1) % NUMBER_OF_BOMB_TEAMS), NONE);
 		}
 	}
+	/* the fists of the dead (or any dropped) gone: the host's word deletes
+	a client's */
+	if (bomb_globals.fist_definition_index != NONE && game_engine_bomb_melee_only() &&
+		!network_game_distributed_client())
+	{
+		struct object_iterator objects;
+
+		object_iterator_new(&objects, _object_mask_weapon, 0);
+		while (object_iterator_next(&objects))
+		{
+			struct weapon_datum *weapon = weapon_get(objects.index);
+
+			if (weapon->definition_index == bomb_globals.fist_definition_index &&
+				weapon->object.parent_object_index == NONE &&
+				TEST_FLAG(weapon->object.flags, _object_connected_to_map_bit) &&
+				!TEST_FLAG(weapon->item.flags, _item_attached_to_unit_bit))
+			{
+				object_delete(objects.index);
+			}
+		}
+	}
 	/* ("play ball": at the countdown's end, after a goal) */
 	if (game_time_get() - bomb_globals.round_start_time == BOMB_ROUND_ANNOUNCEMENT_TICKS &&
 		!bomb_globals.countdown_round && bomb_globals.hold_ticks == 0)
@@ -1285,6 +1355,18 @@ static wchar_t *bomb_format_team_name(long team_index, wchar_t *buffer)
 static boolean bomb_engine_allow_pick_up(long unit_index, long weapon_index)
 {
 	(void)unit_index;
+	/* (not the fists lying about: one left is gone at the host's next tick;
+	those carried are the carrier's to use) */
+	{
+		struct weapon_datum *weapon = weapon_get(weapon_index);
+
+		if (game_engine_bomb_hides_weapon(weapon->definition_index) && !bomb_globals.giving_fists &&
+			TEST_FLAG(weapon->object.flags, _object_connected_to_map_bit) &&
+			!TEST_FLAG(weapon->item.flags, _item_attached_to_unit_bit) && weapon->object.parent_object_index == NONE)
+		{
+			return FALSE;
+		}
+	}
 	/* (not the bomb until the countdown is over) */
 	return weapon_index != bomb_globals.weapon_index || bomb_globals.hold_ticks <= 0;
 }
