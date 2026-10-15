@@ -112,6 +112,11 @@ struct browser_report_player
 	short ball_carrier_kills;
 	short hill_time;
 	short laps;
+	/* nonzero: only the scoreboard's numbers go in the line (name, team,
+	place, score, kills, deaths, and the host's tag): a player not on
+	Chupathingy, on the host's report; anyone but this machine's own
+	players, on a client's (game_stats_line_full) */
+	int minimal;
 	/* the IPv4 address the host's game has the player's machine at (an
 	internet player's virtual one), 0 for the host's own: from it the host
 	tags the player's line, so that only their machine may confirm it

@@ -468,8 +468,9 @@ static const struct config_setting config_settings[] =
 		"listed there, and System Link shows its games; empty for none." },
 	{ "network.list_hosted_games", _config_boolean, "true", "HALO_NET_LIST_GAMES", _environment_value, _platform_all,
 		"List the system link games this machine hosts on network.browser_url,\n"
-		"where anyone can find and join them. False keeps them to invites and\n"
-		"the local network." },
+		"where anyone can find and join them, and send each one's carnage report\n"
+		"there when it ends. False keeps them to invites and the local network,\n"
+		"and sends no report." },
 	{ "network.report_joined_games", _config_boolean, "true", "HALO_NET_REPORT_GAMES", _environment_value,
 		_platform_all,
 		"When an internet game this machine joined ends, send network.browser_url\n"
@@ -481,8 +482,10 @@ static const struct config_setting config_settings[] =
 		"Delta Stats: record the games this machine hosts (kills with weapons and\n"
 		"positions, accuracy, medals, objectives, vehicles, pickups, positions a\n"
 		"few seconds apart) and send them to network.browser_url when each ends,\n"
-		"for the site's match pages, heatmaps and leaderboards. Players' names\n"
-		"and a hash of their hardware ID; never an address. False turns it off." },
+		"for the site's match pages, heatmaps and leaderboards. Players are their\n"
+		"names, never a hardware ID or an address; an OpenCE player is only their\n"
+		"name, team, score, place, kills and deaths. False records and sends no\n"
+		"events; a listed game's carnage report still goes (list_hosted_games)." },
 	{ "network.events_token", _config_string, "\"\"", "HALO_EVENTS_TOKEN", _environment_value, _platform_all,
 		"A dedicated server's Delta Stats token, from the game list's operator:\n"
 		"its games count as a trusted server's. Empty: the game must be listed\n"

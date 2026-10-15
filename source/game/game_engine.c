@@ -599,6 +599,7 @@ struct network_game *network_game_server_get_game(struct network_game_server *se
 void game_stats_player_killed(long killing_player_index, long dead_player_index, boolean friendly_fire);
 void game_stats_player_extra(long player_index, char *text, long size, short *multikills);
 void game_stats_game_extra(boolean host, char *text, long size);
+boolean game_stats_line_full(long player_index, boolean host);
 #endif
 
 #ifdef HALO_CUSTOM_EDITION
@@ -5246,6 +5247,7 @@ long game_engine_report_lines(
 		line->shots_fired = player->statistics.shots_fired;
 		line->shots_hit = player->statistics.shots_hit;
 		line->color = player->network_player_data.primary_color_index;
+		line->minimal = !game_stats_line_full(ranking[index].player_index, server != NULL);
 		if (server)
 		{
 			unsigned long network_game_server_machine_ipv4_address(struct network_game_server *server,
@@ -5277,8 +5279,9 @@ long game_engine_report_lines(
 			short multikills = line->multikills;
 
 			extras[index][0] = 0;
-			game_stats_player_extra(ranking[index].player_index, extras[index], BROWSER_REPORT_EXTRA_SIZE,
-				&multikills);
+			if (!line->minimal)
+				game_stats_player_extra(ranking[index].player_index, extras[index], BROWSER_REPORT_EXTRA_SIZE,
+					&multikills);
 			line->multikills = multikills;
 			line->extra = extras[index];
 		}

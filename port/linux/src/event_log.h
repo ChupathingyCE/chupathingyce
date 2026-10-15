@@ -4,7 +4,7 @@ EVENT_LOG.H
 Delta Stats' event log (docs/delta.md, "Delta Stats"): what happened in a
 game this machine hosts, gathered on the game's thread by
 port/linux/game/game_events.c, kept within fixed limits here
-(event_log.c), and made into the game's batch (schema 1, JSON) at its end,
+(event_log.c), and made into the game's batch (schema 2, JSON) at its end,
 which event_upload.c compresses (event_gzip.c) and sends to the game list.
 
 Plain types only across this boundary (int, short, float, char; no long,
@@ -15,8 +15,9 @@ cross as UTF-8.
 
 One game is recorded at a time, on one thread (the game's): begin, then
 players and events, then finish, which hands the encoded batch over. No
-address of anyone is ever in it: players are their names and a keyed hash
-of their machine's hardware ID.
+address or machine identifier of anyone is ever in it: players are their
+names. A player not on Chupathingy (an OpenCE player) is only their name,
+team and this game's score, place, kills and deaths (event_log.c).
 */
 
 #ifndef EVENT_LOG_H
@@ -25,7 +26,7 @@ of their machine's hardware ID.
 #include <stddef.h>
 
 /* the batch's "schema" (docs/delta.md: later versions only add fields) */
-#define EVENT_LOG_SCHEMA 1
+#define EVENT_LOG_SCHEMA 2
 
 enum
 {
@@ -33,8 +34,6 @@ enum
 	EVENT_LOG_NAME_SIZE = 40,
 	/* a tag's path, or a short text (a reason, a medal's key) */
 	EVENT_LOG_TAG_SIZE = 96,
-	/* a hardware ID as a machine tells it (32 hexadecimal digits) */
-	EVENT_LOG_HARDWARE_ID_SIZE = 33,
 	/* the most of each a game keeps */
 	EVENT_LOG_MAXIMUM_PLAYERS = 64,
 	EVENT_LOG_MAXIMUM_TAGS = 384,
@@ -212,9 +211,6 @@ struct event_log_record
 struct event_log_player_identity
 {
 	char name[EVENT_LOG_NAME_SIZE];
-	/* as the machine told it joining, "" if it told none: the batch has a
-	keyed hash of it, never the ID itself */
-	char hardware_id[EVENT_LOG_HARDWARE_ID_SIZE];
 	/* EVENT_LOG_CLIENT_* */
 	int client;
 	/* "windows", "linux", "macos", "android", "xbox", "other", or "" */

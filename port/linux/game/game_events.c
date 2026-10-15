@@ -31,8 +31,9 @@ What it watches:
 event_log.c keeps it within its limits and works out the medals and
 sprees; at the game's end the batch goes to event_upload.c, which sends it.
 A long game is sent as it stands every network.events_part_minutes too.
-Players are their names and a hash of their machine's hardware ID; no
-address is ever recorded.
+Players are their names; no address or machine identifier is ever
+recorded. An OpenCE player is only their name, team and this game's score,
+place, kills and deaths (event_log.c).
 
 Called each frame from game_stats_update (main.c).
 */
@@ -545,7 +546,6 @@ static void send_game(boolean final, int reason)
 static void track_player(struct tracked *tracked, struct player_datum *player, long player_index, long tick)
 {
 	struct event_log_player_identity identity;
-	char const *hardware_id = network_game_server_machine_hardware_id(player->network_player_data.machine_index);
 	int platform = delta_peer_player_platform((int)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index));
 	static char const *const platforms[] = { "", "windows", "macos", "linux", "android", "linux", "xbox", "xbox",
 		"other", "other" };
@@ -561,8 +561,9 @@ static void track_player(struct tracked *tracked, struct player_datum *player, l
 		tracked->weapons[index] = NONE;
 	csmemset(&identity, 0, sizeof(identity));
 	name_utf8(player->name, 12, identity.name, sizeof(identity.name));
-	snprintf(identity.hardware_id, sizeof(identity.hardware_id), "%s", hardware_id ? hardware_id : "");
-	identity.client = platform > 0 ? EVENT_LOG_CLIENT_CHUPATHINGYCE : EVENT_LOG_CLIENT_OTHER;
+	/* (this machine's own players are on Chupathingy whatever Delta Peer says) */
+	identity.client = platform > 0 || player->local_player_index != NONE ? EVENT_LOG_CLIENT_CHUPATHINGYCE :
+		EVENT_LOG_CLIENT_OTHER;
 	snprintf(identity.platform, sizeof(identity.platform), "%s",
 		platform > 0 && platform < (int)NUMBEROF(platforms) ? platforms[platform] : "");
 	identity.team = (int)player->team_index;

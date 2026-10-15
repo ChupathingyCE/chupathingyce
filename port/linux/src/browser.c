@@ -1452,7 +1452,13 @@ static char *report_json(int teams, int red_score, int blue_score, int duration_
 
 		used = append(report, size, used, "%s{\"name\": ", index ? ", " : "");
 		used = clamped(used + json_name(report + used, (int)(size - (size_t)used), player->name, BROWSER_PLAYER_NAME_LENGTH), size);
-		used = append(report, size, used,
+		if (player->minimal)
+		{
+			/* (a player not on Chupathingy: this game's scoreboard, no more) */
+			used = append(report, size, used, ", \"team\": %d, \"place\": %d, \"score\": %d, \"kills\": %d, \"deaths\": %d",
+				player->team, player->place, player->score, player->kills, player->deaths);
+		}
+		else used = append(report, size, used,
 			", \"team\": %d, \"place\": %d, \"score\": %d, \"kills\": %d, \"assists\": %d, \"deaths\": %d, "
 			"\"betrayals\": %d, \"suicides\": %d, \"shots_fired\": %d, \"shots_hit\": %d, \"multikills\": %d, "
 			"\"color\": %d, \"flag_grabs\": %d, \"flag_returns\": %d, \"flag_scores\": %d, \"ball_time\": %d, "
@@ -1469,7 +1475,7 @@ static char *report_json(int teams, int red_score, int blue_score, int duration_
 			address_tag(tag_invite, address, tag);
 			used = append(report, size, used, ", \"tag\": \"%s\"", tag);
 		}
-		if (player->extra && player->extra[0] && strlen(player->extra) < BROWSER_REPORT_EXTRA_SIZE)
+		if (!player->minimal && player->extra && player->extra[0] && strlen(player->extra) < BROWSER_REPORT_EXTRA_SIZE)
 			used = append(report, size, used, ", %s", player->extra);
 		used = append(report, size, used, "}");
 	}

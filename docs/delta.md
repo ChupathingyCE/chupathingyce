@@ -712,7 +712,13 @@ for the site's "Played on" profile badges.
 ## Delta Stats
 
 - **Reports** (exists): end-of-game totals, with the host, verified and
-  player tiers (`/v1/report`, `/v1/client_report`, `/v1/claim`).
+  player tiers (`/v1/report`, `/v1/client_report`, `/v1/claim`). In the
+  host's report, a line of a player not on Chupathingy (no Delta Peer
+  platform, not the host's own) is only `name`, `team`, `place`, `score`,
+  `kills`, `deaths` and the claim `tag`; such a player who left early is
+  only `name`, `team`, `kills` and `deaths` in `departed`. In a client's
+  report, only the reporter's own lines are in full; every other line is
+  the same minimum.
 - **Events** (built: `port/linux/src/event_log.c`, `event_upload.c`,
   `port/linux/game/game_events.c`; the site's `analytics.py`): what happened
   in a game, recorded by its host and sent when it ends.
@@ -722,15 +728,23 @@ for the site's "Played on" profile badges.
 Only a host records. It is on by default and the host's operator or
 player can turn it off (`network.report_events`, `HALO_NET_REPORT_EVENTS`
 set to false): our [D] servers, community servers and ChupathingyCE
-players who host, unless they opt out. Everything is what the host saw, so it is exact; nothing a
+players who host, unless they opt out. That setting stops the events
+batch only. The host's carnage report (`/v1/report`) is a separate upload:
+it goes whenever the game is listed, and only `network.list_hosted_games =
+false` (or an empty `network.browser_url`) stops it. Everything is what the host saw, so it is exact; nothing a
 client says is taken. Co-op (campaign) games are never recorded.
 
 ### Players
 
 A player is their name, their client (`chupathingyce` when their machine
-speaks Delta, else `other`) and platform, and `ident`: a keyed BLAKE2b hash
-of the hardware ID their machine gave the host. The site hashes `ident`
-again with its own secret and never shows it. A player becomes a confirmed
+speaks Delta or is the host's own, else `other`) and platform. No hardware
+ID, nor any hash of one, is sent (schema 1 had a keyed hash, `ident`; the
+site no longer keeps it). A player whose client is `other` (an OpenCE
+player) is only their name, client, team, bot, score, place, kills and
+deaths: no other totals, and no event row is about them (their medals,
+objectives, pickups, rides, spawns, positions, pings, sessions and flags
+are left out; a kill of theirs, or of them, keeps their index but not
+where they stood or their vehicle). A player becomes a confirmed
 player (a player ID, so a profile) only the way carnage reports confirm
 them: their own copy of the game claims their line of the same game's
 report with its player key (`/v1/claim`); the site then marks the same
@@ -739,7 +753,7 @@ line of the events. A copy claims a game it joined only with
 its own report of the game; a game it hosted, always. A host's word about who a player is is never taken. No
 IP address is ever recorded or sent, by the game or the site.
 
-### The batch (schema 1)
+### The batch (schema 2)
 
 JSON, gzip on the wire. `t` is seconds since the game started; positions
 are world units `[x, y, z]`; players are indexes into `players`, `-1`
@@ -747,13 +761,13 @@ nobody (the world). Later versions only add fields; unknown fields are
 ignored.
 
 ```
-{"schema": 1,
+{"schema": 2,
  "server": {"name", "build", "platform"},
  "game": {"id" (32 hex, random), "part", "final", "invite"?, "playlist"? (a
           dedicated server's playlist file's name), "map", "engine",
           "gametype", "teams", "score_limit", "started", "ended" (unix),
           "end_reason": score|time|admin|empty|error|other, "team_scores"?},
- "players": [{"name", "ident"?, "client", "platform"?, "team", "bot", "color"?
+ "players": [{"name", "client", "platform"?, "team", "bot", "color"?
               (armor, 0-17),
               "score", "place", "kills", "deaths", "assists", "betrayals",
               "suicides", "best_spree", "damage_dealt", "damage_taken",

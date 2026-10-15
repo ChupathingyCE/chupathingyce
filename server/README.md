@@ -174,14 +174,15 @@ how, where the killer and victim were), shots and hits by weapon, medals and
 sprees, flag, ball, hill and lap events, vehicle rides, weapon and powerup
 pickups, spawns, joins and leaves, each player's position every 2 seconds,
 ping, and the server's own minute (frame time, CPU, memory). Players are
-their names and a keyed hash of their hardware ID. No address of anyone is
-ever sent. Co-op games are never recorded.
+their names; no hardware ID or address of anyone is ever sent. An OpenCE
+player is only their name, team and that game's score, place, kills and
+deaths. Co-op games are never recorded.
 
 It is on by default; set `HALO_NET_REPORT_EVENTS=false` to turn it off:
 
 | Setting | Default | |
 | --- | --- | --- |
-| `HALO_NET_REPORT_EVENTS` | `true` | `false` stops recording and sending games. |
+| `HALO_NET_REPORT_EVENTS` | `true` | `false` stops recording and sending games' events. The carnage report still goes while the server is listed (`HALO_NET_LIST_GAMES=false` stops that). |
 | `HALO_EVENTS_TOKEN` | (none) | A token from the site's operator: the games count as a trusted server's. Without one, the site takes a game only while the server lists it, from the same address (as the carnage report). |
 | `HALO_EVENTS_POSITIONS` | `2` | Seconds between position samples (0 none). |
 | `HALO_EVENTS_LIMIT` | `40000` | The most events a game keeps (about 60 bytes each); past it the position samples thin out first. |

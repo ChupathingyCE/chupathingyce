@@ -1,5 +1,6 @@
 """Tests for the native Linux build tooling (port/linux, tools/linux_*.py)."""
 
+import json
 import re
 import shutil
 import subprocess
@@ -321,6 +322,63 @@ def test_report_joined_games_stops_claims():
     readme = (root / "port/linux/README.md").read_text()
     row = next(line for line in readme.splitlines() if line.startswith("| `network.report_joined_games`"))
     assert "/v1/claim" in row
+
+
+def c_format_json(format_text: str, values: list) -> str:
+    """a C printf format of JSON members (%d, %ld, %s only) filled in"""
+    parts = iter(values)
+    return re.sub(r"%l?[ds]", lambda m: str(next(parts)), format_text.encode().decode("unicode_escape"))
+
+
+def test_minimal_report_lines():
+    """A carnage report line of a player not on Chupathingy (the host's
+    report), or of anyone but the reporter (a client's report), is only the
+    scoreboard's numbers: name, team, place, score, kills, deaths (and the
+    host's claim tag). Its recorded parts (medals, weapons, ...) never go."""
+    root = MENUS.parent.parent.parent
+    browser = (root / "port/linux/src/browser.c").read_text()
+    body = re.search(r"^static char \*report_json\(.*?^\}", browser, re.M | re.S).group(0)
+    minimal = re.search(r"if \(player->minimal\)\s*\{.*?append\(report, size, used, \"(.*?)\",", body, re.S).group(1)
+    line = json.loads('{"name": "Someone"' + c_format_json(minimal, [1, 2, 3, 4, 5]) + "}")
+    assert set(line) == {"name", "team", "place", "score", "kills", "deaths"}
+    # (the tag stays, so a Chupathingy player the handshake missed can still claim it)
+    assert body.index("if (player->minimal)") < body.index('"tag\\"')
+    assert "!player->minimal && player->extra" in body
+    stats = (root / "port/linux/game/game_stats.c").read_text()
+    departed = re.search(r"if \(!full\)\s*\{\s*return stats_append\(text, size, used, \"(.*?)\",", stats, re.S).group(1)
+    assert set(json.loads(c_format_json(departed, ['"Someone"', 1, 2, 3]))) == {"name", "team", "kills", "deaths"}
+    # (departed players in full only on the host's report, and only Chupathingy players)
+    assert "host && game_stats.departed[index].delta" in stats
+    full = re.search(r"^boolean game_stats_line_full\(.*?^\}", stats, re.M | re.S).group(0)
+    assert "local_player_index != NONE" in full and "return host && (" in full
+    engine = (root / "source/game/game_engine.c").read_text()
+    assert "line->minimal = !game_stats_line_full(ranking[index].player_index, server != NULL);" in engine
+
+
+def test_report_events_stops_only_events():
+    """network.report_events = false stops the Delta Stats batch
+    (event_upload.c) and nothing else: the host's carnage report goes
+    whenever the game is listed (network.list_hosted_games), and the docs
+    say so."""
+    root = MENUS.parent.parent.parent
+    upload = (root / "port/linux/src/event_upload.c").read_text()
+    assert 'config_boolean("network.report_events")' in upload
+    browser = (root / "port/linux/src/browser.c").read_text()
+    assert "report_events" not in browser
+    assert 'config_boolean("network.list_hosted_games")' in browser
+    readme = (root / "port/linux/README.md").read_text()
+    row = next(line for line in readme.splitlines() if line.startswith("| `network.report_events`"))
+    assert "list_hosted_games" in row and "hardware ID" in row
+    row = next(line for line in readme.splitlines() if line.startswith("| `network.list_hosted_games`"))
+    assert "carnage report" in row
+
+
+def test_no_hardware_id_in_events():
+    """No hardware ID, nor a hash of one, goes in a Delta Stats batch."""
+    root = MENUS.parent.parent.parent
+    for path in ("port/linux/src/event_log.c", "port/linux/src/event_log.h", "port/linux/game/game_events.c"):
+        text = (root / path).read_text()
+        assert "hardware_id" not in text and not re.search(r"\bident\b|blake2b", text), path
 
 
 def test_default_brokers_are_brokers_txt():
