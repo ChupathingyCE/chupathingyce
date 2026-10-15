@@ -38,6 +38,7 @@ games to join: [discord.gg/chupathingy](https://discord.gg/chupathingy).
 
 **Online**
 - **Online Games**, a server list in the Multiplayer menu: join a game with **A**, or host one with **Y**
+- A game its host lists once for each network version shows once there, and its players count once (this fork: `merge_listings` in `port/linux/src/browser.c`)
 - Games you host are listed for everyone, from any of our builds
 - Invite links (`halo://join/…`) to send to friends; opening one joins their game
 - Direct connections between players, with no port forwarding in most homes

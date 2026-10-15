@@ -1337,6 +1337,50 @@ static int parse_game(char *line, struct browser_game *game)
 	return 1;
 }
 
+/* checks whether two listings are one game advertised for several network
+versions (a host that lists itself once a version so that older games see
+it too): everything the list says of the game the same but the version and
+the invite. Two games of one version are never one. */
+static int same_game(const struct browser_game *a, const struct browser_game *b)
+{
+	return a->version != b->version &&
+		!memcmp(a->name, b->name, sizeof(a->name)) &&
+		!strcmp(a->map, b->map) &&
+		a->engine == b->engine &&
+		a->players == b->players &&
+		a->maximum_players == b->maximum_players &&
+		a->open == b->open &&
+		a->teams == b->teams &&
+		a->score_limit == b->score_limit &&
+		a->protocol == b->protocol &&
+		a->roster_count == b->roster_count &&
+		!memcmp(a->roster, b->roster, sizeof(a->roster));
+}
+
+/* keeps one listing of a game listed once a network version: the newest
+version's, the one this game joins best, so that the list shows the game
+once and its players count once; returns the listings left */
+static int merge_listings(struct browser_game *games, int count)
+{
+	int kept = 0, index, other;
+
+	for (index = 0; index < count; index++)
+	{
+		for (other = 0; other < kept && !same_game(&games[other], &games[index]); other++)
+			;
+		if (other < kept)
+		{
+			if (games[index].version > games[other].version)
+				games[other] = games[index];
+			continue;
+		}
+		if (kept != index)
+			games[kept] = games[index];
+		kept++;
+	}
+	return kept;
+}
+
 static void update_list(void)
 {
 	static char response[RESPONSE_SIZE];
@@ -1396,6 +1440,7 @@ static void update_list(void)
 				count++;
 			}
 		}
+		count = merge_listings(games, count);
 	}
 	else
 	{
