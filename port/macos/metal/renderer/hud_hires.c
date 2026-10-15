@@ -25,6 +25,7 @@ the port's zlib (port/third_party/zlib: a menus folder's PNGs are anyone's).
 #include "gpu.h"
 
 #include "zlib_prefixed.h"
+#include "hud_preload.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -247,10 +248,11 @@ failed:
 	return NULL;
 }
 
-unsigned int hud_hires_png_texture(const void *png, unsigned long size, unsigned long *levels)
+/* a texture of a decoded PNG's texels (which it frees), as below */
+static unsigned int png_pixels_texture(unsigned char *pixels, unsigned long width, unsigned long height,
+	unsigned long *levels)
 {
-	unsigned long width = 0, height = 0, largest, index, count;
-	unsigned char *pixels = png_decode(png, size, &width, &height);
+	unsigned long largest, index, count;
 	struct gpu_texture_description description = { 0 };
 	gpu_texture texture;
 
@@ -282,6 +284,54 @@ unsigned int hud_hires_png_texture(const void *png, unsigned long size, unsigned
 	return texture;
 }
 
+unsigned int hud_hires_png_texture(const void *png, unsigned long size, unsigned long *levels)
+{
+	unsigned long width = 0, height = 0;
+	unsigned char *pixels = png_decode(png, size, &width, &height);
+
+	return png_pixels_texture(pixels, width, height, levels);
+}
+
+/* ---------- decoding ahead (hud_preload.h) */
+
+static struct hud_preload_slot preload_slots[MAXIMUM_TEXTURES];
+
+static unsigned char *preload_decode(long asset, unsigned long *width, unsigned long *height, void *context)
+{
+	(void)context;
+	return png_decode((const unsigned char *)hud_hires_embedded[asset].png, hud_hires_embedded[asset].png_size,
+		width, height);
+}
+
+/* the textures not yet made, but titles (decoded when first drawn) */
+static int preload_wanted(long asset, void *context)
+{
+	(void)context;
+	return asset < hud_hires_asset_count() && !hud_hires_embedded[asset].title && !textures[asset].texture &&
+		!textures[asset].failed;
+}
+
+static struct hud_preload preload = HUD_PRELOAD_INITIALIZER(preload_slots, MAXIMUM_TEXTURES, preload_decode, NULL);
+
+void hud_hires_map_unloaded(void)
+{
+	hud_preload_stop(&preload);
+}
+
+void hud_hires_map_loaded(const long *assets, long count)
+{
+	long queued;
+
+	hud_preload_stop(&preload);
+	/* (none for a run that draws nothing, or with the high-res HUD off:
+	then each is decoded when first drawn, as titles are) */
+	if (!config_boolean("display.high_res_hud") || config_boolean("debug.null_renderer"))
+		return;
+	queued = hud_preload_start(&preload, assets, count, preload_wanted);
+	if (queued)
+		platform_log("high-res hud: decoding %ld pictures ahead of the HUD's first frame", queued);
+}
+
 unsigned int hud_hires_override_texture(long asset, unsigned long *levels)
 {
 	const struct hud_hires_embedded *embedded;
@@ -294,7 +344,19 @@ unsigned int hud_hires_override_texture(long asset, unsigned long *levels)
 		return textures[asset].texture;
 	}
 	embedded = &hud_hires_embedded[asset];
-	textures[asset].texture = hud_hires_png_texture(embedded->png, embedded->png_size, &textures[asset].levels);
+	{
+		unsigned char *pixels = NULL;
+		unsigned long width = 0, height = 0;
+
+		/* (decoded as the map loaded, or being decoded: waited for) */
+		if (!hud_preload_take(&preload, asset, &pixels, &width, &height))
+		{
+			pixels = png_decode((const unsigned char *)embedded->png, embedded->png_size, &width, &height);
+			if (config_boolean("debug.texture_log"))
+				platform_log("high-res hud: %s bitmap %d decoded at first draw", embedded->tag, embedded->bitmap);
+		}
+		textures[asset].texture = png_pixels_texture(pixels, width, height, &textures[asset].levels);
+	}
 	if (!textures[asset].texture)
 	{
 		platform_log("high-res hud: could not decode the texture for %s bitmap %d", embedded->tag, embedded->bitmap);

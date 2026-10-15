@@ -36,5 +36,3 @@ int platform_forge_selector_draw(const char *cross, const char *bar, int selecte
    writes only debug.screenshot_every's frames (d3d8_device.c). */
 void platform_screenshot_request(void) { }
 /* High-resolution HUD textures still decode and upload on first use. */
-void hud_hires_map_loaded(const long *assets, long count) { (void)assets; (void)count; }
-void hud_hires_map_unloaded(void) { }
