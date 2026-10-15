@@ -22,7 +22,11 @@ enum draw_profile_stage
 	DRAW_PROFILE_UNIFORMS,    /* the uniform inputs, compared and converted */
 	DRAW_PROFILE_TARGETS,     /* draw_targets */
 	DRAW_PROFILE_RASTER,      /* raster_state_fill */
-	DRAW_PROFILE_FRONTEND_LAST = DRAW_PROFILE_RASTER,
+	/* inside setup_streams: */
+	DRAW_PROFILE_MIRROR,         /* mirror_range, with its refresh */
+	DRAW_PROFILE_MIRROR_REFRESH, /* mirror_refresh alone: protect + upload of stale pages */
+	DRAW_PROFILE_STREAM_UPLOAD,  /* the streaming fallback's copy (stream_upload*) */
+	DRAW_PROFILE_FRONTEND_LAST = DRAW_PROFILE_STREAM_UPLOAD,
 	/* inside gpu_metal_draw (gpu_metal.m keeps its own struct draw_profile) */
 	DRAW_PROFILE_PIPELINE,    /* draw_attributes_decide + draw_pipeline */
 	DRAW_PROFILE_PASS,        /* pass_begin and target_size */

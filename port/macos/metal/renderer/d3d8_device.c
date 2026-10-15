@@ -3513,7 +3513,8 @@ static struct gpu_draw draw_packet;
 static void draw_profile_log(void)
 {
 	static const char *const names[DRAW_PROFILE_FRONTEND_LAST + 1] = { "call", "prepare_draw", "setup_streams", "gpu_draw",
-		"  stages_fill", "  key", "  shader lookup", "  uniforms", "  targets+memset", "  raster" };
+		"  stages_fill", "  key", "  shader lookup", "  uniforms", "  targets+memset", "  raster",
+		"  mirror_range", "    mirror_refresh", "  stream upload" };
 	int stage;
 
 	if (!draw_profile.enabled || !draw_profile.calls[DRAW_PROFILE_CALL])
@@ -3677,10 +3678,16 @@ while, and draws that use it stream their data as before. */
 #define MIRROR_SEGMENT_COUNT (PLATFORM_CONTIGUOUS_SIZE / MIRROR_SEGMENT_SIZE)
 #define MIRROR_PAGE_SIZE 0x1000UL
 #define MIRROR_PAGE_COUNT (PLATFORM_CONTIGUOUS_SIZE / MIRROR_PAGE_SIZE)
-/* rewrites no more than this many frames apart ... */
+/* Rotating dynamic buffers can go several rendered frames between writes.
+V2 streams after two nearby rewrites instead of repeatedly protecting and
+uploading their pages. Static pages and the coherence checks are unchanged. */
+#ifdef HALO_MACOS_METAL_V2
+#define MIRROR_REWRITE_FRAMES 30
+#define MIRROR_VOLATILE_REWRITES 2
+#else
 #define MIRROR_REWRITE_FRAMES 2
-/* ... this many times in a row make a page volatile ... */
 #define MIRROR_VOLATILE_REWRITES 4
+#endif
 /* ... for this many frames */
 #define MIRROR_VOLATILE_FRAMES 600
 
@@ -3790,8 +3797,21 @@ static BOOL mirror_refresh(unsigned long first, unsigned long last)
 that holds it, the range's offset in that buffer and the newest upload
 generation of its pages (which changes whenever its contents do); FALSE if
 the range is outside the window, spans two segments or is volatile */
+static BOOL mirror_range_unprofiled(unsigned long address, unsigned long size, gpu_buffer *buffer,
+	unsigned long *offset, unsigned long *generation);
+
 static BOOL mirror_range(unsigned long address, unsigned long size, gpu_buffer *buffer, unsigned long *offset,
 	unsigned long *generation)
+{
+	uint64_t started = draw_profile_now(&draw_profile);
+	BOOL mirrored = mirror_range_unprofiled(address, size, buffer, offset, generation);
+
+	draw_profile_add(&draw_profile, DRAW_PROFILE_MIRROR, started);
+	return mirrored;
+}
+
+static BOOL mirror_range_unprofiled(unsigned long address, unsigned long size, gpu_buffer *buffer,
+	unsigned long *offset, unsigned long *generation)
 {
 	unsigned long start = address - PLATFORM_CONTIGUOUS_BASE;
 	unsigned long segment, first, last, page, oldest = ~0UL, newest = 0;
@@ -3827,7 +3847,11 @@ static BOOL mirror_range(unsigned long address, unsigned long size, gpu_buffer *
 	}
 	if (!present || memory_watch_generation(address, size) > oldest)
 	{
-		if (!mirror_refresh(first, last))
+		uint64_t refresh_started = draw_profile_now(&draw_profile);
+		BOOL refreshed = mirror_refresh(first, last);
+
+		draw_profile_add(&draw_profile, DRAW_PROFILE_MIRROR_REFRESH, refresh_started);
+		if (!refreshed)
 			return FALSE;
 		for (newest = 0, page = first; page < last; page++)
 		{
@@ -4043,9 +4067,12 @@ static BOOL setup_streams(struct gpu_draw *draw, unsigned long first, unsigned l
 			const unsigned char *base = PLATFORM_PHYSICAL_TO_VIRTUAL(device.streams[stream].data);
 			unsigned long bytes = stride ? stride * count : 64;
 
+			uint64_t upload_started = draw_profile_now(&draw_profile);
+
 			streams[stream].offset = (uint32_t)(device_capabilities.vertex_bgra ?
 				stream_upload(base + first * stride, bytes, &streams[stream].buffer) :
 				stream_upload_swizzled(declaration, stream, base + first * stride, bytes, stride, &streams[stream].buffer));
+			draw_profile_add(&draw_profile, DRAW_PROFILE_STREAM_UPLOAD, upload_started);
 			stats.streamed_bytes += bytes;
 		}
 		attribute.format = attribute_format(element);
