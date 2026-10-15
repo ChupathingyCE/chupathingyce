@@ -78,3 +78,8 @@ class ShaderListTests(TestCase):
         source = (METAL / "gpu_metal.m").read_text()
         self.assertIn("atexit(archive_save_at_exit);", body(source, "static void gpu_metal_initialize("))
         self.assertIn("archive_save();", body(source, "static void archive_save_at_exit(void)"))
+
+    def test_defaults_on(self):
+        config = (METAL / "renderer/port_config.c").read_text()
+        self.assertIn('{ "debug.metal_pipeline_archive", _config_boolean, "true"', config)
+        self.assertIn('{ "debug.shader_list_warm", _config_boolean, "true"', config)

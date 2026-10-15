@@ -112,11 +112,10 @@ static const struct config_setting config_settings[] =
 	{ "debug.gpu_shader_replay_dialect", _config_string, "\"\"", "HALO_GPU_SHADER_REPLAY_DIALECT", _environment_value, _platform_all,
 		"The dialect gpu_shader_replay translates into: empty the context's, \"450\" desktop GLSL,\n"
 		"\"msl\" Metal (which the Metal renderer also compiles)." },
-	{ "debug.metal_pipeline_archive", _config_boolean, "false", "HALO_METAL_PIPELINE_ARCHIVE", _environment_value, _platform_desktop,
+	{ "debug.metal_pipeline_archive", _config_boolean, "true", "HALO_METAL_PIPELINE_ARCHIVE", _environment_value, _platform_desktop,
 		"With the Metal renderer, keep the compiled pipelines in an archive in the\n"
-		"app's caches between launches. Off until writing it works: in the Mac app\n"
-		"it fails with \"cannot create temporary file\" (Metal's own shader cache\n"
-		"still keeps compiled shaders between launches)." },
+		"app's caches between launches (written after a map's shader list is\n"
+		"warmed and at exit); false compiles them every launch, to compare." },
 	{ "debug.metal_specialize", _config_boolean, "true", "HALO_METAL_SPECIALIZE", _environment_value, _platform_desktop,
 		"With the Metal renderer, specialize each pipeline's vertex shader for its\n"
 		"attribute formats; false uses the unspecialized shaders, which read the\n"
@@ -134,9 +133,10 @@ static const struct config_setting config_settings[] =
 		"where the shaders and pipelines made while drawing, those a map's shader\n"
 		"list missed, are appended to MAP.txt, each line once; \"\" for none.\n"
 		"tools/shader_lists.py merges them into port/shader-lists." },
-	{ "debug.shader_list_warm", _config_boolean, "false", "HALO_SHADER_LIST_WARM", _environment_value, _platform_desktop,
-		"Compile the shaders and pipelines in a map's shader list while it loads;\n"
-		"false compiles each when a frame first draws with it, to compare." },
+	{ "debug.shader_list_warm", _config_boolean, "true", "HALO_SHADER_LIST_WARM", _environment_value, _platform_desktop,
+		"Compile the shaders and pipelines in a map's shader list while it loads:\n"
+		"the app's list and what earlier runs drew (metal-shader-lists in the data\n"
+		"folder); false compiles each when a frame first draws with it, to compare." },
 	{ "debug.texture_override_directory", _config_string, "\"\"", "HALO_TEXTURE_OVERRIDE", _environment_value, _platform_all,
 		"A folder of replacement textures, <hash>.rgba (step-tools/texture-upscale.py),\n"
 		"each drawn in place of the texture whose first mip level hashes to <hash>; empty none." },
