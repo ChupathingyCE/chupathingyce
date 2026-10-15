@@ -93,6 +93,11 @@ void test_input_hold_action(int hold)
 	(void)hold;
 }
 
+void test_input_hold_melee(int hold)
+{
+	(void)hold;
+}
+
 /* ---------- XAPI */
 
 VOID WINAPI XInitDevices(DWORD preallocation_type_count, PXDEVICE_PREALLOC_TYPE preallocation_types)
