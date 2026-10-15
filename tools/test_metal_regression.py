@@ -75,6 +75,31 @@ class MetalRegressionSetupTests(TestCase):
             self.assertTrue((folder / "gameplay-off/difference.bmp").is_file())
             self.assertFalse(json.loads((folder / "results.json").read_text())[0]["passed"])
 
+    def test_v1_v2_labels_use_the_requested_apps_and_are_recorded(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            reference, candidate = folder / "v1.bmp", folder / "v2.bmp"
+            for image in (reference, candidate):
+                write_bmp(image, Image(1, 1, bytes([1, 2, 3, 255])))
+            (folder / "gameplay-off").mkdir()
+            apps = {"MetalV1": Path("v1"), "MetalV2": Path("v2")}
+            with mock.patch.object(runner, "capture", side_effect=[(reference, "same"), (candidate, "same")]) as capture:
+                self.assertTrue(runner.run_cases([runner.Case("gameplay-off")], apps, folder, folder, 14,
+                                                reference_name="MetalV1", candidate_name="MetalV2"))
+            self.assertEqual([call.args[1:3] for call in capture.call_args_list],
+                             [("MetalV1", apps["MetalV1"]), ("MetalV2", apps["MetalV2"])])
+            report = json.loads((folder / "results.json").read_text())[0]
+            self.assertEqual(report["reference_renderer"], "MetalV1")
+            self.assertEqual(report["candidate_renderer"], "MetalV2")
+
+    def test_custom_labels_require_prebuilt_apps(self):
+        with mock.patch.object(runner, "prerequisites", return_value=None), \
+                mock.patch.object(runner, "build_pair") as build, \
+                self.assertRaises(SystemExit) as error:
+            runner.main(["--reference-name", "MetalV1"])
+        self.assertEqual(error.exception.code, 2)
+        build.assert_not_called()
+
     def test_capture_uses_isolation_and_rejects_mismatched_camera(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)

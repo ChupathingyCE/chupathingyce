@@ -128,16 +128,18 @@ def capture(case: Case, renderer: str, app: Path, data: Path, output: Path, seco
     return images[-1], camera
 
 
-def run_cases(selected, apps, data, output, seconds, *, mean_limit=3.0, fraction_limit=0.03):
+def run_cases(selected, apps, data, output, seconds, *, mean_limit=3.0, fraction_limit=0.03,
+              reference_name="OpenGL", candidate_name="Metal"):
     reports = []
     for case in selected:
-        gl, gl_camera = capture(case, "OpenGL", apps["OpenGL"], data, output, seconds)
-        metal, metal_camera = capture(case, "Metal", apps["Metal"], data, output, seconds)
+        gl, gl_camera = capture(case, reference_name, apps[reference_name], data, output, seconds)
+        metal, metal_camera = capture(case, candidate_name, apps[candidate_name], data, output, seconds)
         if gl_camera != metal_camera:
             raise ValueError(f"{case.name}: mismatched camera positions: {gl_camera} vs {metal_camera}")
         report, difference = compare(read_bmp(gl), read_bmp(metal), mean_limit=mean_limit,
                                      fraction_limit=fraction_limit)
-        report.update(case=case.name, reference=str(gl), actual=str(metal), camera=gl_camera)
+        report.update(case=case.name, reference=str(gl), actual=str(metal), camera=gl_camera,
+                      reference_renderer=reference_name, candidate_renderer=candidate_name)
         write_bmp(output / case.name / "difference.bmp", difference)
         (output / case.name / "comparison.json").write_text(json.dumps(report, indent=2) + "\n")
         reports.append(report)
@@ -153,6 +155,10 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, help="new/empty directory; default a retained temporary directory")
     parser.add_argument("--gl-app", type=Path, help="prebuilt app executable; supply with --metal-app to skip builds")
     parser.add_argument("--metal-app", type=Path)
+    parser.add_argument("--reference-name", choices=("OpenGL", "MetalV1"), default="OpenGL",
+                        help="reference label; MetalV1 requires prebuilt executables")
+    parser.add_argument("--candidate-name", choices=("Metal", "MetalV2"), default="Metal",
+                        help="candidate label; MetalV2 requires prebuilt executables")
     parser.add_argument("--seconds", type=int, default=14)
     parser.add_argument("--case", action="append", choices=[case.name for case in cases()])
     parser.add_argument("--mean-limit", type=float, default=3.0)
@@ -164,6 +170,8 @@ def main(argv=None):
         return 77
     if bool(args.gl_app) != bool(args.metal_app):
         parser.error("provide both --gl-app and --metal-app, or neither to build both")
+    if (args.reference_name != "OpenGL" or args.candidate_name != "Metal") and not args.gl_app:
+        parser.error("custom renderer names require --gl-app and --metal-app prebuilt executables")
     if not 10 <= args.seconds <= 120:
         parser.error("--seconds must be 10..120")
     if not 0 <= args.mean_limit <= 255 or not 0 <= args.fraction_limit <= 1:
@@ -175,7 +183,7 @@ def main(argv=None):
     print(f"Artifacts: {output}", flush=True)
     selected = [case for case in cases() if not args.case or case.name in args.case]
     try:
-        apps = ({"OpenGL": args.gl_app.resolve(), "Metal": args.metal_app.resolve()}
+        apps = ({args.reference_name: args.gl_app.resolve(), args.candidate_name: args.metal_app.resolve()}
                 if args.gl_app else build_pair(output))
         for app in apps.values():
             if not app.is_file() or not os.access(app, os.X_OK):
@@ -185,7 +193,8 @@ def main(argv=None):
             "seconds": args.seconds, "aniso": 1, "interpolation": False, "seed": "12345678", "menu_pause_tick": 30,
             "cases": [case.name for case in selected]}, indent=2) + "\n")
         return 0 if run_cases(selected, apps, args.data_root.resolve(), output, args.seconds,
-                             mean_limit=args.mean_limit, fraction_limit=args.fraction_limit) else 1
+                             mean_limit=args.mean_limit, fraction_limit=args.fraction_limit,
+                             reference_name=args.reference_name, candidate_name=args.candidate_name) else 1
     except (subprocess.SubprocessError, ValueError, OSError) as error:
         print(f"FAIL: {error}; artifacts: {output}", file=sys.stderr)
         return 1
