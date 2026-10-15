@@ -2671,9 +2671,11 @@ static void gametype_list_update(struct widget_instance *list)
 		{
 			long engine = PIN(variant.game_engine_index, 0, (long)NUMBEROF(engine_names) - 1);
 
-			/* (the pictures are the Xbox's game types': none of Bomb's) */
+			/* (the pictures are the Xbox's game types': Bomb's is Oddball's
+			skull, the bomb being the map's oddball) */
 			if ((widget = named(description, "gametype_right_pic", 0)) != NULL)
-				widget->animation.current_frame_index = (short)(engine <= 5 ? engine : 0);
+				widget->animation.current_frame_index = (short)(engine == game_engine_bomb ? game_engine_oddball :
+					engine <= 5 ? engine : 0);
 			usnprintf(text, NUMBEROF(text) - 1, L"%s\r\n%s\r\nScore to win: %ld", engine_names[engine],
 				variant.universal_variant.teams ? L"Teams" : L"Free for all", variant.universal_variant.score_to_win);
 			text[NUMBEROF(text) - 1] = 0;
@@ -5523,9 +5525,11 @@ static void gametype_edit_list_update(struct widget_instance *list)
 		{
 			long engine = PIN(variant.game_engine_index, 0, (long)NUMBEROF(engine_names) - 1);
 
-			/* (the pictures are the Xbox's game types': none of Bomb's) */
+			/* (the pictures are the Xbox's game types': Bomb's is Oddball's
+			skull, the bomb being the map's oddball) */
 			if ((widget = named(description, "gametype_right_pic", 0)) != NULL)
-				widget->animation.current_frame_index = (short)(engine <= 5 ? engine : 0);
+				widget->animation.current_frame_index = (short)(engine == game_engine_bomb ? game_engine_oddball :
+					engine <= 5 ? engine : 0);
 			usnprintf(text, NUMBEROF(text) - 1, L"%s\r\n%s\r\nScore to win: %ld", engine_names[engine],
 				variant.universal_variant.teams ? L"Teams" : L"Free for all", variant.universal_variant.score_to_win);
 			text[NUMBEROF(text) - 1] = 0;
