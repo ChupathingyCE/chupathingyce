@@ -11550,9 +11550,15 @@ static void unit_drop_item(
 	
 	if (item->object.parent_object_index==NONE)
 	{
-		object_reconnect_to_map(item_index, 0);
-		object_set_visibility(item_index, 1);
-		object_attach_to_marker(unit_index, "left hand", item_index, "");
+		/* port: not one in the world already, though the unit holds it (a
+		script moved it: hs_object_orient lets go of it first, with
+		unit_release_item), which would be connected to the map twice */
+		if (!TEST_FLAG(item->object.flags, _object_connected_to_map_bit))
+		{
+			object_reconnect_to_map(item_index, 0);
+			object_set_visibility(item_index, 1);
+			object_attach_to_marker(unit_index, "left hand", item_index, "");
+		}
 	}
 	else
 	{
@@ -12024,4 +12030,40 @@ void unit_network_forget_weapon(
 		unit->unit.current_weapon_index = NONE;
 	if (unit->unit.desired_weapon_index == slot || unit->unit.desired_weapon_index == NONE)
 		unit->unit.desired_weapon_index = unit_weapon_next_index(unit_index, NONE, 0);
+}
+
+/* port: a weapon a unit holds, let go of before a script moves it
+(object_teleport; a Custom Edition map's scripts send a carried ball back
+to its spawn when it goes out of bounds): dropped, as a carrier drops it,
+so that no unit holds a weapon that is out in the world (its next drop
+reconnected it to the map twice, which halted debug builds). FALSE when
+no unit holds it */
+boolean unit_release_item(
+	long item_index)
+{
+	struct object_iterator iterator;
+	struct unit_datum *unit;
+	struct item_datum *item = item_try_and_get(item_index);
+
+	if (!item || item->object.type != _object_type_weapon ||
+		!TEST_FLAG(item->item.flags, _item_attached_to_unit_bit))
+	{
+		return FALSE;
+	}
+	object_iterator_new(&iterator, _object_mask_unit, 0);
+	while ((unit = object_iterator_next(&iterator))!=NULL)
+	{
+		short slot;
+
+		for (slot = 0; slot < MAXIMUM_WEAPONS_PER_UNIT; slot++)
+		{
+			if (unit->unit.weapon_object_indices[slot] == item_index)
+			{
+				unit_network_drop_weapon(iterator.index, slot);
+				return TRUE;
+			}
+		}
+	}
+
+	return FALSE;
 }

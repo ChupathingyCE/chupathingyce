@@ -908,7 +908,8 @@ void weapon_set_total_rounds(
 void weapon_delete(
 	long weapon_index)
 {
-	if (game_engine_running())
+	/* port: not for a Custom Edition map's (objects.c, object_delete) */
+	if (game_engine_running() && !CACHE_FILE_TAGS_ARE_CE())
 	{
 		match_assert("c:\\halo\\SOURCE\\items\\weapons.c", 234, !weapon_is_flag(weapon_index));
 	}
