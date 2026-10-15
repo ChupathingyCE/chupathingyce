@@ -1128,6 +1128,17 @@ void network_test_update(
 			if (network_test.setup_seconds >= network_test.start_delay)
 			{
 				network_test.started = TRUE;
+				/* Renderer-regression captures need the same spawn and item
+				   state, not the host seed drawn from each run's local RNG.
+				   Test-only and opt-in; normal games and tests are unchanged. */
+				{
+					const char *capture = getenv("HALO_RENDER_REGRESSION");
+					if (capture && !strcmp(capture, "1"))
+					{
+						network_game_set_random_seed(0x12345678);
+						platform_log("network test: renderer regression seed 12345678");
+					}
+				}
 				network_game_client_request_immediate_start();
 				platform_log("network test: starting the game");
 			}

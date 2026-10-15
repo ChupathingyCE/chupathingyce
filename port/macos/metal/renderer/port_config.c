@@ -147,6 +147,10 @@ static const struct config_setting config_settings[] =
 		"With the Metal renderer, keep the game's DXT textures compressed on the GPU\n"
 		"where it supports them (BC1-3): a quarter to an eighth of the memory, and\n"
 		"faster loads. false decodes them, as OpenGL ES must." },
+	{ "display.field_of_view", _config_real, "70.0", "HALO_FIELD_OF_VIEW", _environment_value, _platform_all,
+		"How wide the first-person view is, in degrees across a 4:3 picture:\n"
+		"70 as on the Xbox, 50 to 120 (wider screens see more at the sides).\n"
+		"Scopes zoom in as much as before." },
 	{ "display.effect_resolution", _config_boolean, "true", "HALO_EFFECT_RESOLUTION", _environment_value, _platform_all,
 		"Draw the active-camouflage effect at the screen's resolution rather than the\n"
 		"Xbox's 320x240." },
