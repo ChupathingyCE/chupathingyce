@@ -3637,6 +3637,7 @@ static id<MTLTexture> foveation_picture(MetalTexture *record)
 
 #include "metal_overlay.inc"
 #include "metal_post.inc"
+#include "metal_smaa.inc"
 
 static uint32_t gpu_metal_present(gpu_texture back_buffer)
 {

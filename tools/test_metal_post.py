@@ -102,7 +102,8 @@ class MetalPostTests(TestCase):
 
     def test_hook_precedes_hud(self):
         source = (ROOT / "port/macos/metal/renderer/d3d8_device.c").read_text()
-        self.assertIn('strcmp(config_string("display.anti_aliasing"), "fxaa")', source)
+        self.assertIn('const char *mode = config_string("display.anti_aliasing");', source)
+        self.assertIn('strcmp(mode, "fxaa")', source)
         self.assertIn("macos_metal_fxaa(target->target.texture, corners);", source)
         compat = (ROOT / "port/macos/metal/renderer/metal_compat.c").read_text()
         self.assertNotIn("void halo_screen_anti_alias(", compat)
