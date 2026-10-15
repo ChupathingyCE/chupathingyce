@@ -482,6 +482,29 @@ the setting for one start of the game. It has priority over the file.
 | `debug.network_latency`, `debug.network_loss`, `debug.network_corrupt`, `debug.network_corrupt_stream`, `debug.network_corrupt_after` | `0` | `HALO_NETWORK_LATENCY`, `HALO_NETWORK_LOSS`, `HALO_NETWORK_CORRUPT`, `HALO_NETWORK_CORRUPT_STREAM`, `HALO_NETWORK_CORRUPT_AFTER` | The game holds all the data that it receives for this number of milliseconds, ignores this percentage of the datagrams, and damages this percentage of the datagrams it receives, and this percentage of its reads of streams, at random (bytes changed, cut short, stretched or replaced), from this many seconds after the start. Use the first two to test the netcode as on the internet, and the others to test that nothing another machine sends can crash the game (a damaged stream is closed, so a little goes a long way; a host's messages to its own client are damaged too, so start damaging once the game has started). |
 | `debug.telnet_console`, `debug.telnet_console_port` | `false`, `2323` | `HALO_TELNET_CONSOLE`, `HALO_TELNET_CONSOLE_PORT` | The game listens on 127.0.0.1, on this port, for a script console (connect with telnet). The console has no password, so only this computer can reach it. |
 
+### Experimental offline bots
+
+These settings exist only in builds configured with `python3 configure.py --bots`.
+Bots are local-only; they are not replicated to a remote machine and
+leave if one joins. FFA and Team Slayer are supported; standard two-flag CTF
+requires its separate opt-in. See [Offline multiplayer bots](../../docs/bots.md).
+
+| Setting | Default | Environment variable | Function |
+| --- | --- | --- | --- |
+| `bots.count` | `0` | `HALO_BOTS` | 0 to 31 local bots. They use normal player actions and game rules. |
+| `bots.skill` | `"marine"` | `HALO_BOT_SKILL` | `"recruit"`, `"marine"`, `"odst"` or `"spartan"`; affects reactions, aim and sight, not health or damage. |
+| `bots.ctf` | `false` | `HALO_BOT_CTF` | Opt into experimental standard two-flag CTF. Assault, single-flag and manual-reset variants remain refused. |
+| `bots.team_spawns` | `true` | `HALO_BOT_TEAM_SPAWNS` | Spawn each team nearer its own half/base. False uses Halo's normal spawn choice. |
+| `bots.human_callouts` | `true` | `HALO_BOT_HUMAN_CALLOUTS` | Share sustained local human POV sightings with bots; Team Slayer only. |
+| `debug.bot_decisions` | `false` | `HALO_BOT_DECISIONS=1` | Log each bot's selected behavior and utility scores. |
+| `debug.nav_probe` | `false` | `HALO_NAV_PROBE=1` | Run the local BSP walking probe with Bot 1. |
+| `debug.nav_dump`, `debug.nav_goal` | `""`, `""` | `HALO_NAV_DUMP`, `HALO_NAV_GOAL` | Diagnostic surface dump path and optional `x,y,z` goal. |
+| `debug.map_anchors_dump` | `""` | `HALO_MAP_ANCHORS_DUMP` | Write map-relative navigation anchors to a `.json` path. |
+| `debug.bot_navigation_only`, `debug.bot_sandbox` | `false`, `false` | `HALO_BOT_NAVIGATION_ONLY=1`, `HALO_BOT_SANDBOX=1` | Offline navigation-only and vehicle-boarding test fixtures. |
+| `debug.bot_scenario` | `""` | `HALO_BOT_SCENARIO` | Run named controlled behavior scenarios, or `all`. |
+| `debug.bot_scenario_skills`, `debug.bot_scenario_trials`, `debug.bot_scenario_seed` | `"spartan"`, `1`, `1` | `HALO_BOT_SCENARIO_SKILLS`, `HALO_BOT_SCENARIO_TRIALS`, `HALO_BOT_SCENARIO_SEED` | Select scenario skills, repeat count (1–100) and deterministic seed. |
+| `debug.bot_scenario_log`, `debug.bot_scenario_camera`, `debug.bot_scenario_origin`, `debug.bot_scenario_crowd`, `debug.bot_scenario_exit` | `""`, `"follow"`, `""`, `8`, `false` | `HALO_BOT_SCENARIO_LOG`, `HALO_BOT_SCENARIO_CAMERA`, `HALO_BOT_SCENARIO_ORIGIN`, `HALO_BOT_SCENARIO_CROWD`, `HALO_BOT_SCENARIO_EXIT` | Configure scenario telemetry, camera, arena origin, crowd size and optional exit. |
+
 With Mesa drivers, the game sends its GL calls through the GL thread of
 Mesa. To stop this, set the environment variable `mesa_glthread=false`.
 

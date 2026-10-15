@@ -1141,6 +1141,28 @@ void update_server_handle_distributed_input(
 	queue->current_action = *action;
 }
 
+#ifdef HALO_FEATURE_BOTS
+boolean update_server_set_player_action(
+	long player_index,
+	struct player_action const *action)
+{
+	struct update_server_queue_datum *queue;
+	long absolute_index;
+
+	if (!update_server_globals.initialized || player_index == NONE || !distributed_action_valid(action))
+		return FALSE;
+	absolute_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index);
+	if (absolute_index < 0 || absolute_index >= MAXIMUM_NUMBER_OF_PLAYERS)
+		return FALSE;
+	queue = (struct update_server_queue_datum *)datum_try_and_get(update_server_globals.queues, player_index);
+	if (!queue)
+		return FALSE;
+	queue->current_action = *action;
+	update_server_pending_control_flags[absolute_index] |= action->control_flags;
+	return TRUE;
+}
+#endif
+
 long update_server_ticked_update_number(
 	void)
 {

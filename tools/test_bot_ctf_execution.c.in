@@ -1,0 +1,149 @@
+#include <assert.h>
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+typedef int boolean;
+typedef float real;
+typedef struct { float x,y,z; } real_point3d;
+typedef struct { float yaw,pitch; } real_euler_angles2d;
+#define TRUE 1
+#define FALSE 0
+#define NONE -1
+#define MAXIMUM_WEAPONS_PER_UNIT 2
+#define TICKS_PER_SECOND 30
+#define SET_FLAG(a,b,c) ((c) ? ((a)|=1UL<<(b)) : ((a)&=~(1UL<<(b))))
+/* HEADERS */
+typedef int engine_ai_behavior_result;
+enum { ENGINE_AI_BEHAVIOR_FAILURE,ENGINE_AI_BEHAVIOR_RUNNING,
+    BOT_NAVIGATION_UNAVAILABLE,BOT_NAVIGATION_WAITING,BOT_NAVIGATION_MOVING,
+    BOT_NAVIGATION_ARRIVED,BOT_NAVIGATION_FAILED,
+    _bot_intent_jump,BOT_INTENT_SCHEMA,_unit_control_jump_bit };
+enum bot_navigation_result { nav_dummy };
+struct engine_ai_behavior_intent_emitter { int unused; };
+struct sn_point { float x,y,z; };
+struct bot_navigation_command { boolean has_move,jump; real yaw,speed; };
+struct player_datum { long team_index; };
+struct unit_datum { struct { long parent_object_index; } object;
+    struct { long weapon_object_indices[2]; } unit; };
+struct weapon_datum { int flag; };
+struct bot {
+    short slot; long player_index,unit_index;
+    boolean objective_valid,objective_waiting,abs_suppressed,decide_now;
+    struct bot_ambition objective;
+    long objective_deadline,objective_retry_time,objective_unreachable_index;
+    short objective_retry_kind;
+    struct { int searching,following; } navigation_agent;
+    long movement_check_time,movement_escape_until;
+    real_point3d movement_position;
+    real movement_escape_yaw;
+    struct { boolean has_move; real move_speed; real move_yaw; unsigned long control_flags; } pending;
+};
+static struct { int navigation_only,desired_count; } bots_globals;
+static long now=100;
+static int supported=1,choice_valid=1,nav_result=BOT_NAVIGATION_ARRIVED;
+static int resets,releases,moves,jumps;
+static long excluded;
+static struct bot_ambition choice;
+static struct unit_datum unit;
+static struct weapon_datum weapon={1};
+static struct player_datum player={0};
+static long game_time_get(void) { return now; }
+static void *game_engine_get_variant(void) { return &supported; }
+static int game_engine_ctf_bot_variant_supported(void *v) { assert(v==&supported); return supported; }
+static struct unit_datum *bot_living_unit(long i) { return i==100 ? &unit : NULL; }
+static struct weapon_datum *weapon_try_and_get(long i) { return i==5 ? &weapon : NULL; }
+static int weapon_is_flag(long i) { assert(i==5); return weapon.flag; }
+int bot_manager_ctf_goal(long team,long p,short n,long unavailable,struct bot_ambition *goal) {
+    assert(team==0 && p==200 && n==1); excluded=unavailable; *goal=choice; return choice_valid;
+}
+void bot_manager_release_item(long team,long object,short number) {
+    assert(team==0 && object==5 && number==1); releases++;
+}
+static void bot_navigation_reset(struct bot *b) { assert(b); resets++; }
+static void platform_log(char const *format, ...) { (void)format; }
+static enum bot_navigation_result bot_navigation_agent_move_to(void *agent,long u,struct sn_point point,
+    real speed,real radius,struct bot_navigation_command *command) {
+    assert(agent && u==100 && point.x==10 && speed==1 && radius>0);
+    memset(command,0,sizeof(*command));
+    if(nav_result==BOT_NAVIGATION_MOVING) { command->has_move=TRUE; command->yaw=0.5f; command->speed=1; }
+    return (enum bot_navigation_result)nav_result;
+}
+static void engine_ai_behavior_intent_emit(struct engine_ai_behavior_intent_emitter *e,int a,int s,void *p,int n) {
+    assert(e && a==_bot_intent_jump && s==BOT_INTENT_SCHEMA && !p && !n); jumps++;
+}
+static void bot_emit_look(struct engine_ai_behavior_intent_emitter *e,real_euler_angles2d *look) { assert(e && look); }
+static void bot_emit_move(struct engine_ai_behavior_intent_emitter *e,real yaw,real speed) {
+    assert(e && yaw==0.5f && speed==1); moves++;
+}
+static void object_get_origin(long u,real_point3d *p) { assert(u==100); memset(p,0,sizeof(*p)); }
+static real bot_horizontal_distance(real_point3d const *a,real_point3d const *b) {
+    return fabsf(a->x-b->x)+fabsf(a->y-b->y);
+}
+static real bot_angle_normalize(real a) { return a; }
+/* FUNCTIONS */
+static void choose(short kind) {
+    memset(&choice,0,sizeof(choice)); choice.kind=kind; choice.owner_team_index=0;
+    choice.object_index=(kind==_bot_ambition_guard ? NONE : 5);
+    choice.carrier_player_index=(kind==_bot_ambition_deliver ? 200 : NONE);
+    choice.position.x=10; choice.radius=0.5f;
+}
+int main(void) {
+    struct bot bot;
+    struct engine_ai_behavior_intent_emitter emitter={0};
+    assert(!bots_navigation_requested()); bots_globals.desired_count=3;
+    assert(bots_navigation_requested()); bots_globals.desired_count=0;
+    memset(&bot,0,sizeof(bot)); unit.object.parent_object_index=NONE;
+    unit.unit.weapon_object_indices[0]=unit.unit.weapon_object_indices[1]=NONE;
+    bot.slot=0; bot.player_index=200; bot.unit_index=100; bot.objective_unreachable_index=NONE;
+    assert(!bot_carries_flag(NULL)); assert(!bot_carries_flag(&unit));
+    unit.unit.weapon_object_indices[1]=5; assert(bot_carries_flag(&unit));
+    weapon.flag=0; assert(!bot_carries_flag(&unit)); weapon.flag=1;
+    unit.unit.weapon_object_indices[1]=NONE;
+    assert(bot_leaf_objective(&bot,&emitter)==ENGINE_AI_BEHAVIOR_FAILURE);
+    choose(_bot_ambition_take); bot_update_objective(&bot,&player);
+    assert(bot.objective_valid && bot.decide_now && resets==1);
+    bot.decide_now=FALSE; bot_update_objective(&bot,&player);
+    assert(!bot.decide_now && resets==1 && excluded==NONE);
+    nav_result=BOT_NAVIGATION_MOVING;
+    assert(bot_leaf_objective(&bot,&emitter)==ENGINE_AI_BEHAVIOR_RUNNING && moves==1);
+    assert(!bot.objective_waiting);
+    nav_result=BOT_NAVIGATION_ARRIVED;
+    assert(bot_leaf_objective(&bot,&emitter)==ENGINE_AI_BEHAVIOR_RUNNING);
+    assert(bot.objective_valid && bot.objective_waiting); /* proximity is not a pickup */
+    bot.movement_escape_until=now+30; bot_keep_moving(&bot);
+    assert(!bot.pending.has_move && bot.movement_escape_until==now);
+    choose(_bot_ambition_deliver); bot_update_objective(&bot,&player);
+    assert(releases==1 && bot.objective.carrier_player_index==200);
+    assert(bot_leaf_objective(&bot,&emitter)==ENGINE_AI_BEHAVIOR_RUNNING && bot.abs_suppressed);
+    assert(bot.objective_waiting); /* own flag away: wait for the engine to score */
+    choose(_bot_ambition_guard); bot_update_objective(&bot,&player);
+    assert(releases==1 && bot.objective.kind==_bot_ambition_guard);
+    assert(bot_leaf_objective(&bot,&emitter)==ENGINE_AI_BEHAVIOR_RUNNING && !bot.abs_suppressed);
+    choose(_bot_ambition_return); bot_update_objective(&bot,&player);
+    assert(bot_leaf_objective(&bot,&emitter)==ENGINE_AI_BEHAVIOR_RUNNING);
+    choose(_bot_ambition_guard); bot_update_objective(&bot,&player);
+    assert(releases==2); /* return succeeds through engine reset, not inventory acquisition */
+    choose(_bot_ambition_take); bot_update_objective(&bot,&player); nav_result=BOT_NAVIGATION_FAILED;
+    assert(bot_leaf_objective(&bot,&emitter)==ENGINE_AI_BEHAVIOR_RUNNING);
+    assert(releases==3 && bot.objective_retry_time==now+450 && bot.objective_unreachable_index==5);
+    choose(_bot_ambition_guard); bot_update_objective(&bot,&player); assert(excluded==5);
+    nav_result=BOT_NAVIGATION_MOVING;
+    assert(bot_leaf_objective(&bot,&emitter)==ENGINE_AI_BEHAVIOR_RUNNING && !bot.objective_waiting);
+    /* A new carrier duty cannot inherit a failed pickup's 15-second standstill. */
+    choose(_bot_ambition_deliver); bot_update_objective(&bot,&player);
+    assert(bot_leaf_objective(&bot,&emitter)==ENGINE_AI_BEHAVIOR_RUNNING && !bot.objective_waiting);
+    now+=451; bot_update_objective(&bot,&player); assert(excluded==NONE);
+    choose(_bot_ambition_take); bot_update_objective(&bot,&player); nav_result=BOT_NAVIGATION_MOVING;
+    now=bot.objective_deadline;
+    assert(bot_leaf_objective(&bot,&emitter)==ENGINE_AI_BEHAVIOR_RUNNING && releases>=4);
+    choose(_bot_ambition_deliver); bot_update_objective(&bot,&player); nav_result=BOT_NAVIGATION_FAILED;
+    now+=451; assert(bot_leaf_objective(&bot,&emitter)==ENGINE_AI_BEHAVIOR_RUNNING);
+    assert(bot.objective_waiting && bot.objective_retry_time==now+30); nav_result=BOT_NAVIGATION_MOVING;
+    assert(bot_leaf_objective(&bot,&emitter)==ENGINE_AI_BEHAVIOR_RUNNING && bot.objective_waiting);
+    now+=31; assert(bot_leaf_objective(&bot,&emitter)==ENGINE_AI_BEHAVIOR_RUNNING && !bot.objective_waiting);
+    choice_valid=0; bot_update_objective(&bot,&player); assert(!bot.objective_valid);
+    choice_valid=1; supported=0; bot_update_objective(&bot,&player); assert(!bot.objective_valid);
+    supported=1; bots_globals.navigation_only=1; bot_update_objective(&bot,&player); assert(!bot.objective_valid);
+    puts("CTF execution, intentional waits and bounded retries passed"); return 0;
+}

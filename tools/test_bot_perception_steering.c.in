@@ -1,0 +1,314 @@
+/* Fake geometry; Python inserts the real bots.c functions, never copies them. */
+#include <assert.h>
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
+typedef float real;
+typedef int boolean;
+typedef struct { real x,y,z; } real_point3d;
+typedef struct { real i,j,k; } real_vector3d;
+typedef struct { real yaw,pitch; } real_euler_angles2d;
+#define TRUE 1
+#define FALSE 0
+#define NONE (-1)
+#define MAXIMUM_ATTACKERS_PER_UNIT 2
+#define BOT_ATTACKER_AWARENESS_TICKS 15
+#define BOT_TARGET_MEMORY_SECONDS 5.f
+#define BOT_SIGHTING_MEMORY_TICKS 120
+#define BOT_TELEPORT_DISTANCE 6.f
+#define TICKS_PER_SECOND 30
+#define DEGREES_TO_RADIANS(x) ((x)*(real)M_PI/180.f)
+#define TEST_FLAG(flags,bit) (((flags)&(1UL<<(bit)))!=0)
+#define NUMBEROF(a) (sizeof(a)/sizeof((a)[0]))
+#define MAX(a,b) ((a)>(b)?(a):(b))
+#define MIN(a,b) ((a)<(b)?(a):(b))
+#define PIN(x,a,b) MAX(a,MIN(x,b))
+#define SET_FLAG(flags,bit,value) ((flags)=(value)?(flags)|(1UL<<(bit)):(flags)&~(1UL<<(bit)))
+#define DATUM_INDEX_TO_ABSOLUTE_INDEX(x) (x)
+enum { _unit_active_camouflaged_bit, _unit_super_camouflaged_bit };
+enum { _object_type_biped, _object_type_vehicle };
+enum { _collision_test_for_line_of_sight_flags, _collision_test_for_bipeds_living_flags };
+enum { _bot_target_none, _bot_target_seen, _bot_target_attacker, _bot_target_remembered, _bot_target_shared };
+enum { _bot_leaf_fight, _bot_leaf_retreat, _bot_leaf_roam };
+struct unit_attacker { long player_index,game_time_stamp; };
+struct unit_datum {
+    struct { long parent_object_index; short type; } object;
+    struct { unsigned long flags; real active_camouflage,active_camouflage_super_amount;
+        struct unit_attacker attackers[MAXIMUM_ATTACKERS_PER_UNIT]; } unit;
+};
+enum { _biped_airborne_bit };
+struct biped_datum { struct { unsigned long flags; struct { real_vector3d n; } ground_plane; } biped; };
+static struct biped_datum fake_biped;
+static struct biped_datum *biped_get(long index) { assert(index==0); return &fake_biped; }
+struct player_datum { long unit_index,team_index; };
+struct bot_skill { real sight_range,field_of_view_degrees; boolean shares_sightings;
+    real turn_degrees_per_second,moving_turn_scale; };
+static struct { struct bot_skill *skill; } bots_globals;
+struct sn_point { real x,y,z; };
+struct bot {
+    long unit_index,player_index,target_player_index,target_last_seen_time,target_first_seen_time;
+    long aware_time;
+    long target_observed_player_index,target_observed_time;
+    short slot,visible_enemy_count;
+    int target_source,chosen_leaf;
+    boolean target_visible;
+    real_euler_angles2d facing;
+    real_point3d target_last_position,target_observed_position;
+    boolean moved_last_tick,objective_waiting;
+    struct { boolean searching,following; unsigned int waypoint;
+        struct { unsigned int count; struct sn_point points[2]; } route; } navigation_agent;
+    long movement_check_time,movement_escape_until;
+    real movement_escape_yaw;
+    real_point3d movement_position;
+    real last_trigger;
+    unsigned long last_control_flags;
+    struct { boolean has_move,has_look; real move_yaw,move_speed;
+        unsigned long control_flags; real_euler_angles2d look; } pending;
+};
+enum { _unit_control_jump_bit };
+struct player_action {
+    unsigned long control_flags;
+    real_euler_angles2d desired_facing;
+    real_vector3d throttle;
+    real primary_trigger;
+    short desired_weapon_index,desired_grenade_index,desired_zoom_level;
+};
+static struct player_action submitted;
+#define csmemset memset
+static int bot_scenario_ignores_player(long player_index) { (void)player_index; return 0; }
+static void bot_control_weapon(struct bot *bot,struct player_action *action) { (void)bot; (void)action; }
+/* (friendly-fire gates have their own test: test_bot_fire_safety.py) */
+static void bot_control_grenade(struct bot *bot,struct player_action *action) { (void)bot; (void)action; }
+static void update_server_set_player_action(long player,const struct player_action *action) {
+    assert(player==0); submitted=*action;
+}
+static real bot_horizontal_distance(const real_point3d *a,const real_point3d *b) {
+    real x=a->x-b->x,y=a->y-b->y; return sqrtf(x*x+y*y);
+}
+struct data_iterator { long datum_index; };
+struct collision_plane { int unused; };
+static struct player_datum players[2];
+static struct unit_datum units[2];
+static real_point3d positions[2];
+static long now;
+static int player_data,callouts,los_calls,sweeps,mode;
+static boolean line_clear,shared,human_alert;
+static boolean human_callouts_nearest_alert(long team,const real_point3d *from,real_point3d *point) {
+    (void)from;
+    if (!human_alert || team!=0) return FALSE;
+    point->x=0.f; point->y=8.f; point->z=0.f; return TRUE;
+}
+static real observed_margin;
+static long game_time_get(void) { return now; }
+static long bot_seconds_to_ticks(real seconds) { return (long)(seconds*30.f); }
+static real distance3d(const real_point3d *a,const real_point3d *b) {
+    real x=a->x-b->x,y=a->y-b->y,z=a->z-b->z;
+    return sqrtf(x*x+y*y+z*z);
+}
+static real bot_angle_normalize(real a) {
+    while (a>(real)M_PI) a-=2.f*(real)M_PI;
+    while (a<-(real)M_PI) a+=2.f*(real)M_PI;
+    return a;
+}
+static real cosine(real a) { return cosf(a); }
+static real sine(real a) { return sinf(a); }
+static real_euler_angles2d bot_angles_to(const real_point3d *a,const real_point3d *b) {
+    real_euler_angles2d result;
+    result.yaw=atan2f(b->y-a->y,b->x-a->x); result.pitch=0.f; return result;
+}
+static boolean bot_line_clear(int flags,const real_point3d *a,const real_point3d *b,long ignore) {
+    (void)flags; (void)a; (void)b; assert(ignore==0); los_calls++; return line_clear;
+}
+static struct unit_datum *bot_living_unit(long index) { return index>=0 && index<2 ? &units[index] : NULL; }
+static struct player_datum *player_try_and_get(long index) { return index>=0 && index<2 ? &players[index] : NULL; }
+static boolean bot_players_are_enemies(const struct player_datum *a,long ai,const struct player_datum *b,long bi) {
+    (void)ai; (void)bi; return a->team_index!=b->team_index;
+}
+static void unit_get_camera_position(long index,real_point3d *p) { *p=positions[index]; }
+static void object_get_origin(long index,real_point3d *p) { *p=positions[index]; }
+static void bot_aim_point(long index,real_point3d *p) { *p=positions[index]; }
+static void data_iterator_new(struct data_iterator *it,int data) { (void)data; it->datum_index=-1; }
+static void *data_iterator_next(struct data_iterator *it) {
+    it->datum_index++; return it->datum_index<2 ? &players[it->datum_index] : NULL;
+}
+static void bot_manager_report_sighting(long team,long enemy,short owner,const real_point3d *p) {
+    assert(team==0 && enemy==1 && owner==1); (void)p; callouts++;
+}
+static boolean bot_manager_nearest_sighting(long team,const real_point3d *origin,long age,long *index,real_point3d *p) {
+    (void)team; (void)origin; (void)age;
+    if (!shared) return FALSE;
+    *index=1; p->x=4.f; p->y=p->z=0.f; return TRUE;
+}
+#define platform_log(...) ((void)0)
+static void biped_get_physics_pill(long index,real_point3d *base,real *height,real *radius) {
+    assert(index==0); *base=positions[index]; base->z=0.3f; *height=1.2f; *radius=0.3f;
+}
+static short collision_move_pill(int flags,const real_point3d *base,const real_vector3d *delta,
+    real height,real radius,long ignore,real_point3d *clipped,real_vector3d *velocity,
+    short count,struct collision_plane *planes) {
+    real yaw=atan2f(delta->j,delta->i);
+    boolean clear=TRUE;
+    assert(flags==_collision_test_for_bipeds_living_flags && ignore==0 && count==8);
+    assert(planes && radius>=0.3f && height>=0.f);
+    /* Inflating laterally preserves the floor and ceiling extents. */
+    if (mode!=5) {
+        assert(fabsf(base->z-radius)<0.0001f);
+        assert(fabsf(base->z+height+radius-1.8f)<0.0001f);
+        assert(delta->k==0.f);
+    } else {
+        assert(delta->k>0.3f); /* uphill support plane */
+    }
+    sweeps++; observed_margin=radius-0.3f;
+    if (mode==1) clear=delta->j>0.4f; /* front wall: slide left */
+    if (mode==2) clear=FALSE; /* boxed in */
+    if (mode==3) clear=radius<0.31f; /* narrow passage */
+    if (mode==4) clear=fabsf(yaw)<0.1f ? radius<0.35f : yaw>0.7f;
+    if (mode==6) clear=delta->i<=0.51f; /* wall immediately beyond waypoint */
+    *clipped=*base;
+    if (clear) { clipped->x+=delta->i; clipped->y+=delta->j; clipped->z+=delta->k; }
+    *velocity=*delta; return clear ? 0 : 1;
+}
+/* PRODUCTION_BODIES */
+
+static struct bot fresh(void) {
+    struct bot b;
+    struct bot_skill *skill=bots_globals.skill;
+    memset(&b,0,sizeof(b)); memset(units,0,sizeof(units));
+    memset(&fake_biped,0,sizeof(fake_biped)); fake_biped.biped.ground_plane.n.k=1.f;
+    b.target_player_index=NONE; b.target_observed_player_index=NONE; b.target_observed_time=NONE;
+    b.movement_check_time=NONE;
+    players[0].unit_index=0; players[0].team_index=0;
+    players[1].unit_index=1; players[1].team_index=1;
+    units[0].object.parent_object_index=units[1].object.parent_object_index=NONE;
+    units[0].unit.attackers[0].player_index=units[0].unit.attackers[1].player_index=NONE;
+    positions[0].x=positions[0].y=positions[0].z=0.f;
+    positions[1].x=2.f; positions[1].y=positions[1].z=0.f;
+    skill->shares_sightings=TRUE; now=100; callouts=los_calls=sweeps=mode=0;
+    line_clear=TRUE; shared=FALSE; human_alert=FALSE;
+    return b;
+}
+static void perception_tests(void) {
+    struct bot b=fresh();
+    /* Near, in LOS, even within hearing range: camouflage is not a sighting. */
+    units[1].unit.flags=1UL<<_unit_active_camouflaged_bit;
+    bot_perceive(&b,&players[0],&units[0]);
+    assert(b.target_player_index==NONE && b.visible_enemy_count==0 && callouts==0 && los_calls==0);
+    units[1].unit.flags=0;
+    bot_perceive(&b,&players[0],&units[0]);
+    assert(b.target_visible && b.target_source==_bot_target_seen && callouts==1);
+    units[1].unit.flags=1UL<<_unit_active_camouflaged_bit;
+    positions[1].x=8.f; now++;
+    bot_perceive(&b,&players[0],&units[0]);
+    assert(!b.target_visible && b.target_source==_bot_target_remembered);
+    assert(b.target_last_position.x==2.f && callouts==1);
+    now+=151;
+    bot_perceive(&b,&players[0],&units[0]);
+    assert(b.target_player_index==NONE);
+    b=fresh(); units[1].unit.active_camouflage=0.5f;
+    bot_perceive(&b,&players[0],&units[0]); assert(b.target_player_index==NONE);
+    b=fresh(); units[1].unit.active_camouflage_super_amount=0.5f;
+    bot_perceive(&b,&players[0],&units[0]); assert(b.target_player_index==NONE);
+    b=fresh(); units[1].unit.flags=1UL<<_unit_super_camouflaged_bit;
+    units[0].unit.attackers[0].player_index=1;
+    units[0].unit.attackers[0].game_time_stamp=now;
+    bot_perceive(&b,&players[0],&units[0]);
+    assert(b.target_source==_bot_target_attacker && !b.target_visible && callouts==0);
+    assert(b.target_last_position.x==2.f);
+    b=fresh(); units[1].unit.flags=1UL<<_unit_active_camouflaged_bit;
+    units[0].unit.attackers[0].player_index=1; units[0].unit.attackers[0].game_time_stamp=now-16;
+    bot_perceive(&b,&players[0],&units[0]); assert(b.target_player_index==NONE);
+    b=fresh(); line_clear=FALSE;
+    bot_perceive(&b,&players[0],&units[0]); assert(b.target_player_index==NONE && los_calls==1);
+    b=fresh(); shared=TRUE; units[1].unit.flags=1UL<<_unit_active_camouflaged_bit;
+    positions[1].x=20.f;
+    bot_perceive(&b,&players[0],&units[0]);
+    assert(!b.target_visible && b.target_source==_bot_target_shared && b.target_last_position.x==4.f && callouts==0);
+    /* A bot getting its bearings after spawning notices nobody: no sighting,
+       no callout, no line-of-sight test, no teammate's sighting. */
+    b=fresh(); b.aware_time=now+30;
+    bot_perceive(&b,&players[0],&units[0]);
+    assert(b.target_player_index==NONE && !b.target_visible && callouts==0 && los_calls==0);
+    shared=TRUE; bot_perceive(&b,&players[0],&units[0]);
+    assert(b.target_player_index==NONE && b.target_source==_bot_target_none);
+    /* The last tick of it is still orienting; the next sees the enemy. */
+    shared=FALSE; now=b.aware_time-1; bot_perceive(&b,&players[0],&units[0]);
+    assert(b.target_player_index==NONE);
+    now=b.aware_time; bot_perceive(&b,&players[0],&units[0]);
+    assert(b.target_visible && b.target_source==_bot_target_seen && b.target_first_seen_time==now);
+    /* Being hurt ends it at once: the attacker is known (not seen), and the
+       reaction time counts from now. */
+    b=fresh(); b.aware_time=now+30;
+    units[0].unit.attackers[0].player_index=1; units[0].unit.attackers[0].game_time_stamp=now;
+    bot_perceive(&b,&players[0],&units[0]);
+    assert(b.aware_time==now && b.target_source==_bot_target_attacker && !b.target_visible);
+    assert(b.target_first_seen_time==now && callouts==0);
+    now++; bot_perceive(&b,&players[0],&units[0]);
+    assert(b.target_visible && b.target_source==_bot_target_seen);
+}
+#ifndef PERCEPTION_ONLY
+static void steering_tests(void) {
+    struct bot b=fresh();
+    b.pending.has_move=TRUE; b.pending.move_speed=1.f;
+    bot_steer_movement(&b);
+    assert(b.pending.move_yaw==0.f && b.pending.move_speed==1.f && sweeps==1);
+    mode=1; sweeps=0; bot_steer_movement(&b);
+    assert(sine(b.pending.move_yaw)>0.4f && sweeps<=16);
+    mode=2; sweeps=0; bot_steer_movement(&b);
+    assert(b.pending.move_speed==0.f && sweeps==16);
+    b.pending.move_yaw=0.f; b.pending.move_speed=0.45f; mode=3; sweeps=0;
+    bot_steer_movement(&b);
+    assert(b.pending.move_speed==0.45f && observed_margin<0.001f && sweeps<=16);
+    mode=4; sweeps=0; b.pending.move_yaw=0.f;
+    bot_steer_movement(&b);
+    assert(b.pending.move_yaw>0.7f); /* free steering prefers extra clearance */
+    b.navigation_agent.following=TRUE; b.pending.move_yaw=0.f; sweeps=0;
+    bot_steer_movement(&b);
+    assert(b.pending.move_yaw==0.f && observed_margin<0.001f && sweeps==1);
+    mode=6; b.navigation_agent.route.count=2; b.navigation_agent.waypoint=1;
+    b.navigation_agent.route.points[1].x=positions[0].x+0.5f;
+    b.navigation_agent.route.points[1].y=positions[0].y;
+    b.pending.move_yaw=0.f; sweeps=0; bot_steer_movement(&b);
+    assert(b.pending.move_yaw==0.f && sweeps==1);
+    b.navigation_agent.following=FALSE; mode=4;
+    b.chosen_leaf=_bot_leaf_retreat; b.pending.move_yaw=0.f; sweeps=0;
+    bot_steer_movement(&b);
+    assert(b.pending.move_yaw==0.f && sweeps==1); /* retreat accepts tighter gap */
+    mode=5; sweeps=0; fake_biped.biped.ground_plane.n.i=-0.6f;
+    fake_biped.biped.ground_plane.n.k=0.8f;
+    bot_steer_movement(&b); assert(sweeps==1 && b.pending.move_speed>0.f);
+    units[0].object.parent_object_index=1; sweeps=0; bot_steer_movement(&b); assert(sweeps==0);
+    units[0].object.parent_object_index=NONE; b.pending.has_move=FALSE;
+    bot_steer_movement(&b); assert(sweeps==0);
+    /* Recovery supplies movement when the behavior supplied none; final
+       submission must still stop if all collision probes fail. */
+    b=fresh(); mode=2; bot_submit_action(&b);
+    assert(submitted.throttle.i==0.f && submitted.throttle.j==0.f && sweeps==16);
+    assert(!b.moved_last_tick);
+    /* Intentional search/occupant waits must not become arbitrary escape moves. */
+    b=fresh(); mode=0; b.navigation_agent.searching=TRUE; bot_submit_action(&b);
+    assert(submitted.throttle.i==0.f && submitted.throttle.j==0.f && sweeps==0);
+    b=fresh(); b.navigation_agent.following=TRUE; bot_submit_action(&b);
+    assert(submitted.throttle.i==0.f && submitted.throttle.j==0.f && sweeps==0);
+    b=fresh(); mode=1; b.pending.has_move=TRUE; b.pending.move_speed=1.f;
+    bot_submit_action(&b);
+    assert(submitted.throttle.j>0.4f && b.moved_last_tick);
+    /* Damage cues orient patrol bots without acquiring an enemy or firing. */
+    b=fresh(); human_alert=TRUE; b.chosen_leaf=_bot_leaf_roam;
+    bot_hear_human_alert(&b,0);
+    assert(b.pending.has_look && b.pending.look.yaw>1.5f);
+    assert(b.target_player_index==NONE && !b.target_visible && b.pending.control_flags==0);
+    b.pending.has_look=FALSE; b.target_player_index=1; bot_hear_human_alert(&b,0);
+    assert(!b.pending.has_look);
+    b.target_player_index=NONE; b.chosen_leaf=_bot_leaf_retreat; bot_hear_human_alert(&b,0);
+    assert(!b.pending.has_look);
+    b.chosen_leaf=_bot_leaf_roam; bot_hear_human_alert(&b,1); assert(!b.pending.has_look);
+}
+#endif
+int main(void) {
+    struct bot_skill skill={50.f,90.f,TRUE,180.f,1.f}; bots_globals.skill=&skill;
+    perception_tests();
+#ifndef PERCEPTION_ONLY
+    steering_tests();
+#endif
+    puts("bot perception/steering tests passed"); return 0;
+}

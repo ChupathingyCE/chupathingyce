@@ -1,0 +1,408 @@
+/* Fake world for the bots' friendly-fire gates; Python inserts the real
+   bots.c functions (bot_lane_near ... bot_control_weapon), never copies them.
+   World units; the bot stands at the origin and faces +x unless a test says. */
+#include <assert.h>
+#include <math.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+typedef float real;
+typedef int boolean;
+typedef struct { real x,y,z; } real_point3d;
+typedef struct { real i,j,k; } real_vector3d;
+typedef struct { real yaw,pitch; } real_euler_angles2d;
+#define TRUE 1
+#define FALSE 0
+#define NONE (-1)
+#define TICKS_PER_SECOND 30
+#define MAXIMUM_WEAPONS_PER_UNIT 4
+/* (a small table, so that its bound is reached; more than any other test places) */
+#define HALO_PORT_MAXIMUM_NETWORK_PLAYERS 8
+#define FLAG(bit) (1UL<<(bit))
+#define TEST_FLAG(flags,bit) (((flags)&FLAG(bit))!=0)
+#define NUMBEROF(a) (sizeof(a)/sizeof((a)[0]))
+#define MAX(a,b) ((a)>(b)?(a):(b))
+#define MIN(a,b) ((a)<(b)?(a):(b))
+#define csmemset memset
+#define valid_real(x) isfinite(x)
+#define TAG_BLOCK_GET_ELEMENT(block,index,type) ((type *)fake_element((block),(index)))
+enum { _object_type_biped, _object_type_vehicle };
+enum { _collision_test_for_line_of_sight_flags = 0xC2AD };
+enum { _unit_control_throw_grenade_bit = 3, _unit_control_weapon_primary_trigger_bit = 5,
+    _unit_control_weapon_reload_bit = 7 };
+enum { _unit_seat_driver_bit, _unit_seat_gunner_bit };
+struct tag_block { long count; };
+struct unit_seat { unsigned long flags; };
+struct unit_definition { struct { struct tag_block seats; } unit; };
+struct weapon_trigger_definition { real charging_time; short rounds_per_shot,magazine_index;
+    real projectile_error_inner_cone_angle,projectile_error_angle_lower_bound,
+        projectile_error_angle_upper_bound,projectile_distribution_angle; };
+struct weapon_definition { struct { struct tag_block triggers; } weapon; };
+struct weapon_magazine { short rounds_loaded,rounds_total; };
+struct weapon_datum { long definition_index; boolean flag; struct { struct weapon_magazine magazines[2]; } weapon; };
+struct unit_datum {
+    long definition_index;
+    struct { short type; long parent_object_index; real_point3d bounding_sphere_center;
+        real bounding_sphere_radius; real_vector3d translational_velocity; } object;
+    struct { long weapon_object_indices[MAXIMUM_WEAPONS_PER_UNIT]; short current_weapon_index;
+        short parent_seat_index; } unit;
+};
+struct player_datum { long unit_index,team_index; };
+struct engine_ai_fire_control { int64_t next_press_tick,release_tick; bool pressed; };
+struct bot_skill { real fire_range; };
+struct bot {
+    long unit_index,player_index,grenade_time,fire_weapon_index,fire_held_ticks,throws_refused;
+    real_euler_angles2d facing;
+    real_point3d target_last_position;
+    boolean charging;
+    struct engine_ai_fire_control fire_control;
+    struct { real trigger; } pending;
+};
+struct player_action { unsigned long control_flags; real primary_trigger; short desired_weapon_index; };
+struct data_iterator { long datum_index; };
+
+enum { UNITS = 12 };
+static struct bot_skill skill = {40.f};
+static struct { struct bot_skill *skill; } bots_globals = {&skill};
+static struct player_datum players[UNITS];
+static struct unit_datum units[UNITS];
+static real_point3d origins[UNITS];
+static boolean alive[UNITS];
+static long parents[UNITS];
+static long player_count,now=1000,line_calls;
+static boolean teams,line_clear,overcharged,fired;
+static int player_data;
+static struct weapon_datum weapons[2];
+static struct weapon_definition weapon_definition;
+static struct weapon_trigger_definition trigger_definition;
+static struct unit_definition vehicle_definition;
+static struct unit_seat seat;
+
+static void *fake_element(const struct tag_block *block,long index) {
+    assert(index>=0 && index<block->count);
+    return block==&vehicle_definition.unit.seats ? (void *)&seat : (void *)&trigger_definition;
+}
+static long game_time_get(void) { return now; }
+static boolean game_engine_has_teams(void) { return teams; }
+static long bot_seconds_to_ticks(real seconds) { return (long)(seconds*TICKS_PER_SECOND+0.5f); }
+static real cosine(real a) { return cosf(a); }
+static real sine(real a) { return sinf(a); }
+static real distance3d(const real_point3d *a,const real_point3d *b) {
+    real x=a->x-b->x,y=a->y-b->y,z=a->z-b->z; return sqrtf(x*x+y*y+z*z);
+}
+static struct unit_datum *bot_living_unit(long index) {
+    return index>=0 && index<UNITS && alive[index] ? &units[index] : NULL;
+}
+static struct player_datum *bot_player(struct bot const *bot) {
+    return bot->player_index>=0 && bot->player_index<player_count ? &players[bot->player_index] : NULL;
+}
+/* (eyes 0.6 above each unit's origin) */
+static void unit_get_camera_position(long index,real_point3d *eye) {
+    *eye=origins[index]; eye->z+=0.6f;
+}
+/* A cyborg-like pill: radius 0.2, lower sphere center 0.2 up, 0.3 between centers. */
+static void biped_get_physics_pill(long index,real_point3d *base,real *height,real *radius) {
+    assert(index>=0 && index<UNITS && units[index].object.type==_object_type_biped);
+    *base=origins[index]; base->z+=0.2f; *height=0.3f; *radius=0.2f;
+}
+/* (every fake object is a unit; its velocity is per tick) */
+#define object_datum unit_datum
+static struct unit_datum *object_try_and_get(long index) {
+    return index>=0 && index<UNITS ? &units[index] : NULL;
+}
+static long object_get_ultimate_parent(long index) {
+    while (parents[index]!=NONE) index=parents[index];
+    return index;
+}
+static boolean bot_line_clear(unsigned long flags,const real_point3d *a,const real_point3d *b,long ignore) {
+    assert(flags==_collision_test_for_line_of_sight_flags && ignore==0 && a && b);
+    line_calls++; return line_clear;
+}
+static void data_iterator_new(struct data_iterator *iterator,int data) { (void)data; iterator->datum_index=-1; }
+static void *data_iterator_next(struct data_iterator *iterator) {
+    iterator->datum_index++;
+    return iterator->datum_index<player_count ? &players[iterator->datum_index] : NULL;
+}
+static struct weapon_datum *weapon_try_and_get(long index) {
+    return index>=0 && index<2 ? &weapons[index] : NULL;
+}
+static boolean weapon_is_flag(long index) { assert(index>=0 && index<2); return weapons[index].flag; }
+static struct weapon_definition *weapon_definition_get(long index) { (void)index; return &weapon_definition; }
+static struct unit_datum *vehicle_try_and_get(long index) {
+    return index>=0 && index<UNITS && units[index].object.type==_object_type_vehicle ? &units[index] : NULL;
+}
+static struct unit_definition *unit_definition_get(long index) { (void)index; return &vehicle_definition; }
+static boolean weapon_overcharged(long index) { assert(index==0); return overcharged; }
+static real bot_weapon_utility(long index) { (void)index; return 1.f; }
+static boolean bot_weapon_fire(struct bot *bot,const struct weapon_trigger_definition *trigger) {
+    (void)trigger; fired=bot->pending.trigger>0.f; return fired;
+}
+
+/* PRODUCTION_BODIES */
+
+static void place(long index,real x,real y,long team) {
+    origins[index].x=x; origins[index].y=y; origins[index].z=0.f;
+    units[index].object.type=_object_type_biped;
+    units[index].object.parent_object_index=parents[index]=NONE;
+    units[index].object.bounding_sphere_center=origins[index];
+    units[index].object.bounding_sphere_center.z+=0.35f;
+    units[index].object.bounding_sphere_radius=0.4f;
+    alive[index]=TRUE;
+    players[index].unit_index=index; players[index].team_index=team;
+    if (index>=player_count) player_count=index+1;
+}
+/* Bot 0 at the origin on team 0 facing +x; its target at (15,0). */
+static struct bot fresh(void) {
+    struct bot bot;
+    long index;
+    memset(&bot,0,sizeof(bot));
+    memset(units,0,sizeof(units)); memset(alive,0,sizeof(alive)); memset(origins,0,sizeof(origins));
+    /* (unplaced players have no body and no team) */
+    for (index=0; index<UNITS; index++) {
+        players[index].unit_index=NONE; players[index].team_index=99; parents[index]=NONE;
+    }
+    player_count=0;
+    place(0,0.f,0.f,0);
+    bot.unit_index=bot.player_index=0;
+    bot.fire_weapon_index=0; bot.grenade_time=now+300;
+    bot.target_last_position.x=15.f; bot.target_last_position.z=0.6f;
+    teams=TRUE; line_clear=TRUE; overcharged=FALSE; fired=FALSE; line_calls=0;
+    return bot;
+}
+
+static void lane_tests(void) {
+    real_point3d start={0,0,0},end={10,0,0},point={5,0.5f,0},nan_point={NAN,0,0};
+    assert(bot_lane_near(&start,&end,&point,0.6f,0.f));
+    assert(!bot_lane_near(&start,&end,&point,0.4f,0.f));
+    /* widening: 0.4 + 0.035 * 5 > 0.5 */
+    assert(bot_lane_near(&start,&end,&point,0.4f,0.035f));
+    point.x=-0.1f; point.y=0.f;
+    assert(!bot_lane_near(&start,&end,&point,5.f,0.f)); /* behind the start */
+    point.x=11.f;
+    assert(bot_lane_near(&start,&end,&point,1.1f,0.f) && !bot_lane_near(&start,&end,&point,0.9f,0.f));
+    /* a lane of no length is a sphere, behind or not */
+    point.x=-0.5f;
+    assert(bot_lane_near(&start,&start,&point,0.6f,0.f) && !bot_lane_near(&start,&start,&point,0.4f,0.f));
+    /* closed failure */
+    assert(bot_lane_near(&start,&end,&nan_point,0.1f,0.f));
+    assert(bot_lane_near(&start,&end,&point,-1.f,0.f) && bot_lane_near(&start,&end,&point,NAN,0.f));
+    assert(bot_lane_near(&start,&end,&point,0.1f,-1.f));
+    assert(bot_other_weapon_slot(0)==1 && bot_other_weapon_slot(1)==0);
+    /* A weapon's cone from its tags: the widest error, plus pellet spread;
+       never under the default, never past half a radian, bad values ignored. */
+    {
+        struct weapon_trigger_definition t;
+        memset(&t,0,sizeof(t));
+        assert(bot_trigger_spread(&t)==BOT_FIRE_LANE_SPREAD);
+        t.projectile_error_angle_upper_bound=0.1f;
+        assert(fabsf(bot_trigger_spread(&t)-tanf(0.1f))<0.0001f);
+        t.projectile_error_angle_lower_bound=0.2f;
+        assert(fabsf(bot_trigger_spread(&t)-tanf(0.2f))<0.0001f);
+        t.projectile_error_inner_cone_angle=0.25f; t.projectile_distribution_angle=0.1f;
+        assert(fabsf(bot_trigger_spread(&t)-tanf(0.35f))<0.0001f);
+        t.projectile_distribution_angle=3.f;
+        assert(fabsf(bot_trigger_spread(&t)-tanf(BOT_FIRE_LANE_MAXIMUM_ERROR))<0.0001f);
+        t.projectile_error_angle_upper_bound=NAN; t.projectile_error_angle_lower_bound=-1.f;
+        t.projectile_error_inner_cone_angle=INFINITY; t.projectile_distribution_angle=NAN;
+        assert(bot_trigger_spread(&t)==BOT_FIRE_LANE_SPREAD);
+        t.projectile_error_angle_upper_bound=0.01f; t.projectile_error_inner_cone_angle=0.f;
+        assert(bot_trigger_spread(&t)==BOT_FIRE_LANE_SPREAD);
+    }
+    assert(bot_other_weapon_slot(2)==NONE && bot_other_weapon_slot(3)==NONE && bot_other_weapon_slot(-1)==NONE);
+}
+
+static void shot_tests(void) {
+    struct bot bot=fresh();
+    /* Free for all: no teammates, and no scan. */
+    teams=FALSE; place(1,10.f,0.f,0);
+    assert(bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    /* Team: a teammate on the line holds fire; an enemy there does not. */
+    teams=TRUE;
+    assert(!bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    players[1].team_index=1; assert(bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    players[1].team_index=0; alive[1]=FALSE; assert(bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    /* Beside the lane: pill radius 0.2 + margin 0.25 + 0.035 per unit of
+       range, so 0.8 at ten units and under 0.49 at one. */
+    bot=fresh(); place(1,10.f,0.7f,0); assert(!bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    bot=fresh(); place(1,10.f,1.0f,0); assert(bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    bot=fresh(); place(1,1.f,0.6f,0); assert(bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    bot=fresh(); place(1,1.f,0.4f,0); assert(!bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    /* Behind, or shoulder to shoulder: shots leave forward. */
+    bot=fresh(); place(1,-1.f,0.f,0); assert(bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    bot=fresh(); place(1,0.f,0.5f,0); assert(bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    /* Past the fire range, or above the line. */
+    bot=fresh(); place(1,45.f,0.f,0); assert(bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    bot=fresh(); place(1,10.f,0.f,0); bot.facing.pitch=0.3f; assert(bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    bot.facing.pitch=0.f; bot.facing.yaw=1.5707963f; assert(bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    bot.facing.yaw=0.f; skill.fire_range=8.f; assert(bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    skill.fire_range=40.f;
+    /* A teammate's vehicle hull is a bounding sphere. */
+    bot=fresh(); place(1,10.f,2.f,0); units[1].object.type=_object_type_vehicle;
+    units[1].object.bounding_sphere_radius=2.5f; assert(!bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    /* Seated: shots pass everyone in the bot's own vehicle, not another's. */
+    bot=fresh(); place(5,1.f,0.f,NONE); units[5].object.type=_object_type_vehicle; players[5].team_index=7;
+    units[0].object.parent_object_index=parents[0]=5;
+    place(1,1.2f,0.f,0); units[1].object.parent_object_index=parents[1]=5;
+    assert(bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    place(6,10.f,0.f,NONE); units[6].object.type=_object_type_vehicle; players[6].team_index=7;
+    place(2,10.f,0.f,0); units[2].object.parent_object_index=parents[2]=6;
+    assert(!bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    units[2].object.parent_object_index=parents[2]=NONE; assert(!bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    /* Closed failures: no player, no body, no facing, a full table. */
+    bot=fresh(); bot.player_index=9; assert(!bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    bot=fresh(); alive[0]=FALSE; assert(!bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    bot=fresh(); bot.facing.yaw=NAN; assert(!bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    bot=fresh(); skill.fire_range=NAN; assert(!bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD)); skill.fire_range=40.f;
+    bot=fresh(); assert(!bot_attack_safe(&bot,FALSE,NAN) && !bot_attack_safe(&bot,FALSE,-0.1f));
+    /* A wider weapon cone widens the lane: 0.45 + 10 * tan(0.1) > 1.0 at ten units. */
+    bot=fresh(); place(1,10.f,1.0f,0); assert(bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    assert(!bot_attack_safe(&bot,FALSE,tanf(0.1f)));
+    bot=fresh();
+    /* (one more player than the table holds: enemies all, yet not safe) */
+    { long index; for (index=1; index<=HALO_PORT_MAXIMUM_NETWORK_PLAYERS; index++) place(index,-5.f,(real)index,1); }
+    assert(player_count==HALO_PORT_MAXIMUM_NETWORK_PLAYERS+1 && player_count<=UNITS);
+    assert(!bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+    alive[HALO_PORT_MAXIMUM_NETWORK_PLAYERS]=FALSE; player_count=HALO_PORT_MAXIMUM_NETWORK_PLAYERS;
+    assert(bot_attack_safe(&bot,FALSE,BOT_FIRE_LANE_SPREAD));
+}
+
+static void grenade_tests(void) {
+    struct bot bot=fresh();
+    struct player_action action;
+    /* Clear: thrown, in free for all as in teams. */
+    assert(bot_attack_safe(&bot,TRUE,BOT_FIRE_LANE_SPREAD) && line_calls==1);
+    teams=FALSE; assert(bot_attack_safe(&bot,TRUE,BOT_FIRE_LANE_SPREAD)); teams=TRUE;
+    /* A teammate within the blast of the target, or of the aim point. */
+    bot=fresh(); place(1,15.f,5.f,0); assert(!bot_attack_safe(&bot,TRUE,BOT_FIRE_LANE_SPREAD));
+    bot=fresh(); place(1,15.f,7.f,0); assert(bot_attack_safe(&bot,TRUE,BOT_FIRE_LANE_SPREAD));
+    /* (beyond the aim point, off the lane, far from the target) */
+    bot=fresh(); place(1,14.4f,-10.5f,0); bot.facing.yaw=-0.6f; assert(!bot_attack_safe(&bot,TRUE,BOT_FIRE_LANE_SPREAD));
+    bot.facing.yaw=0.f; assert(bot_attack_safe(&bot,TRUE,BOT_FIRE_LANE_SPREAD));
+    /* A teammate running to the fight meets the blast within the fuse; one
+       running away, or standing, does not. Riding, its vehicle's velocity counts. */
+    bot=fresh(); place(1,15.f,8.f,0); assert(bot_attack_safe(&bot,TRUE,BOT_FIRE_LANE_SPREAD));
+    units[1].object.translational_velocity.j=-0.1f; assert(!bot_attack_safe(&bot,TRUE,BOT_FIRE_LANE_SPREAD));
+    units[1].object.translational_velocity.j=0.1f; assert(bot_attack_safe(&bot,TRUE,BOT_FIRE_LANE_SPREAD));
+    units[1].object.translational_velocity.j=NAN; assert(!bot_attack_safe(&bot,TRUE,BOT_FIRE_LANE_SPREAD));
+    units[1].object.translational_velocity.j=-5.f; assert(!bot_attack_safe(&bot,TRUE,BOT_FIRE_LANE_SPREAD));
+    units[1].object.translational_velocity.j=0.f;
+    place(6,15.f,8.f,NONE); units[6].object.type=_object_type_vehicle; players[6].team_index=7;
+    units[1].object.parent_object_index=parents[1]=6;
+    assert(bot_attack_safe(&bot,TRUE,BOT_FIRE_LANE_SPREAD));
+    units[6].object.translational_velocity.j=-0.1f; assert(!bot_attack_safe(&bot,TRUE,BOT_FIRE_LANE_SPREAD));
+    /* An enemy near the target is the point. */
+    bot=fresh(); place(1,15.f,1.f,1); assert(bot_attack_safe(&bot,TRUE,BOT_FIRE_LANE_SPREAD));
+    /* Its own blast: a target too near. */
+    bot=fresh(); bot.target_last_position.x=5.f; assert(!bot_attack_safe(&bot,TRUE,BOT_FIRE_LANE_SPREAD));
+    /* A surface in its face. */
+    bot=fresh(); line_clear=FALSE; assert(!bot_attack_safe(&bot,TRUE,BOT_FIRE_LANE_SPREAD));
+    /* A teammate in the throwing lane, short of the target. */
+    bot=fresh(); place(1,4.f,0.f,0); assert(!bot_attack_safe(&bot,TRUE,BOT_FIRE_LANE_SPREAD));
+    /* The gate: a refused throw is stripped and retried in a second. */
+    bot=fresh(); place(1,15.f,2.f,0);
+    action.control_flags=FLAG(_unit_control_throw_grenade_bit)|FLAG(2);
+    bot_control_grenade(&bot,&action);
+    assert(action.control_flags==FLAG(2) && bot.grenade_time==now+30 && bot.throws_refused==1);
+    bot.grenade_time=now+5; action.control_flags=FLAG(_unit_control_throw_grenade_bit);
+    bot_control_grenade(&bot,&action);
+    assert(action.control_flags==0 && bot.grenade_time==now+5);
+    bot=fresh(); action.control_flags=FLAG(_unit_control_throw_grenade_bit);
+    bot_control_grenade(&bot,&action);
+    assert(action.control_flags==FLAG(_unit_control_throw_grenade_bit) && bot.grenade_time==now+300);
+    assert(bot.throws_refused==0);
+    bot=fresh(); place(1,15.f,2.f,0); action.control_flags=0; line_calls=0;
+    bot_control_grenade(&bot,&action);
+    assert(action.control_flags==0 && line_calls==0);
+}
+
+static void reset_action(struct player_action *action) {
+    memset(action,0,sizeof(*action)); action->desired_weapon_index=NONE;
+}
+/* A rifle in slot 0 (weapon 0), a pistol in slot 1 (weapon 1). */
+static struct bot armed(boolean charging_weapon) {
+    struct bot bot=fresh();
+    units[0].unit.current_weapon_index=0;
+    units[0].unit.weapon_object_indices[0]=0; units[0].unit.weapon_object_indices[1]=1;
+    units[0].unit.weapon_object_indices[2]=units[0].unit.weapon_object_indices[3]=NONE;
+    weapon_definition.weapon.triggers.count=1;
+    trigger_definition.charging_time=charging_weapon ? 1.f : 0.f;
+    trigger_definition.rounds_per_shot=charging_weapon ? 0 : 1;
+    trigger_definition.magazine_index=charging_weapon ? NONE : 0;
+    weapons[0].weapon.magazines[0].rounds_loaded=30; weapons[0].weapon.magazines[0].rounds_total=60;
+    bot.pending.trigger=1.f;
+    return bot;
+}
+static void weapon_tests(void) {
+    struct player_action action;
+    struct bot bot=armed(FALSE);
+    /* Clear: it fires. */
+    reset_action(&action); bot_control_weapon(&bot,&action);
+    assert(fired && action.primary_trigger==1.f);
+    /* A teammate a unit beside the line at ten: a precise weapon fires past
+       him, one whose tags spread its shots 0.1 radians holds. */
+    bot=armed(FALSE); place(1,10.f,1.0f,0);
+    reset_action(&action); bot_control_weapon(&bot,&action);
+    assert(fired && bot.fire_held_ticks==0);
+    bot=armed(FALSE); place(1,10.f,1.0f,0); trigger_definition.projectile_error_angle_upper_bound=0.1f;
+    reset_action(&action); bot_control_weapon(&bot,&action);
+    assert(!fired && action.primary_trigger==0.f && bot.fire_held_ticks==1);
+    trigger_definition.projectile_error_angle_upper_bound=0.f;
+    /* A teammate in the lane: the trigger is let go. */
+    bot=armed(FALSE); place(1,10.f,0.f,0);
+    bot.fire_control.pressed=TRUE; bot.charging=TRUE;
+    reset_action(&action); bot_control_weapon(&bot,&action);
+    assert(!fired && action.primary_trigger==0.f && action.control_flags==0);
+    assert(!bot.fire_control.pressed && !bot.charging && bot.pending.trigger==0.f);
+    assert(bot.fire_held_ticks==1);
+    assert(action.desired_weapon_index==NONE);
+    /* An empty magazine still reloads with the lane blocked. */
+    bot=armed(FALSE); place(1,10.f,0.f,0); weapons[0].weapon.magazines[0].rounds_loaded=0;
+    reset_action(&action); bot_control_weapon(&bot,&action);
+    assert(!fired && action.control_flags==FLAG(_unit_control_weapon_reload_bit));
+    /* A charge being built or held stays held, and a swap drops it unfired. */
+    bot=armed(TRUE); place(1,10.f,0.f,0); bot.fire_control.pressed=TRUE; bot.charging=TRUE;
+    reset_action(&action); bot_control_weapon(&bot,&action);
+    assert(!fired && action.primary_trigger==1.f &&
+        action.control_flags==FLAG(_unit_control_weapon_primary_trigger_bit));
+    assert(action.desired_weapon_index==1 && bot.fire_control.pressed && bot.fire_control.release_tick==now);
+    bot=armed(TRUE); place(1,10.f,0.f,0); overcharged=TRUE; bot.pending.trigger=0.f;
+    reset_action(&action); bot_control_weapon(&bot,&action);
+    assert(!fired && action.primary_trigger==0.f); /* (nothing pressed, nothing wanted: no gate) */
+    bot.pending.trigger=1.f;
+    reset_action(&action); bot_control_weapon(&bot,&action);
+    assert(action.primary_trigger==1.f && action.desired_weapon_index==1);
+    /* With no other weapon, or slots beyond two, it holds without a swap. */
+    bot=armed(TRUE); place(1,10.f,0.f,0); bot.fire_control.pressed=TRUE;
+    units[0].unit.weapon_object_indices[1]=NONE;
+    reset_action(&action); bot_control_weapon(&bot,&action);
+    assert(action.primary_trigger==1.f && action.desired_weapon_index==NONE);
+    bot=armed(TRUE); place(1,10.f,0.f,0); bot.fire_control.pressed=TRUE;
+    units[0].unit.current_weapon_index=2; units[0].unit.weapon_object_indices[2]=0;
+    reset_action(&action); bot_control_weapon(&bot,&action);
+    assert(action.primary_trigger==1.f && action.desired_weapon_index==NONE);
+    /* A gunner holds its vehicle's charge without swapping the vehicle's weapon. */
+    bot=armed(TRUE); place(5,1.f,0.f,NONE); players[5].team_index=7;
+    units[5].object.type=_object_type_vehicle; units[5].unit.current_weapon_index=0;
+    units[5].unit.weapon_object_indices[0]=0; units[5].unit.weapon_object_indices[1]=1;
+    units[0].object.parent_object_index=parents[0]=5; units[0].unit.parent_seat_index=0;
+    vehicle_definition.unit.seats.count=1; seat.flags=FLAG(_unit_seat_gunner_bit);
+    place(1,10.f,0.f,0); bot.fire_control.pressed=TRUE;
+    reset_action(&action); bot_control_weapon(&bot,&action);
+    assert(action.primary_trigger==1.f && action.desired_weapon_index==NONE);
+    /* A flag in either slot blocks stale firing and automatic gun selection. */
+    bot=armed(FALSE); weapons[1].flag=TRUE; bot.charging=TRUE; bot.fire_control.pressed=TRUE;
+    reset_action(&action); bot_control_weapon(&bot,&action);
+    assert(action.desired_weapon_index==NONE && action.primary_trigger==0.f && !fired);
+    assert(!bot.charging && !bot.fire_control.pressed && bot.pending.trigger==0.f);
+    weapons[1].flag=FALSE;
+}
+
+int main(void) {
+    lane_tests();
+    shot_tests();
+    grenade_tests();
+    weapon_tests();
+    puts("bot fire safety tests passed");
+    return 0;
+}

@@ -103,5 +103,11 @@ boolean update_client_distributed_input(
 	unsigned short *control_flags);
 long player_new_queue(
 	long player_index);
+#ifdef HALO_FEATURE_BOTS
+/* Host-local actions for a bot that has a player queue. */
+boolean update_server_set_player_action(
+	long player_index,
+	struct player_action const *action);
+#endif
 
 #endif /* __PLAYER_QUEUES_NEW_H */

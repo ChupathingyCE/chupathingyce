@@ -684,6 +684,9 @@ struct widget_instance;
 #ifdef HALO_CUSTOM_EDITION
 #include "halo_ui_map_list.h"
 #endif
+#if defined(HALO_FEATURE_BOTS) && defined(HALO_GAME_BROWSER)
+#include "features/bots/bot_lobby.h" /* port: private local match setup */
+#endif
 #ifdef HALO_GAME_BROWSER
 /* the in-game server browser (port/linux/game/browser_screen.c): a screen of
 code over the widgets, as the virtual keyboard is */
@@ -3350,6 +3353,13 @@ enum
 {
 	ONLINE_GAMES_SYSTEM_LINK = 2,
 	ONLINE_GAMES_POSITION = 3,
+#ifdef HALO_FEATURE_BOTS
+	/* port: the bot lobby reuses System Link's row and moves the rest down. */
+	BOT_MATCH_POSITION = 4,
+	ONLINE_GAMES_ADDED_ITEMS = 2,
+#else
+	ONLINE_GAMES_ADDED_ITEMS = 1,
+#endif
 	ONLINE_GAMES_MENU_ITEMS = 4,
 	/* the items' spacing (their vertical offset, -33) */
 	ONLINE_GAMES_ROW = 33,
@@ -3361,6 +3371,9 @@ static struct
 	long description_text_tag;
 	struct ui_widget_child_reference *children;
 	boolean described;
+#ifdef HALO_FEATURE_BOTS
+	boolean bots_described; /* port: refreshed with the copied row's description */
+#endif
 } online_games = { NONE, NONE, NULL, FALSE };
 
 void ui_widget_online_games_tags_loaded(
@@ -3385,21 +3398,26 @@ void ui_widget_online_games_tags_loaded(
 	/* (the tags are loaded again with each map: the last copy goes) */
 	if (online_games.children)
 		system_free(online_games.children);
-	children = system_malloc((ONLINE_GAMES_MENU_ITEMS + 1) * sizeof(*children));
+	children = system_malloc((ONLINE_GAMES_MENU_ITEMS + ONLINE_GAMES_ADDED_ITEMS) * sizeof(*children));
 	online_games.children = children;
 	if (!children)
 		return;
 	old_children = (struct ui_widget_child_reference *)xbox_pointer(list->child_widgets.address);
 	csmemcpy(children, old_children, ONLINE_GAMES_POSITION * sizeof(*children));
 	children[ONLINE_GAMES_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
-	csmemcpy(&children[ONLINE_GAMES_POSITION + 1], &old_children[ONLINE_GAMES_POSITION],
+#ifdef HALO_FEATURE_BOTS
+	/* port: BOT MATCH copies the same icon; its activation opens the lobby. */
+	children[BOT_MATCH_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
+#endif
+	csmemcpy(&children[ONLINE_GAMES_POSITION + ONLINE_GAMES_ADDED_ITEMS], &old_children[ONLINE_GAMES_POSITION],
 		(ONLINE_GAMES_MENU_ITEMS - ONLINE_GAMES_POSITION) * sizeof(*children));
 	/* (each item's place is its own tag's bounds: the copy, and the items
 	after it, a row lower) */
-	for (index = ONLINE_GAMES_POSITION; index <= ONLINE_GAMES_MENU_ITEMS; index++)
-		children[index].vertical_offset += ONLINE_GAMES_ROW;
+	for (index = ONLINE_GAMES_POSITION; index < ONLINE_GAMES_MENU_ITEMS + ONLINE_GAMES_ADDED_ITEMS; index++)
+		children[index].vertical_offset += ONLINE_GAMES_ROW *
+			(index == ONLINE_GAMES_POSITION ? 1 : ONLINE_GAMES_ADDED_ITEMS);
 	list->child_widgets.address = XBOX_ADDRESS(children);
-	list->child_widgets.count = ONLINE_GAMES_MENU_ITEMS + 1;
+	list->child_widgets.count = ONLINE_GAMES_MENU_ITEMS + ONLINE_GAMES_ADDED_ITEMS;
 	online_games.list_tag = list_tag;
 
 	/* the line under the items, a row lower */
@@ -3412,7 +3430,7 @@ void ui_widget_online_games_tags_loaded(
 		for (index = 0; index < screen->child_widgets.count; index++)
 		{
 			if (screen_children[index].widget_tag.index == line_tag)
-				screen_children[index].vertical_offset += ONLINE_GAMES_ROW;
+				screen_children[index].vertical_offset += ONLINE_GAMES_ROW * ONLINE_GAMES_ADDED_ITEMS;
 		}
 	}
 }
@@ -3441,6 +3459,16 @@ boolean ui_widget_online_games_item(
 		widget->parent->definition_tag_index == online_games.list_tag &&
 		ui_widget_list_position(widget) == ONLINE_GAMES_POSITION;
 }
+
+#ifdef HALO_FEATURE_BOTS
+/* port: identify the copied BOT MATCH row by its dynamic list position. */
+static boolean ui_widget_bot_match_item(struct widget_instance *widget)
+{
+	return online_games.list_tag != NONE && widget && widget->parent &&
+		widget->parent->definition_tag_index == online_games.list_tag &&
+		ui_widget_list_position(widget) == BOT_MATCH_POSITION;
+}
+#endif
 
 /* (ui_widget_event_handler_functions.c's) */
 boolean ui_online_games_start_server(void);
@@ -3477,6 +3505,9 @@ short ui_widget_online_games_description(
 	short index)
 {
 	online_games.described = FALSE;
+#ifdef HALO_FEATURE_BOTS
+	online_games.bots_described = FALSE;
+#endif
 	if (online_games.list_tag == NONE || list_widget->definition_tag_index != online_games.list_tag)
 		return index;
 	if (index == ONLINE_GAMES_POSITION)
@@ -3484,7 +3515,14 @@ short ui_widget_online_games_description(
 		online_games.described = TRUE;
 		return ONLINE_GAMES_SYSTEM_LINK;
 	}
-	return index > ONLINE_GAMES_POSITION ? (short)(index - 1) : index;
+#ifdef HALO_FEATURE_BOTS
+	if (index == BOT_MATCH_POSITION)
+	{
+		online_games.bots_described = TRUE;
+		return ONLINE_GAMES_SYSTEM_LINK;
+	}
+#endif
+	return index > ONLINE_GAMES_POSITION ? (short)(index - ONLINE_GAMES_ADDED_ITEMS) : index;
 }
 #endif
 
@@ -3503,6 +3541,16 @@ static void event_handler_dispatch(
 	boolean close_current = FALSE;
 	boolean close_all = FALSE;
 
+#if defined(HALO_FEATURE_BOTS) && defined(HALO_GAME_BROWSER)
+	/* port: the copied BOT MATCH row opens the local lobby, not System Link. */
+	if (ui_widget_bot_match_item(widget) &&
+		(handler->event_type == _gamepad_analog_button_a || handler->event_type == _gamepad_binary_button_start))
+	{
+		ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
+		bot_lobby_open();
+		return;
+	}
+#endif
 #ifdef HALO_GAME_BROWSER
 	/* ONLINE GAMES (System Link's item copied): the game list's screen, not
 	System Link's */
@@ -5470,6 +5518,13 @@ static void widget_instance_render_text_box(
 			unicode_string_list_get_string(definition->text_label_string_list.index, string_list_index);
 #ifdef HALO_GAME_BROWSER
 		/* (ONLINE GAMES' item and description share System Link's tags) */
+#ifdef HALO_FEATURE_BOTS
+		if (ui_widget_bot_match_item(widget))
+			string = L"BOT MATCH";
+		else if (online_games.bots_described && widget->definition_tag_index == online_games.description_text_tag)
+			string = L"Set up a private match\r\nagainst computer players.\r\nFFA or Team Slayer,\r\non this machine only.";
+		else
+#endif
 		if (ui_widget_online_games_item(widget))
 			string = L"ONLINE GAMES";
 		else if (online_games.described && widget->definition_tag_index == online_games.description_text_tag)
@@ -7034,7 +7089,18 @@ static void ui_widgets_process_mouse(
 	if (pointer_active && !keyboard_active && browser_screen_active())
 		browser_screen_pointer(&pointer);
 #endif
+#if defined(HALO_FEATURE_BOTS) && defined(HALO_GAME_BROWSER)
+	/* port: the local lobby consumes clicks, including its close. */
+	if (pointer_active && !keyboard_active && bot_lobby_active())
+	{
+		bot_lobby_pointer(&pointer);
+		pointer_active = FALSE;
+	}
+#endif
 	if (!pointer_active || keyboard_active
+#if defined(HALO_FEATURE_BOTS) && defined(HALO_GAME_BROWSER)
+		|| bot_lobby_active() /* port: do not queue input behind the lobby */
+#endif
 #ifdef HALO_GAME_BROWSER
 		/* (nor over Online Games: a click left in the queue would pick a game) */
 		|| browser_screen_active()
@@ -7640,6 +7706,10 @@ void render_ui_widgets(
 	{
 		virtual_keyboard_render();
 	}
+#if defined(HALO_FEATURE_BOTS) && defined(HALO_GAME_BROWSER)
+	if (first_players_render)
+		bot_lobby_render(); /* port: draw the local match setup over the menus */
+#endif
 #ifdef HALO_GAME_BROWSER
 	if (browser_screen_active())
 		browser_screen_render();
@@ -8682,6 +8752,13 @@ void process_ui_widgets(
 
 		return;
 	}
+#if defined(HALO_FEATURE_BOTS) && defined(HALO_GAME_BROWSER)
+	if (bot_lobby_active()) /* port: modal local bot match setup */
+	{
+		bot_lobby_process();
+		return;
+	}
+#endif
 #ifdef HALO_GAME_BROWSER
 	if (browser_screen_active())
 	{
