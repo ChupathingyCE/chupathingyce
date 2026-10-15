@@ -24,6 +24,7 @@ need not return to a Cocoa run loop between frames.
 #include "metal_msaa.h"
 #include "metal_archive.h"
 #include "metal_state_cache.h"
+#include "metal_attribute_table.h"
 #include "renderer/draw_profile.h"
 
 #import <Metal/Metal.h>
@@ -1670,21 +1671,6 @@ static void gpu_metal_clear(const struct gpu_clear *clear, const struct gpu_rect
 /* per-attribute vertex buffers start here (nv2a_msl.c's bindings) */
 #define VERTEX_STREAM_BINDING 10
 
-/* the vertex shader's description of each attribute (AttributeTable,
-nv2a_msl.c): the GPU_ATTRIBUTE_* format; the stream (GPU_STREAM_CONSTANT or
-above: the constant); its byte offset in the buffer bound for it; and the
-vertex stride */
-struct metal_attribute
-{
-	uint32_t format, stream, offset, stride;
-};
-
-struct metal_attribute_table
-{
-	struct metal_attribute entries[GPU_ATTRIBUTE_COUNT];
-	float constants[GPU_ATTRIBUTE_COUNT][4];
-};
-
 /* what a pipeline is made of besides the shaders' text. Every descriptor
 field draw_pipeline sets must be in it (a sample count for anti-aliasing,
 say): the caches return a pipeline for an equal key, and nothing checks the
@@ -1724,6 +1710,53 @@ struct front_cache
 };
 
 static struct front_cache pipeline_cache, depth_state_cache, sampler_cache;
+
+#ifdef HALO_MACOS_METAL_V2
+/* Immutable native objects survive encoder changes, but not device/cache
+replacement. Their owning dictionaries outlive these borrowed references.
+Geometry, texture storage and encoder bindings are deliberately not retained. */
+static BOOL prepared_native_enabled = YES;
+static struct
+{
+	struct pipeline_key key;
+	__unsafe_unretained id object;
+	BOOL valid;
+} prepared_pipeline;
+static struct
+{
+	struct gpu_depth_stencil_state key;
+	__unsafe_unretained id<MTLDepthStencilState> object;
+	BOOL valid;
+} prepared_depth;
+
+static void prepared_native_reset(void)
+{
+	prepared_pipeline.valid = prepared_depth.valid = NO;
+	prepared_pipeline.object = nil;
+	prepared_depth.object = nil;
+}
+
+static id<MTLRenderPipelineState> prepared_pipeline_result(const struct pipeline_key *key, id object)
+{
+	if (!prepared_native_enabled)
+		return object == [NSNull null] ? nil : object;
+	memcpy(&prepared_pipeline.key, key, sizeof(*key));
+	prepared_pipeline.object = object;
+	prepared_pipeline.valid = object != nil;
+	return object == [NSNull null] ? nil : object;
+}
+
+static id<MTLDepthStencilState> prepared_depth_result(const struct gpu_depth_stencil_state *key,
+	id<MTLDepthStencilState> object)
+{
+	if (!prepared_native_enabled)
+		return object;
+	memcpy(&prepared_depth.key, key, sizeof(*key));
+	prepared_depth.object = object;
+	prepared_depth.valid = object != nil;
+	return object;
+}
+#endif
 
 static unsigned long front_cache_index(const void *key, size_t length)
 {
@@ -2298,11 +2331,12 @@ static unsigned long built_taken;
 
 /* the pipeline for a draw, or nil if it can't be made (cached either way) */
 static id<MTLRenderPipelineState> draw_pipeline(const struct gpu_draw *draw, const struct draw_attributes *attributes,
-	MetalShader *vertex, MetalShader *pixel, unsigned exact, MTLPixelFormat color, MTLPixelFormat depth)
+	unsigned exact, MTLPixelFormat color, MTLPixelFormat depth)
 {
 	struct pipeline_key key;
 	NSData *name;
 	id pipeline;
+	__unsafe_unretained MetalShader *vertex, *pixel;
 
 	memset(&key, 0, sizeof(key));
 	key.vertex_shader = draw->vertex_shader;
@@ -2325,8 +2359,28 @@ static id<MTLRenderPipelineState> draw_pipeline(const struct gpu_draw *draw, con
 	key.sample_count = target && target->multisample ? (uint32_t)target->multisample.sampleCount : 1;
 	memcpy(key.attribute_kinds, attributes->kinds, sizeof(key.attribute_kinds));
 	_Static_assert(sizeof(key) <= FRONT_CACHE_KEY, "pipeline_key fits the front cache");
+#ifdef HALO_MACOS_METAL_V2
+	if (draw_profile_reuse(&metal_profile, DRAW_CACHE_NATIVE_PIPELINE, prepared_native_enabled &&
+		prepared_pipeline.valid && !memcmp(&prepared_pipeline.key, &key, sizeof(key))))
+		return prepared_pipeline.object == [NSNull null] ? nil : prepared_pipeline.object;
+#endif
+	if (metal_profile.enabled)
+	{
+		metal_profile.pipeline_lookups++;
+		metal_profile.shader_lookups += 2;
+	}
+	vertex = table_get(shaders, draw->vertex_shader);
+	pixel = table_get(shaders, draw->pixel_shader);
+	if (!vertex || !pixel)
+		return nil;
 	if ((pipeline = front_cache_get(&pipeline_cache, &key, sizeof(key))))
+	{
+#ifdef HALO_MACOS_METAL_V2
+		return prepared_pipeline_result(&key, pipeline);
+#else
 		return pipeline == [NSNull null] ? nil : pipeline;
+#endif
+	}
 	name = [NSData dataWithBytes:&key length:sizeof(key)];
 	pipeline = pipelines[name];
 	if (!pipeline)
@@ -2359,7 +2413,11 @@ static id<MTLRenderPipelineState> draw_pipeline(const struct gpu_draw *draw, con
 		}
 	}
 	front_cache_put(&pipeline_cache, &key, sizeof(key), pipeline);
+#ifdef HALO_MACOS_METAL_V2
+	return prepared_pipeline_result(&key, pipeline);
+#else
 	return pipeline == [NSNull null] ? nil : pipeline;
+#endif
 }
 
 static uint32_t gpu_metal_pipeline_built_take(struct gpu_pipeline_description *description)
@@ -2396,6 +2454,9 @@ static uint32_t gpu_metal_warm_list_read(const char *name, char *text, uint32_t 
 
 static void gpu_metal_warm_begin(void)
 {
+#ifdef HALO_MACOS_METAL_V2
+	prepared_native_reset();
+#endif
 	warming = YES;
 	warm_list = [NSMutableData data];
 	warm_group = dispatch_group_create();
@@ -2621,8 +2682,21 @@ static id<MTLDepthStencilState> depth_state(const struct gpu_depth_stencil_state
 		key.stencil_write_mask = state->stencil_write_mask & 0xff;
 	}
 	_Static_assert(sizeof(key) <= FRONT_CACHE_KEY, "the depth key fits the front cache");
+#ifdef HALO_MACOS_METAL_V2
+	if (draw_profile_reuse(&metal_profile, DRAW_CACHE_NATIVE_DEPTH, prepared_native_enabled &&
+		prepared_depth.valid && !memcmp(&prepared_depth.key, &key, sizeof(key))))
+		return prepared_depth.object;
+#endif
+	if (metal_profile.enabled)
+		metal_profile.depth_lookups++;
 	if ((result = front_cache_get(&depth_state_cache, &key, sizeof(key))))
+	{
+#ifdef HALO_MACOS_METAL_V2
+		return prepared_depth_result(&key, result);
+#else
 		return result;
+#endif
+	}
 	name = [NSData dataWithBytes:&key length:sizeof(key)];
 	result = depth_states[name];
 	if (!result)
@@ -2648,7 +2722,11 @@ static id<MTLDepthStencilState> depth_state(const struct gpu_depth_stencil_state
 		depth_states[name] = result;
 	}
 	front_cache_put(&depth_state_cache, &key, sizeof(key), result);
+#ifdef HALO_MACOS_METAL_V2
+	return prepared_depth_result(&key, result);
+#else
 	return result;
+#endif
 }
 
 /* whether the GPU has border colors (Apple7 and later, and Macs): BORDER
@@ -2754,18 +2832,12 @@ static id<MTLSamplerState> sampler_state(const struct gpu_sampler_state *state, 
 
 /* the bytes of one vertex of a format, for a stride of 0, which GL reads as
 tightly packed */
+#ifndef HALO_MACOS_METAL_V2
 static uint32_t attribute_size(uint8_t format)
 {
-	if (format >= GPU_ATTRIBUTE_FLOAT1 && format <= GPU_ATTRIBUTE_FLOAT4)
-		return 4u * (format - GPU_ATTRIBUTE_FLOAT1 + 1);
-	if (format >= GPU_ATTRIBUTE_SHORT1 && format <= GPU_ATTRIBUTE_SHORT4)
-		return 2u * (format - GPU_ATTRIBUTE_SHORT1 + 1);
-	if (format >= GPU_ATTRIBUTE_NORMSHORT1 && format <= GPU_ATTRIBUTE_NORMSHORT4)
-		return 2u * (format - GPU_ATTRIBUTE_NORMSHORT1 + 1);
-	if (format >= GPU_ATTRIBUTE_UBYTE1 && format <= GPU_ATTRIBUTE_UBYTE4)
-		return format - GPU_ATTRIBUTE_UBYTE1 + 1u;
-	return 4;
+	return metal_attribute_size(format);
 }
+#endif
 
 /* c[192] and struct gpu_uniforms, as the shaders read them, shared by the
 frame's draws until a serial moves: a Metal draw reads everything bound, so
@@ -2806,38 +2878,66 @@ static void bind_constants(const struct gpu_constant_store *constants, const str
 
 static void bind_attributes(const struct gpu_draw *draw, const struct draw_attributes *attributes)
 {
+#ifdef HALO_MACOS_METAL_V2
+	static struct metal_attribute_cache prepared;
+	static uint64_t revision;
+	uint32_t records = 0;
+#else
 	struct metal_attribute_table table;
+#endif
 	int index;
 
+#ifndef HALO_MACOS_METAL_V2
 	memset(&table, 0, sizeof(table));
+#endif
 	for (index = 0; index < GPU_ATTRIBUTE_COUNT; index++)
 	{
+#ifndef HALO_MACOS_METAL_V2
 		const struct gpu_vertex_attribute *attribute = &draw->attributes[index];
 		struct metal_attribute *entry = &table.entries[index];
+#endif
 		__unsafe_unretained MetalBuffer *record = attributes->records[index];
 
+#ifndef HALO_MACOS_METAL_V2
 		entry->format = attribute->format;
+#endif
 		if (!record)
 		{
 			/* a constant (draw_attributes) */
+#ifndef HALO_MACOS_METAL_V2
 			entry->stream = GPU_STREAM_CONSTANT;
 			memcpy(table.constants[index], draw->constant_values[index], sizeof(table.constants[index]));
+#endif
 			if (metal_state_object(&state_cache, METAL_STATE_ATTRIBUTE_BUFFER + index, (__bridge void *)empty_buffer, 0))
 				[encoder setVertexBuffer:empty_buffer offset:0 atIndex:VERTEX_STREAM_BINDING + index];
 			continue;
 		}
+#ifdef HALO_MACOS_METAL_V2
+		records |= 1u << index;
+#else
 		entry->stream = attribute->stream;
 		entry->offset = draw->streams[attribute->stream].offset + attribute->offset;
 		entry->stride = draw->streams[attribute->stream].stride ? draw->streams[attribute->stream].stride :
 			attribute_size(attribute->format);
+#endif
 		/* use_buffer whether or not the binding is skipped: renaming reads it */
 		use_buffer(record);
 		if (metal_state_object(&state_cache, METAL_STATE_ATTRIBUTE_BUFFER + index, (__bridge void *)record->buffer, 0))
 			[encoder setVertexBuffer:record->buffer offset:0 atIndex:VERTEX_STREAM_BINDING + index];
 	}
-	[encoder setVertexBytes:&table length:sizeof(table) atIndex:2];
-	metal_profile.attribute_table_binds++;
+#ifdef HALO_MACOS_METAL_V2
+	if (metal_attribute_table_prepare(&prepared, draw, records))
+		revision++;
+	/* Reset/clear invalidation uses the same encoder-local cache as other
+	bindings. A content hit never skips use_buffer or renamed object binds. */
+	if (!metal_state_value(&state_cache, METAL_STATE_ATTRIBUTE_TABLE, &revision, sizeof(revision)))
+		return;
+	[encoder setVertexBytes:&prepared.table length:sizeof(prepared.table) atIndex:2];
+#else
 	metal_state_always(&state_cache);
+	[encoder setVertexBytes:&table length:sizeof(table) atIndex:2];
+#endif
+	metal_profile.attribute_table_binds++;
 }
 
 /* each stage's last sampler state and its sampler: consecutive draws mostly
@@ -3004,8 +3104,6 @@ static uint32_t gpu_metal_draw(const struct gpu_draw *draw, const struct gpu_con
 		uint64_t stage_started = draw_profile_now(&metal_profile);
 		/* (unretained: the tables and caches keep these for longer than the
 		draw, so retaining them would only cost a retain and a release each) */
-		__unsafe_unretained MetalShader *vertex = table_get(shaders, draw->vertex_shader);
-		__unsafe_unretained MetalShader *pixel = table_get(shaders, draw->pixel_shader);
 		__unsafe_unretained MetalTexture *depth = texture_record(draw->depth_target);
 		__unsafe_unretained id<MTLRenderPipelineState> pipeline;
 		unsigned long width, height;
@@ -3015,11 +3113,10 @@ static uint32_t gpu_metal_draw(const struct gpu_draw *draw, const struct gpu_con
 		unsigned exact = exact_borders(draw);
 		struct draw_attributes attributes;
 
-		/* as GL's program_get: no program, no draw */
-		if (!vertex || !pixel)
-			return 0;
+		/* Live attributes/attachment formats decide compatibility; only native
+	immutable object resolution is skipped on a prepared-state hit. */
 		draw_attributes_decide(draw, &attributes);
-		pipeline = draw_pipeline(draw, &attributes, vertex, pixel, exact, MTLPixelFormatBGRA8Unorm,
+		pipeline = draw_pipeline(draw, &attributes, exact, MTLPixelFormatBGRA8Unorm,
 			depth && depth->texture ? depth->texture.pixelFormat : MTLPixelFormatInvalid);
 		if (!pipeline)
 			return 0;
@@ -3852,6 +3949,14 @@ static uint32_t gpu_metal_present(gpu_texture back_buffer)
 			memset(metal_profile.worst, 0, sizeof(metal_profile.worst));
 			memset(metal_profile.calls, 0, sizeof(metal_profile.calls));
 			metal_profile.attribute_table_binds = 0;
+			platform_log("Metal draw lookups: %lu shaders, %lu pipelines, %lu depth; "
+				"prepared pipeline %lu hits/%lu misses, depth %lu hits/%lu misses",
+				metal_profile.shader_lookups, metal_profile.pipeline_lookups, metal_profile.depth_lookups,
+				metal_profile.cache_hits[DRAW_CACHE_NATIVE_PIPELINE], metal_profile.cache_misses[DRAW_CACHE_NATIVE_PIPELINE],
+				metal_profile.cache_hits[DRAW_CACHE_NATIVE_DEPTH], metal_profile.cache_misses[DRAW_CACHE_NATIVE_DEPTH]);
+			metal_profile.shader_lookups = metal_profile.pipeline_lookups = metal_profile.depth_lookups = 0;
+			memset(metal_profile.cache_hits, 0, sizeof(metal_profile.cache_hits));
+			memset(metal_profile.cache_misses, 0, sizeof(metal_profile.cache_misses));
 		}
 		if (frames % 600 == 0)
 		{
@@ -4110,6 +4215,16 @@ static void gpu_metal_initialize(uint32_t flags, struct gpu_capabilities *capabi
 		memset(capabilities, 0, sizeof(*capabilities));
 		metal_debug = (flags & GPU_INITIALIZE_DEBUG) != 0;
 		metal_profile.enabled = (flags & GPU_INITIALIZE_DRAW_PROFILE) != 0;
+		/* All front-cache references are borrowed from the device's owning
+		dictionaries. Forget them before those dictionaries are replaced. */
+		memset(&pipeline_cache, 0, sizeof(pipeline_cache));
+		memset(&depth_state_cache, 0, sizeof(depth_state_cache));
+		memset(&sampler_cache, 0, sizeof(sampler_cache));
+		memset(stage_samplers, 0, sizeof(stage_samplers));
+		snapshot.valid = NO;
+#ifdef HALO_MACOS_METAL_V2
+		prepared_native_reset();
+#endif
 		visibility_wait = (flags & GPU_INITIALIZE_FIXED_TIMESTEP) != 0;
 		metalfx_wanted = (flags & GPU_INITIALIZE_METALFX) != 0;
 		metal_state_initialize(&state_cache, !(flags & GPU_INITIALIZE_NO_STATE_CACHE));

@@ -828,6 +828,47 @@ static struct
 static unsigned long texture_drop_serial = 1;
 static unsigned long texture_frame = 0;
 
+#ifdef HALO_MACOS_METAL_V2
+/* Per-stage entry identities, not resolved texture handles. Only non-P8
+entries qualify: palettes still take the full content-hash path each draw.
+Check the drop epoch before touching a pointer; watch changes only permit
+entry reuse, never skipping generation validation/upload. */
+static struct texture_stage_lookup
+{
+	DWORD data, format_word, size_word;
+	struct texture_entry *entry;
+	unsigned long watch_serial, drop_serial;
+} texture_stage_lookups[GPU_STAGE_COUNT];
+
+static struct texture_entry *texture_stage_find(int stage, DWORD data, DWORD format_word, DWORD size_word)
+{
+	const struct texture_stage_lookup *lookup;
+
+	if (stage < 0 || stage >= GPU_STAGE_COUNT)
+		return NULL;
+	lookup = &texture_stage_lookups[stage];
+	if (lookup->drop_serial != texture_drop_serial || lookup->data != data ||
+		lookup->format_word != format_word || lookup->size_word != size_word)
+		return NULL;
+	return lookup->entry;
+}
+
+static void texture_stage_remember(int stage, struct texture_entry *entry, unsigned long watch_serial)
+{
+	struct texture_stage_lookup *lookup;
+
+	if (stage < 0 || stage >= GPU_STAGE_COUNT)
+		return;
+	lookup = &texture_stage_lookups[stage];
+	lookup->data = entry->data;
+	lookup->format_word = entry->format_word;
+	lookup->size_word = entry->size_word;
+	lookup->entry = entry;
+	lookup->watch_serial = watch_serial;
+	lookup->drop_serial = texture_drop_serial;
+}
+#endif
+
 /* Conservatively charge BGRA8 storage, including mip levels, even when BC
    compression uses less. Render targets and embedded HUD art are separate. */
 static uint64_t texture_resident_bytes;
@@ -1105,12 +1146,12 @@ static gpu_texture texture_entry_result(struct texture_entry *entry, uint32_t *t
 	return entry->texture;
 }
 
-gpu_texture xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, uint32_t *type,
-	struct xgpu_texture_description *description)
+static gpu_texture texture_get(const DWORD *resource, const D3DCOLOR *palette, uint32_t *type,
+	struct xgpu_texture_description *description, int stage)
 {
 	DWORD data = resource[1], format_word = resource[3], size_word = resource[4];
-	struct texture_entry **bucket = &texture_buckets[bucket_index(data, format_word, size_word)];
-	struct texture_entry *entry;
+	struct texture_entry **bucket;
+	struct texture_entry *entry = NULL;
 	unsigned long generation;
 	BOOL palettized = ((format_word & D3DFORMAT_FORMAT_MASK) >> D3DFORMAT_FORMAT_SHIFT) == 0x0b;
 	unsigned long hash = palettized ? palette_hash(palette) : 0;
@@ -1118,13 +1159,26 @@ gpu_texture xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, uin
 	struct texture_entry *oldest_variant = NULL;
 	unsigned long variant_count = 0;
 	static int no_cache = -1;
-	unsigned long recent = bucket_index(data, format_word, size_word) % RECENT_TEXTURE_COUNT;
+	unsigned long recent;
 	unsigned long watch_serial = memory_watch_serial();
 
+#ifdef HALO_MACOS_METAL_V2
+	if (!palettized)
+		entry = texture_stage_find(stage, data, format_word, size_word);
+	if (entry && texture_stage_lookups[stage].watch_serial == watch_serial)
+	{
+		/* Re-resolve dynamic text/menu/HUD overrides even on a content hit. */
+		entry->last_used_frame = texture_frame;
+		return texture_entry_result(entry, type, description);
+	}
+#else
+	(void)stage;
+#endif
 	/* (a texture that is not palettized has the one entry, until one is
 	dropped: remembered, a page written since only means checking it) */
-	entry = NULL;
-	if (!palettized && recent_textures[recent].entry && recent_textures[recent].data == data &&
+	bucket = &texture_buckets[bucket_index(data, format_word, size_word)];
+	recent = bucket_index(data, format_word, size_word) % RECENT_TEXTURE_COUNT;
+	if (!entry && !palettized && recent_textures[recent].entry && recent_textures[recent].data == data &&
 		recent_textures[recent].format_word == format_word && recent_textures[recent].size_word == size_word &&
 		recent_textures[recent].drop_serial == texture_drop_serial)
 	{
@@ -1132,6 +1186,9 @@ gpu_texture xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, uin
 		if (recent_textures[recent].watch_serial == watch_serial)
 		{
 			entry->last_used_frame = texture_frame;
+#ifdef HALO_MACOS_METAL_V2
+			texture_stage_remember(stage, entry, watch_serial);
+#endif
 			return texture_entry_result(entry, type, description);
 		}
 	}
@@ -1310,9 +1367,26 @@ gpu_texture xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, uin
 		recent_textures[recent].entry = entry;
 		recent_textures[recent].watch_serial = watch_serial;
 		recent_textures[recent].drop_serial = texture_drop_serial;
+#ifdef HALO_MACOS_METAL_V2
+		texture_stage_remember(stage, entry, watch_serial);
+#endif
 	}
 	return texture_entry_result(entry, type, description);
 }
+
+gpu_texture xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, uint32_t *type,
+	struct xgpu_texture_description *description)
+{
+	return texture_get(resource, palette, type, description, -1);
+}
+
+#ifdef HALO_MACOS_METAL_V2
+gpu_texture xgpu_texture_stage_get(unsigned stage, const DWORD *resource, const D3DCOLOR *palette,
+	uint32_t *type, struct xgpu_texture_description *description)
+{
+	return texture_get(resource, palette, type, description, stage < GPU_STAGE_COUNT ? (int)stage : -1);
+}
+#endif
 
 void xgpu_texture_cache_begin_frame(void)
 {

@@ -39,6 +39,13 @@ enum draw_profile_stage
 	DRAW_PROFILE_STAGES
 };
 
+enum draw_profile_cache
+{
+	DRAW_CACHE_DEPTH, DRAW_CACHE_BLEND, DRAW_CACHE_RASTER, DRAW_CACHE_SAMPLER,
+	DRAW_CACHE_FRAGMENT, DRAW_CACHE_DECLARATION, DRAW_CACHE_SHADER_KEY,
+	DRAW_CACHE_NATIVE_PIPELINE, DRAW_CACHE_NATIVE_DEPTH, DRAW_CACHE_DOMAINS
+};
+
 struct draw_profile
 {
 	int enabled;
@@ -47,7 +54,21 @@ struct draw_profile
 	unsigned long calls[DRAW_PROFILE_STAGES];
 	/* setVertexBytes of the attribute table: made, and skipped when unchanged */
 	unsigned long attribute_table_binds;
+	unsigned long shader_lookups, pipeline_lookups, depth_lookups;
+	unsigned long cache_hits[DRAW_CACHE_DOMAINS], cache_misses[DRAW_CACHE_DOMAINS];
 };
+
+static inline int draw_profile_reuse(struct draw_profile *profile, enum draw_profile_cache domain, int hit)
+{
+	if (profile->enabled)
+	{
+		if (hit)
+			profile->cache_hits[domain]++;
+		else
+			profile->cache_misses[domain]++;
+	}
+	return hit;
+}
 
 static inline uint64_t draw_profile_now(const struct draw_profile *profile)
 {

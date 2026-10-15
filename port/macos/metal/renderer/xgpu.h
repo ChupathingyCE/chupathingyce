@@ -192,6 +192,12 @@ unsigned long xgpu_texture_level_pitch(const struct xgpu_texture_description *de
 guest memory as needed; *type receives a GPU_TEXTURE_* */
 gpu_texture xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, uint32_t *type,
 	struct xgpu_texture_description *description);
+#ifdef HALO_MACOS_METAL_V2
+/* Like xgpu_texture_get, but with a bounded per-stage entry-identity hint.
+Guest writes, palettes and dynamic overrides remain authoritative. */
+gpu_texture xgpu_texture_stage_get(unsigned stage, const DWORD *resource, const D3DCOLOR *palette,
+	uint32_t *type, struct xgpu_texture_description *description);
+#endif
 void xgpu_texture_cache_begin_frame(void);
 /* a small 2D texture's mean alpha (0 to 1), decoded from guest memory: 1 and
 *alpha set for one of at most 4096 texels (palettized ones excepted), else 0 */

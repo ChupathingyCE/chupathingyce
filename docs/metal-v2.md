@@ -1,6 +1,7 @@
 # RFC: macOS Metal Renderer V2 — Low-Overhead Draw Submission for chupathingyCE
 
-**Status:** Revised proposal — draw-path performance is the primary goal; not an implementation  
+**Status:** Experimental implementation in progress — draw-path performance remains the primary goal; promotion gates are not yet met
+
 **Scope:** `LopezNoah/chupathingyce`, confirmed branch `feature/macos-metal`  
 **Proposed repository location:** `docs/specs/macos-metal-renderer-v2.md`  
 **Date:** 2026-10-15  
@@ -27,6 +28,98 @@ There shall be three mutually exclusive macOS build variants during development:
 6. **Guest memory remains authoritative.** Vertex/index/texture resources may be written through raw pointers without a new setter call. A cached Metal resource may only be reused if its backing content is provably unchanged.
 7. **Measure before optional accelerators.** Argument buffers, indirect command buffers, GPU-driven work generation, and an advanced render graph are experiments, not baseline scope.
 
+## Implementation checkpoint — prepared-state and attribute reuse
+
+The opt-in `--macos-metal-v2` path now adds the following to the existing
+profiling, selector, memory-watched mirror and backend object caches:
+
+- **Independent frontend depth, blend and raster caches:** compact comparisons
+  of live Xbox globals avoid repeating enum conversion when a domain is
+  unchanged. Depth-target presence and clip-y convention are dependencies.
+  Viewport/scissor, HUD-layer blend rewriting/accounting and body depth clamp
+  stay live; draw-local edits never modify the cached base state.
+- **Prepared shader inputs:** compare the live combiner words (excluding uniform
+  constants) and compact alpha/fog/texture-stage/query inputs before rebuilding
+  the base key. Resolve the final pixel shader again only when its complete key
+  changes, including live sampler types, coverage and lighting. Failed shader
+  resolution still retries. Vertex variants retain their existing object cache.
+- **Prepared native objects:** independently retain the last compatible pipeline
+  and depth-state resolution (borrowed from device-owned dictionaries). Exact
+  canonical key equality bypasses shader-table and front-cache lookup; live
+  attachment formats/sample counts and attribute kinds still determine pipeline
+  compatibility. Dynamic stencil reference/blend color remain live. Device/cache
+  initialization and shader warming invalidate prepared references. Current
+  shader handles are not deleted/reused by this backend; any future shader
+  replacement API must invalidate these and the existing pipeline dictionaries.
+- **Reusable declaration plans:** each declaration retains formats, stream/register
+  mapping and constant slots. Stream presence and BGRA capability participate in
+  reuse. Per-draw span checks, mirror refresh, streaming and constant-attribute
+  values remain authoritative; immediate draws retain their existing path.
+- **Encoder-local attribute-table reuse:** `metal_attribute_table.h` compares the
+  complete packet inputs plus freshly resolved live-buffer presence before
+  entering the 16-slot update loop on layout transitions. Constant changes and
+  stream-range changes are handled independently; changing offsets only update
+  the precompiled list of streamed slots, not unchanged constant/format entries.
+  Bind the table only when its effective contents changed or encoder-local
+  knowledge was invalidated. Buffer renaming still binds the current Metal object;
+  `use_buffer` runs even when the table/buffer binding is reused. Pass resets,
+  clear quads and disabled state caching force the appropriate rebind.
+- **Safe stage work reduction:** sampler interpretation is reused only when the
+  actual sampler words, mipmapped status and hires status match. V2 now uses
+  `xgpu_texture_stage_get` for non-target stages: four bounded entry-identity
+  hints avoid bucket hashing/global recent-table lookup for unchanged non-P8
+  metadata. The cache checks Xbox Data/Format/Size and the eviction epoch before
+  dereferencing a remembered entry. A changed memory-watch serial permits entry
+  reuse only; it still goes through generation validation and any required
+  upload. Palettized textures retain the full palette-content path on every
+  lookup. The resolved texture handle/description is **not** cached: text,
+  menu and HUD overrides are still resolved live on every hit. Target lookup,
+  mip-composite validation, uploads/renaming and backend resource use tracking
+  remain unchanged. Broader stage-resolution bypass remains unfinished until
+  all content/lifetime dependencies have tested version predicates.
+
+`debug.gpu_stats` reports per-domain `draw cache:` hits/misses alongside existing
+CPU stage timing and actual attribute-table binds. Backend lookup counts and
+native pipeline/depth hit/miss counts are reported separately. No new persistent
+shader key schema or shader translator is introduced. A separate
+`.github/workflows/metal-v2.yml` builds a universal V2 debug artifact, runs CPU
+policy/build tests and compiles both real-backend probes without requiring game
+data or a Metal device. Its GitHub-hosted execution is not yet confirmed.
+
+Validation at this checkpoint: `ninja macos_v2` links and bundles the experimental
+app; the touched renderer translation units also compile with the V2 define removed.
+`python3 -m unittest tools.test_metal_prepared_state` runs the real small C cache
+functions under ASan/UBSan, comparing cached conversions/base keys with the
+uncached path through direct write/draw/restore transitions, declaration changes,
+constant/stream transitions, buffer renaming and encoder invalidation. The
+`test_metal*.py` suite passes (68 tests, one skipped); build-selector tests pass
+separately. `tools.test_metal_texture_stage_cache` additionally exercises the
+actual texture lookup/eviction code in V1 and V2 under ASan/UBSan: direct and
+partial texel writes, 16 KiB-page false positives, unrelated watched writes,
+Data/Format/Size changes, recent-table collisions, palette mutation/recycling,
+live overrides, invalid spans, diagnostic no-cache mode, idle/budget eviction
+and same-address recreation. Mock operation counts verify unchanged V2 stage
+hits skip bucket hashing without skipping override resolution. These are CPU
+policy/build checks, not game image parity or end-to-end performance results.
+
+The actual-backend offscreen fixture now provides a separate, narrow runtime
+checkpoint: identical V1/V2 image digests and ordered draw counts, native lookup
+reductions, state mutation, storage rename before submission and encoder-rebind
+checks pass, including a separate Metal API Validation run on Apple M2 Pro.
+Instrumentation-disabled backend medians improve in three workloads, but some
+individual V2 runs regress. The ablation control also exposes remaining cache
+bookkeeping cost. See [the draw experiment](metal-v2-draw-experiment.md) for all
+round medians, operation counts, provenance, reproduction and limitations. This
+is **not** proof of a game-wide speedup or completion of the RFC performance gates.
+
+**Still required for these state-reuse changes:** controlled V1/V2 profiles and
+instrumentation-disabled comparisons on two draw-heavy game scenes; broader
+Metal API Validation, screenshot/motion/AA/query/target-alias regressions;
+additional safe texture-resolution reuse only if measured worthwhile; and the
+remaining acceptance matrix. Generic `gpu_draw` packet construction/dispatch and
+per-draw autorelease pools are deliberately unchanged. No profiling evidence yet
+justifies bypassing the generic packet boundary or promoting V2.
+
 ## 1. Current implementation and evidence
 
 The active Metal implementation is built from `port/macos/metal/renderer/` plus `port/macos/metal/gpu_metal.m` and `metal_host.m`; `port/macos/metal/README.md` explicitly notes that old `port/visr/` sources are not active build inputs.
@@ -51,8 +144,8 @@ Halo game / Xbox XDK inline calls
 - `gpu.h` defines `struct gpu_draw` as a complete per-draw packet (render targets, programs, viewport, scissor, blend/depth/raster, four stages, sixteen streams/attributes, indices, primitive). It also defines query, stream, present, shader warm and resource operations. Dropping the header wholesale would strand current callers; replace each dependency deliberately.
 - `gpu_metal.m` already uses native Metal, resource renaming for in-flight writes, bounded frames in flight, transient buffer slots, render-pass reuse, pipeline caching, prewarming, vertex pulling with attribute-function specialization, and optional state-cache optimization. V2 must preserve these verified behaviors, not merely reintroduce them under new names.
 - **Correction to earlier emphasis:** `d3d8_device.c` *already* has a 4 KiB-page geometry mirror (`mirror_range` / `mirror_refresh`) based on `memory_watch_generation`, with a volatile-page streaming fallback. It also caches index minima/maxima for eligible mirrored index ranges (`index_extent`). New static-geometry caching is **not** a foundational Phase 1 task. Optimize hit rates, invalidation cost and per-draw metadata before replacing it.
-- For each draw, `prepare_draw()` zeroes a complete draw packet, fills raster state, builds a pixel shader key from current Xbox state, resolves up to four texture stages, looks up shaders, assembles a uniform-input array and compares it to the previous draw. `setup_streams()` walks the vertex declaration, validates mirrored/streamed spans and fills up to 16 attribute slots. `gpu_metal_draw()` again resolves Metal objects and pipeline/depth state; `bind_attributes()` loops over 16 slots and unconditionally calls `[encoder setVertexBytes:&table ... atIndex:2]`. Shader constants already use serial-based snapshot reuse, and many Metal state setters already use `metal_state_cache.h`. These are **candidate costs**, not confirmed top offenders until profiled.
-- `tools/macos_build.py` selects Metal via `MetalLp64Build`, filename-based source substitution and explicit Objective-C compilation. It is currently a **boolean selector**; adding V2 requires a clearly tested third selection, and basename substitution must be audited for collisions.
+- **V1 baseline:** for each draw, `prepare_draw()` zeroes a complete draw packet, fills raster state, builds a pixel shader key from current Xbox state, resolves up to four texture stages, looks up shaders, assembles a uniform-input array and compares it to the previous draw. `setup_streams()` walks the vertex declaration, validates mirrored/streamed spans and fills up to 16 attribute slots. `gpu_metal_draw()` again resolves Metal objects and pipeline/depth state; `bind_attributes()` loops over 16 slots and unconditionally calls `[encoder setVertexBytes:&table ... atIndex:2]`. Shader constants already use serial-based snapshot reuse, and many Metal state setters already use `metal_state_cache.h`. V2 now skips some of this work as described in the checkpoint above. These remain **candidate costs**, not confirmed top offenders until profiled.
+- `tools/macos_build.py` selects Metal via `MetalLp64Build`, filename-based source substitution and explicit Objective-C compilation. The experimental V2 selector is now exclusive of V1, supplies `HALO_MACOS_METAL_V2` and uses a distinct build directory; selector/source-isolation tests exist. Basename substitution still warrants auditing for collisions as dependencies are added.
 - `tools/metal_regression.py` currently runs nine OpenGL/Metal cases: menu; seven gameplay anti-aliasing modes; and per-pixel lighting. The existing comparison tolerances are mean RGB error <= 3/255 and fraction of pixels with channel error > 16/255 <= 3%. Gameplay is timed idle, not a deterministic render replay.
 - `port/macos/metal/README.md` documents pipeline/archive warming, a 16 MiB upload bound and 65,536-vertex draw limit, texture cache safeguards, API validation, and features that remain unsupported/deferred. These are compatibility requirements, not evidence that the implementation is fully audited.
 

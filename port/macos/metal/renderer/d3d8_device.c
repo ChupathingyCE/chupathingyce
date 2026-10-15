@@ -358,6 +358,12 @@ struct vertex_shader_object
 	struct vertex_element elements[XGPU_VERTEX_ATTRIBUTE_COUNT];
 	unsigned long element_count;
 	unsigned long packed_mask;
+#ifdef HALO_MACOS_METAL_V2
+	/* Immutable declaration + current stream presence; never caches geometry. */
+	struct gpu_vertex_attribute attribute_plan[XGPU_VERTEX_ATTRIBUTE_COUNT];
+	uint32_t plan_streams, plan_constants;
+	BOOL plan_valid, plan_bgra;
+#endif
 	/* Bit 0: immediate (all floats); bit 1: per-pixel model lighting. */
 	gpu_shader shader[4];
 	struct nv2a_vertex_lighting lighting;
@@ -2876,6 +2882,28 @@ static void sampler_state_fill(int stage, BOOL mipmapped, BOOL hires, struct gpu
 {
 	DWORD *state = D3D__TextureState[stage];
 
+#ifdef HALO_MACOS_METAL_V2
+	/* Only sampler interpretation is cached. Texture/palette content and
+	render-target mip versions still go through stages_fill on every draw. */
+	static struct
+	{
+		BOOL valid;
+		DWORD inputs[12];
+		struct gpu_sampler_state sampler;
+	} prepared[D3DTSS_MAXSTAGES];
+	DWORD inputs[] = { state[D3DTSS_MINFILTER], state[D3DTSS_MIPFILTER],
+		state[D3DTSS_MAGFILTER], state[D3DTSS_ADDRESSU], state[D3DTSS_ADDRESSV],
+		state[D3DTSS_ADDRESSW], state[D3DTSS_MAXMIPLEVEL], state[D3DTSS_MAXANISOTROPY],
+		state[D3DTSS_MIPMAPLODBIAS], state[D3DTSS_BORDERCOLOR], mipmapped, hires };
+
+	if (draw_profile_reuse(&draw_profile, DRAW_CACHE_SAMPLER,
+		prepared[stage].valid && !memcmp(prepared[stage].inputs, inputs, sizeof(inputs))))
+	{
+		*sampler = prepared[stage].sampler;
+		return;
+	}
+	memcpy(prepared[stage].inputs, inputs, sizeof(inputs));
+#endif
 	memset(sampler, 0, sizeof(*sampler));
 	sampler->min_filter = hires ? GPU_FILTER_LINEAR : gpu_filter(state[D3DTSS_MINFILTER]);
 	sampler->mip_filter = hires ? GPU_FILTER_LINEAR : mipmapped ? gpu_filter(state[D3DTSS_MIPFILTER]) : GPU_FILTER_NONE;
@@ -2905,6 +2933,10 @@ static void sampler_state_fill(int stage, BOOL mipmapped, BOOL hires, struct gpu
 			sampler->max_anisotropy = (uint32_t)anisotropy;
 		}
 	}
+#ifdef HALO_MACOS_METAL_V2
+	prepared[stage].sampler = *sampler;
+	prepared[stage].valid = TRUE;
+#endif
 }
 
 /* ---------- render targets sampled with their mip chain
@@ -3052,7 +3084,11 @@ static void stages_fill(struct nv2a_pixel_shader_key *key, float texture_scale[4
 				const D3DCOLOR *palette = device.palettes[stage] && device.palettes[stage]->Data ?
 					(const D3DCOLOR *)PLATFORM_PHYSICAL_TO_VIRTUAL(device.palettes[stage]->Data) : NULL;
 
+#ifdef HALO_MACOS_METAL_V2
+				handle = xgpu_texture_stage_get((unsigned)stage, (const DWORD *)texture, palette, &type, &description);
+#else
 				handle = xgpu_texture_get((const DWORD *)texture, palette, &type, &description);
+#endif
 				if (description.linear)
 				{
 					texture_scale[stage][0] = 1.0f / (float)description.width;
@@ -3216,18 +3252,124 @@ static void hud_layer_blend(struct gpu_blend_state *blend)
 	hud_layer_exact++;
 }
 
+/* Cache converted domains independently. Read live XDK globals, not setter
+bits. Target/viewport and port overrides are deliberately outside the caches. */
+static void draw_depth_fill(BOOL has_depth, struct gpu_depth_stencil_state *depth)
+{
+	DWORD *rs = D3D__RenderState;
+#ifdef HALO_MACOS_METAL_V2
+	static BOOL valid;
+	static DWORD previous[12];
+	static struct gpu_depth_stencil_state prepared;
+	DWORD inputs[] = { has_depth, rs[D3DRS_ZENABLE], rs[D3DRS_ZWRITEENABLE], rs[D3DRS_ZFUNC],
+		rs[D3DRS_STENCILENABLE], rs[D3DRS_STENCILFUNC], rs[D3DRS_STENCILFAIL],
+		rs[D3DRS_STENCILZFAIL], rs[D3DRS_STENCILPASS], rs[D3DRS_STENCILREF],
+		rs[D3DRS_STENCILMASK], rs[D3DRS_STENCILWRITEMASK] };
+
+	if (draw_profile_reuse(&draw_profile, DRAW_CACHE_DEPTH,
+		valid && !memcmp(previous, inputs, sizeof(inputs))))
+	{
+		*depth = prepared;
+		return;
+	}
+	memcpy(previous, inputs, sizeof(inputs));
+#endif
+	memset(depth, 0, sizeof(*depth));
+	depth->depth_test = has_depth && rs[D3DRS_ZENABLE];
+	depth->depth_write = depth->depth_test && rs[D3DRS_ZWRITEENABLE];
+	depth->depth_function = gpu_compare(rs[D3DRS_ZFUNC]);
+	depth->stencil_test = has_depth && rs[D3DRS_STENCILENABLE];
+	depth->stencil_function = gpu_compare(rs[D3DRS_STENCILFUNC]);
+	depth->stencil_fail = gpu_stencil_operation(rs[D3DRS_STENCILFAIL]);
+	depth->stencil_depth_fail = gpu_stencil_operation(rs[D3DRS_STENCILZFAIL]);
+	depth->stencil_pass = gpu_stencil_operation(rs[D3DRS_STENCILPASS]);
+	depth->stencil_reference = (uint32_t)rs[D3DRS_STENCILREF];
+	depth->stencil_read_mask = (uint32_t)rs[D3DRS_STENCILMASK];
+	depth->stencil_write_mask = (uint32_t)rs[D3DRS_STENCILWRITEMASK];
+#ifdef HALO_MACOS_METAL_V2
+	prepared = *depth;
+	valid = TRUE;
+#endif
+}
+
+static void draw_blend_fill(struct gpu_blend_state *blend)
+{
+	DWORD *rs = D3D__RenderState;
+	DWORD write = rs[D3DRS_COLORWRITEENABLE];
+#ifdef HALO_MACOS_METAL_V2
+	static BOOL valid;
+	static DWORD previous[6];
+	static struct gpu_blend_state prepared;
+	DWORD inputs[] = { rs[D3DRS_ALPHABLENDENABLE], rs[D3DRS_SRCBLEND], rs[D3DRS_DESTBLEND],
+		rs[D3DRS_BLENDOP], rs[D3DRS_BLENDCOLOR], write };
+
+	if (draw_profile_reuse(&draw_profile, DRAW_CACHE_BLEND,
+		valid && !memcmp(previous, inputs, sizeof(inputs))))
+	{
+		*blend = prepared;
+		return;
+	}
+	memcpy(previous, inputs, sizeof(inputs));
+#endif
+	memset(blend, 0, sizeof(*blend));
+	blend->enable = rs[D3DRS_ALPHABLENDENABLE] != 0;
+	blend->source = gpu_blend_factor(rs[D3DRS_SRCBLEND]);
+	blend->destination = gpu_blend_factor(rs[D3DRS_DESTBLEND]);
+	blend->operation = gpu_blend_operation(rs[D3DRS_BLENDOP]);
+	blend->color = (uint32_t)rs[D3DRS_BLENDCOLOR];
+	blend->color_write_mask = (uint8_t)(((write & D3DCOLORWRITEENABLE_RED) ? 1 : 0) |
+		((write & D3DCOLORWRITEENABLE_GREEN) ? 2 : 0) | ((write & D3DCOLORWRITEENABLE_BLUE) ? 4 : 0) |
+		((write & D3DCOLORWRITEENABLE_ALPHA) ? 8 : 0));
+#ifdef HALO_MACOS_METAL_V2
+	prepared = *blend;
+	valid = TRUE;
+#endif
+}
+
+static void draw_raster_fill(struct gpu_raster_state *raster)
+{
+	DWORD *rs = D3D__RenderState;
+#ifdef HALO_MACOS_METAL_V2
+	static BOOL valid;
+	static DWORD previous[7];
+	static struct gpu_raster_state prepared;
+	DWORD inputs[] = { rs[D3DRS_CULLMODE], rs[D3DRS_FRONTFACE], rs[D3DRS_FILLMODE],
+		rs[D3DRS_SOLIDOFFSETENABLE], rs[D3DRS_POLYGONOFFSETZSLOPESCALE],
+		rs[D3DRS_POLYGONOFFSETZOFFSET], shader_dialect.clip_y_flip };
+
+	if (draw_profile_reuse(&draw_profile, DRAW_CACHE_RASTER,
+		valid && !memcmp(previous, inputs, sizeof(inputs))))
+	{
+		*raster = prepared;
+		return;
+	}
+	memcpy(previous, inputs, sizeof(inputs));
+#endif
+	memset(raster, 0, sizeof(*raster));
+	/* CULLMODE names the winding to discard; FRONTFACE the front winding.
+	A shader's clip-space y flip reverses the winding too. */
+	raster->cull_mode = rs[D3DRS_CULLMODE] == D3DCULL_NONE ? GPU_CULL_NONE :
+		rs[D3DRS_CULLMODE] == rs[D3DRS_FRONTFACE] ? GPU_CULL_FRONT : GPU_CULL_BACK;
+	raster->front_face = (rs[D3DRS_FRONTFACE] == D3DFRONT_CCW) != (shader_dialect.clip_y_flip != 0) ?
+		GPU_FRONT_COUNTER_CLOCKWISE : GPU_FRONT_CLOCKWISE;
+	raster->fill_mode = rs[D3DRS_FILLMODE] == D3DFILL_WIREFRAME ? GPU_FILL_LINE :
+		rs[D3DRS_FILLMODE] == D3DFILL_POINT ? GPU_FILL_POINT : GPU_FILL_SOLID;
+	/* ZBIAS is expressed in these states (D3DDevice_SetRenderState_ZBias). */
+	raster->depth_bias_enable = rs[D3DRS_SOLIDOFFSETENABLE] != 0;
+	raster->depth_bias_slope = dword_to_float(rs[D3DRS_POLYGONOFFSETZSLOPESCALE]);
+	raster->depth_bias_constant = dword_to_float(rs[D3DRS_POLYGONOFFSETZOFFSET]);
+#ifdef HALO_MACOS_METAL_V2
+	prepared = *raster;
+	valid = TRUE;
+#endif
+}
+
 /* fills the packet's raster state from the render states and the viewport */
 static void raster_state_fill(BOOL has_depth, struct gpu_viewport *viewport, struct gpu_rect *scissor,
 	struct gpu_depth_stencil_state *depth_stencil, struct gpu_blend_state *blend, struct gpu_raster_state *raster)
 {
-	DWORD *rs = D3D__RenderState;
-	DWORD write = rs[D3DRS_COLORWRITEENABLE];
-
 	memset(viewport, 0, sizeof(*viewport));
 	memset(scissor, 0, sizeof(*scissor));
-	memset(depth_stencil, 0, sizeof(*depth_stencil));
-	memset(blend, 0, sizeof(*blend));
-	memset(raster, 0, sizeof(*raster));
 
 	viewport->x = target_pixel((float)device.viewport.X, 0);
 	viewport->y = target_pixel((float)device.viewport.Y, 1);
@@ -3257,26 +3399,8 @@ static void raster_state_fill(BOOL has_depth, struct gpu_viewport *viewport, str
 		viewport->width = (int32_t)lroundf(width);
 	}
 
-	depth_stencil->depth_test = has_depth && rs[D3DRS_ZENABLE];
-	depth_stencil->depth_write = depth_stencil->depth_test && rs[D3DRS_ZWRITEENABLE];
-	depth_stencil->depth_function = gpu_compare(rs[D3DRS_ZFUNC]);
-	depth_stencil->stencil_test = has_depth && rs[D3DRS_STENCILENABLE];
-	depth_stencil->stencil_function = gpu_compare(rs[D3DRS_STENCILFUNC]);
-	depth_stencil->stencil_fail = gpu_stencil_operation(rs[D3DRS_STENCILFAIL]);
-	depth_stencil->stencil_depth_fail = gpu_stencil_operation(rs[D3DRS_STENCILZFAIL]);
-	depth_stencil->stencil_pass = gpu_stencil_operation(rs[D3DRS_STENCILPASS]);
-	depth_stencil->stencil_reference = (uint32_t)rs[D3DRS_STENCILREF];
-	depth_stencil->stencil_read_mask = (uint32_t)rs[D3DRS_STENCILMASK];
-	depth_stencil->stencil_write_mask = (uint32_t)rs[D3DRS_STENCILWRITEMASK];
-
-	blend->enable = rs[D3DRS_ALPHABLENDENABLE] != 0;
-	blend->source = gpu_blend_factor(rs[D3DRS_SRCBLEND]);
-	blend->destination = gpu_blend_factor(rs[D3DRS_DESTBLEND]);
-	blend->operation = gpu_blend_operation(rs[D3DRS_BLENDOP]);
-	blend->color = (uint32_t)rs[D3DRS_BLENDCOLOR];
-	blend->color_write_mask = (uint8_t)(((write & D3DCOLORWRITEENABLE_RED) ? 1 : 0) |
-		((write & D3DCOLORWRITEENABLE_GREEN) ? 2 : 0) | ((write & D3DCOLORWRITEENABLE_BLUE) ? 4 : 0) |
-		((write & D3DCOLORWRITEENABLE_ALPHA) ? 8 : 0));
+	draw_depth_fill(has_depth, depth_stencil);
+	draw_blend_fill(blend);
 	if (target_hud_layer)
 	{
 		hud_layer_blend(blend);
@@ -3284,20 +3408,7 @@ static void raster_state_fill(BOOL has_depth, struct gpu_viewport *viewport, str
 			hud_layer_ui = TRUE;
 	}
 
-	/* the cull mode names the winding to discard; FRONTFACE names the
-	front winding */
-	raster->cull_mode = rs[D3DRS_CULLMODE] == D3DCULL_NONE ? GPU_CULL_NONE :
-		rs[D3DRS_CULLMODE] == rs[D3DRS_FRONTFACE] ? GPU_CULL_FRONT : GPU_CULL_BACK;
-	/* a vertex shader that flips y in clip space (clip_y_flip, unlike
-	desktop GL's upper-left clip origin) also flips the winding */
-	raster->front_face = (rs[D3DRS_FRONTFACE] == D3DFRONT_CCW) != (shader_dialect.clip_y_flip != 0) ?
-		GPU_FRONT_COUNTER_CLOCKWISE : GPU_FRONT_CLOCKWISE;
-	raster->fill_mode = rs[D3DRS_FILLMODE] == D3DFILL_WIREFRAME ? GPU_FILL_LINE :
-		rs[D3DRS_FILLMODE] == D3DFILL_POINT ? GPU_FILL_POINT : GPU_FILL_SOLID;
-	/* D3DRS_ZBIAS is expressed in these states (D3DDevice_SetRenderState_ZBias) */
-	raster->depth_bias_enable = rs[D3DRS_SOLIDOFFSETENABLE] != 0;
-	raster->depth_bias_slope = dword_to_float(rs[D3DRS_POLYGONOFFSETZSLOPESCALE]);
-	raster->depth_bias_constant = dword_to_float(rs[D3DRS_POLYGONOFFSETZOFFSET]);
+	draw_raster_fill(raster);
 	/* head-tracked stereo's first-person body: its shell nearer than the
 	near plane draws at the nearest depth instead of being cut open */
 	raster->depth_clamp = halo_first_person_body_depth_clamp() != 0;
@@ -3326,6 +3437,98 @@ static BOOL model_lighting_enabled(void)
 	}
 	return enabled;
 }
+
+static BOOL shader_combiner_matches(const struct nv2a_pixel_shader_key *key)
+{
+	unsigned long index;
+
+	for (index = 0; index < sizeof(key->combiner_state) / sizeof(key->combiner_state[0]); index++)
+	{
+		/* These Xbox words are uniforms, deliberately zero in shader keys. */
+		if ((index >= D3DRS_PSCONSTANT0_0 && index < D3DRS_PSCONSTANT0_0 + 16) ||
+			index == D3DRS_PSFINALCOMBINERCONSTANT0 || index == D3DRS_PSFINALCOMBINERCONSTANT1)
+			continue;
+		if (key->combiner_state[index] != D3D__RenderState[index])
+			return FALSE;
+	}
+	return TRUE;
+}
+
+/* The Xbox-only part of a pixel key. Stage resource interpretation and model
+lighting are still decided live after this; neither is inferred from setters. */
+static void pixel_shader_base_key(struct nv2a_pixel_shader_key *key)
+{
+	int stage;
+	struct pixel_key_inputs
+	{
+		DWORD texture_modes, alpha_test_function;
+		unsigned char alpha_kill[4], color_sign[4], fog_enable, fog_table_mode, count_samples;
+	} live;
+#ifdef HALO_MACOS_METAL_V2
+	static BOOL valid;
+	static struct pixel_key_inputs previous;
+	static struct nv2a_pixel_shader_key prepared;
+#endif
+
+	memset(&live, 0, sizeof(live));
+	live.texture_modes = D3D__RenderState[D3DRS_PSTEXTUREMODES];
+	live.alpha_test_function = D3D__RenderState[D3DRS_ALPHATESTENABLE] ? D3D__RenderState[D3DRS_ALPHAFUNC] : 0;
+	live.fog_enable = D3D__RenderState[D3DRS_FOGENABLE] != 0;
+	live.fog_table_mode = (unsigned char)D3D__RenderState[D3DRS_FOGTABLEMODE];
+	live.count_samples = device.visibility_test_active &&
+		device_capabilities.occlusion_mode == GPU_OCCLUSION_SHADER_COUNTER;
+	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
+	{
+		live.alpha_kill[stage] = D3D__TextureState[stage][D3DTSS_ALPHAKILL] == D3DTALPHAKILL_ENABLE;
+		live.color_sign[stage] = (unsigned char)((D3D__TextureState[stage][D3DTSS_COLORSIGN] >> 28) & 0xf);
+	}
+#ifdef HALO_MACOS_METAL_V2
+	/* Compact inputs have zeroed padding; the combiner scan ignores uniform
+	constants. No hash collision can hide a direct Xbox state write. */
+	if (draw_profile_reuse(&draw_profile, DRAW_CACHE_SHADER_KEY,
+		valid && !memcmp(&previous, &live, sizeof(live)) && shader_combiner_matches(&prepared)))
+	{
+		*key = prepared;
+		return;
+	}
+#endif
+	memset(key, 0, sizeof(*key));
+	memcpy(key->combiner_state, D3D__RenderState, sizeof(key->combiner_state));
+	memset(&key->combiner_state[D3DRS_PSCONSTANT0_0], 0, 16 * sizeof(DWORD));
+	key->combiner_state[D3DRS_PSFINALCOMBINERCONSTANT0] = 0;
+	key->combiner_state[D3DRS_PSFINALCOMBINERCONSTANT1] = 0;
+	key->texture_modes = live.texture_modes;
+	key->alpha_test_function = live.alpha_test_function;
+	key->fog_enable = live.fog_enable;
+	key->fog_table_mode = live.fog_table_mode;
+	key->count_samples = live.count_samples;
+	memcpy(key->alpha_kill, live.alpha_kill, sizeof(key->alpha_kill));
+	memcpy(key->color_sign, live.color_sign, sizeof(key->color_sign));
+#ifdef HALO_MACOS_METAL_V2
+	previous = live;
+	prepared = *key;
+	valid = TRUE;
+#endif
+}
+
+#ifdef HALO_MACOS_METAL_V2
+/* Fragment entries live for the device lifetime, like fragment_shader_get's
+recent[] entries. Only successful lookups are reused; failures still retry.
+The final key includes live stage interpretation, query and lighting state. */
+static gpu_shader prepared_fragment_shader(const struct nv2a_pixel_shader_key *key)
+{
+	static struct nv2a_pixel_shader_key previous;
+	static gpu_shader shader;
+
+	if (!draw_profile_reuse(&draw_profile, DRAW_CACHE_FRAGMENT,
+		shader && !memcmp(&previous, key, sizeof(*key))))
+	{
+		shader = fragment_shader_get(key);
+		previous = *key;
+	}
+	return shader;
+}
+#endif
 
 static BOOL prepare_draw(struct gpu_draw *draw, BOOL immediate)
 {
@@ -3365,13 +3568,7 @@ static BOOL prepare_draw(struct gpu_draw *draw, BOOL immediate)
 	raster_state_fill(has_depth, &draw->viewport, &draw->scissor, &draw->depth_stencil, &draw->blend, &draw->raster);
 	draw_profile_lap(&draw_profile, DRAW_PROFILE_RASTER, &key_started);
 
-	memset(&key, 0, sizeof(key));
-	memcpy(key.combiner_state, D3D__RenderState, sizeof(key.combiner_state));
-	/* constants are uniforms, not part of the program */
-	memset(&key.combiner_state[D3DRS_PSCONSTANT0_0], 0, 16 * sizeof(DWORD));
-	key.combiner_state[D3DRS_PSFINALCOMBINERCONSTANT0] = 0;
-	key.combiner_state[D3DRS_PSFINALCOMBINERCONSTANT1] = 0;
-	key.texture_modes = D3D__RenderState[D3DRS_PSTEXTUREMODES];
+	pixel_shader_base_key(&key);
 	{
 		uint64_t fill_started = draw_profile_now(&draw_profile);
 
@@ -3380,11 +3577,6 @@ static BOOL prepare_draw(struct gpu_draw *draw, BOOL immediate)
 		/* (the key's time is the span around stages_fill, less its own) */
 		key_started += draw_profile_now(&draw_profile) - fill_started;
 	}
-	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
-	{
-		key.alpha_kill[stage] = D3D__TextureState[stage][D3DTSS_ALPHAKILL] == D3DTALPHAKILL_ENABLE;
-		key.color_sign[stage] = (unsigned char)((D3D__TextureState[stage][D3DTSS_COLORSIGN] >> 28) & 0xf);
-	}
 	/* (only with the meter's blend: hud_hires.h, nv2a_pixel_shader_key) */
 	if (!((key.coverage_alpha & XGPU_COVERAGE_ALPHA) && D3D__RenderState[D3DRS_ALPHABLENDENABLE] &&
 		D3D__RenderState[D3DRS_SRCBLEND] == D3DBLEND_CONSTANTCOLOR &&
@@ -3392,24 +3584,27 @@ static BOOL prepare_draw(struct gpu_draw *draw, BOOL immediate)
 	{
 		key.coverage_alpha = 0;
 	}
-	key.alpha_test_function = D3D__RenderState[D3DRS_ALPHATESTENABLE] ? D3D__RenderState[D3DRS_ALPHAFUNC] : 0;
-	key.fog_enable = D3D__RenderState[D3DRS_FOGENABLE] != 0;
-	key.fog_table_mode = (unsigned char)D3D__RenderState[D3DRS_FOGTABLEMODE];
-	key.count_samples = device.visibility_test_active &&
-		device_capabilities.occlusion_mode == GPU_OCCLUSION_SHADER_COUNTER;
 
 	draw_profile_lap(&draw_profile, DRAW_PROFILE_KEY, &key_started);
 	if (program->lighting.lights && !program->lighting_failed && model_lighting_enabled())
 		key.per_pixel_lighting = (unsigned char)program->lighting.lights;
 	draw->vertex_shader = vertex_shader_get(program, immediate, key.per_pixel_lighting != 0);
+#ifdef HALO_MACOS_METAL_V2
+	draw->pixel_shader = prepared_fragment_shader(&key);
+#else
 	draw->pixel_shader = fragment_shader_get(&key);
+#endif
 	if (key.per_pixel_lighting && (!draw->vertex_shader || !draw->pixel_shader))
 	{
 		program->lighting_failed = TRUE;
 		platform_log("Metal: per-pixel lighting failed for vertex shader %lu; keeping vertex lighting", program->id);
 		key.per_pixel_lighting = 0;
 		draw->vertex_shader = vertex_shader_get(program, immediate, FALSE);
+#ifdef HALO_MACOS_METAL_V2
+		draw->pixel_shader = prepared_fragment_shader(&key);
+#else
 		draw->pixel_shader = fragment_shader_get(&key);
+#endif
 	}
 	draw_profile_lap(&draw_profile, DRAW_PROFILE_SHADERS, &key_started);
 
@@ -3525,6 +3720,17 @@ static void draw_profile_log(void)
 				draw_profile.calls[stage], (double)draw_profile.nanoseconds[stage] / draw_profile.calls[stage],
 				(double)draw_profile.worst[stage] / 1e3,
 				(double)draw_profile.nanoseconds[stage] / 1e6 / 60.0);
+#ifdef HALO_MACOS_METAL_V2
+	{
+		static const char *const domains[DRAW_CACHE_SHADER_KEY + 1] =
+			{ "depth", "blend", "raster", "sampler", "fragment", "declaration", "shader key" };
+		for (stage = 0; stage <= DRAW_CACHE_SHADER_KEY; stage++)
+			platform_log("draw cache: %s %lu hits, %lu misses", domains[stage],
+				draw_profile.cache_hits[stage], draw_profile.cache_misses[stage]);
+		memset(draw_profile.cache_hits, 0, sizeof(draw_profile.cache_hits));
+		memset(draw_profile.cache_misses, 0, sizeof(draw_profile.cache_misses));
+	}
+#endif
 	memset(&draw_profile.nanoseconds, 0, sizeof(draw_profile.nanoseconds));
 	memset(&draw_profile.worst, 0, sizeof(draw_profile.worst));
 	memset(&draw_profile.calls, 0, sizeof(draw_profile.calls));
@@ -3992,6 +4198,44 @@ static uint8_t attribute_format(const struct vertex_element *element)
 	}
 }
 
+#ifdef HALO_MACOS_METAL_V2
+static void declaration_plan(struct vertex_shader_object *declaration, uint32_t streams)
+{
+	unsigned long index;
+
+	if (draw_profile_reuse(&draw_profile, DRAW_CACHE_DECLARATION,
+		declaration->plan_valid && declaration->plan_streams == streams &&
+		declaration->plan_bgra == device_capabilities.vertex_bgra))
+		return;
+	declaration->plan_constants = (1u << XGPU_VERTEX_ATTRIBUTE_COUNT) - 1;
+	memset(declaration->attribute_plan, 0, sizeof(declaration->attribute_plan));
+	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
+	{
+		struct gpu_vertex_attribute *attribute = &declaration->attribute_plan[index];
+
+		attribute->stream = GPU_STREAM_CONSTANT;
+		attribute->format = declaration->packed_mask & (1UL << index) ?
+			GPU_ATTRIBUTE_NORMPACKED3 : GPU_ATTRIBUTE_FLOAT4;
+	}
+	/* setup_streams has validated every element before reaching this plan. */
+	for (index = 0; index < declaration->element_count; index++)
+	{
+		const struct vertex_element *element = &declaration->elements[index];
+		struct gpu_vertex_attribute *attribute = &declaration->attribute_plan[element->reg];
+
+		if (element->type == D3DVSDT_NONE || !(streams & (1u << element->stream)))
+			continue;
+		attribute->stream = element->stream;
+		attribute->format = attribute_format(element);
+		attribute->offset = element->offset;
+		declaration->plan_constants &= ~(1u << element->reg);
+	}
+	declaration->plan_streams = streams;
+	declaration->plan_bgra = device_capabilities.vertex_bgra;
+	declaration->plan_valid = TRUE;
+}
+#endif
+
 /* without vertex_bgra a stream with colors is swizzled as it is uploaded
 (stream_upload_swizzled) and cannot come from the mirror */
 static BOOL stream_has_colors(const struct vertex_shader_object *declaration, unsigned long stream)
@@ -4013,10 +4257,15 @@ static BOOL setup_streams(struct gpu_draw *draw, unsigned long first, unsigned l
 {
 	struct vertex_shader_object *declaration = device.vertex_shader;
 	struct gpu_vertex_stream *streams = draw->streams;
+#ifndef HALO_MACOS_METAL_V2
 	struct gpu_vertex_attribute attribute;
-	BOOL placed[16] = { FALSE };
 	BOOL enabled[XGPU_VERTEX_ATTRIBUTE_COUNT] = { FALSE };
+#endif
+	BOOL placed[16] = { FALSE };
 	unsigned long index, total = 0;
+#ifdef HALO_MACOS_METAL_V2
+	uint32_t active_streams = 0;
+#endif
 
 	/* the mirror first; then one reservation for everything streamed */
 	for (index = 0; index < declaration->element_count; index++)
@@ -4036,6 +4285,9 @@ static BOOL setup_streams(struct gpu_draw *draw, unsigned long first, unsigned l
 		if (!device.streams[stream].data || element->type == D3DVSDT_NONE || placed[stream])
 			continue;
 		placed[stream] = TRUE;
+#ifdef HALO_MACOS_METAL_V2
+		active_streams |= 1u << stream;
+#endif
 		streams[stream].buffer = 0;
 		streams[stream].stride = (uint32_t)stride;
 		if (!metal_upload_span((uint32_t)XBOX_ADDRESS(PLATFORM_PHYSICAL_TO_VIRTUAL(device.streams[stream].data)),
@@ -4075,12 +4327,23 @@ static BOOL setup_streams(struct gpu_draw *draw, unsigned long first, unsigned l
 			draw_profile_add(&draw_profile, DRAW_PROFILE_STREAM_UPLOAD, upload_started);
 			stats.streamed_bytes += bytes;
 		}
+#ifndef HALO_MACOS_METAL_V2
 		attribute.format = attribute_format(element);
 		attribute.stream = (uint8_t)stream;
 		attribute.offset = element->offset;
 		draw->attributes[element->reg] = attribute;
 		enabled[element->reg] = TRUE;
+#endif
 	}
+#ifdef HALO_MACOS_METAL_V2
+	declaration_plan(declaration, active_streams);
+	memcpy(draw->attributes, declaration->attribute_plan, sizeof(draw->attributes));
+	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
+	{
+		if (declaration->plan_constants & (1u << index))
+			memcpy(draw->constant_values[index], device.attributes[index], sizeof(draw->constant_values[index]));
+	}
+#else
 	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
 	{
 		if (!enabled[index])
@@ -4093,6 +4356,7 @@ static BOOL setup_streams(struct gpu_draw *draw, unsigned long first, unsigned l
 			memcpy(draw->constant_values[index], device.attributes[index], sizeof(draw->constant_values[index]));
 		}
 	}
+#endif
 	return TRUE;
 }
 

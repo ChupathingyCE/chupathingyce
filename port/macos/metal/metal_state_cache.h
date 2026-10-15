@@ -46,12 +46,13 @@ enum
 	METAL_STATE_FRAGMENT_BUFFER = METAL_STATE_VERTEX_BUFFER + 2,
 	/* the 16 attributes' vertex buffers (VERTEX_STREAM_BINDING onward) */
 	METAL_STATE_ATTRIBUTE_BUFFER,
-	METAL_STATE_SLOTS = METAL_STATE_ATTRIBUTE_BUFFER + 16,
+	METAL_STATE_ATTRIBUTE_TABLE = METAL_STATE_ATTRIBUTE_BUFFER + 16,
+	METAL_STATE_SLOTS,
 };
 
-/* the calls a draw makes with nothing skipped: a slot each, the attribute
-table and the draw (and, opening a visibility test, a visibility mode) */
-enum { METAL_STATE_DRAW_CALLS = METAL_STATE_SLOTS + 2 };
+/* the calls a draw makes with nothing skipped: a slot each (including the
+attribute table) and the draw; opening a visibility test adds a visibility mode */
+enum { METAL_STATE_DRAW_CALLS = METAL_STATE_SLOTS + 1 };
 
 /* the largest value: a viewport's 6 doubles */
 #define METAL_STATE_VALUE_BYTES 48
@@ -129,7 +130,7 @@ static inline void metal_state_clear_quad(struct metal_state_cache *cache)
 {
 	static const int slots[] = { METAL_STATE_PIPELINE, METAL_STATE_DEPTH_STENCIL, METAL_STATE_STENCIL_REFERENCE,
 		METAL_STATE_CULL_MODE, METAL_STATE_DEPTH_BIAS, METAL_STATE_VIEWPORT, METAL_STATE_SCISSOR,
-		METAL_STATE_VERTEX_BUFFER, METAL_STATE_FRAGMENT_BUFFER };
+		METAL_STATE_VERTEX_BUFFER, METAL_STATE_FRAGMENT_BUFFER, METAL_STATE_ATTRIBUTE_TABLE };
 	size_t index;
 
 	for (index = 0; index < sizeof(slots) / sizeof(slots[0]); index++)

@@ -1,0 +1,96 @@
+---
+name: Metal V2 experimental
+
+"on":
+  push:
+    branches: [main, feature/macos-metal-v2]
+    paths:
+      - port/macos/metal/**
+      - tools/**
+      - configure.py
+      - .github/workflows/metal-v2.yml
+  pull_request:
+    paths:
+      - port/macos/metal/**
+      - tools/**
+      - configure.py
+      - .github/workflows/metal-v2.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: metal-v2-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI_COMPILER_LAUNCHER: ccache
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_BASEDIR: ${{ github.workspace }}
+  CCACHE_MAXSIZE: 1G
+
+jobs:
+  macos-metal-v2:
+    # No game data/GPU required; runtime validation stays explicit.
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      # actions/checkout v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Install the toolchain
+        run: brew install ninja ccache
+
+      # actions/cache v4.2.3
+      - uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: .ccache
+          key: ccache-macos-v2-${{ github.sha }}
+          restore-keys: |
+            ccache-macos-v2-
+            ccache-macos-
+
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: build/macos/third_party
+          key: >-
+            macos-sdl3-${{ hashFiles('tools/android_build.py',
+            'tools/macos_build.py') }}
+
+      - name: Test V2 state, coherency and build isolation
+        run: |
+          python3 -m unittest tools.test_macos_metal_build
+          python3 -m unittest discover -s tools -p 'test_metal*.py'
+
+      - name: Compile real-backend probes (no GPU required)
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from tools.metal_draw_benchmark import build_probe
+          build_probe(Path('/tmp/metal-draw-v1'), False)
+          build_probe(Path('/tmp/metal-draw-v2'), True)
+          PY
+
+      - name: Metal V2 debug (universal)
+        run: python3 tools/ci_build.py macos-metal-v2 debug
+
+      - name: Package separate experimental artifact
+        run: >-
+          tar -C dist -cf chupathingyce-macos-metal-v2-debug.tar
+          chupathingyce-macos-metal-v2-debug
+
+      # actions/upload-artifact v4.6.2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: chupathingyce-macos-metal-v2-debug
+          path: chupathingyce-macos-metal-v2-debug.tar
+          retention-days: 3
+
+      - uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684
+        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        with:
+          path: .ccache
+          key: ccache-macos-v2-${{ github.sha }}
