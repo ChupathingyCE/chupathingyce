@@ -43,7 +43,8 @@ combiner) and texture constants. texture_lod_bias: one component per stage. */
 	X(bump_matrix, vec4, 4, GPU_UNIFORM_PIXEL) \
 	X(bump_luminance, vec4, 4, GPU_UNIFORM_PIXEL) \
 	X(texture_scale, vec4, 4, GPU_UNIFORM_PIXEL) \
-	X(texture_lod_bias, vec4, 1, GPU_UNIFORM_PIXEL_LOD_BIAS)
+	X(texture_lod_bias, vec4, 1, GPU_UNIFORM_PIXEL_LOD_BIAS) \
+	X(model_lights, vec4, 12, GPU_UNIFORM_PIXEL)
 
 /* the fields of struct gpu_uniforms (gpu.h): every row but c, each a vec4
 array (a scalar is a vec4 whose x holds it), so every field starts on a

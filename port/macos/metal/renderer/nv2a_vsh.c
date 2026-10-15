@@ -159,6 +159,8 @@ void nv2a_uniform_declarations(struct xgpu_text *text, const struct nv2a_dialect
 	GPU_UNIFORMS(DECLARE_UNIFORM)
 #undef DECLARE_UNIFORM
 }
+#include "model_lighting.inc"
+
 static const char shader_outputs[] =
 	"out vec4 xD0;\n"
 	"out vec4 xD1;\n"
@@ -203,8 +205,8 @@ static const char shader_helpers[] =
 	"	return vec4(1.0, max(s.x, 0.0), specular, 1.0);\n"
 	"}\n";
 
-char *nv2a_vertex_shader_translate(const struct nv2a_dialect *dialect, const DWORD *instructions,
-	unsigned long instruction_count, unsigned long packed_attribute_mask)
+char *nv2a_vertex_shader_translate_lit(const struct nv2a_dialect *dialect, const DWORD *instructions,
+	unsigned long instruction_count, unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting)
 {
 	struct xgpu_text text = { 0 };
 	unsigned long index;
@@ -230,6 +232,8 @@ char *nv2a_vertex_shader_translate(const struct nv2a_dialect *dialect, const DWO
 			xgpu_text_append(&text, "#version %u core\n", (unsigned)dialect->version);
 		nv2a_uniform_declarations(&text, dialect, GPU_UNIFORM_VERTEX);
 		xgpu_text_append(&text, "%s%s", shader_outputs, shader_helpers);
+		if (lighting)
+			xgpu_text_append(&text, "out vec4 xWorldNormal;\nout vec3 xWorldPosition;\n");
 		for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
 		{
 			if (packed_attribute_mask & (1UL << index))
@@ -278,6 +282,11 @@ char *nv2a_vertex_shader_translate(const struct nv2a_dialect *dialect, const DWO
 		char mask[5];
 
 		xgpu_text_append(&text, "\t/* %lu */\n", index);
+		if (lighting && index == lighting->normal_instruction)
+			xgpu_text_append(&text, "\txWorldNormal = vec4(r%lu.xyz, length(r%lu.xyz));\n",
+				lighting->normal_register, lighting->normal_register);
+		if (lighting && lighting->lights == 2 && index == lighting->position_instruction)
+			xgpu_text_append(&text, "\txWorldPosition = r%lu.xyz;\n", lighting->position_register);
 		xgpu_text_append(&text, "\tA = "); operand(&text, instruction, 'A', relative); xgpu_text_append(&text, ";\n");
 		xgpu_text_append(&text, "\tB = "); operand(&text, instruction, 'B', relative); xgpu_text_append(&text, ";\n");
 		xgpu_text_append(&text, "\tC = "); operand(&text, instruction, 'C', relative); xgpu_text_append(&text, ";\n");
@@ -423,6 +432,12 @@ char *nv2a_vertex_shader_translate(const struct nv2a_dialect *dialect, const DWO
 		nv2a_msl_vertex_return(&text);
 	xgpu_text_append(&text, "}\n");
 	return text.buffer;
+}
+
+char *nv2a_vertex_shader_translate(const struct nv2a_dialect *dialect, const DWORD *instructions,
+	unsigned long instruction_count, unsigned long packed_attribute_mask)
+{
+	return nv2a_vertex_shader_translate_lit(dialect, instructions, instruction_count, packed_attribute_mask, NULL);
 }
 
 /* ---------- the program on the CPU (nv2a_vertex_program_position) */

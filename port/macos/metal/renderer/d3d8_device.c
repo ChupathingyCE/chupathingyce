@@ -357,13 +357,15 @@ struct vertex_shader_object
 	struct vertex_element elements[XGPU_VERTEX_ATTRIBUTE_COUNT];
 	unsigned long element_count;
 	unsigned long packed_mask;
-	/* [0] streams per the declaration, [1] immediate mode (all floats) */
-	gpu_shader shader[2];
+	/* Bit 0: immediate (all floats); bit 1: per-pixel model lighting. */
+	gpu_shader shader[4];
+	struct nv2a_vertex_lighting lighting;
+	BOOL lighting_failed;
 	/* the packed-attribute mask each was translated with */
-	unsigned long shader_packed_mask[2];
+	unsigned long shader_packed_mask[4];
 	/* debug.gpu_dump_shaders, for each compiled at map load: its source,
 	dumped at its first draw (shader_dump_pending) */
-	char *dump_source[2];
+	char *dump_source[4];
 	/* every object, newest first, and its instructions' hash: its name in
 	the shader lists (shader_list_warm) */
 	struct vertex_shader_object *next_object;
@@ -1244,7 +1246,13 @@ static void shader_replay(const char *directory)
 			/* (divided, not multiplied: a corrupt count must not wrap around) */
 			if ((size - 2 * sizeof(DWORD)) % (4 * sizeof(DWORD)) == 0 &&
 				(size - 2 * sizeof(DWORD)) / (4 * sizeof(DWORD)) == header[0])
-				source = nv2a_vertex_shader_translate(&dialect, header + 2, header[0], header[1]);
+			{
+				struct nv2a_vertex_lighting lighting;
+				BOOL lit = (header[1] & 0x80000000u) != 0;
+				if (!lit || nv2a_vertex_shader_lighting(header + 2, header[0], &lighting))
+					source = nv2a_vertex_shader_translate_lit(&dialect, header + 2, header[0],
+						header[1] & 0xffffu, lit ? &lighting : NULL);
+			}
 		}
 		else if (pixel && data && size == sizeof(struct nv2a_pixel_shader_key))
 		{
@@ -2077,6 +2085,18 @@ static struct vertex_shader_object *vertex_shader_from_handle(DWORD handle)
 	return vertex_shader_handles[handle / 2 - 1];
 }
 
+void halo_vertex_shader_lighting(unsigned long handle)
+{
+	struct vertex_shader_object *object = vertex_shader_from_handle((DWORD)handle);
+
+	if (!object || !object->instructions)
+		return;
+	if (!nv2a_vertex_shader_lighting(object->instructions, object->instruction_count, &object->lighting))
+		platform_log("Metal: vertex shader %lu lighting unrecognized; keeping vertex lighting", object->id);
+	else
+		platform_log("Metal: vertex shader %lu recognized for per-pixel lighting (%d)", object->id, object->lighting.lights);
+}
+
 void WINAPI D3DDevice_DeleteVertexShader(DWORD handle)
 {
 	/* programs stay cached; the object is small */
@@ -2189,7 +2209,7 @@ static void vertex_shader_dump(const struct vertex_shader_object *program, int v
 		fclose(file);
 	}
 	header[0] = (DWORD)program->instruction_count;
-	header[1] = (DWORD)program->shader_packed_mask[variant];
+	header[1] = (DWORD)program->shader_packed_mask[variant] | (variant & 2 ? 0x80000000u : 0);
 	snprintf(path, sizeof(path), "vs%03lu_%d.vsh", program->id, variant);
 	dump_file(debug_settings.dump_shaders, path, header, sizeof(header),
 		program->instructions, program->instruction_count * 4 * sizeof(DWORD));
@@ -2227,7 +2247,8 @@ static gpu_shader vertex_shader_compile(struct vertex_shader_object *program, in
 {
 	if (!program->shader[variant])
 	{
-		char *source = nv2a_vertex_shader_translate(&shader_dialect, program->instructions, program->instruction_count, packed_mask);
+		char *source = nv2a_vertex_shader_translate_lit(&shader_dialect, program->instructions,
+			program->instruction_count, packed_mask, variant & 2 ? &program->lighting : NULL);
 
 		program->shader[variant] = source ? gpu_shader_create(GPU_SHADER_VERTEX, source) : 0;
 		program->shader_packed_mask[variant] = packed_mask;
@@ -2240,9 +2261,9 @@ static gpu_shader vertex_shader_compile(struct vertex_shader_object *program, in
 	return program->shader[variant];
 }
 
-static gpu_shader vertex_shader_get(struct vertex_shader_object *program, BOOL immediate)
+static gpu_shader vertex_shader_get(struct vertex_shader_object *program, BOOL immediate, BOOL lit)
 {
-	int variant = immediate ? 1 : 0;
+	int variant = (immediate ? 1 : 0) | (lit ? 2 : 0);
 
 	if (program->shader[variant])
 	{
@@ -2619,10 +2640,10 @@ static struct vertex_shader_object *shader_list_program(struct vertex_shader_obj
 
 	for (object = after ? after->next_object : vertex_shader_objects; object; object = object->next_object)
 	{
-		if (!object->instructions || object->program_hash != hash)
+		if (!object->instructions || object->program_hash != hash || ((variant & 2) && !object->lighting.lights))
 			continue;
 		if (compiled ? object->shader[variant] && object->shader_packed_mask[variant] == mask :
-			(variant ? mask == 0 : object->packed_mask == mask))
+			((variant & 1) ? mask == 0 : object->packed_mask == mask))
 			return object;
 	}
 	return NULL;
@@ -2693,7 +2714,7 @@ void halo_shader_list_warm(char const *map_name)
 				struct vertex_shader_object *program = NULL;
 				BOOL used = FALSE;
 
-				if (sscanf(line, "vs %llx %d %lx", &hash, &variant, &mask) != 3 || variant < 0 || variant > 1)
+				if (sscanf(line, "vs %llx %d %lx", &hash, &variant, &mask) != 3 || variant < 0 || variant > 3)
 				{
 					missing++;
 					continue;
@@ -2745,7 +2766,7 @@ void halo_shader_list_warm(char const *map_name)
 					values[7] = values[1];
 					values[8] = values[2];
 				}
-				if ((fields != 12 && fields != 14 && fields != 15) || variant > 1 || strlen(kinds) != 2 * GPU_ATTRIBUTE_COUNT ||
+				if ((fields != 12 && fields != 14 && fields != 15) || variant > 3 || strlen(kinds) != 2 * GPU_ATTRIBUTE_COUNT ||
 					!hex_bytes(kinds, description.attribute_kinds, GPU_ATTRIBUTE_COUNT) ||
 					!(description.pixel_shader = shader_list_pixel((uint64_t)pixel_hash)))
 				{
@@ -3265,7 +3286,7 @@ static void raster_state_fill(BOOL has_depth, struct gpu_viewport *viewport, str
 
 /* the uniforms of the latest draws, converted from these inputs; the serial
 counts the conversions */
-#define DRAW_UNIFORM_INPUT_COUNT (4 + 4 + 16 + 1 + 16 + 2 + 4 + 1 + 1 + 7 * D3DTSS_MAXSTAGES)
+#define DRAW_UNIFORM_INPUT_COUNT (4 + 4 + 16 + 1 + 16 + 2 + 4 + 1 + 1 + 7 * D3DTSS_MAXSTAGES + 4 * XGPU_MODEL_LIGHT_COUNT)
 
 static DWORD draw_uniform_inputs[DRAW_UNIFORM_INPUT_COUNT];
 static struct gpu_uniforms draw_uniforms;
@@ -3273,6 +3294,20 @@ static struct gpu_uniforms draw_uniforms;
 /* fills a draw's packet but for its streams, attributes, indices and
 primitive, and brings the draw uniforms up to date; FALSE when the draw is
 skipped */
+/* Read the live setting once per config change, not once per model draw. */
+static BOOL model_lighting_enabled(void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static BOOL enabled;
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		enabled = config_boolean("display.per_pixel_lighting") != 0;
+	}
+	return enabled;
+}
+
 static BOOL prepare_draw(struct gpu_draw *draw, BOOL immediate)
 {
 	struct vertex_shader_object *program = current_program();
@@ -3333,8 +3368,18 @@ static BOOL prepare_draw(struct gpu_draw *draw, BOOL immediate)
 	key.count_samples = device.visibility_test_active &&
 		device_capabilities.occlusion_mode == GPU_OCCLUSION_SHADER_COUNTER;
 
-	draw->vertex_shader = vertex_shader_get(program, immediate);
+	if (program->lighting.lights && !program->lighting_failed && model_lighting_enabled())
+		key.per_pixel_lighting = (unsigned char)program->lighting.lights;
+	draw->vertex_shader = vertex_shader_get(program, immediate, key.per_pixel_lighting != 0);
 	draw->pixel_shader = fragment_shader_get(&key);
+	if (key.per_pixel_lighting && (!draw->vertex_shader || !draw->pixel_shader))
+	{
+		program->lighting_failed = TRUE;
+		platform_log("Metal: per-pixel lighting failed for vertex shader %lu; keeping vertex lighting", program->id);
+		key.per_pixel_lighting = 0;
+		draw->vertex_shader = vertex_shader_get(program, immediate, FALSE);
+		draw->pixel_shader = fragment_shader_get(&key);
+	}
 
 	/* the state the other uniforms come from: most draws share it with the
 	draw before them, and so share its uniforms */
@@ -3374,11 +3419,22 @@ static BOOL prepare_draw(struct gpu_draw *draw, BOOL immediate)
 			inputs[count++] = state[D3DTSS_BUMPENVLOFFSET];
 			inputs[count++] = state[D3DTSS_MIPMAPLODBIAS];
 		}
+		unsigned long model_offset = count;
+		for (stage = 0; stage < XGPU_MODEL_LIGHT_COUNT; stage++)
+		{
+			unsigned long reg = (unsigned long)(XGPU_VERTEX_CONSTANT_BIAS + (stage ? -80 + stage : -82));
+			if (key.per_pixel_lighting)
+				memcpy(&inputs[count], constant_store.c[reg], 4 * sizeof(DWORD));
+			else
+				memset(&inputs[count], 0, 4 * sizeof(DWORD));
+			count += 4;
+		}
 		if (!draw_uniforms.serial || memcmp(inputs, draw_uniform_inputs, sizeof(inputs)))
 		{
 			struct gpu_uniforms *converted = &draw_uniforms;
 
 			memcpy(draw_uniform_inputs, inputs, sizeof(inputs));
+			memcpy(converted->model_lights, &inputs[model_offset], sizeof(converted->model_lights));
 			draw_uniforms.serial++;
 			memcpy(converted->viewport_scale[0], device.viewport_scale, sizeof(converted->viewport_scale));
 			memcpy(converted->viewport_offset[0], device.viewport_offset, sizeof(converted->viewport_offset));

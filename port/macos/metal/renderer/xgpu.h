@@ -73,6 +73,19 @@ void nv2a_uniform_declarations(struct xgpu_text *text, const struct nv2a_dialect
 _Static_assert(GPU_STAGE_COUNT == D3DTSS_MAXSTAGES && GPU_ATTRIBUTE_COUNT == XGPU_VERTEX_ATTRIBUTE_COUNT &&
 	GPU_CONSTANT_COUNT == XGPU_VERTEX_CONSTANT_COUNT, "gpu.h's counts disagree with the front end's");
 
+/* Model-lighting captures from ChupathingyCE's OpenGL translator. */
+struct nv2a_vertex_lighting
+{
+	int lights; /* 1: distant, 2: distant and point */
+	unsigned long normal_instruction, normal_register;
+	unsigned long position_instruction, position_register;
+};
+BOOL nv2a_vertex_shader_lighting(const DWORD *instructions, unsigned long instruction_count,
+	struct nv2a_vertex_lighting *lighting);
+char *nv2a_vertex_shader_translate_lit(const struct nv2a_dialect *dialect, const DWORD *instructions,
+	unsigned long instruction_count, unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting);
+#define XGPU_MODEL_LIGHT_COUNT 12
+
 /* GLSL for an NV2A vertex program (the instruction words after the program
 header). Attributes whose bit is set in packed_attribute_mask are fed as
 NORMPACKED3 32-bit integers and unpacked in the shader. Returns a malloc'd
@@ -132,6 +145,8 @@ struct nv2a_pixel_shader_key
 	than a field of its own keeps the key's size, so recorded shader lists
 	stay valid.) */
 	unsigned char coverage_alpha;
+	/* 0: vertex-lit; 1: distant; 2: distant and point lights. */
+	unsigned char per_pixel_lighting;
 };
 #define XGPU_COVERAGE_ALPHA 1
 #define XGPU_COVERAGE_POINT_THRESHOLD 2

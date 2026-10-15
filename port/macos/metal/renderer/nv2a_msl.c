@@ -193,7 +193,9 @@ void nv2a_msl_vertex_outputs(struct xgpu_text *text)
 		"\tfloat gl_PointSize [[point_size]];\n");
 	for (index = 0; index < VARYING_COUNT; index++)
 		xgpu_text_append(text, "\tfloat4 %s [[user(%s)]];\n", varyings[index], varyings[index]);
-	xgpu_text_append(text, "\tfloat xFog [[user(xFog)]];\n};\n");
+	xgpu_text_append(text, "\tfloat xFog [[user(xFog)]];\n"
+		"\tfloat4 xWorldNormal [[user(xWorldNormal)]];\n"
+		"\tfloat3 xWorldPosition [[user(xWorldPosition)]];\n};\n");
 }
 
 void nv2a_msl_vertex_main(struct xgpu_text *text, const struct nv2a_dialect *dialect,
@@ -222,7 +224,7 @@ void nv2a_msl_vertex_main(struct xgpu_text *text, const struct nv2a_dialect *dia
 	xgpu_text_append(text, "\tfloat4 gl_Position;\n\tfloat gl_PointSize;\n");
 	for (index = 0; index < VARYING_COUNT; index++)
 		xgpu_text_append(text, "\tvec4 %s;\n", varyings[index]);
-	xgpu_text_append(text, "\tfloat xFog;\n");
+	xgpu_text_append(text, "\tfloat xFog;\n\tfloat4 xWorldNormal = float4(0);\n\tfloat3 xWorldPosition = float3(0);\n");
 }
 
 void nv2a_msl_vertex_return(struct xgpu_text *text)
@@ -232,7 +234,8 @@ void nv2a_msl_vertex_return(struct xgpu_text *text)
 	xgpu_text_append(text, "\tVertexOut out;\n\tout.gl_Position = gl_Position;\n\tout.gl_PointSize = gl_PointSize;\n");
 	for (index = 0; index < VARYING_COUNT; index++)
 		xgpu_text_append(text, "\tout.%s = %s;\n", varyings[index], varyings[index]);
-	xgpu_text_append(text, "\tout.xFog = xFog;\n\treturn out;\n");
+	xgpu_text_append(text, "\tout.xFog = xFog;\n\tout.xWorldNormal = xWorldNormal;\n"
+		"\tout.xWorldPosition = xWorldPosition;\n\treturn out;\n");
 }
 
 void nv2a_msl_fragment_inputs(struct xgpu_text *text)
@@ -242,7 +245,9 @@ void nv2a_msl_fragment_inputs(struct xgpu_text *text)
 	xgpu_text_append(text, "struct FragmentIn\n{\n");
 	for (index = 0; index < VARYING_COUNT; index++)
 		xgpu_text_append(text, "\tfloat4 %s [[user(%s)]];\n", varyings[index], varyings[index]);
-	xgpu_text_append(text, "\tfloat xFog [[user(xFog)]];\n};\n");
+	xgpu_text_append(text, "\tfloat xFog [[user(xFog)]];\n"
+		"\tfloat4 xWorldNormal [[user(xWorldNormal)]];\n"
+		"\tfloat3 xWorldPosition [[user(xWorldPosition)]];\n};\n");
 }
 
 void nv2a_msl_fragment_main(struct xgpu_text *text, const struct nv2a_dialect *dialect,
@@ -331,7 +336,8 @@ void nv2a_msl_fragment_main(struct xgpu_text *text, const struct nv2a_dialect *d
 			"foveated_coordinates(coordinates, rate_map, foveation[(stage) * 2], foveation[(stage) * 2 + 1]), bias(b))\n");
 	for (index = 0; index < VARYING_COUNT; index++)
 		xgpu_text_append(text, "\tvec4 %s = in.%s;\n", varyings[index], varyings[index]);
-	xgpu_text_append(text, "\tfloat xFog = in.xFog;\n");
+	xgpu_text_append(text, "\tfloat xFog = in.xFog;\n\tfloat4 xWorldNormal = in.xWorldNormal;\n"
+		"\tfloat3 xWorldPosition = in.xWorldPosition;\n");
 	msl_uniform_locals(text, dialect, GPU_UNIFORM_PIXEL);
 	xgpu_text_append(text, "\tfloat4 fragment_color;\n");
 }

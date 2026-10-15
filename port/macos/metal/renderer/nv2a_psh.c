@@ -550,6 +550,8 @@ static void texture_stage(struct xgpu_text *text, const struct nv2a_dialect *dia
 		xgpu_text_append(text, "\tif (t%d.a == 0.0) discard;\n", stage);
 }
 
+#include "model_lighting_source.h"
+
 /* ---------- the whole shader */
 
 static const char *comparison_operator(unsigned long function)
@@ -630,6 +632,12 @@ char *nv2a_pixel_shader_translate(const struct nv2a_dialect *dialect, const stru
 		for (stage = 0; stage < 4; stage++)
 			xgpu_text_append(&text, "uniform %s tex%d;\n", sampler_declaration(key->sampler_type[stage]), stage);
 	}
+	if (key->per_pixel_lighting)
+	{
+		if (!dialect->msl)
+			xgpu_text_append(&text, "in vec4 xWorldNormal;\nin vec3 xWorldPosition;\n");
+		model_lighting_source(&text, dialect->msl, key->per_pixel_lighting == 2);
+	}
 	/* GLSL and MSL alike */
 	xgpu_text_append(&text,
 		"float signed_byte(float x)\n"
@@ -651,6 +659,9 @@ char *nv2a_pixel_shader_translate(const struct nv2a_dialect *dialect, const stru
 		"\tvec4 t0 = vec4(0.0), t1 = vec4(0.0), t2 = vec4(0.0), t3 = vec4(0.0);\n"
 		"\tfloat dot0 = 0.0, dot1 = 0.0, dot2 = 0.0, dot3 = 0.0;\n");
 
+	if (key->per_pixel_lighting)
+		xgpu_text_append(&text, "\tv0.rgb = model_lighting(xWorldNormal, %s, model_lights);\n",
+			key->per_pixel_lighting == 2 ? "xWorldPosition" : "vec3(0.0)");
 	for (stage = 0; stage < 4; stage++)
 		texture_stage(&text, dialect, key, stage);
 
