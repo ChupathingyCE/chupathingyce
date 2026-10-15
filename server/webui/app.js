@@ -845,18 +845,66 @@
     });
     $('require-2fa').checked = data.require_2fa;
     $('require-label').hidden = !owner;
-    const moderators = $('moderators-body');
-    moderators.replaceChildren();
+    const holders = $('holders-body');
+    holders.replaceChildren();
+    $('mod-add-form').hidden = !owner;
     if (owner) {
       const list = await api('/v1/moderators');
-      list.moderators.forEach((entry) => {
-        const row = element('tr');
-        const actions = element('td', null, 'actions');
-        actions.append(button('Remove', 'small', () => peopleLine('sv_mod_remove ' + entry.key)));
-        row.append(element('td', entry.role), element('td', entry.name || '-'), element('td', entry.key.slice(0, 16) + '...', 'mono'), actions);
-        moderators.append(row);
-      });
+      showHolders(list);
     }
+  }
+
+  const FROM = { file: 'moderators.txt', account: 'panel account', site: 'site profile' };
+
+  // everyone with a role here, from each place (sv_mod_list)
+  function showHolders(list) {
+    const holders = $('holders-body');
+    const site = list.site || {};
+    (list.holders || []).forEach((entry) => {
+      const row = element('tr');
+      const actions = element('td', null, 'actions');
+      let detail = '-';
+      let keyed = false;
+      let role = entry.role;
+      if (entry.source === 'file') {
+        detail = entry.key.slice(0, 16) + '...';
+        keyed = true;
+        actions.append(button('Remove', 'small', () => peopleLine('sv_mod_remove ' + entry.key)));
+      } else if (entry.source === 'account') {
+        detail = entry.key ? entry.key.slice(0, 16) + '...' : 'not bound to a game (the panel only)';
+        keyed = !!entry.key;
+      } else if (entry.source === 'site') {
+        detail = entry.keys + (entry.keys === 1 ? ' game' : ' games') + ' on the profile' + (entry.state === 'cached' ? ' (cached)' : '');
+        if (entry.site_role !== entry.role) role += ' (the site says ' + entry.site_role + ')';
+      }
+      row.append(element('td', entry.name || '-'), element('td', role), element('td', FROM[entry.source] || entry.source),
+        element('td', detail, keyed ? 'mono' : ''), actions);
+      holders.append(row);
+    });
+    if (!(list.holders || []).length) {
+      const row = element('tr');
+      const cell = element('td', 'Nobody has a role here yet.', 'empty');
+      cell.colSpan = 5;
+      row.append(cell);
+      holders.append(row);
+    }
+    $('holders-count').textContent = String((list.holders || []).length);
+    const ago = site.heard_seconds_ago >= 0 ? duration(site.heard_seconds_ago) + ' ago' : 'not yet';
+    const states = {
+      none: 'Site roles: none (the server is not linked, or the site has given no roles here).',
+      live: 'Site roles: live, at most ' + site.role_cap + ' (HALO_DEDICATED_LINK_ROLE); the site last answered ' + ago + '.',
+      cached: 'Site roles: from the server\'s cache, at most ' + site.role_cap + '. The site has not answered since the server started (last ' + ago + '); they hold ' + site.expire_hours + ' hours without it.',
+      expired: 'Site roles: dropped, the site has not answered for ' + site.expire_hours + ' hours (last ' + ago + '). They come back, with any change made there, when it answers.',
+    };
+    $('site-roles').textContent = states[site.state] || '';
+  }
+
+  async function addModerator(event) {
+    event.preventDefault();
+    const name = $('mod-add-name').value.trim();
+    await peopleLine('sv_mod_add ' + $('mod-add-key').value.trim().toLowerCase() + ' ' + $('mod-add-role').value + (name ? ' ' + quote(name) : ''));
+    $('mod-add-key').value = '';
+    $('mod-add-name').value = '';
   }
 
   async function peopleCommand(path, body) {
@@ -1092,6 +1140,7 @@
       }
     });
     $('invite-form').addEventListener('submit', makeInvite);
+    $('mod-add-form').addEventListener('submit', addModerator);
     $('require-2fa').addEventListener('change', () => peopleCommand('/v1/accounts/require_2fa', { value: $('require-2fa').checked ? 'true' : 'false' }));
     $('totp-begin').addEventListener('click', totpBegin);
     $('totp-enable-form').addEventListener('submit', totpEnable);

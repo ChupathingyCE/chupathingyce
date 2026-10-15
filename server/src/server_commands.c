@@ -251,8 +251,9 @@ static struct server_command const server_commands[] =
 		server_admin_set },
 #ifdef HALO_SERVER
 	/* (Delta Control's roles: server/docs/moderation.md) */
-	{ "sv_mod_list", "sv_mod_list", "The moderators: the moderators file's, the control panel's accounts bound to "
-		"a game, and the site's.", 1, 1, FALSE, command_mod_list },
+	{ "sv_mod_list", "sv_mod_list", "Everyone with a role here and where it comes from: the moderators file, "
+		"the control panel's accounts (bound to a game or not) and the site's profiles (capped by "
+		"HALO_DEDICATED_LINK_ROLE; cached while the site cannot be reached).", 1, 1, FALSE, command_mod_list },
 	{ "sv_mod_add", "sv_mod_add <player|key> <role> [name]", "Gives a player (once their game has proved its "
 		"moderator key: sv_players) or a moderator key a role: moderator, admin or owner (moderators.txt).", 3, 4,
 		FALSE, command_mod_add },
@@ -1343,41 +1344,18 @@ static boolean command_warn(
 }
 
 #ifdef HALO_SERVER
+/* everyone with a role here: the moderators file's, the control panel's
+accounts and the site's (server_roles_list_text) */
 static boolean command_mod_list(
 	struct command_line const *line,
 	boolean json,
 	struct command_output *output)
 {
-	long count = server_roles_moderator_count();
-	long index;
+	static char text[OUTPUT_SIZE];
 
 	(void)line;
-	if (json)
-		command_output_printf(output, "{\"moderators\": [");
-	else if (!count)
-		command_output_printf(output, "no moderators in moderators.txt\n");
-	for (index = 0; index < count; index++)
-	{
-		char key[72], name[40];
-		int role;
-
-		if (!server_roles_moderator_get((int)index, &role, key, sizeof(key), name, sizeof(name)))
-			break;
-		if (json)
-		{
-			command_output_printf(output, "%s{\"role\": \"%s\", \"key\": \"%s\", \"name\": ", index ? ", " : "",
-				server_role_name(role), key);
-			command_output_json_string(output, name);
-			command_output_printf(output, "}");
-		}
-		else
-			command_output_printf(output, "%-9s  %s  %s\n", server_role_name(role), key, name);
-	}
-	if (json)
-		command_output_printf(output, "], \"count\": %ld}", count);
-	else
-		command_output_printf(output, "(and the control panel's accounts bound to a game, and the site's, if the "
-			"server is linked)\n");
+	server_roles_list_text(json ? 1 : 0, text, sizeof(text));
+	command_output_printf(output, "%s", text);
 	return TRUE;
 }
 

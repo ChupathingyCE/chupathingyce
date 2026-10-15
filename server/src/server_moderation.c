@@ -72,6 +72,10 @@ static struct
 	/* each machine's proved key */
 	boolean has_key[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
 	unsigned char keys[HALO_PORT_MAXIMUM_NETWORK_MACHINES][32];
+	/* each signed-in player told their role and where it comes from (a
+	notice, private to them), again when it changes */
+	boolean tell[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
+	char told[HALO_PORT_MAXIMUM_NETWORK_MACHINES][128];
 } moderation;
 
 /* ---------- Delta Peer's hooks (on the main thread, from its frame) */
@@ -92,12 +96,17 @@ static void hook_machine_key(
 
 		csmemcpy(moderation.keys[machine_index], key, 32);
 		moderation.has_key[machine_index] = TRUE;
+		moderation.told[machine_index][0] = 0;
+		moderation.tell[machine_index] = TRUE;
 		server_key_short(key, text);
 		error(_error_silent, "dedicated: machine %d proved its moderator key %s (%s%s%s)", machine_index, text,
 			server_role_name(role), who[0] ? ": " : "", who);
 	}
 	else
+	{
 		moderation.has_key[machine_index] = FALSE;
+		moderation.told[machine_index][0] = 0;
+	}
 }
 
 static int hook_key_role(
@@ -238,6 +247,34 @@ static void hook_bind_answer(
 		SERVER_BIND_DECLINED, key);
 }
 
+/* a signed-in player told their role here and where it comes from (the
+moderators file, a panel account, their site profile), if it changed since
+they were last told: an info notice to their machine alone, which the
+Moderation screen shows under the role */
+static void tell_role(
+	long machine_index)
+{
+	unsigned char key[32];
+	char source[96];
+	char text[128];
+	int role;
+
+	if (!server_moderation_machine_key(machine_index, key))
+		return;
+	role = server_roles_key_role(key, NULL, NULL, 0);
+	server_roles_key_source(key, source, sizeof(source));
+	if (role)
+		snprintf(text, sizeof(text), "Your role here: %s, from %s.", server_role_name(role), source);
+	else if (moderation.told[machine_index][0])
+		snprintf(text, sizeof(text), "You no longer have a role here.");
+	else
+		text[0] = 0;
+	if (!text[0] || !strcmp(text, moderation.told[machine_index]))
+		return;
+	if (delta_peer_game_moderation_notice((int)machine_index, _delta_moderation_notice_info, text))
+		snprintf(moderation.told[machine_index], sizeof(moderation.told[machine_index]), "%s", text);
+}
+
 /* ---------- public code */
 
 void server_moderation_update(
@@ -260,7 +297,25 @@ void server_moderation_update(
 	/* the roles changed elsewhere (the panel's accounts, the site's list):
 	the moderators' games told again */
 	if (server_roles_take_changed())
+	{
+		long machine;
+
 		delta_peer_game_moderation_roles_changed();
+		for (machine = 0; machine < HALO_PORT_MAXIMUM_NETWORK_MACHINES; machine++)
+			moderation.tell[machine] = moderation.has_key[machine];
+	}
+	{
+		long machine;
+
+		for (machine = 0; machine < HALO_PORT_MAXIMUM_NETWORK_MACHINES; machine++)
+		{
+			if (moderation.tell[machine])
+			{
+				moderation.tell[machine] = FALSE;
+				tell_role(machine);
+			}
+		}
+	}
 	/* the control panel's bind requests: sent to the player's game, if it
 	speaks Delta Peer's moderation */
 	while (server_roles_bind_take(&request_id, &player_number, account, sizeof(account)))
@@ -320,7 +375,11 @@ boolean server_moderation_notice(
 void server_moderation_roles_changed(
 	void)
 {
+	long machine;
+
 	delta_peer_game_moderation_roles_changed();
+	for (machine = 0; machine < HALO_PORT_MAXIMUM_NETWORK_MACHINES; machine++)
+		moderation.tell[machine] = moderation.has_key[machine];
 }
 
 #endif

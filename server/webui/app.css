@@ -118,6 +118,7 @@ h1, h2 {
 h1 { font-size: 15px; }
 h2 + h2, .row + h2, .table-wrap + h2, .hint + h2 { margin-top: 20px; }
 #set-value { min-width: 8em; }
+#site-roles { margin-bottom: 12px; }
 .count { color: var(--muted); font-weight: 500; letter-spacing: 0.02em; text-transform: none; }
 
 .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }

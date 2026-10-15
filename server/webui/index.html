@@ -256,14 +256,22 @@
         </table>
       </div>
       <label class="check" id="require-label"><input type="checkbox" id="require-2fa"> Every account needs a second factor</label>
-      <h2>Moderators file</h2>
-      <p class="hint">moderators.txt in the data folder: people known by the moderator key their game proves, with no account here. Add a player in the game with <code>sv_mod_add &lt;player&gt; &lt;role&gt;</code>.</p>
+      <h2>Who can moderate <span class="count" id="holders-count"></span></h2>
+      <p class="hint">Everyone with a role on this server, and where it comes from: moderators.txt in the data folder (people known by the moderator key their game proves), the accounts above, and the Chupathingy site's roles while the server is linked. A key's role is the highest it has. <code>sv_mod_list</code> on the console shows the same.</p>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Role</th><th>Name</th><th>Key</th><th></th></tr></thead>
-          <tbody id="moderators-body"></tbody>
+          <thead><tr><th>Name</th><th>Role</th><th>From</th><th>Key or games</th><th></th></tr></thead>
+          <tbody id="holders-body"></tbody>
         </table>
       </div>
+      <p class="hint" id="site-roles"></p>
+      <form id="mod-add-form" class="row">
+        <label>Add to moderators.txt: moderator key <input id="mod-add-key" pattern="[0-9a-fA-F]{64}" spellcheck="false" autocapitalize="off" required></label>
+        <label>Role <select id="mod-add-role"><option value="moderator">moderator</option><option value="admin">admin</option><option value="owner">owner</option></select></label>
+        <label>Name <input id="mod-add-name" maxlength="31"></label>
+        <button type="submit">Add</button>
+      </form>
+      <p class="hint">A player's key shows in Players once their game has signed in on its Moderation screen; <code>sv_mod_add &lt;player&gt; &lt;role&gt;</code> on the console takes the player's number instead.</p>
     </section>
 
     <section class="panel" data-panel="audit" hidden>

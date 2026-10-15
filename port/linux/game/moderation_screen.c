@@ -129,6 +129,10 @@ static struct
 	unsigned long result_time;
 	char status[128];
 	boolean signing_in;
+	/* the server's last word to this player alone (an info notice): its
+	role here and where the role comes from, which it tells each player
+	when they sign in and when it changes */
+	char note[DELTA_WIRE_MODERATION_TEXT_SIZE + 1];
 } moderation_screen;
 
 /* ---------- private code */
@@ -324,6 +328,11 @@ void moderation_screen_update(
 	{
 		moderation_screen.notice_seen = moderation_screen.moderation.notice_count;
 		moderation_screen.notice_time = system_milliseconds();
+		if (moderation_screen.moderation.notice_kind == _delta_moderation_notice_info)
+		{
+			csstrncpy(moderation_screen.note, moderation_screen.moderation.notice, sizeof(moderation_screen.note) - 1);
+			moderation_screen.note[sizeof(moderation_screen.note) - 1] = 0;
+		}
 		if (moderation_screen.moderation.notice[0])
 			platform_log("server %s: %s",
 				moderation_screen.moderation.notice_kind == _delta_moderation_notice_warning ? "warning" : "notice",
@@ -348,7 +357,10 @@ void moderation_screen_update(
 			held = TRUE;
 	}
 	if (!moderation_screen.moderation.available)
+	{
 		moderation_screen.active = FALSE;
+		moderation_screen.note[0] = 0;
+	}
 	else if (!moderation_screen.active && menu_open && held && !moderation_screen.open_held)
 	{
 		moderation_screen.active = TRUE;
@@ -552,6 +564,12 @@ void moderation_screen_render(
 		ui_overlay_text(UI_FONT_REGULAR, 13.0f, 120, y, UI_ALIGN_LEFT, COLOR_TEXT, "Signing in...");
 		prompt(UI_BUTTON_B, "Back", 120, 392);
 		return;
+	}
+	/* (the role's source, as the server told this player) */
+	if (moderation_screen.note[0])
+	{
+		ui_overlay_text(UI_FONT_REGULAR, 11.0f, 120, 96, UI_ALIGN_LEFT, COLOR_DIM, moderation_screen.note);
+		y += 8;
 	}
 	if (!moderation->role || !moderation_screen.allowed_count)
 	{

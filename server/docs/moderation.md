@@ -73,7 +73,7 @@ until it is fixed.
 
 | Command | What it does |
 | --- | --- |
-| `sv_mod_list` | The moderators file's moderators. |
+| `sv_mod_list` | Everyone with a role here and where it comes from: the moderators file, the panel's accounts (bound to a game or not) and the site's profiles, with the site's cap and whether its list is live, cached or expired ([below](#who-can-moderate)). |
 | `sv_mod_add <player> <role> [name]` | Gives a player in the game a role, by the key their game proved (they sign in from the game's Moderation screen first: `sv_players` shows their key). |
 | `sv_mod_add <moderator key> <role> [name]` | The same, with the key itself (a moderator can read theirs on the Moderation screen). |
 | `sv_mod_remove <key or name>` | Takes a moderator out (the key's first 8 or more digits will do). |
@@ -85,10 +85,31 @@ until it is fixed.
 A moderator in a ChupathingyCE game opens the Moderation screen (Y on a
 controller, or M, from the pause menu) on a server that offers it, signs in
 (A), and picks a player and an action: warn, kick, ban for an hour, a day,
-7 days, or for ever, end the game, next map. Only the actions their role
-allows are shown, and the server checks each again. OpenCE games cannot
+7 days, 30 days, or forever, end game, next map (the control panel's
+actions, by the same names). Only the actions their role allows are shown,
+and the server checks each again. Once signed in, the screen shows their
+role and where it comes from (this server's moderators file, their panel
+account, or their site profile, cached or not): the server tells it to
+their game alone, as a notice, when they sign in and when it changes. OpenCE games cannot
 sign in (they cannot prove a key); they can be warned (in the audit file
 only), kicked and banned like anyone.
+
+### Who can moderate
+
+A key's role is the highest of three places: the moderators file, a
+control panel account bound to that game, and the site's roles while the
+server is linked (each profile's role, with the keys of every game linked
+to the profile, never above `HALO_DEDICATED_LINK_ROLE`). `sv_mod_list`, and
+"Who can moderate" in the panel's People, list all of them in one place.
+
+The site's list is kept in `delta_roles.cache` in the data folder (beside
+`delta_link.key`, private, with a MAC of the link's secret, so an edited
+file is refused), and read at start: a restart while the site cannot be
+reached keeps its roles. They hold `HALO_DEDICATED_LINK_ROLE_HOURS` (24 by
+default) after the site last answered, cached or not; then they are dropped
+until it answers again, and the moderators file's and the accounts' roles
+stay. When it answers, its list (with any role taken away meanwhile) is
+taken at once, and each role it takes away is logged and in the audit file.
 
 ## The control panel
 

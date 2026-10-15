@@ -52,7 +52,7 @@ the duration.
 | `sv_playlists`, `sv_playlist <name>`, `sv_playlist_new`, `sv_playlist_add`, `sv_playlist_remove`, `sv_playlist_move`, `sv_playlist_delete`, `sv_playlist_use`, `sv_mapcycle_add`, `sv_mapcycle_del` | Playlists made and edited on the server ([playlists.md](playlists.md#playlists-made-on-the-server)). |
 | `sv_gametypes`, `sv_gametype <name>`, `sv_gametype_new`, `sv_gametype_set`, `sv_gametype_delete` | Game type files ([playlists.md](playlists.md#game-type-files)). |
 | `sv_settings`, `sv_set <setting> <value>` | The settings file ([settings.md](settings.md)). |
-| `sv_mod_list`, `sv_mod_add`, `sv_mod_remove` | Moderators by moderator key ([moderation.md](moderation.md#the-consoles-commands)). |
+| `sv_mod_list`, `sv_mod_add`, `sv_mod_remove` | Everyone with a role here and where it comes from; moderators by moderator key ([moderation.md](moderation.md#who-can-moderate)). |
 | `sv_link`, `sv_unlink`, `sv_link_status` | The link to the Chupathingy site ([moderation.md](moderation.md#the-link-to-the-chupathingy-site-optional)): `sv_link` prints the link to open. |
 | `sv_admin_list`, `sv_admin_add <name>`, `sv_admin_rotate <name>`, `sv_admin_remove <name>` | The control API's credentials, one for each admin ([below](#a-token-for-each-admin)). The console's only. |
 | `sv_account_list`, `sv_account_invite <role>`, `sv_account_role`, `sv_account_remove`, `sv_account_reset`, `sv_account_setup` | The control panel's accounts ([moderation.md](moderation.md#accounts-and-invitations)). The console's only. |

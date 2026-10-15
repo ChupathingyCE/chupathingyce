@@ -24,6 +24,7 @@ the file.
 | `HALO_DEDICATED_LINK` | `true` | `false` turns the [link to the Chupathingy site](moderation.md#the-link-to-the-chupathingy-site-optional) off for good. Until `sv_link`, it does nothing either way. |
 | `HALO_DEDICATED_LINK_URL` | `HALO_NET_BROWSER` if set, else `https://stats.chupathingy.org` | The site the server links to (HTTPS). |
 | `HALO_DEDICATED_LINK_ROLE` | `admin` | The most a role from the site may be on this server: `admin` or `moderator`. |
+| `HALO_DEDICATED_LINK_ROLE_HOURS` | `24` | How long the site's roles hold without the site answering (1 to 720 hours), kept in `delta_roles.cache` across restarts ([moderation.md](moderation.md#who-can-moderate)). |
 
 The settings file's keys (`sv_settings` lists them, with where each value
 comes from): `name`, `maximum_players`, `minimum_players`, `idle_limit`,
@@ -118,7 +119,9 @@ once the API is turned on), `control_accounts.txt` (the control panel's
 accounts), `control_audit.log` (every change: [moderation.md](moderation.md)),
 `moderators.txt` (moderators by moderator key), `control_tls.crt` and
 `control_tls.key` (the panel's own certificate, when it is HTTPS),
-`delta_link.key` (the link to halo.milenko.org, once linked), and
+`delta_link.key` (the link to the Chupathingy site, once linked),
+`delta_roles.cache` (the site's roles, kept for a restart while the site is
+down), and
 `admin/` (playlists, game types and settings made on the server:
 [playlists.md](playlists.md)). Keep them private, and back them up.
 
