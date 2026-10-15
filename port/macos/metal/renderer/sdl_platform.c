@@ -18,6 +18,7 @@ and the debug keyboard that the game's console reads.
 #include "touch_input.h"
 #include "delta.h"
 #include "crash_report.h"
+#include "frame_limit.h"
 
 #include <SDL3/SDL.h>
 #include <stdio.h>
@@ -1081,15 +1082,13 @@ void platform_video_drawable_size(int *width, int *height)
 
 #ifndef HALO_ANDROID
 /* with vsync off, the time between frames display.max_fps asks for (0:
-twice the display's refresh rate), or 0 for no limit. A GPU never left idle
-can hang (Intel's Raptor Lake graphics, whose reset then takes the desktop
-with it); the limit gives it a rest every frame. */
+twice the display's refresh rate), or 0 for no limit (frame_limit.h) */
 static Uint64 frame_interval_ns(void)
 {
 	static int vsync;
 	static long maximum;
 	static unsigned long read_at = (unsigned long)-1;
-	float rate;
+	float refresh = 0.0f;
 
 	if (read_at != config_changes())
 	{
@@ -1097,25 +1096,22 @@ static Uint64 frame_interval_ns(void)
 		vsync = config_boolean("display.vsync");
 		maximum = config_integer("display.max_fps");
 	}
-	if (vsync || maximum < 0)
-		return 0;
-	rate = (float)maximum;
-	if (!maximum)
+	if (!vsync && !maximum)
 	{
 		SDL_DisplayID display = SDL_GetDisplayForWindow(platform_window);
 		const SDL_DisplayMode *mode = display ? SDL_GetCurrentDisplayMode(display) : NULL;
 
-		rate = 2.0f * (mode && mode->refresh_rate > 0.0f ? mode->refresh_rate : 60.0f);
+		refresh = mode ? mode->refresh_rate : 0.0f;
 	}
-	return (Uint64)(1e9f / rate);
+	return (Uint64)metal_frame_interval_ns(vsync, maximum, refresh);
 }
 
 #endif
 void platform_video_swap(void)
 {
 #ifndef HALO_ANDROID
-	static Uint64 next_frame;
-	Uint64 interval, now;
+	static uint64_t next_frame;
+	Uint64 interval, now, wait;
 
 #endif
 	SDL_GL_SwapWindow(platform_window);
@@ -1124,13 +1120,9 @@ void platform_video_swap(void)
 	if (!interval)
 		return;
 	now = SDL_GetTicksNS();
-	if (next_frame > now)
-	{
-		SDL_DelayPrecise(next_frame - now);
-		now = next_frame;
-	}
-	/* (a frame more than an interval late starts the count again) */
-	next_frame = now - next_frame > interval ? now + interval : next_frame + interval;
+	wait = metal_frame_wait_ns(now, &next_frame, interval);
+	if (wait)
+		SDL_DelayPrecise(wait);
 #endif
 }
 
