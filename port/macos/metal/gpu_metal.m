@@ -2006,8 +2006,8 @@ replaced by an empty archive. */
 static id<MTLBinaryArchive> archive;
 static NSURL *archive_url;
 static BOOL archive_dirty;
-/* the descriptors added to the archive, and so their functions, kept for its
-life: serializing reads them again, and one freed meanwhile faulted there */
+/* All descriptors collected this run, and their functions, kept alive for
+snapshotting. Every save must include earlier maps as well as the new one. */
 static NSMutableArray *archive_descriptors;
 /* the segments earlier runs wrote, read only: lookups only, never written
 again. Serializing an archive loaded from a file, after adding to it,
@@ -2096,6 +2096,25 @@ static void archive_open(void)
 		(unsigned long)archive_reads.count, archive_url.lastPathComponent.UTF8String);
 }
 
+/* Called with archive_lock held exclusively. Metal can fault serializing
+an archive that was serialized, then extended (menu -> campaign -> menu).
+Snapshot all descriptors into a new archive for each save, never serializing
+or replacing the collecting archive. */
+static id<MTLBinaryArchive> archive_snapshot(NSError **error)
+{
+	id<MTLBinaryArchive> snapshot = [device newBinaryArchiveWithDescriptor:[MTLBinaryArchiveDescriptor new]
+		error:error];
+
+	if (!snapshot)
+		return nil;
+	for (MTLRenderPipelineDescriptor *descriptor in archive_descriptors)
+	{
+		if (![snapshot addRenderPipelineFunctionsWithDescriptor:descriptor error:error])
+			return nil;
+	}
+	return snapshot;
+}
+
 /* writes the archive out if pipelines were added since */
 static void archive_save(void)
 {
@@ -2105,11 +2124,18 @@ static void archive_save(void)
 	if (!archive || !archive_dirty)
 		return;
 	pthread_rwlock_wrlock(&archive_lock);
+	id<MTLBinaryArchive> snapshot = archive_snapshot(&error);
+	if (!snapshot)
+	{
+		platform_log("Metal: cannot snapshot the pipeline archive: %s", error.localizedDescription.UTF8String);
+		pthread_rwlock_unlock(&archive_lock);
+		return;
+	}
 	/* (to a file beside it, renamed into place: an archive read from the
 	file maps it, and writing over it faulted in Metal's serializer) */
 	NSURL *written = [archive_url URLByAppendingPathExtension:@"new"];
 	[[NSFileManager defaultManager] removeItemAtURL:written error:nil];
-	if ([archive serializeToURL:written error:&error] &&
+	if ([snapshot serializeToURL:written error:&error] &&
 		rename(written.fileSystemRepresentation, archive_url.fileSystemRepresentation) == 0)
 	{
 		platform_log("Metal: wrote the pipeline archive in %.0f ms", (CACurrentMediaTime() - started) * 1e3);
@@ -2140,7 +2166,7 @@ static void archive_save(void)
 			[[NSFileManager defaultManager] isWritableFileAtPath:archive_url.URLByDeletingLastPathComponent.path] ?
 			"writable" : "not writable", open_files, (unsigned long long)limit.rlim_cur, (unsigned long long)limit.rlim_max);
 		[[NSFileManager defaultManager] removeItemAtURL:temporary error:nil];
-		if ([archive serializeToURL:temporary error:&second])
+		if ([snapshot serializeToURL:temporary error:&second])
 		{
 			[[NSFileManager defaultManager] removeItemAtURL:archive_url error:nil];
 			if ([[NSFileManager defaultManager] moveItemAtURL:temporary toURL:archive_url error:&moved])

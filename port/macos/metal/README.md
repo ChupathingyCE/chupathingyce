@@ -101,9 +101,13 @@ include AA sample counts and per-pixel lighting variants.
 
 Pipeline archives live under
 `~/Library/Caches/io.github.chupathingyce/metal-pipelines/`. Previously loaded
-segments are lookup-only; new pipelines enter a fresh segment, saved at exit.
-This avoids a reproducible driver crash serializing an updated loaded archive.
-The segment set resets after 16 segments to bound accumulation.
+segments are lookup-only; new pipelines enter this run's segment, saved after
+warming and at exit. Each write builds a fresh archive snapshot from all of
+this run's pipeline descriptors. Metal can crash when serializing an archive
+that was previously serialized and then extended, even if it was originally
+created empty (for example, menu → campaign → menu). Loaded archives are never
+modified or serialized either. Writes replace the segment atomically; the
+segment set resets after 16 segments to bound accumulation.
 
 Measured Blood Gulch runs reduced pipelines compiled during play from 70–97
 without caching/warming to 7 after learned lists and archive reuse. A baseline
