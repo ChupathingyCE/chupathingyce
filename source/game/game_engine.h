@@ -460,6 +460,13 @@ long game_engine_bomb_weapon(void);
 boolean game_engine_bomb_goal(long team_index, union real_point3d *position);
 long game_engine_bomb_team_score(long team_index);
 long game_engine_bomb_round(void);
+/* a goal's blast and countdown: whether a death counts nothing (the scoring
+team's own in the blast) and when its player respawns, and whether players
+are held still */
+boolean game_engine_bomb_silent_death(long killing_player_index, long dead_player_index, boolean friendly_fire);
+long game_engine_bomb_silent_respawn_ticks(void);
+boolean game_engine_bomb_frozen(void);
+boolean game_engine_bomb_holds_spawns(void);
 #endif
 
 /* port: the most a game type's state for the distributed netcode's clients

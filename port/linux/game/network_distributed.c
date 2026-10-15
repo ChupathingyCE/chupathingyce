@@ -2888,6 +2888,13 @@ void network_distributed_player_killed(
 		death->friendly_fire = *friendly_fire;
 		death->killed_by_vehicle = *killing_player_index == NONE && killing_object &&
 			killing_object->object.type == _object_type_vehicle;
+#ifdef HALO_GAME_BROWSER
+		/* (a death that counts nothing, Bomb's blast taking the scoring
+		team's own: the player's own, by a vehicle, which no other death
+		is; a client before this took it as the player's own) */
+		if (game_engine_bomb_silent_death(*killing_player_index, dead_player_index, *friendly_fire))
+			death->killed_by_vehicle = TRUE;
+#endif
 		distributed_statistics_due = TRUE;
 	}
 	else if (game_connection() == _game_connection_network_client && death->valid)
@@ -2910,6 +2917,20 @@ void network_distributed_player_killed(
 			*killing_object_index = NONE;
 		}
 	}
+}
+
+/* (a client) whether the host's word on a player's death is that it counts
+nothing (network_distributed_player_killed) */
+boolean network_distributed_death_silent(
+	long dead_player_index)
+{
+	short dead_absolute_index = (short)DATUM_INDEX_TO_ABSOLUTE_INDEX(dead_player_index);
+	struct distributed_death const *death;
+
+	if (dead_absolute_index < 0 || dead_absolute_index >= MAXIMUM_TRACKED_PLAYERS)
+		return FALSE;
+	death = &distributed_deaths[dead_absolute_index];
+	return death->valid && death->killing_player_index == dead_absolute_index && death->killed_by_vehicle;
 }
 
 /* (a client) the host's word on how a player died, with the damage that

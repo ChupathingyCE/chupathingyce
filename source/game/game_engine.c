@@ -4585,6 +4585,17 @@ void game_engine_player_killed(
 	if (killing_player_index != NONE && !player_try_and_get(killing_player_index))
 		killing_player_index = NONE;
 #ifdef HALO_GAME_BROWSER
+	/* port: a Bomb goal's blast taking the scoring team's own, which counts
+	nothing: no message, no statistics, no penalty; back as the countdown
+	starts (game_engine_bomb.c) */
+	if (game_engine_bomb_silent_death(killing_player_index, dead_player_index, friendly_fire))
+	{
+		dead_player->death_time = game_time_get();
+		dead_player->respawn_timer = game_engine_bomb_silent_respawn_ticks();
+		return;
+	}
+#endif
+#ifdef HALO_GAME_BROWSER
 	/* the game list's statistics recorder (port/linux/game/game_stats.c):
 	who killed whom, as this machine's game has it; it changes nothing */
 	game_stats_player_killed(killing_player_index, dead_player_index, friendly_fire);
@@ -9223,6 +9234,14 @@ boolean game_engine_should_spawn_player(
 		{
 			should_spawn = FALSE;
 		}
+#ifdef HALO_GAME_BROWSER
+		/* port: none during a Bomb goal's blast (game_engine_bomb.c): the
+		dead come back as its countdown starts, at their own end */
+		else if (game_engine_bomb_holds_spawns())
+		{
+			should_spawn = FALSE;
+		}
+#endif
 		else if (player->statistics.deaths == 0)
 		{
 			should_spawn = TRUE;

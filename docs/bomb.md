@@ -48,10 +48,21 @@ stand). A goal scores a round. The first team to the score limit wins.
   HUD counts the arming down. Leaving the goal or dropping the bomb starts
   it over.
 - **A goal** gives the team a round, takes the bomb from its carrier and
-  resets it. With "new round on score" (every preset), every player is
-  sent back to one of their team's starting locations nearest their own
-  goal, whole again (no death is counted), and the round timer starts
-  over.
+  resets it, and the bomb goes off in the goal: everyone within 5 world
+  units (about 15 meters, a Blood Gulch base and around it) dies and the
+  bodies are thrown out and up. It's drawn as a cluster and two rings of
+  the map's grenade explosions (the globals' frag and plasma), with their
+  sounds and none of their damage, on every machine. The other team's dead
+  are the scorer's kills; the scoring team's own (the carrier too) count
+  nothing: no death, suicide, betrayal, message or respawn penalty.
+- **After a goal**, with "new round on score" (every preset): the blast is
+  seen for 3 seconds, then every player is sent back to one of their
+  team's starting locations nearest their own goal, whole again (no death
+  is counted), the dead respawning there, and a "3", "2", "1" countdown
+  runs. Until it ends nobody can move, jump, fire, throw or strike (they
+  can look around), the bomb can't be picked up and the round timer stands
+  still. The host's state carries the countdown (`hold_ticks`, a spare
+  byte of the game state, which earlier builds ignore).
 - **Round time.** A round that runs out ends with no score: a new round
   starts the same way. The last 5 seconds tick aloud.
 - **Untouched reset.** A bomb on the ground for the reset time (30 seconds)
@@ -76,7 +87,8 @@ At the top of each player's view (split screen too):
   at the screen's edge shows none), or `ARMING 2` while arming. Everyone
   else sees `YOUR TEAM HAS THE BOMB` or `THE ENEMY HAS THE BOMB`.
 - The messages: "You scored! 2 to 0", "The enemy scored. 0 to 2", "Round
-  3", "Time is up. Round 3", "The bomb was reset." The pickup shows no
+  3", "Time is up. Round 3", "The bomb was reset.", and a goal's
+  countdown, "3", "2", "1". The pickup shows no
   line of its own: the stock "Picked up the odd ball" is hidden in Bomb
   games, and the HUD's line says who has it.
 - The bottom-right score and the postgame report show "Rounds".

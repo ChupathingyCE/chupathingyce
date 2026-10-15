@@ -4667,6 +4667,16 @@ void players_update_before_game(
 					control_data.grenade_index = action->desired_grenade_index;
 					control_data.zoom_level = action->desired_zoom_level;
 					control_data.aiming_speed = 0;
+#ifdef HALO_GAME_BROWSER
+					/* port: held still for a Bomb goal's countdown
+					(game_engine_bomb.c): looking about, nothing more */
+					if (game_engine_bomb_frozen())
+					{
+						control_data.control_flags &= FLAG(_unit_control_crouch_modifier_bit);
+						control_data.throttle = *global_zero_vector3d;
+						control_data.primary_trigger = 0.f;
+					}
+#endif
 
 					match_assert(
 						"c:\\halo\\SOURCE\\game\\players.c",
