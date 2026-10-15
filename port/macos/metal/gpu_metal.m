@@ -2088,6 +2088,14 @@ static void archive_save(void)
 	pthread_rwlock_unlock(&archive_lock);
 }
 
+static void archive_save_at_exit(void)
+{
+	@autoreleasepool
+	{
+		archive_save();
+	}
+}
+
 /* the pipeline for a descriptor, or NSNull, logged, if it can't be made
 (as a GL link failure: the draws are skipped): loaded from the archive when
 it has it, else compiled and added to it. Safe on any thread. */
@@ -3977,7 +3985,12 @@ static void gpu_metal_initialize(uint32_t flags, struct gpu_capabilities *capabi
 		queue = [device newCommandQueue];
 		/* (after the device: the archive is the device's, and named by its GPU) */
 		if (!(flags & GPU_INITIALIZE_NO_PIPELINE_ARCHIVE))
+		{
 			archive_open();
+			/* (what draws made since the last warm_end, kept for the next
+			launch; debug.exit_after and quitting both end in exit) */
+			atexit(archive_save_at_exit);
+		}
 #if TARGET_OS_VISION
 		if (flags & GPU_INITIALIZE_IMMERSIVE)
 		{

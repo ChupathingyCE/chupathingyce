@@ -32,6 +32,7 @@ Conventions carried over from the Xbox:
 #include "halo_display.h"
 #include "metal_overlay.h"
 #include "metal_platform.h"
+#include "shader_list_learn.h"
 #include "halo_stereo.h"
 #include "halo_stereo_window.h"
 #include "halo_stereo_cutscene.h"
@@ -2414,8 +2415,54 @@ static void shader_list_recorded_load(const char *path)
 	fclose(file);
 }
 
+/* where what the lists missed is recorded, and read back by
+halo_shader_list_warm: debug.shader_list_record when set; else, with
+debug.shader_list_warm, the data folder's metal-shader-lists, so that a map
+played once warms what it drew the next time it loads (lists learned on
+this Mac, beside any the app carries); else nowhere */
+static const char *shader_list_directory(void)
+{
+	static char learned[512];
+
+	if (*config_string("debug.shader_list_record"))
+		return config_string("debug.shader_list_record");
+	if (!config_boolean("debug.shader_list_warm"))
+		return NULL;
+	if (!learned[0])
+		snprintf(learned, sizeof(learned), "%s/metal-shader-lists", platform_data_root());
+	return learned;
+}
+
+/* the whole of a file, NUL-terminated (its size in *size), or NULL */
+static char *shader_list_file_read(const char *path, uint32_t *size)
+{
+	FILE *file = fopen(path, "rb");
+	char *text = NULL;
+	long length;
+
+	*size = 0;
+	if (!file)
+		return NULL;
+	if (fseek(file, 0, SEEK_END) == 0 && (length = ftell(file)) > 0 && length < 64L * 1024 * 1024 &&
+		fseek(file, 0, SEEK_SET) == 0 && (text = malloc((size_t)length + 1)) != NULL)
+	{
+		if (fread(text, 1, (size_t)length, file) == (size_t)length)
+		{
+			text[length] = 0;
+			*size = (uint32_t)length;
+		}
+		else
+		{
+			free(text);
+			text = NULL;
+		}
+	}
+	fclose(file);
+	return text;
+}
+
 /* a line for the map's list, made while drawing: logged, and recorded
-under debug.shader_list_record (MSL backends only: the lists are Metal's) */
+(shader_list_directory; MSL backends only: the lists are Metal's) */
 static void shader_list_made(const char *line)
 {
 	char path[512];
@@ -2427,8 +2474,7 @@ static void shader_list_made(const char *line)
 	platform_log("shader list %s: made while drawing: %s", shader_list.map, line);
 	if (!shader_list.record_checked)
 	{
-		shader_list.record_directory = *config_string("debug.shader_list_record") ?
-			config_string("debug.shader_list_record") : NULL;
+		shader_list.record_directory = shader_list_directory();
 		shader_list.record_checked = 1;
 		if (shader_list.record_directory)
 			posix_make_directory(shader_list.record_directory);
@@ -2566,30 +2612,45 @@ static struct vertex_shader_object *shader_list_program(struct vertex_shader_obj
 
 void halo_shader_list_warm(char const *map_name)
 {
-	const char *base = map_name;
-	const char *cursor;
-	char *text, *line, *next;
-	uint32_t size;
+	char *text, *line, *next, *bundled = NULL, *learned = NULL;
+	const char *directory;
+	uint32_t size, bundled_size, learned_size = 0;
 	unsigned long vertex_count = 0, pixel_count = 0, pipeline_count = 0, missing = 0;
 	double started;
 	int pass;
 
-	for (cursor = map_name; *cursor; cursor++)
-	{
-		if (*cursor == '\\' || *cursor == '/')
-			base = cursor + 1;
-	}
-	snprintf(shader_list.map, sizeof(shader_list.map), "%s", base);
-	if (!device.gl_ready || !config_boolean("debug.shader_list_warm") ||
-		!(size = gpu_warm_list_read(shader_list.map, NULL, 0)))
+	metal_shader_list_map_name(map_name, shader_list.map, sizeof(shader_list.map));
+	if (!shader_list.map[0] || !device.gl_ready || !config_boolean("debug.shader_list_warm"))
 		return;
-	text = malloc(size + 1);
-	if (!text || gpu_warm_list_read(shader_list.map, text, size) != size)
+	/* the app's list (shader-lists/MAP.txt in its resources), then the one
+	recorded in earlier runs (shader_list_directory) */
+	if ((bundled_size = gpu_warm_list_read(shader_list.map, NULL, 0)) != 0)
 	{
-		free(text);
+		bundled = malloc(bundled_size);
+		if (!bundled || gpu_warm_list_read(shader_list.map, bundled, bundled_size) != bundled_size)
+			bundled_size = 0;
+	}
+	if ((directory = shader_list_directory()) != NULL)
+	{
+		char path[512];
+
+		snprintf(path, sizeof(path), "%s/%s.txt", directory, shader_list.map);
+		learned = shader_list_file_read(path, &learned_size);
+	}
+	size = (uint32_t)metal_shader_list_join(bundled, bundled_size, learned, learned_size, NULL, 0);
+	text = size ? malloc((size_t)size + 1) : NULL;
+	if (text)
+	{
+		metal_shader_list_join(bundled, bundled_size, learned, learned_size, text, size);
+		text[size] = 0;
+	}
+	free(bundled);
+	free(learned);
+	if (!text)
+	{
+		platform_log("shader list %s: none to warm yet", shader_list.map);
 		return;
 	}
-	text[size] = 0;
 	started = halo_frame_trace_milliseconds();
 	shader_list_warming = TRUE;
 	gpu_warm_begin();
@@ -5097,6 +5158,16 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		ui_dim = 0.0f;
 		xgpu_texture_cache_begin_frame();
 		shader_list_take_pipelines();
+		/* a map newly loaded: its shader list warmed before its first frame,
+		under the loading screen, and what it then draws recorded */
+		{
+			char const *cache_file_loaded_map_name(void);
+			char loaded[sizeof(shader_list.map)];
+
+			if (metal_shader_list_map_name(cache_file_loaded_map_name(), loaded, sizeof(loaded)) &&
+				strcmp(loaded, shader_list.map))
+				halo_shader_list_warm(loaded);
+		}
 	}
 	device.frame++;
 	input_replay_frame(lroundf(screen_width * screen_scale[0]), lroundf(SCREEN_HEIGHT * screen_scale[1]));
