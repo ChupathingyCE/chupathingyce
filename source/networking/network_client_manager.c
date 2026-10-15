@@ -3341,6 +3341,31 @@ boolean network_game_client_set_team(
 }
 
 
+/* ... and a split screen's players on alternate teams (the network test's
+split screen team games: port/linux/game/network_test.c) */
+boolean network_game_client_split_teams(
+	void)
+{
+	struct network_game_client *client = global_network_game_client_get();
+	boolean success = FALSE;
+	char team_index = 0;
+	short player_index;
+
+	if (!client || client->state != _network_game_client_state_pregame)
+		return FALSE;
+	for (player_index = 0; player_index < MAXIMUM_NUMBER_OF_PLAYERS; player_index++)
+	{
+		struct network_player player = client->game.players[player_index];
+
+		if (network_player_is_valid(&player) && player.machine_index == (char)client->machine_index)
+		{
+			player.team_index = team_index;
+			team_index = (char)(1 - team_index);
+			success |= network_game_client_update_local_player_data(client, &player);
+		}
+	}
+	return success;
+}
 #ifdef HALO_GAME_BROWSER
 /* the game list's game whose invite this machine joined (the Online Games
 screen, port/linux/game/browser_screen.c): joined once its host's game is

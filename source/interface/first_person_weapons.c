@@ -1562,6 +1562,16 @@ static void first_person_weapon_message(
 		{
 			state= (short)first_person_weapon_state_from_weapon_message(message_type);
 		}
+#ifdef HALO_GAME_BROWSER
+		/* (port: a melee-only Bomb game's unseen fists go straight to rest:
+		none of the pistol's draw or holster, game_engine_bomb.c) */
+		if ((state==_first_person_weapon_state_ready || state==_first_person_weapon_state_put_away) &&
+			first_person_weapon->weapon_index!=NONE &&
+			game_engine_bomb_hides_weapon(weapon_get(first_person_weapon->weapon_index)->definition_index))
+		{
+			state= _first_person_weapon_state_idle;
+		}
+#endif
 		if (state!=NONE)
 		{
 			first_person_weapon_set_state(local_player_index, state, TRUE);

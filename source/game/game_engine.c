@@ -3663,7 +3663,7 @@ static void game_engine_rasterize_bomb(
 		draw_string_set_color(&color);
 		rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, carrier_line);
 	}
-	/* the planted bomb's countdown, large in the middle */
+	/* the planted bomb's countdown, large, in the middle */
 	{
 		long seconds = game_engine_bomb_countdown();
 
@@ -3690,8 +3690,16 @@ static void game_engine_rasterize_bomb(
 			usnprintf(countdown, NUMBEROF(countdown), L"%d", (int)seconds);
 			bounds = render.camera.window_bounds;
 			offset_rectangle2d(&bounds, -render.camera.viewport_bounds.x0, -render.camera.viewport_bounds.y0);
-			bounds.y0 = (short)((bounds.y0 + bounds.y1) / 2 - 60);
-			bounds.y1 = (short)(bounds.y0 + MAX(40, tallest + 8));
+			{
+				/* (three times the font's size, about the middle of the
+				view's upper half: rasterizer_text_set_scale) */
+				short center_y = (short)((3 * bounds.y0 + 2 * bounds.y1) / 5);
+				short height = (short)MAX(16, tallest + 4);
+
+				bounds.y0 = (short)(center_y - height / 2);
+				bounds.y1 = (short)(bounds.y0 + height);
+				rasterizer_text_set_scale(3.0f, (real)((bounds.x0 + bounds.x1) / 2), (real)center_y);
+			}
 			color.red = 1.0f;
 			color.green = 0.85f;
 			color.blue = 0.2f;
@@ -3699,6 +3707,7 @@ static void game_engine_rasterize_bomb(
 				NONE, 2, 0, &color);
 			draw_string_set_color(&color);
 			rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, countdown);
+			rasterizer_text_set_scale(1.0f, 0.0f, 0.0f);
 		}
 	}
 	draw_string_set_format(NONE, 0, 0);

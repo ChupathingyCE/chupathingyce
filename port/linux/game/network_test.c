@@ -1316,6 +1316,12 @@ void network_test_update(
 				platform_log("network test: split screen player %d added", network_test.local_players_added + 1);
 				network_test.local_players_added++;
 			}
+			/* (a split screen: its players on both teams, for a team game) */
+			if (network_test.local_players > 1 && network_test.local_players_added == network_test.local_players &&
+				network_test.setup_seconds >= network_test.start_delay - 1.0f && !network_test.team_set)
+			{
+				network_test.team_set = network_game_client_split_teams();
+			}
 			if (network_test.setup_seconds >= network_test.start_delay)
 			{
 				network_test.started = TRUE;
