@@ -19,10 +19,7 @@ and the debug keyboard that the game's console reads.
 #include "delta.h"
 #include "crash_report.h"
 #include "frame_limit.h"
-
-/* metal_host.m */
-int macos_metal_attach(void *window);
-void macos_metal_set_vsync(int vsync);
+#include "metal_platform.h"
 
 #include <SDL3/SDL.h>
 #include <stdio.h>
@@ -1068,20 +1065,19 @@ static Uint64 frame_interval_ns(void)
 }
 
 #endif
-void platform_video_swap(void)
+/* with vsync off, holds the game to display.max_fps, after each frame is
+handed to the GPU (D3DDevice_Present, after gpu_present). The Metal renderer
+presents its own drawables; there is no GL buffer swap to pace. */
+void platform_video_frame_limit(void)
 {
 #ifndef HALO_ANDROID
 	static uint64_t next_frame;
-	Uint64 interval, now, wait;
+	Uint64 interval, wait;
 
-#endif
-	SDL_GL_SwapWindow(platform_window);
-#ifndef HALO_ANDROID
 	interval = frame_interval_ns();
 	if (!interval)
 		return;
-	now = SDL_GetTicksNS();
-	wait = metal_frame_wait_ns(now, &next_frame, interval);
+	wait = metal_frame_wait_ns(SDL_GetTicksNS(), &next_frame, interval);
 	if (wait)
 		SDL_DelayPrecise(wait);
 #endif

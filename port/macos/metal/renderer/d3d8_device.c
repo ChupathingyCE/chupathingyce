@@ -31,6 +31,7 @@ Conventions carried over from the Xbox:
 #include "port_config.h"
 #include "halo_display.h"
 #include "metal_overlay.h"
+#include "metal_platform.h"
 #include "halo_stereo.h"
 #include "halo_stereo_window.h"
 #include "halo_stereo_cutscene.h"
@@ -5089,6 +5090,9 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		}
 		else
 			render_interpolation_next_frame_due(gpu_present(back_buffer->target.texture));
+		/* display.max_fps with vsync off (sdl_platform.c): the Metal path's
+		equivalent of the OpenGL renderer's platform_video_swap limit */
+		platform_video_frame_limit();
 		hud_layer_ui = FALSE;
 		ui_dim = 0.0f;
 		xgpu_texture_cache_begin_frame();
@@ -5131,7 +5135,8 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 	pthread_mutex_lock(&vertical_blank_lock);
 	/* the Xbox keeps at most two frames queued behind its 60 Hz display;
 	with interpolation, frames come at the real display's rate instead,
-	paced by vsync (platform_video_swap); a frame with stereo's eyes is
+	paced by the layer's display sync (display.vsync) or display.max_fps
+	(platform_video_frame_limit); a frame with stereo's eyes is
 	paced by the Compositor's frames (host_theater_frame_begin waits for
 	each), at 90 Hz or the rate display.frame_repeat sets, so the Xbox's
 	60 Hz queue never holds it back, interpolation or not */

@@ -3183,9 +3183,17 @@ static void pacing_percentiles(double *times, unsigned long count, double *media
 
 static void pacing_start(uint32_t flags)
 {
-	/* Native macOS uses CAMetalLayer display synchronization, not UIKit's
-	CADisplayLink. Keep the experimental visionOS scheduling policy off. */
-	(void)flags;
+	/* Off on macOS, whatever display.frame_pacing says. The scheduler holds
+	each drawable for whole refreshes (presentDrawable:afterMinimumDuration:),
+	which needs the refresh period from a UIKit CADisplayLink; macOS has none
+	here, so the period would stay a guessed 60 Hz and be wrong on 120 Hz
+	ProMotion and other displays. Holding drawables would also defeat
+	display.vsync off. Instead the CAMetalLayer's display sync follows
+	display.vsync (metal_host.m) and, with it off, display.max_fps limits
+	the frame rate (platform_video_frame_limit, sdl_platform.c). Present
+	still measures frames for the 600-frame report. */
+	if (!(flags & GPU_INITIALIZE_PACING_OFF))
+		platform_log("Metal: display.frame_pacing is not used on macOS; display.vsync and display.max_fps pace frames");
 	pacing.off = YES;
 	pacing.any_rate = NO;
 	pacing.refreshes = 1;
