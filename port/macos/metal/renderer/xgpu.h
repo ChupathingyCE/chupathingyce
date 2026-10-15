@@ -190,6 +190,7 @@ struct xgpu_render_target
 	unsigned long width, height;
 	BOOL depth;
 	gpu_texture texture;
+	uint8_t sample_count; /* requested MSAA, also part of the target cache key */
 	/* pixels per unit of width and height: more than 1 for the screen's
 	targets when the game draws at the display's resolution (d3d8_device.c) */
 	float scale[2];

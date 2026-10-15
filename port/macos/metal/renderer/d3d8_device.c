@@ -713,6 +713,7 @@ static struct render_target_entry *render_target_get_layer(const D3DSurface *sur
 	/* a foveated eye's target: its eye (1 or 2) and allocated size */
 	unsigned char foveated_eye = 0;
 	unsigned long allocated_width = 0, allocated_height = 0;
+	uint8_t samples = 1;
 
 	if (!surface || !surface->Data)
 		return NULL;
@@ -725,6 +726,10 @@ static struct render_target_entry *render_target_get_layer(const D3DSurface *sur
 		scale[0] = screen_scale[0];
 		scale[1] = screen_scale[1];
 		layer = stereo_layer;
+		const char *aa = config_string("display.anti_aliasing");
+		if (!strcmp(aa, "msaa2x")) samples = 2;
+		else if (!strcmp(aa, "msaa4x")) samples = 4;
+		else if (!strcmp(aa, "msaa8x")) samples = 8;
 		/* head-tracked stereo: the mono layer (a frame without eyes, which
 		presents mono on the theater screen) keeps the theater picture's size
 		and shape; the eyes and the HUD take the views' */
@@ -783,7 +788,7 @@ static struct render_target_entry *render_target_get_layer(const D3DSurface *sur
 	{
 		if (entry->target.data != surface->Data || entry->target.width != width ||
 			entry->target.height != height || entry->target.depth != depth || entry->layer != layer ||
-			entry->target.foveated_eye != foveated_eye)
+			entry->target.foveated_eye != foveated_eye || entry->target.sample_count != samples)
 			continue;
 		/* a foveated eye's target is keyed on its allocation, not its scale:
 		the eased render quality changes the map's sizes from frame to frame,
@@ -806,6 +811,7 @@ static struct render_target_entry *render_target_get_layer(const D3DSurface *sur
 	entry->target.width = width;
 	entry->target.height = height;
 	entry->target.depth = depth;
+	entry->target.sample_count = samples;
 	entry->target.scale[0] = scale[0];
 	entry->target.scale[1] = scale[1];
 	entry->target.gl_width = (unsigned long)(width * scale[0] + 0.5f);
@@ -819,6 +825,7 @@ static struct render_target_entry *render_target_get_layer(const D3DSurface *sur
 		texture.type = GPU_TEXTURE_2D;
 		texture.format = depth ? GPU_FORMAT_DEPTH_STENCIL : GPU_FORMAT_BGRA8;
 		texture.usage = GPU_USAGE_RENDER_TARGET;
+		texture.sample_count = samples;
 		texture.foveated_eye = foveated_eye;
 		texture.width = (uint32_t)entry->target.allocated_width;
 		texture.height = (uint32_t)entry->target.allocated_height;
@@ -2547,17 +2554,17 @@ static void shader_list_take_pipelines(void)
 	{
 		struct shader_list_name *vertex = shader_list_name(built.vertex_shader);
 		struct shader_list_name *pixel = shader_list_name(built.pixel_shader);
-		char line[192], kinds[2 * GPU_ATTRIBUTE_COUNT + 1];
+		char line[224], kinds[2 * GPU_ATTRIBUTE_COUNT + 1];
 		int index;
 
 		if (!vertex || !pixel || vertex->kind != 1 || pixel->kind != 2)
 			continue;
 		for (index = 0; index < GPU_ATTRIBUTE_COUNT; index++)
 			snprintf(kinds + 2 * index, 3, "%02x", built.attribute_kinds[index]);
-		snprintf(line, sizeof(line), "pipeline %016llx.%u.%lx %016llx %u %u %u %u %u %u %u %s %u %u",
+		snprintf(line, sizeof(line), "pipeline %016llx.%u.%lx %016llx %u %u %u %u %u %u %u %s %u %u %u",
 			(unsigned long long)vertex->hash, vertex->variant, vertex->packed_mask, (unsigned long long)pixel->hash,
 			built.blend, built.source, built.destination, built.operation, built.write_mask, built.exact_borders,
-			built.depth, kinds, built.alpha_source, built.alpha_destination);
+			built.depth, kinds, built.alpha_source, built.alpha_destination, built.sample_count);
 		shader_list_made(line);
 	}
 }
@@ -2671,7 +2678,7 @@ void halo_shader_list_warm(char const *map_name)
 		for (line = text; line && *line; line = next)
 		{
 			char kind[16], first[600], second[64];
-			unsigned int values[9];
+			unsigned int values[10] = { 0 };
 
 			next = strchr(line, '\n');
 			if (next)
@@ -2728,9 +2735,9 @@ void halo_shader_list_warm(char const *map_name)
 				int fields;
 
 				memset(&description, 0, sizeof(description));
-				fields = sscanf(line, "pipeline %llx.%u.%lx %llx %u %u %u %u %u %u %u %63s %u %u", &vertex_hash, &variant,
+				fields = sscanf(line, "pipeline %llx.%u.%lx %llx %u %u %u %u %u %u %u %63s %u %u %u", &vertex_hash, &variant,
 					&mask, &pixel_hash, &values[0], &values[1], &values[2], &values[3], &values[4], &values[5], &values[6],
-					kinds, &values[7], &values[8]);
+					kinds, &values[7], &values[8], &values[9]);
 				/* (a line from before the alpha factors were listed blends
 				alpha as color) */
 				if (fields == 12)
@@ -2738,7 +2745,7 @@ void halo_shader_list_warm(char const *map_name)
 					values[7] = values[1];
 					values[8] = values[2];
 				}
-				if ((fields != 12 && fields != 14) || variant > 1 || strlen(kinds) != 2 * GPU_ATTRIBUTE_COUNT ||
+				if ((fields != 12 && fields != 14 && fields != 15) || variant > 1 || strlen(kinds) != 2 * GPU_ATTRIBUTE_COUNT ||
 					!hex_bytes(kinds, description.attribute_kinds, GPU_ATTRIBUTE_COUNT) ||
 					!(description.pixel_shader = shader_list_pixel((uint64_t)pixel_hash)))
 				{
@@ -2754,6 +2761,12 @@ void halo_shader_list_warm(char const *map_name)
 				description.depth = (uint8_t)values[6];
 				description.alpha_source = (uint8_t)values[7];
 				description.alpha_destination = (uint8_t)values[8];
+				if (fields == 15 && values[9] != 1 && values[9] != 2 && values[9] != 4 && values[9] != 8)
+				{
+					missing++;
+					continue;
+				}
+				description.sample_count = fields == 15 ? (uint8_t)values[9] : 1;
 				/* (one for each object compiled with the line's variant and mask) */
 				while ((program = shader_list_program(program, (uint64_t)vertex_hash, (int)variant, mask, TRUE)))
 				{

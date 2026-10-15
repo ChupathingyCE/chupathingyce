@@ -105,6 +105,7 @@ struct gpu_texture_description
 	the mono screen's targets, which a synthetic map fills */
 	uint8_t foveated_eye;
 	uint32_t width, height, depth, levels;
+	uint8_t sample_count; /* render targets: 0/1 single-sample; otherwise 2, 4 or 8 */
 };
 
 gpu_texture gpu_texture_create(const struct gpu_texture_description *description);
@@ -364,7 +365,7 @@ struct gpu_pipeline_description
 	gpu_shader vertex_shader, pixel_shader;
 	uint8_t blend, source, destination, operation;
 	uint8_t write_mask, exact_borders, depth, alpha_source;
-	uint8_t alpha_destination, pad[3];
+	uint8_t alpha_destination, sample_count, pad[2];
 	uint8_t attribute_kinds[GPU_ATTRIBUTE_COUNT];
 };
 
