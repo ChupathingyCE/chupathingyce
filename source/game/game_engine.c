@@ -586,6 +586,7 @@ struct network_game *network_game_server_get_game(struct network_game_server *se
 #include "sound/sound_classes.h"
 #include "text/draw_string.h"
 #include "text/font_group.h"
+#include "cache/cache_files.h"
 #include "text/text_group.h"
 #include "text/unicode.h"
 #include "units/bipeds.h"
@@ -3662,6 +3663,53 @@ static void game_engine_rasterize_bomb(
 		draw_string_set_color(&color);
 		rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, carrier_line);
 	}
+	/* the planted bomb's countdown, large, in the middle */
+	{
+		long seconds = game_engine_bomb_countdown();
+
+		if (seconds > 0)
+		{
+			wchar_t countdown[8];
+			long font_index = NONE;
+			struct tag_iterator fonts;
+			long tag_index;
+			short tallest = 0;
+
+			/* (the map's tallest font: digits as large as the map has) */
+			tag_iterator_new(&fonts, FONT_GROUP_TAG);
+			while ((tag_index = tag_iterator_next(&fonts)) != NONE)
+			{
+				struct font_header *font = font_definition_get(tag_index);
+
+				if (font->ascending_height + font->descending_height > tallest)
+				{
+					tallest = font->ascending_height + font->descending_height;
+					font_index = tag_index;
+				}
+			}
+			usnprintf(countdown, NUMBEROF(countdown), L"%d", (int)seconds);
+			bounds = render.camera.window_bounds;
+			offset_rectangle2d(&bounds, -render.camera.viewport_bounds.x0, -render.camera.viewport_bounds.y0);
+			{
+				/* (three times the font's size, about the middle of the
+				view's upper half: rasterizer_text_set_scale) */
+				short center_y = (short)((3 * bounds.y0 + 2 * bounds.y1) / 5);
+				short height = (short)MAX(16, tallest + 4);
+
+				bounds.y0 = (short)(center_y - height / 2);
+				bounds.y1 = (short)(bounds.y0 + height);
+				rasterizer_text_set_scale(3.0f, (real)((bounds.x0 + bounds.x1) / 2), (real)center_y);
+			}
+			color.red = 1.0f;
+			color.green = 0.85f;
+			color.blue = 0.2f;
+			draw_string_set_draw_mode(font_index != NONE ? font_index : hud_globals->messaging.multi_player_font.index,
+				NONE, 2, 0, &color);
+			draw_string_set_color(&color);
+			rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, countdown);
+			rasterizer_text_set_scale(1.0f, 0.0f, 0.0f);
+		}
+	}
 	draw_string_set_format(NONE, 0, 0);
 }
 #endif
@@ -4584,6 +4632,17 @@ void game_engine_player_killed(
 	/* port: a killer who has left the game since is no one's kill */
 	if (killing_player_index != NONE && !player_try_and_get(killing_player_index))
 		killing_player_index = NONE;
+#ifdef HALO_GAME_BROWSER
+	/* port: a Bomb goal's blast taking the scoring team's own, which counts
+	nothing: no message, no statistics, no penalty; back as the countdown
+	starts (game_engine_bomb.c) */
+	if (game_engine_bomb_silent_death(killing_player_index, dead_player_index, friendly_fire))
+	{
+		dead_player->death_time = game_time_get();
+		dead_player->respawn_timer = game_engine_bomb_silent_respawn_ticks();
+		return;
+	}
+#endif
 #ifdef HALO_GAME_BROWSER
 	/* the game list's statistics recorder (port/linux/game/game_stats.c):
 	who killed whom, as this machine's game has it; it changes nothing */
@@ -9223,6 +9282,14 @@ boolean game_engine_should_spawn_player(
 		{
 			should_spawn = FALSE;
 		}
+#ifdef HALO_GAME_BROWSER
+		/* port: none during a Bomb goal's blast (game_engine_bomb.c): the
+		dead come back as its countdown starts, at their own end */
+		else if (game_engine_bomb_holds_spawns())
+		{
+			should_spawn = FALSE;
+		}
+#endif
 		else if (player->statistics.deaths == 0)
 		{
 			should_spawn = TRUE;

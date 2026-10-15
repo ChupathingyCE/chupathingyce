@@ -546,6 +546,10 @@ static const struct config_setting config_settings[] =
 		"In an automated test Bomb game (host:<map>:grifball), this many seconds\n"
 		"in (and again each time that long after) the last player stands on the\n"
 		"bomb, and three seconds later in the goal its team attacks; 0 never." },
+	{ "debug.network_test_melee", _config_real, "0.0", "HALO_NETWORK_TEST_MELEE", _environment_value, _platform_all,
+		"Every this many seconds an automated test host brings its last player in\n"
+		"front of its first, and a player strikes the other with the melee\n"
+		"button: the host's player, then the joining machine's, in turn; 0 never." },
 	{ "debug.network_test_pickup_weapon", _config_string, "\"\"", "HALO_NETWORK_TEST_PICKUP_WEAPON", _environment_value,
 		_platform_all,
 		"The weapon network_test_pickup stands the player on: the first whose tag\n"

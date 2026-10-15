@@ -4353,12 +4353,19 @@ boolean biped_update(
 					animations, through a weapon it did not check) */
 					if (weapon_index == NONE)
 					{
+						unit_animation_start_unarmed_melee(biped_index);
 						biped->biped.player_melee_ticks = UNARMED_MELEE_TICKS;
 						biped->biped.player_melee_attack_tick = UNARMED_MELEE_TICKS / 2;
 					}
 					else
 					{
 					weapon_stop_reload(weapon_index);
+#ifdef HALO_GAME_BROWSER
+					/* (port: a melee-only Bomb game's unseen fists, held
+					unarmed, swing as no weapon does) */
+					if (game_engine_bomb_hides_weapon(weapon_get(weapon_index)->definition_index))
+						unit_animation_start_unarmed_melee(biped_index);
+#endif
 					first_person_weapon_message_from_unit(
 						biped_index,
 						_first_person_weapon_message_melee);

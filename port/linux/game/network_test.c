@@ -104,6 +104,7 @@ void network_distributed_item_statistics(long *creates, long *deletes, long *fai
 void network_damage_statistics(long *sent_reports, long *dealt_reports, long *rejected_reports, long *replayed_events);
 /* xinput_sdl.c's */
 void test_input_hold_action(int hold);
+void test_input_hold_melee(int hold);
 
 enum
 {
@@ -150,6 +151,7 @@ static struct
 	real vehicle_time;
 	real pickup_time;
 	real bomb_interval;
+	real melee_interval;
 	char pickup_weapon[64];
 	long score_to_win;
 	long logged_time;
@@ -250,6 +252,7 @@ static void network_test_read_settings(
 	network_test.vehicle_time = (real)config_real("debug.network_test_vehicle");
 	network_test.pickup_time = (real)config_real("debug.network_test_pickup");
 	network_test.bomb_interval = (real)config_real("debug.network_test_bomb");
+	network_test.melee_interval = (real)config_real("debug.network_test_melee");
 	network_test.local_players = (short)PIN(config_integer("debug.network_test_local_players"), 1, 4);
 	snprintf(network_test.pickup_weapon, sizeof(network_test.pickup_weapon), "%s",
 		config_string("debug.network_test_pickup_weapon"));
@@ -890,6 +893,79 @@ static void network_test_bomb(
 }
 #endif
 
+/* debug.network_test_melee: in each interval's first second the host brings
+its last player a step in front of its first; from its second to its fifth
+the striking machine's player (the host's in even intervals, the joining
+machine's in odd ones) faces the other and holds the melee button, as a
+player does */
+static void network_test_melee(
+	void)
+{
+	long interval = MAX(TICKS_PER_SECOND * 6, (long)(network_test.melee_interval * TICKS_PER_SECOND));
+	long phase = game_time_get() % interval;
+	boolean host_strikes = (game_time_get() / interval) % 2 == 0;
+	boolean window = phase >= 2 * TICKS_PER_SECOND && phase < 5 * TICKS_PER_SECOND;
+	boolean striking = window && host_strikes == (network_test.mode == _network_test_host);
+	long local_player_index = local_player_get_player_index(0);
+	struct data_iterator iterator;
+	struct player_datum *player;
+	struct player_datum *first = NULL;
+	struct player_datum *last = NULL;
+	struct player_datum *target = NULL;
+	static boolean logged;
+
+	data_iterator_new(&iterator, player_data);
+	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+	{
+		if (!first)
+			first = player;
+		last = player;
+		if (iterator.datum_index != local_player_index && player->unit_index != NONE && !target)
+			target = player;
+	}
+	if (network_test.mode == _network_test_host && phase < TICKS_PER_SECOND && first && last != first &&
+		first->unit_index != NONE && last->unit_index != NONE)
+	{
+		struct object_datum *center = object_get(first->unit_index);
+		real_point3d position = center->object.position;
+
+		position.x += center->object.forward.i * 0.8f;
+		position.y += center->object.forward.j * 0.8f;
+		position.z += 0.1f;
+		object_set_position(last->unit_index, &position, NULL, NULL);
+	}
+	/* (the struck player faces the blow too) */
+	if (window && target && local_player_index != NONE && player_get(local_player_index)->unit_index != NONE)
+	{
+		struct object_datum *unit = object_get(player_get(local_player_index)->unit_index);
+		struct object_datum *target_object = object_get(target->unit_index);
+		real_vector3d direction;
+
+		direction.i = target_object->object.bounding_sphere_center.x - unit->object.bounding_sphere_center.x;
+		direction.j = target_object->object.bounding_sphere_center.y - unit->object.bounding_sphere_center.y;
+		direction.k = target_object->object.bounding_sphere_center.z - unit->object.bounding_sphere_center.z;
+		if (normalize3d(&direction) > 0.0f)
+			player_control_set_facing(0, &direction);
+		if (!striking)
+		{
+			logged = FALSE;
+			test_input_hold_melee(FALSE);
+			return;
+		}
+		if (!logged)
+			platform_log("network test: melee: player %ld strikes player %ld",
+				(long)DATUM_INDEX_TO_ABSOLUTE_INDEX(local_player_index),
+				(long)(target - (struct player_datum *)xbox_pointer(player_data->data)));
+		logged = TRUE;
+		test_input_hold_melee(TRUE);
+	}
+	else
+	{
+		logged = FALSE;
+		test_input_hold_melee(FALSE);
+	}
+}
+
 void network_test_update(
 	boolean main_menu_loaded,
 	real seconds)
@@ -945,6 +1021,8 @@ void network_test_update(
 		network_test.played = TRUE;
 	if (game_in_progress() && game_time_get() < network_test.logged_time)
 		network_test.logged_time = 0;
+	if (network_test.melee_interval > 0.0f && game_in_progress() && !main_menu_loaded)
+		network_test_melee();
 	if (game_in_progress() && !main_menu_loaded && game_time_get() - network_test.logged_time >= TICKS_PER_SECOND)
 	{
 		network_test.logged_time = game_time_get();
@@ -1237,6 +1315,12 @@ void network_test_update(
 			{
 				platform_log("network test: split screen player %d added", network_test.local_players_added + 1);
 				network_test.local_players_added++;
+			}
+			/* (a split screen: its players on both teams, for a team game) */
+			if (network_test.local_players > 1 && network_test.local_players_added == network_test.local_players &&
+				network_test.setup_seconds >= network_test.start_delay - 1.0f && !network_test.team_set)
+			{
+				network_test.team_set = network_game_client_split_teams();
 			}
 			if (network_test.setup_seconds >= network_test.start_delay)
 			{

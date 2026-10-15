@@ -3412,6 +3412,72 @@ void unit_animation_start_action(
 	return;
 }
 
+/* port: a player with no weapon (a gametype's loadout of none) swings as
+with a pistol: the player's biped has no melee of its own unarmed, so its
+blow showed nothing. Only the action's animation is the pistol's: its weapon
+class stays unarmed. */
+void unit_animation_start_unarmed_melee(
+	long unit_index)
+{
+	struct unit_datum *unit = unit_get(unit_index);
+	struct unit_definition *unit_definition = unit_definition_get(unit->definition_index);
+	struct animation_graph *animation_graph = animation_graph_definition_get(unit_definition->object.animation_graph.index);
+	struct animation_graph_unit_seat *unit_seat;
+	short class_index;
+	short animation_index = NONE;
+
+	if (unit->unit.animation.seat_index<0 || unit->unit.animation.seat_index>=animation_graph->unit_seats.count)
+		return;
+	unit_seat = TAG_BLOCK_GET_ELEMENT(&animation_graph->unit_seats, unit->unit.animation.seat_index, struct animation_graph_unit_seat);
+	/* (none where its own weapon class has a melee: unit_animation_start_action
+	played it) */
+	if (unit->unit.animation.weapon_index>=0 && unit->unit.animation.weapon_index<unit_seat->weapon_classes.count)
+	{
+		struct animation_graph_weapon_class *weapon_class = TAG_BLOCK_GET_ELEMENT(&unit_seat->weapon_classes,
+			unit->unit.animation.weapon_index, struct animation_graph_weapon_class);
+
+		if (unit->unit.animation.weapon_type_index>=0 &&
+			unit->unit.animation.weapon_type_index<weapon_class->weapon_types.count)
+		{
+			struct animation_graph_weapon_type *weapon_type = TAG_BLOCK_GET_ELEMENT(&weapon_class->weapon_types,
+				unit->unit.animation.weapon_type_index, struct animation_graph_weapon_type);
+
+			if (weapon_type->animations.count>8 &&
+				animation_graph_animation_index_get(&weapon_type->animations)[8].animation_index!=NONE)
+			{
+				return;
+			}
+		}
+	}
+	/* (the pistol's, else the first class's that has one) */
+	for (class_index = 0; class_index<unit_seat->weapon_classes.count; class_index++)
+	{
+		struct animation_graph_weapon_class *weapon_class = TAG_BLOCK_GET_ELEMENT(&unit_seat->weapon_classes, class_index, struct animation_graph_weapon_class);
+		struct animation_graph_weapon_type *weapon_type;
+		short index;
+
+		if (weapon_class->weapon_types.count<=0)
+			continue;
+		weapon_type = TAG_BLOCK_GET_ELEMENT(&weapon_class->weapon_types, 0, struct animation_graph_weapon_type);
+		if (weapon_type->animations.count<=8)
+			continue;
+		index = animation_graph_animation_index_get(&weapon_type->animations)[8].animation_index;
+		if (index==NONE)
+			continue;
+		if (animation_index==NONE || !strcmp(weapon_class->label, "pistol"))
+			animation_index = index;
+		if (!strcmp(weapon_class->label, "pistol"))
+			break;
+	}
+	if (animation_index!=NONE)
+	{
+		unit->unit.animation.action_animation.index = animation_choose_random_permutation_internal(TRUE,
+			unit_definition->object.animation_graph.index, animation_index);
+		unit->unit.animation.action_animation.frame_index = 0;
+		unit->unit.animation.action = 7; /* (the melee, unit_animation_start_action's) */
+	}
+}
+
 static void unit_animation_start_overlay_action(
 	long unit_index,
 	short overlay_action)

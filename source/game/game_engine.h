@@ -443,6 +443,9 @@ void game_engine_bomb_host_traits(struct game_variant const *variant);
 if the map has one players can use */
 boolean game_engine_bomb_melee_only(void);
 void game_engine_bomb_give_sword(long unit_index);
+/* whether a weapon is a melee-only game's unseen fists (the pistol, given
+where the map has no sword): not drawn, no HUD of its own, can't shoot */
+boolean game_engine_bomb_hides_weapon(long definition_index);
 /* the HUD's lines for a player: the round's score and time, and the bomb's
 carrier; FALSE when there are none */
 boolean game_engine_bomb_hud_text(long player_index, wchar_t *score_line, wchar_t *carrier_line, long size);
@@ -460,6 +463,13 @@ long game_engine_bomb_weapon(void);
 boolean game_engine_bomb_goal(long team_index, union real_point3d *position);
 long game_engine_bomb_team_score(long team_index);
 long game_engine_bomb_round(void);
+/* a goal's countdown and blast: whether a death counts nothing (the scoring
+team's own in the blast) and when its player respawns, the countdown's
+second now (0: none), and whether no one spawns (the blast's pause) */
+boolean game_engine_bomb_silent_death(long killing_player_index, long dead_player_index, boolean friendly_fire);
+long game_engine_bomb_silent_respawn_ticks(void);
+long game_engine_bomb_countdown(void);
+boolean game_engine_bomb_holds_spawns(void);
 #endif
 
 /* port: the most a game type's state for the distributed netcode's clients

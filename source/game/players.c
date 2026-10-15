@@ -4667,6 +4667,21 @@ void players_update_before_game(
 					control_data.grenade_index = action->desired_grenade_index;
 					control_data.zoom_level = action->desired_zoom_level;
 					control_data.aiming_speed = 0;
+#ifdef HALO_GAME_BROWSER
+					/* port: a melee-only Bomb game's unseen fists only strike
+					(game_engine_bomb.c) */
+					{
+						long held_index = unit_inventory_get_weapon(player->unit_index, unit->unit.current_weapon_index);
+
+						if (held_index != NONE && game_engine_bomb_hides_weapon(weapon_get(held_index)->definition_index))
+						{
+							control_data.control_flags &= ~(FLAG(_unit_control_weapon_primary_trigger_bit) |
+								FLAG(_unit_control_weapon_reload_bit));
+							control_data.primary_trigger = 0.f;
+							control_data.zoom_level = NONE;
+						}
+					}
+#endif
 
 					match_assert(
 						"c:\\halo\\SOURCE\\game\\players.c",

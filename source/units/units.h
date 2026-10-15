@@ -739,6 +739,9 @@ boolean unit_add_equipment_to_inventory(
 /* port: the melee damage of a unit with no weapon (units.c) */
 long unit_unarmed_melee_damage(
 	long unit_index);
+/* port: an unarmed player's melee's third person swing (units.c) */
+void unit_animation_start_unarmed_melee(
+	long unit_index);
 boolean unit_add_weapon_to_inventory(
 	long unit_index,
 	long weapon_index,
