@@ -446,6 +446,11 @@ void game_engine_bomb_give_sword(long unit_index);
 /* whether the map's scripts are off: a Bomb game on a court with a game of
 its own (game_engine_bomb.c, bomb_courts) */
 boolean game_engine_bomb_scripts_off(void);
+/* whether a map's placed weapon is placed: a Bomb game on a court places
+none of the court's own ball (the bomb takes its place) */
+struct scenario_object_datum;
+boolean game_engine_bomb_weapon_placement_allowed(struct scenario_object_datum const *placement,
+	struct tag_block *palette);
 /* the HUD's lines for a player: the round's score and time, and the bomb's
 carrier; FALSE when there are none */
 boolean game_engine_bomb_hud_text(long player_index, wchar_t *score_line, wchar_t *carrier_line, long size);

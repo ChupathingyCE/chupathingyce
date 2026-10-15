@@ -347,6 +347,15 @@ found (nothing downloaded or shipped):
 | --- | --- | --- |
 | `grifball.map`, "Grifball Beta" by SlappyThePirate (July 2011; reposted 2016), 23.1 MB | [haloce3.com](https://haloce3.com/downloads/multiplayer/original-multiplayer/grifball/) | A court with energy swords and gravity hammers as the players' weapons, played as CTF; the bomb carrier turns orange. Its sword is likely player-usable (the map is built around it), so our sword detection should hand it out; the gravity hammer is a new tag we don't give. It has its own scripts and scoreboard for its CTF Grifball, which may show beside ours. Whether HaloNet's locator has it under `grifball` is unchecked (a check is a download) |
 
+A court the game knows (`bomb_courts` in `game_engine_bomb.c`, by its
+file's version: grifball@ce so far) plays as its own scripts laid it out,
+with the scripts off: the bomb starts where the map places its own ball,
+which is not placed; each team's goal is the map's goal trigger volume
+(grifball@ce's `redgoal` and `bluegoal`: the carrier scores standing in
+the other team's, after the arming time), not the CTF markers, which are
+off its court; and a player in its out of bounds volume (`OOB`) is
+killed, the bomb lying in it reset.
+
 Searches of halomaps.org found no other Custom Edition Grifball court.
 Halo 4's and Halo 5's Grifball Courts (Erosion, Glacier) are those games'
 Forge maps, not Halo CE maps.
