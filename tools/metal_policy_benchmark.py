@@ -111,7 +111,20 @@ def run_with_progress(command, folder, seconds, env, *, interval=30):
                     samples.append(sample)
                     folder.mkdir(parents=True, exist_ok=True)
                     (folder / "progress.json").write_text(json.dumps(samples, indent=2) + "\n")
-                    print(f"  {folder.name} {sample['elapsed_seconds']:.0f}/{seconds}s: running", flush=True)
+                    detail = []
+                    if sample["last_tick"] is not None:
+                        detail.append(f"tick {sample['last_tick']}")
+                    if sample["last_frame_draws"] is not None:
+                        frame, draws = sample["last_frame_draws"]
+                        detail.append(f"frame {frame}, {draws} draws/frame")
+                    timing = re.findall(r"frame CPU ([\d.]+) ms, GPU ([\d.]+) ms", text)
+                    if timing:
+                        detail.append(f"CPU/GPU {timing[-1][0]}/{timing[-1][1]} ms")
+                    if sample["children"]:
+                        rss = sum(child["rss_kib"] for child in sample["children"]) / 1024
+                        detail.append(f"process RSS {rss:.0f} MiB")
+                    status_text = "; ".join(detail) or "loading; no gameplay telemetry yet"
+                    print(f"  {folder.name} {sample['elapsed_seconds']:.0f}/{seconds}s: running; {status_text}", flush=True)
             if status:
                 raise subprocess.CalledProcessError(status, command)
         except BaseException:

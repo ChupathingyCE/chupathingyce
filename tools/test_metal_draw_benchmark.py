@@ -24,6 +24,44 @@ class DrawBenchmarkTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             benchmark.summarize(records)
 
+    def pool_records(self):
+        records = self.records()
+        for variant, count in benchmark.POOL_GROUPS.items():
+            record = dict(records[0], variant=variant, pool_group_draws=count,
+                          draw_pool_drains=2048 // count)
+            records.append(record)
+        return records
+
+    def test_pool_experiment_uses_same_v2_binary_with_bounded_options(self):
+        output = Path("probe-output")
+        self.assertEqual(benchmark.probe_command(output, "v2"), [str(output / "v2")])
+        self.assertEqual(benchmark.probe_command(output, "v1"), [str(output / "v1")])
+        self.assertEqual(benchmark.probe_command(output, "v2-native-off"),
+                         [str(output / "v2"), "--native-off"])
+        for variant, count in benchmark.POOL_GROUPS.items():
+            self.assertEqual(benchmark.probe_command(output, variant),
+                             [str(output / "v2"), f"--pool-group={count}"])
+        with self.assertRaises(ValueError):
+            benchmark.probe_command(output, "v2-pool4096")
+
+    def test_grouped_results_preserve_draws_images_and_pool_bounds(self):
+        summary = benchmark.summarize(self.pool_records())
+        self.assertEqual(summary["v2-pool64/same-state"]["draw_pool_drains"], 32)
+        self.assertEqual(summary["v2-pool8/same-state"]["pool_group_draws"], 8)
+        for field, value in (("pool_group_draws", 4096), ("draw_pool_drains", 1),
+                             ("draws", 2047), ("draws", 4096), ("digest", "different")):
+            with self.subTest(field=field, value=value):
+                records = self.pool_records()
+                records[-1][field] = value
+                with self.assertRaises(ValueError):
+                    benchmark.summarize(records)
+
+    def test_different_draw_counts_rejected(self):
+        records = self.records()
+        records[-1]["draws"] = 1024
+        with self.assertRaises(ValueError):
+            benchmark.summarize(records)
+
     def test_build_is_actual_backend_and_isolated_variant(self):
         for v2 in (False, True):
             with self.subTest(v2=v2), patch.object(benchmark.subprocess, "run") as run:

@@ -3096,10 +3096,14 @@ static uint32_t convert_primitive(const struct gpu_draw *draw, MTLPrimitiveType 
 	return converted;
 }
 
-static uint32_t gpu_metal_draw(const struct gpu_draw *draw, const struct gpu_constant_store *constants,
-	const struct gpu_uniforms *uniforms)
+/* Caller must provide an autorelease pool. Production uses the per-draw
+wrapper below; the offscreen probe alone trials bounded groups of draws. */
+static uint32_t gpu_metal_draw_in_pool(const struct gpu_draw *draw,
+	const struct gpu_constant_store *constants, const struct gpu_uniforms *uniforms)
 {
-	@autoreleasepool
+	assert(draw != NULL);
+	assert(constants != NULL);
+	assert(uniforms != NULL);
 	{
 		uint64_t stage_started = draw_profile_now(&metal_profile);
 		/* (unretained: the tables and caches keep these for longer than the
@@ -3266,6 +3270,15 @@ static uint32_t gpu_metal_draw(const struct gpu_draw *draw, const struct gpu_con
 	}
 }
 
+static uint32_t gpu_metal_draw(const struct gpu_draw *draw, const struct gpu_constant_store *constants,
+	const struct gpu_uniforms *uniforms)
+{
+	@autoreleasepool
+	{
+		return gpu_metal_draw_in_pool(draw, constants, uniforms);
+	}
+}
+
 /* ---------- visibility tests (the state is declared before the transient memory) */
 
 static void gpu_metal_visibility_begin(void)
@@ -3386,6 +3399,8 @@ static struct
 	/* each frame's CPU and GPU time since the last report, for its medians
 	and 95th percentiles (a loading stall would swamp an average) */
 	double cpu_times[PACING_TIMED_FRAMES], gpu_times[PACING_TIMED_FRAMES];
+	/* time blocked for a frame slot or a drawable (excluded from cpu_times) */
+	double wait_times[PACING_TIMED_FRAMES];
 	unsigned long timed;
 } pacing;
 
@@ -3480,6 +3495,8 @@ static CFTimeInterval pacing_schedule(id<CAMetalDrawable> drawable, uint32_t *ne
 	long lower, up;
 
 	*next_frame_due = 0;
+	double blocked = pacing_waited;
+
 	cpu = pacing.work_started > 0.0 ? now - pacing.work_started - pacing_waited : 0.0;
 	gpu = (double)(gpu_total - pacing.gpu_counted) / 1e9;
 	pacing.gpu_counted = gpu_total;
@@ -3507,21 +3524,24 @@ static CFTimeInterval pacing_schedule(id<CAMetalDrawable> drawable, uint32_t *ne
 	{
 		pacing.cpu_times[pacing.timed] = cpu;
 		pacing.gpu_times[pacing.timed] = gpu;
+		pacing.wait_times[pacing.timed] = blocked;
 		pacing.timed++;
 	}
 	if (frames >= pacing.reported + 600)
 	{
-		double cpu_median, cpu_high, gpu_median, gpu_high;
+		double cpu_median, cpu_high, gpu_median, gpu_high, wait_median, wait_high;
 
 		pacing_percentiles(pacing.cpu_times, pacing.timed, &cpu_median, &cpu_high);
 		pacing_percentiles(pacing.gpu_times, pacing.timed, &gpu_median, &gpu_high);
+		pacing_percentiles(pacing.wait_times, pacing.timed, &wait_median, &wait_high);
 		pacing.reported = frames;
 		platform_log("Metal: frames shown for 1/2/3/4/5+ refreshes at %.1f Hz: %lu/%lu/%lu/%lu/%lu (pacing %s); "
-			"frame CPU %.1f ms, GPU %.1f ms (medians; 95th %.1f, %.1f)", 1.0 / period, pacing.shown[1], pacing.shown[2], pacing.shown[3],
+			"frame CPU %.1f ms, GPU %.1f ms (medians; 95th %.1f, %.1f); slot/drawable wait %.1f ms (95th %.1f)",
+			1.0 / period, pacing.shown[1], pacing.shown[2], pacing.shown[3],
 			pacing.shown[4], pacing.shown[5],
 			pacing.off ? "off" : pacing.refreshes == 1 ? "1 refresh" : pacing.refreshes == 2 ? "2 refreshes" :
 			pacing.refreshes == 3 ? "3 refreshes" : "4 refreshes",
-			cpu_median, gpu_median, cpu_high, gpu_high);
+			cpu_median, gpu_median, cpu_high, gpu_high, wait_median, wait_high);
 		memset(pacing.shown, 0, sizeof(pacing.shown));
 		pacing.timed = 0;
 	}

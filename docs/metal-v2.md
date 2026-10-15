@@ -120,6 +120,107 @@ remaining acceptance matrix. Generic `gpu_draw` packet construction/dispatch and
 per-draw autorelease pools are deliberately unchanged. No profiling evidence yet
 justifies bypassing the generic packet boundary or promoting V2.
 
+### Phase 2 follow-up — TigerStyle contracts
+
+Phase 2 is **in progress**, not a new renderer rewrite or a completed promotion
+gate. The prepared-state implementation already covers much of its engineering
+scope; the two-scene game profiling and broader runtime checks above remain open.
+
+The next incremental slice separates live stencil reference and blend color from
+frontend cached depth/blend bases. Changing either value no longer repeats base
+conversion; every draw still reads and supplies the current value. Base snapshots
+remain private, fixed-capacity values copied to the caller before HUD or other
+per-draw rewriting. No allocation or additional dictionary lookup is introduced.
+
+TigerStyle is applied incrementally here, rather than claimed for the whole
+renderer:
+
+- Validate sampler stage bounds and output pointers before indexing cache storage.
+- Check sampler/depth/blend/raster snapshot sizes at compile time so adding a
+  dependency cannot silently overrun a fixed cache key.
+- Keep exact live-value comparisons, independent cache domains and V1 conversion
+  fallback; setter dirty bits and hashes alone are not authoritative.
+- Keep dynamic values outside reusable bases, with explicit zeroed base fields.
+- Test direct write/restore transitions and assert both live output values and
+  unchanged base-cache miss counts under ASan/UBSan.
+
+These contracts do not bound all existing shader dictionaries or remove cold-path
+allocations. Those require separate ownership/limit audits; this slice makes no
+new claim about game-wide speedup or Phase 2 completion.
+
+### Phase 3 follow-up — effective attribute-table inputs
+
+Phase 3 is also **in progress**: declaration plans and encoder-local table reuse
+already exist. The next slice removes redundant full stream/constant snapshots
+from the backend table cache. A fixed-capacity plan partitions all 16 slots into
+streamed and constant lists; compatible draws compare only effective values
+against the existing table. Live buffer presence, renaming, resource-use tracking
+and encoder-local rebind rules remain authoritative. No draw order or shader ABI
+changes, allocations, new native resources or autorelease-lifetime changes are
+introduced.
+
+The [draw experiment](metal-v2-draw-experiment.md#phase-3-follow-up-effective-attribute-inputs)
+records before/after backend measurements, unchanged operation/image checks,
+Metal API Validation and expanded sanitizer tests. Same-state/constant medians
+improve in that sample; changing-range results do not improve against prior V2.
+Broader game validation and the Phase 3 completion gate remain open.
+
+### Phase 3 follow-up — bounded pool trial (fixture only)
+
+The backend now separates its encoding body from the production per-draw
+`@autoreleasepool` wrapper. Production V1/V2 retain that wrapper unchanged in
+lifetime behavior. The offscreen fixture's opt-in `--pool-experiment` trials
+V2 pools drained after at most 8 or 64 draws, always before commit/readback.
+All five variants pass image/count, rename-after-drain, early-return and
+encoder-rebind checks, plus a separate Metal API Validation run. The Metal
+unit suite passes 71 tests (one skip), and the V2 app builds.
+
+The [pool experiment](metal-v2-draw-experiment.md#phase-3-follow-up-bounded-autorelease-pool-experiment)
+records modest local median gains, variation and exact reproduction. Grouping
+is **not enabled in production**: bounded draw counts alone do not establish
+bounded temporary bytes, and game-side cold paths and non-draw operations need
+an explicit lifetime audit. This completes a controlled pool trial, not the
+Phase 3 game-validation/performance gate or a renderer promotion.
+
+### Prepared-state module extraction — structural, not a new draw ABI
+
+`renderer/metal_v2_prepared.[ch]` now owns frontend depth/blend/raster, four
+sampler, pixel-base-key and final fragment-handle reuse. `d3d8_device.c` owns one
+zero-initialized cache and resets it before backend initialization. The module
+has a compile-time 8 KiB storage ceiling, no heap allocation, no native Metal
+objects and no guest-memory ownership. Its header documents rendering-thread
+use, borrowed shader-handle lifetime, input spans and reset requirements.
+
+Each operation receives the actual render/stage words and applicable policy
+inputs explicitly: depth-target presence, clip-y convention, sampler mip/hires
+status and normalized anisotropy, or query sample-count mode. Results are copied
+out before HUD/depth-clamp/final shader specialization edits. Dynamic stencil
+reference and blend color are still read on cache hits. The synchronous fragment
+resolver is called only on a complete-key miss; failed resolution retries.
+Reset before any future shader-handle destruction/reuse; native pipeline/depth
+object and encoder invalidation remain separate backend responsibilities.
+
+V1 retains its uncached conversions. Mac build wiring includes the new `.c`
+only for V2; no OpenGL, other-platform or shared game source is added/replaced.
+The draw packet, dispatch, ABI, resource/coherency paths and declaration plans
+are unchanged. The frontend only adapts live state into the module's interface.
+
+`tools.test_metal_prepared_state` compiles the actual module as a separate C
+translation unit under ASan/UBSan, using synthetic Xbox declarations and the
+uncached V1 conversions as the reference. Besides direct-write/restore tests,
+it checks independent cache instances, complete reset, returned-copy isolation,
+policy changes, final shader specialization, failure retries and disabled
+telemetry. These are CPU interface tests, not actual-enum validation, game image
+parity or end-to-end draw profiling. The 71-test Metal suite passes (one skip),
+seven Mac build tests pass, the real frontend compiles with V2 disabled, and
+`ninja macos_v2` links/bundles the app. LSP checks the new module; the large
+frontend exceeds its scan limit and is checked by the compiler instead.
+
+This extraction makes dependencies/lifetimes local and testable; it introduces
+ordinary C calls rather than claiming a new performance win. Full frontend-to-
+Metal/game-scene profiling remains required before considering a replacement
+for `gpu_draw()`. V2 stays opt-in; the Phase 2/3 runtime gates remain open.
+
 ## 1. Current implementation and evidence
 
 The active Metal implementation is built from `port/macos/metal/renderer/` plus `port/macos/metal/gpu_metal.m` and `metal_host.m`; `port/macos/metal/README.md` explicitly notes that old `port/visr/` sources are not active build inputs.

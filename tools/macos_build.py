@@ -119,11 +119,15 @@ class MetalLp64Build(Lp64Build):
     def units(self, host: Lp64Host, generated_sources: list[Path]) -> list[Lp64Unit]:
         units = super().units(host, generated_sources)
         renderer = PORT_DIR / "metal" / "renderer"
-        replacements = {path.name: path for path in renderer.glob("*.c")}
+        v2_enabled = getattr(getattr(self, "sln", None), "macos_metal_v2", False)
+        # New prepared-state code is not a V1 or shared-platform build input.
+        v2_only = {"metal_v2_prepared.c"}
+        replacements = {path.name: path for path in renderer.glob("*.c")
+                        if v2_enabled or path.name not in v2_only}
         replacements["d3d8_gl.c"] = renderer / "d3d8_device.c"
         result = []
         # (V2's fast path is gated on this; without it, V2 is V1)
-        v2 = " -DHALO_MACOS_METAL_V2=1" if getattr(getattr(self, "sln", None), "macos_metal_v2", False) else ""
+        v2 = " -DHALO_MACOS_METAL_V2=1" if v2_enabled else ""
         platform_flags = next(unit.cflags for unit in units if unit.source.name == "d3d8_gl.c")
         skip = {"xgpu_post.c", "xgpu_shader_cache.c", "xgpu_text.c"}
         consumed = set()

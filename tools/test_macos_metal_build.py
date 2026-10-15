@@ -1,5 +1,7 @@
 """Opt-in Metal build graph contracts (no Metal device needed)."""
 import io
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase
@@ -72,8 +74,14 @@ class MetalV2SelectorTests(TestCase):
         self.assertTrue(all("-DHALO_MACOS_METAL_V2=1" in unit.cflags for unit in self.units(True)))
         self.assertTrue(all("HALO_MACOS_METAL_V2" not in unit.cflags for unit in self.units(False)))
 
+    def test_prepared_module_is_v2_only(self):
+        v2 = [unit for unit in self.units(True) if unit.source.name == "metal_v2_prepared.c"]
+        self.assertEqual(len(v2), 1)
+        self.assertIn("port/macos/metal/renderer/metal_v2_prepared.c", str(v2[0].source))
+        self.assertIn("-DHALO_MACOS_METAL_V2=1", v2[0].cflags)
+        self.assertFalse(any(unit.source.name == "metal_v2_prepared.c" for unit in self.units(False)))
+
     def test_configure_rejects_both_metal_renderers(self):
-        import subprocess, sys
         result = subprocess.run([sys.executable, "configure.py", "--macos-metal", "--macos-metal-v2"],
                                 capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)

@@ -35,11 +35,15 @@ Conventions carried over from the Xbox:
 #include "metal_platform.h"
 #include "shader_list_learn.h"
 #include "draw_profile.h"
+#ifdef HALO_MACOS_METAL_V2
+#include "metal_v2_prepared.h"
+#endif
 #include "halo_stereo.h"
 #include "halo_stereo_window.h"
 #include "halo_stereo_cutscene.h"
 #include "posix.h"
 
+#include <assert.h>
 #include <math.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -58,6 +62,10 @@ the highest) and models the size cull dropped since the last call */
 void halo_model_counts_take(unsigned long drawn[5], unsigned long *culled);
 
 struct gpu_capabilities device_capabilities;
+#ifdef HALO_MACOS_METAL_V2
+/* Device-owned, rendering-thread-only snapshots. No resource ownership. */
+static struct metal_v2_prepared prepared_state;
+#endif
 
 /* display.frame_pacing as gpu_initialize flags */
 static uint32_t frame_pacing_flags(void)
@@ -1310,6 +1318,9 @@ static void shader_replay(const char *directory)
 static void gl_initialize(void)
 {
 	int index;
+#ifdef HALO_MACOS_METAL_V2
+	metal_v2_prepared_reset(&prepared_state);
+#endif
 
 	gpu_initialize((config_boolean("debug.gl_debug") ? GPU_INITIALIZE_DEBUG : 0) |
 		(platform_renderer_metal() ? GPU_INITIALIZE_METAL : 0) |
@@ -2880,30 +2891,20 @@ filtered and from its mip levels whatever the game asks: the HUD's meters are
 point sampled for one player, to keep the Xbox bitmaps' texels sharp */
 static void sampler_state_fill(int stage, BOOL mipmapped, BOOL hires, struct gpu_sampler_state *sampler)
 {
-	DWORD *state = D3D__TextureState[stage];
-
+	assert(stage >= 0);
+	assert(stage < D3DTSS_MAXSTAGES);
+	assert(sampler != NULL);
 #ifdef HALO_MACOS_METAL_V2
-	/* Only sampler interpretation is cached. Texture/palette content and
-	render-target mip versions still go through stages_fill on every draw. */
-	static struct
+	static long anisotropy = -1;
+	if (anisotropy < 0)
 	{
-		BOOL valid;
-		DWORD inputs[12];
-		struct gpu_sampler_state sampler;
-	} prepared[D3DTSS_MAXSTAGES];
-	DWORD inputs[] = { state[D3DTSS_MINFILTER], state[D3DTSS_MIPFILTER],
-		state[D3DTSS_MAGFILTER], state[D3DTSS_ADDRESSU], state[D3DTSS_ADDRESSV],
-		state[D3DTSS_ADDRESSW], state[D3DTSS_MAXMIPLEVEL], state[D3DTSS_MAXANISOTROPY],
-		state[D3DTSS_MIPMAPLODBIAS], state[D3DTSS_BORDERCOLOR], mipmapped, hires };
-
-	if (draw_profile_reuse(&draw_profile, DRAW_CACHE_SAMPLER,
-		prepared[stage].valid && !memcmp(prepared[stage].inputs, inputs, sizeof(inputs))))
-	{
-		*sampler = prepared[stage].sampler;
-		return;
+		anisotropy = config_integer("display.anisotropic_filtering");
+		anisotropy = anisotropy < 1 ? 1 : anisotropy > 16 ? 16 : anisotropy;
 	}
-	memcpy(prepared[stage].inputs, inputs, sizeof(inputs));
-#endif
+	metal_v2_prepared_sampler(&prepared_state, &draw_profile, (unsigned)stage,
+		D3D__TextureState[stage], mipmapped, hires, (uint32_t)anisotropy, sampler);
+#else
+	DWORD *state = D3D__TextureState[stage];
 	memset(sampler, 0, sizeof(*sampler));
 	sampler->min_filter = hires ? GPU_FILTER_LINEAR : gpu_filter(state[D3DTSS_MINFILTER]);
 	sampler->mip_filter = hires ? GPU_FILTER_LINEAR : mipmapped ? gpu_filter(state[D3DTSS_MIPFILTER]) : GPU_FILTER_NONE;
@@ -2933,9 +2934,6 @@ static void sampler_state_fill(int stage, BOOL mipmapped, BOOL hires, struct gpu
 			sampler->max_anisotropy = (uint32_t)anisotropy;
 		}
 	}
-#ifdef HALO_MACOS_METAL_V2
-	prepared[stage].sampler = *sampler;
-	prepared[stage].valid = TRUE;
 #endif
 }
 
@@ -3252,28 +3250,13 @@ static void hud_layer_blend(struct gpu_blend_state *blend)
 	hud_layer_exact++;
 }
 
-/* Cache converted domains independently. Read live XDK globals, not setter
-bits. Target/viewport and port overrides are deliberately outside the caches. */
-static void draw_depth_fill(BOOL has_depth, struct gpu_depth_stencil_state *depth)
+/* V1's uncached conversions remain the reference. Target/viewport and port
+ overrides stay outside prepared state in either variant. */
+#ifndef HALO_MACOS_METAL_V2
+static void draw_depth_base_fill(BOOL has_depth, struct gpu_depth_stencil_state *depth)
 {
+	assert(depth != NULL);
 	DWORD *rs = D3D__RenderState;
-#ifdef HALO_MACOS_METAL_V2
-	static BOOL valid;
-	static DWORD previous[12];
-	static struct gpu_depth_stencil_state prepared;
-	DWORD inputs[] = { has_depth, rs[D3DRS_ZENABLE], rs[D3DRS_ZWRITEENABLE], rs[D3DRS_ZFUNC],
-		rs[D3DRS_STENCILENABLE], rs[D3DRS_STENCILFUNC], rs[D3DRS_STENCILFAIL],
-		rs[D3DRS_STENCILZFAIL], rs[D3DRS_STENCILPASS], rs[D3DRS_STENCILREF],
-		rs[D3DRS_STENCILMASK], rs[D3DRS_STENCILWRITEMASK] };
-
-	if (draw_profile_reuse(&draw_profile, DRAW_CACHE_DEPTH,
-		valid && !memcmp(previous, inputs, sizeof(inputs))))
-	{
-		*depth = prepared;
-		return;
-	}
-	memcpy(previous, inputs, sizeof(inputs));
-#endif
 	memset(depth, 0, sizeof(*depth));
 	depth->depth_test = has_depth && rs[D3DRS_ZENABLE];
 	depth->depth_write = depth->depth_test && rs[D3DRS_ZWRITEENABLE];
@@ -3283,68 +3266,60 @@ static void draw_depth_fill(BOOL has_depth, struct gpu_depth_stencil_state *dept
 	depth->stencil_fail = gpu_stencil_operation(rs[D3DRS_STENCILFAIL]);
 	depth->stencil_depth_fail = gpu_stencil_operation(rs[D3DRS_STENCILZFAIL]);
 	depth->stencil_pass = gpu_stencil_operation(rs[D3DRS_STENCILPASS]);
-	depth->stencil_reference = (uint32_t)rs[D3DRS_STENCILREF];
 	depth->stencil_read_mask = (uint32_t)rs[D3DRS_STENCILMASK];
 	depth->stencil_write_mask = (uint32_t)rs[D3DRS_STENCILWRITEMASK];
+}
+#endif
+
+/* Dynamic encoder values are never part of a cached base. Callers receive a
+copy, so HUD rewriting and other draw-local edits cannot poison that base. */
+static void draw_depth_fill(BOOL has_depth, struct gpu_depth_stencil_state *depth)
+{
+	assert(depth != NULL);
 #ifdef HALO_MACOS_METAL_V2
-	prepared = *depth;
-	valid = TRUE;
+	metal_v2_prepared_depth(&prepared_state, &draw_profile, D3D__RenderState, has_depth, depth);
+#else
+	draw_depth_base_fill(has_depth, depth);
+	depth->stencil_reference = (uint32_t)D3D__RenderState[D3DRS_STENCILREF];
 #endif
 }
 
-static void draw_blend_fill(struct gpu_blend_state *blend)
+#ifndef HALO_MACOS_METAL_V2
+static void draw_blend_base_fill(struct gpu_blend_state *blend)
 {
+	assert(blend != NULL);
 	DWORD *rs = D3D__RenderState;
 	DWORD write = rs[D3DRS_COLORWRITEENABLE];
-#ifdef HALO_MACOS_METAL_V2
-	static BOOL valid;
-	static DWORD previous[6];
-	static struct gpu_blend_state prepared;
-	DWORD inputs[] = { rs[D3DRS_ALPHABLENDENABLE], rs[D3DRS_SRCBLEND], rs[D3DRS_DESTBLEND],
-		rs[D3DRS_BLENDOP], rs[D3DRS_BLENDCOLOR], write };
-
-	if (draw_profile_reuse(&draw_profile, DRAW_CACHE_BLEND,
-		valid && !memcmp(previous, inputs, sizeof(inputs))))
-	{
-		*blend = prepared;
-		return;
-	}
-	memcpy(previous, inputs, sizeof(inputs));
-#endif
 	memset(blend, 0, sizeof(*blend));
 	blend->enable = rs[D3DRS_ALPHABLENDENABLE] != 0;
 	blend->source = gpu_blend_factor(rs[D3DRS_SRCBLEND]);
 	blend->destination = gpu_blend_factor(rs[D3DRS_DESTBLEND]);
 	blend->operation = gpu_blend_operation(rs[D3DRS_BLENDOP]);
-	blend->color = (uint32_t)rs[D3DRS_BLENDCOLOR];
 	blend->color_write_mask = (uint8_t)(((write & D3DCOLORWRITEENABLE_RED) ? 1 : 0) |
 		((write & D3DCOLORWRITEENABLE_GREEN) ? 2 : 0) | ((write & D3DCOLORWRITEENABLE_BLUE) ? 4 : 0) |
 		((write & D3DCOLORWRITEENABLE_ALPHA) ? 8 : 0));
+}
+#endif
+
+static void draw_blend_fill(struct gpu_blend_state *blend)
+{
+	assert(blend != NULL);
 #ifdef HALO_MACOS_METAL_V2
-	prepared = *blend;
-	valid = TRUE;
+	metal_v2_prepared_blend(&prepared_state, &draw_profile, D3D__RenderState, blend);
+#else
+	draw_blend_base_fill(blend);
+	blend->color = (uint32_t)D3D__RenderState[D3DRS_BLENDCOLOR];
 #endif
 }
 
 static void draw_raster_fill(struct gpu_raster_state *raster)
 {
-	DWORD *rs = D3D__RenderState;
+	assert(raster != NULL);
 #ifdef HALO_MACOS_METAL_V2
-	static BOOL valid;
-	static DWORD previous[7];
-	static struct gpu_raster_state prepared;
-	DWORD inputs[] = { rs[D3DRS_CULLMODE], rs[D3DRS_FRONTFACE], rs[D3DRS_FILLMODE],
-		rs[D3DRS_SOLIDOFFSETENABLE], rs[D3DRS_POLYGONOFFSETZSLOPESCALE],
-		rs[D3DRS_POLYGONOFFSETZOFFSET], shader_dialect.clip_y_flip };
-
-	if (draw_profile_reuse(&draw_profile, DRAW_CACHE_RASTER,
-		valid && !memcmp(previous, inputs, sizeof(inputs))))
-	{
-		*raster = prepared;
-		return;
-	}
-	memcpy(previous, inputs, sizeof(inputs));
-#endif
+	metal_v2_prepared_raster(&prepared_state, &draw_profile, D3D__RenderState,
+		shader_dialect.clip_y_flip, raster);
+#else
+	DWORD *rs = D3D__RenderState;
 	memset(raster, 0, sizeof(*raster));
 	/* CULLMODE names the winding to discard; FRONTFACE the front winding.
 	A shader's clip-space y flip reverses the winding too. */
@@ -3358,9 +3333,6 @@ static void draw_raster_fill(struct gpu_raster_state *raster)
 	raster->depth_bias_enable = rs[D3DRS_SOLIDOFFSETENABLE] != 0;
 	raster->depth_bias_slope = dword_to_float(rs[D3DRS_POLYGONOFFSETZSLOPESCALE]);
 	raster->depth_bias_constant = dword_to_float(rs[D3DRS_POLYGONOFFSETZOFFSET]);
-#ifdef HALO_MACOS_METAL_V2
-	prepared = *raster;
-	valid = TRUE;
 #endif
 }
 
@@ -3438,24 +3410,8 @@ static BOOL model_lighting_enabled(void)
 	return enabled;
 }
 
-static BOOL shader_combiner_matches(const struct nv2a_pixel_shader_key *key)
-{
-	unsigned long index;
-
-	for (index = 0; index < sizeof(key->combiner_state) / sizeof(key->combiner_state[0]); index++)
-	{
-		/* These Xbox words are uniforms, deliberately zero in shader keys. */
-		if ((index >= D3DRS_PSCONSTANT0_0 && index < D3DRS_PSCONSTANT0_0 + 16) ||
-			index == D3DRS_PSFINALCOMBINERCONSTANT0 || index == D3DRS_PSFINALCOMBINERCONSTANT1)
-			continue;
-		if (key->combiner_state[index] != D3D__RenderState[index])
-			return FALSE;
-	}
-	return TRUE;
-}
-
-/* The Xbox-only part of a pixel key. Stage resource interpretation and model
-lighting are still decided live after this; neither is inferred from setters. */
+/* The Xbox-only part of a pixel key, rebuilt every draw in V1 and V2. A V2
+cache of it was slower than rebuilding on hits (docs/metal-v2-game-profile.md). */
 static void pixel_shader_base_key(struct nv2a_pixel_shader_key *key)
 {
 	int stage;
@@ -3464,11 +3420,6 @@ static void pixel_shader_base_key(struct nv2a_pixel_shader_key *key)
 		DWORD texture_modes, alpha_test_function;
 		unsigned char alpha_kill[4], color_sign[4], fog_enable, fog_table_mode, count_samples;
 	} live;
-#ifdef HALO_MACOS_METAL_V2
-	static BOOL valid;
-	static struct pixel_key_inputs previous;
-	static struct nv2a_pixel_shader_key prepared;
-#endif
 
 	memset(&live, 0, sizeof(live));
 	live.texture_modes = D3D__RenderState[D3DRS_PSTEXTUREMODES];
@@ -3482,16 +3433,6 @@ static void pixel_shader_base_key(struct nv2a_pixel_shader_key *key)
 		live.alpha_kill[stage] = D3D__TextureState[stage][D3DTSS_ALPHAKILL] == D3DTALPHAKILL_ENABLE;
 		live.color_sign[stage] = (unsigned char)((D3D__TextureState[stage][D3DTSS_COLORSIGN] >> 28) & 0xf);
 	}
-#ifdef HALO_MACOS_METAL_V2
-	/* Compact inputs have zeroed padding; the combiner scan ignores uniform
-	constants. No hash collision can hide a direct Xbox state write. */
-	if (draw_profile_reuse(&draw_profile, DRAW_CACHE_SHADER_KEY,
-		valid && !memcmp(&previous, &live, sizeof(live)) && shader_combiner_matches(&prepared)))
-	{
-		*key = prepared;
-		return;
-	}
-#endif
 	memset(key, 0, sizeof(*key));
 	memcpy(key->combiner_state, D3D__RenderState, sizeof(key->combiner_state));
 	memset(&key->combiner_state[D3DRS_PSCONSTANT0_0], 0, 16 * sizeof(DWORD));
@@ -3504,11 +3445,6 @@ static void pixel_shader_base_key(struct nv2a_pixel_shader_key *key)
 	key->count_samples = live.count_samples;
 	memcpy(key->alpha_kill, live.alpha_kill, sizeof(key->alpha_kill));
 	memcpy(key->color_sign, live.color_sign, sizeof(key->color_sign));
-#ifdef HALO_MACOS_METAL_V2
-	previous = live;
-	prepared = *key;
-	valid = TRUE;
-#endif
 }
 
 #ifdef HALO_MACOS_METAL_V2
@@ -3517,16 +3453,7 @@ recent[] entries. Only successful lookups are reused; failures still retry.
 The final key includes live stage interpretation, query and lighting state. */
 static gpu_shader prepared_fragment_shader(const struct nv2a_pixel_shader_key *key)
 {
-	static struct nv2a_pixel_shader_key previous;
-	static gpu_shader shader;
-
-	if (!draw_profile_reuse(&draw_profile, DRAW_CACHE_FRAGMENT,
-		shader && !memcmp(&previous, key, sizeof(*key))))
-	{
-		shader = fragment_shader_get(key);
-		previous = *key;
-	}
-	return shader;
+	return metal_v2_prepared_fragment(&prepared_state, &draw_profile, key, fragment_shader_get);
 }
 #endif
 

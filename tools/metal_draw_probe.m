@@ -42,7 +42,27 @@ static const float vertices[12] = { -1,-1, 3,-1, -1,3, -1,-1, 3,-1, -1,3 };
 static struct gpu_constant_store constants;
 static struct gpu_uniforms uniforms;
 
-enum { PROBE_DRAWS = 2048, PROBE_RUNS = 7, PROBE_WIDTH = 16 };
+enum { PROBE_DRAWS = 2048, PROBE_RUNS = 7, PROBE_WIDTH = 16, PROBE_POOL_DRAWS_MAX = 64 };
+static unsigned pool_group_draws = 1;
+
+/* Only the fixture may bypass the production pool wrapper. Every such call
+must be inside a bounded group pool, drained before submission/readback. */
+static uint32_t probe_submit_draw(const struct gpu_draw *draw)
+{
+    if (pool_group_draws > 1)
+        return gpu_metal_draw_in_pool(draw, &constants, &uniforms);
+    return gpu_metal_draw(draw, &constants, &uniforms);
+}
+
+static void probe_draw_one(struct gpu_draw *draw, int mode, unsigned index)
+{
+    draw->streams[0].offset = mode == 2 ? (index & 1)*24 : 0;
+    if (mode == 1) {
+        constants.c[0][0] = (index & 1) ? 0.25f : 0.125f;
+        constants.serial++;
+    }
+    assert(probe_submit_draw(draw) == 1);
+}
 
 static struct gpu_draw make_draw(void)
 {
@@ -133,13 +153,19 @@ static double draw_batch(struct gpu_draw *draw, int mode, int counted, uint64_t 
 #endif
     assert(pass_begin(draw->color_target, 0, &clear));
     double started = CACurrentMediaTime();
-    for (unsigned i = 0; i < PROBE_DRAWS; i++) {
-        draw->streams[0].offset = mode == 2 ? (i & 1)*24 : 0;
-        if (mode == 1) {
-            constants.c[0][0] = (i & 1) ? 0.25f : 0.125f;
-            constants.serial++;
+    assert(pool_group_draws >= 1);
+    assert(pool_group_draws <= PROBE_POOL_DRAWS_MAX);
+    assert(PROBE_DRAWS % pool_group_draws == 0);
+    if (pool_group_draws == 1) {
+        for (unsigned i = 0; i < PROBE_DRAWS; i++)
+            probe_draw_one(draw, mode, i);
+    } else {
+        for (unsigned first = 0; first < PROBE_DRAWS; first += pool_group_draws) {
+            @autoreleasepool {
+                for (unsigned item = 0; item < pool_group_draws; item++)
+                    probe_draw_one(draw, mode, first + item);
+            }
         }
-        assert(gpu_metal_draw(draw, &constants, &uniforms) == 1);
     }
     double ns = (CACurrentMediaTime() - started)*1e9/PROBE_DRAWS;
     *digest = finish_batch(draw->color_target, 0);
@@ -157,7 +183,9 @@ static void transition_test(struct gpu_draw draw)
     draw.viewport.width = draw.scissor.width = PROBE_WIDTH/2;
     gpu_metal_texture_upload(draw.stages[0].texture, 0, 0, &red, 4);
     assert(pass_begin(draw.color_target, 0, &clear));
-    assert(gpu_metal_draw(&draw, &constants, &uniforms));
+    @autoreleasepool {
+        assert(probe_submit_draw(&draw));
+    } /* Drain before the old storage is renamed and before GPU submission. */
     /* Both storage writes happen before submission/completion. The left draw
     must retain the old texel/buffer, the right draw must see the new ones. */
     id<MTLBuffer> previous = buffer_record(draw.streams[0].buffer)->buffer;
@@ -167,7 +195,9 @@ static void transition_test(struct gpu_draw draw)
     pass_end(); /* identical prepared state, new encoder must rebind */
     draw.viewport.x = draw.scissor.x = PROBE_WIDTH/2;
     draw.depth_stencil.stencil_reference = 7; /* dynamic, not a depth object key */
-    assert(gpu_metal_draw(&draw, &constants, &uniforms));
+    @autoreleasepool {
+        assert(probe_submit_draw(&draw));
+    } /* Native resources must survive this drain through GPU completion. */
     finish_batch(draw.color_target, 1);
     assert(metal_profile.attribute_table_binds == 2);
 #ifdef HALO_MACOS_METAL_V2
@@ -179,6 +209,27 @@ static void transition_test(struct gpu_draw draw)
     gpu_metal_texture_upload(draw.stages[0].texture, 0, 0, &white, 4);
     constants.c[0][0] = 0.25f; constants.c[0][1] = 0.5f; constants.c[0][2] = 0.75f;
     constants.serial++;
+}
+
+/* Rejected/clipped draws must not disturb the caller-owned pool or prevent
+valid work after its drain. No GPU encoding occurs for either early return. */
+static void pool_early_return_test(struct gpu_draw draw)
+{
+    metal_profile = (struct draw_profile){ .enabled = 1 };
+    struct gpu_draw invalid = draw;
+    invalid.pixel_shader = 0;
+    @autoreleasepool {
+        assert(probe_submit_draw(&invalid) == 0);
+        invalid = draw;
+        invalid.scissor.x = PROBE_WIDTH * 2;
+        assert(probe_submit_draw(&invalid) == 1);
+    }
+    assert(metal_profile.calls[DRAW_PROFILE_ENCODE] == 0);
+    @autoreleasepool {
+        assert(probe_submit_draw(&draw) == 1);
+    }
+    assert(metal_profile.calls[DRAW_PROFILE_ENCODE] == 1);
+    finish_batch(draw.color_target, 0);
 }
 
 static unsigned long expected_lookup(int changed)
@@ -295,14 +346,22 @@ int main(int argc, const char **argv)
         probe_layer = [CAMetalLayer layer];
         struct gpu_capabilities capabilities;
         gpu_metal_initialize(GPU_INITIALIZE_NO_PIPELINE_ARCHIVE | GPU_INITIALIZE_NO_SPECIALIZE, &capabilities);
+        for (int argument = 1; argument < argc; argument++) {
 #ifdef HALO_MACOS_METAL_V2
-        prepared_native_enabled = !(argc > 1 && !strcmp(argv[1], "--native-off"));
-#else
-        (void)argc; (void)argv;
+            if (!strcmp(argv[argument], "--native-off"))
+                prepared_native_enabled = NO;
+            else if (!strcmp(argv[argument], "--pool-group=8"))
+                pool_group_draws = 8;
+            else if (!strcmp(argv[argument], "--pool-group=64"))
+                pool_group_draws = 64;
+            else
 #endif
+                host_fatal("Unknown probe option: %s\n", argv[argument]);
+        }
         struct gpu_draw draw = make_draw();
         assert(draw.vertex_shader && draw.pixel_shader && draw.color_target);
         transition_test(draw);
+        pool_early_return_test(draw);
         static const char *names[] = { "same-state", "changing-constants", "changing-ranges" };
         for (int mode = 0; mode < 3; mode++) {
             uint64_t digest = 0;
@@ -323,9 +382,10 @@ int main(int argc, const char **argv)
             assert(metal_profile.attribute_table_binds == PROBE_DRAWS);
 #endif
             printf("],\"digest\":\"%016llx\",\"shader_lookups\":%lu,\"pipeline_lookups\":%lu,"
-                "\"depth_lookups\":%lu,\"attribute_binds\":%lu}\n", (unsigned long long)digest,
+                "\"depth_lookups\":%lu,\"attribute_binds\":%lu,\"pool_group_draws\":%u,"
+                "\"draw_pool_drains\":%u}\n", (unsigned long long)digest,
                 metal_profile.shader_lookups, metal_profile.pipeline_lookups, metal_profile.depth_lookups,
-                metal_profile.attribute_table_binds);
+                metal_profile.attribute_table_binds, pool_group_draws, PROBE_DRAWS / pool_group_draws);
         }
         pipeline_transition_test(draw);
         depth_transition_test();

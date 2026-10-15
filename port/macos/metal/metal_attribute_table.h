@@ -41,6 +41,9 @@ Unused constants are zeroed on transition for deterministic table bytes. */
 static inline int metal_attribute_table_update(struct metal_attribute_table *table,
 	const struct gpu_draw *draw, uint32_t records)
 {
+	assert(table != NULL);
+	assert(draw != NULL);
+	assert((records >> GPU_ATTRIBUTE_COUNT) == 0);
 	int changed = 0;
 	static const float zero[4];
 
@@ -74,23 +77,26 @@ static inline int metal_attribute_table_update(struct metal_attribute_table *tab
 	return changed;
 }
 
-/* Last effective packet inputs, excluding geometry bytes. Live buffer
-records are resolved separately, so destruction/reuse cannot preserve a stale
-streamed-versus-constant interpretation. Bounded storage, no retained objects. */
+/* Last layout and effective table, excluding geometry bytes and buffer IDs.
+Live buffer records are resolved separately, so destruction/reuse cannot
+preserve stale presence. The two lists partition all 16 slots; storage is
+bounded and owns no native resources. */
 struct metal_attribute_cache
 {
 	struct metal_attribute_table table;
 	struct gpu_vertex_attribute attributes[GPU_ATTRIBUTE_COUNT];
-	struct gpu_vertex_stream streams[GPU_ATTRIBUTE_COUNT];
-	float constants[GPU_ATTRIBUTE_COUNT][4];
 	uint32_t records;
 	uint8_t streamed[GPU_ATTRIBUTE_COUNT], streamed_count;
+	uint8_t constant_slots[GPU_ATTRIBUTE_COUNT], constant_count;
 	int valid;
 };
 
 static inline int metal_attribute_table_prepare(struct metal_attribute_cache *cache,
 	const struct gpu_draw *draw, uint32_t records)
 {
+	assert(cache != NULL);
+	assert(draw != NULL);
+	assert((records >> GPU_ATTRIBUTE_COUNT) == 0);
 	int changed = 0;
 
 	if (!cache->valid || cache->records != records ||
@@ -98,49 +104,48 @@ static inline int metal_attribute_table_prepare(struct metal_attribute_cache *ca
 	{
 		/* A layout/presence transition rebuilds the format plan, not geometry. */
 		memcpy(cache->attributes, draw->attributes, sizeof(cache->attributes));
-		memcpy(cache->streams, draw->streams, sizeof(cache->streams));
-		memcpy(cache->constants, draw->constant_values, sizeof(cache->constants));
 		cache->records = records;
 		cache->valid = 1;
 		cache->streamed_count = 0;
+		cache->constant_count = 0;
 		for (unsigned index = 0; index < GPU_ATTRIBUTE_COUNT; index++)
+		{
 			if (records & (1u << index))
 				cache->streamed[cache->streamed_count++] = (uint8_t)index;
+			else
+				cache->constant_slots[cache->constant_count++] = (uint8_t)index;
+		}
+		assert(cache->streamed_count + cache->constant_count == GPU_ATTRIBUTE_COUNT);
 		return metal_attribute_table_update(&cache->table, draw, records);
 	}
-	if (memcmp(cache->constants, draw->constant_values, sizeof(cache->constants)))
+	/* Only effective inputs matter: streamed constants and unused streams
+	cannot change table bytes. Buffer identity is handled by bind_attributes,
+	not this value-only cache. Each list has at most 16 entries. */
+	for (unsigned item = 0; item < cache->constant_count; item++)
 	{
-		memcpy(cache->constants, draw->constant_values, sizeof(cache->constants));
-		for (unsigned index = 0; index < GPU_ATTRIBUTE_COUNT; index++)
+		unsigned index = cache->constant_slots[item];
+		if (memcmp(cache->table.constants[index], draw->constant_values[index],
+			sizeof(cache->table.constants[index])))
 		{
-			if (!(records & (1u << index)) && memcmp(cache->table.constants[index],
-				draw->constant_values[index], sizeof(cache->table.constants[index])))
-			{
-				memcpy(cache->table.constants[index], draw->constant_values[index], sizeof(cache->table.constants[index]));
-				changed = 1;
-			}
+			memcpy(cache->table.constants[index], draw->constant_values[index],
+				sizeof(cache->table.constants[index]));
+			changed = 1;
 		}
 	}
-	if (memcmp(cache->streams, draw->streams, sizeof(cache->streams)))
+	for (unsigned range_item = 0; range_item < cache->streamed_count; range_item++)
 	{
-		memcpy(cache->streams, draw->streams, sizeof(cache->streams));
-		/* Dynamic ranges only touch the streamed slots; unchanged constants
-		and formats must not be walked/reconstructed again. */
-		for (unsigned item = 0; item < cache->streamed_count; item++)
-		{
-			unsigned index = cache->streamed[item];
-			const struct gpu_vertex_attribute *attribute = &cache->attributes[index];
-			const struct gpu_vertex_stream *stream = &draw->streams[attribute->stream];
-			struct metal_attribute *entry = &cache->table.entries[index];
-			uint32_t offset = stream->offset + attribute->offset;
-			uint32_t stride = stream->stride ? stream->stride : metal_attribute_size(attribute->format);
+		unsigned index = cache->streamed[range_item];
+		const struct gpu_vertex_attribute *attribute = &cache->attributes[index];
+		const struct gpu_vertex_stream *stream = &draw->streams[attribute->stream];
+		struct metal_attribute *entry = &cache->table.entries[index];
+		uint32_t offset = stream->offset + attribute->offset;
+		uint32_t stride = stream->stride ? stream->stride : metal_attribute_size(attribute->format);
 
-			if (entry->offset != offset || entry->stride != stride)
-			{
-				entry->offset = offset;
-				entry->stride = stride;
-				changed = 1;
-			}
+		if (entry->offset != offset || entry->stride != stride)
+		{
+			entry->offset = offset;
+			entry->stride = stride;
+			changed = 1;
 		}
 	}
 	return changed;
