@@ -47,22 +47,25 @@ stand). A goal scores a round. The first team to the score limit wins.
   variant's arm time. An arm time of 0 scores on contact (Grifball). The
   HUD counts the arming down. Leaving the goal or dropping the bomb starts
   it over.
-- **A goal** gives the team a round, takes the bomb from its carrier and
-  resets it, and the bomb goes off in the goal: everyone within 5 world
-  units (about 15 meters, a Blood Gulch base and around it) dies and the
-  bodies are thrown out and up. It's drawn as a cluster and two rings of
-  the map's grenade explosions (the globals' frag and plasma), with their
-  sounds and none of their damage, on every machine. The other team's dead
-  are the scorer's kills; the scoring team's own (the carrier too) count
-  nothing: no death, suicide, betrayal, message or respawn penalty.
-- **After a goal**, with "new round on score" (every preset): the blast is
-  seen for 3 seconds, then every player is sent back to one of their
-  team's starting locations nearest their own goal, whole again (no death
-  is counted), the dead respawning there, and a "3", "2", "1" countdown
-  runs. Until it ends nobody can move, jump, fire, throw or strike (they
-  can look around), the bomb can't be picked up and the round timer stands
-  still. The host's state carries the countdown (`hold_ticks`, a spare
-  byte of the game state, which earlier builds ignore).
+- **A goal** gives the team a round at once and plants the bomb in the
+  goal: out of the carrier's hands, and no one can pick it up. The round
+  clock stops. A 3, 2, 1 countdown runs in the middle of the screen with
+  the countdown beeps, and everyone is free to run or fight. Then the bomb
+  goes off: everyone within 5 world units (about 15 meters, a Blood Gulch
+  base and around it) dies and the bodies are thrown out and up. It's
+  drawn as a cluster and two rings of the map's grenade explosions (the
+  globals' frag and plasma), with their sounds and none of their damage, on
+  every machine. The other team's dead are the scorer's kills; the scoring
+  team's own (the carrier too) count nothing: no death, suicide, betrayal,
+  message or respawn penalty.
+- **After the blast**, 2.5 seconds on, with "new round on score" (every
+  preset): every player is sent back to one of their team's starting
+  locations nearest their own goal, whole again (no death is counted), the
+  dead respawning there, the bomb is back at its spawn, and the next round
+  starts with "Round N" and "Play ball". The host's state carries the
+  countdown and pause (`hold_ticks`, a spare byte of the game state, which
+  earlier builds ignore). A winning goal plays the same countdown and
+  blast before the game ends.
 - **Round time.** A round that runs out ends with no score: a new round
   starts the same way. The last 5 seconds tick aloud.
 - **Untouched reset.** A bomb on the ground for the reset time (30 seconds)
@@ -88,7 +91,8 @@ At the top of each player's view (split screen too):
   else sees `YOUR TEAM HAS THE BOMB` or `THE ENEMY HAS THE BOMB`.
 - The messages: "You scored! 2 to 0", "The enemy scored. 0 to 2", "Round
   3", "Time is up. Round 3", "The bomb was reset.", and a goal's
-  countdown, "3", "2", "1". The pickup shows no
+  countdown, "3", "2", "1", in the middle of the screen in the map's
+  largest font. The pickup shows no
   line of its own: the stock "Picked up the odd ball" is hidden in Bomb
   games, and the HUD's line says who has it.
 - The bottom-right score and the postgame report show "Rounds".
@@ -125,8 +129,10 @@ weapons on the map, and no grenades or powerups (`game_variant_options_default`,
 (a weapon tag named for a sword, with a first-person model and animations,
 that doesn't vanish when dropped), every player spawns with it. Without
 one (Blood Gulch), every player spawns with the globals' multiplayer pistol
-as their fists: none of it is drawn (the first-person arms are, so the
-pistol whip shows as a punch), it holds no rounds and can't fire, zoom or
+as their fists: none of it is drawn, the first-person arms show only while
+striking (the pistol whip, which reads as a punch), and in third person
+players stand, run and swing empty-handed (the "unarmed" animations, with
+the pistol's melee swing), it holds no rounds and can't fire, zoom or
 reload, its HUD is the bare crosshair, and it is never left lying or picked
 up (the host deletes one that is dropped, a dead player's too). Carrying
 the bomb holsters it, as any second weapon. Every machine applies these

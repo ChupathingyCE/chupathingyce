@@ -80,11 +80,11 @@ and the bodies are thrown, harder nearer */
 
 enum
 {
-	/* after a goal: the blast seen this long, then everyone back at their
-	own end for a countdown this long, held still, before the next round
-	plays (a byte in the network state: 255 ticks at most) */
-	BOMB_BLAST_PAUSE_TICKS = 3 * TICKS_PER_SECOND,
+	/* after a goal: the bomb planted in the goal counts down this long
+	(everyone free to run), goes off, and the blast is seen this long before
+	the next round (the two a byte in the network state: 255 ticks at most) */
 	BOMB_COUNTDOWN_TICKS = 3 * TICKS_PER_SECOND,
+	BOMB_BLAST_PAUSE_TICKS = 5 * TICKS_PER_SECOND / 2,
 	/* the globals' grenades the blast is drawn with */
 	MAXIMUM_BOMB_BLAST_EFFECTS = 2,
 };
@@ -112,7 +112,6 @@ enum
 	_bomb_message_bomb_reset,
 	_bomb_message_new_round,
 	_bomb_message_round_over,
-	_bomb_message_countdown,
 };
 
 /* ---------- globals */
@@ -153,14 +152,20 @@ static struct
 	long carry_ticks[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
 	short carrier_kills[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
 	short kills_as_carrier[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
-	/* after a goal, the ticks before play goes on (the blast's pause, then
-	the countdown; 0: playing): the host's, which a client has from it and
-	counts down too */
+	/* after a goal, the ticks before the next round (the planted bomb's
+	countdown, then the blast's pause; 0: playing): the host's, which a
+	client has from it and counts down too */
 	long hold_ticks;
 	/* the countdown's second last shown (0: none) */
 	long countdown_shown;
-	/* this round began with a countdown (its "play ball" at the end) */
-	boolean countdown_round;
+	/* the goal's: the goal the bomb is planted in (its team's), the scorer
+	and their team, whether a round follows, and whether its blast has gone
+	off (on this machine) */
+	long blast_goal_team;
+	long blast_scorer;
+	long blast_team;
+	boolean blast_next_round;
+	boolean blast_done;
 	/* the blast's effects */
 	long blast_effects[MAXIMUM_BOMB_BLAST_EFFECTS];
 	/* the host's: the scoring team's players its blast kills, which count
@@ -609,7 +614,7 @@ static long bomb_create(void)
 }
 
 /* the bomb back at its spawn, out of any hands (made again if it is gone) */
-static void bomb_reset(void)
+static void bomb_place(real_point3d const *position)
 {
 	long weapon_index = bomb_globals.weapon_index;
 	struct weapon_datum *weapon = weapon_index != NONE ?
@@ -626,7 +631,12 @@ static void bomb_reset(void)
 	{
 		unit_drop_current_weapon(weapon->object.parent_object_index, TRUE);
 	}
-	game_engine_flag_reset(weapon_index, &bomb_globals.spawn);
+	game_engine_flag_reset(weapon_index, position);
+}
+
+static void bomb_reset(void)
+{
+	bomb_place(&bomb_globals.spawn);
 }
 
 /* ---------- rounds */
@@ -712,7 +722,6 @@ static void bomb_start_round(boolean timed_out)
 		timed_out ? "time" : "goal", (long)bomb_globals.round + 1, (long)bomb_globals.scores[0],
 		(long)bomb_globals.scores[1]);
 	bomb_globals.round++;
-	bomb_globals.countdown_round = FALSE;
 	bomb_globals.round_ticks = round_time > 0 ? round_time * TICKS_PER_SECOND : NONE;
 	bomb_globals.round_start_time = game_time_get();
 	bomb_reset();
@@ -749,6 +758,10 @@ static boolean bomb_engine_initialize_for_new_map(void)
 	csmemset(&bomb_events, 0, sizeof(bomb_events));
 	bomb_globals.weapon_index = NONE;
 	bomb_globals.carrier = NONE;
+	bomb_globals.blast_goal_team = NONE;
+	bomb_globals.blast_scorer = NONE;
+	bomb_globals.blast_team = NONE;
+	bomb_globals.blast_done = TRUE;
 	bomb_blast_find_effects();
 	bomb_globals.score_to_win = game_engine_get_variant()->universal_variant.score_to_win;
 	bomb_globals.sword_definition_index = bomb_find_sword();
@@ -970,17 +983,18 @@ static void bomb_blast_effects(real_point3d const *goal)
 /* the host's: everyone near the goal dies, the bodies thrown out and up.
 The other team's dead are the scorer's kills; the scoring team's own (the
 scorer too) count nothing: no death, no suicide, no betrayal, no penalty.
-Everyone dead respawns at their own end as the countdown starts (or as
-the game type has it, with no round to come). */
-static void bomb_blast(long scorer_index, long team_index, real_point3d const *goal, boolean next_round)
+Everyone dead respawns at their own end as the next round starts. */
+static void bomb_blast(long scorer_index, long team_index, real_point3d const *goal)
 {
 	struct data_iterator iterator;
 	struct player_datum *player;
 	real radius = BOMB_BLAST_RADIUS;
 	struct object_iterator objects;
 
-	/* (no kills while carrying: the bomb is home again) */
-	bomb_globals.carrier = NONE;
+	/* (a scorer who has left credits no one: their enemies die all the
+	same, counting nothing) */
+	if (scorer_index != NONE && !player_try_and_get(scorer_index))
+		scorer_index = NONE;
 	/* the other team first: the scorer is alive to be credited */
 	data_iterator_new(&iterator, player_data);
 	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
@@ -999,7 +1013,10 @@ static void bomb_blast(long scorer_index, long team_index, real_point3d const *g
 		if (player->team_index != team_index)
 		{
 			bomb_log_player("blast kills", iterator.datum_index);
-			network_damage_host_kill_for_player(player->unit_index, scorer_index);
+			if (scorer_index != NONE)
+				network_damage_host_kill_for_player(player->unit_index, scorer_index);
+			else
+				damage_kill_object_no_statistics(player->unit_index);
 		}
 	}
 	data_iterator_new(&iterator, player_data);
@@ -1048,19 +1065,6 @@ static void bomb_blast(long scorer_index, long team_index, real_point3d const *g
 		body->object.translational_velocity.k = BOMB_BLAST_THROW_UP * (0.6f + 0.4f * near);
 		SET_FLAG(body->object.flags, _object_at_rest_bit, FALSE);
 	}
-	/* everyone dead back as the countdown starts */
-	if (next_round)
-	{
-		data_iterator_new(&iterator, player_data);
-		while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
-		{
-			if (player->unit_index == NONE || TEST_FLAG(object_get(player->unit_index)->object.damage_flags,
-				_object_dead_bit))
-			{
-				player->respawn_timer = BOMB_BLAST_PAUSE_TICKS;
-			}
-		}
-	}
 }
 
 static void bomb_award_score(long player_index)
@@ -1078,66 +1082,73 @@ static void bomb_award_score(long player_index)
 	bomb_log_player("score", player_index);
 	bomb_log("score: red %ld blue %ld", (long)bomb_globals.scores[0], (long)bomb_globals.scores[1]);
 	bomb_show_score(player_index, team_index);
-	bomb_reset();
 	{
 		long goal_team = (team_index + 1) % NUMBER_OF_BOMB_TEAMS;
-		boolean next_round = bomb_globals.scores[team_index] < bomb_globals.score_to_win &&
-			TEST_FLAG(game_engine_get_variant()->game_engine_variant.bomb.flags, _bomb_new_round_on_score_bit);
 
-		/* the bomb goes off in the goal; the next round after a pause and a
-		countdown */
-		if (bomb_globals.has_goal[goal_team])
-		{
-			bomb_blast(player_index, team_index, &bomb_globals.goals[goal_team], next_round);
-			bomb_blast_effects(&bomb_globals.goals[goal_team]);
-		}
-		if (next_round)
-			bomb_globals.hold_ticks = BOMB_BLAST_PAUSE_TICKS + BOMB_COUNTDOWN_TICKS;
+		/* the bomb planted in the goal, out of anyone's hands, to go off
+		after a countdown (bomb_hold_update) */
+		bomb_globals.carrier = NONE;
+		bomb_globals.arm_ticks = 0;
+		bomb_globals.blast_goal_team = goal_team;
+		bomb_globals.blast_scorer = player_index;
+		bomb_globals.blast_team = team_index;
+		bomb_globals.blast_next_round = bomb_globals.scores[team_index] < bomb_globals.score_to_win &&
+			TEST_FLAG(game_engine_get_variant()->game_engine_variant.bomb.flags, _bomb_new_round_on_score_bit);
+		bomb_globals.blast_done = FALSE;
+		bomb_globals.countdown_shown = 0;
+		bomb_place(bomb_globals.has_goal[goal_team] ? &bomb_globals.goals[goal_team] : &bomb_globals.spawn);
+		bomb_globals.hold_ticks = BOMB_COUNTDOWN_TICKS + BOMB_BLAST_PAUSE_TICKS;
 	}
 }
 
-/* every machine's: the countdown's seconds shown as they come, and play
-going on at its end */
+/* every machine's: the planted bomb's countdown, its blast (the host's
+damage; everyone's effects), and the host's next round after the pause */
 static void bomb_hold_update(void)
 {
-	long seconds;
-
 	if (bomb_globals.hold_ticks <= 0)
 		return;
 	bomb_globals.hold_ticks--;
-	/* (the host's next round: everyone home for the countdown) */
-	if (bomb_globals.hold_ticks == BOMB_COUNTDOWN_TICKS && !network_game_distributed_client())
+	if (bomb_globals.hold_ticks > BOMB_BLAST_PAUSE_TICKS)
+	{
+		long seconds = (bomb_globals.hold_ticks - BOMB_BLAST_PAUSE_TICKS + TICKS_PER_SECOND - 1) / TICKS_PER_SECOND;
+
+		if (bomb_globals.countdown_shown == 0 || seconds < bomb_globals.countdown_shown)
+		{
+			bomb_globals.countdown_shown = seconds;
+			game_engine_play_multiplayer_sound(_bomb_sound_countdown);
+		}
+		return;
+	}
+	bomb_globals.countdown_shown = 0;
+	if (!bomb_globals.blast_done)
+	{
+		long goal_team = bomb_globals.blast_goal_team;
+
+		bomb_globals.blast_done = TRUE;
+		if (VALID_INDEX(goal_team, NUMBER_OF_BOMB_TEAMS) && bomb_globals.has_goal[goal_team])
+		{
+			if (!network_game_distributed_client())
+				bomb_blast(bomb_globals.blast_scorer, bomb_globals.blast_team, &bomb_globals.goals[goal_team]);
+			bomb_blast_effects(&bomb_globals.goals[goal_team]);
+		}
+		/* (the bomb gone with it, home again) */
+		if (!network_game_distributed_client())
+			bomb_reset();
+	}
+	/* the host's next round: everyone home, the dead with them (no one
+	spawned during the pause) */
+	if (bomb_globals.hold_ticks == 0 && !network_game_distributed_client() && bomb_globals.blast_next_round)
 	{
 		struct data_iterator iterator;
 		struct player_datum *player;
 
 		bomb_start_round(FALSE);
-		/* (and the dead with them: no one spawned during the blast's pause,
-		which held their timers) */
 		data_iterator_new(&iterator, player_data);
 		while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
 		{
 			if (player->unit_index == NONE)
 				player->respawn_timer = MIN(player->respawn_timer, 1);
 		}
-	}
-	if (bomb_globals.hold_ticks > BOMB_COUNTDOWN_TICKS)
-	{
-		bomb_globals.countdown_shown = 0;
-		return;
-	}
-	bomb_globals.countdown_round = TRUE;
-	seconds = (bomb_globals.hold_ticks + TICKS_PER_SECOND - 1) / TICKS_PER_SECOND;
-	if (seconds > 0 && (bomb_globals.countdown_shown == 0 || seconds < bomb_globals.countdown_shown))
-	{
-		bomb_globals.countdown_shown = seconds;
-		game_engine_play_multiplayer_sound(_bomb_sound_countdown);
-		game_show_score_extended(NONE, _bomb_message_countdown, seconds);
-	}
-	if (bomb_globals.hold_ticks == 0)
-	{
-		bomb_globals.countdown_shown = 0;
-		game_engine_play_multiplayer_sound(_bomb_sound_play_ball);
 	}
 }
 
@@ -1286,16 +1297,15 @@ static void bomb_engine_update(void)
 			}
 		}
 	}
-	/* ("play ball": at the countdown's end, after a goal) */
 	if (game_time_get() - bomb_globals.round_start_time == BOMB_ROUND_ANNOUNCEMENT_TICKS &&
-		!bomb_globals.countdown_round && bomb_globals.hold_ticks == 0)
+		bomb_globals.hold_ticks == 0)
 	{
 		game_engine_play_multiplayer_sound(_bomb_sound_play_ball);
 	}
 
 	if (!game_engine_can_score())
 		return;
-	/* (the round's time stands still from the goal to the countdown's end) */
+	/* (the round's time stands still from the goal to the next round) */
 	if (bomb_globals.hold_ticks > 0)
 	{
 		bomb_hold_update();
@@ -1367,7 +1377,7 @@ static boolean bomb_engine_allow_pick_up(long unit_index, long weapon_index)
 			return FALSE;
 		}
 	}
-	/* (not the bomb until the countdown is over) */
+	/* (not the bomb from the goal to the next round: it is planted) */
 	return weapon_index != bomb_globals.weapon_index || bomb_globals.hold_ticks <= 0;
 }
 
@@ -1406,6 +1416,7 @@ static boolean bomb_engine_format_message(long player_index, long message, long 
 	long team_index = VALID_INDEX(player->team_index, NUMBER_OF_BOMB_TEAMS) ? player->team_index : 0;
 	long other_team_index = (team_index + 1) % NUMBER_OF_BOMB_TEAMS;
 
+	(void)message_data;
 	switch (message)
 	{
 	case _bomb_message_you_scored:
@@ -1437,9 +1448,6 @@ static boolean bomb_engine_format_message(long player_index, long message, long 
 		break;
 	case _bomb_message_round_over:
 		usnprintf(buffer, buffer_size, L"Time is up. Round %d", (int)bomb_globals.round);
-		break;
-	case _bomb_message_countdown:
-		usnprintf(buffer, buffer_size, L"%d", (int)message_data);
 		break;
 	default:
 		return FALSE;
@@ -1743,10 +1751,12 @@ boolean game_engine_bomb_read_network_state(
 			long goal_team = (state.scorer_team + 1) % NUMBER_OF_BOMB_TEAMS;
 
 			bomb_show_score(distributed_player_from_byte(state.scorer), state.scorer_team);
-			/* (the blast the host's goal set off: drawn here; its damage is
-			the host's) */
-			if (VALID_INDEX(goal_team, NUMBER_OF_BOMB_TEAMS) && bomb_globals.has_goal[goal_team])
-				bomb_blast_effects(&bomb_globals.goals[goal_team]);
+			/* (the planted bomb's countdown and blast, drawn here as the
+			host's hold_ticks run down: bomb_hold_update) */
+			bomb_globals.blast_goal_team = goal_team;
+			bomb_globals.blast_team = state.scorer_team;
+			bomb_globals.blast_done = FALSE;
+			bomb_globals.countdown_shown = 0;
 		}
 		if (state.reset_count != bomb_events.resets)
 			bomb_show_reset();
@@ -1844,7 +1854,7 @@ long game_engine_bomb_report_game(
 	return written;
 }
 
-/* ---------- the blast and the countdown (game_engine.c, players.c) */
+/* ---------- the goal's countdown and blast (game_engine.c) */
 
 /* whether a player's death is the blast's taking of the scoring team's own,
 which counts nothing (the host's, as its blast marked it; a client's, as the
@@ -1864,27 +1874,27 @@ boolean game_engine_bomb_silent_death(
 		network_distributed_death_silent(dead_player_index);
 }
 
-/* the respawn of a death that counts nothing: as the countdown starts */
+/* the respawn of a death that counts nothing: with the next round */
 long game_engine_bomb_silent_respawn_ticks(
 	void)
 {
-	return bomb_running() && bomb_globals.hold_ticks > BOMB_COUNTDOWN_TICKS ?
-		bomb_globals.hold_ticks - BOMB_COUNTDOWN_TICKS : BOMB_BLAST_PAUSE_TICKS;
+	return bomb_running() && bomb_globals.hold_ticks > 0 ? bomb_globals.hold_ticks : BOMB_BLAST_PAUSE_TICKS;
 }
 
-/* whether players are held still (from a goal to its countdown's end):
-they may look about, but not move, jump, shoot, throw or strike */
-boolean game_engine_bomb_frozen(
+/* the planted bomb's countdown's second now (0: none) */
+long game_engine_bomb_countdown(
 	void)
 {
-	return bomb_running() && bomb_globals.hold_ticks > 0;
+	if (!bomb_running() || bomb_globals.hold_ticks <= BOMB_BLAST_PAUSE_TICKS)
+		return 0;
+	return (bomb_globals.hold_ticks - BOMB_BLAST_PAUSE_TICKS + TICKS_PER_SECOND - 1) / TICKS_PER_SECOND;
 }
 
-/* whether no one spawns now (the blast's pause, before the countdown) */
+/* whether no one spawns now (the blast's pause, before the next round) */
 boolean game_engine_bomb_holds_spawns(
 	void)
 {
-	return bomb_running() && bomb_globals.hold_ticks > BOMB_COUNTDOWN_TICKS;
+	return bomb_running() && bomb_globals.hold_ticks > 0 && bomb_globals.hold_ticks <= BOMB_BLAST_PAUSE_TICKS;
 }
 
 /* ---------- the network test's (port/linux/game/network_test.c) */

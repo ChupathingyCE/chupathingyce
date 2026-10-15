@@ -129,6 +129,7 @@ symbols in this file:
 #endif
 #include "game/game_engine.h"
 
+
 /* ---------- constants */
 
 enum
@@ -552,8 +553,15 @@ void first_person_weapon_draw(
 							FLAG(_render_model_first_person_bit));
 					}
 
+					/* (port: the unseen fists' arms only while they strike: none
+					of the pistol's readying or idling) */
 					if (first_person_weapon->hands_node_remapping_table_valid &&
-						first_person_interface->hands.index!=NONE)
+						first_person_interface->hands.index!=NONE
+#ifdef HALO_GAME_BROWSER
+						&& (!game_engine_bomb_hides_weapon(weapon->definition_index) ||
+							first_person_weapon->state==_first_person_weapon_state_melee)
+#endif
+						)
 					{
 						model_remap_node_matrices_to_match_animation_graph(
 							first_person_interface->hands.index,

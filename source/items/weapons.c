@@ -773,6 +773,13 @@ char const *weapon_get_label(
 		struct weapon_definition *weapon_definition = weapon_definition_get(weapon->definition_index);
 
 		label = weapon_definition->weapon.label;
+#ifdef HALO_GAME_BROWSER
+		/* port: a melee-only Bomb game's unseen fists are held as no weapon
+		is: the unit stands, runs and strikes empty-handed
+		(game_engine_bomb.c) */
+		if (game_engine_bomb_hides_weapon(weapon->definition_index))
+			label = "unarmed";
+#endif
 	}
 
 	return label;

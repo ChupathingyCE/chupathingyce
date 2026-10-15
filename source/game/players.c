@@ -4668,15 +4668,8 @@ void players_update_before_game(
 					control_data.zoom_level = action->desired_zoom_level;
 					control_data.aiming_speed = 0;
 #ifdef HALO_GAME_BROWSER
-					/* port: held still for a Bomb goal's countdown
-					(game_engine_bomb.c): looking about, nothing more */
-					if (game_engine_bomb_frozen())
-					{
-						control_data.control_flags &= FLAG(_unit_control_crouch_modifier_bit);
-						control_data.throttle = *global_zero_vector3d;
-						control_data.primary_trigger = 0.f;
-					}
-	/* ... and the unseen fists of a melee-only game only strike */
+					/* port: a melee-only Bomb game's unseen fists only strike
+					(game_engine_bomb.c) */
 					{
 						long held_index = unit_inventory_get_weapon(player->unit_index, unit->unit.current_weapon_index);
 

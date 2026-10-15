@@ -586,6 +586,7 @@ struct network_game *network_game_server_get_game(struct network_game_server *se
 #include "sound/sound_classes.h"
 #include "text/draw_string.h"
 #include "text/font_group.h"
+#include "cache/cache_files.h"
 #include "text/text_group.h"
 #include "text/unicode.h"
 #include "units/bipeds.h"
@@ -3661,6 +3662,44 @@ static void game_engine_rasterize_bomb(
 		draw_string_set_draw_mode(hud_globals->messaging.multi_player_font.index, NONE, 2, 0, &color);
 		draw_string_set_color(&color);
 		rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, carrier_line);
+	}
+	/* the planted bomb's countdown, large in the middle */
+	{
+		long seconds = game_engine_bomb_countdown();
+
+		if (seconds > 0)
+		{
+			wchar_t countdown[8];
+			long font_index = NONE;
+			struct tag_iterator fonts;
+			long tag_index;
+			short tallest = 0;
+
+			/* (the map's tallest font: digits as large as the map has) */
+			tag_iterator_new(&fonts, FONT_GROUP_TAG);
+			while ((tag_index = tag_iterator_next(&fonts)) != NONE)
+			{
+				struct font_header *font = font_definition_get(tag_index);
+
+				if (font->ascending_height + font->descending_height > tallest)
+				{
+					tallest = font->ascending_height + font->descending_height;
+					font_index = tag_index;
+				}
+			}
+			usnprintf(countdown, NUMBEROF(countdown), L"%d", (int)seconds);
+			bounds = render.camera.window_bounds;
+			offset_rectangle2d(&bounds, -render.camera.viewport_bounds.x0, -render.camera.viewport_bounds.y0);
+			bounds.y0 = (short)((bounds.y0 + bounds.y1) / 2 - 60);
+			bounds.y1 = (short)(bounds.y0 + MAX(40, tallest + 8));
+			color.red = 1.0f;
+			color.green = 0.85f;
+			color.blue = 0.2f;
+			draw_string_set_draw_mode(font_index != NONE ? font_index : hud_globals->messaging.multi_player_font.index,
+				NONE, 2, 0, &color);
+			draw_string_set_color(&color);
+			rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, countdown);
+		}
 	}
 	draw_string_set_format(NONE, 0, 0);
 }

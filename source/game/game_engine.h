@@ -463,12 +463,12 @@ long game_engine_bomb_weapon(void);
 boolean game_engine_bomb_goal(long team_index, union real_point3d *position);
 long game_engine_bomb_team_score(long team_index);
 long game_engine_bomb_round(void);
-/* a goal's blast and countdown: whether a death counts nothing (the scoring
-team's own in the blast) and when its player respawns, and whether players
-are held still */
+/* a goal's countdown and blast: whether a death counts nothing (the scoring
+team's own in the blast) and when its player respawns, the countdown's
+second now (0: none), and whether no one spawns (the blast's pause) */
 boolean game_engine_bomb_silent_death(long killing_player_index, long dead_player_index, boolean friendly_fire);
 long game_engine_bomb_silent_respawn_ticks(void);
-boolean game_engine_bomb_frozen(void);
+long game_engine_bomb_countdown(void);
 boolean game_engine_bomb_holds_spawns(void);
 #endif
 

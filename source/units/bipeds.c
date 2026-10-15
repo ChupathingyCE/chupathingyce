@@ -4360,6 +4360,12 @@ boolean biped_update(
 					else
 					{
 					weapon_stop_reload(weapon_index);
+#ifdef HALO_GAME_BROWSER
+					/* (port: a melee-only Bomb game's unseen fists, held
+					unarmed, swing as no weapon does) */
+					if (game_engine_bomb_hides_weapon(weapon_get(weapon_index)->definition_index))
+						unit_animation_start_unarmed_melee(biped_index);
+#endif
 					first_person_weapon_message_from_unit(
 						biped_index,
 						_first_person_weapon_message_melee);
