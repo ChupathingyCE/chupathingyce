@@ -48,6 +48,7 @@ netcode shows them from the host's state (game_engine_bomb_write_network_state).
 #include "interface/hud_messaging.h"
 #include "interface/hud_unit.h"
 #include "rasterizer/rasterizer_model_types.h"
+#include "render/render.h"
 
 #ifdef HALO_GAME_BROWSER
 
@@ -81,6 +82,11 @@ enum
 
 /* how near the carrier stands to the goal's marker to arm it (CTF's) */
 #define BOMB_GOAL_RADIUS 1.0f
+/* the goal's outline's band: its height, and how near the view (from the
+goal's center, across the ground) it starts to sink and is gone */
+#define BOMB_GOAL_OUTLINE_HEIGHT 0.3f
+#define BOMB_GOAL_OUTLINE_FADE_FAR 4.0f
+#define BOMB_GOAL_OUTLINE_FADE_NEAR 1.5f
 
 /* the bomb's blast at the goal it is scored in: everyone this near the
 goal dies (world units: about 15 meters, a Blood Gulch base and around it),
@@ -831,7 +837,9 @@ static short bomb_goal_outline(long team_index, real_point3d *points, short maxi
 }
 
 /* each goal outlined as King of the Hill's hill is, in the map's hill
-shader: a band of quads about it (king_engine_post_rasterize's) */
+shader: a band of quads about it (king_engine_post_rasterize's), low on the
+ground, and lower the nearer the view is, gone at the goal, so it never
+covers the screen */
 static void bomb_engine_post_rasterize(void)
 {
 	struct game_globals *game_globals = scenario_get_game_globals();
@@ -853,7 +861,19 @@ static void bomb_engine_post_rasterize(void)
 		real segments;
 		real u = 0.0f;
 
+		real height;
+
 		if (!bomb_globals.has_goal[team_index])
+			continue;
+		{
+			real i = render.camera.position.x - bomb_globals.goals[team_index].x;
+			real j = render.camera.position.y - bomb_globals.goals[team_index].y;
+			real fade = PIN(((real)sqrt(i * i + j * j) - BOMB_GOAL_OUTLINE_FADE_NEAR) /
+				(BOMB_GOAL_OUTLINE_FADE_FAR - BOMB_GOAL_OUTLINE_FADE_NEAR), 0.0f, 1.0f);
+
+			height = BOMB_GOAL_OUTLINE_HEIGHT * fade;
+		}
+		if (height < 0.02f)
 			continue;
 		count = bomb_goal_outline(team_index, points, BOMB_GOAL_OUTLINE_SIDES);
 		for (index = 0; index < count; index++)
@@ -869,9 +889,9 @@ static void bomb_engine_post_rasterize(void)
 			csmemset(vertices, 0, sizeof(vertices));
 			vertices[0].position = points[index];
 			vertices[1].position = points[index];
-			vertices[1].position.z += 0.8f;
+			vertices[1].position.z += height;
 			vertices[2].position = points[(index + 1) % count];
-			vertices[2].position.z += 0.8f;
+			vertices[2].position.z += height;
 			vertices[3].position = points[(index + 1) % count];
 			vector_from_points3d(&vertices[0].position, &vertices[1].position, &sides[0]);
 			vector_from_points3d(&vertices[1].position, &vertices[2].position, &sides[1]);
