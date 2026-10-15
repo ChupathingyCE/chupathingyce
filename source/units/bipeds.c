@@ -4353,6 +4353,7 @@ boolean biped_update(
 					animations, through a weapon it did not check) */
 					if (weapon_index == NONE)
 					{
+						unit_animation_start_unarmed_melee(biped_index);
 						biped->biped.player_melee_ticks = UNARMED_MELEE_TICKS;
 						biped->biped.player_melee_attack_tick = UNARMED_MELEE_TICKS / 2;
 					}

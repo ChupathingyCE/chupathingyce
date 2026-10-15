@@ -626,6 +626,14 @@ void test_input_hold_action(int hold)
 	test_input_holding_action = hold;
 }
 
+/* ... and the melee button (B) held, the player standing still */
+static int test_input_holding_melee;
+
+void test_input_hold_melee(int hold)
+{
+	test_input_holding_melee = hold;
+}
+
 /* debug.test_input "menu:<buttons>": the buttons pressed one a second, from
 the first poll, for testing the menus: a, b, x, y, lb, rb (white and black),
 up, down, left, right, start, back, key:<a key's name> (a key of the
@@ -754,6 +762,11 @@ static void test_input_gamepad(XINPUT_GAMEPAD *pad)
 	if (test_input_menu[0])
 	{
 		test_input_menu_gamepad(pad);
+		return;
+	}
+	if (test_input_holding_melee)
+	{
+		pad->bAnalogButtons[XINPUT_GAMEPAD_B] = 255;
 		return;
 	}
 	if (seed < 0)
