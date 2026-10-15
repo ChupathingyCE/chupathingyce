@@ -73,7 +73,8 @@ enum
 	COLOR_WARNING = 0xF2C14EFF,
 };
 
-/* the actions, as the screen offers them */
+/* the actions, as the screen offers them: the server's control panel offers
+the same, by the same names and to the same roles (server/webui/app.js) */
 struct moderation_choice
 {
 	char const *name;
@@ -91,8 +92,9 @@ static struct moderation_choice const moderation_choices[] =
 	{ "Ban 1 hour", _delta_moderation_action_ban, 60, DELTA_MODERATION_BAN_TIMED, TRUE },
 	{ "Ban 1 day", _delta_moderation_action_ban, 24 * 60, DELTA_MODERATION_BAN_TIMED, TRUE },
 	{ "Ban 7 days", _delta_moderation_action_ban, 7 * 24 * 60, DELTA_MODERATION_BAN_TIMED, TRUE },
-	{ "Ban for ever", _delta_moderation_action_ban, 0, DELTA_MODERATION_BAN, TRUE },
-	{ "End the game", _delta_moderation_action_end_game, 0, DELTA_MODERATION_MAP, FALSE },
+	{ "Ban 30 days", _delta_moderation_action_ban, 30 * 24 * 60, DELTA_MODERATION_BAN_TIMED, TRUE },
+	{ "Ban forever", _delta_moderation_action_ban, 0, DELTA_MODERATION_BAN, TRUE },
+	{ "End game", _delta_moderation_action_end_game, 0, DELTA_MODERATION_MAP, FALSE },
 	{ "Next map", _delta_moderation_action_next_map, 0, DELTA_MODERATION_MAP, FALSE },
 };
 
@@ -126,6 +128,7 @@ static struct
 	unsigned long result_seen;
 	unsigned long result_time;
 	char status[128];
+	boolean signing_in;
 } moderation_screen;
 
 /* ---------- private code */
@@ -252,7 +255,8 @@ static void press(
 	{
 		if (button == _gamepad_analog_button_a && settled)
 		{
-			set_status(delta_peer_game_moderation_sign_in() ? "Signing in..." :
+			moderation_screen.signing_in = delta_peer_game_moderation_sign_in();
+			set_status(moderation_screen.signing_in ? "Signing in..." :
 				"Could not sign in (no player key, or this is not the server you joined).");
 		}
 		return;
@@ -324,6 +328,12 @@ void moderation_screen_update(
 			platform_log("server %s: %s",
 				moderation_screen.moderation.notice_kind == _delta_moderation_notice_warning ? "warning" : "notice",
 				moderation_screen.moderation.notice);
+	}
+	/* (signed in: the host said the key's role, so "Signing in..." is done) */
+	if (moderation_screen.moderation.has_state && moderation_screen.signing_in)
+	{
+		moderation_screen.signing_in = FALSE;
+		moderation_screen.status[0] = 0;
 	}
 	if (moderation_screen.moderation.result_count != moderation_screen.result_seen)
 	{

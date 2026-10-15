@@ -1,7 +1,7 @@
 # Running a server: commands, console and control API
 
 Who may run which command (moderators, admins, owners), the control panel's
-accounts, remote access over HTTPS and the optional link to halo.milenko.org
+accounts, remote access over HTTPS and the optional link to the Chupathingy site
 are in [moderation.md](moderation.md).
 
 A running server takes commands, named after Halo PC's dedicated server's
@@ -46,14 +46,14 @@ the duration.
 | `sv_mapcycle` | The playlist, and which entry is playing or next. |
 | `sv_mapcycle_next` | Skips to the playlist's next entry now (the game in progress ends without its carnage report). |
 | `sv_end_game` | Ends the game in progress, as its score limit would: the carnage report shows, then the next entry's lobby opens. |
-| `sv_maxplayers [count]` | Shows or sets the most players a game takes (1 to 128; no fewer than `HALO_DEDICATED_MINIMUM_PLAYERS`). In the lobby at once, otherwise from the next lobby. |
-| `sv_name [name]` | Shows or sets the server's name on the lists (15 characters at most). In the lobby at once, otherwise from the next lobby. |
+| `sv_maxplayers [count]` | Shows or sets the most players a game takes (1 to 128; no fewer than `HALO_DEDICATED_MINIMUM_PLAYERS`). In the lobby at once, otherwise from the next lobby. Saved in the settings file (as `sv_set maximum_players`), unless `HALO_DEDICATED_MAXIMUM_PLAYERS` is set: then until a restart. |
+| `sv_name [name]` | Shows or sets the server's name on the lists (15 characters at most). In the lobby at once, otherwise from the next lobby. Saved in the settings file (as `sv_set name`), unless `HALO_DEDICATED_NAME` is set: then until a restart. |
 | `sv_name_filter [0\|1]` | Shows or sets the name filter: with `1`, a player whose name is in the data folder's `blocked_names.txt` is warned and kicked ([settings.md](settings.md#blocked-names)). Saved in the settings file, and in effect at once. Off unless set. |
 | `sv_playlists`, `sv_playlist <name>`, `sv_playlist_new`, `sv_playlist_add`, `sv_playlist_remove`, `sv_playlist_move`, `sv_playlist_delete`, `sv_playlist_use`, `sv_mapcycle_add`, `sv_mapcycle_del` | Playlists made and edited on the server ([playlists.md](playlists.md#playlists-made-on-the-server)). |
 | `sv_gametypes`, `sv_gametype <name>`, `sv_gametype_new`, `sv_gametype_set`, `sv_gametype_delete` | Game type files ([playlists.md](playlists.md#game-type-files)). |
 | `sv_settings`, `sv_set <setting> <value>` | The settings file ([settings.md](settings.md)). |
 | `sv_mod_list`, `sv_mod_add`, `sv_mod_remove` | Moderators by moderator key ([moderation.md](moderation.md#the-consoles-commands)). |
-| `sv_link`, `sv_unlink`, `sv_link_status` | The link to halo.milenko.org ([moderation.md](moderation.md#the-link-to-halomilenkoorg-optional)). |
+| `sv_link`, `sv_unlink`, `sv_link_status` | The link to the Chupathingy site ([moderation.md](moderation.md#the-link-to-the-chupathingy-site-optional)): `sv_link` prints the link to open. |
 | `sv_admin_list`, `sv_admin_add <name>`, `sv_admin_rotate <name>`, `sv_admin_remove <name>` | The control API's credentials, one for each admin ([below](#a-token-for-each-admin)). The console's only. |
 | `sv_account_list`, `sv_account_invite <role>`, `sv_account_role`, `sv_account_remove`, `sv_account_reset`, `sv_account_setup` | The control panel's accounts ([moderation.md](moderation.md#accounts-and-invitations)). The console's only. |
 

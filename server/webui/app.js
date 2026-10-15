@@ -15,6 +15,10 @@
   let timer = 0;
   let logNext = 0;
   let maps = null;
+  let linkState = '';
+  // (how often the link's state is asked for while it waits for the site)
+  const POLL_LINK_MS = 2000;
+  const NUDGE_KEY = 'chupathingy-totp-later';
 
   const $ = (id) => document.getElementById(id);
 
@@ -154,7 +158,30 @@
       node.hidden = (needs && !can(needs)) || (node.dataset.tab === 'account' && data.kind !== 'account');
     });
     show(data.restricted ? 'The owner requires a second factor: set one up under My account first.' : '');
+    nudge();
     select(data.restricted ? 'account' : (location.hash.slice(1) || 'status'));
+  }
+
+  // an owner's account without a second factor is reminded on every page
+  // until it has one ("Not now" puts it off for a week, in this browser)
+  function nudge() {
+    let later = 0;
+    try {
+      later = parseInt(localStorage.getItem(NUDGE_KEY + ':' + session.name) || '0', 10);
+    } catch (error) {
+      later = 0;
+    }
+    $('totp-nudge').hidden = !session || session.kind !== 'account' || session.role !== 'owner' || !!session.totp ||
+      !!session.restricted || Date.now() < later;
+  }
+
+  function nudgeLater() {
+    try {
+      localStorage.setItem(NUDGE_KEY + ':' + session.name, String(Date.now() + 7 * 86400 * 1000));
+    } catch (error) {
+      // (no storage: hidden until the next login)
+    }
+    $('totp-nudge').hidden = true;
   }
 
   async function post(path, body) {
@@ -291,12 +318,13 @@
       failed(error);
       if (error instanceof Unauthorized) return;
     }
-    if (csrf && current === tab && (current === 'status' || current === 'players' || current === 'log')) {
+    const linking = current === 'settings' && linkState === 'linking';
+    if (csrf && current === tab && (current === 'status' || current === 'players' || current === 'log' || linking)) {
       // (not while the page is hidden: showing it again refreshes)
       timer = setTimeout(() => {
         timer = 0;
         if (!document.hidden) refresh(true);
-      }, current === 'log' ? POLL_LOG_MS : POLL_STATUS_MS);
+      }, current === 'log' ? POLL_LOG_MS : linking ? POLL_LINK_MS : POLL_STATUS_MS);
     }
   }
 
@@ -351,7 +379,7 @@
         team,
         element('td', player.score === null ? '-' : player.score, 'num'),
         element('td', player.ping === null ? '-' : player.ping, 'num'),
-        element('td', player.role || (player.moderator_key ? 'key proved' : '-')),
+        element('td', player.role && player.role !== 'none' ? player.role : player.moderator_key ? 'key proved' : '-'),
         actions,
       );
       body.append(row);
@@ -372,7 +400,7 @@
   }
 
   async function warn(player) {
-    const answer = await confirmAction('Warn ' + player.name + '? Their game shows the reason, if it is a ChupathingyCE game.', 'Warn', false, true);
+    const answer = await confirmAction('Warn ' + player.name + '? Their game shows the reason, if it is a Chupathingy game.', 'Warn', false, true);
     if (!answer || !answer.reason) return;
     try {
       if (!(await stillThere(player))) return;
@@ -415,6 +443,9 @@
   }
 
   async function loadMaps() {
+    // (the map's controls only for a role that may change it, as in the game)
+    $('map-controls').hidden = !can(0x040);
+    $('maps-readonly').hidden = can(0x040);
     const [cycle, status] = await Promise.all([api('/v1/mapcycle'), api('/v1/status')]);
     if (!maps) {
       maps = await api('/v1/maps');
@@ -456,7 +487,7 @@
   }
 
   async function skip() {
-    if (!(await confirmAction('Skip to the playlist\'s next entry now? A game in progress ends at once.', 'Skip'))) return;
+    if (!(await confirmAction('Next map now? A game in progress ends at once, and the playlist\'s next entry starts.', 'Next map'))) return;
     try {
       await command('sv_mapcycle_next');
       await loadMaps();
@@ -547,34 +578,115 @@
 
   // ---------- settings
 
-  async function loadSettings() {
-    const [status, settings, link] = await Promise.all([api('/v1/status'), api('/v1/settings'), api('/v1/link')]);
-    $('name-input').value = status.name;
-    $('max-input').value = status.maximum_players;
+  let settingsShown = [];
+  const SOURCES = { file: 'saved', environment: 'the environment', default: 'default' };
+
+  async function loadSettings(background) {
+    // (while linking, only the link's state, every few seconds)
+    if (background) return showLink(await api('/v1/link', { background: true }));
+    const [settings, link] = await Promise.all([api('/v1/settings'), api('/v1/link')]);
+    showLink(link);
+    settingsShown = settings.settings || [];
+    const find = (key) => settingsShown.find((entry) => entry.key === key) || {};
+    const name = find('name');
+    const most = find('maximum_players');
+    $('name-input').value = name.value || '';
+    $('max-input').value = most.value || '';
+    if (most.maximum) $('max-input').max = most.maximum;
+    // (one place for the name and the most players: saved like any setting,
+    // and sv_name, sv_maxplayers and the site save them too; a value set in
+    // the environment wins at start, so a change then lasts until a restart)
+    const fixed = [name, most].filter((entry) => entry.environment);
+    $('name-source').textContent = fixed.length
+      ? fixed.map((entry) => entry.label).join(' and ') + ': set in the server\'s environment (' +
+        fixed.map((entry) => entry.environment_variable).join(', ') + '), which wins when it starts, so a change here lasts until a restart. ' +
+        'Change the environment to keep it.'
+      : 'Saved in admin/settings.toml, the same as sv_name and sv_maxplayers on the console; from the next lobby (now, in the lobby).';
     const body = $('settings-body');
     body.replaceChildren();
-    const keys = [];
-    (settings.settings || []).forEach((entry) => {
+    settingsShown.forEach((entry) => {
       const row = element('tr');
       row.append(element('td', entry.label || entry.key), element('td', entry.value === null ? '-' : entry.value),
-        element('td', entry.source || '-'));
+        element('td', SOURCES[entry.source] || entry.source || '-'));
       body.append(row);
-      if (entry.key !== 'playlist' && entry.key !== 'playlist_environment') keys.push(entry.key);
     });
-    $('set-key').replaceChildren(...keys.map((key) => option(key)));
+    // (the rest, by their labels; the name and the most players are above)
+    const others = settingsShown.filter((entry) => !['name', 'maximum_players', 'playlist', 'playlist_environment'].includes(entry.key));
+    $('set-key').replaceChildren(...others.map((entry) => {
+      const node = option(entry.key, (entry.label || entry.key) + (entry.environment ? ' (set in the environment)' : ''));
+      node.disabled = !!entry.environment;
+      return node;
+    }));
+    const first = others.find((entry) => !entry.environment);
+    if (first) $('set-key').value = first.key;
+    settingKind();
     const editable = can(0x080);
-    ['set-form', 'name-form', 'max-form'].forEach((id) => { $(id).hidden = !editable; });
-    const states = { off: 'Not linked.', linking: 'Linking: enter the code at ' + link.site + '/servers/link' + (link.code ? ': ' + link.code : '') + '.', linked: 'Linked to ' + link.owner + '\'s account (site roles at most ' + link.role_cap + ').' };
-    $('link-state').textContent = link.enabled ? (states[link.state] || '') + (link.problem ? ' ' + link.problem : '') : 'The link to halo.milenko.org is off on this server (HALO_DEDICATED_LINK).';
+    ['set-form', 'name-form'].forEach((id) => { $(id).hidden = !editable; });
+  }
+
+  // the value's field for the setting picked: yes/no, or a number in range
+  function settingKind() {
+    const entry = settingsShown.find((other) => other.key === $('set-key').value) || {};
+    const choice = entry.kind === 'boolean';
+    $('set-choice').hidden = !choice;
+    $('set-value').hidden = choice;
+    $('set-value').required = !choice;
+    $('set-value').type = entry.kind === 'integer' ? 'number' : 'text';
+    if (entry.kind === 'integer') {
+      $('set-value').min = entry.minimum;
+      $('set-value').max = entry.maximum;
+    } else {
+      $('set-value').removeAttribute('min');
+      $('set-value').removeAttribute('max');
+    }
+    if (choice) $('set-choice').value = entry.value === 'true' ? 'true' : 'false';
+  }
+
+  function showLink(link) {
+    const before = linkState;
+    linkState = link.enabled ? link.state : 'off';
+    const url = link.code ? link.site + '/servers/link?code=' + encodeURIComponent(link.code) : '';
+    const states = {
+      off: 'Not linked. Linking lets you manage this server, and give people roles here, from your profile on the Chupathingy site.',
+      linking: link.code ? 'Linking: the code is ' + link.code + '.' : 'Linking: asking the site for a code...',
+      linked: 'Linked to ' + link.owner + '\'s account (site roles at most ' + link.role_cap + ').',
+    };
+    $('link-state').textContent = link.enabled ? (states[link.state] || '') + (link.problem ? ' ' + link.problem : '')
+      : 'The link to the Chupathingy site is off on this server (HALO_DEDICATED_LINK).';
+    $('link-code').hidden = !link.enabled || link.state !== 'linking';
+    $('link-url').textContent = url || '...';
+    if (url) $('link-url').href = url;
+    else $('link-url').removeAttribute('href');
+    $('link-copy').disabled = !url;
+    $('link-wait').textContent = url ? 'This page shows "Linked" by itself once the site has the code.' : '';
     $('link-buttons').hidden = !link.enabled || !can(0x100);
     $('link-start').hidden = link.state !== 'off';
     $('link-stop').hidden = link.state === 'off';
+    $('link-stop').textContent = link.state === 'linking' ? 'Stop linking' : 'Unlink';
+    if (before === 'linking' && linkState === 'linked') show('Linked to ' + link.owner + '\'s account.');
+  }
+
+  async function copyLink() {
+    const url = $('link-url').href;
+    try {
+      await navigator.clipboard.writeText(url);
+      show('The link is copied.');
+    } catch (error) {
+      // (no clipboard: a page over plain HTTP, or an older browser)
+      const range = document.createRange();
+      range.selectNodeContents($('link-url'));
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+      show('Copy the selected link (Ctrl+C, or Cmd+C on a Mac).');
+    }
   }
 
   async function saveSetting(event) {
     event.preventDefault();
+    const entry = settingsShown.find((other) => other.key === $('set-key').value) || {};
+    const value = entry.kind === 'boolean' ? $('set-choice').value : $('set-value').value;
     try {
-      await command('sv_set ' + $('set-key').value + ' ' + quote($('set-value').value));
+      await command('sv_set ' + $('set-key').value + ' ' + quote(value));
       $('set-value').value = '';
       await loadSettings();
     } catch (error) {
@@ -583,17 +695,27 @@
   }
 
   async function linkStart() {
-    if (!(await confirmAction('Link this server to an account on halo.milenko.org? The server shows a code to enter there, signed in.', 'Link'))) return;
+    if (!(await confirmAction('Link this server to your account on the Chupathingy site? This page shows a link to open there, signed in.', 'Link'))) return;
     try {
       await command('sv_link');
-      setTimeout(() => loadSettings().catch(failed), 2000);
+      linkState = 'linking';
+      await refresh(false);
     } catch (error) {
       failed(error);
     }
   }
 
   async function linkStop() {
-    if (!(await confirmAction('Unlink this server from halo.milenko.org? Its credential is deleted at once.', 'Unlink'))) return;
+    if (linkState === 'linking') {
+      try {
+        await command('sv_unlink');
+        await loadSettings();
+      } catch (error) {
+        failed(error);
+      }
+      return;
+    }
+    if (!(await confirmAction('Unlink this server from the Chupathingy site? Its credential is deleted at once.', 'Unlink'))) return;
     try {
       await command('sv_unlink');
       await loadSettings();
@@ -809,7 +931,7 @@
     $('totp-begin').hidden = !!data.totp;
     $('bind-state').textContent = data.key
       ? 'Your account is bound to your game (moderator key ' + data.key.slice(0, 8) + '...): in the game, your role is your account\'s.'
-      : 'Bind your account to your ChupathingyCE game, so it has your role in the game: join the server, find your number in Players, and ask your game; it asks you to confirm.';
+      : 'Bind your account to your Chupathingy game, so it has your role in the game: join the server, find your number in Players, and ask your game; it asks you to confirm.';
     $('unbind').hidden = !data.key;
   }
 
@@ -860,7 +982,7 @@
       await api('/v1/account/bind', { body: { player: $('bind-player').value } });
       show('Asked your game: confirm there (A).');
       const deadline = Date.now() + 130000;
-      const names = { accepted: 'Bound.', declined: 'Your game declined.', no_player: 'No such player.', not_delta: 'That player\'s game is not a ChupathingyCE game that speaks Delta Peer: it cannot be bound.', expired: 'Nobody answered in the game.' };
+      const names = { accepted: 'Bound.', declined: 'Your game declined.', no_player: 'No such player.', not_delta: 'That player\'s game is not a Chupathingy game that speaks Delta Peer: it cannot be bound.', expired: 'Nobody answered in the game.' };
       while (Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 2000));
         const state = await api('/v1/account/bind', { background: true });
@@ -896,25 +1018,30 @@
     }
   }
 
-  async function setName(event) {
+  // the name and the most players, each sent only if it changed
+  async function setNameAndPlayers(event) {
     event.preventDefault();
-    try {
-      await command('sv_name ' + quote($('name-input').value));
-      await loadSettings();
-    } catch (error) {
-      failed(error);
-    }
-  }
-
-  async function setMaximum(event) {
-    event.preventDefault();
-    const value = parseInt($('max-input').value, 10);
-    if (!(value >= 1 && value <= 128)) {
-      show('the most players is a number from 1 to 128', true);
+    const find = (key) => settingsShown.find((entry) => entry.key === key) || {};
+    const name = $('name-input').value.trim();
+    const most = parseInt($('max-input').value, 10);
+    const maximum = parseInt($('max-input').max, 10) || 128;
+    if (!(most >= 1 && most <= maximum)) {
+      show('Most players is a number from 1 to ' + maximum + '.', true);
       return;
     }
     try {
-      await command('sv_maxplayers ' + value);
+      const said = [];
+      if (name !== find('name').value) {
+        const result = await api('/v1/command', { body: { command: 'sv_name ' + quote(name) } });
+        said.push(result.output.trim());
+        if (!result.ok) return show(said.join('\n'), true);
+      }
+      if (String(most) !== find('maximum_players').value) {
+        const result = await api('/v1/command', { body: { command: 'sv_maxplayers ' + most } });
+        said.push(result.output.trim());
+        if (!result.ok) return show(said.join('\n'), true);
+      }
+      show(said.join('\n') || 'Nothing changed.');
       await loadSettings();
     } catch (error) {
       failed(error);
@@ -978,8 +1105,22 @@
     $('map-form').addEventListener('submit', playMap);
     $('skip').addEventListener('click', skip);
     $('end-game').addEventListener('click', endGame);
-    $('name-form').addEventListener('submit', setName);
-    $('max-form').addEventListener('submit', setMaximum);
+    $('name-form').addEventListener('submit', setNameAndPlayers);
+    $('set-key').addEventListener('change', settingKind);
+    $('link-copy').addEventListener('click', copyLink);
+    $('totp-nudge-go').addEventListener('click', () => select('account'));
+    $('totp-nudge-later').addEventListener('click', nudgeLater);
+    // (every table's cells named by their columns, for the narrow layout's cards)
+    new MutationObserver(() => {
+      document.querySelectorAll('.table-wrap table').forEach((table) => {
+        const names = Array.from(table.querySelectorAll('thead th')).map((node) => node.textContent.trim());
+        table.querySelectorAll('tbody tr').forEach((row) => {
+          Array.from(row.children).forEach((cell, index) => {
+            if (!cell.hasAttribute('data-label')) cell.setAttribute('data-label', cell.colSpan > 1 ? '' : names[index] || '');
+          });
+        });
+      });
+    }).observe($('app'), { childList: true, subtree: true });
     $('log-clear').addEventListener('click', () => $('log-lines').replaceChildren());
     window.addEventListener('hashchange', () => {
       const hash = location.hash.slice(1);

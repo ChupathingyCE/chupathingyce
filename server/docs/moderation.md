@@ -2,7 +2,7 @@
 
 Delta Control is how a ChupathingyCE Dedicated Server is run: its console,
 its control API, its web control panel, in-game moderation over Delta Peer,
-and, if you want it, a link to halo.milenko.org. All of it works without
+and, if you want it, a link to the Chupathingy site (stats.chupathingy.org). All of it works without
 the site. Nothing is on until you turn it on, and nobody is a moderator
 until you make them one.
 
@@ -41,7 +41,7 @@ changes a minute (10 at once).
 ## Who a moderator is
 
 The game's player key (`game_list_player.key`, in each copy's save folder)
-never leaves the player's machine except to halo.milenko.org. From it the
+never leaves the player's machine except to the Chupathingy site. From it the
 game makes a second key, an Ed25519 key pair, whose public half is the
 player's **moderator key**: 64 hex digits. A server knows a moderator by
 that key, and a ChupathingyCE game proves it holds the key (a signature of
@@ -179,7 +179,7 @@ network behind `-p 127.0.0.1:...`, it is plain HTTP with a warning).
 
 The panel speaks TLS 1.2 with ECDHE and AEAD suites only.
 
-## The link to halo.milenko.org (optional)
+## The link to the Chupathingy site (optional)
 
 Link the server to your account on the site, and you can give other
 people on the site a role on it there, and run it from the site's Servers
@@ -187,9 +187,11 @@ page. The server dials out to the site: no port to open, and it works
 behind any router.
 
 1. On the server's console (or the panel's Settings, as owner): `sv_link`.
-   The server prints a code.
-2. Sign in on halo.milenko.org, open Servers, Link a server, and enter the
-   code (good for 10 minutes); confirm.
+   The server prints a link, `https://stats.chupathingy.org/servers/link?code=<code>`
+   (the panel shows it too, with a button to copy it).
+2. Open it, signed in to the site, and confirm (the code is good for 10
+   minutes; it can also be typed in at Servers, Link a server). The panel
+   shows "Linked" by itself.
 3. On the server's page on the site, give other accounts a role: moderator
    or admin. Their games' moderator keys (from Link Profile) come with the
    role, so they are moderators in the game too.
@@ -210,7 +212,7 @@ audit log and the server's audit file.
 | --- | --- |
 | `sv_warn`, `sv_kick`, `sv_ban`, `sv_unban` | with a reason |
 | `sv_map`, `sv_mapcycle_next`, `sv_end_game` | |
-| `sv_name`, `sv_maxplayers` | |
+| `sv_name`, `sv_maxplayers` | saved, as from the console |
 
 `HALO_DEDICATED_LINK=false` turns the link off for good: `sv_link` refuses,
 and the server never asks the site. `HALO_DEDICATED_LINK_URL` points it at

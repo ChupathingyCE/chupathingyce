@@ -1,7 +1,7 @@
 /*
 CONTROL_LINK.C
 
-Delta Control's link to halo.milenko.org (server_link.h; docs/delta.md,
+Delta Control's link to the Chupathingy site, stats.chupathingy.org (server_link.h; docs/delta.md,
 Delta Control). Off until the server's owner links it (sv_link), and off
 for good with HALO_DEDICATED_LINK=false.
 
@@ -247,7 +247,7 @@ static int save_credential(void)
 	}
 	control_hex_text(link_state.seed, sizeof(link_state.seed), seed);
 	control_hex_text(link_state.secret, sizeof(link_state.secret), secret);
-	fprintf(out, "# The ChupathingyCE Dedicated Server's link to halo.milenko.org (Delta Control). Keep it\n"
+	fprintf(out, "# The Chupathingy Dedicated Server's link to the Chupathingy site (Delta Control). Keep it\n"
 		"# private; delete it (or sv_unlink) to unlink.\nv1 %s %s %s %s\n", link_state.server_id, seed, secret,
 		link_state.owner[0] ? link_state.owner : "-");
 	crypto_wipe(seed, sizeof(seed));
@@ -373,11 +373,11 @@ static void run_linking(void)
 	pthread_mutex_unlock(&link_mutex);
 	/* (on the console, as sv_link said it would be, and in the log: the code
 	is good once, for a few minutes, and only with the owner's account) */
-	printf("\nChupathingyCE Dedicated Server: to link this server to your account, sign in at\n"
-		"%s/servers/link and enter the code\n\n    %s\n\nIt is good for %d minutes.\n\n", link_state.url, code,
-		expires / 60);
+	printf("\nChupathingy Dedicated Server: to link this server to your account, open\n\n    %s/servers/link?code=%s\n\n"
+		"signed in (or sign in at %s/servers/link and enter the code %s). It is good for %d minutes.\n\n",
+		link_state.url, code, link_state.url, code, expires / 60);
 	fflush(stdout);
-	platform_log("Delta Control: the link's code is %s (enter it at %s/servers/link)", code, link_state.url);
+	platform_log("Delta Control: the link's code is %s (open %s/servers/link?code=%s)", code, link_state.url, code);
 	for (;;)
 	{
 		char state[16], server_id[CONTROL_LINK_SERVER_ID_SIZE], owner[CONTROL_LINK_HANDLE_SIZE];
@@ -674,13 +674,13 @@ void server_link_begin(void)
 	{
 		link_state.disabled = 1;
 		pthread_mutex_unlock(&link_mutex);
-		platform_log("Delta Control: the link to halo.milenko.org is off (HALO_DEDICATED_LINK)");
+		platform_log("Delta Control: the link to the Chupathingy site is off (HALO_DEDICATED_LINK)");
 		return;
 	}
 	if (!url || !url[0])
 		url = getenv("HALO_NET_BROWSER");
 	if (!url || !url[0])
-		url = "https://halo.milenko.org";
+		url = "https://stats.chupathingy.org";
 	/* (HTTPS, or this machine for tests) */
 	if (strncmp(url, "https://", 8) && strncmp(url, "http://127.0.0.1", 16) && strncmp(url, "http://localhost", 16))
 	{
@@ -706,7 +706,7 @@ void server_link_begin(void)
 	if (load_credential())
 	{
 		link_state.state = LINK_LINKED;
-		platform_log("Delta Control: linked to halo.milenko.org (%s, %s's); site roles at most %s", link_state.server_id,
+		platform_log("Delta Control: linked to %s (%s, %s's); site roles at most %s", link_state.url, link_state.server_id,
 			link_state.owner, control_role_name(link_state.cap));
 		start_thread();
 	}
@@ -719,13 +719,13 @@ int server_link_start(const char *server_name, const char *version, char *text, 
 
 	pthread_mutex_lock(&link_mutex);
 	if (link_state.disabled || !link_state.url[0])
-		snprintf(text, (size_t)text_size, "the link to halo.milenko.org is off on this server (HALO_DEDICATED_LINK)");
+		snprintf(text, (size_t)text_size, "the link to the Chupathingy site is off on this server (HALO_DEDICATED_LINK)");
 	else if (link_state.state == LINK_LINKED)
 		snprintf(text, (size_t)text_size, "linked already, to %s's account (sv_unlink first)", link_state.owner);
 	else if (link_state.state != LINK_OFF)
 	{
 		if (link_state.code[0])
-			snprintf(text, (size_t)text_size, "linking: sign in at %s/servers/link and enter %s", link_state.url,
+			snprintf(text, (size_t)text_size, "linking: open %s/servers/link?code=%s, signed in", link_state.url,
 				link_state.code);
 		else
 			snprintf(text, (size_t)text_size, "linking: asking the site for a code");
@@ -750,8 +750,8 @@ int server_link_start(const char *server_name, const char *version, char *text, 
 		else
 		{
 			pthread_cond_signal(&link_wake);
-			snprintf(text, (size_t)text_size, "asking %s for a code: it is printed on the server's console and in its "
-				"log in a moment (sv_link_status shows it too); enter it at %s/servers/link, signed in", link_state.url,
+			snprintf(text, (size_t)text_size, "asking %s for a code: the link to open, %s/servers/link?code=<code>, is "
+				"printed on the server's console and in its log in a moment (sv_link_status shows it too)", link_state.url,
 				link_state.url);
 			ok = 1;
 		}
@@ -813,13 +813,13 @@ void server_link_status(int json, char *text, int text_size)
 			"null");
 	}
 	else if (link_state.disabled)
-		snprintf(text, (size_t)text_size, "the link to halo.milenko.org is off (HALO_DEDICATED_LINK)");
+		snprintf(text, (size_t)text_size, "the link to the Chupathingy site is off (HALO_DEDICATED_LINK)");
 	else if (link_state.state == LINK_LINKED)
 		snprintf(text, (size_t)text_size, "linked to %s's account on %s (%s); site roles at most %s; last heard %s%s%s",
 			link_state.owner, link_state.url, link_state.server_id, control_role_name(link_state.cap),
 			link_state.heard ? "a few seconds ago" : "not yet", link_state.problem[0] ? "; " : "", link_state.problem);
 	else if (link_state.state == LINK_WAITING)
-		snprintf(text, (size_t)text_size, "linking: sign in at %s/servers/link and enter %s", link_state.url,
+		snprintf(text, (size_t)text_size, "linking: open %s/servers/link?code=%s, signed in", link_state.url,
 			link_state.code);
 	else if (link_state.state == LINK_STARTING)
 		snprintf(text, (size_t)text_size, "linking: asking the site for a code");

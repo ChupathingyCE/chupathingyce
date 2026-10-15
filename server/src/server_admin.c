@@ -1971,4 +1971,24 @@ boolean server_admin_set(
 	return TRUE;
 }
 
+boolean server_admin_set_saved(
+	short setting,
+	char const *value,
+	struct command_output *output,
+	boolean *done)
+{
+	static struct command_line line;
+
+	*done = FALSE;
+	if (environment_value(setting))
+		return FALSE;
+	csmemset(&line, 0, sizeof(line));
+	line.count = 3;
+	snprintf(line.words[0], sizeof(line.words[0]), "sv_set");
+	snprintf(line.words[1], sizeof(line.words[1]), "%s", server_settings_table[setting].key);
+	snprintf(line.words[2], sizeof(line.words[2]), "%s", value);
+	*done = server_admin_set(&line, FALSE, output);
+	return TRUE;
+}
+
 #endif
