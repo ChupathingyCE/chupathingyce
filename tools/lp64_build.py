@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Sequence, Set
 
 from .linux_build import (
     CUSTOM_EDITION_DEFINES,
+    feature_defines,
     EXPAT_DIR,
     EXPAT_SOURCES,
     GAME_FLAGS as LINUX_GAME_FLAGS,
@@ -265,13 +266,13 @@ class Lp64Build:
         game_cflags = " ".join([
             abi, " ".join(host.game_flags),
             f"-include {_quote(prefix_header)}", f"-include {_quote(self.semantics_header)}",
-            defines, f"-I{_quote(port_include)}",
+            defines, " ".join(feature_defines(sln)), f"-I{_quote(port_include)}",
             # the headers of the port's own game units (port/linux/game), for
             # the game sources that call them
             f"-iquote {_quote(lp64(Path(linux_config['game_sources'])))}",
             includes, f"-idirafter {xdk}",
         ])
-        for source in game_sources(linux_config):
+        for source in game_sources(linux_config, sln):
             if source.as_posix() not in excluded:
                 add(lp64(source), game_cflags)
         # the port's own units that see the game as its sources do (port/linux/game)
@@ -287,6 +288,7 @@ class Lp64Build:
         platform_cflags = " ".join([
             abi, " ".join(LP64_PLATFORM_FLAGS),
             f"-include {_quote(prefix_header)}", f"-include {_quote(self.platform_semantics_header)}",
+            " ".join(feature_defines(sln)),
             f"-I{_quote(lp64(platform_dir))}", f"-I{_quote(port_include)}",
             f"-I{_quote(lp64(TOML_DIR))}", f"-I{_quote(lp64(KCP_DIR))}",
             # (the menus' XML parser's own headers, not rewritten: Expat is

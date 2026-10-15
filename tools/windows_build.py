@@ -32,7 +32,7 @@ from typing import Any, Dict, List, Optional
 
 from .version import VERSION_SOURCES, identity_defines, release_build, version
 from .linux_build import (CUSTOM_EDITION_DEFINES, LINUX_PROFILE, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
-                          XDK_INCLUDE, game_browser_defines, lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
+                          XDK_INCLUDE, feature_defines, game_browser_defines, lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
                           game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
                           xdk_headers)
 from .lp64_build import lp64_excluded
@@ -497,11 +497,12 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
             # the game sources that call them
             f"-iquote {Path(linux_config['game_sources'])}",
             game_defines_and_includes(linux_config),
+        " ".join(feature_defines(sln)),
             # the Xbox SDK declarations (port/include/xdk) come before the
             # Windows SDK, which has headers of the same names
             f"-I{XDK_INCLUDE}",
         ])
-        for source in game_sources(linux_config):
+        for source in game_sources(linux_config, sln):
             if source.as_posix() not in excluded:
                 add_object(source, game_cflags)
         for source in sorted(Path(linux_config["game_sources"]).glob("*.c")):
@@ -516,6 +517,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
             abi,
             " ".join(target.platform_flags),
             f"-include {prefix_header}",
+            " ".join(feature_defines(sln)),
             f"-I{posix_include}",
             f"-I{crt_include}",
             f"-I{linux_platform}",

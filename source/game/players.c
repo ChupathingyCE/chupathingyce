@@ -265,6 +265,7 @@ symbols in this file:
 #include "render/render_debug.h"
 #include "players.h"
 #include "player_queues_new.h"
+#include "extensions/extension_api.h" /* port: host-local player controllers */
 #include "objects/objects.h"
 #include "saved games/game_state.h"
 #include "scenario/scenario.h"
@@ -4506,6 +4507,8 @@ void players_update_before_game(
 	short action_index;
 
 	profile_enter(PLAYERS_UPDATE_BEFORE_GAME_PROFILE);
+	/* port: controllers write their actions before the host dequeues players. */
+	halo_extensions_update_player_controllers();
 	players_coop_note_on_foot();
 	players_coop_rescue_stranded();
 	if (update_client_dequeue(actions))
@@ -4515,6 +4518,8 @@ void players_update_before_game(
 		{
 			action_index = (short)iterator.datum_index;
 			action = &actions[action_index];
+			/* port: extensions constrain both human and automated input. */
+			halo_extensions_filter_player_action(iterator.datum_index, action);
 			match_assert(
 				"c:\\halo\\SOURCE\\game\\players.c",
 				0x256,

@@ -182,6 +182,9 @@ jobs:
           path: build/linux/third_party
           key: linux-third-party-${{ hashFiles('tools/linux_sysroot.py') }}
 
+      - name: Extension foundation tests
+        run: python3 -m pytest -q tools/test_features.py
+
       - name: Debug
         run: python3 tools/ci_build.py linux debug
 

@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .linux_build import (CUSTOM_EDITION_DEFINES, LINUX_PROFILE, MBEDTLS_DIR, MINIUPNPC_DEFINES, MINIUPNPC_DIR, MUSL_MATH_DIR, STB_DIR,
-                          XDK_INCLUDE, compile_launcher, game_browser_defines, game_defines_and_includes, game_sources, miniupnpc_sources,
+                          XDK_INCLUDE, compile_launcher, feature_defines, game_browser_defines, game_defines_and_includes, game_sources, miniupnpc_sources,
                           musl_math_sources, pgo_mode, pgo_profile,
                           profile_use_flags, updater_defines, xdk_headers)
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
@@ -452,9 +452,9 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         # the headers of the port's own game units (port/linux/game), for the
         # game sources that call them
         f"-iquote {Path(config['game_sources'])}",
-        game_defines_and_includes(config), *libc_includes, f"-idirafter {XDK_INCLUDE}",
+        game_defines_and_includes(config), " ".join(feature_defines(sln)), *libc_includes, f"-idirafter {XDK_INCLUDE}",
     ])
-    for source in game_sources(config):
+    for source in game_sources(config, sln):
         cflags = game_cflags
         if source.as_posix() in VARIADIC_PROTOTYPE_FILES:
             cflags += f" -include {PORT_DIR}/include/halo_android_variadic_prototypes.h"
@@ -470,6 +470,7 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     platform_cflags = " ".join([
         guest_abi, guest_code, "-std=gnu11", "-D_GNU_SOURCE", "-DHALO_LINUX_PLATFORM_LAYER", "-w", profile_flags,
         f"-include {prefix_header}", f"-include {platform_semantics_header}",
+        " ".join(feature_defines(sln)),
         f"-I{LINUX_DIR}/src", f"-I{LINUX_DIR}/include", f"-I{PORT_DIR}/guest/runtime",
         f"-I{PORT_DIR}/include", f"-I{TOML_DIR}", f"-I{EXPAT_DIR}", f"-I{KCP_DIR}", f"-I{QRCODEGEN_DIR}", f"-I{MONOCYPHER_DIR}",
         f"-I{ZLIB_DIR}", "-Isource -Isource/cseries",

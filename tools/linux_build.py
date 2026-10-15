@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
+from . import features
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .ninja_syntax import Writer
 from .version import VERSION_SOURCES, identity_defines, release_build, version
@@ -29,11 +30,11 @@ def xdk_headers() -> List[Path]:
     return sorted(XDK_INCLUDE.glob("*.h"))
 
 
-def game_sources(config: Dict[str, Any]) -> List[Path]:
+def game_sources(config: Dict[str, Any], sln: Any = None) -> List[Path]:
     """the game's C sources (port.json "game"): every one under its root but
     those excluded"""
     game = config["game"]
-    excluded = set(game.get("exclude", []))
+    excluded = set(game.get("exclude", [])) | features.excluded_sources(sln)
     return sorted(
         source for source in Path(game["root"]).rglob("*.c")
         if source.as_posix() not in excluded
@@ -222,6 +223,11 @@ def game_browser_defines(sln: Any) -> List[str]:
     """configure.py --game-browser: the game list and server browser
     (port/linux/src/browser.c), on unless --no-game-browser"""
     return ["-DHALO_GAME_BROWSER"] if getattr(sln, "game_browser", False) else []
+
+
+def feature_defines(sln: Any) -> List[str]:
+    """Compile-time defines for the manifest-selected feature modules."""
+    return features.defines(sln)
 
 
 def march_flag(sln: Any) -> str:
@@ -505,9 +511,10 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
         # the game sources that call them
         f"-iquote {Path(config['game_sources'])}",
         game_defines_and_includes(config),
+        " ".join(feature_defines(sln)),
         sdk_flags,
     ])
-    for source in game_sources(config):
+    for source in game_sources(config, sln):
         add_object(source, game_cflags)
     # Port-specific units that must see the game exactly as its own
     # sources do (port/linux/game).
@@ -524,6 +531,7 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
         " ".join(PLATFORM_FLAGS),
         f"-include {prefix_header}",
         f"-include {platform_semantics_header}",
+        " ".join(feature_defines(sln)),
         f"-I{platform_dir}",
         f"-I{port_include}",
         f"-I{TOML_DIR}",
