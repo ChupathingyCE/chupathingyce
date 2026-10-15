@@ -1,6 +1,7 @@
 /* Native SDL/Metal boundary. No guest runtime or iOS lifecycle dependencies. */
 #import "macos_metal.h"
 #import <QuartzCore/CAMetalLayer.h>
+#import "metal_vsync.h"
 #include <SDL3/SDL.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -18,6 +19,16 @@ int macos_metal_attach(void *window)
         return 0;
     }
     return 1;
+}
+
+/* display.vsync: at start-up and whenever Settings re-applies the display
+   (sdl_platform.c); not a GL swap interval, which a Metal window has none of */
+void macos_metal_set_vsync(int vsync)
+{
+    CAMetalLayer *layer = (__bridge CAMetalLayer *)host_sdl_metal_layer();
+
+    if (metal_layer_set_vsync(layer, vsync))
+        fprintf(stderr, "Metal: display sync %s (display.vsync)\n", vsync ? "on" : "off");
 }
 
 void host_fatal(const char *format, ...)

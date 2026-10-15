@@ -20,6 +20,10 @@ and the debug keyboard that the game's console reads.
 #include "crash_report.h"
 #include "frame_limit.h"
 
+/* metal_host.m */
+int macos_metal_attach(void *window);
+void macos_metal_set_vsync(int vsync);
+
 #include <SDL3/SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -901,7 +905,6 @@ static long platform_window_width = -1, platform_window_height = -1;
 
 BOOL platform_video_initialize(unsigned long width, unsigned long height)
 {
-	int version;
 	char title[64];
 
 	if (platform_window)
@@ -988,52 +991,18 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	SDL_SyncWindow(platform_window);
 #endif
 	/* This source is compiled only by --macos-metal. Do not create a GL
-	context or load GL entry points in a Metal window. */
+	context or load GL entry points in a Metal window; display.vsync is
+	the CAMetalLayer's display sync (metal_host.m), never a GL swap
+	interval. */
 	{
-		int macos_metal_attach(void *window);
 		if (!macos_metal_attach(platform_window))
 			return FALSE;
+		macos_metal_set_vsync(config_boolean("display.vsync"));
 		platform_event_thread = SDL_GetCurrentThreadID();
 		platform_mouse_capture(TRUE);
 		platform_log("Native macOS Metal window initialized");
 		return TRUE;
 	}
-	platform_gl_context = SDL_GL_CreateContext(platform_window);
-#ifdef HALO_ANDROID
-	/* ES 3.2 where the driver has it, otherwise the renderer makes do with
-	3.0 plus extensions */
-	if (!platform_gl_context)
-	{
-		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-		platform_gl_context = SDL_GL_CreateContext(platform_window);
-	}
-#endif
-	if (!platform_gl_context)
-	{
-		platform_log("cannot create an OpenGL context: %s", SDL_GetError());
-		return FALSE;
-	}
-	SDL_GL_MakeCurrent(platform_window, platform_gl_context);
-	if (!gl_functions_load())
-		return FALSE;
-#ifdef __APPLE__
-	{
-		/* port/macos/src/macos_video.c */
-		void macos_set_swap_interval(int interval);
-
-		version = SDL_GL_SetSwapInterval(0);
-		macos_set_swap_interval(config_boolean("display.vsync") ? 1 : 0);
-	}
-#else
-	version = SDL_GL_SetSwapInterval(config_boolean("display.vsync") ? 1 : 0);
-#endif
-	(void)version;
-	platform_event_thread = SDL_GetCurrentThreadID();
-	platform_log("OpenGL %s on %s", (const char *)glGetString(GL_VERSION), (const char *)glGetString(GL_RENDERER));
-#ifndef HALO_ANDROID
-	platform_mouse_capture(TRUE);
-#endif
-	return TRUE;
 }
 
 /* display.mode, display.resolution (fullscreen's display mode),
@@ -1063,16 +1032,8 @@ void platform_display_apply(void)
 	if (!platform_window)
 		return;
 #endif
-#ifdef __APPLE__
-	{
-		/* (the context's own interval, as at start-up: SDL's stays off) */
-		void macos_set_swap_interval(int interval);
-
-		macos_set_swap_interval(config_boolean("display.vsync") ? 1 : 0);
-	}
-#else
-	SDL_GL_SetSwapInterval(config_boolean("display.vsync") ? 1 : 0);
-#endif
+	/* the Metal layer's display sync, read again as Settings saves it */
+	macos_metal_set_vsync(config_boolean("display.vsync"));
 }
 
 void platform_video_drawable_size(int *width, int *height)
