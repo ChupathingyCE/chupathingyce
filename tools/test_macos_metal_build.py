@@ -57,3 +57,24 @@ class MetalBuildTests(TestCase):
         self.assertIn("--target=arm64-apple-macos13.0", graph)
         self.assertIn("--target=x86_64-apple-macos13.0", graph)
         self.assertIn("build build/macos/metal-smoke: macos_metal_lipo", graph)
+
+
+class MetalV2SelectorTests(TestCase):
+    def units(self, v2):
+        build = object.__new__(MetalLp64Build)
+        build.lp64_dir = Path("build/macos_v2/lp64")
+        build.sln = SimpleNamespace(macos_metal_v2=v2)
+        original = [Lp64Unit(build.lp64_dir / "port/linux/src/d3d8_gl.c", "-DHALO_64BIT")]
+        with patch.object(Lp64Build, "units", return_value=original):
+            return build.units(Lp64Host("macos_v2", [], [], []), [])
+
+    def test_v2_defines_its_flag_and_v1_does_not(self):
+        self.assertTrue(all("-DHALO_MACOS_METAL_V2=1" in unit.cflags for unit in self.units(True)))
+        self.assertTrue(all("HALO_MACOS_METAL_V2" not in unit.cflags for unit in self.units(False)))
+
+    def test_configure_rejects_both_metal_renderers(self):
+        import subprocess, sys
+        result = subprocess.run([sys.executable, "configure.py", "--macos-metal", "--macos-metal-v2"],
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("exclusive", result.stderr)

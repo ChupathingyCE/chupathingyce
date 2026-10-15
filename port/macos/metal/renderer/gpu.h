@@ -573,6 +573,8 @@ enum
 	/* debug.metal_pipeline_archive = false: the Metal backend neither loads
 	nor saves its pipeline archive (archive_open) */
 	GPU_INITIALIZE_NO_PIPELINE_ARCHIVE = 2048,
+	/* debug.gpu_stats: time the stages of gpu_metal_draw (draw_profile.h) */
+	GPU_INITIALIZE_DRAW_PROFILE = 4096,
 };
 /* probe the context, which must be current, and set it up */
 void gpu_initialize(uint32_t flags, struct gpu_capabilities *capabilities);

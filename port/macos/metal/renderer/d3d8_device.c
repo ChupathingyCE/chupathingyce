@@ -34,6 +34,7 @@ Conventions carried over from the Xbox:
 #include "aa_size.h"
 #include "metal_platform.h"
 #include "shader_list_learn.h"
+#include "draw_profile.h"
 #include "halo_stereo.h"
 #include "halo_stereo_window.h"
 #include "halo_stereo_cutscene.h"
@@ -496,6 +497,7 @@ static struct
 	/* vertex and index bytes drawn from the mirror, and streamed */
 	unsigned long mirrored_bytes, streamed_bytes;
 } stats;
+static struct draw_profile draw_profile;
 
 static D3DDevice *device_pointer(void)
 {
@@ -705,6 +707,24 @@ static int render_target_layer(void)
 	return halo_stereo_frame()->eye_count == 2 ? halo_stereo_current_layer() : HALO_STEREO_LAYER_MONO;
 }
 
+/* the MSAA sample count of the screen's targets. Read once per config change:
+config_string scans every setting under a lock, and this ran twice a draw (the
+color's target and the depth's) */
+static uint8_t screen_target_samples(void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static uint8_t samples = 1;
+
+	if (read_at != config_changes())
+	{
+		const char *aa = config_string("display.anti_aliasing");
+
+		read_at = config_changes();
+		samples = !strcmp(aa, "msaa2x") ? 2 : !strcmp(aa, "msaa4x") ? 4 : !strcmp(aa, "msaa8x") ? 8 : 1;
+	}
+	return samples;
+}
+
 static struct render_target_entry *render_target_get_layer(const D3DSurface *surface, int stereo_layer)
 {
 	struct render_target_entry *entry;
@@ -728,10 +748,7 @@ static struct render_target_entry *render_target_get_layer(const D3DSurface *sur
 		scale[0] = screen_scale[0];
 		scale[1] = screen_scale[1];
 		layer = stereo_layer;
-		const char *aa = config_string("display.anti_aliasing");
-		if (!strcmp(aa, "msaa2x")) samples = 2;
-		else if (!strcmp(aa, "msaa4x")) samples = 4;
-		else if (!strcmp(aa, "msaa8x")) samples = 8;
+		samples = screen_target_samples();
 		/* head-tracked stereo: the mono layer (a frame without eyes, which
 		presents mono on the theater screen) keeps the theater picture's size
 		and shape; the eyes and the HUD take the views' */
@@ -1297,7 +1314,8 @@ static void gl_initialize(void)
 		(config_boolean("display.immersive") ? GPU_INITIALIZE_IMMERSIVE : 0) |
 		(config_boolean("debug.metal_state_cache") ? 0 : GPU_INITIALIZE_NO_STATE_CACHE) |
 		(config_boolean("debug.metal_specialize") ? 0 : GPU_INITIALIZE_NO_SPECIALIZE) |
-		(config_boolean("debug.metal_pipeline_archive") ? 0 : GPU_INITIALIZE_NO_PIPELINE_ARCHIVE), &device_capabilities);
+		(config_boolean("debug.metal_pipeline_archive") ? 0 : GPU_INITIALIZE_NO_PIPELINE_ARCHIVE) |
+		(config_boolean("debug.gpu_stats") ? GPU_INITIALIZE_DRAW_PROFILE : 0), &device_capabilities);
 	screen_maximum_texture_size = (int32_t)device_capabilities.max_texture_size;
 #ifdef HALO_ILP32
 	/* Select the real Retina drawable before allocating any screen targets. */
@@ -1313,6 +1331,7 @@ static void gl_initialize(void)
 	debug_settings.dump_shaders = *config_string("debug.gpu_dump_shaders") ?
 		config_string("debug.gpu_dump_shaders") : NULL;
 	debug_settings.statistics = config_boolean("debug.gpu_stats");
+	draw_profile.enabled = debug_settings.statistics;
 	shader_dialect_initialize(&shader_dialect, &device_capabilities);
 	debug_settings.shader_replay = *config_string("debug.gpu_shader_replay") ?
 		config_string("debug.gpu_shader_replay") : NULL;
@@ -3314,6 +3333,7 @@ static BOOL prepare_draw(struct gpu_draw *draw, BOOL immediate)
 	struct nv2a_pixel_shader_key key;
 	float texture_scale[4][4];
 	BOOL has_depth = FALSE;
+	uint64_t key_started;
 	int stage;
 
 	if (!device.gl_ready || !program || !device.vertex_shader || !program->instructions)
@@ -3333,14 +3353,17 @@ static BOOL prepare_draw(struct gpu_draw *draw, BOOL immediate)
 				skip++;
 		}
 	}
+	key_started = draw_profile_now(&draw_profile);
 	memset(draw, 0, sizeof(*draw));
 	if (!draw_targets(&draw->color_target, &draw->depth_target))
 	{
 		stats.skipped_no_target++;
 		return FALSE;
 	}
+	draw_profile_lap(&draw_profile, DRAW_PROFILE_TARGETS, &key_started);
 	has_depth = draw->depth_target != 0;
 	raster_state_fill(has_depth, &draw->viewport, &draw->scissor, &draw->depth_stencil, &draw->blend, &draw->raster);
+	draw_profile_lap(&draw_profile, DRAW_PROFILE_RASTER, &key_started);
 
 	memset(&key, 0, sizeof(key));
 	memcpy(key.combiner_state, D3D__RenderState, sizeof(key.combiner_state));
@@ -3349,7 +3372,14 @@ static BOOL prepare_draw(struct gpu_draw *draw, BOOL immediate)
 	key.combiner_state[D3DRS_PSFINALCOMBINERCONSTANT0] = 0;
 	key.combiner_state[D3DRS_PSFINALCOMBINERCONSTANT1] = 0;
 	key.texture_modes = D3D__RenderState[D3DRS_PSTEXTUREMODES];
-	stages_fill(&key, texture_scale, draw->stages);
+	{
+		uint64_t fill_started = draw_profile_now(&draw_profile);
+
+		stages_fill(&key, texture_scale, draw->stages);
+		draw_profile_add(&draw_profile, DRAW_PROFILE_STAGES_FILL, fill_started);
+		/* (the key's time is the span around stages_fill, less its own) */
+		key_started += draw_profile_now(&draw_profile) - fill_started;
+	}
 	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
 	{
 		key.alpha_kill[stage] = D3D__TextureState[stage][D3DTSS_ALPHAKILL] == D3DTALPHAKILL_ENABLE;
@@ -3368,6 +3398,7 @@ static BOOL prepare_draw(struct gpu_draw *draw, BOOL immediate)
 	key.count_samples = device.visibility_test_active &&
 		device_capabilities.occlusion_mode == GPU_OCCLUSION_SHADER_COUNTER;
 
+	draw_profile_lap(&draw_profile, DRAW_PROFILE_KEY, &key_started);
 	if (program->lighting.lights && !program->lighting_failed && model_lighting_enabled())
 		key.per_pixel_lighting = (unsigned char)program->lighting.lights;
 	draw->vertex_shader = vertex_shader_get(program, immediate, key.per_pixel_lighting != 0);
@@ -3380,6 +3411,7 @@ static BOOL prepare_draw(struct gpu_draw *draw, BOOL immediate)
 		draw->vertex_shader = vertex_shader_get(program, immediate, FALSE);
 		draw->pixel_shader = fragment_shader_get(&key);
 	}
+	draw_profile_lap(&draw_profile, DRAW_PROFILE_SHADERS, &key_started);
 
 	/* the state the other uniforms come from: most draws share it with the
 	draw before them, and so share its uniforms */
@@ -3470,15 +3502,60 @@ static BOOL prepare_draw(struct gpu_draw *draw, BOOL immediate)
 			converted->screen_offset[0][0] = (float)UI_OFFSET;
 		}
 	}
+	draw_profile_lap(&draw_profile, DRAW_PROFILE_UNIFORMS, &key_started);
 	return TRUE;
 }
 
 /* the packet prepare_draw and the draw function built */
 static struct gpu_draw draw_packet;
 
+/* debug.gpu_stats: the last 60 frames' CPU time per draw, by stage */
+static void draw_profile_log(void)
+{
+	static const char *const names[DRAW_PROFILE_FRONTEND_LAST + 1] = { "call", "prepare_draw", "setup_streams", "gpu_draw",
+		"  stages_fill", "  key", "  shader lookup", "  uniforms", "  targets+memset", "  raster" };
+	int stage;
+
+	if (!draw_profile.enabled || !draw_profile.calls[DRAW_PROFILE_CALL])
+		return;
+	for (stage = 0; stage <= DRAW_PROFILE_FRONTEND_LAST; stage++)
+		if (draw_profile.calls[stage])
+			platform_log("draw cpu: %-13s %lu calls, %.0f ns average, %.0f us worst, %.2f ms a frame", names[stage],
+				draw_profile.calls[stage], (double)draw_profile.nanoseconds[stage] / draw_profile.calls[stage],
+				(double)draw_profile.worst[stage] / 1e3,
+				(double)draw_profile.nanoseconds[stage] / 1e6 / 60.0);
+	memset(&draw_profile.nanoseconds, 0, sizeof(draw_profile.nanoseconds));
+	memset(&draw_profile.worst, 0, sizeof(draw_profile.worst));
+	memset(&draw_profile.calls, 0, sizeof(draw_profile.calls));
+}
+
+static BOOL prepare_draw_profiled(struct gpu_draw *draw, BOOL immediate)
+{
+	uint64_t started = draw_profile_now(&draw_profile);
+	BOOL prepared = prepare_draw(draw, immediate);
+
+	draw_profile_add(&draw_profile, DRAW_PROFILE_PREPARE, started);
+	return prepared;
+}
+
+static BOOL setup_streams(struct gpu_draw *draw, unsigned long first, unsigned long count);
+
+static BOOL setup_streams_profiled(struct gpu_draw *draw, unsigned long first, unsigned long count)
+{
+	uint64_t started = draw_profile_now(&draw_profile);
+	BOOL prepared = setup_streams(draw, first, count);
+
+	draw_profile_add(&draw_profile, DRAW_PROFILE_STREAMS, started);
+	return prepared;
+}
+
 static void submit_draw(const struct gpu_draw *draw, BOOL immediate)
 {
-	if (!gpu_draw(draw, &constant_store, &draw_uniforms))
+	uint64_t started = draw_profile_now(&draw_profile);
+	BOOL drawn = gpu_draw(draw, &constant_store, &draw_uniforms);
+
+	draw_profile_add(&draw_profile, DRAW_PROFILE_SUBMIT, started);
+	if (!drawn)
 	{
 		stats.skipped_link++;
 		return;
@@ -4138,16 +4215,26 @@ static void hud_draw_extent(const float *vertices, unsigned long count)
 	halo_hud_group_extent_in(target_hud_group, extent[0], extent[1], extent[2], extent[3]);
 }
 
+static void D3DDevice_DrawVertices_unprofiled(D3DPRIMITIVETYPE primitive_type, UINT start_vertex, UINT vertex_count);
+
 void WINAPI D3DDevice_DrawVertices(D3DPRIMITIVETYPE primitive_type, UINT start_vertex, UINT vertex_count)
+{
+	uint64_t started = draw_profile_now(&draw_profile);
+
+	D3DDevice_DrawVertices_unprofiled(primitive_type, start_vertex, vertex_count);
+	draw_profile_add(&draw_profile, DRAW_PROFILE_CALL, started);
+}
+
+static void D3DDevice_DrawVertices_unprofiled(D3DPRIMITIVETYPE primitive_type, UINT start_vertex, UINT vertex_count)
 {
 	struct gpu_draw *draw = &draw_packet;
 
-	if (!vertex_count || vertex_count > METAL_DRAW_VERTICES_MAX || !prepare_draw(draw, FALSE))
+	if (!vertex_count || vertex_count > METAL_DRAW_VERTICES_MAX || !prepare_draw_profiled(draw, FALSE))
 		return;
 	if (target_hud_measured)
 		hud_draw_extent(NULL, 0);
 	trace_draw("draw", primitive_type, vertex_count, NULL);
-	if (!setup_streams(draw, start_vertex, vertex_count))
+	if (!setup_streams_profiled(draw, start_vertex, vertex_count))
 		return;
 	if (primitive_type == D3DPT_QUADLIST)
 	{
@@ -4168,7 +4255,17 @@ void WINAPI D3DDevice_DrawVertices(D3DPRIMITIVETYPE primitive_type, UINT start_v
 	submit_draw(draw, FALSE);
 }
 
+static void D3DDevice_DrawIndexedVertices_unprofiled(D3DPRIMITIVETYPE primitive_type, UINT vertex_count, CONST WORD *index_data);
+
 void WINAPI D3DDevice_DrawIndexedVertices(D3DPRIMITIVETYPE primitive_type, UINT vertex_count, CONST WORD *index_data)
+{
+	uint64_t started = draw_profile_now(&draw_profile);
+
+	D3DDevice_DrawIndexedVertices_unprofiled(primitive_type, vertex_count, index_data);
+	draw_profile_add(&draw_profile, DRAW_PROFILE_CALL, started);
+}
+
+static void D3DDevice_DrawIndexedVertices_unprofiled(D3DPRIMITIVETYPE primitive_type, UINT vertex_count, CONST WORD *index_data)
 {
 	struct gpu_draw *draw = &draw_packet;
 	unsigned long minimum, maximum, index, count, generation = 0, index_offset = 0;
@@ -4176,7 +4273,7 @@ void WINAPI D3DDevice_DrawIndexedVertices(D3DPRIMITIVETYPE primitive_type, UINT 
 	const WORD *source = index_data;
 	BOOL mirrored;
 
-	if (!vertex_count || vertex_count > METAL_DRAW_VERTICES_MAX || !index_data || !prepare_draw(draw, FALSE))
+	if (!vertex_count || vertex_count > METAL_DRAW_VERTICES_MAX || !index_data || !prepare_draw_profiled(draw, FALSE))
 		return;
 	if (target_hud_measured)
 		hud_draw_extent(NULL, 0);
@@ -4187,7 +4284,7 @@ void WINAPI D3DDevice_DrawIndexedVertices(D3DPRIMITIVETYPE primitive_type, UINT 
 	trace_draw("indexed", primitive_type, vertex_count, NULL);
 	/* (the streams from the base vertex on: index i is vertex base + i) */
 	if (device.base_vertex_index > UINT32_MAX - minimum ||
-		!setup_streams(draw, device.base_vertex_index + minimum, maximum - minimum + 1))
+		!setup_streams_profiled(draw, device.base_vertex_index + minimum, maximum - minimum + 1))
 		return;
 	draw->primitive = packet_primitive(primitive_type);
 	if (mirrored)
@@ -5297,6 +5394,7 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 			stats.mirrored_bytes / stats.presents / 1024, stats.streamed_bytes / stats.presents / 1024,
 			calls / stats.presents);
 		memset(&stats, 0, sizeof(stats));
+		draw_profile_log();
 		/* and how stereo's HUD layer took its draws (hud_layer_blend) */
 		if (hud_layer_exact || hud_layer_inexact)
 			platform_log("stereo: the HUD layer's last 60 frames: %lu draws with exact transmittance, %lu without",

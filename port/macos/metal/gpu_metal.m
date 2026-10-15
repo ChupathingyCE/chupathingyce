@@ -24,6 +24,7 @@ need not return to a Cocoa run loop between frames.
 #include "metal_msaa.h"
 #include "metal_archive.h"
 #include "metal_state_cache.h"
+#include "renderer/draw_profile.h"
 
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
@@ -187,6 +188,8 @@ static float stereo_cut_brightness(int view, int covered, int requested);
 #endif
 static MetalTable *textures, *buffers, *shaders;
 static int metal_debug;
+/* debug.gpu_stats: CPU time in the stages of gpu_metal_draw */
+static struct draw_profile metal_profile;
 /* display.compressed_textures, where the GPU has BC formats: DXT textures
 upload as they are, not decoded to BGRA8 (gpu_capabilities.s3tc) */
 static BOOL compressed_textures;
@@ -2833,6 +2836,7 @@ static void bind_attributes(const struct gpu_draw *draw, const struct draw_attri
 			[encoder setVertexBuffer:record->buffer offset:0 atIndex:VERTEX_STREAM_BINDING + index];
 	}
 	[encoder setVertexBytes:&table length:sizeof(table) atIndex:2];
+	metal_profile.attribute_table_binds++;
 	metal_state_always(&state_cache);
 }
 
@@ -2997,6 +3001,7 @@ static uint32_t gpu_metal_draw(const struct gpu_draw *draw, const struct gpu_con
 {
 	@autoreleasepool
 	{
+		uint64_t stage_started = draw_profile_now(&metal_profile);
 		/* (unretained: the tables and caches keep these for longer than the
 		draw, so retaining them would only cost a retain and a release each) */
 		__unsafe_unretained MetalShader *vertex = table_get(shaders, draw->vertex_shader);
@@ -3018,9 +3023,11 @@ static uint32_t gpu_metal_draw(const struct gpu_draw *draw, const struct gpu_con
 			depth && depth->texture ? depth->texture.pixelFormat : MTLPixelFormatInvalid);
 		if (!pipeline)
 			return 0;
+		draw_profile_lap(&metal_profile, DRAW_PROFILE_PIPELINE, &stage_started);
 		if (!pass_begin(draw->color_target, draw->depth_target, NULL))
 			return 1;
 		target_size(draw->color_target, draw->depth_target, &width, &height);
+		draw_profile_lap(&metal_profile, DRAW_PROFILE_PASS, &stage_started);
 		/* GL takes a scissor outside the target, Metal doesn't; an empty one
 		draws nothing, but the draw happened */
 		area = draw->scissor.width > 0 && draw->scissor.height > 0 ? draw->scissor :
@@ -3070,6 +3077,7 @@ static uint32_t gpu_metal_draw(const struct gpu_draw *draw, const struct gpu_con
 		}
 		{
 			__unsafe_unretained id<MTLDepthStencilState> depth_stencil = depth_state(&draw->depth_stencil);
+			draw_profile_lap(&metal_profile, DRAW_PROFILE_DEPTH_STATE, &stage_started);
 			uint32_t reference = draw->depth_stencil.stencil_reference & 0xff;
 			MTLViewport viewport = { (double)draw->viewport.x, (double)draw->viewport.y,
 				(double)draw->viewport.width, (double)draw->viewport.height, draw->viewport.min_z, draw->viewport.max_z };
@@ -3110,9 +3118,13 @@ static uint32_t gpu_metal_draw(const struct gpu_draw *draw, const struct gpu_con
 				[encoder setDepthClipMode:encoder_depth_clamp ? MTLDepthClipModeClamp : MTLDepthClipModeClip];
 			}
 		}
+		draw_profile_lap(&metal_profile, DRAW_PROFILE_DYNAMIC, &stage_started);
 		bind_stages(draw, exact);
+		draw_profile_lap(&metal_profile, DRAW_PROFILE_BIND_STAGES, &stage_started);
 		bind_constants(constants, uniforms);
+		draw_profile_lap(&metal_profile, DRAW_PROFILE_BIND_CONSTANTS, &stage_started);
 		bind_attributes(draw, &attributes);
+		draw_profile_lap(&metal_profile, DRAW_PROFILE_BIND_ATTRIBUTES, &stage_started);
 		pass_commands++;
 		/* the draw call itself, made below unless a conversion leaves nothing */
 		metal_state_always(&state_cache);
@@ -3128,6 +3140,7 @@ static uint32_t gpu_metal_draw(const struct gpu_draw *draw, const struct gpu_con
 			if (count)
 				[encoder drawIndexedPrimitives:type indexCount:count indexType:MTLIndexTypeUInt32
 					indexBuffer:buffer_record(indices)->buffer indexBufferOffset:offset];
+			draw_profile_lap(&metal_profile, DRAW_PROFILE_ENCODE, &stage_started);
 			return 1;
 		}
 		case GPU_PRIMITIVE_POINTS: type = MTLPrimitiveTypePoint; break;
@@ -3151,6 +3164,7 @@ static uint32_t gpu_metal_draw(const struct gpu_draw *draw, const struct gpu_con
 		{
 			[encoder drawPrimitives:type vertexStart:0 vertexCount:draw->count];
 		}
+		draw_profile_lap(&metal_profile, DRAW_PROFILE_ENCODE, &stage_started);
 		return 1;
 	}
 }
@@ -3818,6 +3832,27 @@ static uint32_t gpu_metal_present(gpu_texture back_buffer)
 					compile_stats.during_play[COMPILE_SPECIALIZE], compile_stats.during_play[COMPILE_PIPELINE]);
 			metal_state_take_counts(&state_cache);
 		}
+		if (frames % 600 == 0 && metal_profile.enabled && metal_profile.calls[DRAW_PROFILE_ENCODE])
+		{
+			static const char *const names[DRAW_PROFILE_STAGES] = {
+				[DRAW_PROFILE_PIPELINE] = "pipeline lookup", [DRAW_PROFILE_PASS] = "pass_begin", [DRAW_PROFILE_DEPTH_STATE] = "depth_state",
+				[DRAW_PROFILE_DYNAMIC] = "visibility+dynamic state",
+				[DRAW_PROFILE_BIND_STAGES] = "bind_stages", [DRAW_PROFILE_BIND_CONSTANTS] = "bind_constants",
+				[DRAW_PROFILE_BIND_ATTRIBUTES] = "bind_attributes", [DRAW_PROFILE_ENCODE] = "encode draw" };
+			int stage;
+
+			for (stage = DRAW_PROFILE_PIPELINE; stage <= DRAW_PROFILE_ENCODE; stage++)
+				platform_log("Metal draw cpu: %-27s %lu calls, %.0f ns average, %.0f us worst, %.2f ms a frame",
+					names[stage], metal_profile.calls[stage],
+					(double)metal_profile.nanoseconds[stage] / (metal_profile.calls[stage] ? metal_profile.calls[stage] : 1),
+					(double)metal_profile.worst[stage] / 1e3, (double)metal_profile.nanoseconds[stage] / 1e6 / 600.0);
+			platform_log("Metal draw cpu: %lu attribute tables bound for %lu draws", metal_profile.attribute_table_binds,
+				metal_profile.calls[DRAW_PROFILE_ENCODE]);
+			memset(metal_profile.nanoseconds, 0, sizeof(metal_profile.nanoseconds));
+			memset(metal_profile.worst, 0, sizeof(metal_profile.worst));
+			memset(metal_profile.calls, 0, sizeof(metal_profile.calls));
+			metal_profile.attribute_table_binds = 0;
+		}
 		if (frames % 600 == 0)
 		{
 			platform_log("Metal: a frame has %.1f render passes, which load %.0f MB and store %.0f MB",
@@ -4074,6 +4109,7 @@ static void gpu_metal_initialize(uint32_t flags, struct gpu_capabilities *capabi
 
 		memset(capabilities, 0, sizeof(*capabilities));
 		metal_debug = (flags & GPU_INITIALIZE_DEBUG) != 0;
+		metal_profile.enabled = (flags & GPU_INITIALIZE_DRAW_PROFILE) != 0;
 		visibility_wait = (flags & GPU_INITIALIZE_FIXED_TIMESTEP) != 0;
 		metalfx_wanted = (flags & GPU_INITIALIZE_METALFX) != 0;
 		metal_state_initialize(&state_cache, !(flags & GPU_INITIALIZE_NO_STATE_CACHE));

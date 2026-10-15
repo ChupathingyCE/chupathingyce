@@ -122,6 +122,8 @@ class MetalLp64Build(Lp64Build):
         replacements = {path.name: path for path in renderer.glob("*.c")}
         replacements["d3d8_gl.c"] = renderer / "d3d8_device.c"
         result = []
+        # (V2's fast path is gated on this; without it, V2 is V1)
+        v2 = " -DHALO_MACOS_METAL_V2=1" if getattr(getattr(self, "sln", None), "macos_metal_v2", False) else ""
         platform_flags = next(unit.cflags for unit in units if unit.source.name == "d3d8_gl.c")
         skip = {"xgpu_post.c", "xgpu_shader_cache.c", "xgpu_text.c"}
         consumed = set()
@@ -129,7 +131,7 @@ class MetalLp64Build(Lp64Build):
             if unit.source.name in skip:
                 continue
             if self.lp64_dir in unit.source.parents:
-                unit.cflags = f"-I{self.lp64(renderer)} {unit.cflags} -DHALO_MACOS_METAL_EXPERIMENTAL=1"
+                unit.cflags = f"-I{self.lp64(renderer)} {unit.cflags} -DHALO_MACOS_METAL_EXPERIMENTAL=1{v2}"
                 if unit.source.name in replacements:
                     replacement = replacements[unit.source.name]
                     consumed.add(replacement)
@@ -137,7 +139,7 @@ class MetalLp64Build(Lp64Build):
             result.append(unit)
         for source in sorted(set(replacements.values()) - consumed):
             result.append(Lp64Unit(self.lp64(source),
-                f"-I{self.lp64(renderer)} {platform_flags} -DHALO_MACOS_METAL_EXPERIMENTAL=1"))
+                f"-I{self.lp64(renderer)} {platform_flags} -DHALO_MACOS_METAL_EXPERIMENTAL=1{v2}"))
         return result
 
 
@@ -145,7 +147,11 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
     if not PORT_CONFIG.is_file() or platform.system() != "Darwin":
         return
     config = load_json(PORT_CONFIG)
-    build_dir: Path = sln.build_dir / "macos"
+    # Metal V2 (--macos-metal-v2) builds beside V1 and OpenGL: its own rules,
+    # objects and application, so neither reference build is overwritten
+    v2 = getattr(sln, "macos_metal_v2", False)
+    name = "macos_v2" if v2 else "macos"
+    build_dir: Path = sln.build_dir / name
     obj_dir = build_dir / "obj"
     output = build_dir / "halo"
     cc = "clang"
@@ -161,21 +167,21 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
     sdl_include = f"-I{PORTABLE_SDL_DIR / 'include'} " if portable else ""
 
     n.comment("Native macOS build (ninja macos)")
-    metal = getattr(sln, "macos_metal", False)
+    metal = getattr(sln, "macos_metal", False) or v2
     build_type = MetalLp64Build if metal else Lp64Build
-    lp64 = build_type(n, sln, "macos", cc,
+    lp64 = build_type(n, sln, name, cc,
                      extra_roots=[PORT_DIR / "metal" / "renderer"] if metal else [])
     n.rule(
-        name="macos_link",
-        command="$macos_cc $ldflags -o $out @$out.rsp $libs",
-        description="MACOS LINK $out",
+        name=f"{name}_link",
+        command=f"${name}_cc $ldflags -o $out @$out.rsp $libs",
+        description=f"{name.upper()} LINK $out",
         rspfile="$out.rsp",
         rspfile_content="$in_newline",
     )
 
     # (the generated sources: one set, compiled for each architecture)
-    generated_sources = (hud_assets_build(n, "macos", build_dir / "generated" / "hud_hires_assets.c")
-                         + ui_fonts_build(n, "macos", build_dir / "generated" / "ui_fonts.c", sln))
+    generated_sources = (hud_assets_build(n, name, build_dir / "generated" / "hud_hires_assets.c")
+                         + ui_fonts_build(n, name, build_dir / "generated" / "ui_fonts.c", sln))
     if portable:
         n.rule(
             name="macos_sdl3",
@@ -201,7 +207,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
             excluded.discard("port/linux/src/bink_null.c")
             excluded.add("port/macos/src/macos_bink.c")
         host = Lp64Host(
-            name="macos",
+            name=name,
             target_flags=[target],
             game_flags=MACOS_GAME_FLAGS,
             posix_flags=MACOS_POSIX_FLAGS,
@@ -214,9 +220,10 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
         if metal:
             for source in (PORT_DIR / "metal" / "gpu_metal.m", PORT_DIR / "metal" / "metal_host.m"):
                 obj = arch_obj_dir / source.with_suffix(".o")
-                n.build(outputs=obj, rule="macos_cc", inputs=source, variables={
+                n.build(outputs=obj, rule=f"{name}_cc", inputs=source, variables={
                     "cflags": f"{target} -std=gnu11 -fobjc-arc -O2 -g -Wall "
                               f"-I{PORT_DIR / 'metal'} -I{PORT_DIR / 'metal' / 'renderer'} "
+                              f"{'-DHALO_MACOS_METAL_V2=1 ' if v2 else ''}"
                               f"{sdl_include}-idirafter {HOMEBREW / 'include'}"})
                 objects.append(obj)
 
@@ -226,7 +233,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
         frameworks = [*config.get("frameworks", []), *(["Metal", "QuartzCore", "Foundation", "MetalFX"] if metal else [])]
         n.build(
             outputs=arch_output,
-            rule="macos_link",
+            rule=f"{name}_link",
             inputs=objects,
             implicit=[portable_sdl] if portable else [],
             variables={
@@ -244,18 +251,18 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
         for arch in architectures:
             emit(arch, build_dir / f"obj-{arch}", build_dir / f"halo-{arch}")
             slices.append(build_dir / f"halo-{arch}")
-        n.rule(name="macos_lipo", command="lipo -create -output $out $in", description="MACOS LIPO $out")
-        n.build(outputs=output, rule="macos_lipo", inputs=slices)
+        n.rule(name=f"{name}_lipo", command="lipo -create -output $out $in", description=f"{name.upper()} LIPO $out")
+        n.build(outputs=output, rule=f"{name}_lipo", inputs=slices)
 
     # the application bundle, which macOS shows with the game's name and icon
     bundle = build_dir / "ChupathingyCE.app"
     n.rule(
-        name="macos_bundle",
+        name=f"{name}_bundle",
         command=(f"$python {PORT_DIR / 'bundle.py'} --executable $in --output {_quote(bundle)} --version {version()}"
                  + (f" --self-contained --library-path {PORTABLE_SDL_BUILD}" if portable else "")),
-        description="MACOS BUNDLE $out",
+        description=f"{name.upper()} BUNDLE $out",
     )
-    n.build(outputs=bundle / "Contents" / "MacOS" / "halo", rule="macos_bundle", inputs=output,
+    n.build(outputs=bundle / "Contents" / "MacOS" / "halo", rule=f"{name}_bundle", inputs=output,
             implicit=[PORT_DIR / "bundle.py", PORT_DIR / "Info.plist", PORT_DIR / "AppIcon.icns"])
-    n.build(outputs="macos", rule="phony", inputs=[output, bundle / "Contents" / "MacOS" / "halo"])
+    n.build(outputs=name, rule="phony", inputs=[output, bundle / "Contents" / "MacOS" / "halo"])
     n.newline()
