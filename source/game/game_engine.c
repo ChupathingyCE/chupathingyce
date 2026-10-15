@@ -3628,92 +3628,6 @@ static void game_engine_rasterize_time_left(
 	return;
 }
 
-#ifdef HALO_GAME_BROWSER
-/* port: a Bomb game type's lines (game_engine_bomb.c), at the top of each
-player's view: the round's score and time, and who carries the bomb */
-static void game_engine_rasterize_bomb(
-	long player_index)
-{
-	wchar_t score_line[96];
-	wchar_t carrier_line[96];
-	rectangle2d bounds;
-	real_argb_color color;
-
-	if (!game_engine_bomb_hud_text(player_index, score_line, carrier_line, NUMBEROF(score_line)))
-		return;
-	bounds = render.camera.window_bounds;
-	offset_rectangle2d(&bounds, -render.camera.viewport_bounds.x0, -render.camera.viewport_bounds.y0);
-	bounds.y0 += 8;
-	bounds.y1 = bounds.y0 + 15;
-	color.alpha = 1.0f;
-	color.red = 0.45882353f;
-	color.green = 0.7294118f;
-	color.blue = 1.0f;
-	draw_string_set_draw_mode(hud_globals->messaging.multi_player_font.index, NONE, 2, 0, &color);
-	draw_string_set_color(&color);
-	rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, score_line);
-	if (carrier_line[0])
-	{
-		bounds.y0 += 16;
-		bounds.y1 += 16;
-		color.red = 1.0f;
-		color.green = 0.85f;
-		color.blue = 0.2f;
-		draw_string_set_draw_mode(hud_globals->messaging.multi_player_font.index, NONE, 2, 0, &color);
-		draw_string_set_color(&color);
-		rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, carrier_line);
-	}
-	/* the planted bomb's countdown, large, in the middle */
-	{
-		long seconds = game_engine_bomb_countdown();
-
-		if (seconds > 0)
-		{
-			wchar_t countdown[8];
-			long font_index = NONE;
-			struct tag_iterator fonts;
-			long tag_index;
-			short tallest = 0;
-
-			/* (the map's tallest font: digits as large as the map has) */
-			tag_iterator_new(&fonts, FONT_GROUP_TAG);
-			while ((tag_index = tag_iterator_next(&fonts)) != NONE)
-			{
-				struct font_header *font = font_definition_get(tag_index);
-
-				if (font->ascending_height + font->descending_height > tallest)
-				{
-					tallest = font->ascending_height + font->descending_height;
-					font_index = tag_index;
-				}
-			}
-			usnprintf(countdown, NUMBEROF(countdown), L"%d", (int)seconds);
-			bounds = render.camera.window_bounds;
-			offset_rectangle2d(&bounds, -render.camera.viewport_bounds.x0, -render.camera.viewport_bounds.y0);
-			{
-				/* (three times the font's size, about the middle of the
-				view's upper half: rasterizer_text_set_scale) */
-				short center_y = (short)((3 * bounds.y0 + 2 * bounds.y1) / 5);
-				short height = (short)MAX(16, tallest + 4);
-
-				bounds.y0 = (short)(center_y - height / 2);
-				bounds.y1 = (short)(bounds.y0 + height);
-				rasterizer_text_set_scale(3.0f, (real)((bounds.x0 + bounds.x1) / 2), (real)center_y);
-			}
-			color.red = 1.0f;
-			color.green = 0.85f;
-			color.blue = 0.2f;
-			draw_string_set_draw_mode(font_index != NONE ? font_index : hud_globals->messaging.multi_player_font.index,
-				NONE, 2, 0, &color);
-			draw_string_set_color(&color);
-			rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, countdown);
-			rasterizer_text_set_scale(1.0f, 0.0f, 0.0f);
-		}
-	}
-	draw_string_set_format(NONE, 0, 0);
-}
-#endif
-
 static void game_engine_post_rasterize_in_game(
 	void)
 {
@@ -3740,8 +3654,9 @@ static void game_engine_post_rasterize_in_game(
 		internal_rasterize_target_name(player_index);
 	game_engine_rasterize_time_left();
 #ifdef HALO_GAME_BROWSER
+	/* port: a Bomb game type's HUD (game_engine_bomb.c) */
 	if (game_engine && player)
-		game_engine_rasterize_bomb(player_index);
+		game_engine_bomb_rasterize(player_index);
 #endif
 
 	gamepad = input_get_gamepad_state(local_player_index);

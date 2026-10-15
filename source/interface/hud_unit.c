@@ -86,6 +86,7 @@ symbols in this file:
 #include "tag_files/tag_groups.h"
 #include "units/unit_definitions.h"
 #include "units/units.h"
+#include "bitmaps/bitmap_group.h"
 
 /* ---------- constants */
 
@@ -1378,3 +1379,100 @@ void hud_render_unit_interface(
 
 	return;
 }
+
+#ifdef HALO_GAME_BROWSER
+/* port: an element's drawn size (its sprite's, hud_calculate_bitmap_bounds') */
+static void hud_unit_port_element_size(
+	long bitmap_group_index,
+	short sequence_index,
+	real *width,
+	real *height)
+{
+	struct bitmap_data const *bitmap = NULL;
+	real_rectangle2d const *clip = NULL;
+
+	*width = 0.0f;
+	*height = 0.0f;
+	if (bitmap_group_index == NONE)
+		return;
+	hud_retrieve_bitmap_and_bounding_rect(bitmap_group_index, sequence_index, 0, &bitmap, &clip);
+	if (!bitmap)
+		return;
+	if (!clip)
+	{
+		*width = (real)bitmap->width;
+		*height = (real)bitmap->height;
+		return;
+	}
+	/* (an interface bitmap's sprite is in pixels, another's a fraction) */
+	*width = clip->x1 - clip->x0;
+	*height = clip->y1 - clip->y0;
+	if (*width <= 1.0f && *height <= 1.0f)
+	{
+		*width *= (real)bitmap->width;
+		*height *= (real)bitmap->height;
+	}
+}
+
+/* port: a game type's progress (Bomb's arming, game_engine_bomb.c) on the
+likeness of the player's own unit's shield meter, its frame, bitmap and
+colors, drawn again in the middle of the view above the crosshair: a
+fraction from 0 to 1 */
+void hud_render_progress_meter(
+	short local_player_index,
+	real fraction)
+{
+	long player_index = local_player_get_player_index(local_player_index);
+	struct player_datum *player = player_index != NONE ? player_get(player_index) : NULL;
+	struct unit_hud_interface_definition *hud_definition;
+	struct meter_hud_element_definition meter;
+	struct static_hud_element_definition background;
+	struct hud_absolute_placement_definition placement;
+	long hud_index;
+	short value_scale;
+	short draw_flags = 0;
+	short y = (short)(-(render.camera.window_bounds.y1 - render.camera.window_bounds.y0) / 6);
+	real meter_width, meter_height, background_width, background_height;
+	byte value;
+
+	if (!player || player->unit_index == NONE)
+		return;
+	hud_index = unit_definition_get_active_hud_index(
+		unit_definition_get(unit_get(player->unit_index)->definition_index), local_player_count() > 1);
+	if (hud_index == NONE)
+		return;
+	hud_definition = unit_hud_interface_definition_get(hud_index);
+	if (hud_definition->shield_meter.meter.meter_bitmap.index == NONE)
+		return;
+	meter = hud_definition->shield_meter.meter;
+	background = hud_definition->shield_meter.background;
+	hud_unit_port_element_size(meter.meter_bitmap.index, meter.sequence_index, &meter_width, &meter_height);
+	hud_unit_port_element_size(background.interface_bitmap.index, background.sequence_index, &background_width,
+		&background_height);
+	/* (anchored in the middle, each is drawn centered on its point: the
+	frame there, the meter where it sits in the frame at its corner, the
+	top right) */
+	csmemset(&placement, 0, sizeof(placement));
+	placement.corner = _hud_anchor_center;
+	if (background.interface_bitmap.index != NONE)
+	{
+		meter.placement.offset.x = (short)(long)(background_width * 0.5f - meter_width * 0.5f -
+			(hud_definition->shield_meter.meter.placement.offset.x - background.placement.offset.x));
+		meter.placement.offset.y = (short)(long)(y - background_height * 0.5f + meter_height * 0.5f +
+			(hud_definition->shield_meter.meter.placement.offset.y - background.placement.offset.y));
+		background.placement.offset.x = 0;
+		background.placement.offset.y = y;
+	}
+	else
+	{
+		meter.placement.offset.x = 0;
+		meter.placement.offset.y = y;
+	}
+	value_scale = meter.value_scale ? meter.value_scale : 8;
+	value = (byte)PIN(fast_ftol_C((real)value_scale * PIN(fraction, 0.0f, 1.0f)), 0, UNSIGNED_CHAR_MAX);
+	SET_FLAG(draw_flags, _hud_draw_in_multiplayer_bit, local_player_count() > 1);
+	hud_draw_meter(local_player_index, &placement, &meter, value, value, draw_flags, -1.0f, fraction);
+	if (background.interface_bitmap.index != NONE)
+		hud_draw_static_element(local_player_index, &placement, &background, draw_flags, NONE);
+}
+#endif
