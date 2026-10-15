@@ -1,22 +1,27 @@
 <p align="center"><img src="docs/icon-160.png" width="120" alt=""></p>
 
-<h1 align="center">ChupathingyCE</h1>
+<h1 align="center">Chupathingy</h1>
 
-<p align="center"><b>Halo: Combat Evolved on Windows, Mac, Linux and Android: a port of the Halo CE decompilation, built for stability and community games.</b></p>
+<p align="center"><b>Halo: Combat Evolved on Mac, Linux, Steam Deck, Windows and Android: a native port of the Halo CE decompilation, built for stability and community games.</b></p>
 
 <p align="center">
+<a href="https://chupathingy.org">chupathingy.org</a> ·
 <a href="https://github.com/ChupathingyCE/chupathingyce/releases/latest">Download</a> ·
-<a href="https://halo.milenko.org">Games online now</a> ·
-<a href="https://discord.gg/4BUm2FwuCB">Discord</a>
+<a href="https://stats.chupathingy.org">Games online now</a> ·
+<a href="https://discord.gg/chupathingy">Discord</a>
 </p>
 
 > **Compatible with OpenCE build-206 (network version 29) for online play.** Players on that build join our games, and ours join games hosted on network versions 11 through 30. Browser builds can't join our games, nor we theirs.
 
-ChupathingyCE is a port of the Halo: Combat Evolved decompilation to modern
-computers and phones, built for stability and community games: releases you
-can count on, dedicated servers, stats, and its own network layer, Delta. It
-runs natively, with no emulator. Bring your own copy of the game: we never
-host or share Microsoft's files. Expect rough edges, and please report them.
+Chupathingy is a free, open-source port of the Halo: Combat Evolved
+decompilation (Halo CE) to modern computers and phones. It runs natively on
+Windows, Mac (Apple silicon and Intel), Linux (including Steam Deck) and
+Android, with no emulator, and is built for stability and community games:
+releases you can count on, dedicated servers, an in-game server browser,
+stats, and its own network layer, Delta. Bring your own copy of the game: we
+never host or share Microsoft's files. Expect rough edges, and please report
+them. Website: [chupathingy.org](https://chupathingy.org). Chat and find
+games to join: [discord.gg/chupathingy](https://discord.gg/chupathingy).
 
 <p align="center"><img src="docs/screenshots/lobby.jpg" width="720" alt="A multiplayer lobby"></p>
 

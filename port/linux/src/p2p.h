@@ -159,10 +159,22 @@ struct p2p_listing
 	unsigned char key_hash[P2P_LISTING_KEY_HASH_SIZE];
 	unsigned char signing_key[P2P_LISTING_SIGNING_KEY_SIZE];
 	unsigned char sealed_token[P2P_LISTING_SEALED_TOKEN_SIZE];
+	/* the network version it was listed under (0: not known) */
+	unsigned short version;
 };
-/* a copy of the public games found, in the order shown (the most players
-first; then those not failed, the open ones, by name); returns their count */
+/* a copy of the public games found, each once (p2p_listing_older_copy), in
+the order shown (the most players first; then those not failed, the open
+ones, by name); returns their count */
 int p2p_lobby_games(struct p2p_listing *games, int maximum_count);
+/* whether games[index] is a copy p2p_lobby_games leaves out (p2p_copies.c):
+a host can sign one game's listing once for every network version, each
+with a key and an invite of its own. Listings alike in all but their
+version (the name, without case or the spaces around it; the map and
+gametype, without case; the engine, players, most players and whether under
+way) are one game, kept at its newest version, and of copies of that, the
+last heard (heard_times: p2p_now's); two hosts' games of one version stay
+apart. The game list's rule too (its one_per_version_set) */
+int p2p_listing_older_copy(const struct p2p_listing *games, const unsigned long *heard_times, int count, int index);
 /* a game the browser could not join: kept, marked failed, for this run */
 void p2p_lobby_mark_failed(const unsigned char *identifier);
 /* a locked game's invite (into its invite), if the password is its own:

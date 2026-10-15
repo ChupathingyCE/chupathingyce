@@ -7,7 +7,7 @@ ChupathingyCE is a port of the Halo: Combat Evolved decompilation, built for sta
 You don't have to write code to help.
 
 - **Play and test.** New builds that need trying are in the Testing column of the [roadmap](https://github.com/orgs/ChupathingyCE/projects/1). Pick up the Testers role in the Discord to get pinged when one is ready.
-- **Report bugs and share ideas** with the [bug report form](https://github.com/ChupathingyCE/chupathingyce/issues/new?template=bug.yml), or in #bug-reports and #ideas on the [Discord](https://discord.gg/4BUm2FwuCB). New reports go into the roadmap's Inbox and get sorted each week.
+- **Report bugs and share ideas** with the [bug report form](https://github.com/ChupathingyCE/chupathingyce/issues/new?template=bug.yml), or in #bug-reports and #ideas on the [Discord](https://discord.gg/chupathingy). New reports go into the roadmap's Inbox and get sorted each week.
 - **Write code.** Issues labeled [good first issue](https://github.com/ChupathingyCE/chupathingyce/labels/good%20first%20issue) are small and self-contained, and each one says where to start. [help wanted](https://github.com/ChupathingyCE/chupathingyce/labels/help%20wanted) issues are a bit bigger. Ask in #dev on the Discord if you get stuck.
 - **Host a server, make maps, or help run events.** Ask for the Server Hosts, Mappers or Game Night role in the Discord.
 
@@ -36,7 +36,7 @@ Test builds are the `nightly` release and `-testing` tags, outside the numbering
 
 ## Bugs
 
-Use [the bug report form](https://github.com/ChupathingyCE/chupathingyce/issues/new?template=bug.yml), or #bug-reports on the [Discord](https://discord.gg/4BUm2FwuCB).
+Use [the bug report form](https://github.com/ChupathingyCE/chupathingyce/issues/new?template=bug.yml), or #bug-reports on the [Discord](https://discord.gg/chupathingy).
 
 ## Game files
 
