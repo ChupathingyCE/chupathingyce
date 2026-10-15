@@ -150,10 +150,13 @@ def test_settings_sections(tmp_path):
     feature_settings.parent.mkdir(parents=True)
     feature_settings.write_text(
         '{ "experiment.enabled", _config_boolean, "false", NULL, _environment_value, _platform_desktop, "test" },\n')
-    harness = '''
-#include <assert.h>
-#include <stdio.h>
-#include <string.h>
+    # Use the production standard-C headers: injecting assert.h here used to
+    # hide its absence in port_config.c, breaking several real platform builds.
+    header_block = source[:source.index("#define HALO_SETTINGS_PATH_")]
+    standard_headers = "\n".join(line for line in header_block.splitlines()
+                                 if line.startswith("#include <") and
+                                 not line.startswith(("#include <SDL3/", "#include <pthread.h>")))
+    harness = standard_headers + '''
 typedef int boolean;
 #define TRUE 1
 #define FALSE 0
@@ -183,7 +186,8 @@ int main(void) { config_default_text(); puts(output); return 0; }
     path = tmp_path / "settings_test.c"
     path.write_text(harness)
     executable = tmp_path / "settings_test"
-    subprocess.run([compiler(), "-I", str(tmp_path / "source"), str(path), "-o", str(executable)], check=True)
+    subprocess.run([compiler(), "-std=c11", "-Werror=implicit-function-declaration",
+                    "-I", str(tmp_path / "source"), str(path), "-o", str(executable)], check=True)
     result = subprocess.run([str(executable)], capture_output=True, text=True, check=True)
     import tomllib
     config = tomllib.loads(result.stdout)

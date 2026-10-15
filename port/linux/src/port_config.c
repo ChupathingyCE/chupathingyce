@@ -19,6 +19,7 @@ edits and comments stay.
 #include "tomlc17.h"
 
 #include <SDL3/SDL.h>
+#include <assert.h>
 #include <ctype.h>
 #include <pthread.h>
 #include <stdio.h>

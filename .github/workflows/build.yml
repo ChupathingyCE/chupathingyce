@@ -195,7 +195,7 @@ jobs:
 
       - name: Test
         run: |
-          python3 -m pytest -q tools/test_linux_port.py tools/test_touch_menu.py tools/test_server_control.py tools/test_delta.py tools/test_delta_peer.py tools/test_map_download.py
+          python3 -m pytest -q tools/test_linux_port.py tools/test_touch_menu.py tools/test_server_control.py tools/test_delta.py tools/test_delta_peer.py tools/test_map_download.py tools/test_features.py
           python3 tools/test_light_storage.py
 
       - name: Compile cache
