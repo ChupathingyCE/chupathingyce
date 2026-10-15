@@ -185,8 +185,14 @@ the game asks for the disc image again at the next start.
 | `u:\` | `u/` in the save root. This folder contains the user data. |
 
 The save root is `paths.saves` in `config.toml`. If that setting is empty,
-the save root is `$XDG_DATA_HOME/halo-linux` (usually
-`~/.local/share/halo-linux`).
+the save root is `$XDG_DATA_HOME/chupathingyce` (usually
+`~/.local/share/chupathingyce`). The first time the game starts with that
+save root, it copies the saves from the folder earlier versions used
+(`$XDG_DATA_HOME/halo-linux` or `~/.local/share/halo-linux`), without the
+map cache, which it rebuilds. That folder is left as it was. The file
+`shared_saves_checked.txt` in the save root records that the copy was done;
+delete it to copy again. A save root set in `paths.saves` or
+`HALO_SAVE_ROOT` is never copied into.
 
 The game makes the folders when it needs them. Names of files and folders
 are not case-sensitive, as on the Xbox.

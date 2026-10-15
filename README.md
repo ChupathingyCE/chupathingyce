@@ -103,9 +103,13 @@ saves go in `/sdcard/Android/data/dev.horrible.chupathingyce/files`. On a
 Mac, the maps, settings and saves go in
 `~/Library/Application Support/ChupathingyCE`.
 On Linux, the maps and settings (`config.toml`) go next to the `halo`
-executable, and the saves in `~/.local/share/halo-linux` (or
-`$XDG_DATA_HOME/halo-linux`). The 64-bit and 32-bit builds use the same
-places, so switching from one to the other keeps your saves and settings.
+executable, and the saves in `~/.local/share/chupathingyce` (or
+`$XDG_DATA_HOME/chupathingyce`). On Windows, the saves go in
+`%APPDATA%\ChupathingyCE`. The first start copies your profiles, saved games
+and game types from the folder earlier versions used (`halo-linux`, or
+`%APPDATA%\halo` on Windows), which is left as it was. The 64-bit and
+32-bit builds use the same places, so switching from one to the other keeps
+your saves and settings.
 
 **Common mistake:** the `maps` folder must hold the Xbox maps from your disc
 image, not Halo PC's. Halo PC maps go in folders of their own beside it:
