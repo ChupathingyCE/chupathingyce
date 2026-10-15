@@ -63,6 +63,26 @@ sources regardless of this flag.
 - Only Apple silicon has been runtime-tested here; Intel Mac testing remains
   necessary. This is not a claim that all maps or rendering states are tested.
 
+## Display sync and frame limit
+
+- `display.vsync` sets the window's `CAMetalLayer.displaySyncEnabled`
+  (`metal_host.m`, `metal_vsync.h`): on, drawables are shown at the display's
+  vertical blank; off, at once (tearing is possible). It is applied at start-up
+  and again when Settings is saved (`platform_display_apply`), with no restart.
+  The Metal window has no GL context, so no GL swap interval is ever set.
+- With vsync off, `display.max_fps` limits the frame rate after each
+  `gpu_present` (`platform_video_frame_limit`, arithmetic in
+  `renderer/frame_limit.h`), with the OpenGL renderer's rules: `0` is twice
+  the display's refresh rate (60 Hz if unknown), a negative value is no
+  limit. It is re-read whenever the configuration changes.
+- `display.frame_pacing` (the visionOS refresh-hold scheduler) is not used on
+  macOS: it needs a CADisplayLink refresh period this port does not have and
+  would hold drawables even with vsync off. A log line says so if it is set.
+- Limits: `metal-smoke` and unit tests do not measure on-screen frame times;
+  vsync on/off, `max_fps` values, fullscreen/resize and ProMotion displays
+  need checking in play (the Metal log's 600-frame "frames shown for" report
+  helps). The OpenGL build's own vsync and limit are unchanged.
+
 ## Safety boundary
 
 The frontend keeps Xbox addresses as 32-bit addresses and converts them with
@@ -90,7 +110,8 @@ audit of imported code.
   UndefinedBehaviorSanitizer; launcher tests preserve OpenGL behavior.
 
 ```sh
-python3 -m unittest tools.test_macos_metal_build tools.test_metal_upload_bounds tools.test_metal_overlay
+python3 -m unittest tools.test_macos_metal_build tools.test_metal_upload_bounds tools.test_metal_overlay \
+  tools.test_metal_frame_limit tools.test_metal_vsync
 ninja macos-metal-smoke
 build/macos/metal-smoke
 ```
