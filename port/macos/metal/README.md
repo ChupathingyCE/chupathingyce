@@ -45,19 +45,28 @@ sources regardless of this flag.
 
 - Menu rendering, map geometry, textures, weapons, HUD, and ordinary gameplay
   run through Metal. macOS is mono; headset stereo is deliberately disabled.
-- The normal game's vertex lighting is used. The local per-pixel lighting
-  enhancement is not ported yet.
+- `display.per_pixel_lighting` supports the game's recognized model-lighting
+  programs, using ChupathingyCE's ambient, distant, point/cone and translucency
+  equation per pixel. Diffuse alpha is preserved; unrecognized programs retain
+  vertex lighting. The existing default remains false.
 - Online Games, Link Profile, and other custom overlay screens render through
   native Metal. The server list remains visible when online play is disabled or
   its server is unreachable. Shapes, text, button glyphs and map-preview cutouts
   are composited into the back buffer before presentation and screenshots.
   With reduced render resolution, overlays scale with the back buffer too.
-- MSAA/SMAA/FXAA post-processing and custom GL-based Forge selectors/platform
-  meshes are not ported yet.
-  Use the default OpenGL build if you need these features. This is not full
-  renderer feature parity.
-- High-resolution HUD/text art is supported, but HUD PNG decoding happens on
-  first use rather than the old asynchronous preload worker.
+- All `display.anti_aliasing` choices are implemented: `off`, `fxaa`, `smaa`
+  (HIGH preset), `ssaa2x`, `msaa2x`, `msaa4x` and `msaa8x`. Post passes run
+  before the HUD, preserve destination alpha/depth, and clamp to each view.
+  MSAA resolves color/depth/stencil for subsequent sampling and readback;
+  its sample count is capped to device support, as in OpenGL. On this M2 Pro,
+  requesting 8× selects 4×, explicitly logged. SSAA preserves the existing
+  original-resolution behavior and is bounded by the GPU's texture limit.
+- Custom GL-based Forge selectors/platform meshes remain unsupported; use
+  OpenGL for those. The screenshot hotkey, scoreboard mouse selection and
+  controller-icon enhancement were explicitly deferred, not imported from
+  OpenCE. Debug BMP frame capture remains available.
+- High-resolution HUD/text art is supported. Map changes asynchronously preload
+  HUD PNGs; textures not ready at first use retain the synchronous fallback.
 - VisionOS pacing, synthetic foveation, texture replacement experiments, and
   stereo shader warming are not requirements for ordinary macOS gameplay.
 - Only Apple silicon has been runtime-tested here; Intel Mac testing remains
@@ -83,6 +92,27 @@ sources regardless of this flag.
   need checking in play (the Metal log's 600-frame "frames shown for" report
   helps). The OpenGL build's own vsync and limit are unchanged.
 
+## Pipeline caching and HUD preload
+
+`debug.metal_pipeline_archive` and `debug.shader_list_warm` default to true
+following repeated clean background launches. Map shader lists are warmed at
+map changes and learned into `<data-root>/metal-shader-lists`. Shader-list keys
+include AA sample counts and per-pixel lighting variants.
+
+Pipeline archives live under
+`~/Library/Caches/io.github.chupathingyce/metal-pipelines/`. Previously loaded
+segments are lookup-only; new pipelines enter a fresh segment, saved at exit.
+This avoids a reproducible driver crash serializing an updated loaded archive.
+The segment set resets after 16 segments to bound accumulation.
+
+Measured Blood Gulch runs reduced pipelines compiled during play from 70–97
+without caching/warming to 7 after learned lists and archive reuse. A baseline
+recorded 70 pipelines in 24 ms; warmed map pipelines took about 2 ms. These are
+compile counters/times, not a claim that all gameplay stalls disappear.
+HUD preload decoded 69 pictures ahead of use, with no first-draw decodes after
+map load in that run. Tests cover preload ownership and synchronization under
+ASan/UBSan and ThreadSanitizer.
+
 ## Safety boundary
 
 The frontend keeps Xbox addresses as 32-bit addresses and converts them with
@@ -97,7 +127,9 @@ audit of imported code.
 
 ## Validation performed
 
-- Built and bundled on Apple M2 Pro, including the default-off build path.
+- Debug and release CI builds passed on Apple M2 Pro, producing arm64/x86_64
+  universal bundles. The default OpenGL reference was rebuilt from this branch;
+  Intel compilation is not Intel runtime validation.
 - Captured and inspected the main menu and Blood Gulch gameplay screenshots.
 - Ran a Blood Gulch Slayer match with three bots moving and fighting.
 - Repeated gameplay with `MTL_DEBUG_LAYER=1`: Metal API Validation enabled,
@@ -112,12 +144,64 @@ audit of imported code.
 ```sh
 python3 -m unittest tools.test_macos_metal_build tools.test_metal_upload_bounds tools.test_metal_overlay \
   tools.test_metal_frame_limit tools.test_metal_vsync
+python3 -m unittest discover -s tools -p 'test_metal_*.py'
+python3 tools/ci_build.py macos-metal debug
+python3 tools/ci_build.py macos-metal release
 ninja macos-metal-smoke
 build/macos/metal-smoke
 ```
 
 The smoke-test target exists only with `--macos-metal`. It is separate from the
 game and tests shader compilation, triangle rendering, and GPU readback.
+
+### Automated image regression
+
+```sh
+# Explicitly permit hidden/background launches; builds both renderers and
+# restores the Metal build afterward. Installed config/saves are untouched.
+HALO_ALLOW_LAUNCH=1 python3 tools/metal_regression.py --output /tmp/metal-regression-new
+# Or run the same nine-case matrix through unittest:
+HALO_ALLOW_LAUNCH=1 python3 -m unittest tools.test_metal_regression
+```
+
+The output directory must be new or empty. `--data-root` selects installed game
+maps; optional `--gl-app` and `--metal-app` executable paths reuse prebuilt
+bundles. Without prerequisites the CLI exits 77 and the runtime unittest skips.
+Ordinary unit-test invocations do not launch the game without explicit permission.
+
+The matrix covers the menu, idle Blood Gulch with high-resolution HUD, every AA
+mode, and per-pixel lighting. Eighteen 14-second launches take about 4½ minutes,
+plus builds/comparison time. `--case` restricts a CLI run. Captures, neighboring
+frames, logs, exact RGB difference BMPs and JSON metrics are retained.
+
+The no-op-by-default `HALO_RENDER_REGRESSION=1` test hook fixes the hosted game's
+seed and pauses the menu world at simulation tick 30. Capture overrides disable
+input/interpolation and use 1× anisotropy: the two APIs' 16× filters produce
+substantial high-frequency texture differences. Normal defaults are unchanged.
+Gameplay is timed idle, not a deterministic frame replay. The runner rejects
+camera mismatches and rendering failures; it does not rescale, align or mask
+images. Alpha is excluded because the game uses it as scratch state.
+
+The full runtime unittest passed all nine cases with Metal API Validation
+and unchanged tolerances: mean RGB error at most 3/255 and at most 3% of pixels
+with any RGB-channel error above 16/255. The final run measured menu mean
+0.004/255; gameplay/feature means 0.49–1.57/255 and bad-pixel fractions
+0.69–2.60%. Native captures were 1280×960, SSAA 2560×1920. Windowless production
+post-pass tests additionally check edge filtering, flat colors, exact alpha,
+resize and split-view bounds. MSAA resolve tests cover retained samples;
+lighting tests compare all 67 real programs and mutated microcode against the
+OpenGL recognizer under sanitizers, and the production GPU equation against
+CPU reference values.
+
+### Remaining manual checks
+
+- Judge AA quality, shimmering, thin geometry, translucent edges and model
+  lighting in motion, on additional maps and split-screen layouts.
+- Exercise fullscreen/resizing, live vsync/frame-limit changes, ProMotion and
+  longer play sessions. Hidden captures do not measure presentation smoothness.
+- Test Intel Mac runtime behavior and sample-count limits on other GPUs.
+- Forge/platform meshes and the deferred screenshot/UI enhancements are still
+  gaps, not features validated by this matrix.
 
 Sources in `../visr/` preserve the earlier unresolved merge checkpoint and are
 **not build inputs**. Active frontend sources are in `renderer/`; the backend
