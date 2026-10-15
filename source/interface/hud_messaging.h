@@ -81,6 +81,19 @@ void scripted_hud_messages_clear(
 	void);
 void hud_render_timer(
 	void);
+#ifdef HALO_GAME_BROWSER
+void hud_render_round(
+	short local_player_index,
+	long ticks,
+	long warning_ticks,
+	long red_score,
+	unsigned long red_color,
+	long blue_score,
+	unsigned long blue_color);
+void hud_render_large_count(
+	short local_player_index,
+	long value);
+#endif
 void hud_print_message(
 	short local_player_index,
 	wchar_t const *message);
