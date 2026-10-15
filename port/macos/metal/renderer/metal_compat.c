@@ -24,9 +24,6 @@ void halo_model_counts_take(unsigned long drawn[5], unsigned long *culled) {
 /* These enhancements have no Metal implementation yet. The game's normal
    vertex lighting and draw remain in use, without issuing any GL calls. */
 void halo_vertex_shader_lighting(unsigned long handle) { (void)handle; }
-void halo_screen_anti_alias(short x0, short y0, short x1, short y1) {
-    (void)x0; (void)y0; (void)x1; (void)y1;
-}
 int platform_forge_selector_draw(const char *cross, const char *bar, int selected,
     int size, int view_width, int view_height) {
     (void)cross; (void)bar; (void)selected; (void)size; (void)view_width; (void)view_height;

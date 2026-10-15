@@ -4353,6 +4353,31 @@ void WINAPI D3DDevice_Clear(DWORD count, CONST D3DRECT *rectangles, DWORD flags,
 	free(list);
 }
 
+/* ---------- anti-aliasing before the HUD */
+
+void macos_metal_fxaa(gpu_texture handle, const int32_t corners[4]);
+
+void halo_screen_anti_alias(short x0, short y0, short x1, short y1)
+{
+	struct render_target_entry *target;
+	int32_t corners[4];
+
+	if (!device.gl_ready || strcmp(config_string("display.anti_aliasing"), "fxaa"))
+		return;
+	target = render_target_get(&device.back_buffer);
+	if (!target)
+		return;
+	corners[0] = (int32_t)floorf(x0 * target->target.scale[0] + 0.5f);
+	corners[1] = (int32_t)floorf(y0 * target->target.scale[1] + 0.5f);
+	corners[2] = (int32_t)floorf(x1 * target->target.scale[0] + 0.5f);
+	corners[3] = (int32_t)floorf(y1 * target->target.scale[1] + 0.5f);
+	if (corners[0] < 0) corners[0] = 0;
+	if (corners[1] < 0) corners[1] = 0;
+	if (corners[2] > (int32_t)target->target.gl_width) corners[2] = (int32_t)target->target.gl_width;
+	if (corners[3] > (int32_t)target->target.gl_height) corners[3] = (int32_t)target->target.gl_height;
+	macos_metal_fxaa(target->target.texture, corners);
+}
+
 /* ---------- presentation */
 
 /* suffix: "" for the usual frameNNNNN.bmp, else e.g. "-left" */
