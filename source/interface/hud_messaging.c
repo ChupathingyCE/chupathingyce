@@ -1016,6 +1016,166 @@ void hud_render_timer(
 	return;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* port: a game type's numbers in the HUD's own style, the script timer's
+(hud_render_timer): its digits, and the HUD globals' timer colors (Bomb's
+round, game_engine_bomb.c). Each is placed in pixels from the middle of the
+view, as the digits are drawn, so it keeps to the middle at any shape of
+screen */
+
+/* the digits' colon (hud_draw.c's _hud_number_colon_index) */
+#define HUD_PORT_COLON_INDEX 11
+/* (hud_draw.c's _bitmap_group_type_interface_bitmaps) */
+#define HUD_PORT_INTERFACE_BITMAPS 4
+
+/* a digit's advance (the digits' screen width), at a scale */
+static real hud_port_digit_advance(
+	real scale)
+{
+	long hud_number_index = interface_get_tag_index(_interface_hud_digits);
+
+	if (hud_number_index == NONE)
+		return 0.0f;
+	return (real)HUD_NUMBER_DEFINITION_GET(hud_number_index)->screen_width * scale;
+}
+
+/* a number centered on a point (pixels from the view's middle); a flashing
+one in the timer's flash, else in this color */
+static void hud_port_draw_number(
+	short local_player_index,
+	real x,
+	real y,
+	short value,
+	pixel32 color,
+	boolean flashing,
+	long flash_reference_time,
+	real scale,
+	boolean two_digits)
+{
+	struct hud_absolute_placement_definition placement;
+	struct number_hud_element_definition numbers;
+
+	csmemset(&placement, 0, sizeof(placement));
+	csmemset(&numbers, 0, sizeof(numbers));
+	placement.corner = _hud_anchor_center;
+	numbers.placement.offset.x = (short)(long)x;
+	numbers.placement.offset.y = (short)(long)y;
+	numbers.placement.scale.i = 1.0f;
+	numbers.placement.scale.j = 1.0f;
+	numbers.colors = hud_globals->timer_definition.color;
+	numbers.colors.color = color;
+	numbers.digits = (char)(two_digits || value > 9 ? 2 : 1);
+	numbers.number_flags = FLAG(_hud_number_show_all_leading_zeros_bit);
+	hud_draw_numbers(local_player_index, &placement, &numbers, value, NONE,
+		(short)(flashing ? FLAG(_hud_draw_flashing_bit) : 0), flash_reference_time, scale);
+}
+
+/* the digits' colon, centered on a point */
+static void hud_port_draw_colon(
+	short local_player_index,
+	real x,
+	real y,
+	pixel32 color,
+	real scale)
+{
+	long hud_number_index = interface_get_tag_index(_interface_hud_digits);
+	struct hud_absolute_placement_definition placement;
+	struct hud_placement_definition offset;
+	struct bitmap_data const *bitmap = NULL;
+	real_rectangle2d const *clip = NULL;
+	struct hud_number_definition *hud_number;
+	point2d point;
+
+	if (hud_number_index == NONE)
+		return;
+	hud_number = HUD_NUMBER_DEFINITION_GET(hud_number_index);
+	csmemset(&placement, 0, sizeof(placement));
+	csmemset(&offset, 0, sizeof(offset));
+	placement.corner = _hud_anchor_center;
+	offset.offset.x = (short)(long)x;
+	offset.offset.y = (short)(long)y;
+	offset.scale.i = 1.0f;
+	offset.scale.j = 1.0f;
+	hud_calculate_point(local_player_index, &placement, &offset, NULL, local_player_count() > 1, scale, &point);
+	hud_retrieve_bitmap_and_bounding_rect(hud_number->number_bitmap.index, 0, HUD_PORT_COLON_INDEX, &bitmap, &clip);
+	if (bitmap && _texture_cache_bitmap_get_hardware_format((struct bitmap_data *)bitmap, FALSE, TRUE))
+	{
+		hud_draw_bitmap_direct(bitmap, _hud_anchor_center, &point, clip, scale, 0.0f, color,
+			bitmap_group_get(hud_number->number_bitmap.index)->type == HUD_PORT_INTERFACE_BITMAPS);
+	}
+}
+
+/* the view's half height, in the digits' pixels */
+static real hud_port_half_height(
+	void)
+{
+	return (real)(render.camera.window_bounds.y1 - render.camera.window_bounds.y0) * 0.5f;
+}
+
+void hud_render_round(
+	short local_player_index,
+	long ticks,
+	long warning_ticks,
+	long red_score,
+	pixel32 red_color,
+	long blue_score,
+	pixel32 blue_color)
+{
+	real advance = hud_port_digit_advance(1.0f);
+	real y = -hud_port_half_height() + 2.0f * advance;
+	real half_width = 0.0f;
+
+	if (advance <= 0.0f)
+		return;
+	/* the clock: minutes and seconds, as the timer has them */
+	if (ticks != NONE)
+	{
+		long seconds = (MAX(ticks, 0) + TICKS_PER_SECOND - 1) / TICKS_PER_SECOND;
+		short minutes = (short)MIN(seconds / 60, 99);
+		real minute_digits = minutes > 9 ? 2.0f : 1.0f;
+		boolean flashing = ticks <= warning_ticks;
+		pixel32 color = ticks > 0 ? hud_globals->timer_definition.color.color :
+			hud_globals->timer_definition.time_up_color.color;
+		real x;
+
+		half_width = (minute_digits + 3.0f) * advance * 0.5f;
+		x = -half_width;
+		hud_port_draw_number(local_player_index, x + minute_digits * advance * 0.5f, y, minutes, color,
+			flashing && ticks > 0, 0, 1.0f, FALSE);
+		x += minute_digits * advance;
+		hud_port_draw_colon(local_player_index, x + advance * 0.5f, y, color, 1.0f);
+		x += advance;
+		hud_port_draw_number(local_player_index, x + advance, y, (short)(seconds % 60), color,
+			flashing && ticks > 0, 0, 1.0f, TRUE);
+	}
+	/* each team's score beside it, red's left and blue's right */
+	if (red_score != NONE)
+	{
+		hud_port_draw_number(local_player_index, -(half_width + 2.5f * advance), y, (short)MIN(red_score, 99),
+			red_color, FALSE, 0, 1.0f, FALSE);
+	}
+	if (blue_score != NONE)
+	{
+		hud_port_draw_number(local_player_index, half_width + 2.5f * advance, y, (short)MIN(blue_score, 99),
+			blue_color, FALSE, 0, 1.0f, FALSE);
+	}
+}
+
+void hud_render_large_count(
+	short local_player_index,
+	long value)
+{
+	/* (four times the digits, in the upper half of the view, flashing as
+	the timer does near its end) */
+	real advance = hud_port_digit_advance(1.0f);
+
+	if (advance <= 0.0f || value < 0)
+		return;
+	hud_port_draw_number(local_player_index, 0.0f, -hud_port_half_height() * 0.4f, (short)MIN(value, 99),
+		hud_globals->timer_definition.color.color, TRUE, 0, 4.0f, FALSE);
+}
+#endif
+
 void hud_set_state_message(
 	short local_player_index,
 	short message_index)

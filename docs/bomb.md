@@ -28,9 +28,13 @@ So Bomb is built new, from parts the shipped engines already have:
 | the goals | the map's `_netgame_flag_ctf_flag` markers of team 0 and 1 |
 | spawns | CTF's: `match_game_type` treats Bomb as CTF, so every starting location and item marked for CTF is Bomb's too |
 | melee only | the port's custom loadout (`_loadout_weapon_none`, `no_map_weapons`) |
-| waypoints | `game_engine_set_goal_position` with the nav points `ball_blue` and `default` |
+| waypoints | `game_engine_set_goal_position` with the nav points `ball_blue`, `default`, `default_red`, `target_red` and `target_blue` |
+| the goals' outlines | King of the Hill's hill: the map's hill shader, drawn as `king_engine_post_rasterize` draws it |
+| the round's clock and score | the script timer's HUD digits and colors (`hud_render_timer`), the teams in their waypoint arrows' colors |
+| the arming meter | the player's own unit's shield meter and its frame, drawn again in the middle |
+| the carrier's line | the HUD's state message (`game_engine_state_message`), as CTF's and Oddball's carriers have |
 | the clients' state | the game type's state in the distributed netcode (`game_engine_write_network_state`) |
-| sounds | the team score sounds, "play ball", "hill moved", the countdown tick |
+| sounds | the team score sounds, "play ball", the countdown timer and its end tone, the hill's move tone, the "ting" where the map's globals have it (no announcer line of another game type's) |
 
 ## The rules
 
@@ -50,11 +54,15 @@ running over it and carries it into the other team's goal (its CTF flag
 stand). A goal scores a round. The first team to the score limit wins.
 
 - **The goals.** Red defends the team 0 CTF marker and scores at team 1's.
-  Each team sees a waypoint on the goal it attacks, and everyone sees one
-  on the bomb (except its carrier).
+  Each team sees a waypoint on the goal it attacks, in the goal's team's
+  color, and everyone sees one on the bomb while it lies loose. A carried
+  bomb's waypoint is its carrier: a target to the other team, and one to
+  defend to the carrier's own. Each goal is outlined as King of the Hill's
+  hill is, a circle of the goal's radius (a goal that is a volume will give
+  its own outline: `bomb_goal_outline`).
 - **Arming.** The carrier stands within 1.0 world unit of the goal for the
   variant's arm time. An arm time of 0 scores on contact (Grifball). The
-  HUD counts the arming down. Leaving the goal or dropping the bomb starts
+  HUD fills a meter as it arms, with a countdown beep each second. Leaving the goal or dropping the bomb starts
   it over.
 - **The save.** Armed, the bomb is planted in the goal and arms for the
   host's `game.bomb_arm_time` (`HALO_BOMB_ARM_TIME`, 1 second by default,
@@ -83,7 +91,8 @@ stand). A goal scores a round. The first team to the score limit wins.
   earlier builds ignore). A winning goal plays the same countdown and
   blast before the game ends.
 - **Round time.** A round that runs out ends with no score: a new round
-  starts the same way. The last 5 seconds tick aloud.
+  starts the same way. The last 5 seconds tick aloud, and the clock
+  flashes; the end tone sounds at 0.
 - **Untouched reset.** A bomb on the ground for the reset time (30 seconds)
   goes back to its spawn.
 - **The carrier** can't use active camouflage, and its armor pulses gold
@@ -97,21 +106,26 @@ stand). A goal scores a round. The first team to the score limit wins.
 
 ### The HUD
 
-At the top of each player's view (split screen too):
+All of it from the game's own HUD pieces, drawn from the state every
+machine has from the host (split screen and any shape of screen too):
 
-- `RED 1 - 0 BLUE     ROUND 2     2:31`: the rounds won, the round, and
-  its time left.
-- The carrier's line: `YOU HAVE THE BOMB: TAKE IT TO THE RED GOAL   42.3m`
-  (the goal's distance in the nav points' meters, since the goal's arrow
-  at the screen's edge shows none), or `ARMING 2` while arming. Everyone
-  else sees `YOUR TEAM HAS THE BOMB` or `THE ENEMY HAS THE BOMB`.
-- The messages: "You scored! 2 to 0", "The enemy scored. 0 to 2", "Round
-  3", "Time is up. Round 3", "The bomb was reset.", and a goal's
-  countdown, "3", "2", "1", in the middle of the screen in the map's
-  largest font. The pickup shows no
-  line of its own: the stock "Picked up the odd ball" is hidden in Bomb
-  games, and the HUD's line says who has it.
+- At the top middle, the round's clock in the script timer's digits and
+  colors (minutes and seconds, flashing in its last 5 seconds), with each
+  team's rounds beside it in the team's waypoint color, red's left and
+  blue's right. A variant without a round time shows the rounds alone.
+- The carrier's state message, as CTF's and Oddball's carriers have:
+  "Take the bomb to the enemy goal", or "Arming the bomb" while arming,
+  with the arming meter (the shield meter's likeness) above the crosshair.
+- The game's messages: "You have the bomb!", "Player has the bomb." (to
+  the carrier's team) or "Player has the bomb!" (to the other team), "You
+  scored! 2 to 0", "The enemy scored. 0 to 2", "Round 3", "Time is up.
+  Round 3", "The bomb was reset.". The stock "Picked up the odd ball" is
+  hidden in Bomb games.
+- A goal's countdown, "3", "2", "1", in the HUD's digits four times their
+  size in the upper middle of the screen.
 - The bottom-right score and the postgame report show "Rounds".
+- The game type menus show Oddball's skull for Bomb's game types, and
+  their own descriptions.
 
 ## The variant
 

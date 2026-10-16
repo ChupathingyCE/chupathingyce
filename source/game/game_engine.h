@@ -465,11 +465,12 @@ void game_engine_bomb_give_sword(long unit_index);
 /* whether a weapon is a melee-only game's unseen fists (the pistol, given
 where the map has no sword): not drawn, no HUD of its own, can't shoot */
 boolean game_engine_bomb_hides_weapon(long definition_index);
-/* the HUD's lines for a player: the round's score and time, and the bomb's
-carrier; FALSE when there are none */
-boolean game_engine_bomb_hud_text(long player_index, wchar_t *score_line, wchar_t *carrier_line, long size);
-/* whether a weapon's pickup line is not shown (the bomb's: the HUD's line
-says who has it) */
+/* a player's view's Bomb HUD (game_engine.c draws it after the HUD): the
+round's clock and each team's rounds, the planted bomb's countdown, and the
+carrier's arming */
+void game_engine_bomb_rasterize(long player_index);
+/* whether a weapon's pickup line is not shown (the bomb's: the game's own
+message says who has it) */
 boolean game_engine_bomb_hides_pickup(long weapon_definition_index);
 /* the game's report's Bomb members (JSON, without braces, into text): a
 player's line's, and the game's; their length, 0 for none (another game
@@ -835,6 +836,10 @@ boolean game_engine_force_autopickup(
 
 void game_engine_play_multiplayer_sound(
 	long sound_index);
+#ifdef HALO_GAME_BROWSER
+boolean game_engine_multiplayer_sound_exists(
+	long sound_index);
+#endif
 void game_engine_update_multiplayer_sound(
 	void);
 void game_engine_intialize_queued_sounds(

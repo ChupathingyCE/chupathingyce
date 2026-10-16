@@ -31,6 +31,13 @@ void hud_tick_shield(
 	long player_index,
 	real amount);
 
+#ifdef HALO_GAME_BROWSER
+/* port: a game type's progress on the shield meter's likeness */
+void hud_render_progress_meter(
+	short local_player_index,
+	real fraction);
+#endif
+
 /* port: network co-op (port/linux/game/network_coop.c) */
 long hud_unit_port_script_flags(
 	void);

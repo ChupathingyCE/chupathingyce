@@ -995,6 +995,19 @@ void chat_update(void)
 		unsigned long pressed = held & ~chat.actions_held;
 
 		chat.actions_held = held;
+		/* (escape always closes the line or the log) */
+		if (platform_chat_escape() && (chat.typing || chat.log_open))
+		{
+			struct key_stroke key;
+
+			chat.log_open = FALSE;
+			if (chat.typing)
+				typing_end();
+			else
+				platform_chat_typing(FALSE);
+			while (input_get_key(&key))
+				;
+		}
 		if (chat.typing)
 			typing_keys();
 		else if (chat.log_open)
@@ -1025,6 +1038,11 @@ void chat_update(void)
 		chat.actions_held = 0;
 		if (chat.typing)
 			typing_end();
+		if (chat.log_open)
+		{
+			chat.log_open = FALSE;
+			platform_chat_typing(FALSE);
+		}
 	}
 }
 

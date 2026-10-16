@@ -45,6 +45,12 @@ netcode shows them from the host's state (game_engine_bomb_write_network_state).
 #include "tag_files/tag_groups.h"
 #include "text/unicode.h"
 #include "units/units.h"
+#include "game/game_engine_king.h"
+#include "interface/hud.h"
+#include "interface/hud_messaging.h"
+#include "interface/hud_unit.h"
+#include "rasterizer/rasterizer_model_types.h"
+#include "render/render.h"
 
 #ifdef HALO_GAME_BROWSER
 
@@ -68,10 +74,16 @@ char const *config_string(char const *name);
 enum
 {
 	NUMBER_OF_BOMB_TEAMS = 2,
-	/* the goals the game shows (nav points): the bomb, and each team's goal
-	(shown to the team that attacks it) */
+	/* the goals the game shows (nav points, as CTF's and Oddball's): the
+	bomb lying loose (to everyone), each team's goal (to the team that
+	attacks it), and its carrier (a target to the other team, one to defend
+	to its own) */
 	BOMB_GOAL_BOMB = 0,
 	BOMB_GOAL_FIRST_TEAM = 1,
+	BOMB_GOAL_CARRIER_ENEMIES = 3,
+	BOMB_GOAL_CARRIER_ALLIES = 4,
+	/* the goal's outline's sides (the hill's, King of the Hill's) */
+	BOMB_GOAL_OUTLINE_SIDES = 16,
 	/* "play ball" this long into a round */
 	BOMB_ROUND_ANNOUNCEMENT_TICKS = 2 * TICKS_PER_SECOND,
 	/* the round's last seconds, counted aloud */
@@ -80,6 +92,11 @@ enum
 
 /* how near the carrier stands to the goal's marker to arm it (CTF's) */
 #define BOMB_GOAL_RADIUS 1.0f
+/* the goal's outline's band: its height, and how near the view (from the
+goal's center, across the ground) it starts to sink and is gone */
+#define BOMB_GOAL_OUTLINE_HEIGHT 0.3f
+#define BOMB_GOAL_OUTLINE_FADE_FAR 4.0f
+#define BOMB_GOAL_OUTLINE_FADE_NEAR 1.5f
 
 /* the planted bomb's save (game.bomb_arm_time): a defender this near the
 bomb while it arms saves it (world units: about 2 meters) */
@@ -121,14 +138,18 @@ enum
 	MAXIMUM_BOMB_BLAST_EFFECTS = 2,
 };
 
-/* the shipped multiplayer sounds Bomb borrows (game_engine_multiplayer_sounds.c) */
+/* the shipped multiplayer sounds Bomb borrows (game_engine_multiplayer_sounds.c):
+no announcer line of another game type's */
 enum
 {
 	_bomb_sound_play_ball = 0,
 	_bomb_sound_blue_team_score = 0xA,
 	_bomb_sound_red_team_score = 0xD,
+	_bomb_sound_countdown = 0x1A,
 	_bomb_sound_hill_move = 0x1E,
-	_bomb_sound_countdown = 0x2A,
+	_bomb_sound_countdown_end = 0x2A,
+	/* (not every map's globals have it: hill_move's tone where not) */
+	_bomb_sound_ting = 0x2B,
 };
 
 /* the messages (format_message): past the generic ones, as the other game
@@ -144,6 +165,10 @@ enum
 	_bomb_message_bomb_reset,
 	_bomb_message_new_round,
 	_bomb_message_round_over,
+	/* the carrier's state message (the HUD's line that CTF's and Oddball's
+	carriers have) */
+	_bomb_message_carrying,
+	_bomb_message_arming,
 };
 
 /* ---------- globals */
@@ -1061,6 +1086,154 @@ static void bomb_find_spawn(void)
 	bomb_log("spawn at (%.2f %.2f %.2f)", bomb_globals.spawn.x, bomb_globals.spawn.y, bomb_globals.spawn.z);
 }
 
+/* ---------- what every machine shows of the goals */
+
+/* the nav points (game_engine_render_nav_points): each team's goal to the
+team that attacks it, in the goal's team's arrow; the carrier a target to
+the other team, and one to defend to their own (not to the carrier) */
+static void bomb_update_goals(void)
+{
+	struct player_datum *carrier = bomb_globals.carrier != NONE ? player_try_and_get(bomb_globals.carrier) : NULL;
+	long team_index;
+
+	for (team_index = 0; team_index < NUMBER_OF_BOMB_TEAMS; team_index++)
+	{
+		if (bomb_globals.has_goal[team_index])
+		{
+			game_engine_set_goal_position((short)(BOMB_GOAL_FIRST_TEAM + team_index), &bomb_globals.goals[team_index],
+				0.0f, team_index == _team_red ? "default_red" : "default", NONE,
+				(short)((team_index + 1) % NUMBER_OF_BOMB_TEAMS), NONE);
+		}
+	}
+	if (carrier && carrier->unit_index != NONE && VALID_INDEX(carrier->team_index, NUMBER_OF_BOMB_TEAMS))
+	{
+		real_point3d position = object_get(carrier->unit_index)->object.bounding_sphere_center;
+
+		game_engine_set_goal_position(BOMB_GOAL_CARRIER_ENEMIES, &position, 0.0f, "target_red", NONE,
+			(short)((carrier->team_index + 1) % NUMBER_OF_BOMB_TEAMS), NONE);
+		game_engine_set_goal_position(BOMB_GOAL_CARRIER_ALLIES, &position, 0.0f, "target_blue", NONE,
+			(short)carrier->team_index, bomb_globals.carrier);
+	}
+	else
+	{
+		game_engine_clear_goal_position(BOMB_GOAL_CARRIER_ENEMIES);
+		game_engine_clear_goal_position(BOMB_GOAL_CARRIER_ALLIES);
+	}
+}
+
+/* the arming's seconds, counted with the countdown's beeps (the carrier's
+arm ticks, which a client has from the host) */
+static void bomb_arming_sounds(void)
+{
+	static long second_heard = 0;
+	long arm_ticks = game_engine_get_variant()->game_engine_variant.bomb.arm_time * TICKS_PER_SECOND;
+	long second;
+
+	if (arm_ticks <= 0 || bomb_globals.arm_ticks <= 0 || bomb_globals.carrier == NONE)
+	{
+		second_heard = 0;
+		return;
+	}
+	second = (arm_ticks - bomb_globals.arm_ticks + TICKS_PER_SECOND - 1) / TICKS_PER_SECOND;
+	if (second > 0 && (second_heard == 0 || second < second_heard))
+		game_engine_play_multiplayer_sound(_bomb_sound_countdown);
+	second_heard = second;
+}
+
+/* a goal's outline, its points about the ground: a circle of the goal's
+radius about its marker (a goal that is a volume would give its own) */
+static short bomb_goal_outline(long team_index, real_point3d *points, short maximum_count)
+{
+	short count = (short)MIN(maximum_count, BOMB_GOAL_OUTLINE_SIDES);
+	short index;
+
+	for (index = 0; index < count; index++)
+	{
+		real angle = (real)index * (real)(2.0 * 3.14159265358979) / (real)count;
+
+		points[index] = bomb_globals.goals[team_index];
+		points[index].x += BOMB_GOAL_RADIUS * (real)cos(angle);
+		points[index].y += BOMB_GOAL_RADIUS * (real)sin(angle);
+	}
+	return count;
+}
+
+/* each goal outlined as King of the Hill's hill is, in the map's hill
+shader: a band of quads about it (king_engine_post_rasterize's), low on the
+ground, and lower the nearer the view is, gone at the goal, so it never
+covers the screen */
+static void bomb_engine_post_rasterize(void)
+{
+	struct game_globals *game_globals = scenario_get_game_globals();
+	struct game_globals_multiplayer_information *multiplayer_information;
+	long team_index;
+
+	if (!bomb_running() || !game_globals || game_globals->multiplayer_information.count <= 0)
+		return;
+	multiplayer_information = TAG_BLOCK_GET_ELEMENT(&game_globals->multiplayer_information, 0,
+		struct game_globals_multiplayer_information);
+	if (multiplayer_information->hill_shader.index == NONE)
+		return;
+	for (team_index = 0; team_index < NUMBER_OF_BOMB_TEAMS; team_index++)
+	{
+		real_point3d points[BOMB_GOAL_OUTLINE_SIDES];
+		short count;
+		short index;
+		real perimeter = 0.0f;
+		real segments;
+		real u = 0.0f;
+
+		real height;
+
+		if (!bomb_globals.has_goal[team_index])
+			continue;
+		{
+			real i = render.camera.position.x - bomb_globals.goals[team_index].x;
+			real j = render.camera.position.y - bomb_globals.goals[team_index].y;
+			real fade = PIN(((real)sqrt(i * i + j * j) - BOMB_GOAL_OUTLINE_FADE_NEAR) /
+				(BOMB_GOAL_OUTLINE_FADE_FAR - BOMB_GOAL_OUTLINE_FADE_NEAR), 0.0f, 1.0f);
+
+			height = BOMB_GOAL_OUTLINE_HEIGHT * fade;
+		}
+		if (height < 0.02f)
+			continue;
+		count = bomb_goal_outline(team_index, points, BOMB_GOAL_OUTLINE_SIDES);
+		for (index = 0; index < count; index++)
+			perimeter += distance3d(&points[index], &points[(index + 1) % count]);
+		segments = (real)MAX(1.0, floor(perimeter + 0.5f));
+		for (index = 0; index < count; index++)
+		{
+			struct model_vertex_uncompressed vertices[4];
+			real_vector3d sides[2];
+			real_vector3d normal;
+			real end_u = u + distance3d(&points[index], &points[(index + 1) % count]) * segments / perimeter;
+
+			csmemset(vertices, 0, sizeof(vertices));
+			vertices[0].position = points[index];
+			vertices[1].position = points[index];
+			vertices[1].position.z += height;
+			vertices[2].position = points[(index + 1) % count];
+			vertices[2].position.z += height;
+			vertices[3].position = points[(index + 1) % count];
+			vector_from_points3d(&vertices[0].position, &vertices[1].position, &sides[0]);
+			vector_from_points3d(&vertices[1].position, &vertices[2].position, &sides[1]);
+			cross_product3d(&sides[0], &sides[1], &normal);
+			normalize3d(&normal);
+			vertices[0].normal = vertices[1].normal = vertices[2].normal = vertices[3].normal = normal;
+			vertices[0].texcoord.x = u / segments;
+			vertices[0].texcoord.y = 1.0f;
+			vertices[1].texcoord.x = u / segments;
+			vertices[1].texcoord.y = 0.2f;
+			vertices[2].texcoord.x = end_u / segments;
+			vertices[2].texcoord.y = 0.2f;
+			vertices[3].texcoord.x = end_u / segments;
+			vertices[3].texcoord.y = 1.0f;
+			u = end_u;
+			render_dynamic_quad(vertices, multiplayer_information->hill_shader.index, NULL, NULL, segments, 1.0f);
+		}
+	}
+}
+
 /* ---------- the engine */
 
 static void bomb_engine_nothing(void)
@@ -1112,6 +1285,8 @@ static boolean bomb_engine_initialize_for_new_map(void)
 
 	bomb_find_spawn();
 
+	/* (the goals' outlines, drawn as the hill is) */
+	render_dynamic_quad_initialize();
 	bomb_globals.round = 1;
 	bomb_globals.round_ticks = game_engine_get_variant()->game_engine_variant.bomb.round_time > 0 ?
 		game_engine_get_variant()->game_engine_variant.bomb.round_time * TICKS_PER_SECOND : NONE;
@@ -1493,6 +1668,7 @@ static void bomb_hold_update(void)
 		long goal_team = bomb_globals.blast_goal_team;
 
 		bomb_globals.blast_done = TRUE;
+		game_engine_play_multiplayer_sound(_bomb_sound_countdown_end);
 		if (VALID_INDEX(goal_team, NUMBER_OF_BOMB_TEAMS) && bomb_globals.has_goal[goal_team])
 		{
 			if (!network_game_distributed_client())
@@ -1540,6 +1716,16 @@ static void bomb_engine_player_update(long player_index)
 	}
 	if (carrying && game_engine_can_score() && VALID_INDEX(absolute_index, HALO_PORT_MAXIMUM_NETWORK_PLAYERS))
 		bomb_globals.carry_ticks[absolute_index]++;
+	/* the carrier's line in the HUD's state message, as CTF's and Oddball's
+	carriers have (every machine: the carrier and the arming are each
+	machine's from the host's) */
+	game_engine_state_message(player_index, NONE, NONE);
+	if (carrying && game_engine_can_score())
+	{
+		game_engine_state_message(player_index, bomb_globals.arm_ticks > 0 &&
+			game_engine_get_variant()->game_engine_variant.bomb.arm_time > 0 ? _bomb_message_arming :
+			_bomb_message_carrying, player_index);
+	}
 
 	/* the traits (every machine: a client predicts its own player's speed,
 	which the host's movement checks scale by) */
@@ -1598,8 +1784,15 @@ static void bomb_engine_weapon_update(long weapon_index, struct weapon_datum *we
 		bomb_globals.weapon_index = weapon_index;
 	if (weapon_index != bomb_globals.weapon_index)
 		return;
-	item_get_position_even_if_in_inventory(weapon_index, &position);
-	game_engine_set_goal_position(BOMB_GOAL_BOMB, &position, 0.0f, "ball_blue", NONE, NONE, bomb_globals.carrier);
+	/* (the bomb's own marker while it lies loose or planted; its carrier's
+are bomb_update_goals') */
+	if (weapon->object.parent_object_index == NONE)
+	{
+		item_get_position_even_if_in_inventory(weapon_index, &position);
+		game_engine_set_goal_position(BOMB_GOAL_BOMB, &position, 0.0f, "ball_blue", NONE, NONE, NONE);
+	}
+	else
+		game_engine_clear_goal_position(BOMB_GOAL_BOMB);
 
 	/* (a client has the bomb where the host puts it) */
 	if (!network_game_distributed_client() && reset_time > 0 &&
@@ -1638,15 +1831,8 @@ static void bomb_engine_update(void)
 	long team_index;
 	boolean game_over = FALSE;
 
-	/* the goals: each team's shown to the team that attacks it */
-	for (team_index = 0; team_index < NUMBER_OF_BOMB_TEAMS; team_index++)
-	{
-		if (bomb_globals.has_goal[team_index])
-		{
-			game_engine_set_goal_position((short)(BOMB_GOAL_FIRST_TEAM + team_index), &bomb_globals.goals[team_index],
-				0.0f, "default", NONE, (short)((team_index + 1) % NUMBER_OF_BOMB_TEAMS), NONE);
-		}
-	}
+	bomb_update_goals();
+	bomb_arming_sounds();
 	/* the fists of the dead (or any dropped) gone: the host's word deletes
 	a client's */
 	if (bomb_globals.fist_definition_index != NONE && game_engine_bomb_melee_only() &&
@@ -1695,6 +1881,8 @@ static void bomb_engine_update(void)
 		{
 			game_engine_play_multiplayer_sound(_bomb_sound_countdown);
 		}
+		if (bomb_globals.round_ticks == 0)
+			game_engine_play_multiplayer_sound(_bomb_sound_countdown_end);
 		if (bomb_globals.round_ticks == 0 && !network_game_distributed_client())
 			bomb_start_round(TRUE);
 	}
@@ -1792,7 +1980,6 @@ static boolean bomb_engine_format_message(long player_index, long message, long 
 	long team_index = VALID_INDEX(player->team_index, NUMBER_OF_BOMB_TEAMS) ? player->team_index : 0;
 	long other_team_index = (team_index + 1) % NUMBER_OF_BOMB_TEAMS;
 
-	(void)message_data;
 	switch (message)
 	{
 	case _bomb_message_you_scored:
@@ -1811,10 +1998,27 @@ static boolean bomb_engine_format_message(long player_index, long message, long 
 		usnprintf(buffer, buffer_size, L"You have the bomb!");
 		break;
 	case _bomb_message_ally_has_the_bomb:
-		usnprintf(buffer, buffer_size, L"Your team has the bomb.");
-		break;
 	case _bomb_message_enemy_has_the_bomb:
-		usnprintf(buffer, buffer_size, L"The enemy has the bomb!");
+	{
+		struct player_datum *carrier = message_data != NONE ? player_try_and_get(message_data) : NULL;
+
+		if (carrier)
+		{
+			usnprintf(buffer, buffer_size, message == _bomb_message_ally_has_the_bomb ? L"%s has the bomb." :
+				L"%s has the bomb!", carrier->name);
+		}
+		else
+		{
+			usnprintf(buffer, buffer_size, message == _bomb_message_ally_has_the_bomb ? L"Your team has the bomb." :
+				L"The enemy has the bomb!");
+		}
+		break;
+	}
+	case _bomb_message_carrying:
+		usnprintf(buffer, buffer_size, L"Take the bomb to the enemy goal");
+		break;
+	case _bomb_message_arming:
+		usnprintf(buffer, buffer_size, L"Arming the bomb");
 		break;
 	case _bomb_message_bomb_reset:
 		usnprintf(buffer, buffer_size, L"The bomb was reset.");
@@ -1873,9 +2077,15 @@ static void bomb_show_score(long player_index, long team_index)
 
 static void bomb_show_carry(long player_index)
 {
-	/* (nothing more: the HUD's line says who has the bomb,
-	game_engine_bomb_hud_text) */
-	(void)player_index;
+	/* the grab's tone (the "ting", where the map's globals have it), and
+	who has it in the game's messages, as Oddball's ball */
+	game_engine_play_multiplayer_sound(game_engine_multiplayer_sound_exists(_bomb_sound_ting) ? _bomb_sound_ting :
+		_bomb_sound_hill_move);
+	if (player_index != NONE && player_try_and_get(player_index))
+	{
+		game_show_score_you_ally_enemy(player_index, _bomb_message_you_have_the_bomb, _bomb_message_ally_has_the_bomb,
+			_bomb_message_enemy_has_the_bomb, player_index);
+	}
 }
 
 static void bomb_show_reset(void)
@@ -1889,62 +2099,39 @@ static void bomb_show_round(boolean timed_out)
 	game_show_score(NONE, timed_out ? _bomb_message_round_over : _bomb_message_new_round);
 }
 
-/* ---------- the HUD (game_engine.c draws it) */
+/* ---------- the HUD (game_engine.c draws it after the game's own) */
 
-boolean game_engine_bomb_hud_text(
-	long player_index,
-	wchar_t *score_line,
-	wchar_t *carrier_line,
-	long size)
+/* the round, in the HUD's own digits and colors (hud_render_round): its
+clock, and each team's rounds beside it in its arrows' colors; the planted
+bomb's countdown, large; and the carrier's arming on the shield meter's
+likeness. All from the state every machine has from the host */
+void game_engine_bomb_rasterize(
+	long player_index)
 {
 	struct player_datum *player;
-	long team_index;
-	wchar_t time_string[32];
+	unsigned long red_color = 0xFFFF4040;
+	unsigned long blue_color = 0xFF4080FF;
+	long arm_time;
+	long seconds;
 
-	score_line[0] = 0;
-	carrier_line[0] = 0;
 	if (!bomb_running() || player_index == NONE || !game_engine_can_score())
-		return FALSE;
+		return;
 	player = player_get(player_index);
-	team_index = VALID_INDEX(player->team_index, NUMBER_OF_BOMB_TEAMS) ? player->team_index : 0;
-	time_string[0] = 0;
-	if (bomb_globals.round_ticks != NONE)
-		ticks_to_unicode_time_string(MAX(bomb_globals.round_ticks, 0), NUMBEROF(time_string), time_string);
-	usnprintf(score_line, size, L"RED %d - %d BLUE     ROUND %d%s%s", (int)bomb_globals.scores[_team_red],
-		(int)bomb_globals.scores[_team_blue], (int)bomb_globals.round, time_string[0] ? L"     " : L"", time_string);
-	score_line[size - 1] = 0;
-	if (bomb_globals.carrier == player_index)
+	if (player->local_player_index == NONE)
+		return;
+	hud_nav_point_color("default_red", &red_color);
+	hud_nav_point_color("default", &blue_color);
+	hud_render_round(player->local_player_index, bomb_globals.round_ticks, BOMB_ROUND_WARNING_TICKS,
+		bomb_globals.scores[_team_red], red_color, bomb_globals.scores[_team_blue], blue_color);
+	seconds = game_engine_bomb_countdown();
+	if (seconds > 0)
+		hud_render_large_count(player->local_player_index, seconds);
+	arm_time = game_engine_get_variant()->game_engine_variant.bomb.arm_time;
+	if (bomb_globals.carrier == player_index && arm_time > 0 && bomb_globals.arm_ticks > 0)
 	{
-		long arm_time = game_engine_get_variant()->game_engine_variant.bomb.arm_time;
-
-		if (arm_time > 0 && bomb_globals.arm_ticks > 0)
-		{
-			usnprintf(carrier_line, size, L"ARMING %d",
-				(int)((arm_time * TICKS_PER_SECOND - bomb_globals.arm_ticks + TICKS_PER_SECOND - 1) / TICKS_PER_SECOND));
-		}
-		else
-		{
-			long goal_team = (team_index + 1) % NUMBER_OF_BOMB_TEAMS;
-			long tenths = 0;
-
-			/* (and how far it is, in the nav points' meters: the goal's
-			arrow at the screen's edge shows none) */
-			if (bomb_globals.has_goal[goal_team] && player->unit_index != NONE)
-			{
-				tenths = (long)(sqrt(distance_squared3d(&bomb_globals.goals[goal_team],
-					&object_get(player->unit_index)->object.position)) * 30.48f);
-			}
-			usnprintf(carrier_line, size, L"YOU HAVE THE BOMB: TAKE IT TO THE %s GOAL   %d.%dm",
-				goal_team == _team_red ? L"RED" : L"BLUE", (int)(tenths / 10), (int)(tenths % 10));
-		}
+		hud_render_progress_meter(player->local_player_index,
+			(real)bomb_globals.arm_ticks / (real)(arm_time * TICKS_PER_SECOND));
 	}
-	else if (bomb_globals.carrier != NONE)
-	{
-		usnprintf(carrier_line, size, player_get(bomb_globals.carrier)->team_index == player->team_index ?
-			L"YOUR TEAM HAS THE BOMB" : L"THE ENEMY HAS THE BOMB");
-	}
-	carrier_line[size - 1] = 0;
-	return TRUE;
 }
 
 /* ---------- the engine table */
@@ -1963,7 +2150,7 @@ struct game_engine bomb_engine =
 	bomb_engine_handle_message,
 	bomb_engine_handle_message,
 	bomb_engine_nothing,
-	bomb_engine_nothing,
+	bomb_engine_post_rasterize,
 	bomb_engine_player_update,
 	bomb_engine_weapon_update,
 	bomb_engine_picking_up,
@@ -2151,7 +2338,7 @@ boolean game_engine_bomb_read_network_state(
 }
 
 /* the stock "Picked up the odd ball" line, which a Bomb game does not show
-(hud.c): the HUD's own line says who has the bomb */
+(hud.c): the game's own message says who has the bomb */
 boolean game_engine_bomb_hides_pickup(
 	long weapon_definition_index)
 {
