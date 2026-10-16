@@ -15,6 +15,9 @@ build.ninja
 # Generated configs
 compile_commands.json
 
+# Runtime logs (upstream accidentally included one; local logs are not sources)
+/debug.txt
+
 # The January build and the Xbox SDK (tools/xdk_headers.py reads the
 # build's PDB); never commit
 *.exe

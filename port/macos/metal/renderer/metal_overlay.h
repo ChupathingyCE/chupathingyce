@@ -6,7 +6,10 @@
 
 enum {
     METAL_OVERLAY_ATLAS_SIZE = 2048,
-    METAL_OVERLAY_MAX_VERTICES = 8192 * 6,
+    METAL_OVERLAY_MAX_VERTICES = 16384 * 6,
+    METAL_OVERLAY_ICON_COUNT = 10,
+    METAL_OVERLAY_ICON_SIZE_MAX = 512,
+    METAL_OVERLAY_PICTURE_SIZE_MAX = 4096,
 };
 struct metal_overlay_vertex {
     float x, y, u, v;
@@ -20,6 +23,10 @@ struct metal_overlay_frame {
     const uint8_t *atlas;
     uint32_t vertex_count;
     uint32_t atlas_dirty;
+    const uint8_t *icons[METAL_OVERLAY_ICON_COUNT];
+    uint32_t icon_size;
+    const uint8_t *picture;
+    uint32_t picture_serial, picture_width, picture_height;
     float cutouts[4][4];
 };
 /* Drains one frame's queue, including when width/height are zero. Borrowed

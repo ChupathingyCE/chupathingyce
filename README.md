@@ -38,6 +38,7 @@ games to join: [discord.gg/chupathingy](https://discord.gg/chupathingy).
 
 **Online**
 - **Online Games**, a server list in the Multiplayer menu: join a game with **A**, or host one with **Y**
+- A game its host lists once for each network version shows once there, and its players count once (this fork: `merge_listings` in `port/linux/src/browser.c`)
 - Games you host are listed for everyone, from any of our builds
 - Invite links (`halo://join/…`) to send to friends; opening one joins their game
 - Direct connections between players, with no port forwarding in most homes
@@ -52,9 +53,10 @@ games to join: [discord.gg/chupathingy](https://discord.gg/chupathingy).
 
 **The game**
 - The campaign, split screen and System Link, running natively (no emulator)
+- LAN parties the old way: System Link on your own network and split screen need no internet and no account
 - High-res HUD and text, and widescreen menus
 - Controller prompts for Xbox, PlayStation and Nintendo pads, and the keyboard
-- Updates itself: it checks for new releases when it starts, and asks first
+- Updates itself on Windows, Linux and Android: it checks for new releases when it starts, and asks first (on Mac it opens the download)
 
 **Platforms**
 
@@ -103,9 +105,13 @@ saves go in `/sdcard/Android/data/dev.horrible.chupathingyce/files`. On a
 Mac, the maps, settings and saves go in
 `~/Library/Application Support/ChupathingyCE`.
 On Linux, the maps and settings (`config.toml`) go next to the `halo`
-executable, and the saves in `~/.local/share/halo-linux` (or
-`$XDG_DATA_HOME/halo-linux`). The 64-bit and 32-bit builds use the same
-places, so switching from one to the other keeps your saves and settings.
+executable, and the saves in `~/.local/share/chupathingyce` (or
+`$XDG_DATA_HOME/chupathingyce`). On Windows, the saves go in
+`%APPDATA%\ChupathingyCE`. The first start copies your profiles, saved games
+and game types from the folder earlier versions used (`halo-linux`, or
+`%APPDATA%\halo` on Windows), which is left as it was. The 64-bit and
+32-bit builds use the same places, so switching from one to the other keeps
+your saves and settings.
 
 **Common mistake:** the `maps` folder must hold the Xbox maps from your disc
 image, not Halo PC's. Halo PC maps go in folders of their own beside it:
@@ -251,8 +257,8 @@ Halo.
 | Join a game | **Multiplayer → Online Games**, pick a game, press **A**. Or press **Join** on [halo.milenko.org](https://halo.milenko.org). |
 | Host a game | **Multiplayer → Online Games → Y (Create Game)**, or host from System Link as usual. Your game is listed online by itself, on halo.milenko.org and in other builds' in-game Server Browsers (`public_lobby`/`host_public` under `[network]` in `config.toml` turn that off). |
 | Invite a friend | When you host, the game copies an invite link (`halo://join/…`). Send it; opening it joins your game. |
-| See your stats | Your service record is on [halo.milenko.org](https://halo.milenko.org), found by your name. Games you join count even when the host doesn't run ChupathingyCE: when an online game you joined ends, the game sends halo.milenko.org the scoreboard as your game saw it (names, kills, deaths, scores, medals, weapons) with your player ID. Your copy also confirms your line in the host's report, which puts the game on your profile. To turn both off for games you join, set `report_joined_games = false` under `[network]` in `config.toml`. |
-| Stop sharing your hosted games' stats | Set `report_events = false` under `[network]` in `config.toml`. It's on by default: the games you host send their Delta Stats (kills with positions, accuracy, medals, objectives) to halo.milenko.org for its match pages and heatmaps. Never anyone's address. |
+| See your stats | Your service record is on [halo.milenko.org](https://halo.milenko.org), found by your name. Games you join count even when the host doesn't run ChupathingyCE: when an online game you joined ends, the game sends halo.milenko.org the scoreboard as your game saw it (your own line in full; everyone else's name, team, place, score, kills and deaths) with your player ID. Your copy also confirms your line in the host's report, which puts the game on your profile. To turn both off for games you join, set `report_joined_games = false` under `[network]` in `config.toml`. |
+| Stop sharing your hosted games' stats | Set `report_events = false` under `[network]` in `config.toml`. It's on by default: the games you host send their Delta Stats (kills with positions, accuracy, medals, objectives) to halo.milenko.org for its match pages and heatmaps. Never anyone's address or hardware ID; OpenCE players are only their name, team and that game's score, kills and deaths. This stops Delta Stats only: a listed game's carnage report is still sent, and `list_hosted_games = false` stops that (and the listing). |
 | Make an account | On [halo.milenko.org/profile](https://halo.milenko.org/profile), or press **Start** in Online Games to make one for the player you already are. |
 | Link the game without a browser (Steam Deck, Game Mode) | In Online Games, press **RB** (or **C** on the keyboard) for Link Profile. On your phone or computer, go to [halo.milenko.org/connect](https://halo.milenko.org/connect), enter the code the game shows (or scan its QR code), then press **A** in the game to confirm. |
 | Use the PC menus | Set `menus = "pc"` under `[display]` in `config.toml`. **Multiplayer → Join Game → Server Browser** lists the public games of every compatible build and the games of halo.milenko.org, each once. |
@@ -395,6 +401,7 @@ If you contribute, the same applies to you: see [CONTRIBUTING](CONTRIBUTING.md#u
   icon is MrBruh's helmet, with tusks.
 - Fonts: [Noto Sans](https://fonts.google.com/noto) (SIL OFL) and
   [Kenney's Input Prompts](https://kenney.nl/assets/input-prompts) (CC0).
+- Controller button icons by snapchipper, CC0 (`port/assets/prompts`).
 - HaloMD map names: from [MacGamingMods](https://macgamingmods.com)' public
   HaloMD mod list, so the menus can show each map's own name.
 - Missing Custom Edition maps: downloaded from the community map

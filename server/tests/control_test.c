@@ -1642,6 +1642,77 @@ static void test_link(int rounds)
 	}
 }
 
+/* the site's role list kept in delta_roles.cache: read back as written,
+refused with another secret or any change, and fresh for its hours only */
+static void test_roles_cache(int rounds)
+{
+	static struct control_link_poll poll, back;
+	static char text[96 * 1024];
+	uint8_t secret[32];
+	int64_t heard = 0;
+	int length;
+	int index;
+
+	for (index = 0; index < 32; index++)
+		secret[index] = (uint8_t)(0x10 + index);
+	memset(&poll, 0, sizeof(poll));
+	CHECK(control_link_roles_cache_text(&poll, 1791168674, secret, text, sizeof(text)) < 0);
+	poll.has_roles = 1;
+	poll.roles_version = 12;
+	poll.role_count = 2;
+	snprintf(poll.roles[0].handle, sizeof(poll.roles[0].handle), "odb \"the\" mod");
+	poll.roles[0].role = CONTROL_ROLE_MODERATOR;
+	poll.roles[0].key_count = 2;
+	memset(poll.roles[0].keys[0], 0x72, 32);
+	memset(poll.roles[0].keys[1], 0xA5, 32);
+	snprintf(poll.roles[1].handle, sizeof(poll.roles[1].handle), "milenko");
+	poll.roles[1].role = CONTROL_ROLE_OWNER;
+	length = control_link_roles_cache_text(&poll, 1791168674, secret, text, sizeof(text));
+	CHECK(length > 0 && (size_t)length == strlen(text) && text[0] == '#');
+	CHECK(control_link_roles_cache_open(text, (size_t)length, secret, &back, &heard));
+	CHECK(heard == 1791168674 && back.has_roles && back.roles_version == 12 && back.role_count == 2 &&
+		!strcmp(back.roles[0].handle, "odb \"the\" mod") && back.roles[0].role == CONTROL_ROLE_MODERATOR &&
+		back.roles[0].key_count == 2 && back.roles[0].keys[1][31] == 0xA5 && back.roles[1].role == CONTROL_ROLE_OWNER &&
+		!back.roles[1].key_count && !back.command_count);
+	/* (another link's secret; any byte changed, the time heard among them) */
+	secret[5] ^= 1;
+	CHECK(!control_link_roles_cache_open(text, (size_t)length, secret, &back, &heard));
+	secret[5] ^= 1;
+	for (index = 0; index < length; index++)
+	{
+		char was = text[index];
+
+		/* (a comment's bytes are not the list's) */
+		if (index < (int)(strstr(text, "\nv1 ") - text) + 1)
+			continue;
+		text[index] = (char)(was == 'a' ? 'b' : 'a');
+		CHECK(!control_link_roles_cache_open(text, (size_t)length, secret, &back, &heard));
+		text[index] = was;
+	}
+	CHECK(control_link_roles_cache_open(text, (size_t)length, secret, &back, &heard));
+	CHECK(!control_link_roles_cache_open(text, (size_t)length - 3, secret, &back, &heard));
+	CHECK(control_link_roles_cache_text(&poll, 1791168674, secret, text, 400) < 0);
+	/* (fresh for the hours given, 1 to 30 days; a time to come is not) */
+	CHECK(control_link_roles_fresh(1000000, 1000000 + 23 * 3600, 24));
+	CHECK(!control_link_roles_fresh(1000000, 1000000 + 24 * 3600, 24));
+	CHECK(!control_link_roles_fresh(1000000, 1000000 + 3600, 0));
+	CHECK(control_link_roles_fresh(1000000, 1000000 + 3599, 0));
+	CHECK(control_link_roles_fresh(1000000, 1000000 + 40 * 86400 - 3600, 100000) == 0);
+	CHECK(control_link_roles_fresh(1000000, 1000000 + 29 * 86400, 100000));
+	CHECK(!control_link_roles_fresh(1000000 + 3600, 1000000, 24));
+	CHECK(!control_link_roles_fresh(0, 1000000, 24));
+	for (index = 0; index < rounds; index++)
+	{
+		int size = (int)(random_next() % 400);
+		int at;
+
+		for (at = 0; at < size; at++)
+			text[at] = random_next() % 8 ? "v1 0123456789abcdef{}\"#\n"[random_next() % 24] : (char)(random_next() & 0xFF);
+		text[size] = 0;
+		control_link_roles_cache_open(text, (size_t)size, secret, &back, &heard);
+	}
+}
+
 int main(int argc, char **argv)
 {
 	int rounds = argc > 1 ? atoi(argv[1]) : 5000;
@@ -1662,6 +1733,7 @@ int main(int argc, char **argv)
 	test_fields();
 	test_server_config(rounds);
 	test_link(rounds);
+	test_roles_cache(rounds);
 	test_names();
 	printf("%d checks, %d failures\n", checks, failures);
 	return failures ? 1 : 0;

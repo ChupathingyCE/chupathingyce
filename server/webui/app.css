@@ -66,18 +66,18 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospac
 .brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .brand-name { font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; font-size: 14px; }
 .brand-sub { color: var(--muted); font-size: 13px; letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.who { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.who { display: flex; align-items: center; gap: 10px; font-size: 13px; min-width: 0; }
+#who-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .who .quiet { color: var(--bar-text); border-color: rgba(255, 255, 255, 0.25); }
 
 main { max-width: 960px; margin: 0 auto; padding: 16px; }
 
 .tabs {
   display: flex;
-  gap: 4px;
-  overflow-x: auto;
+  flex-wrap: wrap;
+  gap: 0 4px;
   margin-bottom: 12px;
   border-bottom: 1px solid var(--line);
-  scrollbar-width: none;
 }
 
 .tabs button {
@@ -116,7 +116,9 @@ h1, h2 {
 }
 
 h1 { font-size: 15px; }
-h2 + h2, .row + h2, .table-wrap + h2 { margin-top: 20px; }
+h2 + h2, .row + h2, .table-wrap + h2, .hint + h2 { margin-top: 20px; }
+#set-value { min-width: 8em; }
+#site-roles { margin-bottom: 12px; }
 .count { color: var(--muted); font-weight: 500; letter-spacing: 0.02em; text-transform: none; }
 
 .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
@@ -218,11 +220,33 @@ dialog label { margin-top: 8px; }
 
 @media (max-width: 560px) {
   .brand-sub { display: none; }
+  .bar { padding: 10px 12px; }
   main { padding: 12px; }
   .panel { padding: 12px; }
   .row > label { flex: 1 1 100%; }
   .row > button { flex: 1 1 auto; }
   th, td { padding: 6px 5px; }
+  /* (every tab in view: smaller, on as many lines as they take) */
+  .tabs button { padding: 8px 8px; font-size: 11px; letter-spacing: 0.04em; }
+  /* (a table's rows as cards: each cell under its column's name, the
+  actions on a line of their own, so nothing is off to the side) */
+  .table-wrap thead { display: none; }
+  .table-wrap table, .table-wrap tbody, .table-wrap tr, .table-wrap td { display: block; width: 100%; }
+  .table-wrap tr { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .table-wrap td { display: flex; justify-content: space-between; gap: 12px; border: 0; padding: 2px 0;
+    text-align: right; overflow-wrap: anywhere; }
+  .table-wrap td::before { content: attr(data-label); color: var(--muted); font-size: 12px; font-weight: 400;
+    text-align: left; flex: 0 0 auto; }
+  .table-wrap td[data-label=""]::before { content: none; }
+  .table-wrap td.num, .table-wrap th.num { text-align: right; }
+  .table-wrap td.empty { justify-content: center; }
+  .table-wrap td.actions { justify-content: flex-start; flex-wrap: wrap; gap: 6px; padding-top: 6px;
+    white-space: normal; }
+  .table-wrap td.actions::before { content: none; }
+  td.actions button + button { margin-left: 0; }
+  td.actions button { flex: 1 1 auto; padding: 8px 12px; font-size: 14px; }
+  tr.current td { background: none; }
+  tr.current { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 }
 
 /* Delta Control: accounts, people, audit */
@@ -233,3 +257,11 @@ details.hint { margin-top: 16px; }
 details.hint summary { cursor: pointer; }
 td.actions select { padding: 3px 6px; font-size: 13px; margin-right: 6px; }
 #fingerprint-hint { overflow-wrap: anywhere; }
+
+/* the second factor's reminder, and the site link's code */
+.nudge { border-left-color: var(--danger); white-space: normal; }
+.nudge p { margin: 0 0 10px; }
+.nudge .row { margin: 0; }
+.link-code { margin-top: 10px; }
+.link-code p { margin: 0 0 8px; }
+.link-code a { color: var(--accent); font-weight: 600; overflow-wrap: anywhere; }

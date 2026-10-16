@@ -745,18 +745,18 @@ wchar_t const *ui_map_list_text(
 	}
 }
 
-/* Halo PC's picture of a Custom Edition or HaloMD map, by its file's name:
-its own of Halo PC's maps, its unknown level's for another's (and for every
-HaloMD map); NULL without Halo PC's ui.map */
+/* Halo PC's picture of one of its own maps, by its file's name; NULL for
+another map (Halo PC has only its unknown level's question mark for those),
+and without Halo PC's ui.map */
 struct bitmap_data *ui_map_list_family_picture(
 	short family,
 	char const *file)
 {
 	long index = family == _map_family_custom_edition || family == _map_family_halo_pc ? ce_map_index(file) : NONE;
 
-	ce_ui_read();
 	if (index == NONE)
-		index = CE_UNKNOWN_LEVEL;
+		return NULL;
+	ce_ui_read();
 	return index < ce_ui.picture_count ? &ce_ui.pictures[index] : NULL;
 }
 

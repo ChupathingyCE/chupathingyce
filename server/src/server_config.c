@@ -201,6 +201,9 @@ const struct server_setting server_settings_table[SERVER_SETTINGS] =
 	{ "playlist", SERVER_FIELD_STRING, 0, SERVER_SETTINGS_PATH_SIZE - 1, NULL, "The playlist sv_playlist_use chose" },
 	{ "playlist_environment", SERVER_FIELD_STRING, 0, SERVER_SETTINGS_PATH_SIZE - 1, NULL,
 		"HALO_DEDICATED when sv_playlist_use chose it" },
+	{ "chat", SERVER_FIELD_INTEGER, 0, 2, "HALO_DEDICATED_CHAT", "Text chat: 0 off, 1 team only, 2 on (sv_chat)" },
+	{ "chat_filter", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_CHAT_FILTER",
+		"Chat lines with blocked words not passed on (blocked_names.txt's words)" },
 };
 
 /* ---------- private code */

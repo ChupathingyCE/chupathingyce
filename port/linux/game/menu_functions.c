@@ -1853,6 +1853,9 @@ static struct
 	{ "controls.flashlight", L"FLASHLIGHT", 2 },
 	{ "controls.scoreboard", L"SHOW SCORES", 2 },
 	{ "controls.pause", L"PAUSE MENU", 2 },
+	{ "controls.chat_all", L"CHAT", 2 },
+	{ "controls.chat_team", L"TEAM CHAT", 2 },
+	{ "controls.chat_log", L"CHAT LOG", 2 },
 };
 
 static struct
@@ -3904,7 +3907,7 @@ static void lobby_browser_update(struct widget_instance *list)
 		text_set(named(row, "server_item_players", 0), text);
 		/* (no ping yet: its host is reached only on joining) */
 		text_set(named(row, "server_item_ping", 0), game->failed ? L"FAILED" : !game->open ? L"CLOSED" :
-			game->in_progress ? L"LIVE" : L"-");
+			game->in_progress ? L"LIVE" : L"");
 		/* (the lock: a game with a password. Its bitmap's first frame is
 		empty, the PC version's for no lock; the next is the lock, in the
 		menus' blue) */

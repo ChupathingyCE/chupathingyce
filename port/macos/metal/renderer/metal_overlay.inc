@@ -6,7 +6,8 @@
 
 static id<MTLRenderPipelineState> overlay_pipeline;
 static id<MTLSamplerState> overlay_sampler;
-static id<MTLTexture> overlay_atlas;
+static id<MTLTexture> overlay_atlas, overlay_icons, overlay_picture;
+static uint32_t overlay_picture_serial;
 static id<MTLBuffer> overlay_vertices[FRAMES];
 static MTLPixelFormat overlay_format;
 
@@ -22,9 +23,15 @@ static NSString *const overlay_source =
     "    o.color = float4(v[id].color) / 255.0; return o;\n"
     "}\n"
     "fragment float4 overlay_fragment(OverlayOut i [[stage_in]], texture2d<float> atlas [[texture(0)]],\n"
+    "    texture2d_array<float> icons [[texture(1)]], texture2d<float> picture [[texture(2)]],\n"
     "    sampler linear [[sampler(0)]], constant float4 *cutouts [[buffer(0)]]) {\n"
     "    for (uint n=0; n<4; n++)\n"
     "        if (all(i.pixel >= cutouts[n].xy) && all(i.pixel < cutouts[n].zw)) discard_fragment();\n"
+    "    if (i.edge.x == -2.0) {\n"
+    "        float4 c = icons.sample(linear, i.uv, uint(i.shape.x));\n"
+    "        return float4((c.a > 0.0 ? c.rgb / c.a : float3(0)) * i.color.rgb, c.a * i.color.a);\n"
+    "    }\n"
+    "    if (i.edge.x == -3.0) return picture.sample(linear, i.uv) * i.color;\n"
     "    float alpha;\n"
     "    if (i.uv.x >= 0) alpha = atlas.sample(linear, i.uv).r;\n"
     "    else {\n"
@@ -62,11 +69,71 @@ static void overlay_set_up(MTLPixelFormat format)
     if (!overlay_sampler) {
         MTLSamplerDescriptor *sampler = [MTLSamplerDescriptor new];
         sampler.minFilter = sampler.magFilter = MTLSamplerMinMagFilterLinear;
+        sampler.mipFilter = MTLSamplerMipFilterLinear;
         sampler.sAddressMode = sampler.tAddressMode = MTLSamplerAddressModeClampToEdge;
         overlay_sampler = [device newSamplerStateWithDescriptor:sampler];
         if (!overlay_sampler) host_fatal("Metal overlay: sampler allocation failed");
     }
     platform_log("Metal: native menu overlay initialized");
+}
+
+/* Immutable images per update: Metal retains old resources for in-flight draws.
+   Icon mip levels are premultiplied to avoid dark fringes at small prompt sizes. */
+static void overlay_icons_upload(const struct metal_overlay_frame *frame)
+{
+    if (overlay_icons) return;
+    uint32_t size = frame->icon_size;
+    if (!size || size > METAL_OVERLAY_ICON_SIZE_MAX)
+        host_fatal("Metal overlay: invalid icon size");
+    MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:
+        MTLPixelFormatRGBA8Unorm width:size height:size mipmapped:YES];
+    d.textureType = MTLTextureType2DArray;
+    d.arrayLength = METAL_OVERLAY_ICON_COUNT;
+    d.usage = MTLTextureUsageShaderRead;
+    d.storageMode = device.hasUnifiedMemory ? MTLStorageModeShared : MTLStorageModeManaged;
+    overlay_icons = [device newTextureWithDescriptor:d];
+    NSMutableData *storage = [NSMutableData dataWithLength:(size_t)size * size * 4];
+    if (!overlay_icons || !storage) host_fatal("Metal overlay: icon allocation failed");
+    uint8_t *pixels = storage.mutableBytes;
+    for (uint32_t icon = 0; icon < METAL_OVERLAY_ICON_COUNT; icon++) {
+        if (!frame->icons[icon]) host_fatal("Metal overlay: missing icon pixels");
+        const uint8_t *source = frame->icons[icon];
+        for (uint32_t texel = 0; texel < size * size; texel++) {
+            uint32_t alpha = source[texel * 4 + 3];
+            for (uint32_t channel = 0; channel < 3; channel++)
+                pixels[texel * 4 + channel] = (uint8_t)(source[texel * 4 + channel] * alpha / 255);
+            pixels[texel * 4 + 3] = (uint8_t)alpha;
+        }
+        [overlay_icons replaceRegion:MTLRegionMake2D(0, 0, size, size) mipmapLevel:0 slice:icon
+            withBytes:pixels bytesPerRow:size * 4 bytesPerImage:(size_t)size * size * 4];
+    }
+    if (overlay_icons.mipmapLevelCount > 1) {
+        id<MTLBlitCommandEncoder> blit = [commands blitCommandEncoder];
+        if (!blit) host_fatal("Metal overlay: cannot create icon mip encoder");
+        [blit generateMipmapsForTexture:overlay_icons];
+        [blit endEncoding];
+    }
+}
+
+static void overlay_picture_upload(const struct metal_overlay_frame *frame)
+{
+    if (overlay_picture && overlay_picture_serial == frame->picture_serial) return;
+    BOOL present = frame->picture && frame->picture_width && frame->picture_height;
+    uint32_t width = present ? frame->picture_width : 1;
+    uint32_t height = present ? frame->picture_height : 1;
+    if (width > METAL_OVERLAY_PICTURE_SIZE_MAX || height > METAL_OVERLAY_PICTURE_SIZE_MAX)
+        host_fatal("Metal overlay: invalid picture size");
+    MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:
+        MTLPixelFormatRGBA8Unorm width:width height:height mipmapped:NO];
+    d.usage = MTLTextureUsageShaderRead;
+    d.storageMode = device.hasUnifiedMemory ? MTLStorageModeShared : MTLStorageModeManaged;
+    id<MTLTexture> picture = [device newTextureWithDescriptor:d];
+    if (!picture) host_fatal("Metal overlay: picture allocation failed");
+    uint32_t transparent = 0;
+    [picture replaceRegion:MTLRegionMake2D(0, 0, width, height) mipmapLevel:0
+        withBytes:present ? frame->picture : (const uint8_t *)&transparent bytesPerRow:width * 4];
+    overlay_picture = picture;
+    overlay_picture_serial = frame->picture_serial;
 }
 
 static void overlay_upload(const struct metal_overlay_frame *frame)
@@ -108,6 +175,8 @@ void macos_metal_overlay_draw(uint32_t target)
         pass_finish(YES);
         overlay_set_up(texture.pixelFormat);
         overlay_upload(&frame);
+        overlay_icons_upload(&frame);
+        overlay_picture_upload(&frame);
         MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
         pass.colorAttachments[0].texture = texture;
         pass.colorAttachments[0].loadAction = MTLLoadActionLoad;
@@ -122,6 +191,8 @@ void macos_metal_overlay_draw(uint32_t target)
         [draw setVertexBytes:size length:sizeof(size) atIndex:1];
         [draw setFragmentBytes:frame.cutouts length:sizeof(frame.cutouts) atIndex:0];
         [draw setFragmentTexture:overlay_atlas atIndex:0];
+        [draw setFragmentTexture:overlay_icons atIndex:1];
+        [draw setFragmentTexture:overlay_picture atIndex:2];
         [draw setFragmentSamplerState:overlay_sampler atIndex:0];
         [draw drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:frame.vertex_count];
         [draw endEncoding];

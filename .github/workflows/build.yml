@@ -198,7 +198,14 @@ jobs:
 
       - name: Test
         run: |
-          python3 -m pytest -q tools/test_linux_port.py tools/test_touch_menu.py tools/test_p2p_copies.py tools/test_server_control.py tools/test_delta.py tools/test_delta_peer.py tools/test_map_download.py
+          python3 -m pytest -q \
+            tools/test_linux_port.py tools/test_touch_menu.py \
+            tools/test_p2p_copies.py tools/test_save_folder.py \
+            tools/test_server_control.py tools/test_delta.py \
+            tools/test_delta_peer.py tools/test_map_download.py \
+            tools/test_config_upgrade.py tools/test_discord_activity.py \
+            tools/test_player_key.py \
+            tools/harness/tests/test_browser_listings.py
           python3 tools/test_light_storage.py
 
       - name: Compile cache
@@ -234,6 +241,7 @@ jobs:
         run: |
           sudo install -d -m 0755 /etc/apt/keyrings
           curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/keyrings/apt.llvm.org.asc > /dev/null
+          # pi-lens-ignore: line-length
           echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] http://apt.llvm.org/noble/ llvm-toolchain-noble-$LLVM_MAJOR main" \
             | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update -q

@@ -8,8 +8,10 @@ actors' limits, under one lock.
 
 #include "../src/server_roles.h"
 #include "control_roles.h"
+#include "control_protocol.h"
 
 #include <errno.h>
+#include <stdarg.h>
 #include <fcntl.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -48,6 +50,8 @@ struct keyed_role
 	int role;
 	unsigned char key[CONTROL_KEY_BYTES];
 	char name[CONTROL_DISPLAY_NAME_SIZE];
+	/* (an account's: bound to a game, so its key counts) */
+	int bound;
 };
 
 /* ---------- globals */
@@ -74,8 +78,14 @@ static struct
 	{
 		char handle[CONTROL_DISPLAY_NAME_SIZE];
 		int role;
+		int site_role;
+		int key_count;
 	} site_handles[MAXIMUM_SITE_HANDLES];
 	int site_handle_count;
+	int site_state;
+	long long site_heard;
+	int site_cap;
+	int site_expire_hours;
 	struct
 	{
 		unsigned int id;
@@ -276,7 +286,8 @@ int server_roles_key_role(const unsigned char *key, unsigned int *permissions, c
 	}
 	for (index = 0; index < roles.account_count; index++)
 	{
-		if (!memcmp(roles.accounts[index].key, key, CONTROL_KEY_BYTES) && roles.accounts[index].role > best)
+		if (roles.accounts[index].bound && !memcmp(roles.accounts[index].key, key, CONTROL_KEY_BYTES) &&
+			roles.accounts[index].role > best)
 		{
 			best = roles.accounts[index].role;
 			if (who && who_size > 0)
@@ -455,7 +466,7 @@ int server_roles_moderator_get(int index, int *role, char *key_text, int key_tex
 }
 
 static int set_keyed(struct keyed_role *list, int maximum, int count, const unsigned char *keys, const int *list_roles,
-	const char *const *names)
+	const char *const *names, const int *bound)
 {
 	int index;
 	int kept = 0;
@@ -467,15 +478,17 @@ static int set_keyed(struct keyed_role *list, int maximum, int count, const unsi
 		list[kept].role = list_roles[index];
 		memcpy(list[kept].key, keys + index * CONTROL_KEY_BYTES, CONTROL_KEY_BYTES);
 		snprintf(list[kept].name, sizeof(list[kept].name), "%s", names && names[index] ? names[index] : "");
+		list[kept].bound = bound ? bound[index] : 1;
 		kept++;
 	}
 	return kept;
 }
 
-void server_roles_set_accounts(int count, const unsigned char *keys, const int *list_roles, const char *const *names)
+void server_roles_set_accounts(int count, const unsigned char *keys, const int *list_roles, const char *const *names,
+	const int *bound)
 {
 	pthread_mutex_lock(&roles_mutex);
-	roles.account_count = set_keyed(roles.accounts, MAXIMUM_ACCOUNT_KEYS, count, keys, list_roles, names);
+	roles.account_count = set_keyed(roles.accounts, MAXIMUM_ACCOUNT_KEYS, count, keys, list_roles, names, bound);
 	roles.changed = 1;
 	pthread_mutex_unlock(&roles_mutex);
 }
@@ -484,13 +497,14 @@ void server_roles_set_site(int count, const unsigned char *keys, const int *list
 	unsigned int version)
 {
 	pthread_mutex_lock(&roles_mutex);
-	roles.site_count = set_keyed(roles.site, MAXIMUM_SITE_KEYS, count, keys, list_roles, names);
+	roles.site_count = set_keyed(roles.site, MAXIMUM_SITE_KEYS, count, keys, list_roles, names, NULL);
 	roles.site_version = version;
 	roles.changed = 1;
 	pthread_mutex_unlock(&roles_mutex);
 }
 
-void server_roles_set_site_handles(int count, const char *const *handles, const int *list_roles)
+void server_roles_set_site_handles(int count, const char *const *handles, const int *list_roles, const int *site_roles,
+	const int *key_counts)
 {
 	int index;
 
@@ -503,7 +517,215 @@ void server_roles_set_site_handles(int count, const char *const *handles, const 
 		snprintf(roles.site_handles[roles.site_handle_count].handle, sizeof(roles.site_handles[0].handle), "%s",
 			handles[index]);
 		roles.site_handles[roles.site_handle_count].role = list_roles[index];
+		roles.site_handles[roles.site_handle_count].site_role = site_roles ? site_roles[index] : list_roles[index];
+		roles.site_handles[roles.site_handle_count].key_count = key_counts ? key_counts[index] : 0;
 		roles.site_handle_count++;
+	}
+	pthread_mutex_unlock(&roles_mutex);
+}
+
+void server_roles_set_site_state(int state, long long heard, int cap, int expire_hours)
+{
+	if (state < SERVER_SITE_ROLES_NONE || state > SERVER_SITE_ROLES_EXPIRED)
+		state = SERVER_SITE_ROLES_NONE;
+	pthread_mutex_lock(&roles_mutex);
+	/* (cached to live, or back: the signed-in players are told the role's
+	source again) */
+	if (state != roles.site_state && roles.site_count)
+		roles.changed = 1;
+	roles.site_state = state;
+	roles.site_heard = heard;
+	roles.site_cap = cap;
+	roles.site_expire_hours = expire_hours;
+	pthread_mutex_unlock(&roles_mutex);
+}
+
+/* text appended to a buffer, as far as it fits (the length kept within it) */
+static void append(char *text, int size, int *length, const char *format, ...)
+{
+	va_list arguments;
+	int written;
+
+	if (*length >= size - 1)
+		return;
+	va_start(arguments, format);
+	written = vsnprintf(text + *length, (size_t)(size - *length), format, arguments);
+	va_end(arguments);
+	if (written < 0)
+		return;
+	*length += written;
+	if (*length > size - 1)
+		*length = size - 1;
+}
+
+/* a name as a JSON string, appended */
+static void append_json(char *text, int size, int *length, const char *name)
+{
+	char quoted[CONTROL_DISPLAY_NAME_SIZE * 6 + 3];
+
+	if (control_json_string(name, quoted, sizeof(quoted)) < 0)
+		snprintf(quoted, sizeof(quoted), "\"\"");
+	append(text, size, length, "%s", quoted);
+}
+
+static const char *const site_state_names[] = { "none", "live", "cached", "expired" };
+
+int server_roles_list_text(int json, char *text, int text_size)
+{
+	long long now = (long long)time(NULL);
+	int length = 0;
+	int count = 0;
+	int index;
+
+	if (text_size <= 0)
+		return 0;
+	text[0] = 0;
+	pthread_mutex_lock(&roles_mutex);
+	refresh_moderators(0);
+	if (json)
+		append(text, text_size, &length, "{\"holders\": [");
+	else
+		append(text, text_size, &length, "%-9s  %-8s  %-20s  %s\n", "role", "from", "name", "key, or the site's");
+	for (index = 0; index < roles.moderator_count; index++, count++)
+	{
+		const struct control_moderator *moderator = &roles.moderators[index];
+		char key[CONTROL_KEY_TEXT + 1];
+
+		control_key_text(moderator->key, key);
+		if (json)
+		{
+			append(text, text_size, &length, "%s{\"source\": \"file\", \"role\": \"%s\", \"name\": ", count ? ", " : "",
+				control_role_name(moderator->role));
+			append_json(text, text_size, &length, moderator->name);
+			append(text, text_size, &length, ", \"key\": \"%s\"}", key);
+		}
+		else
+		{
+			append(text, text_size, &length, "%-9s  %-8s  %-20s  %s\n", control_role_name(moderator->role),
+				"file", moderator->name[0] ? moderator->name : "-", key);
+		}
+	}
+	for (index = 0; index < roles.account_count; index++, count++)
+	{
+		const struct keyed_role *account = &roles.accounts[index];
+		char key[CONTROL_KEY_TEXT + 1];
+
+		control_key_text(account->key, key);
+		if (json)
+		{
+			append(text, text_size, &length, "%s{\"source\": \"account\", \"role\": \"%s\", \"name\": ",
+				count ? ", " : "", control_role_name(account->role));
+			append_json(text, text_size, &length, account->name);
+			append(text, text_size, &length, ", \"key\": %s%s%s}", account->bound ? "\"" : "",
+				account->bound ? key : "null", account->bound ? "\"" : "");
+		}
+		else
+		{
+			append(text, text_size, &length, "%-9s  %-8s  %-20s  %s\n", control_role_name(account->role),
+				"account", account->name, account->bound ? key : "(the panel only: not bound to a game)");
+		}
+	}
+	for (index = 0; index < roles.site_handle_count; index++, count++)
+	{
+		const char *state = site_state_names[roles.site_state];
+
+		if (json)
+		{
+			append(text, text_size, &length, "%s{\"source\": \"site\", \"role\": \"%s\", \"site_role\": \"%s\", "
+				"\"name\": ", count ? ", " : "", control_role_name(roles.site_handles[index].role),
+				control_role_name(roles.site_handles[index].site_role));
+			append_json(text, text_size, &length, roles.site_handles[index].handle);
+			append(text, text_size, &length, ", \"keys\": %d, \"state\": \"%s\"}", roles.site_handles[index].key_count,
+				state);
+		}
+		else
+		{
+			char games[96];
+
+			snprintf(games, sizeof(games), "%d game%s on the site%s%s%s%s", roles.site_handles[index].key_count,
+				roles.site_handles[index].key_count == 1 ? "" : "s",
+				roles.site_handles[index].site_role != roles.site_handles[index].role ? "; the site says " : "",
+				roles.site_handles[index].site_role != roles.site_handles[index].role ?
+				control_role_name(roles.site_handles[index].site_role) : "",
+				roles.site_state == SERVER_SITE_ROLES_CACHED ? "; cached" : "", "");
+			append(text, text_size, &length, "%-9s  %-8s  %-20s  %s\n", control_role_name(roles.site_handles[index].role),
+				"site", roles.site_handles[index].handle, games);
+		}
+	}
+	if (json)
+	{
+		append(text, text_size, &length, "], \"site\": {\"state\": \"%s\", \"heard_seconds_ago\": %lld, "
+			"\"role_cap\": \"%s\", \"expire_hours\": %d}, \"count\": %d, \"moderators\": [",
+			site_state_names[roles.site_state], roles.site_heard ? now - roles.site_heard : -1LL,
+			control_role_name(roles.site_cap ? roles.site_cap : CONTROL_ROLE_ADMIN), roles.site_expire_hours, count);
+		/* (the moderators file's alone, as before) */
+		for (index = 0; index < roles.moderator_count; index++)
+		{
+			char key[CONTROL_KEY_TEXT + 1];
+
+			control_key_text(roles.moderators[index].key, key);
+			append(text, text_size, &length, "%s{\"role\": \"%s\", \"key\": \"%s\", \"name\": ", index ? ", " : "",
+				control_role_name(roles.moderators[index].role), key);
+			append_json(text, text_size, &length, roles.moderators[index].name);
+			append(text, text_size, &length, "}");
+		}
+		append(text, text_size, &length, "], \"file_count\": %d}", roles.moderator_count);
+	}
+	else
+	{
+		if (!count)
+			append(text, text_size, &length, "(nobody: no moderators.txt lines, panel accounts or site roles)\n");
+		if (roles.site_state == SERVER_SITE_ROLES_NONE)
+			append(text, text_size, &length, "site roles: none (not linked, or no list from the site yet)\n");
+		else
+		{
+			append(text, text_size, &length, "site roles: %s, at most %s; the site last answered %lld minutes ago; they "
+				"hold %d hours without it\n", roles.site_state == SERVER_SITE_ROLES_LIVE ? "live" :
+				roles.site_state == SERVER_SITE_ROLES_CACHED ? "from the cache (the site not heard since the start)" :
+				"expired (dropped until the site answers)", control_role_name(roles.site_cap ? roles.site_cap :
+				CONTROL_ROLE_ADMIN), roles.site_heard ? (now - roles.site_heard) / 60 : -1LL, roles.site_expire_hours);
+		}
+	}
+	pthread_mutex_unlock(&roles_mutex);
+	return length;
+}
+
+void server_roles_key_source(const unsigned char *key, char *text, int text_size)
+{
+	int best = CONTROL_ROLE_NONE;
+	int index;
+
+	if (text_size <= 0)
+		return;
+	text[0] = 0;
+	pthread_mutex_lock(&roles_mutex);
+	refresh_moderators(0);
+	/* (as server_roles_key_role picks: the highest, the first place first) */
+	for (index = 0; index < roles.moderator_count; index++)
+	{
+		if (!memcmp(roles.moderators[index].key, key, CONTROL_KEY_BYTES) && roles.moderators[index].role > best)
+		{
+			best = roles.moderators[index].role;
+			snprintf(text, (size_t)text_size, "this server's moderators file");
+		}
+	}
+	for (index = 0; index < roles.account_count; index++)
+	{
+		if (roles.accounts[index].bound && !memcmp(roles.accounts[index].key, key, CONTROL_KEY_BYTES) &&
+			roles.accounts[index].role > best)
+		{
+			best = roles.accounts[index].role;
+			snprintf(text, (size_t)text_size, "your panel account %s", roles.accounts[index].name);
+		}
+	}
+	for (index = 0; index < roles.site_count; index++)
+	{
+		if (!memcmp(roles.site[index].key, key, CONTROL_KEY_BYTES) && roles.site[index].role > best)
+		{
+			best = roles.site[index].role;
+			snprintf(text, (size_t)text_size, "your site profile %s%s", roles.site[index].name,
+				roles.site_state == SERVER_SITE_ROLES_CACHED ? " (cached)" : "");
+		}
 	}
 	pthread_mutex_unlock(&roles_mutex);
 }

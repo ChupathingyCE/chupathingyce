@@ -46,14 +46,13 @@
     },
     "sdl_platform.c": {
       "with": "platform/sdl_platform.c",
-      "base": "5be61326980c41bb216c59a3f5c0f85605e6ae45",
-      "seen": "951af131c1c494a40e56be4b4a7528cf5a83e9a7",
+      "base": "06c8def467d270d5d7c1381663883e52eb74486c",
       "why": "A Metal window (SDL_WINDOW_METAL): no OpenGL context, swap interval or GL entry points."
     },
     "port_config.c": {
       "with": "platform/port_config.c",
-      "base": "015977d2993ae4ba822237beaf60e6a6eb603787",
-      "seen": "17cd84de243b3e58cfe66e921bb63a55c47155bd",
+      "base": "6f2df2565bffbb44c632352b5679496d2f0cc79a",
+      "upstream_base": "edfd05deca4af0a3a0f6dcc5985c7d6eea23cbc3",
       "why": "The Metal renderer's settings (debug.metal_*, display.* that only Metal reads)."
     },
     "menu_files.c": {
@@ -63,7 +62,7 @@
     },
     "ui_overlay.c": {
       "with": "platform/ui_overlay.c",
-      "base": "b877263be4d28706f49e701d5faeb8f096ea9859",
+      "base": "5c9aa57339d0c44cc9f14c6284e806b2216659ab",
       "why": "The overlay drawn into the Metal back buffer (renderer/metal_overlay.inc) instead of with GL calls."
     },
     "hud_hires.c": {
@@ -74,8 +73,7 @@
     },
     "text_hires.c": {
       "with": "platform/text_hires.c",
-      "base": "4796f3b757746832ab7542a0e132aae7aaf7ed32",
-      "seen": "9eeb52d784e3bc105c295375945f8ae1a3af0a41",
+      "base": "9eeb52d784e3bc105c295375945f8ae1a3af0a41",
       "why": "The high-resolution text atlas as a backend texture instead of a GL texture."
     }
   },
@@ -92,13 +90,13 @@
   "shared": {
     "comment": "Compiled unchanged into the Metal build (with the Mac include directories first).",
     "files": [
-      "bink_null.c", "browser.c", "build_identity.c", "crash_report.c", "delta.c", "delta_maps.c",
-      "delta_peer.c", "delta_peer_game.c", "delta_wire.c", "dsound_sdl.c", "event_gzip.c", "event_log.c",
-      "event_upload.c", "gl_functions.c", "halo_linker_common.c", "log_address.c", "map_archive.c",
+      "bink_null.c", "browser.c", "build_identity.c", "crash_report.c", "delta.c", "delta_chat.c", "delta_chat_words.c", "delta_maps.c",
+      "delta_peer.c", "delta_peer_game.c", "delta_wire.c", "discord_activity.c", "dsound_sdl.c", "event_gzip.c", "event_log.c",
+      "event_upload.c", "gl_functions.c", "halo_linker_common.c", "log_address.c", "map_archive.c", "map_art.c",
       "map_download.c", "map_file_hash.c", "memory_watch.c", "msvc_crt.c", "msvc_wide.c", "p2p.c",
       "p2p_copies.c", "p2p_crypto.c", "p2p_discord.c", "p2p_lobby.c", "p2p_signal.c", "posix_browser.c",
       "posix_crash.c", "posix_files.c", "posix_net.c", "posix_ui_font.c", "posix_update.c", "posix_upnp.c",
-      "touch_input.c", "touch_menu.c", "update_signature.c", "updater.c", "xbdm.c", "xbox_files.c",
+      "save_folder.c", "touch_input.c", "touch_menu.c", "update_signature.c", "updater.c", "xbdm.c", "xbox_files.c",
       "xbox_heap.c", "xbox_kernel.c", "xbox_memory.c", "xbox_xapi.c", "xinput_sdl.c", "xiso.c", "xnet.c"
     ]
   },
@@ -112,8 +110,7 @@
     },
     "platform.h": {
       "with": "platform/platform.h",
-      "base": "c1744e19124c98698d4ef11e68036fd89fba4c14",
-      "seen": "ffd1f452abf7b3ef0b31fd366cde12ec55f5655c",
+      "base": "ffd1f452abf7b3ef0b31fd366cde12ec55f5655c",
       "why": "Adds the Metal front-end hooks (platform_renderer_metal, platform_fixed_timestep)."
     },
     "port_config.h": {
@@ -123,14 +120,12 @@
     },
     "hud_hires.h": {
       "with": "platform/hud_hires.h",
-      "base": "c5f905a2feef1de8ef361d7046f3138772373978",
-      "seen": "b6147e6b4dd5b12b573366573dadd0860fdf70d2",
+      "base": "b6147e6b4dd5b12b573366573dadd0860fdf70d2",
       "why": "Backend texture handles instead of GL names."
     },
     "text_hires.h": {
       "with": "platform/text_hires.h",
-      "base": "ea05f2893f26adf39b91089af8ba9bd385c0a200",
-      "seen": "1a244c35942ccd4ff68daf096a43c0c041ad1281",
+      "base": "1a244c35942ccd4ff68daf096a43c0c041ad1281",
       "why": "Comment and declaration differences that follow text_hires.c."
     }
   },

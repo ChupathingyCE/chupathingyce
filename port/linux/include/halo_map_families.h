@@ -54,6 +54,20 @@ char const *map_family_suffix(short family);
 ("HALO PC", "HALOMD", "HALO PC RETAIL"; "" for the Xbox's) */
 char const *map_family_badge(short family);
 
+/* a family's short tag on a listed game's map, the same in every menu set
+and on the game list's pages: XBX (the Xbox's, maps\), HCE (Custom
+Edition's, maps_ce\, @ce), HMD (HaloMD's, maps_md\, @md), GBX (Halo PC
+retail's, Gearbox's, maps_pc\, @pc); what it stands for ("Custom Edition
+map"), and its color (0xRRGGBB) */
+char const *map_family_tag(short family);
+char const *map_family_title(short family);
+unsigned long map_family_color(short family);
+
+/* (reserved for MCC's editing kit's maps, not played yet: no family) */
+#define MAP_FAMILY_TAG_MCC "MCC"
+#define MAP_FAMILY_TITLE_MCC "MCC map"
+#define MAP_FAMILY_COLOR_MCC 0x5FD3C8
+
 /* the folder a player puts a family's maps in, as the menus tell them
 ("maps_ce", "maps_md", "maps_pc"; "maps" for the Xbox's) */
 char const *map_family_folder(short family);

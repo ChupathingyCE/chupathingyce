@@ -122,7 +122,9 @@ SCREENS = {
     "network_setup": {
         "screen": "network_settings_screen",
         "header": ("header_profile_network_settings", f"{PE}/network_setup/header_profile_network_settings"),
-        "spacing": 30,
+        # (as close as Video Setup's, for its twelve rows)
+        "spacing": 24,
+        "help_top": 364,
         "rows": [
             ("INTERNET PLAY:", "network.online", ON_OFF,
              "Host and join games over the internet by invite\nlinks; off keeps to the local network.", None),
@@ -144,6 +146,12 @@ SCREENS = {
              "Draw a panel behind the scoreboard, for clearer\ntext.", None),
             ("MAP DOWNLOADS:", "network.map_downloads", [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
              "A Custom Edition map a game needs, from the\ncommunity map repository: ask first, or not.", None),
+            ("DISCORD STATUS:", "discord.presence", [("FULL", "full"), ("MINIMAL", "minimal"), ("OFF", "off")],
+             "What Discord shows: the game, map and score, only\nPlaying Chupathingy, or nothing.", "desktop"),
+            ("DISCORD SERVER NAME:", "discord.show_server_name", [("SHOW", "true"), ("HIDE", "false")],
+             "Show the name of the network game on Discord.", "desktop"),
+            ("DISCORD JOIN BUTTON:", "discord.show_join", ON_OFF,
+             "While hosting a public game, Discord shows a Join\ngame button that opens its invite.", "desktop"),
         ],
     },
     "gamepad_setup": {

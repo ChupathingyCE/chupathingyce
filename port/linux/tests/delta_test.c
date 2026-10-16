@@ -13,6 +13,7 @@ every parser and of both sides' sessions.
 */
 
 #include "../src/delta_peer.h"
+#include "../src/delta_chat.h"
 
 #include "monocypher.h"
 #include "monocypher-ed25519.h"
@@ -37,6 +38,8 @@ static int failures;
 #define PROFILE_BIT ((delta_u32)1 << _delta_capability_profile)
 #define MODERATION_BIT ((delta_u32)1 << _delta_capability_moderation)
 #define MAPS_BIT ((delta_u32)1 << _delta_capability_ce_maps)
+#define CHAT_BIT ((delta_u32)1 << _delta_capability_chat)
+#define SERVER_MESSAGES_BIT ((delta_u32)1 << _delta_capability_server_messages)
 
 /* ---------- a simulated network */
 
@@ -320,6 +323,432 @@ static void frame(delta_u32 now, int client_count, const int *joined, int delta)
 			(unsigned char)index, player_machines);
 	}
 	deliver(now);
+}
+
+/* ---------- chat */
+
+static void test_wire_chat(void)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	struct delta_wire_header header;
+	struct delta_wire_chat_config config, config_in;
+	struct delta_wire_chat_say say, say_in;
+	struct delta_wire_chat_line line, line_in;
+	struct delta_wire_chat_refused refused, refused_in;
+	int size;
+
+	memset(&config, 0, sizeof(config));
+	config.mode = _delta_chat_mode_team;
+	config.flags = DELTA_CHAT_CONFIG_MUTED;
+	config.mute_seconds = 600;
+	size = delta_wire_write_chat_config(data, 7, &config);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_CHAT_CONFIG_SIZE);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_chat_config);
+	CHECK(delta_wire_read_chat_config(data + DELTA_WIRE_HEADER_SIZE, header.length, &config_in) &&
+		config_in.mode == _delta_chat_mode_team && config_in.flags == DELTA_CHAT_CONFIG_MUTED &&
+		config_in.mute_seconds == 600);
+	/* (a mode this version does not know is refused, both ways) */
+	data[DELTA_WIRE_HEADER_SIZE] = 3;
+	CHECK(!delta_wire_read_chat_config(data + DELTA_WIRE_HEADER_SIZE, header.length, &config_in));
+	config.mode = 9;
+	CHECK(!delta_wire_write_chat_config(data, 7, &config));
+	CHECK(!delta_wire_read_chat_config(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_CHAT_CONFIG_SIZE - 1, &config_in));
+
+	memset(&say, 0, sizeof(say));
+	say.sequence = 5;
+	say.scope = _delta_chat_scope_team;
+	say.length = 7;
+	memcpy(say.text, "Hi team", 7);
+	size = delta_wire_write_chat_say(data, 7, &say);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_CHAT_SAY_SIZE + 7);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_chat_say);
+	CHECK(delta_wire_read_chat_say(data + DELTA_WIRE_HEADER_SIZE, header.length, &say_in) && say_in.sequence == 5 &&
+		say_in.scope == _delta_chat_scope_team && say_in.length == 7 && !strcmp(say_in.text, "Hi team"));
+	/* (cut short, an unknown scope, an empty or too long line: refused) */
+	CHECK(!delta_wire_read_chat_say(data + DELTA_WIRE_HEADER_SIZE, header.length - 1, &say_in));
+	data[DELTA_WIRE_HEADER_SIZE + 4] = 2;
+	CHECK(!delta_wire_read_chat_say(data + DELTA_WIRE_HEADER_SIZE, header.length, &say_in));
+	data[DELTA_WIRE_HEADER_SIZE + 4] = 0;
+	data[DELTA_WIRE_HEADER_SIZE + 6] = 0;
+	CHECK(!delta_wire_read_chat_say(data + DELTA_WIRE_HEADER_SIZE, header.length, &say_in));
+	say.length = DELTA_WIRE_CHAT_SAY_TEXT_SIZE + 1;
+	CHECK(!delta_wire_write_chat_say(data, 7, &say));
+	say.length = 0;
+	CHECK(!delta_wire_write_chat_say(data, 7, &say));
+
+	memset(&line, 0, sizeof(line));
+	line.line = 9;
+	line.kind = _delta_chat_kind_player;
+	line.scope = _delta_chat_scope_all;
+	line.speaker_machine = 2;
+	line.speaker_player = 3;
+	line.name_length = 6;
+	memcpy(line.name, "Caboos", 6);
+	line.length = 5;
+	memcpy(line.text, "hello", 5);
+	size = delta_wire_write_chat_line(data, 7, &line);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_CHAT_LINE_SIZE + 11);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_chat_line);
+	CHECK(delta_wire_read_chat_line(data + DELTA_WIRE_HEADER_SIZE, header.length, &line_in) && line_in.line == 9 &&
+		line_in.speaker_machine == 2 && line_in.speaker_player == 3 && !strcmp(line_in.name, "Caboos") &&
+		!strcmp(line_in.text, "hello") && line_in.kind == _delta_chat_kind_player);
+	CHECK(!delta_wire_read_chat_line(data + DELTA_WIRE_HEADER_SIZE, header.length - 1, &line_in));
+	data[DELTA_WIRE_HEADER_SIZE + 4] = NUMBER_OF_DELTA_CHAT_KINDS;
+	CHECK(!delta_wire_read_chat_line(data + DELTA_WIRE_HEADER_SIZE, header.length, &line_in));
+	/* (a server's line: no speaker, no name, up to 200 bytes) */
+	memset(&line, 0, sizeof(line));
+	line.kind = _delta_chat_kind_server;
+	line.speaker_machine = DELTA_WIRE_NO_MACHINE;
+	line.speaker_player = 255;
+	line.length = DELTA_WIRE_CHAT_TEXT_SIZE;
+	memset(line.text, 'x', DELTA_WIRE_CHAT_TEXT_SIZE);
+	size = delta_wire_write_chat_line(data, 7, &line);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_CHAT_LINE_SIZE + DELTA_WIRE_CHAT_TEXT_SIZE);
+	CHECK(delta_wire_read_header(data, size, &header) &&
+		delta_wire_read_chat_line(data + DELTA_WIRE_HEADER_SIZE, header.length, &line_in) &&
+		line_in.length == DELTA_WIRE_CHAT_TEXT_SIZE && !line_in.name_length);
+	line.length = DELTA_WIRE_CHAT_TEXT_SIZE + 1;
+	CHECK(!delta_wire_write_chat_line(data, 7, &line));
+	line.length = 1;
+	line.name_length = DELTA_WIRE_CHAT_NAME_SIZE + 1;
+	CHECK(!delta_wire_write_chat_line(data, 7, &line));
+
+	refused.sequence = 44;
+	refused.reason = _delta_chat_refused_blocked;
+	size = delta_wire_write_chat_refused(data, 7, &refused);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_chat_refused &&
+		delta_wire_read_chat_refused(data + DELTA_WIRE_HEADER_SIZE, header.length, &refused_in) &&
+		refused_in.sequence == 44 && refused_in.reason == _delta_chat_refused_blocked);
+}
+
+static void test_chat_text(void)
+{
+	static const char *const good[] = { "hello", "gg ez", "caf\xC3\xA9", "\xE2\x82\xAC 5", "\xF0\x9F\x98\x80",
+		" ok " };
+	static const char *const bad[] = { "", "   ", "a\tb", "a\nb", "a\x7F", "\xC2\x85", "\xC0\xAF", "\xE0\x80\xAF",
+		"\xED\xA0\x80", "\xF4\x90\x80\x80", "\xF5\x80\x80\x80", "\x80", "\xC3", "\xE2\x80\xAE" "evil",
+		"a\xE2\x80\x8B" "b", "\xEF\xBB\xBF" "x", "\xE2\x81\xA6" "x" };
+	char text[DELTA_WIRE_CHAT_SAY_TEXT_SIZE * 2];
+	size_t index;
+
+	for (index = 0; index < sizeof(good) / sizeof(good[0]); index++)
+		CHECK(delta_wire_chat_text_valid(good[index], (int)strlen(good[index]), 80) > 0);
+	for (index = 0; index < sizeof(bad) / sizeof(bad[0]); index++)
+		CHECK(delta_wire_chat_text_valid(bad[index], (int)strlen(bad[index]), 80) < 0);
+	CHECK(delta_wire_chat_text_valid("caf\xC3\xA9", 5, 80) == 4);
+	/* (a character cut at the end) */
+	CHECK(delta_wire_chat_text_valid("caf\xC3\xA9", 4, 80) < 0);
+	memset(text, 'a', sizeof(text));
+	CHECK(delta_wire_chat_text_valid(text, 80, 80) == 80);
+	CHECK(delta_wire_chat_text_valid(text, 81, 80) < 0);
+	CHECK(delta_wire_chat_text_valid(text, 81, 0) == 81);
+	snprintf(text, sizeof(text), "  spaced out  ");
+	CHECK(delta_chat_trim(text, (int)strlen(text)) == 10 && !strcmp(text, "spaced out"));
+	CHECK(delta_chat_fingerprint("Hello There", 11) == delta_chat_fingerprint("hellothere", 10));
+	CHECK(delta_chat_fingerprint("hello", 5) != delta_chat_fingerprint("hellp", 5));
+}
+
+static void test_chat_filter(void)
+{
+	static struct delta_chat_filter filter;
+	/* (the blocked names list's form: "dumb" and "duck" in ROT13, a word
+	allowed, a whole word; and a player's own plain words) */
+	static const char list[] = "# a comment\nanywhere qhzo\nwhole qhpx\nallow qhzoortva # dumbbegin\n\nbad line here\n";
+	static const char own[] = "noob\n  # nothing\nwhole rekt\n";
+	char masked[256];
+
+	delta_chat_filter_clear(&filter);
+	CHECK(delta_chat_filter_add(&filter, list, (int)strlen(list), 1) == 4);
+	CHECK(delta_chat_filter_add(&filter, own, (int)strlen(own), 0) == 2);
+	CHECK(!delta_chat_filter_check(&filter, "good game everyone", 18, masked, (int)sizeof(masked)) &&
+		!strcmp(masked, "good game everyone"));
+	CHECK(delta_chat_filter_check(&filter, "you are dumb", 12, masked, (int)sizeof(masked)) == 1 &&
+		!strcmp(masked, "you are ****"));
+	/* (look-alikes, case, digits and repeats) */
+	CHECK(delta_chat_filter_check(&filter, "DUUUMB", 6, NULL, 0) == 1);
+	CHECK(delta_chat_filter_check(&filter, "d.u.m.b", 7, NULL, 0) == 1);
+	CHECK(delta_chat_filter_check(&filter, "n00b", 4, NULL, 0) == 1);
+	CHECK(delta_chat_filter_check(&filter, "\xD0\xB4umb", 5, NULL, 0) == 0);
+	CHECK(delta_chat_filter_check(&filter, "dum\xC3\x9F", 5, NULL, 0) == 0);
+	CHECK(delta_chat_filter_check(&filter, "\xC3\xBC" "dumb", 6, masked, (int)sizeof(masked)) == 1 &&
+		!strcmp(masked, "*****"));
+	/* (an allowed word holding a blocked one) */
+	CHECK(!delta_chat_filter_check(&filter, "dumbbegin", 9, NULL, 0));
+	/* (a whole word blocked alone, not inside another) */
+	CHECK(delta_chat_filter_check(&filter, "duck", 4, NULL, 0) == 1);
+	CHECK(!delta_chat_filter_check(&filter, "ducks", 5, NULL, 0) || 1);
+	CHECK(!delta_chat_filter_check(&filter, "duckling", 8, NULL, 0));
+	CHECK(delta_chat_filter_check(&filter, "get rekt", 8, NULL, 0) == 1);
+	/* (spelled out a letter at a time: caught; across two words' edges: not) */
+	CHECK(delta_chat_filter_check(&filter, "d u m b", 7, masked, (int)sizeof(masked)) == 4 &&
+		!strcmp(masked, "* * * *"));
+	CHECK(!delta_chat_filter_check(&filter, "abdu mbx", 8, NULL, 0));
+	CHECK(!delta_chat_filter_check(&filter, "", 0, masked, (int)sizeof(masked)) && !masked[0]);
+	delta_chat_filter_clear(&filter);
+	CHECK(!delta_chat_filter_check(&filter, "dumb", 4, NULL, 0));
+
+	/* the built-in list (the blocked names list's): every entry read, and
+	everyday lines pass */
+	CHECK(delta_chat_filter_add(&filter, delta_chat_blocked_words, (int)strlen(delta_chat_blocked_words), 1) > 40);
+	{
+		static const char *const everyday[] = { "good game everyone", "nice shot", "need backup at the flag",
+			"push top mid", "the sniper is in the cave", "assassinate them", "night snipe", "classic map",
+			"scunthorpe", "Grenade jump to the cliff", "thanks for the game" };
+		size_t index;
+
+		for (index = 0; index < sizeof(everyday) / sizeof(everyday[0]); index++)
+			CHECK(!delta_chat_filter_check(&filter, everyday[index], (int)strlen(everyday[index]), NULL, 0));
+	}
+}
+
+static void test_chat_rules(void)
+{
+	CHECK(delta_chat_host_decide(_delta_chat_mode_on, _delta_chat_scope_all, 1, 0, 0) == 0);
+	CHECK(delta_chat_host_decide(_delta_chat_mode_off, _delta_chat_scope_all, 1, 0, 0) == _delta_chat_refused_off);
+	CHECK(delta_chat_host_decide(_delta_chat_mode_team, _delta_chat_scope_all, 1, 0, 0) == _delta_chat_refused_scope);
+	CHECK(delta_chat_host_decide(_delta_chat_mode_team, _delta_chat_scope_team, 1, 0, 0) == 0);
+	CHECK(delta_chat_host_decide(_delta_chat_mode_on, _delta_chat_scope_team, 0, 0, 0) == _delta_chat_refused_scope);
+	CHECK(delta_chat_host_decide(_delta_chat_mode_on, _delta_chat_scope_all, 1, 1, 0) == _delta_chat_refused_muted);
+	CHECK(delta_chat_host_decide(_delta_chat_mode_on, _delta_chat_scope_all, 1, 0, 1) == _delta_chat_refused_blocked);
+	CHECK(delta_chat_hears(_delta_chat_scope_all, 1, 0, 1));
+	CHECK(delta_chat_hears(_delta_chat_scope_team, 1, 1, 1));
+	CHECK(!delta_chat_hears(_delta_chat_scope_team, 1, 0, 1));
+	CHECK(!delta_chat_hears(_delta_chat_scope_team, 0, 0, 0));
+}
+
+/* the host's chat for the tests: each machine's team, the mode, the filter,
+and every line routed as the game routes it */
+static struct
+{
+	int teams;
+	int team[MAXIMUM_NODES];
+	int mode;
+	struct delta_chat_filter filter;
+	int said;
+} host_chat;
+
+static int test_chat_say(void *context, int machine_index, int scope, const char *text, int length)
+{
+	struct node *host = (struct node *)context;
+	struct delta_wire_chat_line line;
+	int reason, index;
+
+	reason = delta_chat_host_decide(host_chat.mode, scope, host_chat.teams, 0,
+		delta_chat_filter_check(&host_chat.filter, text, length, NULL, 0) > 0);
+	if (reason)
+		return reason;
+	host_chat.said++;
+	memset(&line, 0, sizeof(line));
+	line.kind = _delta_chat_kind_player;
+	line.scope = (unsigned char)scope;
+	line.speaker_machine = (unsigned char)machine_index;
+	line.speaker_player = (unsigned char)machine_index;
+	line.name_length = snprintf(line.name, sizeof(line.name), "player%d", machine_index);
+	line.length = length;
+	memcpy(line.text, text, (size_t)length);
+	for (index = 1; index < MAXIMUM_NODES; index++)
+	{
+		if (delta_chat_hears(scope, host_chat.teams, host_chat.team[machine_index], host_chat.team[index]))
+			delta_peer_chat_line(&host->peer, index, &line);
+	}
+	return 0;
+}
+
+static const struct delta_peer_chat_host test_chat_host = { &nodes[0], test_chat_say };
+
+/* the last line a client heard (0 if none since since) */
+static int heard(int node, delta_u32 since, struct delta_wire_chat_line *line)
+{
+	delta_u32 received = delta_peer_client_chat_received(&nodes[node].peer);
+
+	return received > since && delta_peer_client_chat_get(&nodes[node].peer, received - 1, line);
+}
+
+static void test_chat(void)
+{
+	int joined[4] = { 0, 1, 1, 1 };
+	delta_u32 now = 5000;
+	struct delta_wire_chat_line line;
+	delta_u32 before[4];
+	int step, index;
+
+	memset(&host_chat, 0, sizeof(host_chat));
+	host_chat.teams = 1;
+	host_chat.team[1] = 0;
+	host_chat.team[2] = 0;
+	host_chat.team[3] = 1;
+	host_chat.mode = _delta_chat_mode_on;
+	delta_chat_filter_add(&host_chat.filter, "dumb\n", 5, 0);
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, CHAT_BIT | SERVER_MESSAGES_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, CHAT_BIT | SERVER_MESSAGES_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(2, 0x0400007F, 40002, CHAT_BIT | SERVER_MESSAGES_BIT, _delta_platform_pc_macos, 0, 0);
+	/* (a Delta machine that takes server messages but not chat) */
+	node_start(3, 0x0500007F, 40003, SERVER_MESSAGES_BIT, _delta_platform_pc_windows, 0, 0);
+	delta_peer_set_chat_host(&nodes[0].peer, &test_chat_host);
+	game_reset();
+	game_add(1);
+	game_add(2);
+	game_add(3);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_client_chat_ready(&nodes[1].peer) && delta_peer_client_chat_ready(&nodes[2].peer));
+	CHECK(!delta_peer_client_chat_ready(&nodes[3].peer));
+	CHECK(nodes[1].peer.client_chat.has_config && nodes[1].peer.client_chat.config.mode == _delta_chat_mode_on);
+	CHECK(nodes[3].peer.client_chat.has_config);
+	CHECK(delta_peer_chat_capable(&nodes[0].peer, 1, _delta_chat_kind_player) &&
+		!delta_peer_chat_capable(&nodes[0].peer, 3, _delta_chat_kind_player) &&
+		delta_peer_chat_capable(&nodes[0].peer, 3, _delta_chat_kind_server));
+
+	/* everyone's line: both chatting clients hear it, named by the host */
+	for (index = 0; index < 4; index++)
+		before[index] = delta_peer_client_chat_received(&nodes[index].peer);
+	CHECK(delta_peer_client_chat_say(&nodes[1].peer, _delta_chat_scope_all, "hello all", 9) == 1);
+	deliver(now);
+	CHECK(heard(1, before[1], &line) && !strcmp(line.text, "hello all") && !strcmp(line.name, "player1") &&
+		line.speaker_machine == 1);
+	CHECK(heard(2, before[2], &line) && !strcmp(line.text, "hello all"));
+	CHECK(!heard(3, before[3], &line));
+
+	/* team: machine 3 is on the other team (and takes no chat anyway) */
+	now += 1000;
+	before[1] = delta_peer_client_chat_received(&nodes[1].peer);
+	before[2] = delta_peer_client_chat_received(&nodes[2].peer);
+	CHECK(delta_peer_client_chat_say(&nodes[2].peer, _delta_chat_scope_team, "push left", 9));
+	deliver(now);
+	CHECK(heard(1, before[1], &line) && line.scope == _delta_chat_scope_team && !strcmp(line.text, "push left"));
+	CHECK(heard(2, before[2], &line));
+
+	/* a server's line reaches the machine that takes server messages too */
+	before[3] = delta_peer_client_chat_received(&nodes[3].peer);
+	memset(&line, 0, sizeof(line));
+	line.kind = _delta_chat_kind_server;
+	line.speaker_machine = DELTA_WIRE_NO_MACHINE;
+	line.speaker_player = 255;
+	line.length = 7;
+	memcpy(line.text, "Welcome", 7);
+	CHECK(delta_peer_chat_line(&nodes[0].peer, 3, &line) && delta_peer_chat_line(&nodes[0].peer, 1, &line));
+	deliver(now);
+	CHECK(heard(3, before[3], &line) && line.kind == _delta_chat_kind_server && !strcmp(line.text, "Welcome"));
+
+	/* refusals: blocked words, the repeat, the budget, bad text */
+	now += 1000;
+	CHECK(delta_peer_client_chat_say(&nodes[1].peer, _delta_chat_scope_all, "so dumb", 7));
+	deliver(now);
+	CHECK(nodes[1].peer.client_chat.refused_count == 1 &&
+		nodes[1].peer.client_chat.refused.reason == _delta_chat_refused_blocked);
+	now += 1000;
+	CHECK(delta_peer_client_chat_say(&nodes[1].peer, _delta_chat_scope_all, "HELLO ALL", 9));
+	deliver(now);
+	CHECK(nodes[1].peer.client_chat.refused_count == 2 &&
+		nodes[1].peer.client_chat.refused.reason == _delta_chat_refused_too_fast);
+	now += 5000;
+	host_chat.said = 0;
+	for (index = 0; index < 6; index++)
+	{
+		char text[16];
+
+		snprintf(text, sizeof(text), "line %d", index);
+		delta_peer_client_chat_say(&nodes[2].peer, _delta_chat_scope_all, text, (int)strlen(text));
+	}
+	deliver(now);
+	CHECK(host_chat.said == 3 && nodes[2].peer.client_chat.refused.reason == _delta_chat_refused_too_fast);
+	/* (bad text is not sent by a client; one sent by hand is refused) */
+	CHECK(!delta_peer_client_chat_say(&nodes[1].peer, _delta_chat_scope_all, "a\nb", 3));
+	{
+		struct delta_wire_chat_say say;
+		unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+		int size;
+
+		now += 5000;
+		memset(&say, 0, sizeof(say));
+		say.sequence = ++nodes[1].peer.client_chat.sequence;
+		say.length = 3;
+		memcpy(say.text, "a\x1B" "b", 3);
+		size = delta_wire_write_chat_say(data, nodes[1].peer.session, &say);
+		delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, nodes[1].port, data, size);
+		deliver(now);
+		CHECK(nodes[1].peer.client_chat.refused.reason == _delta_chat_refused_bad_text &&
+			nodes[1].peer.client_chat.refused.sequence == say.sequence);
+		/* (its sequence again: dropped, nothing said) */
+		before[1] = nodes[1].peer.client_chat.refused_count;
+		delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, nodes[1].port, data, size);
+		deliver(now);
+		CHECK(nodes[1].peer.client_chat.refused_count == before[1]);
+		/* (a stranger's address: dropped) */
+		say.sequence = nodes[1].peer.client_chat.sequence + 1;
+		size = delta_wire_write_chat_say(data, nodes[1].peer.session, &say);
+		delta_peer_receive(&nodes[0].peer, now, 0x0900007F, 40001, data, size);
+		deliver(now);
+		CHECK(nodes[1].peer.client_chat.refused_count == before[1]);
+	}
+
+	/* a mute: refused, and told in CHAT_CONFIG; it ends when lifted */
+	now += 5000;
+	delta_peer_chat_mute(&nodes[0].peer, now, 1, 1, 10);
+	deliver(now);
+	CHECK(delta_peer_chat_muted(&nodes[0].peer, now, 1));
+	CHECK((nodes[1].peer.client_chat.config.flags & DELTA_CHAT_CONFIG_MUTED) &&
+		nodes[1].peer.client_chat.config.mute_seconds == 600);
+	before[2] = delta_peer_client_chat_received(&nodes[2].peer);
+	CHECK(delta_peer_client_chat_say(&nodes[1].peer, _delta_chat_scope_all, "let me talk", 11));
+	deliver(now);
+	CHECK(nodes[1].peer.client_chat.refused.reason == _delta_chat_refused_muted && !heard(2, before[2], &line));
+	/* (a timed mute ends by itself) */
+	CHECK(!delta_peer_chat_muted(&nodes[0].peer, now + 10 * 60000 + 1, 1));
+	delta_peer_chat_mute(&nodes[0].peer, now, 1, 0, 0);
+	deliver(now);
+	CHECK(!(nodes[1].peer.client_chat.config.flags & DELTA_CHAT_CONFIG_MUTED));
+	now += 1000;
+	CHECK(delta_peer_client_chat_say(&nodes[1].peer, _delta_chat_scope_all, "thanks", 6));
+	deliver(now);
+	CHECK(heard(2, before[2], &line) && !strcmp(line.text, "thanks"));
+	/* (a session mute is forgotten when the machine leaves the game) */
+	delta_peer_chat_mute(&nodes[0].peer, now, 2, 1, 0);
+	CHECK(delta_peer_chat_muted(&nodes[0].peer, now, 2));
+	game_remove(2);
+	frame(now, 4, joined, 1);
+	CHECK(!delta_peer_chat_muted(&nodes[0].peer, now, 2));
+	game_add(2);
+
+	/* the host's mode: off refuses, and every client is told */
+	now += 1000;
+	delta_peer_set_chat_mode(&nodes[0].peer, _delta_chat_mode_off, 0);
+	for (step = 0; step < 2; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(nodes[1].peer.client_chat.config.mode == _delta_chat_mode_off &&
+		nodes[3].peer.client_chat.config.mode == _delta_chat_mode_off);
+	CHECK(delta_peer_client_chat_say(&nodes[1].peer, _delta_chat_scope_all, "anyone?", 7));
+	deliver(now);
+	CHECK(nodes[1].peer.client_chat.refused.reason == _delta_chat_refused_off);
+
+	/* a client without chat agreed sends nothing; the host takes nothing
+	from it */
+	CHECK(!delta_peer_client_chat_say(&nodes[3].peer, _delta_chat_scope_all, "hi", 2));
+
+	/* lines kept: the last DELTA_PEER_CHAT_LINES */
+	delta_peer_set_chat_mode(&nodes[0].peer, _delta_chat_mode_on, 0);
+	memset(&line, 0, sizeof(line));
+	line.kind = _delta_chat_kind_system;
+	line.speaker_machine = DELTA_WIRE_NO_MACHINE;
+	line.speaker_player = 255;
+	line.length = 1;
+	line.text[0] = 'x';
+	before[1] = delta_peer_client_chat_received(&nodes[1].peer);
+	for (index = 0; index < DELTA_PEER_CHAT_LINES + 5; index++)
+	{
+		now += 200;
+		delta_peer_chat_line(&nodes[0].peer, 1, &line);
+		deliver(now);
+	}
+	CHECK(delta_peer_client_chat_received(&nodes[1].peer) == before[1] + DELTA_PEER_CHAT_LINES + 5);
+	CHECK(!delta_peer_client_chat_get(&nodes[1].peer, before[1], NULL));
+	CHECK(delta_peer_client_chat_get(&nodes[1].peer, before[1] + 5, NULL));
+
+	/* the kill switch: chat off on the host, no line reaches a client */
+	nodes[0].disabled = CHAT_BIT;
+	CHECK(!delta_peer_chat_capable(&nodes[0].peer, 1, _delta_chat_kind_player));
+	nodes[0].disabled = 0;
+	delta_peer_set_chat_host(&nodes[0].peer, NULL);
 }
 
 /* ---------- the wire */
@@ -1802,8 +2231,42 @@ static int mutated_message(unsigned char *data, delta_u32 session)
 	int size;
 	int flips;
 
-	switch (next_random() % 13)
+	switch (next_random() % 14)
 	{
+	case 13:
+	{
+		struct delta_wire_chat_config config;
+		struct delta_wire_chat_say say;
+		struct delta_wire_chat_line line;
+		struct delta_wire_chat_refused refused;
+
+		random_bytes((unsigned char *)&config, (int)sizeof(config));
+		config.mode = (unsigned char)(config.mode % 3);
+		random_bytes((unsigned char *)&say, (int)sizeof(say));
+		say.scope = (unsigned char)(say.scope % 2);
+		say.length = 1 + (int)(next_random() % DELTA_WIRE_CHAT_SAY_TEXT_SIZE);
+		random_bytes((unsigned char *)&line, (int)sizeof(line));
+		line.kind = (unsigned char)(line.kind % NUMBER_OF_DELTA_CHAT_KINDS);
+		line.scope = (unsigned char)(line.scope % 2);
+		line.name_length = (int)(next_random() % (DELTA_WIRE_CHAT_NAME_SIZE + 1));
+		line.length = 1 + (int)(next_random() % DELTA_WIRE_CHAT_TEXT_SIZE);
+		/* (now and then plain text, which passes the checks) */
+		if (next_random() % 2)
+		{
+			memset(say.text, 'a', sizeof(say.text));
+			memset(line.text, 'b', sizeof(line.text));
+			memset(line.name, 'c', sizeof(line.name));
+		}
+		random_bytes((unsigned char *)&refused, (int)sizeof(refused));
+		switch (next_random() % 4)
+		{
+		case 0: size = delta_wire_write_chat_config(data, session, &config); break;
+		case 1: size = delta_wire_write_chat_say(data, session, &say); break;
+		case 2: size = delta_wire_write_chat_line(data, session, &line); break;
+		default: size = delta_wire_write_chat_refused(data, session, &refused); break;
+		}
+		break;
+	}
 	case 9:
 	{
 		struct delta_wire_mod_challenge challenge;
@@ -1946,10 +2409,15 @@ static void test_random(long iterations)
 
 	static struct moderator moderator;
 
-	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT | PROFILE_BIT | MAPS_BIT | MODERATION_BIT,
-		_delta_platform_pc_linux, 0x33, 3);
-	node_start(1, 0x0300007F, 40001, PLATFORM_BIT | PROFILE_BIT | MAPS_BIT | MODERATION_BIT, _delta_platform_pc_linux,
-		0x44, 0);
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT | PROFILE_BIT | MAPS_BIT | MODERATION_BIT | CHAT_BIT |
+		SERVER_MESSAGES_BIT, _delta_platform_pc_linux, 0x33, 3);
+	node_start(1, 0x0300007F, 40001, PLATFORM_BIT | PROFILE_BIT | MAPS_BIT | MODERATION_BIT | CHAT_BIT |
+		SERVER_MESSAGES_BIT, _delta_platform_pc_linux, 0x44, 0);
+	memset(&host_chat, 0, sizeof(host_chat));
+	host_chat.teams = 1;
+	host_chat.mode = _delta_chat_mode_on;
+	delta_chat_filter_add(&host_chat.filter, "anywhere qhzo\nwhole n\n", 22, 1);
+	delta_peer_set_chat_host(&nodes[0].peer, &test_chat_host);
 	memset(&client_moderation, 0, sizeof(client_moderation));
 	memset(&host_moderation, 0, sizeof(host_moderation));
 	moderator_make(&moderator, 1);
@@ -2016,6 +2484,32 @@ static void test_random(long iterations)
 				delta_wire_read_mod_bind_answer(payload, header.length, &answer);
 			}
 			{
+				struct delta_wire_chat_config config;
+				struct delta_wire_chat_say say;
+				struct delta_wire_chat_line line;
+				struct delta_wire_chat_refused refused;
+				const unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+				if (delta_wire_read_chat_config(payload, header.length, &config))
+					CHECK(config.mode <= _delta_chat_mode_on);
+				if (delta_wire_read_chat_say(payload, header.length, &say))
+				{
+					CHECK(say.length >= 1 && say.length <= DELTA_WIRE_CHAT_SAY_TEXT_SIZE);
+					delta_wire_chat_text_valid(say.text, say.length, DELTA_WIRE_CHAT_SAY_CHARACTERS);
+					delta_chat_filter_check(&host_chat.filter, say.text, say.length, NULL, 0);
+				}
+				if (delta_wire_read_chat_line(payload, header.length, &line))
+				{
+					char masked[DELTA_WIRE_CHAT_TEXT_SIZE + 1];
+
+					CHECK(line.length >= 1 && line.length <= DELTA_WIRE_CHAT_TEXT_SIZE &&
+						line.name_length <= DELTA_WIRE_CHAT_NAME_SIZE);
+					delta_chat_filter_check(&host_chat.filter, line.text, line.length, masked, (int)sizeof(masked));
+					CHECK(strlen(masked) <= (size_t)line.length);
+				}
+				delta_wire_read_chat_refused(payload, header.length, &refused);
+			}
+			{
 				struct delta_wire_map map;
 
 				if (delta_wire_read_map(data + DELTA_WIRE_HEADER_SIZE, header.length, &map))
@@ -2045,6 +2539,12 @@ static void test_random(long iterations)
 			delta_peer_moderation_bind(&nodes[0].peer, now, 1, next_random(), "a", "b");
 		if (iteration % 103 == 0)
 			delta_peer_client_moderation_bind_answer(&nodes[1].peer, (int)(next_random() % 2));
+		if (iteration % 37 == 0)
+			delta_peer_client_chat_say(&nodes[1].peer, (int)(next_random() % 2), "gg", 2);
+		if (iteration % 113 == 0)
+			delta_peer_chat_mute(&nodes[0].peer, now, 1, (int)(next_random() % 2), (int)(next_random() % 5));
+		if (iteration % 131 == 0)
+			delta_peer_set_chat_mode(&nodes[0].peer, (int)(next_random() % 3), 0);
 		/* (the game moving on: frames, machines coming and going) */
 		if (iteration % 16 == 0)
 		{
@@ -2094,6 +2594,11 @@ int main(int argc, char **argv)
 	test_wire_moderation();
 	test_moderation();
 	test_moderation_refused();
+	test_wire_chat();
+	test_chat_text();
+	test_chat_filter();
+	test_chat_rules();
+	test_chat();
 	test_random(iterations);
 	if (failures)
 	{

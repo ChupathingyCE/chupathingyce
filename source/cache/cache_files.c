@@ -1383,7 +1383,7 @@ boolean cache_files_give_time_to_precache(
 		{
 			cache_files_precache_set_priority(0);
 			if (!cache_files_precache_map_begin(map_name, FALSE))
-				display_error_damaged_media();
+				cache_files_display_map_error(map_name);
 		}
 	}
 

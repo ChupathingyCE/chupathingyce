@@ -47,9 +47,13 @@ class Entry:
     upstream: str
     why: str
     mac: str | None = None       # replacement/shadow, relative to METAL
-    base: str | None = None      # upstream blob last reconciled
+    base: str | None = None      # checked-out platform blob last reconciled
+    upstream_base: str | None = None  # reviewed canonical upstream variant, if different
     seen: str | None = None      # upstream blob acknowledged, not reconciled
     identical: bool = False
+
+    def baseline(self, against: str | None) -> str | None:
+        return self.upstream_base if against and self.upstream_base else self.base
 
 
 @dataclass
@@ -77,7 +81,8 @@ class Manifest:
 
 def _entries(section: dict) -> dict[str, Entry]:
     return {name: Entry(upstream=name, why=value.get("why", ""), mac=value.get("with"), base=value.get("base"),
-                        seen=value.get("seen"), identical=bool(value.get("identical")))
+                        upstream_base=value.get("upstream_base"), seen=value.get("seen"),
+                        identical=bool(value.get("identical")))
             for name, value in section.items() if name != "comment"}
 
 
@@ -214,21 +219,22 @@ class Drift:
         if e.identical:
             return (f"{mac} must stay identical to {path}, which changed: review it, then "
                     f"`python3 tools/metal_manifest.py accept {e.upstream}` copies it")
-        assert e.base is not None  # structure_problems requires a fork's baseline
+        base = e.baseline(against)
+        assert base is not None  # structure_problems requires a fork's baseline
         state = "known drift, not yet reconciled" if self.known else "CHANGED upstream since last reconciled"
         current = f"{against}:{path.as_posix()}" if against else path.as_posix()
         text = [f"{path} -> {mac}: {state}",
-                f"    review: git diff {e.base[:12] if e.base else ''} {self.current[:12]}" if against else
-                f"    review: git show {e.base[:12]} | diff -u - {current}"]
+                f"    review: git diff {base[:12]} {self.current[:12]}" if against else
+                f"    review: git show {base[:12]} | diff -u - {current}"]
         try:
-            commits = missed_commits(path, e.base or "", against or "HEAD", root)
+            commits = missed_commits(path, base, against or "HEAD", root)
         except subprocess.CalledProcessError:
             commits = []
         if commits:
             text.append("    upstream commits since: " + "; ".join(commits[:8]) + (" ..." if len(commits) > 8 else ""))
         if not self.known:
-            text.append(f"    then: python3 tools/metal_manifest.py accept {e.upstream}"
-                        f"   (or --seen to defer)")
+            action = f" --against {against}" if against else "   (or --seen to defer)"
+            text.append(f"    then: python3 tools/metal_manifest.py accept {e.upstream}{action}")
         return "\n".join(text)
 
 
@@ -253,17 +259,19 @@ def drift(manifest: Manifest, against: str | None = None, root: Path = ROOT) -> 
                 continue
             if blob_id((root / METAL / entry.mac).read_bytes()) != current:
                 result.append(Drift(entry, current, False))
-        elif current != entry.base:
+        elif current != entry.baseline(against):
             result.append(Drift(entry, current, current is not None and current == entry.seen))
     return result
 
 
-def accept(name: str, seen: bool, root: Path = ROOT) -> str:
+def accept(name: str, seen: bool, root: Path = ROOT, against: str | None = None) -> str:
     manifest = load(root)
     entry = next((e for e in manifest.entries() if e.upstream == name), None)
     if entry is None:
         raise SystemExit(f"{name} is not a replaced, dropped or shadowed upstream file in the manifest")
     upstream = root / manifest.upstream / name
+    if against and (seen or entry.identical):
+        raise SystemExit("--against records a reviewed canonical fork baseline; not valid with --seen or identical copies")
     if entry.identical:
         if entry.mac is None:
             raise SystemExit(f"{name} has no Mac copy to update")
@@ -271,13 +279,21 @@ def accept(name: str, seen: bool, root: Path = ROOT) -> str:
             raise SystemExit(f"{name} is an identical copy: there is no deferred state; accept copies it")
         shutil.copyfile(upstream, root / METAL / entry.mac)
         return f"copied {manifest.upstream / name} to {METAL / entry.mac}"
-    current = blob_id(upstream.read_bytes())
+    current = upstream_blob(manifest, name, against, root)
+    if current is None:
+        raise SystemExit(f"cannot read {name} at {against or 'the checkout'}")
     text = (root / MANIFEST).read_text()
     block = re.search(rf'\n    "{re.escape(name)}": \{{.*?\n    \}}', text, re.S)
     if not block:
         raise SystemExit(f"cannot find {name}'s entry in {MANIFEST}")
     body = block.group(0)
-    if seen:
+    if against:
+        if '"upstream_base":' in body:
+            body = re.sub(r'"upstream_base": "[0-9a-f]+"', f'"upstream_base": "{current}"', body)
+        else:
+            body = re.sub(r'("base": "[0-9a-f]+",)', rf'\1\n      "upstream_base": "{current}",', body)
+        message = f"{name}: reviewed canonical {against} at {current[:12]} (checkout pin unchanged)"
+    elif seen:
         if '"seen":' in body:
             body = re.sub(r'"seen": "[0-9a-f]+"', f'"seen": "{current}"', body)
         else:
@@ -332,6 +348,7 @@ def main(argv: list[str] | None = None) -> int:
     accept_parser = commands.add_parser("accept", help="record an upstream file as reconciled")
     accept_parser.add_argument("file", help="the upstream file's name (port_config.c)")
     accept_parser.add_argument("--seen", action="store_true", help="acknowledge the drift without reconciling it")
+    accept_parser.add_argument("--against", metavar="REF", help="record a reviewed canonical upstream variant without changing the checkout pin")
     symbols = commands.add_parser("symbols", help="the symbol contract (from ninja)")
     symbols.add_argument("--stamp", type=Path, required=True)
     symbols.add_argument("--upstream", type=Path, nargs="+", required=True, help="the replaced/dropped upstream objects")
@@ -339,7 +356,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "accept":
-        print(accept(args.file, args.seen))
+        print(accept(args.file, args.seen, against=args.against))
         return 0
     manifest = load()
     problems = structure_problems(manifest)

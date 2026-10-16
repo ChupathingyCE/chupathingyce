@@ -1,7 +1,7 @@
 /*
 CONTROL_LINK_PROTOCOL.C
 
-Delta Control's link to halo.milenko.org as bytes (control_link_protocol.h).
+Delta Control's link to the Chupathingy site as bytes (control_link_protocol.h).
 */
 
 #include "control_link_protocol.h"
@@ -535,6 +535,176 @@ int control_link_parse_poll(const char *payload, size_t length, struct control_l
 		}
 	}
 	return 1;
+}
+
+/* ---------- the site's role list, kept */
+
+static void roles_cache_mac(const uint8_t secret[CONTROL_LINK_SECRET_BYTES], const char *header, size_t header_length,
+	const char *list, size_t list_length, uint8_t mac[32])
+{
+	crypto_blake2b_ctx context;
+
+	crypto_blake2b_keyed_init(&context, 32, secret, CONTROL_LINK_SECRET_BYTES);
+	crypto_blake2b_update(&context, (const uint8_t *)"delta_roles.cache v1\n", 21);
+	crypto_blake2b_update(&context, (const uint8_t *)header, header_length);
+	crypto_blake2b_update(&context, (const uint8_t *)"\n", 1);
+	crypto_blake2b_update(&context, (const uint8_t *)list, list_length);
+	crypto_blake2b_final(&context, mac);
+}
+
+/* text appended at out + *length, as far as it fits: 1, else 0 */
+static int put(char *out, size_t size, size_t *length, const char *text)
+{
+	size_t more = strlen(text);
+
+	if (*length + more >= size)
+		return 0;
+	memcpy(out + *length, text, more + 1);
+	*length += more;
+	return 1;
+}
+
+int control_link_roles_cache_text(const struct control_link_poll *poll, int64_t heard,
+	const uint8_t secret[CONTROL_LINK_SECRET_BYTES], char *out, size_t size)
+{
+	static const char comment[] = "# The Chupathingy Dedicated Server's copy of the Chupathingy site's role list "
+		"(server/docs/moderation.md),\n# kept so a restart while the site is down keeps its roles for a while. "
+		"Written by the server: edited, it is refused.\n";
+	char header[96];
+	char number[32];
+	char mac_text[65];
+	uint8_t mac[32];
+	size_t length = 0, list_start, header_at;
+	int index, key;
+
+	if (!poll->has_roles || size < sizeof(comment) + 200)
+		return -1;
+	memcpy(out, comment, sizeof(comment));
+	length = sizeof(comment) - 1;
+	/* (the header's line is written once the MAC is known: room kept) */
+	header_at = length;
+	memset(out + length, ' ', 160);
+	length += 160;
+	out[length++] = '\n';
+	out[length] = 0;
+	list_start = length;
+	snprintf(number, sizeof(number), "%llu", (unsigned long long)poll->roles_version);
+	if (!put(out, size, &length, "{\"roles\": {\"version\": ") || !put(out, size, &length, number) ||
+		!put(out, size, &length, ", \"entries\": ["))
+	{
+		return -1;
+	}
+	for (index = 0; index < poll->role_count; index++)
+	{
+		const struct control_link_role *role = &poll->roles[index];
+		char handle[CONTROL_LINK_HANDLE_SIZE * 6 + 3];
+
+		if (control_json_string(role->handle, handle, sizeof(handle)) < 0 ||
+			!put(out, size, &length, index ? ", {\"handle\": " : "{\"handle\": ") || !put(out, size, &length, handle) ||
+			!put(out, size, &length, ", \"role\": \"") || !put(out, size, &length, control_role_name(role->role)) ||
+			!put(out, size, &length, "\", \"keys\": ["))
+		{
+			return -1;
+		}
+		for (key = 0; key < role->key_count; key++)
+		{
+			char key_text[CONTROL_KEY_TEXT + 1];
+
+			control_key_text(role->keys[key], key_text);
+			if (!put(out, size, &length, key ? ", \"" : "\"") || !put(out, size, &length, key_text) ||
+				!put(out, size, &length, "\""))
+			{
+				return -1;
+			}
+		}
+		if (!put(out, size, &length, "]}"))
+			return -1;
+	}
+	if (!put(out, size, &length, "]}}\n"))
+		return -1;
+	snprintf(header, sizeof(header), "v1 %lld %llu", (long long)heard, (unsigned long long)poll->roles_version);
+	roles_cache_mac(secret, header, strlen(header), out + list_start, length - list_start, mac);
+	control_hex_text(mac, sizeof(mac), mac_text);
+	/* (the header's line, then the room kept for it closed up) */
+	{
+		char line[170];
+		int line_length = snprintf(line, sizeof(line), "%s %s\n", header, mac_text);
+
+		memcpy(out + header_at, line, (size_t)line_length);
+		memmove(out + header_at + line_length, out + list_start, length - list_start + 1);
+		length = header_at + (size_t)line_length + (length - list_start);
+	}
+	return (int)length;
+}
+
+int control_link_roles_cache_open(const char *text, size_t length, const uint8_t secret[CONTROL_LINK_SECRET_BYTES],
+	struct control_link_poll *poll, int64_t *heard)
+{
+	const char *line = text;
+	const char *end = text + length;
+	const char *list;
+	char header[96];
+	char mac_text[65];
+	long long heard_value;
+	unsigned long long version;
+	uint8_t mac[32], expected[32];
+	size_t header_length;
+	int consumed = 0;
+	int index;
+
+	memset(poll, 0, sizeof(*poll));
+	/* (past the comments) */
+	while (line < end && *line == '#')
+	{
+		const char *next = memchr(line, '\n', (size_t)(end - line));
+
+		if (!next)
+			return 0;
+		line = next + 1;
+	}
+	list = memchr(line, '\n', (size_t)(end - line));
+	if (!list || (size_t)(list - line) >= sizeof(header) + 70)
+		return 0;
+	if (sscanf(line, "v1 %lld %llu %64s%n", &heard_value, &version, mac_text, &consumed) != 3 ||
+		line + consumed != list || strlen(mac_text) != 64 || heard_value <= 0)
+	{
+		return 0;
+	}
+	for (index = 0; index < 32; index++)
+	{
+		int high = hex_digit(mac_text[2 * index]);
+		int low = hex_digit(mac_text[2 * index + 1]);
+
+		if (high < 0 || low < 0)
+			return 0;
+		mac[index] = (uint8_t)(high << 4 | low);
+	}
+	/* (the header: all but " <mac>") */
+	if (consumed < 66 || line[consumed - 65] != ' ')
+		return 0;
+	header_length = (size_t)consumed - 65;
+	list++;
+	roles_cache_mac(secret, line, header_length, list, (size_t)(end - list), expected);
+	if (crypto_verify32(mac, expected))
+		return 0;
+	if (!control_link_parse_poll(list, (size_t)(end - list), poll) || !poll->has_roles ||
+		poll->roles_version != version || poll->command_count || poll->unlinked)
+	{
+		memset(poll, 0, sizeof(*poll));
+		return 0;
+	}
+	*heard = (int64_t)heard_value;
+	return 1;
+}
+
+int control_link_roles_fresh(int64_t heard, int64_t now, int hours)
+{
+	if (hours < 1)
+		hours = 1;
+	if (hours > CONTROL_LINK_ROLES_HOURS_MAXIMUM)
+		hours = CONTROL_LINK_ROLES_HOURS_MAXIMUM;
+	/* (a time to come: a clock set back; not trusted) */
+	return heard > 0 && heard <= now + 60 && now - heard < (int64_t)hours * 3600;
 }
 
 int control_link_parse_start(const char *answer, size_t length, char *code, size_t code_size, char *token,

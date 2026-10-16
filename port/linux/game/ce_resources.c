@@ -182,7 +182,10 @@ static boolean ce_resource_map_open(
 	map_family_resource(ce_resource_map_names[type], path, sizeof(path));
 	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
 	if (file == INVALID_HANDLE_VALUE)
+	{
+		ce_refusal_explain("It needs Custom Edition's %s.map: copy it into maps_ce.", ce_resource_map_names[type]);
 		return ce_refuse("there is no %s", path);
+	}
 	file_size = GetFileSize(file, &file_size_high);
 	/* (its type, its paths before its resources' table, the table in the
 	file) */
@@ -932,7 +935,10 @@ static boolean ce_resources_place(
 				resource->offset, ce_resource_map_names[type]);
 		}
 		if (next > end_free || resource->size > end_free - next)
+		{
+			ce_refusal_explain("It is too big for the game's tag cache.");
 			return ce_refuse("there is no room in the tag cache for %s's resource", name);
+		}
 		copy = image->data + (next - image->base);
 		if (!ce_read(map->file, resource->offset, copy, resource->size))
 			return ce_refuse("%s's resource could not be read", name);
