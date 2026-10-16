@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .version import VERSION_SOURCES, identity_defines, release_build, version
+from .version import VERSION_SOURCES, identity_defines, release_build, resource_version, version
 from .linux_build import (CUSTOM_EDITION_DEFINES, LINUX_PROFILE, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
                           XDK_INCLUDE, game_browser_defines, lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
                           game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
@@ -398,6 +398,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
     sdl_dll = build / "SDL3.dll"
     sdl_lib = SDL_DIR / "lib" / target.sdl_arch
     cc = getattr(sln, "windows_cc", None) or "clang"
+    rc = getattr(sln, "windows_rc", None) or "llvm-rc"
     prefix_header = PORT_DIR / "include" / "halo_windows_prefix.h"
     crt_include = PORT_DIR / "include" / "crt"
     posix_include = PORT_DIR / "include" / "posix"
@@ -430,6 +431,23 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         rspfile="$out.rsp",
         rspfile_content="$in_newline",
     )
+    # the executable's icon and version information (port/windows/halo.rc),
+    # compiled by LLVM's resource compiler and linked in as a .res
+    resource = build / "halo.res"
+    resource_header = build / "halo_version.h"
+    numbers, text = resource_version()
+    resource_header.parent.mkdir(parents=True, exist_ok=True)
+    header_text = f'#define HALO_RC_VERSION_NUMBERS {numbers}\n#define HALO_RC_VERSION_STRING "{text}"\n'
+    if not resource_header.is_file() or resource_header.read_text(encoding="utf-8") != header_text:
+        resource_header.write_text(header_text, encoding="utf-8")
+    n.variable(f"{prefix}_rc", rc)
+    n.rule(
+        name=f"{prefix}_rc",
+        command=f"${prefix}_rc /nologo /I {build} /I {PORT_DIR} /FO $out $in",
+        description=f"{label} RC $out",
+    )
+    n.build(outputs=resource, rule=f"{prefix}_rc", inputs=PORT_DIR / "halo.rc",
+            implicit=[PORT_DIR / "halo.ico", resource_header])
     n.rule(
         name=f"{prefix}_copy",
         command="$python -c \"import shutil,sys; shutil.copyfile(sys.argv[1], sys.argv[2])\" $in $out",
@@ -600,7 +618,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         n.build(
             outputs=output,
             rule=f"{prefix}_link",
-            inputs=objects + extra_objects,
+            inputs=objects + extra_objects + [resource],
             variables={"ldflags": " ".join(base_ldflags + extra_ldflags), "libs": libs},
         )
 

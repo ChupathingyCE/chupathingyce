@@ -18,6 +18,11 @@ You do not need the Xbox SDK.
   SDK. It does not use the MSVC compiler.
 - LLVM (clang and lld), Python 3 and ninja in the `PATH`. For example,
   enter `scoop install llvm python ninja`.
+- `llvm-rc` (LLVM's resource compiler, with the LLVM above) in the `PATH`.
+  It puts the icon and the version information of `port/windows/halo.rc`
+  in the executable. `python tools/windows_icon.py` makes the icon,
+  `port/windows/halo.ico`, from `port/art/icon.svg` (needs `rsvg-convert`);
+  it is committed, so a build does not need it.
 - A network connection for the first build. `configure.py` downloads the
   Visual C++ development package of SDL 3.4.16 to
   `build/windows/third_party`.
@@ -80,7 +85,7 @@ The game finds the game data as on Linux. Refer to "Start the game" in
 | Item | Location |
 | --- | --- |
 | Settings | `config.toml` next to `halo.exe` |
-| Saved games | `%APPDATA%\halo`, or `paths.saves` in `config.toml` |
+| Saved games | `%APPDATA%\ChupathingyCE`, or `paths.saves` in `config.toml`. The first start copies the saves from `%APPDATA%\halo`, which earlier versions used, and leaves that folder as it was |
 | Log | `debug.txt` in the data root (the folder that contains `maps\`) |
 | Log of the port | The console. The release build has no console: `halo.log` next to `halo.exe` |
 | Crash reports | `crashes\` next to `halo.exe`, until the game sends them |

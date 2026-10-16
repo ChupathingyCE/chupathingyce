@@ -1,7 +1,7 @@
 /*
 CONTROL_LINK.C
 
-Delta Control's link to halo.milenko.org (server_link.h; docs/delta.md,
+Delta Control's link to the Chupathingy site, stats.chupathingy.org (server_link.h; docs/delta.md,
 Delta Control). Off until the server's owner links it (sv_link), and off
 for good with HALO_DEDICATED_LINK=false.
 
@@ -83,6 +83,15 @@ enum
 };
 
 #define LINK_FILE "delta_link.key"
+#define ROLES_FILE "delta_roles.cache"
+
+enum
+{
+	/* the role cache is written again at least this often while the site
+	answers (its time heard, for the expiry after a restart) */
+	ROLES_CACHE_SECONDS = 10 * 60,
+	ROLES_CACHE_SIZE = 96 * 1024,
+};
 
 /* ---------- globals */
 
@@ -117,6 +126,15 @@ static struct
 	int64_t heard;
 	char problem[160];
 	uint64_t roles_version;
+	/* the site's role list: where it stands (SERVER_SITE_ROLES_*), when the
+	site last confirmed it, the hours it holds without the site, when the
+	cache was last written, and the list itself (for the cache, and to tell
+	what a new one takes away) */
+	int roles_state;
+	int64_t roles_heard;
+	int roles_hours;
+	int64_t roles_written;
+	struct control_link_poll roles;
 	/* the commands for the main thread */
 	struct control_link_command commands[MAXIMUM_PENDING];
 	int command_count;
@@ -162,11 +180,16 @@ static int random_bytes(void *buffer, size_t size)
 	return 1;
 }
 
-static void link_path(char *path, size_t size)
+static void data_file(const char *name, char *path, size_t size)
 {
 	const char *root = platform_data_root();
 
-	snprintf(path, size, "%s/%s", root && root[0] ? root : ".", LINK_FILE);
+	snprintf(path, size, "%s/%s", root && root[0] ? root : ".", name);
+}
+
+static void link_path(char *path, size_t size)
+{
+	data_file(LINK_FILE, path, size);
 }
 
 static int hex_parse(const char *text, uint8_t *bytes, size_t count)
@@ -247,7 +270,7 @@ static int save_credential(void)
 	}
 	control_hex_text(link_state.seed, sizeof(link_state.seed), seed);
 	control_hex_text(link_state.secret, sizeof(link_state.secret), secret);
-	fprintf(out, "# The ChupathingyCE Dedicated Server's link to halo.milenko.org (Delta Control). Keep it\n"
+	fprintf(out, "# The Chupathingy Dedicated Server's link to the Chupathingy site (Delta Control). Keep it\n"
 		"# private; delete it (or sv_unlink) to unlink.\nv1 %s %s %s %s\n", link_state.server_id, seed, secret,
 		link_state.owner[0] ? link_state.owner : "-");
 	crypto_wipe(seed, sizeof(seed));
@@ -271,8 +294,14 @@ static void forget_credential(void)
 	link_state.roles_version = 0;
 	link_state.command_count = 0;
 	link_state.result_count = 0;
+	data_file(ROLES_FILE, path, sizeof(path));
+	unlink(path);
+	link_state.roles_state = SERVER_SITE_ROLES_NONE;
+	link_state.roles_heard = 0;
+	memset(&link_state.roles, 0, sizeof(link_state.roles));
 	server_roles_set_site(0, NULL, NULL, NULL, 0);
-	server_roles_set_site_handles(0, NULL, NULL);
+	server_roles_set_site_handles(0, NULL, NULL, NULL, NULL);
+	server_roles_set_site_state(SERVER_SITE_ROLES_NONE, 0, link_state.cap, link_state.roles_hours);
 }
 
 static void set_problem(const char *format, ...)
@@ -294,17 +323,73 @@ static int request(const char *path, const char *body, char *answer, int answer_
 	return posix_browser_request(url, body, "application/json", answer, answer_size, error, error_size);
 }
 
-/* the site's role list taken, never above the link's cap */
-static void take_roles(const struct control_link_poll *poll)
+/* the role cache written (the lock held): the list kept, and when the site
+last confirmed it */
+static void write_roles_cache(void)
+{
+	static char text[ROLES_CACHE_SIZE];
+	char path[1024];
+	char temporary[1040];
+	int length;
+	int fd;
+
+	if (!link_state.roles.has_roles)
+		return;
+	length = control_link_roles_cache_text(&link_state.roles, link_state.roles_heard, link_state.secret, text,
+		sizeof(text));
+	if (length < 0)
+		return;
+	data_file(ROLES_FILE, path, sizeof(path));
+	snprintf(temporary, sizeof(temporary), "%s.new", path);
+	unlink(temporary);
+	fd = open(temporary, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+	if (fd < 0)
+		return;
+	if (write(fd, text, (size_t)length) != length || close(fd) || rename(temporary, path))
+	{
+		unlink(temporary);
+		return;
+	}
+	link_state.roles_written = now_seconds();
+}
+
+/* the site's role list taken (the lock held), never above the link's cap,
+and kept; what it takes away from the list before logged and audited */
+static void take_roles(const struct control_link_poll *poll, int state)
 {
 	static unsigned char keys[CONTROL_LINK_ROLE_ENTRIES * CONTROL_LINK_ENTRY_KEYS * 32];
 	static int key_roles[CONTROL_LINK_ROLE_ENTRIES * CONTROL_LINK_ENTRY_KEYS];
 	static const char *key_names[CONTROL_LINK_ROLE_ENTRIES * CONTROL_LINK_ENTRY_KEYS];
 	static const char *handles[CONTROL_LINK_ROLE_ENTRIES];
 	static int handle_roles[CONTROL_LINK_ROLE_ENTRIES];
+	static int site_roles[CONTROL_LINK_ROLE_ENTRIES];
+	static int key_counts[CONTROL_LINK_ROLE_ENTRIES];
 	int key_count = 0;
 	int index;
 
+	/* (a role taken away, or lowered, since the list before: a revocation
+	the site made, perhaps while it could not be heard) */
+	for (index = 0; index < link_state.roles.role_count; index++)
+	{
+		const struct control_link_role *old = &link_state.roles.roles[index];
+		int now_role = CONTROL_ROLE_NONE;
+		int other;
+
+		for (other = 0; other < poll->role_count; other++)
+		{
+			if (!strcmp(poll->roles[other].handle, old->handle))
+				now_role = poll->roles[other].role;
+		}
+		if (now_role < old->role)
+		{
+			platform_log("Delta Control: the site's role list takes %s from %s to %s", old->handle,
+				control_role_name(old->role), control_role_name(now_role));
+			server_audit("site", old->handle, old->role > link_state.cap ? link_state.cap : old->role, "role",
+				old->handle, now_role ? "lowered on the site" : "revoked on the site", 1, control_role_name(now_role));
+		}
+	}
+	if (poll != &link_state.roles)
+		link_state.roles = *poll;
 	for (index = 0; index < poll->role_count; index++)
 	{
 		const struct control_link_role *role = &poll->roles[index];
@@ -313,6 +398,8 @@ static void take_roles(const struct control_link_poll *poll)
 
 		handles[index] = role->handle;
 		handle_roles[index] = capped;
+		site_roles[index] = role->role;
+		key_counts[index] = role->key_count;
 		for (key = 0; key < role->key_count; key++)
 		{
 			memcpy(keys + key_count * 32, role->keys[key], 32);
@@ -321,8 +408,73 @@ static void take_roles(const struct control_link_poll *poll)
 			key_count++;
 		}
 	}
-	server_roles_set_site_handles(poll->role_count, handles, handle_roles);
+	server_roles_set_site_handles(poll->role_count, handles, handle_roles, site_roles, key_counts);
 	server_roles_set_site(key_count, keys, key_roles, key_names, (unsigned int)poll->roles_version);
+	link_state.roles_state = state;
+	server_roles_set_site_state(state, (long long)link_state.roles_heard, link_state.cap, link_state.roles_hours);
+}
+
+/* the site's roles dropped (the lock held) once it has not been heard for
+the expiry's hours: the moderators file's and the accounts' stand, and the
+site sends its whole list again when it answers */
+static void expire_roles(void)
+{
+	if ((link_state.roles_state != SERVER_SITE_ROLES_LIVE && link_state.roles_state != SERVER_SITE_ROLES_CACHED) ||
+		control_link_roles_fresh(link_state.roles_heard, now_seconds(), link_state.roles_hours))
+	{
+		return;
+	}
+	server_roles_set_site(0, NULL, NULL, NULL, 0);
+	server_roles_set_site_handles(0, NULL, NULL, NULL, NULL);
+	link_state.roles_version = 0;
+	link_state.roles_state = SERVER_SITE_ROLES_EXPIRED;
+	server_roles_set_site_state(SERVER_SITE_ROLES_EXPIRED, (long long)link_state.roles_heard, link_state.cap,
+		link_state.roles_hours);
+	platform_log("Delta Control: the site has not answered for %d hours: its roles (%d accounts) are dropped until it "
+		"does (HALO_DEDICATED_LINK_ROLE_HOURS); moderators.txt and the panel's accounts keep theirs",
+		link_state.roles_hours, link_state.roles.role_count);
+	server_audit("site", "", CONTROL_ROLE_NONE, "roles expired", NULL, "the site was not heard", 1, NULL);
+}
+
+/* the role cache read at start (the lock held), once linked: its list
+taken while it is fresh */
+static void load_roles_cache(void)
+{
+	static char text[ROLES_CACHE_SIZE + 1];
+	static struct control_link_poll cached;
+	char path[1024];
+	int64_t heard = 0;
+	ssize_t length;
+	int fd;
+
+	data_file(ROLES_FILE, path, sizeof(path));
+	fd = open(path, O_RDONLY | O_CLOEXEC);
+	if (fd < 0)
+		return;
+	length = read(fd, text, ROLES_CACHE_SIZE);
+	close(fd);
+	if (length <= 0)
+		return;
+	text[length] = 0;
+	if (!control_link_roles_cache_open(text, (size_t)length, link_state.secret, &cached, &heard))
+	{
+		platform_log("Delta Control: %s is not this link's, or was edited: left out (the site's roles come with "
+			"its next answer)", ROLES_FILE);
+		return;
+	}
+	if (!control_link_roles_fresh(heard, now_seconds(), link_state.roles_hours))
+	{
+		platform_log("Delta Control: %s is older than %d hours: its roles are left out until the site answers",
+			ROLES_FILE, link_state.roles_hours);
+		return;
+	}
+	link_state.roles_heard = heard;
+	link_state.roles_written = heard;
+	link_state.roles_version = cached.roles_version;
+	take_roles(&cached, SERVER_SITE_ROLES_CACHED);
+	platform_log("Delta Control: the site's roles from %s (%d accounts, the site last heard %lld minutes ago); they "
+		"hold %d hours without the site", ROLES_FILE, cached.role_count, (long long)(now_seconds() - heard) / 60,
+		link_state.roles_hours);
 }
 
 /* the linking's part of the thread: a code asked for, then its state */
@@ -373,11 +525,11 @@ static void run_linking(void)
 	pthread_mutex_unlock(&link_mutex);
 	/* (on the console, as sv_link said it would be, and in the log: the code
 	is good once, for a few minutes, and only with the owner's account) */
-	printf("\nChupathingyCE Dedicated Server: to link this server to your account, sign in at\n"
-		"%s/servers/link and enter the code\n\n    %s\n\nIt is good for %d minutes.\n\n", link_state.url, code,
-		expires / 60);
+	printf("\nChupathingy Dedicated Server: to link this server to your account, open\n\n    %s/servers/link?code=%s\n\n"
+		"signed in (or sign in at %s/servers/link and enter the code %s). It is good for %d minutes.\n\n",
+		link_state.url, code, link_state.url, code, expires / 60);
 	fflush(stdout);
-	platform_log("Delta Control: the link's code is %s (enter it at %s/servers/link)", code, link_state.url);
+	platform_log("Delta Control: the link's code is %s (open %s/servers/link?code=%s)", code, link_state.url, code);
 	for (;;)
 	{
 		char state[16], server_id[CONTROL_LINK_SERVER_ID_SIZE], owner[CONTROL_LINK_HANDLE_SIZE];
@@ -537,6 +689,7 @@ static int run_poll(void)
 	link_state.result_count -= sent_results;
 	link_state.heard = now_seconds();
 	link_state.problem[0] = 0;
+	link_state.roles_heard = link_state.heard;
 	if (poll.unlinked)
 	{
 		forget_credential();
@@ -549,10 +702,33 @@ static int run_poll(void)
 	}
 	if (poll.has_roles)
 	{
+		if (link_state.roles_state == SERVER_SITE_ROLES_EXPIRED)
+			platform_log("Delta Control: the site answers again: its roles are back");
 		link_state.roles_version = poll.roles_version;
-		take_roles(&poll);
+		take_roles(&poll, SERVER_SITE_ROLES_LIVE);
 		platform_log("Delta Control: the site's role list, version %llu: %d accounts",
 			(unsigned long long)poll.roles_version, poll.role_count);
+		write_roles_cache();
+	}
+	else if (link_state.roles_state == SERVER_SITE_ROLES_EXPIRED)
+	{
+		/* (the site has no list for this server: nothing to bring back) */
+		link_state.roles_state = SERVER_SITE_ROLES_LIVE;
+		memset(&link_state.roles, 0, sizeof(link_state.roles));
+		platform_log("Delta Control: the site answers again (it gives no roles here)");
+	}
+	else if (link_state.roles_state == SERVER_SITE_ROLES_CACHED)
+	{
+		/* (the site has the cache's version: the list is its word again) */
+		link_state.roles_state = SERVER_SITE_ROLES_LIVE;
+		platform_log("Delta Control: the site confirms the cached role list");
+	}
+	if (link_state.roles_state != SERVER_SITE_ROLES_NONE && link_state.roles_state != SERVER_SITE_ROLES_EXPIRED)
+	{
+		server_roles_set_site_state(link_state.roles_state, (long long)link_state.roles_heard, link_state.cap,
+			link_state.roles_hours);
+		if (link_state.heard - link_state.roles_written >= ROLES_CACHE_SECONDS)
+			write_roles_cache();
 	}
 	for (index = 0; index < poll.command_count; index++)
 	{
@@ -620,7 +796,12 @@ static void *link_thread(void *argument)
 		}
 		if (state == LINK_LINKED)
 		{
-			int seconds = run_poll();
+			int seconds;
+
+			pthread_mutex_lock(&link_mutex);
+			expire_roles();
+			pthread_mutex_unlock(&link_mutex);
+			seconds = run_poll();
 
 			if (seconds > 0)
 				retry = RETRY_SECONDS;
@@ -667,6 +848,7 @@ void server_link_begin(void)
 	const char *setting = getenv("HALO_DEDICATED_LINK");
 	const char *url = getenv("HALO_DEDICATED_LINK_URL");
 	const char *cap = getenv("HALO_DEDICATED_LINK_ROLE");
+	const char *hours = getenv("HALO_DEDICATED_LINK_ROLE_HOURS");
 
 	pthread_mutex_lock(&link_mutex);
 	if (setting && (!strcmp(setting, "0") || !strcasecmp(setting, "false") || !strcasecmp(setting, "no") ||
@@ -674,13 +856,13 @@ void server_link_begin(void)
 	{
 		link_state.disabled = 1;
 		pthread_mutex_unlock(&link_mutex);
-		platform_log("Delta Control: the link to halo.milenko.org is off (HALO_DEDICATED_LINK)");
+		platform_log("Delta Control: the link to the Chupathingy site is off (HALO_DEDICATED_LINK)");
 		return;
 	}
 	if (!url || !url[0])
 		url = getenv("HALO_NET_BROWSER");
 	if (!url || !url[0])
-		url = "https://halo.milenko.org";
+		url = "https://stats.chupathingy.org";
 	/* (HTTPS, or this machine for tests) */
 	if (strncmp(url, "https://", 8) && strncmp(url, "http://127.0.0.1", 16) && strncmp(url, "http://localhost", 16))
 	{
@@ -703,11 +885,26 @@ void server_link_begin(void)
 		else
 			platform_log("Delta Control: HALO_DEDICATED_LINK_ROLE is moderator or admin; admin it is");
 	}
+	link_state.roles_hours = CONTROL_LINK_ROLES_HOURS_DEFAULT;
+	if (hours && hours[0])
+	{
+		char *end;
+		long value = strtol(hours, &end, 10);
+
+		if (*end || value < 1 || value > CONTROL_LINK_ROLES_HOURS_MAXIMUM)
+		{
+			platform_log("Delta Control: HALO_DEDICATED_LINK_ROLE_HOURS is a number of hours from 1 to %d; %d it is",
+				(int)CONTROL_LINK_ROLES_HOURS_MAXIMUM, (int)CONTROL_LINK_ROLES_HOURS_DEFAULT);
+		}
+		else
+			link_state.roles_hours = (int)value;
+	}
 	if (load_credential())
 	{
 		link_state.state = LINK_LINKED;
-		platform_log("Delta Control: linked to halo.milenko.org (%s, %s's); site roles at most %s", link_state.server_id,
+		platform_log("Delta Control: linked to %s (%s, %s's); site roles at most %s", link_state.url, link_state.server_id,
 			link_state.owner, control_role_name(link_state.cap));
+		load_roles_cache();
 		start_thread();
 	}
 	pthread_mutex_unlock(&link_mutex);
@@ -719,13 +916,13 @@ int server_link_start(const char *server_name, const char *version, char *text, 
 
 	pthread_mutex_lock(&link_mutex);
 	if (link_state.disabled || !link_state.url[0])
-		snprintf(text, (size_t)text_size, "the link to halo.milenko.org is off on this server (HALO_DEDICATED_LINK)");
+		snprintf(text, (size_t)text_size, "the link to the Chupathingy site is off on this server (HALO_DEDICATED_LINK)");
 	else if (link_state.state == LINK_LINKED)
 		snprintf(text, (size_t)text_size, "linked already, to %s's account (sv_unlink first)", link_state.owner);
 	else if (link_state.state != LINK_OFF)
 	{
 		if (link_state.code[0])
-			snprintf(text, (size_t)text_size, "linking: sign in at %s/servers/link and enter %s", link_state.url,
+			snprintf(text, (size_t)text_size, "linking: open %s/servers/link?code=%s, signed in", link_state.url,
 				link_state.code);
 		else
 			snprintf(text, (size_t)text_size, "linking: asking the site for a code");
@@ -750,8 +947,8 @@ int server_link_start(const char *server_name, const char *version, char *text, 
 		else
 		{
 			pthread_cond_signal(&link_wake);
-			snprintf(text, (size_t)text_size, "asking %s for a code: it is printed on the server's console and in its "
-				"log in a moment (sv_link_status shows it too); enter it at %s/servers/link, signed in", link_state.url,
+			snprintf(text, (size_t)text_size, "asking %s for a code: the link to open, %s/servers/link?code=<code>, is "
+				"printed on the server's console and in its log in a moment (sv_link_status shows it too)", link_state.url,
 				link_state.url);
 			ok = 1;
 		}
@@ -795,6 +992,7 @@ int server_link_stop(char *text, int text_size)
 void server_link_status(int json, char *text, int text_size)
 {
 	static const char *const names[] = { "off", "linking", "linking", "linked" };
+	static const char *const role_states[] = { "none", "live", "cached", "expired" };
 	int64_t now = now_seconds();
 	char problem[200];
 
@@ -803,23 +1001,25 @@ void server_link_status(int json, char *text, int text_size)
 	if (json)
 	{
 		snprintf(text, (size_t)text_size, "{\"state\": \"%s\", \"enabled\": %s, \"site\": \"%s\", \"server_id\": %s%s%s, "
-			"\"owner\": %s%s%s, \"code\": %s%s%s, \"heard_seconds_ago\": %lld, \"role_cap\": \"%s\", \"problem\": %s}",
+			"\"owner\": %s%s%s, \"code\": %s%s%s, \"heard_seconds_ago\": %lld, \"role_cap\": \"%s\", \"problem\": %s, "
+			"\"roles\": {\"state\": \"%s\", \"accounts\": %d, \"version\": %llu, \"expire_hours\": %d}}",
 			link_state.disabled ? "off" : names[link_state.state], link_state.disabled ? "false" : "true", link_state.url,
 			link_state.server_id[0] ? "\"" : "", link_state.server_id[0] ? link_state.server_id : "null",
 			link_state.server_id[0] ? "\"" : "", link_state.owner[0] ? "\"" : "", link_state.owner[0] ? link_state.owner :
 			"null", link_state.owner[0] ? "\"" : "", link_state.code[0] ? "\"" : "", link_state.code[0] ? link_state.code :
 			"null", link_state.code[0] ? "\"" : "", link_state.heard ? (long long)(now - link_state.heard) : -1LL,
 			control_role_name(link_state.cap ? link_state.cap : CONTROL_ROLE_ADMIN), link_state.problem[0] ? problem :
-			"null");
+			"null", role_states[link_state.roles_state], link_state.roles_state == SERVER_SITE_ROLES_EXPIRED ? 0 :
+			link_state.roles.role_count, (unsigned long long)link_state.roles_version, link_state.roles_hours);
 	}
 	else if (link_state.disabled)
-		snprintf(text, (size_t)text_size, "the link to halo.milenko.org is off (HALO_DEDICATED_LINK)");
+		snprintf(text, (size_t)text_size, "the link to the Chupathingy site is off (HALO_DEDICATED_LINK)");
 	else if (link_state.state == LINK_LINKED)
 		snprintf(text, (size_t)text_size, "linked to %s's account on %s (%s); site roles at most %s; last heard %s%s%s",
 			link_state.owner, link_state.url, link_state.server_id, control_role_name(link_state.cap),
 			link_state.heard ? "a few seconds ago" : "not yet", link_state.problem[0] ? "; " : "", link_state.problem);
 	else if (link_state.state == LINK_WAITING)
-		snprintf(text, (size_t)text_size, "linking: sign in at %s/servers/link and enter %s", link_state.url,
+		snprintf(text, (size_t)text_size, "linking: open %s/servers/link?code=%s, signed in", link_state.url,
 			link_state.code);
 	else if (link_state.state == LINK_STARTING)
 		snprintf(text, (size_t)text_size, "linking: asking the site for a code");

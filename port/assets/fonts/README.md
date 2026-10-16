@@ -26,8 +26,10 @@ and where it is archived), respaced for this project. Only its spacing is
 changed, its outlines are Newtown's: each letter's side spaces and the
 kerning pairs are measured from where the letters sit in the maps' titles.
 OpenCE is under the SIL Open Font License 1.1 (`OpenCE-OFL.txt`), without a
-Reserved Font Name. It is not embedded: `tools/title_assets.py` draws the
-titles with it, and the builds embed those pictures. To measure its spacing
+Reserved Font Name. `tools/title_assets.py` draws the menus' titles with it,
+and the builds embed those pictures; the overlay's screens (Online Games)
+draw their titles with it too, so the builds embed it, and the release
+packages carry `OpenCE-OFL.txt`. To measure its spacing
 again and rebuild it:
 
     python3 tools/title_font.py --measure    # paste the values into tools/title_font.py

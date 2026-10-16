@@ -43,17 +43,16 @@ static void game(char const *map, int engine, int teams)
 	event_log_begin(&game, id);
 }
 
-static int player(int tick, char const *name, char const *hardware_id, int team)
+static int player(int tick, char const *name, char const *delta, int team)
 {
 	struct event_log_player_identity identity;
 
 	memset(&identity, 0, sizeof(identity));
 	snprintf(identity.name, sizeof(identity.name), "%s", name);
-	snprintf(identity.hardware_id, sizeof(identity.hardware_id), "%s", hardware_id);
-	identity.client = hardware_id[0] ? EVENT_LOG_CLIENT_CHUPATHINGYCE : EVENT_LOG_CLIENT_OTHER;
-	snprintf(identity.platform, sizeof(identity.platform), "%s", hardware_id[0] ? "linux" : "");
+	identity.client = delta[0] ? EVENT_LOG_CLIENT_CHUPATHINGYCE : EVENT_LOG_CLIENT_OTHER;
+	snprintf(identity.platform, sizeof(identity.platform), "%s", delta[0] ? "linux" : "");
 	identity.team = team;
-	identity.color = hardware_id[0] ? 3 : -1;
+	identity.color = delta[0] ? 3 : -1;
 	return event_log_player(tick, &identity);
 }
 
@@ -155,6 +154,13 @@ static void play_sample(void)
 	simple(500, EVENT_LOG_OBJECTIVE, walter, EVENT_LOG_NONE, EVENT_LOG_OBJECTIVE_FLAG_GRAB, 0, 90.0f, -150.0f);
 	simple(900, EVENT_LOG_RIDE, jo, event_log_tag("vehicles\\warthog\\mp_warthog"), EVENT_LOG_SEAT_DRIVER, 600, 0, 0);
 	simple(910, EVENT_LOG_PING, jo, EVENT_LOG_NONE, 85, 0, 0, 0);
+	/* (an OpenCE player's own rows: none of them goes in the batch) */
+	simple(120, EVENT_LOG_SPAWN, guest, EVENT_LOG_NONE, 0, 0, 60.0f, -100.0f);
+	simple(120, EVENT_LOG_POSITION, guest, EVENT_LOG_NONE, 0, 0, 61.0f, -101.0f);
+	simple(130, EVENT_LOG_PICKUP, guest, event_log_tag("weapons\\shotgun\\shotgun"), 0, 0, 62.0f, -102.0f);
+	simple(905, EVENT_LOG_PING, guest, EVENT_LOG_NONE, 120, 0, 0, 0);
+	event_log_shots(guest, pistol, 5);
+	event_log_grenade(guest, 0);
 	event_log_moderation(EVENT_LOG_MODERATION_KICK, "guest\x01", "console", "team killing");
 	event_log_moderation(EVENT_LOG_MODERATION_BAN, "Nobody", "admin:milenko", "");
 	event_log_player_left(guest, 950, EVENT_LOG_LEFT_QUIT);
@@ -243,7 +249,7 @@ int main(int argc, char **argv)
 			char name[16];
 
 			snprintf(name, sizeof(name), "player%d", index);
-			players[index] = player(0, name, "", -1);
+			players[index] = player(0, name, "delta", -1);
 		}
 		/* an hour: positions every second, a kill every 3 seconds, a pickup
 		every 5 */

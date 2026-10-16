@@ -161,10 +161,11 @@ them. Open the save tree for reading, as the guest build does
 static int share_entry(const char *path, const struct stat *information, int type, struct FTW *walk)
 {
 	(void)information;
-	(void)walk;
 	if (type == FTW_D || type == FTW_DP)
 		chmod(path, 02775);
-	else if (type == FTW_F)
+	/* (but not the game list's player key, which stays the player's
+	alone: port/linux/src/posix_browser.c) */
+	else if (type == FTW_F && strncmp(path + walk->base, "game_list_player.key", 20))
 		chmod(path, 0664);
 	return 0;
 }

@@ -1480,8 +1480,13 @@ static void platform_show_pending_message(void)
 /* ---------- events */
 
 /* quits as closing the window does, when the events are next read (the
-menus' Quit: port/linux/game/menu_functions.c); Android's menus have none,
-as the system closes its apps */
+menus' Quit: port/linux/game/menu_functions.c). Android's build has no
+SDL_PushEvent (port/android/host_imports.list), so there the next read of
+the events quits; the game's process ends, and Android starts it from its
+launcher the next time */
+#ifdef HALO_ANDROID
+static BOOL android_quit_requested;
+#endif
 #ifdef __APPLE__
 /* the menus asked to quit (platform_request_quit), not Command-Q */
 static BOOL quit_requested;
@@ -1499,7 +1504,9 @@ static void platform_quit_notice(const char *text)
 
 void platform_request_quit(void)
 {
-#ifndef HALO_ANDROID
+#ifdef HALO_ANDROID
+	android_quit_requested = TRUE;
+#else
 	SDL_Event event;
 
 #ifdef __APPLE__
@@ -1568,6 +1575,13 @@ void platform_pump_events(void)
 		platform_log("exiting after debug.exit_after");
 		exit(EXIT_SUCCESS);
 	}
+#ifdef HALO_ANDROID
+	if (android_quit_requested)
+	{
+		platform_log("quit from the menus");
+		exit(EXIT_SUCCESS);
+	}
+#endif
 	platform_show_pending_message();
 #ifdef HALO_GAME_BROWSER
 	platform_game_list_requests();

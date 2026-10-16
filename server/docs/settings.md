@@ -12,23 +12,35 @@ the file.
 | `HALO_DEDICATED` | (none) | The playlist, a path inside the data folder: `playlists/free_for_all.txt`. Required: without it the server only says how to start one. |
 | `HALO_DEDICATED_NAME` | `Dedicated` | The server's name on the lists. 15 characters at most, the game's limit. |
 | `HALO_DEDICATED_MINIMUM_PLAYERS` | `1` | The players a game waits for before its countdown starts. |
-| `HALO_DEDICATED_MAXIMUM_PLAYERS` | `12` | The players a game takes, up to 128 (`sv_maxplayers` in [admin.md](admin.md) changes it while running). |
+| `HALO_DEDICATED_MAXIMUM_PLAYERS` | `12` | The players a game takes, up to 128 (`sv_maxplayers` in [admin.md](admin.md) changes it while running, until a restart: set here, the environment wins over the settings file). |
 | `HALO_DEDICATED_IDLE_LIMIT` | `5` | A game in which nobody scores for this many minutes ends. `0`: never. |
 | `HALO_DEDICATED_PUBLIC` | `true` | A public game, listed in every in-game Server Browser (OpenCE's and ChupathingyCE's) through internet play's brokers. `false`: not listed there; the game list still lists it, and its invite still works. |
 | `HALO_DEDICATED_NAME_FILTER` | `false` | `true`: players with a blocked name are warned and kicked ([below](#blocked-names)); `sv_name_filter 1` on the console does the same. |
+| `HALO_DEDICATED_CHAT` | `2` | Text chat between ChupathingyCE players: `2` on, `1` team lines alone, `0` off (`sv_chat` sets it; the environment wins over the settings file). |
+| `HALO_DEDICATED_CHAT_FILTER` | `true` | A chat line with a word of `blocked_names.txt`'s list (the game has it built in) is not passed on; its sender's game says "Not sent: blocked words". Nobody is kicked. |
 | `HALO_DEDICATED_COMMANDS` | (none) | A file of [commands](admin.md#startup-commands) in the data folder, run once the server first hosts. |
 | `HALO_DEDICATED_CONSOLE` | on in a terminal | Commands typed on the server's standard input ([the console](admin.md#the-console)). `true`: read them even when it is not a terminal; `false`: never. |
 | `HALO_DEDICATED_CONTROL` | (off) | The [control API](admin.md#the-control-api)'s address: a port (`8080`, on 127.0.0.1 only) or an address and port (`127.0.0.1:8080`, `[::1]:8080`, `0.0.0.0:8443`). Its token is made and printed the first time, and the first owner's setup link. The [control panel](moderation.md#the-control-panel) is on the same address: plain HTTP on the loopback address, HTTPS beyond it. |
 | `HALO_DEDICATED_CONTROL_TLS` | `auto` | `auto`: HTTPS beyond the loopback address; `on`: always; `off`: never (refused on a public address). [moderation.md](moderation.md#remote-access-safely) |
 | `HALO_DEDICATED_CONTROL_CERT`, `HALO_DEDICATED_CONTROL_KEY` | (the server's own) | Your own certificate and key for the control panel's HTTPS (PEM, as certbot writes them; a path in the data folder or absolute). A renewal is taken within a minute. |
-| `HALO_DEDICATED_LINK` | `true` | `false` turns the [link to halo.milenko.org](moderation.md#the-link-to-halomilenkoorg-optional) off for good. Until `sv_link`, it does nothing either way. |
-| `HALO_DEDICATED_LINK_URL` | `HALO_NET_BROWSER` | The site the server links to (HTTPS). |
+| `HALO_DEDICATED_LINK` | `true` | `false` turns the [link to the Chupathingy site](moderation.md#the-link-to-the-chupathingy-site-optional) off for good. Until `sv_link`, it does nothing either way. |
+| `HALO_DEDICATED_LINK_URL` | `HALO_NET_BROWSER` if set, else `https://stats.chupathingy.org` | The site the server links to (HTTPS). |
 | `HALO_DEDICATED_LINK_ROLE` | `admin` | The most a role from the site may be on this server: `admin` or `moderator`. |
+| `HALO_DEDICATED_LINK_ROLE_HOURS` | `24` | How long the site's roles hold without the site answering (1 to 720 hours), kept in `delta_roles.cache` across restarts ([moderation.md](moderation.md#who-can-moderate)). |
 
 The settings file's keys (`sv_settings` lists them, with where each value
 comes from): `name`, `maximum_players`, `minimum_players`, `idle_limit`,
-`public` (from the next start), `name_filter`, and the playlist
-`sv_playlist_use` chose.
+`public` (from the next start), `name_filter`, `chat`, `chat_filter`, and
+the playlist `sv_playlist_use` chose.
+
+## Text chat
+
+ChupathingyCE players talk over Delta Peer ([docs/delta.md](../../docs/delta.md#chat)):
+the server checks each line (its rate, its text, the player's mute, the
+filter) and passes it to everyone, or to the speaker's team. It writes
+nothing of what is said: not to the log, not to the audit file. What it
+does write is the admins' own: `sv_say`'s messages and each mute, in the
+audit file. OpenCE players are never sent a line and never say one.
 
 ## Blocked names
 
@@ -61,7 +73,7 @@ carnage report shows for 20 seconds, then the next entry's lobby opens.
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `HALO_DATA_ROOT` | the current folder, else the program's | The data folder: `maps/` (with `ui.map`), `maps_ce/`, `maps_md/`, `maps_pc/`, `playlists/` (the older `maps/ce/`, `md_maps/` and OpenCE's `custom_maps/` are read too). The server's log, `debug.txt`, goes here. |
-| `HALO_SAVE_ROOT` | `~/.local/share/halo-linux` | Where the server keeps its saves (the game's profile and scratch files, about 33 MB). Give each server on a machine its own. |
+| `HALO_SAVE_ROOT` | `~/.local/share/chupathingyce` | Where the server keeps its saves (the game's profile and scratch files, about 33 MB). Give each server on a machine its own. |
 
 The server also writes `config.toml`, its settings at their defaults, beside
 the program if it can (an image's or a system folder's program cannot, which
@@ -118,7 +130,9 @@ once the API is turned on), `control_accounts.txt` (the control panel's
 accounts), `control_audit.log` (every change: [moderation.md](moderation.md)),
 `moderators.txt` (moderators by moderator key), `control_tls.crt` and
 `control_tls.key` (the panel's own certificate, when it is HTTPS),
-`delta_link.key` (the link to halo.milenko.org, once linked), and
+`delta_link.key` (the link to the Chupathingy site, once linked),
+`delta_roles.cache` (the site's roles, kept for a restart while the site is
+down), and
 `admin/` (playlists, game types and settings made on the server:
 [playlists.md](playlists.md)). Keep them private, and back them up.
 

@@ -8,14 +8,16 @@ directory holding the game's maps/ folder: paths.data (port_config.c), else the 
 directory when it has maps/, else assets/ in the current directory or two
 levels above the executable (the repository root for build/linux/halo).
 Every other drive letter X:\ is the subdirectory X/ of the save root (z:\ holds the persistent cache and saves,
-u:\ user data, t:\ title data): paths.saves, else
-$XDG_DATA_HOME/halo-linux or ~/.local/share/halo-linux. Path components are
+u:\ user data, t:\ title data): paths.saves, else the game's own folder
+(save_folder.c): $XDG_DATA_HOME/chupathingyce or ~/.local/share/chupathingyce,
+%APPDATA%/ChupathingyCE on Windows. Path components are
 matched case-insensitively, like the Xbox's FATX volumes.
 */
 
 #include "platform.h"
 #include "posix.h"
 #include "port_config.h"
+#include "save_folder.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -200,6 +202,29 @@ static BOOL saves_exist(const char *home)
 }
 #endif
 
+#ifndef __APPLE__
+/* once, on the first start with the game's own save root: the saves of the
+folder it shared with other builds, copied into it (never moved: they still
+use it) */
+static void copy_shared_saves(const char *shared, const char *root)
+{
+	unsigned long files = 0;
+
+	switch (save_folder_copy_once(shared, root, &files))
+	{
+	case _save_folder_copy_copied:
+		platform_log("copied %lu files of saves (profiles, saved games, game types) from %s, "
+			"the save folder shared with other builds; it is left as it was", files, shared);
+		break;
+	case _save_folder_copy_failed:
+		platform_log("could not copy the saves from %s; the next start tries again", shared);
+		break;
+	default:
+		break;
+	}
+}
+#endif
+
 const char *platform_save_root(void)
 {
 	static char root[MAX_PATH];
@@ -209,10 +234,9 @@ const char *platform_save_root(void)
 		const char *environment = config_string("paths.saves");
 		const char *data_home = getenv("XDG_DATA_HOME");
 		const char *home = getenv("HOME");
-
+#ifdef __APPLE__
 		if (*environment)
 			snprintf(root, sizeof(root), "%s", environment);
-#ifdef __APPLE__
 		/* the macOS application keeps everything in its folder in
 		Application Support (platform_app_folder), unless this Mac has saves
 		from before (and its player key: browser.c), in the folder below */
@@ -221,17 +245,28 @@ const char *platform_save_root(void)
 		{
 			strncat(root, "/saves", sizeof(root) - strlen(root) - 1);
 		}
-#endif
-#ifdef _WIN32
-		/* the Windows build (port/windows) keeps saves in the roaming
-		application data folder */
-		else if (getenv("APPDATA") && *getenv("APPDATA"))
-			snprintf(root, sizeof(root), "%s/halo", getenv("APPDATA"));
-#endif
 		else if (data_home && *data_home)
 			snprintf(root, sizeof(root), "%s/halo-linux", data_home);
 		else if (home && *home)
 			snprintf(root, sizeof(root), "%s/.local/share/halo-linux", home);
+#else
+		char shared[MAX_PATH];
+#ifdef _WIN32
+		const enum save_folder_system system = _save_folder_windows;
+#else
+		const enum save_folder_system system = _save_folder_linux;
+#endif
+
+		/* paths.saves (or HALO_SAVE_ROOT) as it is, else the game's own
+		folder (save_folder.c), with the saves copied from the folder it
+		shared with other builds before, once */
+		if (save_folder_choose(system, environment, getenv("APPDATA"), data_home, home,
+				root, sizeof(root), shared, sizeof(shared)))
+		{
+			if (shared[0])
+				copy_shared_saves(shared, root);
+		}
+#endif
 		else
 			snprintf(root, sizeof(root), "%s", platform_data_root());
 		trim_separators(root);

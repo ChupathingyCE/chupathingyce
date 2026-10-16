@@ -11,7 +11,8 @@ a browser (this program again): taken, and a tampered one, one on another's
 slot, an older one, a retained one of long ago, a tombstone and a listing
 older than it each handled as they must be; and a game with a password,
 listed locked (its token nowhere in the listing), opened by its password
-alone. Prints PASS or the failures.
+alone, and never listed by its invite on the game list (nor a private game),
+each change making a new invite. Prints PASS or the failures.
 */
 
 #include "p2p_internal.h"
@@ -72,7 +73,9 @@ void p2p_sign(const void *message, int size, unsigned char *signature)
 {
 	p2p_ed25519_sign(seed, signing_key, message, size, signature);
 }
-void p2p_new_invite_if_listed(void) {}
+/* (p2p.c makes a new invite if the old one was listed) */
+static int new_invite_count;
+void p2p_new_invite_if_listed(void) { new_invite_count++; }
 void p2p_signal_lobby_topics(int listed, int browsing) { (void)listed; (void)browsing; }
 void p2p_signal_lobby_query(void) {}
 void p2p_signal_lobby_publish(const unsigned char *listing, int size, int closing)
@@ -91,6 +94,16 @@ static void lobby_update(const unsigned char *token, int player_count, int maxim
 	pthread_mutex_lock(&p2p_lock);
 	p2p_lobby_update(token, player_count, maximum_player_count);
 	pthread_mutex_unlock(&p2p_lock);
+}
+
+static int hosting_open(void)
+{
+	int open;
+
+	pthread_mutex_lock(&p2p_lock);
+	open = p2p_lobby_hosting_open();
+	pthread_mutex_unlock(&p2p_lock);
+	return open;
 }
 
 /* ---------- the checks */
@@ -329,8 +342,12 @@ static void lobby_checks(void)
 	lobby_update(token, 3, 16);
 	hear(published, published_size, 0, NULL);
 	check(games(NULL) == 1, "a listing newer than the tombstone is taken");
+	check(hosting_open(), "a public game without a password may be listed by its invite");
 	/* a password: listed locked, its token sealed */
+	count = new_invite_count;
 	p2p_set_hosting_password("hunter2");
+	check(new_invite_count == count + 1, "a password makes a new invite");
+	check(!hosting_open(), "a game with a password is not listed by its invite");
 	clock_now += 6000;
 	lobby_update(token, 3, 16);
 	hear(published, published_size, 0, NULL);
@@ -353,6 +370,12 @@ static void lobby_checks(void)
 	hear(published, published_size, 0, NULL);
 	check(games(&listing) == 1 && !listing.locked && !strcmp(listing.invite, expected_invite),
 		"a game whose password is taken off is listed open");
+	check(hosting_open(), "a game whose password is taken off may be listed by its invite");
+	/* private: not listed by its invite, and a new one */
+	count = new_invite_count;
+	p2p_set_hosting_public(0);
+	check(new_invite_count == count + 1 && !hosting_open(), "a private game makes a new invite and is not listed by it");
+	p2p_set_hosting_public(1);
 }
 
 int main(void)

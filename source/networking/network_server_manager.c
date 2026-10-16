@@ -5177,8 +5177,12 @@ static void network_game_server_bomb_refusals(
 			refused_addresses[index] = 0;
 			continue;
 		}
-		if (!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_bomb))
+		/* (bomb_traits: a Grifball test build 2 or 3 says TRAITS as 18) */
+		if (!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_bomb) &&
+			!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_bomb_traits))
+		{
 			continue;
+		}
 		address = (unsigned long)network_game_server_machine_ipv4_address(server, machine->machine_index);
 		/* (once: the drop takes effect when the server next looks at its
 		machines) */
