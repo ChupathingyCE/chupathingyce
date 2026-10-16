@@ -107,10 +107,12 @@ static void overlay_icons_upload(const struct metal_overlay_frame *frame)
         [overlay_icons replaceRegion:MTLRegionMake2D(0, 0, size, size) mipmapLevel:0 slice:icon
             withBytes:pixels bytesPerRow:size * 4 bytesPerImage:(size_t)size * size * 4];
     }
-    id<MTLBlitCommandEncoder> blit = [commands blitCommandEncoder];
-    if (!blit) host_fatal("Metal overlay: cannot create icon mip encoder");
-    [blit generateMipmapsForTexture:overlay_icons];
-    [blit endEncoding];
+    if (overlay_icons.mipmapLevelCount > 1) {
+        id<MTLBlitCommandEncoder> blit = [commands blitCommandEncoder];
+        if (!blit) host_fatal("Metal overlay: cannot create icon mip encoder");
+        [blit generateMipmapsForTexture:overlay_icons];
+        [blit endEncoding];
+    }
 }
 
 static void overlay_picture_upload(const struct metal_overlay_frame *frame)

@@ -51,6 +51,21 @@ class ManifestTests(unittest.TestCase):
             found = next(d for d in contract.drift(manifest) if d.entry is entry)
             self.assertFalse(found.known)
 
+    def test_fork_and_canonical_upstream_baselines_are_distinct(self):
+        manifest = copy.deepcopy(self.manifest)
+        entry = manifest.replaced["port_config.c"]
+        entry.base = "a" * 40
+        entry.upstream_base = "b" * 40
+        manifest.replaced = {"port_config.c": entry}
+        manifest.headers = {}
+        manifest.dropped = {}
+        with patch.object(contract, "upstream_blob", return_value=entry.base):
+            self.assertEqual(contract.drift(manifest), [])
+        with patch.object(contract, "upstream_blob", return_value=entry.upstream_base):
+            self.assertEqual(contract.drift(manifest, "upstream/main"), [])
+        with patch.object(contract, "upstream_blob", return_value="c" * 40):
+            self.assertEqual(len(contract.drift(manifest, "upstream/main")), 1)
+
     def test_identical_drift_report(self):
         entry = next(e for e in self.manifest.entries() if e.identical)
         report = contract.Drift(entry, "changed", False).describe(self.manifest, None)

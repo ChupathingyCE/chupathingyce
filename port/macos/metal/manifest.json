@@ -52,6 +52,7 @@
     "port_config.c": {
       "with": "platform/port_config.c",
       "base": "6f2df2565bffbb44c632352b5679496d2f0cc79a",
+      "upstream_base": "edfd05deca4af0a3a0f6dcc5985c7d6eea23cbc3",
       "why": "The Metal renderer's settings (debug.metal_*, display.* that only Metal reads)."
     },
     "menu_files.c": {

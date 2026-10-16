@@ -8,7 +8,10 @@ test_browser_listings.py takes the header (browser.h) and the code
 (under_test.inc).
 */
 
-#include "harness.h"
+#include <stdlib.h>
+#define CHECK(condition, ...) do { if (!(condition)) { \
+    fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); exit(EXIT_FAILURE); \
+} } while (0)
 
 #include <stddef.h>
 #include <stdio.h>
