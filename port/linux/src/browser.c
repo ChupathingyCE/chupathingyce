@@ -8,7 +8,8 @@ server's list for System Link to show.
 
 Hosting: the game's server reports its game each frame
 (browser_host_update). While p2p.c hosts it on the internet (it has an
-invite) and network.list_hosted_games is on, the game is announced every
+invite), the game is public and has no password (its invite lets anyone in),
+and network.list_hosted_games is on, the game is announced every
 ANNOUNCE_INTERVAL, or a little after it changes (players join, the map
 changes), and withdrawn when the reports stop or p2p.c stops hosting. The
 server forgets a game it is not told about for a while, so a copy of the
@@ -894,6 +895,7 @@ static void announce(const char *invite, const struct hosted_game *game)
 		pthread_mutex_lock(&browser_lock);
 		snprintf(browser.listed_invite, sizeof(browser.listed_invite), "%s", invite);
 		pthread_mutex_unlock(&browser_lock);
+		p2p_hosting_invite_announced(invite);
 	}
 	else
 	{
@@ -915,8 +917,10 @@ static void update_hosting(void)
 	browser.host_changed = 0;
 	pthread_mutex_unlock(&browser_lock);
 
+	/* (only a public game without a password: its invite lets anyone in,
+	so a private game's or a password game's is never listed) */
 	hosting = reported && config_boolean("network.list_hosted_games") &&
-		p2p_hosting_invite(invite, sizeof(invite));
+		p2p_hosting_listable_invite(invite, sizeof(invite));
 	if (!hosting)
 	{
 		withdraw();

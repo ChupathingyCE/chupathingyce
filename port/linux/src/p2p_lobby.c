@@ -719,6 +719,11 @@ int p2p_lobby_listed(void)
 	return lobby.listed;
 }
 
+int p2p_lobby_hosting_open(void)
+{
+	return lobby.public && !lobby.has_password;
+}
+
 void p2p_lobby_quit(void)
 {
 	if (!lobby.listed)
