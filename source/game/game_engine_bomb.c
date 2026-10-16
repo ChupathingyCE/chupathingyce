@@ -5,8 +5,9 @@ port: Bomb, the game type Bungie cut (this file was empty in the shipped
 game), and Grifball, a preset of it (docs/bomb.md). Two teams, one bomb in
 the middle of the map: a team scores by carrying it into the other team's
 goal, which ends the round. The goals are the map's CTF flag markers and the
-bomb is the map's oddball ball, at its first ball spawn (else halfway
-between the goals), so every map with two CTF bases plays it.
+bomb is the map's oddball ball, on the ground halfway between the goals (or
+where the host's game.bomb_spawns puts it on that map), so every map with
+two CTF bases plays it.
 
 Bomb is played only between ChupathingyCE machines that agree on Delta
 Peer's bomb capability: a host drops every other machine
@@ -33,6 +34,7 @@ netcode shows them from the host's state (game_engine_bomb_write_network_state).
 #include "objects/object_definitions.h"
 #include "objects/damage.h"
 #include "physics/collision_model_definitions.h"
+#include "physics/collisions.h"
 #include "scenario/scenario.h"
 #include "scenario/scenario_definitions.h"
 #include "cache/cache_files.h"
@@ -47,11 +49,17 @@ netcode shows them from the host's state (game_engine_bomb_write_network_state).
 #ifdef HALO_GAME_BROWSER
 
 #include "../../port/linux/src/delta_peer.h"
+#include "halo_map_families.h"
+#include "main/main.h"
 
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+
+/* port_config.c's */
+long config_integer(char const *name);
+char const *config_string(char const *name);
 
 /* ---------- constants */
 
@@ -77,6 +85,15 @@ and the bodies are thrown, harder nearer */
 #define BOMB_BLAST_RADIUS 5.0f
 #define BOMB_BLAST_THROW_UP 0.3f
 #define BOMB_BLAST_THROW_OUT 0.45f
+
+/* the bomb's spawn: the ground found straight down from this high over the
+goals (world units, about 30 meters: over Blood Gulch's middle, under an
+indoor map's next floor up), or over a point game.bomb_spawns gives with its
+height, through this far, and the bomb dropped from this high over it */
+#define BOMB_SPAWN_TEST_HEIGHT 10.0f
+#define BOMB_SPAWN_POINT_TEST_HEIGHT 1.0f
+#define BOMB_SPAWN_TEST_DEPTH 20.0f
+#define BOMB_SPAWN_DROP_HEIGHT 0.25f
 
 enum
 {
@@ -312,11 +329,16 @@ void game_engine_traits_default(
 	}
 	if (variant->game_engine_variant.bomb.traits == _bomb_traits_open_pitch)
 	{
-		/* Grifball's, and fast: 175% everyone, the carrier 200% (on top:
-		115% of 175%, kept to the speed's most) */
+		/* Grifball's, and fast: 175% everyone (else the host's
+		game.bomb_open_pitch_speed: a client takes the host's, and refuses
+		the whole of TRAITS past the speed's most), the carrier 200% (on
+		top: 115% of 175%, kept to the speed's most) */
+		long speed = config_integer("game.bomb_open_pitch_speed");
+
 		traits->everyone.health = 10;
 		traits->everyone.damage = 200;
-		traits->everyone.speed = 175;
+		traits->everyone.speed = speed > 0 ?
+			(short)PIN(speed, PLAYER_TRAIT_SPEED_MINIMUM, PLAYER_TRAIT_SPEED_MAXIMUM) : 175;
 		traits->everyone.shields = _trait_shields_none;
 		traits->carrier.speed = 115;
 		traits->carrier.resistance = 150;
@@ -739,6 +761,130 @@ static void bomb_start_round(boolean timed_out)
 	bomb_show_round(timed_out);
 }
 
+/* the maps whose bomb spawn is not halfway between the goals, as
+game.bomb_spawns has them (a point with no height is on the ground there).
+Blood Gulch's is halfway between its two teleporters' exits (50.7 world
+units from red's goal, 47.3 from blue's): about even, and each team's
+teleporter takes it there */
+static char const bomb_built_in_spawns[] = "bloodgulch 63.31 -120.38";
+
+/* the point game.bomb_spawns (else the built-in ones) gives this map:
+"<map> <x> <y> [<z>]", the map as a playlist names it (bloodgulch,
+timberland@ce), entries separated by commas; the host's alone counts (only
+its bomb is placed) */
+static boolean bomb_spawn_setting(char const *spawns, real_point3d *point, boolean *has_height)
+{
+	char file[64];
+	char map[80];
+	char const *entry = spawns;
+	short family = map_family_parse(main_get_multiplayer_map_name(), file, sizeof(file));
+
+	snprintf(map, sizeof(map), "%s%s", file, map_family_suffix(family));
+	while (entry && *entry)
+	{
+		char name[64];
+		float x, y, z;
+		int count = sscanf(entry, " %63[^ ,] %f %f %f", name, &x, &y, &z);
+
+		if (count >= 3 && !csstrcasecmp(name, map))
+		{
+			point->x = x;
+			point->y = y;
+			point->z = count == 4 ? z : 0.0f;
+			*has_height = count == 4;
+			return TRUE;
+		}
+		entry = strchr(entry, ',');
+		if (entry)
+			entry++;
+	}
+	return FALSE;
+}
+
+/* the bomb's spawn, where it starts and resets: game.bomb_spawns's point on
+this map, else the built-in one, else on the ground halfway between the
+goals, so that neither team's run to it is the longer (a map's ball spawns
+are oddball's, scattered over the map: Blood Gulch's first is nearly twice
+as far from red's base as from blue's). The ground is the structure's (no
+objects: none are placed yet), the first floor straight down over the
+point. A map without the two goals, or without ground there, has its first
+ball spawn (of any team), else halfway between the goals and a little up
+(it falls to the ground), else its first starting location */
+static void bomb_find_spawn(void)
+{
+	struct scenario *scenario = global_scenario_get();
+	char const *setting = config_string("game.bomb_spawns");
+	real_point3d point;
+	boolean has_point;
+	boolean has_height = FALSE;
+	long flag_index = NONE;
+	short index;
+
+	has_point = bomb_spawn_setting(setting ? setting : "", &point, &has_height) ||
+		bomb_spawn_setting(bomb_built_in_spawns, &point, &has_height);
+	if (!has_point && bomb_globals.has_goal[0] && bomb_globals.has_goal[1])
+	{
+		point.x = (bomb_globals.goals[0].x + bomb_globals.goals[1].x) * 0.5f;
+		point.y = (bomb_globals.goals[0].y + bomb_globals.goals[1].y) * 0.5f;
+		has_point = TRUE;
+	}
+	if (has_point)
+	{
+		struct collision_result collision;
+		real_vector3d down;
+
+		if (has_height)
+			point.z += BOMB_SPAWN_POINT_TEST_HEIGHT;
+		else if (bomb_globals.has_goal[0] && bomb_globals.has_goal[1])
+			point.z = MAX(bomb_globals.goals[0].z, bomb_globals.goals[1].z) + BOMB_SPAWN_TEST_HEIGHT;
+		else
+			point.z = BOMB_SPAWN_TEST_HEIGHT;
+		down.i = 0.0f;
+		down.j = 0.0f;
+		down.k = -BOMB_SPAWN_TEST_DEPTH;
+		/* (a floor faces up, at the test going down: a ceiling's underside,
+		or a roof seen from over the map, is not one) */
+		if (collision_test_vector(FLAG(_collision_test_front_facing_surfaces_bit) |
+				FLAG(_collision_test_ignore_invisible_surfaces_bit) | FLAG(_collision_test_structure_bit),
+				&point, &down, NONE, &collision))
+		{
+			bomb_globals.spawn = collision.point;
+			bomb_globals.spawn.z += BOMB_SPAWN_DROP_HEIGHT;
+			bomb_log("spawn on the ground at (%.2f %.2f %.2f): %.2f from red's goal, %.2f from blue's",
+				bomb_globals.spawn.x, bomb_globals.spawn.y, bomb_globals.spawn.z,
+				distance3d(&bomb_globals.spawn, &bomb_globals.goals[0]),
+				distance3d(&bomb_globals.spawn, &bomb_globals.goals[1]));
+			return;
+		}
+		error(_error_silent, "bomb: no ground under (%.2f %.2f) for the bomb's spawn", point.x, point.y);
+	}
+
+	for (index = 0; index < scenario->netgame_flags.count && flag_index == NONE; index++)
+	{
+		if (TAG_BLOCK_GET_ELEMENT(&scenario->netgame_flags, index, struct scenario_netgame_flag)->type ==
+			_netgame_flag_oddball_ball_spawn)
+		{
+			flag_index = index;
+		}
+	}
+	if (flag_index != NONE)
+	{
+		bomb_globals.spawn =
+			TAG_BLOCK_GET_ELEMENT(&scenario->netgame_flags, flag_index, struct scenario_netgame_flag)->position;
+	}
+	else if (bomb_globals.has_goal[0] && bomb_globals.has_goal[1])
+	{
+		bomb_globals.spawn.x = (bomb_globals.goals[0].x + bomb_globals.goals[1].x) * 0.5f;
+		bomb_globals.spawn.y = (bomb_globals.goals[0].y + bomb_globals.goals[1].y) * 0.5f;
+		bomb_globals.spawn.z = MAX(bomb_globals.goals[0].z, bomb_globals.goals[1].z) + 1.0f;
+	}
+	else if (scenario->players.count > 0)
+		bomb_globals.spawn = TAG_BLOCK_GET_ELEMENT(&scenario->players, 0, struct player_starting_location)->position;
+	else
+		bomb_globals.spawn = *global_origin3d;
+	bomb_log("spawn at (%.2f %.2f %.2f)", bomb_globals.spawn.x, bomb_globals.spawn.y, bomb_globals.spawn.z);
+}
+
 /* ---------- the engine */
 
 static void bomb_engine_nothing(void)
@@ -750,7 +896,6 @@ static boolean bomb_engine_initialize_for_new_map(void)
 	struct scenario *scenario = global_scenario_get();
 	long team_index;
 	long flag_index;
-	short index;
 
 	if (!game_engine_get_variant()->universal_variant.teams)
 		error(_error_silent, "bomb started up without teams");
@@ -789,32 +934,7 @@ static boolean bomb_engine_initialize_for_new_map(void)
 			error(_error_silent, "bomb: the map has no CTF flag of team %ld for its goal", team_index);
 	}
 
-	/* the bomb's spawn: the map's first ball spawn (of any team), else
-	halfway between the goals and a little up (it falls to the ground) */
-	flag_index = NONE;
-	for (index = 0; index < scenario->netgame_flags.count && flag_index == NONE; index++)
-	{
-		if (TAG_BLOCK_GET_ELEMENT(&scenario->netgame_flags, index, struct scenario_netgame_flag)->type ==
-			_netgame_flag_oddball_ball_spawn)
-		{
-			flag_index = index;
-		}
-	}
-	if (flag_index != NONE)
-	{
-		bomb_globals.spawn =
-			TAG_BLOCK_GET_ELEMENT(&scenario->netgame_flags, flag_index, struct scenario_netgame_flag)->position;
-	}
-	else if (bomb_globals.has_goal[0] && bomb_globals.has_goal[1])
-	{
-		bomb_globals.spawn.x = (bomb_globals.goals[0].x + bomb_globals.goals[1].x) * 0.5f;
-		bomb_globals.spawn.y = (bomb_globals.goals[0].y + bomb_globals.goals[1].y) * 0.5f;
-		bomb_globals.spawn.z = MAX(bomb_globals.goals[0].z, bomb_globals.goals[1].z) + 1.0f;
-	}
-	else if (scenario->players.count > 0)
-		bomb_globals.spawn = TAG_BLOCK_GET_ELEMENT(&scenario->players, 0, struct player_starting_location)->position;
-	else
-		bomb_globals.spawn = *global_origin3d;
+	bomb_find_spawn();
 
 	bomb_globals.round = 1;
 	bomb_globals.round_ticks = game_engine_get_variant()->game_engine_variant.bomb.round_time > 0 ?
@@ -1895,6 +2015,15 @@ boolean game_engine_bomb_holds_spawns(
 	void)
 {
 	return bomb_running() && bomb_globals.hold_ticks > 0 && bomb_globals.hold_ticks <= BOMB_BLAST_PAUSE_TICKS;
+}
+
+/* the host's alone counts: only it deals a landing's damage
+(network_damage_deals) */
+boolean game_engine_bomb_landing_damage(
+	void)
+{
+	return !bomb_running() ||
+		game_engine_get_variant()->game_engine_variant.bomb.traits == _bomb_traits_none;
 }
 
 /* ---------- the network test's (port/linux/game/network_test.c) */

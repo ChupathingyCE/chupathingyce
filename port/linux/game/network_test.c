@@ -51,7 +51,9 @@ button a second later, to pick it up), and debug.network_test_bomb (in a
 Bomb game, the last player stands on the bomb that many seconds in, and
 three seconds later in the goal its team attacks, which scores; again each
 time that long after: every machine logs the teams' scores and the round
-each second, "network test: bomb ...").
+each second, "network test: bomb ..."), and debug.network_test_fall (the
+last player lifted 10 world units, for a landing that kills, each time
+that many seconds pass).
 
 Called from the main loop every frame (main.c).
 */
@@ -151,6 +153,7 @@ static struct
 	real vehicle_time;
 	real pickup_time;
 	real bomb_interval;
+	real fall_interval;
 	real melee_interval;
 	char pickup_weapon[64];
 	long score_to_win;
@@ -252,6 +255,7 @@ static void network_test_read_settings(
 	network_test.vehicle_time = (real)config_real("debug.network_test_vehicle");
 	network_test.pickup_time = (real)config_real("debug.network_test_pickup");
 	network_test.bomb_interval = (real)config_real("debug.network_test_bomb");
+	network_test.fall_interval = (real)config_real("debug.network_test_fall");
 	network_test.melee_interval = (real)config_real("debug.network_test_melee");
 	network_test.local_players = (short)PIN(config_integer("debug.network_test_local_players"), 1, 4);
 	snprintf(network_test.pickup_weapon, sizeof(network_test.pickup_weapon), "%s",
@@ -893,6 +897,31 @@ static void network_test_bomb(
 }
 #endif
 
+/* debug.network_test_fall: both machines lift the last player this high
+over where it stands (as the bomb's test moves it: a client's own player is
+where it has it), for a fall a landing's damage kills (Blood Gulch's
+globals: 6 world units and more), short of falling for too long (16.5) */
+#define NETWORK_TEST_FALL_HEIGHT 10.0f
+
+static void network_test_fall(
+	void)
+{
+	struct data_iterator iterator;
+	struct player_datum *player;
+	struct player_datum *last = NULL;
+	real_point3d position;
+
+	data_iterator_new(&iterator, player_data);
+	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+		last = player;
+	if (!last || last->unit_index == NONE || object_get(last->unit_index)->object.parent_object_index != NONE)
+		return;
+	position = object_get(last->unit_index)->object.position;
+	position.z += NETWORK_TEST_FALL_HEIGHT;
+	object_set_position(last->unit_index, &position, NULL, NULL);
+	platform_log("network test: fall: the last player lifted to (%.2f %.2f %.2f)", position.x, position.y, position.z);
+}
+
 /* debug.network_test_melee: in each interval's first second the host brings
 its last player a step in front of its first; from its second to its fifth
 the striking machine's player (the host's in even intervals, the joining
@@ -1096,6 +1125,13 @@ void network_test_update(
 				network_test_bomb(TRUE);
 		}
 #endif
+		if (network_test.fall_interval > 0.0f)
+		{
+			long interval = MAX(TICKS_PER_SECOND * 5, (long)(network_test.fall_interval * TICKS_PER_SECOND));
+
+			if (game_time_get() >= interval && game_time_get() % interval < TICKS_PER_SECOND)
+				network_test_fall();
+		}
 		if (network_test.mode == _network_test_host && network_test.vehicle_time > 0.0f)
 		{
 			long enter_time = (long)(network_test.vehicle_time * TICKS_PER_SECOND);

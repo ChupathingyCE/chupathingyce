@@ -470,6 +470,9 @@ boolean game_engine_bomb_silent_death(long killing_player_index, long dead_playe
 long game_engine_bomb_silent_respawn_ticks(void);
 long game_engine_bomb_countdown(void);
 boolean game_engine_bomb_holds_spawns(void);
+/* whether a landing hurts: not in Grifball (one hit kills, and a fall would
+be one); falling for too long still kills */
+boolean game_engine_bomb_landing_damage(void);
 #endif
 
 /* port: the most a game type's state for the distributed netcode's clients

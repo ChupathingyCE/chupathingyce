@@ -24,7 +24,7 @@ So Bomb is built new, from parts the shipped engines already have:
 | Bomb needs | Taken from |
 | --- | --- |
 | carry an object to a base and score | CTF: a carrier within 1.0 world unit of the base scores |
-| a neutral object mid-map | Oddball: the map's ball, at a `_netgame_flag_oddball_ball_spawn` |
+| a neutral object mid-map | Oddball: the map's ball, placed halfway between the goals (`bomb_find_spawn`) |
 | the goals | the map's `_netgame_flag_ctf_flag` markers of team 0 and 1 |
 | spawns | CTF's: `match_game_type` treats Bomb as CTF, so every starting location and item marked for CTF is Bomb's too |
 | melee only | the port's custom loadout (`_loadout_weapon_none`, `no_map_weapons`) |
@@ -34,9 +34,18 @@ So Bomb is built new, from parts the shipped engines already have:
 
 ## The rules
 
-Two teams. One bomb (the map's oddball ball) spawns at the map's first
-oddball spawn flag, or, on a map without one, halfway between the goals (a
-little above, so it falls to the ground). Either team picks it up by
+Two teams. One bomb (the map's oddball ball) spawns on the ground halfway
+between the goals, so neither team's run to it is longer. A map's oddball
+spawn flags are scattered for Oddball: Blood Gulch's first, where earlier
+builds put the bomb, is 68.4 world units from red's goal and 33.0 from
+blue's. The ground is the first floor straight down over the point, found
+in the map's structure as the map loads. A map can have its own point
+instead: Blood Gulch's is built in (below), and the host's
+`game.bomb_spawns` setting (`HALO_BOMB_SPAWNS`) names others as
+`"<map> <x> <y> [<z>]"`, comma separated, the map as a playlist names it.
+With a height, the ground is looked for from just over it. Without ground
+there, the bomb goes to the map's first oddball spawn flag, as before. The
+host alone places the bomb, so only its setting counts. Either team picks it up by
 running over it and carries it into the other team's goal (its CTF flag
 stand). A goal scores a round. The first team to the score limit wins.
 
@@ -156,6 +165,7 @@ The official rules, adapted to Halo CE:
 | Rounds | 3 minutes; a goal ends the round; first to 3 rounds wins |
 | Weapons | the map's player-usable energy sword if it has one; otherwise fists, an unseen pistol (melee only: no map weapons, no grenades, no powerups) |
 | Gravity | 100% (the old 50% is gone) |
+| Falls | a landing hurts no one (one hit kills, and a fall would be one). Falling for too long, a fall of more than 16.5 world units on Blood Gulch, still kills, as do the map's kill zones |
 | Vehicles | none |
 
 **The overshield.** Halo CE's overshield charges the shields to three times
@@ -172,8 +182,8 @@ Blood Gulch.
 
 | Rule | Open Pitch |
 | --- | --- |
-| Map | Blood Gulch: the bomb at the oddball spawn (mid-field), the goals at the CTF flag stands, the teleporters as they are |
-| Speed | everyone 175%, the carrier 200% |
+| Map | Blood Gulch: the bomb on the ground halfway between the two teleporter exits (63.31, -120.38: 50.7 world units from red's goal and 47.3 from blue's), a spot both teams reach faster through the teleporters; the goals at the CTF flag stands, the teleporters as they are |
+| Speed | everyone 175% (the host's `game.bomb_open_pitch_speed`, `HALO_BOMB_OPEN_PITCH_SPEED`, from 50 to 200), the carrier 200% (115% on top, never past 200%) |
 | Vehicles | none |
 | Rounds | 5 minutes, first to 3 |
 | Everything else | Grifball's |
@@ -356,6 +366,12 @@ first).
   host. Run on macOS: split screen (2 players), and two copies over
   loopback (127.0.0.2 and .3): both logs agree on every score, round and
   carrier, tick for tick, to the end of the game.
+- `debug.network_test_fall` (`HALO_NETWORK_TEST_FALL`) lifts the last
+  player 10 world units every so often, a landing that kills: in a Bomb
+  game it dies, in a Grifball game it lands unhurt (two copies over
+  loopback, the joining copy's player). The host logs the bomb's spawn and
+  its distance to each goal as the map loads (`bomb: host tick 0 spawn
+  ...`).
 - `tools/crossplay_test.py`: the `grifball` direction has our host play
   Grifball with an OpenCE client joining its lobby and another joining in
   progress. It checks that both are dropped and told, the late one never

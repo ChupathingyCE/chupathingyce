@@ -329,6 +329,21 @@ static const struct config_setting config_settings[] =
 		"change the player's settings or other players' games (debug.txt names\n"
 		"what they were refused)." },
 
+	{ "game.bomb_spawns", _config_string, "\"\"", "HALO_BOMB_SPAWNS", _environment_value, _platform_all,
+		"Where a Bomb or Grifball game you host puts the bomb on a map, for maps\n"
+		"whose spot halfway between the goals plays badly: \"<map> <x> <y> [<z>]\"\n"
+		"(the map as a playlist names it: bloodgulch, timberland@ce), entries\n"
+		"separated by commas. The bomb rests on the first ground under the point\n"
+		"(from a little over its height, when given). A map not named has the\n"
+		"game's own spot: Blood Gulch's halfway between its teleporters' exits,\n"
+		"any other map's halfway between the goals." },
+
+	{ "game.bomb_open_pitch_speed", _config_integer, "0", "HALO_BOMB_OPEN_PITCH_SPEED", _environment_value,
+		_platform_all,
+		"Everyone's speed in a Grifball: Open Pitch game you host, in percent\n"
+		"(50 to 200; the carrier's 115% on top stops at 200). 0: the game\n"
+		"type's own, 175." },
+
 	{ "game.move_old_map_folders", _config_string, "\"ask\"", "HALO_MOVE_OLD_MAP_FOLDERS", _environment_value,
 		_platform_all,
 		"Halo PC maps have folders of their own beside maps: maps_ce (Custom\n"
@@ -546,6 +561,10 @@ static const struct config_setting config_settings[] =
 		"In an automated test Bomb game (host:<map>:grifball), this many seconds\n"
 		"in (and again each time that long after) the last player stands on the\n"
 		"bomb, and three seconds later in the goal its team attacks; 0 never." },
+	{ "debug.network_test_fall", _config_real, "0.0", "HALO_NETWORK_TEST_FALL", _environment_value, _platform_all,
+		"In an automated test game, each time this many seconds pass the last\n"
+		"player is lifted 10 world units, for a fall whose landing kills; 0\n"
+		"never." },
 	{ "debug.network_test_melee", _config_real, "0.0", "HALO_NETWORK_TEST_MELEE", _environment_value, _platform_all,
 		"Every this many seconds an automated test host brings its last player in\n"
 		"front of its first, and a player strikes the other with the melee\n"
