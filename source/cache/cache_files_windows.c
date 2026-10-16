@@ -463,6 +463,9 @@ extern long ce_map_cache_version;
 static char ce_refused_map_name[64];
 static unsigned long ce_refused_map_size;
 static unsigned long ce_refused_map_checksum;
+/* and what the game tells the player about it (ce_map_check's message) */
+static char ce_refused_map_message[320];
+char const *ce_map_refusal_message(void);
 
 static boolean ce_map_name_is(
 	const char *map_name)
@@ -526,6 +529,8 @@ static boolean ce_map_open(
 		error(_error_silent, "%s map %s refused: %s is not a cache file of this version",
 			map_family_kind(family), map_name, path);
 		console_warning("%s map %s refused: not a cache file of this version", map_family_kind(family), map_name);
+		snprintf(ce_refused_map_message, sizeof(ce_refused_map_message),
+			"The %s map %.63s can't be played: it isn't a map this game can read.", map_family_kind(family), file_name);
 	}
 	/* every offset, count and size in it that the port reads checked, before
 	it has a slot (port/linux/game/ce_map_checks.c) */
@@ -546,6 +551,11 @@ static boolean ce_map_open(
 	/* (the map open before stays open, and its version the one loaded) */
 	if (ce_map_file.file)
 		ce_map_cache_version = ce_map_file.header.version;
+	else
+	{
+		strncpy(ce_refused_map_message, ce_map_refusal_message(), sizeof(ce_refused_map_message) - 1);
+		ce_refused_map_message[sizeof(ce_refused_map_message) - 1] = 0;
+	}
 	memset(ce_refused_map_name, 0, sizeof(ce_refused_map_name));
 	strncpy(ce_refused_map_name, map_name, sizeof(ce_refused_map_name) - 1);
 	ce_refused_map_size = file_size;
@@ -760,6 +770,32 @@ boolean cache_files_precache_map_loaded(
 /* (the port's, port/linux/src/sdl_platform.c) */
 void platform_log(char const *format, ...);
 
+/* port: the damaged disc error for a map that could not be read; for a
+Custom Edition map that was refused (ce_map_open), its reason in its place */
+void cache_files_display_map_error(
+	const char *map_name)
+{
+#ifdef HALO_CUSTOM_EDITION
+	char const *name = tag_name_strip_path(map_name);
+
+	if (ce_map_name_is(name) && !_stricmp(ce_refused_map_name, name) && ce_refused_map_message[0])
+	{
+		wchar_t text[NUMBEROF(ce_refused_map_message)];
+		short index;
+
+		platform_log("%s", ce_refused_map_message);
+		for (index = 0; ce_refused_map_message[index] && index < NUMBEROF(text) - 1; index++)
+			text[index] = (wchar_t)(unsigned char)ce_refused_map_message[index];
+		text[index] = 0;
+		display_error_damaged_media_text(text);
+		return;
+	}
+#endif
+	display_error_damaged_media();
+
+	return;
+}
+
 boolean cache_files_precache_map_begin(
 	const char *map_name,
 	boolean copy_map)
@@ -841,7 +877,7 @@ boolean cache_files_precache_map_begin(
 			error(_error_silent, "full path name '%s'", map_name);
 			if (copy_map)
 			{
-				display_error_damaged_media();
+				cache_files_display_map_error(map_name);
 			}
 
 			return FALSE;

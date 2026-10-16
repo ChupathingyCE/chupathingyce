@@ -1810,8 +1810,9 @@ static void pause_patch(struct cache_file_tag_instance *instances)
 		platform_log("menus: the pause menu has SETTINGS%s", host && solo_screen == NONE ? " and END GAME" : "");
 }
 
-/* whether display.menus asks for the PC version's menus: "pc" in any case
-(a value neither "pc" nor "xbox" is said once in the log, and is the Xbox's) */
+/* whether display.menus asks for Gearbox's Halo PC menus: "gearbox" (or the
+older "pc") in any case (any other value but "xbox" is said once in the log,
+and is the Xbox's) */
 static boolean menus_pc_chosen(void)
 {
 	static boolean said;
@@ -1824,11 +1825,11 @@ static boolean menus_pc_chosen(void)
 	lower[index] = 0;
 	if (value[index])
 		lower[0] = 0;
-	if (!strcmp(lower, "pc"))
+	if (!strcmp(lower, "gearbox") || !strcmp(lower, "pc"))
 		return TRUE;
 	if (strcmp(lower, "xbox") && !said)
 	{
-		platform_log("menus: display.menus \"%s\" is not \"xbox\" or \"pc\": the Xbox's", value);
+		platform_log("menus: display.menus \"%s\" is not \"xbox\" or \"gearbox\": the Xbox's", value);
 		said = TRUE;
 	}
 	return FALSE;

@@ -17,7 +17,9 @@ A game on a Custom Edition map (Halo PC's, announced as <file>@ce) or a
 HaloMD map (announced as <file>@md: halo_map_families.h) is named as the
 menus' map list names it (ui_map_list.c: Halo PC's own names, HaloMD's mod
 list's, or the file's made readable), marked HALO PC or HALOMD as the game
-list's web pages mark it, and pictured by Halo PC's own picture of it. It is
+list's web pages mark it, and pictured by Halo PC's own picture of it (one
+of Halo PC's maps), else the site's (map_art.c: a stock map without Halo
+PC's ui.map), else a card with its name in its family's color. It is
 joined only with the map in its family's folders (and on a build with Halo
 PC map support, HALO_CUSTOM_EDITION): else its details say what is missing,
 and A says so rather than join. A Custom Edition map can instead be
@@ -35,7 +37,8 @@ downloads, so the game is left and joined again). If the map is not
 downloaded after all, Online Games closes and the main menu says the map is
 missing, as without the downloader.
 
-Start opens the player's profile page in the web browser; RB opens Link
+Start opens the player's profile page in the web browser; RB (only while
+this copy is not linked to a profile: browser_profile_linked) opens Link
 Profile over the list, for where no web browser opens: a code (and a QR
 code) to type at the game list's /connect page on another device, then the
 profile it was typed for, to confirm with A or refuse with B (browser.c).
@@ -69,6 +72,7 @@ the right button is B.
 #include "networking/network_game_globals.h"
 #include "networking/network_client_manager.h"
 #include "../src/browser.h"
+#include "../src/map_art.h"
 #include "../src/map_download.h"
 #include "../src/ui_overlay.h"
 #include "halo_ui_map_list.h"
@@ -153,6 +157,8 @@ enum
 	SORT_NAME,
 	SORT_MAP,
 	SORT_TYPE,
+	/* (the shortest round trip first; games not measured last) */
+	SORT_PING,
 
 	NUMBER_OF_SORTS
 };
@@ -198,6 +204,8 @@ static struct
 	unsigned long offer_version;
 	boolean offer_dont_ask;
 	struct map_download_progress offer_progress;
+	/* when it was offered (the A that joined, still held, answers nothing) */
+	unsigned long offer_time;
 	/* a join left for want of that map (browser_screen_map_missing), to be
 	joined again once it is downloaded: its invite (empty: a game of the
 	local network) and its host's identifier (12 hex digits, as an invite
@@ -269,8 +277,9 @@ static char const *map_display_name(
 		for (length = 0; length < NUMBEROF(name) && name[length]; length++)
 			characters[length] = (unsigned short)name[length];
 		utf8_text(characters, length, text, size);
+		/* (the file's name as it is, if nothing else names it) */
 		if (!text[0])
-			snprintf(text, (size_t)size, "Unknown map");
+			snprintf(text, (size_t)size, "%s", file);
 		return text;
 	}
 	for (index = 0; index < NUMBEROF(map_names); index++)
@@ -462,6 +471,7 @@ static void offer_stock(
 		}
 	}
 	browser_screen.offer = _offer_stock;
+	browser_screen.offer_time = system_milliseconds();
 	browser_screen.offer_closes_screen = FALSE;
 	browser_screen.connecting = FALSE;
 	platform_log("map download: %s is one of the game's own maps; not downloaded", file);
@@ -479,6 +489,7 @@ static void offer_map(
 		(int)sizeof(browser_screen.offer_display));
 	browser_screen.offer_version = version;
 	browser_screen.offer_dont_ask = FALSE;
+	browser_screen.offer_time = system_milliseconds();
 	map_download_reset();
 	if (map_download_setting() == MAP_DOWNLOADS_ALWAYS)
 		start_offered_download();
@@ -522,7 +533,7 @@ static void rejoin(
 	join_first_player();
 	if (browser_screen.rejoin_invite[0] && !browser_join(browser_screen.rejoin_invite))
 	{
-		set_status("Internet play is off (network.online in config.toml).");
+		set_status("Online play is off (network.online in config.toml).");
 		return;
 	}
 	browser_screen.connecting = TRUE;
@@ -661,7 +672,7 @@ static void join_selected(
 	join_first_player();
 	if (!browser_join(game->invite))
 	{
-		set_status("Internet play is off (network.online in config.toml).");
+		set_status("Online play is off (network.online in config.toml).");
 		return;
 	}
 	browser_screen.connecting = TRUE;
@@ -784,6 +795,9 @@ static long compare_games(
 		break;
 	}
 	case SORT_TYPE: order = (long)a->engine * 2 + a->teams - ((long)b->engine * 2 + b->teams); break;
+	case SORT_PING:
+		order = a->ping == b->ping ? 0 : a->ping < 0 ? 1 : b->ping < 0 ? -1 : (long)a->ping - (long)b->ping;
+		break;
 	default: order = (long)b->players - (long)a->players; break;
 	}
 	return order ? order : compare_names(a->name, b->name);
@@ -849,6 +863,14 @@ static char const *ce_map_blocker(
 	default:
 		return NULL;
 	}
+}
+
+/* whether this copy is linked to a profile (browser.c), and its name */
+static boolean profile_linked(
+	char *handle,
+	long size)
+{
+	return browser_profile_linked(handle, (int)size) != 0;
 }
 
 /* RB: a Link Profile code, for the profile the screen's games are joined
@@ -1072,6 +1094,21 @@ static void held_step(
 	last_event_time = now;
 }
 
+/* the public listings followed while the screen is up, for which games
+have a password (browser_follow_listings); it closes in a press or a frame
+of browser_screen_process, which then stops following them */
+static void follow_listings(
+	void)
+{
+	static boolean following;
+
+	if (following != browser_screen.active)
+	{
+		following = browser_screen.active;
+		browser_follow_listings(following);
+	}
+}
+
 /* a button pressed: the controller's, or the pointer's on its prompt */
 static void press(
 	short button)
@@ -1087,7 +1124,8 @@ offer's while it is) */
 	}
 	if (browser_screen.offer != _offer_none)
 	{
-		offer_button(button);
+		if (system_milliseconds() - browser_screen.offer_time >= CONNECT_SETTLE)
+			offer_button(button);
 		return;
 	}
 	switch (button)
@@ -1125,7 +1163,8 @@ offer's while it is) */
 		fetch_games();
 		break;
 	case _gamepad_analog_button_black:
-		if (!browser_screen.connecting)
+		/* (not once this copy is linked: its prompt is not shown) */
+		if (!browser_screen.connecting && !profile_linked(NULL, 0))
 			open_link_profile();
 		break;
 	case _gamepad_analog_button_b:
@@ -1172,58 +1211,89 @@ void browser_screen_process(
 		browser_screen.selected = (short)MAX(0, browser_screen.count - 1);
 	/* (the widgets behind take nothing while the browser is up) */
 	event_manager_flush();
+	follow_listings();
 }
 
 /* ---------- drawing: the Online Games screen (the overlay, ui_overlay.c) */
 
-/* the screen's colors (0xRRGGBBAA), as the mockups */
+/* The screen is drawn as the Xbox's menus are: the title in the menus' title
+face with its glow, the band under it over the menus' own background
+(ui_widget.c leaves the screen behind undrawn), Xbox panels for the list and
+the details, the menus' text faces, and the four prompts along the prompt
+bar, the Xbox's buttons drawn by code (ui_overlay_button). */
+
+/* the screen's colors (0xRRGGBBAA): the Xbox menus' blues */
 enum
 {
-	COLOR_BACKGROUND_TOP = 0x0B1830FF,
-	COLOR_BACKGROUND_BOTTOM = 0x03070FFF,
-	COLOR_RULE = 0x2A62C8FF,
 	COLOR_TITLE = 0x3D8BFFFF,
-	COLOR_PANEL = 0x081530F0,
-	COLOR_PANEL_EDGE = 0x2F6DD0FF,
-	COLOR_HEAD = 0x7FB0FFFF,
-	COLOR_ROW_SELECTED = 0x2052B0FF,
-	COLOR_ROW_RULE = 0x16294AFF,
-	COLOR_TEXT = 0xE6EEFCFF,
+	COLOR_TITLE_GLOW = 0x3D8BFFFF,
+	/* a row's text, and the selected row's */
+	COLOR_ROW = 0x5AAEFFFF,
+	COLOR_ROW_GLOW = 0x5AAEFFFF,
+	COLOR_ROW_SELECTED = 0xFFFFFFFF,
+	COLOR_SELECTION_FILL = 0x2A62C850,
+	COLOR_SELECTION_EDGE = 0x6FB2FFFF,
+	/* what can't be picked, greyed as the Xbox greys it; a closed game's
+	players in a muted warm tint */
+	COLOR_ROW_DIM = 0x56698AFF,
+	COLOR_CLOSED = 0xB08A6EFF,
+	COLOR_HEAD = 0x8FA6C8FF,
+	COLOR_TEXT = 0xFFFFFFFF,
 	COLOR_DIM = 0x8FA6C8FF,
-	COLOR_LABEL = 0x4AA3FFFF,
-	/* the roster's players of each team */
-	COLOR_RED_TEAM = 0xFF6B6BFF,
-	COLOR_BLUE_TEAM = 0x6BB0FFFF,
-	COLOR_CLOSED = 0xF08A4BFF,
+	COLOR_LABEL = 0x7FB8FFFF,
+	COLOR_RULE = 0x2F6DD0A0,
+	/* the roster's players of each team, the Xbox's softened red and blue */
+	COLOR_RED_TEAM = 0xFF8A80FF,
+	COLOR_BLUE_TEAM = 0x8CC4FFFF,
 	COLOR_PROMPT = 0x4AA3FFFF,
 	/* a prompt that does nothing for the selected game */
 	COLOR_PROMPT_OFF = 0x4A5E80FF,
 	COLOR_BUTTON_OFF = 0xFFFFFF55,
-	/* Halo PC's maps: their badge, gold as the game list's web pages draw it */
-	COLOR_PC = 0xF2C14EFF,
-	COLOR_PC_FILL = 0xF2C14E1F,
-	COLOR_PC_EDGE = 0xF2C14E99,
+	/* what keeps the selected game from being joined yet, and a message */
+	COLOR_WARN = 0xF0A070FF,
+	/* the list under a dialog */
+	COLOR_SHADE = 0x02081AA0,
+	/* the header's halo over the menus' background */
+	COLOR_HALO = 0x000814FF,
 };
 
-/* the list's rows, columns and panels, in the 640x480 layout */
+/* the screen's places, in the 640x480 layout */
 enum
 {
-	LIST_X = 37, LIST_Y = 72, LIST_WIDTH = 566, LIST_HEAD = 20, LIST_ROW = 22, LIST_FOOT = 20,
-	DETAIL_Y = 318, DETAIL_HEIGHT = 117,
+	/* the band under the title, and the prompt bar */
+	BAND_Y = 70, BAR_Y = 409, BAR_BOTTOM = 445,
+	LIST_X = 32, LIST_Y = 79, LIST_WIDTH = 576, LIST_HEAD = 21, LIST_ROW = 19, LIST_FOOT = 20,
+	DETAIL_Y = 297, DETAIL_HEIGHT = 106,
 	/* the roster's places in the details */
 	ROSTER_COLUMNS = 2, ROSTER_ROWS = 7,
-	COLUMN_NAME = 67, COLUMN_MAP = 275, COLUMN_TYPE = 385, COLUMN_PLAYERS = 531, COLUMN_PING = 596,
+	COLUMN_TAG = 59, COLUMN_NAME = 76, COLUMN_MAP = 268, COLUMN_TYPE = 400, COLUMN_PLAYERS = 558, COLUMN_PING = 600,
 	/* the details' lines: the first's top, and each next's */
-	DETAIL_FIRST_LINE = 34, DETAIL_LINE_STEP = 16,
+	DETAIL_TEXT_X = 250, DETAIL_FIRST_LINE = 23, DETAIL_LINE_STEP = 14,
+	/* the pictures' frames, each the shape of its picture (the map's
+	140x116; the game type's 140x114, its left 132, whose middle is the
+	figure's), in the middle of the details' height */
+	PICTURE_HEIGHT = 80, PICTURE_Y = DETAIL_Y + (DETAIL_HEIGHT - PICTURE_HEIGHT) / 2,
+	MAP_PICTURE_X = 42, MAP_PICTURE_WIDTH = 97,
+	TYPE_PICTURE_X = MAP_PICTURE_X + MAP_PICTURE_WIDTH + 8, TYPE_PICTURE_WIDTH = 93,
+	ROSTER_X = 471,
+	/* the prompts' right end; the most My Profile's prompt takes with the
+	profile's name in it */
+	PROMPTS_RIGHT = 608,
+	PROFILE_PROMPT_ROOM = 200,
 };
 
-/* the HALO PC (or HALOMD) badge: its text's size, and its room before the
-Type column */
-#define BADGE_SIZE 6.5f
-enum
-{
-	BADGE_MARGIN = 12,
-};
+/* the list's text sizes: a row's, the column heads' and the footer's */
+#define ROW_SIZE 12.0f
+#define HEAD_SIZE 8.0f
+#define FOOT_SIZE 8.0f
+#define DETAIL_SIZE 9.5f
+/* the map's family tag (map_family_tag): its text's size */
+#define BADGE_SIZE 6.0f
+/* the prompt bar's buttons and words, and the smaller prompts' */
+#define PROMPT_BUTTON 18.0f
+#define PROMPT_TEXT 13.0f
+#define SMALL_BUTTON 14.0f
+#define SMALL_TEXT 9.5f
 
 /* the map pictures (the menus' mp_map_grafix, in their order:
 ui_widget_game_data_input_functions.c) and the game types' (game_type_grafix) */
@@ -1234,7 +1304,7 @@ static char const *const map_picture_order[] =
 };
 static short const engine_picture[] = { 5, 0, 2, 3, 1, 4 };
 
-static char const *const sort_names[NUMBER_OF_SORTS] = { "PLAYERS", "NAME", "MAP", "TYPE" };
+static char const *const sort_names[NUMBER_OF_SORTS] = { "PLAYERS", "NAME", "MAP", "TYPE", "PING" };
 
 static void utf8_name(
 	unsigned short const *name,
@@ -1294,7 +1364,7 @@ List: a ChupathingyCE host's own word; nothing of an older or OpenCE host) */
 for the details */
 static char const *const platform_tags[] = { "", "WIN", "MAC", "LNX", "AND", "DECK", "XBOX", "360", "WIIU", "NX" };
 static char const *const platform_names[] = {
-	"Unknown", "Windows", "Mac", "Linux", "Android", "Steam Deck", "Xbox", "Xbox 360", "Wii U", "Switch",
+	"", "Windows", "Mac", "Linux", "Android", "Steam Deck", "Xbox", "Xbox 360", "Wii U", "Switch",
 };
 
 /* the row's tag before the name: the host's platform, SRV for a dedicated
@@ -1316,8 +1386,9 @@ static char const *host_text(
 	char *text,
 	long size)
 {
-	char const *platform = game->has_platform && game->host_platform < NUMBEROF(platform_names) ?
-		platform_names[game->host_platform] : NULL;
+	/* (a Delta host that does not say its platform: none named) */
+	char const *platform = game->has_platform && game->host_platform > 0 &&
+		game->host_platform < NUMBEROF(platform_names) ? platform_names[game->host_platform] : NULL;
 	char const *protocol = game->protocol == BROWSER_PROTOCOL_DELTA ? "Delta" :
 		game->protocol == BROWSER_PROTOCOL_OPENCE ? "OpenCE (legacy)" : NULL;
 	char host[48];
@@ -1366,8 +1437,9 @@ static char const *machines_text(
 static void draw_bitmap_picture(struct bitmap_data *bitmap, short art_width, short art_height, short x0, short y0,
 	short x1, short y1);
 
-/* a game's picture from the game's own bitmaps, in a cut-out of the overlay */
-static void draw_picture(
+/* a game's picture from the game's own bitmaps, in a cut-out of the overlay:
+FALSE (nothing drawn) when the menus' ui.map has none */
+static boolean draw_picture(
 	char const *tag,
 	short frame,
 	short art_width,
@@ -1380,7 +1452,85 @@ static void draw_picture(
 	long bitmap_index = tag_loaded('bitm', tag);
 	struct bitmap_data *bitmap = bitmap_index != NONE ? bitmap_group_get_bitmap_from_sequence(bitmap_index, 0, frame) : NULL;
 
+	if (!bitmap)
+		return FALSE;
 	draw_bitmap_picture(bitmap, art_width, art_height, x0, y0, x1, y1);
+	return TRUE;
+}
+
+/* a picture of the overlay's own (the site's: map_art.c) in a frame, its
+shape kept and its middle the frame's */
+static void draw_art_picture(
+	unsigned char const *pixels,
+	int width,
+	int height,
+	int serial,
+	float x,
+	float y,
+	float frame_width,
+	float frame_height)
+{
+	float scale = MIN(frame_width / (float)width, frame_height / (float)height);
+	float drawn_width = (float)width * scale, drawn_height = (float)height * scale;
+
+	ui_overlay_rect(x, y, frame_width, frame_height, 0, 0x0A1A33FF);
+	ui_overlay_picture(serial, pixels, width, height, x + (frame_width - drawn_width) * 0.5f,
+		y + (frame_height - drawn_height) * 0.5f, drawn_width, drawn_height, 0xFFFFFFFF);
+}
+
+/* a card in a picture's frame, when there is no picture: the name in white
+over a field of the color (0xRRGGBB), in one line or two, and under it the
+subtitle (or none) in the color */
+static void draw_card(
+	char const *title,
+	char const *subtitle,
+	unsigned long rgb,
+	float x,
+	float y,
+	float width,
+	float height)
+{
+	unsigned int color = (unsigned int)(rgb << 8);
+	float room = width - 10.0f;
+	float size = 12.0f, sub_size = 7.5f, line_step, top;
+	char lines[2][64];
+	short line_count = 1, index;
+
+	ui_overlay_rect(x, y, width, height, 0, 0x0A1A33FF);
+	ui_overlay_gradient(x, y, width, height, 0, color | 0x78, color | 0x1C);
+	snprintf(lines[0], sizeof(lines[0]), "%s", title);
+	lines[1][0] = 0;
+	/* (too wide: in two lines, broken at the space nearest its middle) */
+	if (ui_overlay_text_width(UI_FONT_MENU, size, title) > room && strchr(title, ' '))
+	{
+		long length = (long)strlen(title), best = NONE, at;
+
+		for (at = 0; at < length; at++)
+		{
+			if (title[at] == ' ' && (best == NONE || labs(at - length / 2) < labs(best - length / 2)))
+				best = at;
+		}
+		snprintf(lines[0], sizeof(lines[0]), "%.*s", (int)best, title);
+		snprintf(lines[1], sizeof(lines[1]), "%s", title + best + 1);
+		line_count = 2;
+	}
+	for (index = 0; index < line_count; index++)
+	{
+		while (size > 7.0f && ui_overlay_text_width(UI_FONT_MENU, size, lines[index]) > room)
+			size -= 0.5f;
+	}
+	line_step = size * 1.15f;
+	top = y + (height - (line_step * line_count + (subtitle ? sub_size + 5.0f : 0.0f))) * 0.5f;
+	for (index = 0; index < line_count; index++)
+	{
+		ui_overlay_text_glow(UI_FONT_MENU, size, x + width * 0.5f, top + index * line_step, UI_ALIGN_CENTER, 0xFFFFFFFF,
+			color | 0x90, lines[index]);
+	}
+	if (subtitle)
+	{
+		ui_overlay_text(UI_FONT_MENU_SMALL, sub_size, x + width * 0.5f, top + line_count * line_step + 5.0f,
+			UI_ALIGN_CENTER, color | 0xFF, subtitle);
+	}
 }
 
 /* a picture (or none: the box alone), in a cut-out of the overlay */
@@ -1403,7 +1553,9 @@ static void draw_bitmap_picture(
 	draw_quad(&bounds, 0xFF0A1A33);
 	if (bitmap)
 	{
-		/* (the picture fills the bitmap's top left; the rest is margin) */
+		/* (the picture fills the bitmap's top left; the rest is margin. The
+		box is the picture's shape, so that it is drawn whole, its middle in
+		the box's: draw_bitmap_in_rect takes a part's size, not its place) */
 		rectangle2d art;
 
 		art.x0 = 0;
@@ -1443,89 +1595,84 @@ static void add_target(
 	}
 }
 
-/* a prompt along the foot, pressed by the pointer from the rule above it
-to the screen's bottom and halfway into the gaps beside it */
-static float prompt_colored(
+/* ---------- drawing: the prompts */
+
+static float prompt_width_sized(
+	int button,
+	char const *words,
+	float button_size,
+	float text_size)
+{
+	return ui_overlay_button_width(button, button_size) + 3.0f + ui_overlay_text_width(UI_FONT_MENU, text_size, words);
+}
+
+/* a button's prompt (its glyph, then =WORD in the menus' face), x its left
+and y its glyph's top; pressed by the pointer from top to bottom and a
+little to either side. Its right end */
+static float prompt_sized(
 	int button,
 	char const *words,
 	float x,
-	unsigned int button_color,
-	unsigned int words_color)
+	float y,
+	float button_size,
+	float text_size,
+	boolean on,
+	float top,
+	float bottom)
 {
 	float left = x;
 
-	x += ui_overlay_button(button, 15.0f, x, 455.0f, button_color) + 3.0f;
-	x += ui_overlay_text(UI_FONT_BOLD, 12.0f, x, 456.5f, UI_ALIGN_LEFT, words_color, words);
-	add_target(left - 10.0f, 444.0f, x + 10.0f, 480.0f, button);
-	return x + 20.0f;
+	x += ui_overlay_button(button, button_size, x, y, on ? 0xFFFFFFFF : COLOR_BUTTON_OFF) + 3.0f;
+	x += ui_overlay_text_glow(UI_FONT_MENU, text_size, x, y + (button_size - text_size) * 0.5f + 0.5f, UI_ALIGN_LEFT,
+		on ? COLOR_PROMPT : COLOR_PROMPT_OFF, on ? 0x3D8BFF80 : 0x00000000, words);
+	add_target(left - 6.0f, top, x + 6.0f, bottom, button);
+	return x;
 }
 
-static float prompt(
-	int button,
-	char const *words,
-	float x)
-{
-	return prompt_colored(button, words, x, 0xFFFFFFFF, COLOR_PROMPT);
-}
+/* a row of prompts (count of them) from x, PROMPT_GAP apart: their right
+end. on: which do something now (NULL: all) */
+#define PROMPT_GAP 14.0f
 
-/* a prompt that does nothing for the selected game, greyed (pressed as the
-others: its button says why) */
-static float prompt_off(
-	int button,
-	char const *words,
-	float x)
-{
-	return prompt_colored(button, words, x, COLOR_BUTTON_OFF, COLOR_PROMPT_OFF);
-}
-
-/* the badge of a game on a Halo PC map (HALO PC, or HALOMD for a HaloMD
-map's: map_family_badge), size its text's height: its width */
-static float pc_badge_width(
-	short family,
-	float size)
-{
-	return ui_overlay_text_width(UI_FONT_BOLD, size, map_family_badge(family)) + size;
-}
-
-/* the badge at x (its left), centred on the capitals of text whose top is
-text_y and height text_size (as ui_overlay_text draws them: their middle
-half the size down) */
-static void draw_pc_badge(
-	short family,
-	float size,
-	float x,
-	float text_y,
+static float prompts_width(
+	short count,
+	int const *buttons,
+	char const *const *words,
+	float button_size,
 	float text_size)
 {
-	float padding = size * 0.5f;
-	float height = size + padding;
-	float y = text_y + text_size * 0.5f - height * 0.5f;
+	float width = 0.0f;
+	short index;
 
-	ui_overlay_rect(x, y, pc_badge_width(family, size), height, 2, COLOR_PC_FILL);
-	ui_overlay_outline(x, y, pc_badge_width(family, size), height, 2, 0.75f, COLOR_PC_EDGE);
-	ui_overlay_text(UI_FONT_BOLD, size, x + padding, y + padding * 0.55f, UI_ALIGN_LEFT, COLOR_PC,
-		map_family_badge(family));
+	for (index = 0; index < count; index++)
+		width += prompt_width_sized(buttons[index], words[index], button_size, text_size) + (index ? PROMPT_GAP : 0.0f);
+	return width;
 }
 
-static float prompt_width(
-	int button,
-	char const *words)
+static float prompts(
+	short count,
+	int const *buttons,
+	char const *const *words,
+	boolean const *on,
+	float x,
+	float y,
+	float button_size,
+	float text_size,
+	float top,
+	float bottom)
 {
-	return ui_overlay_button_width(button, 15.0f) + 3.0f + ui_overlay_text_width(UI_FONT_BOLD, 12.0f, words) + 20.0f;
+	short index;
+
+	for (index = 0; index < count; index++)
+	{
+		x = prompt_sized(buttons[index], words[index], x, y, button_size, text_size, on ? on[index] : TRUE, top,
+			bottom) + PROMPT_GAP;
+	}
+	return x - PROMPT_GAP;
 }
-
-/* ---------- drawing: Link Profile's panel */
-
-enum
-{
-	CONNECT_X = 100, CONNECT_Y = 84, CONNECT_WIDTH = 440, CONNECT_HEIGHT = 312,
-	CONNECT_QR_X = 382, CONNECT_QR_Y = 150, CONNECT_QR_WIDTH = 138,
-	COLOR_CONNECTED = 0x6BE38AFF,
-	COLOR_QR_DARK = 0x081020FF,
-};
 
 /* a line of text with a button's glyph in it, centred on x */
 static void text_with_button(
+	int font,
 	float size,
 	float x,
 	float y,
@@ -1534,46 +1681,141 @@ static void text_with_button(
 	int button,
 	char const *after)
 {
-	float width = ui_overlay_text_width(UI_FONT_BOLD, size, before) + 4 +
-		ui_overlay_button_width(button, size + 4) + 4 + ui_overlay_text_width(UI_FONT_BOLD, size, after);
+	float glyph = size * 1.45f;
+	float width = ui_overlay_text_width(font, size, before) + 4 + ui_overlay_button_width(button, glyph) + 4 +
+		ui_overlay_text_width(font, size, after);
 
 	x -= width / 2;
-	x += ui_overlay_text(UI_FONT_BOLD, size, x, y, UI_ALIGN_LEFT, color, before) + 4;
-	x += ui_overlay_button(button, size + 4, x, y - 2, 0xFFFFFFFF) + 4;
-	ui_overlay_text(UI_FONT_BOLD, size, x, y, UI_ALIGN_LEFT, color, after);
+	x += ui_overlay_text(font, size, x, y, UI_ALIGN_LEFT, color, before) + 4;
+	x += ui_overlay_button(button, glyph, x, y - (glyph - size) * 0.5f, 0xFFFFFFFF) + 4;
+	ui_overlay_text(font, size, x, y, UI_ALIGN_LEFT, color, after);
 }
 
-/* the panel's buttons, centred along its foot */
-static void connect_prompts(
-	int first,
-	char const *first_words,
-	int second,
-	char const *second_words)
+/* ---------- drawing: the list's pieces */
+
+/* a map's family tag (XBX, HCE, HMD, GBX: map_family_tag), size its text's
+height: its width */
+static float family_badge_width(
+	short family,
+	float size)
 {
-	float width = prompt_width(second, second_words) - 20 - 3;
-	float x;
+	return ui_overlay_text_width(UI_FONT_MENU, size, map_family_tag(family)) + size * 1.1f;
+}
 
-	if (first_words)
-		width += prompt_width(first, first_words);
-	x = 320 - width / 2;
-	if (first_words)
+/* the tag at x (its left), centred on text whose top is text_y and height
+text_size: a thin pill in the family's color */
+static void draw_family_badge(
+	short family,
+	float size,
+	float x,
+	float text_y,
+	float text_size,
+	boolean dim)
+{
+	unsigned int color = (unsigned int)(map_family_color(family) << 8);
+	float height = size * 1.7f;
+	float y = text_y + text_size * 0.5f - height * 0.5f;
+	float width = family_badge_width(family, size);
+
+	ui_overlay_rect(x, y, width, height, height * 0.3f, color | (dim ? 0x0C : 0x1C));
+	ui_overlay_outline(x, y, width, height, height * 0.3f, 0.75f, color | (dim ? 0x50 : 0xA8));
+	ui_overlay_text(UI_FONT_MENU, size, x + width * 0.5f, y + (height - size) * 0.5f + 0.2f, UI_ALIGN_CENTER,
+		color | (dim ? 0x80 : 0xFF), map_family_tag(family));
+}
+
+/* a padlock, size high, at x (its left), y (its top): a game with a
+password */
+static float draw_lock(
+	float x,
+	float y,
+	float size,
+	unsigned int color)
+{
+	float width = size * 0.72f;
+
+	ui_overlay_outline(x + width * 0.2f, y, width * 0.6f, size * 0.7f, width * 0.3f, size * 0.13f, color);
+	ui_overlay_rect(x, y + size * 0.42f, width, size * 0.58f, size * 0.1f, color);
+	return width;
+}
+
+/* the active order's mark beside its column's head: a small arrow down */
+static void draw_sort_mark(
+	float x,
+	float y,
+	unsigned int color)
+{
+	ui_overlay_rect(x, y, 5.0f, 1.0f, 0, color);
+	ui_overlay_rect(x + 1.0f, y + 1.0f, 3.0f, 1.0f, 0, color);
+	ui_overlay_rect(x + 2.0f, y + 2.0f, 1.0f, 1.0f, 0, color);
+}
+
+/* a column's head: white with the mark when the list is in its order */
+static void column_head(
+	float x,
+	int align,
+	char const *text,
+	boolean active)
+{
+	float y = LIST_Y + 7.0f;
+	float width = ui_overlay_text(UI_FONT_MENU_SMALL, HEAD_SIZE, x, y, align, active ? 0xFFFFFFFF : COLOR_HEAD, text);
+
+	if (active)
 	{
-		float left = x;
-
-		x += ui_overlay_button(first, 15.0f, x, CONNECT_Y + CONNECT_HEIGHT - 30, 0xFFFFFFFF) + 3;
-		x += ui_overlay_text(UI_FONT_BOLD, 12.0f, x, CONNECT_Y + CONNECT_HEIGHT - 28.5f, UI_ALIGN_LEFT, COLOR_PROMPT,
-			first_words);
-		add_target(left - 10, CONNECT_Y + CONNECT_HEIGHT - 40, x + 10, CONNECT_Y + CONNECT_HEIGHT, first);
-		x += 20;
+		draw_sort_mark(align == UI_ALIGN_RIGHT ? x + 3.0f : x + width + 3.0f, y + HEAD_SIZE * 0.4f, 0xFFFFFFFF);
 	}
-	{
-		float left = x;
+}
 
-		x += ui_overlay_button(second, 15.0f, x, CONNECT_Y + CONNECT_HEIGHT - 30, 0xFFFFFFFF) + 3;
-		x += ui_overlay_text(UI_FONT_BOLD, 12.0f, x, CONNECT_Y + CONNECT_HEIGHT - 28.5f, UI_ALIGN_LEFT, COLOR_PROMPT,
-			second_words);
-		add_target(left - 10, CONNECT_Y + CONNECT_HEIGHT - 40, x + 10, CONNECT_Y + CONNECT_HEIGHT, second);
-	}
+/* ---------- drawing: the dialogs */
+
+enum
+{
+	CONNECT_X = 100, CONNECT_Y = 84, CONNECT_WIDTH = 440, CONNECT_HEIGHT = 312,
+	CONNECT_QR_X = 382, CONNECT_QR_Y = 150, CONNECT_QR_WIDTH = 138,
+	COLOR_CONNECTED = 0x8CE68AFF,
+	COLOR_QR_DARK = 0x081020FF,
+};
+
+/* a dialog's frame: a lit Xbox panel, its title in the menus' title face
+(over the list, shaded: ui_overlay_layer) */
+static void dialog_frame(
+	float x,
+	float y,
+	float width,
+	float height,
+	char const *title)
+{
+	char capitals[64];
+	long index;
+
+	ui_overlay_panel(x, y, width, height, TRUE);
+	if (!title)
+		return;
+	/* (in capitals, as the menus' titles) */
+	for (index = 0; title[index] && index < NUMBEROF(capitals) - 1; index++)
+		capitals[index] = title[index] >= 'a' && title[index] <= 'z' ? (char)(title[index] - 32) : title[index];
+	capitals[index] = 0;
+	ui_overlay_text_glow(UI_FONT_TITLE, 11.0f, x + 22, y + 22, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW, capitals);
+}
+
+/* the dialog's buttons (count of them), centred along its foot, B before A
+as the Xbox's dialogs have them */
+static void dialog_prompts(
+	short count,
+	int const *buttons,
+	char const *const *words)
+{
+	float y = CONNECT_Y + CONNECT_HEIGHT - 34;
+	float width = prompts_width(count, buttons, words, PROMPT_BUTTON - 2, PROMPT_TEXT - 1);
+
+	prompts(count, buttons, words, NULL, 320 - width / 2, y, PROMPT_BUTTON - 2, PROMPT_TEXT - 1,
+		CONNECT_Y + CONNECT_HEIGHT - 44, CONNECT_Y + CONNECT_HEIGHT);
+}
+
+static void dialog_prompt(
+	int button,
+	char const *words)
+{
+	dialog_prompts(1, &button, &words);
 }
 
 /* the page with the code as a QR code: dark modules on a light square with
@@ -1600,7 +1842,7 @@ static void draw_qr(
 			}
 		}
 	}
-	ui_overlay_text(UI_FONT_REGULAR, 9.0f, CONNECT_QR_X + CONNECT_QR_WIDTH / 2, CONNECT_QR_Y + CONNECT_QR_WIDTH + 6,
+	ui_overlay_text(UI_FONT_MENU_SMALL, 9.0f, CONNECT_QR_X + CONNECT_QR_WIDTH / 2, CONNECT_QR_Y + CONNECT_QR_WIDTH + 6,
 		UI_ALIGN_CENTER, COLOR_DIM, "or scan this with your phone");
 }
 
@@ -1611,30 +1853,27 @@ static void draw_link_profile(
 	char text[192];
 	float center = CONNECT_X + CONNECT_WIDTH / 2;
 
-	ui_overlay_rect(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT, 8, 0x0A1A36F8);
-	ui_overlay_outline(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT, 8, 1.0f, COLOR_PANEL_EDGE);
-	ui_overlay_text(UI_FONT_BOLD, 20.0f, CONNECT_X + 20, CONNECT_Y + 14, UI_ALIGN_LEFT, COLOR_TITLE, "Link Profile");
-	ui_overlay_rect(CONNECT_X + 1, CONNECT_Y + 48, CONNECT_WIDTH - 2, 0.75f, 0, COLOR_ROW_RULE);
+	dialog_frame(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT, "LINK PROFILE");
 
 	switch (connect->state)
 	{
 	case BROWSER_CONNECT_WAITING:
 	{
-		float left = CONNECT_X + 20;
-		float y = CONNECT_Y + 66;
+		float left = CONNECT_X + 22;
+		float y = CONNECT_Y + 60;
 
-		ui_overlay_text(UI_FONT_REGULAR, 10.0f, left, y, UI_ALIGN_LEFT, COLOR_TEXT, "On your phone or computer, go to");
-		ui_overlay_text(UI_FONT_BOLD, 13.0f, left, y + 17, UI_ALIGN_LEFT, COLOR_LABEL, connect->page);
-		ui_overlay_text(UI_FONT_REGULAR, 10.0f, left, y + 38, UI_ALIGN_LEFT, COLOR_TEXT, "and enter:");
-		ui_overlay_rect(left, y + 58, 238, 62, 6, 0x123266FF);
-		ui_overlay_outline(left, y + 58, 238, 62, 6, 1.0f, COLOR_PANEL_EDGE);
-		ui_overlay_text(UI_FONT_BOLD, 36.0f, left + 119, y + 68, UI_ALIGN_CENTER, 0xFFFFFFFF, connect->code);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, left, y, UI_ALIGN_LEFT, COLOR_DIM, "On your phone or computer, go to");
+		ui_overlay_text_glow(UI_FONT_MENU, 13.0f, left, y + 16, UI_ALIGN_LEFT, COLOR_LABEL, 0x3D8BFF60, connect->page);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, left, y + 38, UI_ALIGN_LEFT, COLOR_DIM, "and enter:");
+		ui_overlay_panel(left, y + 56, 238, 62, FALSE);
+		ui_overlay_text_glow(UI_FONT_MENU, 34.0f, left + 119, y + 69, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFFFF,
+			connect->code);
 		snprintf(text, sizeof(text), "Good for %d:%02d", connect->seconds / 60, connect->seconds % 60);
-		ui_overlay_text(UI_FONT_REGULAR, 10.0f, left, y + 132, UI_ALIGN_LEFT, COLOR_DIM, text);
-		ui_overlay_text(UI_FONT_BOLD, 10.0f, left, y + 152, UI_ALIGN_LEFT, COLOR_TEXT, "Waiting\xE2\x80\xA6");
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, left, y + 130, UI_ALIGN_LEFT, COLOR_DIM, text);
+		ui_overlay_text(UI_FONT_MENU, 10.0f, left, y + 150, UI_ALIGN_LEFT, COLOR_TEXT, "Waiting\xE2\x80\xA6");
 		if (connect->qr_size)
 			draw_qr(connect);
-		connect_prompts(UI_BUTTON_B, NULL, UI_BUTTON_B, "=CLOSE");
+		dialog_prompt(UI_BUTTON_B, "=CLOSE");
 		break;
 	}
 	case BROWSER_CONNECT_CONFIRM:
@@ -1644,79 +1883,61 @@ static void draw_link_profile(
 			snprintf(text, sizeof(text), "Move this game from %s to %s?", connect->previous, connect->handle);
 		else
 			snprintf(text, sizeof(text), "Connect this game to %s?", connect->handle);
-		ui_overlay_text(UI_FONT_BOLD, 16.0f, center, CONNECT_Y + 100, UI_ALIGN_CENTER, 0xFFFFFFFF, text);
+		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 96, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
 		snprintf(text, sizeof(text), "Someone signed in as %s entered the code.", connect->handle);
-		ui_overlay_text(UI_FONT_REGULAR, 10.0f, center, CONNECT_Y + 132, UI_ALIGN_CENTER, COLOR_DIM, text);
-		ui_overlay_text(UI_FONT_REGULAR, 10.0f, center, CONNECT_Y + 148, UI_ALIGN_CENTER, COLOR_DIM,
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 130, UI_ALIGN_CENTER, COLOR_DIM, text);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 146, UI_ALIGN_CENTER, COLOR_DIM,
 			"If that isn't you, cancel.");
 		if (connect->answered)
 		{
-			ui_overlay_text(UI_FONT_BOLD, 11.0f, center, CONNECT_Y + 196, UI_ALIGN_CENTER, COLOR_TEXT,
+			ui_overlay_text(UI_FONT_MENU, 11.0f, center, CONNECT_Y + 196, UI_ALIGN_CENTER, COLOR_TEXT,
 				"Sending your answer\xE2\x80\xA6");
 		}
 		else
 		{
+			static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_A };
+			static char const *const words[] = { "=CANCEL", "=CONNECT" };
+
 			snprintf(text, sizeof(text), "%d:%02d to answer", connect->seconds / 60, connect->seconds % 60);
-			ui_overlay_text(UI_FONT_REGULAR, 10.0f, center, CONNECT_Y + 196, UI_ALIGN_CENTER, COLOR_LABEL, text);
-			connect_prompts(UI_BUTTON_A, "=CONNECT", UI_BUTTON_B, "=CANCEL");
+			ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 196, UI_ALIGN_CENTER, COLOR_LABEL, text);
+			dialog_prompts(NUMBEROF(buttons), buttons, words);
 		}
 		break;
 	case BROWSER_CONNECT_CONNECTED:
 		snprintf(text, sizeof(text), "Connected as %s", connect->handle);
-		ui_overlay_text(UI_FONT_BOLD, 18.0f, center, CONNECT_Y + 110, UI_ALIGN_CENTER, COLOR_CONNECTED, text);
-		ui_overlay_text(UI_FONT_REGULAR, 10.0f, center, CONNECT_Y + 144, UI_ALIGN_CENTER, COLOR_DIM,
+		ui_overlay_text_glow(UI_FONT_MENU, 17.0f, center, CONNECT_Y + 106, UI_ALIGN_CENTER, COLOR_CONNECTED, 0x6BE38A80,
+			text);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 140, UI_ALIGN_CENTER, COLOR_DIM,
 			"Your games now count toward this profile.");
-		connect_prompts(UI_BUTTON_B, NULL, UI_BUTTON_B, "=DONE");
+		dialog_prompt(UI_BUTTON_B, "=DONE");
 		break;
 	case BROWSER_CONNECT_EXPIRED:
 	case BROWSER_CONNECT_DECLINED:
 	case BROWSER_CONNECT_FAILED:
+	{
+		static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_RIGHT_SHOULDER };
+		static char const *const words[] = { "=CLOSE", "=NEW CODE" };
+
 		if (connect->state == BROWSER_CONNECT_EXPIRED)
-			text_with_button(12.0f, center, CONNECT_Y + 120, COLOR_TEXT, "Code expired. Press", UI_BUTTON_RIGHT_SHOULDER,
-				"for a new code.");
+			text_with_button(UI_FONT_MENU, 12.0f, center, CONNECT_Y + 116, COLOR_TEXT, "Code expired. Press",
+				UI_BUTTON_RIGHT_SHOULDER, "for a new code.");
 		else if (connect->state == BROWSER_CONNECT_DECLINED)
-			text_with_button(12.0f, center, CONNECT_Y + 120, COLOR_TEXT, "Cancelled. Press", UI_BUTTON_RIGHT_SHOULDER,
-				"for a new code.");
+			text_with_button(UI_FONT_MENU, 12.0f, center, CONNECT_Y + 116, COLOR_TEXT, "Cancelled. Press",
+				UI_BUTTON_RIGHT_SHOULDER, "for a new code.");
 		else
 		{
-			ui_overlay_text(UI_FONT_BOLD, 11.0f, center, CONNECT_Y + 104, UI_ALIGN_CENTER, COLOR_CLOSED, connect->message);
-			text_with_button(12.0f, center, CONNECT_Y + 132, COLOR_TEXT, "Press", UI_BUTTON_RIGHT_SHOULDER,
+			ui_overlay_text(UI_FONT_MENU, 11.0f, center, CONNECT_Y + 100, UI_ALIGN_CENTER, COLOR_WARN, connect->message);
+			text_with_button(UI_FONT_MENU, 12.0f, center, CONNECT_Y + 128, COLOR_TEXT, "Press", UI_BUTTON_RIGHT_SHOULDER,
 				"to try again.");
 		}
-		connect_prompts(UI_BUTTON_RIGHT_SHOULDER, "=NEW CODE", UI_BUTTON_B, "=CLOSE");
-		break;
-	default:
-		ui_overlay_text(UI_FONT_BOLD, 11.0f, center, CONNECT_Y + 120, UI_ALIGN_CENTER, COLOR_TEXT,
-			"Getting a code\xE2\x80\xA6");
-		connect_prompts(UI_BUTTON_B, NULL, UI_BUTTON_B, "=CLOSE");
+		dialog_prompts(NUMBEROF(buttons), buttons, words);
 		break;
 	}
-}
-
-/* ---------- drawing: the map offer's panel */
-
-/* the panel's buttons (count of them), centred along its foot */
-static void panel_prompts(
-	short count,
-	int const *buttons,
-	char const *const *words)
-{
-	float width = -20 - 3;
-	float x;
-	short index;
-
-	for (index = 0; index < count; index++)
-		width += prompt_width(buttons[index], words[index]);
-	x = 320 - width / 2;
-	for (index = 0; index < count; index++)
-	{
-		float left = x;
-
-		x += ui_overlay_button(buttons[index], 15.0f, x, CONNECT_Y + CONNECT_HEIGHT - 30, 0xFFFFFFFF) + 3;
-		x += ui_overlay_text(UI_FONT_BOLD, 12.0f, x, CONNECT_Y + CONNECT_HEIGHT - 28.5f, UI_ALIGN_LEFT, COLOR_PROMPT,
-			words[index]);
-		add_target(left - 10, CONNECT_Y + CONNECT_HEIGHT - 40, x + 10, CONNECT_Y + CONNECT_HEIGHT, buttons[index]);
-		x += 20;
+	default:
+		ui_overlay_text(UI_FONT_MENU, 11.0f, center, CONNECT_Y + 116, UI_ALIGN_CENTER, COLOR_TEXT,
+			"Getting a code\xE2\x80\xA6");
+		dialog_prompt(UI_BUTTON_B, "=CLOSE");
+		break;
 	}
 }
 
@@ -1727,60 +1948,55 @@ static void draw_map_offer(
 	float center = CONNECT_X + CONNECT_WIDTH / 2;
 	char text[192];
 
-	ui_overlay_rect(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT, 8, 0x0A1A36F8);
-	ui_overlay_outline(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT, 8, 1.0f, COLOR_PANEL_EDGE);
-	ui_overlay_text(UI_FONT_BOLD, 20.0f, CONNECT_X + 20, CONNECT_Y + 14, UI_ALIGN_LEFT, COLOR_TITLE,
-		browser_screen.offer == _offer_stock ? MAP_ARCHIVE_STOCK_TITLE : "Missing Map");
-	draw_pc_badge(_map_family_custom_edition, BADGE_SIZE + 1.5f,
-		CONNECT_X + CONNECT_WIDTH - 20 - pc_badge_width(_map_family_custom_edition, BADGE_SIZE + 1.5f), CONNECT_Y + 19,
-		12.0f);
-	ui_overlay_rect(CONNECT_X + 1, CONNECT_Y + 48, CONNECT_WIDTH - 2, 0.75f, 0, COLOR_ROW_RULE);
+	dialog_frame(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT,
+		browser_screen.offer == _offer_stock ? MAP_ARCHIVE_STOCK_TITLE : "MISSING MAP");
+	draw_family_badge(_map_family_custom_edition, BADGE_SIZE + 1.5f,
+		CONNECT_X + CONNECT_WIDTH - 22 - family_badge_width(_map_family_custom_edition, BADGE_SIZE + 1.5f), CONNECT_Y + 20,
+		12.0f, FALSE);
 
 	switch (browser_screen.offer)
 	{
 	case _offer_asking:
 	{
-		static int const buttons[] = { UI_BUTTON_A, UI_BUTTON_B, UI_BUTTON_Y };
-		static char const *const words[] = { "=YES", "=NO", "=DON'T ASK AGAIN" };
-		float box = 11.0f;
-		float width;
-		float x;
+		static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_A };
+		static char const *const words[] = { "=NO", "=YES" };
+		float glyph = 15.0f, box = 10.0f;
+		float width, x, y = CONNECT_Y + 196;
 
-		snprintf(text, sizeof(text), "%s needs %s.map, which you don't have.", browser_screen.connecting_name,
-			browser_screen.offer_display);
+		snprintf(text, sizeof(text), "%s plays a map you don't have.", browser_screen.connecting_name);
 		/* (the game being joined, or "the game": a sentence's start) */
 		if (text[0] >= 'a' && text[0] <= 'z')
 			text[0] = (char)(text[0] - 32);
-		ui_overlay_text(UI_FONT_REGULAR, 10.0f, center, CONNECT_Y + 74, UI_ALIGN_CENTER, COLOR_DIM, text);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 62, UI_ALIGN_CENTER, COLOR_DIM, text);
 		snprintf(text, sizeof(text), "Download %s.map from the", browser_screen.offer_display);
-		ui_overlay_text(UI_FONT_BOLD, 15.0f, center, CONNECT_Y + 100, UI_ALIGN_CENTER, 0xFFFFFFFF, text);
-		ui_overlay_text(UI_FONT_BOLD, 15.0f, center, CONNECT_Y + 120, UI_ALIGN_CENTER, 0xFFFFFFFF,
+		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 86, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
+		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 106, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90,
 			"community map repository?");
-		ui_overlay_text(UI_FONT_REGULAR, 9.5f, center, CONNECT_Y + 152, UI_ALIGN_CENTER, COLOR_DIM,
+		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, center, CONNECT_Y + 138, UI_ALIGN_CENTER, COLOR_DIM,
 			"It goes in maps_ce once it is checked: a Custom Edition map, named");
-		ui_overlay_text(UI_FONT_REGULAR, 9.5f, center, CONNECT_Y + 166, UI_ALIGN_CENTER, COLOR_DIM,
+		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, center, CONNECT_Y + 152, UI_ALIGN_CENTER, COLOR_DIM,
 			browser_screen.offer_version ? "as asked, and the host's version of it." : "as asked.");
 		/* "Don't ask again", ticked or not (Y, or a click on it) */
-		width = box + 6 + ui_overlay_text_width(UI_FONT_BOLD, 10.0f, "Don't ask again");
+		width = ui_overlay_button_width(UI_BUTTON_Y, glyph) + 6 + box + 6 +
+			ui_overlay_text_width(UI_FONT_MENU, 11.0f, "DON'T ASK AGAIN");
 		x = center - width / 2;
-		ui_overlay_outline(x, CONNECT_Y + 205, box, box, 2, 1.0f, COLOR_LABEL);
+		x += ui_overlay_button(UI_BUTTON_Y, glyph, x, y, 0xFFFFFFFF) + 6;
+		ui_overlay_outline(x, y + (glyph - box) / 2, box, box, 2, 1.0f, COLOR_PROMPT);
 		if (browser_screen.offer_dont_ask)
-			ui_overlay_rect(x + 2.5f, CONNECT_Y + 207.5f, box - 5, box - 5, 1, COLOR_LABEL);
-		ui_overlay_text(UI_FONT_BOLD, 10.0f, x + box + 6, CONNECT_Y + 205.5f, UI_ALIGN_LEFT, COLOR_TEXT,
-			"Don't ask again");
-		add_target(x - 6, CONNECT_Y + 198, x + width + 6, CONNECT_Y + 222, UI_BUTTON_Y);
-		panel_prompts(NUMBEROF(buttons), buttons, words);
+			ui_overlay_rect(x + 2.5f, y + (glyph - box) / 2 + 2.5f, box - 5, box - 5, 1, COLOR_PROMPT);
+		ui_overlay_text_glow(UI_FONT_MENU, 11.0f, x + box + 6, y + (glyph - 11.0f) / 2 + 0.5f, UI_ALIGN_LEFT,
+			COLOR_PROMPT, 0x3D8BFF60, "DON'T ASK AGAIN");
+		add_target(center - width / 2 - 6, y - 6, center + width / 2 + 6, y + glyph + 6, UI_BUTTON_Y);
+		dialog_prompts(NUMBEROF(buttons), buttons, words);
 		break;
 	}
 	case _offer_downloading:
 	{
-		static int const buttons[] = { UI_BUTTON_B };
-		static char const *const words[] = { "=CANCEL" };
 		float bar_x = CONNECT_X + 40, bar_width = CONNECT_WIDTH - 80;
 		float done = 0.0f;
 
 		snprintf(text, sizeof(text), "Downloading %s.map", browser_screen.offer_display);
-		ui_overlay_text(UI_FONT_BOLD, 15.0f, center, CONNECT_Y + 92, UI_ALIGN_CENTER, 0xFFFFFFFF, text);
+		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 88, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
 		switch (progress->phase)
 		{
 		case MAP_DOWNLOAD_RECEIVING:
@@ -1805,81 +2021,79 @@ static void draw_map_offer(
 			snprintf(text, sizeof(text), "Connecting to the map repository\xE2\x80\xA6");
 			break;
 		}
-		ui_overlay_rect(bar_x, CONNECT_Y + 130, bar_width, 14, 4, 0x123266FF);
+		ui_overlay_rect(bar_x, CONNECT_Y + 126, bar_width, 12, 6, 0x0A1E44FF);
 		if (done > 0.0f)
-			ui_overlay_rect(bar_x, CONNECT_Y + 130, bar_width * (done < 1.0f ? done : 1.0f), 14, 4, COLOR_LABEL);
-		ui_overlay_outline(bar_x, CONNECT_Y + 130, bar_width, 14, 4, 1.0f, COLOR_PANEL_EDGE);
-		ui_overlay_text(UI_FONT_REGULAR, 10.0f, center, CONNECT_Y + 156, UI_ALIGN_CENTER, COLOR_TEXT, text);
-		ui_overlay_text(UI_FONT_REGULAR, 9.5f, center, CONNECT_Y + 190, UI_ALIGN_CENTER, COLOR_DIM,
+		{
+			ui_overlay_gradient(bar_x, CONNECT_Y + 126, bar_width * (done < 1.0f ? done : 1.0f), 12, 6, 0x8FC4FFFF,
+				0x2A62C8FF);
+		}
+		ui_overlay_outline(bar_x, CONNECT_Y + 126, bar_width, 12, 6, 1.0f, 0x4F9DFFFF);
+		ui_overlay_text(UI_FONT_MENU, 10.0f, center, CONNECT_Y + 150, UI_ALIGN_CENTER, COLOR_TEXT, text);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, center, CONNECT_Y + 184, UI_ALIGN_CENTER, COLOR_DIM,
 			"The game is joined once the map is in place.");
-		panel_prompts(NUMBEROF(buttons), buttons, words);
+		dialog_prompt(UI_BUTTON_B, "=CANCEL");
 		break;
 	}
 	case _offer_stock:
 	{
-		static int const buttons[] = { UI_BUTTON_B };
-		static char const *const words[] = { "=CLOSE" };
 		boolean file = map_archive_stock_name(browser_screen.offer_file) == MAP_ARCHIVE_STOCK_FILE;
 
 		/* (map_archive_stock_message's words, a line at a time) */
 		snprintf(text, sizeof(text), "%s.map is one of Halo PC's own %s,", browser_screen.offer_display,
 			file ? "files" : "maps");
-		ui_overlay_text(UI_FONT_BOLD, 15.0f, center, CONNECT_Y + 86, UI_ALIGN_CENTER, 0xFFFFFFFF, text);
-		ui_overlay_text(UI_FONT_BOLD, 15.0f, center, CONNECT_Y + 106, UI_ALIGN_CENTER, 0xFFFFFFFF,
+		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 82, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
+		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 102, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90,
 			"so Chupathingy can't download it.");
 		snprintf(text, sizeof(text), "Copy %s.map from your Halo PC or Custom Edition install",
 			browser_screen.offer_display);
-		ui_overlay_text(UI_FONT_REGULAR, 10.0f, center, CONNECT_Y + 146, UI_ALIGN_CENTER, COLOR_TEXT, text);
-		ui_overlay_text(UI_FONT_REGULAR, 10.0f, center, CONNECT_Y + 162, UI_ALIGN_CENTER, COLOR_TEXT,
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 142, UI_ALIGN_CENTER, COLOR_DIM, text);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 158, UI_ALIGN_CENTER, COLOR_DIM,
 			"into maps_ce, then join again.");
-		panel_prompts(NUMBEROF(buttons), buttons, words);
+		dialog_prompt(UI_BUTTON_B, "=CLOSE");
 		break;
 	}
 	default:
-	{
-		static int const buttons[] = { UI_BUTTON_B };
-		static char const *const words[] = { "=CLOSE" };
-
 		snprintf(text, sizeof(text), "Could not download %s.map", browser_screen.offer_display);
-		ui_overlay_text(UI_FONT_BOLD, 15.0f, center, CONNECT_Y + 100, UI_ALIGN_CENTER, COLOR_CLOSED, text);
+		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 92, UI_ALIGN_CENTER, COLOR_WARN, 0xF0A07060, text);
 		/* (why, as a sentence) */
 		snprintf(text, sizeof(text), "%s.", progress->message[0] ? progress->message : "the repositories did not answer");
 		if (text[0] >= 'a' && text[0] <= 'z')
 			text[0] = (char)(text[0] - 32);
-		ui_overlay_text(UI_FONT_REGULAR, 10.0f, center, CONNECT_Y + 132, UI_ALIGN_CENTER, COLOR_TEXT, text);
+		ui_overlay_text(UI_FONT_MENU, 10.0f, center, CONNECT_Y + 126, UI_ALIGN_CENTER, COLOR_TEXT, text);
 		snprintf(text, sizeof(text), "If you have it, copy %s.map into maps_ce.", browser_screen.offer_display);
-		ui_overlay_text(UI_FONT_REGULAR, 9.5f, center, CONNECT_Y + 166, UI_ALIGN_CENTER, COLOR_DIM, text);
-		panel_prompts(NUMBEROF(buttons), buttons, words);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, center, CONNECT_Y + 160, UI_ALIGN_CENTER, COLOR_DIM, text);
+		dialog_prompt(UI_BUTTON_B, "=CLOSE");
 		break;
-	}
 	}
 }
 
-void browser_screen_render(
-	void)
-{
-	short page_first, page_count, row;
-	long players = 0, index;
-	char text[160], name[64];
-	float x, width, margin = (float)((halo_screen_width() - 640) / 2 + 2);
-	struct browser_game const *selected = browser_screen.count ? &browser_screen.games[browser_screen.selected] : NULL;
+/* ---------- drawing: the screen */
 
-	/* (what the pointer may press, as this frame draws it) */
-	browser_screen.target_count = 0;
-	browser_screen.drawn_first = NONE;
-	if (!ui_overlay_available())
-		return;
+/* the title, the counts and the header's two prompts */
+static void draw_header(
+	float left,
+	float right)
+{
+	long players = 0, index;
+	char text[160];
+	float x, y;
+
 	for (index = 0; index < browser_screen.count; index++)
 		players += browser_screen.games[index].players;
+	ui_overlay_band(left, right, BAND_Y, BAR_Y);
+	/* (the size and place of the Xbox screens' titles, MULTIPLAYER's) */
+	ui_overlay_text_glow(UI_FONT_TITLE, 13.5f, 64, 45.0f, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW, "ONLINE GAMES");
 
-	/* the screen, its widescreen margins too */
-	ui_overlay_gradient(-margin, 0, 640 + 2 * margin, 480, 0, COLOR_BACKGROUND_TOP, COLOR_BACKGROUND_BOTTOM);
-	ui_overlay_gradient(-margin, 0, 640 + 2 * margin, 62, 0, 0x0A1A36FF, 0x050C1AFF);
-	ui_overlay_rect(-margin, 61.5f, 640 + 2 * margin, 1.0f, 0, COLOR_RULE);
-	ui_overlay_text(UI_FONT_BOLD, 30.0f, 37, 17, UI_ALIGN_LEFT, COLOR_TITLE, "ONLINE GAMES");
-
-	/* servers, players and the list it comes from, at the right */
-	x = 603;
+	/* servers and players, then the list they come from, at the right (a
+	dark halo keeps them clear of a bright background) */
+	x = PROMPTS_RIGHT;
+	y = 11;
+	snprintf(text, sizeof(text), "%ld", players);
+	x -= ui_overlay_text_glow(UI_FONT_MENU, 9.5f, x, y, UI_ALIGN_RIGHT, COLOR_TEXT, COLOR_HALO, text) + 3;
+	x -= ui_overlay_text_glow(UI_FONT_MENU, 9.5f, x, y, UI_ALIGN_RIGHT, COLOR_HEAD, COLOR_HALO, "PLAYERS") + 10;
+	snprintf(text, sizeof(text), "%d", browser_screen.count);
+	x -= ui_overlay_text_glow(UI_FONT_MENU, 9.5f, x, y, UI_ALIGN_RIGHT, COLOR_TEXT, COLOR_HALO, text) + 3;
+	ui_overlay_text_glow(UI_FONT_MENU, 9.5f, x, y, UI_ALIGN_RIGHT, COLOR_HEAD, COLOR_HALO, "SERVERS");
 	/* (the game list's address, in capitals as the rest) */
 	browser_server_name(text, sizeof(text));
 	for (index = 0; text[index]; index++)
@@ -1887,262 +2101,423 @@ void browser_screen_render(
 		if (text[index] >= 'a' && text[index] <= 'z')
 			text[index] = (char)(text[index] - 32);
 	}
-	x -= ui_overlay_text(UI_FONT_BOLD, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_TEXT, text[0] ? text : "NONE") + 4;
-	x -= ui_overlay_text(UI_FONT_REGULAR, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_DIM, "MASTER") + 14;
-	snprintf(text, sizeof(text), "%ld", players);
-	x -= ui_overlay_text(UI_FONT_BOLD, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_TEXT, text) + 4;
-	x -= ui_overlay_text(UI_FONT_REGULAR, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_DIM, "PLAYERS") + 14;
-	snprintf(text, sizeof(text), "%d", browser_screen.count);
-	x -= ui_overlay_text(UI_FONT_BOLD, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_TEXT, text) + 4;
-	ui_overlay_text(UI_FONT_REGULAR, 9.0f, x, 39, UI_ALIGN_RIGHT, COLOR_DIM, "SERVERS");
-
-	/* Link Profile's panel in the list's place (the overlay draws all its
-	text over all its shapes: none of the list's may lie under the panel) */
-	if (browser_screen.connect_open)
+	/* (no list: no line; the list itself says why it is empty) */
+	if (text[0])
 	{
-		draw_link_profile();
+		x = PROMPTS_RIGHT;
+		y = 27;
+		x -= ui_overlay_text_glow(UI_FONT_MENU, 9.5f, x, y, UI_ALIGN_RIGHT, COLOR_TEXT, COLOR_HALO, text) + 3;
+		ui_overlay_text_glow(UI_FONT_MENU, 9.5f, x, y, UI_ALIGN_RIGHT, COLOR_HEAD, COLOR_HALO, "MASTER");
+	}
+
+	/* RB and Start, the prompts past the bar's four: Link Profile only while
+	this copy is not linked to a profile, and My Profile with its name when
+	known and there is room */
+	if (browser_screen.offer == _offer_none && !browser_screen.connect_open)
+	{
+		int buttons[] = { UI_BUTTON_RIGHT_SHOULDER, UI_BUTTON_START };
+		char const *words[] = { "=LINK PROFILE", "=MY PROFILE" };
+		boolean on[] = { !browser_screen.connecting, TRUE };
+		char handle[64], mine[96];
+		boolean linked = profile_linked(handle, sizeof(handle));
+		short first = linked ? 1 : 0;
+		float width;
+
+		if (linked && handle[0])
+		{
+			snprintf(mine, sizeof(mine), "=MY PROFILE (%s)", handle);
+			words[1] = mine;
+			if (prompts_width(1, &buttons[1], &words[1], SMALL_BUTTON, SMALL_TEXT) > PROFILE_PROMPT_ROOM)
+				words[1] = "=MY PROFILE";
+		}
+		width = prompts_width((short)(NUMBEROF(buttons) - first), buttons + first, words + first, SMALL_BUTTON,
+			SMALL_TEXT);
+		prompts((short)(NUMBEROF(buttons) - first), buttons + first, words + first, on + first, PROMPTS_RIGHT - width,
+			43, SMALL_BUTTON, SMALL_TEXT, 38, 60);
+	}
+}
+
+/* a listed game's row (row: its place on the page) */
+static void draw_row(
+	struct browser_game const *game,
+	short row,
+	boolean picked)
+{
+	float y = (float)(LIST_Y + LIST_HEAD + row * LIST_ROW);
+	float text_y = y + (LIST_ROW - ROW_SIZE) * 0.5f + 0.5f;
+	char text[160], name[64];
+	char const *map_name;
+	unsigned int color = picked ? COLOR_ROW_SELECTED : game->open ? COLOR_ROW : COLOR_ROW_DIM;
+	unsigned int glow = picked ? 0x6FB2FFC0 : 0;
+	short family = map_family(game->map);
+	float badge_x = COLUMN_TYPE - 10 - family_badge_width(family, BADGE_SIZE);
+	float size, width;
+
+	if (picked)
+	{
+		/* the Xbox's selection: a lit rounded outline over a lighter fill */
+		ui_overlay_rect(LIST_X + 5, y, LIST_WIDTH - 10, LIST_ROW, 7, COLOR_SELECTION_FILL);
+		ui_overlay_outline(LIST_X + 4, y - 1, LIST_WIDTH - 8, LIST_ROW + 2, 8, 1.0f, 0x6FB2FF40);
+		ui_overlay_outline(LIST_X + 5, y, LIST_WIDTH - 10, LIST_ROW, 7, 1.25f, COLOR_SELECTION_EDGE);
+	}
+	/* (the host's platform, small and dim in the room before the name) */
+	if (host_tag(game)[0])
+	{
+		ui_overlay_text(UI_FONT_MENU, 6.5f, COLUMN_TAG, y + (LIST_ROW - 6.5f) * 0.5f + 0.5f, UI_ALIGN_CENTER,
+			picked ? 0xC8D8F0FF : COLOR_HEAD, host_tag(game));
+	}
+	utf8_name(game->name, name, sizeof(name));
+	width = ui_overlay_text_glow(UI_FONT_MENU, ROW_SIZE, COLUMN_NAME, text_y, UI_ALIGN_LEFT, color, glow, name);
+	if (game->locked)
+		draw_lock(COLUMN_NAME + width + 4, text_y + 1, ROW_SIZE * 0.75f, color);
+	/* the map: a name too long for the room left of its family's tag smaller,
+	its middle where the others' is */
+	map_name = map_display_name(game->map, text, sizeof(text));
+	size = ROW_SIZE;
+	while (size > 8.0f && ui_overlay_text_width(UI_FONT_MENU, size, map_name) > badge_x - 4 - COLUMN_MAP)
+		size -= 0.5f;
+	ui_overlay_text_glow(UI_FONT_MENU, size, COLUMN_MAP, text_y + (ROW_SIZE - size) / 2, UI_ALIGN_LEFT, color, glow,
+		map_name);
+	draw_family_badge(family, BADGE_SIZE, badge_x, text_y, ROW_SIZE, !game->open && !picked);
+	ui_overlay_text_glow(UI_FONT_MENU, ROW_SIZE, COLUMN_TYPE, text_y, UI_ALIGN_LEFT, color, glow,
+		type_name(game, text, sizeof(text)));
+	snprintf(text, sizeof(text), "%d/%d", game->players, game->maximum_players);
+	ui_overlay_text_glow(UI_FONT_MENU, ROW_SIZE, COLUMN_PLAYERS, text_y, UI_ALIGN_RIGHT,
+		game->open || picked ? color : COLOR_CLOSED, glow, text);
+	/* (the round trip, while the tunnel reaches the host: browser.c; nothing
+	for a host not reached, whose round trip nothing measures before joining) */
+	if (game->ping >= 0)
+	{
+		snprintf(text, sizeof(text), "%d", game->ping);
+		ui_overlay_text_glow(UI_FONT_MENU, ROW_SIZE, COLUMN_PING, text_y, UI_ALIGN_RIGHT, color, glow, text);
+	}
+}
+
+/* the list with no game in it: why, in plain words, and what to do */
+static void draw_empty_list(
+	void)
+{
+	float center = LIST_X + LIST_WIDTH / 2;
+	float y = LIST_Y + LIST_HEAD + 60;
+	char const *title, *line;
+
+	switch (browser_list_status())
+	{
+	case BROWSER_LIST_NONE:
+		title = "There is no game list to show.";
+		line = "Set network.browser_url in config.toml to the list's address.";
+		break;
+	case BROWSER_LIST_FAILED:
+		title = "The game list isn't answering.";
+		line = "Check your internet connection. The list tries again on its own.";
+		break;
+	case BROWSER_LIST_WAITING:
+		title = "Looking for games\xE2\x80\xA6";
+		line = NULL;
+		break;
+	default:
+		ui_overlay_text_glow(UI_FONT_MENU, 14.0f, center, y, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFFA0,
+			"No one is hosting right now.");
+		text_with_button(UI_FONT_MENU_SMALL, 10.0f, center, y + 24, COLOR_DIM, "Host a game with", UI_BUTTON_Y,
+			"and it shows here. The list checks again on its own.");
 		return;
 	}
-	if (browser_screen.offer != _offer_none)
+	ui_overlay_text_glow(UI_FONT_MENU, 14.0f, center, y, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFFA0, title);
+	if (line)
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, y + 24, UI_ALIGN_CENTER, COLOR_DIM, line);
+}
+
+/* the list's footer: the order (or a message, or what the selected game
+lacks to be joined), and the page */
+static void draw_list_footer(
+	struct browser_game const *selected,
+	short page_first,
+	short page_count)
+{
+	float y = (float)(LIST_Y + LIST_HEAD + ROWS_PER_PAGE * LIST_ROW) + 3;
+	float text_y = y + (LIST_FOOT - FOOT_SIZE) * 0.5f;
+	char blocker_text[BROWSER_MAP_LENGTH + 64];
+	char const *blocker = selected ? ce_map_blocker(selected, blocker_text, sizeof(blocker_text)) : NULL;
+	char text[96];
+	float width;
+
+	if (!browser_screen.connecting && browser_screen.status[0] &&
+		system_milliseconds() - browser_screen.status_time < STATUS_DURATION)
 	{
-		draw_map_offer();
-		return;
+		ui_overlay_text(UI_FONT_MENU, FOOT_SIZE + 0.5f, LIST_X + 14, text_y - 0.25f, UI_ALIGN_LEFT, COLOR_WARN,
+			browser_screen.status);
 	}
-
-	/* the list */
-	ui_overlay_rect(LIST_X, LIST_Y, LIST_WIDTH, LIST_HEAD + ROWS_PER_PAGE * LIST_ROW + LIST_FOOT, 6, COLOR_PANEL);
-	ui_overlay_gradient(LIST_X, LIST_Y, LIST_WIDTH, LIST_HEAD, 6, 0x123266FF, 0x0C2347FF);
-	ui_overlay_text(UI_FONT_BOLD, 8.0f, COLUMN_NAME, LIST_Y + 6, UI_ALIGN_LEFT, COLOR_HEAD, "Server");
-	ui_overlay_text(UI_FONT_BOLD, 8.0f, COLUMN_MAP, LIST_Y + 6, UI_ALIGN_LEFT, COLOR_HEAD, "Map");
-	ui_overlay_text(UI_FONT_BOLD, 8.0f, COLUMN_TYPE, LIST_Y + 6, UI_ALIGN_LEFT, COLOR_HEAD, "Type");
-	ui_overlay_text(UI_FONT_BOLD, 8.0f, COLUMN_PLAYERS, LIST_Y + 6, UI_ALIGN_RIGHT,
-		browser_screen.sort == SORT_PLAYERS ? 0xFFFFFFFF : COLOR_HEAD, "Players");
-	ui_overlay_text(UI_FONT_BOLD, 8.0f, COLUMN_PING, LIST_Y + 6, UI_ALIGN_RIGHT, COLOR_HEAD, "Ping");
-
-	page_first = (short)(browser_screen.selected - browser_screen.selected % ROWS_PER_PAGE);
-	browser_screen.drawn_first = page_first;
-	page_count = (short)MAX(1, (browser_screen.count + ROWS_PER_PAGE - 1) / ROWS_PER_PAGE);
-	if (!browser_screen.count)
+	else if (blocker)
+		ui_overlay_text(UI_FONT_MENU, FOOT_SIZE + 0.5f, LIST_X + 14, text_y - 0.25f, UI_ALIGN_LEFT, COLOR_WARN, blocker);
+	else
 	{
-		ui_overlay_text(UI_FONT_REGULAR, 10.0f, 320, LIST_Y + LIST_HEAD + 80, UI_ALIGN_CENTER, COLOR_DIM,
-			"No one is hosting right now. Host a game, and it shows here.");
+		/* (RT steps to the next order, and so does the pointer on it) */
+		float x = LIST_X + 12;
+
+		x += ui_overlay_button(UI_BUTTON_RIGHT_TRIGGER, SMALL_BUTTON, x, text_y - (SMALL_BUTTON - FOOT_SIZE) / 2,
+			0xFFFFFFFF) + 6;
+		snprintf(text, sizeof(text), "SORTED BY %s  \xC2\xB7  CLOSED GAMES LAST", sort_names[browser_screen.sort]);
+		width = ui_overlay_text(UI_FONT_MENU_SMALL, FOOT_SIZE, x, text_y, UI_ALIGN_LEFT, COLOR_HEAD, text);
+		add_target(LIST_X, y, x + width + 10, y + LIST_FOOT, UI_BUTTON_RIGHT_TRIGGER);
 	}
-	for (row = 0; row < ROWS_PER_PAGE; row++)
+	snprintf(text, sizeof(text), "\xE2\x80\xB9  PAGE %d OF %d  \xE2\x80\xBA", page_first / ROWS_PER_PAGE + 1, page_count);
+	width = ui_overlay_text_glow(UI_FONT_MENU, FOOT_SIZE, LIST_X + LIST_WIDTH - 14, text_y, UI_ALIGN_RIGHT, COLOR_PROMPT,
+		0x3D8BFF50, text);
+	/* (the pointer turns the page back on its left half, on with its right) */
+	add_target(LIST_X + LIST_WIDTH - 24 - width, y, LIST_X + LIST_WIDTH - 14 - width / 2, y + LIST_FOOT,
+		UI_BUTTON_DPAD_LEFT);
+	add_target(LIST_X + LIST_WIDTH - 14 - width / 2, y, LIST_X + LIST_WIDTH, y + LIST_FOOT, UI_BUTTON_DPAD_RIGHT);
+}
+
+/* the selected game's details: its pictures, its lines and who is in it */
+static void draw_details(
+	struct browser_game const *selected)
+{
+	short map_frame = NUMBEROF(map_picture_order);
+	char file[BROWSER_MAP_LENGTH], map_name[64], text[160], name[64];
+	char const *map_label;
+	short family = map_family(selected->map);
+	float y = DETAIL_Y + DETAIL_FIRST_LINE;
+	float x, line_y;
+	long index;
+
+	/* the pictures, in framed insets: the menus' own, else the site's (a
+stock map's, while it loads or without one: map_art.c), else a card with
+the map's name over its family's color (a custom map's) */
+	map_file(selected->map, file, sizeof(file));
+	map_label = map_display_name(selected->map, map_name, sizeof(map_name));
 	{
-		float y = (float)(LIST_Y + LIST_HEAD + row * LIST_ROW);
-		struct browser_game const *game;
-		char const *map_name;
-		unsigned int color;
+		boolean drawn = FALSE;
+		char art_path[64];
 
-		if (row)
-			ui_overlay_rect(LIST_X + 1, y, LIST_WIDTH - 2, 0.5f, 0, COLOR_ROW_RULE);
-		if (page_first + row >= browser_screen.count)
-			continue;
-		game = &browser_screen.games[page_first + row];
-		if (page_first + row == browser_screen.selected)
-			ui_overlay_rect(LIST_X + 1, y, LIST_WIDTH - 2, LIST_ROW, 0, COLOR_ROW_SELECTED);
-		color = game->open ? COLOR_TEXT : COLOR_DIM;
-		utf8_name(game->name, name, sizeof(name));
-		ui_overlay_text(UI_FONT_BOLD, 10.0f, COLUMN_NAME, y + 5, UI_ALIGN_LEFT, color, name);
-		/* (the host's platform, in the room before the name) */
-		if (host_tag(game)[0])
-			ui_overlay_text(UI_FONT_BOLD, 6.5f, (LIST_X + COLUMN_NAME) / 2.0f, y + 7.5f, UI_ALIGN_CENTER, COLOR_DIM, host_tag(game));
-		map_name = map_display_name(game->map, text, sizeof(text));
-		if (map_family(game->map) != _map_family_xbox)
-		{
-			/* (the badges in a column at the Map column's right; a name too long
-			for the room left of it smaller, its middle where the others' is) */
-			float badge_x = COLUMN_TYPE - BADGE_MARGIN - pc_badge_width(map_family(game->map), BADGE_SIZE);
-			float size = 10.0f;
-
-			while (size > 7.0f && ui_overlay_text_width(UI_FONT_BOLD, size, map_name) > badge_x - 4 - COLUMN_MAP)
-				size -= 0.5f;
-			ui_overlay_text(UI_FONT_BOLD, size, COLUMN_MAP, y + 5 + (10.0f - size) / 2, UI_ALIGN_LEFT, color, map_name);
-			draw_pc_badge(map_family(game->map), BADGE_SIZE, badge_x, y + 5, 10.0f);
-		}
-		else
-			ui_overlay_text(UI_FONT_BOLD, 10.0f, COLUMN_MAP, y + 5, UI_ALIGN_LEFT, color, map_name);
-		ui_overlay_text(UI_FONT_BOLD, 10.0f, COLUMN_TYPE, y + 5, UI_ALIGN_LEFT, color, type_name(game, text, sizeof(text)));
-		snprintf(text, sizeof(text), "%d/%d", game->players, game->maximum_players);
-		ui_overlay_text(UI_FONT_BOLD, 10.0f, COLUMN_PLAYERS, y + 5, UI_ALIGN_RIGHT, game->open ? color : COLOR_CLOSED, text);
-		/* (no ping yet: the probe is to come) */
-		ui_overlay_text(UI_FONT_REGULAR, 10.0f, COLUMN_PING, y + 5, UI_ALIGN_RIGHT, COLOR_DIM, "\xE2\x80\x93");
-	}
-	{
-		float y = (float)(LIST_Y + LIST_HEAD + ROWS_PER_PAGE * LIST_ROW);
-		char blocker_text[BROWSER_MAP_LENGTH + 64];
-		char const *blocker = selected ? ce_map_blocker(selected, blocker_text, sizeof(blocker_text)) : NULL;
-
-		ui_overlay_rect(LIST_X + 1, y, LIST_WIDTH - 2, 0.75f, 0, COLOR_PANEL_EDGE);
-		/* (in the sort's place: a status message while it shows, else what the
-		selected game's Custom Edition map lacks to be joined) */
-		if (!browser_screen.connecting && browser_screen.status[0] &&
-			system_milliseconds() - browser_screen.status_time < STATUS_DURATION)
-		{
-			ui_overlay_text(UI_FONT_BOLD, 8.0f, LIST_X + 10, y + 5.5f, UI_ALIGN_LEFT, COLOR_CLOSED, browser_screen.status);
-		}
-		else if (blocker)
-			ui_overlay_text(UI_FONT_BOLD, 8.0f, LIST_X + 10, y + 5.5f, UI_ALIGN_LEFT, COLOR_CLOSED, blocker);
-		else
-		{
-			snprintf(text, sizeof(text), "SORTED BY %s  \xC2\xB7  CLOSED GAMES LAST", sort_names[browser_screen.sort]);
-			/* (the pointer steps to the next order on it, as RT) */
-			width = ui_overlay_text(UI_FONT_BOLD, 7.5f, LIST_X + 10, y + 6, UI_ALIGN_LEFT, COLOR_DIM, text);
-			add_target(LIST_X, y, LIST_X + 20 + width, y + LIST_FOOT, UI_BUTTON_RIGHT_TRIGGER);
-		}
-		snprintf(text, sizeof(text), "\xE2\x80\xB9   PAGE %d OF %d   \xE2\x80\xBA", page_first / ROWS_PER_PAGE + 1, page_count);
-		width = ui_overlay_text(UI_FONT_BOLD, 8.0f, LIST_X + LIST_WIDTH - 12, y + 5.5f, UI_ALIGN_RIGHT, COLOR_LABEL, text);
-		/* (the pointer turns the page back on its left half, on with its right) */
-		add_target(LIST_X + LIST_WIDTH - 22 - width, y, LIST_X + LIST_WIDTH - 12 - width / 2, y + LIST_FOOT,
-			UI_BUTTON_DPAD_LEFT);
-		add_target(LIST_X + LIST_WIDTH - 12 - width / 2, y, LIST_X + LIST_WIDTH, y + LIST_FOOT, UI_BUTTON_DPAD_RIGHT);
-	}
-	ui_overlay_outline(LIST_X, LIST_Y, LIST_WIDTH, LIST_HEAD + ROWS_PER_PAGE * LIST_ROW + LIST_FOOT, 6, 1.0f,
-		COLOR_PANEL_EDGE);
-
-	/* the selected game */
-	ui_overlay_rect(LIST_X, DETAIL_Y, LIST_WIDTH, DETAIL_HEIGHT, 6, COLOR_PANEL);
-	ui_overlay_outline(LIST_X, DETAIL_Y, LIST_WIDTH, DETAIL_HEIGHT, 6, 1.0f, COLOR_PANEL_EDGE);
-	if (selected)
-	{
-		short map_frame = NUMBEROF(map_picture_order);
-		char file[BROWSER_MAP_LENGTH], map_name[64];
-		short ce_state = ce_map_state(selected, FALSE);
-		float y = DETAIL_Y + DETAIL_FIRST_LINE;
-
-		map_file(selected->map, file, sizeof(file));
-		if (ce_state != _ce_map_none)
-		{
-			struct bitmap_data *bitmap = NULL;
-
-#ifdef HALO_CUSTOM_EDITION
-			/* (Halo PC's picture of it, or of an unknown level: laid out as the
-			Xbox's) */
-			bitmap = ui_map_list_family_picture(map_family(selected->map), file);
-#endif
-			draw_bitmap_picture(bitmap, 140, 116, 46, DETAIL_Y + 9, 171, DETAIL_Y + DETAIL_HEIGHT - 9);
-		}
-		else
+		if (family == _map_family_xbox)
 		{
 			for (index = 0; index < NUMBEROF(map_picture_order); index++)
 			{
 				if (!strcmp(file, map_picture_order[index]))
 					map_frame = (short)index;
 			}
-			draw_picture("ui\\shell\\bitmaps\\mp_map_grafix", map_frame, 140, 116, 46, DETAIL_Y + 9, 171,
-				DETAIL_Y + DETAIL_HEIGHT - 9);
+			/* (the menus' picture of an unknown map is a question mark: none) */
+			if (map_frame < NUMBEROF(map_picture_order))
+			{
+				drawn = draw_picture("ui\\shell\\bitmaps\\mp_map_grafix", map_frame, 140, 116, MAP_PICTURE_X, PICTURE_Y,
+					MAP_PICTURE_X + MAP_PICTURE_WIDTH, PICTURE_Y + PICTURE_HEIGHT);
+			}
 		}
-		ui_overlay_outline(45, DETAIL_Y + 8, 127, DETAIL_HEIGHT - 16, 0, 1.0f, COLOR_ROW_RULE);
-		draw_picture("ui\\shell\\bitmaps\\game_type_grafix",
-			engine_picture[selected->engine >= 0 && selected->engine < NUMBEROF(engine_picture) ? selected->engine : 0],
-			140, 114, 181, DETAIL_Y + 9, 256, DETAIL_Y + DETAIL_HEIGHT - 9);
-
-		utf8_name(selected->name, name, sizeof(name));
-		ui_overlay_text(UI_FONT_BOLD, 13.0f, 266, DETAIL_Y + 12, UI_ALIGN_LEFT, 0xFFFFFFFF, name);
-#define DETAIL_LINE(label, value) \
-		x = 266 + ui_overlay_text(UI_FONT_REGULAR, 10.0f, 266, y, UI_ALIGN_LEFT, COLOR_LABEL, label) + 4; \
-		x += ui_overlay_text(UI_FONT_REGULAR, 10.0f, x, y, UI_ALIGN_LEFT, COLOR_TEXT, value); \
-		y += DETAIL_LINE_STEP;
-		DETAIL_LINE("Status:", selected->open ? "Accepting Players" : "In Progress");
-		DETAIL_LINE("Map:", map_display_name(selected->map, map_name, sizeof(map_name)));
-		if (ce_state != _ce_map_none)
-			draw_pc_badge(map_family(selected->map), BADGE_SIZE, x + 6, y - DETAIL_LINE_STEP, 10.0f);
-		/* (the score to win on the Rules line: room for the Host line) */
-		type_name(selected, text, sizeof(text));
-		if (selected->score_limit)
-			snprintf(text + strlen(text), sizeof(text) - strlen(text), ", to %d", selected->score_limit);
-		DETAIL_LINE("Rules:", text);
-		snprintf(text, sizeof(text), "%d of %d", selected->players, selected->maximum_players);
-		DETAIL_LINE("Players:", text);
-		if (host_text(selected, text, sizeof(text)))
-		{
-			DETAIL_LINE("Host:", text);
-		}
-#undef DETAIL_LINE
-
-		/* who is in it (the host's roster, when it sends one: two columns of
-		seven, the last place saying how many more) */
-		ui_overlay_rect(444, DETAIL_Y + 10, 0.75f, DETAIL_HEIGHT - 20, 0, COLOR_ROW_RULE);
-		ui_overlay_text(UI_FONT_BOLD, 8.5f, 453, DETAIL_Y + 10, UI_ALIGN_LEFT, COLOR_LABEL, "IN GAME");
-		/* (its machines by platform, as its Delta host counts them, beside) */
-		if (machines_text(selected, text, sizeof(text))[0])
-		{
-			float size = 8.5f;
-
-			while (size > 6.5f && ui_overlay_text_width(UI_FONT_REGULAR, size, text) > LIST_X + LIST_WIDTH - 8 - 500)
-				size -= 0.5f;
-			ui_overlay_text(UI_FONT_REGULAR, size, LIST_X + LIST_WIDTH - 8, DETAIL_Y + 10 + (8.5f - size) / 2,
-				UI_ALIGN_RIGHT, COLOR_DIM, text);
-		}
-		if (!selected->players && !selected->roster_count)
-			ui_overlay_text(UI_FONT_REGULAR, 8.5f, 453, DETAIL_Y + 27, UI_ALIGN_LEFT, COLOR_DIM, "No one yet");
-		else if (!selected->roster_count)
-			ui_overlay_text(UI_FONT_REGULAR, 8.5f, 453, DETAIL_Y + 27, UI_ALIGN_LEFT, COLOR_DIM,
-				"This host doesn't share names");
+#ifdef HALO_CUSTOM_EDITION
 		else
 		{
-			long kept = selected->roster_count < BROWSER_LISTED_ROSTER ? selected->roster_count : BROWSER_LISTED_ROSTER;
-			long places = ROSTER_COLUMNS * ROSTER_ROWS;
-			long shown = selected->roster_count > places ? places - 1 : kept;
-			long index;
+			/* (Halo PC's picture of one of its own maps) */
+			struct bitmap_data *bitmap = ui_map_list_family_picture(family, file);
 
-			for (index = 0; index < shown; index++)
+			if (bitmap)
 			{
-				struct browser_roster_player const *player = &selected->roster[index];
-				unsigned long color = !selected->teams || player->team < 0 ? COLOR_TEXT :
-					player->team == 0 ? COLOR_RED_TEAM : COLOR_BLUE_TEAM;
-
-				utf8_name(player->name, name, sizeof(name));
-				ui_overlay_text(UI_FONT_REGULAR, 8.5f, 453 + (index / ROSTER_ROWS) * 85,
-					DETAIL_Y + 27 + (index % ROSTER_ROWS) * 11, UI_ALIGN_LEFT, color, name);
-			}
-			if (selected->roster_count > shown)
-			{
-				snprintf(text, sizeof(text), "+%d more", selected->roster_count - (int)shown);
-				ui_overlay_text(UI_FONT_REGULAR, 8.5f, 453 + (shown / ROSTER_ROWS) * 85,
-					DETAIL_Y + 27 + (shown % ROSTER_ROWS) * 11, UI_ALIGN_LEFT, COLOR_DIM, text);
+				draw_bitmap_picture(bitmap, 140, 116, MAP_PICTURE_X, PICTURE_Y, MAP_PICTURE_X + MAP_PICTURE_WIDTH,
+					PICTURE_Y + PICTURE_HEIGHT);
+				drawn = TRUE;
 			}
 		}
-	}
+#endif
+		if (!drawn && map_art_site_path(family == _map_family_xbox, file, art_path, (int)sizeof(art_path)))
+		{
+			unsigned char const *pixels;
+			int width, height, serial;
 
-	/* the buttons */
-	ui_overlay_rect(-margin, 444, 640 + 2 * margin, 0.75f, 0, COLOR_RULE);
-	width = prompt_width(UI_BUTTON_A, "=JOIN") + prompt_width(UI_BUTTON_B, "=BACK") +
-		prompt_width(UI_BUTTON_X, "=REFRESH") + prompt_width(UI_BUTTON_Y, "=CREATE GAME") +
-		prompt_width(UI_BUTTON_BACK, "=FILTERS") +
-		prompt_width(UI_BUTTON_LEFT_TRIGGER, "") + prompt_width(UI_BUTTON_RIGHT_TRIGGER, "=SORT") +
-		prompt_width(UI_BUTTON_RIGHT_SHOULDER, "=LINK PROFILE") - 20 - 3;
-	x = 320 - width / 2;
-	/* (A greyed for a game on a Custom Edition map that can't be played here) */
-	if (selected && ce_map_state(selected, FALSE) >= _ce_map_missing && !ce_map_downloadable(selected) &&
-		!ce_map_stock(selected))
-		x = prompt_off(UI_BUTTON_A, "=JOIN", x);
+			if (map_art_get(art_path, &pixels, &width, &height, &serial) == MAP_ART_READY)
+			{
+				draw_art_picture(pixels, width, height, serial, MAP_PICTURE_X, PICTURE_Y, MAP_PICTURE_WIDTH,
+					PICTURE_HEIGHT);
+				drawn = TRUE;
+			}
+		}
+		if (!drawn)
+		{
+			draw_card(map_label, map_family_kind(family), map_family_color(family), MAP_PICTURE_X, PICTURE_Y,
+				MAP_PICTURE_WIDTH, PICTURE_HEIGHT);
+		}
+	}
+	ui_overlay_outline(MAP_PICTURE_X - 1, PICTURE_Y - 1, MAP_PICTURE_WIDTH + 2, PICTURE_HEIGHT + 2, 2, 1.0f, 0x4F9DFFC0);
+	/* (the game type's: a card with its name for one the menus have no
+	picture of) */
+	if (selected->engine <= 0 || selected->engine >= NUMBEROF(engine_picture) ||
+		!draw_picture("ui\\shell\\bitmaps\\game_type_grafix", engine_picture[selected->engine], 132, 114,
+			TYPE_PICTURE_X, PICTURE_Y, TYPE_PICTURE_X + TYPE_PICTURE_WIDTH, PICTURE_Y + PICTURE_HEIGHT))
+	{
+		draw_card(type_name(selected, text, sizeof(text)), NULL, 0x3D8BFF, TYPE_PICTURE_X, PICTURE_Y,
+			TYPE_PICTURE_WIDTH, PICTURE_HEIGHT);
+	}
+	ui_overlay_outline(TYPE_PICTURE_X - 1, PICTURE_Y - 1, TYPE_PICTURE_WIDTH + 2, PICTURE_HEIGHT + 2, 2, 1.0f,
+		0x4F9DFFC0);
+
+	utf8_name(selected->name, name, sizeof(name));
+	x = DETAIL_TEXT_X + ui_overlay_text_glow(UI_FONT_MENU, 13.0f, DETAIL_TEXT_X, DETAIL_Y + 6, UI_ALIGN_LEFT, 0xFFFFFFFF,
+		0x6FB2FFA0, name);
+	if (selected->locked)
+		draw_lock(x + 5, DETAIL_Y + 8, 10.0f, 0xFFFFFFFF);
+#define DETAIL_LINE(label, value) \
+		line_y = y; \
+		x = DETAIL_TEXT_X + ui_overlay_text(UI_FONT_MENU_SMALL, DETAIL_SIZE, DETAIL_TEXT_X, y, UI_ALIGN_LEFT, COLOR_LABEL, \
+			label) + 4; \
+		x += ui_overlay_text(UI_FONT_MENU, DETAIL_SIZE, x, y, UI_ALIGN_LEFT, COLOR_TEXT, value); \
+		y += DETAIL_LINE_STEP;
+	snprintf(text, sizeof(text), "%s%s", selected->open ? "Accepting players" : "In progress",
+		selected->locked ? ", password" : "");
+	DETAIL_LINE("Status:", text);
+	DETAIL_LINE("Map:", map_label);
+	/* (its family, spelled out beside its tag) */
+	draw_family_badge(family, BADGE_SIZE, x + 6, line_y, DETAIL_SIZE, FALSE);
+	ui_overlay_text(UI_FONT_MENU_SMALL, DETAIL_SIZE - 1.0f, x + 10 + family_badge_width(family, BADGE_SIZE), line_y + 0.5f,
+		UI_ALIGN_LEFT, COLOR_DIM, map_family_title(family));
+	type_name(selected, text, sizeof(text));
+	if (selected->score_limit)
+		snprintf(text + strlen(text), sizeof(text) - strlen(text), " to %d", selected->score_limit);
+	DETAIL_LINE("Rules:", text);
+	/* (its machines by platform, as its Delta host counts them) */
+	snprintf(text, sizeof(text), "%d of %d", selected->players, selected->maximum_players);
+	{
+		char machines[96];
+
+		if (machines_text(selected, machines, sizeof(machines))[0])
+			snprintf(text + strlen(text), sizeof(text) - strlen(text), " (%s)", machines);
+	}
+	DETAIL_LINE("Players:", text);
+	if (host_text(selected, text, sizeof(text)))
+	{
+		DETAIL_LINE("Host:", text);
+	}
+#undef DETAIL_LINE
+	(void)line_y;
+
+	/* who is in it (the host's roster, when it sends one: two columns of
+	seven, the last place saying how many more), behind a thin rule */
+	ui_overlay_rect(ROSTER_X - 10, DETAIL_Y + 10, 1.0f, DETAIL_HEIGHT - 20, 0, COLOR_RULE);
+	ui_overlay_text_glow(UI_FONT_MENU, 8.5f, ROSTER_X, DETAIL_Y + 9, UI_ALIGN_LEFT, COLOR_LABEL, 0x3D8BFF50, "IN GAME");
+	if (!selected->players && !selected->roster_count)
+		ui_overlay_text(UI_FONT_MENU_SMALL, 8.5f, ROSTER_X, DETAIL_Y + 24, UI_ALIGN_LEFT, COLOR_DIM, "No one yet");
+	else if (!selected->roster_count)
+	{
+		ui_overlay_text(UI_FONT_MENU_SMALL, 8.5f, ROSTER_X, DETAIL_Y + 24, UI_ALIGN_LEFT, COLOR_DIM,
+			"This host doesn't share names");
+	}
 	else
-		x = prompt(UI_BUTTON_A, "=JOIN", x);
-	x = prompt(UI_BUTTON_B, "=BACK", x);
-	x = prompt(UI_BUTTON_X, "=REFRESH", x);
-	x = prompt(UI_BUTTON_Y, "=CREATE GAME", x);
-	x = prompt(UI_BUTTON_BACK, "=FILTERS", x);
-	width = ui_overlay_button(UI_BUTTON_LEFT_TRIGGER, 15.0f, x, 455.0f, 0xFFFFFFFF);
-	add_target(x - 10, 444, x + width, 480, UI_BUTTON_LEFT_TRIGGER);
-	x += width;
-	x = prompt(UI_BUTTON_RIGHT_TRIGGER, "=SORT", x);
-	prompt(UI_BUTTON_RIGHT_SHOULDER, "=LINK PROFILE", x);
+	{
+		long kept = selected->roster_count < BROWSER_LISTED_ROSTER ? selected->roster_count : BROWSER_LISTED_ROSTER;
+		long places = ROSTER_COLUMNS * ROSTER_ROWS;
+		long shown = selected->roster_count > places ? places - 1 : kept;
+
+		for (index = 0; index < shown; index++)
+		{
+			struct browser_roster_player const *player = &selected->roster[index];
+			unsigned long color = !selected->teams || player->team < 0 ? COLOR_TEXT :
+				player->team == 0 ? COLOR_RED_TEAM : COLOR_BLUE_TEAM;
+
+			utf8_name(player->name, name, sizeof(name));
+			ui_overlay_text(UI_FONT_MENU, 8.5f, ROSTER_X + (index / ROSTER_ROWS) * 66,
+				DETAIL_Y + 24 + (index % ROSTER_ROWS) * 11, UI_ALIGN_LEFT, (unsigned int)color, name);
+		}
+		if (selected->roster_count > shown)
+		{
+			snprintf(text, sizeof(text), "+%d more", selected->roster_count - (int)shown);
+			ui_overlay_text(UI_FONT_MENU_SMALL, 8.5f, ROSTER_X + (shown / ROSTER_ROWS) * 66,
+				DETAIL_Y + 24 + (shown % ROSTER_ROWS) * 11, UI_ALIGN_LEFT, COLOR_DIM, text);
+		}
+	}
+}
+
+/* the prompt bar's four, right to left as the Xbox reads them: A joins, B
+backs out, X refreshes, Y makes a game */
+static void draw_bar_prompts(
+	struct browser_game const *selected)
+{
+	static int const buttons[] = { UI_BUTTON_Y, UI_BUTTON_X, UI_BUTTON_B, UI_BUTTON_A };
+	static char const *const words[] = { "=CREATE GAME", "=REFRESH", "=BACK", "=JOIN" };
+	/* (A greyed for a game whose Halo PC map can't be played here, and with
+	no game to join) */
+	boolean on[] = { TRUE, TRUE, TRUE, selected != NULL &&
+		!(ce_map_state(selected, FALSE) >= _ce_map_missing && !ce_map_downloadable(selected) && !ce_map_stock(selected)) };
+	short count = selected ? 4 : 3;
+	float width = prompts_width(count, buttons, words, PROMPT_BUTTON, PROMPT_TEXT);
+
+	prompts(count, buttons, words, on, PROMPTS_RIGHT - width, BAR_Y + (BAR_BOTTOM - BAR_Y - PROMPT_BUTTON) / 2,
+		PROMPT_BUTTON, PROMPT_TEXT, BAR_Y, 480);
+}
+
+void browser_screen_render(
+	void)
+{
+	short page_first, page_count, row;
+	float margin = (float)((halo_screen_width() - 640) / 2 + 2);
+	struct browser_game const *selected = browser_screen.count ? &browser_screen.games[browser_screen.selected] : NULL;
+	boolean dialog = browser_screen.connect_open || browser_screen.offer != _offer_none;
+
+	/* (what the pointer may press, as this frame draws it) */
+	browser_screen.target_count = 0;
+	browser_screen.drawn_first = NONE;
+	if (!ui_overlay_available())
+		return;
+
+	/* the title and the band, over the menus' own background, its
+	widescreen margins too */
+	draw_header(-margin, 640 + margin);
+	ui_overlay_prompt_bar(-margin, 640 + margin, BAR_Y, BAR_BOTTOM);
+
+	/* the list */
+	ui_overlay_panel(LIST_X, LIST_Y, LIST_WIDTH, LIST_HEAD + ROWS_PER_PAGE * LIST_ROW + 3 + LIST_FOOT, FALSE);
+	column_head(COLUMN_NAME, UI_ALIGN_LEFT, "SERVER", browser_screen.sort == SORT_NAME);
+	column_head(COLUMN_MAP, UI_ALIGN_LEFT, "MAP", browser_screen.sort == SORT_MAP);
+	column_head(COLUMN_TYPE, UI_ALIGN_LEFT, "TYPE", browser_screen.sort == SORT_TYPE);
+	column_head(COLUMN_PLAYERS - (browser_screen.sort == SORT_PLAYERS ? 9 : 0), UI_ALIGN_RIGHT, "PLAYERS",
+		browser_screen.sort == SORT_PLAYERS);
+	column_head(COLUMN_PING - (browser_screen.sort == SORT_PING ? 9 : 0), UI_ALIGN_RIGHT, "PING",
+		browser_screen.sort == SORT_PING);
+	page_first = (short)(browser_screen.selected - browser_screen.selected % ROWS_PER_PAGE);
+	page_count = (short)MAX(1, (browser_screen.count + ROWS_PER_PAGE - 1) / ROWS_PER_PAGE);
+	if (!dialog)
+		browser_screen.drawn_first = page_first;
+	if (!browser_screen.count)
+		draw_empty_list();
+	for (row = 0; row < ROWS_PER_PAGE && page_first + row < browser_screen.count; row++)
+		draw_row(&browser_screen.games[page_first + row], row, page_first + row == browser_screen.selected && !dialog);
+	if (!dialog)
+		draw_list_footer(selected, page_first, page_count);
+
+	/* the selected game (not under a dialog: its pictures would show through
+	it) */
+	if (!dialog)
+	{
+		ui_overlay_panel(LIST_X, DETAIL_Y, LIST_WIDTH, DETAIL_HEIGHT, FALSE);
+		if (selected)
+			draw_details(selected);
+		draw_bar_prompts(selected);
+	}
+	else
+	{
+		/* a dialog over the list, shaded, its buttons alone (the bar empties) */
+		ui_overlay_layer(1);
+		ui_overlay_rect(-margin, BAND_Y + 1, 640 + 2 * margin, BAR_Y - BAND_Y - 2, 0, COLOR_SHADE);
+		if (browser_screen.connect_open)
+			draw_link_profile();
+		else
+			draw_map_offer();
+		ui_overlay_layer(0);
+		return;
+	}
 
 	if (browser_screen.connecting && browser_screen.offer == _offer_none)
 	{
 		char line[160];
 		long dots = (long)((system_milliseconds() - browser_screen.connecting_time) / 400 % 4);
+		float x;
 
+		ui_overlay_layer(1);
 		snprintf(line, sizeof(line), "Connecting to %s%.*s", browser_screen.connecting_name, (int)dots, "...");
-		ui_overlay_rect(170, 200, 300, 64, 6, 0x0A1A36F8);
-		ui_overlay_outline(170, 200, 300, 64, 6, 1.0f, COLOR_PANEL_EDGE);
-		ui_overlay_text(UI_FONT_BOLD, 12.0f, 320, 212, UI_ALIGN_CENTER, 0xFFFFFFFF, line);
-		x = 320 - (ui_overlay_button_width(UI_BUTTON_B, 13.0f) + ui_overlay_text_width(UI_FONT_BOLD, 10.0f, "=CANCEL")) / 2;
+		ui_overlay_panel(170, 196, 300, 70, TRUE);
+		ui_overlay_text_glow(UI_FONT_MENU, 12.0f, 320, 208, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, line);
+		x = 320 - prompt_width_sized(UI_BUTTON_B, "=CANCEL", 15.0f, 11.0f) / 2;
 		/* (the pointer cancels on the panel's lower half, its prompt's) */
-		add_target(170, 230, 470, 264, UI_BUTTON_B);
-		x += ui_overlay_button(UI_BUTTON_B, 13.0f, x, 236, 0xFFFFFFFF) + 3;
-		ui_overlay_text(UI_FONT_BOLD, 10.0f, x, 237.5f, UI_ALIGN_LEFT, COLOR_PROMPT, "=CANCEL");
+		prompt_sized(UI_BUTTON_B, "=CANCEL", x, 234, 15.0f, 11.0f, TRUE, 230, 266);
+		add_target(170, 230, 470, 266, UI_BUTTON_B);
+		ui_overlay_layer(0);
 	}
 }
 

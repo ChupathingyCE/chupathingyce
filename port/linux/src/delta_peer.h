@@ -93,7 +93,18 @@ enum
 	DELTA_PEER_MODERATION_ACTION_BURST = 3,
 	DELTA_PEER_MODERATION_SIGNATURE_RATE = 2,
 	DELTA_PEER_MODERATION_SIGNATURE_BURST = 2,
-	DELTA_PEER_MODERATION_BIND_TIME = 120000
+	DELTA_PEER_MODERATION_BIND_TIME = 120000,
+
+	/* chat (docs/delta.md, Chat): the host takes CHAT_SAY from a machine at
+	most this often (and at once), says CHAT_CONFIG again this often (and on
+	a change, no sooner than the roster's gap); a client takes CHAT_LINE at
+	most this often (and at once), and keeps the last lines it heard */
+	DELTA_PEER_CHAT_SAY_RATE = 1,
+	DELTA_PEER_CHAT_SAY_BURST = 3,
+	DELTA_PEER_CHAT_CONFIG_INTERVAL = 10000,
+	DELTA_PEER_CHAT_LINE_RATE = 10,
+	DELTA_PEER_CHAT_LINE_BURST = 20,
+	DELTA_PEER_CHAT_LINES = 32
 };
 
 /* the room's limits (delta_peer_room_limit) */
@@ -173,6 +184,52 @@ struct delta_peer_moderation_host
 		int minutes, const char *reason, char *result, int result_size);
 	/* a bind's answer, signed by key (for the request the host sent) */
 	void (*bind_answer)(void *context, int machine_index, delta_u32 request, int accepted, const unsigned char *key);
+};
+
+/* a host's chat (the game's: delta_peer_game.c routes lines by team and
+names their speakers); a host with none takes no CHAT_SAY */
+struct delta_peer_chat_host
+{
+	void *context;
+	/* a machine's player said a line (its session's sequence, rate, repeat,
+	text, the host's mode and the machine's mute checked): 0 if it is
+	relayed (the host sends it on with delta_peer_chat_line), else why not
+	(enum delta_chat_refusal) */
+	int (*say)(void *context, int machine_index, int scope, const char *text, int length);
+};
+
+/* the host's chat with a client's session */
+struct delta_peer_host_chat
+{
+	/* the last CHAT_SAY's sequence */
+	delta_u32 sequence;
+	struct delta_rate rate;
+	/* the last line relayed: its fingerprint and when */
+	int has_last;
+	delta_u32 last_fingerprint;
+	delta_u32 last_time;
+	/* CHAT_CONFIG as last sent, and when */
+	int config_sent;
+	struct delta_wire_chat_config config;
+	delta_u32 config_time;
+};
+
+/* a client's chat with its host */
+struct delta_peer_client_chat
+{
+	delta_u32 sequence;
+	/* CHAT_CONFIG as heard (has_config: some heard) */
+	int has_config;
+	struct delta_wire_chat_config config;
+	delta_u32 config_time;
+	struct delta_rate rate;
+	/* the lines heard, the last DELTA_PEER_CHAT_LINES of them: line n
+	(from 0) is at n % DELTA_PEER_CHAT_LINES while n >= received - that */
+	delta_u32 received;
+	struct delta_wire_chat_line lines[DELTA_PEER_CHAT_LINES];
+	/* the last refusal, and how many have come */
+	delta_u32 refused_count;
+	struct delta_wire_chat_refused refused;
 };
 
 /* the host's moderation with a client's session */
@@ -306,6 +363,7 @@ struct delta_peer_host_peer
 	delta_u32 map_sent_generation;
 	delta_u32 map_time;
 	struct delta_peer_host_moderation moderation;
+	struct delta_peer_host_chat chat;
 };
 
 /* a signed legacy table coming in, piece by piece: one at a time, from one
@@ -387,6 +445,19 @@ struct delta_peer
 	delta_u32 moderation_time;
 	struct delta_peer_client_moderation client_moderation;
 
+	/* chat: the host's (NULL: none, and no CHAT_SAY taken), its mode and
+	flags (CHAT_CONFIG's), each machine's mute (until the game drops the
+	machine: chat_muted[machine] set, and chat_mute_until its end, 0 for
+	none) and the lines it has sent; the client's with its host */
+	const struct delta_peer_chat_host *chat_host;
+	unsigned char chat_mode;
+	unsigned char chat_flags;
+	int chat_dirty;
+	unsigned char chat_muted[DELTA_PEER_MAXIMUM_MACHINES];
+	delta_u32 chat_mute_until[DELTA_PEER_MAXIMUM_MACHINES];
+	delta_u32 chat_lines_sent;
+	struct delta_peer_client_chat client_chat;
+
 	/* counted for the tests and the log */
 	unsigned long dropped;
 };
@@ -459,6 +530,40 @@ delta_u32 delta_peer_client_moderation_action(struct delta_peer *peer, int actio
 	const char *reason);
 /* (client) the player's answer to the waiting bind: 1 if sent */
 int delta_peer_client_moderation_bind_answer(struct delta_peer *peer, int accepted);
+
+/* ---------- chat (docs/delta.md, Chat)
+
+Player lines need chat agreed by both sides; the host's own lines (server
+and system kinds) need server_messages. The host checks each CHAT_SAY's
+session, sequence, rate, repeat and text, its mode and the machine's mute,
+then asks its chat (set_chat_host) to route the line; lines go out with
+delta_peer_chat_line. */
+
+/* (host) its chat (NULL: none, no CHAT_SAY taken) */
+void delta_peer_set_chat_host(struct delta_peer *peer, const struct delta_peer_chat_host *host);
+/* (host) what it relays (enum delta_chat_mode) and CHAT_CONFIG's flags
+(DELTA_CHAT_CONFIG_FILTERED); each client told on a change */
+void delta_peer_set_chat_mode(struct delta_peer *peer, int mode, int flags);
+/* (host) a machine's lines not relayed: for minutes (0: until it leaves
+the game), or relayed again (mute 0) */
+void delta_peer_chat_mute(struct delta_peer *peer, delta_u32 now, int machine_index, int mute, int minutes);
+/* (host) whether a machine is muted now */
+int delta_peer_chat_muted(const struct delta_peer *peer, delta_u32 now, int machine_index);
+/* (host) whether a machine's session takes a line of the kind (chat
+agreed for a player's, server_messages for the host's own) */
+int delta_peer_chat_capable(const struct delta_peer *peer, int machine_index, int kind);
+/* (host) a line to a machine (its line number is the host's): 1 if sent */
+int delta_peer_chat_line(struct delta_peer *peer, int machine_index, const struct delta_wire_chat_line *line);
+
+/* (client) whether the host agreed to chat (player lines may be said) */
+int delta_peer_client_chat_ready(const struct delta_peer *peer);
+/* (client) a line its player says (UTF-8; checked as the host will):
+its sequence, 0 if not sent */
+delta_u32 delta_peer_client_chat_say(struct delta_peer *peer, int scope, const char *text, int length);
+/* (client) the lines heard so far (a count that only grows), and line
+number index of them: 1 if it is still kept */
+delta_u32 delta_peer_client_chat_received(const struct delta_peer *peer);
+int delta_peer_client_chat_get(const struct delta_peer *peer, delta_u32 index, struct delta_wire_chat_line *line);
 
 /* what is known of a machine (0 if nothing) */
 int delta_peer_machine(const struct delta_peer *peer, int machine_index, struct delta_peer_machine *machine);

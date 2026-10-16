@@ -4910,6 +4910,42 @@ void display_error_damaged_media(
 	return;
 }
 
+/* port: the damaged disc error's screen with the port's own text in place
+of the error's (a Custom Edition map refused: cache_files_windows.c), as the
+game has no error that names a map's problem */
+void display_error_damaged_media_text(
+	wchar_t const *text)
+{
+	static wchar_t error_text[512];
+	struct widget_instance *widget;
+
+	ui_widgets_close_all();
+	widget = ui_widget_load_by_name_or_tag("ui\\shell\\error\\error_abort_to_dashboard_you_have_no_choice", NONE, NULL,
+		NONE, NONE, NONE, NONE);
+	if (widget && widget->type == _ui_widget_type_text_box)
+	{
+		widget->parameters.text_box.string_list_index = _error_media_damaged;
+		widget->widget_is_error_dialog = TRUE;
+		dashboard_abort_error = _error_media_damaged;
+		if (text && text[0])
+		{
+			ustrncpy(error_text, text, NUMBEROF(error_text) - 1);
+			error_text[NUMBEROF(error_text) - 1] = 0;
+			ui_widget_port_error_text_box = widget;
+			ui_widget_port_error_text = error_text;
+		}
+	}
+	else
+	{
+		/* (the game's own, which says why it failed) */
+		display_error_abort_to_dashboard(_error_media_damaged, FALSE);
+	}
+	input_frame_end();
+	main_loop_of_death();
+
+	return;
+}
+
 /* port: menu_tags.c's */
 char const *pc_menus_screen(char const *name);
 
@@ -7630,6 +7666,13 @@ void render_ui_widgets(
 					should_render = TRUE;
 				}
 			}
+#ifdef HALO_GAME_BROWSER
+			/* (Online Games is drawn over the menus' background alone, as a
+			screen of their own: the screen it opened over is not drawn under
+			it, an error dialog still is) */
+			if (should_render && browser_screen_active() && !widget->widget_is_error_dialog)
+				should_render = FALSE;
+#endif
 			if (should_render)
 			{
 				point2d offset;

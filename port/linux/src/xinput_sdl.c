@@ -399,7 +399,8 @@ static const char *const binding_settings[NUMBER_OF_HALO_KEYBOARD_ACTIONS] =
 	"controls.move_forward", "controls.move_backward", "controls.strafe_left", "controls.strafe_right",
 	"controls.jump", "controls.crouch", "controls.fire", "controls.throw_grenade", "controls.melee",
 	"controls.reload", "controls.zoom", "controls.switch_weapon", "controls.switch_grenade", "controls.action",
-	"controls.flashlight", "controls.scoreboard", "controls.pause",
+	"controls.flashlight", "controls.scoreboard", "controls.pause", "controls.chat_all", "controls.chat_team",
+	"controls.chat_log",
 };
 
 static const struct
@@ -590,6 +591,14 @@ static void keyboard_controls(const struct platform_input_state *input, XINPUT_G
 	if (held & (1UL << HALO_KEYBOARD_SCOREBOARD))
 		pad->wButtons |= XINPUT_GAMEPAD_BACK;
 	keyboard_actions_held = held;
+}
+
+/* text chat's typing (platform_chat_typing) */
+static BOOL chat_typing;
+
+void platform_chat_typing(int typing)
+{
+	chat_typing = typing != 0;
 }
 
 unsigned long halo_keyboard_actions(short controller_index)
@@ -1091,7 +1100,7 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 		keyboard_actions_held = 0;
 		keys_held_over_switch(&input);
 		test_input_menu_keys(&input);
-		if (!console_is_active())
+		if (!console_is_active() && !chat_typing)
 		{
 			if (input.menus)
 				keyboard_gamepad(&input, &state->Gamepad);

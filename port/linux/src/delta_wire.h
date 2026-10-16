@@ -92,7 +92,74 @@ enum
 	DELTA_WIRE_MOD_BIND_SIZE = 8,
 	DELTA_WIRE_MOD_BIND_ANSWER_SIZE = 104,
 	/* a signed message's bytes, at most (moderation_*_message) */
-	DELTA_WIRE_MODERATION_MESSAGE_SIZE = 256
+	DELTA_WIRE_MODERATION_MESSAGE_SIZE = 256,
+
+	/* chat (docs/delta.md, Chat): a player's line, at most this many bytes
+	of UTF-8 and characters; the host's own (server and system lines) at
+	most this many bytes; a speaker's name as the host gives it */
+	DELTA_WIRE_CHAT_SAY_TEXT_SIZE = 120,
+	DELTA_WIRE_CHAT_SAY_CHARACTERS = 80,
+	DELTA_WIRE_CHAT_TEXT_SIZE = 200,
+	DELTA_WIRE_CHAT_NAME_SIZE = 47,
+	/* the messages' fixed parts (the text follows) */
+	DELTA_WIRE_CHAT_CONFIG_SIZE = 8,
+	DELTA_WIRE_CHAT_SAY_SIZE = 8,
+	DELTA_WIRE_CHAT_LINE_SIZE = 12,
+	DELTA_WIRE_CHAT_REFUSED_SIZE = 8
+};
+
+/* CHAT_CONFIG's text mode: what the host relays */
+enum delta_chat_mode
+{
+	_delta_chat_mode_off = 0,
+	_delta_chat_mode_team = 1,
+	_delta_chat_mode_on = 2
+};
+
+/* CHAT_CONFIG's flags */
+enum
+{
+	/* this player's lines are not relayed (a moderator's mute) */
+	DELTA_CHAT_CONFIG_MUTED = 0x01,
+	/* the host refuses lines with blocked words */
+	DELTA_CHAT_CONFIG_FILTERED = 0x02
+};
+
+/* CHAT_SAY's and CHAT_LINE's scope */
+enum delta_chat_scope
+{
+	_delta_chat_scope_all = 0,
+	_delta_chat_scope_team = 1,
+
+	NUMBER_OF_DELTA_CHAT_SCOPES
+};
+
+/* CHAT_LINE's kinds: who speaks */
+enum delta_chat_kind
+{
+	/* a player */
+	_delta_chat_kind_player = 0,
+	/* a player signed in as a moderator of the server */
+	_delta_chat_kind_moderator = 1,
+	/* the server (its admin: sv_say, a notice) */
+	_delta_chat_kind_server = 2,
+	/* the game itself (needs server_messages, as server lines) */
+	_delta_chat_kind_system = 3,
+
+	NUMBER_OF_DELTA_CHAT_KINDS
+};
+
+/* CHAT_REFUSED's reasons; a number is never reused */
+enum delta_chat_refusal
+{
+	_delta_chat_refused_none = 0,
+	_delta_chat_refused_off = 1,
+	/* team only on this host, or team chat in a game without teams */
+	_delta_chat_refused_scope = 2,
+	_delta_chat_refused_muted = 3,
+	_delta_chat_refused_too_fast = 4,
+	_delta_chat_refused_blocked = 5,
+	_delta_chat_refused_bad_text = 6
 };
 
 /* a moderator's role (MOD_STATE): none, then each with more than the last */
@@ -131,6 +198,10 @@ enum delta_moderation_action
 	_delta_moderation_action_ban = 3,
 	_delta_moderation_action_end_game = 4,
 	_delta_moderation_action_next_map = 5,
+	/* chat: the target's lines not relayed (minutes, 0 until the game ends),
+	and relayed again */
+	_delta_moderation_action_mute = 6,
+	_delta_moderation_action_unmute = 7,
 
 	NUMBER_OF_DELTA_MODERATION_ACTIONS
 };
@@ -190,7 +261,18 @@ enum delta_message_type
 	/* host to client, if both agreed to ce_maps: the game's map (its family,
 	its file's name, size and hash), whenever it changes and with each
 	roster */
-	_delta_message_map = 17
+	_delta_message_map = 17,
+	/* chat (docs/delta.md, Chat): host to client, if both agreed to chat or
+	server_messages: what the host relays, and whether this player is
+	muted */
+	_delta_message_chat_config = 18,
+	/* client to host, if both agreed to chat: a line its player says */
+	_delta_message_chat_say = 19,
+	/* host to client: a line to show (a player's needs chat; the server's
+	and the game's, server_messages) */
+	_delta_message_chat_line = 20,
+	/* host to client, if both agreed to chat: a CHAT_SAY not relayed */
+	_delta_message_chat_refused = 21
 };
 
 /* MAP's flags */
@@ -375,6 +457,53 @@ struct delta_wire_mod_bind_answer
 	unsigned char signature[DELTA_WIRE_MODERATION_SIGNATURE_SIZE];
 };
 
+struct delta_wire_chat_config
+{
+	/* enum delta_chat_mode */
+	unsigned char mode;
+	/* DELTA_CHAT_CONFIG_* */
+	unsigned char flags;
+	/* a timed mute's seconds left (0: none, or until the game ends) */
+	delta_u32 mute_seconds;
+};
+
+struct delta_wire_chat_say
+{
+	/* strictly more than the session's last */
+	delta_u32 sequence;
+	/* enum delta_chat_scope */
+	unsigned char scope;
+	/* its bytes as sent (UTF-8: delta_wire_chat_text_valid checks them) */
+	int length;
+	char text[DELTA_WIRE_CHAT_SAY_TEXT_SIZE + 1];
+};
+
+struct delta_wire_chat_line
+{
+	/* the host's count of lines */
+	delta_u32 line;
+	/* enum delta_chat_kind */
+	unsigned char kind;
+	/* enum delta_chat_scope */
+	unsigned char scope;
+	/* who said it (DELTA_WIRE_NO_MACHINE, and player 255: nobody, as the
+	server's own) */
+	unsigned char speaker_machine;
+	unsigned char speaker_player;
+	int name_length;
+	char name[DELTA_WIRE_CHAT_NAME_SIZE + 1];
+	int length;
+	char text[DELTA_WIRE_CHAT_TEXT_SIZE + 1];
+};
+
+struct delta_wire_chat_refused
+{
+	/* the CHAT_SAY's */
+	delta_u32 sequence;
+	/* enum delta_chat_refusal */
+	unsigned char reason;
+};
+
 /* a datagram's header: 1 if it is Delta's (the magic) and its length is the
 datagram's; the payload follows at data + DELTA_WIRE_HEADER_SIZE. A header of
 another major is still read (to answer it with LEGACY) */
@@ -439,6 +568,28 @@ int delta_wire_write_mod_notice(unsigned char *data, delta_u32 session, const st
 int delta_wire_write_mod_bind(unsigned char *data, delta_u32 session, const struct delta_wire_mod_bind *bind);
 int delta_wire_write_mod_bind_answer(unsigned char *data, delta_u32 session,
 	const struct delta_wire_mod_bind_answer *answer);
+
+/* chat's messages. A text's bytes are read as they came (their length
+checked, nothing else): delta_wire_chat_text_valid says whether they may be
+shown. A name or text that does not fit its field, an unknown kind or
+scope, or an empty line is refused */
+int delta_wire_read_chat_config(const unsigned char *payload, int size, struct delta_wire_chat_config *config);
+int delta_wire_read_chat_say(const unsigned char *payload, int size, struct delta_wire_chat_say *say);
+int delta_wire_read_chat_line(const unsigned char *payload, int size, struct delta_wire_chat_line *line);
+int delta_wire_read_chat_refused(const unsigned char *payload, int size, struct delta_wire_chat_refused *refused);
+/* (0 for what the reader would refuse) */
+int delta_wire_write_chat_config(unsigned char *data, delta_u32 session, const struct delta_wire_chat_config *config);
+int delta_wire_write_chat_say(unsigned char *data, delta_u32 session, const struct delta_wire_chat_say *say);
+int delta_wire_write_chat_line(unsigned char *data, delta_u32 session, const struct delta_wire_chat_line *line);
+int delta_wire_write_chat_refused(unsigned char *data, delta_u32 session,
+	const struct delta_wire_chat_refused *refused);
+/* whether length bytes of text are a line to show: valid UTF-8 (shortest
+forms, no surrogates, nothing past U+10FFFF), no control characters (C0,
+DEL, C1), no bidirectional overrides or isolates (U+202A to U+202E, U+2066
+to U+2069), no zero-width characters (U+200B to U+200D, U+2060, U+FEFF),
+not blank, and at most maximum_characters characters (0: any). Its
+characters, else -1 */
+int delta_wire_chat_text_valid(const char *text, int length, int maximum_characters);
 
 /* the bytes a moderator key signs, into message (at least
 DELTA_WIRE_MODERATION_MESSAGE_SIZE): a proof, an action (its fields but the

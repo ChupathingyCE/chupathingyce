@@ -57,5 +57,10 @@ boolean server_admin_gametype_delete(struct command_line const *line, boolean js
 boolean server_admin_gametype_save(struct command_line const *line, boolean json, struct command_output *output);
 boolean server_admin_settings(struct command_line const *line, boolean json, struct command_output *output);
 boolean server_admin_set(struct command_line const *line, boolean json, struct command_output *output);
+/* sv_name and sv_maxplayers: a setting (SERVER_SETTING_NAME or
+SERVER_SETTING_MAXIMUM_PLAYERS) saved in the settings file and set, as
+sv_set does; FALSE, with nothing done or said, if the environment sets it
+(the command then sets it until a restart) */
+boolean server_admin_set_saved(short setting, char const *value, struct command_output *output, boolean *done);
 
 #endif

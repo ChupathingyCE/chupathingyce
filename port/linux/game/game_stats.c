@@ -57,6 +57,9 @@ struct game_variant *game_engine_get_variant(void);
 /* Delta Stats' recorder (game_events.c) */
 void game_events_update(void);
 void game_events_player_killed(long killing_player_index, long dead_player_index, boolean friendly_fire);
+/* Delta Peer's (delta_peer_game.c): a player's platform, 0 if their machine
+is not on Chupathingy */
+int delta_peer_player_platform(int player_index);
 /* this file's, game_engine.c's too */
 void game_stats_game_extra(boolean host, char *text, long size);
 /* the platform layer's */
@@ -124,6 +127,9 @@ struct stats_player
 	display.show_quit_players); last_tick is when */
 	boolean quit;
 	short identifier;
+	/* on Chupathingy (this machine's own, or Delta Peer told the platform):
+	only these players' lines go in full in the host's report */
+	boolean delta;
 	wchar_t name[12];
 	long team_index;
 	short color;
@@ -273,6 +279,8 @@ static void stats_track_players(
 		}
 		seen[DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index)] = TRUE;
 		tracked->team_index = player->team_index;
+		tracked->delta = tracked->delta || player->local_player_index != NONE ||
+			delta_peer_player_platform((int)DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index)) > 0;
 		tracked->color = player->network_player_data.primary_color_index;
 		tracked->statistics = player->statistics;
 		tracked->last_tick = tick;
@@ -481,9 +489,12 @@ static long stats_player_members(
 	return stats_append(text, size, used, "}");
 }
 
-/* a departed player, as a JSON object */
+/* a departed player, as a JSON object: in full only a Chupathingy player's,
+on the host's report (full); anyone else's is their name, team, kills and
+deaths */
 static long stats_departed_json(
 	struct stats_player const *player,
+	boolean full,
 	char *text,
 	long size,
 	long used)
@@ -491,6 +502,11 @@ static long stats_departed_json(
 	char name[96];
 
 	browser_json_name(name, sizeof(name), (unsigned short const *)player->name, BROWSER_PLAYER_NAME_LENGTH);
+	if (!full)
+	{
+		return stats_append(text, size, used, "{\"name\": %s, \"team\": %ld, \"kills\": %d, \"deaths\": %d}",
+			name, player->team_index, player->statistics.kills[0], player->statistics.deaths);
+	}
 	used = stats_append(text, size, used,
 		"{\"name\": %s, \"team\": %ld, \"color\": %d, \"kills\": %d, \"assists\": %d, \"deaths\": %d, "
 		"\"betrayals\": %d, \"suicides\": %d, \"shots_fired\": %ld, \"shots_hit\": %ld, \"multikills\": %d, "
@@ -621,6 +637,25 @@ void game_stats_player_extra(
 	stats_player_members(player, text, size, 0);
 }
 
+/* whether a report line goes in full (else only the scoreboard's numbers:
+browser_report_player's minimal): this machine's own players' always; on
+the host's report (host), a Chupathingy player's too; on a client's, no one
+else's */
+boolean game_stats_line_full(
+	long player_index,
+	boolean host)
+{
+	struct player_datum *player = player_index != NONE ? player_get(player_index) : NULL;
+	struct stats_player *tracked = stats_player(player_index);
+
+	if (!player)
+		return FALSE;
+	if (player->local_player_index != NONE)
+		return TRUE;
+	return host && ((tracked && tracked->used && tracked->delta) ||
+		delta_peer_player_platform((int)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index)) > 0);
+}
+
 /* a report's recorded parts (JSON members, into text): who left before the
 end, and how each part was known (host: the host's own; synced: the host's,
 as every client is sent them; feed: worked out from the kills this machine
@@ -647,7 +682,7 @@ void game_stats_game_extra(
 
 		if (index)
 			used = stats_append(text, size, used, ", ");
-		used = stats_departed_json(&game_stats.departed[index], text, size, used);
+		used = stats_departed_json(&game_stats.departed[index], host && game_stats.departed[index].delta, text, size, used);
 		/* (a player who doesn't fit is left out whole, with room kept for
 		the closing bracket: a report cut off mid-player isn't JSON, and the
 		site turns it away) */

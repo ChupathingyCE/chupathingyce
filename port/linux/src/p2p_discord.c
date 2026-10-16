@@ -1,30 +1,35 @@
 /*
 P2P_DISCORD.C
 
-Discord invites for internet play (p2p.c), through the Discord desktop
-client's local RPC socket (a Unix socket, or a named pipe on Windows):
-while hosting, the game's activity carries a private party whose join
-secret is the invite, so the host can send it with Discord's "Invite to
-Join" and whoever accepts it joins. Discord only hands the secret to people
-the host invited (asking to join goes unanswered).
+The game on Discord, through the Discord desktop client's local RPC socket
+(a Unix socket, or a named pipe on Windows): its activity
+(discord_activity.c builds it) says what the player is doing, from what the
+game tells (p2p_discord_set_game: port/linux/game/discord_game.c) and the
+public game this machine hosts (p2p_discord_set_join), whose "Join game"
+button opens the game's page on the project's site, and from there its
+invite in either client (Discord's own Ask to Join works only within one
+application, so it is not used).
 
 It goes through the Discord application in discord.application_id
 (config.toml; the project's by default), whose name is what Discord shows
-as being played. Without one, or without Discord running, invites are still
-links (p2p.c).
+as being played. discord.presence chooses how much shows ("full",
+"minimal" or "off"), discord.show_server_name and discord.show_join what
+of a network game; debug.discord_log logs each activity sent.
 
 The protocol: frames of a little-endian opcode and length, then JSON. The
 handshake (opcode 0) names the application; commands and events are opcode
 1; 2 closes; 3 and 4 are ping and pong. Nothing here waits for Discord (the
 p2p thread holds its lock, which the game's threads take): what it does not
 take at once waits in a buffer, and a client that lets that fill up is
-disconnected.
+disconnected. Discord takes about five activities in twenty seconds: a
+change waits until SEND_INTERVAL has passed since the last.
 */
 
 #include "platform.h"
 #include "posix.h"
 #include "port_config.h"
 #include "p2p_internal.h"
+#include "discord_activity.h"
 
 #include <stdio.h>
 #ifdef HALO_64BIT
@@ -35,8 +40,9 @@ disconnected.
 enum
 {
 	RETRY_INTERVAL = 20000,
+	SEND_INTERVAL = 4000,
 	BUFFER_SIZE = 16384,
-	MAXIMUM_SECRET_SIZE = 128,
+	MAXIMUM_CODE_SIZE = 2 * (P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE) + 1,
 
 	_opcode_handshake = 0,
 	_opcode_frame,
@@ -60,12 +66,13 @@ static struct
 	unsigned char output[BUFFER_SIZE];
 	int output_size;
 
-	/* what to show; changed marks it for sending */
-	int hosting;
-	char secret[MAXIMUM_SECRET_SIZE];
-	int player_count;
-	int maximum_player_count;
+	/* what to show; changed marks it for sending, after sent_time */
+	struct discord_activity_game game;
+	struct discord_activity_options options;
+	char join_code[MAXIMUM_CODE_SIZE];
 	int changed;
+	unsigned long sent_time;
+	int sent;
 
 	/* the Discord user signed in to the client (its READY), as told: an id
 	of digits, a name of the letters, digits and marks Discord's allow (a
@@ -155,32 +162,28 @@ static void discord_send(int opcode, const char *json, int size)
 
 static void send_activity(void)
 {
-	char json[1024];
+	char json[DISCORD_ACTIVITY_JSON_SIZE];
 	char party[2 * P2P_IDENTIFIER_SIZE + 1];
+	char join_url[sizeof(DISCORD_JOIN_URL) + MAXIMUM_CODE_SIZE];
 	int size;
 
 	p2p_hex(p2p_identifier(), P2P_IDENTIFIER_SIZE, party);
-	if (discord.hosting)
+	snprintf(join_url, sizeof(join_url), DISCORD_JOIN_URL "%s", discord.join_code);
+	size = discord_activity_json(json, sizeof(json), ++discord.nonce, (unsigned long)posix_process_id(), &discord.game,
+		&discord.options, party, discord.join_code[0] ? join_url : NULL);
+	if (size < 0)
+		return;
+	if (config_boolean("debug.discord_log"))
 	{
-		size = snprintf(json, sizeof(json),
-			"{\"cmd\":\"SET_ACTIVITY\",\"nonce\":\"%lu\",\"args\":{\"pid\":%lu,\"activity\":{"
-			"\"details\":\"Hosting a game\",\"state\":\"Invite only\","
-			/* the image uploaded as "logo" under the application's Rich
-			Presence art assets */
-			"\"assets\":{\"large_image\":\"logo\",\"large_text\":\"Halo: Combat Evolved\"},"
-			"\"party\":{\"id\":\"%s\",\"size\":[%d,%d]},"
-			"\"secrets\":{\"join\":\"%s\"},\"instance\":false}}}",
-			++discord.nonce, (unsigned long)posix_process_id(), party, discord.player_count,
-			discord.maximum_player_count, discord.secret);
-	}
-	else
-	{
-		size = snprintf(json, sizeof(json),
-			"{\"cmd\":\"SET_ACTIVITY\",\"nonce\":\"%lu\",\"args\":{\"pid\":%lu,\"activity\":{"
-			"\"details\":\"In Menus\","
-			"\"assets\":{\"large_image\":\"logo\",\"large_text\":\"Halo: Combat Evolved\"},"
-			"\"instance\":false}}}",
-			++discord.nonce, (unsigned long)posix_process_id());
+		/* (the join code left out: the log is shared in bug reports) */
+		char shown[DISCORD_ACTIVITY_JSON_SIZE];
+		char *code;
+
+		snprintf(shown, sizeof(shown), "%s", json);
+		code = discord.join_code[0] ? strstr(shown, discord.join_code) : NULL;
+		if (code)
+			memset(code, 'x', strlen(discord.join_code));
+		platform_log("Discord: %s", shown);
 	}
 	discord_send(_opcode_frame, json, size);
 }
@@ -222,9 +225,6 @@ static void frame_received(int opcode, char *json)
 			break;
 		if (!strcmp(event, "READY"))
 		{
-			char command[256];
-			int size;
-
 			discord.ready = 1;
 			platform_log("Internet play: connected to Discord");
 			/* (who is signed in: its user, after the configuration) */
@@ -239,20 +239,7 @@ static void frame_received(int opcode, char *json)
 				if (user && json_string(user, "username", value, sizeof(value)))
 					p2p_discord_sanitize(discord.user_name, sizeof(discord.user_name), value, 1);
 			}
-			size = snprintf(command, sizeof(command),
-				"{\"cmd\":\"SUBSCRIBE\",\"evt\":\"ACTIVITY_JOIN\",\"nonce\":\"%lu\"}", ++discord.nonce);
-			discord_send(_opcode_frame, command, size);
 			discord.changed = 1;
-		}
-		else if (!strcmp(event, "ACTIVITY_JOIN"))
-		{
-			char secret[MAXIMUM_SECRET_SIZE];
-
-			if (json_string(json, "secret", secret, sizeof(secret)))
-			{
-				platform_log("Internet play: accepted a Discord invite");
-				p2p_invite_received(secret);
-			}
 		}
 		else if (!strcmp(event, "ERROR"))
 		{
@@ -326,21 +313,12 @@ void p2p_discord_update(void)
 		if (*application && strlen(application) < sizeof(discord.application) &&
 			strspn(application, "0123456789") == strlen(application))
 		{
-			char scheme[48];
-
 			strcpy(discord.application, application);
 			discord.enabled = 1;
-			/* how Discord starts the game for an invite when it is not
-			running; the game then receives the invite once connected */
-			snprintf(scheme, sizeof(scheme), "discord-%s", application);
-			/* (it lets go of the p2p lock while it may wait) */
-			p2p_register_url_scheme(scheme, "Halo: Combat Evolved");
 #ifdef HALO_64BIT
 #ifdef __APPLE__
-			/* Discord on macOS opens discord-<application>:// (Info.plist
-			declares it) unless a games/<application>.json names a command,
-			which it takes for a page of its own instead of running it: the
-			one an earlier version wrote goes */
+			/* (a games/<application>.json an earlier version wrote, for
+			Discord's invites, goes: Discord takes it for a page of its own) */
 			{
 				const char *home = getenv("HOME");
 
@@ -381,19 +359,35 @@ void p2p_discord_update(void)
 	if (discord.handle < 0)
 		return;
 	discord_read();
-	if (discord.ready && discord.changed)
+	if (discord.ready && discord.changed &&
+		(!discord.sent || (unsigned int)(p2p_now() - discord.sent_time) >= (unsigned int)SEND_INTERVAL))
 	{
 		discord.changed = 0;
+		discord.sent = 1;
+		discord.sent_time = p2p_now();
 		send_activity();
 	}
 }
 
-void p2p_discord_set_hosting(const char *secret, int player_count, int maximum_player_count)
+void p2p_discord_set_join(const char *code)
 {
-	discord.hosting = secret != NULL;
-	if (secret)
-		snprintf(discord.secret, sizeof(discord.secret), "%s", secret);
-	discord.player_count = player_count;
-	discord.maximum_player_count = maximum_player_count;
-	discord.changed = 1;
+	if (!code)
+		code = "";
+	if (strcmp(code, discord.join_code))
+	{
+		snprintf(discord.join_code, sizeof(discord.join_code), "%s", code);
+		discord.changed = 1;
+	}
+}
+
+void p2p_discord_set_game(const struct discord_activity_game *game, const struct discord_activity_options *options)
+{
+	pthread_mutex_lock(&p2p_lock);
+	if (memcmp(game, &discord.game, sizeof(*game)) || memcmp(options, &discord.options, sizeof(*options)))
+	{
+		discord.game = *game;
+		discord.options = *options;
+		discord.changed = 1;
+	}
+	pthread_mutex_unlock(&p2p_lock);
 }

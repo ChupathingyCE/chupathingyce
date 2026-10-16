@@ -139,7 +139,8 @@ shares.
 
 The registry lives in the repository next to the compatibility table and is
 the single source for the bit numbers. Built so far: `platform`, `profile`,
-`ce_maps` and `moderation` (see "Moderation"). The first two's values are
+`ce_maps`, `moderation` (see "Moderation"), and `chat` and `server_messages`
+(see "Chat"). The first two's values are
 claims, shown as claims, never used for game state:
 
 - **`platform`**: each machine's platform key (below), and so each player's
@@ -273,6 +274,10 @@ a later version may append):
 | 15 | MOD_BIND | host to client | request (4), account length (1, at most 31), server name length (1, at most 31), reserved (2), account, server name |
 | 16 | MOD_BIND_ANSWER | client to host | request (4), accepted (1), reserved (3), moderator key (32), signature (64) |
 | 17 | MAP | host to client | family (1), flags (1: 0x01 the size and hash are the file's), name length (1, at most 63), reserved (1), file size (8: low word, then high), BLAKE2b-256 hash of the whole file (32; zeros without the flag), file name (letters, digits, `_`, `-`, `.` and space; no `..`) |
+| 18 | CHAT_CONFIG | host to client | mode (1: 0 off, 1 team lines alone, 2 on), flags (1: 0x01 this player is muted, 0x02 the host filters blocked words), reserved (2), a timed mute's seconds left (4; 0 none, or until the game ends) |
+| 19 | CHAT_SAY | client to host | sequence (4, above the session's last), scope (1: 0 everyone, 1 team), reserved (1), text length (1, 1 to 120), reserved (1), text (UTF-8) |
+| 20 | CHAT_LINE | host to client | line (4, the host's count), kind (1: 0 player, 1 moderator, 2 server, 3 system), scope (1), speaker's machine (1; 255 none), speaker's player (1, the game's player index; 255 none), name length (1, at most 47), text length (1, 1 to 200), reserved (2), name (UTF-8), text (UTF-8) |
+| 21 | CHAT_REFUSED | host to client | sequence (4, the CHAT_SAY's), reason (1: 1 chat off, 2 that scope is not taken, 3 muted, 4 too fast, 5 blocked words, 6 text that cannot be shown), reserved (3) |
 
 A roster covers every machine of the game, in as many datagrams as it takes
 (32 machines each). A client forgets a machine the roster has not named for
@@ -299,6 +304,9 @@ Limits and timeouts (`delta_peer.h`):
 | moderation: signature checks of one machine's PROOF and BIND_ANSWER | 2 a second, 2 at once |
 | moderation: MOD_CHALLENGE (not signed in), MOD_STATE (signed in) and a waiting MOD_BIND said again | every 5 s (MOD_STATE at once when roles change) |
 | moderation: a MOD_BIND answered within | 2 minutes, else declined |
+| chat: CHAT_SAY a host takes from one machine | 1 a second, 3 at once; the same line again within 10 s is too fast |
+| chat: CHAT_LINE a client takes from its host | 10 a second, 20 at once |
+| chat: CHAT_CONFIG | at the handshake, on a change (at most every 250 ms), and every 10 s |
 
 Who is heard: a host reads a datagram only from an address of a machine of
 its game (anything else is dropped before parsing), and ties a HELLO to the
@@ -394,7 +402,8 @@ Delta client can be an in-game moderator.
   the nonce, the sequence, action, target machine, minutes and reason; its
   sequence must be above the session's last, so a replay does nothing.
   Actions: 1 warn, 2 kick, 3 ban (minutes, 0 for ever), 4 end the game, 5
-  next map; a host refuses one it does not know. Whether the key may do it
+  next map, 6 mute the target's chat (minutes, 0 until they leave), 7 unmute
+  it; a host refuses one it does not know. Whether the key may do it
   is the host's moderation's decision (the server's permission table), and
   MOD_RESULT says what happened.
 - **Notices.** MOD_NOTICE is a warning (or notice) the server shows the
@@ -410,6 +419,53 @@ Delta client can be an in-game moderator.
 Permissions (MOD_STATE, `delta_wire.h`): 0x001 view, 0x002 warn, 0x004
 kick, 0x008 ban up to the timed limit, 0x010 any ban, 0x020 unban, 0x040
 map (end the game, next map), 0x080 settings, 0x100 roles.
+
+### Chat
+
+Text chat between Delta players, and the host's own lines (server messages),
+over Delta Peer: `chat` (bit 3) carries players' lines, `server_messages`
+(bit 2) the host's (CHAT_LINE of kind server or system). Each is agreed per
+pair, so OpenCE machines never send or receive either, and a Delta client
+that takes server messages but not chat is sent only those. Should OpenCE
+ship a text chat of its own, it would be bridged here, never mixed into the
+game protocol.
+
+- **Saying.** A client sends CHAT_SAY: its scope (everyone or team) and up
+  to 120 bytes of UTF-8 (80 characters). The host checks the session, the
+  rising sequence, its budget (1 a second, 3 at once; the same line again
+  within 10 seconds is too fast), the text (valid UTF-8 with no control
+  characters, bidirectional overrides or isolates, or zero-width
+  characters, and not blank), its mode and the machine's mute, then its
+  own rules: a team line in a game without teams is refused (co-op: everyone
+  is one team), as is an everyone line on a host set to team lines alone,
+  and, with its filter on, a line with a word of the blocked names list. A
+  refused line is answered with CHAT_REFUSED and its reason, and goes
+  nowhere else.
+- **Relaying.** The host names the speaker from its own player list (a
+  client never names itself) and sends CHAT_LINE to every Delta machine
+  that may hear it: everyone, or the speaker's team. A player's host is a
+  listener and a speaker like any other.
+- **The host's lines.** A dedicated server's `sv_say` (and its control
+  panel's Say) is a CHAT_LINE of kind server, with no speaker, to every
+  machine that agreed to `server_messages`. Warnings and notices stay
+  MOD_NOTICE (the banner; the game also keeps them in its chat log).
+- **Mutes.** A moderator mutes a player's chat (MOD_ACTION 6, `sv_mute`, the
+  control panel) until they leave the game or for a while; the host stops
+  relaying their lines and tells their game in CHAT_CONFIG. A player's own
+  mutes are their game's alone and never sent.
+- **The client checks again.** A CHAT_LINE comes only from its host, of its
+  session, at most 10 a second; its text and name must pass the same text
+  checks, and it is shown in the HUD's font (a character the font lacks as
+  `?`), its blocked words starred out or the line hidden as the player's
+  `chat.filter` says.
+- **Nothing is kept.** Neither the host nor the dedicated server writes
+  down what is said; the site never sees it. Only the admins' own actions
+  (`sv_say`, mutes) are in the server's audit file.
+
+The game's side is `port/linux/game/chat.c` (keys, the log, routing),
+`port/linux/src/delta_chat.c` (the filter and the host's rules, tested in
+`delta_test.c`) and the dedicated server's `sv_say`, `sv_chat`, `sv_mute`
+and `sv_unmute` (`server/docs/admin.md`).
 
 ### The protocol setting
 
@@ -712,7 +768,13 @@ for the site's "Played on" profile badges.
 ## Delta Stats
 
 - **Reports** (exists): end-of-game totals, with the host, verified and
-  player tiers (`/v1/report`, `/v1/client_report`, `/v1/claim`).
+  player tiers (`/v1/report`, `/v1/client_report`, `/v1/claim`). In the
+  host's report, a line of a player not on Chupathingy (no Delta Peer
+  platform, not the host's own) is only `name`, `team`, `place`, `score`,
+  `kills`, `deaths` and the claim `tag`; such a player who left early is
+  only `name`, `team`, `kills` and `deaths` in `departed`. In a client's
+  report, only the reporter's own lines are in full; every other line is
+  the same minimum.
 - **Events** (built: `port/linux/src/event_log.c`, `event_upload.c`,
   `port/linux/game/game_events.c`; the site's `analytics.py`): what happened
   in a game, recorded by its host and sent when it ends.
@@ -722,15 +784,23 @@ for the site's "Played on" profile badges.
 Only a host records. It is on by default and the host's operator or
 player can turn it off (`network.report_events`, `HALO_NET_REPORT_EVENTS`
 set to false): our [D] servers, community servers and ChupathingyCE
-players who host, unless they opt out. Everything is what the host saw, so it is exact; nothing a
+players who host, unless they opt out. That setting stops the events
+batch only. The host's carnage report (`/v1/report`) is a separate upload:
+it goes whenever the game is listed, and only `network.list_hosted_games =
+false` (or an empty `network.browser_url`) stops it. Everything is what the host saw, so it is exact; nothing a
 client says is taken. Co-op (campaign) games are never recorded.
 
 ### Players
 
 A player is their name, their client (`chupathingyce` when their machine
-speaks Delta, else `other`) and platform, and `ident`: a keyed BLAKE2b hash
-of the hardware ID their machine gave the host. The site hashes `ident`
-again with its own secret and never shows it. A player becomes a confirmed
+speaks Delta or is the host's own, else `other`) and platform. No hardware
+ID, nor any hash of one, is sent (schema 1 had a keyed hash, `ident`; the
+site no longer keeps it). A player whose client is `other` (an OpenCE
+player) is only their name, client, team, bot, score, place, kills and
+deaths: no other totals, and no event row is about them (their medals,
+objectives, pickups, rides, spawns, positions, pings, sessions and flags
+are left out; a kill of theirs, or of them, keeps their index but not
+where they stood or their vehicle). A player becomes a confirmed
 player (a player ID, so a profile) only the way carnage reports confirm
 them: their own copy of the game claims their line of the same game's
 report with its player key (`/v1/claim`); the site then marks the same
@@ -739,7 +809,7 @@ line of the events. A copy claims a game it joined only with
 its own report of the game; a game it hosted, always. A host's word about who a player is is never taken. No
 IP address is ever recorded or sent, by the game or the site.
 
-### The batch (schema 1)
+### The batch (schema 2)
 
 JSON, gzip on the wire. `t` is seconds since the game started; positions
 are world units `[x, y, z]`; players are indexes into `players`, `-1`
@@ -747,13 +817,13 @@ nobody (the world). Later versions only add fields; unknown fields are
 ignored.
 
 ```
-{"schema": 1,
+{"schema": 2,
  "server": {"name", "build", "platform"},
  "game": {"id" (32 hex, random), "part", "final", "invite"?, "playlist"? (a
           dedicated server's playlist file's name), "map", "engine",
           "gametype", "teams", "score_limit", "started", "ended" (unix),
           "end_reason": score|time|admin|empty|error|other, "team_scores"?},
- "players": [{"name", "ident"?, "client", "platform"?, "team", "bot", "color"?
+ "players": [{"name", "client", "platform"?, "team", "bot", "color"?
               (armor, 0-17),
               "score", "place", "kills", "deaths", "assists", "betrayals",
               "suicides", "best_spree", "damage_dealt", "damage_taken",
@@ -1382,7 +1452,8 @@ asking players for anything:
 4. Delta Peer: the port, the flag, the handshake with fallback, fuzzing,
    platform keys and their policy, and its first capabilities (`platform`,
    `profile`, `ce_maps`, `moderation`). Shipped in 0.7.0b (`moderation` in
-   0.7.1b); `server_messages` and the LAN superset are next.
+   0.7.1b); `chat` and `server_messages` (text chat, 0.8.0); the LAN superset
+   is next.
 5. The protocol choice (Auto, Delta only, OpenCE only). The browsers'
    protocol labels and a dedicated server's listing flag (128) are built;
    the choice in Server Setup and Delta-only rooms are not.

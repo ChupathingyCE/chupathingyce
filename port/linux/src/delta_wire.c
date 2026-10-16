@@ -949,6 +949,242 @@ int delta_wire_moderation_bind_message(unsigned char *message, const unsigned ch
 	return length + 5 + binding_length;
 }
 
+/* ---------- chat */
+
+/* CHAT_CONFIG
+	0  mode (1)
+	1  flags (1)
+	2  reserved (2)
+	4  mute seconds left (4) */
+
+int delta_wire_read_chat_config(const unsigned char *payload, int size, struct delta_wire_chat_config *config)
+{
+	clear(config, (int)sizeof(*config));
+	if (!payload || size < DELTA_WIRE_CHAT_CONFIG_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	if (payload[0] > _delta_chat_mode_on)
+		return 0;
+	config->mode = payload[0];
+	config->flags = payload[1];
+	config->mute_seconds = read_u32(payload + 4);
+	return 1;
+}
+
+int delta_wire_write_chat_config(unsigned char *data, delta_u32 session, const struct delta_wire_chat_config *config)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+	if (config->mode > _delta_chat_mode_on)
+		return 0;
+	clear(payload, DELTA_WIRE_CHAT_CONFIG_SIZE);
+	payload[0] = config->mode;
+	payload[1] = config->flags;
+	write_u32(payload + 4, config->mute_seconds);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_chat_config, DELTA_WIRE_CHAT_CONFIG_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_CHAT_CONFIG_SIZE;
+}
+
+/* CHAT_SAY
+	0  sequence (4)
+	4  scope (1)
+	5  reserved (1)
+	6  text length (1, 1 to 120)
+	7  reserved (1)
+	8  text (UTF-8) */
+
+int delta_wire_read_chat_say(const unsigned char *payload, int size, struct delta_wire_chat_say *say)
+{
+	int length;
+
+	clear(say, (int)sizeof(*say));
+	if (!payload || size < DELTA_WIRE_CHAT_SAY_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	length = payload[6];
+	if (payload[4] >= NUMBER_OF_DELTA_CHAT_SCOPES || length < 1 || length > DELTA_WIRE_CHAT_SAY_TEXT_SIZE ||
+		size < DELTA_WIRE_CHAT_SAY_SIZE + length)
+	{
+		return 0;
+	}
+	say->sequence = read_u32(payload);
+	say->scope = payload[4];
+	say->length = length;
+	copy_bytes((unsigned char *)say->text, payload + DELTA_WIRE_CHAT_SAY_SIZE, length);
+	say->text[length] = 0;
+	return 1;
+}
+
+int delta_wire_write_chat_say(unsigned char *data, delta_u32 session, const struct delta_wire_chat_say *say)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+	if (say->scope >= NUMBER_OF_DELTA_CHAT_SCOPES || say->length < 1 || say->length > DELTA_WIRE_CHAT_SAY_TEXT_SIZE)
+		return 0;
+	clear(payload, DELTA_WIRE_CHAT_SAY_SIZE);
+	write_u32(payload, say->sequence);
+	payload[4] = say->scope;
+	payload[6] = (unsigned char)say->length;
+	copy_bytes(payload + DELTA_WIRE_CHAT_SAY_SIZE, (const unsigned char *)say->text, say->length);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_chat_say, DELTA_WIRE_CHAT_SAY_SIZE + say->length,
+		session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_CHAT_SAY_SIZE + say->length;
+}
+
+/* CHAT_LINE
+	0  line (4)
+	4  kind (1)
+	5  scope (1)
+	6  speaker machine (1; 255 none)
+	7  speaker player (1; 255 none)
+	8  name length (1, at most 47)
+	9  text length (1, 1 to 200)
+	10 reserved (2)
+	12 name, then text (UTF-8) */
+
+int delta_wire_read_chat_line(const unsigned char *payload, int size, struct delta_wire_chat_line *line)
+{
+	int name, length;
+
+	clear(line, (int)sizeof(*line));
+	if (!payload || size < DELTA_WIRE_CHAT_LINE_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	name = payload[8];
+	length = payload[9];
+	if (payload[4] >= NUMBER_OF_DELTA_CHAT_KINDS || payload[5] >= NUMBER_OF_DELTA_CHAT_SCOPES ||
+		name > DELTA_WIRE_CHAT_NAME_SIZE || length < 1 || length > DELTA_WIRE_CHAT_TEXT_SIZE ||
+		size < DELTA_WIRE_CHAT_LINE_SIZE + name + length)
+	{
+		return 0;
+	}
+	line->line = read_u32(payload);
+	line->kind = payload[4];
+	line->scope = payload[5];
+	line->speaker_machine = payload[6];
+	line->speaker_player = payload[7];
+	line->name_length = name;
+	copy_bytes((unsigned char *)line->name, payload + DELTA_WIRE_CHAT_LINE_SIZE, name);
+	line->name[name] = 0;
+	line->length = length;
+	copy_bytes((unsigned char *)line->text, payload + DELTA_WIRE_CHAT_LINE_SIZE + name, length);
+	line->text[length] = 0;
+	return 1;
+}
+
+int delta_wire_write_chat_line(unsigned char *data, delta_u32 session, const struct delta_wire_chat_line *line)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+	if (line->kind >= NUMBER_OF_DELTA_CHAT_KINDS || line->scope >= NUMBER_OF_DELTA_CHAT_SCOPES ||
+		line->name_length < 0 || line->name_length > DELTA_WIRE_CHAT_NAME_SIZE || line->length < 1 ||
+		line->length > DELTA_WIRE_CHAT_TEXT_SIZE)
+	{
+		return 0;
+	}
+	clear(payload, DELTA_WIRE_CHAT_LINE_SIZE);
+	write_u32(payload, line->line);
+	payload[4] = line->kind;
+	payload[5] = line->scope;
+	payload[6] = line->speaker_machine;
+	payload[7] = line->speaker_player;
+	payload[8] = (unsigned char)line->name_length;
+	payload[9] = (unsigned char)line->length;
+	copy_bytes(payload + DELTA_WIRE_CHAT_LINE_SIZE, (const unsigned char *)line->name, line->name_length);
+	copy_bytes(payload + DELTA_WIRE_CHAT_LINE_SIZE + line->name_length, (const unsigned char *)line->text,
+		line->length);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_chat_line,
+		DELTA_WIRE_CHAT_LINE_SIZE + line->name_length + line->length, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_CHAT_LINE_SIZE + line->name_length + line->length;
+}
+
+/* CHAT_REFUSED
+	0  sequence (4)
+	4  reason (1)
+	5  reserved (3) */
+
+int delta_wire_read_chat_refused(const unsigned char *payload, int size, struct delta_wire_chat_refused *refused)
+{
+	clear(refused, (int)sizeof(*refused));
+	if (!payload || size < DELTA_WIRE_CHAT_REFUSED_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	refused->sequence = read_u32(payload);
+	refused->reason = payload[4];
+	return 1;
+}
+
+int delta_wire_write_chat_refused(unsigned char *data, delta_u32 session,
+	const struct delta_wire_chat_refused *refused)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+	clear(payload, DELTA_WIRE_CHAT_REFUSED_SIZE);
+	write_u32(payload, refused->sequence);
+	payload[4] = refused->reason;
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_chat_refused, DELTA_WIRE_CHAT_REFUSED_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_CHAT_REFUSED_SIZE;
+}
+
+int delta_wire_chat_text_valid(const char *text, int length, int maximum_characters)
+{
+	const unsigned char *bytes = (const unsigned char *)text;
+	int index = 0;
+	int characters = 0;
+	int shown = 0;
+
+	if (!text || length < 1)
+		return -1;
+	while (index < length)
+	{
+		delta_u32 code = bytes[index];
+		int more, step;
+
+		if (code < 0x80)
+			more = 0;
+		else if (code >= 0xC2 && code <= 0xDF)
+		{
+			more = 1;
+			code &= 0x1F;
+		}
+		else if (code >= 0xE0 && code <= 0xEF)
+		{
+			more = 2;
+			code &= 0x0F;
+		}
+		else if (code >= 0xF0 && code <= 0xF4)
+		{
+			more = 3;
+			code &= 0x07;
+		}
+		else
+			return -1;
+		if (index + more >= length && more)
+			return -1;
+		for (step = 1; step <= more; step++)
+		{
+			if ((bytes[index + step] & 0xC0) != 0x80)
+				return -1;
+			code = (code << 6) | (bytes[index + step] & 0x3F);
+		}
+		/* (overlong forms, surrogates, past the last code point) */
+		if ((more == 2 && code < 0x800) || (more == 3 && code < 0x10000) || (code >= 0xD800 && code <= 0xDFFF) ||
+			code > 0x10FFFF)
+		{
+			return -1;
+		}
+		if (code < 0x20 || code == 0x7F || (code >= 0x80 && code <= 0x9F) || (code >= 0x202A && code <= 0x202E) ||
+			(code >= 0x2066 && code <= 0x2069) || (code >= 0x200B && code <= 0x200D) || code == 0x2060 ||
+			code == 0xFEFF)
+		{
+			return -1;
+		}
+		if (code != ' ' && code != 0xA0 && code != 0x3000)
+			shown = 1;
+		characters++;
+		index += more + 1;
+	}
+	if (!shown || (maximum_characters > 0 && characters > maximum_characters))
+		return -1;
+	return characters;
+}
+
 /* ---------- rate limits */
 
 int delta_rate_take(struct delta_rate *rate, delta_u32 now, int rate_per_second, int burst)

@@ -9,9 +9,10 @@ link games as if they were on one LAN, without a server of this project's.
   other key can be found to have; the first 6 are the machine's identifier,
   which its XNADDR also carries) and a random 16-byte token. A machine
   makes one when its game starts hosting (the game listens for
-  connections), logs it, puts it on the clipboard, and offers it through
-  Discord (p2p_discord.c). Nothing about a game is published anywhere else:
-  without an invite there is no way to find or join it.
+  connections), logs it and puts it on the clipboard. Only a public game's
+  is published (the server browser: p2p_lobby.c; and its Join game button
+  on Discord: p2p_discord.c): without an invite there is no way to find or
+  join a private game.
 - Signalling (p2p_signal.c) goes through public MQTT brokers, on topics
   that are hashes of the token, with messages sealed with a key derived
   from it (p2p_crypto.c). A joiner offers its public key and the addresses
@@ -322,18 +323,16 @@ static struct
 	unsigned char token[P2P_TOKEN_SIZE];
 	/* whether the server browser's exit hook is set (lobby_quit) */
 	int lobby_quit_registered;
-	/* whether the server browser listed this token (p2p_lobby.c): going
-	private makes a new one */
+	/* whether the server browser listed this token (p2p_lobby.c), or the
+	game list (browser.c): going private or a password makes a new one */
 	int token_listed;
+	int token_announced;
 	char invite[P2P_LINK_SIZE];
 	int invite_copied;
 	/* the game's players and its most (p2p_set_game_player_counts; 0: not
-	said, and the machines the tunnel reaches are shown), and what Discord
-	was told */
+	said, and the machines the tunnel reaches are shown) */
 	int game_player_count;
 	int game_player_maximum;
-	int reported_player_count;
-	int reported_player_maximum;
 
 	/* joining: until the host is reached, or JOIN_TIMEOUT */
 	int join_requested;
@@ -1732,6 +1731,21 @@ int p2p_peer_address(const unsigned char *peer_identifier, unsigned long *addres
 	return result;
 }
 
+int p2p_peer_ping(const unsigned char *peer_identifier)
+{
+	struct peer *peer;
+	int ping = -1;
+
+	if (!p2p.running)
+		return -1;
+	pthread_mutex_lock(&p2p_lock);
+	peer = find_peer(peer_identifier);
+	if (peer && peer->connected && peer->round_trip > 0 && peer->round_trip < 10000)
+		ping = (int)peer->round_trip;
+	pthread_mutex_unlock(&p2p_lock);
+	return ping;
+}
+
 /* ---------- the game's ports: all that peers may reach */
 
 void p2p_socket_port(int socket, int stream, int listening, unsigned short port)
@@ -2431,6 +2445,31 @@ int p2p_hosting_invite(char *text, int size)
 	return result;
 }
 
+int p2p_hosting_listable_invite(char *text, int size)
+{
+	int result;
+
+	pthread_mutex_lock(&p2p_lock);
+	result = p2p.running && p2p.hosting && p2p.has_token && p2p_lobby_hosting_open();
+	if (result)
+		snprintf(text, (size_t)size, "%s", p2p.invite + strlen("halo://join/"));
+	pthread_mutex_unlock(&p2p_lock);
+	return result;
+}
+
+void p2p_hosting_invite_announced(const char *invite)
+{
+	pthread_mutex_lock(&p2p_lock);
+	if (p2p.has_token && !strcmp(p2p.invite + strlen("halo://join/"), invite))
+	{
+		p2p.token_announced = 1;
+		/* (made private, or given a password, while it was being announced) */
+		if (!p2p_lobby_hosting_open())
+			p2p_new_invite_if_listed();
+	}
+	pthread_mutex_unlock(&p2p_lock);
+}
+
 #endif
 /* (p2p.h) */
 const char *p2p_invite_log_text(const char *invite, char *text, int size)
@@ -2557,6 +2596,7 @@ static void make_invite(void)
 	posix_random_bytes(p2p.token, sizeof(p2p.token));
 	p2p.has_token = 1;
 	p2p.token_listed = 0;
+	p2p.token_announced = 0;
 	p2p_key_hash(p2p_public_key(), bytes);
 	memcpy(bytes + P2P_KEY_HASH_SIZE, p2p.token, P2P_TOKEN_SIZE);
 	p2p_hex(bytes, sizeof(bytes), text);
@@ -2565,7 +2605,7 @@ static void make_invite(void)
 
 void p2p_new_invite_if_listed(void)
 {
-	if (!p2p.has_token || !p2p.token_listed)
+	if (!p2p.has_token || (!p2p.token_listed && !p2p.token_announced))
 		return;
 	make_invite();
 	{
@@ -2579,8 +2619,6 @@ void p2p_new_invite_if_listed(void)
 		p2p_signal_host(p2p.token);
 		memcpy(p2p.clipboard, p2p.invite, sizeof(p2p.clipboard));
 		p2p.has_clipboard = 1;
-		/* (Discord is told the new one) */
-		p2p.reported_player_count = -1;
 	}
 }
 
@@ -2620,25 +2658,11 @@ static void update_hosting(void)
 			p2p.has_clipboard = 1;
 			p2p.invite_copied = 1;
 		}
-		p2p.reported_player_count = -1;
 	}
 	else if (!want && p2p.hosting)
 	{
 		p2p.hosting = 0;
 		p2p_signal_stop_hosting();
-		p2p_discord_set_hosting(NULL, 0, 0);
-	}
-	if (p2p.hosting)
-	{
-		int count, maximum;
-
-		hosted_player_counts(&count, &maximum);
-		if (count != p2p.reported_player_count || maximum != p2p.reported_player_maximum)
-		{
-			p2p.reported_player_count = count;
-			p2p.reported_player_maximum = maximum;
-			p2p_discord_set_hosting(p2p.invite + strlen("halo://join/"), count, maximum);
-		}
 	}
 }
 
@@ -3166,6 +3190,10 @@ static void *p2p_thread(void *unused)
 		}
 		update_joining();
 		update_upnp();
+		/* (a public game's invite is in everyone's server browser already:
+		its Join game button on Discord) */
+		p2p_discord_set_join(p2p.hosting && p2p.has_token && p2p_lobby_open() ?
+			p2p.invite + strlen("halo://join/") : NULL);
 		p2p_discord_update();
 #ifdef HALO_ANDROID
 		poll_invite_file();

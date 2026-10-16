@@ -35,12 +35,17 @@ static struct
 	char const *badge;
 	char const *folder;
 	char const *kind;
+	/* the short tag on a listed game's map, what the tag stands for, and
+	its color (map_family_tag) */
+	char const *tag;
+	char const *title;
+	unsigned long color;
 } const map_families[NUMBER_OF_MAP_FAMILIES] =
 {
-	{ "", "", "maps", "Xbox" },
-	{ "@ce", "HALO PC", "maps_ce", "Custom Edition" },
-	{ "@md", "HALOMD", "maps_md", "HaloMD" },
-	{ "@pc", "HALO PC RETAIL", "maps_pc", "Halo PC" },
+	{ "", "", "maps", "Xbox", "XBX", "Xbox map", 0x8CCB7A },
+	{ "@ce", "HALO PC", "maps_ce", "Custom Edition", "HCE", "Custom Edition map", 0x6FB2FF },
+	{ "@md", "HALOMD", "maps_md", "HaloMD", "HMD", "HaloMD map", 0xB59BFF },
+	{ "@pc", "HALO PC RETAIL", "maps_pc", "Halo PC", "GBX", "Halo PC map", 0xD9B45A },
 };
 
 /* the names a game's map has in the game's protocol (its settings and its
@@ -106,6 +111,25 @@ char const *map_family_badge(
 	short family)
 {
 	return family > _map_family_xbox && family < NUMBER_OF_MAP_FAMILIES ? map_families[family].badge : "";
+}
+
+char const *map_family_tag(
+	short family)
+{
+	return family >= _map_family_xbox && family < NUMBER_OF_MAP_FAMILIES ? map_families[family].tag : "";
+}
+
+char const *map_family_title(
+	short family)
+{
+	return family >= _map_family_xbox && family < NUMBER_OF_MAP_FAMILIES ? map_families[family].title : "";
+}
+
+unsigned long map_family_color(
+	short family)
+{
+	return family >= _map_family_xbox && family < NUMBER_OF_MAP_FAMILIES ? map_families[family].color :
+		MAP_FAMILY_COLOR_MCC;
 }
 
 char const *map_family_folder(

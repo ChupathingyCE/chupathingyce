@@ -846,7 +846,18 @@ int posix_browser_replace_key(const char *path, const unsigned char *key, int si
 /* the game list's player key (browser.c): read from path, or made there
 (random, readable by this user alone) the first time. As
 posix_user_secret: only a file of the user's no one else can read, and not
-a link */
+a link. On Android the save folder is in the app's own storage, which other
+apps cannot read whatever its files' modes say: the launcher makes the save
+folder's files readable to adb (share_entry), and the storage's file system
+may show other owners and modes than those the file was made with. There a
+plain file is enough; it was refused from the second run on, so Link
+Profile and the game list's reports never had a key */
+#ifdef __ANDROID__
+#define PRIVATE_KEY_PRIVATE(status) 1
+#else
+#define PRIVATE_KEY_PRIVATE(status) ((status).st_uid == getuid() && !((status).st_mode & 077))
+#endif
+
 int posix_browser_private_key(const char *path, unsigned char *key, int size)
 {
 	int attempt;
@@ -859,8 +870,8 @@ int posix_browser_private_key(const char *path, unsigned char *key, int size)
 
 		if (descriptor >= 0)
 		{
-			ok = fstat(descriptor, &status) == 0 && S_ISREG(status.st_mode) && status.st_uid == getuid() &&
-				!(status.st_mode & 077) && read(descriptor, key, (size_t)size) == size;
+			ok = fstat(descriptor, &status) == 0 && S_ISREG(status.st_mode) && PRIVATE_KEY_PRIVATE(status) &&
+				read(descriptor, key, (size_t)size) == size;
 			close(descriptor);
 			return ok;
 		}

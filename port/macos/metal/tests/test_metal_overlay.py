@@ -33,7 +33,8 @@ class MetalOverlayTests(unittest.TestCase):
                 if enabled:
                     command.append('-DHALO_GAME_BROWSER=1')
                 subprocess.run(command, check=True, capture_output=True, text=True)
-                subprocess.run([str(output)], check=True, capture_output=True, text=True)
+                run = subprocess.run([str(output)], capture_output=True, text=True)
+                self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
 
     def test_launcher_keeps_manual_input_and_disables_only_metal_board(self):
         with tempfile.TemporaryDirectory(prefix='metal launcher-') as directory:
@@ -72,8 +73,14 @@ DRIVER = r'''
 #include <string.h>
 _Static_assert(offsetof(struct metal_overlay_vertex, color) == 40, "MSL color offset");
 #ifdef HALO_GAME_BROWSER
-static int oversized;
-int platform_input_scheme(void) { return 0; }
+static int oversized, input_scheme;
+const int ui_prompt_icon_size = 1;
+static const unsigned int icon_pixel = 0xFFFFFFFF;
+const unsigned int *const ui_prompt_icons[10] = {
+    &icon_pixel, &icon_pixel, &icon_pixel, &icon_pixel, &icon_pixel,
+    &icon_pixel, &icon_pixel, &icon_pixel, &icon_pixel, &icon_pixel
+};
+int platform_input_scheme(void) { return input_scheme; }
 int posix_ui_font_has(int font, unsigned int codepoint) { (void)font; (void)codepoint; return 1; }
 int posix_ui_font_metrics(int font, float size, float *a, float *d) {
     (void)font; *a = size * 0.8f; *d = size * 0.2f; return 1;
@@ -120,6 +127,39 @@ int main(void) {
     for (int i = 0; i < 20000; i++) ui_overlay_rect(0, 0, 1, 1, 0, 0xFFFFFFFF);
     metal_overlay_prepare(640, 480, &frame);
     assert(frame.vertex_count == METAL_OVERLAY_MAX_VERTICES);
+    /* Upstream's layered dialogs: layer order wins over gather order. */
+    ui_overlay_layer(2);
+    ui_overlay_rect(0, 0, 10, 10, 0, 0xFF0000FF);
+    ui_overlay_layer(0);
+    ui_overlay_rect(0, 0, 10, 10, 0, 0x0000FFFF);
+    metal_overlay_prepare(640, 480, &frame);
+    assert(frame.vertex_count == 12);
+    assert(frame.vertices[0].color[2] == 255 && frame.vertices[6].color[0] == 255);
+    /* Pictures are copied, bounded, and use the native picture shader path. */
+    unsigned char picture[8] = {33, 44, 55, 255, 66, 77, 88, 255};
+    ui_overlay_picture(1, picture, 2, 1, 0, 0, 20, 10, 0xFFFFFFFF);
+    picture[0] = 99;
+    metal_overlay_prepare(640, 480, &frame);
+    assert(frame.vertex_count == 6 && frame.vertices[0].radius == -3);
+    assert(frame.picture_width == 2 && frame.picture_height == 1 && frame.picture[0] == 33);
+    ui_overlay_picture(1, picture, 2, 1, 0, 0, 20, 10, 0xFFFFFFFF);
+    metal_overlay_prepare(640, 480, &frame);
+    assert(frame.picture[0] == 33); /* Same serial never reads caller data again. */
+    ui_overlay_picture(2, picture, 4097, 1, 0, 0, 20, 10, 0xFFFFFFFF);
+    metal_overlay_prepare(640, 480, &frame);
+    assert(frame.vertex_count == 0);
+    input_scheme = 1;
+    ui_overlay_button(UI_BUTTON_A, 16, 0, 0, 0xFFFFFFFF);
+    metal_overlay_prepare(640, 480, &frame);
+    assert(frame.vertex_count == 6 && frame.vertices[0].radius == -2);
+    assert(frame.icon_size == 1 && frame.icons[0] == (const uint8_t *)&icon_pixel);
+    input_scheme = 0;
+    ui_overlay_panel(0, 0, 40, 40, 1);
+    ui_overlay_band(0, 40, 40, 80);
+    ui_overlay_prompt_bar(0, 40, 80, 120);
+    ui_overlay_text_glow(UI_FONT_BOLD, 12, 0, 0, UI_ALIGN_LEFT, 0xFFFFFFFF, 0x00FF00FF, "A");
+    metal_overlay_prepare(640, 480, &frame);
+    assert(frame.vertex_count > 18);
     oversized = 1;
     ui_overlay_text(UI_FONT_BOLD, 13, 0, 0, UI_ALIGN_LEFT, 0xFFFFFFFF, "C");
     metal_overlay_prepare(640, 480, &frame);

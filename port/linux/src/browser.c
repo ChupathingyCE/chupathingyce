@@ -8,7 +8,8 @@ server's list for System Link to show.
 
 Hosting: the game's server reports its game each frame
 (browser_host_update). While p2p.c hosts it on the internet (it has an
-invite) and network.list_hosted_games is on, the game is announced every
+invite), the game is public and has no password (its invite lets anyone in),
+and network.list_hosted_games is on, the game is announced every
 ANNOUNCE_INTERVAL, or a little after it changes (players join, the map
 changes), and withdrawn when the reports stop or p2p.c stops hosting. The
 server forgets a game it is not told about for a while, so a copy of the
@@ -86,6 +87,10 @@ enum
 	after the server could not be reached, a few times */
 	CLIENT_REPORT_INTERVAL = 8000,
 	CLIENT_REPORT_ATTEMPTS = 4,
+	/* the player's own profile asked of the site again this long after it
+	could not be reached, a few times */
+	PROFILE_CHECK_INTERVAL = 60000,
+	PROFILE_CHECK_ATTEMPTS = 4,
 	/* a report's line: its fixed members, and the most the recorder adds */
 	REPORT_LINE_SIZE = 640 + BROWSER_REPORT_EXTRA_SIZE,
 };
@@ -171,6 +176,19 @@ static struct
 	char connect_message[96];
 	int connect_qr_size;
 	unsigned char connect_qr[BROWSER_CONNECT_QR_SIZE * BROWSER_CONNECT_QR_SIZE];
+
+	/* the profile this copy's games count for (browser_profile_linked): its
+	handle while known, from Link Profile on this copy (kept in the save
+	root) or the site's word on the player's own profile; the site asked
+	once a run (wanted when a screen asks, tried a few times) */
+	int profile_linked;
+	char profile_handle[64];
+	int profile_read;
+	int profile_save_wanted;
+	int profile_check_wanted;
+	int profile_check_done;
+	int profile_check_attempts;
+	unsigned long profile_check_time;
 
 	/* browsing */
 	int list_wanted;
@@ -346,18 +364,24 @@ static int player_key(unsigned char *key)
 	{
 		unsigned char read_key[PLAYER_KEY_SIZE];
 
+		/* (said once a run; a key that could not be read is tried again the
+		next time one is wanted, not given up on until the game restarts) */
+		static int logged;
+
 		player_key_path(path, sizeof(path));
 		loaded = posix_browser_private_key(path, read_key, PLAYER_KEY_SIZE) ? 1 : -1;
-		if (loaded < 0)
+		if (loaded < 0 && !logged)
+		{
+			logged = 1;
 			platform_log("Game list: no player key (%s): finished games are not confirmed", path);
+		}
 		pthread_mutex_lock(&browser_lock);
 		/* (unless a restored key took its place meanwhile) */
 		if (player_key_loaded)
 			loaded = player_key_loaded;
-		else
+		else if (loaded > 0)
 		{
-			if (loaded > 0)
-				memcpy(player_key_cached, read_key, PLAYER_KEY_SIZE);
+			memcpy(player_key_cached, read_key, PLAYER_KEY_SIZE);
 			player_key_loaded = loaded;
 		}
 		pthread_mutex_unlock(&browser_lock);
@@ -550,9 +574,14 @@ static void start_connect(int serial, const unsigned short *name)
 	int seconds = 0, status, size = 0, x, y;
 
 	server_url("/v1/connect/start", url, sizeof(url));
-	if (!safe_for_key(url) || !player_key(key))
+	if (!safe_for_key(url))
 	{
-		connect_failed(serial, "Link Profile needs an HTTPS game list and a player key.");
+		connect_failed(serial, "Link Profile needs an HTTPS game list (network.browser_url).");
+		return;
+	}
+	if (!player_key(key))
+	{
+		connect_failed(serial, "Link Profile could not read or make this copy's player key. debug.txt has its path.");
 		return;
 	}
 	p2p_hex(key, PLAYER_KEY_SIZE, key_text);
@@ -629,6 +658,129 @@ static const char *connect_handle(const char *line, char *handle, int size)
 	return *line == ' ' ? line + 1 : line;
 }
 
+/* ---------- the profile this copy is linked to */
+
+static void start_thread(void);
+
+/* the file that keeps it: the player ID it was linked as, and the handle */
+static void profile_file(char *path, int size)
+{
+	snprintf(path, (size_t)size, "%s/game_list_profile.txt", platform_save_root());
+}
+
+/* linked to handle (under the lock): known from now on, and kept (keep)
+for the next runs (by the browser thread: check_profile) */
+static void profile_linked_to(const char *handle, int keep)
+{
+	if (!handle[0])
+		return;
+	browser.profile_linked = 1;
+	snprintf(browser.profile_handle, sizeof(browser.profile_handle), "%s", handle);
+	if (keep)
+		browser.profile_save_wanted = 1;
+}
+
+/* the kept link, read once (only the current player key's; the player key's
+lock is taken without the browser's) */
+static void read_profile_file(void)
+{
+	char path[512], line[160], id[2 * PLAYER_ID_SIZE + 1], handle[64];
+	FILE *file;
+	int read;
+
+	pthread_mutex_lock(&browser_lock);
+	read = !browser.profile_read;
+	browser.profile_read = 1;
+	pthread_mutex_unlock(&browser_lock);
+	if (!read || !browser_player_id(id, sizeof(id)))
+		return;
+	profile_file(path, sizeof(path));
+	file = fopen(path, "r");
+	if (!file)
+		return;
+	if (fgets(line, sizeof(line), file) && !strncmp(line, id, strlen(id)) && line[strlen(id)] == ' ')
+	{
+		line[strcspn(line, "\r\n")] = 0;
+		connect_handle(line + strlen(id) + 1, handle, sizeof(handle));
+		pthread_mutex_lock(&browser_lock);
+		if (!browser.profile_linked)
+			profile_linked_to(handle, 0);
+		pthread_mutex_unlock(&browser_lock);
+	}
+	fclose(file);
+}
+
+/* the browser thread's (the player key's lock is taken without the
+browser's): a new link kept, and the site asked once a run whether the
+player's own ID has a profile (one made from this copy's MY PROFILE link):
+GET /v1/profiles/<ID>, its "handle" */
+static void check_profile(void)
+{
+	char url[512], path[512], id[2 * PLAYER_ID_SIZE + 1], response[1024], error[256], handle[64];
+	const char *found;
+	int status, wanted, save;
+	FILE *file;
+
+	pthread_mutex_lock(&browser_lock);
+	save = browser.profile_save_wanted;
+	browser.profile_save_wanted = 0;
+	snprintf(handle, sizeof(handle), "%s", browser.profile_handle);
+	wanted = browser.profile_check_wanted && !browser.profile_check_done &&
+		elapsed(browser.profile_check_time, PROFILE_CHECK_INTERVAL);
+	if (wanted)
+		browser.profile_check_time = p2p_now();
+	pthread_mutex_unlock(&browser_lock);
+	if (!(save || wanted) || !browser_player_id(id, sizeof(id)))
+		return;
+	profile_file(path, sizeof(path));
+	if (save && (file = fopen(path, "w")) != NULL)
+	{
+		fprintf(file, "%s %s\n", id, handle);
+		fclose(file);
+	}
+	if (!wanted)
+		return;
+	snprintf(path, sizeof(path), "/v1/profiles/%s", id);
+	server_url(path, url, sizeof(url));
+	status = posix_browser_request(url, NULL, NULL, response, sizeof(response), error, sizeof(error));
+	handle[0] = 0;
+	found = status == 200 ? strstr(response, "\"handle\": \"") : NULL;
+	if (found)
+	{
+		int used = 0;
+
+		for (found += strlen("\"handle\": \""); *found && *found != '"' && *found != '\\' &&
+			used < (int)sizeof(handle) - 1; found++)
+		{
+			if ((unsigned char)*found >= 0x20)
+				handle[used++] = *found;
+		}
+		handle[used] = 0;
+	}
+	pthread_mutex_lock(&browser_lock);
+	if (handle[0] && !browser.profile_linked)
+		profile_linked_to(handle, 0);
+	/* (an answer: done for this run; none, a few tries) */
+	if (status == 200 || status == 404 || ++browser.profile_check_attempts >= PROFILE_CHECK_ATTEMPTS)
+		browser.profile_check_done = 1;
+	pthread_mutex_unlock(&browser_lock);
+}
+
+int browser_profile_linked(char *handle, int size)
+{
+	int linked;
+
+	pthread_once(&browser_once, start_thread);
+	read_profile_file();
+	pthread_mutex_lock(&browser_lock);
+	browser.profile_check_wanted = 1;
+	linked = browser.profile_linked;
+	if (handle && size > 0)
+		snprintf(handle, (size_t)size, "%s", linked ? browser.profile_handle : "");
+	pthread_mutex_unlock(&browser_lock);
+	return linked;
+}
+
 /* the server's word on the code (under the lock): "pending" (not typed
 yet), "confirm <handle> [<previous handle>]" (typed by someone signed in
 as handle: the player is asked), "connected <handle>", "declined" or
@@ -656,6 +808,7 @@ static void connect_line(int status, const char *response)
 		connect_handle(response + 10, browser.connect_handle, sizeof(browser.connect_handle));
 		browser.connect_state = BROWSER_CONNECT_CONNECTED;
 		platform_log("Game list: Link Profile: the game is linked to %s", browser.connect_handle);
+		profile_linked_to(browser.connect_handle, 1);
 	}
 	else if (status == 200 && !strcmp(response, "declined"))
 		browser.connect_state = BROWSER_CONNECT_DECLINED;
@@ -894,6 +1047,7 @@ static void announce(const char *invite, const struct hosted_game *game)
 		pthread_mutex_lock(&browser_lock);
 		snprintf(browser.listed_invite, sizeof(browser.listed_invite), "%s", invite);
 		pthread_mutex_unlock(&browser_lock);
+		p2p_hosting_invite_announced(invite);
 	}
 	else
 	{
@@ -915,8 +1069,10 @@ static void update_hosting(void)
 	browser.host_changed = 0;
 	pthread_mutex_unlock(&browser_lock);
 
+	/* (only a public game without a password: its invite lets anyone in,
+	so a private game's or a password game's is never listed) */
 	hosting = reported && config_boolean("network.list_hosted_games") &&
-		p2p_hosting_invite(invite, sizeof(invite));
+		p2p_hosting_listable_invite(invite, sizeof(invite));
 	if (!hosting)
 	{
 		withdraw();
@@ -1270,6 +1426,7 @@ static void *browser_thread(void *unused)
 			send_claims();
 			open_profile();
 			update_connect();
+			check_profile();
 			update_list();
 		}
 		Sleep(THREAD_INTERVAL);
@@ -1452,7 +1609,13 @@ static char *report_json(int teams, int red_score, int blue_score, int duration_
 
 		used = append(report, size, used, "%s{\"name\": ", index ? ", " : "");
 		used = clamped(used + json_name(report + used, (int)(size - (size_t)used), player->name, BROWSER_PLAYER_NAME_LENGTH), size);
-		used = append(report, size, used,
+		if (player->minimal)
+		{
+			/* (a player not on Chupathingy: this game's scoreboard, no more) */
+			used = append(report, size, used, ", \"team\": %d, \"place\": %d, \"score\": %d, \"kills\": %d, \"deaths\": %d",
+				player->team, player->place, player->score, player->kills, player->deaths);
+		}
+		else used = append(report, size, used,
 			", \"team\": %d, \"place\": %d, \"score\": %d, \"kills\": %d, \"assists\": %d, \"deaths\": %d, "
 			"\"betrayals\": %d, \"suicides\": %d, \"shots_fired\": %d, \"shots_hit\": %d, \"multikills\": %d, "
 			"\"color\": %d, \"flag_grabs\": %d, \"flag_returns\": %d, \"flag_scores\": %d, \"ball_time\": %d, "
@@ -1469,7 +1632,7 @@ static char *report_json(int teams, int red_score, int blue_score, int duration_
 			address_tag(tag_invite, address, tag);
 			used = append(report, size, used, ", \"tag\": \"%s\"", tag);
 		}
-		if (player->extra && player->extra[0] && strlen(player->extra) < BROWSER_REPORT_EXTRA_SIZE)
+		if (!player->minimal && player->extra && player->extra[0] && strlen(player->extra) < BROWSER_REPORT_EXTRA_SIZE)
 			used = append(report, size, used, ", %s", player->extra);
 		used = append(report, size, used, "}");
 	}
@@ -1733,6 +1896,13 @@ void browser_answer_key_link(int install)
 		{
 			memcpy(player_key_cached, key, PLAYER_KEY_SIZE);
 			player_key_loaded = 1;
+			/* (another player: its link read and asked about again) */
+			browser.profile_linked = 0;
+			browser.profile_handle[0] = 0;
+			browser.profile_read = 0;
+			browser.profile_check_done = 0;
+			browser.profile_check_attempts = 0;
+			browser.profile_check_time = 0;
 		}
 		memset(key, 0, sizeof(key));
 	}
@@ -1798,6 +1968,63 @@ int browser_moderator_key(char *text, int size)
 	return 1;
 }
 
+/* a listed game's identifier (its invite's first bytes, made a locally
+administered address as p2p.c makes one); 0 if the invite is not one */
+static int invite_identifier(const char *invite, unsigned char *identifier)
+{
+	int index;
+
+	for (index = 0; index < P2P_IDENTIFIER_SIZE; index++)
+	{
+		unsigned int byte;
+
+		if (sscanf(invite + 2 * index, "%2x", &byte) != 1)
+			return 0;
+		identifier[index] = (unsigned char)byte;
+	}
+	identifier[0] = (unsigned char)((identifier[0] & 0xFC) | 0x02);
+	return 1;
+}
+
+/* what the list does not say of its games and this machine knows: the
+round trip to a host the tunnel reaches, and which games' public listings
+have a password (a listing's key hash is its invite's first half) */
+static void add_known(struct browser_game *games, int count)
+{
+	enum { LISTINGS = 64, LISTINGS_INTERVAL = 1000 };
+	static struct p2p_listing listings[LISTINGS];
+	static int listing_count;
+	static unsigned long listings_time;
+	static int listings_read;
+	int index, other;
+
+	if (!listings_read || elapsed(listings_time, LISTINGS_INTERVAL))
+	{
+		listing_count = p2p_lobby_browsing() ? p2p_lobby_games(listings, LISTINGS) : 0;
+		listings_time = p2p_now();
+		listings_read = 1;
+	}
+	for (index = 0; index < count; index++)
+	{
+		unsigned char identifier[P2P_IDENTIFIER_SIZE];
+		char key_hash[2 * P2P_KEY_HASH_SIZE + 1];
+
+		games[index].ping = (short)(invite_identifier(games[index].invite, identifier) ? p2p_peer_ping(identifier) : -1);
+		games[index].locked = 0;
+		for (other = 0; other < listing_count; other++)
+		{
+			if (!listings[other].locked)
+				continue;
+			p2p_hex(listings[other].key_hash, P2P_KEY_HASH_SIZE, key_hash);
+			if (!SDL_strncasecmp(key_hash, games[index].invite, 2 * P2P_KEY_HASH_SIZE))
+			{
+				games[index].locked = 1;
+				break;
+			}
+		}
+	}
+}
+
 int browser_get_games(struct browser_game *games, int maximum_count)
 {
 	int count;
@@ -1808,7 +2035,26 @@ int browser_get_games(struct browser_game *games, int maximum_count)
 	count = browser.game_count < maximum_count ? browser.game_count : maximum_count;
 	memcpy(games, browser.games, sizeof(*games) * (size_t)count);
 	pthread_mutex_unlock(&browser_lock);
+	add_known(games, count);
 	return count;
+}
+
+int browser_list_status(void)
+{
+	int status;
+
+	if (!config_string("network.browser_url")[0])
+		return BROWSER_LIST_NONE;
+	pthread_mutex_lock(&browser_lock);
+	status = browser.list_failed ? BROWSER_LIST_FAILED : !browser.list_time && !browser.game_count ?
+		BROWSER_LIST_WAITING : BROWSER_LIST_ANSWERED;
+	pthread_mutex_unlock(&browser_lock);
+	return status;
+}
+
+void browser_follow_listings(int on)
+{
+	p2p_lobby_browse(on && config_boolean("network.online"));
 }
 
 int browser_game_peer(const char *invite, unsigned long *address)
