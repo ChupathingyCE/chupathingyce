@@ -8036,11 +8036,15 @@ static void game_engine_update_weapons(
 					? definition->item.scale
 					: 1.f;
 
+			/* port: a Custom Edition map's item is drawn at the scale Halo
+			PC's engine drew it at, which it did not check (the Grifball
+			court's ball's); an Xbox map's is asserted as it always was */
 			match_assert(
 				"c:\\halo\\SOURCE\\game\\game_engine.c",
 				0x83E,
-				(item->object.scale >= 0.5f) &&
-					(item->object.scale <= 3.f));
+				cache_file_tags_are_ce() ||
+				((item->object.scale >= 0.5f) &&
+					(item->object.scale <= 3.f)));
 		}
 
 		/*

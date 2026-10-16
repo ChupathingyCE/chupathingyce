@@ -419,6 +419,17 @@ Searches of halomaps.org found no other Custom Edition Grifball court.
 Halo 4's and Halo 5's Grifball Courts (Erosion, Glacier) are those games'
 Forge maps, not Halo CE maps.
 
+## Open Pitch with the court's weapons (beta)
+
+Until a real map exists, Open Pitch can be played on `openpitch_bloodgulch`,
+Blood Gulch with the Grifball court's gravity hammer, energy sword and ball,
+from `grifball.map`, "Grifball Beta" by SlappyThePirate (2011), whose author
+lets the map be used. It's an ordinary Custom Edition map made by a patcher
+from the stock map and an asset pack; see [map_patches.md](map_patches.md).
+On a patched map whose header names the weapons a game type hands out, a
+melee-only Bomb game gives players those (the first in hand) in place of the
+map's sword, and the ball is the map's multiplayer ball.
+
 ## Open questions
 
 - **A clearer refusal for OpenCE players.** The game protocol has no

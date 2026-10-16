@@ -666,6 +666,47 @@ void game_engine_bomb_host_traits(
 
 /* ---------- the map */
 
+/* ---------- a patched map's weapons (tools/map_patch.py) */
+
+#ifdef HALO_CUSTOM_EDITION
+char const *cache_files_ce_patch_text(void);
+#endif
+
+enum
+{
+	/* the most weapons a patched map's game type hands out */
+	MAXIMUM_BOMB_PATCH_WEAPONS = 2,
+};
+
+/* the which'th weapon a patched map says its game type hands out (its
+header's "weapon:" lines), NONE if none: the weapons players get in a
+melee-only game in place of the map's sword */
+static long bomb_patch_weapon(
+	long which)
+{
+#ifdef HALO_CUSTOM_EDITION
+	char const *line = cache_files_ce_patch_text();
+
+	while (line && *line)
+	{
+		char const *end = strchr(line, '\n');
+		size_t length = end ? (size_t)(end - line) : strlen(line);
+
+		if (length > 8 && !strncmp(line, "weapon: ", 8) && which-- == 0)
+		{
+			char name[256];
+
+			snprintf(name, sizeof(name), "%.*s", (int)(length - 8), line + 8);
+			return tag_loaded(WEAPON_DEFINITION_TAG, name);
+		}
+		line = end ? end + 1 : NULL;
+	}
+#else
+	(void)which;
+#endif
+	return NONE;
+}
+
 /* the map's energy sword a player can use: a weapon tag named for a sword,
 with a first person model and animations, that does not vanish when dropped
 (the Elite's does). NONE for none */
@@ -716,6 +757,34 @@ void game_engine_bomb_give_sword(
 
 	long definition_index = bomb_globals.sword_definition_index != NONE ? bomb_globals.sword_definition_index :
 		bomb_globals.fist_definition_index;
+
+	/* (a patched map's weapons, the first in hand, in place of the map's
+	sword: the last first, then each before it into the unit's hands) */
+	if (bomb_patch_weapon(0) != NONE)
+	{
+		boolean added = FALSE;
+		long which;
+
+		if (!game_engine_bomb_melee_only() || unit_index == NONE || network_game_distributed_client())
+			return;
+		for (which = MAXIMUM_BOMB_PATCH_WEAPONS - 1; which >= 0; which--)
+		{
+			long patch_index = bomb_patch_weapon(which);
+
+			if (patch_index == NONE)
+				continue;
+			object_placement_data_new(&placement_data, patch_index, NONE);
+			weapon_index = object_new(&placement_data);
+			if (weapon_index != NONE && unit_add_weapon_to_inventory(unit_index, weapon_index,
+				added ? _unit_add_weapon_starting : _unit_add_weapon_replace))
+			{
+				added = TRUE;
+			}
+			else if (weapon_index != NONE)
+				object_delete(weapon_index);
+		}
+		return;
+	}
 
 	/* (a client has the host's: network_objects.c) */
 	if (!game_engine_bomb_melee_only() || unit_index == NONE || definition_index == NONE ||
@@ -1086,9 +1155,15 @@ static boolean bomb_engine_initialize_for_new_map(void)
 	bomb_blast_find_effects();
 	bomb_globals.score_to_win = game_engine_get_variant()->universal_variant.score_to_win;
 	bomb_globals.sword_definition_index = bomb_find_sword();
+	if (bomb_patch_weapon(0) != NONE)
+	{
+		bomb_log("the patched map's weapons %08lx %08lx", (unsigned long)bomb_patch_weapon(0),
+			(unsigned long)bomb_patch_weapon(1));
+	}
 	/* (the multiplayer weapon list's pistol: game_engine.c's
 	_weapon_list_pistol) */
-	bomb_globals.fist_definition_index = bomb_globals.sword_definition_index == NONE ?
+	bomb_globals.fist_definition_index = bomb_globals.sword_definition_index == NONE &&
+		bomb_patch_weapon(0) == NONE ?
 		list_index_to_weapon_definition_index(4) : NONE;
 	if (bomb_globals.fist_definition_index != NONE &&
 		weapon_definition_get(bomb_globals.fist_definition_index)->weapon.interface_definition.first_person_animations.index ==

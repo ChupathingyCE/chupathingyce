@@ -554,6 +554,28 @@ static boolean ce_map_open(
 	return FALSE;
 }
 
+/* the text a patched map (tools/map_patch.py) keeps in its header's free
+space, from 0x400: "key: value" lines that say what it is (its recipe, its
+base map, the weapons a game type hands out, its packs' credits); NULL if the
+map open in that slot has none */
+char const *cache_files_ce_patch_text(
+	void)
+{
+	enum
+	{
+		PATCH_TEXT_OFFSET = 0x400,
+		PATCH_TEXT_SIZE = 0x3f0,
+	};
+	static char text[PATCH_TEXT_SIZE + 1];
+	byte const *header = (byte const *)&ce_map_file.header;
+
+	if (!ce_map_file.file || memcmp(header + PATCH_TEXT_OFFSET, "patch: ", 7))
+		return NULL;
+	memcpy(text, header + PATCH_TEXT_OFFSET, PATCH_TEXT_SIZE);
+	text[PATCH_TEXT_SIZE] = 0;
+	return text;
+}
+
 /* the map open in that slot, or NULL: its own sounds' samples are read
 from it as its tags load (port/linux/game/ce_resources.c) */
 HANDLE cache_files_ce_map_file(
