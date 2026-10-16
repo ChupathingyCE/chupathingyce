@@ -59,6 +59,7 @@ netcode shows them from the host's state (game_engine_bomb_write_network_state).
 
 /* port_config.c's */
 int config_boolean(char const *name);
+double config_real(char const *name);
 long config_integer(char const *name);
 char const *config_string(char const *name);
 
@@ -79,6 +80,12 @@ enum
 
 /* how near the carrier stands to the goal's marker to arm it (CTF's) */
 #define BOMB_GOAL_RADIUS 1.0f
+
+/* the planted bomb's save (game.bomb_arm_time): a defender this near the
+bomb while it arms saves it (world units: about 2 meters) */
+#define BOMB_SAVE_RADIUS 0.6f
+/* the longest it arms (seconds) */
+#define BOMB_ARM_TIME_MAXIMUM 10.0
 
 /* the bomb's blast at the goal it is scored in: everyone this near the
 goal dies (world units: about 15 meters, a Blood Gulch base and around it),
@@ -160,6 +167,12 @@ static struct
 	long round_start_time;
 	/* the carrier's ticks in the goal */
 	long arm_ticks;
+	/* the host's: the bomb planted in a goal, arming (game.bomb_arm_time):
+	its ticks left (0: none), the goal's team and the planter. A defender
+	who reaches it first saves it; else it scores once */
+	long plant_ticks;
+	long plant_goal_team;
+	long plant_scorer;
 	/* the map's energy sword players can use (NONE: none: fists alone) */
 	long sword_definition_index;
 	/* ... and where it has none, the globals' pistol, given unseen: the
@@ -664,6 +677,7 @@ static void bomb_place(real_point3d const *position)
 		(struct weapon_datum *)object_try_and_get_and_verify_type(weapon_index, _object_mask_weapon) : NULL;
 
 	bomb_globals.arm_ticks = 0;
+	bomb_globals.plant_ticks = 0;
 	if (!weapon)
 	{
 		bomb_globals.weapon_index = bomb_create();
@@ -1271,6 +1285,78 @@ static void bomb_award_score(long player_index)
 	}
 }
 
+/* the host's: the carrier at the enemy goal plants the bomb there, to
+arm for game.bomb_arm_time (0: it scores at once). Out of everyone's hands
+until it scores or a defender saves it (bomb_plant_update) */
+static void bomb_plant(long player_index)
+{
+	struct player_datum *player = player_get(player_index);
+	long goal_team = (player->team_index + 1) % NUMBER_OF_BOMB_TEAMS;
+	double arm_time = config_real("game.bomb_arm_time");
+	long ticks = arm_time > 0.0 ?
+		(long)(MIN(arm_time, BOMB_ARM_TIME_MAXIMUM) * TICKS_PER_SECOND + 0.5) : 0;
+
+	if (ticks <= 0 || !bomb_globals.has_goal[goal_team])
+	{
+		bomb_award_score(player_index);
+		return;
+	}
+	bomb_log_player("plant", player_index);
+	bomb_place(&bomb_globals.goals[goal_team]);
+	bomb_globals.plant_ticks = ticks;
+	bomb_globals.plant_goal_team = goal_team;
+	bomb_globals.plant_scorer = player_index;
+}
+
+/* the host's: the planted bomb saved by a living defender who reaches it
+(back to its spawn, as an untouched bomb's reset), else, armed, scored */
+static void bomb_plant_update(void)
+{
+	struct data_iterator iterator;
+	struct player_datum *player;
+	struct player_datum *scorer;
+	real_point3d position;
+
+	if (bomb_globals.weapon_index == NONE)
+	{
+		bomb_globals.plant_ticks = 0;
+		return;
+	}
+	item_get_position_even_if_in_inventory(bomb_globals.weapon_index, &position);
+	data_iterator_new(&iterator, player_data);
+	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+	{
+		struct object_datum *unit;
+
+		if (player->team_index != bomb_globals.plant_goal_team || player->unit_index == NONE)
+			continue;
+		unit = object_get(player->unit_index);
+		if (TEST_FLAG(unit->object.damage_flags, _object_dead_bit) ||
+			distance_squared3d(&position, &unit->object.position) >= BOMB_SAVE_RADIUS * BOMB_SAVE_RADIUS)
+		{
+			continue;
+		}
+		bomb_log_player("save", iterator.datum_index);
+		bomb_reset();
+		bomb_events.resets++;
+		bomb_show_reset();
+		return;
+	}
+	if (--bomb_globals.plant_ticks > 0)
+		return;
+	/* (the planter's score, unless it left the game: then the bomb resets) */
+	scorer = player_try_and_get(bomb_globals.plant_scorer);
+	if (scorer && (scorer->team_index + 1) % NUMBER_OF_BOMB_TEAMS == bomb_globals.plant_goal_team)
+		bomb_award_score(bomb_globals.plant_scorer);
+	else
+	{
+		bomb_log("plant: the planter is gone; the bomb resets");
+		bomb_reset();
+		bomb_events.resets++;
+		bomb_show_reset();
+	}
+}
+
 /* every machine's: the planted bomb's countdown, its blast (the host's
 damage; everyone's effects), and the host's next round after the pause */
 static void bomb_hold_update(void)
@@ -1365,7 +1451,7 @@ static void bomb_engine_player_update(long player_index)
 		bomb_overshield_update(player_index);
 	/* (one score a goal: none from the goal to the next round, the bomb
 	planted) */
-	if (carrying && game_engine_can_score() && bomb_globals.hold_ticks <= 0 &&
+	if (carrying && game_engine_can_score() && bomb_globals.hold_ticks <= 0 && bomb_globals.plant_ticks <= 0 &&
 		VALID_INDEX(player->team_index, NUMBER_OF_BOMB_TEAMS))
 	{
 		long goal_team = (player->team_index + 1) % NUMBER_OF_BOMB_TEAMS;
@@ -1379,7 +1465,7 @@ static void bomb_engine_player_update(long player_index)
 			if (bomb_globals.arm_ticks >=
 				game_engine_get_variant()->game_engine_variant.bomb.arm_time * TICKS_PER_SECOND)
 			{
-				bomb_award_score(player_index);
+				bomb_plant(player_index);
 			}
 		}
 		else
@@ -1478,6 +1564,9 @@ static void bomb_engine_update(void)
 
 	if (!game_engine_can_score())
 		return;
+	/* (the planted bomb arming: the host's) */
+	if (bomb_globals.plant_ticks > 0 && !network_game_distributed_client())
+		bomb_plant_update();
 	/* (the round's time stands still from the goal to the next round) */
 	if (bomb_globals.hold_ticks > 0)
 	{
@@ -1550,8 +1639,10 @@ static boolean bomb_engine_allow_pick_up(long unit_index, long weapon_index)
 			return FALSE;
 		}
 	}
-	/* (not the bomb from the goal to the next round: it is planted) */
-	return weapon_index != bomb_globals.weapon_index || bomb_globals.hold_ticks <= 0;
+	/* (not the bomb from the goal to the next round, or while it arms: it
+	is planted) */
+	return weapon_index != bomb_globals.weapon_index ||
+		(bomb_globals.hold_ticks <= 0 && bomb_globals.plant_ticks <= 0);
 }
 
 static void bomb_engine_player_damaged_player(long damaging_player_index, long dead_player_index, boolean damage_type)
@@ -2110,6 +2201,12 @@ long game_engine_bomb_weapon(
 	void)
 {
 	return bomb_running() ? bomb_globals.weapon_index : NONE;
+}
+
+long game_engine_bomb_planted_goal(
+	void)
+{
+	return bomb_running() && bomb_globals.plant_ticks > 0 ? bomb_globals.plant_goal_team : NONE;
 }
 
 boolean game_engine_bomb_goal(

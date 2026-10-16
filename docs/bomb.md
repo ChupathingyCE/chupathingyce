@@ -56,6 +56,13 @@ stand). A goal scores a round. The first team to the score limit wins.
   variant's arm time. An arm time of 0 scores on contact (Grifball). The
   HUD counts the arming down. Leaving the goal or dropping the bomb starts
   it over.
+- **The save.** Armed, the bomb is planted in the goal and arms for the
+  host's `game.bomb_arm_time` (`HALO_BOMB_ARM_TIME`, 1 second by default,
+  up to 10; 0 scores the moment it is planted). No one can pick it up
+  meanwhile. A living defender who comes within 0.6 world units of it
+  saves it: it resets to its spawn with "bomb reset", and no one scores.
+  Else it scores once, as below. Only the host decides it: other
+  machines see the bomb lie in the goal, then the goal or the reset.
 - **A goal** gives the team a round at once and plants the bomb in the
   goal: out of the carrier's hands, and no one can pick it up. The round
   clock stops. A 3, 2, 1 countdown runs in the middle of the screen with
@@ -382,6 +389,10 @@ first).
   score limit. Before the fix the bomb stayed in the carrier's inventory
   after the score (a debug build stops on it; a release build scored
   again every tick the carrier stood in the goal).
+- `debug.network_test_bomb_save` (with `debug.network_test_bomb`): the
+  host stands a defender on the bomb planted in its goal as it arms: it
+  resets, no score. Without it the planted bomb scores once, a second
+  after the plant; with `_in_goal` and `_throw` too, one score a goal.
 - `debug.network_test_bomb_keep` with `debug.network_test_melee`: the
   carrier stays where it took the bomb and the host's player strikes it:
   it lives (7% of its health left), fumbles, and the striker takes the
