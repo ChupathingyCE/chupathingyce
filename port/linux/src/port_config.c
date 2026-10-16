@@ -337,6 +337,11 @@ static const struct config_setting config_settings[] =
 		"(from a little over its height, when given). A map not named has the\n"
 		"game's own spot: Blood Gulch's halfway between its teleporters' exits,\n"
 		"any other map's halfway between the goals." },
+	{ "game.bomb_arm_time", _config_real, "1.0", "HALO_BOMB_ARM_TIME", _environment_value, _platform_all,
+		"In a Bomb or Grifball game you host, the seconds the bomb arms once it\n"
+		"is planted in the enemy goal (up to 10): a defender who reaches it in\n"
+		"that time saves it (it resets, no score); else it goes off and scores.\n"
+		"0: it scores the moment it is planted." },
 
 	{ "game.bomb_open_pitch_speed", _config_integer, "0", "HALO_BOMB_OPEN_PITCH_SPEED", _environment_value,
 		_platform_all,
@@ -594,6 +599,11 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"With debug.network_test_bomb: the carrier is not moved into the goal (it\n"
 		"keeps the bomb: debug.network_test_melee's blows strike a carrier)." },
+	{ "debug.network_test_bomb_save", _config_boolean, "false", "HALO_NETWORK_TEST_BOMB_SAVE", _environment_value,
+		_platform_all,
+		"With debug.network_test_bomb: the host stands a player of the goal's\n"
+		"team on the bomb planted there as it arms (game.bomb_arm_time), which\n"
+		"saves it." },
 	{ "debug.network_test_fall", _config_real, "0.0", "HALO_NETWORK_TEST_FALL", _environment_value, _platform_all,
 		"In an automated test game, each time this many seconds pass the last\n"
 		"player is lifted 10 world units, for a fall whose landing kills; 0\n"

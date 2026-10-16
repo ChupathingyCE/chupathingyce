@@ -59,7 +59,9 @@ debug.network_test_bomb_throw has the joining machine's player hold the
 trigger through each try's first four seconds (picking the bomb up with the
 trigger down, throwing it down and picking it up again), and
 debug.network_test_bomb_keep leaves the carrier where it picked the bomb
-up (with debug.network_test_melee: blows at a carrier).
+up (with debug.network_test_melee: blows at a carrier), and
+debug.network_test_bomb_save has the host stand a defender on the bomb
+planted in its goal as it arms, which saves it.
 
 Called from the main loop every frame (main.c).
 */
@@ -164,6 +166,7 @@ static struct
 	boolean bomb_in_goal;
 	boolean bomb_throw;
 	boolean bomb_keep;
+	boolean bomb_save;
 	real fall_interval;
 	real melee_interval;
 	char pickup_weapon[64];
@@ -269,6 +272,7 @@ static void network_test_read_settings(
 	network_test.bomb_in_goal = config_boolean("debug.network_test_bomb_in_goal");
 	network_test.bomb_throw = config_boolean("debug.network_test_bomb_throw");
 	network_test.bomb_keep = config_boolean("debug.network_test_bomb_keep");
+	network_test.bomb_save = config_boolean("debug.network_test_bomb_save");
 	network_test.fall_interval = (real)config_real("debug.network_test_fall");
 	network_test.melee_interval = (real)config_real("debug.network_test_melee");
 	network_test.local_players = (short)PIN(config_integer("debug.network_test_local_players"), 1, 4);
@@ -920,6 +924,32 @@ static void network_test_bomb(
 	platform_log("network test: bomb: the last player stands on it (%.2f %.2f %.2f)", position.x, position.y,
 		position.z);
 }
+
+/* debug.network_test_bomb_save: the host stands a living player of the
+goal's team on the bomb planted there, arming */
+static void network_test_bomb_save(
+	void)
+{
+	struct data_iterator iterator;
+	struct player_datum *player;
+	long goal_team = game_engine_bomb_planted_goal();
+	long bomb_index = game_engine_bomb_weapon();
+	real_point3d position;
+
+	if (goal_team == NONE || bomb_index == NONE)
+		return;
+	data_iterator_new(&iterator, player_data);
+	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+	{
+		if (player->team_index != goal_team || player->unit_index == NONE)
+			continue;
+		position = object_get(bomb_index)->object.position;
+		position.z += 0.1f;
+		object_set_position(player->unit_index, &position, NULL, NULL);
+		platform_log("network test: bomb: a player of team %ld stands on the planted bomb", goal_team);
+		return;
+	}
+}
 #endif
 
 /* debug.network_test_fall: both machines lift the last player this high
@@ -1076,6 +1106,11 @@ void network_test_update(
 		network_test.played = TRUE;
 	if (game_in_progress() && game_time_get() < network_test.logged_time)
 		network_test.logged_time = 0;
+#ifdef HALO_GAME_BROWSER
+	/* (each frame: the planted bomb arms for a second) */
+	if (network_test.bomb_save && network_test.mode == _network_test_host && game_in_progress() && !main_menu_loaded)
+		network_test_bomb_save();
+#endif
 	if (network_test.melee_interval > 0.0f && game_in_progress() && !main_menu_loaded)
 		network_test_melee();
 	if (game_in_progress() && !main_menu_loaded && game_time_get() - network_test.logged_time >= TICKS_PER_SECOND)

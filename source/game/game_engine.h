@@ -458,8 +458,10 @@ type) */
 long game_engine_bomb_report_player(long player_index, char *text, long size);
 long game_engine_bomb_report_game(char *text, long size);
 /* the network test's (network_test.c): the bomb, a team's goal, a team's
-score, the round */
+score, the round, and the goal the bomb is planted in, arming (the host's;
+NONE: none) */
 long game_engine_bomb_weapon(void);
+long game_engine_bomb_planted_goal(void);
 boolean game_engine_bomb_goal(long team_index, union real_point3d *position);
 long game_engine_bomb_team_score(long team_index);
 long game_engine_bomb_round(void);
