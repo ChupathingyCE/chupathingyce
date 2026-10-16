@@ -30,6 +30,9 @@ bits never count) */
 	((((delta_u32)1 << NUMBER_OF_DELTA_CAPABILITIES) - 1) & ~((delta_u32)1 << _delta_capability_md_maps) & \
 		~((delta_u32)1 << _delta_capability_console_slots))
 #define CAPABILITY(bit) ((delta_u32)1 << (bit))
+/* TRAITS (22) needs both: bomb alone is a Grifball test build 2 or 3's,
+which says TRAITS as 18 */
+#define BOMB_CAPABILITIES (CAPABILITY(_delta_capability_bomb) | CAPABILITY(_delta_capability_bomb_traits))
 
 static void say(struct delta_peer *peer, const char *format, ...)
 	__attribute__((format(printf, 2, 3)));
@@ -1247,14 +1250,14 @@ static void host_send_traits(struct delta_peer *peer, delta_u32 now)
 	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
 	int index;
 
-	if (!peer->traits_generation || !(offered(peer) & CAPABILITY(_delta_capability_bomb)))
+	if (!peer->traits_generation || (offered(peer) & BOMB_CAPABILITIES) != BOMB_CAPABILITIES)
 		return;
 	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
 	{
 		struct delta_peer_host_peer *client = &peer->peers[index];
 		int size;
 
-		if (!client->used || !(client->agreed & CAPABILITY(_delta_capability_bomb)))
+		if (!client->used || (client->agreed & BOMB_CAPABILITIES) != BOMB_CAPABILITIES)
 			continue;
 		if (client->traits_sent_generation == peer->traits_generation &&
 			!elapsed(now, client->traits_time, DELTA_PEER_TRAITS_INTERVAL))
@@ -2010,7 +2013,7 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 		struct delta_wire_traits traits;
 
 		if (peer->client_state != _delta_peer_client_delta ||
-			!(peer->agreed & offered(peer) & CAPABILITY(_delta_capability_bomb)) ||
+			(peer->agreed & offered(peer) & BOMB_CAPABILITIES) != BOMB_CAPABILITIES ||
 			!delta_wire_read_traits(payload, header.length, &traits))
 		{
 			peer->dropped++;

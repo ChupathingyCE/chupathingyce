@@ -37,7 +37,10 @@ static int failures;
 #define PROFILE_BIT ((delta_u32)1 << _delta_capability_profile)
 #define MODERATION_BIT ((delta_u32)1 << _delta_capability_moderation)
 #define MAPS_BIT ((delta_u32)1 << _delta_capability_ce_maps)
-#define BOMB_BIT ((delta_u32)1 << _delta_capability_bomb)
+/* (bomb and bomb_traits: this build's Bomb; bomb alone, a Grifball test
+build 2 or 3's) */
+#define OLD_BOMB_BIT ((delta_u32)1 << _delta_capability_bomb)
+#define BOMB_BIT (OLD_BOMB_BIT | (delta_u32)1 << _delta_capability_bomb_traits)
 
 /* ---------- a simulated network */
 
@@ -1181,8 +1184,8 @@ static void test_bomb(void)
 
 	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT | BOMB_BIT, _delta_platform_pc_linux, 0, 0);
 	node_start(1, 0x0300007F, 40001, PLATFORM_BIT | BOMB_BIT, _delta_platform_pc_macos, 0, 0);
-	/* (an older build of ours: Delta, but no bomb) */
-	node_start(2, 0x0400007F, 40002, PLATFORM_BIT, _delta_platform_pc_windows, 0, 0);
+	/* (an older build of ours: Delta, and bomb without bomb_traits) */
+	node_start(2, 0x0400007F, 40002, PLATFORM_BIT | OLD_BOMB_BIT, _delta_platform_pc_windows, 0, 0);
 	node_start(3, 0x0500007F, 40003, PLATFORM_BIT | BOMB_BIT, _delta_platform_pc_linux, 0, 0);
 	game_reset();
 	game_add(1);
@@ -1201,10 +1204,11 @@ static void test_bomb(void)
 	CHECK(nodes[1].peer.agreed & BOMB_BIT);
 	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 1, _delta_capability_bomb));
 	CHECK(!delta_peer_machine_pending(&nodes[0].peer, now, 1));
-	CHECK(delta_peer_machine_lacks(&nodes[0].peer, now, 2, _delta_capability_bomb));
+	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 2, _delta_capability_bomb));
+	CHECK(delta_peer_machine_lacks(&nodes[0].peer, now, 2, _delta_capability_bomb_traits));
 	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 3, _delta_capability_bomb));
 	CHECK(delta_peer_machine_pending(&nodes[0].peer, now, 3));
-	CHECK(!delta_peer_room_has(&nodes[0].peer, _delta_capability_bomb));
+	CHECK(!delta_peer_room_has(&nodes[0].peer, _delta_capability_bomb_traits));
 	/* the window over: the silent machine lacks it too */
 	for (step = 0; step < 12; step++, now += 300)
 		frame(now, 4, joined, 1);

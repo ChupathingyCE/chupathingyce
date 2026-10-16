@@ -339,6 +339,7 @@ int delta_peer_protocol(void)
 		/* (Bomb game types and their traits: game_engine_bomb.c) */
 		local.capabilities |= (delta_u32)1 << _delta_capability_bomb;
 		local.capabilities |= (delta_u32)1 << _delta_capability_bomb_movement;
+		local.capabilities |= (delta_u32)1 << _delta_capability_bomb_traits;
 #endif
 		local.legacy_version = HALO_PORT_NETWORK_VERSION;
 		delta_peer_local_key(&local.key);

@@ -94,6 +94,10 @@ enum delta_capability
 	so that each machine moves and strikes as the host has it, and an
 	earlier build's players play as they always did */
 	_delta_capability_bomb_movement = 13,
+	/* TRAITS at its own number (22): Grifball test builds 2 and 3 sent it
+	as 18, chat's CHAT_CONFIG. Room-wide with bomb: a host plays a Bomb game
+	type only with machines that agreed to both, and drops any other */
+	_delta_capability_bomb_traits = 14,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };

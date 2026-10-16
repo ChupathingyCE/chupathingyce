@@ -137,6 +137,9 @@ shares.
 | 9 | `console_slots` | retired before use: a console's slots are its platform key's limits (below). Never set, never reused |
 | 10 | `moderation` | a dedicated server's moderators sign in and act from the game (below, "Moderation") |
 | 11 | `bomb` | Bomb game types (Bomb, Grifball, Open Pitch: [bomb.md](bomb.md)) and their player traits (TRAITS). Room-wide: a host playing one drops every machine without it |
+| 12 | `ping` | a host that answers pings before joining (Online Games); taken, never set yet |
+| 13 | `bomb_movement` | TRAITS' movement and melee traits (jump, gravity, melee reach), for a player whose machine and host both agreed to it |
+| 14 | `bomb_traits` | TRAITS at 22 (Grifball test builds 2 and 3 sent it as 18, chat's CHAT_CONFIG). Room-wide with `bomb`: a host playing a Bomb game type drops every machine without both |
 
 The registry lives in the repository next to the compatibility table and is
 the single source for the bit numbers. Built so far: `platform`, `profile`,
