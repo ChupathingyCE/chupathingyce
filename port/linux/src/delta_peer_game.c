@@ -733,6 +733,10 @@ int delta_peer_game_player_has(int player_index, int capability)
 	{
 		return 0;
 	}
+	/* (a client's: and its host agreed to it; the client's own machine is
+	all it offers) */
+	if (delta_game.role == _role_client && !(delta_game.peer.agreed & ((delta_u32)1 << capability)))
+		return 0;
 	return (machine.capabilities & ((delta_u32)1 << capability)) != 0;
 }
 
