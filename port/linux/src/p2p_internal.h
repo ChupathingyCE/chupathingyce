@@ -105,8 +105,8 @@ int p2p_peer_reoffered(const unsigned char *identifier, const unsigned char *sec
 of the game) */
 void p2p_invite_received(const char *text);
 /* a new invite (token) for the game hosted, if its invite was listed in the
-server browser (going private: those who saw it must not get in); under
-p2p_lock */
+server browser or on the game list (going private, or a password: those who
+saw it must not get in); under p2p_lock */
 void p2p_new_invite_if_listed(void);
 
 /* ---------- p2p_signal.c: signalling through public MQTT brokers */
@@ -226,6 +226,11 @@ int p2p_unseal_token(const unsigned char *key, const unsigned char *signing_key,
 void p2p_lobby_update(const unsigned char *token, int player_count, int maximum_player_count);
 /* whether the game hosted is listed now, and whether the browser is open */
 int p2p_lobby_listed(void);
+/* ... listed with no password: anyone can join it by its invite */
+int p2p_lobby_open(void);
+/* whether the game hosted is public and has no password, so its invite may
+be shown to anyone (under p2p_lock) */
+int p2p_lobby_hosting_open(void);
 int p2p_lobby_browsing(void);
 /* a message on a slot (its key hash in hex) through a broker; retained: the
 slot's retained copy, sent on subscribing */
@@ -245,8 +250,8 @@ desktop client */
 void p2p_discord_update(void);
 /* the Discord user signed in, as told (empty if none): under p2p_lock */
 void p2p_discord_user(char *id, int id_size, char *name, int name_size);
-/* what to show: hosting with an invite link's secret and player counts, or
-not (secret NULL) */
-void p2p_discord_set_hosting(const char *secret, int player_count, int maximum_player_count);
+/* the public game hosted, by its invite's code (the hex after halo://join/),
+for the activity's Join game button; NULL for none: under p2p_lock */
+void p2p_discord_set_join(const char *code);
 
 #endif

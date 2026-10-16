@@ -10,7 +10,7 @@ any key's actions), with a frame of both now and then.
 
     clang -fsanitize=fuzzer,address,undefined -iquote port/linux/include \
         -I port/third_party/monocypher port/linux/tests/delta_fuzz.c port/linux/src/delta_peer.c \
-        port/linux/src/delta_wire.c port/third_party/monocypher/monocypher.c \
+        port/linux/src/delta_wire.c port/linux/src/delta_chat.c port/third_party/monocypher/monocypher.c \
         port/third_party/monocypher/monocypher-ed25519.c
 */
 
@@ -97,6 +97,23 @@ static int action(void *context, int machine_index, const unsigned char *key, in
 
 static const struct delta_peer_moderation_host moderation_host = { NULL, NULL, key_role, action, NULL };
 
+/* (the host's chat relays every line to machine 1) */
+static int chat_say(void *context, int machine_index, int scope, const char *text, int length)
+{
+	struct delta_wire_chat_line line;
+
+	(void)context;
+	memset(&line, 0, sizeof(line));
+	line.scope = (unsigned char)scope;
+	line.speaker_machine = (unsigned char)machine_index;
+	line.length = length;
+	memcpy(line.text, text, (size_t)length);
+	delta_peer_chat_line(&host, 1, &line);
+	return 0;
+}
+
+static const struct delta_peer_chat_host chat_host = { NULL, chat_say };
+
 static void start(void)
 {
 	struct delta_peer_env env;
@@ -111,14 +128,16 @@ static void start(void)
 	env.legacy_table_signed = table_signed;
 	env.legacy_table_offer = table_offer;
 	memset(&local, 0, sizeof(local));
-	/* (platform, profile and ce_maps) */
-	local.capabilities = 0x13 | (1u << _delta_capability_moderation);
+	/* (platform, profile and ce_maps; moderation and chat) */
+	local.capabilities = 0x13 | (1u << _delta_capability_moderation) | (1u << _delta_capability_chat) |
+		(1u << _delta_capability_server_messages);
 	local.legacy_version = 18;
 	delta_platform_policy_default(_delta_platform_pc_linux, &local.key);
 	local.has_profile = 1;
 	delta_peer_initialize(&host, &env, &local);
 	delta_peer_initialize(&client, &env, &local);
 	delta_peer_set_moderation_host(&host, &moderation_host);
+	delta_peer_set_chat_host(&host, &chat_host);
 	delta_peer_set_moderation_binding(&host, "0123456789abcdef0123456789abcdef");
 
 	memset(machines, 0, sizeof(machines));
@@ -195,6 +214,24 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, size_t size)
 			delta_wire_read_mod_notice(payload, header.length, &notice);
 			delta_wire_read_mod_bind(payload, header.length, &bind);
 			delta_wire_read_mod_bind_answer(payload, header.length, &answer);
+		}
+		{
+			struct delta_wire_chat_say say;
+			struct delta_wire_chat_line line;
+			struct delta_wire_chat_config config;
+			struct delta_wire_chat_refused refused;
+			const unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+			if (delta_wire_read_chat_say(payload, header.length, &say) &&
+				(say.length < 1 || say.length > DELTA_WIRE_CHAT_SAY_TEXT_SIZE))
+				__builtin_trap();
+			if (delta_wire_read_chat_say(payload, header.length, &say))
+				delta_wire_chat_text_valid(say.text, say.length, DELTA_WIRE_CHAT_SAY_CHARACTERS);
+			if (delta_wire_read_chat_line(payload, header.length, &line) &&
+				(line.length > DELTA_WIRE_CHAT_TEXT_SIZE || line.name_length > DELTA_WIRE_CHAT_NAME_SIZE))
+				__builtin_trap();
+			delta_wire_read_chat_config(payload, header.length, &config);
+			delta_wire_read_chat_refused(payload, header.length, &refused);
 		}
 		{
 			struct delta_wire_map map;

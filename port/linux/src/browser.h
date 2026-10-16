@@ -82,6 +82,13 @@ struct browser_game
 	unsigned char hosting;
 	unsigned char protocol;
 	unsigned char machines[BROWSER_MACHINE_KINDS];
+	/* (browser_get_games's, from what this machine knows itself) the round
+	trip to its host in milliseconds while the tunnel reaches it (p2p.c's
+	pings: a game being joined or played), else -1; and whether it has a
+	password, as its host's public listing says (p2p_lobby.c, while the
+	public listings are browsed: p2p_lobby_browse) */
+	short ping;
+	unsigned char locked;
 };
 
 /* one player's line of a finished game's carnage report */
@@ -112,6 +119,11 @@ struct browser_report_player
 	short ball_carrier_kills;
 	short hill_time;
 	short laps;
+	/* nonzero: only the scoreboard's numbers go in the line (name, team,
+	place, score, kills, deaths, and the host's tag): a player not on
+	Chupathingy, on the host's report; anyone but this machine's own
+	players, on a client's (game_stats_line_full) */
+	int minimal;
 	/* the IPv4 address the host's game has the player's machine at (an
 	internet player's virtual one), 0 for the host's own: from it the host
 	tags the player's line, so that only their machine may confirm it
@@ -170,6 +182,22 @@ void browser_server_name(char *text, int size);
 is more than a few seconds old: those of this machine's network version,
 without this machine's own. Returns their count. */
 int browser_get_games(struct browser_game *games, int maximum_count);
+/* the public listings (OpenCE's, p2p_lobby.c) followed while a screen of
+listed games is up, for which of them have a password */
+void browser_follow_listings(int on);
+/* how the last asking for the list went, for a screen with no games to say
+why: BROWSER_LIST_* */
+enum
+{
+	BROWSER_LIST_ANSWERED,
+	/* not answered yet */
+	BROWSER_LIST_WAITING,
+	/* the last asking failed (asked again after a while) */
+	BROWSER_LIST_FAILED,
+	/* no list (network.browser_url empty) */
+	BROWSER_LIST_NONE,
+};
+int browser_list_status(void);
 
 /* whether a listed game's host is an internet play peer of this machine
 (joining it, or joined): its address in the game's network then */
@@ -204,6 +232,13 @@ key: 1, else 0 (no player key). The public key alone as 64 hex digits */
 int browser_moderator_sign(const unsigned char *message, int size, unsigned char *public_key,
 	unsigned char *signature);
 int browser_moderator_key(char *text, int size);
+
+/* whether this copy's games count for a profile, as far as it knows: Link
+Profile done on this copy (kept in the save root's game_list_profile.txt,
+with the player ID it was done as), or the site's word that the player's
+own ID has a profile (asked once a run, from the first call on); the
+profile's handle in handle (empty when not linked). Never waits. */
+int browser_profile_linked(char *handle, int size);
 
 /* the profile page (halo.milenko.org/profile), signed in as this copy's
 player, opened in the web browser (MY PROFILE) */

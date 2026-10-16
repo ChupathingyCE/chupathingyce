@@ -76,6 +76,10 @@ played instead of HALO_DEDICATED's until HALO_DEDICATED is changed.
 #include "dedicated.h"
 #include "server_admin.h"
 #include "server_config.h"
+#ifdef HALO_GAME_BROWSER
+/* (text chat's, port/linux/game/chat.h) */
+void chat_host_set(int mode, int filter);
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -379,6 +383,24 @@ static void initialize(
 	}
 	else
 		dedicated.name_filter = settings.set[SERVER_SETTING_NAME_FILTER] && settings.values[SERVER_SETTING_NAME_FILTER];
+#ifdef HALO_GAME_BROWSER
+	/* text chat: on, and filtered, unless set */
+	{
+		char const *chat_filter = getenv("HALO_DEDICATED_CHAT_FILTER");
+		long mode = setting_number("HALO_DEDICATED_CHAT", &settings, SERVER_SETTING_CHAT, 2);
+		boolean filter = settings.set[SERVER_SETTING_CHAT_FILTER] ? settings.values[SERVER_SETTING_CHAT_FILTER] != 0 :
+			TRUE;
+
+		if (chat_filter && chat_filter[0])
+		{
+			filter = !(!_stricmp(chat_filter, "false") || !strcmp(chat_filter, "0") || !_stricmp(chat_filter, "no") ||
+				!_stricmp(chat_filter, "off"));
+		}
+		chat_host_set((int)(mode < 0 || mode > 2 ? 2 : mode), filter);
+		error(_error_silent, "dedicated: text chat %s%s", mode == 0 ? "off" : mode == 1 ? "team only" : "on",
+			filter ? ", blocked words filtered" : "");
+	}
+#endif
 	dedicated.active = dedicated.entry_count > 0;
 }
 

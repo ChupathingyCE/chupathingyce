@@ -451,3 +451,58 @@ def test_web_fuzz(harness):
         response = raw(harness.port, data)
         assert response == b"" or response.startswith(b"HTTP/1.1 ")
     assert http(harness, "GET", "/v1/status", {"Cookie": f"chce_session={session}"}).status == 200
+
+
+def test_who_can_moderate(harness_binary, tmp_path):
+    """sv_mod_list and GET /v1/moderators: everyone with a role here, from
+    each place (moderators.txt, the panel's accounts, bound or not, the
+    site's handles with the cap and the cache's state)."""
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "moderators.txt").write_text("moderator " + "aa" * 32 + " Sarge\n")
+    running = Harness(harness_binary, data, extra={"HARNESS_SITE_ROLES": "1"})
+    try:
+        origin = {"Origin": f"http://127.0.0.1:{running.port}"}
+        setup = next(re.search(r"#setup=(\S+)", line).group(1) for line in running.lines if "#setup=" in line)
+        assert http(running, "POST", "/v1/setup", origin,
+                    {"code": setup, "user": "milenko", "password": "correct horse battery"}).status == 200
+        response = http(running, "POST", "/v1/login", origin, {"user": "milenko", "password": "correct horse battery"})
+        assert response.status == 200, response.body
+        jar = dict(origin, **{"Cookie": f"chce_session={response.session}", "X-CSRF-Token": response.json()["csrf"]})
+        # (the owner's account bound to player 1's game, key 11...11; an
+        # invited moderator's account bound to none)
+        assert http(running, "POST", "/v1/account/bind", jar, {"player": "1"}).status == 200
+        deadline = time.time() + 30
+        while http(running, "GET", "/v1/account/bind", jar).json().get("state") != "accepted":
+            assert time.time() < deadline
+            time.sleep(0.2)
+        code = http(running, "POST", "/v1/accounts/invite", jar, {"role": "moderator"}).json()["code"]
+        assert http(running, "POST", "/v1/invite", origin,
+                    {"code": code, "user": "grif", "password": "orange team forever"}).status == 200
+
+        listing = http(running, "GET", "/v1/moderators", jar).json()
+        holders = {(entry["source"], entry["name"]): entry for entry in listing["holders"]}
+        assert holders[("file", "Sarge")]["role"] == "moderator" and holders[("file", "Sarge")]["key"] == "aa" * 32
+        assert holders[("account", "milenko")]["role"] == "owner"
+        assert holders[("account", "milenko")]["key"] == "11" * 32
+        assert holders[("account", "grif")]["role"] == "moderator" and holders[("account", "grif")]["key"] is None
+        assert holders[("site", "alice")] == {"source": "site", "role": "moderator", "site_role": "moderator",
+                                              "name": "alice", "keys": 2, "state": "cached"}
+        assert holders[("site", "bob")]["role"] == "admin" and holders[("site", "bob")]["site_role"] == "owner"
+        assert listing["count"] == 5 and listing["file_count"] == 1 and len(listing["moderators"]) == 1
+        assert listing["site"]["state"] == "cached" and listing["site"]["role_cap"] == "admin"
+        assert listing["site"]["expire_hours"] == 24 and 3500 <= listing["site"]["heard_seconds_ago"] <= 3700
+
+        # (the console's, as text)
+        text = "\n".join(running.console("sv_mod_list", "site roles:"))
+        assert re.search(r"moderator\s+file\s+Sarge\s+a{64}", text)
+        assert re.search(r"moderator\s+account\s+grif\s+\(the panel only: not bound to a game\)", text)
+        assert re.search(r"admin\s+site\s+bob\s+1 game on the site; the site says owner; cached", text)
+        assert "from the cache" in text and "hold 24 hours" in text
+
+        # (a moderator's session may not read it)
+        response = http(running, "POST", "/v1/login", origin, {"user": "grif", "password": "orange team forever"})
+        grif = dict(origin, **{"Cookie": f"chce_session={response.session}"})
+        assert http(running, "GET", "/v1/moderators", grif).status == 403
+    finally:
+        running.stop()

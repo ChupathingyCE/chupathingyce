@@ -20,6 +20,12 @@ enum
 {
 	UI_FONT_REGULAR,
 	UI_FONT_BOLD,
+	/* the menus' faces: their text's (Overpass 900, as ui\large_ui; 750, as
+	ui\small_ui) and their titles' (OpenCE). A character they lack is drawn
+	in Noto Sans Bold */
+	UI_FONT_MENU,
+	UI_FONT_MENU_SMALL,
+	UI_FONT_TITLE,
 };
 
 enum
@@ -30,7 +36,10 @@ enum
 };
 
 /* a controller's button, drawn as the device the player last used names
-it (Kenney's Input Prompts) */
+it: an Xbox-like pad's by snapchipper's icons (port/assets/prompts), a
+Nintendo pad's as grey buttons with its own letters, a PlayStation pad's
+face buttons by Kenney's Input Prompts, the others' as dark pills, and the
+keyboard's as light key caps */
 enum
 {
 	UI_BUTTON_A,
@@ -64,10 +73,36 @@ void ui_overlay_outline(float x, float y, float width, float height, float radiu
 top; its width */
 float ui_overlay_text(int font, float size, float x, float y, int align, unsigned int color, const char *text);
 float ui_overlay_text_width(int font, float size, const char *text);
+/* text as the Xbox menus draw it: a soft glow of glow's color around it and
+a drop shadow under it */
+float ui_overlay_text_glow(int font, float size, float x, float y, int align, unsigned int color,
+	unsigned int glow, const char *text);
 
-/* a button's glyph, size high, at x (its left), y (its top); its width */
+/* the Xbox menus' pieces, drawn by code: a panel (rounded, its edge, a faint
+inner glow; lit: brighter, with an outer glow), the band under a screen's
+title (a bright rule, then a translucent field down to bottom) and the
+prompt bar (a rule, then a dark strip down to bottom), the last two from
+left to right */
+void ui_overlay_panel(float x, float y, float width, float height, int lit);
+void ui_overlay_band(float left, float right, float top, float bottom);
+void ui_overlay_prompt_bar(float left, float right, float top, float bottom);
+
+/* what is drawn from here on goes over what was drawn before at a lower
+layer (0 to 3; each frame starts at 0): text is drawn over the shapes of
+its layer, and under those of the layers above, as a dialog over a list */
+void ui_overlay_layer(int layer);
+
+/* a button's glyph, size high, at x (its left), y (its top); its width.
+color's alpha dims it (a prompt that does nothing now) */
 float ui_overlay_button(int button, float size, float x, float y, unsigned int color);
 float ui_overlay_button_width(int button, float size);
+
+/* a picture (RGBA, 4 bytes a pixel, rows from the top; width by height)
+drawn in a rectangle, tinted by color (0xFFFFFFFF as it is). One picture a
+frame: serial names it (a new serial's pixels are copied; the same
+serial's are not read again), 0 none */
+void ui_overlay_picture(int serial, const unsigned char *pixels, int width, int height, float x, float y,
+	float draw_width, float draw_height, unsigned int color);
 
 /* a place the overlay leaves for the game's own drawing (a map's picture),
 for this frame (at most 4) */

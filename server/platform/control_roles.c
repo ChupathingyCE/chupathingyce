@@ -120,6 +120,10 @@ static const struct command_permission command_permissions[] =
 	{ "sv_gametype", CONTROL_PERMISSION_VIEW, 0, 0 },
 	{ "sv_settings", CONTROL_PERMISSION_VIEW, 0, 0 },
 	{ "sv_warn", CONTROL_PERMISSION_WARN, 1, 0 },
+	/* (text chat: a server message, and a player's lines not passed on) */
+	{ "sv_say", CONTROL_PERMISSION_WARN, 1, 0 },
+	{ "sv_mute", CONTROL_PERMISSION_WARN, 1, 0 },
+	{ "sv_unmute", CONTROL_PERMISSION_WARN, 1, 0 },
 	{ "sv_kick", CONTROL_PERMISSION_KICK, 1, 0 },
 	/* (sv_ban: BAN_TIMED or BAN by its duration, below) */
 	{ "sv_ban", CONTROL_PERMISSION_BAN, 1, 0 },
@@ -139,6 +143,7 @@ static const struct command_permission command_permissions[] =
 	{ "sv_maxplayers", CONTROL_PERMISSION_SETTINGS, 1, 1 },
 	{ "sv_name", CONTROL_PERMISSION_SETTINGS, 1, 1 },
 	{ "sv_name_filter", CONTROL_PERMISSION_SETTINGS, 1, 1 },
+	{ "sv_chat", CONTROL_PERMISSION_SETTINGS, 1, 1 },
 	{ "sv_set", CONTROL_PERMISSION_SETTINGS, 1, 0 },
 	{ "sv_gametype_new", CONTROL_PERMISSION_SETTINGS, 1, 0 },
 	{ "sv_gametype_set", CONTROL_PERMISSION_SETTINGS, 1, 0 },

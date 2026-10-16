@@ -580,25 +580,28 @@ static void accounts_path(char *path, size_t size)
 	snprintf(path, size, "%s/%s", root && root[0] ? root : ".", ACCOUNTS_FILE);
 }
 
-/* the accounts bound to a game, for the roles (server_roles.h) */
+/* the accounts, and the keys of those bound to a game, for the roles
+(server_roles.h) */
 static void publish_account_keys(void)
 {
 	unsigned char keys[MAXIMUM_ACCOUNTS * CONTROL_KEY_BYTES];
 	int roles[MAXIMUM_ACCOUNTS];
 	const char *names[MAXIMUM_ACCOUNTS];
+	int bound[MAXIMUM_ACCOUNTS];
 	int count = 0;
 	int index;
 
+	memset(keys, 0, sizeof(keys));
 	for (index = 0; index < panel.count; index++)
 	{
-		if (!panel.accounts[index].has_key)
-			continue;
-		memcpy(keys + count * CONTROL_KEY_BYTES, panel.accounts[index].key, CONTROL_KEY_BYTES);
+		if (panel.accounts[index].has_key)
+			memcpy(keys + count * CONTROL_KEY_BYTES, panel.accounts[index].key, CONTROL_KEY_BYTES);
 		roles[count] = panel.accounts[index].role;
 		names[count] = panel.accounts[index].name;
+		bound[count] = panel.accounts[index].has_key;
 		count++;
 	}
-	server_roles_set_accounts(count, keys, roles, names);
+	server_roles_set_accounts(count, keys, roles, names, bound);
 }
 
 static int owner_count(void)

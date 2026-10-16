@@ -174,6 +174,9 @@ void cache_files_precache_map_queue_end(
 boolean cache_files_precache_map_begin(
 	char const *map_name,
 	boolean copy_map);
+/* port: the error for a map that could not be precached (cache_files_windows.c) */
+void cache_files_display_map_error(
+	char const *map_name);
 
 void cache_file_promote_read(
 	short request_index);
