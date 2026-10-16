@@ -1108,8 +1108,8 @@ static void test_wire_traits(void)
 	/* a round trip, and its layout */
 	sample_traits(&traits, 10);
 	size = delta_wire_write_traits(data, 0x1234, &traits);
-	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TRAITS_SIZE);
-	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_traits && header.length == 28);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TRAITS_MOVEMENT_SIZE);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_traits && header.length == 48);
 	CHECK(data[12] == DELTA_WIRE_TRAITS_BOMB && data[16] == 10 && data[17] == 0 && data[18] == 200);
 	CHECK(data[24] == DELTA_WIRE_SHIELDS_NONE && data[28 + 8] == DELTA_WIRE_SHIELDS_OVERSHIELD && data[28 + 9] == 1);
 	CHECK(delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, header.length, &read) &&
@@ -1117,7 +1117,7 @@ static void test_wire_traits(void)
 	/* (a longer payload, a later version's, is read for these fields) */
 	CHECK(delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, header.length + 8, &read) && read.everyone.health == 10);
 	/* short ones are refused */
-	CHECK(!delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, header.length - 1, &read));
+	CHECK(!delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_TRAITS_SIZE - 1, &read));
 	/* none: no sets */
 	memset(&traits, 0, sizeof(traits));
 	size = delta_wire_write_traits(data, 1, &traits);
@@ -1144,6 +1144,28 @@ static void test_wire_traits(void)
 	data[17] = 0xFF;
 	CHECK(!delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_TRAITS_SIZE, &read));
 	CHECK(read.kind == 0 && read.everyone.health == 0);
+
+	/* the movement traits, after the first 28 bytes (an earlier host's 28
+	alone read as unchanged), in their ranges or refused */
+	sample_traits(&traits, 10);
+	traits.everyone.jump = 125;
+	traits.everyone.gravity = 70;
+	traits.everyone.melee = 150;
+	traits.carrier.melee = 67;
+	size = delta_wire_write_traits(data, 1, &traits);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TRAITS_MOVEMENT_SIZE &&
+		data[12 + 28] == DELTA_WIRE_TRAITS_MOVEMENT_VERSION && data[12 + 32] == 125 && data[12 + 34] == 70 &&
+		data[12 + 36] == 150 && data[12 + 40] == 0 && data[12 + 44] == 67);
+	CHECK(delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_TRAITS_MOVEMENT_SIZE, &read) &&
+		!memcmp(&read, &traits, sizeof(read)));
+	CHECK(delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_TRAITS_SIZE, &read) &&
+		read.everyone.health == 10 && read.everyone.jump == 0 && read.everyone.gravity == 0 &&
+		read.everyone.melee == 0);
+	traits.everyone.jump = DELTA_WIRE_TRAIT_JUMP_MAXIMUM + 1;
+	CHECK(!delta_wire_write_traits(data, 1, &traits));
+	traits.everyone.jump = 125;
+	traits.carrier.gravity = DELTA_WIRE_TRAIT_GRAVITY_MINIMUM - 1;
+	CHECK(!delta_wire_write_traits(data, 1, &traits));
 }
 
 static void test_bomb(void)

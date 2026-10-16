@@ -1796,6 +1796,9 @@ struct distributed_on_foot_bound
 	real rise_speed;
 	real rise_base;
 	long airborne_ticks;
+	/* gravity on it in the air (a Bomb game type's trait: world units a
+	tick, each tick) */
+	real gravity;
 };
 
 /* (the host) how fast a client's player's unit on foot may go, a tick, and
@@ -1887,6 +1890,11 @@ static void distributed_on_foot_bound(
 		struct biped_definition *definition = biped_definition_get(biped->definition_index);
 
 		jump_speed = definition->biped.jump_velocity;
+#ifdef HALO_GAME_BROWSER
+		/* (a Bomb game type's jump trait, as biped_jump has it) */
+		if (player)
+			jump_speed *= game_engine_traits_jump_multiplier(DATUM_INDEX_NEW(player_index, player->identifier));
+#endif
 		crouch_rise = definition->biped.collision_height_standing - definition->biped.collision_height_crouching;
 	}
 	base_speed = PREDICTED_ON_FOOT_SPEED_SCALE * (real)sqrt(run_speed * run_speed + jump_speed * jump_speed);
@@ -1942,8 +1950,14 @@ static void distributed_on_foot_bound(
 		rise_speed += jump_speed;
 	rise_speed += MAX(jump_speed, run_speed);
 	bound->rise = UNIT_WORLD_BOUND;
-	if (biped && global_gravity > 0.0f)
-		bound->rise = rise_speed * rise_speed / (2.0f * global_gravity) + crouch_rise + PREDICTED_RISE_TOLERANCE;
+	/* (and its gravity trait, as bipeds.c has it) */
+	bound->gravity = global_gravity;
+#ifdef HALO_GAME_BROWSER
+	if (player)
+		bound->gravity *= game_engine_traits_gravity_multiplier(DATUM_INDEX_NEW(player_index, player->identifier));
+#endif
+	if (biped && bound->gravity > 0.0f)
+		bound->rise = rise_speed * rise_speed / (2.0f * bound->gravity) + crouch_rise + PREDICTED_RISE_TOLERANCE;
 	bound->rise_speed = rise_speed;
 	bound->rise_base = crouch_rise + PREDICTED_RISE_TOLERANCE;
 	bound->airborne_ticks = noted->grounded ? 0 : now - noted->ground_time;
@@ -1962,8 +1976,8 @@ static real distributed_on_foot_fall_speed(
 	real drop = bound->top_height - height;
 	real speed = bound->speed;
 
-	if (drop > 0.0f && global_gravity > 0.0f)
-		speed += (real)sqrt(2.0f * global_gravity * drop);
+	if (drop > 0.0f && bound->gravity > 0.0f)
+		speed += (real)sqrt(2.0f * bound->gravity * drop);
 	return MIN(speed, MAXIMUM_PREDICTED_SPEED);
 }
 
@@ -1984,9 +1998,9 @@ static real distributed_on_foot_ceiling(
 			(real)PREDICTION_CEILING_LEAD_TICKS) -
 		(real)PREDICTION_JITTER_TICKS;
 
-	if (bound->airborne_ticks > 0 && ticks > 0.0f && global_gravity > 0.0f)
+	if (bound->airborne_ticks > 0 && ticks > 0.0f && bound->gravity > 0.0f)
 	{
-		real ceiling = bound->rise_base + bound->rise_speed * ticks - 0.5f * global_gravity * ticks * ticks;
+		real ceiling = bound->rise_base + bound->rise_speed * ticks - 0.5f * bound->gravity * ticks * ticks;
 
 		if (ceiling < rise)
 			rise = ceiling;

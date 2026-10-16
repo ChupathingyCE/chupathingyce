@@ -8961,6 +8961,9 @@ void unit_cause_player_melee_damage(
 	real best_object_fraction;
 	long outer_index;
 	long outer_count;
+#ifdef HALO_GAME_BROWSER
+	real melee_reach;
+#endif
 
 	unit = unit_get(unit_index);
 	unit_definition = unit_definition_get(unit->definition_index);
@@ -8982,6 +8985,10 @@ void unit_cause_player_melee_damage(
 		global_current_collision_user_depth < MAXIMUM_COLLISION_USER_STACK_DEPTH);
 	global_current_collision_users[global_current_collision_user_depth++] = 8;
 	facing = &unit->unit.aiming_vector;
+#ifdef HALO_GAME_BROWSER
+	melee_reach = unit->unit.player_index!=NONE ?
+		game_engine_traits_melee_multiplier(unit->unit.player_index) : 1.f;
+#endif
 
 	{
 		real_vector3d perpendicular;
@@ -9010,6 +9017,11 @@ void unit_cause_player_melee_damage(
 					((real)inner_component_i + (real)outer_index * perpendicular.j) * 0.1f;
 				ray.k = unit->unit.aiming_vector.k * 0.8f +
 					((real)outer_index * perpendicular.k + (real)inner_index * cross.k) * 0.1f;
+#ifdef HALO_GAME_BROWSER
+				/* port: a Bomb game type's melee reach trait (game_engine_bomb.c) */
+				if (melee_reach!=1.f)
+					scale_vector3d(&ray, melee_reach, &ray);
+#endif
 
 				if (collision_test_vector(
 					_collision_test_for_projectiles_flags,

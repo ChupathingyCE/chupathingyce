@@ -264,6 +264,14 @@ static short bomb_trait_pin(short value, short minimum, short maximum)
 	return value < minimum ? minimum : value > maximum ? maximum : value;
 }
 
+static void bomb_player_movement_clean(struct player_traits *traits)
+{
+	traits->jump = bomb_trait_pin(traits->jump, PLAYER_TRAIT_JUMP_MINIMUM, PLAYER_TRAIT_JUMP_MAXIMUM);
+	traits->gravity = bomb_trait_pin(traits->gravity, PLAYER_TRAIT_GRAVITY_MINIMUM, PLAYER_TRAIT_GRAVITY_MAXIMUM);
+	traits->melee = bomb_trait_pin(traits->melee, PLAYER_TRAIT_MELEE_MINIMUM, PLAYER_TRAIT_MELEE_MAXIMUM);
+	traits->pad2 = 0;
+}
+
 static void bomb_player_traits_clean(struct player_traits *traits)
 {
 	traits->health = bomb_trait_pin(traits->health, PLAYER_TRAIT_HEALTH_MINIMUM, PLAYER_TRAIT_HEALTH_MAXIMUM);
@@ -275,6 +283,7 @@ static void bomb_player_traits_clean(struct player_traits *traits)
 		traits->shields = _trait_shields_unchanged;
 	traits->highlight = traits->highlight ? 1 : 0;
 	traits->pad[0] = traits->pad[1] = 0;
+	bomb_player_movement_clean(traits);
 }
 
 static void bomb_player_traits_none(struct player_traits *traits)
@@ -285,6 +294,27 @@ static void bomb_player_traits_none(struct player_traits *traits)
 	traits->resistance = 100;
 	traits->speed = 100;
 	traits->shields = _trait_shields_unchanged;
+	traits->jump = 100;
+	traits->gravity = 100;
+	traits->melee = 100;
+}
+
+/* Open Pitch's floaty movement: a higher jump and less gravity (in
+percent), and a longer melee reach for the defenders (the carrier's back to
+100%: 67% of 150%) */
+enum
+{
+	BOMB_OPEN_PITCH_JUMP = 120,
+	BOMB_OPEN_PITCH_GRAVITY = 65,
+	BOMB_OPEN_PITCH_MELEE = 150,
+};
+
+static void bomb_open_pitch_movement(struct game_traits *traits)
+{
+	traits->everyone.jump = BOMB_OPEN_PITCH_JUMP;
+	traits->everyone.gravity = BOMB_OPEN_PITCH_GRAVITY;
+	traits->everyone.melee = BOMB_OPEN_PITCH_MELEE;
+	traits->carrier.melee = 67;
 }
 
 void game_engine_traits_default(
@@ -321,6 +351,7 @@ void game_engine_traits_default(
 		traits->carrier.speed = 115;
 		traits->carrier.resistance = 150;
 		traits->carrier.shields = _trait_shields_overshield;
+		bomb_open_pitch_movement(traits);
 	}
 }
 
@@ -329,6 +360,21 @@ void game_engine_traits_clean(
 {
 	bomb_player_traits_clean(&traits->everyone);
 	bomb_player_traits_clean(&traits->carrier);
+}
+
+/* the movement traits of TRAITS (0: a host before them; unchanged) */
+static void bomb_read_host_movement(struct player_traits *traits, struct delta_wire_player_traits const *wire)
+{
+	traits->jump = wire->jump ? (short)wire->jump : 100;
+	traits->gravity = wire->gravity ? (short)wire->gravity : 100;
+	traits->melee = wire->melee ? (short)wire->melee : 100;
+}
+
+static void bomb_write_host_movement(struct delta_wire_player_traits *wire, struct player_traits const *traits)
+{
+	wire->jump = (unsigned short)traits->jump;
+	wire->gravity = (unsigned short)traits->gravity;
+	wire->melee = (unsigned short)traits->melee;
 }
 
 /* a client's: its host's traits as TRAITS says them, read when Delta Peer
@@ -360,6 +406,7 @@ static void bomb_read_host_traits(void)
 		sets[index]->speed = (short)wires[index]->speed;
 		sets[index]->shields = wires[index]->shields;
 		sets[index]->highlight = wires[index]->highlight;
+		bomb_read_host_movement(sets[index], wires[index]);
 	}
 	game_engine_traits_clean(&bomb_globals.host_traits);
 	bomb_log_traits("the host's, by TRAITS", &bomb_globals.host_traits);
@@ -387,6 +434,16 @@ boolean game_engine_traits_active(
 	return bomb_running();
 }
 
+static void bomb_carrier_movement(struct player_traits *traits, struct player_traits const *carrier)
+{
+	traits->jump = (short)PIN(traits->jump * carrier->jump / 100, PLAYER_TRAIT_JUMP_MINIMUM,
+		PLAYER_TRAIT_JUMP_MAXIMUM);
+	traits->gravity = (short)PIN(traits->gravity * carrier->gravity / 100, PLAYER_TRAIT_GRAVITY_MINIMUM,
+		PLAYER_TRAIT_GRAVITY_MAXIMUM);
+	traits->melee = (short)PIN(traits->melee * carrier->melee / 100, PLAYER_TRAIT_MELEE_MINIMUM,
+		PLAYER_TRAIT_MELEE_MAXIMUM);
+}
+
 /* a player's traits: everyone's, and the carrier's on top */
 static void bomb_player_traits(long player_index, struct player_traits *traits)
 {
@@ -402,6 +459,7 @@ static void bomb_player_traits(long player_index, struct player_traits *traits)
 		if (game_traits->carrier.shields != _trait_shields_unchanged)
 			traits->shields = game_traits->carrier.shields;
 		traits->highlight = game_traits->carrier.highlight;
+		bomb_carrier_movement(traits, &game_traits->carrier);
 	}
 }
 
@@ -447,6 +505,58 @@ long game_engine_traits_shields(
 	return NONE;
 }
 
+/* a player's movement traits, if it plays by them: a Bomb game type's, and
+its machine and the host both have them (bomb_movement); else none, as an
+earlier build moves it */
+static boolean bomb_player_movement(long player_index, struct player_traits *traits)
+{
+	/* (each player's, as last logged: 0 not yet, 1 none, 2 by them) */
+	static byte logged[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
+	long absolute_index = player_index != NONE ? DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index) : NONE;
+	boolean moves;
+
+	if (!bomb_running() || player_index == NONE)
+		return FALSE;
+	moves = delta_peer_game_player_has((int)absolute_index, _delta_capability_bomb_movement) != 0;
+	if (moves)
+		bomb_player_traits(player_index, traits);
+	if (VALID_INDEX(absolute_index, HALO_PORT_MAXIMUM_NETWORK_PLAYERS) && logged[absolute_index] != 1 + moves)
+	{
+		logged[absolute_index] = (byte)(1 + moves);
+		if (moves)
+			bomb_log("player %ld moves by the traits: jump %d gravity %d melee %d", absolute_index, traits->jump,
+				traits->gravity, traits->melee);
+		else
+			bomb_log("player %ld moves as it always did (its machine or the host lacks bomb_movement)",
+				absolute_index);
+	}
+	return moves;
+}
+
+real game_engine_traits_jump_multiplier(
+	long player_index)
+{
+	struct player_traits traits;
+
+	return bomb_player_movement(player_index, &traits) ? traits.jump / 100.0f : 1.0f;
+}
+
+real game_engine_traits_gravity_multiplier(
+	long player_index)
+{
+	struct player_traits traits;
+
+	return bomb_player_movement(player_index, &traits) ? traits.gravity / 100.0f : 1.0f;
+}
+
+real game_engine_traits_melee_multiplier(
+	long player_index)
+{
+	struct player_traits traits;
+
+	return bomb_player_movement(player_index, &traits) ? traits.melee / 100.0f : 1.0f;
+}
+
 void game_engine_bomb_host_traits(
 	struct game_variant const *variant)
 {
@@ -477,6 +587,7 @@ void game_engine_bomb_host_traits(
 		wires[index]->speed = (unsigned short)sets[index]->speed;
 		wires[index]->shields = sets[index]->shields;
 		wires[index]->highlight = sets[index]->highlight;
+		bomb_write_host_movement(wires[index], sets[index]);
 	}
 	delta_peer_game_set_traits(&wire);
 	{

@@ -585,6 +585,10 @@ handshake's window */
 void delta_peer_game_set_traits(const struct delta_wire_traits *traits);
 delta_u32 delta_peer_game_host_traits(struct delta_wire_traits *traits);
 int delta_peer_game_machine_lacks(int machine_index, int capability);
+/* whether a player's machine agreed to a capability with the host, as this
+machine knows it (its own, the host's, the roster's); none for a player
+without one */
+int delta_peer_game_player_has(int player_index, int capability);
 int delta_peer_game_machine_pending(int machine_index);
 /* the game's room: delta_peer_room_has and _room_limit of the session */
 int delta_peer_game_room_has(int capability);

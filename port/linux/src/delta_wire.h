@@ -69,6 +69,12 @@ enum
 	bomb carrier's player traits */
 	DELTA_WIRE_TRAITS_SIZE = 28,
 	DELTA_WIRE_PLAYER_TRAITS_SIZE = 12,
+	/* ... and after them, from bomb_movement's builds on (earlier builds
+	read the first 28 bytes alone): a version (1), 3 reserved, then
+	everyone's and the carrier's movement traits */
+	DELTA_WIRE_TRAITS_MOVEMENT_SIZE = 48,
+	DELTA_WIRE_TRAITS_MOVEMENT_VERSION = 1,
+	DELTA_WIRE_PLAYER_MOVEMENT_SIZE = 8,
 	/* a trait's range, in percent (the game's own: game_engine.h's
 	player_traits); a value past one is refused, never mended */
 	DELTA_WIRE_TRAIT_HEALTH_MINIMUM = 10,
@@ -79,6 +85,13 @@ enum
 	DELTA_WIRE_TRAIT_RESISTANCE_MAXIMUM = 400,
 	DELTA_WIRE_TRAIT_SPEED_MINIMUM = 50,
 	DELTA_WIRE_TRAIT_SPEED_MAXIMUM = 200,
+	/* (0: unchanged, as a host before them sends it) */
+	DELTA_WIRE_TRAIT_JUMP_MINIMUM = 50,
+	DELTA_WIRE_TRAIT_JUMP_MAXIMUM = 200,
+	DELTA_WIRE_TRAIT_GRAVITY_MINIMUM = 25,
+	DELTA_WIRE_TRAIT_GRAVITY_MAXIMUM = 200,
+	DELTA_WIRE_TRAIT_MELEE_MINIMUM = 50,
+	DELTA_WIRE_TRAIT_MELEE_MAXIMUM = 200,
 
 	/* a machine index none has (a dedicated server's own machine, or a
 	client not yet given one) */
@@ -352,6 +365,12 @@ struct delta_wire_player_traits
 	unsigned char shields;
 	/* drawn in a bright color of its own (1), else its team's (0) */
 	unsigned char highlight;
+	/* of its jump's speed, of gravity on it in the air, and of its melee
+	blow's reach (0: unchanged; only for players whose machine agreed to
+	bomb_movement) */
+	unsigned short jump;
+	unsigned short gravity;
+	unsigned short melee;
 };
 
 struct delta_wire_traits

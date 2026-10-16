@@ -338,6 +338,7 @@ int delta_peer_protocol(void)
 		local.capabilities |= (delta_u32)1 << _delta_capability_moderation;
 		/* (Bomb game types and their traits: game_engine_bomb.c) */
 		local.capabilities |= (delta_u32)1 << _delta_capability_bomb;
+		local.capabilities |= (delta_u32)1 << _delta_capability_bomb_movement;
 #endif
 		local.legacy_version = HALO_PORT_NETWORK_VERSION;
 		delta_peer_local_key(&local.key);
@@ -720,6 +721,19 @@ int delta_peer_game_machine_lacks(int machine_index, int capability)
 	if (delta_peer_protocol() == _delta_peer_protocol_opence || delta_game.role != _role_host || !delta_game.port)
 		return 1;
 	return delta_peer_machine_lacks(&delta_game.peer, GetTickCount(), machine_index, capability);
+}
+
+int delta_peer_game_player_has(int player_index, int capability)
+{
+	struct delta_peer_machine machine;
+
+	if (!delta_game.ready || delta_game.role == _role_none || player_index < 0 ||
+		player_index >= DELTA_PEER_MAXIMUM_PLAYERS || capability < 0 || capability >= NUMBER_OF_DELTA_CAPABILITIES ||
+		!delta_peer_machine(&delta_game.peer, delta_game.peer.player_machines[player_index], &machine))
+	{
+		return 0;
+	}
+	return (machine.capabilities & ((delta_u32)1 << capability)) != 0;
 }
 
 int delta_peer_game_machine_pending(int machine_index)
