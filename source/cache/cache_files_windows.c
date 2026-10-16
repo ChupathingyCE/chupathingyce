@@ -455,6 +455,8 @@ static char ce_map_name[64];
 map, for its indexed tags' pixels and samples (port/linux/game/ce_resources.c) */
 static HANDLE ce_request_files[MAXIMUM_SIMULTANEOUS_CACHE_REQUESTS];
 HANDLE ce_resources_file_for_tag(long tag_index);
+/* an asset pack's tag's file (port/linux/game/ce_assets.c) */
+HANDLE ce_assets_file_for_tag(long tag_index);
 boolean ce_map_check(HANDLE file, char const *map_name, long file_length, long tag_data_offset,
 	long tag_data_size);
 /* the version of the map checked or loaded (port/linux/game/ce_resources.c) */
@@ -1036,8 +1038,8 @@ short cache_file_read(
 	if (size & (CACHE_FILE_SECTOR_SIZE - 1)
 #ifdef HALO_CUSTOM_EDITION
 		/* (a Custom Edition map is read as it is, to its end, not in the
-		Xbox's whole sectors) */
-		&& cache_file_globals.open_map_file_index != CE_MAP_FILE_INDEX
+		Xbox's whole sectors, and so is an asset pack's tag's data) */
+		&& cache_file_globals.open_map_file_index != CE_MAP_FILE_INDEX && !ce_assets_file_for_tag(tag_index)
 #endif
 		)
 	{
@@ -1046,7 +1048,7 @@ short cache_file_read(
 	*completion_flag_reference = FALSE;
 #ifdef HALO_CUSTOM_EDITION
 	ce_request_files[request_index] = cache_file_globals.open_map_file_index == CE_MAP_FILE_INDEX
-		? ce_resources_file_for_tag(tag_index) : NULL;
+		? ce_resources_file_for_tag(tag_index) : ce_assets_file_for_tag(tag_index);
 #endif
 	memset(
 		&request->overlapped,

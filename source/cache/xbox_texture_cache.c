@@ -121,6 +121,20 @@ symbols in this file:
 #include "text/draw_string.h"
 #include <xtl.h>
 
+#ifdef HALO_CUSTOM_EDITION
+/* port: whether a bitmap's pixels are laid out as Halo PC's: a Custom
+Edition map's, or an asset pack's beside an Xbox map
+(port/linux/game/ce_assets.c) */
+static boolean texture_cache_bitmap_is_ce(
+	struct bitmap_data const *bitmap)
+{
+	extern boolean cache_file_tags_are_ce(void);
+	extern boolean ce_assets_contains(void const *pointer);
+
+	return cache_file_tags_are_ce() || ce_assets_contains(bitmap);
+}
+#endif
+
 /* ---------- constants */
 
 enum
@@ -635,7 +649,7 @@ static void texture_cache_initialize_hardware_format(
 		{
 			extern boolean cache_file_tags_are_ce(void);
 
-			if (cache_file_tags_are_ce())
+			if (texture_cache_bitmap_is_ce(bitmap))
 				texture->Common |= D3DCOMMON_PORT_PC_LAYOUT;
 		}
 #endif
@@ -659,7 +673,7 @@ static void texture_cache_initialize_hardware_format(
 		{
 			extern boolean cache_file_tags_are_ce(void);
 
-			if (cache_file_tags_are_ce())
+			if (texture_cache_bitmap_is_ce(bitmap))
 				texture->Common |= D3DCOMMON_PORT_PC_LAYOUT;
 		}
 #endif
@@ -679,7 +693,7 @@ static void texture_cache_initialize_hardware_format(
 		extern boolean cache_file_tags_are_ce(void);
 		extern boolean ce_bitmap_is_bc7(void const *bitmap);
 
-		if (!TEST_FLAG(bitmap->flags, _bitmap_linear_bit) && cache_file_tags_are_ce() && ce_bitmap_is_bc7(bitmap))
+		if (!TEST_FLAG(bitmap->flags, _bitmap_linear_bit) && texture_cache_bitmap_is_ce(bitmap) && ce_bitmap_is_bc7(bitmap))
 			texture->Format = (texture->Format & ~D3DFORMAT_FORMAT_MASK) | (D3DFMT_PORT_BC7 << D3DFORMAT_FORMAT_SHIFT);
 	}
 	/* port: a Custom Edition map's model multipurpose map, its channels
@@ -834,7 +848,7 @@ static boolean texture_cache_bitmap_valid(
 		{
 			extern boolean cache_file_tags_are_ce(void);
 
-			any_pitch = cache_file_tags_are_ce();
+			any_pitch = texture_cache_bitmap_is_ce(bitmap);
 		}
 #endif
 		valid =

@@ -36,3 +36,7 @@ dist/
 port/android/keystore.properties
 *.keystore
 *.jks
+
+# A Custom Edition map's assets, made with tools/ce_asset_pack.py (never
+# commit: they are the map's)
+*_assets.map

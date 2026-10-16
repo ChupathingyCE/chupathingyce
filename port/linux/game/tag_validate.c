@@ -1372,3 +1372,84 @@ void *tag_validate_index_buffer_data(
 {
 	return buffer_data(validation->index_buffers, validation->index_buffer_count, buffer);
 }
+
+/* (tag_schema_remap_tags: one element's fields, those of the structures and
+blocks in it too) */
+static void remap_fields(
+	byte *base,
+	struct tag_schema_definition const *definition,
+	byte const *region,
+	unsigned long size,
+	long (*remap)(long tag_index),
+	short depth)
+{
+	struct tag_schema_field const *field;
+
+	if (depth >= MAXIMUM_VALIDATION_DEPTH)
+		return;
+	for (field = definition->fields; field->type != _tag_schema_terminator; field++)
+	{
+		short index;
+
+		for (index = 0; index < field->count; index++)
+		{
+			byte *address = base + field->offset + index * field->size;
+
+			switch (field->type)
+			{
+			case _tag_schema_struct:
+				remap_fields(address, field->definition, region, size, remap, depth + 1);
+				break;
+
+			case _tag_schema_block:
+			{
+				struct tag_block *block = (struct tag_block *)address;
+				struct tag_schema_definition const *element = field->definition;
+				byte *elements = xbox_pointer(block->address);
+				long element_index;
+
+				if (block->count <= 0 || !elements || elements < region ||
+					(unsigned long)block->count > (size - (unsigned long)(elements - region)) / element->size)
+				{
+					break;
+				}
+				for (element_index = 0; element_index < block->count; element_index++)
+					remap_fields(elements + element_index * element->size, element, region, size, remap, depth + 1);
+				break;
+			}
+
+			case _tag_schema_reference:
+			{
+				struct tag_reference *reference = (struct tag_reference *)address;
+
+				if (reference->index != NONE)
+					reference->index = remap(reference->index);
+				break;
+			}
+
+			case _tag_schema_tag_index:
+				if (*(long *)address != NONE)
+					*(long *)address = remap(*(long *)address);
+				break;
+			}
+		}
+	}
+
+	return;
+}
+
+boolean tag_schema_remap_tags(
+	unsigned long group_tag,
+	void *root,
+	void const *region,
+	unsigned long size,
+	long (*remap)(long tag_index))
+{
+	struct tag_schema_group const *group = schema_group_get(group_tag);
+
+	if (!group || !group->definition)
+		return FALSE;
+	remap_fields(root, group->definition, region, size, remap, 0);
+
+	return TRUE;
+}

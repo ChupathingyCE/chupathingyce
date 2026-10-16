@@ -345,6 +345,17 @@ void *tag_validate_index_buffer_data(
 	struct tag_validation *validation,
 	void const *buffer);
 
+/* every tag reference's and tag index's tag in a tag of group_tag (its root
+at root) given by remap, which is given the old one: tags added to a map's
+(port/linux/game/ce_assets.c). Only elements in the size bytes at region
+are walked; FALSE if the group has no schema */
+boolean tag_schema_remap_tags(
+	unsigned long group_tag,
+	void *root,
+	void const *region,
+	unsigned long size,
+	long (*remap)(long tag_index));
+
 /* ---------- prototypes/where the validator's messages go (tag_validate_report.c) */
 
 void tag_validate_report(
