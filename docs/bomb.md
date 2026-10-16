@@ -372,6 +372,14 @@ first).
   loopback, the joining copy's player). The host logs the bomb's spawn and
   its distance to each goal as the map loads (`bomb: host tick 0 spawn
   ...`).
+- `debug.network_test_bomb_in_goal` and `debug.network_test_bomb_throw`
+  (with `debug.network_test_bomb`): the host lays the bomb in the goal the
+  joining player attacks, and that player holds the trigger as it stands
+  on it, so the pickup leaves the bomb holstered and scores at once. One
+  score a round, the blast, the next round, and the game's end at the
+  score limit. Before the fix the bomb stayed in the carrier's inventory
+  after the score (a debug build stops on it; a release build scored
+  again every tick the carrier stood in the goal).
 - `tools/crossplay_test.py`: the `grifball` direction has our host play
   Grifball with an OpenCE client joining its lobby and another joining in
   progress. It checks that both are dropped and told, the late one never

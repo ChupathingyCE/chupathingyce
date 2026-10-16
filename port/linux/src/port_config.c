@@ -561,6 +561,16 @@ static const struct config_setting config_settings[] =
 		"In an automated test Bomb game (host:<map>:grifball), this many seconds\n"
 		"in (and again each time that long after) the last player stands on the\n"
 		"bomb, and three seconds later in the goal its team attacks; 0 never." },
+	{ "debug.network_test_bomb_in_goal", _config_boolean, "false", "HALO_NETWORK_TEST_BOMB_IN_GOAL",
+		_environment_value, _platform_all,
+		"With debug.network_test_bomb: the host lays the bomb in the goal the\n"
+		"last player's team attacks before standing the player on it, as a bomb\n"
+		"thrown down in the goal and picked up again." },
+	{ "debug.network_test_bomb_throw", _config_boolean, "false", "HALO_NETWORK_TEST_BOMB_THROW",
+		_environment_value, _platform_all,
+		"With debug.network_test_bomb: the joining machine's player holds the\n"
+		"trigger through each try's first four seconds, picking the bomb up\n"
+		"with it down, throwing it down and picking it up again." },
 	{ "debug.network_test_fall", _config_real, "0.0", "HALO_NETWORK_TEST_FALL", _environment_value, _platform_all,
 		"In an automated test game, each time this many seconds pass the last\n"
 		"player is lifted 10 world units, for a fall whose landing kills; 0\n"

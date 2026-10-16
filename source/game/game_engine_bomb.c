@@ -648,11 +648,40 @@ static void bomb_place(real_point3d const *position)
 		bomb_globals.weapon_index = bomb_create();
 		return;
 	}
-	if (weapon->object.parent_object_index != NONE &&
-		object_try_and_get_and_verify_type(weapon->object.parent_object_index, _object_mask_unit))
+	/* (the bomb itself out of the carrier's inventory: in its hands, or
+	holstered, where it has no parent: a pickup made with the trigger down
+	leaves the bomb holstered, the fists in hand. Left there, the carrier
+	scored again each tick it stood in the goal) */
+	if (TEST_FLAG(weapon->item.flags, _item_attached_to_unit_bit) || weapon->object.parent_object_index != NONE)
 	{
-		unit_drop_current_weapon(weapon->object.parent_object_index, TRUE);
+		long owner_index = NONE;
+
+		if (weapon->object.parent_object_index != NONE &&
+			object_try_and_get_and_verify_type(weapon->object.parent_object_index, _object_mask_unit))
+		{
+			owner_index = weapon->object.parent_object_index;
+		}
+		else
+		{
+			struct object_iterator units;
+
+			object_iterator_new(&units, _object_mask_unit, 0);
+			while (owner_index == NONE && object_iterator_next(&units))
+			{
+				if (unit_has_weapon(units.index, weapon_index))
+					owner_index = units.index;
+			}
+		}
+		if (owner_index == NONE || !unit_drop_weapon(owner_index, weapon_index))
+		{
+			error(_error_silent, "bomb: no unit holds the bomb it is attached to; it is made again");
+			object_delete(weapon_index);
+			bomb_globals.weapon_index = bomb_create();
+			bomb_globals.carrier = NONE;
+			return;
+		}
 	}
+	bomb_globals.carrier = NONE;
 	game_engine_flag_reset(weapon_index, position);
 }
 
@@ -1313,7 +1342,10 @@ static void bomb_engine_player_update(long player_index)
 		return;
 	if (carrying && traits.shields == _trait_shields_overshield)
 		bomb_overshield_update(player_index);
-	if (carrying && game_engine_can_score() && VALID_INDEX(player->team_index, NUMBER_OF_BOMB_TEAMS))
+	/* (one score a goal: none from the goal to the next round, the bomb
+	planted) */
+	if (carrying && game_engine_can_score() && bomb_globals.hold_ticks <= 0 &&
+		VALID_INDEX(player->team_index, NUMBER_OF_BOMB_TEAMS))
 	{
 		long goal_team = (player->team_index + 1) % NUMBER_OF_BOMB_TEAMS;
 		struct object_datum *unit = object_get(player->unit_index);

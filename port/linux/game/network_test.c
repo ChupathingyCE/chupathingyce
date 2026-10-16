@@ -53,7 +53,11 @@ three seconds later in the goal its team attacks, which scores; again each
 time that long after: every machine logs the teams' scores and the round
 each second, "network test: bomb ..."), and debug.network_test_fall (the
 last player lifted 10 world units, for a landing that kills, each time
-that many seconds pass).
+that many seconds pass); debug.network_test_bomb_in_goal has the host lay
+the bomb in that goal first, so the pickup is the score, and
+debug.network_test_bomb_throw has the joining machine's player hold the
+trigger through each try's first four seconds (picking the bomb up with the
+trigger down, throwing it down and picking it up again).
 
 Called from the main loop every frame (main.c).
 */
@@ -97,6 +101,7 @@ boolean player_handle_powerup(long player_index, short powerup_type, short durat
 const char *config_string(char const *name);
 double config_real(char const *name);
 long config_integer(char const *name);
+int config_boolean(char const *name);
 void platform_log(char const *format, ...);
 /* damage.c's */
 void damage_kill_object_for_player(long object_index, long player_index);
@@ -107,6 +112,7 @@ void network_damage_statistics(long *sent_reports, long *dealt_reports, long *re
 /* xinput_sdl.c's */
 void test_input_hold_action(int hold);
 void test_input_hold_melee(int hold);
+void test_input_hold_fire(int hold);
 
 enum
 {
@@ -153,6 +159,8 @@ static struct
 	real vehicle_time;
 	real pickup_time;
 	real bomb_interval;
+	boolean bomb_in_goal;
+	boolean bomb_throw;
 	real fall_interval;
 	real melee_interval;
 	char pickup_weapon[64];
@@ -255,6 +263,8 @@ static void network_test_read_settings(
 	network_test.vehicle_time = (real)config_real("debug.network_test_vehicle");
 	network_test.pickup_time = (real)config_real("debug.network_test_pickup");
 	network_test.bomb_interval = (real)config_real("debug.network_test_bomb");
+	network_test.bomb_in_goal = config_boolean("debug.network_test_bomb_in_goal");
+	network_test.bomb_throw = config_boolean("debug.network_test_bomb_throw");
 	network_test.fall_interval = (real)config_real("debug.network_test_fall");
 	network_test.melee_interval = (real)config_real("debug.network_test_melee");
 	network_test.local_players = (short)PIN(config_integer("debug.network_test_local_players"), 1, 4);
@@ -880,14 +890,25 @@ static void network_test_bomb(
 		}
 		position.z += 0.1f;
 		object_set_position(last->unit_index, &position, NULL, NULL);
-		platform_log("network test: bomb: the last player carries it into the goal of team %ld",
-			(long)((last->team_index + 1) % 2));
+		platform_log("network test: bomb: the last player carries it into the goal of team %ld (weapon in hand: %s)",
+			(long)((last->team_index + 1) % 2),
+			unit_inventory_get_weapon(last->unit_index, unit_get(last->unit_index)->unit.current_weapon_index) == bomb_index ?
+				"the bomb" : "another");
 		return;
 	}
 	if (object_get(bomb_index)->object.parent_object_index != NONE)
 	{
 		platform_log("network test: bomb: someone carries it already");
 		return;
+	}
+	/* (debug.network_test_bomb_in_goal: the host's bomb first lying in the
+	goal the player's team attacks, as one thrown down there and picked up
+	again: the pickup scores, while the player still holds its own weapon) */
+	if (network_test.bomb_in_goal && network_test.mode == _network_test_host &&
+		game_engine_bomb_goal((last->team_index + 1) % 2, &position))
+	{
+		game_engine_flag_reset(bomb_index, &position);
+		platform_log("network test: bomb: the bomb lies in the goal of team %ld", (long)((last->team_index + 1) % 2));
 	}
 	position = object_get(bomb_index)->object.position;
 	position.z += 0.1f;
@@ -921,6 +942,7 @@ static void network_test_fall(
 	object_set_position(last->unit_index, &position, NULL, NULL);
 	platform_log("network test: fall: the last player lifted to (%.2f %.2f %.2f)", position.x, position.y, position.z);
 }
+
 
 /* debug.network_test_melee: in each interval's first second the host brings
 its last player a step in front of its first; from its second to its fifth
@@ -1113,6 +1135,20 @@ void network_test_update(
 			}
 			platform_log("network test: bomb: tick %ld red %ld blue %ld round %ld carrier %ld", game_time_get(),
 				game_engine_bomb_team_score(0), game_engine_bomb_team_score(1), game_engine_bomb_round(), carrier);
+		}
+		/* (debug.network_test_bomb_throw: the joining machine's player, the
+		last, holds the trigger through each interval's first four seconds:
+		the bomb it stands on is picked up with the trigger down, thrown
+		down, picked up again) */
+		if (network_test.bomb_throw && network_test.bomb_interval > 0.0f && network_test.mode == _network_test_join)
+		{
+			long interval = MAX(TICKS_PER_SECOND * 5, (long)(network_test.bomb_interval * TICKS_PER_SECOND));
+			long phase = game_time_get() % interval;
+			boolean hold = game_time_get() >= interval && phase < 4 * TICKS_PER_SECOND;
+
+			test_input_hold_fire(hold);
+			if (hold)
+				platform_log("network test: bomb: the last player holds the trigger");
 		}
 		if (network_test.bomb_interval > 0.0f && game_engine_bomb_round() > 0)
 		{
