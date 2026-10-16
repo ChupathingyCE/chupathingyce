@@ -593,12 +593,33 @@ static void keyboard_controls(const struct platform_input_state *input, XINPUT_G
 	keyboard_actions_held = held;
 }
 
-/* text chat's typing (platform_chat_typing) */
+/* text chat's typing (platform_chat_typing), and escape pressed while it
+types (platform_chat_escape) */
 static BOOL chat_typing;
+static BOOL chat_escape_held, chat_escape_pressed;
 
 void platform_chat_typing(int typing)
 {
 	chat_typing = typing != 0;
+	chat_escape_pressed = FALSE;
+}
+
+int platform_chat_escape(void)
+{
+	BOOL pressed = chat_escape_pressed;
+
+	chat_escape_pressed = FALSE;
+	return pressed;
+}
+
+/* (escape, seen as the key itself rather than as a keystroke) */
+static void chat_escape_update(const struct platform_input_state *input)
+{
+	BOOL held = input->keys[SDL_SCANCODE_ESCAPE] != 0;
+
+	if (chat_typing && held && !chat_escape_held)
+		chat_escape_pressed = TRUE;
+	chat_escape_held = held;
 }
 
 unsigned long halo_keyboard_actions(short controller_index)
@@ -1127,6 +1148,7 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 		keyboard_actions_held = 0;
 		keys_held_over_switch(&input);
 		test_input_menu_keys(&input);
+		chat_escape_update(&input);
 		if (!console_is_active() && !chat_typing)
 		{
 			if (input.menus)
@@ -1207,8 +1229,9 @@ DWORD WINAPI XInputDebugGetKeystroke(PXINPUT_DEBUG_KEYSTROKE keystroke)
 
 		/* key ups always pass, so no key is left latched down; while typing,
 		escape does not (it cancels, as B: the game's own escape leaves the
-		menus, main.c) */
-		if (key_up || next.virtual_key == VK_OEM_3_BACKQUOTE || console_is_active() ||
+		menus, main.c); text chat's line and log take every key, escape
+		included (chat.c: it closes them) */
+		if (key_up || next.virtual_key == VK_OEM_3_BACKQUOTE || console_is_active() || chat_typing ||
 			(text_typing && next.virtual_key != 0x1B /* escape */))
 		{
 			keystroke->VirtualKey = next.virtual_key;

@@ -52,4 +52,8 @@ keyboard's keys go to it alone, as with the console (none drives the
 player or the menus) */
 void platform_chat_typing(int typing);
 
+/* escape was pressed while text chat's line or log was up (once for each
+press): it closes them even if its keystroke never reaches the chat */
+int platform_chat_escape(void);
+
 #endif
