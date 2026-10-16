@@ -927,11 +927,17 @@ static void write_player(struct text *text, int slot, int end_tick)
 		json_number(player->damage_taken));
 	text_append(text, ", \"grenades\": {\"frag\": %d, \"plasma\": %d}", player->grenades[0], player->grenades[1]);
 	text_append(text, ", \"objectives\": {\"flag_grabs\": %d, \"flag_returns\": %d, \"flag_scores\": %d, "
-		"\"ball_time\": %d, \"ball_kills\": %d, \"hill_time\": %d, \"laps\": %d}",
+		"\"ball_time\": %d, \"ball_kills\": %d, \"hill_time\": %d, \"laps\": %d",
 		totals->flag_grabs < 0 ? 0 : totals->flag_grabs, totals->flag_returns < 0 ? 0 : totals->flag_returns,
 		totals->flag_scores < 0 ? 0 : totals->flag_scores, totals->ball_time < 0 ? 0 : totals->ball_time,
 		totals->ball_kills < 0 ? 0 : totals->ball_kills, totals->hill_time < 0 ? 0 : totals->hill_time,
 		totals->laps < 0 ? 0 : totals->laps);
+	if (totals->bomb)
+		text_append(text, ", \"bomb_carry_time\": %d, \"bomb_carrier_kills\": %d, \"bomb_kills_as_carrier\": %d",
+			totals->bomb_carry_time < 0 ? 0 : totals->bomb_carry_time,
+			totals->bomb_carrier_kills < 0 ? 0 : totals->bomb_carrier_kills,
+			totals->bomb_kills_as_carrier < 0 ? 0 : totals->bomb_kills_as_carrier);
+	text_append(text, "}");
 	text_append(text, ", \"weapons\": [");
 	for (index = 0, any = 0; index <= player->weapon_count; index++)
 	{

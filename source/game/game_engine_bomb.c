@@ -2392,6 +2392,29 @@ long game_engine_bomb_report_player(
 	return written;
 }
 
+/* a player's Bomb counts for the game's event log (port/linux): seconds
+carrying the bomb, carriers killed and kills while carrying; FALSE when no
+Bomb game is running */
+boolean game_engine_bomb_player_statistics(
+	long player_index,
+	long *carry_seconds,
+	long *carrier_kills,
+	long *kills_as_carrier)
+{
+	long index;
+
+	*carry_seconds = *carrier_kills = *kills_as_carrier = 0;
+	if (!bomb_running() || player_index == NONE)
+		return FALSE;
+	index = DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index);
+	if (!VALID_INDEX(index, HALO_PORT_MAXIMUM_NETWORK_PLAYERS))
+		return FALSE;
+	*carry_seconds = bomb_globals.carry_ticks[index] / TICKS_PER_SECOND;
+	*carrier_kills = bomb_globals.carrier_kills[index];
+	*kills_as_carrier = bomb_globals.kills_as_carrier[index];
+	return TRUE;
+}
+
 /* the game's members: Bomb's own object (its preset, the rounds played and
 won by each team, its round and arm times) */
 long game_engine_bomb_report_game(

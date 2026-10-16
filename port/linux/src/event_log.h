@@ -246,6 +246,12 @@ struct event_log_player_totals
 	int ball_kills;
 	int hill_time;
 	int laps;
+	/* Bomb's (set in a Bomb game): carry seconds, carriers killed, kills
+	while carrying */
+	int bomb;
+	int bomb_carry_time;
+	int bomb_carrier_kills;
+	int bomb_kills_as_carrier;
 };
 
 /* the game, as it starts */
