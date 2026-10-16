@@ -350,7 +350,7 @@ static void end_ride(struct tracked *tracked, long tick)
 }
 
 /* the game's statistics of a player, as the log's totals */
-static void player_totals(struct player_datum const *player, int place, int score, struct event_log_player_totals *totals)
+static void player_totals(long player_index, struct player_datum const *player, int place, int score, struct event_log_player_totals *totals)
 {
 	struct game_statistics const *statistics = &player->statistics;
 
@@ -384,6 +384,17 @@ static void player_totals(struct player_datum const *player, int place, int scor
 	case game_engine_bomb:
 		totals->flag_grabs = statistics->multiplayer_statistics.ctf_statistics.flag_grabs;
 		totals->flag_scores = statistics->multiplayer_statistics.ctf_statistics.flag_scores;
+		{
+			long carry_seconds, carrier_kills, kills_as_carrier;
+
+			if (game_engine_bomb_player_statistics(player_index, &carry_seconds, &carrier_kills, &kills_as_carrier))
+			{
+				totals->bomb = 1;
+				totals->bomb_carry_time = (int)carry_seconds;
+				totals->bomb_carrier_kills = (int)carrier_kills;
+				totals->bomb_kills_as_carrier = (int)kills_as_carrier;
+			}
+		}
 		break;
 	}
 }
@@ -522,7 +533,7 @@ static void send_game(boolean final, int reason)
 
 			if (!tracked)
 				continue;
-			player_totals(player, place_of[absolute_index], score_of[absolute_index], &totals);
+			player_totals(iterator.datum_index, player, place_of[absolute_index], score_of[absolute_index], &totals);
 			event_log_player_totals(tracked->slot, &totals);
 		}
 	}

@@ -477,6 +477,10 @@ player's line's, and the game's; their length, 0 for none (another game
 type) */
 long game_engine_bomb_report_player(long player_index, char *text, long size);
 long game_engine_bomb_report_game(char *text, long size);
+/* a player's carry seconds, carrier kills and kills as carrier (the event
+log's); FALSE when no Bomb game is running */
+boolean game_engine_bomb_player_statistics(long player_index, long *carry_seconds, long *carrier_kills,
+	long *kills_as_carrier);
 /* the network test's (network_test.c): the bomb, a team's goal, a team's
 score, the round, and the goal the bomb is planted in, arming (the host's;
 NONE: none) */
