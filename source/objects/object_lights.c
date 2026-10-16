@@ -2273,7 +2273,11 @@ void lights_illumination_at_point(
 					"c:\\halo\\SOURCE\\objects\\object_lights.c",
 					854,
 					material->lightmap_vertices.type==_rasterizer_vertex_type_environment_lightmap_uncompressed || material->lightmap_vertices.type==_rasterizer_vertex_type_environment_lightmap_compressed);
-				if (_texture_cache_bitmap_get_hardware_format(bitmap, FALSE, FALSE))
+				/* port: the lightmap waited for, not sampled only if the texture
+				cache has it yet: a unit's illumination (the AI's sight) is the
+				ticks', and what the cache holds is the renderer's and the
+				loading thread's, by the clock and what was drawn */
+				if (_texture_cache_bitmap_get_hardware_format(bitmap, TRUE, TRUE))
 				{
 					sample_lightmap(material, bitmap, surface, s, t, color);
 				}
