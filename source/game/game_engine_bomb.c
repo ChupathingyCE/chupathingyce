@@ -327,6 +327,8 @@ void game_engine_traits_default(
 		return;
 	/* (the carrier stands out) */
 	traits->carrier.highlight = 1;
+	if (variant->game_engine_variant.bomb.traits == _bomb_traits_open_pitch)
+		bomb_open_pitch_movement(traits);
 	if (variant->game_engine_variant.bomb.traits == _bomb_traits_grifball)
 	{
 		/* Grifball's rules, as Halo CE has them: a tenth of the health and
@@ -351,7 +353,6 @@ void game_engine_traits_default(
 		traits->carrier.speed = 115;
 		traits->carrier.resistance = 150;
 		traits->carrier.shields = _trait_shields_overshield;
-		bomb_open_pitch_movement(traits);
 	}
 }
 
