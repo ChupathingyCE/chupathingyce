@@ -392,6 +392,12 @@ enum
 	PLAYER_TRAIT_RESISTANCE_MAXIMUM = 400,
 	PLAYER_TRAIT_SPEED_MINIMUM = 50,
 	PLAYER_TRAIT_SPEED_MAXIMUM = 200,
+	PLAYER_TRAIT_JUMP_MINIMUM = 50,
+	PLAYER_TRAIT_JUMP_MAXIMUM = 200,
+	PLAYER_TRAIT_GRAVITY_MINIMUM = 25,
+	PLAYER_TRAIT_GRAVITY_MAXIMUM = 200,
+	PLAYER_TRAIT_MELEE_MINIMUM = 50,
+	PLAYER_TRAIT_MELEE_MAXIMUM = 200,
 };
 
 enum
@@ -417,6 +423,13 @@ struct player_traits
 	/* drawn in a bright color of its own */
 	byte highlight;
 	byte pad[2];
+	/* of its jump's speed, of gravity on it in the air, and of its melee
+	blow's reach: only for players whose machine has Delta Peer's
+	bomb_movement (game_engine_traits_jump_multiplier) */
+	short jump;
+	short gravity;
+	short melee;
+	short pad2;
 };
 
 struct game_traits
@@ -436,6 +449,12 @@ boolean game_engine_traits_active(void);
 shields by them (NONE: the game type's own rule) */
 real game_engine_traits_damage_multiplier(long damaging_player_index, long damaged_player_index);
 long game_engine_traits_shields(long player_index);
+/* the traits' jump, gravity and melee reach multipliers of a player (1 when
+none, or when its machine or the host lacks them: it moves and strikes as
+it always did) */
+real game_engine_traits_jump_multiplier(long player_index);
+real game_engine_traits_gravity_multiplier(long player_index);
+real game_engine_traits_melee_multiplier(long player_index);
 /* the host's: its game's traits, for Delta Peer to send (none for a game
 that is no Bomb game type) */
 void game_engine_bomb_host_traits(struct game_variant const *variant);
