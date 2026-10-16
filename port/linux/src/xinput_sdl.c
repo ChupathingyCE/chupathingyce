@@ -367,18 +367,23 @@ static void keyboard_gamepad(const struct platform_input_state *input, XINPUT_GA
 	pad->bAnalogButtons[XINPUT_GAMEPAD_BLACK] |= analog(k[SDL_SCANCODE_C]);
 }
 
-/* the keys held when the game and the menus switch count as up until let go
-of: the escape that opens the pause menu does not also back out of it, nor
-the one that closes it pause the game again */
+static BOOL chat_typing;
+
+/* the keys held when the game and the menus switch, or text chat's line or
+log opens or closes, count as up until let go of: the escape that opens the
+pause menu does not also back out of it, nor the one that closes it (or the
+chat's line) pause the game again, nor the enter that sends a line press
+anything */
 static void keys_held_over_switch(struct platform_input_state *input)
 {
 	static unsigned char held[SDL_SCANCODE_COUNT];
 	static int menus = -1;
 	int scancode;
+	int now = (input->menus != FALSE) | (chat_typing ? 2 : 0);
 
-	if (menus != (input->menus != FALSE))
+	if (menus != now)
 	{
-		menus = input->menus != FALSE;
+		menus = now;
 		memcpy(held, input->keys, sizeof(held));
 	}
 	for (scancode = 0; scancode < SDL_SCANCODE_COUNT; scancode++)
@@ -593,9 +598,8 @@ static void keyboard_controls(const struct platform_input_state *input, XINPUT_G
 	keyboard_actions_held = held;
 }
 
-/* text chat's typing (platform_chat_typing), and escape pressed while it
-types (platform_chat_escape) */
-static BOOL chat_typing;
+/* text chat's typing (platform_chat_typing: chat_typing, above), and escape
+pressed while it types (platform_chat_escape) */
 static BOOL chat_escape_held, chat_escape_pressed;
 
 void platform_chat_typing(int typing)
