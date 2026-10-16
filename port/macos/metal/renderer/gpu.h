@@ -1,7 +1,7 @@
 /*
 GPU.H
 
-The interface between the Direct3D front end (d3d8_device.c, xbox_textures.c)
+The interface between the Direct3D front end (xbox_device.c, xbox_textures.c)
 and a GPU backend (gpu_gl.c; Metal in Phase 1). It is filled in one
 sub-step at a time (renderer split design, step 3).
 
@@ -101,7 +101,7 @@ struct gpu_texture_description
 	Compositor's drawable size per view, which the eye's rate map fills only
 	in part): the backend binds that eye's rate map on any pass that writes
 	it, and its viewports and scissors are in the map's screen coordinates
-	(Task 10, d3d8_device.c). With debug.rate_map_test on the Mac, 1 marks
+	(Task 10, xbox_device.c). With debug.rate_map_test on the Mac, 1 marks
 	the mono screen's targets, which a synthetic map fills */
 	uint8_t foveated_eye;
 	uint32_t width, height, depth, levels;
@@ -255,7 +255,7 @@ struct gpu_blend_state
 	/* bit 0 red, 1 green, 2 blue, 3 alpha */
 	uint8_t color_write_mask;
 	/* nonzero: alpha blends by its own factors (same operation), else by
-	source and destination; only stereo's HUD layer sets it (d3d8_device.c,
+	source and destination; only stereo's HUD layer sets it (xbox_device.c,
 	hud_layer_blend) */
 	uint8_t alpha_separate, alpha_source, alpha_destination;
 };
@@ -573,6 +573,8 @@ enum
 	/* debug.metal_pipeline_archive = false: the Metal backend neither loads
 	nor saves its pipeline archive (archive_open) */
 	GPU_INITIALIZE_NO_PIPELINE_ARCHIVE = 2048,
+	/* debug.gpu_stats: time the stages of gpu_metal_draw (draw_profile.h) */
+	GPU_INITIALIZE_DRAW_PROFILE = 4096,
 };
 /* probe the context, which must be current, and set it up */
 void gpu_initialize(uint32_t flags, struct gpu_capabilities *capabilities);

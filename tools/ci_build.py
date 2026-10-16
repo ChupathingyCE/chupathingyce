@@ -100,7 +100,7 @@ def run(command, cwd=ROOT):
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "Build one native port.").splitlines()[0])
     parser.add_argument("platform", choices=sorted(OUTPUTS))
     parser.add_argument("config", choices=["debug", "release"])
     parser.add_argument("--alpine", action="store_true",

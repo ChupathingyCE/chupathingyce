@@ -11,6 +11,7 @@ The result is build/macos/halo and the application bundle
 build/macos/ChupathingyCE.app. See port/macos/README.md.
 """
 
+import functools
 import os
 import platform
 import subprocess
@@ -30,11 +31,13 @@ from .lp64_build import (
     lp64_excluded,
     lp64_game_flags,
 )
+from .metal_manifest import MAC_DIRS, MANIFEST, Manifest, ManifestError, drift, load, structure_problems
 from .ninja_syntax import Writer
 from .version import version
 
 PORT_DIR = Path("port/macos")
 PORT_CONFIG = PORT_DIR / "port.json"
+METAL_DIR = PORT_DIR / "metal"
 # the oldest macOS the build runs on
 MACOS_MINIMUM = "13.0"
 # SDL3 and the other libraries, from Homebrew
@@ -82,8 +85,27 @@ def macos_configure_inputs() -> list[Path]:
     """Files whose change must re-run configure.py."""
     if not PORT_CONFIG.is_file():
         return [Path(__file__)]
-    return [PORT_CONFIG, Path(__file__), PORT_DIR / "metal" / "renderer",
-            *lp64_configure_inputs(), *hud_configure_inputs()]
+    return [PORT_CONFIG, Path(__file__), MANIFEST, Path("tools/metal_manifest.py"),
+            *(METAL_DIR / folder for folder in MAC_DIRS), *lp64_configure_inputs(), *hud_configure_inputs()]
+
+
+@functools.lru_cache(maxsize=None)
+def metal_manifest() -> Manifest:
+    """port/macos/metal/manifest.json, which must describe the tree: the
+    Metal build is made from it, so a file it does not account for stops
+    configure.py rather than silently joining or leaving the build"""
+    try:
+        manifest = load()
+    except ManifestError as error:
+        raise SystemExit(str(error))
+    problems = structure_problems(manifest)
+    if problems:
+        raise SystemExit("port/macos/metal/manifest.json does not describe the tree:\n  " + "\n  ".join(problems))
+    changed = [d.entry.upstream for d in drift(manifest) if not d.known]
+    if changed:
+        print(f"note: upstream changed {', '.join(changed)} since the Metal build's copies were reconciled: "
+              "python3 tools/metal_manifest.py check")
+    return manifest
 
 
 def generate_macos_metal_build(n: Writer, sln: Any, architectures: list[str]) -> None:
@@ -91,7 +113,7 @@ def generate_macos_metal_build(n: Writer, sln: Any, architectures: list[str]) ->
     if not getattr(sln, "macos_metal", False):
         return
     build_dir = sln.build_dir / "macos"
-    source = PORT_DIR / "metal" / "metal_smoke.m"
+    source = METAL_DIR / "renderer" / "metal_smoke.m"
     n.rule(
         name="macos_metal_smoke",
         command=("clang $target -std=gnu11 -fobjc-arc -Wall -Wextra -Werror "
@@ -113,31 +135,72 @@ def generate_macos_metal_build(n: Writer, sln: Any, architectures: list[str]) ->
     n.build(outputs="macos-metal-smoke", rule="phony", inputs=output)
 
 
+def metal_contract(n: Writer, lp64: Lp64Build, name: str, build_dir: Path, metal_objects: list[Path]) -> None:
+    """build_dir/metal-contract.stamp: the upstream files the Metal build
+    replaces or drops, compiled as upstream compiles them, define nothing the
+    Metal build does not (or the manifest says why not): a function upstream
+    adds to its renderer fails the build here, not at a call years later"""
+    contract_dir = build_dir / "metal-contract"
+    upstream_objects = []
+    for unit in getattr(lp64, "contract_units", []):
+        relative = unit.source.relative_to(lp64.lp64_dir) if lp64.lp64_dir in unit.source.parents else unit.source
+        obj = contract_dir / relative.with_suffix(".o")
+        n.build(outputs=obj, rule=f"{name}_cc", inputs=unit.source,
+                implicit=[lp64.semantics_header, lp64.platform_semantics_header],
+                order_only=[build_dir / "lp64.stamp"], variables={"cflags": unit.cflags})
+        upstream_objects.append(obj)
+    n.rule(
+        name=f"{name}_metal_contract",
+        command="$python tools/metal_manifest.py symbols --stamp $out --metal-list $out.rsp --upstream $upstream",
+        description=f"{name.upper()} METAL CONTRACT $out",
+        rspfile="$out.rsp",
+        rspfile_content="$in_newline",
+    )
+    n.build(outputs=build_dir / "metal-contract.stamp", rule=f"{name}_metal_contract", inputs=metal_objects,
+            implicit=[*upstream_objects, MANIFEST, Path("tools/metal_manifest.py")],
+            variables={"upstream": " ".join(str(obj) for obj in upstream_objects)})
+
+
 class MetalLp64Build(Lp64Build):
-    """macOS-only renderer substitutions; shared build inputs remain unchanged."""
+    """The Metal build's units, from port/macos/metal/manifest.json: each
+    upstream platform source (port/linux/src) compiled as it is, replaced by
+    its Mac file or dropped; the Mac-only sources added; and the Mac folders
+    searched for headers before upstream's."""
 
     def units(self, host: Lp64Host, generated_sources: list[Path]) -> list[Lp64Unit]:
+        manifest = metal_manifest()
         units = super().units(host, generated_sources)
-        renderer = PORT_DIR / "metal" / "renderer"
-        replacements = {path.name: path for path in renderer.glob("*.c")}
-        replacements["d3d8_gl.c"] = renderer / "d3d8_device.c"
+        includes = " ".join(f"-I{self.lp64(METAL_DIR / folder)}" for folder in MAC_DIRS)
+        metal_define = "-DHALO_MACOS_METAL_EXPERIMENTAL=1"
+        # the upstream units the Metal build replaces or drops, as upstream
+        # compiles them: the symbol contract's (tools/metal_manifest.py symbols)
+        self.contract_units: list[Lp64Unit] = []
+        platform_flags = None
         result = []
-        platform_flags = next(unit.cflags for unit in units if unit.source.name == "d3d8_gl.c")
-        skip = {"xgpu_post.c", "xgpu_shader_cache.c", "xgpu_text.c"}
-        consumed = set()
         for unit in units:
-            if unit.source.name in skip:
-                continue
-            if self.lp64_dir in unit.source.parents:
-                unit.cflags = f"-I{self.lp64(renderer)} {unit.cflags} -DHALO_MACOS_METAL_EXPERIMENTAL=1"
-                if unit.source.name in replacements:
-                    replacement = replacements[unit.source.name]
-                    consumed.add(replacement)
-                    unit.source = self.lp64(replacement)
+            rewritten = self.lp64_dir in unit.source.parents
+            original = unit.source.relative_to(self.lp64_dir) if rewritten else unit.source
+            if original.parent == manifest.upstream:
+                name = original.name
+                if name == "d3d8_gl.c":
+                    platform_flags = unit.cflags
+                if name in manifest.replaced or name in manifest.dropped:
+                    self.contract_units.append(Lp64Unit(unit.source, unit.cflags, unit.native))
+                if name in manifest.dropped:
+                    continue
+                if name in manifest.replaced:
+                    replacement = manifest.replaced[name].mac
+                    assert replacement is not None
+                    unit.source = self.lp64(METAL_DIR / replacement)
+                elif name not in manifest.shared:
+                    raise SystemExit(f"{original} is not in port/macos/metal/manifest.json")
+            if rewritten:
+                unit.cflags = f"{includes} {unit.cflags} {metal_define}"
             result.append(unit)
-        for source in sorted(set(replacements.values()) - consumed):
-            result.append(Lp64Unit(self.lp64(source),
-                f"-I{self.lp64(renderer)} {platform_flags} -DHALO_MACOS_METAL_EXPERIMENTAL=1"))
+        if platform_flags is None:
+            raise SystemExit("the Metal build replaces port/linux/src/d3d8_gl.c, which the build no longer compiles")
+        for source in manifest.mac_sources:
+            result.append(Lp64Unit(self.lp64(METAL_DIR / source), f"{includes} {platform_flags} {metal_define}"))
         return result
 
 
@@ -145,7 +208,8 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
     if not PORT_CONFIG.is_file() or platform.system() != "Darwin":
         return
     config = load_json(PORT_CONFIG)
-    build_dir: Path = sln.build_dir / "macos"
+    name = "macos"
+    build_dir: Path = sln.build_dir / name
     obj_dir = build_dir / "obj"
     output = build_dir / "halo"
     cc = "clang"
@@ -162,20 +226,21 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
 
     n.comment("Native macOS build (ninja macos)")
     metal = getattr(sln, "macos_metal", False)
+    manifest = metal_manifest() if metal else None
     build_type = MetalLp64Build if metal else Lp64Build
-    lp64 = build_type(n, sln, "macos", cc,
-                     extra_roots=[PORT_DIR / "metal" / "renderer"] if metal else [])
+    lp64 = build_type(n, sln, name, cc,
+                     extra_roots=[METAL_DIR / folder for folder in MAC_DIRS] if metal else [])
     n.rule(
-        name="macos_link",
-        command="$macos_cc $ldflags -o $out @$out.rsp $libs",
-        description="MACOS LINK $out",
+        name=f"{name}_link",
+        command=f"${name}_cc $ldflags -o $out @$out.rsp $libs",
+        description=f"{name.upper()} LINK $out",
         rspfile="$out.rsp",
         rspfile_content="$in_newline",
     )
 
     # (the generated sources: one set, compiled for each architecture)
-    generated_sources = (hud_assets_build(n, "macos", build_dir / "generated" / "hud_hires_assets.c")
-                         + ui_fonts_build(n, "macos", build_dir / "generated" / "ui_fonts.c", sln))
+    generated_sources = (hud_assets_build(n, name, build_dir / "generated" / "hud_hires_assets.c")
+                         + ui_fonts_build(n, name, build_dir / "generated" / "ui_fonts.c", sln))
     if portable:
         n.rule(
             name="macos_sdl3",
@@ -201,7 +266,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
             excluded.discard("port/linux/src/bink_null.c")
             excluded.add("port/macos/src/macos_bink.c")
         host = Lp64Host(
-            name="macos",
+            name=name,
             target_flags=[target],
             game_flags=MACOS_GAME_FLAGS,
             posix_flags=MACOS_POSIX_FLAGS,
@@ -212,13 +277,17 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
         )
         objects = lp64.objects(host, generated_sources, arch_obj_dir)
         if metal:
-            for source in (PORT_DIR / "metal" / "gpu_metal.m", PORT_DIR / "metal" / "metal_host.m"):
+            assert manifest is not None
+            metal_includes = " ".join(f"-I{METAL_DIR / folder}" for folder in MAC_DIRS)
+            for relative in manifest.objc:
+                source = METAL_DIR / relative
                 obj = arch_obj_dir / source.with_suffix(".o")
-                n.build(outputs=obj, rule="macos_cc", inputs=source, variables={
-                    "cflags": f"{target} -std=gnu11 -fobjc-arc -O2 -g -Wall "
-                              f"-I{PORT_DIR / 'metal'} -I{PORT_DIR / 'metal' / 'renderer'} "
+                n.build(outputs=obj, rule=f"{name}_cc", inputs=source, variables={
+                    "cflags": f"{target} -std=gnu11 -fobjc-arc -O2 -g -Wall {metal_includes} "
                               f"{sdl_include}-idirafter {HOMEBREW / 'include'}"})
                 objects.append(obj)
+            if arch == architectures[0]:
+                metal_contract(n, lp64, name, build_dir, objects)
 
         libraries = config.get("libraries", [])
         if portable:
@@ -226,7 +295,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
         frameworks = [*config.get("frameworks", []), *(["Metal", "QuartzCore", "Foundation", "MetalFX"] if metal else [])]
         n.build(
             outputs=arch_output,
-            rule="macos_link",
+            rule=f"{name}_link",
             inputs=objects,
             implicit=[portable_sdl] if portable else [],
             variables={
@@ -244,18 +313,19 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
         for arch in architectures:
             emit(arch, build_dir / f"obj-{arch}", build_dir / f"halo-{arch}")
             slices.append(build_dir / f"halo-{arch}")
-        n.rule(name="macos_lipo", command="lipo -create -output $out $in", description="MACOS LIPO $out")
-        n.build(outputs=output, rule="macos_lipo", inputs=slices)
+        n.rule(name=f"{name}_lipo", command="lipo -create -output $out $in", description=f"{name.upper()} LIPO $out")
+        n.build(outputs=output, rule=f"{name}_lipo", inputs=slices)
 
     # the application bundle, which macOS shows with the game's name and icon
     bundle = build_dir / "ChupathingyCE.app"
     n.rule(
-        name="macos_bundle",
+        name=f"{name}_bundle",
         command=(f"$python {PORT_DIR / 'bundle.py'} --executable $in --output {_quote(bundle)} --version {version()}"
                  + (f" --self-contained --library-path {PORTABLE_SDL_BUILD}" if portable else "")),
-        description="MACOS BUNDLE $out",
+        description=f"{name.upper()} BUNDLE $out",
     )
-    n.build(outputs=bundle / "Contents" / "MacOS" / "halo", rule="macos_bundle", inputs=output,
+    n.build(outputs=bundle / "Contents" / "MacOS" / "halo", rule=f"{name}_bundle", inputs=output,
             implicit=[PORT_DIR / "bundle.py", PORT_DIR / "Info.plist", PORT_DIR / "AppIcon.icns"])
-    n.build(outputs="macos", rule="phony", inputs=[output, bundle / "Contents" / "MacOS" / "halo"])
+    n.build(outputs=name, rule="phony", inputs=[output, bundle / "Contents" / "MacOS" / "halo",
+                                                *([build_dir / "metal-contract.stamp"] if metal else [])])
     n.newline()

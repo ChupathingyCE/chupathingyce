@@ -3,7 +3,7 @@ GPU_UNIFORMS.H
 
 The uniforms the translated shaders declare, in declaration order: name, GLSL
 type, array count (1: not an array), stage. The translators emit their
-declarations from it (nv2a_uniform_declarations, nv2a_vsh.c), gpu.h builds
+declarations from it (nv2a_uniform_declarations, nv2a_vertex.c), gpu.h builds
 struct gpu_uniforms from it, and the GL backend (gpu_gl.c) its uniform
 locations, uploads and shadows.
 
@@ -24,7 +24,7 @@ enum
 };
 
 /* screen_offset: columns the menus shift by to center on a wide screen
-(d3d8_device.c). ps_c0 through texture_scale: the combiner registers that live in
+(xbox_device.c). ps_c0 through texture_scale: the combiner registers that live in
 uniforms rather than in the program (C0/C1 of each stage and the final
 combiner) and texture constants. texture_lod_bias: one component per stage. */
 #define GPU_UNIFORMS(X) \
