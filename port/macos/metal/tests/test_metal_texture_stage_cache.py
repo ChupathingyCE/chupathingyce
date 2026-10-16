@@ -138,6 +138,7 @@ static void upload(gpu_texture texture, uint32_t type, const struct xgpu_texture
     uploaded_palette[texture] = palette ? palette[0] : 0;
     uploads++;
 }
+static unsigned long hud_hires_settings(void) { return 0; }
 static long hud_hires_override_find(unsigned long a, unsigned long w, unsigned long h, unsigned long size)
 {
     (void)a; (void)w; (void)h; (void)size; return -1;

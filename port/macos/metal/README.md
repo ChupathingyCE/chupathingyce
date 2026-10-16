@@ -72,9 +72,9 @@ known outstanding drift separately; accepting it does not reconcile the fork.
 
 After reviewing and porting a change, run `accept FILE`. For an explicitly
 deferred change use `accept --seen FILE`; an `identical` copy is instead refreshed
-by `accept FILE`. Review the reported diffs before either action. Current known
-gaps include live high-resolution HUD/text setting invalidation
-(`hud_hires_settings`); the manifest documents the symbol exception.
+by `accept FILE`. Review the reported diffs before either action. Live high-resolution
+HUD/title-art invalidation is implemented via `hud_hires_settings` and covered
+by the sanitizer integration test; its former symbol exception is removed.
 
 `ninja macos` also compiles upstream replaced/dropped units and uses `nm` to
 verify their exported symbols, including macro-generated D3D8 entry points,
@@ -120,9 +120,10 @@ confirmed failures, deferred features, source drift and remaining validation.
   OpenCE. Debug BMP frame capture remains available.
 - High-resolution HUD/text art is supported. Map changes asynchronously preload
   HUD PNGs; textures not ready at first use retain the synchronous fallback.
-  **Known failure:** changing HUD/title-art enable settings live does not update
-  cached replacement bindings. The CPU integration probe reproduces both toggle
-  directions; font-text enable checks pass. This is not yet a fixed feature.
+  Live enable/disable changes now invalidate cached HUD/title-art replacement
+  decisions. The CPU integration test covers both directions on stage, recent
+  and bucket cache paths, plus font-enable checks and unaffected upload reuse.
+  On-screen Settings-menu confirmation remains a manual validation task.
 - VisionOS pacing, synthetic foveation, texture replacement experiments, and
   stereo shader warming are not requirements for ordinary macOS gameplay.
 - Only Apple silicon has been runtime-tested here; Intel Mac testing remains

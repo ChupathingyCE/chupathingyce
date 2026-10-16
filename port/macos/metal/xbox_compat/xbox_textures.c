@@ -804,6 +804,7 @@ struct texture_entry
 	uint64_t resident_bytes;
 	/* the high-res HUD texture drawn in its place (hud_hires.h), or -1 */
 	long override;
+	unsigned long override_settings;
 	/* debug.texture_override_directory's texture drawn in its place, or 0,
 	and its level count (texture_override.h) */
 	gpu_texture texture_override;
@@ -1170,10 +1171,12 @@ static gpu_texture texture_get(const DWORD *resource, const D3DCOLOR *palette, u
 	static int no_cache = -1;
 	unsigned long recent;
 	unsigned long watch_serial = memory_watch_serial();
+	unsigned long override_settings = hud_hires_settings();
 
 	if (!palettized)
 		entry = texture_stage_find(stage, data, format_word, size_word);
-	if (entry && texture_stage_lookups[stage].watch_serial == watch_serial)
+	if (entry && texture_stage_lookups[stage].watch_serial == watch_serial &&
+		entry->override_settings == override_settings)
 	{
 		/* Re-resolve dynamic text/menu/HUD overrides even on a content hit. */
 		entry->last_used_frame = texture_frame;
@@ -1188,7 +1191,8 @@ static gpu_texture texture_get(const DWORD *resource, const D3DCOLOR *palette, u
 		recent_textures[recent].drop_serial == texture_drop_serial)
 	{
 		entry = recent_textures[recent].entry;
-		if (recent_textures[recent].watch_serial == watch_serial)
+		if (recent_textures[recent].watch_serial == watch_serial &&
+			entry->override_settings == override_settings)
 		{
 			entry->last_used_frame = texture_frame;
 			texture_stage_remember(stage, entry, watch_serial);
@@ -1297,8 +1301,11 @@ static gpu_texture texture_get(const DWORD *resource, const D3DCOLOR *palette, u
 		entry->watched_serial = watch_serial;
 		entry->watched_generation = generation;
 	}
-	if (!entry->generation || generation > entry->generation || no_cache)
+	BOOL content_changed = !entry->generation || generation > entry->generation || no_cache;
+	if (content_changed || entry->override_settings != override_settings)
 	{
+		long previous_override = entry->override;
+
 		/* protect first, so a write racing with the upload is noticed */
 		memory_watch_protect(entry->address, entry->size);
 		entry->generation = memory_watch_generation(entry->address, entry->size);
@@ -1306,7 +1313,9 @@ static gpu_texture texture_get(const DWORD *resource, const D3DCOLOR *palette, u
 			entry->generation = 1;
 		/* (which bitmap is here may have changed with the pixels) */
 		entry->override = -1;
-		entry->texture_override = 0;
+		entry->override_settings = override_settings;
+		if (content_changed)
+			entry->texture_override = 0;
 		if (entry->size && !palettized && !entry->description.cube_map && entry->description.depth == 1)
 		{
 			unsigned long levels;
@@ -1317,7 +1326,10 @@ static gpu_texture texture_get(const DWORD *resource, const D3DCOLOR *palette, u
 			if (entry->override >= 0 && !hud_hires_override_texture(entry->override, &levels))
 				entry->override = -1;
 		}
-		if (entry->override < 0 && entry->size && platform_is_contiguous(xbox_pointer(entry->address)) &&
+		/* Disabling an active replacement needs the original pixels, which
+		may never have been uploaded. Leave unaffected originals cached. */
+		if (entry->override < 0 && (content_changed || previous_override >= 0) && entry->size &&
+			platform_is_contiguous(xbox_pointer(entry->address)) &&
 			platform_is_contiguous(xbox_pointer(entry->address + entry->size - 1)))
 		{
 			unsigned char channel_order = custom_edition_texels_order(entry->address);

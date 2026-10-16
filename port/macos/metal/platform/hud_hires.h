@@ -44,6 +44,10 @@ struct hud_hires_embedded
 extern const struct hud_hires_embedded hud_hires_embedded[];
 extern const unsigned int hud_hires_embedded_count;
 
+/* Render-thread generation of HUD/title enable settings. Read before reusing
+cached replacement decisions; unrelated configuration edits leave it unchanged. */
+unsigned long hud_hires_settings(void);
+
 /* the texture standing for the bitmap whose pixels are uploaded from address
 (guest virtual) with this size, its first mip level being level0_size bytes,
 or -1: none, its setting (display.high_res_hud, or display.high_res_text for

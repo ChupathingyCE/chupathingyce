@@ -24,7 +24,7 @@ the port's zlib (port/third_party/zlib: a menus folder's PNGs are anyone's).
 #include "xgpu.h"
 #include "gpu.h"
 
-#include "zlib_prefixed.h"
+#include "zlib_prefixed.h" /* IWYU pragma: keep (crc32/uncompress symbol prefixing) */
 #include "hud_preload.h"
 
 #include <stdlib.h>
@@ -72,19 +72,40 @@ long hud_hires_asset_fits(long asset, long width, long height)
 		embedded->width / width == embedded->height / height && embedded->width / width > 1;
 }
 
-long hud_hires_override_find(unsigned long address, unsigned long width, unsigned long height,
-	unsigned long level0_size)
+static int hud_enabled, titles_enabled;
+static unsigned long settings_changes;
+
+/* Render-thread settings snapshot. Unrelated config edits do not invalidate
+texture decisions. Unsigned wrap is intentional, as with config_changes(). */
+static void settings_read(void)
 {
-	static int hud_enabled, titles_enabled;
 	static unsigned long read_at = (unsigned long)-1;
-	long asset;
 
 	if (read_at != config_changes())
 	{
+		int hud = config_boolean("display.high_res_hud");
+		int titles = config_boolean("display.high_res_text");
+
+		if (read_at != (unsigned long)-1 && (hud != hud_enabled || titles != titles_enabled))
+			settings_changes++;
 		read_at = config_changes();
-		hud_enabled = config_boolean("display.high_res_hud");
-		titles_enabled = config_boolean("display.high_res_text");
+		hud_enabled = hud;
+		titles_enabled = titles;
 	}
+}
+
+unsigned long hud_hires_settings(void)
+{
+	settings_read();
+	return settings_changes;
+}
+
+long hud_hires_override_find(unsigned long address, unsigned long width, unsigned long height,
+	unsigned long level0_size)
+{
+	long asset;
+
+	settings_read();
 	if (!hud_enabled && !titles_enabled)
 		return -1;
 	asset = hud_hires_asset_at(address, (long)width, (long)height);

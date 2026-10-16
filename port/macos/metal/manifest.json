@@ -178,7 +178,6 @@
     "xgpu_post_anti_alias": "OpenGL post-processing (xgpu_post.c); renderer/metal_post.inc.",
     "xgpu_shader_cache_compile": "GLSL cache (xgpu_shader_cache.c); Metal pipeline archive.",
     "xgpu_shader_cache_linked": "GLSL cache (xgpu_shader_cache.c); Metal pipeline archive.",
-    "xgpu_shader_cache_warm": "GLSL cache (xgpu_shader_cache.c); Metal shader-list warming.",
-    "hud_hires_settings": "CONFIRMED GAP: upstream 3bfb63b17 invalidates cached HUD/title-art replacements on live setting changes. The Metal CPU integration probe fails both toggle directions; font enable checks pass. See docs/metal-compatibility-gaps.md. Remove this exception when the missing contract is implemented."
+    "xgpu_shader_cache_warm": "GLSL cache (xgpu_shader_cache.c); Metal shader-list warming."
   }
 }

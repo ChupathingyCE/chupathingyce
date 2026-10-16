@@ -5,50 +5,51 @@ exhaustive Xbox/D3D8 audit. The source of truth for source drift is
 `port/macos/metal/manifest.json`, tracking ChupathingyCE's `port/linux/src`.
 The PR targets **LopezNoah/chupathingyce:main**, not upstream main.
 
-## Confirmed: live HUD/title-art replacement invalidation
+## Fixed in this PR: live HUD/title-art replacement invalidation
 
-`hud_hires_settings()` is missing from the Mac fork. Upstream commit
-`3bfb63b17` uses it to invalidate cached replacement decisions when
-`display.high_res_hud` or `display.high_res_text` changes. Metal currently
-chooses a HUD/title-art replacement when uploading a texture but does not
-reselect it on a content-cache hit after a settings change.
+The original probe confirmed stale cached bindings in both directions for HUD
+and title art. The cause was cache-hit paths reusing replacement decisions made
+at upload time without checking whether high-resolution settings changed.
 
-Reproduce from the repository root:
+`hud_hires_settings()` is now implemented following upstream's settings-generation
+contract (commit `3bfb63b17`). Stage/recent cache hits require that generation to
+match. The slow path reselects replacements on a mismatch without invalidating
+unaffected original uploads. Turning a replacement off uploads the original
+bitmap if necessary: the high-resolution path may have skipped it entirely.
+The missing-symbol exception has been removed. The broader source drift remains
+acknowledged because this is a targeted fix, not full fork reconciliation.
+
+Run from the repository root:
 
 ```sh
 python3 port/macos/metal/tests/probe_live_hires.py
-# Current result: exit 1, a confirmed known gap (not a compiler/test crash).
+# Result: exit 0, all 12 asset/direction/cache-path cases pass.
+python3 -m unittest discover -s port/macos/metal/tests -p 'test_metal_live_hires.py'
 ```
 
-The standalone probe compiles production `hud_hires_override_find`,
-`text_hires_enabled`/`text_enabled`, and texture-cache lookup/result functions
-with `-Wall -Wextra -Werror` and ASan/UBSan. It reuses the existing texture-cache
-fixture; GPU uploads, map/tag data, CRC and configuration storage are controlled
+The regression is now part of the regular CI test suite. It compiles production
+settings/selection, font-enable and texture-cache code with strict warnings and
+ASan/UBSan. GPU uploads, map/tag data, CRC and configuration storage are controlled
 providers. Each case starts in a fresh process, binds a texture, changes the
 setting/configuration generation, and binds the same unchanged resource again.
-There is no restart, map reload, guest write or texture upload between binds.
+There is no restart, map reload or guest write between binds.
 
-| Asset/path | Transition | Selection sees new setting | Cached binding updates |
-| --- | --- | --- | --- |
-| HUD replacement | off → on | Pass | **Fail** |
-| HUD replacement | on → off | Pass | **Fail** |
-| Title-art replacement | off → on | Pass | **Fail** |
-| Title-art replacement | on → off | Pass | **Fail** |
-| Font text enable check | off → on | Pass | Not a replacement binding test |
-| Font text enable check | on → off | Pass | Not a replacement binding test |
+| Asset/path | Transition | Stage cache | Recent cache | Bucket lookup |
+| --- | --- | --- | --- | --- |
+| HUD replacement | off → on | Pass | Pass | Pass |
+| HUD replacement | on → off | Pass | Pass | Pass |
+| Title-art replacement | off → on | Pass | Pass | Pass |
+| Title-art replacement | on → off | Pass | Pass | Pass |
 
-This narrows the earlier phrase “live text settings are missing”: font enable
-checks do update; cached HUD/title-art replacement decisions do not. It does
-**not** establish on-screen glyph/atlas correctness or exercise the Settings UI.
-The probe intentionally remains separate from the passing unit suite and exits
-nonzero until this gap is fixed; it does not encode stale behavior as success.
+The probe also checks font-enable updates, restored settings, hires/mipmap
+metadata, original bitmap contents after disabling a replacement, unchanged
+bindings after unrelated config edits, and no uploads for unaffected textures
+or repeated cache hits. Disabling an active replacement permits one original
+bitmap upload; enabling it does not reupload original pixels.
 
-Follow-up acceptance: propagate a settings generation through cached replacement
-selection, recheck enable/disable transitions on stage and global cache hits,
-preserve unaffected cached uploads, and rerun the probe plus an on-screen
-Settings-menu check. Remove the `hud_hires_settings` symbol exception only when
-the missing contract is implemented. This PR records/tests the gap; it does not
-claim to fix it.
+This establishes CPU selection/cache behavior, not on-screen glyph/atlas
+correctness or Settings-menu UI behavior. An on-screen confirmation remains a
+validation task, not a known outstanding cache defect.
 
 ## Previously deferred user-facing features
 
