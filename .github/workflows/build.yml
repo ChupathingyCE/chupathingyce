@@ -790,8 +790,16 @@ jobs:
       # (the Metal build graph's and renderer's checks need no Metal device)
       - name: Test Metal
         run: |
-          python3 -m unittest tools.test_macos_metal_build \
-            tools.test_metal_upload_bounds tools.test_metal_overlay
+          python3 tools/metal_manifest.py check
+          python3 -m unittest discover -s port/macos/metal/tests -p 'test_*.py'
+
+      - name: Compile the Metal backend probe (no GPU required)
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from tools.metal_draw_benchmark import build_probe
+          build_probe(Path('/tmp/metal-draw-probe'))
+          PY
 
       - name: Metal debug
         run: python3 tools/ci_build.py macos-metal debug

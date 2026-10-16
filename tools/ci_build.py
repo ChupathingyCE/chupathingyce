@@ -74,15 +74,13 @@ OUTPUTS = {
     # the same application with the Metal renderer (configure.py --macos-metal),
     # built in the same place (ninja macos)
     "macos-metal": ["build/macos/ChupathingyCE.app"],
-    # Experimental V2 remains a separate artifact/target, never overwriting V1.
-    "macos-metal-v2": ["build/macos_v2/ChupathingyCE.app"],
     # the dedicated server (ninja server-<arch>; tools/server_build.py)
     "server-x86": ["build/server-x86/chupathingyce-server"],
     "server-x64": ["build/server-x64/chupathingyce-server"],
     "server-arm64": ["build/server-arm64/chupathingyce-server"],
 }
 # the ninja target of a platform whose name is not its own
-NINJA_TARGETS = {"macos-metal": "macos", "macos-metal-v2": "macos_v2"}
+NINJA_TARGETS = {"macos-metal": "macos"}
 # the servers' Alpine Linux (--alpine), and Docker's name for each one's
 # architecture
 ALPINE_IMAGE = "alpine:3.22"
@@ -117,8 +115,6 @@ def main() -> int:
     configure = [sys.executable, "configure.py", "--portable"]
     if args.platform == "macos-metal":
         configure.append("--macos-metal")
-    elif args.platform == "macos-metal-v2":
-        configure.append("--macos-metal-v2")
     if server:
         # (the profiles are the 32-bit game's, which the servers' clang may
         # not read; a server's work is light)
@@ -177,7 +173,7 @@ def main() -> int:
         else:
             shutil.copy2(ROOT / output, dist / apk_names.get(output, Path(output).name))
         print(f"{output} -> {dist.relative_to(ROOT)}", flush=True)
-    if args.platform in ("macos", "macos-metal", "macos-metal-v2"):
+    if args.platform in ("macos", "macos-metal"):
         # (the SDL3 inside it, the build's own: zlib license)
         shutil.copy2(ROOT / "build/macos/third_party/SDL3/LICENSE.txt", dist / "SDL3-LICENSE.txt")
     if args.platform in ("windows", "windows64"):

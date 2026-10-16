@@ -155,10 +155,8 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, help="new/empty directory; default a retained temporary directory")
     parser.add_argument("--gl-app", type=Path, help="prebuilt app executable; supply with --metal-app to skip builds")
     parser.add_argument("--metal-app", type=Path)
-    parser.add_argument("--reference-name", choices=("OpenGL", "MetalV1"), default="OpenGL",
-                        help="reference label; MetalV1 requires prebuilt executables")
-    parser.add_argument("--candidate-name", choices=("Metal", "MetalV2"), default="Metal",
-                        help="candidate label; MetalV2 requires prebuilt executables")
+    parser.add_argument("--reference-name", choices=("OpenGL", "MetalReference"), default="OpenGL",
+                        help="reference label; MetalReference (an older Metal build) requires prebuilt executables")
     parser.add_argument("--seconds", type=int, default=14)
     parser.add_argument("--case", action="append", choices=[case.name for case in cases()])
     parser.add_argument("--mean-limit", type=float, default=3.0)
@@ -170,7 +168,7 @@ def main(argv=None):
         return 77
     if bool(args.gl_app) != bool(args.metal_app):
         parser.error("provide both --gl-app and --metal-app, or neither to build both")
-    if (args.reference_name != "OpenGL" or args.candidate_name != "Metal") and not args.gl_app:
+    if args.reference_name != "OpenGL" and not args.gl_app:
         parser.error("custom renderer names require --gl-app and --metal-app prebuilt executables")
     if not 10 <= args.seconds <= 120:
         parser.error("--seconds must be 10..120")
@@ -183,7 +181,7 @@ def main(argv=None):
     print(f"Artifacts: {output}", flush=True)
     selected = [case for case in cases() if not args.case or case.name in args.case]
     try:
-        apps = ({args.reference_name: args.gl_app.resolve(), args.candidate_name: args.metal_app.resolve()}
+        apps = ({args.reference_name: args.gl_app.resolve(), "Metal": args.metal_app.resolve()}
                 if args.gl_app else build_pair(output))
         for app in apps.values():
             if not app.is_file() or not os.access(app, os.X_OK):
@@ -194,7 +192,7 @@ def main(argv=None):
             "cases": [case.name for case in selected]}, indent=2) + "\n")
         return 0 if run_cases(selected, apps, args.data_root.resolve(), output, args.seconds,
                              mean_limit=args.mean_limit, fraction_limit=args.fraction_limit,
-                             reference_name=args.reference_name, candidate_name=args.candidate_name) else 1
+                             reference_name=args.reference_name) else 1
     except (subprocess.SubprocessError, ValueError, OSError) as error:
         print(f"FAIL: {error}; artifacts: {output}", file=sys.stderr)
         return 1

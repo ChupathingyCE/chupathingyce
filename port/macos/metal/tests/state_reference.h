@@ -1,0 +1,79 @@
+/* Frozen pre-reporting conversion reference. Do not derive from production. */
+static uint8_t gpu_compare(DWORD value)
+{
+    switch (value) {
+    case D3DCMP_LESS: return GPU_COMPARE_LESS;
+    case D3DCMP_EQUAL: return GPU_COMPARE_EQUAL;
+    case D3DCMP_LESSEQUAL: return GPU_COMPARE_LESS_EQUAL;
+    case D3DCMP_GREATER: return GPU_COMPARE_GREATER;
+    case D3DCMP_NOTEQUAL: return GPU_COMPARE_NOT_EQUAL;
+    case D3DCMP_GREATEREQUAL: return GPU_COMPARE_GREATER_EQUAL;
+    case D3DCMP_ALWAYS: return GPU_COMPARE_ALWAYS;
+    default: return GPU_COMPARE_NEVER;
+    }
+}
+static uint8_t gpu_stencil_operation(DWORD value)
+{
+    switch (value) {
+    case D3DSTENCILOP_KEEP: return GPU_STENCIL_KEEP;
+    case D3DSTENCILOP_REPLACE: return GPU_STENCIL_REPLACE;
+    case D3DSTENCILOP_INCRSAT: return GPU_STENCIL_INCREMENT_CLAMP;
+    case D3DSTENCILOP_DECRSAT: return GPU_STENCIL_DECREMENT_CLAMP;
+    case D3DSTENCILOP_INVERT: return GPU_STENCIL_INVERT;
+    case D3DSTENCILOP_INCR: return GPU_STENCIL_INCREMENT_WRAP;
+    case D3DSTENCILOP_DECR: return GPU_STENCIL_DECREMENT_WRAP;
+    default: return GPU_STENCIL_ZERO;
+    }
+}
+static uint8_t gpu_blend_factor(DWORD value)
+{
+    switch (value) {
+    case D3DBLEND_ONE: return GPU_BLEND_ONE;
+    case D3DBLEND_SRCCOLOR: return GPU_BLEND_SOURCE_COLOR;
+    case D3DBLEND_INVSRCCOLOR: return GPU_BLEND_ONE_MINUS_SOURCE_COLOR;
+    case D3DBLEND_SRCALPHA: return GPU_BLEND_SOURCE_ALPHA;
+    case D3DBLEND_INVSRCALPHA: return GPU_BLEND_ONE_MINUS_SOURCE_ALPHA;
+    case D3DBLEND_DESTALPHA: return GPU_BLEND_DESTINATION_ALPHA;
+    case D3DBLEND_INVDESTALPHA: return GPU_BLEND_ONE_MINUS_DESTINATION_ALPHA;
+    case D3DBLEND_DESTCOLOR: return GPU_BLEND_DESTINATION_COLOR;
+    case D3DBLEND_INVDESTCOLOR: return GPU_BLEND_ONE_MINUS_DESTINATION_COLOR;
+    case D3DBLEND_SRCALPHASAT: return GPU_BLEND_SOURCE_ALPHA_SATURATE;
+    case D3DBLEND_CONSTANTCOLOR: return GPU_BLEND_CONSTANT_COLOR;
+    case D3DBLEND_INVCONSTANTCOLOR: return GPU_BLEND_ONE_MINUS_CONSTANT_COLOR;
+    case D3DBLEND_CONSTANTALPHA: return GPU_BLEND_CONSTANT_ALPHA;
+    case D3DBLEND_INVCONSTANTALPHA: return GPU_BLEND_ONE_MINUS_CONSTANT_ALPHA;
+    default: return GPU_BLEND_ZERO;
+    }
+}
+static uint8_t gpu_blend_operation(DWORD value)
+{
+    switch (value) {
+    case D3DBLENDOP_SUBTRACT: return GPU_BLEND_OP_SUBTRACT;
+    case D3DBLENDOP_REVSUBTRACT:
+    case D3DBLENDOP_REVSUBTRACTSIGNED: return GPU_BLEND_OP_REVERSE_SUBTRACT;
+    case D3DBLENDOP_MIN: return GPU_BLEND_OP_MIN;
+    case D3DBLENDOP_MAX: return GPU_BLEND_OP_MAX;
+    default: return GPU_BLEND_OP_ADD;
+    }
+}
+static uint8_t gpu_filter(DWORD value)
+{
+    switch (value) {
+    case D3DTEXF_POINT: return GPU_FILTER_POINT;
+    case D3DTEXF_LINEAR: return GPU_FILTER_LINEAR;
+    case D3DTEXF_ANISOTROPIC: return GPU_FILTER_ANISOTROPIC;
+    case D3DTEXF_QUINCUNX: return GPU_FILTER_QUINCUNX;
+    case D3DTEXF_GAUSSIANCUBIC: return GPU_FILTER_GAUSSIAN_CUBIC;
+    default: return GPU_FILTER_NONE;
+    }
+}
+static uint8_t gpu_address(DWORD value)
+{
+    switch (value) {
+    case D3DTADDRESS_MIRROR: return GPU_ADDRESS_MIRROR;
+    case D3DTADDRESS_CLAMP: return GPU_ADDRESS_CLAMP;
+    case D3DTADDRESS_BORDER: return GPU_ADDRESS_BORDER;
+    case D3DTADDRESS_CLAMPTOEDGE: return GPU_ADDRESS_CLAMP_TO_EDGE;
+    default: return GPU_ADDRESS_WRAP;
+    }
+}

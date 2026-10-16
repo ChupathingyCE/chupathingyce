@@ -1,4 +1,4 @@
-/* Phase 0 of docs/metal-v2.md: CPU time per draw, by stage, behind
+/* Phase 0 of docs/metal.md: CPU time per draw, by stage, behind
 debug.gpu_stats. Disabled it costs one predictable branch per stage.
 Stages nest: DRAW_PROFILE_CALL includes the others. Times are inclusive wall
 clock, so include any preemption; use a sampling profiler to attribute inside

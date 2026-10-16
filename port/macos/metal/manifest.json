@@ -1,0 +1,184 @@
+{
+  "comment": [
+    "The macOS Metal build's source manifest and upstream contract (tools/metal_manifest.py).",
+    "Upstream is ChupathingyCE (https://github.com/ChupathingyCE/chupathingyce); its platform layer is port/linux/src.",
+    "Every .c in port/linux/src is classified exactly once: shared (compiled unchanged), replaced (by a Mac file) or dropped.",
+    "Every source and header under port/macos/metal/{xbox_compat,shaders,platform,renderer} is listed exactly once.",
+    "'base' pins the upstream git blob a Mac fork was last reconciled with; 'seen' (optional) an upstream blob whose changes are acknowledged but not yet reconciled. 'identical' copies must match upstream byte for byte.",
+    "Initial historical base pins are content-history estimates, not a claim that every intervening change was reviewed or ported; seen keeps the current known backlog visible.",
+    "After reviewing an upstream change: python3 tools/metal_manifest.py accept <upstream file>."
+  ],
+  "upstream": "port/linux/src",
+  "replaced": {
+    "d3d8_gl.c": {
+      "with": "xbox_compat/xbox_device.c",
+      "base": "f8bbcefe06a842f095203b998f63f7999b9d25b2",
+      "seen": "07fde0a8bc60e6eee92c8d7ef7fadb18be83aea2",
+      "why": "The Xbox D3D8 device: the same D3DDevice_* entry points, translated to the Metal backend (renderer/gpu.h) instead of OpenGL."
+    },
+    "d3d8_resources.c": {
+      "with": "xbox_compat/xbox_resources.c",
+      "identical": true,
+      "why": "Byte-identical, but its #include \"xgpu.h\" must find the Metal xgpu.h beside it, not OpenGL's beside the upstream copy."
+    },
+    "xgpu_text.c": {
+      "with": "xbox_compat/xgpu_text.c",
+      "identical": true,
+      "why": "Byte-identical, but its #include \"xgpu.h\" must find the Metal xgpu.h beside it, not OpenGL's beside the upstream copy."
+    },
+    "xbox_textures.c": {
+      "with": "xbox_compat/xbox_textures.c",
+      "base": "7eca75e86c34b522c24dc1013b4eb715382ff654",
+      "seen": "0aff3050462887f944e03457b4b8dd09fedd7bc8",
+      "why": "Xbox texture decoding and caching, uploaded through the Metal backend; per-stage texture lookup cache."
+    },
+    "nv2a_vsh.c": {
+      "with": "shaders/nv2a_vertex.c",
+      "base": "995921f159c3d274a59c0079f81a64ae6ab5ef52",
+      "seen": "dd9892ae6ba24ad5d9ddfcb910a65c4d061d6503",
+      "why": "NV2A vertex programs translated to MSL (with shaders/nv2a_msl.c) instead of GLSL; per-pixel lighting recognition."
+    },
+    "nv2a_psh.c": {
+      "with": "shaders/nv2a_pixel.c",
+      "base": "024a01649eeca623a14ac3f6548da2efd251cbe8",
+      "seen": "2f3dc1e18233febbdb44e057ff9f03c82912db88",
+      "why": "NV2A register combiners translated to MSL instead of GLSL."
+    },
+    "sdl_platform.c": {
+      "with": "platform/sdl_platform.c",
+      "base": "5be61326980c41bb216c59a3f5c0f85605e6ae45",
+      "seen": "951af131c1c494a40e56be4b4a7528cf5a83e9a7",
+      "why": "A Metal window (SDL_WINDOW_METAL): no OpenGL context, swap interval or GL entry points."
+    },
+    "port_config.c": {
+      "with": "platform/port_config.c",
+      "base": "015977d2993ae4ba822237beaf60e6a6eb603787",
+      "seen": "17cd84de243b3e58cfe66e921bb63a55c47155bd",
+      "why": "The Metal renderer's settings (debug.metal_*, display.* that only Metal reads)."
+    },
+    "menu_files.c": {
+      "with": "platform/menu_files.c",
+      "base": "ce79552927201ca676ca6ee71da391e4d6a5c05c",
+      "why": "Menu art as backend textures (gpu_texture_*) instead of GL textures."
+    },
+    "ui_overlay.c": {
+      "with": "platform/ui_overlay.c",
+      "base": "b877263be4d28706f49e701d5faeb8f096ea9859",
+      "why": "The overlay drawn into the Metal back buffer (renderer/metal_overlay.inc) instead of with GL calls."
+    },
+    "hud_hires.c": {
+      "with": "platform/hud_hires.c",
+      "base": "eb334aa9a5df56ac0202d29e2d282da709bfc1f3",
+      "seen": "911c4dc77d8f6d2aa4b8b73b4b178f217e272bd1",
+      "why": "High-resolution HUD textures uploaded through the Metal backend."
+    },
+    "text_hires.c": {
+      "with": "platform/text_hires.c",
+      "base": "4796f3b757746832ab7542a0e132aae7aaf7ed32",
+      "seen": "9eeb52d784e3bc105c295375945f8ae1a3af0a41",
+      "why": "The high-resolution text atlas as a backend texture instead of a GL texture."
+    }
+  },
+  "dropped": {
+    "xgpu_post.c": {
+      "base": "f5afed8072dd34a83f1cc37af9c486d2e479e682",
+      "why": "OpenGL FXAA/SMAA passes; the Metal backend has its own (renderer/metal_post.inc, renderer/metal_smaa.inc)."
+    },
+    "xgpu_shader_cache.c": {
+      "base": "db13a024ad22759a7cd9abec930b56982e96bf52",
+      "why": "GLSL program cache; Metal keeps pipelines in a binary archive and warms shader lists (renderer/gpu_metal.m)."
+    }
+  },
+  "shared": {
+    "comment": "Compiled unchanged into the Metal build (with the Mac include directories first).",
+    "files": [
+      "bink_null.c", "browser.c", "build_identity.c", "crash_report.c", "delta.c", "delta_maps.c",
+      "delta_peer.c", "delta_peer_game.c", "delta_wire.c", "dsound_sdl.c", "event_gzip.c", "event_log.c",
+      "event_upload.c", "gl_functions.c", "halo_linker_common.c", "log_address.c", "map_archive.c",
+      "map_download.c", "map_file_hash.c", "memory_watch.c", "msvc_crt.c", "msvc_wide.c", "p2p.c",
+      "p2p_copies.c", "p2p_crypto.c", "p2p_discord.c", "p2p_lobby.c", "p2p_signal.c", "posix_browser.c",
+      "posix_crash.c", "posix_files.c", "posix_net.c", "posix_ui_font.c", "posix_update.c", "posix_upnp.c",
+      "touch_input.c", "touch_menu.c", "update_signature.c", "updater.c", "xbdm.c", "xbox_files.c",
+      "xbox_heap.c", "xbox_kernel.c", "xbox_memory.c", "xbox_xapi.c", "xinput_sdl.c", "xiso.c", "xnet.c"
+    ]
+  },
+  "headers": {
+    "comment": "Mac headers that shadow upstream headers of the same name for every unit in the Metal build.",
+    "xgpu.h": {
+      "with": "xbox_compat/xgpu.h",
+      "base": "600eec39c34bc8f46dc92a6c648e45598a27b38a",
+      "seen": "30ddfc76871235c0cff13620e0d77aa459c9c4c2",
+      "why": "The front end's internals over renderer/gpu.h instead of OpenGL."
+    },
+    "platform.h": {
+      "with": "platform/platform.h",
+      "base": "c1744e19124c98698d4ef11e68036fd89fba4c14",
+      "seen": "ffd1f452abf7b3ef0b31fd366cde12ec55f5655c",
+      "why": "Adds the Metal front-end hooks (platform_renderer_metal, platform_fixed_timestep)."
+    },
+    "port_config.h": {
+      "with": "platform/port_config.h",
+      "identical": true,
+      "why": "Byte-identical; kept beside port_config.c so its quoted include stays inside the fork."
+    },
+    "hud_hires.h": {
+      "with": "platform/hud_hires.h",
+      "base": "c5f905a2feef1de8ef361d7046f3138772373978",
+      "seen": "b6147e6b4dd5b12b573366573dadd0860fdf70d2",
+      "why": "Backend texture handles instead of GL names."
+    },
+    "text_hires.h": {
+      "with": "platform/text_hires.h",
+      "base": "ea05f2893f26adf39b91089af8ba9bd385c0a200",
+      "seen": "1a244c35942ccd4ff68daf096a43c0c041ad1281",
+      "why": "Comment and declaration differences that follow text_hires.c."
+    }
+  },
+  "mac_only": {
+    "comment": "Sources (and headers) with no upstream counterpart.",
+    "sources": {
+      "xbox_compat/xbox_state.c": "Cached Xbox render/texture-stage state to backend state (depth, blend, raster, samplers, pixel shader).",
+      "shaders/nv2a_msl.c": "Metal Shading Language output for the NV2A translators.",
+      "renderer/gpu_dispatch.c": "The gpu_* entry points (renderer/gpu.h) bound to the Metal backend.",
+      "renderer/metal_report.c": "Compatibility and Metal failure reports (renderer/metal_report.h).",
+      "platform/metal_compat.c": "Platform hooks the native macOS port does not need (fixed timestep, input replay).",
+      "platform/mono.c": "Stereo queries answered for one ordinary view."
+    },
+    "objc": {
+      "renderer/gpu_metal.m": "The Metal backend.",
+      "renderer/metal_host.m": "The CAMetalLayer and window glue."
+    },
+    "headers": [
+      "xbox_compat/aa_size.h", "xbox_compat/cache_file_formats.h", "xbox_compat/halo_display.h",
+      "xbox_compat/shader_list_learn.h", "xbox_compat/texture_override.h", "xbox_compat/texture_upscale_state.h",
+      "xbox_compat/upload_bounds.h", "xbox_compat/xbox_state.h",
+      "shaders/model_lighting.inc", "shaders/model_lighting_source.h",
+      "platform/frame_limit.h", "platform/halo_stereo.h", "platform/halo_stereo_cutscene.h",
+      "platform/halo_stereo_window.h", "platform/hud_preload.h", "platform/metal_platform.h",
+      "renderer/draw_profile.h", "renderer/gpu.h", "renderer/gpu_uniforms.h", "renderer/macos_metal.h",
+      "renderer/metal_archive.h", "renderer/metal_attribute_table.h", "renderer/metal_fxaa_source.h",
+      "renderer/metal_msaa.h", "renderer/metal_overlay.h", "renderer/metal_overlay.inc", "renderer/metal_post.inc",
+      "renderer/metal_report.h", "renderer/metal_smaa.inc", "renderer/metal_smaa_source.h",
+      "renderer/metal_state_cache.h", "renderer/metal_vsync.h"
+    ],
+    "tools": {
+      "renderer/metal_smoke.m": "ninja macos-metal-smoke: a standalone backend check, not part of the game."
+    }
+  },
+  "not_provided": {
+    "comment": "Symbols the upstream files above define that the Metal build deliberately does not.",
+    "xgpu_compile_shader": "GLSL compilation (d3d8_gl.c); Metal compiles MSL in renderer/gpu_metal.m.",
+    "xgpu_link_program": "GLSL program linking (d3d8_gl.c); Metal pipelines in renderer/gpu_metal.m.",
+    "xgpu_gl_state_invalidate": "OpenGL state tracking (d3d8_gl.c); the Metal encoder state cache is renderer/metal_state_cache.h.",
+    "nv2a_vertex_shader_to_glsl": "GLSL output (nv2a_vsh.c); Metal's is nv2a_vertex_shader_translate with shaders/nv2a_msl.c.",
+    "nv2a_pixel_shader_to_glsl": "GLSL output (nv2a_psh.c); Metal's is nv2a_pixel_shader_translate with shaders/nv2a_msl.c.",
+    "platform_video_swap": "GL buffer swap (sdl_platform.c); Metal presents in renderer/gpu_metal.m.",
+    "ui_overlay_present": "GL overlay drawing (ui_overlay.c); Metal draws it in renderer/metal_overlay.inc.",
+    "xgpu_post_prepare": "OpenGL post-processing (xgpu_post.c); renderer/metal_post.inc.",
+    "xgpu_post_anti_alias": "OpenGL post-processing (xgpu_post.c); renderer/metal_post.inc.",
+    "xgpu_shader_cache_compile": "GLSL cache (xgpu_shader_cache.c); Metal pipeline archive.",
+    "xgpu_shader_cache_linked": "GLSL cache (xgpu_shader_cache.c); Metal pipeline archive.",
+    "xgpu_shader_cache_warm": "GLSL cache (xgpu_shader_cache.c); Metal shader-list warming.",
+    "hud_hires_settings": "KNOWN GAP: upstream 3bfb63b17 (high-res text/HUD settings honored while the game runs); only upstream xbox_textures.c calls it, and the Mac forks of hud_hires.c and xbox_textures.c predate it. Remove this line when they are reconciled."
+  }
+}

@@ -6,7 +6,7 @@ readback and GPU waits. Counters are collected in a separate untimed batch. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../port/macos/metal/gpu_metal.m"
+#include "../port/macos/metal/renderer/gpu_metal.m"
 
 static CAMetalLayer *probe_layer;
 
@@ -148,9 +148,7 @@ static double draw_batch(struct gpu_draw *draw, int mode, int counted, uint64_t 
 {
     struct gpu_clear clear = { .flags = GPU_CLEAR_COLOR, .color = 0xff000000 };
     metal_profile = (struct draw_profile){ .enabled = counted };
-#ifdef HALO_MACOS_METAL_V2
     prepared_native_reset();
-#endif
     assert(pass_begin(draw->color_target, 0, &clear));
     double started = CACurrentMediaTime();
     assert(pool_group_draws >= 1);
@@ -200,11 +198,7 @@ static void transition_test(struct gpu_draw draw)
     } /* Native resources must survive this drain through GPU completion. */
     finish_batch(draw.color_target, 1);
     assert(metal_profile.attribute_table_binds == 2);
-#ifdef HALO_MACOS_METAL_V2
     unsigned long expected = prepared_native_enabled ? 1 : 2;
-#else
-    unsigned long expected = 2;
-#endif
     assert(metal_profile.pipeline_lookups == expected && metal_profile.depth_lookups == expected);
     gpu_metal_texture_upload(draw.stages[0].texture, 0, 0, &white, 4);
     constants.c[0][0] = 0.25f; constants.c[0][1] = 0.5f; constants.c[0][2] = 0.75f;
@@ -234,12 +228,7 @@ static void pool_early_return_test(struct gpu_draw draw)
 
 static unsigned long expected_lookup(int changed)
 {
-#ifdef HALO_MACOS_METAL_V2
     return prepared_native_enabled ? (unsigned long)changed : 1;
-#else
-    (void)changed;
-    return 1;
-#endif
 }
 
 static void pipeline_transition_test(struct gpu_draw draw)
@@ -347,7 +336,6 @@ int main(int argc, const char **argv)
         struct gpu_capabilities capabilities;
         gpu_metal_initialize(GPU_INITIALIZE_NO_PIPELINE_ARCHIVE | GPU_INITIALIZE_NO_SPECIALIZE, &capabilities);
         for (int argument = 1; argument < argc; argument++) {
-#ifdef HALO_MACOS_METAL_V2
             if (!strcmp(argv[argument], "--native-off"))
                 prepared_native_enabled = NO;
             else if (!strcmp(argv[argument], "--pool-group=8"))
@@ -355,7 +343,6 @@ int main(int argc, const char **argv)
             else if (!strcmp(argv[argument], "--pool-group=64"))
                 pool_group_draws = 64;
             else
-#endif
                 host_fatal("Unknown probe option: %s\n", argv[argument]);
         }
         struct gpu_draw draw = make_draw();
@@ -373,14 +360,9 @@ int main(int argc, const char **argv)
             }
             draw_batch(&draw, mode, 1, &digest); /* counters never contaminate timings */
             assert(metal_profile.calls[DRAW_PROFILE_ENCODE] == PROBE_DRAWS);
-#ifdef HALO_MACOS_METAL_V2
             unsigned long lookups = prepared_native_enabled ? 1 : PROBE_DRAWS;
             assert(metal_profile.pipeline_lookups == lookups && metal_profile.depth_lookups == lookups);
             assert(metal_profile.attribute_table_binds == (mode == 2 ? PROBE_DRAWS : 1));
-#else
-            assert(metal_profile.pipeline_lookups == PROBE_DRAWS && metal_profile.depth_lookups == PROBE_DRAWS);
-            assert(metal_profile.attribute_table_binds == PROBE_DRAWS);
-#endif
             printf("],\"digest\":\"%016llx\",\"shader_lookups\":%lu,\"pipeline_lookups\":%lu,"
                 "\"depth_lookups\":%lu,\"attribute_binds\":%lu,\"pool_group_draws\":%u,"
                 "\"draw_pool_drains\":%u}\n", (unsigned long long)digest,

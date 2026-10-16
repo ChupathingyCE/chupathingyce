@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Profile actual V1/V2 gameplay, not the offscreen backend fixture.
+"""Profile actual reference/candidate gameplay, not the offscreen backend fixture.
 
 Hidden/offline launches require HALO_ALLOW_LAUNCH=1. Output contains isolated
 configs/logs, executable hashes, exact commands and per-run window summaries.
@@ -154,7 +154,7 @@ def main(argv=None):
     output = args.output.resolve()
     if output.exists() and any(output.iterdir()):
         parser.error("output must be empty")
-    apps = {"v1": args.reference_app.resolve(), "v2": args.candidate_app.resolve()}
+    apps = {"reference": args.reference_app.resolve(), "candidate": args.candidate_app.resolve()}
     for app in apps.values():
         try:
             executable = app.is_file() and os.access(app, os.X_OK)
@@ -176,7 +176,7 @@ def main(argv=None):
         for mode in args.modes:
             for repeat in range(args.repeats):
                 # ABBA with two repeats; balanced AB/BA pairs for larger runs.
-                order = ("v1", "v2") if repeat % 2 == 0 else ("v2", "v1")
+                order = ("reference", "candidate") if repeat % 2 == 0 else ("candidate", "reference")
                 for variant in order:
                     folder = output / f"{scene}-{mode}-{repeat + 1}-{variant}"
                     if args.warm_lists:

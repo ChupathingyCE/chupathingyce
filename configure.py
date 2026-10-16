@@ -55,13 +55,6 @@ parser.add_argument(
     help="experimental native macOS Metal gameplay renderer (opt-in; default OpenGL; other platforms unchanged)",
 )
 parser.add_argument(
-    "--macos-metal-v2",
-    action="store_true",
-    default=False,
-    help="experimental macOS Metal V2 draw-submission renderer (docs/metal-v2.md): built beside V1 and OpenGL in "
-    "build/macos_v2 (ninja macos_v2); exclusive of --macos-metal; other platforms unchanged",
-)
-parser.add_argument(
     "--lto",
     choices=["full", "thin", "off"],
     default="full",
@@ -106,8 +99,6 @@ parser.add_argument(
     help="clang with the arm64_32 target for the Android guest (default: clang)",
 )
 args = parser.parse_args()
-if args.macos_metal and args.macos_metal_v2:
-    parser.error("--macos-metal and --macos-metal-v2 are exclusive: pick one Metal renderer")
 
 # the settings the builds read
 sln = SimpleNamespace(
@@ -120,7 +111,6 @@ sln = SimpleNamespace(
     port_lto=args.lto,
     port_portable=args.portable,
     macos_metal=args.macos_metal,
-    macos_metal_v2=args.macos_metal_v2,
     port_pgo=args.pgo,
     port_pgo_profile=args.pgo_profile,
     android_ndk=args.android_ndk,
