@@ -219,9 +219,12 @@ enum delta_message_type
 	its file's name, size and hash), whenever it changes and with each
 	roster */
 	_delta_message_map = 17,
+	/* 18 to 21: main's chat (CHAT_CONFIG, CHAT_SAY, CHAT_LINE,
+	CHAT_REFUSED). Grifball test builds 2 and 3 sent TRAITS as 18; the
+	number is chat's, never TRAITS' again */
 	/* host to client, if both agreed to bomb: the game's player traits (for
 	a Bomb game type), whenever they change and every few seconds */
-	_delta_message_traits = 18
+	_delta_message_traits = 22
 };
 
 /* TRAITS's game kinds: what the traits are for */

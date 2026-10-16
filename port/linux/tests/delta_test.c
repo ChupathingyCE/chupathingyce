@@ -1110,6 +1110,8 @@ static void test_wire_traits(void)
 	size = delta_wire_write_traits(data, 0x1234, &traits);
 	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TRAITS_MOVEMENT_SIZE);
 	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_traits && header.length == 48);
+	/* (22: 18 to 21 are chat's) */
+	CHECK(data[3] == 22);
 	CHECK(data[12] == DELTA_WIRE_TRAITS_BOMB && data[16] == 10 && data[17] == 0 && data[18] == 200);
 	CHECK(data[24] == DELTA_WIRE_SHIELDS_NONE && data[28 + 8] == DELTA_WIRE_SHIELDS_OVERSHIELD && data[28 + 9] == 1);
 	CHECK(delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, header.length, &read) &&
