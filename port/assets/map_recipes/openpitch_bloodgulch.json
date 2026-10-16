@@ -1,0 +1,26 @@
+{
+  "comment": "Blood Gulch for Grifball's Open Pitch: the stock map with the Grifball court's gravity hammer, energy sword and ball. A beta stand-in until a real map exists (docs/map_patches.md).",
+  "recipe_version": 1,
+  "output": "openpitch_bloodgulch",
+  "base": {
+    "map": "bloodgulch",
+    "family": "ce",
+    "sha256": "81764a451b60d93cb3f2471c4efb6e7bc313e1c2f7105e0184f297e2a0ab475c",
+    "comment": "Halo Custom Edition's stock bloodgulch.map"
+  },
+  "packs": [
+    {
+      "file": "grifball_assets",
+      "credit": "Gravity hammer, energy sword and ball from \"Grifball Beta\" (grifball.map) by SlappyThePirate, 2011"
+    }
+  ],
+  "weapons": [
+    "h3mt\\weapons\\covenant\\gravity_hammer\\gravity_hammer",
+    "weapons\\energy_sword\\energy_sword backup"
+  ],
+  "ball": "weapons\\grifball\\grifball",
+  "labels": {
+    "h3mt\\weapons\\covenant\\gravity_hammer\\gravity_hammer": "ar",
+    "weapons\\energy_sword\\energy_sword backup": "hp"
+  }
+}

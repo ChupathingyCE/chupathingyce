@@ -541,56 +541,45 @@ void game_engine_bomb_host_traits(
 
 /* ---------- the map */
 
-/* ---------- an asset pack's weapons (port/linux/game/ce_assets.c) */
+/* ---------- a patched map's weapons (tools/map_patch.py) */
 
 #ifdef HALO_CUSTOM_EDITION
-long ce_assets_role_tag(unsigned long role, long which);
+char const *cache_files_ce_patch_text(void);
 #endif
 
 enum
 {
-	/* (ce_assets.c's roles) */
-	_bomb_asset_weapon = 1,
-	_bomb_asset_ball,
-	/* the most weapons a pack gives */
-	MAXIMUM_BOMB_ASSET_WEAPONS = 2,
+	/* the most weapons a patched map's game type hands out */
+	MAXIMUM_BOMB_PATCH_WEAPONS = 2,
 };
 
-/* whether the map's tags get the asset pack's (ce_assets.c), as they load:
-a melee-only Bomb game type (Grifball's), on every machine in the game, which
-all have the host's game type before the map loads */
-boolean ce_assets_wanted(
-	void)
-{
-	extern struct game_variant game_variant_global;
-
-	return game_variant_global.game_engine_index == game_engine_bomb &&
-		TEST_FLAG(game_variant_global.game_engine_variant.bomb.flags, _bomb_melee_only_bit);
-}
-
-/* the pack's which'th weapon players get, or its ball (NONE: none) */
-static long bomb_asset_tag(
-	unsigned long role,
+/* the which'th weapon a patched map says its game type hands out (its
+header's "weapon:" lines), NONE if none: the weapons players get in a
+melee-only game in place of the map's sword */
+static long bomb_patch_weapon(
 	long which)
 {
 #ifdef HALO_CUSTOM_EDITION
-	long tag_index = ce_assets_role_tag(role, which);
+	char const *line = cache_files_ce_patch_text();
 
-	return tag_index != NONE && tag_get(WEAPON_DEFINITION_TAG, tag_index) ? tag_index : NONE;
+	while (line && *line)
+	{
+		char const *end = strchr(line, '\n');
+		size_t length = end ? (size_t)(end - line) : strlen(line);
+
+		if (length > 8 && !strncmp(line, "weapon: ", 8) && which-- == 0)
+		{
+			char name[256];
+
+			snprintf(name, sizeof(name), "%.*s", (int)(length - 8), line + 8);
+			return tag_loaded(WEAPON_DEFINITION_TAG, name);
+		}
+		line = end ? end + 1 : NULL;
+	}
 #else
-	(void)role;
 	(void)which;
-	return NONE;
 #endif
-}
-
-/* the bomb's weapon: the asset pack's ball, else the map's oddball ball */
-static long bomb_ball_definition_index(
-	void)
-{
-	long tag_index = bomb_asset_tag(_bomb_asset_ball, 0);
-
-	return tag_index != NONE ? tag_index : get_ball_definition_index();
+	return NONE;
 }
 
 /* the map's energy sword a player can use: a weapon tag named for a sword,
@@ -644,40 +633,31 @@ void game_engine_bomb_give_sword(
 	long definition_index = bomb_globals.sword_definition_index != NONE ? bomb_globals.sword_definition_index :
 		bomb_globals.fist_definition_index;
 
-	/* (the asset pack's weapons, the first in hand, in place of the map's
+	/* (a patched map's weapons, the first in hand, in place of the map's
 	sword: the last first, then each before it into the unit's hands) */
-	if (bomb_asset_tag(_bomb_asset_weapon, 0) != NONE)
+	if (bomb_patch_weapon(0) != NONE)
 	{
 		boolean added = FALSE;
 		long which;
 
 		if (!game_engine_bomb_melee_only() || unit_index == NONE || network_game_distributed_client())
 			return;
-		for (which = MAXIMUM_BOMB_ASSET_WEAPONS - 1; which >= 0; which--)
+		for (which = MAXIMUM_BOMB_PATCH_WEAPONS - 1; which >= 0; which--)
 		{
-			long asset_index = bomb_asset_tag(_bomb_asset_weapon, which);
+			long patch_index = bomb_patch_weapon(which);
 
-			if (asset_index == NONE)
+			if (patch_index == NONE)
 				continue;
-			object_placement_data_new(&placement_data, asset_index, NONE);
+			object_placement_data_new(&placement_data, patch_index, NONE);
 			weapon_index = object_new(&placement_data);
 			if (weapon_index != NONE && unit_add_weapon_to_inventory(unit_index, weapon_index,
 				added ? _unit_add_weapon_starting : _unit_add_weapon_replace))
 			{
 				added = TRUE;
 			}
-			else
-			{
-				bomb_log("the asset pack's weapon %08lx not added (object %08lx, label %s, unit can use it: %d)",
-					(unsigned long)asset_index, (unsigned long)weapon_index,
-					weapon_index != NONE ? weapon_get_label(weapon_index) : "", weapon_index != NONE ?
-						unit_can_use_weapon(unit_index, weapon_index) : 0);
-				if (weapon_index != NONE)
-					object_delete(weapon_index);
-			}
+			else if (weapon_index != NONE)
+				object_delete(weapon_index);
 		}
-		bomb_log("unit %08lx given the asset pack's weapons (%s)", (unsigned long)unit_index,
-			added ? "in hand" : "none added");
 		return;
 	}
 
@@ -721,7 +701,7 @@ boolean game_engine_bomb_hides_weapon(
 
 static long bomb_create(void)
 {
-	long definition_index = bomb_ball_definition_index();
+	long definition_index = get_ball_definition_index();
 	struct object_placement_data placement_data;
 	long weapon_index;
 
@@ -1049,15 +1029,15 @@ static boolean bomb_engine_initialize_for_new_map(void)
 	bomb_blast_find_effects();
 	bomb_globals.score_to_win = game_engine_get_variant()->universal_variant.score_to_win;
 	bomb_globals.sword_definition_index = bomb_find_sword();
-	if (bomb_asset_tag(_bomb_asset_weapon, 0) != NONE || bomb_asset_tag(_bomb_asset_ball, 0) != NONE)
+	if (bomb_patch_weapon(0) != NONE)
 	{
-		bomb_log("the asset pack's weapons %08lx %08lx and ball %08lx", (unsigned long)bomb_asset_tag(_bomb_asset_weapon, 0),
-			(unsigned long)bomb_asset_tag(_bomb_asset_weapon, 1), (unsigned long)bomb_asset_tag(_bomb_asset_ball, 0));
+		bomb_log("the patched map's weapons %08lx %08lx", (unsigned long)bomb_patch_weapon(0),
+			(unsigned long)bomb_patch_weapon(1));
 	}
 	/* (the multiplayer weapon list's pistol: game_engine.c's
 	_weapon_list_pistol) */
 	bomb_globals.fist_definition_index = bomb_globals.sword_definition_index == NONE &&
-		bomb_asset_tag(_bomb_asset_weapon, 0) == NONE ?
+		bomb_patch_weapon(0) == NONE ?
 		list_index_to_weapon_definition_index(4) : NONE;
 	if (bomb_globals.fist_definition_index != NONE &&
 		weapon_definition_get(bomb_globals.fist_definition_index)->weapon.interface_definition.first_person_animations.index ==
@@ -2048,7 +2028,7 @@ boolean game_engine_bomb_hides_pickup(
 	long weapon_definition_index)
 {
 	return bomb_running() && weapon_definition_index != NONE &&
-		weapon_definition_index == bomb_ball_definition_index();
+		weapon_definition_index == get_ball_definition_index();
 }
 
 /* ---------- the game's report (game_engine.c, port/linux/game/game_stats.c;

@@ -139,10 +139,6 @@ static void ce_sounds_decode(void *tag_instances, long tag_count);
 
 /* ---------- globals */
 
-/* the file the tags' own samples are in, if not the map's (an asset pack's:
-ce_assets.c) */
-static HANDLE ce_resources_own_file;
-
 static struct ce_resource_map ce_resource_maps[NUMBER_OF_CE_RESOURCE_MAPS];
 static char const *const ce_resource_map_names[NUMBER_OF_CE_RESOURCE_MAPS] = { "bitmaps", "sounds", "loc" };
 /* the indexed tags of the map loaded: their resource map, by tag index (+1;
@@ -1262,7 +1258,7 @@ static void ce_sounds_decode(
 	long tag_count)
 {
 	HANDLE sounds_map = ce_resource_maps[_ce_resource_sounds].file;
-	HANDLE map_file = ce_resources_own_file ? ce_resources_own_file : cache_files_ce_map_file();
+	HANDLE map_file = cache_files_ce_map_file();
 	char path[256];
 	HANDLE file = NULL;
 	unsigned long written = 0;
@@ -1452,14 +1448,6 @@ static void ce_sounds_decode(
 	error(_error_silent, "Custom Edition maps: %ld Ogg Vorbis sounds decoded, %ld of them the map's (%ld permutations, "
 		"%lu bytes); %ld sounds given their permutations' compression", sounds, in_map, permutations_decoded, written,
 		repaired);
-}
-
-/* the file the tags being made the engine's have their own samples in, in
-place of the map's: an asset pack's (ce_assets.c); NULL: the map's */
-void ce_resources_set_own_file(
-	HANDLE file)
-{
-	ce_resources_own_file = file;
 }
 
 /* the resource map a tag's pixels or samples are read from (cache_files_windows.c),

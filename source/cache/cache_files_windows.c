@@ -455,8 +455,6 @@ static char ce_map_name[64];
 map, for its indexed tags' pixels and samples (port/linux/game/ce_resources.c) */
 static HANDLE ce_request_files[MAXIMUM_SIMULTANEOUS_CACHE_REQUESTS];
 HANDLE ce_resources_file_for_tag(long tag_index);
-/* an asset pack's tag's file (port/linux/game/ce_assets.c) */
-HANDLE ce_assets_file_for_tag(long tag_index);
 boolean ce_map_check(HANDLE file, char const *map_name, long file_length, long tag_data_offset,
 	long tag_data_size);
 /* the version of the map checked or loaded (port/linux/game/ce_resources.c) */
@@ -554,6 +552,28 @@ static boolean ce_map_open(
 	ce_refused_map_checksum = header.checksum;
 	CloseHandle(file);
 	return FALSE;
+}
+
+/* the text a patched map (tools/map_patch.py) keeps in its header's free
+space, from 0x400: "key: value" lines that say what it is (its recipe, its
+base map, the weapons a game type hands out, its packs' credits); NULL if the
+map open in that slot has none */
+char const *cache_files_ce_patch_text(
+	void)
+{
+	enum
+	{
+		PATCH_TEXT_OFFSET = 0x400,
+		PATCH_TEXT_SIZE = 0x3f0,
+	};
+	static char text[PATCH_TEXT_SIZE + 1];
+	byte const *header = (byte const *)&ce_map_file.header;
+
+	if (!ce_map_file.file || memcmp(header + PATCH_TEXT_OFFSET, "patch: ", 7))
+		return NULL;
+	memcpy(text, header + PATCH_TEXT_OFFSET, PATCH_TEXT_SIZE);
+	text[PATCH_TEXT_SIZE] = 0;
+	return text;
 }
 
 /* the map open in that slot, or NULL: its own sounds' samples are read
@@ -1038,8 +1058,8 @@ short cache_file_read(
 	if (size & (CACHE_FILE_SECTOR_SIZE - 1)
 #ifdef HALO_CUSTOM_EDITION
 		/* (a Custom Edition map is read as it is, to its end, not in the
-		Xbox's whole sectors, and so is an asset pack's tag's data) */
-		&& cache_file_globals.open_map_file_index != CE_MAP_FILE_INDEX && !ce_assets_file_for_tag(tag_index)
+		Xbox's whole sectors) */
+		&& cache_file_globals.open_map_file_index != CE_MAP_FILE_INDEX
 #endif
 		)
 	{
@@ -1048,7 +1068,7 @@ short cache_file_read(
 	*completion_flag_reference = FALSE;
 #ifdef HALO_CUSTOM_EDITION
 	ce_request_files[request_index] = cache_file_globals.open_map_file_index == CE_MAP_FILE_INDEX
-		? ce_resources_file_for_tag(tag_index) : ce_assets_file_for_tag(tag_index);
+		? ce_resources_file_for_tag(tag_index) : NULL;
 #endif
 	memset(
 		&request->overlapped,

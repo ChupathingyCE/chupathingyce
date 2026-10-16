@@ -1837,11 +1837,8 @@ static struct weapon_magazine *weapon_magazine_get(
 	{
 		static struct weapon_magazine no_magazine;
 		extern boolean cache_file_tags_are_ce(void);
-		/* (or an asset pack's weapon, beside an Xbox map:
-		port/linux/game/ce_assets.c) */
-		extern boolean ce_assets_tag(long tag_index);
 
-		if (!(magazine_index==NONE && (cache_file_tags_are_ce() || ce_assets_tag(weapon->definition_index))))
+		if (!(magazine_index==NONE && cache_file_tags_are_ce()))
 		{
 			match_assert("c:\\halo\\SOURCE\\items\\weapons.c", 1650,
 				magazine_index>=0 && magazine_index<weapon_definition->weapon.magazines.count);

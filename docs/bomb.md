@@ -408,43 +408,16 @@ Searches of halomaps.org found no other Custom Edition Grifball court.
 Halo 4's and Halo 5's Grifball Courts (Erosion, Glacier) are those games'
 Forge maps, not Halo CE maps.
 
-## The court's weapons on stock maps (prototype)
+## Open Pitch with the court's weapons (beta)
 
-A Grifball game on an Xbox map (Blood Gulch, Open Pitch) can play with the
-Grifball court's own gravity hammer, energy sword and ball, from
-`grifball.map`, "Grifball Beta" by SlappyThePirate (2011), whose author
-lets the map be used. The game doesn't ship them: a player puts
-`grifball_assets.map` beside the Custom Edition maps (`maps_ce`). That file
-holds only those three weapons and every tag they use, made from the court's
-map by `tools/ce_asset_pack.py`:
-
-```sh
-python3 tools/ce_asset_pack.py build --map maps_ce/grifball.map \
-    --out maps_ce/grifball_assets.map \
-    --weapon "h3mt\weapons\covenant\gravity_hammer\gravity_hammer" \
-    --weapon "weapons\energy_sword\energy_sword backup" \
-    --ball "weapons\grifball\grifball" \
-    --label "h3mt\weapons\covenant\gravity_hammer\gravity_hammer=ar" \
-    --label "weapons\energy_sword\energy_sword backup=hp"
-```
-
-When a melee-only Bomb game type (Grifball, Open Pitch) loads an Xbox map
-and the file is there, its tags are added after the map's
-(`port/linux/game/ce_assets.c`, made the engine's as a Custom Edition map's
-tags are). Players then get the hammer, in hand, and the sword, and the
-bomb is the court's ball. Without the file, nothing changes.
-
-Not done yet:
-
-- Every machine in the game must have the same file (the tags get the same
-  indices on each only then). Nothing checks it yet: Delta Peer is to carry
-  the file's hash, and a host is to refuse a machine without it, with a
-  message that says which file it needs.
-- The file is trusted as it is read. It's to be checked as a Custom
-  Edition map is (`ce_map_checks.c`) before it's used.
-- The cyborg holds the hammer as an assault rifle and the sword as a pistol
-  (the court's own biped has their animations, "gh" and "es"; the Xbox
-  cyborg's graph doesn't).
+Until a real map exists, Open Pitch can be played on `openpitch_bloodgulch`,
+Blood Gulch with the Grifball court's gravity hammer, energy sword and ball,
+from `grifball.map`, "Grifball Beta" by SlappyThePirate (2011), whose author
+lets the map be used. It's an ordinary Custom Edition map made by a patcher
+from the stock map and an asset pack; see [map_patches.md](map_patches.md).
+On a patched map whose header names the weapons a game type hands out, a
+melee-only Bomb game gives players those (the first in hand) in place of the
+map's sword, and the ball is the map's multiplayer ball.
 
 ## Open questions
 

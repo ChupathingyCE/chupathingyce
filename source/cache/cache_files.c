@@ -667,14 +667,6 @@ void scenario_tags_unload(
 
 		menu_tags_unloaded();
 	}
-#ifdef HALO_CUSTOM_EDITION
-	/* (and the asset pack's: port/linux/game/ce_assets.c) */
-	{
-		extern void ce_assets_tags_unloaded(void);
-
-		ce_assets_tags_unloaded();
-	}
-#endif
 	cache_file_close();
 #ifdef HALO_CUSTOM_EDITION
 	/* (a Custom Edition map registered no Direct3D buffers) */
@@ -1629,15 +1621,6 @@ long scenario_tags_load(
 
 				hud_hires_tags_loaded(cache_file_globals.tag_header->scenario_tag_index);
 			}
-#ifdef HALO_CUSTOM_EDITION
-			/* port: a Custom Edition map's weapons the game type plays with,
-			added after the map's tags (port/linux/game/ce_assets.c) */
-			{
-				extern void ce_assets_tags_loaded(void);
-
-				ce_assets_tags_loaded();
-			}
-#endif
 #ifdef HALO_GAME_BROWSER
 			/* the Multiplayer menu's ONLINE GAMES (interface/ui_widget.c) */
 			{

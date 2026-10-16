@@ -94,14 +94,8 @@ long verify_tag_reference(
 	the same one, and its references' emptied, so the name finds no tag or
 	another; the reference's index, a tag of its group, is the tag
 	(cache_files.c's tag_index_is_group) */
-	/* (and so are an asset pack's, beside an Xbox map, whose names may be
-	the map's own tags': port/linux/game/ce_assets.c) */
-	{
-		extern boolean ce_assets_tag(long tag_index);
-
-		if (cache_file_tags_are_ce() || ce_assets_tag(reference->index))
-			return tag_index_is_group(reference->index, reference->group_tag) ? reference->index : NONE;
-	}
+	if (cache_file_tags_are_ce())
+		return tag_index_is_group(reference->index, reference->group_tag) ? reference->index : NONE;
 #endif
 #ifdef HALO_64BIT
 	index = tag_loaded(reference->group_tag, TAG_REFERENCE_NAME(reference));
