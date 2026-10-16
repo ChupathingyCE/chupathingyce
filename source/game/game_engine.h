@@ -473,6 +473,8 @@ boolean game_engine_bomb_holds_spawns(void);
 /* whether a landing hurts: not in Grifball (one hit kills, and a fall would
 be one); falling for too long still kills */
 boolean game_engine_bomb_landing_damage(void);
+/* a unit struck by a melee blow that didn't kill it: a carrier's fumble */
+void game_engine_bomb_unit_struck(long unit_index);
 #endif
 
 /* port: the most a game type's state for the distributed netcode's clients

@@ -58,6 +58,7 @@ netcode shows them from the host's state (game_engine_bomb_write_network_state).
 #include <string.h>
 
 /* port_config.c's */
+int config_boolean(char const *name);
 long config_integer(char const *name);
 char const *config_string(char const *name);
 
@@ -94,6 +95,13 @@ height, through this far, and the bomb dropped from this high over it */
 #define BOMB_SPAWN_POINT_TEST_HEIGHT 1.0f
 #define BOMB_SPAWN_TEST_DEPTH 20.0f
 #define BOMB_SPAWN_DROP_HEIGHT 0.25f
+
+/* Open Pitch's carrier, on top of everyone's (percent), no overshield: a
+melee blow, the only damage of a game without weapons, takes 93% of its
+health (everyone's: three times theirs), so it lives through the first and
+fumbles the bomb, and the second kills it (docs/bomb.md) */
+#define BOMB_OPEN_PITCH_CARRIER_HEALTH 400
+#define BOMB_OPEN_PITCH_CARRIER_RESISTANCE 400
 
 enum
 {
@@ -341,8 +349,21 @@ void game_engine_traits_default(
 			(short)PIN(speed, PLAYER_TRAIT_SPEED_MINIMUM, PLAYER_TRAIT_SPEED_MAXIMUM) : 175;
 		traits->everyone.shields = _trait_shields_none;
 		traits->carrier.speed = 115;
-		traits->carrier.resistance = 150;
-		traits->carrier.shields = _trait_shields_overshield;
+		/* (the carrier a little harder to stop, no more: game.bomb_open_pitch_
+		carrier_health, _resistance and _shields on the host) */
+		{
+			long health = config_integer("game.bomb_open_pitch_carrier_health");
+			long resistance = config_integer("game.bomb_open_pitch_carrier_resistance");
+			char const *shields = config_string("game.bomb_open_pitch_carrier_shields");
+
+			traits->carrier.health = health > 0 ? (short)health : BOMB_OPEN_PITCH_CARRIER_HEALTH;
+			traits->carrier.resistance = resistance > 0 ? (short)resistance : BOMB_OPEN_PITCH_CARRIER_RESISTANCE;
+			traits->carrier.shields = _trait_shields_unchanged;
+			if (shields && !csstrcasecmp(shields, "normal"))
+				traits->carrier.shields = _trait_shields_normal;
+			else if (shields && !csstrcasecmp(shields, "overshield"))
+				traits->carrier.shields = _trait_shields_overshield;
+		}
 	}
 }
 
@@ -2047,6 +2068,31 @@ boolean game_engine_bomb_holds_spawns(
 	void)
 {
 	return bomb_running() && bomb_globals.hold_ticks > 0 && bomb_globals.hold_ticks <= BOMB_BLAST_PAUSE_TICKS;
+}
+
+/* the host's: a melee blow that doesn't kill the carrier knocks the bomb
+loose (Open Pitch, game.bomb_open_pitch_fumble): it falls at the carrier's
+feet, thrown a little ahead as a drop is, and the carrier can't take it
+back at once (unit_drop_item) */
+void game_engine_bomb_unit_struck(
+	long unit_index)
+{
+	long weapon_index = bomb_globals.weapon_index;
+
+	if (!bomb_running() || network_game_distributed_client() || weapon_index == NONE ||
+		game_engine_get_variant()->game_engine_variant.bomb.traits != _bomb_traits_open_pitch ||
+		!config_boolean("game.bomb_open_pitch_fumble") ||
+		!object_try_and_get_and_verify_type(unit_index, _object_mask_unit) || !unit_has_weapon(unit_index, weapon_index))
+	{
+		return;
+	}
+	if (unit_drop_weapon(unit_index, weapon_index))
+	{
+		long player_index = unit_get(unit_index)->unit.player_index;
+
+		if (player_index != NONE)
+			bomb_log_player("fumble", player_index);
+	}
 }
 
 /* the host's alone counts: only it deals a landing's damage

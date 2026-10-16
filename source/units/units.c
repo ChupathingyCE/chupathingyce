@@ -7107,6 +7107,13 @@ void unit_damage_aftermath(
 			direction_valid ? &damage_direction : NULL);
 	}
 
+#ifdef HALO_GAME_BROWSER
+	/* port: a Bomb carrier struck by a melee blow it lives through may drop
+	the bomb (game_engine_bomb.c, the host's) */
+	if (!lethal && damage_definition->category == 6 /* damage.c's _damage_category_melee */)
+		game_engine_bomb_unit_struck(unit_index);
+#endif
+
 	{
 		long owner_player_index = damage_data->owner_player_index;
 		long player_index = unit->unit.player_index;

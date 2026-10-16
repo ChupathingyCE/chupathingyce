@@ -57,7 +57,9 @@ that many seconds pass); debug.network_test_bomb_in_goal has the host lay
 the bomb in that goal first, so the pickup is the score, and
 debug.network_test_bomb_throw has the joining machine's player hold the
 trigger through each try's first four seconds (picking the bomb up with the
-trigger down, throwing it down and picking it up again).
+trigger down, throwing it down and picking it up again), and
+debug.network_test_bomb_keep leaves the carrier where it picked the bomb
+up (with debug.network_test_melee: blows at a carrier).
 
 Called from the main loop every frame (main.c).
 */
@@ -161,6 +163,7 @@ static struct
 	real bomb_interval;
 	boolean bomb_in_goal;
 	boolean bomb_throw;
+	boolean bomb_keep;
 	real fall_interval;
 	real melee_interval;
 	char pickup_weapon[64];
@@ -265,6 +268,7 @@ static void network_test_read_settings(
 	network_test.bomb_interval = (real)config_real("debug.network_test_bomb");
 	network_test.bomb_in_goal = config_boolean("debug.network_test_bomb_in_goal");
 	network_test.bomb_throw = config_boolean("debug.network_test_bomb_throw");
+	network_test.bomb_keep = config_boolean("debug.network_test_bomb_keep");
 	network_test.fall_interval = (real)config_real("debug.network_test_fall");
 	network_test.melee_interval = (real)config_real("debug.network_test_melee");
 	network_test.local_players = (short)PIN(config_integer("debug.network_test_local_players"), 1, 4);
@@ -1157,8 +1161,11 @@ void network_test_update(
 
 			if (game_time_get() >= interval && phase < TICKS_PER_SECOND)
 				network_test_bomb(FALSE);
-			if (game_time_get() >= interval && phase >= 3 * TICKS_PER_SECOND && phase < 4 * TICKS_PER_SECOND)
+			if (!network_test.bomb_keep && game_time_get() >= interval && phase >= 3 * TICKS_PER_SECOND &&
+				phase < 4 * TICKS_PER_SECOND)
+			{
 				network_test_bomb(TRUE);
+			}
 		}
 #endif
 		if (network_test.fall_interval > 0.0f)

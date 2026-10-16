@@ -344,6 +344,25 @@ static const struct config_setting config_settings[] =
 		"(50 to 200; the carrier's 115% on top stops at 200). 0: the game\n"
 		"type's own, 175." },
 
+	{ "game.bomb_open_pitch_carrier_health", _config_integer, "0", "HALO_BOMB_OPEN_PITCH_CARRIER_HEALTH",
+		_environment_value, _platform_all,
+		"The bomb carrier's health in a Grifball: Open Pitch game you host, in\n"
+		"percent of everyone's (10 to 400). 0: the game type's own, 400 (with\n"
+		"the resistance's 400, it lives through one melee blow, not two)." },
+	{ "game.bomb_open_pitch_carrier_resistance", _config_integer, "0",
+		"HALO_BOMB_OPEN_PITCH_CARRIER_RESISTANCE", _environment_value, _platform_all,
+		"The bomb carrier's damage resistance in a Grifball: Open Pitch game you\n"
+		"host, in percent (25 to 400; 150 takes two thirds of the damage). 0: the\n"
+		"game type's own, 400." },
+	{ "game.bomb_open_pitch_carrier_shields", _config_string, "\"none\"", "HALO_BOMB_OPEN_PITCH_CARRIER_SHIELDS",
+		_environment_value, _platform_all,
+		"The bomb carrier's shields in a Grifball: Open Pitch game you host:\n"
+		"\"none\" (everyone's: none), \"normal\" or \"overshield\"." },
+	{ "game.bomb_open_pitch_fumble", _config_boolean, "true", "HALO_BOMB_OPEN_PITCH_FUMBLE", _environment_value,
+		_platform_all,
+		"true: in a Grifball: Open Pitch game you host, a melee blow that doesn't\n"
+		"kill the bomb carrier knocks the bomb out of their hands." },
+
 	{ "game.move_old_map_folders", _config_string, "\"ask\"", "HALO_MOVE_OLD_MAP_FOLDERS", _environment_value,
 		_platform_all,
 		"Halo PC maps have folders of their own beside maps: maps_ce (Custom\n"
@@ -571,6 +590,10 @@ static const struct config_setting config_settings[] =
 		"With debug.network_test_bomb: the joining machine's player holds the\n"
 		"trigger through each try's first four seconds, picking the bomb up\n"
 		"with it down, throwing it down and picking it up again." },
+	{ "debug.network_test_bomb_keep", _config_boolean, "false", "HALO_NETWORK_TEST_BOMB_KEEP", _environment_value,
+		_platform_all,
+		"With debug.network_test_bomb: the carrier is not moved into the goal (it\n"
+		"keeps the bomb: debug.network_test_melee's blows strike a carrier)." },
 	{ "debug.network_test_fall", _config_real, "0.0", "HALO_NETWORK_TEST_FALL", _environment_value, _platform_all,
 		"In an automated test game, each time this many seconds pass the last\n"
 		"player is lifted 10 world units, for a fall whose landing kills; 0\n"

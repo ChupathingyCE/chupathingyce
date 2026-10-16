@@ -184,6 +184,8 @@ Blood Gulch.
 | --- | --- |
 | Map | Blood Gulch: the bomb on the ground halfway between the two teleporter exits (63.31, -120.38: 50.7 world units from red's goal and 47.3 from blue's), a spot both teams reach faster through the teleporters; the goals at the CTF flag stands, the teleporters as they are |
 | Speed | everyone 175% (the host's `game.bomb_open_pitch_speed`, `HALO_BOMB_OPEN_PITCH_SPEED`, from 50 to 200), the carrier 200% (115% on top, never past 200%) |
+| The carrier | no overshield; 400% health on top of everyone's 10% and 400% damage resistance (the host's `game.bomb_open_pitch_carrier_health`, `_resistance` and `_shields`): a melee blow takes 93% of its health, so it lives through one and the second kills it. Its highlight stays |
+| Fumble | a melee blow the carrier lives through knocks the bomb out of its hands (thrown a little ahead, as a drop is; the carrier can't take it straight back). The host's `game.bomb_open_pitch_fumble`, on by default |
 | Vehicles | none |
 | Rounds | 5 minutes, first to 3 |
 | Everything else | Grifball's |
@@ -380,6 +382,10 @@ first).
   score limit. Before the fix the bomb stayed in the carrier's inventory
   after the score (a debug build stops on it; a release build scored
   again every tick the carrier stood in the goal).
+- `debug.network_test_bomb_keep` with `debug.network_test_melee`: the
+  carrier stays where it took the bomb and the host's player strikes it:
+  it lives (7% of its health left), fumbles, and the striker takes the
+  bomb.
 - `tools/crossplay_test.py`: the `grifball` direction has our host play
   Grifball with an OpenCE client joining its lobby and another joining in
   progress. It checks that both are dropped and told, the late one never
