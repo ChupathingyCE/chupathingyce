@@ -179,6 +179,6 @@
     "xgpu_shader_cache_compile": "GLSL cache (xgpu_shader_cache.c); Metal pipeline archive.",
     "xgpu_shader_cache_linked": "GLSL cache (xgpu_shader_cache.c); Metal pipeline archive.",
     "xgpu_shader_cache_warm": "GLSL cache (xgpu_shader_cache.c); Metal shader-list warming.",
-    "hud_hires_settings": "KNOWN GAP: upstream 3bfb63b17 (high-res text/HUD settings honored while the game runs); only upstream xbox_textures.c calls it, and the Mac forks of hud_hires.c and xbox_textures.c predate it. Remove this line when they are reconciled."
+    "hud_hires_settings": "CONFIRMED GAP: upstream 3bfb63b17 invalidates cached HUD/title-art replacements on live setting changes. The Metal CPU integration probe fails both toggle directions; font enable checks pass. See docs/metal-compatibility-gaps.md. Remove this exception when the missing contract is implemented."
   }
 }

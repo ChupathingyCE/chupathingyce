@@ -93,6 +93,9 @@ audit, not exhaustive coverage of every Xbox semantic or Metal allocation path.
 
 ## Current scope and limitations
 
+See [the compatibility backlog](../../../docs/metal-compatibility-gaps.md) for
+confirmed failures, deferred features, source drift and remaining validation.
+
 - Menu rendering, map geometry, textures, weapons, HUD, and ordinary gameplay
   run through Metal. macOS is mono; headset stereo is deliberately disabled.
 - `display.per_pixel_lighting` supports the game's recognized model-lighting
@@ -117,6 +120,9 @@ audit, not exhaustive coverage of every Xbox semantic or Metal allocation path.
   OpenCE. Debug BMP frame capture remains available.
 - High-resolution HUD/text art is supported. Map changes asynchronously preload
   HUD PNGs; textures not ready at first use retain the synchronous fallback.
+  **Known failure:** changing HUD/title-art enable settings live does not update
+  cached replacement bindings. The CPU integration probe reproduces both toggle
+  directions; font-text enable checks pass. This is not yet a fixed feature.
 - VisionOS pacing, synthetic foveation, texture replacement experiments, and
   stereo shader warming are not requirements for ordinary macOS gameplay.
 - Only Apple silicon has been runtime-tested here; Intel Mac testing remains

@@ -313,44 +313,71 @@ cleanup:
 '''
 
 
-class TextureStageCacheTests(unittest.TestCase):
-    def test_lookup_coherency(self):
-        compiler = shutil.which("clang") or shutil.which("cc")
-        if not compiler:
-            self.skipTest("C compiler unavailable")
-        source = read("xbox_textures.c")
-        xgpu = read("xgpu.h")
-        start = xgpu.index("struct xgpu_texture_description\n{")
-        description = xgpu[start:xgpu.index("\n};", start) + 3]
-        start = source.index("struct texture_entry\n{")
-        types = source[start:source.index("static BOOL texture_cache_room", start)]
-        names = ["texture_cache_room", "bucket_index", "palette_hash", "texture_entry_result", "texture_get",
-                 "xgpu_texture_get", "xgpu_texture_cache_begin_frame"]
-        # Failure reporting is covered by test_metal_report, not the cache model.
-        functions = "static void texture_not_drawn(const char *why, const struct xgpu_texture_description *d) { (void)why; (void)d; }\n"
-        functions += "\n".join(function(source, name) for name in names)
-        functions = functions.replace("static unsigned long bucket_index(", "static unsigned long real_bucket_index(")
-        functions = functions.replace("static unsigned long palette_hash(", "static unsigned long real_palette_hash(")
-        functions = functions.replace("static unsigned long real_palette_hash(", """
+def cache_harness(fixture=HARNESS):
+    """Compile production cache policy against a deterministic resource fixture."""
+    source = read("xbox_textures.c")
+    xgpu = read("xgpu.h")
+    start = xgpu.index("struct xgpu_texture_description\n{")
+    description = xgpu[start : xgpu.index("\n};", start) + 3]
+    start = source.index("struct texture_entry\n{")
+    types = source[start : source.index("static BOOL texture_cache_room", start)]
+    names = [
+        "texture_cache_room",
+        "bucket_index",
+        "palette_hash",
+        "texture_entry_result",
+        "texture_get",
+        "xgpu_texture_get",
+        "xgpu_texture_cache_begin_frame",
+    ]
+    # Failure reporting is covered by test_metal_report, not the cache model.
+    functions = "static void texture_not_drawn(const char *why, const struct xgpu_texture_description *d) { (void)why; (void)d; }\n"
+    functions += "\n".join(function(source, name) for name in names)
+    functions = functions.replace(
+        "static unsigned long bucket_index(", "static unsigned long real_bucket_index("
+    )
+    functions = functions.replace(
+        "static unsigned long palette_hash(", "static unsigned long real_palette_hash("
+    )
+    functions = functions.replace(
+        "static unsigned long real_palette_hash(",
+        """
 static unsigned long bucket_index(DWORD data, DWORD format, DWORD size)
 {
     hashes++;
     return real_bucket_index(data, format, size);
 }
-static unsigned long real_palette_hash(""")
-        # Put the palette counter wrapper after its implementation, before consumers.
-        palette_body = function(source, "palette_hash").replace("palette_hash(", "real_palette_hash(", 1)
-        functions = functions.replace(palette_body, palette_body + """
+static unsigned long real_palette_hash(""",
+    )
+    # Put the palette counter wrapper after its implementation, before consumers.
+    palette_body = function(source, "palette_hash").replace(
+        "palette_hash(", "real_palette_hash(", 1
+    )
+    functions = functions.replace(
+        palette_body,
+        palette_body
+        + """
 static unsigned long palette_hash(const D3DCOLOR *palette)
 {
     palette_hashes++;
     return real_palette_hash(palette);
 }
-""")
-        stage_function = function(source, "xgpu_texture_stage_get")
-        functions += "\n" + stage_function + "\n"
-        harness = HARNESS.replace("/* DESCRIPTION */", description).replace("/* CACHE TYPES */", types)
-        harness = harness.replace("/* FUNCTIONS */", functions)
+""",
+    )
+    stage_function = function(source, "xgpu_texture_stage_get")
+    functions += "\n" + stage_function + "\n"
+    harness = fixture.replace("/* DESCRIPTION */", description).replace(
+        "/* CACHE TYPES */", types
+    )
+    return harness.replace("/* FUNCTIONS */", functions)
+
+
+class TextureStageCacheTests(unittest.TestCase):
+    def test_lookup_coherency(self):
+        compiler = shutil.which("clang") or shutil.which("cc")
+        if not compiler:
+            self.skipTest("C compiler unavailable")
+        harness = cache_harness()
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "probe.c"
             path.write_text(harness)
