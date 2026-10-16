@@ -634,6 +634,15 @@ void test_input_hold_melee(int hold)
 	test_input_holding_melee = hold;
 }
 
+/* ... and the trigger (right), the player standing still: a flag or ball
+in hand is thrown down */
+static int test_input_holding_fire;
+
+void test_input_hold_fire(int hold)
+{
+	test_input_holding_fire = hold;
+}
+
 /* debug.test_input "menu:<buttons>": the buttons pressed one a second, from
 the first poll, for testing the menus: a, b, x, y, lb, rb (white and black),
 up, down, left, right, start, back, key:<a key's name> (a key of the
@@ -767,6 +776,11 @@ static void test_input_gamepad(XINPUT_GAMEPAD *pad)
 	if (test_input_holding_melee)
 	{
 		pad->bAnalogButtons[XINPUT_GAMEPAD_B] = 255;
+		return;
+	}
+	if (test_input_holding_fire)
+	{
+		pad->bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] = 255;
 		return;
 	}
 	if (seed < 0)

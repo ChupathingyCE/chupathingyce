@@ -806,7 +806,13 @@ static void biped_falling_damage(
 	{
 		if (collision_velocity > falling_damage->runtime_minimum_damage_velocity)
 		{
+#ifdef HALO_GAME_BROWSER
+			/* port: a Grifball game's landings hurt no one
+			(game_engine_bomb.c) */
+			if (!immune && game_engine_bomb_landing_damage())
+#else
 			if (!immune)
+#endif
 			{
 				struct damage_data damage;
 

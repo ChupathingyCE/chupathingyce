@@ -329,6 +329,40 @@ static const struct config_setting config_settings[] =
 		"change the player's settings or other players' games (debug.txt names\n"
 		"what they were refused)." },
 
+	{ "game.bomb_spawns", _config_string, "\"\"", "HALO_BOMB_SPAWNS", _environment_value, _platform_all,
+		"Where a Bomb or Grifball game you host puts the bomb on a map, for maps\n"
+		"whose spot halfway between the goals plays badly: \"<map> <x> <y> [<z>]\"\n"
+		"(the map as a playlist names it: bloodgulch, timberland@ce), entries\n"
+		"separated by commas. The bomb rests on the first ground under the point\n"
+		"(from a little over its height, when given). A map not named has the\n"
+		"game's own spot: Blood Gulch's halfway between its teleporters' exits,\n"
+		"any other map's halfway between the goals." },
+
+	{ "game.bomb_open_pitch_speed", _config_integer, "0", "HALO_BOMB_OPEN_PITCH_SPEED", _environment_value,
+		_platform_all,
+		"Everyone's speed in a Grifball: Open Pitch game you host, in percent\n"
+		"(50 to 200; the carrier's 115% on top stops at 200). 0: the game\n"
+		"type's own, 175." },
+
+	{ "game.bomb_open_pitch_carrier_health", _config_integer, "0", "HALO_BOMB_OPEN_PITCH_CARRIER_HEALTH",
+		_environment_value, _platform_all,
+		"The bomb carrier's health in a Grifball: Open Pitch game you host, in\n"
+		"percent of everyone's (10 to 400). 0: the game type's own, 400 (with\n"
+		"the resistance's 400, it lives through one melee blow, not two)." },
+	{ "game.bomb_open_pitch_carrier_resistance", _config_integer, "0",
+		"HALO_BOMB_OPEN_PITCH_CARRIER_RESISTANCE", _environment_value, _platform_all,
+		"The bomb carrier's damage resistance in a Grifball: Open Pitch game you\n"
+		"host, in percent (25 to 400; 150 takes two thirds of the damage). 0: the\n"
+		"game type's own, 400." },
+	{ "game.bomb_open_pitch_carrier_shields", _config_string, "\"none\"", "HALO_BOMB_OPEN_PITCH_CARRIER_SHIELDS",
+		_environment_value, _platform_all,
+		"The bomb carrier's shields in a Grifball: Open Pitch game you host:\n"
+		"\"none\" (everyone's: none), \"normal\" or \"overshield\"." },
+	{ "game.bomb_open_pitch_fumble", _config_boolean, "true", "HALO_BOMB_OPEN_PITCH_FUMBLE", _environment_value,
+		_platform_all,
+		"true: in a Grifball: Open Pitch game you host, a melee blow that doesn't\n"
+		"kill the bomb carrier knocks the bomb out of their hands." },
+
 	{ "game.move_old_map_folders", _config_string, "\"ask\"", "HALO_MOVE_OLD_MAP_FOLDERS", _environment_value,
 		_platform_all,
 		"Halo PC maps have folders of their own beside maps: maps_ce (Custom\n"
@@ -546,6 +580,24 @@ static const struct config_setting config_settings[] =
 		"In an automated test Bomb game (host:<map>:grifball), this many seconds\n"
 		"in (and again each time that long after) the last player stands on the\n"
 		"bomb, and three seconds later in the goal its team attacks; 0 never." },
+	{ "debug.network_test_bomb_in_goal", _config_boolean, "false", "HALO_NETWORK_TEST_BOMB_IN_GOAL",
+		_environment_value, _platform_all,
+		"With debug.network_test_bomb: the host lays the bomb in the goal the\n"
+		"last player's team attacks before standing the player on it, as a bomb\n"
+		"thrown down in the goal and picked up again." },
+	{ "debug.network_test_bomb_throw", _config_boolean, "false", "HALO_NETWORK_TEST_BOMB_THROW",
+		_environment_value, _platform_all,
+		"With debug.network_test_bomb: the joining machine's player holds the\n"
+		"trigger through each try's first four seconds, picking the bomb up\n"
+		"with it down, throwing it down and picking it up again." },
+	{ "debug.network_test_bomb_keep", _config_boolean, "false", "HALO_NETWORK_TEST_BOMB_KEEP", _environment_value,
+		_platform_all,
+		"With debug.network_test_bomb: the carrier is not moved into the goal (it\n"
+		"keeps the bomb: debug.network_test_melee's blows strike a carrier)." },
+	{ "debug.network_test_fall", _config_real, "0.0", "HALO_NETWORK_TEST_FALL", _environment_value, _platform_all,
+		"In an automated test game, each time this many seconds pass the last\n"
+		"player is lifted 10 world units, for a fall whose landing kills; 0\n"
+		"never." },
 	{ "debug.network_test_melee", _config_real, "0.0", "HALO_NETWORK_TEST_MELEE", _environment_value, _platform_all,
 		"Every this many seconds an automated test host brings its last player in\n"
 		"front of its first, and a player strikes the other with the melee\n"

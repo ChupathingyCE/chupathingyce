@@ -961,6 +961,9 @@ boolean unit_custom_animation_at_frame(
 
 boolean unit_drop_current_weapon(long unit_index, boolean immediate);
 boolean unit_drop_selected_weapon(long unit_index);
+/* port: one weapon out of the unit's hands or inventory, whatever it holds
+(a game type's objective taken back: game_engine_bomb.c) */
+boolean unit_drop_weapon(long unit_index, long weapon_index);
 
 boolean unit_throw_grenade_begin(long unit_index, real_vector2d const *alignment_vector);
 

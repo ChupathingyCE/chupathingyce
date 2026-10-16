@@ -7107,6 +7107,13 @@ void unit_damage_aftermath(
 			direction_valid ? &damage_direction : NULL);
 	}
 
+#ifdef HALO_GAME_BROWSER
+	/* port: a Bomb carrier struck by a melee blow it lives through may drop
+	the bomb (game_engine_bomb.c, the host's) */
+	if (!lethal && damage_definition->category == 6 /* damage.c's _damage_category_melee */)
+		game_engine_bomb_unit_struck(unit_index);
+#endif
+
 	{
 		long owner_player_index = damage_data->owner_player_index;
 		long player_index = unit->unit.player_index;
@@ -7714,6 +7721,38 @@ boolean unit_drop_selected_weapon(
 		object_delete(weapon_index);
 	}
 
+	return TRUE;
+}
+
+boolean unit_drop_weapon(
+	long unit_index,
+	long weapon_index)
+{
+	struct unit_datum *unit = unit_get(unit_index);
+	short slot;
+
+	for (slot = 0; slot < MAXIMUM_WEAPONS_PER_UNIT; slot++)
+	{
+		if (unit->unit.weapon_object_indices[slot] == weapon_index)
+			break;
+	}
+	if (slot == MAXIMUM_WEAPONS_PER_UNIT)
+		return FALSE;
+	if (slot == unit->unit.current_weapon_index)
+		first_person_weapon_message_from_unit(unit_index, 13);
+	unit_drop_item(unit_index, weapon_index);
+	/* (one holstered, in the unit's hand as it is dropped, is not in the
+	world yet) */
+	if (!TEST_FLAG(object_get(weapon_index)->object.flags, _object_connected_to_map_bit))
+		object_reconnect_to_map(weapon_index, NULL);
+	unit->unit.weapon_object_indices[slot] = NONE;
+	if (slot == unit->unit.current_weapon_index)
+		unit->unit.current_weapon_index = NONE;
+	if (slot == unit->unit.desired_weapon_index || unit->unit.current_weapon_index == NONE)
+	{
+		unit->unit.desired_weapon_index = unit->unit.current_weapon_index != NONE ?
+			unit->unit.current_weapon_index : unit_weapon_next_index(unit_index, NONE, 0);
+	}
 	return TRUE;
 }
 
