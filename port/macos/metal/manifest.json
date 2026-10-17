@@ -13,7 +13,7 @@
     "d3d8_gl.c": {
       "with": "xbox_compat/xbox_device.c",
       "base": "f8bbcefe06a842f095203b998f63f7999b9d25b2",
-      "seen": "07fde0a8bc60e6eee92c8d7ef7fadb18be83aea2",
+      "seen": "4a2a43c4751b706e3f522e5684eed6ca8858be4f",
       "why": "The Xbox D3D8 device: the same D3DDevice_* entry points, translated to the Metal backend (renderer/gpu.h) instead of OpenGL."
     },
     "d3d8_resources.c": {
@@ -47,11 +47,12 @@
     "sdl_platform.c": {
       "with": "platform/sdl_platform.c",
       "base": "06c8def467d270d5d7c1381663883e52eb74486c",
+      "seen": "37d857cc0059cfa27d0f284658edc4e37d380ddb",
       "why": "A Metal window (SDL_WINDOW_METAL): no OpenGL context, swap interval or GL entry points."
     },
     "port_config.c": {
       "with": "platform/port_config.c",
-      "base": "6f2df2565bffbb44c632352b5679496d2f0cc79a",
+      "base": "ac34a27a4227a91f5e861d0baf47c299117b1b8d",
       "upstream_base": "edfd05deca4af0a3a0f6dcc5985c7d6eea23cbc3",
       "why": "The Metal renderer's settings (debug.metal_*, display.* that only Metal reads)."
     },
@@ -63,17 +64,19 @@
     "ui_overlay.c": {
       "with": "platform/ui_overlay.c",
       "base": "5c9aa57339d0c44cc9f14c6284e806b2216659ab",
+      "seen": "27effc8c2f324e16bee9213aa5508bfb710a220b",
       "why": "The overlay drawn into the Metal back buffer (renderer/metal_overlay.inc) instead of with GL calls."
     },
     "hud_hires.c": {
       "with": "platform/hud_hires.c",
       "base": "eb334aa9a5df56ac0202d29e2d282da709bfc1f3",
-      "seen": "911c4dc77d8f6d2aa4b8b73b4b178f217e272bd1",
+      "seen": "99a076dcd955acc44048b6505c98cb1c7c647eb8",
       "why": "High-resolution HUD textures uploaded through the Metal backend."
     },
     "text_hires.c": {
       "with": "platform/text_hires.c",
       "base": "9eeb52d784e3bc105c295375945f8ae1a3af0a41",
+      "seen": "e1186e7d3c029b8a62ffbd555f0b12fa42a56bfa",
       "why": "The high-resolution text atlas as a backend texture instead of a GL texture."
     }
   },
@@ -157,12 +160,12 @@
     "xgpu.h": {
       "with": "xbox_compat/xgpu.h",
       "base": "600eec39c34bc8f46dc92a6c648e45598a27b38a",
-      "seen": "30ddfc76871235c0cff13620e0d77aa459c9c4c2",
+      "seen": "a3bc74cc5b74861f9a77881163f0c009cb2fa89a",
       "why": "The front end's internals over renderer/gpu.h instead of OpenGL."
     },
     "platform.h": {
       "with": "platform/platform.h",
-      "base": "ffd1f452abf7b3ef0b31fd366cde12ec55f5655c",
+      "base": "ae1f6f7a6c0f6aef0a26fe17a44c4de0c66809da",
       "why": "Adds the Metal front-end hooks (platform_renderer_metal, platform_fixed_timestep)."
     },
     "port_config.h": {
@@ -172,12 +175,13 @@
     },
     "hud_hires.h": {
       "with": "platform/hud_hires.h",
-      "base": "b6147e6b4dd5b12b573366573dadd0860fdf70d2",
+      "base": "a008016ca8e53bfcaf093ed7a7aaffe40f0b6761",
       "why": "Backend texture handles instead of GL names."
     },
     "text_hires.h": {
       "with": "platform/text_hires.h",
       "base": "1a244c35942ccd4ff68daf096a43c0c041ad1281",
+      "seen": "2f44b44d1daef0faad2c25c892bc6b6a557855e5",
       "why": "Comment and declaration differences that follow text_hires.c."
     }
   },

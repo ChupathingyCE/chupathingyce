@@ -150,8 +150,13 @@ other systems). An application's own files are not written: it is signed,
 and may be where its player cannot write (port_config.c) */
 int platform_app_folder(char *path, unsigned long size);
 const char *platform_save_root(void);
-/* one of the game's own folders (port_folders.h), made if need be */
+/* one of the game's own folders (port_folders.h: data/ and logs/ in the
+data root, cache/ and private/ in the save root, or paths.logs and
+paths.cache), made if need be */
 const char *platform_folder(enum port_folder folder);
+/* the logs folder before the data root is known, made if need be; 0 when
+there is none */
+int platform_logs_folder_early(char *path, unsigned long size);
 #ifdef HALO_GAME_BROWSER
 /* a web page opened in the web browser (from any thread: the main thread
 opens it) */
