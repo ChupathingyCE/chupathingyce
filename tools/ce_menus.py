@@ -367,6 +367,11 @@ class Art:
             self.draw(relative, index, len(data), width, height, MENUS / png, self.shown.get(tag, []))
             self.pngs.append(png)
             lines.append(f"\t\t<frame{attributes([('png', png), ('width', width), ('height', height)])}/>")
+        # (frames repeated: port_settings.FRAME_COPIES)
+        frames = lines[1:]
+        for place, frame in sorted(port_settings.FRAME_COPIES.get(our_name(tag), {}).items()):
+            frames.insert(place, lines[1 + frame])
+        lines[1:] = frames
         # (the port's frames after them: the Xbox map's, scaled)
         for source, index, width, height, x, y in port_settings.BITMAP_FRAMES.get(our_name(tag), []):
             self.added_frames.append((our_name(tag), source, index))
@@ -525,6 +530,7 @@ def widget_xml(tag: str, widget: dict, tags: Tags, functions: list, inputs: list
         if child_tag in LEFT_OUT:
             continue
         x, y = CHILD_OFFSETS.get((tag, child_tag), (child["horizontal offset"], child["vertical offset"]))
+        x, y = patch.get("offsets", {}).get(our_name(child_tag), (x, y))
         name = patch.get("swap", {}).get(our_name(child_tag), our_name(child_tag))
         lines += [f"{inner}{line}" for line in patch.get("insert_before", {}).get(our_name(child_tag), [])]
         pairs = [("widget", name), ("x", x or None), ("y", y or None),
@@ -622,11 +628,6 @@ def main() -> None:
              " (NON_HANDDRAWN.md; tools/ce_menus.py) -->", "<menus>"]
     lines += [art.bitmap(tag) for tag in sorted(bitmaps)]
     lines += [art.title(name, text) for name, text in sorted(port_settings.TITLES.items())]
-    # (the in-game pause menu's taller box: menu_tags.c's pause_patch)
-    for piece in ("left", "center", "right"):
-        lines.append(art.port_picture(f"pause/pausebox_{piece}", [
-            (port_settings.pause_box_svg(piece, port_settings.pause_box_height(buttons)), 4 if piece == "center" else 16,
-             256) for buttons in port_settings.PAUSE_BOX_BUTTONS]))
     # (nothing: what a game map draws for a frame of ui.map's it has not,
     # menu_tags.c)
     lines.append(art.port_picture("blank", [

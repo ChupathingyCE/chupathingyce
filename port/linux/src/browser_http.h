@@ -27,6 +27,24 @@ headers is not NULL */
 int posix_browser_send(const char *url, const char *body, size_t body_length, const char *content_type,
 	const char *headers, char *response, int response_size, char *error, int error_size);
 
+/* a download (a GET of url, http:// or https://, redirects followed, as
+user_agent) opened: its handle (1), with the body's length in *length (-1
+when the server does not say); else 0, with the HTTP status in *status (0
+when there was no answer) and why in error. One download at a time, and
+no other request until it is closed (they wait): call it from a thread of
+its own */
+int posix_browser_download_open(const char *url, const char *user_agent, int *status, int *length, char *error,
+	int error_size);
+/* up to size more of the body's bytes into buffer: their count, 0 at its
+end, negative on an error (each read waits about ten seconds at most) */
+int posix_browser_download_read(int download, void *buffer, int size);
+void posix_browser_download_close(int download);
+/* taken around every use of Mbed TLS, which as built here has no locks of
+its own: the requests above take it themselves; the self-updater's
+downloads (posix_update.c) take it too */
+void posix_browser_lock(void);
+void posix_browser_unlock(void);
+
 int posix_browser_private_key(const char *path, unsigned char *key, int size);
 int posix_browser_replace_key(const char *path, const unsigned char *key, int size);
 

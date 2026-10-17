@@ -285,6 +285,32 @@ bool SDL_RumbleGamepad(SDL_Gamepad *gamepad, Uint16 low, Uint16 high, Uint32 mil
 
 /* ---------- audio */
 
+/* the 32-bit build plays on the system's output alone: it lists no
+outputs to choose (Audio Setup's Output Device shows only the default), so
+every audio.device name falls to the default and its stream, opened once,
+is never closed (dsound_sdl.c) */
+SDL_AudioDeviceID *SDL_GetAudioPlaybackDevices(int *count)
+{
+	SDL_AudioDeviceID *result = malloc(sizeof(SDL_AudioDeviceID));
+
+	if (result)
+		result[0] = 0;
+	if (count)
+		*count = 0;
+	return result;
+}
+
+const char *SDL_GetAudioDeviceName(SDL_AudioDeviceID device)
+{
+	(void)device;
+	return NULL;
+}
+
+void SDL_DestroyAudioStream(SDL_AudioStream *stream)
+{
+	(void)stream;
+}
+
 SDL_AudioStream *SDL_OpenAudioDeviceStream(SDL_AudioDeviceID device, const SDL_AudioSpec *spec,
 	SDL_AudioStreamCallback callback, void *userdata)
 {

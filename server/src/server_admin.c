@@ -40,6 +40,15 @@ given both (dedicated.c). Nothing a client is sent is new.
 #include "server_admin.h"
 #include "server_config.h"
 
+/* (text chat's, port/linux/game/chat.h) */
+void chat_host_set(int mode, int filter);
+int chat_host_mode(void);
+int chat_host_filter(void);
+void chat_host_set_cooldown(int seconds);
+int chat_host_cooldown(void);
+void chat_host_set_welcome(char const *text);
+char const *chat_host_welcome(void);
+
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -422,6 +431,8 @@ static boolean write_settings(
 		csstrcpy(settings.playlist, change->playlist);
 	if (change->set[SERVER_SETTING_PLAYLIST_ENVIRONMENT])
 		csstrcpy(settings.playlist_environment, change->playlist_environment);
+	if (change->set[SERVER_SETTING_WELCOME])
+		csstrcpy(settings.welcome, change->welcome);
 	if (server_settings_format(&settings, text, sizeof(text)) < 0)
 	{
 		command_output_printf(output, "the settings do not fit in %s\n", SETTINGS_FILE);
@@ -1788,7 +1799,16 @@ static void setting_now(
 	case SERVER_SETTING_MINIMUM_PLAYERS: snprintf(text, (size_t)size, "%ld", status->minimum_players); break;
 	case SERVER_SETTING_IDLE_LIMIT: snprintf(text, (size_t)size, "%ld", status->idle_limit); break;
 	case SERVER_SETTING_PUBLIC: snprintf(text, (size_t)size, "%s", status->public_game ? "true" : "false"); break;
+	case SERVER_SETTING_NAME_FILTER: snprintf(text, (size_t)size, "%s", status->name_filter ? "true" : "false"); break;
 	case SERVER_SETTING_PLAYLIST: snprintf(text, (size_t)size, "%s", status->playlist); break;
+#ifdef HALO_GAME_BROWSER
+	case SERVER_SETTING_CHAT: snprintf(text, (size_t)size, "%d", chat_host_mode()); break;
+	case SERVER_SETTING_CHAT_FILTER: snprintf(text, (size_t)size, "%s", chat_host_filter() ? "true" : "false"); break;
+	case SERVER_SETTING_WELCOME: snprintf(text, (size_t)size, "%s", chat_host_welcome()); break;
+	case SERVER_SETTING_CHAT_COOLDOWN: snprintf(text, (size_t)size, "%d", chat_host_cooldown()); break;
+#endif
+	case SERVER_SETTING_POSTGAME_SECONDS: snprintf(text, (size_t)size, "%ld", status->postgame_seconds); break;
+	case SERVER_SETTING_SKIP_LOBBY: snprintf(text, (size_t)size, "%s", status->skip_lobby ? "true" : "false"); break;
 	default: text[0] = 0; break;
 	}
 }
@@ -1808,10 +1828,22 @@ static void setting_saved(
 		snprintf(text, (size_t)size, "%s", settings->playlist);
 	else if (setting == SERVER_SETTING_PLAYLIST_ENVIRONMENT)
 		snprintf(text, (size_t)size, "%s", settings->playlist_environment);
+	else if (setting == SERVER_SETTING_WELCOME)
+		snprintf(text, (size_t)size, "%s", settings->welcome);
 	else if (server_settings_table[setting].kind == SERVER_FIELD_BOOLEAN)
 		snprintf(text, (size_t)size, "%s", settings->values[setting] ? "true" : "false");
 	else
 		snprintf(text, (size_t)size, "%d", settings->values[setting]);
+}
+
+/* whether a setting's change applies at once (else from the next lobby) */
+static boolean setting_applies_now(
+	int setting)
+{
+	return setting == SERVER_SETTING_IDLE_LIMIT || setting == SERVER_SETTING_NAME_FILTER ||
+		setting == SERVER_SETTING_CHAT || setting == SERVER_SETTING_CHAT_FILTER ||
+		setting == SERVER_SETTING_WELCOME || setting == SERVER_SETTING_POSTGAME_SECONDS ||
+		setting == SERVER_SETTING_SKIP_LOBBY || setting == SERVER_SETTING_CHAT_COOLDOWN;
 }
 
 static char const *environment_value(
@@ -1891,7 +1923,7 @@ boolean server_admin_settings(
 			json_string_or_null(output, environment);
 			command_output_printf(output, ", \"source\": \"%s\", \"applies\": \"%s\"}", source,
 				setting == SERVER_SETTING_PUBLIC ? "restart" : setting == SERVER_SETTING_PLAYLIST ? "sv_playlist_use" :
-				setting == SERVER_SETTING_IDLE_LIMIT ? "now" : "lobby");
+				setting_applies_now(setting) ? "now" : "lobby");
 		}
 		else
 		{
@@ -1923,7 +1955,8 @@ boolean server_admin_set(
 		command_output_printf(output, "%s%s\n", setting < 0 ? "no setting " : "", setting < 0 ? line->words[1] :
 			"the playlist is set with sv_playlist_use");
 		if (setting < 0)
-			command_output_printf(output, "(name, maximum_players, minimum_players, idle_limit, public)\n");
+			command_output_printf(output, "(name, maximum_players, minimum_players, idle_limit, public, name_filter, "
+				"chat, chat_filter, welcome, postgame_seconds, skip_lobby, chat_cooldown)\n");
 		return FALSE;
 	}
 	environment = environment_value((short)setting);
@@ -1959,12 +1992,42 @@ boolean server_admin_set(
 	case SERVER_SETTING_MAXIMUM_PLAYERS: dedicated_server_set_maximum_players(change.values[setting]); break;
 	case SERVER_SETTING_MINIMUM_PLAYERS: dedicated_server_set_minimum_players(change.values[setting]); break;
 	case SERVER_SETTING_IDLE_LIMIT: dedicated_server_set_idle_limit(change.values[setting]); break;
+	case SERVER_SETTING_NAME_FILTER: server_commands_set_name_filter(change.values[setting] ? TRUE : FALSE); break;
+#ifdef HALO_GAME_BROWSER
+	case SERVER_SETTING_CHAT: chat_host_set(change.values[setting], chat_host_filter()); break;
+	case SERVER_SETTING_CHAT_FILTER: chat_host_set(chat_host_mode(), change.values[setting]); break;
+	case SERVER_SETTING_WELCOME: chat_host_set_welcome(change.welcome); break;
+	case SERVER_SETTING_CHAT_COOLDOWN: chat_host_set_cooldown(change.values[setting]); break;
+#endif
+	case SERVER_SETTING_POSTGAME_SECONDS: dedicated_server_set_postgame_seconds(change.values[setting]); break;
+	case SERVER_SETTING_SKIP_LOBBY: dedicated_server_set_skip_lobby(change.values[setting] ? TRUE : FALSE); break;
 	}
 	error(_error_silent, "dedicated: a command sets %s to %s", server_settings_table[setting].key, line->words[2]);
 	command_output_printf(output, "%s is %s, saved in %s (%s)\n", server_settings_table[setting].key, line->words[2],
 		SETTINGS_FILE, setting == SERVER_SETTING_PUBLIC ? "from when the server restarts" :
-		setting == SERVER_SETTING_IDLE_LIMIT ? "now" : status.state == _dedicated_state_lobby ? "now" :
+		setting_applies_now(setting) ? "now" :
+		status.state == _dedicated_state_lobby ? "now" :
 		"from the next lobby");
+	return TRUE;
+}
+
+boolean server_admin_set_saved(
+	short setting,
+	char const *value,
+	struct command_output *output,
+	boolean *done)
+{
+	static struct command_line line;
+
+	*done = FALSE;
+	if (environment_value(setting))
+		return FALSE;
+	csmemset(&line, 0, sizeof(line));
+	line.count = 3;
+	snprintf(line.words[0], sizeof(line.words[0]), "sv_set");
+	snprintf(line.words[1], sizeof(line.words[1]), "%s", server_settings_table[setting].key);
+	snprintf(line.words[2], sizeof(line.words[2]), "%s", value);
+	*done = server_admin_set(&line, FALSE, output);
 	return TRUE;
 }
 

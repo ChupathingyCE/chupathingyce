@@ -38,4 +38,4 @@ body:
     id: logs
     attributes:
       label: Logs
-      description: For a crash, attach debug.txt from the game's data folder, and on macOS the crash report from ~/Library/Logs/DiagnosticReports (halo-*.ips).
+      description: For a crash, attach debug.txt from the logs folder in the game's data folder (logs/debug.txt; in the data folder itself before 0.8.0), and on macOS the crash report from ~/Library/Logs/DiagnosticReports (halo-*.ips).

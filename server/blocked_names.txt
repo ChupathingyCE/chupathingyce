@@ -1,0 +1,71 @@
+# Blocked names: names nobody may play or be shown under.
+# Shared by the ChupathingyCE site and the dedicated server (sv_name_filter);
+# keep both copies the same.
+#
+# One entry per line: <kind> <word>. Words are written in ROT13 so the list
+# doesn't print slurs when it's read or searched.
+#   anywhere  blocked when the word appears anywhere in a name
+#   whole     blocked when it is the whole name
+#   allow     a harmless word containing a blocked one; it is taken out of
+#             the name before the "anywhere" words are looked for
+#
+# A name is compared as its key: lower case, accents dropped, spaces . _ -
+# dropped, digits at its end dropped, digits and signs that stand for
+# letters read as those letters (0 o, 1 i, 3 e, 4 a, 5 s, 7 t, 8 b, @ a,
+# $ s, ! i, | i) and Cyrillic/Greek look-alikes as Latin letters, then
+# anything that isn't a-z dropped. Each word is looked for in the key and in
+# the key with repeated letters squeezed to one ("aaa" -> "a").
+
+anywhere avtt
+anywhere avtn
+anywhere avte
+anywhere avtre
+anywhere aytt
+anywhere avdd
+anywhere snttbg
+anywhere sntbg
+anywhere sntt
+anywhere genaal
+anywhere ergneq
+anywhere puvax
+anywhere jrgonpx
+anywhere ornare
+anywhere enturnq
+anywhere gbjryurnq
+anywhere uvgyre
+anywhere anmv
+anywhere xxx
+anywhere encvfg
+anywhere crqbcuvyr
+anywhere zbyrfg
+anywhere juvgrcbjre
+anywhere fvrturvy
+anywhere xvyywrj
+anywhere wrjxvyy
+anywhere tnfgurwrj
+
+whole avt
+whole avtf
+whole snt
+whole sntf
+whole fcvp
+whole fcvpf
+whole pbba
+whole pbbaf
+whole tbbx
+whole tbbxf
+whole wnc
+whole wncf
+whole encr
+whole crqb
+whole gneq
+
+allow avtrevn
+allow avtrevna
+allow avvtngn
+allow avtngn
+allow favttre
+allow gurencvfg
+allow ergneqnag
+allow anmve
+allow anmven

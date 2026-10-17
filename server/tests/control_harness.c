@@ -10,7 +10,8 @@ AddressSanitizer and UndefinedBehaviorSanitizer where the compiler has
 them).
 
 It takes server_control.c's settings (HALO_DEDICATED_CONTROL,
-HALO_DEDICATED_CONSOLE) and HARNESS_DATA (the data folder). On its standard
+HALO_DEDICATED_CONSOLE), HARNESS_DATA (the data folder) and
+HARNESS_SITE_ROLES (set: a site role list, as if from the role cache). On its standard
 output: the token printed once, the console's output, and a line for each
 thing the main thread is handed:
   notice: <the control's own log line>
@@ -18,8 +19,9 @@ thing the main thread is handed:
   quiet: <command>                (a read, not logged)
 The stand-in checks each command's permission as server_commands.c does
 (refused: "refused <command>"), answers sv_status, sv_players, sv_banlist,
-sv_mapcycle and sv_maps with fixed JSON, a file's save with "saved <n>
-bytes", and every other command with "ran <command>"; it answers the
+sv_mapcycle and sv_maps with fixed JSON, sv_mod_list with server_roles.c's
+own list, a file's save with "saved <n> bytes", and every other command
+with "ran <command>"; it answers the
 control panel's bind requests as a player's game would, accepted, with the
 key 11...11 (player 1), declined (player 2), or not Delta (any other). It
 runs until it is killed.
@@ -60,7 +62,14 @@ const char *log_address(const unsigned char *bytes, int length, int port, char *
 
 static const char *answer(const char *line, int json)
 {
-	static char output[512];
+	static char output[16384];
+
+	/* (the roles' list is the real one: server_roles.c's) */
+	if (!strcmp(line, "sv_mod_list"))
+	{
+		server_roles_list_text(json, output, sizeof(output));
+		return output;
+	}
 
 	if (json && !strcmp(line, "sv_status"))
 	{
@@ -96,6 +105,25 @@ int main(void)
 
 	signal(SIGPIPE, SIG_IGN);
 	setvbuf(stdout, NULL, _IOLBF, 0);
+	if (getenv("HARNESS_SITE_ROLES"))
+	{
+		/* the site's list as control_link.c gives it, from the cache: alice a
+		moderator with two games' keys, bob the site's owner capped at admin */
+		static const char *const handles[] = { "alice", "bob" };
+		static const int handle_roles[] = { SERVER_ROLE_MODERATOR, SERVER_ROLE_ADMIN };
+		static const int site_roles[] = { SERVER_ROLE_MODERATOR, SERVER_ROLE_OWNER };
+		static const int key_counts[] = { 2, 1 };
+		static const char *const key_names[] = { "alice", "alice", "bob" };
+		static const int key_roles[] = { SERVER_ROLE_MODERATOR, SERVER_ROLE_MODERATOR, SERVER_ROLE_ADMIN };
+		unsigned char keys[3 * 32];
+
+		memset(keys, 0x22, 32);
+		memset(keys + 32, 0x33, 32);
+		memset(keys + 64, 0x44, 32);
+		server_roles_set_site_handles(2, handles, handle_roles, site_roles, key_counts);
+		server_roles_set_site(3, keys, key_roles, key_names, 7);
+		server_roles_set_site_state(SERVER_SITE_ROLES_CACHED, (long long)time(NULL) - 3600, SERVER_ROLE_ADMIN, 24);
+	}
 	server_control_start();
 	printf("harness: started\n");
 	for (;;)

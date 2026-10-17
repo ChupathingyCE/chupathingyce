@@ -1,0 +1,44 @@
+// The Windows executable's resources: its icon (halo.ico, made by
+// tools/windows_icon.py from port/art/icon.svg) and its version information,
+// which Explorer shows in the file's properties. halo_version.h is written by
+// tools/windows_build.py with the build's version (tools/version.py).
+
+#include "halo_version.h"
+
+#define VS_VERSION_INFO 1
+#define VS_FFI_FILEFLAGSMASK 0x3FL
+#define VOS_NT_WINDOWS32 0x00040004L
+#define VFT_APP 0x00000001L
+#define VFT2_UNKNOWN 0x00000000L
+
+// (the first icon is the executable's in Explorer and the taskbar)
+1 ICON "halo.ico"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION HALO_RC_VERSION_NUMBERS
+PRODUCTVERSION HALO_RC_VERSION_NUMBERS
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+FILEFLAGS 0x0L
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        // (US English, Unicode)
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "ChupathingyCE"
+            VALUE "FileDescription", "Chupathingy"
+            VALUE "FileVersion", HALO_RC_VERSION_STRING
+            VALUE "InternalName", "halo"
+            VALUE "OriginalFilename", "halo.exe"
+            VALUE "ProductName", "Chupathingy"
+            VALUE "ProductVersion", HALO_RC_VERSION_STRING
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 0x04B0
+    END
+END

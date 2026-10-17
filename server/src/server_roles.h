@@ -75,16 +75,54 @@ int server_roles_moderator_get(int index, int *role, char *key_text, int key_tex
 
 /* ---------- the other places (their whole lists, replaced) */
 
-/* the accounts bound to a game (server_control.c's, whenever they change):
-count keys (32 bytes each, one after another), their roles and names */
-void server_roles_set_accounts(int count, const unsigned char *keys, const int *roles, const char *const *names);
+/* the control panel's accounts (server_control.c's, whenever they change):
+count keys (32 bytes each, one after another; an account not bound to a
+game has zeros, and bound 0), their roles, names and whether each is bound
+(only a bound account's key has its role in the game) */
+void server_roles_set_accounts(int count, const unsigned char *keys, const int *roles, const char *const *names,
+	const int *bound);
 /* the site's role list (control_link.c's): the same, the names the site's
 handles; version, the list's (0: none) */
 void server_roles_set_site(int count, const unsigned char *keys, const int *roles, const char *const *names,
 	unsigned int version);
 /* the site's role of a handle (for a command the site relays), 0 none */
 int server_roles_site_handle_role(const char *handle);
-void server_roles_set_site_handles(int count, const char *const *handles, const int *roles);
+/* the site's handles: their roles here (capped by HALO_DEDICATED_LINK_ROLE),
+the roles the site gave them, and how many games' keys each has */
+void server_roles_set_site_handles(int count, const char *const *handles, const int *roles, const int *site_roles,
+	const int *key_counts);
+
+/* where the site's role list stands (control_link.c's) */
+enum
+{
+	/* not linked, or no list yet */
+	SERVER_SITE_ROLES_NONE,
+	/* the site's word, heard lately */
+	SERVER_SITE_ROLES_LIVE,
+	/* from delta_roles.cache, the site not heard since the server started */
+	SERVER_SITE_ROLES_CACHED,
+	/* dropped: the site was not heard for the expiry's hours */
+	SERVER_SITE_ROLES_EXPIRED,
+};
+
+/* the site's list's state, when the site last answered (unix seconds, 0
+never), the cap on its roles and the hours they hold without the site */
+void server_roles_set_site_state(int state, long long heard, int cap, int expire_hours);
+
+/* ---------- everyone with a role here (sv_mod_list, the panel's People) */
+
+/* everyone with a role on this server and where it comes from, in text
+(a table) or JSON (server/docs/admin.md, GET /v1/moderators): the
+moderators file's, the panel's accounts (bound to a game or not) and the
+site's handles, with the cap and the state of the site's list. The text's
+length, cut short (and ended) if it does not fit */
+int server_roles_list_text(int json, char *text, int text_size);
+
+/* where a key's role (server_roles_key_role's) comes from, for the
+player it concerns: "this server's moderators file", "your panel account
+alice", "your site profile alice" (and "(cached)" while the site's
+list is the cache's); empty if it has none */
+void server_roles_key_source(const unsigned char *key, char *text, int text_size);
 
 /* ---------- audit */
 

@@ -1338,9 +1338,9 @@ int usnprintf(
 	va_start(arglist, format);
 	result = _vsnwprintf(string, size, format, arglist);
 	va_end(arglist);
-	/* port: terminated when it is cut short, which MSVC's is not */
-	if (size > 0)
-		string[size - 1] = 0;
+	/* port: as MSVC's, unterminated when it is cut short: an exact fit keeps
+	its last character, and callers whose strings can be cut short terminate
+	them where they are written */
 
 	return result;
 }
@@ -1348,8 +1348,8 @@ int usnprintf(
 /* port: whether a format (a map's text: its string lists' are the game's
 formats) takes no other arguments than conversions names, in order, if
 fewer: 'd' an integer (%d, %i, %u, %x, %X, %o, %c), 'f' a real (%f, %e,
-%g), 's' a string (%s, %S). %% and the flags, widths and precisions are
-allowed; '*' (which takes an argument of its own) and %n are not. A format
+%g), 's' a string (%s, %S). %% and the flags are allowed, and widths and
+precisions of up to three digits; '*' (which takes an argument of its own) and %n are not. A format
 that takes others would have the game read an argument as what it is not */
 int ustring_format_takes(
 	wchar_t const *format,
@@ -1360,6 +1360,7 @@ int ustring_format_takes(
 	while (*format)
 	{
 		char kind;
+		short digits;
 
 		if (*format++ != L'%')
 			continue;
@@ -1368,10 +1369,21 @@ int ustring_format_takes(
 			format++;
 			continue;
 		}
-		while (*format == L'-' || *format == L'+' || *format == L' ' || *format == L'#' || *format == L'.' ||
-			(*format >= L'0' && *format <= L'9'))
+		while (*format == L'-' || *format == L'+' || *format == L' ' || *format == L'#' || *format == L'0')
+			format++;
+		/* (a width, then a precision, of at most three digits: the game's
+		are, and Windows's printf refuses what is not a conversion) */
+		for (digits = 0; *format >= L'0' && *format <= L'9'; digits++)
+			format++;
+		if (digits > 3)
+			return FALSE;
+		if (*format == L'.')
 		{
 			format++;
+			for (digits = 0; *format >= L'0' && *format <= L'9'; digits++)
+				format++;
+			if (digits > 3)
+				return FALSE;
 		}
 		/* (the size prefixes the game's own formats use) */
 		if (*format == L'h' || *format == L'l' || *format == L'w')

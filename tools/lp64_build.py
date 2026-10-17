@@ -369,9 +369,10 @@ class Lp64Build:
         return units
 
     def objects(self, host: Lp64Host, generated_sources: List[Path], obj_dir: Path,
-                extra_cflags: List[str] = []) -> List[Path]:
+                extra_cflags: List[str] = [], implicit_inputs: Sequence[Path] = ()) -> List[Path]:
         """the objects of every unit, compiled into obj_dir; extra_cflags go
-        to the units with the Xbox's ABI (link-time optimisation)"""
+        to the units with the Xbox's ABI (link-time optimisation), and every
+        unit waits for implicit_inputs (a portable build's system root)"""
         objects = []
         extra = " ".join(extra_cflags)
         for unit in self.units(host, generated_sources):
@@ -380,7 +381,7 @@ class Lp64Build:
             obj = obj_dir / relative.with_suffix(".o")
             objects.append(obj)
             self.n.build(outputs=obj, rule=f"{self.name}_cc", inputs=unit.source,
-                         implicit=[self.semantics_header, self.platform_semantics_header],
+                         implicit=[self.semantics_header, self.platform_semantics_header, *implicit_inputs],
                          order_only=[self.build_dir / "lp64.stamp"],
                          variables={"cflags": unit.cflags if unit.native or not extra
                                     else f"{unit.cflags} {extra}"})

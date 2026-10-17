@@ -986,8 +986,10 @@ struct texture_entry
 	unsigned long address, size;
 	unsigned long generation;
 	unsigned long last_used_frame;
-	/* the high-res HUD texture drawn in its place (hud_hires.h), or -1 */
+	/* the high-res HUD texture drawn in its place (hud_hires.h), or -1, as
+of its settings' changes (hud_hires_settings) */
 	long override;
+	unsigned long override_settings;
 	/* the newest generation of its pages (memory_watch_generation) as of the
 	memory watch serial read before it was found: the same while no watched
 	page has been written since (0: never found) */
@@ -1185,7 +1187,8 @@ GLuint xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, GLenum *
 		entry->watched_serial = watch_serial;
 		entry->watched_generation = generation;
 	}
-	if (!entry->generation || generation > entry->generation || no_cache)
+	if (!entry->generation || generation > entry->generation || no_cache ||
+		entry->override_settings != hud_hires_settings())
 	{
 		/* (whose layout, as the bitmap now here is laid out) */
 		entry->description.pc_layout = (resource[0] & D3DCOMMON_PORT_PC_LAYOUT) != 0;
@@ -1196,8 +1199,10 @@ GLuint xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, GLenum *
 		entry->generation = memory_watch_generation(entry->address, entry->size);
 		if (!entry->generation)
 			entry->generation = 1;
-		/* (which bitmap is here may have changed with the pixels) */
+		/* (which bitmap is here may have changed with the pixels, and
+		whether it has a stand-in with the settings) */
 		entry->override = -1;
+		entry->override_settings = hud_hires_settings();
 		if (entry->size && !palettized && !entry->description.cube_map && entry->description.depth == 1)
 		{
 			unsigned long levels;

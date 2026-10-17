@@ -164,6 +164,10 @@ boolean ce_repairs_scenario_group(void *tag_instances, long tag_count, unsigned 
 /* ---------- globals */
 
 static char ce_refusal[256];
+/* the reason in a player's words, when the refusal is one a player can act
+on (ce_refusal_explain), and the message the game shows */
+static char ce_explanation[192];
+static char ce_message[320];
 static boolean ce_checking;
 
 long ce_map_cache_version = CE_CACHE_VERSION_CUSTOM_EDITION;
@@ -443,6 +447,8 @@ static boolean ce_map_check_tags(
 	}
 	if (tag_data_size > CE_IMAGE_TAG_CACHE_SIZE)
 	{
+		ce_refusal_explain("It is too big for the game's tag cache: its tags need %lu KB, and the tag cache holds "
+			"%lu KB.", tag_data_size / 1024, (unsigned long)CE_IMAGE_TAG_CACHE_SIZE / 1024);
 		return ce_refuse("its tag data (%lu bytes) is larger than the tag cache (%lu bytes)", tag_data_size,
 			(unsigned long)CE_IMAGE_TAG_CACHE_SIZE);
 	}
@@ -527,8 +533,13 @@ static boolean ce_map_check_tags(
 	loaded BSP's buffers) */
 	if (model_bytes > end_free - next_free || bsp_bytes > end_free - next_free - model_bytes)
 	{
-		ce_refuse("its models and structure BSP need %lu bytes more of the tag cache than its BSP leaves (%lu)",
-			model_bytes + bsp_bytes, end_free - next_free);
+		unsigned long needed = model_bytes + bsp_bytes;
+		unsigned long room = end_free - next_free;
+
+		ce_refusal_explain("It is too big for the game's tag cache: its models and level need %lu KB more room than "
+			"there is.", (needed - room + 1023) / 1024);
+		ce_refuse("its models and structure BSP buffers need %lu bytes of the tag cache, and %lu bytes "
+			"are free between its tags and its BSP (%lu too few)", needed, room, needed - room);
 		goto done;
 	}
 	valid = ce_shaders_check(&tags, instances, tag_count) && ce_hud_check(&tags, instances, tag_count) &&
@@ -641,6 +652,27 @@ boolean ce_refuse(
 	return FALSE;
 }
 
+void ce_refusal_explain(
+	char const *format,
+	...)
+{
+	if (!ce_explanation[0] && !ce_refusal[0])
+	{
+		va_list arguments;
+
+		va_start(arguments, format);
+		vsnprintf(ce_explanation, sizeof(ce_explanation), format, arguments);
+		va_end(arguments);
+	}
+	return;
+}
+
+char const *ce_map_refusal_message(
+	void)
+{
+	return ce_message;
+}
+
 boolean ce_map_checking(
 	void)
 {
@@ -688,6 +720,17 @@ void *ce_tags_pointer(
 	return scratch;
 }
 
+/* the length of a map's name without its family's suffix (@ce, @md or @pc),
+at most 63 */
+static int ce_map_file_name_length(
+	char const *map_name)
+{
+	char const *at = strchr(map_name, '@');
+	size_t length = at ? (size_t)(at - map_name) : strlen(map_name);
+
+	return (int)(length < 63 ? length : 63);
+}
+
 /* a Custom Edition map, its header read and verified (cache_files_windows.c),
 checked as above before it is opened: FALSE, with the reason logged and shown,
 if it is refused */
@@ -705,13 +748,18 @@ boolean ce_map_check(
 	char const *family = ce_map_family_name();
 
 	ce_refusal[0] = 0;
+	ce_explanation[0] = 0;
+	ce_message[0] = 0;
 	ce_checking = TRUE;
 	if (file_size == INVALID_FILE_SIZE || file_size_high || file_size > CE_MAXIMUM_FILE_SIZE)
 		valid = ce_refuse("its size could not be read, or is over 2 GB");
 	else if (file_length < CE_HEADER_SIZE || (unsigned long)file_length > file_size)
 		valid = ce_refuse("it is cut short: its header says %ld bytes, the file has %lu", file_length, file_size);
 	else if (ce_needs_opensauce(file))
+	{
+		ce_refusal_explain("It needs OpenSauce, which this game doesn't have.");
 		valid = ce_refuse("it needs OpenSauce (its OpenSauce header asks for memory upgrades or mod data)");
+	}
 	else
 		valid = ce_map_check_tags(file, file_size, (unsigned long)tag_data_offset, (unsigned long)tag_data_size);
 	ce_checking = FALSE;
@@ -719,6 +767,19 @@ boolean ce_map_check(
 	{
 		error(_error_silent, "%s map %s refused: %s", family, map_name, ce_refusal);
 		console_warning("%s map %s refused: %s", family, map_name, ce_refusal);
+		/* (the game shows it in place of the damaged disc error:
+		cache_files_windows.c) */
+		if (ce_explanation[0])
+		{
+			snprintf(ce_message, sizeof(ce_message), "The %s map %.*s can't be played. %s", family,
+				ce_map_file_name_length(map_name), map_name, ce_explanation);
+		}
+		else
+		{
+			snprintf(ce_message, sizeof(ce_message), "The %s map %.*s can't be played: it is damaged, or uses something "
+				"this game doesn't support. debug.txt has the details.", family, ce_map_file_name_length(map_name),
+				map_name);
+		}
 	}
 	else
 	{

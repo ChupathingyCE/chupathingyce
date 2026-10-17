@@ -1323,9 +1323,10 @@
 		<string text="Choose the keys and mouse\nbuttons for each action.\n\nProfile:"/>
 		<string text="Set this profile's controller\nsensitivity and layouts.\n\nProfile:"/>
 		<string text="Adjust the mouse's sensitivity\nand aiming.\n\nProfile:"/>
-		<string text="Adjust the volume of the music\nand of everything else.\n\nProfile:"/>
+		<string text="Adjust the volumes and choose\nwhere the sound plays.\n\nProfile:"/>
 		<string text="Choose a window or the full\nscreen, the frame rate and more.\n\nProfile:"/>
 		<string text="Internet play, updates and the\nmultiplayer HUD.\n\nProfile:"/>
+		<string text="Choose what stats and crash\nreports this copy sends.\n\nProfile:"/>
 		<string text="Change the current profile's\nfree-for-all multiplayer color.\n\nProfile:"/>
 		<string text="Halo: Combat Evolved, the Xbox\ngame, on this computer.\n\nProfile:"/>
 	</strings>
@@ -1340,6 +1341,7 @@
 		<string text="SAVE CHANGES "/>
 		<string text="NETWORK SETUP "/>
 		<string text="ABOUT"/>
+		<string text="PRIVACY"/>
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/cap_video_settings_strings">
 		<string text="Select a display resolution."/>

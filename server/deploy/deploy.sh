@@ -5,7 +5,9 @@
 # built here (python3 tools/ci_build.py server-x64 release --alpine):
 #   server/deploy/deploy.sh [--image NAME] [--no-restart] user@host path/to/chupathingyce-server
 # The host's data folder, /opt/halo-dedicated/data, needs the maps (maps/,
-# the multiplayer maps and ui.map); the playlists are copied from server/.
+# the multiplayer maps and ui.map); the playlists and blocked_names.txt are
+# copied from server/ (blocked_names.txt into each further server's data
+# folder too).
 #
 # --image NAME builds the image under another name (halo-dedicated-ce, say:
 # a 64-bit server for Halo PC maps beside 32-bit ones), from a build folder
@@ -50,6 +52,8 @@ ssh "$host" 'sudo mkdir -p /opt/halo-dedicated/data/maps /opt/halo-dedicated/dat
 scp "$binary" "$host:$context/bin/$arch/chupathingyce-server"
 scp "$here/Dockerfile" "$host:$context/"
 scp "$here"/../playlists/*.txt "$host:/opt/halo-dedicated/data/playlists/"
+scp "$here/../blocked_names.txt" "$host:/opt/halo-dedicated/data/"
+ssh "$host" 'for folder in /opt/halo-dedicated/instances/*/; do if [ -d "$folder" ]; then cp /opt/halo-dedicated/data/blocked_names.txt "$folder"; fi; done'
 # (TARGETARCH given: Docker's legacy builder, without buildx, sets none;
 # and --pull, or it takes whichever architecture's Alpine it has already)
 ssh "$host" 'sudo docker build -q --pull --platform linux/'"$arch"' --build-arg TARGETARCH='"$arch"' -t '"$image $context"

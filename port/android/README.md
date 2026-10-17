@@ -41,11 +41,53 @@ ninja) and these items:
 The app is `dev.horrible.chupathingyce`, and its name on the device is
 ChupathingyCE. Refer to "App ID, signing and versions".
 
+## The native 64-bit build (experimental)
+
+`ninja android64` builds the game as native 64-bit code (LP64), as the
+Linux x86-64, Windows x64 and macOS builds do (`HALO_64BIT`,
+`tools/lp64_build.py`). It has no guest image and no host loader: the game
+and the platform layer are in `libmain.so`, which calls SDL3 and OpenGL ES
+3 directly. `port/android/native64/android64_main.c` is its entry point
+(`SDL_main`) and does the work of `host_main.c`. The touch controls
+(`host/host_touch.c`) and the OpenGL ES helpers (`host/host_gl.c`) are
+shared with the usual build.
+
+`ninja android64_apk` makes the app:
+`port/android/app/build-native64/outputs/apk/debug/app-debug.apk`. It is
+the same Gradle module built with `-Pnative64`, so the two builds' APKs
+sit side by side. It is the same app: the same ID
+(`dev.horrible.chupathingyce`), name, key and version code. Either build
+installs over the other and keeps the data folder and the saves. Its
+updates come from the release asset `chupathingyce-android64-<config>.zip`,
+the usual build's from `chupathingyce-android-<config>.zip` (refer to
+"Updates").
+
+The game does not use fixed addresses. Its Xbox address space (4 GB,
+`source/cseries/xbox_address.h`) is reserved wherever the process has room,
+aligned to 4 GB (`port/linux/src/xbox_memory.c`). ART's spaces cannot be
+in the way, as they can be at `0x80000000` for the usual build (refer to
+"The fixed addresses"). The log shows the address, for example `Xbox
+address space at 0x7200000000`. If the reservation fails, the game shows a
+message and writes the process's mappings to the log.
+
+The native build has the memory window and texture cache of the desktop
+builds, and it plays Halo PC maps as they do. Kernels with 16 KB pages
+(Android 15 and later) are supported.
+
+To build and install it:
+
+1. Enter `ninja android64_apk`.
+2. Enter `adb install -r port/android/app/build-native64/outputs/apk/debug/app-debug.apk`.
+
+A crash report gives addresses in `libmain.so`. To get the names, enter
+`llvm-symbolizer --obj=build/android64/jniLibs/arm64-v8a/libmain.so 0x<offset>`.
+
 ## Game data
 
 The game needs the `maps/` folder from an Xbox disc image (`.xiso` or
 `.iso`) of any version of the game. The app extracts `maps/` from the disc
-image. The app keeps the data in
+image, and the Bink movies (`bink/`) that the folder lacks. The movies are
+not played on this build yet. The app keeps the data in
 `/sdcard/Android/data/dev.horrible.chupathingyce/files`.
 
 To install the data with the app:
@@ -69,7 +111,7 @@ To install the data from a computer:
 | Halo PC (Custom Edition) maps, with `bitmaps.map`, `sounds.map` and `loc.map` | `maps_ce` |
 | HaloMD maps | `maps_md` |
 | Halo PC (retail) maps | `maps_pc` |
-| Log | `debug.txt` |
+| Log | `logs/debug.txt` (`debug.txt` until 0.8.0) |
 | Settings | `config.toml` |
 
 To make a copy of the saved games, enter
@@ -77,8 +119,24 @@ To make a copy of the saved games, enter
 
 The app plays Halo PC (Custom Edition, HaloMD and retail) maps as the other
 builds do: refer to "Halo PC maps" in the main
-[README](../../README.md#halo-pc-maps). Copy the files from a computer, for
-example
+[README](../../README.md#halo-pc-maps).
+
+To add maps on the device, use **Import maps**: hold the app's icon and
+choose Import Halo PC maps, or, in the game, open the touch controls'
+Options and choose Import maps. Android's own file picker opens (no
+storage permission is asked for). Pick one or more `.map` files, or `.zip`
+archives of them, and the app copies each into its folder by its header
+(`port/android/app/src/main/java/com/halo/decomp/MapImporter.java`): a
+Custom Edition map (cache version 609), and `bitmaps.map`, `sounds.map` and
+`loc.map`, into `maps_ce`; a Halo PC 1.0 map (version 7) into `maps_md`
+when it is named as HaloMD's are (`<name>_<number>.map`), else into
+`maps_pc`. Xbox maps are left out: they come from the disc image. A map
+replaces a file of the same name in its folder. From a zip, only the
+`.map` files are taken, by their names alone (never a folder from the
+archive). This is the way in on recent Android versions, where file
+managers cannot open the app's folder.
+
+Or copy the files from a computer, for example
 `adb push <folder>/. /sdcard/Android/data/dev.horrible.chupathingyce/files/maps_ce/`.
 The older `maps/ce` and `md_maps` of earlier versions are moved into
 `maps_ce` and `maps_md` when the game starts (unless
@@ -195,6 +253,7 @@ These settings are only for Android:
 | --- | --- |
 | `input.touch_controls` | The touch controls in a game. `"on"` (the default): shown on a touchscreen, also with a controller connected. `"auto"`: shown only while no controller is connected. `"off"`: never shown. A device without a touchscreen never shows them. The menus take taps with each value. |
 | `display.screen_width` | The number of columns of the 480-line picture. `0` (the default): the shape of the display (1068 on a 20:9 phone). `640`: the 4:3 shape of the Xbox. |
+| `display.texture_decode` | Where the compressed (DXT) textures of the maps are unpacked. `"auto"` (the default): by the game on Adreno graphics (Snapdragon), whose driver draws them with dark speckles, and by the driver on other graphics. `"gpu"`: by the driver. `"cpu"`: by the game, as they load (more memory, as on Mali). |
 | `debug.sample_seconds` | Refer to "Find problems". |
 
 ## Internet play
@@ -356,7 +415,9 @@ The guest is the game, the platform layer and a small runtime:
    AArch64 target of clang. The options `-U__APPLE__` and
    `-fno-define-target-os-macros` hide the Darwin environment.
 2. `tools/android_asm_convert.py` changes the Mach-O assembly to ELF
-   assembly.
+   assembly. It renames symbols, but keeps string literals (`.ascii`,
+   `.asciz`) byte for byte: they hold tables as well as text
+   (`tools/test_android_asm_convert.py`).
 3. The AArch64 assembler makes the objects.
 4. `ld.lld` links the objects with `guest/guest.ld` to a static image,
    `build/android/halo_guest.elf`, at a fixed address above the Xbox memory
@@ -414,9 +475,13 @@ Thus:
    allocates large objects.
 3. If ART's large object space is in the way, the host takes back only the
    part that covers the fixed addresses, and only if no page of it is in
-   use (`/proc/self/pagemap`, or `mincore` and the swap total of the space
-   if the device refuses `pagemap`). The host never takes the other spaces
-   of ART.
+   use (`/proc/self/pagemap`, or `mincore` and the swap of that part if
+   the device refuses `pagemap`). The host never takes the other spaces of
+   ART. Kernels older than 4.17 (for example the Galaxy S10 on Android 12)
+   take `MAP_FIXED_NOREPLACE` as a hint, and the host then also tries this
+   step. Older ART (Android 9) backs the space with ashmem
+   (`/dev/ashmem/dalvik-free list large object space`); then only `mincore`
+   decides, because it sees the pages of the ashmem file.
 
 If the addresses are not available, the game shows a message, and writes
 the mappings below 4 GB to `memory_map.txt` in the data folder and to the
@@ -440,6 +505,10 @@ the fixed addresses:
   starts.
 - `adb shell setprop debug.halo.art_overlap busy`: a page at `0x80100000`
   is in use. The game shows the message and writes `memory_map.txt`.
+- Add `-nopagemap` to either value (`idle-nopagemap`) to test as on a
+  device that refuses `/proc/self/pagemap`. Add `-swapped`
+  (`idle-nopagemap-swapped`) to also move the objects of the stand-in to
+  swap; with `busy`, the page in the fixed addresses too.
 - `adb shell setprop debug.halo.art_overlap ""`: normal operation.
 
 ### OpenGL ES
@@ -506,7 +575,7 @@ assembly of the port is necessary:
 ## Find problems
 
 - Enter `adb logcat -s chupathingyce` to see the log of the port and the errors of
-  the game. `files/debug.txt` is the log of the game.
+  the game. `files/logs/debug.txt` is the log of the game.
 - If the guest code stops, the log shows the registers and the frame chain.
   To find the functions, enter
   `llvm-symbolizer --obj=build/android/halo_guest.elf <address>`.
@@ -518,7 +587,8 @@ assembly of the port is necessary:
 
 ## Limits
 
-- Bink video is not available. The game skips the movies.
+- Bink video is not available on this build. The game skips the movies.
+  The app still copies the disc's `bink/` movies with `maps/`.
 - The Xbox memory is the 128 MB of a development kit, not the 512 MB of the
   computer builds. Thus the texture cache is 44 MB, not 128 MB
   (`port/linux/include/halo_port_capacity.h`). This is sufficient for the

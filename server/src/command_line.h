@@ -10,6 +10,11 @@ A command line is printable ASCII, at most COMMAND_LINE_MAXIMUM_LENGTH
 characters: words apart by spaces or tabs; a word in double quotes may hold
 spaces ("Master Chief"), and \" and \\ inside the quotes stand for " and \.
 A line beginning with # is a comment, and an empty one nothing.
+
+A command that takes a reason (sv_warn and sv_kick its third word, sv_ban
+its fourth) takes the rest of the line for it: one word in double quotes,
+or else the rest as it is typed, spaces and all, at most
+COMMAND_LINE_REASON_SIZE - 1 characters.
 */
 
 #ifndef COMMAND_LINE_H
@@ -21,6 +26,9 @@ enum
 	COMMAND_LINE_MAXIMUM_WORDS = 8,
 	/* a word, with its terminator */
 	COMMAND_LINE_WORD_SIZE = 64,
+	/* a reason, with its terminator: as long as a notice in a player's game
+	(Delta Peer's, DELTA_WIRE_MODERATION_TEXT_SIZE) */
+	COMMAND_LINE_REASON_SIZE = 128,
 	/* the longest ban: ten years, in seconds */
 	COMMAND_LINE_MAXIMUM_DURATION = 10 * 366 * 24 * 60 * 60,
 };
@@ -28,7 +36,9 @@ enum
 struct command_line
 {
 	int count;
-	char words[COMMAND_LINE_MAXIMUM_WORDS][COMMAND_LINE_WORD_SIZE];
+	/* (each as long as a reason may be; a word that is not one, at most
+	COMMAND_LINE_WORD_SIZE - 1 characters) */
+	char words[COMMAND_LINE_MAXIMUM_WORDS][COMMAND_LINE_REASON_SIZE];
 };
 
 /* the words of text (count 0 for an empty line or a comment); 0 if it is not

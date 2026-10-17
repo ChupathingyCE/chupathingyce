@@ -2,6 +2,9 @@ package com.halo.decomp;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.ShortcutInfo;
+import android.content.pm.ShortcutManager;
+import android.graphics.drawable.Icon;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
@@ -22,6 +25,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
 import java.nio.channels.FileChannel;
+import java.util.Collections;
 
 /**
  * Starts the game once its data is in place.
@@ -53,6 +57,7 @@ public class LauncherActivity extends Activity {
             new File(dataRoot, "maps").mkdirs();
         passOnHardwareId();
         passOnInvite(getIntent());
+        addImportShortcut();
         if (haveData()) {
             startGame();
             return;
@@ -110,6 +115,29 @@ public class LauncherActivity extends Activity {
         }
         if (!partial.renameTo(new File(dataRoot, "hardware_id.txt")))
             partial.delete();
+    }
+
+    /**
+     * "Import maps" on the launcher icon (a long press): Halo PC maps from
+     * the system's file picker (MapImportActivity), for players whose file
+     * manager cannot open the app's folder.
+     */
+    private void addImportShortcut() {
+        try {
+            ShortcutManager shortcuts = getSystemService(ShortcutManager.class);
+            if (shortcuts == null)
+                return;
+            Intent intent = new Intent(this, MapImportActivity.class).setAction(Intent.ACTION_VIEW);
+            ShortcutInfo shortcut = new ShortcutInfo.Builder(this, "import-maps")
+                .setShortLabel("Import maps")
+                .setLongLabel("Import Halo PC maps")
+                .setIcon(Icon.createWithResource(this, R.mipmap.ic_launcher))
+                .setIntent(intent)
+                .build();
+            shortcuts.setDynamicShortcuts(Collections.singletonList(shortcut));
+        } catch (RuntimeException e) {
+            // (a launcher without shortcuts: the touch controls' Options has the import)
+        }
     }
 
     private boolean haveData() {

@@ -2,9 +2,22 @@ plugins {
     id "com.android.application"
 }
 
+// The native 64-bit build (`ninja android64`, tools/android64_build.py)
+// with -Pnative64: the same app, the same ID and key, with build/android64's
+// libraries (the game itself, no guest image), built into build-native64 so
+// that the two builds' APKs sit side by side. Either installs over the other
+// and keeps the game data and saves; each updates itself from its own
+// release asset (Updater.java, HALO_UPDATE_ASSET).
+def native64 = project.hasProperty("native64")
+if (native64)
+    layout.buildDirectory = file("build-native64")
+
 // build/android in the repository root, where `ninja android` stages the
-// native libraries (jniLibs) and the guest image (assets)
-def staged = new File(rootDir, "../../build/android")
+// native libraries (jniLibs) and the guest image (assets); build/android64,
+// where `ninja android64` stages the native 64-bit build's
+def staged = new File(rootDir, native64 ? "../../build/android64" : "../../build/android")
+// SDL3's Java side, which `ninja android` fetches for both
+def sdlJava = new File(rootDir, "../../build/android/third_party/SDL3/android-project/app/src/main/java")
 
 // the version (tools/version.py): HALO_VERSION from the release workflow
 // (0.5.0b, 0.5.0b-nightly.42), else VERSION's, a development build; only a
@@ -57,9 +70,8 @@ android {
     // (Java_com_halo_decomp_*), and upstream's changes merge as they are.
     // Only the application ID, what Android and the stores know the app by,
     // is ChupathingyCE's; it decides the data folder too,
-    // /sdcard/Android/data/dev.horrible.chupathingyce/files. A variant that
-    // installs beside it (a native 64-bit build) adds a suffix:
-    // dev.horrible.chupathingyce.native64.
+    // /sdcard/Android/data/dev.horrible.chupathingyce/files. The native
+    // 64-bit build (native64, above) is the same app.
     namespace "com.halo.decomp"
     compileSdk 35
 
@@ -71,6 +83,13 @@ android {
         versionName haloVersion
         buildConfigField "String", "HALO_VERSION", "\"${haloVersion}\""
         buildConfigField "boolean", "HALO_RELEASE_BUILD", "${releaseBuild}"
+        // the release asset this build updates from: chupathingyce-android
+        // or chupathingyce-android64, then -debug.zip or -release.zip
+        buildConfigField "String", "HALO_UPDATE_ASSET", native64 ? "\"chupathingyce-android64\"" : "\"chupathingyce-android\""
+        // the native 64-bit build's heap pointers without Android's tag in
+        // their top byte, as on the desktop's 64-bit builds, whose code it
+        // is (AndroidManifest.xml); the guest build keeps the default
+        manifestPlaceholders = [heapPointerTagging: native64 ? "false" : "true"]
         ndk {
             abiFilters "arm64-v8a"
         }
@@ -78,7 +97,7 @@ android {
 
     sourceSets {
         main {
-            java.srcDirs += new File(staged, "third_party/SDL3/android-project/app/src/main/java")
+            java.srcDirs += sdlJava
             jniLibs.srcDirs = [new File(staged, "jniLibs")]
             assets.srcDirs = [new File(staged, "assets")]
         }

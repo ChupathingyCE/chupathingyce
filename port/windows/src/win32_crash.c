@@ -22,8 +22,9 @@ IP addresses taken out, and the minidump if it is small enough; it goes to
 the game list's site (network.browser_url, POST /v1/crash), which groups
 the crashes and tells the developers. The PDBs of each build stay with its
 release (tools/ci_build.py), for the offsets' function names and lines
-(tools/symbolize_crash.py). Reports wait in crashes\ beside halo.exe until
-they are sent; one that could not be sent (no network) goes the next time
+(tools/symbolize_crash.py). Reports wait in crashes\ in the logs folder
+(beside maps\, or paths.logs) until they are sent (those from before 0.8.0,
+in crashes\ beside halo.exe, are sent from there); one that could not be sent (no network) goes the next time
 the game starts ("halo.exe --crash-upload", in the background).
 
 Only releases and nightlies (whose commits are known) report crashes; the
@@ -75,6 +76,8 @@ an application's own code) */
 #endif
 
 void platform_log(const char *format, ...);
+/* xbox_files.c's: the logs folder, before the game knows its data root */
+int platform_logs_folder_early(char *path, unsigned long size);
 /* errors.c's: debug.txt, whose first lines (its reference address) place
 the addresses here in the build */
 void write_to_error_file(char *string, unsigned char date);
@@ -93,13 +96,45 @@ static int crash_executable_folder(wchar_t *path, size_t size)
 	return 1;
 }
 
-/* crashes\ beside halo.exe, with its separator */
+/* the logs folder (where halo.log is), whole, with its separator */
+static int crash_logs_folder(wchar_t *path, size_t size)
+{
+	char folder[PATH_SIZE];
+	wchar_t wide[PATH_SIZE];
+	DWORD length;
+
+	if (!platform_logs_folder_early(folder, sizeof(folder)) ||
+		!MultiByteToWideChar(CP_UTF8, 0, folder, -1, wide, PATH_SIZE))
+	{
+		return 0;
+	}
+	length = GetFullPathNameW(wide, (DWORD)size, path, NULL);
+	if (!length || length + 2 > size)
+		return 0;
+	if (path[length - 1] != L'\\' && path[length - 1] != L'/')
+		wcscat(path, L"\\");
+	return 1;
+}
+
+/* crashes\ in the logs folder, with its separator */
 static int crash_folder(wchar_t *path, size_t size)
 {
-	if (!crash_executable_folder(path, size) || wcslen(path) + wcslen(CRASH_FOLDER) + 2 > size)
+	if (!crash_logs_folder(path, size) || wcslen(path) + wcslen(CRASH_FOLDER) + 2 > size)
 		return 0;
 	wcscat(path, CRASH_FOLDER L"\\");
 	return 1;
+}
+
+/* crashes\ beside halo.exe, where reports waited before 0.8.0, with its
+separator; 0 when it is the logs folder's own */
+static int crash_old_folder(wchar_t *path, size_t size)
+{
+	wchar_t folder[PATH_SIZE];
+
+	if (!crash_executable_folder(path, size) || wcslen(path) + wcslen(CRASH_FOLDER) + 2 > size)
+		return 0;
+	wcscat(path, CRASH_FOLDER L"\\");
+	return !crash_folder(folder, PATH_SIZE) || _wcsicmp(folder, path);
 }
 
 static int crash_path(wchar_t *path, size_t size, const wchar_t *folder, const wchar_t *name, const wchar_t *extension)
@@ -546,7 +581,7 @@ static void crash_copy_log(HANDLE process, const wchar_t *report_log)
 	DWORD size = 0;
 	char *log;
 
-	if (!crash_executable_folder(path, PATH_SIZE) || wcslen(path) + sizeof("halo.log") > PATH_SIZE)
+	if (!crash_logs_folder(path, PATH_SIZE) || wcslen(path) + sizeof("halo.log") > PATH_SIZE)
 		return;
 	wcscat(path, L"halo.log");
 	if (!GetProcessTimes(process, &created, &exited, &kernel, &user) ||
@@ -798,30 +833,39 @@ static void crash_reporter(DWORD process_id, DWORD thread_id, ULONG_PTR exceptio
 		}
 	}
 	crash_upload_pending(folder);
+	if (crash_old_folder(folder, PATH_SIZE))
+		crash_upload_pending(folder);
 }
 
 /* "halo.exe --crash-upload": the reports a crash left unsent */
 static void crash_uploader(void)
 {
-	wchar_t folder[PATH_SIZE], names[MAXIMUM_PENDING_REPORTS * 2][MAX_PATH];
+	wchar_t folders[2][PATH_SIZE], names[MAXIMUM_PENDING_REPORTS * 2][MAX_PATH];
 	const char *consent;
-	int count, index;
+	int count, index, folder;
 
-	if (!crash_folder(folder, PATH_SIZE))
+	if (!crash_folder(folders[0], PATH_SIZE))
 		return;
-	crash_reporter_log(folder);
+	CreateDirectoryW(folders[0], NULL);
+	crash_reporter_log(folders[0]);
 	consent = crash_consent();
-	if (!strcmp(consent, "yes"))
+	/* (the logs folder's reports, and those from before it beside halo.exe) */
+	for (folder = 0; folder < 2; folder++)
 	{
-		crash_upload_pending(folder);
-	}
-	else if (!strcmp(consent, "no"))
-	{
-		count = crash_pending_reports(folder, names, MAXIMUM_PENDING_REPORTS * 2);
-		if (count > MAXIMUM_PENDING_REPORTS * 2)
-			count = MAXIMUM_PENDING_REPORTS * 2;
-		for (index = 0; index < count; index++)
-			crash_delete_report(folder, names[index]);
+		if (folder && !crash_old_folder(folders[1], PATH_SIZE))
+			break;
+		if (!strcmp(consent, "yes"))
+		{
+			crash_upload_pending(folders[folder]);
+		}
+		else if (!strcmp(consent, "no"))
+		{
+			count = crash_pending_reports(folders[folder], names, MAXIMUM_PENDING_REPORTS * 2);
+			if (count > MAXIMUM_PENDING_REPORTS * 2)
+				count = MAXIMUM_PENDING_REPORTS * 2;
+			for (index = 0; index < count; index++)
+				crash_delete_report(folders[folder], names[index]);
+		}
 	}
 }
 
@@ -900,6 +944,22 @@ static void crash_line(const char *format, ...)
 	write_to_error_file(line, 1);
 }
 
+/* the game's executable's file name (halo.exe, or what it is renamed to), for
+the crash lines; found before a crash */
+static char crash_module_name[64] = "halo.exe";
+
+static void crash_find_module_name(void)
+{
+	char path[PATH_SIZE];
+	DWORD length = GetModuleFileNameA(NULL, path, PATH_SIZE);
+	const char *file;
+
+	if (!length || length >= PATH_SIZE)
+		return;
+	file = strrchr(path, '\\');
+	snprintf(crash_module_name, sizeof(crash_module_name), "%s", file ? file + 1 : path);
+}
+
 static LONG WINAPI crash_filter(EXCEPTION_POINTERS *exception)
 {
 	static volatile LONG crashed_thread = 0;
@@ -917,9 +977,10 @@ static LONG WINAPI crash_filter(EXCEPTION_POINTERS *exception)
 		Sleep(INFINITE);
 	/* the minidump first, before anything here can fail */
 	dumped = crash_reports_armed() && crash_dump(exception);
-	/* (where halo.exe is: tools/symbolize_crash.py finds the lines of the
-	addresses below from it and halo.pdb) */
-	crash_line("crash: halo.exe at %p, %s", (void *)GetModuleHandleW(NULL), build_identity());
+	/* (where the game's executable is, by its file name, halo.exe:
+	tools/symbolize_crash.py finds the lines of the addresses below from it
+	and its .pdb) */
+	crash_line("crash: %s at %p, %s", crash_module_name, (void *)GetModuleHandleW(NULL), build_identity());
 #ifdef HALO_64BIT
 	{
 		CONTEXT unwound = *context;
@@ -1033,13 +1094,15 @@ static void crash_reports_install(void)
 		ExitProcess(0);
 	}
 
+	crash_find_module_name();
 	SetUnhandledExceptionFilter(crash_filter);
 	/* (room on the main thread's stack for the filter after a stack overflow) */
 	SetThreadStackGuarantee(&guarantee);
 	signal(SIGABRT, crash_abort);
 	_set_invalid_parameter_handler(crash_invalid_parameter);
 	/* reports an earlier crash could not send */
-	if (crash_reports_armed() && crash_folder(folder, PATH_SIZE) && crash_pending_reports(folder, NULL, 0))
+	if (crash_reports_armed() && ((crash_folder(folder, PATH_SIZE) && crash_pending_reports(folder, NULL, 0)) ||
+		(crash_old_folder(folder, PATH_SIZE) && crash_pending_reports(folder, NULL, 0))))
 	{
 		HANDLE uploader = crash_start_reporter(CRASH_UPLOAD_OPTION);
 

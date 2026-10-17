@@ -232,6 +232,98 @@ def march_flag(sln: Any) -> str:
     return "-march=x86-64" if getattr(sln, "port_portable", False) else "-march=native"
 
 
+# The portable builds (configure.py --portable, as tools/ci_build.py builds)
+# start on other Linux systems than the one that built them, the Steam
+# Deck's among them: they are compiled and linked against Debian 11's glibc
+# 2.31, not the build machine's (an executable asks for the glibc version it
+# was built with, or older), and each brings its own SDL3, libSDL3.so.0
+# beside the executable, which finds it there (an rpath of $ORIGIN), as few
+# distributions have a 32-bit SDL3 (or, for the 64-bit build, any SDL3).
+# tools/linux_sysroot.py downloads the system root (i386 for ninja linux,
+# amd64 for ninja linux64: tools/linux64_build.py) and SDL's source, and
+# tools/linux_sysroot.cmake (tools/linux64_sysroot.cmake) builds SDL
+# against it.
+SYSROOT_SCRIPT = Path("tools/linux_sysroot.py")
+SYSROOT_TOOLCHAIN = Path("tools/linux_sysroot.cmake")
+# SDL's options: what it would build on a desktop distribution, its X11,
+# Wayland (with libdecor's window decorations, which GNOME's Wayland asks
+# for), PipeWire, PulseAudio and ALSA loaded when it starts (dlopen), less
+# what needs libraries the system root does not have and the game does not
+# use (KMS/DRM without a desktop, input methods, libusb, JACK, sndio,
+# io_uring) and SDL's own tests
+SDL_OPTIONS = [
+    "-DCMAKE_BUILD_TYPE=Release", "-DSDL_SHARED=ON", "-DSDL_STATIC=OFF", "-DSDL_TEST_LIBRARY=OFF",
+    "-DSDL_TESTS=OFF", "-DSDL_EXAMPLES=OFF", "-DSDL_KMSDRM=OFF", "-DSDL_WAYLAND_LIBDECOR=ON",
+    "-DSDL_WAYLAND_LIBDECOR_SHARED=ON", "-DSDL_IBUS=OFF", "-DSDL_HIDAPI_LIBUSB=OFF", "-DSDL_JACK=OFF",
+    "-DSDL_SNDIO=OFF", "-DSDL_LIBURING=OFF", "-DSDL_FRIBIDI=OFF", "-DSDL_LIBTHAI=OFF", "-DSDL_X11_XTEST=OFF",
+]
+
+
+@dataclass
+class PortableSdl:
+    """A portable build's system root and SDL3 (portable_sdl)."""
+    # the compiler's flags and the linker's
+    cflags: List[str]
+    ldflags: List[str]
+    # what every unit waits for (the system root's stamp)
+    stamp: Path
+    # the libSDL3.so.0 the executable links to, and SDL's license (which
+    # the release carries beside it)
+    libsdl: Path
+    license: Path
+
+
+def portable_sdl(n: Writer, sln: Any, build_dir: Path, cc: str, name: str = "linux", arch: str = "i386",
+                 toolchain: Path = SYSROOT_TOOLCHAIN) -> PortableSdl:
+    """The portable build's system root and SDL3, in build_dir, with rules
+    named for the build (linux, linux64) and its ``{name}_copy`` rule."""
+    third_party = build_dir / "third_party"
+    sysroot = third_party / "sysroot"
+    sdl_source = third_party / "SDL3"
+    stamp = third_party / "stamp"
+    sdl_build = build_dir / "sdl3-build"
+    libsdl = sdl_build / "libSDL3.so.0"
+    label = name.upper()
+    n.rule(
+        name=f"{name}_sysroot",
+        command=f"$python {SYSROOT_SCRIPT} --arch {arch} {third_party}",
+        description=f"{label} SYSROOT (Debian 11 {arch}, SDL3 source)",
+        restat=True,
+    )
+    # (and SDL's license, which the release carries)
+    sdl_license_source = sdl_source / "LICENSE.txt"
+    n.build(outputs=stamp, rule=f"{name}_sysroot", implicit=[SYSROOT_SCRIPT], implicit_outputs=[sdl_license_source])
+    launcher = getattr(sln, "compiler_launcher", None)
+    options = SDL_OPTIONS + ([f"-DCMAKE_C_COMPILER_LAUNCHER={launcher}"] if launcher else [])
+    n.rule(
+        name=f"{name}_sdl3",
+        # (SDL's build takes the system root's include folders from
+        # pkg-config, which splits a path at its spaces: a checkout in a folder
+        # with a space in its name is said, rather than failing deep in SDL)
+        command=(f"case \"$$PWD\" in *\" \"*) echo \"{label} SDL3: the portable build cannot be made in a folder "
+                 f"whose path has a space ($$PWD): move the checkout\" >&2; exit 1;; esac && "
+                 f"cmake -S {sdl_source} -B {sdl_build} -G Ninja --fresh "
+                 f"\"-DCMAKE_TOOLCHAIN_FILE=$$PWD/{toolchain}\" \"-DHALO_SYSROOT=$$PWD/{sysroot}\" "
+                 f"-DCMAKE_C_COMPILER={cc} {' '.join(options)} > {build_dir}/sdl3-configure.log && "
+                 f"ninja -C {sdl_build} > {build_dir}/sdl3-build.log && "
+                 f"$python {SYSROOT_SCRIPT} --check-sdl "
+                 f"{sdl_build}/include-config-release/build_config/SDL_build_config.h"),
+        description=f"{label} SDL3",
+        pool="console",
+        restat=True,
+    )
+    n.build(outputs=libsdl, rule=f"{name}_sdl3", implicit=[stamp, toolchain])
+    cflags = [f"--sysroot={_quote(sysroot)}", f"-isystem {_quote(sdl_source / 'include')}"]
+    # (DT_RPATH rather than DT_RUNPATH: it comes before LD_LIBRARY_PATH,
+    # which Steam sets for the games it starts, so that the SDL beside the
+    # executable is the one loaded, whatever other SDL that path holds)
+    ldflags = [f"--sysroot={_quote(sysroot)}", f"-L{_quote(sdl_build)}", "'-Wl,-rpath,$$ORIGIN'",
+               "-Wl,--disable-new-dtags"]
+    sdl_license = build_dir / "SDL3-LICENSE.txt"
+    n.build(outputs=sdl_license, rule=f"{name}_copy", inputs=sdl_license_source)
+    return PortableSdl(cflags, ldflags, stamp, libsdl, sdl_license)
+
+
 def lto_mode(sln: Any) -> str:
     """full, thin or off (configure.py --lto)"""
     return getattr(sln, "port_lto", "full")
@@ -351,6 +443,9 @@ class Linux32Units:
     native_sources: List[Path] = field(default_factory=list)
     # include flags for the platform and host-ABI units (SDL's headers)
     include_flags: List[str] = field(default_factory=list)
+    # the portable build's system root and SDL's headers, after the
+    # instruction set, for every unit (PortableSdl.cflags)
+    sysroot_flags: List[str] = field(default_factory=list)
 
 
 def _retarget(flags: List[str], target_flags: List[str]) -> List[str]:
@@ -368,10 +463,12 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
     semantics_header = units.semantics_header
     platform_semantics_header = units.platform_semantics_header
     browser_defines = ["-DHALO_GAME_BROWSER"] if units.game_browser else []
+    # the instruction set, and the portable build's system root
+    target = [march_flag(sln), *units.sysroot_flags]
     # (a debug build checks its stack frames, and stops at the first one
     # overrun, as it stops at the first failed assertion; a release build
     # does not, so that an overrun nobody has met cannot end a game)
-    abi = " ".join(_retarget(LINUX_ABI_FLAGS, units.target_flags) + [march_flag(sln)]
+    abi = " ".join(_retarget(LINUX_ABI_FLAGS, units.target_flags) + target
                    + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else ["-fstack-protector-strong"])
                    + browser_defines + CUSTOM_EDITION_DEFINES + units.extra_flags)
     port_include = PORT_DIR / "include"
@@ -439,7 +536,7 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
         sdk_flags,
         *units.include_flags,
     ])
-    posix_cflags = " ".join(posix_flags + [march_flag(sln), f"-I{platform_dir}"] + browser_defines
+    posix_cflags = " ".join(posix_flags + target + [f"-I{platform_dir}"] + browser_defines
                             + units.extra_flags + units.include_flags)
     mbedtls_include = f"-I{MBEDTLS_DIR / 'include'}"
     for source in sorted(platform_dir.glob("*.c")):
@@ -470,15 +567,16 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
     # wcslen, which linux_link_check.py rejects: the game's wchar_t is
     # 16-bit)
     for source in sorted((MBEDTLS_DIR / "library").glob("*.c")):
-        add_object(source, " ".join(posix_flags + [march_flag(sln), mbedtls_include,
-                                                   f"-I{MBEDTLS_DIR / 'library'}", "-fno-builtin-wcslen",
-                                                   "-w"]), posix=True)
+        add_object(source, " ".join(posix_flags + target + [mbedtls_include,
+                                                            f"-I{MBEDTLS_DIR / 'library'}", "-fno-builtin-wcslen",
+                                                            "-w"]), posix=True)
     # internet play's UPnP (port/third_party/miniupnpc), with the host's
     # ABI as posix_upnp.c, which uses it
     for source in miniupnpc_sources():
-        add_object(source, " ".join(posix_flags + [march_flag(sln), *MINIUPNPC_DEFINES,
-                                                   f"-I{MINIUPNPC_DIR / 'include'}", f"-I{MINIUPNPC_DIR / 'src'}",
-                                                   "-fno-builtin-wcslen", "-w"]), posix=True)
+        add_object(source, " ".join(posix_flags + target + [*MINIUPNPC_DEFINES,
+                                                            f"-I{MINIUPNPC_DIR / 'include'}",
+                                                            f"-I{MINIUPNPC_DIR / 'src'}",
+                                                            "-fno-builtin-wcslen", "-w"]), posix=True)
     # the settings file's parser (port/third_party/tomlc17), with the
     # platform layer's ABI (its structs hold doubles) and nothing else
     add_object(TOML_DIR / "tomlc17.c", " ".join([abi, "-std=gnu11", "-w"]))
@@ -570,6 +668,9 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
         rspfile_content="$in_newline",
     )
 
+    # (-L: SDL's library is a link to the file of its full version)
+    n.rule(name="linux_copy", command="cp -L $in $out", description="LINUX COPY $out")
+
     n.rule(
         name="linux_pgo_train",
         command="$python tools/pgo_train.py --binary $binary --work $work --output $out",
@@ -581,26 +682,37 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     embedded_assets = (hud_assets_build(n, "linux", build_dir / "generated" / "hud_hires_assets.c")
                        + ui_fonts_build(n, "linux", build_dir / "generated" / "ui_fonts.c", sln))
 
+    # the portable build's system root and SDL3, or the build machine's
+    sdl = portable_sdl(n, sln, build_dir, cc) if getattr(sln, "port_portable", False) else None
+    sysroot_cflags = sdl.cflags if sdl else []
+    sysroot_ldflags = sdl.ldflags if sdl else []
+    sysroot_inputs = [sdl.stamp] if sdl else []
+    sdl_outputs = [build_dir / sdl.libsdl.name, sdl.license] if sdl else []
+
     libs = " ".join(f"-l{lib}" for lib in config.get("libraries", []))
     units = Linux32Units(sln=sln, config=config, game_browser=getattr(sln, "game_browser", False),
                          semantics_header=semantics_header, platform_semantics_header=platform_semantics_header,
-                         embedded_assets=embedded_assets)
+                         embedded_assets=embedded_assets, sysroot_flags=sysroot_cflags)
 
     def emit(obj_dir: Path, output: Path, extra_cflags: List[str], extra_ldflags: List[str],
              implicit_inputs: List[Path], validator: Optional[Path] = None) -> None:
         """the objects and the executable, with the given extra flags (and
         the tag validator alone, tools/map_validate.c, as validator)"""
-        objects = linux32_objects(n, units, obj_dir, extra_cflags, implicit_inputs)
+        objects = linux32_objects(n, units, obj_dir, extra_cflags, [*sysroot_inputs, *implicit_inputs])
         n.build(
             outputs=output,
             rule="linux_link",
             inputs=objects,
             variables={
-                "ldflags": " ".join(["--target=i686-linux-gnu", "-m32", "-no-pie", "-g", *extra_ldflags]),
+                "ldflags": " ".join(["--target=i686-linux-gnu", "-m32", "-no-pie", "-g", *sysroot_ldflags,
+                                     *extra_ldflags]),
                 "libs": libs,
             },
-            implicit=[Path("tools/linux_link_check.py")],
+            implicit=[Path("tools/linux_link_check.py"), *([sdl.libsdl] if sdl else [])],
         )
+        # (the portable build's SDL3, beside the executable)
+        if sdl is not None:
+            n.build(outputs=output.parent / sdl.libsdl.name, rule="linux_copy", inputs=sdl.libsdl)
 
         # the tag validator (port/linux/game/tag_validate.c, tag_schema*.c)
         # alone on map files: the game's objects of it, and a program that
@@ -608,7 +720,7 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
         if validator is not None:
             game_dir = Path(config["game_sources"])
             platform_dir = Path(config["platform_sources"])
-            posix_cflags = " ".join(POSIX_FLAGS + [march_flag(sln), f"-I{platform_dir}"])
+            posix_cflags = " ".join(POSIX_FLAGS + [march_flag(sln), *sysroot_cflags, f"-I{platform_dir}"])
             posix_extra = " ".join(flag for flag in extra_cflags if not flag.startswith("-flto"))
             tool = Path("tools/map_validate.c")
             tool_object = obj_dir / tool.with_suffix(".o")
@@ -616,6 +728,7 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
                 outputs=tool_object,
                 rule="linux_cc",
                 inputs=tool,
+                implicit=sysroot_inputs,
                 variables={"cflags": " ".join([posix_cflags, f"-I{ZLIB_DIR}", *ZLIB_DEFINES, posix_extra])},
             )
             tool_objects = [tool_object, obj_dir / (game_dir / "tag_validate.o"),
@@ -625,7 +738,8 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
                 outputs=validator,
                 rule="linux_tool_link",
                 inputs=tool_objects,
-                variables={"ldflags": " ".join(["--target=i686-linux-gnu", "-m32", "-no-pie", "-g", *extra_ldflags])},
+                variables={"ldflags": " ".join(["--target=i686-linux-gnu", "-m32", "-no-pie", "-g", *sysroot_ldflags,
+                                                *extra_ldflags])},
             )
 
     # Profile-guided optimisation: with the committed profile, or with
@@ -639,7 +753,8 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
         n.build(
             outputs=profile,
             rule="linux_pgo_train",
-            order_only=[instrumented],
+            # (and the portable build's SDL3 beside it, which it loads)
+            order_only=[instrumented, *([instrumented.parent / sdl.libsdl.name] if sdl else [])],
             variables={"binary": str(instrumented), "work": str(sln.build_dir / "pgo" / "linux")},
         )
 
@@ -651,7 +766,6 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     emit(obj_dir, output, cflags, ldflags, [profile] if profile else [], validator)
     # internet play's MQTT brokers, a file beside the game (network.brokers_file)
     brokers = build_dir / "brokers.txt"
-    n.rule(name="linux_copy", command="cp $in $out", description="LINUX COPY $out")
     n.build(outputs=brokers, rule="linux_copy", inputs=Path("port/assets/network/brokers.txt"))
-    n.build(outputs="linux", rule="phony", inputs=[output, brokers, validator])
+    n.build(outputs="linux", rule="phony", inputs=[output, brokers, validator, *sdl_outputs])
     n.newline()

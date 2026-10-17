@@ -40,7 +40,8 @@ small VPS will do.
 ## Quick start
 
 1. Download the server for your machine and unpack it. You get
-   `chupathingyce-server`, a `playlists` folder and this README.
+   `chupathingyce-server`, a `playlists` folder, `blocked_names.txt` and
+   this README.
 2. Make a data folder with a `maps` folder in it, and copy in the game's
    `ui.map` and the multiplayer maps (all of them: about 300 MB). Use the
    maps of the North American (NTSC) Xbox disc, as the players do. Halo PC
@@ -62,9 +63,12 @@ halo.milenko.org within a few seconds. Ctrl+C stops it, and takes its game
 off the lists as it goes.
 
 The data folder is the current folder, unless `HALO_DATA_ROOT` says
-otherwise. The server writes its log, `debug.txt`, there, and its saves in
-`~/.local/share/halo-linux` unless `HALO_SAVE_ROOT` says otherwise
-([Settings](docs/settings.md)).
+otherwise. The server writes its log, `debug.txt`, in `logs/` there
+(`HALO_LOG_ROOT` puts it elsewhere; until 0.8.0 it was in the data folder
+itself), and its saves in `~/.local/share/chupathingyce` unless
+`HALO_SAVE_ROOT` says otherwise ([Settings](docs/settings.md)). When
+`debug.txt` reaches 64 MB, it is renamed `debug.old.txt` and a new
+`debug.txt` starts.
 
 To keep a server running all the time, with restarts and several servers on
 one machine, use [Docker or systemd](docs/docker.md).
@@ -78,7 +82,9 @@ one machine, use [Docker or systemd](docs/docker.md).
   ChupathingyCE.
 - Plays the playlist's entries in order: once enough players have joined,
   the lobby counts down by itself; after each game the carnage report shows
-  for 20 seconds, then the next entry's lobby opens.
+  for 20 seconds (`HALO_DEDICATED_POSTGAME_SECONDS`), then the next entry's
+  lobby opens (`HALO_DEDICATED_SKIP_LOBBY` starts the next game at once when
+  enough players stayed).
 - Ends a game nobody has scored in for 5 minutes, or 30 seconds after
   everyone has left it.
 - Plays a team entry's next entry without teams while a single player waits
@@ -161,7 +167,8 @@ line (`command_line.c`) and the game list's probe (`probe.c`); `platform/` is
 the server's own platform layer, with no window, input or sound, and its
 console, control API and web admin page; `webui/` that page's files;
 `tests/` the control API's tests; `docs/` the server's documents;
-`playlists/` the playlists; `deploy/` the container and services.
+`playlists/` the playlists; `blocked_names.txt` the names `sv_name_filter`
+blocks; `deploy/` the container and services.
 
 ## Stats (Delta Stats)
 
@@ -171,14 +178,15 @@ how, where the killer and victim were), shots and hits by weapon, medals and
 sprees, flag, ball, hill and lap events, vehicle rides, weapon and powerup
 pickups, spawns, joins and leaves, each player's position every 2 seconds,
 ping, and the server's own minute (frame time, CPU, memory). Players are
-their names and a keyed hash of their hardware ID. No address of anyone is
-ever sent. Co-op games are never recorded.
+their names; no hardware ID or address of anyone is ever sent. An OpenCE
+player is only their name, team and that game's score, place, kills and
+deaths. Co-op games are never recorded.
 
 It is on by default; set `HALO_NET_REPORT_EVENTS=false` to turn it off:
 
 | Setting | Default | |
 | --- | --- | --- |
-| `HALO_NET_REPORT_EVENTS` | `true` | `false` stops recording and sending games. |
+| `HALO_NET_REPORT_EVENTS` | `true` | `false` stops recording and sending games' events. The carnage report still goes while the server is listed (`HALO_NET_REPORT_HOSTED=false` stops it and the events, and the server stays listed). |
 | `HALO_EVENTS_TOKEN` | (none) | A token from the site's operator: the games count as a trusted server's. Without one, the site takes a game only while the server lists it, from the same address (as the carnage report). |
 | `HALO_EVENTS_POSITIONS` | `2` | Seconds between position samples (0 none). |
 | `HALO_EVENTS_LIMIT` | `40000` | The most events a game keeps (about 60 bytes each); past it the position samples thin out first. |
@@ -198,7 +206,7 @@ and players can hide their stats from their profile.
   `HALO_DATA_ROOT` to it.
 - **"cannot read the playlist".** `HALO_DEDICATED` is a path inside the data
   folder: `playlists/my_playlist.txt`, not a path from elsewhere.
-- **It doesn't show on the site.** The log is `debug.txt` in the data folder.
+- **It doesn't show on the site.** The log is `logs/debug.txt` in the data folder.
   The server needs to reach the internet (HTTPS to halo.milenko.org, and UDP).
 - **It shows, but nobody can join.** If the player sees a message, it
   probably names a version mismatch. If they just can't connect (the log

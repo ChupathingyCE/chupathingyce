@@ -13,6 +13,7 @@ test -f "$here/instances/$name.env"
 scp "$here"/../playlists/*.txt "$host:/opt/halo-dedicated/data/playlists/"
 ssh "$host" "sudo mkdir -p /opt/halo-dedicated/instances/$name && sudo chown -R \"\$(id -un)\" /opt/halo-dedicated/instances"
 scp "$here/instances/$name.env" "$host:/opt/halo-dedicated/instances/"
+scp "$here/../blocked_names.txt" "$host:/opt/halo-dedicated/instances/$name/"
 scp "$here/halo-dedicated@.service" "$host:/tmp/"
 ssh "$host" "sudo mv /tmp/halo-dedicated@.service /etc/systemd/system/ \
 	&& sudo systemctl daemon-reload \

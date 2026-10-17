@@ -12,12 +12,17 @@ bundle the distribution keeps for OpenSSL, curl and the rest) and name the
 host; nothing is sent before that is checked. The file SSL_CERT_FILE names
 is used only on a system with no bundle, with a warning on stderr: whatever
 sets the environment would otherwise choose whom updates are trusted from.
+(A build for the updater's test, HALO_UPDATE_TEST, which no release is,
+trusts only the certificate HALO_UPDATE_TEST_CA names: tools/test_update_install.py.)
 
 Built with the host's ABI, as the other posix_*.c.
 */
 
 #include "update.h"
 #include "build_identity.h"
+#ifdef HALO_GAME_BROWSER
+#include "browser_http.h"
+#endif
 
 #include "mbedtls/error.h"
 #include "mbedtls/net_sockets.h"
@@ -63,6 +68,12 @@ static void load_certificates(void)
 
 	crypto_ready = psa_crypto_init() == PSA_SUCCESS;
 	mbedtls_x509_crt_init(&certificates);
+#ifdef HALO_UPDATE_TEST
+	environment = getenv("HALO_UPDATE_TEST_CA");
+	certificates_loaded = environment && *environment && mbedtls_x509_crt_parse_file(&certificates, environment) >= 0 &&
+		certificates.version;
+	return;
+#endif
 	for (index = 0; index < sizeof(certificate_bundles) / sizeof(*certificate_bundles); index++)
 	{
 		/* (a bundle's certificates that do not parse are left out: the
@@ -484,7 +495,7 @@ static int https_get(const char *url, struct download *download, char *location,
 	return status;
 }
 
-int update_download(const char *url, const char *path, unsigned long long maximum, update_progress_proc progress,
+static int download_file(const char *url, const char *path, unsigned long long maximum, update_progress_proc progress,
 	void *context, char *error, int error_size)
 {
 	char current[2048];
@@ -556,12 +567,36 @@ int update_download(const char *url, const char *path, unsigned long long maximu
 	return 0;
 }
 
+int update_download(const char *url, const char *path, unsigned long long maximum, update_progress_proc progress,
+	void *context, char *error, int error_size)
+{
+	int succeeded;
+
+	/* (in turn with the game list's requests, which use the same Mbed TLS:
+	it has no locks of its own, and two threads setting up its PSA crypto
+	or drawing on its random generator at once crash it) */
+#ifdef HALO_GAME_BROWSER
+	posix_browser_lock();
+#endif
+	succeeded = download_file(url, path, maximum, progress, context, error, error_size);
+#ifdef HALO_GAME_BROWSER
+	posix_browser_unlock();
+#endif
+	return succeeded;
+}
+
 /* ---------- files and processes */
 
 int update_executable_path(char *path, int size)
 {
-	ssize_t length = readlink("/proc/self/exe", path, (size_t)size - 1);
+	const char *appimage = getenv("APPIMAGE");
+	ssize_t length;
 
+	/* (none for an AppImage, mounted read-only, whose files cannot be
+	replaced: it is not offered updates yet) */
+	if (appimage && *appimage)
+		return 0;
+	length = readlink("/proc/self/exe", path, (size_t)size - 1);
 	if (length <= 0)
 		return 0;
 	path[length] = 0;
@@ -585,6 +620,15 @@ int update_replace_file(const char *path, const char *new_path, const char *old_
 	/* (the new file as the old was: an executable stays executable) */
 	chmod(path, existed ? (information.st_mode & 07777) : 0644);
 	return 1;
+}
+
+int update_make_executable(const char *path)
+{
+	struct stat information;
+
+	/* (executable by whoever may read it) */
+	return stat(path, &information) == 0 &&
+		chmod(path, (information.st_mode & 07777) | ((information.st_mode & 0444) >> 2)) == 0;
 }
 
 void update_delete_file(const char *path)

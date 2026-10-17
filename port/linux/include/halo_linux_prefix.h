@@ -76,6 +76,12 @@ typedef unsigned short wint_t;
 #define u_long halo_host_u_long
 #include <sys/types.h>
 #undef u_long
+#ifdef __ANDROID__
+/* bionic declares POSIX's strnlen and random whatever the feature macros
+say; the game has its own, of other types (cseries.h, real_math.h) */
+#define strnlen halo_bionic_strnlen
+#define random halo_bionic_random
+#endif
 #include <stdarg.h>
 #include <float.h>
 #include <ctype.h>
@@ -89,6 +95,10 @@ typedef unsigned short wint_t;
 #include <string.h>
 #include <wchar.h>
 #include <assert.h>
+#ifdef __ANDROID__
+#undef strnlen
+#undef random
+#endif
 #endif
 
 /* ---------- MSVC inline semantics

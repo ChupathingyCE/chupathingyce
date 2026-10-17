@@ -30,14 +30,14 @@ SCREENS = {
     "video_settings": {
         "screen": "video_settings_screen",
         "header": ("header_profile_video_settings", f"{PE}/video_settings/header_profile_video_settings"),
-        # (closer than the other screens' rows, and the help lower, for all
-        # twelve places to fit above it)
-        "spacing": 24,
-        "help_top": 364,
+        # (closer than the other screens' rows, for all ten places to fit
+        # above the help)
+        "spacing": 27,
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
-        # display mode chosen uses; Android's anti-aliasing in the desktop's)
-        "same_place": ["display.window_size", "anti_aliasing_android"],
+        # display mode chosen uses; Android's Smooth Motion in Frame Rate's,
+        # and its anti-aliasing in the desktop's)
+        "same_place": ["display.window_size", "display.interpolation", "anti_aliasing_android"],
         "rows": [
             ("DISPLAY MODE:", "display.mode",
              [("FULLSCREEN", "fullscreen"), ("BORDERLESS", "borderless"), ("WINDOWED", "windowed")],
@@ -55,14 +55,17 @@ SCREENS = {
              "Native draws at the resolution; Original draws\nthe Xbox's 640x480 and scales it up.", "desktop"),
             ("V-SYNC:", "display.vsync", ON_OFF,
              "Wait for the display between frames, so that the\npicture never tears.", None),
-            ("FRAME RATE LIMIT:", "display.max_fps",
-             [("AUTO", "0"), ("30", "30"), ("60", "60"), ("120", "120"), ("144", "144"), ("165", "165"),
-              ("240", "240"), ("NONE", "-1")],
-             "With V-Sync off, the most frames a second. Auto:\ntwice the display's refresh rate.", "desktop"),
+            # (port/linux/game/menu_functions.c: 30 also turns display.interpolation
+            # off, the others on; Android, with no frame rate cap, has Smooth
+            # Motion in its place. Instant Aim, display.direct_camera, is in
+            # config.toml alone)
+            ("FRAME RATE:", "display.max_fps",
+             [("30 (XBOX)", "30"), ("AUTO", "0"), ("60", "60"), ("120", "120"), ("144", "144"),
+              ("165", "165"), ("240", "240"), ("NONE", "-1")],
+             "30 draws the game's own frames; the others blend\nbetween them. Auto: twice the display's rate.",
+             "desktop"),
             ("SMOOTH MOTION:", "display.interpolation", ON_OFF,
-             "Draw a frame for every display refresh, blending\nbetween the game's 30 ticks a second.", None),
-            ("INSTANT AIM:", "display.direct_camera", ON_OFF,
-             "In first person, turn the view the moment the\nmouse moves, not up to two ticks later.", "desktop"),
+             "Draw a frame for every display refresh, blending\nbetween the game's 30 ticks a second.", "android"),
             ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
              "Draw the HUD from the high-res redraws; off\ndraws the game's own pictures.", None),
             ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
@@ -97,6 +100,11 @@ SCREENS = {
              "Moving the mouse forward looks down.", None),
             ("AIM ASSIST:", "input.mouse_aim_assist", ON_OFF,
              "Slow and drag the view along with a target while\naiming with the mouse, as with a controller.", None),
+            ("FIELD OF VIEW:", "display.field_of_view",
+             [(f"{value}" + (" (XBOX)" if value == 70 else ""), f"{value}")
+              for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
+             "How wide the first-person view is, in degrees:\n70 as on the Xbox. Scopes zoom as much as before.",
+             None),
         ],
     },
     "audio_settings": {
@@ -108,6 +116,9 @@ SCREENS = {
             ("MUSIC VOLUME:", "audio.music_volume", VOLUMES, "The music's volume.", None),
             ("EFFECTS VOLUME:", "audio.effects_volume", VOLUMES,
              "The volume of every other sound: effects and\nspeech.", None),
+            # (port/linux/game/menu_tags.c adds the system's outputs)
+            ("OUTPUT DEVICE:", "audio.device", [("DEFAULT", "default")],
+             "Where the sound plays. Default follows the\nsystem's output as it changes.", "desktop"),
             ("REVERB:", "audio.reverb", ON_OFF,
              "Echo sounds as the place you are in does, and\nmuffle those behind walls, as the Xbox did.", None),
             ("SOUND:", "audio.enabled", ON_OFF,
@@ -117,14 +128,17 @@ SCREENS = {
     "network_setup": {
         "screen": "network_settings_screen",
         "header": ("header_profile_network_settings", f"{PE}/network_setup/header_profile_network_settings"),
-        "spacing": 30,
+        # (as close as Video Setup's, for its twelve rows)
+        "spacing": 24,
+        "help_top": 364,
         "rows": [
             ("INTERNET PLAY:", "network.online", ON_OFF,
              "Host and join games over the internet by invite\nlinks; off keeps to the local network.", None),
             ("UPNP PORT FORWARDING:", "network.allow_upnp", ON_OFF,
              "Let internet play ask the router to forward its\nport, for networks that stop connections.", None),
-            ("JOIN FROM CLIPBOARD:", "network.join_from_clipboard", ON_OFF,
-             "Join the game of an invite link copied before\nswitching to the game.", None),
+            ("JOIN FROM CLIPBOARD:", "network.join_from_clipboard",
+             [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
+             "An invite link copied before switching to the\ngame: ask to join its game, always join, or not.", None),
             ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
              "Look for a new version when the game starts.", None),
             ("PLAYER NAMES:", "display.player_names",
@@ -137,6 +151,30 @@ SCREENS = {
              "A team game's scoreboard: a column for each team,\nor every player in order of score.", None),
             ("SCOREBOARD PANEL:", "display.scoreboard_background", ON_OFF,
              "Draw a panel behind the scoreboard, for clearer\ntext.", None),
+            ("MAP DOWNLOADS:", "network.map_downloads", [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
+             "A Custom Edition map a game needs, from the\ncommunity map repository: ask first, or not.", None),
+            ("DISCORD STATUS:", "discord.presence", [("FULL", "full"), ("MINIMAL", "minimal"), ("OFF", "off")],
+             "What Discord shows: the game, map and score, only\nPlaying Chupathingy, or nothing.", "desktop"),
+            ("DISCORD SERVER NAME:", "discord.show_server_name", [("SHOW", "true"), ("HIDE", "false")],
+             "Show the name of the network game on Discord.", "desktop"),
+            ("DISCORD JOIN BUTTON:", "discord.show_join", ON_OFF,
+             "While hosting a public game, Discord shows a Join\ngame button that opens its invite.", "desktop"),
+        ],
+    },
+    # (opened from the profile menu's PRIVACY row: PRIVACY_ITEM)
+    "privacy_setup": {
+        "screen": "privacy_settings_screen",
+        "header": ("header_profile_privacy_settings", f"{PE}/privacy_setup/header_privacy"),
+        "spacing": 30,
+        "rows": [
+            ("HOSTED GAME STATS:", "network.report_hosted_games", ON_OFF,
+             "Send the scores and stats of the games you host\nto the game list. Off: they stay listed.", None),
+            ("DELTA STATS:", "network.report_events", ON_OFF,
+             "Record the games you host (kills, medals and\npositions) for the site's match pages.", None),
+            ("JOINED GAME STATS:", "network.report_joined_games", ON_OFF,
+             "Report the games you join, which puts them on\nyour profile on the game list.", None),
+            ("CRASH REPORTS:", "crash_reports.upload", [("ASK", "ask"), ("YES", "yes"), ("NO", "no")],
+             "Send a report of a crash to the developers.\nAsk: the game asks after the next one.", "desktop"),
         ],
     },
     "gamepad_setup": {
@@ -164,6 +202,10 @@ SCREENS = {
     },
 }
 
+# the settings whose values are long (names the system gives): their
+# spinner starts nearer the label, as wide as Controls Setup's
+WIDE_SPINNERS = {"audio.device"}
+
 # Controls Setup: the keyboard and mouse's actions, in groups (the order of
 # port/linux/game/menu_functions.c's table of them)
 CONTROL_GROUPS = ["MOVEMENT", "WEAPONS", "ACTIONS"]
@@ -176,9 +218,10 @@ STRING_OVERRIDES = {
         "Choose the keys and mouse\\nbuttons for each action.\\n\\nProfile:",
         "Set this profile's controller\\nsensitivity and layouts.\\n\\nProfile:",
         "Adjust the mouse's sensitivity\\nand aiming.\\n\\nProfile:",
-        "Adjust the volume of the music\\nand of everything else.\\n\\nProfile:",
+        "Adjust the volumes and choose\\nwhere the sound plays.\\n\\nProfile:",
         "Choose a window or the full\\nscreen, the frame rate and more.\\n\\nProfile:",
         "Internet play, updates and the\\nmultiplayer HUD.\\n\\nProfile:",
+        "Choose what stats and crash\\nreports this copy sends.\\n\\nProfile:",
         "Change the current profile's\\nfree-for-all multiplayer color.\\n\\nProfile:",
         "Halo: Combat Evolved, the Xbox\\ngame, on this computer.\\n\\nProfile:",
     ],
@@ -249,6 +292,7 @@ def _setting_screen(folder: str, spec: dict) -> list:
     place = -1
     for index, (label, setting, choices, _, platform, *named) in enumerate(spec["rows"]):
         key = named[0] if named else setting.split(".", 1)[1]
+        wide = setting in WIDE_SPINNERS
         row = f"{base}/op_{key}"
         if setting not in spec.get("same_place", ()) and key not in spec.get("same_place", ()):
             place += 1
@@ -256,19 +300,19 @@ def _setting_screen(folder: str, spec: dict) -> list:
         extra += _widget(row, [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                                ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF"), ("platform", platform)],
                          [f'<child{attributes([("widget", f"{base}/{key}_label")])}/>',
-                          f'<child{attributes([("widget", f"{base}/{key}_spinner"), ("x", 320), ("y", 1)])}/>'])
+                          f'<child{attributes([("widget", f"{base}/{key}_spinner"), ("x", 200 if wide else 320), ("y", 1)])}/>'])
         extra += _widget(f"{base}/{key}_label",
                          [("type", "text"), ("controller", 1), ("width", 300), ("height", 22),
                           ("string_list", f"{base}/labels"), ("string_index", index), ("font", "ui\\large_ui"),
                           ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
         extra += _widget(f"{base}/{key}_spinner",
-                         [("type", "spinner"), ("left", 3), ("top", 2), ("width", 147), ("height", 20),
+                         [("type", "spinner"), ("left", 3), ("top", 2), ("width", 297 if wide else 147), ("height", 20),
                           ("flags", "pass_unhandled_to_focused_child left_right_tabs_items"),
                           ("strings", "|".join(shown for shown, _ in choices)), ("setting", setting),
                           ("values", "|".join(value for _, value in choices)), ("font", "ui\\large_ui"),
                           ("color", "#FF2896FF"), ("align", "center"), ("text_y", 1),
                           ("header_bitmap", "bitmaps/arrow_sm_left"), ("footer_bitmap", "bitmaps/arrow_sm_right"),
-                          ("header_bounds", "7 -6 19 0"), ("footer_bounds", "7 150 19 156")],
+                          ("header_bounds", "7 -6 19 0"), ("footer_bounds", "7 300 19 306" if wide else "7 150 19 156")],
                          ['<on event="created" run="port setting load"/>'])
     extra += _button(f"{base}/button_defaults", 3, ['<on event="a" run="port settings defaults"/>',
                                                     '<on event="start" run="port settings defaults"/>'])
@@ -332,11 +376,28 @@ def _controls_screen() -> list:
                    extra)
 
 
+# the profile menu's row for Privacy (not the PC version's: after Network
+# Setup's, its description and picture the eighth: WIDGET_PATCHES, FRAME_COPIES)
+PRIVACY_ITEM = f"{PE}/privacy_profile_item"
+
+
+def _privacy_item() -> list:
+    screen = f"{PE}/privacy_setup/{SCREENS['privacy_setup']['screen']}"
+    return _widget(PRIVACY_ITEM,
+                   [("type", "text"), ("left", 51), ("top", 310), ("width", 232), ("height", 32),
+                    ("bitmap", "bitmaps/list_item_bkd"), ("string_list", f"{PE}/profile_edit_options"),
+                    ("string_index", 10), ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13),
+                    ("text_y", 5)],
+                   [f'<on event="a" open="{screen}"/>', f'<on event="start" open="{screen}"/>',
+                    '<on event="left_mouse" run="mouse emit accept event"/>'])
+
+
 def settings_files() -> dict:
     """the files of the port's screens, by their names in ce/"""
     files = {}
     for folder, spec in SCREENS.items():
         files[f"{PE}/{folder}".replace("/", ".") + ".xml"] = _setting_screen(folder, spec)
+    files[f"{PE}/privacy_setup".replace("/", ".") + ".xml"] += _privacy_item()
     files[f"{PE}/controls_setup".replace("/", ".") + ".xml"] = _controls_screen()
     return {name: ['<?xml version="1.0" encoding="UTF-8"?>',
                    "<!-- The port's settings screen, in the PC version's style (tools/port_settings.py) -->",
@@ -361,6 +422,7 @@ MT = "main_menu/multiplayer_type_select"
 # in turn: menu_functions.c's gametype_option_help)
 SLAYER_EDIT = "main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit"
 STRING_INSERTS = {
+    f"{PE}/profile_edit_options": [(10, ["PRIVACY"])],
     f"{SLAYER_EDIT}/var_kills_to_win": [(5, ["75", "100", "150", "200", "250", "500"])],
     f"{SLAYER_EDIT}/cap_slayer": [(11, [
         "Seventy-five kills to win. Settle in for a long\\nfight.",
@@ -443,6 +505,17 @@ MAP_KIND_CHOOSER = "main_menu/new_select/list_item_0_map_kind"
 # changes to the PC version's widgets (by our names): attributes set, all
 # their handlers replaced, children added, game data inputs added
 WIDGET_PATCHES = {
+    # The host returns here after a round with no menu history. Back must
+    # reopen the main menu when it closes the last screen, as the lobby does.
+    f"{MT}/connected/connected_map_select_wrapper": {"set": {
+        "flags": "pass_unhandled_to_focused_child pause_game main_menu_if_no_history tag_controller_index force_handle_mouse",
+    }},
+    # (Privacy's row after Network Setup's, and Change Color and About below
+    # it: their offsets from the tops the PC version gave them)
+    f"{PE}/profile_edit_select_list": {
+        "insert_before": {f"{PE}/color_profile_item": [f'<child widget="{PRIVACY_ITEM}"/>']},
+        "offsets": {f"{PE}/color_profile_item": (0, 65), f"{PE}/about_item": (0, 65)},
+    },
     # (the profile settings' picture: on Gamepad Setup's row, the profile's
     # button settings, BITMAP_FRAMES; menu_functions.c's
     # profile_gamepad_layout)
@@ -532,6 +605,13 @@ WIDGET_PATCHES = {
 # 512 by 235 of their 512 by 512: drawn at 279 wide, in the middle of the
 # picture's 279 by 202
 XBOX_CONTROLLER_PICTURES = f"ui\\shell\\{PE.replace('/', chr(92))}\\controller_edit\\config_controller"
+# frames repeated in a PC bitmap (by our names): {place: frame}, the frame
+# (as the PC version numbers them) put in at the place, the frames from it
+# on after it. The profile settings' picture numbers its frames as the list
+# its rows (PRIVACY_ITEM, the eighth, shows Network Setup's)
+FRAME_COPIES = {
+    f"{PE}/profile_options": {7: 6},
+}
 BITMAP_FRAMES = {
     f"{PE}/profile_options": [(XBOX_CONTROLLER_PICTURES, 4 + preset, 279, 279, 0, 34) for preset in range(5)],
 }
@@ -539,6 +619,7 @@ BITMAP_FRAMES = {
 # the titles this port has that the PC version has not, set as its headers
 # are (port/assets/menus/port_svg): bitmap name, text
 TITLES = {
+    f"{PE}/privacy_setup/header_privacy": "PRIVACY",
     f"{MT}/join_game/header_server_browser": "SERVER BROWSER",
     f"{MT}/join_game/header_direct_link": "DIRECT LINK",
     f"{MT}/join_game/header_password": "PASSWORD",
@@ -562,39 +643,6 @@ def title_backdrop(width: float) -> str:
         f'    <rect x="29.08" y="28.05" width="{width + 28:.2f}" height="40.95" fill="#021931" fill-opacity="0.893" '
         'filter="url(#soft)"/>',
         "  </g>", "</svg>", ""])
-
-
-# the in-game pause menu's box, taller for the buttons this port adds
-# (menu_tags.c's pause_patch: SETTINGS, and the host's END GAME): the
-# pausebox5 redraw's rounded box (ui-svg-handmade/shell/bitmaps), drawn to
-# hold each number of buttons, one frame each (the Xbox's 2-button box is
-# 159 units high, and each button 35 more)
-PAUSE_BOX_BUTTONS = [3, 4]
-
-
-def pause_box_height(buttons: int) -> int:
-    return 159 + (buttons - 2) * 35
-
-
-def pause_box_svg(piece: str, height: int) -> str:
-    """a piece of the pause box (left cap, centre strip, right cap; 9-slice:
-    the strip tiles across), height units high in its 256-high texture"""
-    width = 4 if piece == "center" else 16
-    lines = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="256" viewBox="0 0 {width} 256">']
-    if piece == "center":
-        lines += [f'  <rect x="0" y="2" width="4" height="{height - 4}" fill="#0a2649" fill-opacity="0.75"/>',
-                  '  <rect x="0" y="0" width="4" height="2" fill="#2896ff"/>',
-                  f'  <rect x="0" y="{height - 2}" width="4" height="2" fill="#2896ff"/>']
-    else:
-        bottom, corner = height - 1, height - 9.5
-        cap = [f'    <path d="M9.5,1 H17 V{bottom} H9.5 A8.5,8.5 0 0 1 1,{corner} V9.5 A8.5,8.5 0 0 1 9.5,1 Z" '
-               'fill="#0a2649" fill-opacity="0.75" fill-rule="evenodd"/>',
-               f'    <path d="M17,1 H9.5 A8.5,8.5 0 0 0 1,9.5 V{corner} A8.5,8.5 0 0 0 9.5,{bottom} H17" fill="none" '
-               'stroke="#2896ff" stroke-width="2"/>']
-        lines += (['  <g transform="matrix(-1 0 0 1 16 0)">'] + cap + ['  </g>']) if piece == "right" else \
-            [line[2:] for line in cap]
-    lines += ["</svg>", ""]
-    return "\n".join(lines)
 
 
 # where the PC headers' text is (units of their 512x64), and its colour

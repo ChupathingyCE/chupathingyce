@@ -1,5 +1,6 @@
 """Tests for the native Linux build tooling (port/linux, tools/linux_*.py)."""
 
+import json
 import re
 import shutil
 import subprocess
@@ -304,6 +305,104 @@ def test_menu_settings_exist():
     assert controls == set(re.findall(r'\{ "(controls\.[a-z_]+)", L"', functions))
 
 
+def test_report_joined_games_stops_claims():
+    """network.report_joined_games = false stops both what a copy sends the
+    game list about a game it joined: its own report of the game
+    (browser_client_report) and the claim of its players' lines in the
+    host's report (browser_claim_game, /v1/claim). A game it hosts is
+    claimed unless network.report_hosted_games is off."""
+    root = MENUS.parent.parent.parent
+    browser = (root / "port/linux/src/browser.c").read_text()
+    for function in ("browser_client_report", "browser_claim_game"):
+        body = re.search(r"^void " + function + r"\(.*?^\}", browser, re.M | re.S).group(0)
+        gate = re.search(r'!config_boolean\("network\.report_joined_games"\)\s*\|\|\s*'
+                         r'!p2p_joined_invite\(', body)
+        assert gate, function
+        assert body.index("return;") > gate.start(), function
+    readme = (root / "port/linux/README.md").read_text()
+    row = next(line for line in readme.splitlines() if line.startswith("| `network.report_joined_games`"))
+    assert "/v1/claim" in row
+
+
+def test_report_hosted_games_keeps_listing():
+    """network.report_hosted_games = false stops what a host sends the game
+    list about its games (the carnage report, the Delta Stats batch and its
+    own players' claims) and not the listing, and the Privacy screen sets
+    it."""
+    root = MENUS.parent.parent.parent
+    browser = (root / "port/linux/src/browser.c").read_text()
+    for function in ("browser_report_game", "browser_claim_game"):
+        body = re.search(r"^void " + function + r"\(.*?^\}", browser, re.M | re.S).group(0)
+        assert 'config_boolean("network.report_hosted_games")' in body, function
+    hosting = re.search(r"^static void update_hosting\(.*?^\}", browser, re.M | re.S).group(0)
+    assert "report_hosted_games" not in hosting
+    upload = (root / "port/linux/src/event_upload.c").read_text()
+    assert 'config_boolean("network.report_hosted_games")' in upload
+    privacy = (MENUS / "ce/main_menu.settings_select.player_setup.player_profile_edit.privacy_setup.xml").read_text()
+    for setting in ("network.report_hosted_games", "network.report_events", "network.report_joined_games",
+                    "crash_reports.upload"):
+        assert f'setting="{setting}"' in privacy, setting
+    readme = (root / "port/linux/README.md").read_text()
+    assert any(line.startswith("| `network.report_hosted_games`") for line in readme.splitlines())
+
+
+def c_format_json(format_text: str, values: list) -> str:
+    """a C printf format of JSON members (%d, %ld, %s only) filled in"""
+    parts = iter(values)
+    return re.sub(r"%l?[ds]", lambda m: str(next(parts)), format_text.encode().decode("unicode_escape"))
+
+
+def test_minimal_report_lines():
+    """A carnage report line of a player not on Chupathingy (the host's
+    report), or of anyone but the reporter (a client's report), is only the
+    scoreboard's numbers: name, team, place, score, kills, deaths (and the
+    host's claim tag). Its recorded parts (medals, weapons, ...) never go."""
+    root = MENUS.parent.parent.parent
+    browser = (root / "port/linux/src/browser.c").read_text()
+    body = re.search(r"^static char \*report_json\(.*?^\}", browser, re.M | re.S).group(0)
+    minimal = re.search(r"if \(player->minimal\)\s*\{.*?append\(report, size, used, \"(.*?)\",", body, re.S).group(1)
+    line = json.loads('{"name": "Someone"' + c_format_json(minimal, [1, 2, 3, 4, 5]) + "}")
+    assert set(line) == {"name", "team", "place", "score", "kills", "deaths"}
+    # (the tag stays, so a Chupathingy player the handshake missed can still claim it)
+    assert body.index("if (player->minimal)") < body.index('"tag\\"')
+    assert "!player->minimal && player->extra" in body
+    stats = (root / "port/linux/game/game_stats.c").read_text()
+    departed = re.search(r"if \(!full\)\s*\{\s*return stats_append\(text, size, used, \"(.*?)\",", stats, re.S).group(1)
+    assert set(json.loads(c_format_json(departed, ['"Someone"', 1, 2, 3]))) == {"name", "team", "kills", "deaths"}
+    # (departed players in full only on the host's report, and only Chupathingy players)
+    assert "host && game_stats.departed[index].delta" in stats
+    full = re.search(r"^boolean game_stats_line_full\(.*?^\}", stats, re.M | re.S).group(0)
+    assert "local_player_index != NONE" in full and "return host && (" in full
+    engine = (root / "source/game/game_engine.c").read_text()
+    assert "line->minimal = !game_stats_line_full(ranking[index].player_index, server != NULL);" in engine
+
+
+def test_report_events_stops_only_events():
+    """network.report_events = false stops the Delta Stats batch
+    (event_upload.c) and nothing else: the host's carnage report goes
+    whenever the game is listed (network.list_hosted_games), and the docs
+    say so."""
+    root = MENUS.parent.parent.parent
+    upload = (root / "port/linux/src/event_upload.c").read_text()
+    assert 'config_boolean("network.report_events")' in upload
+    browser = (root / "port/linux/src/browser.c").read_text()
+    assert "report_events" not in browser
+    assert 'config_boolean("network.list_hosted_games")' in browser
+    readme = (root / "port/linux/README.md").read_text()
+    row = next(line for line in readme.splitlines() if line.startswith("| `network.report_events`"))
+    assert "list_hosted_games" in row and "hardware ID" in row
+    row = next(line for line in readme.splitlines() if line.startswith("| `network.list_hosted_games`"))
+    assert "carnage report" in row
+
+
+def test_no_hardware_id_in_events():
+    """No hardware ID, nor a hash of one, goes in a Delta Stats batch."""
+    root = MENUS.parent.parent.parent
+    for path in ("port/linux/src/event_log.c", "port/linux/src/event_log.h", "port/linux/game/game_events.c"):
+        text = (root / path).read_text()
+        assert "hardware_id" not in text and not re.search(r"\bident\b|blake2b", text), path
+
+
 def test_default_brokers_are_brokers_txt():
     """The brokers a game uses with no brokers.txt beside its config.toml
     (p2p_signal.c's DEFAULT_BROKERS) are port/assets/network/brokers.txt's."""
@@ -343,13 +442,72 @@ def test_p2p_signatures_and_listings(tmp_path):
     program = tmp_path / "p2p_lobby_check"
     built = subprocess.run(["clang", *flags, "-O1", "-no-pie", "-Wl,--unresolved-symbols=ignore-all", "-o",
                             str(program), "tools/p2p_lobby_check.c", "port/linux/src/p2p_crypto.c",
-                            "port/linux/src/p2p_lobby.c", "port/third_party/monocypher/monocypher.c",
+                            "port/linux/src/p2p_lobby.c", "port/linux/src/p2p_copies.c",
+                            "port/third_party/monocypher/monocypher.c",
                             "port/third_party/monocypher/monocypher-ed25519.c"],
                            capture_output=True, text=True)
     assert built.returncode == 0, built.stderr[-4000:]
     result = subprocess.run([str(program)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stdout
     assert "PASS" in result.stdout
+
+
+# ---------- system link's stand-in machines (tools/system_link_bots.py)
+
+
+def test_system_link_bots_messages_are_the_games():
+    """the stand-in machines number their messages as network_messages.h does,
+    and send each at the size network_messages.c's fields decode (pad 0,
+    bytes 1, shorts 2, longs 4; an array a count byte and one element)"""
+    import struct
+    import time
+    import types
+    from tools import system_link_bots as bots
+
+    root = Path(__file__).resolve().parents[1]
+    header = (root / "source/networking/network_messages.h").read_text()
+    enum = header[header.index("enum network_game_message_type"):]
+    names = re.findall(r"\t_message_(\w+)", enum[:enum.index("};")])
+    for name, value in vars(bots).items():
+        if name.lower() in names:
+            assert names.index(name.lower()) == value, name
+    sizes = {}
+    source = (root / "source/networking/network_messages.c").read_text()
+    for fields, name in re.findall(r"\t\{\n((?:\t\t.*\n)*?)\t\},\n\tNETWORK_GAME_MESSAGE_DEFINITION\((\w+),", source):
+        sizes[name] = sum(int(count) * {"pad": 0, "bytes": 1, "shorts": 2, "longs": 4}.get(kind, 0) + (kind == "array")
+                          for kind, count in re.findall(r"_data_packet_field_(\w+), (\d+)", fields))
+
+    sent = []
+    machine = bots.Machine(1, "127.0.0.2", "127.0.0.1", print)
+    machine.udp.close()
+    machine.send = sent.append
+    machine.udp = types.SimpleNamespace(sendto=lambda data, address: sent.append(data))
+    machine.joined()
+    machine.handle(bots.SERVER_MACHINE_ACCEPTED, struct.pack(">ih", 0, 1))
+    settings = bytes(0x24) + b"levels\\test\\bloodgulch\\bloodgulch".ljust(0x80, b"\0")
+    machine.handle(bots.SERVER_GAME_SETTINGS_UPDATE, struct.pack(">HHH", len(settings), 0, len(settings)) + settings)
+    machine.tick(time.monotonic())
+    machine.handle(bots.SERVER_BEGIN_GAME, b"")
+    machine.tick(time.monotonic() + 60)
+    machine.handle(bots.SERVER_GAME_UPDATE, struct.pack(">I", 1))
+    machine.tick(time.monotonic())
+    assert len(sent) == 6
+    for data in sent:
+        name = names[data[-1]]
+        assert len(data) - 4 == sizes[name], name
+
+
+# ---------- the wire format (tools/network_format.py)
+
+
+def test_network_format_is_the_recorded_one():
+    """what the machines send each other is what port/linux/network_format.txt
+    records for HALO_PORT_NETWORK_VERSION, and NETCODE.md says what that
+    version changed"""
+    from tools import network_format
+
+    problems = network_format.check()
+    assert not problems, "\n".join(problems)
 
 
 # ---------- the tag validator (port/linux/game/tag_validate.c)
@@ -384,3 +542,16 @@ def test_tag_validator_survives_damaged_maps():
     result = subprocess.run([str(MAP_VALIDATE), "--fuzz", "300", "--seed", "1", *map(str, chosen)],
                             capture_output=True, text=True, timeout=1800)
     assert result.returncode == 0, (result.stdout + result.stderr)[-6000:]
+
+
+def test_menus_quit_on_android():
+    """The menus' Quit quits on Android too (it did nothing there): Android's
+    build has no SDL_PushEvent, so platform_request_quit marks it and the
+    next platform_pump_events exits."""
+    root = MENUS.parent.parent.parent
+    platform = (root / "port/linux/src/sdl_platform.c").read_text()
+    request = re.search(r"^void platform_request_quit\(.*?^\}", platform, re.M | re.S).group(0)
+    assert re.search(r"#ifdef HALO_ANDROID\s*android_quit_requested = TRUE;\s*#else", request)
+    pump = re.search(r"^void platform_pump_events\(.*?^\}", platform, re.M | re.S).group(0)
+    assert re.search(r"if \(android_quit_requested\)\s*\{[^}]*exit\(EXIT_SUCCESS\);", pump)
+    assert "SDL_PushEvent" not in (root / "port/android/host_imports.list").read_text()

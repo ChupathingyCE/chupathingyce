@@ -17,6 +17,7 @@ failure.
 
 #include "../src/command_line.h"
 #include "../src/server_config.h"
+#include "../src/server_names.h"
 #include "../platform/control_protocol.h"
 #include "../platform/control_web.h"
 #include "../platform/control_roles.h"
@@ -94,6 +95,44 @@ static void test_command_line(void)
 	CHECK(command_line_parse(long_line, &line, error, sizeof(error)) && line.count == 1);
 	long_line[COMMAND_LINE_WORD_SIZE - 1] = 'x';
 	long_line[COMMAND_LINE_WORD_SIZE] = 0;
+	CHECK(!command_line_parse(long_line, &line, error, sizeof(error)));
+	/* a reason: one word in quotes, or the rest of the line */
+	CHECK(command_line_parse("sv_warn 1 \"Please keep it friendly. This is a test warning from the server.\"", &line,
+		error, sizeof(error)));
+	CHECK(line.count == 3 && !strcmp(line.words[2], "Please keep it friendly. This is a test warning from the server."));
+	CHECK(command_line_parse("sv_warn 1 Please keep it friendly. This is a test warning from the server.  ", &line,
+		error, sizeof(error)));
+	CHECK(line.count == 3 && !strcmp(line.words[2], "Please keep it friendly. This is a test warning from the server."));
+	CHECK(command_line_parse("sv_kick \"Master Chief\" stop saying \"gg ez\"", &line, error, sizeof(error)));
+	CHECK(line.count == 3 && !strcmp(line.words[1], "Master Chief") && !strcmp(line.words[2], "stop saying \"gg ez\""));
+	CHECK(command_line_parse("sv_ban 2 1d12h camping the base, again and again", &line, error, sizeof(error)));
+	CHECK(line.count == 4 && !strcmp(line.words[2], "1d12h") && !strcmp(line.words[3], "camping the base, again and again"));
+	CHECK(command_line_parse("sv_ban 2 2h", &line, error, sizeof(error)) && line.count == 3);
+	CHECK(command_line_parse("sv_kick 2", &line, error, sizeof(error)) && line.count == 2);
+	CHECK(!command_line_parse("sv_warn 1 \"in quotes\" and not", &line, error, sizeof(error)) && error[0]);
+	CHECK(!command_line_parse("sv_warn 1 \"open", &line, error, sizeof(error)));
+	/* (127 characters, quoted or not; 128 too many) */
+	memcpy(long_line, "sv_warn 1 ", 10);
+	memset(long_line + 10, 'r', COMMAND_LINE_REASON_SIZE - 1);
+	long_line[10 + COMMAND_LINE_REASON_SIZE - 1] = 0;
+	CHECK(command_line_parse(long_line, &line, error, sizeof(error)) && line.count == 3 &&
+		(int)strlen(line.words[2]) == COMMAND_LINE_REASON_SIZE - 1);
+	long_line[10 + COMMAND_LINE_REASON_SIZE - 1] = 'r';
+	long_line[10 + COMMAND_LINE_REASON_SIZE] = 0;
+	CHECK(!command_line_parse(long_line, &line, error, sizeof(error)));
+	long_line[10] = '"';
+	long_line[10 + COMMAND_LINE_REASON_SIZE] = '"';
+	long_line[10 + COMMAND_LINE_REASON_SIZE + 1] = 0;
+	CHECK(command_line_parse(long_line, &line, error, sizeof(error)) && line.count == 3 &&
+		(int)strlen(line.words[2]) == COMMAND_LINE_REASON_SIZE - 1);
+	long_line[10 + COMMAND_LINE_REASON_SIZE] = 'r';
+	long_line[10 + COMMAND_LINE_REASON_SIZE + 1] = '"';
+	long_line[10 + COMMAND_LINE_REASON_SIZE + 2] = 0;
+	CHECK(!command_line_parse(long_line, &line, error, sizeof(error)));
+	/* (other commands' words are no longer than before) */
+	memcpy(long_line, "sv_map ", 7);
+	memset(long_line + 7, 'm', COMMAND_LINE_WORD_SIZE);
+	long_line[7 + COMMAND_LINE_WORD_SIZE] = 0;
 	CHECK(!command_line_parse(long_line, &line, error, sizeof(error)));
 	/* (a tiny error buffer is not overrun) */
 	CHECK(!command_line_parse("\"", &line, error, 1) && error[0] == 0);
@@ -1380,6 +1419,76 @@ static void test_server_config(int rounds)
 
 /* ---------- Delta Control's link (control_link_protocol.c) */
 
+/* ---------- blocked names (server/blocked_names.txt) */
+
+/* a name written in ROT13 (as the list is, so this file prints no slurs)
+decoded; anything but ASCII letters as it is */
+static int names_blocked_rot13(const char *text)
+{
+	char name[64];
+	size_t index;
+
+	for (index = 0; text[index] && index < sizeof(name) - 1; index++)
+	{
+		char c = text[index];
+
+		if (c >= 'a' && c <= 'z')
+			c = (char)('a' + (c - 'a' + 13) % 26);
+		else if (c >= 'A' && c <= 'Z')
+			c = (char)('A' + (c - 'A' + 13) % 26);
+		name[index] = c;
+	}
+	name[index] = 0;
+	return server_names_blocked_text(name);
+}
+
+static void test_names(void)
+{
+	static char text[64 * 1024];
+	char path[1024];
+	const char *slash = strrchr(__FILE__, '/');
+	FILE *file;
+	size_t length = 0;
+	static const unsigned int empty[] = { 0 };
+
+	/* (the repository's list, beside this folder) */
+	snprintf(path, sizeof(path), "%.*s/../blocked_names.txt", slash ? (int)(slash - __FILE__) : 1,
+		slash ? __FILE__ : ".");
+	file = fopen(path, "rb");
+	CHECK(file != NULL);
+	if (file)
+	{
+		length = fread(text, 1, sizeof(text) - 1, file);
+		fclose(file);
+	}
+	CHECK(server_names_parse(text, length) > 20);
+	CHECK(names_blocked_rot13("rivyencvfg"));
+	CHECK(!names_blocked_rot13("gurencvfg"));
+	CHECK(!names_blocked_rot13("CP Fcvpr"));
+	CHECK(!names_blocked_rot13("fcvpxl"));
+	CHECK(!names_blocked_rot13("CRQBS"));
+	CHECK(!names_blocked_rot13("XVXR"));
+	CHECK(!names_blocked_rot13("xvxr01"));
+	CHECK(names_blocked_rot13("avvvttn"));
+	CHECK(names_blocked_rot13("N ERGNEQ"));
+	CHECK(!names_blocked_rot13("Xavtug"));
+	/* (look-alikes: a Cyrillic letter, digits and signs, digits at the end) */
+	CHECK(names_blocked_rot13("e\xd0\xb0" "cvfg"));
+	CHECK(names_blocked_rot13("R.I.V.L_e4c1fg99"));
+	CHECK(!names_blocked_rot13(""));
+	CHECK(!names_blocked_rot13("1234"));
+	CHECK(!names_blocked_rot13("Znfgre Puvrs"));
+	CHECK(!server_names_blocked(empty, 0));
+	/* (an empty list blocks nothing) */
+	server_names_clear();
+	CHECK(!names_blocked_rot13("rivyencvfg"));
+	{
+		static const char bad[] = "# nothing\nanywhere\nbogus nop\nwhole 12\n";
+
+		CHECK(server_names_parse(bad, sizeof(bad) - 1) == 0);
+	}
+}
+
 static void test_link(int rounds)
 {
 	static struct control_link_poll poll;
@@ -1533,6 +1642,77 @@ static void test_link(int rounds)
 	}
 }
 
+/* the site's role list kept in delta_roles.cache: read back as written,
+refused with another secret or any change, and fresh for its hours only */
+static void test_roles_cache(int rounds)
+{
+	static struct control_link_poll poll, back;
+	static char text[96 * 1024];
+	uint8_t secret[32];
+	int64_t heard = 0;
+	int length;
+	int index;
+
+	for (index = 0; index < 32; index++)
+		secret[index] = (uint8_t)(0x10 + index);
+	memset(&poll, 0, sizeof(poll));
+	CHECK(control_link_roles_cache_text(&poll, 1791168674, secret, text, sizeof(text)) < 0);
+	poll.has_roles = 1;
+	poll.roles_version = 12;
+	poll.role_count = 2;
+	snprintf(poll.roles[0].handle, sizeof(poll.roles[0].handle), "odb \"the\" mod");
+	poll.roles[0].role = CONTROL_ROLE_MODERATOR;
+	poll.roles[0].key_count = 2;
+	memset(poll.roles[0].keys[0], 0x72, 32);
+	memset(poll.roles[0].keys[1], 0xA5, 32);
+	snprintf(poll.roles[1].handle, sizeof(poll.roles[1].handle), "milenko");
+	poll.roles[1].role = CONTROL_ROLE_OWNER;
+	length = control_link_roles_cache_text(&poll, 1791168674, secret, text, sizeof(text));
+	CHECK(length > 0 && (size_t)length == strlen(text) && text[0] == '#');
+	CHECK(control_link_roles_cache_open(text, (size_t)length, secret, &back, &heard));
+	CHECK(heard == 1791168674 && back.has_roles && back.roles_version == 12 && back.role_count == 2 &&
+		!strcmp(back.roles[0].handle, "odb \"the\" mod") && back.roles[0].role == CONTROL_ROLE_MODERATOR &&
+		back.roles[0].key_count == 2 && back.roles[0].keys[1][31] == 0xA5 && back.roles[1].role == CONTROL_ROLE_OWNER &&
+		!back.roles[1].key_count && !back.command_count);
+	/* (another link's secret; any byte changed, the time heard among them) */
+	secret[5] ^= 1;
+	CHECK(!control_link_roles_cache_open(text, (size_t)length, secret, &back, &heard));
+	secret[5] ^= 1;
+	for (index = 0; index < length; index++)
+	{
+		char was = text[index];
+
+		/* (a comment's bytes are not the list's) */
+		if (index < (int)(strstr(text, "\nv1 ") - text) + 1)
+			continue;
+		text[index] = (char)(was == 'a' ? 'b' : 'a');
+		CHECK(!control_link_roles_cache_open(text, (size_t)length, secret, &back, &heard));
+		text[index] = was;
+	}
+	CHECK(control_link_roles_cache_open(text, (size_t)length, secret, &back, &heard));
+	CHECK(!control_link_roles_cache_open(text, (size_t)length - 3, secret, &back, &heard));
+	CHECK(control_link_roles_cache_text(&poll, 1791168674, secret, text, 400) < 0);
+	/* (fresh for the hours given, 1 to 30 days; a time to come is not) */
+	CHECK(control_link_roles_fresh(1000000, 1000000 + 23 * 3600, 24));
+	CHECK(!control_link_roles_fresh(1000000, 1000000 + 24 * 3600, 24));
+	CHECK(!control_link_roles_fresh(1000000, 1000000 + 3600, 0));
+	CHECK(control_link_roles_fresh(1000000, 1000000 + 3599, 0));
+	CHECK(control_link_roles_fresh(1000000, 1000000 + 40 * 86400 - 3600, 100000) == 0);
+	CHECK(control_link_roles_fresh(1000000, 1000000 + 29 * 86400, 100000));
+	CHECK(!control_link_roles_fresh(1000000 + 3600, 1000000, 24));
+	CHECK(!control_link_roles_fresh(0, 1000000, 24));
+	for (index = 0; index < rounds; index++)
+	{
+		int size = (int)(random_next() % 400);
+		int at;
+
+		for (at = 0; at < size; at++)
+			text[at] = random_next() % 8 ? "v1 0123456789abcdef{}\"#\n"[random_next() % 24] : (char)(random_next() & 0xFF);
+		text[size] = 0;
+		control_link_roles_cache_open(text, (size_t)size, secret, &back, &heard);
+	}
+}
+
 int main(int argc, char **argv)
 {
 	int rounds = argc > 1 ? atoi(argv[1]) : 5000;
@@ -1553,6 +1733,8 @@ int main(int argc, char **argv)
 	test_fields();
 	test_server_config(rounds);
 	test_link(rounds);
+	test_roles_cache(rounds);
+	test_names();
 	printf("%d checks, %d failures\n", checks, failures);
 	return failures ? 1 : 0;
 }

@@ -424,10 +424,11 @@ public final class TouchControls extends View implements SensorEventListener, In
     private void showOptions() {
         optionsOpen = true; reset();
         AlertDialog dialog = new AlertDialog.Builder(getContext()).setTitle("Options")
-            .setItems(new String[]{"General", "Edit buttons layout", "Look sensitivity"}, (d, which) -> {
+            .setItems(new String[]{"General", "Edit buttons layout", "Look sensitivity", "Import maps"}, (d, which) -> {
                 if (which == 0) post(this::showGeneral);
                 else if (which == 1) { editing = true; visible = true; invalidate(); }
-                else post(this::showSensitivity);
+                else if (which == 2) post(this::showSensitivity);
+                else ((HaloActivity)getContext()).chooseMapFiles();
             }).setNegativeButton("Close", null).create();
         dialog.setOnDismissListener(d -> { optionsOpen = false; reset(); });
         dialog.show();

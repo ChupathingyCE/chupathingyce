@@ -49,6 +49,12 @@ struct dedicated_status
 	long maximum_players;
 	long idle_limit;
 	boolean public_game;
+	/* blocked names kicked (sv_name_filter) */
+	boolean name_filter;
+	/* the carnage report's seconds, and whether the next game starts without
+	waiting in the lobby (when enough players stayed) */
+	long postgame_seconds;
+	boolean skip_lobby;
 	char name[16];
 	unsigned long uptime_seconds;
 };
@@ -74,6 +80,9 @@ void dedicated_server_set_maximum_players(long maximum_players);
 void dedicated_server_set_minimum_players(long minimum_players);
 void dedicated_server_set_idle_limit(long idle_limit);
 void dedicated_server_set_name(char const *name);
+void dedicated_server_set_name_filter(boolean name_filter);
+void dedicated_server_set_postgame_seconds(long seconds);
+void dedicated_server_set_skip_lobby(boolean skip_lobby);
 
 /* a playlist (a path in the data folder, "admin/playlists/x.txt") played
 from the next game, or at once in the lobby; from its first entry, or

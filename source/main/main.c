@@ -670,6 +670,9 @@ typedef char screenshot_and_framerate_globals_size_assert[
 void network_test_update(boolean main_menu_loaded, real seconds);
 /* port/linux/game/bot_bake.c */
 void bot_bake_update(boolean main_menu_loaded, real seconds);
+#ifdef HALO_GAME_BROWSER
+void chat_update(void);
+#endif
 
 /* ---------- prototypes */
 
@@ -717,6 +720,7 @@ static struct _main_globals main_globals = { 0 };
 /* Keep the original globals layout; these clocks belong to pending requests. */
 static long main_loss_last_tick;
 static long main_respawn_last_tick;
+static long main_save_last_tick;
 boolean debug_force_frame_rate_update = FALSE;
 boolean debug_no_drawing = FALSE;
 boolean debug_game_save = FALSE;
@@ -1141,20 +1145,80 @@ static void screenshot_record(
 	return;
 }
 
+/* port_config.c's */
+double config_real(const char *name);
+unsigned long config_changes(void);
+
+/* port: display.field_of_view, the first-person view's width in degrees
+(the Xbox's 70, 50 to 120), as the scale of the tangent of the camera's half
+angle: the unit's and each zoom level's view widen or narrow together, so a
+scope magnifies as much as before. Only what is drawn changes; the observer,
+aim and the game's state keep the original angles. */
+static real first_person_field_of_view_scale(
+	void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static real scale = 1.0f;
+
+	if (read_at != config_changes())
+	{
+		real degrees = (real)config_real("display.field_of_view");
+
+		read_at = config_changes();
+		if (!valid_real(degrees) || degrees == 70.0f)
+			scale = 1.0f;
+		else
+		{
+			degrees = PIN(degrees, 50.0f, 120.0f);
+			scale = tangent(DEGREES_TO_RADIANS(degrees) * 0.5f) / tangent(DEGREES_TO_RADIANS(70.0f) * 0.5f);
+		}
+	}
+
+	return scale;
+}
+
+/* port: display.far_clip_distance, how far the world is drawn (1024 as on
+the Xbox, to 10000). It is a floor under the camera's far clip, applied each
+frame: the map's own value, a script or init.txt can raise the clip beyond it
+but not lower it below it, and it holds across map loads and joins. Render
+only; the game's state never reads it. The near clip stays as it was, and the
+fog (which can end the view sooner) still applies after this. */
+static real far_clip_distance_floor(
+	void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static real distance = 1024.0f;
+
+	if (read_at != config_changes())
+	{
+		real value = (real)config_real("display.far_clip_distance");
+
+		read_at = config_changes();
+		distance = valid_real(value) ? PIN(value, 1024.0f, 10000.0f) : 1024.0f;
+	}
+
+	return distance;
+}
+
 void set_window_camera_values(
 	struct render_window *window,
 	struct observer_result const *observer)
 {
 	if (observer)
 	{
+		real field_of_view_tangent = render_camera_get_adjusted_field_of_view_tangent(observer->field_of_view);
+
+		/* port: display.field_of_view, in first person */
+		if (window->local_player_index != NONE &&
+			director_get_perspective(window->local_player_index) == _director_perspective_first_person)
+		{
+			field_of_view_tangent *= first_person_field_of_view_scale();
+		}
 		window->rasterizer_camera.position = observer->position;
 		window->rasterizer_camera.forward = observer->forward;
 		window->rasterizer_camera.up = observer->up;
 		window->rasterizer_camera.vertical_field_of_view =
-			2.0f * arctangent(
-				0.75f * render_camera_get_adjusted_field_of_view_tangent(
-					observer->field_of_view),
-				1.0f);
+			2.0f * arctangent(0.75f * field_of_view_tangent, 1.0f);
 
 		if (window->local_player_index != NONE &&
 			!console_is_active() &&
@@ -1195,7 +1259,7 @@ void set_window_camera_values(
 
 	window->rasterizer_camera.mirrored = FALSE;
 	window->rasterizer_camera.z_near = rasterizer_globals.near_clip_distance;
-	window->rasterizer_camera.z_far = rasterizer_globals.far_clip_distance;
+	window->rasterizer_camera.z_far = MAX(rasterizer_globals.far_clip_distance, far_clip_distance_floor());
 	if (!debug_render_freeze)
 		window->render_camera = window->rasterizer_camera;
 
@@ -1596,6 +1660,8 @@ void main_save_map_safe(
 		main_globals.ticks_until_next_save_check = 0;
 		main_globals.ticks_unable_to_save = 0;
 		main_globals.safe_intervals = 0;
+		/* (the tick before: the first check is at once) */
+		main_save_last_tick = game_time_get()-1;
 	}
 	return;
 }
@@ -1610,6 +1676,8 @@ void main_save_map_no_timeout(
 		main_globals.ticks_until_next_save_check = 0;
 		main_globals.ticks_unable_to_save = 0;
 		main_globals.safe_intervals = 0;
+		/* (the tick before: the first check is at once) */
+		main_save_last_tick = game_time_get()-1;
 	}
 	main_globals.save_map_timeout = FALSE;
 	return;
@@ -1989,26 +2057,40 @@ static void main_save_map_private(
 
 		if (save_map_safely)
 		{
-			if (main_globals.ticks_unable_to_save++ >= 240 &&
-				main_globals.save_map_timeout)
+			/* port: the counts below are of game ticks, as on the Xbox, whose
+			loop ran once a tick (30 a second). This loop runs once a frame, and
+			at 60 frames a second or more a checkpoint gave up in a few seconds,
+			before the fight it waited on was over: few checkpoints came */
+			long current_tick = game_time_get();
+			long ticks = current_tick-main_save_last_tick;
+
+			if (current_tick < main_save_last_tick)
+				ticks = 0;
+			main_save_last_tick = current_tick;
+
+			while (ticks-- > 0 && !save_map)
 			{
-				if (debug_game_save)
-					console_printf(FALSE, "gave up trying to save");
-				main_globals.saving_map = FALSE;
-				return;
-			}
-			else if (main_globals.ticks_until_next_save_check-- <= 0)
-			{
-				if (game_safe_to_save())
+				if (main_globals.ticks_unable_to_save++ >= 240 &&
+					main_globals.save_map_timeout)
 				{
-					if (main_globals.safe_intervals++ >= 3)
-						save_map = TRUE;
+					if (debug_game_save)
+						console_printf(FALSE, "gave up trying to save");
+					main_globals.saving_map = FALSE;
+					return;
 				}
-				else
+				else if (main_globals.ticks_until_next_save_check-- <= 0)
 				{
-					main_globals.safe_intervals = 0;
+					if (game_safe_to_save())
+					{
+						if (main_globals.safe_intervals++ >= 3)
+							save_map = TRUE;
+					}
+					else
+					{
+						main_globals.safe_intervals = 0;
+					}
+					main_globals.ticks_until_next_save_check = 10;
 				}
-				main_globals.ticks_until_next_save_check = 10;
 			}
 		}
 		else
@@ -2203,8 +2285,11 @@ static void main_frame_rate_debug(
 			FILE *file;
 
 			GetSystemTime(&system_time);
-			sprintf(
+			/* port: snprintf, here and below (a map's tag's name may be any
+			length) */
+			snprintf(
 				core_name,
+				sizeof(core_name),
 				"%s_slow_%d_%d_%d_%d_%d_%d.bin",
 				scenario_name,
 				system_time.wMonth,
@@ -2214,7 +2299,7 @@ static void main_frame_rate_debug(
 				system_time.wMinute,
 				system_time.wSecond);
 			game_state_save_core(core_name);
-			sprintf(init_file_name, "d:\\%s_init.txt", scenario_name);
+			snprintf(init_file_name, sizeof(init_file_name), "d:\\%s_init.txt", scenario_name);
 
 			file = fopen(init_file_name, "r");
 			if (!file)
@@ -2641,10 +2726,14 @@ void main_rasterizer_throttle(
 			profile_idle_start();
 			while ((__int64)rasterizer_globals.frame_and_vertical_blank_index < target_index)
 			{
-				if (precache_in_progress)
-				{
-					Sleep(1);
-				}
+				/* the native builds sleep between looks: the Xbox spun here,
+				and on a port each look at the clock is a system call, so a
+				game held at 30 frames a second (display.interpolation off)
+				spent half its game thread asking the time. A millisecond is
+				well inside a 33 ms frame (Windows sets its timer to 1 ms:
+				win32_posix.c) */
+				(void)precache_in_progress;
+				Sleep(1);
 				if (system_milliseconds() > start_milliseconds + 1000)
 				{
 					console_warning(
@@ -2848,9 +2937,53 @@ static void screenshot_render(
 	return;
 }
 
+/* port: when the main menu's build number box (set_textbox_to_build_number,
+empty) was last drawn: the main menu's screen is up while it is */
+unsigned long main_version_box_shown;
+
+/* port: this build's version (build_identity_watermark), small and faint
+in the bottom right corner, where the Xbox's build number was, clear of the
+HUD: on the main menu's own screen (none of the screens it leads to, whose
+button prompts are there), and in a game with display.version_watermark
+while no menu is up */
+static void main_version_watermark_render(
+	void)
+{
+	extern char const *build_identity_watermark(void);
+	extern int config_boolean(char const *name);
+	extern boolean main_menu_is_active(void);
+	/* (light grey, faint) */
+	real_argb_color color = { 0.4f, 0.8f, 0.8f, 0.8f };
+	long font_tag_index;
+	rectangle2d bounds;
+	boolean shown;
+
+	if (main_menu_is_active())
+		shown = system_milliseconds() - main_version_box_shown < 250;
+	else
+		shown = config_boolean("display.version_watermark") && !ui_widgets_active();
+	if (!shown)
+		return;
+	font_tag_index = tag_loaded(FONT_GROUP_TAG, "ui\\small_ui");
+	if (font_tag_index == NONE)
+		font_tag_index = hud_globals->messaging.single_player_font.index;
+	if (font_tag_index == NONE)
+		return;
+	bounds = render.camera.window_bounds;
+	bounds.x1 = (short)(bounds.x1 - 8);
+	bounds.y0 = (short)(bounds.y1 - 22);
+	bounds.y1 = (short)(bounds.y1 - 4);
+	draw_string_set_format(NONE, _text_justification_right, 0);
+	draw_string_set_color(&color);
+	draw_string_set_font(font_tag_index);
+	rasterizer_draw_string(&bounds, NULL, NULL, 0, build_identity_watermark());
+}
+
 void main_framerate_render(
 	void)
 {
+	main_version_watermark_render();
+
 	if (display_framerate)
 	{
 		long font_tag_index;
@@ -3344,6 +3477,10 @@ void main_loop(
 			network_test_update(main_globals.main_menu_scenario_loaded, main_globals.seconds_elapsed);
 			/* baking the bots' navigation (port/linux/game/bot_bake.c) */
 			bot_bake_update(main_globals.main_menu_scenario_loaded, main_globals.seconds_elapsed);
+#ifdef HALO_GAME_BROWSER
+			/* text chat (port/linux/game/chat.c) */
+			chat_update();
+#endif
 			connection = main_globals.connection;
 			if (connection==_game_connection_network_client)
 			{
@@ -3381,21 +3518,28 @@ void main_loop(
 				/* the dedicated server's director (server/src/dedicated.c); the
 				game list's probe (server/src/probe.c); the game list's confirmed
 				players (port/linux/game/game_list_claims.c) and statistics
-				recorder (port/linux/game/game_stats.c) */
+				recorder (port/linux/game/game_stats.c); the game on Discord
+				(port/linux/game/discord_game.c) */
 				void dedicated_server_update(void);
 				void probe_update(void);
 				void game_list_claims_update(void);
 				void game_stats_update(void);
+				void discord_game_update(void);
 
 				dedicated_server_update();
 				probe_update();
 				game_list_claims_update();
 				game_stats_update();
+				discord_game_update();
 			}
 #endif
 			bink_playback_update();
 
-			if ((!game_in_editor() && (input_key_is_down(_key_end) || input_key_is_down(_key_escape))) || editor_should_exit())
+			/* port: not End or Escape, the Xbox devkit keyboard's way out of a
+			game: here the keys reach the game only through the console and text
+			fields, where they are keys of their own (Escape closes the console),
+			and a map reset from them took down the main menu or froze a game */
+			if (editor_should_exit())
 			{
 				main_movie_stop();
 

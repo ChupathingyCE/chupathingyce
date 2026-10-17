@@ -48,6 +48,9 @@ texture was drawn for (another language's maps, which have their own text,
 or modified ones) */
 long hud_hires_override_find(unsigned long address, unsigned long width, unsigned long height,
 	unsigned long level0_size);
+/* how many times those settings have changed while the game runs: a
+texture whose stand-in was found before the last change is found again */
+unsigned long hud_hires_settings(void);
 /* its GL texture (decoded and uploaded, mipmapped, on first use; 0 if it
 could not be), and the number of its mip levels */
 unsigned int hud_hires_override_texture(long asset, unsigned long *levels);
@@ -62,6 +65,8 @@ void hud_hires_map_loaded(const long *assets, long count);
 void hud_hires_map_unloaded(void);
 /* whether its green is its coverage (d3d8_gl.c, nv2a_psh.c: coverage_alpha) */
 int hud_hires_override_coverage(long asset);
+/* whether its red holds exact segment thresholds, read unfiltered (d3d8_gl.c,
+nv2a_psh.c: point_threshold) */
 int hud_hires_override_point_threshold(long asset);
 
 #endif

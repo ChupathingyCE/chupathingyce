@@ -4,6 +4,56 @@ What changed in the ChupathingyCE Dedicated Server. The server is released
 with the game and has its version; the game's own changes are in its
 release notes.
 
+## 0.7.5b
+
+- No server changes of its own; built from the same code as the game's 0.7.5b.
+
+## 0.7.5a
+
+- OpenCE's network version 29 (build-206). No message changed, but a game
+  on a Custom Edition map names it by the map's own name, and its map
+  version is the first 32 bits of the map's hash (the header checksum
+  before). The server hosts its Custom Edition maps that way.
+- Announces network version 29; joins as a client hosts of 11 through 30.
+  Redeploy: a legacy table can't follow this one (wire `chupa-29a`).
+- A reason for `sv_warn`, `sv_kick` and `sv_ban` is the rest of the line,
+  quoted or not, up to 127 characters (longer ones were refused as "a word
+  is too long" or "too many words"). The web page and the site's commands
+  take reasons that long too.
+- A warning reads "Server warning: <reason>" in the player's game, not
+  "Server warning: Warning: <reason>".
+
+## 0.7.5
+
+- `sv_name_filter`: players whose name is on the blocked names list
+  (`blocked_names.txt` in the data folder, shipped with the server) are
+  warned, then removed 3 seconds later unless they change it. Off by
+  default; `sv_name_filter 1`, `name_filter = true` in admin/settings.toml or
+  `HALO_DEDICATED_NAME_FILTER=true` turns it on.
+- Busy games' carnage reports are sent whole (a list of players who left
+  past about 16 was cut off, and the site turned the report away).
+- Network version 28, as 0.7.4e: no redeploy needed for cross-play.
+
+## 0.7.4e
+
+- OpenCE's network version 28 (build-201). No message changed; the game
+  plays three things as OpenCE's 28 does: a multiplayer script's
+  `switch_bsp` keeps the game's first BSP (maps with a copy of their place
+  for each sky stop reloading), the flashlight and dynamic lights stay on
+  past the Xbox's player and vehicle limits, and a second weapon picked up
+  while firing is readied.
+- Announces network version 28; joins as a client hosts of 11 through 30.
+  Redeploy: a legacy table can't follow this one (wire `chupa-28a`).
+
+## 0.7.2e
+
+- OpenCE's network version 26 (build-184): its internet play's signalling
+  is version 4, which OpenCE reads alone. The server reads and answers both
+  3 and 4, so OpenCE's players of build-184 join it over the internet again,
+  as do older builds'. OpenCE's browser players can't (no WebRTC).
+- Announces network version 26; joins as a client hosts of 11 through 30.
+  Redeploy: a legacy table can't follow this one (wire `chupa-26a`).
+
 ## 0.7.1b
 
 - Delta Control: moderators for every server, no site needed

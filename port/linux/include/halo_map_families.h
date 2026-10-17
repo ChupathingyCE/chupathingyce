@@ -54,6 +54,20 @@ char const *map_family_suffix(short family);
 ("HALO PC", "HALOMD", "HALO PC RETAIL"; "" for the Xbox's) */
 char const *map_family_badge(short family);
 
+/* a family's short tag on a listed game's map, the same in every menu set
+and on the game list's pages: XBX (the Xbox's, maps\), HCE (Custom
+Edition's, maps_ce\, @ce), HMD (HaloMD's, maps_md\, @md), GBX (Halo PC
+retail's, Gearbox's, maps_pc\, @pc); what it stands for ("Custom Edition
+map"), and its color (0xRRGGBB) */
+char const *map_family_tag(short family);
+char const *map_family_title(short family);
+unsigned long map_family_color(short family);
+
+/* (reserved for MCC's editing kit's maps, not played yet: no family) */
+#define MAP_FAMILY_TAG_MCC "MCC"
+#define MAP_FAMILY_TITLE_MCC "MCC map"
+#define MAP_FAMILY_COLOR_MCC 0x5FD3C8
+
 /* the folder a player puts a family's maps in, as the menus tell them
 ("maps_ce", "maps_md", "maps_pc"; "maps" for the Xbox's) */
 char const *map_family_folder(short family);
@@ -77,6 +91,9 @@ came from a download, whose scripts are held to tighter rules (hs.c):
 marked by the downloader, or named by game.downloaded_maps */
 boolean map_is_downloaded(char const *map_name);
 void map_downloaded_mark(char const *map_name);
+/* ... and kept so in maps_ce/downloaded_maps.txt, for the next runs (the
+map downloader's maps: port/linux/src/map_download.c) */
+void map_downloaded_remember(char const *map_name);
 
 #ifdef HALO_CUSTOM_EDITION
 /* a family's cache version: 609 for Custom Edition's, 7 for HaloMD's and
@@ -91,8 +108,22 @@ boolean map_family_resource(char const *name, char *path, long size);
 /* the file of a map of a family past the Xbox's (its file's name without
 the suffix), as cache_files_windows.c opens it: the path (for CreateFileA)
 of the first of the family's places that is a cache file of the family's
-version; FALSE if there is none */
+version (the network game's version of its map first:
+map_family_set_game_version); FALSE if there is none */
 boolean map_family_find(short family, char const *file, char *path, long size);
+
+/* ... the file of a map of the host's version (a game record's map version:
+since network version 29 a Custom Edition map's whole-file hash's first 32
+bits, before then its header's checksum; 0 for any): one of its name in its
+places, then for a Custom Edition map <file>_<8 hex digits>.map of that
+version (a download beside another version: map_download.c), and a hashed
+name's base whose hash is the name's (an older host's level name) */
+boolean map_family_find_version(short family, char const *file, unsigned long version, char *path, long size);
+
+/* the map a network game is on and the version of it the host plays (0 for
+any, which forgets it): map_family_find gives the file of that version, if
+there is one, so that the map loaded is the host's */
+void map_family_set_game_version(char const *map, unsigned long version);
 
 /* every multiplayer map of a family past the Xbox's, in its folders: each
 one's file's name (without the suffix, each once), passed to found */

@@ -6259,6 +6259,13 @@ void unit_record_damage(
 	short preserved_attacker_index;
 	short best_new_attacker_index;
 	boolean found_attacker;
+	struct player_datum *attacker_player = attacker_player_index != NONE ?
+		player_try_and_get(attacker_player_index) : NULL;
+
+	/* port: damage can outlive its player (an older checkpoint's): a handle
+	that is no player's now is neither recorded nor read */
+	if (!attacker_player)
+		attacker_player_index = NONE;
 
 	unit = unit_get(unit_index);
 	found_attacker = FALSE;
@@ -6339,9 +6346,10 @@ void unit_record_damage(
 	if (notify_ai && attacker_team != NONE &&
 		game_team_is_enemy(unit->object.owner_team_index, attacker_team))
 	{
-		if (attacker_player_index != NONE)
+		/* port: (the player looked up above) */
+		if (attacker_player)
 		{
-			player_unit_index = player_get(attacker_player_index)->unit_index;
+			player_unit_index = attacker_player->unit_index;
 			if (player_unit_index != NONE)
 			{
 				attacker_unit_index = player_unit_index;
@@ -8368,9 +8376,27 @@ boolean unit_add_weapon_to_inventory(
 				break;
 
 			case _unit_add_weapon_starting:
-				if (!TEST_FLAG(unit->unit.control_flags, _unit_control_weapon_primary_trigger_bit))
+				/* port: a second weapon, into the empty slot of a one-weapon
+				loadout, is the one in hand. While the trigger was down this
+				left the choice on the weapon already held, and the next
+				action put that choice back, so the new one stayed holstered. */
 				{
-					player_control_set_desired_weapon(unit_index, inventory_index);
+					boolean holding_another = FALSE;
+					short slot;
+
+					for (slot = 0; slot < MAXIMUM_WEAPONS_PER_UNIT; slot++)
+					{
+						if (slot != inventory_index &&
+							unit->unit.weapon_object_indices[slot] != NONE)
+						{
+							holding_another = TRUE;
+						}
+					}
+					if (holding_another ||
+						!TEST_FLAG(unit->unit.control_flags, _unit_control_weapon_primary_trigger_bit))
+					{
+						player_control_set_desired_weapon(unit_index, inventory_index);
+					}
 				}
 
 			case _unit_add_weapon_replace:

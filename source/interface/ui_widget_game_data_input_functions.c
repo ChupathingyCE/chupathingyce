@@ -683,7 +683,7 @@ boolean pc_menu_tag(
 static ui_widget_game_data_function game_data_input_function_list[41];
 
 extern struct persistent_game_data_info_view persistant_game_data_info;
-extern struct single_player_level_entry single_player_level_data[10];
+extern struct single_player_level_entry single_player_level_data[NUMBER_OF_SINGLE_PLAYER_LEVELS];
 extern struct cached_player_profile_entry cached_player_profile[3];
 extern struct cached_variant_profile_entry cached_variant_profile[3];
 
@@ -2028,12 +2028,13 @@ static void set_textbox_to_build_number(
 	   the function is unattested. January corroborates: .bss +0x28, referenced only here. */
 	static wchar_t build_number_string[64];
 
-	if (!build_number_string[0])
+	/* port: none: this build's version is drawn at the bottom of the screen
+	instead (main.c's main_version_watermark_render), while this box is (the
+	main menu's alone), and the box stays empty */
 	{
-		ascii_to_wide(
-			"01.01.14.2342",
-			build_number_string,
-			sizeof(build_number_string));
+		extern unsigned long main_version_box_shown;
+
+		main_version_box_shown = system_milliseconds();
 	}
 
 	if (!widget->parameters.text_box.text)

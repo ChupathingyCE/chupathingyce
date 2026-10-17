@@ -8,14 +8,21 @@ directory holding the game's maps/ folder: paths.data (port_config.c), else the 
 directory when it has maps/, else assets/ in the current directory or two
 levels above the executable (the repository root for build/linux/halo).
 Every other drive letter X:\ is the subdirectory X/ of the save root (z:\ holds the persistent cache and saves,
-u:\ user data, t:\ title data): paths.saves, else
-$XDG_DATA_HOME/halo-linux or ~/.local/share/halo-linux. Path components are
+u:\ user data, t:\ title data): paths.saves, else the game's own folder
+(save_folder.c): $XDG_DATA_HOME/chupathingyce or ~/.local/share/chupathingyce,
+%APPDATA%/ChupathingyCE on Windows. Path components are
 matched case-insensitively, like the Xbox's FATX volumes.
+
+The game's own folders are beside them (port_folders.h): data/ and logs/ in
+the data root, cache/ and private/ in the save root (platform_folder). The
+game's log, d:\debug.txt (and debug.old.txt), is in logs/.
 */
 
 #include "platform.h"
 #include "posix.h"
 #include "port_config.h"
+#include "port_folders.h"
+#include "save_folder.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -140,7 +147,8 @@ const char *platform_data_root(void)
 #ifndef HALO_ANDROID
 			{
 				/* (the macOS application's data goes in its folder in
-				Application Support, not in the application: port_config.c) */
+				Application Support, not in the application, and an
+				AppImage's in the save root's place: port_config.c) */
 				char app_folder[MAX_PATH];
 				const char *destination = platform_app_folder(app_folder, sizeof(app_folder))
 					? app_folder : executable_directory;
@@ -152,17 +160,20 @@ const char *platform_data_root(void)
 				{
 					snprintf(root, sizeof(root), "%s", destination);
 				}
+				/* (with no maps anywhere, the log still goes where it can
+				be written) */
+				else if (!has_maps(root) && destination == app_folder)
+					snprintf(root, sizeof(root), "%s", destination);
 			}
 #endif
 			if (!has_maps(root))
 				platform_log("no maps/ folder found; set paths.data in config.toml to the folder that holds maps/");
 		}
 		trim_separators(root);
-		platform_log("data root: %s (the game's log: debug.txt there)", root);
-#ifdef HALO_64BIT
-		/* the platform layer's log goes to the game's (xbox_kernel.c) */
-		snprintf(platform_log_path, sizeof(platform_log_path), "%s/debug.txt", root);
-#endif
+		/* (the logs folder first, the log's place: "logs folder: ...", the
+		game's log, debug.txt, in it) */
+		platform_folder(_port_folder_logs);
+		platform_log("data root: %s", root);
 	}
 	return root;
 }
@@ -176,16 +187,113 @@ static void make_directories(const char *path)
 	snprintf(partial, sizeof(partial), "%s", path);
 	for (index = 1; partial[index]; index++)
 	{
-		if (partial[index] == '/')
+		/* (Windows' separators too, but not a drive's: C:\) */
+		if ((partial[index] == '/' || partial[index] == '\\') && partial[index - 1] != ':')
 		{
+			char separator = partial[index];
+
 			partial[index] = '\0';
 			if (!directory_exists(partial))
 				posix_make_directory(partial);
-			partial[index] = '/';
+			partial[index] = separator;
 		}
 	}
 	if (!directory_exists(partial))
 		posix_make_directory(partial);
+}
+
+/* ---------- the game's own folders */
+
+const char *platform_folder(enum port_folder folder)
+{
+	static char paths[k_port_folder_count][MAX_PATH];
+	char path[MAX_PATH];
+	const char *override = "";
+
+	if ((int)folder < 0 || (int)folder >= k_port_folder_count)
+		return ".";
+	if (paths[folder][0])
+		return paths[folder];
+	if (folder == _port_folder_logs)
+		override = config_string("paths.logs");
+	else if (folder == _port_folder_cache)
+		override = config_string("paths.cache");
+	if (!port_folder_path(folder, override, platform_data_root(),
+			port_folder_in_save_root(folder) ? platform_save_root() : "", path, sizeof(path)))
+	{
+		snprintf(path, sizeof(path), "%s", port_folder_name(folder));
+	}
+	make_directories(path);
+#ifdef HALO_64BIT
+	/* the platform layer's log goes to the game's (xbox_kernel.c) */
+	if (folder == _port_folder_logs)
+		snprintf(platform_log_path, sizeof(platform_log_path), "%s/debug.txt", path);
+#endif
+	/* (the first caller's: they are the same) */
+	if (!paths[folder][0])
+	{
+		snprintf(paths[folder], sizeof(paths[folder]), "%s", path);
+		platform_log("%s folder: %s", port_folder_name(folder), path);
+	}
+	return paths[folder];
+}
+
+/* the executable's folder, without its separator; 0 when it is not known */
+static int executable_folder(char *path, unsigned long size)
+{
+	char executable[MAX_PATH];
+	char *slash;
+#ifdef __APPLE__
+	uint32_t executable_size = sizeof(executable);
+	ssize_t length = _NSGetExecutablePath(executable, &executable_size) == 0 ? (ssize_t)strlen(executable) : -1;
+#else
+	ssize_t length = readlink("/proc/self/exe", executable, sizeof(executable) - 1);
+#endif
+
+	if (length <= 0)
+		return 0;
+	executable[length] = '\0';
+	slash = strrchr(executable, '/');
+#ifdef _WIN32
+	if (!slash || (strrchr(executable, '\\') && strrchr(executable, '\\') > slash))
+		slash = strrchr(executable, '\\');
+#endif
+	if (!slash)
+		return 0;
+	*slash = '\0';
+	snprintf(path, (size_t)size, "%s", executable);
+	return 1;
+}
+
+int platform_logs_folder_early(char *path, unsigned long size)
+{
+	const char *logs = config_string("paths.logs");
+	const char *data = config_string("paths.data");
+	char folder[MAX_PATH];
+
+	if (*logs)
+		snprintf(path, (size_t)size, "%s", logs);
+	/* (where platform_data_root looks, without asking the player anything) */
+	else if (*data)
+		snprintf(path, (size_t)size, "%s/logs", data);
+	else if (has_maps("."))
+		snprintf(path, (size_t)size, "logs");
+	else if (executable_folder(folder, sizeof(folder)) && has_maps(folder))
+		snprintf(path, (size_t)size, "%s/logs", folder);
+	else if (has_maps("assets"))
+		snprintf(path, (size_t)size, "assets/logs");
+#ifndef HALO_ANDROID
+	else if (platform_app_folder(folder, sizeof(folder)))
+		snprintf(path, (size_t)size, "%s/logs", folder);
+#endif
+	/* (where the first start puts the maps: platform_offer_game_data) */
+	else if (executable_folder(folder, sizeof(folder)))
+		snprintf(path, (size_t)size, "%s/logs", folder);
+	else
+		return 0;
+	trim_separators(path);
+	make_directories(path);
+	return 1;
 }
 
 #ifdef __APPLE__
@@ -200,6 +308,29 @@ static BOOL saves_exist(const char *home)
 }
 #endif
 
+#ifndef __APPLE__
+/* once, on the first start with the game's own save root: the saves of the
+folder it shared with other builds, copied into it (never moved: they still
+use it) */
+static void copy_shared_saves(const char *shared, const char *root)
+{
+	unsigned long files = 0;
+
+	switch (save_folder_copy_once(shared, root, &files))
+	{
+	case _save_folder_copy_copied:
+		platform_log("copied %lu files of saves (profiles, saved games, game types) from %s, "
+			"the save folder shared with other builds; it is left as it was", files, shared);
+		break;
+	case _save_folder_copy_failed:
+		platform_log("could not copy the saves from %s; the next start tries again", shared);
+		break;
+	default:
+		break;
+	}
+}
+#endif
+
 const char *platform_save_root(void)
 {
 	static char root[MAX_PATH];
@@ -209,10 +340,9 @@ const char *platform_save_root(void)
 		const char *environment = config_string("paths.saves");
 		const char *data_home = getenv("XDG_DATA_HOME");
 		const char *home = getenv("HOME");
-
+#ifdef __APPLE__
 		if (*environment)
 			snprintf(root, sizeof(root), "%s", environment);
-#ifdef __APPLE__
 		/* the macOS application keeps everything in its folder in
 		Application Support (platform_app_folder), unless this Mac has saves
 		from before (and its player key: browser.c), in the folder below */
@@ -221,17 +351,28 @@ const char *platform_save_root(void)
 		{
 			strncat(root, "/saves", sizeof(root) - strlen(root) - 1);
 		}
-#endif
-#ifdef _WIN32
-		/* the Windows build (port/windows) keeps saves in the roaming
-		application data folder */
-		else if (getenv("APPDATA") && *getenv("APPDATA"))
-			snprintf(root, sizeof(root), "%s/halo", getenv("APPDATA"));
-#endif
 		else if (data_home && *data_home)
 			snprintf(root, sizeof(root), "%s/halo-linux", data_home);
 		else if (home && *home)
 			snprintf(root, sizeof(root), "%s/.local/share/halo-linux", home);
+#else
+		char shared[MAX_PATH];
+#ifdef _WIN32
+		const enum save_folder_system system = _save_folder_windows;
+#else
+		const enum save_folder_system system = _save_folder_linux;
+#endif
+
+		/* paths.saves (or HALO_SAVE_ROOT) as it is, else the game's own
+		folder (save_folder.c), with the saves copied from the folder it
+		shared with other builds before, once */
+		if (save_folder_choose(system, environment, getenv("APPDATA"), data_home, home,
+				root, sizeof(root), shared, sizeof(shared)))
+		{
+			if (shared[0])
+				copy_shared_saves(shared, root);
+		}
+#endif
 		else
 			snprintf(root, sizeof(root), "%s", platform_data_root());
 		trim_separators(root);
@@ -241,12 +382,46 @@ const char *platform_save_root(void)
 	return root;
 }
 
+/* whether an Xbox path is the game's log, d:\debug.txt or d:\debug.old.txt
+(errors.c), which is in logs/: its name, or NULL */
+static const char *log_file_name(const char *xbox_path)
+{
+	static const char *const names[] = { "debug.txt", "debug.old.txt" };
+	const char *name = xbox_path;
+	unsigned long index;
+
+	if ((name[0] != 'd' && name[0] != 'D') || name[1] != ':')
+		return NULL;
+	name += 2;
+	while (*name == '\\' || *name == '/')
+		name++;
+	for (index = 0; index < sizeof(names) / sizeof(*names); index++)
+	{
+		const char *a = name, *b = names[index];
+
+		while (*a && tolower((unsigned char)*a) == *b)
+		{
+			a++;
+			b++;
+		}
+		if (!*a && !*b)
+			return names[index];
+	}
+	return NULL;
+}
+
 void platform_translate_path(const char *xbox_path, char *host_path, unsigned long host_path_size)
 {
 	char resolved[1024];
 	const char *cursor = xbox_path;
+	const char *log_name = log_file_name(xbox_path);
 	unsigned long length;
 
+	if (log_name)
+	{
+		snprintf(host_path, host_path_size, "%s/%s", platform_folder(_port_folder_logs), log_name);
+		return;
+	}
 	snprintf(resolved, sizeof(resolved), "%s", platform_data_root());
 	if (((cursor[0] >= 'a' && cursor[0] <= 'z') || (cursor[0] >= 'A' && cursor[0] <= 'Z')) && cursor[1] == ':')
 	{

@@ -53,10 +53,24 @@ def test_limits_follow_the_table():
     last_breaking = max(number for number, _, kind in table if kind == "breaking")
     assert define(limits, "HALO_PORT_NETWORK_VERSION") == newest, \
         "hosts must announce the table's newest version"
-    assert define(limits, "HALO_PORT_NETWORK_VERSION_MAXIMUM") == newest, \
-        "clients must join hosts up to the table's newest version"
+    assert define(limits, "HALO_PORT_NETWORK_VERSION_MAXIMUM") >= newest, \
+        "clients must join hosts up to the table's newest version, at least"
     assert define(limits, "HALO_PORT_NETWORK_VERSION_MINIMUM") == last_breaking, \
         "clients must join hosts back to the table's newest breaking version"
+    presumed = define(DELTA.read_text(encoding="utf-8"), "DELTA_LEGACY_PRESUMED")
+    assert presumed >= 1
+    assert define(limits, "HALO_PORT_NETWORK_VERSION_MAXIMUM") >= define(limits, "HALO_PORT_NETWORK_VERSION") + presumed, \
+        "clients must join hosts of the versions past their own presumed additive (DELTA_LEGACY_PRESUMED)"
+
+
+def test_advertised_wire_fits():
+    text = DELTA.read_text(encoding="utf-8")
+    wire = re.search(r'^#define DELTA_WIRE "([^"]+)"', text, re.M).group(1)
+    assert len(wire) <= define(text, "DELTA_ADVERTISED_WIRE_SIZE")
+    # (the major and the wire after the port's version and flags, within the
+    # advertisement's 0x1A reserved bytes)
+    assert define(text, "DELTA_ADVERTISED_WIRE_OFFSET") >= 3
+    assert define(text, "DELTA_ADVERTISED_WIRE_OFFSET") + 1 + define(text, "DELTA_ADVERTISED_WIRE_SIZE") <= 0x1A
 
 
 def test_capability_bits():
@@ -434,6 +448,18 @@ def test_loader_ignores_older_and_equal(keys, checker, tmp_path):
     output = run_checker(checker, tmp_path, "offer", newer, "offer", same, "offer", older, "state")
     assert output.count("offer 1") == 1 and output.count("offer 0") == 2
     assert f" {floor()['maximum'] + 1} serial 10 " in state_line(output)[0]
+
+
+def test_loader_presumes_the_next_version(keys, checker, tmp_path):
+    # (a row that announces a newer number without widening the join: the
+    # next ones, DELTA_LEGACY_PRESUMED, are joined anyway)
+    base = floor()
+    presumed = define(DELTA.read_text(encoding="utf-8"), "DELTA_LEGACY_PRESUMED")
+    announce = base["maximum"] + 3
+    table = write_signed(keys, tmp_path / "t10", document(serial=10, row=dict(base, announce=announce, maximum=announce)))
+    output = run_checker(checker, tmp_path, "offer", table, "state")
+    assert "offer 1" in output
+    assert state_line(output)[0].startswith(f"state {announce} {base['minimum']} {announce + presumed} serial 10 ")
 
 
 @pytest.mark.parametrize("name,make", [

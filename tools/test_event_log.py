@@ -23,7 +23,6 @@ SOURCES = [
     ROOT / "port" / "third_party" / "monocypher" / "monocypher.c",
 ]
 SANITIZERS = ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
-HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 
 def compiler():
@@ -56,7 +55,7 @@ def run(program, *arguments):
 
 def test_sample_batch(program):
     batch = json.loads(run(program, "sample"))
-    assert batch["schema"] == 1
+    assert batch["schema"] == 2
     assert batch["server"] == {"name": 'Test "server"', "build": "0.7.0b", "platform": "linux-x64"}
     game = batch["game"]
     assert game["id"] == "00112233445566778899aabbccddeeff"
@@ -66,14 +65,16 @@ def test_sample_batch(program):
     assert game["team_scores"] == [3, 1] and game["end_reason"] == "score"
     walter, jo, guest = batch["players"]
     assert walter["name"] == "Walter" and jo["name"] == "Jo ✓" and guest["name"] == "guest?"[:5] + "\u0001"
-    # (a keyed hash of the hardware ID, the same for either case; none without one)
-    assert HEX64.match(walter["ident"]) and HEX64.match(jo["ident"]) and "ident" not in guest
+    # (no hardware ID, nor any hash of one, for anyone)
+    assert all("ident" not in p for p in batch["players"])
     assert "00112233" not in json.dumps(batch["players"]) and "ffeeddcc" not in json.dumps(batch)
     assert walter["client"] == "chupathingyce" and walter["platform"] == "linux"
     assert guest["client"] == "other" and "platform" not in guest
     assert walter["place"] == 1 and walter["score"] == 2 and walter["kills"] == 2
     # (no totals from the game: the kills seen)
     assert guest["kills"] == 0 and guest["deaths"] == 2
+    # (an OpenCE player: their name, team and this game's numbers, no more)
+    assert set(guest) == {"name", "client", "team", "bot", "score", "kills", "deaths"}
     pistol = next(w for w in walter["weapons"] if w["weapon"] == "weapons\\pistol")
     assert pistol == {"weapon": "weapons\\pistol", "shots": 10, "hits": 2, "kills": 2, "headshots": 1, "damage": 0.8}
     assert walter["shots"] == 10 and walter["hits"] == 2
@@ -89,6 +90,8 @@ def test_sample_batch(program):
     assert kills[0]["headshot"] is True and kills[0]["t"] == pytest.approx(3.33)
     assert kills[0]["killer_pos"] == [62.5, -120.25, 1.0] and kills[0]["victim_pos"] == [70.0, -118.0, 0.5]
     assert kills[4]["suicide"] is True and "headshot" not in kills[1]
+    # (a kill of an OpenCE player keeps its slot, not where they stood)
+    assert "killer_pos" in kills[1] and "victim_pos" not in kills[1] and "victim_pos" not in kills[3]
     assert {(m["player"], m["medal"]) for m in batch["medals"]} == {(0, "double_kill"), (1, "beat_down")}
     assert batch["objectives"] == [{"t": pytest.approx(16.67), "player": 0, "team": 0, "kind": "flag_grab", "pos": [90.0, -150.0, 0.25]}]
     assert batch["rides"] == [[20.0, 30.0, 1, "vehicles\\warthog\\mp_warthog", "driver"]]
@@ -96,13 +99,17 @@ def test_sample_batch(program):
     assert batch["positions"] == [[1.0, 0, 41.0, -101.0, 0.25], [1.0, 1, 51.0, -111.0, 0.25]]
     assert batch["pings"] == [[30.3, 1, 85]]
     assert [p["item"] for p in batch["pickups"]] == ["weapons\\sniper rifle\\sniper rifle", "powerups\\active camouflage"]
+    # (no row of the OpenCE player's own)
+    for name in ("medals", "objectives", "pickups", "sessions", "flags"):
+        assert all(row["player"] != 2 for row in batch[name])
+    for name in ("rides", "spawns", "positions"):
+        assert all(row[2 if name == "rides" else 1] != 2 for row in batch[name])
+    assert all(row[1] != 2 for row in batch["pings"])
     assert batch["moderation"][0]["kind"] == "kick" and batch["moderation"][0]["player"] == 2
     assert batch["moderation"][1] == {"t": pytest.approx(30.33), "kind": "ban", "player": -1, "name": "Nobody",
                                       "by": "admin:milenko", "reason": ""}
     sessions = {s["player"]: s for s in batch["sessions"]}
-    # (left after a moderator's kick: kicked)
-    assert sessions[2] == {"player": 2, "joined": 3.0, "left": pytest.approx(31.67), "reason": "kick"}
-    assert sessions[0]["left"] is None
+    assert 2 not in sessions and sessions[0]["left"] is None
     assert batch["limits"]["dropped"] == {}
 
 
@@ -174,7 +181,7 @@ def test_fuzz(program):
     for chunk in output.split(b"\f"):
         if chunk.strip():
             batch = json.loads(chunk.decode("utf-8"))
-            assert batch["schema"] == 1
+            assert batch["schema"] == 2
             count = len(batch["players"])
             for kill in batch["kills"]:
                 assert -1 <= kill["killer"] < count and 0 <= kill["victim"] < count

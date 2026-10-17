@@ -370,7 +370,7 @@ struct lights_globals
 	long marker;
 	short scene_point_light_count;
 	short padA;
-	long scene_point_lights[128];
+	long scene_point_lights[MAXIMUM_RENDERED_LIGHTS];
 	struct rasterizer_lens_flare_submit_parameters queued_lens_flares[8];
 	short queued_lens_flare_count;
 	short pad34E;
@@ -396,7 +396,7 @@ typedef char verify_light_datum_size[
 typedef char verify_rasterizer_light_submit_parameters_size[
 	sizeof(struct rasterizer_light_submit_parameters) == 0x38 ? 1 : -1];
 typedef char verify_lights_globals_size[
-	sizeof(struct lights_globals) == 0x350 ? 1 : -1];
+	sizeof(struct lights_globals) == 0x350 + 4 * (MAXIMUM_RENDERED_LIGHTS - 128) ? 1 : -1];
 
 #endif
 /* ---------- prototypes */
@@ -1896,6 +1896,7 @@ void light_reconnect_to_map(
 			"c:\\halo\\SOURCE\\objects\\object_lights.c",
 			0x4F9,
 			!TEST_FLAG(light->flags, _point_light_connected_to_map_bit));
+#ifndef HALO_SERVER
 		if (light->object_index != NONE && object_try_and_get(light->object_index))
 		{
 			object_get_location(light->object_index, &location);
@@ -1911,6 +1912,18 @@ void light_reconnect_to_map(
 			&position,
 			radius,
 			&location);
+#else
+		/* port: The dedicated server draws nothing, and a light's clusters
+		are only for drawing: the lights that light an object or the map
+		(lights_prepare_for_object_dynamic, lights_render_diffuse and
+		_specular), and the point's illumination of a unit
+		(lights_illumination_at_point), which only debug_unit_illumination
+		reads; the lights it finds are the ones drawn this frame, none on the
+		server. So no light joins its clusters there, which every moving
+		light did each tick, and filled the light partition's lists on busy
+		maps. Its cluster_reference stays NONE: it leaves no clusters. */
+		(void)location;
+#endif
 		SET_FLAG(light->flags, _point_light_connected_to_map_bit, TRUE);
 	}
 

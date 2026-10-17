@@ -36,6 +36,10 @@ when the player acts.
 #include "../src/delta_moderation.h"
 #include "../src/ui_overlay.h"
 
+int config_boolean(char const *name);
+char const *config_string(char const *name);
+void platform_log(char const *format, ...);
+
 /* ---------- constants */
 
 enum
@@ -52,6 +56,11 @@ enum
 	OPEN_SETTLE = 400,
 	/* an analog button's press, out of 255 */
 	PRESS_THRESHOLD = 128,
+	/* a held direction: the first repeat waits this long, then it repeats
+	this often; a gap longer than the last is a new press (as in Online Games) */
+	STEP_FIRST_REPEAT_DELAY = 350,
+	STEP_REPEAT_INTERVAL = 110,
+	STEP_RELEASE_GAP = 150,
 };
 
 enum
@@ -69,7 +78,8 @@ enum
 	COLOR_WARNING = 0xF2C14EFF,
 };
 
-/* the actions, as the screen offers them */
+/* the actions, as the screen offers them: the server's control panel offers
+the same, by the same names and to the same roles (server/webui/app.js) */
 struct moderation_choice
 {
 	char const *name;
@@ -83,12 +93,16 @@ struct moderation_choice
 static struct moderation_choice const moderation_choices[] =
 {
 	{ "Warn", _delta_moderation_action_warn, 0, DELTA_MODERATION_WARN, TRUE },
+	{ "Mute chat", _delta_moderation_action_mute, 0, DELTA_MODERATION_WARN, TRUE },
+	{ "Mute chat 10 minutes", _delta_moderation_action_mute, 10, DELTA_MODERATION_WARN, TRUE },
+	{ "Unmute chat", _delta_moderation_action_unmute, 0, DELTA_MODERATION_WARN, TRUE },
 	{ "Kick", _delta_moderation_action_kick, 0, DELTA_MODERATION_KICK, TRUE },
 	{ "Ban 1 hour", _delta_moderation_action_ban, 60, DELTA_MODERATION_BAN_TIMED, TRUE },
 	{ "Ban 1 day", _delta_moderation_action_ban, 24 * 60, DELTA_MODERATION_BAN_TIMED, TRUE },
 	{ "Ban 7 days", _delta_moderation_action_ban, 7 * 24 * 60, DELTA_MODERATION_BAN_TIMED, TRUE },
-	{ "Ban for ever", _delta_moderation_action_ban, 0, DELTA_MODERATION_BAN, TRUE },
-	{ "End the game", _delta_moderation_action_end_game, 0, DELTA_MODERATION_MAP, FALSE },
+	{ "Ban 30 days", _delta_moderation_action_ban, 30 * 24 * 60, DELTA_MODERATION_BAN_TIMED, TRUE },
+	{ "Ban forever", _delta_moderation_action_ban, 0, DELTA_MODERATION_BAN, TRUE },
+	{ "End game", _delta_moderation_action_end_game, 0, DELTA_MODERATION_MAP, FALSE },
 	{ "Next map", _delta_moderation_action_next_map, 0, DELTA_MODERATION_MAP, FALSE },
 };
 
@@ -122,6 +136,11 @@ static struct
 	unsigned long result_seen;
 	unsigned long result_time;
 	char status[128];
+	boolean signing_in;
+	/* the server's last word to this player alone (an info notice): its
+	role here and where the role comes from, which it tells each player
+	when they sign in and when it changes */
+	char note[DELTA_WIRE_MODERATION_TEXT_SIZE + 1];
 } moderation_screen;
 
 /* ---------- private code */
@@ -220,6 +239,36 @@ static void act(
 }
 
 static void press(
+	short button);
+
+/* a direction held down: the event manager sends the d-pad's every frame
+while it's held, so the list moved a row a frame (more at a high frame rate).
+The first press moves at once; held, it waits, then repeats at a steady pace */
+static void held_press(
+	short button)
+{
+	static unsigned long last_event_time, last_press_time;
+	static short last_button;
+	static boolean repeating;
+	unsigned long now = system_milliseconds();
+
+	if (button != last_button || now - last_event_time > STEP_RELEASE_GAP)
+	{
+		press(button);
+		last_press_time = now;
+		repeating = FALSE;
+	}
+	else if (now - last_press_time >= (repeating ? STEP_REPEAT_INTERVAL : STEP_FIRST_REPEAT_DELAY))
+	{
+		press(button);
+		last_press_time = now;
+		repeating = TRUE;
+	}
+	last_button = button;
+	last_event_time = now;
+}
+
+static void press(
 	short button)
 {
 	struct delta_peer_game_moderation const *moderation = &moderation_screen.moderation;
@@ -248,7 +297,8 @@ static void press(
 	{
 		if (button == _gamepad_analog_button_a && settled)
 		{
-			set_status(delta_peer_game_moderation_sign_in() ? "Signing in..." :
+			moderation_screen.signing_in = delta_peer_game_moderation_sign_in();
+			set_status(moderation_screen.signing_in ? "Signing in..." :
 				"Could not sign in (no player key, or this is not the server you joined).");
 		}
 		return;
@@ -316,6 +366,21 @@ void moderation_screen_update(
 	{
 		moderation_screen.notice_seen = moderation_screen.moderation.notice_count;
 		moderation_screen.notice_time = system_milliseconds();
+		if (moderation_screen.moderation.notice_kind == _delta_moderation_notice_info)
+		{
+			csstrncpy(moderation_screen.note, moderation_screen.moderation.notice, sizeof(moderation_screen.note) - 1);
+			moderation_screen.note[sizeof(moderation_screen.note) - 1] = 0;
+		}
+		if (moderation_screen.moderation.notice[0])
+			platform_log("server %s: %s",
+				moderation_screen.moderation.notice_kind == _delta_moderation_notice_warning ? "warning" : "notice",
+				moderation_screen.moderation.notice);
+	}
+	/* (signed in: the host said the key's role, so "Signing in..." is done) */
+	if (moderation_screen.moderation.has_state && moderation_screen.signing_in)
+	{
+		moderation_screen.signing_in = FALSE;
+		moderation_screen.status[0] = 0;
 	}
 	if (moderation_screen.moderation.result_count != moderation_screen.result_seen)
 	{
@@ -330,7 +395,10 @@ void moderation_screen_update(
 			held = TRUE;
 	}
 	if (!moderation_screen.moderation.available)
+	{
 		moderation_screen.active = FALSE;
+		moderation_screen.note[0] = 0;
+	}
 	else if (!moderation_screen.active && menu_open && held && !moderation_screen.open_held)
 	{
 		moderation_screen.active = TRUE;
@@ -355,17 +423,24 @@ void moderation_screen_process(
 	while (moderation_screen.active && get_next_event(&event, NONE))
 	{
 		if (event.type == MODERATION_EVENT_BUTTON)
-			press(event.data.button.index);
+		{
+			short button = event.data.button.index;
+
+			if (button >= _gamepad_binary_button_dpad_up && button <= _gamepad_binary_button_dpad_right)
+				held_press(button);
+			else
+				press(button);
+		}
 		else if (event.type == MODERATION_EVENT_LEFT_STICK)
 		{
 			if (event.data.stick.y == SHORT_MAX)
-				press(_gamepad_binary_button_dpad_up);
+				held_press(_gamepad_binary_button_dpad_up);
 			else if (event.data.stick.y == SHORT_MIN)
-				press(_gamepad_binary_button_dpad_down);
+				held_press(_gamepad_binary_button_dpad_down);
 			else if (event.data.stick.x == SHORT_MIN)
-				press(_gamepad_binary_button_dpad_left);
+				held_press(_gamepad_binary_button_dpad_left);
 			else if (event.data.stick.x == SHORT_MAX)
-				press(_gamepad_binary_button_dpad_right);
+				held_press(_gamepad_binary_button_dpad_right);
 		}
 	}
 	/* (the menu behind takes nothing while the screen is up) */
@@ -395,6 +470,49 @@ static char const *role_name(
 	}
 }
 
+/* a setting's "#RRGGBB" or "#RRGGBBAA" as the overlay's 0xRRGGBBAA; empty or
+bad gives the fallback (a bad value is logged once per setting) */
+static unsigned int banner_color(
+	char const *name,
+	unsigned int fallback)
+{
+	static char bad[3][64];
+	static char const *const names[3] = {
+		"display.server_message_text_color", "display.server_message_border_color",
+		"display.server_message_background_color" };
+	char const *text = config_string(name);
+	unsigned long value = 0;
+	size_t length, index;
+	int which = 0;
+
+	while (which < 2 && strcmp(name, names[which]))
+		which++;
+	if (!text || !text[0])
+		return fallback;
+	length = strlen(text);
+	if (text[0] == '#' && (length == 7 || length == 9))
+	{
+		for (index = 1; index < length; index++)
+		{
+			char c = text[index];
+			int digit = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 :
+				c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+
+			if (digit < 0)
+				break;
+			value = value << 4 | (unsigned long)digit;
+		}
+		if (index == length)
+			return length == 7 ? (unsigned int)(value << 8 | 0xFF) : (unsigned int)value;
+	}
+	if (strncmp(bad[which], text, sizeof(bad[which]) - 1))
+	{
+		snprintf(bad[which], sizeof(bad[which]), "%s", text);
+		platform_log("settings: %s = \"%s\" is not \"#RRGGBB\" or \"#RRGGBBAA\"; the default is used", name, text);
+	}
+	return fallback;
+}
+
 /* over the game: a warning the server sent, and a link waiting */
 static void render_banner(
 	void)
@@ -403,14 +521,18 @@ static void render_banner(
 	unsigned long now = system_milliseconds();
 	char text[192];
 
-	if (moderation->notice_count && now - moderation_screen.notice_time < NOTICE_DURATION && moderation->notice[0])
+	if (moderation->notice_count && now - moderation_screen.notice_time < NOTICE_DURATION && moderation->notice[0] &&
+		config_boolean("display.server_messages"))
 	{
 		boolean warning = moderation->notice_kind == _delta_moderation_notice_warning;
 
-		ui_overlay_rect(110, 24, 420, 30, 6, COLOR_PANEL);
-		ui_overlay_outline(110, 24, 420, 30, 6, 1.0f, warning ? COLOR_WARNING : COLOR_PANEL_EDGE);
+		ui_overlay_rect(110, 24, 420, 30, 6,
+			banner_color("display.server_message_background_color", COLOR_PANEL));
+		ui_overlay_outline(110, 24, 420, 30, 6, 1.0f,
+			banner_color("display.server_message_border_color", warning ? COLOR_WARNING : COLOR_PANEL_EDGE));
 		snprintf(text, sizeof(text), "%s%s", warning ? "Server warning: " : "", moderation->notice);
-		ui_overlay_text(UI_FONT_BOLD, 13.0f, 320, 32, UI_ALIGN_CENTER, warning ? COLOR_WARNING : COLOR_TEXT, text);
+		ui_overlay_text(UI_FONT_BOLD, 13.0f, 320, 32, UI_ALIGN_CENTER,
+			banner_color("display.server_message_text_color", warning ? COLOR_WARNING : COLOR_TEXT), text);
 	}
 	else if (moderation->bind_waiting && !moderation_screen.active)
 	{
@@ -487,6 +609,12 @@ void moderation_screen_render(
 		ui_overlay_text(UI_FONT_REGULAR, 13.0f, 120, y, UI_ALIGN_LEFT, COLOR_TEXT, "Signing in...");
 		prompt(UI_BUTTON_B, "Back", 120, 392);
 		return;
+	}
+	/* (the role's source, as the server told this player) */
+	if (moderation_screen.note[0])
+	{
+		ui_overlay_text(UI_FONT_REGULAR, 11.0f, 120, 96, UI_ALIGN_LEFT, COLOR_DIM, moderation_screen.note);
+		y += 8;
 	}
 	if (!moderation->role || !moderation_screen.allowed_count)
 	{

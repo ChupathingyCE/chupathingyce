@@ -7,7 +7,8 @@ The game's data formats embed 32-bit pointers: cache files hold tag data
 whose blocks, references and data point at each other by address, game
 state is saved and restored as raw memory, and Direct3D resources carry
 physical addresses. A 64-bit build keeps all of that memory inside one
-4 GB region reserved at a fixed host address, so that Xbox address X is host
+4 GB region reserved at start-up, at a fixed host address (anywhere it
+fits on Android), so that Xbox address X is host
 address XBOX_ADDRESS_SPACE_BASE + X (port/linux/src/xbox_memory.c).
 Structures laid out like the Xbox's declare their pointer fields XPTR(type)
 (a 32-bit Xbox address) and convert with XBOX_POINTER and XBOX_ADDRESS.
@@ -26,7 +27,14 @@ nothing, so the code compiles as before.
 where these are, so the sanitized builds put it above it, at 48 TB:
 tools/test_map_fuzz.py) */
 #ifndef XBOX_ADDRESS_SPACE_BASE
-#if defined(__linux__) && defined(__aarch64__)
+#if defined(HALO_ANDROID)
+/* wherever the system has 4 GB free, 4 GB-aligned, found at start-up
+(port/linux/src/xbox_memory.c): an Android app's library is loaded into a
+process the system has laid out already, and the Java runtime's heaps lie
+where a fixed address would (port/android/README.md) */
+extern unsigned long long xbox_address_space_base;
+#define XBOX_ADDRESS_SPACE_BASE xbox_address_space_base
+#elif defined(__linux__) && defined(__aarch64__)
 /* 256 GB: below the top of the smallest address space a 64-bit ARM Linux
 kernel gives a program (512 GB, with 39-bit addresses: Raspberry Pi OS's
 kernels, Android's) */

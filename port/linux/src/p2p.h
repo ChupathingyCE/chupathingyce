@@ -29,6 +29,14 @@ int p2p_join_invite(const char *text);
 /* the invite of the game this machine hosts on the internet (its 44 digits,
 without halo://join/); 0 when it hosts none (browser.c) */
 int p2p_hosting_invite(char *text, int size);
+/* as p2p_hosting_invite, but 0 also when the game is private or has a
+password: only a public game without a password is listed by its invite
+(browser.c) */
+int p2p_hosting_listable_invite(char *text, int size);
+/* the game list took the hosted game's invite (browser.c): the token is
+public now, so going private or setting a password makes a new one; one
+that is no longer public is replaced at once */
+void p2p_hosting_invite_announced(const char *invite);
 #ifdef HALO_GAME_BROWSER
 unsigned long p2p_peer_public_address(unsigned long game_address);
 unsigned long p2p_public_address(void);
@@ -41,6 +49,18 @@ const unsigned char *p2p_identifier(void);
 /* the address the game reaches the machine with this identifier at, if it
 is an internet play peer (reached yet or not) */
 int p2p_peer_address(const unsigned char *identifier, unsigned long *address);
+/* Online Games' pings before joining (p2p_probe.c): while on (the screen
+is open, and network.ping_games), the hosts asked about may be probed; never
+when internet play is off */
+void p2p_probe_browse(int on);
+/* the round trip in milliseconds to the host of an invite (its code: the
+host's key hash and token in hexadecimal), as a probe measured it; -1 if
+none has. wanted: probe it (only a host that answers pings, as the list
+says, should be asked about) */
+int p2p_probe_ping(const char *invite, int wanted);
+/* the last round trip to the machine with this identifier in milliseconds
+(the tunnel's own pings), if the tunnel has reached it; -1 if not */
+int p2p_peer_ping(const unsigned char *identifier);
 
 /* a destination the game sends to or connects to (stream: a TCP socket;
 socket: the game's UDP socket connected to it, else -1): 1 if it is a peer's
@@ -159,10 +179,22 @@ struct p2p_listing
 	unsigned char key_hash[P2P_LISTING_KEY_HASH_SIZE];
 	unsigned char signing_key[P2P_LISTING_SIGNING_KEY_SIZE];
 	unsigned char sealed_token[P2P_LISTING_SEALED_TOKEN_SIZE];
+	/* the network version it was listed under (0: not known) */
+	unsigned short version;
 };
-/* a copy of the public games found, in the order shown (the most players
-first; then those not failed, the open ones, by name); returns their count */
+/* a copy of the public games found, each once (p2p_listing_older_copy), in
+the order shown (the most players first; then those not failed, the open
+ones, by name); returns their count */
 int p2p_lobby_games(struct p2p_listing *games, int maximum_count);
+/* whether games[index] is a copy p2p_lobby_games leaves out (p2p_copies.c):
+a host can sign one game's listing once for every network version, each
+with a key and an invite of its own. Listings alike in all but their
+version (the name, without case or the spaces around it; the map and
+gametype, without case; the engine, players, most players and whether under
+way) are one game, kept at its newest version, and of copies of that, the
+last heard (heard_times: p2p_now's); two hosts' games of one version stay
+apart. The game list's rule too (its one_per_version_set) */
+int p2p_listing_older_copy(const struct p2p_listing *games, const unsigned long *heard_times, int count, int index);
 /* a game the browser could not join: kept, marked failed, for this run */
 void p2p_lobby_mark_failed(const unsigned char *identifier);
 /* a locked game's invite (into its invite), if the password is its own:
@@ -181,6 +213,11 @@ void p2p_discord_sanitize(char *destination, int size, const char *source, int n
 /* the Discord user signed in to the client on this machine, as its
 READY told (empty if none, or internet play is off) */
 void p2p_discord_identity(char *id, int id_size, char *name, int name_size);
+/* what the game is doing, for its activity on Discord, and the player's
+settings of it (discord_activity.h; port/linux/game/discord_game.c) */
+struct discord_activity_game;
+struct discord_activity_options;
+void p2p_discord_set_game(const struct discord_activity_game *game, const struct discord_activity_options *options);
 /* this machine's hardware id, as hex (empty if none), a host told it when
 joining (a keyed hash of what the machine is known by: p2p.c); and the hex
 kept of one told: lowercase hex digits only, P2P_HARDWARE_ID_BYTES' worth */

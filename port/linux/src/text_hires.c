@@ -11,11 +11,18 @@ pixels per unit of the 480 lines, into an 8-bit atlas; the GL texture the
 game's placeholder bitmap stands for (xbox_textures.c) is the atlas, its new
 rows uploaded when the placeholder is bound. A change of the display's
 scale (a window made fullscreen) or a full atlas starts it over.
+
+The player's own fonts (display.high_res_font, display.high_res_font_large)
+are read from their files when the settings name them, and each font tag's
+font is read again, in its place (rasterizer_text.c keeps the fonts' numbers),
+when the settings change while the game runs.
 */
 
 #include "text_hires.h"
 #include "platform.h"
 #include "port_config.h"
+#include "port_folders.h"
+#include "posix.h"
 #include "xgpu.h"
 
 #include <math.h>
@@ -33,6 +40,8 @@ scale (a window made fullscreen) or a full atlas starts it over.
 /* clear texels around each glyph, so that filtering never reaches the next */
 #define ATLAS_PADDING 2
 #define GLYPH_CACHE_SIZE 4096
+/* a player's font file, at most */
+#define MAXIMUM_FONT_FILE_SIZE (32 * 1024 * 1024)
 
 static struct
 {
@@ -40,10 +49,24 @@ static struct
 	stbtt_fontinfo info;
 	/* font units to units of the 480 lines */
 	float scale;
+	/* how wide its glyphs are drawn (fonts.json) */
+	float width;
 	/* how many times the display's pixels its glyphs are rasterized with */
 	float oversample;
+	/* the height of the tag's capitals, which it is sized to */
+	float cap_height;
 } fonts[MAXIMUM_FONTS];
 static long font_count;
+
+/* the player's font files (0 small, 1 large), as the settings were when
+last read: their paths ("" for the built-in fonts) and data (NULL when
+missing or not a font) */
+static struct
+{
+	char path[1024];
+	unsigned char *data;
+} player_fonts[2];
+static unsigned long player_fonts_read_at = (unsigned long)-1;
 
 static struct
 {
@@ -73,7 +96,7 @@ static int names_differ(const char *a, const char *b)
 	return tolower((unsigned char)*a) != tolower((unsigned char)*b);
 }
 
-static int text_enabled(void)
+int text_hires_enabled(void)
 {
 	static int enabled;
 	static unsigned long read_at = (unsigned long)-1;
@@ -103,14 +126,160 @@ static void atlas_reset(float scale)
 	dirty_bottom = ATLAS_SIZE;
 }
 
-long text_hires_font(char const *tag_name, float cap_height, float oversample)
+int text_hires_font_file(int large, char *path, unsigned long size)
 {
-	unsigned int index;
-	long font;
+	const char *value = large && *config_string("display.high_res_font_large") ?
+		config_string("display.high_res_font_large") : config_string("display.high_res_font");
+	char folder[1024];
+
+	if (size)
+		path[0] = '\0';
+	if (!*value)
+		return 0;
+	/* (the folder, made the first time a setting names a file, for the
+	player to find) */
+	snprintf(folder, sizeof(folder), "%s/fonts", platform_folder(_port_folder_data));
+	posix_make_directory(folder);
+	if (!port_folder_file(folder, value, path, size))
+	{
+		platform_log("high-res text: \"%s\" is not a file in %s; drawing the built-in font", value, folder);
+		return 0;
+	}
+	return 1;
+}
+
+/* a font file's data whole (NULL, logged, when it cannot be read or is not
+a font); free() it */
+static unsigned char *read_font_file(const char *path)
+{
+	FILE *file = fopen(path, "rb");
+	unsigned char *data = NULL;
+	long size = -1;
+	stbtt_fontinfo info;
 	int x0, y0, x1, y1;
 
-	if (!text_enabled() || !tag_name || cap_height <= 0.0f)
+	if (!file)
+	{
+		platform_log("high-res text: cannot open %s; drawing the built-in font", path);
+		return NULL;
+	}
+	if (fseek(file, 0, SEEK_END) == 0)
+		size = ftell(file);
+	if (size <= 0 || size > MAXIMUM_FONT_FILE_SIZE || fseek(file, 0, SEEK_SET) != 0 ||
+		!(data = malloc((size_t)size)) || fread(data, 1, (size_t)size, file) != (size_t)size)
+	{
+		platform_log("high-res text: cannot read %s (empty, or larger than %d MB); drawing the built-in font", path,
+			MAXIMUM_FONT_FILE_SIZE / (1024 * 1024));
+		free(data);
+		fclose(file);
+		return NULL;
+	}
+	fclose(file);
+	if (stbtt_GetFontOffsetForIndex(data, 0) < 0 ||
+		!stbtt_InitFont(&info, data, stbtt_GetFontOffsetForIndex(data, 0)) ||
+		!stbtt_GetCodepointBox(&info, 'H', &x0, &y0, &x1, &y1) || y1 <= y0)
+	{
+		platform_log("high-res text: %s is not a TrueType or OpenType font with an H; drawing the built-in font", path);
+		free(data);
+		return NULL;
+	}
+	platform_log("high-res text: read %s", path);
+	return data;
+}
+
+/* the font tag's built-in font (fonts.json), or NULL */
+static const struct text_hires_embedded *embedded_font(const char *tag_name)
+{
+	unsigned int index;
+
+	for (index = 0; index < text_hires_embedded_count; index++)
+	{
+		if (text_hires_embedded[index].tag && !names_differ(text_hires_embedded[index].tag, tag_name))
+			return &text_hires_embedded[index];
+	}
+	return NULL;
+}
+
+/* the font of a slot read (again), from the player's file for its role or
+else its built-in one: its scale 0 when it has none */
+static void font_load(long font)
+{
+	const struct text_hires_embedded *embedded = embedded_font(fonts[font].tag);
+	int large, x0, y0, x1, y1;
+
+	fonts[font].scale = 0.0f;
+	if (!embedded)
+		return;
+	large = embedded->role && !strcmp(embedded->role, "large");
+	fonts[font].width = embedded->width > 0.0f ? embedded->width : 1.0f;
+	if (player_fonts[large].data)
+	{
+		const unsigned char *data = player_fonts[large].data;
+
+		if (stbtt_InitFont(&fonts[font].info, data, stbtt_GetFontOffsetForIndex(data, 0)) &&
+			stbtt_GetCodepointBox(&fonts[font].info, 'H', &x0, &y0, &x1, &y1) && y1 > y0)
+		{
+			/* (a player's font as it is drawn: its own width) */
+			fonts[font].width = 1.0f;
+			fonts[font].scale = fonts[font].cap_height / (float)(y1 - y0);
+			platform_log("high-res text: %s drawn with %s", fonts[font].tag, player_fonts[large].path);
+			return;
+		}
+	}
+	{
+		const unsigned char *data = (const unsigned char *)embedded->data;
+
+		if (!stbtt_InitFont(&fonts[font].info, data, stbtt_GetFontOffsetForIndex(data, 0)) ||
+			!stbtt_GetCodepointBox(&fonts[font].info, 'H', &x0, &y0, &x1, &y1) || y1 <= y0)
+		{
+			platform_log("high-res text: could not read %s for %s", embedded->file, fonts[font].tag);
+			return;
+		}
+		fonts[font].scale = fonts[font].cap_height / (float)(y1 - y0);
+		platform_log("high-res text: %s drawn with %s", fonts[font].tag, embedded->file);
+	}
+}
+
+/* the player's fonts read again when their settings changed, and every
+font with them (the atlas's glyphs then drawn again) */
+static void player_fonts_check(void)
+{
+	char paths[2][1024];
+	int role, changed = 0;
+	long font;
+
+	if (player_fonts_read_at == config_changes())
+		return;
+	player_fonts_read_at = config_changes();
+	for (role = 0; role < 2; role++)
+	{
+		text_hires_font_file(role, paths[role], sizeof(paths[role]));
+		if (strcmp(paths[role], player_fonts[role].path))
+			changed = 1;
+	}
+	if (!changed)
+		return;
+	for (role = 0; role < 2; role++)
+	{
+		free(player_fonts[role].data);
+		player_fonts[role].data = NULL;
+		snprintf(player_fonts[role].path, sizeof(player_fonts[role].path), "%s", paths[role]);
+		if (paths[role][0])
+			player_fonts[role].data = read_font_file(paths[role]);
+	}
+	for (font = 0; font < font_count; font++)
+		font_load(font);
+	/* (every glyph rasterized again) */
+	atlas_scale = -1.0f;
+}
+
+long text_hires_font(char const *tag_name, float cap_height, float oversample)
+{
+	long font;
+
+	if (!text_hires_enabled() || !tag_name || cap_height <= 0.0f)
 		return -1;
+	player_fonts_check();
 	/* (text is never drawn with fewer pixels than the display's) */
 	if (oversample < 1.0f)
 		oversample = 1.0f;
@@ -123,25 +292,9 @@ long text_hires_font(char const *tag_name, float cap_height, float oversample)
 		return -1;
 	font = font_count++;
 	snprintf(fonts[font].tag, sizeof(fonts[font].tag), "%s", tag_name);
-	fonts[font].scale = 0.0f;
 	fonts[font].oversample = oversample;
-	for (index = 0; index < text_hires_embedded_count; index++)
-	{
-		const struct text_hires_embedded *embedded = &text_hires_embedded[index];
-		const unsigned char *data = (const unsigned char *)embedded->data;
-
-		if (!embedded->tag || names_differ(embedded->tag, tag_name))
-			continue;
-		if (!stbtt_InitFont(&fonts[font].info, data, stbtt_GetFontOffsetForIndex(data, 0)) ||
-			!stbtt_GetCodepointBox(&fonts[font].info, 'H', &x0, &y0, &x1, &y1) || y1 <= y0)
-		{
-			platform_log("high-res text: could not read %s for %s", embedded->file, tag_name);
-			break;
-		}
-		fonts[font].scale = cap_height / (float)(y1 - y0);
-		platform_log("high-res text: %s drawn with %s", tag_name, embedded->file);
-		break;
-	}
+	fonts[font].cap_height = cap_height;
+	font_load(font);
 	return fonts[font].scale > 0.0f ? font : -1;
 }
 
@@ -160,6 +313,7 @@ int text_hires_glyph(long font, unsigned long code, struct text_hires_glyph *gly
 	unsigned long slot;
 	long probe;
 
+	player_fonts_check();
 	if (font < 0 || font >= font_count || fonts[font].scale <= 0.0f || !placeholder_data || scale <= 0.0f)
 		return 0;
 	if (!atlas || scale != atlas_scale)
@@ -187,7 +341,7 @@ int text_hires_glyph(long font, unsigned long code, struct text_hires_glyph *gly
 
 		if (index)
 		{
-			stbtt_GetGlyphBitmapBox(&fonts[font].info, index, pixels, pixels, &x0, &y0, &x1, &y1);
+			stbtt_GetGlyphBitmapBox(&fonts[font].info, index, pixels * fonts[font].width, pixels, &x0, &y0, &x1, &y1);
 			stbtt_GetGlyphHMetrics(&fonts[font].info, index, &advance, &bearing);
 		}
 		width = x1 - x0;
@@ -209,7 +363,7 @@ int text_hires_glyph(long font, unsigned long code, struct text_hires_glyph *gly
 			}
 			stbtt_MakeGlyphBitmap(&fonts[font].info,
 				atlas + (pack_y + ATLAS_PADDING) * ATLAS_SIZE + pack_x + ATLAS_PADDING,
-				width, height, ATLAS_SIZE, pixels, pixels, index);
+				width, height, ATLAS_SIZE, pixels * fonts[font].width, pixels, index);
 			if (pack_y < dirty_top)
 				dirty_top = pack_y;
 			if (pack_y + height + 2 * ATLAS_PADDING > dirty_bottom)
@@ -223,7 +377,7 @@ int text_hires_glyph(long font, unsigned long code, struct text_hires_glyph *gly
 		glyphs[slot].height = (short)(width > 0 && height > 0 ? height : 0);
 		glyphs[slot].left = (short)x0;
 		glyphs[slot].top = (short)y0;
-		glyphs[slot].advance = advance * fonts[font].scale;
+		glyphs[slot].advance = advance * fonts[font].scale * fonts[font].width;
 		if (width > 0 && height > 0)
 		{
 			pack_x += width + 2 * ATLAS_PADDING;

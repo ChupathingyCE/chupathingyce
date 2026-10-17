@@ -2406,10 +2406,9 @@ static long ai_communication_find_global_actor_to_talk(
 	}
 	if (cause_unit_index != NONE)
 	{
-		/* BUG (preserved for exact matching): January asks for the subject
-		 * position again here and leaves cause_point uninitialized. A corrected
-		 * build should call unit_get_head_position(cause_unit_index, &cause_point). */
-		unit_get_head_position(subject_unit_index, &subject_point);
+		/* port: the cause's point (January read the subject's again and left
+		cause_point unset) */
+		unit_get_head_position(cause_unit_index, &cause_point);
 	}
 
 	actor_iterator_new(&iterator, TRUE);

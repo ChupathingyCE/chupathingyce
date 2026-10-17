@@ -380,34 +380,45 @@ int posix_browser_request(const char *url, const char *form, const char *content
 static int request_as(const char *url, const char *body_data, size_t body_length, const char *content_type,
 	const char *user_agent, const char *headers, char *response, int response_size, char *error, int error_size);
 
-/* (one request at a time across the program's threads: Mbed TLS, as it is
-built here, has no locks of its own, and its PSA random generator and key
-slots are shared; the game list's thread, the crash reporter's, Delta
-Stats' uploads and a dedicated server's Delta Control link each make
-requests) */
+/* (one user of Mbed TLS at a time across the program's threads: as it is
+built here it has no locks of its own, and its PSA random generator, key
+slots and setup are shared; the game list's thread, the crash reporter's,
+Delta Stats' uploads, a dedicated server's Delta Control link, the player
+key's first making and the self-updater's downloads (posix_update.c) all
+use it) */
 #ifdef _WIN32
-static SRWLOCK request_lock = SRWLOCK_INIT;
+static SRWLOCK tls_lock = SRWLOCK_INIT;
 #else
-static pthread_mutex_t request_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t tls_lock = PTHREAD_MUTEX_INITIALIZER;
 #endif
+
+void posix_browser_lock(void)
+{
+#ifdef _WIN32
+	AcquireSRWLockExclusive(&tls_lock);
+#else
+	pthread_mutex_lock(&tls_lock);
+#endif
+}
+
+void posix_browser_unlock(void)
+{
+#ifdef _WIN32
+	ReleaseSRWLockExclusive(&tls_lock);
+#else
+	pthread_mutex_unlock(&tls_lock);
+#endif
+}
 
 static int locked_request(const char *url, const char *body_data, size_t body_length, const char *content_type,
 	const char *user_agent, const char *headers, char *response, int response_size, char *error, int error_size)
 {
 	int status;
 
-#ifdef _WIN32
-	AcquireSRWLockExclusive(&request_lock);
-#else
-	pthread_mutex_lock(&request_lock);
-#endif
+	posix_browser_lock();
 	status = request_as(url, body_data, body_length, content_type, user_agent, headers, response, response_size, error,
 		error_size);
-#ifdef _WIN32
-	ReleaseSRWLockExclusive(&request_lock);
-#else
-	pthread_mutex_unlock(&request_lock);
-#endif
+	posix_browser_unlock();
 	return status;
 }
 
@@ -541,6 +552,217 @@ static int request_as(const char *url, const char *body_data, size_t body_length
 }
 
 
+/* ---------- downloads (map_download.c): a response's body read as it comes */
+
+enum
+{
+	MAXIMUM_REDIRECTS = 5,
+	/* a response's status line and headers, at most */
+	MAXIMUM_HEAD = 16384,
+};
+
+static struct
+{
+	int open;
+	struct connection connection;
+	/* the body's first bytes, read with the head */
+	unsigned char head[MAXIMUM_HEAD];
+	size_t pending, pending_used;
+} download;
+
+/* a header's value (name ends in ':'), trimmed, into value; 0 if the head
+has none */
+static int header_value(const char *head, const char *name, char *value, size_t size)
+{
+	size_t length = strlen(name);
+	const char *line = strstr(head, "\r\n");
+
+	while (line && line[2] && !(line[2] == '\r' && line[3] == '\n'))
+	{
+		line += 2;
+		if (!strncasecmp(line, name, length))
+		{
+			const char *start = line + length;
+			size_t count;
+
+			while (*start == ' ' || *start == '\t')
+				start++;
+			count = strcspn(start, "\r\n");
+			while (count && (start[count - 1] == ' ' || start[count - 1] == '\t'))
+				count--;
+			if (count >= size)
+				return 0;
+			memcpy(value, start, count);
+			value[count] = 0;
+			return 1;
+		}
+		line = strstr(line, "\r\n");
+	}
+	return 0;
+}
+
+static void download_unlock(void)
+{
+	posix_browser_unlock();
+}
+
+/* one GET of url on download.connection, its head read: the status, else
+0 with why in error */
+static int download_request(const char *url, const char *user_agent, char *location, size_t location_size,
+	long long *length, char *error, int error_size)
+{
+	char host[256], port[16], path[1024], request[2048];
+	char value[64];
+	size_t used = 0;
+	char *end = NULL;
+	int secure, status = 0;
+	int count;
+
+	location[0] = 0;
+	*length = -1;
+	memset(&download.connection, 0, sizeof(download.connection));
+	mbedtls_net_init(&download.connection.net);
+	mbedtls_ssl_init(&download.connection.ssl);
+	mbedtls_ssl_config_init(&download.connection.config);
+	if (!parse_url(url, &secure, host, sizeof(host), port, sizeof(port), path, sizeof(path)))
+	{
+		set_error(error, error_size, "not an http:// or https:// address", 0);
+		return 0;
+	}
+	if (secure)
+	{
+		set_up();
+		if (!crypto_ready || !certificates_loaded)
+		{
+			set_error(error, error_size, "no certificate authorities (set SSL_CERT_FILE)", 0);
+			return 0;
+		}
+	}
+	count = snprintf(request, sizeof(request), "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: %s\r\nAccept: */*\r\n\r\n",
+		path, host, user_agent);
+	if (count <= 0 || (size_t)count >= sizeof(request))
+	{
+		set_error(error, error_size, "the request is too long", 0);
+		return 0;
+	}
+	download.connection.secure = secure;
+	if (!connection_open(&download.connection, host, port, error, error_size))
+		return 0;
+	if (!connection_write(&download.connection, request, (size_t)count))
+	{
+		set_error(error, error_size, "could not send the request", 0);
+		return 0;
+	}
+	/* the head, and whatever of the body came with it */
+	while (!end && used < sizeof(download.head) - 1)
+	{
+		count = connection_read(&download.connection, download.head + used, sizeof(download.head) - 1 - used);
+		if (count <= 0)
+			break;
+		used += (size_t)count;
+		download.head[used] = 0;
+		end = strstr((char *)download.head, "\r\n\r\n");
+	}
+	if (!end || sscanf((char *)download.head, "HTTP/%*d.%*d %d", &status) != 1)
+	{
+		set_error(error, error_size, "not an HTTP response", 0);
+		return 0;
+	}
+	end[2] = 0;
+	if (header_value((char *)download.head, "Content-Length:", value, sizeof(value)))
+		*length = strtoll(value, NULL, 10);
+	if (status >= 300 && status < 400 && !header_value((char *)download.head, "Location:", location, location_size))
+		location[0] = 0;
+	/* (the body's first bytes, moved to the buffer's start) */
+	download.pending = used - (size_t)(end + 4 - (char *)download.head);
+	memmove(download.head, end + 4, download.pending);
+	download.pending_used = 0;
+	return status;
+}
+
+int posix_browser_download_open(const char *url, const char *user_agent, int *status, int *length, char *error,
+	int error_size)
+{
+	char current[2048], location[2048];
+	int redirect;
+
+	*status = 0;
+	*length = -1;
+	error[0] = 0;
+	if (download.open)
+	{
+		set_error(error, error_size, "a download is open already", 0);
+		return 0;
+	}
+	/* (held until it is closed: one Mbed TLS user at a time, as the
+	requests are) */
+	posix_browser_lock();
+	snprintf(current, sizeof(current), "%s", url);
+	for (redirect = 0; redirect <= MAXIMUM_REDIRECTS; redirect++)
+	{
+		long long size = -1;
+
+		*status = download_request(current, user_agent, location, sizeof(location), &size, error, error_size);
+		if (*status == 200)
+		{
+			*length = size >= 0 && size <= 0x7fffffff ? (int)size : -1;
+			download.open = 1;
+			return 1;
+		}
+		connection_free(&download.connection);
+		if (*status >= 300 && *status < 400 && location[0])
+		{
+			/* (an address on the same host, or another's) */
+			if (location[0] == '/')
+			{
+				char host[256], port[16], path[1024];
+				int secure;
+
+				if (!parse_url(current, &secure, host, sizeof(host), port, sizeof(port), path, sizeof(path)))
+					break;
+				snprintf(current, sizeof(current), "%s://%s:%s%s", secure ? "https" : "http", host, port, location);
+			}
+			else
+				snprintf(current, sizeof(current), "%s", location);
+			continue;
+		}
+		if (*status)
+			snprintf(error, (size_t)error_size, "the server answered %d", *status);
+		break;
+	}
+	if (redirect > MAXIMUM_REDIRECTS)
+		set_error(error, error_size, "too many redirects", 0);
+	download_unlock();
+	return 0;
+}
+
+int posix_browser_download_read(int handle, void *buffer, int size)
+{
+	if (handle != 1 || !download.open || size <= 0)
+		return -1;
+	if (download.pending_used < download.pending)
+	{
+		size_t count = download.pending - download.pending_used;
+
+		if (count > (size_t)size)
+			count = (size_t)size;
+		memcpy(buffer, download.head + download.pending_used, count);
+		download.pending_used += count;
+		return (int)count;
+	}
+	return connection_read(&download.connection, (unsigned char *)buffer, (size_t)size);
+}
+
+void posix_browser_download_close(int handle)
+{
+	if (handle != 1 || !download.open)
+		return;
+	connection_free(&download.connection);
+	download.open = 0;
+	download_unlock();
+}
+
+
 #ifdef _WIN32
 
 /* a UTF-8 path as Windows' */
@@ -624,7 +846,18 @@ int posix_browser_replace_key(const char *path, const unsigned char *key, int si
 /* the game list's player key (browser.c): read from path, or made there
 (random, readable by this user alone) the first time. As
 posix_user_secret: only a file of the user's no one else can read, and not
-a link */
+a link. On Android the save folder is in the app's own storage, which other
+apps cannot read whatever its files' modes say: the launcher makes the save
+folder's files readable to adb (share_entry), and the storage's file system
+may show other owners and modes than those the file was made with. There a
+plain file is enough; it was refused from the second run on, so Link
+Profile and the game list's reports never had a key */
+#ifdef __ANDROID__
+#define PRIVATE_KEY_PRIVATE(status) 1
+#else
+#define PRIVATE_KEY_PRIVATE(status) ((status).st_uid == getuid() && !((status).st_mode & 077))
+#endif
+
 int posix_browser_private_key(const char *path, unsigned char *key, int size)
 {
 	int attempt;
@@ -637,8 +870,8 @@ int posix_browser_private_key(const char *path, unsigned char *key, int size)
 
 		if (descriptor >= 0)
 		{
-			ok = fstat(descriptor, &status) == 0 && S_ISREG(status.st_mode) && status.st_uid == getuid() &&
-				!(status.st_mode & 077) && read(descriptor, key, (size_t)size) == size;
+			ok = fstat(descriptor, &status) == 0 && S_ISREG(status.st_mode) && PRIVATE_KEY_PRIVATE(status) &&
+				read(descriptor, key, (size_t)size) == size;
 			close(descriptor);
 			return ok;
 		}
@@ -648,9 +881,13 @@ int posix_browser_private_key(const char *path, unsigned char *key, int size)
 		/* (another copy of the game made it first: read that one) */
 		if (descriptor < 0)
 			continue;
-		/* (the PSA crypto set up first: load_certificates does) */
+		/* (the PSA crypto set up first: load_certificates does; and the
+		random generator taken in turn with the requests) */
+		posix_browser_lock();
 		set_up();
-		if (!crypto_ready || psa_generate_random(key, (size_t)size) != PSA_SUCCESS)
+		ok = crypto_ready && psa_generate_random(key, (size_t)size) == PSA_SUCCESS;
+		posix_browser_unlock();
+		if (!ok)
 		{
 			close(descriptor);
 			unlink(path);

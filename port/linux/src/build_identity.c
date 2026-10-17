@@ -115,6 +115,20 @@ const char *build_identity_commit(void)
 	return HALO_COMMIT;
 }
 
+const char *build_identity_watermark(void)
+{
+	static char watermark[64];
+
+	if (!watermark[0])
+	{
+		if (strcmp(HALO_COMMIT, "unknown"))
+			snprintf(watermark, sizeof(watermark), "%s (%.7s)", HALO_VERSION, HALO_COMMIT);
+		else
+			snprintf(watermark, sizeof(watermark), "%s", HALO_VERSION);
+	}
+	return watermark;
+}
+
 const char *build_identity_platform(void)
 {
 	return BUILD_IDENTITY_PLATFORM;
@@ -146,7 +160,7 @@ void build_identity_log(void)
 	delta_legacy_following(following, (int)sizeof(following));
 	/* debug.txt: a line between this run and the one before, and (in the
 	32-bit builds, whose platform_log is standard error's alone) the header */
-	snprintf(path, sizeof(path), "%s/debug.txt", platform_data_root());
+	snprintf(path, sizeof(path), "%s/debug.txt", platform_folder(_port_folder_logs));
 	file = fopen(path, "a");
 	if (file)
 	{

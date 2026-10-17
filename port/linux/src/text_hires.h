@@ -8,18 +8,29 @@ tags' character widths; each character is drawn from a glyph of the font
 that stands for its tag (fonts.json), rasterized with stb_truetype at as
 many pixels as the display gives the 480 lines, into an atlas that the game
 binds as a placeholder bitmap (source/rasterizer/rasterizer_text.c).
+
+A player's own font file can stand in for the built-in ones:
+display.high_res_font for every tag (and the overlay's menu faces), and
+display.high_res_font_large for the large ones only (role "large" in
+fonts.json); a relative path is in data/fonts/ in the data root
+(port_folders.h). A file that is missing or cannot be read is logged, and the
+built-in font drawn.
 */
 
 #ifndef TEXT_HIRES_H
 #define TEXT_HIRES_H
 
-/* an embedded font, and the font tag it draws (by name) */
+/* an embedded font, and the font tag it draws (by name): its role ("large"
+or "small": which of the player's fonts stands in for it) and how wide its
+glyphs are drawn (1: as the font has them), from fonts.json */
 struct text_hires_embedded
 {
 	const char *tag;
 	const char *file;
 	const unsigned int *data;
 	unsigned int size;
+	const char *role;
+	float width;
 };
 
 extern const struct text_hires_embedded text_hires_embedded[];
@@ -40,6 +51,13 @@ cap_height units tall, its glyphs rasterized with oversample times the
 display's pixels (for text drawn scaled up); -1 if none, or
 display.high_res_text is off */
 long text_hires_font(char const *tag_name, float cap_height, float oversample);
+/* the player's font file for the large role (or the small: every other),
+whole, into path: display.high_res_font_large, else display.high_res_font,
+a relative one in data/fonts/; 0 when neither is set (the built-in fonts),
+or the setting's path is refused (logged) */
+int text_hires_font_file(int large, char *path, unsigned long size);
+/* whether display.high_res_text is on, as it is now */
+int text_hires_enabled(void);
 /* whether the font has a glyph for the character (it draws a string only
 if it has all of its characters) */
 int text_hires_covers(long font, unsigned long code);

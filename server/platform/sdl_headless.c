@@ -118,6 +118,29 @@ bool SDL_SaveFile(const char *path, const void *data, size_t size)
 	return fclose(file) == 0 && written;
 }
 
+/* whether the path is there, and what it is */
+bool SDL_GetPathInfo(const char *path, SDL_PathInfo *info)
+{
+	struct stat status;
+
+	if (stat(path, &status) != 0)
+	{
+		headless_set_error(strerror(errno));
+		return false;
+	}
+	if (info)
+	{
+		memset(info, 0, sizeof(*info));
+		info->type = S_ISREG(status.st_mode) ? SDL_PATHTYPE_FILE :
+			S_ISDIR(status.st_mode) ? SDL_PATHTYPE_DIRECTORY : SDL_PATHTYPE_OTHER;
+		info->size = (Uint64)status.st_size;
+		info->modify_time = (SDL_Time)status.st_mtime * 1000000000;
+		info->create_time = info->modify_time;
+		info->access_time = (SDL_Time)status.st_atime * 1000000000;
+	}
+	return true;
+}
+
 /* the executable's folder, with a / after it */
 const char *SDL_GetBasePath(void)
 {
@@ -218,6 +241,25 @@ SDL_FunctionPointer SDL_GL_GetProcAddress(const char *name)
 	(void)name;
 	headless_set_error("the server has no OpenGL");
 	return NULL;
+}
+
+SDL_AudioDeviceID *SDL_GetAudioPlaybackDevices(int *count)
+{
+	if (count)
+		*count = 0;
+	headless_set_error("the server plays no sound");
+	return NULL;
+}
+
+const char *SDL_GetAudioDeviceName(SDL_AudioDeviceID device)
+{
+	(void)device;
+	return NULL;
+}
+
+void SDL_DestroyAudioStream(SDL_AudioStream *stream)
+{
+	(void)stream;
 }
 
 SDL_AudioStream *SDL_OpenAudioDeviceStream(SDL_AudioDeviceID device, const SDL_AudioSpec *specification,

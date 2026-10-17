@@ -2831,6 +2831,7 @@ symbols in this file:
 #include "interface/hud_weapon.h"
 #include "interface/interface.h"
 #include "interface/player_ui.h"
+#include "saved games/player_profile.h"
 #include "rasterizer/rasterizer_cinematics.h"
 #include "shaders/shaders.h"
 #include "sound/game_sound.h"
@@ -11650,11 +11651,19 @@ static void hs_sv_say(
 {
 	wchar_t text[128];
 	short local_player_index;
+	long length = 0;
 	long index;
 
-	for (index = 0; message && message[index] && index < NUMBEROF(text) - 1; index++)
-		text[index] = (wchar_t)(unsigned char)message[index];
-	text[index] = 0;
+	/* (without '|', which the HUD's text takes with the character after it
+	as one: at the end, the string's terminator) */
+	for (index = 0; message && message[index] && length < NUMBEROF(text) - 1; index++)
+	{
+		if (message[index] != '|')
+		{
+			text[length++] = (wchar_t)(unsigned char)message[index];
+		}
+	}
+	text[length] = 0;
 	for (local_player_index = 0; local_player_index < MAXIMUM_LOCAL_PLAYERS; local_player_index++)
 	{
 		if (local_player_get_player_index(local_player_index) != NONE)
@@ -14003,10 +14012,13 @@ static boolean hs_rebuild_source(
 	struct file_reference source_files[8];
 	short source_file_count;
 	short source_file_index;
+	char *scripts_name;
 
 	tag_block_resize(&global_scenario_get()->hs_source_files, 0);
-	sprintf(scenario_path, "data\\%s", tag_get_name(global_scenario_index));
-	sprintf(strrchr(scenario_path, '\\') + 1, "scripts");
+	/* port: snprintf (a map's tag's name may be any length) */
+	snprintf(scenario_path, sizeof(scenario_path), "data\\%s", tag_get_name(global_scenario_index));
+	scripts_name = strrchr(scenario_path, '\\') + 1;
+	snprintf(scripts_name, sizeof(scenario_path) - (scripts_name - scenario_path), "scripts");
 	file_reference_create_from_path(
 		&global_scripts,
 		"data\\global_scripts.hsc",
@@ -14067,11 +14079,20 @@ void hs_node_gc(
 	return;
 }
 
+/* port: some multiplayer maps keep a copy of the place for each game type,
+with its own sky. The script's first switch_bsp is the copy for the type the
+host started. A later switch to another copy reloads the level every couple
+of seconds, so that request is ignored. Cleared for each map. */
+static short scripted_multiplayer_bsp = NONE;
+static boolean scripted_multiplayer_bsp_reported = FALSE;
+
 void hs_initialize_for_new_map(
 	void)
 {
 	struct scenario *scenario;
 
+	scripted_multiplayer_bsp = NONE;
+	scripted_multiplayer_bsp_reported = FALSE;
 	scenario = global_scenario_index != NONE ? global_scenario_get() : NULL;
 	hs_allocate();
 	if (scenario && scenario->hs_syntax_data.size)
@@ -15483,7 +15504,41 @@ HS_EVALUATE_VOID_FROM_ARGUMENTS(debug_player_teleport_evaluate, struct hs_argume
 HS_EVALUATE_VOID_STRING(main_set_map_name_evaluate, main_set_map_name)
 HS_EVALUATE_VOID_STRING(main_set_multiplayer_map_name_evaluate, main_set_multiplayer_map_name)
 HS_EVALUATE_VOID_UNSIGNED_SHORT(main_set_difficulty_evaluate, main_set_difficulty)
-HS_EVALUATE_VOID_FROM_ARGUMENTS(scenario_switch_structure_bsp_evaluate, struct hs_arguments_word, (scenario_switch_structure_bsp(arguments->value)))
+/* port: a campaign script still switches, and so does a player walking
+through a BSP trigger (main_switch_structure_bsp, not this). */
+static void scenario_switch_structure_bsp_evaluate(
+	short function_index,
+	long thread_index,
+	boolean initialize)
+{
+	struct hs_arguments_word const *arguments;
+	short structure_bsp_index;
+
+	arguments = (struct hs_arguments_word const *)hs_macro_function_evaluate(function_index, thread_index, initialize);
+	if (arguments)
+	{
+		structure_bsp_index = (short)arguments->value;
+		if (!game_engine_running() || global_structure_bsp_index_get() == NONE)
+		{
+			scripted_multiplayer_bsp = NONE;
+			scripted_multiplayer_bsp_reported = FALSE;
+			scenario_switch_structure_bsp(structure_bsp_index);
+		}
+		else if (scripted_multiplayer_bsp == NONE ||
+			scripted_multiplayer_bsp == structure_bsp_index)
+		{
+			scripted_multiplayer_bsp = structure_bsp_index;
+			scenario_switch_structure_bsp(structure_bsp_index);
+		}
+		else if (!scripted_multiplayer_bsp_reported)
+		{
+			scripted_multiplayer_bsp_reported = TRUE;
+			error(_error_silent, "switch_bsp from a script is ignored after the multiplayer game has chosen its bsp");
+		}
+		hs_return(thread_index, 0);
+	}
+	return;
+}
 HS_EVALUATE_VOID_STRING(main_crash_evaluate, main_crash)
 HS_EVALUATE_VOID_STRING(debug_dump_memory_for_file_evaluate, debug_dump_memory_for_file)
 HS_EVALUATE_VOID_STRING(profile_dump_to_file_evaluate, profile_dump_to_file)
@@ -15935,6 +15990,40 @@ static boolean hs_compile_and_evaluate_command(
 	(players.c; a client is told it is the host's) */
 	if (hs_host_player_command(expression, "bringto"))
 		return players_coop_bring_to_host();
+	/* port: profile_reset_campaign, which clears the first player's
+	profile's campaign progress (player_ui_reset_campaign_progress) once
+	confirmed: "profile_reset_campaign yes" */
+	{
+		char const *text = hs_host_player_command(expression, "profile_reset_campaign");
+
+		if (text)
+		{
+			wchar_t wide_name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH];
+			char name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH];
+			boolean confirmed;
+			long length;
+
+			while (*text == ' ' || *text == '\t' || *text == '"')
+				text++;
+			confirmed = csstrncmp(text, "yes", 3) == 0 &&
+				(!text[3] || text[3] == ' ' || text[3] == '\t' || text[3] == '"' || text[3] == ')');
+			if (!player_ui_reset_campaign_progress(confirmed, wide_name, NUMBEROF(wide_name)))
+			{
+				console_warning("there is no profile to reset: make or choose one first");
+				return FALSE;
+			}
+			for (length = 0; wide_name[length]; length++)
+				name[length] = wide_name[length] < 0x80 ? (char)wide_name[length] : '?';
+			name[length] = 0;
+			if (!confirmed)
+				console_printf(FALSE,
+					"This clears every level %s finished and starts the campaign over at The Pillar of Autumn. "
+					"To do it, type: profile_reset_campaign yes", name);
+			else
+				console_printf(FALSE, "%s's campaign progress is reset: The Pillar of Autumn is the only level open", name);
+			return TRUE;
+		}
+	}
 	/* port: playing in another's game, the host decides the game: no
 	cheats, no game speed, nothing else a command changes of the game (the
 	game run each tick also puts back what was changed before joining,

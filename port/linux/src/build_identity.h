@@ -30,6 +30,10 @@ const char *build_identity_channel(void);
 const char *build_identity_commit(void);
 const char *build_identity_platform(void);
 const char *build_identity_architecture(void);
+/* the version the menus show, and the game with display.version_watermark:
+"0.7.5a (5c1a363)", or "dev" for a build made without
+tools/version.py */
+const char *build_identity_watermark(void);
 
 /* the log's header, first in debug.txt for this run (before the game's own
 "halobeta xbox" line) and on standard error: build_identity, then the

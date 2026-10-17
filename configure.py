@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 from tools import ninja_syntax
 from tools.android_build import android_configure_inputs, generate_android_build
+from tools.android64_build import android64_configure_inputs, generate_android64_build
 from tools.linux_build import generate_linux_build, linux_configure_inputs
 from tools.linux64_build import generate_linux64_build, linux64_configure_inputs
 from tools.macos_build import generate_macos_build, macos_configure_inputs
@@ -56,7 +57,11 @@ parser.add_argument(
     "--portable",
     action="store_true",
     help="x86 builds (Linux, Windows): code for any x86-64 processor (SSE2) rather than for this "
-    "machine's (-march=native, the default); use it for builds that run on other computers",
+    "machine's (-march=native, the default); use it for builds that run on other computers. On Linux (32- and "
+    "64-bit) it also builds against Debian 11's glibc 2.31 rather than this machine's, and brings its own SDL 3 "
+    "(libSDL3.so.0, beside the executable), so that it starts on SteamOS and older distributions: the first build "
+    "downloads the Debian packages and SDL's source (build/linux*/third_party, tools/linux_sysroot.py), and needs "
+    "CMake, pkgconf and wayland-scanner, not the system's SDL 3",
 )
 parser.add_argument(
     "--pgo",
@@ -78,7 +83,7 @@ parser.add_argument(
 parser.add_argument(
     "--android-ndk",
     type=str,
-    help="Android NDK for `ninja android` (default: ANDROID_NDK_HOME, or the newest under the Android SDK)",
+    help="Android NDK for `ninja android` and `ninja android64` (default: ANDROID_NDK_HOME, or the newest under the Android SDK)",
 )
 parser.add_argument(
     "--android-guest-cc",
@@ -125,6 +130,7 @@ n.newline()
 generate_linux_build(n, sln)
 generate_linux64_build(n, sln)
 generate_android_build(n, sln)
+generate_android64_build(n, sln)
 generate_windows_build(n, sln)
 generate_macos_build(n, sln)
 generate_server_build(n, sln)
@@ -145,6 +151,7 @@ n.build(
         *linux_configure_inputs(),
         *linux64_configure_inputs(),
         *android_configure_inputs(),
+        *android64_configure_inputs(),
         *windows_configure_inputs(),
         *macos_configure_inputs(),
         *server_configure_inputs(),

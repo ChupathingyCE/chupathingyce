@@ -24,9 +24,10 @@ void server_moderation_update(void);
 if it did */
 boolean server_moderation_machine_key(long machine_index, unsigned char *key);
 
-/* a notice in a machine's game (warning: shown as one; title "Warning",
-"Kicked", "Banned"; text why): TRUE if its game can show it (it speaks
-Delta Peer's moderation) */
+/* a notice in a machine's game (warning: shown as one; title "Kicked",
+"Banned", or NULL for a warning, whose game already begins it "Server
+warning: "; text why): TRUE if its game can show it (it speaks Delta Peer's
+moderation) */
 boolean server_moderation_notice(long machine_index, boolean warning, char const *title, char const *text);
 
 /* the roles changed (a moderator added or taken out, an account's role, the

@@ -28,8 +28,6 @@ the kinds of kill the site has medals for (melee, sniper, stuck, splatter).
 
 #include "event_log.h"
 
-#include "monocypher.h"
-
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -54,8 +52,6 @@ enum
 	MULTIKILL_TICKS = 4 * EVENT_LOG_TICKS_PER_SECOND,
 	/* the sessions a player's line keeps (joined and left again) */
 	MAXIMUM_SESSIONS = 8,
-	/* the hash of a hardware ID (bytes) */
-	IDENT_SIZE = 32,
 };
 
 static char const *const event_names[EVENT_LOG_NUMBER_OF_TYPES] = {
@@ -98,10 +94,6 @@ static char const *const medal_keys[] = {
 };
 enum { NUMBER_OF_MEDALS = sizeof(medal_keys) / sizeof(medal_keys[0]) };
 
-/* the key a hardware ID is hashed with: the batch's "ident" is no other
-use's hash of it (and the site hashes it again with its own secret key) */
-static char const ident_key[] = "chupathingyce delta stats ident v1";
-
 /* ---------- structures */
 
 struct log_weapon
@@ -137,7 +129,6 @@ struct log_session
 struct log_player
 {
 	struct event_log_player_identity identity;
-	char ident[2 * IDENT_SIZE + 1];
 	int session_count;
 	struct log_session sessions[MAXIMUM_SESSIONS];
 	int has_totals;
@@ -214,6 +205,15 @@ static int valid_slot(int slot)
 static int valid_tag(int tag)
 {
 	return tag >= 0 && tag < event_log.tag_count;
+}
+
+/* whether a slot is a player not on Chupathingy (an OpenCE player): their
+line is only who they were and the scoreboard's numbers, and no event row is
+about them (their kills keep their slot, without where they stood) */
+static int minimal_slot(int slot)
+{
+	return valid_slot(slot) && !event_log.players[slot].identity.bot &&
+		event_log.players[slot].identity.client != EVENT_LOG_CLIENT_CHUPATHINGYCE;
 }
 
 static void text_append(struct text *text, char const *format, ...)
@@ -682,17 +682,17 @@ static void write_kills(struct text *text)
 		text_append(text, ", \"damage\": \"%s\"",
 			record->value[0] >= 0 && record->value[0] < EVENT_LOG_NUMBER_OF_DAMAGES ? damage_names[record->value[0]] :
 				"other");
-		if (record->bits & EVENT_LOG_KILL_KILLER_POSITION)
+		if ((record->bits & EVENT_LOG_KILL_KILLER_POSITION) && !minimal_slot(record->player))
 		{
 			text_append(text, ", \"killer_pos\": ");
 			text_point(text, record->position);
 		}
-		if (record->bits & EVENT_LOG_KILL_VICTIM_POSITION)
+		if ((record->bits & EVENT_LOG_KILL_VICTIM_POSITION) && !minimal_slot(record->other))
 		{
 			text_append(text, ", \"victim_pos\": ");
 			text_point(text, record->other_position);
 		}
-		if (valid_tag(record->tag[1]))
+		if (valid_tag(record->tag[1]) && !minimal_slot(record->player))
 		{
 			text_append(text, ", \"killer_vehicle\": ");
 			text_tag(text, record->tag[1]);
@@ -724,7 +724,7 @@ static void write_rows(struct text *text)
 	{
 		struct event_log_record const *record = &event_log.records[index];
 
-		if (record->type != EVENT_LOG_MEDAL || !valid_slot(record->player))
+		if (record->type != EVENT_LOG_MEDAL || !valid_slot(record->player) || minimal_slot(record->player))
 			continue;
 		text_append(text, "%s{\"t\": %.2f, \"player\": %d, \"medal\": ", any ? ", " : "", seconds(record->tick),
 			record->player);
@@ -737,7 +737,7 @@ static void write_rows(struct text *text)
 	{
 		struct event_log_record const *record = &event_log.records[index];
 
-		if (record->type != EVENT_LOG_OBJECTIVE)
+		if (record->type != EVENT_LOG_OBJECTIVE || minimal_slot(record->player))
 			continue;
 		text_append(text, "%s\n{\"t\": %.2f, \"player\": %d, \"team\": %d, \"kind\": \"%s\", \"pos\": ", any ? "," : "",
 			seconds(record->tick), record->player, record->value[1] >= -1 && record->value[1] < 16 ? record->value[1] : -1,
@@ -752,7 +752,8 @@ static void write_rows(struct text *text)
 	{
 		struct event_log_record const *record = &event_log.records[index];
 
-		if (record->type != EVENT_LOG_PICKUP || !valid_slot(record->player) || !valid_tag(record->tag[0]))
+		if (record->type != EVENT_LOG_PICKUP || !valid_slot(record->player) || minimal_slot(record->player) ||
+			!valid_tag(record->tag[0]))
 			continue;
 		text_append(text, "%s\n{\"t\": %.2f, \"player\": %d, \"item\": ", any ? "," : "", seconds(record->tick),
 			record->player);
@@ -768,7 +769,8 @@ static void write_rows(struct text *text)
 	{
 		struct event_log_record const *record = &event_log.records[index];
 
-		if (record->type != EVENT_LOG_RIDE || !valid_slot(record->player) || !valid_tag(record->tag[0]))
+		if (record->type != EVENT_LOG_RIDE || !valid_slot(record->player) || minimal_slot(record->player) ||
+			!valid_tag(record->tag[0]))
 			continue;
 		text_append(text, "%s[%.2f, %.2f, %d, ", any ? ", " : "", seconds(record->value[1] < record->tick ?
 			record->value[1] : record->tick), seconds(record->tick), record->player);
@@ -783,7 +785,7 @@ static void write_rows(struct text *text)
 	{
 		struct event_log_record const *record = &event_log.records[index];
 
-		if (record->type != EVENT_LOG_SPAWN || !valid_slot(record->player))
+		if (record->type != EVENT_LOG_SPAWN || !valid_slot(record->player) || minimal_slot(record->player))
 			continue;
 		text_append(text, "%s[%.2f, %d, %.2f, %.2f, %.2f]", any ? ", " : "", seconds(record->tick), record->player,
 			world(record->position[0]), world(record->position[1]), world(record->position[2]));
@@ -796,7 +798,7 @@ static void write_rows(struct text *text)
 		struct event_log_record const *record = &event_log.records[index];
 		int second = record->tick / EVENT_LOG_TICKS_PER_SECOND;
 
-		if (record->type != EVENT_LOG_POSITION || !valid_slot(record->player))
+		if (record->type != EVENT_LOG_POSITION || !valid_slot(record->player) || minimal_slot(record->player))
 			continue;
 		text_append(text, "%s[%.1f, %d, %.2f, %.2f, %.2f]", !any ? "\n" : second != last_second ? ",\n" : ", ",
 			seconds(record->tick), record->player, world(record->position[0]), world(record->position[1]),
@@ -810,7 +812,8 @@ static void write_rows(struct text *text)
 	{
 		struct event_log_record const *record = &event_log.records[index];
 
-		if (record->type != EVENT_LOG_PING || !valid_slot(record->player) || record->value[0] < 0)
+		if (record->type != EVENT_LOG_PING || !valid_slot(record->player) || minimal_slot(record->player) ||
+			record->value[0] < 0)
 			continue;
 		text_append(text, "%s[%.1f, %d, %d]", any ? ", " : "", seconds(record->tick), record->player,
 			record->value[0] > 10000 ? 10000 : record->value[0]);
@@ -858,7 +861,8 @@ static void write_rows(struct text *text)
 	{
 		struct event_log_record const *record = &event_log.records[index];
 
-		if (record->type != EVENT_LOG_FLAG || !valid_slot(record->player) || !valid_tag(record->tag[0]))
+		if (record->type != EVENT_LOG_FLAG || !valid_slot(record->player) || minimal_slot(record->player) ||
+			!valid_tag(record->tag[0]))
 			continue;
 		text_append(text, "%s\n{\"t\": %.2f, \"player\": %d, \"kind\": ", any ? "," : "", seconds(record->tick),
 			record->player);
@@ -882,8 +886,6 @@ static void write_player(struct text *text, int slot, int end_tick)
 
 	text_append(text, "\n{\"name\": ");
 	text_string(text, player->identity.name);
-	if (player->ident[0])
-		text_append(text, ", \"ident\": \"%s\"", player->ident);
 	text_append(text, ", \"client\": \"%s\"",
 		player->identity.client >= 0 && player->identity.client < EVENT_LOG_NUMBER_OF_CLIENTS ?
 			client_names[player->identity.client] : "other");
@@ -894,6 +896,19 @@ static void write_player(struct text *text, int slot, int end_tick)
 	}
 	text_append(text, ", \"team\": %d, \"bot\": %s", player->has_totals ? totals->team : player->identity.team,
 		player->identity.bot ? "true" : "false");
+	if (minimal_slot(slot))
+	{
+		/* (an OpenCE player: the scoreboard's numbers of this game, no more) */
+		text_append(text, ", \"score\": %d, \"kills\": %d, \"deaths\": %d",
+			player->has_totals ? totals->score : player->kills_counted,
+			player->has_totals ? totals->kills : player->kills_counted,
+			player->has_totals ? totals->deaths : player->deaths_counted);
+		if (player->has_totals && totals->place > 0)
+			text_append(text, ", \"place\": %d", totals->place);
+		text_append(text, "}");
+		(void)end_tick;
+		return;
+	}
 	if (player->identity.color >= 0 && player->identity.color < 18)
 		text_append(text, ", \"color\": %d", player->identity.color);
 	/* (the game's counts; the kills and deaths seen, for a player whose
@@ -974,6 +989,8 @@ static void write_sessions(struct text *text, int end_tick)
 	{
 		struct log_player const *player = &event_log.players[slot];
 
+		if (minimal_slot(slot))
+			continue;
 		for (index = 0; index < player->session_count; index++)
 		{
 			struct log_session const *session = &player->sessions[index];
@@ -991,39 +1008,6 @@ static void write_sessions(struct text *text, int end_tick)
 	}
 	text_append(text, "]");
 	(void)end_tick;
-}
-
-static void hash_ident(char const *hardware_id, char *hash)
-{
-	unsigned char digest[IDENT_SIZE];
-	char lower[EVENT_LOG_HARDWARE_ID_SIZE];
-	static char const digits[] = "0123456789abcdef";
-	int length = 0;
-	int index;
-
-	/* (as p2p_hardware_id_sanitize keeps it: lowercase hexadecimal) */
-	for (; *hardware_id && length < EVENT_LOG_HARDWARE_ID_SIZE - 1; hardware_id++)
-	{
-		char character = *hardware_id >= 'A' && *hardware_id <= 'F' ? (char)(*hardware_id - 'A' + 'a') : *hardware_id;
-
-		if ((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f'))
-			lower[length++] = character;
-	}
-	lower[length] = 0;
-	if (!length)
-	{
-		hash[0] = 0;
-		return;
-	}
-	crypto_blake2b_keyed(digest, sizeof(digest), (unsigned char const *)ident_key, sizeof(ident_key) - 1,
-		(unsigned char const *)lower, (size_t)length);
-	for (index = 0; index < IDENT_SIZE; index++)
-	{
-		hash[2 * index] = digits[digest[index] >> 4];
-		hash[2 * index + 1] = digits[digest[index] & 15];
-	}
-	hash[2 * IDENT_SIZE] = 0;
-	crypto_wipe(lower, sizeof(lower));
 }
 
 /* ---------- public code */
@@ -1126,11 +1110,7 @@ int event_log_player(int tick, struct event_log_player_identity const *identity)
 	memset(player, 0, sizeof(*player));
 	player->identity = *identity;
 	player->identity.name[EVENT_LOG_NAME_SIZE - 1] = 0;
-	player->identity.hardware_id[EVENT_LOG_HARDWARE_ID_SIZE - 1] = 0;
 	player->identity.platform[sizeof(player->identity.platform) - 1] = 0;
-	hash_ident(player->identity.hardware_id, player->ident);
-	/* (the ID itself is not kept past this) */
-	memset(player->identity.hardware_id, 0, sizeof(player->identity.hardware_id));
 	player->sessions[0].joined = tick < 0 ? 0 : tick;
 	player->sessions[0].left = -1;
 	player->session_count = 1;

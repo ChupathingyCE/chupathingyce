@@ -203,6 +203,13 @@ int update_replace_file(const char *path, const char *new_path, const char *old_
 	return 1;
 }
 
+int update_make_executable(const char *path)
+{
+	/* (a Windows file runs by its name) */
+	(void)path;
+	return 1;
+}
+
 void update_delete_file(const char *path)
 {
 	wchar_t wide[MAX_PATH * 2];

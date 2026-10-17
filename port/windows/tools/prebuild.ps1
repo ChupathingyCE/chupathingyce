@@ -132,6 +132,21 @@ function Embed-Assets
 		}
 	}
 
+	# SMAA's shader and lookup textures (port/third_party/smaa), and the names
+	# port/linux/src/xgpu_post.c declares them by (tools/embed_assets.py's
+	# SMAA_FILES)
+	$smaaFolder = 'port/third_party/smaa'
+	$smaaFiles = @(@('SMAA.hlsl', 'xgpu_smaa_shader'), @('area_tex.zlib', 'xgpu_smaa_area_texture'),
+		@('search_tex.zlib', 'xgpu_smaa_search_texture'))
+	foreach ($smaa in $smaaFiles)
+	{
+		$path = Join-Parts (Join-Parts $Root $smaaFolder) $smaa[0]
+		if (Test-Path -LiteralPath $path)
+		{
+			[void]$inputs.Add($path)
+		}
+	}
+
 	# nothing to do when the output is newer than everything it is made from
 	if (Test-Path -LiteralPath $Output)
 	{
@@ -184,6 +199,7 @@ function Embed-Assets
 		[void]$text.Append("};`n`n")
 		$tag = ([string]$asset.tag).Replace('\', '\\')
 		$coverage = 0
+		$pointThreshold = 0
 		if ($asset.PSObject.Properties['cells'])
 		{
 			foreach ($cell in $asset.cells)
@@ -192,10 +208,14 @@ function Embed-Assets
 				{
 					$coverage = 1
 				}
+				if ($cell.PSObject.Properties['thresholds'] -and $cell.thresholds)
+				{
+					$pointThreshold = 1
+				}
 			}
 		}
 		$crc = ([uint32]$asset.crc).ToString('x8')
-		[void]$table.Append("`t{ `"$tag`", $([int]$asset.bitmap), $width, $height, 0x${crc}u, $coverage, $($texture.Title), asset$index, $($data.Length) },`n")
+		[void]$table.Append("`t{ `"$tag`", $([int]$asset.bitmap), $width, $height, 0x${crc}u, $coverage, $pointThreshold, $($texture.Title), asset$index, $($data.Length) },`n")
 		$index++
 	}
 	[void]$text.Append("const struct hud_hires_embedded hud_hires_embedded[] =`n{`n")
@@ -219,7 +239,24 @@ function Embed-Assets
 	{
 		$fontIndex = [System.Array]::IndexOf($fontFiles, [string]$font.file)
 		$tag = ([string]$font.tag).Replace('\', '\\')
-		[void]$text.Append("`t{ `"$tag`", `"$($font.file)`", font$fontIndex, $($sizes[[string]$font.file]) },`n")
+		# (its role, "large" or "small", and how wide it is drawn: a number as
+		# Python writes it, 1.0 and not 1)
+		$role = 'small'
+		if ($font.PSObject.Properties['role'] -and $font.role)
+		{
+			$role = [string]$font.role
+		}
+		$fontWidth = 1.0
+		if ($font.PSObject.Properties['width'])
+		{
+			$fontWidth = [double]$font.width
+		}
+		$widthText = $fontWidth.ToString('R', [System.Globalization.CultureInfo]::InvariantCulture)
+		if ($widthText -notmatch '[.eE]')
+		{
+			$widthText += '.0'
+		}
+		[void]$text.Append("`t{ `"$tag`", `"$($font.file)`", font$fontIndex, $($sizes[[string]$font.file]), `"$role`", ${widthText}f },`n")
 	}
 	if ($fonts.Count -eq 0)
 	{
@@ -262,7 +299,42 @@ function Embed-Assets
 		[void]$text.Append("`t{ 0 },`n")
 	}
 	[void]$text.Append("};`n")
-	[void]$text.Append("const unsigned int menu_files_embedded_count = $($menuFiles.Count);`n")
+	[void]$text.Append("const unsigned int menu_files_embedded_count = $($menuFiles.Count);`n`n")
+
+	# SMAA's shader, as text a GLSL compiler takes (ASCII, ending in a NUL),
+	# and its lookup textures (xgpu_post.c); each of size 0 that the checkout
+	# does not have. Android has no SMAA.
+	[void]$text.Append("#ifndef HALO_ANDROID`n")
+	foreach ($smaa in $smaaFiles)
+	{
+		$path = Join-Parts (Join-Parts $Root $smaaFolder) $smaa[0]
+		$data = New-Object byte[] 0
+		if (Test-Path -LiteralPath $path)
+		{
+			$data = [System.IO.File]::ReadAllBytes($path)
+			if ($smaa[0].EndsWith('.hlsl'))
+			{
+				$ascii = New-Object byte[] ($data.Length + 1)
+				for ($at = 0; $at -lt $data.Length; $at++)
+				{
+					$ascii[$at] = if ($data[$at] -lt 0x80) { $data[$at] } else { 0x20 }
+				}
+				$data = $ascii
+			}
+		}
+		[void]$text.Append("`nconst unsigned int $($smaa[1])[] = {`n")
+		if ($data.Length -gt 0)
+		{
+			Add-Words $text $data
+		}
+		else
+		{
+			[void]$text.Append("`t0,`n")
+		}
+		[void]$text.Append("};`n")
+		[void]$text.Append("const unsigned long $($smaa[1])_size = $($data.Length);`n")
+	}
+	[void]$text.Append("`n#endif`n")
 
 	$folder = [System.IO.Path]::GetDirectoryName($Output)
 	if ($folder -and -not (Test-Path -LiteralPath $folder))
@@ -272,16 +344,94 @@ function Embed-Assets
 	[System.IO.File]::WriteAllText($Output, $text.ToString(), (New-Object System.Text.UTF8Encoding($false)))
 }
 
-# the overlay's fonts, in posix_ui_font.c's order (tools/embed_assets.py's
-# UI_FONT_FILES: tools/visual_studio.py checks that the two agree)
+# the overlay's fonts, in posix_ui_font.c's order, from the repository's root
+# (tools/embed_assets.py's UI_FONT_FILES: tools/visual_studio.py checks that
+# the two agree)
 $uiFontFiles = @(
-	'NotoSans-Regular.ttf',
-	'NotoSans-Bold.ttf',
-	'input_xbox.ttf',
-	'input_playstation.ttf',
-	'input_nintendo.ttf',
-	'input_keyboard.ttf'
+	'port/linux/ui/fonts/NotoSans-Regular.ttf',
+	'port/linux/ui/fonts/NotoSans-Bold.ttf',
+	'port/linux/ui/fonts/input_xbox.ttf',
+	'port/linux/ui/fonts/input_playstation.ttf',
+	'port/linux/ui/fonts/input_nintendo.ttf',
+	'port/linux/ui/fonts/input_keyboard.ttf',
+	'port/assets/fonts/CyborgInterfaceGothic-Regular.ttf',
+	'port/assets/fonts/CyborgInterfaceGothic-Regular.ttf',
+	'port/assets/fonts/OpenCE-Regular.ttf'
 )
+# the controller's button icons the overlay's prompts draw, in ui_overlay.c's
+# order (tools/embed_assets.py's PROMPT_ICONS, checked the same way)
+$promptIcons = @(
+	'port/assets/prompts/button-a.png',
+	'port/assets/prompts/button-b.png',
+	'port/assets/prompts/button-x.png',
+	'port/assets/prompts/button-y.png',
+	'port/assets/prompts/button-start.png',
+	'port/assets/prompts/trigger-left.png',
+	'port/assets/prompts/trigger-right.png',
+	'port/assets/prompts/bumper-left.png',
+	'port/assets/prompts/bumper-right.png',
+	'port/assets/prompts/button-back.png'
+)
+
+# an 8-bit RGBA, non-interlaced PNG's pixels (rows from the top, 4 bytes a
+# pixel), its filters undone, as tools/embed_assets.py's png_rgba does
+Add-Type -Language CSharp -TypeDefinition @"
+public static class HaloPng
+{
+	public static byte[] Rgba(byte[] data, out int width, out int height)
+	{
+		width = (data[16] << 24) | (data[17] << 16) | (data[18] << 8) | data[19];
+		height = (data[20] << 24) | (data[21] << 16) | (data[22] << 8) | data[23];
+		if (data[24] != 8 || data[25] != 6 || data[28] != 0)
+			throw new System.Exception("not an 8-bit RGBA, non-interlaced PNG");
+		System.IO.MemoryStream compressed = new System.IO.MemoryStream();
+		int offset = 8;
+		while (offset < data.Length)
+		{
+			int length = (data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3];
+			if (data[offset + 4] == 'I' && data[offset + 5] == 'D' && data[offset + 6] == 'A' && data[offset + 7] == 'T')
+				compressed.Write(data, offset + 8, length);
+			offset += 12 + length;
+		}
+		/* (the zlib stream's two bytes of header before its deflate data) */
+		compressed.Position = 2;
+		System.IO.MemoryStream raw = new System.IO.MemoryStream();
+		using (System.IO.Compression.DeflateStream inflate = new System.IO.Compression.DeflateStream(compressed, System.IO.Compression.CompressionMode.Decompress))
+			inflate.CopyTo(raw);
+		byte[] bytes = raw.ToArray();
+		int stride = width * 4;
+		byte[] pixels = new byte[stride * height];
+		byte[] previous = new byte[stride];
+		for (int row = 0; row < height; row++)
+		{
+			int kind = bytes[row * (stride + 1)];
+			byte[] line = new byte[stride];
+			System.Array.Copy(bytes, row * (stride + 1) + 1, line, 0, stride);
+			for (int index = 0; index < stride; index++)
+			{
+				int left = index >= 4 ? line[index - 4] : 0;
+				int up = previous[index];
+				int corner = index >= 4 ? previous[index - 4] : 0;
+				if (kind == 1)
+					line[index] = (byte)(line[index] + left);
+				else if (kind == 2)
+					line[index] = (byte)(line[index] + up);
+				else if (kind == 3)
+					line[index] = (byte)(line[index] + (left + up) / 2);
+				else if (kind == 4)
+				{
+					int guess = left + up - corner;
+					int a = System.Math.Abs(guess - left), b = System.Math.Abs(guess - up), c = System.Math.Abs(guess - corner);
+					line[index] = (byte)(line[index] + (a <= b && a <= c ? left : b <= c ? up : corner));
+				}
+			}
+			System.Array.Copy(line, 0, pixels, row * stride, stride);
+			previous = line;
+		}
+		return pixels;
+	}
+}
+"@
 
 function Write-IfChanged([string]$path, [string]$content)
 {
@@ -303,8 +453,7 @@ function Embed-Fonts
 	{
 		return
 	}
-	$folder = Join-Parts $Root 'port/linux/ui/fonts'
-	$inputs = @($PSCommandPath) + @($uiFontFiles | ForEach-Object { Join-Parts $folder $_ })
+	$inputs = @($PSCommandPath) + @($uiFontFiles + $promptIcons | ForEach-Object { Join-Parts $Root $_ })
 	if (Test-Path -LiteralPath $FontsOutput)
 	{
 		$written = (Get-Item -LiteralPath $FontsOutput).LastWriteTimeUtc
@@ -325,10 +474,10 @@ function Embed-Fonts
 	Write-Host "Embedding the overlay's fonts: $FontsOutput"
 
 	$text = New-Object System.Text.StringBuilder (8 * 1024 * 1024)
-	[void]$text.Append("/* generated by port/windows/tools/prebuild.ps1 from port/linux/ui/fonts: do not edit */`n`n")
+	[void]$text.Append("/* generated by port/windows/tools/prebuild.ps1 from port/linux/ui/fonts and port/assets/fonts: do not edit */`n`n")
 	for ($font = 0; $font -lt $uiFontFiles.Count; $font++)
 	{
-		$data = [System.IO.File]::ReadAllBytes((Join-Parts $folder $uiFontFiles[$font]))
+		$data = [System.IO.File]::ReadAllBytes((Join-Parts $Root $uiFontFiles[$font]))
 		[void]$text.Append("static const unsigned int font$font[] = {`n")
 		Add-Words $text $data
 		[void]$text.Append("};`n`n")
@@ -339,6 +488,31 @@ function Embed-Fonts
 	for ($font = 0; $font -lt $uiFontFiles.Count; $font++)
 	{
 		$names += "font$font"
+	}
+	[void]$text.Append(($names -join ', ')).Append(",`n};`n`n")
+	# the prompts' icons, as their pixels, each square and of one size
+	$size = 0
+	for ($icon = 0; $icon -lt $promptIcons.Count; $icon++)
+	{
+		$width = 0
+		$height = 0
+		$pixels = [HaloPng]::Rgba([System.IO.File]::ReadAllBytes((Join-Parts $Root $promptIcons[$icon])), [ref]$width, [ref]$height)
+		if ($width -ne $height -or ($size -and $width -ne $size))
+		{
+			throw "$($promptIcons[$icon]): the prompts' icons must be square and of one size"
+		}
+		$size = $width
+		[void]$text.Append("static const unsigned int icon$icon[] = {`n")
+		Add-Words $text $pixels
+		[void]$text.Append("};`n`n")
+	}
+	[void]$text.Append("/* (ui_overlay.c's: the prompts' icons, each ui_prompt_icon_size square) */`n")
+	[void]$text.Append("const int ui_prompt_icon_size = $size;`n")
+	[void]$text.Append("const unsigned int *const ui_prompt_icons[$($promptIcons.Count)] =`n{`n`t")
+	$names = @()
+	for ($icon = 0; $icon -lt $promptIcons.Count; $icon++)
+	{
+		$names += "icon$icon"
 	}
 	[void]$text.Append(($names -join ', ')).Append(",`n};`n")
 
@@ -383,11 +557,25 @@ function Write-Version
 	{
 		$commit = 'unknown'
 	}
+	# (and the executable's version information, port/windows/halo.rc, as
+	# tools/version.py's resource_version gives it: 0.7.5c is 0,7,5,3)
+	$numbers = '0,0,0,0'
+	if ($version -match '^(\d+)\.(\d+)\.(\d+)([a-z]?)')
+	{
+		$letter = 0
+		if ($Matches[4])
+		{
+			$letter = [int][char]$Matches[4] - [int][char]'a' + 1
+		}
+		$numbers = "$($Matches[1]),$($Matches[2]),$($Matches[3]),$letter"
+	}
 	$content = "/* generated by port/windows/tools/prebuild.ps1 from VERSION: do not edit */`n" +
 		"#define HALO_VERSION `"$version`"`n" +
 		"#define HALO_RELEASE_BUILD 0`n" +
 		"#define HALO_CHANNEL `"dev`"`n" +
-		"#define HALO_COMMIT `"$commit`"`n"
+		"#define HALO_COMMIT `"$commit`"`n" +
+		"#define HALO_RC_VERSION_NUMBERS $numbers`n" +
+		"#define HALO_RC_VERSION_STRING `"$version`"`n"
 	Write-IfChanged $VersionOutput $content
 }
 

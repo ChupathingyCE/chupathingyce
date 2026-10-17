@@ -3110,8 +3110,42 @@ void players_respawn_at_checkpoint(
 		if (unplaced[DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index)])
 			player_place_beside_teammate(iterator.datum_index);
 	}
+	/* (a revert brings back the saved all_dead, FALSE; this brings no state
+	back, so it is cleared here once anyone is back, or the next death would
+	wait for a respawn that never comes: players_update_after_game neither
+	respawns a player nor ends the game while everyone is dead) */
+	data_iterator_new(&iterator, player_data);
+	while ((player = data_iterator_next(&iterator)) != NULL)
+	{
+		if (player->unit_index != NONE)
+			players_globals->all_dead = FALSE;
+	}
 
 	return;
+}
+
+boolean player_position_switches_bsp(
+	real_point3d const *position)
+{
+	struct scenario *scenario = global_scenario_get();
+	short index;
+
+	if (!position || !scenario || global_structure_bsp_index == NONE)
+		return FALSE;
+	/* port: a short counter stops at SHORT_MAX (a map's count) */
+	for (index = 0; index < MIN(scenario->bsp_switch_trigger_volumes.count, SHORT_MAX); index++)
+	{
+		struct scenario_bsp_switch_trigger_volume *volume = TAG_BLOCK_GET_ELEMENT(
+			&scenario->bsp_switch_trigger_volumes, index, struct scenario_bsp_switch_trigger_volume);
+
+		if (volume->source_structure_bsp_index == global_structure_bsp_index &&
+			scenario_trigger_volume_test_point(volume->trigger_volume_index, position))
+		{
+			return TRUE;
+		}
+	}
+
+	return FALSE;
 }
 
 /* port: the trigger that switches away from the loaded structure BSP the
@@ -4212,10 +4246,6 @@ static void player_handle_powerup_equipment(
 			powerup_index = 1;
 			break;
 
-		/* powerup_index is left unassigned only by this default arm. Not reached unassigned: the
-		 * arm's assertion failure calls system_exit, which does not return in January
-		 * (0x47c960 jumps to halt_and_catch_fire 0x4f21c0, which loops or calls exit).
-		 * Source-policy approval pending (2026-09-27 audit). */
 		default:
 			display_assert(
 				NULL,

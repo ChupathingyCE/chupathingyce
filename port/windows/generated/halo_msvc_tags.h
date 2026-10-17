@@ -922,6 +922,7 @@ struct ptr_table_s;
 struct public_key;
 struct pursuit_datum;
 struct pursuit_location;
+struct queued_datagram_source;
 struct queued_multiplayer_sound;
 struct qword_value;
 struct race_globals;

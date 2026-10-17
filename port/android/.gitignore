@@ -1,6 +1,7 @@
 # Gradle and Android Studio output (the native parts live in build/android)
 .gradle/
 app/build/
+app/build-native64/
 build/
 local.properties
 .idea/

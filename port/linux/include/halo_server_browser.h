@@ -27,5 +27,9 @@ short server_browser_map_family(char const *map, wchar_t *text, short length);
 the map, or the build plays no Halo PC maps), in message; FALSE if nothing
 stops it */
 boolean server_browser_map_blocked(char const *map, wchar_t *message, short length);
+/* whether a game's missing map may be downloaded (a Custom Edition map, as
+network.map_downloads says): its join goes on, and Online Games offers the
+map once the host names it (port/linux/game/browser_screen.c) */
+boolean server_browser_map_downloadable(char const *map);
 
 #endif

@@ -1585,6 +1585,22 @@ void hud_messaging_update(
 					case _hud_message_type_icon:
 						{
 							short icon_index = NONE;
+							wchar_t key_text[48];
+
+							/* port: the keyboard's key, "[E]", in place of the
+							controller's button while the keyboard or mouse was
+							used last (input_abstraction_port_icon_key) */
+							if (element->data <= _icon_look &&
+								input_abstraction_port_icon_key(
+									local_player_index,
+									element->data,
+									FALSE,
+									key_text,
+									NUMBEROF(key_text)))
+							{
+								render_state_text(&line_bounds, &line_cursor, key_text, FALSE);
+								break;
+							}
 
 							if (element->data > _icon_right_stick)
 							{
@@ -1895,7 +1911,10 @@ void hud_messaging_update(
 					/* port: the item's text (the map's) is the format: as
 					one only if it takes the count alone, and bounded */
 					if (item_text && ustring_format_takes(item_text, "d"))
+					{
 						usnprintf(formatted, NUMBEROF(formatted), item_text, message->quantity / value_scale);
+						formatted[NUMBEROF(formatted) - 1] = 0;
+					}
 					else
 						ustrncpy_terminated(formatted, item_text, NUMBEROF(formatted));
 					rasterizer_draw_unicode_string(

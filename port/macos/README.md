@@ -66,6 +66,9 @@ treats an Xbox address as a pointer, or the reverse, does not compile.
   frames do not run.
 - Apple silicon has 16 KB pages; page protection works in host pages
   (`xbox_memory.c`, `memory_watch.c`).
+- The first start's disc extraction copies the disc's `bink/` folder (the
+  `.bik` movies) beside `maps/`, only the files that are missing. The game
+  reads `d:\bink\<name>.bik` there, and falls back to `assets/bink/`.
 - Bink video (the intro, attract and credits movies) is decoded with FFmpeg
   (`port/macos/src/macos_bink.c`) behind the Bink calls the game makes, in
   place of the other ports' `bink_null.c`, in a build made on this Mac only:

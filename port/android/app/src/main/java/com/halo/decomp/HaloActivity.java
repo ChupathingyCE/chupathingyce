@@ -17,6 +17,7 @@ import android.os.Build;
 import android.view.Display;
 import android.view.View;
 import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.view.WindowManager;
 
 import org.libsdl.app.SDLActivity;
@@ -55,6 +56,7 @@ public class HaloActivity extends SDLActivity {
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        hideSystemBars();
         preferHighestRefreshRate();
         trackGestureInsets();
         acquireMulticastLock();
@@ -89,7 +91,15 @@ public class HaloActivity extends SDLActivity {
         state.putString("pending-layout-export", pendingLayoutExport);
     }
 
+    /** Halo PC maps from the system's file picker (MapImporter); no storage permission */
+    public void chooseMapFiles() {
+        MapImporter.choose(this);
+    }
+
     @Override protected void onActivityResult(int request, int result, Intent data) {
+        if (request == MapImporter.REQUEST_CODE) {
+            MapImporter.handleResult(this, result, data, null); return;
+        }
         if (request != EXPORT_LAYOUT && request != IMPORT_LAYOUT) {
             super.onActivityResult(request, result, data); return;
         }
@@ -139,6 +149,7 @@ public class HaloActivity extends SDLActivity {
 
     @Override protected void onResume() {
         super.onResume();
+        hideSystemBars();
         if (touchControls != null && getWindow().getDecorView().hasWindowFocus())
             touchControls.startDeviceInput();
     }
@@ -156,6 +167,43 @@ public class HaloActivity extends SDLActivity {
             else touchControls.stopDeviceInput();
         }
         super.onWindowFocusChanged(hasFocus);
+        // (a dialog, the Options screen or the notification shade brings
+        // the bars back with them)
+        if (hasFocus) hideSystemBars();
+    }
+
+    /**
+     * full screen, the status and navigation bars hidden until a swipe from
+     * an edge shows them for a moment. SDL hides them only with the flags
+     * that Android 11 replaced, and only when the game asks, which left the
+     * status bar over the game on some phones, or back after a dialog.
+     */
+    @SuppressWarnings("deprecation") // the flags are the only way before Android 11
+    private void hideSystemBars() {
+        android.view.Window window = getWindow();
+        WindowManager.LayoutParams attributes = window.getAttributes();
+        int cutout = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ?
+            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS :
+            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+
+        if (attributes.layoutInDisplayCutoutMode != cutout) {
+            attributes.layoutInDisplayCutoutMode = cutout;
+            window.setAttributes(attributes);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false);
+            WindowInsetsController controller = window.getInsetsController();
+            if (controller != null) {
+                controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                controller.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
+            }
+        } else {
+            window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN |
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY |
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        }
     }
 
     @Override

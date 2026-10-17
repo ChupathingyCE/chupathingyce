@@ -890,10 +890,7 @@ static void hud_update_weapon_local_player(
 						"c:\\halo\\SOURCE\\interface\\hud_weapon.c",
 						0x16E,
 						!"unreachable");
-					/* BUG (preserved for exact matching): January (T+0x404) and the later /Od build (0x638ac2)
-					   leave result unassigned in this arm. The arm is unreachable in defined execution:
-					   crosshair_index only takes the values 0..NUMBER_OF_CROSSHAIR_STATES-1 (0..18), and each of
-					   those 19 states has a case above that assigns result. */
+					result = 0;
 					break;
 				}
 
@@ -1595,46 +1592,55 @@ static void render_weapon_hud(
 		SET_FLAG(flags, _weapon_overlay_on_always_bit, TRUE);
 		overlay_flags[3] = flags;
 
-		flags = overlay_flags[0];
-		SET_FLAG(
-			flags,
-			_weapon_overlay_on_flashing_bit,
-			weapon_state->magazines[1].rounds_remaining <= cutoffs->total_ammo &&
-				!weapon_state->magazines[1].reloading);
-		SET_FLAG(
-			flags,
-			_weapon_overlay_on_reload_bit,
-			weapon_state->magazines[1].reloading);
-		SET_FLAG(
-			flags,
-			_weapon_overlay_on_empty_bit,
-			weapon_state->magazines[1].rounds_remaining == 0);
-		SET_FLAG(
-			flags,
-			_weapon_overlay_on_default_bit,
-			flags == 0);
-		SET_FLAG(flags, _weapon_overlay_on_always_bit, TRUE);
-		overlay_flags[0] = flags;
+		/* port: the second magazine's overlays in their own slots, 4 and 5:
+		the game wrote them over the first's, 0 and 1 (the retail Xbox
+		executable too), so a weapon's ammunition overlays followed a second
+		magazine it may not have (coldsnap's flamethrower read "no fuel" with
+		a full tank). A weapon of one magazine sets none of them, as the
+		Xbox never did */
+		if (weapon_state->magazine_count > 1)
+		{
+			flags = overlay_flags[4];
+			SET_FLAG(
+				flags,
+				_weapon_overlay_on_flashing_bit,
+				weapon_state->magazines[1].rounds_remaining <= cutoffs->total_ammo &&
+					!weapon_state->magazines[1].reloading);
+			SET_FLAG(
+				flags,
+				_weapon_overlay_on_reload_bit,
+				weapon_state->magazines[1].reloading);
+			SET_FLAG(
+				flags,
+				_weapon_overlay_on_empty_bit,
+				weapon_state->magazines[1].rounds_remaining == 0);
+			SET_FLAG(
+				flags,
+				_weapon_overlay_on_default_bit,
+				flags == 0);
+			SET_FLAG(flags, _weapon_overlay_on_always_bit, TRUE);
+			overlay_flags[4] = flags;
 
-		flags = overlay_flags[1];
-		SET_FLAG(
-			flags,
-			_weapon_overlay_on_flashing_bit,
-			weapon_state->magazines[1].rounds_loaded <= cutoffs->loaded_ammo);
-		SET_FLAG(
-			flags,
-			_weapon_overlay_on_reload_bit,
-			weapon_state->magazines[1].reloading);
-		SET_FLAG(
-			flags,
-			_weapon_overlay_on_empty_bit,
-			weapon_state->magazines[1].rounds_loaded == 0);
-		SET_FLAG(
-			flags,
-			_weapon_overlay_on_default_bit,
-			flags == 0);
-		SET_FLAG(flags, _weapon_overlay_on_always_bit, TRUE);
-		overlay_flags[1] = flags;
+			flags = overlay_flags[5];
+			SET_FLAG(
+				flags,
+				_weapon_overlay_on_flashing_bit,
+				weapon_state->magazines[1].rounds_loaded <= cutoffs->loaded_ammo);
+			SET_FLAG(
+				flags,
+				_weapon_overlay_on_reload_bit,
+				weapon_state->magazines[1].reloading);
+			SET_FLAG(
+				flags,
+				_weapon_overlay_on_empty_bit,
+				weapon_state->magazines[1].rounds_loaded == 0);
+			SET_FLAG(
+				flags,
+				_weapon_overlay_on_default_bit,
+				flags == 0);
+			SET_FLAG(flags, _weapon_overlay_on_always_bit, TRUE);
+			overlay_flags[5] = flags;
+		}
 
 		number_values[0] = weapon_state->magazines[0].rounds_remaining;
 		number_values[1] = weapon_state->magazines[0].rounds_loaded;

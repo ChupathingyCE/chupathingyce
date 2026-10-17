@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="referrer" content="no-referrer">
-<title>Server Admin</title>
+<title>Chupathingy Server</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/app.css">
 <script src="/app.js" defer></script>
@@ -14,7 +14,7 @@
 <header class="bar">
   <div class="brand">
     <img src="/icon.svg" alt="" width="22" height="22">
-    <span class="brand-name">ChupathingyCE</span>
+    <span class="brand-name">Chupathingy</span>
     <span class="brand-sub">Dedicated Server</span>
   </div>
   <div class="who" id="who" hidden>
@@ -79,6 +79,14 @@
 
     <p class="notice" id="notice" role="status" hidden></p>
 
+    <div class="notice nudge" id="totp-nudge" hidden>
+      <p>Your owner account has no second factor. Anyone with your password could run this server: set up an authenticator app now (it takes a minute).</p>
+      <div class="row">
+        <button type="button" class="primary small" id="totp-nudge-go">Set it up</button>
+        <button type="button" class="quiet" id="totp-nudge-later">Not now</button>
+      </div>
+    </div>
+
     <section class="panel" data-panel="status">
       <h2>Status</h2>
       <dl class="facts" id="status-facts"></dl>
@@ -92,20 +100,27 @@
           <tbody id="players-body"></tbody>
         </table>
       </div>
-      <p class="hint">A kick drops every player on that machine (split screen); they may join again. A ban keeps the machine out by its hardware id and address. A warning shows in a ChupathingyCE player's game. Role: the moderator role of a player whose game proved its moderator key.</p>
+      <form id="say-form" class="row">
+        <label>Server message <input id="say-text" maxlength="200" required></label>
+        <button type="submit" class="primary">Say</button>
+      </form>
+      <p class="hint">Kick drops every player on that machine (split screen); they may join again. Ban keeps the machine out by its hardware id and address. Warn shows in a Chupathingy player's game. Mute stops passing on a player's chat lines until they leave. A server message shows in every Chupathingy player's chat. These are the actions of the game's Moderation screen (Y over the pause menu). Role: the role of a player whose game proved its moderator key.</p>
     </section>
 
     <section class="panel" data-panel="maps" hidden>
-      <h2>Play a map</h2>
-      <form id="map-form" class="row">
-        <label>Map <select id="map-select" required></select></label>
-        <label>Game type <select id="type-select" required></select></label>
-        <button type="submit" class="primary">Play now</button>
-      </form>
-      <div class="row">
-        <button type="button" id="skip">Skip to next entry</button>
-        <button type="button" id="end-game">End game</button>
+      <div id="map-controls">
+        <h2>Play a map</h2>
+        <form id="map-form" class="row">
+          <label>Map <select id="map-select" required></select></label>
+          <label>Game type <select id="type-select" required></select></label>
+          <button type="submit" class="primary">Play now</button>
+        </form>
+        <div class="row">
+          <button type="button" id="skip">Next map</button>
+          <button type="button" id="end-game">End game</button>
+        </div>
       </div>
+      <p class="hint" id="maps-readonly" hidden>Your role can't change the map: an admin or the owner can.</p>
       <h2>Playlist <span class="count" id="playlist-name"></span></h2>
       <div class="table-wrap">
         <table>
@@ -188,8 +203,15 @@
     </section>
 
     <section class="panel" data-panel="settings" hidden>
+      <h2>Name and players</h2>
+      <form id="name-form" class="row">
+        <label>Server name <input id="name-input" maxlength="15" required></label>
+        <label>Most players <input id="max-input" type="number" min="1" max="128" required></label>
+        <button type="submit" class="primary">Save</button>
+      </form>
+      <p class="hint" id="name-source"></p>
       <h2>Settings</h2>
-      <p class="hint">Saved in admin/settings.toml. A setting in the server's environment wins over the file.</p>
+      <p class="hint">Saved in admin/settings.toml. A setting in the server's environment wins over the file, and can only be changed there.</p>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Setting</th><th>Now</th><th>From</th></tr></thead>
@@ -198,20 +220,19 @@
       </div>
       <form id="set-form" class="row">
         <label>Setting <select id="set-key"></select></label>
-        <label>Value <input id="set-value" required></label>
+        <label>Value <input id="set-value" required><select id="set-choice" hidden><option value="true">yes</option><option value="false">no</option></select></label>
         <button type="submit">Save</button>
       </form>
-      <h2>Until the server restarts</h2>
-      <form id="name-form" class="row">
-        <label>Server name <input id="name-input" maxlength="15" required></label>
-        <button type="submit">Set name</button>
-      </form>
-      <form id="max-form" class="row">
-        <label>Most players <input id="max-input" type="number" min="1" max="128" required></label>
-        <button type="submit">Set</button>
-      </form>
-      <h2>halo.milenko.org</h2>
+      <h2>Chupathingy site</h2>
       <p class="hint" id="link-state"></p>
+      <div class="link-code" id="link-code" hidden>
+        <p>Open this link, signed in to the Chupathingy site, to finish linking:</p>
+        <p><a id="link-url" target="_blank" rel="noopener noreferrer"></a></p>
+        <div class="row">
+          <button type="button" class="small" id="link-copy">Copy the link</button>
+          <span class="hint" id="link-wait">This page shows the link once the site has it.</span>
+        </div>
+      </div>
       <div class="row" id="link-buttons" hidden>
         <button type="button" id="link-start">Link to my account</button>
         <button type="button" id="link-stop" class="quiet">Unlink</button>
@@ -239,14 +260,22 @@
         </table>
       </div>
       <label class="check" id="require-label"><input type="checkbox" id="require-2fa"> Every account needs a second factor</label>
-      <h2>Moderators file</h2>
-      <p class="hint">moderators.txt in the data folder: people known by the moderator key their game proves, with no account here. Add a player in the game with <code>sv_mod_add &lt;player&gt; &lt;role&gt;</code>.</p>
+      <h2>Who can moderate <span class="count" id="holders-count"></span></h2>
+      <p class="hint">Everyone with a role on this server, and where it comes from: moderators.txt in the data folder (people known by the moderator key their game proves), the accounts above, and the Chupathingy site's roles while the server is linked. A key's role is the highest it has. <code>sv_mod_list</code> on the console shows the same.</p>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Role</th><th>Name</th><th>Key</th><th></th></tr></thead>
-          <tbody id="moderators-body"></tbody>
+          <thead><tr><th>Name</th><th>Role</th><th>From</th><th>Key or games</th><th></th></tr></thead>
+          <tbody id="holders-body"></tbody>
         </table>
       </div>
+      <p class="hint" id="site-roles"></p>
+      <form id="mod-add-form" class="row">
+        <label>Add to moderators.txt: moderator key <input id="mod-add-key" pattern="[0-9a-fA-F]{64}" spellcheck="false" autocapitalize="off" required></label>
+        <label>Role <select id="mod-add-role"><option value="moderator">moderator</option><option value="admin">admin</option><option value="owner">owner</option></select></label>
+        <label>Name <input id="mod-add-name" maxlength="31"></label>
+        <button type="submit">Add</button>
+      </form>
+      <p class="hint">A player's key shows in Players once their game has signed in on its Moderation screen; <code>sv_mod_add &lt;player&gt; &lt;role&gt;</code> on the console takes the player's number instead.</p>
     </section>
 
     <section class="panel" data-panel="audit" hidden>
@@ -297,8 +326,7 @@
     <p id="confirm-text"></p>
     <label id="confirm-duration-label" hidden>For
       <select id="confirm-duration">
-        <option value="30m">30 minutes</option>
-        <option value="2h">2 hours</option>
+        <option value="1h">1 hour</option>
         <option value="1d" selected>1 day</option>
         <option value="7d">7 days</option>
         <option value="30d" data-full="1">30 days</option>
@@ -306,7 +334,7 @@
       </select>
     </label>
     <label id="confirm-reason-label" hidden>Reason
-      <input id="confirm-reason" maxlength="60">
+      <input id="confirm-reason" maxlength="127">
     </label>
     <div class="row end">
       <button value="cancel" type="submit">Cancel</button>

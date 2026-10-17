@@ -53,6 +53,7 @@ same datum index (identifier and all), so that any message can name one:
 #include "models/model_animation_definitions.h"
 #include "models/model_definitions.h"
 #include "units/units.h"
+#include "units/bipeds.h"
 #include "units/biped_definitions.h"
 #include "units/vehicle_definitions.h"
 #include "units/vehicle_datum.h"
@@ -247,6 +248,10 @@ enum
 	/* (struct distributed_object_state, the host's) the host has the vehicle
 	where the client it goes to had it at the tick in time */
 	_distributed_object_predicted_bit,
+	/* (struct distributed_object_state) a unit's integrated light is on, and
+	the host sent it at all: older builds leave both 0, which is not "off" */
+	_distributed_object_light_sent_bit,
+	_distributed_object_light_on_bit,
 };
 
 struct distributed_object_change
@@ -676,6 +681,60 @@ static boolean distributed_vehicle_unsteered(
 		unit_get(vehicle->unit.driver_object_index)->unit.player_index == NONE;
 }
 
+/* the object if it is a body (a dead biped), else NULL */
+static struct biped_datum *distributed_body_get(
+	long object_index)
+{
+	struct biped_datum *biped = (struct biped_datum *)object_try_and_get_and_verify_type(object_index,
+		_object_mask_biped);
+
+	return biped && TEST_FLAG(biped->object.damage_flags, _object_dead_bit) ? biped : NULL;
+}
+
+/* A body lying limp here, which the host moves: its pose, fixed in the world
+where it came to rest (bipeds.c), would stay there as the body goes, drawn
+hanging in the air or in a wall. Unfixed, as the push of the explosion that
+moved the host's body would have unfixed it here (that push reaches only the
+machines that see the body's player, network_damage.c); it lies limp again
+where it comes to rest (units.c). */
+static void distributed_body_unfix_pose(
+	long object_index)
+{
+	if (distributed_body_get(object_index))
+		biped_stop_limp_body_physics(object_index);
+}
+
+/* A body at rest or moving as the host has it. Moving, its pose goes with
+it, however close it is. At rest, it is on the ground, as the host's is:
+not airborne, which only its physics clears, and rest stops its physics
+(bipeds.c); left airborne, it would keep the pose of its fall, in the air,
+and never lie limp. */
+static void distributed_body_set_at_rest(
+	long object_index,
+	boolean at_rest)
+{
+	struct biped_datum *biped = distributed_body_get(object_index);
+
+	if (!biped)
+		return;
+	if (!at_rest)
+		distributed_body_unfix_pose(object_index);
+	else
+		SET_FLAG(biped->biped.flags, _biped_airborne_bit, FALSE);
+}
+
+/* whether this machine's player drives the unit: it is their biped, or the
+vehicle they drive */
+static boolean distributed_unit_driven_here(
+	long unit_index)
+{
+	struct unit_datum *unit = unit_get(unit_index);
+
+	if (unit->unit.driver_object_index != NONE)
+		unit = unit_get(unit->unit.driver_object_index);
+	return unit->unit.player_index != NONE && distributed_player_is_local(unit->unit.player_index);
+}
+
 /* Whether a client puts its copy exactly where the host has it, rather than
 closing on it: an unsteered vehicle, and anything in a co-op cutscene
 (where it keeps up with the host's camera). */
@@ -701,6 +760,7 @@ static void distributed_object_move(
 	offset.i = object->object.position.x - position->x;
 	offset.j = object->object.position.y - position->y;
 	offset.k = object->object.position.z - position->z;
+	distributed_body_unfix_pose(object_index);
 	object_set_position(object_index, position, forward, up);
 	if (velocity)
 		object->object.translational_velocity = *velocity;
@@ -771,6 +831,7 @@ boolean network_objects_reconcile(
 		offset.i = object->object.position.x - blended.x;
 		offset.j = object->object.position.y - blended.y;
 		offset.k = object->object.position.z - blended.z;
+		distributed_body_unfix_pose(object_index);
 		object_set_position(object_index, &blended, &valid_forward, &valid_up);
 		if (!distributed_object_follows_host(object_index))
 			render_interpolation_correct_object(object_index, &offset);
@@ -811,6 +872,12 @@ static void distributed_state_from_object(
 	SET_FLAG(state->flags, _distributed_object_at_rest_bit, TEST_FLAG(object->object.flags, _object_at_rest_bit));
 	SET_FLAG(state->flags, _distributed_object_dead_bit, TEST_FLAG(_object_mask_unit, object->object.type) &&
 		TEST_FLAG(object->object.damage_flags, _object_dead_bit));
+	if (TEST_FLAG(_object_mask_unit, object->object.type))
+	{
+		SET_FLAG(state->flags, _distributed_object_light_sent_bit, TRUE);
+		SET_FLAG(state->flags, _distributed_object_light_on_bit,
+			TEST_FLAG(unit_get(object_index)->unit.flags, _unit_integrated_light_on_bit));
+	}
 	state->position = object->object.position;
 	distributed_vector_pack(&object->object.forward, DISTRIBUTED_UNIT_SCALE, &state->forward);
 	distributed_vector_pack(&object->object.up, DISTRIBUTED_UNIT_SCALE, &state->up);
@@ -2339,6 +2406,12 @@ static void distributed_client_create(
 		return;
 	}
 	objects_client_has[absolute_index] = object_index;
+	/* (a unit's grenades are the host's, which its inventories bring: none
+	until they come, not the tag's that unit_new gave it, which the host's
+	game engine replaces with the game's at a player's spawn: a player
+	spawned with the button held threw one here the host's copy had not) */
+	if (TEST_FLAG(_object_mask_unit, object_get(object_index)->object.type))
+		csmemset(unit_get(object_index)->unit.grenade_counts, 0, sizeof(unit_get(object_index)->unit.grenade_counts));
 	distributed_client_apply_change(object_index, change);
 }
 
@@ -2513,6 +2586,17 @@ void network_objects_handle_states(
 		if (!distributed_object_index_valid(state->object_index) || !network_objects_client_has(state->object_index))
 			continue;
 		object = object_get(state->object_index);
+		/* (the unit's light as the host has it: only presses toggle it here,
+		so one missed, or made before this machine joined, left it wrong for
+		good. Not for what this machine's player drives: their press lands
+		here first) */
+		if (TEST_FLAG(state->flags, _distributed_object_light_sent_bit) &&
+			TEST_FLAG(_object_mask_unit, object->object.type) &&
+			!distributed_unit_driven_here(state->object_index))
+		{
+			SET_FLAG(unit_get(state->object_index)->unit.flags, _unit_integrated_light_on_bit,
+				TEST_FLAG(state->flags, _distributed_object_light_on_bit));
+		}
 		if (TEST_FLAG(state->flags, _distributed_object_dead_bit))
 		{
 			distributed_client_dead_biped(state->object_index);
@@ -2576,6 +2660,7 @@ void network_objects_handle_states(
 		at_rest = TEST_FLAG(state->flags, _distributed_object_at_rest_bit) || distributed_vehicle_unsteered(state->object_index);
 		if (!own_vehicle)
 			SET_FLAG(object->object.flags, _object_at_rest_bit, at_rest);
+		distributed_body_set_at_rest(state->object_index, at_rest);
 		dx = state->position.x - object->object.position.x;
 		dy = state->position.y - object->object.position.y;
 		dz = state->position.z - object->object.position.z;
@@ -2799,6 +2884,27 @@ static void distributed_client_apply_inventory(
 				unit->unit.grenade_counts[grenade_type] = count;
 			}
 		}
+		/* an AI unit's grenade type: the host's actor chose it as it gave the
+		unit its grenades (unit_add_grenade_type_to_inventory), and a client
+		has no actors. Without one, the throws the host's control starts
+		never begin here (unit_throw_grenade_begin), and the grenades, whose
+		blasts the host's damage brings, are never seen. The type it carries
+		is it; not changed in the middle of a throw */
+		if (!own && unit->unit.player_index == NONE &&
+			unit->unit.grenade_throw_state == _unit_grenade_throw_idle &&
+			(unit->unit.current_grenade_index == NONE ||
+				unit->unit.grenade_counts[unit->unit.current_grenade_index] == 0))
+		{
+			for (grenade_type = 0; grenade_type < NUMBER_OF_UNIT_GRENADE_TYPES; grenade_type++)
+			{
+				if (unit->unit.grenade_counts[grenade_type] > 0)
+				{
+					unit->unit.current_grenade_index = grenade_type;
+					unit->unit.desired_grenade_index = grenade_type;
+					break;
+				}
+			}
+		}
 	}
 	/* (what the host changed here is not this machine's doing) */
 	if (own)
@@ -2822,8 +2928,8 @@ void network_objects_client_picked_up_weapon(
 }
 
 /* the weapons its own players picked up readied once they have them, as
-unit_add_weapon_to_inventory readies a pickup where it decides it (not
-while firing): the client chooses its players' weapons in hand
+unit_add_weapon_to_inventory readies a pickup where it decides it (a second
+weapon too, while firing): the client chooses its players' weapons in hand
 (distributed_client_apply_inventory), and the host follows */
 static void distributed_client_ready_picked_up_weapons(
 	void)
@@ -2848,21 +2954,39 @@ static void distributed_client_ready_picked_up_weapons(
 			continue;
 		}
 		unit = unit_get(unit_index);
-		for (weapon_slot = 0; weapon_slot < MAXIMUM_WEAPONS_PER_UNIT; weapon_slot++)
 		{
-			long weapon_index = unit->unit.weapon_object_indices[weapon_slot];
-			struct weapon_datum *weapon = weapon_index != NONE ? weapon_try_and_get(weapon_index) : NULL;
+			short current_slot = unit->unit.current_weapon_index;
+			short matched_slot = NONE;
+			long current_weapon_index = unit_inventory_get_weapon(unit_index, current_slot);
+			struct weapon_datum *current_weapon = current_weapon_index != NONE ?
+				weapon_try_and_get(current_weapon_index) : NULL;
 
-			if (weapon && weapon->definition_index == picked_up->definition_index)
-				break;
+			/* already the one in hand (a swap into that slot): nothing to ready */
+			if (current_weapon && current_weapon->definition_index == picked_up->definition_index)
+			{
+				picked_up->definition_index = NONE;
+				continue;
+			}
+			for (weapon_slot = 0; weapon_slot < MAXIMUM_WEAPONS_PER_UNIT; weapon_slot++)
+			{
+				long weapon_index = unit->unit.weapon_object_indices[weapon_slot];
+				struct weapon_datum *weapon = weapon_index != NONE ? weapon_try_and_get(weapon_index) : NULL;
+
+				if (weapon && weapon_slot != current_slot &&
+					weapon->definition_index == picked_up->definition_index)
+				{
+					matched_slot = weapon_slot;
+				}
+			}
+			if (matched_slot == NONE)
+				continue;
+			weapon_slot = matched_slot;
 		}
-		if (weapon_slot == MAXIMUM_WEAPONS_PER_UNIT)
-			continue;
-		if (!TEST_FLAG(unit->unit.control_flags, _unit_control_weapon_primary_trigger_bit))
-		{
-			player_control_set_desired_weapon(unit_index, weapon_slot);
-			unit->unit.desired_weapon_index = weapon_slot;
-		}
+		/* port: a one-weapon loadout's second weapon is readied when it
+		arrives, including while firing. Dropping the announcement on a
+		held trigger left it holstered until a manual switch. */
+		player_control_set_desired_weapon(unit_index, weapon_slot);
+		unit->unit.desired_weapon_index = weapon_slot;
 		picked_up->definition_index = NONE;
 	}
 }

@@ -29,6 +29,7 @@ the SDK headers are read, exactly as game code sees them. */
 #include "halo_linux_winsock_names.h"
 #undef HALO_LINUX_WINSOCK_NAMES_UNDEFINE
 #include "build_identity.h"
+#include "port_folders.h"
 
 /* ---------- logging */
 
@@ -144,11 +145,22 @@ one that cannot be moved stays where it is), and logs each: how many moved */
 int platform_old_map_folders_move(void);
 /* the macOS application's folder for its data and settings, when the game
 runs as an application (ChupathingyCE.app): ~/Library/Application
-Support/ChupathingyCE, made if need be, into path; 0 otherwise (and on
-other systems). An application's own files are not written: it is signed,
-and may be where its player cannot write (port_config.c) */
+Support/ChupathingyCE, made if need be, into path; on Linux, when the game
+runs as an AppImage, the save root's usual place (HALO_SAVE_ROOT, else
+$XDG_DATA_HOME/chupathingyce or ~/.local/share/chupathingyce); 0 otherwise
+(and on other systems). An application's own files are not written: it is
+signed, and may be where its player cannot write, and an AppImage is
+mounted read-only (port_config.c) */
 int platform_app_folder(char *path, unsigned long size);
 const char *platform_save_root(void);
+/* one of the game's own folders (port_folders.h: data/ and logs/ in the
+data root, cache/ and private/ in the save root, or paths.logs and
+paths.cache), made if need be */
+const char *platform_folder(enum port_folder folder);
+/* the logs folder before the data root is known, as near as can be told
+without asking the player anything (Windows' halo.log and crash reporter
+start before the game does), made if need be; 0 when there is none */
+int platform_logs_folder_early(char *path, unsigned long size);
 #ifdef HALO_GAME_BROWSER
 /* a web page opened in the web browser (from any thread: the main thread
 opens it) */
@@ -164,12 +176,13 @@ the game and Direct3D rely on keeps working. PLATFORM_CONTIGUOUS_BASE is an
 Xbox address. */
 
 #define PLATFORM_CONTIGUOUS_BASE 0x80000000U
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) && !defined(HALO_64BIT)
 /* a 128 MB development kit's: Android's guest image is linked just above it
 (port/android/include/halo_android_abi.h) */
 #define PLATFORM_CONTIGUOUS_SIZE 0x08000000U
 #else
-/* the desktop builds' (Linux, macOS, Windows): four times a 128 MB
+/* the desktop builds' (Linux, macOS, Windows) and the native 64-bit
+Android build's: four times a 128 MB
 development kit's, for their larger texture cache (halo_port_capacity.h);
 port/windows/src/win32_memory_watch.c has the same */
 #define PLATFORM_CONTIGUOUS_SIZE 0x20000000U

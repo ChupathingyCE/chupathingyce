@@ -1127,23 +1127,31 @@ void cache_files_show_multiplayer_unavailable(
 }
 
 /* port: the version of the map a network game is on, which the host sends
-in its game record's map version (which the Xbox game left 0): a Halo PC
-map's header checksum, which differs between versions of a map, as OpenCE's
-build-147 sends a Custom Edition map's. 0, which a client checks nothing
-for, for the Xbox's maps, whose builds of other regions play together. */
+in its game record's map version (which the Xbox game left 0): a Custom
+Edition map's whole-file hash's first 32 bits, as OpenCE's hosts of network
+version 29 send it (port/linux/src/map_archive.h, map_archive_hash_version:
+hashed once a run, map_file_hash.c), a HaloMD or Halo PC retail map's header
+checksum, as hosts of 23 to 28 sent any Halo PC map's; either differs between
+versions of a map. 0, which a client checks nothing for, for the Xbox's
+maps, whose builds of other regions play together. */
 unsigned long cache_files_map_version(
 	char const *map_name)
 {
 #ifdef HALO_CUSTOM_EDITION
+	/* (port/linux/src/map_file_hash.h) */
+	int map_file_hash_version(char const *path, unsigned int *version);
 	char file[64];
 	char path[256];
 	short family = map_family_parse(map_name, file, sizeof(file));
 	struct cache_file_header header;
 	unsigned long bytes_read = 0;
+	unsigned int hash_version = 0;
 	HANDLE handle;
 
 	if (family == _map_family_xbox || !map_family_find(family, file, path, sizeof(path)))
 		return 0;
+	if (family == _map_family_custom_edition)
+		return map_file_hash_version(path, &hash_version) ? hash_version : 0;
 	handle = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
 	if (handle == INVALID_HANDLE_VALUE)
 		return 0;
@@ -1157,20 +1165,66 @@ unsigned long cache_files_map_version(
 #endif
 }
 
+/* port: a host's game's map (map_name, a buffer of size), as its settings
+name it and the players' clients look for it: a Custom Edition map whose
+file is named for its hash (<file>_<8 hex digits>, a download beside
+another version of its name, or an older host's level name) is named by its
+own name, as OpenCE's hosts of network version 29 name it, the game
+record's version saying which of the files of that name it is; the host
+plays that file (map_family_set_game_version). Its version
+(cache_files_map_version). */
+unsigned long cache_files_map_choose(
+	char *map_name,
+	long size)
+{
+#ifdef HALO_CUSTOM_EDITION
+	/* (port/linux/src/map_archive.h) */
+	int map_archive_hashed_name(char const *name, char *base, int base_size, unsigned int *prefix);
+	char file[64];
+	char base[64];
+	char path[256];
+	short family = map_family_parse(map_name, file, sizeof(file));
+	unsigned long version;
+
+	map_family_set_game_version(NULL, 0);
+	if (family == _map_family_custom_edition && map_archive_hashed_name(file, base, (int)sizeof(base), NULL) &&
+		map_family_find(family, file, path, sizeof(path)))
+	{
+		version = cache_files_map_version(map_name);
+		if (version)
+		{
+			snprintf(map_name, (size_t)size, "%s%s", base, map_family_suffix(family));
+			map_family_set_game_version(map_name, version);
+			return version;
+		}
+	}
+#else
+	(void)size;
+#endif
+	return cache_files_map_version(map_name);
+}
+
 /* port: whether this machine has the map a network game is on (a client
 joining it: network_client_manager.c); when not, tells the player which map
 is missing and the folder to copy it into, in the error the main menu shows
 next, rather than the damaged disc error that precaching a map that is not
 there gives (cache_files_give_time_to_precache). A Halo PC map (<file>@ce,
 @pc or @md) is looked for in its family's folders (halo_map_families.h), an
-Xbox map in maps. (After OpenCE's build-145, which tells its players so.) A Halo PC map must be the host's version
-(version, cache_files_map_version's on the host; 0 for any). */
+Xbox map in maps. (After OpenCE's build-145, which tells its players so.) A
+Halo PC map must be the host's version (version, cache_files_map_version's
+on the host: a Custom Edition map's hash's since network version 29, its
+header checksum before, either taken; 0 for any). */
 boolean cache_files_map_present(
 	char const *map_name,
 	unsigned long version)
 {
 	void platform_log(char const *format, ...);
 	char const *cache_files_map_directory(void);
+#ifdef HALO_CUSTOM_EDITION
+	/* (port/linux/src/map_archive.h: Halo PC's own maps) */
+	int map_archive_stock_name(char const *name);
+	int map_archive_stock_message(char const *name, char *text, int size);
+#endif
 	wchar_t error_text[512];
 	char file[64];
 	char message[512];
@@ -1185,22 +1239,68 @@ boolean cache_files_map_present(
 	{
 		char path[256];
 
+		/* (the host's version of it, when the host says which: its file
+		of the map's name, or one of another name of that version, which
+		the game then loads: map_family_set_game_version) */
+		map_family_set_game_version(map_name, version);
+		if (map_family_find_version(family, file, version, path, sizeof(path)))
+		{
+			if (version)
+				platform_log("map version: %s is the host's %08lx (%s)", map_name, version, path);
+			return TRUE;
+		}
 		if (map_family_find(family, file, path, sizeof(path)))
 		{
-			unsigned long own = cache_files_map_version(map_name);
-
-			/* (the host's version of it, when the host says which) */
-			if (!version || own == version)
-				return TRUE;
-			platform_log("map version: %s is %08lx here, %08lx on the host", map_name, own, version);
+			platform_log("map version: %s is %08lx here, %08lx on the host", map_name, cache_files_map_version(map_name),
+				version);
 			snprintf(message, sizeof(message),
 				"Your %s map %.63s is another version than the host's. Copy the host's %.63s.map into %s.",
 				map_family_badge(family), file, file, map_family_folder(family));
+#ifdef HALO_GAME_BROWSER
+			/* (the host's version may be downloaded beside it, named for its
+			hash: port/linux/src/map_download.c) */
+			if (family == _map_family_custom_edition && !map_archive_stock_name(file))
+			{
+				void browser_screen_map_missing(char const *file, unsigned long version);
+
+				browser_screen_map_missing(file, version);
+			}
+#endif
+		}
+		/* (one of Halo PC's own maps, by its name or a hashed name's base:
+		the player's to copy from their install, never downloaded:
+		port/linux/src/map_archive.h) */
+		else if (family == _map_family_custom_edition && map_archive_stock_name(file))
+		{
+			char stock[384];
+
+			map_archive_stock_message(file, stock, sizeof(stock));
+			snprintf(message, sizeof(message), "Install this map yourself\r\n%s", stock);
+#ifdef HALO_GAME_BROWSER
+			/* (Online Games says so over the main menu, in place of this
+			error: port/linux/game/browser_screen.c) */
+			{
+				void browser_screen_map_missing(char const *file, unsigned long version);
+
+				browser_screen_map_missing(file, version);
+			}
+#endif
 		}
 		else
 		{
 			snprintf(message, sizeof(message), "You don't have the %s map %.63s. If you have it, copy %.63s.map into %s.",
 				map_family_badge(family), file, file, map_family_folder(family));
+#ifdef HALO_GAME_BROWSER
+			/* (a Custom Edition map the player may download: Online Games
+			offers it in place of this error once the main menu is back, and
+			joins the game again: port/linux/game/browser_screen.c) */
+			if (family == _map_family_custom_edition)
+			{
+				void browser_screen_map_missing(char const *file, unsigned long version);
+
+				browser_screen_map_missing(file, version);
+			}
+#endif
 		}
 	}
 	else
@@ -1289,7 +1389,7 @@ boolean cache_files_give_time_to_precache(
 		{
 			cache_files_precache_set_priority(0);
 			if (!cache_files_precache_map_begin(map_name, FALSE))
-				display_error_damaged_media();
+				cache_files_display_map_error(map_name);
 		}
 	}
 

@@ -3,8 +3,8 @@ POSIX_CRASH.C
 
 Crash reports on Linux and macOS (crash_report.h; Windows has its own,
 port/windows/src/win32_crash.c). A crashing signal (SIGSEGV, SIGBUS,
-SIGILL, SIGFPE, SIGABRT) writes a report file into crashes/ in the data
-root from the signal handler, doing only what is safe there: text made on
+SIGILL, SIGFPE, SIGABRT) writes a report file into crashes/ in the logs
+folder (platform_folder) from the signal handler, doing only what is safe there: text made on
 the stack with write(2), and dladdr for each frame's module. The game then
 ends as the signal would have ended it. The frames are the frame pointer
 chain from the crashed context (every build keeps frame pointers), each
@@ -16,7 +16,8 @@ has.)
 The next start sends the reports, on a thread of its own, as
 crash_reports.upload says (sdl_platform.c asks the player first when it is
 "ask"). The report's log is debug.txt as it was at the crash: the report
-keeps its size then (log_size).
+keeps its size then (log_size). Reports from before the logs folder, in
+crashes/ in the data root, are sent too, with the log beside them.
 
 Built with the host's ABI, as the other posix_*.c. Android has none of this
 yet (its game runs in a guest, port/android), nor has the dedicated server.
@@ -72,8 +73,12 @@ enum
 
 static const int crash_signals[] = { SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT };
 
+/* the folder new reports go in, and the log they keep the size of; and the
+folder reports went in before, with its log (posix_crash_install) */
 static char crash_folder[PATH_SIZE];
 static char crash_log_path[PATH_SIZE];
+static char old_crash_folder[PATH_SIZE];
+static char old_crash_log_path[PATH_SIZE];
 /* the report's first lines (crash_report.h), made at the start */
 static char crash_header[1024];
 static int probe_pipe[2] = { -1, -1 };
@@ -297,7 +302,7 @@ static void system_version(char *text, size_t size)
 #endif
 }
 
-int posix_crash_install(const char *folder, const char *log_path)
+int posix_crash_install(const char *folder, const char *log_path, const char *old_folder, const char *old_log_path)
 {
 	struct sigaction action;
 	stack_t stack;
@@ -308,6 +313,12 @@ int posix_crash_install(const char *folder, const char *log_path)
 		return 1;
 	snprintf(crash_folder, sizeof(crash_folder), "%s", folder);
 	snprintf(crash_log_path, sizeof(crash_log_path), "%s", log_path);
+	/* (never the same folder twice: its reports would be sent twice) */
+	if (old_folder && *old_folder && strcmp(old_folder, folder))
+	{
+		snprintf(old_crash_folder, sizeof(old_crash_folder), "%s", old_folder);
+		snprintf(old_crash_log_path, sizeof(old_crash_log_path), "%s", old_log_path ? old_log_path : "");
+	}
 	if (mkdir(crash_folder, 0700) && errno != EEXIST)
 		return 0;
 	system_version(os, sizeof(os));
@@ -344,38 +355,58 @@ int posix_crash_install(const char *folder, const char *log_path)
 
 /* ---------- the reports waiting */
 
-/* the reports in the folder: their names, at most count of them; how many
-there are */
-static int pending_reports(char names[][REPORT_NAME_SIZE], int count)
+/* a report waiting: its file's name, and its folder (0: the logs folder's,
+1: the one before it) */
+struct pending_report
 {
-	DIR *folder = opendir(crash_folder);
-	struct dirent *entry;
-	int pending = 0;
+	char name[REPORT_NAME_SIZE];
+	int old;
+};
 
-	if (!folder)
-		return 0;
-	while ((entry = readdir(folder)) != NULL)
+static const char *report_folder(int old)
+{
+	return old ? old_crash_folder : crash_folder;
+}
+
+/* the reports in the folders: their names, at most count of them; how many
+there are */
+static int pending_reports(struct pending_report *reports, int count)
+{
+	int pending = 0, old;
+
+	for (old = 0; old < 2; old++)
 	{
-		size_t length = strlen(entry->d_name);
+		DIR *folder;
+		struct dirent *entry;
 
-		if (length <= 4 || length >= REPORT_NAME_SIZE || strcmp(entry->d_name + length - 4, ".txt") ||
-			entry->d_name[0] < '0' || entry->d_name[0] > '9')
-		{
+		if (!report_folder(old)[0] || !(folder = opendir(report_folder(old))))
 			continue;
+		while ((entry = readdir(folder)) != NULL)
+		{
+			size_t length = strlen(entry->d_name);
+
+			if (length <= 4 || length >= REPORT_NAME_SIZE || strcmp(entry->d_name + length - 4, ".txt") ||
+				entry->d_name[0] < '0' || entry->d_name[0] > '9')
+			{
+				continue;
+			}
+			if (reports && pending < count)
+			{
+				memcpy(reports[pending].name, entry->d_name, length + 1);
+				reports[pending].old = old;
+			}
+			pending++;
 		}
-		if (names && pending < count)
-			memcpy(names[pending], entry->d_name, length + 1);
-		pending++;
+		closedir(folder);
 	}
-	closedir(folder);
 	return pending;
 }
 
-static void delete_report(const char *name)
+static void delete_report(const struct pending_report *report)
 {
 	char path[PATH_SIZE + REPORT_NAME_SIZE];
 
-	snprintf(path, sizeof(path), "%s/%s", crash_folder, name);
+	snprintf(path, sizeof(path), "%s/%s", report_folder(report->old), report->name);
 	unlink(path);
 }
 
@@ -383,8 +414,8 @@ static void delete_report(const char *name)
 count them) */
 static void trim_reports(void)
 {
-	char names[MAXIMUM_PENDING * 2][REPORT_NAME_SIZE];
-	int count = pending_reports(names, MAXIMUM_PENDING * 2), index, other;
+	struct pending_report reports[MAXIMUM_PENDING * 2];
+	int count = pending_reports(reports, MAXIMUM_PENDING * 2), index, other;
 
 	if (count > MAXIMUM_PENDING * 2)
 		count = MAXIMUM_PENDING * 2;
@@ -393,18 +424,17 @@ static void trim_reports(void)
 	{
 		for (other = index + 1; other < count; other++)
 		{
-			if (atoll(names[other]) < atoll(names[index]))
+			if (atoll(reports[other].name) < atoll(reports[index].name))
 			{
-				char swap[REPORT_NAME_SIZE];
+				struct pending_report swap = reports[index];
 
-				memcpy(swap, names[index], REPORT_NAME_SIZE);
-				memcpy(names[index], names[other], REPORT_NAME_SIZE);
-				memcpy(names[other], swap, REPORT_NAME_SIZE);
+				reports[index] = reports[other];
+				reports[other] = swap;
 			}
 		}
 	}
 	for (index = 0; index < count - MAXIMUM_PENDING; index++)
-		delete_report(names[index]);
+		delete_report(&reports[index]);
 }
 
 int posix_crash_pending(void)
@@ -414,24 +444,24 @@ int posix_crash_pending(void)
 
 void posix_crash_discard(void)
 {
-	char names[MAXIMUM_PENDING * 2][REPORT_NAME_SIZE];
-	int count = pending_reports(names, MAXIMUM_PENDING * 2), index;
+	struct pending_report reports[MAXIMUM_PENDING * 2];
+	int count = pending_reports(reports, MAXIMUM_PENDING * 2), index;
 
 	if (count > MAXIMUM_PENDING * 2)
 		count = MAXIMUM_PENDING * 2;
 	for (index = 0; index < count; index++)
-		delete_report(names[index]);
+		delete_report(&reports[index]);
 }
 
 /* a whole small file, NUL terminated, or NULL; free() it */
-static char *read_report(const char *name)
+static char *read_report(const struct pending_report *report)
 {
 	char path[PATH_SIZE + REPORT_NAME_SIZE];
 	char *data;
 	ssize_t length;
 	int file;
 
-	snprintf(path, sizeof(path), "%s/%s", crash_folder, name);
+	snprintf(path, sizeof(path), "%s/%s", report_folder(report->old), report->name);
 	file = open(path, O_RDONLY);
 	if (file < 0)
 		return NULL;
@@ -449,13 +479,13 @@ static char *read_report(const char *name)
 
 /* debug.txt's last bytes before its size at the crash, or NULL (a log that
 has been replaced since: shorter) */
-static char *read_log(long long log_size, size_t *size)
+static char *read_log(const char *log_path, long long log_size, size_t *size)
 {
 	long long start = log_size > LOG_READ ? log_size - LOG_READ : 0;
 	struct stat information;
 	char *data;
 	ssize_t length;
-	int file = log_size > 0 ? open(crash_log_path, O_RDONLY) : -1;
+	int file = log_size > 0 && *log_path ? open(log_path, O_RDONLY) : -1;
 
 	if (file < 0)
 		return NULL;
@@ -478,12 +508,13 @@ static char *read_log(long long log_size, size_t *size)
 }
 
 /* sends one report; 1 when it is done with (sent, or refused for good) */
-static int send_report(const char *name)
+static int send_report(const struct pending_report *pending)
 {
 #ifdef HALO_GAME_BROWSER
 	const char *base = config_string("network.browser_url");
 	size_t base_length = strlen(base), log_length = 0, length = 0;
-	char *report = read_report(name), *log = NULL, *body, *log_size;
+	const char *name = pending->name;
+	char *report = read_report(pending), *log = NULL, *body, *log_size;
 	char url[1024], answer[256], error[256];
 	int status;
 
@@ -499,7 +530,7 @@ static int send_report(const char *name)
 	}
 	snprintf(url, sizeof(url), "%.*s" CRASH_REPORT_PATH, (int)base_length, base);
 	if ((log_size = strstr(report, "\nlog_size ")) != NULL)
-		log = read_log(atoll(log_size + 10), &log_length);
+		log = read_log(pending->old ? old_crash_log_path : crash_log_path, atoll(log_size + 10), &log_length);
 	body = crash_report_body(report, log, log_length, NULL, 0, &length);
 	free(report);
 	free(log);
@@ -519,23 +550,23 @@ static int send_report(const char *name)
 	refusal would be the same the next time) */
 	return status >= 400 && status < 500 && status != 408 && status != 429;
 #else
-	(void)name;
+	(void)pending;
 	return 0;
 #endif
 }
 
 static void *send_thread(void *argument)
 {
-	char names[MAXIMUM_PENDING * 2][REPORT_NAME_SIZE];
-	int count = pending_reports(names, MAXIMUM_PENDING * 2), index;
+	struct pending_report reports[MAXIMUM_PENDING * 2];
+	int count = pending_reports(reports, MAXIMUM_PENDING * 2), index;
 
 	(void)argument;
 	if (count > MAXIMUM_PENDING * 2)
 		count = MAXIMUM_PENDING * 2;
 	for (index = 0; index < count; index++)
 	{
-		if (send_report(names[index]))
-			delete_report(names[index]);
+		if (send_report(&reports[index]))
+			delete_report(&reports[index]);
 	}
 	return NULL;
 }

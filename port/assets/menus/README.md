@@ -16,7 +16,7 @@ controller, the keyboard and the mouse, on every port.
 
 `tools/ce_menus.py` writes all of them from the PC version's tags and the
 redraws, but the settings screens (Controls Setup, Gamepads, Mouse, Audio,
-Video and Network Setup), which `tools/port_settings.py` writes in their
+Video and Network Setup, and Privacy), which `tools/port_settings.py` writes in their
 style with what this port has to set: config.toml's settings (a window or
 the full screen, the frame rate, the volumes, internet play, the
 multiplayer HUD), the profile's controller settings, and the keyboard and

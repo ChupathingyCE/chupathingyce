@@ -89,6 +89,7 @@ struct text_hires_glyph
 };
 
 long text_hires_font(char const *tag_name, float cap_height, float oversample);
+int text_hires_enabled(void);
 int text_hires_covers(long font, unsigned long code);
 int text_hires_glyph(long font, unsigned long code, struct text_hires_glyph *glyph);
 void text_hires_register_atlas(unsigned long const *texture, unsigned long width, unsigned long height);
@@ -802,7 +803,10 @@ static long hires_text_font_get(
 	short row;
 	long hires_font;
 
-	if (font_index == NONE)
+	/* (asked first, so that the fonts found while it was on are not drawn
+	once it is off, and none is kept as having no high-res font while it is
+	off: the setting can change while the game runs) */
+	if (font_index == NONE || !text_hires_enabled())
 		return NONE;
 	font = font_definition_get(font_index);
 	for (font_slot = 0; font_slot < MAXIMUM_HIRES_TEXT_FONTS; font_slot++)

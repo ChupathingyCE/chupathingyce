@@ -7,9 +7,17 @@ hands its stick, buttons and view swipes over JNI on the UI thread, and the
 game reads them through host imports when it reads port 0's controller
 (port/linux/src/touch_input.c). The game hands back what the overlay needs
 to know: whether a menu or a cinematic is up and the input.touch_controls
-setting (host_touch_scene), and how hard port 0 rumbles.
+setting (host_touch_scene), and how hard port 0 rumbles. It asks the
+activity for the system's gesture insets (host_gesture_insets).
+
+The native 64-bit build (tools/android64_build.py) links this file too: the
+game calls these functions directly there.
 */
 
+#include "host.h"
+
+#include <SDL3/SDL.h>
+#include <android/log.h>
 #include <jni.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -172,4 +180,50 @@ JNIEXPORT jint JNICALL Java_com_halo_decomp_TouchControls_nativeScene(JNIEnv *en
 	(void)env;
 	(void)cls;
 	return touch_scene;
+}
+
+/* asks the activity for Android's system gesture insets via JNI
+(HaloActivity.getSystemGestureInsetsPixels); the game calls it at every
+finger down because the insets change when the phone rotates; the method is
+found on the activity's own class because the game's native thread has the
+system's class loader, which does not know the app's classes; a change is
+logged so the log shows the value the game works with; all 0 on any failure
+(the touch controls then use the whole screen) */
+void host_gesture_insets(int *insets)
+{
+	static int logged[4] = { -1, -1, -1, -1 };
+	JNIEnv *env = (JNIEnv *)SDL_GetAndroidJNIEnv();
+	jobject activity = (jobject)SDL_GetAndroidActivity();
+	jint values[4] = { 0, 0, 0, 0 };
+	int index;
+
+	if (env && activity)
+	{
+		jclass activity_class = (*env)->GetObjectClass(env, activity);
+		jmethodID method = activity_class ? (*env)->GetMethodID(env, activity_class, "getSystemGestureInsetsPixels", "()[I") : NULL;
+		jintArray array = method ? (jintArray)(*env)->CallObjectMethod(env, activity, method) : NULL;
+
+		if (array && !(*env)->ExceptionCheck(env) && (*env)->GetArrayLength(env, array) == 4)
+			(*env)->GetIntArrayRegion(env, array, 0, 4, values);
+		/* a Java exception left pending would break the next JNI call of the
+		thread, and a failed read must leave zeros */
+		if ((*env)->ExceptionCheck(env))
+		{
+			(*env)->ExceptionClear(env);
+			for (index = 0; index < 4; index++)
+				values[index] = 0;
+		}
+		if (array)
+			(*env)->DeleteLocalRef(env, array);
+		if (activity_class)
+			(*env)->DeleteLocalRef(env, activity_class);
+		(*env)->DeleteLocalRef(env, activity);
+	}
+	for (index = 0; index < 4; index++)
+		insets[index] = (int)values[index];
+	if (memcmp(logged, insets, sizeof(logged)))
+	{
+		memcpy(logged, insets, sizeof(logged));
+		__android_log_print(ANDROID_LOG_INFO, HOST_LOG_TAG, "system gesture insets %d,%d,%d,%d", insets[0], insets[1], insets[2], insets[3]);
+	}
 }

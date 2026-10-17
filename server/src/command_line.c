@@ -26,6 +26,22 @@ static char lower(
 	return character >= 'A' && character <= 'Z' ? (char)(character - 'A' + 'a') : character;
 }
 
+/* the commands that take a reason, and which word it is: the line's last */
+static int reason_word(
+	const char *command)
+{
+	if (!strcmp(command, "sv_warn") || !strcmp(command, "sv_kick"))
+		return 2;
+	if (!strcmp(command, "sv_ban"))
+		return 3;
+	/* (a setting's value, and the welcome: a line of text, quoted or not) */
+	if (!strcmp(command, "sv_set"))
+		return 2;
+	if (!strcmp(command, "sv_welcome"))
+		return 1;
+	return 0;
+}
+
 static void set_error(
 	char *error,
 	int error_size,
@@ -45,6 +61,7 @@ int command_line_parse(
 {
 	int length;
 	int index;
+	int reason = 0;
 
 	line->count = 0;
 	set_error(error, error_size, "");
@@ -75,6 +92,8 @@ int command_line_parse(
 	{
 		char *word;
 		int word_length = 0;
+		int is_reason = reason && line->count == reason;
+		int word_size = is_reason ? COMMAND_LINE_REASON_SIZE : COMMAND_LINE_WORD_SIZE;
 
 		if (line->count >= COMMAND_LINE_MAXIMUM_WORDS)
 		{
@@ -101,13 +120,27 @@ int command_line_parse(
 					break;
 				if (character == '\\' && (text[index] == '"' || text[index] == '\\'))
 					character = text[index++];
-				if (word_length >= COMMAND_LINE_WORD_SIZE - 1)
+				if (word_length >= word_size - 1)
 				{
-					set_error(error, error_size, "a word is too long");
+					set_error(error, error_size, is_reason ? "the reason is too long (127 characters at most)" : "a word is too long");
 					line->count = 0;
 					return 0;
 				}
 				word[word_length++] = character;
+			}
+			/* (a reason in quotes is the whole rest of the line) */
+			if (is_reason)
+			{
+				int rest = index;
+
+				while (is_space(text[rest]))
+					rest++;
+				if (text[rest])
+				{
+					set_error(error, error_size, "a reason in quotes is followed by more of the line");
+					line->count = 0;
+					return 0;
+				}
 			}
 			/* (a closing quote ends the word: "a"b is not one) */
 			if (text[index] && !is_space(text[index]))
@@ -116,6 +149,23 @@ int command_line_parse(
 				line->count = 0;
 				return 0;
 			}
+		}
+		else if (is_reason)
+		{
+			/* (the rest of the line as it is, but its trailing spaces) */
+			int end = length;
+
+			while (end > index && is_space(text[end - 1]))
+				end--;
+			if (end - index > word_size - 1)
+			{
+				set_error(error, error_size, "the reason is too long (127 characters at most)");
+				line->count = 0;
+				return 0;
+			}
+			memcpy(word, text + index, (size_t)(end - index));
+			word_length = end - index;
+			index = length;
 		}
 		else
 		{
@@ -138,6 +188,8 @@ int command_line_parse(
 		}
 		word[word_length] = 0;
 		line->count++;
+		if (line->count == 1)
+			reason = reason_word(word);
 		while (is_space(text[index]))
 			index++;
 	}

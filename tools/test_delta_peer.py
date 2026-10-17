@@ -18,6 +18,7 @@ INCLUDE = ROOT / "port" / "linux" / "include"
 MONOCYPHER = ROOT / "port" / "third_party" / "monocypher"
 # (Monocypher checks the moderation messages' Ed25519 signatures)
 SESSIONS = [ROOT / "port" / "linux" / "src" / "delta_peer.c", ROOT / "port" / "linux" / "src" / "delta_wire.c",
+            ROOT / "port" / "linux" / "src" / "delta_chat.c", ROOT / "port" / "linux" / "src" / "delta_chat_words.c",
             MONOCYPHER / "monocypher.c", MONOCYPHER / "monocypher-ed25519.c"]
 TEST = ROOT / "port" / "linux" / "tests" / "delta_test.c"
 FUZZ = ROOT / "port" / "linux" / "tests" / "delta_fuzz.c"
@@ -134,3 +135,15 @@ def test_moderator_key_vector(tmp_path):
                              str(MONOCYPHER / "monocypher-ed25519.c"), "-o", str(binary)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert subprocess.run([str(binary)], capture_output=True, text=True).stdout == MODERATOR_VECTOR_PUBLIC
+
+
+def test_chat_words_match_blocked_names():
+    """the chat filter's built-in list (port/linux/src/delta_chat_words.c) is
+    server/blocked_names.txt's entries, in its order"""
+    import re
+
+    entries = [line.strip() for line in (ROOT / "server" / "blocked_names.txt").read_text().splitlines()
+               if line.strip() and not line.strip().startswith("#")]
+    source = (ROOT / "port" / "linux" / "src" / "delta_chat_words.c").read_text()
+    built = re.findall(r'^\t"(.*)\\n"', source, re.MULTILINE)
+    assert built == entries

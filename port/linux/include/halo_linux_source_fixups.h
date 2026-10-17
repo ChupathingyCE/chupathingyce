@@ -1,21 +1,11 @@
 /*
 HALO_LINUX_SOURCE_FIXUPS.H
 
-Game-only workarounds for source that MSVC accepts but clang rejects, where
-editing the source itself would change the byte-matched MSVC output (see
-port/linux/README.md for how each was checked).
+The port's functions that the game's sources call, declared for them.
 */
 
 #ifndef __HALO_LINUX_SOURCE_FIXUPS_H
 #define __HALO_LINUX_SOURCE_FIXUPS_H
-
-/* rasterizer.h declares rasterizer_debug_drawing_begin(boolean opaque) while
-rasterizer_xbox_debug.h declares a second `long zbias` parameter, and
-rasterizer_debug.c includes both and passes two arguments. MSVC tolerates
-the mismatch; the definition ignores zbias. Adding the parameter to
-rasterizer.h perturbs MSVC's register allocation elsewhere, so instead every
-declaration and call collapses to the one-parameter form here. */
-#define rasterizer_debug_drawing_begin(opaque, ...) (rasterizer_debug_drawing_begin)(opaque)
 
 /* frames between the 30 Hz ticks (port/linux/game/render_interpolation.c);
 the platform layer reads the display.interpolation setting */
@@ -54,6 +44,9 @@ void halo_vertex_shader_lighting(unsigned long handle);
 /* display.anti_aliasing's pass over a window's 3D view, before the HUD and
 menus (source/render/render.c): the window's bounds on the screen */
 void halo_screen_anti_alias(short x0, short y0, short x1, short y1);
+/* the loading screen's picture, RGBA bytes with its top row first, over the
+whole back buffer (port/linux/src/d3d8_gl.c, port/linux/game/loading_screen.c) */
+void halo_draw_picture(const unsigned char *rgba, long width, long height);
 /* the mouse in the menus (source/interface/ui_widget.c) */
 #include "halo_ui_pointer.h"
 

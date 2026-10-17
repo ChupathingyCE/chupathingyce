@@ -58,6 +58,16 @@ void platform_text_typing(int typing)
 	(void)typing;
 }
 
+void platform_chat_typing(int typing)
+{
+	(void)typing;
+}
+
+int platform_chat_escape(void)
+{
+	return 0;
+}
+
 void platform_text_field(int typing)
 {
 	(void)typing;
@@ -85,6 +95,19 @@ void halo_input_shown_name(const char *binding, char *shown, size_t size)
 unsigned long halo_keyboard_actions(short controller_index)
 {
 	(void)controller_index;
+	return 0;
+}
+
+int halo_keyboard_prompts(void)
+{
+	return 0;
+}
+
+int halo_keyboard_action_shown(int action, char *shown, unsigned long size)
+{
+	(void)action;
+	if (size)
+		shown[0] = 0;
 	return 0;
 }
 

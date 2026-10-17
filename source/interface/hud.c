@@ -108,7 +108,12 @@ symbols in this file:
 #include "tag_files/tag_files.h"
 #include "text/draw_string.h"
 #include "coop_spectate.h" /* port: port/linux/game/coop_spectate.c */
+#include "follow_camera.h" /* port: port/linux/game/follow_camera.c */
+#include "powerup_timers.h" /* port: port/linux/game/powerup_timers.c */
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#ifdef HALO_GAME_BROWSER
+#include "chat.h" /* port: port/linux/game/chat.c */
+#endif
 #include "text/font_group.h"
 #include "text/text_group.h"
 #include "units/unit_definitions.h"
@@ -1242,10 +1247,14 @@ static void temporary_hud_draw(
 	if (equipment_index != NONE)
 	{
 		struct object_datum *equipment = object_get(equipment_index);
-		sprintf(
+		/* port: snprintf, here and below, and the names' paths stripped as
+		the grenade's is (a map's tag's name may be any length, and need
+		not have a path) */
+		snprintf(
 			temporary,
+			sizeof(temporary),
 			"%s (press WHITE to use)|n",
-			strrchr(tag_get_name(equipment->definition_index), '\\') + 1);
+			tag_name_strip_path(tag_get_name(equipment->definition_index)));
 	}
 	else
 	{
@@ -1258,8 +1267,9 @@ static void temporary_hud_draw(
 			&scenario_get_game_globals()->grenades,
 			unit->unit.current_grenade_index,
 			struct game_globals_grenade);
-		sprintf(
+		snprintf(
 			temporary + csstrlen(temporary),
+			sizeof(temporary) - csstrlen(temporary),
 			"%d %s|n",
 			unit->unit.grenade_counts[unit->unit.current_grenade_index],
 			tag_name_strip_path(tag_get_name(grenade->projectile.index)));
@@ -1278,10 +1288,11 @@ static void temporary_hud_draw(
 					&weapon_definition->weapon.magazines,
 					0,
 					struct weapon_magazine_definition);
-			sprintf(
+			snprintf(
 				temporary + csstrlen(temporary),
+				sizeof(temporary) - csstrlen(temporary),
 				"%s|ntotal %d/%d|nloaded %d/%d|nheat %3.2f|nage %3.2f|n",
-				strrchr(tag_get_name(weapon->definition_index), '\\') + 1,
+				tag_name_strip_path(tag_get_name(weapon->definition_index)),
 				weapon->weapon.magazines[0].rounds_total,
 				magazine_definition->rounds_total_maximum,
 				weapon->weapon.magazines[0].rounds_loaded,
@@ -1291,14 +1302,16 @@ static void temporary_hud_draw(
 		}
 		else
 		{
-			sprintf(
+			snprintf(
 				temporary + csstrlen(temporary),
+				sizeof(temporary) - csstrlen(temporary),
 				"%s|n",
-				strrchr(tag_get_name(weapon->definition_index), '\\') + 1);
+				tag_name_strip_path(tag_get_name(weapon->definition_index)));
 		}
 
-		sprintf(
+		snprintf(
 			temporary + csstrlen(temporary),
+			sizeof(temporary) - csstrlen(temporary),
 			"%s%s",
 			(real)player->powerup_durations[_player_powerup_active_camouflage] > 0.0f
 				? "ACTIVE-CAMOUFLAGE "
@@ -1370,9 +1383,21 @@ void hud_draw_screen(
 		/* port: who a dead network co-op player is watching */
 		if (player->unit_index == NONE && coop_spectating() && !cinematic_in_progress())
 			coop_spectate_draw(render.local_player_index);
+		/* port: who a dead multiplayer player's camera follows */
+		if (player->unit_index == NONE && game_engine_running() && !cinematic_in_progress())
+			follow_camera_draw(render.local_player_index);
+		/* port: the seconds left on a living player's powerups
+		(display.powerup_timers, off by default) */
+		if (player->unit_index != NONE && hud_scripted_globals->show_hud && !cinematic_in_progress())
+			powerup_timers_draw(render.local_player_index);
 		/* port: the network co-op vote to skip a cinematic */
 		if (cinematic_in_progress())
 			coop_skip_vote_draw(render.local_player_index);
+#ifdef HALO_GAME_BROWSER
+		/* port: text chat's lines (port/linux/game/chat.c) */
+		if (!cinematic_in_progress())
+			chat_draw(render.local_player_index);
+#endif
 
 		if (!game_time_get_paused() &&
 			render.local_player_index == local_player_get_next(NONE))

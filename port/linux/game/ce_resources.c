@@ -182,7 +182,10 @@ static boolean ce_resource_map_open(
 	map_family_resource(ce_resource_map_names[type], path, sizeof(path));
 	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
 	if (file == INVALID_HANDLE_VALUE)
+	{
+		ce_refusal_explain("It needs Custom Edition's %s.map: copy it into maps_ce.", ce_resource_map_names[type]);
 		return ce_refuse("there is no %s", path);
+	}
 	file_size = GetFileSize(file, &file_size_high);
 	/* (its type, its paths before its resources' table, the table in the
 	file) */
@@ -932,7 +935,10 @@ static boolean ce_resources_place(
 				resource->offset, ce_resource_map_names[type]);
 		}
 		if (next > end_free || resource->size > end_free - next)
+		{
+			ce_refusal_explain("It is too big for the game's tag cache.");
 			return ce_refuse("there is no room in the tag cache for %s's resource", name);
+		}
 		copy = image->data + (next - image->base);
 		if (!ce_read(map->file, resource->offset, copy, resource->size))
 			return ce_refuse("%s's resource could not be read", name);
@@ -1234,6 +1240,14 @@ static boolean ce_sound_compression_repair(
 	return TRUE;
 }
 
+/* a permutation decoded, before it is changed to read its samples from them */
+struct ce_decoded_permutation
+{
+	byte *permutation;
+	unsigned long offset;
+	unsigned long size;
+};
+
 /* Halo PC's Ogg Vorbis sounds made the engine's 16-bit PCM ones (which it
 plays on PCM channels: sound_preferences.c), those whose samples are in
 sounds.map and those whose samples are in the map itself (kokiriforest's and
@@ -1256,6 +1270,9 @@ static void ce_sounds_decode(
 	unsigned long written = 0;
 	long sounds = 0, in_map = 0, permutations_decoded = 0, repaired = 0;
 	long index;
+	/* (a sound's decoded permutations, changed once all of them are) */
+	struct ce_decoded_permutation *decoded = NULL;
+	unsigned long decoded_count, decoded_capacity = 0;
 
 	if (ce_decoded_sounds_file)
 	{
@@ -1273,6 +1290,7 @@ static void ce_sounds_decode(
 		byte *sound;
 		HANDLE source;
 		unsigned long pitch_range_count, pitch_ranges, pitch_range;
+		unsigned long sound_start, decoded_index;
 		short encoding, sample_rate;
 		boolean all = TRUE;
 
@@ -1324,14 +1342,21 @@ static void ce_sounds_decode(
 		sample_rate = *(short *)(sound + CE_SOUND_SAMPLE_RATE_OFFSET);
 		pitch_range_count = *(unsigned long *)(sound + CE_SOUND_PITCH_RANGES_OFFSET);
 		pitch_ranges = *(unsigned long *)(sound + CE_SOUND_PITCH_RANGES_OFFSET + 4);
-		for (pitch_range = 0; pitch_range < pitch_range_count; pitch_range++)
+		/* (all or nothing: every permutation is decoded and written before
+		any is changed. A sound read from the decoded file with a permutation
+		left pointing into its own file, or the other way about, would play
+		the wrong samples. If one cannot be, the sound is left as it was and
+		what was written of it is written over by the next) */
+		decoded_count = 0;
+		sound_start = written;
+		for (pitch_range = 0; all && pitch_range < pitch_range_count; pitch_range++)
 		{
 			byte *range = (byte *)xbox_pointer(pitch_ranges) + pitch_range * CE_SOUND_PITCH_RANGE_SIZE;
 			unsigned long permutation_count = *(unsigned long *)(range + CE_PITCH_RANGE_PERMUTATIONS_OFFSET);
 			unsigned long permutations = *(unsigned long *)(range + CE_PITCH_RANGE_PERMUTATIONS_OFFSET + 4);
 			unsigned long permutation;
 
-			for (permutation = 0; permutation < permutation_count; permutation++)
+			for (permutation = 0; all && permutation < permutation_count; permutation++)
 			{
 				byte *at = (byte *)xbox_pointer(permutations) + permutation * CE_SOUND_PERMUTATION_SIZE;
 				long size = *(long *)(at + CE_PERMUTATION_SAMPLES_OFFSET);
@@ -1341,8 +1366,30 @@ static void ce_sounds_decode(
 				int channels = 0, rate = 0, frames;
 				unsigned long bytes, bytes_written = 0;
 
-				if (*(short *)(at + CE_PERMUTATION_COMPRESSION_OFFSET) != CE_SOUND_COMPRESSION_OGG || size <= 0)
+				if (size <= 0)
 					continue;
+				/* (another compression's samples stay in the sound's own file,
+				which a decoded sound is no longer read from) */
+				if (*(short *)(at + CE_PERMUTATION_COMPRESSION_OFFSET) != CE_SOUND_COMPRESSION_OGG)
+				{
+					error(_error_silent, "Custom Edition maps: %s: an Ogg Vorbis sound with a permutation of "
+						"another compression; left as it was", (char const *)xbox_pointer(instance->name));
+					all = FALSE;
+					break;
+				}
+				if (decoded_count == decoded_capacity)
+				{
+					unsigned long capacity = decoded_capacity ? decoded_capacity * 2 : 64;
+					struct ce_decoded_permutation *grown = realloc(decoded, capacity * sizeof(*decoded));
+
+					if (!grown)
+					{
+						all = FALSE;
+						break;
+					}
+					decoded = grown;
+					decoded_capacity = capacity;
+				}
 				data = malloc((size_t)size);
 				frames = data && ce_read(source, offset, data, (unsigned long)size) ?
 					ce_vorbis_decode(data, size, &channels, &rate, &samples) : -1;
@@ -1356,7 +1403,7 @@ static void ce_sounds_decode(
 						(char const *)xbox_pointer(instance->name), channels, rate);
 					ce_vorbis_free(samples);
 					all = FALSE;
-					continue;
+					break;
 				}
 				bytes = (unsigned long)frames * (unsigned long)channels * sizeof(short);
 				if (bytes > CE_MAXIMUM_DECODED_SOUNDS_SIZE - written ||
@@ -1365,26 +1412,44 @@ static void ce_sounds_decode(
 				{
 					ce_vorbis_free(samples);
 					all = FALSE;
-					continue;
+					break;
 				}
 				ce_vorbis_free(samples);
-				*(long *)(at + CE_PERMUTATION_SAMPLES_OFFSET) = (long)bytes;
-				*(unsigned long *)(at + CE_PERMUTATION_SAMPLES_OFFSET + 8) = written;
-				*(unsigned long *)(at + 0x38) = bytes;
-				*(short *)(at + CE_PERMUTATION_COMPRESSION_OFFSET) = CE_SOUND_COMPRESSION_NONE;
+				decoded[decoded_count].permutation = at;
+				decoded[decoded_count].offset = written;
+				decoded[decoded_count].size = bytes;
+				decoded_count++;
 				written += bytes;
-				permutations_decoded++;
 			}
 		}
-		if (all)
+		if (!all)
 		{
-			*(short *)(sound + CE_SOUND_COMPRESSION_OFFSET) = CE_SOUND_COMPRESSION_NONE;
-			ce_indexed_tags[index] = CE_DECODED_SOUND;
-			sounds++;
-			if (source == map_file)
-				in_map++;
+			written = sound_start;
+			if (SetFilePointer(file, (long)written, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER)
+			{
+				error(_error_silent, "Custom Edition maps: cannot seek %s; no more Ogg Vorbis sounds decoded",
+					path);
+				break;
+			}
+			continue;
 		}
+		for (decoded_index = 0; decoded_index < decoded_count; decoded_index++)
+		{
+			byte *at = decoded[decoded_index].permutation;
+
+			*(long *)(at + CE_PERMUTATION_SAMPLES_OFFSET) = (long)decoded[decoded_index].size;
+			*(unsigned long *)(at + CE_PERMUTATION_SAMPLES_OFFSET + 8) = decoded[decoded_index].offset;
+			*(unsigned long *)(at + 0x38) = decoded[decoded_index].size;
+			*(short *)(at + CE_PERMUTATION_COMPRESSION_OFFSET) = CE_SOUND_COMPRESSION_NONE;
+		}
+		permutations_decoded += (long)decoded_count;
+		*(short *)(sound + CE_SOUND_COMPRESSION_OFFSET) = CE_SOUND_COMPRESSION_NONE;
+		ce_indexed_tags[index] = CE_DECODED_SOUND;
+		sounds++;
+		if (source == map_file)
+			in_map++;
 	}
+	free(decoded);
 	ce_decoded_sounds_file = file;
 	error(_error_silent, "Custom Edition maps: %ld Ogg Vorbis sounds decoded, %ld of them the map's (%ld permutations, "
 		"%lu bytes); %ld sounds given their permutations' compression", sounds, in_map, permutations_decoded, written,

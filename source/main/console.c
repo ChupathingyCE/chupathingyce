@@ -448,6 +448,7 @@ boolean console_update(
 			switch (key->key_code)
 			{
 			case _key_backquote:
+			case _key_escape: /* port: as Halo PC's console */
 				console_close();
 				break;
 			case _key_return:

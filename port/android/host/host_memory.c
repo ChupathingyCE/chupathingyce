@@ -33,6 +33,7 @@ passed on to the previous handler.
 #include <sys/mman.h>
 #include <sys/prctl.h>
 #include <sys/system_properties.h>
+#include <sys/utsname.h>
 #include <ucontext.h>
 #include <unistd.h>
 
@@ -124,6 +125,12 @@ only a slice with no page in use (present or swapped out): ART's other
 spaces (its heap, bitmaps and card tables) are live, and unmapping them
 would corrupt it where failing to start is at least clear. */
 #define ART_LARGE_OBJECT_SPACE "[anon:dalvik-free list large object space]"
+/* Older ART (Android 9) backs its named spaces with ashmem instead: the same
+space then shows as this file, with " (deleted)" after it. Its pages belong
+to the ashmem file, and the zygote's objects there need not be mapped in
+this process's page table yet, so pagemap cannot tell them: mincore, which
+reads the file's pages, decides (range_usage) */
+#define ART_LARGE_OBJECT_SPACE_ASHMEM "/dev/ashmem/dalvik-free list large object space"
 
 /* what range_usage found */
 enum
@@ -166,13 +173,18 @@ static void note_in_use(struct range_usage *usage, uint64_t address)
 	usage->highest_in_use = address;
 }
 
+/* debug.halo.art_overlap's -nopagemap (simulate_art_overlap) */
+static int simulated_no_pagemap;
+
 /* from /proc/self/pagemap: bit 63 present, bit 62 swapped out */
 static int range_usage_pagemap(uint64_t from, uint64_t to, struct range_usage *usage)
 {
-	int descriptor = open("/proc/self/pagemap", O_RDONLY | O_CLOEXEC);
+	int descriptor = simulated_no_pagemap ? -1 : open("/proc/self/pagemap", O_RDONLY | O_CLOEXEC);
 	uint64_t entries[512];
 	uint64_t page = from / PAGE;
 
+	if (simulated_no_pagemap)
+		errno = EACCES;
 	if (descriptor < 0)
 	{
 		finding(HOST_LOG_WARN, "cannot read /proc/self/pagemap (%s)", strerror(errno));
@@ -209,14 +221,17 @@ static int range_usage_pagemap(uint64_t from, uint64_t to, struct range_usage *u
 
 /* the Swap: line of the /proc/self/smaps entry starting at start, in kB; -1
 if it cannot be read (or no entry starts there); with end, the entry must
-also end there */
-static long mapping_swap_kb_ending(uint64_t start, uint64_t end)
+also end there. dont_dump, if not NULL, tells whether its VmFlags have dd
+(MADV_DONTDUMP). */
+static long mapping_swap_kb_ending(uint64_t start, uint64_t end, int *dont_dump)
 {
 	FILE *smaps = fopen("/proc/self/smaps", "r");
 	char line[512];
 	int inside = 0;
 	long result = -1;
 
+	if (dont_dump)
+		*dont_dump = 0;
 	if (!smaps)
 		return -1;
 	while (fgets(line, sizeof(line), smaps))
@@ -231,11 +246,12 @@ static long mapping_swap_kb_ending(uint64_t start, uint64_t end)
 			inside = lo == start && (!end || hi == end);
 			continue;
 		}
-		if (inside && sscanf(line, "Swap: %ld kB", &kb) == 1)
-		{
+		if (!inside)
+			continue;
+		if (sscanf(line, "Swap: %ld kB", &kb) == 1)
 			result = kb;
-			break;
-		}
+		else if (dont_dump && !strncmp(line, "VmFlags:", 8))
+			*dont_dump = strstr(line, " dd") != NULL;
 	}
 	fclose(smaps);
 	return result;
@@ -243,22 +259,45 @@ static long mapping_swap_kb_ending(uint64_t start, uint64_t end)
 
 static long mapping_swap_kb(uint64_t start)
 {
-	return mapping_swap_kb_ending(start, 0);
+	return mapping_swap_kb_ending(start, 0, NULL);
 }
 
-/* whether any of from..to is swapped out, when the mapping holding it has
-swap somewhere: smaps counts swap per mapping, so the range is made a
-mapping of its own for a moment (MADV_DONTDUMP splits it off and changes
-nothing about its pages: neither ART nor the game ever dumps core), read,
-and merged back (MADV_DODUMP). -1 if that cannot be done */
-static long range_swap_kb(uint64_t from, uint64_t to)
+/* whether any of from..to (in the mapping starting at mapping_start) is
+swapped out, when that mapping has swap somewhere: smaps counts swap per
+mapping, so the range is made a mapping of its own for a moment
+(MADV_DONTDUMP splits it off and changes nothing about its pages: neither
+ART nor the game ever dumps core), read, and merged back (MADV_DODUMP). Not
+for a mapping already marked so (the restore would then change it). -1 if
+that cannot be done */
+static long range_swap_kb(uint64_t mapping_start, uint64_t from, uint64_t to)
 {
+	int dont_dump;
 	long kb;
 
-	if (madvise((void *)from, (size_t)(to - from), MADV_DONTDUMP) != 0)
+	if (mapping_swap_kb_ending(mapping_start, 0, &dont_dump) < 0)
+	{
+		finding(HOST_LOG_WARN, "cannot read the smaps entry of ART's large object space at %08llx",
+			(unsigned long long)mapping_start);
 		return -1;
-	kb = mapping_swap_kb_ending(from, to);
+	}
+	if (dont_dump)
+	{
+		finding(HOST_LOG_WARN, "ART's large object space at %08llx is marked not to be dumped; "
+			"the swap of %08llx-%08llx cannot be read on its own", (unsigned long long)mapping_start,
+			(unsigned long long)from, (unsigned long long)to);
+		return -1;
+	}
+	if (madvise((void *)from, (size_t)(to - from), MADV_DONTDUMP) != 0)
+	{
+		finding(HOST_LOG_WARN, "cannot split %08llx-%08llx off ART's large object space (%s)",
+			(unsigned long long)from, (unsigned long long)to, strerror(errno));
+		return -1;
+	}
+	kb = mapping_swap_kb_ending(from, to, NULL);
 	madvise((void *)from, (size_t)(to - from), MADV_DODUMP);
+	if (kb < 0)
+		finding(HOST_LOG_WARN, "no smaps entry for %08llx-%08llx once split off", (unsigned long long)from,
+			(unsigned long long)to);
 	return kb;
 }
 
@@ -272,25 +311,30 @@ static int range_usage_mincore(uint64_t mapping_start, uint64_t from, uint64_t t
 	long swapped = mapping_swap_kb(mapping_start);
 
 	usage->method = "mincore";
+	if (swapped < 0)
+	{
+		finding(HOST_LOG_WARN, "cannot read the smaps entry of ART's large object space at %08llx",
+			(unsigned long long)mapping_start);
+		return RANGE_UNKNOWN;
+	}
 	if (swapped > 0)
 	{
 		/* (swap somewhere in the space: only the range's own matters) */
-		long range_swapped = range_swap_kb(from, to);
+		long range_swapped = range_swap_kb(mapping_start, from, to);
 
-		if (range_swapped == 0)
+		if (range_swapped < 0)
+			return RANGE_UNKNOWN;
+		if (range_swapped > 0)
 		{
-			finding(HOST_LOG_INFO, "ART's large object space at %08llx: %ld kB of it swapped out, none of %08llx-%08llx",
-				(unsigned long long)mapping_start, swapped, (unsigned long long)from, (unsigned long long)to);
-			swapped = 0;
+			/* (objects there, swapped out: which pages smaps does not say) */
+			usage->method = "the range's swap in smaps";
+			usage->pages_in_use = (uint64_t)range_swapped * 1024 / PAGE;
+			usage->lowest_in_use = from;
+			usage->highest_in_use = to - PAGE;
+			return RANGE_IN_USE;
 		}
-		else
-			swapped = range_swapped;
-	}
-	if (swapped != 0)
-	{
-		finding(HOST_LOG_WARN, "ART's large object space at %08llx: %s", (unsigned long long)mapping_start,
-			swapped < 0 ? "cannot read its smaps entry" : "part of the range is swapped out");
-		return RANGE_UNKNOWN;
+		finding(HOST_LOG_INFO, "ART's large object space at %08llx: %ld kB of it swapped out, none of %08llx-%08llx",
+			(unsigned long long)mapping_start, swapped, (unsigned long long)from, (unsigned long long)to);
 	}
 	while (address < to)
 	{
@@ -316,12 +360,13 @@ static int range_usage_mincore(uint64_t mapping_start, uint64_t from, uint64_t t
 
 /* whether any page from..to (page aligned) of the mapping starting at
 mapping_start holds data */
-static int range_usage(uint64_t mapping_start, uint64_t from, uint64_t to, struct range_usage *usage)
+static int range_usage(uint64_t mapping_start, uint64_t from, uint64_t to, int file_backed, struct range_usage *usage)
 {
-	int result;
+	int result = RANGE_UNKNOWN;
 
 	memset(usage, 0, sizeof(*usage));
-	result = range_usage_pagemap(from, to, usage);
+	if (!file_backed)
+		result = range_usage_pagemap(from, to, usage);
 	if (result == RANGE_UNKNOWN)
 	{
 		memset(usage, 0, sizeof(*usage));
@@ -344,7 +389,7 @@ static int reclaim_art_overlap(uint64_t address, uint64_t size)
 		uint64_t from, to;
 		struct range_usage usage;
 		char *name;
-		int name_offset = 0;
+		int name_offset = 0, file_backed;
 
 		if (sscanf(line, "%llx-%llx %*s %*s %*s %*s %n", &lo, &hi, &name_offset) < 2 || !name_offset)
 			continue;
@@ -354,13 +399,15 @@ static int reclaim_art_overlap(uint64_t address, uint64_t size)
 		name[strcspn(name, "\n")] = '\0';
 		from = lo > address ? lo : address;
 		to = hi < address + size ? hi : address + size;
-		if (strcmp(name, ART_LARGE_OBJECT_SPACE))
+		file_backed = !strncmp(name, ART_LARGE_OBJECT_SPACE_ASHMEM, strlen(ART_LARGE_OBJECT_SPACE_ASHMEM)) &&
+			(!name[strlen(ART_LARGE_OBJECT_SPACE_ASHMEM)] || !strcmp(name + strlen(ART_LARGE_OBJECT_SPACE_ASHMEM), " (deleted)"));
+		if (strcmp(name, ART_LARGE_OBJECT_SPACE) && !file_backed)
 		{
 			finding(HOST_LOG_ERROR, "a fixed guest range is overlapped by %08llx-%08llx (%s), which is not ART's large object space; left alone",
 				lo, hi, name[0] ? name : "unnamed");
 			continue;
 		}
-		switch (range_usage(lo, from, to, &usage))
+		switch (range_usage(lo, from, to, file_backed, &usage))
 		{
 		case RANGE_IN_USE:
 			finding(HOST_LOG_ERROR,
@@ -400,10 +447,14 @@ static int reserve(uint64_t address, uint64_t size, int reclaim_art)
 		return 0;
 	if (result != MAP_FAILED)
 	{
-		/* (a kernel older than 4.17 takes MAP_FIXED_NOREPLACE as a hint) */
+		/* (a kernel older than 4.17 takes MAP_FIXED_NOREPLACE as a hint,
+		and maps elsewhere when something is in the way) */
+		if (reclaim_art)
+			finding(HOST_LOG_INFO, "%08llx-%08llx is taken; the kernel mapped %p instead (MAP_FIXED_NOREPLACE "
+				"taken as a hint, kernel older than 4.17)", (unsigned long long)address,
+				(unsigned long long)(address + size), result);
 		munmap(result, size);
 		errno = EEXIST;
-		return -1;
 	}
 	if (reclaim_art && errno == EEXIST)
 	{
@@ -435,16 +486,21 @@ void host_memory_report_low_mappings(FILE *file)
 {
 	FILE *maps = fopen("/proc/self/maps", "r");
 	char line[512];
-
 	char model[PROP_VALUE_MAX] = "", heap[PROP_VALUE_MAX] = "", release[PROP_VALUE_MAX] = "";
 
 	__system_property_get("ro.product.model", model);
 	__system_property_get("dalvik.vm.heapsize", heap);
+	struct utsname kernel;
+
 	__system_property_get("ro.build.version.release", release);
+	if (uname(&kernel) != 0)
+		strcpy(kernel.release, "unknown");
+	host_logf(HOST_LOG_INFO, "device: %s, Android %s, kernel %s, Java heap %s", model[0] ? model : "unknown",
+		release[0] ? release : "unknown", kernel.release, heap[0] ? heap : "unknown");
 	if (file)
 	{
-		fprintf(file, "device: %s, Android %s, Java heap %s\n", model[0] ? model : "unknown",
-			release[0] ? release : "unknown", heap[0] ? heap : "unknown");
+		fprintf(file, "device: %s, Android %s, kernel %s, Java heap %s\n", model[0] ? model : "unknown",
+			release[0] ? release : "unknown", kernel.release, heap[0] ? heap : "unknown");
 		fprintf(file, "why:\n%s\nmappings below 4 GB:\n", findings[0] ? findings : "(no reason recorded)\n");
 	}
 	if (!maps)
@@ -505,10 +561,15 @@ image (HALO_GUEST_IMAGE_RESERVE), reserved as early as the process allows
 static int fixed_reserved;
 static int fixed_error;
 
-static int reserve_fixed(void)
+/* when: the attempt, as the report names it (the reasons below it are
+those of that attempt) */
+static int reserve_fixed(const char *when)
 {
+	size_t used = strlen(findings);
+
 	if (fixed_reserved)
 		return 0;
+	snprintf(findings + used, sizeof(findings) - used, "%s:\n", when);
 	if (reserve(HALO_GUEST_WINDOW_BASE, HALO_GUEST_WINDOW_SIZE, 1) != 0)
 	{
 		fixed_error = errno;
@@ -552,7 +613,15 @@ int host_memory_fixed_unavailable(void)
 debug.halo.art_overlap set (adb shell setprop debug.halo.art_overlap idle,
 or busy), a mapping named as ART's large object space is put over the fixed
 ranges first, idle, or with a page in use inside the window, the way ART's
-is on the devices that need the reclaim. Players never set it. */
+is on the devices that need the reclaim. Players never set it.
+
+Either may be followed by -nopagemap, for devices that refuse
+/proc/self/pagemap (the check then falls back to mincore and smaps), and
+by -swapped, which pushes the stand-in's objects (its bottom pages, and the
+window's page if busy) out to swap, as they can be on those devices. */
+#ifndef MADV_PAGEOUT
+#define MADV_PAGEOUT 21
+#endif
 #define PR_SET_VMA_ 0x53564d41
 #define PR_SET_VMA_ANON_NAME_ 0
 #define SIMULATED_SPACE_BASE 0x7c000000ULL
@@ -561,10 +630,13 @@ is on the devices that need the reclaim. Players never set it. */
 static void simulate_art_overlap(void)
 {
 	char value[PROP_VALUE_MAX] = "";
+	char *window_page = (char *)(uintptr_t)HALO_GUEST_WINDOW_BASE + 0x100000;
+	int busy;
 	void *space;
 
-	if (__system_property_get("debug.halo.art_overlap", value) <= 0 || (strcmp(value, "idle") && strcmp(value, "busy")))
+	if (__system_property_get("debug.halo.art_overlap", value) <= 0 || (strncmp(value, "idle", 4) && strncmp(value, "busy", 4)))
 		return;
+	busy = !strncmp(value, "busy", 4);
 	space = mmap((void *)SIMULATED_SPACE_BASE, SIMULATED_SPACE_SIZE, PROT_READ | PROT_WRITE,
 		MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED_NOREPLACE, -1, 0);
 	if (space != (void *)SIMULATED_SPACE_BASE)
@@ -578,16 +650,23 @@ static void simulate_art_overlap(void)
 	prctl(PR_SET_VMA_, PR_SET_VMA_ANON_NAME_, space, SIMULATED_SPACE_SIZE, "dalvik-free list large object space");
 	/* objects at its bottom, as ART allocates them */
 	memset(space, 0x5a, 4 * PAGE);
-	if (!strcmp(value, "busy"))
-		memset((char *)(uintptr_t)HALO_GUEST_WINDOW_BASE + 0x100000, 0x5a, PAGE);
-	host_logf(HOST_LOG_WARN, "debug.halo.art_overlap=%s: a stand-in for ART's large object space at %08llx-%08llx",
-		value, SIMULATED_SPACE_BASE, SIMULATED_SPACE_BASE + SIMULATED_SPACE_SIZE);
+	if (busy)
+		memset(window_page, 0x5a, PAGE);
+	if (strstr(value, "-swapped"))
+	{
+		if (madvise(space, 4 * PAGE, MADV_PAGEOUT) != 0 || (busy && madvise(window_page, PAGE, MADV_PAGEOUT) != 0))
+			host_logf(HOST_LOG_WARN, "debug.halo.art_overlap: cannot page out the stand-in (%s)", strerror(errno));
+	}
+	simulated_no_pagemap = strstr(value, "-nopagemap") != NULL;
+	host_logf(HOST_LOG_WARN, "debug.halo.art_overlap=%s: a stand-in for ART's large object space at %08llx-%08llx "
+		"(%ld kB of it swapped out)", value, SIMULATED_SPACE_BASE, SIMULATED_SPACE_BASE + SIMULATED_SPACE_SIZE,
+		mapping_swap_kb(SIMULATED_SPACE_BASE));
 }
 
 void host_memory_reserve_early(void)
 {
 	simulate_art_overlap();
-	if (reserve_fixed() == 0)
+	if (reserve_fixed("at start-up (JNI_OnLoad)") == 0)
 		host_logf(HOST_LOG_INFO, "reserved the Xbox memory window and the image range at start-up");
 }
 
@@ -598,7 +677,7 @@ int host_memory_initialize(uint32_t base, uint32_t size)
 		host_logf(HOST_LOG_ERROR, "the guest image (%08x, %u bytes) does not fit its range", base, size);
 		return -1;
 	}
-	if (reserve_fixed() != 0)
+	if (reserve_fixed("when the image loaded") != 0)
 	{
 		errno = fixed_error;
 		return -1;

@@ -55,16 +55,17 @@ pages are taken only as the game writes them (xbox_memory.c), so a map
 that fills a fraction of the cache takes no more. Nothing of the cache's
 size reaches the network or the game state.
 
-Android's window stays the development kit's 128 MB (its guest image is
-linked just above it), 82 MB of it above the game state. Besides the
+Android's guest build keeps the development kit's 128 MB window (its
+guest image is linked just above it), 82 MB of it above the game state. Besides the
 texture cache, Portent and Foundation take about 23 MB of that in a game
 (the sound cache and Direct3D's resources), so Android's cache is twice
 the Xbox's, 44 MB, and leaves about 15 MB free: Portent's busiest frames
 fit, Foundation's (66 MB) do not, and some of its surfaces can show the
-wrong pixels there. The Xbox builds (HALO_XBOX_CONSOLE) keep the Xbox's
-cache. */
+wrong pixels there. The native 64-bit Android build has no guest image
+and the desktop's window and cache. The Xbox builds (HALO_XBOX_CONSOLE)
+keep the Xbox's cache. */
 
-#if defined(HALO_ANDROID)
+#if defined(HALO_ANDROID) && !defined(HALO_64BIT)
 #define HALO_PORT_TEXTURE_CACHE_SIZE 0x2C00000 /* (0x1600000) */
 #elif !defined(HALO_XBOX_CONSOLE)
 #define HALO_PORT_TEXTURE_CACHE_SIZE 0x10000000 /* (0x1600000) */
@@ -83,14 +84,38 @@ for those maps raise it to 32767 surfaces with a 65536-triangle buffer).
 The desktop builds draw up to 32767 (the count is a short), with twice the
 dynamic triangles, so the BSP's do not leave the rest of a frame's draws
 none. Only what is drawn changes: nothing reaches the network or the game
-state. Android and the Xbox builds keep the Xbox's. */
+state. Android's guest build and the Xbox builds keep the Xbox's. */
 
-#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
+#if !(defined(HALO_ANDROID) && !defined(HALO_64BIT)) && !defined(HALO_XBOX_CONSOLE)
 #define HALO_PORT_MAXIMUM_RENDERED_ENVIRONMENT_SURFACES 32767 /* (16384) */
 #define HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES 65536 /* (32768) */
 #else
 #define HALO_PORT_MAXIMUM_RENDERED_ENVIRONMENT_SURFACES 16384 /* (16384) */
 #define HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES 32768 /* (32768) */
+#endif
+
+/* ---------- transparent geometry, particles and lights a frame draws
+
+What one view draws in a frame, past which the rest is not drawn: its
+transparent geometry groups (each a projectile's or an effect's transparent
+model, glow, light volume or run of particles: a busy multiplayer fight
+spends the Xbox's 384, and plasma bolts, the plasma pistol's charge glow
+and the rest stop drawing), the runs of particles that share a definition,
+and the dynamic lights (an assault rifle's flashlight, each plasma bolt's
+light) found in the clusters it sees. The desktop builds draw several
+times as many. Only what is drawn changes: these are rebuilt every frame,
+outside the game state, and nothing of them reaches the network, so
+machines with other limits still play the same game. Android's guest build
+and the Xbox builds keep the Xbox's. */
+
+#if !(defined(HALO_ANDROID) && !defined(HALO_64BIT)) && !defined(HALO_XBOX_CONSOLE)
+#define HALO_PORT_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS 2048 /* (384) */
+#define HALO_PORT_MAXIMUM_RENDERED_PARTICLE_GROUPS 2048 /* (512) */
+#define HALO_PORT_MAXIMUM_RENDERED_LIGHTS 512 /* (128) */
+#else
+#define HALO_PORT_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS 384 /* (384) */
+#define HALO_PORT_MAXIMUM_RENDERED_PARTICLE_GROUPS 512 /* (512) */
+#define HALO_PORT_MAXIMUM_RENDERED_LIGHTS 128 /* (128) */
 #endif
 
 /* ---------- AI

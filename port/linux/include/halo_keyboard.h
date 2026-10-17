@@ -34,6 +34,11 @@ enum halo_keyboard_action
 	read from it) */
 	HALO_KEYBOARD_SCOREBOARD,
 	HALO_KEYBOARD_PAUSE,
+	/* text chat's (port/linux/game/chat.c reads them; the game does not):
+	a line to everyone, to the team, and the recent lines */
+	HALO_KEYBOARD_CHAT_ALL,
+	HALO_KEYBOARD_CHAT_TEAM,
+	HALO_KEYBOARD_CHAT_LOG,
 	NUMBER_OF_HALO_KEYBOARD_ACTIONS
 };
 
@@ -41,5 +46,21 @@ enum halo_keyboard_action
 (a bit for each halo_keyboard_action): theirs is the first's; none while a
 menu or the console is up */
 unsigned long halo_keyboard_actions(short controller_index);
+
+/* the game's button prompts show the keyboard's keys, not the
+controller's buttons (input.keyboard_prompts, the keyboard or mouse used
+last), and the key of an action as the menus name it ("E", "Space", "Mouse
+Left"): 0 for one with none (xinput_sdl.c) */
+int halo_keyboard_prompts(void);
+int halo_keyboard_action_shown(int action, char *shown, unsigned long size);
+
+/* text chat's line is being typed, or its log is open (chat.c): the
+keyboard's keys go to it alone, as with the console (none drives the
+player or the menus) */
+void platform_chat_typing(int typing);
+
+/* escape was pressed while text chat's line or log was up (once for each
+press): it closes them even if its keystroke never reaches the chat */
+int platform_chat_escape(void);
 
 #endif

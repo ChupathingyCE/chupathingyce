@@ -120,13 +120,31 @@ static int update_signature_parse(const char *text, size_t length, unsigned char
 	return 1;
 }
 
+/* whether signature is one of message's by one of the build's keys */
+static int update_signature_by_key(const unsigned char *signature, const unsigned char *message, size_t length,
+	char *error, size_t error_size)
+{
+	size_t index;
+
+	for (index = 0; index < UPDATE_KEY_COUNT; index++)
+	{
+		/* (Monocypher's check turns away an S past the group's order) */
+		if (update_key_set(update_public_keys[index]) &&
+			crypto_ed25519_check(signature, update_public_keys[index], message, length) == 0)
+		{
+			return 1;
+		}
+	}
+	snprintf(error, error_size, "its signature does not match ChupathingyCE's release key");
+	return 0;
+}
+
 int update_signature_check(const unsigned char *zip, size_t zip_size, const char *asset, const char *version,
 	const char *signature_text, size_t signature_length, char *error, size_t error_size)
 {
 	unsigned char signature[UPDATE_SIGNATURE_SIZE];
 	char message[512];
 	int message_length;
-	size_t index;
 
 	if (!signature_text || !update_signature_parse(signature_text, signature_length, signature))
 	{
@@ -139,16 +157,19 @@ int update_signature_check(const unsigned char *zip, size_t zip_size, const char
 		snprintf(error, error_size, "its name or version is not one");
 		return 0;
 	}
-	for (index = 0; index < UPDATE_KEY_COUNT; index++)
+	return update_signature_by_key(signature, (const unsigned char *)message, (size_t)message_length, error,
+		error_size);
+}
+
+int update_signature_check_document(const unsigned char *document, size_t size, const char *signature_text,
+	size_t signature_length, char *error, size_t error_size)
+{
+	unsigned char signature[UPDATE_SIGNATURE_SIZE];
+
+	if (!document || !signature_text || !update_signature_parse(signature_text, signature_length, signature))
 	{
-		/* (Monocypher's check turns away an S past the group's order) */
-		if (update_key_set(update_public_keys[index]) &&
-			crypto_ed25519_check(signature, update_public_keys[index], (const unsigned char *)message,
-				(size_t)message_length) == 0)
-		{
-			return 1;
-		}
+		snprintf(error, error_size, "its signature is not one");
+		return 0;
 	}
-	snprintf(error, error_size, "its signature does not match ChupathingyCE's release key");
-	return 0;
+	return update_signature_by_key(signature, document, size, error, error_size);
 }

@@ -14,6 +14,17 @@ of this text:
 
 The .sig holds the signature as 128 hex digits and a line feed.
 
+From 0.8.0 the game reads the release's list of its update files first
+(updates.json, port/linux/src/update_manifest.h): for each platform and
+configuration, the file, the release (tag) it is on, its size and its
+SHA-256, and, for a zip that has the game's executable by its later name
+(chupathingy, chupathingy.exe), that name as the file's "main", which the
+updater starts once the zip is installed. updates.json.sig signs the list's exact bytes (128 hex digits and a
+line feed, as above), so it covers every file the list names; the zips keep
+their own .sig for the builds from before the list. The release workflow
+writes the list (ChupathingyCE/command, tools/signing.py); this writes the
+same, for a test or by hand.
+
 It uses the openssl command (OpenSSL 3, or the one $OPENSSL names) for
 Ed25519, so nothing beyond Python's own library is needed:
 
@@ -21,6 +32,8 @@ Ed25519, so nothing beyond Python's own library is needed:
     update_sign.py verify [--public <hex>] <version> <zip>...
                                                          checks them against update_key.h's keys
     update_sign.py public <key.pem>                      the key's public half, for update_key.h
+    update_sign.py manifest <key.pem> <version> --tag T [--debug-tag D] [--commit C] <file>...
+                                                         writes and signs updates.json beside the files
 
 A key is made with: openssl genpkey -algorithm ed25519 -out key.pem
 (keep it out of every repository: the release workflow has it as a secret).
@@ -28,15 +41,25 @@ A key is made with: openssl genpkey -algorithm ed25519 -out key.pem
 
 import argparse
 import hashlib
+import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 KEY_HEADER = Path(__file__).resolve().parent.parent / "port/linux/src/update_key.h"
 WORD = re.compile(r"^[A-Za-z0-9._+-]{1,127}$")
+# (a release's update file: chupathingyce-<platform>-<configuration>.<kind's extension>)
+UPDATE_FILE = re.compile(r"^chupathingyce-([a-z0-9]+)-(release|debug)\.(zip|AppImage)$")
+KINDS = {"zip": "zip", "AppImage": "appimage"}
+MANIFEST_FORMAT = "chupathingyce-updates 1"
+# the game's executable by its later names: a zip with one starts it after
+# an update (the list's "main"); halo and halo.exe need none, as the updater
+# starts the file it was started from
+MAIN_NAMES = ("chupathingy.exe", "chupathingy")
 # (an Ed25519 public key's DER: this prefix, then its 32 bytes)
 ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
 
@@ -54,6 +77,59 @@ def message(asset: str, version: str, data: bytes) -> bytes:
 
 def run(arguments, **kwargs) -> bytes:
     return subprocess.run([openssl(), *arguments], check=True, capture_output=True, **kwargs).stdout
+
+
+def sign_bytes(key: Path, data: bytes) -> bytes:
+    with tempfile.TemporaryDirectory() as directory:
+        text = Path(directory) / "message"
+        signature = Path(directory) / "signature"
+        text.write_bytes(data)
+        run(["pkeyutl", "-sign", "-inkey", str(key), "-rawin", "-in", str(text), "-out", str(signature)])
+        raw = signature.read_bytes()
+    if len(raw) != 64:
+        raise SystemExit(f"openssl gave a {len(raw)}-byte signature")
+    return raw
+
+
+def main_name(path: Path):
+    """the zip's executable to start after an update, or None"""
+    if path.suffix != ".zip" or not zipfile.is_zipfile(path):
+        return None
+    with zipfile.ZipFile(path) as archive:
+        names = set(archive.namelist())
+    return next((name for name in MAIN_NAMES if name in names), None)
+
+
+def manifest_text(version: str, tag: str, debug_tag: str, commit: str, files) -> bytes:
+    """updates.json for the files (the ones named as update files; others,
+    the servers' zips, are left out)"""
+    if not WORD.match(version) or not WORD.match(tag) or not WORD.match(debug_tag):
+        raise SystemExit(f"not a version or tag: {version!r} {tag!r} {debug_tag!r}")
+    entries = []
+    for path in sorted(map(Path, files), key=lambda path: path.name):
+        match = UPDATE_FILE.match(path.name)
+        if not match:
+            continue
+        data = path.read_bytes()
+        entries.append({"platform": match.group(1), "configuration": match.group(2),
+                        "kind": KINDS[match.group(3)], "tag": debug_tag if match.group(2) == "debug" else tag,
+                        "name": path.name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+        main = main_name(path)
+        if main:
+            entries[-1]["main"] = main
+    if not entries:
+        raise SystemExit("no update files to list")
+    document = {"format": MANIFEST_FORMAT, "version": version, "commit": commit, "files": entries}
+    return (json.dumps(document, indent=2) + "\n").encode()
+
+
+def manifest(key: Path, version: str, tag: str, debug_tag: str, commit: str, files) -> None:
+    files = list(map(Path, files))
+    path = files[0].parent / "updates.json"
+    path.write_bytes(manifest_text(version, tag, debug_tag, commit, files))
+    Path(f"{path}.sig").write_text(sign_bytes(key, path.read_bytes()).hex() + "\n")
+    print(path)
+    print(f"{path}.sig")
 
 
 def sign(key: Path, version: str, zips) -> None:
@@ -132,9 +208,19 @@ def main() -> int:
     command.add_argument("--public", help="a public key's 64 hex digits, in place of update_key.h's")
     command = commands.add_parser("public")
     command.add_argument("key", type=Path)
+    command = commands.add_parser("manifest")
+    command.add_argument("key", type=Path)
+    command.add_argument("version")
+    command.add_argument("--tag", required=True, help="the release's tag (v<version>)")
+    command.add_argument("--debug-tag", help="the debug builds' release's tag (default: the release's, -debug)")
+    command.add_argument("--commit", default="")
+    command.add_argument("files", nargs="+")
     arguments = parser.parse_args()
     if arguments.command == "sign":
         sign(arguments.key, arguments.version, arguments.zips)
+    elif arguments.command == "manifest":
+        manifest(arguments.key, arguments.version, arguments.tag, arguments.debug_tag or f"{arguments.tag}-debug",
+                 arguments.commit, arguments.files)
     elif arguments.command == "verify":
         keys = [bytes.fromhex(arguments.public)] if arguments.public else None
         return verify(arguments.version, arguments.zips, keys)

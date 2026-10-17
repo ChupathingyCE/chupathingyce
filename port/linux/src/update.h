@@ -31,6 +31,11 @@ to old_path first (a running executable can be renamed, not overwritten),
 keeping its permissions; 1 on success */
 int update_replace_file(const char *path, const char *new_path, const char *old_path);
 
+/* makes the file at path executable, where the system has such a thing (a
+file new to the game's folder is not, from update_replace_file); 1 on
+success */
+int update_make_executable(const char *path);
+
 /* deletes the file (or empty folder) at path, if there is one */
 void update_delete_file(const char *path);
 

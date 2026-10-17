@@ -109,6 +109,14 @@ char const *ce_image_tag_name(struct ce_image const *image, void const *instance
 logged by ce_map_check); returns FALSE */
 boolean ce_refuse(char const *format, ...);
 
+/* the reason for the refusal that follows (called before ce_refuse), in a
+player's words; only the first, and only before a refusal, is kept */
+void ce_refusal_explain(char const *format, ...);
+
+/* the message for a player about the map ce_map_check refused last ("" if
+it was accepted): the map, and the reason when ce_refusal_explain gave one */
+char const *ce_map_refusal_message(void);
+
 /* whether a map is being checked (ce_map_check) rather than loaded */
 boolean ce_map_checking(void);
 

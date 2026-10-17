@@ -2,7 +2,7 @@
 
 Delta Control is how a ChupathingyCE Dedicated Server is run: its console,
 its control API, its web control panel, in-game moderation over Delta Peer,
-and, if you want it, a link to halo.milenko.org. All of it works without
+and, if you want it, a link to the Chupathingy site (stats.chupathingy.org). All of it works without
 the site. Nothing is on until you turn it on, and nobody is a moderator
 until you make them one.
 
@@ -19,6 +19,7 @@ and OpenCE players are kicked and banned like anyone else.
 | --- | --- | --- | --- |
 | Status, players, bans, the log, the audit file, playlists, settings | yes | yes | yes |
 | Warn a player (`sv_warn`) | yes | yes | yes |
+| Mute a player's chat (`sv_mute`, `sv_unmute`), a server message (`sv_say`) | yes | yes | yes |
 | Kick (`sv_kick`) | yes | yes | yes |
 | Ban for up to 7 days (`sv_ban <player> 2h`) | yes | yes | yes |
 | Ban for longer, or for ever | | yes | yes |
@@ -41,7 +42,7 @@ changes a minute (10 at once).
 ## Who a moderator is
 
 The game's player key (`game_list_player.key`, in each copy's save folder)
-never leaves the player's machine except to halo.milenko.org. From it the
+never leaves the player's machine except to the Chupathingy site. From it the
 game makes a second key, an Ed25519 key pair, whose public half is the
 player's **moderator key**: 64 hex digits. A server knows a moderator by
 that key, and a ChupathingyCE game proves it holds the key (a signature of
@@ -73,22 +74,46 @@ until it is fixed.
 
 | Command | What it does |
 | --- | --- |
-| `sv_mod_list` | The moderators file's moderators. |
+| `sv_mod_list` | Everyone with a role here and where it comes from: the moderators file, the panel's accounts (bound to a game or not) and the site's profiles, with the site's cap and whether its list is live, cached or expired ([below](#who-can-moderate)). |
 | `sv_mod_add <player> <role> [name]` | Gives a player in the game a role, by the key their game proved (they sign in from the game's Moderation screen first: `sv_players` shows their key). |
 | `sv_mod_add <moderator key> <role> [name]` | The same, with the key itself (a moderator can read theirs on the Moderation screen). |
 | `sv_mod_remove <key or name>` | Takes a moderator out (the key's first 8 or more digits will do). |
 | `sv_warn <player> <reason>` | A warning in the player's game (a ChupathingyCE game shows it; any warning is in the audit file). |
+| `sv_mute <player> [minutes]`, `sv_unmute <player>` | A player's chat lines not passed on (until they leave, or for a while), and on again. |
+| `sv_say <text>` | A server message in every ChupathingyCE player's chat. |
 | `sv_kick <player> [reason]`, `sv_ban <player> [duration] [reason]` | As before, with a reason. A ChupathingyCE player sees it as their game drops them. |
 
 ### In the game
 
 A moderator in a ChupathingyCE game opens the Moderation screen (Y on a
 controller, or M, from the pause menu) on a server that offers it, signs in
-(A), and picks a player and an action: warn, kick, ban for an hour, a day,
-7 days, or for ever, end the game, next map. Only the actions their role
-allows are shown, and the server checks each again. OpenCE games cannot
+(A), and picks a player and an action: warn, mute chat (until they leave, or 10
+minutes), unmute chat, kick, ban for an hour, a day, 7 days, 30 days, or
+forever, end game, next map (the control panel's
+actions, by the same names). Only the actions their role allows are shown,
+and the server checks each again. Once signed in, the screen shows their
+role and where it comes from (this server's moderators file, their panel
+account, or their site profile, cached or not): the server tells it to
+their game alone, as a notice, when they sign in and when it changes. OpenCE games cannot
 sign in (they cannot prove a key); they can be warned (in the audit file
 only), kicked and banned like anyone.
+
+### Who can moderate
+
+A key's role is the highest of three places: the moderators file, a
+control panel account bound to that game, and the site's roles while the
+server is linked (each profile's role, with the keys of every game linked
+to the profile, never above `HALO_DEDICATED_LINK_ROLE`). `sv_mod_list`, and
+"Who can moderate" in the panel's People, list all of them in one place.
+
+The site's list is kept in `delta_roles.cache` in the data folder (beside
+`delta_link.key`, private, with a MAC of the link's secret, so an edited
+file is refused), and read at start: a restart while the site cannot be
+reached keeps its roles. They hold `HALO_DEDICATED_LINK_ROLE_HOURS` (24 by
+default) after the site last answered, cached or not; then they are dropped
+until it answers again, and the moderators file's and the accounts' roles
+stay. When it answers, its list (with any role taken away meanwhile) is
+taken at once, and each role it takes away is logged and in the audit file.
 
 ## The control panel
 
@@ -179,7 +204,7 @@ network behind `-p 127.0.0.1:...`, it is plain HTTP with a warning).
 
 The panel speaks TLS 1.2 with ECDHE and AEAD suites only.
 
-## The link to halo.milenko.org (optional)
+## The link to the Chupathingy site (optional)
 
 Link the server to your account on the site, and you can give other
 people on the site a role on it there, and run it from the site's Servers
@@ -187,9 +212,11 @@ page. The server dials out to the site: no port to open, and it works
 behind any router.
 
 1. On the server's console (or the panel's Settings, as owner): `sv_link`.
-   The server prints a code.
-2. Sign in on halo.milenko.org, open Servers, Link a server, and enter the
-   code (good for 10 minutes); confirm.
+   The server prints a link, `https://stats.chupathingy.org/servers/link?code=<code>`
+   (the panel shows it too, with a button to copy it).
+2. Open it, signed in to the site, and confirm (the code is good for 10
+   minutes; it can also be typed in at Servers, Link a server). The panel
+   shows "Linked" by itself.
 3. On the server's page on the site, give other accounts a role: moderator
    or admin. Their games' moderator keys (from Link Profile) come with the
    role, so they are moderators in the game too.
@@ -210,7 +237,7 @@ audit log and the server's audit file.
 | --- | --- |
 | `sv_warn`, `sv_kick`, `sv_ban`, `sv_unban` | with a reason |
 | `sv_map`, `sv_mapcycle_next`, `sv_end_game` | |
-| `sv_name`, `sv_maxplayers` | |
+| `sv_name`, `sv_maxplayers` | saved, as from the console |
 
 `HALO_DEDICATED_LINK=false` turns the link off for good: `sv_link` refuses,
 and the server never asks the site. `HALO_DEDICATED_LINK_URL` points it at

@@ -558,6 +558,7 @@ symbols in this file:
 #include "interface/terminal.h"
 #include "interface/ui_widget.h"
 #include "input/input.h"
+#include "input/input_abstraction.h"
 #include "items/equipment_definitions.h"
 #include "items/item_definitions.h"
 #include "items/weapon_definitions.h"
@@ -569,6 +570,7 @@ symbols in this file:
 #include "networking/network_server_manager.h"
 #include "networking/network_game_manager.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#include "follow_camera.h" /* port: port/linux/game/follow_camera.c */
 /* (network_server_manager_internal.h's: the host's game record) */
 struct network_game *network_game_server_get_game(struct network_game_server *server);
 #include "objects.h"
@@ -600,6 +602,7 @@ struct network_game *network_game_server_get_game(struct network_game_server *se
 void game_stats_player_killed(long killing_player_index, long dead_player_index, boolean friendly_fire);
 void game_stats_player_extra(long player_index, char *text, long size, short *multikills);
 void game_stats_game_extra(boolean host, char *text, long size);
+boolean game_stats_line_full(long player_index, boolean host);
 #endif
 
 #ifdef HALO_CUSTOM_EDITION
@@ -2087,6 +2090,7 @@ static void game_engine_rasterize_scoreboard(
 	/* port: bounded (the map's column names) */
 	usnprintf(row_string, NUMBEROF(row_string), L"\t%s\t%s\t%s\t%s", column_name, score_name, score_string,
 		network ? L"Ping" : L"");
+	row_string[NUMBEROF(row_string) - 1] = 0;
 	{
 		long column;
 
@@ -2161,6 +2165,7 @@ static void game_engine_rasterize_scoreboard(
 			player->name,
 			status_string,
 			ping_string);
+		row_string[NUMBEROF(row_string) - 1] = 0;
 		row_color = has_teams ? &team_colors[PIN(player->team_index, 0, 1)] : &color;
 		scoreboard_draw_row(
 			row_string,
@@ -2247,6 +2252,7 @@ static void game_engine_rasterize_in_game_score(
 
 	game_engine->format_score_name(score_string);
 	usnprintf(row_string, NUMBEROF(row_string), L"\t%s\t%s\t%s", column_name, score_name, score_string);
+	row_string[NUMBEROF(row_string) - 1] = 0;
 	rasterize_in_game_score_draw_line(row_string, FALSE, &color, 1);
 
 	for (entry_index = 0; entry_index < entry_count; entry_index++)
@@ -2310,6 +2316,7 @@ static void game_engine_rasterize_in_game_score(
 				place_string,
 				player->name,
 				status_string);
+			row_string[NUMBEROF(row_string) - 1] = 0;
 
 			if (has_teams)
 				row_color = &team_colors[PIN(player->team_index, 0, 1)];
@@ -3569,6 +3576,50 @@ void game_engine_rasterize_message(
 	return;
 }
 
+/* port: display.match_timer (off by default, as the Xbox had none): a
+timed game's time left, at the top of each player's view, in the color of
+the game's messages */
+static void game_engine_rasterize_time_left(
+	void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static boolean shown = FALSE;
+	rectangle2d bounds;
+	real_argb_color color;
+	wchar_t time_string[32];
+	long left;
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		shown = config_boolean("display.match_timer") != 0;
+	}
+	if (!shown || !game_engine || game_variant_options_get()->time_limit <= 0 ||
+		game_engine_globals.postgame_state != game_engine_mode_active)
+	{
+		return;
+	}
+
+	left = game_variant_options_get()->time_limit * 60L * TICKS_PER_SECOND - game_time_get();
+	ticks_to_unicode_time_string(MAX(left, 0), NUMBEROF(time_string), time_string);
+
+	bounds = render.camera.window_bounds;
+	offset_rectangle2d(&bounds, -render.camera.viewport_bounds.x0, -render.camera.viewport_bounds.y0);
+	bounds.y0 += 8;
+	bounds.y1 = bounds.y0 + 15;
+
+	color.alpha = 1.0f;
+	color.red = 0.45882353f;
+	color.green = 0.7294118f;
+	color.blue = 1.0f;
+	draw_string_set_draw_mode(hud_globals->messaging.multi_player_font.index, NONE, 2, 0, &color);
+	draw_string_set_color(&color);
+	rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, time_string);
+	draw_string_set_format(NONE, 0, 0);
+
+	return;
+}
+
 static void game_engine_post_rasterize_in_game(
 	void)
 {
@@ -3593,6 +3644,7 @@ static void game_engine_post_rasterize_in_game(
 
 	if (game_engine && player)
 		internal_rasterize_target_name(player_index);
+	game_engine_rasterize_time_left();
 
 	gamepad = input_get_gamepad_state(local_player_index);
 	fade = game_engine_globals.hud_message_timers[local_player_index];
@@ -3803,7 +3855,6 @@ static void game_engine_build_lighting(
 	void)
 {
 	long player_count = 0;
-	long object_count = 0;
 
 	{
 		struct data_iterator iterator;
@@ -3813,55 +3864,10 @@ static void game_engine_build_lighting(
 			player_count++;
 	}
 
-	if (global_variant.universal_variant.vehicle_set != _game_engine_vehicles_none)
-	{
-		if (global_variant.game_engine_index == game_engine_race)
-		{
-			struct scenario *scenario = global_scenario_get();
-			/* port: a long counter, for a map's long count */
-			long flag_index;
-
-			for (flag_index = 0;
-				flag_index < scenario->netgame_flags.count;
-				flag_index++)
-			{
-				struct scenario_netgame_flag *flag = TAG_BLOCK_GET_ELEMENT(
-					&scenario->netgame_flags,
-					flag_index,
-					struct scenario_netgame_flag);
-
-				if (flag->type == _netgame_flag_race_vehicle)
-					object_count++;
-			}
-
-			if (object_count > player_count)
-				object_count = player_count;
-		}
-		else
-		{
-			struct object_iterator object_iterator;
-
-			object_iterator_new(
-				&object_iterator,
-				_object_mask_vehicle,
-				0);
-			while (object_iterator_next(&object_iterator))
-				object_count++;
-		}
-	}
-
-	if ((player_count > 8 && object_count >= 2) ||
-		player_count >= 13)
-	{
-		SET_FLAG(game_engine_globals.flags, _game_engine_disable_dynamic_light_bit, TRUE);
-	}
-
-	if (player_count > 4 ||
-		object_count >= 4 ||
-		TEST_FLAG(game_engine_globals.flags, _game_engine_disable_dynamic_light_bit))
-	{
-		SET_FLAG(game_engine_globals.flags, _game_engine_disable_integrated_lights_bit, TRUE);
-	}
+	/* port: the Xbox turned dynamic lights off past 13 players, or past 8
+	with two vehicles, and the flashlight off past 4 players or 4 vehicles.
+	A match on a map with a few vehicles then had a flashlight, and the next
+	one did not. The beam is a dynamic light, so both stay on. */
 
 	if (player_count >= 5)
 		SET_FLAG(game_engine_globals.flags, _game_engine_5_or_more_players_bit, TRUE);
@@ -4234,11 +4240,6 @@ static void game_engine_update_teleporter(
 host puts a vehicle destroyed, or left empty away from where the map put
 it, back there after the time (the clients get the host's: the distributed
 netcode). Vehicles otherwise stay where they are left (the Xbox game's). */
-/* A vehicle the map names (its scripts carry it through a gate by that
-name, or make it anew when it is gone) comes back as that named vehicle,
-made as the map's script would make it: a copy with no name is one the
-scripts do not know, and they would make another beside it. And where a
-script has made one anew already, that one is the vehicle from then on. */
 enum
 {
 	/* (a map places up to 80 vehicles, a Halo PC map more: those past this
@@ -4254,6 +4255,7 @@ static struct
 	real_vector3d forward;
 	real_vector3d up;
 	long idle_since;
+	/* (the scenario name the map's scripts teleport; NONE when it had none) */
 	short name_index;
 } game_engine_vehicle_homes[MAXIMUM_VEHICLE_HOMES];
 static short game_engine_vehicle_home_count = NONE;
@@ -4486,6 +4488,104 @@ static void game_engine_vehicles_multiply(
 		multiplier, (int)originals, made, no_room);
 }
 
+/* still on the pad the map put it on: further than this, and empty, it can
+come back */
+#define VEHICLE_HOME_AWAY_SQUARED 4.0f
+
+/* whether nobody rides the vehicle: no driver or gunner, and no rider among
+its children (which hold its own weapons too) */
+static boolean game_engine_vehicle_empty(
+	struct unit_datum *vehicle)
+{
+	long child_index;
+
+	if (vehicle->unit.driver_object_index != NONE || vehicle->unit.gunner_object_index != NONE)
+		return FALSE;
+	for (child_index = vehicle->object.first_child_object_index; child_index != NONE;
+		child_index = object_get(child_index)->object.next_object_index)
+	{
+		if (object_get(child_index)->object.type == _object_type_biped)
+			return FALSE;
+	}
+	return TRUE;
+}
+
+/* a living vehicle of the home's kind on its pad, but except, that no other
+home follows (one a map's script put there in place of the home's: another
+home's vehicle parked there is still that home's), else NONE */
+static long game_engine_vehicle_home_on_pad(
+	short home,
+	long except)
+{
+	struct object_iterator iterator;
+
+	object_iterator_new(&iterator, _object_mask_vehicle, 0);
+	while (object_iterator_next(&iterator))
+	{
+		struct object_datum *object = object_get(iterator.index);
+		real dx = object->object.position.x - game_engine_vehicle_homes[home].position.x;
+		real dy = object->object.position.y - game_engine_vehicle_homes[home].position.y;
+		real dz = object->object.position.z - game_engine_vehicle_homes[home].position.z;
+		short other;
+
+		if (iterator.index == except || TEST_FLAG(object->object.damage_flags, _object_dead_bit) ||
+			object->definition_index != game_engine_vehicle_homes[home].definition_index ||
+			dx * dx + dy * dy + dz * dz > VEHICLE_HOME_AWAY_SQUARED)
+		{
+			continue;
+		}
+		for (other = 0; other < game_engine_vehicle_home_count; other++)
+		{
+			if (other != home && game_engine_vehicle_homes[other].object_index == iterator.index)
+				break;
+		}
+		if (other == game_engine_vehicle_home_count)
+			return iterator.index;
+	}
+	return NONE;
+}
+
+/* the home follows this vehicle, which keeps (or takes) the home's name */
+static void game_engine_vehicle_home_follow(
+	short home,
+	long object_index)
+{
+	game_engine_vehicle_homes[home].object_index = object_index;
+	if (game_engine_vehicle_homes[home].name_index == NONE)
+		game_engine_vehicle_homes[home].name_index = object_get(object_index)->object.name_index;
+	else
+		object_claim_scenario_name(object_index, game_engine_vehicle_homes[home].name_index);
+}
+
+/* the vehicle this home should follow. The recorded one, if it is still
+alive. A map script often destroys that one and creates it again under the
+same name, or in its place: that one is this home's vehicle, and a second is
+not put on the pad with it. */
+static long game_engine_vehicle_home_current(
+	short home)
+{
+	long object_index = game_engine_vehicle_homes[home].object_index;
+	struct unit_datum *vehicle = unit_try_and_get(object_index);
+	long named_index;
+
+	if (vehicle && !TEST_FLAG(vehicle->object.damage_flags, _object_dead_bit))
+		return object_index;
+
+	named_index = game_engine_vehicle_homes[home].name_index == NONE ? NONE :
+		object_index_from_name_index(game_engine_vehicle_homes[home].name_index);
+	vehicle = unit_try_and_get(named_index);
+	if (vehicle && !TEST_FLAG(vehicle->object.damage_flags, _object_dead_bit))
+	{
+		game_engine_vehicle_homes[home].object_index = named_index;
+		return named_index;
+	}
+
+	object_index = game_engine_vehicle_home_on_pad(home, NONE);
+	if (object_index != NONE)
+		game_engine_vehicle_home_follow(home, object_index);
+	return object_index;
+}
+
 static void game_engine_update_vehicle_respawn(
 	void)
 {
@@ -4539,21 +4639,9 @@ static void game_engine_update_vehicle_respawn(
 		return;
 	for (index = 0; index < game_engine_vehicle_home_count; index++)
 	{
-		struct unit_datum *vehicle;
+		long object_index = game_engine_vehicle_home_current(index);
+		struct unit_datum *vehicle = unit_try_and_get(object_index);
 		boolean waiting = TRUE;
-
-		/* (the one of that name now: the map's own script may have made it) */
-		if (game_engine_vehicle_homes[index].name_index != NONE)
-		{
-			long named_index = object_index_from_name_index(game_engine_vehicle_homes[index].name_index);
-
-			if (named_index != NONE && named_index != game_engine_vehicle_homes[index].object_index)
-			{
-				game_engine_vehicle_homes[index].object_index = named_index;
-				game_engine_vehicle_homes[index].idle_since = NONE;
-			}
-		}
-		vehicle = unit_try_and_get(game_engine_vehicle_homes[index].object_index);
 
 		if (vehicle && !TEST_FLAG(vehicle->object.damage_flags, _object_dead_bit))
 		{
@@ -4561,18 +4649,7 @@ static void game_engine_update_vehicle_respawn(
 			real dy = vehicle->object.position.y - game_engine_vehicle_homes[index].position.y;
 			real dz = vehicle->object.position.z - game_engine_vehicle_homes[index].position.z;
 
-			long child_index;
-
-			/* (empty: no rider among its children, which hold its own
-			weapons too) */
-			waiting = vehicle->unit.driver_object_index == NONE && vehicle->unit.gunner_object_index == NONE &&
-				dx * dx + dy * dy + dz * dz > 4.0f;
-			for (child_index = vehicle->object.first_child_object_index; waiting && child_index != NONE;
-				child_index = object_get(child_index)->object.next_object_index)
-			{
-				if (object_get(child_index)->object.type == _object_type_biped)
-					waiting = FALSE;
-			}
+			waiting = dx * dx + dy * dy + dz * dz > VEHICLE_HOME_AWAY_SQUARED && game_engine_vehicle_empty(vehicle);
 		}
 		if (!waiting)
 			game_engine_vehicle_homes[index].idle_since = NONE;
@@ -4581,25 +4658,42 @@ static void game_engine_update_vehicle_respawn(
 		else if (now - game_engine_vehicle_homes[index].idle_since >= respawn_ticks)
 		{
 			struct object_placement_data placement_data;
+			long stale_index = game_engine_vehicle_homes[index].object_index;
+			long named_index = game_engine_vehicle_homes[index].name_index == NONE ? NONE :
+				object_index_from_name_index(game_engine_vehicle_homes[index].name_index);
+			struct unit_datum *named = unit_try_and_get(named_index);
+			long on_pad = game_engine_vehicle_home_on_pad(index, object_index);
 
-			long new_index = NONE;
-
-			if (vehicle)
-				object_delete(game_engine_vehicle_homes[index].object_index);
-			if (game_engine_vehicle_homes[index].name_index != NONE &&
-				object_index_from_name_index(game_engine_vehicle_homes[index].name_index) == NONE)
+			/* (a vehicle under the home's name that someone rides is theirs:
+			the home follows it, and waits for it) */
+			if (named && named_index != stale_index && !TEST_FLAG(named->object.damage_flags, _object_dead_bit) &&
+				!game_engine_vehicle_empty(named))
 			{
-				new_index = object_new_by_name(game_engine_vehicle_homes[index].name_index);
+				game_engine_vehicle_homes[index].object_index = named_index;
+				game_engine_vehicle_homes[index].idle_since = NONE;
+				continue;
 			}
-			if (new_index == NONE)
+			/* (the home's vehicle, empty or wrecked, goes; and the one under
+			its name, but for one on the pad, which it follows instead of a
+			new one: as many vehicles as before) */
+			if (unit_try_and_get(stale_index))
+				object_delete(stale_index);
+			if (named && named_index != stale_index && named_index != on_pad)
+				object_delete(named_index);
+			if (on_pad != NONE)
 			{
-				object_placement_data_new(&placement_data, game_engine_vehicle_homes[index].definition_index, NONE);
-				placement_data.position = game_engine_vehicle_homes[index].position;
-				placement_data.forward = game_engine_vehicle_homes[index].forward;
-				placement_data.up = game_engine_vehicle_homes[index].up;
-				new_index = object_new(&placement_data);
+				game_engine_vehicle_home_follow(index, on_pad);
+				game_engine_vehicle_homes[index].idle_since = NONE;
+				continue;
 			}
-			game_engine_vehicle_homes[index].object_index = new_index;
+			object_placement_data_new(&placement_data, game_engine_vehicle_homes[index].definition_index, NONE);
+			placement_data.position = game_engine_vehicle_homes[index].position;
+			placement_data.forward = game_engine_vehicle_homes[index].forward;
+			placement_data.up = game_engine_vehicle_homes[index].up;
+			game_engine_vehicle_homes[index].object_index = object_new(&placement_data);
+			object_claim_scenario_name(
+				game_engine_vehicle_homes[index].object_index,
+				game_engine_vehicle_homes[index].name_index);
 			game_engine_vehicle_homes[index].idle_since = NONE;
 		}
 	}
@@ -4825,6 +4919,10 @@ void game_engine_player_killed(
 		valid_players = FALSE;
 	player_kill = !friendly_fire && valid_players && !same_player;
 
+	/* port: who killed whom, for the follow camera (port/linux/game/
+	follow_camera.c), which follows the killer in a game without teams */
+	follow_camera_player_killed(killing_player_index, dead_player_index);
+
 	dead_player->respawn_timer =
 		dead_player->respawn_penalty + global_variant.universal_variant.respawn_time;
 	if (global_variant.universal_variant.respawn_time_growth > 0)
@@ -4988,6 +5086,12 @@ void game_engine_player_killed(
 			message = _game_engine_message_double_kill;
 		else if (killing_player->statistics.kills_in_a_row == 5)
 			message = _game_engine_message_five_kills_in_row;
+		/* port: none in a row is no spree. A network client's copy of the
+		killer's statistics can have this kill credited to no one, or to
+		someone else, before the host's statistics come (the Xbox's credited
+		the killer here, so never had none): Running Riot was announced */
+		else if (killing_player->statistics.kills_in_a_row <= 0)
+			message = _game_engine_message_killed_enemy;
 		else
 		{
 			message = (killing_player->statistics.kills_in_a_row % 5)
@@ -5533,6 +5637,7 @@ long game_engine_report_lines(
 		line->shots_fired = player->statistics.shots_fired;
 		line->shots_hit = player->statistics.shots_hit;
 		line->color = player->network_player_data.primary_color_index;
+		line->minimal = !game_stats_line_full(ranking[index].player_index, server != NULL);
 		if (server)
 		{
 			unsigned long network_game_server_machine_ipv4_address(struct network_game_server *server,
@@ -5564,8 +5669,9 @@ long game_engine_report_lines(
 			short multikills = line->multikills;
 
 			extras[index][0] = 0;
-			game_stats_player_extra(ranking[index].player_index, extras[index], BROWSER_REPORT_EXTRA_SIZE,
-				&multikills);
+			if (!line->minimal)
+				game_stats_player_extra(ranking[index].player_index, extras[index], BROWSER_REPORT_EXTRA_SIZE,
+					&multikills);
 			line->multikills = multikills;
 			line->extra = extras[index];
 		}
@@ -6250,7 +6356,9 @@ struct game_variant *build_game_variant_oddball(
 struct game_variant *build_game_variant_team_oddball(
 	struct game_variant *variant)
 {
-	struct game_variant result;
+	/* port: cleared, as every other builder's is: only some of its fields
+	are set below, and the rest were the stack's */
+	struct game_variant result = { 0 };
 
 	SET_FLAG(result.universal_variant.flags, _game_variant_draw_object_in_motion_sensor_bit, TRUE);
 	SET_FLAG(result.universal_variant.flags, _game_variant_allow_friendly_navpoints_bit, TRUE);
@@ -9334,6 +9442,10 @@ boolean game_engine_get_state_message(
 				NONE,
 				message,
 				message_character_count);
+			/* port: the scoreboard's key for BACK while the keyboard or
+			mouse was used last (Halo PC's prompts) */
+			if (result)
+				input_abstraction_port_back_word(message, message_character_count);
 		}
 		else if (player->state_message != NONE)
 		{

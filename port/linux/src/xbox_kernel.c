@@ -6,6 +6,7 @@ threads, asynchronous procedure calls, time, memory and debug output.
 */
 
 #include "platform.h"
+#include "posix.h"
 
 #include <errno.h>
 #include <sched.h>
@@ -58,12 +59,29 @@ void platform_log(const char *format, ...)
 #ifdef HALO_64BIT
 
 	{
-		/* the game's log, in the data folder once it is known (xbox_files.c):
-		an application's working directory is / */
+		/* the game's log, in the logs folder once it is known (xbox_files.c,
+		platform_folder): an application's working directory is / */
 		extern char platform_log_path[];
 
+		char folder[1024], path[1100];
+
 		handle = platform_log_path[0] ? fopen(platform_log_path, "a") : NULL;
+		/* (before then, the logs folder in the application's folder, when
+		it has one: the macOS application's, or an AppImage's, port_config.c) */
+		if (!platform_log_path[0] && platform_app_folder(folder, sizeof(folder)))
+		{
+			snprintf(path, sizeof(path), "%s/logs", folder);
+			posix_make_directory(path);
+			snprintf(path, sizeof(path), "%s/logs/debug.txt", folder);
+			handle = fopen(path, "a");
+		}
 	}
+	/* (else a logs folder there already, else where the log was before
+	there were logs folders) */
+	if (!handle)
+		handle = fopen("assets/logs/debug.txt", "a");
+	if (!handle)
+		handle = fopen("logs/debug.txt", "a");
 	if (!handle)
 		handle = fopen("assets/debug.txt", "a");
 	if (!handle)
@@ -833,21 +851,27 @@ VOID WINAPI GetSystemTime(LPSYSTEMTIME system_time)
 
 /* ---------- heap memory (GlobalAlloc / LocalAlloc family) */
 
+/* a block's header: the payload after it 16 bytes in, on the 64-bit builds
+as on the 32-bit ones, so that it is as aligned as the allocation (the 64-bit
+builds' header was 24 bytes, the payload only 8-byte aligned) */
 struct global_block
 {
 	SIZE_T size;
-	SIZE_T reserved;
-	/* 16 byte header keeps the payload 16 byte aligned */
 };
+
+#define GLOBAL_BLOCK_HEADER_SIZE 16
+
+typedef char verify_global_block_header_size[
+	sizeof(struct global_block) <= GLOBAL_BLOCK_HEADER_SIZE ? 1 : -1];
 
 HGLOBAL WINAPI GlobalAlloc(UINT flags, SIZE_T size)
 {
 #ifdef HALO_64BIT
-	struct global_block *block = xbox_heap_allocate(sizeof(*block) + 8 + size, (flags & GMEM_ZEROINIT) != 0);
+	struct global_block *block = xbox_heap_allocate(GLOBAL_BLOCK_HEADER_SIZE + size, (flags & GMEM_ZEROINIT) != 0);
 #else
 	struct global_block *block = (flags & GMEM_ZEROINIT) ?
-		calloc(1, sizeof(*block) + 8 + size) :
-		malloc(sizeof(*block) + 8 + size);
+		calloc(1, GLOBAL_BLOCK_HEADER_SIZE + size) :
+		malloc(GLOBAL_BLOCK_HEADER_SIZE + size);
 #endif
 
 	if (!block)
@@ -856,12 +880,12 @@ HGLOBAL WINAPI GlobalAlloc(UINT flags, SIZE_T size)
 		return NULL;
 	}
 	block->size = size;
-	return (char *)block + sizeof(*block) + 8;
+	return (char *)block + GLOBAL_BLOCK_HEADER_SIZE;
 }
 
 static struct global_block *global_block_from_pointer(HGLOBAL memory)
 {
-	return (struct global_block *)((char *)memory - sizeof(struct global_block) - 8);
+	return (struct global_block *)((char *)memory - GLOBAL_BLOCK_HEADER_SIZE);
 }
 
 HGLOBAL WINAPI GlobalReAlloc(HGLOBAL memory, SIZE_T size, UINT flags)
@@ -877,9 +901,9 @@ HGLOBAL WINAPI GlobalReAlloc(HGLOBAL memory, SIZE_T size, UINT flags)
 	block = global_block_from_pointer(memory);
 	old_size = block->size;
 #ifdef HALO_64BIT
-	if (xbox_heap_capacity(block) >= sizeof(*block) + 8 + size)
+	if (xbox_heap_capacity(block) >= GLOBAL_BLOCK_HEADER_SIZE + size)
 #else
-	block = realloc(block, sizeof(*block) + 8 + size);
+	block = realloc(block, GLOBAL_BLOCK_HEADER_SIZE + size);
 	if (!block)
 #endif
 	{
@@ -888,13 +912,13 @@ HGLOBAL WINAPI GlobalReAlloc(HGLOBAL memory, SIZE_T size, UINT flags)
 	}
 	else
 	{
-		new_block = xbox_heap_allocate(sizeof(*block) + 8 + size, FALSE);
+		new_block = xbox_heap_allocate(GLOBAL_BLOCK_HEADER_SIZE + size, FALSE);
 		if (!new_block)
 		{
 			SetLastError(ERROR_NOT_ENOUGH_MEMORY);
 			return NULL;
 		}
-		memcpy(new_block, block, sizeof(*block) + 8 + (old_size < size ? old_size : size));
+		memcpy(new_block, block, GLOBAL_BLOCK_HEADER_SIZE + (old_size < size ? old_size : size));
 		xbox_heap_free(block);
 #else
 		SetLastError(ERROR_NOT_ENOUGH_MEMORY);
@@ -903,13 +927,13 @@ HGLOBAL WINAPI GlobalReAlloc(HGLOBAL memory, SIZE_T size, UINT flags)
 	}
 	if ((flags & GMEM_ZEROINIT) && size > old_size)
 #ifdef HALO_64BIT
-		memset((char *)new_block + sizeof(*new_block) + 8 + old_size, 0, size - old_size);
+		memset((char *)new_block + GLOBAL_BLOCK_HEADER_SIZE + old_size, 0, size - old_size);
 	new_block->size = size;
-	return (char *)new_block + sizeof(*new_block) + 8;
+	return (char *)new_block + GLOBAL_BLOCK_HEADER_SIZE;
 #else
-		memset((char *)block + sizeof(*block) + 8 + old_size, 0, size - old_size);
+		memset((char *)block + GLOBAL_BLOCK_HEADER_SIZE + old_size, 0, size - old_size);
 	block->size = size;
-	return (char *)block + sizeof(*block) + 8;
+	return (char *)block + GLOBAL_BLOCK_HEADER_SIZE;
 #endif
 }
 

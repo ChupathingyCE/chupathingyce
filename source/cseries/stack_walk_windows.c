@@ -526,13 +526,6 @@ int load_symbol_table(
 			{
 				found_symbols_section = TRUE;
 			}
-			else if (strstr(line, "Timestamp"))
-			{
-				/* BUG (preserved for exact matching): January performs the
-				 * timestamp search but ignores whether it succeeds.  A corrected
-				 * build should reject a map whose timestamp does not match. */
-				strstr(line, timestamp_str);
-			}
 		}
 
 		string_storage_size = 0;
@@ -570,29 +563,15 @@ int load_symbol_table(
 					goto corrupt_map_file;
 				}
 
-				/* BUG (preserved for exact matching): January consumes each of
-				 * these continuation lines without checking whether fgets failed.
-				 * A corrected build should reject EOF before reading line[0] or
-				 * tokenizing the buffer. */
-				fgets(line, sizeof(line), map_file);
-				if (!isspace(line[0]))
+				/* port: a map file that ends here is corrupt (January read
+				the buffer on without checking fgets) */
+				if (!fgets(line, sizeof(line), map_file) || !isspace(line[0]) ||
+					!fgets(line, sizeof(line), map_file) || !strstr(line, "Static symbols") ||
+					!fgets(line, sizeof(line), map_file) || !isspace(line[0]) ||
+					!fgets(line, sizeof(line), map_file))
 				{
 					goto corrupt_map_file;
 				}
-
-				fgets(line, sizeof(line), map_file);
-				if (!strstr(line, "Static symbols"))
-				{
-					goto corrupt_map_file;
-				}
-
-				fgets(line, sizeof(line), map_file);
-				if (!isspace(line[0]))
-				{
-					goto corrupt_map_file;
-				}
-
-				fgets(line, sizeof(line), map_file);
 				segment = strtok(line, ":");
 				if (!segment || *segment!=' ')
 				{
@@ -606,15 +585,15 @@ int load_symbol_table(
 				}
 				symbol_address = strtoul(token, &end_str, 16);
 
-				/* BUG (preserved for exact matching): January leaves symbol_name
-				 * unchanged if the continuation entry omits its name token, then
-				 * continues parsing.  A corrected build should reject that entry. */
+				/* port: an entry without its name is corrupt (January kept
+				the last one's) */
 				token = strtok(NULL, " \t\n\r");
-				if (token)
+				if (!token)
 				{
-					strncpy(symbol_name, token, sizeof(symbol_name)-1);
-					symbol_name[sizeof(symbol_name)-1] = 0;
+					goto corrupt_map_file;
 				}
+				strncpy(symbol_name, token, sizeof(symbol_name)-1);
+				symbol_name[sizeof(symbol_name)-1] = 0;
 			}
 
 			token = strtok(NULL, " \t\n\r");
@@ -629,11 +608,9 @@ int load_symbol_table(
 				stack_walk_globals.fixup = rva_base - (unsigned long)POINTER_BITS(load_symbol_table);
 			}
 
-			/* BUG (preserved for exact matching): January checks only whether
-			 * strtoul assigned an end pointer, then advances five bytes without
-			 * validating the conversion or remaining field width.  A corrected
-			 * build should validate both before advancing. */
-			if (!end_str)
+			/* port: the address's five columns, " f   ", are there before the
+			object name is read past them (January only checked end_str) */
+			if (!end_str || strlen(end_str) < 5)
 			{
 				goto corrupt_map_file;
 			}
@@ -743,10 +720,9 @@ finished:
 			sizeof(*symbol_table->symbols),
 			symbol_sort_proc);
 
-		/* BUG (preserved for exact matching): January assumes at least one
-		 * nonzero RVA while trimming sentinels.  A corrected build should
-		 * stop before number_of_symbols reaches zero. */
-		while (symbol_table->symbols[symbol_table->number_of_symbols-1].rva_base==0)
+		/* port: stops at none left (January assumed one nonzero RVA) */
+		while (symbol_table->number_of_symbols > 0 &&
+			symbol_table->symbols[symbol_table->number_of_symbols-1].rva_base==0)
 		{
 			symbol_table->number_of_symbols--;
 		}
@@ -780,9 +756,12 @@ static int symbol_sort_proc(
 	const struct debug_symbol *symbol1 = elem1;
 	const struct debug_symbol *symbol2 = elem2;
 
-	/* BUG (preserved for exact matching): January returns 1 when both RVAs
-	 * are zero, violating comparator antisymmetry.  A corrected build should
-	 * return 0 for two equal zero-RVA sentinel records. */
+	/* port: equal RVAs compare equal (January returned 1 for two zero ones,
+	which no sort may be given) */
+	if (symbol1->rva_base == symbol2->rva_base)
+	{
+		return 0;
+	}
 	if (symbol1->rva_base==0 || symbol1->rva_base > symbol2->rva_base)
 	{
 		return 1;

@@ -84,7 +84,7 @@ enum
 static const char *const delta_capability_names[] =
 {
 	"platform", "profile", "server_messages", "chat", "ce_maps", "md_maps", "coop", "ai_sync", "vote",
-	"console_slots", "moderation",
+	"console_slots", "moderation", "bomb", "ping",
 };
 _Static_assert(sizeof(delta_capability_names) / sizeof(*delta_capability_names) == NUMBER_OF_DELTA_CAPABILITIES,
 	"a name for each capability");
@@ -643,7 +643,7 @@ static enum delta_result delta_take(const char *document, size_t size, const cha
 	struct delta_table table;
 	const char *why;
 	char *signed_table;
-	int signed_size, signer = -1;
+	int signed_size, signer = -1, maximum;
 
 	if (size > DELTA_LEGACY_DOCUMENT_SIZE)
 	{
@@ -700,15 +700,20 @@ static enum delta_result delta_take(const char *document, size_t size, const cha
 		delta.announce = table.announce;
 		delta.minimum = table.minimum;
 		delta.maximum = table.maximum;
+		/* (and the numbers past the one announced that are presumed
+		additive, DELTA_LEGACY_PRESUMED, whatever the row says) */
+		if (delta.maximum < delta.announce + DELTA_LEGACY_PRESUMED)
+			delta.maximum = delta.announce + DELTA_LEGACY_PRESUMED > 65535 ? 65535 : delta.announce + DELTA_LEGACY_PRESUMED;
 		memcpy(delta.follows, table.follows, sizeof(delta.follows));
 	}
 	delta.disabled = table.disabled;
+	maximum = delta.maximum;
 	pthread_mutex_unlock(&delta_lock);
 
 	platform_log("Delta: legacy table %u from %s: announcing %d, joining %d to %d%s%s%s", table.serial, source,
 		table.has_row ? table.announce : HALO_PORT_NETWORK_VERSION,
 		table.has_row ? table.minimum : HALO_PORT_NETWORK_VERSION_MINIMUM,
-		table.has_row ? table.maximum : HALO_PORT_NETWORK_VERSION_MAXIMUM,
+		maximum,
 		table.has_row ? "" : " (no row for " DELTA_WIRE ": the built-in numbers)",
 		table.has_row && table.follows[0] ? "; following OpenCE " : "", table.has_row ? table.follows : "");
 	/* (from the cache's own copy, and only while the table is still the

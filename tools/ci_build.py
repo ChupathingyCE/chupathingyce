@@ -25,7 +25,9 @@ port/android/README.md): chupathingyce-android-<config>.apk. Without it
 (pull requests, forks), the debug build has the runner's own key,
 chupathingyce-android-debug-testkey.apk, which installs over nothing
 signed with ChupathingyCE's key, and the release build is unsigned,
-chupathingyce-android-release-unsigned.apk.
+chupathingyce-android-release-unsigned.apk. The native 64-bit app
+(android64) is the same app, built and named the same way:
+chupathingyce-android64-<config>.apk and so on.
 
 The dedicated server (server-x86, server-x64, server-arm64:
 tools/server_build.py) is built against musl, so that it is one static
@@ -51,13 +53,18 @@ from tools.version import base_version, commit, release_build, version  # noqa: 
 
 # what each port's build leaves, and what goes into dist/
 OUTPUTS = {
-    "linux": ["build/linux/halo"],
+    # (and the SDL3 each portable build brings, tools/linux_build.py, with its
+    # zlib license, as the release carries the other libraries')
+    "linux": ["build/linux/halo", "build/linux/libSDL3.so.0", "build/linux/SDL3-LICENSE.txt"],
     # the native 64-bit build (ninja linux64; tools/linux64_build.py)
-    "linux64": ["build/linux64/halo"],
+    "linux64": ["build/linux64/halo", "build/linux64/libSDL3.so.0", "build/linux64/SDL3-LICENSE.txt"],
     "windows": ["build/windows/halo.exe", "build/windows/SDL3.dll"],
     # the native 64-bit build (ninja windows64; tools/windows_build.py)
     "windows64": ["build/windows64/halo.exe", "build/windows64/SDL3.dll"],
     "android": [],  # the APK, below
+    # the native 64-bit app (ninja android64; tools/android64_build.py): the
+    # same app, built with -Pnative64, its APK below
+    "android64": [],
     # the application (universal and self-contained: --portable), whole
     "macos": ["build/macos/ChupathingyCE.app"],
     # the dedicated server (ninja server-<arch>; tools/server_build.py)
@@ -70,12 +77,12 @@ OUTPUTS = {
 ALPINE_IMAGE = "alpine:3.22"
 ALPINE_PACKAGES = ["clang", "lld", "llvm", "gcc", "musl-dev", "linux-headers", "python3", "samurai", "ccache"]
 DOCKER_PLATFORMS = {"server-x86": "linux/386", "server-x64": "linux/amd64", "server-arm64": "linux/arm64"}
-APKS = {
-    "debug": "port/android/app/build/outputs/apk/debug/app-debug.apk",
-    "release": "port/android/app/build/outputs/apk/release/app-release.apk",
+# each Android build's Gradle output folder (the native 64-bit app's is
+# its own, app/build.gradle) and its Gradle options
+ANDROID_BUILDS = {
+    "android": ("port/android/app/build/outputs/apk", []),
+    "android64": ("port/android/app/build-native64/outputs/apk", ["-Pnative64"]),
 }
-# what Gradle calls the release build without a key (app/build.gradle)
-UNSIGNED_APK = "port/android/app/build/outputs/apk/release/app-release-unsigned.apk"
 
 
 def run(command, cwd=ROOT):
@@ -116,20 +123,25 @@ def main() -> int:
     run(configure)
 
     apk_names = {}
-    if args.platform == "android":
+    if args.platform in ANDROID_BUILDS:
         # the native part, then the app around it (Gradle's variant of the
         # same name), named for its signature
-        run(["ninja", "android"])
+        run(["ninja", args.platform])
         gradlew = "gradlew.bat" if os.name == "nt" else "./gradlew"
-        for stale in (APKS[args.config], UNSIGNED_APK):
+        apks, options = ANDROID_BUILDS[args.platform]
+        signed_apk = f"{apks}/{args.config}/app-{args.config}.apk"
+        # (what Gradle calls the release build without a key: app/build.gradle)
+        unsigned_apk = f"{apks}/release/app-release-unsigned.apk"
+        for stale in (signed_apk, unsigned_apk):
             (ROOT / stale).unlink(missing_ok=True)
-        run([gradlew, "--console=plain", "-q", f"assemble{args.config.capitalize()}"], cwd=ROOT / "port/android")
+        run([gradlew, "--console=plain", "-q", *options, f"assemble{args.config.capitalize()}"],
+            cwd=ROOT / "port/android")
         if (ROOT / "port/android/keystore.properties").exists():
-            apk, name = APKS[args.config], f"chupathingyce-android-{args.config}.apk"
+            apk, name = signed_apk, f"chupathingyce-{args.platform}-{args.config}.apk"
         elif args.config == "debug":
-            apk, name = APKS["debug"], "chupathingyce-android-debug-testkey.apk"
+            apk, name = signed_apk, f"chupathingyce-{args.platform}-debug-testkey.apk"
         else:
-            apk, name = UNSIGNED_APK, "chupathingyce-android-release-unsigned.apk"
+            apk, name = unsigned_apk, f"chupathingyce-{args.platform}-release-unsigned.apk"
         outputs = [apk]
         apk_names[apk] = name
     else:
@@ -168,10 +180,9 @@ def main() -> int:
                     *sorted((ROOT / "build/windows/third_party").glob(f"SDL3-*/lib/{sdl_arch}/SDL3.pdb"))]:
             shutil.copy2(pdb, symbols)
             print(f"{pdb.relative_to(ROOT)} -> {symbols.relative_to(ROOT)}", flush=True)
-    # the disc image readers (port/linux/src/xiso.c, and the Android app's
-    # XisoExtractor.java) follow extract-xiso, whose license asks binaries
-    # to carry its notice
-    shutil.copy2(ROOT / "port/third_party/extract-xiso/LICENSE.TXT", dist / "extract-xiso-LICENSE.txt")
+    # Chupathingy's own license (GPL-3.0-or-later), which asks every copy to
+    # carry it
+    shutil.copy2(ROOT / "LICENSE", dist / "LICENSE.txt")
     # the game list's and the self-updater's TLS (port/third_party/mbedtls),
     # in every build (HALO_GAME_BROWSER), whose Apache license asks the same
     shutil.copy2(ROOT / "port/third_party/mbedtls/LICENSE", dist / "mbedtls-LICENSE.txt")
@@ -181,6 +192,9 @@ def main() -> int:
     # the text's fonts (port/assets/fonts), embedded in every build, whose
     # SIL Open Font License asks each copy to carry it
     shutil.copy2(ROOT / "port/assets/fonts/Overpass-OFL.txt", dist / "Overpass-OFL.txt")
+    shutil.copy2(ROOT / "port/assets/fonts/CyborgInterfaceGothic-OFL.txt", dist / "CyborgInterfaceGothic-OFL.txt")
+    # (OpenCE, the menus' titles' face, which Online Games draws its title in)
+    shutil.copy2(ROOT / "port/assets/fonts/OpenCE-OFL.txt", dist / "OpenCE-OFL.txt")
     # the overlay's fonts (port/linux/ui/fonts), in every build: Noto Sans's
     # license asks the same; Kenney's Input Prompts are CC0, credited all
     # the same
@@ -191,7 +205,7 @@ def main() -> int:
     shutil.copy2(ROOT / "port/third_party/expat/COPYING", dist / "expat-COPYING.txt")
     # internet play's MQTT brokers, a file beside the game (network.brokers_file;
     # Android's APK has its own copy)
-    if args.platform != "android":
+    if args.platform not in ANDROID_BUILDS:
         shutil.copy2(ROOT / "port/assets/network/brokers.txt", dist / "brokers.txt")
     return 0
 
@@ -233,7 +247,8 @@ def strip_debug(program: Path) -> None:
 
 def server_dist(platform: str, config: str, output: str) -> int:
     """dist/chupathingyce-server-linux-<arch>[-debug]: the server, its
-    README, its playlists and the notices its parts' licenses ask for"""
+    README, its playlists, its blocked names list, its license and the notices
+    its parts' licenses ask for"""
     arch = platform[len("server-"):]
     dist = ROOT / "dist" / f"chupathingyce-server-linux-{arch}{'' if config == 'release' else '-debug'}"
     if dist.exists():
@@ -248,11 +263,15 @@ def server_dist(platform: str, config: str, output: str) -> int:
     shutil.copy2(ROOT / "server/README.md", dist / "README.md")
     for playlist in sorted((ROOT / "server/playlists").glob("*.txt")):
         shutil.copy2(playlist, dist / "playlists")
-    for source, name in (("port/third_party/mbedtls/LICENSE", "mbedtls-LICENSE.txt"),
+    # (sv_name_filter's list, read from the data folder)
+    shutil.copy2(ROOT / "server/blocked_names.txt", dist / "blocked_names.txt")
+    for source, name in (("LICENSE", "LICENSE.txt"),
+                         ("port/third_party/mbedtls/LICENSE", "mbedtls-LICENSE.txt"),
                          ("port/third_party/miniupnpc/LICENSE", "miniupnpc-LICENSE.txt"),
                          ("port/third_party/expat/COPYING", "expat-COPYING.txt"),
-                         ("port/third_party/extract-xiso/LICENSE.TXT", "extract-xiso-LICENSE.txt"),
                          ("port/assets/fonts/Overpass-OFL.txt", "Overpass-OFL.txt"),
+                         ("port/assets/fonts/CyborgInterfaceGothic-OFL.txt", "CyborgInterfaceGothic-OFL.txt"),
+                         ("port/assets/fonts/OpenCE-OFL.txt", "OpenCE-OFL.txt"),
                          ("port/linux/ui/fonts/OFL.txt", "NotoSans-OFL.txt"),
                          ("port/linux/ui/fonts/KENNEY-CC0.txt", "Kenney-Input-Prompts-CC0.txt")):
         shutil.copy2(ROOT / source, dist / name)

@@ -37,7 +37,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 os.chdir(ROOT)
 
-from tools.embed_assets import UI_FONT_FILES  # noqa: E402
+from tools.embed_assets import PROMPT_ICONS, UI_FONT_FILES  # noqa: E402
 from tools.linux_build import (MBEDTLS_DIR, MINIUPNPC_DIR, MUSL_MATH_DIR, STB_DIR, XDK_INCLUDE, game_sources,  # noqa: E402
                                miniupnpc_sources, musl_math_sources)
 from tools.lp64_build import lp64_excluded  # noqa: E402
@@ -203,10 +203,13 @@ def main() -> None:
 
     # (the overlay's fonts, as the prebuild step embeds them: the same files in the same order)
     prebuild = (PORT_DIR / "tools" / "prebuild.ps1").read_text(encoding="utf-8")
-    listed = prebuild[prebuild.index("$uiFontFiles = @("):]
-    listed = [name.strip().strip("',") for name in listed[:listed.index(")")].splitlines()[1:] if name.strip()]
-    if listed != UI_FONT_FILES:
+    def prebuild_list(name: str) -> List[str]:
+        listed = prebuild[prebuild.index(f"${name} = @("):]
+        return [entry.strip().strip("',") for entry in listed[:listed.index(")")].splitlines()[1:] if entry.strip()]
+    if prebuild_list("uiFontFiles") != [Path(path).as_posix() for path in UI_FONT_FILES]:
         sys.exit(f"{PORT_DIR / 'tools' / 'prebuild.ps1'}: $uiFontFiles is not tools/embed_assets.py's UI_FONT_FILES")
+    if prebuild_list("promptIcons") != [Path(path).as_posix() for path in PROMPT_ICONS]:
+        sys.exit(f"{PORT_DIR / 'tools' / 'prebuild.ps1'}: $promptIcons is not tools/embed_assets.py's PROMPT_ICONS")
     game = linux_config["game"]
     linux_platform = Path(linux_config["platform_sources"])
     prefix_header = PORT_DIR / "include" / "halo_windows_prefix.h"
@@ -513,13 +516,20 @@ def main() -> None:
     # the overlay's fonts (the game browser's; prebuild.ps1 writes it)
     unit_lines(generated_fonts_c, Path("build/windows/generated/ui_fonts.c"), "Platform", [])
     out("  </ItemGroup>")
+    # the executable's icon and version information (port/windows/halo.rc:
+    # its halo_version.h is the prebuild step's, which has the numbers too)
+    out("  <ItemGroup>")
+    out(f'    <ResourceCompile Include="{win(PORT_DIR / "halo.rc")}">')
+    out(f"      <AdditionalIncludeDirectories>$(HaloGenerated);{win(PORT_DIR)};%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>")
+    out("    </ResourceCompile>")
+    out("  </ItemGroup>")
     out("  <ItemGroup>")
     out(f'    <None Include="{win(PORT_DIR / "tools" / "prebuild.ps1")}" />')
     out(f'    <None Include="{win(PORT_DIR / "tools" / "bake-navigation.cmd")}" />')
     out("  </ItemGroup>")
     out('  <Import Project="$(VCTargetsPath)\\Microsoft.Cpp.targets" />')
     out("  <!-- before compiling: the embedded assets, the version and SDL3 (PowerShell, which Windows has) -->")
-    out('  <Target Name="HaloPrebuild" BeforeTargets="ClCompile">')
+    out('  <Target Name="HaloPrebuild" BeforeTargets="ClCompile;ResourceCompile">')
     out('    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(HaloRoot)port\\windows\\tools\\prebuild.ps1&quot; '
         '-Root &quot;$(HaloRoot).&quot; -Output &quot;$(HaloGenerated)hud_hires_assets.c&quot; '
         '-FontsOutput &quot;$(HaloGenerated)ui_fonts.c&quot; -VersionOutput &quot;$(HaloGenerated)halo_version.h&quot; '

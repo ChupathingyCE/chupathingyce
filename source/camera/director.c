@@ -122,6 +122,7 @@ symbols in this file:
 #include "camera_scripting.h"
 #include "dead_camera.h"
 #include "coop_spectate.h" /* port: port/linux/game/coop_spectate.c */
+#include "follow_camera.h" /* port: port/linux/game/follow_camera.c */
 #include "editor_flying_camera.h"
 #include "first_person_camera.h"
 #include "flying_camera.h"
@@ -716,8 +717,12 @@ static void director_choose_camera_game(
 			if (use_dead_camera)
 			{
 				/* port: a dead network co-op player watches a living teammate
-				(port/linux/game/coop_spectate.c), or its own body if nobody is alive */
-				long watched_unit_index = coop_spectating() ? coop_spectate_unit(local_player_index) : NONE;
+				(port/linux/game/coop_spectate.c), or its own body if nobody is
+				alive; in multiplayer, one with a long wait to respawn follows a
+				living player once the death camera is done
+				(port/linux/game/follow_camera.c) */
+				long watched_unit_index = coop_spectating() ? coop_spectate_unit(local_player_index) :
+					follow_camera_unit(local_player_index);
 
 				if (director->camera_proc != (director_camera_update_proc)dead_camera_update ||
 					(watched_unit_index != NONE &&

@@ -69,8 +69,17 @@ struct network_invite_advertisement
 	short machine_count;
 	short score_limit;
 	boolean in_progress;
+	/* its map's version (a Halo PC map's header checksum, which the host
+	advertises: cache_files_map_version; 0 for the Xbox's maps) */
+	unsigned long map_version;
 };
 
+/* the host of the game last joined, by its identifier (its XNADDR's abEnet,
+as an invite's first 12 hex digits name it), into text (13 bytes): what
+network_game_client_join_invite_host joins it again by */
+void network_game_client_joined_host_identifier(
+	char *text,
+	long size);
 /* 1: the game the invite's host advertises through the tunnel, written to
 advertisement; 0: not advertised yet; -1: not an invite */
 long network_game_client_invite_host_advertisement(

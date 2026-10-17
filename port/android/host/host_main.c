@@ -113,10 +113,11 @@ posix_make_directory creates them (port/linux/src/posix_files.c). */
 static int share_entry(const char *path, const struct stat *information, int type, struct FTW *walk)
 {
 	(void)information;
-	(void)walk;
 	if (type == FTW_D || type == FTW_DP)
 		chmod(path, 02775);
-	else if (type == FTW_F)
+	/* (but not the game list's player key, which stays the player's
+	alone: port/linux/src/posix_browser.c) */
+	else if (type == FTW_F && strncmp(path + walk->base, "game_list_player.key", 20))
 		chmod(path, 0664);
 	return 0;
 }
@@ -135,52 +136,6 @@ struct environment
 	char *entries[ENVIRONMENT_MAXIMUM];
 	int count;
 };
-
-/* asks the activity for Android's system gesture insets via JNI
-(HaloActivity.getSystemGestureInsetsPixels); the guest calls it at every
-finger down because the insets change when the phone rotates; the method is
-found on the activity's own class because the game's native thread has the
-system's class loader, which does not know the app's classes; a change is
-logged so the log shows the value the game works with; all 0 on any failure
-(the touch controls then use the whole screen) */
-void host_gesture_insets(int *insets)
-{
-	static int logged[4] = { -1, -1, -1, -1 };
-	JNIEnv *env = (JNIEnv *)SDL_GetAndroidJNIEnv();
-	jobject activity = (jobject)SDL_GetAndroidActivity();
-	jint values[4] = { 0, 0, 0, 0 };
-	int index;
-
-	if (env && activity)
-	{
-		jclass activity_class = (*env)->GetObjectClass(env, activity);
-		jmethodID method = activity_class ? (*env)->GetMethodID(env, activity_class, "getSystemGestureInsetsPixels", "()[I") : NULL;
-		jintArray array = method ? (jintArray)(*env)->CallObjectMethod(env, activity, method) : NULL;
-
-		if (array && !(*env)->ExceptionCheck(env) && (*env)->GetArrayLength(env, array) == 4)
-			(*env)->GetIntArrayRegion(env, array, 0, 4, values);
-		/* a Java exception left pending would break the next JNI call of the
-		thread, and a failed read must leave zeros */
-		if ((*env)->ExceptionCheck(env))
-		{
-			(*env)->ExceptionClear(env);
-			for (index = 0; index < 4; index++)
-				values[index] = 0;
-		}
-		if (array)
-			(*env)->DeleteLocalRef(env, array);
-		if (activity_class)
-			(*env)->DeleteLocalRef(env, activity_class);
-		(*env)->DeleteLocalRef(env, activity);
-	}
-	for (index = 0; index < 4; index++)
-		insets[index] = (int)values[index];
-	if (memcmp(logged, insets, sizeof(logged)))
-	{
-		memcpy(logged, insets, sizeof(logged));
-		host_logf(HOST_LOG_INFO, "system gesture insets %d,%d,%d,%d", insets[0], insets[1], insets[2], insets[3]);
-	}
-}
 
 static void environment_set(struct environment *environment, const char *name, const char *value)
 {

@@ -1,7 +1,7 @@
 /*
 CONTROL_LINK_PROTOCOL.H
 
-Delta Control's link to halo.milenko.org as bytes (docs/delta.md, Delta
+Delta Control's link to the Chupathingy site as bytes (docs/delta.md, Delta
 Control; control_link.c does the requests and the thread): the server's
 signed requests (Ed25519, Monocypher's crypto_ed25519_sign), the site's
 answers' MACs (BLAKE2b keyed with the link's secret), a small strict JSON
@@ -32,7 +32,8 @@ enum
 	CONTROL_LINK_TOKEN_SIZE = 72,
 	/* a command's text and reason as the site sends them, at most */
 	CONTROL_LINK_COMMAND_SIZE = 201,
-	CONTROL_LINK_REASON_SIZE = 64,
+	/* (a reason as long as a command line's: COMMAND_LINE_REASON_SIZE) */
+	CONTROL_LINK_REASON_SIZE = 128,
 	/* what one answer carries, at most */
 	CONTROL_LINK_COMMANDS = 16,
 	CONTROL_LINK_ROLE_ENTRIES = 128,
@@ -132,6 +133,33 @@ int control_link_parse_start(const char *answer, size_t length, char *code, size
 	size_t token_size, int *expires);
 int control_link_parse_status(const char *answer, size_t length, char *state, size_t state_size, char *server_id,
 	size_t server_id_size, char *owner, size_t owner_size);
+
+/* ---------- the site's role list, kept (delta_roles.cache)
+
+The last role list the site sent, kept beside the link's credential so a
+restart while the site cannot be reached does not strip every role it
+gave: a line "v1 <heard> <version> <mac>", then the list as the poll's
+"roles" member ({"roles": {"version", "entries"}}), the MAC BLAKE2b keyed
+with the link's secret over all of it (so a file edited by hand, or another
+link's, is refused). heard: when the site last answered, unix seconds. */
+
+/* the file's text for a poll's role list (poll->has_roles): its length, or
+-1 if it does not fit */
+int control_link_roles_cache_text(const struct control_link_poll *poll, int64_t heard,
+	const uint8_t secret[CONTROL_LINK_SECRET_BYTES], char *out, size_t size);
+/* the file's text (length bytes, and a 0 after them) read back into poll
+(its roles and roles_version) and heard: 1, else 0 (not one, or its MAC is not this secret's) */
+int control_link_roles_cache_open(const char *text, size_t length, const uint8_t secret[CONTROL_LINK_SECRET_BYTES],
+	struct control_link_poll *poll, int64_t *heard);
+/* whether a role list last confirmed by the site at heard still holds at
+now, for hours (1 to CONTROL_LINK_ROLES_HOURS_MAXIMUM): 1, else 0 */
+int control_link_roles_fresh(int64_t heard, int64_t now, int hours);
+
+enum
+{
+	CONTROL_LINK_ROLES_HOURS_DEFAULT = 24,
+	CONTROL_LINK_ROLES_HOURS_MAXIMUM = 30 * 24,
+};
 
 /* a command the site relays as the server's command line: one of those the
 link takes (sv_warn, sv_kick, sv_ban, sv_unban, sv_map, sv_mapcycle_next,

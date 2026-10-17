@@ -300,6 +300,14 @@ void platform_clipboard_set(const char *text)
 	(void)text;
 }
 
+/* (no invite to ask about: port/linux/game/invite_prompt.c) */
+int platform_take_clipboard_invite(char *text, int size)
+{
+	if (size > 0)
+		text[0] = 0;
+	return 0;
+}
+
 void platform_show_message(const char *title, const char *message)
 {
 	platform_log("%s: %s", title, message);

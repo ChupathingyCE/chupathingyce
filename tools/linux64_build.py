@@ -2,19 +2,23 @@
 
 The 32-bit Linux build's game and platform layer (tools/linux_build.py,
 port/linux), compiled as native x86-64 code as the macOS build is
-(tools/lp64_build.py: HALO_64BIT and the `long` rewrite), with glibc, the
-system's SDL3 and desktop OpenGL. It links build/linux64/halo, which is
-also a dedicated server (server/README.md) with the game browser.
+(tools/lp64_build.py: HALO_64BIT and the `long` rewrite), with glibc, SDL3
+and desktop OpenGL. It links build/linux64/halo, which is also a dedicated
+server (server/README.md) with the game browser.
 
 As the 32-bit build, it honours --lto and --portable; it is not optimised
-with a profile (the committed profiles are the 32-bit builds').
+with a profile (the committed profiles are the 32-bit builds'). With
+--portable it is built as the 32-bit portable build is
+(linux_build.portable_sdl), against Debian 11's amd64 glibc 2.31 rather than
+the build machine's, with its own SDL3 (libSDL3.so.0) beside it; without,
+against this machine's glibc and SDL3.
 """
 
 from pathlib import Path
 from typing import Any, List
 
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
-from .linux_build import OPTIMISATION, lto_flags, march_flag
+from .linux_build import OPTIMISATION, lto_flags, march_flag, portable_sdl
 from .lp64_build import (
     LINUX_PORT_CONFIG,
     Lp64Build,
@@ -27,6 +31,8 @@ from .lp64_build import (
 from .ninja_syntax import Writer
 
 LINUX64_TARGET = "--target=x86_64-linux-gnu"
+# the CMake toolchain of the portable build's SDL3
+SYSROOT_TOOLCHAIN = Path("tools/linux64_sysroot.cmake")
 
 # glibc restricted to ISO C by __STRICT_ANSI__, as in the 32-bit build, but
 # C99's (fabsf, snprintf): an undeclared function is an error here, and
@@ -65,6 +71,11 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
 
     n.comment("Native 64-bit Linux build (ninja linux64)")
     lp64 = Lp64Build(n, sln, "linux64", cc)
+    # (-L: SDL's library is a link to the file of its full version)
+    n.rule(name="linux64_copy", command="cp -L $in $out", description="LINUX64 COPY $out")
+    # the portable build's system root and SDL3, or the build machine's
+    sdl = (portable_sdl(n, sln, build_dir, cc, name="linux64", arch="amd64", toolchain=SYSROOT_TOOLCHAIN)
+           if getattr(sln, "port_portable", False) else None)
     n.rule(
         name="linux64_link",
         command=(
@@ -79,7 +90,7 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
                          + ui_fonts_build(n, "linux64", build_dir / "generated" / "ui_fonts.c", sln))
     host = Lp64Host(
         name="linux64",
-        target_flags=[LINUX64_TARGET, march_flag(sln)],
+        target_flags=[LINUX64_TARGET, march_flag(sln), *(sdl.cflags if sdl else [])],
         game_flags=LINUX64_GAME_FLAGS,
         posix_flags=LINUX64_POSIX_FLAGS,
         # (no loop in them turned into glibc's wcslen, which
@@ -91,7 +102,7 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
     # 32-bit build (the host-ABI units have a 32-bit wchar_t and stay native
     # objects)
     lto_cflags, lto_ldflags = lto_flags(sln, build_dir / "thinlto-cache")
-    objects = lp64.objects(host, generated_sources, build_dir / "obj", lto_cflags)
+    objects = lp64.objects(host, generated_sources, build_dir / "obj", lto_cflags, [sdl.stamp] if sdl else [])
     n.build(
         outputs=output,
         rule="linux64_link",
@@ -100,14 +111,18 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
             # (not position-independent, as the 32-bit build: the addresses
             # of a crash report's calls, in debug.txt, are the executable's
             # own, the same from run to run)
-            "ldflags": " ".join([LINUX64_TARGET, "-g", "-no-pie", *lto_ldflags]),
+            "ldflags": " ".join([LINUX64_TARGET, "-g", "-no-pie", *(sdl.ldflags if sdl else []), *lto_ldflags]),
             "libs": " ".join(f"-l{lib}" for lib in config.get("libraries", [])),
         },
-        implicit=[Path("tools/linux_link_check.py")],
+        implicit=[Path("tools/linux_link_check.py"), *([sdl.libsdl] if sdl else [])],
     )
+    # (the portable build's SDL3, beside the executable, and its license)
+    sdl_outputs = []
+    if sdl is not None:
+        n.build(outputs=build_dir / sdl.libsdl.name, rule="linux64_copy", inputs=sdl.libsdl)
+        sdl_outputs = [build_dir / sdl.libsdl.name, sdl.license]
     # internet play's MQTT brokers, a file beside the game (network.brokers_file)
     brokers = build_dir / "brokers.txt"
-    n.rule(name="linux64_copy", command="cp $in $out", description="LINUX64 COPY $out")
     n.build(outputs=brokers, rule="linux64_copy", inputs=Path("port/assets/network/brokers.txt"))
-    n.build(outputs="linux64", rule="phony", inputs=[output, brokers])
+    n.build(outputs="linux64", rule="phony", inputs=[output, brokers, *sdl_outputs])
     n.newline()

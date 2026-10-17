@@ -31,6 +31,8 @@ __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 /* win32_crash.c's: whether this process is a crash reporter, which leaves
 halo.log to the game it reports */
 int crash_reporter_process(void);
+/* xbox_files.c's: the logs folder, before the game knows its data root */
+int platform_logs_folder_early(char *path, unsigned long size);
 
 __attribute__((constructor))
 static void windows_startup(void)
@@ -43,18 +45,17 @@ static void windows_startup(void)
 	timeBeginPeriod(1);
 	/* a release build has no console (/SUBSYSTEM:WINDOWS), so the platform
 	layer's log (platform_log's stderr: invite links, the data root, crash
-	reports) goes to halo.log next to halo.exe, unless stderr already goes
-	somewhere (a pipe or a file the game was started with) */
+	reports) goes to halo.log in the logs folder (beside maps\, or
+	paths.logs), unless stderr already goes somewhere (a pipe or a file the
+	game was started with). (Before 0.8.0 it was next to halo.exe; one there
+	is left as it was.) */
 	if (_fileno(stderr) < 0 && !crash_reporter_process())
 	{
 		char path[MAX_PATH];
-		DWORD length = GetModuleFileNameA(NULL, path, sizeof(path));
-		char *slash;
 
-		if (length && length < sizeof(path) && (slash = strrchr(path, '\\')) &&
-			(size_t)(slash + 1 - path) + sizeof("halo.log") <= sizeof(path))
+		if (platform_logs_folder_early(path, sizeof(path)) && strlen(path) + sizeof("/halo.log") <= sizeof(path))
 		{
-			strcpy(slash + 1, "halo.log");
+			strcat(path, "/halo.log");
 			if (freopen(path, "w", stderr))
 				setvbuf(stderr, NULL, _IONBF, 0);
 		}
