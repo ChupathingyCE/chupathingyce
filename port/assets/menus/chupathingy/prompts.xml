@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The Chupathingy menus' button prompts: a button and its word, as the
+Xbox's are laid out, the button drawn as the device last used names it (a
+key cap, an Xbox-like pad's by snapchipper's icons, a PlayStation or
+Nintendo pad's own: port/linux/game/menu_tags.c's pc_menu_button_key_cap).
+Their own tags, not ui.map's, so that they show in a game's pause menu
+too. -->
+<menus>
+	<bitmap name="chupathingy/prompts/a_butn">
+		<frame png="ce/port/blank__0.png" width="4" height="4"/>
+	</bitmap>
+	<widget name="chupathingy/prompts/a" controller="1" width="20" height="22" bitmap="chupathingy/prompts/a_butn">
+	</widget>
+	<bitmap name="chupathingy/prompts/b_butn">
+		<frame png="ce/port/blank__0.png" width="4" height="4"/>
+	</bitmap>
+	<widget name="chupathingy/prompts/b" controller="1" width="20" height="22" bitmap="chupathingy/prompts/b_butn">
+	</widget>
+	<bitmap name="chupathingy/prompts/x_butn">
+		<frame png="ce/port/blank__0.png" width="4" height="4"/>
+	</bitmap>
+	<widget name="chupathingy/prompts/x" controller="1" width="20" height="22" bitmap="chupathingy/prompts/x_butn">
+	</widget>
+	<bitmap name="chupathingy/prompts/y_butn">
+		<frame png="ce/port/blank__0.png" width="4" height="4"/>
+	</bitmap>
+	<widget name="chupathingy/prompts/y" controller="1" width="20" height="22" bitmap="chupathingy/prompts/y_butn">
+	</widget>
+	<widget name="chupathingy/prompts/cancel" type="text" controller="1" width="140" height="22" text="=CANCEL" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/prompts/accept" type="text" controller="1" width="140" height="22" text="=ACCEPT" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/prompts/select" type="text" controller="1" width="140" height="22" text="=SELECT" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/prompts/back" type="text" controller="1" width="140" height="22" text="=BACK" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/prompts/ok" type="text" controller="1" width="140" height="22" text="=OK" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/prompts/create_new" type="text" controller="1" width="140" height="22" text="=CREATE NEW" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/prompts/delete" type="text" controller="1" width="140" height="22" text="=DELETE" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/prompts/defaults" type="text" controller="1" width="140" height="22" text="=DEFAULTS" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/prompts/change" type="text" controller="1" width="140" height="22" text="=CHANGE" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+</menus>

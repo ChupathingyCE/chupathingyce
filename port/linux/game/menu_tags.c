@@ -76,6 +76,10 @@ boolean pc_menu_frame_placement(struct bitmap_data const *bitmap, short *x, shor
 /* ---------- constants */
 
 #define PC_MENU_TAG_PREFIX "pc\\"
+/* the Chupathingy menus' main menu (port/assets/menus/chupathingy) */
+#define CHUPATHINGY_ROOT "chupathingy/main_menu"
+/* (the Chupathingy menus' prompts' buttons, by their tags' names) */
+#define CHUPATHINGY_PROMPTS PC_MENU_TAG_PREFIX "chupathingy\\prompts\\"
 /* the multiplayer maps' widget collection, whose pause screens pause_patch
 adds to */
 #define MULTIPLAYER_COLLECTION "ui\\shell\\multiplayer"
@@ -405,6 +409,8 @@ static char const *const port_game_data_input_names[] =
 	/* (the profile settings' picture: the Xbox's of the button settings,
 	on Gamepad Setup's row) */
 	"port gamepad layout preview",
+	/* (the Chupathingy menus' settings picture: the same, on its own frames) */
+	"chupathingy settings picture",
 };
 
 static struct
@@ -421,6 +427,9 @@ static struct
 	struct pc_menu_setting *settings;
 	long setting_count;
 	boolean loaded;
+	/* (display.menus "chupathingy": its main menu, the Xbox's screens after a
+	network game) */
+	boolean chupathingy;
 	char root[300];
 #ifdef HALO_64BIT
 	/* the name of an empty reference, inside the Xbox address space as the
@@ -1456,7 +1465,21 @@ much taller, centred where it was, with what is in it, and what is below
 the list moved down; on a custom map's, what is below the list moves down. */
 
 #define PAUSE_SETTINGS_SCREEN "main_menu/settings_select/player_setup/player_profile_edit/player_profile_edit_screen"
+/* (the Chupathingy menus': their own, in the Xbox's look) */
+#define PAUSE_SETTINGS_SCREEN_CHUPATHINGY "chupathingy/settings/profile_edit_screen"
 #define PAUSE_BUTTON_SPACING 35
+
+/* display.menus: the Xbox's menus, Gearbox's Halo PC menus, or Chupathingy's (the
+Xbox's, with the PC version's screens that the Xbox has not, in its look:
+port/assets/menus/chupathingy) */
+enum
+{
+	_menus_xbox,
+	_menus_pc,
+	_menus_chupathingy,
+};
+
+static short menus_chosen(void);
 
 static long ui_function_named(char const *name)
 {
@@ -1573,7 +1596,8 @@ static short pause_list_patch(struct cache_file_tag_instance *instances, struct 
 	long count = list->child_widgets.count, added = (settings != FALSE) + (end_game != FALSE), child;
 	struct ui_widget_child_reference *grown = allocate((count + added) * sizeof(struct ui_widget_child_reference));
 	struct ui_widget_definition const *model = tag_get(UI_WIDGET_DEFINITION_TAG, children[resume].widget_tag.index);
-	long settings_widget = settings ? widget_named(PAUSE_SETTINGS_SCREEN) : NONE;
+	long settings_widget = !settings ? NONE :
+		widget_named(menus_chosen() == _menus_chupathingy ? PAUSE_SETTINGS_SCREEN_CHUPATHINGY : PAUSE_SETTINGS_SCREEN);
 	short spacing = count >= 2 ? (short)(children[count - 1].vertical_offset - children[count - 2].vertical_offset) :
 		PAUSE_BUTTON_SPACING;
 	void *buttons[2];
@@ -1896,14 +1920,15 @@ static void pause_patch_xbox(void)
 	memset(&build, 0, sizeof(build));
 }
 
-/* whether display.menus asks for Gearbox's Halo PC menus: "gearbox" (or the
-older "pc") in any case (any other value but "xbox" is said once in the log,
-and is the Xbox's) */
-static boolean menus_pc_chosen(void)
+
+/* which display.menus asks for, in any case ("gearbox" or the older "pc"
+for Gearbox's; a value that is none of them is said once in the log, and is
+the Xbox's) */
+static short menus_chosen(void)
 {
 	static boolean said;
 	char const *value = config_string("display.menus");
-	char lower[8];
+	char lower[16];
 	size_t index;
 
 	for (index = 0; index + 1 < sizeof(lower) && value[index]; index++)
@@ -1912,13 +1937,22 @@ static boolean menus_pc_chosen(void)
 	if (value[index])
 		lower[0] = 0;
 	if (!strcmp(lower, "gearbox") || !strcmp(lower, "pc"))
-		return TRUE;
+		return _menus_pc;
+	if (!strcmp(lower, "chupathingy"))
+		return _menus_chupathingy;
 	if (strcmp(lower, "xbox") && !said)
 	{
-		platform_log("menus: display.menus \"%s\" is not \"xbox\" or \"gearbox\": the Xbox's", value);
+		platform_log("menus: display.menus \"%s\" is not \"xbox\", \"gearbox\" or \"chupathingy\": the Xbox's", value);
 		said = TRUE;
 	}
-	return FALSE;
+	return _menus_xbox;
+}
+
+/* whether the Chupathingy menus are up */
+boolean pc_menus_chupathingy(
+	void)
+{
+	return menu_tags.loaded && menu_tags.chupathingy;
 }
 
 void menu_tags_loaded(
@@ -1937,7 +1971,7 @@ void menu_tags_loaded(
 		return;
 	}
 	/* the Xbox's menus: only a multiplayer game's host's END GAME */
-	if (!menus_pc_chosen())
+	if (menus_chosen() == _menus_xbox)
 	{
 		if (game_map && tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_PAUSE_SCREEN) == NONE &&
 			global_network_game_server_get() != NULL)
@@ -2046,9 +2080,10 @@ void menu_tags_loaded(
 		/* (those it made) */
 		cache_files_set_tag_instances(instances, build.first_index + build.next);
 	}
-	else if (widget_named(menus->root) != NONE)
+	else if (widget_named(menus_chosen() == _menus_chupathingy ? CHUPATHINGY_ROOT : menus->root) != NONE)
 	{
-		snprintf(menu_tags.root, sizeof(menu_tags.root), "%s%s", PC_MENU_TAG_PREFIX, menus->root);
+		snprintf(menu_tags.root, sizeof(menu_tags.root), "%s%s", PC_MENU_TAG_PREFIX,
+			menus_chosen() == _menus_chupathingy ? CHUPATHINGY_ROOT : menus->root);
 		for (index = 0; menu_tags.root[index]; index++)
 		{
 			if (menu_tags.root[index] == '/')
@@ -2060,6 +2095,7 @@ void menu_tags_loaded(
 		platform_log("menus: there is no widget named %s, the main menu", menus->root);
 	}
 	menu_tags.loaded = TRUE;
+	menu_tags.chupathingy = menus_chosen() == _menus_chupathingy;
 	platform_log("menus: %ld widgets, %ld string lists and %ld bitmaps added to the map's %ld tags",
 		widget_count, own_lists + menus->string_list_count, menus->bitmap_count, build.first_index);
 	goto done;
@@ -2167,7 +2203,7 @@ short pc_menu_string_index(
 
 /* the screen the engine opens by name after a network game (the Xbox's),
 or ours where the PC version's menus are up: the host's map select, the
-lobby */
+lobby (the Chupathingy menus keep the Xbox's) */
 char const *pc_menus_screen(
 	char const *name)
 {
@@ -2184,7 +2220,7 @@ char const *pc_menus_screen(
 	};
 	short index;
 
-	if (!menu_tags.loaded)
+	if (!menu_tags.loaded || menu_tags.chupathingy)
 		return name;
 	for (index = 0; index < NUMBEROF(screens); index++)
 	{
@@ -2219,8 +2255,10 @@ struct pc_menu_setting *pc_menu_setting_get(
 ui.map's pictures of the controller's buttons in the menus' prompts ("A =
 SELECT", "B = BACK": ui\shell\bitmaps\a_butn and the rest, and their
 smaller _sm), drawn as the keyboard's key caps while the keyboard or mouse
-was used last (halo_keyboard_prompts), as Online Games draws its prompts
-(ui_overlay.c: the keys xinput_sdl.c presses those buttons with), ending
+was used last (halo_keyboard_prompts), and with the Chupathingy menus always
+as the device last used names them (an Xbox-like pad's by snapchipper's
+icons, a PlayStation or Nintendo pad's own), as Online Games draws its
+prompts (ui_overlay.c: the keys xinput_sdl.c presses those buttons with), ending
 where the picture ends, so that the words after it stay clear. */
 
 boolean pc_menu_button_key_cap(
@@ -2250,12 +2288,22 @@ boolean pc_menu_button_key_cap(
 	char const *last;
 	long index;
 
-	if (bitmap_tag_index == NONE || !halo_keyboard_prompts())
+	/* (the Chupathingy menus: always the modern glyphs of the device last
+	used, a pad's too) */
+	boolean modern = menu_tags.loaded && menu_tags.chupathingy;
+
+	if (bitmap_tag_index == NONE || (!halo_keyboard_prompts() && !modern))
 		return FALSE;
 	name = tag_get_name(bitmap_tag_index);
-	if (!name || strncmp(name, "ui\\shell\\bitmaps\\", 17))
+	if (!name)
 		return FALSE;
-	last = name + 17;
+	/* (ui.map's, and the Chupathingy menus' own: chupathingy/prompts.xml) */
+	if (!strncmp(name, "ui\\shell\\bitmaps\\", 17))
+		last = name + 17;
+	else if (modern && !strncmp(name, CHUPATHINGY_PROMPTS, strlen(CHUPATHINGY_PROMPTS)))
+		last = name + strlen(CHUPATHINGY_PROMPTS);
+	else
+		return FALSE;
 	for (index = 0; index < (long)(sizeof(buttons) / sizeof(buttons[0])); index++)
 	{
 		size_t length = strlen(buttons[index].name);

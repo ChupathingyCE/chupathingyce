@@ -343,9 +343,22 @@ other functions behind the screens are not wired to this game yet
 (`port/assets/menus/UNWIRED.md`): the lists they fill (profiles, maps,
 servers, key bindings) are empty, and the settings they change do not
 change. The screens open, close and move between each other as the PC
-version's. ChupathingyCE starts on the Xbox's menus (`display.menus = "xbox"`),
-which start every kind of game and have Online Games; `display.menus =
-"gearbox"` (or the older `"pc"`) gives these, Gearbox's Halo PC menus.
+version's.
+
+`display.menus` chooses one of three views:
+
+- `"chupathingy"` (the default): the Xbox's menus and look with Halo PC's
+  screens added where they help, as one set: PROFILES, SETTINGS (Controls,
+  Gamepads, Mouse, Audio, Video, Network Setup and Privacy) and QUIT on the main
+  menu, the settings pages laid out as the Xbox's screens with its B/A/Y
+  prompts, SETTINGS and the host's END GAME in the pause menu, Online Games
+  in MULTIPLAYER, and the Xbox's question box for the clipboard invite
+  (`port/assets/menus/chupathingy`).
+- `"xbox"`: the Xbox's menus, as close to the console as can be, with only
+  what this port needs added (Online Games, joining, the host's END GAME,
+  the essential prompts).
+- `"gearbox"` (or the older `"pc"`): Gearbox's Halo PC menus, as close to
+  Halo PC as can be, with its Server Browser.
 
 Multiplayer > CO-OP CAMPAIGN is the Xbox's cooperative play, which the PC
 version does not have: two players on this computer play the campaign in
@@ -432,7 +445,8 @@ version updates such a file once (`config_version = 2` at the top
 marks it): a setting that holds the default of this version is commented
 out, so that it follows the default. A setting with another value stays,
 also the default of an earlier version (`display.menus = "pc"`, the default
-before 0.5.2b), which you may have chosen; the log names it. The log has one
+before 0.5.2b, or `"xbox"`, the default before 0.8.0), which you may have
+chosen; the log names it. The log has one
 line that tells how many lines changed.
 
 Each setting has an environment variable. The environment variable changes
@@ -460,7 +474,7 @@ the setting for one start of the game. It has priority over the file.
 | `display.high_res_font` | `""` | `HALO_HIGH_RES_FONT` | The player's own font file (`.ttf` or `.otf`) for the high-res text and the menu text of Online Games, in place of the built-in fonts (`port/assets/fonts/fonts.json`). A relative path is in `data/fonts/` in the data root (a path that leaves that folder is refused); an absolute path is used as it is. A file that is missing or is not a font is logged, and the built-in font is drawn. A change applies while the game runs. |
 | `display.high_res_font_large` | `""` | `HALO_HIGH_RES_FONT_LARGE` | As `display.high_res_font`, for the large text only (the font tags with the role `large` in `fonts.json`: `ui\large_ui`, `ui\interstate`; Online Games' large menu text). Empty: `display.high_res_font`. |
 | `display.shadow_resolution` | `128` | `HALO_SHADOW_RESOLUTION` | The size of the maps that the shadows of the objects are drawn in, in pixels each way: `128`, `256`, `512` or `1024` (other values go down to one of these). The game draws the shadow of each object into a map of 128x128 pixels, blurs it and projects it onto the ground. On a large screen, the edges of these shadows show steps that move when the object moves. A larger map makes the edges smooth; the blur is made wider to match, so the shadows are as soft as on the Xbox. Each doubling adds two passes of the blur. `128`: as on the Xbox. |
-| `display.menus` | `"xbox"` | `HALO_MENUS` | `"xbox"`: the Xbox's menus, with Online Games (the default). `"gearbox"` (or the older `"pc"`): Gearbox's Halo PC menus, from the files in `port/assets/menus` and a `menus` folder next to `config.toml`. Refer to "Menus". |
+| `display.menus` | `"chupathingy"` | `HALO_MENUS` | `"chupathingy"` (the default): the Xbox's menus with Halo PC's PROFILES, SETTINGS and QUIT, the settings pages, and Online Games, in the Xbox's look. `"xbox"`: the Xbox's menus, as close to the console as can be, with Online Games. `"gearbox"` (or the older `"pc"`): Gearbox's Halo PC menus. The Halo PC screens are built from the files in `port/assets/menus` and a `menus` folder next to `config.toml`. A file that sets `"xbox"` (the default before 0.8.0) keeps it. Refer to "Menus". |
 | `display.version_watermark` | `false` | `HALO_VERSION_WATERMARK` | `true`: the build's version ("0.7.5a (5c1a363)"), which the main menu shows small and faint in the bottom right corner, is shown there while playing too: handy for screenshots and bug reports. |
 | `display.player_names` | `"all"` | `HALO_PLAYER_NAMES` | In multiplayer, whose names are drawn above their heads: `"all"`, `"allies"`, `"enemies"` or `"none"`. An ally's name is drawn above the triangle the game shows over teammates. An enemy's name shows only within the motion sensor's reach, while the enemy is in sight and not camouflaged, so it never shows where an enemy hides. The gametype's motion tracker setting also applies: no names if it shows no players, only allies' if it shows only friends. |
 | `display.player_name_scale` | `1.0` | `HALO_PLAYER_NAME_SCALE` | How large the players' names are drawn: `1.0` is three quarters of the size of the HUD's text, from `0.25` to `4`. With high-res text, larger names are rasterized at their size, so they stay sharp. |
@@ -548,6 +562,7 @@ the setting for one start of the game. It has priority over the file.
 | `debug.update_answer` | `""` | `HALO_UPDATE_ANSWER` | The answer to the update question, for automatic tests: `yes`, `no` or `never`. Empty: the game asks. |
 | `debug.exit_after` | `0.0` | `HALO_EXIT_AFTER` | The game stops after this number of seconds. `0`: never. |
 | `debug.screenshot_directory`, `debug.screenshot_every` | `""`, `0` | `HALO_SCREENSHOT_DIR`, `HALO_SCREENSHOT_EVERY` | The game writes each Nth frame to this folder as a BMP file. |
+| `debug.screenshot_window` | `false` | `HALO_SCREENSHOT_WINDOW` | `true`: those screenshots are of the window as shown, with the overlay's screens (Online Games and others) on the frame. |
 | `debug.hidden_window`, `debug.null_renderer` | `false` | `HALO_HIDDEN_WINDOW`, `HALO_NULL_RENDERER` | `true`: no visible window, or no graphics. |
 | `debug.gpu_stats`, `debug.gpu_trace_frame`, `debug.gpu_trace_constants`, `debug.gpu_dump_shaders`, `debug.texture_dump_directory`, `debug.texture_log`, `debug.gl_debug`, `debug.texture_no_cache` | off | `HALO_GPU_STATS`, `HALO_GPU_TRACE`, `HALO_GPU_TRACE_CONSTANTS`, `HALO_GPU_DUMP_SHADERS`, `HALO_TEXTURE_DUMP`, `HALO_TEXTURE_LOG`, `HALO_GL_DEBUG`, `HALO_TEXTURE_NO_CACHE` | Tools to find problems in the graphics: counts for each frame, all the GL state of one frame, the GLSL code, the textures. |
 | `debug.discord_log` | `false` | `HALO_DISCORD_LOG` | Log each activity sent to Discord, without the invite. |

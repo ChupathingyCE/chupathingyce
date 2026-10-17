@@ -3614,6 +3614,18 @@ static void mutliplayer_settings_select_list_update_displayed_items(
 			}
 		}
 	}
+	/* port: the Chupathingy menus' cards add each gametype's rules
+	(port/linux/game/menu_style.c) */
+	for (item_index = 0; item_index < 3 && displayed_item_indices[item_index] != NONE; item_index++)
+	{
+		extern void menu_style_gametype_rules(long profile_index, wchar_t *text, long size);
+		struct widget_instance *label_box = widget_instance_get_nth_child(list_widget, item_index)->child->next->next;
+
+		menu_style_gametype_rules(
+			((long *)list_widget->parameters.list.list_items)[displayed_item_indices[item_index]],
+			label_box->parameters.text_box.text,
+			0x100);
+	}
 	return;
 }
 
