@@ -149,6 +149,63 @@ static void old_map_folders_offer(BOOL quiet)
 	platform_old_map_folders_move();
 }
 
+/* whether the game is run without anyone to answer a question (a test run,
+a null renderer) */
+static BOOL platform_run_is_quiet(void)
+{
+	BOOL quiet = config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0 ||
+		config_boolean("debug.null_renderer");
+
+#ifdef HALO_GAME_BROWSER
+	quiet = quiet || browser_headless();
+#endif
+	return quiet;
+}
+
+/* the settings whose defaults this version changed, for a player whose
+config.toml has them at the old ones (or following the default): asked once,
+in the game's message box, before they change; the answer kept
+(game.defaults_answered). "Keep mine" writes the old values into
+config.toml; "Use the new settings" lets them follow the new defaults. A
+new config.toml has the new defaults, and the dedicated server keeps its
+own, so neither is asked. A run that cannot ask keeps the old values and
+says so in the log. Android asks too, in the same box */
+static void new_defaults_offer(BOOL quiet)
+{
+	static const SDL_MessageBoxButtonData buttons[] = {
+		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Use the new settings" },
+		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Keep mine" },
+	};
+	char changes[1024];
+	char text[1536];
+	SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "ChupathingyCE: new settings", text, 2,
+		buttons, NULL };
+	int answer = 0;
+
+	if (!config_new_defaults_pending(changes, sizeof(changes)))
+		return;
+	if (quiet)
+	{
+		platform_log("settings: this version changes some defaults (%s); they are asked about when the game is "
+			"run with someone to answer, and until then your settings stay as they were", changes);
+		return;
+	}
+	snprintf(text, sizeof(text),
+		"This version changes some of the game's default settings, which you have not changed yourself:\n\n"
+		"%s\n\n"
+		"Use the new settings, or keep your settings as they are now? You can change any of them later in "
+		"the game's settings or in config.toml.",
+		changes);
+	if (!SDL_ShowMessageBox(&question, &answer))
+	{
+		platform_log("settings: the question about the new defaults could not be shown; your settings stay as "
+			"they were");
+		return;
+	}
+	platform_log("settings: the player chose %s", answer ? "the new defaults" : "to keep their settings");
+	config_new_defaults_answer(answer);
+}
+
 #ifndef HALO_ANDROID
 static BOOL data_has_xbox_maps(const char *destination);
 
@@ -163,12 +220,9 @@ static void data_check_maps(void)
 	struct platform_maps_folder maps;
 	char message[2048];
 	char where[1200];
-	BOOL quiet = config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0 ||
-		config_boolean("debug.null_renderer");
+	BOOL quiet = platform_run_is_quiet();
 
-#ifdef HALO_GAME_BROWSER
-	quiet = quiet || browser_headless();
-#endif
+	new_defaults_offer(quiet);
 	platform_maps_folder_check(&maps);
 	snprintf(where, sizeof(where),
 		"Put the Xbox maps from your Halo: Combat Evolved disc image in %s/maps. Halo PC "
@@ -346,6 +400,7 @@ BOOL platform_sdl_initialize(void)
 #endif
 #else
 	/* (the desktop's are moved from data_check_maps) */
+	new_defaults_offer(platform_run_is_quiet());
 	old_map_folders_offer(TRUE);
 #endif
 	/* (the legacy table: a newer one fetched meanwhile) */

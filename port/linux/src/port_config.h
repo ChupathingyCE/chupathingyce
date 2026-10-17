@@ -36,6 +36,18 @@ guest has no SDL_LoadFile) */
 char *config_file_read(const char *path, size_t *size);
 /* a setting's default, as text; 0 if there is no such setting */
 int config_default(const char *name, char *text, size_t size);
+/* The settings an existing config.toml has that a new version's defaults
+would change (display.anti_aliasing, display.shadow_resolution,
+display.menus, audio.buffer_frames on Android), until the player is asked:
+the count, and in text one line a change, in words. They keep their old
+values meanwhile, and the file is left as it is. A new file has the new
+defaults and none pending; so has the dedicated server. */
+int config_new_defaults_pending(char *text, size_t size);
+/* the player's answer, once: 1 to follow the new defaults (a value an older
+version wrote beside the commented one is taken out), 0 to keep the old
+values, written into config.toml so that they stay. Either way
+game.defaults_answered is written, so the question does not come again */
+void config_new_defaults_answer(int use_new);
 /* how many times config_write has changed a setting: what keeps one reads
 it again when this moves */
 unsigned long config_changes(void);

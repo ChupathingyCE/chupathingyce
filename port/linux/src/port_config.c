@@ -80,12 +80,35 @@ struct config_setting
 #endif
 
 /* macOS's audio cuts out with SDL's 512-frame buffer when the mixer is late
-(a 10.6 ms budget at 48 kHz); 2048 frames (43 ms) rides that out. Elsewhere
-512 keeps the latency low. */
+(a 10.6 ms budget at 48 kHz); 2048 frames (43 ms) rides that out. Android's
+mixer runs on a phone's cores, often a slower one, so it has 1024 (21 ms).
+Elsewhere 512 keeps the latency low. */
 #ifdef __APPLE__
 #define DEFAULT_AUDIO_BUFFER_FRAMES "2048"
+#elif defined(HALO_ANDROID)
+#define DEFAULT_AUDIO_BUFFER_FRAMES "1024"
 #else
 #define DEFAULT_AUDIO_BUFFER_FRAMES "512"
+#endif
+
+/* The 3D view's anti-aliasing and the objects' shadow maps: the sharpest
+picture the builds' computers draw comfortably, with the look kept
+(multisampling smooths only the edges of what is drawn; a larger shadow map
+only the steps along a shadow's edge, its blur widened to keep it as soft).
+The 64-bit desktop builds take 2 samples a pixel (on an M4 at 1920x1080,
+0.4 ms a frame more; 4 samples cost three times that, which a large display
+multiplies) and 256 (about nothing); the 32-bit builds, for older
+computers, and Android, whose picture is 480 lines, 256 and no
+anti-aliasing. The server draws nothing: the Xbox's. */
+#if defined(HALO_SERVER)
+#define DEFAULT_ANTI_ALIASING "\"off\""
+#define DEFAULT_SHADOW_RESOLUTION "128"
+#elif defined(HALO_64BIT) && !defined(HALO_ANDROID)
+#define DEFAULT_ANTI_ALIASING "\"msaa2x\""
+#define DEFAULT_SHADOW_RESOLUTION "256"
+#else
+#define DEFAULT_ANTI_ALIASING "\"off\""
+#define DEFAULT_SHADOW_RESOLUTION "256"
 #endif
 
 static const struct config_setting config_settings[] =
@@ -127,12 +150,14 @@ static const struct config_setting config_settings[] =
 	{ "display.max_fps", _config_integer, "0", "HALO_MAX_FPS", _environment_value, _platform_desktop,
 		"With vsync off, the most frames a second: 0 for twice the display's\n"
 		"refresh rate, -1 for no limit (which can hang some Intel graphics)." },
-	{ "display.anti_aliasing", _config_string, "\"off\"", "HALO_ANTI_ALIASING", _environment_value, _platform_all,
+	{ "display.anti_aliasing", _config_string, DEFAULT_ANTI_ALIASING, "HALO_ANTI_ALIASING", _environment_value,
+		_platform_all,
 		"Smoothing of jagged edges, which the Xbox did not have: \"off\"; \"fxaa\"\n"
 		"or \"smaa\" smooth the 3D view once it is drawn (the HUD and menus stay\n"
 		"sharp); \"ssaa2x\" draws at twice the resolution each way (four times\n"
 		"the work); \"msaa2x\", \"msaa4x\" or \"msaa8x\" draw with that many samples\n"
-		"a pixel. Android has \"fxaa\" for \"smaa\", and no \"ssaa2x\"." },
+		"a pixel. Android has \"fxaa\" for \"smaa\", and no \"ssaa2x\". The default:\n"
+		"\"msaa2x\" on 64-bit computers, \"off\" on 32-bit ones and Android." },
 	{ "display.interpolation", _config_boolean, "true", "HALO_INTERPOLATION", _environment_value, _platform_all,
 		"Draw a frame for every display refresh, blending between the game's 30\n"
 		"ticks a second; false keeps the original 30 frames a second." },
@@ -174,10 +199,11 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"Show this build's version (as the main menu does) in the bottom right\n"
 		"corner while playing too: handy for screenshots and bug reports." },
-	{ "display.shadow_resolution", _config_integer, "128", "HALO_SHADOW_RESOLUTION", _environment_value,
-		_platform_all,
+	{ "display.shadow_resolution", _config_integer, DEFAULT_SHADOW_RESOLUTION, "HALO_SHADOW_RESOLUTION",
+		_environment_value, _platform_all,
 		"The size the objects' shadows are drawn at, in pixels each way: 128 as\n"
-		"on the Xbox, or 256, 512 or 1024 for smoother edges, as soft." },
+		"on the Xbox, or 256 (the default), 512 or 1024 for smoother edges, as\n"
+		"soft." },
 	{ "display.menus", _config_string, "\"chupathingy\"", "HALO_MENUS", _environment_value, _platform_all,
 		"The menus: \"chupathingy\" (the default) for the Xbox's look with Halo\n"
 		"PC's screens added where they help (PROFILES, SETTINGS, QUIT, the\n"
@@ -282,7 +308,7 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"The audio device's buffer, in sample frames at 48 kHz (64 to 8192): larger\n"
 		"rides out stalls that cut the sound out, smaller has less delay. 2048\n"
-		"(43 ms) on macOS, 512 (11 ms) elsewhere." },
+		"(43 ms) on macOS, 1024 (21 ms) on Android, 512 (11 ms) elsewhere." },
 
 	{ "audio.reverb", _config_boolean, "true", "HALO_REVERB", _environment_value, _platform_all,
 		"Reverberate the world's sounds as the place the player is in does (the\n"
@@ -429,6 +455,14 @@ static const struct config_setting config_settings[] =
 		"(each folder moved whole, never copied; one that cannot be moved stays\n"
 		"where it is); \"yes\": moved without asking; \"no\": left where they are.\n"
 		"Android moves them unless this is \"no\"." },
+
+	{ "game.defaults_answered", _config_integer, "0", "HALO_DEFAULTS_ANSWERED", _environment_value, _platform_all,
+		"Which defaults the game has asked about: when a version changes the\n"
+		"defaults of settings you had not chosen (display.anti_aliasing,\n"
+		"display.shadow_resolution, display.menus, audio.buffer_frames on Android),\n"
+		"it asks once, \"Use the new settings\" or \"Keep mine\", and writes 1 here.\n"
+		"Keep mine writes your old values into this file. A new file has the new\n"
+		"defaults and is not asked. The dedicated server never asks." },
 
 	{ "paths.data", _config_string, "\"\"", "HALO_DATA_ROOT", _environment_value, _platform_desktop,
 		"The folder holding the game data's maps folder; empty looks in the\n"
@@ -823,6 +857,13 @@ struct config_value
 static struct config_value config_values[NUMBER_OF_CONFIG_SETTINGS];
 /* whether the file or the environment gives the setting a value */
 static int config_given[NUMBER_OF_CONFIG_SETTINGS];
+/* the settings an existing file would see change with this version's
+defaults, until the player is asked (config_find_new_defaults): 1 for one
+that follows the default (commented out, or not there), 2 for one that an
+older version wrote as a value beside the commented one; and the old
+default each had, as written */
+static int config_pending[NUMBER_OF_CONFIG_SETTINGS];
+static const char *config_pending_old[NUMBER_OF_CONFIG_SETTINGS];
 static int config_loaded = 0;
 static pthread_mutex_t config_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -968,6 +1009,9 @@ static int config_write_file(const char *path, const char *text)
 before config_version, wrote every value, which kept a default a later
 version changed) */
 #define CONFIG_VERSION 2
+/* the defaults the game has asked about (game.defaults_answered): the ones
+of v0.8.0 */
+#define CONFIG_DEFAULTS_GENERATION 1
 #define CONFIG_VERSION_LINE "config_version = 2\n"
 #define CONFIG_VERSION_LINES "# The layout of this file, for the game: leave it.\n" CONFIG_VERSION_LINE
 #define CONFIG_VERSION_TEXT "\n" CONFIG_VERSION_LINES
@@ -1187,7 +1231,7 @@ static char *config_add_missing(const char *text, toml_datum_t table)
 		const char *insert = NULL;
 
 		if (!(setting->platforms & CONFIG_PLATFORM) || !dot || toml_seek(table, setting->name).type != TOML_UNKNOWN ||
-			config_text_has_key(current, setting->name, 1))
+			config_pending[index] || config_text_has_key(current, setting->name, 1))
 			continue;
 		snprintf(header, sizeof(header), "[%.*s]", (int)(dot - setting->name), setting->name);
 		/* the end of the section's last line that is not blank */
@@ -1434,16 +1478,27 @@ static const struct
 	/* whether a file of the current layout holding it is moved to the
 	current default too (the value was never a choice a player made) */
 	int follow;
+	/* for an existing file that has the setting at the old default (or not
+	set): the change in words, to ask about it (config_find_new_defaults) */
+	const char *change;
 } config_old_defaults[] =
 {
 	/* upstream's, which ChupathingyCE kept until v0.5.2b */
-	{ "display.menus", "\"pc\"", 0 },
+	{ "display.menus", "\"pc\"", 0, NULL },
 	/* the Xbox's menus, the default until v0.8.0 (a file that names them
 	keeps them) */
-	{ "display.menus", "\"xbox\"", 0 },
+	{ "display.menus", "\"xbox\"", 0,
+		"The Chupathingy menus (the Xbox's look, with Halo PC's screens added where they help)" },
+	/* the Xbox's, until the per-platform defaults of v0.8.0 (a file that
+	names them keeps them) */
+	{ "display.anti_aliasing", "\"off\"", 0, "Smoother edges (2x multisampling)" },
+	{ "display.shadow_resolution", "128", 0, "Sharper shadows (256)" },
+#ifdef HALO_ANDROID
+	{ "audio.buffer_frames", "512", 0, "A larger audio buffer, against crackling (1024)" },
+#endif
 	/* OpenCE's Discord application, which ChupathingyCE kept until v0.7.5c
 	(Discord showed "OpenCE" as being played) */
-	{ "discord.application_id", "\"1553978809840050229\"", 1 },
+	{ "discord.application_id", "\"1553978809840050229\"", 1, NULL },
 };
 
 #define NUMBER_OF_CONFIG_OLD_DEFAULTS (sizeof(config_old_defaults) / sizeof(config_old_defaults[0]))
@@ -1508,7 +1563,7 @@ static void config_report_commented(const char *text, toml_datum_t table)
 			{
 				continue;
 			}
-			if (toml_seek(table, setting->name).type != TOML_UNKNOWN)
+			if (toml_seek(table, setting->name).type != TOML_UNKNOWN || config_pending[index])
 				break;
 			/* (the value read as TOML: 1.0 is 1.00) */
 			value = (const char *)memchr(line, '=', (size_t)(end - line)) + 1;
@@ -1636,6 +1691,256 @@ static char *config_update_layout(const char *text, toml_datum_t table)
 	platform_log("settings: config.toml updated (config_version %d): %d lines at this version's default commented "
 		"out, to follow it; every other value is kept", CONFIG_VERSION, defaults);
 	return out.buffer;
+}
+
+/* whether the value is the setting's default, or one an earlier version had */
+static int config_datum_is_a_default(toml_datum_t datum, const struct config_setting *setting)
+{
+	size_t old;
+
+	if (config_datum_is(datum, setting->type, setting->default_value))
+		return 1;
+	for (old = 0; old < NUMBER_OF_CONFIG_OLD_DEFAULTS; old++)
+	{
+		if (!strcmp(config_old_defaults[old].name, setting->name) &&
+			config_datum_is(datum, setting->type, config_old_defaults[old].default_value))
+		{
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/* whether text has the setting commented out at a default in its section,
+"# key = ..." */
+static int config_text_has_commented_key(const char *text, const char *name)
+{
+	const char *dot = strchr(name, '.');
+	char section[64], current[64] = "";
+	const char *line;
+
+	snprintf(section, sizeof(section), "%.*s", (int)(dot - name), name);
+	for (line = text; *line;)
+	{
+		const char *end = line + strcspn(line, "\n");
+
+		if (!config_line_section(line, end, current, sizeof(current)) && !strcmp(current, section) &&
+			config_line_commented_key(line, end, dot + 1))
+		{
+			return 1;
+		}
+		line = *end ? end + 1 : end;
+	}
+	return 0;
+}
+
+/* whether the line (from its '#') is a setting commented out, "# key = ..." */
+static int config_line_is_commented_setting(const char *line)
+{
+	const char *start;
+
+	line++;
+	while (*line == ' ' || *line == '\t')
+		line++;
+	start = line;
+	while ((*line >= 'a' && *line <= 'z') || (*line >= '0' && *line <= '9') || *line == '_')
+		line++;
+	if (line == start)
+		return 0;
+	while (*line == ' ' || *line == '\t')
+		line++;
+	return *line == '=';
+}
+
+/* a version from before config_version, run on a file of this layout, sees
+the settings commented out at their default as missing, and adds each as a
+value at its own default (with its comment, after a blank line) at the end
+of its section: the file then holds the setting twice, "# key = default"
+from this layout and "key = value" from the older version, and the value
+pins the older version's default. Such a value that is a default, this
+version's or an older one, is taken out with its comment, so that the
+setting follows this version's default again; a value that is no default
+stays, being the player's. Returns the new text, or NULL if there was none */
+static char *config_drop_added_defaults(const char *text, toml_datum_t table)
+{
+	toml_datum_t version = toml_seek(table, "config_version");
+	int lines[NUMBER_OF_CONFIG_SETTINGS];
+	struct config_text out = { NULL, 0, 0 };
+	int line_number = 1, dropped = 0, any = 0;
+	const char *line;
+	size_t index;
+
+	if (version.type != TOML_INT64 || version.u.int64 < 2)
+		return NULL;
+	for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
+	{
+		const struct config_setting *setting = &config_settings[index];
+		toml_datum_t datum = toml_seek(table, setting->name);
+
+		lines[index] = 0;
+		if (datum.type != TOML_UNKNOWN && config_datum_is_a_default(datum, setting) &&
+			config_text_has_commented_key(text, setting->name))
+		{
+			lines[index] = datum.lineno;
+			any = 1;
+		}
+	}
+	if (!any)
+		return NULL;
+	for (line = text; *line; line_number++)
+	{
+		const char *end = line + strcspn(line, "\n");
+		const char *next = *end ? end + 1 : end;
+		int drop = 0;
+
+		for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS && !drop; index++)
+		{
+			drop = lines[index] == line_number &&
+				config_line_key(line, end, strchr(config_settings[index].name, '.') + 1);
+		}
+		if (drop)
+		{
+			/* (its comment above it, and the blank line before that) */
+			while (out.length)
+			{
+				size_t start = out.length - 1;
+				const char *first;
+
+				while (start > 0 && out.buffer[start - 1] != '\n')
+					start--;
+				for (first = out.buffer + start; *first == ' ' || *first == '\t'; first++)
+				{
+				}
+				/* (not another setting's line, "# key = value") */
+				if (*first != '#' || config_line_is_commented_setting(first))
+					break;
+				out.length = start;
+				out.buffer[start] = 0;
+			}
+			if (out.length >= 2 && out.buffer[out.length - 1] == '\n' && out.buffer[out.length - 2] == '\n')
+				out.buffer[--out.length] = 0;
+			dropped++;
+		}
+		else
+		{
+			char *copy = config_copy(line, (size_t)(next - line));
+
+			if (copy)
+				config_append(&out, copy);
+			free(copy);
+		}
+		line = next;
+	}
+	platform_log("settings: config.toml held %d settings twice, commented out and as a default an older version "
+		"added; those values are taken out, to follow this version's defaults", dropped);
+	return out.buffer;
+}
+
+/* a default's text without its quotes, as config_write takes it */
+static void config_unquote(const char *text, char *out, size_t size)
+{
+	size_t length = strlen(text);
+
+	if (length >= 2 && text[0] == '"')
+	{
+		text++;
+		length -= 2;
+	}
+	if (length >= size)
+		length = size - 1;
+	memcpy(out, text, length);
+	out[length] = 0;
+}
+
+#ifndef HALO_SERVER
+/* whether the setting is commented out in text ("# key = ...") at the value
+(a default as written): 1 if so, 0 if at another, -1 if it is not there */
+static int config_commented_value_is(const char *text, const struct config_setting *setting, const char *value_text)
+{
+	const char *dot = strchr(setting->name, '.');
+	char section[64], current[64] = "";
+	const char *line;
+
+	snprintf(section, sizeof(section), "%.*s", (int)(dot - setting->name), setting->name);
+	for (line = text; *line;)
+	{
+		const char *end = line + strcspn(line, "\n");
+
+		if (!config_line_section(line, end, current, sizeof(current)) && !strcmp(current, section) &&
+			config_line_commented_key(line, end, dot + 1))
+		{
+			const char *value = (const char *)memchr(line, '=', (size_t)(end - line)) + 1;
+			size_t probe_size = (size_t)(end - value) + 8;
+			char *probe = malloc(probe_size);
+			toml_result_t parsed;
+			int same;
+
+			if (!probe)
+				return 0;
+			snprintf(probe, probe_size, "v = %.*s\n", (int)(end - value), value);
+			parsed = toml_parse(probe, (int)strlen(probe));
+			same = parsed.ok && config_datum_is(toml_seek(parsed.toptab, "v"), setting->type, value_text);
+			toml_free(parsed);
+			free(probe);
+			return same;
+		}
+		line = *end ? end + 1 : end;
+	}
+	return -1;
+}
+
+#endif
+
+/* An existing file (text, parsed as table) whose settings this version's
+defaults would change: those at an older default that follow the default (at
+the old one, commented out, or not there at all, the file being from before
+the setting), and those an older version wrote as a value beside the
+commented one (config_drop_added_defaults). They are listed in
+config_pending, to be asked about once (config_new_defaults_pending); the
+file is left as it is, and the settings keep their old values, until the
+player answers. A file that was answered (game.defaults_answered) has none.
+The dedicated server keeps its own defaults and is never asked. */
+static void config_find_new_defaults(const char *text, toml_datum_t table)
+{
+#ifndef HALO_SERVER
+	toml_datum_t version = toml_seek(table, "config_version");
+	toml_datum_t answered = toml_seek(table, "game.defaults_answered");
+	size_t old;
+
+	if (answered.type == TOML_INT64 && answered.u.int64 >= CONFIG_DEFAULTS_GENERATION)
+		return;
+	for (old = 0; old < NUMBER_OF_CONFIG_OLD_DEFAULTS; old++)
+	{
+		long index = config_old_defaults[old].change ? config_setting_index(config_old_defaults[old].name) : -1;
+		const struct config_setting *setting;
+		toml_datum_t datum;
+
+		if (index < 0)
+			continue;
+		setting = &config_settings[index];
+		if (!(setting->platforms & CONFIG_PLATFORM) || !strcmp(config_old_defaults[old].default_value, setting->default_value))
+			continue;
+		datum = toml_seek(table, setting->name);
+		if (datum.type != TOML_UNKNOWN)
+		{
+			if (version.type == TOML_INT64 && version.u.int64 >= 2 &&
+				config_datum_is(datum, setting->type, config_old_defaults[old].default_value) &&
+				config_text_has_commented_key(text, setting->name))
+			{
+				config_pending[index] = 2;
+			}
+		}
+		else if (config_commented_value_is(text, setting, config_old_defaults[old].default_value) != 0)
+		{
+			config_pending[index] = 1;
+		}
+		if (config_pending[index])
+			config_pending_old[index] = config_old_defaults[old].default_value;
+	}
+#else
+	(void)text;
+	(void)table;
+#endif
 }
 
 /* whether the line is blank */
@@ -2095,10 +2400,23 @@ static void config_load(void)
 					}
 				}
 			}
+			config_find_new_defaults(text, result.toptab);
 			for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
 			{
 				config_set_from_file(&config_values[index], &config_settings[index], result.toptab);
 				config_given[index] = toml_seek(result.toptab, config_settings[index].name).type != TOML_UNKNOWN;
+			}
+			/* (until the player is asked, the values stay what they were: the
+			new defaults take effect only when they say so) */
+			for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
+			{
+				if (config_pending[index])
+				{
+					char old[64];
+
+					config_unquote(config_pending_old[index], old, sizeof(old));
+					config_set_from_text(&config_values[index], config_settings[index].type, old);
+				}
 			}
 			config_report_unknown_keys(result.toptab);
 			platform_log("settings: %s", path);
@@ -2313,6 +2631,157 @@ int config_write(const char *name, const char *value)
 	free(out.buffer);
 	free(text);
 	return succeeded;
+}
+
+/* the file's lines "# key = <an older default>" for a setting, at the
+current default again, so that the file reads as this version writes it
+(NULL if there is none) */
+static char *config_refresh_commented(const char *text, const struct config_setting *setting)
+{
+	const char *dot = strchr(setting->name, '.');
+	struct config_text out = { NULL, 0, 0 };
+	char section[64], current[64] = "", buffer[256];
+	const char *line;
+	int changed = 0;
+
+	snprintf(section, sizeof(section), "%.*s", (int)(dot - setting->name), setting->name);
+	for (line = text; *line;)
+	{
+		const char *end = line + strcspn(line, "\n");
+		const char *next = *end ? end + 1 : end;
+
+		config_line_section(line, end, current, sizeof(current));
+		if (!strcmp(current, section) && config_line_commented_key(line, end, dot + 1))
+		{
+			snprintf(buffer, sizeof(buffer), "# %s = %s\n", dot + 1, setting->default_value);
+			config_append(&out, buffer);
+			changed = 1;
+		}
+		else
+		{
+			char *copy = config_copy(line, (size_t)(next - line));
+
+			if (copy)
+				config_append(&out, copy);
+			free(copy);
+		}
+		line = next;
+	}
+	if (!changed)
+	{
+		free(out.buffer);
+		return NULL;
+	}
+	return out.buffer;
+}
+
+int config_new_defaults_pending(char *text, size_t size)
+{
+	size_t old;
+	int count = 0;
+
+	if (size)
+		text[0] = 0;
+	/* (the file read first) */
+	config_value("game.defaults_answered", _config_integer);
+	pthread_mutex_lock(&config_lock);
+	for (old = 0; old < NUMBER_OF_CONFIG_OLD_DEFAULTS; old++)
+	{
+		long index = config_old_defaults[old].change ? config_setting_index(config_old_defaults[old].name) : -1;
+		size_t used = strlen(text);
+
+		if (index >= 0 && config_pending[index] && config_pending_old[index] == config_old_defaults[old].default_value)
+		{
+			snprintf(text + used, size - used, "%s%s", count ? "\n" : "", config_old_defaults[old].change);
+			count++;
+		}
+	}
+	pthread_mutex_unlock(&config_lock);
+	return count;
+}
+
+void config_new_defaults_answer(int use_new)
+{
+	int pending[NUMBER_OF_CONFIG_SETTINGS];
+	const char *old_value[NUMBER_OF_CONFIG_SETTINGS];
+	size_t index;
+	char path[1024];
+
+	config_value("game.defaults_answered", _config_integer);
+	pthread_mutex_lock(&config_lock);
+	memcpy(pending, config_pending, sizeof(pending));
+	memcpy(old_value, config_pending_old, sizeof(old_value));
+	memset(config_pending, 0, sizeof(config_pending));
+	pthread_mutex_unlock(&config_lock);
+	if (use_new)
+	{
+		size_t size = 0;
+		char *text;
+
+		config_path(path, sizeof(path));
+		text = config_read_file(path, &size);
+		if (text)
+		{
+			toml_result_t result = toml_parse(text, (int)size);
+			char *changed = NULL;
+
+			/* (the values an older version added beside the commented ones,
+			which pinned the old defaults, taken out; the commented lines
+			at the old defaults written at the new ones) */
+			if (result.ok)
+				changed = config_drop_added_defaults(text, result.toptab);
+			toml_free(result);
+			for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
+			{
+				if (pending[index])
+				{
+					char *refreshed = config_refresh_commented(changed ? changed : text, &config_settings[index]);
+
+					if (refreshed)
+					{
+						free(changed);
+						changed = refreshed;
+					}
+				}
+			}
+			if (changed && !config_write_file(path, changed))
+				platform_log("settings: cannot write %s", path);
+			free(changed);
+			free(text);
+		}
+		pthread_mutex_lock(&config_lock);
+		for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
+		{
+			if (pending[index])
+			{
+				char value[64];
+
+				config_unquote(config_settings[index].default_value, value, sizeof(value));
+				config_set_from_text(&config_values[index], config_settings[index].type, value);
+				platform_log("settings: %s follows this version's default (%s) now", config_settings[index].name,
+					config_settings[index].default_value);
+			}
+		}
+		config_change_count++;
+		pthread_mutex_unlock(&config_lock);
+	}
+	else
+	{
+		for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
+		{
+			if (pending[index])
+			{
+				char value[64];
+
+				config_unquote(old_value[index], value, sizeof(value));
+				/* (a value an older version wrote is there already) */
+				if (pending[index] == 1)
+					config_write(config_settings[index].name, value);
+				platform_log("settings: %s = %s is kept", config_settings[index].name, old_value[index]);
+			}
+		}
+	}
+	config_write("game.defaults_answered", "1");
 }
 
 int config_write_boolean(const char *name, int value)
