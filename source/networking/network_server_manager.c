@@ -1353,7 +1353,11 @@ void network_game_server_dispose(
 		network_connection_delete(server->connection);
 
 #ifdef xbox
+	/* port: native transports flush before closing sockets, and unregistering
+	an XNet key is a stub. Preserve the original grace period on other builds. */
+#if !defined(HALO_WINDOWS) && !defined(HALO_ANDROID) && !defined(__linux__)
 	SleepEx(MILLISECONDS_PER_SECOND, FALSE);
+#endif
 	transport_server_terminate();
 #endif
 
@@ -3127,6 +3131,10 @@ boolean server_has_enough_machines(
 	return has_enough_machines;
 }
 
+/* port: a machine joining or leaving is in the game before its player is.
+The countdown used to stop for that, and then start over, so a lobby rarely
+finished. The players already in the game decide. A machine with no player
+can join the game in progress (a player on each machine is only logged). */
 boolean server_ok_to_countdown(
 	struct network_game_server *server)
 {
@@ -3134,7 +3142,7 @@ boolean server_ok_to_countdown(
 	boolean a_player_on_each = server_has_a_player_on_each_machine(server);
 	boolean teams_full = !server_needs_more_teams(server);
 	boolean enough_players = server->game.player_count >= server->game.minimum_players;
-	boolean ok = enough_machines && a_player_on_each && teams_full && enough_players;
+	boolean ok = enough_machines && teams_full && enough_players;
 
 	/* port: a host nobody watches leaves no trace of why its lobby does not
 	start. The reason, logged as it changes (network_event is the engine's
@@ -3155,9 +3163,9 @@ boolean server_ok_to_countdown(
 				teams_full ? "yes" : "NO",
 				(long)server->game.player_count, (long)server->game.minimum_players,
 				server->countdown_state.paused ? "yes" : "no",
-				reason ? " (failed:" : "",
+				!ok ? " (failed:" : "",
 				(reason & 1) ? " machines" : "",
-				reason ? ")" : "");
+				!ok ? ")" : "");
 		}
 	}
 
@@ -4622,7 +4630,13 @@ static boolean network_game_server_have_all_machines_have_precached(
 
 		if (network_game_server_client_machine_is_joined_to_game(server, machine))
 		{
-			boolean client_has_precached = TEST_FLAG(
+			boolean client_has_precached;
+
+			/* port: a machine with no player is joining or leaving. It does
+			not hold the start; it can join the game in progress. */
+			if (!network_game_server_machine_has_players(server, machine->machine_index))
+				continue;
+			client_has_precached = TEST_FLAG(
 				server->client_machines[i].flags,
 				_network_client_machine_precached_bit);
 
@@ -4698,9 +4712,9 @@ static boolean network_game_server_idle_pregame_tasks(
 					server,
 					client_machine);
 			}
-			/* port: a machine that joined and can add no player (the lobby
-			filled after it joined), or adds none, holds the countdown for
-			ever: refused */
+			/* port: a machine that joined and adds no player (the lobby filled
+			after it joined, or it never adds one) is refused, so it does not
+			stay in the lobby */
 			else if (network_game_server_client_machine_is_joined_to_game(server, client_machine) &&
 				!network_game_server_client_machine_is_local(server, client_machine) &&
 				!network_game_server_machine_has_players(server, client_machine->machine_index) &&
@@ -5039,6 +5053,25 @@ void network_game_server_dedicated_start_countdown(
 	}
 
 	return;
+}
+
+/* the dedicated server's lobby skipped (HALO_DEDICATED_SKIP_LOBBY): a short
+countdown, when one may run; TRUE if it started */
+boolean network_game_server_dedicated_start_countdown_now(
+	struct network_game_server *server,
+	long milliseconds)
+{
+	if (!server ||
+		server->state != _network_game_server_state_pregame ||
+		server->countdown_state.paused ||
+		server->countdown_state.active ||
+		!server_ok_to_countdown(server))
+	{
+		return FALSE;
+	}
+	network_game_server_begin_game_start_countdown(server, milliseconds);
+
+	return server->countdown_state.active;
 }
 #endif
 

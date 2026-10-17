@@ -58,6 +58,8 @@ only look up and create stand-ins.
 #include "posix.h"
 #include "port_config.h"
 #include "p2p_internal.h"
+#include "p2p_probe.h"
+#include "delta.h"
 #include "log_address.h"
 #include "ikcp.h"
 
@@ -2198,6 +2200,8 @@ static void stream_writeable(struct stream *stream)
 
 /* ---------- the tunnel */
 
+static void probe_packet(const unsigned char *packet, int size, const struct sockaddr_in *from);
+
 static void tunnel_received(const unsigned char *packet, int size, const struct sockaddr_in *from)
 {
 	unsigned char inner[MAXIMUM_INNER_SIZE];
@@ -2209,6 +2213,11 @@ static void tunnel_received(const unsigned char *packet, int size, const struct 
 
 	/* (the magic first: a tunnel packet's bytes 4 to 7, of the sender and
 	its number, can be STUN's magic cookie) */
+	if (size >= 1 && packet[0] == P2P_PROBE_MAGIC)
+	{
+		probe_packet(packet, size, from);
+		return;
+	}
 	if (size < 1 || packet[0] != TUNNEL_MAGIC)
 	{
 		if (size >= 20 && packet[4] == 0x21 && packet[5] == 0x12 && packet[6] == 0xA4 && packet[7] == 0x42)
@@ -2997,6 +3006,259 @@ static void poll_invite_file(void)
 
 /* ---------- the thread */
 
+/* ---------- pings before joining (p2p_probe.c; docs/delta.md) */
+
+/* a probe is never a peer: the host keeps its id a few seconds and answers
+its pings, and the game never hears of it. Addresses stay in memory: none is
+logged */
+static struct
+{
+	struct p2p_probe_host host;
+	struct p2p_probe_prober prober;
+	int prober_started;
+	/* Online Games is open (p2p_probe_browse) */
+	int browsing;
+	int logged_answering;
+	int logged_probing;
+} probe;
+
+static void probe_send(const struct p2p_probe_address *to, const unsigned char *packet)
+{
+	struct sockaddr_in address;
+
+	make_address(&address, to->address, to->port);
+	posix_socket_sendto(p2p.tunnel_socket, packet, P2P_PROBE_PACKET_SIZE, 0, &address, sizeof(address));
+}
+
+/* whether pings are allowed at all: the legacy table can turn them off */
+static int probe_allowed(void)
+{
+	return !delta_capability_disabled(_delta_capability_ping);
+}
+
+static void probe_packet(const unsigned char *packet, int size, const struct sockaddr_in *from)
+{
+	unsigned char answer[P2P_PROBE_PACKET_SIZE];
+
+	if (!probe_allowed())
+		return;
+	if (size == P2P_PROBE_PACKET_SIZE && packet[1] == P2P_PROBE_PING)
+	{
+		/* (to the PING's source only, the same size) */
+		if (p2p.hosting && p2p_probe_host_packet(&probe.host, p2p_now(), packet, size, answer))
+		{
+			struct p2p_probe_address to;
+
+			to.address = from->sin_addr.s_addr;
+			to.port = from->sin_port;
+			probe_send(&to, answer);
+		}
+	}
+	else if (probe.prober_started)
+	{
+		p2p_probe_prober_packet(&probe.prober, p2p_now(), packet, size, from->sin_addr.s_addr, from->sin_port);
+	}
+}
+
+int p2p_probe_request_heard(const unsigned char *message, int size, unsigned char *answer, unsigned char *reply)
+{
+	struct p2p_probe_address addresses[P2P_PROBE_MAXIMUM_ADDRESSES];
+	struct p2p_candidate candidates[P2P_MAXIMUM_CANDIDATES];
+	unsigned char text[P2P_PROBE_MAXIMUM_MESSAGE + 32];
+	unsigned char id[P2P_PROBE_ID_SIZE];
+	int count, index, answer_size, text_size;
+
+	if (!probe_allowed() || !p2p.hosting || !p2p_probe_get_request(message, size, id, reply, addresses, &count))
+		return 0;
+	for (index = 0; index < count; index++)
+	{
+		struct p2p_candidate candidate;
+
+		candidate.address = addresses[index].address;
+		candidate.port = addresses[index].port;
+		/* (the punch goes only where a datagram may: never to a multicast,
+		reserved or broadcast address, nor port 0) */
+		if (!candidate_usable(&candidate))
+		{
+			addresses[index--] = addresses[--count];
+		}
+	}
+	if (!p2p_probe_host_request(&probe.host, p2p_now(), id, addresses, count))
+		return 0;
+	count = p2p_local_candidates(candidates, P2P_MAXIMUM_CANDIDATES);
+	if (count > P2P_PROBE_MAXIMUM_ADDRESSES)
+		count = P2P_PROBE_MAXIMUM_ADDRESSES;
+	for (index = 0; index < count; index++)
+	{
+		addresses[index].address = candidates[index].address;
+		addresses[index].port = candidates[index].port;
+	}
+	answer_size = p2p_probe_put_answer(answer, id, p2p_signing_key(), addresses, count);
+	text_size = p2p_probe_signed_text(answer, answer_size, text);
+	p2p_sign(text, text_size, answer + answer_size);
+	if (!probe.logged_answering)
+	{
+		platform_log("Internet play: answering pings from Online Games (no slot is taken)");
+		probe.logged_answering = 1;
+	}
+	return answer_size + P2P_PROBE_SIGNATURE_SIZE;
+}
+
+int p2p_probe_asking_tokens(unsigned char (*tokens)[P2P_TOKEN_SIZE], int maximum)
+{
+	int count = 0;
+	int index;
+
+	for (index = 0; index < P2P_PROBE_TARGETS && count < maximum; index++)
+	{
+		const struct p2p_probe_target *target = &probe.prober.targets[index];
+
+		if (target->used && target->state == P2P_PROBE_ASKING)
+			memcpy(tokens[count++], target->token, P2P_TOKEN_SIZE);
+	}
+	return count;
+}
+
+void p2p_probe_answer_heard(const unsigned char *token, const unsigned char *message, int size)
+{
+	struct p2p_probe_address addresses[P2P_PROBE_MAXIMUM_ADDRESSES];
+	unsigned char text[P2P_PROBE_MAXIMUM_MESSAGE + 32];
+	unsigned char key[P2P_PROBE_KEY_SIZE], x25519[P2P_KEY_SIZE], hash[P2P_KEY_HASH_SIZE];
+	unsigned char id[P2P_PROBE_ID_SIZE];
+	int count, signed_size, text_size, index;
+
+	if (!p2p_probe_get_answer(message, size, id, key, addresses, &count, &signed_size))
+		return;
+	for (index = 0; index < P2P_PROBE_TARGETS; index++)
+	{
+		const struct p2p_probe_target *target = &probe.prober.targets[index];
+
+		if (target->used && target->state == P2P_PROBE_ASKING && !memcmp(target->id, id, P2P_PROBE_ID_SIZE) &&
+			!memcmp(target->token, token, P2P_TOKEN_SIZE))
+		{
+			break;
+		}
+	}
+	if (index == P2P_PROBE_TARGETS)
+		return;
+	/* the invite's host: its key has the invite's hash, and signed this */
+	if (!p2p_ed25519_to_x25519(key, x25519))
+		return;
+	p2p_key_hash(x25519, hash);
+	if (memcmp(hash, probe.prober.targets[index].host_hash, P2P_KEY_HASH_SIZE))
+		return;
+	text_size = p2p_probe_signed_text(message, signed_size, text);
+	if (!p2p_ed25519_verify(key, text, text_size, message + signed_size))
+		return;
+	for (index = 0; index < count; index++)
+	{
+		struct p2p_candidate candidate;
+
+		candidate.address = addresses[index].address;
+		candidate.port = addresses[index].port;
+		if (!candidate_usable(&candidate))
+			addresses[index--] = addresses[--count];
+	}
+	p2p_probe_prober_answer(&probe.prober, p2p_now(), id, addresses, count);
+}
+
+/* the p2p thread's pass: the host's punches, the prober's requests and
+pings */
+static void update_probes(void)
+{
+	unsigned char packets[2 * P2P_PROBE_MAXIMUM_ADDRESSES][P2P_PROBE_PACKET_SIZE];
+	struct p2p_probe_address to[2 * P2P_PROBE_MAXIMUM_ADDRESSES];
+	unsigned long now = p2p_now();
+	int count, index, passes;
+
+	if (!probe_allowed())
+		return;
+	if (p2p.hosting)
+	{
+		count = p2p_probe_host_due(&probe.host, now, packets, to, 2 * P2P_PROBE_MAXIMUM_ADDRESSES);
+		for (index = 0; index < count; index++)
+			probe_send(&to[index], packets[index]);
+	}
+	if (!probe.browsing)
+		return;
+	if (!probe.prober_started)
+	{
+		posix_random_bytes(probe.prober.reply, P2P_PROBE_ID_SIZE);
+		probe.prober_started = 1;
+	}
+	/* (signalling, and this machine's public address for the host's
+	punch, as joining has them) */
+	p2p_signal_start();
+	p2p.stun_started = 1;
+	p2p_signal_probe_topic(probe.prober.reply);
+	for (passes = 0; passes < P2P_PROBE_TARGETS; passes++)
+	{
+		unsigned char random[P2P_PROBE_ID_SIZE];
+		struct p2p_probe_target *target;
+		int action;
+
+		posix_random_bytes(random, sizeof(random));
+		target = p2p_probe_prober_next(&probe.prober, now, random, &action, packets, to,
+			2 * P2P_PROBE_MAXIMUM_ADDRESSES, &count);
+		if (!target)
+			break;
+		if (action == 1)
+		{
+			struct p2p_candidate candidates[P2P_MAXIMUM_CANDIDATES];
+			struct p2p_probe_address addresses[P2P_PROBE_MAXIMUM_ADDRESSES];
+			unsigned char message[P2P_PROBE_MAXIMUM_MESSAGE];
+			int candidate_count = p2p_local_candidates(candidates, P2P_MAXIMUM_CANDIDATES);
+			int size;
+
+			if (candidate_count > P2P_PROBE_MAXIMUM_ADDRESSES)
+				candidate_count = P2P_PROBE_MAXIMUM_ADDRESSES;
+			for (index = 0; index < candidate_count; index++)
+			{
+				addresses[index].address = candidates[index].address;
+				addresses[index].port = candidates[index].port;
+			}
+			size = p2p_probe_put_request(message, target->id, probe.prober.reply, addresses, candidate_count);
+			p2p_signal_probe(target->host_hash, target->token, message, size);
+			if (!probe.logged_probing)
+			{
+				platform_log("Internet play: pinging the listed games that answer pings");
+				probe.logged_probing = 1;
+			}
+		}
+		else
+		{
+			for (index = 0; index < count; index++)
+				probe_send(&to[index], packets[index]);
+		}
+	}
+}
+
+void p2p_probe_browse(int on)
+{
+	pthread_mutex_lock(&p2p_lock);
+	/* (the p2p thread probes: none while internet play is off) */
+	probe.browsing = on && config_boolean("network.ping_games");
+	if (!probe.browsing)
+		p2p_signal_probe_topic(NULL);
+	pthread_mutex_unlock(&p2p_lock);
+}
+
+int p2p_probe_ping(const char *invite, int wanted)
+{
+	unsigned char hash[P2P_KEY_HASH_SIZE], token[P2P_TOKEN_SIZE];
+	struct p2p_probe_target *target;
+	int ping = -1;
+
+	if (parse_invite(invite, hash, token) != 1)
+		return -1;
+	pthread_mutex_lock(&p2p_lock);
+	target = p2p_probe_target(&probe.prober, p2p_now(), hash, token, wanted && probe.browsing);
+	if (target && target->ping >= 0)
+		ping = (int)target->ping;
+	pthread_mutex_unlock(&p2p_lock);
+	return ping;
+}
+
 static void *p2p_thread(void *unused)
 {
 	enum
@@ -3189,6 +3451,7 @@ static void *p2p_thread(void *unused)
 			}
 		}
 		update_joining();
+		update_probes();
 		update_upnp();
 		/* (a public game's invite is in everyone's server browser already:
 		its Join game button on Discord) */

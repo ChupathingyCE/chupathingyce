@@ -186,6 +186,7 @@ symbols in this file:
 #include "rasterizer/xbox/rasterizer_xbox_pixel_shader.h"
 
 #include "interface/progress_bar_internal.h"
+#include "loading_screen.h" /* port: port/linux/game/loading_screen.c */
 
 /* ---------- constants */
 
@@ -1584,6 +1585,8 @@ void progress_bar_begin(
 {
 	progress_bar_mode.capture_frame= !skip_frame_capture;
 	progress_bar_mode.active= TRUE;
+	/* port: from black, as the Xbox's front buffer was cleared */
+	loading_screen_reset();
 	SetThreadPriority((void *)-2, 2);
 
 	return;
@@ -2002,6 +2005,9 @@ static void progress_bar_render(
 	long sound_index;
 	long stage;
 
+	/* port: a step each refresh, as the Xbox's (loading_screen.c) */
+	if (!loading_screen_step_due())
+		return;
 	wobble_phase+= 0.01f;
 	progress= (real)((sin(wobble_phase)*0.05 + progress - last_t)*0.2 + last_t);
 	if (progress>1.0)
@@ -2022,6 +2028,24 @@ static void progress_bar_render(
 				(long)((real)pow(sin(t*3.1415), 0.3f)*volumes[sound_index] - 5000.f));
 		}
 	}
+
+	/* port: the Xbox's drawing below reads its front buffer through a
+	texture made from its address (this_is_awful) and draws with no vertex
+	shader, neither of which the port's Direct3D has: the CPU makes the same
+	picture from the same textures (port/linux/game/loading_screen.c) */
+	if (progress_bar_mode.texture0 && progress_bar_mode.texture1)
+	{
+		D3DLOCKED_RECT picture;
+		D3DLOCKED_RECT mask;
+
+		IDirect3DTexture8_LockRect(progress_bar_mode.texture0, 0, &picture, NULL, 0);
+		IDirect3DTexture8_LockRect(progress_bar_mode.texture1, 0, &mask, NULL, 0);
+		loading_screen_draw(progress, color.red, progress<0.9f ? 0.9f : 0.9f - (progress - 0.9f)*9.f,
+			(unsigned int const *)picture.pBits, 320, 240, (unsigned int const *)mask.pBits, 128, 16);
+		IDirect3DTexture8_UnlockRect(progress_bar_mode.texture1, 0);
+		IDirect3DTexture8_UnlockRect(progress_bar_mode.texture0, 0);
+	}
+	return;
 
 	current_time= GetTickCount();
 	IDirect3DDevice8_GetTransform(global_d3d_device, D3DTS_WORLD, &progress_bar_globals.saved_world);

@@ -298,7 +298,13 @@ void nv2a_msl_fragment_main(struct xgpu_text *text, const struct nv2a_dialect *d
 		"\treturn plain + color * (t.sample(white, coordinates, b) - plain);\n"
 		"}\n"
 		"#endif\n");
-	xgpu_text_append(text, "fragment float4 fragment_main(FragmentIn in [[stage_in]], constant Uniforms &u [[buffer(0)]]");
+	/* the alpha test's covered samples (nv2a_pixel.c, alpha_test_samples) leave
+	through the sample mask, beside the color */
+	if (key->alpha_test_samples)
+		xgpu_text_append(text, "struct FragmentOut\n{\n\tfloat4 color [[color(0)]];\n\tuint mask [[sample_mask]];\n};\n");
+	xgpu_text_append(text, key->alpha_test_samples ?
+		"fragment FragmentOut fragment_main(FragmentIn in [[stage_in]], constant Uniforms &u [[buffer(0)]]" :
+		"fragment float4 fragment_main(FragmentIn in [[stage_in]], constant Uniforms &u [[buffer(0)]]");
 	for (stage = 0; stage < 4; stage++)
 	{
 		const char *type = key->sampler_type[stage] == _xgpu_sampler_3d ? "texture3d<float>" :

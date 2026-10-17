@@ -731,12 +731,29 @@ char *nv2a_pixel_shader_translate(const struct nv2a_dialect *dialect, const stru
 
 	if (key->coverage_alpha)
 		xgpu_text_append(&text, "\tresult.a = mix(1.0, result.a, t0.g);\n");
+	if (dialect->msl && key->alpha_test_samples)
+		xgpu_text_append(&text, "\tuint alpha_test_mask = 0xffffffffu;\n");
 	if (key->alpha_test_function)
 	{
 		const char *comparison = comparison_operator(key->alpha_test_function);
 
 		if (!comparison)
 			xgpu_text_append(&text, "\tdiscard;\n");
+		else if (*comparison && key->alpha_test_samples && comparison[0] != '=' && comparison[0] != '!')
+		{
+			/* multisampled: the samples covered as alpha passes the reference
+			over the pixel (its change across the pixel from fwidth), the rest
+			left as they are; alpha itself is kept, the game keeping values of
+			its own in destination alpha */
+			xgpu_text_append(&text,
+				"\tfloat test_alpha = clamp(result.a, 0.0, 1.0) * 255.0;\n"
+				"\tfloat test_coverage = clamp(%s(test_alpha - alpha_reference) / max(fwidth(test_alpha), 1.0) + 0.5, 0.0, 1.0);\n"
+				"\tint test_samples = int(test_coverage * %d.0 + 0.5);\n"
+				"\tif (test_samples == 0) discard;\n",
+				comparison[0] == '<' ? "-" : "", (int)key->alpha_test_samples);
+			xgpu_text_append(&text, dialect->msl ? "\talpha_test_mask = (1u << test_samples) - 1u;\n" :
+				"\tgl_SampleMask[0] = (1 << test_samples) - 1;\n");
+		}
 		else if (*comparison)
 			xgpu_text_append(&text, "\tif (!(floor(clamp(result.a, 0.0, 1.0) * 255.0 + 0.5) %s alpha_reference)) discard;\n", comparison);
 	}
@@ -749,7 +766,9 @@ char *nv2a_pixel_shader_translate(const struct nv2a_dialect *dialect, const stru
 	if (dialect->es && key->count_samples)
 		xgpu_text_append(&text, "\tatomicCounterIncrement(visible_samples);\n");
 	xgpu_text_append(&text, "\tfragment_color = clamp(result, 0.0, 1.0);\n");
-	if (dialect->msl)
+	if (dialect->msl && key->alpha_test_samples)
+		xgpu_text_append(&text, "\tFragmentOut out;\n\tout.color = fragment_color;\n\tout.mask = alpha_test_mask;\n\treturn out;\n");
+	else if (dialect->msl)
 		xgpu_text_append(&text, "\treturn fragment_color;\n");
 	xgpu_text_append(&text, "}\n");
 	return text.buffer;

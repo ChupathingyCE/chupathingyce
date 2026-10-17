@@ -671,6 +671,7 @@ void network_test_update(boolean main_menu_loaded, real seconds);
 #ifdef HALO_GAME_BROWSER
 void chat_update(void);
 #endif
+void team_change_update(void);
 
 /* ---------- prototypes */
 
@@ -1175,6 +1176,29 @@ static real first_person_field_of_view_scale(
 	return scale;
 }
 
+/* port: display.far_clip_distance, how far the world is drawn (1024 as on
+the Xbox, to 10000). It is a floor under the camera's far clip, applied each
+frame: the map's own value, a script or init.txt can raise the clip beyond it
+but not lower it below it, and it holds across map loads and joins. Render
+only; the game's state never reads it. The near clip stays as it was, and the
+fog (which can end the view sooner) still applies after this. */
+static real far_clip_distance_floor(
+	void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static real distance = 1024.0f;
+
+	if (read_at != config_changes())
+	{
+		real value = (real)config_real("display.far_clip_distance");
+
+		read_at = config_changes();
+		distance = valid_real(value) ? PIN(value, 1024.0f, 10000.0f) : 1024.0f;
+	}
+
+	return distance;
+}
+
 void set_window_camera_values(
 	struct render_window *window,
 	struct observer_result const *observer)
@@ -1234,7 +1258,7 @@ void set_window_camera_values(
 
 	window->rasterizer_camera.mirrored = FALSE;
 	window->rasterizer_camera.z_near = rasterizer_globals.near_clip_distance;
-	window->rasterizer_camera.z_far = rasterizer_globals.far_clip_distance;
+	window->rasterizer_camera.z_far = MAX(rasterizer_globals.far_clip_distance, far_clip_distance_floor());
 	if (!debug_render_freeze)
 		window->render_camera = window->rasterizer_camera;
 
@@ -2260,8 +2284,11 @@ static void main_frame_rate_debug(
 			FILE *file;
 
 			GetSystemTime(&system_time);
-			sprintf(
+			/* port: snprintf, here and below (a map's tag's name may be any
+			length) */
+			snprintf(
 				core_name,
+				sizeof(core_name),
 				"%s_slow_%d_%d_%d_%d_%d_%d.bin",
 				scenario_name,
 				system_time.wMonth,
@@ -2271,7 +2298,7 @@ static void main_frame_rate_debug(
 				system_time.wMinute,
 				system_time.wSecond);
 			game_state_save_core(core_name);
-			sprintf(init_file_name, "d:\\%s_init.txt", scenario_name);
+			snprintf(init_file_name, sizeof(init_file_name), "d:\\%s_init.txt", scenario_name);
 
 			file = fopen(init_file_name, "r");
 			if (!file)
@@ -2698,10 +2725,14 @@ void main_rasterizer_throttle(
 			profile_idle_start();
 			while ((__int64)rasterizer_globals.frame_and_vertical_blank_index < target_index)
 			{
-				if (precache_in_progress)
-				{
-					Sleep(1);
-				}
+				/* the native builds sleep between looks: the Xbox spun here,
+				and on a port each look at the clock is a system call, so a
+				game held at 30 frames a second (display.interpolation off)
+				spent half its game thread asking the time. A millisecond is
+				well inside a 33 ms frame (Windows sets its timer to 1 ms:
+				win32_posix.c) */
+				(void)precache_in_progress;
+				Sleep(1);
 				if (system_milliseconds() > start_milliseconds + 1000)
 				{
 					console_warning(
@@ -3447,6 +3478,8 @@ void main_loop(
 			/* text chat (port/linux/game/chat.c) */
 			chat_update();
 #endif
+			/* changing teams during a game (port/linux/game/team_change.c) */
+			team_change_update();
 			connection = main_globals.connection;
 			if (connection==_game_connection_network_client)
 			{

@@ -530,6 +530,69 @@ static void add_entry(
 	ui_map_list_count_value++;
 }
 
+/* a Custom Edition or HaloMD map's details from its own file, where its
+row has no description of Halo PC's: how many spawn points its scenario
+has and whether it places vehicles (the cache file's header and tag index,
+as Halo PC lays them out); FALSE if the file is not one */
+enum
+{
+	MAP_FILE_HEADER_SIZE = 0x800,
+	MAP_FILE_TAG_DATA_OFFSET = 0x10,
+	MAP_FILE_TAG_BASE_ADDRESS = 0x40440000,
+	MAP_FILE_TAG_SIZE = 0x20,
+	MAP_FILE_TAG_DATA_ADDRESS = 0x14,
+	/* (the scenario's blocks: their counts) */
+	SCENARIO_VEHICLES_COUNT = 0x240,
+	SCENARIO_PLAYER_STARTING_LOCATIONS_COUNT = 0x354,
+	SCENARIO_READ_SIZE = 0x358,
+};
+
+static unsigned long little_long(unsigned char const *bytes)
+{
+	return bytes[0] | (bytes[1] << 8) | ((unsigned long)bytes[2] << 16) | ((unsigned long)bytes[3] << 24);
+}
+
+static boolean map_file_details(
+	short family,
+	char const *file,
+	long *spawns,
+	long *vehicles)
+{
+	char path[512];
+	unsigned char header[MAP_FILE_HEADER_SIZE], index[16], tag[MAP_FILE_TAG_SIZE];
+	unsigned char scenario[SCENARIO_READ_SIZE];
+	unsigned long tag_data, tag_array, scenario_index, scenario_address;
+	boolean read = FALSE;
+	FILE *stream;
+
+	if (!map_family_find(family, file, path, sizeof(path)) || (stream = fopen(path, "rb")) == NULL)
+		return FALSE;
+	if (fread(header, sizeof(header), 1, stream) == 1 && !memcmp(header, "daeh", 4))
+	{
+		tag_data = little_long(header + MAP_FILE_TAG_DATA_OFFSET);
+		if (!fseek(stream, (long)tag_data, SEEK_SET) && fread(index, sizeof(index), 1, stream) == 1)
+		{
+			tag_array = little_long(index) - MAP_FILE_TAG_BASE_ADDRESS;
+			scenario_index = little_long(index + 4) & 0xFFFF;
+			if (scenario_index < little_long(index + 12) &&
+				!fseek(stream, (long)(tag_data + tag_array + scenario_index * MAP_FILE_TAG_SIZE), SEEK_SET) &&
+				fread(tag, sizeof(tag), 1, stream) == 1 && !memcmp(tag, "rncs", 4))
+			{
+				scenario_address = little_long(tag + MAP_FILE_TAG_DATA_ADDRESS) - MAP_FILE_TAG_BASE_ADDRESS;
+				if (!fseek(stream, (long)(tag_data + scenario_address), SEEK_SET) &&
+					fread(scenario, sizeof(scenario), 1, stream) == 1)
+				{
+					*spawns = (long)little_long(scenario + SCENARIO_PLAYER_STARTING_LOCATIONS_COUNT);
+					*vehicles = (long)little_long(scenario + SCENARIO_VEHICLES_COUNT);
+					read = *spawns >= 0 && *spawns < 4096 && *vehicles >= 0 && *vehicles < 4096;
+				}
+			}
+		}
+	}
+	fclose(stream);
+	return read;
+}
+
 /* a Custom Edition or HaloMD map's row: its file's name (without its
 suffix or .map) */
 static void add_pc_entry(
@@ -540,6 +603,7 @@ static void add_pc_entry(
 	wchar_t name[DISPLAY_NAME_LENGTH];
 	wchar_t display_name[DISPLAY_NAME_LENGTH];
 	wchar_t lobby_name[DISPLAY_NAME_LENGTH];
+	wchar_t details[DESCRIPTION_LENGTH];
 	wchar_t const *description = L"A Halo Custom\r\nEdition map";
 	wchar_t const *mark = L"CE";
 	long ce_index = CE_UNKNOWN_LEVEL;
@@ -563,20 +627,50 @@ static void add_pc_entry(
 		description = L"A Halo PC map";
 		mark = L"PC";
 	}
-	for (known = 0; (family == _map_family_custom_edition || family == _map_family_halo_pc) &&
-		known < (short)NUMBEROF(ce_maps); known++)
+	/* (HaloMD's copies of Halo PC's own maps are those too, by HaloMD's name
+	where its mod list has one) */
+	for (known = 0; known < (short)NUMBEROF(ce_maps); known++)
 	{
 		if (!_stricmp(file, ce_maps[known].file))
 		{
 			ce_index = known;
 			picture_index = ce_maps[known].xbox_picture_index;
-			wide_copy(name, DISPLAY_NAME_LENGTH, ce_maps[known].name);
-			if (known < ce_ui.name_count && ce_ui.names[known][0])
-				wide_copy(name, DISPLAY_NAME_LENGTH, ce_ui.names[known]);
+			if (!name[0])
+			{
+				wide_copy(name, DISPLAY_NAME_LENGTH, ce_maps[known].name);
+				if (known < ce_ui.name_count && ce_ui.names[known][0])
+					wide_copy(name, DISPLAY_NAME_LENGTH, ce_ui.names[known]);
+			}
 			if (known < ce_ui.description_count)
 				description = ce_ui.descriptions[known];
 			break;
 		}
+	}
+	if (ce_index == CE_UNKNOWN_LEVEL)
+	{
+		/* (a map of another's making: what its own file says, laid out as
+		the Xbox's descriptions are: the tagline, the players, vehicles) */
+		long spawns, vehicles;
+
+		wide_copy(details, DESCRIPTION_LENGTH, description);
+		if (map_file_details(family, file, &spawns, &vehicles))
+		{
+			char line[48];
+			wchar_t wide[48];
+			long character;
+
+			if (spawns > 0)
+			{
+				snprintf(line, sizeof(line), "\r\n\r\n%ld spawn points", spawns);
+				for (character = 0; line[character] && character < (long)NUMBEROF(wide) - 1; character++)
+					wide[character] = (wchar_t)line[character];
+				wide[character] = 0;
+				wide_append(details, DESCRIPTION_LENGTH, wide);
+			}
+			if (vehicles > 0)
+				wide_append(details, DESCRIPTION_LENGTH, L"\r\n\r\nSupports vehicles");
+		}
+		description = details;
 	}
 	if (!name[0])
 	{

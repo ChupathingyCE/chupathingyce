@@ -84,6 +84,9 @@ static delta_u32 offered(const struct delta_peer *peer)
 	/* (a host without moderation does not offer it) */
 	if (peer->mode == _mode_host && !peer->moderation_host)
 		capabilities &= ~CAPABILITY(_delta_capability_moderation);
+	/* (nor team changes without its team host) */
+	if (peer->mode == _mode_host && !peer->team_host)
+		capabilities &= ~CAPABILITY(_delta_capability_team_change);
 	if (!peer->env.capability_disabled)
 		return capabilities;
 	for (capability = 0; capability < NUMBER_OF_DELTA_CAPABILITIES; capability++)
@@ -208,6 +211,7 @@ void delta_peer_initialize(struct delta_peer *peer, const struct delta_peer_env 
 	peer->local.capabilities &= KNOWN_CAPABILITIES;
 	peer->local.build[DELTA_WIRE_BUILD_SIZE] = 0;
 	peer->chat_mode = _delta_chat_mode_on;
+	peer->chat_cooldown = DELTA_PEER_CHAT_COOLDOWN;
 	forget_all(peer);
 }
 
@@ -1051,15 +1055,24 @@ static void host_chat_frame(struct delta_peer *peer, delta_u32 now)
 	peer->chat_dirty = 0;
 }
 
-static void host_chat_refuse(struct delta_peer *peer, int machine_index, delta_u32 sequence, int reason)
+static void host_chat_refuse_paused(struct delta_peer *peer, int machine_index, delta_u32 sequence, int reason,
+	delta_u32 paused_milliseconds)
 {
 	struct delta_peer_host_peer *client = &peer->peers[machine_index];
 	struct delta_wire_chat_refused refused;
 	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	delta_u32 seconds = (paused_milliseconds + 999) / 1000;
 
+	memset(&refused, 0, sizeof(refused));
 	refused.sequence = sequence;
 	refused.reason = (unsigned char)reason;
+	refused.paused_seconds = (unsigned short)(seconds > 0xFFFF ? 0xFFFF : seconds);
 	peer_send(peer, client->ipv4, client->port, data, delta_wire_write_chat_refused(data, client->session, &refused));
+}
+
+static void host_chat_refuse(struct delta_peer *peer, int machine_index, delta_u32 sequence, int reason)
+{
+	host_chat_refuse_paused(peer, machine_index, sequence, reason, 0);
 }
 
 static void host_chat_say(struct delta_peer *peer, delta_u32 now, int machine_index,
@@ -1077,9 +1090,26 @@ static void host_chat_say(struct delta_peer *peer, delta_u32 now, int machine_in
 		return;
 	}
 	client->chat.sequence = say.sequence;
+	/* (paused: refused, saying how much longer, until the pause is over) */
+	if (client->chat.paused)
+	{
+		delta_u32 left = client->chat.paused_until - now;
+
+		if (left && left < 0x80000000u)
+		{
+			host_chat_refuse_paused(peer, machine_index, say.sequence, _delta_chat_refused_too_fast, left);
+			return;
+		}
+		client->chat.paused = 0;
+	}
 	if (!delta_rate_take(&client->chat.rate, now, DELTA_PEER_CHAT_SAY_RATE, DELTA_PEER_CHAT_SAY_BURST))
 	{
-		host_chat_refuse(peer, machine_index, say.sequence, _delta_chat_refused_too_fast);
+		if (peer->chat_cooldown)
+		{
+			client->chat.paused = 1;
+			client->chat.paused_until = now + peer->chat_cooldown;
+		}
+		host_chat_refuse_paused(peer, machine_index, say.sequence, _delta_chat_refused_too_fast, peer->chat_cooldown);
 		return;
 	}
 	say.length = delta_chat_trim(say.text, say.length);
@@ -1131,6 +1161,11 @@ void delta_peer_set_chat_mode(struct delta_peer *peer, int mode, int flags)
 		peer->chat_flags = (unsigned char)flags;
 		peer->chat_dirty = 1;
 	}
+}
+
+void delta_peer_set_chat_cooldown(struct delta_peer *peer, int seconds)
+{
+	peer->chat_cooldown = seconds > 0 ? (delta_u32)seconds * 1000 : 0;
 }
 
 void delta_peer_chat_mute(struct delta_peer *peer, delta_u32 now, int machine_index, int mute, int minutes)
@@ -1298,6 +1333,72 @@ static void client_chat_receive(struct delta_peer *peer, delta_u32 now, const st
 	}
 }
 
+/* ---------- team changes */
+
+void delta_peer_set_team_host(struct delta_peer *peer, const struct delta_peer_team_host *host)
+{
+	peer->team_host = host;
+}
+
+static void host_team_request(struct delta_peer *peer, delta_u32 now, int machine_index,
+	const struct delta_wire_header *header, const unsigned char *payload)
+{
+	struct delta_peer_host_peer *client = &peer->peers[machine_index];
+	struct delta_wire_team_request request;
+	struct delta_wire_team_result result;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int team_now = 0, seconds = 0;
+
+	if (!(client->agreed & offered(peer) & CAPABILITY(_delta_capability_team_change)) || !peer->team_host ||
+		!delta_wire_read_team_request(payload, header->length, &request) || request.sequence <= client->team_sequence ||
+		!delta_rate_take(&client->team_rate, now, DELTA_PEER_TEAM_RATE, DELTA_PEER_TEAM_BURST))
+	{
+		peer->dropped++;
+		return;
+	}
+	client->team_sequence = request.sequence;
+	memset(&result, 0, sizeof(result));
+	result.sequence = request.sequence;
+	result.result = (unsigned char)peer->team_host->request(peer->team_host->context, machine_index, request.player,
+		request.team, &team_now, &seconds);
+	result.team = (unsigned char)(team_now == 1 ? 1 : 0);
+	result.seconds = (unsigned short)(seconds < 0 ? 0 : seconds > 0xFFFF ? 0xFFFF : seconds);
+	peer_send(peer, client->ipv4, client->port, data, delta_wire_write_team_result(data, client->session, &result));
+}
+
+int delta_peer_client_team_ready(const struct delta_peer *peer)
+{
+	return client_chatting(peer, _delta_capability_team_change);
+}
+
+delta_u32 delta_peer_client_team_request(struct delta_peer *peer, int player, int team)
+{
+	struct delta_wire_team_request request;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int size;
+
+	if (!delta_peer_client_team_ready(peer) || player < 0 || player > 255)
+		return 0;
+	memset(&request, 0, sizeof(request));
+	request.sequence = ++peer->team_sequence;
+	if (!request.sequence)
+		request.sequence = ++peer->team_sequence;
+	request.player = (unsigned char)player;
+	request.team = (unsigned char)team;
+	size = delta_wire_write_team_request(data, peer->session, &request);
+	if (!size)
+		return 0;
+	peer_send(peer, peer->host_ipv4, peer->host_port, data, size);
+	return request.sequence;
+}
+
+delta_u32 delta_peer_client_team_result(const struct delta_peer *peer, struct delta_wire_team_result *result)
+{
+	if (result)
+		*result = peer->team_result;
+	return peer->team_results;
+}
+
 static void host_hello(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4, unsigned short port,
 	const struct delta_wire_header *header, const unsigned char *payload)
 {
@@ -1450,6 +1551,18 @@ static void host_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4,
 			break;
 		}
 		host_chat_say(peer, now, machine_index, &header, payload);
+		break;
+	}
+	case _delta_message_team_request:
+	{
+		int machine_index = host_find_session(peer, ipv4, header.session);
+
+		if (machine_index < 0)
+		{
+			peer->dropped++;
+			break;
+		}
+		host_team_request(peer, now, machine_index, &header, payload);
 		break;
 	}
 	case _delta_message_table:
@@ -2220,6 +2333,21 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 	case _delta_message_chat_refused:
 		client_chat_receive(peer, now, &header, payload);
 		break;
+	case _delta_message_team_result:
+	{
+		struct delta_wire_team_result result;
+
+		/* (only an answer to a request of this session's) */
+		if (!delta_peer_client_team_ready(peer) || !delta_wire_read_team_result(payload, header.length, &result) ||
+			!result.sequence || result.sequence > peer->team_sequence)
+		{
+			peer->dropped++;
+			break;
+		}
+		peer->team_result = result;
+		peer->team_results++;
+		break;
+	}
 	case _delta_message_map:
 	{
 		struct delta_wire_map map;

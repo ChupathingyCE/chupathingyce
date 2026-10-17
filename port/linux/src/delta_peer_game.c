@@ -333,6 +333,9 @@ int delta_peer_protocol(void)
 		/* (text chat and the host's own lines: docs/delta.md, Chat) */
 		local.capabilities |= (delta_u32)1 << _delta_capability_chat |
 			(delta_u32)1 << _delta_capability_server_messages;
+		/* (changing teams during a game: a host offers it once its team
+		host is set, team_change.c) */
+		local.capabilities |= (delta_u32)1 << _delta_capability_team_change;
 		/* (moderation: a client signs with its player key's moderator key; a
 		host offers it only with the dedicated server's moderation) */
 #ifdef HALO_GAME_BROWSER
@@ -876,6 +879,12 @@ void delta_peer_game_set_chat_mode(int mode, int flags)
 	delta_peer_set_chat_mode(&delta_game.peer, mode, flags);
 }
 
+void delta_peer_game_set_chat_cooldown(int seconds)
+{
+	delta_peer_protocol();
+	delta_peer_set_chat_cooldown(&delta_game.peer, seconds);
+}
+
 int delta_peer_game_chat_capable(int machine_index, int kind)
 {
 	return delta_game.ready && delta_game.role == _role_host &&
@@ -962,4 +971,31 @@ int delta_peer_game_read_save_file(const char *name, char *text, int size)
 	fclose(stream);
 	text[length] = 0;
 	return (int)length;
+}
+
+/* ---------- team changes (team_change.c) */
+
+void delta_peer_game_set_team_host(const struct delta_peer_team_host *host)
+{
+	delta_peer_protocol();
+	delta_peer_set_team_host(&delta_game.peer, host);
+}
+
+int delta_peer_game_team_ready(void)
+{
+	return delta_game.ready && delta_game.role == _role_client && delta_peer_client_team_ready(&delta_game.peer);
+}
+
+unsigned int delta_peer_game_team_request(int player, int team)
+{
+	if (!delta_game.ready || delta_game.role != _role_client)
+		return 0;
+	return delta_peer_client_team_request(&delta_game.peer, player, team);
+}
+
+unsigned int delta_peer_game_team_result(struct delta_wire_team_result *result)
+{
+	if (!delta_game.ready)
+		return 0;
+	return delta_peer_client_team_result(&delta_game.peer, result);
 }

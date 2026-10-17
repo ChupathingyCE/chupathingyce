@@ -310,7 +310,7 @@ def test_report_joined_games_stops_claims():
     game list about a game it joined: its own report of the game
     (browser_client_report) and the claim of its players' lines in the
     host's report (browser_claim_game, /v1/claim). A game it hosts is
-    claimed either way."""
+    claimed unless network.report_hosted_games is off."""
     root = MENUS.parent.parent.parent
     browser = (root / "port/linux/src/browser.c").read_text()
     for function in ("browser_client_report", "browser_claim_game"):
@@ -322,6 +322,28 @@ def test_report_joined_games_stops_claims():
     readme = (root / "port/linux/README.md").read_text()
     row = next(line for line in readme.splitlines() if line.startswith("| `network.report_joined_games`"))
     assert "/v1/claim" in row
+
+
+def test_report_hosted_games_keeps_listing():
+    """network.report_hosted_games = false stops what a host sends the game
+    list about its games (the carnage report, the Delta Stats batch and its
+    own players' claims) and not the listing, and the Privacy screen sets
+    it."""
+    root = MENUS.parent.parent.parent
+    browser = (root / "port/linux/src/browser.c").read_text()
+    for function in ("browser_report_game", "browser_claim_game"):
+        body = re.search(r"^void " + function + r"\(.*?^\}", browser, re.M | re.S).group(0)
+        assert 'config_boolean("network.report_hosted_games")' in body, function
+    hosting = re.search(r"^static void update_hosting\(.*?^\}", browser, re.M | re.S).group(0)
+    assert "report_hosted_games" not in hosting
+    upload = (root / "port/linux/src/event_upload.c").read_text()
+    assert 'config_boolean("network.report_hosted_games")' in upload
+    privacy = (MENUS / "ce/main_menu.settings_select.player_setup.player_profile_edit.privacy_setup.xml").read_text()
+    for setting in ("network.report_hosted_games", "network.report_events", "network.report_joined_games",
+                    "crash_reports.upload"):
+        assert f'setting="{setting}"' in privacy, setting
+    readme = (root / "port/linux/README.md").read_text()
+    assert any(line.startswith("| `network.report_hosted_games`") for line in readme.splitlines())
 
 
 def c_format_json(format_text: str, values: list) -> str:
@@ -428,6 +450,64 @@ def test_p2p_signatures_and_listings(tmp_path):
     result = subprocess.run([str(program)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stdout
     assert "PASS" in result.stdout
+
+
+# ---------- system link's stand-in machines (tools/system_link_bots.py)
+
+
+def test_system_link_bots_messages_are_the_games():
+    """the stand-in machines number their messages as network_messages.h does,
+    and send each at the size network_messages.c's fields decode (pad 0,
+    bytes 1, shorts 2, longs 4; an array a count byte and one element)"""
+    import struct
+    import time
+    import types
+    from tools import system_link_bots as bots
+
+    root = Path(__file__).resolve().parents[1]
+    header = (root / "source/networking/network_messages.h").read_text()
+    enum = header[header.index("enum network_game_message_type"):]
+    names = re.findall(r"\t_message_(\w+)", enum[:enum.index("};")])
+    for name, value in vars(bots).items():
+        if name.lower() in names:
+            assert names.index(name.lower()) == value, name
+    sizes = {}
+    source = (root / "source/networking/network_messages.c").read_text()
+    for fields, name in re.findall(r"\t\{\n((?:\t\t.*\n)*?)\t\},\n\tNETWORK_GAME_MESSAGE_DEFINITION\((\w+),", source):
+        sizes[name] = sum(int(count) * {"pad": 0, "bytes": 1, "shorts": 2, "longs": 4}.get(kind, 0) + (kind == "array")
+                          for kind, count in re.findall(r"_data_packet_field_(\w+), (\d+)", fields))
+
+    sent = []
+    machine = bots.Machine(1, "127.0.0.2", "127.0.0.1", print)
+    machine.udp.close()
+    machine.send = sent.append
+    machine.udp = types.SimpleNamespace(sendto=lambda data, address: sent.append(data))
+    machine.joined()
+    machine.handle(bots.SERVER_MACHINE_ACCEPTED, struct.pack(">ih", 0, 1))
+    settings = bytes(0x24) + b"levels\\test\\bloodgulch\\bloodgulch".ljust(0x80, b"\0")
+    machine.handle(bots.SERVER_GAME_SETTINGS_UPDATE, struct.pack(">HHH", len(settings), 0, len(settings)) + settings)
+    machine.tick(time.monotonic())
+    machine.handle(bots.SERVER_BEGIN_GAME, b"")
+    machine.tick(time.monotonic() + 60)
+    machine.handle(bots.SERVER_GAME_UPDATE, struct.pack(">I", 1))
+    machine.tick(time.monotonic())
+    assert len(sent) == 6
+    for data in sent:
+        name = names[data[-1]]
+        assert len(data) - 4 == sizes[name], name
+
+
+# ---------- the wire format (tools/network_format.py)
+
+
+def test_network_format_is_the_recorded_one():
+    """what the machines send each other is what port/linux/network_format.txt
+    records for HALO_PORT_NETWORK_VERSION, and NETCODE.md says what that
+    version changed"""
+    from tools import network_format
+
+    problems = network_format.check()
+    assert not problems, "\n".join(problems)
 
 
 # ---------- the tag validator (port/linux/game/tag_validate.c)

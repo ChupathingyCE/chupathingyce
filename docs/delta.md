@@ -136,6 +136,11 @@ shares.
 | 8 | `vote` | map and game type votes |
 | 9 | `console_slots` | retired before use: a console's slots are its platform key's limits (below). Never set, never reused |
 | 10 | `moderation` | a dedicated server's moderators sign in and act from the game (below, "Moderation") |
+| 11 | `bomb` | Bomb game types (Bomb, Grifball, Open Pitch: [bomb.md](bomb.md)) and their player traits (TRAITS). Room-wide: a host playing one drops every machine without it |
+| 12 | `ping` | the host answers Online Games' pings before joining; announced on Delta List only, never in a HELLO (see "Pings before joining") |
+| 13 | `bomb_movement` | TRAITS' movement and melee traits (jump, gravity, melee reach), for a player whose machine and host both agreed to it; taken, never set yet |
+| 14 | `bomb_traits` | TRAITS at 22 (Grifball test builds 2 and 3 sent it as 18, chat's CHAT_CONFIG). Room-wide with `bomb`: a host playing a Bomb game type drops every machine without both; taken, never set yet |
+| 15 | `team_change` | changing teams during a game: a client asks its host (TEAM_REQUEST), the host decides and answers (TEAM_RESULT); see "Team changes" |
 
 The registry lives in the repository next to the compatibility table and is
 the single source for the bit numbers. Built so far: `platform`, `profile`,
@@ -277,7 +282,10 @@ a later version may append):
 | 18 | CHAT_CONFIG | host to client | mode (1: 0 off, 1 team lines alone, 2 on), flags (1: 0x01 this player is muted, 0x02 the host filters blocked words), reserved (2), a timed mute's seconds left (4; 0 none, or until the game ends) |
 | 19 | CHAT_SAY | client to host | sequence (4, above the session's last), scope (1: 0 everyone, 1 team), reserved (1), text length (1, 1 to 120), reserved (1), text (UTF-8) |
 | 20 | CHAT_LINE | host to client | line (4, the host's count), kind (1: 0 player, 1 moderator, 2 server, 3 system), scope (1), speaker's machine (1; 255 none), speaker's player (1, the game's player index; 255 none), name length (1, at most 47), text length (1, 1 to 200), reserved (2), name (UTF-8), text (UTF-8) |
-| 21 | CHAT_REFUSED | host to client | sequence (4, the CHAT_SAY's), reason (1: 1 chat off, 2 that scope is not taken, 3 muted, 4 too fast, 5 blocked words, 6 text that cannot be shown), reserved (3) |
+| 21 | CHAT_REFUSED | host to client | sequence (4, the CHAT_SAY's), reason (1: 1 chat off, 2 that scope is not taken, 3 muted, 4 too fast, 5 blocked words, 6 text that cannot be shown), reserved (1), seconds the player's chat is paused (2; with 4, 0 none: added in 0.8.0 where the field was reserved, so an older game reads none) |
+| 22 | TRAITS | host to client | taken by the Bomb builds ([bomb.md](bomb.md)) |
+| 23 | TEAM_REQUEST | client to host | sequence (4, above the session's last), player (1, the game's player list index), team (1: 0 red, 1 blue, 255 the other one), reserved (2) |
+| 24 | TEAM_RESULT | host to client | sequence (4, the TEAM_REQUEST's), result (1: 0 changed, 1 at the next respawn, 2 the host takes none, 3 the teams would be uneven, 4 no teams, 5 too soon, 6 not now, 7 no such player of the machine, 8 already on that team, 9 the last player of their team), team (1, the player's now), seconds until the player may change again (2; with 5) |
 
 A roster covers every machine of the game, in as many datagrams as it takes
 (32 machines each). A client forgets a machine the roster has not named for
@@ -305,8 +313,10 @@ Limits and timeouts (`delta_peer.h`):
 | moderation: MOD_CHALLENGE (not signed in), MOD_STATE (signed in) and a waiting MOD_BIND said again | every 5 s (MOD_STATE at once when roles change) |
 | moderation: a MOD_BIND answered within | 2 minutes, else declined |
 | chat: CHAT_SAY a host takes from one machine | 1 a second, 3 at once; the same line again within 10 s is too fast |
+| chat: a machine's chat paused once it is too fast | 5 s (a dedicated server's `HALO_DEDICATED_CHAT_COOLDOWN`; 0 none) |
 | chat: CHAT_LINE a client takes from its host | 10 a second, 20 at once |
 | chat: CHAT_CONFIG | at the handshake, on a change (at most every 250 ms), and every 10 s |
+| team changes: TEAM_REQUEST a host takes from one machine | 1 a second, 3 at once (and a player's changes 10 s apart: the host's rule) |
 
 Who is heard: a host reads a datagram only from an address of a machine of
 its game (anything else is dropped before parsing), and ties a HELLO to the
@@ -466,6 +476,42 @@ The game's side is `port/linux/game/chat.c` (keys, the log, routing),
 `port/linux/src/delta_chat.c` (the filter and the host's rules, tested in
 `delta_test.c`) and the dedicated server's `sv_say`, `sv_chat`, `sv_mute`
 and `sv_unmute` (`server/docs/admin.md`).
+
+### Team changes
+
+Changing teams during a team game, as Halo PC's in-game CHANGE TEAMS had it
+(the Xbox let a player choose a team only in the pregame lobby), over
+`team_change` (bit 15). The game protocol has no message for it, so the
+ask goes over Delta Peer and the change itself through the game:
+
+- **Asking.** A client sends TEAM_REQUEST for one of its own players (its
+  index in the host's player list) and a team (or "the other one"). The
+  host checks the session, the rising sequence and its budget (1 a second,
+  3 at once), that the player is the machine's, and its rule, then answers
+  TEAM_RESULT. A host without `team_change` (OpenCE's, an older
+  Chupathingy) is never asked: the player is told the change needs a
+  Chupathingy host.
+- **The host's rule.** `network.team_change` for a player's host,
+  `HALO_DEDICATED_TEAM_CHANGE` for a dedicated server: `balanced` (the
+  default: no change that leaves one team more than the margin, 1 unless
+  set, bigger than the other), `allow` or `off`; a player's changes at
+  least 10 seconds apart; never the last player of a team while others
+  play (a team game with everyone on one team is over). A dedicated
+  server's `sv_team` moves anyone, the rule aside.
+- **The change.** The host kills the player's unit as nobody's kill: no
+  death, suicide or betrayal counted, no respawn penalty, no kill message;
+  the player keeps their score and the team scores stay. It puts the
+  player on the new team (as the game type's auto team balance does) and
+  they respawn on it after the game type's respawn time. Every machine,
+  OpenCE's too, takes the player's team from the unit the host spawns them
+  with, so the result reaches everyone through the unchanged game protocol;
+  other machines see a death of no killer ("died") and the respawn. A
+  player already dead changes at once. In a round-based game type (Bomb)
+  the change waits for the player's next death, so the round plays out.
+
+The game's side is `port/linux/game/team_change.c`, its pause menu row in
+all the menu sets (`port/linux/game/menu_tags.c`), and the dedicated
+server's settings and `sv_team` (`server/docs/settings.md`).
 
 ### The protocol setting
 
@@ -741,7 +787,7 @@ last):
 | `platform_key` | the host machine's platform key (see "Platform keys"), 16 hexadecimal digits |
 | `arch` | `x64`, `x86`, `arm64` or `arm` |
 | `build` | the build's version (`0.7.1b`) |
-| `capabilities` | the capabilities it offers, 8 hexadecimal digits |
+| `capabilities` | the capabilities it offers, 8 hexadecimal digits; bit 12 (`ping`) is set here alone, by a host that answers pings before joining |
 | `machines` | while hosting with Delta: the game's machines by platform, `pc_linux:2,xbox:1,legacy:1` (`legacy`: a machine without Delta; `unknown`: a Delta machine that does not share its platform; a dedicated server leaves itself out). Counts only, never a player (`delta_peer_game_host_summary`) |
 
 Compatibility both ways: a site from before these fields ignores them (it
@@ -754,8 +800,9 @@ From them the site lists each game's `platform`, `hosting` (`official`: our
 `[D]` servers, by their hosts; `dedicated`; `player`), `protocol` (`delta`,
 `opence`), `family` (`xbox`, `ce`, `pc`, `md`, by the map's suffix) and
 `machines`; OpenCE's public games (the brokers) are `opence` and nothing
-more. The game's browser reads them from `/v1/games.txt?fields=17` (fields
-14 to 17: platform, hosting, protocol, machines) and shows them: the Online
+more. The game's browser reads them from `/v1/games.txt?fields=19` (field
+13 the region; 14 to 17: platform, hosting, protocol, machines; 18 an
+OpenCE game's gametype; 19 the announced capabilities) and shows them: the Online
 Games screen's rows (a platform tag before the name, `SRV` for a server),
 its details (a Host line; the machines beside IN GAME) and the PC menus'
 Server Browser's Rules line. The console list adds platform, hosting and
@@ -764,6 +811,88 @@ protocol after its tenth field, which Warthog's reader passes over.
 A player's own copy also says its platform (`"platform"`) when it confirms
 its line (`/v1/claim`) or reports a game it joined (`/v1/client_report`),
 for the site's "Played on" profile badges.
+
+### Pings before joining (built, 0.8.0)
+
+Online Games shows each listed game's ping before joining: a measured one
+where the host answers, `~NN` (an estimate) where it can't, nothing where
+nothing is known; sorting by Ping puts measured first, then estimated, then
+none. The numbers fill in as they arrive.
+
+There was nothing to reuse: Halo PC servers answer GameSpy queries on
+their game port, but nothing of that is in the decomp, OpenCE or our
+builds, and no client knows a host's address before signalling (the list
+never gives one). Player hosts and dedicated servers are reached the same
+way, so one mechanism serves both: a probe through signalling, then a
+small ping on the host's tunnel socket bound to the probe.
+
+Signalling (sealed with the invite token's key and published on the
+host's topic, like JOIN; OpenCE and older builds act only on `J` there):
+
+| | Layout |
+| --- | --- |
+| PROBE (`P`), prober to host | `'P'`, version 1, probe id (16, random), reply id (16, random a run; the answer goes to `hceu/3/<its hex>`), address count (1, at most 4), addresses (6 each) |
+| PROBE_ANSWER (`Q`), host to prober | `'Q'`, version 1, probe id (16), the host's Ed25519 key (32), address count (1, at most 4), addresses (6 each), Ed25519 signature (64) of `"chupathingy probe"` and everything before it |
+
+A prober takes an answer only when the key's X25519 form hashes to the
+invite's host hash and the signature checks, so no one watching the brokers
+can point it at another machine.
+
+The tunnel socket (magic `0x6A`; the tunnel's is `0x69`; older builds drop
+it unread): every datagram 24 bytes: magic (1), type (1: PING, 2: PONG, 3:
+PUNCH), sequence (2), probe id (16), the prober's clock (4, echoed).
+
+A probe is never a peer: no session, no X25519 work, no virtual address,
+no stand-in, no broadcast, no slot, no player count; the game never hears
+of it. The host keeps its id in a 16-entry table for 10 seconds, and
+answers a PING only with a live id, with a PONG of the same 24 bytes, to
+the PING's source.
+
+| Limit (`p2p_probe.h`) | |
+| --- | --- |
+| new probes a host takes | 8 at once, then one each 250 ms |
+| a probe's answer said again (the prober's resend) | at most once a second, at no new cost |
+| PONGs a probe | 8 |
+| the host's PUNCH (for a host behind NAT) | 2 rounds to at most 4 addresses, stopped by the first PING |
+| a prober's probes at once | 4 |
+| PROBE resent | every 1.5 s, 3 times; given up after 5 s |
+| PINGs | every 200 ms to each address, until 3 PONGs or 5 s; the lowest round trip is shown |
+| a host measured again | after 60 s (a failed one too) |
+
+Amplification and spoofing: a PONG is never larger than its PING, and a
+PING without a live id gets nothing. Probe ids can be read by anyone with a
+listed game's token watching the brokers, so a spoofer can at most have 8
+PONGs of 24 bytes sent to a victim per id, after paying for a sealed MQTT
+publish (larger than that) within the brokers' own limits and the host's 4
+new probes a second. The PUNCH goes to addresses the prober names, as
+JOIN's punch does today, within the same budget. A forged PONG can only
+make one row's number wrong; the number is never used for anything else.
+
+Privacy: no address is shown or logged (the log says "answering pings",
+"pinging the listed games", counts only). The prober learns a host's
+addresses only through its signed answer, as joining does, and keeps them
+in memory. A host sees a prober's public address, as it sees anyone's who
+joins; `network.ping_games = false` turns probing off (estimates only).
+
+Estimates: `GET /v1/anchors.txt` lists `anchor<TAB>host<TAB>port<TAB>
+regions` lines (regions: continents `EU` or countries `EU-DE`, as a game's
+region). The client times a TCP connection to each (twice, the lower kept;
+nothing is sent), once a run, the first time Online Games opens with online
+play on, and estimates a game from its region: the lowest anchor naming its
+country, else its continent. The site's defaults are our own hosts for
+North America and a cloud provider's regional endpoints elsewhere
+(`--anchors` replaces them).
+
+Compatibility: only hosts that announce bit 12 are probed; older hosts show
+an estimate or nothing. A site from before field 19 gives no capabilities:
+no probes, estimates only if it has anchors. Nothing else changes meaning,
+and the legacy table's per-capability kill switch turns `ping` off (no
+answering, no probing). No pings at all with online play off.
+
+`port/linux/tests/ping_test.c` (`tools/test_ping.py`) tests the formats
+with hostile input, the host's limits, the prober's measuring, the anchors
+and the Ping column's order; `HALO_NETWORK_TEST=browse` opens Online Games
+and logs each game's ping, for two copies on one machine.
 
 ## Delta Stats
 
@@ -786,8 +915,10 @@ player can turn it off (`network.report_events`, `HALO_NET_REPORT_EVENTS`
 set to false): our [D] servers, community servers and ChupathingyCE
 players who host, unless they opt out. That setting stops the events
 batch only. The host's carnage report (`/v1/report`) is a separate upload:
-it goes whenever the game is listed, and only `network.list_hosted_games =
-false` (or an empty `network.browser_url`) stops it. Everything is what the host saw, so it is exact; nothing a
+it goes whenever the game is listed, and `network.report_hosted_games =
+false` (`HALO_NET_REPORT_HOSTED`) stops it and the events batch while the
+game stays listed; `network.list_hosted_games = false` (or an empty
+`network.browser_url`) stops it too, with the listing. Everything is what the host saw, so it is exact; nothing a
 client says is taken. Co-op (campaign) games are never recorded.
 
 ### Players
@@ -806,7 +937,8 @@ them: their own copy of the game claims their line of the same game's
 report with its player key (`/v1/claim`); the site then marks the same
 line of the events. A copy claims a game it joined only with
 `network.report_joined_games` on (the default), the setting that also sends
-its own report of the game; a game it hosted, always. A host's word about who a player is is never taken. No
+its own report of the game; a game it hosted, unless
+`network.report_hosted_games` is off. A host's word about who a player is is never taken. No
 IP address is ever recorded or sent, by the game or the site.
 
 ### The batch (schema 2)

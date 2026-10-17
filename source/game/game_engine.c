@@ -558,6 +558,7 @@ symbols in this file:
 #include "interface/terminal.h"
 #include "interface/ui_widget.h"
 #include "input/input.h"
+#include "input/input_abstraction.h"
 #include "items/equipment_definitions.h"
 #include "items/item_definitions.h"
 #include "items/weapon_definitions.h"
@@ -569,6 +570,7 @@ symbols in this file:
 #include "networking/network_server_manager.h"
 #include "networking/network_game_manager.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#include "follow_camera.h" /* port: port/linux/game/follow_camera.c */
 /* (network_server_manager_internal.h's: the host's game record) */
 struct network_game *network_game_server_get_game(struct network_game_server *server);
 #include "objects.h"
@@ -614,6 +616,9 @@ void network_distributed_player_killed(long *killing_player_index, long *killing
 	long dead_player_index, boolean *friendly_fire);
 /* port/linux/game/network_damage.c's */
 boolean network_damage_killer_score(long player_index, long *score);
+/* port/linux/game/team_change.c's */
+boolean team_change_death(long dead_player_index);
+void team_change_player_died(long dead_player_index);
 
 /* ---------- constants */
 
@@ -4252,8 +4257,108 @@ static struct
 	real_vector3d forward;
 	real_vector3d up;
 	long idle_since;
+	/* (the scenario name the map's scripts teleport; NONE when it had none) */
+	short name_index;
 } game_engine_vehicle_homes[MAXIMUM_VEHICLE_HOMES];
 static short game_engine_vehicle_home_count = NONE;
+
+/* still on the pad the map put it on: further than this, and empty, it can
+come back */
+#define VEHICLE_HOME_AWAY_SQUARED 4.0f
+
+/* whether nobody rides the vehicle: no driver or gunner, and no rider among
+its children (which hold its own weapons too) */
+static boolean game_engine_vehicle_empty(
+	struct unit_datum *vehicle)
+{
+	long child_index;
+
+	if (vehicle->unit.driver_object_index != NONE || vehicle->unit.gunner_object_index != NONE)
+		return FALSE;
+	for (child_index = vehicle->object.first_child_object_index; child_index != NONE;
+		child_index = object_get(child_index)->object.next_object_index)
+	{
+		if (object_get(child_index)->object.type == _object_type_biped)
+			return FALSE;
+	}
+	return TRUE;
+}
+
+/* a living vehicle of the home's kind on its pad, but except, that no other
+home follows (one a map's script put there in place of the home's: another
+home's vehicle parked there is still that home's), else NONE */
+static long game_engine_vehicle_home_on_pad(
+	short home,
+	long except)
+{
+	struct object_iterator iterator;
+
+	object_iterator_new(&iterator, _object_mask_vehicle, 0);
+	while (object_iterator_next(&iterator))
+	{
+		struct object_datum *object = object_get(iterator.index);
+		real dx = object->object.position.x - game_engine_vehicle_homes[home].position.x;
+		real dy = object->object.position.y - game_engine_vehicle_homes[home].position.y;
+		real dz = object->object.position.z - game_engine_vehicle_homes[home].position.z;
+		short other;
+
+		if (iterator.index == except || TEST_FLAG(object->object.damage_flags, _object_dead_bit) ||
+			object->definition_index != game_engine_vehicle_homes[home].definition_index ||
+			dx * dx + dy * dy + dz * dz > VEHICLE_HOME_AWAY_SQUARED)
+		{
+			continue;
+		}
+		for (other = 0; other < game_engine_vehicle_home_count; other++)
+		{
+			if (other != home && game_engine_vehicle_homes[other].object_index == iterator.index)
+				break;
+		}
+		if (other == game_engine_vehicle_home_count)
+			return iterator.index;
+	}
+	return NONE;
+}
+
+/* the home follows this vehicle, which keeps (or takes) the home's name */
+static void game_engine_vehicle_home_follow(
+	short home,
+	long object_index)
+{
+	game_engine_vehicle_homes[home].object_index = object_index;
+	if (game_engine_vehicle_homes[home].name_index == NONE)
+		game_engine_vehicle_homes[home].name_index = object_get(object_index)->object.name_index;
+	else
+		object_claim_scenario_name(object_index, game_engine_vehicle_homes[home].name_index);
+}
+
+/* the vehicle this home should follow. The recorded one, if it is still
+alive. A map script often destroys that one and creates it again under the
+same name, or in its place: that one is this home's vehicle, and a second is
+not put on the pad with it. */
+static long game_engine_vehicle_home_current(
+	short home)
+{
+	long object_index = game_engine_vehicle_homes[home].object_index;
+	struct unit_datum *vehicle = unit_try_and_get(object_index);
+	long named_index;
+
+	if (vehicle && !TEST_FLAG(vehicle->object.damage_flags, _object_dead_bit))
+		return object_index;
+
+	named_index = game_engine_vehicle_homes[home].name_index == NONE ? NONE :
+		object_index_from_name_index(game_engine_vehicle_homes[home].name_index);
+	vehicle = unit_try_and_get(named_index);
+	if (vehicle && !TEST_FLAG(vehicle->object.damage_flags, _object_dead_bit))
+	{
+		game_engine_vehicle_homes[home].object_index = named_index;
+		return named_index;
+	}
+
+	object_index = game_engine_vehicle_home_on_pad(home, NONE);
+	if (object_index != NONE)
+		game_engine_vehicle_home_follow(home, object_index);
+	return object_index;
+}
 
 static void game_engine_update_vehicle_respawn(
 	void)
@@ -4282,11 +4387,13 @@ static void game_engine_update_vehicle_respawn(
 			object_get_orientation(iterator.index, &game_engine_vehicle_homes[home].forward,
 				&game_engine_vehicle_homes[home].up);
 			game_engine_vehicle_homes[home].idle_since = NONE;
+			game_engine_vehicle_homes[home].name_index = object->object.name_index;
 		}
 	}
 	for (index = 0; index < game_engine_vehicle_home_count; index++)
 	{
-		struct unit_datum *vehicle = unit_try_and_get(game_engine_vehicle_homes[index].object_index);
+		long object_index = game_engine_vehicle_home_current(index);
+		struct unit_datum *vehicle = unit_try_and_get(object_index);
 		boolean waiting = TRUE;
 
 		if (vehicle && !TEST_FLAG(vehicle->object.damage_flags, _object_dead_bit))
@@ -4295,18 +4402,7 @@ static void game_engine_update_vehicle_respawn(
 			real dy = vehicle->object.position.y - game_engine_vehicle_homes[index].position.y;
 			real dz = vehicle->object.position.z - game_engine_vehicle_homes[index].position.z;
 
-			long child_index;
-
-			/* (empty: no rider among its children, which hold its own
-			weapons too) */
-			waiting = vehicle->unit.driver_object_index == NONE && vehicle->unit.gunner_object_index == NONE &&
-				dx * dx + dy * dy + dz * dz > 4.0f;
-			for (child_index = vehicle->object.first_child_object_index; waiting && child_index != NONE;
-				child_index = object_get(child_index)->object.next_object_index)
-			{
-				if (object_get(child_index)->object.type == _object_type_biped)
-					waiting = FALSE;
-			}
+			waiting = dx * dx + dy * dy + dz * dz > VEHICLE_HOME_AWAY_SQUARED && game_engine_vehicle_empty(vehicle);
 		}
 		if (!waiting)
 			game_engine_vehicle_homes[index].idle_since = NONE;
@@ -4315,14 +4411,42 @@ static void game_engine_update_vehicle_respawn(
 		else if (now - game_engine_vehicle_homes[index].idle_since >= respawn_ticks)
 		{
 			struct object_placement_data placement_data;
+			long stale_index = game_engine_vehicle_homes[index].object_index;
+			long named_index = game_engine_vehicle_homes[index].name_index == NONE ? NONE :
+				object_index_from_name_index(game_engine_vehicle_homes[index].name_index);
+			struct unit_datum *named = unit_try_and_get(named_index);
+			long on_pad = game_engine_vehicle_home_on_pad(index, object_index);
 
-			if (vehicle)
-				object_delete(game_engine_vehicle_homes[index].object_index);
+			/* (a vehicle under the home's name that someone rides is theirs:
+			the home follows it, and waits for it) */
+			if (named && named_index != stale_index && !TEST_FLAG(named->object.damage_flags, _object_dead_bit) &&
+				!game_engine_vehicle_empty(named))
+			{
+				game_engine_vehicle_homes[index].object_index = named_index;
+				game_engine_vehicle_homes[index].idle_since = NONE;
+				continue;
+			}
+			/* (the home's vehicle, empty or wrecked, goes; and the one under
+			its name, but for one on the pad, which it follows instead of a
+			new one: as many vehicles as before) */
+			if (unit_try_and_get(stale_index))
+				object_delete(stale_index);
+			if (named && named_index != stale_index && named_index != on_pad)
+				object_delete(named_index);
+			if (on_pad != NONE)
+			{
+				game_engine_vehicle_home_follow(index, on_pad);
+				game_engine_vehicle_homes[index].idle_since = NONE;
+				continue;
+			}
 			object_placement_data_new(&placement_data, game_engine_vehicle_homes[index].definition_index, NONE);
 			placement_data.position = game_engine_vehicle_homes[index].position;
 			placement_data.forward = game_engine_vehicle_homes[index].forward;
 			placement_data.up = game_engine_vehicle_homes[index].up;
 			game_engine_vehicle_homes[index].object_index = object_new(&placement_data);
+			object_claim_scenario_name(
+				game_engine_vehicle_homes[index].object_index,
+				game_engine_vehicle_homes[index].name_index);
 			game_engine_vehicle_homes[index].idle_since = NONE;
 		}
 	}
@@ -4502,6 +4626,7 @@ void game_engine_player_killed(
 	boolean player_kill;
 	boolean same_player;
 	boolean valid_players;
+	boolean team_change;
 	long message = NONE;
 
 	match_assert(
@@ -4511,6 +4636,17 @@ void game_engine_player_killed(
 
 	if (!game_engine)
 		return;
+
+	/* port: the host's kill of a player changing teams (team_change.c, as
+	Halo PC's CHANGE TEAMS): nobody's kill, nothing counted, no penalty, no
+	message; its clients hear a death of no killer */
+	team_change = !network_game_distributed_client() && team_change_death(dead_player_index);
+	if (team_change)
+	{
+		killing_player_index = NONE;
+		killing_object_index = NONE;
+		friendly_fire = FALSE;
+	}
 
 	/* the distributed netcode: a client's copy of a death has the host's
 	killer (port/linux/game/network_distributed.c) */
@@ -4522,7 +4658,8 @@ void game_engine_player_killed(
 #ifdef HALO_GAME_BROWSER
 	/* the game list's statistics recorder (port/linux/game/game_stats.c):
 	who killed whom, as this machine's game has it; it changes nothing */
-	game_stats_player_killed(killing_player_index, dead_player_index, friendly_fire);
+	if (!team_change)
+		game_stats_player_killed(killing_player_index, dead_player_index, friendly_fire);
 #endif
 	/* the host's kill of a player who quit, ahead of this client's clock
 	(game_update_quit_players has not come to its time yet) */
@@ -4548,9 +4685,15 @@ void game_engine_player_killed(
 		valid_players = FALSE;
 	player_kill = !friendly_fire && valid_players && !same_player;
 
+	/* port: who killed whom, for the follow camera (port/linux/game/
+	follow_camera.c), which follows the killer in a game without teams */
+	follow_camera_player_killed(killing_player_index, dead_player_index);
+
 	dead_player->respawn_timer =
 		dead_player->respawn_penalty + global_variant.universal_variant.respawn_time;
-	if (global_variant.universal_variant.respawn_time_growth > 0)
+	if (team_change)
+		dead_player->respawn_timer = global_variant.universal_variant.respawn_time;
+	else if (global_variant.universal_variant.respawn_time_growth > 0)
 	{
 		dead_player->respawn_penalty += global_variant.universal_variant.respawn_time_growth;
 		dead_player->respawn_penalty =
@@ -4567,14 +4710,19 @@ void game_engine_player_killed(
 		}
 	}
 
-	if (!player_kill)
+	if (!player_kill && !team_change)
 		dead_player->respawn_timer += global_variant.universal_variant.suicide_penalty;
+
+	/* port: a team change waiting for the death (team_change.c): the player
+	respawns on the new team (the clients take it from the unit, as below) */
+	if (!network_game_distributed_client())
+		team_change_player_died(dead_player_index);
 
 	/* port: the gametype's auto team balance (game_variant_options): the host
 	moves the dead to the other team when his is two or more bigger (his
 	next unit is the other team's, which the clients take it from:
 	network_player_attach_unit) */
-	if (global_variant.universal_variant.teams && game_variant_options_get()->auto_team_balance &&
+	if (global_variant.universal_variant.teams && game_variant_options_get()->auto_team_balance && !team_change &&
 		!network_game_distributed_client() && VALID_INDEX(dead_player->team_index, 2) && !dead_player->quit_out_of_game)
 	{
 		struct data_iterator iterator;
@@ -4623,7 +4771,8 @@ void game_engine_player_killed(
 	dead_player->respawn_timer = MAX(dead_player->respawn_timer, 90);
 	dead_player = player_get(dead_player_index);
 
-	if (!dead_player->quit_out_of_game)
+	/* (a team change's death says nothing: team_change.c tells the player) */
+	if (!team_change && !dead_player->quit_out_of_game)
 	{
 		if (killing_player_index == NONE)
 		{
@@ -4659,7 +4808,7 @@ void game_engine_player_killed(
 			message,
 			killing_player_index);
 	}
-	else
+	else if (!team_change)
 	{
 		struct data_iterator iterator;
 
@@ -8949,6 +9098,10 @@ boolean game_engine_get_state_message(
 				NONE,
 				message,
 				message_character_count);
+			/* port: the scoreboard's key for BACK while the keyboard or
+			mouse was used last (Halo PC's prompts) */
+			if (result)
+				input_abstraction_port_back_word(message, message_character_count);
 		}
 		else if (player->state_message != NONE)
 		{

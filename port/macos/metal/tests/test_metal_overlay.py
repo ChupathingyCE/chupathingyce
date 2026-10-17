@@ -81,6 +81,10 @@ const unsigned int *const ui_prompt_icons[10] = {
     &icon_pixel, &icon_pixel, &icon_pixel, &icon_pixel, &icon_pixel
 };
 int platform_input_scheme(void) { return input_scheme; }
+unsigned long config_changes(void) { return 0; }
+void platform_log(const char *format, ...) { (void)format; }
+int text_hires_font_file(int large, char *path, unsigned long size) { (void)large; (void)size; path[0] = 0; return 0; }
+int posix_ui_font_use_file(int font, const char *path) { (void)font; (void)path; return 0; }
 int posix_ui_font_has(int font, unsigned int codepoint) { (void)font; (void)codepoint; return 1; }
 int posix_ui_font_metrics(int font, float size, float *a, float *d) {
     (void)font; *a = size * 0.8f; *d = size * 0.2f; return 1;

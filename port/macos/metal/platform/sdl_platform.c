@@ -14,7 +14,10 @@ and the debug keyboard that the game's console reads.
 #include "gl.h"
 #include "port_config.h"
 #include "p2p.h"
+#include "posix.h"
 #include "xiso.h"
+#include "pc_disc.h"
+#include "ce_installer.h"
 #include "touch_input.h"
 #include "delta.h"
 #include "crash_report.h"
@@ -149,6 +152,8 @@ static void old_map_folders_offer(BOOL quiet)
 }
 
 #ifndef HALO_ANDROID
+static BOOL data_has_xbox_maps(const char *destination);
+
 /* the maps folder checked to hold the Xbox maps (platform_maps_folder_check).
 When it holds Halo PC's instead, or no ui.map, the player is told where each
 kind goes and the game quits, rather than failing to load Halo PC's ui.map
@@ -196,6 +201,13 @@ static void data_check_maps(void)
 			maps.ui_version == 609 ? "Halo PC (Custom Edition)" : "Halo PC", where);
 		break;
 	default:
+		/* (a maps folder without ui.map and no Halo PC maps in it, as "make
+		the folders" leaves it: the choices offered again) */
+		if (!quiet && !maps.stray_pc_maps && platform_offer_game_data(maps.root) &&
+			data_has_xbox_maps(maps.root))
+		{
+			return;
+		}
 		snprintf(message, sizeof(message),
 			"Halo's Xbox maps were not found: %s/maps has no ui.map.%s\n\n%s\n\n"
 			"To copy the Xbox maps out of your disc image, move the maps folder aside and start "
@@ -233,7 +245,7 @@ static void crash_reports_start(void)
 		"The answer is kept in config.toml (crash_reports.upload): Yes sends the report of this crash and of "
 		"every later one, No never sends one.";
 	SDL_MessageBoxData question = { SDL_MESSAGEBOX_WARNING, NULL, "ChupathingyCE crashed", text, 2, buttons, NULL };
-	char folder[1024], log[1024];
+	char folder[1024], log[1024], old_folder[1024], old_log[1024];
 	const char *consent;
 	int pending, answer = 0;
 
@@ -244,9 +256,12 @@ static void crash_reports_start(void)
 	if (browser_headless())
 		return;
 #endif
-	snprintf(folder, sizeof(folder), "%s/crashes", platform_data_root());
-	snprintf(log, sizeof(log), "%s/debug.txt", platform_data_root());
-	if (!posix_crash_install(folder, log) || !(pending = posix_crash_pending()))
+	snprintf(folder, sizeof(folder), "%s/crashes", platform_folder(_port_folder_logs));
+	snprintf(log, sizeof(log), "%s/debug.txt", platform_folder(_port_folder_logs));
+	/* (and those from before the logs folder, in the data root, still sent) */
+	snprintf(old_folder, sizeof(old_folder), "%s/crashes", platform_data_root());
+	snprintf(old_log, sizeof(old_log), "%s/debug.txt", platform_data_root());
+	if (!posix_crash_install(folder, log, old_folder, old_log) || !(pending = posix_crash_pending()))
 		return;
 	consent = config_string("crash_reports.upload");
 	if (!strcmp(consent, "no"))
@@ -355,11 +370,28 @@ static void show_pointer(BOOL shown)
 
 #ifndef HALO_ANDROID
 
-/* ---------- first start without game data (xbox_files.c) */
+/* ---------- first start without game data (xbox_files.c)
+
+The player is offered choices, never told to find a disc: Halo's maps from
+an Xbox disc image (the default, and the only data the game needs), Halo
+PC's maps from its CD image or Custom Edition's installer as optional
+extras (into maps_pc and maps_ce), or the folders made empty for them to
+fill themselves. A file picked is told apart by what it holds, not its
+name: an Xbox disc image (xiso.c), Custom Edition's installer
+(ce_installer.c), or a CD image (pc_disc.c) */
+
+enum
+{
+	_data_unknown,
+	_data_xbox_disc,
+	_data_halo_pc_disc,
+	_data_custom_edition_installer,
+};
 
 struct data_extraction
 {
 	pthread_mutex_t lock;
+	int kind;
 	char image[1024];
 	char destination[1024];
 	char file[256];
@@ -385,9 +417,23 @@ static void data_extraction_progress(void *context, const char *file, unsigned l
 static void *data_extraction_thread(void *context)
 {
 	struct data_extraction *extraction = context;
-	BOOL succeeded = xiso_extract_maps(extraction->image, extraction->destination, data_extraction_progress,
-		extraction, extraction->error, sizeof(extraction->error)) != 0;
+	BOOL succeeded;
 
+	switch (extraction->kind)
+	{
+	case _data_halo_pc_disc:
+		succeeded = pc_disc_extract_maps(extraction->image, extraction->destination, data_extraction_progress,
+			extraction, extraction->error, sizeof(extraction->error)) != 0;
+		break;
+	case _data_custom_edition_installer:
+		succeeded = ce_installer_extract_maps(extraction->image, extraction->destination,
+			data_extraction_progress, extraction, extraction->error, sizeof(extraction->error)) != 0;
+		break;
+	default:
+		succeeded = xiso_extract_maps(extraction->image, extraction->destination, data_extraction_progress,
+			extraction, extraction->error, sizeof(extraction->error)) != 0;
+		break;
+	}
 	pthread_mutex_lock(&extraction->lock);
 	extraction->succeeded = succeeded;
 	extraction->finished = TRUE;
@@ -395,10 +441,15 @@ static void *data_extraction_thread(void *context)
 	return NULL;
 }
 
-/* copies the maps, showing how far it has got; closing the window quits */
-static BOOL data_extract(const char *image, const char *destination, char *error, int error_size)
+/* copies the maps, showing how far it has got; closing the window quits.
+The bytes written in written (0 when the folder had them all) */
+static BOOL data_extract(int kind, const char *image, const char *destination, unsigned long long *written,
+	char *error, int error_size)
 {
 	static struct data_extraction extraction;
+	const char *title = kind == _data_halo_pc_disc ? "Importing Halo PC maps..." :
+		kind == _data_custom_edition_installer ? "Importing Custom Edition maps..." :
+		"Extracting the maps folder...";
 	SDL_Window *window;
 	SDL_Renderer *renderer = NULL;
 	pthread_t thread;
@@ -406,6 +457,7 @@ static BOOL data_extract(const char *image, const char *destination, char *error
 
 	memset(&extraction, 0, sizeof(extraction));
 	pthread_mutex_init(&extraction.lock, NULL);
+	extraction.kind = kind;
 	snprintf(extraction.image, sizeof(extraction.image), "%s", image);
 	snprintf(extraction.destination, sizeof(extraction.destination), "%s", destination);
 	if (pthread_create(&thread, NULL, data_extraction_thread, &extraction) != 0)
@@ -416,7 +468,7 @@ static BOOL data_extract(const char *image, const char *destination, char *error
 	/* (waited for through extraction.finished; the Windows port's threads
 	cannot be joined) */
 	pthread_detach(thread);
-	window = SDL_CreateWindow("ChupathingyCE", 640, 150, 0);
+	window = SDL_CreateWindow("Chupathingy", 640, 150, 0);
 	if (window)
 	{
 		renderer = SDL_CreateRenderer(window, NULL);
@@ -453,7 +505,7 @@ static BOOL data_extract(const char *image, const char *destination, char *error
 			SDL_RenderClear(renderer);
 			SDL_SetRenderDrawColor(renderer, 230, 230, 230, 255);
 			SDL_SetRenderScale(renderer, 2.0f, 2.0f);
-			SDL_RenderDebugText(renderer, 10.0f, 10.0f, "Extracting the maps folder...");
+			SDL_RenderDebugText(renderer, 10.0f, 10.0f, title);
 			SDL_SetRenderScale(renderer, 1.0f, 1.0f);
 			snprintf(line, sizeof(line), "%s  (%llu of %llu MB)", file, done >> 20, total >> 20);
 			SDL_RenderDebugText(renderer, 20.0f, 70.0f, line);
@@ -470,6 +522,7 @@ static BOOL data_extract(const char *image, const char *destination, char *error
 		SDL_DestroyRenderer(renderer);
 	if (window)
 		SDL_DestroyWindow(window);
+	*written = extraction.done;
 	if (!extraction.succeeded)
 		snprintf(error, (size_t)error_size, "%s", extraction.error);
 	return extraction.succeeded;
@@ -491,18 +544,27 @@ static void SDLCALL data_image_chosen(void *userdata, const char * const *files,
 	SDL_SetAtomicInt(&choice->done, 1);
 }
 
-/* the disc image the player picks; FALSE if they pick none */
-static BOOL data_choose_image(char *path, int size)
+/* the file the player picks (Halo PC's first with halo_pc); FALSE if they
+pick none */
+static BOOL data_choose_image(char *path, int size, BOOL halo_pc)
 {
-	static const SDL_DialogFileFilter filters[] =
+	static const SDL_DialogFileFilter xbox_filters[] =
 	{
+		{ "Xbox disc images", "iso;xiso" },
+		{ "Halo PC CD images and the Custom Edition installer", "iso;exe" },
+		{ "All files", "*" },
+	};
+	static const SDL_DialogFileFilter halo_pc_filters[] =
+	{
+		{ "Halo PC CD images and the Custom Edition installer", "iso;exe" },
 		{ "Xbox disc images", "iso;xiso" },
 		{ "All files", "*" },
 	};
 	static struct data_image_choice choice;
 
 	memset(&choice, 0, sizeof(choice));
-	SDL_ShowOpenFileDialog(data_image_chosen, &choice, NULL, filters, 2, NULL, false);
+	SDL_ShowOpenFileDialog(data_image_chosen, &choice, NULL, halo_pc ? halo_pc_filters : xbox_filters, 3, NULL,
+		false);
 	/* the dialog answers through events (and on some systems another
 	thread) */
 	while (!SDL_GetAtomicInt(&choice.done))
@@ -516,12 +578,95 @@ static BOOL data_choose_image(char *path, int size)
 	return TRUE;
 }
 
-BOOL platform_offer_game_data(const char *destination)
+/* what a picked file holds (an Xbox image of a whole disc has a CD's file
+system too, so it is looked for first) */
+static int data_kind(const char *path)
 {
+	if (xiso_is_image(path))
+		return _data_xbox_disc;
+	if (ce_installer_is_installer(path))
+		return _data_custom_edition_installer;
+	if (pc_disc_is_image(path))
+		return _data_halo_pc_disc;
+	return _data_unknown;
+}
+
+/* whether the Xbox maps are in destination's maps folder */
+static BOOL data_has_xbox_maps(const char *destination)
+{
+	char maps[1100];
+	char on_disk[256];
+
+	snprintf(maps, sizeof(maps), "%s/maps", destination);
+	return posix_find_entry_case_insensitive(maps, "ui.map", on_disk, sizeof(on_disk)) != 0;
+}
+
+/* "make the folders": the maps folders made empty, what goes where shown,
+and checked again when the player says so; TRUE once the Xbox maps are
+there, FALSE to go back to the choices */
+static BOOL data_make_folders(const char *destination)
+{
+	static const char *const folders[] = { "maps", "maps_ce", "maps_pc", "maps_md" };
 	static const SDL_MessageBoxButtonData buttons[] =
 	{
-		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Yes" },
-		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "No" },
+		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Check again" },
+		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Back" },
+	};
+	char message[1400];
+	size_t index;
+
+	for (index = 0; index < sizeof(folders) / sizeof(folders[0]); index++)
+	{
+		char path[1100];
+
+		snprintf(path, sizeof(path), "%s/%s", destination, folders[index]);
+		posix_make_directory(path);
+	}
+	platform_log("made the maps folders in %s", destination);
+	snprintf(message, sizeof(message),
+		"The folders are in %s:\n\n"
+		"maps: the Xbox maps (the maps folder of your Halo: Combat Evolved disc, with ui.map). "
+		"Chupathingy needs these to play.\n"
+		"maps_ce: Custom Edition maps, with Custom Edition's bitmaps.map, sounds.map and loc.map.\n"
+		"maps_pc: the maps from your Halo PC disc.\n"
+		"maps_md: HaloMD maps.\n\n"
+		"Put the files in, then choose Check again.",
+		destination);
+	for (;;)
+	{
+		SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "Chupathingy", message, 2, buttons,
+			NULL };
+		int answer = 0;
+
+		if (!SDL_ShowMessageBox(&question, &answer) || answer != 1)
+			return FALSE;
+		if (data_has_xbox_maps(destination))
+		{
+			platform_log("the Xbox maps are in %s/maps", destination);
+			return TRUE;
+		}
+		snprintf(message, sizeof(message),
+			"There is no ui.map in %s/maps yet.\n\n"
+			"Copy the maps folder of your Xbox disc there, then choose Check again.",
+			destination);
+	}
+}
+
+BOOL platform_offer_game_data(const char *destination)
+{
+	enum
+	{
+		_choice_quit,
+		_choice_xbox,
+		_choice_halo_pc,
+		_choice_folders,
+	};
+	static const SDL_MessageBoxButtonData buttons[] =
+	{
+		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, _choice_xbox, "Xbox disc image" },
+		{ 0, _choice_halo_pc, "Halo PC or Custom Edition" },
+		{ 0, _choice_folders, "Make the folders" },
+		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, _choice_quit, "Quit" },
 	};
 	char message[1400];
 
@@ -532,34 +677,78 @@ BOOL platform_offer_game_data(const char *destination)
 		return FALSE;
 	}
 	snprintf(message, sizeof(message),
-		"Halo's game data (its maps folder) was not found.\n\n"
-		"Extract the maps folder from an Xbox disc image (.iso) of Halo: Combat Evolved? "
-		"It is copied to %s/maps (about 2 GB).\n\n"
-		"(Or put the maps folder there yourself, or set paths.data in config.toml.)",
+		"Chupathingy plays Halo with the maps from your Xbox disc. How do you want to add them?\n\n"
+		"Xbox disc image: copy the maps folder out of a disc image (.iso) of Halo: Combat Evolved, "
+		"about 2 GB, into %s/maps.\n\n"
+		"Halo PC or Custom Edition (optional): add the maps from your Halo PC CD image (.iso) or the "
+		"Custom Edition installer (halocesetup_en_1.00.exe).\n\n"
+		"Make the folders: make the empty map folders, and put the files in yourself.\n\n"
+		"(Or set paths.data in config.toml.)",
 		destination);
 	for (;;)
 	{
-		SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "ChupathingyCE", message, 2, buttons, NULL };
+		SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "Chupathingy", message, 4, buttons,
+			NULL };
 		char image[1024];
 		char error[512];
-		int answer = 0;
+		unsigned long long written = 0;
+		int answer = _choice_quit;
+		int kind;
 
-		if (!SDL_ShowMessageBox(&question, &answer) || answer != 1)
+		if (!SDL_ShowMessageBox(&question, &answer) || answer == _choice_quit)
 		{
 			platform_log("no game data: quitting");
 			exit(EXIT_SUCCESS);
 		}
-		/* no image picked: ask again */
-		if (!data_choose_image(image, sizeof(image)))
+		if (answer == _choice_folders)
+		{
+			if (data_make_folders(destination))
+				return TRUE;
 			continue;
-		platform_log("extracting the maps folder from %s to %s", image, destination);
-		if (data_extract(image, destination, error, sizeof(error)))
+		}
+		/* no file picked: ask again */
+		if (!data_choose_image(image, sizeof(image), answer == _choice_halo_pc))
+			continue;
+		kind = data_kind(image);
+		if (kind == _data_unknown)
+		{
+			platform_log("%s is no disc image or installer this reads", image);
+			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Chupathingy",
+				"That file is not an Xbox disc image, a Halo PC CD image or the Custom Edition installer.",
+				NULL);
+			continue;
+		}
+		platform_log("importing maps from %s to %s", image, destination);
+		if (!data_extract(kind, image, destination, &written, error, sizeof(error)))
+		{
+			platform_log("extraction failed: %s", error);
+			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Chupathingy", error, NULL);
+			continue;
+		}
+		if (kind == _data_xbox_disc)
 		{
 			platform_log("extracted the maps folder");
 			return TRUE;
 		}
-		platform_log("extraction failed: %s", error);
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "ChupathingyCE", error, NULL);
+		{
+			const char *folder = kind == _data_halo_pc_disc ? "maps_pc" : "maps_ce";
+			char done[1400];
+
+			platform_log("imported %llu MB of maps into %s/%s", written >> 20, destination, folder);
+			snprintf(done, sizeof(done), "%s\n\nChupathingy still needs the Xbox maps to play: choose "
+				"Xbox disc image next.",
+				written ? (kind == _data_halo_pc_disc ? "The Halo PC maps are in maps_pc." :
+					"The Custom Edition maps are in maps_ce.") :
+				(kind == _data_halo_pc_disc ? "maps_pc already has these maps." :
+					"maps_ce already has these maps."));
+			if (data_has_xbox_maps(destination))
+			{
+				SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Chupathingy",
+					written ? "The maps are added." : "The folder already has these maps.", NULL);
+				return TRUE;
+			}
+			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Chupathingy", done, NULL);
+		}
 	}
 }
 #endif
@@ -929,6 +1118,13 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
 	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 0);
+#ifndef HALO_ANDROID
+	/* an opaque window: SDL asks for an alpha channel by default, and some
+	compositors (Windows' with some drivers, Wayland's) blend a window's
+	alpha with what is behind it, which showed the desktop through the
+	game */
+	SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 0);
+#endif
 	if (config_boolean("debug.gl_debug"))
 	{
 		int flags = 0;
@@ -947,8 +1143,8 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	setenv("mesa_glthread", "true", 0);
 #endif
 
-	/* "ChupathingyCE 0.5.0b" */
-	snprintf(title, sizeof(title), "ChupathingyCE %s", updater_version());
+	/* "Chupathingy 0.5.0b" */
+	snprintf(title, sizeof(title), "Chupathingy %s", updater_version());
 #ifdef HALO_ANDROID
 	{
 		int scale = (int)config_integer("display.window_scale");
@@ -1278,13 +1474,54 @@ void platform_clipboard_set(const char *text)
 	SDL_SetClipboardText(text);
 }
 
+/* network.join_from_clipboard: "ask" (the default), "always" or "never"
+(true and false, of older versions, are "always" and "never":
+port_config.c) */
+enum
+{
+	_clipboard_join_never,
+	_clipboard_join_ask,
+	_clipboard_join_always,
+};
+
+static int platform_clipboard_join_setting(void)
+{
+	const char *setting = config_string("network.join_from_clipboard");
+
+	/* (in lowercase, true and false read as these: config_check_words) */
+	if (!strcmp(setting, "always"))
+		return _clipboard_join_always;
+	if (!strcmp(setting, "never"))
+		return _clipboard_join_never;
+	return _clipboard_join_ask;
+}
+
+/* an invite found on the clipboard, waiting for the player's answer (the
+game's thread takes it: platform_take_clipboard_invite) */
+static pthread_mutex_t platform_clipboard_invite_lock = PTHREAD_MUTEX_INITIALIZER;
+static char platform_clipboard_invite[256];
+
+int platform_take_clipboard_invite(char *text, int size)
+{
+	int taken;
+
+	pthread_mutex_lock(&platform_clipboard_invite_lock);
+	taken = platform_clipboard_invite[0] != 0;
+	if (taken)
+		snprintf(text, (size_t)size, "%s", platform_clipboard_invite);
+	platform_clipboard_invite[0] = 0;
+	pthread_mutex_unlock(&platform_clipboard_invite_lock);
+	return taken;
+}
+
 /* puts a new invite on the clipboard, and joins one found there when the
-game comes to the front */
+game comes to the front, or asks first (network.join_from_clipboard) */
 static void platform_invite_clipboard(BOOL look)
 {
 	/* the last clipboard text looked at, so each invite is joined once */
 	static char seen[256];
 	const char *invite = p2p_take_clipboard_text();
+	int setting;
 
 #ifdef HALO_GAME_BROWSER
 	/* (the dedicated server and a probe leave the clipboard alone) */
@@ -1300,7 +1537,8 @@ static void platform_invite_clipboard(BOOL look)
 		SDL_ShowAndroidToast("Hosting: the invite link is on the clipboard", 1, -1, 0, 0);
 #endif
 	}
-	if (look && config_boolean("network.join_from_clipboard"))
+	setting = look ? platform_clipboard_join_setting() : _clipboard_join_never;
+	if (setting != _clipboard_join_never)
 	{
 		char *text = SDL_GetClipboardText();
 
@@ -1309,11 +1547,26 @@ static void platform_invite_clipboard(BOOL look)
 			snprintf(seen, sizeof(seen), "%s", text);
 			/* (a link, not a bare code: 64 hex digits alone are as often a
 			checksum copied for something else) */
-			if (platform_text_has_invite_link(text) && p2p_join_invite(text))
+			if (platform_text_has_invite_link(text))
 			{
-#ifdef HALO_ANDROID
-				SDL_ShowAndroidToast("Joining the invite on the clipboard", 1, -1, 0, 0);
+#ifdef HALO_GAME_BROWSER
+				/* (asked in the game's own style, over its menus:
+				port/linux/game/invite_prompt.c) */
+				if (setting == _clipboard_join_ask)
+				{
+					pthread_mutex_lock(&platform_clipboard_invite_lock);
+					snprintf(platform_clipboard_invite, sizeof(platform_clipboard_invite), "%s", text);
+					pthread_mutex_unlock(&platform_clipboard_invite_lock);
+					platform_log("Internet play: an invite link is on the clipboard; asking whether to join it");
+				}
+				else
 #endif
+				if (p2p_join_invite(text))
+				{
+#ifdef HALO_ANDROID
+					SDL_ShowAndroidToast("Joining the invite on the clipboard", 1, -1, 0, 0);
+#endif
+				}
 			}
 		}
 		SDL_free(text);
@@ -1758,7 +2011,24 @@ void platform_pump_events(void)
 			break;
 #endif
 		case SDL_EVENT_GAMEPAD_ADDED:
+#ifdef HALO_ANDROID
+			/* (the guest reaches SDL only through host_imports.list, which
+			has no SDL_GetGamepadName) */
 			SDL_OpenGamepad(event.gdevice.which);
+#else
+			{
+				SDL_Gamepad *gamepad = SDL_OpenGamepad(event.gdevice.which);
+
+				/* (which pads the game drives: under Steam Input, Steam's
+				virtual ones, named for the controllers behind them) */
+				if (gamepad)
+				{
+					const char *name = SDL_GetGamepadName(gamepad);
+
+					platform_log("gamepad: %s", name ? name : "(unnamed)");
+				}
+			}
+#endif
 			break;
 #ifdef __APPLE__
 		case SDL_EVENT_DROP_FILE:

@@ -1,7 +1,7 @@
 # Another dedicated server on the same host (server/README.md), named by
 # the instance (halo-dedicated@team): the same image, with its settings in
 # /opt/halo-dedicated/instances/<name>.env and its own data folder
-# /opt/halo-dedicated/instances/<name> (saves, debug.txt), the maps (the
+# /opt/halo-dedicated/instances/<name> (saves, logs/debug.txt), the maps (the
 # Xbox's in maps, Custom Edition's in maps_ce, HaloMD's in maps_md, Halo PC
 # retail's in maps_pc; the older maps/ce and md_maps still read) and
 # playlists the first server's, read-only. On the host's network, as the

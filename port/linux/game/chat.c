@@ -169,6 +169,14 @@ static struct
 	boolean host_set;
 	int host_mode;
 	int host_filtering;
+	/* (seconds a player's chat pauses past the rate; set: a dedicated
+	server's) */
+	boolean host_cooldown_set;
+	int host_cooldown;
+	/* a dedicated server's welcome (empty: none), and the machines sent it
+	since their player joined */
+	char host_welcome[DELTA_WIRE_CHAT_TEXT_SIZE + 1];
+	boolean welcomed[MACHINES];
 	struct delta_chat_filter host_filter;
 	int (*moderator_check)(int machine_index);
 	/* the part played last frame (a new game starts the log's state again) */
@@ -327,6 +335,12 @@ static void note(char const *text)
 
 	wide_from_ascii(text, wide, TEXT_LENGTH);
 	log_add(_entry_note, 0, NO_TEAM, NONE, NULL, wide);
+}
+
+void chat_note(char const *text)
+{
+	if (text && text[0])
+		note(text);
 }
 
 static boolean muted(short machine, wchar_t const *name)
@@ -521,6 +535,50 @@ static void host_settings(void)
 	chat.host_mode = mode;
 	chat.host_filtering = filtering;
 	delta_peer_game_set_chat_mode(mode, filtering ? DELTA_CHAT_CONFIG_FILTERED : 0);
+	delta_peer_game_set_chat_cooldown(chat.host_cooldown_set ? chat.host_cooldown : DELTA_PEER_CHAT_COOLDOWN / 1000);
+}
+
+/* the welcome, sent once to each machine whose player joined since (a
+Chupathingy machine that agreed to server_messages; an OpenCE one never
+does); a machine whose players have all left forgotten */
+static void host_welcome(void)
+{
+	struct network_game *game = chat_game();
+	short local = network_game_client_get_local_machine_index();
+	boolean present[MACHINES];
+	struct delta_wire_chat_line line;
+	long index;
+
+	csmemset(present, 0, sizeof(present));
+	if (game)
+	{
+		for (index = 0; index < HALO_PORT_MAXIMUM_NETWORK_PLAYERS; index++)
+		{
+			short machine = game->players[index].machine_index;
+
+			if (network_player_is_valid(&game->players[index]) && machine >= 0 && machine < MACHINES)
+				present[machine] = TRUE;
+		}
+	}
+	csmemset(&line, 0, sizeof(line));
+	line.kind = _delta_chat_kind_server;
+	line.speaker_machine = DELTA_WIRE_NO_MACHINE;
+	line.speaker_player = 255;
+	line.length = (int)strlen(chat.host_welcome);
+	csmemcpy(line.text, chat.host_welcome, line.length);
+	for (index = 0; index < MACHINES; index++)
+	{
+		if (!present[index])
+			chat.welcomed[index] = FALSE;
+		else if (!chat.welcomed[index] && index != local)
+		{
+			/* (with no welcome, those here now are not sent one set later) */
+			if (!line.length)
+				chat.welcomed[index] = TRUE;
+			else if (delta_peer_game_chat_capable((int)index, _delta_chat_kind_server))
+				chat.welcomed[index] = delta_peer_game_chat_line((int)index, &line) != 0;
+		}
+	}
 }
 
 void chat_host_set(int mode, int filter)
@@ -529,6 +587,38 @@ void chat_host_set(int mode, int filter)
 	chat.host_mode = mode < _delta_chat_mode_off || mode > _delta_chat_mode_on ? _delta_chat_mode_on : mode;
 	chat.host_filtering = filter != 0;
 	delta_peer_game_set_chat_mode(chat.host_mode, chat.host_filtering ? DELTA_CHAT_CONFIG_FILTERED : 0);
+}
+
+void chat_host_set_cooldown(int seconds)
+{
+	chat.host_cooldown_set = TRUE;
+	chat.host_cooldown = seconds < 0 ? 0 : seconds;
+	delta_peer_game_set_chat_cooldown(chat.host_cooldown);
+}
+
+int chat_host_cooldown(void)
+{
+	return chat.host_cooldown_set ? chat.host_cooldown : DELTA_PEER_CHAT_COOLDOWN / 1000;
+}
+
+void chat_host_set_welcome(char const *text)
+{
+	int length = text ? (int)strlen(text) : 0;
+
+	while (length > 0 && text[length - 1] == ' ')
+		length--;
+	if (length > DELTA_WIRE_CHAT_TEXT_SIZE)
+		length = DELTA_WIRE_CHAT_TEXT_SIZE;
+	if (length && delta_wire_chat_text_valid(text, length, 0) < 0)
+		length = 0;
+	if (length)
+		csmemcpy(chat.host_welcome, text, length);
+	chat.host_welcome[length] = 0;
+}
+
+char const *chat_host_welcome(void)
+{
+	return chat.host_welcome;
 }
 
 int chat_host_mode(void)
@@ -569,8 +659,16 @@ int chat_server_say(char const *text)
 
 /* ---------- this copy's player */
 
-static char const *refusal_text(int reason, int scope)
+static char const *refusal_text(int reason, int scope, int paused_seconds)
 {
+	static char paused[48];
+
+	/* (a host of 0.8.0 on says how long the player's chat is paused) */
+	if (reason == _delta_chat_refused_too_fast && paused_seconds > 0)
+	{
+		snprintf(paused, sizeof(paused), "Chat paused for %d second%s", paused_seconds, paused_seconds == 1 ? "" : "s");
+		return paused;
+	}
 	switch (reason)
 	{
 	case _delta_chat_refused_off: return "Chat is off in this game";
@@ -594,7 +692,7 @@ static void say(short scope, char const *text, int length)
 		return;
 	if (delta_wire_chat_text_valid(text, length, DELTA_WIRE_CHAT_SAY_CHARACTERS) < 0)
 	{
-		note(refusal_text(_delta_chat_refused_bad_text, scope));
+		note(refusal_text(_delta_chat_refused_bad_text, scope, 0));
 		return;
 	}
 	chat.sent_scope = scope;
@@ -603,7 +701,7 @@ static void say(short scope, char const *text, int length)
 		int reason = host_line(network_game_client_get_local_machine_index(), scope, text, length);
 
 		if (reason)
-			note(refusal_text(reason, scope));
+			note(refusal_text(reason, scope, 0));
 	}
 	else if (!delta_peer_game_chat_say(scope, text, length))
 		note("Chat needs a Chupathingy host");
@@ -636,7 +734,7 @@ static boolean may_talk(short scope)
 			scope == _delta_chat_scope_all))
 		{
 			note(refusal_text(config.mode == _delta_chat_mode_off ? _delta_chat_refused_off :
-				_delta_chat_refused_scope, scope));
+				_delta_chat_refused_scope, scope, 0));
 			return FALSE;
 		}
 	}
@@ -935,6 +1033,7 @@ void chat_update(void)
 		chat.received_read = delta_peer_game_chat_received();
 		chat.refused_read = delta_peer_game_chat_refused(NULL);
 		chat.said_no_host = FALSE;
+		csmemset(chat.welcomed, 0, sizeof(chat.welcomed));
 		chat.mute_count = 0;
 		chat.test_next = NULL;
 		if (chat.typing)
@@ -946,7 +1045,10 @@ void chat_update(void)
 		}
 	}
 	if (role == 2)
+	{
 		host_settings();
+		host_welcome();
+	}
 	if (role == 1)
 	{
 		struct delta_peer_game_moderation moderation;
@@ -969,7 +1071,7 @@ void chat_update(void)
 		if (refusals != chat.refused_read)
 		{
 			chat.refused_read = refusals;
-			note(refusal_text(refused.reason, chat.sent_scope));
+			note(refusal_text(refused.reason, chat.sent_scope, refused.paused_seconds));
 		}
 		/* (the server's warnings and notices: the banner shows them; the log
 		keeps them) */
@@ -995,6 +1097,19 @@ void chat_update(void)
 		unsigned long pressed = held & ~chat.actions_held;
 
 		chat.actions_held = held;
+		/* (escape always closes the line or the log) */
+		if (platform_chat_escape() && (chat.typing || chat.log_open))
+		{
+			struct key_stroke key;
+
+			chat.log_open = FALSE;
+			if (chat.typing)
+				typing_end();
+			else
+				platform_chat_typing(FALSE);
+			while (input_get_key(&key))
+				;
+		}
 		if (chat.typing)
 			typing_keys();
 		else if (chat.log_open)
@@ -1025,6 +1140,11 @@ void chat_update(void)
 		chat.actions_held = 0;
 		if (chat.typing)
 			typing_end();
+		if (chat.log_open)
+		{
+			chat.log_open = FALSE;
+			platform_chat_typing(FALSE);
+		}
 	}
 }
 

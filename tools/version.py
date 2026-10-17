@@ -15,9 +15,10 @@ same):
 
 import functools
 import os
+import re
 import subprocess
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -85,3 +86,15 @@ def identity_defines() -> str:
     """the defines of the build's identity (port/linux/src/build_identity.c),
     escaped as the builds' updater_defines are"""
     return f'-DHALO_CHANNEL=\\"{channel()}\\" -DHALO_COMMIT=\\"{commit()}\\"'
+
+
+def resource_version() -> Tuple[str, str]:
+    """this build's version for a Windows executable's version information
+    (port/windows/halo.rc): its four numbers (major, minor, patch, and the
+    release's letter as a number, a being 1: 0.7.5c is 0,7,5,3) and its text"""
+    match = re.match(r"(\d+)\.(\d+)\.(\d+)([a-z]?)", version())
+    if not match:
+        return "0,0,0,0", version()
+    major, minor, patch, letter = match.groups()
+    build = ord(letter) - ord("a") + 1 if letter else 0
+    return f"{major},{minor},{patch},{build}", version()

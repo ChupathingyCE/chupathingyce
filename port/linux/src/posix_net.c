@@ -861,6 +861,7 @@ int posix_register_url_scheme(const char *scheme, const char *description)
 	char executable[1024], directory[1024], path[1200], name[128], entry[2048], existing[2048];
 	const char *data_home = getenv("XDG_DATA_HOME");
 	const char *home = getenv("HOME");
+	const char *appimage = getenv("APPIMAGE");
 	ssize_t length = readlink("/proc/self/exe", executable, sizeof(executable) - 1);
 	FILE *file;
 	size_t existing_length = 0;
@@ -868,6 +869,10 @@ int posix_register_url_scheme(const char *scheme, const char *description)
 	if (length <= 0)
 		return 0;
 	executable[length] = '\0';
+	/* (an AppImage's file, not the executable in its mount, which is gone
+	once the game exits) */
+	if (appimage && *appimage)
+		snprintf(executable, sizeof(executable), "%s", appimage);
 	if (data_home && *data_home)
 		snprintf(directory, sizeof(directory), "%s/applications", data_home);
 	else if (home && *home)

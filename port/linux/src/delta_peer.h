@@ -101,10 +101,18 @@ enum
 	most this often (and at once), and keeps the last lines it heard */
 	DELTA_PEER_CHAT_SAY_RATE = 1,
 	DELTA_PEER_CHAT_SAY_BURST = 3,
+	/* past the rate, a machine's lines refused this long (its chat paused;
+	delta_peer_set_chat_cooldown) */
+	DELTA_PEER_CHAT_COOLDOWN = 5000,
 	DELTA_PEER_CHAT_CONFIG_INTERVAL = 10000,
 	DELTA_PEER_CHAT_LINE_RATE = 10,
 	DELTA_PEER_CHAT_LINE_BURST = 20,
-	DELTA_PEER_CHAT_LINES = 32
+	DELTA_PEER_CHAT_LINES = 32,
+
+	/* team changes: TEAM_REQUEST a host takes from one machine (the host's
+	own rules space them out further: team_change.c) */
+	DELTA_PEER_TEAM_RATE = 1,
+	DELTA_PEER_TEAM_BURST = 3
 };
 
 /* the room's limits (delta_peer_room_limit) */
@@ -198,6 +206,18 @@ struct delta_peer_chat_host
 	int (*say)(void *context, int machine_index, int scope, const char *text, int length);
 };
 
+/* a host's team changes (the game's: port/linux/game/team_change.c); a
+host with none does not offer team_change */
+struct delta_peer_team_host
+{
+	void *context;
+	/* a machine asks for its player (the game's player list index) to
+	change to a team (0, 1, or DELTA_WIRE_TEAM_OTHER): its answer (enum
+	delta_team_result), the player's team now in team, and with too soon the
+	seconds to wait in seconds */
+	int (*request)(void *context, int machine_index, int player, int team, int *team_now, int *seconds);
+};
+
 /* the host's chat with a client's session */
 struct delta_peer_host_chat
 {
@@ -208,6 +228,9 @@ struct delta_peer_host_chat
 	int has_last;
 	delta_u32 last_fingerprint;
 	delta_u32 last_time;
+	/* its lines refused until then, once it said too much too fast */
+	int paused;
+	delta_u32 paused_until;
 	/* CHAT_CONFIG as last sent, and when */
 	int config_sent;
 	struct delta_wire_chat_config config;
@@ -364,6 +387,9 @@ struct delta_peer_host_peer
 	delta_u32 map_time;
 	struct delta_peer_host_moderation moderation;
 	struct delta_peer_host_chat chat;
+	/* team changes: the last TEAM_REQUEST's sequence, and their rate */
+	delta_u32 team_sequence;
+	struct delta_rate team_rate;
 };
 
 /* a signed legacy table coming in, piece by piece: one at a time, from one
@@ -452,11 +478,20 @@ struct delta_peer
 	const struct delta_peer_chat_host *chat_host;
 	unsigned char chat_mode;
 	unsigned char chat_flags;
+	/* (milliseconds a machine's chat pauses past the rate; 0: none) */
+	delta_u32 chat_cooldown;
 	int chat_dirty;
 	unsigned char chat_muted[DELTA_PEER_MAXIMUM_MACHINES];
 	delta_u32 chat_mute_until[DELTA_PEER_MAXIMUM_MACHINES];
 	delta_u32 chat_lines_sent;
 	struct delta_peer_client_chat client_chat;
+
+	/* team changes: the host's (NULL: none, not offered); the client's last
+	TEAM_REQUEST's sequence, and the results heard (how many, the last) */
+	const struct delta_peer_team_host *team_host;
+	delta_u32 team_sequence;
+	delta_u32 team_results;
+	struct delta_wire_team_result team_result;
 
 	/* counted for the tests and the log */
 	unsigned long dropped;
@@ -544,6 +579,10 @@ void delta_peer_set_chat_host(struct delta_peer *peer, const struct delta_peer_c
 /* (host) what it relays (enum delta_chat_mode) and CHAT_CONFIG's flags
 (DELTA_CHAT_CONFIG_FILTERED); each client told on a change */
 void delta_peer_set_chat_mode(struct delta_peer *peer, int mode, int flags);
+/* (host) the seconds a machine's chat pauses once it says too much too fast
+(past DELTA_PEER_CHAT_SAY_RATE and _BURST): its lines refused, CHAT_REFUSED
+saying how long; 0: each line past the rate refused alone */
+void delta_peer_set_chat_cooldown(struct delta_peer *peer, int seconds);
 /* (host) a machine's lines not relayed: for minutes (0: until it leaves
 the game), or relayed again (mute 0) */
 void delta_peer_chat_mute(struct delta_peer *peer, delta_u32 now, int machine_index, int mute, int minutes);
@@ -564,6 +603,25 @@ delta_u32 delta_peer_client_chat_say(struct delta_peer *peer, int scope, const c
 number index of them: 1 if it is still kept */
 delta_u32 delta_peer_client_chat_received(const struct delta_peer *peer);
 int delta_peer_client_chat_get(const struct delta_peer *peer, delta_u32 index, struct delta_wire_chat_line *line);
+
+/* ---------- team changes (docs/delta.md, Team changes)
+
+A client asks for its player to change teams (TEAM_REQUEST, both agreed to
+team_change); the host checks the session, the rising sequence and its
+budget, then asks its team host, and answers TEAM_RESULT. The change itself
+reaches every machine through the game. */
+
+/* (host) its team changes (NULL: none; team_change is then not offered to
+clients that say HELLO from now) */
+void delta_peer_set_team_host(struct delta_peer *peer, const struct delta_peer_team_host *host);
+/* (client) whether the host agreed to team_change */
+int delta_peer_client_team_ready(const struct delta_peer *peer);
+/* (client) its player (the game's player list index) asks for a team (0,
+1, DELTA_WIRE_TEAM_OTHER): the request's sequence, 0 if not sent */
+delta_u32 delta_peer_client_team_request(struct delta_peer *peer, int player, int team);
+/* (client) the results heard so far (a count that only grows), and the
+last in result */
+delta_u32 delta_peer_client_team_result(const struct delta_peer *peer, struct delta_wire_team_result *result);
 
 /* what is known of a machine (0 if nothing) */
 int delta_peer_machine(const struct delta_peer *peer, int machine_index, struct delta_peer_machine *machine);
@@ -646,6 +704,14 @@ int delta_peer_game_room_has(int capability);
 int delta_peer_game_room_limit(int limit);
 /* the client's handshake (enum delta_peer_client_state) */
 int delta_peer_game_client_state(void);
+
+/* team changes (port/linux/game/team_change.c): the host's team host (NULL:
+none); the client's request for its player (the game's player list index)
+and the results heard (a count that grows, and the last) */
+void delta_peer_game_set_team_host(const struct delta_peer_team_host *host);
+int delta_peer_game_team_ready(void);
+unsigned int delta_peer_game_team_request(int player, int team);
+unsigned int delta_peer_game_team_result(struct delta_wire_team_result *result);
 
 /* ---------- what Delta List says of a hosted game (browser.c's
 announcement; docs/delta.md, Delta List) */
