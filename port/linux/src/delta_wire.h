@@ -133,7 +133,41 @@ enum
 	DELTA_WIRE_CHAT_CONFIG_SIZE = 8,
 	DELTA_WIRE_CHAT_SAY_SIZE = 8,
 	DELTA_WIRE_CHAT_LINE_SIZE = 12,
-	DELTA_WIRE_CHAT_REFUSED_SIZE = 8
+	DELTA_WIRE_CHAT_REFUSED_SIZE = 8,
+
+	/* team changes (docs/delta.md, Team changes) */
+	DELTA_WIRE_TEAM_REQUEST_SIZE = 8,
+	DELTA_WIRE_TEAM_RESULT_SIZE = 8,
+	/* TEAM_REQUEST's team: whichever team the player is not on */
+	DELTA_WIRE_TEAM_OTHER = 0xFF
+};
+
+/* TEAM_RESULT's results; a number is never reused */
+enum delta_team_result
+{
+	/* the player is on the new team (dead, back on it at their respawn) */
+	_delta_team_changed = 0,
+	/* the change waits for the player's next respawn (a round-based game
+	type: Bomb) */
+	_delta_team_changes_at_respawn = 1,
+	/* this host takes no team changes */
+	_delta_team_refused_off = 2,
+	/* the teams would be uneven */
+	_delta_team_refused_uneven = 3,
+	/* a game without teams */
+	_delta_team_refused_no_teams = 4,
+	/* too soon after the player's last change (TEAM_RESULT's seconds: how
+	long until the next) */
+	_delta_team_refused_too_soon = 5,
+	/* not while no game is being played (the lobby, the carnage report) */
+	_delta_team_refused_not_now = 6,
+	/* no such player of the machine */
+	_delta_team_refused_player = 7,
+	/* the player is on that team already */
+	_delta_team_refused_same = 8,
+	/* the player is the last of their team (a team game with everyone on
+	one team is over) */
+	_delta_team_refused_last = 9
 };
 
 /* CHAT_CONFIG's text mode: what the host relays */
@@ -304,7 +338,12 @@ enum delta_message_type
 	/* host to client, if both agreed to bomb and bomb_traits: the game's
 	player traits (for a Bomb game type), whenever they change and every few
 	seconds. Grifball test builds 2 and 3 sent it as 18, chat's number */
-	_delta_message_traits = 22
+	_delta_message_traits = 22,
+	/* team changes (both agreed to team_change): client to host, its
+	player asks to change teams */
+	_delta_message_team_request = 23,
+	/* host to client: what the host did with it */
+	_delta_message_team_result = 24
 };
 
 /* TRAITS's game kinds: what the traits are for */
@@ -592,6 +631,28 @@ struct delta_wire_chat_refused
 	unsigned short paused_seconds;
 };
 
+struct delta_wire_team_request
+{
+	/* strictly more than the session's last */
+	delta_u32 sequence;
+	/* the player: its index in the game's player list (the host's) */
+	unsigned char player;
+	/* 0 red, 1 blue, DELTA_WIRE_TEAM_OTHER the other one */
+	unsigned char team;
+};
+
+struct delta_wire_team_result
+{
+	/* the TEAM_REQUEST's */
+	delta_u32 sequence;
+	/* enum delta_team_result */
+	unsigned char result;
+	/* the player's team now (changed: the new one) */
+	unsigned char team;
+	/* (too soon) the seconds until the player may change again */
+	unsigned short seconds;
+};
+
 /* a datagram's header: 1 if it is Delta's (the magic) and its length is the
 datagram's; the payload follows at data + DELTA_WIRE_HEADER_SIZE. A header of
 another major is still read (to answer it with LEGACY) */
@@ -678,6 +739,15 @@ int delta_wire_write_chat_say(unsigned char *data, delta_u32 session, const stru
 int delta_wire_write_chat_line(unsigned char *data, delta_u32 session, const struct delta_wire_chat_line *line);
 int delta_wire_write_chat_refused(unsigned char *data, delta_u32 session,
 	const struct delta_wire_chat_refused *refused);
+/* team changes' messages. A team other than 0, 1 and DELTA_WIRE_TEAM_OTHER,
+or a result this build does not know, is refused */
+int delta_wire_read_team_request(const unsigned char *payload, int size, struct delta_wire_team_request *request);
+int delta_wire_read_team_result(const unsigned char *payload, int size, struct delta_wire_team_result *result);
+/* (0 for what the reader would refuse) */
+int delta_wire_write_team_request(unsigned char *data, delta_u32 session,
+	const struct delta_wire_team_request *request);
+int delta_wire_write_team_result(unsigned char *data, delta_u32 session, const struct delta_wire_team_result *result);
+
 /* whether length bytes of text are a line to show: valid UTF-8 (shortest
 forms, no surrogates, nothing past U+10FFFF), no control characters (C0,
 DEL, C1), no bidirectional overrides or isolates (U+202A to U+202E, U+2066

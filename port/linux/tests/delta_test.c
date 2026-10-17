@@ -44,6 +44,7 @@ build 2 or 3's) */
 #define BOMB_BIT (OLD_BOMB_BIT | (delta_u32)1 << _delta_capability_bomb_traits)
 #define CHAT_BIT ((delta_u32)1 << _delta_capability_chat)
 #define SERVER_MESSAGES_BIT ((delta_u32)1 << _delta_capability_server_messages)
+#define TEAM_CHANGE_BIT ((delta_u32)1 << _delta_capability_team_change)
 
 /* ---------- a simulated network */
 
@@ -775,6 +776,148 @@ static void test_chat(void)
 	CHECK(!delta_peer_chat_capable(&nodes[0].peer, 1, _delta_chat_kind_player));
 	nodes[0].disabled = 0;
 	delta_peer_set_chat_host(&nodes[0].peer, NULL);
+}
+
+/* ---------- team changes */
+
+static void test_wire_team(void)
+{
+	struct delta_wire_team_request request, request_in;
+	struct delta_wire_team_result result, result_in;
+	struct delta_wire_header header;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int size;
+
+	memset(&request, 0, sizeof(request));
+	request.sequence = 9;
+	request.player = 3;
+	request.team = DELTA_WIRE_TEAM_OTHER;
+	size = delta_wire_write_team_request(data, 7, &request);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TEAM_REQUEST_SIZE);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_team_request &&
+		delta_wire_read_team_request(data + DELTA_WIRE_HEADER_SIZE, header.length, &request_in) &&
+		request_in.sequence == 9 && request_in.player == 3 && request_in.team == DELTA_WIRE_TEAM_OTHER);
+	/* (a team that is none of them: neither written nor read) */
+	request.team = 2;
+	CHECK(!delta_wire_write_team_request(data, 7, &request));
+	data[DELTA_WIRE_HEADER_SIZE + 5] = 2;
+	CHECK(!delta_wire_read_team_request(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_TEAM_REQUEST_SIZE, &request_in));
+	CHECK(!delta_wire_read_team_request(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_TEAM_REQUEST_SIZE - 1, &request_in));
+
+	memset(&result, 0, sizeof(result));
+	result.sequence = 9;
+	result.result = _delta_team_refused_too_soon;
+	result.team = 1;
+	result.seconds = 7;
+	size = delta_wire_write_team_result(data, 7, &result);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_team_result &&
+		delta_wire_read_team_result(data + DELTA_WIRE_HEADER_SIZE, header.length, &result_in) &&
+		result_in.sequence == 9 && result_in.result == _delta_team_refused_too_soon && result_in.team == 1 &&
+		result_in.seconds == 7);
+	/* (a result this build does not know, or "the other team": refused) */
+	result.result = _delta_team_refused_last + 1;
+	CHECK(!delta_wire_write_team_result(data, 7, &result));
+	result.result = _delta_team_changed;
+	result.team = DELTA_WIRE_TEAM_OTHER;
+	CHECK(!delta_wire_write_team_result(data, 7, &result));
+}
+
+static struct
+{
+	int asked;
+	int machine;
+	int player;
+	int team;
+	int answer;
+} host_team;
+
+static int test_team_request(void *context, int machine_index, int player, int team, int *team_now, int *seconds)
+{
+	(void)context;
+	host_team.asked++;
+	host_team.machine = machine_index;
+	host_team.player = player;
+	host_team.team = team;
+	*team_now = 1;
+	*seconds = host_team.answer == _delta_team_refused_too_soon ? 4 : 0;
+	return host_team.answer;
+}
+
+static const struct delta_peer_team_host test_team_host = { NULL, test_team_request };
+
+static void test_team(void)
+{
+	int joined[3] = { 0, 1, 1 };
+	struct delta_wire_team_result result;
+	delta_u32 now = 5000, results;
+	int step, index;
+
+	memset(&host_team, 0, sizeof(host_team));
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, TEAM_CHANGE_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, TEAM_CHANGE_BIT, _delta_platform_pc_linux, 0, 0);
+	/* (a Delta machine without team changes: an older build) */
+	node_start(2, 0x0400007F, 40002, 0, _delta_platform_pc_macos, 0, 0);
+	delta_peer_set_team_host(&nodes[0].peer, &test_team_host);
+	game_reset();
+	game_add(1);
+	game_add(2);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(delta_peer_client_team_ready(&nodes[1].peer) && !delta_peer_client_team_ready(&nodes[2].peer));
+	CHECK(!delta_peer_client_team_request(&nodes[2].peer, 4, DELTA_WIRE_TEAM_OTHER));
+
+	/* asked and answered */
+	host_team.answer = _delta_team_changed;
+	results = delta_peer_client_team_result(&nodes[1].peer, NULL);
+	CHECK(delta_peer_client_team_request(&nodes[1].peer, 1, DELTA_WIRE_TEAM_OTHER));
+	deliver(now);
+	CHECK(host_team.asked == 1 && host_team.machine == 1 && host_team.player == 1 &&
+		host_team.team == DELTA_WIRE_TEAM_OTHER);
+	CHECK(delta_peer_client_team_result(&nodes[1].peer, &result) == results + 1 &&
+		result.result == _delta_team_changed && result.team == 1);
+	/* a refusal says how long to wait */
+	now += 1000;
+	host_team.answer = _delta_team_refused_too_soon;
+	CHECK(delta_peer_client_team_request(&nodes[1].peer, 1, 0));
+	deliver(now);
+	CHECK(delta_peer_client_team_result(&nodes[1].peer, &result) == results + 2 &&
+		result.result == _delta_team_refused_too_soon && result.seconds == 4 && host_team.team == 0);
+	/* the budget: 3 at once, then 1 a second */
+	now += 5000;
+	host_team.asked = 0;
+	for (index = 0; index < 6; index++)
+		delta_peer_client_team_request(&nodes[1].peer, 1, DELTA_WIRE_TEAM_OTHER);
+	deliver(now);
+	CHECK(host_team.asked == 3);
+	/* (an old sequence again, or a result to no request: dropped) */
+	{
+		struct delta_wire_team_request request;
+		struct delta_wire_team_result stray;
+		unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+		int size;
+
+		now += 5000;
+		host_team.asked = 0;
+		memset(&request, 0, sizeof(request));
+		request.sequence = 1;
+		request.player = 1;
+		size = delta_wire_write_team_request(data, nodes[1].peer.session, &request);
+		delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, nodes[1].port, data, size);
+		deliver(now);
+		CHECK(host_team.asked == 0);
+		memset(&stray, 0, sizeof(stray));
+		stray.sequence = nodes[1].peer.team_sequence + 5;
+		results = delta_peer_client_team_result(&nodes[1].peer, NULL);
+		size = delta_wire_write_team_result(data, nodes[1].peer.session, &stray);
+		delta_peer_receive(&nodes[1].peer, now, HOST_IPV4, DELTA_PEER_PORT, data, size);
+		CHECK(delta_peer_client_team_result(&nodes[1].peer, NULL) == results);
+	}
+	/* a host without its team host offers none: a new client is not ready */
+	delta_peer_set_team_host(&nodes[0].peer, NULL);
+	node_start(1, 0x0300007F, 40001, TEAM_CHANGE_BIT, _delta_platform_pc_linux, 0, 0);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(!delta_peer_client_team_ready(&nodes[1].peer));
 }
 
 /* ---------- the wire */
@@ -2844,6 +2987,8 @@ int main(int argc, char **argv)
 	test_chat_filter();
 	test_chat_rules();
 	test_chat();
+	test_wire_team();
+	test_team();
 	test_random(iterations);
 	if (failures)
 	{

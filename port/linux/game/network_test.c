@@ -66,6 +66,8 @@ debug.network_test_bomb_keep leaves the carrier where it picked the bomb
 up (with debug.network_test_melee: blows at a carrier), and
 debug.network_test_bomb_save has the host stand a defender on the bomb
 planted in its goal as it arms, which saves it.
+debug.network_test_team_change has each machine's player ask to change
+teams every so often (team_change.c).
 
 Called from the main loop every frame (main.c).
 */
@@ -177,6 +179,10 @@ static struct
 	boolean bomb_save;
 	real fall_interval;
 	real melee_interval;
+	real team_change_interval;
+	/* debug.network_test_pause: the pause menu opened then, once */
+	real pause_time;
+	boolean paused;
 	char pickup_weapon[64];
 	long score_to_win;
 	long logged_time;
@@ -288,6 +294,8 @@ static void network_test_read_settings(
 	network_test.fall_interval = (real)config_real("debug.network_test_fall");
 	network_test.melee_interval = (real)config_real("debug.network_test_melee");
 	network_test.local_players = (short)PIN(config_integer("debug.network_test_local_players"), 1, 4);
+	network_test.team_change_interval = (real)config_real("debug.network_test_team_change");
+	network_test.pause_time = (real)config_real("debug.network_test_pause");
 	snprintf(network_test.pickup_weapon, sizeof(network_test.pickup_weapon), "%s",
 		config_string("debug.network_test_pickup_weapon"));
 	network_test.score_to_win = (long)config_integer("debug.network_test_score");
@@ -1287,6 +1295,40 @@ void network_test_update(
 					game_time_get() < approach_time + 4 * TICKS_PER_SECOND);
 			}
 		}
+		/* debug.network_test_pause: the first player's pause menu opened
+		that many seconds in, as START opens it (to see it) */
+		if (network_test.pause_time > 0.0f && !network_test.paused &&
+			game_time_get() >= (long)(network_test.pause_time * TICKS_PER_SECOND))
+		{
+			network_test.paused = TRUE;
+			platform_log("network test: the pause menu opens");
+			ui_widget_load_by_name_or_tag(network_test.local_players > 1 ?
+				"ui\\shell\\multiplayer_game\\pause_game\\2p_pause_game" :
+				"ui\\shell\\multiplayer_game\\pause_game\\1p_pause_game", NONE, NULL, 0, NONE, NONE, NONE);
+		}
+		/* debug.network_test_team_change: every so often a player of each
+		machine asks to change teams, as the pause menu's CHANGE TEAMS does
+		(team_change.c); the joining machine's half an interval later */
+		if (network_test.team_change_interval > 0.0f && game_engine_can_score())
+		{
+			static long asked_period = 0;
+			long interval = MAX(1, (long)(network_test.team_change_interval * TICKS_PER_SECOND));
+			long offset = network_test.mode == _network_test_join ? interval / 2 : 0;
+			long period = MAX(0, game_time_get() - offset) / interval;
+
+			if (period < asked_period)
+				asked_period = period;
+			if (period > asked_period)
+			{
+				asked_period = period;
+				extern boolean team_change_ask(short local_player_index);
+
+				/* (split screen: each player in turn) */
+				platform_log("network test: player %d asks to change teams",
+					(int)(period % network_test.local_players) + 1);
+				team_change_ask((short)(period % network_test.local_players));
+			}
+		}
 		/* debug.network_test_kill: the host kills the last player every so
 		often, to test deaths and respawns reaching the clients */
 		if (network_test.mode == _network_test_host && network_test.kill_interval > 0.0f &&
@@ -1521,7 +1563,12 @@ void network_test_update(
 				/* (the player joined to multiplayer first, as a player picking
 				their profile: the pregame screen then asks for them every
 				frame until they are in the settings) */
-				player_ui_local_player_joined_multiplayer_game(0);
+				{
+					short controller;
+
+					for (controller = 0; controller < network_test.local_players; controller++)
+						player_ui_local_player_joined_multiplayer_game(controller);
+				}
 				platform_log("network test: searching for games");
 			}
 		}

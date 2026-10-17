@@ -140,6 +140,7 @@ shares.
 | 12 | `ping` | the host answers Online Games' pings before joining; announced on Delta List only, never in a HELLO (see "Pings before joining") |
 | 13 | `bomb_movement` | TRAITS' movement and melee traits (jump, gravity, melee reach), for a player whose machine and host both agreed to it |
 | 14 | `bomb_traits` | TRAITS at 22 (Grifball test builds 2 and 3 sent it as 18, chat's CHAT_CONFIG). Room-wide with `bomb`: a host playing a Bomb game type drops every machine without both |
+| 15 | `team_change` | changing teams during a game: a client asks its host (TEAM_REQUEST), the host decides and answers (TEAM_RESULT); see "Team changes" |
 
 The registry lives in the repository next to the compatibility table and is
 the single source for the bit numbers. Built so far: `platform`, `profile`,
@@ -283,6 +284,8 @@ a later version may append):
 | 20 | CHAT_LINE | host to client | line (4, the host's count), kind (1: 0 player, 1 moderator, 2 server, 3 system), scope (1), speaker's machine (1; 255 none), speaker's player (1, the game's player index; 255 none), name length (1, at most 47), text length (1, 1 to 200), reserved (2), name (UTF-8), text (UTF-8) |
 | 21 | CHAT_REFUSED | host to client | sequence (4, the CHAT_SAY's), reason (1: 1 chat off, 2 that scope is not taken, 3 muted, 4 too fast, 5 blocked words, 6 text that cannot be shown), reserved (1), seconds the player's chat is paused (2; with 4, 0 none: added in 0.8.0 where the field was reserved, so an older game reads none) |
 | 22 | TRAITS | host to client | kind (1: 0 none, 1 Bomb), reserved (3), everyone's then the carrier's player traits, 12 bytes each: health, damage, resistance, speed (2 each, percent), shields (1: 0 unchanged, 1 none, 2 normal, 3 overshield), highlight (1), reserved (2); values past their ranges ([bomb.md](bomb.md)) refused. Grifball test builds 2 and 3 sent it as 18, which is CHAT_CONFIG's (a host drops those builds from a Bomb game: `bomb_traits`) |
+| 23 | TEAM_REQUEST | client to host | sequence (4, above the session's last), player (1, the game's player list index), team (1: 0 red, 1 blue, 255 the other one), reserved (2) |
+| 24 | TEAM_RESULT | host to client | sequence (4, the TEAM_REQUEST's), result (1: 0 changed, 1 at the next respawn, 2 the host takes none, 3 the teams would be uneven, 4 no teams, 5 too soon, 6 not now, 7 no such player of the machine, 8 already on that team, 9 the last player of their team), team (1, the player's now), seconds until the player may change again (2; with 5) |
 
 A roster covers every machine of the game, in as many datagrams as it takes
 (32 machines each). A client forgets a machine the roster has not named for
@@ -313,6 +316,7 @@ Limits and timeouts (`delta_peer.h`):
 | chat: a machine's chat paused once it is too fast | 5 s (a dedicated server's `HALO_DEDICATED_CHAT_COOLDOWN`; 0 none) |
 | chat: CHAT_LINE a client takes from its host | 10 a second, 20 at once |
 | chat: CHAT_CONFIG | at the handshake, on a change (at most every 250 ms), and every 10 s |
+| team changes: TEAM_REQUEST a host takes from one machine | 1 a second, 3 at once (and a player's changes 10 s apart: the host's rule) |
 
 Who is heard: a host reads a datagram only from an address of a machine of
 its game (anything else is dropped before parsing), and ties a HELLO to the
@@ -472,6 +476,42 @@ The game's side is `port/linux/game/chat.c` (keys, the log, routing),
 `port/linux/src/delta_chat.c` (the filter and the host's rules, tested in
 `delta_test.c`) and the dedicated server's `sv_say`, `sv_chat`, `sv_mute`
 and `sv_unmute` (`server/docs/admin.md`).
+
+### Team changes
+
+Changing teams during a team game, as Halo PC's in-game CHANGE TEAMS had it
+(the Xbox let a player choose a team only in the pregame lobby), over
+`team_change` (bit 15). The game protocol has no message for it, so the
+ask goes over Delta Peer and the change itself through the game:
+
+- **Asking.** A client sends TEAM_REQUEST for one of its own players (its
+  index in the host's player list) and a team (or "the other one"). The
+  host checks the session, the rising sequence and its budget (1 a second,
+  3 at once), that the player is the machine's, and its rule, then answers
+  TEAM_RESULT. A host without `team_change` (OpenCE's, an older
+  Chupathingy) is never asked: the player is told the change needs a
+  Chupathingy host.
+- **The host's rule.** `network.team_change` for a player's host,
+  `HALO_DEDICATED_TEAM_CHANGE` for a dedicated server: `balanced` (the
+  default: no change that leaves one team more than the margin, 1 unless
+  set, bigger than the other), `allow` or `off`; a player's changes at
+  least 10 seconds apart; never the last player of a team while others
+  play (a team game with everyone on one team is over). A dedicated
+  server's `sv_team` moves anyone, the rule aside.
+- **The change.** The host kills the player's unit as nobody's kill: no
+  death, suicide or betrayal counted, no respawn penalty, no kill message;
+  the player keeps their score and the team scores stay. It puts the
+  player on the new team (as the game type's auto team balance does) and
+  they respawn on it after the game type's respawn time. Every machine,
+  OpenCE's too, takes the player's team from the unit the host spawns them
+  with, so the result reaches everyone through the unchanged game protocol;
+  other machines see a death of no killer ("died") and the respawn. A
+  player already dead changes at once. In a round-based game type (Bomb)
+  the change waits for the player's next death, so the round plays out.
+
+The game's side is `port/linux/game/team_change.c`, its pause menu row in
+all the menu sets (`port/linux/game/menu_tags.c`), and the dedicated
+server's settings and `sv_team` (`server/docs/settings.md`).
 
 ### The protocol setting
 

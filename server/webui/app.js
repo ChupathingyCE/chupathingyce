@@ -376,6 +376,11 @@
         actions.append(player.chat === 'muted' ? button('Unmute chat', 'small', () => mute(player, false)) :
           button('Mute chat', 'small', () => mute(player, true)));
       }
+      // (a team game: to the other team, as changing teams does)
+      if (can(0x004) && (player.team === 'red' || player.team === 'blue')) {
+        const other = player.team === 'red' ? 'blue' : 'red';
+        actions.append(button(other === 'red' ? 'To Red' : 'To Blue', 'small', () => moveTeam(player, other)));
+      }
       if (can(0x004)) actions.append(button('Kick', 'small', () => kick(player)));
       if (can(0x008)) actions.append(button('Ban', 'small danger', () => ban(player)));
       row.append(
@@ -424,6 +429,20 @@
     try {
       if (!(await stillThere(player))) return;
       await command((on ? 'sv_mute ' : 'sv_unmute ') + player.number);
+      await loadPlayers(false);
+    } catch (error) {
+      failed(error);
+    }
+  }
+
+  // a team game: the player to the other team; they respawn on it at once
+  async function moveTeam(player, team) {
+    const answer = await confirmAction('Move ' + player.name + ' to the ' + team + ' team? They respawn on it, with no penalty.',
+      'Move', false, false);
+    if (!answer) return;
+    try {
+      if (!(await stillThere(player))) return;
+      await command('sv_team ' + player.number + ' ' + team);
       await loadPlayers(false);
     } catch (error) {
       failed(error);

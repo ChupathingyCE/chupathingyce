@@ -20,6 +20,10 @@ every Chupathingy machine of the game, and this machine's own player; 0 if
 no machine could take it */
 int chat_server_say(char const *text);
 
+/* a note of this machine's own in the chat (as its refusals are): what
+came of the player's ask to change teams (team_change.c) */
+void chat_note(char const *text);
+
 /* the host's mode (enum delta_chat_mode) and whether it filters blocked
 words: a dedicated server's settings (a player's host reads network.chat
 and network.chat_filter) */

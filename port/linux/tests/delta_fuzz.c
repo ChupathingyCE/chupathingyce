@@ -234,6 +234,18 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, size_t size)
 			delta_wire_read_chat_refused(payload, header.length, &refused);
 		}
 		{
+			struct delta_wire_team_request request;
+			struct delta_wire_team_result result;
+			const unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+			if (delta_wire_read_team_request(payload, header.length, &request) && request.team > 1 &&
+				request.team != DELTA_WIRE_TEAM_OTHER)
+				__builtin_trap();
+			if (delta_wire_read_team_result(payload, header.length, &result) &&
+				(result.team > 1 || result.result > _delta_team_refused_last))
+				__builtin_trap();
+		}
+		{
 			struct delta_wire_map map;
 
 			if (delta_wire_read_map(data + DELTA_WIRE_HEADER_SIZE, header.length, &map) &&

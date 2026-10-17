@@ -671,6 +671,7 @@ void network_test_update(boolean main_menu_loaded, real seconds);
 #ifdef HALO_GAME_BROWSER
 void chat_update(void);
 #endif
+void team_change_update(void);
 
 /* ---------- prototypes */
 
@@ -3477,6 +3478,8 @@ void main_loop(
 			/* text chat (port/linux/game/chat.c) */
 			chat_update();
 #endif
+			/* changing teams during a game (port/linux/game/team_change.c) */
+			team_change_update();
 			connection = main_globals.connection;
 			if (connection==_game_connection_network_client)
 			{
