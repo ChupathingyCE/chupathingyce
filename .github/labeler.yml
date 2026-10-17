@@ -1,0 +1,85 @@
+# Area labels from the changed files, applied by pr-areas.yml. The names are
+# the repository's existing labels; a pull request touching several areas
+# gets each.
+
+rendering:
+  - changed-files:
+      - any-glob-to-any-file:
+          - source/rasterizer/**
+          - source/render/**
+          - source/shaders/**
+          - port/linux/src/d3d8_*.c
+          - port/linux/src/gl*
+          - port/linux/src/nv2a_*.c
+          - port/linux/src/xbox_textures.c
+          - port/linux/src/xgpu*
+          - port/linux/game/render_interpolation.c
+          - port/android/host/host_gl.c
+
+# Anything that can change what machines send each other: the netcode, the
+# transport, the p2p layer, the game variant the lobby sends (game_engine.h)
+# and the network version (halo_port_limits.h).
+# A change here may need HALO_PORT_NETWORK_VERSION raised.
+network:
+  - changed-files:
+      - any-glob-to-any-file:
+          - source/networking/**
+          - source/bungie_net/**
+          - source/game/game_engine.h
+          - port/linux/NETCODE.md
+          - port/linux/game/network_*
+          - port/linux/src/p2p*
+          - port/linux/src/xnet.c
+          - port/linux/src/posix_net.c
+          - port/linux/src/posix_upnp.c
+          - port/linux/include/halo_port_limits.h
+          - port/linux/include/halo_port_capacity.h
+          - port/windows/src/win32_net.c
+          - port/windows/src/win32_p2p.c
+          - port/windows/src/win32_upnp.c
+
+android:
+  - changed-files:
+      - any-glob-to-any-file:
+          - port/android/**
+          - tools/android_*.py
+          - tools/android64_build.py
+
+macos:
+  - changed-files:
+      - any-glob-to-any-file:
+          - port/macos/**
+          - tools/macos_build.py
+
+windows:
+  - changed-files:
+      - any-glob-to-any-file:
+          - port/windows/**
+
+# port/linux/src and port/linux/game are the platform layer of every port,
+# so only what is Linux's alone counts here.
+linux:
+  - changed-files:
+      - any-glob-to-any-file:
+          - port/linux/README.md
+          - port/linux/port.json
+          - port/linux/arm64/**
+          - port/linux/src/posix_*.c
+          - tools/linux_*.py
+          - tools/linux64_build.py
+
+maps:
+  - changed-files:
+      - any-glob-to-any-file:
+          - port/linux/game/ce_*.c
+          - port/linux/game/ce_*.h
+          - port/linux/game/map_families.c
+          - port/linux/game/halomd_map_names.h
+          - port/linux/game/pal_tags.c
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - docs/**
+          - README.md
+          - CONTRIBUTING.md
