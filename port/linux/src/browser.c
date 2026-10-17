@@ -35,6 +35,7 @@ with it under the lock.
 #include "p2p_internal.h"
 #include "browser.h"
 #include "delta_peer.h"
+#include "browser_ping.h"
 #include "qrcodegen.h"
 
 #include <stdarg.h>
@@ -189,6 +190,15 @@ static struct
 	int profile_check_done;
 	int profile_check_attempts;
 	unsigned long profile_check_time;
+
+	/* the estimates' anchors (browser_ping.c): asked for and timed once a
+	run, the first time a screen of listed games is up with internet play
+	on (the browser thread's; read under the lock) */
+	int anchors_wanted;
+	int anchors_started;
+	int anchors_done;
+	int anchor_count;
+	struct browser_ping_anchor anchors[BROWSER_PING_ANCHORS];
 
 	/* browsing */
 	int list_wanted;
@@ -989,7 +999,10 @@ static void host_fields(char *form, int size, const struct hosted_game *game)
 	form_add(form, size, "platform_key", hex);
 	form_add(form, size, "arch", build_architecture());
 	form_add(form, size, "build", updater_version());
-	snprintf(text, sizeof(text), "%08x", (unsigned int)game->delta.capabilities);
+	/* (Delta Peer's, and whether this host answers Online Games' pings:
+	p2p_probe.c, announced here alone) */
+	snprintf(text, sizeof(text), "%08x", (unsigned int)game->delta.capabilities |
+		(delta_capability_disabled(_delta_capability_ping) ? 0u : 1u << _delta_capability_ping));
 	form_add(form, size, "capabilities", text);
 	if (!game->has_delta || !game->delta.delta)
 		return;
@@ -1290,14 +1303,16 @@ static void parse_host(char **fields, struct browser_game *game)
 }
 
 /* one line of /v1/games.txt: invite name map engine players
-maximum_players open version age score_limit teams roster */
+maximum_players open version age score_limit teams roster, and (as asked:
+?fields=19) region, platform, hosting, protocol, machines, gametype,
+capabilities */
 static int parse_game(char *line, struct browser_game *game)
 {
-	char *fields[17];
+	char *fields[19];
 	int count = 0;
 	char *cursor = line;
 
-	while (count < 17)
+	while (count < 19)
 	{
 		fields[count++] = cursor;
 		cursor = strchr(cursor, '\t');
@@ -1328,11 +1343,38 @@ static int parse_game(char *line, struct browser_game *game)
 		fields[11][strcspn(fields[11], "\r\n")] = 0;
 		parse_roster(fields[11], game);
 	}
-	/* (then region, which this browser does not show, and the host's) */
+	/* (then region, for the estimated ping, and the host's) */
+	if (count >= 13 && browser_ping_region_valid(fields[12]))
+		snprintf(game->region, sizeof(game->region), "%s", fields[12]);
 	if (count >= 17)
 	{
 		fields[16][strcspn(fields[16], "\r\n")] = 0;
 		parse_host(fields + 13, game);
+	}
+	/* (then the gametype: a co-op game's names its difficulty) */
+	if (count >= 18)
+	{
+		static char const *const difficulties[] = { "easy", "normal", "heroic", "legend" };
+		char const *gametype = fields[17];
+		int index;
+
+		fields[17][strcspn(fields[17], "\r\n")] = 0;
+		if (!SDL_strncasecmp(gametype, "co-op ", 6))
+		{
+			for (index = 0; index < 4; index++)
+			{
+				if (!SDL_strncasecmp(gametype + 6, difficulties[index], strlen(difficulties[index])))
+					game->difficulty = (unsigned char)(index + 1);
+			}
+		}
+	}
+	/* (then the host's announced capabilities, 8 hexadecimal digits: the ping
+	bit says it answers pings) */
+	if (count >= 19)
+	{
+		fields[18][strcspn(fields[18], "\r\n")] = 0;
+		if (strlen(fields[18]) <= 8 && fields[18][strspn(fields[18], "0123456789abcdefABCDEF")] == 0)
+			game->capabilities = strtoul(fields[18], NULL, 16);
 	}
 	return 1;
 }
@@ -1368,7 +1410,7 @@ static void update_list(void)
 		return;
 	}
 	/* (with the host's fields: a list from before them sends what it has) */
-	server_url("/v1/games.txt?fields=17", url, sizeof(url));
+	server_url("/v1/games.txt?fields=19", url, sizeof(url));
 	status = posix_browser_request(url, NULL, NULL, response, sizeof(response), error, sizeof(error));
 	if (!p2p_hosting_invite(own, sizeof(own)))
 		own[0] = 0;
@@ -1413,6 +1455,89 @@ static void update_list(void)
 	free(games);
 }
 
+/* this machine's round trip to an anchor: a TCP connection's opening
+(answered or refused, both a round trip), the lower of two; -1 if neither
+came back in time. Nothing is sent */
+static long time_anchor(const struct browser_ping_anchor *anchor)
+{
+	enum { ATTEMPTS = 2, TIMEOUT = 1500 };
+	unsigned long address = posix_resolve_ipv4(anchor->host);
+	long best = -1;
+	int attempt;
+
+	if (!address)
+		return -1;
+	for (attempt = 0; attempt < ATTEMPTS; attempt++)
+	{
+		struct sockaddr_in to;
+		int socket = posix_socket(AF_INET, SOCK_STREAM, 0);
+		unsigned long start;
+		int write[1], write_count = 1, read_count = 0, error[1], error_count = 1;
+
+		if (socket < 0)
+			return best;
+		posix_socket_set_nonblocking(socket, 1);
+		memset(&to, 0, sizeof(to));
+		to.sin_family = AF_INET;
+		to.sin_port = (unsigned short)(anchor->port << 8 | anchor->port >> 8);
+		to.sin_addr.s_addr = address;
+		start = p2p_now();
+		write[0] = socket;
+		error[0] = socket;
+		if (posix_socket_connect(socket, &to, sizeof(to)) == 0 ||
+			(posix_socket_select(NULL, &read_count, write, &write_count, error, &error_count, 0, TIMEOUT * 1000L, 0) > 0 &&
+			(write_count || error_count)))
+		{
+			long round_trip = (long)(unsigned int)(p2p_now() - start);
+
+			if (best < 0 || round_trip < best)
+				best = round_trip;
+		}
+		posix_socket_close(socket);
+	}
+	return best;
+}
+
+/* the anchors, once a run: asked for, then each timed (browser_ping.c), on
+a thread of their own, so that the list is not held up meanwhile */
+static void *anchors_thread(void *unused)
+{
+	static char response[4096];
+	static struct browser_ping_anchor anchors[BROWSER_PING_ANCHORS];
+	char url[512], error[256];
+	int count, index;
+
+	(void)unused;
+	server_url("/v1/anchors.txt", url, sizeof(url));
+	count = 0;
+	if (posix_browser_request(url, NULL, NULL, response, sizeof(response), error, sizeof(error)) == 200)
+		count = browser_ping_parse_anchors(response, anchors, BROWSER_PING_ANCHORS);
+	for (index = 0; index < count; index++)
+		anchors[index].ping = time_anchor(&anchors[index]);
+	pthread_mutex_lock(&browser_lock);
+	memcpy(browser.anchors, anchors, sizeof(*anchors) * (size_t)count);
+	browser.anchor_count = count;
+	browser.anchors_done = 1;
+	pthread_mutex_unlock(&browser_lock);
+	platform_log("Game list: %d anchors for estimated pings", count);
+	return NULL;
+}
+
+static void update_anchors(void)
+{
+	pthread_t thread;
+	int wanted;
+
+	pthread_mutex_lock(&browser_lock);
+	wanted = browser.anchors_wanted && !browser.anchors_started;
+	browser.anchors_started |= wanted;
+	pthread_mutex_unlock(&browser_lock);
+	if (!wanted || !config_boolean("network.online"))
+		return;
+	if (pthread_create(&thread, NULL, anchors_thread, NULL) == 0)
+		pthread_detach(thread);
+}
+
 static void *browser_thread(void *unused)
 {
 	(void)unused;
@@ -1428,6 +1553,7 @@ static void *browser_thread(void *unused)
 			update_connect();
 			check_profile();
 			update_list();
+			update_anchors();
 		}
 		Sleep(THREAD_INTERVAL);
 	}
@@ -1647,9 +1773,13 @@ void browser_report_game(int teams, int red_score, int blue_score, int duration_
 	const struct browser_report_player *players, int count, const char *extra)
 {
 	char invite[BROWSER_INVITE_LENGTH + 1];
-	char *report = report_json(teams, red_score, blue_score, duration_seconds, players, count, extra,
-		p2p_hosting_invite(invite, sizeof(invite)) ? invite : NULL);
+	char *report;
 
+	/* (a host can stay listed and keep its games' stats to itself) */
+	if (!config_boolean("network.report_hosted_games"))
+		return;
+	report = report_json(teams, red_score, blue_score, duration_seconds, players, count, extra,
+		p2p_hosting_invite(invite, sizeof(invite)) ? invite : NULL);
 	if (!report)
 		return;
 	pthread_once(&browser_once, start_thread);
@@ -1700,7 +1830,7 @@ void browser_claim_game(const unsigned short (*names)[BROWSER_PLAYER_NAME_LENGTH
 	/* (a game it joined only with network.report_joined_games: a claim
 	tells the site this copy played in it, as a report of it would) */
 	if (count <= 0 || !config_string("network.browser_url")[0] ||
-		(!p2p_hosting_invite(invite, sizeof(invite)) &&
+		((!config_boolean("network.report_hosted_games") || !p2p_hosting_invite(invite, sizeof(invite))) &&
 			(!config_boolean("network.report_joined_games") || !p2p_joined_invite(invite, sizeof(invite)))))
 		return;
 	if (count > MAXIMUM_CLAIM_NAMES)
@@ -2009,7 +2139,25 @@ static void add_known(struct browser_game *games, int count)
 		unsigned char identifier[P2P_IDENTIFIER_SIZE];
 		char key_hash[2 * P2P_KEY_HASH_SIZE + 1];
 
+		/* the tunnel's (a game being joined or played), else a probe's (a host
+		that answers pings), else an estimate */
 		games[index].ping = (short)(invite_identifier(games[index].invite, identifier) ? p2p_peer_ping(identifier) : -1);
+		games[index].ping_estimated = 0;
+		if (games[index].ping < 0 && (games[index].capabilities & 1ul << _delta_capability_ping))
+			games[index].ping = (short)p2p_probe_ping(games[index].invite, 1);
+		if (games[index].ping < 0 && games[index].region[0])
+		{
+			long estimate;
+
+			pthread_mutex_lock(&browser_lock);
+			estimate = browser_ping_estimate(browser.anchors, browser.anchor_count, games[index].region);
+			pthread_mutex_unlock(&browser_lock);
+			if (estimate >= 0)
+			{
+				games[index].ping = (short)(estimate > 9999 ? 9999 : estimate);
+				games[index].ping_estimated = 1;
+			}
+		}
 		games[index].locked = 0;
 		for (other = 0; other < listing_count; other++)
 		{
@@ -2054,7 +2202,17 @@ int browser_list_status(void)
 
 void browser_follow_listings(int on)
 {
-	p2p_lobby_browse(on && config_boolean("network.online"));
+	int online = config_boolean("network.online");
+
+	p2p_lobby_browse(on && online);
+	/* (no pings with internet play off: no probe, no anchor timed) */
+	p2p_probe_browse(on && online);
+	if (on && online)
+	{
+		pthread_mutex_lock(&browser_lock);
+		browser.anchors_wanted = 1;
+		pthread_mutex_unlock(&browser_lock);
+	}
 }
 
 int browser_game_peer(const char *invite, unsigned long *address)

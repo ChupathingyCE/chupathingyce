@@ -98,6 +98,19 @@ unsigned long halo_keyboard_actions(short controller_index)
 	return 0;
 }
 
+int halo_keyboard_prompts(void)
+{
+	return 0;
+}
+
+int halo_keyboard_action_shown(int action, char *shown, unsigned long size)
+{
+	(void)action;
+	if (size)
+		shown[0] = 0;
+	return 0;
+}
+
 void test_input_hold_action(int hold)
 {
 	(void)hold;

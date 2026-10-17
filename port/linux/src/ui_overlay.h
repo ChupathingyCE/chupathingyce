@@ -20,9 +20,9 @@ enum
 {
 	UI_FONT_REGULAR,
 	UI_FONT_BOLD,
-	/* the menus' faces: their text's (Overpass 900, as ui\large_ui; 750, as
-	ui\small_ui) and their titles' (OpenCE). A character they lack is drawn
-	in Noto Sans Bold */
+	/* the menus' faces: their text's (the fonts of ui\large_ui and
+	ui\small_ui, fonts.json) and their titles' (OpenCE). A character they
+	lack is drawn in Noto Sans Bold */
 	UI_FONT_MENU,
 	UI_FONT_MENU_SMALL,
 	UI_FONT_TITLE,

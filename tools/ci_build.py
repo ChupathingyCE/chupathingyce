@@ -180,10 +180,9 @@ def main() -> int:
                     *sorted((ROOT / "build/windows/third_party").glob(f"SDL3-*/lib/{sdl_arch}/SDL3.pdb"))]:
             shutil.copy2(pdb, symbols)
             print(f"{pdb.relative_to(ROOT)} -> {symbols.relative_to(ROOT)}", flush=True)
-    # the disc image readers (port/linux/src/xiso.c, and the Android app's
-    # XisoExtractor.java) follow extract-xiso, whose license asks binaries
-    # to carry its notice
-    shutil.copy2(ROOT / "port/third_party/extract-xiso/LICENSE.TXT", dist / "extract-xiso-LICENSE.txt")
+    # Chupathingy's own license (GPL-3.0-or-later), which asks every copy to
+    # carry it
+    shutil.copy2(ROOT / "LICENSE", dist / "LICENSE.txt")
     # the game list's and the self-updater's TLS (port/third_party/mbedtls),
     # in every build (HALO_GAME_BROWSER), whose Apache license asks the same
     shutil.copy2(ROOT / "port/third_party/mbedtls/LICENSE", dist / "mbedtls-LICENSE.txt")
@@ -193,6 +192,7 @@ def main() -> int:
     # the text's fonts (port/assets/fonts), embedded in every build, whose
     # SIL Open Font License asks each copy to carry it
     shutil.copy2(ROOT / "port/assets/fonts/Overpass-OFL.txt", dist / "Overpass-OFL.txt")
+    shutil.copy2(ROOT / "port/assets/fonts/CyborgInterfaceGothic-OFL.txt", dist / "CyborgInterfaceGothic-OFL.txt")
     # (OpenCE, the menus' titles' face, which Online Games draws its title in)
     shutil.copy2(ROOT / "port/assets/fonts/OpenCE-OFL.txt", dist / "OpenCE-OFL.txt")
     # the overlay's fonts (port/linux/ui/fonts), in every build: Noto Sans's
@@ -247,8 +247,8 @@ def strip_debug(program: Path) -> None:
 
 def server_dist(platform: str, config: str, output: str) -> int:
     """dist/chupathingyce-server-linux-<arch>[-debug]: the server, its
-    README, its playlists, its blocked names list and the notices its parts'
-    licenses ask for"""
+    README, its playlists, its blocked names list, its license and the notices
+    its parts' licenses ask for"""
     arch = platform[len("server-"):]
     dist = ROOT / "dist" / f"chupathingyce-server-linux-{arch}{'' if config == 'release' else '-debug'}"
     if dist.exists():
@@ -265,11 +265,12 @@ def server_dist(platform: str, config: str, output: str) -> int:
         shutil.copy2(playlist, dist / "playlists")
     # (sv_name_filter's list, read from the data folder)
     shutil.copy2(ROOT / "server/blocked_names.txt", dist / "blocked_names.txt")
-    for source, name in (("port/third_party/mbedtls/LICENSE", "mbedtls-LICENSE.txt"),
+    for source, name in (("LICENSE", "LICENSE.txt"),
+                         ("port/third_party/mbedtls/LICENSE", "mbedtls-LICENSE.txt"),
                          ("port/third_party/miniupnpc/LICENSE", "miniupnpc-LICENSE.txt"),
                          ("port/third_party/expat/COPYING", "expat-COPYING.txt"),
-                         ("port/third_party/extract-xiso/LICENSE.TXT", "extract-xiso-LICENSE.txt"),
                          ("port/assets/fonts/Overpass-OFL.txt", "Overpass-OFL.txt"),
+                         ("port/assets/fonts/CyborgInterfaceGothic-OFL.txt", "CyborgInterfaceGothic-OFL.txt"),
                          ("port/assets/fonts/OpenCE-OFL.txt", "OpenCE-OFL.txt"),
                          ("port/linux/ui/fonts/OFL.txt", "NotoSans-OFL.txt"),
                          ("port/linux/ui/fonts/KENNEY-CC0.txt", "Kenney-Input-Prompts-CC0.txt")):

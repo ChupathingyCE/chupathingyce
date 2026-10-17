@@ -216,6 +216,7 @@ void delta_peer_initialize(struct delta_peer *peer, const struct delta_peer_env 
 	peer->local.capabilities &= KNOWN_CAPABILITIES;
 	peer->local.build[DELTA_WIRE_BUILD_SIZE] = 0;
 	peer->chat_mode = _delta_chat_mode_on;
+	peer->chat_cooldown = DELTA_PEER_CHAT_COOLDOWN;
 	forget_all(peer);
 }
 
@@ -1059,15 +1060,24 @@ static void host_chat_frame(struct delta_peer *peer, delta_u32 now)
 	peer->chat_dirty = 0;
 }
 
-static void host_chat_refuse(struct delta_peer *peer, int machine_index, delta_u32 sequence, int reason)
+static void host_chat_refuse_paused(struct delta_peer *peer, int machine_index, delta_u32 sequence, int reason,
+	delta_u32 paused_milliseconds)
 {
 	struct delta_peer_host_peer *client = &peer->peers[machine_index];
 	struct delta_wire_chat_refused refused;
 	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	delta_u32 seconds = (paused_milliseconds + 999) / 1000;
 
+	memset(&refused, 0, sizeof(refused));
 	refused.sequence = sequence;
 	refused.reason = (unsigned char)reason;
+	refused.paused_seconds = (unsigned short)(seconds > 0xFFFF ? 0xFFFF : seconds);
 	peer_send(peer, client->ipv4, client->port, data, delta_wire_write_chat_refused(data, client->session, &refused));
+}
+
+static void host_chat_refuse(struct delta_peer *peer, int machine_index, delta_u32 sequence, int reason)
+{
+	host_chat_refuse_paused(peer, machine_index, sequence, reason, 0);
 }
 
 static void host_chat_say(struct delta_peer *peer, delta_u32 now, int machine_index,
@@ -1085,9 +1095,26 @@ static void host_chat_say(struct delta_peer *peer, delta_u32 now, int machine_in
 		return;
 	}
 	client->chat.sequence = say.sequence;
+	/* (paused: refused, saying how much longer, until the pause is over) */
+	if (client->chat.paused)
+	{
+		delta_u32 left = client->chat.paused_until - now;
+
+		if (left && left < 0x80000000u)
+		{
+			host_chat_refuse_paused(peer, machine_index, say.sequence, _delta_chat_refused_too_fast, left);
+			return;
+		}
+		client->chat.paused = 0;
+	}
 	if (!delta_rate_take(&client->chat.rate, now, DELTA_PEER_CHAT_SAY_RATE, DELTA_PEER_CHAT_SAY_BURST))
 	{
-		host_chat_refuse(peer, machine_index, say.sequence, _delta_chat_refused_too_fast);
+		if (peer->chat_cooldown)
+		{
+			client->chat.paused = 1;
+			client->chat.paused_until = now + peer->chat_cooldown;
+		}
+		host_chat_refuse_paused(peer, machine_index, say.sequence, _delta_chat_refused_too_fast, peer->chat_cooldown);
 		return;
 	}
 	say.length = delta_chat_trim(say.text, say.length);
@@ -1139,6 +1166,11 @@ void delta_peer_set_chat_mode(struct delta_peer *peer, int mode, int flags)
 		peer->chat_flags = (unsigned char)flags;
 		peer->chat_dirty = 1;
 	}
+}
+
+void delta_peer_set_chat_cooldown(struct delta_peer *peer, int seconds)
+{
+	peer->chat_cooldown = seconds > 0 ? (delta_u32)seconds * 1000 : 0;
 }
 
 void delta_peer_chat_mute(struct delta_peer *peer, delta_u32 now, int machine_index, int mute, int minutes)

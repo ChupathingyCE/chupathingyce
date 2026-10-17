@@ -701,7 +701,7 @@ boolean pc_menu_tag(
 static ui_widget_game_data_function game_data_input_function_list[41];
 
 extern struct persistent_game_data_info_view persistant_game_data_info;
-extern struct single_player_level_entry single_player_level_data[10];
+extern struct single_player_level_entry single_player_level_data[NUMBER_OF_SINGLE_PLAYER_LEVELS];
 extern struct cached_player_profile_entry cached_player_profile[3];
 extern struct cached_variant_profile_entry cached_variant_profile[3];
 

@@ -1,8 +1,8 @@
 {
- "comment": "Which font draws each of the maps' font tags (port/linux/src/text_hires.c).",
+ "comment": "Which font draws each of the maps' font tags (port/linux/src/text_hires.c): role is which of the player's fonts stands in for it (display.high_res_font_large for large, display.high_res_font for both) and which of Online Games' menu faces it is; width is how wide its glyphs are drawn (1: as the font has them). The first large and the first small font are the overlay's menu faces (tools/embed_assets.py).",
  "fonts": [
-  {"tag": "ui\\large_ui", "file": "Overpass-900.ttf"},
-  {"tag": "ui\\interstate", "file": "Overpass-900.ttf"},
-  {"tag": "ui\\small_ui", "file": "Overpass-750.ttf"}
+  {"tag": "ui\\large_ui", "file": "CyborgInterfaceGothic-Regular.ttf", "role": "large", "width": 1.0},
+  {"tag": "ui\\interstate", "file": "CyborgInterfaceGothic-Regular.ttf", "role": "large", "width": 1.0},
+  {"tag": "ui\\small_ui", "file": "CyborgInterfaceGothic-Regular.ttf", "role": "small", "width": 1.0}
  ]
 }

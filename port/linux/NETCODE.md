@@ -90,7 +90,9 @@ with ideas from VALORANT's netcode articles, keeping the 30 Hz tick:
 - **Corrections.** The host sends each client the authoritative state of
   the players' units and the game's moving objects; a client moves its
   copies toward it, a small error half of the way each tick, a larger one
-  at once, drawn gliding from where they were. A client's own unit and
+  at once, drawn gliding from where they were (a player's moved at once
+  is on the teleporter it lands on, as a teleporter leaves one it sends,
+  so the client's does not send it back). A client's own unit and
   vehicle are only corrected past a tolerance, so prediction does not
   rubber-band: the host tells the client which of the client's ticks it
   has its player at (its prediction come back), and the client compares
@@ -120,7 +122,13 @@ with ideas from VALORANT's netcode articles, keeping the 30 Hz tick:
   than the player goes of their own (and up, what its tick added but a
   jump's), so a client that says it goes faster (a copy said to hover and
   fall, gaining the host's gravity each tick) gains nothing by it. A
-  teleporter, which moves the host's own copy too, starts afresh.
+  teleporter, which moves the host's own copy too, starts afresh. On a
+  moving elevator the host takes only where a client's player is across,
+  not how high: the client's elevator follows the host's (co-op's device
+  sync), so its player's height reaches the host a round trip behind the
+  host's elevator, under its floor going up, where the host's copy would
+  fall through it. Each machine's elevator carries its own copy up and
+  down, and they meet where it stops.
 - **Shooter's hits.** A client reports what its own players hit; the host
   checks the report (the player's, a weapon they carry, fired from within
   its reach, the target where the host had it when the shooter saw it, no
@@ -203,6 +211,20 @@ pings, which a machine of version 9 drops. This build has version 10, as
 OpenCE's current builds (so their clients join its hosts), without that
 message (its hosts do not send it, its clients drop it), and joins hosts of
 9 and 10. The game browser lists the range's games.
+
+`port/linux/network_format.txt` records the wire format of the current
+version (`tools/network_format.py`): `test_linux_port.py` fails when the
+sources' messages, kinds, bits, structs sent whole or the sizes of their
+arrays differ from it.
+
+Before matching a new OpenCE build's network version, compare its wire
+format with ours: extract that build's source (for example `git archive
+<its tag> source port/linux | tar -x -C /tmp/opence`) and run
+`python3 tools/network_format.py --compare /tmp/opence`. Their own message
+kinds (votes to kick, voice, map sharing) are expected there, as is our
+`server_pregame_keep_alive` field list (the same bytes on the wire); match
+anything else before taking the number. The tool is OpenCE's (Addison Bair,
+MrBruh), CC0.
 
 A client plays by its host's rules: in another's game (searching for it,
 in its lobby, or playing it) the developer console, the telnet console
@@ -351,7 +373,9 @@ a pregame keep-alive every five seconds from the host
      indices from the upper half of the object array, clear of the host's.
    - Ten times a second, what every unit carries (the host's weapons, slot
      for slot, their ammunition, the weapon in hand, the grenades); a
-     client moves the same weapon objects in and out of its units. A
+     client moves the same weapon objects in and out of its units, which
+     carry no grenades until the host says (not the unit tag's: a player
+     spawned with the button held threw one the host's copy had not). A
      change of weapons or grenades goes to every client at once; one of
      ammunition only to the unit's player's machine at once, and to the
      others as often as they are sent that player. A client takes its own
@@ -371,7 +395,11 @@ a pregame keep-alive every five seconds from the host
    would leave a falling body hanging until its turn round all of them),
    and a few of those at rest, round them all. A client takes the host's
    word on whether each is at rest even when its copy is close enough to
-   leave where it is. A client puts its copies there, and the difference is
+   leave where it is. A body's pose goes with it: one lying limp that the
+   host moves stops lying limp (the blast that moved the host's reaches
+   only the machines that see the body's player), and one the host has at
+   rest is on the ground, so it lies limp again where it stops instead of
+   keeping the pose of its fall in the air. A client puts its copies there, and the difference is
    drawn fading over a few ticks (`render_interpolation.c`) instead of a
    jump. A client drives its own player's vehicle and sends where it is,
    which the host takes within a tolerance, as it does its own player's
@@ -405,8 +433,9 @@ a pregame keep-alive every five seconds from the host
      player; damage one of their weapons (a vehicle's a driver's or
      gunner's; now or in the last ten seconds), a grenade the host's own game
      saw them throw in the last ten seconds that has not gone off (each
-     throw's explosion is taken once, its other hits that tick with it:
-     holding grenades deals nothing) or the vehicle they drove (in the
+     throw's explosion is taken once, its other hits and its other damage
+     (a frag grenade's shock wave) that tick with it: holding grenades
+     deals nothing) or the vehicle they drove (in the
      last ten seconds: its collisions) can deal (its projectiles' impacts
      and detonations, followed through the tags), no harder than it can be
      (all of it, but an airborne melee blow's half again); of the shape the

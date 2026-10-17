@@ -587,6 +587,9 @@ struct delta_wire_chat_refused
 	delta_u32 sequence;
 	/* enum delta_chat_refusal */
 	unsigned char reason;
+	/* (too fast) the seconds the player's chat is paused; 0: none, or a host
+	that does not say (one older than 0.8.0 reads it as reserved) */
+	unsigned short paused_seconds;
 };
 
 /* a datagram's header: 1 if it is Delta's (the magic) and its length is the

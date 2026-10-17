@@ -86,9 +86,13 @@ The game finds the game data as on Linux. Refer to "Start the game" in
 | --- | --- |
 | Settings | `config.toml` next to `halo.exe` |
 | Saved games | `%APPDATA%\ChupathingyCE`, or `paths.saves` in `config.toml`. The first start copies the saves from `%APPDATA%\halo`, which earlier versions used, and leaves that folder as it was |
-| Log | `debug.txt` in the data root (the folder that contains `maps\`) |
-| Log of the port | The console. The release build has no console: `halo.log` next to `halo.exe` |
-| Crash reports | `crashes\` next to `halo.exe`, until the game sends them |
+| Log | `logs\debug.txt` in the data root (the folder that contains `maps\`), or `paths.logs` |
+| Log of the port | The console. The release build has no console: `halo.log` in the same `logs\` folder |
+| Crash reports | `logs\crashes\`, until the game sends them |
+
+Before 0.8.0, `debug.txt` was in the data root itself, and `halo.log` and
+`crashes\` were next to `halo.exe`. The game leaves the old files where
+they are; crash reports still waiting there are sent from there.
 
 ## How the port operates
 
@@ -165,8 +169,8 @@ to the ChupathingyCE site (`network.browser_url`, `POST /v1/crash`), which
 groups the crashes and tells the developers:
 
 1. The game starts a second copy of `halo.exe` (`halo.exe --crash-report`).
-   This copy writes a minidump of the game to `crashes\` next to
-   `halo.exe`, and walks the stack of the thread that crashed. Then the
+   This copy writes a minidump of the game to `logs\crashes\` (until
+   0.8.0, `crashes\` next to `halo.exe`), and walks the stack of the thread that crashed. Then the
    game stops. A minidump contains the stacks and the registers of the
    threads, and the list of the modules. It does not contain the other
    memory of the game.
@@ -177,7 +181,7 @@ groups the crashes and tells the developers:
 3. The copy sends the report, then deletes it. If it cannot send it (for
    example, with no network connection), the game sends it when it starts
    the next time (`halo.exe --crash-upload`, in the background).
-   `crashes\` keeps at most 8 reports.
+   `logs\crashes\` keeps at most 8 reports.
 
 A report is JSON (`port/linux/src/crash_report.h`). It contains:
 
@@ -214,7 +218,9 @@ argument to a function of the C runtime.
 
 ## Limits
 
-- Bink video is not available. The game skips the movies.
+- Bink video is not available on this build. The game skips the movies.
+  The disc extraction at the first start still copies the disc's `bink/`
+  movies (only the ones that are missing) next to `maps\`.
 - The game uses only the ANSI file functions. A path to the data or the
   saved games with characters that are not in the code page of the system
   does not always operate.

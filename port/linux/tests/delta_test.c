@@ -419,10 +419,20 @@ static void test_wire_chat(void)
 
 	refused.sequence = 44;
 	refused.reason = _delta_chat_refused_blocked;
+	refused.paused_seconds = 0;
 	size = delta_wire_write_chat_refused(data, 7, &refused);
 	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_chat_refused &&
 		delta_wire_read_chat_refused(data + DELTA_WIRE_HEADER_SIZE, header.length, &refused_in) &&
 		refused_in.sequence == 44 && refused_in.reason == _delta_chat_refused_blocked);
+	refused.reason = _delta_chat_refused_too_fast;
+	refused.paused_seconds = 600;
+	size = delta_wire_write_chat_refused(data, 7, &refused);
+	CHECK(delta_wire_read_chat_refused(data + DELTA_WIRE_HEADER_SIZE, size - DELTA_WIRE_HEADER_SIZE, &refused_in) &&
+		refused_in.reason == _delta_chat_refused_too_fast && refused_in.paused_seconds == 600);
+	/* (an older host's: the field reserved, read as no pause) */
+	data[DELTA_WIRE_HEADER_SIZE + 6] = data[DELTA_WIRE_HEADER_SIZE + 7] = 0;
+	CHECK(delta_wire_read_chat_refused(data + DELTA_WIRE_HEADER_SIZE, size - DELTA_WIRE_HEADER_SIZE, &refused_in) &&
+		refused_in.paused_seconds == 0);
 }
 
 static void test_chat_text(void)
@@ -656,6 +666,18 @@ static void test_chat(void)
 	}
 	deliver(now);
 	CHECK(host_chat.said == 3 && nodes[2].peer.client_chat.refused.reason == _delta_chat_refused_too_fast);
+	CHECK(nodes[2].peer.client_chat.refused.paused_seconds == DELTA_PEER_CHAT_COOLDOWN / 1000);
+	/* (then paused: refused, saying how much longer, though the rate would
+	take a line again; after it, taken) */
+	now += 2000;
+	CHECK(delta_peer_client_chat_say(&nodes[2].peer, _delta_chat_scope_all, "still here", 10));
+	deliver(now);
+	CHECK(host_chat.said == 3 && nodes[2].peer.client_chat.refused.reason == _delta_chat_refused_too_fast &&
+		nodes[2].peer.client_chat.refused.paused_seconds == 3);
+	now += 3001;
+	CHECK(delta_peer_client_chat_say(&nodes[2].peer, _delta_chat_scope_all, "back again", 10));
+	deliver(now);
+	CHECK(host_chat.said == 4);
 	/* (bad text is not sent by a client; one sent by hand is refused) */
 	CHECK(!delta_peer_client_chat_say(&nodes[1].peer, _delta_chat_scope_all, "a\nb", 3));
 	{

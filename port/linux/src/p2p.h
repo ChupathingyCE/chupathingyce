@@ -49,6 +49,15 @@ const unsigned char *p2p_identifier(void);
 /* the address the game reaches the machine with this identifier at, if it
 is an internet play peer (reached yet or not) */
 int p2p_peer_address(const unsigned char *identifier, unsigned long *address);
+/* Online Games' pings before joining (p2p_probe.c): while on (the screen
+is open, and network.ping_games), the hosts asked about may be probed; never
+when internet play is off */
+void p2p_probe_browse(int on);
+/* the round trip in milliseconds to the host of an invite (its code: the
+host's key hash and token in hexadecimal), as a probe measured it; -1 if
+none has. wanted: probe it (only a host that answers pings, as the list
+says, should be asked about) */
+int p2p_probe_ping(const char *invite, int wanted);
 /* the last round trip to the machine with this identifier in milliseconds
 (the tunnel's own pings), if the tunnel has reached it; -1 if not */
 int p2p_peer_ping(const unsigned char *identifier);

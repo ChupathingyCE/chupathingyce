@@ -185,6 +185,9 @@ struct game_options;
 #include "rasterizer/common/rasterizer_common.h"
 #endif
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#include "networking/network_game_globals.h"
+#include "tag_files/tag_files.h"
+#include "cseries/cseries_windows.h"
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -251,6 +254,16 @@ char const *global_game_difficulty_level_names[NUMBER_OF_GAME_DIFFICULTY_LEVELS]
 };
 
 static struct profile_section game_update_section = {"game_update", NONE, TRUE};
+
+static unsigned long game_loading_screen_hold_milliseconds(
+	char const *map_name);
+static void game_loading_screen_hold_progress(
+	unsigned long hold_start,
+	unsigned long hold_milliseconds,
+	boolean loaded);
+static void game_loading_screen_hold(
+	unsigned long hold_start,
+	unsigned long hold_milliseconds);
 
 /* ---------- public code */
 
@@ -786,6 +799,9 @@ void game_precache_new_map(
 	boolean blocking)
 {
 	long map_status;
+	/* port: display.loading_screen_min_seconds */
+	unsigned long hold_milliseconds = blocking ? game_loading_screen_hold_milliseconds(map_name) : 0;
+	unsigned long hold_start = system_milliseconds();
 
 	if (!cache_files_precache_map_loaded(map_name))
 	{
@@ -834,15 +850,23 @@ void game_precache_new_map(
 					cache_files_precache_is_copying_map(map_name));
 			ui_widget_load_progress_widget();
 			progress_bar_begin(global_scenario_index != NONE);
+			map_status = 0;
 			do
 			{
-				map_status = cache_files_precache_map_status(
-					&game_globals->loading_progress);
+				/* port: (asked until it is done, then held) */
+				if (!map_status)
+				{
+					map_status = cache_files_precache_map_status(
+						&game_globals->loading_progress);
+				}
+				game_loading_screen_hold_progress(hold_start, hold_milliseconds, map_status != 0);
 				main_pregame_render();
 				main_rasterizer_throttle();
 				main_present_frame();
 			}
-			while (!map_status);
+			while (!map_status ||
+				(map_status != _cached_map_file_failed &&
+					system_milliseconds() - hold_start < hold_milliseconds));
 
 			progress_bar_end();
 			ui_widgets_close_all();
@@ -857,6 +881,12 @@ void game_precache_new_map(
 			globals->map_load_in_progress = FALSE;
 			globals->loading_progress = 1.0f;
 		}
+	}
+	else if (hold_milliseconds > 0)
+	{
+		/* port: a map already in its cache file loads at once; the loading
+		screen is still held for display.loading_screen_min_seconds */
+		game_loading_screen_hold(hold_start, hold_milliseconds);
 	}
 
 	if (blocking)
@@ -1000,3 +1030,65 @@ void game_set_game_variant_from_name(
 }
 
 /* ---------- private code */
+
+/* port_config.c */
+double config_real(char const *name);
+
+/* port: display.loading_screen_min_seconds (0, the default, for none): the
+least time the original loading screen stays up when a level loads, as
+loading from the Xbox's disc took, where the port's loads are over before it
+shows. Only in a game no other machine is in (campaign, a split screen game):
+this loop runs nothing of the network, so a game on it is not held. Never for
+the main menu's map. */
+static unsigned long game_loading_screen_hold_milliseconds(
+	char const *map_name)
+{
+	double seconds = config_real("display.loading_screen_min_seconds");
+
+	if (!(seconds > 0.0) || !_stricmp(tag_name_strip_path(map_name), "ui"))
+		return 0;
+	if (game_connection() != _game_connection_local && !network_game_is_splitscreen_local())
+		return 0;
+
+	return (unsigned long)(PIN(seconds, 0.0, 30.0) * 1000.0);
+}
+
+/* while the loading screen is held, its picture moves on with the time held
+as with a load's progress: the slower of the two */
+static void game_loading_screen_hold_progress(
+	unsigned long hold_start,
+	unsigned long hold_milliseconds,
+	boolean loaded)
+{
+	real held;
+
+	if (hold_milliseconds == 0)
+		return;
+	held = (real)(system_milliseconds() - hold_start) / (real)hold_milliseconds;
+	if (loaded)
+		game_globals->loading_progress = 1.0f;
+	game_globals->loading_progress = PIN(MIN(game_globals->loading_progress, held), 0.001f, 1.0f);
+}
+
+/* the loading screen alone, held for a map already loaded */
+static void game_loading_screen_hold(
+	unsigned long hold_start,
+	unsigned long hold_milliseconds)
+{
+	game_globals->map_load_in_progress = TRUE;
+	game_globals->loading_progress = 0.0f;
+	ui_widget_load_progress_widget();
+	progress_bar_begin(global_scenario_index != NONE);
+	do
+	{
+		game_loading_screen_hold_progress(hold_start, hold_milliseconds, TRUE);
+		main_pregame_render();
+		main_rasterizer_throttle();
+		main_present_frame();
+	}
+	while (system_milliseconds() - hold_start < hold_milliseconds);
+	progress_bar_end();
+	ui_widgets_close_all();
+	game_globals->map_load_in_progress = FALSE;
+	game_globals->loading_progress = 1.0f;
+}

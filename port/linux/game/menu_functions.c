@@ -363,6 +363,19 @@ static boolean setting_text(char const *name, char *text, unsigned int size, boo
 				scale = 1;
 			snprintf(text, size, "%ldx%ld", 640 * scale, 480 * scale);
 		}
+		/* (Video Setup's Frame Rate: 30 while display.interpolation is off,
+		the game's own frames, whatever display.max_fps says) */
+		if (!strcmp(name, "display.max_fps"))
+		{
+			char interpolation[16] = "";
+
+			if (default_value)
+				config_default("display.interpolation", interpolation, sizeof(interpolation));
+			else
+				config_text("display.interpolation", interpolation, sizeof(interpolation));
+			if (!strcmp(interpolation, "false"))
+				snprintf(text, size, "30");
+		}
 		return TRUE;
 	}
 	for (index = 0; index < NUMBEROF(profile_settings); index++)
@@ -395,6 +408,11 @@ static boolean setting_write(char const *name, char const *value)
 {
 	short index;
 
+	/* (Video Setup's Frame Rate: 30 draws the game's own frames, with
+	display.interpolation off; the others blend between them) */
+	if (!strcmp(name, "display.max_fps") &&
+		!config_write("display.interpolation", strcmp(value, "30") ? "true" : "false"))
+		return FALSE;
 	if (strncmp(name, "profile.", 8))
 		return config_write(name, value);
 	for (index = 0; index < NUMBEROF(profile_settings); index++)
@@ -1530,9 +1548,10 @@ profile's button settings as the Xbox's Controller Setup shows them */
 /* the picture's frames (the bitmap's: tools/port_settings.py's
 BITMAP_FRAMES): Gamepad Setup's row's, as the list numbers its rows
 (player_profile_edit_select_menu_update_extended_description), and after
-the PC version's nine the Xbox's five of the button settings */
+the PC version's nine and Privacy's (FRAME_COPIES) the Xbox's five of the
+button settings */
 #define PROFILE_GAMEPAD_FRAME 2
-#define PROFILE_FIRST_LAYOUT_FRAME 9
+#define PROFILE_FIRST_LAYOUT_FRAME 10
 
 /* "port gamepad layout preview" (the picture's own): on Gamepad Setup's
 row, the edited profile's button settings */
@@ -2193,6 +2212,8 @@ void ui_widget_port_post_button(short controller_index, short button_index);
 static wchar_t const *const engine_names[] = { L"", L"CTF", L"SLAYER", L"ODDBALL", L"KING OF THE HILL", L"RACE", L"BOMB" };
 #define ENGINE_NAME(engine) engine_names[PIN(engine, 0, (long)NUMBEROF(engine_names) - 1)]
 static short const maximum_players[] = { 2, 4, 8, 12, 16, 24, 32, 48, 64, 96, 128 };
+/* the most players a hosted game starts with (16), up to the list's 128 */
+#define HOST_DEFAULT_MAXIMUM_PLAYERS_INDEX 4
 
 static struct
 {
@@ -2229,7 +2250,7 @@ static struct
 	/* Server Setup's PASSWORD (a public internet game's; empty: none), kept
 	while the game runs, never written down */
 	char game_password[PASSWORD_LENGTH + 1];
-} multiplayer = { .maximum_players_index = NUMBEROF(maximum_players) - 1 };
+} multiplayer = { .maximum_players_index = HOST_DEFAULT_MAXIMUM_PLAYERS_INDEX };
 
 /* ---- a text field (Direct Link's link, the game's name): the keyboard
 types into it (Ctrl+V pastes), its row's A (enter) is done, B (escape)
@@ -3680,6 +3701,17 @@ static void lobby_browser_add_listed(void)
 		engine = (short)PIN(listed->engine, 0, NUMBEROF(gametypes) - 1);
 		snprintf(game->gametype, sizeof(game->gametype), "%s%s", listed->teams && engine != 1 ? "Team " : "",
 			gametypes[engine]);
+		/* (a campaign level is a co-op game, whatever variant its host had chosen last) */
+		if (campaign_level_of(game->map) != NONE)
+		{
+			static char const *const difficulties[] = { "Easy", "Normal", "Heroic", "Legendary" };
+
+			engine = 0;
+			if (listed->difficulty >= 1 && listed->difficulty <= NUMBEROF(difficulties))
+				snprintf(game->gametype, sizeof(game->gametype), "Co-op (%s)", difficulties[listed->difficulty - 1]);
+			else
+				snprintf(game->gametype, sizeof(game->gametype), "Co-op");
+		}
 		game->player_count = (unsigned char)PIN(listed->players, 0, 255);
 		game->maximum_player_count = (unsigned char)PIN(listed->maximum_players, 0, 255);
 		game->engine_type = (unsigned char)engine;

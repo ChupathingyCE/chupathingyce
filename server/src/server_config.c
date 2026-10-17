@@ -221,6 +221,14 @@ const struct server_setting server_settings_table[SERVER_SETTINGS] =
 	{ "chat", SERVER_FIELD_INTEGER, 0, 2, "HALO_DEDICATED_CHAT", "Text chat: 0 off, 1 team only, 2 on (sv_chat)" },
 	{ "chat_filter", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_CHAT_FILTER",
 		"Chat lines with blocked words not passed on (blocked_names.txt's words)" },
+	{ "welcome", SERVER_FIELD_STRING, 0, SERVER_SETTINGS_WELCOME_SIZE - 1, "HALO_DEDICATED_WELCOME",
+		"Welcome message each Chupathingy player gets as they join (empty: none)" },
+	{ "postgame_seconds", SERVER_FIELD_INTEGER, 0, SERVER_SETTINGS_MAXIMUM_POSTGAME_SECONDS,
+		"HALO_DEDICATED_POSTGAME_SECONDS", "Seconds the carnage report shows before the next game" },
+	{ "skip_lobby", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_SKIP_LOBBY",
+		"The next game starts right after the carnage report when enough players stayed" },
+	{ "chat_cooldown", SERVER_FIELD_INTEGER, 0, SERVER_SETTINGS_MAXIMUM_CHAT_COOLDOWN, "HALO_DEDICATED_CHAT_COOLDOWN",
+		"Seconds a player's chat pauses after they say too much too fast (0: no pause)" },
 };
 
 /* ---------- private code */
@@ -1101,6 +1109,25 @@ static int setting_value(int setting, const struct toml_value *value, int line, 
 			}
 			snprintf(settings->name, sizeof(settings->name), "%s", value->string);
 		}
+		else if (setting == SERVER_SETTING_WELCOME)
+		{
+			size_t index, length = strlen(value->string);
+
+			if (length >= sizeof(settings->welcome))
+			{
+				set_error(error, error_size, line, "welcome is 127 characters at most%s", NULL, NULL);
+				return 0;
+			}
+			for (index = 0; index < length; index++)
+			{
+				if ((unsigned char)value->string[index] < 0x20 || (unsigned char)value->string[index] > 0x7e)
+				{
+					set_error(error, error_size, line, "welcome is printable ASCII%s", NULL, NULL);
+					return 0;
+				}
+			}
+			snprintf(settings->welcome, sizeof(settings->welcome), "%s", value->string);
+		}
 		else
 		{
 			char *path = setting == SERVER_SETTING_PLAYLIST ? settings->playlist : settings->playlist_environment;
@@ -1209,7 +1236,8 @@ int server_settings_format(const struct server_settings *settings, char *out, si
 	for (setting = 0; setting < SERVER_SETTINGS; setting++)
 	{
 		const struct server_setting *description = &server_settings_table[setting];
-		char value[SERVER_SETTINGS_PATH_SIZE + 8];
+		/* (a string's every character may be escaped) */
+		char value[2 * SERVER_SETTINGS_PATH_SIZE + 8];
 
 		if (!settings->set[setting])
 			continue;
@@ -1218,7 +1246,8 @@ int server_settings_format(const struct server_settings *settings, char *out, si
 		else if (description->kind == SERVER_FIELD_BOOLEAN)
 			snprintf(value, sizeof(value), "%s", settings->values[setting] ? "true" : "false");
 		else if (!quoted(setting == SERVER_SETTING_NAME ? settings->name : setting == SERVER_SETTING_PLAYLIST ?
-			settings->playlist : settings->playlist_environment, value, sizeof(value)))
+			settings->playlist : setting == SERVER_SETTING_WELCOME ? settings->welcome : settings->playlist_environment,
+			value, sizeof(value)))
 		{
 			return -1;
 		}

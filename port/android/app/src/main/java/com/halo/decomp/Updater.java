@@ -37,9 +37,13 @@ import java.util.zip.ZipInputStream;
  * the latest release when it starts, on a thread of its own, and if it is
  * newer asks the player whether to update:
  *
- * - Yes: the release's app (chupathingyce-android-release.zip or -debug.zip) is
- *   downloaded and handed to Android's package installer, which replaces the
- *   game (closing it) and offers to open the new version.
+ * - Yes: the release's list of its update files (updates.json, with its
+ *   signature: UpdateManifest) names the app for this build
+ *   (chupathingyce-android-release.zip or -debug.zip), which is downloaded,
+ *   checked against the list's size and SHA-256, and handed to Android's
+ *   package installer, which replaces the game (closing it) and offers to
+ *   open the new version. A release from before the list has none: its zip
+ *   is downloaded by that name, as before.
  * - No: nothing, until the next start.
  * - Do not ask again: after the player confirms it, update.auto = false is
  *   written to config.toml.
@@ -56,6 +60,8 @@ final class Updater {
     private static final int TIMEOUT_MILLISECONDS = 20000;
     /** the most a download (a release's zip, about 25 MB) or the app in it may be */
     private static final long MAXIMUM_UPDATE_SIZE = 256L * 1024 * 1024;
+    /** the most the release's list of its update files, or a signature, may be */
+    private static final long MAXIMUM_LIST_SIZE = 1024L * 1024;
 
     private Updater() {
     }
@@ -258,7 +264,8 @@ final class Updater {
 
     private static void update(Activity activity, String latest) {
         // (the native 64-bit build's is chupathingyce-android64-*: build.gradle)
-        String asset = BuildConfig.HALO_UPDATE_ASSET + "-" + (BuildConfig.DEBUG ? "debug" : "release") + ".zip";
+        String configuration = BuildConfig.DEBUG ? "debug" : "release";
+        String asset = BuildConfig.HALO_UPDATE_ASSET + "-" + configuration + ".zip";
         File directory = new File(activity.getCacheDir(), UpdateProvider.DIRECTORY);
         LinearLayout layout = new LinearLayout(activity);
         TextView status = new TextView(activity);
@@ -284,12 +291,19 @@ final class Updater {
                 File zip = new File(directory, "update.zip");
                 File apk = new File(directory, UpdateProvider.APK);
 
-                download("https://github.com/" + REPOSITORY + "/releases/download/v" + latest + "/" + asset, zip,
+                UpdateManifest.Entry listed = listedFile(directory, latest, configuration);
+                String address = listed != null
+                    ? "https://github.com/" + REPOSITORY + "/releases/download/" + listed.tag + "/" + listed.name
+                    : "https://github.com/" + REPOSITORY + "/releases/download/v" + latest + "/" + asset;
+
+                download(address, zip, listed != null ? listed.size : MAXIMUM_UPDATE_SIZE,
                     (received, total) -> activity.runOnUiThread(() -> {
                         bar.setProgress(total > 0 ? (int) (received * 1000 / total) : 0);
                         status.setText("Downloading version " + latest + "... (" + (received >> 20) + " of "
                             + (total >> 20) + " MB)");
                     }));
+                if (listed != null)
+                    checkListed(zip, listed);
                 extractApk(zip, apk);
                 zip.delete();
                 activity.runOnUiThread(() -> {
@@ -314,7 +328,79 @@ final class Updater {
         void report(long received, long total);
     }
 
-    private static void download(String address, File file, Progress progress) throws IOException {
+    /**
+     * The release's list's file for this build (UpdateManifest), its
+     * signature checked; null when the release has no list or no such file
+     * in it (the zip by its old name, then).
+     */
+    private static UpdateManifest.Entry listedFile(File directory, String latest, String configuration)
+            throws IOException {
+        String base = "https://github.com/" + REPOSITORY + "/releases/download/v" + latest + "/";
+        String platform = BuildConfig.HALO_UPDATE_ASSET.substring("chupathingyce-".length());
+        File list = new File(directory, "updates.json"), signature = new File(directory, "updates.json.sig");
+        byte[] document, signatureText;
+
+        try {
+            download(base + "updates.json", list, MAXIMUM_LIST_SIZE, (received, total) -> { });
+        } catch (IOException e) {
+            android.util.Log.i(LOG_TAG, "update: no list of update files (" + e.getMessage() + ")");
+            return null;
+        }
+        try {
+            document = readFile(list);
+            try {
+                download(base + "updates.json.sig", signature, MAXIMUM_LIST_SIZE, (received, total) -> { });
+            } catch (IOException e) {
+                throw new IOException("the release's list of update files has no signature (" + e.getMessage() + ")");
+            }
+            signatureText = readFile(signature);
+        } finally {
+            list.delete();
+            signature.delete();
+        }
+        UpdateManifest.Check check = UpdateManifest.check(document,
+            new String(signatureText, StandardCharsets.US_ASCII), UpdateManifest.KEYS);
+        if (check == UpdateManifest.Check.NOT_SIGNED)
+            throw new IOException("the release's list of update files does not match the release key");
+        if (check == UpdateManifest.Check.NOT_CHECKED)
+            android.util.Log.i(LOG_TAG, "update: no Ed25519 before Android 13: the list's signature is not checked");
+        try {
+            UpdateManifest.Entry listed = UpdateManifest.find(new String(document, StandardCharsets.UTF_8), latest,
+                platform, configuration, "zip");
+
+            if (listed == null)
+                android.util.Log.i(LOG_TAG, "update: the release's list has no " + platform + " " + configuration);
+            return listed;
+        } catch (UpdateManifest.Refused e) {
+            throw new IOException("the release's list of update files was not used: " + e.getMessage());
+        }
+    }
+
+    /** the download, checked against the list's size and SHA-256 */
+    private static void checkListed(File zip, UpdateManifest.Entry listed) throws IOException {
+        if (zip.length() != listed.size)
+            throw new IOException("the download is " + zip.length() + " bytes, not the list's " + listed.size);
+        try (InputStream stream = new FileInputStream(zip)) {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[65536];
+            int count;
+
+            while ((count = stream.read(buffer)) > 0)
+                digest.update(buffer, 0, count);
+            if (!UpdateManifest.toHex(digest.digest()).equals(listed.sha256))
+                throw new IOException("the download's SHA-256 is not the list's");
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IOException("no SHA-256 to check the download with");
+        }
+    }
+
+    private static byte[] readFile(File file) throws IOException {
+        try (InputStream stream = new FileInputStream(file)) {
+            return readAll(stream);
+        }
+    }
+
+    private static void download(String address, File file, long maximum, Progress progress) throws IOException {
         HttpURLConnection connection = open(address);
 
         try {
@@ -331,7 +417,7 @@ final class Updater {
 
                 while ((count = in.read(buffer)) > 0) {
                     received += count;
-                    if (received > MAXIMUM_UPDATE_SIZE)
+                    if (received > maximum)
                         throw new IOException("the download is larger than expected");
                     out.write(buffer, 0, count);
                     if (received - reported >= 256 * 1024 || received == total) {

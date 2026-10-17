@@ -21,6 +21,12 @@ Contributors are credited in the release notes.
 - The 32-bit builds must stay byte-identical unless the change is meant for them: `tools/port_neutrality_check.py` checks it.
 - Commit messages, pull requests and issues are public, and they're posted to the ChupathingyCE Discord.
 
+## License
+
+Chupathingy is licensed under the GNU GPL, version 3 or later (`GPL-3.0-or-later`, [LICENSE](LICENSE)). By opening a pull request, you agree that your contribution is under the same license, with the console SDK permission in the README's [License](README.md#license) section, so that it can also be built into Warthog.
+
+- Code or assets from somewhere else must be under a license that works with the GPL (MIT, BSD, zlib, Apache-2.0, CC0, SIL OFL for fonts, and so on), credited, with the license beside them (`port/third_party` for code). Say where they come from in the pull request.
+
 ## Using AI tools
 
 You can use AI tools when you contribute. You're responsible for what you submit: understand every line, test it, and be able to explain it in review. Say in the pull request if a large part of it was generated. Pull requests that are mostly generated and untested will be closed.

@@ -243,6 +243,25 @@ SDL_FunctionPointer SDL_GL_GetProcAddress(const char *name)
 	return NULL;
 }
 
+SDL_AudioDeviceID *SDL_GetAudioPlaybackDevices(int *count)
+{
+	if (count)
+		*count = 0;
+	headless_set_error("the server plays no sound");
+	return NULL;
+}
+
+const char *SDL_GetAudioDeviceName(SDL_AudioDeviceID device)
+{
+	(void)device;
+	return NULL;
+}
+
+void SDL_DestroyAudioStream(SDL_AudioStream *stream)
+{
+	(void)stream;
+}
+
 SDL_AudioStream *SDL_OpenAudioDeviceStream(SDL_AudioDeviceID device, const SDL_AudioSpec *specification,
 	SDL_AudioStreamCallback callback, void *userdata)
 {
