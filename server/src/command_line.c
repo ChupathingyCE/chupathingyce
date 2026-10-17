@@ -34,6 +34,11 @@ static int reason_word(
 		return 2;
 	if (!strcmp(command, "sv_ban"))
 		return 3;
+	/* (a setting's value, and the welcome: a line of text, quoted or not) */
+	if (!strcmp(command, "sv_set"))
+		return 2;
+	if (!strcmp(command, "sv_welcome"))
+		return 1;
 	return 0;
 }
 

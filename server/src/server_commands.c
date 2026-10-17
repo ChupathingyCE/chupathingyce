@@ -87,6 +87,8 @@ int chat_server_say(char const *text);
 void chat_host_set(int mode, int filter);
 int chat_host_mode(void);
 int chat_host_filter(void);
+void chat_host_set_welcome(char const *text);
+char const *chat_host_welcome(void);
 void delta_peer_game_chat_mute(int machine_index, int mute, int minutes);
 int delta_peer_game_chat_muted(int machine_index);
 int delta_peer_game_chat_capable(int machine_index, int kind);
@@ -176,6 +178,7 @@ static boolean command_console_only(struct command_line const *line, boolean jso
 static boolean command_warn(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_say(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_chat(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_welcome(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_mute(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_unmute(struct command_line const *line, boolean json, struct command_output *output);
 static void note_target(char const *target, char const *reason);
@@ -205,6 +208,8 @@ static struct server_command const server_commands[] =
 		"more than a word). OpenCE players do not see it.", 2, 2, TRUE, command_say },
 	{ "sv_chat", "sv_chat [on|team|off]", "Shows or sets the players' text chat: on, team lines alone, or off; saved "
 		"in admin/settings.toml.", 1, 2, FALSE, command_chat },
+	{ "sv_welcome", "sv_welcome [text|off]", "Shows or sets the welcome: a server message each Chupathingy player "
+		"gets in their chat as they join; off for none. Saved in admin/settings.toml.", 1, 2, FALSE, command_welcome },
 	{ "sv_mute", "sv_mute <player> [minutes]", "Stops passing on a player's chat lines, until they leave or for a "
 		"while; their game is told. Server messages still reach them.", 2, 3, TRUE, command_mute },
 	{ "sv_unmute", "sv_unmute <player>", "Passes a muted player's chat lines on again.", 2, 2, TRUE, command_unmute },
@@ -1439,6 +1444,41 @@ static boolean command_chat(
 		command_output_printf(output, "%s\n", problem);
 		return FALSE;
 	}
+	return server_admin_set(&set_line, FALSE, output);
+}
+
+static boolean command_welcome(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	static struct command_line set_line;
+	char const *text;
+
+	(void)json;
+#ifdef HALO_GAME_BROWSER
+	if (line->count == 1)
+	{
+		command_output_printf(output, "%s\n", chat_host_welcome()[0] ? chat_host_welcome() : "(no welcome)");
+		return TRUE;
+	}
+#endif
+	text = !_stricmp(line->words[1], "off") ? "" : line->words[1];
+	/* (the environment's wins over the settings file: then until a restart) */
+	if (getenv("HALO_DEDICATED_WELCOME") && getenv("HALO_DEDICATED_WELCOME")[0])
+	{
+#ifdef HALO_GAME_BROWSER
+		chat_host_set_welcome(text);
+#endif
+		command_output_printf(output, "the welcome is %s until a restart (HALO_DEDICATED_WELCOME is set in the "
+			"server's environment)\n", text[0] ? "set" : "off");
+		return TRUE;
+	}
+	csmemset(&set_line, 0, sizeof(set_line));
+	set_line.count = 3;
+	snprintf(set_line.words[0], sizeof(set_line.words[0]), "sv_set");
+	snprintf(set_line.words[1], sizeof(set_line.words[1]), "welcome");
+	snprintf(set_line.words[2], sizeof(set_line.words[2]), "%s", text);
 	return server_admin_set(&set_line, FALSE, output);
 }
 

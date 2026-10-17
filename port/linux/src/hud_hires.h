@@ -65,6 +65,8 @@ void hud_hires_map_loaded(const long *assets, long count);
 void hud_hires_map_unloaded(void);
 /* whether its green is its coverage (d3d8_gl.c, nv2a_psh.c: coverage_alpha) */
 int hud_hires_override_coverage(long asset);
+/* whether its red holds exact segment thresholds, read unfiltered (d3d8_gl.c,
+nv2a_psh.c: point_threshold) */
 int hud_hires_override_point_threshold(long asset);
 
 #endif

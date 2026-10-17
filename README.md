@@ -11,6 +11,15 @@
 <a href="https://discord.gg/chupathingy">Discord</a>
 </p>
 
+<p align="center">
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License: GPL-3.0-or-later"></a>
+<a href="https://github.com/ChupathingyCE/chupathingyce/releases/latest"><img src="https://img.shields.io/github/v/release/ChupathingyCE/chupathingyce?label=release" alt="Latest release"></a>
+<a href="https://github.com/ChupathingyCE/chupathingyce/releases/tag/nightly"><img src="https://img.shields.io/badge/nightly-daily%20build-orange" alt="Latest nightly"></a>
+<a href="https://github.com/ChupathingyCE/chupathingyce/actions/workflows/build.yml?query=branch%3Amain+event%3Apush"><img src="https://img.shields.io/github/actions/workflow/status/ChupathingyCE/chupathingyce/build.yml?branch=main&event=push&label=build" alt="Build status on main"></a>
+<a href="https://discord.gg/chupathingy"><img src="https://img.shields.io/discord/1555995995555365045?label=discord&color=5865F2" alt="Discord"></a>
+<img src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android-lightgrey" alt="Platforms: Windows, macOS, Linux, Android">
+</p>
+
 > **Compatible with OpenCE build-206 (network version 29) for online play.** Players on that build join our games, and ours join games hosted on network versions 11 through 30. Browser builds can't join our games, nor we theirs.
 
 Chupathingy is a free, open-source port of the Halo: Combat Evolved
@@ -24,6 +33,14 @@ them. Website: [chupathingy.org](https://chupathingy.org). Chat and find
 games to join: [discord.gg/chupathingy](https://discord.gg/chupathingy).
 
 <p align="center"><img src="docs/screenshots/lobby.jpg" width="720" alt="A multiplayer lobby"></p>
+
+## Builds
+
+- **Releases** are the stable builds, on the [Releases page](https://github.com/ChupathingyCE/chupathingyce/releases/latest). The game updates itself from them.
+- **Nightly** is the [`nightly` pre-release](https://github.com/ChupathingyCE/chupathingyce/releases/tag/nightly): main, built every day at 04:00 UTC when it has changed. For early birds; it doesn't update itself.
+- **Testing** builds are hand-rolled builds of a branch, published as pre-releases named "(test builds)". The current one is the [Grifball test](https://chupathingy.org/grifball).
+- **Linux AppImage** is on the test builds for now.
+- **What's coming** is the [0.8.0 milestone](https://github.com/ChupathingyCE/chupathingyce/milestone/5) and its unreleased [release notes](docs/release-notes/0.8.0.md).
 
 ## What ChupathingyCE is and isn't
 
@@ -56,7 +73,8 @@ games to join: [discord.gg/chupathingy](https://discord.gg/chupathingy).
 - LAN parties the old way: System Link on your own network and split screen need no internet and no account
 - High-res HUD and text, and widescreen menus
 - Controller prompts for Xbox, PlayStation and Nintendo pads, and the keyboard
-- Updates itself on Windows, Linux and Android: it checks for new releases when it starts, and asks first (on Mac it opens the download)
+- Text chat in games with other Chupathingy players, and a follow camera while you wait to respawn
+- Updates itself on Windows, Linux and Android: it checks for new releases when it starts, asks first, and only trusts the files a signed list of update files names (on Mac it opens the download)
 
 **Platforms**
 
@@ -82,7 +100,7 @@ Get the latest release from the [Releases page](https://github.com/ChupathingyCE
 | Android | `chupathingyce-android-release.zip` | Android 9 or later, 64-bit. See [port/android/README.md](port/android/README.md). |
 | Mac | `chupathingyce-macos-release.zip` | macOS 13 or later, Apple silicon or Intel. |
 
-The game checks for new releases when it starts and asks before updating.
+The game checks for new releases when it starts and asks before updating. On Linux there is also an AppImage, on the test builds for now.
 
 We don't pay for code signing yet, so the first start needs one extra step:
 
@@ -97,8 +115,14 @@ ChupathingyCE doesn't include the game's maps, sounds or art. You need an Xbox
 disc image (`.iso` or `.xiso`) of Halo: Combat Evolved. Any region works.
 
 1. Start ChupathingyCE.
-2. The first time, it asks for your disc image. Pick it.
+2. The first time, it asks where to get the maps. The default is **Xbox disc
+   image**: pick your image.
 3. It copies the game's `maps` folder out of the image (about 2 GB), then starts.
+
+The same screen accepts your Halo PC retail CD image (`.iso`), which fills
+`maps_pc`, and the Halo Custom Edition installer (`halocesetup_en_1.00.exe`),
+which fills `maps_ce`. Or choose **Make the folders** to get empty `maps`,
+`maps_ce`, `maps_pc` and `maps_md` folders and copy the files in yourself.
 
 On Android, copy the disc image to your phone first; the maps, settings and
 saves go in `/sdcard/Android/data/dev.horrible.chupathingyce/files`. On a
@@ -140,6 +164,17 @@ Where the game's `maps` folder is:
 | Linux | next to the `halo` executable |
 | Windows | next to `halo.exe` |
 | Android | `/sdcard/Android/data/dev.horrible.chupathingyce/files` |
+
+Beside the maps folders, the game keeps folders of its own:
+
+| Folder | What is in it |
+| --- | --- |
+| `logs` (beside `maps`) | The game's logs: `debug.txt`, crash reports waiting to be sent, and on Windows `halo.log`. Attach these to a bug report. |
+| `data` (beside `maps`) | Things you add that are not maps: your own font in `data/fonts` (`display.high_res_font`). |
+| `cache` (in the save folder) | What the game can make again; safe to delete. |
+
+Until 0.8.0, `debug.txt` was beside `maps` (and on Windows `halo.log` beside
+`halo.exe`). The game leaves an old one where it is.
 
 Copy the `.map` files from your own Halo PC install. On Android, Import
 maps (hold the app's icon, or the touch controls' Options in the game)
@@ -258,7 +293,7 @@ Halo.
 | Host a game | **Multiplayer → Online Games → Y (Create Game)**, or host from System Link as usual. Your game is listed online by itself, on halo.milenko.org and in other builds' in-game Server Browsers (`public_lobby`/`host_public` under `[network]` in `config.toml` turn that off). |
 | Invite a friend | When you host, the game copies an invite link (`halo://join/…`). Send it; opening it joins your game. |
 | See your stats | Your service record is on [halo.milenko.org](https://halo.milenko.org), found by your name. Games you join count even when the host doesn't run ChupathingyCE: when an online game you joined ends, the game sends halo.milenko.org the scoreboard as your game saw it (your own line in full; everyone else's name, team, place, score, kills and deaths) with your player ID. Your copy also confirms your line in the host's report, which puts the game on your profile. To turn both off for games you join, set `report_joined_games = false` under `[network]` in `config.toml`. |
-| Stop sharing your hosted games' stats | Set `report_events = false` under `[network]` in `config.toml`. It's on by default: the games you host send their Delta Stats (kills with positions, accuracy, medals, objectives) to halo.milenko.org for its match pages and heatmaps. Never anyone's address or hardware ID; OpenCE players are only their name, team and that game's score, kills and deaths. This stops Delta Stats only: a listed game's carnage report is still sent, and `list_hosted_games = false` stops that (and the listing). |
+| Stop sharing your hosted games' stats | Set `report_events = false` under `[network]` in `config.toml`. It's on by default: the games you host send their Delta Stats (kills with positions, accuracy, medals, objectives) to halo.milenko.org for its match pages and heatmaps. Never anyone's address or hardware ID; OpenCE players are only their name, team and that game's score, kills and deaths. This stops Delta Stats only: a listed game's carnage report is still sent. To keep your hosted games listed but send neither, set `report_hosted_games = false`; `list_hosted_games = false` stops the listing too. All of these are also on the Privacy screen in Settings (Gearbox menus). |
 | Make an account | On [halo.milenko.org/profile](https://halo.milenko.org/profile), or press **Start** in Online Games to make one for the player you already are. |
 | Link the game without a browser (Steam Deck, Game Mode) | In Online Games, press **RB** (or **C** on the keyboard) for Link Profile. On your phone or computer, go to [halo.milenko.org/connect](https://halo.milenko.org/connect), enter the code the game shows (or scan its QR code), then press **A** in the game to confirm. |
 | Use the PC menus | Set `menus = "pc"` under `[display]` in `config.toml`. **Multiplayer → Join Game → Server Browser** lists the public games of every compatible build and the games of halo.milenko.org, each once. |
@@ -283,7 +318,7 @@ starts, with every setting listed, commented out at its default, and a line
 or two saying what each one does. To change one, remove the `#` in front of it
 and edit the value; the game reads the file when it starts, so restart it
 after a change. A line that starts with `#` does nothing. If a change seems
-to do nothing, look in `debug.txt` for lines starting `config.toml` or
+to do nothing, look in `logs/debug.txt` for lines starting `config.toml` or
 `settings:`: they name a misspelled setting, one in the wrong `[section]`, a
 line still commented out, a line the game skipped because of a mistake (a
 value missing its quotes, `menus = pc` for `menus = "pc"`, or `False` for
@@ -304,20 +339,27 @@ A few people look for most:
 | --- | --- |
 | `display.mode` | `"fullscreen"`, `"borderless"` or `"windowed"`. F11 switches between a window and the whole screen. When it is set, `display.fullscreen` is ignored; when it is empty, `display.fullscreen = true` is borderless and `false` a window. |
 | `display.window_scale` | The window's size, as a multiple of 640x480. |
-| `display.vsync`, `display.max_fps` | Vertical sync, and a frame rate cap (0 for none). |
+| `display.vsync`, `display.max_fps` | Vertical sync, and a frame rate cap with V-Sync off (0 for twice the display's refresh rate, -1 for none). |
+| `display.interpolation` | `false` keeps the game's own 30 frames a second; Video Setup's Frame Rate at 30 (Xbox) sets it. |
+| `display.direct_camera` | Instant aim: the view turns the frame the mouse moves. On by default; config.toml only. |
 | `display.menus` | `"xbox"` (the default) or `"pc"`, the Halo PC style menus with their Server Browser. |
 | `display.high_res_text` | `true` draws the game's text (menus and HUD) with sharp fonts at your resolution; `false` uses the maps' original bitmap fonts. The Server Browser and the moderation overlays use the system's fonts either way. For a blocky look overall, also set `display.resolution_scaling = "original"`. |
+| `display.high_res_font`, `display.high_res_font_large` | Your own font file for the sharp text and Online Games, in place of the built-in fonts: put it in `data/fonts` beside `maps` and give its name (`high_res_font = "MyFont.ttf"`), or a full path. `_large` sets one for the large text only. Empty uses the built-in fonts; a file that can't be read is noted in `logs/debug.txt` and the built-in font is used. The font is yours: Chupathingy ships none but its own free ones, and never sends yours anywhere. |
 | `display.field_of_view` | How wide the first-person view is, in degrees: 70 (the Xbox's) by default, 50 to 120. |
+| `display.far_clip_distance` | How far the world is drawn: 1024 (the Xbox's) by default, up to 10000, for large maps that cut off in the distance. Drawing only. |
 | `display.match_timer` | `true` shows a timed multiplayer game's time left at the top of the screen (off by default). |
 | `display.player_names` | Names over players' heads: `"all"`, `"allies"`, `"enemies"` or `"none"`. |
 | `game.unlock_all_levels` | `true` gives new profiles every campaign level. By default a new profile starts at The Pillar of Autumn, as on the Xbox. Profiles made by earlier versions had every level open; `profile_reset_campaign` in the console starts one over. |
 | `audio.volume`, `audio.music_volume`, `audio.effects_volume` | Volumes, from 0.0 to 1.0. |
+| `audio.device` | The output the sound plays on, by name (Audio Setup lists them); `"default"` follows the system's default output. |
 | `input.mouse_sensitivity`, `input.invert_mouse` | Mouse aim. |
+| `input.keyboard_prompts` | `true` (the default) shows the bound key in the HUD's and menus' button prompts after you use the keyboard or mouse, as Halo PC did; `false` always shows the controller's buttons. |
 | `controls.*` | Every key: `controls.jump = "Space"`, or two at once, such as `"F, Mouse 4"`. |
 | `network.browser_url` | The game list Online Games shows (halo.milenko.org). |
 | `network.host_public` | Whether games you host are listed for everyone (true) or only joinable by invite (false). |
 | `update.auto` | Whether the game updates itself. |
 | `paths.data`, `paths.saves` | Where the maps and the saves are, if not the usual place. |
+| `paths.logs`, `paths.cache` | Where the logs and the cache go, if not the usual place (below). |
 
 Settings you leave at their default follow each new version's default, so
 leaving the file alone is always safe. Every setting can also be given as an
@@ -391,17 +433,81 @@ We use AI tools the way developers use any other tool. A person decides what to 
 
 If you contribute, the same applies to you: see [CONTRIBUTING](CONTRIBUTING.md#using-ai-tools).
 
+## License
+
+Chupathingy is free software: you can redistribute it and modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License or (at your option) any later
+version (`GPL-3.0-or-later`). It comes with no warranty. The full text is in
+[LICENSE](LICENSE).
+
+- **From 0.8.0.** The GPL applies from the commit that made the change
+  onward, and so from release 0.8.0. Releases up to and including 0.7.5d, and
+  the source at every commit before the change, were released under
+  [CC0 1.0](LICENSES/CC0-1.0.txt) and stay that way.
+- **What Chupathingy builds on.** The Halo CE decompilation
+  ([punpckhdq/halo](https://github.com/punpckhdq/halo) and
+  [bnunu/halo-1](https://github.com/bnunu/halo-1)) and OpenCE are released
+  under CC0 1.0, which lets anyone build on them under any terms. Their
+  repositories stay CC0; Chupathingy's code, including its changes to theirs,
+  is GPL from 0.8.0.
+- **Delta.** Delta's code is GPL from 0.8.0 like the rest; earlier
+  versions of it stay CC0 for anyone already using them. The protocol
+  itself ([docs/delta.md](docs/delta.md)) is a description anyone may
+  implement, under any license, without using this code.
+- **Third-party code, fonts and art** keep their own licenses, which are
+  beside them (`port/third_party`, `port/assets/fonts`,
+  `port/linux/ui/fonts`, `port/assets/prompts`, `port/assets/hud`), and the release downloads
+  carry their notices.
+- **Halo itself is not covered.** The license covers the work of
+  Chupathingy's authors. It gives no rights in Halo, its maps or anything
+  else Microsoft owns.
+- **Source.** Each release's source is its tag in this repository.
+
+### Console SDK permission
+
+Chupathingy's code is also built for consoles by
+[Warthog](https://github.com/ChupathingyCE/warthog), and anyone may build
+Warthog themselves with a console maker's SDK. This permission covers that:
+
+> **Additional permission under GNU GPL version 3 section 7**
+>
+> If you modify this Program, or any covered work, by linking or combining
+> it with the libraries of a Microsoft Xbox or Xbox 360 software development
+> kit (such as the Xbox Development Kit and the Xbox 360 SDK, including
+> their `xnet.lib` and Direct3D libraries), or a modified version of those
+> libraries, containing parts covered by the terms of those kits' licenses,
+> the licensors of this Program grant you additional permission to convey
+> the resulting work. Corresponding Source for a non-source form of such a
+> combination shall include the source code of the covered work, and need
+> not include the source code of those libraries.
+
+The permission only lifts the GPL's own objection. It grants no rights in
+Microsoft's libraries, whose own terms still apply, and you may remove it
+from your copies (section 7). Chupathingy's and Warthog's own published
+builds are made only with free tools and libraries.
+
 ## Credits
 
 - The decompilation: [punpckhdq/halo](https://github.com/punpckhdq/halo) and
   [bnunu/halo-1](https://github.com/bnunu/halo-1), of the Xbox build 2342.
 - The port ChupathingyCE started from: OpenCE and its contributors, up to
   October 9, 2026.
+- Later fixes taken from OpenCE (CC0), with their authors kept in the
+  history: Paul Hontz, xshxdex98, hkmodd, eltanschauung, justinfilip, Luke,
+  MrBruh, Addison Bair, thelinkin3000, Brendan Turner and chestahh. The wire
+  format tool (`tools/network_format.py`) is Addison Bair's and MrBruh's.
 - ChupathingyCE: [Milenko](https://github.com/MrMilenko) and contributors. The
   icon is MrBruh's helmet, with tusks.
-- Fonts: [Noto Sans](https://fonts.google.com/noto) (SIL OFL) and
+- Fonts: Cyborg Interface Gothic, the high-res text's font, by fizzy, made
+  to match Halo's interface font from Overpass and glyphs of their own
+  (SIL OFL); [Overpass](https://github.com/RedHatOfficial/Overpass) (SIL OFL);
+  [Noto Sans](https://fonts.google.com/noto) (SIL OFL) and
   [Kenney's Input Prompts](https://kenney.nl/assets/input-prompts) (CC0).
 - Controller button icons by snapchipper, CC0 (`port/assets/prompts`).
+- High-res HUD art: Aerocatia's and Jessie's redraws from
+  [halopc-restored](https://github.com/Aerocatia/halopc-restored), used with
+  their permission (`port/assets/hud/NOTICE.md`).
 - HaloMD map names: from [MacGamingMods](https://macgamingmods.com)' public
   HaloMD mod list, so the menus can show each map's own name.
 - Missing Custom Edition maps: downloaded from the community map
@@ -409,7 +515,7 @@ If you contribute, the same applies to you: see [CONTRIBUTING](CONTRIBUTING.md#u
   repository, and its mirrors). ChupathingyCE's downloader is its own code;
   Chimera showed where the repositories are and how they answer.
 - Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths,
-  extract-xiso, Expat, Monocypher, zlib, SMAA, and Project Nayuki's QR Code
+  Expat, Monocypher, zlib, SMAA, and Project Nayuki's QR Code
   generator. Their licenses are
   beside them in `port/third_party`.
 
@@ -464,4 +570,5 @@ with their authors credited in each commit.
 
 Halo is a trademark of Microsoft. ChupathingyCE is a fan project, not made or
 endorsed by Microsoft, Bungie or 343 Industries, and includes none of the
-game's content. The code is released under [CC0](LICENSE.md).
+game's content. The code is released under the GNU GPL, version 3 or later
+(see [License](#license)).

@@ -876,6 +876,12 @@ void delta_peer_game_set_chat_mode(int mode, int flags)
 	delta_peer_set_chat_mode(&delta_game.peer, mode, flags);
 }
 
+void delta_peer_game_set_chat_cooldown(int seconds)
+{
+	delta_peer_protocol();
+	delta_peer_set_chat_cooldown(&delta_game.peer, seconds);
+}
+
 int delta_peer_game_chat_capable(int machine_index, int kind)
 {
 	return delta_game.ready && delta_game.role == _role_host &&

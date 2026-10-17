@@ -367,6 +367,11 @@ class Art:
             self.draw(relative, index, len(data), width, height, MENUS / png, self.shown.get(tag, []))
             self.pngs.append(png)
             lines.append(f"\t\t<frame{attributes([('png', png), ('width', width), ('height', height)])}/>")
+        # (frames repeated: port_settings.FRAME_COPIES)
+        frames = lines[1:]
+        for place, frame in sorted(port_settings.FRAME_COPIES.get(our_name(tag), {}).items()):
+            frames.insert(place, lines[1 + frame])
+        lines[1:] = frames
         # (the port's frames after them: the Xbox map's, scaled)
         for source, index, width, height, x, y in port_settings.BITMAP_FRAMES.get(our_name(tag), []):
             self.added_frames.append((our_name(tag), source, index))
@@ -525,6 +530,7 @@ def widget_xml(tag: str, widget: dict, tags: Tags, functions: list, inputs: list
         if child_tag in LEFT_OUT:
             continue
         x, y = CHILD_OFFSETS.get((tag, child_tag), (child["horizontal offset"], child["vertical offset"]))
+        x, y = patch.get("offsets", {}).get(our_name(child_tag), (x, y))
         name = patch.get("swap", {}).get(our_name(child_tag), our_name(child_tag))
         lines += [f"{inner}{line}" for line in patch.get("insert_before", {}).get(our_name(child_tag), [])]
         pairs = [("widget", name), ("x", x or None), ("y", y or None),

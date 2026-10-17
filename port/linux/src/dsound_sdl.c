@@ -1145,6 +1145,12 @@ static void mix(float *output, unsigned long frames)
 
 static SDL_AudioStream *audio_stream;
 static BOOL audio_started = FALSE;
+static BOOL audio_silent_clock = FALSE;
+static SDL_AudioSpec audio_spec;
+/* audio.device as the stream was opened for it ("" for the system's) */
+static char audio_device_name[256];
+/* the output it plays on (SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK for the system's) */
+static SDL_AudioDeviceID audio_device = SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK;
 
 static void SDLCALL audio_callback(void *userdata, SDL_AudioStream *stream, int additional_amount, int total_amount)
 {
@@ -1176,7 +1182,10 @@ static void *silent_clock_thread(void *parameter)
 	clock_gettime(CLOCK_MONOTONIC, &next);
 	for (;;)
 	{
-		mix(buffer, 480);
+		/* (stopped while a stream opened later, on another audio.device,
+		plays) */
+		if (!audio_stream)
+			mix(buffer, 480);
 		next.tv_nsec += 10000000L;
 		if (next.tv_nsec >= 1000000000L)
 		{
@@ -1188,9 +1197,117 @@ static void *silent_clock_thread(void *parameter)
 	return NULL;
 }
 
+/* the playback device named so (SDL's name for it), else the system's
+default output, which SDL moves to wherever the system's default goes.
+audio.device chooses the game's; a voice output of its own, later, would
+open its stream on audio.voice_device's the same way. */
+static SDL_AudioDeviceID audio_device_named(char const *name)
+{
+	SDL_AudioDeviceID found = SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK;
+	SDL_AudioDeviceID *devices;
+	int count = 0, index;
+
+	if (!name || !name[0] || !strcmp(name, "default"))
+		return found;
+	devices = SDL_GetAudioPlaybackDevices(&count);
+	for (index = 0; devices && index < count; index++)
+	{
+		char const *device_name = SDL_GetAudioDeviceName(devices[index]);
+
+		if (device_name && !strcmp(device_name, name))
+		{
+			found = devices[index];
+			break;
+		}
+	}
+	SDL_free(devices);
+	if (found == SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK)
+		platform_log("audio: there is no output named \"%s\"; the system's default plays", name);
+	return found;
+}
+
+/* the playback devices' names (for Audio Setup's Output Device: the
+menus' copies of them), at most maximum; 0 without SDL's audio */
+int platform_audio_device_names(char const **names, int maximum)
+{
+	static char stored[32][256];
+	SDL_AudioDeviceID *devices;
+	int count = 0, index, written = 0;
+
+	if (!config_boolean("audio.enabled") || !platform_sdl_initialize())
+		return 0;
+	devices = SDL_GetAudioPlaybackDevices(&count);
+	for (index = 0; devices && index < count && written < maximum && written < 32; index++)
+	{
+		char const *name = SDL_GetAudioDeviceName(devices[index]);
+
+		if (!name || !name[0])
+			continue;
+		snprintf(stored[written], sizeof(stored[written]), "%s", name);
+		names[written] = stored[written];
+		written++;
+	}
+	SDL_free(devices);
+	return written;
+}
+
+static void audio_silent_clock_start(void)
+{
+	pthread_t thread;
+
+	if (audio_silent_clock)
+		return;
+	audio_silent_clock = TRUE;
+	pthread_create(&thread, NULL, silent_clock_thread, NULL);
+	pthread_detach(thread);
+}
+
+/* the stream opened on audio.device's output (else the default's); FALSE
+when none opens */
+static BOOL audio_stream_open(void)
+{
+	char const *name = config_string("audio.device");
+
+	snprintf(audio_device_name, sizeof(audio_device_name), "%s", name);
+	audio_device = audio_device_named(name);
+	audio_stream = SDL_OpenAudioDeviceStream(audio_device, &audio_spec, audio_callback, NULL);
+	if (!audio_stream && audio_device != SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK)
+	{
+		platform_log("audio: cannot open \"%s\" (%s); the system's default plays", name, SDL_GetError());
+		audio_device = SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK;
+		audio_stream = SDL_OpenAudioDeviceStream(audio_device, &audio_spec, audio_callback, NULL);
+	}
+	if (!audio_stream)
+		return FALSE;
+	SDL_ResumeAudioStreamDevice(audio_stream);
+	return TRUE;
+}
+
+/* audio.device changed (Audio Setup's OK): the stream closed (which waits
+out the mixer's callback) and opened on the new one, on the game's thread */
+static void audio_device_update(void)
+{
+	char const *name = config_string("audio.device");
+
+	if (!audio_stream || !strcmp(name, audio_device_name))
+		return;
+	if (audio_device_named(name) == audio_device)
+	{
+		/* the same output (an unknown name plays on the default) */
+		snprintf(audio_device_name, sizeof(audio_device_name), "%s", name);
+		return;
+	}
+	SDL_DestroyAudioStream(audio_stream);
+	audio_stream = NULL;
+	if (!audio_stream_open())
+	{
+		platform_log("cannot open an audio device (%s); sound is silent", SDL_GetError());
+		audio_silent_clock_start();
+	}
+}
+
 static void audio_start(void)
 {
-	SDL_AudioSpec spec;
 	long buffer_frames;
 	char frames[16];
 
@@ -1206,9 +1323,9 @@ static void audio_start(void)
 
 	if (config_boolean("audio.enabled") && platform_sdl_initialize())
 	{
-		spec.format = SDL_AUDIO_F32;
-		spec.channels = OUTPUT_CHANNELS;
-		spec.freq = OUTPUT_RATE;
+		audio_spec.format = SDL_AUDIO_F32;
+		audio_spec.channels = OUTPUT_CHANNELS;
+		audio_spec.freq = OUTPUT_RATE;
 		/* audio.buffer_frames: the device's buffer (port_config.c) */
 		buffer_frames = config_integer("audio.buffer_frames");
 		if (buffer_frames < 64)
@@ -1217,20 +1334,11 @@ static void audio_start(void)
 			buffer_frames = 8192;
 		snprintf(frames, sizeof(frames), "%ld", buffer_frames);
 		SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, frames);
-		audio_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, audio_callback, NULL);
-		if (audio_stream)
-		{
-			SDL_ResumeAudioStreamDevice(audio_stream);
+		if (audio_stream_open())
 			return;
-		}
 		platform_log("cannot open an audio device (%s); sound is silent", SDL_GetError());
 	}
-	{
-		pthread_t thread;
-
-		pthread_create(&thread, NULL, silent_clock_thread, NULL);
-		pthread_detach(thread);
-	}
+	audio_silent_clock_start();
 }
 
 /* ---------- completion */
@@ -1458,15 +1566,16 @@ VOID WINAPI DirectSoundDoWork(void)
 {
 	static unsigned long volume_read_at = (unsigned long)-1;
 
-	/* (audio.volume, audio.reverb and audio.resampling read again when the
-	settings change: on the game's thread, not the mixer's, whose lock the
-	config's file I/O would hold) */
+	/* (audio.volume, audio.reverb, audio.resampling and audio.device read
+	again when the settings change: on the game's thread, not the mixer's,
+	whose lock the config's file I/O would hold) */
 	if (volume_read_at != config_changes())
 	{
 		volume_read_at = config_changes();
 		master_volume = (float)config_real("audio.volume");
 		reverb_enabled = config_boolean("audio.reverb");
 		resampling_linear = !strcmp(config_string("audio.resampling"), "linear");
+		audio_device_update();
 	}
 	streams_complete_finished();
 }

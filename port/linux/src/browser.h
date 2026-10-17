@@ -81,14 +81,27 @@ struct browser_game
 	unsigned char host_platform;
 	unsigned char hosting;
 	unsigned char protocol;
+	/* a co-op game's difficulty, 1 Easy to 4 Legendary, from its gametype
+	("Co-op Legend"); 0 when the list does not say */
+	unsigned char difficulty;
 	unsigned char machines[BROWSER_MACHINE_KINDS];
 	/* (browser_get_games's, from what this machine knows itself) the round
-	trip to its host in milliseconds while the tunnel reaches it (p2p.c's
-	pings: a game being joined or played), else -1; and whether it has a
+	trip to its host in milliseconds: the tunnel's while it reaches it (a game
+	being joined or played), else a ping before joining (p2p_probe.c) or an
+	estimate (ping_estimated), else -1; and whether it has a
 	password, as its host's public listing says (p2p_lobby.c, while the
 	public listings are browsed: p2p_lobby_browse) */
 	short ping;
 	unsigned char locked;
+	/* ping is an estimate (the list's region and this machine's round trips
+	to the list's anchors: browser_ping.c), shown "~85"; else measured: the
+	tunnel's, or a probe's before joining (p2p_probe.c) */
+	unsigned char ping_estimated;
+	/* the host's region as the list says ("EU-DE"; empty: not known), and
+	its announced capabilities (Delta's registry: the ping bit says it
+	answers pings) */
+	char region[8];
+	unsigned long capabilities;
 };
 
 /* one player's line of a finished game's carnage report */
@@ -183,7 +196,9 @@ is more than a few seconds old: those of this machine's network version,
 without this machine's own. Returns their count. */
 int browser_get_games(struct browser_game *games, int maximum_count);
 /* the public listings (OpenCE's, p2p_lobby.c) followed while a screen of
-listed games is up, for which of them have a password */
+listed games is up, for which of them have a password; and the games'
+pings measured (p2p_probe.c) and estimated (browser_ping.c) meanwhile,
+while internet play is on */
 void browser_follow_listings(int on);
 /* how the last asking for the list went, for a screen with no games to say
 why: BROWSER_LIST_* */

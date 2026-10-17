@@ -79,7 +79,16 @@ played instead of HALO_DEDICATED's until HALO_DEDICATED is changed.
 #ifdef HALO_GAME_BROWSER
 /* (text chat's, port/linux/game/chat.h) */
 void chat_host_set(int mode, int filter);
+void chat_host_set_cooldown(int seconds);
+void chat_host_set_welcome(char const *text);
 #endif
+
+enum
+{
+	/* a player's chat paused this long once they say too much too fast,
+	unless set (HALO_DEDICATED_CHAT_COOLDOWN) */
+	DEFAULT_CHAT_COOLDOWN_SECONDS = 5,
+};
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -92,8 +101,12 @@ enum
 	MAXIMUM_ENTRIES = DEDICATED_MAXIMUM_ENTRIES,
 	/* a failed start tried again this much later */
 	RETRY_MILLISECONDS = 5000,
-	/* the carnage report shown this long before the next game's lobby */
-	POSTGAME_MILLISECONDS = 20000,
+	/* the carnage report shown this long before the next game's lobby,
+	unless set (HALO_DEDICATED_POSTGAME_SECONDS) */
+	DEFAULT_POSTGAME_SECONDS = 20,
+	/* skipping the lobby (HALO_DEDICATED_SKIP_LOBBY): the next game's
+	countdown, long enough for every machine to take its map and game type */
+	SKIP_LOBBY_COUNTDOWN_MILLISECONDS = 3000,
 	/* a game with no players left ended this long after the last left */
 	EMPTY_GAME_MILLISECONDS = 30000,
 	/* a frame at most this often: with nothing drawn, no display's refresh
@@ -108,6 +121,7 @@ void network_game_server_change_map_name(struct network_game_server *server, cha
 void network_game_server_change_game_variant(struct network_game_server *server, struct game_variant *variant);
 void network_game_server_pause_countdown(struct network_game_server *server, boolean pause_countdown);
 void network_game_server_dedicated_start_countdown(struct network_game_server *server);
+boolean network_game_server_dedicated_start_countdown_now(struct network_game_server *server, long milliseconds);
 /* (internet play's: port/linux/src/p2p.c, p2p_lobby.c) */
 void p2p_set_hosting_allowed(int allowed);
 void p2p_set_hosting_public(int public);
@@ -161,6 +175,11 @@ static struct
 	boolean public_game;
 	/* blocked names kicked (sv_name_filter: server_commands.c) */
 	boolean name_filter;
+	/* the carnage report's seconds; and the lobby skipped after it when
+	enough players stayed (set as it ends, until the next game starts) */
+	long postgame_seconds;
+	boolean skip_lobby;
+	boolean skip_lobby_now;
 
 	boolean entry_set;
 	boolean entry_teams;
@@ -360,6 +379,29 @@ static void initialize(
 	dedicated.idle_limit = setting_number("HALO_DEDICATED_IDLE_LIMIT", &settings, SERVER_SETTING_IDLE_LIMIT, 5);
 	if (dedicated.idle_limit < 0)
 		dedicated.idle_limit = 0;
+	dedicated.postgame_seconds = setting_number("HALO_DEDICATED_POSTGAME_SECONDS", &settings,
+		SERVER_SETTING_POSTGAME_SECONDS, DEFAULT_POSTGAME_SECONDS);
+	if (dedicated.postgame_seconds < 0)
+		dedicated.postgame_seconds = 0;
+	if (dedicated.postgame_seconds > SERVER_SETTINGS_MAXIMUM_POSTGAME_SECONDS)
+		dedicated.postgame_seconds = SERVER_SETTINGS_MAXIMUM_POSTGAME_SECONDS;
+	/* (off unless true, 1, yes or on) */
+	{
+		char const *skip_lobby = getenv("HALO_DEDICATED_SKIP_LOBBY");
+
+		if (skip_lobby && skip_lobby[0])
+		{
+			dedicated.skip_lobby = !_stricmp(skip_lobby, "true") || !strcmp(skip_lobby, "1") ||
+				!_stricmp(skip_lobby, "yes") || !_stricmp(skip_lobby, "on");
+		}
+		else
+			dedicated.skip_lobby = settings.set[SERVER_SETTING_SKIP_LOBBY] && settings.values[SERVER_SETTING_SKIP_LOBBY];
+	}
+	if (dedicated.postgame_seconds != DEFAULT_POSTGAME_SECONDS || dedicated.skip_lobby)
+	{
+		error(_error_silent, "dedicated: the carnage report shows %ld seconds%s", dedicated.postgame_seconds,
+			dedicated.skip_lobby ? "; then the next game starts at once when enough players stayed" : "");
+	}
 	if ((!name || !name[0]) && settings.set[SERVER_SETTING_NAME])
 		name = settings.name;
 	if (!name || !name[0])
@@ -399,6 +441,24 @@ static void initialize(
 		chat_host_set((int)(mode < 0 || mode > 2 ? 2 : mode), filter);
 		error(_error_silent, "dedicated: text chat %s%s", mode == 0 ? "off" : mode == 1 ? "team only" : "on",
 			filter ? ", blocked words filtered" : "");
+	}
+	/* a player's chat paused after the rate limit trips: 5 seconds unless
+	set; and the welcome, none unless set */
+	{
+		char const *welcome = getenv("HALO_DEDICATED_WELCOME");
+		long cooldown = setting_number("HALO_DEDICATED_CHAT_COOLDOWN", &settings, SERVER_SETTING_CHAT_COOLDOWN,
+			DEFAULT_CHAT_COOLDOWN_SECONDS);
+
+		if (cooldown < 0)
+			cooldown = 0;
+		if (cooldown > SERVER_SETTINGS_MAXIMUM_CHAT_COOLDOWN)
+			cooldown = SERVER_SETTINGS_MAXIMUM_CHAT_COOLDOWN;
+		chat_host_set_cooldown((int)cooldown);
+		if ((!welcome || !welcome[0]) && settings.set[SERVER_SETTING_WELCOME])
+			welcome = settings.welcome;
+		chat_host_set_welcome(welcome);
+		if (welcome && welcome[0])
+			error(_error_silent, "dedicated: a welcome message for each Chupathingy player");
 	}
 #endif
 	dedicated.active = dedicated.entry_count > 0;
@@ -673,6 +733,14 @@ void dedicated_server_update(
 			lobby's players start it, and the server has none of its own */
 			network_game_server_pause_countdown(server,
 				!game || game->player_count < dedicated.minimum_players);
+			/* (after a carnage report, with the lobby skipped: the next game at
+			once if enough players stayed, else the lobby as always) */
+			if (dedicated.skip_lobby_now)
+			{
+				dedicated.skip_lobby_now = FALSE;
+				if (network_game_server_dedicated_start_countdown_now(server, SKIP_LOBBY_COUNTDOWN_MILLISECONDS))
+					error(_error_silent, "dedicated: the lobby skipped; the next game starts");
+			}
 			network_game_server_dedicated_start_countdown(server);
 		}
 	}
@@ -740,10 +808,12 @@ void dedicated_server_update(
 			network_game_server_reset_to_pregame(server);
 		}
 		else if (dedicated.last_state != DEDICATED_SERVER_STATE_POSTGAME)
-			dedicated.postgame_time = system_milliseconds() + POSTGAME_MILLISECONDS;
+			dedicated.postgame_time = system_milliseconds() + (unsigned long)dedicated.postgame_seconds * 1000;
 		else if ((long)(system_milliseconds() - dedicated.postgame_time) >= 0)
 		{
 			error(_error_silent, "dedicated: back to the lobby");
+			/* (a command's next game, at once, keeps its lobby) */
+			dedicated.skip_lobby_now = dedicated.skip_lobby;
 			network_game_server_reset_to_pregame(server);
 		}
 	}
@@ -801,6 +871,8 @@ void dedicated_server_get_status(
 	status->idle_limit = dedicated.idle_limit;
 	status->public_game = dedicated.public_game;
 	status->name_filter = dedicated.name_filter;
+	status->postgame_seconds = dedicated.postgame_seconds;
+	status->skip_lobby = dedicated.skip_lobby;
 	for (index = 0; index < (long)NUMBEROF(status->name) - 1 && dedicated.name[index]; index++)
 		status->name[index] = (char)dedicated.name[index];
 	status->name[index] = 0;
@@ -927,6 +999,21 @@ void dedicated_server_set_name_filter(
 	boolean name_filter)
 {
 	dedicated.name_filter = name_filter;
+}
+
+void dedicated_server_set_postgame_seconds(
+	long seconds)
+{
+	dedicated.postgame_seconds = seconds < 0 ? 0 : seconds > SERVER_SETTINGS_MAXIMUM_POSTGAME_SECONDS ?
+		SERVER_SETTINGS_MAXIMUM_POSTGAME_SECONDS : seconds;
+}
+
+void dedicated_server_set_skip_lobby(
+	boolean skip_lobby)
+{
+	dedicated.skip_lobby = skip_lobby;
+	if (!skip_lobby)
+		dedicated.skip_lobby_now = FALSE;
 }
 
 boolean dedicated_server_use_playlist(

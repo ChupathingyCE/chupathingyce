@@ -25,6 +25,9 @@ int delta_peer_game_role(void);
 void delta_peer_game_set_chat_host(const struct delta_peer_chat_host *host);
 /* what it relays (enum delta_chat_mode) and CHAT_CONFIG's flags */
 void delta_peer_game_set_chat_mode(int mode, int flags);
+/* the seconds a machine's chat pauses once it says too much too fast (0:
+none; delta_peer_set_chat_cooldown) */
+void delta_peer_game_set_chat_cooldown(int seconds);
 /* whether a machine takes lines of a kind (enum delta_chat_kind) */
 int delta_peer_game_chat_capable(int machine_index, int kind);
 /* a line to a machine: 1 if sent */

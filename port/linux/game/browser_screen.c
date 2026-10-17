@@ -72,6 +72,7 @@ the right button is B.
 #include "networking/network_game_globals.h"
 #include "networking/network_client_manager.h"
 #include "../src/browser.h"
+#include "../src/browser_ping.h"
 #include "../src/map_art.h"
 #include "../src/map_download.h"
 #include "../src/ui_overlay.h"
@@ -256,6 +257,29 @@ static short map_family(
 	return map_family_parse(path, NULL, 0);
 }
 
+/* the campaign's levels in the menus' words, for the co-op games the list
+shows (a level's scenario is its file's name) */
+static char const *const campaign_names[][2] =
+{
+	{ "a10", "The Pillar of Autumn" }, { "a30", "Halo" }, { "a50", "The Truth and Reconciliation" },
+	{ "b30", "The Silent Cartographer" }, { "b40", "Assault on the Control Room" }, { "c10", "343 Guilty Spark" },
+	{ "c20", "The Library" }, { "c40", "Two Betrayals" }, { "d20", "Keyes" }, { "d40", "The Maw" },
+};
+
+/* a campaign level's name from its file's, or NULL for a map that is not one */
+static char const *campaign_name(
+	char const *file)
+{
+	long index;
+
+	for (index = 0; index < NUMBEROF(campaign_names); index++)
+	{
+		if (!csstrcmp(file, campaign_names[index][0]))
+			return campaign_names[index][1];
+	}
+	return NULL;
+}
+
 /* a game's map as players name it: an Xbox map's name in the menus, or a
 Custom Edition map's as the menus' map list names it */
 static char const *map_display_name(
@@ -287,6 +311,8 @@ static char const *map_display_name(
 		if (!csstrcmp(file, map_names[index][0]))
 			return map_names[index][1];
 	}
+	if (campaign_name(file))
+		return campaign_name(file);
 	/* (the path's last part, as it was) */
 	snprintf(text, (size_t)size, "%s", file);
 	return text;
@@ -796,7 +822,8 @@ static long compare_games(
 	}
 	case SORT_TYPE: order = (long)a->engine * 2 + a->teams - ((long)b->engine * 2 + b->teams); break;
 	case SORT_PING:
-		order = a->ping == b->ping ? 0 : a->ping < 0 ? 1 : b->ping < 0 ? -1 : (long)a->ping - (long)b->ping;
+		/* (measured, then estimated, then none) */
+		order = browser_ping_order(a->ping, a->ping_estimated, b->ping, b->ping_estimated);
 		break;
 	default: order = (long)b->players - (long)a->players; break;
 	}
@@ -1044,6 +1071,55 @@ boolean browser_screen_open_map_offer(
 	csstrncpy(browser_screen.connecting_name, "the game", sizeof(browser_screen.connecting_name) - 1);
 	offer_map(browser_screen.offer_file, browser_screen.offer_version);
 	return TRUE;
+}
+
+/* the listed game an invite (its link, or the text around it) is for, if
+the game list knows it: its name and its map as players name it, for the
+clipboard's invite (invite_prompt.c) */
+boolean browser_screen_invite_game(
+	char const *link,
+	char *name,
+	long name_size,
+	char *map,
+	long map_size)
+{
+	static struct browser_game games[BROWSER_MAXIMUM_GAMES];
+	char invite[BROWSER_INVITE_LENGTH + 1];
+	char const *start = NULL;
+	char const *search;
+	long length = 0;
+	short count, index;
+
+	for (search = link; *search && !start; search++)
+	{
+		if (!_strnicmp(search, "halo://join/", 12))
+			start = search + 12;
+	}
+	if (!start)
+		return FALSE;
+	while (length < BROWSER_INVITE_LENGTH && ((start[length] >= '0' && start[length] <= '9') ||
+		((start[length] | 0x20) >= 'a' && (start[length] | 0x20) <= 'f')))
+	{
+		invite[length] = start[length];
+		length++;
+	}
+	invite[length] = 0;
+	if (length < BROWSER_INVITE_LENGTH)
+		return FALSE;
+	count = (short)browser_get_games(games, BROWSER_MAXIMUM_GAMES);
+	for (index = 0; index < count; index++)
+	{
+		if (strlen(games[index].invite) == BROWSER_INVITE_LENGTH &&
+			!_strnicmp(games[index].invite, invite, BROWSER_INVITE_LENGTH))
+		{
+			char text[64];
+
+			utf8_name(games[index].name, name, name_size);
+			snprintf(map, (size_t)map_size, "%s", map_display_name(games[index].map, text, sizeof(text)));
+			return TRUE;
+		}
+	}
+	return FALSE;
 }
 
 /* Y: a game of this machine's, as System Link's Y makes one (the new game's
@@ -1349,7 +1425,20 @@ static char const *type_name(
 	char *text,
 	long size)
 {
-	char const *engine = game->engine >= 0 && game->engine < NUMBEROF(engine_names) && engine_names[game->engine][0] ?
+	char const *engine;
+	static char const *const difficulties[] = { "Easy", "Normal", "Heroic", "Legendary" };
+	char file[BROWSER_MAP_LENGTH];
+
+	/* (a campaign level is co-op, whatever variant its host had chosen last) */
+	if (map_file(game->map, file, sizeof(file)) == _map_family_xbox && campaign_name(file))
+	{
+		if (game->difficulty >= 1 && game->difficulty <= NUMBEROF(difficulties))
+			snprintf(text, (size_t)size, "Co-op (%s)", difficulties[game->difficulty - 1]);
+		else
+			snprintf(text, (size_t)size, "Co-op");
+		return text;
+	}
+	engine = game->engine >= 0 && game->engine < NUMBEROF(engine_names) && engine_names[game->engine][0] ?
 		engine_names[game->engine] : "Game";
 
 	/* (Capture the Flag is played in teams alone) */
@@ -2184,11 +2273,12 @@ static void draw_row(
 	snprintf(text, sizeof(text), "%d/%d", game->players, game->maximum_players);
 	ui_overlay_text_glow(UI_FONT_MENU, ROW_SIZE, COLUMN_PLAYERS, text_y, UI_ALIGN_RIGHT,
 		game->open || picked ? color : COLOR_CLOSED, glow, text);
-	/* (the round trip, while the tunnel reaches the host: browser.c; nothing
-	for a host not reached, whose round trip nothing measures before joining) */
+	/* (the round trip: the tunnel's while it reaches the host, or a ping
+	before joining, browser.c; "~" before an estimate, from the host's region;
+	nothing where neither is known) */
 	if (game->ping >= 0)
 	{
-		snprintf(text, sizeof(text), "%d", game->ping);
+		snprintf(text, sizeof(text), game->ping_estimated ? "~%d" : "%d", game->ping);
 		ui_overlay_text_glow(UI_FONT_MENU, ROW_SIZE, COLUMN_PING, text_y, UI_ALIGN_RIGHT, color, glow, text);
 	}
 }

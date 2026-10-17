@@ -56,6 +56,11 @@ enum
 	OPEN_SETTLE = 400,
 	/* an analog button's press, out of 255 */
 	PRESS_THRESHOLD = 128,
+	/* a held direction: the first repeat waits this long, then it repeats
+	this often; a gap longer than the last is a new press (as in Online Games) */
+	STEP_FIRST_REPEAT_DELAY = 350,
+	STEP_REPEAT_INTERVAL = 110,
+	STEP_RELEASE_GAP = 150,
 };
 
 enum
@@ -234,6 +239,36 @@ static void act(
 }
 
 static void press(
+	short button);
+
+/* a direction held down: the event manager sends the d-pad's every frame
+while it's held, so the list moved a row a frame (more at a high frame rate).
+The first press moves at once; held, it waits, then repeats at a steady pace */
+static void held_press(
+	short button)
+{
+	static unsigned long last_event_time, last_press_time;
+	static short last_button;
+	static boolean repeating;
+	unsigned long now = system_milliseconds();
+
+	if (button != last_button || now - last_event_time > STEP_RELEASE_GAP)
+	{
+		press(button);
+		last_press_time = now;
+		repeating = FALSE;
+	}
+	else if (now - last_press_time >= (repeating ? STEP_REPEAT_INTERVAL : STEP_FIRST_REPEAT_DELAY))
+	{
+		press(button);
+		last_press_time = now;
+		repeating = TRUE;
+	}
+	last_button = button;
+	last_event_time = now;
+}
+
+static void press(
 	short button)
 {
 	struct delta_peer_game_moderation const *moderation = &moderation_screen.moderation;
@@ -388,17 +423,24 @@ void moderation_screen_process(
 	while (moderation_screen.active && get_next_event(&event, NONE))
 	{
 		if (event.type == MODERATION_EVENT_BUTTON)
-			press(event.data.button.index);
+		{
+			short button = event.data.button.index;
+
+			if (button >= _gamepad_binary_button_dpad_up && button <= _gamepad_binary_button_dpad_right)
+				held_press(button);
+			else
+				press(button);
+		}
 		else if (event.type == MODERATION_EVENT_LEFT_STICK)
 		{
 			if (event.data.stick.y == SHORT_MAX)
-				press(_gamepad_binary_button_dpad_up);
+				held_press(_gamepad_binary_button_dpad_up);
 			else if (event.data.stick.y == SHORT_MIN)
-				press(_gamepad_binary_button_dpad_down);
+				held_press(_gamepad_binary_button_dpad_down);
 			else if (event.data.stick.x == SHORT_MIN)
-				press(_gamepad_binary_button_dpad_left);
+				held_press(_gamepad_binary_button_dpad_left);
 			else if (event.data.stick.x == SHORT_MAX)
-				press(_gamepad_binary_button_dpad_right);
+				held_press(_gamepad_binary_button_dpad_right);
 		}
 	}
 	/* (the menu behind takes nothing while the screen is up) */

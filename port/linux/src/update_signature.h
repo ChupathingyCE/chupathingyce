@@ -19,6 +19,11 @@ for that platform:
 each line ending in a line feed. The signature (<zip>.sig, beside the zip in
 the release) is the Ed25519 signature of that text, as 128 hex digits.
 
+A release's list of its update files (updates.json: update_manifest.h) is
+signed as it is, its exact bytes, by the same key (updates.json.sig, 128 hex
+digits as well), as SHA256SUMS is: the list names each file's size and
+SHA-256, so its one signature covers them all.
+
 Only bytes, sizes and strings cross here.
 */
 
@@ -40,5 +45,10 @@ signature, by one of the build's keys, of the zip's text (above); if not,
 why in error */
 int update_signature_check(const unsigned char *zip, size_t zip_size, const char *asset, const char *version,
 	const char *signature_text, size_t signature_length, char *error, size_t error_size);
+
+/* whether signature_text is a signature, by one of the build's keys, of the
+document's exact bytes (a release's updates.json); if not, why in error */
+int update_signature_check_document(const unsigned char *document, size_t size, const char *signature_text,
+	size_t signature_length, char *error, size_t error_size);
 
 #endif

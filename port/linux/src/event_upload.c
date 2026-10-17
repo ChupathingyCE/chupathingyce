@@ -293,7 +293,8 @@ void event_upload_moderation_drain(void)
 
 int event_upload_enabled(void)
 {
-	return config_boolean("network.report_events") && config_string("network.browser_url")[0];
+	return config_boolean("network.report_events") && config_boolean("network.report_hosted_games") &&
+		config_string("network.browser_url")[0];
 }
 
 int event_upload_event_limit(void)

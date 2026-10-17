@@ -21,7 +21,7 @@ no files beside its guest image.
 
 The data are 32-bit words, not bytes: the Android build passes the guest's
 assembly through tools/android_asm_convert.py, which rewrites identifiers in
-operands and would garble a long .ascii string of binary data.
+operands (it keeps .ascii strings as they are, but once garbled them).
 """
 
 import json
@@ -49,9 +49,20 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 UI_FONTS = Path("port/linux/ui/fonts")
 UI_FONT_FILES = [UI_FONTS / name for name in ("NotoSans-Regular.ttf", "NotoSans-Bold.ttf", "input_xbox.ttf",
                                                "input_playstation.ttf", "input_nintendo.ttf", "input_keyboard.ttf")]
-# (then the menus' faces, which the text's fonts are too: Online Games is drawn
-# in them)
-UI_FONT_FILES += [FONT_ASSETS / name for name in ("Overpass-900.ttf", "Overpass-750.ttf", "OpenCE-Regular.ttf")]
+
+
+def role_font(role: str) -> str:
+    """The font file fonts.json gives the role ("large" or "small") first."""
+    for font in json.loads((ROOT / FONT_LIST).read_text())["fonts"]:
+        if font.get("role", "small") == role:
+            return font["file"]
+    raise SystemExit(f"{FONT_LIST}: no font for the {role} role")
+
+
+# (then the menus' faces, which the text's fonts are too, by their roles in
+# fonts.json: Online Games is drawn in them)
+UI_FONT_FILES += [FONT_ASSETS / role_font("large"), FONT_ASSETS / role_font("small"),
+                  FONT_ASSETS / "OpenCE-Regular.ttf"]
 # the controller's button icons the overlay's prompts draw (port/assets/prompts,
 # tools/prompt_assets.py), in ui_overlay.c's order: A, B, X, Y, Start, LT, RT,
 # LB, RB, Back
@@ -145,7 +156,7 @@ def ui_fonts_build(n: Any, prefix: str, output: Path, sln: Any) -> List[Path]:
         description=f"{prefix.upper()} EMBED $out",
     )
     n.build(outputs=output, rule=f"{prefix}_embed_fonts",
-            implicit=[Path("tools/embed_assets.py"), *UI_FONT_FILES, *PROMPT_ICONS])
+            implicit=[Path("tools/embed_assets.py"), FONT_LIST, *UI_FONT_FILES, *PROMPT_ICONS])
     return [output]
 
 
@@ -294,7 +305,9 @@ def main() -> None:
         index = files.index(font["file"])
         tag = font["tag"].replace("\\", "\\\\")
         size = (ROOT / FONT_ASSETS / font["file"]).stat().st_size
-        lines.append(f'\t{{ "{tag}", "{font["file"]}", font{index}, {size} }},')
+        role = font.get("role", "small")
+        width = float(font.get("width", 1.0))
+        lines.append(f'\t{{ "{tag}", "{font["file"]}", font{index}, {size}, "{role}", {width!r}f }},')
     if not fonts:
         lines.append("\t{ 0 },")
     lines.append("};")

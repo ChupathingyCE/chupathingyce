@@ -281,6 +281,195 @@ boolean input_abstraction_port_reload(
 		keyboard_controls[controller_index].reload_ticks != 0;
 }
 
+/* port: the button icons of the HUD's messages and of the menus' text
+(hud_messaging.c and ui_widget.c's hud_icon_type): the Xbox's buttons,
+then the game's controls, then accept, back, move and look */
+enum
+{
+	_port_icon_a_button,
+	_port_icon_b_button,
+	_port_icon_x_button,
+	_port_icon_y_button,
+	_port_icon_black_button,
+	_port_icon_white_button,
+	_port_icon_dpad_up = 8,
+	_port_icon_dpad_down,
+	_port_icon_dpad_left,
+	_port_icon_dpad_right,
+	_port_icon_start_button,
+	_port_icon_back_button,
+	_port_icon_left_stick = 16,
+	_port_icon_right_stick,
+	_port_icon_action,
+	_port_icon_zoom = 27,
+	_port_icon_accept,
+	_port_icon_back,
+	_port_icon_move,
+	_port_icon_look,
+};
+
+/* (the keyboard's action of each of the game's controls' icons, action to
+zoom) */
+static long const port_icon_keyboard_actions[_port_icon_zoom - _port_icon_action + 1] =
+{
+	HALO_KEYBOARD_ACTION,
+	HALO_KEYBOARD_THROW_GRENADE,
+	HALO_KEYBOARD_FIRE,
+	HALO_KEYBOARD_FLASHLIGHT,
+	HALO_KEYBOARD_JUMP,
+	HALO_KEYBOARD_MELEE,
+	HALO_KEYBOARD_SWITCH_WEAPON,
+	HALO_KEYBOARD_SWITCH_GRENADE,
+	HALO_KEYBOARD_CROUCH,
+	HALO_KEYBOARD_ZOOM,
+};
+
+/* the keyboard's action for one of the Xbox's buttons in a game: the game
+control the player's layout puts on it (Start pauses, Back the
+scoreboard), else NONE */
+static long port_icon_button_action(
+	short local_player_index,
+	short button)
+{
+	struct game_input_preferences preferences;
+	long control_index;
+
+	if (button == _port_icon_start_button)
+		return HALO_KEYBOARD_PAUSE;
+	if (button == _port_icon_back_button)
+		return HALO_KEYBOARD_SCOREBOARD;
+	input_abstraction_get_local_player_preferences(local_player_index, &preferences);
+	for (control_index = 0; control_index < NUMBER_OF_GAME_CONTROLS; control_index++)
+	{
+		if (preferences.game_control_to_xbox_buttons[control_index] == button &&
+			keyboard_game_controls[control_index] >= 0)
+		{
+			return keyboard_game_controls[control_index];
+		}
+	}
+	return NONE;
+}
+
+/* port: the keyboard's key for a button icon, "[E]", while the prompts
+show the keys (halo_keyboard_prompts: Halo PC's prompts, the keyboard or
+mouse used last), for the first player, whose controls they are; FALSE
+draws the controller's icon. The game's controls are their keys; the
+Xbox's buttons are the menus' keys in the menus (Enter accepts, Escape
+backs out: xinput_sdl.c's keyboard_gamepad), and in a game the key of the
+control the player's layout puts on them. */
+boolean input_abstraction_port_icon_key(
+	short local_player_index,
+	short icon_type,
+	boolean menus,
+	wchar_t *text,
+	long count)
+{
+	char shown[64] = "";
+	long action = NONE;
+	long index;
+
+	if (local_player_index == NONE)
+		local_player_index = 0;
+	if (local_player_index != 0 || count < 4 || !halo_keyboard_prompts())
+		return FALSE;
+	if (icon_type == _port_icon_accept)
+		icon_type = menus ? _port_icon_start_button : _port_icon_a_button;
+	else if (icon_type == _port_icon_back)
+		icon_type = _port_icon_b_button;
+	else if (icon_type == _port_icon_left_stick)
+		icon_type = _port_icon_move;
+	else if (icon_type == _port_icon_right_stick)
+		icon_type = _port_icon_look;
+
+	if (icon_type >= _port_icon_action && icon_type <= _port_icon_zoom)
+		action = port_icon_keyboard_actions[icon_type - _port_icon_action];
+	else if (icon_type == _port_icon_look)
+		csstrcpy(shown, "Mouse");
+	else if (icon_type == _port_icon_move)
+	{
+		/* (the four keys together, "WASD", where each is one letter; else
+		forward's) */
+		static long const moves[4] =
+			{ HALO_KEYBOARD_MOVE_FORWARD, HALO_KEYBOARD_STRAFE_LEFT, HALO_KEYBOARD_MOVE_BACKWARD, HALO_KEYBOARD_STRAFE_RIGHT };
+		char key[64];
+
+		for (index = 0; index < 4; index++)
+		{
+			if (!halo_keyboard_action_shown(moves[index], key, sizeof(key)) || key[1])
+				break;
+			shown[index] = key[0];
+			shown[index + 1] = 0;
+		}
+		if (index < 4)
+			action = HALO_KEYBOARD_MOVE_FORWARD;
+	}
+	else if (menus)
+	{
+		switch (icon_type)
+		{
+		case _port_icon_a_button: case _port_icon_start_button: csstrcpy(shown, "Enter"); break;
+		case _port_icon_b_button: csstrcpy(shown, "Backspace"); break;
+		case _port_icon_x_button: csstrcpy(shown, "E"); break;
+		case _port_icon_y_button: csstrcpy(shown, "Tab"); break;
+		case _port_icon_black_button: csstrcpy(shown, "C"); break;
+		case _port_icon_back_button: csstrcpy(shown, "F1"); break;
+		case _port_icon_dpad_up: csstrcpy(shown, "Up"); break;
+		case _port_icon_dpad_down: csstrcpy(shown, "Down"); break;
+		case _port_icon_dpad_left: csstrcpy(shown, "Left"); break;
+		case _port_icon_dpad_right: csstrcpy(shown, "Right"); break;
+		default: return FALSE;
+		}
+	}
+	else if (icon_type >= _port_icon_a_button && icon_type < _port_icon_left_stick)
+		action = port_icon_button_action(local_player_index, icon_type);
+	else
+		return FALSE;
+
+	if (action != NONE && !halo_keyboard_action_shown(action, shown, sizeof(shown)))
+		return FALSE;
+	if (!shown[0])
+		return FALSE;
+	text[0] = L'[';
+	for (index = 0; shown[index] && index < count - 3; index++)
+		text[index + 1] = (wchar_t)(unsigned char)shown[index];
+	text[index + 1] = L']';
+	text[index + 2] = 0;
+	return TRUE;
+}
+
+/* port: the keyboard's key for the multiplayer HUD's "Hold BACK for score"
+(game_engine.c): the word BACK becomes the scoreboard key while the
+prompts show the keys */
+void input_abstraction_port_back_word(
+	wchar_t *message,
+	long count)
+{
+	wchar_t key[40];
+	long start, length, key_length, index;
+
+	if (!message || !input_abstraction_port_icon_key(0, _port_icon_back_button, FALSE, key, NUMBEROF(key)))
+		return;
+	for (length = 0; message[length]; length++)
+		;
+	for (start = 0; start + 4 <= length; start++)
+	{
+		if (message[start] == L'B' && message[start + 1] == L'A' && message[start + 2] == L'C' &&
+			message[start + 3] == L'K')
+		{
+			break;
+		}
+	}
+	/* (the key without its brackets: the sentence names it) */
+	for (key_length = 0; key[key_length + 1] && key[key_length + 1] != L']'; key_length++)
+		;
+	if (start + 4 > length || length - 4 + key_length >= count)
+		return;
+	memmove(message + start + key_length, message + start + 4, (length - start - 4 + 1) * sizeof(wchar_t));
+	for (index = 0; index < key_length; index++)
+		message[start + index] = key[index + 1];
+	return;
+}
+
 /* port: whether the controller's player holds the keyboard's crouch key: a
 keyboard always moves at full speed, so it crouches while moving, as Halo
 PC's keyboard does (player_control.c) */
@@ -303,6 +492,24 @@ byte input_abstraction_port_accept(
 {
 	return controller_index >= 0 && controller_index < MAXIMUM_GAMEPADS ?
 		keyboard_controls[controller_index].ticks[_game_control_jump] : 0;
+}
+
+/* port: which way the controller's player cycles a dead player's follow
+camera (port/linux/game/follow_camera.c) on the keyboard: the flashlight key
+(Q) back, the action key (E) or switch weapons (Tab) on, as held this tick */
+short input_abstraction_port_follow_cycle(
+	short controller_index)
+{
+	byte const *ticks;
+
+	if (controller_index < 0 || controller_index >= MAXIMUM_GAMEPADS)
+		return 0;
+	ticks = keyboard_controls[controller_index].ticks;
+	if (ticks[_game_control_action] || ticks[_game_control_switch_weapons])
+		return 1;
+	if (ticks[_game_control_flashlight])
+		return -1;
+	return 0;
 }
 
 /* port: how far the controller's player pulls the fire control, which a

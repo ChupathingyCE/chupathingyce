@@ -4,12 +4,17 @@ build's debug.txt or halo.log (port/windows/src/win32_crash.c), or on the
 calls of a crash report as the site keeps it (halo.exe+0x1a2b3c, one a
 line: port/linux/src/crash_report.h):
 
-    python tools/symbolize_crash.py debug.txt path/to/halo.exe
+    python tools/symbolize_crash.py logs/debug.txt path/to/halo.exe
+
+(Both logs are in logs/ in the game's data folder since 0.8.0; before, debug.txt
+was in the data folder itself and halo.log beside halo.exe.)
 
 halo.exe must be the build that crashed (32- or 64-bit), with its halo.pdb
 beside it (a release's symbols, chupathingyce-<platform>-<config>-symbols,
 have the PDB and the linker's map; the release's zip has halo.exe). The
-lines come from llvm-symbolizer, which reads the PDB.
+lines come from llvm-symbolizer, which reads the PDB. The game's executable
+is read by either of its names, halo.exe or chupathingy.exe (a later
+release's), so reports from before and after the rename both work.
 """
 
 import argparse
@@ -20,12 +25,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+# the game's executable, by its names before and after the rename
+GAME_MODULE = r"(?:halo|chupathingy)\.exe"
 # the crash lines with an address in them (win32_crash.c's crash_filter)
-BASE = re.compile(r"crash: halo\.exe at (?:0x)?([0-9A-Fa-f]+)")
+BASE = re.compile(r"crash: " + GAME_MODULE + r" at (?:0x)?([0-9A-Fa-f]+)")
 EXCEPTION = re.compile(r"crash: exception \w+ at (?:0x)?([0-9A-Fa-f]+)")
 CALLER = re.compile(r"crash: called from (?:0x)?([0-9A-Fa-f]+)")
-# a crash report's call: an offset in halo.exe already
-FRAME = re.compile(r"\bhalo\.exe\+0x([0-9A-Fa-f]+)")
+# a crash report's call: an offset in the game's executable already
+FRAME = re.compile(r"\b" + GAME_MODULE + r"\+0x([0-9A-Fa-f]+)", re.IGNORECASE)
 ANY_FRAME = re.compile(r"[\w.?-]\+0x[0-9A-Fa-f]+")
 
 
@@ -59,8 +66,8 @@ def symbolize(symbolizer: str, executable: Path, addresses: list) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("log", type=Path, help="debug.txt or halo.log")
-    parser.add_argument("executable", type=Path, help="the halo.exe that crashed (halo.pdb beside it)")
+    parser.add_argument("log", type=Path, help="debug.txt or halo.log (chupathingy.log)")
+    parser.add_argument("executable", type=Path, help="the halo.exe (or chupathingy.exe) that crashed, its .pdb beside it")
     args = parser.parse_args()
 
     symbolizer = shutil.which("llvm-symbolizer") or shutil.which("llvm-addr2line")
@@ -109,7 +116,7 @@ def main() -> int:
             continue
         answer = answers.get(wanted[index])
         if not answer or answer[0] == "??":
-            print("        (not in halo.exe)")
+            print(f"        (not in {args.executable.name})")
             continue
         for function, location in zip(answer[0::2], answer[1::2]):
             print(f"        {function}  {location}")

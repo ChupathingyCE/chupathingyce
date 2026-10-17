@@ -30,7 +30,11 @@ Automated system link sessions for testing the netcode without the menus
   quits;
 - "offer:<name>[:<checksum>]" shows the Online Games screen's offer of that
   map over the main menu, as a join left for want of it does
-  (browser_screen_map_missing), for its panel to be seen and driven.
+  (browser_screen_map_missing), for its panel to be seen and driven;
+- "browse" opens the Online Games screen once the main menu is up, as the
+  Multiplayer menu's ONLINE GAMES does, and logs each listed game's ping
+  every few seconds (measured or estimated, never an address), for the
+  pings before joining to be seen.
 
 Once the game runs, every second each machine logs where every player's
 unit is, so the machines' views of the game can be compared.
@@ -75,6 +79,9 @@ Called from the main loop every frame (main.c).
 #include "cache/cache_files.h"
 #include "halo_map_families.h"
 #include "../src/map_download.h"
+#ifdef HALO_GAME_BROWSER
+#include "../src/browser.h"
+#endif
 
 #include <math.h>
 #include <stdarg.h>
@@ -107,6 +114,7 @@ enum
 	_network_test_download,
 	_network_test_offer,
 	_network_test_find,
+	_network_test_browse,
 };
 
 static struct
@@ -205,6 +213,10 @@ static void network_test_read_settings(
 	else if (!strcmp(setting, "join"))
 	{
 		network_test.mode = _network_test_join;
+	}
+	else if (!strcmp(setting, "browse"))
+	{
+		network_test.mode = _network_test_browse;
 	}
 	else if (!strncmp(setting, "find:", 5) && setting[5])
 	{
@@ -859,6 +871,45 @@ void network_test_update(
 				cache_files_map_version(map_name));
 			exit(0);
 		}
+		return;
+	}
+	if (network_test.mode == _network_test_browse)
+	{
+#ifdef HALO_GAME_BROWSER
+		if (main_menu_loaded)
+		{
+			void browser_screen_open(void);
+			boolean browser_screen_active(void);
+
+			network_test.menu_seconds += seconds;
+			if (!network_test.download_started && network_test.menu_seconds > 3.0f)
+			{
+				network_test.download_started = TRUE;
+				browser_screen_open();
+				platform_log("network test: browse: Online Games open");
+			}
+			/* (each game's ping, every 5 seconds: its name and number only) */
+			else if (network_test.download_started && browser_screen_active() &&
+				(long)(network_test.menu_seconds / 5.0f) != (long)((network_test.menu_seconds - seconds) / 5.0f))
+			{
+				struct browser_game games[16];
+				int count = browser_get_games(games, 16);
+				int index;
+
+				for (index = 0; index < count; index++)
+				{
+					char name[BROWSER_NAME_LENGTH + 1];
+					int character;
+
+					for (character = 0; character < BROWSER_NAME_LENGTH && games[index].name[character]; character++)
+						name[character] = games[index].name[character] < 127 ? (char)games[index].name[character] : '?';
+					name[character] = 0;
+					platform_log("network test: browse: %s ping %s%d", name, games[index].ping_estimated ? "~" : "",
+						games[index].ping);
+				}
+			}
+		}
+#endif
 		return;
 	}
 	if (network_test.mode == _network_test_offer)

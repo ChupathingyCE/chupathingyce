@@ -1585,6 +1585,22 @@ void hud_messaging_update(
 					case _hud_message_type_icon:
 						{
 							short icon_index = NONE;
+							wchar_t key_text[48];
+
+							/* port: the keyboard's key, "[E]", in place of the
+							controller's button while the keyboard or mouse was
+							used last (input_abstraction_port_icon_key) */
+							if (element->data <= _icon_look &&
+								input_abstraction_port_icon_key(
+									local_player_index,
+									element->data,
+									FALSE,
+									key_text,
+									NUMBEROF(key_text)))
+							{
+								render_state_text(&line_bounds, &line_cursor, key_text, FALSE);
+								break;
+							}
 
 							if (element->data > _icon_right_stick)
 							{
