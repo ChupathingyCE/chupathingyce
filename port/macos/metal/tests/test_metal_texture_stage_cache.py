@@ -156,10 +156,6 @@ static BOOL hud_hires_override_coverage(long index) { (void)index; return covera
 static BOOL hud_hires_override_point_threshold(long index) { (void)index; return threshold; }
 static gpu_texture text_hires_atlas_texture(DWORD data) { (void)data; result_checks++; return atlas; }
 static gpu_texture menu_art_texture(DWORD data, uint32_t *levels) { (void)data; *levels = 3; return menu; }
-static unsigned char custom_edition_texels_order(unsigned long address)
-{
-    (void)address; return _custom_edition_channels_xbox;
-}
 /* CACHE TYPES */
 static void texture_override_apply(struct texture_entry *entry, const D3DCOLOR *palette)
 {

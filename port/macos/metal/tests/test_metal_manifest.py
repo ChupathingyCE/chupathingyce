@@ -43,7 +43,9 @@ class ManifestTests(unittest.TestCase):
 
     def test_acknowledgement_is_not_reconciliation(self):
         manifest = copy.deepcopy(self.manifest)
-        entry = next(e for e in manifest.entries() if e.seen)
+        # (a fork with acknowledged drift, if none is: the manifest has none once reconciled)
+        entry = next(e for e in manifest.entries() if not e.identical and e.base)
+        entry.seen = "seen-blob"
         with patch.object(contract, "upstream_blob", return_value=entry.seen):
             found = next(d for d in contract.drift(manifest) if d.entry is entry)
             self.assertTrue(found.known)

@@ -860,14 +860,12 @@ static void texture_dump(gpu_texture texture, uint32_t type, const struct xgpu_t
 
 Halo PC keeps what some textures hold in other channels than the game reads
 it from (enum custom_edition_channel_order): a model shader's multipurpose
-masks, and a HUD meter's shape and fill order. The Custom Edition map
-loading says which texels hold which order as they arrive
-(port/linux/game/custom_edition_bitmaps.c), and textures made of them are
-sampled with each channel taken from where Halo PC keeps it. (port: gpu.h
-has no sampling swizzle, so such textures are decoded to BGRA and their
-channels moved on the CPU as they upload: see channels_reorder.) Addresses stay listed until other texels
-arrive there, which the loading also says, or the map goes; the game and the
-renderer share a thread. */
+masks (D3DCOMMON_PORT_PC_MULTIPURPOSE), and a HUD meter's shape and fill order
+(D3DCOMMON_PORT_PC_METER). The map loading flags such a texture's header
+(source/cache/xbox_texture_cache.c), and it is sampled with each channel taken
+from where Halo PC keeps it. (port: gpu.h has no sampling swizzle, so such
+textures are decoded to BGRA and their channels moved on the CPU as they
+upload: see channels_reorder.) */
 
 /* for each order, the channel (red, green, blue, alpha) of the texels each
 channel is sampled from */
@@ -879,76 +877,6 @@ static const unsigned char custom_edition_channel_sources[NUMBER_OF_CUSTOM_EDITI
 	/* the fill order in color, the shape in alpha */
 	{ 3, 3, 3, 0 },
 };
-
-struct custom_edition_texels
-{
-	unsigned long address;
-	unsigned char channel_order;
-};
-
-static struct custom_edition_texels *custom_edition_texels;
-static unsigned long custom_edition_texel_count;
-static unsigned long custom_edition_texel_capacity;
-
-/* the order of the texels at address */
-static unsigned char custom_edition_texels_order(unsigned long address)
-{
-	unsigned long index;
-
-	for (index = 0; index < custom_edition_texel_count; index++)
-	{
-		if (custom_edition_texels[index].address == address)
-			return custom_edition_texels[index].channel_order;
-	}
-	return _custom_edition_channels_xbox;
-}
-
-void halo_custom_edition_texels_channels(const void *texels, unsigned char channel_order)
-{
-	unsigned long address = (unsigned long)XBOX_ADDRESS(texels);
-	unsigned long index;
-
-	if (channel_order >= NUMBER_OF_CUSTOM_EDITION_CHANNEL_ORDERS)
-		channel_order = _custom_edition_channels_xbox;
-	for (index = 0; index < custom_edition_texel_count && custom_edition_texels[index].address != address; index++)
-	{
-	}
-	if (index < custom_edition_texel_count)
-	{
-		if (channel_order == _custom_edition_channels_xbox)
-			custom_edition_texels[index] = custom_edition_texels[--custom_edition_texel_count];
-		else
-			custom_edition_texels[index].channel_order = channel_order;
-	}
-	else if (channel_order != _custom_edition_channels_xbox)
-	{
-		if (custom_edition_texel_count == custom_edition_texel_capacity)
-		{
-			unsigned long capacity = custom_edition_texel_capacity ? custom_edition_texel_capacity * 2 : 64;
-			struct custom_edition_texels *grown = realloc(custom_edition_texels, capacity * sizeof(*grown));
-
-			if (!grown)
-			{
-				platform_log("no memory to list the texels at %08lx: they are sampled in Halo PC's channel order",
-					address);
-				return;
-			}
-			custom_edition_texels = grown;
-			custom_edition_texel_capacity = capacity;
-		}
-		custom_edition_texels[custom_edition_texel_count].address = address;
-		custom_edition_texels[custom_edition_texel_count].channel_order = channel_order;
-		custom_edition_texel_count++;
-	}
-}
-
-void halo_custom_edition_texels_forget(void)
-{
-	free(custom_edition_texels);
-	custom_edition_texels = NULL;
-	custom_edition_texel_count = 0;
-	custom_edition_texel_capacity = 0;
-}
 
 /* moves each texel's channels to where the game samples them (port: in place
 of upstream's GL_TEXTURE_SWIZZLE_*); texels are 32-bit ARGB words */
@@ -1608,10 +1536,10 @@ static gpu_texture texture_get(const DWORD *resource, const D3DCOLOR *palette, u
 		{
 			/* (a Halo PC HUD meter's fill order sampled as the color and its
 			shape as alpha; a multipurpose map's masks where the model shaders
-			read them: the texture's own flags, else what the map loading said) */
+			read them: the texture's own flags) */
 			unsigned char channel_order = entry->description.pc_meter ? _custom_edition_channels_hud_meter :
 				entry->description.pc_multipurpose ? _custom_edition_channels_multipurpose :
-				custom_edition_texels_order(entry->address);
+				_custom_edition_channels_xbox;
 
 			/* texels in a Custom Edition channel order are decoded and
 			reordered on upload (channels_reorder), so a block-compressed
