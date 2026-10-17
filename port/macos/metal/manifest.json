@@ -13,7 +13,7 @@
     "d3d8_gl.c": {
       "with": "xbox_compat/xbox_device.c",
       "base": "f8bbcefe06a842f095203b998f63f7999b9d25b2",
-      "seen": "4a2a43c4751b706e3f522e5684eed6ca8858be4f",
+      "seen": "8ad37dd499ae899e069d5b5422351712f1b551a7",
       "why": "The Xbox D3D8 device: the same D3DDevice_* entry points, translated to the Metal backend (renderer/gpu.h) instead of OpenGL."
     },
     "d3d8_resources.c": {
@@ -52,7 +52,7 @@
     },
     "port_config.c": {
       "with": "platform/port_config.c",
-      "base": "ac34a27a4227a91f5e861d0baf47c299117b1b8d",
+      "base": "660a2f1eb25b8287bb7de45568e60633e80c3f3a",
       "upstream_base": "edfd05deca4af0a3a0f6dcc5985c7d6eea23cbc3",
       "why": "The Metal renderer's settings (debug.metal_*, display.* that only Metal reads)."
     },
