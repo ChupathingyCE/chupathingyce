@@ -935,6 +935,8 @@ void weapon_set_total_rounds(
 void weapon_delete(
 	long weapon_index)
 {
+	/* port: release MCC first-person references before the object disappears. */
+	mcc_first_person_weapon_deleted(weapon_index);
 	/* port: not for a Custom Edition map's (objects.c, object_delete), nor
 	a client's copy of the host's flag or ball, deleted on the host's word
 	(objects.c's object_delete_initial_recursive) */
