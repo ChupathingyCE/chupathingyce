@@ -23,9 +23,13 @@ pregame lobby.
   the new team from the unit the host spawns them with
   (network_player_attach_unit): the game protocol is unchanged, and other
   machines see only a death and a respawn.
-- **Round-based game types** (Bomb: team_change_waits_for_respawn) let the
-  round play out: the change is made at the player's next death, and they
-  respawn on the new team.
+- **Round-based game types** (Bomb, Grifball, Open Pitch:
+  team_change_waits_for_respawn) let the round play out: the change is made
+  at the player's next death, or as the next round starts (the host kills
+  the unit then, as nobody's kill, and they start the round on the new
+  team's end), whichever comes first. A carrier keeps the bomb for their own
+  team until then: their death drops it, and a new round takes it back
+  first.
 
 A player already dead (waiting to respawn) changes at once.
 */
@@ -78,6 +82,8 @@ struct team_change_player
 	short team;
 	/* the host killed the player's unit for it: its death is the change's */
 	boolean killing;
+	/* ... as a round started: the player respawns at once */
+	boolean round_start;
 	/* the game time of the last change (NONE: none yet) */
 	long last_time;
 };
@@ -144,11 +150,15 @@ int team_change_host_margin(void)
 	return (int)(margin < 0 ? 0 : margin > TEAM_CHANGE_MAXIMUM_MARGIN ? TEAM_CHANGE_MAXIMUM_MARGIN : margin);
 }
 
-/* whether a change waits for the player's next death, so a round plays
-out (a round-based game type's: Bomb's, once it is in) */
+/* whether a change waits for the player's next death or the next round,
+so a round plays out (a round-based game type's: Bomb's) */
 static boolean team_change_waits_for_respawn(void)
 {
+#ifdef HALO_GAME_BROWSER
+	return game_engine_bomb_rounds();
+#else
 	return FALSE;
+#endif
 }
 
 /* ---------- the host's */
@@ -249,6 +259,7 @@ static int team_change_decide(long player_index, short team, boolean forced, sho
 	{
 		change->waiting = FALSE;
 		change->killing = FALSE;
+		change->round_start = FALSE;
 		return _delta_team_changed;
 	}
 	if (player->unit_index != NONE && team_change_waits_for_respawn())
@@ -289,10 +300,32 @@ void team_change_player_died(long dead_player_index)
 
 	if (!change || !change->waiting || !player || !global_network_game_server_get())
 		return;
+	if (change->round_start && player->respawn_timer > 1)
+		player->respawn_timer = 1;
 	change->waiting = FALSE;
 	change->killing = FALSE;
+	change->round_start = FALSE;
 	if (!player->quit_out_of_game && VALID_INDEX(change->team, 2) && game_engine_has_teams())
 		team_change_apply(dead_player_index, change->team);
+}
+
+boolean team_change_round_started(long player_index)
+{
+	struct team_change_player *change = change_of(player_index);
+	struct player_datum *player = player_try_and_get(player_index);
+
+	if (!change || !change->waiting || change->killing || !player || player->unit_index == NONE ||
+		!global_network_game_server_get())
+	{
+		return FALSE;
+	}
+	/* (its death, at the unit's next update, makes the change) */
+	change->killing = TRUE;
+	change->round_start = TRUE;
+	unit_kill_no_statistics(player->unit_index);
+	platform_log("team change: player %ld changes to the %s team as the round starts",
+		(long)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index), change->team ? "blue" : "red");
+	return TRUE;
 }
 
 int team_change_move(long list_index, short team, char *text, int size)
@@ -484,6 +517,7 @@ void team_change_update(void)
 		{
 			team_change.players[index].waiting = FALSE;
 			team_change.players[index].killing = FALSE;
+			team_change.players[index].round_start = FALSE;
 			team_change.players[index].last_time = NONE;
 		}
 		team_change.asked = FALSE;

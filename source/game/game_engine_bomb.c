@@ -265,6 +265,8 @@ boolean network_distributed_death_silent(long dead_player_index);
 void network_damage_host_kill_for_player(long object_index, long player_index);
 /* damage.c's */
 void damage_kill_object_no_statistics(long object_index);
+/* port/linux/game/team_change.c's */
+boolean team_change_round_started(long player_index);
 
 static void bomb_show_score(long player_index, long team_index);
 static void bomb_show_carry(long player_index);
@@ -954,6 +956,10 @@ static void bomb_start_round(boolean timed_out)
 	{
 		short team = VALID_INDEX(player->team_index, NUMBER_OF_BOMB_TEAMS) ? (short)player->team_index : 0;
 
+		/* (a team change waiting for the round: the player starts it on the
+		new team's end instead, the bomb already out of their hands) */
+		if (team_change_round_started(iterator.datum_index))
+			continue;
 		bomb_send_home(iterator.datum_index, counts[team]++);
 	}
 	bomb_events.rounds++;
@@ -2477,6 +2483,12 @@ long game_engine_bomb_countdown(
 }
 
 /* whether no one spawns now (the blast's pause, before the next round) */
+boolean game_engine_bomb_rounds(
+	void)
+{
+	return bomb_running();
+}
+
 boolean game_engine_bomb_holds_spawns(
 	void)
 {

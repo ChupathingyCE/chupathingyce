@@ -99,6 +99,12 @@ stand). A goal scores a round. The first team to the score limit wins.
   and white on every machine. It has the carrier's traits (below).
 - **Spawns.** Team starting locations, the ones nearest the team's own goal
   rated highest.
+- **Changing teams** (the pause menu's CHANGE TEAMS, `sv_team`:
+  [delta.md](delta.md), Team changes) waits for the player's next death or
+  the next round, whichever comes first: at the round's start the host
+  kills a waiting player's unit as nobody's kill (nothing counted) and they
+  respawn at once at the new team's end. A carrier carries for their own
+  team until then. No change leaves a team without players.
 - **Statistics.** A player's goals and carries are kept in
   `ctf_statistics` (`flag_scores`, `flag_grabs`), so the carnage report
   works as it is. The report gives them under Bomb's own names (see

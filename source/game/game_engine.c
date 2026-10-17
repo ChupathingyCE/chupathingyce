@@ -4692,6 +4692,10 @@ void game_engine_player_killed(
 	{
 		dead_player->death_time = game_time_get();
 		dead_player->respawn_timer = game_engine_bomb_silent_respawn_ticks();
+		/* (a team change waiting for the death: the player respawns on the
+		new team, team_change.c) */
+		if (!network_game_distributed_client())
+			team_change_player_died(dead_player_index);
 		return;
 	}
 #endif

@@ -506,8 +506,12 @@ ask goes over Delta Peer and the change itself through the game:
   OpenCE's too, takes the player's team from the unit the host spawns them
   with, so the result reaches everyone through the unchanged game protocol;
   other machines see a death of no killer ("died") and the respawn. A
-  player already dead changes at once. In a round-based game type (Bomb)
-  the change waits for the player's next death, so the round plays out.
+  player already dead changes at once. In a round-based game type (Bomb,
+  Grifball, Open Pitch) the change waits for the player's next death or the
+  next round, whichever comes first, so the round plays out: as a round
+  starts the host kills a waiting player's unit as nobody's kill, and they
+  start the round on the new team. A bomb carrier keeps the bomb for their
+  own team until then (their death drops it; a new round takes it back).
 
 The game's side is `port/linux/game/team_change.c`, its pause menu row in
 all the menu sets (`port/linux/game/menu_tags.c`), and the dedicated
