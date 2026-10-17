@@ -55,6 +55,8 @@ int platform_audio_device_names(char const **names, int maximum);
 
 /* the game's network server (this machine hosts: network_game_globals.c) */
 void *global_network_game_server_get(void);
+/* whether the pause menu has CHANGE TEAMS (team_change.c) */
+boolean team_change_pause_offered(void);
 
 /* cache_files.c's (port) */
 void *cache_files_tag_instances(long *count);
@@ -85,9 +87,9 @@ adds to */
 #define MULTIPLAYER_COLLECTION "ui\\shell\\multiplayer"
 /* a campaign map's pause screen, which pause_patch adds to */
 #define SOLO_PAUSE_SCREEN "ui\\shell\\solo_game\\pause_game\\pause_game"
-/* the tags pause_patch adds: two buttons and their texts, and the tops of
+/* the tags pause_patch adds: three buttons and their texts, and the tops of
 the stock box's pieces (the campaign's has six) */
-#define PAUSE_PATCH_TAGS (4 + 2 * 6)
+#define PAUSE_PATCH_TAGS (6 + 2 * 6)
 /* what a frame of ui.map's is drawn as in a game map, which has not got it */
 #define BLANK_PNG "ce/port/blank__0.png"
 #define UI_WIDGET_DEFINITION_TAG 'DeLa'
@@ -370,6 +372,7 @@ static char const *const port_function_names[] =
 	"port setup edit",
 	"port map list back",
 	"port pause end game",
+	"port pause change teams",
 	"port coop begin", "port coop player 2 list initialize", "port coop player 2",
 	"port lobby open", "port lobby add player", "port lobby join", "port lobby leave",
 	"port lobby player list initialize", "port lobby player choose",
@@ -1457,7 +1460,10 @@ static void menu_tags_release(void)
 Their list gets SETTINGS after RESUME GAME, the menus' settings (as the
 main menu's SETTINGS opens them), and a multiplayer map's, for the host,
 END GAME after it, which ends the game as its time limit would: its players
-stay, and the host picks the next map after the carnage report. They are
+stay, and the host picks the next map after the carnage report. A team
+game's gets CHANGE TEAMS right after RESUME GAME, as Halo PC's had it: the
+player asks the host to put them on the other team, and the menu closes
+(team_change.c). They are
 copies of RESUME GAME (its look), the rows after them moved down. The map's
 pause screens grow to fit them: on the Xbox's own (its box of pausebox2
 pieces, and the campaign's objectives box beside it), the box is drawn as
@@ -1550,9 +1556,9 @@ static long pause_quit_button(struct ui_widget_definition const *list, long quit
 
 /* a button like the model (its look), its own text, each of the model's
 events (its A and Start) running the function and opening the widget (if
-not NONE) */
+not NONE), or closing the menu (close) */
 static void *pause_button(struct cache_file_tag_instance *instances, struct ui_widget_definition const *model,
-	char const *name, char const *text, long function, long widget_tag)
+	char const *name, char const *text, long function, long widget_tag, boolean close)
 {
 	struct ui_widget_definition *button = allocate(sizeof(*button));
 	struct ui_widget_event_handler_reference *handlers =
@@ -1573,6 +1579,8 @@ static void *pause_button(struct cache_file_tag_instance *instances, struct ui_w
 	for (handler = 0; handler < model->event_handlers.count; handler++)
 	{
 		handlers[handler].flags = FLAG(_event_handler_run_function_bit);
+		if (close)
+			handlers[handler].flags |= FLAG(_event_handler_close_all_widgets_bit);
 		handlers[handler].function = (short)function;
 		handlers[handler].script[0] = 0;
 		reference_set(&handlers[handler].widget_tag, UI_WIDGET_DEFINITION_TAG, widget_tag);
@@ -1586,40 +1594,49 @@ static void *pause_button(struct cache_file_tag_instance *instances, struct ui_w
 	return button;
 }
 
-/* the list's buttons: SETTINGS (Gearbox's menus: settings) and the host's
-END GAME (end_game) put after RESUME GAME (resume), the rows after them
-moved down; returns how far the list grew, 0 if it was not */
+/* the list's buttons: a team game's CHANGE TEAMS (change_teams), SETTINGS
+(Gearbox's menus: settings) and the host's END GAME (end_game) put after
+RESUME GAME (resume), the rows after them moved down; returns how far the
+list grew, 0 if it was not */
 static short pause_list_patch(struct cache_file_tag_instance *instances, struct ui_widget_definition *list, long resume,
-	boolean settings, boolean end_game)
+	boolean change_teams, boolean settings, boolean end_game)
 {
 	struct ui_widget_child_reference *children = xbox_pointer(list->child_widgets.address);
-	long count = list->child_widgets.count, added = (settings != FALSE) + (end_game != FALSE), child;
+	long count = list->child_widgets.count, child;
+	long added = (change_teams != FALSE) + (settings != FALSE) + (end_game != FALSE);
 	struct ui_widget_child_reference *grown = allocate((count + added) * sizeof(struct ui_widget_child_reference));
 	struct ui_widget_definition const *model = tag_get(UI_WIDGET_DEFINITION_TAG, children[resume].widget_tag.index);
 	long settings_widget = !settings ? NONE :
 		widget_named(menus_chosen() == _menus_chupathingy ? PAUSE_SETTINGS_SCREEN_CHUPATHINGY : PAUSE_SETTINGS_SCREEN);
 	short spacing = count >= 2 ? (short)(children[count - 1].vertical_offset - children[count - 2].vertical_offset) :
 		PAUSE_BUTTON_SPACING;
-	void *buttons[2];
-	long tags[2];
-	char const *names[2];
+	void *buttons[3];
+	long tags[3];
+	char const *names[3];
 
 	if (!grown || !added || (settings && settings_widget == NONE) || spacing <= 0)
 		return 0;
 	added = 0;
+	if (change_teams)
+	{
+		names[added] = "pause/change_teams_button";
+		tags[added] = next_tag();
+		buttons[added++] = pause_button(instances, model, "pause/change_teams_button", "CHANGE TEAMS",
+			function_index("port pause change teams", "pause", 0), NONE, TRUE);
+	}
 	if (settings)
 	{
 		names[added] = "pause/settings_button";
 		tags[added] = next_tag();
 		buttons[added++] = pause_button(instances, model, "pause/settings_button", "SETTINGS",
-			function_index("profile set edit begin", "pause", 0), build.widget_tags[settings_widget]);
+			function_index("profile set edit begin", "pause", 0), build.widget_tags[settings_widget], FALSE);
 	}
 	if (end_game)
 	{
 		names[added] = "pause/end_game_button";
 		tags[added] = next_tag();
 		buttons[added++] = pause_button(instances, model, "pause/end_game_button", "END GAME",
-			function_index("port pause end game", "pause", 0), NONE);
+			function_index("port pause end game", "pause", 0), NONE, FALSE);
 	}
 	for (child = 0; child < added; child++)
 	{
@@ -1754,7 +1771,7 @@ static void pause_box_grow(struct cache_file_tag_instance *instances, struct ui_
 the one running quit_function (a custom map's), patched
 once (the screens share it), and the screen moved to fit it */
 static void pause_screen_patch(struct cache_file_tag_instance *instances, long screen_tag, long quit_function,
-	boolean settings, boolean end_game, long *patched_list, short *grow, boolean *box_grown)
+	boolean change_teams, boolean settings, boolean end_game, long *patched_list, short *grow, boolean *box_grown)
 {
 	struct ui_widget_definition *definition = tag_get(UI_WIDGET_DEFINITION_TAG, screen_tag);
 	struct ui_widget_child_reference *children = xbox_pointer(definition->child_widgets.address);
@@ -1782,7 +1799,7 @@ static void pause_screen_patch(struct cache_file_tag_instance *instances, long s
 			resume--;
 		if (resume < 0 || resume == NONE || *patched_list != NONE)
 			continue;
-		*grow = pause_list_patch(instances, candidate, resume, settings, end_game);
+		*grow = pause_list_patch(instances, candidate, resume, change_teams, settings, end_game);
 		if (!*grow)
 			return;
 		*patched_list = children[child].widget_tag.index;
@@ -1839,14 +1856,15 @@ static void pause_screen_patch(struct cache_file_tag_instance *instances, long s
 	}
 }
 
-/* settings: Gearbox's menus' SETTINGS too (the Xbox's menus have only the
-host's END GAME) */
+/* settings: Gearbox's menus' SETTINGS too (the Xbox's menus have only a
+team game's CHANGE TEAMS and the host's END GAME) */
 static void pause_patch(struct cache_file_tag_instance *instances, boolean settings)
 {
 	long collection = tag_loaded('Soul', MULTIPLAYER_COLLECTION);
 	long solo_screen = tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_PAUSE_SCREEN);
 	long quit_function = ui_function_named("mp game player quit");
 	boolean host = global_network_game_server_get() != NULL;
+	boolean change_teams = solo_screen == NONE && team_change_pause_offered();
 	long patched_list = NONE;
 	boolean box_grown = FALSE;
 	short grow = 0;
@@ -1856,7 +1874,7 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 	if (solo_screen != NONE)
 	{
 		if (settings)
-			pause_screen_patch(instances, solo_screen, NONE, TRUE, FALSE, &patched_list, &grow, &box_grown);
+			pause_screen_patch(instances, solo_screen, NONE, FALSE, TRUE, FALSE, &patched_list, &grow, &box_grown);
 	}
 	else if (collection != NONE)
 	{
@@ -1868,19 +1886,22 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 			long screen_tag = XBOX_POINTER(struct tag_reference const, screens->address)[screen].index;
 
 			if (screen_tag != NONE)
-				pause_screen_patch(instances, screen_tag, quit_function, settings, host, &patched_list, &grow, &box_grown);
+			{
+				pause_screen_patch(instances, screen_tag, quit_function, change_teams, settings, host, &patched_list, &grow,
+					&box_grown);
+			}
 		}
 	}
 	if (patched_list != NONE)
 	{
-		platform_log("menus: the pause menu has %s", !settings ? "END GAME" :
-			host && solo_screen == NONE ? "SETTINGS and END GAME" : "SETTINGS");
+		platform_log("menus: the pause menu has%s%s%s", change_teams ? " CHANGE TEAMS" : "", settings ? " SETTINGS" : "",
+			host && solo_screen == NONE ? " END GAME" : "");
 	}
 }
 
-/* the Xbox's menus: a multiplayer map's pause menu gets the host's END GAME
-alone (its own tags, as the Gearbox menus' pause_patch makes them; let go
-by menu_tags_unloaded) */
+/* the Xbox's menus: a multiplayer map's pause menu gets a team game's CHANGE
+TEAMS and the host's END GAME alone (its own tags, as the Gearbox menus'
+pause_patch makes them; let go by menu_tags_unloaded) */
 static void pause_patch_xbox(void)
 {
 	struct cache_file_tag_instance *instances;
@@ -1912,7 +1933,7 @@ static void pause_patch_xbox(void)
 	pause_patch(instances, FALSE);
 	if (build.failed)
 	{
-		platform_log("menus: the pause menu's END GAME not added");
+		platform_log("menus: the pause menu's buttons not added");
 		menu_tags_release();
 	}
 	else
@@ -1970,11 +1991,12 @@ void menu_tags_loaded(
 	{
 		return;
 	}
-	/* the Xbox's menus: only a multiplayer game's host's END GAME */
+	/* the Xbox's menus: only a multiplayer game's CHANGE TEAMS and the host's
+	END GAME */
 	if (menus_chosen() == _menus_xbox)
 	{
 		if (game_map && tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_PAUSE_SCREEN) == NONE &&
-			global_network_game_server_get() != NULL)
+			(global_network_game_server_get() != NULL || team_change_pause_offered()))
 		{
 			pause_patch_xbox();
 		}

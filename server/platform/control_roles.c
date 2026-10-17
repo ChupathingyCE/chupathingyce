@@ -125,6 +125,8 @@ static const struct command_permission command_permissions[] =
 	{ "sv_mute", CONTROL_PERMISSION_WARN, 1, 0 },
 	{ "sv_unmute", CONTROL_PERMISSION_WARN, 1, 0 },
 	{ "sv_kick", CONTROL_PERMISSION_KICK, 1, 0 },
+	/* (moving a player to a team: a kick's say over who plays where) */
+	{ "sv_team", CONTROL_PERMISSION_KICK, 1, 0 },
 	/* (sv_ban: BAN_TIMED or BAN by its duration, below) */
 	{ "sv_ban", CONTROL_PERMISSION_BAN, 1, 0 },
 	{ "sv_unban", CONTROL_PERMISSION_UNBAN, 1, 0 },

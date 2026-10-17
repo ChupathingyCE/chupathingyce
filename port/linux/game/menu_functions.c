@@ -4497,6 +4497,19 @@ static boolean pause_end_game(void)
 	return TRUE;
 }
 
+/* "port pause change teams" (a team game's pause menu's CHANGE TEAMS, Halo
+PC's): the menu's player asks to be put on the other team (team_change.c,
+which tells them what came of it); the menu closes either way */
+static boolean pause_change_teams(struct widget_instance *widget)
+{
+	extern boolean team_change_ask(short local_player_index);
+
+	if (!game_engine_running())
+		return campaign_fail();
+	team_change_ask(widget->local_player_index);
+	return TRUE;
+}
+
 /* ---- the lobby: the game's players (up to the port's 128), its map and
 gametype, the countdown */
 
@@ -5885,6 +5898,10 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port pause end game"))
 		{
 			return pause_end_game();
+		}
+		else if (!strcmp(name, "port pause change teams"))
+		{
+			return pause_change_teams(widget);
 		}
 		else if (!strcmp(name, "player profile save changes"))
 		{

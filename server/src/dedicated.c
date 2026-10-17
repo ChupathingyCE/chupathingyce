@@ -82,6 +82,8 @@ void chat_host_set(int mode, int filter);
 void chat_host_set_cooldown(int seconds);
 void chat_host_set_welcome(char const *text);
 #endif
+/* (team changes', port/linux/game/team_change.h: 0 off, 1 balanced, 2 allow) */
+void team_change_host_set(int policy, int margin);
 
 enum
 {
@@ -461,6 +463,35 @@ static void initialize(
 			error(_error_silent, "dedicated: a welcome message for each Chupathingy player");
 	}
 #endif
+	/* players changing teams during a game: balanced (within 1) unless set;
+	the environment's as a word or a number */
+	{
+		char const *value = getenv("HALO_DEDICATED_TEAM_CHANGE");
+		long policy = settings.set[SERVER_SETTING_TEAM_CHANGE] ? settings.values[SERVER_SETTING_TEAM_CHANGE] : 1;
+		long margin = setting_number("HALO_DEDICATED_TEAM_CHANGE_MARGIN", &settings, SERVER_SETTING_TEAM_CHANGE_MARGIN,
+			1);
+
+		if (value && value[0])
+		{
+			policy = !_stricmp(value, "off") || !strcmp(value, "0") ? 0 : !_stricmp(value, "allow") ||
+				!strcmp(value, "2") ? 2 : 1;
+			if (_stricmp(value, "off") && _stricmp(value, "balanced") && _stricmp(value, "allow") &&
+				strcmp(value, "0") && strcmp(value, "1") && strcmp(value, "2"))
+			{
+				error(_error_silent, "dedicated: HALO_DEDICATED_TEAM_CHANGE \"%s\" is not allow, balanced or off: "
+					"balanced", value);
+			}
+		}
+		if (policy < 0 || policy > 2)
+			policy = 1;
+		if (margin < 0)
+			margin = 0;
+		if (margin > SERVER_SETTINGS_MAXIMUM_TEAM_CHANGE_MARGIN)
+			margin = SERVER_SETTINGS_MAXIMUM_TEAM_CHANGE_MARGIN;
+		team_change_host_set((int)policy, (int)margin);
+		error(_error_silent, "dedicated: team changes during a game %s", policy == 0 ? "off" : policy == 2 ? "allowed" :
+			"while the teams stay balanced");
+	}
 	dedicated.active = dedicated.entry_count > 0;
 }
 

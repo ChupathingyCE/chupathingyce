@@ -19,6 +19,8 @@ the file.
 | `HALO_DEDICATED_CHAT` | `2` | Text chat between ChupathingyCE players: `2` on, `1` team lines alone, `0` off (`sv_chat` sets it; the environment wins over the settings file). |
 | `HALO_DEDICATED_CHAT_FILTER` | `true` | A chat line with a word of `blocked_names.txt`'s list (the game has it built in) is not passed on; its sender's game says "Not sent: blocked words". Nobody is kicked. |
 | `HALO_DEDICATED_CHAT_COOLDOWN` | `5` | Once a player says lines faster than the chat allows (1 a second, 3 at once), their chat pauses for this many seconds and their game says "Chat paused for 5 seconds" (an older game says "Not sent: slow down"). `0`: no pause, each line past the limit is refused alone. Up to 600. |
+| `HALO_DEDICATED_TEAM_CHANGE` | `balanced` | Players changing teams during a team game (the pause menu's CHANGE TEAMS, [below](#team-changes)): `balanced`, `allow` or `off` (`1`, `2` or `0`; the settings file's `team_change`). |
+| `HALO_DEDICATED_TEAM_CHANGE_MARGIN` | `1` | With `balanced`, the most players one team may have over the other after a change, 0 to 16 (`team_change_margin`). |
 | `HALO_DEDICATED_WELCOME` | (none) | A welcome: a server message each Chupathingy player gets in their chat as they join, up to 127 printable ASCII characters (`sv_welcome` sets it). OpenCE players do not see it. |
 | `HALO_DEDICATED_POSTGAME_SECONDS` | `20` | How long the carnage report shows after each game before the next game's lobby, 0 to 300 seconds. |
 | `HALO_DEDICATED_SKIP_LOBBY` | `false` | `true`: after the carnage report, if enough players stayed (`HALO_DEDICATED_MINIMUM_PLAYERS`, and teams as the game needs), the next game starts after a 3-second countdown instead of waiting out the lobby's. Otherwise the lobby opens as always. |
@@ -35,8 +37,9 @@ the file.
 The settings file's keys (`sv_settings` lists them, with where each value
 comes from): `name`, `maximum_players`, `minimum_players`, `idle_limit`,
 `public` (from the next start), `name_filter`, `chat`, `chat_filter`,
-`welcome`, `postgame_seconds`, `skip_lobby`, `chat_cooldown`, and the
-playlist `sv_playlist_use` chose. `sv_set welcome Hello and welcome` takes
+`welcome`, `postgame_seconds`, `skip_lobby`, `chat_cooldown`, `team_change`
+(0 off, 1 balanced, 2 allow), `team_change_margin`, and the playlist
+`sv_playlist_use` chose. `sv_set welcome Hello and welcome` takes
 the rest of the line as the value (quotes optional).
 
 ## Text chat
@@ -47,6 +50,27 @@ filter) and passes it to everyone, or to the speaker's team. It writes
 nothing of what is said: not to the log, not to the audit file. What it
 does write is the admins' own: `sv_say`'s messages and each mute, in the
 audit file. OpenCE players are never sent a line and never say one.
+
+## Team changes
+
+In a team game a ChupathingyCE player can change teams from the pause menu
+(CHANGE TEAMS, as on Halo PC). Their game asks the server over Delta Peer
+([docs/delta.md](../../docs/delta.md#team-changes)) and the server decides:
+
+- `balanced` (the default): only when neither team ends up more than
+  `HALO_DEDICATED_TEAM_CHANGE_MARGIN` players (1) bigger than the other.
+- `allow`: any change. `off`: none (only `sv_team` moves players).
+- A player changes at most once every 10 seconds, and never leaves a team
+  empty while others play (a team game with everyone on one team is over).
+
+The player's unit dies as nobody's kill: no death, suicide or betrayal is
+counted, no respawn penalty is added, their score stays theirs and the team
+scores stay as they are. They respawn on the new team after the game type's
+respawn time. Everyone in the game, OpenCE players too, sees the player on
+the new team from their respawn: the game protocol is unchanged, and OpenCE
+players see only a death and a respawn. OpenCE players cannot ask to change
+teams. `sv_team <player> <red|blue>` (the control panel's To Red and To
+Blue) moves a player whatever the setting says.
 
 ## Blocked names
 

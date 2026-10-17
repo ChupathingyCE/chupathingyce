@@ -229,6 +229,10 @@ const struct server_setting server_settings_table[SERVER_SETTINGS] =
 		"The next game starts right after the carnage report when enough players stayed" },
 	{ "chat_cooldown", SERVER_FIELD_INTEGER, 0, SERVER_SETTINGS_MAXIMUM_CHAT_COOLDOWN, "HALO_DEDICATED_CHAT_COOLDOWN",
 		"Seconds a player's chat pauses after they say too much too fast (0: no pause)" },
+	{ "team_change", SERVER_FIELD_INTEGER, 0, 2, "HALO_DEDICATED_TEAM_CHANGE",
+		"Players changing teams during a game: 0 off, 1 balanced, 2 allow" },
+	{ "team_change_margin", SERVER_FIELD_INTEGER, 0, SERVER_SETTINGS_MAXIMUM_TEAM_CHANGE_MARGIN,
+		"HALO_DEDICATED_TEAM_CHANGE_MARGIN", "Most players one team may have over the other after a change (balanced)" },
 };
 
 /* ---------- private code */

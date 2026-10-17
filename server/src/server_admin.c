@@ -48,6 +48,10 @@ void chat_host_set_cooldown(int seconds);
 int chat_host_cooldown(void);
 void chat_host_set_welcome(char const *text);
 char const *chat_host_welcome(void);
+/* (team changes', port/linux/game/team_change.h) */
+void team_change_host_set(int policy, int margin);
+int team_change_host_policy(void);
+int team_change_host_margin(void);
 
 #include <errno.h>
 #include <stdio.h>
@@ -1833,6 +1837,8 @@ static void setting_now(
 #endif
 	case SERVER_SETTING_POSTGAME_SECONDS: snprintf(text, (size_t)size, "%ld", status->postgame_seconds); break;
 	case SERVER_SETTING_SKIP_LOBBY: snprintf(text, (size_t)size, "%s", status->skip_lobby ? "true" : "false"); break;
+	case SERVER_SETTING_TEAM_CHANGE: snprintf(text, (size_t)size, "%d", team_change_host_policy()); break;
+	case SERVER_SETTING_TEAM_CHANGE_MARGIN: snprintf(text, (size_t)size, "%d", team_change_host_margin()); break;
 	default: text[0] = 0; break;
 	}
 }
@@ -1867,7 +1873,8 @@ static boolean setting_applies_now(
 	return setting == SERVER_SETTING_IDLE_LIMIT || setting == SERVER_SETTING_NAME_FILTER ||
 		setting == SERVER_SETTING_CHAT || setting == SERVER_SETTING_CHAT_FILTER ||
 		setting == SERVER_SETTING_WELCOME || setting == SERVER_SETTING_POSTGAME_SECONDS ||
-		setting == SERVER_SETTING_SKIP_LOBBY || setting == SERVER_SETTING_CHAT_COOLDOWN;
+		setting == SERVER_SETTING_SKIP_LOBBY || setting == SERVER_SETTING_CHAT_COOLDOWN ||
+		setting == SERVER_SETTING_TEAM_CHANGE || setting == SERVER_SETTING_TEAM_CHANGE_MARGIN;
 }
 
 static char const *environment_value(
@@ -1980,7 +1987,8 @@ boolean server_admin_set(
 			"the playlist is set with sv_playlist_use");
 		if (setting < 0)
 			command_output_printf(output, "(name, maximum_players, minimum_players, idle_limit, public, name_filter, "
-				"chat, chat_filter, welcome, postgame_seconds, skip_lobby, chat_cooldown)\n");
+				"chat, chat_filter, welcome, postgame_seconds, skip_lobby, chat_cooldown, team_change, "
+				"team_change_margin)\n");
 		return FALSE;
 	}
 	environment = environment_value((short)setting);
@@ -2025,6 +2033,10 @@ boolean server_admin_set(
 #endif
 	case SERVER_SETTING_POSTGAME_SECONDS: dedicated_server_set_postgame_seconds(change.values[setting]); break;
 	case SERVER_SETTING_SKIP_LOBBY: dedicated_server_set_skip_lobby(change.values[setting] ? TRUE : FALSE); break;
+	case SERVER_SETTING_TEAM_CHANGE: team_change_host_set(change.values[setting], team_change_host_margin()); break;
+	case SERVER_SETTING_TEAM_CHANGE_MARGIN:
+		team_change_host_set(team_change_host_policy(), change.values[setting]);
+		break;
 	}
 	error(_error_silent, "dedicated: a command sets %s to %s", server_settings_table[setting].key, line->words[2]);
 	command_output_printf(output, "%s is %s, saved in %s (%s)\n", server_settings_table[setting].key, line->words[2],

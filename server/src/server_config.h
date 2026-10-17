@@ -285,12 +285,18 @@ enum
 	SERVER_SETTING_POSTGAME_SECONDS,
 	SERVER_SETTING_SKIP_LOBBY,
 	SERVER_SETTING_CHAT_COOLDOWN,
+	/* changing teams during a game (port/linux/game/team_change.h): 0 off, 1
+	balanced, 2 allow; and the most one team may have over the other after
+	a change, while balanced */
+	SERVER_SETTING_TEAM_CHANGE,
+	SERVER_SETTING_TEAM_CHANGE_MARGIN,
 	SERVER_SETTINGS,
 	/* a game's players, at most (halo_port_limits.h's) */
 	SERVER_SETTINGS_MAXIMUM_PLAYERS = 128,
 	SERVER_SETTINGS_MAXIMUM_IDLE_LIMIT = 1440,
 	SERVER_SETTINGS_MAXIMUM_POSTGAME_SECONDS = 300,
 	SERVER_SETTINGS_MAXIMUM_CHAT_COOLDOWN = 600,
+	SERVER_SETTINGS_MAXIMUM_TEAM_CHANGE_MARGIN = 16,
 	/* a welcome's characters, at most (a reason's: command_line.h) */
 	SERVER_SETTINGS_WELCOME_SIZE = 128,
 };

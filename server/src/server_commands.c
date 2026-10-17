@@ -125,6 +125,8 @@ void network_distributed_ban_until(long machine_index, unsigned long address, ch
 boolean network_distributed_ban_entry(long index, char *when, long when_size, char *hardware_id, long hardware_id_size,
 	char *players, long players_size, char *reason, long reason_size, unsigned long *until);
 boolean network_distributed_unban(long index);
+/* (team changes': port/linux/game/team_change.h) */
+int team_change_move(long list_index, short team, char *text, int size);
 /* (the version: server_platform.c's, updater.c's in the game) */
 const char *updater_version(void);
 char const *cache_files_map_directory(void);
@@ -181,6 +183,7 @@ static boolean command_chat(struct command_line const *line, boolean json, struc
 static boolean command_welcome(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_mute(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_unmute(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_team(struct command_line const *line, boolean json, struct command_output *output);
 static void note_target(char const *target, char const *reason);
 static void log_output(char const *output);
 static char const *actor_display(void);
@@ -215,6 +218,9 @@ static struct server_command const server_commands[] =
 	{ "sv_unmute", "sv_unmute <player>", "Passes a muted player's chat lines on again.", 2, 2, TRUE, command_unmute },
 	{ "sv_kick", "sv_kick <player> [reason]", "Drops a player (a number from sv_players, or a name) and every "
 		"player of their machine. They may join again.", 2, 3, TRUE, command_kick },
+	{ "sv_team", "sv_team <player> <red|blue>", "Moves a player to a team in a team game: they respawn on it at "
+		"once, with no penalty (as changing teams does), whatever the team_change setting says.", 3, 3, TRUE,
+		command_team },
 	{ "sv_ban", "sv_ban <player> [duration] [reason]", "Drops a player and keeps their machine out (by its "
 		"hardware id and address, in bans.txt), for ever or for a while: 30m, 2h, 7d, 1d12h.", 2, 4, TRUE,
 		command_ban },
@@ -1550,6 +1556,43 @@ static boolean command_unmute(
 	command_output_printf(output, "this build has no text chat\n");
 	return FALSE;
 #endif
+}
+
+/* an admin's move of a player to a team (team_change.c's team_change_move:
+nobody's kill, no penalty; never the last of a team, which would end the
+game) */
+static boolean command_team(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	struct server_player player;
+	char text[96];
+	short team;
+	int result;
+
+	(void)json;
+	if (!find_player(line->words[1], &player, output))
+		return FALSE;
+	if (!_stricmp(line->words[2], "red") || !strcmp(line->words[2], "0"))
+		team = 0;
+	else if (!_stricmp(line->words[2], "blue") || !strcmp(line->words[2], "1"))
+		team = 1;
+	else
+	{
+		command_output_printf(output, "the team is red or blue\n");
+		return FALSE;
+	}
+	result = team_change_move(player.number - 1, team, text, sizeof(text));
+	command_output_printf(output, "player %ld (%s): %s\n", player.number, player.name, text);
+	/* (0: changed, 1: at their next respawn) */
+	if (result != 0 && result != 1)
+		return FALSE;
+	note_target(player.name, NULL);
+	error(_error_silent, "dedicated: moved player %ld to the %s team", player.number, team ? "blue" : "red");
+	server_moderation_notice(player.machine_index, FALSE, NULL, team ? "An admin moved you to Blue Team" :
+		"An admin moved you to Red Team");
+	return TRUE;
 }
 
 #ifdef HALO_SERVER

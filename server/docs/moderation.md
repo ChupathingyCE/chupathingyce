@@ -20,7 +20,7 @@ and OpenCE players are kicked and banned like anyone else.
 | Status, players, bans, the log, the audit file, playlists, settings | yes | yes | yes |
 | Warn a player (`sv_warn`) | yes | yes | yes |
 | Mute a player's chat (`sv_mute`, `sv_unmute`), a server message (`sv_say`) | yes | yes | yes |
-| Kick (`sv_kick`) | yes | yes | yes |
+| Kick (`sv_kick`), move a player to a team (`sv_team`) | yes | yes | yes |
 | Ban for up to 7 days (`sv_ban <player> 2h`) | yes | yes | yes |
 | Ban for longer, or for ever | | yes | yes |
 | Unban (`sv_unban`) | | yes | yes |
@@ -82,6 +82,7 @@ until it is fixed.
 | `sv_mute <player> [minutes]`, `sv_unmute <player>` | A player's chat lines not passed on (until they leave, or for a while), and on again. |
 | `sv_say <text>` | A server message in every ChupathingyCE player's chat. |
 | `sv_kick <player> [reason]`, `sv_ban <player> [duration] [reason]` | As before, with a reason. A ChupathingyCE player sees it as their game drops them. |
+| `sv_team <player> <red\|blue>` | Moves a player to a team (a team game); the control panel's To Red and To Blue. |
 
 ### In the game
 

@@ -99,6 +99,11 @@ enum delta_capability
 	as 18, chat's CHAT_CONFIG. Room-wide with bomb: a host plays a Bomb game
 	type only with machines that agreed to both, and drops any other */
 	_delta_capability_bomb_traits = 14,
+	/* changing teams during a game (docs/delta.md, Team changes): a client
+	asks its host (TEAM_REQUEST), the host decides and answers
+	(TEAM_RESULT); the change itself reaches every machine, OpenCE's too,
+	through the game's own player respawn */
+	_delta_capability_team_change = 15,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };

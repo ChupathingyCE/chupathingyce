@@ -1253,6 +1253,64 @@ int delta_wire_write_chat_refused(unsigned char *data, delta_u32 session,
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_CHAT_REFUSED_SIZE;
 }
 
+static int team_valid(unsigned char team, int other)
+{
+	return team == 0 || team == 1 || (other && team == DELTA_WIRE_TEAM_OTHER);
+}
+
+int delta_wire_read_team_request(const unsigned char *payload, int size, struct delta_wire_team_request *request)
+{
+	clear(request, (int)sizeof(*request));
+	if (!payload || size < DELTA_WIRE_TEAM_REQUEST_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	request->sequence = read_u32(payload);
+	request->player = payload[4];
+	request->team = payload[5];
+	return team_valid(request->team, 1);
+}
+
+int delta_wire_write_team_request(unsigned char *data, delta_u32 session,
+	const struct delta_wire_team_request *request)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+	if (!team_valid(request->team, 1))
+		return 0;
+	clear(payload, DELTA_WIRE_TEAM_REQUEST_SIZE);
+	write_u32(payload, request->sequence);
+	payload[4] = request->player;
+	payload[5] = request->team;
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_team_request, DELTA_WIRE_TEAM_REQUEST_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TEAM_REQUEST_SIZE;
+}
+
+int delta_wire_read_team_result(const unsigned char *payload, int size, struct delta_wire_team_result *result)
+{
+	clear(result, (int)sizeof(*result));
+	if (!payload || size < DELTA_WIRE_TEAM_RESULT_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	result->sequence = read_u32(payload);
+	result->result = payload[4];
+	result->team = payload[5];
+	result->seconds = read_u16(payload + 6);
+	return result->result <= _delta_team_refused_last && team_valid(result->team, 0);
+}
+
+int delta_wire_write_team_result(unsigned char *data, delta_u32 session, const struct delta_wire_team_result *result)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+	if (result->result > _delta_team_refused_last || !team_valid(result->team, 0))
+		return 0;
+	clear(payload, DELTA_WIRE_TEAM_RESULT_SIZE);
+	write_u32(payload, result->sequence);
+	payload[4] = result->result;
+	payload[5] = result->team;
+	write_u16(payload + 6, result->seconds);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_team_result, DELTA_WIRE_TEAM_RESULT_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TEAM_RESULT_SIZE;
+}
+
 int delta_wire_chat_text_valid(const char *text, int length, int maximum_characters)
 {
 	const unsigned char *bytes = (const unsigned char *)text;
