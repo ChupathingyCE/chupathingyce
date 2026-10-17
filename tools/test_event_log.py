@@ -61,6 +61,8 @@ def test_sample_batch(program):
     assert game["id"] == "00112233445566778899aabbccddeeff"
     assert game["part"] == 1 and game["final"] is True
     assert game["map"] == "levels\\test\\bloodgulch\\bloodgulch"
+    # (the map's facts, as game_events.c hands them over: map_report.c)
+    assert game["map_info"] == {"family": "xbox", "file": "bloodgulch", "spawns": 32}
     assert game["started"] == 1791234567 and game["ended"] == 1791234567 + 40
     assert game["team_scores"] == [3, 1] and game["end_reason"] == "score"
     walter, jo, guest = batch["players"]

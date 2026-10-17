@@ -34,6 +34,8 @@ enum
 	EVENT_LOG_NAME_SIZE = 40,
 	/* a tag's path, or a short text (a reason, a medal's key) */
 	EVENT_LOG_TAG_SIZE = 96,
+	/* the map's facts (map_report.h's JSON object), with its end */
+	EVENT_LOG_MAP_INFO_SIZE = 1024,
 	/* the most of each a game keeps */
 	EVENT_LOG_MAXIMUM_PLAYERS = 64,
 	EVENT_LOG_MAXIMUM_TAGS = 384,
@@ -283,6 +285,10 @@ void event_log_begin(struct event_log_game const *game, unsigned char const rand
 int event_log_recording(void);
 /* the game's ID (32 hexadecimal digits), "" if none */
 char const *event_log_game_id(void);
+/* the facts of the game's map (a JSON object: map_report.h), sent as its
+"map_info" from the next part on; "" or NULL none. Kept until the next
+game; one that does not fit is left out */
+void event_log_map_info(char const *json);
 
 /* a tag's path (or a short text) kept once, its index: EVENT_LOG_NONE for
 none, or once the game's table is full */

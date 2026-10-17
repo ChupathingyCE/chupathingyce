@@ -130,6 +130,7 @@ static void play_sample(void)
 	int pistol = 0;
 
 	game("levels\\test\\bloodgulch\\bloodgulch", 2, 1);
+	event_log_map_info("{\"family\":\"xbox\",\"file\":\"bloodgulch\",\"spawns\":32}");
 	walter = player(0, "Walter", "00112233445566778899AABBCCDDEEFF", 0);
 	jo = player(0, "Jo \xE2\x9C\x93", "ffeeddccbbaa99887766554433221100", 1);
 	guest = player(90, "guest\x01", "", 1);

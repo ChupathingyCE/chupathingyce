@@ -68,6 +68,8 @@ boolean cache_files_give_time_to_precache(
 	char const *map_name);
 char const *cache_file_loaded_map_name(
 	void);
+void const *cache_file_loaded_header(
+	void);
 char const *cache_files_build_region(
 	char const *build);
 char const *cache_files_multiplayer_region(

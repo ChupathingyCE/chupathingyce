@@ -175,6 +175,7 @@ static struct
 	int recording;
 	struct event_log_game game;
 	char id[2 * 16 + 1];
+	char map_info[EVENT_LOG_MAP_INFO_SIZE];
 
 	int capacity;
 	int count;
@@ -1040,6 +1041,7 @@ void event_log_begin(struct event_log_game const *game, unsigned char const rand
 	}
 	event_log.recording = 1;
 	event_log.game = *game;
+	event_log.map_info[0] = 0;
 	event_log.game.map[sizeof(event_log.game.map) - 1] = 0;
 	event_log.game.gametype[sizeof(event_log.game.gametype) - 1] = 0;
 	event_log.game.server_name[sizeof(event_log.game.server_name) - 1] = 0;
@@ -1073,6 +1075,19 @@ int event_log_recording(void)
 char const *event_log_game_id(void)
 {
 	return event_log.recording ? event_log.id : "";
+}
+
+void event_log_map_info(char const *json)
+{
+	size_t length = json ? strlen(json) : 0;
+
+	/* (an object whole, or nothing: a cut one would not be JSON) */
+	if (!json || length >= sizeof(event_log.map_info) || json[0] != '{' || json[length - 1] != '}')
+	{
+		event_log.map_info[0] = 0;
+		return;
+	}
+	memcpy(event_log.map_info, json, length + 1);
 }
 
 int event_log_tag(char const *text)
@@ -1329,6 +1344,8 @@ char *event_log_finish(struct event_log_end const *end, char const *invite, int 
 	}
 	text_append(&text, ", \"map\": ");
 	text_string(&text, event_log.game.map);
+	if (event_log.map_info[0])
+		text_append(&text, ", \"map_info\": %s", event_log.map_info);
 	text_append(&text, ", \"engine\": %d, \"gametype\": ", event_log.game.engine);
 	text_string(&text, event_log.game.gametype);
 	text_append(&text, ", \"teams\": %d, \"score_limit\": %d, \"started\": %u, \"ended\": %u, \"end_reason\": \"%s\"",

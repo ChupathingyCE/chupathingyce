@@ -952,7 +952,8 @@ ignored.
 {"schema": 2,
  "server": {"name", "build", "platform"},
  "game": {"id" (32 hex, random), "part", "final", "invite"?, "playlist"? (a
-          dedicated server's playlist file's name), "map", "engine",
+          dedicated server's playlist file's name), "map", "map_info"?
+          (the map's facts, below), "engine",
           "gametype", "teams", "score_limit", "started", "ended" (unix),
           "end_reason": score|time|admin|empty|error|other, "team_scores"?},
  "players": [{"name", "client", "platform"?, "team", "bot", "color"?
@@ -1012,6 +1013,48 @@ thread; `server/platform/server_events.c` queues it
 (`event_upload_moderation`) for the game's thread. A game that ends with everyone gone is sent as `empty`; a
 server that stops mid-game sends nothing for it. Anti-cheat `flags` are a
 schema slot with nothing filling it yet.
+
+### Map facts
+
+`game.map_info` (optional; added in 0.8.0, still schema 2) describes the
+map the game was played on, for the site's map catalog: what the map is and
+its shape, so the site can list maps beyond the Xbox's that it can't read
+itself. The host fills it in from the map it loaded
+(`port/linux/game/game_events.c`, built by `port/linux/src/map_report.c`).
+It holds facts about the map only. Nothing about players, machines or
+addresses is in it, and no picture or file content.
+
+```
+"map_info": {"family": xbox|ce|md|pc,
+             "file" (the file's name, without its family's suffix or ".map"),
+             "size"? (bytes; not for an Xbox map, whose file is compressed),
+             "blake2b"? (64 hex: the whole file's BLAKE2b-256, as Delta Peer's
+                         MAP has it; every family but the Xbox's has it),
+             "cache_version", "header_checksum" (8 hex), "build" (the cache
+             header's build string), "scenario" (its tag path),
+             "gametypes": [slayer|ctf|oddball|king|race] (slayer for any
+                           spawn; the others for their netgame flags),
+             "spawns", "bounds"?: {"x": [min, max], "y": [...], "z": [...]}
+                                  (the structure BSP's world bounds)}
+```
+
+For example, Danger Canyon from Custom Edition:
+
+```
+{"family": "ce", "file": "dangercanyon", "size": 15165396,
+ "blake2b": "2a97db833fec4a553a68ddfaeb53507e43cc2e2bcf9036697fb6e65b0bcf1f2e",
+ "cache_version": 609, "header_checksum": "c410cd74", "build": "01.00.00.0609",
+ "scenario": "levels\\test\\dangercanyon\\dangercanyon",
+ "gametypes": ["slayer", "ctf", "oddball", "king", "race"], "spawns": 103,
+ "bounds": {"x": [-75.449, 72.65], "y": [-23.019, 69.183], "z": [-12.178, 11.618]}}
+```
+
+A map past the Xbox's goes in only with its hash. While the hash is still
+being computed, the next part asks again, so a game's first part can come
+without `map_info`. A site that doesn't know the field ignores it, as with
+any unknown field. Sites should treat it as a claim, like the other
+fields: record a map's facts once two reporters agree on the same hash, or
+one of our own servers reports them.
 
 ### The upload
 
