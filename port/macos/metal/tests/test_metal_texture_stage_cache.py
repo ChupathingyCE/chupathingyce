@@ -43,6 +43,11 @@ typedef int BOOL;
 #define PLATFORM_PHYSICAL_TO_VIRTUAL(data) ((uintptr_t)(data))
 #define XBOX_ADDRESS(value) ((uint32_t)(uintptr_t)(value))
 #define _custom_edition_channels_xbox 0
+#define _custom_edition_channels_multipurpose 1
+#define _custom_edition_channels_hud_meter 2
+#define D3DCOMMON_PORT_PC_LAYOUT 0x40000000
+#define D3DCOMMON_PORT_PC_METER 0x20000000
+#define D3DCOMMON_PORT_PC_MULTIPURPOSE 0x10000000
 /* DESCRIPTION */
 static unsigned char guest[PLATFORM_CONTIGUOUS_SIZE];
 static unsigned long page_generation[PLATFORM_CONTIGUOUS_SIZE / 0x4000];
@@ -55,7 +60,7 @@ static BOOL coverage, threshold;
 static unsigned char uploaded[4096], uploaded_tail[4096];
 static D3DCOLOR uploaded_palette[4096];
 struct format_information { int kind; };
-enum { _texel_dxt1, _texel_dxt3, _texel_dxt5 };
+enum { _texel_dxt1, _texel_dxt3, _texel_dxt5, _texel_bc7 };
 static struct format_information format_information(unsigned long format)
 {
     (void)format;

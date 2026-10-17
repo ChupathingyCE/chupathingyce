@@ -147,6 +147,13 @@ struct nv2a_pixel_shader_key
 	unsigned char coverage_alpha;
 	/* 0: vertex-lit; 1: distant; 2: distant and point lights. */
 	unsigned char per_pixel_lighting;
+	/* drawn into a multisampled target (display.anti_aliasing's
+	multisampling), its samples a pixel: the alpha test covers samples in
+	proportion to how far alpha is past the reference, not all of the pixel
+	or none of it, so that cut-out edges (foliage, grates) are smoothed too.
+	(In the byte the key had spare, so its size and recorded shader lists
+	stay as they were.) */
+	unsigned char alpha_test_samples;
 };
 #define XGPU_COVERAGE_ALPHA 1
 #define XGPU_COVERAGE_POINT_THRESHOLD 2
@@ -177,6 +184,9 @@ struct xgpu_texture_description
 	BOOL linear;        /* not swizzled; addressed with texel coordinates */
 	BOOL compressed;
 	unsigned long pitch; /* linear textures */
+	BOOL pc_layout;     /* laid out as Halo PC's bitmaps (D3DCOMMON_PORT_PC_LAYOUT) */
+	BOOL pc_meter;      /* a Halo PC HUD meter's channels (D3DCOMMON_PORT_PC_METER) */
+	BOOL pc_multipurpose; /* a Halo PC multipurpose map's channels (D3DCOMMON_PORT_PC_MULTIPURPOSE) */
 	BOOL hires;         /* a high-res HUD texture drawn in the texture's place (hud_hires.h) */
 	BOOL hires_coverage; /* ... whose green is its coverage (a meter's) */
 	BOOL hires_point_threshold; /* ... whose red holds discrete segment data */

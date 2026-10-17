@@ -1076,6 +1076,9 @@ static void foveation_audit_stage(int stage, const struct xgpu_render_target *ta
 }
 
 /* the textures the current targets render to; FALSE when there are none */
+/* the samples a pixel of the color target a draw goes to has (draw_targets) */
+static uint8_t target_color_samples = 1;
+
 static BOOL draw_targets(gpu_texture *color_texture, gpu_texture *depth_texture)
 {
 	struct render_target_entry *color = render_target_get(device.render_target);
@@ -1117,6 +1120,7 @@ static BOOL draw_targets(gpu_texture *color_texture, gpu_texture *depth_texture)
 	/* viewports and clears are in the targets' units (render_target_get) */
 	target_scale[0] = color ? color->target.scale[0] : depth->target.scale[0];
 	target_scale[1] = color ? color->target.scale[1] : depth->target.scale[1];
+	target_color_samples = color && color->target.sample_count > 1 ? color->target.sample_count : 1;
 	*color_texture = color ? color->target.texture : 0;
 	*depth_texture = depth ? depth->target.texture : 0;
 	return TRUE;
@@ -3310,6 +3314,11 @@ static BOOL prepare_draw(struct gpu_draw *draw, BOOL immediate)
 	{
 		key.coverage_alpha = 0;
 	}
+
+	/* (a multisampled target's cut-outs are covered by samples: the key's
+	alpha_test_samples; the sample mask is only for draws that do not blend) */
+	if (target_color_samples > 1 && key.alpha_test_function && !D3D__RenderState[D3DRS_ALPHABLENDENABLE])
+		key.alpha_test_samples = target_color_samples;
 
 	draw_profile_lap(&draw_profile, DRAW_PROFILE_KEY, &key_started);
 	if (program->lighting.lights && !program->lighting_failed && model_lighting_enabled())
