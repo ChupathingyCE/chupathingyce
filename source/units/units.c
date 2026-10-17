@@ -3412,6 +3412,72 @@ void unit_animation_start_action(
 	return;
 }
 
+/* port: a player with no weapon (a gametype's loadout of none) swings as
+with a pistol: the player's biped has no melee of its own unarmed, so its
+blow showed nothing. Only the action's animation is the pistol's: its weapon
+class stays unarmed. */
+void unit_animation_start_unarmed_melee(
+	long unit_index)
+{
+	struct unit_datum *unit = unit_get(unit_index);
+	struct unit_definition *unit_definition = unit_definition_get(unit->definition_index);
+	struct animation_graph *animation_graph = animation_graph_definition_get(unit_definition->object.animation_graph.index);
+	struct animation_graph_unit_seat *unit_seat;
+	short class_index;
+	short animation_index = NONE;
+
+	if (unit->unit.animation.seat_index<0 || unit->unit.animation.seat_index>=animation_graph->unit_seats.count)
+		return;
+	unit_seat = TAG_BLOCK_GET_ELEMENT(&animation_graph->unit_seats, unit->unit.animation.seat_index, struct animation_graph_unit_seat);
+	/* (none where its own weapon class has a melee: unit_animation_start_action
+	played it) */
+	if (unit->unit.animation.weapon_index>=0 && unit->unit.animation.weapon_index<unit_seat->weapon_classes.count)
+	{
+		struct animation_graph_weapon_class *weapon_class = TAG_BLOCK_GET_ELEMENT(&unit_seat->weapon_classes,
+			unit->unit.animation.weapon_index, struct animation_graph_weapon_class);
+
+		if (unit->unit.animation.weapon_type_index>=0 &&
+			unit->unit.animation.weapon_type_index<weapon_class->weapon_types.count)
+		{
+			struct animation_graph_weapon_type *weapon_type = TAG_BLOCK_GET_ELEMENT(&weapon_class->weapon_types,
+				unit->unit.animation.weapon_type_index, struct animation_graph_weapon_type);
+
+			if (weapon_type->animations.count>8 &&
+				animation_graph_animation_index_get(&weapon_type->animations)[8].animation_index!=NONE)
+			{
+				return;
+			}
+		}
+	}
+	/* (the pistol's, else the first class's that has one) */
+	for (class_index = 0; class_index<unit_seat->weapon_classes.count; class_index++)
+	{
+		struct animation_graph_weapon_class *weapon_class = TAG_BLOCK_GET_ELEMENT(&unit_seat->weapon_classes, class_index, struct animation_graph_weapon_class);
+		struct animation_graph_weapon_type *weapon_type;
+		short index;
+
+		if (weapon_class->weapon_types.count<=0)
+			continue;
+		weapon_type = TAG_BLOCK_GET_ELEMENT(&weapon_class->weapon_types, 0, struct animation_graph_weapon_type);
+		if (weapon_type->animations.count<=8)
+			continue;
+		index = animation_graph_animation_index_get(&weapon_type->animations)[8].animation_index;
+		if (index==NONE)
+			continue;
+		if (animation_index==NONE || !strcmp(weapon_class->label, "pistol"))
+			animation_index = index;
+		if (!strcmp(weapon_class->label, "pistol"))
+			break;
+	}
+	if (animation_index!=NONE)
+	{
+		unit->unit.animation.action_animation.index = animation_choose_random_permutation_internal(TRUE,
+			unit_definition->object.animation_graph.index, animation_index);
+		unit->unit.animation.action_animation.frame_index = 0;
+		unit->unit.animation.action = 7; /* (the melee, unit_animation_start_action's) */
+	}
+}
+
 static void unit_animation_start_overlay_action(
 	long unit_index,
 	short overlay_action)
@@ -7049,6 +7115,13 @@ void unit_damage_aftermath(
 			direction_valid ? &damage_direction : NULL);
 	}
 
+#ifdef HALO_GAME_BROWSER
+	/* port: a Bomb carrier struck by a melee blow it lives through may drop
+	the bomb (game_engine_bomb.c, the host's) */
+	if (!lethal && damage_definition->category == 6 /* damage.c's _damage_category_melee */)
+		game_engine_bomb_unit_struck(unit_index);
+#endif
+
 	{
 		long owner_player_index = damage_data->owner_player_index;
 		long player_index = unit->unit.player_index;
@@ -7656,6 +7729,38 @@ boolean unit_drop_selected_weapon(
 		object_delete(weapon_index);
 	}
 
+	return TRUE;
+}
+
+boolean unit_drop_weapon(
+	long unit_index,
+	long weapon_index)
+{
+	struct unit_datum *unit = unit_get(unit_index);
+	short slot;
+
+	for (slot = 0; slot < MAXIMUM_WEAPONS_PER_UNIT; slot++)
+	{
+		if (unit->unit.weapon_object_indices[slot] == weapon_index)
+			break;
+	}
+	if (slot == MAXIMUM_WEAPONS_PER_UNIT)
+		return FALSE;
+	if (slot == unit->unit.current_weapon_index)
+		first_person_weapon_message_from_unit(unit_index, 13);
+	unit_drop_item(unit_index, weapon_index);
+	/* (one holstered, in the unit's hand as it is dropped, is not in the
+	world yet) */
+	if (!TEST_FLAG(object_get(weapon_index)->object.flags, _object_connected_to_map_bit))
+		object_reconnect_to_map(weapon_index, NULL);
+	unit->unit.weapon_object_indices[slot] = NONE;
+	if (slot == unit->unit.current_weapon_index)
+		unit->unit.current_weapon_index = NONE;
+	if (slot == unit->unit.desired_weapon_index || unit->unit.current_weapon_index == NONE)
+	{
+		unit->unit.desired_weapon_index = unit->unit.current_weapon_index != NONE ?
+			unit->unit.current_weapon_index : unit_weapon_next_index(unit_index, NONE, 0);
+	}
 	return TRUE;
 }
 
@@ -8903,6 +9008,9 @@ void unit_cause_player_melee_damage(
 	real best_object_fraction;
 	long outer_index;
 	long outer_count;
+#ifdef HALO_GAME_BROWSER
+	real melee_reach;
+#endif
 
 	unit = unit_get(unit_index);
 	unit_definition = unit_definition_get(unit->definition_index);
@@ -8924,6 +9032,10 @@ void unit_cause_player_melee_damage(
 		global_current_collision_user_depth < MAXIMUM_COLLISION_USER_STACK_DEPTH);
 	global_current_collision_users[global_current_collision_user_depth++] = 8;
 	facing = &unit->unit.aiming_vector;
+#ifdef HALO_GAME_BROWSER
+	melee_reach = unit->unit.player_index!=NONE ?
+		game_engine_traits_melee_multiplier(unit->unit.player_index) : 1.f;
+#endif
 
 	{
 		real_vector3d perpendicular;
@@ -8952,6 +9064,11 @@ void unit_cause_player_melee_damage(
 					((real)inner_component_i + (real)outer_index * perpendicular.j) * 0.1f;
 				ray.k = unit->unit.aiming_vector.k * 0.8f +
 					((real)outer_index * perpendicular.k + (real)inner_index * cross.k) * 0.1f;
+#ifdef HALO_GAME_BROWSER
+				/* port: a Bomb game type's melee reach trait (game_engine_bomb.c) */
+				if (melee_reach!=1.f)
+					scale_vector3d(&ray, melee_reach, &ray);
+#endif
 
 				if (collision_test_vector(
 					_collision_test_for_projectiles_flags,

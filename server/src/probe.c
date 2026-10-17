@@ -181,7 +181,7 @@ static void utf8_name(
 static char const *engine_name(
 	short engine_type)
 {
-	static char const *const names[] = { "none", "ctf", "slayer", "oddball", "king", "race" };
+	static char const *const names[] = { "none", "ctf", "slayer", "oddball", "king", "race", "bomb" };
 
 	return engine_type >= 0 && engine_type < (short)NUMBEROF(names) ? names[engine_type] : "unknown";
 }

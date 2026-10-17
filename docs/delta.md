@@ -138,14 +138,14 @@ shares.
 | 10 | `moderation` | a dedicated server's moderators sign in and act from the game (below, "Moderation") |
 | 11 | `bomb` | Bomb game types (Bomb, Grifball, Open Pitch: [bomb.md](bomb.md)) and their player traits (TRAITS). Room-wide: a host playing one drops every machine without it |
 | 12 | `ping` | the host answers Online Games' pings before joining; announced on Delta List only, never in a HELLO (see "Pings before joining") |
-| 13 | `bomb_movement` | TRAITS' movement and melee traits (jump, gravity, melee reach), for a player whose machine and host both agreed to it; taken, never set yet |
-| 14 | `bomb_traits` | TRAITS at 22 (Grifball test builds 2 and 3 sent it as 18, chat's CHAT_CONFIG). Room-wide with `bomb`: a host playing a Bomb game type drops every machine without both; taken, never set yet |
+| 13 | `bomb_movement` | TRAITS' movement and melee traits (jump, gravity, melee reach), for a player whose machine and host both agreed to it |
+| 14 | `bomb_traits` | TRAITS at 22 (Grifball test builds 2 and 3 sent it as 18, chat's CHAT_CONFIG). Room-wide with `bomb`: a host playing a Bomb game type drops every machine without both |
 | 15 | `team_change` | changing teams during a game: a client asks its host (TEAM_REQUEST), the host decides and answers (TEAM_RESULT); see "Team changes" |
 
 The registry lives in the repository next to the compatibility table and is
 the single source for the bit numbers. Built so far: `platform`, `profile`,
-`ce_maps`, `moderation` (see "Moderation"), and `chat` and `server_messages`
-(see "Chat"). The first two's values are
+`ce_maps`, `moderation` (see "Moderation"), `chat` and `server_messages`
+(see "Chat"), and `bomb` ([bomb.md](bomb.md)). The first two's values are
 claims, shown as claims, never used for game state:
 
 - **`platform`**: each machine's platform key (below), and so each player's
@@ -283,7 +283,7 @@ a later version may append):
 | 19 | CHAT_SAY | client to host | sequence (4, above the session's last), scope (1: 0 everyone, 1 team), reserved (1), text length (1, 1 to 120), reserved (1), text (UTF-8) |
 | 20 | CHAT_LINE | host to client | line (4, the host's count), kind (1: 0 player, 1 moderator, 2 server, 3 system), scope (1), speaker's machine (1; 255 none), speaker's player (1, the game's player index; 255 none), name length (1, at most 47), text length (1, 1 to 200), reserved (2), name (UTF-8), text (UTF-8) |
 | 21 | CHAT_REFUSED | host to client | sequence (4, the CHAT_SAY's), reason (1: 1 chat off, 2 that scope is not taken, 3 muted, 4 too fast, 5 blocked words, 6 text that cannot be shown), reserved (1), seconds the player's chat is paused (2; with 4, 0 none: added in 0.8.0 where the field was reserved, so an older game reads none) |
-| 22 | TRAITS | host to client | taken by the Bomb builds ([bomb.md](bomb.md)) |
+| 22 | TRAITS | host to client | kind (1: 0 none, 1 Bomb), reserved (3), everyone's then the carrier's player traits, 12 bytes each: health, damage, resistance, speed (2 each, percent), shields (1: 0 unchanged, 1 none, 2 normal, 3 overshield), highlight (1), reserved (2); values past their ranges ([bomb.md](bomb.md)) refused. Grifball test builds 2 and 3 sent it as 18, which is CHAT_CONFIG's (a host drops those builds from a Bomb game: `bomb_traits`) |
 | 23 | TEAM_REQUEST | client to host | sequence (4, above the session's last), player (1, the game's player list index), team (1: 0 red, 1 blue, 255 the other one), reserved (2) |
 | 24 | TEAM_RESULT | host to client | sequence (4, the TEAM_REQUEST's), result (1: 0 changed, 1 at the next respawn, 2 the host takes none, 3 the teams would be uneven, 4 no teams, 5 too soon, 6 not now, 7 no such player of the machine, 8 already on that team, 9 the last player of their team), team (1, the player's now), seconds until the player may change again (2; with 5) |
 
@@ -506,8 +506,12 @@ ask goes over Delta Peer and the change itself through the game:
   OpenCE's too, takes the player's team from the unit the host spawns them
   with, so the result reaches everyone through the unchanged game protocol;
   other machines see a death of no killer ("died") and the respawn. A
-  player already dead changes at once. In a round-based game type (Bomb)
-  the change waits for the player's next death, so the round plays out.
+  player already dead changes at once. In a round-based game type (Bomb,
+  Grifball, Open Pitch) the change waits for the player's next death or the
+  next round, whichever comes first, so the round plays out: as a round
+  starts the host kills a waiting player's unit as nobody's kill, and they
+  start the round on the new team. A bomb carrier keeps the bomb for their
+  own team until then (their death drops it; a new round takes it back).
 
 The game's side is `port/linux/game/team_change.c`, its pause menu row in
 all the menu sets (`port/linux/game/menu_tags.c`), and the dedicated

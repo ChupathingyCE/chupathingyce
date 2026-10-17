@@ -817,7 +817,13 @@ static void biped_falling_damage(
 	{
 		if (collision_velocity > falling_damage->runtime_minimum_damage_velocity)
 		{
+#ifdef HALO_GAME_BROWSER
+			/* port: a Grifball game's landings hurt no one
+			(game_engine_bomb.c) */
+			if (!immune && game_engine_bomb_landing_damage())
+#else
 			if (!immune)
+#endif
 			{
 				struct damage_data damage;
 
@@ -1888,6 +1894,11 @@ static boolean biped_jump(
 		}
 		if (cheat.super_jump && biped->unit.player_index!=NONE)
 			jump_magnitude *= 4.f;
+#ifdef HALO_GAME_BROWSER
+		/* port: a Bomb game type's jump trait (game_engine_bomb.c) */
+		if (biped->unit.player_index!=NONE)
+			jump_magnitude *= game_engine_traits_jump_multiplier(biped->unit.player_index);
+#endif
 
 		jump_velocity = biped->object.translational_velocity;
 		{
@@ -2366,6 +2377,20 @@ static void biped_find_nearby_support_surface(
 	return;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* port: a Bomb game type's gravity trait (game_engine_bomb.c) on a player's
+biped in the air */
+static real biped_trait_gravity(
+	long biped_index)
+{
+	struct biped_datum *biped = biped_get(biped_index);
+
+	if (biped->unit.player_index==NONE)
+		return 1.f;
+	return game_engine_traits_gravity_multiplier(biped->unit.player_index);
+}
+#endif
+
 static void biped_update_physics(
 	struct biped_physics *physics)
 {
@@ -2448,7 +2473,11 @@ static void biped_update_physics(
 			velocity_change = acceleration;
 		physics->new_velocity.i = velocity_change.i + physics->velocity.i;
 		physics->new_velocity.j = velocity_change.j + physics->velocity.j;
+#ifdef HALO_GAME_BROWSER
+		physics->new_velocity.k = physics->velocity.k - global_gravity*biped_trait_gravity(physics->biped_index);
+#else
 		physics->new_velocity.k = physics->velocity.k - global_gravity;
+#endif
 		physics->out_flags = TEST_FLAG(in_flags, _biped_physics_in_slipping_bit) ?
 			FLAG(_biped_physics_out_slipping_bit) : 0;
 	}
@@ -4366,12 +4395,19 @@ boolean biped_update(
 					animations, through a weapon it did not check) */
 					if (weapon_index == NONE)
 					{
+						unit_animation_start_unarmed_melee(biped_index);
 						biped->biped.player_melee_ticks = UNARMED_MELEE_TICKS;
 						biped->biped.player_melee_attack_tick = UNARMED_MELEE_TICKS / 2;
 					}
 					else
 					{
 					weapon_stop_reload(weapon_index);
+#ifdef HALO_GAME_BROWSER
+					/* (port: a melee-only Bomb game's unseen fists, held
+					unarmed, swing as no weapon does) */
+					if (game_engine_bomb_hides_weapon(weapon_get(weapon_index)->definition_index))
+						unit_animation_start_unarmed_melee(biped_index);
+#endif
 					first_person_weapon_message_from_unit(
 						biped_index,
 						_first_person_weapon_message_melee);

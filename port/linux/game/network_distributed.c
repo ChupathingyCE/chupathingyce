@@ -1798,6 +1798,9 @@ struct distributed_on_foot_bound
 	real rise_speed;
 	real rise_base;
 	long airborne_ticks;
+	/* gravity on it in the air (a Bomb game type's trait: world units a
+	tick, each tick) */
+	real gravity;
 };
 
 /* (the host) how fast a client's player's unit on foot may go, a tick, and
@@ -1889,6 +1892,11 @@ static void distributed_on_foot_bound(
 		struct biped_definition *definition = biped_definition_get(biped->definition_index);
 
 		jump_speed = definition->biped.jump_velocity;
+#ifdef HALO_GAME_BROWSER
+		/* (a Bomb game type's jump trait, as biped_jump has it) */
+		if (player)
+			jump_speed *= game_engine_traits_jump_multiplier(DATUM_INDEX_NEW(player_index, player->identifier));
+#endif
 		crouch_rise = definition->biped.collision_height_standing - definition->biped.collision_height_crouching;
 	}
 	base_speed = PREDICTED_ON_FOOT_SPEED_SCALE * (real)sqrt(run_speed * run_speed + jump_speed * jump_speed);
@@ -1944,8 +1952,14 @@ static void distributed_on_foot_bound(
 		rise_speed += jump_speed;
 	rise_speed += MAX(jump_speed, run_speed);
 	bound->rise = UNIT_WORLD_BOUND;
-	if (biped && global_gravity > 0.0f)
-		bound->rise = rise_speed * rise_speed / (2.0f * global_gravity) + crouch_rise + PREDICTED_RISE_TOLERANCE;
+	/* (and its gravity trait, as bipeds.c has it) */
+	bound->gravity = global_gravity;
+#ifdef HALO_GAME_BROWSER
+	if (player)
+		bound->gravity *= game_engine_traits_gravity_multiplier(DATUM_INDEX_NEW(player_index, player->identifier));
+#endif
+	if (biped && bound->gravity > 0.0f)
+		bound->rise = rise_speed * rise_speed / (2.0f * bound->gravity) + crouch_rise + PREDICTED_RISE_TOLERANCE;
 	bound->rise_speed = rise_speed;
 	bound->rise_base = crouch_rise + PREDICTED_RISE_TOLERANCE;
 	bound->airborne_ticks = noted->grounded ? 0 : now - noted->ground_time;
@@ -1964,8 +1978,8 @@ static real distributed_on_foot_fall_speed(
 	real drop = bound->top_height - height;
 	real speed = bound->speed;
 
-	if (drop > 0.0f && global_gravity > 0.0f)
-		speed += (real)sqrt(2.0f * global_gravity * drop);
+	if (drop > 0.0f && bound->gravity > 0.0f)
+		speed += (real)sqrt(2.0f * bound->gravity * drop);
 	return MIN(speed, MAXIMUM_PREDICTED_SPEED);
 }
 
@@ -1986,9 +2000,9 @@ static real distributed_on_foot_ceiling(
 			(real)PREDICTION_CEILING_LEAD_TICKS) -
 		(real)PREDICTION_JITTER_TICKS;
 
-	if (bound->airborne_ticks > 0 && ticks > 0.0f && global_gravity > 0.0f)
+	if (bound->airborne_ticks > 0 && ticks > 0.0f && bound->gravity > 0.0f)
 	{
-		real ceiling = bound->rise_base + bound->rise_speed * ticks - 0.5f * global_gravity * ticks * ticks;
+		real ceiling = bound->rise_base + bound->rise_speed * ticks - 0.5f * bound->gravity * ticks * ticks;
 
 		if (ceiling < rise)
 			rise = ceiling;
@@ -2929,6 +2943,13 @@ void network_distributed_player_killed(
 		death->friendly_fire = *friendly_fire;
 		death->killed_by_vehicle = *killing_player_index == NONE && killing_object &&
 			killing_object->object.type == _object_type_vehicle;
+#ifdef HALO_GAME_BROWSER
+		/* (a death that counts nothing, Bomb's blast taking the scoring
+		team's own: the player's own, by a vehicle, which no other death
+		is; a client before this took it as the player's own) */
+		if (game_engine_bomb_silent_death(*killing_player_index, dead_player_index, *friendly_fire))
+			death->killed_by_vehicle = TRUE;
+#endif
 		distributed_statistics_due = TRUE;
 	}
 	else if (game_connection() == _game_connection_network_client && death->valid)
@@ -2951,6 +2972,20 @@ void network_distributed_player_killed(
 			*killing_object_index = NONE;
 		}
 	}
+}
+
+/* (a client) whether the host's word on a player's death is that it counts
+nothing (network_distributed_player_killed) */
+boolean network_distributed_death_silent(
+	long dead_player_index)
+{
+	short dead_absolute_index = (short)DATUM_INDEX_TO_ABSOLUTE_INDEX(dead_player_index);
+	struct distributed_death const *death;
+
+	if (dead_absolute_index < 0 || dead_absolute_index >= MAXIMUM_TRACKED_PLAYERS)
+		return FALSE;
+	death = &distributed_deaths[dead_absolute_index];
+	return death->valid && death->killing_player_index == dead_absolute_index && death->killed_by_vehicle;
 }
 
 /* (a client) the host's word on how a player died, with the damage that
@@ -3360,6 +3395,52 @@ void network_distributed_new_game(
 }
 
 /* after each tick (game_time.c) */
+/* every 10 seconds of a network game, each player's network health in the
+log (debug.txt), for playtests: "net health:", the ping (ms, the host's
+round trip to the player's machine; a client's as the host told it) and its
+jitter (the host's), this machine's corrections of its own players (the
+host pulling a prediction back: a rubber band) since the last line, and the
+messages sent and received */
+static void distributed_log_health(
+	void)
+{
+	static long last_tick = -1;
+	static long last_corrections = 0;
+	short player_index;
+	char line[1024];
+	int length = 0;
+
+	if (game_time_get() < last_tick)
+		last_tick = -1;
+	if (last_tick >= 0 && game_time_get() - last_tick < 10 * TICKS_PER_SECOND)
+		return;
+	last_tick = game_time_get();
+	length = snprintf(line, sizeof(line), "net health: %s tick %ld corrections +%ld sent %ld received %ld |",
+		game_connection() == _game_connection_network_server ? "host" : "client", (long)game_time_get(),
+		distributed_statistics.corrections - last_corrections, distributed_statistics.sent,
+		distributed_statistics.received);
+	last_corrections = distributed_statistics.corrections;
+	for (player_index = 0; player_index < MAXIMUM_TRACKED_PLAYERS && length > 0 && length < (int)sizeof(line) - 64;
+		player_index++)
+	{
+		long machine_index;
+		long ping;
+
+		if (!distributed_player(player_index))
+			continue;
+		ping = distributed_player_ping(player_index);
+		machine_index = distributed_player_machines[player_index];
+		length += snprintf(line + length, sizeof(line) - (size_t)length, " player %d ping %ld", (int)player_index, ping);
+		if (game_connection() == _game_connection_network_server && machine_index >= 0 &&
+			machine_index < HALO_PORT_MAXIMUM_NETWORK_MACHINES && distributed_round_trips[machine_index].valid)
+		{
+			length += snprintf(line + length, sizeof(line) - (size_t)length, " jitter %ld",
+				(long)(distributed_round_trips[machine_index].deviation * 1000.0f / TICKS_PER_SECOND + 0.5f));
+		}
+	}
+	error(_error_log, "%s", line);
+}
+
 void network_distributed_tick(
 	void)
 {
@@ -3368,6 +3449,8 @@ void network_distributed_tick(
 	if (game_time_get() == distributed_last_sent_time)
 		return;
 	distributed_last_sent_time = game_time_get();
+	if (connection == _game_connection_network_server || connection == _game_connection_network_client)
+		distributed_log_health();
 	distributed_machines.in_tick = TRUE;
 	if (connection == _game_connection_network_server)
 	{
@@ -4009,6 +4092,21 @@ boolean network_distributed_unban(
 	}
 	fclose(file);
 	return TRUE;
+}
+
+/* (the host: network_server_manager.c) a notice about the game: in a game,
+to every client and here; in the lobby, here alone (the console and the
+log) */
+void network_distributed_host_notice(
+	char const *text)
+{
+	if (game_in_progress())
+		distributed_send_notice(text);
+	else
+	{
+		console_warning("%s", text);
+		error(_error_log, "%s", text);
+	}
 }
 
 /* (the host: network_server_manager.c, its kick command) players kicked by

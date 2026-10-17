@@ -544,6 +544,135 @@ int delta_wire_write_map(unsigned char *data, delta_u32 session, const struct de
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_MAP_SIZE + length;
 }
 
+/* ---------- player traits */
+
+/* each movement trait: 0 (unchanged), else in its range */
+static int movement_trait_valid(unsigned short value, int minimum, int maximum)
+{
+	return value == 0 || (value >= minimum && value <= maximum);
+}
+
+static int player_movement_valid(const struct delta_wire_player_traits *traits)
+{
+	return movement_trait_valid(traits->jump, DELTA_WIRE_TRAIT_JUMP_MINIMUM, DELTA_WIRE_TRAIT_JUMP_MAXIMUM) &&
+		movement_trait_valid(traits->gravity, DELTA_WIRE_TRAIT_GRAVITY_MINIMUM, DELTA_WIRE_TRAIT_GRAVITY_MAXIMUM) &&
+		movement_trait_valid(traits->melee, DELTA_WIRE_TRAIT_MELEE_MINIMUM, DELTA_WIRE_TRAIT_MELEE_MAXIMUM);
+}
+
+static int player_traits_valid(const struct delta_wire_player_traits *traits)
+{
+	return traits->health >= DELTA_WIRE_TRAIT_HEALTH_MINIMUM && traits->health <= DELTA_WIRE_TRAIT_HEALTH_MAXIMUM &&
+		traits->damage >= DELTA_WIRE_TRAIT_DAMAGE_MINIMUM && traits->damage <= DELTA_WIRE_TRAIT_DAMAGE_MAXIMUM &&
+		traits->resistance >= DELTA_WIRE_TRAIT_RESISTANCE_MINIMUM &&
+		traits->resistance <= DELTA_WIRE_TRAIT_RESISTANCE_MAXIMUM &&
+		traits->speed >= DELTA_WIRE_TRAIT_SPEED_MINIMUM && traits->speed <= DELTA_WIRE_TRAIT_SPEED_MAXIMUM &&
+		traits->shields < NUMBER_OF_DELTA_WIRE_SHIELDS && traits->highlight <= 1 &&
+		player_movement_valid(traits);
+}
+
+int delta_wire_traits_valid(const struct delta_wire_traits *traits)
+{
+	if (traits->kind == DELTA_WIRE_TRAITS_NONE)
+		return 1;
+	return traits->kind == DELTA_WIRE_TRAITS_BOMB && player_traits_valid(&traits->everyone) &&
+		player_traits_valid(&traits->carrier);
+}
+
+static void read_player_traits(const unsigned char *data, struct delta_wire_player_traits *traits)
+{
+	traits->health = read_u16(data);
+	traits->damage = read_u16(data + 2);
+	traits->resistance = read_u16(data + 4);
+	traits->speed = read_u16(data + 6);
+	traits->shields = data[8];
+	traits->highlight = data[9];
+}
+
+static void read_player_movement(const unsigned char *data, struct delta_wire_player_traits *traits)
+{
+	traits->jump = read_u16(data);
+	traits->gravity = read_u16(data + 2);
+	traits->melee = read_u16(data + 4);
+}
+
+static void write_player_movement(unsigned char *data, const struct delta_wire_player_traits *traits)
+{
+	write_u16(data, traits->jump);
+	write_u16(data + 2, traits->gravity);
+	write_u16(data + 4, traits->melee);
+	data[6] = 0;
+	data[7] = 0;
+}
+
+static void write_player_traits(unsigned char *data, const struct delta_wire_player_traits *traits)
+{
+	write_u16(data, traits->health);
+	write_u16(data + 2, traits->damage);
+	write_u16(data + 4, traits->resistance);
+	write_u16(data + 6, traits->speed);
+	data[8] = traits->shields;
+	data[9] = traits->highlight;
+	data[10] = 0;
+	data[11] = 0;
+}
+
+int delta_wire_read_traits(const unsigned char *payload, int size, struct delta_wire_traits *traits)
+{
+	clear(traits, (int)sizeof(*traits));
+	if (!payload || size < DELTA_WIRE_TRAITS_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	traits->kind = payload[0];
+	/* (none: the sets are not read; they are zeros) */
+	if (traits->kind != DELTA_WIRE_TRAITS_NONE)
+	{
+		read_player_traits(payload + 4, &traits->everyone);
+		read_player_traits(payload + 4 + DELTA_WIRE_PLAYER_TRAITS_SIZE, &traits->carrier);
+		/* (the movement traits, if the host's build sends them; a later
+		version's are read as far as this one knows them) */
+		if (size >= DELTA_WIRE_TRAITS_MOVEMENT_SIZE &&
+			payload[DELTA_WIRE_TRAITS_SIZE] >= DELTA_WIRE_TRAITS_MOVEMENT_VERSION)
+		{
+			read_player_movement(payload + DELTA_WIRE_TRAITS_SIZE + 4, &traits->everyone);
+			read_player_movement(payload + DELTA_WIRE_TRAITS_SIZE + 4 + DELTA_WIRE_PLAYER_MOVEMENT_SIZE,
+				&traits->carrier);
+		}
+	}
+	if (!delta_wire_traits_valid(traits))
+	{
+		clear(traits, (int)sizeof(*traits));
+		return 0;
+	}
+	return 1;
+}
+
+int delta_wire_write_traits(unsigned char *data, delta_u32 session, const struct delta_wire_traits *traits)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+	struct delta_wire_player_traits none;
+
+	if (!delta_wire_traits_valid(traits))
+		return 0;
+	clear(&none, (int)sizeof(none));
+	payload[0] = traits->kind;
+	payload[1] = 0;
+	payload[2] = 0;
+	payload[3] = 0;
+	write_player_traits(payload + 4, traits->kind != DELTA_WIRE_TRAITS_NONE ? &traits->everyone : &none);
+	write_player_traits(payload + 4 + DELTA_WIRE_PLAYER_TRAITS_SIZE,
+		traits->kind != DELTA_WIRE_TRAITS_NONE ? &traits->carrier : &none);
+	/* (the movement traits after: an earlier build reads past them) */
+	payload[DELTA_WIRE_TRAITS_SIZE] = DELTA_WIRE_TRAITS_MOVEMENT_VERSION;
+	payload[DELTA_WIRE_TRAITS_SIZE + 1] = 0;
+	payload[DELTA_WIRE_TRAITS_SIZE + 2] = 0;
+	payload[DELTA_WIRE_TRAITS_SIZE + 3] = 0;
+	write_player_movement(payload + DELTA_WIRE_TRAITS_SIZE + 4,
+		traits->kind != DELTA_WIRE_TRAITS_NONE ? &traits->everyone : &none);
+	write_player_movement(payload + DELTA_WIRE_TRAITS_SIZE + 4 + DELTA_WIRE_PLAYER_MOVEMENT_SIZE,
+		traits->kind != DELTA_WIRE_TRAITS_NONE ? &traits->carrier : &none);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_traits, DELTA_WIRE_TRAITS_MOVEMENT_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TRAITS_MOVEMENT_SIZE;
+}
+
 /* ---------- moderation */
 
 /* whether length bytes of data are printable ASCII */

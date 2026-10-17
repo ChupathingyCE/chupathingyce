@@ -2844,3 +2844,24 @@ void damage_kill_object_for_player(
 	damage.owner_team_index = (short)player->team_index;
 	object_cause_damage(&damage, object_index, NONE, NONE, NONE, NULL);
 }
+
+/* port: the object killed now, counting nothing (no death, no kill, no
+statistics), as unit_kill_no_statistics has it at its next update: Bomb's
+blast (game_engine_bomb.c) */
+void damage_kill_object_no_statistics(
+	long object_index)
+{
+	struct game_globals_falling_damage *falling_damage = TAG_BLOCK_GET_ELEMENT(
+		&scenario_get_game_globals()->falling_damage,
+		0,
+		struct game_globals_falling_damage);
+	struct damage_data damage;
+
+	if (falling_damage->falling_damage.index == NONE)
+		return;
+	damage_data_new(&damage, falling_damage->falling_damage.index);
+	damage.scale = 1.f;
+	SET_FLAG(damage.flags, _damage_kill_instantly_bit, TRUE);
+	SET_FLAG(damage.flags, _damage_no_statistics_bit, TRUE);
+	object_cause_damage(&damage, object_index, NONE, NONE, NONE, NULL);
+}

@@ -66,6 +66,9 @@ static struct
 	/* the host's moderation binding, when last read (its invite's) */
 	unsigned long binding_time;
 	int binding_read;
+	/* the host's game's player traits (delta_peer_game_set_traits) */
+	int has_traits;
+	struct delta_wire_traits traits;
 } delta_game = { 0 };
 
 /* whether two settings' words are the same, case aside (ASCII; no
@@ -340,6 +343,10 @@ int delta_peer_protocol(void)
 		host offers it only with the dedicated server's moderation) */
 #ifdef HALO_GAME_BROWSER
 		local.capabilities |= (delta_u32)1 << _delta_capability_moderation;
+		/* (Bomb game types and their traits: game_engine_bomb.c) */
+		local.capabilities |= (delta_u32)1 << _delta_capability_bomb;
+		local.capabilities |= (delta_u32)1 << _delta_capability_bomb_movement;
+		local.capabilities |= (delta_u32)1 << _delta_capability_bomb_traits;
 #endif
 		local.legacy_version = HALO_PORT_NETWORK_VERSION;
 		delta_peer_local_key(&local.key);
@@ -555,6 +562,7 @@ void delta_peer_game_host_frame(const struct delta_peer_game_machine *machines, 
 	receive();
 	delta_peer_host_frame(&delta_game.peer, GetTickCount(), machines, count, player_machines);
 	host_map();
+	delta_peer_set_traits(&delta_game.peer, delta_game.has_traits ? &delta_game.traits : NULL);
 }
 
 void delta_peer_game_client_frame(int joined, delta_u32 host_ipv4, int host_speaks_delta, int machine_index,
@@ -697,6 +705,54 @@ int delta_peer_machine_profile(int machine_index, unsigned char *player_id, delt
 	if (revision)
 		*revision = machine.profile.revision;
 	return 1;
+}
+
+/* ---------- Bomb game types (game_engine_bomb.c) */
+
+void delta_peer_game_set_traits(const struct delta_wire_traits *traits)
+{
+	delta_game.has_traits = traits != NULL;
+	if (traits)
+		delta_game.traits = *traits;
+}
+
+delta_u32 delta_peer_game_host_traits(struct delta_wire_traits *traits)
+{
+	if (!delta_game.ready || delta_game.role != _role_client)
+		return 0;
+	return delta_peer_host_traits(&delta_game.peer, traits);
+}
+
+int delta_peer_game_machine_lacks(int machine_index, int capability)
+{
+	/* (a host without Delta now: no other machine can agree to anything) */
+	if (delta_peer_protocol() == _delta_peer_protocol_opence || delta_game.role != _role_host || !delta_game.port)
+		return 1;
+	return delta_peer_machine_lacks(&delta_game.peer, GetTickCount(), machine_index, capability);
+}
+
+int delta_peer_game_player_has(int player_index, int capability)
+{
+	struct delta_peer_machine machine;
+
+	if (!delta_game.ready || delta_game.role == _role_none || player_index < 0 ||
+		player_index >= DELTA_PEER_MAXIMUM_PLAYERS || capability < 0 || capability >= NUMBER_OF_DELTA_CAPABILITIES ||
+		!delta_peer_machine(&delta_game.peer, delta_game.peer.player_machines[player_index], &machine))
+	{
+		return 0;
+	}
+	/* (a client's: and its host agreed to it; the client's own machine is
+	all it offers) */
+	if (delta_game.role == _role_client && !(delta_game.peer.agreed & ((delta_u32)1 << capability)))
+		return 0;
+	return (machine.capabilities & ((delta_u32)1 << capability)) != 0;
+}
+
+int delta_peer_game_machine_pending(int machine_index)
+{
+	if (delta_peer_protocol() == _delta_peer_protocol_opence || delta_game.role != _role_host || !delta_game.port)
+		return 0;
+	return delta_peer_machine_pending(&delta_game.peer, GetTickCount(), machine_index);
 }
 
 int delta_peer_game_room_has(int capability)

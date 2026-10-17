@@ -51,6 +51,20 @@ game ticks on every machine):
 | rejoin | the client leaves; a new copy joins the game in progress, plays with both players and sees a death |
 | stability | no copy stops by itself (assertions a release build logs and goes on from are warnings) |
 
+A Grifball direction (grifball; docs/bomb.md) has our host play Grifball, a
+game type only machines with Delta Peer's bomb capability play, with an
+OpenCE client joining its lobby and another its game in progress:
+
+| Step | Pass when |
+| --- | --- |
+| refused | the host drops each OpenCE machine (no bomb capability) and the machine is told it cannot join |
+| no_load | the machine joining in progress never loads the game (it would read it as Race) |
+| plays_on | the host plays Grifball on after the drops, to its end |
+| stability | as above: no copy stops by itself |
+
+The ours-host direction is the check that a normal game with the same host
+build is unchanged.
+
 The result, JSON:
 
     {"pass": true, "ours": {...}, "theirs": {...}, "directions": [
@@ -89,6 +103,8 @@ QUIET_LIMIT = 45          # ... or seconds the host logs no play after the first
 NO_GAME_LIMIT = 90        # ... or seconds with no game at all
 HARD_LIMIT = 300          # everything stops
 SERVER_RUN_SECONDS = 120
+GRIFBALL_LATE_AT = 8      # seconds into the Grifball game the second OpenCE client joins it
+GRIFBALL_PLAY = 45        # seconds of the Grifball game played before the direction ends
 
 # steps an OpenCE host's test hooks don't do reliably, whoever its clients
 # are: reported, never failing a run when the host is OpenCE's. Its host
@@ -565,6 +581,25 @@ def stability(copies):
     return step(not trouble, "every copy ran until the test stopped it" if not trouble else trouble), warnings
 
 
+def check_grifball(host, client, late):
+    """The Grifball direction: each OpenCE machine dropped (the lobby's and
+    the game in progress's), told so, never loading the game; the host
+    playing on"""
+    steps = {}
+    host_lines = host.out() + host.debug()
+    drops = sum(1 for line in host_lines if "has no bomb capability" in line)
+    told = [copy.name for copy in (client, late) if any("unable to join game" in line or
+        "rejection_code" in line for line in copy.out() + copy.debug())]
+    steps["refused"] = step(drops >= 2 and len(told) == 2, f"the host dropped {drops} machine(s); told: {told or 'none'}")
+    loaded = [line for line in late.out() + late.debug() if "joined the game in progress" in line]
+    steps["no_load"] = step(not loaded, "the late OpenCE machine never loaded the game" if not loaded else loaded[0])
+    host_games, _ = read_games(host.out())
+    played = sum(len(game.ticks) for game in host_games)
+    ended = any(game.over() for game in host_games)
+    steps["plays_on"] = step(played >= 20, f"the host logged {played} s of Grifball, the game over: {ended}")
+    return steps
+
+
 # ---------- a run
 
 def addresses(base):
@@ -612,6 +647,16 @@ def plan(args):
             (f"{name}/late-{client_kind}", client_kind, late, None, HARD_LIMIT),
             (f"{name}/back-{client_kind}", client_kind, back, None, HARD_LIMIT)],
             "phase": 1 if name.startswith("control-") else 0})
+    if not args.only or "grifball" in args.only:
+        host_address, client_address, late_address = addresses(base + 30)
+        directions.append({"name": "grifball", "variants": ["grifball"], "grifball": True, "phase": 0, "copies": [
+            ("grifball/host-ours", "ours", dict(test, HALO_NETWORK_TEST="host:bloodgulch:grifball",
+                HALO_SOLO_GAME="true", HALO_NETWORK_TEST_BOMB="10", HALO_NET_ADDRESS=host_address,
+                HALO_NET_BROADCAST=f"{client_address},{late_address}"), 0, HARD_LIMIT),
+            ("grifball/client-theirs", "theirs", dict(join_test, HALO_NET_ADDRESS=client_address,
+                HALO_NET_BROADCAST=host_address, HALO_TEST_INPUT="bot:51"), JOIN_DELAY, HARD_LIMIT),
+            ("grifball/late-theirs", "theirs", dict(join_test, HALO_NET_ADDRESS=late_address,
+                HALO_NET_BROADCAST=host_address, HALO_TEST_INPUT="bot:53"), None, HARD_LIMIT)]})
     if getattr(args, "server", None) and (not args.only or "server" in args.only):
         server_address, first, second = addresses(base + 20)
         directions.append({"name": "server", "variants": ["slayer"], "server": True, "phase": 0, "copies": [
@@ -674,6 +719,16 @@ def play(directions):
             for direction in directions:
                 if direction.get("server"):
                     continue
+                if direction.get("grifball"):
+                    host, client, late = direction["live"]
+                    games = progress(host["copy"])
+                    first = games[0] if games else 0
+                    if late["delay"] is None and first >= GRIFBALL_LATE_AT:
+                        late["delay"] = now
+                    if first >= GRIFBALL_PLAY or (not games and now >= NO_GAME_LIMIT):
+                        for entry in direction["live"]:
+                            entry["until"] = min(entry["until"], now)
+                    continue
                 host, client, late, back = direction["live"]
                 if host["copy"].process is None:
                     continue
@@ -724,15 +779,24 @@ def report(args, directions, seconds):
         copies = [entry["copy"] for entry in direction["live"]]
         if direction.get("server"):
             steps, versions = check_server(*copies), []
+        elif direction.get("grifball"):
+            steps, versions = check_grifball(*copies), []
         else:
             steps, versions = check_direction(*copies, direction["variants"])
         steps["stability"], warnings = stability(copies)
+        # (a refused OpenCE client's test quits by itself, cleanly: not a crash)
+        if direction.get("grifball") and not steps["stability"]["pass"]:
+            trouble = steps["stability"]["detail"]
+            if isinstance(trouble, dict) and all(all(text == "exited by itself, status 0" for text in texts)
+                                                 for texts in trouble.values()):
+                steps["stability"] = step(True, f"every copy ran on; refused clients quit cleanly ({sorted(trouble)})")
         checked[direction["name"]] = (steps, versions, warnings)
     for direction in directions:
         name = direction["name"]
         steps, versions, warnings = checked[name]
         host_kind = direction["copies"][0][1]
-        baseline = checked.get(f"control-{host_kind}") if not name.startswith("control-") and name != "server" else None
+        baseline = checked.get(f"control-{host_kind}") if not name.startswith("control-") and \
+            name not in ("server", "grifball") else None
         passed = True
         for step_name, value in steps.items():
             if value["pass"]:
@@ -817,7 +881,7 @@ def main():
     for sub in (run_parser, check_parser):
         sub.add_argument("--maps", required=sub is run_parser, help="the Xbox maps folder (NTSC)")
         sub.add_argument("--map", default="bloodgulch")
-        sub.add_argument("--only", action="append", choices=["ours-host", "theirs-host", "server"])
+        sub.add_argument("--only", action="append", choices=["ours-host", "theirs-host", "server", "grifball"])
         sub.add_argument("--no-baseline", action="store_true", help="leave out each build playing itself")
         sub.add_argument("--work", required=True, help="a scratch folder for the copies' folders and logs")
         sub.add_argument("--out", required=True, help="the JSON result")

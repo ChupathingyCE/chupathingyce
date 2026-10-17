@@ -66,6 +66,7 @@ the right button is B.
 #include "interface/ui_widget.h"
 #include "tag_files/tag_groups.h"
 #include "game/game.h"
+#include "game/game_engine.h"
 #include "interface/player_ui.h"
 #include "saved games/player_profile.h"
 #include "saved games/saved_game_files.h"
@@ -138,7 +139,7 @@ enum
 /* the game's engines, short (as players say them) to fit the column */
 static char const *const engine_names[] =
 {
-	"", "CTF", "Slayer", "Oddball", "King", "Race",
+	"", "CTF", "Slayer", "Oddball", "King", "Race", "Bomb",
 };
 
 /* the multiplayer maps' names in the menus */
@@ -653,6 +654,8 @@ static void offer_button(
 	}
 }
 
+static char const *game_type_blocker(struct browser_game const *game);
+
 /* a game picked: its invite joined (the tunnel to its host), then its game
 joined once advertised through it (browser_screen_process) */
 static void join_selected(
@@ -666,6 +669,11 @@ static void join_selected(
 	if (!game->open)
 	{
 		set_status("That game is not accepting players.");
+		return;
+	}
+	if (game_type_blocker(game))
+	{
+		set_status(game_type_blocker(game));
 		return;
 	}
 	/* (a Custom Edition map's game, only with the map: a join without it
@@ -857,6 +865,24 @@ static void fetch_games(
 		if (!strcmp(browser_screen.games[index].invite, invite))
 			browser_screen.selected = index;
 	}
+}
+
+/* the game types this build plays: the Xbox's (0 is co-op), and Bomb
+(game_engine_bomb.c) in a build with it; a game of another (a newer
+build's) is listed, marked and not joined */
+static char const *game_type_blocker(
+	struct browser_game const *game)
+{
+#ifdef HALO_GAME_BROWSER
+	long last = game_engine_bomb;
+#else
+	long last = game_engine_race;
+#endif
+
+	if (game->engine >= 0 && game->engine <= last)
+		return NULL;
+	return game->engine == game_engine_bomb ? "Bomb and Grifball need a Chupathingy build with Bomb." :
+		"A game type this build does not have: update Chupathingy to join.";
 }
 
 /* what this machine lacks to join a game on a Custom Edition map, or NULL
@@ -1439,7 +1465,7 @@ static char const *type_name(
 		return text;
 	}
 	engine = game->engine >= 0 && game->engine < NUMBEROF(engine_names) && engine_names[game->engine][0] ?
-		engine_names[game->engine] : "Game";
+		engine_names[game->engine] : "New game type";
 
 	/* (Capture the Flag is played in teams alone) */
 	snprintf(text, (size_t)size, "%s%s", game->teams && game->engine != 1 ? "Team " : "", engine);
@@ -2327,7 +2353,8 @@ static void draw_list_footer(
 	float y = (float)(LIST_Y + LIST_HEAD + ROWS_PER_PAGE * LIST_ROW) + 3;
 	float text_y = y + (LIST_FOOT - FOOT_SIZE) * 0.5f;
 	char blocker_text[BROWSER_MAP_LENGTH + 64];
-	char const *blocker = selected ? ce_map_blocker(selected, blocker_text, sizeof(blocker_text)) : NULL;
+	char const *blocker = !selected ? NULL : game_type_blocker(selected) ? game_type_blocker(selected) :
+		ce_map_blocker(selected, blocker_text, sizeof(blocker_text));
 	char text[96];
 	float width;
 
@@ -2521,10 +2548,11 @@ static void draw_bar_prompts(
 {
 	static int const buttons[] = { UI_BUTTON_Y, UI_BUTTON_X, UI_BUTTON_B, UI_BUTTON_A };
 	static char const *const words[] = { "=CREATE GAME", "=REFRESH", "=BACK", "=JOIN" };
-	/* (A greyed for a game whose Halo PC map can't be played here, and with
-	no game to join) */
+	/* (A greyed for a game whose Halo PC map or game type can't be played
+	here, and with no game to join) */
 	boolean on[] = { TRUE, TRUE, TRUE, selected != NULL &&
-		!(ce_map_state(selected, FALSE) >= _ce_map_missing && !ce_map_downloadable(selected) && !ce_map_stock(selected)) };
+		!(ce_map_state(selected, FALSE) >= _ce_map_missing && !ce_map_downloadable(selected) && !ce_map_stock(selected)) &&
+		!game_type_blocker(selected) };
 	short count = selected ? 4 : 3;
 	float width = prompts_width(count, buttons, words, PROMPT_BUTTON, PROMPT_TEXT);
 

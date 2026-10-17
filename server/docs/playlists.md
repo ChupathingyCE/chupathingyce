@@ -59,7 +59,41 @@ moves folders itself unless `HALO_MOVE_OLD_MAP_FOLDERS=yes` (see
 
 `slayer`, `team_slayer`, `ctf`, `ironctf`, `king`, `team_king`, `oddball`,
 `team_oddball`, `race`, `team_race`, `rally`, `elimination`, `stalker`,
-`accumulation`.
+`accumulation`, `bomb`, `grifball`, `grifball_open_pitch`.
+
+### Bomb and Grifball
+
+`bomb`, `grifball` and `grifball_open_pitch` are Chupathingy's own game
+types ([docs/bomb.md](../../docs/bomb.md)). Two teams carry a bomb (the
+map's oddball ball) into the other team's goal (its CTF flag stand). They
+play on any map with two CTF bases.
+
+| Game type | Rules |
+| --- | --- |
+| `bomb` | 3 seconds in the goal to score; a goal starts a new round; first to 3. Normal weapons, no vehicles |
+| `grifball` | One hit kills, no shields, melee only (the map's energy sword if it has one). The carrier is 150% fast, takes two thirds of the damage and is overshielded. Rounds of 3 minutes, a goal ends the round, first to 3. Respawn 3 seconds |
+| `grifball_open_pitch` | Grifball for big maps (Blood Gulch): everyone 175% fast, the carrier 200%, rounds of 5 minutes |
+
+Only players on a Chupathingy build with Bomb can play these. A client
+without it (an OpenCE client, or an older Chupathingy) is dropped from the
+lobby or the game about 4 seconds after it joins, and every player is told
+why. The server plays on. Its other games are unchanged, and OpenCE clients
+play those as before.
+
+A game type file can start from these (`base = "grifball"`) and change their
+own fields: `bomb.arm_time`, `bomb.reset_time` and `bomb.round_time`
+(seconds), `bomb.new_round_on_score`, `bomb.melee_only`, and `bomb.traits`
+(`"none"`, `"grifball"`, `"open_pitch"`).
+
+Settings of the server's (`config.toml`, or their environment
+variables) tune them:
+
+| Setting | Variable | What it does |
+| --- | --- | --- |
+| `game.bomb_spawns` | `HALO_BOMB_SPAWNS` | Where the bomb spawns on a map: `"<map> <x> <y> [<z>]"`, comma separated (`"bloodgulch 63.31 -120.38, hangemhigh 22.8 -3.7"`), the map as the playlist names it. It rests on the ground under the point. A map not named has the game's own spot: Blood Gulch's halfway between its teleporters' exits, any other map's halfway between the goals |
+| `game.bomb_open_pitch_carrier_health`, `game.bomb_open_pitch_carrier_resistance`, `game.bomb_open_pitch_carrier_shields` | `HALO_BOMB_OPEN_PITCH_CARRIER_HEALTH`, `_RESISTANCE`, `_SHIELDS` | The carrier in `grifball_open_pitch`: health in percent of everyone's (0: 400), damage resistance in percent (0: 400), and `"none"`, `"normal"` or `"overshield"`. The defaults let the carrier live through one melee blow, not two |
+| `game.bomb_open_pitch_fumble` | `HALO_BOMB_OPEN_PITCH_FUMBLE` | `true` (the default): a melee blow the carrier lives through knocks the bomb loose |
+| `game.bomb_open_pitch_speed` | `HALO_BOMB_OPEN_PITCH_SPEED` | Everyone's speed in `grifball_open_pitch`, in percent, 50 to 200 (0: 175). The carrier's 115% goes on top, up to 200%; at 200 the carrier is no faster than anyone |
 
 A team game needs at least two players. While only one player is waiting,
 the server skips ahead to the next game in the playlist that isn't a team
@@ -77,6 +111,7 @@ game; if there isn't one, that player waits for a second.
 | `bloodgulch.txt` | Blood Gulch only, Team Slayer and Slayer in turn, for the biggest games. |
 | `gearbox.txt` | Halo PC's stock maps as Custom Edition has them (`@ce`), Slayer and Team Slayer in turn. |
 | `gearbox.txt` | Halo PC's own maps (`@ce`), Slayer and Team Slayer in turn. |
+| `grifball.txt` | Grifball: Open Pitch on Blood Gulch, then Grifball on the smaller CTF maps. Chupathingy clients only. |
 
 ## Playlists made on the server
 
