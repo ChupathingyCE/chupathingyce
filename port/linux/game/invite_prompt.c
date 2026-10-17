@@ -28,6 +28,7 @@ void platform_log(char const *format, ...);
 int platform_take_clipboard_invite(char *text, int size);
 int p2p_join_invite(char const *text);
 boolean browser_screen_invite_game(char const *link, char *name, long name_size, char *map, long map_size);
+boolean pc_menus_chupathingy(void);
 
 /* ---------- constants */
 
@@ -65,6 +66,19 @@ enum
 	COLOR_PROMPT_GLOW = 0x3D8BFF80,
 	COLOR_BANNER = 0x081530F0,
 	COLOR_BANNER_EDGE = 0x2F6DD0FF,
+};
+
+/* the Chupathingy menus' (display.menus "chupathingy"): the question as
+the Xbox's question boxes are (ui.map's alert_bkd over its grey shade): a
+square box with a thin blue edge, its text in the Xbox's blue, no glow */
+enum
+{
+	XBOX_SHADE = 0x1A1A1AA0,
+	XBOX_BOX_TOP = 0x0B2350F0,
+	XBOX_BOX_BOTTOM = 0x030C22F0,
+	XBOX_EDGE = 0x2896FFFF,
+	XBOX_TEXT = 0x2896FFFF,
+	XBOX_TEXT_DIM = 0x6FA9E6FF,
 };
 
 #define PROMPT_BUTTON 16.0f
@@ -176,11 +190,20 @@ static float prompt(
 	int button,
 	char const *words,
 	float x,
-	float y)
+	float y,
+	boolean question_box)
 {
 	x += ui_overlay_button(button, PROMPT_BUTTON, x, y, 0xFFFFFFFF) + 3.0f;
-	x += ui_overlay_text_glow(UI_FONT_MENU, PROMPT_TEXT, x, y + (PROMPT_BUTTON - PROMPT_TEXT) * 0.5f + 0.5f,
-		UI_ALIGN_LEFT, COLOR_PROMPT, COLOR_PROMPT_GLOW, words);
+	if (question_box)
+	{
+		x += ui_overlay_text(UI_FONT_MENU, PROMPT_TEXT, x, y + (PROMPT_BUTTON - PROMPT_TEXT) * 0.5f + 0.5f,
+			UI_ALIGN_LEFT, XBOX_TEXT, words);
+	}
+	else
+	{
+		x += ui_overlay_text_glow(UI_FONT_MENU, PROMPT_TEXT, x, y + (PROMPT_BUTTON - PROMPT_TEXT) * 0.5f + 0.5f,
+			UI_ALIGN_LEFT, COLOR_PROMPT, COLOR_PROMPT_GLOW, words);
+	}
 	return x;
 }
 
@@ -270,6 +293,9 @@ void invite_prompt_render(
 {
 	float center = DIALOG_X + DIALOG_WIDTH / 2;
 	float width, x;
+	/* (the Chupathingy menus': the Xbox's question box) */
+	boolean question_box = pc_menus_chupathingy();
+	unsigned int dim = COLOR_DIM;
 
 	if (!ui_overlay_available() || !invite_prompt.pending)
 		return;
@@ -284,21 +310,35 @@ void invite_prompt_render(
 	}
 
 	ui_overlay_layer(3);
-	ui_overlay_rect(-200, 0, 1040, 480, 0, COLOR_SHADE);
-	ui_overlay_panel(DIALOG_X, DIALOG_Y, DIALOG_WIDTH, DIALOG_HEIGHT, TRUE);
-	ui_overlay_text_glow(UI_FONT_TITLE, 11.0f, DIALOG_X + 22, DIALOG_Y + 22, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE,
-		"INVITE");
-	ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 56, UI_ALIGN_CENTER, COLOR_TEXT, COLOR_TEXT_GLOW,
-		"Join the game from your clipboard?");
-	if (invite_prompt.known)
+	if (question_box)
 	{
-		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, DIALOG_Y + 84, UI_ALIGN_CENTER, COLOR_DIM, invite_prompt.name);
-		if (invite_prompt.map[0])
-			ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, DIALOG_Y + 100, UI_ALIGN_CENTER, COLOR_DIM, invite_prompt.map);
+		ui_overlay_rect(-200, 0, 1040, 480, 0, XBOX_SHADE);
+		ui_overlay_gradient(DIALOG_X, DIALOG_Y, DIALOG_WIDTH, DIALOG_HEIGHT, 0, XBOX_BOX_TOP, XBOX_BOX_BOTTOM);
+		ui_overlay_outline(DIALOG_X, DIALOG_Y, DIALOG_WIDTH, DIALOG_HEIGHT, 0, 1.0f, XBOX_EDGE);
+		ui_overlay_text(UI_FONT_TITLE, 11.0f, DIALOG_X + 12, DIALOG_Y + 10, UI_ALIGN_LEFT, XBOX_TEXT, "INVITE");
+		ui_overlay_rect(DIALOG_X + 12, DIALOG_Y + 30, DIALOG_WIDTH - 24, 1, 0, XBOX_EDGE);
+		ui_overlay_text(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 52, UI_ALIGN_CENTER, XBOX_TEXT,
+			"Join the game from your clipboard?");
+		dim = XBOX_TEXT_DIM;
 	}
 	else
 	{
-		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, center, DIALOG_Y + 88, UI_ALIGN_CENTER, COLOR_DIM,
+		ui_overlay_rect(-200, 0, 1040, 480, 0, COLOR_SHADE);
+		ui_overlay_panel(DIALOG_X, DIALOG_Y, DIALOG_WIDTH, DIALOG_HEIGHT, TRUE);
+		ui_overlay_text_glow(UI_FONT_TITLE, 11.0f, DIALOG_X + 22, DIALOG_Y + 22, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE,
+			"INVITE");
+		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 56, UI_ALIGN_CENTER, COLOR_TEXT, COLOR_TEXT_GLOW,
+			"Join the game from your clipboard?");
+	}
+	if (invite_prompt.known)
+	{
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, DIALOG_Y + 84, UI_ALIGN_CENTER, dim, invite_prompt.name);
+		if (invite_prompt.map[0])
+			ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, DIALOG_Y + 100, UI_ALIGN_CENTER, dim, invite_prompt.map);
+	}
+	else
+	{
+		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, center, DIALOG_Y + 88, UI_ALIGN_CENTER, dim,
 			"An invite link was copied before switching to the game.");
 	}
 
@@ -306,11 +346,11 @@ void invite_prompt_render(
 	width = prompt_width(UI_BUTTON_B, "=NO") + PROMPT_GAP + prompt_width(UI_BUTTON_A, "=YES");
 	x = center - width / 2;
 	invite_prompt.no_x0 = x - 6;
-	x = prompt(UI_BUTTON_B, "=NO", x, PROMPT_Y);
+	x = prompt(UI_BUTTON_B, "=NO", x, PROMPT_Y, question_box);
 	invite_prompt.no_x1 = x + 6;
 	x += PROMPT_GAP;
 	invite_prompt.yes_x0 = x - 6;
-	x = prompt(UI_BUTTON_A, "=YES", x, PROMPT_Y);
+	x = prompt(UI_BUTTON_A, "=YES", x, PROMPT_Y, question_box);
 	invite_prompt.yes_x1 = x + 6;
 	ui_overlay_layer(0);
 }

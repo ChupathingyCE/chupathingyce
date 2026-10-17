@@ -337,6 +337,12 @@ static void note(char const *text)
 	log_add(_entry_note, 0, NO_TEAM, NONE, NULL, wide);
 }
 
+void chat_note(char const *text)
+{
+	if (text && text[0])
+		note(text);
+}
+
 static boolean muted(short machine, wchar_t const *name)
 {
 	short index;

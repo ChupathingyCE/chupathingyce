@@ -90,6 +90,16 @@ enum delta_capability
 	that agreed to it, and drops any other (delta_peer_machine_lacks) */
 	_delta_capability_bomb = 11,
 	_delta_capability_ping = 12,
+	/* taken by the Bomb builds (Grifball: docs/bomb.md): TRAITS' movement and
+	melee traits, and TRAITS at its own number (22). Never set by this
+	build */
+	_delta_capability_bomb_movement = 13,
+	_delta_capability_bomb_traits = 14,
+	/* changing teams during a game (docs/delta.md, Team changes): a client
+	asks its host (TEAM_REQUEST), the host decides and answers
+	(TEAM_RESULT); the change itself reaches every machine, OpenCE's too,
+	through the game's own player respawn */
+	_delta_capability_team_change = 15,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };

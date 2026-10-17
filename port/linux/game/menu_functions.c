@@ -1569,6 +1569,24 @@ static void profile_gamepad_layout(struct widget_instance *picture)
 	}
 }
 
+/* the Chupathingy menus' settings picture (port/assets/menus/chupathingy):
+a frame for each of its eleven rows, then the Xbox's five button settings,
+which Gamepad Setup's row shows for the edited profile */
+#define CHUPATHINGY_FIRST_LAYOUT_FRAME 11
+
+/* "chupathingy settings picture" (the picture's own) */
+static void chupathingy_settings_picture(struct widget_instance *picture)
+{
+	struct player_profile *profile = player_ui_get_edit_player_profile();
+
+	if (picture->animation.current_frame_index == PROFILE_GAMEPAD_FRAME)
+	{
+		picture->animation.current_frame_index = (short)(CHUPATHINGY_FIRST_LAYOUT_FRAME +
+			(profile && profile->controller_settings.button_preset < NUMBER_OF_BUTTON_PRESETS ?
+				profile->controller_settings.button_preset : _button_preset_standard));
+	}
+}
+
 /* ---------- Profiles: the player profiles, and a row to make one (as the
 PC version's list has them, but by the Xbox's names for its spinner's
 functions); choosing one makes it player 1's, the profile the campaign and
@@ -1652,7 +1670,13 @@ static void profile_row_text(short row, wchar_t *text)
 	}
 	else
 	{
-		string_get("pc\\main_menu\\player_profiles_select\\profile_description_labels", 4, text);
+		extern boolean pc_menus_chupathingy(void);
+
+		/* (the Chupathingy menus' list is narrower: chupathingy/profiles.xml) */
+		if (pc_menus_chupathingy())
+			string_get("pc\\chupathingy\\profiles\\new_row", 0, text);
+		else
+			string_get("pc\\main_menu\\player_profiles_select\\profile_description_labels", 4, text);
 	}
 }
 
@@ -4468,6 +4492,19 @@ static boolean pause_end_game(void)
 	return TRUE;
 }
 
+/* "port pause change teams" (a team game's pause menu's CHANGE TEAMS, Halo
+PC's): the menu's player asks to be put on the other team (team_change.c,
+which tells them what came of it); the menu closes either way */
+static boolean pause_change_teams(struct widget_instance *widget)
+{
+	extern boolean team_change_ask(short local_player_index);
+
+	if (!game_engine_running())
+		return campaign_fail();
+	team_change_ask(widget->local_player_index);
+	return TRUE;
+}
+
 /* ---- the lobby: the game's players (up to the port's 128), its map and
 gametype, the countdown */
 
@@ -5851,6 +5888,10 @@ boolean pc_menu_event_function_invoke(
 		{
 			return pause_end_game();
 		}
+		else if (!strcmp(name, "port pause change teams"))
+		{
+			return pause_change_teams(widget);
+		}
 		else if (!strcmp(name, "player profile save changes"))
 		{
 			return profile_save_changes(widget, widget_deleted);
@@ -6120,4 +6161,6 @@ void pc_menu_game_data_function_invoke(
 		saved_game_list_update(widget);
 	else if (!strcmp(name, "port gamepad layout preview"))
 		profile_gamepad_layout(widget);
+	else if (!strcmp(name, "chupathingy settings picture"))
+		chupathingy_settings_picture(widget);
 }

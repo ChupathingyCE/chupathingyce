@@ -55,6 +55,8 @@ int platform_audio_device_names(char const **names, int maximum);
 
 /* the game's network server (this machine hosts: network_game_globals.c) */
 void *global_network_game_server_get(void);
+/* whether the pause menu has CHANGE TEAMS (team_change.c) */
+boolean team_change_pause_offered(void);
 
 /* cache_files.c's (port) */
 void *cache_files_tag_instances(long *count);
@@ -76,14 +78,18 @@ boolean pc_menu_frame_placement(struct bitmap_data const *bitmap, short *x, shor
 /* ---------- constants */
 
 #define PC_MENU_TAG_PREFIX "pc\\"
+/* the Chupathingy menus' main menu (port/assets/menus/chupathingy) */
+#define CHUPATHINGY_ROOT "chupathingy/main_menu"
+/* (the Chupathingy menus' prompts' buttons, by their tags' names) */
+#define CHUPATHINGY_PROMPTS PC_MENU_TAG_PREFIX "chupathingy\\prompts\\"
 /* the multiplayer maps' widget collection, whose pause screens pause_patch
 adds to */
 #define MULTIPLAYER_COLLECTION "ui\\shell\\multiplayer"
 /* a campaign map's pause screen, which pause_patch adds to */
 #define SOLO_PAUSE_SCREEN "ui\\shell\\solo_game\\pause_game\\pause_game"
-/* the tags pause_patch adds: two buttons and their texts, and the tops of
+/* the tags pause_patch adds: three buttons and their texts, and the tops of
 the stock box's pieces (the campaign's has six) */
-#define PAUSE_PATCH_TAGS (4 + 2 * 6)
+#define PAUSE_PATCH_TAGS (6 + 2 * 6)
 /* what a frame of ui.map's is drawn as in a game map, which has not got it */
 #define BLANK_PNG "ce/port/blank__0.png"
 #define UI_WIDGET_DEFINITION_TAG 'DeLa'
@@ -366,6 +372,7 @@ static char const *const port_function_names[] =
 	"port setup edit",
 	"port map list back",
 	"port pause end game",
+	"port pause change teams",
 	"port coop begin", "port coop player 2 list initialize", "port coop player 2",
 	"port lobby open", "port lobby add player", "port lobby join", "port lobby leave",
 	"port lobby player list initialize", "port lobby player choose",
@@ -405,6 +412,8 @@ static char const *const port_game_data_input_names[] =
 	/* (the profile settings' picture: the Xbox's of the button settings,
 	on Gamepad Setup's row) */
 	"port gamepad layout preview",
+	/* (the Chupathingy menus' settings picture: the same, on its own frames) */
+	"chupathingy settings picture",
 };
 
 static struct
@@ -421,6 +430,9 @@ static struct
 	struct pc_menu_setting *settings;
 	long setting_count;
 	boolean loaded;
+	/* (display.menus "chupathingy": its main menu, the Xbox's screens after a
+	network game) */
+	boolean chupathingy;
 	char root[300];
 #ifdef HALO_64BIT
 	/* the name of an empty reference, inside the Xbox address space as the
@@ -1448,7 +1460,10 @@ static void menu_tags_release(void)
 Their list gets SETTINGS after RESUME GAME, the menus' settings (as the
 main menu's SETTINGS opens them), and a multiplayer map's, for the host,
 END GAME after it, which ends the game as its time limit would: its players
-stay, and the host picks the next map after the carnage report. They are
+stay, and the host picks the next map after the carnage report. A team
+game's gets CHANGE TEAMS right after RESUME GAME, as Halo PC's had it: the
+player asks the host to put them on the other team, and the menu closes
+(team_change.c). They are
 copies of RESUME GAME (its look), the rows after them moved down. The map's
 pause screens grow to fit them: on the Xbox's own (its box of pausebox2
 pieces, and the campaign's objectives box beside it), the box is drawn as
@@ -1456,7 +1471,21 @@ much taller, centred where it was, with what is in it, and what is below
 the list moved down; on a custom map's, what is below the list moves down. */
 
 #define PAUSE_SETTINGS_SCREEN "main_menu/settings_select/player_setup/player_profile_edit/player_profile_edit_screen"
+/* (the Chupathingy menus': their own, in the Xbox's look) */
+#define PAUSE_SETTINGS_SCREEN_CHUPATHINGY "chupathingy/settings/profile_edit_screen"
 #define PAUSE_BUTTON_SPACING 35
+
+/* display.menus: the Xbox's menus, Gearbox's Halo PC menus, or Chupathingy's (the
+Xbox's, with the PC version's screens that the Xbox has not, in its look:
+port/assets/menus/chupathingy) */
+enum
+{
+	_menus_xbox,
+	_menus_pc,
+	_menus_chupathingy,
+};
+
+static short menus_chosen(void);
 
 static long ui_function_named(char const *name)
 {
@@ -1527,9 +1556,9 @@ static long pause_quit_button(struct ui_widget_definition const *list, long quit
 
 /* a button like the model (its look), its own text, each of the model's
 events (its A and Start) running the function and opening the widget (if
-not NONE) */
+not NONE), or closing the menu (close) */
 static void *pause_button(struct cache_file_tag_instance *instances, struct ui_widget_definition const *model,
-	char const *name, char const *text, long function, long widget_tag)
+	char const *name, char const *text, long function, long widget_tag, boolean close)
 {
 	struct ui_widget_definition *button = allocate(sizeof(*button));
 	struct ui_widget_event_handler_reference *handlers =
@@ -1550,6 +1579,8 @@ static void *pause_button(struct cache_file_tag_instance *instances, struct ui_w
 	for (handler = 0; handler < model->event_handlers.count; handler++)
 	{
 		handlers[handler].flags = FLAG(_event_handler_run_function_bit);
+		if (close)
+			handlers[handler].flags |= FLAG(_event_handler_close_all_widgets_bit);
 		handlers[handler].function = (short)function;
 		handlers[handler].script[0] = 0;
 		reference_set(&handlers[handler].widget_tag, UI_WIDGET_DEFINITION_TAG, widget_tag);
@@ -1563,39 +1594,49 @@ static void *pause_button(struct cache_file_tag_instance *instances, struct ui_w
 	return button;
 }
 
-/* the list's buttons: SETTINGS (Gearbox's menus: settings) and the host's
-END GAME (end_game) put after RESUME GAME (resume), the rows after them
-moved down; returns how far the list grew, 0 if it was not */
+/* the list's buttons: a team game's CHANGE TEAMS (change_teams), SETTINGS
+(Gearbox's menus: settings) and the host's END GAME (end_game) put after
+RESUME GAME (resume), the rows after them moved down; returns how far the
+list grew, 0 if it was not */
 static short pause_list_patch(struct cache_file_tag_instance *instances, struct ui_widget_definition *list, long resume,
-	boolean settings, boolean end_game)
+	boolean change_teams, boolean settings, boolean end_game)
 {
 	struct ui_widget_child_reference *children = xbox_pointer(list->child_widgets.address);
-	long count = list->child_widgets.count, added = (settings != FALSE) + (end_game != FALSE), child;
+	long count = list->child_widgets.count, child;
+	long added = (change_teams != FALSE) + (settings != FALSE) + (end_game != FALSE);
 	struct ui_widget_child_reference *grown = allocate((count + added) * sizeof(struct ui_widget_child_reference));
 	struct ui_widget_definition const *model = tag_get(UI_WIDGET_DEFINITION_TAG, children[resume].widget_tag.index);
-	long settings_widget = settings ? widget_named(PAUSE_SETTINGS_SCREEN) : NONE;
+	long settings_widget = !settings ? NONE :
+		widget_named(menus_chosen() == _menus_chupathingy ? PAUSE_SETTINGS_SCREEN_CHUPATHINGY : PAUSE_SETTINGS_SCREEN);
 	short spacing = count >= 2 ? (short)(children[count - 1].vertical_offset - children[count - 2].vertical_offset) :
 		PAUSE_BUTTON_SPACING;
-	void *buttons[2];
-	long tags[2];
-	char const *names[2];
+	void *buttons[3];
+	long tags[3];
+	char const *names[3];
 
 	if (!grown || !added || (settings && settings_widget == NONE) || spacing <= 0)
 		return 0;
 	added = 0;
+	if (change_teams)
+	{
+		names[added] = "pause/change_teams_button";
+		tags[added] = next_tag();
+		buttons[added++] = pause_button(instances, model, "pause/change_teams_button", "CHANGE TEAMS",
+			function_index("port pause change teams", "pause", 0), NONE, TRUE);
+	}
 	if (settings)
 	{
 		names[added] = "pause/settings_button";
 		tags[added] = next_tag();
 		buttons[added++] = pause_button(instances, model, "pause/settings_button", "SETTINGS",
-			function_index("profile set edit begin", "pause", 0), build.widget_tags[settings_widget]);
+			function_index("profile set edit begin", "pause", 0), build.widget_tags[settings_widget], FALSE);
 	}
 	if (end_game)
 	{
 		names[added] = "pause/end_game_button";
 		tags[added] = next_tag();
 		buttons[added++] = pause_button(instances, model, "pause/end_game_button", "END GAME",
-			function_index("port pause end game", "pause", 0), NONE);
+			function_index("port pause end game", "pause", 0), NONE, FALSE);
 	}
 	for (child = 0; child < added; child++)
 	{
@@ -1730,7 +1771,7 @@ static void pause_box_grow(struct cache_file_tag_instance *instances, struct ui_
 the one running quit_function (a custom map's), patched
 once (the screens share it), and the screen moved to fit it */
 static void pause_screen_patch(struct cache_file_tag_instance *instances, long screen_tag, long quit_function,
-	boolean settings, boolean end_game, long *patched_list, short *grow, boolean *box_grown)
+	boolean change_teams, boolean settings, boolean end_game, long *patched_list, short *grow, boolean *box_grown)
 {
 	struct ui_widget_definition *definition = tag_get(UI_WIDGET_DEFINITION_TAG, screen_tag);
 	struct ui_widget_child_reference *children = xbox_pointer(definition->child_widgets.address);
@@ -1758,7 +1799,7 @@ static void pause_screen_patch(struct cache_file_tag_instance *instances, long s
 			resume--;
 		if (resume < 0 || resume == NONE || *patched_list != NONE)
 			continue;
-		*grow = pause_list_patch(instances, candidate, resume, settings, end_game);
+		*grow = pause_list_patch(instances, candidate, resume, change_teams, settings, end_game);
 		if (!*grow)
 			return;
 		*patched_list = children[child].widget_tag.index;
@@ -1815,14 +1856,15 @@ static void pause_screen_patch(struct cache_file_tag_instance *instances, long s
 	}
 }
 
-/* settings: Gearbox's menus' SETTINGS too (the Xbox's menus have only the
-host's END GAME) */
+/* settings: Gearbox's menus' SETTINGS too (the Xbox's menus have only a
+team game's CHANGE TEAMS and the host's END GAME) */
 static void pause_patch(struct cache_file_tag_instance *instances, boolean settings)
 {
 	long collection = tag_loaded('Soul', MULTIPLAYER_COLLECTION);
 	long solo_screen = tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_PAUSE_SCREEN);
 	long quit_function = ui_function_named("mp game player quit");
 	boolean host = global_network_game_server_get() != NULL;
+	boolean change_teams = solo_screen == NONE && team_change_pause_offered();
 	long patched_list = NONE;
 	boolean box_grown = FALSE;
 	short grow = 0;
@@ -1832,7 +1874,7 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 	if (solo_screen != NONE)
 	{
 		if (settings)
-			pause_screen_patch(instances, solo_screen, NONE, TRUE, FALSE, &patched_list, &grow, &box_grown);
+			pause_screen_patch(instances, solo_screen, NONE, FALSE, TRUE, FALSE, &patched_list, &grow, &box_grown);
 	}
 	else if (collection != NONE)
 	{
@@ -1844,19 +1886,22 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 			long screen_tag = XBOX_POINTER(struct tag_reference const, screens->address)[screen].index;
 
 			if (screen_tag != NONE)
-				pause_screen_patch(instances, screen_tag, quit_function, settings, host, &patched_list, &grow, &box_grown);
+			{
+				pause_screen_patch(instances, screen_tag, quit_function, change_teams, settings, host, &patched_list, &grow,
+					&box_grown);
+			}
 		}
 	}
 	if (patched_list != NONE)
 	{
-		platform_log("menus: the pause menu has %s", !settings ? "END GAME" :
-			host && solo_screen == NONE ? "SETTINGS and END GAME" : "SETTINGS");
+		platform_log("menus: the pause menu has%s%s%s", change_teams ? " CHANGE TEAMS" : "", settings ? " SETTINGS" : "",
+			host && solo_screen == NONE ? " END GAME" : "");
 	}
 }
 
-/* the Xbox's menus: a multiplayer map's pause menu gets the host's END GAME
-alone (its own tags, as the Gearbox menus' pause_patch makes them; let go
-by menu_tags_unloaded) */
+/* the Xbox's menus: a multiplayer map's pause menu gets a team game's CHANGE
+TEAMS and the host's END GAME alone (its own tags, as the Gearbox menus'
+pause_patch makes them; let go by menu_tags_unloaded) */
 static void pause_patch_xbox(void)
 {
 	struct cache_file_tag_instance *instances;
@@ -1888,7 +1933,7 @@ static void pause_patch_xbox(void)
 	pause_patch(instances, FALSE);
 	if (build.failed)
 	{
-		platform_log("menus: the pause menu's END GAME not added");
+		platform_log("menus: the pause menu's buttons not added");
 		menu_tags_release();
 	}
 	else
@@ -1896,14 +1941,15 @@ static void pause_patch_xbox(void)
 	memset(&build, 0, sizeof(build));
 }
 
-/* whether display.menus asks for Gearbox's Halo PC menus: "gearbox" (or the
-older "pc") in any case (any other value but "xbox" is said once in the log,
-and is the Xbox's) */
-static boolean menus_pc_chosen(void)
+
+/* which display.menus asks for, in any case ("gearbox" or the older "pc"
+for Gearbox's; a value that is none of them is said once in the log, and is
+the Xbox's) */
+static short menus_chosen(void)
 {
 	static boolean said;
 	char const *value = config_string("display.menus");
-	char lower[8];
+	char lower[16];
 	size_t index;
 
 	for (index = 0; index + 1 < sizeof(lower) && value[index]; index++)
@@ -1912,13 +1958,22 @@ static boolean menus_pc_chosen(void)
 	if (value[index])
 		lower[0] = 0;
 	if (!strcmp(lower, "gearbox") || !strcmp(lower, "pc"))
-		return TRUE;
+		return _menus_pc;
+	if (!strcmp(lower, "chupathingy"))
+		return _menus_chupathingy;
 	if (strcmp(lower, "xbox") && !said)
 	{
-		platform_log("menus: display.menus \"%s\" is not \"xbox\" or \"gearbox\": the Xbox's", value);
+		platform_log("menus: display.menus \"%s\" is not \"xbox\", \"gearbox\" or \"chupathingy\": the Xbox's", value);
 		said = TRUE;
 	}
-	return FALSE;
+	return _menus_xbox;
+}
+
+/* whether the Chupathingy menus are up */
+boolean pc_menus_chupathingy(
+	void)
+{
+	return menu_tags.loaded && menu_tags.chupathingy;
 }
 
 void menu_tags_loaded(
@@ -1936,11 +1991,12 @@ void menu_tags_loaded(
 	{
 		return;
 	}
-	/* the Xbox's menus: only a multiplayer game's host's END GAME */
-	if (!menus_pc_chosen())
+	/* the Xbox's menus: only a multiplayer game's CHANGE TEAMS and the host's
+	END GAME */
+	if (menus_chosen() == _menus_xbox)
 	{
 		if (game_map && tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_PAUSE_SCREEN) == NONE &&
-			global_network_game_server_get() != NULL)
+			(global_network_game_server_get() != NULL || team_change_pause_offered()))
 		{
 			pause_patch_xbox();
 		}
@@ -2046,9 +2102,10 @@ void menu_tags_loaded(
 		/* (those it made) */
 		cache_files_set_tag_instances(instances, build.first_index + build.next);
 	}
-	else if (widget_named(menus->root) != NONE)
+	else if (widget_named(menus_chosen() == _menus_chupathingy ? CHUPATHINGY_ROOT : menus->root) != NONE)
 	{
-		snprintf(menu_tags.root, sizeof(menu_tags.root), "%s%s", PC_MENU_TAG_PREFIX, menus->root);
+		snprintf(menu_tags.root, sizeof(menu_tags.root), "%s%s", PC_MENU_TAG_PREFIX,
+			menus_chosen() == _menus_chupathingy ? CHUPATHINGY_ROOT : menus->root);
 		for (index = 0; menu_tags.root[index]; index++)
 		{
 			if (menu_tags.root[index] == '/')
@@ -2060,6 +2117,7 @@ void menu_tags_loaded(
 		platform_log("menus: there is no widget named %s, the main menu", menus->root);
 	}
 	menu_tags.loaded = TRUE;
+	menu_tags.chupathingy = menus_chosen() == _menus_chupathingy;
 	platform_log("menus: %ld widgets, %ld string lists and %ld bitmaps added to the map's %ld tags",
 		widget_count, own_lists + menus->string_list_count, menus->bitmap_count, build.first_index);
 	goto done;
@@ -2167,7 +2225,7 @@ short pc_menu_string_index(
 
 /* the screen the engine opens by name after a network game (the Xbox's),
 or ours where the PC version's menus are up: the host's map select, the
-lobby */
+lobby (the Chupathingy menus keep the Xbox's) */
 char const *pc_menus_screen(
 	char const *name)
 {
@@ -2184,7 +2242,7 @@ char const *pc_menus_screen(
 	};
 	short index;
 
-	if (!menu_tags.loaded)
+	if (!menu_tags.loaded || menu_tags.chupathingy)
 		return name;
 	for (index = 0; index < NUMBEROF(screens); index++)
 	{
@@ -2219,8 +2277,10 @@ struct pc_menu_setting *pc_menu_setting_get(
 ui.map's pictures of the controller's buttons in the menus' prompts ("A =
 SELECT", "B = BACK": ui\shell\bitmaps\a_butn and the rest, and their
 smaller _sm), drawn as the keyboard's key caps while the keyboard or mouse
-was used last (halo_keyboard_prompts), as Online Games draws its prompts
-(ui_overlay.c: the keys xinput_sdl.c presses those buttons with), ending
+was used last (halo_keyboard_prompts), and with the Chupathingy menus always
+as the device last used names them (an Xbox-like pad's by snapchipper's
+icons, a PlayStation or Nintendo pad's own), as Online Games draws its
+prompts (ui_overlay.c: the keys xinput_sdl.c presses those buttons with), ending
 where the picture ends, so that the words after it stay clear. */
 
 boolean pc_menu_button_key_cap(
@@ -2250,12 +2310,22 @@ boolean pc_menu_button_key_cap(
 	char const *last;
 	long index;
 
-	if (bitmap_tag_index == NONE || !halo_keyboard_prompts())
+	/* (the Chupathingy menus: always the modern glyphs of the device last
+	used, a pad's too) */
+	boolean modern = menu_tags.loaded && menu_tags.chupathingy;
+
+	if (bitmap_tag_index == NONE || (!halo_keyboard_prompts() && !modern))
 		return FALSE;
 	name = tag_get_name(bitmap_tag_index);
-	if (!name || strncmp(name, "ui\\shell\\bitmaps\\", 17))
+	if (!name)
 		return FALSE;
-	last = name + 17;
+	/* (ui.map's, and the Chupathingy menus' own: chupathingy/prompts.xml) */
+	if (!strncmp(name, "ui\\shell\\bitmaps\\", 17))
+		last = name + 17;
+	else if (modern && !strncmp(name, CHUPATHINGY_PROMPTS, strlen(CHUPATHINGY_PROMPTS)))
+		last = name + strlen(CHUPATHINGY_PROMPTS);
+	else
+		return FALSE;
 	for (index = 0; index < (long)(sizeof(buttons) / sizeof(buttons[0])); index++)
 	{
 		size_t length = strlen(buttons[index].name);

@@ -185,12 +185,15 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"The size the objects' shadows are drawn at, in pixels each way: 128 as\n"
 		"on the Xbox, or 256, 512 or 1024 for smoother edges, as soft." },
-	{ "display.menus", _config_string, "\"xbox\"", "HALO_MENUS", _environment_value, _platform_all,
-		"The menus: \"xbox\" for the Xbox's (with Online Games), \"gearbox\" for\n"
-		"Gearbox's Halo PC screens and Server Browser (\"pc\" still works), rebuilt from port/assets/menus\n"
-		"(a menus folder here for your own) with this port's fonts and redrawn\n"
-		"pictures, not Halo PC's files. Read when the game starts: restart it\n"
-		"after a change. Not all of the PC screens are wired yet." },
+	{ "display.menus", _config_string, "\"chupathingy\"", "HALO_MENUS", _environment_value, _platform_all,
+		"The menus: \"chupathingy\" (the default) for the Xbox's look with Halo\n"
+		"PC's screens added where they help (PROFILES, SETTINGS, QUIT, the\n"
+		"settings pages, Online Games), \"xbox\" for the Xbox's as close to the\n"
+		"console as can be (with Online Games), or \"gearbox\" for Gearbox's Halo\n"
+		"PC screens and Server Browser (\"pc\" still works). Halo PC's screens\n"
+		"are rebuilt from port/assets/menus (a menus folder here for your own)\n"
+		"with this port's fonts and redrawn pictures, not Halo PC's files. Read\n"
+		"when the game starts: restart it after a change." },
 	{ "display.player_names", _config_string, "\"all\"", "HALO_PLAYER_NAMES", _environment_value, _platform_all,
 		"In multiplayer, whose names are drawn above their heads: \"all\",\n"
 		"\"allies\", \"enemies\" or \"none\". An enemy's shows only within the\n"
@@ -239,6 +242,10 @@ static const struct config_setting config_settings[] =
 		_environment_value, _platform_all,
 		"The scoreboard panel's colour: \"red, green, blue, alpha\", each 0 to 255\n"
 		"(alpha 0 is see-through, 255 solid)." },
+	{ "display.pause_change_teams", _config_boolean, "true", "HALO_PAUSE_CHANGE_TEAMS", _environment_value,
+		_platform_all,
+		"In a team game, the pause menu's CHANGE TEAMS (as on Halo PC): it asks\n"
+		"the host to put you on the other team. false hides it." },
 	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all,
 		"Draw the banner for a warning or notice a Delta server sends; false hides\n"
 		"it. Either way the message is written to debug.txt." },
@@ -489,6 +496,17 @@ static const struct config_setting config_settings[] =
 		"Text chat in the games this machine hosts: \"on\", \"team\" (team lines\n"
 		"alone) or \"off\". Lines only pass between Chupathingy machines; nothing\n"
 		"is written down." },
+	{ "network.team_change", _config_string, "\"balanced\"", "HALO_NET_TEAM_CHANGE", _environment_value,
+		_platform_all,
+		"In the team games this machine hosts, whether players may change teams\n"
+		"during the game (the pause menu's CHANGE TEAMS): \"balanced\" (only while\n"
+		"neither team ends up more than network.team_change_margin players\n"
+		"bigger), \"allow\" or \"off\". A player changes teams at most every 10\n"
+		"seconds; they respawn on the new team, with no penalty." },
+	{ "network.team_change_margin", _config_integer, "1", "HALO_NET_TEAM_CHANGE_MARGIN", _environment_value,
+		_platform_all,
+		"With network.team_change = \"balanced\": the most players one team may\n"
+		"have over the other after a change (0 to 16)." },
 	{ "network.chat_filter", _config_boolean, "true", "HALO_NET_CHAT_FILTER", _environment_value, _platform_all,
 		"In the games this machine hosts, lines with blocked words are not passed\n"
 		"on (their sender is told). Nobody is kicked." },
@@ -659,6 +677,17 @@ static const struct config_setting config_settings[] =
 		"Seconds after hosting that an automated test game starts." },
 	{ "debug.network_test_kill", _config_real, "0.0", "HALO_NETWORK_TEST_KILL", _environment_value, _platform_all,
 		"Every this many seconds an automated test host kills its last player; 0 never." },
+	{ "debug.network_test_team_change", _config_real, "0.0", "HALO_NETWORK_TEST_TEAM_CHANGE", _environment_value,
+		_platform_all,
+		"Every this many seconds an automated test machine's player asks to\n"
+		"change teams, as the pause menu's CHANGE TEAMS does; 0 never." },
+	{ "debug.network_test_pause", _config_real, "0.0", "HALO_NETWORK_TEST_PAUSE", _environment_value, _platform_all,
+		"That many seconds into an automated test game, the first player's pause\n"
+		"menu opens (to see it); 0 never." },
+	{ "debug.network_test_local_players", _config_integer, "1", "HALO_NETWORK_TEST_LOCAL_PLAYERS", _environment_value,
+		_platform_all,
+		"An automated test machine's players, 1 to 4 (split screen; the bot plays\n"
+		"the first)." },
 	{ "debug.network_test_score", _config_integer, "0", "HALO_NETWORK_TEST_SCORE", _environment_value, _platform_all,
 		"The score an automated test host's game type plays to (a short game, to\n"
 		"test the next); 0 the game type's own." },
@@ -761,6 +790,11 @@ static const struct config_setting config_settings[] =
 		"A folder to save frames to (with screenshot_every); empty none." },
 	{ "debug.screenshot_every", _config_integer, "0", "HALO_SCREENSHOT_EVERY", _environment_value, _platform_all,
 		"Save every this many frames to screenshot_directory; 0 none." },
+	{ "debug.screenshot_window", _config_boolean, "false", "HALO_SCREENSHOT_WINDOW", _environment_set_is_true,
+		_platform_all,
+		"With screenshot_every, save the window as shown (windowNNNNN.bmp, at its\n"
+		"size, the overlay's screens such as Online Games included) instead of\n"
+		"the game's frame (frameNNNNN.bmp)." },
 	{ "debug.texture_dump_directory", _config_string, "\"\"", "HALO_TEXTURE_DUMP", _environment_value, _platform_all,
 		"A folder to write every texture to as it is uploaded; empty none." },
 	{ "debug.discord_log", _config_boolean, "false", "HALO_DISCORD_LOG", _environment_set_is_true,
@@ -1469,6 +1503,9 @@ static const struct
 {
 	/* upstream's, which ChupathingyCE kept until v0.5.2b */
 	{ "display.menus", "\"pc\"", 0 },
+	/* the Xbox's menus, the default until v0.8.0 (a file that names them
+	keeps them) */
+	{ "display.menus", "\"xbox\"", 0 },
 	/* OpenCE's Discord application, which ChupathingyCE kept until v0.7.5c
 	(Discord showed "OpenCE" as being played) */
 	{ "discord.application_id", "\"1553978809840050229\"", 1 },
@@ -1793,7 +1830,7 @@ static const struct
 	{ "display.mode", { "", "fullscreen", "borderless", "windowed", NULL }, "display.fullscreen's" },
 	{ "display.resolution_scaling", { "native", "original", NULL }, "\"native\"" },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },
-	{ "display.menus", { "xbox", "gearbox", "pc", NULL }, NULL },
+	{ "display.menus", { "xbox", "gearbox", "pc", "chupathingy", NULL }, NULL },
 	{ "display.player_names", { "all", "allies", "allys", "enemies", "none", NULL }, "\"all\"" },
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, "\"teams\"" },
 	{ "display.follow_camera", { "long_waits", "always", "off", NULL }, "\"long_waits\"" },
@@ -1805,6 +1842,7 @@ static const struct
 	{ "network.protocol", { "auto", "opence", "delta", NULL }, NULL },
 	{ "network.map_downloads", { "ask", "always", "never", NULL }, "\"ask\"" },
 	{ "network.join_from_clipboard", { "ask", "always", "never", NULL }, "\"ask\"" },
+	{ "network.team_change", { "balanced", "allow", "off", NULL }, "\"balanced\"" },
 	{ "discord.presence", { "full", "minimal", "off", NULL }, "\"full\"" },
 	{ "network.platform_limits", { "on", "off", NULL }, "\"on\"" },
 	{ "network.coop_friendly_fire", { "off", "on", "shields_only", "explosives_only", NULL }, NULL },

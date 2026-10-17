@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The Chupathingy menus' SETTINGS: the PC version's profile settings and
+their rows, laid out as the Xbox's EDIT PROFILE SETTINGS is (its header, the
+line above SAVE CHANGES, its B and A prompts, "Current Profile:"), from the
+menus' own tags, so that the pause menu's SETTINGS opens it in a game too.
+The rows open the pages of settings_pages.xml. -->
+<menus>
+	<widget name="chupathingy/settings/profile_edit_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
+		<on event="created" run="close if not editing profile"/>
+		<on event="b" run="player profile end editing" back="true"/>
+		<on event="back" run="player profile end editing" back="true"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/header_profile_settings"/>
+		<child widget="chupathingy/settings/list"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/profile_label" x="432" y="353"/>
+		<child widget="main_menu/blueline" x="64" y="364"/>
+		<child widget="chupathingy/prompts/b" x="360" y="414"/>
+		<child widget="chupathingy/prompts/cancel" x="382" y="414"/>
+		<child widget="chupathingy/prompts/a" x="490" y="414"/>
+		<child widget="chupathingy/prompts/select" x="512" y="414"/>
+	</widget>
+	<!-- (its rows closer than the PC version's, 28 apart, for its ten and
+	SAVE CHANGES to fit above the prompts as the Xbox's do) -->
+	<widget name="chupathingy/settings/list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_items" description="chupathingy/settings/description">
+		<data input="plyr prof edit select menu upd8"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/name_profile_item"/>
+		<child widget="chupathingy/settings/controls_setup_item" y="-5"/>
+		<child widget="chupathingy/settings/gamepad_setup_item" y="-10"/>
+		<child widget="chupathingy/settings/mouse_settings_item" y="-15"/>
+		<child widget="chupathingy/settings/audio_settings_item" y="-20"/>
+		<child widget="chupathingy/settings/video_settings_item" y="-25"/>
+		<child widget="chupathingy/settings/network_setup_item" y="-31"/>
+		<child widget="chupathingy/settings/privacy_setup_item" y="-36"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/color_profile_item" y="25"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/about_item" y="20"/>
+		<child widget="chupathingy/settings/save_item"/>
+	</widget>
+	<!-- (the rows that open a settings page: chupathingy/settings_pages.xml) -->
+	<widget name="chupathingy/settings/controls_setup_item" type="text" left="51" top="111" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="1" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
+		<on event="a" open="chupathingy/settings/controls_setup_screen"/>
+		<on event="start" open="chupathingy/settings/controls_setup_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="chupathingy/settings/gamepad_setup_item" type="text" left="51" top="144" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="2" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
+		<on event="a" open="chupathingy/settings/gamepad_setup_screen"/>
+		<on event="start" open="chupathingy/settings/gamepad_setup_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="chupathingy/settings/mouse_settings_item" type="text" left="51" top="177" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="3" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
+		<on event="a" open="chupathingy/settings/mouse_settings_screen"/>
+		<on event="start" open="chupathingy/settings/mouse_settings_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="chupathingy/settings/audio_settings_item" type="text" left="51" top="210" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="4" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
+		<on event="a" open="chupathingy/settings/audio_settings_screen"/>
+		<on event="start" open="chupathingy/settings/audio_settings_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="chupathingy/settings/video_settings_item" type="text" left="51" top="243" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="5" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
+		<on event="a" open="chupathingy/settings/video_settings_screen"/>
+		<on event="start" open="chupathingy/settings/video_settings_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="chupathingy/settings/network_setup_item" type="text" left="51" top="277" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="8" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
+		<on event="a" open="chupathingy/settings/network_setup_screen"/>
+		<on event="start" open="chupathingy/settings/network_setup_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="chupathingy/settings/privacy_setup_item" type="text" left="51" top="310" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="10" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
+		<on event="a" open="chupathingy/settings/privacy_setup_screen"/>
+		<on event="start" open="chupathingy/settings/privacy_setup_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<!-- (the Xbox's SAVE CHANGES, under its line) -->
+	<widget name="chupathingy/settings/save_item" type="text" left="51" top="370" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="7" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
+		<on event="a" run="player profile save changes" open="error/warning_saving_file_screen"/>
+		<on event="start" run="player profile save changes" open="error/warning_saving_file_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="chupathingy/settings/description" controller="1" left="275" top="78" width="320" height="362" bitmap="bitmaps/list_field">
+		<child widget="chupathingy/settings/description_text"/>
+		<child widget="chupathingy/settings/picture" x="4"/>
+	</widget>
+	<!-- (a frame for each row: the Xbox's pictures where it has one for the
+	row, the keyboard, the controller, the colors and saving; the others are
+	their help alone, and Gamepad Setup's the profile's button settings) -->
+	<widget name="chupathingy/settings/picture" controller="1" left="288" top="85" width="279" height="202" bitmap="chupathingy/settings/pictures">
+		<data input="chupathingy settings picture"/>
+	</widget>
+	<bitmap name="chupathingy/settings/pictures">
+		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\profile_options" index="0"/>
+		<frame png="ce/port/blank__0.png" width="4" height="4"/>
+		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\profile_options" index="1"/>
+		<frame png="ce/port/blank__0.png" width="4" height="4"/>
+		<frame png="ce/port/blank__0.png" width="4" height="4"/>
+		<frame png="ce/port/blank__0.png" width="4" height="4"/>
+		<frame png="ce/port/blank__0.png" width="4" height="4"/>
+		<frame png="ce/port/blank__0.png" width="4" height="4"/>
+		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\profile_options" index="3"/>
+		<frame png="ce/port/blank__0.png" width="4" height="4"/>
+		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\profile_options" index="4"/>
+		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\controller_edit\config_controller" index="4" width="279" height="279" y="34"/>
+		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\controller_edit\config_controller" index="5" width="279" height="279" y="34"/>
+		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\controller_edit\config_controller" index="6" width="279" height="279" y="34"/>
+		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\controller_edit\config_controller" index="7" width="279" height="279" y="34"/>
+		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\controller_edit\config_controller" index="8" width="279" height="279" y="34"/>
+	</bitmap>
+	<!-- (as the Xbox's: two lines, a blank one, and "Current Profile:", the
+	profile's name beside it) -->
+	<widget name="chupathingy/settings/description_text" type="text" controller="1" left="294" top="290" width="296" height="110" string_list="chupathingy/settings/descriptions" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<strings name="chupathingy/settings/descriptions">
+		<string text="Rename this profile.\n\n\nCurrent Profile:"/>
+		<string text="Choose the keys and mouse\nbuttons for each action.\n\nCurrent Profile:"/>
+		<string text="Set this profile's controller\nsensitivity and layouts.\n\nCurrent Profile:"/>
+		<string text="Adjust the mouse's sensitivity\nand aiming.\n\nCurrent Profile:"/>
+		<string text="Adjust the volumes and choose\nwhere the sound plays.\n\nCurrent Profile:"/>
+		<string text="Choose a window or the full\nscreen, the frame rate and more.\n\nCurrent Profile:"/>
+		<string text="Internet play, updates and the\nmultiplayer HUD.\n\nCurrent Profile:"/>
+		<string text="Choose what stats and crash\nreports this copy sends.\n\nCurrent Profile:"/>
+		<string text="Change the current profile's\nfree-for-all multiplayer color.\n\nCurrent Profile:"/>
+		<string text="Halo: Combat Evolved, the Xbox\ngame, on this computer.\n\nCurrent Profile:"/>
+		<string text="Save the changes made\nto this profile.\n\nCurrent Profile:"/>
+	</strings>
+</menus>

@@ -609,6 +609,7 @@ def main() -> None:
         (CE / f"{folder.replace('/', '.')}.xml").write_text("\n".join(lines) + "\n")
     for name, lines in [*port_settings.settings_files().items(), *port_settings.multiplayer_files().items()]:
         (CE / name).write_text("\n".join(lines))
+    (MENUS / "chupathingy" / "settings_pages.xml").write_text("\n".join(port_settings.chupathingy_settings_pages()))
     # their strings
     lines = ['<?xml version="1.0" encoding="UTF-8"?>',
              "<!-- The PC version's menus' text (tools/ce_menus.py) -->", "<menus>"]

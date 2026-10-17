@@ -616,6 +616,9 @@ void network_distributed_player_killed(long *killing_player_index, long *killing
 	long dead_player_index, boolean *friendly_fire);
 /* port/linux/game/network_damage.c's */
 boolean network_damage_killer_score(long player_index, long *score);
+/* port/linux/game/team_change.c's */
+boolean team_change_death(long dead_player_index);
+void team_change_player_died(long dead_player_index);
 
 /* ---------- constants */
 
@@ -4623,6 +4626,7 @@ void game_engine_player_killed(
 	boolean player_kill;
 	boolean same_player;
 	boolean valid_players;
+	boolean team_change;
 	long message = NONE;
 
 	match_assert(
@@ -4632,6 +4636,17 @@ void game_engine_player_killed(
 
 	if (!game_engine)
 		return;
+
+	/* port: the host's kill of a player changing teams (team_change.c, as
+	Halo PC's CHANGE TEAMS): nobody's kill, nothing counted, no penalty, no
+	message; its clients hear a death of no killer */
+	team_change = !network_game_distributed_client() && team_change_death(dead_player_index);
+	if (team_change)
+	{
+		killing_player_index = NONE;
+		killing_object_index = NONE;
+		friendly_fire = FALSE;
+	}
 
 	/* the distributed netcode: a client's copy of a death has the host's
 	killer (port/linux/game/network_distributed.c) */
@@ -4643,7 +4658,8 @@ void game_engine_player_killed(
 #ifdef HALO_GAME_BROWSER
 	/* the game list's statistics recorder (port/linux/game/game_stats.c):
 	who killed whom, as this machine's game has it; it changes nothing */
-	game_stats_player_killed(killing_player_index, dead_player_index, friendly_fire);
+	if (!team_change)
+		game_stats_player_killed(killing_player_index, dead_player_index, friendly_fire);
 #endif
 	/* the host's kill of a player who quit, ahead of this client's clock
 	(game_update_quit_players has not come to its time yet) */
@@ -4675,7 +4691,9 @@ void game_engine_player_killed(
 
 	dead_player->respawn_timer =
 		dead_player->respawn_penalty + global_variant.universal_variant.respawn_time;
-	if (global_variant.universal_variant.respawn_time_growth > 0)
+	if (team_change)
+		dead_player->respawn_timer = global_variant.universal_variant.respawn_time;
+	else if (global_variant.universal_variant.respawn_time_growth > 0)
 	{
 		dead_player->respawn_penalty += global_variant.universal_variant.respawn_time_growth;
 		dead_player->respawn_penalty =
@@ -4692,14 +4710,19 @@ void game_engine_player_killed(
 		}
 	}
 
-	if (!player_kill)
+	if (!player_kill && !team_change)
 		dead_player->respawn_timer += global_variant.universal_variant.suicide_penalty;
+
+	/* port: a team change waiting for the death (team_change.c): the player
+	respawns on the new team (the clients take it from the unit, as below) */
+	if (!network_game_distributed_client())
+		team_change_player_died(dead_player_index);
 
 	/* port: the gametype's auto team balance (game_variant_options): the host
 	moves the dead to the other team when his is two or more bigger (his
 	next unit is the other team's, which the clients take it from:
 	network_player_attach_unit) */
-	if (global_variant.universal_variant.teams && game_variant_options_get()->auto_team_balance &&
+	if (global_variant.universal_variant.teams && game_variant_options_get()->auto_team_balance && !team_change &&
 		!network_game_distributed_client() && VALID_INDEX(dead_player->team_index, 2) && !dead_player->quit_out_of_game)
 	{
 		struct data_iterator iterator;
@@ -4748,7 +4771,8 @@ void game_engine_player_killed(
 	dead_player->respawn_timer = MAX(dead_player->respawn_timer, 90);
 	dead_player = player_get(dead_player_index);
 
-	if (!dead_player->quit_out_of_game)
+	/* (a team change's death says nothing: team_change.c tells the player) */
+	if (!team_change && !dead_player->quit_out_of_game)
 	{
 		if (killing_player_index == NONE)
 		{
@@ -4784,7 +4808,7 @@ void game_engine_player_killed(
 			message,
 			killing_player_index);
 	}
-	else
+	else if (!team_change)
 	{
 		struct data_iterator iterator;
 

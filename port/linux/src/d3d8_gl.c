@@ -4869,11 +4869,13 @@ void halo_screen_anti_alias(short x0, short y0, short x1, short y1)
 
 /* ---------- presentation */
 
-static void write_screenshot(struct render_target_entry *target)
+/* a frame saved to debug.screenshot_directory as name<frame>.bmp: the
+read framebuffer's width by height, its rows from the top if top_down
+(a render target's) or else from the bottom (the window's) */
+static void write_screenshot_from(const char *name, unsigned long width, unsigned long height, int top_down)
 {
 	const char *directory = *config_string("debug.screenshot_directory") ?
 		config_string("debug.screenshot_directory") : NULL;
-	unsigned long width = target->target.gl_width, height = target->target.gl_height;
 	unsigned char *pixels;
 	char path[512];
 	FILE *file;
@@ -4881,10 +4883,11 @@ static void write_screenshot(struct render_target_entry *target)
 	unsigned char header[54] = { 'B', 'M' };
 	unsigned long image_size = width * height * 4;
 
-	if (!directory)
+	if (!directory || !width || !height)
 		return;
 	pixels = malloc(image_size);
-	glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer_get(target->target.texture, 0));
+	if (!pixels)
+		return;
 	glReadPixels(0, 0, (GLsizei)width, (GLsizei)height, GL_BGRA, GL_UNSIGNED_BYTE, pixels);
 	/* the display ignores destination alpha, which the game uses as scratch;
 	image viewers would show it as transparency */
@@ -4898,7 +4901,7 @@ static void write_screenshot(struct render_target_entry *target)
 #endif
 		pixels[row * 4 + 3] = 0xff;
 	}
-	snprintf(path, sizeof(path), "%s/frame%05lu.bmp", directory, device.frame);
+	snprintf(path, sizeof(path), "%s/%s%05lu.bmp", directory, name, device.frame);
 	file = fopen(path, "wb");
 	if (file)
 	{
@@ -4906,7 +4909,8 @@ static void write_screenshot(struct render_target_entry *target)
 		*(unsigned int *)(header + 10) = 54;
 		*(unsigned int *)(header + 14) = 40;
 		*(int *)(header + 18) = (int)width;
-		*(int *)(header + 22) = -(int)height; /* rows from the top, as read */
+		/* (rows in the order read: negative from the top) */
+		*(int *)(header + 22) = top_down ? -(int)height : (int)height;
 		*(unsigned short *)(header + 26) = 1;
 		*(unsigned short *)(header + 28) = 32;
 		*(unsigned int *)(header + 34) = (unsigned int)image_size;
@@ -4916,6 +4920,21 @@ static void write_screenshot(struct render_target_entry *target)
 		fclose(file);
 	}
 	free(pixels);
+}
+
+/* the game's frame, as drawn (without the overlay) */
+static void write_screenshot(struct render_target_entry *target)
+{
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer_get(target->target.texture, 0));
+	write_screenshot_from("frame", target->target.gl_width, target->target.gl_height, TRUE);
+}
+
+/* the window as shown, the overlay's screens on the frame
+(debug.screenshot_window) */
+static void write_window_screenshot(int window_width, int window_height)
+{
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+	write_screenshot_from("window", (unsigned long)window_width, (unsigned long)window_height, FALSE);
 }
 
 #ifndef HALO_ANDROID
@@ -4991,6 +5010,7 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 	void *unused, void *unused2)
 {
 	static long screenshot_every = -1;
+	static int screenshot_window = -1;
 
 	(void)source_rectangle;
 	(void)destination_rectangle;
@@ -4998,6 +5018,8 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 	(void)unused2;
 	if (screenshot_every < 0)
 		screenshot_every = config_integer("debug.screenshot_every");
+	if (screenshot_window < 0)
+		screenshot_window = config_boolean("debug.screenshot_window") ? 1 : 0;
 
 	if (device.gl_ready)
 	{
@@ -5011,7 +5033,7 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 #ifndef HALO_ANDROID
 		visibility_copy_batch();
 #endif
-		if (screenshot_every > 0 && device.frame % (unsigned long)screenshot_every == 0)
+		if (screenshot_every > 0 && !screenshot_window && device.frame % (unsigned long)screenshot_every == 0)
 			write_screenshot(back_buffer);
 
 		platform_video_drawable_size(&window_width, &window_height);
@@ -5050,6 +5072,9 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		glClear(GL_COLOR_BUFFER_BIT);
 		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 #endif
+		/* (the window as shown, before it is swapped away) */
+		if (screenshot_every > 0 && screenshot_window && device.frame % (unsigned long)screenshot_every == 0)
+			write_window_screenshot(window_width, window_height);
 		platform_video_swap();
 		xgpu_gl_state_invalidate();
 		xgpu_texture_cache_begin_frame();
