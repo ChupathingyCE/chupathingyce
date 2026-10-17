@@ -6,6 +6,7 @@ threads, asynchronous procedure calls, time, memory and debug output.
 */
 
 #include "platform.h"
+#include "posix.h"
 
 #include <errno.h>
 #include <sched.h>
@@ -58,12 +59,29 @@ void platform_log(const char *format, ...)
 #ifdef HALO_64BIT
 
 	{
-		/* the game's log, in the data folder once it is known (xbox_files.c):
-		an application's working directory is / */
+		/* the game's log, in the logs folder once it is known (xbox_files.c,
+		platform_folder): an application's working directory is / */
 		extern char platform_log_path[];
 
+		char folder[1024], path[1100];
+
 		handle = platform_log_path[0] ? fopen(platform_log_path, "a") : NULL;
+		/* (before then, the logs folder in the application's folder, when
+		it has one: the macOS application's, or an AppImage's, port_config.c) */
+		if (!platform_log_path[0] && platform_app_folder(folder, sizeof(folder)))
+		{
+			snprintf(path, sizeof(path), "%s/logs", folder);
+			posix_make_directory(path);
+			snprintf(path, sizeof(path), "%s/logs/debug.txt", folder);
+			handle = fopen(path, "a");
+		}
 	}
+	/* (else a logs folder there already, else where the log was before
+	there were logs folders) */
+	if (!handle)
+		handle = fopen("assets/logs/debug.txt", "a");
+	if (!handle)
+		handle = fopen("logs/debug.txt", "a");
 	if (!handle)
 		handle = fopen("assets/debug.txt", "a");
 	if (!handle)

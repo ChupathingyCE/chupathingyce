@@ -84,7 +84,8 @@ services that run it are restarted by hand.
 The settings are in `/opt/halo-dedicated/dedicated.env` on the host (from
 `deploy/dedicated.env` the first time); after a change,
 `sudo systemctl restart halo-dedicated`. The server's log is
-`/opt/halo-dedicated/data/debug.txt`, the service's
+`/opt/halo-dedicated/data/logs/debug.txt` (until 0.8.0,
+`/opt/halo-dedicated/data/debug.txt`), the service's
 `journalctl -u halo-dedicated`.
 
 The service runs the server as the data folder's owner (uid 1000 on the
@@ -97,7 +98,7 @@ anyone who joins.
 Each further server is the `halo-dedicated@<name>` service: the same image,
 its settings in `deploy/instances/<name>.env` (`team.env`: Team Slayer on
 every map), its own data folder `/opt/halo-dedicated/instances/<name>`
-(saves, `debug.txt`), and the first server's maps and playlists, read-only.
+(saves, `logs/debug.txt`), and the first server's maps and playlists, read-only.
 All play on the host's network, each with system link on a loopback address
 of its own (`HALO_NET_ADDRESS`: 127.0.0.2 the first, 127.0.0.3 the team
 server, 127.0.0.4 `max.env`'s 32-player Slayer, 127.0.0.5 `bloodgulch.env`'s

@@ -86,8 +86,9 @@ enum delta_capability
 	(TRAITS). Room-wide: a host plays a Bomb game type only with machines
 	that agreed to it, and drops any other (delta_peer_machine_lacks) */
 	_delta_capability_bomb = 11,
-	/* a host that answers pings before joining (Online Games); taken for
-	them, never set by this build */
+	/* a host answers Online Games' pings before joining (p2p_probe.c):
+	announced on Delta List only, never offered in a HELLO or WELCOME
+	(docs/delta.md, Pings before joining) */
 	_delta_capability_ping = 12,
 	/* TRAITS' movement and melee traits (jump, gravity, melee reach): a
 	player has them only while its machine and the host both agreed to it,

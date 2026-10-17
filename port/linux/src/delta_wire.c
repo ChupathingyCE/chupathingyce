@@ -1236,6 +1236,7 @@ int delta_wire_read_chat_refused(const unsigned char *payload, int size, struct 
 		return 0;
 	refused->sequence = read_u32(payload);
 	refused->reason = payload[4];
+	refused->paused_seconds = read_u16(payload + 6);
 	return 1;
 }
 
@@ -1247,6 +1248,7 @@ int delta_wire_write_chat_refused(unsigned char *data, delta_u32 session,
 	clear(payload, DELTA_WIRE_CHAT_REFUSED_SIZE);
 	write_u32(payload, refused->sequence);
 	payload[4] = refused->reason;
+	write_u16(payload + 6, refused->paused_seconds);
 	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_chat_refused, DELTA_WIRE_CHAT_REFUSED_SIZE, session);
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_CHAT_REFUSED_SIZE;
 }

@@ -65,9 +65,10 @@ size_t crash_report_redact(const char *text, size_t length, char *out, size_t si
 
 /* Linux and macOS (posix_crash.c): the crash handler, writing report files
 into folder (made if need be), with log_path's size at the crash for the
-log; how many reports wait there; sending them (on a thread of its own);
-deleting them */
-int posix_crash_install(const char *folder, const char *log_path);
+log; old_folder (or NULL) holds reports from before, whose log is
+old_log_path; how many reports wait in both; sending them (on a thread of
+its own); deleting them */
+int posix_crash_install(const char *folder, const char *log_path, const char *old_folder, const char *old_log_path);
 int posix_crash_pending(void);
 void posix_crash_send(void);
 void posix_crash_discard(void);

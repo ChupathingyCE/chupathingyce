@@ -699,6 +699,13 @@ void moderation_screen_process(void);
 void moderation_screen_render(void);
 /* the menus' pointer, while it is up (its own taps and clicks) */
 void browser_screen_pointer(struct halo_ui_pointer const *pointer);
+/* port: the question before joining a clipboard's invite
+(port/linux/game/invite_prompt.c) */
+boolean invite_prompt_active(void);
+void invite_prompt_update(boolean menu_open);
+void invite_prompt_process(void);
+void invite_prompt_pointer(struct halo_ui_pointer const *pointer);
+void invite_prompt_render(void);
 /* (ONLINE GAMES, below: its list moves focus item by item) */
 boolean ui_widget_online_games_list(struct widget_instance *widget);
 #endif
@@ -1403,6 +1410,16 @@ boolean pc_menu_frame_placement(
 	short *width,
 	short *height,
 	short *texel_y);
+/* port: a picture of a controller's button in the menus' prompts drawn
+as the keyboard's key cap instead, while the keyboard or mouse was used
+last (port/linux/game/menu_tags.c): TRUE when it was */
+boolean pc_menu_button_key_cap(
+	long bitmap_tag_index,
+	short x0,
+	short y0,
+	short x1,
+	short y1,
+	float alpha);
 /* port: the row of the bitmap draw_bitmap_in_rect starts from (a frame the
 menus place, pc_menu_frame_placement): 0 but while one is drawn */
 static short draw_bitmap_texel_y = 0;
@@ -1474,8 +1491,9 @@ static wchar_t *spinner_string_list_get_string(
 /* ---------- globals */
 
 /* port: text boxes' string list indices from here are the descriptions of
-spinners' extra items (kills_to_win_extra_descriptions) */
-#define SPINNER_EXTRA_DESCRIPTION_BASE 0x5000
+spinners' extra items (kills_to_win_extra_descriptions), above the Custom
+Edition maps' display indices (custom_edition_maps.c keeps them below 0x7000) */
+#define SPINNER_EXTRA_DESCRIPTION_BASE 0x7000
 /* ... and the pixels a spinner with extra items is wider (for three digits) */
 #define SPINNER_EXTRA_WIDTH 12
 
@@ -1513,6 +1531,9 @@ static struct ui_widget_bss_prefix ui_widget_globals_storage;
 #define dpad_event_times ui_widget_globals_storage.dpad_event_times
 real_argb_color ui_plasma_effect_color;
 short local_player_index_for_draw_string_and_hack_in_icons;
+/* port: draw_string_and_hack_in_icons draws a widget's text (the menus'
+keys for the buttons, not the game's: input_abstraction_port_icon_key) */
+static boolean draw_string_icons_for_menus = FALSE;
 
 /* January defines this and never references it, as we do not */
 real const _one_over_255 = 1.0f / 255.0f;
@@ -4353,6 +4374,24 @@ void draw_string_and_hack_in_icons(
 			short icon_index;
 
 			current = icon_spec + wcslen(icon_names[icon_type]);
+			/* port: the keyboard's key, "[E]", in place of the controller's
+			button while the keyboard or mouse was used last (the menus'
+			own keys in the menus: input_abstraction_port_icon_key) */
+			{
+				wchar_t key_text[48];
+
+				if (icon_type <= _icon_look &&
+					input_abstraction_port_icon_key(
+						local_player_index_for_draw_string_and_hack_in_icons,
+						icon_type,
+						draw_string_icons_for_menus,
+						key_text,
+						NUMBEROF(key_text)))
+				{
+					render_state_text(bounds, &cursor_bounds, key_text);
+					continue;
+				}
+			}
 			remapped_icon_type = remap_sticks_for_local_player(
 				icon_type,
 				local_player_index_for_draw_string_and_hack_in_icons);
@@ -5661,7 +5700,11 @@ static void widget_instance_render_text_box(
 		ui_widget_port_text_wrap(*text, &bounds, width);
 	}
 	if (string_has_icons_to_draw(*text))
+	{
+		draw_string_icons_for_menus = TRUE;
 		draw_string_and_hack_in_icons(&bounds, &clip, NULL, 0, *text, FALSE);
+		draw_string_icons_for_menus = FALSE;
+	}
 	else
 		rasterizer_draw_unicode_string(&bounds, &clip, NULL, 0, *text);
 
@@ -7066,14 +7109,17 @@ static void ui_widgets_process_mouse(
 			ui_debug_log_keyboard_tap(pointer.click_x, pointer.click_y, hit);
 	}
 #ifdef HALO_GAME_BROWSER
-	/* Online Games takes the pointer itself, as the virtual keyboard does */
-	if (pointer_active && !keyboard_active && browser_screen_active())
+	/* Online Games takes the pointer itself, as the virtual keyboard does
+	(and the clipboard invite's question, over it) */
+	if (pointer_active && !keyboard_active && invite_prompt_active())
+		invite_prompt_pointer(&pointer);
+	else if (pointer_active && !keyboard_active && browser_screen_active())
 		browser_screen_pointer(&pointer);
 #endif
 	if (!pointer_active || keyboard_active
 #ifdef HALO_GAME_BROWSER
 		/* (nor over Online Games: a click left in the queue would pick a game) */
-		|| browser_screen_active()
+		|| browser_screen_active() || invite_prompt_active()
 #endif
 		)
 	{
@@ -7381,7 +7427,17 @@ static void widget_instance_render_recursive(
 			short frame_x, frame_y, frame_width, frame_height, texel_y = 0;
 			boolean shown = TRUE;
 
-			if (pc_menu_frame_placement(bitmap, &frame_x, &frame_y, &frame_width, &frame_height, &texel_y))
+			if (pc_menu_button_key_cap(
+				definition->background_bitmap.index,
+				bounds.x0,
+				bounds.y0,
+				bounds.x1,
+				bounds.y1,
+				(float)alpha))
+			{
+				shown = FALSE;
+			}
+			else if (pc_menu_frame_placement(bitmap, &frame_x, &frame_y, &frame_width, &frame_height, &texel_y))
 			{
 				bounds.x0 += frame_x;
 				bounds.y0 += frame_y;
@@ -7687,7 +7743,10 @@ void render_ui_widgets(
 	if (browser_screen_active())
 		browser_screen_render();
 	if (first_players_render)
+	{
 		moderation_screen_render();
+		invite_prompt_render();
+	}
 #endif
 	ui_debug_draw_targets(first_players_render);
 
@@ -7925,6 +7984,30 @@ port/linux/game/menu_functions.c) the screens it shares with one player's
 campaign, New Game's levels and the difficulty, are player 1's (their rows
 the first controller's), and either player's controller uses them: player 1's
 is the one that chose co-op, player 2's the one that chose their profile */
+/* port: whether this machine has, or is adding, a second player
+(port/linux/game/menu_functions.c): co-op, split screen, the lobby's */
+extern unsigned char pc_menu_split_players(void);
+
+/* port: with one person playing, any controller drives the first player's
+menus, not only the first port's: a phone can list a device of its own (its
+touch controls) before the gamepad, which then reads port 2, and a player
+picks up whichever pad is at hand. Its screens read every controller's
+events (ui_widgets_update), and take them (below). With two or more
+players, each controller keeps to its own player's menus */
+static boolean widget_takes_any_controller(
+	struct widget_instance const *widget)
+{
+	return widget->local_player_index == 0 && !pc_menu_split_players() &&
+		(we_are_at_the_main_menu || local_player_count() <= 1);
+}
+
+/* port: the controller whose events a screen reads (NONE: every one's) */
+static short widget_event_controller(
+	struct widget_instance const *widget)
+{
+	return widget_takes_any_controller(widget) ? NONE : widget->local_player_index;
+}
+
 static boolean widget_takes_events_of_controller(
 	struct widget_instance const *widget,
 	short controller_index)
@@ -7933,6 +8016,11 @@ static boolean widget_takes_events_of_controller(
 
 	if (widget->local_player_index == NONE || widget->local_player_index == controller_index)
 		return TRUE;
+	if (widget->local_player_index == 0 && controller_index > 0 &&
+		controller_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS && widget_takes_any_controller(widget))
+	{
+		return TRUE;
+	}
 	if (widget->local_player_index != 0 || !we_are_at_the_main_menu || player_spawn_count < 2 ||
 		controller_index < 0 || controller_index >= MAXIMUM_NUMBER_OF_LOCAL_PLAYERS)
 	{
@@ -8726,6 +8814,14 @@ void process_ui_widgets(
 		return;
 	}
 #ifdef HALO_GAME_BROWSER
+	/* port: an invite on the clipboard, asked about over the menus */
+	invite_prompt_update(widget_globals.active_widgets[0] != NULL);
+	if (invite_prompt_active())
+	{
+		invite_prompt_process();
+
+		return;
+	}
 	if (browser_screen_active())
 	{
 		browser_screen_process();
@@ -8824,7 +8920,7 @@ void process_ui_widgets(
 			struct event_record event = {0};
 
 			if (widget_globals.processing_inhibited ||
-				!get_next_event(&event, widget->local_player_index))
+				!get_next_event(&event, widget_event_controller(widget)))
 			{
 				/* the widget still gets one empty event so that its animation,
 				auto-close timer and fade keep running */
@@ -8855,7 +8951,7 @@ void process_ui_widgets(
 					if (widget != widget_globals.active_widgets[widget_index])
 						break;
 				}
-				while (get_next_event(&event, widget->local_player_index));
+				while (get_next_event(&event, widget_event_controller(widget)));
 			}
 			widgets_processed = TRUE;
 			if (!widget_globals.active_widgets[widget_index] &&

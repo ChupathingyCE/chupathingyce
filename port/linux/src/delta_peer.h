@@ -103,6 +103,9 @@ enum
 	most this often (and at once), and keeps the last lines it heard */
 	DELTA_PEER_CHAT_SAY_RATE = 1,
 	DELTA_PEER_CHAT_SAY_BURST = 3,
+	/* past the rate, a machine's lines refused this long (its chat paused;
+	delta_peer_set_chat_cooldown) */
+	DELTA_PEER_CHAT_COOLDOWN = 5000,
 	DELTA_PEER_CHAT_CONFIG_INTERVAL = 10000,
 	DELTA_PEER_CHAT_LINE_RATE = 10,
 	DELTA_PEER_CHAT_LINE_BURST = 20,
@@ -210,6 +213,9 @@ struct delta_peer_host_chat
 	int has_last;
 	delta_u32 last_fingerprint;
 	delta_u32 last_time;
+	/* its lines refused until then, once it said too much too fast */
+	int paused;
+	delta_u32 paused_until;
 	/* CHAT_CONFIG as last sent, and when */
 	int config_sent;
 	struct delta_wire_chat_config config;
@@ -471,6 +477,8 @@ struct delta_peer
 	const struct delta_peer_chat_host *chat_host;
 	unsigned char chat_mode;
 	unsigned char chat_flags;
+	/* (milliseconds a machine's chat pauses past the rate; 0: none) */
+	delta_u32 chat_cooldown;
 	int chat_dirty;
 	unsigned char chat_muted[DELTA_PEER_MAXIMUM_MACHINES];
 	delta_u32 chat_mute_until[DELTA_PEER_MAXIMUM_MACHINES];
@@ -583,6 +591,10 @@ void delta_peer_set_chat_host(struct delta_peer *peer, const struct delta_peer_c
 /* (host) what it relays (enum delta_chat_mode) and CHAT_CONFIG's flags
 (DELTA_CHAT_CONFIG_FILTERED); each client told on a change */
 void delta_peer_set_chat_mode(struct delta_peer *peer, int mode, int flags);
+/* (host) the seconds a machine's chat pauses once it says too much too fast
+(past DELTA_PEER_CHAT_SAY_RATE and _BURST): its lines refused, CHAT_REFUSED
+saying how long; 0: each line past the rate refused alone */
+void delta_peer_set_chat_cooldown(struct delta_peer *peer, int seconds);
 /* (host) a machine's lines not relayed: for minutes (0: until it leaves
 the game), or relayed again (mute 0) */
 void delta_peer_chat_mute(struct delta_peer *peer, delta_u32 now, int machine_index, int mute, int minutes);

@@ -63,10 +63,12 @@ halo.milenko.org within a few seconds. Ctrl+C stops it, and takes its game
 off the lists as it goes.
 
 The data folder is the current folder, unless `HALO_DATA_ROOT` says
-otherwise. The server writes its log, `debug.txt`, there, and its saves in
-`~/.local/share/chupathingyce` unless `HALO_SAVE_ROOT` says otherwise
-([Settings](docs/settings.md)). When `debug.txt` reaches 64 MB, it is renamed
-`debug.old.txt` and a new `debug.txt` starts.
+otherwise. The server writes its log, `debug.txt`, in `logs/` there
+(`HALO_LOG_ROOT` puts it elsewhere; until 0.8.0 it was in the data folder
+itself), and its saves in `~/.local/share/chupathingyce` unless
+`HALO_SAVE_ROOT` says otherwise ([Settings](docs/settings.md)). When
+`debug.txt` reaches 64 MB, it is renamed `debug.old.txt` and a new
+`debug.txt` starts.
 
 To keep a server running all the time, with restarts and several servers on
 one machine, use [Docker or systemd](docs/docker.md).
@@ -80,7 +82,9 @@ one machine, use [Docker or systemd](docs/docker.md).
   ChupathingyCE.
 - Plays the playlist's entries in order: once enough players have joined,
   the lobby counts down by itself; after each game the carnage report shows
-  for 20 seconds, then the next entry's lobby opens.
+  for 20 seconds (`HALO_DEDICATED_POSTGAME_SECONDS`), then the next entry's
+  lobby opens (`HALO_DEDICATED_SKIP_LOBBY` starts the next game at once when
+  enough players stayed).
 - Ends a game nobody has scored in for 5 minutes, or 30 seconds after
   everyone has left it.
 - Plays a team entry's next entry without teams while a single player waits
@@ -182,7 +186,7 @@ It is on by default; set `HALO_NET_REPORT_EVENTS=false` to turn it off:
 
 | Setting | Default | |
 | --- | --- | --- |
-| `HALO_NET_REPORT_EVENTS` | `true` | `false` stops recording and sending games' events. The carnage report still goes while the server is listed (`HALO_NET_LIST_GAMES=false` stops that). |
+| `HALO_NET_REPORT_EVENTS` | `true` | `false` stops recording and sending games' events. The carnage report still goes while the server is listed (`HALO_NET_REPORT_HOSTED=false` stops it and the events, and the server stays listed). |
 | `HALO_EVENTS_TOKEN` | (none) | A token from the site's operator: the games count as a trusted server's. Without one, the site takes a game only while the server lists it, from the same address (as the carnage report). |
 | `HALO_EVENTS_POSITIONS` | `2` | Seconds between position samples (0 none). |
 | `HALO_EVENTS_LIMIT` | `40000` | The most events a game keeps (about 60 bytes each); past it the position samples thin out first. |
@@ -202,7 +206,7 @@ and players can hide their stats from their profile.
   `HALO_DATA_ROOT` to it.
 - **"cannot read the playlist".** `HALO_DEDICATED` is a path inside the data
   folder: `playlists/my_playlist.txt`, not a path from elsewhere.
-- **It doesn't show on the site.** The log is `debug.txt` in the data folder.
+- **It doesn't show on the site.** The log is `logs/debug.txt` in the data folder.
   The server needs to reach the internet (HTTPS to halo.milenko.org, and UDP).
 - **It shows, but nobody can join.** If the player sees a message, it
   probably names a version mismatch. If they just can't connect (the log

@@ -277,10 +277,22 @@ enum
 	whether lines with blocked words are passed on */
 	SERVER_SETTING_CHAT,
 	SERVER_SETTING_CHAT_FILTER,
+	/* a server message each Chupathingy player is sent as they join (empty:
+	none), the carnage report's seconds, whether the next game starts without
+	waiting in the lobby, and the seconds a player's chat pauses once they
+	say too much too fast */
+	SERVER_SETTING_WELCOME,
+	SERVER_SETTING_POSTGAME_SECONDS,
+	SERVER_SETTING_SKIP_LOBBY,
+	SERVER_SETTING_CHAT_COOLDOWN,
 	SERVER_SETTINGS,
 	/* a game's players, at most (halo_port_limits.h's) */
 	SERVER_SETTINGS_MAXIMUM_PLAYERS = 128,
 	SERVER_SETTINGS_MAXIMUM_IDLE_LIMIT = 1440,
+	SERVER_SETTINGS_MAXIMUM_POSTGAME_SECONDS = 300,
+	SERVER_SETTINGS_MAXIMUM_CHAT_COOLDOWN = 600,
+	/* a welcome's characters, at most (a reason's: command_line.h) */
+	SERVER_SETTINGS_WELCOME_SIZE = 128,
 };
 
 struct server_setting
@@ -303,6 +315,7 @@ struct server_settings
 	char name[16];
 	char playlist[SERVER_SETTINGS_PATH_SIZE];
 	char playlist_environment[SERVER_SETTINGS_PATH_SIZE];
+	char welcome[SERVER_SETTINGS_WELCOME_SIZE];
 };
 
 /* whether text is a path a setting may name: a file in the data folder,

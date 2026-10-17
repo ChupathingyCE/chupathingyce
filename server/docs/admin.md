@@ -39,6 +39,7 @@ the duration.
 | `sv_warn <player> <reason>` | Warns the player: a ChupathingyCE game shows the reason (Delta Peer); the warning is in the audit file either way. |
 | `sv_say <text>` | A server message: a line in the chat of every ChupathingyCE player, in their HUD font, marked "Server". In double quotes for more than a word. OpenCE players do not see it. In the audit file. |
 | `sv_chat [on\|team\|off]` | Shows or sets the players' text chat: `on`, `team` (team lines alone) or `off`. Saved in the settings file (`chat`: 2, 1 or 0), in effect at once. On unless set. |
+| `sv_welcome [text\|off]` | Shows or sets the welcome: a server message each Chupathingy player gets in their chat as they join (the rest of the line, quotes optional; 127 characters at most). `off`: none. Saved in the settings file (`welcome`), in effect at once; `HALO_DEDICATED_WELCOME` in the environment wins over it. |
 | `sv_mute <player> [minutes]` | Stops passing on a player's chat lines, until they leave the game or for 1 to 1440 minutes. Their game is told ("You are muted"); server messages still reach them. In the audit file. |
 | `sv_unmute <player>` | Passes a muted player's chat lines on again. |
 | `sv_kick <player> [reason]` | Drops the player, and every other player on their machine (split screen). They see "game closed" and may join again; a ChupathingyCE game is told the reason first. |

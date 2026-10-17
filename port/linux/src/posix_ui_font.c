@@ -15,6 +15,7 @@ overlay).
 #include "ui_font.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -36,10 +37,15 @@ overlay).
 extern const unsigned int *const ui_font_files[POSIX_UI_FONT_COUNT];
 #define font_data ((const unsigned char *const *)ui_font_files)
 
+/* a font file, at most */
+#define MAXIMUM_FILE_SIZE (32 * 1024 * 1024)
+
 static struct
 {
 	int state; /* 0 not tried, 1 ready, -1 broken */
 	stbtt_fontinfo info;
+	/* a file's data drawn in place of the built-in face, or NULL */
+	unsigned char *file;
 } fonts[POSIX_UI_FONT_COUNT];
 
 static stbtt_fontinfo *face(int font)
@@ -48,7 +54,7 @@ static stbtt_fontinfo *face(int font)
 		return NULL;
 	if (!fonts[font].state)
 	{
-		const unsigned char *data = font_data[font];
+		const unsigned char *data = fonts[font].file ? fonts[font].file : font_data[font];
 		int offset = stbtt_GetFontOffsetForIndex(data, 0);
 
 		fonts[font].state = offset >= 0 && stbtt_InitFont(&fonts[font].info, data, offset) ? 1 : -1;
@@ -109,6 +115,41 @@ unsigned char *posix_ui_font_glyph(int font, float pixel_height, unsigned int co
 void posix_ui_font_free(unsigned char *bitmap)
 {
 	stbtt_FreeBitmap(bitmap, NULL);
+}
+
+int posix_ui_font_use_file(int font, const char *path)
+{
+	FILE *file;
+	long size = -1;
+	unsigned char *data = NULL;
+	stbtt_fontinfo info;
+	int offset;
+
+	if (font < 0 || font >= POSIX_UI_FONT_COUNT)
+		return 0;
+	free(fonts[font].file);
+	fonts[font].file = NULL;
+	fonts[font].state = 0;
+	if (!path || !*path || !(file = fopen(path, "rb")))
+		return 0;
+	if (fseek(file, 0, SEEK_END) == 0)
+		size = ftell(file);
+	if (size <= 0 || size > MAXIMUM_FILE_SIZE || fseek(file, 0, SEEK_SET) != 0 || !(data = malloc((size_t)size)) ||
+		fread(data, 1, (size_t)size, file) != (size_t)size)
+	{
+		free(data);
+		fclose(file);
+		return 0;
+	}
+	fclose(file);
+	offset = stbtt_GetFontOffsetForIndex(data, 0);
+	if (offset < 0 || !stbtt_InitFont(&info, data, offset))
+	{
+		free(data);
+		return 0;
+	}
+	fonts[font].file = data;
+	return 1;
 }
 
 unsigned char *posix_ui_image_decode(const unsigned char *data, int size, int *width, int *height)

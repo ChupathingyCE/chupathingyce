@@ -56,7 +56,7 @@
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/network_setup/join_from_clipboard_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/network_setup/labels" string_index="2" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/network_setup/join_from_clipboard_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" setting="network.join_from_clipboard" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/network_setup/join_from_clipboard_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ASK|ALWAYS|NEVER" setting="network.join_from_clipboard" values="ask|always|never" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_auto" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
@@ -168,7 +168,7 @@
 		<string text=""/>
 		<string text="Host and join games over the internet by invite\nlinks; off keeps to the local network."/>
 		<string text="Let internet play ask the router to forward its\nport, for networks that stop connections."/>
-		<string text="Join the game of an invite link copied before\nswitching to the game."/>
+		<string text="An invite link copied before switching to the\ngame: ask to join its game, always join, or not."/>
 		<string text="Look for a new version when the game starts."/>
 		<string text="In multiplayer, whose names are drawn above their\nheads."/>
 		<string text="How large the players' names are drawn."/>

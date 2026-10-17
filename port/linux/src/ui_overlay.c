@@ -15,6 +15,8 @@ are the controller's button icons (a texture array, a layer each).
 #ifdef HALO_GAME_BROWSER
 
 #include "platform.h"
+#include "port_config.h"
+#include "text_hires.h"
 #include "gl.h"
 #include "xgpu.h"
 #include "ui_font.h"
@@ -264,10 +266,41 @@ static int posix_font(int font)
 	}
 }
 
+static void forget_glyphs(void);
+
+/* the menus' faces from the player's font files (display.high_res_font,
+display.high_res_font_large: text_hires.c), read again when the settings
+change; the glyphs drawn before go */
+static void player_fonts_check(void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static char used[2][1024];
+	char paths[2][1024];
+	int role;
+
+	if (read_at == config_changes())
+		return;
+	read_at = config_changes();
+	for (role = 0; role < 2; role++)
+	{
+		int font = role ? POSIX_UI_FONT_MENU : POSIX_UI_FONT_MENU_SMALL;
+
+		text_hires_font_file(role, paths[role], sizeof(paths[role]));
+		if (!strcmp(paths[role], used[role]))
+			continue;
+		snprintf(used[role], sizeof(used[role]), "%s", paths[role]);
+		/* (text_hires.c logs a file it cannot read) */
+		if (posix_ui_font_use_file(font, paths[role]))
+			platform_log("Online Games: %s menu text drawn with %s", role ? "large" : "small", paths[role]);
+		forget_glyphs();
+	}
+}
+
 /* the font that draws a character: the menus' faces lack most scripts
 (players' names), which Noto Sans Bold draws */
 static int glyph_font(int font, unsigned int codepoint)
 {
+	player_fonts_check();
 	if ((font == POSIX_UI_FONT_MENU || font == POSIX_UI_FONT_MENU_SMALL || font == POSIX_UI_FONT_TITLE) &&
 		codepoint > ' ' && !posix_ui_font_has(font, codepoint))
 	{

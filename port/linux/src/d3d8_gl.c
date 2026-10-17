@@ -1502,6 +1502,7 @@ static void gl_initialize(void)
 #ifdef HALO_ANDROID
 	{
 		BOOL es32 = major > 3 || (major == 3 && minor >= 2);
+		const char *base_vertex_source = es32 ? "core" : "none";
 
 		/* clip control is emulated in the vertex shader (nv2a_vsh.c) */
 		xgpu_capabilities.copy_image = es32 || host_gl_has_extension("GL_EXT_copy_image") ||
@@ -1509,7 +1510,26 @@ static void gl_initialize(void)
 		xgpu_capabilities.border_clamp = es32 || host_gl_has_extension("GL_EXT_texture_border_clamp") ||
 			host_gl_has_extension("GL_OES_texture_border_clamp");
 		xgpu_capabilities.anisotropy = host_gl_has_extension("GL_EXT_texture_filter_anisotropic");
-		xgpu_capabilities.base_vertex = es32;
+		/* ANGLE and many Android drivers report ES 3.0 or 3.1 and offer
+		glDrawElementsBaseVertex as an extension under another name; the renderer
+		calls the pointer it has, so it takes the extension's when the core one is
+		not there. One that cannot be loaded leaves the draws without a base vertex */
+		xgpu_capabilities.base_vertex = es32 && halo_glDrawElementsBaseVertex != NULL;
+		if (!xgpu_capabilities.base_vertex)
+		{
+			if (host_gl_has_extension("GL_EXT_draw_elements_base_vertex") && halo_glDrawElementsBaseVertexEXT)
+			{
+				halo_glDrawElementsBaseVertex = halo_glDrawElementsBaseVertexEXT;
+				xgpu_capabilities.base_vertex = TRUE;
+				base_vertex_source = "GL_EXT_draw_elements_base_vertex";
+			}
+			else if (host_gl_has_extension("GL_OES_draw_elements_base_vertex") && halo_glDrawElementsBaseVertexOES)
+			{
+				halo_glDrawElementsBaseVertex = halo_glDrawElementsBaseVertexOES;
+				xgpu_capabilities.base_vertex = TRUE;
+				base_vertex_source = "GL_OES_draw_elements_base_vertex";
+			}
+		}
 		xgpu_capabilities.shading_language = major > 3 || (major == 3 && minor >= 1) ? "310 es" : "300 es";
 		if (major > 3 || (major == 3 && minor >= 1))
 		{
@@ -1522,9 +1542,22 @@ static void gl_initialize(void)
 			(host_gl_has_extension("GL_EXT_texture_compression_dxt1") &&
 			host_gl_has_extension("GL_ANGLE_texture_compression_dxt3") &&
 			host_gl_has_extension("GL_ANGLE_texture_compression_dxt5"));
-		platform_log("OpenGL ES %d.%d: copy image %d, border clamp %d, anisotropy %d, S3TC %d, sample counting %d",
+		{
+			/* Adreno's driver takes DXT textures but drew the maps' speckled
+			(dark dots a block apart, on the ground and the walls), where
+			the game's own unpacking (xbox_textures.c, as on Mali) does not */
+			const char *decode = config_string("display.texture_decode");
+			const char *renderer = (const char *)glGetString(GL_RENDERER);
+
+			if (!strcmp(decode, "cpu") ||
+				(strcmp(decode, "gpu") && renderer && strstr(renderer, "Adreno")))
+				xgpu_capabilities.s3tc = FALSE;
+		}
+		platform_log("OpenGL ES %d.%d: copy image %d, border clamp %d, anisotropy %d, S3TC %d, sample counting %d, "
+			"base vertex %d (%s)",
 			(int)major, (int)minor, xgpu_capabilities.copy_image, xgpu_capabilities.border_clamp,
-			xgpu_capabilities.anisotropy, xgpu_capabilities.s3tc, xgpu_capabilities.atomic_counters);
+			xgpu_capabilities.anisotropy, xgpu_capabilities.s3tc, xgpu_capabilities.atomic_counters,
+			xgpu_capabilities.base_vertex, base_vertex_source);
 	}
 #else
 	/* (OpenGL 4.3: macOS's 4.1 has no debug output, and enabling it is an
@@ -2611,6 +2644,22 @@ static unsigned long hash_words(const void *data, unsigned long size)
 	return hash;
 }
 
+/* size is a multiple of 4. Every draw compares its pixel shader key and its
+uniforms' inputs (about 300 bytes each) with recent ones: the loop has no
+early exit, so that the compiler compares several words at once, where the
+C library's memcmp (the Windows build's) compares them one at a time */
+static BOOL words_equal(const void *a, const void *b, unsigned long size)
+{
+	const DWORD *words_a = a;
+	const DWORD *words_b = b;
+	DWORD difference = 0;
+	unsigned long index;
+
+	for (index = 0; index < size / 4; index++)
+		difference |= words_a[index] ^ words_b[index];
+	return difference == 0;
+}
+
 /* lit: the shader that hands the lighting's normal and position on
 (vertex_shader_object lit_shader) */
 static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immediate, BOOL lit)
@@ -2660,14 +2709,14 @@ static GLuint fragment_shader_get(const struct nv2a_pixel_shader_key *key)
 
 	for (index = 0; index < RECENT_FRAGMENT_COUNT; index++)
 	{
-		if (recent[index] && !memcmp(&recent[index]->key, key, sizeof(*key)))
+		if (recent[index] && words_equal(&recent[index]->key, key, sizeof(*key)))
 			return recent[index]->shader;
 	}
 	hash = hash_words(key, sizeof(*key));
 	bucket = &fragment_buckets[hash % FRAGMENT_BUCKETS];
 	for (entry = *bucket; entry; entry = entry->next)
 	{
-		if (entry->hash == hash && !memcmp(&entry->key, key, sizeof(*key)))
+		if (entry->hash == hash && words_equal(&entry->key, key, sizeof(*key)))
 		{
 			recent[recent_next++ % RECENT_FRAGMENT_COUNT] = entry;
 			return entry->shader;
@@ -3721,7 +3770,7 @@ static struct program_entry *prepare_draw(BOOL immediate)
 			inputs[count++] = state[D3DTSS_BUMPENVLOFFSET];
 			inputs[count++] = state[D3DTSS_MIPMAPLODBIAS];
 		}
-		if (!draw_uniforms_serial || memcmp(inputs, draw_uniform_inputs, sizeof(inputs)))
+		if (!draw_uniforms_serial || !words_equal(inputs, draw_uniform_inputs, sizeof(inputs)))
 		{
 			struct draw_uniforms *converted = &draw_uniforms;
 
@@ -4820,11 +4869,13 @@ void halo_screen_anti_alias(short x0, short y0, short x1, short y1)
 
 /* ---------- presentation */
 
-static void write_screenshot(struct render_target_entry *target)
+/* a frame saved to debug.screenshot_directory as name<frame>.bmp: the
+read framebuffer's width by height, its rows from the top if top_down
+(a render target's) or else from the bottom (the window's) */
+static void write_screenshot_from(const char *name, unsigned long width, unsigned long height, int top_down)
 {
 	const char *directory = *config_string("debug.screenshot_directory") ?
 		config_string("debug.screenshot_directory") : NULL;
-	unsigned long width = target->target.gl_width, height = target->target.gl_height;
 	unsigned char *pixels;
 	char path[512];
 	FILE *file;
@@ -4832,10 +4883,11 @@ static void write_screenshot(struct render_target_entry *target)
 	unsigned char header[54] = { 'B', 'M' };
 	unsigned long image_size = width * height * 4;
 
-	if (!directory)
+	if (!directory || !width || !height)
 		return;
 	pixels = malloc(image_size);
-	glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer_get(target->target.texture, 0));
+	if (!pixels)
+		return;
 	glReadPixels(0, 0, (GLsizei)width, (GLsizei)height, GL_BGRA, GL_UNSIGNED_BYTE, pixels);
 	/* the display ignores destination alpha, which the game uses as scratch;
 	image viewers would show it as transparency */
@@ -4849,7 +4901,7 @@ static void write_screenshot(struct render_target_entry *target)
 #endif
 		pixels[row * 4 + 3] = 0xff;
 	}
-	snprintf(path, sizeof(path), "%s/frame%05lu.bmp", directory, device.frame);
+	snprintf(path, sizeof(path), "%s/%s%05lu.bmp", directory, name, device.frame);
 	file = fopen(path, "wb");
 	if (file)
 	{
@@ -4857,7 +4909,8 @@ static void write_screenshot(struct render_target_entry *target)
 		*(unsigned int *)(header + 10) = 54;
 		*(unsigned int *)(header + 14) = 40;
 		*(int *)(header + 18) = (int)width;
-		*(int *)(header + 22) = -(int)height; /* rows from the top, as read */
+		/* (rows in the order read: negative from the top) */
+		*(int *)(header + 22) = top_down ? -(int)height : (int)height;
 		*(unsigned short *)(header + 26) = 1;
 		*(unsigned short *)(header + 28) = 32;
 		*(unsigned int *)(header + 34) = (unsigned int)image_size;
@@ -4867,6 +4920,21 @@ static void write_screenshot(struct render_target_entry *target)
 		fclose(file);
 	}
 	free(pixels);
+}
+
+/* the game's frame, as drawn (without the overlay) */
+static void write_screenshot(struct render_target_entry *target)
+{
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer_get(target->target.texture, 0));
+	write_screenshot_from("frame", target->target.gl_width, target->target.gl_height, TRUE);
+}
+
+/* the window as shown, the overlay's screens on the frame
+(debug.screenshot_window) */
+static void write_window_screenshot(int window_width, int window_height)
+{
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+	write_screenshot_from("window", (unsigned long)window_width, (unsigned long)window_height, FALSE);
 }
 
 #ifndef HALO_ANDROID
@@ -4894,10 +4962,55 @@ static void visibility_copy_batch(void)
 }
 
 #endif
+/* the loading screen's picture (progress_bar.c, made by the CPU in
+port/linux/game/loading_screen.c): `rgba` bytes, its top row first, over the
+whole back buffer */
+void halo_draw_picture(const unsigned char *rgba, long width, long height)
+{
+	static GLuint texture;
+	static long texture_width, texture_height;
+	struct render_target_entry *back_buffer;
+
+	if (!device.gl_ready || !rgba || width <= 0 || height <= 0)
+		return;
+	back_buffer = render_target_get(&device.back_buffer);
+	if (!back_buffer)
+		return;
+	/* (what the back buffer's multisampled pixels hold first, so that the
+	display's resolve leaves the picture) */
+	render_target_resolve(&back_buffer->target);
+	if (!texture)
+		glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	if (texture_width != width || texture_height != height)
+	{
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei)width, (GLsizei)height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+		texture_width = width;
+		texture_height = height;
+	}
+	else
+	{
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, (GLsizei)width, (GLsizei)height, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+	}
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer_get(texture, 0));
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer_get(back_buffer->target.texture, 0));
+	glDisable(GL_SCISSOR_TEST);
+	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	/* (row 0 of the render target is the top of the picture, as of this
+	texture) */
+	glBlitFramebuffer(0, 0, (GLint)width, (GLint)height, 0, 0, (GLint)back_buffer->target.gl_width,
+		(GLint)back_buffer->target.gl_height, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+	xgpu_gl_state_invalidate();
+	gl_check_errors("picture");
+}
+
 void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destination_rectangle,
 	void *unused, void *unused2)
 {
 	static long screenshot_every = -1;
+	static int screenshot_window = -1;
 
 	(void)source_rectangle;
 	(void)destination_rectangle;
@@ -4905,6 +5018,8 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 	(void)unused2;
 	if (screenshot_every < 0)
 		screenshot_every = config_integer("debug.screenshot_every");
+	if (screenshot_window < 0)
+		screenshot_window = config_boolean("debug.screenshot_window") ? 1 : 0;
 
 	if (device.gl_ready)
 	{
@@ -4918,7 +5033,7 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 #ifndef HALO_ANDROID
 		visibility_copy_batch();
 #endif
-		if (screenshot_every > 0 && device.frame % (unsigned long)screenshot_every == 0)
+		if (screenshot_every > 0 && !screenshot_window && device.frame % (unsigned long)screenshot_every == 0)
 			write_screenshot(back_buffer);
 
 		platform_video_drawable_size(&window_width, &window_height);
@@ -4946,13 +5061,30 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		(ui_overlay.c) */
 		ui_overlay_present(x, y, width, height, window_width, window_height);
 #endif
+#ifndef HALO_ANDROID
+		/* the picture's alpha is the render target's, which the game uses
+		for its own blending, not coverage: the window is opaque whatever
+		the driver gave its pixels (sdl_platform.c asks for none) */
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+		glDisable(GL_SCISSOR_TEST);
+		glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+#endif
+		/* (the window as shown, before it is swapped away) */
+		if (screenshot_every > 0 && screenshot_window && device.frame % (unsigned long)screenshot_every == 0)
+			write_window_screenshot(window_width, window_height);
 		platform_video_swap();
 		xgpu_gl_state_invalidate();
 		xgpu_texture_cache_begin_frame();
 #ifdef HALO_ANDROID
 		if (xgpu_capabilities.atomic_counters)
 		{
-			/* this frame's counts, for when the GPU is done with it */
+			/* this frame's counts, for when the GPU is done with it (the
+			barrier makes the shaders' counter writes visible to the copy,
+			which ES 3.1 does not promise without one) */
+			glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
 			glBindBuffer(GL_COPY_READ_BUFFER, device.visibility_counters);
 			glBindBuffer(GL_COPY_WRITE_BUFFER, device.counter_snapshots[device.buffer_ring]);
 			glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, 0, 0,

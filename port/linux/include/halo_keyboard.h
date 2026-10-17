@@ -47,6 +47,13 @@ enum halo_keyboard_action
 menu or the console is up */
 unsigned long halo_keyboard_actions(short controller_index);
 
+/* the game's button prompts show the keyboard's keys, not the
+controller's buttons (input.keyboard_prompts, the keyboard or mouse used
+last), and the key of an action as the menus name it ("E", "Space", "Mouse
+Left"): 0 for one with none (xinput_sdl.c) */
+int halo_keyboard_prompts(void);
+int halo_keyboard_action_shown(int action, char *shown, unsigned long size);
+
 /* text chat's line is being typed, or its log is open (chat.c): the
 keyboard's keys go to it alone, as with the console (none drives the
 player or the menus) */

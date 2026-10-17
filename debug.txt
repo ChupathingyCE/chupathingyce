@@ -1,7 +1,0 @@
-chupathingyce: settings: wrote the defaults to /private/tmp/claude-501/-Users-milenko-halo-ce-decomp-port/48583c96-9e5a-4f44-b36f-7fb9e2940f63/scratchpad/saveb/config.toml
-chupathingyce: save root: /private/tmp/claude-501/-Users-milenko-halo-ce-decomp-port/48583c96-9e5a-4f44-b36f-7fb9e2940f63/scratchpad/saveb
-chupathingyce: data root: /private/tmp/claude-501/-Users-milenko-halo-ce-decomp-port/48583c96-9e5a-4f44-b36f-7fb9e2940f63/scratchpad/data (the game's log: debug.txt there)
-chupathingyce: settings: /private/tmp/claude-501/-Users-milenko-halo-ce-decomp-port/48583c96-9e5a-4f44-b36f-7fb9e2940f63/scratchpad/saveb/config.toml
-chupathingyce: save root: /private/tmp/claude-501/-Users-milenko-halo-ce-decomp-port/48583c96-9e5a-4f44-b36f-7fb9e2940f63/scratchpad/saveb
-chupathingyce: Delta: legacy table 5 from the cache: announcing 29, joining 11 to 30 (no row for chupa-29a: the built-in numbers)
-chupathingyce: data root: /private/tmp/claude-501/-Users-milenko-halo-ce-decomp-port/48583c96-9e5a-4f44-b36f-7fb9e2940f63/scratchpad/data (the game's log: debug.txt there)
