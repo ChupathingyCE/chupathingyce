@@ -233,7 +233,7 @@ static void crash_reports_start(void)
 		"The answer is kept in config.toml (crash_reports.upload): Yes sends the report of this crash and of "
 		"every later one, No never sends one.";
 	SDL_MessageBoxData question = { SDL_MESSAGEBOX_WARNING, NULL, "ChupathingyCE crashed", text, 2, buttons, NULL };
-	char folder[1024], log[1024];
+	char folder[1024], log[1024], old_folder[1024], old_log[1024];
 	const char *consent;
 	int pending, answer = 0;
 
@@ -244,9 +244,12 @@ static void crash_reports_start(void)
 	if (browser_headless())
 		return;
 #endif
-	snprintf(folder, sizeof(folder), "%s/crashes", platform_data_root());
-	snprintf(log, sizeof(log), "%s/debug.txt", platform_data_root());
-	if (!posix_crash_install(folder, log) || !(pending = posix_crash_pending()))
+	snprintf(folder, sizeof(folder), "%s/crashes", platform_folder(_port_folder_logs));
+	snprintf(log, sizeof(log), "%s/debug.txt", platform_folder(_port_folder_logs));
+	/* (and those from before the logs folder, in the data root, still sent) */
+	snprintf(old_folder, sizeof(old_folder), "%s/crashes", platform_data_root());
+	snprintf(old_log, sizeof(old_log), "%s/debug.txt", platform_data_root());
+	if (!posix_crash_install(folder, log, old_folder, old_log) || !(pending = posix_crash_pending()))
 		return;
 	consent = config_string("crash_reports.upload");
 	if (!strcmp(consent, "no"))
@@ -1278,13 +1281,54 @@ void platform_clipboard_set(const char *text)
 	SDL_SetClipboardText(text);
 }
 
+/* network.join_from_clipboard: "ask" (the default), "always" or "never"
+(true and false, of older versions, are "always" and "never":
+port_config.c) */
+enum
+{
+	_clipboard_join_never,
+	_clipboard_join_ask,
+	_clipboard_join_always,
+};
+
+static int platform_clipboard_join_setting(void)
+{
+	const char *setting = config_string("network.join_from_clipboard");
+
+	/* (in lowercase, true and false read as these: config_check_words) */
+	if (!strcmp(setting, "always"))
+		return _clipboard_join_always;
+	if (!strcmp(setting, "never"))
+		return _clipboard_join_never;
+	return _clipboard_join_ask;
+}
+
+/* an invite found on the clipboard, waiting for the player's answer (the
+game's thread takes it: platform_take_clipboard_invite) */
+static pthread_mutex_t platform_clipboard_invite_lock = PTHREAD_MUTEX_INITIALIZER;
+static char platform_clipboard_invite[256];
+
+int platform_take_clipboard_invite(char *text, int size)
+{
+	int taken;
+
+	pthread_mutex_lock(&platform_clipboard_invite_lock);
+	taken = platform_clipboard_invite[0] != 0;
+	if (taken)
+		snprintf(text, (size_t)size, "%s", platform_clipboard_invite);
+	platform_clipboard_invite[0] = 0;
+	pthread_mutex_unlock(&platform_clipboard_invite_lock);
+	return taken;
+}
+
 /* puts a new invite on the clipboard, and joins one found there when the
-game comes to the front */
+game comes to the front, or asks first (network.join_from_clipboard) */
 static void platform_invite_clipboard(BOOL look)
 {
 	/* the last clipboard text looked at, so each invite is joined once */
 	static char seen[256];
 	const char *invite = p2p_take_clipboard_text();
+	int setting;
 
 #ifdef HALO_GAME_BROWSER
 	/* (the dedicated server and a probe leave the clipboard alone) */
@@ -1300,7 +1344,8 @@ static void platform_invite_clipboard(BOOL look)
 		SDL_ShowAndroidToast("Hosting: the invite link is on the clipboard", 1, -1, 0, 0);
 #endif
 	}
-	if (look && config_boolean("network.join_from_clipboard"))
+	setting = look ? platform_clipboard_join_setting() : _clipboard_join_never;
+	if (setting != _clipboard_join_never)
 	{
 		char *text = SDL_GetClipboardText();
 
@@ -1309,11 +1354,26 @@ static void platform_invite_clipboard(BOOL look)
 			snprintf(seen, sizeof(seen), "%s", text);
 			/* (a link, not a bare code: 64 hex digits alone are as often a
 			checksum copied for something else) */
-			if (platform_text_has_invite_link(text) && p2p_join_invite(text))
+			if (platform_text_has_invite_link(text))
 			{
-#ifdef HALO_ANDROID
-				SDL_ShowAndroidToast("Joining the invite on the clipboard", 1, -1, 0, 0);
+#ifdef HALO_GAME_BROWSER
+				/* (asked in the game's own style, over its menus:
+				port/linux/game/invite_prompt.c) */
+				if (setting == _clipboard_join_ask)
+				{
+					pthread_mutex_lock(&platform_clipboard_invite_lock);
+					snprintf(platform_clipboard_invite, sizeof(platform_clipboard_invite), "%s", text);
+					pthread_mutex_unlock(&platform_clipboard_invite_lock);
+					platform_log("Internet play: an invite link is on the clipboard; asking whether to join it");
+				}
+				else
 #endif
+				if (p2p_join_invite(text))
+				{
+#ifdef HALO_ANDROID
+					SDL_ShowAndroidToast("Joining the invite on the clipboard", 1, -1, 0, 0);
+#endif
+				}
 			}
 		}
 		SDL_free(text);

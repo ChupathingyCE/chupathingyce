@@ -5095,6 +5095,16 @@ static struct render_target_entry *back_buffer_drawn_this_frame(int layer)
 	return NULL;
 }
 
+/* the classic loading screen's picture (port/linux/game/loading_screen.c):
+not drawn by the Metal backend yet (the opt-in screen shows nothing here; the
+game loads as before). The symbol is the front end's, so it must exist */
+void halo_draw_picture(const unsigned char *rgba, long width, long height)
+{
+	(void)rgba;
+	(void)width;
+	(void)height;
+}
+
 void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destination_rectangle,
 	void *unused, void *unused2)
 {
