@@ -697,6 +697,10 @@ int delta_peer_machine_key(int machine_index, struct delta_platform_key *key);
 /* a player's platform (enum delta_platform; unknown if its machine did not
 say, or did not agree to platform): for the scoreboard's icons */
 int delta_peer_player_platform(int player_index);
+/* whether this game is played over Delta Peer: hosted with it, or joined
+with the host's welcome (a machine knows its own platform either way, so
+the scoreboard asks this before it shows any) */
+int delta_peer_game_on_delta(void);
 /* a machine's profile claim: its player ID and revision (0 if none) */
 int delta_peer_machine_profile(int machine_index, unsigned char *player_id, delta_u32 *revision);
 /* the game's room: delta_peer_room_has and _room_limit of the session */

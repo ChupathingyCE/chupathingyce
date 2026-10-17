@@ -502,7 +502,9 @@ builds are made only with free tools and libraries.
   to match Halo's interface font from Overpass and glyphs of their own
   (SIL OFL); [Overpass](https://github.com/RedHatOfficial/Overpass) (SIL OFL);
   [Noto Sans](https://fonts.google.com/noto) (SIL OFL) and
-  [Kenney's Input Prompts](https://kenney.nl/assets/input-prompts) (CC0).
+  [Kenney's Input Prompts](https://kenney.nl/assets/input-prompts) (CC0); the
+  scoreboard's platform logos are cut from
+  [Font Awesome Free](https://fontawesome.com) by Fonticons, Inc. (SIL OFL).
 - Controller button icons by snapchipper, CC0 (`port/assets/prompts`).
 - High-res HUD art: Aerocatia's and Jessie's redraws from
   [halopc-restored](https://github.com/Aerocatia/halopc-restored), used with

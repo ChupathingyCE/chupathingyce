@@ -63,6 +63,8 @@ def role_font(role: str) -> str:
 # fonts.json: Online Games is drawn in them)
 UI_FONT_FILES += [FONT_ASSETS / role_font("large"), FONT_ASSETS / role_font("small"),
                   FONT_ASSETS / "OpenCE-Regular.ttf"]
+# (then the scoreboard's platform logos)
+UI_FONT_FILES += [UI_FONTS / "platform_icons.ttf"]
 # the controller's button icons the overlay's prompts draw (port/assets/prompts,
 # tools/prompt_assets.py), in ui_overlay.c's order: A, B, X, Y, Start, LT, RT,
 # LB, RB, Back

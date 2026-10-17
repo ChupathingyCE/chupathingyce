@@ -683,6 +683,15 @@ int delta_peer_player_platform(int player_index)
 	return key.platform < NUMBER_OF_DELTA_PLATFORMS ? key.platform : _delta_platform_unknown;
 }
 
+int delta_peer_game_on_delta(void)
+{
+	if (!delta_game.ready)
+		return 0;
+	if (delta_game.role == _role_host)
+		return delta_peer_advertised_flags() != 0;
+	return delta_game.role == _role_client && delta_game.peer.client_state == _delta_peer_client_delta;
+}
+
 int delta_peer_machine_profile(int machine_index, unsigned char *player_id, delta_u32 *revision)
 {
 	struct delta_peer_machine machine;

@@ -1969,6 +1969,17 @@ static short menus_chosen(void)
 	return _menus_xbox;
 }
 
+/* which menus display.menus asks for: 0 the Xbox's, 1 Gearbox's, 2 the
+Chupathingy menus (for what follows them outside the menus: the
+scoreboard's platform logos) */
+short pc_menus_set(
+	void)
+{
+	short menus = menus_chosen();
+
+	return menus == _menus_pc ? 1 : menus == _menus_chupathingy ? 2 : 0;
+}
+
 /* whether the Chupathingy menus are up */
 boolean pc_menus_chupathingy(
 	void)

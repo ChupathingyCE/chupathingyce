@@ -97,6 +97,11 @@ color's alpha dims it (a prompt that does nothing now) */
 float ui_overlay_button(int button, float size, float x, float y, unsigned int color);
 float ui_overlay_button_width(int button, float size);
 
+/* a player's platform logo (delta.h's enum delta_platform), size high,
+centered on x, y its top, with a drop shadow if shadow: nothing for an
+unknown platform. Returns whether it drew one */
+int ui_overlay_platform(int platform, float size, float x, float y, unsigned int color, int shadow);
+
 /* a picture (RGBA, 4 bytes a pixel, rows from the top; width by height)
 drawn in a rectangle, tinted by color (0xFFFFFFFF as it is). One picture a
 frame: serial names it (a new serial's pixels are copied; the same

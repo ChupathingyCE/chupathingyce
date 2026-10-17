@@ -685,6 +685,34 @@ float ui_overlay_button(int button, float size, float x, float y, unsigned int c
 	}
 }
 
+/* ---------- the platforms' logos */
+
+/* (platform_icons.ttf, by delta.h's platform registry: unknown has none;
+Windows, macOS, Linux, Android, Steam Deck (Steam's), the original Xbox and
+the Xbox 360 (the Xbox's), then a gamepad for the Wii U and the Switch,
+which Font Awesome has no logo for) */
+static const unsigned int platform_glyphs[] =
+{
+	0, 0xF17A, 0xF179, 0xF17C, 0xF17B, 0xF1B6, 0xF412, 0xF412, 0xF11B, 0xF11B,
+};
+
+int ui_overlay_platform(int platform, float size, float x, float y, unsigned int color, int shadow)
+{
+	char text[4];
+
+	if (platform <= 0 || platform >= (int)(sizeof(platform_glyphs) / sizeof(platform_glyphs[0])) ||
+		!posix_ui_font_has(POSIX_UI_FONT_PLATFORMS, platform_glyphs[platform]))
+	{
+		return 0;
+	}
+	utf8(platform_glyphs[platform], text);
+	if (shadow)
+		add_text(POSIX_UI_FONT_PLATFORMS, size, x + 0.8f, y + 1.0f, UI_ALIGN_CENTER,
+			fade(0x000000FF, (float)(color & 0xFF) / 255.0f * 0.7f), text);
+	add_text(POSIX_UI_FONT_PLATFORMS, size, x, y, UI_ALIGN_CENTER, color, text);
+	return 1;
+}
+
 /* ---------- GL */
 
 static const char vertex_source[] =

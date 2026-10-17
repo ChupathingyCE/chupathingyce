@@ -150,7 +150,10 @@ claims, shown as claims, never used for game state:
 
 - **`platform`**: each machine's platform key (below), and so each player's
   platform: `delta_peer_player_platform(player)` for the scoreboard's icons
-  (from the player's `machine_index`), unknown for an OpenCE machine.
+  (from the player's `machine_index`), unknown for an OpenCE machine. The
+  scoreboard shows a logo only in a game played over Delta Peer
+  (`delta_peer_game_on_delta`), and none for an unknown platform
+  (`display.scoreboard_platforms`).
 - **`profile`**: a machine's player ID (the game list's, 16 bytes) and its
   profile revision (0 until the game knows it); the profile itself is the
   site's. Opt-in: a copy shares its own only with `network.share_profile`,

@@ -227,6 +227,13 @@ static const struct config_setting config_settings[] =
 	{ "display.scoreboard_background", _config_boolean, "true", "HALO_SCOREBOARD_BACKGROUND", _environment_value,
 		_platform_all,
 		"Draw a panel behind the multiplayer scoreboard, for clearer text." },
+	{ "display.scoreboard_platforms", _config_string, "\"auto\"", "HALO_SCOREBOARD_PLATFORMS", _environment_value,
+		_platform_all,
+		"A small logo of each player's platform (Windows, macOS, Linux, Android,\n"
+		"Steam Deck, Xbox...) before their name on a network game's scoreboard,\n"
+		"for players whose client says it over Delta (none for other players):\n"
+		"\"auto\" shows them with the Chupathingy menus only (the Xbox and Gearbox\n"
+		"menus stay as the originals were), \"on\" with any menus, \"off\" never." },
 	{ "display.show_quit_players", _config_boolean, "true", "HALO_SHOW_QUIT_PLAYERS", _environment_value,
 		_platform_all,
 		"Keep players who quit on the multiplayer scoreboard, as the original game\n"
@@ -1768,6 +1775,7 @@ static const struct
 	{ "display.menus", { "xbox", "gearbox", "pc", "chupathingy", NULL }, NULL },
 	{ "display.player_names", { "all", "allies", "allys", "enemies", "none", NULL }, "\"all\"" },
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, "\"teams\"" },
+	{ "display.scoreboard_platforms", { "auto", "on", "off", NULL }, "\"auto\"" },
 	{ "display.follow_camera", { "long_waits", "always", "off", NULL }, "\"long_waits\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
 	{ "audio.resampling", { "sinc", "linear", NULL }, "\"sinc\"" },
