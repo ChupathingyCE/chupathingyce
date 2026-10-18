@@ -20,6 +20,8 @@ decoded sound is queued into a stream of it, as the game's own sounds are.
 
 #ifdef HALO_BINK_FFMPEG
 
+#ifdef HALO_BINK_FFMPEG
+
 #include "platform.h"
 
 #include <libavcodec/avcodec.h>
@@ -504,5 +506,7 @@ void __stdcall BinkClose(HBINK bink)
 	free(bink);
 }
 
+
+#endif /* HALO_BINK_FFMPEG */
 
 #endif /* HALO_BINK_FFMPEG */
