@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include "features/bots/bot_combat.h"
 typedef float real;
 typedef int boolean;
 typedef struct { real x,y,z; } real_point3d;
@@ -40,7 +41,9 @@ struct weapon_trigger_definition { real charging_time; short rounds_per_shot,mag
         projectile_error_angle_upper_bound,projectile_distribution_angle; };
 struct weapon_definition { struct { struct tag_block triggers; } weapon; };
 struct weapon_magazine { short rounds_loaded,rounds_total; };
-struct weapon_datum { long definition_index; boolean flag; struct { struct weapon_magazine magazines[2]; } weapon; };
+struct weapon_datum { long definition_index; boolean flag;
+    struct { long parent_object_index; } object;
+    struct { struct weapon_magazine magazines[2]; } weapon; };
 struct unit_datum {
     long definition_index;
     struct { short type; long parent_object_index; real_point3d bounding_sphere_center;
@@ -50,9 +53,11 @@ struct unit_datum {
 };
 struct player_datum { long unit_index,team_index; };
 struct engine_ai_fire_control { int64_t next_press_tick,release_tick; bool pressed; };
-struct bot_skill { real fire_range; };
 struct bot {
-    long unit_index,player_index,grenade_time,fire_weapon_index,fire_held_ticks,throws_refused;
+    long unit_index,player_index,fire_weapon_index,fire_held_ticks,throws_refused;
+    struct bot_combat_state combat;
+    boolean profiles_assigned;
+    uint32_t base_profile;
     real_euler_angles2d facing;
     real_point3d target_last_position;
     boolean charging;
@@ -63,8 +68,11 @@ struct player_action { unsigned long control_flags; real primary_trigger; short 
 struct data_iterator { long datum_index; };
 
 enum { UNITS = 12 };
-static struct bot_skill skill = {40.f};
+static struct bot_skill skill = {.fire_range=40.f};
 static struct { struct bot_skill *skill; } bots_globals = {&skill};
+static struct bot_skill const *bot_base_profile(struct bot const *bot) {
+    (void)bot; return bots_globals.skill;
+}
 static struct player_datum players[UNITS];
 static struct unit_datum units[UNITS];
 static real_point3d origins[UNITS];
@@ -73,7 +81,7 @@ static long parents[UNITS];
 static long player_count,now=1000,line_calls;
 static boolean teams,line_clear,overcharged,fired;
 static int player_data;
-static struct weapon_datum weapons[2];
+static struct weapon_datum weapons[5];
 static struct weapon_definition weapon_definition;
 static struct weapon_trigger_definition trigger_definition;
 static struct unit_definition vehicle_definition;
@@ -125,9 +133,11 @@ static void *data_iterator_next(struct data_iterator *iterator) {
     return iterator->datum_index<player_count ? &players[iterator->datum_index] : NULL;
 }
 static struct weapon_datum *weapon_try_and_get(long index) {
-    return index>=0 && index<2 ? &weapons[index] : NULL;
+    return index>=0 && index<5 ? &weapons[index] : NULL;
 }
-static boolean weapon_is_flag(long index) { assert(index>=0 && index<2); return weapons[index].flag; }
+static boolean weapon_is_flag(long index) { assert(index>=0 && index<5); return weapons[index].flag; }
+static struct weapon_datum *weapon_get(long index) { assert(index>=0 && index<5); return &weapons[index]; }
+static boolean unit_can_use_weapon(long unit,long weapon) { assert(unit==0 && weapon>=0 && weapon<5); return TRUE; }
 static struct weapon_definition *weapon_definition_get(long index) { (void)index; return &weapon_definition; }
 static struct unit_datum *vehicle_try_and_get(long index) {
     return index>=0 && index<UNITS && units[index].object.type==_object_type_vehicle ? &units[index] : NULL;
@@ -139,6 +149,10 @@ static boolean bot_weapon_fire(struct bot *bot,const struct weapon_trigger_defin
     (void)trigger; fired=bot->pending.trigger>0.f; return fired;
 }
 
+/* Trajectory geometry is exercised by test_bot_grenade.py; here the actual
+ * landing/blast and final refusal gates are tested independently. */
+static boolean trajectory_safe=TRUE;
+static boolean bot_validate_grenade(struct bot *bot) { (void)bot;return trajectory_safe; }
 /* PRODUCTION_BODIES */
 
 static void place(long index,real x,real y,long team) {
@@ -157,6 +171,7 @@ static struct bot fresh(void) {
     struct bot bot;
     long index;
     memset(&bot,0,sizeof(bot));
+    bot_profile_reset_weapon_attributes();
     memset(units,0,sizeof(units)); memset(alive,0,sizeof(alive)); memset(origins,0,sizeof(origins));
     /* (unplaced players have no body and no team) */
     for (index=0; index<UNITS; index++) {
@@ -165,9 +180,9 @@ static struct bot fresh(void) {
     player_count=0;
     place(0,0.f,0.f,0);
     bot.unit_index=bot.player_index=0;
-    bot.fire_weapon_index=0; bot.grenade_time=now+300;
+    bot.fire_weapon_index=0; bot_combat_reset(&bot.combat,now,300);
     bot.target_last_position.x=15.f; bot.target_last_position.z=0.6f;
-    teams=TRUE; line_clear=TRUE; overcharged=FALSE; fired=FALSE; line_calls=0;
+    teams=TRUE; line_clear=TRUE; overcharged=FALSE; fired=FALSE; line_calls=0;trajectory_safe=TRUE;
     return bot;
 }
 
@@ -270,6 +285,16 @@ static void shot_tests(void) {
 static void grenade_tests(void) {
     struct bot bot=fresh();
     struct player_action action;
+    real_point3d landing={15.f,1.4f,0.6f};
+    assert(bot_grenade_landing_safe(&bot,&landing));
+    assert(!bot_grenade_landing_safe(&bot,&origins[0])); /* self blast */
+    place(1,15.f,7.4f,0);
+    assert(bot_attack_safe(&bot,TRUE,BOT_FIRE_LANE_SPREAD)); /* old target/ray gate misses it */
+    assert(!bot_grenade_landing_safe(&bot,&landing)); /* actual landing catches it */
+    bot=fresh();trajectory_safe=FALSE;action.control_flags=FLAG(_unit_control_throw_grenade_bit);
+    bot_control_grenade(&bot,&action);
+    assert(!action.control_flags && bot.throws_refused==1 && bot.combat.grenade_ready_tick==now+300);
+    bot=fresh();
     /* Clear: thrown, in free for all as in teams. */
     assert(bot_attack_safe(&bot,TRUE,BOT_FIRE_LANE_SPREAD) && line_calls==1);
     teams=FALSE; assert(bot_attack_safe(&bot,TRUE,BOT_FIRE_LANE_SPREAD)); teams=TRUE;
@@ -303,13 +328,14 @@ static void grenade_tests(void) {
     bot=fresh(); place(1,15.f,2.f,0);
     action.control_flags=FLAG(_unit_control_throw_grenade_bit)|FLAG(2);
     bot_control_grenade(&bot,&action);
-    assert(action.control_flags==FLAG(2) && bot.grenade_time==now+30 && bot.throws_refused==1);
-    bot.grenade_time=now+5; action.control_flags=FLAG(_unit_control_throw_grenade_bit);
+    assert(action.control_flags==FLAG(2) && bot.combat.grenade_retry_tick==now+30 && bot.throws_refused==1);
+    assert(bot.combat.grenade_ready_tick==now+300); /* refusal cannot alter a full cooldown */
+    bot.combat.grenade_retry_tick=now+60; action.control_flags=FLAG(_unit_control_throw_grenade_bit);
     bot_control_grenade(&bot,&action);
-    assert(action.control_flags==0 && bot.grenade_time==now+5);
+    assert(action.control_flags==0 && bot.combat.grenade_retry_tick==now+60);
     bot=fresh(); action.control_flags=FLAG(_unit_control_throw_grenade_bit);
     bot_control_grenade(&bot,&action);
-    assert(action.control_flags==FLAG(_unit_control_throw_grenade_bit) && bot.grenade_time==now+300);
+    assert(action.control_flags==FLAG(_unit_control_throw_grenade_bit) && bot.combat.grenade_ready_tick==now+300);
     assert(bot.throws_refused==0);
     bot=fresh(); place(1,15.f,2.f,0); action.control_flags=0; line_calls=0;
     bot_control_grenade(&bot,&action);
@@ -333,6 +359,44 @@ static struct bot armed(boolean charging_weapon) {
     bot.pending.trigger=1.f;
     return bot;
 }
+static void weapon_attribute_tests(void) {
+    struct bot bot=armed(FALSE);
+    struct player_action action;
+    struct bot_weapon_attributes rows[3]={
+        {100,{1.f,2.f,1.f,1.f,6.f,100.f},1u<<(BOT_WEAPON_CAN_SWAP-6)},
+        {101,{10.f,1.f,1.f,1.f,0.f,0.f},1u<<(BOT_WEAPON_CAN_SWAP-6)},
+        {104,{8.f,1.f,1.f,1.f,4.f,8.f},1u<<(BOT_WEAPON_CAN_SWAP-6)}
+    };
+    long index;
+    for(index=0;index<5;index++) {
+        weapons[index].definition_index=100+index;
+        weapons[index].object.parent_object_index=index==4 ? NONE : 0;
+    }
+    for(index=0;index<4;index++) units[0].unit.weapon_object_indices[index]=index;
+    assert(bot_profile_set_weapon_attributes(BOT_PROFILE_MARINE,rows,3));
+    assert(bot_weapon_attribute(&bot,0,BOT_WEAPON_AIM_ERROR_SCALE)==2.f);
+    assert(bot_preferred_range(&bot,FALSE)==40.f && bot_preferred_range(&bot,TRUE)==6.f);
+    assert(bot_wants_weapon(&bot,4));
+    reset_action(&action);bot_control_weapon(&bot,&action);
+    assert(action.desired_weapon_index==1 && !fired);
+    rows[0].flags=0;
+    assert(bot_profile_set_weapon_attributes(BOT_PROFILE_MARINE,rows,3));
+    assert(!bot_wants_weapon(&bot,4));
+    reset_action(&action);bot_control_weapon(&bot,&action);
+    assert(action.desired_weapon_index==NONE && fired);
+    units[0].unit.weapon_object_indices[3]=NONE;
+    assert(bot_wants_weapon(&bot,4)); /* adding to an empty slot isn't a swap */
+    bot.profiles_assigned=TRUE;bot.base_profile=BOT_PROFILE_RECRUIT;
+    assert(bot_weapon_attribute(&bot,0,BOT_WEAPON_AIM_ERROR_SCALE)==1.f);
+    bot.profiles_assigned=FALSE;
+    place(5,1.f,0.f,NONE);units[5].object.type=_object_type_vehicle;
+    units[5].unit.current_weapon_index=0;units[5].unit.weapon_object_indices[0]=4;
+    units[0].object.parent_object_index=5;units[0].unit.parent_seat_index=0;
+    vehicle_definition.unit.seats.count=1;seat.flags=FLAG(_unit_seat_gunner_bit);
+    assert(bot_current_weapon_attribute(&bot,BOT_WEAPON_DESIRABILITY)==8.f);
+    assert(bot_preferred_range(&bot,FALSE)==8.f && bot_preferred_range(&bot,TRUE)==4.f);
+}
+
 static void weapon_tests(void) {
     struct player_action action;
     struct bot bot=armed(FALSE);
@@ -403,6 +467,7 @@ int main(void) {
     shot_tests();
     grenade_tests();
     weapon_tests();
+    weapon_attribute_tests();
     puts("bot fire safety tests passed");
     return 0;
 }

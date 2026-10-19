@@ -12,6 +12,18 @@ everything here is C, with the tuning kept in tables so that it reads like data.
 asset-free tests. No live match or network session was run while porting this
 branch; historical local-run notes are not current-branch validation.
 
+The recovered-code migration is tracked in
+[Infinite-style bots in C](bot-infinite-migration.md). It distinguishes the
+binary reconstruction from our talk-inspired CE policy. Scoring now crosses
+`bot_decision.h`: observed inputs in, utility outputs out; execution stays in
+`bots.c`. Difficulty data lives in `bot_profile.c`; base and active profiles
+can be assigned separately. `bot_reaction.c` owns acquisition/visibility timers
+and identity-scoped reaction memory. **Infinite's Lua goal policy and numerical
+tag tuning remain missing and are deferred for later adjustment.** The profile
+module accepts validated, map-local per-weapon rows with neutral defaults.
+`bot_ambitions.c` now owns stable goal identities, eligibility and bounded slot
+claims; item/seat claims retain their separate team scopes.
+
 ## The talk, and where each part lives here
 
 | Talk | Halo Infinite | Here |
@@ -20,13 +32,13 @@ branch; historical local-run notes are not current-branch validation.
 | Game rules in Lua, the authority (17) | Lua writes, BotManager stores | Each game engine's adapter in `bot_manager.c` reads the game engine's state and writes the blackboard. The game engine stays the authority: bots never change scores or objects except as a player does |
 | BotManager blackboard (17) | Ambitions plus some bot state | `bot_manager.c`: ambitions, and each team's shared sightings of enemies |
 | Ambitions (18–19) | An object or area that scores: type, object, teams allowed | `struct bot_ambition`: kind, object, position and radius, the teams allowed (a mask), the owning team |
-| Utility system (21–23) | Every behavior scored, the highest runs | `source/engine_ai/utility.{h,c}`: the selector; `bots.c`: one scoring function per behavior |
-| Tuning knobs (26–28) | Fixed and functional values, caps, weighted inputs | `engine_ai_utility_curve` (fixed, linear, power, logistic responses), `engine_ai_utility_weighted`, and caps: `struct bot_utility_tuning` in `bots.c`, one table, so a game mode can have its own |
+| Utility system (21–23) | Every behavior scored, the highest runs | `source/engine_ai/utility.{h,c}`: the selector; `bot_decision.c`: scoring policy over an observed input snapshot |
+| Tuning knobs (26–28) | Fixed and functional values, caps, weighted inputs | `engine_ai_utility_curve` (fixed, linear, power, logistic responses), `engine_ai_utility_weighted`, and caps: `struct bot_utility_tuning` in `bot_decision.h`, one table, so a game mode can have its own |
 | Confidence (27) | Bot health, target health, weapons, edge cases, in Lua | `bot_confidence()`: shields and health against the target's, weapon against weapon, enemies seen against teammates near |
 | Reaction-time budget (31–32) | 200–250 ms per decision, 8 bots, 31.25 ms each | A decision every 8 ticks (267 ms at 30 ticks a second), staggered by slot so that 31 bots spread their scoring evenly. The behavior still runs every tick; only the choice waits. A behavior that can no longer run is replaced at once |
-| Hysteresis (34–35) | Inflate the new behavior's utility for a while | The selector adds a bonus to the running behavior that fades over a second, and a newcomer must beat it by a margin |
+| Hysteresis (34–35) | Inflate the new behavior's utility for a while | The active difficulty profile owns the selector's fading bonus, duration and switching margin; CE defaults retain the one-second fade |
 | Always Be Shooting (36–37) | Combat is not a behavior the bot must choose | Aim and movement are independent; a distant sighting selects behavior and closes distance, but the skill's fire range gates shots. `engine_ai/aim.{h,c}` scales a nonzero error cone by range, time tracking and movement |
-| Difficulty and aim | Skill tuning makes harder bots better, not perfect | `bot_skills[]`: recruits turn poorly while moving and drift clumsily; higher skills strafe better, and Spartans crouch-strafe. Sight and fire ranges are separate. Aim settles but retains an error floor |
+| Difficulty and aim | Skill tuning makes harder bots better, not perfect | `bot_skills[]` in `bot_profile.c`: recruits turn poorly while moving and drift clumsily; higher skills strafe better, and Spartans crouch-strafe. Sight and fire ranges are separate. Aim settles but retains an error floor |
 | Weapon/powerup awareness | A player remembers visible map pickups | `bot_item_known()` requires sight/FOV or arm's reach and keeps up to eight last-seen locations for 30 seconds. A bounded LOS budget avoids omniscient map scans |
 | Pickup claims | Teammates do not all choose the same pickup | `engine_ai/claims.{h,c}` and the host-local `bot_manager` allow one owner per item within each team; opposing teams have independent scopes and can pursue the same item. Claims expire/release on abandonment. Humans are never blocked from racing a bot |
 | Teleporter sightings | React to a target that reappears far away | A visible jump over 6 m in two ticks is logged as a teleport observation. The normal perception/utility path decides chase or retreat; no invisible destination read or teleporter route is used |
@@ -73,7 +85,7 @@ foot), so the selector never picks it.
 
 ### Scores
 
-Values are 0 to 1. The table in `bots.c` (`bot_utility_tuning`) holds them:
+Values are 0 to 1. The default table in `bot_decision.c` (`bot_utility_tuning`) holds them:
 
 | Behavior | Score |
 | --- | --- |
@@ -81,6 +93,7 @@ Values are 0 to 1. The table in `bots.c` (`bot_utility_tuning`) holds them:
 | `retreat` | `(1 − confidence) × shields-down response`, for skills that retreat, out of cooldown; capped |
 | `fight` | By how the target is known: seen, hurt by it, remembered, or a teammate's sighting; times a distance response; raised by confidence. A teammate's sighting is capped low |
 | `scavenge` | The opportunity's value (an empty slot, weapon upgrade, powerup or seat), times a distance response; a fixed high score within 2.5 m, regardless of current enemy visibility (ABS continues fighting) |
+| `avoid` | 0.9 for an expiring observed grenade/approaching vehicle; disabled while seated or navigation-only |
 | `roam` | A lane-patrol floor: after contact or scavenging stops mattering, the bot routes to its assigned map-relative lane and alternates near/far patrol depths; two bots share a lane as a squad |
 
 In opt-in CTF, objective duties are scored from the manager's bounded,
@@ -106,6 +119,26 @@ still wins normally. If an enemy visibly reappears more than six metres from its
 last observed position within two ticks, it is logged as a teleport observation;
 perception updates through the ordinary sighting path, without reading a hidden
 destination. Teleporter path planning remains future work.
+
+### Native-style combat actions
+
+`bot_combat.c` chooses a combat action independently of the movement goal.
+Fight, melee, grenade, disengage, seek and avoid have distinct evaluators. Melee uses
+profile ranges, target vulnerability and confidence modifiers; grenades require
+capability, inventory, visibility, distance/height bands and cooldown readiness.
+Selected grenades use bounded tag-derived ballistic planning; final actual-facing
+arc and landing-blast checks supplement the existing lane, wall and weapon gates.
+The planned aim is held through the engine's throw wind-up.
+
+Cooldowns start when the engine's melee/throw animation actually ends, not when
+an intent is emitted. Submitted controls only get a short retry gate; refused
+throws cannot shorten a real cooldown. A native disengage choice can back a
+fighting bot out while ABS keeps shooting, but does not override an objective's
+movement. Observed grenades and approaching vehicles supply a bounded avoid leaf
+using ordinary movement and final collision steering. Avoid scores 0.9; only while
+danger is observed, parent fight is capped at 0.5. Higher-valued objectives retain
+their route priority. No hidden projectile position becomes an enemy sighting.
+See the migration document for physics limits and validation scope.
 
 ### Confidence
 

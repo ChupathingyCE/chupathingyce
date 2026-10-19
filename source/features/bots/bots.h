@@ -34,6 +34,11 @@ boolean bots_game_had_bots(
 /* port: effective demand includes a private lobby override, not just config. */
 boolean bots_navigation_requested(void);
 
+/* Host-local policy override. Base owns action/aim/reaction parameters;
+   active owns perception/movement/selection. IDs are recruit 0..Spartan 3.
+   Invalid IDs or a non-bot player return FALSE without changing state. */
+boolean bots_set_player_difficulty(long player_index, short base, short active);
+
 /* whether the player is one of this machine's bots */
 boolean bots_player_is_bot(
 	long player_index);

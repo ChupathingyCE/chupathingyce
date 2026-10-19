@@ -19,6 +19,19 @@ written grouped by section. */
 	{ "bots.skill", _config_string, "\"marine\"", "HALO_BOT_SKILL", _environment_value, _platform_all,
 		"How well the bots play: \"recruit\", \"marine\", \"odst\" or \"spartan\".\n"
 		"Skill changes their reactions, aim and sight, never their health or damage." },
+	{ "bots.playfighting", _config_boolean, "false", "HALO_BOT_PLAYFIGHTING", _environment_value, _platform_all,
+		"Combat practice mode: excludes melee, grenade and disengage evaluators.\n"
+		"Uses ordinary player weapons/damage; it is not an invulnerability mode." },
+	{ "bots.combat_fight", _config_boolean, "true", "HALO_BOT_COMBAT_FIGHT", _environment_value, _platform_all,
+		"Enable the native-style firing evaluator; movement and goals remain independent." },
+	{ "bots.combat_melee", _config_boolean, "true", "HALO_BOT_COMBAT_MELEE", _environment_value, _platform_all,
+		"Enable the profile-driven melee evaluator and normal player melee controls." },
+	{ "bots.combat_grenade", _config_boolean, "true", "HALO_BOT_COMBAT_GRENADE", _environment_value, _platform_all,
+		"Enable the profile-driven grenade evaluator, subject to live safety checks." },
+	{ "bots.combat_avoid", _config_boolean, "true", "HALO_BOT_COMBAT_AVOID", _environment_value, _platform_all,
+		"Enable bounded observed-grenade/approaching-vehicle avoidance on foot." },
+	{ "bots.combat_disengage", _config_boolean, "true", "HALO_BOT_COMBAT_DISENGAGE", _environment_value, _platform_all,
+		"Enable confidence-threshold disengaging for profiles that retreat." },
 	{ "bots.human_callouts", _config_boolean, "true", "HALO_BOT_HUMAN_CALLOUTS", _environment_value, _platform_all,
 		"Share local human POV contacts with teammate bots after one second of\n"
 		"continuous sight. Nearby patrol bots also turn toward incoming-fire cues;\n"

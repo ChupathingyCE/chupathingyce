@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "engine_ai/claims.h"
+#include "features/bots/bot_ambitions.h"
 typedef int boolean;
 typedef unsigned char byte;
 typedef float real;
@@ -45,6 +46,7 @@ static struct game_variant variant;
 static long now;
 static int client, scoring=1, weapon_missing[2];
 static struct { short ambition_count; struct bot_ambition ambitions[BOT_AMBITIONS_MAXIMUM];
+    struct bot_ambitions objective_claims;
     struct engine_ai_claims item_claims; struct engine_ai_claims seat_claims; boolean ctf_observed; struct halo_bot_ctf_snapshot ctf_previous; } bot_manager_globals;
 static int logged_captures,logged_returns;
 static void platform_log(char const *format, ...) {
@@ -58,6 +60,9 @@ static int game_engine_has_teams(void) { return variant.universal_variant.teams;
 static int network_game_distributed_client(void) { return client; }
 static int game_engine_can_score(void) { return scoring; }
 static long game_time_get(void) { return now; }
+static real distance3d(real_point3d const *a,real_point3d const *b) {
+    return sqrtf((a->x-b->x)*(a->x-b->x)+(a->y-b->y)*(a->y-b->y)+(a->z-b->z)*(a->z-b->z));
+}
 static struct weapon_datum *weapon_try_and_get(long i) {
     return i>=10 && i<=11 && !weapon_missing[i-10] ? &weapons[i-10] : NULL;
 }
@@ -138,9 +143,12 @@ static void seat_claim_tests(void) {
     bot_manager_release_seat(0,vehicle,1,2); assert(bot_manager_claim_seat(0,vehicle,1,5,60));
     /* a bot's departure releases its seats and items together */
     assert(bot_manager_claim_item(0,10,1,60));
-    bot_manager_release_bot(0,1);
+    assert(bot_manager_claim_item(1,11,1,60) && bot_manager_claim_seat(1,vehicle,3,1,60));
+    bot_manager_release_bot(NONE,1); /* team changed or the player datum is already gone */
     assert(!bot_manager_seat_claimed_by_other(0,vehicle,0,2) && !bot_manager_item_claimed_by_other(0,10,2));
     assert(bot_manager_seat_claimed_by_other(0,vehicle,2,1));
+    assert(!bot_manager_item_claimed_by_other(1,11,2) && !bot_manager_seat_claimed_by_other(1,vehicle,3,2));
+    assert(bot_manager_seat_claimed_by_other(1,vehicle,0,2)); /* another owner's reservation stays */
     /* an unrenewed claim expires */
     now=61; assert(!bot_manager_seat_claimed_by_other(0,vehicle,2,1) && bot_manager_claim_seat(0,vehicle,2,1,60));
     /* every seat of a vehicle can be claimed, by different bots */
@@ -153,7 +161,7 @@ static void seat_claim_tests(void) {
 }
 int main(void) {
     struct halo_bot_ctf_snapshot state;
-    struct bot_ambition goal;
+    struct bot_ambition goal,before;
     int i;
     seat_claim_tests();
     reset(); assert(!game_engine_ctf_bot_variant_supported(NULL));
@@ -185,7 +193,10 @@ int main(void) {
     weapons[0].weapon.flags=1UL<<_ctf_weapon_handled_bit;
     bot_manager_publish_ambitions();
     assert(bot_manager_ctf_goal(0,200,1,NONE,&goal) && goal.kind==_bot_ambition_return && goal.object_index==10);
+    before=goal;
     assert(bot_manager_ctf_goal(0,200,1,10,&goal) && goal.kind==_bot_ambition_take);
+    bot_manager_release_goal(1,&before.identity); /* old return cancellation cannot drop the new take */
+    assert(bot_manager_goal_claimed(1,&goal));
     weapons[1].object.parent_object_index=100; units[0].unit.weapon_object_indices[0]=11;
     weapons[1].object.position.x=999; /* hidden carrier position must not escape */
     assert(game_engine_ctf_bot_snapshot(&state));
@@ -280,5 +291,9 @@ int main(void) {
     unit_drop_current_weapon(100,TRUE);
     assert(game_engine_ctf_bot_snapshot(&state) && state.flags[1].state==_halo_bot_flag_dropped);
     ctf_reset_flag(11); assert(game_engine_ctf_bot_snapshot(&state) && state.flags[1].state==_halo_bot_flag_home);
+    reset(); bot_manager_publish_ambitions();
+    assert(bot_manager_ctf_goal(0,200,1,NONE,&goal) && bot_manager_goal_claimed(1,&goal));
+    ctf_enabled=0;bot_manager_publish_ambitions();
+    assert(!bot_manager_goal_claimed(1,&goal)); /* removing a mode invalidates its claims */
     puts("CTF engine lifecycle, snapshots and game-owned goals passed"); return 0;
 }

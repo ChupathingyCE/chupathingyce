@@ -3,6 +3,10 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include "features/bots/bot_profile.h"
+#include "features/bots/bot_reaction.h"
+#include "features/bots/bot_combat.h"
+#include "features/bots/bot_grenade.h"
 typedef float real;
 typedef int boolean;
 typedef struct { real x,y,z; } real_point3d;
@@ -12,6 +16,7 @@ typedef struct { real yaw,pitch; } real_euler_angles2d;
 #define FALSE 0
 #define NONE (-1)
 #define MAXIMUM_ATTACKERS_PER_UNIT 2
+#define BOTS_MAXIMUM 3
 #define BOT_ATTACKER_AWARENESS_TICKS 15
 #define BOT_TARGET_MEMORY_SECONDS 5.f
 #define BOT_SIGHTING_MEMORY_TICKS 120
@@ -41,18 +46,22 @@ struct biped_datum { struct { unsigned long flags; struct { real_vector3d n; } g
 static struct biped_datum fake_biped;
 static struct biped_datum *biped_get(long index) { assert(index==0); return &fake_biped; }
 struct player_datum { long unit_index,team_index; };
-struct bot_skill { real sight_range,field_of_view_degrees; boolean shares_sightings;
-    real turn_degrees_per_second,moving_turn_scale; };
-static struct { struct bot_skill *skill; } bots_globals;
 struct sn_point { real x,y,z; };
 struct bot {
     long unit_index,player_index,target_player_index,target_last_seen_time,target_first_seen_time;
     long aware_time;
+    boolean active,decide_now,profiles_assigned;
+    uint32_t base_profile,active_profile;
+    struct bot_reaction reaction;
+    struct bot_combat_state combat;
     long target_observed_player_index,target_observed_time;
     short slot,visible_enemy_count;
     int target_source,chosen_leaf;
     boolean target_visible;
-    real_euler_angles2d facing;
+    real_euler_angles2d facing,grenade_aim;
+    boolean grenade_aim_active;
+    long grenade_aim_until,danger_until,danger_scan_time;
+    struct bot_danger danger;
     real_point3d target_last_position,target_observed_position;
     boolean moved_last_tick,objective_waiting;
     struct { boolean searching,following; unsigned int waypoint;
@@ -65,7 +74,17 @@ struct bot {
     struct { boolean has_move,has_look; real move_yaw,move_speed;
         unsigned long control_flags; real_euler_angles2d look; } pending;
 };
-enum { _unit_control_jump_bit };
+static struct { struct bot_skill *skill; struct bot bots[BOTS_MAXIMUM];
+    boolean navigation_only;uint32_t combat_enabled_mask; } bots_globals;
+static int hazard_scans;
+static boolean hazard_visible;
+/* The full observation adapter has its own geometry/tag/LOS fixture. */
+bool bot_danger_observe(struct bot_danger_request const *r,struct bot_danger *d) {
+    assert(r->unit_key==0 && r->sight_range>0.f && r->half_fov_radians>0.f);
+    hazard_scans++;memset(d,0,sizeof(*d));d->position[0]=4.f;d->escape_yaw=1.f;
+    return hazard_visible!=0;
+}
+enum { _unit_control_jump_bit, _unit_control_use_equipment_bit, _unit_control_throw_grenade_bit };
 struct player_action {
     unsigned long control_flags;
     real_euler_angles2d desired_facing;
@@ -101,6 +120,7 @@ static boolean human_callouts_nearest_alert(long team,const real_point3d *from,r
 static real observed_margin;
 static long game_time_get(void) { return now; }
 static long bot_seconds_to_ticks(real seconds) { return (long)(seconds*30.f); }
+static real bot_random(struct bot *bot) { (void)bot; return 0.f; }
 static real distance3d(const real_point3d *a,const real_point3d *b) {
     real x=a->x-b->x,y=a->y-b->y,z=a->z-b->z;
     return sqrtf(x*x+y*y+z*z);
@@ -184,8 +204,29 @@ static struct bot fresh(void) {
     positions[0].x=positions[0].y=positions[0].z=0.f;
     positions[1].x=2.f; positions[1].y=positions[1].z=0.f;
     skill->shares_sightings=TRUE; now=100; callouts=los_calls=sweeps=mode=0;
+    bot_reaction_reset(&b.reaction);
+    bot_combat_reset(&b.combat,now,0);
     line_clear=TRUE; shared=FALSE; human_alert=FALSE;
+    bots_globals.navigation_only=FALSE;bots_globals.combat_enabled_mask=BOT_COMBAT_ALL;
+    hazard_scans=0;hazard_visible=FALSE;
     return b;
+}
+static void danger_adapter_tests(void) {
+    struct bot b=fresh();hazard_visible=TRUE;b.aware_time=200;
+    bot_update_danger(&b);
+    assert(hazard_scans==1 && b.danger_until==115 && b.decide_now && b.aware_time==100);
+    assert(b.danger.escape_yaw==1.f && b.target_player_index==NONE && !b.target_visible);
+    hazard_visible=FALSE;now=101;bot_update_danger(&b);assert(hazard_scans==1 && b.danger_until==115);
+    now=104;bot_update_danger(&b);assert(hazard_scans==2 && b.danger_until==115);
+    now=116;bot_update_danger(&b);assert(b.danger_until<now);
+    b=fresh();b.danger_until=200;bots_globals.navigation_only=TRUE;
+    bot_update_danger(&b);assert(!b.danger_until && !hazard_scans);
+    b=fresh();b.danger_until=200;bots_globals.combat_enabled_mask=0;
+    bot_update_danger(&b);assert(!b.danger_until && !hazard_scans);
+    b=fresh();b.danger_until=200;units[0].object.parent_object_index=1;
+    bot_update_danger(&b);assert(!b.danger_until && !hazard_scans);
+    b=fresh();b.danger_until=200;b.danger_scan_time=150;now=50;
+    bot_update_danger(&b);assert(!b.danger_until && hazard_scans==1); /* rewind */
 }
 static void perception_tests(void) {
     struct bot b=fresh();
@@ -245,6 +286,40 @@ static void perception_tests(void) {
     now++; bot_perceive(&b,&players[0],&units[0]);
     assert(b.target_visible && b.target_source==_bot_target_seen);
 }
+static void reaction_adapter_tests(void) {
+    struct bot b=fresh();
+    struct bot *managed=&bots_globals.bots[0];
+    memset(managed,0,sizeof(*managed));
+    managed->active=TRUE; managed->player_index=10;
+    assert(!bots_set_player_difficulty(11,BOT_PROFILE_MARINE,BOT_PROFILE_RECRUIT));
+    assert(!bots_set_player_difficulty(10,-1,BOT_PROFILE_RECRUIT));
+    assert(!bots_set_player_difficulty(10,BOT_PROFILE_COUNT,BOT_PROFILE_RECRUIT));
+    assert(!bots_set_player_difficulty(10,BOT_PROFILE_MARINE,BOT_PROFILE_COUNT));
+    assert(!managed->profiles_assigned && !managed->decide_now);
+    assert(bots_set_player_difficulty(10,BOT_PROFILE_MARINE,BOT_PROFILE_RECRUIT));
+    assert(managed->profiles_assigned && managed->decide_now && !managed->reaction.initialized);
+    assert(bot_base_profile(managed)==&bot_skills[BOT_PROFILE_MARINE]);
+    assert(bot_active_profile(managed)==&bot_skills[BOT_PROFILE_RECRUIT]);
+    managed->reaction.initialized=TRUE; managed->decide_now=FALSE;
+    assert(bots_set_player_difficulty(10,BOT_PROFILE_MARINE,BOT_PROFILE_RECRUIT));
+    assert(managed->reaction.initialized && !managed->decide_now); /* same override is a no-op */
+    b.profiles_assigned=TRUE; b.base_profile=BOT_PROFILE_MARINE; b.active_profile=BOT_PROFILE_RECRUIT;
+    assert(bot_base_profile(&b)==&bot_skills[BOT_PROFILE_MARINE]);
+    assert(bot_active_profile(&b)==&bot_skills[BOT_PROFILE_RECRUIT]);
+    bot_perceive(&b,&players[0],&units[0]); bot_update_reaction(&b);
+    assert(b.reaction.target_id==1 && !bot_reaction_can_fire(&b.reaction,now));
+    assert(b.reaction.acquire_ready_tick==115 && b.reaction.visible_ready_tick==115);
+    now=115; bot_perceive(&b,&players[0],&units[0]); bot_update_reaction(&b);
+    assert(bot_reaction_can_fire(&b.reaction,now));
+    line_clear=FALSE; now++; bot_perceive(&b,&players[0],&units[0]); bot_update_reaction(&b);
+    assert(!bot_reaction_can_fire(&b.reaction,now));
+    line_clear=TRUE; now++; bot_perceive(&b,&players[0],&units[0]); bot_update_reaction(&b);
+    assert(bot_reaction_can_fire(&b.reaction,now)); /* brief occlusion: no new delay */
+    line_clear=FALSE; now++; bot_perceive(&b,&players[0],&units[0]); bot_update_reaction(&b);
+    line_clear=TRUE; now+=30; bot_perceive(&b,&players[0],&units[0]); bot_update_reaction(&b);
+    assert(!bot_reaction_can_fire(&b.reaction,now)); /* outside Marine's memory */
+    assert(b.reaction.visible_ready_tick==now+15);
+}
 #ifndef PERCEPTION_ONLY
 static void steering_tests(void) {
     struct bot b=fresh();
@@ -302,11 +377,31 @@ static void steering_tests(void) {
     b.target_player_index=NONE; b.chosen_leaf=_bot_leaf_retreat; bot_hear_human_alert(&b,0);
     assert(!b.pending.has_look);
     b.chosen_leaf=_bot_leaf_roam; bot_hear_human_alert(&b,1); assert(!b.pending.has_look);
+    /* Goals/lost sight cannot pull the aim down during a validated wind-up. */
+    b=fresh();b.grenade_aim_active=TRUE;b.grenade_aim_until=105;b.grenade_aim.pitch=0.1f;
+    b.pending.has_look=TRUE;b.pending.look.pitch=-0.1f;bot_submit_action(&b);
+    assert(submitted.desired_facing.pitch==0.1f && b.grenade_aim_active);
+    now=110;b.combat.was_grenade=TRUE;b.pending.look.pitch=-0.1f;bot_submit_action(&b);
+    assert(submitted.desired_facing.pitch==0.1f && b.grenade_aim_active);
+    b.combat.was_grenade=FALSE;b.pending.look.pitch=-0.1f;bot_submit_action(&b);
+    assert(submitted.desired_facing.pitch<0.1f && !b.grenade_aim_active);
+    /* Submitted controls get only a short retry gate, never a full cooldown. */
+    b=fresh(); b.pending.control_flags=(1UL<<_unit_control_use_equipment_bit)|(1UL<<_unit_control_throw_grenade_bit);
+    bot_submit_action(&b);
+    assert(b.combat.melee_retry_tick==105 && b.combat.grenade_retry_tick==105);
+    assert(b.combat.melee_ready_tick==100 && b.combat.grenade_ready_tick==100);
+    now=105; b.pending.control_flags=0; bot_submit_action(&b);
+    assert(b.combat.melee_retry_tick==105 && b.combat.grenade_retry_tick==105);
 }
 #endif
 int main(void) {
-    struct bot_skill skill={50.f,90.f,TRUE,180.f,1.f}; bots_globals.skill=&skill;
+    struct bot_skill skill={0};
+    skill.sight_range=50.f; skill.field_of_view_degrees=90.f; skill.shares_sightings=TRUE;
+    skill.turn_degrees_per_second=180.f; skill.moving_turn_scale=1.f; skill.pursuit_memory_seconds=5.f;
+    bots_globals.skill=&skill;
     perception_tests();
+    reaction_adapter_tests();
+    danger_adapter_tests();
 #ifndef PERCEPTION_ONLY
     steering_tests();
 #endif

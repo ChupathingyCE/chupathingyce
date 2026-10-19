@@ -1,0 +1,143 @@
+/* Fake engine only; the complete production adapter body is inserted below.
+ * Native ABI compilation independently checks its real engine headers. */
+#include "features/bots/bot_grenade.h"
+#include "features/bots/bot_ballistics.h"
+#include <assert.h>
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
+typedef float real;
+typedef int boolean;
+typedef struct { float x,y,z; } real_point3d;
+typedef struct { float i,j,k; } real_vector3d;
+#define TRUE 1
+#define FALSE 0
+#define NONE (-1)
+#define TICKS_PER_SECOND 30
+#define NUMBER_OF_UNIT_GRENADE_TYPES 2
+#define TEST_FLAG(f,b) (((f)&(1u<<(b)))!=0)
+#define MIN(a,b) ((a)<(b)?(a):(b))
+#define MAX(a,b) ((a)>(b)?(a):(b))
+#define PIN(x,a,b) MIN(MAX(x,a),b)
+#define valid_real(x) isfinite(x)
+#define TAG_BLOCK_GET_ELEMENT(block,index,type) (&((type *)(block)->address)[index])
+enum { _object_type_biped,_object_type_vehicle,_object_type_projectile };
+enum { _object_dead_bit,_object_wholly_under_media_bit };
+enum { _object_mask_projectile=1,_object_mask_vehicle=2,_collision_test_for_line_of_sight_flags=3,
+    _collision_test_for_projectiles_flags=4 };
+struct tag_block { int count;void *address; };
+struct game_globals_grenade { struct { long index; } projectile; };
+struct game_globals_player_information { real_vector3d grenade_origin; };
+struct game_globals { struct tag_block grenades,player_information; };
+struct unit_definition { struct { real grenade_velocity; } unit; };
+struct projectile_definition { struct { real guided_angular_velocity,collision_radius,
+    initial_velocity,final_velocity,air_gravity_scale; } projectile; };
+struct body { short type;unsigned int damage_flags,flags;long parent_object_index;
+    real_point3d position;real_vector3d translational_velocity;real bounding_sphere_radius; };
+struct unit_datum { long definition_index;struct body object;
+    struct { short current_grenade_index,grenade_counts[2];long grenade_object_index; } unit; };
+struct object_datum { long definition_index;struct body object; };
+struct object_iterator { long index; };
+struct collision_result { real_point3d point;long object_index; };
+static struct unit_datum units[2];
+static struct object_datum objects[300];
+static struct game_globals globals;
+static struct game_globals_grenade grenade_tags[2];
+static struct game_globals_player_information player_tag;
+static struct unit_definition unit_tag;
+static struct projectile_definition projectile_tag;
+static real global_gravity;
+static int object_count,iterations,los_calls,pills,blocked_segment;
+static boolean hidden,terminal_hit;
+static real largest_radius;
+static struct unit_datum *unit_try_and_get(long key) { return key==100 ? &units[0] : key==101 ? &units[1] : NULL; }
+static struct game_globals *scenario_get_game_globals(void) { return &globals; }
+static struct unit_definition *unit_definition_get(long key) { assert(key==1);return &unit_tag; }
+static struct projectile_definition *projectile_definition_get(long key) { assert(key==10);return &projectile_tag; }
+static void object_iterator_new(struct object_iterator *it,int mask,int flags) {
+    assert(mask==3 && !flags);it->index=-1;iterations=0;
+}
+static boolean object_iterator_next(struct object_iterator *it) { iterations++;return ++it->index<object_count; }
+static struct object_datum *object_get(long key) { assert(key>=0 && key<object_count);return &objects[key]; }
+static void object_get_origin(long key,real_point3d *point) { *point=object_get(key)->object.position; }
+static boolean collision_test_vector(int flags,real_point3d const *from,real_vector3d const *delta,
+    long ignore,struct collision_result *collision) {
+    assert(flags==3 && from && delta && ignore==100);los_calls++;
+    collision->object_index=NONE;return hidden;
+}
+static boolean collision_test_pill(int flags,real_point3d const *from,real_vector3d const *delta,
+    real radius,long ignore,struct collision_result *collision) {
+    assert(flags==4 && ignore==100 && radius>0.f);pills++;
+    largest_radius=MAX(largest_radius,radius);
+    collision->object_index=terminal_hit ? 101 : NONE;
+    collision->point.x=from->x+delta->i;collision->point.y=from->y+delta->j;collision->point.z=from->z+delta->k;
+    return pills==blocked_segment;
+}
+/* PRODUCTION_ADAPTER */
+static void fresh(void) {
+    memset(units,0,sizeof(units));memset(objects,0,sizeof(objects));memset(&projectile_tag,0,sizeof(projectile_tag));
+    memset(&player_tag,0,sizeof(player_tag));
+    units[0].definition_index=1;units[0].object.parent_object_index=units[1].object.parent_object_index=NONE;
+    units[0].unit.grenade_counts[0]=2;
+    units[0].unit.grenade_object_index=units[1].unit.grenade_object_index=NONE;
+    globals.grenades.count=2;globals.grenades.address=grenade_tags;
+    globals.player_information.count=1;globals.player_information.address=&player_tag;
+    grenade_tags[0].projectile.index=10;grenade_tags[1].projectile.index=11;
+    unit_tag.unit.grenade_velocity=30.f;global_gravity=0.02f;
+    projectile_tag.projectile.air_gravity_scale=1.f;projectile_tag.projectile.collision_radius=0.05f;
+    hidden=terminal_hit=FALSE;pills=los_calls=iterations=blocked_segment=object_count=0;largest_radius=0.f;
+}
+static void trajectory(void) {
+    struct bot_grenade_request request={100,101,{0.f,0.f,1.f},{20.f,0.f,1.f},{0.f,0.f}};
+    float aim[2],landing[3];
+    fresh();assert(bot_grenade_plan(&request,aim));
+    assert(pills==BOT_ARC_SEGMENTS && aim[1]>0.2f && largest_radius>0.05f);
+    assert(!bot_grenade_validate(&request,landing)); /* straight gun aim misses */
+    request.facing[0]=aim[0];request.facing[1]=aim[1];pills=0;
+    assert(bot_grenade_validate(&request,landing) && pills==BOT_ARC_SEGMENTS);
+    assert(fabsf(landing[0]-20.f)<0.001f && fabsf(landing[2]-1.f)<0.001f);
+    pills=0;blocked_segment=8;assert(!bot_grenade_validate(&request,landing) && pills==8);
+    pills=0;assert(!bot_grenade_plan(&request,aim));
+    pills=0;blocked_segment=16;terminal_hit=TRUE;assert(bot_grenade_validate(&request,landing));
+    terminal_hit=FALSE;pills=0;assert(!bot_grenade_validate(&request,landing)); /* wall isn't enemy contact */
+    fresh();units[0].object.flags=1u<<_object_wholly_under_media_bit;assert(!bot_grenade_plan(&request,aim));
+    fresh();units[0].object.parent_object_index=5;assert(!bot_grenade_plan(&request,aim));
+    fresh();units[0].unit.grenade_counts[0]=0;assert(!bot_grenade_plan(&request,aim));
+    fresh();globals.player_information.count=0;assert(!bot_grenade_plan(&request,aim));
+    fresh();projectile_tag.projectile.guided_angular_velocity=1.f;assert(!bot_grenade_plan(&request,aim));
+    fresh();global_gravity=NAN;assert(!bot_grenade_plan(&request,aim));
+    fresh();request.target_unit_key=NONE;assert(!bot_grenade_plan(&request,aim));request.target_unit_key=101;
+    fresh();player_tag.grenade_origin.i=0.3f;player_tag.grenade_origin.j=0.1f;player_tag.grenade_origin.k=0.2f;
+    assert(bot_grenade_plan(&request,aim));request.facing[0]=aim[0];request.facing[1]=aim[1];
+    assert(bot_grenade_validate(&request,landing)); /* release offsets use the actual aim basis */
+}
+static void observation(void) {
+    struct bot_danger_request request={100,{0.f,0.f,1.f},{0.f,0.f,0.f},0.f,40.f,0.8f};
+    struct bot_danger danger;
+    int index;
+    fresh();object_count=1;objects[0].definition_index=10;
+    objects[0].object.parent_object_index=NONE;objects[0].object.position.x=4.f;
+    objects[0].object.type=_object_type_projectile;
+    assert(bot_danger_observe(&request,&danger) && danger.position[0]==4.f && los_calls==1);
+    hidden=TRUE;assert(!bot_danger_observe(&request,&danger)); /* walls never reveal hazards */
+    hidden=FALSE;objects[0].object.position.x=-4.f;assert(!bot_danger_observe(&request,&danger)); /* FOV */
+    objects[0].object.position.x=-2.f;assert(bot_danger_observe(&request,&danger)); /* close LOS awareness */
+    objects[0].object.parent_object_index=100;units[0].unit.grenade_object_index=0;
+    assert(!bot_danger_observe(&request,&danger)); /* still held */
+    units[0].unit.grenade_object_index=NONE;
+    assert(bot_danger_observe(&request,&danger)); /* released sticky attachment */
+    objects[0].object.parent_object_index=NONE;objects[0].definition_index=12;
+    assert(!bot_danger_observe(&request,&danger)); /* bullets aren't tagged grenades */
+    objects[0].object.type=_object_type_vehicle;objects[0].object.position.x=4.f;
+    objects[0].object.translational_velocity.i=-0.5f;
+    assert(bot_danger_observe(&request,&danger) && fabsf(cosf(danger.escape_yaw))<0.001f); /* sidestep */
+    objects[0].object.translational_velocity.i=0.5f;assert(!bot_danger_observe(&request,&danger));
+    objects[0].object.translational_velocity.i=0.f;assert(!bot_danger_observe(&request,&danger));
+    fresh();object_count=300;
+    for(index=0;index<300;index++) {objects[index].definition_index=12;objects[index].object.parent_object_index=NONE;}
+    assert(!bot_danger_observe(&request,&danger) && iterations==256 && los_calls==0);
+    for(index=0;index<10;index++) {objects[index].definition_index=10;objects[index].object.position.x=4.f;}
+    hidden=TRUE;assert(!bot_danger_observe(&request,&danger) && los_calls==4 && iterations==4);
+    request.origin[0]=NAN;assert(!bot_danger_observe(&request,&danger));
+}
+int main(void) { trajectory();observation();puts("production CE grenade/danger adapter passed");return 0; }

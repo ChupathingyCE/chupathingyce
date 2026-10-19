@@ -9,16 +9,17 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-NAMES = ["bot_lane_near", "bot_lane_near_unit", "bot_blast_reaches", "bot_trigger_spread", "bot_attack_safe",
+NAMES = ["bot_weapon_unit", "bot_equipped_weapon", "bot_weapon_attribute", "bot_current_weapon_attribute",
+         "bot_weapon_preference", "bot_preferred_range", "bot_wants_weapon", "bot_lane_near", "bot_lane_near_unit", "bot_blast_reaches", "bot_grenade_landing_safe", "bot_trigger_spread", "bot_attack_safe",
          "bot_carries_flag", "bot_control_grenade",
          "bot_other_weapon_slot", "bot_hold_fire", "bot_control_weapon"]
 
 
 def function(source, name):
-    match = re.search(r"^static [\w ]+?\b" + re.escape(name) + r"\(", source, re.M)
+    match = re.search(r"^static [\w *]+\b" + re.escape(name) + r"\([^;{]*\)\s*\{", source, re.M)
     if not match:
         raise AssertionError(f"Missing production test seam: {name}")
-    end = source.index("{", match.end()) + 1
+    end = source.index("{", match.start()) + 1
     depth = 1
     while depth:
         depth += (source[end] == "{") - (source[end] == "}")
@@ -40,7 +41,9 @@ def run(cc, sanitize=False):
         # (bot_control_weapon compares a checked non-negative short with
         # NUMBEROF's size_t, as the game's build allows)
         command = [cc, "-std=gnu89", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function",
-                   "-Wno-sign-compare", str(path), "-lm", "-o", str(executable)]
+                   "-Wno-sign-compare", "-I", str(ROOT / "source"), str(path),
+                   str(ROOT / "source/features/bots/bot_combat.c"),
+                   str(ROOT / "source/features/bots/bot_profile.c"), "-lm", "-o", str(executable)]
         if sanitize:
             command += ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
         subprocess.run(command, check=True, timeout=60)

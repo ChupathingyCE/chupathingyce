@@ -86,6 +86,11 @@ Configuration (port/linux/src/port_config.c): bots.count (0..31), bots.skill.
 #include "items/equipment_definitions.h"
 #include "extensions/extension_api.h"
 #include "bot_manager.h"
+#include "bot_decision.h" /* observed inputs -> CE utility policy -> outputs */
+#include "bot_profile.h"
+#include "bot_reaction.h"
+#include "bot_combat.h"
+#include "bot_grenade.h"
 #include "halo_bot_objectives.h" /* port: standard CTF admission and state */
 #include "human_callouts.h" /* port: nearby human incoming-fire cues */
 #include "bot_navigation.h"
@@ -133,8 +138,6 @@ enum
 	200-250 ms to react to new information, which also made them better
 	practice partners */
 	BOT_DECISION_TICKS = 8,
-	/* the running behavior's bonus fades over a second */
-	BOT_HYSTERESIS_TICKS = TICKS_PER_SECOND,
 	BOT_SIGHTING_MEMORY_TICKS = 3 * TICKS_PER_SECOND,
 	BOT_WEAPON_SEEK_RANGE = 30,
 	/* items noticed by sight are remembered, not tracked: what a player
@@ -181,29 +184,6 @@ typedef char bot_navigation_clients_check[
 typedef char bot_scenario_slots_check[
 	BOT_SCENARIO_BOTS_MAX <= BOTS_MAXIMUM ? 1 : -1];
 
-/* the behavior tree's leaves; a leaf's utility option is its id less one */
-enum
-{
-	_bot_leaf_none = 0,
-	_bot_leaf_retreat,
-	_bot_leaf_fight,
-	_bot_leaf_roam,
-	_bot_leaf_scavenge,
-	_bot_leaf_vehicle,
-	_bot_leaf_objective, /* port: take, return, deliver or guard a CTF goal */
-	BOT_BEHAVIOR_COUNT = _bot_leaf_objective
-};
-
-/* how a bot knows its target */
-enum
-{
-	_bot_target_none = 0,
-	_bot_target_seen,
-	_bot_target_attacker, /* it has just hurt the bot */
-	_bot_target_remembered, /* seen a moment ago */
-	_bot_target_shared, /* a teammate's sighting (bot_manager.c) */
-};
-
 /* the intents the leaves emit, and the executor takes */
 enum
 {
@@ -234,9 +214,7 @@ enum
 #define BOT_NAV_EYE_HEIGHT 0.4f
 #define BOT_WAYPOINT_REACHED_DISTANCE 1.2f
 #define BOT_MINIMUM_ROAM_DISTANCE 12.f
-#define BOT_TARGET_MEMORY_SECONDS 4.f
 #define BOT_ATTACKER_AWARENESS_TICKS 15
-#define BOT_GRENADE_COOLDOWN_SECONDS 8.f
 #define BOT_VEHICLE_SEAT_MAXIMUM_SPEED_SQUARED 0.25f
 /* a human teammate this near a bot's vehicle may be getting in */
 #define BOT_VEHICLE_HUMAN_BOARD_DISTANCE 6.f
@@ -289,66 +267,6 @@ weapon's error spreads its shots; a grenade's blast is given a generous reach. *
 
 /* ---------- structures */
 
-struct bot_skill
-{
-	char const *name;
-	real reaction_seconds;
-	real aim_error_degrees;
-	real turn_degrees_per_second;
-	real sight_range;
-	real field_of_view_degrees; /* half angle */
-	real fire_tolerance_degrees;
-	real burst_seconds; /* 0: no pauses */
-	real burst_pause_seconds;
-	boolean strafes;
-	boolean throws_grenades;
-	boolean retreats;
-	boolean shares_sightings;
-	/* port: imperfect, difficulty-scaled aim (engine_ai/aim.h). Sight_range
-	spots a target; fire_range is how far the skill will shoot at it. */
-	real fire_range;
-	real accurate_range;
-	real aim_settle_seconds;
-	real moving_aim_penalty;
-	real moving_turn_scale; /* turning while moving: below 1 struggles */
-	boolean crouches;
-	/* port: after spawning, at least this long (up to 1.6 times it) getting
-	its bearings before it notices enemies */
-	real orient_seconds;
-};
-
-/* The utility tuning (docs/bot_decisions.md, "Scores"): fixed values,
-response curves, caps and the confidence's weights. Halo Infinite kept these
-in Lua so that a game mode could change them; a mode with different needs
-gets its own table. */
-struct bot_utility_tuning
-{
-	real vehicle;
-	real roam;
-	/* fight: by how the target is known, times distance, times confidence */
-	real fight_seen;
-	real fight_attacker;
-	real fight_remembered;
-	real fight_shared_cap;
-	engine_ai_utility_curve fight_distance;
-	engine_ai_utility_curve fight_confidence;
-	/* retreat: (1 - confidence) times the shields' response, capped */
-	engine_ai_utility_curve retreat_shields;
-	real retreat_cap;
-	/* scavenge: the find's value times distance; in reach during a fight, a
-	fixed value above fighting's */
-	real scavenge_weapon;
-	real scavenge_powerup;
-	real scavenge_vehicle;
-	real scavenge_in_reach;
-	engine_ai_utility_curve scavenge_distance;
-	engine_ai_utility_curve scavenge_vehicle_distance;
-	/* confidence: own vitality, the target's lack of it, weapon against
-	weapon, teammates near against enemies seen */
-	float confidence_weights[4];
-	real teammate_radius;
-};
-
 struct bot_look_payload
 {
 	real yaw;
@@ -384,6 +302,10 @@ struct bot
 	short slot;
 	long player_index;
 	long unit_index; /* the unit this life's state is for */
+	boolean profiles_assigned;
+	uint32_t base_profile;
+	uint32_t active_profile;
+	struct bot_reaction reaction;
 
 	struct engine_ai_rng32_state rng;
 	engine_ai_behavior_state behavior;
@@ -422,6 +344,8 @@ struct bot
 	boolean objective_valid;
 	boolean objective_waiting;
 	struct bot_ambition objective;
+	struct bot_ambition_identity running_objective_identity;
+	boolean running_objective_claim;
 	long objective_deadline;
 	long objective_retry_time;
 	long objective_unreachable_index;
@@ -435,8 +359,15 @@ struct bot
 	long strafe_change_time;
 	long burst_change_time;
 	boolean burst_firing;
-	long grenade_time;
-	long melee_time;
+	struct bot_combat_state combat;
+	enum bot_combat_action combat_choice;
+	float combat_scores[BOT_COMBAT_ACTION_COUNT];
+	real_euler_angles2d grenade_aim;
+	boolean grenade_aim_active;
+	long grenade_aim_until;
+	struct bot_danger danger;
+	long danger_until;
+	long danger_scan_time;
 	long fire_weapon_index;
 	struct engine_ai_fire_control fire_control;
 	boolean charging;
@@ -539,49 +470,9 @@ struct bot_navigation
 
 /* ---------- globals */
 
-static struct bot_skill const bot_skills[] =
-{
-	/* name, reaction, aim error, turn speed, sight, fov, tolerance, burst, pause, strafe, grenades, retreat, share,
-	fire range, accurate range, settle, moving aim penalty, moving turn scale, crouch, orient */
-	{ "recruit", 0.9f, 7.f, 200.f, 30.f, 55.f, 10.f, 0.6f, 0.8f, FALSE, FALSE, FALSE, FALSE,
-		16.f, 8.f, 1.2f, 3.f, 0.45f, FALSE, 1.8f },
-	{ "marine", 0.5f, 4.f, 320.f, 40.f, 65.f, 8.f, 1.0f, 0.5f, TRUE, TRUE, FALSE, FALSE,
-		24.f, 12.f, 0.8f, 1.8f, 0.7f, FALSE, 1.4f },
-	{ "odst", 0.3f, 2.5f, 450.f, 50.f, 75.f, 6.f, 1.5f, 0.3f, TRUE, TRUE, TRUE, FALSE,
-		32.f, 16.f, 0.55f, 1.35f, 0.85f, FALSE, 1.1f },
-	{ "spartan", 0.18f, 1.5f, 720.f, 60.f, 85.f, 5.f, 1.2f, 0.45f, TRUE, TRUE, TRUE, TRUE,
-		40.f, 22.f, 0.35f, 1.15f, 1.f, TRUE, 0.8f },
-};
-
-/* Slayer's tuning. Patrol remains a meaningful fallback; a teammate's
-sighting is capped so a whole team does not abandon its lanes to one contact. */
-static struct bot_utility_tuning const bot_slayer_tuning =
-{
-	0.95f, /* vehicle */
-	0.15f, /* lane patrol */
-	0.9f, 0.85f, 0.55f, 0.28f, /* fight: seen, attacker, remembered, shared cap */
-	{ ENGINE_AI_UTILITY_LINEAR, 50.f, 0.f, 0.6f, 1.f, 0 }, /* fight distance: 50 m to 0 */
-	{ ENGINE_AI_UTILITY_LINEAR, 0.f, 1.f, 0.5f, 1.f, 0 }, /* fight confidence */
-	/* retreat: nothing above half shields, rising fast as they go */
-	{ ENGINE_AI_UTILITY_POWER, 0.5f, 0.f, 0.f, 1.f, 2 },
-	0.85f, /* retreat cap */
-	0.6f, 0.8f, 0.75f, 0.95f, /* scavenge: weapon, powerup, vehicle, in reach */
-	{ ENGINE_AI_UTILITY_LINEAR, 30.f, 0.f, 0.45f, 1.f, 0 }, /* weapon/powerup distance */
-	{ ENGINE_AI_UTILITY_LINEAR, 35.f, 0.f, 0.2f, 1.f, 0 }, /* vehicle/turret distance */
-	{ 3.f, 2.f, 1.f, 1.f }, /* confidence weights */
-	15.f, /* teammate radius */
-};
-
-static engine_ai_utility_selector_config const bot_selector_config =
-{
-	BOT_BEHAVIOR_COUNT,
-	BOT_DECISION_TICKS,
-	BOT_HYSTERESIS_TICKS,
-	0.15f, /* hysteresis bonus */
-	0.05f, /* switching margin */
-};
-
-static char const *const bot_leaf_names[] = { "none", "retreat", "fight", "roam", "scavenge", "vehicle", "objective" };
+static char const *const bot_leaf_names[] = { "none", "retreat", "fight", "roam",
+	"acquire_weapon", "vehicle", "take", "acquire_equipment", "enter_vehicle",
+	"deliver", "return", "guard", "hunt", "hold", "reach", "hide", "avoid" };
 typedef char bot_leaf_names_check[NUMBEROF(bot_leaf_names) == BOT_BEHAVIOR_COUNT + 1 ? 1 : -1];
 
 /* The utility selector chooses; the tree only runs the chosen leaf (the
@@ -589,13 +480,23 @@ others fail at once) and gives it an intent emitter. The order is the old
 priority order, which no longer matters. */
 static engine_ai_behavior_node const bot_behavior_nodes[] =
 {
-	{ ENGINE_AI_BEHAVIOR_PRIORITY, 1, 6, 0 },
+	{ ENGINE_AI_BEHAVIOR_PRIORITY, 1, BOT_BEHAVIOR_COUNT, 0 },
 	{ ENGINE_AI_BEHAVIOR_LEAF, 0, 0, _bot_leaf_vehicle },
 	{ ENGINE_AI_BEHAVIOR_LEAF, 0, 0, _bot_leaf_retreat },
 	{ ENGINE_AI_BEHAVIOR_LEAF, 0, 0, _bot_leaf_scavenge },
 	{ ENGINE_AI_BEHAVIOR_LEAF, 0, 0, _bot_leaf_fight },
 	{ ENGINE_AI_BEHAVIOR_LEAF, 0, 0, _bot_leaf_roam },
-	{ ENGINE_AI_BEHAVIOR_LEAF, 0, 0, _bot_leaf_objective },
+	{ ENGINE_AI_BEHAVIOR_LEAF, 0, 0, _bot_leaf_take },
+	{ ENGINE_AI_BEHAVIOR_LEAF, 0, 0, _bot_leaf_acquire_equipment },
+	{ ENGINE_AI_BEHAVIOR_LEAF, 0, 0, _bot_leaf_enter_vehicle },
+	{ ENGINE_AI_BEHAVIOR_LEAF, 0, 0, _bot_leaf_deliver },
+	{ ENGINE_AI_BEHAVIOR_LEAF, 0, 0, _bot_leaf_return },
+	{ ENGINE_AI_BEHAVIOR_LEAF, 0, 0, _bot_leaf_guard },
+	{ ENGINE_AI_BEHAVIOR_LEAF, 0, 0, _bot_leaf_hunt },
+	{ ENGINE_AI_BEHAVIOR_LEAF, 0, 0, _bot_leaf_hold },
+	{ ENGINE_AI_BEHAVIOR_LEAF, 0, 0, _bot_leaf_reach },
+	{ ENGINE_AI_BEHAVIOR_LEAF, 0, 0, _bot_leaf_hide },
+	{ ENGINE_AI_BEHAVIOR_LEAF, 0, 0, _bot_leaf_avoid },
 };
 
 static engine_ai_behavior_definition const bot_behavior =
@@ -613,6 +514,8 @@ static struct
 	boolean sandbox_done;
 	boolean log_decisions;
 	boolean navigation_only;
+	boolean playfighting;
+	uint32_t combat_enabled_mask;
 	struct bot_utility_tuning const *tuning;
 	short desired_count;
 	struct bot_skill const *skill;
@@ -632,6 +535,21 @@ static void bot_leave(struct bot *bot);
 static void bot_think(struct bot *bot);
 static void bot_submit_action(struct bot *bot);
 static void bot_drop_opportunity(struct bot *bot, char const *reason);
+static boolean bot_carries_flag(struct unit_datum const *unit);
+static real bot_weapon_utility(long weapon_index);
+static real bot_unit_weapon_utility(struct unit_datum const *unit);
+static real bot_unit_vitality(struct unit_datum const *unit);
+
+/* Base actions/aim and active perception/selection can be overridden separately. */
+static struct bot_skill const *bot_base_profile(struct bot const *bot)
+{
+	return bot->profiles_assigned ? bot_profile_get(bot->base_profile) : bots_globals.skill;
+}
+
+static struct bot_skill const *bot_active_profile(struct bot const *bot)
+{
+	return bot->profiles_assigned ? bot_profile_get(bot->active_profile) : bots_globals.skill;
+}
 
 /* ---------- public code */
 
@@ -674,9 +592,22 @@ void bots_initialize_for_new_map(
 	bots_globals.sandbox_done = FALSE;
 	bots_globals.log_decisions = config_boolean("debug.bot_decisions") != 0;
 	bots_globals.navigation_only = config_boolean("debug.bot_navigation_only") != 0;
+	bots_globals.playfighting = config_boolean("bots.playfighting") != 0;
+	bots_globals.combat_enabled_mask = BOT_COMBAT_ALL;
+	if (!config_boolean("bots.combat_fight"))
+		bots_globals.combat_enabled_mask &= ~(1u << (BOT_COMBAT_FIGHT - 1));
+	if (!config_boolean("bots.combat_melee"))
+		bots_globals.combat_enabled_mask &= ~(1u << (BOT_COMBAT_MELEE - 1));
+	if (!config_boolean("bots.combat_grenade"))
+		bots_globals.combat_enabled_mask &= ~(1u << (BOT_COMBAT_GRENADE - 1));
+	if (!config_boolean("bots.combat_avoid"))
+		bots_globals.combat_enabled_mask &= ~(1u << (BOT_COMBAT_AVOID - 1));
+	if (!config_boolean("bots.combat_disengage"))
+		bots_globals.combat_enabled_mask &= ~(1u << (BOT_COMBAT_DISENGAGE - 1));
 	bots_globals.team_spawns = config_boolean("bots.team_spawns") != 0;
-	bots_globals.tuning = &bot_slayer_tuning;
+	bots_globals.tuning = bot_decision_default_tuning();
 	bot_manager_reset();
+	bot_profile_reset_weapon_attributes(); /* map-local salted tag identities */
 	bots_globals.epoch++;
 	bots_globals.desired_count = (short)PIN(count, 0, BOTS_MAXIMUM);
 	/* port: a scenario run has exactly the bots its trials use */
@@ -860,6 +791,79 @@ static struct unit_datum *bot_living_unit(
 	if (!unit || TEST_FLAG(unit->object.damage_flags, _object_dead_bit))
 		return NULL;
 	return unit;
+}
+
+/* Driver/gunner attributes use the same weapon unit as action submission. */
+static struct unit_datum *bot_weapon_unit(struct bot const *bot)
+{
+	struct unit_datum *unit = bot_living_unit(bot->unit_index);
+
+	if (unit && unit->object.parent_object_index != NONE)
+	{
+		struct unit_datum *parent = vehicle_try_and_get(unit->object.parent_object_index);
+		struct unit_definition *definition;
+		struct unit_seat *seat;
+
+		if (!parent)
+			return NULL;
+		definition = unit_definition_get(parent->definition_index);
+		if (unit->unit.parent_seat_index < 0 || unit->unit.parent_seat_index >= definition->unit.seats.count)
+			return NULL;
+		seat = TAG_BLOCK_GET_ELEMENT(&definition->unit.seats, unit->unit.parent_seat_index, struct unit_seat);
+		if (TEST_FLAG(seat->flags, _unit_seat_driver_bit) || TEST_FLAG(seat->flags, _unit_seat_gunner_bit))
+			unit = parent;
+	}
+	return unit;
+}
+
+static long bot_equipped_weapon(struct bot const *bot)
+{
+	struct unit_datum const *unit = bot_weapon_unit(bot);
+	short slot = unit ? unit->unit.current_weapon_index : NONE;
+
+	return unit && slot >= 0 && slot < MAXIMUM_WEAPONS_PER_UNIT ?
+		unit->unit.weapon_object_indices[slot] : NONE;
+}
+
+static real bot_weapon_attribute(struct bot const *bot, long weapon_index,
+	enum bot_weapon_attribute attribute)
+{
+	struct weapon_datum *weapon = weapon_try_and_get(weapon_index);
+	uint32_t profile_id = BOT_PROFILE_MARINE;
+	uint32_t index;
+
+	if (bot->profiles_assigned)
+		profile_id = bot->base_profile;
+	else
+	{
+		for (index = 0; index < BOT_PROFILE_COUNT; index++)
+		{
+			if (bots_globals.skill == &bot_skills[index])
+				profile_id = index;
+		}
+	}
+	return bot_profile_weapon_attribute(profile_id,
+		weapon ? (uint32_t)weapon->definition_index : UINT32_MAX, attribute);
+}
+
+static real bot_current_weapon_attribute(struct bot const *bot, enum bot_weapon_attribute attribute)
+{
+	return bot_weapon_attribute(bot, bot_equipped_weapon(bot), attribute);
+}
+
+static real bot_weapon_preference(struct bot const *bot, long weapon_index)
+{
+	return bot_weapon_utility(weapon_index) *
+		bot_weapon_attribute(bot, weapon_index, BOT_WEAPON_DESIRABILITY);
+}
+
+static real bot_preferred_range(struct bot const *bot, boolean minimum)
+{
+	real maximum = bot_current_weapon_attribute(bot, BOT_WEAPON_RANGE_MAX);
+	real lower = maximum > 0.f ? bot_current_weapon_attribute(bot, BOT_WEAPON_RANGE_MIN) : 3.f;
+
+	maximum = MIN(maximum > 0.f ? maximum : 10.f, bot_base_profile(bot)->fire_range);
+	return minimum ? MIN(lower, maximum) : maximum;
 }
 
 /* the machine of the bot in a slot */
@@ -1211,7 +1215,7 @@ static boolean bot_can_see(
 	real_point3d const *eye,
 	real_point3d const *point)
 {
-	struct bot_skill const *skill = bots_globals.skill;
+	struct bot_skill const *skill = bot_active_profile(bot);
 	real distance = distance3d(eye, point);
 	real_euler_angles2d angles;
 	real yaw_offset;
@@ -1241,7 +1245,7 @@ static void bot_perceive(
 	real best_distance = 0.f;
 	real_point3d best_position;
 	short attacker_index;
-	boolean shares = bots_globals.skill->shares_sightings;
+	boolean shares = bot_active_profile(bot)->shares_sightings;
 	/* port: a bot still getting its bearings (bot_orient) sees nobody yet */
 	boolean orienting = now < bot->aware_time;
 
@@ -1359,7 +1363,7 @@ static void bot_perceive(
 		bot->target_visible = FALSE;
 		/* (forgotten after a while, or once it is dead) */
 		if (!target || !bot_living_unit(target->unit_index) ||
-			now - bot->target_last_seen_time > bot_seconds_to_ticks(BOT_TARGET_MEMORY_SECONDS))
+			now - bot->target_last_seen_time > bot_seconds_to_ticks(bot_base_profile(bot)->pursuit_memory_seconds))
 		{
 			bot->target_player_index = NONE;
 			bot->target_source = _bot_target_none;
@@ -1432,18 +1436,195 @@ static void bot_emit_fire(
 	engine_ai_behavior_intent_emit(emitter, _bot_intent_fire, BOT_INTENT_SCHEMA, &payload, sizeof(payload));
 }
 
+/* Observe only perception's chosen target. A salted unit identity prevents
+   a respawn or a different enemy inheriting the old target's reaction memory. */
+static void bot_update_reaction(struct bot *bot)
+{
+	struct bot_skill const *profile = bot_base_profile(bot);
+	struct player_datum *target = bot->target_player_index != NONE ?
+		player_try_and_get(bot->target_player_index) : NULL;
+	struct bot_reaction_observation observation = {0};
+	struct bot_delay_range memory;
+	boolean changed;
+
+	observation.tick = game_time_get();
+	observation.known = target && bot_living_unit(target->unit_index);
+	observation.target_id = observation.known ? target->unit_index : NONE;
+	observation.visible = observation.known && bot->target_visible;
+	changed = !bot->reaction.initialized || bot->reaction.target_id != observation.target_id;
+	if (observation.known && (changed || !bot->reaction.known))
+		observation.acquire_delay_ticks = bot_profile_delay_ticks(&profile->acquire_delay,
+			bot_random(bot), TICKS_PER_SECOND);
+	if (observation.visible && (changed || !bot->reaction.visible))
+		observation.visible_delay_ticks = bot_profile_delay_ticks(&profile->visible_delay,
+			bot_random(bot), TICKS_PER_SECOND);
+	memory.minimum_seconds = memory.maximum_seconds = profile->reaction_memory_seconds;
+	observation.memory_ticks = bot_profile_delay_ticks(&memory, 0.f, TICKS_PER_SECOND);
+	bot_reaction_observe(&bot->reaction, &observation);
+}
+
 /* aim at the target with this skill's error, and shoot when the aim is near
 enough, after its reaction time, in bursts. port: the error widens with
 distance and while the bot moves, and narrows as it tracks the target
 (engine_ai/aim.h); nothing beyond the skill's fire range is shot at, so a
 distant sighting draws the bot in rather than rooting it to the spot. */
-static void bot_engage(
-	struct bot *bot,
-	real_point3d const *eye,
+static boolean bot_unit_melee_active(struct unit_datum const *unit)
+{
+	short state = unit->unit.animation.state;
+
+	return state == _unit_state_melee_attack || state == _unit_state_melee_airborne ||
+		state == _unit_state_melee_continuous || state == _unit_state_leap_melee;
+}
+
+static boolean bot_unit_combat_busy(struct unit_datum const *unit)
+{
+	if (bot_unit_melee_active(unit))
+		return TRUE;
+	switch (unit->unit.animation.state)
+	{
+	case _unit_state_hard_ping:
+	case _unit_state_dying_airborne:
+	case _unit_state_dying:
+	case _unit_state_entering_seat:
+	case _unit_state_exiting_seat:
+	case _unit_state_ai_impulse:
+	case _unit_state_throw_grenade:
+	case _unit_state_resurrect_front:
+	case _unit_state_resurrect_back:
+	case _unit_state_leap_start:
+		return TRUE;
+	default:
+		return FALSE;
+	}
+}
+
+/* Action completion is observed before perception and even during scenario
+   waits. Merely asking for an action never starts its full cooldown. */
+static void bot_update_combat(struct bot *bot, struct unit_datum const *unit)
+{
+	struct bot_combat_profile const *profile = &bot_base_profile(bot)->combat;
+	boolean melee = bot_unit_melee_active(unit);
+	boolean grenade = unit->unit.animation.state == _unit_state_throw_grenade;
+	uint32_t melee_delay = 0;
+	uint32_t grenade_delay = 0;
+
+	if (game_time_get() < bot->combat.last_tick)
+		bot->grenade_aim_active = FALSE;
+	if (bot->combat.was_melee && !melee)
+		melee_delay = bot_profile_delay_ticks(&profile->melee_cooldown, bot_random(bot), TICKS_PER_SECOND);
+	if (bot->combat.was_grenade && !grenade)
+	{
+		grenade_delay = bot_profile_delay_ticks(&profile->grenade_cooldown, bot_random(bot), TICKS_PER_SECOND);
+		bot->grenade_aim_active = FALSE;
+	}
+	bot_combat_observe(&bot->combat, game_time_get(), melee, grenade, melee_delay, grenade_delay);
+}
+
+static void bot_combat_inputs(struct bot *bot, struct unit_datum const *unit,
+	real_point3d const *eye, real distance, struct bot_combat_inputs *inputs)
+{
+	struct player_datum *target_player = bot->target_player_index != NONE ?
+		player_try_and_get(bot->target_player_index) : NULL;
+	struct unit_datum *target = target_player ? bot_living_unit(target_player->unit_index) : NULL;
+	short grenade = unit->unit.current_grenade_index;
+
+	csmemset(inputs, 0, sizeof(*inputs));
+	inputs->tick = game_time_get();
+	inputs->enabled_mask = bots_globals.combat_enabled_mask;
+	inputs->playfighting = bots_globals.playfighting;
+	inputs->danger = game_time_get() < bot->danger_until;
+	inputs->distance = distance;
+	inputs->height_difference = bot->target_last_position.z - eye->z;
+	inputs->confidence = bot->confidence;
+	inputs->target_known = target != NULL;
+	inputs->target_visible = target && bot->target_visible;
+	inputs->target_meleeable = inputs->target_visible && target->object.type == _object_type_biped;
+	inputs->reaction_ready = bot_reaction_can_fire(&bot->reaction, inputs->tick);
+	inputs->busy = bot_unit_combat_busy(unit);
+	inputs->seated = unit->object.parent_object_index != NONE;
+	inputs->passenger_fight = inputs->seated;
+	inputs->melee_only = bot_carries_flag(unit);
+	inputs->melee_weapon = inputs->melee_only ||
+		bot_current_weapon_attribute(bot, BOT_WEAPON_IS_MELEE) > 0.f;
+	inputs->out_of_ammo = bot_unit_weapon_utility(unit) <= 0.f;
+	inputs->has_grenade = grenade >= 0 && grenade < NUMBER_OF_UNIT_GRENADE_TYPES &&
+		unit->unit.grenade_counts[grenade] > 0;
+	/* Cheap proposal gate; a selected grenade must then pass the ballistic
+	   planner, followed by actual-facing arc and blast checks at submission. */
+	inputs->grenade_path_clear = inputs->target_visible;
+	inputs->retreat_allowed = inputs->tick >= bot->retreat_cooldown_time &&
+		bot->target_source != _bot_target_shared;
+	inputs->target_health = inputs->target_vitality = 1.f;
+	if (inputs->target_visible)
+	{
+		inputs->target_health = PIN(target->object.body_vitality, 0.f, 1.f);
+		inputs->target_vitality = bot_unit_vitality(target);
+		inputs->target_vulnerable = target->object.shield_vitality <= 0.1f;
+		inputs->target_meleeing = bot_unit_melee_active(target);
+		inputs->can_counter = distance <= bot_base_profile(bot)->combat.melee_action_range;
+	}
+}
+
+static void bot_update_aim_error(struct bot *bot, real distance)
+{
+	struct bot_skill const *skill = bot_base_profile(bot);
+	struct engine_ai_aim_skill aim_skill;
+	real tracked = (real)((int64_t)game_time_get() - bot->reaction.tracking_since_tick) / TICKS_PER_SECOND;
+	real error;
+
+	if (game_time_get() < bot->aim_error_time)
+		return;
+	aim_skill.base_error_degrees = skill->aim_error_degrees *
+		bot_current_weapon_attribute(bot, BOT_WEAPON_AIM_ERROR_SCALE);
+	aim_skill.minimum_error_degrees = aim_skill.base_error_degrees * 0.4f;
+	aim_skill.accurate_range = skill->accurate_range;
+	aim_skill.settle_seconds = skill->aim_settle_seconds *
+		bot_current_weapon_attribute(bot, BOT_WEAPON_AIM_SETTLE_SCALE);
+	aim_skill.moving_penalty = MAX(1.f, skill->moving_aim_penalty *
+		bot_current_weapon_attribute(bot, BOT_WEAPON_MOVING_ERROR_SCALE));
+	error = DEGREES_TO_RADIANS(engine_ai_aim_error_degrees(&aim_skill, distance,
+		bot->target_visible ? tracked : -1.f, bot->moved_last_tick));
+	bot->aim_error.yaw = bot_random_range(bot, -error, error);
+	bot->aim_error.pitch = bot_random_range(bot, -error, error) * 0.5f;
+	bot->aim_error_time = game_time_get() + bot_seconds_to_ticks(bot_random_range(bot, 0.3f, 0.7f));
+}
+
+/* Requests contain our camera and perceived position, never a live enemy
+   origin. The target handle only permits terminal contact in the arc trace. */
+static boolean bot_grenade_request(struct bot *bot, real_point3d const *eye,
+    struct bot_grenade_request *request)
+{
+    struct player_datum *target = bot->target_player_index != NONE ?
+        player_try_and_get(bot->target_player_index) : NULL;
+    if (!bot->target_visible || !target || !bot_living_unit(target->unit_index))
+        return FALSE;
+    request->unit_key = bot->unit_index;
+    request->target_unit_key = target->unit_index;
+    request->eye[0] = eye->x; request->eye[1] = eye->y; request->eye[2] = eye->z;
+    request->target[0] = bot->target_last_position.x;
+    request->target[1] = bot->target_last_position.y;
+    request->target[2] = bot->target_last_position.z;
+    request->facing[0] = bot->facing.yaw; request->facing[1] = bot->facing.pitch;
+    return TRUE;
+}
+
+static boolean bot_plan_grenade(struct bot *bot, real_point3d const *eye,
+    real_euler_angles2d *aim)
+{
+    struct bot_grenade_request request;
+    float planned[2];
+    if (!bot_grenade_request(bot, eye, &request) || !bot_grenade_plan(&request, planned))
+        return FALSE;
+    aim->yaw = planned[0]; aim->pitch = planned[1];
+    return TRUE;
+}
+
+static void bot_engage(struct bot *bot, real_point3d const *eye,
 	struct engine_ai_behavior_intent_emitter *emitter)
 {
-	struct bot_skill const *skill = bots_globals.skill;
+	struct bot_skill const *skill = bot_base_profile(bot);
 	struct unit_datum const *unit = bot_living_unit(bot->unit_index);
+	struct bot_combat_inputs inputs;
 	long now = game_time_get();
 	real_euler_angles2d aim = bot_angles_to(eye, &bot->target_last_position);
 	real distance = distance3d(eye, &bot->target_last_position);
@@ -1451,36 +1632,53 @@ static void bot_engage(
 
 	if (!unit)
 		return;
-	if (now >= bot->aim_error_time)
+	/* CE releases after a wind-up using its then-current aiming vector.
+	   Keep the validated proposal's aim until completion, even if sight is lost. */
+	if (bot->grenade_aim_active && (bot->combat.was_grenade || now < bot->grenade_aim_until))
 	{
-		struct engine_ai_aim_skill aim_skill;
-		real tracked = (real)(now - bot->target_first_seen_time) / (real)TICKS_PER_SECOND;
-		real error;
-
-		aim_skill.base_error_degrees = skill->aim_error_degrees;
-		aim_skill.minimum_error_degrees = skill->aim_error_degrees * 0.4f;
-		aim_skill.accurate_range = skill->accurate_range;
-		aim_skill.settle_seconds = skill->aim_settle_seconds;
-		aim_skill.moving_penalty = skill->moving_aim_penalty;
-		error = DEGREES_TO_RADIANS(engine_ai_aim_error_degrees(&aim_skill, distance,
-			bot->target_visible ? tracked : -1.f, bot->moved_last_tick));
-
-		bot->aim_error.yaw = bot_random_range(bot, -error, error);
-		bot->aim_error.pitch = bot_random_range(bot, -error, error) * 0.5f;
-		bot->aim_error_time = now + bot_seconds_to_ticks(bot_random_range(bot, 0.3f, 0.7f));
-	}
-	aim.yaw = bot_angle_normalize(aim.yaw + bot->aim_error.yaw);
-	aim.pitch += bot->aim_error.pitch;
-	bot_emit_look(emitter, &aim);
-
-	if (!bot->target_visible ||
-		now - bot->target_first_seen_time < bot_seconds_to_ticks(skill->reaction_seconds) ||
-		distance > skill->fire_range)
-	{
+		bot_emit_look(emitter, &bot->grenade_aim);
 		return;
 	}
+	bot_update_aim_error(bot, distance);
+	aim.yaw = bot_angle_normalize(aim.yaw + bot->aim_error.yaw);
+	aim.pitch += bot->aim_error.pitch;
+	bot_combat_inputs(bot, unit, eye, distance, &inputs);
+	bot->combat_choice = bot_combat_evaluate(skill, bot_active_profile(bot),
+		&bot->combat, &inputs, bot->combat_scores);
+	if (bot->combat_choice == BOT_COMBAT_GRENADE)
+	{
+		if (!bot_plan_grenade(bot, eye, &aim))
+		{
+			inputs.grenade_path_clear = FALSE;
+			bot->combat_choice = bot_combat_evaluate(skill, bot_active_profile(bot),
+				&bot->combat, &inputs, bot->combat_scores);
+		}
+		else
+			bot->grenade_aim = aim;
+	}
+	bot_emit_look(emitter, &aim);
+	if (!inputs.target_visible || !inputs.reaction_ready || distance > skill->fire_range)
+		return;
 	offset = (real)fabs(bot_angle_normalize(aim.yaw - bot->facing.yaw)) + (real)fabs(aim.pitch - bot->facing.pitch);
 	if (offset > DEGREES_TO_RADIANS(skill->fire_tolerance_degrees))
+		return;
+	switch (bot->combat_choice)
+	{
+	case BOT_COMBAT_MELEE:
+		if (distance <= skill->combat.melee_action_range)
+			engine_ai_behavior_intent_emit(emitter, _bot_intent_melee, BOT_INTENT_SCHEMA, NULL, 0);
+		return;
+	case BOT_COMBAT_GRENADE:
+		engine_ai_behavior_intent_emit(emitter, _bot_intent_grenade, BOT_INTENT_SCHEMA, NULL, 0);
+		return;
+	case BOT_COMBAT_FIGHT:
+	case BOT_COMBAT_DISENGAGE: /* ABS continues while backing out. */
+	case BOT_COMBAT_AVOID:
+		break;
+	default:
+		return;
+	}
+	if (bot->combat_scores[BOT_COMBAT_FIGHT - 1] <= 0.f)
 		return;
 	if (skill->burst_seconds > 0.f && now >= bot->burst_change_time)
 	{
@@ -1489,28 +1687,45 @@ static void bot_engage(
 			bot_random_range(bot, 0.5f, 1.f) * skill->burst_seconds :
 			bot_random_range(bot, 0.5f, 1.f) * skill->burst_pause_seconds);
 	}
-	if (unit->object.parent_object_index == NONE &&
-		distance < 1.5f && now >= bot->melee_time)
-	{
-		bot->melee_time = now + bot_seconds_to_ticks(1.f);
-		engine_ai_behavior_intent_emit(emitter, _bot_intent_melee, BOT_INTENT_SCHEMA, NULL, 0);
-	}
-	else if (skill->burst_seconds <= 0.f || bot->burst_firing)
+	if (skill->burst_seconds <= 0.f || bot->burst_firing)
 		bot_emit_fire(emitter, 1.f);
-	if (unit->object.parent_object_index == NONE &&
-		skill->throws_grenades && now >= bot->grenade_time && distance > 8.f && distance < 20.f)
-	{
-		bot->grenade_time = now + bot_seconds_to_ticks(BOT_GRENADE_COOLDOWN_SECONDS * bot_random_range(bot, 1.f, 2.f));
-		engine_ai_behavior_intent_emit(emitter, _bot_intent_grenade, BOT_INTENT_SCHEMA, NULL, 0);
-	}
 }
 
-static engine_ai_behavior_result bot_leaf_fight(
-	struct bot *bot,
+static void bot_fight_close_movement(struct bot *bot, real distance, real toward,
 	struct engine_ai_behavior_intent_emitter *emitter)
 {
-	struct bot_skill const *skill = bots_globals.skill;
+	struct bot_skill const *skill = bot_active_profile(bot);
 	long now = game_time_get();
+
+	bot_navigation_agent_reset_path(&bot->navigation_agent);
+	if (now >= bot->strafe_change_time)
+	{
+		bot->strafe_sign = bot_random(bot) < 0.5f ? -1.f : 1.f;
+		bot->strafe_change_time = now + bot_seconds_to_ticks(skill->strafes ?
+			bot_random_range(bot, 0.5f, 1.4f) : bot_random_range(bot, 1.5f, 3.f));
+	}
+	if (bot->combat_choice == BOT_COMBAT_MELEE)
+		bot_emit_move(emitter, toward, 1.f);
+	else if (distance < bot_preferred_range(bot, TRUE))
+		bot_emit_move(emitter, toward + (real)M_PI, 1.f);
+	else if (skill->strafes)
+		bot_emit_move(emitter, toward + bot->strafe_sign * (real)M_PI_2, 1.f);
+	else
+		bot_emit_move(emitter, toward + bot->strafe_sign * 0.9f, 0.45f);
+	if (skill->crouches && now >= bot->crouch_next_time)
+	{
+		bot->crouch_until = now + bot_seconds_to_ticks(bot_random_range(bot, 0.3f, 0.8f));
+		bot->crouch_next_time = now + bot_seconds_to_ticks(bot_random_range(bot, 2.5f, 5.f));
+	}
+	if (now < bot->crouch_until)
+		engine_ai_behavior_intent_emit(emitter, _bot_intent_crouch, BOT_INTENT_SCHEMA, NULL, 0);
+	if (skill->retreats && bot_random(bot) < 0.01f)
+		engine_ai_behavior_intent_emit(emitter, _bot_intent_jump, BOT_INTENT_SCHEMA, NULL, 0);
+}
+
+static engine_ai_behavior_result bot_leaf_fight(struct bot *bot,
+	struct engine_ai_behavior_intent_emitter *emitter)
+{
 	real_point3d eye;
 	real_point3d origin;
 	real distance;
@@ -1524,12 +1739,17 @@ static engine_ai_behavior_result bot_leaf_fight(
 	unit_get_camera_position(bot->unit_index, &eye);
 	object_get_origin(bot->unit_index, &origin);
 	bot_engage(bot, &eye, emitter);
-
 	distance = bot_horizontal_distance(&origin, &bot->target_last_position);
 	toward = bot_yaw_to(&origin, &bot->target_last_position);
-	if (!bot->target_visible || distance > 10.f)
+	if (bot->combat_choice == BOT_COMBAT_DISENGAGE)
 	{
-		/* Pursuit uses the BSP route too; no direct steering through walls. */
+		bot_navigation_agent_reset_path(&bot->navigation_agent);
+		bot_emit_move(emitter, toward + (real)M_PI, 1.f);
+		return ENGINE_AI_BEHAVIOR_RUNNING;
+	}
+	if (!bot->target_visible || distance > bot_preferred_range(bot, FALSE) || (bot->combat_choice == BOT_COMBAT_MELEE &&
+		distance > bot_base_profile(bot)->combat.melee_action_range))
+	{
 		goal.x = bot->target_last_position.x;
 		goal.y = bot->target_last_position.y;
 		goal.z = bot->target_last_position.z;
@@ -1540,43 +1760,10 @@ static engine_ai_behavior_result bot_leaf_fight(
 		if (navigation_result == BOT_NAVIGATION_MOVING && command.has_move)
 			bot_emit_move(emitter, command.yaw, command.speed);
 		else if (navigation_result == BOT_NAVIGATION_UNAVAILABLE || bot->target_visible)
-		{
-			/* (in sight, with no route yet: close in directly rather than stand
-			and trade shots from range) */
 			bot_emit_move(emitter, toward, 1.f);
-		}
 		return ENGINE_AI_BEHAVIOR_RUNNING;
 	}
-	bot_navigation_agent_reset_path(&bot->navigation_agent);
-	if (now >= bot->strafe_change_time)
-	{
-		bot->strafe_sign = bot_random(bot) < 0.5f ? -1.f : 1.f;
-		/* (a skill that cannot strafe well changes direction seldom) */
-		bot->strafe_change_time = now + bot_seconds_to_ticks(skill->strafes ?
-			bot_random_range(bot, 0.5f, 1.4f) : bot_random_range(bot, 1.5f, 3.f));
-	}
-	if (distance < 3.f)
-		bot_emit_move(emitter, toward + (real)M_PI, 1.f);
-	else if (skill->strafes)
-		bot_emit_move(emitter, toward + bot->strafe_sign * (real)M_PI_2, 1.f);
-	else
-	{
-		/* port: a recruit never stands still to shoot, but its sidestep is a
-		slow, clumsy drift half toward the target */
-		bot_emit_move(emitter, toward + bot->strafe_sign * 0.9f, 0.45f);
-	}
-	/* port: the best skills crouch now and then mid-fight, as players
-	crouch-strafe to shrink and steady themselves */
-	if (skill->crouches && now >= bot->crouch_next_time)
-	{
-		bot->crouch_until = now + bot_seconds_to_ticks(bot_random_range(bot, 0.3f, 0.8f));
-		bot->crouch_next_time = now + bot_seconds_to_ticks(bot_random_range(bot, 2.5f, 5.f));
-	}
-	if (now < bot->crouch_until)
-		engine_ai_behavior_intent_emit(emitter, _bot_intent_crouch, BOT_INTENT_SCHEMA, NULL, 0);
-	/* (a jump now and then, as players do) */
-	if (skill->retreats && bot_random(bot) < 0.01f)
-		engine_ai_behavior_intent_emit(emitter, _bot_intent_jump, BOT_INTENT_SCHEMA, NULL, 0);
+	bot_fight_close_movement(bot, distance, toward, emitter);
 	return ENGINE_AI_BEHAVIOR_RUNNING;
 }
 
@@ -1655,7 +1842,7 @@ static boolean bot_wants_weapon(struct bot *bot, long weapon_index)
 	short slot;
 	boolean empty = FALSE;
 
-	if (!unit || !candidate || bot_weapon_utility(weapon_index) <= 0.f ||
+	if (!unit || !candidate || bot_weapon_preference(bot, weapon_index) <= 0.f ||
 		candidate->object.parent_object_index != NONE ||
 		!unit_can_use_weapon(bot->unit_index, weapon_index))
 		return FALSE;
@@ -1671,8 +1858,9 @@ static boolean bot_wants_weapon(struct bot *bot, long weapon_index)
 		return TRUE;
 	slot = unit->unit.current_weapon_index;
 	return slot >= 0 && slot < MAXIMUM_WEAPONS_PER_UNIT &&
-		bot_weapon_utility(weapon_index) >
-		bot_weapon_utility(unit->unit.weapon_object_indices[slot]) * 1.35f;
+		bot_weapon_attribute(bot, unit->unit.weapon_object_indices[slot], BOT_WEAPON_CAN_SWAP) > 0.f &&
+		bot_weapon_preference(bot, weapon_index) >
+		bot_weapon_preference(bot, unit->unit.weapon_object_indices[slot]) * 1.35f;
 }
 
 /* Only empty compatible seats, no eviction. Prefer a gunner with a friendly
@@ -1793,6 +1981,26 @@ static struct bot *bot_from_player(long player_index)
 			return &bots_globals.bots[bot_index];
 	}
 	return NULL;
+}
+
+/* C policy's equivalent of independent base/active difficulty overrides.
+   Existing action cooldowns are retained; only reaction memory is invalidated. */
+boolean bots_set_player_difficulty(long player_index, short base, short active)
+{
+	struct bot *bot = bot_from_player(player_index);
+
+	if (!bot || base < 0 || active < 0 ||
+		!bot_profile_get((uint32_t)base) || !bot_profile_get((uint32_t)active))
+		return FALSE;
+	if (bot->profiles_assigned && bot->base_profile == (uint32_t)base &&
+		bot->active_profile == (uint32_t)active)
+		return TRUE;
+	bot->profiles_assigned = TRUE;
+	bot->base_profile = (uint32_t)base;
+	bot->active_profile = (uint32_t)active;
+	bot_reaction_reset(&bot->reaction);
+	bot->decide_now = TRUE;
+	return TRUE;
 }
 
 /* port: the seconds a teammate saves by riding rather than walking: walking
@@ -2665,10 +2873,22 @@ static boolean bot_carries_flag(struct unit_datum const *unit)
 
 static void bot_objective_release(struct bot *bot)
 {
-	if (bot->objective_valid && (bot->objective.kind == _bot_ambition_take ||
-		bot->objective.kind == _bot_ambition_return))
-		bot_manager_release_item(bot->objective.acting_team_index,
-			bot->objective.object_index, (short)(bot->slot + 1));
+	if (bot->objective_valid)
+	{
+		bot_manager_release_goal((short)(bot->slot + 1), &bot->objective.identity);
+		if (bot->running_objective_claim && bot_ambition_identity_equal(
+			&bot->running_objective_identity, &bot->objective.identity))
+			bot->running_objective_claim = FALSE;
+	}
+}
+
+/* Cancellation refers to the identity actually executed, not a replacement
+   goal selected earlier this tick. Stale cancellation cannot drop its claim. */
+static void bot_objective_cancel(struct bot *bot)
+{
+	if (bot->running_objective_claim)
+		bot_manager_release_goal((short)(bot->slot + 1), &bot->running_objective_identity);
+	bot->running_objective_claim = FALSE;
 }
 
 static void bot_update_objective(struct bot *bot, struct player_datum const *player)
@@ -2682,10 +2902,7 @@ static void bot_update_objective(struct bot *bot, struct player_datum const *pla
 		bot_manager_ctf_goal(player->team_index, bot->player_index,
 			(short)(bot->slot + 1), excluded, &goal);
 	if (valid != bot->objective_valid || (valid &&
-		(goal.kind != bot->objective.kind || goal.acting_team_index != bot->objective.acting_team_index ||
-		goal.owner_team_index != bot->objective.owner_team_index ||
-		goal.object_index != bot->objective.object_index ||
-		goal.carrier_player_index != bot->objective.carrier_player_index)))
+		!bot_ambition_identity_equal(&goal.identity, &bot->objective.identity)))
 	{
 		bot_objective_release(bot);
 		bot_navigation_reset(bot);
@@ -2706,9 +2923,13 @@ static engine_ai_behavior_result bot_leaf_objective(struct bot *bot,
 	enum bot_navigation_result result;
 	long now = game_time_get();
 	boolean pickup;
-	if (!bot->objective_valid) return ENGINE_AI_BEHAVIOR_FAILURE;
+	if (!bot->objective_valid || !bot_manager_goal_claimed((short)(bot->slot + 1), &bot->objective))
+		return ENGINE_AI_BEHAVIOR_FAILURE;
+	bot->running_objective_identity = bot->objective.identity;
+	bot->running_objective_claim = TRUE;
 	pickup = bot->objective.kind == _bot_ambition_take || bot->objective.kind == _bot_ambition_return;
-	bot->abs_suppressed = bot->objective.kind == _bot_ambition_deliver;
+	bot->abs_suppressed = bot->objective.kind == _bot_ambition_deliver ||
+		bot->objective.kind == _bot_ambition_hide;
 	/* Backoff belongs to the failed duty, not every subsequent objective.
 	   In particular, a guard or new carrier must not inherit pickup's wait. */
 	if (now < bot->objective_retry_time && !pickup &&
@@ -2738,6 +2959,8 @@ static engine_ai_behavior_result bot_leaf_objective(struct bot *bot,
 	/* Arrival does not complete an objective. Only next tick's engine state
 	   can establish acquisition, friendly return or a scored capture. */
 	bot->objective_waiting = result != BOT_NAVIGATION_MOVING;
+	if (result == BOT_NAVIGATION_ARRIVED && bot->objective.kind == _bot_ambition_hide)
+		engine_ai_behavior_intent_emit(emitter, _bot_intent_crouch, BOT_INTENT_SCHEMA, NULL, 0);
 	if (command.jump)
 		engine_ai_behavior_intent_emit(emitter, _bot_intent_jump, BOT_INTENT_SCHEMA, NULL, 0);
 	if (result == BOT_NAVIGATION_MOVING && command.has_move)
@@ -3307,6 +3530,57 @@ static engine_ai_behavior_result bot_leaf_roam(
 	return ENGINE_AI_BEHAVIOR_RUNNING;
 }
 
+/* Four-tick sensor cadence and half-second observed memory are CE defaults.
+   A negative scan does not turn an occluded grenade into live hidden tracking. */
+static void bot_update_danger(struct bot *bot)
+{
+    struct bot_danger_request request;
+    struct bot_danger observed;
+    struct unit_datum *unit = bot_living_unit(bot->unit_index);
+    real_point3d origin, eye;
+    long now = game_time_get();
+    if (!unit || unit->object.parent_object_index != NONE || bots_globals.navigation_only ||
+        !(bots_globals.combat_enabled_mask & (1u << (BOT_COMBAT_AVOID - 1))))
+    {
+        bot->danger_until = 0;
+        return;
+    }
+    if (bot->danger_scan_time > now + 4) /* rewound simulation */
+    {
+        bot->danger_until = 0;
+        bot->danger_scan_time = now;
+    }
+    if (now < bot->danger_scan_time)
+        return;
+    bot->danger_scan_time = now + 4;
+    object_get_origin(bot->unit_index, &origin);
+    unit_get_camera_position(bot->unit_index, &eye);
+    request.unit_key = bot->unit_index;
+    request.origin[0] = origin.x; request.origin[1] = origin.y; request.origin[2] = origin.z;
+    request.eye[0] = eye.x; request.eye[1] = eye.y; request.eye[2] = eye.z;
+    request.yaw = bot->facing.yaw;
+    request.sight_range = bot_active_profile(bot)->sight_range;
+    request.half_fov_radians = DEGREES_TO_RADIANS(bot_active_profile(bot)->field_of_view_degrees * 0.5f);
+    if (bot_danger_observe(&request, &observed))
+    {
+        if (now >= bot->danger_until)
+            bot->decide_now = TRUE;
+        bot->danger = observed;
+        bot->danger_until = now + TICKS_PER_SECOND / 2;
+        bot->aware_time = MIN(bot->aware_time, now);
+    }
+}
+
+static engine_ai_behavior_result bot_leaf_avoid(struct bot *bot,
+    struct engine_ai_behavior_intent_emitter *emitter)
+{
+    struct unit_datum *unit = bot_living_unit(bot->unit_index);
+    if (!unit || unit->object.parent_object_index != NONE || game_time_get() >= bot->danger_until)
+        return ENGINE_AI_BEHAVIOR_FAILURE;
+    bot_emit_move(emitter, bot->danger.escape_yaw, 1.f);
+    return ENGINE_AI_BEHAVIOR_RUNNING;
+}
+
 static engine_ai_behavior_result bot_behavior_tick(
 	void *context,
 	uint32_t node,
@@ -3316,18 +3590,29 @@ static engine_ai_behavior_result bot_behavior_tick(
 	struct bot *bot = (struct bot *)context;
 	engine_ai_behavior_result result;
 	real_point3d eye;
+	(void)node;
 
 	/* (only the selector's choice runs) */
 	if (leaf_id != bot->chosen_leaf)
 		return ENGINE_AI_BEHAVIOR_FAILURE;
 	switch (leaf_id)
 	{
+	case _bot_leaf_avoid: result = bot_leaf_avoid(bot, emitter); break;
 	case _bot_leaf_retreat: result = bot_leaf_retreat(bot, emitter); break;
 	case _bot_leaf_fight: result = bot_leaf_fight(bot, emitter); break;
 	case _bot_leaf_roam: result = bot_leaf_roam(bot, emitter); break;
-	case _bot_leaf_scavenge: result = bot_leaf_scavenge(bot, emitter); break;
+	case _bot_leaf_acquire_weapon:
+	case _bot_leaf_acquire_equipment:
+	case _bot_leaf_enter_vehicle: result = bot_leaf_scavenge(bot, emitter); break;
 	case _bot_leaf_vehicle: result = bot_leaf_vehicle(bot, emitter); break;
-	case _bot_leaf_objective: result = bot_leaf_objective(bot, emitter); break;
+	case _bot_leaf_take:
+	case _bot_leaf_deliver:
+	case _bot_leaf_return:
+	case _bot_leaf_guard:
+	case _bot_leaf_hunt:
+	case _bot_leaf_hold:
+	case _bot_leaf_reach:
+	case _bot_leaf_hide: result = bot_leaf_objective(bot, emitter); break;
 	default: return ENGINE_AI_BEHAVIOR_ERROR;
 	}
 
@@ -3355,6 +3640,8 @@ static void bot_behavior_cancel(
 	bot_navigation_reset(bot);
 	if (leaf_id == _bot_leaf_retreat)
 		bot->retreat_start_time = NONE;
+	if (bot_decision_is_objective_leaf(leaf_id))
+		bot_objective_cancel(bot);
 }
 
 /* (side-effect free and cheap: whether the leaf could run now; between
@@ -3368,11 +3655,18 @@ static boolean bot_leaf_viable(
 
 	if (!unit)
 		return FALSE;
+	if (bot_decision_is_objective_leaf(leaf_id))
+		return !seated && bot->objective_valid &&
+			bot_decision_objective_leaf((enum bot_ambition_kind)bot->objective.kind) == leaf_id &&
+			bot_manager_goal_claimed((short)(bot->slot + 1), &bot->objective);
+	if (bot_decision_is_pickup_leaf(leaf_id))
+		return !seated && bot->opportunity_index != NONE && bot_opportunity_relevant(bot) &&
+			bot_decision_pickup_leaf(bot->opportunity_vehicle != 0, bot->opportunity_powerup != 0) == leaf_id;
 	switch (leaf_id)
 	{
+	case _bot_leaf_avoid: return !seated && game_time_get() < bot->danger_until;
 	case _bot_leaf_vehicle: return seated;
-	case _bot_leaf_objective: return !seated && bot->objective_valid;
-	case _bot_leaf_scavenge: return !seated && bot->opportunity_index != NONE && bot_opportunity_relevant(bot);
+
 	case _bot_leaf_retreat: return !seated && bot->target_player_index != NONE;
 	case _bot_leaf_fight: return !seated && bot->target_player_index != NONE;
 	case _bot_leaf_roam: return !seated;
@@ -3465,113 +3759,46 @@ static void bot_score_behaviors(
 	struct player_datum const *player,
 	struct unit_datum const *unit)
 {
-	struct bot_utility_tuning const *tuning = bots_globals.tuning;
-	long now = game_time_get();
-	real confidence = bot_confidence(bot, player, unit);
-	short leaf;
+	struct bot_decision_inputs inputs = {0};
+	real_point3d origin;
+	real_point3d point;
 
-	bot->confidence = confidence;
-	for (leaf = 0; leaf < BOT_BEHAVIOR_COUNT; leaf++)
-		bot->scores[leaf] = 0.f;
-
-	/* (seated: the vehicle leaf drives, guns or rides, and gets out) */
-	if (unit->object.parent_object_index != NONE)
+	inputs.confidence = bot_confidence(bot, player, unit);
+	bot->confidence = inputs.confidence;
+	inputs.shields = unit->object.shield_vitality;
+	inputs.seated = unit->object.parent_object_index != NONE;
+	inputs.navigation_only = bots_globals.navigation_only;
+	inputs.danger = game_time_get() < bot->danger_until;
+	inputs.objective_valid = bot->objective_valid;
+	inputs.objective_kind = (enum bot_ambition_kind)bot->objective.kind;
+	inputs.objective_value = bot->objective.value;
+	inputs.target_known = bot->target_player_index != NONE;
+	inputs.target_source = (enum bot_target_source)bot->target_source;
+	inputs.retreat_allowed = bot_active_profile(bot)->retreats && !bots_globals.playfighting &&
+		(bots_globals.combat_enabled_mask & (1u << (BOT_COMBAT_DISENGAGE - 1))) &&
+		game_time_get() >= bot->retreat_cooldown_time;
+	object_get_origin(bot->unit_index, &origin);
+	if (inputs.target_known)
+		inputs.target_distance = distance3d(&origin, &bot->target_last_position);
+	inputs.opportunity_relevant = bot->opportunity_index != NONE && bot_opportunity_relevant(bot);
+	inputs.opportunity_vehicle = bot->opportunity_vehicle;
+	inputs.opportunity_powerup = bot->opportunity_powerup;
+	inputs.offered_ride = bot->ride_vehicle_index != NONE &&
+		bot->opportunity_index == bot->ride_vehicle_index &&
+		bot->opportunity_vehicle && !bot->target_visible;
+	if (inputs.opportunity_relevant)
 	{
-		bot->scores[_bot_leaf_vehicle - 1] = tuning->vehicle;
-		return;
-	}
-
-	bot->scores[_bot_leaf_roam - 1] = tuning->roam;
-	/* port: an offered ride, the vehicle stopped for it, is taken: the
-	driver offered it only when it saves the rider time (bot_choose_pickup) */
-	if (bot->ride_vehicle_index != NONE && bot->opportunity_index == bot->ride_vehicle_index &&
-		bot->opportunity_vehicle && !bot->target_visible && bot_opportunity_relevant(bot))
-	{
-		bot->scores[_bot_leaf_scavenge - 1] = 1.f;
-		return;
-	}
-	/* port: a vehicle (or an offered ride) that takes the bot to its
-	objective sooner is the duty's way there: getting in is scored as the
-	objective is, and walking to the objective is not scored meanwhile */
-	if (bot->objective_valid && bot->objective.kind != _bot_ambition_guard &&
-		bot->opportunity_index != NONE && bot->opportunity_vehicle && bot_opportunity_relevant(bot))
-	{
-		bot->scores[_bot_leaf_scavenge - 1] = bot->objective.value;
-		return;
-	}
-	/* port: flag duties beat distractions. Guards can still fight and seek
-	   supplies, but carriers/returners/attackers keep their objective route. */
-	if (bot->objective_valid)
-	{
-		bot->scores[_bot_leaf_objective - 1] = bot->objective.value;
-		if (bot->objective.kind != _bot_ambition_guard) return;
-	}
-	/* (test fixture: lane patrols only, holding fire, so every route can be
-	checked to arrival) */
-	if (bots_globals.navigation_only)
-		return;
-
-	if (bot->target_player_index != NONE)
-	{
-		real known;
-		real fight;
-		real_point3d origin;
-
-		switch (bot->target_source)
+		point = bot->opportunity_position;
+		inputs.opportunity_distance_known = !bot->opportunity_vehicle ||
+			unit_get_seat_entrance_point(bot->unit_index, bot->opportunity_index,
+				bot->opportunity_seat, &point, NULL, NULL);
+		if (inputs.opportunity_distance_known)
 		{
-		case _bot_target_seen: known = tuning->fight_seen; break;
-		case _bot_target_attacker: known = tuning->fight_attacker; break;
-		case _bot_target_remembered: known = tuning->fight_remembered; break;
-		default: known = tuning->fight_shared_cap; break;
-		}
-		object_get_origin(bot->unit_index, &origin);
-		fight = known *
-			engine_ai_utility_curve_evaluate(&tuning->fight_distance, distance3d(&origin, &bot->target_last_position)) *
-			engine_ai_utility_curve_evaluate(&tuning->fight_confidence, confidence);
-		/* (a teammate's callout is worth a look, never more than the cap) */
-		if (bot->target_source == _bot_target_shared)
-			fight = MIN(fight, tuning->fight_shared_cap);
-		bot->scores[_bot_leaf_fight - 1] = (float)fight;
-
-		/* (a bot that knows its target can fall back; as its shields come back
-		and its confidence with them, fight overtakes it, or the leaf ends it
-		and a cooldown starts) */
-		if (bots_globals.skill->retreats && bot->target_source != _bot_target_shared &&
-			now >= bot->retreat_cooldown_time)
-		{
-			bot->scores[_bot_leaf_retreat - 1] = (float)MIN(tuning->retreat_cap, (1.f - confidence) *
-				engine_ai_utility_curve_evaluate(&tuning->retreat_shields, unit->object.shield_vitality));
+			inputs.opportunity_distance = distance3d(&origin, &point);
+			inputs.opportunity_in_reach = bot_horizontal_distance(&origin, &point) < 2.5f;
 		}
 	}
-
-	if (bot->opportunity_index != NONE && bot_opportunity_relevant(bot))
-	{
-		real_point3d origin;
-		real_point3d point;
-		real distance;
-
-		object_get_origin(bot->unit_index, &origin);
-		if (bot->opportunity_vehicle)
-		{
-			if (!unit_get_seat_entrance_point(bot->unit_index, bot->opportunity_index,
-				bot->opportunity_seat, &point, NULL, NULL))
-				return;
-		}
-		else
-			point = bot->opportunity_position;
-		distance = distance3d(&origin, &point);
-		/* Keep the score stable when an enemy leaves and re-enters view. Near
-		the pickup, commit to it whether or not the enemy is currently visible;
-		ABS still fights independently. */
-		if (bot_horizontal_distance(&origin, &point) < 2.5f)
-			bot->scores[_bot_leaf_scavenge - 1] = tuning->scavenge_in_reach;
-		else
-			bot->scores[_bot_leaf_scavenge - 1] = (float)(
-				(bot->opportunity_vehicle ? tuning->scavenge_vehicle :
-				(bot->opportunity_powerup ? tuning->scavenge_powerup : tuning->scavenge_weapon)) *
-				engine_ai_utility_curve_evaluate(bot->opportunity_vehicle ?
-					&tuning->scavenge_vehicle_distance : &tuning->scavenge_distance, distance));
-	}
+	bot_decision_score(bots_globals.tuning, &inputs, bot->scores);
 }
 
 static engine_ai_behavior_result bot_behavior_tick_plain(
@@ -3920,7 +4147,7 @@ static boolean bot_attack_safe(
 	if (!grenade && !game_engine_has_teams())
 		return TRUE;
 	unit_get_camera_position(bot->unit_index, &eye);
-	range = grenade ? distance3d(&eye, &bot->target_last_position) : bots_globals.skill->fire_range;
+	range = grenade ? distance3d(&eye, &bot->target_last_position) : bot_base_profile(bot)->fire_range;
 	if (!valid_real(range) || range <= 0.f || range > 1000.f)
 		return FALSE;
 	direction.i = cosine(bot->facing.pitch) * cosine(bot->facing.yaw);
@@ -3985,9 +4212,48 @@ static boolean bot_attack_safe(
 
 /* port: a refused throw never reaches the player action; it is tried again
 in a second rather than after the whole cooldown. */
+/* In addition to the old lane gate, check the actual arc's endpoint against
+   self and predicted teammates, not just a straight elevated aim ray. */
+static boolean bot_grenade_landing_safe(struct bot *bot, real_point3d const *landing)
+{
+    struct player_datum *player = bot_player(bot);
+    struct unit_datum *unit = bot_living_unit(bot->unit_index);
+    struct data_iterator iterator;
+    short examined;
+    if (!player || !unit || bot_blast_reaches(landing, landing, bot->unit_index, unit))
+        return FALSE;
+    if (!game_engine_has_teams())
+        return TRUE;
+    data_iterator_new(&iterator, player_data);
+    for (examined = 0; examined <= HALO_PORT_MAXIMUM_NETWORK_PLAYERS; examined++)
+    {
+        struct player_datum *other = (struct player_datum *)data_iterator_next(&iterator);
+        struct unit_datum *other_unit;
+        if (!other)
+            return TRUE;
+        if (iterator.datum_index == bot->player_index || other->team_index != player->team_index)
+            continue;
+        other_unit = bot_living_unit(other->unit_index);
+        if (other_unit && bot_blast_reaches(landing, landing, other->unit_index, other_unit))
+            return FALSE;
+    }
+    return FALSE;
+}
+
+static boolean bot_validate_grenade(struct bot *bot)
+{
+    struct bot_grenade_request request;
+    real_point3d eye, landing;
+    float point[3];
+    unit_get_camera_position(bot->unit_index, &eye);
+    if (!bot_grenade_request(bot, &eye, &request) || !bot_grenade_validate(&request, point))
+        return FALSE;
+    landing.x = point[0]; landing.y = point[1]; landing.z = point[2];
+    return bot_grenade_landing_safe(bot, &landing);
+}
+
 static void bot_control_grenade(struct bot *bot, struct player_action *action)
 {
-	long retry;
 
 	/* port: a carried flag is melee-only; no stale grenade intent survives. */
 	if (bot_carries_flag(bot_living_unit(bot->unit_index)))
@@ -3997,11 +4263,10 @@ static void bot_control_grenade(struct bot *bot, struct player_action *action)
 	}
 
 	if (!TEST_FLAG(action->control_flags, _unit_control_throw_grenade_bit) ||
-		bot_attack_safe(bot, TRUE, BOT_FIRE_LANE_SPREAD))
+		(bot_validate_grenade(bot) && bot_attack_safe(bot, TRUE, BOT_FIRE_LANE_SPREAD)))
 		return;
 	action->control_flags &= ~FLAG(_unit_control_throw_grenade_bit);
-	retry = game_time_get() + bot_seconds_to_ticks(1.f);
-	bot->grenade_time = MIN(bot->grenade_time, retry);
+	bot_combat_retry(&bot->combat, BOT_COMBAT_GRENADE, game_time_get(), TICKS_PER_SECOND);
 	bot->throws_refused++;
 }
 
@@ -4116,21 +4381,9 @@ static void bot_control_weapon(struct bot *bot, struct player_action *action)
 		bot->charging = FALSE;
 		return;
 	}
-	if (unit->object.parent_object_index != NONE)
-	{
-		struct unit_datum *parent = vehicle_try_and_get(unit->object.parent_object_index);
-		struct unit_definition *definition;
-		struct unit_seat *seat;
-
-		if (!parent)
-			return;
-		definition = unit_definition_get(parent->definition_index);
-		if (unit->unit.parent_seat_index < 0 || unit->unit.parent_seat_index >= definition->unit.seats.count)
-			return;
-		seat = TAG_BLOCK_GET_ELEMENT(&definition->unit.seats, unit->unit.parent_seat_index, struct unit_seat);
-		if (TEST_FLAG(seat->flags, _unit_seat_driver_bit) || TEST_FLAG(seat->flags, _unit_seat_gunner_bit))
-			unit = parent; /* Use the vehicle's weapon, not the carried pistol. */
-	}
+	unit = bot_weapon_unit(bot);
+	if (!unit)
+		return;
 	slot = unit->unit.current_weapon_index;
 	if (slot < 0 || slot >= MAXIMUM_WEAPONS_PER_UNIT)
 		return;
@@ -4143,7 +4396,8 @@ static void bot_control_weapon(struct bot *bot, struct player_action *action)
 		short other = bot_other_weapon_slot(slot);
 		long other_weapon = unit->unit.weapon_object_indices[other];
 
-		if (other_weapon != NONE && bot_weapon_utility(other_weapon) > bot_weapon_utility(weapon_index) * 1.35f)
+		if (other_weapon != NONE && bot_weapon_attribute(bot, weapon_index, BOT_WEAPON_CAN_SWAP) > 0.f &&
+			bot_weapon_preference(bot, other_weapon) > bot_weapon_preference(bot, weapon_index) * 1.35f)
 		{
 			action->desired_weapon_index = other;
 			return;
@@ -4375,14 +4629,23 @@ static void bot_submit_action(
 	struct bot *bot)
 {
 	struct player_action action;
-	real turn = DEGREES_TO_RADIANS(bots_globals.skill->turn_degrees_per_second) / TICKS_PER_SECOND;
+	real turn = DEGREES_TO_RADIANS(bot_active_profile(bot)->turn_degrees_per_second) / TICKS_PER_SECOND;
 
+	/* Preserve the throw aim through the engine's wind-up even if a goal or
+	   lost sight stops ABS. Refused proposals never arm this hold. */
+	if (bot->grenade_aim_active && (bot->combat.was_grenade || game_time_get() < bot->grenade_aim_until))
+	{
+		bot->pending.has_look = TRUE;
+		bot->pending.look = bot->grenade_aim;
+	}
+	else
+		bot->grenade_aim_active = FALSE;
 	bot_keep_moving(bot);
 	bot_steer_movement(bot); /* port: validate after recovery, before throttle */
 	bot->moved_last_tick = bot->pending.has_move && bot->pending.move_speed > 0.3f;
 	/* port: lower skills struggle to look around while they move */
 	if (bot->moved_last_tick)
-		turn *= bots_globals.skill->moving_turn_scale;
+		turn *= bot_active_profile(bot)->moving_turn_scale;
 	if (bot->pending.has_look)
 	{
 		real yaw_delta = bot_angle_normalize(bot->pending.look.yaw - bot->facing.yaw);
@@ -4406,6 +4669,14 @@ static void bot_submit_action(
 	action.desired_zoom_level = NONE;
 	bot_control_grenade(bot, &action);
 	bot_control_weapon(bot, &action);
+	if (TEST_FLAG(action.control_flags, _unit_control_use_equipment_bit))
+		bot_combat_retry(&bot->combat, BOT_COMBAT_MELEE, game_time_get(), TICKS_PER_SECOND / 6);
+	if (TEST_FLAG(action.control_flags, _unit_control_throw_grenade_bit))
+	{
+		bot_combat_retry(&bot->combat, BOT_COMBAT_GRENADE, game_time_get(), TICKS_PER_SECOND / 6);
+		bot->grenade_aim_active = TRUE;
+		bot->grenade_aim_until = game_time_get() + TICKS_PER_SECOND / 6;
+	}
 	bot->last_trigger = action.primary_trigger;
 	bot->last_control_flags = action.control_flags;
 	update_server_set_player_action(bot->player_index, &action);
@@ -4460,6 +4731,9 @@ static void bot_scenario_report(
 		bot_leaf_names[leaf < NUMBEROF(bot_leaf_names) ? leaf : 0];
 	for (index = 0; index < BOT_SCENARIO_SCORES && index < BOT_BEHAVIOR_COUNT; index++)
 		observation.scores[index] = bot->scores[index];
+	/* Preserve the historical aggregate scavenge telemetry field. */
+	observation.scores[_bot_leaf_scavenge - 1] = bot->scores[_bot_leaf_acquire_weapon - 1] +
+		bot->scores[_bot_leaf_acquire_equipment - 1] + bot->scores[_bot_leaf_enter_vehicle - 1];
 	observation.confidence = bot->confidence;
 	observation.target_player_index = bot->target_player_index;
 	observation.target_source = bot->target_source;
@@ -4519,6 +4793,7 @@ static void bot_reset_life(
 	bot_drop_opportunity(bot, "new life");
 	bot_objective_release(bot); /* port: no objective identity survives a life */
 	bot->objective_valid = FALSE;
+	bot->running_objective_claim = FALSE;
 	bot->objective_waiting = FALSE;
 	bot->objective_unreachable_index = NONE;
 	bot->objective_retry_time = 0;
@@ -4529,6 +4804,7 @@ static void bot_reset_life(
 	bot->target_player_index = NONE;
 	bot->target_visible = FALSE;
 	bot->target_source = _bot_target_none;
+	bot_reaction_reset(&bot->reaction);
 	bot->visible_enemy_count = 0;
 	bot->surface_nav_wait_time = NONE;
 	bot->surface_fallback_logged = FALSE;
@@ -4547,8 +4823,13 @@ static void bot_reset_life(
 	bot->charge_target_index = NONE;
 	bot->next_charge_time = game_time_get() + bot_seconds_to_ticks(bot_random_range(bot, 2.f, 4.f));
 	csmemset(&bot->fire_control, 0, sizeof(bot->fire_control));
-	bot->melee_time = game_time_get();
-	bot->grenade_time = game_time_get() + bot_seconds_to_ticks(3.f);
+	bot_combat_reset(&bot->combat, game_time_get(), 3 * TICKS_PER_SECOND);
+	bot->combat_choice = BOT_COMBAT_NONE;
+	bot->grenade_aim_active = FALSE;
+	bot->grenade_aim_until = 0;
+	bot->danger_until = 0;
+	bot->danger_scan_time = 0;
+	csmemset(bot->combat_scores, 0, sizeof(bot->combat_scores));
 	bot->retreat_start_time = NONE;
 	bot->retreat_cooldown_time = 0;
 	bot->jump_requested = FALSE;
@@ -4578,7 +4859,7 @@ static void bot_reset_life(
 	/* port: a moment to get its bearings, looking about from where it faces */
 	bot->orient_start_time = game_time_get();
 	bot->aware_time = bot->orient_start_time + (unit ? bot_seconds_to_ticks(
-		bots_globals.skill->orient_seconds * bot_random_range(bot, 1.f, 1.6f)) : 0);
+		bot_active_profile(bot)->orient_seconds * bot_random_range(bot, 1.f, 1.6f)) : 0);
 	bot->orient_yaw = bot->facing.yaw;
 	bot->orient_direction = bot_random_range(bot, 0.f, 1.f) < 0.5f ? -1.f : 1.f;
 	bot->movement_check_time = NONE;
@@ -4723,12 +5004,19 @@ static void bot_decide(
 	uint32_t chosen = ENGINE_AI_UTILITY_NONE;
 	uint32_t leaf;
 	engine_ai_utility_decision decision;
+	struct bot_skill const *profile = bot_active_profile(bot);
+	engine_ai_utility_selector_config config =
+	{
+		BOT_BEHAVIOR_COUNT, BOT_DECISION_TICKS,
+		(uint32_t)bot_seconds_to_ticks(profile->hysteresis_seconds),
+		profile->hysteresis_bonus, profile->switch_margin
+	};
 
 	if (!force && !first && (uint64_t)now < bot->selector.next_decision_tick)
 		return;
 	bot->decide_now = FALSE;
 	bot_score_behaviors(bot, player, unit);
-	decision = engine_ai_utility_select(&bot->selector, &bot_selector_config, bot->scores,
+	decision = engine_ai_utility_select(&bot->selector, &config, bot->scores,
 		(uint64_t)now, force, &chosen);
 	if (decision == ENGINE_AI_UTILITY_INVALID)
 		return;
@@ -4741,13 +5029,14 @@ static void bot_decide(
 		platform_log("bots: bot %d tick %ld %s -> %s (conf %.2f) retreat %.2f fight %.2f roam %.2f scavenge %.2f vehicle %.2f, target %s",
 			bot->slot + 1, game_time_get(), bot_leaf_names[bot->chosen_leaf], bot_leaf_names[leaf], bot->confidence,
 			bot->scores[_bot_leaf_retreat - 1], bot->scores[_bot_leaf_fight - 1], bot->scores[_bot_leaf_roam - 1],
-			bot->scores[_bot_leaf_scavenge - 1], bot->scores[_bot_leaf_vehicle - 1],
+			bot->scores[_bot_leaf_acquire_weapon - 1] + bot->scores[_bot_leaf_acquire_equipment - 1] +
+			bot->scores[_bot_leaf_enter_vehicle - 1], bot->scores[_bot_leaf_vehicle - 1],
 			bot->target_source == _bot_target_seen ? "seen" :
 			bot->target_source == _bot_target_attacker ? "attacker" :
 			bot->target_source == _bot_target_remembered ? "remembered" :
 			bot->target_source == _bot_target_shared ? "shared" : "none");
 	}
-	if (bot->opportunity_index != NONE && leaf != _bot_leaf_scavenge)
+	if (bot->opportunity_index != NONE && !bot_decision_is_pickup_leaf(leaf))
 	{
 		bot_drop_opportunity(bot, leaf == bot->chosen_leaf ? "behavior not selected" : "behavior changed");
 		bot->opportunity_scan_time = now + bot_seconds_to_ticks(3.f);
@@ -4832,6 +5121,7 @@ static void bot_think(
 	}
 	if (player->unit_index != bot->unit_index)
 		bot_reset_life(bot, player->unit_index);
+	bot_update_combat(bot, unit);
 
 	/* port: a scenario holds its bots between trials, scripts its targets, and
 	sends a route test's subject to its goal (bot_scenario.h) */
@@ -4878,6 +5168,8 @@ static void bot_think(
 	bot->objective_waiting = FALSE;
 	bot_debug_sandbox(bot);
 	bot_perceive(bot, player, unit);
+	bot_update_reaction(bot);
+	bot_update_danger(bot);
 	bot_observe_inventory(bot, unit);
 	if (bot_orient(bot))
 		return;
@@ -5201,6 +5493,9 @@ static boolean bot_join(
 	csmemset(bot, 0, sizeof(*bot));
 	bot->active = TRUE;
 	bot->slot = bot_index;
+	bot->profiles_assigned = TRUE;
+	bot->base_profile = bot->active_profile = (uint32_t)(bots_globals.skill - bot_skills);
+	bot_reaction_reset(&bot->reaction);
 	bot->player_index = player_index;
 	bot->unit_index = NONE;
 	bot->target_player_index = NONE;
@@ -5306,7 +5601,20 @@ boolean bots_scenario_set_skill(
 	{
 		if (name && !csstrcasecmp(name, bot_skills[skill_index].name))
 		{
+			short bot_index;
+
 			bots_globals.skill = &bot_skills[skill_index];
+			for (bot_index = 0; bot_index < BOTS_MAXIMUM; bot_index++)
+			{
+				struct bot *bot = &bots_globals.bots[bot_index];
+
+				if (!bot->active)
+					continue;
+				bot->profiles_assigned = TRUE;
+				bot->base_profile = bot->active_profile = (uint32_t)skill_index;
+				bot_reaction_reset(&bot->reaction);
+				bot->decide_now = TRUE;
+			}
 			return TRUE;
 		}
 	}

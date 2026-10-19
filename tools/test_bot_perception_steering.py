@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def function(source, name):
-    match = re.search(r"static (?:boolean|void) " + re.escape(name) + r"\([^;{]*\)\s*\{", source)
+    match = re.search(r"(?:^|\n)(?:static )?[\w *]+\b" + re.escape(name) + r"\([^;{]*\)\s*\{", source)
     if not match:
         raise AssertionError(f"Missing production test seam: {name}")
     end = source.index("{", match.start()) + 1
@@ -25,7 +25,8 @@ def function(source, name):
 def run(cc, sanitize=False, perception_only=False):
     source = (ROOT / "source/features/bots/bots.c").read_text()
     fixture = (ROOT / "tools/test_bot_perception_steering.c.in").read_text()
-    names = ["bot_can_see", "bot_perceive"]
+    names = ["bot_base_profile", "bot_active_profile", "bot_from_player", "bots_set_player_difficulty",
+             "bot_can_see", "bot_perceive", "bot_update_reaction", "bot_update_danger"]
     if not perception_only:
         names += ["bot_movement_heading_clear", "bot_steer_movement", "bot_keep_moving", "bot_hear_human_alert", "bot_submit_action"]
     bodies = "\n\n".join(function(source, name) for name in names)
@@ -34,7 +35,10 @@ def run(cc, sanitize=False, perception_only=False):
         path = Path(directory) / "test.c"
         executable = Path(directory) / "test"
         path.write_text(fixture)
-        command = [cc, "-std=gnu89", "-Wall", "-Wextra", "-Werror", str(path), "-lm", "-o", str(executable)]
+        command = [cc, "-std=gnu89", "-Wall", "-Wextra", "-Werror", "-I", str(ROOT / "source"),
+                   str(path), str(ROOT / "source/features/bots/bot_profile.c"),
+                   str(ROOT / "source/features/bots/bot_reaction.c"),
+                   str(ROOT / "source/features/bots/bot_combat.c"), "-lm", "-o", str(executable)]
         if perception_only:
             command += ["-DPERCEPTION_ONLY", "-Wno-unused-function"]
         if sanitize:

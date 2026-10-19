@@ -1,0 +1,204 @@
+/* The actual bots.c combat adapter in a bounded fake engine world. */
+#include "features/bots/bot_combat.h"
+#include "features/bots/bot_decision.h"
+#include "features/bots/bot_reaction.h"
+#include "engine_ai/aim.h"
+#include <assert.h>
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
+typedef float real;
+typedef int boolean;
+typedef struct { real x,y,z; } real_point3d;
+typedef struct { real yaw,pitch; } real_euler_angles2d;
+#define NONE (-1)
+#define TRUE 1
+#define FALSE 0
+#define TICKS_PER_SECOND 30
+#define NUMBER_OF_UNIT_GRENADE_TYPES 2
+#define BOT_INTENT_SCHEMA 1
+#define DEGREES_TO_RADIANS(x) ((x)*0.017453292519943295f)
+#define MIN(a,b) ((a)<(b)?(a):(b))
+#define MAX(a,b) ((a)>(b)?(a):(b))
+#define PIN(x,a,b) MIN(MAX(x,a),b)
+#define csmemset memset
+enum { _object_type_biped, _object_type_vehicle };
+enum { _unit_state_idle=0, _unit_state_melee_attack=10, _unit_state_melee_airborne,
+    _unit_state_melee_continuous, _unit_state_leap_melee, _unit_state_hard_ping,
+    _unit_state_dying_airborne, _unit_state_dying, _unit_state_entering_seat,
+    _unit_state_exiting_seat, _unit_state_ai_impulse, _unit_state_throw_grenade,
+    _unit_state_resurrect_front, _unit_state_resurrect_back, _unit_state_leap_start };
+enum { _bot_intent_melee=1, _bot_intent_grenade };
+struct player_datum { long unit_index; };
+struct unit_datum {
+    struct { long parent_object_index; short type; real body_vitality,shield_vitality; } object;
+    struct { short current_grenade_index; short grenade_counts[2]; struct { short state; } animation; } unit;
+};
+struct bot {
+    long unit_index,target_player_index;
+    boolean target_visible,moved_last_tick;
+    short target_source;
+    real confidence;
+    real_point3d target_last_position;
+    struct bot_reaction reaction;
+    struct bot_combat_state combat;
+    enum bot_combat_action combat_choice;
+    float combat_scores[BOT_COMBAT_ACTION_COUNT];
+    long retreat_cooldown_time,aim_error_time,burst_change_time;
+    real_euler_angles2d facing,aim_error;
+    boolean burst_firing,grenade_aim_active;
+    long grenade_aim_until,danger_until;
+    real_euler_angles2d grenade_aim;
+};
+struct engine_ai_behavior_intent_emitter { int unused; };
+static struct unit_datum units[2];
+static struct player_datum enemy={1};
+static struct { uint32_t combat_enabled_mask; boolean playfighting; } bots_globals;
+static struct bot_skill const *base,*active;
+static long now;
+static boolean ammunition,flag;
+static int melee_requests,grenade_requests,shots,looks;
+static real_euler_angles2d looked;
+static boolean arc_clear=TRUE;
+/* Geometry/tag adapter is exercised separately by test_bot_grenade.py. */
+static boolean bot_plan_grenade(struct bot *bot,real_point3d const *eye,real_euler_angles2d *aim) {
+    (void)bot;(void)eye;(void)aim;return arc_clear;
+}
+static float weapon_attributes[BOT_WEAPON_ATTRIBUTE_COUNT];
+static real bot_current_weapon_attribute(struct bot const *bot,enum bot_weapon_attribute attribute) {
+    (void)bot;assert(attribute>=0 && attribute<BOT_WEAPON_ATTRIBUTE_COUNT);return weapon_attributes[attribute];
+}
+static long game_time_get(void) { return now; }
+static long bot_seconds_to_ticks(real seconds) { return (long)(seconds*30.f); }
+static real bot_random(struct bot *bot) { (void)bot; return 0.5f; }
+static real bot_random_range(struct bot *bot, real lo,real hi) { (void)bot;return lo+(hi-lo)*0.75f; }
+static struct bot_skill const *bot_base_profile(struct bot const *bot) { (void)bot;return base; }
+static struct bot_skill const *bot_active_profile(struct bot const *bot) { (void)bot;return active; }
+static struct player_datum *player_try_and_get(long player) { return player==5 ? &enemy : NULL; }
+static struct unit_datum *bot_living_unit(long unit) { return unit>=0 && unit<2 ? &units[unit] : NULL; }
+static boolean bot_carries_flag(struct unit_datum const *unit) { (void)unit;return flag; }
+static real bot_unit_weapon_utility(struct unit_datum const *unit) { (void)unit;return ammunition ? 1.f : 0.f; }
+static real distance3d(real_point3d const *a,real_point3d const *b) {
+    return sqrtf((a->x-b->x)*(a->x-b->x)+(a->y-b->y)*(a->y-b->y)+(a->z-b->z)*(a->z-b->z));
+}
+static real_euler_angles2d bot_angles_to(real_point3d const *a,real_point3d const *b) {
+    real_euler_angles2d result={0}; result.yaw=atan2f(b->y-a->y,b->x-a->x);
+    result.pitch=atan2f(b->z-a->z,hypotf(b->x-a->x,b->y-a->y)); return result;
+}
+static real bot_angle_normalize(real angle) { return remainderf(angle,6.28318530718f); }
+static void bot_emit_look(struct engine_ai_behavior_intent_emitter *e,real_euler_angles2d const *aim) {
+    (void)e; looks++; looked=*aim;
+}
+static void bot_emit_fire(struct engine_ai_behavior_intent_emitter *e,real trigger) {
+    (void)e; assert(trigger==1.f); shots++;
+}
+static void engine_ai_behavior_intent_emit(struct engine_ai_behavior_intent_emitter *e,
+    int action,int schema,void const *payload,int size) {
+    (void)e;assert(schema==1 && payload==NULL && size==0);
+    if(action==_bot_intent_melee) melee_requests++; else {assert(action==_bot_intent_grenade);grenade_requests++;}
+}
+/* PRODUCTION_BODIES */
+static struct bot fresh(void) {
+    struct bot bot={0}; struct bot_reaction_observation observation={0};
+    memset(units,0,sizeof(units)); now=100;
+    units[0].object.parent_object_index=units[1].object.parent_object_index=NONE;
+    units[0].object.body_vitality=units[1].object.body_vitality=1.f;
+    units[0].object.shield_vitality=units[1].object.shield_vitality=1.f;
+    units[0].unit.grenade_counts[0]=2;
+    base=active=bot_profile_get(BOT_PROFILE_MARINE);
+    bots_globals.combat_enabled_mask=BOT_COMBAT_ALL; bots_globals.playfighting=FALSE;
+    bot.target_player_index=5;bot.target_visible=TRUE;bot.target_source=_bot_target_seen;
+    bot.target_last_position.x=10.f;bot.confidence=1.f;
+    bot.aim_error_time=1000;bot.burst_change_time=1000;bot.burst_firing=TRUE;
+    observation.tick=now;observation.target_id=1;observation.known=observation.visible=true;
+    bot_reaction_reset(&bot.reaction);bot_reaction_observe(&bot.reaction,&observation);
+    bot_combat_reset(&bot.combat,now,0);
+    arc_clear=TRUE;
+    ammunition=TRUE;flag=FALSE;melee_requests=grenade_requests=shots=looks=0;
+    memset(weapon_attributes,0,sizeof(weapon_attributes));
+    weapon_attributes[0]=weapon_attributes[1]=weapon_attributes[2]=weapon_attributes[3]=1.f;
+    weapon_attributes[BOT_WEAPON_CAN_SWAP]=1.f;
+    return bot;
+}
+static void engage(struct bot *bot) {
+    struct engine_ai_behavior_intent_emitter emitter={0};real_point3d eye={0};
+    bot_engage(bot,&eye,&emitter);
+}
+static void selection(void) {
+    struct bot bot=fresh();struct bot_combat_inputs inputs;real_point3d eye={0};
+    engage(&bot);
+    assert(bot.combat_choice==BOT_COMBAT_GRENADE && grenade_requests==1 && !shots && !melee_requests);
+    assert(bot.combat.grenade_ready_tick==100); /* proposal isn't action completion */
+    bot=fresh();arc_clear=FALSE;engage(&bot);
+    assert(bot.combat_choice==BOT_COMBAT_FIGHT && shots==1 && !grenade_requests);
+    bot=fresh();bot.grenade_aim_active=TRUE;bot.grenade_aim_until=now+5;
+    bot.grenade_aim.pitch=0.3f;engage(&bot);
+    assert(looked.pitch==0.3f && !shots && !grenade_requests);
+    bot=fresh();bot.danger_until=now+15;units[0].unit.grenade_counts[0]=0;engage(&bot);
+    assert(bot.combat_choice==BOT_COMBAT_AVOID && shots==1);
+    bot=fresh();units[0].unit.grenade_counts[0]=0;engage(&bot);
+    assert(bot.combat_choice==BOT_COMBAT_FIGHT && shots==1);
+    bot=fresh();bot.target_last_position.x=1.f;engage(&bot);
+    assert(bot.combat_choice==BOT_COMBAT_MELEE && melee_requests==1 && !shots && !grenade_requests);
+    bot=fresh();flag=TRUE;bot.target_last_position.x=2.f;engage(&bot);
+    assert(bot.combat_choice==BOT_COMBAT_MELEE && !melee_requests && !shots && !grenade_requests);
+    bot.target_last_position.x=1.f;engage(&bot);assert(melee_requests==1);
+    bot=fresh();bot.target_visible=FALSE;units[1].object.body_vitality=0.01f;
+    bot_combat_inputs(&bot,&units[0],&eye,10.f,&inputs);
+    assert(inputs.target_health==1.f && inputs.target_vitality==1.f && !inputs.target_meleeable);
+    engage(&bot);assert(bot.combat_choice==BOT_COMBAT_SEEK && !shots && !grenade_requests);
+    bot=fresh();bot.reaction.visible_ready_tick=now+1;engage(&bot);
+    assert(!shots && !melee_requests && !grenade_requests && looks==1);
+    bot=fresh();bot.facing.yaw=1.f;engage(&bot);
+    assert(!grenade_requests && looks==1 && looked.yaw==0.f); /* wait for ordinary turning */
+    bot=fresh();units[0].unit.animation.state=_unit_state_hard_ping;engage(&bot);
+    assert(bot.combat_choice==BOT_COMBAT_NONE && !shots && !grenade_requests);
+    bot=fresh();active=bot_profile_get(BOT_PROFILE_SPARTAN);bot.confidence=0.1f;
+    units[0].unit.grenade_counts[0]=0;engage(&bot);
+    assert(bot.combat_choice==BOT_COMBAT_DISENGAGE && shots==1);
+    bot=fresh();active=bot_profile_get(BOT_PROFILE_SPARTAN);bot.confidence=0.1f;
+    units[0].unit.grenade_counts[0]=0;bots_globals.combat_enabled_mask&=~(1u<<(BOT_COMBAT_FIGHT-1));
+    engage(&bot);assert(bot.combat_choice==BOT_COMBAT_DISENGAGE && !shots);
+    bot=fresh();bots_globals.playfighting=TRUE;engage(&bot);
+    assert(bot.combat_choice==BOT_COMBAT_FIGHT && shots==1 && !grenade_requests);
+}
+static void weapon_aim_attributes(void) {
+    struct bot bot=fresh();real original,settled,moving;
+    bot.aim_error_time=0;bot_update_aim_error(&bot,10.f);original=fabsf(bot.aim_error.yaw);
+    assert(original>0.f);
+    bot=fresh();weapon_attributes[BOT_WEAPON_AIM_ERROR_SCALE]=2.f;
+    bot.aim_error_time=0;bot_update_aim_error(&bot,10.f);
+    assert(fabsf(fabsf(bot.aim_error.yaw)-original*2.f)<0.00001f);
+    bot=fresh();now=130;bot.aim_error_time=0;bot_update_aim_error(&bot,10.f);
+    settled=fabsf(bot.aim_error.yaw);
+    bot=fresh();now=130;weapon_attributes[BOT_WEAPON_AIM_SETTLE_SCALE]=4.f;
+    bot.aim_error_time=0;bot_update_aim_error(&bot,10.f);
+    assert(fabsf(bot.aim_error.yaw)>settled);
+    bot=fresh();bot.moved_last_tick=TRUE;bot.aim_error_time=0;bot_update_aim_error(&bot,10.f);
+    moving=fabsf(bot.aim_error.yaw);
+    bot=fresh();bot.moved_last_tick=TRUE;weapon_attributes[BOT_WEAPON_MOVING_ERROR_SCALE]=2.f;
+    bot.aim_error_time=0;bot_update_aim_error(&bot,10.f);
+    assert(fabsf(bot.aim_error.yaw)>moving);
+    bot=fresh();weapon_attributes[BOT_WEAPON_IS_MELEE]=1.f;
+    units[0].unit.grenade_counts[0]=0;engage(&bot);
+    assert(bot.combat_choice==BOT_COMBAT_MELEE && !shots && !melee_requests);
+}
+static void observed_completion(void) {
+    struct bot bot=fresh();
+    now=101;units[0].unit.animation.state=_unit_state_throw_grenade;bot_update_combat(&bot,&units[0]);
+    assert(bot.combat.was_grenade && bot.combat.grenade_ready_tick==100);
+    bot.grenade_aim_active=TRUE;
+    now=110;units[0].unit.animation.state=_unit_state_idle;bot_update_combat(&bot,&units[0]);
+    assert(!bot.combat.was_grenade && !bot.grenade_aim_active && bot.combat.grenade_ready_tick==470); /* CE sample 12 sec */
+    now=111;bot_update_combat(&bot,&units[0]);assert(bot.combat.grenade_ready_tick==470);
+    units[0].unit.animation.state=_unit_state_melee_attack;bot_update_combat(&bot,&units[0]);
+    assert(bot.combat.was_melee && bot.combat.melee_ready_tick==100);
+    now=120;units[0].unit.animation.state=_unit_state_idle;bot_update_combat(&bot,&units[0]);
+    assert(!bot.combat.was_melee && bot.combat.melee_ready_tick==153);
+    bot.grenade_aim_active=TRUE;now=20;bot_update_combat(&bot,&units[0]);
+    assert(!bot.grenade_aim_active); /* no aim hold can survive rewind */ /* CE 1.1 sec, ceil */
+}
+int main(void) {
+    selection();weapon_aim_attributes();observed_completion();
+    puts("production bot combat adapter passed");return 0;
+}

@@ -32,6 +32,14 @@ Navigation uses the map's walkable collision geometry and is still map
 are not implemented. Bots do not change scores or objective ownership directly;
 the game engine remains authoritative.
 
+See [Infinite-style bots in C](bot-infinite-migration.md) for the recovered-code
+architecture reference, implemented modules and remaining validation.
+
+Grenades use bounded tag-derived air trajectories and actual-facing arc/blast
+validation. Observed grenades/approaching vehicles can select normal avoidance
+movement (`bots.combat_avoid = true` by default). No hidden enemy tracking,
+teleporting, bounce simulation or perfect future-blast prediction is implied.
+
 ## Checks
 
 Asset-free C-backed tests can be run without game maps:
@@ -41,6 +49,10 @@ python3 tools/test_engine_ai_behavior.py
 python3 tools/test_engine_ai_navigation.py
 python3 tools/test_engine_ai_traversal.py
 python3 tools/test_engine_ai_utility.py
+python3 tools/test_bot_decision.py --sanitize
+python3 tools/test_bot_profile_reaction.py --sanitize
+python3 tools/test_bot_combat.py --sanitize
+python3 tools/test_bot_ambitions.py --sanitize
 python3 tools/test_engine_ai_aim_claims.py
 python3 tools/test_surface_navigation.py
 python3 tools/test_vehicle_navigation.py
@@ -53,7 +65,7 @@ functions and can be run with:
 
 ```sh
 python3 -m pytest -q tools/test_features.py tools/test_bot_lobby.py \
-  tools/test_bot_lobby_menu.py tools/test_bot_ctf.py
+  tools/test_bot_lobby_menu.py tools/test_bot_ctf.py tools/test_bot_grenade.py
 ```
 
 The ChupathingyCE port was build-checked with Bots enabled and disabled. No live

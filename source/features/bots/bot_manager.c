@@ -54,6 +54,7 @@ static struct
 {
 	short ambition_count;
 	struct bot_ambition ambitions[BOT_AMBITIONS_MAXIMUM];
+	struct bot_ambitions objective_claims;
 	struct bot_sighting sightings[BOT_MANAGER_TEAMS][HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
 	struct engine_ai_claims item_claims;
 	/* port: vehicle seats, keyed by bot_manager_seat_key */
@@ -76,6 +77,7 @@ void bot_manager_reset(
 	short player_index;
 
 	csmemset(&bot_manager_globals, 0, sizeof(bot_manager_globals));
+	bot_ambitions_reset(&bot_manager_globals.objective_claims);
 	engine_ai_claims_reset(&bot_manager_globals.item_claims);
 	engine_ai_claims_reset(&bot_manager_globals.seat_claims);
 	human_callouts_reset(); /* port: no contacts survive map/game resets */
@@ -274,18 +276,20 @@ void bot_manager_release_item(
 		(uint32_t)object_index, (uint32_t)bot_number);
 }
 
-void bot_manager_release_bot(
-	long team_index,
-	short bot_number)
+void bot_manager_release_bot(long team_index, short bot_number)
 {
-	uint32_t claim_scope;
-
-	if (bot_number <= 0 || !bot_manager_claim_scope(team_index, &claim_scope))
+	uint32_t scope;
+	(void)team_index;
+	if (bot_number <= 0)
 		return;
-	engine_ai_claims_release_owner(&bot_manager_globals.item_claims, claim_scope,
-		(uint32_t)bot_number);
-	engine_ai_claims_release_owner(&bot_manager_globals.seat_claims, claim_scope,
-		(uint32_t)bot_number);
+	bot_ambitions_release(&bot_manager_globals.objective_claims, (uint32_t)bot_number, NULL);
+	/* Bot numbers are host-global. Release old scopes too after team changes
+	   or a missing player; never free a different bot's claims. */
+	for (scope = 0; scope < BOT_MANAGER_TEAMS; scope++)
+	{
+		engine_ai_claims_release_owner(&bot_manager_globals.item_claims, scope, (uint32_t)bot_number);
+		engine_ai_claims_release_owner(&bot_manager_globals.seat_claims, scope, (uint32_t)bot_number);
+	}
 }
 
 /* A seat's claim key: the vehicle's absolute index and the seat (below
@@ -372,30 +376,61 @@ void bot_manager_release_seat(
 
 /* port: Goals are rebuilt every tick, but identity is kind/team/salted datum,
 not their current array offset. Losing a claim leaves another bot free to act. */
-boolean bot_manager_ctf_goal(long team_index, long player_index, short bot_number,
-	long unavailable_object_index, struct bot_ambition *goal)
+boolean bot_manager_choose_ambition(long team_index, long player_index, short bot_number,
+	uint32_t kind_mask, long unavailable_object_index, real_point3d const *from,
+	struct bot_ambition *goal)
 {
+	struct bot_ambition_actor actor;
+	struct bot_ambition_score scores[BOT_AMBITIONS_MAXIMUM] = {0};
+	uint32_t selected;
 	short index;
-	struct bot_ambition const *best = NULL;
-	if (!goal || team_index < 0 || team_index >= BOT_MANAGER_TEAMS ||
-		player_index == NONE || bot_number <= 0) return FALSE;
+
+	if (!goal || bot_number <= 0 || bot_number > BOT_AMBITION_BOTS_MAX || player_index == NONE)
+		return FALSE;
+	actor.bot_number = (uint32_t)bot_number;
+	actor.player_key = (uint32_t)player_index;
+	actor.team_index = (uint32_t)team_index;
+	actor.has_teams = game_engine_has_teams() != 0;
 	for (index = 0; index < bot_manager_globals.ambition_count; index++)
 	{
 		struct bot_ambition const *candidate = &bot_manager_globals.ambitions[index];
-		if (!bot_manager_ambition_allowed(candidate, team_index)) continue;
-		if (candidate->kind == _bot_ambition_deliver &&
-			candidate->carrier_player_index != player_index) continue;
+
+		if (candidate->kind <= 0 || candidate->kind >= 32 ||
+			!(kind_mask & (1u << candidate->kind)) ||
+			!bot_manager_ambition_allowed(candidate, team_index))
+			continue;
 		if ((candidate->kind == _bot_ambition_take || candidate->kind == _bot_ambition_return) &&
-			(candidate->object_index == unavailable_object_index ||
-			bot_manager_item_claimed_by_other(team_index, candidate->object_index, bot_number))) continue;
-		if (!best || candidate->value > best->value) best = candidate;
+			candidate->object_index == unavailable_object_index)
+			continue;
+		scores[index].utility = candidate->value;
+		scores[index].distance = from ? distance3d(from, &candidate->position) : 0.f;
 	}
-	if (!best) return FALSE;
-	if ((best->kind == _bot_ambition_take || best->kind == _bot_ambition_return) &&
-		!bot_manager_claim_item(team_index, best->object_index, bot_number, 4 * TICKS_PER_SECOND))
+	if (!bot_ambitions_select(&bot_manager_globals.objective_claims, &actor,
+		scores, game_time_get(), 4 * TICKS_PER_SECOND, &selected))
 		return FALSE;
-	*goal = *best;
+	*goal = bot_manager_globals.ambitions[selected];
 	return TRUE;
+}
+
+void bot_manager_release_goal(short bot_number, struct bot_ambition_identity const *expected)
+{
+	if (bot_number > 0)
+		bot_ambitions_release(&bot_manager_globals.objective_claims, (uint32_t)bot_number, expected);
+}
+
+boolean bot_manager_goal_claimed(short bot_number, struct bot_ambition const *goal)
+{
+	return goal && bot_number > 0 && bot_ambitions_has_claim(
+		&bot_manager_globals.objective_claims, (uint32_t)bot_number, &goal->identity, game_time_get());
+}
+
+boolean bot_manager_ctf_goal(long team_index, long player_index, short bot_number,
+	long unavailable_object_index, struct bot_ambition *goal)
+{
+	if (team_index < 0 || team_index >= BOT_MANAGER_TEAMS)
+		return FALSE;
+	return bot_manager_choose_ambition(team_index, player_index, bot_number,
+		UINT32_MAX, unavailable_object_index, NULL, goal);
 }
 
 /* ---------- private code: the game modes' adapters */
@@ -420,6 +455,16 @@ static void bot_manager_ctf_add(short kind, short team, struct halo_bot_ctf_flag
 	goal->position = *position;
 	goal->radius = radius;
 	goal->value = value;
+	goal->identity.kind = (uint32_t)kind;
+	goal->identity.acting_team = (uint32_t)team;
+	goal->identity.object_key = (uint32_t)goal->object_index;
+	goal->identity.carrier_key = (uint32_t)carrier;
+	goal->identity.source_id = (uint32_t)kind * BOT_MANAGER_TEAMS + (uint32_t)team;
+	goal->all_bots = TRUE;
+	goal->specific_player = kind == _bot_ambition_deliver ?
+		(uint32_t)carrier : BOT_AMBITION_ANY_PLAYER;
+	goal->slot_limit = kind == _bot_ambition_take || kind == _bot_ambition_return ?
+		1u : BOT_AMBITION_UNLIMITED;
 }
 
 /* port: Two flags, at most six transition logs per tick; no carrier positions. */
@@ -481,21 +526,50 @@ static void bot_manager_publish_ctf(void)
 
 /* port: Standard CTF reads the engine's state. Other objective modes keep
 bots out until their rules and execution have adapters of their own. */
-static void bot_manager_publish_ambitions(
-	void)
+static void bot_manager_sync_ambitions(void)
+{
+	struct bot_ambition_rule rules[BOT_AMBITIONS_MAXIMUM] = {0};
+	short index;
+
+	for (index = 0; index < bot_manager_globals.ambition_count; index++)
+	{
+		struct bot_ambition const *goal = &bot_manager_globals.ambitions[index];
+
+		rules[index].identity = goal->identity;
+		rules[index].team_mask = (uint32_t)goal->team_mask;
+		rules[index].include_bots = goal->include_bots;
+		rules[index].exclude_bots = goal->exclude_bots;
+		rules[index].specific_player = goal->specific_player;
+		rules[index].slot_limit = goal->slot_limit;
+		rules[index].all_bots = goal->all_bots != 0;
+	}
+	if (!bot_ambitions_publish(&bot_manager_globals.objective_claims, rules,
+		(uint32_t)bot_manager_globals.ambition_count, game_time_get()))
+	{
+		bot_ambitions_reset(&bot_manager_globals.objective_claims);
+		bot_manager_globals.ambition_count = 0;
+		platform_log("bots: invalid ambition publication rejected");
+	}
+}
+
+static void bot_manager_publish_ambitions(void)
 {
 	bot_manager_globals.ambition_count = 0;
-	if (!game_engine_get_variant())
-		return;
-	switch (game_engine_get_variant()->game_engine_index)
+	if (game_engine_get_variant())
 	{
-	case game_engine_ctf:
-		if (config_boolean("bots.ctf")) bot_manager_publish_ctf();
-		break;
-	case game_engine_slayer:
-	default:
-		break;
+		switch (game_engine_get_variant()->game_engine_index)
+		{
+		case game_engine_ctf:
+			if (config_boolean("bots.ctf"))
+				bot_manager_publish_ctf();
+			break;
+		case game_engine_slayer:
+		default:
+			break;
+		}
 	}
+	/* Empty publication also invalidates old mode/deleted-object claims. */
+	bot_manager_sync_ambitions();
 }
 
 #endif /* HALO_FEATURE_BOTS */
