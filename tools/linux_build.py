@@ -202,13 +202,19 @@ OPUS_DIR = Path("port/third_party/opus")
 # FFmpeg (LGPL) decodes the movies, which the port has no decoder for
 # (bink_ffmpeg.c implements the SDK's own entry points behind it). It is taken
 # from the system when it is there; without it the tree keeps bink_null.c and
-# the game skips the movies, exactly as it did before. The portable build's own
-# system root carries no FFmpeg, so its absence is the normal case there.
+# the game skips the movies, exactly as it did before. A portable build draws
+# against its own system root, which carries none, so it always keeps the
+# stubs (and taking the build machine's would break its link).
 FFMPEG_LIBS = ["libavformat", "libavcodec", "libswscale", "libswresample", "libavutil"]
 
 
-def ffmpeg_flags() -> Tuple[List[str], List[str]]:
-    """the compiler flags and libraries of the system's FFmpeg, or nothing"""
+def ffmpeg_flags(portable: bool = False) -> Tuple[List[str], List[str]]:
+    """the compiler flags and libraries of the system's FFmpeg, or nothing.
+    A portable build draws against its own system root, which has no FFmpeg, so
+    the build machine's is not taken: its headers are behind the root and its
+    libraries are the build machine's own"""
+    if portable:
+        return [], []
     try:
         cflags = subprocess.check_output(["pkg-config", "--cflags", *FFMPEG_LIBS], text=True,
                                          stderr=subprocess.DEVNULL).split()
@@ -508,7 +514,7 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
     abi = " ".join(_retarget(LINUX_ABI_FLAGS, units.target_flags) + target
                    + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else ["-fstack-protector-strong"])
                    + browser_defines + CUSTOM_EDITION_DEFINES + units.extra_flags
-                   + ffmpeg_flags()[0])
+                   + ffmpeg_flags(getattr(sln, "port_portable", False))[0])
     port_include = PORT_DIR / "include"
     sdk_flags = f"-idirafter {XDK_INCLUDE}"
     posix_flags = _retarget(POSIX_FLAGS, units.target_flags)
@@ -728,7 +734,7 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     sdl_outputs = [build_dir / sdl.libsdl.name, sdl.license] if sdl else []
 
     libs = " ".join(f"-l{lib}" for lib in config.get("libraries", []))
-    libs = " ".join([libs, *ffmpeg_flags()[1]]).strip()
+    libs = " ".join([libs, *ffmpeg_flags(getattr(sln, "port_portable", False))[1]]).strip()
     units = Linux32Units(sln=sln, config=config, game_browser=getattr(sln, "game_browser", False),
                          semantics_header=semantics_header, platform_semantics_header=platform_semantics_header,
                          embedded_assets=embedded_assets, sysroot_flags=sysroot_cflags)
