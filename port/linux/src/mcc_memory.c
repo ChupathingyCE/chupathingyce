@@ -6,6 +6,10 @@
 #include <errno.h>
 #include <string.h>
 
+#ifdef HALO_ANDROID
+#include "guest_host.h"
+#endif
+
 #ifdef HALO_WINDOWS
 /* Keep the linked MCC window out of the Windows heap/driver allocator's
  * way before starting the renderer. Reserve address space, not committed
@@ -78,6 +82,14 @@ void mcc_memory_release(void *allocation, uint32_t size)
 #else
 void *mcc_memory_reserve(uint32_t address, uint32_t size)
 {
+#ifdef HALO_ANDROID
+    long long result = host_mcc_memory_reserve(address, size);
+    if (result < 0) {
+        errno = (int)-result;
+        return NULL;
+    }
+    return (void *)(uintptr_t)result;
+#else
     void *wanted = (void *)(uintptr_t)address;
     void *allocation;
     /* Keep clear of the Xbox arena, Custom Edition window and low addresses.
@@ -118,11 +130,18 @@ void *mcc_memory_reserve(uint32_t address, uint32_t size)
         errno = EINVAL;
     }
     return NULL;
+#endif
 }
 
 void mcc_memory_release(void *allocation, uint32_t size)
 {
-#ifdef HALO_WINDOWS
+#ifdef HALO_ANDROID
+    if (allocation) {
+        int error = host_mcc_memory_release((unsigned int)(uintptr_t)allocation, size);
+        if (error)
+            platform_log("mcc memory: could not decommit tag window (%s)", strerror(-error));
+    }
+#elif defined(HALO_WINDOWS)
     if (allocation && allocation == mcc_window && size == 0x04000000u && mcc_window_active) {
         if (mmap(allocation, size, PROT_NONE,
             MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0) == allocation)
