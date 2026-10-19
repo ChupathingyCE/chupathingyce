@@ -242,12 +242,21 @@ static const struct config_setting config_settings[] =
 		"Show the seconds left on your active camouflage, overshield and full\n"
 		"spectrum vision in a small line of the HUD's text, for each split\n"
 		"screen player; false shows none, as the original game did." },
-	{ "display.loading_screen_min_seconds", _config_real, "0.0", "HALO_LOADING_SCREEN_MIN_SECONDS",
+	{ "display.loading_screen", _config_boolean, "true", "HALO_LOADING_SCREEN", _environment_value,
+		_platform_all,
+		"Keep the original loading screen up for a while when a level loads,\n"
+		"as loading from the Xbox's disc did, for the times below; false loads\n"
+		"every level as fast as it can." },
+	{ "display.loading_screen_campaign_seconds", _config_real, "5.0", "HALO_LOADING_SCREEN_CAMPAIGN_SECONDS",
 		_environment_value, _platform_all,
-		"Keep the original loading screen up for at least this many seconds\n"
-		"when a level loads, as loading from the Xbox's disc did (up to 30); 0\n"
-		"for no wait. Only in games no other machine is in (campaign, split\n"
-		"screen): a game on the network loads as fast as it can." },
+		"The least seconds the loading screen stays up when a campaign level\n"
+		"loads on this machine alone, split screen co-op too (up to 30); 0 for\n"
+		"no wait. A longer load shows for as long as it takes." },
+	{ "display.loading_screen_multiplayer_seconds", _config_real, "0.0", "HALO_LOADING_SCREEN_MULTIPLAYER_SECONDS",
+		_environment_value, _platform_all,
+		"The same for every other game: split screen multiplayer, system link,\n"
+		"online and network co-op, up to 5: the network waits while the\n"
+		"loading screen is held." },
 	{ "display.scoreboard_team_layout", _config_string, "\"teams\"", "HALO_SCOREBOARD_TEAM_LAYOUT", _environment_value,
 		_platform_all,
 		"How the scoreboard lists a team game's players: \"teams\" in a column for\n"
