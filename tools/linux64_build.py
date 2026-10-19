@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, List
 
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
-from .linux_build import OPTIMISATION, lto_flags, march_flag, portable_sdl
+from .linux_build import OPTIMISATION, linux_sysroot, lto_flags, march_flag, portable_sdl
 from .lp64_build import (
     LINUX_PORT_CONFIG,
     Lp64Build,
@@ -73,8 +73,13 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
     lp64 = Lp64Build(n, sln, "linux64", cc)
     # (-L: SDL's library is a link to the file of its full version)
     n.rule(name="linux64_copy", command="cp -L $in $out", description="LINUX64 COPY $out")
-    # the portable build's system root and SDL3, or the build machine's
-    sdl = (portable_sdl(n, sln, build_dir, cc, name="linux64", arch="amd64", toolchain=SYSROOT_TOOLCHAIN)
+    # (the system root of this build: the 64-bit one. The movies' FFmpeg is the
+    # 32-bit build's; this one keeps the stubs and skips the movies)
+    sysroot_stamp, sysroot = linux_sysroot(n, build_dir, name="linux64", arch="amd64")
+
+    # the portable build's SDL3, or the build machine's
+    sdl = (portable_sdl(n, sln, build_dir, cc, sysroot, sysroot_stamp, name="linux64", arch="amd64",
+                        toolchain=SYSROOT_TOOLCHAIN)
            if getattr(sln, "port_portable", False) else None)
     n.rule(
         name="linux64_link",
