@@ -145,6 +145,7 @@ struct game_options;
 #include "game/player_rumble.h"
 #include "game/players.h"
 #include "hs/hs.h"
+#include "input/input.h"
 #include "input/input_abstraction.h"
 #include "interface/event_manager.h"
 #include "interface/first_person_weapons.h"
@@ -264,6 +265,8 @@ static void game_loading_screen_hold_progress(
 static void game_loading_screen_hold(
 	unsigned long hold_start,
 	unsigned long hold_milliseconds);
+static boolean game_loading_screen_skipped(
+	void);
 
 /* ---------- public code */
 
@@ -859,6 +862,9 @@ void game_precache_new_map(
 					map_status = cache_files_precache_map_status(
 						&game_globals->loading_progress);
 				}
+				/* (skipped, the load itself still runs to its end) */
+				if (hold_milliseconds > 0 && game_loading_screen_skipped())
+					hold_milliseconds = 0;
 				game_loading_screen_hold_progress(hold_start, hold_milliseconds, map_status != 0);
 				main_pregame_render();
 				main_rasterizer_throttle();
@@ -1108,6 +1114,8 @@ static void game_loading_screen_hold(
 	progress_bar_begin(global_scenario_index != NONE);
 	do
 	{
+		if (game_loading_screen_skipped())
+			break;
 		game_loading_screen_hold_progress(hold_start, hold_milliseconds, TRUE);
 		main_pregame_render();
 		main_rasterizer_throttle();
@@ -1118,4 +1126,36 @@ static void game_loading_screen_hold(
 	ui_widgets_close_all();
 	game_globals->map_load_in_progress = FALSE;
 	game_globals->loading_progress = 1.0f;
+}
+
+/* sdl_platform.c */
+void platform_menus_set_active(int active);
+
+/* the menus' accept (A on any controller, space or enter on the keyboard)
+pressed while the loading screen is held: the rest of the wait is skipped.
+The keys drive the first controller as they do in the menus, which the
+loading screen stands in for (the menus set it again each frame once they
+run); a press counts only as it starts, so the A or the key that started
+the level, still held, does not skip it, nor does one held through a level's
+end into the next's load */
+static boolean game_loading_screen_skipped(
+	void)
+{
+	short gamepad_index;
+
+	platform_menus_set_active(TRUE);
+	/* (the controllers are read as the main loop's frame begins) */
+	input_frame_begin();
+	input_update();
+	input_frame_end();
+	for (gamepad_index = 0; gamepad_index < MAXIMUM_GAMEPADS; gamepad_index++)
+	{
+		if (input_has_gamepad(gamepad_index) &&
+			input_get_gamepad_state(gamepad_index)->buttons[_gamepad_analog_button_a] == 1)
+		{
+			return TRUE;
+		}
+	}
+
+	return FALSE;
 }
