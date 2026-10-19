@@ -199,9 +199,9 @@ class Converter:
         if self.in_dropped_section:
             return
         if op in (".ascii", ".asciz", ".string", ".stringz"):
-            # el operando es un literal de datos, no una referencia a simbolo:
-            # adentro puede haber bytes que parecen identificadores (un "_"
-            # suelto es 0x5F, una "A" es 0x41) y manglearlos rompe el dato
+            # the operand is a data literal, not a reference to a symbol: bytes
+            # in it can look like identifiers (a lone "_" is 0x5F, an "A" is
+            # 0x41) and mangling them breaks the data
             self.emit(f"\t{op} {args}")
             return
         if op in DROP_DIRECTIVES or op.endswith("_version_min"):
