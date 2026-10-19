@@ -40,7 +40,10 @@ static void host_logf(int priority, const char *format, ...) {(void)priority; (v
 #define PROT_NONE 0
 #define PROT_READ 1
 #define PROT_WRITE 2
-typedef int pthread_mutex_t;
+typedef int test_mutex;
+#define pthread_mutex_t test_mutex
+#define pthread_mutex_lock test_mutex_lock
+#define pthread_mutex_unlock test_mutex_unlock
 #define PTHREAD_MUTEX_INITIALIZER 0
 #define CHECK(c) do { if (!(c)) {fprintf(stderr, "%d: %s\n", __LINE__, #c); exit(1);} } while (0)
 static int depth, maps, unmaps, blocked, wrong_address, fail_commit, fail_release, fail_unmap;
