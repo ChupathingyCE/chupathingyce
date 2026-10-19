@@ -13,12 +13,21 @@ pipeline for those draws, so the same picture is made here, at the Xbox's
 
 The Xbox's loading screen stepped once each refresh (60 a second); so does
 this one, however fast the frames come.
+
+While the port holds the loading screen for display.loading_screen's
+seconds (game.c), the menus' accept skips the rest of the wait
+(loading_screen_skip_pressed).
 */
 
 #include "cseries.h"
 #include "cseries/cseries_windows.h"
 
+#include "input/input.h"
+
 #include "loading_screen.h"
+
+/* sdl_platform.c */
+void platform_menus_set_active(int active);
 
 /* ---------- constants */
 
@@ -194,4 +203,31 @@ void loading_screen_draw(
 		}
 	}
 	halo_draw_picture(&loading_screen.frame[0][0][0], LOADING_SCREEN_WIDTH, LOADING_SCREEN_HEIGHT);
+}
+
+/* the keys drive the first controller as they do in the menus, which the
+loading screen stands in for (the menus set it again each frame once they
+run); a press counts only as it starts, so the A or the key that started
+the level, still held, does not skip it, nor does one held through a level's
+end into the next's load */
+boolean loading_screen_skip_pressed(
+	void)
+{
+	short gamepad_index;
+
+	platform_menus_set_active(TRUE);
+	/* (the controllers are read as the main loop's frame begins) */
+	input_frame_begin();
+	input_update();
+	input_frame_end();
+	for (gamepad_index = 0; gamepad_index < MAXIMUM_GAMEPADS; gamepad_index++)
+	{
+		if (input_has_gamepad(gamepad_index) &&
+			input_get_gamepad_state(gamepad_index)->buttons[_gamepad_analog_button_a] == 1)
+		{
+			return TRUE;
+		}
+	}
+
+	return FALSE;
 }
