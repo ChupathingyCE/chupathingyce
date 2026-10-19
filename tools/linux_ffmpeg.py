@@ -21,6 +21,7 @@ Usage: linux_ffmpeg.py <build directory> [--sysroot <sysroot>] [--cc <compiler>]
                         [--flags "<the port's ABI flags>"]
 """
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -31,6 +32,9 @@ from pathlib import Path
 
 FFMPEG_VERSION = "7.1"
 FFMPEG_URL = f"https://ffmpeg.org/releases/ffmpeg-{FFMPEG_VERSION}.tar.xz"
+FFMPEG_SHA256 = "40973d44970dbc83ef302b0609f2e74982be2d85916dd2ee7472d30678a7abe6"
+# (the release's own tarball: this is the digest of the file signed by the
+# FFmpeg release signing key, B4322F04D67658D8)
 # what the link takes (tools/linux_build.py)
 LIBRARIES = ["libavformat", "libavcodec", "libswscale", "libswresample", "libavutil"]
 
@@ -45,8 +49,13 @@ def fetch(root):
     if (source / "configure").is_file():
         return source
     archive = root / f"ffmpeg-{FFMPEG_VERSION}.tar.xz"
-    print(f"linux_ffmpeg.py: downloading FFmpeg {FFMPEG_VERSION}")
+    print(f"{Path(__file__).name}: downloading FFmpeg {FFMPEG_VERSION}")
     urllib.request.urlretrieve(FFMPEG_URL, archive)
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    if digest != FFMPEG_SHA256:
+        archive.unlink()
+        raise SystemExit(f"{Path(__file__).name}: {archive.name}: SHA-256 {digest}, "
+                         f"expected {FFMPEG_SHA256}")
     with tarfile.open(archive) as tar:
         tar.extractall(root)
     (root / f"ffmpeg-{FFMPEG_VERSION}").rename(source)
