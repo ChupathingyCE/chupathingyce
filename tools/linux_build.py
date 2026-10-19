@@ -768,19 +768,30 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     embedded_assets = (hud_assets_build(n, "linux", build_dir / "generated" / "hud_hires_assets.c")
                        + ui_fonts_build(n, "linux", build_dir / "generated" / "ui_fonts.c", sln))
 
-    # (the system root: the portable build draws against it, and the movies'
-    # FFmpeg is built against it either way)
-    sysroot_stamp, sysroot = linux_sysroot(n, build_dir)
-    ffmpeg_cflags, ffmpeg_libs, ffmpeg_stamp, ffmpeg_archives = linux_ffmpeg(
-        n, build_dir, cc, sysroot, sysroot_stamp)
+    # (the movies' FFmpeg, only when this build asks for it: configure.py
+    # --with-ffmpeg. Without it the stubs build, as upstream, and the game
+    # skips the movies; the system root is then only the portable build's)
+    with_ffmpeg = getattr(sln, "with_ffmpeg", False)
+    sysroot_stamp: Optional[Path] = None
+    sysroot: Optional[Path] = None
+    if getattr(sln, "port_portable", False) or with_ffmpeg:
+        sysroot_stamp, sysroot = linux_sysroot(n, build_dir)
+    ffmpeg_cflags: List[str] = []
+    ffmpeg_libs: List[str] = []
+    ffmpeg_inputs: List[Path] = []
+    if with_ffmpeg:
+        ffmpeg_cflags, ffmpeg_libs, ffmpeg_stamp, ffmpeg_archives = linux_ffmpeg(
+            n, build_dir, cc, sysroot, sysroot_stamp)
+        ffmpeg_inputs = [ffmpeg_stamp, *ffmpeg_archives]
 
     # the portable build's SDL3, or the build machine's
-    sdl = portable_sdl(n, sln, build_dir, cc, sysroot, sysroot_stamp) if getattr(sln, "port_portable", False) else None
+    sdl = (portable_sdl(n, sln, build_dir, cc, sysroot, sysroot_stamp)
+           if getattr(sln, "port_portable", False) else None)
     sysroot_cflags = sdl.cflags if sdl else []
     sysroot_ldflags = sdl.ldflags if sdl else []
-    # (what every unit waits for: the system root's stamp and the movies' FFmpeg,
-    # headers and libraries alike)
-    sysroot_inputs = ([sdl.stamp] if sdl else [sysroot_stamp]) + [ffmpeg_stamp, *ffmpeg_archives]
+    # (what every unit waits for: the system root's stamp and, when this build
+    # has them, the movies' FFmpeg, headers and libraries alike)
+    sysroot_inputs = ([sdl.stamp] if sdl else ([sysroot_stamp] if sysroot_stamp else [])) + ffmpeg_inputs
     sdl_outputs = [build_dir / sdl.libsdl.name, sdl.license] if sdl else []
 
     libs = " ".join(f"-l{lib}" for lib in config.get("libraries", []))

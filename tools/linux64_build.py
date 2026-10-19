@@ -15,7 +15,7 @@ against this machine's glibc and SDL3.
 """
 
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Optional
 
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .linux_build import OPTIMISATION, linux_sysroot, lto_flags, march_flag, portable_sdl
@@ -75,7 +75,10 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
     n.rule(name="linux64_copy", command="cp -L $in $out", description="LINUX64 COPY $out")
     # (the system root of this build: the 64-bit one. The movies' FFmpeg is the
     # 32-bit build's; this one keeps the stubs and skips the movies)
-    sysroot_stamp, sysroot = linux_sysroot(n, build_dir, name="linux64", arch="amd64")
+    sysroot_stamp: Optional[Path] = None
+    sysroot: Optional[Path] = None
+    if getattr(sln, "port_portable", False):
+        sysroot_stamp, sysroot = linux_sysroot(n, build_dir, name="linux64", arch="amd64")
 
     # the portable build's SDL3, or the build machine's
     sdl = (portable_sdl(n, sln, build_dir, cc, sysroot, sysroot_stamp, name="linux64", arch="amd64",

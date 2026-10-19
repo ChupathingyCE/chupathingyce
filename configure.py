@@ -90,6 +90,13 @@ parser.add_argument(
     type=str,
     help="clang with the arm64_32 target for the Android guest (default: clang)",
 )
+parser.add_argument(
+    "--with-ffmpeg",
+    action="store_true",
+    help="build the movies' FFmpeg (the Bink decoder behind the SDK's entry points): "
+         "LGPL, static, for this target. Without it the stubs build and the game skips "
+         "the movies, which is the default",
+)
 args = parser.parse_args()
 
 # the settings the builds read
@@ -105,6 +112,7 @@ sln = SimpleNamespace(
     port_pgo_profile=args.pgo_profile,
     android_ndk=args.android_ndk,
     android_guest_cc=args.android_guest_cc,
+    with_ffmpeg=args.with_ffmpeg,
 )
 
 

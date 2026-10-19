@@ -375,26 +375,30 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     generated_headers = [*xdk_headers(), alltypes, syscall_h, version_h, gl_stamp,
                          semantics_header, platform_semantics_header]
 
-    # ---------- the movies' decoder: FFmpeg for the guest's ABI
+    # ---------- the movies' decoder: FFmpeg for the guest's ABI (--with-ffmpeg)
 
     # The guest plays the movies through the game's own entry points
     # (port/linux/src/bink_ffmpeg.c) over FFmpeg, as the Linux build does; the
     # libraries have to be built for the guest's ABI (ILP32 AArch64, the port's
-    # musl), which tools/android_ffmpeg.py does.
+    # musl), which tools/android_ffmpeg.py does. Without --with-ffmpeg the guest
+    # keeps the stubs, as upstream, and the game skips the movies.
     ffmpeg_guest = BUILD / "ffmpeg-guest"
-    ffmpeg_archives = [ffmpeg_guest / "build" / library / f"{library}.a"
-                       for library in ("libavformat", "libavcodec", "libswscale",
-                                       "libswresample", "libavutil")]
-    n.rule(
-        name="android_ffmpeg",
-        command=f"$python tools/android_ffmpeg.py {ffmpeg_guest} --ndk {ndk}",
-        description="ANDROID FFMPEG (the guest's movies)",
-        restat=True,
-        pool="console",
-    )
-    ffmpeg_stamp = ffmpeg_guest / "ffmpeg.stamp"
-    n.build(outputs=[*ffmpeg_archives, ffmpeg_stamp], rule="android_ffmpeg",
-            implicit=[Path("tools/android_ffmpeg.py"), alltypes, syscall_h, version_h])
+    ffmpeg_archives: List[Path] = []
+    ffmpeg_stamp: Optional[Path] = None
+    if getattr(sln, "with_ffmpeg", False):
+        ffmpeg_archives = [ffmpeg_guest / "build" / library / f"{library}.a"
+                           for library in ("libavformat", "libavcodec", "libswscale",
+                                           "libswresample", "libavutil")]
+        n.rule(
+            name="android_ffmpeg",
+            command=f"$python tools/android_ffmpeg.py {ffmpeg_guest} --ndk {ndk}",
+            description="ANDROID FFMPEG (the guest's movies)",
+            restat=True,
+            pool="console",
+        )
+        ffmpeg_stamp = ffmpeg_guest / "ffmpeg.stamp"
+        n.build(outputs=[*ffmpeg_archives, ffmpeg_stamp], rule="android_ffmpeg",
+                implicit=[Path("tools/android_ffmpeg.py"), alltypes, syscall_h, version_h])
 
     # ---------- guest compilation: C -> Darwin assembly -> ELF assembly -> object
 
@@ -427,9 +431,11 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     guest_abi = " ".join(GUEST_ABI_FLAGS + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else [])
                          + game_browser_defines(sln) + CUSTOM_EDITION_DEFINES)
     guest_code = " ".join(GUEST_CODE_FLAGS)
-    # (the movies' FFmpeg: its headers and libraries are built first, so a
-    # source that includes them compiles against them)
-    tool_implicit = [Path("tools/android_asm_convert.py"), *generated_headers, ffmpeg_stamp]
+    # (the movies' FFmpeg, when this build has it: its headers and libraries are
+    # built first, so a source that includes them compiles against them)
+    tool_implicit = [Path("tools/android_asm_convert.py"), *generated_headers]
+    if ffmpeg_stamp:
+        tool_implicit.append(ffmpeg_stamp)
     # profile-guided optimisation with the Linux build's profile (committed,
     # or trained by the Linux build with --pgo=train): the game and platform
     # code are the same, and functions that differ simply go without
@@ -504,8 +510,10 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         f"-I{PORT_DIR}/include", f"-I{TOML_DIR}", f"-I{EXPAT_DIR}", f"-I{KCP_DIR}", f"-I{QRCODEGEN_DIR}", f"-I{MONOCYPHER_DIR}",
         f"-I{ZLIB_DIR}", "-Isource -Isource/cseries",
         f"-I{SDL_DIR}/include", f"-I{gl_include}", *libc_includes, f"-idirafter {XDK_INCLUDE}",
-        # the movies (bink_ffmpeg.c): FFmpeg behind the game's own entry points
-        "-DHALO_BINK_FFMPEG", f"-I{ffmpeg_guest}/src", f"-I{ffmpeg_guest}/build",
+        # the movies (bink_ffmpeg.c), when this build has them: FFmpeg behind the
+        # game's own entry points
+        *(["-DHALO_BINK_FFMPEG", f"-I{ffmpeg_guest}/src", f"-I{ffmpeg_guest}/build"]
+          if ffmpeg_stamp else []),
     ])
     guest_host_only = {"memory_watch.c"}  # replaced by guest_memory_watch.c
     # (the overlay's fonts are plain C, drawn in the guest with the overlay:
