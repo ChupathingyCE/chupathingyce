@@ -48,8 +48,9 @@ only the player under the reticle */
 #define HALO_CONSOLE_NO_PLAYER_NAMES
 #endif
 
-/* the tag schema and validator (port/linux/game/tag_validate.c): a large
-table, for maps from elsewhere; a console loads its own maps */
+/* the tag schema and validator (port/linux/game/tag_validate.c): about
+170 KB of code and tables checking every map's tags as they load; a
+console plays its own retail maps, unchecked, as retail did */
 #ifndef HALO_CONSOLE_NO_TAG_VALIDATE
 #define HALO_CONSOLE_NO_TAG_VALIDATE
 #endif
