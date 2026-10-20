@@ -852,6 +852,9 @@ boolean weapon_new(
 
 	weapon->weapon.state = _weapon_state_idle;
 	weapon->weapon.overheated_effect_index = NONE;
+	/* port: nothing tracked yet; left at zero, it read as object index 0
+	(any identifier), which finds whatever object sits in slot 0 */
+	weapon->weapon.tracked_object_index = NONE;
 
 	for (magazine_index = 0; magazine_index<weapon_magazine_count(weapon_definition); ++magazine_index)
 	{
