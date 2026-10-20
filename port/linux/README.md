@@ -207,7 +207,9 @@ save root, it copies the saves from the folder earlier versions used
 map cache, which it rebuilds. That folder is left as it was. The file
 `shared_saves_checked.txt` in the save root records that the copy was done;
 delete it to copy again. A save root set in `paths.saves` or
-`HALO_SAVE_ROOT` is never copied into.
+`HALO_SAVE_ROOT` is never copied into. On macOS, the save root is
+`~/Library/Application Support/ChupathingyCE/saves`, and the saves are
+copied into it once from the same `halo-linux` folder.
 
 The game makes the folders when it needs them. Names of files and folders
 are not case-sensitive, as on the Xbox.

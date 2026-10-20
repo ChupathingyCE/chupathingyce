@@ -95,8 +95,8 @@ On Linux, the maps and settings (`config.toml`) go next to the `halo`
 executable, and the saves in `~/.local/share/chupathingyce` (or
 `$XDG_DATA_HOME/chupathingyce`). On Windows, the saves go in
 `%APPDATA%\ChupathingyCE`. The first start copies your profiles, saved games
-and game types from the folder earlier versions used (`halo-linux`, or
-`%APPDATA%\halo` on Windows), which is left as it was. The 64-bit and
+and game types from the folder earlier versions used (`halo-linux`, on Linux
+and on a Mac, or `%APPDATA%\halo` on Windows), which is left as it was. The 64-bit and
 32-bit builds use the same places, so switching from one to the other keeps
 your saves and settings.
 
