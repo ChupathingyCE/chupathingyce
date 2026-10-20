@@ -547,6 +547,31 @@ void playlist_profile_save_with_options(
 
 /* ---------- private code */
 
+/* port: whether the file at path already holds exactly block; the default
+variants are written only when one is missing or different, rather than
+rewritten every start (slow on SD cards) */
+static boolean playlist_profile_default_file_matches(
+	char const *path,
+	byte const *block)
+{
+	byte existing[SAVED_GAME_FILE_BLOCK_SIZE];
+	struct file_reference file;
+	boolean matches = FALSE;
+
+	if (file_reference_create_from_path(&file, path, FALSE) &&
+		file_exists(&file) &&
+		file_open(&file, FLAG(_permission_read_bit)))
+	{
+		matches =
+			file_get_eof(&file) == SAVED_GAME_FILE_BLOCK_SIZE &&
+			file_read(&file, SAVED_GAME_FILE_BLOCK_SIZE, existing) &&
+			!csmemcmp(existing, block, SAVED_GAME_FILE_BLOCK_SIZE);
+		file_close(&file);
+	}
+
+	return matches;
+}
+
 static void playlist_profile_create_default_profiles_on_disk(
 	void)
 {
@@ -573,16 +598,13 @@ static void playlist_profile_create_default_profiles_on_disk(
 			variant = *playlist_profile_default_data.default_variant_building_functions[
 				profile_index](&temporary);
 
-			_snprintf(path, MAXIMUM_FILENAME_LENGTH, "z:\\saved\\playlists\\default_playlist\\%02d", profile_index);
-			path[MAXIMUM_FILENAME_LENGTH] = 0;
-			directory_create_or_delete_contents(path);
-			csstrncat(path, "\\blam.lst", MAXIMUM_FILENAME_LENGTH);
-			path[MAXIMUM_FILENAME_LENGTH] = 0;
-
 			display_name = unicode_string_list_get_string(
 				string_list_index,
 				(short)profile_index);
 
+			/* port: cleared, so the bytes past the checksum are the same
+			every start (they were stack leftovers) */
+			csmemset(block, 0, sizeof(block));
 			csmemcpy(
 				block,
 				&variant,
@@ -598,7 +620,23 @@ static void playlist_profile_create_default_profiles_on_disk(
 				PLAYLIST_PROFILE_CHECKSUM_DATA_SIZE,
 				(XCALCSIG_SIGNATURE *)(block + PLAYLIST_PROFILE_CHECKSUM_DATA_SIZE));
 
-			if (file_reference_create_from_path(&file, path, FALSE) &&
+			_snprintf(path, MAXIMUM_FILENAME_LENGTH, "z:\\saved\\playlists\\default_playlist\\%02d\\blam.lst", profile_index);
+			path[MAXIMUM_FILENAME_LENGTH] = 0;
+			if (playlist_profile_default_file_matches(path, block))
+			{
+				file_written = TRUE;
+			}
+			else
+			{
+				_snprintf(path, MAXIMUM_FILENAME_LENGTH, "z:\\saved\\playlists\\default_playlist\\%02d", profile_index);
+				path[MAXIMUM_FILENAME_LENGTH] = 0;
+				directory_create_or_delete_contents(path);
+				csstrncat(path, "\\blam.lst", MAXIMUM_FILENAME_LENGTH);
+				path[MAXIMUM_FILENAME_LENGTH] = 0;
+			}
+
+			if (!file_written &&
+				file_reference_create_from_path(&file, path, FALSE) &&
 				file_create(&file) &&
 				file_open(&file, FLAG(_permission_write_bit)) &&
 				file_set_position(&file, 0))
