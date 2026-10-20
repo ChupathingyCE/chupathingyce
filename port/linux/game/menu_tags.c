@@ -58,6 +58,7 @@ int platform_audio_device_names(char const **names, int maximum);
 void *global_network_game_server_get(void);
 /* whether the pause menu has CHANGE TEAMS (team_change.c) */
 boolean team_change_pause_offered(void);
+int config_boolean(char const *name);
 
 /* cache_files.c's (port) */
 void *cache_files_tag_instances(long *count);
@@ -88,9 +89,9 @@ adds to */
 #define MULTIPLAYER_COLLECTION "ui\\shell\\multiplayer"
 /* a campaign map's pause screen, which pause_patch adds to */
 #define SOLO_PAUSE_SCREEN "ui\\shell\\solo_game\\pause_game\\pause_game"
-/* the tags pause_patch adds: three buttons and their texts, and the tops of
+/* the tags pause_patch adds: four buttons and their texts, and the tops of
 the stock box's pieces (the campaign's has six) */
-#define PAUSE_PATCH_TAGS (6 + 2 * 6)
+#define PAUSE_PATCH_TAGS (8 + 2 * 6)
 /* what a frame of ui.map's is drawn as in a game map, which has not got it */
 #define BLANK_PNG "ce/port/blank__0.png"
 #define UI_WIDGET_DEFINITION_TAG 'DeLa'
@@ -374,6 +375,7 @@ static char const *const port_function_names[] =
 	"port map list back",
 	"port pause end game",
 	"port pause change teams",
+	"port pause controls", "controller screen init", "controller screen defaults", "controller begin binding",
 	"port coop begin", "port coop player 2 list initialize", "port coop player 2",
 	"port lobby open", "port lobby add player", "port lobby join", "port lobby leave",
 	"port lobby player list initialize", "port lobby player choose",
@@ -404,8 +406,8 @@ static char const *const port_game_data_input_names[] =
 	"server settings update", "audio menu update", "mp prof vehicles update", "solo map list update",
 	"mp map list update", "gt select list update", "gt edit list update", "load game list update",
 	"direct ip connect update", "network settings update",
-	"port settings help", "color picker update", "3wide player profile list update", "port lobby update",
-	"port lobby preview update",
+	"port settings help", "controller update menu", "color picker update", "3wide player profile list update",
+	"port lobby update", "port lobby preview update",
 	/* (the gametype editor's: the Xbox's stops the game on the buttons'
 	row; the Xbox's read only player_ui's gametype, not Server Setup's) */
 	"game settings lists text update", "get edit game settings name", "mp edit profile set rule text",
@@ -1474,6 +1476,11 @@ the list moved down; on a custom map's, what is below the list moves down. */
 #define PAUSE_SETTINGS_SCREEN "main_menu/settings_select/player_setup/player_profile_edit/player_profile_edit_screen"
 /* (the Chupathingy menus': their own, in the Xbox's look) */
 #define PAUSE_SETTINGS_SCREEN_CHUPATHINGY "chupathingy/settings/profile_edit_screen"
+/* CONTROLS': Controller Buttons (tools/port_settings.py's CONTROLLER_SCREEN),
+the Gearbox and Chupathingy menus' own */
+#define PAUSE_CONTROLS_SCREEN \
+	"main_menu/settings_select/player_setup/player_profile_edit/controller_buttons/controller_buttons_screen"
+#define PAUSE_CONTROLS_SCREEN_CHUPATHINGY "chupathingy/settings/controller_buttons_screen"
 #define PAUSE_BUTTON_SPACING 35
 
 /* display.menus: the Xbox's menus, Gearbox's Halo PC menus, or Chupathingy's (the
@@ -1595,25 +1602,40 @@ static void *pause_button(struct cache_file_tag_instance *instances, struct ui_w
 	return button;
 }
 
+/* whether the pause menus have CONTROLS (Controller Buttons, or the Xbox
+menus' Controls screen: controls_screen.c), as display.pause_controls says */
+static boolean pause_controls_offered(void)
+{
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_CONTROLS)
+	return config_boolean("display.pause_controls") != 0;
+#else
+	return FALSE;
+#endif
+}
+
 /* the list's buttons: a team game's CHANGE TEAMS (change_teams), SETTINGS
-(Gearbox's menus: settings) and the host's END GAME (end_game) put after
-RESUME GAME (resume), the rows after them moved down; returns how far the
-list grew, 0 if it was not */
+(Gearbox's menus: settings), CONTROLS (pause_controls_offered) and the
+host's END GAME (end_game) put after RESUME GAME (resume), the rows after
+them moved down; returns how far the list grew, 0 if it was not */
 static short pause_list_patch(struct cache_file_tag_instance *instances, struct ui_widget_definition *list, long resume,
 	boolean change_teams, boolean settings, boolean end_game)
 {
 	struct ui_widget_child_reference *children = xbox_pointer(list->child_widgets.address);
 	long count = list->child_widgets.count, child;
-	long added = (change_teams != FALSE) + (settings != FALSE) + (end_game != FALSE);
+	boolean controls = pause_controls_offered();
+	/* (the Xbox's menus have none of ours: the Controls screen, by code) */
+	long controls_widget = !controls || !build.menus ? NONE :
+		widget_named(menus_chosen() == _menus_chupathingy ? PAUSE_CONTROLS_SCREEN_CHUPATHINGY : PAUSE_CONTROLS_SCREEN);
+	long added = (change_teams != FALSE) + (settings != FALSE) + (controls != FALSE) + (end_game != FALSE);
 	struct ui_widget_child_reference *grown = allocate((count + added) * sizeof(struct ui_widget_child_reference));
 	struct ui_widget_definition const *model = tag_get(UI_WIDGET_DEFINITION_TAG, children[resume].widget_tag.index);
 	long settings_widget = !settings ? NONE :
 		widget_named(menus_chosen() == _menus_chupathingy ? PAUSE_SETTINGS_SCREEN_CHUPATHINGY : PAUSE_SETTINGS_SCREEN);
 	short spacing = count >= 2 ? (short)(children[count - 1].vertical_offset - children[count - 2].vertical_offset) :
 		PAUSE_BUTTON_SPACING;
-	void *buttons[3];
-	long tags[3];
-	char const *names[3];
+	void *buttons[4];
+	long tags[4];
+	char const *names[4];
 
 	if (!grown || !added || (settings && settings_widget == NONE) || spacing <= 0)
 		return 0;
@@ -1631,6 +1653,14 @@ static short pause_list_patch(struct cache_file_tag_instance *instances, struct 
 		tags[added] = next_tag();
 		buttons[added++] = pause_button(instances, model, "pause/settings_button", "SETTINGS",
 			function_index("profile set edit begin", "pause", 0), build.widget_tags[settings_widget], FALSE);
+	}
+	if (controls)
+	{
+		names[added] = "pause/controls_button";
+		tags[added] = next_tag();
+		buttons[added++] = pause_button(instances, model, "pause/controls_button", "CONTROLS",
+			function_index("port pause controls", "pause", 0),
+			controls_widget == NONE ? NONE : build.widget_tags[controls_widget], FALSE);
 	}
 	if (end_game)
 	{
@@ -1874,8 +1904,8 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 	the multiplayer game engine's */
 	if (solo_screen != NONE)
 	{
-		if (settings)
-			pause_screen_patch(instances, solo_screen, NONE, FALSE, TRUE, FALSE, &patched_list, &grow, &box_grown);
+		if (settings || pause_controls_offered())
+			pause_screen_patch(instances, solo_screen, NONE, FALSE, settings, FALSE, &patched_list, &grow, &box_grown);
 	}
 	else if (collection != NONE)
 	{
@@ -1895,14 +1925,15 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 	}
 	if (patched_list != NONE)
 	{
-		platform_log("menus: the pause menu has%s%s%s", change_teams ? " CHANGE TEAMS" : "", settings ? " SETTINGS" : "",
-			host && solo_screen == NONE ? " END GAME" : "");
+		platform_log("menus: the pause menu has%s%s%s%s", change_teams ? " CHANGE TEAMS" : "", settings ? " SETTINGS" : "",
+			pause_controls_offered() ? " CONTROLS" : "", host && solo_screen == NONE ? " END GAME" : "");
 	}
 }
 
 /* the Xbox's menus: a multiplayer map's pause menu gets a team game's CHANGE
-TEAMS and the host's END GAME alone (its own tags, as the Gearbox menus'
-pause_patch makes them; let go by menu_tags_unloaded) */
+TEAMS and the host's END GAME alone, and every map's CONTROLS (its own
+tags, as the Gearbox menus' pause_patch makes them; let go by
+menu_tags_unloaded) */
 static void pause_patch_xbox(void)
 {
 	struct cache_file_tag_instance *instances;
@@ -2004,11 +2035,11 @@ void menu_tags_loaded(
 		return;
 	}
 	/* the Xbox's menus: only a multiplayer game's CHANGE TEAMS and the host's
-	END GAME */
+	END GAME, and CONTROLS */
 	if (menus_chosen() == _menus_xbox)
 	{
-		if (game_map && tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_PAUSE_SCREEN) == NONE &&
-			(global_network_game_server_get() != NULL || team_change_pause_offered()))
+		if (game_map && (pause_controls_offered() || (tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_PAUSE_SCREEN) == NONE &&
+			(global_network_game_server_get() != NULL || team_change_pause_offered()))))
 		{
 			pause_patch_xbox();
 		}
@@ -2167,6 +2198,8 @@ char const *pc_menus_root_name(
 		long index;
 
 		snprintf(name, sizeof(name), "%s%s", PC_MENU_TAG_PREFIX, open);
+		/* (after a #, what the screen shows: Controller Buttons' "#rebind") */
+		name[strcspn(name, "#")] = 0;
 		for (index = 0; name[index]; index++)
 		{
 			if (name[index] == '/')
