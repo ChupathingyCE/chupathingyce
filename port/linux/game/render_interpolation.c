@@ -120,11 +120,13 @@ struct interpolated_object
 	/* ... the two snapshots' rotations, found when first blended */
 	struct interpolation_rotation *rotations;
 	boolean rotations_valid[2];
+#ifndef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
 	/* its outgoing functions (A to D: the glows, lights and shaders that
 	pulse with them) in the two snapshots, and the blend drawn this frame */
 	real function_values[2][NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS];
 	real blended_function_values[NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS];
 	long functions_blended_frame;
+#endif
 };
 
 struct interpolated_camera
@@ -478,17 +480,21 @@ void render_interpolation_tick(void)
 			record->nodes + record->latest * record->node_capacity,
 			object_get_node_matrices(iterator.index),
 			node_count * sizeof(real_matrix4x3));
+#ifndef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
 		memcpy(
 			record->function_values[record->latest],
 			object->object.outgoing_function_values,
 			sizeof(record->function_values[0]));
+#endif
 		record->rotations_valid[record->latest] = FALSE;
 		record->object_index = iterator.index;
 		record->node_count = node_count;
 		record->tick = interpolation_tick;
 		record->has_previous = continuing;
 		record->blended_frame = NONE;
+#ifndef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
 		record->functions_blended_frame = NONE;
+#endif
 	}
 }
 
@@ -620,9 +626,14 @@ real_matrix4x3 *render_interpolation_object_node_matrices(long object_index)
 
 /* the object's outgoing functions as drawn: between the last two ticks,
 as its pose. Functions are sampled once a tick, so a glow or light pulsing
-with one stepped at 30 Hz however fast the frames came. */
+with one stepped at 30 Hz however fast the frames came. (NULL, the values
+of the tick, on a console: HALO_CONSOLE_NO_SMOOTH_FUNCTIONS) */
 real *render_interpolation_object_function_values(long object_index)
 {
+#ifdef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+	(void)object_index;
+	return NULL;
+#else
 	struct interpolated_object *record;
 	long absolute_index;
 
@@ -653,6 +664,7 @@ real *render_interpolation_object_function_values(long object_index)
 		record->functions_blended_frame = interpolation_frame;
 	}
 	return record->blended_function_values;
+#endif
 }
 
 /* ---------- corrections */
