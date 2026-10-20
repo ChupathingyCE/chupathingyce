@@ -1650,8 +1650,8 @@ static char button_mappings[_icon_custom_1 - _icon_action] =
 	4,		/* use-equipment -> melee */
 	3,		/* rotate-weapons -> switch weapons */
 	1,		/* rotate-grenades -> switch grenades */
-	11,		/* crouch -> zoom */
-	10,		/* zoom -> crouch */
+	10,		/* crouch -> crouch */
+	11,		/* zoom -> zoom */
 	_icon_a_button,		/* accept */
 	_icon_b_button,		/* back */
 	_icon_left_stick,	/* move */
