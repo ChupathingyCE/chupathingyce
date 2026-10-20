@@ -1112,8 +1112,10 @@ pixel32 get_flash_color(
 
 	csmemset(stack_buffer, 0x62, sizeof(stack_buffer));
 
+	/* port: the phase of the frame, not the tick
+	(port/linux/game/render_interpolation.c) */
 	flash_phase = (real)fmod(
-		(game_time_get() - reference_value) * (1.0f / TICKS_PER_SECOND),
+		render_interpolation_ticks_since(game_time_get(), reference_value) * (1.0f / TICKS_PER_SECOND),
 		hud_color->flash_period);
 	pixel32_to_real_argb_color(hud_color->color, &base_color);
 	pixel32_to_real_argb_color(hud_color->flash_color, &flash_color);

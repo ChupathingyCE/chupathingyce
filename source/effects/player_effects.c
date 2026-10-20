@@ -759,10 +759,12 @@ void player_effect_get_screen_flash(
 			screen_flash->type = _render_screen_flash_type_lighten;
 			screen_flash->color.rgb = player_effect_globals->screen_fade.color;
 			screen_flash->color.alpha = 1.0f;
+			/* port: faded by the frame, not the tick
+			(port/linux/game/render_interpolation.c) */
 			screen_flash->intensity = player_effect_globals->screen_fade.ticks > 0
 				? transition_function_evaluate(
 					_transition_function_cosine,
-					PIN((real)(game_time_get() - player_effect_globals->screen_fade.start_time) / player_effect_globals->screen_fade.ticks, 0.0f, 1.0f))
+					PIN(render_interpolation_ticks_since(game_time_get(), player_effect_globals->screen_fade.start_time) / player_effect_globals->screen_fade.ticks, 0.0f, 1.0f))
 				: 1.0f;
 
 			if (!player_effect_globals->screen_fade.fading_out)
@@ -789,9 +791,23 @@ void player_effect_get_screen_flash(
 				screen_flash->type = render_screen_flash_type_map[flash->type];
 				screen_flash->color = flash->screen_flash_color;
 				if (flash->duration > 0.0f)
+				{
+					real time_left = (real)effect->screen_flash_time_left;
+
+					/* port: between ticks, the time left at the frame
+					drawn: the ticks this frame ran come off below, after
+					it is drawn (port/linux/game/render_interpolation.c) */
+					if (render_interpolation_drawing() && time_left > 0.0f)
+					{
+						time_left = PIN(
+							time_left - game_time_get_elapsed() + 1.0f - render_interpolation_fraction(),
+							0.0f,
+							time_left);
+					}
 					screen_flash->intensity = transition_function_evaluate(
 						flash->fade_function,
-						flash->zero_scale_factor * ((real)effect->screen_flash_time_left / flash->duration));
+						flash->zero_scale_factor * (time_left / flash->duration));
+				}
 				else
 					screen_flash->intensity = flash->zero_scale_factor;
 

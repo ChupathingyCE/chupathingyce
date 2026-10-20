@@ -1304,6 +1304,18 @@ real_matrix4x3 *object_get_node_matrices(
 	return (real_matrix4x3 *)object_header_block_get(object_index, &object_get(object_index)->object.node_matrices);
 }
 
+/* port: the object's outgoing functions; while a frame is drawn, between
+the last two ticks (port/linux/game/render_interpolation.c) */
+real *object_get_function_values(
+	long object_index)
+{
+	real *interpolated = render_interpolation_object_function_values(object_index);
+
+	if (interpolated)
+		return interpolated;
+	return object_get(object_index)->object.outgoing_function_values;
+}
+
 char const *object_get_attachment_marker_name(
 	long object_index,
 	short attachment_index)
@@ -1565,7 +1577,7 @@ boolean object_get_function_value(
 		it reads as off */
 		if (VALID_INDEX(function_index, NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS))
 		{
-			*value_reference = object->object.outgoing_function_values[function_index];
+			*value_reference = object_get_function_values(object_index)[function_index];
 
 			result = TEST_FLAG(object->object.functions_active_flags, function_index);
 		}
