@@ -52,6 +52,17 @@ BOOL xgpu_bgfx;
 #define BG_MAXIMUM_VIEWS 1023
 /* each staged vertex is all sixteen input registers, four floats each */
 #define BG_VERTEX_BYTES (XGPU_VERTEX_ATTRIBUTE_COUNT * 16)
+/* the vertex cache: its buckets, the most it holds, how long an unused
+range stays and how a range the game keeps rewriting is left to stream
+(as the OpenGL path's mirror: rewrites no more than BG_VERTEX_REWRITE_FRAMES
+apart, BG_VERTEX_VOLATILE_REWRITES in a row, stream for
+BG_VERTEX_VOLATILE_FRAMES) */
+#define BG_VERTEX_BUCKETS 4096
+#define BG_VERTEX_CACHE_BUDGET (512UL << 20)
+#define BG_VERTEX_UNUSED_FRAMES 300
+#define BG_VERTEX_REWRITE_FRAMES 2
+#define BG_VERTEX_VOLATILE_REWRITES 4
+#define BG_VERTEX_VOLATILE_FRAMES 600
 /* Metal's uniform space a frame (bgfx built with 32 MB), less a margin:
 draws past it are skipped rather than overrun it */
 #define BG_UNIFORM_BUDGET ((32UL << 20) - (1UL << 20))
@@ -280,6 +291,11 @@ static struct
 	int overlay_picture_serial;
 	BOOL overlay_failed;
 
+	/* vertices converted once and kept on the GPU (bg_vertex_cache_get) */
+	struct bg_vertex_entry *vertex_buckets[BG_VERTEX_BUCKETS];
+	unsigned long vertex_cache_bytes;
+	unsigned long stat_cached_vertices, stat_streamed_vertices;
+
 	/* debug.screenshot_every's copy of the back buffer, read back */
 	bgfx_texture_handle_t capture;
 	unsigned long capture_width, capture_height;
@@ -290,6 +306,8 @@ static struct
 
 	unsigned long uniform_bytes;
 	unsigned long drawn, skipped, stat_tests, stat_seen, stat_waited;
+	/* time in bgfx_frame (waiting for the render thread and the GPU) */
+	double stat_frame_wait;
 } bg;
 
 static struct bg_shader bg_failed_shader;
@@ -1780,6 +1798,245 @@ static void bg_indices(D3DPRIMITIVETYPE type, const WORD *source, unsigned long 
 #undef BG_INDEX
 }
 
+/* ---------- vertices
+
+Every draw's vertices are converted into one layout, all sixteen input
+registers as floats. Most never change once loaded (the level, models), so
+a range drawn from is converted once and kept in a vertex buffer, its pages
+write-protected as cached textures' are (memory_watch.c): the game writing
+one converts it again, and ranges it rewrites frame after frame stream
+instead, as the OpenGL path's mirror does. */
+
+struct bg_vertex_entry
+{
+	struct bg_vertex_entry *next;
+	const struct vertex_shader_object *declaration;
+	struct vertex_element elements[XGPU_VERTEX_ATTRIBUTE_COUNT];
+	unsigned long element_count;
+	/* each stream's first vertex (an Xbox address) and stride; 0 unused */
+	unsigned long address[16], stride[16];
+	unsigned long vertex_count;
+	/* the current values standing for the registers the streams leave out */
+	unsigned short provided;
+	float attributes[XGPU_VERTEX_ATTRIBUTE_COUNT][4];
+	bgfx_vertex_buffer_handle_t buffer;
+	unsigned long generation;
+	unsigned long used_frame, rewritten_frame, volatile_frame;
+	unsigned char rewrites;
+};
+
+/* the declaration's registers that come from streams this draw */
+static unsigned short bg_vertex_provided(const struct vertex_shader_object *declaration)
+{
+	unsigned short provided = 0;
+	unsigned long index;
+
+	for (index = 0; index < declaration->element_count; index++)
+	{
+		const struct vertex_element *element = &declaration->elements[index];
+
+		if (device.streams[element->stream].data && element->type != D3DVSDT_NONE &&
+			element->reg < XGPU_VERTEX_ATTRIBUTE_COUNT)
+			provided |= (unsigned short)(1U << element->reg);
+	}
+	return provided;
+}
+
+static void bg_vertices_convert(unsigned char *data, const struct vertex_shader_object *declaration,
+	unsigned long first, unsigned long vertex_count)
+{
+	unsigned long vertex, index;
+
+	for (vertex = 0; vertex < vertex_count; vertex++)
+	{
+		float *out = (float *)(data + vertex * BG_VERTEX_BYTES);
+		unsigned short provided = 0;
+
+		for (index = 0; index < declaration->element_count; index++)
+		{
+			const struct vertex_element *element = &declaration->elements[index];
+			const unsigned char *source;
+
+			if (!device.streams[element->stream].data || element->type == D3DVSDT_NONE ||
+				element->reg >= XGPU_VERTEX_ATTRIBUTE_COUNT || (provided & (1U << element->reg)))
+				continue;
+			provided |= (unsigned short)(1U << element->reg);
+			source = (const unsigned char *)PLATFORM_PHYSICAL_TO_VIRTUAL(device.streams[element->stream].data) +
+				(first + vertex) * device.streams[element->stream].stride + element->offset;
+			bg_vertex_element(element, source, out + element->reg * 4);
+		}
+		for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
+		{
+			if (!(provided & (1U << index)))
+				memcpy(out + index * 4, device.attributes[index], 4 * sizeof(float));
+		}
+	}
+}
+
+static void bg_vertex_entry_free(struct bg_vertex_entry *entry)
+{
+	if (BGFX_HANDLE_IS_VALID(entry->buffer))
+	{
+		bgfx_destroy_vertex_buffer(entry->buffer);
+		bg.vertex_cache_bytes -= entry->vertex_count * BG_VERTEX_BYTES;
+	}
+	free(entry);
+}
+
+/* drops the ranges not drawn from for a while (bg_present) */
+static void bg_vertex_cache_trim(void)
+{
+	unsigned long bucket;
+
+	for (bucket = 0; bucket < BG_VERTEX_BUCKETS; bucket++)
+	{
+		struct bg_vertex_entry **link = &bg.vertex_buckets[bucket];
+
+		while (*link)
+		{
+			struct bg_vertex_entry *entry = *link;
+
+			if (bg.frame - entry->used_frame > BG_VERTEX_UNUSED_FRAMES)
+			{
+				*link = entry->next;
+				bg_vertex_entry_free(entry);
+			}
+			else
+			{
+				link = &entry->next;
+			}
+		}
+	}
+}
+
+/* the draw's vertices kept on the GPU, converted again if the game wrote
+them; invalid when they are to stream (outside the contiguous window,
+rewritten often, or no room) */
+static bgfx_vertex_buffer_handle_t bg_vertex_cache_get(const struct vertex_shader_object *declaration,
+	unsigned long first, unsigned long vertex_count)
+{
+	bgfx_vertex_buffer_handle_t none = BGFX_INVALID_HANDLE;
+	unsigned long address[16], stride[16], stream, index, hash, generation = 0;
+	unsigned short provided = bg_vertex_provided(declaration);
+	struct bg_vertex_entry *entry;
+	const bgfx_memory_t *memory;
+
+	memset(address, 0, sizeof(address));
+	memset(stride, 0, sizeof(stride));
+	for (index = 0; index < declaration->element_count; index++)
+	{
+		const struct vertex_element *element = &declaration->elements[index];
+		unsigned long start;
+
+		stream = element->stream;
+		if (!device.streams[stream].data || element->type == D3DVSDT_NONE || address[stream])
+			continue;
+		stride[stream] = device.streams[stream].stride;
+		address[stream] = (unsigned long)XBOX_ADDRESS(PLATFORM_PHYSICAL_TO_VIRTUAL(device.streams[stream].data)) +
+			first * stride[stream];
+		start = address[stream] - PLATFORM_CONTIGUOUS_BASE;
+		if (address[stream] < PLATFORM_CONTIGUOUS_BASE ||
+			start + (stride[stream] ? stride[stream] * vertex_count : 64) > PLATFORM_CONTIGUOUS_SIZE)
+			return none;
+	}
+	hash = (unsigned long)(uintptr_t)declaration * 31 + vertex_count;
+	for (stream = 0; stream < 16; stream++)
+		hash = hash * 33 + address[stream];
+	hash = (hash ^ (hash >> 13) ^ (hash >> 23)) % BG_VERTEX_BUCKETS;
+	for (entry = bg.vertex_buckets[hash]; entry; entry = entry->next)
+	{
+		if (entry->declaration == declaration && entry->vertex_count == vertex_count &&
+			entry->provided == provided && entry->element_count == declaration->element_count &&
+			!memcmp(entry->address, address, sizeof(address)) && !memcmp(entry->stride, stride, sizeof(stride)) &&
+			!memcmp(entry->elements, declaration->elements, declaration->element_count * sizeof(entry->elements[0])))
+			break;
+	}
+	if (!entry)
+	{
+		entry = calloc(1, sizeof(*entry));
+		if (!entry)
+			return none;
+		entry->declaration = declaration;
+		memcpy(entry->elements, declaration->elements, sizeof(entry->elements));
+		entry->element_count = declaration->element_count;
+		memcpy(entry->address, address, sizeof(address));
+		memcpy(entry->stride, stride, sizeof(stride));
+		entry->vertex_count = vertex_count;
+		entry->provided = provided;
+		entry->buffer = none;
+		entry->next = bg.vertex_buckets[hash];
+		bg.vertex_buckets[hash] = entry;
+	}
+	entry->used_frame = bg.frame;
+	if (entry->volatile_frame && bg.frame - entry->volatile_frame < BG_VERTEX_VOLATILE_FRAMES)
+		return none;
+	for (stream = 0; stream < 16; stream++)
+	{
+		if (address[stream])
+		{
+			unsigned long newest = memory_watch_generation(address[stream],
+				stride[stream] ? stride[stream] * vertex_count : 64);
+
+			if (newest > generation)
+				generation = newest;
+		}
+	}
+	/* (the registers the streams leave out are part of the vertices) */
+	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
+	{
+		if (!(provided & (1U << index)) && memcmp(entry->attributes[index], device.attributes[index], 4 * sizeof(float)))
+		{
+			memcpy(entry->attributes[index], device.attributes[index], 4 * sizeof(float));
+			generation = ~0UL;
+		}
+	}
+	if (BGFX_HANDLE_IS_VALID(entry->buffer) && generation <= entry->generation)
+		return entry->buffer;
+	if (BGFX_HANDLE_IS_VALID(entry->buffer))
+	{
+		/* rewritten */
+		if (bg.frame - entry->rewritten_frame <= BG_VERTEX_REWRITE_FRAMES)
+			entry->rewrites++;
+		else
+			entry->rewrites = 1;
+		entry->rewritten_frame = bg.frame;
+		/* (earlier draws keep the old one until the frame is done) */
+		bgfx_destroy_vertex_buffer(entry->buffer);
+		bg.vertex_cache_bytes -= entry->vertex_count * BG_VERTEX_BYTES;
+		entry->buffer = none;
+		if (entry->rewrites >= BG_VERTEX_VOLATILE_REWRITES)
+		{
+			entry->volatile_frame = bg.frame;
+			entry->rewrites = 0;
+			return none;
+		}
+	}
+	if (bg.vertex_cache_bytes + vertex_count * BG_VERTEX_BYTES > BG_VERTEX_CACHE_BUDGET)
+		return none;
+	/* protect first, so a write racing with the conversion is noticed */
+	generation = 0;
+	for (stream = 0; stream < 16; stream++)
+	{
+		if (address[stream])
+		{
+			unsigned long size = stride[stream] ? stride[stream] * vertex_count : 64;
+			unsigned long newest;
+
+			memory_watch_protect(address[stream], size);
+			newest = memory_watch_generation(address[stream], size);
+			if (newest > generation)
+				generation = newest;
+		}
+	}
+	memory = bgfx_alloc((uint32_t)(vertex_count * BG_VERTEX_BYTES));
+	bg_vertices_convert(memory->data, declaration, first, vertex_count);
+	entry->buffer = bgfx_create_vertex_buffer(memory, &bg.layout, BGFX_BUFFER_NONE);
+	entry->generation = generation;
+	if (BGFX_HANDLE_IS_VALID(entry->buffer))
+		bg.vertex_cache_bytes += vertex_count * BG_VERTEX_BYTES;
+	return entry->buffer;
+}
+
 /* ---------- drawing */
 
 static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, unsigned long vertex_count,
@@ -1792,9 +2049,10 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	bgfx_program_handle_t handle;
 	bgfx_transient_vertex_buffer_t vertices;
 	bgfx_transient_index_buffer_t generated_indices;
+	bgfx_vertex_buffer_handle_t cached = BGFX_INVALID_HANDLE;
 	float texture_scale[4][4];
 	unsigned short rect[4];
-	unsigned long generated, vertex, index, uniform_bytes;
+	unsigned long generated, uniform_bytes;
 	uint32_t stencil, back_stencil, rgba;
 	uint64_t state;
 	BOOL has_depth, native;
@@ -1853,8 +2111,11 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 		((vertex_shader->uniform_size + 255) & ~255UL) + ((fragment_shader->uniform_size + 255) & ~255UL) : 0;
 	if (bg.uniform_bytes + uniform_bytes > BG_UNIFORM_BUDGET)
 		bg_log_once("more draws than a frame's uniform space holds");
+	if (!immediate && BGFX_HANDLE_IS_VALID(handle))
+		cached = bg_vertex_cache_get(declaration, first, vertex_count);
 	if (!BGFX_HANDLE_IS_VALID(handle) || (!native && !generated) || bg.uniform_bytes + uniform_bytes > BG_UNIFORM_BUDGET ||
-		bgfx_get_avail_transient_vertex_buffer((uint32_t)vertex_count, &bg.layout) < vertex_count ||
+		(!BGFX_HANDLE_IS_VALID(cached) &&
+			bgfx_get_avail_transient_vertex_buffer((uint32_t)vertex_count, &bg.layout) < vertex_count) ||
 		(generated && bgfx_get_avail_transient_index_buffer((uint32_t)generated, false) < generated))
 	{
 		/* (drop the textures set for it) */
@@ -1867,39 +2128,21 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	/* the vertices: every input register, from the declaration's elements or
 	the current values the declaration leaves out (immediate vertices are
 	all sixteen registers already) */
-	bgfx_alloc_transient_vertex_buffer(&vertices, (uint32_t)vertex_count, &bg.layout);
-	if (immediate)
+	if (BGFX_HANDLE_IS_VALID(cached))
 	{
-		memcpy(vertices.data, device.immediate_vertices, vertex_count * BG_VERTEX_BYTES);
+		bgfx_set_vertex_buffer(0, cached, 0, (uint32_t)vertex_count);
+		bg.stat_cached_vertices += vertex_count;
 	}
 	else
 	{
-		for (vertex = 0; vertex < vertex_count; vertex++)
-		{
-			float *out = (float *)(vertices.data + vertex * BG_VERTEX_BYTES);
-			unsigned short provided = 0;
-
-			for (index = 0; index < declaration->element_count; index++)
-			{
-				const struct vertex_element *element = &declaration->elements[index];
-				const unsigned char *source;
-
-				if (!device.streams[element->stream].data || element->type == D3DVSDT_NONE ||
-					element->reg >= XGPU_VERTEX_ATTRIBUTE_COUNT || (provided & (1U << element->reg)))
-					continue;
-				provided |= (unsigned short)(1U << element->reg);
-				source = (const unsigned char *)PLATFORM_PHYSICAL_TO_VIRTUAL(device.streams[element->stream].data) +
-					(first + vertex) * device.streams[element->stream].stride + element->offset;
-				bg_vertex_element(element, source, out + element->reg * 4);
-			}
-			for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
-			{
-				if (!(provided & (1U << index)))
-					memcpy(out + index * 4, device.attributes[index], 4 * sizeof(float));
-			}
-		}
+		bgfx_alloc_transient_vertex_buffer(&vertices, (uint32_t)vertex_count, &bg.layout);
+		if (immediate)
+			memcpy(vertices.data, device.immediate_vertices, vertex_count * BG_VERTEX_BYTES);
+		else
+			bg_vertices_convert(vertices.data, declaration, first, vertex_count);
+		bgfx_set_transient_vertex_buffer(0, &vertices, 0, (uint32_t)vertex_count);
+		bg.stat_streamed_vertices += vertex_count;
 	}
-	bgfx_set_transient_vertex_buffer(0, &vertices, 0, (uint32_t)vertex_count);
 	if (generated)
 	{
 		bgfx_alloc_transient_index_buffer(&generated_indices, (uint32_t)generated, false);
@@ -2444,21 +2687,64 @@ void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, c
 static void bg_callback_screen_shot(bgfx_callback_interface_t *self, const char *path, uint32_t width,
 	uint32_t height, uint32_t pitch, bgfx_texture_format_t format, const void *data, uint32_t size, bool flip);
 
+/* with vsync off, whether this frame goes to the window: a window's
+picture waits for the display (Metal hands out the next one only once the
+display has taken one, about 3 behind), so frames faster than the display
+draw the game but go to the window only as often as the display shows them,
+leaving the game to run faster as the OpenGL path does */
+static double bg_window_next, bg_window_interval = -1.0;
+
+static BOOL bg_window_due(void)
+{
+	double now, next = bg_window_next, interval;
+
+	if (bg.reset_flags & BGFX_RESET_VSYNC)
+		return TRUE;
+	if (bg_window_interval < 0.0)
+	{
+		const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(platform_sdl_window()));
+
+		bg_window_interval = mode && mode->refresh_rate > 0.0f ? 1.0 / mode->refresh_rate : 1.0 / 60.0;
+	}
+	interval = bg_window_interval;
+	now = stats_seconds();
+	if (now < next)
+		return FALSE;
+	/* (a frame more than an interval late starts the count again) */
+	bg_window_next = now - next > interval ? now + interval : next + interval;
+	return TRUE;
+}
+
+/* after a frame went to the window: when it waited for the display, the
+next goes an interval after the display took one (the display's own
+timing, which the count above drifts from) */
+static void bg_window_presented(double start, double end)
+{
+	if (!(bg.reset_flags & BGFX_RESET_VSYNC) && end - start > bg_window_interval * 0.25)
+		bg_window_next = end + bg_window_interval;
+}
+
 static void bg_present(void)
 {
+	double frame_start, frame_end;
+	uint32_t frame_number;
+	BOOL window;
 	static long screenshot_every = -1;
 	int letterbox[4] = { 0, 0, 0, 0 };
 
 	if (screenshot_every < 0)
 		screenshot_every = *config_string("debug.screenshot_directory") ? config_integer("debug.screenshot_every") : 0;
 	bg.present_view = (unsigned short)(bg.view + 1);
-	bg_blit(bg.present_view, letterbox);
+	if ((window = bg_window_due()) != FALSE)
+	{
+		bg_blit(bg.present_view, letterbox);
 #ifdef HALO_GAME_BROWSER
-	/* the overlay's screens, over the picture at the window's resolution
-	(ui_overlay.c; its y from the window's bottom, as OpenGL's) */
-	ui_overlay_present(letterbox[0], bg.window_height - (letterbox[1] + letterbox[3]), letterbox[2], letterbox[3],
-		bg.window_width, bg.window_height);
+		/* the overlay's screens, over the picture at the window's resolution
+		(ui_overlay.c; its y from the window's bottom, as OpenGL's) */
+		ui_overlay_present(letterbox[0], bg.window_height - (letterbox[1] + letterbox[3]), letterbox[2], letterbox[3],
+			bg.window_width, bg.window_height);
 #endif
+	}
 	if (screenshot_every > 0 && device.frame % (unsigned long)screenshot_every == 0)
 	{
 		char path[512];
@@ -2498,7 +2784,13 @@ static void bg_present(void)
 			}
 		}
 	}
-	if (bgfx_frame(BGFX_FRAME_NONE) >= bg.capture_ready && bg.capture_pending)
+	frame_start = stats_seconds();
+	frame_number = bgfx_frame(BGFX_FRAME_NONE);
+	frame_end = stats_seconds();
+	bg.stat_frame_wait += frame_end - frame_start;
+	if (window)
+		bg_window_presented(frame_start, frame_end);
+	if (frame_number >= bg.capture_ready && bg.capture_pending)
 	{
 		bg_callback_screen_shot(NULL, bg.capture_path, (uint32_t)bg.capture_width, (uint32_t)bg.capture_height,
 			(uint32_t)(bg.capture_width * 4), BGFX_TEXTURE_FORMAT_BGRA8, bg.capture_pixels,
@@ -2513,13 +2805,19 @@ static void bg_present(void)
 		double cpu = stats->cpuTimerFreq ? (double)stats->cpuTimeFrame * 1000.0 / (double)stats->cpuTimerFreq : 0.0;
 
 		platform_log("bgfx frame %lu: %lu draws, %lu skipped, %u views, %lu KB uniforms; GPU %.2f ms, frame %.2f ms; "
-			"%lu visibility tests, %lu seen, %lu waited", device.frame, bg.drawn / 60, bg.skipped / 60,
+			"%lu visibility tests, %lu seen, %lu waited; in bgfx_frame %.2f ms; vertices %lu cached, %lu streamed, "
+			"cache %lu MB", device.frame, bg.drawn / 60, bg.skipped / 60,
 			(unsigned)bg.present_view + 1, bg.uniform_bytes / 1024, gpu, cpu, bg.stat_tests / 60, bg.stat_seen / 60,
-			bg.stat_waited / 60);
+			bg.stat_waited / 60, bg.stat_frame_wait * 1000.0 / 60.0, bg.stat_cached_vertices / 60,
+			bg.stat_streamed_vertices / 60, bg.vertex_cache_bytes >> 20);
+		bg.stat_frame_wait = 0.0;
+		bg.stat_cached_vertices = bg.stat_streamed_vertices = 0;
 		bg.drawn = bg.skipped = bg.stat_tests = bg.stat_seen = bg.stat_waited = 0;
 	}
 	platform_video_swap();
 	bg_window_update();
+	if (bg.frame % 60 == 0)
+		bg_vertex_cache_trim();
 	/* the next frame's */
 	bg.frame++;
 	bg.uniform_bytes = 0;

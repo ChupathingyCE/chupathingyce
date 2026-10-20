@@ -621,6 +621,16 @@ static struct
 	/* vertex and index bytes drawn from the mirror, and streamed */
 	unsigned long mirrored_bytes, streamed_bytes;
 } stats;
+/* debug.gpu_stats's frame work timing (D3DDevice_Present) */
+static double stats_frame_start, stats_busy_total, stats_busy_worst;
+
+static double stats_seconds(void)
+{
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (double)now.tv_sec + (double)now.tv_nsec / 1e9;
+}
 
 static D3DDevice *device_pointer(void)
 {
@@ -5202,8 +5212,24 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 #endif
 	device.frame++;
 	stats.presents++;
+	if (debug_settings.statistics)
+	{
+		/* a frame's work: from the end of the last frame's wait to this one
+		drawn, without the 60 Hz pacing below */
+		double busy = stats_seconds() - stats_frame_start;
+
+		if (stats_frame_start > 0.0)
+		{
+			stats_busy_total += busy;
+			if (busy > stats_busy_worst)
+				stats_busy_worst = busy;
+		}
+	}
 	if (debug_settings.statistics && device.frame % 60 == 0)
 	{
+		platform_log("frame %lu: work %.2f ms a frame, worst %.2f ms", device.frame, stats_busy_total * 1000.0 / 60.0,
+			stats_busy_worst * 1000.0);
+		stats_busy_total = stats_busy_worst = 0.0;
 		platform_log("frame %lu: %lu draws, %lu immediate, %lu clears, %lu target changes; skipped %lu no program, %lu no target, %lu link; "
 			"%lu KB mirrored, %lu KB streamed",
 			device.frame, stats.draws / stats.presents, stats.immediate_draws / stats.presents, stats.clears / stats.presents,
@@ -5228,6 +5254,8 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		pending_flips++;
 	}
 	pthread_mutex_unlock(&vertical_blank_lock);
+	if (debug_settings.statistics)
+		stats_frame_start = stats_seconds();
 }
 
 HRESULT WINAPI D3DDevice_PersistDisplay(void)
