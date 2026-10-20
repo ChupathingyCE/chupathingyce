@@ -1203,6 +1203,7 @@ void actor_flush_structure_indices(
 
 	actor->input.position.body_location.cluster_index = NONE;
 	actor->input.position.body_location.leaf_index = NONE;
+	actor->input.position.body_location.bonus = NONE;
 	actor->input.pathfinding_surface_index = NONE;
 	actor->stimuli.combat_transition_guard_point_surface_index = NONE;
 

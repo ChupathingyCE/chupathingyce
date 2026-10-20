@@ -507,6 +507,7 @@ void damage_data_new(
 	damage_data->owner_object_index = NONE;
 	damage_data->owner_team_index = NONE;
 	damage_data->location.cluster_index = NONE;
+	damage_data->location.bonus = NONE;
 	damage_data->scale = 1.f;
 	damage_data->multiplier = 1.f;
 	return;

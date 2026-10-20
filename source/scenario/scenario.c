@@ -849,6 +849,9 @@ void scenario_location_from_point(
 	}
 
 	location->cluster_index = (short)cluster_index;
+	/* port: no bonus, as scenario_location_award_bonus leaves it (it was
+	left unset, and copied so into objects, actors and props) */
+	location->bonus = NONE;
 
 	return;
 }

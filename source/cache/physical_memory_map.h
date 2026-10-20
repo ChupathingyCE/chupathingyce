@@ -14,6 +14,12 @@ header included in hcex build.
 structure bsps against (cache_files.c) */
 #define TAG_CACHE_SIZE 0x1600000
 
+/* port: the sound cache's size (the Xbox's 4 MB); a platform may define its
+own, and the cache's pages follow it (xbox_sound_cache.c) */
+#ifndef SOUND_CACHE_SIZE
+#define SOUND_CACHE_SIZE 0x400000
+#endif
+
 /* ---------- macros */
 
 /* ---------- structures */

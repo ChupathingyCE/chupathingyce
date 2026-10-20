@@ -115,11 +115,13 @@ symbols in this file:
 
 /* ---------- constants */
 
-/* port: the cache's pages (sound_cache_new), named for the size check */
+/* port: the cache's pages (sound_cache_new), named for the size check: as
+many 4k pages as the cache holds (the Xbox's 4 MB, 1024), so a platform's
+smaller cache never has sounds placed past its end */
 enum
 {
-	SOUND_CACHE_PAGE_COUNT = 1024,
 	SOUND_CACHE_PAGE_SIZE_BITS = 12,
+	SOUND_CACHE_PAGE_COUNT = SOUND_CACHE_SIZE >> SOUND_CACHE_PAGE_SIZE_BITS,
 };
 
 /* ---------- macros */
@@ -567,7 +569,7 @@ static void sound_cache_start_loading_sound(
 	long cache_block_index;
 
 	/* port: the size is the map's (retail: 288 bytes to 377064): none, or
-	more than the cache holds (1024 pages of 4k), is not loaded, said once
+	more than the cache holds (its 4k pages), is not loaded, said once
 	(the cache halts on a block of no pages) */
 	if (sound->samples.size <= 0 ||
 		sound->samples.size > SOUND_CACHE_PAGE_COUNT << SOUND_CACHE_PAGE_SIZE_BITS)
