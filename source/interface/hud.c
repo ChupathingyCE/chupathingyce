@@ -1009,6 +1009,7 @@ static void hud_draw_players(
 	return;
 }
 
+#ifndef HALO_CONSOLE_NO_PLAYER_NAMES
 /* port: in multiplayer and network co-op, players' names above their heads
 (display.player_names: "all", "allies", "enemies" or "none"). An ally's goes
 above the triangle the game draws over teammates; an enemy's only within the
@@ -1238,6 +1239,8 @@ static void hud_draw_player_names(
 	return;
 }
 
+#endif /* HALO_CONSOLE_NO_PLAYER_NAMES */
+
 static void temporary_hud_draw(
 	void)
 {
@@ -1394,8 +1397,10 @@ void hud_draw_screen(
 		}
 
 		/* port: players' names above their heads, in multiplayer and network co-op */
+#ifndef HALO_CONSOLE_NO_PLAYER_NAMES
 		if ((game_engine_running() || network_coop_active()) && !cinematic_in_progress())
 			hud_draw_player_names();
+#endif
 		/* port: who a dead network co-op player is watching */
 		if (player->unit_index == NONE && coop_spectating() && !cinematic_in_progress())
 			coop_spectate_draw(render.local_player_index);
