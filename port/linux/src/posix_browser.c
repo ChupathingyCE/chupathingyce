@@ -52,8 +52,10 @@ platform.
 #include <stdlib.h>
 #include <string.h>
 
-/* the platform layer's log (platform.h) */
+#ifndef __ANDROID__
+/* the platform layer's log (platform.h; Android's host library has none) */
 void platform_log(const char *format, ...);
+#endif
 
 #define BROWSER_USER_AGENT "chupathingyce-browser"
 #define TIMEOUT_MILLISECONDS 10000
@@ -890,9 +892,11 @@ int posix_browser_private_key(const char *path, unsigned char *key, int size)
 			}
 #endif
 			ok = ok && PRIVATE_KEY_PRIVATE(status) && read(descriptor, key, (size_t)size) == size;
+#ifndef __ANDROID__
 			if (!ok)
 				platform_log("Game list: the player key (%s) can't be used (not a plain file of yours, or too short); "
 					"it is left as it is: don't delete it, it is your identity", path);
+#endif
 			close(descriptor);
 			return ok;
 		}
