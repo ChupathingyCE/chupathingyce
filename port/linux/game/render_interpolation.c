@@ -525,6 +525,12 @@ void render_interpolation_frame_end(void)
 	interpolation_rendering = FALSE;
 }
 
+/* whether the frame drawn is between ticks (display.interpolation) */
+boolean render_interpolation_drawing(void)
+{
+	return interpolation_rendering;
+}
+
 real render_interpolation_fraction(void)
 {
 	return interpolation_rendering ? interpolation_fraction : 1.0f;
@@ -987,6 +993,19 @@ void render_interpolation_first_person(
 }
 
 /* ---------- time */
+
+/* the ticks from a game time to the frame drawn, continuous between ticks
+(a tick behind the simulation, like the objects, and never before then),
+for fades and flashes timed in ticks; whole ticks when not interpolating */
+real render_interpolation_ticks_since(long now, long then)
+{
+	real ticks = (real)(now - then);
+
+	if (!interpolation_rendering)
+		return ticks;
+	ticks += interpolation_fraction - 1.0f;
+	return ticks > 0.0f ? ticks : 0.0f;
+}
 
 /* game time for animated shaders, continuous between ticks: the time of
 the frame drawn (a tick behind the simulation, like the objects) */

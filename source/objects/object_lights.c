@@ -1004,9 +1004,11 @@ void lights_preprocess_scene(
 		}
 		else
 		{
+			/* port: faded by the frame, not the tick
+			(port/linux/game/render_interpolation.c) */
 			intensity = (1.0f - transition_function_evaluate(
 				definition->falloff_function,
-				(real)(current_time - light->parent_light_index)
+				render_interpolation_ticks_since(current_time, light->parent_light_index)
 					/ definition->transition_duration))
 				* light->intensity_scale;
 			rgb_colors_interpolate(
