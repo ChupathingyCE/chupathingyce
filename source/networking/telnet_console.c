@@ -52,6 +52,10 @@ symbols in this file:
 #include "cseries/errors.h"
 #endif
 
+/* port: none of this in a console's build (halo_port_features.h); the
+header stands in for its calls */
+#ifndef HALO_CONSOLE_NO_TELNET
+
 /* ---------- constants */
 
 enum
@@ -432,3 +436,5 @@ static boolean process_telnet_client_buffer(
 
 	return client->endpoint!=NULL;
 }
+
+#endif /* HALO_CONSOLE_NO_TELNET */
