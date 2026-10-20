@@ -76,6 +76,14 @@ about 384 KB; a console draws them as sampled each tick, as retail */
 #define HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
 #endif
 
+/* Delta Profile in the game (port/linux/game/profile_screen.c): its screen,
+its ways in from the menus, and players shown by their profile's name on
+the scoreboard and in the lobby; a console that gets the game list keeps
+Online Games' Link Profile panel, as before */
+#ifndef HALO_CONSOLE_NO_DELTA_PROFILE
+#define HALO_CONSOLE_NO_DELTA_PROFILE
+#endif
+
 #endif /* HALO_CONSOLE */
 
 #endif /* __HALO_PORT_FEATURES_H */

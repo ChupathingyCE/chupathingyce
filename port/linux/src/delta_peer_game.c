@@ -705,6 +705,26 @@ int delta_peer_machine_profile(int machine_index, unsigned char *player_id, delt
 	return 1;
 }
 
+/* the profile a player's machine shares, while that machine has this one
+player alone (a machine's profile is its copy's: split screen players on it
+show by their game names) */
+int delta_peer_player_profile(int player_index, unsigned char *player_id)
+{
+	int machine, index, players = 0;
+
+	if (!delta_game.ready || player_index < 0 || player_index >= DELTA_PEER_MAXIMUM_PLAYERS)
+		return 0;
+	machine = delta_game.peer.player_machines[player_index];
+	if (machine < 0)
+		return 0;
+	for (index = 0; index < DELTA_PEER_MAXIMUM_PLAYERS; index++)
+	{
+		if (delta_game.peer.player_machines[index] == machine)
+			players++;
+	}
+	return players == 1 && delta_peer_machine_profile(machine, player_id, NULL);
+}
+
 int delta_peer_game_room_has(int capability)
 {
 	return delta_game.ready && delta_game.role != _role_none && delta_peer_room_has(&delta_game.peer, capability);

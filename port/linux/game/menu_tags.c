@@ -391,6 +391,10 @@ static char const *const port_function_names[] =
 	"player profile save changes",
 	/* (the server browser's password screen) */
 	"port password init", "port password edit", "port password join", "port password back",
+	/* (Delta Profile: its sections' A, B, Y and X, and Gearbox's Select
+	Profile's DELTA PROFILE) */
+	"port delta profile choose", "port delta profile back", "port delta profile refresh", "port delta profile copies",
+	"port delta profile open",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from
@@ -414,6 +418,8 @@ static char const *const port_game_data_input_names[] =
 	"port gamepad layout preview",
 	/* (the Chupathingy menus' settings picture: the same, on its own frames) */
 	"chupathingy settings picture",
+	/* (Delta Profile's sections: menu_functions.c) */
+	"port delta profile update",
 };
 
 static struct
