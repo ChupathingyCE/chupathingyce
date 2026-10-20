@@ -20,6 +20,7 @@ void render_interpolation_frame_begin(void);
 void render_interpolation_frame_end(void);
 float render_interpolation_fraction(void);
 struct real_matrix4x3 *render_interpolation_object_node_matrices(long object_index);
+float *render_interpolation_object_function_values(long object_index);
 struct observer_result const *render_interpolation_camera(short local_player_index,
 	struct observer_result const *observer);
 void render_interpolation_first_person(short local_player_index, struct real_matrix4x3 *node_matrices,

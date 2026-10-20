@@ -82,6 +82,10 @@ vehicle is corrected by (3 and 4 world units), short of a snap */
 /* a camera cut: a jump or turn no player or scripted camera makes in 33 ms */
 #define CAMERA_CUT_DISTANCE 3.0f
 #define CAMERA_CUT_COSINE 0.5f
+/* an object function's change in one tick past which it is a jump (a
+sawtooth starting over, a square wave, a function switched on or off), not
+a sweep: drawn at once, as at 30 Hz */
+#define FUNCTION_SNAP_CHANGE 0.5f
 
 /* ---------- structures */
 
@@ -116,6 +120,11 @@ struct interpolated_object
 	/* ... the two snapshots' rotations, found when first blended */
 	struct interpolation_rotation *rotations;
 	boolean rotations_valid[2];
+	/* its outgoing functions (A to D: the glows, lights and shaders that
+	pulse with them) in the two snapshots, and the blend drawn this frame */
+	real function_values[2][NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS];
+	real blended_function_values[NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS];
+	long functions_blended_frame;
 };
 
 struct interpolated_camera
@@ -469,12 +478,17 @@ void render_interpolation_tick(void)
 			record->nodes + record->latest * record->node_capacity,
 			object_get_node_matrices(iterator.index),
 			node_count * sizeof(real_matrix4x3));
+		memcpy(
+			record->function_values[record->latest],
+			object->object.outgoing_function_values,
+			sizeof(record->function_values[0]));
 		record->rotations_valid[record->latest] = FALSE;
 		record->object_index = iterator.index;
 		record->node_count = node_count;
 		record->tick = interpolation_tick;
 		record->has_previous = continuing;
 		record->blended_frame = NONE;
+		record->functions_blended_frame = NONE;
 	}
 }
 
@@ -596,6 +610,43 @@ real_matrix4x3 *render_interpolation_object_node_matrices(long object_index)
 		record->blended_frame = interpolation_frame;
 	}
 	return record->nodes + 2 * record->node_capacity;
+}
+
+/* the object's outgoing functions as drawn: between the last two ticks,
+as its pose. Functions are sampled once a tick, so a glow or light pulsing
+with one stepped at 30 Hz however fast the frames came. */
+real *render_interpolation_object_function_values(long object_index)
+{
+	struct interpolated_object *record;
+	long absolute_index;
+
+	if (!interpolation_rendering || !interpolated_objects || object_index == NONE)
+		return NULL;
+	absolute_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(object_index);
+	if (absolute_index >= MAXIMUM_INTERPOLATED_OBJECTS)
+		return NULL;
+	record = &interpolated_objects[absolute_index];
+	if (record->object_index != object_index || record->tick != interpolation_tick || !record->has_previous)
+		return NULL;
+	if (record->functions_blended_frame != interpolation_frame)
+	{
+		real const *previous = record->function_values[record->latest ^ 1];
+		real const *latest = record->function_values[record->latest];
+		short function_index;
+
+		for (function_index = 0; function_index < NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS; function_index++)
+		{
+			real change = latest[function_index] - previous[function_index];
+
+			/* (so written that a value not a number snaps) */
+			record->blended_function_values[function_index] =
+				fabsf(change) <= FUNCTION_SNAP_CHANGE ?
+				lerp(previous[function_index], latest[function_index], interpolation_fraction) :
+				latest[function_index];
+		}
+		record->functions_blended_frame = interpolation_frame;
+	}
+	return record->blended_function_values;
 }
 
 /* ---------- corrections */

@@ -525,7 +525,7 @@ static void render_object_list(
 							model_effect.modifier_animation.colors =
 								object->object.outgoing_change_colors;
 							model_effect.modifier_animation.values =
-								object->object.outgoing_function_values;
+								object_get_function_values(object_index);
 						}
 						else
 						{
@@ -607,7 +607,7 @@ static void render_object_list(
 						object_get_node_matrices(object_index),
 						object->object.region_permutations,
 						object->object.outgoing_change_colors,
-						object->object.outgoing_function_values,
+						object_get_function_values(object_index),
 						data->lighting,
 						&object->object.bounding_sphere_center,
 						object->object.bounding_sphere_radius,
@@ -629,7 +629,7 @@ static void render_object_list(
 						object_get_node_matrices(object_index),
 						object->object.region_permutations,
 						object->object.outgoing_change_colors,
-						object->object.outgoing_function_values,
+						object_get_function_values(object_index),
 						data->lighting,
 						&object->object.bounding_sphere_center,
 						object->object.bounding_sphere_radius,
@@ -645,7 +645,7 @@ static void render_object_list(
 				struct render_animation animation;
 
 				animation.colors = object->object.outgoing_change_colors;
-				animation.values = object->object.outgoing_function_values;
+				animation.values = object_get_function_values(object_index);
 				widgets_render(object_index, data->lighting, &animation);
 			}
 
