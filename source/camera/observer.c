@@ -354,6 +354,7 @@ static void observer_clear(
 	observer->result.position = *global_origin3d;
 	observer->result.location.cluster_index = NONE;
 	observer->result.location.leaf_index = NONE;
+	observer->result.location.bonus = NONE;
 	observer->result.velocity = *global_zero_vector3d;
 	observer->result.forward = *global_forward3d;
 	observer->result.up = *global_up3d;
