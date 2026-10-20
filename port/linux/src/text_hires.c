@@ -105,6 +105,11 @@ int text_hires_enabled(void)
 	{
 		read_at = config_changes();
 		enabled = config_boolean("display.high_res_text");
+#ifdef HALO_BGFX
+		/* (its atlas is a GL texture: the bitmaps' own text, for now) */
+		if (xgpu_bgfx)
+			enabled = FALSE;
+#endif
 	}
 	return enabled;
 }

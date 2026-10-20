@@ -148,6 +148,11 @@ static const struct config_setting config_settings[] =
 		"graphics driver where it can, \"cpu\" by the game as they load (more\n"
 		"memory), or \"auto\": \"cpu\" on Adreno graphics, whose driver drew\n"
 		"them speckled, \"gpu\" on others." },
+#ifdef HALO_BGFX
+	{ "display.renderer", _config_string, "\"gl\"", "HALO_RENDERER", _environment_value, _platform_desktop,
+		"What draws the game: \"gl\", OpenGL; \"bgfx\", the bgfx test backend\n"
+		"(Metal on macOS), a work in progress. Read at start-up." },
+#endif
 	{ "display.vsync", _config_boolean, "true", "HALO_NO_VSYNC", _environment_set_is_false, _platform_all,
 		"Wait for the display between frames; false draws as fast as possible." },
 	{ "display.max_fps", _config_integer, "0", "HALO_MAX_FPS", _environment_value, _platform_desktop,

@@ -36,6 +36,18 @@ Conventions carried over from the Xbox:
 #include "ui_overlay.h"
 #endif
 
+#ifdef HALO_BGFX
+/* the bgfx test backend in place of OpenGL (display.renderer = "bgfx";
+d3d8_bgfx.inl, at the end of this file, which shares the device's state) */
+static BOOL bg_initialize(void);
+static BOOL bg_active(void);
+static void bg_draw_vertices(D3DPRIMITIVETYPE type, unsigned long start, unsigned long count);
+static void bg_draw_indexed(D3DPRIMITIVETYPE type, unsigned long count, const WORD *indices);
+static void bg_draw_immediate(D3DPRIMITIVETYPE type, unsigned long count);
+static void bg_clear(DWORD count, const D3DRECT *rectangles, DWORD flags, D3DCOLOR color, float z, DWORD stencil);
+static void bg_present(void);
+#endif
+
 void d3d8_surface_initialize(D3DSurface *surface, D3DFORMAT format, unsigned long width, unsigned long height);
 void d3d8_surface_resize(D3DSurface *surface, D3DFORMAT format, unsigned long width, unsigned long height);
 
@@ -341,6 +353,10 @@ struct vertex_shader_object
 	/* shader[] and lit_shader[] tried already (bits 0 and 1, and 2 and 3 lit):
 	one that failed (0) is not compiled again at each draw */
 	unsigned char shaders_tried;
+#ifdef HALO_BGFX
+	/* as shader[], the bgfx backend's (d3d8_bgfx.inl) */
+	void *bg_shader[2];
+#endif
 #if !defined(HALO_ANDROID) && !defined(__APPLE__)
 	/* the vertex array its draws last used, and the streams they had
 	(setup_streams: the layout follows from the two) */
@@ -1874,7 +1890,14 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 			!browser_headless() &&
 #endif
 			platform_video_initialize(width, height))
+		{
+#ifdef HALO_BGFX
+			if (xgpu_bgfx)
+				bg_initialize();
+			else
+#endif
 			gl_initialize();
+		}
 		else
 			platform_log("Direct3D: running without a window (nothing is displayed)");
 		device.created = TRUE;
@@ -4561,6 +4584,13 @@ void WINAPI D3DDevice_SetIndices(D3DIndexBuffer *index_data, UINT base_vertex_in
 
 void WINAPI D3DDevice_DrawVertices(D3DPRIMITIVETYPE primitive_type, UINT start_vertex, UINT vertex_count)
 {
+#ifdef HALO_BGFX
+	if (bg_active())
+	{
+		bg_draw_vertices(primitive_type, start_vertex, vertex_count);
+		return;
+	}
+#endif
 	if (!vertex_count || !prepare_draw(FALSE))
 		return;
 	trace_draw("draw", primitive_type, vertex_count, NULL);
@@ -4589,6 +4619,13 @@ void WINAPI D3DDevice_DrawIndexedVertices(D3DPRIMITIVETYPE primitive_type, UINT 
 	GLuint index_buffer = 0;
 	BOOL mirrored;
 
+#ifdef HALO_BGFX
+	if (bg_active())
+	{
+		bg_draw_indexed(primitive_type, vertex_count, index_data);
+		return;
+	}
+#endif
 	if (!vertex_count || !index_data || !prepare_draw(FALSE))
 		return;
 	/* quads are drawn as triangles, from indices made for the draw */
@@ -4667,6 +4704,13 @@ void WINAPI D3DDevice_End(void)
 	D3DPRIMITIVETYPE type = device.immediate_type;
 
 	device.immediate_active = FALSE;
+#ifdef HALO_BGFX
+	if (bg_active())
+	{
+		bg_draw_immediate(type, count);
+		return;
+	}
+#endif
 	if (!count || !prepare_draw(TRUE))
 		return;
 	trace_draw("immediate", type, count, device.immediate_vertices);
@@ -4768,6 +4812,13 @@ void WINAPI D3DDevice_Clear(DWORD count, CONST D3DRECT *rectangles, DWORD flags,
 	BOOL has_depth = FALSE;
 	DWORD index;
 
+#ifdef HALO_BGFX
+	if (bg_active())
+	{
+		bg_clear(count, rectangles, flags, color, z, stencil);
+		return;
+	}
+#endif
 	if (!device.gl_ready || !bind_targets(&has_depth))
 		return;
 	if (trace_frame())
@@ -5120,6 +5171,10 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		device.index_offset = INDEX_BUFFER_SIZE;
 #endif
 	}
+#ifdef HALO_BGFX
+	if (bg_active())
+		bg_present();
+#endif
 	device.frame++;
 	stats.presents++;
 	if (debug_settings.statistics && device.frame % 60 == 0)
@@ -5154,3 +5209,7 @@ HRESULT WINAPI D3DDevice_PersistDisplay(void)
 {
 	return S_OK;
 }
+
+#ifdef HALO_BGFX
+#include "d3d8_bgfx.inl"
+#endif

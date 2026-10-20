@@ -446,7 +446,12 @@ void hud_hires_map_loaded(const long *assets, long count)
 #endif
 	/* (none for a test's run that draws nothing, or with the high-res HUD
 	off: then each is decoded when first drawn, as titles are) */
-	if (!config_boolean("display.high_res_hud") || config_boolean("debug.null_renderer"))
+	if (!config_boolean("display.high_res_hud") || config_boolean("debug.null_renderer")
+#ifdef HALO_BGFX
+		/* (its atlases are GL textures) */
+		|| xgpu_bgfx
+#endif
+		)
 		return;
 	for (index = 0; index < count; index++)
 	{
