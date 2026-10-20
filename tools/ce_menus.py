@@ -713,6 +713,8 @@ def main() -> None:
     (MENUS / "UNWIRED.md").write_text("\n".join(report))
     files = sorted(path.relative_to(MENUS).as_posix() for path in MENUS.rglob("*.xml"))
     files += sorted(art.pngs)
+    # (the Chupathingy menus' own pictures, drawn by hand: kept)
+    files += sorted(path.relative_to(MENUS).as_posix() for path in (MENUS / "chupathingy").rglob("*.png"))
     (MENUS / "menus.json").write_text(json.dumps({
         "comment": "The menus' files the game embeds (tools/ce_menus.py, tools/embed_assets.py).",
         "files": files,

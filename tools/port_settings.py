@@ -307,7 +307,7 @@ def _screen(folder: str, spec: dict, rows: list, list_inputs: list, list_handler
 
 
 def _setting_screen(folder: str, spec: dict) -> list:
-    base = f"{PE}/{folder}"
+    base = folder if folder.startswith("main_menu/") else f"{PE}/{folder}"
     rows, extra = [], []
     place = -1
     for index, (label, setting, choices, _, platform, *named) in enumerate(spec["rows"]):
@@ -800,6 +800,12 @@ TITLES = {
     f"{MT}/lobby/header_lobby": "GAME LOBBY",
     f"{MT}/coop/header_player_2": "PLAYER 2 PROFILE",
     f"{MT}/lobby/header_add_player": "ADD PLAYER",
+    # (the Chupathingy menus' GAME SETUP and game type editor:
+    # port/assets/menus/chupathingy/host_setup.xml; Server Setup's HOST
+    # OPTIONS)
+    f"{MT}/host_setup/header_game_setup": "GAME SETUP",
+    f"{MT}/host_setup/header_edit_game_type": "EDIT GAME TYPE",
+    f"{MT}/server_settings/header_host_options": "HOST OPTIONS",
 }
 
 
@@ -910,7 +916,7 @@ def _server_settings() -> list:
     game's)"""
     base = f"{MT}/server_settings"
     # (eleven rows: closer together, the help lower)
-    spec = {"screen": "server_settings_screen", "spacing": 26, "help_top": 366,
+    spec = {"screen": "server_settings_screen", "spacing": 24, "help_top": 366,
             "header": ("header_server_settings", f"{base}/header_server_settings")}
     rows, extra = [], []
     extra += _value_row(base, "server_name", 0, "ss edit server name")
@@ -1041,6 +1047,20 @@ def _server_settings() -> list:
                                                  ("font", "ui\\small_ui"), ("color", "#FF2896FF"), ("align", "center"),
                                                  ("text_y", 5), ("text_flags", "no_focus_test")], [])
         rows.append((f"{base}/op_{key}", None, 5 + index))
+    # HOST OPTIONS: the host's rules of config.toml (HOST_OPTIONS' screen,
+    # below), in co-op too
+    target = f"{base}/host_options/{HOST_OPTIONS['screen']}"
+    extra += _widget(f"{base}/op_host_options", [("width", 512), ("height", 28),
+                                                ("flags", "pass_unhandled_to_focused_child"),
+                                                ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                     [f'<on event="a" open="{target}"/>', f'<on event="start" open="{target}"/>',
+                      '<on event="left_mouse" run="mouse emit accept event"/>',
+                      f'<child widget="{base}/host_options_label"/>'])
+    extra += _widget(f"{base}/host_options_label", [("type", "text"), ("controller", 1), ("width", 300),
+                                                    ("height", 22), ("string_list", f"{base}/labels"),
+                                                    ("string_index", 16), ("font", "ui\\large_ui"),
+                                                    ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+    rows.append((f"{base}/op_host_options", None, 11))
     extra += _button(f"{base}/button_defaults", 3, [])
     extra += _widget(f"{base}/button_ok", [("type", "text"), ("width", 128), ("height", 24),
                                            ("bitmap", "bitmaps/text_button_background"), ("text", "START GAME"),
@@ -1052,7 +1072,8 @@ def _server_settings() -> list:
     extra += _strings(f"{base}/labels", ["GAME NAME:", "MAXIMUM PLAYERS:", "INVITE LINK:", "GAME TYPE:",
                                          "PLAYER OPTIONS:", "ITEM OPTIONS:", "VEHICLE OPTIONS:", "INDICATOR OPTIONS:",
                                          "TEAMPLAY OPTIONS:", "LISTING:", "FRIENDLY FIRE:", "EXTRA ENEMIES:",
-                                         "PER PLAYER:", "MULTIPLIER:", "PLAYER COLLISIONS:", "PASSWORD:"])
+                                         "PER PLAYER:", "MULTIPLIER:", "PLAYER COLLISIONS:", "PASSWORD:",
+                                         "HOST OPTIONS"])
     extra += _strings(f"{base}/help_strings", [
         "",
         "The game's name in the game list.",
@@ -1084,6 +1105,8 @@ def _server_settings() -> list:
         "Players walk through each other.",
         # (PASSWORD's)
         "Required to join from the Server Browser.",
+        # (HOST OPTIONS')
+        "Team switching, chat filter, aim assist and port.",
     ])
     lines = _screen(base, spec, rows, ["server settings update"],
                     ['<on event="created" run="server settings init"/>'], extra)
@@ -1096,6 +1119,29 @@ def _server_settings() -> list:
 
 
 MAXIMUM_PLAYERS = [2, 4, 8, 12, 16, 24, 32, 48, 64, 96, 128]
+# Server Setup's HOST OPTIONS: the host's rules of config.toml, as the
+# Chupathingy menus' GAME SETUP has them (menu_functions.c), on a settings
+# screen of their own
+HOST_OPTIONS = {
+    "screen": "host_options_screen",
+    "header": ("header_host_options", f"{MT}/server_settings/header_host_options"),
+    "spacing": 30,
+    "rows": [
+        ("TEAM SWITCHING:", "network.team_change", [("BALANCED", "balanced"), ("ALLOW", "allow"), ("OFF", "off")],
+         "When players can change teams.",
+         None),
+        ("TEAM SWITCH MARGIN:", "network.team_change_margin", [(str(count), str(count)) for count in range(17)],
+         "How uneven the teams can get when BALANCED.", None),
+        ("CHAT FILTER:", "network.chat_filter", [("ON", "true"), ("OFF", "false")],
+         "Block chat lines with blocked words.", None),
+        ("MOUSE AIM ASSIST:", "network.block_mouse_aim_assist", [("ALLOWED", "false"), ("BLOCKED", "true")],
+         "Allow or block aim assist for mouse players.",
+         None),
+        ("PORT:", "network.tunnel_port", [("AUTO", "0")] + [(str(port), str(port)) for port in range(2302, 2311)],
+         "The UDP port for internet play. Applies on restart.",
+         None),
+    ],
+}
 # network.coop_friendly_fire's values, as Server Setup's FRIENDLY FIRE shows
 # them (menu_functions.c's cooperative_friendly_fire_modes, in this order)
 COOP_FRIENDLY_FIRE_VALUES = ["off", "on", "shields_only", "explosives_only"]
@@ -1386,7 +1432,8 @@ def multiplayer_files() -> dict:
             "<!-- The port's multiplayer screens, in the PC version's style (tools/port_settings.py) -->", "<menus>"]
     return {
         f"{MT}/join_game".replace("/", ".") + ".port.xml": head + _join_game_extras() + ["</menus>", ""],
-        f"{MT}/server_settings".replace("/", ".") + ".xml": head + _server_settings() + ["</menus>", ""],
+        f"{MT}/server_settings".replace("/", ".") + ".xml": head + _server_settings() +
+        _setting_screen(f"{MT}/server_settings/host_options", HOST_OPTIONS) + ["</menus>", ""],
         f"{MT}/lobby".replace("/", ".") + ".xml": head + _lobby() + ["</menus>", ""],
         f"{MT}/coop".replace("/", ".") + ".xml": head + _coop() + ["</menus>", ""],
         "main_menu/new_select".replace("/", ".") + ".port.xml": head + _map_kind() + ["</menus>", ""],

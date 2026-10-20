@@ -1,0 +1,348 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The Chupathingy menus' GAME SETUP and game type editor, in the Xbox's
+look: the host's game (its name, players, listing, rules) after the Xbox's
+Select Gametype and before its lobby (menu_tags.c points the gametype's
+choice here), and the game type's every setting (the dedicated server's
+game type files', saved as one in the save folder's gametypes/). The rows
+are filled and changed by port/linux/game/menu_functions.c ("port host
+..."): each screen's list says which rows by its screen's name. -->
+<menus>
+	<bitmap name="chupathingy/host/tab_on">
+		<frame png="chupathingy/host/tab_on.png" width="100" height="22"/>
+	</bitmap>
+	<bitmap name="chupathingy/host/tab_off">
+		<frame png="chupathingy/host/tab_off.png" width="100" height="22"/>
+	</bitmap>
+	<widget name="chupathingy/host/header_game_setup" controller="1" left="35" top="11" width="363" height="59" bitmap="main_menu/multiplayer_type_select/host_setup/header_game_setup">
+	</widget>
+	<widget name="chupathingy/host/header_edit_game_type" controller="1" left="35" top="11" width="363" height="59" bitmap="main_menu/multiplayer_type_select/host_setup/header_edit_game_type">
+	</widget>
+	<widget name="chupathingy/host/row_0" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="a" run="port host row a"/>
+		<on event="start" run="port host row a"/>
+		<on event="left" run="port host row left"/>
+		<on event="right" run="port host row right"/>
+		<on event="stick_left" run="port host row left"/>
+		<on event="stick_right" run="port host row right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="chupathingy/host/label"/>
+		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/shown" x="280" y="1"/>
+	</widget>
+	<widget name="chupathingy/host/row_1" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="a" run="port host row a"/>
+		<on event="start" run="port host row a"/>
+		<on event="left" run="port host row left"/>
+		<on event="right" run="port host row right"/>
+		<on event="stick_left" run="port host row left"/>
+		<on event="stick_right" run="port host row right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="chupathingy/host/label"/>
+		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/shown" x="280" y="1"/>
+	</widget>
+	<widget name="chupathingy/host/row_2" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="a" run="port host row a"/>
+		<on event="start" run="port host row a"/>
+		<on event="left" run="port host row left"/>
+		<on event="right" run="port host row right"/>
+		<on event="stick_left" run="port host row left"/>
+		<on event="stick_right" run="port host row right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="chupathingy/host/label"/>
+		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/shown" x="280" y="1"/>
+	</widget>
+	<widget name="chupathingy/host/row_3" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="a" run="port host row a"/>
+		<on event="start" run="port host row a"/>
+		<on event="left" run="port host row left"/>
+		<on event="right" run="port host row right"/>
+		<on event="stick_left" run="port host row left"/>
+		<on event="stick_right" run="port host row right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="chupathingy/host/label"/>
+		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/shown" x="280" y="1"/>
+	</widget>
+	<widget name="chupathingy/host/row_4" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="a" run="port host row a"/>
+		<on event="start" run="port host row a"/>
+		<on event="left" run="port host row left"/>
+		<on event="right" run="port host row right"/>
+		<on event="stick_left" run="port host row left"/>
+		<on event="stick_right" run="port host row right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="chupathingy/host/label"/>
+		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/shown" x="280" y="1"/>
+	</widget>
+	<widget name="chupathingy/host/row_5" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="a" run="port host row a"/>
+		<on event="start" run="port host row a"/>
+		<on event="left" run="port host row left"/>
+		<on event="right" run="port host row right"/>
+		<on event="stick_left" run="port host row left"/>
+		<on event="stick_right" run="port host row right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="chupathingy/host/label"/>
+		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/shown" x="280" y="1"/>
+	</widget>
+	<widget name="chupathingy/host/row_6" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="a" run="port host row a"/>
+		<on event="start" run="port host row a"/>
+		<on event="left" run="port host row left"/>
+		<on event="right" run="port host row right"/>
+		<on event="stick_left" run="port host row left"/>
+		<on event="stick_right" run="port host row right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="chupathingy/host/label"/>
+		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/shown" x="280" y="1"/>
+	</widget>
+	<widget name="chupathingy/host/row_7" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="a" run="port host row a"/>
+		<on event="start" run="port host row a"/>
+		<on event="left" run="port host row left"/>
+		<on event="right" run="port host row right"/>
+		<on event="stick_left" run="port host row left"/>
+		<on event="stick_right" run="port host row right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="chupathingy/host/label"/>
+		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/shown" x="280" y="1"/>
+	</widget>
+	<widget name="chupathingy/host/row_8" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="a" run="port host row a"/>
+		<on event="start" run="port host row a"/>
+		<on event="left" run="port host row left"/>
+		<on event="right" run="port host row right"/>
+		<on event="stick_left" run="port host row left"/>
+		<on event="stick_right" run="port host row right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="chupathingy/host/label"/>
+		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/shown" x="280" y="1"/>
+	</widget>
+	<widget name="chupathingy/host/row_9" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="a" run="port host row a"/>
+		<on event="start" run="port host row a"/>
+		<on event="left" run="port host row left"/>
+		<on event="right" run="port host row right"/>
+		<on event="stick_left" run="port host row left"/>
+		<on event="stick_right" run="port host row right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="chupathingy/host/label"/>
+		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/shown" x="280" y="1"/>
+	</widget>
+	<widget name="chupathingy/host/row_10" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="a" run="port host row a"/>
+		<on event="start" run="port host row a"/>
+		<on event="left" run="port host row left"/>
+		<on event="right" run="port host row right"/>
+		<on event="stick_left" run="port host row left"/>
+		<on event="stick_right" run="port host row right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="chupathingy/host/label"/>
+		<child widget="chupathingy/host/value" x="320" y="1"/>
+		<child widget="chupathingy/host/shown" x="280" y="1"/>
+	</widget>
+	<widget name="chupathingy/host/label" type="text" controller="1" width="280" height="22" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<!-- (a value left and right change: a spinner with no strings of its own, its text the code's, drawn with its arrows) -->
+	<widget name="chupathingy/host/value" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+	</widget>
+	<!-- (a value A edits, or none: no arrows) -->
+	<widget name="chupathingy/host/shown" type="text" controller="1" width="232" height="22" font="ui\large_ui" color="#FFDCDCDC" align="center" text_x="1" text_y="4">
+	</widget>
+	<widget name="chupathingy/host/help" type="text" controller="1" left="68" top="346" width="500" height="60" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/host/setup_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
+		<on event="b" run="port host back"/>
+		<on event="back" run="port host back"/>
+		<child widget="chupathingy/host/header_game_setup"/>
+		<child widget="chupathingy/host/setup_list"/>
+		<child widget="chupathingy/prompts/x" x="20" y="414"/>
+		<child widget="chupathingy/prompts/defaults" x="42" y="414"/>
+		<child widget="chupathingy/prompts/y" x="180" y="414"/>
+		<child widget="chupathingy/prompts/edit_game_type" x="202" y="414"/>
+		<child widget="chupathingy/prompts/b" x="400" y="414"/>
+		<child widget="chupathingy/prompts/back" x="422" y="414"/>
+		<child widget="chupathingy/prompts/a" x="510" y="414"/>
+		<child widget="chupathingy/prompts/accept" x="532" y="414"/>
+	</widget>
+	<widget name="chupathingy/host/setup_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="chupathingy/host/help">
+		<data input="port host update"/>
+		<on event="created" run="port host init"/>
+		<on event="x" run="port host defaults"/>
+		<on event="y" run="port host edit"/>
+		<child widget="chupathingy/host/row_0" x="54" y="73"/>
+		<child widget="chupathingy/host/row_1" x="54" y="97"/>
+		<child widget="chupathingy/host/row_2" x="54" y="121"/>
+		<child widget="chupathingy/host/row_3" x="54" y="145"/>
+		<child widget="chupathingy/host/row_4" x="54" y="169"/>
+		<child widget="chupathingy/host/row_5" x="54" y="193"/>
+		<child widget="chupathingy/host/row_6" x="54" y="217"/>
+		<child widget="chupathingy/host/row_7" x="54" y="241"/>
+		<child widget="chupathingy/host/row_8" x="54" y="265"/>
+		<child widget="chupathingy/host/row_9" x="54" y="289"/>
+		<child widget="chupathingy/host/row_10" x="54" y="313"/>
+	</widget>
+	<widget name="chupathingy/host/tab_general_on" type="text" controller="1" width="100" height="22" bitmap="chupathingy/host/tab_on" text="GENERAL" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="4" text_flags="no_focus_test">
+	</widget>
+	<widget name="chupathingy/host/tab_general_off" type="text" controller="1" width="100" height="22" bitmap="chupathingy/host/tab_off" text="GENERAL" font="ui\small_ui" color="#FF8FA6C8" align="center" text_y="4" text_flags="no_focus_test">
+	</widget>
+	<widget name="chupathingy/host/tab_players_on" type="text" controller="1" width="100" height="22" bitmap="chupathingy/host/tab_on" text="PLAYERS" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="4" text_flags="no_focus_test">
+	</widget>
+	<widget name="chupathingy/host/tab_players_off" type="text" controller="1" width="100" height="22" bitmap="chupathingy/host/tab_off" text="PLAYERS" font="ui\small_ui" color="#FF8FA6C8" align="center" text_y="4" text_flags="no_focus_test">
+	</widget>
+	<widget name="chupathingy/host/tab_weapons_on" type="text" controller="1" width="100" height="22" bitmap="chupathingy/host/tab_on" text="WEAPONS" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="4" text_flags="no_focus_test">
+	</widget>
+	<widget name="chupathingy/host/tab_weapons_off" type="text" controller="1" width="100" height="22" bitmap="chupathingy/host/tab_off" text="WEAPONS" font="ui\small_ui" color="#FF8FA6C8" align="center" text_y="4" text_flags="no_focus_test">
+	</widget>
+	<widget name="chupathingy/host/tab_vehicles_on" type="text" controller="1" width="100" height="22" bitmap="chupathingy/host/tab_on" text="VEHICLES" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="4" text_flags="no_focus_test">
+	</widget>
+	<widget name="chupathingy/host/tab_vehicles_off" type="text" controller="1" width="100" height="22" bitmap="chupathingy/host/tab_off" text="VEHICLES" font="ui\small_ui" color="#FF8FA6C8" align="center" text_y="4" text_flags="no_focus_test">
+	</widget>
+	<widget name="chupathingy/host/tab_indicators_on" type="text" controller="1" width="100" height="22" bitmap="chupathingy/host/tab_on" text="INDICATORS" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="4" text_flags="no_focus_test">
+	</widget>
+	<widget name="chupathingy/host/tab_indicators_off" type="text" controller="1" width="100" height="22" bitmap="chupathingy/host/tab_off" text="INDICATORS" font="ui\small_ui" color="#FF8FA6C8" align="center" text_y="4" text_flags="no_focus_test">
+	</widget>
+	<widget name="chupathingy/host/edit_general" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
+		<on event="b" run="port host back"/>
+		<on event="back" run="port host back"/>
+		<on event="white" replace="chupathingy/host/edit_indicators"/>
+		<on event="left_trigger" replace="chupathingy/host/edit_indicators"/>
+		<on event="black" replace="chupathingy/host/edit_players"/>
+		<on event="right_trigger" replace="chupathingy/host/edit_players"/>
+		<child widget="chupathingy/host/header_edit_game_type"/>
+		<child widget="chupathingy/host/tab_general_on" x="54" y="72"/>
+		<child widget="chupathingy/host/tab_players_off" x="157" y="72"/>
+		<child widget="chupathingy/host/tab_weapons_off" x="260" y="72"/>
+		<child widget="chupathingy/host/tab_vehicles_off" x="363" y="72"/>
+		<child widget="chupathingy/host/tab_indicators_off" x="466" y="72"/>
+		<child widget="chupathingy/host/edit_list"/>
+		<child widget="chupathingy/prompts/x" x="40" y="414"/>
+		<child widget="chupathingy/prompts/defaults" x="62" y="414"/>
+		<child widget="chupathingy/prompts/white" x="196" y="414"/>
+		<child widget="chupathingy/prompts/black" x="218" y="414"/>
+		<child widget="chupathingy/prompts/page" x="240" y="414"/>
+		<child widget="chupathingy/prompts/b" x="372" y="414"/>
+		<child widget="chupathingy/prompts/back" x="394" y="414"/>
+		<child widget="chupathingy/prompts/a" x="478" y="414"/>
+		<child widget="chupathingy/prompts/save" x="500" y="414"/>
+	</widget>
+	<widget name="chupathingy/host/edit_players" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
+		<on event="b" run="port host back"/>
+		<on event="back" run="port host back"/>
+		<on event="white" replace="chupathingy/host/edit_general"/>
+		<on event="left_trigger" replace="chupathingy/host/edit_general"/>
+		<on event="black" replace="chupathingy/host/edit_weapons"/>
+		<on event="right_trigger" replace="chupathingy/host/edit_weapons"/>
+		<child widget="chupathingy/host/header_edit_game_type"/>
+		<child widget="chupathingy/host/tab_general_off" x="54" y="72"/>
+		<child widget="chupathingy/host/tab_players_on" x="157" y="72"/>
+		<child widget="chupathingy/host/tab_weapons_off" x="260" y="72"/>
+		<child widget="chupathingy/host/tab_vehicles_off" x="363" y="72"/>
+		<child widget="chupathingy/host/tab_indicators_off" x="466" y="72"/>
+		<child widget="chupathingy/host/edit_list"/>
+		<child widget="chupathingy/prompts/x" x="40" y="414"/>
+		<child widget="chupathingy/prompts/defaults" x="62" y="414"/>
+		<child widget="chupathingy/prompts/white" x="196" y="414"/>
+		<child widget="chupathingy/prompts/black" x="218" y="414"/>
+		<child widget="chupathingy/prompts/page" x="240" y="414"/>
+		<child widget="chupathingy/prompts/b" x="372" y="414"/>
+		<child widget="chupathingy/prompts/back" x="394" y="414"/>
+		<child widget="chupathingy/prompts/a" x="478" y="414"/>
+		<child widget="chupathingy/prompts/save" x="500" y="414"/>
+	</widget>
+	<widget name="chupathingy/host/edit_weapons" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
+		<on event="b" run="port host back"/>
+		<on event="back" run="port host back"/>
+		<on event="white" replace="chupathingy/host/edit_players"/>
+		<on event="left_trigger" replace="chupathingy/host/edit_players"/>
+		<on event="black" replace="chupathingy/host/edit_vehicles"/>
+		<on event="right_trigger" replace="chupathingy/host/edit_vehicles"/>
+		<child widget="chupathingy/host/header_edit_game_type"/>
+		<child widget="chupathingy/host/tab_general_off" x="54" y="72"/>
+		<child widget="chupathingy/host/tab_players_off" x="157" y="72"/>
+		<child widget="chupathingy/host/tab_weapons_on" x="260" y="72"/>
+		<child widget="chupathingy/host/tab_vehicles_off" x="363" y="72"/>
+		<child widget="chupathingy/host/tab_indicators_off" x="466" y="72"/>
+		<child widget="chupathingy/host/edit_list"/>
+		<child widget="chupathingy/prompts/x" x="40" y="414"/>
+		<child widget="chupathingy/prompts/defaults" x="62" y="414"/>
+		<child widget="chupathingy/prompts/white" x="196" y="414"/>
+		<child widget="chupathingy/prompts/black" x="218" y="414"/>
+		<child widget="chupathingy/prompts/page" x="240" y="414"/>
+		<child widget="chupathingy/prompts/b" x="372" y="414"/>
+		<child widget="chupathingy/prompts/back" x="394" y="414"/>
+		<child widget="chupathingy/prompts/a" x="478" y="414"/>
+		<child widget="chupathingy/prompts/save" x="500" y="414"/>
+	</widget>
+	<widget name="chupathingy/host/edit_vehicles" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
+		<on event="b" run="port host back"/>
+		<on event="back" run="port host back"/>
+		<on event="white" replace="chupathingy/host/edit_weapons"/>
+		<on event="left_trigger" replace="chupathingy/host/edit_weapons"/>
+		<on event="black" replace="chupathingy/host/edit_indicators"/>
+		<on event="right_trigger" replace="chupathingy/host/edit_indicators"/>
+		<child widget="chupathingy/host/header_edit_game_type"/>
+		<child widget="chupathingy/host/tab_general_off" x="54" y="72"/>
+		<child widget="chupathingy/host/tab_players_off" x="157" y="72"/>
+		<child widget="chupathingy/host/tab_weapons_off" x="260" y="72"/>
+		<child widget="chupathingy/host/tab_vehicles_on" x="363" y="72"/>
+		<child widget="chupathingy/host/tab_indicators_off" x="466" y="72"/>
+		<child widget="chupathingy/host/edit_list"/>
+		<child widget="chupathingy/prompts/x" x="40" y="414"/>
+		<child widget="chupathingy/prompts/defaults" x="62" y="414"/>
+		<child widget="chupathingy/prompts/white" x="196" y="414"/>
+		<child widget="chupathingy/prompts/black" x="218" y="414"/>
+		<child widget="chupathingy/prompts/page" x="240" y="414"/>
+		<child widget="chupathingy/prompts/b" x="372" y="414"/>
+		<child widget="chupathingy/prompts/back" x="394" y="414"/>
+		<child widget="chupathingy/prompts/a" x="478" y="414"/>
+		<child widget="chupathingy/prompts/save" x="500" y="414"/>
+	</widget>
+	<widget name="chupathingy/host/edit_indicators" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
+		<on event="b" run="port host back"/>
+		<on event="back" run="port host back"/>
+		<on event="white" replace="chupathingy/host/edit_vehicles"/>
+		<on event="left_trigger" replace="chupathingy/host/edit_vehicles"/>
+		<on event="black" replace="chupathingy/host/edit_general"/>
+		<on event="right_trigger" replace="chupathingy/host/edit_general"/>
+		<child widget="chupathingy/host/header_edit_game_type"/>
+		<child widget="chupathingy/host/tab_general_off" x="54" y="72"/>
+		<child widget="chupathingy/host/tab_players_off" x="157" y="72"/>
+		<child widget="chupathingy/host/tab_weapons_off" x="260" y="72"/>
+		<child widget="chupathingy/host/tab_vehicles_off" x="363" y="72"/>
+		<child widget="chupathingy/host/tab_indicators_on" x="466" y="72"/>
+		<child widget="chupathingy/host/edit_list"/>
+		<child widget="chupathingy/prompts/x" x="40" y="414"/>
+		<child widget="chupathingy/prompts/defaults" x="62" y="414"/>
+		<child widget="chupathingy/prompts/white" x="196" y="414"/>
+		<child widget="chupathingy/prompts/black" x="218" y="414"/>
+		<child widget="chupathingy/prompts/page" x="240" y="414"/>
+		<child widget="chupathingy/prompts/b" x="372" y="414"/>
+		<child widget="chupathingy/prompts/back" x="394" y="414"/>
+		<child widget="chupathingy/prompts/a" x="478" y="414"/>
+		<child widget="chupathingy/prompts/save" x="500" y="414"/>
+	</widget>
+	<widget name="chupathingy/host/edit_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="chupathingy/host/help">
+		<data input="port host update"/>
+		<on event="created" run="port host init"/>
+		<on event="x" run="port host defaults"/>
+		<child widget="chupathingy/host/row_0" x="54" y="100"/>
+		<child widget="chupathingy/host/row_1" x="54" y="124"/>
+		<child widget="chupathingy/host/row_2" x="54" y="148"/>
+		<child widget="chupathingy/host/row_3" x="54" y="172"/>
+		<child widget="chupathingy/host/row_4" x="54" y="196"/>
+		<child widget="chupathingy/host/row_5" x="54" y="220"/>
+		<child widget="chupathingy/host/row_6" x="54" y="244"/>
+		<child widget="chupathingy/host/row_7" x="54" y="268"/>
+		<child widget="chupathingy/host/row_8" x="54" y="292"/>
+		<child widget="chupathingy/host/row_9" x="54" y="316"/>
+	</widget>
+</menus>

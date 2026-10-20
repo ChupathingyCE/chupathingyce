@@ -41,6 +41,9 @@ clock runs on).
 #include "halo_keyboard.h"
 #ifdef HALO_GAME_BROWSER
 #include "../src/ui_overlay.h"
+#ifdef HALO_GAME_BROWSER
+#include "gametype_files.h"
+#endif
 #endif
 
 #include <math.h>
@@ -394,6 +397,9 @@ static char const *const port_function_names[] =
 	"player profile save changes",
 	/* (the server browser's password screen) */
 	"port password init", "port password edit", "port password join", "port password back",
+	/* (the Chupathingy menus' GAME SETUP and game type editor) */
+	"port host init", "port host row a", "port host row left", "port host row right", "port host defaults",
+	"port host edit", "port host back",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from
@@ -417,6 +423,8 @@ static char const *const port_game_data_input_names[] =
 	"port gamepad layout preview",
 	/* (the Chupathingy menus' settings picture: the same, on its own frames) */
 	"chupathingy settings picture",
+	/* (its GAME SETUP's and game type editor's rows) */
+	"port host update",
 };
 
 static struct
@@ -2019,6 +2027,38 @@ boolean pc_menus_chupathingy(
 	return menu_tags.loaded && menu_tags.chupathingy;
 }
 
+/* ---------- the Chupathingy menus' GAME SETUP
+
+The host's gametype, chosen on the Xbox's Select Gametype for a new game
+(System Link's and Online Games'), goes on to GAME SETUP
+(chupathingy/host_setup.xml, menu_functions.c) rather than straight to the
+lobby, which its START GAME opens. */
+
+#define HOST_GAMETYPE_SELECT "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\gametype_select_screen_wrapper"
+#define HOST_LOBBY "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\pregame\\connected_pregame_screen"
+#define HOST_SETUP PC_MENU_TAG_PREFIX "chupathingy\\host\\setup_screen"
+
+static void host_setup_patch(void)
+{
+	long select = tag_loaded(UI_WIDGET_DEFINITION_TAG, HOST_GAMETYPE_SELECT);
+	long lobby = tag_loaded(UI_WIDGET_DEFINITION_TAG, HOST_LOBBY);
+	long setup = tag_loaded(UI_WIDGET_DEFINITION_TAG, HOST_SETUP);
+	long function = ui_function_named("mp profile set for game");
+	struct ui_widget_definition *definition;
+	struct ui_widget_event_handler_reference *handlers;
+	long index;
+
+	if (select == NONE || lobby == NONE || setup == NONE || function == NONE)
+		return;
+	definition = tag_get(UI_WIDGET_DEFINITION_TAG, select);
+	handlers = xbox_pointer(definition->event_handlers.address);
+	for (index = 0; index < definition->event_handlers.count; index++)
+	{
+		if (handlers[index].function == function && handlers[index].widget_tag.index == lobby)
+			reference_set(&handlers[index].widget_tag, UI_WIDGET_DEFINITION_TAG, setup);
+	}
+}
+
 void menu_tags_loaded(
 	char const *map_name)
 {
@@ -2027,6 +2067,13 @@ void menu_tags_loaded(
 	long widget_count, own_lists = 0, total, index;
 
 	boolean game_map = strcmp(map_name, "ui") != 0;
+
+#ifdef HALO_GAME_BROWSER
+	/* (the save folder's game type files, in every menus' gametype lists:
+	gametype_files.c) */
+	if (!game_map)
+		gametype_files_import();
+#endif
 
 	/* (ui.map, and a multiplayer map: its pause menu's SETTINGS) */
 	if (game_map && tag_loaded('Soul', MULTIPLAYER_COLLECTION) == NONE &&
@@ -2161,6 +2208,8 @@ void menu_tags_loaded(
 	}
 	menu_tags.loaded = TRUE;
 	menu_tags.chupathingy = menus_chosen() == _menus_chupathingy;
+	if (menu_tags.chupathingy && !game_map)
+		host_setup_patch();
 	platform_log("menus: %ld widgets, %ld string lists and %ld bitmaps added to the map's %ld tags",
 		widget_count, own_lists + menus->string_list_count, menus->bitmap_count, build.first_index);
 	goto done;
@@ -2345,6 +2394,7 @@ static int pc_menu_key_cap_button(
 		{ "x_butn", UI_BUTTON_X },
 		{ "y_butn", UI_BUTTON_Y },
 		{ "black_butn", UI_BUTTON_RIGHT_SHOULDER },
+		{ "white_butn", UI_BUTTON_LEFT_SHOULDER },
 		{ "start_butn", UI_BUTTON_START },
 		{ "back_butn", UI_BUTTON_BACK },
 	};
