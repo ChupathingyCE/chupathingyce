@@ -55,6 +55,20 @@ console plays its own retail maps, unchecked, as retail did */
 #define HALO_CONSOLE_NO_TAG_VALIDATE
 #endif
 
+/* Discord presence (port/linux/src/p2p_discord.c,
+port/linux/game/discord_game.c): there is no Discord client on a console;
+the switch also leaves out the discord.* settings and their help text */
+#ifndef HALO_CONSOLE_NO_DISCORD
+#define HALO_CONSOLE_NO_DISCORD
+#endif
+
+/* the updater (port/linux/src/updater.c): a console's builds are installed
+by hand; the switch leaves out update.auto and debug.update_answer, so one
+define brings them back when a console gets an updater */
+#ifndef HALO_CONSOLE_NO_UPDATER
+#define HALO_CONSOLE_NO_UPDATER
+#endif
+
 #endif /* HALO_CONSOLE */
 
 #endif /* __HALO_PORT_FEATURES_H */

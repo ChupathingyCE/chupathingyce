@@ -684,6 +684,7 @@ static const struct config_setting config_settings[] =
 		"(a full path is best: a relative one is from the working folder); empty\n"
 		"for none." },
 #endif
+#ifndef HALO_CONSOLE_NO_DISCORD
 	/* (the project's Discord application, "Chupathingy") */
 	{ "discord.application_id", _config_string, "\"1560397272166957136\"", "HALO_DISCORD_APPLICATION",
 		_environment_value, _platform_desktop,
@@ -703,10 +704,13 @@ static const struct config_setting config_settings[] =
 		"While this machine hosts a public game (in the server browser, with no\n"
 		"password), Discord shows a Join game button: its page on the project's\n"
 		"site, which opens its invite. False: no button." },
+#endif
 
+#ifndef HALO_CONSOLE_NO_UPDATER
 	{ "update.auto", _config_boolean, "true", "HALO_UPDATE_AUTO", _environment_value, _platform_all,
 		"Look for a new version when the game starts, and offer to update to it;\n"
 		"false never looks (the game's \"Do not ask again\" writes false here)." },
+#endif
 	{ "crash_reports.upload", _config_string, "\"ask\"", "HALO_CRASH_REPORTS", _environment_value, _platform_desktop,
 		"Send a report of each crash to the developers, through network.browser_url\n"
 		"(port/linux/src/crash_report.h: the build, where it crashed, the end of the\n"
@@ -794,9 +798,11 @@ static const struct config_setting config_settings[] =
 		"\"bot:<seed>\" plays controller 1 with a scripted pattern (automated\n"
 		"network tests); \"look:<seed>\" stands still, only turning and looking\n"
 		"up and down; empty for none." },
+#ifndef HALO_CONSOLE_NO_UPDATER
 	{ "debug.update_answer", _config_string, "\"\"", "HALO_UPDATE_ANSWER", _environment_value, _platform_desktop,
 		"The answer to the new version question, for automated tests: \"yes\",\n"
 		"\"no\" or \"never\" (do not ask again, confirmed); empty asks." },
+#endif
 	{ "debug.chat_test", _config_string, "\"\"", "HALO_CHAT_TEST", _environment_value, _platform_all,
 		"For testing text chat (port/linux/game/chat.c): steps of\n"
 		"\"<seconds>:<all|team|server|mute|unmute|localmute|log|close|type>[:<text>]\"\n"
@@ -842,9 +848,11 @@ static const struct config_setting config_settings[] =
 		"the game's frame (frameNNNNN.bmp)." },
 	{ "debug.texture_dump_directory", _config_string, "\"\"", "HALO_TEXTURE_DUMP", _environment_value, _platform_all,
 		"A folder to write every texture to as it is uploaded; empty none." },
+#ifndef HALO_CONSOLE_NO_DISCORD
 	{ "debug.discord_log", _config_boolean, "false", "HALO_DISCORD_LOG", _environment_set_is_true,
 		_platform_desktop,
 		"Log each activity sent to Discord (an invite in it left out)." },
+#endif
 	{ "debug.texture_log", _config_boolean, "false", "HALO_TEXTURE_LOG", _environment_set_is_true, _platform_all,
 		"Log texture uploads." },
 	{ "debug.texture_no_cache", _config_boolean, "false", "HALO_TEXTURE_NO_CACHE", _environment_set_is_true, _platform_all,
@@ -1514,9 +1522,11 @@ static const struct
 #ifdef HALO_ANDROID
 	{ "audio.buffer_frames", "512", 0, "A larger audio buffer, against crackling (1024)" },
 #endif
+#ifndef HALO_CONSOLE_NO_DISCORD
 	/* OpenCE's Discord application, which ChupathingyCE kept until v0.7.5c
 	(Discord showed "OpenCE" as being played) */
 	{ "discord.application_id", "\"1553978809840050229\"", 1, NULL },
+#endif
 };
 
 #define NUMBER_OF_CONFIG_OLD_DEFAULTS (sizeof(config_old_defaults) / sizeof(config_old_defaults[0]))
@@ -2102,7 +2112,9 @@ static const struct
 	{ "network.map_downloads", { "ask", "always", "never", NULL }, "\"ask\"" },
 	{ "network.join_from_clipboard", { "ask", "always", "never", NULL }, "\"ask\"" },
 	{ "network.team_change", { "balanced", "allow", "off", NULL }, "\"balanced\"" },
+#ifndef HALO_CONSOLE_NO_DISCORD
 	{ "discord.presence", { "full", "minimal", "off", NULL }, "\"full\"" },
+#endif
 	{ "network.platform_limits", { "on", "off", NULL }, "\"on\"" },
 	{ "network.coop_friendly_fire", { "off", "on", "shields_only", "explosives_only", NULL }, NULL },
 	{ "network.coop_enemies_mode", { "none", "per_player", "multiplier", NULL }, "\"none\"" },
