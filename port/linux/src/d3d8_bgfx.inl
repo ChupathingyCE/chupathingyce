@@ -58,6 +58,12 @@ draws past it are skipped rather than overrun it */
 /* occlusion queries, used as a ring (bgfx built with 4096) */
 #define BG_QUERY_COUNT 4096
 #define BG_COMPOSITE_LEVELS 16
+/* frames until a visibility test's queries have their results (bgfx's
+frame latency, 3, and the frame that reads them) */
+#define BG_QUERY_LATENCY 5
+/* a slot's tests waiting for their results (the game tests each again every
+frame) */
+#define BG_TESTS_PENDING 8
 
 /* ---------- uniforms
 
@@ -256,9 +262,13 @@ static struct
 	unsigned long test_first, test_count;
 	struct
 	{
-		unsigned long first, count;
-		float area;
-		BOOL pending;
+		/* its tests still waiting for their queries, oldest first */
+		struct
+		{
+			unsigned long first, count, frame;
+			float area;
+		} pending[BG_TESTS_PENDING];
+		unsigned char pending_count;
 		UINT known;
 	} tests[VISIBILITY_TEST_SLOTS];
 
@@ -270,8 +280,16 @@ static struct
 	int overlay_picture_serial;
 	BOOL overlay_failed;
 
+	/* debug.screenshot_every's copy of the back buffer, read back */
+	bgfx_texture_handle_t capture;
+	unsigned long capture_width, capture_height;
+	unsigned char *capture_pixels;
+	uint32_t capture_ready;
+	BOOL capture_pending;
+	char capture_path[512];
+
 	unsigned long uniform_bytes;
-	unsigned long drawn, skipped;
+	unsigned long drawn, skipped, stat_tests, stat_seen, stat_waited;
 } bg;
 
 static struct bg_shader bg_failed_shader;
@@ -2003,36 +2021,76 @@ static void bg_visibility_begin(void)
 
 static void bg_visibility_end(DWORD index)
 {
+	unsigned char count;
+
 	if (!bg.test_active)
 		return;
 	bg.test_active = FALSE;
 	index %= VISIBILITY_TEST_SLOTS;
-	bg.tests[index].first = bg.test_first;
-	bg.tests[index].count = bg.test_count < BG_QUERY_COUNT ? bg.test_count : BG_QUERY_COUNT;
+	count = bg.tests[index].pending_count;
+	if (count == BG_TESTS_PENDING)
+	{
+		/* (the oldest goes) */
+		memmove(&bg.tests[index].pending[0], &bg.tests[index].pending[1],
+			(BG_TESTS_PENDING - 1) * sizeof(bg.tests[index].pending[0]));
+		count--;
+	}
+	bg.tests[index].pending[count].first = bg.test_first;
+	bg.tests[index].pending[count].count = bg.test_count < BG_QUERY_COUNT ? bg.test_count : BG_QUERY_COUNT;
+	bg.tests[index].pending[count].frame = bg.frame;
 	/* (the count in the game's pixels: lens flares divide it by their area) */
-	bg.tests[index].area = bg.target_scale[0] * bg.target_scale[1];
-	bg.tests[index].pending = TRUE;
+	bg.tests[index].pending[count].area = bg.target_scale[0] * bg.target_scale[1];
+	bg.tests[index].pending_count = (unsigned char)(count + 1);
+	bg.stat_tests++;
 }
 
+/* the slot's latest count known: its newest test whose queries have their
+results (bgfx's results are a query's latest, this test's once the GPU has
+finished its frame, which bgfx reads that many frames later:
+tools/bgfx-patches); until then, the slot's earlier count */
 static UINT bg_visibility_result(DWORD index)
 {
+	int test, done = -1;
 	unsigned long query;
-	long long samples = 0;
 
 	index %= VISIBILITY_TEST_SLOTS;
-	if (!bg.tests[index].pending)
-		return bg.tests[index].known;
-	for (query = 0; query < bg.tests[index].count; query++)
+	for (test = 0; test < bg.tests[index].pending_count; test++)
 	{
-		int32_t result = 0;
-
-		if (bgfx_get_result(bg.queries[(bg.tests[index].first + query) % BG_QUERY_COUNT], &result) ==
-			BGFX_OCCLUSION_QUERY_RESULT_NORESULT)
-			return bg.tests[index].known;
-		samples += result > 0 ? result : 0;
+		if (bg.frame >= bg.tests[index].pending[test].frame + BG_QUERY_LATENCY)
+			done = test;
 	}
-	bg.tests[index].pending = FALSE;
-	bg.tests[index].known = bg.tests[index].area > 1.0f ? (UINT)(samples / bg.tests[index].area + 0.5f) : (UINT)samples;
+	if (done < 0)
+	{
+		if (bg.tests[index].pending_count)
+			bg.stat_waited++;
+		return bg.tests[index].known;
+	}
+	{
+		long long samples = 0;
+		BOOL complete = TRUE;
+
+		for (query = 0; query < bg.tests[index].pending[done].count; query++)
+		{
+			int32_t result = 0;
+
+			if (bgfx_get_result(bg.queries[(bg.tests[index].pending[done].first + query) % BG_QUERY_COUNT], &result) ==
+				BGFX_OCCLUSION_QUERY_RESULT_NORESULT)
+				complete = FALSE;
+			samples += result > 0 ? result : 0;
+		}
+		if (complete)
+		{
+			float area = bg.tests[index].pending[done].area;
+
+			bg.tests[index].known = area > 1.0f ? (UINT)(samples / area + 0.5f) : (UINT)samples;
+			if (bg.tests[index].known)
+				bg.stat_seen++;
+		}
+	}
+	/* (it and the older ones are done with) */
+	memmove(&bg.tests[index].pending[0], &bg.tests[index].pending[done + 1],
+		(size_t)(bg.tests[index].pending_count - done - 1) * sizeof(bg.tests[index].pending[0]));
+	bg.tests[index].pending_count = (unsigned char)(bg.tests[index].pending_count - done - 1);
 	return bg.tests[index].known;
 }
 
@@ -2383,6 +2441,9 @@ void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, c
 	bgfx_submit(bg.present_view, bg.overlay, 0, BGFX_DISCARD_ALL);
 }
 
+static void bg_callback_screen_shot(bgfx_callback_interface_t *self, const char *path, uint32_t width,
+	uint32_t height, uint32_t pitch, bgfx_texture_format_t format, const void *data, uint32_t size, bool flip);
+
 static void bg_present(void)
 {
 	static long screenshot_every = -1;
@@ -2402,10 +2463,48 @@ static void bg_present(void)
 	{
 		char path[512];
 
-		snprintf(path, sizeof(path), "%s/frame%05lu.bmp", config_string("debug.screenshot_directory"), device.frame);
-		bgfx_request_screen_shot((bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE, path);
+		/* the game's frame, as the OpenGL path's (frameNNNNN.bmp: copied from
+		the back buffer and read back once the GPU has it), or with
+		debug.screenshot_window the window as shown (windowNNNNN.bmp) */
+		struct bg_target *back_buffer = bg_target_get(&device.back_buffer);
+
+		if (config_boolean("debug.screenshot_window") || !back_buffer || bg.capture_pending)
+		{
+			snprintf(path, sizeof(path), "%s/window%05lu.bmp", config_string("debug.screenshot_directory"), device.frame);
+			bgfx_request_screen_shot((bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE, path);
+		}
+		else
+		{
+			if (!BGFX_HANDLE_IS_VALID(bg.capture) || bg.capture_width != back_buffer->pixel_width ||
+				bg.capture_height != back_buffer->pixel_height)
+			{
+				if (BGFX_HANDLE_IS_VALID(bg.capture))
+					bgfx_destroy_texture(bg.capture);
+				bg.capture_width = back_buffer->pixel_width;
+				bg.capture_height = back_buffer->pixel_height;
+				bg.capture = bgfx_create_texture_2d((uint16_t)bg.capture_width, (uint16_t)bg.capture_height, false, 1,
+					BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK, NULL, 0);
+				free(bg.capture_pixels);
+				bg.capture_pixels = malloc(bg.capture_width * bg.capture_height * 4);
+			}
+			if (bg.capture_pixels)
+			{
+				bgfx_blit(bg.present_view, bg.capture, 0, 0, 0, 0, back_buffer->texture, 0, 0, 0, 0,
+					(uint16_t)bg.capture_width, (uint16_t)bg.capture_height, 1);
+				bg.capture_ready = bgfx_read_texture(bg.capture, bg.capture_pixels, 0);
+				snprintf(bg.capture_path, sizeof(bg.capture_path), "%s/frame%05lu.bmp",
+					config_string("debug.screenshot_directory"), device.frame);
+				bg.capture_pending = TRUE;
+			}
+		}
 	}
-	bgfx_frame(BGFX_FRAME_NONE);
+	if (bgfx_frame(BGFX_FRAME_NONE) >= bg.capture_ready && bg.capture_pending)
+	{
+		bg_callback_screen_shot(NULL, bg.capture_path, (uint32_t)bg.capture_width, (uint32_t)bg.capture_height,
+			(uint32_t)(bg.capture_width * 4), BGFX_TEXTURE_FORMAT_BGRA8, bg.capture_pixels,
+			(uint32_t)(bg.capture_width * bg.capture_height * 4), false);
+		bg.capture_pending = FALSE;
+	}
 	if (debug_settings.statistics && device.frame % 60 == 0)
 	{
 		const bgfx_stats_t *stats = bgfx_get_stats();
@@ -2413,10 +2512,11 @@ static void bg_present(void)
 			(double)stats->gpuTimerFreq : 0.0;
 		double cpu = stats->cpuTimerFreq ? (double)stats->cpuTimeFrame * 1000.0 / (double)stats->cpuTimerFreq : 0.0;
 
-		platform_log("bgfx frame %lu: %lu draws, %lu skipped, %u views, %lu KB uniforms; GPU %.2f ms, frame %.2f ms",
-			device.frame, bg.drawn / 60, bg.skipped / 60, (unsigned)bg.present_view + 1, bg.uniform_bytes / 1024,
-			gpu, cpu);
-		bg.drawn = bg.skipped = 0;
+		platform_log("bgfx frame %lu: %lu draws, %lu skipped, %u views, %lu KB uniforms; GPU %.2f ms, frame %.2f ms; "
+			"%lu visibility tests, %lu seen, %lu waited", device.frame, bg.drawn / 60, bg.skipped / 60,
+			(unsigned)bg.present_view + 1, bg.uniform_bytes / 1024, gpu, cpu, bg.stat_tests / 60, bg.stat_seen / 60,
+			bg.stat_waited / 60);
+		bg.drawn = bg.skipped = bg.stat_tests = bg.stat_seen = bg.stat_waited = 0;
 	}
 	platform_video_swap();
 	bg_window_update();
@@ -2555,6 +2655,7 @@ static BOOL bg_initialize(void)
 	bg.blit = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	bg.crt = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	bg.overlay = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+	bg.capture = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
 	bg.framebuffer = (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
 	bg.view_framebuffer = (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
 	bg.frame = 1;
