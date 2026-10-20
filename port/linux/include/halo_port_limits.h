@@ -30,6 +30,10 @@ this before any of them is read) */
 
 #include "halo_port_capacity.h"
 
+/* ---------- the desktop extras a console's build leaves out */
+
+#include "halo_port_features.h"
+
 /* ---------- struct network_game layout
 
 The game settings record (struct network_game) is declared separately in
