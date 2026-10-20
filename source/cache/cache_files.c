@@ -652,11 +652,13 @@ void scenario_tags_unload(
 	void)
 {
 	/* port: the high-res HUD forgets this map's bitmaps (port/linux/game/hud_hires_tags.c) */
+#ifndef HALO_CONSOLE_NO_HIRES
 	{
 		extern void hud_hires_tags_unloaded(void);
 
 		hud_hires_tags_unloaded();
 	}
+#endif
 	sound_cache_close();
 	texture_cache_close();
 	/* port: the menus' tags go, and the map's own table comes back
@@ -1525,11 +1527,13 @@ long scenario_tags_load(
 			/* (none of the high-res HUD: Halo PC's HUD bitmaps are laid out
 			otherwise than the Xbox's it was drawn for, so a Custom Edition map
 			draws its own) */
+#ifndef HALO_CONSOLE_NO_HIRES
 			{
 				extern void hud_hires_tags_unloaded(void);
 
 				hud_hires_tags_unloaded();
 			}
+#endif
 			/* its HUD interfaces: placements at Halo PC's high resolution
 			scale halved, meters' bitmaps sampled in Halo PC's channels
 			(port/linux/game/ce_hud.c) */
@@ -1625,11 +1629,13 @@ long scenario_tags_load(
 				menu_tags_loaded(cache_file_globals.header.name);
 			}
 			/* port: the bitmaps the high-res HUD stands for (port/linux/game/hud_hires_tags.c) */
+#ifndef HALO_CONSOLE_NO_HIRES
 			{
 				extern void hud_hires_tags_loaded(long scenario_index);
 
 				hud_hires_tags_loaded(cache_file_globals.tag_header->scenario_tag_index);
 			}
+#endif
 #ifdef HALO_GAME_BROWSER
 			/* the Multiplayer menu's ONLINE GAMES (interface/ui_widget.c) */
 			{
