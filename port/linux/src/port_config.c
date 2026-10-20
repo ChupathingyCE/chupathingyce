@@ -164,10 +164,10 @@ static const struct config_setting config_settings[] =
 	{ "display.interpolation", _config_boolean, "true", "HALO_INTERPOLATION", _environment_value, _platform_all,
 		"Draw a frame for every display refresh, blending between the game's 30\n"
 		"ticks a second; false keeps the original 30 frames a second." },
-	{ "display.direct_camera", _config_boolean, "true", "HALO_DIRECT_CAMERA", _environment_value, _platform_desktop,
+	{ "display.direct_camera", _config_boolean, "true", "HALO_DIRECT_CAMERA", _environment_value, _platform_all,
 		"In first person, point the view where the player aims now instead of\n"
-		"where the last tick left it: the view turns the frame the mouse moves,\n"
-		"not up to two ticks (66 ms) later." },
+		"where the last tick left it: the view turns the frame the mouse, stick\n"
+		"or touch moves it, not up to two ticks (66 ms) later." },
 	{ "display.field_of_view", _config_real, "70.0", "HALO_FIELD_OF_VIEW", _environment_value, _platform_all,
 		"How wide the first-person view is, in degrees across a 4:3 picture:\n"
 		"70 as on the Xbox, 50 to 120 (wider screens see more at the sides).\n"
