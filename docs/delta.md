@@ -1266,6 +1266,50 @@ Stats' event log records moderation through it.
   with a code (`/v1/link`, `/v1/connect`, `/v1/claim`).
 - **Servers** (exists): see Delta Control, The link to the site.
 
+### Delta Profile in the game
+
+The player's own Delta profile, shown in the game
+(`port/linux/game/profile_screen.c`). The game never makes, renames or
+deletes a profile. The password, email, two-step sign-in, export and
+deletion stay on the site, which OPEN ON THE WEB reaches. Linking is per
+copy: every Halo profile on a copy counts for the same Delta profile.
+
+- **Ways in:** the Chupathingy menus' Profiles have a DELTA PROFILE row
+  below Create New Profile, with a summary in the panel. Gearbox's Select
+  Profile has a DELTA PROFILE button. In every menu set, Online Games'
+  Start opens it (the web page when `display.delta_profile` is false).
+  A Halo profile's panel shows one quiet line, "Delta: @handle" or
+  "Delta: not linked". With an empty `network.browser_url`, every way in
+  is hidden.
+- **Sections:** OVERVIEW (name, the player's Spartan, badges, record,
+  recent games), LINKED COPIES, ROLES, PRIVACY AND SHARING, then LINK
+  PROFILE or UNLINK THIS COPY, and OPEN ON THE WEB. The Chupathingy menus
+  draw them with their own widgets
+  (`port/assets/menus/chupathingy/delta_profile.xml`), and Privacy and
+  Sharing is one of their settings pages. The Xbox and Gearbox menus get a
+  screen drawn as Online Games is. The dialogs (Link Profile, unlinking,
+  and the pages of the site with a QR code) are the same in all three.
+- **Requests:** the game sends this copy's player key, over HTTPS only,
+  to the game list: `POST /v1/game/profile` (the profile, its copies, roles
+  and privacy), `/v1/game/unlink` (this copy only) and `/v1/game/privacy`
+  (the site's own privacy settings). The site takes 6 requests a minute
+  from a key, so the game asks at most every 10 seconds, and again when the
+  answer is a minute old. Another copy is unlinked on the site
+  (`/profile#copies`), signed in, never with a key alone. The answer is
+  kept in memory only. `debug.txt` says whether it loaded, never what it
+  holds.
+- **Profile names:** in a game on Delta, a player whose copy shares its
+  profile (`network.share_profile`, Delta Peer's `profile` capability)
+  shows by the profile's display name on the scoreboard, the postgame
+  report and the lobby (`port/linux/game/profile_names.c`). The game asks
+  the site for those players' public cards (`POST /v1/game/players`, no
+  key). A machine with more than one player keeps the game names, because
+  a profile belongs to a copy. OpenCE players, players who don't share,
+  and what OpenCE clients see are unchanged. `display.profile_names =
+  false` shows everyone by their game name.
+- **Consoles:** `HALO_CONSOLE_NO_DELTA_PROFILE` leaves all of it out. A
+  console that has the game list keeps Online Games' Link Profile panel.
+
 ## How it meets everything else
 
 - **OpenCE clients and hosts:** see only the legacy protocol and number.

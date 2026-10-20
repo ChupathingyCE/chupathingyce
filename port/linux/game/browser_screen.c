@@ -37,7 +37,8 @@ downloads, so the game is left and joined again). If the map is not
 downloaded after all, Online Games closes and the main menu says the map is
 missing, as without the downloader.
 
-Start opens the player's profile page in the web browser; RB (only while
+Start opens Delta Profile (profile_screen.c; the web page with
+display.delta_profile off); RB (only while
 this copy is not linked to a profile: browser_profile_linked) opens Link
 Profile over the list, for where no web browser opens: a code (and a QR
 code) to type at the game list's /connect page on another device, then the
@@ -78,6 +79,12 @@ the right button is B.
 #include "../src/ui_overlay.h"
 #include "halo_ui_map_list.h"
 #include "halo_ui_pointer.h"
+#ifndef HALO_CONSOLE_NO_DELTA_PROFILE
+#include "halo_profile_screen.h"
+
+boolean pc_menus_chupathingy(void);
+boolean pc_menu_delta_profile_open(void);
+#endif
 
 /* ---------- constants */
 
@@ -1226,6 +1233,16 @@ offer's while it is) */
 			join_selected();
 		break;
 	case _gamepad_binary_button_start:
+#ifndef HALO_CONSOLE_NO_DELTA_PROFILE
+		/* (Delta Profile's screen: the Chupathingy menus' own, else the
+		screen of code; with display.delta_profile off, the web page) */
+		if (profile_screen_available())
+		{
+			if (pc_menus_chupathingy() ? pc_menu_delta_profile_open() : (profile_screen_open(TRUE), TRUE))
+				browser_screen.active = FALSE;
+			break;
+		}
+#endif
 		browser_open_profile();
 		set_status("Opening your profile in the web browser");
 		break;

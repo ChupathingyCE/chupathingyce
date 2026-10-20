@@ -362,6 +362,48 @@ symbols in this file:
 
 #ifdef HALO_CUSTOM_EDITION
 #include "halo_ui_map_list.h"
+
+/* port: a player who shares their Delta profile, by its name on the
+pregame screen (port/linux/game/profile_names.c): their own line, and a
+machine of one player (its panel names the machine); others as before */
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+boolean profile_names_player(long player_index, wchar_t *name, long size);
+#endif
+#define PREGAME_PROFILE_NAME_LENGTH 33
+
+static wchar_t const *pregame_player_name(
+	long player_index,
+	wchar_t const *name,
+	wchar_t *buffer)
+{
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+	if (player_index != NONE && profile_names_player(player_index, buffer, PREGAME_PROFILE_NAME_LENGTH))
+		return buffer;
+#else
+	(void)player_index;
+	(void)buffer;
+#endif
+	return name;
+}
+
+static wchar_t const *pregame_machine_name(
+	struct network_game const *game,
+	short machine_index,
+	wchar_t const *name,
+	wchar_t *buffer)
+{
+	long index, found = NONE, count = 0;
+
+	for (index = 0; index < (long)NUMBEROF(game->players); index++)
+	{
+		if (network_player_is_valid(&game->players[index]) && game->players[index].machine_index == machine_index)
+		{
+			found = index;
+			count++;
+		}
+	}
+	return count == 1 ? pregame_player_name(found, name, buffer) : name;
+}
 #endif
 
 /* ---------- constants */
@@ -1535,8 +1577,10 @@ static void network_pregame_status_screen_update(
 			}
 			else
 			{
-				long name_length = ustrlen(
-					game->players[local_player_indices[local_player_index]].name);
+				wchar_t profile_name[PREGAME_PROFILE_NAME_LENGTH];
+				wchar_t const *shown_name = pregame_player_name(local_player_indices[local_player_index],
+					game->players[local_player_indices[local_player_index]].name, profile_name);
+				long name_length = ustrlen(shown_name);
 
 				name_text->parameters.text_box.text = ui_widget_realloc(
 					name_text->parameters.text_box.text,
@@ -1547,7 +1591,7 @@ static void network_pregame_status_screen_update(
 				{
 					ustrncpy(
 						name_text->parameters.text_box.text,
-						game->players[local_player_indices[local_player_index]].name,
+						shown_name,
 						name_length);
 					name_text->parameters.text_box.text[name_length] = 0;
 				}
@@ -1615,6 +1659,8 @@ static void network_pregame_status_screen_update(
 			{
 				struct widget_instance *remote_machine_icon;
 				struct widget_instance *remote_machine_name_text;
+				wchar_t machine_profile_name[PREGAME_PROFILE_NAME_LENGTH];
+				wchar_t const *machine_shown;
 				struct widget_instance *player_widget;
 
 				match_vassert(
@@ -1652,7 +1698,9 @@ static void network_pregame_status_screen_update(
 				else
 				{
 					remote_machine_icon->animation.current_frame_index = 1;
-					length = ustrlen(game->machines[machine_indices[machine_widget_index]].name);
+					machine_shown = pregame_machine_name(game, game->machines[machine_indices[machine_widget_index]].machine_index,
+						game->machines[machine_indices[machine_widget_index]].name, machine_profile_name);
+					length = ustrlen(machine_shown);
 					remote_machine_name_text->parameters.text_box.text = ui_widget_realloc(
 						remote_machine_name_text->parameters.text_box.text,
 						(word)(2 * length + 2),
@@ -1662,7 +1710,7 @@ static void network_pregame_status_screen_update(
 					{
 						ustrncpy(
 							remote_machine_name_text->parameters.text_box.text,
-							game->machines[machine_indices[machine_widget_index]].name,
+							machine_shown,
 							length);
 						remote_machine_name_text->parameters.text_box.text[length] = 0;
 					}
