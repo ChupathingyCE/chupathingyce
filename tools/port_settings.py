@@ -182,6 +182,11 @@ SCREENS = {
     },
     "gamepad_setup": {
         "screen": "gamepad_setup_screen",
+        # (a button beside Defaults: Controller Buttons, which sets the
+        # buttons one by one: CONTROLLER_SCREEN)
+        "extra_button": ("button_controller", "BUTTONS",
+                         [f'<on event="a" open="{PE}/controller_buttons/controller_buttons_screen"/>',
+                          f'<on event="start" open="{PE}/controller_buttons/controller_buttons_screen"/>']),
         "header": ("header_profile_controller_setting", f"{PE}/controller_edit/header_profile_controller_setting"),
         "spacing": 30,
         "rows": [
@@ -194,7 +199,7 @@ SCREENS = {
              "Level the view while walking.", None),
             ("BUTTON LAYOUT:", "profile.button_preset",
              [("DEFAULT", "0"), ("SWAP TRIGGERS", "1"), ("SWAP A, L TRIGGER", "2"), ("SWAP B, L TRIGGER", "3"),
-              ("SWAP B, R STICK", "4"), ("BUMPER JUMPER", "5")],
+              ("SWAP B, R STICK", "4"), ("BUMPER JUMPER", "5"), ("CUSTOM", "6")],
              "Change the controller button layout.", None),
             ("STICK LAYOUT:", "profile.joystick_preset",
              [("DEFAULT", "0"), ("SOUTHPAW", "1"), ("LEGACY", "2"), ("LEGACY SOUTHPAW", "3")],
@@ -251,6 +256,13 @@ def _button(name: str, caption: int, handlers: list) -> list:
     return _widget(name, pairs, handlers + ['<on event="left_mouse" run="mouse emit accept event"/>'])
 
 
+def _text_button(name: str, text: str, handlers: list) -> list:
+    """a button like _button's, with its own text"""
+    pairs = [("type", "text"), ("width", 128), ("height", 24), ("bitmap", "bitmaps/text_button_background"),
+             ("text", text), ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"), ("align", "center"), ("text_y", 2)]
+    return _widget(name, pairs, handlers + ['<on event="left_mouse" run="mouse emit accept event"/>'])
+
+
 def _screen(folder: str, spec: dict, rows: list, list_inputs: list, list_handlers: list, extra: list) -> list:
     """a screen: its header, the list of rows (with the help line as its
     description), and the buttons"""
@@ -265,9 +277,10 @@ def _screen(folder: str, spec: dict, rows: list, list_inputs: list, list_handler
                       f'<child{attributes([("widget", f"{base}/options_menu")])}/>'])
     lines += _widget(f"{base}/{header}", [("controller", 1), ("left", 35), ("top", 11), ("width", 605), ("height", 59),
                                           ("bitmap", header_bitmap)], [])
+    # (a help of its own text, set by its screen's function: help_text)
     lines += _widget(f"{base}/help", [("type", "text"), ("controller", 1), ("left", 68),
-                                      ("top", spec.get("help_top", 350)), ("width", 482),
-                                      ("height", 60), ("string_list", f"{base}/help_strings"),
+                                      ("top", spec.get("help_top", 350)), ("width", 482), ("height", 60),
+                                      ("string_list", None if spec.get("help_text") else f"{base}/help_strings"),
                                       ("font", "ui\\large_ui"), ("color", "#FFFFFFFF")], [])
     children = [f'<data input="{name}"/>' for name in list_inputs] + list_handlers
     # (each row: its widget, platform, and the place it is in, else the next)
@@ -279,12 +292,16 @@ def _screen(folder: str, spec: dict, rows: list, list_inputs: list, list_handler
                      [("type", "column_list"), ("width", 640), ("height", 480),
                       ("flags", "pass_unhandled_to_focused_child up_down_tabs_children"),
                       ("description", f"{base}/help")], children)
+    buttons = [f'<child{attributes([("widget", f"{base}/button_defaults"), ("y", 1)])}/>']
+    if "extra_button" in spec:
+        name, text, handlers = spec["extra_button"]
+        buttons.append(f'<child{attributes([("widget", f"{base}/{name}"), ("x", 130), ("y", 1)])}/>')
+        extra = extra + _text_button(f"{base}/{name}", text, handlers)
+    buttons += [f'<child{attributes([("widget", f"{base}/button_ok"), ("x", 380), ("y", 1)])}/>',
+                '<child widget="common_button_cancel" x="510" y="1"/>']
     lines += _widget(f"{base}/button_bar",
                      [("type", "column_list"), ("width", 640), ("height", 28),
-                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
-                     [f'<child{attributes([("widget", f"{base}/button_defaults"), ("y", 1)])}/>',
-                      f'<child{attributes([("widget", f"{base}/button_ok"), ("x", 380), ("y", 1)])}/>',
-                      '<child widget="common_button_cancel" x="510" y="1"/>'])
+                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")], buttons)
     lines += extra
     return lines
 
@@ -380,6 +397,70 @@ def _controls_screen() -> list:
                    extra)
 
 
+# Controller Buttons: the controller's button layout (the profile's, as
+# Gamepad Setup's BUTTON LAYOUT sets it), then each action's button, which A
+# sets (port/linux/game/menu_functions.c's "controller begin binding": the
+# next button pressed, swapped with the action that had it, confirmed with
+# A). Changing one makes the layout Custom (config.toml's
+# controls.controller_layout). The help line says what is happening, by the
+# controller's own names for its buttons.
+CONTROLLER_SCREEN = "controller_buttons"
+CONTROLLER_PRESETS = ["DEFAULT", "SWAP TRIGGERS", "SWAP A, L TRIGGER", "SWAP B, L TRIGGER", "SWAP B, R STICK",
+                      "BUMPER JUMPER", "CUSTOM"]
+# (port/linux/game/menu_functions.c's button_row_actions, in order)
+CONTROLLER_ACTIONS = ["FIRE:", "GRENADE:", "MELEE:", "JUMP:", "ACTION / RELOAD:", "SWITCH WEAPON:",
+                      "SWITCH GRENADE:", "FLASHLIGHT:", "CROUCH:", "ZOOM:"]
+CONTROLLER_SPEC = {"screen": "controller_buttons_screen", "spacing": 26, "help_top": 366, "help_text": True,
+                   "header": ("header_profile_controller_setting",
+                              f"{PE}/controller_edit/header_profile_controller_setting")}
+
+
+def _controller_rows() -> list:
+    """Controller Buttons' rows: (widget, platform, place)"""
+    base = f"{PE}/{CONTROLLER_SCREEN}"
+    return [(f"{base}/op_layout", None, 0)] + [(f"{base}/op_button_{index + 1}", None, index + 1)
+                                                for index in range(len(CONTROLLER_ACTIONS))]
+
+
+def _controller_screen() -> list:
+    base = f"{PE}/{CONTROLLER_SCREEN}"
+    extra = []
+    extra += _widget(f"{base}/op_layout", [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                                           ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                     [f'<child{attributes([("widget", f"{base}/layout_label")])}/>',
+                      f'<child{attributes([("widget", f"{base}/layout_spinner"), ("x", 320), ("y", 1)])}/>'])
+    extra += _widget(f"{base}/layout_label",
+                     [("type", "text"), ("controller", 1), ("width", 300), ("height", 22), ("text", "BUTTON LAYOUT:"),
+                      ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+    extra += _widget(f"{base}/layout_spinner",
+                     [("type", "spinner"), ("left", 3), ("top", 2), ("width", 147), ("height", 20),
+                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items"),
+                      ("strings", "|".join(CONTROLLER_PRESETS)), ("font", "ui\\large_ui"), ("color", "#FF2896FF"),
+                      ("align", "center"), ("text_y", 1), ("header_bitmap", "bitmaps/arrow_sm_left"),
+                      ("footer_bitmap", "bitmaps/arrow_sm_right"), ("header_bounds", "7 -6 19 0"),
+                      ("footer_bounds", "7 150 19 156")], [])
+    for index, label in enumerate(CONTROLLER_ACTIONS):
+        extra += _widget(f"{base}/op_button_{index + 1}",
+                         [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                          ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                         ['<on event="a" run="controller begin binding"/>',
+                          '<on event="start" run="controller begin binding"/>',
+                          f'<child{attributes([("widget", f"{base}/button_label_{index + 1}")])}/>',
+                          f'<child{attributes([("widget", f"{base}/button_value"), ("x", 323), ("y", 1)])}/>'])
+        extra += _widget(f"{base}/button_label_{index + 1}",
+                         [("type", "text"), ("controller", 1), ("width", 300), ("height", 22), ("text", label),
+                          ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+    extra += _widget(f"{base}/button_value",
+                     [("type", "text"), ("controller", 1), ("width", 147), ("height", 22), ("font", "ui\\large_ui"),
+                      ("color", "#FF2896FF"), ("align", "center"), ("text_y", 3), ("text_flags", "no_focus_test")], [])
+    extra += _button(f"{base}/button_defaults", 3, ['<on event="a" run="controller screen defaults"/>',
+                                                    '<on event="start" run="controller screen defaults"/>'])
+    # (OK and Cancel both go back: each change is saved as it is made)
+    extra += _button(f"{base}/button_ok", 1, ['<on event="a" back="true"/>', '<on event="start" back="true"/>'])
+    return _screen(CONTROLLER_SCREEN, CONTROLLER_SPEC, [(row, platform) for row, platform, _ in _controller_rows()],
+                   ["controller update menu"], ['<on event="created" run="controller screen init"/>'], extra)
+
+
 # the profile menu's row for Privacy (not the PC version's: after Network
 # Setup's, its description and picture the eighth: WIDGET_PATCHES, FRAME_COPIES)
 PRIVACY_ITEM = f"{PE}/privacy_profile_item"
@@ -403,6 +484,7 @@ def settings_files() -> dict:
         files[f"{PE}/{folder}".replace("/", ".") + ".xml"] = _setting_screen(folder, spec)
     files[f"{PE}/privacy_setup".replace("/", ".") + ".xml"] += _privacy_item()
     files[f"{PE}/controls_setup".replace("/", ".") + ".xml"] = _controls_screen()
+    files[f"{PE}/{CONTROLLER_SCREEN}".replace("/", ".") + ".xml"] = _controller_screen()
     return {name: ['<?xml version="1.0" encoding="UTF-8"?>',
                    "<!-- The port's settings screen, in the PC version's style (tools/port_settings.py) -->",
                    "<menus>", *lines, "</menus>", ""] for name, lines in files.items()}
@@ -416,7 +498,7 @@ def settings_files() -> dict:
 # defaults; Controls Setup's A changes a key, so X accepts there)
 CHUPATHINGY = "chupathingy/settings"
 # (every page SCREENS has, so that a page added there is here too)
-CHUPATHINGY_PAGES = ["controls_setup", *SCREENS]
+CHUPATHINGY_PAGES = ["controls_setup", CONTROLLER_SCREEN, *SCREENS]
 
 
 def _setting_places(spec: dict) -> list:
@@ -455,6 +537,16 @@ def chupathingy_settings_pages() -> list:
                         '<on event="y" run="controls screen defaults"/>']
             prompts = (_xbox_prompt("y", 60, "defaults") + _xbox_prompt("x", 215, "accept") +
                        _xbox_prompt("b", 350, "cancel") + _xbox_prompt("a", 490, "change"))
+        elif folder == CONTROLLER_SCREEN:
+            spec = CONTROLLER_SPEC
+            rows = _controller_rows()
+            inputs = ["controller update menu"]
+            # (X: the keyboard's Controls Setup)
+            handlers = ['<on event="created" run="controller screen init"/>',
+                        f'<on event="x" open="{CHUPATHINGY}/controls_setup_screen"/>',
+                        '<on event="y" run="controller screen defaults"/>']
+            prompts = (_xbox_prompt("y", 60, "defaults") + _xbox_prompt("x", 215, "keyboard") +
+                       _xbox_prompt("b", 375, "back") + _xbox_prompt("a", 490, "change"))
         else:
             spec = SCREENS[folder]
             rows = [(f"{base}/op_{key}", platform, place) for key, platform, place in _setting_places(spec)]
@@ -463,6 +555,10 @@ def chupathingy_settings_pages() -> list:
                         '<on event="y" run="port settings defaults"/>']
             prompts = (_xbox_prompt("y", 60, "defaults") + _xbox_prompt("b", 360, "cancel") +
                        _xbox_prompt("a", 490, "accept"))
+            # (Gamepad Setup's X: Controller Buttons)
+            if folder == "gamepad_setup":
+                handlers.append(f'<on event="x" open="{CHUPATHINGY}/{CONTROLLER_SCREEN}_screen"/>')
+                prompts += _xbox_prompt("x", 215, "buttons")
         header = spec["header"][0]
         lines += _widget(f"{CHUPATHINGY}/{folder}_screen",
                          [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child pause_game"),
@@ -484,7 +580,8 @@ def replaced(folder: str) -> bool:
     """whether the PC version's folder of widgets is replaced by ours (and
     those below it: the controls' advanced screen, the video test)"""
     return any(folder == path or folder.startswith(f"{path}/")
-               for path in [*(f"{PE}/{name}" for name in [*SCREENS, "controls_setup"]), *REPLACED_FOLDERS])
+               for path in [*(f"{PE}/{name}" for name in [*SCREENS, "controls_setup", CONTROLLER_SCREEN]),
+                            *REPLACED_FOLDERS])
 
 
 # ---------- multiplayer (PLAN.md section 11)

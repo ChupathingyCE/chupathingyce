@@ -44,4 +44,8 @@ too. -->
 	</widget>
 	<widget name="chupathingy/prompts/change" type="text" controller="1" width="140" height="22" text="=CHANGE" font="ui\large_ui" color="#FF2896FF">
 	</widget>
+	<widget name="chupathingy/prompts/keyboard" type="text" controller="1" width="140" height="22" text="=KEYBOARD" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/prompts/buttons" type="text" controller="1" width="140" height="22" text="=BUTTONS" font="ui\large_ui" color="#FF2896FF">
+	</widget>
 </menus>

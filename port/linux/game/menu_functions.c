@@ -84,6 +84,8 @@ their handlers open opens.
 #include "halo_menus.h"
 /* (internet play's server browser: the platform layer's) */
 #include "../src/p2p.h"
+#include "../src/controller_layout.h"
+#include "networking/network_connection.h"
 #ifdef HALO_GAME_BROWSER
 #include "../src/browser.h"
 #endif
@@ -117,6 +119,8 @@ void platform_binding_capture_begin(void);
 int platform_binding_capture_poll(int *input);
 void halo_input_name(int input, char *name, size_t size);
 void halo_input_shown_name(char const *binding, char *shown, size_t size);
+int platform_gamepad_count(void);
+int platform_gamepad_describe(int index, char *name, size_t size);
 short pc_menu_string_index(long definition_index);
 #ifdef HALO_64BIT
 /* (declared for the 64-bit build, which takes no implicit declarations; the
@@ -1581,8 +1585,8 @@ static void profile_gamepad_layout(struct widget_instance *picture)
 		(frame >= PROFILE_FIRST_LAYOUT_FRAME && frame < PROFILE_FIRST_LAYOUT_FRAME + _button_preset_bumper_jumper))
 	{
 		/* (the Xbox's map has a picture for its five layouts: Bumper Jumper's
-		is the plain gamepad's) */
-		if (profile && profile->controller_settings.button_preset == _button_preset_bumper_jumper)
+		and a custom layout's is the plain gamepad's) */
+		if (profile && profile->controller_settings.button_preset >= _button_preset_bumper_jumper)
 			picture->animation.current_frame_index = PROFILE_GAMEPAD_FRAME;
 		else
 			picture->animation.current_frame_index = (short)(PROFILE_FIRST_LAYOUT_FRAME +
@@ -1603,7 +1607,7 @@ static void chupathingy_settings_picture(struct widget_instance *picture)
 
 	if (picture->animation.current_frame_index == PROFILE_GAMEPAD_FRAME)
 	{
-		if (profile && profile->controller_settings.button_preset == _button_preset_bumper_jumper)
+		if (profile && profile->controller_settings.button_preset >= _button_preset_bumper_jumper)
 			picture->animation.current_frame_index = PROFILE_GAMEPAD_FRAME;
 		else
 			picture->animation.current_frame_index = (short)(CHUPATHINGY_FIRST_LAYOUT_FRAME +
@@ -2065,18 +2069,24 @@ static void control_capture_poll(void)
 	controls_screen.capturing_control = NONE;
 	if (result == 1)
 	{
-		char name[CONTROL_NAME_LENGTH];
+		char name[CONTROL_NAME_LENGTH], old[CONTROL_NAME_LENGTH];
 		short other, other_slot;
 
 		halo_input_name(input, name, sizeof(name));
 		if (!*name)
 			return;
+		/* (a key another control has takes this one's old key: swapped, never
+		dropped) */
+		snprintf(old, sizeof(old), "%s", controls_screen.bindings[control][slot]);
 		for (other = 0; other < NUMBEROF(controls); other++)
 		{
 			for (other_slot = 0; other_slot < CONTROL_BINDINGS; other_slot++)
 			{
-				if (!_stricmp(controls_screen.bindings[other][other_slot], name))
-					controls_screen.bindings[other][other_slot][0] = 0;
+				if ((other != control || other_slot != slot) &&
+					!_stricmp(controls_screen.bindings[other][other_slot], name))
+				{
+					snprintf(controls_screen.bindings[other][other_slot], CONTROL_NAME_LENGTH, "%s", old);
+				}
 			}
 		}
 		snprintf(controls_screen.bindings[control][slot], CONTROL_NAME_LENGTH, "%s", name);
@@ -2142,6 +2152,346 @@ static void controls_update(struct widget_instance *list)
 			controls_screen.capturing_control != NONE ? 2 : focused_row ? 1 : 0;
 	}
 }
+
+/* ---------- Controller Buttons (tools/port_settings.py's CONTROLLER_SCREEN):
+the controller's button layout, and each action's button. A on an action
+takes the next button pressed on a controller (Start or Back cancel), shows
+the swap it makes (the action that had that button takes the old one) in
+the two rows and the help, and A confirms it (B cancels). That makes the
+layout Custom: config.toml keeps it (controls.controller_layout), the
+profile names it (button_preset, saved at once: player_ui.c), and the HUD's
+and menus' prompts follow it. While a button is asked for, the menus take
+no input (pc_menu_controller_capture, from ui_widget.c) */
+
+#ifndef HALO_CONSOLE_NO_CONTROLS
+
+#define BUTTON_ROWS 10
+#define HELP_TEXT_LENGTH 192
+
+/* the actions of the rows op_button_1 on */
+static short const button_row_actions[BUTTON_ROWS] =
+{
+	CONTROLLER_ACTION_FIRE, CONTROLLER_ACTION_GRENADE, CONTROLLER_ACTION_MELEE, CONTROLLER_ACTION_JUMP,
+	CONTROLLER_ACTION_ACTION, CONTROLLER_ACTION_SWITCH_WEAPON, CONTROLLER_ACTION_SWITCH_GRENADE,
+	CONTROLLER_ACTION_FLASHLIGHT, CONTROLLER_ACTION_CROUCH, CONTROLLER_ACTION_ZOOM,
+};
+
+/* asking for a button: none; waiting for every button to be let go, then
+for one pressed; for it to be let go, then A or B */
+enum
+{
+	_capture_none,
+	_capture_release,
+	_capture_wait,
+	_capture_confirm_release,
+	_capture_confirm,
+};
+
+static struct
+{
+	short local_player;
+	short button_preset;
+	short joystick_preset;
+	unsigned char layout[CONTROLLER_ACTION_COUNT];
+	int kind;
+	char pad_name[64];
+	short capture;
+	short action;
+	short button;
+	unsigned long capture_time;
+} controller_screen = { 0, 0, 0, { 0 }, -1, "", _capture_none, 0, NONE, 0 };
+
+/* the player's layouts and controller, as they are now */
+static void controller_read(void)
+{
+	player_ui_get_local_player_layouts(controller_screen.local_player, &controller_screen.button_preset,
+		&controller_screen.joystick_preset);
+	controller_layout_preset(controller_screen.button_preset, config_string("controls.controller_layout"),
+		controller_screen.layout);
+	controller_screen.kind = platform_gamepad_describe(-1, controller_screen.pad_name, sizeof(controller_screen.pad_name));
+}
+
+/* "controller screen init" */
+static boolean controller_screen_init(struct widget_instance *widget)
+{
+	struct widget_instance *spinner;
+
+	controller_screen.local_player = widget->local_player_index >= 0 &&
+		widget->local_player_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS ? widget->local_player_index : 0;
+	controller_screen.capture = _capture_none;
+	controller_read();
+	spinner = named(screen_of(widget), "layout_spinner", 0);
+	if (spinner && controller_screen.button_preset < spinner->parameters.list.number_of_items)
+		spinner->parameters.list.selected_index = controller_screen.button_preset;
+	/* (debug.menu_open's "...#rebind": MELEE asked for, LT pressed, to look at it) */
+	{
+		static boolean shown;
+		char const *open = config_string("debug.menu_open");
+		size_t length = strlen(open);
+
+		if (!shown && length > 7 && !strcmp(open + length - 7, "#rebind"))
+		{
+			shown = TRUE;
+			controller_screen.action = CONTROLLER_ACTION_MELEE;
+			controller_screen.button = CONTROLLER_BUTTON_LEFT_TRIGGER;
+			controller_screen.capture = _capture_confirm;
+			controller_screen.capture_time = system_milliseconds();
+		}
+	}
+	return TRUE;
+}
+
+/* "controller screen defaults": the default layout (Custom keeps its buttons) */
+static boolean controller_screen_defaults(struct widget_instance *widget)
+{
+	struct widget_instance *spinner = named(screen_of(widget), "layout_spinner", 0);
+
+	player_ui_set_local_player_layouts(controller_screen.local_player, _button_preset_standard,
+		controller_screen.joystick_preset);
+	controller_read();
+	if (spinner)
+		spinner->parameters.list.selected_index = _button_preset_standard;
+	return TRUE;
+}
+
+static short button_row_of(struct widget_instance *widget)
+{
+	for (; widget; widget = widget->parent)
+	{
+		if (!strncmp(widget->name, "op_button_", 10))
+		{
+			short row = (short)(atoi(widget->name + 10) - 1);
+
+			return row >= 0 && row < BUTTON_ROWS ? row : NONE;
+		}
+	}
+	return NONE;
+}
+
+/* "controller begin binding" (A on an action's row) */
+static boolean controller_capture_begin(struct widget_instance *widget)
+{
+	short row = button_row_of(widget);
+
+	if (row == NONE || platform_gamepad_count() <= 0)
+		return FALSE;
+	controller_read();
+	controller_screen.action = button_row_actions[row];
+	controller_screen.button = NONE;
+	controller_screen.capture = _capture_release;
+	controller_screen.capture_time = system_milliseconds();
+	return TRUE;
+}
+
+/* whether any controller's button is down; the first pressed that an
+action can have (or Start or Back), else NONE */
+static boolean controller_buttons_down(short *pressed)
+{
+	boolean down = FALSE;
+	short gamepad, button;
+
+	*pressed = NONE;
+	for (gamepad = 0; gamepad < MAXIMUM_GAMEPADS; gamepad++)
+	{
+		struct gamepad_state const *state = input_has_gamepad(gamepad) ? input_get_gamepad_state(gamepad) : NULL;
+
+		for (button = 0; state && button < NUMBER_OF_GAMEPAD_BUTTONS; button++)
+		{
+			if (!state->buttons[button])
+				continue;
+			down = TRUE;
+			if (*pressed == NONE && (controller_layout_movable_button(button) ||
+				button == CONTROLLER_BUTTON_START || button == CONTROLLER_BUTTON_BACK))
+			{
+				*pressed = button;
+			}
+		}
+	}
+	return down;
+}
+
+/* the swap confirmed: the custom layout written and in force */
+static void controller_capture_apply(void)
+{
+	unsigned char layout[CONTROLLER_ACTION_COUNT];
+	char text[256];
+
+	memcpy(layout, controller_screen.layout, sizeof(layout));
+	controller_layout_assign(layout, controller_screen.action, controller_screen.button);
+	controller_layout_format(layout, text, sizeof(text));
+	if (!config_write("controls.controller_layout", text))
+	{
+		platform_log("menus: could not write controls.controller_layout");
+		return;
+	}
+	platform_log("menus: controls.controller_layout = %s", text);
+	player_ui_set_local_player_layouts(controller_screen.local_player, _button_preset_custom,
+		controller_screen.joystick_preset);
+	player_ui_custom_layout_changed();
+	controller_read();
+}
+
+/* each frame (ui_widget.c's process_ui_widgets): while a button is asked for,
+the controllers' buttons are read here and the menus take nothing; TRUE then */
+boolean pc_menu_controller_capture(void)
+{
+	short pressed;
+	boolean down;
+
+	if (controller_screen.capture == _capture_none)
+		return FALSE;
+	down = controller_buttons_down(&pressed);
+	switch (controller_screen.capture)
+	{
+	case _capture_release:
+		if (!down)
+			controller_screen.capture = _capture_wait;
+		break;
+	case _capture_wait:
+		if (system_milliseconds() - controller_screen.capture_time > 10000 || pressed == CONTROLLER_BUTTON_START ||
+			pressed == CONTROLLER_BUTTON_BACK || (pressed != NONE &&
+			pressed == controller_screen.layout[controller_screen.action]))
+		{
+			controller_screen.capture = _capture_none;
+		}
+		else if (pressed != NONE)
+		{
+			controller_screen.button = pressed;
+			controller_screen.capture = _capture_confirm_release;
+		}
+		break;
+	case _capture_confirm_release:
+		if (!down)
+			controller_screen.capture = _capture_confirm;
+		break;
+	case _capture_confirm:
+		if (pressed == CONTROLLER_BUTTON_A)
+		{
+			controller_screen.capture = _capture_none;
+			controller_capture_apply();
+		}
+		else if (pressed == CONTROLLER_BUTTON_B || pressed == CONTROLLER_BUTTON_START ||
+			pressed == CONTROLLER_BUTTON_BACK)
+		{
+			controller_screen.capture = _capture_none;
+		}
+		break;
+	}
+	/* (the button that ends it is not the menus': they wait for it to be let go) */
+	event_manager_flush();
+	return TRUE;
+}
+
+static void wide_text(wchar_t *text, char const *ascii, size_t count)
+{
+	size_t index;
+
+	for (index = 0; ascii[index] && index + 1 < count; index++)
+		text[index] = (wchar_t)(unsigned char)ascii[index];
+	text[index] = 0;
+}
+
+/* "controller update menu": the layout chosen (the spinner's) put in force,
+each row's button, and the help */
+static void controller_update(struct widget_instance *list)
+{
+	struct widget_instance *screen = screen_of(list);
+	struct widget_instance *spinner = named(screen, "layout_spinner", 0);
+	struct widget_instance *focused = list->focused_child;
+	struct widget_instance *row;
+	short focused_row = button_row_of(focused);
+	short other = NONE;
+	char help[HELP_TEXT_LENGTH];
+	wchar_t text[HELP_TEXT_LENGTH];
+
+	controller_read();
+	if (spinner && controller_screen.capture == _capture_none &&
+		spinner->parameters.list.selected_index != controller_screen.button_preset)
+	{
+		player_ui_set_local_player_layouts(controller_screen.local_player, spinner->parameters.list.selected_index,
+			controller_screen.joystick_preset);
+		controller_read();
+	}
+	if (controller_screen.capture >= _capture_confirm_release)
+		other = (short)controller_layout_action_on(controller_screen.layout, controller_screen.button);
+	for (row = list->child; row; row = row->next)
+	{
+		short index = button_row_of(row);
+		short action, button;
+		char shown[64];
+
+		if (index == NONE)
+			continue;
+		action = button_row_actions[index];
+		button = controller_screen.layout[action];
+		if (controller_screen.capture != _capture_none && action == controller_screen.action)
+		{
+			if (controller_screen.capture < _capture_confirm_release)
+				snprintf(shown, sizeof(shown), "%s", "PRESS A BUTTON");
+			else
+				snprintf(shown, sizeof(shown), "> %s <", controller_layout_button_name(controller_screen.kind,
+					controller_screen.button));
+		}
+		else if (other != NONE && action == other)
+			snprintf(shown, sizeof(shown), "> %s <", controller_layout_button_name(controller_screen.kind,
+				controller_screen.layout[controller_screen.action]));
+		else
+			snprintf(shown, sizeof(shown), "%s", controller_layout_button_name(controller_screen.kind, button));
+		wide_text(text, shown, ROW_TEXT_LENGTH);
+		text_set(named(row, "button_value", 0), text);
+	}
+
+	/* the help: what is happening, by the controller's own names */
+	if (controller_screen.capture == _capture_release || controller_screen.capture == _capture_wait)
+	{
+		snprintf(help, sizeof(help), "Press a button for %s (now %s).\r\nStart or Back cancels.",
+			controller_layout_action_title(controller_screen.action),
+			controller_layout_button_name(controller_screen.kind, controller_screen.layout[controller_screen.action]));
+	}
+	else if (controller_screen.capture != _capture_none)
+	{
+		if (other != NONE)
+		{
+			snprintf(help, sizeof(help), "%s becomes %s, %s becomes %s.\r\nA confirms, B cancels.",
+				controller_layout_action_title(controller_screen.action),
+				controller_layout_button_name(controller_screen.kind, controller_screen.button),
+				controller_layout_action_title(other),
+				controller_layout_button_name(controller_screen.kind, controller_screen.layout[controller_screen.action]));
+		}
+		else
+		{
+			snprintf(help, sizeof(help), "%s becomes %s.\r\nA confirms, B cancels.",
+				controller_layout_action_title(controller_screen.action),
+				controller_layout_button_name(controller_screen.kind, controller_screen.button));
+		}
+	}
+	else if (focused_row != NONE)
+	{
+		short action = button_row_actions[focused_row];
+
+		if (controller_screen.kind < 0)
+			snprintf(help, sizeof(help), "%s is on %s. Connect a controller\r\nto change its buttons.",
+				controller_layout_action_title(action), controller_layout_button_name(controller_screen.kind,
+					controller_screen.layout[action]));
+		else
+			snprintf(help, sizeof(help), "%s is on %s. A sets its button; the\r\naction on that one takes %s.",
+				controller_layout_action_title(action),
+				controller_layout_button_name(controller_screen.kind, controller_screen.layout[action]),
+				controller_layout_button_name(controller_screen.kind, controller_screen.layout[action]));
+	}
+	else if (focused && named(focused, "layout_spinner", 0))
+	{
+		snprintf(help, sizeof(help), "%s. Which button does what;\r\nCustom is yours, set below.",
+			controller_screen.kind >= 0 ? controller_screen.pad_name : "No controller connected");
+	}
+	else
+		help[0] = 0;
+	wide_text(text, help, HELP_TEXT_LENGTH);
+	if (list->parameters.list.extended_description)
+		text_set_length(list->parameters.list.extended_description, text, HELP_TEXT_LENGTH);
+}
+
+#endif
 
 /* ---------- Multiplayer (port/assets/menus' PLAN: Create Game > Internet
 or LAN; Join Game > Server Browser (blank, for now), LAN, Direct Link): the
@@ -4541,6 +4891,25 @@ static boolean pause_change_teams(struct widget_instance *widget)
 	return TRUE;
 }
 
+/* "port pause controls" (the pause menu's CONTROLS: menu_tags.c): the
+Gearbox and Chupathingy menus' opens their Controller Buttons (its handler's
+widget); the Xbox's, which have no such screen, the Controls screen over
+the pause menu (controls_screen.c), for the menu's player */
+static boolean controls_open(struct widget_instance *widget)
+{
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_CONTROLS)
+	extern short pc_menus_set(void);
+	extern void controls_screen_open(short local_player_index, short page);
+
+	if (pc_menus_set() == 0)
+		controls_screen_open(widget->local_player_index, -1);
+	return TRUE;
+#else
+	(void)widget;
+	return FALSE;
+#endif
+}
+
 /* ---- the lobby: the game's players (up to the port's 128), its map and
 gametype, the countdown */
 
@@ -5927,6 +6296,24 @@ boolean pc_menu_event_function_invoke(
 		{
 			return pause_change_teams(widget);
 		}
+		else if (!strcmp(name, "port pause controls"))
+		{
+			return controls_open(widget);
+		}
+#ifndef HALO_CONSOLE_NO_CONTROLS
+		else if (!strcmp(name, "controller screen init"))
+		{
+			return controller_screen_init(widget);
+		}
+		else if (!strcmp(name, "controller screen defaults"))
+		{
+			return controller_screen_defaults(widget);
+		}
+		else if (!strcmp(name, "controller begin binding"))
+		{
+			return controller_capture_begin(widget);
+		}
+#endif
 		else if (!strcmp(name, "player profile save changes"))
 		{
 			return profile_save_changes(widget, widget_deleted);
@@ -6188,6 +6575,10 @@ void pc_menu_game_data_function_invoke(
 	}
 	else if (!strcmp(name, "controls update menu"))
 		controls_update(widget);
+#ifndef HALO_CONSOLE_NO_CONTROLS
+	else if (!strcmp(name, "controller update menu"))
+		controller_update(widget);
+#endif
 	else if (!strcmp(name, "color picker update"))
 		color_list_update(widget);
 	else if (!strcmp(name, "3wide player profile list update"))

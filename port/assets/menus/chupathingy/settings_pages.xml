@@ -29,6 +29,37 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_command_6" x="54" y="253"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_command_7" x="54" y="283"/>
 	</widget>
+	<widget name="chupathingy/settings/controller_buttons_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
+		<on event="b" back="true"/>
+		<on event="back" back="true"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controller_buttons/header_profile_controller_setting"/>
+		<child widget="chupathingy/settings/controller_buttons_list"/>
+		<child widget="chupathingy/prompts/y" x="60" y="414"/>
+		<child widget="chupathingy/prompts/defaults" x="82" y="414"/>
+		<child widget="chupathingy/prompts/x" x="215" y="414"/>
+		<child widget="chupathingy/prompts/keyboard" x="237" y="414"/>
+		<child widget="chupathingy/prompts/b" x="375" y="414"/>
+		<child widget="chupathingy/prompts/back" x="397" y="414"/>
+		<child widget="chupathingy/prompts/a" x="490" y="414"/>
+		<child widget="chupathingy/prompts/change" x="512" y="414"/>
+	</widget>
+	<widget name="chupathingy/settings/controller_buttons_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/player_setup/player_profile_edit/controller_buttons/help">
+		<data input="controller update menu"/>
+		<on event="created" run="controller screen init"/>
+		<on event="x" open="chupathingy/settings/controls_setup_screen"/>
+		<on event="y" run="controller screen defaults"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controller_buttons/op_layout" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controller_buttons/op_button_1" x="54" y="99"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controller_buttons/op_button_2" x="54" y="125"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controller_buttons/op_button_3" x="54" y="151"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controller_buttons/op_button_4" x="54" y="177"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controller_buttons/op_button_5" x="54" y="203"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controller_buttons/op_button_6" x="54" y="229"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controller_buttons/op_button_7" x="54" y="255"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controller_buttons/op_button_8" x="54" y="281"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controller_buttons/op_button_9" x="54" y="307"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controller_buttons/op_button_10" x="54" y="333"/>
+	</widget>
 	<widget name="chupathingy/settings/video_settings_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
 		<on event="b" back="true"/>
 		<on event="back" back="true"/>
@@ -165,11 +196,14 @@
 		<child widget="chupathingy/prompts/cancel" x="382" y="414"/>
 		<child widget="chupathingy/prompts/a" x="490" y="414"/>
 		<child widget="chupathingy/prompts/accept" x="512" y="414"/>
+		<child widget="chupathingy/prompts/x" x="215" y="414"/>
+		<child widget="chupathingy/prompts/buttons" x="237" y="414"/>
 	</widget>
 	<widget name="chupathingy/settings/gamepad_setup_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/help">
 		<data input="port settings help"/>
 		<on event="a" run="port settings save" back="true"/>
 		<on event="y" run="port settings defaults"/>
+		<on event="x" open="chupathingy/settings/controller_buttons_screen"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/op_look_sensitivity" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/op_invert_look" x="54" y="103"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/op_flight_inversion" x="54" y="133"/>
