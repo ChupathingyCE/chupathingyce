@@ -511,6 +511,13 @@ Microsoft's libraries, whose own terms still apply, and you may remove it
 from your copies (section 7). Chupathingy's and Warthog's own published
 builds are made only with free tools and libraries.
 
+## Support
+
+Chupathingy is free and always will be. Support through
+[Ko-fi](https://ko-fi.com/milenko) goes to running the site and the servers. If
+there's a specific developer or port you'd like to support, ask them: they may
+not be part of our community.
+
 ## Credits
 
 - The decompilation: [punpckhdq/halo](https://github.com/punpckhdq/halo) and
