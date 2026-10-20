@@ -152,6 +152,9 @@ static const struct config_setting config_settings[] =
 	{ "display.renderer", _config_string, "\"gl\"", "HALO_RENDERER", _environment_value, _platform_desktop,
 		"What draws the game: \"gl\", OpenGL; \"bgfx\", the bgfx test backend\n"
 		"(Metal on macOS), a work in progress. Read at start-up." },
+	{ "display.crt_filter", _config_boolean, "false", "HALO_CRT_FILTER", _environment_set_is_true, _platform_desktop,
+		"A CRT look over the picture (scanlines, curvature, phosphor mask); the\n"
+		"bgfx renderer only, for now." },
 #endif
 	{ "display.vsync", _config_boolean, "true", "HALO_NO_VSYNC", _environment_set_is_false, _platform_all,
 		"Wait for the display between frames; false draws as fast as possible." },

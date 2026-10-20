@@ -156,7 +156,8 @@ static struct
 	struct bg_fragment *fragments[BG_SHADER_BUCKETS];
 	struct bg_program *programs[BG_SHADER_BUCKETS];
 	struct bg_texture *textures[BG_TEXTURE_BUCKETS];
-	bgfx_program_handle_t blit;
+	bgfx_program_handle_t blit, crt;
+	bgfx_uniform_handle_t crt_parameters[3];
 
 	unsigned long vsync_read_at;
 	unsigned long drawn, skipped;
@@ -1395,6 +1396,77 @@ static const char bg_blit_fragment_source[] =
 	"\tfragment_color = vec4(texture(tex0, xT0.xy).rgb, 1.0);\n"
 	"}\n";
 
+/* display.crt_filter: a CRT look over the final picture (scanlines,
+curvature, phosphor mask, vignette, bloom, flicker, color bleed), off by
+default. The CRT filter is from Theseus by Milenko (fs_crt.sc, with its
+"Classic" preset), turned into the translators' GLSL dialect. */
+static const char bg_crt_fragment_source[] =
+	"in vec4 xT0;\n"
+	"uniform sampler2D tex0;\n"
+	/* x scanlines, y curvature, z phosphor mask, w vignette */
+	"uniform vec4 crt_parameters1;\n"
+	/* x bloom, y flicker, z color bleed, w brightness */
+	"uniform vec4 crt_parameters2;\n"
+	/* x time, yz the picture's size in pixels */
+	"uniform vec4 crt_parameters3;\n"
+	"layout(location = 0) out vec4 fragment_color;\n"
+	"vec2 distort(vec2 uv, float k)\n"
+	"{\n"
+	"\tvec2 cc = uv - 0.5;\n"
+	"\treturn uv + cc * dot(cc, cc) * k;\n"
+	"}\n"
+	"void main()\n"
+	"{\n"
+	"\tvec2 uv = xT0.xy;\n"
+	"\tvec2 resolution = crt_parameters3.yz;\n"
+	"\tvec3 color;\n"
+	"\tif (crt_parameters1.y > 0.0)\n"
+	"\t{\n"
+	"\t\tuv = distort(uv, crt_parameters1.y * 0.3);\n"
+	"\t\tif (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)\n"
+	"\t\t{\n"
+	"\t\t\tfragment_color = vec4(0.0, 0.0, 0.0, 1.0);\n"
+	"\t\t\treturn;\n"
+	"\t\t}\n"
+	"\t}\n"
+	"\tif (crt_parameters2.z > 0.0)\n"
+	"\t{\n"
+	"\t\tfloat offset = crt_parameters2.z / resolution.x;\n"
+	"\t\tcolor.r = texture(tex0, vec2(uv.x + offset, uv.y)).r;\n"
+	"\t\tcolor.g = texture(tex0, uv).g;\n"
+	"\t\tcolor.b = texture(tex0, vec2(uv.x - offset, uv.y)).b;\n"
+	"\t}\n"
+	"\telse\n"
+	"\t\tcolor = texture(tex0, uv).rgb;\n"
+	"\tif (crt_parameters2.x > 0.0)\n"
+	"\t{\n"
+	"\t\tfloat ps = 1.5 / resolution.x;\n"
+	"\t\tfloat pt = 1.5 / resolution.y;\n"
+	"\t\tvec3 bloom = (texture(tex0, uv + vec2(-ps, -pt)).rgb + texture(tex0, uv + vec2(ps, -pt)).rgb +\n"
+	"\t\t\ttexture(tex0, uv + vec2(-ps, pt)).rgb + texture(tex0, uv + vec2(ps, pt)).rgb) * 0.25;\n"
+	"\t\tcolor = mix(color, max(color, bloom), crt_parameters2.x);\n"
+	"\t}\n"
+	"\tif (crt_parameters1.x > 0.0)\n"
+	"\t{\n"
+	"\t\tfloat scanline = pow(sin(uv.y * resolution.y * 3.14159) * 0.5 + 0.5, 1.5);\n"
+	"\t\tcolor *= mix(1.0, scanline, crt_parameters1.x * 0.5);\n"
+	"\t}\n"
+	"\tif (crt_parameters1.z > 0.0)\n"
+	"\t{\n"
+	"\t\tint px = int(gl_FragCoord.x) - 3 * (int(gl_FragCoord.x) / 3);\n"
+	"\t\tfloat dim = 1.0 - crt_parameters1.z * 0.5;\n"
+	"\t\tcolor *= px == 0 ? vec3(1.0, dim, dim) : px == 1 ? vec3(dim, 1.0, dim) : vec3(dim, dim, 1.0);\n"
+	"\t}\n"
+	"\tif (crt_parameters2.y > 0.0)\n"
+	"\t\tcolor *= 1.0 - crt_parameters2.y * 0.03 * sin(crt_parameters3.x * 15.0);\n"
+	"\tif (crt_parameters1.w > 0.0)\n"
+	"\t{\n"
+	"\t\tvec2 vig = uv * (1.0 - uv);\n"
+	"\t\tcolor *= pow(vig.x * vig.y * 16.0, crt_parameters1.w * 0.3);\n"
+	"\t}\n"
+	"\tfragment_color = vec4(color * crt_parameters2.w, 1.0);\n"
+	"}\n";
+
 static void bg_targets_update(void)
 {
 	unsigned long width = (unsigned long)scaled_pixel((float)halo_screen_width(), screen_scale[0]);
@@ -1468,6 +1540,22 @@ static void bg_blit(unsigned short view)
 	bgfx_set_transient_vertex_buffer(0, &vertices, 0, 4);
 	bgfx_set_texture(0, bg.samplers[0], bg.color, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_state(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_TRISTRIP, 0);
+	if (config_boolean("display.crt_filter") && BGFX_HANDLE_IS_VALID(bg.crt))
+	{
+		/* (Theseus's "Classic" preset) */
+		float parameters[3][4] =
+		{
+			{ 0.5f, 0.4f, 0.3f, 0.3f },
+			{ 0.15f, 0.2f, 1.0f, 1.05f },
+			{ (float)SDL_GetTicks() / 1000.0f, (float)width, (float)height, 0.0f },
+		};
+		int index;
+
+		for (index = 0; index < 3; index++)
+			bgfx_set_uniform(bg.crt_parameters[index], parameters[index], 1);
+		bgfx_submit(view, bg.crt, 0, BGFX_DISCARD_ALL);
+		return;
+	}
 	bgfx_submit(view, bg.blit, 0, BGFX_DISCARD_ALL);
 }
 
@@ -1631,6 +1719,7 @@ static BOOL bg_initialize(void)
 	bg.view = 0;
 	bg.back_buffer = (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
 	bg.blit = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+	bg.crt = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	SDL_GetWindowSizeInPixels(bg.window, &width, &height);
 
 	/* (drawn on this thread: bgfx renders as each frame is submitted) */
@@ -1690,6 +1779,16 @@ static BOOL bg_initialize(void)
 
 		if (vertex != &bg_failed_shader && fragment != &bg_failed_shader)
 			bg.blit = bgfx_create_program(vertex->shader, fragment->shader, false);
+		for (index = 0; index < 3; index++)
+		{
+			char name[24];
+
+			snprintf(name, sizeof(name), "crt_parameters%lu", index + 1);
+			bg.crt_parameters[index] = bgfx_create_uniform(name, BGFX_UNIFORM_TYPE_VEC4, 1);
+		}
+		fragment = bg_shader_get(bg_crt_fragment_source, TRUE, "CRT filter pixel");
+		if (vertex != &bg_failed_shader && fragment != &bg_failed_shader)
+			bg.crt = bgfx_create_program(vertex->shader, fragment->shader, false);
 	}
 
 	/* (gl_initialize's: the guest memory writes that make textures stale,
