@@ -1038,8 +1038,10 @@ static int sdl_gamepads(SDL_Gamepad *gamepads[PORT_COUNT])
 }
 
 /* the gamepad last used (its SDL id; 0 none yet), which the Controls screen
-names first */
+names first (Android has no SDL_GetGamepadID: the first) */
+#ifndef HALO_ANDROID
 static SDL_JoystickID last_used_gamepad;
+#endif
 
 int platform_gamepad_count(void)
 {
@@ -1062,11 +1064,15 @@ int platform_gamepad_describe(int index, char *name, size_t size)
 		name[0] = 0;
 	if (index < 0)
 	{
+#ifndef HALO_ANDROID
 		for (each = 0; each < count && !gamepad; each++)
 		{
 			if (last_used_gamepad && SDL_GetGamepadID(gamepads[each]) == last_used_gamepad)
 				gamepad = gamepads[each];
 		}
+#else
+		(void)each;
+#endif
 		index = 0;
 	}
 	if (!gamepad && index < count)
@@ -1086,7 +1092,13 @@ int platform_gamepad_describe(int index, char *name, size_t size)
 	case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR: type = 6; break;
 	default: type = 0; break;
 	}
+#ifdef HALO_ANDROID
+	/* (the guest reaches SDL only through host_imports.list, which has no
+	SDL_GetGamepadName or SDL_GetGamepadID: the kind's name, the first pad) */
+	own = NULL;
+#else
 	own = SDL_GetGamepadName(gamepad);
+#endif
 	kind = controller_layout_kind(type, own);
 	if (size)
 		snprintf(name, size, "%s", own && *own ? own : controller_layout_kind_title(kind));
@@ -1202,7 +1214,9 @@ static void sdl_gamepad_state(SDL_Gamepad *gamepad, XINPUT_GAMEPAD *pad)
 		{
 			last_input_scheme = scheme_of(gamepad);
 			last_input_seen = TRUE;
+#ifndef HALO_ANDROID
 			last_used_gamepad = SDL_GetGamepadID(gamepad);
+#endif
 		}
 	}
 	/* a stick only overrides the keyboard when it is pushed further */

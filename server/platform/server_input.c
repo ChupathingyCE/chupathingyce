@@ -73,6 +73,15 @@ void platform_text_field(int typing)
 	(void)typing;
 }
 
+/* (no gamepad to name: the menus' screens never open here) */
+int platform_gamepad_describe(int index, char *name, size_t size)
+{
+	(void)index;
+	if (size)
+		name[0] = 0;
+	return -1;
+}
+
 int halo_input_from_name(const char *name)
 {
 	(void)name;
