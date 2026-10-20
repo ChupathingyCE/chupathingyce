@@ -48,7 +48,6 @@ symbols in this file:
 #define TAG_CACHE_BASE_ADDRESS 0x803A6000
 /* (the native builds': halo_port_capacity.h) */
 #define TEXTURE_CACHE_SIZE HALO_PORT_TEXTURE_CACHE_SIZE
-#define SOUND_CACHE_SIZE 0x400000
 
 /* ---------- macros */
 
