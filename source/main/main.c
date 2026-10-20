@@ -668,6 +668,7 @@ typedef char screenshot_and_framerate_globals_size_assert[
 	sizeof(struct _screenshot_and_framerate_globals) == 0x38B ? 1 : -1];
 
 void network_test_update(boolean main_menu_loaded, real seconds);
+void audio_probe_update(unsigned char main_menu_loaded, float seconds);
 #ifdef HALO_GAME_BROWSER
 void chat_update(void);
 #endif
@@ -3474,6 +3475,8 @@ void main_loop(
 
 			/* automated system link tests (port/linux/game/network_test.c) */
 			network_test_update(main_globals.main_menu_scenario_loaded, main_globals.seconds_elapsed);
+			/* the audio probe's scripted recording (port/linux/game/audio_probe.c) */
+			audio_probe_update(main_globals.main_menu_scenario_loaded, main_globals.seconds_elapsed);
 #ifdef HALO_GAME_BROWSER
 			/* text chat (port/linux/game/chat.c) */
 			chat_update();

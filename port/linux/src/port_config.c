@@ -807,6 +807,12 @@ static const struct config_setting config_settings[] =
 		"For testing text chat (port/linux/game/chat.c): steps of\n"
 		"\"<seconds>:<all|team|server|mute|unmute|localmute|log|close|type>[:<text>]\"\n"
 		"separated by ;, from when this copy joins a game. Empty: none." },
+	{ "debug.audio_probe", _config_string, "\"\"", "HALO_AUDIO_PROBE", _environment_value, _platform_all,
+		"A probe file (port/linux/game/audio_probe.c), named as the game names\n"
+		"its files (d:\\ is the game's folder: on the desktop, the data folder):\n"
+		"the game loads its map, plays its sounds at its spots, records what it\n"
+		"plays beside the file (to compare with tools/audio_probe_compare.py),\n"
+		"and quits. Empty: none." },
 	{ "debug.exit_after", _config_real, "0.0", "HALO_EXIT_AFTER", _environment_value, _platform_all,
 		"Quit this many seconds after the window opens; 0 never." },
 	{ "debug.hidden_window", _config_boolean, "false", "HALO_HIDDEN_WINDOW", _environment_set_is_true, _platform_desktop,

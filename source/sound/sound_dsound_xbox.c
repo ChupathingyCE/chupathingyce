@@ -16,6 +16,7 @@ SOUND_DSOUND_XBOX.C
 #include "sound/sound_environment_definitions.h"
 #include "sound/sound_preferences.h"
 #include "text/draw_string.h"
+#include "audio_probe.h" /* port: port/linux/game/audio_probe.c */
 
 #include <xtl.h>
 
@@ -1767,6 +1768,25 @@ static void dsound_set_listener_properties(
 		i3dl2.flHFReference= environment->hf_reference;
 
 		IDirectSound_SetI3DL2Listener(dsound_globals.direct_sound, &i3dl2, DS3D_DEFERRED);
+
+		/* port: logged by the audio probe (port/linux/game/audio_probe.c) */
+		{
+			struct audio_probe_environment probe_environment;
+
+			probe_environment.room= i3dl2.lRoom;
+			probe_environment.room_hf= i3dl2.lRoomHF;
+			probe_environment.room_rolloff_factor= i3dl2.flRoomRolloffFactor;
+			probe_environment.decay_time= i3dl2.flDecayTime;
+			probe_environment.decay_hf_ratio= i3dl2.flDecayHFRatio;
+			probe_environment.reflections= i3dl2.lReflections;
+			probe_environment.reflections_delay= i3dl2.flReflectionsDelay;
+			probe_environment.reverb= i3dl2.lReverb;
+			probe_environment.reverb_delay= i3dl2.flReverbDelay;
+			probe_environment.diffusion= i3dl2.flDiffusion;
+			probe_environment.density= i3dl2.flDensity;
+			probe_environment.hf_reference= i3dl2.flHFReference;
+			audio_probe_environment_changed(&probe_environment);
+		}
 	}
 
 	return;
