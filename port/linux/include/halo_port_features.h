@@ -76,6 +76,14 @@ about 384 KB; a console draws them as sampled each tick, as retail */
 #define HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
 #endif
 
+/* the Controls screen (port/linux/game/controls_screen.c), the pause menu's
+CONTROLS and the controller's custom layout (port/linux/src/controller_layout.c):
+a console keeps its profile's layouts; the switch also leaves out
+controls.controller_layout and display.pause_controls */
+#ifndef HALO_CONSOLE_NO_CONTROLS
+#define HALO_CONSOLE_NO_CONTROLS
+#endif
+
 #endif /* HALO_CONSOLE */
 
 #endif /* __HALO_PORT_FEATURES_H */

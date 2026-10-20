@@ -52,6 +52,12 @@ void platform_binding_capture_begin(void);
 (Delete), 3 if cancelled (Escape) */
 int platform_binding_capture_poll(int *input);
 
+/* the gamepads connected, and one's name and kind (controller_layout.h's
+CONTROLLER_KIND_*; index -1: the one last used, else the first; -1 if
+none): the Controls screen's (xinput_sdl.c) */
+int platform_gamepad_count(void);
+int platform_gamepad_describe(int index, char *name, size_t size);
+
 struct platform_keystroke
 {
 	BYTE virtual_key;

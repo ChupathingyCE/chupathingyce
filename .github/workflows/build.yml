@@ -199,6 +199,8 @@ jobs:
           python3 tools/test_light_storage.py
           python3 tools/test_port_config.py
           python3 tools/test_tick_input.py
+          python3 tools/test_controller_layout.py
+          python3 tools/test_button_mappings.py
 
       - name: Compile cache
         run: ccache --show-stats

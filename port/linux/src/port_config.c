@@ -225,6 +225,10 @@ static const struct config_setting config_settings[] =
 	{ "display.pause_change_teams", _config_boolean, "true", "HALO_PAUSE_CHANGE_TEAMS", _environment_value,
 		_platform_all,
 		"Show CHANGE TEAMS in the pause menu of a team game." },
+#ifndef HALO_CONSOLE_NO_CONTROLS
+	{ "display.pause_controls", _config_boolean, "true", "HALO_PAUSE_CONTROLS", _environment_value, _platform_all,
+		"Show CONTROLS in the pause menu." },
+#endif
 	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all,
 		"Show the banner for a Delta server's warnings and notices." },
 	{ "display.server_message_text_color", _config_string, "\"\"", "HALO_SERVER_MESSAGE_TEXT_COLOR",
@@ -347,6 +351,12 @@ static const struct config_setting config_settings[] =
 		"Chat to your team." },
 	{ "controls.chat_log", _config_string, "\"H\"", "HALO_KEY_CHAT_LOG", _environment_value, _platform_all,
 		"Chat history and player list (M mutes a player)." },
+#ifndef HALO_CONSOLE_NO_CONTROLS
+	{ "controls.controller_layout", _config_string, "\"\"", "HALO_CONTROLLER_LAYOUT", _environment_value,
+		_platform_all,
+		"The Custom button layout, set on the Controls screen: \"action=button\"\n"
+		"pairs separated by commas (\"jump=B,melee=RB\"). Empty: the default." },
+#endif
 
 	{ "game.console_log", _config_string, "\"important\"", "HALO_CONSOLE_LOG", _environment_value, _platform_all,
 		"What the console shows on screen: \"important\", \"all\" or \"none\".\n"
