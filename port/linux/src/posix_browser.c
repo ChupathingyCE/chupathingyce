@@ -52,6 +52,11 @@ platform.
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef __ANDROID__
+/* the platform layer's log (platform.h; Android's host library has none) */
+void platform_log(const char *format, ...);
+#endif
+
 #define BROWSER_USER_AGENT "chupathingyce-browser"
 #define TIMEOUT_MILLISECONDS 10000
 
@@ -870,8 +875,28 @@ int posix_browser_private_key(const char *path, unsigned char *key, int size)
 
 		if (descriptor >= 0)
 		{
-			ok = fstat(descriptor, &status) == 0 && S_ISREG(status.st_mode) && PRIVATE_KEY_PRIVATE(status) &&
-				read(descriptor, key, (size_t)size) == size;
+			ok = fstat(descriptor, &status) == 0 && S_ISREG(status.st_mode);
+#ifndef __ANDROID__
+			/* (the user's own key file that others can read, as a copy or an
+			unpacked backup leaves it: made private again, never refused. A
+			refused key made players delete it for a new one, losing the
+			identity their profile and stats are tied to. Another user's file
+			is still refused.) */
+			if (ok && status.st_uid == getuid() && (status.st_mode & 077))
+			{
+				if (fchmod(descriptor, status.st_mode & 0700) == 0)
+				{
+					platform_log("Game list: the player key (%s) was readable by others; made private again", path);
+					status.st_mode &= ~(mode_t)077;
+				}
+			}
+#endif
+			ok = ok && PRIVATE_KEY_PRIVATE(status) && read(descriptor, key, (size_t)size) == size;
+#ifndef __ANDROID__
+			if (!ok)
+				platform_log("Game list: the player key (%s) can't be used (not a plain file of yours, or too short); "
+					"it is left as it is: don't delete it, it is your identity", path);
+#endif
 			close(descriptor);
 			return ok;
 		}
