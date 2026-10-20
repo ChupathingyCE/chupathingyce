@@ -582,15 +582,15 @@ int halo_keyboard_action_shown(int action, char *shown, unsigned long size)
 /* the game's button prompts show the keyboard's keys (Halo PC's) in place
 of the controller's buttons: input.keyboard_prompts, while the keyboard or
 mouse was used last (or, before any input, with no controller connected).
-Android's touch controls are drawn as the controller's buttons, so its
-prompts stay the controller's. */
+Android's touch controls are drawn as the controller's buttons, so there
+the keyboard's show only once a keyboard or mouse has been used. */
 int halo_keyboard_prompts(void)
 {
 #ifdef HALO_ANDROID
-	return 0;
-#else
-	return config_boolean("input.keyboard_prompts") && platform_input_scheme() == 0;
+	if (!last_input_seen)
+		return 0;
 #endif
+	return config_boolean("input.keyboard_prompts") && platform_input_scheme() == 0;
 }
 
 static void bindings_read(void)

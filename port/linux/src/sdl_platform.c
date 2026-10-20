@@ -1329,11 +1329,11 @@ void platform_video_drawable_size(int *width, int *height)
 	SDL_GetWindowSizeInPixels(platform_window, width, height);
 }
 
-#ifndef HALO_ANDROID
 /* with vsync off, the time between frames display.max_fps asks for (0:
 twice the display's refresh rate), or 0 for no limit. A GPU never left idle
 can hang (Intel's Raptor Lake graphics, whose reset then takes the desktop
-with it); the limit gives it a rest every frame. */
+with it), and a phone drawing as fast as it can heats up and drains its
+battery; the limit gives either a rest every frame. */
 static Uint64 frame_interval_ns(void)
 {
 	static int vsync;
@@ -1352,36 +1352,60 @@ static Uint64 frame_interval_ns(void)
 	rate = (float)maximum;
 	if (!maximum)
 	{
+#ifndef HALO_ANDROID
 		SDL_DisplayID display = SDL_GetDisplayForWindow(platform_window);
 		const SDL_DisplayMode *mode = display ? SDL_GetCurrentDisplayMode(display) : NULL;
 
 		rate = 2.0f * (mode && mode->refresh_rate > 0.0f ? mode->refresh_rate : 60.0f);
+#else
+		/* (the Android guest's SDL has no display modes to ask) */
+		rate = 2.0f * 60.0f;
+#endif
 	}
 	return (Uint64)(1e9f / rate);
 }
 
+#ifndef HALO_ANDROID
+#define frame_clock_ns SDL_GetTicksNS
+#define frame_delay_ns SDL_DelayPrecise
+#else
+/* (the Android guest's SDL has neither SDL_GetTicksNS nor
+SDL_DelayPrecise: the system's clock and sleep) */
+static Uint64 frame_clock_ns(void)
+{
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (Uint64)now.tv_sec * 1000000000u + (Uint64)now.tv_nsec;
+}
+
+static void frame_delay_ns(Uint64 nanoseconds)
+{
+	struct timespec wait;
+
+	wait.tv_sec = (time_t)(nanoseconds / 1000000000u);
+	wait.tv_nsec = (long)(nanoseconds % 1000000000u);
+	nanosleep(&wait, NULL);
+}
 #endif
+
 void platform_video_swap(void)
 {
-#ifndef HALO_ANDROID
 	static Uint64 next_frame;
 	Uint64 interval, now;
 
-#endif
 	SDL_GL_SwapWindow(platform_window);
-#ifndef HALO_ANDROID
 	interval = frame_interval_ns();
 	if (!interval)
 		return;
-	now = SDL_GetTicksNS();
+	now = frame_clock_ns();
 	if (next_frame > now)
 	{
-		SDL_DelayPrecise(next_frame - now);
+		frame_delay_ns(next_frame - now);
 		now = next_frame;
 	}
 	/* (a frame more than an interval late starts the count again) */
 	next_frame = now - next_frame > interval ? now + interval : next_frame + interval;
-#endif
 }
 
 void platform_mouse_capture(BOOL capture)

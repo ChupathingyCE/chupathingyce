@@ -38,9 +38,12 @@ SCREENS = {
         "spacing": 27,
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
-        # display mode chosen uses; Android's Smooth Motion in Frame Rate's,
-        # and its anti-aliasing in the desktop's)
+        # display mode chosen uses; Android's anti-aliasing in the desktop's)
         "same_place": ["display.window_size", "display.interpolation", "anti_aliasing_android"],
+        # (rows written but placed on no page: Smooth Motion, which Frame
+        # Rate sets on every platform, kept so the rows after it keep their
+        # strings)
+        "unplaced": ["display.interpolation"],
         "rows": [
             ("DISPLAY MODE:", "display.mode",
              [("FULLSCREEN", "fullscreen"), ("BORDERLESS", "borderless"), ("WINDOWED", "windowed")],
@@ -59,14 +62,13 @@ SCREENS = {
             ("V-SYNC:", "display.vsync", ON_OFF,
              "Wait for the display between frames, so that the\npicture never tears.", None),
             # (port/linux/game/menu_functions.c: 30 also turns display.interpolation
-            # off, the others on; Android, with no frame rate cap, has Smooth
-            # Motion in its place. Instant Aim, display.direct_camera, is in
-            # config.toml alone)
+            # off, the others on, on every platform. Instant Aim,
+            # display.direct_camera, is in config.toml alone)
             ("FRAME RATE:", "display.max_fps",
              [("30 (XBOX)", "30"), ("AUTO", "0"), ("60", "60"), ("120", "120"), ("144", "144"),
               ("165", "165"), ("240", "240"), ("NONE", "-1")],
              "30 draws the game's own frames; the others blend\nbetween them. Auto: twice the display's rate.",
-             "desktop"),
+             None),
             ("SMOOTH MOTION:", "display.interpolation", ON_OFF,
              "Draw a frame for every display refresh, blending\nbetween the game's 30 ticks a second.", "android"),
             ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
@@ -299,7 +301,8 @@ def _setting_screen(folder: str, spec: dict) -> list:
         row = f"{base}/op_{key}"
         if setting not in spec.get("same_place", ()) and key not in spec.get("same_place", ()):
             place += 1
-        rows.append((row, platform, place))
+        if setting not in spec.get("unplaced", ()):
+            rows.append((row, platform, place))
         extra += _widget(row, [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                                ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF"), ("platform", platform)],
                          [f'<child{attributes([("widget", f"{base}/{key}_label")])}/>',
@@ -426,7 +429,8 @@ def _setting_places(spec: dict) -> list:
         key = named[0] if named else setting.split(".", 1)[1]
         if setting not in spec.get("same_place", ()) and key not in spec.get("same_place", ()):
             place += 1
-        places.append((key, platform, place))
+        if setting not in spec.get("unplaced", ()):
+            places.append((key, platform, place))
     return places
 
 
