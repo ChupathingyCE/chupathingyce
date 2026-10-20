@@ -1202,17 +1202,27 @@ BOOL WINAPI MoveFileA(LPCSTR existing_file_name, LPCSTR new_file_name)
 
 BOOL WINAPI CopyFileA(LPCSTR existing_file_name, LPCSTR new_file_name, BOOL fail_if_exists)
 {
+	/* (the copy's buffer is on the heap: 64 KB on the stack overflowed the
+	small stacks of handheld threads, the PSP's profile save among them) */
+	enum { COPY_BUFFER_SIZE = 65536 };
 	char from[1024], to[1024];
-	char buffer[65536];
+	char *buffer;
 	int source, destination;
 	BOOL success = TRUE;
 
 	platform_translate_path(existing_file_name, from, sizeof(from));
 	platform_translate_path(new_file_name, to, sizeof(to));
+	buffer = (char *)malloc(COPY_BUFFER_SIZE);
+	if (!buffer)
+	{
+		platform_set_last_error_from_errno(ENOMEM);
+		return FALSE;
+	}
 	source = open(from, O_RDONLY | O_CLOEXEC);
 	if (source < 0)
 	{
 		platform_set_last_error_from_errno(errno);
+		free(buffer);
 		return FALSE;
 	}
 	destination = open(to, O_WRONLY | O_CREAT | O_CLOEXEC | (fail_if_exists ? O_EXCL : O_TRUNC), 0644);
@@ -1220,11 +1230,12 @@ BOOL WINAPI CopyFileA(LPCSTR existing_file_name, LPCSTR new_file_name, BOOL fail
 	{
 		platform_set_last_error_from_errno(errno);
 		close(source);
+		free(buffer);
 		return FALSE;
 	}
 	for (;;)
 	{
-		ssize_t count = read(source, buffer, sizeof(buffer));
+		ssize_t count = read(source, buffer, COPY_BUFFER_SIZE);
 
 		if (count < 0 && errno == EINTR)
 			continue;
@@ -1246,6 +1257,7 @@ BOOL WINAPI CopyFileA(LPCSTR existing_file_name, LPCSTR new_file_name, BOOL fail
 	}
 	close(source);
 	close(destination);
+	free(buffer);
 	return success;
 }
 
