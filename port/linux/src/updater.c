@@ -44,6 +44,9 @@ is built with it.
 #include "update_manifest.h"
 #include "update_signature.h"
 
+#include <stdlib.h>
+#include <string.h>
+
 /* (given for this file by the build: tools/linux_build.py, windows_build.py,
 macos_build.py; the Android app's version is its own, build.gradle) */
 #ifndef HALO_VERSION
@@ -1040,21 +1043,7 @@ void updater_start(void)
 	}
 }
 
-/* whether the game runs under gamescope (the Steam Deck's Game Mode), where
-a system dialog such as SDL's message box crashes the game. gamescope sets
-GAMESCOPE_WAYLAND_DISPLAY for the programs it runs and Game Mode's session
-XDG_CURRENT_DESKTOP; Steam sets SteamDeck and SteamGamepadUI there. Wine
-passes them on to the Windows build under Proton. */
-static int updater_gamescope(void)
-{
-	const char *wayland_display = getenv("GAMESCOPE_WAYLAND_DISPLAY");
-	const char *desktop = getenv("XDG_CURRENT_DESKTOP");
-	const char *steam_deck = getenv("SteamDeck");
-	const char *gamepad_ui = getenv("SteamGamepadUI");
-
-	return (wayland_display && wayland_display[0]) || (desktop && strstr(desktop, "gamescope")) ||
-		(steam_deck && !strcmp(steam_deck, "1") && gamepad_ui && !strcmp(gamepad_ui, "1"));
-}
+int updater_gamescope(void);
 
 /* every frame, on the game's thread (sdl_platform.c): asks the player once a
 new version is found */
@@ -1091,12 +1080,14 @@ void updater_poll(SDL_Window *window)
 			config_write_boolean("update.auto", 0);
 		return;
 	}
-	/* (no question under gamescope: the player updates from the desktop, or
-	with debug.update_answer) */
+	/* (no question under gamescope: the main menu's version line says the
+	new version is out, and the player updates from the desktop, or with
+	debug.update_answer) */
 	if (updater_gamescope())
 	{
 		platform_log("update: %s is out (this is %s); not asking under gamescope (Steam Deck Game Mode)",
 			updater_latest_version, HALO_VERSION);
+		build_identity_watermark_update(updater_latest_version, "from Desktop Mode");
 		return;
 	}
 	/* (a dialog cannot show above a fullscreen game) */
@@ -1161,6 +1152,23 @@ void updater_start(void)
 }
 
 #endif
+
+/* whether the game runs under gamescope (the Steam Deck's Game Mode), where
+a system dialog such as SDL's message box crashes the game: every dialog
+(sdl_platform.c, updater_poll) is left out there, its question kept for a
+run on the desktop. gamescope sets GAMESCOPE_WAYLAND_DISPLAY for the programs
+it runs and Game Mode's session XDG_CURRENT_DESKTOP; Steam sets SteamDeck and
+SteamGamepadUI there. Wine passes them on to the Windows build under Proton */
+int updater_gamescope(void)
+{
+	const char *wayland_display = getenv("GAMESCOPE_WAYLAND_DISPLAY");
+	const char *desktop = getenv("XDG_CURRENT_DESKTOP");
+	const char *steam_deck = getenv("SteamDeck");
+	const char *gamepad_ui = getenv("SteamGamepadUI");
+
+	return (wayland_display && wayland_display[0]) || (desktop && strstr(desktop, "gamescope")) ||
+		(steam_deck && !strcmp(steam_deck, "1") && gamepad_ui && !strcmp(gamepad_ui, "1"));
+}
 
 /* this build's version (HALO_VERSION: 0.5.0b, 0.5.0b-nightly.42, 0.5.0b-dev),
 for the window's title (sdl_platform.c) */

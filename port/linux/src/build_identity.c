@@ -115,10 +115,10 @@ const char *build_identity_commit(void)
 	return HALO_COMMIT;
 }
 
+static char watermark[160];
+
 const char *build_identity_watermark(void)
 {
-	static char watermark[64];
-
 	if (!watermark[0])
 	{
 		if (strcmp(HALO_COMMIT, "unknown"))
@@ -127,6 +127,17 @@ const char *build_identity_watermark(void)
 			snprintf(watermark, sizeof(watermark), "%s", HALO_VERSION);
 	}
 	return watermark;
+}
+
+void build_identity_watermark_update(const char *version, const char *where)
+{
+	char base[64];
+
+	if (strcmp(HALO_COMMIT, "unknown"))
+		snprintf(base, sizeof(base), "%s (%.7s)", HALO_VERSION, HALO_COMMIT);
+	else
+		snprintf(base, sizeof(base), "%s", HALO_VERSION);
+	snprintf(watermark, sizeof(watermark), "%s - %s is out: update %s", base, version, where);
 }
 
 const char *build_identity_platform(void)

@@ -95,6 +95,8 @@ void updater_poll(SDL_Window *window);
 #endif
 /* (and the version, for the window's title) */
 const char *updater_version(void);
+/* (whether the game runs under gamescope, where no dialog is shown) */
+int updater_gamescope(void);
 
 /* the older folders of Halo PC maps (maps/ce, md_maps) moved into the new
 ones (maps_ce, maps_md) once, as game.move_old_map_folders says: asked, in
@@ -150,11 +152,12 @@ static void old_map_folders_offer(BOOL quiet)
 }
 
 /* whether the game is run without anyone to answer a question (a test run,
-a null renderer) */
+a null renderer), or where a question cannot be shown (under gamescope, the
+Steam Deck's Game Mode: updater_gamescope) */
 static BOOL platform_run_is_quiet(void)
 {
 	BOOL quiet = config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0 ||
-		config_boolean("debug.null_renderer");
+		config_boolean("debug.null_renderer") || updater_gamescope();
 
 #ifdef HALO_GAME_BROWSER
 	quiet = quiet || browser_headless();
@@ -187,7 +190,8 @@ static void new_defaults_offer(BOOL quiet)
 	if (quiet)
 	{
 		platform_log("settings: this version changes some defaults (%s); they are asked about when the game is "
-			"run with someone to answer, and until then your settings stay as they were", changes);
+			"run where it can ask (not a test run, nor Steam Deck Game Mode), and until then your settings stay "
+			"as they were", changes);
 		return;
 	}
 	snprintf(text, sizeof(text),
@@ -323,9 +327,10 @@ static void crash_reports_start(void)
 	}
 	if (strcmp(consent, "yes"))
 	{
-		/* (not for runs nobody is watching: the reports wait) */
+		/* (not for runs nobody is watching, nor under gamescope: the reports
+		wait) */
 		if (config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0 ||
-			!SDL_ShowMessageBox(&question, &answer))
+			updater_gamescope() || !SDL_ShowMessageBox(&question, &answer))
 		{
 			return;
 		}
@@ -723,12 +728,17 @@ BOOL platform_offer_game_data(const char *destination)
 	};
 	char message[1400];
 
-	/* not for runs nobody is watching */
-	if (config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0 ||
-		!SDL_Init(SDL_INIT_VIDEO))
+	/* not for runs nobody is watching, nor under gamescope (the player adds
+	the maps from the desktop) */
+	if (config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0)
+		return FALSE;
+	if (updater_gamescope())
 	{
+		platform_log("no game data: start Chupathingy once from Desktop Mode to add the maps");
 		return FALSE;
 	}
+	if (!SDL_Init(SDL_INIT_VIDEO))
+		return FALSE;
 	snprintf(message, sizeof(message),
 		"Chupathingy plays Halo with the maps from your Xbox disc. How do you want to add them?\n\n"
 		"Xbox disc image: copy the maps folder out of a disc image (.iso) of Halo: Combat Evolved, "
@@ -1741,6 +1751,14 @@ static void platform_game_list_requests(void)
 			"Your games are now confirmed as player %.8s. With the new key they will be player %.8s.\n\n"
 			"Replace the key only with your own, from your profile on the game list.",
 			old_id[0] ? old_id : "(none)", new_id);
+		/* (no question under gamescope: the key stays) */
+		if (updater_gamescope())
+		{
+			platform_log("Game list: a link asks to replace the player key; not asking under gamescope "
+				"(Steam Deck Game Mode): open it from Desktop Mode");
+			browser_answer_key_link(0);
+			return;
+		}
 		memset(&question, 0, sizeof(question));
 		question.flags = SDL_MESSAGEBOX_WARNING;
 		question.window = platform_window;
@@ -1767,7 +1785,8 @@ static void platform_show_pending_message(void)
 	memcpy(title, platform_message_title, sizeof(title));
 	memcpy(text, platform_message_text, sizeof(text));
 	pthread_mutex_unlock(&platform_message_lock);
-	if (!pending)
+	/* (under gamescope, the log only: platform_show_message logged it) */
+	if (!pending || updater_gamescope())
 		return;
 #ifdef HALO_ANDROID
 	SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, title, text, NULL);
