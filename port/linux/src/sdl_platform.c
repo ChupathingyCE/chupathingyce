@@ -111,7 +111,7 @@ static void old_map_folders_offer(BOOL quiet)
 	const char *setting = config_string("game.move_old_map_folders");
 	char moves[256];
 	char text[1024];
-	SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "ChupathingyCE: map folders", text, 2,
+	SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "Chupathingy: map folders", text, 2,
 		buttons, NULL };
 	int answer = 0;
 
@@ -181,7 +181,7 @@ static void new_defaults_offer(BOOL quiet)
 	};
 	char changes[1024];
 	char text[1536];
-	SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "ChupathingyCE: new settings", text, 2,
+	SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "Chupathingy: new settings", text, 2,
 		buttons, NULL };
 	int answer = 0;
 
@@ -247,13 +247,13 @@ static void data_check_maps(void)
 		platform_log("maps folder: %ld Halo PC maps in %s/maps (%s)", maps.stray_pc_maps, maps.root,
 			maps.stray_names);
 		if (!quiet)
-			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "ChupathingyCE", message, NULL);
+			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Chupathingy", message, NULL);
 		return;
 	case _maps_folder_halo_pc:
 		snprintf(message, sizeof(message),
 			"The maps folder holds Halo PC maps, not the Xbox maps: its ui.map is from %s.\n\n%s\n\n"
 			"To copy the Xbox maps out of your disc image again, move this maps folder aside and "
-			"start ChupathingyCE.",
+			"start Chupathingy.",
 			maps.ui_version == 609 ? "Halo PC (Custom Edition)" : "Halo PC", where);
 		break;
 	default:
@@ -267,7 +267,7 @@ static void data_check_maps(void)
 		snprintf(message, sizeof(message),
 			"Halo's Xbox maps were not found: %s/maps has no ui.map.%s\n\n%s\n\n"
 			"To copy the Xbox maps out of your disc image, move the maps folder aside and start "
-			"ChupathingyCE.",
+			"Chupathingy.",
 			maps.root, maps.stray_pc_maps || maps.pc_maps_beside ?
 				" Its Halo PC maps play only alongside the Xbox maps." : "",
 			where);
@@ -277,7 +277,7 @@ static void data_check_maps(void)
 		maps.ui_version);
 	platform_log("%s", message);
 	if (!quiet)
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "ChupathingyCE", message, NULL);
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Chupathingy", message, NULL);
 	exit(EXIT_FAILURE);
 }
 #endif
@@ -293,14 +293,14 @@ static void crash_reports_start(void)
 		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "No" },
 	};
 	static const char text[] =
-		"ChupathingyCE crashed the last time it ran.\n\n"
+		"Chupathingy crashed the last time it ran.\n\n"
 		"Do you want to send crash reports to the developers? They help us find and fix crashes.\n\n"
 		"A report holds the game's version, where in the game it crashed and the calls that led there, and the "
-		"end of its log, debug.txt, with IP addresses taken out. Reports go to the ChupathingyCE site "
+		"end of its log, debug.txt, with IP addresses taken out. Reports go to the Chupathingy site "
 		"(network.browser_url) and its developers.\n\n"
 		"The answer is kept in config.toml (crash_reports.upload): Yes sends the report of this crash and of "
 		"every later one, No never sends one.";
-	SDL_MessageBoxData question = { SDL_MESSAGEBOX_WARNING, NULL, "ChupathingyCE crashed", text, 2, buttons, NULL };
+	SDL_MessageBoxData question = { SDL_MESSAGEBOX_WARNING, NULL, "Chupathingy crashed", text, 2, buttons, NULL };
 	char folder[1024], log[1024], old_folder[1024], old_log[1024];
 	const char *consent;
 	int pending, answer = 0;
@@ -1786,7 +1786,7 @@ static void platform_game_list_requests(void)
 		memset(&question, 0, sizeof(question));
 		question.flags = SDL_MESSAGEBOX_WARNING;
 		question.window = platform_window;
-		question.title = "Halo: replace your player key?";
+		question.title = "Chupathingy: replace your player key?";
 		question.message = message;
 		question.numbuttons = 2;
 		question.buttons = buttons;
