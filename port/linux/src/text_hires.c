@@ -105,11 +105,6 @@ int text_hires_enabled(void)
 	{
 		read_at = config_changes();
 		enabled = config_boolean("display.high_res_text");
-#ifdef HALO_BGFX
-		/* (its atlas is a GL texture: the bitmaps' own text, for now) */
-		if (xgpu_bgfx)
-			enabled = FALSE;
-#endif
 	}
 	return enabled;
 }
@@ -416,6 +411,38 @@ unsigned int text_hires_atlas_texture(unsigned long data)
 {
 	if (!data || data != placeholder_data || !atlas)
 		return 0;
+#ifdef HALO_BGFX
+	if (xgpu_bgfx)
+	{
+		/* (the bgfx backend's texture: d3d8_bgfx.inl) */
+		if (!atlas_texture)
+		{
+			atlas_texture = xgpu_bgfx_texture_create(ATLAS_SIZE, ATLAS_SIZE, NULL, FALSE);
+			dirty_top = 0;
+			dirty_bottom = ATLAS_SIZE;
+		}
+		if (atlas_texture && dirty_top < dirty_bottom)
+		{
+			long rows = dirty_bottom - dirty_top, index;
+			unsigned char *texels = malloc((size_t)rows * ATLAS_SIZE * 4);
+			const unsigned char *coverage = atlas + (long)dirty_top * ATLAS_SIZE;
+
+			if (texels)
+			{
+				for (index = 0; index < rows * ATLAS_SIZE; index++)
+				{
+					texels[index * 4 + 0] = texels[index * 4 + 1] = texels[index * 4 + 2] = 255;
+					texels[index * 4 + 3] = coverage[index];
+				}
+				xgpu_bgfx_texture_rows(atlas_texture, (unsigned long)dirty_top, ATLAS_SIZE, (unsigned long)rows, texels);
+				free(texels);
+				dirty_top = ATLAS_SIZE;
+				dirty_bottom = 0;
+			}
+		}
+		return atlas_texture;
+	}
+#endif
 	if (!atlas_texture)
 	{
 		glGenTextures(1, &atlas_texture);

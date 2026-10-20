@@ -129,6 +129,12 @@ static struct
 	float last_scale;
 
 	struct vertex vertices[MAXIMUM_QUADS * 6];
+#ifdef HALO_BGFX
+	/* (the bgfx backend: the atlas's texels here, the rows changed since it
+	last had them, and the icons premultiplied; d3d8_bgfx.inl draws) */
+	unsigned char *atlas_texels, *icon_texels;
+	int dirty_top, dirty_bottom;
+#endif
 } overlay;
 
 /* ---------- the device's buttons */
@@ -818,6 +824,45 @@ static int set_up(void)
 
 	if (overlay.ready || overlay.failed)
 		return overlay.ready;
+#ifdef HALO_BGFX
+	if (xgpu_bgfx)
+	{
+		int size = ui_prompt_icon_size, icon, texel;
+
+		(void)vertex_shader;
+		(void)fragment_shader;
+		(void)status;
+		(void)zero;
+		(void)zero_texel;
+		overlay.atlas_texels = calloc(ATLAS_SIZE, ATLAS_SIZE);
+		overlay.icon_texels = malloc((size_t)size * size * 4 * NUMBER_OF_ICONS);
+		if (!overlay.atlas_texels || !overlay.icon_texels)
+		{
+			overlay.failed = 1;
+			return 0;
+		}
+		for (icon = 0; icon < NUMBER_OF_ICONS; icon++)
+		{
+			const unsigned char *from = (const unsigned char *)ui_prompt_icons[icon];
+			unsigned char *to = overlay.icon_texels + (size_t)icon * size * size * 4;
+
+			for (texel = 0; texel < size * size; texel++)
+			{
+				unsigned int alpha = from[texel * 4 + 3];
+
+				to[texel * 4] = (unsigned char)(from[texel * 4] * alpha / 255);
+				to[texel * 4 + 1] = (unsigned char)(from[texel * 4 + 1] * alpha / 255);
+				to[texel * 4 + 2] = (unsigned char)(from[texel * 4 + 2] * alpha / 255);
+				to[texel * 4 + 3] = (unsigned char)alpha;
+			}
+		}
+		overlay.dirty_top = 0;
+		overlay.dirty_bottom = ATLAS_SIZE;
+		overlay.shelf_x = overlay.shelf_y = 2;
+		overlay.ready = 1;
+		return 1;
+	}
+#endif
 	vertex_shader = compile(GL_VERTEX_SHADER, vertex_source);
 	fragment_shader = compile(GL_FRAGMENT_SHADER, fragment_source);
 	if (!vertex_shader || !fragment_shader)
@@ -983,6 +1028,24 @@ static struct glyph *glyph(int font, int pixel_size, unsigned int codepoint, int
 	entry->advance = posix_ui_font_advance(font, (float)pixel_size, codepoint, 0);
 	entry->atlas_x = (short)overlay.shelf_x;
 	entry->atlas_y = (short)overlay.shelf_y;
+#ifdef HALO_BGFX
+	if (xgpu_bgfx && bitmap && width > 0 && height > 0)
+	{
+		int row;
+
+		for (row = 0; row < height; row++)
+			memcpy(overlay.atlas_texels + (overlay.shelf_y + row) * ATLAS_SIZE + overlay.shelf_x,
+				bitmap + row * width, (size_t)width);
+		if (overlay.shelf_y < overlay.dirty_top)
+			overlay.dirty_top = overlay.shelf_y;
+		if (overlay.shelf_y + height > overlay.dirty_bottom)
+			overlay.dirty_bottom = overlay.shelf_y + height;
+		overlay.shelf_x += width + 2;
+		if (height > overlay.shelf_height)
+			overlay.shelf_height = height;
+	}
+	else
+#endif
 	if (bitmap && width > 0 && height > 0)
 	{
 		glBindTexture(GL_TEXTURE_2D, overlay.atlas);
@@ -1083,82 +1146,12 @@ static void put_vertex(struct vertex *vertex, float x, float y, float u, float v
 	vertex->color[3] = (unsigned char)color;
 }
 
-void ui_overlay_present(int x, int y, int width, int height, int window_width, int window_height)
+/* the quads as triangles in window pixels, each layer's shapes, then its
+text, then the next layer's (shape_count of them shapes, the rest glyphs);
+how many vertices */
+static int build_vertices(int shape_count, float scale, float origin_x, float origin_y)
 {
-	float scale, origin_x, origin_y;
-	int shape_count, index, count = 0, atlas_full = 0;
-
-	/* (a frame's cutouts go with it, drawn or not: a minimized window's
-	would fill the four and leave old ones cut out once it is shown) */
-	overlay.layer = 0;
-	if (!overlay.quad_count && !overlay.text_count)
-	{
-		overlay.cutout_count = 0;
-		return;
-	}
-	if (!set_up() || width <= 0 || height <= 0)
-	{
-		overlay.quad_count = overlay.text_count = overlay.text_used = 0;
-		overlay.cutout_count = 0;
-		return;
-	}
-	/* (the layout's 480 lines fill the picture's height; a wider picture
-	has margins either side of its 640 columns, which a screen may reach
-	with x below 0 or past 640) */
-	scale = (float)height / LAYOUT_HEIGHT;
-	if (scale != overlay.last_scale)
-	{
-		/* (other sizes: the glyphs packed again) */
-		forget_glyphs();
-		overlay.last_scale = scale;
-	}
-	/* the picture's top left, in window pixels from the window's top */
-	origin_x = (float)x + ((float)width - LAYOUT_WIDTH * scale) * 0.5f;
-	origin_y = (float)(window_height - (y + height));
-
-	/* (the game's renderer keeps its bindings across frames: they are put
-	back after) */
-	GLint saved_vertex_array = 0, saved_array_buffer = 0, saved_program = 0, saved_texture = 0, saved_active = 0;
-	/* (the game's renderer binds a sampler to each unit, which would filter
-	the atlas as it filters its textures) */
-	GLint saved_sampler = 0, saved_icons = 0, saved_icons_sampler = 0, saved_picture = 0, saved_picture_sampler = 0;
-	GLint saved_viewport[4] = { 0, 0, 0, 0 };
-	GLboolean saved_blend = glIsEnabled(GL_BLEND), saved_depth = glIsEnabled(GL_DEPTH_TEST),
-		saved_stencil = glIsEnabled(GL_STENCIL_TEST), saved_cull = glIsEnabled(GL_CULL_FACE),
-		saved_scissor = glIsEnabled(GL_SCISSOR_TEST);
-	GLint saved_blend_rgb_source = 0, saved_blend_rgb_destination = 0, saved_blend_alpha_source = 0,
-		saved_blend_alpha_destination = 0, saved_blend_equation = 0;
-
-	glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &saved_vertex_array);
-	glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &saved_array_buffer);
-	glGetIntegerv(GL_CURRENT_PROGRAM, &saved_program);
-	glGetIntegerv(GL_ACTIVE_TEXTURE, &saved_active);
-	glActiveTexture(GL_TEXTURE0);
-	glGetIntegerv(GL_TEXTURE_BINDING_2D, &saved_texture);
-	glGetIntegerv(GL_SAMPLER_BINDING, &saved_sampler);
-	glBindSampler(0, 0);
-	glGetIntegerv(GL_VIEWPORT, saved_viewport);
-	glGetIntegerv(GL_BLEND_SRC_RGB, &saved_blend_rgb_source);
-	glGetIntegerv(GL_BLEND_DST_RGB, &saved_blend_rgb_destination);
-	glGetIntegerv(GL_BLEND_SRC_ALPHA, &saved_blend_alpha_source);
-	glGetIntegerv(GL_BLEND_DST_ALPHA, &saved_blend_alpha_destination);
-	glGetIntegerv(GL_BLEND_EQUATION_RGB, &saved_blend_equation);
-#ifndef HALO_GL_NO_CLIP_CONTROL
-	/* (the renderer's clip space is D3D's, y down (d3d8_gl.c's
-	glClipControl); the overlay's is GL's, as on macOS and Android, which have
-	no glClipControl) */
-	if (glClipControl)
-		glClipControl(GL_LOWER_LEFT, GL_NEGATIVE_ONE_TO_ONE);
-#endif
-
-	/* the text's glyphs (packing new ones binds the atlas) */
-	shape_count = overlay.quad_count;
-	for (index = 0; index < overlay.text_count; index++)
-		lay_out_text(index, scale, origin_x, origin_y, &atlas_full);
-
-	/* each layer's shapes, then its text, then the next layer's */
-	{
-	int layer, pass;
+	int index, count = 0, layer, pass;
 
 	for (layer = 0; layer < MAXIMUM_LAYERS; layer++)
 	for (pass = 0; pass < 2; pass++)
@@ -1229,7 +1222,117 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 		}
 		count += 6;
 	}
+	return count;
+}
+
+void ui_overlay_present(int x, int y, int width, int height, int window_width, int window_height)
+{
+	float scale, origin_x, origin_y;
+	int shape_count, index, count = 0, atlas_full = 0;
+
+	/* (a frame's cutouts go with it, drawn or not: a minimized window's
+	would fill the four and leave old ones cut out once it is shown) */
+	overlay.layer = 0;
+	if (!overlay.quad_count && !overlay.text_count)
+	{
+		overlay.cutout_count = 0;
+		return;
 	}
+	if (!set_up() || width <= 0 || height <= 0)
+	{
+		overlay.quad_count = overlay.text_count = overlay.text_used = 0;
+		overlay.cutout_count = 0;
+		return;
+	}
+	/* (the layout's 480 lines fill the picture's height; a wider picture
+	has margins either side of its 640 columns, which a screen may reach
+	with x below 0 or past 640) */
+	scale = (float)height / LAYOUT_HEIGHT;
+	if (scale != overlay.last_scale)
+	{
+		/* (other sizes: the glyphs packed again) */
+		forget_glyphs();
+		overlay.last_scale = scale;
+	}
+	/* the picture's top left, in window pixels from the window's top */
+	origin_x = (float)x + ((float)width - LAYOUT_WIDTH * scale) * 0.5f;
+	origin_y = (float)(window_height - (y + height));
+#ifdef HALO_BGFX
+	if (xgpu_bgfx)
+	{
+		/* (the bgfx backend draws: d3d8_bgfx.inl) */
+		float cutouts[4][4];
+		int cutout;
+
+		shape_count = overlay.quad_count;
+		for (index = 0; index < overlay.text_count; index++)
+			lay_out_text(index, scale, origin_x, origin_y, &atlas_full);
+		count = build_vertices(shape_count, scale, origin_x, origin_y);
+		memset(cutouts, 0, sizeof(cutouts));
+		for (cutout = 0; cutout < overlay.cutout_count; cutout++)
+		{
+			cutouts[cutout][0] = origin_x + overlay.cutouts[cutout][0] * scale;
+			cutouts[cutout][1] = origin_y + overlay.cutouts[cutout][1] * scale;
+			cutouts[cutout][2] = origin_x + overlay.cutouts[cutout][2] * scale;
+			cutouts[cutout][3] = origin_y + overlay.cutouts[cutout][3] * scale;
+		}
+		xgpu_bgfx_overlay_draw(overlay.vertices, count, (int)sizeof(struct vertex), overlay.atlas_texels, ATLAS_SIZE,
+			overlay.dirty_top, overlay.dirty_bottom, overlay.icon_texels, ui_prompt_icon_size, NUMBER_OF_ICONS,
+			overlay.picture_pixels, overlay.picture_width, overlay.picture_height, overlay.picture_serial,
+			(const float (*)[4])cutouts, window_width, window_height);
+		overlay.dirty_top = ATLAS_SIZE;
+		overlay.dirty_bottom = 0;
+		overlay.quad_count = overlay.text_count = overlay.text_used = 0;
+		overlay.cutout_count = 0;
+		overlay.layer = 0;
+		if (atlas_full)
+			forget_glyphs();
+		return;
+	}
+#endif
+
+	/* (the game's renderer keeps its bindings across frames: they are put
+	back after) */
+	GLint saved_vertex_array = 0, saved_array_buffer = 0, saved_program = 0, saved_texture = 0, saved_active = 0;
+	/* (the game's renderer binds a sampler to each unit, which would filter
+	the atlas as it filters its textures) */
+	GLint saved_sampler = 0, saved_icons = 0, saved_icons_sampler = 0, saved_picture = 0, saved_picture_sampler = 0;
+	GLint saved_viewport[4] = { 0, 0, 0, 0 };
+	GLboolean saved_blend = glIsEnabled(GL_BLEND), saved_depth = glIsEnabled(GL_DEPTH_TEST),
+		saved_stencil = glIsEnabled(GL_STENCIL_TEST), saved_cull = glIsEnabled(GL_CULL_FACE),
+		saved_scissor = glIsEnabled(GL_SCISSOR_TEST);
+	GLint saved_blend_rgb_source = 0, saved_blend_rgb_destination = 0, saved_blend_alpha_source = 0,
+		saved_blend_alpha_destination = 0, saved_blend_equation = 0;
+
+	glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &saved_vertex_array);
+	glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &saved_array_buffer);
+	glGetIntegerv(GL_CURRENT_PROGRAM, &saved_program);
+	glGetIntegerv(GL_ACTIVE_TEXTURE, &saved_active);
+	glActiveTexture(GL_TEXTURE0);
+	glGetIntegerv(GL_TEXTURE_BINDING_2D, &saved_texture);
+	glGetIntegerv(GL_SAMPLER_BINDING, &saved_sampler);
+	glBindSampler(0, 0);
+	glGetIntegerv(GL_VIEWPORT, saved_viewport);
+	glGetIntegerv(GL_BLEND_SRC_RGB, &saved_blend_rgb_source);
+	glGetIntegerv(GL_BLEND_DST_RGB, &saved_blend_rgb_destination);
+	glGetIntegerv(GL_BLEND_SRC_ALPHA, &saved_blend_alpha_source);
+	glGetIntegerv(GL_BLEND_DST_ALPHA, &saved_blend_alpha_destination);
+	glGetIntegerv(GL_BLEND_EQUATION_RGB, &saved_blend_equation);
+#ifndef HALO_GL_NO_CLIP_CONTROL
+	/* (the renderer's clip space is D3D's, y down (d3d8_gl.c's
+	glClipControl); the overlay's is GL's, as on macOS and Android, which have
+	no glClipControl) */
+	if (glClipControl)
+		glClipControl(GL_LOWER_LEFT, GL_NEGATIVE_ONE_TO_ONE);
+#endif
+
+	/* the text's glyphs (packing new ones binds the atlas) */
+	shape_count = overlay.quad_count;
+	for (index = 0; index < overlay.text_count; index++)
+		lay_out_text(index, scale, origin_x, origin_y, &atlas_full);
+
+	/* each layer's shapes, then its text, then the next layer's */
+	count = build_vertices(shape_count, scale, origin_x, origin_y);
 
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 	glViewport(0, 0, window_width, window_height);

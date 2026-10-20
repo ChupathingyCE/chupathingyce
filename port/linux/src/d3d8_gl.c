@@ -46,6 +46,9 @@ static void bg_draw_indexed(D3DPRIMITIVETYPE type, unsigned long count, const WO
 static void bg_draw_immediate(D3DPRIMITIVETYPE type, unsigned long count);
 static void bg_clear(DWORD count, const D3DRECT *rectangles, DWORD flags, D3DCOLOR color, float z, DWORD stencil);
 static void bg_present(void);
+static void bg_visibility_begin(void);
+static void bg_visibility_end(DWORD index);
+static UINT bg_visibility_result(DWORD index);
 #endif
 
 void d3d8_surface_initialize(D3DSurface *surface, D3DFORMAT format, unsigned long width, unsigned long height);
@@ -2136,6 +2139,13 @@ void WINAPI D3DDevice_InsertCallback(D3DCALLBACKTYPE type, D3DCALLBACK callback,
 
 void WINAPI D3DDevice_BeginVisibilityTest(void)
 {
+#ifdef HALO_BGFX
+	if (bg_active())
+	{
+		bg_visibility_begin();
+		return;
+	}
+#endif
 	if (!device.gl_ready || device.visibility_test_active)
 		return;
 	/* the query object is chosen when the test ends; use a scratch one */
@@ -2173,6 +2183,13 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 {
 	GLuint scratch;
 
+#ifdef HALO_BGFX
+	if (bg_active())
+	{
+		bg_visibility_end(index);
+		return S_OK;
+	}
+#endif
 	if (!device.gl_ready || !device.visibility_test_active)
 		return S_OK;
 	device.visibility_test_active = FALSE;
@@ -2241,6 +2258,14 @@ HRESULT WINAPI D3DDevice_GetVisibilityTestResult(DWORD index, UINT *result, ULON
 
 	if (time_stamp)
 		*time_stamp = 0;
+#ifdef HALO_BGFX
+	if (bg_active())
+	{
+		if (result)
+			*result = bg_visibility_result(index);
+		return S_OK;
+	}
+#endif
 	index %= VISIBILITY_TEST_SLOTS;
 	if (!device.gl_ready || !device.query_pending[index])
 	{

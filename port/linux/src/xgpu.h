@@ -259,6 +259,19 @@ BOOL xgpu_texture_decode_level(const struct xgpu_texture_description *descriptio
 bytes of one of its levels */
 int xgpu_texture_dxt(const struct xgpu_texture_description *description);
 unsigned long xgpu_texture_level_bytes(const struct xgpu_texture_description *description, unsigned long level);
+/* the port's own textures under the bgfx backend (the high-res text's atlas,
+HUD sheets, menu art): RGBA texels, made with their smaller levels when
+mipmapped; a name (nonzero) as the OpenGL path's texture names are */
+unsigned int xgpu_bgfx_texture_create(unsigned long width, unsigned long height, const unsigned char *rgba,
+	BOOL mipmapped);
+void xgpu_bgfx_texture_rows(unsigned int name, unsigned long top, unsigned long width, unsigned long rows,
+	const unsigned char *rgba);
+void xgpu_bgfx_texture_delete(unsigned int name);
+/* the overlay's quads (ui_overlay.c) over the window's picture at Present */
+void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, const unsigned char *atlas, int atlas_size,
+	int dirty_top, int dirty_bottom, const unsigned char *icons, int icon_size, int icon_count,
+	const unsigned char *picture, int picture_width, int picture_height, int picture_serial,
+	const float cutouts[4][4], int window_width, int window_height);
 #endif
 
 /* ---------- anti-aliasing

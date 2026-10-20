@@ -68,6 +68,13 @@ BGFX_REPOSITORIES = {
     "bimg": ("https://github.com/bkaradzic/bimg.git", "5c7eabb1d73cb0c1a3c23c0268dd70e8dca972f7"),
     "bgfx": ("https://github.com/bkaradzic/bgfx.git", "9849fe96cba81355352e5355ee2d333ea70857ac"),
 }
+# our changes to bgfx, applied to the fetched sources (tools/bgfx-patches)
+BGFX_PATCHES = sorted(Path("tools/bgfx-patches").glob("*.patch"))
+# its limits for the game: views (each target change and clear after draws
+# is one), visibility tests (lens flares, The Library's lights) and Metal's
+# uniform space a frame
+BGFX_DEFINES = ("-DBGFX_CONFIG_MAX_VIEWS=1024 -DBGFX_CONFIG_MAX_OCCLUSION_QUERIES=4096 "
+                "-DBGFX_CONFIG_MTL_UNIFORM_BUFFER_SIZE=33554432")
 BGFX_SPIRV_CROSS_LIBRARIES = ["c", "msl", "hlsl", "cpp", "glsl", "reflect", "core"]
 
 
@@ -83,6 +90,15 @@ def fetch_bgfx() -> bool:
         if not (subprocess.run([*git, "init", "-q"]).returncode == 0
                 and subprocess.run([*git, "fetch", "-q", "--depth", "1", url, commit]).returncode == 0
                 and subprocess.run([*git, "checkout", "-q", "FETCH_HEAD"]).returncode == 0):
+            return False
+    # (each patch once: one that applies in reverse is in already)
+    bgfx = BGFX_THIRD_PARTY / "bgfx"
+    for patch in BGFX_PATCHES:
+        if subprocess.run(["git", "-C", str(bgfx), "apply", "--reverse", "--check", str(patch.resolve())],
+                          capture_output=True).returncode == 0:
+            continue
+        print(f"Patching bgfx: {patch.name}")
+        if subprocess.run(["git", "-C", str(bgfx), "apply", str(patch.resolve())]).returncode != 0:
             return False
     return True
 
@@ -113,8 +129,8 @@ def bgfx_build(n: Writer, architectures: List[str]) -> List[Path]:
         for source in sources:
             obj = obj_dir / name / (source.stem + ".o")
             # (bgfx's renderers are Objective-C++ on macOS, for Metal and its layer)
-            n.build(outputs=obj, rule="macos_bgfx_cxx", inputs=source,
-                    variables={"extra": "-x objective-c++ -DBGFX_CONFIG_RENDERER_METAL=1 -DBGFX_CONFIG_RENDERER_OPENGL=0 "
+            n.build(outputs=obj, rule="macos_bgfx_cxx", inputs=source, implicit=BGFX_PATCHES,
+                    variables={"extra": f"-x objective-c++ {BGFX_DEFINES} -DBGFX_CONFIG_RENDERER_METAL=1 -DBGFX_CONFIG_RENDERER_OPENGL=0 "
                                "-DBGFX_CONFIG_RENDERER_VULKAN=0" if name == "bgfx" else ""})
             objects.append(obj)
         library = BGFX_THIRD_PARTY / f"lib{name}.a"

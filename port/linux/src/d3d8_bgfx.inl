@@ -20,12 +20,16 @@ shaderc, turned into Metal's shading language with SPIRV-Cross, and handed
 to bgfx in its shader container. The Metal source is kept on disk by the
 GLSL's hash, so a shader is translated once.
 
-So far: the back buffer and its depth buffer (an offscreen frame buffer,
-letterboxed into the window at Present), 2D textures (swizzled, linear,
-palettized and DXT), every vertex and pixel shader, the render states bgfx
-has, and clears. Not yet: render targets other than the back buffer,
-cube and volume textures, visibility tests, depth bias, the overlay, the
-high-res text and HUD.
+The frame is bgfx views, in order: each target change, clear after draws,
+viewport move or copy into a texture starts the next view. Render targets
+are bgfx textures found by the surface's address, as the OpenGL path's are
+(render_target_get), and a texture at a target's address samples it.
+Visibility tests are bgfx occlusion queries (counting samples: a bgfx patch,
+tools/bgfx-patches). bgfx has no depth bias, depth range or stencil write
+mask of its own: the depth range is applied in the vertex shader, a biased
+draw's pixel shader writes its depth offset as polygon offset does, and the
+stencil write mask goes to Metal through the patch. The port's own pictures
+(the high-res text and HUD, menu art, the overlay) are bgfx textures too.
 */
 
 #include <SDL3/SDL.h>
@@ -33,24 +37,38 @@ high-res text and HUD.
 #include <shaderc/shaderc.h>
 #include <spirv_cross/spirv_cross_c.h>
 
+#include "hud_hires.h"
+#include "menu_files.h"
+#include "text_hires.h"
+
 SDL_Window *platform_sdl_window(void);
 
 BOOL xgpu_bgfx;
 
 #define BG_SHADER_BUCKETS 1024
 #define BG_TEXTURE_BUCKETS 4096
-/* views a frame may use; the last is the present's */
-#define BG_MAXIMUM_VIEWS 255
+#define BG_TARGET_BUCKETS 256
+/* views a frame may use (bgfx built with 1024); the last is the present's */
+#define BG_MAXIMUM_VIEWS 1023
 /* each staged vertex is all sixteen input registers, four floats each */
 #define BG_VERTEX_BYTES (XGPU_VERTEX_ATTRIBUTE_COUNT * 16)
+/* Metal's uniform space a frame (bgfx built with 32 MB), less a margin:
+draws past it are skipped rather than overrun it */
+#define BG_UNIFORM_BUDGET ((32UL << 20) - (1UL << 20))
+/* occlusion queries, used as a ring (bgfx built with 4096) */
+#define BG_QUERY_COUNT 4096
+#define BG_COMPOSITE_LEVELS 16
 
 /* ---------- uniforms
 
 The translators' uniforms, each a bgfx uniform of the same name. bgfx's
-Metal renderer knows only vec4 (and matrix) members, so a float becomes a
-vec4 named <name>_v4, whose x the shader reads (bg_vulkan_glsl). */
+Metal renderer knows only vec4 (and matrix) members, so a float or a
+shorter vector becomes a vec4 named <name>_v4 (bg_vulkan_glsl). */
 
 static struct draw_uniforms bg_uniforms;
+/* the viewport's depth range (x MinZ, y MaxZ - MinZ), and a biased draw's
+offset (x slope factor, y constant in depth units) */
+static float bg_depth_range[4], bg_depth_bias[4];
 
 static const struct
 {
@@ -76,6 +94,8 @@ static const struct
 	{ "bump_luminance", &bg_uniforms.bump_luminance[0][0], 4, 4 },
 	{ "texture_scale", &bg_uniforms.texture_scale[0][0], 4, 4 },
 	{ "texture_lod_bias", bg_uniforms.texture_lod_bias, 1, 4 },
+	{ "depth_range", bg_depth_range, 1, 4 },
+	{ "depth_bias", bg_depth_bias, 1, 4 },
 };
 #define BG_UNIFORM_COUNT (sizeof(bg_uniform_sources) / sizeof(bg_uniform_sources[0]))
 
@@ -93,11 +113,20 @@ static const char *const bg_attribute_names[XGPU_VERTEX_ATTRIBUTE_COUNT] =
 	"a_indices", "a_weight", "a_texcoord0", "a_texcoord1", "a_texcoord2", "a_texcoord3", "a_texcoord4", "a_texcoord5",
 };
 
+/* bg_shader_get's variants */
+enum
+{
+	/* a pixel shader that offsets its depth (bg_vulkan_glsl) */
+	_bg_shader_depth_bias = 1,
+};
+
 struct bg_shader
 {
 	struct bg_shader *next;
 	Uint64 hash;
 	bgfx_shader_handle_t shader;
+	/* its uniform block's bytes, which Metal copies at each draw */
+	unsigned long uniform_size;
 	BOOL failed;
 };
 
@@ -106,6 +135,7 @@ struct bg_fragment
 	struct bg_fragment *next;
 	unsigned long hash;
 	struct nv2a_pixel_shader_key key;
+	int flags;
 	struct bg_shader *shader;
 };
 
@@ -125,6 +155,52 @@ struct bg_texture
 	struct xgpu_texture_description description;
 	bgfx_texture_handle_t texture;
 	BOOL created, mipmapped, failed;
+	/* the frame it was last bound in: a change after that is a new
+	texture, so the frame's earlier draws keep what they drew with */
+	unsigned long used_frame;
+	/* the high-res HUD texture drawn in its place (hud_hires.h), or -1, as
+	of its settings' changes */
+	long override;
+	unsigned long override_settings;
+};
+
+/* a render target: a surface's address, its size and kind, at a scale */
+struct bg_target
+{
+	struct bg_target *next;
+	DWORD data;
+	unsigned long width, height, pixel_width, pixel_height;
+	float scale[2];
+	BOOL depth, fresh;
+	bgfx_texture_handle_t texture;
+	unsigned long last_rendered, written;
+};
+
+struct bg_framebuffer
+{
+	struct bg_framebuffer *next;
+	uint16_t color, depth;
+	bgfx_frame_buffer_handle_t handle;
+};
+
+/* a texture the game renders one level at a time (the water's ripples), its
+levels' targets copied into one mipmapped texture */
+struct bg_composite
+{
+	struct bg_composite *next;
+	DWORD data;
+	unsigned long width, height, levels;
+	bgfx_texture_handle_t texture;
+	uint16_t sources[BG_COMPOSITE_LEVELS];
+	unsigned long written[BG_COMPOSITE_LEVELS];
+};
+
+/* a copy to make at the start of the next view */
+struct bg_blit
+{
+	bgfx_texture_handle_t destination, source;
+	unsigned char level;
+	unsigned short width, height;
 };
 
 static struct
@@ -136,30 +212,65 @@ static struct
 	bgfx_vertex_layout_t layout;
 	bgfx_uniform_handle_t uniforms[BG_UNIFORM_COUNT];
 	bgfx_uniform_handle_t samplers[4];
+	unsigned long frame;
 
-	/* the back buffer and its depth buffer, at the screen's pixels */
-	bgfx_frame_buffer_handle_t back_buffer;
-	bgfx_texture_handle_t color, depth;
-	unsigned long width, height;
 	/* the window's pixels, as bgfx's back buffer was last reset to */
 	int window_width, window_height;
 	unsigned long reset_flags;
 
-	/* the frame's views: the one being drawn, its rectangle, and whether it
-	has drawn or cleared yet */
+	/* the bound targets: their frame buffer, pixels a unit and pixels */
+	struct bg_target *target_color, *target_depth;
+	bgfx_frame_buffer_handle_t framebuffer;
+	float target_scale[2];
+	unsigned long target_width, target_height;
+	unsigned long write_serial;
+
+	/* the frame's views: the one being drawn, its frame buffer and
+	rectangle, whether it has drawn or cleared yet, and the copies the next
+	one starts with */
 	unsigned short view;
+	bgfx_frame_buffer_handle_t view_framebuffer;
 	unsigned short view_rect[4];
 	BOOL view_used;
+	struct bg_blit blits[64];
+	int blit_count;
+	unsigned short present_view;
 
-	bgfx_texture_handle_t blank, blank_cube;
+	bgfx_texture_handle_t blank, blank_cube, blank_volume;
 	struct bg_shader *shaders[BG_SHADER_BUCKETS];
 	struct bg_fragment *fragments[BG_SHADER_BUCKETS];
 	struct bg_program *programs[BG_SHADER_BUCKETS];
 	struct bg_texture *textures[BG_TEXTURE_BUCKETS];
+	struct bg_target *targets[BG_TARGET_BUCKETS];
+	struct bg_framebuffer *framebuffers;
+	struct bg_composite *composites;
 	bgfx_program_handle_t blit, crt;
 	bgfx_uniform_handle_t crt_parameters[3];
 
-	unsigned long vsync_read_at;
+	/* the visibility tests: the queries of the one running, and each slot's
+	latest, its count (in the game's pixels) and its target's pixels per
+	game pixel */
+	bgfx_occlusion_query_handle_t queries[BG_QUERY_COUNT];
+	unsigned long query_next;
+	BOOL test_active;
+	unsigned long test_first, test_count;
+	struct
+	{
+		unsigned long first, count;
+		float area;
+		BOOL pending;
+		UINT known;
+	} tests[VISIBILITY_TEST_SLOTS];
+
+	/* the overlay's (xgpu_bgfx_overlay_draw) */
+	bgfx_program_handle_t overlay;
+	bgfx_vertex_layout_t overlay_layout;
+	bgfx_texture_handle_t overlay_atlas, overlay_icons, overlay_picture;
+	bgfx_uniform_handle_t overlay_uniforms[3], overlay_samplers[3];
+	int overlay_picture_serial;
+	BOOL overlay_failed;
+
+	unsigned long uniform_bytes;
 	unsigned long drawn, skipped;
 } bg;
 
@@ -201,7 +312,12 @@ name. SPIR-V wants the uniforms in a block and the varyings at locations;
 bgfx wants the vertex inputs named as its attributes and the block's members
 as vec4s. Each line the translators write declares one thing, so the rewrite
 goes line by line. The clip-space fix for OpenGL without glClipControl comes
-out: Metal's clip space is Direct3D's, as the Xbox's is. */
+out: Metal's clip space is Direct3D's, as the Xbox's is.
+
+Two things OpenGL does in fixed function are added: a vertex shader maps
+its depth into the viewport's range (glDepthRange's), and a biased pixel
+shader moves its depth as glPolygonOffset does (its slope from the depth's
+derivatives). Both wrap the shader's own main. */
 
 static void bg_replace_all(struct xgpu_text *text, const char *from, const char *to)
 {
@@ -215,16 +331,16 @@ static void bg_replace_all(struct xgpu_text *text, const char *from, const char 
 	{
 		/* (whole identifiers only) */
 		char after = found[length];
+		char before = found > text->buffer ? found[-1] : ' ';
+		BOOL inside = (after >= 'a' && after <= 'z') || (after >= 'A' && after <= 'Z') ||
+			(after >= '0' && after <= '9') || after == '_' ||
+			(before >= 'a' && before <= 'z') || (before >= 'A' && before <= 'Z') ||
+			(before >= '0' && before <= '9') || before == '_';
 
-		if ((after >= 'a' && after <= 'z') || (after >= 'A' && after <= 'Z') || (after >= '0' && after <= '9') ||
-			after == '_')
-		{
+		if (inside)
 			xgpu_text_append(&out, "%.*s", (int)(found - cursor + length), cursor);
-		}
 		else
-		{
 			xgpu_text_append(&out, "%.*s%s", (int)(found - cursor), cursor, to);
-		}
 		cursor = found + length;
 	}
 	xgpu_text_append(&out, "%s", cursor);
@@ -232,12 +348,36 @@ static void bg_replace_all(struct xgpu_text *text, const char *from, const char 
 	*text = out;
 }
 
-static char *bg_vulkan_glsl(const char *source)
+/* the vertex constants a shader reads: all of them with relative
+addressing, otherwise up to its highest */
+static unsigned long bg_constants_used(const char *source)
+{
+	const char *cursor = source;
+	unsigned long highest = 0;
+
+	if (strstr(source, "clamp(a0"))
+		return XGPU_VERTEX_CONSTANT_COUNT;
+	while ((cursor = strstr(cursor, "c[")) != NULL)
+	{
+		if (cursor == source || !((cursor[-1] >= 'a' && cursor[-1] <= 'z') || cursor[-1] == '_' ||
+			(cursor[-1] >= 'A' && cursor[-1] <= 'Z') || (cursor[-1] >= '0' && cursor[-1] <= '9')))
+		{
+			unsigned long index = (unsigned long)strtoul(cursor + 2, NULL, 10);
+
+			if (cursor[2] >= '0' && cursor[2] <= '9' && index + 1 > highest)
+				highest = index + 1;
+		}
+		cursor += 2;
+	}
+	return highest ? (highest > XGPU_VERTEX_CONSTANT_COUNT ? XGPU_VERTEX_CONSTANT_COUNT : highest) : 1;
+}
+
+static char *bg_vulkan_glsl(const char *source, BOOL fragment, int flags, unsigned long *uniform_size)
 {
 	struct xgpu_text block = { 0 }, defines = { 0 }, body = { 0 }, all = { 0 };
 	const char *line = source;
-	BOOL members = FALSE;
-	unsigned long index;
+	unsigned long index, size = 0;
+	int sampler_next = 0;
 
 	xgpu_text_append(&block, "#version 450\n");
 	xgpu_text_append(&block, "layout(set = 0, binding = 8, std140) uniform Uniforms\n{\n");
@@ -263,22 +403,35 @@ static char *bg_vulkan_glsl(const char *source)
 			continue;
 		if (sscanf(text, "uniform %63s %63[A-Za-z0-9_]", type, name) == 2)
 		{
+			const char *bracket = strchr(text, '[');
+			unsigned long count = bracket ? (unsigned long)atol(bracket + 1) : 1;
+
 			if (strncmp(type, "sampler", 7) == 0)
 			{
-				/* tex0 to tex3, at their stages */
-				xgpu_text_append(&body, "layout(set = 0, binding = %c) %s\n", name[3], text);
+				/* tex0 to tex3 at their stages; others in order */
+				int binding = strncmp(name, "tex", 3) == 0 && name[3] >= '0' && name[3] <= '3' && !name[4] ?
+					name[3] - '0' : sampler_next;
+
+				sampler_next = binding + 1;
+				xgpu_text_append(&body, "layout(set = 0, binding = %d) %s\n", binding, text);
 				continue;
 			}
-			if (strcmp(type, "float") == 0)
+			if (!fragment && strcmp(name, "c") == 0)
+			{
+				count = bg_constants_used(source);
+				xgpu_text_append(&block, "\tvec4 c[%lu];\n", count);
+			}
+			else if (strcmp(type, "float") == 0 || strcmp(type, "vec2") == 0 || strcmp(type, "vec3") == 0)
 			{
 				xgpu_text_append(&block, "\tvec4 %s_v4;\n", name);
-				xgpu_text_append(&defines, "#define %s %s_v4.x\n", name, name);
+				xgpu_text_append(&defines, "#define %s %s_v4.%s\n", name, name,
+					type[0] == 'f' ? "x" : type[3] == '2' ? "xy" : "xyz");
 			}
 			else
 			{
 				xgpu_text_append(&block, "\t%s\n", text + 8);
 			}
-			members = TRUE;
+			size += 16 * count;
 			continue;
 		}
 		if ((strncmp(text, "in ", 3) == 0 || strncmp(text, "out ", 4) == 0) &&
@@ -295,10 +448,44 @@ static char *bg_vulkan_glsl(const char *source)
 				continue;
 			}
 		}
+		if (strcmp(text, "void main()") == 0)
+		{
+			xgpu_text_append(&body, "void bg_main()\n");
+			continue;
+		}
 		xgpu_text_append(&body, "%s\n", text);
 	}
+	if (!fragment)
+	{
+		/* (glDepthRange's: the viewport's MinZ to MaxZ) */
+		xgpu_text_append(&block, "\tvec4 depth_range;\n");
+		xgpu_text_append(&body,
+			"void main()\n"
+			"{\n"
+			"\tbg_main();\n"
+			"\tgl_Position.z = gl_Position.z * depth_range.y + depth_range.x * gl_Position.w;\n"
+			"}\n");
+	}
+	else if (flags & _bg_shader_depth_bias)
+	{
+		/* (glPolygonOffset's: the slope's factor and a constant in the
+		depth buffer's units) */
+		xgpu_text_append(&block, "\tvec4 depth_bias;\n");
+		xgpu_text_append(&body,
+			"void main()\n"
+			"{\n"
+			"\tbg_main();\n"
+			"\tfloat slope = max(abs(dFdx(gl_FragCoord.z)), abs(dFdy(gl_FragCoord.z)));\n"
+			"\tgl_FragDepth = clamp(gl_FragCoord.z + depth_bias.x * slope + depth_bias.y, 0.0, 1.0);\n"
+			"}\n");
+	}
+	else
+	{
+		xgpu_text_append(&body, "void main()\n{\n\tbg_main();\n}\n");
+	}
+	size += 16;
 	/* (a block may not be empty) */
-	if (!members)
+	if (fragment && !(flags & _bg_shader_depth_bias) && size == 16)
 		xgpu_text_append(&block, "\tvec4 unused_v4;\n");
 	xgpu_text_append(&all, "%s};\n%s%s", block.buffer, defines.buffer ? defines.buffer : "",
 		body.buffer ? body.buffer : "");
@@ -312,6 +499,8 @@ static char *bg_vulkan_glsl(const char *source)
 		snprintf(from, sizeof(from), "v%lu_in", index);
 		bg_replace_all(&all, from, bg_attribute_names[index]);
 	}
+	if (uniform_size)
+		*uniform_size = size;
 	return all.buffer;
 }
 
@@ -330,7 +519,7 @@ static void bg_cache_path(char *path, unsigned long size, Uint64 hash)
 }
 
 /* Metal's shading language for the SPIR-V: the uniform block is bgfx's
-_mtl_u in buffer 0, each sampler at its stage, the entry point bgfx's */
+_mtl_u in buffer 0, each sampler at its binding, the entry point bgfx's */
 static char *bg_msl(const shaderc_compilation_result_t result, BOOL fragment, const char **error)
 {
 	spvc_context context = NULL;
@@ -440,15 +629,16 @@ static struct bg_shader *bg_shader_failed(Uint64 hash, const char *what, const c
 }
 
 /* a shader of the translators' GLSL */
-static struct bg_shader *bg_shader_get(const char *glsl, BOOL fragment, const char *what)
+static struct bg_shader *bg_shader_get(const char *glsl, BOOL fragment, int flags, const char *what)
 {
 	struct bg_shader *shader;
 	char *source, *msl = NULL;
 	char path[1024];
 	size_t msl_size = 0;
+	unsigned long uniform_size = 0;
 	Uint64 hash;
 
-	source = bg_vulkan_glsl(glsl);
+	source = bg_vulkan_glsl(glsl, fragment, flags, &uniform_size);
 	if (!source)
 		return &bg_failed_shader;
 	hash = bg_hash(source, strlen(source), fragment ? 14695981039346656037ULL : 1469598103934665603ULL);
@@ -498,6 +688,7 @@ static struct bg_shader *bg_shader_get(const char *glsl, BOOL fragment, const ch
 	free(source);
 	shader = calloc(1, sizeof(*shader));
 	shader->hash = hash;
+	shader->uniform_size = uniform_size;
 	shader->shader = bg_container(msl, fragment);
 	if (msl_size)
 		SDL_free(msl);
@@ -522,28 +713,29 @@ static struct bg_shader *bg_vertex_shader(struct vertex_shader_object *program, 
 		/* (packed normals are unpacked as they are staged: bg_vertex_element) */
 		char *glsl = nv2a_vertex_shader_to_glsl(program->instructions, program->instruction_count, 0, NULL);
 
-		*slot = bg_shader_get(glsl, FALSE, "vertex");
+		*slot = bg_shader_get(glsl, FALSE, 0, "vertex");
 		free(glsl);
 	}
 	return *slot == &bg_failed_shader ? NULL : *slot;
 }
 
-static struct bg_shader *bg_fragment_shader(const struct nv2a_pixel_shader_key *key)
+static struct bg_shader *bg_fragment_shader(const struct nv2a_pixel_shader_key *key, int flags)
 {
-	unsigned long hash = (unsigned long)bg_hash(key, sizeof(*key), 14695981039346656037ULL);
+	unsigned long hash = (unsigned long)bg_hash(key, sizeof(*key), 14695981039346656037ULL) ^ (unsigned long)flags;
 	struct bg_fragment **bucket = &bg.fragments[hash % BG_SHADER_BUCKETS], *entry;
 	char *glsl;
 
 	for (entry = *bucket; entry; entry = entry->next)
 	{
-		if (entry->hash == hash && !memcmp(&entry->key, key, sizeof(*key)))
+		if (entry->hash == hash && entry->flags == flags && !memcmp(&entry->key, key, sizeof(*key)))
 			return entry->shader == &bg_failed_shader ? NULL : entry->shader;
 	}
 	glsl = nv2a_pixel_shader_to_glsl(key);
 	entry = calloc(1, sizeof(*entry));
 	entry->hash = hash;
 	entry->key = *key;
-	entry->shader = bg_shader_get(glsl, TRUE, "pixel");
+	entry->flags = flags;
+	entry->shader = bg_shader_get(glsl, TRUE, flags, "pixel");
 	free(glsl);
 	entry->next = *bucket;
 	*bucket = entry;
@@ -630,8 +822,9 @@ static uint64_t bg_blend_operation(DWORD operation)
 }
 
 /* the draw's state from the render states (apply_raster_state's), and its
-stencil; the blend constant in *rgba */
-static uint64_t bg_state(BOOL has_depth, uint32_t *stencil, uint32_t *rgba)
+stencil (the back's carries the write mask: tools/bgfx-patches); the blend
+constant in *rgba */
+static uint64_t bg_state(BOOL has_depth, uint32_t *stencil, uint32_t *back_stencil, uint32_t *rgba)
 {
 	DWORD *rs = D3D__RenderState;
 	DWORD write = rs[D3DRS_COLORWRITEENABLE];
@@ -651,16 +844,23 @@ static uint64_t bg_state(BOOL has_depth, uint32_t *stencil, uint32_t *rgba)
 		if (rs[D3DRS_ZWRITEENABLE])
 			state |= BGFX_STATE_WRITE_Z;
 	}
-	*stencil = BGFX_STENCIL_NONE;
+	*stencil = *back_stencil = BGFX_STENCIL_NONE;
 	if (has_depth && rs[D3DRS_STENCILENABLE])
 	{
+		DWORD mask = rs[D3DRS_STENCILWRITEMASK] & 0xff;
+		unsigned fail = bg_stencil_operation(rs[D3DRS_STENCILFAIL]);
+		unsigned depth_fail = bg_stencil_operation(rs[D3DRS_STENCILZFAIL]);
+		unsigned pass = bg_stencil_operation(rs[D3DRS_STENCILPASS]);
+
+		/* (writing no bits: every operation keeps) */
+		if (!mask)
+			fail = depth_fail = pass = 1;
 		*stencil = ((uint32_t)bg_compare(rs[D3DRS_STENCILFUNC]) << BGFX_STENCIL_TEST_SHIFT) |
 			BGFX_STENCIL_FUNC_REF(rs[D3DRS_STENCILREF] & 0xff) | BGFX_STENCIL_FUNC_RMASK(rs[D3DRS_STENCILMASK] & 0xff) |
-			((uint32_t)bg_stencil_operation(rs[D3DRS_STENCILFAIL]) << BGFX_STENCIL_OP_FAIL_S_SHIFT) |
-			((uint32_t)bg_stencil_operation(rs[D3DRS_STENCILZFAIL]) << BGFX_STENCIL_OP_FAIL_Z_SHIFT) |
-			((uint32_t)bg_stencil_operation(rs[D3DRS_STENCILPASS]) << BGFX_STENCIL_OP_PASS_Z_SHIFT);
-		if ((rs[D3DRS_STENCILWRITEMASK] & 0xff) != 0xff)
-			bg_log_once("stencil write masks (bgfx writes all eight bits)");
+			((uint32_t)fail << BGFX_STENCIL_OP_FAIL_S_SHIFT) | ((uint32_t)depth_fail << BGFX_STENCIL_OP_FAIL_Z_SHIFT) |
+			((uint32_t)pass << BGFX_STENCIL_OP_PASS_Z_SHIFT);
+		if (mask && mask != 0xff)
+			*back_stencil = BGFX_STENCIL_FUNC_RMASK(mask);
 	}
 	if (rs[D3DRS_ALPHABLENDENABLE])
 	{
@@ -677,11 +877,284 @@ static uint64_t bg_state(BOOL has_depth, uint32_t *stencil, uint32_t *rgba)
 		state |= BGFX_STATE_CULL_CW;
 	else if (rs[D3DRS_CULLMODE] == 0x901)
 		state |= BGFX_STATE_CULL_CCW;
-	if (rs[D3DRS_SOLIDOFFSETENABLE])
-		bg_log_once("depth bias (bgfx has none)");
 	if (rs[D3DRS_FILLMODE] == D3DFILL_WIREFRAME)
 		bg_log_once("wireframe");
 	return state;
+}
+
+/* ---------- views
+
+bgfx draws a frame as views, in order: each has one frame buffer, rectangle
+and clear. A view of its own starts at each change of target, at each clear
+after draws, when the viewport moves (the hardware viewport must be
+Direct3D's, since the vertex shaders compute their positions in it), and
+when a texture is copied (bgfx copies at the start of a view, so the copy
+comes after what was drawn into its source before). */
+
+static void bg_view_set(bgfx_frame_buffer_handle_t framebuffer, const unsigned short rect[4], BOOL new_view)
+{
+	int index;
+
+	if (bg.blit_count)
+		new_view = TRUE;
+	if (bg.view_used && (new_view || framebuffer.idx != bg.view_framebuffer.idx ||
+		memcmp(rect, bg.view_rect, sizeof(bg.view_rect))))
+	{
+		if (bg.view + 2 < BG_MAXIMUM_VIEWS)
+			bg.view++;
+		else
+			bg_log_once("more views than a frame has");
+		bg.view_used = FALSE;
+		bgfx_set_view_mode(bg.view, BGFX_VIEW_MODE_SEQUENTIAL);
+		bgfx_set_view_clear(bg.view, BGFX_CLEAR_NONE, 0, 1.0f, 0);
+	}
+	bg.view_framebuffer = framebuffer;
+	memcpy(bg.view_rect, rect, sizeof(bg.view_rect));
+	bgfx_set_view_frame_buffer(bg.view, framebuffer);
+	bgfx_set_view_rect(bg.view, rect[0], rect[1], rect[2], rect[3]);
+	for (index = 0; index < bg.blit_count; index++)
+	{
+		const struct bg_blit *blit = &bg.blits[index];
+
+		bgfx_blit(bg.view, blit->destination, blit->level, 0, 0, 0, blit->source, 0, 0, 0, 0, blit->width,
+			blit->height, 1);
+	}
+	if (bg.blit_count)
+	{
+		bg.blit_count = 0;
+		bgfx_touch(bg.view);
+		bg.view_used = TRUE;
+	}
+}
+
+/* ---------- render targets (render_target_get's) */
+
+static struct bg_target **bg_target_bucket(DWORD data)
+{
+	return &bg.targets[((data >> 12) ^ (data >> 20)) % BG_TARGET_BUCKETS];
+}
+
+static struct bg_target *bg_target_get(const D3DSurface *surface)
+{
+	struct bg_target *entry;
+	unsigned long width, height;
+	float scale[2] = { 1.0f, 1.0f };
+	BOOL depth;
+
+	if (!surface || !surface->Data)
+		return NULL;
+	surface_dimensions(surface, &width, &height, &depth);
+	/* the screen's targets are drawn at the screen's scale, and the shadow
+	maps at display.shadow_resolution's */
+	if (width == (unsigned long)halo_screen_width() && height == SCREEN_HEIGHT)
+	{
+		scale[0] = screen_scale[0];
+		scale[1] = screen_scale[1];
+	}
+	else if (!depth && surface_is_shadow_map(surface))
+	{
+		scale[0] = (float)halo_shadow_map_scale();
+		scale[1] = scale[0];
+	}
+	for (entry = *bg_target_bucket(surface->Data); entry; entry = entry->next)
+	{
+		if (entry->data == surface->Data && entry->width == width && entry->height == height && entry->depth == depth &&
+			entry->scale[0] == scale[0] && entry->scale[1] == scale[1])
+			return entry;
+	}
+	entry = calloc(1, sizeof(*entry));
+	entry->data = surface->Data;
+	entry->width = width;
+	entry->height = height;
+	entry->depth = depth;
+	entry->scale[0] = scale[0];
+	entry->scale[1] = scale[1];
+	entry->pixel_width = (unsigned long)(width * scale[0] + 0.5f);
+	entry->pixel_height = (unsigned long)(height * scale[1] + 0.5f);
+	entry->texture = bgfx_create_texture_2d((uint16_t)entry->pixel_width, (uint16_t)entry->pixel_height, false, 1,
+		depth ? BGFX_TEXTURE_FORMAT_D24S8 : BGFX_TEXTURE_FORMAT_BGRA8,
+		BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, NULL, 0);
+	/* (cleared once: what a new target holds is undefined) */
+	entry->fresh = TRUE;
+	entry->next = *bg_target_bucket(entry->data);
+	*bg_target_bucket(entry->data) = entry;
+	return entry;
+}
+
+/* the color target last drawn into at this address, or NULL */
+static struct bg_target *bg_target_find(DWORD data)
+{
+	struct bg_target *entry, *best = NULL;
+
+	for (entry = *bg_target_bucket(data); entry; entry = entry->next)
+	{
+		if (entry->data == data && !entry->depth && entry->last_rendered &&
+			(!best || entry->last_rendered > best->last_rendered))
+			best = entry;
+	}
+	return best;
+}
+
+static bgfx_frame_buffer_handle_t bg_framebuffer_get(struct bg_target *color, struct bg_target *depth)
+{
+	uint16_t color_index = color ? color->texture.idx : UINT16_MAX, depth_index = depth ? depth->texture.idx : UINT16_MAX;
+	struct bg_framebuffer *entry;
+	bgfx_texture_handle_t attachments[2];
+	uint8_t count = 0;
+
+	for (entry = bg.framebuffers; entry; entry = entry->next)
+	{
+		if (entry->color == color_index && entry->depth == depth_index)
+			return entry->handle;
+	}
+	if (color)
+		attachments[count++] = color->texture;
+	if (depth)
+		attachments[count++] = depth->texture;
+	entry = calloc(1, sizeof(*entry));
+	entry->color = color_index;
+	entry->depth = depth_index;
+	entry->handle = bgfx_create_frame_buffer_from_handles(count, attachments, false);
+	entry->next = bg.framebuffers;
+	bg.framebuffers = entry;
+	return entry->handle;
+}
+
+/* the targets' frame buffer bound (bind_targets'); FALSE if there is
+nothing to draw into */
+static BOOL bg_bind_targets(BOOL *has_depth)
+{
+	struct bg_target *color = bg_target_get(device.render_target);
+	struct bg_target *depth = bg_target_get(device.depth_stencil);
+
+	if (depth && !depth->depth)
+		depth = NULL;
+	if (color && depth && (color->pixel_width != depth->pixel_width || color->pixel_height != depth->pixel_height))
+	{
+		/* (bgfx's frame buffers are one size) */
+		bg_log_once("a depth buffer of another size than its target");
+		depth = NULL;
+	}
+	if (!color && !depth)
+		return FALSE;
+	if (color)
+	{
+		color->last_rendered = device.frame + 1;
+		color->written = ++bg.write_serial;
+	}
+	bg.target_color = color;
+	bg.target_depth = depth;
+	bg.target_scale[0] = color ? color->scale[0] : depth->scale[0];
+	bg.target_scale[1] = color ? color->scale[1] : depth->scale[1];
+	bg.target_width = color ? color->pixel_width : depth->pixel_width;
+	bg.target_height = color ? color->pixel_height : depth->pixel_height;
+	bg.framebuffer = bg_framebuffer_get(color, depth);
+	if ((color && color->fresh) || (depth && depth->fresh))
+	{
+		unsigned short rect[4] = { 0, 0, (unsigned short)bg.target_width, (unsigned short)bg.target_height };
+		uint16_t clear = (uint16_t)((color && color->fresh ? BGFX_CLEAR_COLOR : 0) |
+			(depth && depth->fresh ? BGFX_CLEAR_DEPTH | BGFX_CLEAR_STENCIL : 0));
+
+		bg_view_set(bg.framebuffer, rect, TRUE);
+		bgfx_set_view_clear(bg.view, clear, 0x000000ff, 1.0f, 0);
+		bgfx_touch(bg.view);
+		bg.view_used = TRUE;
+		if (color)
+			color->fresh = FALSE;
+		if (depth)
+			depth->fresh = FALSE;
+	}
+	*has_depth = depth != NULL;
+	return TRUE;
+}
+
+/* a rectangle of the bound targets' units in their pixels, clipped to them */
+static BOOL bg_target_rect(float x, float y, float width, float height, unsigned short rect[4])
+{
+	long x0 = scaled_pixel(x, bg.target_scale[0]);
+	long y0 = scaled_pixel(y, bg.target_scale[1]);
+	long x1 = scaled_pixel(x + width, bg.target_scale[0]);
+	long y1 = scaled_pixel(y + height, bg.target_scale[1]);
+
+	x0 = x0 < 0 ? 0 : x0;
+	y0 = y0 < 0 ? 0 : y0;
+	x1 = x1 > (long)bg.target_width ? (long)bg.target_width : x1;
+	y1 = y1 > (long)bg.target_height ? (long)bg.target_height : y1;
+	if (x1 <= x0 || y1 <= y0)
+		return FALSE;
+	rect[0] = (unsigned short)x0;
+	rect[1] = (unsigned short)y0;
+	rect[2] = (unsigned short)(x1 - x0);
+	rect[3] = (unsigned short)(y1 - y0);
+	return TRUE;
+}
+
+/* the levels of a texture the game renders one at a time, in one mipmapped
+texture (mip_composite_get's), or the target of its first level alone if
+the game has not rendered every level */
+static bgfx_texture_handle_t bg_composite_get(const struct xgpu_texture_description *description, DWORD data,
+	struct bg_target *first, BOOL *mipmapped)
+{
+	struct bg_target *targets[BG_COMPOSITE_LEVELS];
+	struct bg_composite *composite;
+	unsigned long level, full = 1, size;
+	BOOL changed = FALSE;
+
+	*mipmapped = FALSE;
+	for (size = description->width > description->height ? description->width : description->height; size > 1; size >>= 1)
+		full++;
+	if (description->levels != full || full > BG_COMPOSITE_LEVELS)
+		return first->texture;
+	for (level = 0; level < full; level++)
+	{
+		unsigned long width = description->width >> level ? description->width >> level : 1;
+		unsigned long height = description->height >> level ? description->height >> level : 1;
+
+		targets[level] = bg_target_find(data + xgpu_texture_level_offset(description, level));
+		if (!targets[level] || targets[level]->width != width || targets[level]->height != height ||
+			targets[level]->pixel_width != width || targets[level]->pixel_height != height)
+			return first->texture;
+	}
+	for (composite = bg.composites; composite; composite = composite->next)
+	{
+		if (composite->data == data && composite->width == description->width && composite->height == description->height)
+			break;
+	}
+	if (!composite)
+	{
+		composite = calloc(1, sizeof(*composite));
+		composite->data = data;
+		composite->width = description->width;
+		composite->height = description->height;
+		composite->levels = full;
+		composite->texture = bgfx_create_texture_2d((uint16_t)description->width, (uint16_t)description->height, true, 1,
+			BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_BLIT_DST, NULL, 0);
+		composite->next = bg.composites;
+		bg.composites = composite;
+		changed = TRUE;
+	}
+	for (level = 0; level < full; level++)
+	{
+		if (composite->sources[level] != targets[level]->texture.idx || composite->written[level] != targets[level]->written)
+			changed = TRUE;
+	}
+	if (changed)
+	{
+		for (level = 0; level < full && bg.blit_count < (int)(sizeof(bg.blits) / sizeof(bg.blits[0])); level++)
+		{
+			struct bg_blit *blit = &bg.blits[bg.blit_count++];
+
+			composite->sources[level] = targets[level]->texture.idx;
+			composite->written[level] = targets[level]->written;
+			blit->destination = composite->texture;
+			blit->source = targets[level]->texture;
+			blit->level = (unsigned char)level;
+			blit->width = (unsigned short)targets[level]->width;
+			blit->height = (unsigned short)targets[level]->height;
+		}
+	}
+	*mipmapped = TRUE;
+	return composite->texture;
 }
 
 /* ---------- textures */
@@ -698,11 +1171,33 @@ static unsigned long bg_level_dimension(unsigned long base, unsigned long level)
 	return value ? value : 1;
 }
 
+/* a level of 32-bit texels box-filtered to half its size (or the source's
+smaller dimension kept at 1) */
+static void bg_downsample(const unsigned char *source, unsigned long width, unsigned long height, unsigned char *out)
+{
+	unsigned long out_width = width > 1 ? width / 2 : 1, out_height = height > 1 ? height / 2 : 1, x, y, channel;
+
+	for (y = 0; y < out_height; y++)
+	{
+		for (x = 0; x < out_width; x++)
+		{
+			unsigned long x0 = x * 2 < width ? x * 2 : width - 1, x1 = x * 2 + 1 < width ? x * 2 + 1 : x0;
+			unsigned long y0 = y * 2 < height ? y * 2 : height - 1, y1 = y * 2 + 1 < height ? y * 2 + 1 : y0;
+
+			for (channel = 0; channel < 4; channel++)
+				out[(y * out_width + x) * 4 + channel] = (unsigned char)((source[(y0 * width + x0) * 4 + channel] +
+					source[(y0 * width + x1) * 4 + channel] + source[(y1 * width + x0) * 4 + channel] +
+					source[(y1 * width + x1) * 4 + channel] + 2) / 4);
+		}
+	}
+}
+
 static void bg_texture_upload(struct bg_texture *entry, const unsigned char *base, const D3DCOLOR *palette)
 {
 	struct xgpu_texture_description *description = &entry->description;
 	int dxt = description->compressed ? xgpu_texture_dxt(description) : 0;
 	unsigned long levels = description->levels ? description->levels : 1, level, full = 1, size, face, provided;
+	BOOL volume = description->depth > 1;
 
 	if (description->compressed && !dxt)
 	{
@@ -712,7 +1207,10 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 	}
 	/* bgfx's mipmapped textures have every level down to 1x1 (it has no
 	maximum level); the levels a texture lacks are made from its last */
-	for (size = description->width > description->height ? description->width : description->height; size > 1; size >>= 1)
+	size = description->width > description->height ? description->width : description->height;
+	if (volume && description->depth > size)
+		size = description->depth;
+	for (; size > 1; size >>= 1)
 		full++;
 	provided = levels;
 	if (levels > 1)
@@ -722,10 +1220,15 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 		bgfx_texture_format_t format = dxt == 1 ? BGFX_TEXTURE_FORMAT_BC1 : dxt == 3 ? BGFX_TEXTURE_FORMAT_BC2 :
 			dxt == 5 ? BGFX_TEXTURE_FORMAT_BC3 : BGFX_TEXTURE_FORMAT_BGRA8;
 
-		entry->texture = description->cube_map ?
-			bgfx_create_texture_cube((uint16_t)description->width, levels > 1, 1, format, BGFX_TEXTURE_NONE, NULL, 0) :
-			bgfx_create_texture_2d((uint16_t)description->width, (uint16_t)description->height, levels > 1, 1, format,
-				BGFX_TEXTURE_NONE | BGFX_SAMPLER_NONE, NULL, 0);
+		if (volume)
+			entry->texture = bgfx_create_texture_3d((uint16_t)description->width, (uint16_t)description->height,
+				(uint16_t)description->depth, levels > 1, format, BGFX_TEXTURE_NONE, NULL, 0);
+		else if (description->cube_map)
+			entry->texture = bgfx_create_texture_cube((uint16_t)description->width, levels > 1, 1, format,
+				BGFX_TEXTURE_NONE, NULL, 0);
+		else
+			entry->texture = bgfx_create_texture_2d((uint16_t)description->width, (uint16_t)description->height,
+				levels > 1, 1, format, BGFX_TEXTURE_NONE | BGFX_SAMPLER_NONE, NULL, 0);
 		if (!BGFX_HANDLE_IS_VALID(entry->texture))
 		{
 			platform_log("bgfx: a %lux%lu texture cannot be made", description->width, description->height);
@@ -740,6 +1243,7 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 	{
 		unsigned long width = bg_level_dimension(description->width, level);
 		unsigned long height = bg_level_dimension(description->height, level);
+		unsigned long depth = volume ? bg_level_dimension(description->depth, level) : 1;
 		unsigned long from = level < provided ? level : provided - 1;
 		const unsigned char *source = base + face * xgpu_texture_face_size(description) +
 			xgpu_texture_level_offset(description, from);
@@ -754,14 +1258,14 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 		if (dxt)
 		{
 			/* (a missing level: the last one's first blocks, as many as it has) */
-			unsigned long blocks = ((width + 3) / 4) * ((height + 3) / 4) * (dxt == 1 ? 8 : 16);
+			unsigned long blocks = ((width + 3) / 4) * ((height + 3) / 4) * depth * (dxt == 1 ? 8 : 16);
 			unsigned long available = xgpu_texture_level_bytes(description, from);
 
 			memory = bgfx_copy(source, (uint32_t)(level == from ? available : blocks < available ? blocks : available));
 		}
 		else if (level == from)
 		{
-			memory = bgfx_alloc((uint32_t)(width * height * 4));
+			memory = bgfx_alloc((uint32_t)(width * height * depth * 4));
 			xgpu_texture_decode_level(description, level, source, palette, (unsigned long *)memory->data);
 		}
 		else
@@ -769,25 +1273,28 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 			/* (a missing level: the last one, point sampled down) */
 			unsigned long from_width = bg_level_dimension(description->width, from);
 			unsigned long from_height = bg_level_dimension(description->height, from);
-			unsigned long *decoded = malloc(from_width * from_height * 4), x, y;
+			unsigned long from_depth = volume ? bg_level_dimension(description->depth, from) : 1;
+			unsigned long *decoded = malloc(from_width * from_height * from_depth * 4), x, y, z;
 
-			memory = bgfx_alloc((uint32_t)(width * height * 4));
+			memory = bgfx_alloc((uint32_t)(width * height * depth * 4));
 			if (decoded && xgpu_texture_decode_level(description, from, source, palette, decoded))
 			{
+				for (z = 0; z < depth; z++)
 				for (y = 0; y < height; y++)
-				{
-					for (x = 0; x < width; x++)
-						((unsigned int *)memory->data)[y * width + x] =
-							(unsigned int)decoded[(y * from_height / height) * from_width + x * from_width / width];
-				}
+				for (x = 0; x < width; x++)
+					((unsigned int *)memory->data)[(z * height + y) * width + x] = (unsigned int)decoded[
+						((z * from_depth / depth) * from_height + y * from_height / height) * from_width + x * from_width / width];
 			}
 			else
 			{
-				memset(memory->data, 0, width * height * 4);
+				memset(memory->data, 0, width * height * depth * 4);
 			}
 			free(decoded);
 		}
-		if (description->cube_map)
+		if (volume)
+			bgfx_update_texture_3d(entry->texture, (uint8_t)level, 0, 0, 0, (uint16_t)width, (uint16_t)height,
+				(uint16_t)depth, memory);
+		else if (description->cube_map)
 			bgfx_update_texture_cube(entry->texture, 0, (uint8_t)face, (uint8_t)level, 0, 0, (uint16_t)width,
 				(uint16_t)height, memory, UINT16_MAX);
 		else
@@ -796,18 +1303,20 @@ static void bg_texture_upload(struct bg_texture *entry, const unsigned char *bas
 	}
 }
 
-/* a stage's texture, uploaded again when its pages have been written;
-FALSE if it cannot be drawn yet */
+/* a stage's texture (xgpu_texture_get's), uploaded again when its pages have
+been written; FALSE if it cannot be drawn yet */
 static BOOL bg_texture_get(const DWORD *resource, const D3DCOLOR *palette, struct xgpu_texture_description *description,
-	bgfx_texture_handle_t *handle, BOOL *mipmapped)
+	bgfx_texture_handle_t *handle, BOOL *mipmapped, long *override)
 {
 	DWORD data = resource[1], format_word = resource[3], size_word = resource[4];
+	BOOL palettized = ((format_word & D3DFORMAT_FORMAT_MASK) >> D3DFORMAT_FORMAT_SHIFT) == 0x0b;
 	unsigned long hash = bg_palette_hash(palette);
 	unsigned long bucket = (unsigned long)(bg_hash(&data, sizeof(data), bg_hash(&format_word, sizeof(format_word),
 		bg_hash(&size_word, sizeof(size_word), 14695981039346656037ULL))) % BG_TEXTURE_BUCKETS);
 	struct bg_texture *entry;
 	unsigned long generation;
 
+	*override = -1;
 	for (entry = bg.textures[bucket]; entry; entry = entry->next)
 	{
 		if (entry->data == data && entry->format_word == format_word && entry->size_word == size_word &&
@@ -821,6 +1330,7 @@ static BOOL bg_texture_get(const DWORD *resource, const D3DCOLOR *palette, struc
 		entry->format_word = format_word;
 		entry->size_word = size_word;
 		entry->palette_hash = hash;
+		entry->override = -1;
 		xgpu_texture_describe(format_word, size_word, &entry->description);
 #ifdef HALO_64BIT
 		entry->address = (unsigned int)data | PLATFORM_CONTIGUOUS_BASE; /* an Xbox address */
@@ -828,11 +1338,6 @@ static BOOL bg_texture_get(const DWORD *resource, const D3DCOLOR *palette, struc
 		entry->address = (unsigned long)PLATFORM_PHYSICAL_TO_VIRTUAL(data);
 #endif
 		entry->size = xgpu_texture_face_size(&entry->description) * (entry->description.cube_map ? 6 : 1);
-		if (entry->description.depth > 1)
-		{
-			bg_log_once("volume textures");
-			entry->failed = TRUE;
-		}
 		entry->next = bg.textures[bucket];
 		bg.textures[bucket] = entry;
 	}
@@ -840,7 +1345,7 @@ static BOOL bg_texture_get(const DWORD *resource, const D3DCOLOR *palette, struc
 	if (entry->failed || !entry->size)
 		return FALSE;
 	generation = memory_watch_generation(entry->address, entry->size);
-	if (!entry->generation || generation > entry->generation)
+	if (!entry->generation || generation > entry->generation || entry->override_settings != hud_hires_settings())
 	{
 		entry->description.pc_layout = (resource[0] & D3DCOMMON_PORT_PC_LAYOUT) != 0;
 		entry->description.pc_meter = (resource[0] & D3DCOMMON_PORT_PC_METER) != 0;
@@ -849,32 +1354,63 @@ static BOOL bg_texture_get(const DWORD *resource, const D3DCOLOR *palette, struc
 		entry->generation = memory_watch_generation(entry->address, entry->size);
 		if (!entry->generation)
 			entry->generation = 1;
-		if (!platform_is_contiguous(xbox_pointer(entry->address)) ||
-			!platform_is_contiguous(xbox_pointer(entry->address + entry->size - 1)))
-			return FALSE;
-		bg_texture_upload(entry, (const unsigned char *)xbox_pointer(entry->address), palette);
+		/* (which bitmap is here may have changed with the pixels, and
+		whether it has a high-res stand-in with the settings) */
+		entry->override = -1;
+		entry->override_settings = hud_hires_settings();
+		if (!palettized && !entry->description.cube_map && entry->description.depth == 1)
+		{
+			unsigned long levels;
+
+			entry->override = hud_hires_override_find(entry->address, entry->description.width,
+				entry->description.height, entry->description.levels > 1 ?
+				xgpu_texture_level_offset(&entry->description, 1) : xgpu_texture_face_size(&entry->description));
+			if (entry->override >= 0 && !hud_hires_override_texture(entry->override, &levels))
+				entry->override = -1;
+		}
+		if (entry->override < 0)
+		{
+			if (!platform_is_contiguous(xbox_pointer(entry->address)) ||
+				!platform_is_contiguous(xbox_pointer(entry->address + entry->size - 1)))
+				return FALSE;
+			/* (drawn with already this frame: a new texture, so the draws
+			before keep the old pixels, as they did on the Xbox) */
+			if (entry->created && entry->used_frame == bg.frame)
+			{
+				bgfx_destroy_texture(entry->texture);
+				entry->created = FALSE;
+			}
+			bg_texture_upload(entry, (const unsigned char *)xbox_pointer(entry->address), palette);
+		}
 		*description = entry->description;
 	}
-	if (entry->failed)
+	*override = entry->override;
+	if (entry->override >= 0)
+		return TRUE;
+	if (entry->failed || !entry->created)
 		return FALSE;
+	entry->used_frame = bg.frame;
 	*handle = entry->texture;
 	*mipmapped = entry->mipmapped;
 	return TRUE;
 }
 
-static uint32_t bg_sampler_flags(int stage, BOOL mipmapped)
+static uint32_t bg_sampler_flags(int stage, BOOL mipmapped, BOOL hires)
 {
 	DWORD *state = D3D__TextureState[stage];
 	uint32_t flags = 0;
 	int axis;
 
-	if (state[D3DTSS_MINFILTER] == D3DTEXF_POINT)
-		flags |= BGFX_SAMPLER_MIN_POINT;
-	else if (state[D3DTSS_MINFILTER] == D3DTEXF_ANISOTROPIC && state[D3DTSS_MAXANISOTROPY] > 1)
-		flags |= BGFX_SAMPLER_MIN_ANISOTROPIC;
-	if (state[D3DTSS_MAGFILTER] == D3DTEXF_POINT)
-		flags |= BGFX_SAMPLER_MAG_POINT;
-	if (!mipmapped || state[D3DTSS_MIPFILTER] != D3DTEXF_LINEAR)
+	if (!hires)
+	{
+		if (state[D3DTSS_MINFILTER] == D3DTEXF_POINT)
+			flags |= BGFX_SAMPLER_MIN_POINT;
+		else if (state[D3DTSS_MINFILTER] == D3DTEXF_ANISOTROPIC && state[D3DTSS_MAXANISOTROPY] > 1)
+			flags |= BGFX_SAMPLER_MIN_ANISOTROPIC;
+		if (state[D3DTSS_MAGFILTER] == D3DTEXF_POINT)
+			flags |= BGFX_SAMPLER_MAG_POINT;
+	}
+	if (!mipmapped || (!hires && state[D3DTSS_MIPFILTER] != D3DTEXF_LINEAR))
 		flags |= BGFX_SAMPLER_MIP_POINT;
 	for (axis = 0; axis < 3; axis++)
 	{
@@ -886,6 +1422,14 @@ static uint32_t bg_sampler_flags(int stage, BOOL mipmapped)
 		flags |= address << (axis * 2);
 	}
 	return flags;
+}
+
+static bgfx_texture_handle_t bg_texture_named(unsigned int name)
+{
+	bgfx_texture_handle_t handle;
+
+	handle.idx = (uint16_t)(name - 1);
+	return handle;
 }
 
 /* the stages' textures, and the pixel shader key's part of them
@@ -900,7 +1444,8 @@ static void bg_bind_textures(struct nv2a_pixel_shader_key *key, float texture_sc
 		unsigned long mode = stage_texture_mode(stage);
 		struct xgpu_texture_description description;
 		bgfx_texture_handle_t handle = bg.blank;
-		BOOL mipmapped = FALSE;
+		struct bg_target *target;
+		BOOL mipmapped = FALSE, hires = FALSE;
 
 		texture_scale[stage][0] = texture_scale[stage][1] = 1.0f;
 		texture_scale[stage][2] = texture_scale[stage][3] = 1.0f;
@@ -910,29 +1455,124 @@ static void bg_bind_textures(struct nv2a_pixel_shader_key *key, float texture_sc
 			bgfx_set_texture((uint8_t)stage, bg.samplers[stage], bg.blank, UINT32_MAX);
 			continue;
 		}
-		key->sampler_type[stage] = (((const DWORD *)texture)[3] & D3DFORMAT_CUBEMAP) ?
-			_xgpu_sampler_cube : _xgpu_sampler_2d;
-		if (texture->Data == device.back_buffer.Data || texture->Data == device.depth_buffer.Data)
+		xgpu_texture_describe(texture->Format, texture->Size, &description);
+		key->sampler_type[stage] = description.cube_map ? _xgpu_sampler_cube :
+			description.depth > 1 ? _xgpu_sampler_3d : _xgpu_sampler_2d;
+		if ((target = bg_target_find(texture->Data)) != NULL)
 		{
-			bg_log_once("render targets as textures");
-			if (key->sampler_type[stage] == _xgpu_sampler_cube)
-				handle = bg.blank_cube;
+			/* a render target, as it was last drawn */
+			key->sampler_type[stage] = _xgpu_sampler_2d;
+			handle = target->texture;
+			if (description.linear)
+			{
+				texture_scale[stage][0] = 1.0f / (float)target->width;
+				texture_scale[stage][1] = 1.0f / (float)target->height;
+			}
+			if (!description.linear && !description.cube_map && description.levels > 1 &&
+				target->width == description.width && target->height == description.height)
+				handle = bg_composite_get(&description, texture->Data, target, &mipmapped);
 		}
 		else
 		{
-			const D3DCOLOR *palette = device.palettes[stage] && device.palettes[stage]->Data ?
-				(const D3DCOLOR *)PLATFORM_PHYSICAL_TO_VIRTUAL(device.palettes[stage]->Data) : NULL;
+			unsigned int name;
+			unsigned long levels = 1;
 
-			if (!bg_texture_get((const DWORD *)texture, palette, &description, &handle, &mipmapped))
-				handle = key->sampler_type[stage] == _xgpu_sampler_cube ? bg.blank_cube : bg.blank;
+			/* (the high-res text's atlas for its placeholder bitmap, and a
+			menu's art: text_hires.h, menu_files.h) */
+			if ((name = text_hires_atlas_texture(texture->Data)) != 0)
+			{
+				handle = bg_texture_named(name);
+			}
+			else if ((name = menu_art_texture(texture->Data, &levels)) != 0)
+			{
+				handle = bg_texture_named(name);
+				mipmapped = levels > 1;
+				hires = TRUE;
+			}
+			else
+			{
+				const D3DCOLOR *palette = device.palettes[stage] && device.palettes[stage]->Data ?
+					(const D3DCOLOR *)PLATFORM_PHYSICAL_TO_VIRTUAL(device.palettes[stage]->Data) : NULL;
+				long override;
+
+				if (!bg_texture_get((const DWORD *)texture, palette, &description, &handle, &mipmapped, &override))
+					handle = description.cube_map ? bg.blank_cube : description.depth > 1 ? bg.blank_volume : bg.blank;
+				else if (override >= 0)
+				{
+					/* (a high-res HUD texture in the bitmap's place: hud_hires.h) */
+					name = hud_hires_override_texture(override, &levels);
+					handle = name ? bg_texture_named(name) : bg.blank;
+					mipmapped = levels > 1;
+					hires = TRUE;
+					if (stage == 0)
+					{
+						key->coverage_alpha = hud_hires_override_coverage(override) != 0;
+						key->point_threshold = hud_hires_override_point_threshold(override) != 0;
+					}
+				}
+			}
 			if (description.linear)
 			{
 				texture_scale[stage][0] = 1.0f / (float)description.width;
 				texture_scale[stage][1] = 1.0f / (float)description.height;
 			}
 		}
-		bgfx_set_texture((uint8_t)stage, bg.samplers[stage], handle, bg_sampler_flags(stage, mipmapped));
+		bgfx_set_texture((uint8_t)stage, bg.samplers[stage], handle, bg_sampler_flags(stage, mipmapped, hires));
 	}
+}
+
+/* ---------- textures the port's own modules make (xgpu.h) */
+
+unsigned int xgpu_bgfx_texture_create(unsigned long width, unsigned long height, const unsigned char *rgba,
+	BOOL mipmapped)
+{
+	bgfx_texture_handle_t handle;
+	unsigned long level_width = width, level_height = height;
+	unsigned char *level = NULL;
+	int mip = 0;
+
+	if (!bg.ready)
+		return 0;
+	handle = bgfx_create_texture_2d((uint16_t)width, (uint16_t)height, mipmapped != 0, 1, BGFX_TEXTURE_FORMAT_RGBA8,
+		BGFX_TEXTURE_NONE, NULL, 0);
+	if (!BGFX_HANDLE_IS_VALID(handle))
+		return 0;
+	if (!rgba)
+		return (unsigned int)handle.idx + 1;
+	bgfx_update_texture_2d(handle, 0, 0, 0, 0, (uint16_t)width, (uint16_t)height,
+		bgfx_copy(rgba, (uint32_t)(width * height * 4)), UINT16_MAX);
+	while (mipmapped && (level_width > 1 || level_height > 1))
+	{
+		unsigned long next_width = level_width > 1 ? level_width / 2 : 1;
+		unsigned long next_height = level_height > 1 ? level_height / 2 : 1;
+		unsigned char *next = malloc(next_width * next_height * 4);
+
+		if (!next)
+			break;
+		bg_downsample(level ? level : rgba, level_width, level_height, next);
+		free(level);
+		level = next;
+		level_width = next_width;
+		level_height = next_height;
+		bgfx_update_texture_2d(handle, 0, (uint8_t)++mip, 0, 0, (uint16_t)level_width, (uint16_t)level_height,
+			bgfx_copy(level, (uint32_t)(level_width * level_height * 4)), UINT16_MAX);
+	}
+	free(level);
+	return (unsigned int)handle.idx + 1;
+}
+
+void xgpu_bgfx_texture_rows(unsigned int name, unsigned long top, unsigned long width, unsigned long rows,
+	const unsigned char *rgba)
+{
+	if (bg.ready && name && rows)
+		bgfx_update_texture_2d(bg_texture_named(name), 0, 0, 0, (uint16_t)top, (uint16_t)width, (uint16_t)rows,
+			bgfx_copy(rgba, (uint32_t)(width * rows * 4)), UINT16_MAX);
+}
+
+void xgpu_bgfx_texture_delete(unsigned int name)
+{
+	if (bg.ready && name)
+		bgfx_destroy_texture(bg_texture_named(name));
 }
 
 /* ---------- the draw's uniforms (prepare_draw's) */
@@ -974,6 +1614,13 @@ static void bg_uniforms_update(float texture_scale[4][4])
 		converted->texture_lod_bias[stage] = dword_to_float(state[D3DTSS_MIPMAPLODBIAS]);
 	}
 	converted->screen_offset = (float)UI_OFFSET;
+	bg_depth_range[0] = device.viewport.MinZ;
+	bg_depth_range[1] = device.viewport.MaxZ - device.viewport.MinZ;
+	bg_depth_range[2] = bg_depth_range[3] = 0.0f;
+	/* (glPolygonOffset's units: the depth buffer's smallest step, 2^-24) */
+	bg_depth_bias[0] = dword_to_float(D3D__RenderState[D3DRS_POLYGONOFFSETZSLOPESCALE]);
+	bg_depth_bias[1] = dword_to_float(D3D__RenderState[D3DRS_POLYGONOFFSETZOFFSET]) / 16777216.0f;
+	bg_depth_bias[2] = bg_depth_bias[3] = 0.0f;
 	for (index = 0; index < BG_UNIFORM_COUNT; index++)
 	{
 		if (bg_uniform_sources[index].components == 1)
@@ -1115,62 +1762,7 @@ static void bg_indices(D3DPRIMITIVETYPE type, const WORD *source, unsigned long 
 #undef BG_INDEX
 }
 
-/* ---------- views
-
-bgfx draws a frame as views, in order: each has one target, rectangle and
-clear. A view of its own starts at each clear after draws, and when the
-viewport moves (the hardware viewport must be Direct3D's, since the vertex
-shaders compute their positions in it). */
-
-static void bg_view_open(const unsigned short rect[4])
-{
-	if (bg.view_used)
-	{
-		if (bg.view + 2 < BG_MAXIMUM_VIEWS)
-			bg.view++;
-		else
-			bg_log_once("more views than a frame has");
-	}
-	bg.view_used = FALSE;
-	memcpy(bg.view_rect, rect, sizeof(bg.view_rect));
-	bgfx_set_view_frame_buffer(bg.view, bg.back_buffer);
-	bgfx_set_view_mode(bg.view, BGFX_VIEW_MODE_SEQUENTIAL);
-	bgfx_set_view_rect(bg.view, rect[0], rect[1], rect[2], rect[3]);
-	bgfx_set_view_clear(bg.view, BGFX_CLEAR_NONE, 0, 1.0f, 0);
-}
-
-/* the rectangle of the viewport, in the back buffer's pixels */
-static BOOL bg_viewport_rect(unsigned short rect[4])
-{
-	long x0 = scaled_pixel((float)device.viewport.X, screen_scale[0]);
-	long y0 = scaled_pixel((float)device.viewport.Y, screen_scale[1]);
-	long x1 = scaled_pixel((float)(device.viewport.X + device.viewport.Width), screen_scale[0]);
-	long y1 = scaled_pixel((float)(device.viewport.Y + device.viewport.Height), screen_scale[1]);
-
-	x0 = x0 < 0 ? 0 : x0;
-	y0 = y0 < 0 ? 0 : y0;
-	x1 = x1 > (long)bg.width ? (long)bg.width : x1;
-	y1 = y1 > (long)bg.height ? (long)bg.height : y1;
-	if (x1 <= x0 || y1 <= y0)
-		return FALSE;
-	rect[0] = (unsigned short)x0;
-	rect[1] = (unsigned short)y0;
-	rect[2] = (unsigned short)(x1 - x0);
-	rect[3] = (unsigned short)(y1 - y0);
-	return TRUE;
-}
-
 /* ---------- drawing */
-
-/* the back buffer is the target, and whether its depth buffer is; FALSE for
-any other (render targets: not yet) */
-static BOOL bg_targets(BOOL *has_depth)
-{
-	if (!device.render_target || device.render_target->Data != device.back_buffer.Data)
-		return FALSE;
-	*has_depth = device.depth_stencil && device.depth_stencil->Data == device.depth_buffer.Data;
-	return TRUE;
-}
 
 static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, unsigned long vertex_count,
 	const WORD *indices, unsigned long index_count, unsigned long rebase)
@@ -1184,21 +1776,13 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	bgfx_transient_index_buffer_t generated_indices;
 	float texture_scale[4][4];
 	unsigned short rect[4];
-	unsigned long generated, vertex, index;
-	uint32_t stencil, rgba;
+	unsigned long generated, vertex, index, uniform_bytes;
+	uint32_t stencil, back_stencil, rgba;
 	uint64_t state;
 	BOOL has_depth, native;
 	int stage;
 
 	if (!vertex_count || !program || !declaration || !program->instructions)
-		return;
-	if (!bg_targets(&has_depth))
-	{
-		bg.skipped++;
-		bg_log_once("render targets other than the back buffer");
-		return;
-	}
-	if (!bg_viewport_rect(rect))
 		return;
 	if (vertex_count > 0xffff)
 	{
@@ -1206,33 +1790,52 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 		return;
 	}
 
-	/* the pixel shader's key (prepare_draw's) */
+	/* the pixel shader's key (prepare_draw's), the textures first: their
+	sampler types are part of it (bgfx keeps what is set until the submit) */
 	memset(&key, 0, sizeof(key));
 	memcpy(key.combiner_state, D3D__RenderState, sizeof(key.combiner_state));
 	memset(&key.combiner_state[D3DRS_PSCONSTANT0_0], 0, 16 * sizeof(DWORD));
 	key.combiner_state[D3DRS_PSFINALCOMBINERCONSTANT0] = 0;
 	key.combiner_state[D3DRS_PSFINALCOMBINERCONSTANT1] = 0;
 	key.texture_modes = D3D__RenderState[D3DRS_PSTEXTUREMODES];
+	bg_bind_textures(&key, texture_scale);
+	if (!bg_bind_targets(&has_depth) ||
+		!bg_target_rect((float)device.viewport.X, (float)device.viewport.Y, (float)device.viewport.Width,
+			(float)device.viewport.Height, rect))
+	{
+		bgfx_discard(BGFX_DISCARD_ALL);
+		bg.skipped++;
+		return;
+	}
 	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
 	{
 		key.alpha_kill[stage] = D3D__TextureState[stage][D3DTSS_ALPHAKILL] == D3DTALPHAKILL_ENABLE;
 		key.color_sign[stage] = (unsigned char)((D3D__TextureState[stage][D3DTSS_COLORSIGN] >> 28) & 0xf);
 	}
+	/* (only with the meter's blend: hud_hires.h, nv2a_pixel_shader_key) */
+	key.coverage_alpha = key.coverage_alpha && D3D__RenderState[D3DRS_ALPHABLENDENABLE] &&
+		D3D__RenderState[D3DRS_SRCBLEND] == D3DBLEND_CONSTANTCOLOR &&
+		D3D__RenderState[D3DRS_DESTBLEND] == D3DBLEND_SRCALPHA;
+	key.point_threshold = key.point_threshold && key.coverage_alpha;
 	key.alpha_test_function = D3D__RenderState[D3DRS_ALPHATESTENABLE] ? D3D__RenderState[D3DRS_ALPHAFUNC] : 0;
 	key.fog_enable = D3D__RenderState[D3DRS_FOGENABLE] != 0;
 	key.fog_table_mode = (unsigned char)D3D__RenderState[D3DRS_FOGTABLEMODE];
 
-	/* (the textures first: their sampler types are part of the key; bgfx
-	keeps what is set until the submit) */
-	bg_bind_textures(&key, texture_scale);
 	vertex_shader = bg_vertex_shader(program, immediate);
-	fragment_shader = bg_fragment_shader(&key);
+	fragment_shader = bg_fragment_shader(&key, has_depth && D3D__RenderState[D3DRS_SOLIDOFFSETENABLE] ?
+		_bg_shader_depth_bias : 0);
 	handle = vertex_shader && fragment_shader ? bg_program_get(vertex_shader, fragment_shader) :
 		(bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	native = !indices && type != D3DPT_QUADLIST && type != D3DPT_TRIANGLEFAN && type != D3DPT_POLYGON &&
 		type != D3DPT_LINELOOP;
 	generated = native ? 0 : bg_index_count(type, indices ? index_count : vertex_count);
-	if (!BGFX_HANDLE_IS_VALID(handle) || (!native && !generated) ||
+	/* (Metal copies both shaders' uniform blocks for each draw, into a frame's
+	space that is not to be overrun) */
+	uniform_bytes = vertex_shader && fragment_shader ?
+		((vertex_shader->uniform_size + 255) & ~255UL) + ((fragment_shader->uniform_size + 255) & ~255UL) : 0;
+	if (bg.uniform_bytes + uniform_bytes > BG_UNIFORM_BUDGET)
+		bg_log_once("more draws than a frame's uniform space holds");
+	if (!BGFX_HANDLE_IS_VALID(handle) || (!native && !generated) || bg.uniform_bytes + uniform_bytes > BG_UNIFORM_BUDGET ||
 		bgfx_get_avail_transient_vertex_buffer((uint32_t)vertex_count, &bg.layout) < vertex_count ||
 		(generated && bgfx_get_avail_transient_index_buffer((uint32_t)generated, false) < generated))
 	{
@@ -1241,6 +1844,7 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 		bg.skipped++;
 		return;
 	}
+	bg.uniform_bytes += uniform_bytes;
 
 	/* the vertices: every input register, from the declaration's elements or
 	the current values the declaration leaves out (immediate vertices are
@@ -1286,18 +1890,22 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	}
 
 	bg_uniforms_update(texture_scale);
-	state = bg_state(has_depth, &stencil, &rgba) | bg_topology(type);
+	state = bg_state(has_depth, &stencil, &back_stencil, &rgba) | bg_topology(type);
 	bgfx_set_state(state, rgba);
-	bgfx_set_stencil(stencil, BGFX_STENCIL_NONE);
-
-	if (bg.view_used && memcmp(rect, bg.view_rect, sizeof(rect)) != 0)
-		bg_view_open(rect);
-	else if (!bg.view_used)
+	bgfx_set_stencil(stencil, back_stencil);
+	bg_view_set(bg.framebuffer, rect, FALSE);
+	if (bg.test_active)
 	{
-		memcpy(bg.view_rect, rect, sizeof(bg.view_rect));
-		bgfx_set_view_rect(bg.view, rect[0], rect[1], rect[2], rect[3]);
+		/* (inside a visibility test: a query of its own, summed at the end) */
+		bgfx_occlusion_query_handle_t query = bg.queries[bg.query_next++ % BG_QUERY_COUNT];
+
+		bg.test_count++;
+		bgfx_submit_occlusion_query(bg.view, handle, query, 0, BGFX_DISCARD_ALL);
 	}
-	bgfx_submit(bg.view, handle, 0, BGFX_DISCARD_ALL);
+	else
+	{
+		bgfx_submit(bg.view, handle, 0, BGFX_DISCARD_ALL);
+	}
 	bg.view_used = TRUE;
 	bg.drawn++;
 }
@@ -1334,30 +1942,10 @@ static void bg_clear(DWORD count, const D3DRECT *rectangles, DWORD flags, D3DCOL
 {
 	unsigned short rect[4];
 	uint16_t clear = 0;
-	BOOL has_depth;
+	BOOL has_depth, done;
 
-	if (!bg_targets(&has_depth) || !bg_viewport_rect(rect))
+	if (!bg_bind_targets(&has_depth))
 		return;
-	if (count > 1)
-		bg_log_once("clears of several rectangles");
-	if (count && rectangles)
-	{
-		long x0 = scaled_pixel((float)rectangles[0].x1, screen_scale[0]);
-		long y0 = scaled_pixel((float)rectangles[0].y1, screen_scale[1]);
-		long x1 = scaled_pixel((float)rectangles[0].x2, screen_scale[0]);
-		long y1 = scaled_pixel((float)rectangles[0].y2, screen_scale[1]);
-
-		x0 = x0 < 0 ? 0 : x0;
-		y0 = y0 < 0 ? 0 : y0;
-		x1 = x1 > (long)bg.width ? (long)bg.width : x1;
-		y1 = y1 > (long)bg.height ? (long)bg.height : y1;
-		if (x1 <= x0 || y1 <= y0)
-			return;
-		rect[0] = (unsigned short)x0;
-		rect[1] = (unsigned short)y0;
-		rect[2] = (unsigned short)(x1 - x0);
-		rect[3] = (unsigned short)(y1 - y0);
-	}
 	if ((flags & D3DCLEAR_TARGET) && (flags & D3DCLEAR_TARGET) != D3DCLEAR_TARGET)
 		bg_log_once("clears of some color channels");
 	if (flags & D3DCLEAR_TARGET)
@@ -1368,11 +1956,84 @@ static void bg_clear(DWORD count, const D3DRECT *rectangles, DWORD flags, D3DCOL
 		clear |= BGFX_CLEAR_STENCIL;
 	if (!clear)
 		return;
-	/* a view of its own, which clears as it starts */
-	bg_view_open(rect);
-	bgfx_set_view_clear(bg.view, clear, (uint32_t)((color << 8) | (color >> 24)), z, (uint8_t)stencil);
-	bgfx_touch(bg.view);
-	bg.view_used = TRUE;
+	/* the viewport's, or each rectangle's: a view of its own, which clears
+	as it starts */
+	for (done = FALSE; !done; )
+	{
+		BOOL drawn;
+
+		if (count && rectangles)
+		{
+			drawn = bg_target_rect((float)rectangles->x1, (float)rectangles->y1, (float)(rectangles->x2 - rectangles->x1),
+				(float)(rectangles->y2 - rectangles->y1), rect);
+			rectangles++;
+			done = --count == 0;
+		}
+		else
+		{
+			drawn = bg_target_rect((float)device.viewport.X, (float)device.viewport.Y, (float)device.viewport.Width,
+				(float)device.viewport.Height, rect);
+			done = TRUE;
+		}
+		if (!drawn)
+			continue;
+		bg_view_set(bg.framebuffer, rect, TRUE);
+		bgfx_set_view_clear(bg.view, clear, (uint32_t)((color << 8) | (color >> 24)), z, (uint8_t)stencil);
+		bgfx_touch(bg.view);
+		bg.view_used = TRUE;
+	}
+}
+
+/* ---------- visibility tests (lens flares, The Library's lights)
+
+Each draw inside a test is submitted with an occlusion query of its own,
+which counts its samples (Metal's counting mode: tools/bgfx-patches); a test's
+count is its draws', once bgfx has them all, a frame or two later. Until then
+the slot's earlier count stands, as the OpenGL path's does: the game spins on
+a result it is told is incomplete. */
+
+static void bg_visibility_begin(void)
+{
+	if (bg.test_active)
+		return;
+	bg.test_active = TRUE;
+	bg.test_first = bg.query_next;
+	bg.test_count = 0;
+}
+
+static void bg_visibility_end(DWORD index)
+{
+	if (!bg.test_active)
+		return;
+	bg.test_active = FALSE;
+	index %= VISIBILITY_TEST_SLOTS;
+	bg.tests[index].first = bg.test_first;
+	bg.tests[index].count = bg.test_count < BG_QUERY_COUNT ? bg.test_count : BG_QUERY_COUNT;
+	/* (the count in the game's pixels: lens flares divide it by their area) */
+	bg.tests[index].area = bg.target_scale[0] * bg.target_scale[1];
+	bg.tests[index].pending = TRUE;
+}
+
+static UINT bg_visibility_result(DWORD index)
+{
+	unsigned long query;
+	long long samples = 0;
+
+	index %= VISIBILITY_TEST_SLOTS;
+	if (!bg.tests[index].pending)
+		return bg.tests[index].known;
+	for (query = 0; query < bg.tests[index].count; query++)
+	{
+		int32_t result = 0;
+
+		if (bgfx_get_result(bg.queries[(bg.tests[index].first + query) % BG_QUERY_COUNT], &result) ==
+			BGFX_OCCLUSION_QUERY_RESULT_NORESULT)
+			return bg.tests[index].known;
+		samples += result > 0 ? result : 0;
+	}
+	bg.tests[index].pending = FALSE;
+	bg.tests[index].known = bg.tests[index].area > 1.0f ? (UINT)(samples / bg.tests[index].area + 0.5f) : (UINT)samples;
+	return bg.tests[index].known;
 }
 
 /* ---------- targets and presentation */
@@ -1467,27 +2128,6 @@ static const char bg_crt_fragment_source[] =
 	"\tfragment_color = vec4(color * crt_parameters2.w, 1.0);\n"
 	"}\n";
 
-static void bg_targets_update(void)
-{
-	unsigned long width = (unsigned long)scaled_pixel((float)halo_screen_width(), screen_scale[0]);
-	unsigned long height = (unsigned long)scaled_pixel((float)SCREEN_HEIGHT, screen_scale[1]);
-	bgfx_texture_handle_t attachments[2];
-
-	if (width == bg.width && height == bg.height && BGFX_HANDLE_IS_VALID(bg.back_buffer))
-		return;
-	if (BGFX_HANDLE_IS_VALID(bg.back_buffer))
-		bgfx_destroy_frame_buffer(bg.back_buffer);
-	attachments[0] = bgfx_create_texture_2d((uint16_t)width, (uint16_t)height, false, 1, BGFX_TEXTURE_FORMAT_BGRA8,
-		BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, NULL, 0);
-	attachments[1] = bgfx_create_texture_2d((uint16_t)width, (uint16_t)height, false, 1, BGFX_TEXTURE_FORMAT_D24S8,
-		BGFX_TEXTURE_RT_WRITE_ONLY, NULL, 0);
-	bg.back_buffer = bgfx_create_frame_buffer_from_handles(2, attachments, true);
-	bg.color = attachments[0];
-	bg.width = width;
-	bg.height = height;
-	platform_log("bgfx: back buffer %lux%lu", width, height);
-}
-
 static void bg_window_update(void)
 {
 	int width = 0, height = 0;
@@ -1502,27 +2142,34 @@ static void bg_window_update(void)
 	bgfx_reset((uint32_t)width, (uint32_t)height, (uint32_t)flags, BGFX_TEXTURE_FORMAT_COUNT);
 }
 
-/* the back buffer into the window, letterboxed to its shape */
-static void bg_blit(unsigned short view)
+/* the back buffer into the window, letterboxed to its shape: the rectangle
+it fills */
+static void bg_blit(unsigned short view, int letterbox[4])
 {
-	unsigned long width = (unsigned long)bg.window_width;
-	unsigned long height = (unsigned long)((unsigned long long)bg.window_width * bg.height / bg.width);
+	struct bg_target *back_buffer = bg_target_get(&device.back_buffer);
+	unsigned long width = (unsigned long)bg.window_width, height;
 	bgfx_transient_vertex_buffer_t vertices;
 	float x0, y0, x1, y1;
 	float *out;
 	int corner;
 
-	if (height > (unsigned long)bg.window_height)
-	{
-		height = (unsigned long)bg.window_height;
-		width = (unsigned long)((unsigned long long)bg.window_height * bg.width / bg.height);
-	}
+	bgfx_set_view_mode(view, BGFX_VIEW_MODE_SEQUENTIAL);
 	bgfx_set_view_frame_buffer(view, (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE);
 	bgfx_set_view_rect(view, 0, 0, (uint16_t)bg.window_width, (uint16_t)bg.window_height);
 	bgfx_set_view_clear(view, BGFX_CLEAR_COLOR, 0x000000ff, 1.0f, 0);
 	bgfx_touch(view);
-	if (!BGFX_HANDLE_IS_VALID(bg.blit) || bgfx_get_avail_transient_vertex_buffer(4, &bg.layout) < 4)
+	if (!back_buffer || !BGFX_HANDLE_IS_VALID(bg.blit) || bgfx_get_avail_transient_vertex_buffer(4, &bg.layout) < 4)
 		return;
+	height = (unsigned long)((unsigned long long)bg.window_width * back_buffer->pixel_height / back_buffer->pixel_width);
+	if (height > (unsigned long)bg.window_height)
+	{
+		height = (unsigned long)bg.window_height;
+		width = (unsigned long)((unsigned long long)bg.window_height * back_buffer->pixel_width / back_buffer->pixel_height);
+	}
+	letterbox[0] = (int)(bg.window_width - (int)width) / 2;
+	letterbox[1] = (int)(bg.window_height - (int)height) / 2;
+	letterbox[2] = (int)width;
+	letterbox[3] = (int)height;
 	x0 = -(float)width / bg.window_width;
 	x1 = -x0;
 	y0 = (float)height / bg.window_height;
@@ -1538,7 +2185,7 @@ static void bg_blit(unsigned short view)
 		out[5] = corner & 2 ? 1.0f : 0.0f;
 	}
 	bgfx_set_transient_vertex_buffer(0, &vertices, 0, 4);
-	bgfx_set_texture(0, bg.samplers[0], bg.color, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+	bgfx_set_texture(0, bg.samplers[0], back_buffer->texture, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_state(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_TRISTRIP, 0);
 	if (config_boolean("display.crt_filter") && BGFX_HANDLE_IS_VALID(bg.crt))
 	{
@@ -1559,15 +2206,198 @@ static void bg_blit(unsigned short view)
 	bgfx_submit(view, bg.blit, 0, BGFX_DISCARD_ALL);
 }
 
+/* ---------- the overlay (ui_overlay.c), over the picture at the window's
+resolution: its vertices and atlas as ui_overlay.c makes them, its shaders
+in the translators' dialect (in window pixels from the top, as Metal's
+fragment coordinates are) */
+
+static const char bg_overlay_vertex_source[] =
+	"layout(location = 0) in vec2 a_position;\n"
+	"layout(location = 10) in vec2 a_texcoord0;\n"
+	"layout(location = 1) in vec4 a_normal;\n"
+	"layout(location = 11) in vec2 a_texcoord1;\n"
+	"layout(location = 4) in vec4 a_color0;\n"
+	"uniform vec2 scale;\n"
+	"out vec4 xT0;\n"
+	"out vec4 xT1;\n"
+	"out vec4 xT2;\n"
+	"out vec4 xD0;\n"
+	"void main()\n"
+	"{\n"
+	"\txT0 = vec4(a_texcoord0, 0.0, 0.0);\n"
+	"\txT1 = a_normal;\n"
+	"\txT2 = vec4(a_texcoord1, 0.0, 0.0);\n"
+	"\txD0 = a_color0;\n"
+	"\tgl_Position = vec4(a_position * scale - vec2(1.0, -1.0), 0.0, 1.0);\n"
+	"}\n";
+
+static const char bg_overlay_fragment_source[] =
+	"in vec4 xT0;\n"
+	"in vec4 xT1;\n"
+	"in vec4 xT2;\n"
+	"in vec4 xD0;\n"
+	"uniform sampler2D atlas;\n"
+	"uniform sampler2DArray icons;\n"
+	"uniform sampler2D picture;\n"
+	"uniform vec4 cutouts[4];\n"
+	"layout(location = 0) out vec4 fragment_color;\n"
+	"void main()\n"
+	"{\n"
+	"\tfloat alpha;\n"
+	"\tvec2 p = gl_FragCoord.xy;\n"
+	"\tfor (int i = 0; i < 4; i++)\n"
+	"\t\tif (p.x >= cutouts[i].x && p.y >= cutouts[i].y && p.x < cutouts[i].z && p.y < cutouts[i].w)\n"
+	"\t\t\tdiscard;\n"
+	"\tif (xT2.x < -2.5)\n"
+	"\t{\n"
+	"\t\tfragment_color = texture(picture, xT0.xy) * xD0;\n"
+	"\t\treturn;\n"
+	"\t}\n"
+	"\tif (xT2.x < -1.5)\n"
+	"\t{\n"
+	"\t\tvec4 texel = texture(icons, vec3(xT0.xy, xT1.x));\n"
+	"\t\tfragment_color = vec4(texel.rgb / max(texel.a, 0.001), texel.a) * xD0;\n"
+	"\t\treturn;\n"
+	"\t}\n"
+	"\tif (xT0.x >= 0.0)\n"
+	"\t\talpha = texture(atlas, xT0.xy).r;\n"
+	"\telse\n"
+	"\t{\n"
+	"\t\tvec2 q = abs(xT1.xy) - xT1.zw + vec2(xT2.x);\n"
+	"\t\tfloat d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - xT2.x;\n"
+	"\t\talpha = clamp(0.5 - d, 0.0, 1.0);\n"
+	"\t\tif (xT2.y > 0.0)\n"
+	"\t\t\talpha *= clamp(d + xT2.y + 0.5, 0.0, 1.0);\n"
+	"\t}\n"
+	"\tfragment_color = vec4(xD0.rgb, xD0.a * alpha);\n"
+	"}\n";
+
+static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int icon_size, int icon_count)
+{
+	struct bg_shader *vertex, *fragment;
+	static const char *const samplers[3] = { "atlas", "icons", "picture" };
+	int index;
+
+	if (BGFX_HANDLE_IS_VALID(bg.overlay) || bg.overlay_failed)
+		return !bg.overlay_failed;
+	bg.overlay_failed = TRUE;
+	vertex = bg_shader_get(bg_overlay_vertex_source, FALSE, 0, "overlay vertex");
+	fragment = bg_shader_get(bg_overlay_fragment_source, TRUE, 0, "overlay pixel");
+	if (vertex == &bg_failed_shader || fragment == &bg_failed_shader)
+		return FALSE;
+	bg.overlay = bgfx_create_program(vertex->shader, fragment->shader, false);
+	bgfx_vertex_layout_begin(&bg.overlay_layout, BGFX_RENDERER_TYPE_NOOP);
+	bgfx_vertex_layout_add(&bg.overlay_layout, BGFX_ATTRIB_POSITION, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
+	bgfx_vertex_layout_add(&bg.overlay_layout, BGFX_ATTRIB_TEXCOORD0, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
+	bgfx_vertex_layout_add(&bg.overlay_layout, BGFX_ATTRIB_NORMAL, 4, BGFX_ATTRIB_TYPE_FLOAT, false, false);
+	bgfx_vertex_layout_add(&bg.overlay_layout, BGFX_ATTRIB_TEXCOORD1, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
+	bgfx_vertex_layout_add(&bg.overlay_layout, BGFX_ATTRIB_COLOR0, 4, BGFX_ATTRIB_TYPE_UINT8, true, false);
+	bgfx_vertex_layout_end(&bg.overlay_layout);
+	bg.overlay_uniforms[0] = bgfx_create_uniform("scale_v4", BGFX_UNIFORM_TYPE_VEC4, 1);
+	bg.overlay_uniforms[1] = bgfx_create_uniform("cutouts", BGFX_UNIFORM_TYPE_VEC4, 4);
+	for (index = 0; index < 3; index++)
+		bg.overlay_samplers[index] = bgfx_create_uniform(samplers[index], BGFX_UNIFORM_TYPE_SAMPLER, 1);
+	bg.overlay_atlas = bgfx_create_texture_2d((uint16_t)atlas_size, (uint16_t)atlas_size, false, 1,
+		BGFX_TEXTURE_FORMAT_R8, BGFX_TEXTURE_NONE, NULL, 0);
+	/* (the icons, a layer each, premultiplied, with smaller levels for
+	small prompts) */
+	bg.overlay_icons = bgfx_create_texture_2d((uint16_t)icon_size, (uint16_t)icon_size, true, (uint16_t)icon_count,
+		BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE, NULL, 0);
+	for (index = 0; index < icon_count && icons; index++)
+	{
+		unsigned long width = (unsigned long)icon_size, height = (unsigned long)icon_size;
+		unsigned char *level = malloc(width * height * 4);
+		int mip = 0;
+
+		if (!level)
+			break;
+		memcpy(level, icons + (size_t)index * icon_size * icon_size * 4, width * height * 4);
+		for (;;)
+		{
+			unsigned char *next;
+
+			bgfx_update_texture_2d(bg.overlay_icons, (uint16_t)index, (uint8_t)mip, 0, 0, (uint16_t)width,
+				(uint16_t)height, bgfx_copy(level, (uint32_t)(width * height * 4)), UINT16_MAX);
+			if (width == 1 && height == 1)
+				break;
+			next = malloc((width > 1 ? width / 2 : 1) * (height > 1 ? height / 2 : 1) * 4);
+			if (!next)
+				break;
+			bg_downsample(level, width, height, next);
+			free(level);
+			level = next;
+			width = width > 1 ? width / 2 : 1;
+			height = height > 1 ? height / 2 : 1;
+			mip++;
+		}
+		free(level);
+	}
+	{
+		static const unsigned char zero[4] = { 0, 0, 0, 0 };
+
+		bg.overlay_picture = bgfx_create_texture_2d(1, 1, false, 1, BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
+			bgfx_copy(zero, 4), 0);
+	}
+	bg.overlay_failed = FALSE;
+	return TRUE;
+}
+
+void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, const unsigned char *atlas, int atlas_size,
+	int dirty_top, int dirty_bottom, const unsigned char *icons, int icon_size, int icon_count,
+	const unsigned char *picture, int picture_width, int picture_height, int picture_serial,
+	const float cutouts[4][4], int window_width, int window_height)
+{
+	bgfx_transient_vertex_buffer_t buffer;
+	float scale[4];
+
+	if (!bg.ready || !count || !atlas || !bg_overlay_prepare(atlas_size, icons, icon_size, icon_count) ||
+		vertex_bytes != (int)bg.overlay_layout.stride ||
+		bgfx_get_avail_transient_vertex_buffer((uint32_t)count, &bg.overlay_layout) < (uint32_t)count)
+		return;
+	if (dirty_bottom > dirty_top)
+		bgfx_update_texture_2d(bg.overlay_atlas, 0, 0, 0, (uint16_t)dirty_top, (uint16_t)atlas_size,
+			(uint16_t)(dirty_bottom - dirty_top),
+			bgfx_copy(atlas + (size_t)dirty_top * atlas_size, (uint32_t)((dirty_bottom - dirty_top) * atlas_size)),
+			UINT16_MAX);
+	if (picture && picture_serial != bg.overlay_picture_serial)
+	{
+		bgfx_destroy_texture(bg.overlay_picture);
+		bg.overlay_picture = bgfx_create_texture_2d((uint16_t)picture_width, (uint16_t)picture_height, false, 1,
+			BGFX_TEXTURE_FORMAT_RGBA8, BGFX_TEXTURE_NONE,
+			bgfx_copy(picture, (uint32_t)(picture_width * picture_height * 4)), 0);
+		bg.overlay_picture_serial = picture_serial;
+	}
+	bgfx_alloc_transient_vertex_buffer(&buffer, (uint32_t)count, &bg.overlay_layout);
+	memcpy(buffer.data, vertices, (size_t)count * (size_t)vertex_bytes);
+	scale[0] = 2.0f / (float)window_width;
+	scale[1] = -2.0f / (float)window_height;
+	scale[2] = scale[3] = 0.0f;
+	bgfx_set_uniform(bg.overlay_uniforms[0], scale, 1);
+	bgfx_set_uniform(bg.overlay_uniforms[1], cutouts, 4);
+	bgfx_set_texture(0, bg.overlay_samplers[0], bg.overlay_atlas, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+	bgfx_set_texture(1, bg.overlay_samplers[1], bg.overlay_icons, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+	bgfx_set_texture(2, bg.overlay_samplers[2], bg.overlay_picture, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+	bgfx_set_transient_vertex_buffer(0, &buffer, 0, (uint32_t)count);
+	bgfx_set_state(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_SRC_ALPHA,
+		BGFX_STATE_BLEND_INV_SRC_ALPHA, BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA), 0);
+	bgfx_submit(bg.present_view, bg.overlay, 0, BGFX_DISCARD_ALL);
+}
+
 static void bg_present(void)
 {
 	static long screenshot_every = -1;
-	unsigned short present_view;
+	int letterbox[4] = { 0, 0, 0, 0 };
 
 	if (screenshot_every < 0)
 		screenshot_every = *config_string("debug.screenshot_directory") ? config_integer("debug.screenshot_every") : 0;
-	present_view = (unsigned short)(bg.view + 1);
-	bg_blit(present_view);
+	bg.present_view = (unsigned short)(bg.view + 1);
+	bg_blit(bg.present_view, letterbox);
+#ifdef HALO_GAME_BROWSER
+	/* the overlay's screens, over the picture at the window's resolution
+	(ui_overlay.c; its y from the window's bottom, as OpenGL's) */
+	ui_overlay_present(letterbox[0], bg.window_height - (letterbox[1] + letterbox[3]), letterbox[2], letterbox[3],
+		bg.window_width, bg.window_height);
+#endif
 	if (screenshot_every > 0 && device.frame % (unsigned long)screenshot_every == 0)
 	{
 		char path[512];
@@ -1578,21 +2408,26 @@ static void bg_present(void)
 	bgfx_frame(BGFX_FRAME_NONE);
 	if (debug_settings.statistics && device.frame % 60 == 0)
 	{
-		platform_log("bgfx frame %lu: %lu draws, %lu skipped, %u views", device.frame, bg.drawn / 60, bg.skipped / 60,
-			(unsigned)present_view + 1);
+		const bgfx_stats_t *stats = bgfx_get_stats();
+		double gpu = stats->gpuTimerFreq ? (double)(stats->gpuTimeEnd - stats->gpuTimeBegin) * 1000.0 /
+			(double)stats->gpuTimerFreq : 0.0;
+		double cpu = stats->cpuTimerFreq ? (double)stats->cpuTimeFrame * 1000.0 / (double)stats->cpuTimerFreq : 0.0;
+
+		platform_log("bgfx frame %lu: %lu draws, %lu skipped, %u views, %lu KB uniforms; GPU %.2f ms, frame %.2f ms",
+			device.frame, bg.drawn / 60, bg.skipped / 60, (unsigned)bg.present_view + 1, bg.uniform_bytes / 1024,
+			gpu, cpu);
 		bg.drawn = bg.skipped = 0;
 	}
 	platform_video_swap();
 	bg_window_update();
-	bg_targets_update();
-	/* the next frame's first view */
+	/* the next frame's */
+	bg.frame++;
+	bg.uniform_bytes = 0;
 	bg.view = 0;
 	bg.view_used = FALSE;
-	{
-		unsigned short rect[4] = { 0, 0, (unsigned short)bg.width, (unsigned short)bg.height };
-
-		bg_view_open(rect);
-	}
+	bg.blit_count = 0;
+	bgfx_set_view_mode(0, BGFX_VIEW_MODE_SEQUENTIAL);
+	bgfx_set_view_clear(0, BGFX_CLEAR_NONE, 0, 1.0f, 0);
 }
 
 /* ---------- bgfx's callbacks: its errors to the log, screenshots as BMP */
@@ -1717,9 +2552,12 @@ static BOOL bg_initialize(void)
 
 	bg.window = platform_sdl_window();
 	bg.view = 0;
-	bg.back_buffer = (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
 	bg.blit = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	bg.crt = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+	bg.overlay = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+	bg.framebuffer = (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
+	bg.view_framebuffer = (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
+	bg.frame = 1;
 	SDL_GetWindowSizeInPixels(bg.window, &width, &height);
 
 	/* (drawn on this thread: bgfx renders as each frame is submitted) */
@@ -1763,6 +2601,8 @@ static BOOL bg_initialize(void)
 		snprintf(name, sizeof(name), "tex%lu", index);
 		bg.samplers[index] = bgfx_create_uniform(name, BGFX_UNIFORM_TYPE_SAMPLER, 1);
 	}
+	for (index = 0; index < BG_QUERY_COUNT; index++)
+		bg.queries[index] = bgfx_create_occlusion_query();
 	/* what a stage without a texture samples: black, as OpenGL's unit
 	without one */
 	bg.blank = bgfx_create_texture_2d(1, 1, false, 1, BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_NONE,
@@ -1772,10 +2612,12 @@ static BOOL bg_initialize(void)
 
 		bg.blank_cube = bgfx_create_texture_cube(1, false, 1, BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_NONE,
 			bgfx_copy(faces, sizeof(faces)), 0);
+		bg.blank_volume = bgfx_create_texture_3d(1, 1, 1, false, BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_NONE,
+			bgfx_copy(&black, 4), 0);
 	}
 	{
-		struct bg_shader *vertex = bg_shader_get(bg_blit_vertex_source, FALSE, "blit vertex");
-		struct bg_shader *fragment = bg_shader_get(bg_blit_fragment_source, TRUE, "blit pixel");
+		struct bg_shader *vertex = bg_shader_get(bg_blit_vertex_source, FALSE, 0, "blit vertex");
+		struct bg_shader *fragment = bg_shader_get(bg_blit_fragment_source, TRUE, 0, "blit pixel");
 
 		if (vertex != &bg_failed_shader && fragment != &bg_failed_shader)
 			bg.blit = bgfx_create_program(vertex->shader, fragment->shader, false);
@@ -1786,7 +2628,7 @@ static BOOL bg_initialize(void)
 			snprintf(name, sizeof(name), "crt_parameters%lu", index + 1);
 			bg.crt_parameters[index] = bgfx_create_uniform(name, BGFX_UNIFORM_TYPE_VEC4, 1);
 		}
-		fragment = bg_shader_get(bg_crt_fragment_source, TRUE, "CRT filter pixel");
+		fragment = bg_shader_get(bg_crt_fragment_source, TRUE, 0, "CRT filter pixel");
 		if (vertex != &bg_failed_shader && fragment != &bg_failed_shader)
 			bg.crt = bgfx_create_program(vertex->shader, fragment->shader, false);
 	}
@@ -1798,12 +2640,7 @@ static BOOL bg_initialize(void)
 	memory_watch_initialize();
 	debug_settings.statistics = config_boolean("debug.gpu_stats");
 	halo_screen_width();
-	bg_targets_update();
 	bg.ready = TRUE;
-	{
-		unsigned short rect[4] = { 0, 0, (unsigned short)bg.width, (unsigned short)bg.height };
-
-		bg_view_open(rect);
-	}
+	bgfx_set_view_mode(0, BGFX_VIEW_MODE_SEQUENTIAL);
 	return TRUE;
 }

@@ -1,0 +1,59 @@
+diff --git a/src/renderer_mtl.cpp b/src/renderer_mtl.cpp
+index 5433668..9cc3bd9 100644
+--- a/src/renderer_mtl.cpp
++++ b/src/renderer_mtl.cpp
+@@ -20,7 +20,10 @@
+ #	include <IOKit/IOKitLib.h>
+ #endif // BX_PLATFORM_OSX
+ 
+-#define UNIFORM_BUFFER_SIZE (8*1024*1024)
++#ifndef BGFX_CONFIG_MTL_UNIFORM_BUFFER_SIZE
++#	define BGFX_CONFIG_MTL_UNIFORM_BUFFER_SIZE (8*1024*1024)
++#endif // BGFX_CONFIG_MTL_UNIFORM_BUFFER_SIZE
++#define UNIFORM_BUFFER_SIZE BGFX_CONFIG_MTL_UNIFORM_BUFFER_SIZE
+ 
+ namespace bgfx { namespace mtl
+ {
+@@ -2297,6 +2300,15 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 				desc->setDepthCompareFunction( (MTL::CompareFunction)s_cmpFunc[func]);
+ 
+ 				uint32_t bstencil = unpackStencil(1, _stencil);
++				// A back stencil with no test but a read mask carries the
++				// write mask for both faces (the front's state for both).
++				uint32_t writeMask = 0xff;
++				if (BGFX_STENCIL_NONE != bstencil
++				&&  0 == (bstencil & BGFX_STENCIL_TEST_MASK) )
++				{
++					writeMask = (bstencil & BGFX_STENCIL_FUNC_RMASK_MASK) >> BGFX_STENCIL_FUNC_RMASK_SHIFT;
++					bstencil  = BGFX_STENCIL_NONE;
++				}
+ 				uint32_t frontAndBack = bstencil != BGFX_STENCIL_NONE && bstencil != fstencil;
+ 				bstencil = frontAndBack ? bstencil : fstencil;
+ 
+@@ -2306,7 +2318,6 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 					MTL::StencilDescriptor* backfaceDesc  = m_backFaceStencilDescriptor;
+ 
+ 					uint32_t readMask  = (fstencil&BGFX_STENCIL_FUNC_RMASK_MASK)>>BGFX_STENCIL_FUNC_RMASK_SHIFT;
+-					uint32_t writeMask = 0xff;
+ 
+ 					frontFaceDesc->setStencilFailureOperation(   (MTL::StencilOperation)s_stencilOp[(fstencil&BGFX_STENCIL_OP_FAIL_S_MASK)>>BGFX_STENCIL_OP_FAIL_S_SHIFT]);
+ 					frontFaceDesc->setDepthFailureOperation(     (MTL::StencilOperation)s_stencilOp[(fstencil&BGFX_STENCIL_OP_FAIL_Z_MASK)>>BGFX_STENCIL_OP_FAIL_Z_SHIFT]);
+@@ -4374,7 +4385,7 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 		Query& query = m_query[m_control.m_current];
+ 		query.m_handle  = _handle;
+ 		uint32_t offset = _handle.idx * 8;
+-		_rce->setVisibilityResultMode( (MTL::VisibilityResultMode)MTL::VisibilityResultModeBoolean, offset);
++		_rce->setVisibilityResultMode( (MTL::VisibilityResultMode)MTL::VisibilityResultModeCounting, offset);
+ 	}
+ 
+ 	void OcclusionQueryMTL::end(MTL::RenderCommandEncoder*& _rce)
+@@ -4865,6 +4876,9 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 							m_renderCommandEncoder = rce;
+ 							m_renderCommandEncoderFrameBufferHandle = fbh;
+ 
++							// A new encoder starts with a zero blend color.
++							blendFactor = 0;
++
+ 							MTL_RELEASE(renderPassDescriptor, 0);
+ 
+ 							if (m_depthClamp)
