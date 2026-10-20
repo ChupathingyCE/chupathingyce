@@ -57,13 +57,16 @@ Get the latest release from the [Releases page](https://github.com/ChupathingyCE
 
 | Platform | Download | Notes |
 | --- | --- | --- |
-| Windows | `chupathingyce-windows-release.zip` | Windows 10 or later. |
+| Windows (64-bit) | `chupathingyce-windows64-release.zip` | Windows 10 or later, 64-bit. |
+| Windows (32-bit, older PCs) | `chupathingyce-windows-release.zip` | Windows 10 or later. |
 | Linux (64-bit) | `chupathingyce-linux64-release.zip` | glibc 2.31 or later (Debian 11, Ubuntu 20.04). Brings its own SDL3. See [port/linux/README.md](port/linux/README.md). |
 | Linux (32-bit, older systems) | `chupathingyce-linux-release.zip` | glibc 2.31 or later (32-bit). Brings its own SDL3. See [port/linux/README.md](port/linux/README.md). |
 | Android | `chupathingyce-android-release.zip` | Android 9 or later, 64-bit. See [port/android/README.md](port/android/README.md). |
 | Mac | `chupathingyce-macos-release.zip` | macOS 13 or later, Apple silicon or Intel. |
 
 The game checks for new releases when it starts and asks before updating. On Linux there is also an AppImage, on the test builds for now.
+The Windows and Linux builds are for x86 and x64 PCs; there are no ARM builds of
+the game for them yet.
 
 We don't pay for code signing yet, so the first start needs one extra step:
 
@@ -84,7 +87,8 @@ disc image (`.iso` or `.xiso`) of Halo: Combat Evolved. Any region works.
 
 The same screen accepts your Halo PC retail CD image (`.iso`), which fills
 `maps_pc`, and the Halo Custom Edition installer (`halocesetup_en_1.00.exe`),
-which fills `maps_ce`. Or choose **Make the folders** to get empty `maps`,
+which fills `maps_ce` (not on Android yet, where **Import maps** takes
+loose `.map` files or a `.zip` of them). Or choose **Make the folders** to get empty `maps`,
 `maps_ce`, `maps_pc` and `maps_md` folders and copy the files in yourself.
 
 On Android, copy the disc image to your phone first; the maps, settings and
@@ -162,10 +166,22 @@ still list them on the site (Host a Game).
 | The game | Yes | Yes, Apple silicon and Intel | Yes | Yes |
 | Online Games, hosting, stats | Yes | Yes | Yes | Yes |
 | Dedicated server | The game, for a test | The game, for a test | Yes: x86, x64 and arm64, and Docker | |
-| Updates itself | Yes | Not yet | Yes | Yes |
+| Updates itself | Yes | Opens the download page | Yes; not the AppImage | Yes |
 | Halo PC (Custom Edition) maps | Yes | Yes | Yes | Yes, see below |
 | HaloMD maps | Yes | Yes | Yes | Yes, see below |
 | Server Browser in the PC menus | Yes | Yes | Yes | Yes |
+| Halo PC CD and CE installer import at first start | Yes | Yes | Yes | Not yet |
+| Discord presence and Join | Yes | Yes | Yes | No |
+| Choice of audio output | Yes | Yes | Yes | No (the system's) |
+| Crash reports | Yes | Yes | Yes | Not yet |
+| Intro and cutscene movies | Not in release builds | Not in release builds | Not in release builds | Not in release builds |
+
+Some defaults differ by platform: anti-aliasing is MSAA 2x on 64-bit
+computers and off on 32-bit ones and Android, and the Mac starts in a window
+instead of fullscreen. Release builds don't play the intro, attract or
+cutscene movies on any platform yet. On a Steam Deck in Game Mode, the game
+shows no system dialogs (they can crash there): the main menu's version line
+says when a new version is out, and you update from Desktop Mode.
 
 ## Builds
 
