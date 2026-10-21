@@ -500,7 +500,7 @@ static const struct config_setting config_settings[] =
 		"clipboard) that lets whoever has it join over the internet; opening a\n"
 		"link (or copying one before switching to the game) joins. Only people\n"
 		"with the invite can join. Off keeps system link to the local network." },
-	{ "network.join_from_clipboard", _config_string, "\"ask\"", "HALO_NET_JOIN_FROM_CLIPBOARD", _environment_value,
+	{ "network.join_from_clipboard", _config_string, "\"never\"", "HALO_NET_JOIN_FROM_CLIPBOARD", _environment_value,
 		_platform_all,
 		"An invite link found on the clipboard when the game comes to the front:\n"
 		"\"ask\" asks whether to join its game (No is kept for that invite),\n"
@@ -1519,6 +1519,10 @@ static const struct
 	names them keeps them) */
 	{ "display.anti_aliasing", "\"off\"", 0, "Smoother edges (2x multisampling)" },
 	{ "display.shadow_resolution", "128", 0, "Sharper shadows (256)" },
+	/* asking to join a copied invite, the default until v0.8.0: a file
+	that names "ask" keeps it, one that left it commented out follows
+	"never" without a question */
+	{ "network.join_from_clipboard", "\"ask\"", 0, NULL },
 #ifdef HALO_ANDROID
 	{ "audio.buffer_frames", "512", 0, "A larger audio buffer, against crackling (1024)" },
 #endif
@@ -2110,7 +2114,7 @@ static const struct
 	{ "game.move_old_map_folders", { "ask", "yes", "no", NULL }, "\"ask\"" },
 	{ "network.protocol", { "auto", "opence", "delta", NULL }, NULL },
 	{ "network.map_downloads", { "ask", "always", "never", NULL }, "\"ask\"" },
-	{ "network.join_from_clipboard", { "ask", "always", "never", NULL }, "\"ask\"" },
+	{ "network.join_from_clipboard", { "ask", "always", "never", NULL }, "\"never\"" },
 	{ "network.team_change", { "balanced", "allow", "off", NULL }, "\"balanced\"" },
 #ifndef HALO_CONSOLE_NO_DISCORD
 	{ "discord.presence", { "full", "minimal", "off", NULL }, "\"full\"" },

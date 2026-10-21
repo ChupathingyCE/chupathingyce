@@ -1569,7 +1569,7 @@ void platform_clipboard_set(const char *text)
 	SDL_SetClipboardText(text);
 }
 
-/* network.join_from_clipboard: "ask" (the default), "always" or "never"
+/* network.join_from_clipboard: "never" (the default), "ask" or "always"
 (true and false, of older versions, are "always" and "never":
 port_config.c) */
 enum
@@ -1586,9 +1586,9 @@ static int platform_clipboard_join_setting(void)
 	/* (in lowercase, true and false read as these: config_check_words) */
 	if (!strcmp(setting, "always"))
 		return _clipboard_join_always;
-	if (!strcmp(setting, "never"))
-		return _clipboard_join_never;
-	return _clipboard_join_ask;
+	if (!strcmp(setting, "ask"))
+		return _clipboard_join_ask;
+	return _clipboard_join_never;
 }
 
 /* an invite found on the clipboard, waiting for the player's answer (the
