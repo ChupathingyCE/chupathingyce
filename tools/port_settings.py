@@ -501,6 +501,39 @@ CHUPATHINGY = "chupathingy/settings"
 CHUPATHINGY_PAGES = ["controls_setup", CONTROLLER_SCREEN, *SCREENS]
 
 
+# the Chupathingy menus' own pages, which the PC version's menus have not:
+# Delta Profile's PRIVACY (chupathingy/delta_profile.xml opens it;
+# port/linux/game/profile_screen.c has the same rows for the other menus).
+# A "site." row is the profile's own setting on the site, which
+# menu_functions.c reads from and writes to it
+DELTA_PRIVACY = "delta_privacy_setup"
+CHUPATHINGY_ONLY = {
+    DELTA_PRIVACY: {
+        "screen": "delta_privacy_settings_screen",
+        "header": ("header_privacy", "chupathingy/delta_profile/header_privacy"),
+        "spacing": 30,
+        "rows": [
+            ("SHARE MY PROFILE:", "network.share_profile", ON_OFF,
+             "Show your Delta name to Chupathingy players.", None),
+            ("RECORD GAMES I JOIN:", "network.report_joined_games", ON_OFF,
+             "Report the games you join.", None),
+            ("RECORD GAMES I HOST:", "network.report_hosted_games", ON_OFF,
+             "Report the games you host.", None),
+            ("DELTA STATS DETAIL:", "network.report_events", ON_OFF,
+             "Send kills, weapons and medals as host.", None),
+            ("HIDE MY RECORD:", "site.hide_stats", [("NO", "false"), ("YES", "true")],
+             "Hide your record from other players.", None),
+            ("HIDE MY HEATMAPS:", "site.hide_heatmaps", [("NO", "false"), ("YES", "true")],
+             "Hide your heatmaps from other players.", None),
+            ("DISCORD STATUS:", "discord.presence", [("FULL", "full"), ("MINIMAL", "minimal"), ("OFF", "off")],
+             "What Discord shows while you play.", "desktop"),
+            ("SHOW PROFILE NAMES:", "display.profile_names", ON_OFF,
+             "Show players by their Delta names.", None),
+        ],
+    },
+}
+
+
 def _setting_places(spec: dict) -> list:
     """each row's key, platform and place (as _setting_screen lays them)"""
     places, place = [], -1
@@ -524,7 +557,7 @@ def chupathingy_settings_pages() -> list:
     lines = ['<?xml version="1.0" encoding="UTF-8"?>',
              "<!-- The Chupathingy menus' settings pages, in the Xbox's look (tools/port_settings.py) -->",
              "<menus>"]
-    for folder in CHUPATHINGY_PAGES:
+    for folder in [*CHUPATHINGY_PAGES, *CHUPATHINGY_ONLY]:
         base = f"{PE}/{folder}"
         if folder == "controls_setup":
             spec = {"screen": "controls_settings_screen", "spacing": 30,
@@ -548,7 +581,7 @@ def chupathingy_settings_pages() -> list:
             prompts = (_xbox_prompt("y", 60, "defaults") + _xbox_prompt("x", 215, "keyboard") +
                        _xbox_prompt("b", 375, "back") + _xbox_prompt("a", 490, "change"))
         else:
-            spec = SCREENS[folder]
+            spec = SCREENS.get(folder) or CHUPATHINGY_ONLY[folder]
             rows = [(f"{base}/op_{key}", platform, place) for key, platform, place in _setting_places(spec)]
             inputs = ["port settings help"]
             handlers = ['<on event="a" run="port settings save" back="true"/>',
@@ -573,6 +606,9 @@ def chupathingy_settings_pages() -> list:
                          [("type", "column_list"), ("width", 640), ("height", 480),
                           ("flags", "pass_unhandled_to_focused_child up_down_tabs_children"),
                           ("description", f"{base}/help")], children)
+    # (the rows, labels and help of the pages the PC version's menus have not)
+    for folder, spec in CHUPATHINGY_ONLY.items():
+        lines += _setting_screen(folder, spec)
     return lines + ["</menus>", ""]
 
 

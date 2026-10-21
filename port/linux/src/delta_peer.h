@@ -709,6 +709,9 @@ the scoreboard asks this before it shows any) */
 int delta_peer_game_on_delta(void);
 /* a machine's profile claim: its player ID and revision (0 if none) */
 int delta_peer_machine_profile(int machine_index, unsigned char *player_id, delta_u32 *revision);
+/* a player's machine's profile claim, while the machine has that one player
+alone: its player ID (DELTA_WIRE_PLAYER_ID_SIZE bytes) */
+int delta_peer_player_profile(int player_index, unsigned char *player_id);
 /* the game's room: delta_peer_room_has and _room_limit of the session */
 int delta_peer_game_room_has(int capability);
 int delta_peer_game_room_limit(int limit);

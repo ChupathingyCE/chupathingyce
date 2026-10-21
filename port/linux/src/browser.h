@@ -325,4 +325,69 @@ void browser_connect_stop(void);
 void browser_connect_answer(int accept);
 void browser_connect_get(struct browser_connect *connect);
 
+/* Delta Profile in the game (port/linux/game/profile_screen.c;
+delta_profile.h): this copy's own profile, as the site has it, kept in
+memory only. browser_profile_load asks the site for it (in the background:
+at once the first time, else when it is a minute old or force; never more
+often than every 10 seconds), browser_profile_get gives the last answer. */
+enum
+{
+	BROWSER_PROFILE_NOT_ASKED,
+	BROWSER_PROFILE_LOADING,
+	BROWSER_PROFILE_LOADED,
+	/* the site did not answer (a profile it gave before is kept) */
+	BROWSER_PROFILE_FAILED,
+	/* no HTTPS game list, or no player key */
+	BROWSER_PROFILE_NO_KEY,
+	/* no game list (network.browser_url empty) */
+	BROWSER_PROFILE_NO_LIST,
+};
+
+/* what the last action (unlinking this copy, a privacy setting) came to */
+enum
+{
+	BROWSER_PROFILE_ACTION_NONE,
+	BROWSER_PROFILE_ACTION_WORKING,
+	BROWSER_PROFILE_ACTION_DONE,
+	BROWSER_PROFILE_ACTION_FAILED,
+	/* this is the copy that made the profile: it can't be unlinked */
+	BROWSER_PROFILE_ACTION_FIRST_COPY,
+};
+
+struct browser_profile_status
+{
+	int state;
+	/* an answer is kept (profile), how old it is, and a count of the
+	answers kept (a new one: it changed) */
+	int has_profile;
+	unsigned long age_seconds;
+	int serial;
+	/* asked for, not answered yet */
+	int loading;
+	int action;
+	char message[128];
+};
+
+struct delta_profile;
+struct delta_profile_card;
+void browser_profile_load(int force);
+void browser_profile_get(struct browser_profile_status *status, struct delta_profile *profile);
+/* this copy unlinked from its profile (the site's /v1/game/unlink); a
+privacy setting of the site's changed ("hide_stats", "hide_heatmaps",
+"show_presence"); the action's result shown (no longer kept) */
+void browser_profile_unlink(void);
+void browser_profile_privacy(const char *field, int value);
+void browser_profile_action_seen(void);
+
+/* another player's public profile card, by the player ID they shared in a
+game (32 hex digits): 1 with it in card, else 0 (asked of the site in the
+background, or they have none to show). Kept for the run */
+#define BROWSER_PLAYER_CARDS 64
+int browser_player_card(const char *player_id, struct delta_profile_card *card);
+
+/* a page of the site (path: "/profile"): its address as a player types it
+in page, and as a QR code in modules (BROWSER_CONNECT_QR_SIZE squared at
+most, nonzero for a dark one); the QR code's size, 0 for none */
+int browser_page_qr(const char *path, char *page, int page_size, unsigned char *modules);
+
 #endif

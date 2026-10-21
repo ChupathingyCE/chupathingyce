@@ -711,6 +711,11 @@ void controls_screen_process(void);
 void controls_screen_render(void);
 void controls_screen_pointer(struct halo_ui_pointer const *pointer);
 #endif
+#ifndef HALO_CONSOLE_NO_DELTA_PROFILE
+/* port: Delta Profile (port/linux/game/profile_screen.c): its screen of code
+over the Xbox's and Gearbox's menus, and its dialogs over any */
+#include "halo_profile_screen.h"
+#endif
 /* port: the question before joining a clipboard's invite
 (port/linux/game/invite_prompt.c) */
 boolean invite_prompt_active(void);
@@ -7298,8 +7303,15 @@ static void ui_widgets_process_mouse(
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	overlay_active = overlay_active || controls_screen_active();
 #endif
+#ifndef HALO_CONSOLE_NO_DELTA_PROFILE
+	overlay_active = overlay_active || profile_screen_active();
+#endif
 	if (pointer_active && !keyboard_active && invite_prompt_active())
 		invite_prompt_pointer(&pointer);
+#ifndef HALO_CONSOLE_NO_DELTA_PROFILE
+	else if (pointer_active && !keyboard_active && profile_screen_active())
+		profile_screen_pointer(&pointer);
+#endif
 	else if (pointer_active && !keyboard_active && browser_screen_active())
 		browser_screen_pointer(&pointer);
 	else if (pointer_active && !keyboard_active && moderation_screen_active())
@@ -7854,6 +7866,15 @@ void render_ui_widgets(
 			it, an error dialog still is) */
 			if (should_render && browser_screen_active() && !widget->widget_is_error_dialog)
 				should_render = FALSE;
+#ifndef HALO_CONSOLE_NO_DELTA_PROFILE
+			/* (Delta Profile's screen of code too; its dialogs alone are
+			drawn over the menus) */
+			if (should_render && profile_screen_active() && !profile_screen_dialog_only() &&
+				!widget->widget_is_error_dialog)
+			{
+				should_render = FALSE;
+			}
+#endif
 #endif
 			if (should_render)
 			{
@@ -7936,6 +7957,9 @@ void render_ui_widgets(
 #ifdef HALO_GAME_BROWSER
 	if (browser_screen_active())
 		browser_screen_render();
+#ifndef HALO_CONSOLE_NO_DELTA_PROFILE
+	profile_screen_render();
+#endif
 	if (first_players_render)
 	{
 #ifndef HALO_CONSOLE_NO_CONTROLS
@@ -9025,6 +9049,14 @@ void process_ui_widgets(
 
 		return;
 	}
+#ifndef HALO_CONSOLE_NO_DELTA_PROFILE
+	if (profile_screen_active())
+	{
+		profile_screen_process();
+
+		return;
+	}
+#endif
 	if (browser_screen_active())
 	{
 		browser_screen_process();
@@ -9200,3 +9232,23 @@ void process_ui_widgets(
 
 	return;
 }
+
+#ifdef HALO_GAME_BROWSER
+/* port: a screen by name over the first player's (Online Games' Start, the
+Chupathingy menus' Delta Profile), as an item of it would open it: back
+returns to it */
+boolean ui_widget_port_open(struct widget_instance *widget, char const *name, boolean *widget_deleted);
+
+boolean ui_widget_port_open_screen(
+	char const *name)
+{
+	struct widget_instance *widget = widget_globals.active_widgets[0];
+	boolean deleted = FALSE;
+
+	if (!widget)
+		return FALSE;
+	while (widget->focused_child)
+		widget = widget->focused_child;
+	return ui_widget_port_open(widget, name, &deleted);
+}
+#endif

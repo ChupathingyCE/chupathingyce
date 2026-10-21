@@ -216,6 +216,10 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"Show each Chupathingy player's platform logo on the scoreboard: \"auto\"\n"
 		"(Chupathingy menus only), \"on\" or \"off\"." },
+	{ "display.delta_profile", _config_boolean, "true", "HALO_DELTA_PROFILE", _environment_value, _platform_all,
+		"Show Delta Profile in the menus and Online Games." },
+	{ "display.profile_names", _config_boolean, "true", "HALO_PROFILE_NAMES", _environment_value, _platform_all,
+		"Show players by their shared Delta profile name in Delta games." },
 	{ "display.show_quit_players", _config_boolean, "true", "HALO_SHOW_QUIT_PLAYERS", _environment_value,
 		_platform_all,
 		"Keep players who quit on the multiplayer scoreboard." },

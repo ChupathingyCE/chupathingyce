@@ -37,6 +37,7 @@ with it under the lock.
 #include "delta_peer.h"
 #include "browser_ping.h"
 #include "qrcodegen.h"
+#include "delta_profile.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -94,6 +95,21 @@ enum
 	PROFILE_CHECK_ATTEMPTS = 4,
 	/* a report's line: its fixed members, and the most the recorder adds */
 	REPORT_LINE_SIZE = 640 + BROWSER_REPORT_EXTRA_SIZE,
+	/* Delta Profile: the site takes a key's requests 6 a minute
+	(list_server.py's GAME_REQUESTS_PER_KEY), so the profile is asked for
+	this often at most (a request sooner waits), and asked again when a
+	screen wants it and it is this old; the site's answer is under 8 KB
+	(GAME_ANSWER) */
+	GAME_PROFILE_INTERVAL = 10000,
+	GAME_PROFILE_STALE = 60000,
+	GAME_PROFILE_RESPONSE = 16384,
+	/* other players' cards (POST /v1/game/players, 30 a minute an address):
+	asked for this often at most, 16 at a time; after a failure, this long
+	after; a player with none asked about again this long after */
+	CARDS_INTERVAL = 5000,
+	CARDS_RETRY = 60000,
+	CARDS_PER_REQUEST = 16,
+	CARD_NONE_AGAIN = 600000,
 };
 
 struct hosted_game
@@ -113,6 +129,23 @@ struct hosted_game
 	(delta_peer_game_host_summary: 0, not known yet) */
 	int has_delta;
 	struct delta_peer_host_summary delta;
+};
+
+/* another player's card, as the site gave it (browser_player_card) */
+enum
+{
+	_card_wanted,
+	_card_known,
+	/* no profile to show */
+	_card_none,
+};
+
+struct player_card
+{
+	char id[DELTA_PROFILE_ID_LENGTH + 1];
+	int state;
+	unsigned long time;
+	struct delta_profile_card card;
 };
 
 static pthread_mutex_t browser_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -190,6 +223,29 @@ static struct
 	int profile_check_done;
 	int profile_check_attempts;
 	unsigned long profile_check_time;
+
+	/* Delta Profile in the game (browser_profile_*): the game's thread
+	asks, the browser thread asks the site (POST /v1/game/...) and keeps its
+	answer here, in memory only; serial counts the answers kept */
+	int game_profile_wanted;
+	int game_profile_state;
+	int game_profile_has;
+	int game_profile_serial;
+	unsigned long game_profile_time;
+	unsigned long game_profile_asked;
+	struct delta_profile game_profile;
+	int game_unlink_wanted;
+	char game_privacy_field[16];
+	int game_privacy_value;
+	int game_action;
+	char game_message[128];
+	/* the link kept in the save root forgotten (the copy was unlinked) */
+	int profile_forget_wanted;
+	/* other players' cards (by their shared player IDs) */
+	int card_count;
+	struct player_card cards[BROWSER_PLAYER_CARDS];
+	unsigned long cards_time;
+	int cards_failed;
 
 	/* the estimates' anchors (browser_ping.c): asked for and timed once a
 	run, the first time a screen of listed games is up with internet play
@@ -789,6 +845,225 @@ int browser_profile_linked(char *handle, int size)
 		snprintf(handle, (size_t)size, "%s", linked ? browser.profile_handle : "");
 	pthread_mutex_unlock(&browser_lock);
 	return linked;
+}
+
+/* ---------- Delta Profile in the game (the browser thread)
+
+The game asks the site about this copy's own profile with its player key,
+as /v1/link and /v1/claim send it (over HTTPS alone: safe_for_key): the
+profile it counts for, its copies, roles and privacy (POST
+/v1/game/profile), this copy unlinked (/v1/game/unlink) and a privacy
+setting changed (/v1/game/privacy). The site works out the player ID and
+keeps no key. The answer is kept in memory only; debug.txt says whether it
+loaded, never what it holds. */
+
+/* a request with the player key and fields (JSON members, or ""): its HTTP
+status (0: no answer); *no_key when the key can't go (no HTTPS game list,
+no player key) */
+static int game_request(const char *path, const char *fields, char *response, int size, char *error,
+	int error_size, int *no_key)
+{
+	unsigned char key[PLAYER_KEY_SIZE];
+	char key_text[2 * PLAYER_KEY_SIZE + 1];
+	char url[512], body[256];
+	int status;
+
+	*no_key = 0;
+	server_url(path, url, sizeof(url));
+	if (!safe_for_key(url) || !player_key(key))
+	{
+		*no_key = 1;
+		return 0;
+	}
+	p2p_hex(key, PLAYER_KEY_SIZE, key_text);
+	snprintf(body, sizeof(body), "{\"key\": \"%s\"%s%s}", key_text, fields[0] ? ", " : "", fields);
+	status = posix_browser_request(url, body, "application/json", response, size, error, error_size);
+	memset(key, 0, sizeof(key));
+	memset(key_text, 0, sizeof(key_text));
+	memset(body, 0, sizeof(body));
+	return status;
+}
+
+/* (under the lock) this copy is linked to no profile now: known, and the
+link kept in the save root forgotten */
+static void profile_unlinked(void)
+{
+	if (browser.profile_linked)
+		browser.profile_forget_wanted = 1;
+	browser.profile_linked = 0;
+	browser.profile_handle[0] = 0;
+}
+
+static void game_action_done(int action, const char *message)
+{
+	browser.game_action = action;
+	snprintf(browser.game_message, sizeof(browser.game_message), "%s", message);
+}
+
+#define NO_KEY_MESSAGE "No player key"
+#define NOT_ANSWERING_MESSAGE "Site not answering"
+
+static void update_game_profile(void)
+{
+	static char response[GAME_PROFILE_RESPONSE];
+	static struct delta_profile read;
+	char error[256], field[sizeof(browser.game_privacy_field)], fields[64], path[512];
+	int wanted, unlink, value, status, no_key, ok;
+
+	pthread_mutex_lock(&browser_lock);
+	wanted = browser.game_profile_wanted && elapsed(browser.game_profile_asked, GAME_PROFILE_INTERVAL);
+	unlink = browser.game_unlink_wanted;
+	browser.game_unlink_wanted = 0;
+	memcpy(field, browser.game_privacy_field, sizeof(field));
+	value = browser.game_privacy_value;
+	browser.game_privacy_field[0] = 0;
+	if (browser.profile_forget_wanted)
+	{
+		browser.profile_forget_wanted = 0;
+		profile_file(path, sizeof(path));
+		remove(path);
+	}
+	pthread_mutex_unlock(&browser_lock);
+
+	if (unlink)
+	{
+		status = game_request("/v1/game/unlink", "", response, sizeof(response), error, sizeof(error), &no_key);
+		pthread_mutex_lock(&browser_lock);
+		if (no_key)
+			game_action_done(BROWSER_PROFILE_ACTION_FAILED, NO_KEY_MESSAGE);
+		else if (status == 200 || status == 404)
+		{
+			/* (404: linked to none already) */
+			game_action_done(BROWSER_PROFILE_ACTION_DONE, "Unlinked");
+			profile_unlinked();
+			memset(&browser.game_profile, 0, sizeof(browser.game_profile));
+			browser.game_profile_serial++;
+			browser.game_profile_wanted = 1;
+			wanted = 0;
+		}
+		else if (status == 409)
+			game_action_done(BROWSER_PROFILE_ACTION_FIRST_COPY, "");
+		else
+			game_action_done(BROWSER_PROFILE_ACTION_FAILED, NOT_ANSWERING_MESSAGE);
+		pthread_mutex_unlock(&browser_lock);
+		platform_log("Delta Profile: unlink: %s", status == 200 || status == 404 ? "done" : no_key ? "no player key" :
+			status == 409 ? "the first copy" : "no answer");
+	}
+	if (field[0])
+	{
+		snprintf(fields, sizeof(fields), "\"%s\": %s", field, value ? "true" : "false");
+		status = game_request("/v1/game/privacy", fields, response, sizeof(response), error, sizeof(error), &no_key);
+		pthread_mutex_lock(&browser_lock);
+		if (no_key)
+			game_action_done(BROWSER_PROFILE_ACTION_FAILED, NO_KEY_MESSAGE);
+		else if (status == 200 && delta_profile_parse_privacy(response, &browser.game_profile))
+		{
+			game_action_done(BROWSER_PROFILE_ACTION_DONE, "Saved on the site.");
+			browser.game_profile_serial++;
+		}
+		else if (status == 403)
+			game_action_done(BROWSER_PROFILE_ACTION_FAILED, "Profile locked");
+		else if (status == 503)
+			game_action_done(BROWSER_PROFILE_ACTION_FAILED, "The site can't change that now.");
+		else
+			game_action_done(BROWSER_PROFILE_ACTION_FAILED, NOT_ANSWERING_MESSAGE);
+		pthread_mutex_unlock(&browser_lock);
+	}
+	if (!wanted)
+		return;
+
+	status = game_request("/v1/game/profile", "", response, sizeof(response), error, sizeof(error), &no_key);
+	ok = status == 200 && delta_profile_parse(response, &read);
+	pthread_mutex_lock(&browser_lock);
+	browser.game_profile_asked = p2p_now();
+	browser.game_profile_wanted = 0;
+	if (no_key)
+		browser.game_profile_state = BROWSER_PROFILE_NO_KEY;
+	else if (ok)
+	{
+		browser.game_profile = read;
+		browser.game_profile_has = 1;
+		browser.game_profile_state = BROWSER_PROFILE_LOADED;
+		browser.game_profile_time = p2p_now();
+		browser.game_profile_serial++;
+		/* (what browser_profile_linked says follows the site's word) */
+		if (read.linked && !read.locked && (!browser.profile_linked || strcmp(browser.profile_handle, read.handle)))
+			profile_linked_to(read.handle, 1);
+		else if (!read.linked)
+			profile_unlinked();
+	}
+	else
+		browser.game_profile_state = BROWSER_PROFILE_FAILED;
+	pthread_mutex_unlock(&browser_lock);
+	if (ok)
+		platform_log("Delta Profile: loaded");
+	else
+		platform_log("Delta Profile: not loaded (%s)", no_key ? "no HTTPS game list or player key" :
+			status == 429 ? "too many requests" : status ? "an answer not understood" : "no answer");
+	memset(response, 0, sizeof(response));
+	memset(&read, 0, sizeof(read));
+}
+
+/* a card the site gave (delta_profile_parse_cards; under the lock) */
+static void card_found(void *context, const char *id, const struct delta_profile_card *card)
+{
+	int index;
+
+	(void)context;
+	for (index = 0; index < browser.card_count; index++)
+	{
+		struct player_card *known = &browser.cards[index];
+
+		if (strcmp(known->id, id))
+			continue;
+		known->state = card ? _card_known : _card_none;
+		known->time = p2p_now();
+		if (card)
+			known->card = *card;
+		else
+			memset(&known->card, 0, sizeof(known->card));
+	}
+}
+
+/* the cards of the players the game asked about (browser_player_card),
+CARDS_PER_REQUEST at a time: their public profile cards, by the IDs they
+chose to share in a game (Delta Peer's profile, network.share_profile).
+No key goes; the IDs go to an HTTPS game list alone */
+static void update_cards(void)
+{
+	static char response[GAME_PROFILE_RESPONSE];
+	char url[512], body[CARDS_PER_REQUEST * (DELTA_PROFILE_ID_LENGTH + 4) + 32], error[256];
+	int index, count = 0, status, read;
+
+	pthread_mutex_lock(&browser_lock);
+	if (elapsed(browser.cards_time, browser.cards_failed ? CARDS_RETRY : CARDS_INTERVAL))
+	{
+		strcpy(body, "{\"ids\": [");
+		for (index = 0; index < browser.card_count && count < CARDS_PER_REQUEST; index++)
+		{
+			if (browser.cards[index].state != _card_wanted)
+				continue;
+			snprintf(body + strlen(body), sizeof(body) - strlen(body), "%s\"%s\"", count ? ", " : "",
+				browser.cards[index].id);
+			count++;
+		}
+		strcat(body, "]}");
+	}
+	if (count)
+		browser.cards_time = p2p_now();
+	pthread_mutex_unlock(&browser_lock);
+	if (!count)
+		return;
+	server_url("/v1/game/players", url, sizeof(url));
+	if (!safe_for_key(url))
+		return;
+	status = posix_browser_request(url, body, "application/json", response, sizeof(response), error, sizeof(error));
+	pthread_mutex_lock(&browser_lock);
+	read = status == 200 ? delta_profile_parse_cards(response, card_found, NULL) : -1;
+	browser.cards_failed = read < 0;
+	pthread_mutex_unlock(&browser_lock);
+	if (read < 0)
+		platform_log("Delta Profile: players' cards not loaded (%s)", status ? "an answer not understood" : "no answer");
 }
 
 /* the server's word on the code (under the lock): "pending" (not typed
@@ -1552,6 +1827,8 @@ static void *browser_thread(void *unused)
 			open_profile();
 			update_connect();
 			check_profile();
+			update_game_profile();
+			update_cards();
 			update_list();
 			update_anchors();
 		}
@@ -2296,6 +2573,139 @@ const char *browser_probe(void)
 int browser_headless(void)
 {
 	return browser_dedicated() || browser_probe() != NULL;
+}
+
+/* ---------- Delta Profile in the game (public) */
+
+void browser_profile_load(int force)
+{
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	if (!config_string("network.browser_url")[0])
+		browser.game_profile_state = BROWSER_PROFILE_NO_LIST;
+	else if (force || !browser.game_profile_has || browser.game_profile_state == BROWSER_PROFILE_NO_LIST ||
+		elapsed(browser.game_profile_time, GAME_PROFILE_STALE))
+	{
+		browser.game_profile_wanted = 1;
+		if (browser.game_profile_state != BROWSER_PROFILE_LOADED || !browser.game_profile_has)
+			browser.game_profile_state = BROWSER_PROFILE_LOADING;
+	}
+	pthread_mutex_unlock(&browser_lock);
+}
+
+void browser_profile_get(struct browser_profile_status *status, struct delta_profile *profile)
+{
+	pthread_mutex_lock(&browser_lock);
+	status->state = browser.game_profile_state;
+	status->has_profile = browser.game_profile_has;
+	status->loading = browser.game_profile_wanted;
+	status->serial = browser.game_profile_serial;
+	status->age_seconds = browser.game_profile_has ? (p2p_now() - browser.game_profile_time) / 1000 : 0;
+	status->action = browser.game_action;
+	memcpy(status->message, browser.game_message, sizeof(status->message));
+	if (profile)
+		*profile = browser.game_profile;
+	pthread_mutex_unlock(&browser_lock);
+}
+
+void browser_profile_unlink(void)
+{
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	browser.game_unlink_wanted = 1;
+	browser.game_action = BROWSER_PROFILE_ACTION_WORKING;
+	browser.game_message[0] = 0;
+	pthread_mutex_unlock(&browser_lock);
+}
+
+void browser_profile_privacy(const char *field, int value)
+{
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	snprintf(browser.game_privacy_field, sizeof(browser.game_privacy_field), "%s", field);
+	browser.game_privacy_value = value;
+	browser.game_action = BROWSER_PROFILE_ACTION_WORKING;
+	browser.game_message[0] = 0;
+	pthread_mutex_unlock(&browser_lock);
+}
+
+void browser_profile_action_seen(void)
+{
+	pthread_mutex_lock(&browser_lock);
+	if (browser.game_action != BROWSER_PROFILE_ACTION_WORKING)
+		browser.game_action = BROWSER_PROFILE_ACTION_NONE;
+	pthread_mutex_unlock(&browser_lock);
+}
+
+int browser_player_card(const char *player_id, struct delta_profile_card *card)
+{
+	struct player_card *slot = NULL;
+	int index, known = 0;
+
+	if (strlen(player_id) != DELTA_PROFILE_ID_LENGTH || !config_string("network.browser_url")[0])
+		return 0;
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	for (index = 0; index < browser.card_count && !slot; index++)
+	{
+		if (!strcmp(browser.cards[index].id, player_id))
+			slot = &browser.cards[index];
+	}
+	if (!slot)
+	{
+		/* (a new one, in place of the oldest when they are all taken) */
+		if (browser.card_count < BROWSER_PLAYER_CARDS)
+			slot = &browser.cards[browser.card_count++];
+		else
+		{
+			slot = &browser.cards[0];
+			for (index = 1; index < browser.card_count; index++)
+			{
+				if (browser.cards[index].time < slot->time)
+					slot = &browser.cards[index];
+			}
+		}
+		memset(slot, 0, sizeof(*slot));
+		snprintf(slot->id, sizeof(slot->id), "%s", player_id);
+		slot->state = _card_wanted;
+		slot->time = p2p_now();
+	}
+	else if (slot->state == _card_none && elapsed(slot->time, CARD_NONE_AGAIN))
+		slot->state = _card_wanted;
+	if (slot->state == _card_known)
+	{
+		*card = slot->card;
+		known = 1;
+	}
+	pthread_mutex_unlock(&browser_lock);
+	return known;
+}
+
+/* a page of the site, as a player types it, and as a QR code */
+int browser_page_qr(const char *path, char *page, int page_size, unsigned char *modules)
+{
+	unsigned char qr[qrcodegen_BUFFER_LEN_FOR_VERSION(CONNECT_QR_VERSION)];
+	unsigned char work[qrcodegen_BUFFER_LEN_FOR_VERSION(CONNECT_QR_VERSION)];
+	char url[640];
+	int size, x, y;
+
+	browser_server_name(page, page_size);
+	if (!page[0])
+		return 0;
+	strncat(page, path, (size_t)page_size - strlen(page) - 1);
+	server_url(path, url, sizeof(url));
+	if (!qrcodegen_encodeText(url, work, qr, qrcodegen_Ecc_MEDIUM, qrcodegen_VERSION_MIN, CONNECT_QR_VERSION,
+		qrcodegen_Mask_AUTO, true))
+	{
+		return 0;
+	}
+	size = qrcodegen_getSize(qr);
+	for (y = 0; y < size; y++)
+	{
+		for (x = 0; x < size; x++)
+			modules[y * size + x] = qrcodegen_getModule(qr, x, y) ? 1 : 0;
+	}
+	return size;
 }
 
 #endif
