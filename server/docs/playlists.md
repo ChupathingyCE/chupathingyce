@@ -3,7 +3,10 @@
 A playlist is a text file in the data folder (usually in `playlists/`) that
 `HALO_DEDICATED` names. One game a line: the map, then the game type. Lines
 starting with `#` are ignored. The server plays them in order and starts
-over after the last.
+over after the last. With `HALO_DEDICATED_PLAYLIST_SHUFFLE=true` (or
+`sv_set playlist_shuffle true`) each pass after the first is in a new random
+order, and the entry just played is never first in the next pass; the
+playlist file is not changed, and `sv_mapcycle` lists the order in play.
 
 ```
 # map            game type

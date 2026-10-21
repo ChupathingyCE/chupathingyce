@@ -1636,6 +1636,7 @@ static void setting_now(
 #endif
 	case SERVER_SETTING_POSTGAME_SECONDS: snprintf(text, (size_t)size, "%ld", status->postgame_seconds); break;
 	case SERVER_SETTING_SKIP_LOBBY: snprintf(text, (size_t)size, "%s", status->skip_lobby ? "true" : "false"); break;
+	case SERVER_SETTING_PLAYLIST_SHUFFLE: snprintf(text, (size_t)size, "%s", status->playlist_shuffle ? "true" : "false"); break;
 	case SERVER_SETTING_TEAM_CHANGE: snprintf(text, (size_t)size, "%d", team_change_host_policy()); break;
 	case SERVER_SETTING_TEAM_CHANGE_MARGIN: snprintf(text, (size_t)size, "%d", team_change_host_margin()); break;
 	default: text[0] = 0; break;
@@ -1673,6 +1674,7 @@ static boolean setting_applies_now(
 		setting == SERVER_SETTING_CHAT || setting == SERVER_SETTING_CHAT_FILTER ||
 		setting == SERVER_SETTING_WELCOME || setting == SERVER_SETTING_POSTGAME_SECONDS ||
 		setting == SERVER_SETTING_SKIP_LOBBY || setting == SERVER_SETTING_CHAT_COOLDOWN ||
+		setting == SERVER_SETTING_PLAYLIST_SHUFFLE ||
 		setting == SERVER_SETTING_TEAM_CHANGE || setting == SERVER_SETTING_TEAM_CHANGE_MARGIN;
 }
 
@@ -1787,7 +1789,7 @@ boolean server_admin_set(
 		if (setting < 0)
 			command_output_printf(output, "(name, maximum_players, minimum_players, idle_limit, public, name_filter, "
 				"chat, chat_filter, welcome, postgame_seconds, skip_lobby, chat_cooldown, team_change, "
-				"team_change_margin)\n");
+				"team_change_margin, playlist_shuffle)\n");
 		return FALSE;
 	}
 	environment = environment_value((short)setting);
@@ -1832,6 +1834,7 @@ boolean server_admin_set(
 #endif
 	case SERVER_SETTING_POSTGAME_SECONDS: dedicated_server_set_postgame_seconds(change.values[setting]); break;
 	case SERVER_SETTING_SKIP_LOBBY: dedicated_server_set_skip_lobby(change.values[setting] ? TRUE : FALSE); break;
+	case SERVER_SETTING_PLAYLIST_SHUFFLE: dedicated_server_set_playlist_shuffle(change.values[setting] ? TRUE : FALSE); break;
 	case SERVER_SETTING_TEAM_CHANGE: team_change_host_set(change.values[setting], team_change_host_margin()); break;
 	case SERVER_SETTING_TEAM_CHANGE_MARGIN:
 		team_change_host_set(team_change_host_policy(), change.values[setting]);
