@@ -108,6 +108,7 @@ symbols in this file:
 #include <xtl.h>
 #include "rasterizer_xbox.h"
 #include "rasterizer_xbox_pixel_shader.h"
+#include "halo_perf_log.h" /* port: console.perf_log */
 #ifdef HALO_64BIT
 #include "cseries/cseries_windows.h" /* (declared: its result is not an int) */
 #endif
@@ -574,6 +575,7 @@ void _rasterizer_screen_effect(
 			_rasterizer_vertex_shader_screen_effect,
 			_rasterizer_vertex_type_screen,
 			_rasterizer_vertex_shader_permutation_default);
+		HALO_PERF_COUNT(_halo_perf_screen_effect_passes, pass_count);
 
 		for (pass = 0; pass < pass_count; pass++)
 		{

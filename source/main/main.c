@@ -3344,7 +3344,9 @@ static void main_game_render(
 	collision_log_continue_period(TRUE);
 	MAIN_STAGE("render: sound_render");
 	HALO_PERF_BEGIN(_halo_perf_sound);
+	HALO_PERF_BEGIN(_halo_perf_render_sound);
 	sound_render();
+	HALO_PERF_END(_halo_perf_render_sound);
 	HALO_PERF_END(_halo_perf_sound);
 	force_single_screen = game_engine_force_single_screen();
 	last_local_player_index = NONE;

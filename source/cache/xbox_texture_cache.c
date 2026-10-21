@@ -120,6 +120,7 @@ symbols in this file:
 #include "tag_files/tag_groups.h"
 #include "text/draw_string.h"
 #include <xtl.h>
+#include "halo_perf_log.h" /* port: console.perf_log */
 
 /* ---------- constants */
 
@@ -951,6 +952,7 @@ static boolean texture_cache_start_loading_bitmap(
 		bitmap->base_address = xbox_address(base_address);
 		texture->bitmap = bitmap;
 		texture_cache_initialize_hardware_format(bitmap, &texture->hardware_format);
+		HALO_PERF_COUNT(_halo_perf_texture_loads, 1);
 		texture->read_request_handle = cache_file_read(
 			bitmap->tag_index,
 			bitmap->pixels_offset,
@@ -1144,12 +1146,15 @@ void *_texture_cache_bitmap_get_hardware_format(
 			struct xbox_texture_cache_texture *texture = datum_get(
 				xbox_texture_cache_globals.textures,
 				bitmap->cache_block_index);
+			/* (port: console.perf_log's texture wait) */
+			boolean texture_was_loading = FALSE;
 
 			lruv_block_touch(
 				xbox_texture_cache_globals.cache,
 				bitmap->cache_block_index);
 			if (block && !texture->loaded)
 			{
+				texture_was_loading = TRUE;
 				if (debug_texture_cache)
 				{
 					console_warning(
@@ -1157,6 +1162,7 @@ void *_texture_cache_bitmap_get_hardware_format(
 						tag_get_name(bitmap->tag_index));
 				}
 				cache_file_promote_read(texture->read_request_handle);
+				HALO_PERF_BEGIN(_halo_perf_texture_wait);
 			}
 			do
 			{
@@ -1187,6 +1193,8 @@ void *_texture_cache_bitmap_get_hardware_format(
 				}
 			}
 			while (!hardware_format && block);
+			if (texture_was_loading)
+				HALO_PERF_END(_halo_perf_texture_wait);
 		}
 	}
 	else
