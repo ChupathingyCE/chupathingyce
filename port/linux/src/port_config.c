@@ -912,7 +912,7 @@ int platform_app_folder(char *path, unsigned long size)
 	snprintf(path, (size_t)size, "%s/Library/Application Support/ChupathingyCE", home);
 	SDL_CreateDirectory(path);
 	return 1;
-#elif defined(__linux__) && !defined(HALO_ANDROID)
+#elif defined(__linux__) && !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 	/* an AppImage (which sets APPIMAGE) runs from its own file, mounted
 	read-only: its data and settings go in the save root's usual place
 	(save_folder.c), or a test's HALO_SAVE_ROOT */
