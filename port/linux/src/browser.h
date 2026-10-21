@@ -374,10 +374,13 @@ void browser_profile_load(int force);
 void browser_profile_get(struct browser_profile_status *status, struct delta_profile *profile);
 /* this copy unlinked from its profile (the site's /v1/game/unlink); a
 privacy setting of the site's changed ("hide_stats", "hide_heatmaps",
-"show_presence"); the action's result shown (no longer kept) */
+"show_presence", "show_clan_tag"); the action's result shown (no longer kept) */
 void browser_profile_unlink(void);
 void browser_profile_privacy(const char *field, int value);
 void browser_profile_action_seen(void);
+/* a clan's invite answered ("accept" or "decline", clan its ID), or the
+clan left ("leave"): the site's /v1/game/clan, its result the action's */
+void browser_profile_clan(const char *action, int clan);
 
 /* another player's public profile card, by the player ID they shared in a
 game (32 hex digits): 1 with it in card, else 0 (asked of the site in the

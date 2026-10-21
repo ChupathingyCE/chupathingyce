@@ -462,12 +462,14 @@ static void read_privacy(struct reader *reader, struct delta_profile *profile)
 			profile->hide_heatmaps = boolean_value(reader);
 		else if (!strcmp(key, "show_presence"))
 			profile->show_presence = boolean_value(reader);
+		else if (!strcmp(key, "show_clan_tag"))
+			profile->show_clan_tag = boolean_value(reader);
 		else
 			skip_value(reader, 1);
 	}
 }
 
-/* an array's items, each read by one of the readers above into a slot of
+/* an array's items, each read by one of the readers here into a slot of
 its own while there is one (the rest skipped); their count */
 #define READ_ARRAY(reader, maximum, count, read_one) \
 	do \
@@ -490,6 +492,128 @@ its own while there is one (the rest skipped); their count */
 				skip_value((reader), 1); \
 		} \
 	} while (0)
+
+/* a clan's emblem ({"fg", "bg", "c1", "c2", "c3"}) */
+static void read_emblem(struct reader *reader, int *emblem)
+{
+	static const char *const keys[5] = { "fg", "bg", "c1", "c2", "c3" };
+	char key[8];
+	int first = 1, index;
+
+	memset(emblem, 0, 5 * sizeof(emblem[0]));
+	if (!take(reader, '{'))
+	{
+		skip_value(reader, 0);
+		return;
+	}
+	while (!reader->failed && member(reader, key, sizeof(key), &first))
+	{
+		for (index = 0; index < 5 && strcmp(key, keys[index]); index++)
+			;
+		if (index < 5)
+			emblem[index] = (int)number_value(reader);
+		else
+			skip_value(reader, 1);
+	}
+}
+
+static void read_clan_member(struct reader *reader, struct delta_profile_clan_member *line)
+{
+	char key[16];
+	int first = 1;
+
+	memset(line, 0, sizeof(*line));
+	if (!take(reader, '{'))
+	{
+		skip_value(reader, 0);
+		return;
+	}
+	while (!reader->failed && member(reader, key, sizeof(key), &first))
+	{
+		if (!strcmp(key, "display"))
+			text_value(reader, line->display, sizeof(line->display));
+		else if (!strcmp(key, "rank"))
+			text_value(reader, line->rank, sizeof(line->rank));
+		else if (!strcmp(key, "you"))
+			line->you = boolean_value(reader);
+		else
+			skip_value(reader, 1);
+	}
+}
+
+/* the profile's clan, or null (*has_clan 0) */
+static void read_clan(struct reader *reader, struct delta_profile_clan *clan, int *has_clan)
+{
+	char key[16];
+	int first = 1;
+
+	memset(clan, 0, sizeof(*clan));
+	*has_clan = 0;
+	space(reader);
+	if (literal(reader, "null"))
+		return;
+	if (!take(reader, '{'))
+	{
+		skip_value(reader, 0);
+		return;
+	}
+	while (!reader->failed && member(reader, key, sizeof(key), &first))
+	{
+		if (!strcmp(key, "id"))
+			clan->id = (int)number_value(reader);
+		else if (!strcmp(key, "name"))
+			text_value(reader, clan->name, sizeof(clan->name));
+		else if (!strcmp(key, "tag"))
+			text_value(reader, clan->tag, sizeof(clan->tag));
+		else if (!strcmp(key, "motto"))
+			text_value(reader, clan->motto, sizeof(clan->motto));
+		else if (!strcmp(key, "emblem"))
+			read_emblem(reader, clan->emblem);
+		else if (!strcmp(key, "created"))
+			clan->created = number_value(reader);
+		else if (!strcmp(key, "rank"))
+			text_value(reader, clan->rank, sizeof(clan->rank));
+		else if (!strcmp(key, "count"))
+			clan->count = (int)number_value(reader);
+		else if (!strcmp(key, "hidden"))
+			clan->hidden = (int)number_value(reader);
+		else if (!strcmp(key, "more"))
+			clan->more = (int)number_value(reader);
+		else if (!strcmp(key, "members"))
+			READ_ARRAY(reader, DELTA_PROFILE_CLAN_MEMBERS, clan->member_count,
+				read_clan_member(reader, &clan->members[clan->member_count]));
+		else
+			skip_value(reader, 1);
+	}
+	*has_clan = clan->name[0] && clan->tag[0];
+}
+
+static void read_invite(struct reader *reader, struct delta_profile_invite *invite)
+{
+	char key[16];
+	int first = 1;
+
+	memset(invite, 0, sizeof(*invite));
+	if (!take(reader, '{'))
+	{
+		skip_value(reader, 0);
+		return;
+	}
+	while (!reader->failed && member(reader, key, sizeof(key), &first))
+	{
+		if (!strcmp(key, "id"))
+			invite->id = (int)number_value(reader);
+		else if (!strcmp(key, "name"))
+			text_value(reader, invite->name, sizeof(invite->name));
+		else if (!strcmp(key, "tag"))
+			text_value(reader, invite->tag, sizeof(invite->tag));
+		else if (!strcmp(key, "count"))
+			invite->count = (int)number_value(reader);
+		else
+			skip_value(reader, 1);
+	}
+}
+
 
 int delta_profile_parse(const char *text, struct delta_profile *profile)
 {
@@ -541,6 +665,11 @@ int delta_profile_parse(const char *text, struct delta_profile *profile)
 			profile->more_roles = (int)number_value(&reader);
 		else if (!strcmp(key, "privacy"))
 			read_privacy(&reader, profile);
+		else if (!strcmp(key, "clan"))
+			read_clan(&reader, &profile->clan, &profile->has_clan);
+		else if (!strcmp(key, "clan_invites"))
+			READ_ARRAY(&reader, DELTA_PROFILE_CLAN_INVITES, profile->invite_count,
+				read_invite(&reader, &profile->invites[profile->invite_count]));
 		else
 			skip_value(&reader, 1);
 	}
@@ -577,6 +706,41 @@ int delta_profile_parse_privacy(const char *text, struct delta_profile *profile)
 	profile->hide_stats = read.hide_stats;
 	profile->hide_heatmaps = read.hide_heatmaps;
 	profile->show_presence = read.show_presence;
+	profile->show_clan_tag = read.show_clan_tag;
+	return 1;
+}
+
+int delta_profile_parse_clan(const char *text, struct delta_profile *profile)
+{
+	struct reader reader;
+	struct delta_profile_clan clan;
+	struct delta_profile_invite invites[DELTA_PROFILE_CLAN_INVITES];
+	char key[32];
+	int first = 1, has_clan = 0, invite_count = 0, seen = 0;
+
+	memset(&clan, 0, sizeof(clan));
+	reader.at = text;
+	reader.failed = 0;
+	if (!take(&reader, '{'))
+		return 0;
+	while (!reader.failed && member(&reader, key, sizeof(key), &first))
+	{
+		if (!strcmp(key, "clan"))
+		{
+			read_clan(&reader, &clan, &has_clan);
+			seen = 1;
+		}
+		else if (!strcmp(key, "clan_invites"))
+			READ_ARRAY(&reader, DELTA_PROFILE_CLAN_INVITES, invite_count, read_invite(&reader, &invites[invite_count]));
+		else
+			skip_value(&reader, 1);
+	}
+	if (reader.failed || !seen)
+		return 0;
+	profile->clan = clan;
+	profile->has_clan = has_clan;
+	profile->invite_count = invite_count;
+	memcpy(profile->invites, invites, sizeof(invites));
 	return 1;
 }
 
@@ -601,6 +765,28 @@ static void read_card(struct reader *reader, struct delta_profile_card *card, in
 			text_value(reader, card->handle, sizeof(card->handle));
 		else if (!strcmp(key, "display"))
 			text_value(reader, card->display, sizeof(card->display));
+		else if (!strcmp(key, "clan"))
+		{
+			char clan_key[16];
+			int first_clan = 1;
+
+			/* ({"tag", "name"}, or null: no tag shown) */
+			space(reader);
+			if (literal(reader, "null"))
+				continue;
+			if (!take(reader, '{'))
+			{
+				skip_value(reader, 0);
+				continue;
+			}
+			while (!reader->failed && member(reader, clan_key, sizeof(clan_key), &first_clan))
+			{
+				if (!strcmp(clan_key, "tag"))
+					text_value(reader, card->clan_tag, sizeof(card->clan_tag));
+				else
+					skip_value(reader, 1);
+			}
+		}
 		else if (!strcmp(key, "badges"))
 		{
 			char name[48];

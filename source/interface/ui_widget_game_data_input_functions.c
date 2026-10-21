@@ -369,19 +369,25 @@ machine of one player (its panel names the machine); others as before */
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
 boolean profile_names_player(long player_index, wchar_t *name, long size);
 #endif
+/* (as long as the panels show: a player's line 16 characters, another
+machine's name 12; longer is cut with "...") */
 #define PREGAME_PROFILE_NAME_LENGTH 33
+#define PREGAME_PLAYER_NAME_SHOWN 17
+#define PREGAME_MACHINE_NAME_SHOWN 13
 
 static wchar_t const *pregame_player_name(
 	long player_index,
 	wchar_t const *name,
-	wchar_t *buffer)
+	wchar_t *buffer,
+	long shown)
 {
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
-	if (player_index != NONE && profile_names_player(player_index, buffer, PREGAME_PROFILE_NAME_LENGTH))
+	if (player_index != NONE && profile_names_player(player_index, buffer, shown))
 		return buffer;
 #else
 	(void)player_index;
 	(void)buffer;
+	(void)shown;
 #endif
 	return name;
 }
@@ -402,7 +408,7 @@ static wchar_t const *pregame_machine_name(
 			count++;
 		}
 	}
-	return count == 1 ? pregame_player_name(found, name, buffer) : name;
+	return count == 1 ? pregame_player_name(found, name, buffer, PREGAME_MACHINE_NAME_SHOWN) : name;
 }
 #endif
 
@@ -1579,7 +1585,7 @@ static void network_pregame_status_screen_update(
 			{
 				wchar_t profile_name[PREGAME_PROFILE_NAME_LENGTH];
 				wchar_t const *shown_name = pregame_player_name(local_player_indices[local_player_index],
-					game->players[local_player_indices[local_player_index]].name, profile_name);
+					game->players[local_player_indices[local_player_index]].name, profile_name, PREGAME_PLAYER_NAME_SHOWN);
 				long name_length = ustrlen(shown_name);
 
 				name_text->parameters.text_box.text = ui_widget_realloc(

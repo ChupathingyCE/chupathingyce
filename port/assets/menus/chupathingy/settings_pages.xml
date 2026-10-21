@@ -235,8 +235,9 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_report_events" x="54" y="163"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_hide_stats" x="54" y="193"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_hide_heatmaps" x="54" y="223"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_presence" x="54" y="253" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_profile_names" x="54" y="283"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_show_clan_tag" x="54" y="253"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_presence" x="54" y="283" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_profile_names" x="54" y="313"/>
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/delta_privacy_settings_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
 		<on event="b" back="true"/>
@@ -256,8 +257,9 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_report_events" x="54" y="163"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_hide_stats" x="54" y="193"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_hide_heatmaps" x="54" y="223"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_presence" x="54" y="253" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_profile_names" x="54" y="283"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_show_clan_tag" x="54" y="253"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_presence" x="54" y="283" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_profile_names" x="54" y="313"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
@@ -319,11 +321,20 @@
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/hide_heatmaps_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="NO|YES" setting="site.hide_heatmaps" values="false|true" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
 	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_show_clan_tag" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/show_clan_tag_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/show_clan_tag_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/show_clan_tag_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/labels" string_index="6" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/show_clan_tag_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" setting="site.show_clan_tag" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_presence" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF" platform="desktop">
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/presence_label"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/presence_spinner" x="320" y="1"/>
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/presence_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/labels" string_index="6" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/presence_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/labels" string_index="7" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/presence_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="FULL|MINIMAL|OFF" setting="discord.presence" values="full|minimal|off" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
@@ -332,7 +343,7 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/profile_names_label"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/profile_names_spinner" x="320" y="1"/>
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/profile_names_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/labels" string_index="7" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/profile_names_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/labels" string_index="8" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/profile_names_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" setting="display.profile_names" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
@@ -354,6 +365,7 @@
 		<string text="DELTA STATS DETAIL:"/>
 		<string text="HIDE MY RECORD:"/>
 		<string text="HIDE MY HEATMAPS:"/>
+		<string text="SHOW CLAN TAG:"/>
 		<string text="DISCORD STATUS:"/>
 		<string text="SHOW PROFILE NAMES:"/>
 	</strings>
@@ -365,6 +377,7 @@
 		<string text="Send kills, weapons and medals as host."/>
 		<string text="Hide your record from other players."/>
 		<string text="Hide your heatmaps from other players."/>
+		<string text="Show your clan tag to Chupathingy players."/>
 		<string text="What Discord shows while you play."/>
 		<string text="Show players by their Delta names."/>
 	</strings>
