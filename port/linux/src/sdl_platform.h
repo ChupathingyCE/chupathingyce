@@ -116,6 +116,9 @@ void platform_ui_pointer_set_active(BOOL active);
 /* pointer receives what the pointer did since the last call; returns
 nonzero while a menu is up (platform_ui_pointer_set_active) */
 BOOL platform_ui_pointer_read(struct platform_ui_pointer *pointer);
+/* debug.test_input's mouse: a move (button 0), a click of an SDL button, or
+wheel notches, at a point of the window (desktop builds) */
+void platform_test_pointer_event(float x, float y, int button, int wheel);
 
 /* returns the window's size in the units that pointer positions come in,
 which differ from the drawable's pixels on displays that scale */

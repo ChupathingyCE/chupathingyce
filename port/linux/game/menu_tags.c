@@ -43,6 +43,7 @@ clock runs on).
 #include "../src/ui_overlay.h"
 #endif
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -2294,15 +2295,12 @@ icons, a PlayStation or Nintendo pad's own), as Online Games draws its
 prompts (ui_overlay.c: the keys xinput_sdl.c presses those buttons with), ending
 where the picture ends, so that the words after it stay clear. */
 
-boolean pc_menu_button_key_cap(
-	long bitmap_tag_index,
-	short x0,
-	short y0,
-	short x1,
-	short y1,
-	float alpha)
-{
 #ifdef HALO_GAME_BROWSER
+/* the button (UI_BUTTON_A...) a prompt's picture is drawn as a key cap
+for, or -1 when it is drawn as it is */
+static int pc_menu_key_cap_button(
+	long bitmap_tag_index)
+{
 	static struct
 	{
 		char const *name;
@@ -2326,31 +2324,49 @@ boolean pc_menu_button_key_cap(
 	boolean modern = menu_tags.loaded && menu_tags.chupathingy;
 
 	if (bitmap_tag_index == NONE || (!halo_keyboard_prompts() && !modern))
-		return FALSE;
+		return -1;
 	name = tag_get_name(bitmap_tag_index);
 	if (!name)
-		return FALSE;
+		return -1;
 	/* (ui.map's, and the Chupathingy menus' own: chupathingy/prompts.xml) */
 	if (!strncmp(name, "ui\\shell\\bitmaps\\", 17))
 		last = name + 17;
 	else if (modern && !strncmp(name, CHUPATHINGY_PROMPTS, strlen(CHUPATHINGY_PROMPTS)))
 		last = name + strlen(CHUPATHINGY_PROMPTS);
 	else
-		return FALSE;
+		return -1;
 	for (index = 0; index < (long)(sizeof(buttons) / sizeof(buttons[0])); index++)
 	{
 		size_t length = strlen(buttons[index].name);
 
 		if (!strncmp(last, buttons[index].name, length) && (!last[length] || !strcmp(last + length, "_sm")))
-		{
-			float size = (float)(y1 - y0) * 0.62f;
-			float width = ui_overlay_button_width(buttons[index].button, size);
-			unsigned int shade = (unsigned int)(alpha < 0.f ? 0.f : alpha > 1.f ? 255.f : alpha * 255.f);
+			return buttons[index].button;
+	}
+	return -1;
+}
+#endif
 
-			ui_overlay_button(buttons[index].button, size, (float)x1 - width,
-				(float)y0 + ((float)(y1 - y0) - size) * 0.5f, 0xFFFFFF00 | shade);
-			return TRUE;
-		}
+boolean pc_menu_button_key_cap(
+	long bitmap_tag_index,
+	short x0,
+	short y0,
+	short x1,
+	short y1,
+	float alpha)
+{
+#ifdef HALO_GAME_BROWSER
+	int button = pc_menu_key_cap_button(bitmap_tag_index);
+
+	(void)x0;
+	if (button >= 0)
+	{
+		float size = (float)(y1 - y0) * 0.62f;
+		float width = ui_overlay_button_width(button, size);
+		unsigned int shade = (unsigned int)(alpha < 0.f ? 0.f : alpha > 1.f ? 255.f : alpha * 255.f);
+
+		ui_overlay_button(button, size, (float)x1 - width,
+			(float)y0 + ((float)(y1 - y0) - size) * 0.5f, 0xFFFFFF00 | shade);
+		return TRUE;
 	}
 #else
 	(void)bitmap_tag_index;
@@ -2361,4 +2377,32 @@ boolean pc_menu_button_key_cap(
 	(void)alpha;
 #endif
 	return FALSE;
+}
+
+/* the left edge of the key cap pc_menu_button_key_cap draws for a prompt
+in these bounds (a wide one, ENTER's, reaches left of them), or x0 when
+the picture is drawn as it is */
+short pc_menu_button_key_cap_left(
+	long bitmap_tag_index,
+	short x0,
+	short y0,
+	short x1,
+	short y1)
+{
+#ifdef HALO_GAME_BROWSER
+	int button = pc_menu_key_cap_button(bitmap_tag_index);
+
+	if (button >= 0)
+	{
+		float left = (float)x1 - ui_overlay_button_width(button, (float)(y1 - y0) * 0.62f);
+
+		return (short)floorf(left);
+	}
+#else
+	(void)bitmap_tag_index;
+	(void)y0;
+	(void)x1;
+	(void)y1;
+#endif
+	return x0;
 }
