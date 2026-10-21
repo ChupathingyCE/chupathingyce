@@ -184,6 +184,9 @@ static const struct config_setting config_settings[] =
 	{ "display.anisotropic_filtering", _config_integer, "0", "HALO_ANISOTROPIC_FILTERING", _environment_value,
 		_platform_all,
 		"Sharper textures at a slant: 0 (off, the Xbox's), 2, 4, 8 or 16." },
+	{ "display.full_model_detail", _config_boolean, "false", "HALO_FULL_MODEL_DETAIL", _environment_value,
+		_platform_all,
+		"Draw every model at full detail at any distance." },
 	{ "display.menus", _config_string, "\"chupathingy\"", "HALO_MENUS", _environment_value, _platform_all,
 		"The menus: \"chupathingy\", \"xbox\" or \"gearbox\". Your own go in a\n"
 		"menus folder beside config.toml. Takes effect after a restart." },

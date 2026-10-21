@@ -95,6 +95,8 @@ SCREENS = {
             ("ANISOTROPIC FILTERING:", "display.anisotropic_filtering",
              [("OFF", "0"), ("2X", "2"), ("4X", "4"), ("8X", "8"), ("16X", "16")],
              "Sharper textures seen at an angle.", None),
+            ("FULL MODEL DETAIL:", "display.full_model_detail", ON_OFF,
+             "Always draw models at their highest detail.", None),
         ],
     },
     "mouse_settings": {

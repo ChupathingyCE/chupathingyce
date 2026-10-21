@@ -953,6 +953,28 @@ static void model_data_error(
 	return;
 }
 
+/* port_config.c's */
+int config_boolean(const char *name);
+unsigned long config_changes(void);
+
+/* port: display.full_model_detail, every model drawn with its most detailed
+geometry wherever it is, not the coarser ones the game swaps in as it gets
+smaller on the screen. Drawing only: the game's state never reads it. */
+static boolean full_model_detail(
+	void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static boolean full = FALSE;
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		full = config_boolean("display.full_model_detail") != 0;
+	}
+
+	return full;
+}
+
 void render_model(
 	long model_index,
 	real level_of_detail_pixels,
@@ -1044,6 +1066,10 @@ void render_model(
 			level_of_detail_pixels<model->detail_cutoff_pixels[geometry_detail_level_index])
 		{
 			geometry_detail_level_index--;
+		}
+		if (full_model_detail())
+		{
+			geometry_detail_level_index = NUMBER_OF_DETAIL_LEVELS_PER_MODEL-1;
 		}
 		if (rasterizer_debug_options.debug_model_lod!=NONE)
 		{
