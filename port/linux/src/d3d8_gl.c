@@ -46,6 +46,7 @@ static void bg_draw_indexed(D3DPRIMITIVETYPE type, unsigned long count, const WO
 static void bg_draw_immediate(D3DPRIMITIVETYPE type, unsigned long count);
 static void bg_clear(DWORD count, const D3DRECT *rectangles, DWORD flags, D3DCOLOR color, float z, DWORD stencil);
 static void bg_present(void);
+static void bg_frame_account(char *text, size_t size);
 static void bg_visibility_begin(void);
 static void bg_visibility_end(DWORD index);
 static UINT bg_visibility_result(DWORD index);
@@ -623,6 +624,15 @@ static struct
 } stats;
 /* debug.gpu_stats's frame work timing (D3DDevice_Present) */
 static double stats_frame_start, stats_busy_total, stats_busy_worst;
+/* debug.gpu_stats's account of a slow frame (D3DDevice_Present): the
+renderer's shader compiles and texture uploads in it */
+static struct
+{
+	unsigned long compiles;
+	double compile_seconds, texture_seconds;
+} stats_frame;
+/* a frame slower than this is logged with its account */
+#define STATS_SLOW_FRAME_SECONDS 0.020
 
 static double stats_seconds(void)
 {
@@ -1113,10 +1123,13 @@ GLuint xgpu_compile_shader(GLenum type, const char *source, const char *what)
 {
 	GLuint shader = glCreateShader(type);
 	GLint status = 0;
+	double start = stats_seconds();
 
 	glShaderSource(shader, 1, &source, NULL);
 	glCompileShader(shader);
 	glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
+	stats_frame.compiles++;
+	stats_frame.compile_seconds += stats_seconds() - start;
 	if (!status)
 	{
 		char log[4096];
@@ -1133,11 +1146,13 @@ GLuint xgpu_link_program(GLuint vertex_shader, GLuint fragment_shader, const cha
 {
 	GLuint program = glCreateProgram();
 	GLint status = 0;
+	double start = stats_seconds();
 
 	glAttachShader(program, vertex_shader);
 	glAttachShader(program, fragment_shader);
 	glLinkProgram(program);
 	glGetProgramiv(program, GL_LINK_STATUS, &status);
+	stats_frame.compile_seconds += stats_seconds() - start;
 	if (!status)
 	{
 		char log[4096];
@@ -5223,7 +5238,20 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 			stats_busy_total += busy;
 			if (busy > stats_busy_worst)
 				stats_busy_worst = busy;
+			char account[256] = "";
+
+#ifdef HALO_BGFX
+			if (bg_active())
+				bg_frame_account(account, sizeof(account));
+#endif
+			if (busy > STATS_SLOW_FRAME_SECONDS)
+			{
+				platform_log("slow frame %lu: %.1f ms; %lu shaders compiled in %.1f ms, textures %.1f ms%s", device.frame,
+					busy * 1000.0, stats_frame.compiles, stats_frame.compile_seconds * 1000.0,
+					stats_frame.texture_seconds * 1000.0, account);
+			}
 		}
+		memset(&stats_frame, 0, sizeof(stats_frame));
 	}
 	if (debug_settings.statistics && device.frame % 60 == 0)
 	{

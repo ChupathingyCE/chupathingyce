@@ -144,7 +144,13 @@ struct bg_shader
 	bgfx_shader_handle_t shader;
 	/* its uniform block's bytes, which Metal copies at each draw */
 	unsigned long uniform_size;
-	BOOL failed;
+	BOOL fragment, failed;
+	/* while a compiler thread makes it (bg_shader_ready): its job, and
+	(under bg_jobs.lock) the Metal source it made or why it failed */
+	struct bg_shader_job *job;
+	BOOL done;
+	char *msl;
+	char *error;
 };
 
 struct bg_fragment
@@ -295,6 +301,14 @@ static struct
 	struct bg_vertex_entry *vertex_buckets[BG_VERTEX_BUCKETS];
 	unsigned long vertex_cache_bytes;
 	unsigned long stat_cached_vertices, stat_streamed_vertices;
+	/* this frame's shader and vertex work (bg_frame_account) */
+	struct
+	{
+		unsigned long translated, loaded, programs;
+		double translate_seconds, load_seconds, vertex_seconds;
+		uint32_t libraries, pipelines;
+		double library_seconds, pipeline_seconds;
+	} account;
 
 	/* debug.screenshot_every's copy of the back buffer, read back */
 	bgfx_texture_handle_t capture;
@@ -310,7 +324,7 @@ static struct
 	double stat_frame_wait;
 } bg;
 
-static struct bg_shader bg_failed_shader;
+static struct bg_shader bg_failed_shader = { .failed = TRUE };
 
 static BOOL bg_active(void)
 {
@@ -542,18 +556,6 @@ static char *bg_vulkan_glsl(const char *source, BOOL fragment, int flags, unsign
 
 /* ---------- shader compilation: GLSL, SPIR-V, Metal's language, bgfx's container */
 
-static void bg_cache_path(char *path, unsigned long size, Uint64 hash)
-{
-	const char *root = platform_save_root();
-
-	if (!root || !*root)
-	{
-		*path = 0;
-		return;
-	}
-	snprintf(path, size, "%s/bgfx_shaders/%016llx.metal", root, (unsigned long long)hash);
-}
-
 /* Metal's shading language for the SPIR-V: the uniform block is bgfx's
 _mtl_u in buffer 0, each sampler at its binding, the entry point bgfx's */
 static char *bg_msl(const shaderc_compilation_result_t result, BOOL fragment, const char **error)
@@ -649,94 +651,416 @@ static bgfx_shader_handle_t bg_container(const char *msl, BOOL fragment)
 	return handle;
 }
 
-static struct bg_shader *bg_shader_failed(Uint64 hash, const char *what, const char *why)
-{
-	struct bg_shader *entry = calloc(1, sizeof(*entry));
+/* ---------- the shader cache and the compiler threads
 
-	platform_log("bgfx: the %s shader %016llx fails: %s", what, (unsigned long long)hash, why);
-	if (entry)
-	{
-		entry->hash = hash;
-		entry->failed = TRUE;
-		entry->next = bg.shaders[hash % BG_SHADER_BUCKETS];
-		bg.shaders[hash % BG_SHADER_BUCKETS] = entry;
-	}
-	return &bg_failed_shader;
+A draw's shaders are made from the translators' GLSL: SPIR-V (shaderc),
+then Metal's language (SPIRV-Cross), a few milliseconds each. That is done
+on compiler threads, never in a frame: a draw whose shaders are not made
+yet is left out until they are (a frame or two, the first time a shader is
+seen). What they make is kept in the cache folder (paths.cache, safe to
+delete: bgfx/<backend>/<hash>.shader, by a hash of the shader's GLSL, the
+backend and the compilers' versions; an entry that does not match is
+ignored and made again), and each map's programs are listed there
+(map-<name>.programs) so that the next time the map loads they are all made
+during its loading screen (bg_warm). Past BG_SHADER_CACHE_MAXIMUM the
+oldest entries are removed at start-up. */
+
+/* (a new number when what is cached changes: the Metal source's layout, the
+entries' format) */
+#define BG_SHADER_CACHE_FORMAT 1
+#define BG_SHADER_CACHE_MAGIC "HXBS"
+#define BG_SHADER_CACHE_MAXIMUM (64UL << 20)
+#define BG_SHADER_CACHE_TRIMMED (48UL << 20)
+#define BG_COMPILER_THREADS 2
+/* the most of a map's programs made in one frame of its loading screen */
+#define BG_WARM_PER_FRAME 48
+
+struct bg_shader_job
+{
+	struct bg_shader_job *next;
+	struct bg_shader *shader;
+	char *source;
+	char what[32];
+};
+
+struct bg_pair
+{
+	struct bg_pair *next;
+	Uint64 vertex, fragment;
+};
+
+static struct
+{
+	pthread_mutex_t lock;
+	pthread_cond_t wake, finished;
+	struct bg_shader_job *first, *last;
+	BOOL started;
+	/* the cache's folder and the versions its entries are made with */
+	char folder[1024];
+	Uint64 versions;
+	/* the current map's programs, as listed (bg_pair_record), and the map
+	whose loading screen makes them (bg_warm) */
+	char map[64];
+	struct bg_pair *pairs[BG_SHADER_BUCKETS];
+	FILE *pairs_file;
+	char warm_map[64];
+	BOOL warm_pending;
+	Uint64 *warm_list;
+	unsigned long warm_count, warm_next;
+} bg_jobs = { PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, PTHREAD_COND_INITIALIZER };
+
+static void bg_cache_entry_path(char *path, size_t size, Uint64 hash)
+{
+	snprintf(path, size, "%s/%016llx.shader", bg_jobs.folder, (unsigned long long)hash);
 }
 
-/* a shader of the translators' GLSL */
-static struct bg_shader *bg_shader_get(const char *glsl, BOOL fragment, int flags, const char *what)
+/* a cache entry: the magic, the format, the versions, the shader's hash,
+its uniform block's bytes, the source's length and hash, the source */
+struct bg_cache_header
+{
+	char magic[4];
+	Uint32 format;
+	Uint64 versions, hash;
+	Uint32 uniform_size, length;
+	Uint64 check;
+};
+
+/* the cached Metal source of a shader (malloc'd), or NULL */
+static char *bg_cache_read(Uint64 hash, unsigned long *uniform_size)
+{
+	char path[1100];
+	struct bg_cache_header header;
+	char *msl = NULL;
+	FILE *file;
+
+	if (!*bg_jobs.folder)
+		return NULL;
+	bg_cache_entry_path(path, sizeof(path), hash);
+	file = fopen(path, "rb");
+	if (!file)
+		return NULL;
+	if (fread(&header, sizeof(header), 1, file) == 1 && !memcmp(header.magic, BG_SHADER_CACHE_MAGIC, 4) &&
+		header.format == BG_SHADER_CACHE_FORMAT && header.versions == bg_jobs.versions && header.hash == hash &&
+		header.length < (16U << 20) && (msl = malloc(header.length + 1)) != NULL)
+	{
+		if (fread(msl, 1, header.length, file) != header.length ||
+			bg_hash(msl, header.length, 14695981039346656037ULL) != header.check)
+		{
+			free(msl);
+			msl = NULL;
+		}
+		else
+		{
+			msl[header.length] = 0;
+			if (uniform_size)
+				*uniform_size = header.uniform_size;
+		}
+	}
+	fclose(file);
+	return msl;
+}
+
+static void bg_cache_write(Uint64 hash, unsigned long uniform_size, const char *msl)
+{
+	char path[1100], temporary[1120];
+	struct bg_cache_header header;
+	FILE *file;
+
+	if (!*bg_jobs.folder)
+		return;
+	bg_cache_entry_path(path, sizeof(path), hash);
+	snprintf(temporary, sizeof(temporary), "%s.%lu.tmp", path, (unsigned long)(uintptr_t)pthread_self() & 0xffff);
+	memcpy(header.magic, BG_SHADER_CACHE_MAGIC, 4);
+	header.format = BG_SHADER_CACHE_FORMAT;
+	header.versions = bg_jobs.versions;
+	header.hash = hash;
+	header.uniform_size = (Uint32)uniform_size;
+	header.length = (Uint32)strlen(msl);
+	header.check = bg_hash(msl, header.length, 14695981039346656037ULL);
+	file = fopen(temporary, "wb");
+	if (!file)
+		return;
+	if (fwrite(&header, sizeof(header), 1, file) == 1 && fwrite(msl, 1, header.length, file) == header.length &&
+		fclose(file) == 0)
+		rename(temporary, path);
+	else
+		remove(temporary);
+}
+
+/* Metal source for a shader's Vulkan GLSL (malloc'd), or NULL with why */
+static char *bg_compile(const char *source, BOOL fragment, const char *what, char **error)
+{
+	shaderc_compilation_result_t result = shaderc_compile_into_spv(bg.compiler, source, strlen(source),
+		fragment ? shaderc_fragment_shader : shaderc_vertex_shader, what, "main", bg.options);
+	const char *why = NULL;
+	char *msl;
+
+	if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success)
+	{
+		*error = strdup(shaderc_result_get_error_message(result));
+		shaderc_result_release(result);
+		return NULL;
+	}
+	msl = bg_msl(result, fragment, &why);
+	shaderc_result_release(result);
+	if (!msl)
+		*error = strdup(why ? why : "SPIRV-Cross");
+	return msl;
+}
+
+static void *bg_compiler_thread(void *unused)
+{
+	(void)unused;
+	pthread_mutex_lock(&bg_jobs.lock);
+	for (;;)
+	{
+		struct bg_shader_job *job;
+		char *msl, *error = NULL;
+
+		while (!bg_jobs.first)
+			pthread_cond_wait(&bg_jobs.wake, &bg_jobs.lock);
+		job = bg_jobs.first;
+		bg_jobs.first = job->next;
+		if (!bg_jobs.first)
+			bg_jobs.last = NULL;
+		pthread_mutex_unlock(&bg_jobs.lock);
+
+		msl = bg_compile(job->source, job->shader->fragment, job->what, &error);
+		if (msl)
+			bg_cache_write(job->shader->hash, job->shader->uniform_size, msl);
+
+		pthread_mutex_lock(&bg_jobs.lock);
+		job->shader->msl = msl;
+		job->shader->error = error;
+		job->shader->done = TRUE;
+		pthread_cond_broadcast(&bg_jobs.finished);
+	}
+	return NULL;
+}
+
+/* the cache's folder, emptied of its oldest entries past its size */
+static void bg_cache_start(void)
+{
+	unsigned int shaderc_version = 0, shaderc_revision = 0, major = 0, minor = 0, patch = 0;
+	char versions[128];
+	int index;
+
+	shaderc_get_spv_version(&shaderc_version, &shaderc_revision);
+	spvc_get_version(&major, &minor, &patch);
+	snprintf(versions, sizeof(versions), "metal %d shaderc %u.%u spirv-cross %u.%u.%u bgfx %d", BG_SHADER_CACHE_FORMAT,
+		shaderc_version, shaderc_revision, major, minor, patch, BGFX_API_VERSION);
+	bg_jobs.versions = bg_hash(versions, strlen(versions), 14695981039346656037ULL);
+	snprintf(bg_jobs.folder, sizeof(bg_jobs.folder), "%s/bgfx/metal", platform_folder(_port_folder_cache));
+	{
+		char parent[1100];
+
+		snprintf(parent, sizeof(parent), "%s/bgfx", platform_folder(_port_folder_cache));
+		SDL_CreateDirectory(parent);
+		if (!SDL_CreateDirectory(bg_jobs.folder))
+			*bg_jobs.folder = 0;
+	}
+	if (*bg_jobs.folder)
+	{
+		int count = 0;
+		char **names = SDL_GlobDirectory(bg_jobs.folder, "*", 0, &count);
+		struct { char *name; Uint64 time, size; } *entries = names && count ? calloc((size_t)count, sizeof(*entries)) : NULL;
+		Uint64 total = 0;
+
+		for (index = 0; entries && index < count; index++)
+		{
+			char path[1200];
+			SDL_PathInfo info;
+
+			snprintf(path, sizeof(path), "%s/%s", bg_jobs.folder, names[index]);
+			entries[index].name = names[index];
+			if (SDL_GetPathInfo(path, &info))
+			{
+				entries[index].time = (Uint64)info.modify_time;
+				entries[index].size = info.size;
+				total += info.size;
+			}
+		}
+		/* (the oldest first, a few at a time: there are not many) */
+		while (entries && total > BG_SHADER_CACHE_MAXIMUM)
+		{
+			int oldest = -1;
+
+			for (index = 0; index < count; index++)
+			{
+				if (entries[index].size && (oldest < 0 || entries[index].time < entries[oldest].time))
+					oldest = index;
+			}
+			if (oldest < 0)
+				break;
+			{
+				char path[1200];
+
+				snprintf(path, sizeof(path), "%s/%s", bg_jobs.folder, entries[oldest].name);
+				remove(path);
+			}
+			total -= entries[oldest].size;
+			entries[oldest].size = 0;
+			if (total <= BG_SHADER_CACHE_TRIMMED)
+				break;
+		}
+		free(entries);
+		SDL_free(names);
+	}
+	for (index = 0; index < BG_COMPILER_THREADS; index++)
+	{
+		pthread_t thread;
+
+		if (pthread_create(&thread, NULL, bg_compiler_thread, NULL) == 0)
+		{
+			pthread_detach(thread);
+			bg_jobs.started = TRUE;
+		}
+	}
+}
+
+static struct bg_shader *bg_shader_failed(struct bg_shader *shader, const char *what, const char *why)
+{
+	platform_log("bgfx: the %s shader %016llx fails: %s", what, (unsigned long long)shader->hash, why);
+	shader->failed = TRUE;
+	return shader;
+}
+
+/* a shader made from its Metal source (on this thread: bgfx's) */
+static void bg_shader_finish(struct bg_shader *shader, char *msl, const char *what)
+{
+	shader->shader = bg_container(msl, shader->fragment);
+	if (!BGFX_HANDLE_IS_VALID(shader->shader))
+		bg_shader_failed(shader, what, "bgfx refused it");
+}
+
+/* whether the shader is made, finishing it if its thread is done */
+static BOOL bg_shader_ready(struct bg_shader *shader)
+{
+	char *msl, *error;
+	struct bg_shader_job *job;
+
+	if (!shader || shader->failed)
+		return FALSE;
+	if (BGFX_HANDLE_IS_VALID(shader->shader))
+		return TRUE;
+	if (!shader->job)
+		return FALSE;
+	pthread_mutex_lock(&bg_jobs.lock);
+	if (!shader->done)
+	{
+		pthread_mutex_unlock(&bg_jobs.lock);
+		return FALSE;
+	}
+	msl = shader->msl, shader->msl = NULL;
+	error = shader->error, shader->error = NULL;
+	job = shader->job, shader->job = NULL;
+	pthread_mutex_unlock(&bg_jobs.lock);
+	bg.account.translated++;
+	if (msl)
+		bg_shader_finish(shader, msl, job->what);
+	else
+		bg_shader_failed(shader, job->what, error ? error : "it does not compile");
+	if (!msl && config_boolean("debug.gpu_stats"))
+		platform_log("%s", job->source);
+	free(msl);
+	free(error);
+	free(job->source);
+	free(job);
+	return !shader->failed;
+}
+
+static struct bg_shader *bg_shader_find(Uint64 hash)
 {
 	struct bg_shader *shader;
-	char *source, *msl = NULL;
-	char path[1024];
-	size_t msl_size = 0;
+
+	for (shader = bg.shaders[hash % BG_SHADER_BUCKETS]; shader; shader = shader->next)
+	{
+		if (shader->hash == hash)
+			return shader;
+	}
+	return NULL;
+}
+
+static struct bg_shader *bg_shader_add(Uint64 hash, BOOL fragment, unsigned long uniform_size)
+{
+	struct bg_shader *shader = calloc(1, sizeof(*shader));
+
+	shader->hash = hash;
+	shader->fragment = fragment;
+	shader->uniform_size = uniform_size;
+	shader->shader = (bgfx_shader_handle_t)BGFX_INVALID_HANDLE;
+	shader->next = bg.shaders[hash % BG_SHADER_BUCKETS];
+	bg.shaders[hash % BG_SHADER_BUCKETS] = shader;
+	return shader;
+}
+
+/* a shader of the translators' GLSL: found, read from the cache folder, or
+handed to a compiler thread (bg_shader_ready tells when it is made; wait
+waits for it, for the renderer's own shaders) */
+static struct bg_shader *bg_shader_get(const char *glsl, BOOL fragment, int flags, const char *what, BOOL wait)
+{
+	struct bg_shader *shader;
+	char *source, *msl;
 	unsigned long uniform_size = 0;
+	double start = stats_seconds();
 	Uint64 hash;
 
 	source = bg_vulkan_glsl(glsl, fragment, flags, &uniform_size);
 	if (!source)
 		return &bg_failed_shader;
 	hash = bg_hash(source, strlen(source), fragment ? 14695981039346656037ULL : 1469598103934665603ULL);
-	for (shader = bg.shaders[hash % BG_SHADER_BUCKETS]; shader; shader = shader->next)
+	if ((shader = bg_shader_find(hash)) != NULL)
 	{
-		if (shader->hash == hash)
-		{
-			free(source);
-			return shader->failed ? &bg_failed_shader : shader;
-		}
+		free(source);
+		return shader;
 	}
-	bg_cache_path(path, sizeof(path), hash);
-	if (*path)
-		msl = SDL_LoadFile(path, &msl_size);
-	if (!msl)
+	shader = bg_shader_add(hash, fragment, uniform_size);
+	if ((msl = bg_cache_read(hash, NULL)) != NULL)
 	{
-		shaderc_compilation_result_t result = shaderc_compile_into_spv(bg.compiler, source, strlen(source),
-			fragment ? shaderc_fragment_shader : shaderc_vertex_shader, what, "main", bg.options);
-		const char *error = NULL;
-
-		if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success)
-		{
-			struct bg_shader *failed = bg_shader_failed(hash, what, shaderc_result_get_error_message(result));
-
-			if (config_boolean("debug.gpu_stats"))
-				platform_log("%s", source);
-			shaderc_result_release(result);
-			free(source);
-			return failed;
-		}
-		msl = bg_msl(result, fragment, &error);
-		shaderc_result_release(result);
-		if (!msl)
-		{
-			free(source);
-			return bg_shader_failed(hash, what, error ? error : "SPIRV-Cross");
-		}
-		if (*path)
-		{
-			char directory[1024];
-
-			snprintf(directory, sizeof(directory), "%s/bgfx_shaders", platform_save_root());
-			SDL_CreateDirectory(directory);
-			SDL_SaveFile(path, msl, strlen(msl));
-		}
-	}
-	free(source);
-	shader = calloc(1, sizeof(*shader));
-	shader->hash = hash;
-	shader->uniform_size = uniform_size;
-	shader->shader = bg_container(msl, fragment);
-	if (msl_size)
-		SDL_free(msl);
-	else
+		bg_shader_finish(shader, msl, what);
 		free(msl);
-	if (!BGFX_HANDLE_IS_VALID(shader->shader))
-	{
-		free(shader);
-		return bg_shader_failed(hash, what, "bgfx refused it");
+		free(source);
+		bg.account.loaded++;
+		bg.account.load_seconds += stats_seconds() - start;
+		return shader;
 	}
-	shader->next = bg.shaders[hash % BG_SHADER_BUCKETS];
-	bg.shaders[hash % BG_SHADER_BUCKETS] = shader;
+	if (wait || !bg_jobs.started)
+	{
+		char *error = NULL;
+
+		msl = bg_compile(source, fragment, what, &error);
+		if (msl)
+		{
+			bg_cache_write(hash, uniform_size, msl);
+			bg_shader_finish(shader, msl, what);
+		}
+		else
+		{
+			bg_shader_failed(shader, what, error ? error : "it does not compile");
+		}
+		free(msl);
+		free(error);
+		free(source);
+		bg.account.translated++;
+		bg.account.translate_seconds += stats_seconds() - start;
+		return shader;
+	}
+	{
+		struct bg_shader_job *job = calloc(1, sizeof(*job));
+
+		job->shader = shader;
+		job->source = source;
+		snprintf(job->what, sizeof(job->what), "%s", what);
+		shader->job = job;
+		pthread_mutex_lock(&bg_jobs.lock);
+		if (bg_jobs.last)
+			bg_jobs.last->next = job;
+		else
+			bg_jobs.first = job;
+		bg_jobs.last = job;
+		pthread_cond_signal(&bg_jobs.wake);
+		pthread_mutex_unlock(&bg_jobs.lock);
+	}
 	return shader;
 }
 
@@ -749,10 +1073,10 @@ static struct bg_shader *bg_vertex_shader(struct vertex_shader_object *program, 
 		/* (packed normals are unpacked as they are staged: bg_vertex_element) */
 		char *glsl = nv2a_vertex_shader_to_glsl(program->instructions, program->instruction_count, 0, NULL);
 
-		*slot = bg_shader_get(glsl, FALSE, 0, "vertex");
+		*slot = bg_shader_get(glsl, FALSE, 0, "vertex", FALSE);
 		free(glsl);
 	}
-	return *slot == &bg_failed_shader ? NULL : *slot;
+	return bg_shader_ready(*slot) ? *slot : NULL;
 }
 
 static struct bg_shader *bg_fragment_shader(const struct nv2a_pixel_shader_key *key, int flags)
@@ -764,18 +1088,176 @@ static struct bg_shader *bg_fragment_shader(const struct nv2a_pixel_shader_key *
 	for (entry = *bucket; entry; entry = entry->next)
 	{
 		if (entry->hash == hash && entry->flags == flags && !memcmp(&entry->key, key, sizeof(*key)))
-			return entry->shader == &bg_failed_shader ? NULL : entry->shader;
+			return bg_shader_ready(entry->shader) ? entry->shader : NULL;
 	}
 	glsl = nv2a_pixel_shader_to_glsl(key);
 	entry = calloc(1, sizeof(*entry));
 	entry->hash = hash;
 	entry->key = *key;
 	entry->flags = flags;
-	entry->shader = bg_shader_get(glsl, TRUE, flags, "pixel");
+	entry->shader = bg_shader_get(glsl, TRUE, flags, "pixel", FALSE);
 	free(glsl);
 	entry->next = *bucket;
 	*bucket = entry;
-	return entry->shader == &bg_failed_shader ? NULL : entry->shader;
+	return bg_shader_ready(entry->shader) ? entry->shader : NULL;
+}
+
+/* ---------- each map's programs, made at its loading screen */
+
+static FILE *bg_pairs_open(const char *map, const char *mode)
+{
+	char path[1200];
+
+	if (!*bg_jobs.folder || !*map)
+		return NULL;
+	snprintf(path, sizeof(path), "%s/map-%s.programs", bg_jobs.folder, map);
+	return fopen(path, mode);
+}
+
+static BOOL bg_pair_known(Uint64 vertex, Uint64 fragment, BOOL add)
+{
+	unsigned long bucket = (unsigned long)((vertex * 31 + fragment) % BG_SHADER_BUCKETS);
+	struct bg_pair *pair;
+
+	for (pair = bg_jobs.pairs[bucket]; pair; pair = pair->next)
+	{
+		if (pair->vertex == vertex && pair->fragment == fragment)
+			return TRUE;
+	}
+	if (add && (pair = calloc(1, sizeof(*pair))) != NULL)
+	{
+		pair->vertex = vertex;
+		pair->fragment = fragment;
+		pair->next = bg_jobs.pairs[bucket];
+		bg_jobs.pairs[bucket] = pair;
+	}
+	return FALSE;
+}
+
+/* a program drawn with on the current map, listed for its next load */
+static void bg_pair_record(Uint64 vertex, Uint64 fragment)
+{
+	Uint64 record[2];
+
+	if (bg_pair_known(vertex, fragment, TRUE))
+		return;
+	if (!bg_jobs.pairs_file)
+		bg_jobs.pairs_file = bg_pairs_open(bg_jobs.map, "ab");
+	if (!bg_jobs.pairs_file)
+		return;
+	record[0] = vertex;
+	record[1] = fragment;
+	fwrite(record, sizeof(record), 1, bg_jobs.pairs_file);
+	fflush(bg_jobs.pairs_file);
+}
+
+/* the map whose tags are loaded (cache_files.c, through d3d8_gl.c: on the
+game's thread, which may not be bgfx's), its programs made at the next
+frames (bg_warm) */
+static void bg_map_loaded(const char *map)
+{
+	pthread_mutex_lock(&bg_jobs.lock);
+	snprintf(bg_jobs.warm_map, sizeof(bg_jobs.warm_map), "%s", map ? map : "");
+	bg_jobs.warm_pending = TRUE;
+	pthread_mutex_unlock(&bg_jobs.lock);
+}
+
+static bgfx_program_handle_t bg_program_get(struct bg_shader *vertex, struct bg_shader *fragment);
+
+/* the current map's listed programs, a few a frame (bg_present): their
+shaders read from the cache folder (missing ones are left for the draws) */
+static void bg_warm(void)
+{
+	unsigned long made = 0;
+
+	if (bg_jobs.warm_pending)
+	{
+		char map[64];
+		unsigned long bucket;
+		FILE *file;
+
+		pthread_mutex_lock(&bg_jobs.lock);
+		snprintf(map, sizeof(map), "%s", bg_jobs.warm_map);
+		bg_jobs.warm_pending = FALSE;
+		pthread_mutex_unlock(&bg_jobs.lock);
+		/* the list of the map now loaded */
+		if (bg_jobs.pairs_file)
+			fclose(bg_jobs.pairs_file);
+		bg_jobs.pairs_file = NULL;
+		for (bucket = 0; bucket < BG_SHADER_BUCKETS; bucket++)
+		{
+			while (bg_jobs.pairs[bucket])
+			{
+				struct bg_pair *next = bg_jobs.pairs[bucket]->next;
+
+				free(bg_jobs.pairs[bucket]);
+				bg_jobs.pairs[bucket] = next;
+			}
+		}
+		snprintf(bg_jobs.map, sizeof(bg_jobs.map), "%s", map);
+		free(bg_jobs.warm_list);
+		bg_jobs.warm_list = NULL;
+		bg_jobs.warm_count = bg_jobs.warm_next = 0;
+		if ((file = bg_pairs_open(map, "rb")) != NULL)
+		{
+			Uint64 record[2];
+			unsigned long capacity = 0;
+
+			while (fread(record, sizeof(record), 1, file) == 1)
+			{
+				if (bg_pair_known(record[0], record[1], TRUE))
+					continue;
+				if (bg_jobs.warm_count + 2 > capacity)
+				{
+					Uint64 *grown;
+
+					capacity = capacity ? capacity * 2 : 512;
+					if (!(grown = realloc(bg_jobs.warm_list, capacity * sizeof(Uint64))))
+						break;
+					bg_jobs.warm_list = grown;
+				}
+				bg_jobs.warm_list[bg_jobs.warm_count++] = record[0];
+				bg_jobs.warm_list[bg_jobs.warm_count++] = record[1];
+			}
+			fclose(file);
+			if (bg_jobs.warm_count)
+				platform_log("bgfx: making %lu programs of %s", bg_jobs.warm_count / 2, map);
+		}
+	}
+	while (bg_jobs.warm_next < bg_jobs.warm_count && made < BG_WARM_PER_FRAME)
+	{
+		struct bg_shader *pair[2];
+		int which;
+
+		for (which = 0; which < 2; which++)
+		{
+			Uint64 hash = bg_jobs.warm_list[bg_jobs.warm_next + which];
+
+			if ((pair[which] = bg_shader_find(hash)) == NULL)
+			{
+				unsigned long uniform_size = 0;
+				char *msl = bg_cache_read(hash, &uniform_size);
+
+				if (msl)
+				{
+					pair[which] = bg_shader_add(hash, which == 1, uniform_size);
+					bg_shader_finish(pair[which], msl, which ? "pixel" : "vertex");
+					free(msl);
+					bg.account.loaded++;
+				}
+			}
+		}
+		if (pair[0] && pair[1] && BGFX_HANDLE_IS_VALID(pair[0]->shader) && BGFX_HANDLE_IS_VALID(pair[1]->shader))
+			bg_program_get(pair[0], pair[1]);
+		bg_jobs.warm_next += 2;
+		made++;
+	}
+	if (bg_jobs.warm_next && bg_jobs.warm_next >= bg_jobs.warm_count)
+	{
+		free(bg_jobs.warm_list);
+		bg_jobs.warm_list = NULL;
+		bg_jobs.warm_count = bg_jobs.warm_next = 0;
+	}
 }
 
 static bgfx_program_handle_t bg_program_get(struct bg_shader *vertex, struct bg_shader *fragment)
@@ -792,8 +1274,10 @@ static bgfx_program_handle_t bg_program_get(struct bg_shader *vertex, struct bg_
 	entry->vertex = vertex;
 	entry->fragment = fragment;
 	entry->program = bgfx_create_program(vertex->shader, fragment->shader, false);
+	bg.account.programs++;
 	entry->next = *bucket;
 	*bucket = entry;
+	bg_pair_record(vertex->hash, fragment->hash);
 	return entry->program;
 }
 
@@ -1416,7 +1900,12 @@ static BOOL bg_texture_get(const DWORD *resource, const D3DCOLOR *palette, struc
 				bgfx_destroy_texture(entry->texture);
 				entry->created = FALSE;
 			}
+		{
+			double start = stats_seconds();
+
 			bg_texture_upload(entry, (const unsigned char *)xbox_pointer(entry->address), palette);
+			stats_frame.texture_seconds += stats_seconds() - start;
+		}
 		}
 		*description = entry->description;
 	}
@@ -2036,7 +2525,12 @@ static bgfx_vertex_buffer_handle_t bg_vertex_cache_get(const struct vertex_shade
 		}
 	}
 	memory = bgfx_alloc((uint32_t)(vertex_count * BG_VERTEX_BYTES));
-	bg_vertices_convert(memory->data, declaration, first, vertex_count);
+	{
+		double start = stats_seconds();
+
+		bg_vertices_convert(memory->data, declaration, first, vertex_count);
+		bg.account.vertex_seconds += stats_seconds() - start;
+	}
 	entry->buffer = bgfx_create_vertex_buffer(memory, &bg.layout, BGFX_BUFFER_NONE);
 	entry->generation = generation;
 	if (BGFX_HANDLE_IS_VALID(entry->buffer))
@@ -2589,9 +3083,9 @@ static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int i
 	if (BGFX_HANDLE_IS_VALID(bg.overlay) || bg.overlay_failed)
 		return !bg.overlay_failed;
 	bg.overlay_failed = TRUE;
-	vertex = bg_shader_get(bg_overlay_vertex_source, FALSE, 0, "overlay vertex");
-	fragment = bg_shader_get(bg_overlay_fragment_source, TRUE, 0, "overlay pixel");
-	if (vertex == &bg_failed_shader || fragment == &bg_failed_shader)
+	vertex = bg_shader_get(bg_overlay_vertex_source, FALSE, 0, "overlay vertex", TRUE);
+	fragment = bg_shader_get(bg_overlay_fragment_source, TRUE, 0, "overlay pixel", TRUE);
+	if (vertex->failed || fragment->failed)
 		return FALSE;
 	bg.overlay = bgfx_create_program(vertex->shader, fragment->shader, false);
 	bgfx_vertex_layout_begin(&bg.overlay_layout, BGFX_RENDERER_TYPE_NOOP);
@@ -2694,6 +3188,27 @@ void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, c
 static void bg_callback_screen_shot(bgfx_callback_interface_t *self, const char *path, uint32_t width,
 	uint32_t height, uint32_t pitch, bgfx_texture_format_t format, const void *data, uint32_t size, bool flip);
 
+/* Metal's compiles (the bgfx patch, tools/bgfx-patches) */
+struct bgfx_mtl_stats_t
+{
+	uint32_t libraries, pipelines;
+	double library_seconds, pipeline_seconds;
+};
+extern struct bgfx_mtl_stats_t bgfx_mtl_stats;
+
+/* this frame's shader and vertex work, for debug.gpu_stats's slow frames
+(D3DDevice_Present, after the frame); the next frame's starts */
+static void bg_frame_account(char *text, size_t size)
+{
+	snprintf(text, size, "; bgfx: %lu shaders translated %.1f ms, %lu from disk %.1f ms, %lu programs, "
+		"Metal %u libraries %.1f ms, %u pipelines %.1f ms; vertices converted %.1f ms",
+		bg.account.translated, bg.account.translate_seconds * 1000.0, bg.account.loaded,
+		bg.account.load_seconds * 1000.0, bg.account.programs, bg.account.libraries,
+		bg.account.library_seconds * 1000.0, bg.account.pipelines, bg.account.pipeline_seconds * 1000.0,
+		bg.account.vertex_seconds * 1000.0);
+	memset(&bg.account, 0, sizeof(bg.account));
+}
+
 /* with vsync off, whether this frame goes to the window: a window's
 picture waits for the display (Metal hands out the next one only once the
 display has taken one, about 3 behind), so frames faster than the display
@@ -2741,6 +3256,7 @@ static void bg_present(void)
 
 	if (screenshot_every < 0)
 		screenshot_every = *config_string("debug.screenshot_directory") ? config_integer("debug.screenshot_every") : 0;
+	bg_warm();
 	bg.present_view = (unsigned short)(bg.view + 1);
 	if ((window = bg_window_due()) != FALSE)
 	{
@@ -2792,7 +3308,15 @@ static void bg_present(void)
 		}
 	}
 	frame_start = stats_seconds();
-	frame_number = bgfx_frame(BGFX_FRAME_NONE);
+	{
+		struct bgfx_mtl_stats_t before = bgfx_mtl_stats;
+
+		frame_number = bgfx_frame(BGFX_FRAME_NONE);
+		bg.account.libraries += bgfx_mtl_stats.libraries - before.libraries;
+		bg.account.pipelines += bgfx_mtl_stats.pipelines - before.pipelines;
+		bg.account.library_seconds += bgfx_mtl_stats.library_seconds - before.library_seconds;
+		bg.account.pipeline_seconds += bgfx_mtl_stats.pipeline_seconds - before.pipeline_seconds;
+	}
 	frame_end = stats_seconds();
 	bg.stat_frame_wait += frame_end - frame_start;
 	if (window)
@@ -3000,6 +3524,12 @@ static BOOL bg_initialize(void)
 	bg.options = shaderc_compile_options_initialize();
 	shaderc_compile_options_set_target_env(bg.options, shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_0);
 	shaderc_compile_options_set_auto_map_locations(bg.options, true);
+	bg_cache_start();
+	{
+		extern void (*cache_file_map_loaded_hook)(char const *map_name);
+
+		cache_file_map_loaded_hook = bg_map_loaded;
+	}
 
 	bgfx_vertex_layout_begin(&bg.layout, BGFX_RENDERER_TYPE_NOOP);
 	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
@@ -3030,10 +3560,10 @@ static BOOL bg_initialize(void)
 			bgfx_copy(&black, 4), 0);
 	}
 	{
-		struct bg_shader *vertex = bg_shader_get(bg_blit_vertex_source, FALSE, 0, "blit vertex");
-		struct bg_shader *fragment = bg_shader_get(bg_blit_fragment_source, TRUE, 0, "blit pixel");
+		struct bg_shader *vertex = bg_shader_get(bg_blit_vertex_source, FALSE, 0, "blit vertex", TRUE);
+		struct bg_shader *fragment = bg_shader_get(bg_blit_fragment_source, TRUE, 0, "blit pixel", TRUE);
 
-		if (vertex != &bg_failed_shader && fragment != &bg_failed_shader)
+		if (!vertex->failed && !fragment->failed)
 			bg.blit = bgfx_create_program(vertex->shader, fragment->shader, false);
 		for (index = 0; index < 3; index++)
 		{
@@ -3042,8 +3572,8 @@ static BOOL bg_initialize(void)
 			snprintf(name, sizeof(name), "crt_parameters%lu", index + 1);
 			bg.crt_parameters[index] = bgfx_create_uniform(name, BGFX_UNIFORM_TYPE_VEC4, 1);
 		}
-		fragment = bg_shader_get(bg_crt_fragment_source, TRUE, 0, "CRT filter pixel");
-		if (vertex != &bg_failed_shader && fragment != &bg_failed_shader)
+		fragment = bg_shader_get(bg_crt_fragment_source, TRUE, 0, "CRT filter pixel", TRUE);
+		if (!vertex->failed && !fragment->failed)
 			bg.crt = bgfx_create_program(vertex->shader, fragment->shader, false);
 	}
 
