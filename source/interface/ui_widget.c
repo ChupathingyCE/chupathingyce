@@ -684,6 +684,10 @@ struct widget_instance;
 #ifdef HALO_CUSTOM_EDITION
 #include "halo_ui_map_list.h"
 #endif
+#ifndef HALO_CONSOLE_NO_CONTROLS
+/* port: Controller Buttons asking for a button (menu_functions.c) */
+boolean pc_menu_controller_capture(void);
+#endif
 #ifdef HALO_GAME_BROWSER
 /* the in-game server browser (port/linux/game/browser_screen.c): a screen of
 code over the widgets, as the virtual keyboard is */
@@ -699,6 +703,14 @@ void moderation_screen_process(void);
 void moderation_screen_render(void);
 /* the menus' pointer, while it is up (its own taps and clicks) */
 void browser_screen_pointer(struct halo_ui_pointer const *pointer);
+#ifndef HALO_CONSOLE_NO_CONTROLS
+/* port: the Controls screen (port/linux/game/controls_screen.c) */
+boolean controls_screen_active(void);
+void controls_screen_update(boolean menu_open);
+void controls_screen_process(void);
+void controls_screen_render(void);
+void controls_screen_pointer(struct halo_ui_pointer const *pointer);
+#endif
 /* port: the question before joining a clipboard's invite
 (port/linux/game/invite_prompt.c) */
 boolean invite_prompt_active(void);
@@ -7283,12 +7295,19 @@ static void ui_widgets_process_mouse(
 	targets under it and would have taken the click as its A (ONLINE GAMES,
 	opening it again) */
 	overlay_active = invite_prompt_active() || browser_screen_active() || moderation_screen_active();
+#ifndef HALO_CONSOLE_NO_CONTROLS
+	overlay_active = overlay_active || controls_screen_active();
+#endif
 	if (pointer_active && !keyboard_active && invite_prompt_active())
 		invite_prompt_pointer(&pointer);
 	else if (pointer_active && !keyboard_active && browser_screen_active())
 		browser_screen_pointer(&pointer);
 	else if (pointer_active && !keyboard_active && moderation_screen_active())
 		moderation_screen_pointer(&pointer);
+#ifndef HALO_CONSOLE_NO_CONTROLS
+	else if (pointer_active && !keyboard_active && controls_screen_active())
+		controls_screen_pointer(&pointer);
+#endif
 #endif
 	if (!pointer_active || keyboard_active || overlay_active)
 	{
@@ -7919,6 +7938,9 @@ void render_ui_widgets(
 		browser_screen_render();
 	if (first_players_render)
 	{
+#ifndef HALO_CONSOLE_NO_CONTROLS
+		controls_screen_render();
+#endif
 		moderation_screen_render();
 		invite_prompt_render();
 	}
@@ -8988,6 +9010,12 @@ void process_ui_widgets(
 
 		return;
 	}
+#ifndef HALO_CONSOLE_NO_CONTROLS
+	/* port: a button asked for (Controller Buttons: menu_functions.c), which
+	the menus take nothing during */
+	if (pc_menu_controller_capture())
+		return;
+#endif
 #ifdef HALO_GAME_BROWSER
 	/* port: an invite on the clipboard, asked about over the menus */
 	invite_prompt_update(widget_globals.active_widgets[0] != NULL);
@@ -9003,6 +9031,16 @@ void process_ui_widgets(
 
 		return;
 	}
+#ifndef HALO_CONSOLE_NO_CONTROLS
+	/* port: the Controls screen, over the pause menu or Settings */
+	controls_screen_update(widget_globals.active_widgets[0] != NULL);
+	if (controls_screen_active())
+	{
+		controls_screen_process();
+
+		return;
+	}
+#endif
 	/* port: moderation's screen, over a menu of a dedicated server's game */
 	moderation_screen_update(widget_globals.active_widgets[0] != NULL);
 	if (moderation_screen_active())

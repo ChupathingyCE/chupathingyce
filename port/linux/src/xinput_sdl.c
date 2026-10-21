@@ -40,6 +40,7 @@ drive the controller.
 #include "sdl_platform.h"
 #include "port_config.h"
 #include "touch_input.h"
+#include "controller_layout.h"
 #include "halo_keyboard.h"
 #include "../game/network_rules.h"
 
@@ -1036,6 +1037,74 @@ static int sdl_gamepads(SDL_Gamepad *gamepads[PORT_COUNT])
 	return found;
 }
 
+/* the gamepad last used (its SDL id; 0 none yet), which the Controls screen
+names first (Android has no SDL_GetGamepadID: the first) */
+#ifndef HALO_ANDROID
+static SDL_JoystickID last_used_gamepad;
+#endif
+
+int platform_gamepad_count(void)
+{
+	SDL_Gamepad *gamepads[PORT_COUNT];
+
+	return sdl_gamepads(gamepads);
+}
+
+/* a gamepad's name (as it names itself, else its kind's) and its kind
+(controller_layout.h's CONTROLLER_KIND_*): index -1 is the one last used,
+else the first; -1 if there is none */
+int platform_gamepad_describe(int index, char *name, size_t size)
+{
+	SDL_Gamepad *gamepads[PORT_COUNT];
+	SDL_Gamepad *gamepad = NULL;
+	int count = sdl_gamepads(gamepads), type, kind, each;
+	const char *own;
+
+	if (size)
+		name[0] = 0;
+	if (index < 0)
+	{
+#ifndef HALO_ANDROID
+		for (each = 0; each < count && !gamepad; each++)
+		{
+			if (last_used_gamepad && SDL_GetGamepadID(gamepads[each]) == last_used_gamepad)
+				gamepad = gamepads[each];
+		}
+#else
+		(void)each;
+#endif
+		index = 0;
+	}
+	if (!gamepad && index < count)
+		gamepad = gamepads[index];
+	if (!gamepad)
+		return -1;
+	switch (SDL_GetGamepadType(gamepad))
+	{
+	case SDL_GAMEPAD_TYPE_XBOX360: type = 1; break;
+	case SDL_GAMEPAD_TYPE_XBOXONE: type = 2; break;
+	case SDL_GAMEPAD_TYPE_PS3: type = 3; break;
+	case SDL_GAMEPAD_TYPE_PS4: type = 4; break;
+	case SDL_GAMEPAD_TYPE_PS5: type = 5; break;
+	case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO:
+	case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_LEFT:
+	case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT:
+	case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR: type = 6; break;
+	default: type = 0; break;
+	}
+#ifdef HALO_ANDROID
+	/* (the guest reaches SDL only through host_imports.list, which has no
+	SDL_GetGamepadName or SDL_GetGamepadID: the kind's name, the first pad) */
+	own = NULL;
+#else
+	own = SDL_GetGamepadName(gamepad);
+#endif
+	kind = controller_layout_kind(type, own);
+	if (size)
+		snprintf(name, size, "%s", own && *own ? own : controller_layout_kind_title(kind));
+	return kind;
+}
+
 /* whether one gamepad is port 1's (port_gamepad) */
 static BOOL lone_gamepad_split;
 
@@ -1145,6 +1214,9 @@ static void sdl_gamepad_state(SDL_Gamepad *gamepad, XINPUT_GAMEPAD *pad)
 		{
 			last_input_scheme = scheme_of(gamepad);
 			last_input_seen = TRUE;
+#ifndef HALO_ANDROID
+			last_used_gamepad = SDL_GetGamepadID(gamepad);
+#endif
 		}
 	}
 	/* a stick only overrides the keyboard when it is pushed further */

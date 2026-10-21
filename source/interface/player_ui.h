@@ -118,6 +118,19 @@ boolean player_ui_prompt_user_to_rename_edit_profile(
 	void);
 void player0_look_invert_pitch(
 	boolean invert);
+/* port: a local player's button and stick layouts (player_profile.h's
+_button_preset_* and _joystick_preset_*), set (saved in their profile) and
+read; and the custom layout changed (config.toml), taken by those using it */
+void player_ui_set_local_player_layouts(
+	short local_player_index,
+	short button_preset,
+	short joystick_preset);
+void player_ui_get_local_player_layouts(
+	short local_player_index,
+	short *button_preset,
+	short *joystick_preset);
+void player_ui_custom_layout_changed(
+	void);
 /* port: a saved game file deleted (saved_game_files.c) */
 void player_ui_saved_game_file_removed(
 	long removed_index);
