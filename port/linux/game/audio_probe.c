@@ -672,8 +672,8 @@ void audio_probe_update(
 {
 	if (!audio_probe.checked)
 		audio_probe_read_settings();
-	/* (real play's recording, when no probe runs) */
-	if (audio_probe.state == _audio_probe_off)
+	/* (real play's recording, when no probe runs or once it is done) */
+	if (audio_probe.state == _audio_probe_off || audio_probe.state == _audio_probe_done)
 		play_capture_update(main_menu_loaded || main_menu_is_active());
 	if (audio_probe.state == _audio_probe_off || audio_probe.state == _audio_probe_done)
 		return;
