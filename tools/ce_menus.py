@@ -367,11 +367,10 @@ class Art:
             self.draw(relative, index, len(data), width, height, MENUS / png, self.shown.get(tag, []))
             self.pngs.append(png)
             lines.append(f"\t\t<frame{attributes([('png', png), ('width', width), ('height', height)])}/>")
-        # (frames repeated: port_settings.FRAME_COPIES)
-        frames = lines[1:]
-        for place, frame in sorted(port_settings.FRAME_COPIES.get(our_name(tag), {}).items()):
-            frames.insert(place, lines[1 + frame])
-        lines[1:] = frames
+        # (frames in another order, repeated or not: port_settings.FRAME_ORDERS)
+        order = port_settings.FRAME_ORDERS.get(our_name(tag))
+        if order:
+            lines[1:] = [lines[1 + frame] for frame in order]
         # (the port's frames after them: the Xbox map's, scaled)
         for source, index, width, height, x, y in port_settings.BITMAP_FRAMES.get(our_name(tag), []):
             self.added_frames.append((our_name(tag), source, index))

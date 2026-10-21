@@ -218,6 +218,8 @@ const struct server_setting server_settings_table[SERVER_SETTINGS] =
 		"Players changing teams during a game: 0 off, 1 balanced, 2 allow" },
 	{ "team_change_margin", SERVER_FIELD_INTEGER, 0, SERVER_SETTINGS_MAXIMUM_TEAM_CHANGE_MARGIN,
 		"HALO_DEDICATED_TEAM_CHANGE_MARGIN", "Most players one team may have over the other after a change (balanced)" },
+	{ "playlist_shuffle", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_PLAYLIST_SHUFFLE",
+		"The playlist's order shuffled each time it starts over" },
 };
 
 /* ---------- private code */

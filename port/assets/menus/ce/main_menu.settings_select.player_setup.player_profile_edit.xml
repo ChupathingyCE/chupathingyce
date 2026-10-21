@@ -73,15 +73,17 @@
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_select_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_items" description="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_extended_description">
 		<data input="plyr prof edit select menu upd8"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/name_profile_item"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controller_setup_profile_item"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepads_profile_item"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings_profile_item"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings_profile_item"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings_profile_item"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_settings_profile_item"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controller_setup_profile_item" y="-7"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings_profile_item" y="-47"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepads_profile_item" y="12"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings_profile_item" y="-61"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings_profile_item" y="-2"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/interface_profile_item"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/chat_profile_item"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_settings_profile_item" y="9"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/privacy_profile_item"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/color_profile_item" y="65"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/about_item" y="65"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/color_profile_item" y="61"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/about_item" y="54"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/profile_label" type="text" controller="1" width="400" height="22" font="ui\large_ui" color="#FFFFFFFF">

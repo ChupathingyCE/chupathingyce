@@ -49,6 +49,10 @@ and entry points used below that ES lacks */
 #ifndef GL_TEXTURE_MAX_ANISOTROPY_EXT
 #define GL_TEXTURE_MAX_ANISOTROPY_EXT 0x84fe
 #endif
+#ifndef GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
+#define GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT 0x84ff
+#endif
+#define GL_MAX_TEXTURE_MAX_ANISOTROPY GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
 #ifndef GL_TEXTURE_BORDER_COLOR
 #define GL_TEXTURE_BORDER_COLOR 0x1004
 #endif
@@ -2985,6 +2989,38 @@ static GLuint sampler_get(int stage, const DWORD *inputs)
 	return sampler;
 }
 
+/* display.anisotropic_filtering: the anisotropy forced on the textures that
+have mip levels and are filtered (0: none, as the game asks), at most what
+the host can do. The game asks for it on none of its textures; the menus' and
+HUD's are drawn facing the screen, where it changes nothing. */
+static DWORD forced_anisotropy(void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static DWORD level;
+
+	if (read_at != config_changes())
+	{
+		long value = config_integer("display.anisotropic_filtering");
+		/* (as an integer: the loaded GL functions have no glGetFloatv) */
+		GLint maximum = 0;
+
+		read_at = config_changes();
+		level = value >= 16 ? 16 : value >= 8 ? 8 : value >= 4 ? 4 : value >= 2 ? 2 : 0;
+#ifdef HALO_ANDROID
+		if (!xgpu_capabilities.anisotropy)
+			level = 0;
+		else
+#endif
+		if (level)
+			glGetIntegerv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &maximum);
+		while (level > 1 && (GLint)level > maximum)
+			level /= 2;
+		if (level < 2)
+			level = 0;
+	}
+	return level;
+}
+
 /* hires: a high-res HUD texture (hud_hires.h), drawn smaller than it is, so
 filtered and from its mip levels whatever the game asks: the HUD's meters are
 point sampled for one player, to keep the Xbox bitmaps' texels sharp */
@@ -3007,6 +3043,17 @@ static void configure_sampler(int stage, BOOL mipmapped, BOOL hires)
 	inputs[8] = state[D3DTSS_MAXANISOTROPY];
 	inputs[9] = state[D3DTSS_BORDERCOLOR];
 	inputs[10] = hires;
+	if (mipmapped && !hires && inputs[0] != D3DTEXF_POINT && inputs[1] != D3DTEXF_NONE)
+	{
+		DWORD anisotropy = forced_anisotropy();
+
+		if (anisotropy)
+		{
+			inputs[0] = D3DTEXF_ANISOTROPIC;
+			if (inputs[8] < anisotropy)
+				inputs[8] = anisotropy;
+		}
+	}
 	if (!configured_sampler[stage] || memcmp(configured[stage], inputs, sizeof(inputs)))
 	{
 		memcpy(configured[stage], inputs, sizeof(inputs));

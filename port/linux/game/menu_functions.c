@@ -1600,10 +1600,9 @@ profile's button settings as the Xbox's Controller Setup shows them */
 /* the picture's frames (the bitmap's: tools/port_settings.py's
 BITMAP_FRAMES): Gamepad Setup's row's, as the list numbers its rows
 (player_profile_edit_select_menu_update_extended_description), and after
-the PC version's nine and Privacy's (FRAME_COPIES) the Xbox's five of the
-button settings */
-#define PROFILE_GAMEPAD_FRAME 2
-#define PROFILE_FIRST_LAYOUT_FRAME 10
+the twelve rows' (FRAME_ORDERS) the Xbox's five of the button settings */
+#define PROFILE_GAMEPAD_FRAME 3
+#define PROFILE_FIRST_LAYOUT_FRAME 12
 
 /* "port gamepad layout preview" (the picture's own): on Gamepad Setup's
 row, the edited profile's button settings */
@@ -1627,9 +1626,9 @@ static void profile_gamepad_layout(struct widget_instance *picture)
 }
 
 /* the Chupathingy menus' settings picture (port/assets/menus/chupathingy):
-a frame for each of its eleven rows, then the Xbox's five button settings,
-which Gamepad Setup's row shows for the edited profile */
-#define CHUPATHINGY_FIRST_LAYOUT_FRAME 11
+a frame for each of its thirteen rows, then the Xbox's five button
+settings, which Gamepad Setup's row shows for the edited profile */
+#define CHUPATHINGY_FIRST_LAYOUT_FRAME 13
 
 /* "chupathingy settings picture" (the picture's own) */
 static void chupathingy_settings_picture(struct widget_instance *picture)
@@ -2618,6 +2617,7 @@ void network_game_server_port_set_cooperative_player_collisions(boolean player_c
 void *global_network_game_client_get(void);
 void *global_network_game_server_get(void);
 boolean network_game_is_splitscreen_local(void);
+boolean network_game_solo_game(void);
 struct advertised_game *network_game_client_get_available_games(void *client);
 boolean network_game_client_advertised_game_is_valid(struct advertised_game *game);
 short network_game_client_get_state(void *client, short *state_data);
@@ -5357,7 +5357,8 @@ static void lobby_update(struct widget_instance *list)
 		gametype[NUMBEROF(gametype) - 1] = 0;
 		usnprintf(text, NUMBEROF(text) - 1, L"%s\r\n%s\r\n%d of %d players\r\n\r\n%s", gametype,
 			engine_names[PIN(game->variant.game_engine_index, 0, 5)], lobby_player_count, game->maximum_players,
-			seconds > 0 ? L"Starting in:" : game->machine_count < 2 ? L"Waiting for players" : L"");
+			seconds > 0 ? L"Starting in:" :
+				game->machine_count < 2 && !network_game_solo_game() ? L"Waiting for players" : L"");
 		text[NUMBEROF(text) - 1] = 0;
 		if (seconds > 0)
 		{

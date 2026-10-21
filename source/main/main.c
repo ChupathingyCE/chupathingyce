@@ -1177,6 +1177,35 @@ static real first_person_field_of_view_scale(
 	return scale;
 }
 
+/* port: display.viewmodel_field_of_view, the first-person weapon's and
+arms' own view width in degrees across a 4:3 picture (0, the default: the
+view's, display.field_of_view; else 50 to 120), as what the first-person
+weapon's projection is scaled by: the weapon is drawn as at that width
+whatever the view's, so a wide view does not stretch it. Zoom still applies
+to it as before. Only what is drawn changes. */
+real first_person_weapon_projection_scale(
+	void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static real weapon_scale = 0.0f;
+
+	if (read_at != config_changes())
+	{
+		real degrees = (real)config_real("display.viewmodel_field_of_view");
+
+		read_at = config_changes();
+		if (!valid_real(degrees) || degrees <= 0.0f)
+			weapon_scale = 0.0f;
+		else
+		{
+			degrees = PIN(degrees, 50.0f, 120.0f);
+			weapon_scale = tangent(DEGREES_TO_RADIANS(degrees) * 0.5f) / tangent(DEGREES_TO_RADIANS(70.0f) * 0.5f);
+		}
+	}
+
+	return weapon_scale > 0.0f ? first_person_field_of_view_scale() / weapon_scale : 1.0f;
+}
+
 /* port: display.far_clip_distance, how far the world is drawn (1024 as on
 the Xbox, to 10000). It is a floor under the camera's far clip, applied each
 frame: the map's own value, a script or init.txt can raise the clip beyond it

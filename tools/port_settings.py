@@ -33,9 +33,9 @@ SCREENS = {
     "video_settings": {
         "screen": "video_settings_screen",
         "header": ("header_profile_video_settings", f"{PE}/video_settings/header_profile_video_settings"),
-        # (closer than the other screens' rows, for all ten places to fit
-        # above the help)
-        "spacing": 27,
+        # (close together, for all thirteen places to fit above a help line)
+        "spacing": 24,
+        "help_top": 388,
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
         # display mode chosen uses; Android's Smooth Motion in Frame Rate's,
@@ -69,10 +69,6 @@ SCREENS = {
              "desktop"),
             ("SMOOTH MOTION:", "display.interpolation", ON_OFF,
              "Draw a frame for every display refresh.", "android"),
-            ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
-             "Draw the HUD in high resolution.", None),
-            ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
-             "Draw text and titles in high resolution.", None),
             ("ANTI-ALIASING:", "display.anti_aliasing",
              [("OFF", "off"), ("FXAA", "fxaa"), ("SMAA", "smaa"), ("SSAA 2X", "ssaa2x"), ("MSAA 2X", "msaa2x"),
               ("MSAA 4X", "msaa4x"), ("MSAA 8X", "msaa8x")],
@@ -88,6 +84,22 @@ SCREENS = {
              None),
             ("PER-PIXEL LIGHTING:", "display.per_pixel_lighting", ON_OFF,
              "Light models per pixel instead of per vertex.", None),
+            ("FIELD OF VIEW:", "display.field_of_view",
+             [(f"{value}" + (" (XBOX)" if value == 70 else ""), f"{value}")
+              for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
+             "Adjust the field of view.",
+             None),
+            ("FAR CLIP:", "display.far_clip_distance",
+             [("1024 (XBOX)", "1024"), ("2048", "2048"), ("4096", "4096"), ("8192", "8192"), ("10000", "10000")],
+             "How far the world is drawn.", None),
+            ("ANISOTROPIC FILTERING:", "display.anisotropic_filtering",
+             [("OFF", "0"), ("2X", "2"), ("4X", "4"), ("8X", "8"), ("16X", "16")],
+             "Sharper textures seen at an angle.", None),
+            ("FULL MODEL DETAIL:", "display.full_model_detail", ON_OFF,
+             "Always draw models at their highest detail.", None),
+            ("VIEWMODEL FOV:", "display.viewmodel_field_of_view",
+             [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
+             "How wide your weapon is drawn. Same follows the view.", None),
         ],
     },
     "mouse_settings": {
@@ -103,11 +115,6 @@ SCREENS = {
              "Moving the mouse forward looks down.", None),
             ("AIM ASSIST:", "input.mouse_aim_assist", ON_OFF,
              "Use controller aim assist with the mouse.", None),
-            ("FIELD OF VIEW:", "display.field_of_view",
-             [(f"{value}" + (" (XBOX)" if value == 70 else ""), f"{value}")
-              for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
-             "Adjust the field of view.",
-             None),
         ],
     },
     "audio_settings": {
@@ -128,22 +135,21 @@ SCREENS = {
              "Turn all sound on or off. Takes effect on restart.", None),
         ],
     },
-    "network_setup": {
-        "screen": "network_settings_screen",
-        "header": ("header_profile_network_settings", f"{PE}/network_setup/header_profile_network_settings"),
-        # (as close as Video Setup's, for its twelve rows)
+    # (opened from the profile menu's INTERFACE row: PAGE_ITEMS)
+    "interface_setup": {
+        "screen": "interface_settings_screen",
+        "header": ("header_profile_interface_settings", f"{PE}/interface_setup/header_interface"),
         "spacing": 24,
         "help_top": 364,
         "rows": [
-            ("INTERNET PLAY:", "network.online", ON_OFF,
-             "Host and join games over the internet.", None),
-            ("UPNP PORT FORWARDING:", "network.allow_upnp", ON_OFF,
-             "Ask the router to forward the game's port.", None),
-            ("JOIN FROM CLIPBOARD:", "network.join_from_clipboard",
-             [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
-             "Join a game from an invite link on the clipboard.", None),
-            ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
-             "Check for a new version at startup.", None),
+            # (read when the game starts: menu_tags.c)
+            ("MENU STYLE:", "display.menus",
+             [("CHUPATHINGY", "chupathingy"), ("XBOX", "xbox"), ("GEARBOX", "gearbox")],
+             "Takes effect on restart.", None),
+            ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
+             "Draw the HUD in high resolution.", None),
+            ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
+             "Draw text and titles in high resolution.", None),
             ("PLAYER NAMES:", "display.player_names",
              [("ALL", "all"), ("ALLIES", "allies"), ("ENEMIES", "enemies"), ("NONE", "none")],
              "Choose whose names show above players.", None),
@@ -154,17 +160,57 @@ SCREENS = {
              "Show team games by team, or all players by score.", None),
             ("SCOREBOARD PANEL:", "display.scoreboard_background", ON_OFF,
              "Draw a panel behind the scoreboard.", None),
-            ("MAP DOWNLOADS:", "network.map_downloads", [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
-             "Download missing Custom Edition maps.", None),
-            ("DISCORD STATUS:", "discord.presence", [("FULL", "full"), ("MINIMAL", "minimal"), ("OFF", "off")],
-             "Choose what your Discord status shows.", "desktop"),
-            ("DISCORD SERVER NAME:", "discord.show_server_name", [("SHOW", "true"), ("HIDE", "false")],
-             "Show the game's name on Discord.", "desktop"),
-            ("DISCORD JOIN BUTTON:", "discord.show_join", ON_OFF,
-             "Show a Join button on Discord while hosting.", "desktop"),
+            ("POWERUP TIMERS:", "display.powerup_timers", ON_OFF,
+             "Show the time left on your powerups.", None),
+            ("MATCH TIMER:", "display.match_timer", ON_OFF,
+             "Show the time left at the top of the screen.", None),
+            ("FOLLOW CAMERA:", "display.follow_camera",
+             [("LONG WAITS", "long_waits"), ("ALWAYS", "always"), ("OFF", "off")],
+             "While dead, follow a living player's view.", None),
+            ("KEYBOARD PROMPTS:", "input.keyboard_prompts", ON_OFF,
+             "Show keys in prompts when using the keyboard.", "desktop"),
+            ("VERSION WATERMARK:", "display.version_watermark", ON_OFF,
+             "Show the version while playing.", None),
         ],
     },
-    # (opened from the profile menu's PRIVACY row: PRIVACY_ITEM)
+    # (opened from the profile menu's CHAT row: PAGE_ITEMS; chat.quick_messages,
+    # a list of lines, is in config.toml alone)
+    "chat_setup": {
+        "screen": "chat_settings_screen",
+        "header": ("header_profile_chat_settings", f"{PE}/chat_setup/header_chat"),
+        "spacing": 30,
+        "rows": [
+            ("CHAT:", "chat.enabled", ON_OFF, "Text chat with other players.", None),
+            ("SHOW CHAT:", "chat.show", [("ALL", "all"), ("TEAM", "team"), ("OFF", "off")],
+             "Choose whose chat lines show.", None),
+            ("WORD FILTER:", "chat.filter", [("MASK", "mask"), ("HIDE", "hide"), ("SHOW", "show")],
+             "Mask, hide or show blocked words.", None),
+            ("STREAMER MODE:", "chat.streamer_mode", ON_OFF,
+             "Show players in chat by team, not by name.", None),
+        ],
+    },
+    "network_setup": {
+        "screen": "network_settings_screen",
+        "header": ("header_profile_network_settings", f"{PE}/network_setup/header_profile_network_settings"),
+        "spacing": 30,
+        "rows": [
+            ("INTERNET PLAY:", "network.online", ON_OFF,
+             "Host and join games over the internet.", None),
+            ("UPNP PORT FORWARDING:", "network.allow_upnp", ON_OFF,
+             "Ask the router to forward the game's port.", None),
+            ("MAP DOWNLOADS:", "network.map_downloads", [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
+             "Download missing Custom Edition maps.", None),
+            ("JOIN FROM CLIPBOARD:", "network.join_from_clipboard",
+             [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
+             "Join a game from an invite link on the clipboard.", None),
+            ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
+             "Check for a new version at startup.", None),
+            ("START WITH ONE PLAYER:", "game.start_with_one_player", ON_OFF,
+             "Let a game you host start with only you.", None),
+        ],
+    },
+    # (opened from the profile menu's PRIVACY row: PAGE_ITEMS. The Delta
+    # profile's rows, PR #382's, go after Joined Game Stats)
     "privacy_setup": {
         "screen": "privacy_settings_screen",
         "header": ("header_profile_privacy_settings", f"{PE}/privacy_setup/header_privacy"),
@@ -178,6 +224,12 @@ SCREENS = {
              "Add games you join to your game list profile.", None),
             ("CRASH REPORTS:", "crash_reports.upload", [("ASK", "ask"), ("YES", "yes"), ("NO", "no")],
              "Send crash reports to the developers.", "desktop"),
+            ("DISCORD STATUS:", "discord.presence", [("FULL", "full"), ("MINIMAL", "minimal"), ("OFF", "off")],
+             "Choose what your Discord status shows.", "desktop"),
+            ("DISCORD SERVER NAME:", "discord.show_server_name", [("SHOW", "true"), ("HIDE", "false")],
+             "Show the game's name on Discord.", "desktop"),
+            ("DISCORD JOIN BUTTON:", "discord.show_join", ON_OFF,
+             "Show a Join button on Discord while hosting.", "desktop"),
         ],
     },
     "gamepad_setup": {
@@ -224,11 +276,13 @@ STRING_OVERRIDES = {
     f"{PE}/profile_edit_descriptions": [
         "Rename this profile.\\n\\n\\nProfile:",
         "Change the keyboard and\\nmouse controls.\\n\\nProfile:",
-        "Change the controller\\nconfiguration.\\n\\nProfile:",
         "Adjust the mouse settings.\\n\\n\\nProfile:",
-        "Adjust the audio settings.\\n\\n\\nProfile:",
+        "Change the controller\\nconfiguration.\\n\\nProfile:",
         "Adjust the video settings.\\n\\n\\nProfile:",
-        "Adjust the network and\\nmultiplayer settings.\\n\\nProfile:",
+        "Adjust the audio settings.\\n\\n\\nProfile:",
+        "Adjust the menus, HUD and\\nscoreboard.\\n\\nProfile:",
+        "Adjust the chat settings.\\n\\n\\nProfile:",
+        "Adjust the network settings.\\n\\n\\nProfile:",
         "Choose what stats and crash\\nreports are sent.\\n\\nProfile:",
         "Change the current profile's\\nfree-for-all multiplayer color.\\n\\nProfile:",
         "About Chupathingy.\\n\\n\\nProfile:",
@@ -461,17 +515,25 @@ def _controller_screen() -> list:
                    ["controller update menu"], ['<on event="created" run="controller screen init"/>'], extra)
 
 
-# the profile menu's row for Privacy (not the PC version's: after Network
-# Setup's, its description and picture the eighth: WIDGET_PATCHES, FRAME_COPIES)
-PRIVACY_ITEM = f"{PE}/privacy_profile_item"
+# the profile menu's rows for the pages the PC version has not (Interface
+# and Chat before Network Setup's, Privacy after it; their descriptions and
+# pictures by their places: WIDGET_PATCHES, FRAME_ORDERS): the page, the row's
+# string of profile_edit_options and its top
+PAGE_ITEMS = {
+    "interface_setup": (f"{PE}/interface_profile_item", 11, 234),
+    "chat_setup": (f"{PE}/chat_profile_item", 12, 260),
+    "privacy_setup": (f"{PE}/privacy_profile_item", 10, 312),
+}
+PRIVACY_ITEM = PAGE_ITEMS["privacy_setup"][0]
 
 
-def _privacy_item() -> list:
-    screen = f"{PE}/privacy_setup/{SCREENS['privacy_setup']['screen']}"
-    return _widget(PRIVACY_ITEM,
-                   [("type", "text"), ("left", 51), ("top", 310), ("width", 232), ("height", 32),
+def _page_item(folder: str) -> list:
+    name, string_index, top = PAGE_ITEMS[folder]
+    screen = f"{PE}/{folder}/{SCREENS[folder]['screen']}"
+    return _widget(name,
+                   [("type", "text"), ("left", 51), ("top", top), ("width", 232), ("height", 32),
                     ("bitmap", "bitmaps/list_item_bkd"), ("string_list", f"{PE}/profile_edit_options"),
-                    ("string_index", 10), ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13),
+                    ("string_index", string_index), ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13),
                     ("text_y", 5)],
                    [f'<on event="a" open="{screen}"/>', f'<on event="start" open="{screen}"/>',
                     '<on event="left_mouse" run="mouse emit accept event"/>'])
@@ -482,7 +544,8 @@ def settings_files() -> dict:
     files = {}
     for folder, spec in SCREENS.items():
         files[f"{PE}/{folder}".replace("/", ".") + ".xml"] = _setting_screen(folder, spec)
-    files[f"{PE}/privacy_setup".replace("/", ".") + ".xml"] += _privacy_item()
+    for folder in PAGE_ITEMS:
+        files[f"{PE}/{folder}".replace("/", ".") + ".xml"] += _page_item(folder)
     files[f"{PE}/controls_setup".replace("/", ".") + ".xml"] = _controls_screen()
     files[f"{PE}/{CONTROLLER_SCREEN}".replace("/", ".") + ".xml"] = _controller_screen()
     return {name: ['<?xml version="1.0" encoding="UTF-8"?>',
@@ -631,7 +694,7 @@ MT = "main_menu/multiplayer_type_select"
 # in turn: menu_functions.c's gametype_option_help)
 SLAYER_EDIT = "main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit"
 STRING_INSERTS = {
-    f"{PE}/profile_edit_options": [(10, ["PRIVACY"])],
+    f"{PE}/profile_edit_options": [(10, ["PRIVACY", "INTERFACE", "CHAT"])],
     f"{SLAYER_EDIT}/var_kills_to_win": [(5, ["75", "100", "150", "200", "250", "500"])],
     f"{SLAYER_EDIT}/cap_slayer": [(11, [
         "Seventy-five kills to win.",
@@ -720,11 +783,22 @@ WIDGET_PATCHES = {
     f"{MT}/connected/connected_map_select_wrapper": {"set": {
         "flags": "pass_unhandled_to_focused_child pause_game main_menu_if_no_history tag_controller_index force_handle_mouse",
     }},
-    # (Privacy's row after Network Setup's, and Change Color and About below
-    # it: their offsets from the tops the PC version gave them)
+    # (the rows in the order Controls, Mouse, Gamepads, Video, Audio,
+    # Interface, Chat, Network, Privacy: Mouse in Gamepads' place and Video in
+    # Audio's ("swap"), the pages the PC version has not (PAGE_ITEMS) put in,
+    # 26 apart; offsets from the tops the PC version gave each place's row)
     f"{PE}/profile_edit_select_list": {
-        "insert_before": {f"{PE}/color_profile_item": [f'<child widget="{PRIVACY_ITEM}"/>']},
-        "offsets": {f"{PE}/color_profile_item": (0, 65), f"{PE}/about_item": (0, 65)},
+        "swap": {f"{PE}/gamepads_profile_item": f"{PE}/mouse_settings_profile_item",
+                 f"{PE}/mouse_settings_profile_item": f"{PE}/gamepads_profile_item",
+                 f"{PE}/audio_settings_profile_item": f"{PE}/video_settings_profile_item",
+                 f"{PE}/video_settings_profile_item": f"{PE}/audio_settings_profile_item"},
+        "insert_before": {f"{PE}/network_settings_profile_item": [f'<child widget="{PAGE_ITEMS["interface_setup"][0]}"/>',
+                                                                  f'<child widget="{PAGE_ITEMS["chat_setup"][0]}"/>'],
+                          f"{PE}/color_profile_item": [f'<child widget="{PRIVACY_ITEM}"/>']},
+        "offsets": {f"{PE}/controller_setup_profile_item": (0, -7), f"{PE}/gamepads_profile_item": (0, -47),
+                    f"{PE}/mouse_settings_profile_item": (0, 12), f"{PE}/audio_settings_profile_item": (0, -61),
+                    f"{PE}/video_settings_profile_item": (0, -2), f"{PE}/network_settings_profile_item": (0, 9),
+                    f"{PE}/color_profile_item": (0, 61), f"{PE}/about_item": (0, 54)},
     },
     # (the profile settings' picture: on Gamepad Setup's row, the profile's
     # button settings, BITMAP_FRAMES; menu_functions.c's
@@ -815,12 +889,12 @@ WIDGET_PATCHES = {
 # 512 by 235 of their 512 by 512: drawn at 279 wide, in the middle of the
 # picture's 279 by 202
 XBOX_CONTROLLER_PICTURES = f"ui\\shell\\{PE.replace('/', chr(92))}\\controller_edit\\config_controller"
-# frames repeated in a PC bitmap (by our names): {place: frame}, the frame
-# (as the PC version numbers them) put in at the place, the frames from it
-# on after it. The profile settings' picture numbers its frames as the list
-# its rows (PRIVACY_ITEM, the eighth, shows Network Setup's)
-FRAME_COPIES = {
-    f"{PE}/profile_options": {7: 6},
+# the frames of a PC bitmap in another order (by our names): the frame (as
+# the PC version numbers them) for each place. The profile settings' picture
+# numbers its frames as the list its rows (PAGE_ITEMS: Interface shows
+# Video Setup's, Chat and Privacy Network Setup's)
+FRAME_ORDERS = {
+    f"{PE}/profile_options": [0, 1, 3, 2, 5, 4, 5, 6, 6, 6, 7, 8],
 }
 BITMAP_FRAMES = {
     f"{PE}/profile_options": [(XBOX_CONTROLLER_PICTURES, 4 + preset, 279, 279, 0, 34) for preset in range(5)],
@@ -830,6 +904,8 @@ BITMAP_FRAMES = {
 # are (port/assets/menus/port_svg): bitmap name, text
 TITLES = {
     f"{PE}/privacy_setup/header_privacy": "PRIVACY",
+    f"{PE}/interface_setup/header_interface": "INTERFACE",
+    f"{PE}/chat_setup/header_chat": "CHAT",
     f"{MT}/join_game/header_server_browser": "SERVER BROWSER",
     f"{MT}/join_game/header_direct_link": "DIRECT LINK",
     f"{MT}/join_game/header_password": "PASSWORD",
