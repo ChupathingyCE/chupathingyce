@@ -125,7 +125,7 @@ symbols in this file:
 
 enum
 {
-#ifndef HALO_PORT_TEXTURE_CACHE_SIZE_VARIES
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_PORT_TEXTURE_CACHE_SIZE_VARIES)
 	/* (the native builds' size: halo_port_capacity.h; the Xbox's 0x580
 	pages, 0x1600000 bytes) */
 	XBOX_TEXTURE_CACHE_PAGE_COUNT = HALO_PORT_TEXTURE_CACHE_SIZE >> 14,
@@ -133,24 +133,37 @@ enum
 	XBOX_TEXTURE_CACHE_PAGE_SIZE_BITS = 14,
 	XBOX_TEXTURE_CACHE_PAGE_SIZE = 1 << XBOX_TEXTURE_CACHE_PAGE_SIZE_BITS,
 	XBOX_TEXTURE_CACHE_STEAL_GUARD_SIZE = 0x104000,
-#ifndef HALO_PORT_TEXTURE_CACHE_SIZE_VARIES
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_PORT_TEXTURE_CACHE_SIZE_VARIES)
 	XBOX_TEXTURE_CACHE_STEALABLE_PAGE_COUNT =
 		XBOX_TEXTURE_CACHE_PAGE_COUNT -
 		2 * (XBOX_TEXTURE_CACHE_STEAL_GUARD_SIZE / XBOX_TEXTURE_CACHE_PAGE_SIZE),
-	/* (the arrays of a page each: as many as the pages) */
+	/* (the arrays of a page each) */
 	XBOX_TEXTURE_CACHE_ARRAY_PAGE_COUNT = XBOX_TEXTURE_CACHE_PAGE_COUNT,
 #endif
 	XBOX_TEXTURE_CACHE_ENTRY_SIZE = 0x20,
-#ifndef HALO_PORT_TEXTURE_CACHE_SIZE_VARIES
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_PORT_TEXTURE_CACHE_SIZE_VARIES)
 	XBOX_TEXTURE_CACHE_SIZE = HALO_PORT_TEXTURE_CACHE_SIZE,
 #endif
 	XBOX_TEXTURE_CACHE_PROTECTION = 0x404,
 };
 
-#ifdef HALO_PORT_TEXTURE_CACHE_SIZE_VARIES
-/* port: a console guest's cache follows the size of the window its host
-found room for (halo_port_capacity.h), known before the cache is made; the
-arrays of a page each are sized for the largest */
+#ifdef HALO_XBOX_CONSOLE
+/* port: the console's cache is the size its memory class gives it
+(port/xbox/src/xbox_memory.c: the Xbox's 22 MB on a 64 MB console, more on
+a bigger one, halo_console_memory.h's extras), known before the cache is made;
+the arrays of a page each are sized for the largest
+(HALO_PORT_TEXTURE_CACHE_MAXIMUM_SIZE) */
+unsigned long xbox_memory_texture_cache_size(void);
+
+#define XBOX_TEXTURE_CACHE_SIZE ((long)xbox_memory_texture_cache_size())
+#define XBOX_TEXTURE_CACHE_PAGE_COUNT (XBOX_TEXTURE_CACHE_SIZE >> XBOX_TEXTURE_CACHE_PAGE_SIZE_BITS)
+#define XBOX_TEXTURE_CACHE_STEALABLE_PAGE_COUNT (XBOX_TEXTURE_CACHE_PAGE_COUNT - \
+	2 * (XBOX_TEXTURE_CACHE_STEAL_GUARD_SIZE / XBOX_TEXTURE_CACHE_PAGE_SIZE))
+#define XBOX_TEXTURE_CACHE_ARRAY_PAGE_COUNT (HALO_PORT_TEXTURE_CACHE_MAXIMUM_SIZE >> 14)
+#elif defined(HALO_PORT_TEXTURE_CACHE_SIZE_VARIES)
+/* port: the Switch's cache follows the size of the window its host found
+room for (halo_port_capacity.h), known before the cache is made; the arrays
+of a page each are sized for the largest, as the console's are */
 #define XBOX_TEXTURE_CACHE_SIZE ((long)HALO_PORT_TEXTURE_CACHE_SIZE)
 #define XBOX_TEXTURE_CACHE_PAGE_COUNT (XBOX_TEXTURE_CACHE_SIZE >> XBOX_TEXTURE_CACHE_PAGE_SIZE_BITS)
 #define XBOX_TEXTURE_CACHE_STEALABLE_PAGE_COUNT (XBOX_TEXTURE_CACHE_PAGE_COUNT - \
@@ -353,9 +366,11 @@ static const long bitmap_d3d_format_tables
 		NONE,
 	},
 };
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
 /* provisional name: the January map leaves this .bss array unnamed; it holds the debug
  * listing's cached bitmaps */
 static struct bitmap_data *texture_cache_debug_bitmaps[XBOX_TEXTURE_CACHE_ARRAY_PAGE_COUNT];
+#endif
 static struct xbox_texture_cache_globals xbox_texture_cache_globals;
 struct texture_cache_debug_options texture_cache_debug_options = {0};
 boolean debug_texture_cache = FALSE;
@@ -950,6 +965,7 @@ static boolean texture_cache_start_loading_bitmap(
 	return FALSE;
 }
 
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
 void texture_cache_debug_render(
 	void)
 {
@@ -1082,6 +1098,16 @@ void texture_cache_debug_render(
 
 	return;
 }
+#else
+
+/* port: the texture cache listing and graph are developer tools
+(halo_xbox_prefix.h) */
+void texture_cache_debug_render(
+	void)
+{
+	return;
+}
+#endif
 
 void *_texture_cache_bitmap_get_hardware_format(
 	struct bitmap_data *bitmap,
@@ -1148,6 +1174,15 @@ void *_texture_cache_bitmap_get_hardware_format(
 					{
 						sound_idle();
 					}
+#ifdef HALO_XBOX_CONSOLE
+					{
+						extern char const *volatile xbox_main_stage;
+						static char waiting[160];
+
+						sprintf(waiting, "texture cache: waiting for %.120s", tag_get_name(bitmap->tag_index));
+						xbox_main_stage = waiting;
+					}
+#endif
 					SwitchToThread();
 				}
 			}

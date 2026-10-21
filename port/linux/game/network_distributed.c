@@ -75,6 +75,10 @@ machine (their datum identifiers need not be).
 #include "network_coop.h"
 #include "network_distributed.h"
 #include "network_rules.h"
+#include "../src/delta_chat_bridge.h"
+#ifdef HALO_PORT_CHAT
+#include "chat.h"
+#endif
 
 #include <limits.h>
 #include <stdio.h>
@@ -4102,7 +4106,10 @@ boolean network_distributed_unban(
 		/* (a bans file larger than this is not rewritten) */
 		MAXIMUM_BANS_FILE_SIZE = 1024 * 1024,
 	};
-	static char contents[MAXIMUM_BANS_FILE_SIZE];
+	/* (the file's lines kept, on the heap only while it is rewritten: a
+	static buffer was a megabyte of every build's image, the console's
+	too) */
+	char *contents;
 	char line[512];
 	long size = 0;
 	long count = 0;
@@ -4111,6 +4118,13 @@ boolean network_distributed_unban(
 
 	if (!file)
 		return FALSE;
+	contents = malloc(MAXIMUM_BANS_FILE_SIZE);
+	if (!contents)
+	{
+		fclose(file);
+		error(_error_log, "no memory to rewrite %s", BANS_FILE);
+		return FALSE;
+	}
 	while (fgets(line, sizeof(line), file))
 	{
 		long length = (long)strlen(line);
@@ -4123,6 +4137,7 @@ boolean network_distributed_unban(
 		if (size + length >= MAXIMUM_BANS_FILE_SIZE)
 		{
 			fclose(file);
+			free(contents);
 			error(_error_log, "%s is too large to rewrite", BANS_FILE);
 			return FALSE;
 		}
@@ -4130,21 +4145,24 @@ boolean network_distributed_unban(
 		size += length;
 	}
 	fclose(file);
-	if (!found)
-		return FALSE;
-	file = fopen(BANS_FILE, "w");
-	if (!file)
+	if (found)
+		file = fopen(BANS_FILE, "w");
+	if (!found || !file)
 	{
-		error(_error_log, "could not open %s to take a ban out of it", BANS_FILE);
+		if (found)
+			error(_error_log, "could not open %s to take a ban out of it", BANS_FILE);
+		free(contents);
 		return FALSE;
 	}
 	if (size && fwrite(contents, 1, (size_t)size, file) != (size_t)size)
 	{
 		fclose(file);
+		free(contents);
 		error(_error_log, "could not write %s", BANS_FILE);
 		return FALSE;
 	}
 	fclose(file);
+	free(contents);
 	return TRUE;
 }
 
@@ -4359,6 +4377,9 @@ void network_distributed_handle_message(
 	case _distributed_message_coop_device_states: entry_size = network_coop_device_state_entry_size(); break;
 	case _distributed_message_pickups: entry_size = sizeof(struct distributed_pickup); break;
 	case _distributed_message_aim_assist_policy: entry_size = NETWORK_RULES_AIM_ASSIST_SIZE - sizeof(header); break;
+	case _distributed_message_chat_up:
+	case _distributed_message_chat_down: entry_size = DELTA_CHAT_BRIDGE_LINE_SIZE; break;
+	case _distributed_message_chat_config: entry_size = DELTA_CHAT_BRIDGE_CONFIG_SIZE; break;
 	case _distributed_message_player_inputs: entry_size = sizeof(struct distributed_player_input); break;
 	case _distributed_message_relayed_actions: entry_size = DISTRIBUTED_RELAYED_ACTION_MINIMUM_SIZE; break;
 	case _distributed_message_game_state:
@@ -4373,6 +4394,11 @@ void network_distributed_handle_message(
 	if (header.type == 0 || header.type >= NUMBER_OF_DISTRIBUTED_MESSAGES ||
 		size < sizeof(header) + header.count * entry_size)
 	{
+#ifdef HALO_PORT_CHAT
+		/* (OpenCE's chat: dropped, and said in the log once) */
+		if (header.type >= _distributed_message_chat_up && header.type <= _distributed_message_chat_config)
+			chat_bridge_message(machine_index, header.type, NULL, 0, FALSE);
+#endif
 		return;
 	}
 	/* (the kinds whose handlers read one entry: not without it) */
@@ -4384,6 +4410,17 @@ void network_distributed_handle_message(
 	case _distributed_message_coop_skip_vote:
 		if (header.count < 1)
 			return;
+		break;
+	case _distributed_message_chat_up:
+	case _distributed_message_chat_down:
+	case _distributed_message_chat_config:
+		if (header.count < 1)
+		{
+#ifdef HALO_PORT_CHAT
+			chat_bridge_message(machine_index, header.type, NULL, 0, FALSE);
+#endif
+			return;
+		}
 		break;
 	default:
 		break;
@@ -4409,6 +4446,7 @@ void network_distributed_handle_message(
 	case _distributed_message_vehicle_prediction:
 	case _distributed_message_player_inputs:
 	case _distributed_message_coop_skip_vote:
+	case _distributed_message_chat_up:
 		if (machine_index == NONE || game_connection() != _game_connection_network_server)
 			return;
 		break;
@@ -4494,6 +4532,17 @@ void network_distributed_handle_message(
 		break;
 	case _distributed_message_coop_device_states:
 		network_coop_handle_device_states(entries, header.count);
+		break;
+	/* OpenCE's chat (chat.c): a client's line over its machine's stream
+	alone, the host's over the host's connection's stream alone (a datagram
+	from either address could be anyone's); the first entry, the rest let go */
+	case _distributed_message_chat_up:
+	case _distributed_message_chat_down:
+	case _distributed_message_chat_config:
+#ifdef HALO_PORT_CHAT
+		chat_bridge_message(machine_index, header.type, entries, entry_size,
+			machine_index == NONE ? !network_connection_last_read_was_unreliable() : distributed_handling_stream_message);
+#endif
 		break;
 	case _distributed_message_player_statistics:
 	{

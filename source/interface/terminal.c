@@ -59,7 +59,9 @@ symbols in this file:
 #include "telnet_console.h"
 #include "rasterizer.h"
 #include "render.h"
+#ifndef HALO_XBOX_CONSOLE
 #include "main/main.h"
+#endif
 #include "draw_string.h"
 #include "byte_swapping.h"
 #include "tag_groups.h"
@@ -504,6 +506,7 @@ static void terminal_update_output(
 {
 	struct output_line_datum *line;
 	long line_index = terminal_globals.newest_output_line_index;
+#ifndef HALO_XBOX_CONSOLE
 	/* This runs once a frame, several frames per tick on the native builds
 	(port/linux/game/render_interpolation.c): count the line timers in 30 Hz
 	ticks of real time, as they counted on the Xbox, not in frames. */
@@ -513,6 +516,7 @@ static void terminal_update_output(
 	leftover_ticks += main_get_seconds_elapsed() * TICKS_PER_SECOND;
 	ticks = (long)leftover_ticks;
 	leftover_ticks -= (real)ticks;
+#endif
 
 	while (line_index!=NONE)
 	{
@@ -520,7 +524,11 @@ static void terminal_update_output(
 		
 		line = output_line_get(line_index);
 		older_line_index = line->older_line_index;
+#ifndef HALO_XBOX_CONSOLE
 		line->timer += ticks;
+#else
+		line->timer++;
+#endif
 
 		if (line->timer>OUTPUT_TOTAL_TIME)
 		{

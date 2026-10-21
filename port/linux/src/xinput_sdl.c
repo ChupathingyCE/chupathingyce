@@ -205,18 +205,43 @@ int halo_linux_mouse_aiming(short gamepad_index)
 	return aiming;
 }
 
-/* the device the player last used (the overlay's button prompts,
-ui_overlay.c, and the game's: halo_keyboard_prompts): 0 the keyboard (or
-mouse), 1 an Xbox-like pad, 2 a PlayStation pad, 3 a Nintendo pad */
+/* the device the player last used (Controls Setup's page, and the button
+prompts: platform_prompt_scheme): 0 the keyboard (or mouse), 1 an Xbox-like
+pad, 2 a PlayStation pad, 3 a Nintendo pad */
 static int last_input_scheme = 1;
 static BOOL last_input_seen = FALSE;
+/* (the kind of pad used last, for prompts that never show keys) */
+static int last_pad_scheme = 1;
 
 int platform_input_scheme(void)
 {
-	/* (before any input: a pad if one is connected, else the keyboard) */
+	/* (before any input: a pad if one is connected, else the keyboard; on
+	Android the controller's, whose buttons its touch controls are drawn
+	as) */
 	if (!last_input_seen)
+	{
+#ifdef HALO_ANDROID
+		return 1;
+#else
 		return SDL_HasGamepad() ? 1 : 0;
+#endif
+	}
 	return last_input_scheme;
+}
+
+/* the device every button prompt is drawn for: the menus' (the Chupathingy
+menus' and the code-drawn screens', ui_overlay.c; the Xbox and Gearbox
+menus' pictures, menu_tags.c) and the HUD's (halo_keyboard_prompts). The
+device used last, but with input.keyboard_prompts set to false (in
+config.toml alone: the menus no longer have it) never the keyboard: the
+controller's buttons always, as that setting's false was */
+int platform_prompt_scheme(void)
+{
+	int scheme = platform_input_scheme();
+
+	if (scheme == 0 && !config_boolean("input.keyboard_prompts"))
+		return last_pad_scheme;
+	return scheme;
 }
 
 static int scheme_of(SDL_Gamepad *gamepad)
@@ -583,17 +608,14 @@ int halo_keyboard_action_shown(int action, char *shown, unsigned long size)
 }
 
 /* the game's button prompts show the keyboard's keys (Halo PC's) in place
-of the controller's buttons: input.keyboard_prompts, while the keyboard or
-mouse was used last (or, before any input, with no controller connected).
-Android's touch controls are drawn as the controller's buttons, so its
-prompts stay the controller's. */
+of the controller's buttons while the keyboard or mouse was used last (or,
+before any input, on the desktop with no controller connected):
+platform_prompt_scheme's. Android's touch controls are drawn as the
+controller's buttons, and touches leave the prompts the controller's; a
+keyboard or mouse used there shows its keys too. */
 int halo_keyboard_prompts(void)
 {
-#ifdef HALO_ANDROID
-	return 0;
-#else
-	return config_boolean("input.keyboard_prompts") && platform_input_scheme() == 0;
-#endif
+	return platform_prompt_scheme() == 0;
 }
 
 static void bindings_read(void)
@@ -1215,6 +1237,7 @@ static void sdl_gamepad_state(SDL_Gamepad *gamepad, XINPUT_GAMEPAD *pad)
 		if (used)
 		{
 			last_input_scheme = scheme_of(gamepad);
+			last_pad_scheme = last_input_scheme;
 			last_input_seen = TRUE;
 #ifndef HALO_ANDROID
 			last_used_gamepad = SDL_GetGamepadID(gamepad);

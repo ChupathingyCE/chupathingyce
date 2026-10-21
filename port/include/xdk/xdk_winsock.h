@@ -199,6 +199,14 @@ tests neither); any two distinct bits of that set work. */
 #define XNET_GET_XNADDR_NONE 0x01
 #define XNET_GET_XNADDR_ETHERNET 0x02
 #define XNET_GET_XNADDR_DHCP 0x08
+#ifdef HALO_XBOX_CONSOLE
+/* the rest of the console's XNADDR status bits (the port's internet play
+reads them; the game never did) */
+#define XNET_GET_XNADDR_STATIC 0x04
+#define XNET_GET_XNADDR_PPPOE 0x10
+#define XNET_GET_XNADDR_GATEWAY 0x20
+#define XNET_GET_XNADDR_DNS 0x40
+#endif
 
 /* XNetGetEthernetLinkStatus's result: cachebeta.exe's transport_initialize
 reports bit 0 as connected, 1 as 100 Mbps, 2 as 10 Mbps, 3 as full duplex

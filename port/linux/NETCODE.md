@@ -223,7 +223,9 @@ turning the view's magnetism off for a player aiming with the mouse; a
 client is blocked until a host of 32 or later speaks, and a host never takes
 the message. A client's input entry says in its third byte (padding before)
 whether its player plays co-op without friendly fire; this host reads it and
-decides friendly fire by its own setting.
+decides friendly fire by its own setting. Messages 87 to 89 are OpenCE's
+text chat, which Delta chat bridges (`docs/delta.md`, Chat): a build without
+them drops them as unknown, so they take no version of their own.
 
 A host never checks a joining client's version: the client reads the
 host's from its advertisement and joins only a version it plays with. That

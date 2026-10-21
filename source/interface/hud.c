@@ -114,7 +114,7 @@ symbols in this file:
 #include "follow_camera.h" /* port: port/linux/game/follow_camera.c */
 #include "powerup_timers.h" /* port: port/linux/game/powerup_timers.c */
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
-#ifdef HALO_GAME_BROWSER
+#ifdef HALO_PORT_CHAT
 #include "chat.h" /* port: port/linux/game/chat.c */
 #endif
 #include "text/font_group.h"
@@ -978,8 +978,12 @@ static void hud_draw_players(
 
 	if (player_index != NONE)
 	{
+#ifndef HALO_XBOX_CONSOLE
 		/* the native builds' sessions hold more than 16 players */
 		long teammate_indices[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
+#else
+		long teammate_indices[16];
+#endif
 		long teammate_count = 0;
 		struct data_iterator iterator;
 		struct player_datum *player;
@@ -992,9 +996,13 @@ static void hud_draw_players(
 				team_index == player->team_index &&
 				player->unit_index != NONE)
 			{
+#ifndef HALO_XBOX_CONSOLE
 				/* never write past the buffer, whatever the player data holds */
 				if (teammate_count < (long)NUMBEROF(teammate_indices))
 					teammate_indices[teammate_count++] = iterator.datum_index;
+#else
+				teammate_indices[teammate_count++] = iterator.datum_index;
+#endif
 			}
 		}
 
@@ -1414,7 +1422,7 @@ void hud_draw_screen(
 		/* port: the network co-op vote to skip a cinematic */
 		if (cinematic_in_progress())
 			coop_skip_vote_draw(render.local_player_index);
-#ifdef HALO_GAME_BROWSER
+#ifdef HALO_PORT_CHAT
 		/* port: text chat's lines (port/linux/game/chat.c) */
 		if (!cinematic_in_progress())
 			chat_draw(render.local_player_index);

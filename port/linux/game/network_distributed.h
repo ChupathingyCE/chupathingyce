@@ -106,6 +106,14 @@ enum
 	/* co-op: where the host's devices are (doors, elevators), when they move
 	(network_coop.c) */
 	_distributed_message_coop_device_states = 77,
+	/* OpenCE's text chat, which Delta chat bridges (game/chat.c,
+	src/delta_chat_bridge.h): a player's line to the host and the host's line
+	(or notice) to a machine that hears it, reliably, each a 68-byte entry;
+	and the host's chat settings to each client, a 4-byte entry. 87 to 89 as
+	in OpenCE's version of 2026-10-18 */
+	_distributed_message_chat_up = 87,
+	_distributed_message_chat_down = 88,
+	_distributed_message_chat_config = 89,
 	/* the host's policy on aiming assist for the mouse and keyboard, reliably
 	to a client when it has loaded and when the host's setting changes
 	(network.block_mouse_aim_assist): 12 bytes, the header and a 16-bit

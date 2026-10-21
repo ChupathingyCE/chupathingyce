@@ -230,6 +230,7 @@ struct render_sort_filth
 typedef char verify_render_model_effect_size[sizeof(struct render_model_effect) == 0x28 ? 1 : -1];
 typedef char verify_rasterizer_model_begin_parameters_size[sizeof(struct rasterizer_model_begin_parameters) == 0xCC ? 1 : -1];
 #endif
+#include "halo_perf_log.h" /* port: console.perf_log */
 
 /* ---------- prototypes */
 
@@ -1082,6 +1083,10 @@ void render_model(
 
 		if (!TEST_FLAG(flags, _render_model_shadow_bit))
 		{
+			/* (the two highest of the five levels: high and super high) */
+			HALO_PERF_COUNT(_halo_perf_models, 1);
+			HALO_PERF_COUNT(_halo_perf_models_high_lod, geometry_detail_level_index>=NUMBER_OF_DETAIL_LEVELS_PER_MODEL-2);
+
 			if (render_model_nodes)
 			{
 				for (node_index = 0; node_index<node_count; node_index++)

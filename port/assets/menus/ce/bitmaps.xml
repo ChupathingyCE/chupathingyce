@@ -339,24 +339,6 @@
 	<bitmap name="main_menu/multiplayer_type_select/server_settings/header_host_options">
 		<frame png="ce/port/main_menu/multiplayer_type_select/server_settings/header_host_options.png" width="512" height="64"/>
 	</bitmap>
-	<bitmap name="main_menu/settings_select/player_setup/player_profile_edit/chat_setup/header_chat">
-		<frame png="ce/port/main_menu/settings_select/player_setup/player_profile_edit/chat_setup/header_chat.png" width="512" height="64"/>
-	</bitmap>
-	<bitmap name="main_menu/settings_select/player_setup/player_profile_edit/controls_menu/header_controls">
-		<frame png="ce/port/main_menu/settings_select/player_setup/player_profile_edit/controls_menu/header_controls.png" width="512" height="64"/>
-	</bitmap>
-	<bitmap name="main_menu/settings_select/player_setup/player_profile_edit/display_menu/header_display">
-		<frame png="ce/port/main_menu/settings_select/player_setup/player_profile_edit/display_menu/header_display.png" width="512" height="64"/>
-	</bitmap>
-	<bitmap name="main_menu/settings_select/player_setup/player_profile_edit/interface_setup/header_interface">
-		<frame png="ce/port/main_menu/settings_select/player_setup/player_profile_edit/interface_setup/header_interface.png" width="512" height="64"/>
-	</bitmap>
-	<bitmap name="main_menu/settings_select/player_setup/player_profile_edit/online_menu/header_online">
-		<frame png="ce/port/main_menu/settings_select/player_setup/player_profile_edit/online_menu/header_online.png" width="512" height="64"/>
-	</bitmap>
-	<bitmap name="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/header_privacy">
-		<frame png="ce/port/main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/header_privacy.png" width="512" height="64"/>
-	</bitmap>
 	<bitmap name="blank">
 		<frame png="ce/port/blank__0.png" width="4" height="4"/>
 	</bitmap>

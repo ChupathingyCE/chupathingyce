@@ -221,7 +221,13 @@ CUSTOM_EDITION_DEFINES = ["-DHALO_CUSTOM_EDITION"]
 def game_browser_defines(sln: Any) -> List[str]:
     """configure.py --game-browser: the game list and server browser
     (port/linux/src/browser.c), on unless --no-game-browser"""
-    return ["-DHALO_GAME_BROWSER"] if getattr(sln, "game_browser", False) else []
+    defines = ["-DHALO_GAME_BROWSER"] if getattr(sln, "game_browser", False) else []
+    # configure.py --console-limits: the console's network and object limits
+    # (port/linux/include/halo_port_limits.h), to test its side of cross-play
+    # on the desktop; never a build to ship
+    if getattr(sln, "console_limits", False):
+        defines.append("-DHALO_CONSOLE_LIMITS")
+    return defines
 
 
 def march_flag(sln: Any) -> str:

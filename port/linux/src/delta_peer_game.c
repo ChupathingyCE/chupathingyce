@@ -29,6 +29,14 @@ HALO_GAME_BROWSER; network.protocol = "opence" turns all of it off.
 #include "browser.h"
 #include "p2p.h"
 #endif
+#ifdef HALO_XBOX_CONSOLE
+/* (the console's memory class, as log2 of megabytes: port/xbox/src/
+xbox_memory.c) */
+int xbox_memory_delta_class(void);
+/* (port/xbox/include/xbox_player_key.h: the ID of the player key a player
+put at D:\\game_list_player.key, if they did) */
+int xbox_player_id(unsigned char *id);
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -89,7 +97,10 @@ static int same_word(const char *a, const char *b)
 
 static int local_platform(void)
 {
-#if defined(_WIN32)
+#if defined(HALO_XBOX_CONSOLE)
+	/* (before _WIN32: the console's build is a Windows target's too) */
+	return _delta_platform_xbox;
+#elif defined(_WIN32)
 	/* (the Windows build under Proton on the Deck: Steam sets SteamDeck=1
 	there too) */
 	const char *deck = getenv("SteamDeck");
@@ -137,6 +148,22 @@ void delta_peer_local_key(struct delta_platform_key *key)
 	key->platform = (unsigned char)platform;
 	key->version = DELTA_PLATFORM_KEY_VERSION;
 	key->flags = 0;
+#ifdef HALO_XBOX_CONSOLE
+	/* (the console's own memory: 64, 128 or 256 MB, 6, 7 or 8; the row's
+	6 for one it cannot tell) */
+	if (xbox_memory_delta_class())
+		key->memory_class = (unsigned char)xbox_memory_delta_class();
+#if defined(HALO_CONSOLE_PLAYERS) && HALO_CONSOLE_PLAYERS > 16
+	/* a test build of more than 16 players claims its own count. A host
+	holds a key to its platform's row, never above it (delta_peer.c), so
+	the Xbox's 16 still stand on others' hosts and its own unless its
+	player sets network.platform_limits = "off" (docs/delta.md) */
+	key->host_players = (unsigned char)HALO_CONSOLE_PLAYERS;
+	key->join_players = (unsigned char)HALO_CONSOLE_PLAYERS;
+	if (key->join_players_opt_in < key->join_players)
+		key->join_players_opt_in = key->join_players;
+#endif
+#endif
 	/* (its player takes whatever the host runs: no caveat protects it) */
 	if (same_word(limits, "off"))
 		key->flags |= DELTA_PLATFORM_KEY_OPTED_IN;
@@ -184,7 +211,14 @@ static int local_profile(struct delta_wire_profile *profile)
 	return 1;
 #else
 	memset(profile, 0, sizeof(*profile));
+#ifdef HALO_XBOX_CONSOLE
+	/* (only a copy the player gave an identity file: on a console the file
+	being there is the player's consent, where a desktop build asks for
+	network.share_profile) */
+	return xbox_player_id(profile->player_id);
+#else
 	return 0;
+#endif
 #endif
 }
 
@@ -221,6 +255,25 @@ static delta_u32 game_random(void *context)
 	return value;
 }
 
+#ifdef HALO_XBOX_CONSOLE
+/* (the console keeps no signed legacy table, nor relays one: delta.c, its
+thread and its fetch are not in its 64 MB, nor are the table buffers
+(delta_peer.h); nothing is disabled) */
+static int game_capability_disabled(void *context, int capability)
+{
+	(void)context;
+	(void)capability;
+	return 0;
+}
+
+/* the console takes no legacy table: it says so (TABLE_HAVE with
+DELTA_WIRE_TABLE_NONE), and a host does not send it one */
+static delta_u32 game_legacy_table_serial(void *context)
+{
+	(void)context;
+	return DELTA_WIRE_TABLE_NONE;
+}
+#else
 /* the legacy table's kill switch */
 static int game_capability_disabled(void *context, int capability)
 {
@@ -247,6 +300,7 @@ static int game_legacy_table_offer(void *context, const unsigned char *table, in
 	(void)context;
 	return delta_legacy_relay() && delta_legacy_offer((const char *)table, size);
 }
+#endif
 
 /* moderation: the moderator key's signature (browser.c's; signed only when
 the player acts) */
@@ -314,6 +368,16 @@ int delta_peer_protocol(void)
 				platform_log("Delta Peer: network.protocol \"%s\" is not auto, delta or opence: auto", protocol);
 			delta_game.protocol = _delta_peer_protocol_auto;
 		}
+#ifdef HALO_XBOX_CONSOLE
+		/* (console.delta = "off" in D:\\config.toml keeps the console to the
+		legacy protocol alone) */
+		if (same_word(config_string("console.delta"), "off"))
+		{
+			delta_game.protocol = _delta_peer_protocol_opence;
+			platform_log("Delta Peer: off (console.delta = \"off\"): the legacy protocol alone");
+		}
+		else
+#endif
 		if (delta_game.protocol == _delta_peer_protocol_opence)
 			platform_log("Delta Peer: off (network.protocol = \"opence\"): the legacy protocol alone");
 
@@ -321,14 +385,29 @@ int delta_peer_protocol(void)
 		env.send_datagram = game_send;
 		env.log_line = game_log;
 		env.random_number = game_random;
+#ifdef HALO_XBOX_CONSOLE
+		env.legacy_table_serial = game_legacy_table_serial;
+#else
 		env.legacy_table_serial = game_legacy_table_serial;
 		env.legacy_table_signed = game_legacy_table_signed;
 		env.legacy_table_offer = game_legacy_table_offer;
+#endif
 		env.capability_disabled = game_capability_disabled;
 		env.platform_policy = game_platform_policy;
 		env.moderation_sign = game_moderation_sign;
 		env.moderation_binding = game_moderation_binding;
 		memset(&local, 0, sizeof(local));
+#ifdef HALO_XBOX_CONSOLE
+		/* (the console says what it is: no maps or moderation; its
+		profile only if the player gave it an identity file: added below) */
+		local.capabilities = (delta_u32)1 << _delta_capability_platform;
+#ifdef HALO_PORT_CHAT
+		/* (and text chat's client: the lines and the host's own,
+		port/linux/game/chat.c) */
+		local.capabilities |= (delta_u32)1 << _delta_capability_chat |
+			(delta_u32)1 << _delta_capability_server_messages;
+#endif
+#else
 		local.capabilities = (delta_u32)1 << _delta_capability_platform | (delta_u32)1 << _delta_capability_profile |
 			(delta_u32)1 << _delta_capability_ce_maps;
 		/* (text chat and the host's own lines: docs/delta.md, Chat) */
@@ -337,6 +416,7 @@ int delta_peer_protocol(void)
 		/* (changing teams during a game: a host offers it once its team
 		host is set, team_change.c) */
 		local.capabilities |= (delta_u32)1 << _delta_capability_team_change;
+#endif
 		/* (moderation: a client signs with its player key's moderator key; a
 		host offers it only with the dedicated server's moderation) */
 #ifdef HALO_GAME_BROWSER
@@ -344,8 +424,16 @@ int delta_peer_protocol(void)
 #endif
 		local.legacy_version = HALO_PORT_NETWORK_VERSION;
 		delta_peer_local_key(&local.key);
+#ifdef HALO_XBOX_CONSOLE
+		snprintf(local.build, sizeof(local.build), "Warthog %s", HALO_VERSION);
+#else
 		snprintf(local.build, sizeof(local.build), "ChupathingyCE %s", updater_version());
+#endif
 		local.has_profile = local_profile(&local.profile);
+#ifdef HALO_XBOX_CONSOLE
+		if (local.has_profile)
+			local.capabilities |= (delta_u32)1 << _delta_capability_profile;
+#endif
 		local.ignore_platform_limits = !config_boolean("network.host_platform_limits");
 		{
 			const char *limits = config_string("network.platform_limits");
@@ -429,6 +517,16 @@ static void receive(void)
 
 /* the host's: the game's map, as MAP carries it, for the session to send
 (none while its file's hash is being made) */
+#ifdef HALO_XBOX_CONSOLE
+/* (the console takes no Halo PC maps' identities: it asks for no MAP) */
+static void host_map(void)
+{
+}
+
+static void client_map(void)
+{
+}
+#else
 static void host_map(void)
 {
 	struct delta_wire_map map;
@@ -498,6 +596,7 @@ static void client_map(void)
 		network_game_abort();
 	}
 }
+#endif
 
 static void stop(void)
 {
@@ -982,6 +1081,7 @@ unsigned int delta_peer_game_chat_refused(struct delta_wire_chat_refused *refuse
 	return delta_game.peer.client_chat.refused_count;
 }
 
+#ifndef HALO_XBOX_CONSOLE
 int delta_peer_game_read_save_file(const char *name, char *text, int size)
 {
 	char path[1024];
@@ -999,6 +1099,7 @@ int delta_peer_game_read_save_file(const char *name, char *text, int size)
 	text[length] = 0;
 	return (int)length;
 }
+#endif
 
 /* ---------- team changes (team_change.c) */
 

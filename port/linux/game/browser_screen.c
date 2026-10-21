@@ -209,6 +209,9 @@ static struct
 	char offer_file[32];
 	/* (the name the player knows it by: a hashed name's base, map_archive.h) */
 	char offer_display[32];
+	/* (a stock map's panel: heading and two lines, from map_family_stock_need) */
+	char offer_stock_first[96];
+	char offer_stock_second[160];
 	unsigned long offer_version;
 	boolean offer_dont_ask;
 	struct map_download_progress offer_progress;
@@ -257,13 +260,13 @@ static short map_file(
 	char *file,
 	long size)
 {
-	return map_family_parse(path, file, size);
+	return map_family_parse_listed(path, file, size);
 }
 
 static short map_family(
 	char const *path)
 {
-	return map_family_parse(path, NULL, 0);
+	return map_family_parse_listed(path, NULL, 0);
 }
 
 /* the campaign's levels in the menus' words, for the co-op games the list
@@ -490,8 +493,11 @@ static void start_offered_download(
 /* one of Halo PC's own maps a game needs: its panel says to copy it from
 the player's install (never downloaded) */
 static void offer_stock(
-	char const *file)
+	char const *file,
+	unsigned long version)
 {
+	char blocker[160];
+
 	csstrncpy(browser_screen.offer_file, file, sizeof(browser_screen.offer_file) - 1);
 	browser_screen.offer_file[sizeof(browser_screen.offer_file) - 1] = 0;
 	map_archive_display_name(browser_screen.offer_file, browser_screen.offer_display,
@@ -506,6 +512,8 @@ static void offer_stock(
 				*cursor = (char)(*cursor + 32);
 		}
 	}
+	map_family_stock_need(file, version, browser_screen.offer_stock_first, sizeof(browser_screen.offer_stock_first),
+		browser_screen.offer_stock_second, sizeof(browser_screen.offer_stock_second), blocker, sizeof(blocker));
 	browser_screen.offer = _offer_stock;
 	browser_screen.offer_time = system_milliseconds();
 	browser_screen.offer_closes_screen = FALSE;
@@ -690,7 +698,7 @@ static void join_selected(
 			char file[BROWSER_MAP_LENGTH];
 
 			map_file(game->map, file, sizeof(file));
-			offer_stock(file);
+			offer_stock(file, 0);
 		}
 		return;
 	}
@@ -753,7 +761,7 @@ static void wait_for_host(
 			if (family == _map_family_custom_edition && !ui_map_list_family_present(family, file) &&
 				map_archive_stock_name(file))
 			{
-				offer_stock(file);
+				offer_stock(file, advertisement.map_version);
 				return;
 			}
 			if (family == _map_family_custom_edition && !ui_map_list_family_present(family, file) &&
@@ -893,7 +901,11 @@ static char const *ce_map_blocker(
 		/* (a hashed name by the file the player knows: map_archive.h) */
 		map_archive_display_name(file, display, (int)sizeof(display));
 		if (ce_map_stock(game))
-			snprintf(text, (size_t)size, "%s.map comes with Halo PC: install it to join", display);
+		{
+			char first[96], second[160];
+
+			map_family_stock_need(file, 0, first, sizeof(first), second, sizeof(second), text, size);
+		}
 		else if (ce_map_downloadable(game))
 		{
 			snprintf(text, (size_t)size, "Needs %s/%s.map: join to download it", map_family_folder(family),
@@ -1027,6 +1039,7 @@ void browser_screen_map_missing(
 	{
 		csstrncpy(browser_screen.offer_file, file, sizeof(browser_screen.offer_file) - 1);
 		browser_screen.offer_file[sizeof(browser_screen.offer_file) - 1] = 0;
+		browser_screen.offer_version = version;
 		browser_screen.stock_pending = TRUE;
 		return;
 	}
@@ -1079,7 +1092,7 @@ boolean browser_screen_open_map_offer(
 		csstrncpy(file, browser_screen.offer_file, sizeof(file) - 1);
 		file[sizeof(file) - 1] = 0;
 		browser_screen_open();
-		offer_stock(file);
+		offer_stock(file, browser_screen.offer_version);
 		browser_screen.offer_closes_screen = TRUE;
 		return TRUE;
 	}
@@ -2182,13 +2195,19 @@ static void draw_map_offer(
 	}
 	case _offer_stock:
 	{
-		/* (map_archive_stock_message's words, a line at a time) */
-		snprintf(text, sizeof(text), "%s.map comes with Halo PC.", browser_screen.offer_display);
+		/* (map_family_stock_need's words, a line at a time) */
+		char second[sizeof(browser_screen.offer_stock_second)];
+		char *newline;
+
+		snprintf(text, sizeof(text), "%s", browser_screen.offer_stock_first);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 92, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
-		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 142, UI_ALIGN_CENTER, COLOR_DIM,
-			"Copy it from your Halo PC or Custom Edition install");
-		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 158, UI_ALIGN_CENTER, COLOR_DIM,
-			"into maps_ce, then join again.");
+		snprintf(second, sizeof(second), "%s", browser_screen.offer_stock_second);
+		newline = strchr(second, '\n');
+		if (newline)
+			*newline++ = 0;
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 142, UI_ALIGN_CENTER, COLOR_DIM, second);
+		if (newline)
+			ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 158, UI_ALIGN_CENTER, COLOR_DIM, newline);
 		dialog_prompt(UI_BUTTON_B, "=CLOSE");
 		break;
 	}

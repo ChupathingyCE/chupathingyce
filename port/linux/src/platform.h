@@ -194,9 +194,9 @@ this build's, and the maximum the same. */
 #ifdef HALO_WINDOW_REBASE
 #define PLATFORM_CONTIGUOUS_SIZE (platform_contiguous_size)
 #if defined(HALO_ANDROID) && !defined(HALO_64BIT)
-/* a console's guest (the Switch's): a 128 MB development kit's, or the 256
-MB the host holds for it (port/switch/host/host_memory.c), the extra going
-to the texture cache (halo_port_capacity.h) */
+/* the Switch's guest: a 128 MB development kit's, or the 256 MB the host
+holds for it at its pinned address (port/switch/host/host_memory.c), the
+extra going to the texture cache (halo_port_capacity.h) */
 #define PLATFORM_CONTIGUOUS_MINIMUM 0x08000000UL
 #define PLATFORM_CONTIGUOUS_MAXIMUM 0x10000000UL
 #else

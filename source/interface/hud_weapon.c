@@ -445,6 +445,7 @@ void hud_initialize_weapon_interface_for_new_map(
 		weapon_hud_globals,
 		NONE,
 		sizeof(*weapon_hud_globals));
+#ifndef HALO_XBOX_CONSOLE
 	/* port: no crosshair drawn until hud_update_weapon has worked out its
 	states (each tick). Drawn from the states above, all NONE, the default
 	weapon HUD's aim crosshair has frame NONE (crosshairs_draw's assertion,
@@ -458,6 +459,7 @@ void hud_initialize_weapon_interface_for_new_map(
 		for (local_player_index = 0; local_player_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS; local_player_index++)
 			weapon_hud_globals->crosshair_states[local_player_index].render_flags = 0;
 	}
+#endif
 
 	return;
 }
@@ -1190,6 +1192,7 @@ static void crosshairs_draw(
 								}
 
 							draw_crosshair:
+#ifndef HALO_XBOX_CONSOLE
 								/* port: a frame that is not one of the item's sprites draws
 								nothing, rather than a sprite outside its sequence: a state not
 								yet worked out has none, and the states are worked out each tick
@@ -1213,6 +1216,7 @@ static void crosshairs_draw(
 									}
 									continue;
 								}
+#endif
 								match_vassert(
 									"c:\\halo\\SOURCE\\interface\\hud_weapon.c",
 									0x4A5,
@@ -1722,12 +1726,14 @@ static void render_weapon_hud(
 			TEST_FLAG(map_type_flags, element->header.use_on_map_type) &&
 			weapon_hud_state_index_valid(element->header.state_type, NUMBER_OF_WEAPON_HUD_FLASH_REFERENCES))
 		{
+#ifndef HALO_XBOX_CONSOLE
 			/* (the zoomed view's, at the middle: hud_zoomed_layout_begin) */
 			rectangle2d window_bounds;
 			boolean zoomed_layout = hud_multitexture_overlays_follow_zoom(&element->static_element.multitexture_overlays);
 
 			if (zoomed_layout)
 				hud_zoomed_layout_begin(&window_bounds);
+#endif
 			state_index = element->header.state_type;
 			hud_draw_static_element(
 				local_player_index,
@@ -1735,8 +1741,10 @@ static void render_weapon_hud(
 				&element->static_element,
 				state_flags[state_index],
 				hud_state->last_weapon_flash_time[state_index]);
+#ifndef HALO_XBOX_CONSOLE
 			if (zoomed_layout)
 				hud_zoomed_layout_end(&window_bounds);
+#endif
 		}
 	}
 
@@ -1754,11 +1762,13 @@ static void render_weapon_hud(
 			weapon_hud_state_index_valid(element->header.state_type, NUMBER_OF_WEAPON_HUD_FLASH_REFERENCES))
 		{
 			byte value;
+#ifndef HALO_XBOX_CONSOLE
 			rectangle2d window_bounds;
 			boolean zoomed_layout = hud_multitexture_overlays_follow_zoom(&element->meter_element.multitexture_overlays);
 
 			if (zoomed_layout)
 				hud_zoomed_layout_begin(&window_bounds);
+#endif
 
 			state_index = element->header.state_type;
 			value = (byte)number_values[state_index];
@@ -1771,8 +1781,10 @@ static void render_weapon_hud(
 				state_flags[state_index],
 				(real)hud_state->last_weapon_flash_time[state_index],
 				0.0f);
+#ifndef HALO_XBOX_CONSOLE
 			if (zoomed_layout)
 				hud_zoomed_layout_end(&window_bounds);
+#endif
 		}
 	}
 
@@ -1792,8 +1804,10 @@ static void render_weapon_hud(
 			short magazine_size = 1;
 			short value;
 			short decimal_value;
+#ifndef HALO_XBOX_CONSOLE
 			rectangle2d window_bounds;
 			boolean zoomed_layout = hud_number_shows_only_when_zoomed(&element->number_element);
+#endif
 
 			if (TEST_FLAG(
 				element->weapon_flags,
@@ -1838,8 +1852,10 @@ static void render_weapon_hud(
 				decimal_value = NONE;
 			}
 
+#ifndef HALO_XBOX_CONSOLE
 			if (zoomed_layout)
 				hud_zoomed_layout_begin(&window_bounds);
+#endif
 			hud_draw_numbers(
 				local_player_index,
 				&definition->absolute_placement,
@@ -1849,8 +1865,10 @@ static void render_weapon_hud(
 				state_flags[state_index],
 				hud_state->last_weapon_flash_time[state_index],
 				0.0f);
+#ifndef HALO_XBOX_CONSOLE
 			if (zoomed_layout)
 				hud_zoomed_layout_end(&window_bounds);
+#endif
 		}
 	}
 

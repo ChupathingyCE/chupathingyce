@@ -32,6 +32,7 @@ enum profile_dump_format_mode
 
 /* ---------- macros */
 
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
 #define profile_enter(section)							\
 if (profile_global_enable && section.active)	\
 {														\
@@ -43,6 +44,13 @@ if (profile_global_enable && section.active)	\
 {														\
 	profile_exit_private(&section);						\
 }														\
+
+#else
+/* port: no profiler in the console's build (halo_xbox_prefix.h); the
+sections stay declared and are dropped as unused */
+#define profile_enter(section)
+#define profile_exit(section)
+#endif
 
 /* ---------- structures */
 

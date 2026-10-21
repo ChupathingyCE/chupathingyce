@@ -188,6 +188,7 @@ struct game_options;
 #include "networking/network_game_globals.h"
 #include "tag_files/tag_files.h"
 #include "cseries/cseries_windows.h"
+#include "halo_perf_log.h" /* port: console.perf_log */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -694,6 +695,15 @@ void game_initialize_for_new_map(
 	from now on go elsewhere, port/linux/game/network_objects.c) */
 	network_objects_placed();
 	ui_widgets_safe_to_load(TRUE);
+#ifdef HALO_XBOX_CONSOLE
+	/* port: a test build of more than 16 players logs its memory at each
+	map's start (port/xbox/src/xbox_memory.c; nothing in a stock build) */
+	{
+		void xbox_memory_log_point(const char *where);
+
+		xbox_memory_log_point("a map started");
+	}
+#endif
 
 	return;
 }
@@ -858,7 +868,7 @@ void game_precache_new_map(
 #ifdef HALO_CONSOLE_MAP_LOAD_HOOKS
 			/* port: the map's shaders are compiled under the loading screen,
 			which stays up for them once the map is read, for ten seconds at
-			most from here (the Switch's port/switch/guest/dk_shaders.c) */
+			most from here (port/switch/guest/dk_shaders.c) */
 			{
 				extern void d3d8_gl_map_loading(const char *name);
 
@@ -876,7 +886,7 @@ void game_precache_new_map(
 				}
 #ifdef HALO_CONSOLE_MAP_LOAD_HOOKS
 				/* port: the loading screen's progress is half the map's copy and half its shaders
-				(the console's renderer), never going back, so that its light sweeps across the whole
+				(port/switch/guest/dk_shaders.c), never going back, so that its light sweeps across the whole
 				time it is up and not across the copy alone, then dark through the shaders' wait */
 				{
 					static real shown;
@@ -900,13 +910,11 @@ void game_precache_new_map(
 				main_present_frame();
 			}
 			while (!map_status ||
-				(map_status != _cached_map_file_failed &&
-					system_milliseconds() - hold_start < hold_milliseconds)
 #ifdef HALO_CONSOLE_MAP_LOAD_HOOKS
-				/* port: and until the map's shaders are ready (above) */
-				|| (map_status == _cached_map_file_success && d3d8_gl_map_waiting())
+				(map_status == _cached_map_file_success && d3d8_gl_map_waiting()) ||
 #endif
-				);
+				(map_status != _cached_map_file_failed &&
+					system_milliseconds() - hold_start < hold_milliseconds));
 
 			progress_bar_end();
 			ui_widgets_close_all();
@@ -949,6 +957,14 @@ void game_precache_new_map(
 void game_dispose_from_old_map(
 	void)
 {
+#ifdef HALO_XBOX_CONSOLE
+	/* port: and at its end, with the objects' peaks over it */
+	{
+		void xbox_memory_log_point(const char *where);
+
+		xbox_memory_log_point("a map ending");
+	}
+#endif
 #ifdef HALO_SWITCH_CONSOLE
 	/* port: the Switch GPU may still be reading this map (port/switch/host/host_dk.c) */
 	extern void halo_switch_renderer_idle(void);
@@ -1015,7 +1031,9 @@ void game_frame(
 	contrails_update(frame_dt);
 	particle_systems_update(frame_dt);
 	widgets_update(frame_dt);
+	HALO_PERF_BEGIN(_halo_perf_sound);
 	game_sound_update(frame_dt);
+	HALO_PERF_END(_halo_perf_sound);
 	scenario_frame_update(frame_dt);
 	rasterizer_frame_update(frame_dt);
 	numeric_countdown_timer_update();

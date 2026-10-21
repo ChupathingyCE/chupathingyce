@@ -454,7 +454,7 @@ static boolean action_vehicle_find_destination(
 	struct unit_definition *vehicle_definition =
 		unit_definition_get(vehicle->definition_index);
 	struct actor_debug_info *debug =
-		&actor_debug_array[DATUM_INDEX_TO_ABSOLUTE_INDEX(actor_index)];
+		ACTOR_DEBUG_INFO_GET(actor_index);
 	real_point3d modified_destination = *entry_point;
 	boolean success = FALSE;
 	boolean ignore_hint =

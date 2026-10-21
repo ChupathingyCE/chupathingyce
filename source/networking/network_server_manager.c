@@ -4199,6 +4199,11 @@ void network_game_server_port_set_cooperative(
 {
 	if (!server || server->state != _network_game_server_state_pregame)
 		return;
+#ifdef HALO_XBOX_CONSOLE
+	/* port: no network co-op on the console (port/xbox/game/xbox_coop.c) */
+	(void)difficulty;
+	return;
+#endif
 	server->game.difficulty = difficulty;
 	/* (Server Setup's default for co-op, menu_functions.c's
 	COOPERATIVE_DEFAULT_PLAYERS, until it sets its own) */

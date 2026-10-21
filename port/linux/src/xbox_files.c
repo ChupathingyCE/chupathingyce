@@ -412,7 +412,6 @@ static const char *log_file_name(const char *xbox_path)
 	}
 	return NULL;
 }
-
 #ifdef HALO_WINDOW_REBASE
 /* A saved game is the game state written out raw, pointers and all
 (saved games/game_state_xbox.c): z:\savegame.bin, the checkpoint the game

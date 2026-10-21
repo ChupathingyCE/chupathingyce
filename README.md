@@ -367,7 +367,7 @@ A few people look for most:
 | `audio.volume`, `audio.music_volume`, `audio.effects_volume` | Volumes, from 0.0 to 1.0. |
 | `audio.device` | The output the sound plays on, by name (Audio Setup lists them); `"default"` follows the system's default output. |
 | `input.mouse_sensitivity`, `input.invert_mouse` | Mouse aim. |
-| `input.keyboard_prompts` | `true` (the default) shows the bound key in the HUD's and menus' button prompts after you use the keyboard or mouse, as Halo PC did; `false` always shows the controller's buttons. |
+| `input.keyboard_prompts` | Button prompts follow the device you used last: keys after the keyboard or mouse, as Halo PC did, and buttons after a controller. This setting is no longer in the menus; `false` keeps the controller's buttons everywhere. |
 | `controls.*` | Every key: `controls.jump = "Space"`, or two at once, such as `"F, Mouse 4"`. |
 | `network.browser_url` | The game list Online Games shows (stats.chupathingy.org). |
 | `network.host_public` | Whether games you host are listed for everyone (true) or only joinable by invite (false). |
@@ -435,6 +435,10 @@ Useful `configure.py` options:
 | `--portable` | A Linux or Windows build that runs on any x86-64 computer, or a universal Mac application, to give to others. The Linux builds also run on older distributions and on SteamOS: refer to "Portable build" in [port/linux/README.md](port/linux/README.md#portable-build). |
 | `--no-game-browser` | Leaves out the server list, stats and dedicated servers. |
 | `--pgo=off`, `--lto=off` | Faster builds, without profile-guided or link-time optimisation. |
+
+The console ports (original Xbox, Xbox 360, Switch) are built from their own
+repositories, with this one as a submodule: "Console ports" in
+[docs/building.md](docs/building.md#console-ports).
 
 The version being made is in `VERSION`. Releases are built and published by
 the project's release workflow; the builds on this repository's Actions page

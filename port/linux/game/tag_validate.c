@@ -35,6 +35,7 @@ runs it alone on a map file.
 /* ---------- headers */
 
 #include "cseries.h"
+#include "cseries/errors.h"
 #include "cache/physical_memory_map.h"
 #include "tag_schema.h"
 
@@ -176,7 +177,43 @@ static struct
 
 /* a bit for each byte of the tag cache that a tag's root, block or data
 holds */
+#ifndef HALO_XBOX_CONSOLE
 static unsigned long tag_validate_claims[CLAIM_WORDS];
+#else
+/* port: on the console, 2.75 MB of the heap, made at the first map's load
+on a console above its memory baseline (claims_ready, halo_console_memory.h:
+128 MB or more on the Xbox). A stock 64 MB console has no room for them:
+its maps load unchecked, as the Xbox game's did, and tag_validate_skipped
+says so to the bsps' check */
+static unsigned long *tag_validate_claims;
+static boolean tag_validate_skipped;
+
+static boolean claims_ready(
+	void)
+{
+	static boolean refused;
+
+	if (tag_validate_claims)
+		return TRUE;
+	if (refused)
+		return FALSE;
+	refused = TRUE;
+	if (!HALO_CONSOLE_MEMORY_EXTRAS(FALSE, TRUE))
+	{
+		error(_error_silent, "maps load without the tag checks: a 64 MB console has no room for them (%lu KB)",
+			(unsigned long)(CLAIM_WORDS * sizeof(unsigned long)) >> 10);
+		return FALSE;
+	}
+	tag_validate_claims = malloc(CLAIM_WORDS * sizeof(unsigned long));
+	if (!tag_validate_claims)
+	{
+		error(_error_silent, "maps load without the tag checks: no memory for them (%lu KB)",
+			(unsigned long)(CLAIM_WORDS * sizeof(unsigned long)) >> 10);
+		return FALSE;
+	}
+	return TRUE;
+}
+#endif
 
 /* (in the Xbox address space on the 64-bit builds, where the tags'
 pointers are Xbox addresses: xbox_address.h) */
@@ -1042,11 +1079,16 @@ boolean tag_validate_tags(
 	long absolute_index;
 
 	memset(&tag_validate_globals, 0, sizeof(tag_validate_globals));
+#ifdef HALO_XBOX_CONSOLE
+	tag_validate_skipped = !claims_ready();
+	if (tag_validate_skipped)
+		return TRUE;
+#endif
 	tag_validate_globals.header = header;
 	tag_validate_globals.tag_data_size = tag_data_size;
 	tag_validate_globals.file_length = file_length;
 	snprintf(tag_validate_globals.map_name, sizeof(tag_validate_globals.map_name), "%s", map_name);
-	memset(tag_validate_claims, 0, sizeof(tag_validate_claims));
+	memset(tag_validate_claims, 0, CLAIM_WORDS * sizeof(*tag_validate_claims));
 	validation_new(&validation, tag_header, (unsigned long)tag_data_size);
 #ifdef HALO_64BIT
 	if (!tag_validate_empty_name)
@@ -1181,6 +1223,11 @@ boolean tag_validate_structure_bsp(
 	struct tag_validation validation;
 	unsigned long tag_cache_offset = (unsigned long)(POINTER_BITS(base) - POINTER_BITS(header));
 
+#ifdef HALO_XBOX_CONSOLE
+	/* (the map's tags were not checked either: tag_validate_tags) */
+	if (tag_validate_skipped)
+		return TRUE;
+#endif
 	validation_new(&validation, base, (unsigned long)size);
 	validation.tag_index = tag_index;
 	if (!header || !instance || instance->group_tag != STRUCTURE_BSP_GROUP_TAG ||

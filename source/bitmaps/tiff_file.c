@@ -57,6 +57,8 @@ symbols in this file:
 #include "tag_files/files.h"
 #endif
 
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
+
 #ifdef HALO_64BIT
 /* The modern fork drops libtiff: the platform layer writes screenshots
 (HALO_SCREENSHOT_DIR), and importing TIFFs is the tools' business. */
@@ -495,3 +497,34 @@ tiff_import(
 }
 
 /* ---------- private code */
+
+#else
+
+/* port: the console's build without the developer tools (halo_xbox_prefix.h)
+has none of this module; what the rest of the game calls answers with nothing */
+
+boolean tiff_get_bounds(
+	struct file_reference *file,
+	unsigned long *width,
+	unsigned long *height)
+{
+	return 0;
+}
+
+char const * tiff_export(
+	struct file_reference *file,
+	struct bitmap_data *bitmap)
+{
+	return "screenshots as TIFF files are not in this build (configure.py --console-debug-tools)";
+}
+
+char const * tiff_import(
+	struct file_reference *file,
+	struct bitmap_data **bitmap_result,
+	rectangle2d const *requested_bounds,
+	short format)
+{
+	return NULL;
+}
+
+#endif
