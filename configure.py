@@ -70,6 +70,13 @@ parser.add_argument(
     "cross-play against the PC builds on one computer (docs/cross-play.md); never a build to ship",
 )
 parser.add_argument(
+    "--window-rebase",
+    action="store_true",
+    help="the 32-bit Linux build (ninja linux) with its Xbox memory window wherever HALO_WINDOW_BASE puts it "
+    "(HALO_WINDOW_REBASE: source/cseries/xbox_address.h), to test on the desktop what the Switch's guest "
+    "does; never a build to ship",
+)
+parser.add_argument(
     "--lto",
     choices=["full", "thin", "off"],
     default="full",
@@ -127,6 +134,7 @@ sln = SimpleNamespace(
     port_release=args.release,
     game_browser=args.game_browser,
     console_limits=args.console_limits,
+    window_rebase=args.window_rebase,
     port_lto=args.lto,
     port_portable=args.portable,
     port_pgo=args.pgo,

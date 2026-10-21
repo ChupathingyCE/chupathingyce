@@ -15800,7 +15800,7 @@ boolean hs_scenario_postprocess(
 			MAXIMUM_HS_SCRIPTS_PER_SCENARIO);
 		hs_scenario_scripts_disable(scenario);
 	}
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 	hs_syntax_data = (struct data_array *)xbox_pointer(scenario->hs_syntax_data.address);
 	hs_syntax_data->data = xbox_address((char *)hs_syntax_data+sizeof(struct data_array));
 #else

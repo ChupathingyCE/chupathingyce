@@ -584,7 +584,7 @@ void tags_header_register_vertex_and_index_buffers(
 
 	for (index = 0; index < header->vertex_buffer_count; index++)
 	{
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 		D3DVertexBuffer *vertex_buffer = &XBOX_POINTER(D3DVertexBuffer, header->vertex_buffers)[index];
 #else
 		D3DVertexBuffer *vertex_buffer = &header->vertex_buffers[index];
@@ -596,7 +596,7 @@ void tags_header_register_vertex_and_index_buffers(
 
 	for (index = 0; index < header->index_buffer_count; index++)
 	{
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 		D3DIndexBuffer *index_buffer = &XBOX_POINTER(D3DIndexBuffer, header->index_buffers)[index];
 #else
 		D3DIndexBuffer *index_buffer = &header->index_buffers[index];
@@ -617,7 +617,7 @@ void tags_header_deregister_vertex_and_index_buffers(
 
 	for (index = 0; index < header->vertex_buffer_count; index++)
 	{
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 		D3DVertexBuffer *vertex_buffer = &XBOX_POINTER(D3DVertexBuffer, header->vertex_buffers)[index];
 #else
 		D3DVertexBuffer *vertex_buffer = &header->vertex_buffers[index];
@@ -632,7 +632,7 @@ void tags_header_deregister_vertex_and_index_buffers(
 
 	for (index = 0; index < header->index_buffer_count; index++)
 	{
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 		D3DIndexBuffer *index_buffer = &XBOX_POINTER(D3DIndexBuffer, header->index_buffers)[index];
 #else
 		D3DIndexBuffer *index_buffer = &header->index_buffers[index];
@@ -657,7 +657,7 @@ void structure_bsp_header_register_vertex_buffers(
 
 	for (index = 0; index < header->vertex_buffer_count; index++)
 	{
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 		D3DVertexBuffer *vertex_buffer = &XBOX_POINTER(D3DVertexBuffer, header->vertex_buffers)[index];
 #else
 		D3DVertexBuffer *vertex_buffer = &header->vertex_buffers[index];
@@ -669,7 +669,7 @@ void structure_bsp_header_register_vertex_buffers(
 
 	for (index = 0; index < header->lightmap_vertex_buffer_count; index++)
 	{
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 		D3DVertexBuffer *vertex_buffer = &XBOX_POINTER(D3DVertexBuffer, header->lightmap_vertex_buffers)[index];
 #else
 		D3DVertexBuffer *vertex_buffer = &header->lightmap_vertex_buffers[index];
@@ -693,7 +693,7 @@ void structure_bsp_header_deregister_vertex_buffers(
 
 	for (index = 0; index < header->vertex_buffer_count; index++)
 	{
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 		D3DVertexBuffer *vertex_buffer = &XBOX_POINTER(D3DVertexBuffer, header->vertex_buffers)[index];
 #else
 		D3DVertexBuffer *vertex_buffer = &header->vertex_buffers[index];
@@ -704,7 +704,7 @@ void structure_bsp_header_deregister_vertex_buffers(
 
 	for (index = 0; index < header->lightmap_vertex_buffer_count; index++)
 	{
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 		D3DVertexBuffer *vertex_buffer = &XBOX_POINTER(D3DVertexBuffer, header->lightmap_vertex_buffers)[index];
 #else
 		D3DVertexBuffer *vertex_buffer = &header->lightmap_vertex_buffers[index];
@@ -863,6 +863,16 @@ boolean cache_files_precache_map_begin(
 			cache_file_globals.copying_to_map_file_name[
 				sizeof(cache_file_globals.copying_to_map_file_name) - 1] = 0;
 			cache_file_get_map_path(cache_map_name, path);
+#ifdef HALO_SWITCH_CONSOLE
+			/* port: (port/linux/src/xbox_files.c) a cache file about to be
+			written over with a new map: the Switch, which keeps them in
+			memory, lets the old one's go first */
+			{
+				extern void platform_file_discard(HANDLE handle);
+
+				platform_file_discard(cached_map_file_get_handle(map_file_index));
+			}
+#endif
 			error(_error_silent, "starting precaching of map '%s'", cache_map_name);
 			cache_copy_begin(
 				buffer,
