@@ -160,7 +160,7 @@ static const struct config_setting config_settings[] =
 		"The first-person field of view in degrees, 50 to 120. 70: the Xbox's." },
 	{ "display.viewmodel_field_of_view", _config_real, "0.0", "HALO_VIEWMODEL_FIELD_OF_VIEW", _environment_value,
 		_platform_all,
-		"The first-person weapon's field of view, 50 to 120. 0: display.field_of_view." },
+		"The weapon's field of view, 50 to 120. 0: display.field_of_view's." },
 	{ "display.far_clip_distance", _config_real, "1024.0", "HALO_FAR_CLIP_DISTANCE", _environment_value, _platform_all,
 		"How far the world is drawn, up to 10000. 1024: the Xbox's." },
 	{ "display.match_timer", _config_boolean, "false", "HALO_MATCH_TIMER", _environment_value, _platform_all,
