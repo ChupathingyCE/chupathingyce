@@ -197,6 +197,8 @@ SCREENS = {
              "Join a game from an invite link on the clipboard.", None),
             ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
              "Check for a new version at startup.", None),
+            ("START WITH ONE PLAYER:", "game.start_with_one_player", ON_OFF,
+             "Let a game you host start with only you.", None),
         ],
     },
     # (opened from the profile menu's PRIVACY row: PAGE_ITEMS. The Delta

@@ -205,6 +205,7 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_map_downloads" x="54" y="133"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_join_from_clipboard" x="54" y="163"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_auto" x="54" y="193"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_start_with_one_player" x="54" y="223"/>
 	</widget>
 	<widget name="chupathingy/settings/privacy_setup_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
 		<on event="b" back="true"/>

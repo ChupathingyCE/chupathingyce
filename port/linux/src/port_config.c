@@ -372,6 +372,10 @@ static const struct config_setting config_settings[] =
 	{ "game.unlock_all_levels", _config_boolean, "false", "HALO_UNLOCK_ALL_LEVELS", _environment_value, _platform_all,
 		"New profiles start with every campaign level unlocked." },
 
+	{ "game.start_with_one_player", _config_boolean, "false", "HALO_START_WITH_ONE_PLAYER", _environment_value,
+		_platform_all,
+		"Let a game you host start with only you. Others can join in progress." },
+
 	{ "game.downloaded_maps", _config_string, "\"\"", "HALO_DOWNLOADED_MAPS", _environment_value, _platform_all,
 		"Maps treated as downloaded, separated by commas (bloodgulch,\n"
 		"hugeass@ce), or \"*\" for all. Their scripts can't change your settings\n"
@@ -573,7 +577,7 @@ static const struct config_setting config_settings[] =
 	{ "debug.touch_targets", _config_boolean, "false", "HALO_TOUCH_TARGETS", _environment_set_is_true, _platform_all,
 		"Outline the menus' tap targets and log each tap." },
 	{ "debug.solo_game", _config_boolean, "false", "HALO_SOLO_GAME", _environment_set_is_true, _platform_all,
-		"Let a system link or split screen game start with one player." },
+		"Old name for game.start_with_one_player." },
 	{ "debug.network_latency", _config_real, "0.0", "HALO_NETWORK_LATENCY", _environment_value, _platform_all,
 		"Milliseconds to delay everything received; 0 none." },
 	{ "debug.network_loss", _config_real, "0.0", "HALO_NETWORK_LOSS", _environment_value, _platform_all,
