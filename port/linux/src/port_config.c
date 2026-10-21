@@ -1530,6 +1530,21 @@ static const struct
 
 #define NUMBER_OF_CONFIG_OLD_DEFAULTS (sizeof(config_old_defaults) / sizeof(config_old_defaults[0]))
 
+/* the settings an earlier version had under another name, whose value the
+player chose goes on under the new one (config_forward_renamed) */
+static const struct
+{
+	const char *old_name;
+	const char *name;
+} config_renamed[] =
+{
+	/* the loading screen's one least time, until v0.8.0b: a campaign
+	level's now (a multiplayer game's starts at its own default) */
+	{ "display.loading_screen_min_seconds", "display.loading_screen_campaign_seconds" },
+};
+
+#define NUMBER_OF_CONFIG_RENAMED (sizeof(config_renamed) / sizeof(config_renamed[0]))
+
 /* whether the file's value is the default written as text */
 static int config_datum_is(toml_datum_t datum, enum config_type type, const char *text)
 {
@@ -2080,6 +2095,143 @@ static char *config_follow_old_defaults(const char *text, toml_datum_t table)
 	return result;
 }
 
+/* a file that holds a setting under its older name (config_renamed): that
+name's lines are taken out of it (its value, and its line commented out at
+the default with its help text of that day, each with the comment above it
+and one blank line), and a value the player chose there goes in under the
+new name where the old one was, with the new setting's help text, as
+config_write writes a choice; a value already given under the new name is
+the one kept. A setting not chosen (only commented out) is left to
+config_add_missing, which writes it at its default. Returns the new text,
+or NULL if there was nothing to change */
+static char *config_forward_renamed(const char *text, toml_datum_t table)
+{
+	char *result = NULL;
+	size_t renamed;
+
+	for (renamed = 0; renamed < NUMBER_OF_CONFIG_RENAMED; renamed++)
+	{
+		const char *source = result ? result : text;
+		const char *old_name = config_renamed[renamed].old_name;
+		const char *old_dot = strchr(old_name, '.');
+		long index = config_setting_index(config_renamed[renamed].name);
+		const struct config_setting *setting;
+		struct config_text out = { NULL, 0, 0 };
+		struct config_text block = { NULL, 0, 0 };
+		const char *line;
+		const char **starts;
+		unsigned char *drop;
+		size_t count = 0, capacity = 0, line_index, value_line = (size_t)-1, found = 0;
+		char section[64], current[64] = "", value[256] = "";
+		int forward;
+
+		if (index < 0 || !old_dot)
+			continue;
+		setting = &config_settings[index];
+		forward = toml_seek(table, old_name).type != TOML_UNKNOWN &&
+			toml_seek(table, setting->name).type == TOML_UNKNOWN;
+		snprintf(section, sizeof(section), "%.*s", (int)(old_dot - old_name), old_name);
+		for (line = source; *line; line += strcspn(line, "\n") + (line[strcspn(line, "\n")] ? 1 : 0))
+			capacity++;
+		starts = malloc((capacity + 1) * sizeof(*starts));
+		drop = calloc(capacity + 1, 1);
+		if (!starts || !drop)
+		{
+			free(starts);
+			free(drop);
+			continue;
+		}
+		for (line = source; *line; line += strcspn(line, "\n") + (line[strcspn(line, "\n")] ? 1 : 0))
+			starts[count++] = line;
+		starts[count] = line;
+		for (line_index = 0; line_index < count; line_index++)
+		{
+			const char *start = starts[line_index];
+			const char *end = start + strcspn(start, "\n");
+			int is_value;
+
+			if (config_line_section(start, end, current, sizeof(current)))
+				continue;
+			is_value = config_line_key(start, end, old_dot + 1);
+			if (strcmp(current, section) || (!is_value && !config_line_commented_key(start, end, old_dot + 1)))
+				continue;
+			{
+				size_t back = line_index;
+
+				drop[line_index] = 1;
+				found++;
+				while (back > 0 && config_line_comment(starts[back - 1], starts[back - 1] + strcspn(starts[back - 1], "\n")))
+					drop[--back] = 1;
+				if (back > 0 && config_line_blank(starts[back - 1], starts[back - 1] + strcspn(starts[back - 1], "\n")))
+					drop[back - 1] = 1;
+			}
+			/* (the value as the player wrote it) */
+			if (is_value && value_line == (size_t)-1)
+			{
+				const char *text_start = (const char *)memchr(start, '=', (size_t)(end - start)) + 1;
+				const char *text_end = end;
+
+				while (text_start < text_end && (*text_start == ' ' || *text_start == '\t'))
+					text_start++;
+				while (text_end > text_start && (text_end[-1] == ' ' || text_end[-1] == '\t' || text_end[-1] == '\r'))
+					text_end--;
+				if ((size_t)(text_end - text_start) < sizeof(value))
+				{
+					memcpy(value, text_start, (size_t)(text_end - text_start));
+					value[text_end - text_start] = 0;
+					value_line = line_index;
+				}
+			}
+		}
+		if (forward && value_line != (size_t)-1)
+		{
+			char buffer[320];
+			size_t last;
+
+			/* the new setting's lines, its key taken out of its comment */
+			config_append_setting(&block, setting);
+			if (block.buffer)
+			{
+				for (last = block.length - 1; last > 0 && block.buffer[last - 1] != '\n'; last--)
+					;
+				block.buffer[last] = 0;
+				block.length = last;
+				snprintf(buffer, sizeof(buffer), "%s = %s\n", strchr(setting->name, '.') + 1, value);
+				config_append(&block, buffer);
+			}
+		}
+		if (found)
+		{
+			for (line_index = 0; line_index < count; line_index++)
+			{
+				if (line_index == value_line && block.buffer)
+					config_append(&out, block.buffer);
+				if (!drop[line_index])
+				{
+					char *copy = config_copy(starts[line_index], (size_t)(starts[line_index + 1] - starts[line_index]));
+
+					if (copy)
+						config_append(&out, copy);
+					free(copy);
+				}
+			}
+			if (out.buffer)
+			{
+				free(result);
+				result = out.buffer;
+				if (block.buffer)
+					platform_log("settings: %s = %s goes on as %s", old_name, value, setting->name);
+				else
+					platform_log("settings: %s (an older version's) taken out of config.toml", old_name);
+			}
+		}
+		free(block.buffer);
+		free(starts);
+		free(drop);
+	}
+	return result;
+}
+
 /* ---------- words */
 
 /* the settings that take one of a few words: one in any case is taken (as
@@ -2425,6 +2577,29 @@ static void config_load(void)
 					{
 						toml_free(followed_result);
 						free(followed);
+					}
+				}
+			}
+			{
+				/* (a value under a setting's older name, forwarded) */
+				char *forwarded = config_forward_renamed(text, result.toptab);
+				toml_result_t forwarded_result;
+
+				if (forwarded)
+				{
+					forwarded_result = toml_parse(forwarded, (int)strlen(forwarded));
+					if (forwarded_result.ok)
+					{
+						toml_free(result);
+						free(text);
+						result = forwarded_result;
+						text = forwarded;
+						updated = text;
+					}
+					else
+					{
+						toml_free(forwarded_result);
+						free(forwarded);
 					}
 				}
 			}
