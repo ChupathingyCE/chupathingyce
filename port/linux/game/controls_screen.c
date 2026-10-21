@@ -667,50 +667,21 @@ static void render_controller(
 		render_row((short)(index + 1), label, text, NULL, FALSE);
 	}
 
-	/* the help: what is happening, by the controller's own names */
+	/* the help line */
 	if (controls_screen.capture == _capture_release || controls_screen.capture == _capture_wait)
 	{
-		snprintf(help, sizeof(help), "Press a button for %s (now %s).",
-			controller_layout_action_title(controls_screen.capture_action),
-			controller_layout_button_name(controls_screen.kind, controls_screen.layout[controls_screen.capture_action]));
-		render_help(help, "Start or Back cancels.");
+		render_help("Press a button. Start or Back cancels.", NULL);
 	}
 	else if (controls_screen.capture != _capture_none)
-	{
-		if (other != NONE)
-		{
-			snprintf(help, sizeof(help), "%s becomes %s, %s becomes %s.",
-				controller_layout_action_title(controls_screen.capture_action),
-				controller_layout_button_name(controls_screen.kind, controls_screen.capture_button),
-				controller_layout_action_title(other),
-				controller_layout_button_name(controls_screen.kind, controls_screen.layout[controls_screen.capture_action]));
-		}
-		else
-		{
-			snprintf(help, sizeof(help), "%s becomes %s.", controller_layout_action_title(controls_screen.capture_action),
-				controller_layout_button_name(controls_screen.kind, controls_screen.capture_button));
-		}
-		render_help(help, "A confirms, B cancels.");
-	}
+		render_help("A confirms, B cancels.", NULL);
 	else if (focused == 0)
 	{
-		snprintf(help, sizeof(help), "%s. Which button does what;",
-			controls_screen.kind >= 0 ? controls_screen.pad_name : "No controller connected");
-		render_help(help, "Custom is yours, set below.");
+		render_help(controls_screen.kind >= 0 ? controls_screen.pad_name : "No controller connected.", NULL);
 	}
 	else
 	{
-		short action = button_row_actions[focused - 1];
-		char const *name = controller_layout_button_name(controls_screen.kind, controls_screen.layout[action]);
-
-		snprintf(help, sizeof(help), "%s is on %s.", controller_layout_action_title(action), name);
-		if (controls_screen.kind < 0)
-			render_help(help, "Connect a controller to change its buttons.");
-		else
-		{
-			snprintf(text, sizeof(text), "A sets its button; the action on that one takes %s.", name);
-			render_help(help, text);
-		}
+		render_help(controls_screen.kind < 0 ? "Connect a controller to change buttons." : "A changes the button.",
+			NULL);
 	}
 }
 
@@ -748,11 +719,11 @@ static void render_keyboard(
 		render_row(row, keys[key].label, shown[0], shown[1], FALSE);
 	}
 	if (controls_screen.key_capturing)
-		render_help("Press a key, a mouse button or turn the wheel...", "Escape cancels, Delete clears it.");
+		render_help("Press a key or mouse button. Escape cancels,", "Delete clears.");
 	else if (focused == 0)
-		render_help("Choose what to show, with left and right.", NULL);
+		render_help("Choose what to show.", NULL);
 	else
-		render_help("A sets the key chosen; left and right choose", "which of two. A key in use is swapped.");
+		render_help("A sets the key. Left and right pick which one.", NULL);
 }
 
 /* ---------- public code */

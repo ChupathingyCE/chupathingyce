@@ -247,19 +247,19 @@ static const char *const glyphs[CONTROLLER_KIND_COUNT][2][CONTROLLER_BUTTON_COUN
 	/* Xbox Series and One */
 	{ { "A", "B", "X", "Y", "RB", "LB", "LT", "RT", "Up", "Down", "Left", "Right", "Menu", "View", "LS", "RS" },
 	  { "A", "B", "X", "Y", "RB", "LB", "LT", "RT", "D-pad up", "D-pad down", "D-pad left", "D-pad right", "Menu",
-	    "View", "L stick click", "R stick click" } },
+	    "View", "LS", "RS" } },
 	/* Xbox 360 */
 	{ { "A", "B", "X", "Y", "RB", "LB", "LT", "RT", "Up", "Down", "Left", "Right", "Start", "Back", "LS", "RS" },
 	  { "A", "B", "X", "Y", "RB", "LB", "LT", "RT", "D-pad up", "D-pad down", "D-pad left", "D-pad right", "Start",
-	    "Back", "L stick click", "R stick click" } },
+	    "Back", "LS", "RS" } },
 	/* the Duke */
 	{ { "A", "B", "X", "Y", "Black", "White", "L", "R", "Up", "Down", "Left", "Right", "Start", "Back", "LS", "RS" },
 	  { "A", "B", "X", "Y", "Black", "White", "L trigger", "R trigger", "D-pad up", "D-pad down", "D-pad left",
-	    "D-pad right", "Start", "Back", "L stick click", "R stick click" } },
+	    "D-pad right", "Start", "Back", "LS", "RS" } },
 	/* Controller S */
 	{ { "A", "B", "X", "Y", "Black", "White", "L", "R", "Up", "Down", "Left", "Right", "Start", "Back", "LS", "RS" },
 	  { "A", "B", "X", "Y", "Black", "White", "L trigger", "R trigger", "D-pad up", "D-pad down", "D-pad left",
-	    "D-pad right", "Start", "Back", "L stick click", "R stick click" } },
+	    "D-pad right", "Start", "Back", "LS", "RS" } },
 	/* DualSense */
 	{ { "Cross", "Circle", "Square", "Triangle", "R1", "L1", "L2", "R2", "Up", "Down", "Left", "Right", "Options",
 	    "Create", "L3", "R3" },
@@ -273,11 +273,11 @@ static const char *const glyphs[CONTROLLER_KIND_COUNT][2][CONTROLLER_BUTTON_COUN
 	/* a Switch's (by place: the bottom button is B) */
 	{ { "B", "A", "Y", "X", "R", "L", "ZL", "ZR", "Up", "Down", "Left", "Right", "+", "-", "LS", "RS" },
 	  { "B", "A", "Y", "X", "R", "L", "ZL", "ZR", "D-pad up", "D-pad down", "D-pad left", "D-pad right", "Plus",
-	    "Minus", "L stick click", "R stick click" } },
+	    "Minus", "LS", "RS" } },
 	/* the Wii U Pro Controller (as a Switch's) */
 	{ { "B", "A", "Y", "X", "R", "L", "ZL", "ZR", "Up", "Down", "Left", "Right", "+", "-", "LS", "RS" },
 	  { "B", "A", "Y", "X", "R", "L", "ZL", "ZR", "D-pad up", "D-pad down", "D-pad left", "D-pad right", "Plus",
-	    "Minus", "L stick click", "R stick click" } },
+	    "Minus", "LS", "RS" } },
 	/* the Steam Deck */
 	{ { "A", "B", "X", "Y", "R1", "L1", "L2", "R2", "Up", "Down", "Left", "Right", "Menu", "View", "L3", "R3" },
 	  { "A", "B", "X", "Y", "R1", "L1", "L2", "R2", "D-pad up", "D-pad down", "D-pad left", "D-pad right", "Menu",
@@ -285,7 +285,7 @@ static const char *const glyphs[CONTROLLER_KIND_COUNT][2][CONTROLLER_BUTTON_COUN
 	/* any other (by the Xbox's names, as SDL maps it) */
 	{ { "A", "B", "X", "Y", "RB", "LB", "LT", "RT", "Up", "Down", "Left", "Right", "Start", "Back", "LS", "RS" },
 	  { "A", "B", "X", "Y", "RB", "LB", "LT", "RT", "D-pad up", "D-pad down", "D-pad left", "D-pad right", "Start",
-	    "Back", "L stick click", "R stick click" } },
+	    "Back", "LS", "RS" } },
 };
 
 static const char *const kind_titles[CONTROLLER_KIND_COUNT] =

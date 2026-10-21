@@ -2441,48 +2441,18 @@ static void controller_update(struct widget_instance *list)
 		text_set(named(row, "button_value", 0), text);
 	}
 
-	/* the help: what is happening, by the controller's own names */
+	/* the help line */
 	if (controller_screen.capture == _capture_release || controller_screen.capture == _capture_wait)
-	{
-		snprintf(help, sizeof(help), "Press a button for %s (now %s).\r\nStart or Back cancels.",
-			controller_layout_action_title(controller_screen.action),
-			controller_layout_button_name(controller_screen.kind, controller_screen.layout[controller_screen.action]));
-	}
+		snprintf(help, sizeof(help), "%s", "Press a button. Start or Back cancels.");
 	else if (controller_screen.capture != _capture_none)
-	{
-		if (other != NONE)
-		{
-			snprintf(help, sizeof(help), "%s becomes %s, %s becomes %s.\r\nA confirms, B cancels.",
-				controller_layout_action_title(controller_screen.action),
-				controller_layout_button_name(controller_screen.kind, controller_screen.button),
-				controller_layout_action_title(other),
-				controller_layout_button_name(controller_screen.kind, controller_screen.layout[controller_screen.action]));
-		}
-		else
-		{
-			snprintf(help, sizeof(help), "%s becomes %s.\r\nA confirms, B cancels.",
-				controller_layout_action_title(controller_screen.action),
-				controller_layout_button_name(controller_screen.kind, controller_screen.button));
-		}
-	}
+		snprintf(help, sizeof(help), "%s", "A confirms, B cancels.");
 	else if (focused_row != NONE)
-	{
-		short action = button_row_actions[focused_row];
-
-		if (controller_screen.kind < 0)
-			snprintf(help, sizeof(help), "%s is on %s. Connect a controller\r\nto change its buttons.",
-				controller_layout_action_title(action), controller_layout_button_name(controller_screen.kind,
-					controller_screen.layout[action]));
-		else
-			snprintf(help, sizeof(help), "%s is on %s. A sets its button; the\r\naction on that one takes %s.",
-				controller_layout_action_title(action),
-				controller_layout_button_name(controller_screen.kind, controller_screen.layout[action]),
-				controller_layout_button_name(controller_screen.kind, controller_screen.layout[action]));
-	}
+		snprintf(help, sizeof(help), "%s",
+			controller_screen.kind < 0 ? "Connect a controller to change buttons." : "A changes the button.");
 	else if (focused && named(focused, "layout_spinner", 0))
 	{
-		snprintf(help, sizeof(help), "%s. Which button does what;\r\nCustom is yours, set below.",
-			controller_screen.kind >= 0 ? controller_screen.pad_name : "No controller connected");
+		snprintf(help, sizeof(help), "%s",
+			controller_screen.kind >= 0 ? controller_screen.pad_name : "No controller connected.");
 	}
 	else
 		help[0] = 0;
