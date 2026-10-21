@@ -89,10 +89,10 @@
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/help_strings">
 		<string text=""/>
-		<string text="How fast the view turns side to side for the\nmouse's movement."/>
-		<string text="How fast the view turns up and down; Same\nturns it as fast as side to side."/>
+		<string text="Adjust the horizontal look sensitivity."/>
+		<string text="Adjust the vertical look sensitivity."/>
 		<string text="Moving the mouse forward looks down."/>
-		<string text="Slow and drag the view along with a target while\naiming with the mouse, as with a controller."/>
-		<string text="How wide the first-person view is, in degrees:\n70 as on the Xbox. Scopes zoom as much as before."/>
+		<string text="Use controller aim assist with the mouse."/>
+		<string text="Adjust the field of view."/>
 	</strings>
 </menus>

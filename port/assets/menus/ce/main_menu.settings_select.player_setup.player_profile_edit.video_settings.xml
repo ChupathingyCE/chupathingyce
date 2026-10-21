@@ -177,18 +177,18 @@
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/help_strings">
 		<string text=""/>
-		<string text="Fullscreen takes the display; borderless covers it\nwith a window. F11 switches to the window."/>
-		<string text="What fullscreen and borderless draw at. Fullscreen\nsets the display to it; borderless scales it."/>
-		<string text="The window's size: 4:3, then 16:10, 16:9 and 21:9\n(its edges can also be dragged)."/>
-		<string text="Native draws at the resolution; Original draws\nthe Xbox's 640x480 and scales it up."/>
-		<string text="Wait for the display between frames, so that the\npicture never tears."/>
-		<string text="30 draws the game's own frames; the others blend\nbetween them. Auto: twice the display's rate."/>
-		<string text="Draw a frame for every display refresh, blending\nbetween the game's 30 ticks a second."/>
-		<string text="Draw the HUD from the high-res redraws; off\ndraws the game's own pictures."/>
-		<string text="Draw text and titles with high-res fonts; off\ndraws the game's own."/>
-		<string text="Smooth jagged edges, which the Xbox did not. FXAA\nand SMAA are cheap; SSAA and MSAA are sharper."/>
-		<string text="Smooth jagged edges, which the Xbox did not. FXAA\nis cheap; MSAA is sharper."/>
-		<string text="The size objects' shadows are drawn at: 128 as on\nthe Xbox; larger for smoother, as soft, edges."/>
-		<string text="Light models for each pixel, without the facets\nof the Xbox's lighting for each vertex."/>
+		<string text="Fullscreen, borderless or a window. F11 switches."/>
+		<string text="The resolution for fullscreen and borderless."/>
+		<string text="The size of the window."/>
+		<string text="Native draws at full resolution. Original draws at\n640x480 and scales it up."/>
+		<string text="Sync frames to the display."/>
+		<string text="The frame rate limit. Auto is twice the display's\nrefresh rate."/>
+		<string text="Draw a frame for every display refresh."/>
+		<string text="Draw the HUD in high resolution."/>
+		<string text="Draw text and titles in high resolution."/>
+		<string text="Smooth jagged edges."/>
+		<string text="Smooth jagged edges."/>
+		<string text="The detail of object shadows."/>
+		<string text="Light models per pixel instead of per vertex."/>
 	</strings>
 </menus>

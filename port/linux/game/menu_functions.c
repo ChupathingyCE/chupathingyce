@@ -1880,7 +1880,7 @@ static boolean coop_player2_choose(short controller)
 	}
 	if (controller == player_ui_get_single_player_local_player_controller(0))
 	{
-		display_error_text_deferred(L"Player 2 chooses their\r\nprofile with their own\r\ncontroller.",
+		display_error_text_deferred(L"Player 2: choose with\r\nyour own controller.",
 			NONE);
 		return campaign_fail();
 	}
@@ -4064,9 +4064,9 @@ static void lobby_browser_update(struct widget_instance *list)
 
 		message = TRUE;
 		if (!config_boolean("network.online"))
-			usnprintf(text, NUMBEROF(text) - 1, L"Internet play is off (Settings)");
+			usnprintf(text, NUMBEROF(text) - 1, L"Turn on Internet Play in Settings.");
 		else if (!config_boolean("network.public_lobby"))
-			usnprintf(text, NUMBEROF(text) - 1, L"The server browser is off (network.public_lobby)");
+			usnprintf(text, NUMBEROF(text) - 1, L"The server browser is off.");
 		else if (lobby_browser.joining)
 		{
 			text_to_wide(lobby_browser.name, name, NUMBEROF(name));
@@ -4376,7 +4376,7 @@ static void browser_update(struct widget_instance *list)
 		else if (!multiplayer.game_count)
 		{
 			usnprintf(text, NUMBEROF(text) - 1, L"%s", multiplayer.mode == _multiplayer_mode_direct_link ?
-				L"Copy an invite link and PASTE LINK, or accept a Discord invite" :
+				L"Copy an invite link, then PASTE LINK." :
 				L"Looking for games on your LAN...");
 		}
 		else
@@ -4740,7 +4740,7 @@ static void lobby_join_help(struct widget_instance *list)
 		for (controller = 0; controller < MAXIMUM_LOCAL_PLAYERS; controller++)
 		{
 			if (input_has_gamepad(controller) && !lobby_controller_playing(controller))
-				text = L"Another controller: START joins.";
+				text = L"Another controller: press START.";
 		}
 	}
 	text_set(help, text);
@@ -4947,7 +4947,7 @@ static void lobby_update(struct widget_instance *list)
 		{
 			size_t length = ustrlen(text);
 
-			usnprintf(text + length, NUMBEROF(text) - 1 - length, L"\r\n\r\nInvite link copied:\r\npaste it to friends");
+			usnprintf(text + length, NUMBEROF(text) - 1 - length, L"\r\n\r\nInvite link copied.");
 		}
 		text_set_length(named(description, "lobby_game_data", 0), text, LOBBY_TEXT_LENGTH);
 	}
@@ -5026,9 +5026,8 @@ static void preview_update(struct widget_instance *list)
 		ustrncpy(name, game->game_name, NUMBEROF(game->game_name));
 		name[NUMBEROF(game->game_name)] = 0;
 		/* (the text box does not wrap: lines of up to 28 characters) */
-		usnprintf(text, NUMBEROF(text) - 1, L"%s\r\n\r\nThis game is under way.\r\n\r\n%s", name,
-			game->open ? L"JOIN GAME joins it now;\r\nits players show then." :
-			L"It cannot be joined now:\r\nit is loading, over or full.");
+		usnprintf(text, NUMBEROF(text) - 1, L"%s\r\n\r\nGame in progress.%s", name,
+			game->open ? L"" : L"\r\n\r\nCan't be joined now.");
 		text[NUMBEROF(text) - 1] = 0;
 		preview_players_text(text, NUMBEROF(text));
 	}

@@ -447,8 +447,7 @@ static boolean ce_map_check_tags(
 	}
 	if (tag_data_size > CE_IMAGE_TAG_CACHE_SIZE)
 	{
-		ce_refusal_explain("It is too big for the game's tag cache: its tags need %lu KB, and the tag cache holds "
-			"%lu KB.", tag_data_size / 1024, (unsigned long)CE_IMAGE_TAG_CACHE_SIZE / 1024);
+		ce_refusal_explain("It is too big for the game's tag cache.");
 		return ce_refuse("its tag data (%lu bytes) is larger than the tag cache (%lu bytes)", tag_data_size,
 			(unsigned long)CE_IMAGE_TAG_CACHE_SIZE);
 	}
@@ -543,8 +542,7 @@ static boolean ce_map_check_tags(
 		{
 			unsigned long needed = model_bytes + bsp_bytes;
 
-			ce_refusal_explain("It is too big for the game's tag cache: its models and level need %lu KB more room "
-				"than there is.", (needed - room + 1023) / 1024);
+			ce_refusal_explain("It is too big for the game's tag cache.");
 			ce_refuse("its models and structure BSP buffers need %lu bytes of the tag cache, and %lu bytes "
 				"are free between its tags and its BSP and above the tag cache (%lu too few)", needed, room,
 				needed - room);
@@ -766,7 +764,7 @@ boolean ce_map_check(
 		valid = ce_refuse("it is cut short: its header says %ld bytes, the file has %lu", file_length, file_size);
 	else if (ce_needs_opensauce(file))
 	{
-		ce_refusal_explain("It needs OpenSauce, which this game doesn't have.");
+		ce_refusal_explain("It needs OpenSauce.");
 		valid = ce_refuse("it needs OpenSauce (its OpenSauce header asks for memory upgrades or mod data)");
 	}
 	else
@@ -785,8 +783,7 @@ boolean ce_map_check(
 		}
 		else
 		{
-			snprintf(ce_message, sizeof(ce_message), "The %s map %.*s can't be played: it is damaged, or uses something "
-				"this game doesn't support. debug.txt has the details.", family, ce_map_file_name_length(map_name),
+			snprintf(ce_message, sizeof(ce_message), "The %s map %.*s can't be played: it is damaged or unsupported.", family, ce_map_file_name_length(map_name),
 				map_name);
 		}
 	}

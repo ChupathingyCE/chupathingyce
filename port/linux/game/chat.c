@@ -677,7 +677,7 @@ static char const *refusal_text(int reason, int scope, int paused_seconds)
 	case _delta_chat_refused_muted: return "You are muted";
 	case _delta_chat_refused_too_fast: return "Not sent: slow down";
 	case _delta_chat_refused_blocked: return "Not sent: blocked words";
-	case _delta_chat_refused_bad_text: return "Not sent: that text cannot be shown";
+	case _delta_chat_refused_bad_text: return "Not sent: unsupported text";
 	default: return "Not sent";
 	}
 }
@@ -1492,7 +1492,7 @@ void chat_draw(short local_player_index)
 			short count = quick_lines(lines);
 
 			wide_from_ascii("Quick", entry.name, NAME_LENGTH);
-			snprintf(text, sizeof(text), "%s   (D-pad down says it)", count ? lines[MIN(chat.quick_index, count - 1)] :
+			snprintf(text, sizeof(text), "%s   D-pad down: send", count ? lines[MIN(chat.quick_index, count - 1)] :
 				"");
 		}
 		utf8_to_wide(text, (int)strlen(text), entry.text, TEXT_LENGTH);
@@ -1511,7 +1511,7 @@ void chat_draw(short local_player_index)
 
 		csmemset(&entry, 0, sizeof(entry));
 		entry.kind = _entry_note;
-		wide_from_ascii("Up and down choose a player, M mutes or unmutes them for you; H or Escape closes", entry.text,
+		wide_from_ascii("M: mute or unmute   H: close", entry.text,
 			TEXT_LENGTH);
 		bottom = draw_entry(font_index, line_height, &entry, &area, bottom, 1.0f, FALSE);
 		for (row = (short)MIN(count, 8) - 1; row >= 0; row--)

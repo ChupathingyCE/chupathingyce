@@ -78,10 +78,10 @@
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/help_strings">
 		<string text=""/>
-		<string text="Send the scores and stats of the games you host\nto the game list. Off: they stay listed."/>
-		<string text="Record the games you host (kills, medals and\npositions) for the site's match pages."/>
-		<string text="Report the games you join, which puts them on\nyour profile on the game list."/>
-		<string text="Send a report of a crash to the developers.\nAsk: the game asks after the next one."/>
+		<string text="Send stats of games you host to the game list."/>
+		<string text="Record games you host for Delta match pages."/>
+		<string text="Add games you join to your game list profile."/>
+		<string text="Send crash reports to the developers."/>
 	</strings>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/privacy_profile_item" type="text" left="51" top="310" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="10" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
 		<on event="a" open="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/privacy_settings_screen"/>

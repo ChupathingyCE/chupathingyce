@@ -449,7 +449,7 @@ static void rejoin_given_up(
 	map_download_reset();
 	/* (the words the error has without the downloader: why the download
 	failed is in the log, the dialog having no room for more) */
-	snprintf(text, sizeof(text), "You don't have the %s map %.31s. If you have it, copy %.31s.map into %s.",
+	snprintf(text, sizeof(text), "You don't have the %s map %.31s. Copy %.31s.map into %s.",
 		map_family_badge(_map_family_custom_edition), browser_screen.offer_file, browser_screen.offer_file,
 		map_family_folder(_map_family_custom_edition));
 	for (index = 0; text[index] && index < NUMBEROF(message) - 1; index++)
@@ -559,7 +559,7 @@ static void rejoin(
 	join_first_player();
 	if (browser_screen.rejoin_invite[0] && !browser_join(browser_screen.rejoin_invite))
 	{
-		set_status("Online play is off (network.online in config.toml).");
+		set_status("Turn on Internet Play in Settings.");
 		return;
 	}
 	browser_screen.connecting = TRUE;
@@ -698,7 +698,7 @@ static void join_selected(
 	join_first_player();
 	if (!browser_join(game->invite))
 	{
-		set_status("Online play is off (network.online in config.toml).");
+		set_status("Turn on Internet Play in Settings.");
 		return;
 	}
 	browser_screen.connecting = TRUE;
@@ -883,18 +883,18 @@ static char const *ce_map_blocker(
 		/* (a hashed name by the file the player knows: map_archive.h) */
 		map_archive_display_name(file, display, (int)sizeof(display));
 		if (ce_map_stock(game))
-			snprintf(text, (size_t)size, "%s.map is one of Halo PC's own maps: install it yourself", display);
+			snprintf(text, (size_t)size, "%s.map comes with Halo PC: install it to join", display);
 		else if (ce_map_downloadable(game))
 		{
-			snprintf(text, (size_t)size, "Needs %s/%s.map: joining offers to download it", map_family_folder(family),
+			snprintf(text, (size_t)size, "Needs %s/%s.map: join to download it", map_family_folder(family),
 				display);
 		}
 		else
 			snprintf(text, (size_t)size, "Needs %s/%s.map to join", map_family_folder(family), display);
 		return text;
 	case _ce_map_unsupported:
-		return family == _map_family_halomd ? "HaloMD maps need ChupathingyCE with Halo PC map support." :
-			"Halo PC maps need ChupathingyCE with Halo PC map support.";
+		return family == _map_family_halomd ? "HaloMD maps aren't supported in this build." :
+			"Halo PC maps aren't supported in this build.";
 	default:
 		return NULL;
 	}
@@ -1949,7 +1949,7 @@ static void draw_qr(
 		}
 	}
 	ui_overlay_text(UI_FONT_MENU_SMALL, 9.0f, CONNECT_QR_X + CONNECT_QR_WIDTH / 2, CONNECT_QR_Y + CONNECT_QR_WIDTH + 6,
-		UI_ALIGN_CENTER, COLOR_DIM, "or scan this with your phone");
+		UI_ALIGN_CENTER, COLOR_DIM, "or scan this code");
 }
 
 static void draw_link_profile(
@@ -1990,10 +1990,8 @@ static void draw_link_profile(
 		else
 			snprintf(text, sizeof(text), "Connect this game to %s?", connect->handle);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 96, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
-		snprintf(text, sizeof(text), "Someone signed in as %s entered the code.", connect->handle);
+		snprintf(text, sizeof(text), "Not %s? Cancel.", connect->handle);
 		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 130, UI_ALIGN_CENTER, COLOR_DIM, text);
-		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 146, UI_ALIGN_CENTER, COLOR_DIM,
-			"If that isn't you, cancel.");
 		if (connect->answered)
 		{
 			ui_overlay_text(UI_FONT_MENU, 11.0f, center, CONNECT_Y + 196, UI_ALIGN_CENTER, COLOR_TEXT,
@@ -2013,8 +2011,6 @@ static void draw_link_profile(
 		snprintf(text, sizeof(text), "Connected as %s", connect->handle);
 		ui_overlay_text_glow(UI_FONT_MENU, 17.0f, center, CONNECT_Y + 106, UI_ALIGN_CENTER, COLOR_CONNECTED, 0x6BE38A80,
 			text);
-		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 140, UI_ALIGN_CENTER, COLOR_DIM,
-			"Your games now count toward this profile.");
 		dialog_prompt(UI_BUTTON_B, "=DONE");
 		break;
 	case BROWSER_CONNECT_EXPIRED:
@@ -2078,10 +2074,6 @@ static void draw_map_offer(
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 86, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 106, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90,
 			"community map repository?");
-		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, center, CONNECT_Y + 138, UI_ALIGN_CENTER, COLOR_DIM,
-			"It goes in maps_ce once it is checked: a Custom Edition map, named");
-		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, center, CONNECT_Y + 152, UI_ALIGN_CENTER, COLOR_DIM,
-			browser_screen.offer_version ? "as asked, and the host's version of it." : "as asked.");
 		/* "Don't ask again", ticked or not (Y, or a click on it) */
 		width = ui_overlay_button_width(UI_BUTTON_Y, glyph) + 6 + box + 6 +
 			ui_overlay_text_width(UI_FONT_MENU, 11.0f, "DON'T ASK AGAIN");
@@ -2135,24 +2127,16 @@ static void draw_map_offer(
 		}
 		ui_overlay_outline(bar_x, CONNECT_Y + 126, bar_width, 12, 6, 1.0f, 0x4F9DFFFF);
 		ui_overlay_text(UI_FONT_MENU, 10.0f, center, CONNECT_Y + 150, UI_ALIGN_CENTER, COLOR_TEXT, text);
-		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, center, CONNECT_Y + 184, UI_ALIGN_CENTER, COLOR_DIM,
-			"The game is joined once the map is in place.");
 		dialog_prompt(UI_BUTTON_B, "=CANCEL");
 		break;
 	}
 	case _offer_stock:
 	{
-		boolean file = map_archive_stock_name(browser_screen.offer_file) == MAP_ARCHIVE_STOCK_FILE;
-
 		/* (map_archive_stock_message's words, a line at a time) */
-		snprintf(text, sizeof(text), "%s.map is one of Halo PC's own %s,", browser_screen.offer_display,
-			file ? "files" : "maps");
-		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 82, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
-		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 102, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90,
-			"so Chupathingy can't download it.");
-		snprintf(text, sizeof(text), "Copy %s.map from your Halo PC or Custom Edition install",
-			browser_screen.offer_display);
-		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 142, UI_ALIGN_CENTER, COLOR_DIM, text);
+		snprintf(text, sizeof(text), "%s.map comes with Halo PC.", browser_screen.offer_display);
+		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 92, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 142, UI_ALIGN_CENTER, COLOR_DIM,
+			"Copy it from your Halo PC or Custom Edition install");
 		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 158, UI_ALIGN_CENTER, COLOR_DIM,
 			"into maps_ce, then join again.");
 		dialog_prompt(UI_BUTTON_B, "=CLOSE");
@@ -2166,7 +2150,7 @@ static void draw_map_offer(
 		if (text[0] >= 'a' && text[0] <= 'z')
 			text[0] = (char)(text[0] - 32);
 		ui_overlay_text(UI_FONT_MENU, 10.0f, center, CONNECT_Y + 126, UI_ALIGN_CENTER, COLOR_TEXT, text);
-		snprintf(text, sizeof(text), "If you have it, copy %s.map into maps_ce.", browser_screen.offer_display);
+		snprintf(text, sizeof(text), "Or copy %s.map into maps_ce.", browser_screen.offer_display);
 		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, center, CONNECT_Y + 160, UI_ALIGN_CENTER, COLOR_DIM, text);
 		dialog_prompt(UI_BUTTON_B, "=CLOSE");
 		break;
@@ -2311,12 +2295,12 @@ static void draw_empty_list(
 	switch (browser_list_status())
 	{
 	case BROWSER_LIST_NONE:
-		title = "There is no game list to show.";
-		line = "Set network.browser_url in config.toml to the list's address.";
+		title = "No game list.";
+		line = "Set network.browser_url in config.toml.";
 		break;
 	case BROWSER_LIST_FAILED:
 		title = "The game list isn't answering.";
-		line = "Check your internet connection. The list tries again on its own.";
+		line = "Check your internet connection.";
 		break;
 	case BROWSER_LIST_WAITING:
 		title = "Looking for games\xE2\x80\xA6";
@@ -2325,8 +2309,8 @@ static void draw_empty_list(
 	default:
 		ui_overlay_text_glow(UI_FONT_MENU, 14.0f, center, y, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFFA0,
 			"No one is hosting right now.");
-		text_with_button(UI_FONT_MENU_SMALL, 10.0f, center, y + 24, COLOR_DIM, "Host a game with", UI_BUTTON_Y,
-			"and it shows here. The list checks again on its own.");
+		text_with_button(UI_FONT_MENU_SMALL, 10.0f, center, y + 24, COLOR_DIM, "Press", UI_BUTTON_Y,
+			"to host a game.");
 		return;
 	}
 	ui_overlay_text_glow(UI_FONT_MENU, 14.0f, center, y, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFFA0, title);

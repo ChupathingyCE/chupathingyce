@@ -647,7 +647,7 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 			SDL_RenderClear(renderer);
 			SDL_SetRenderDrawColor(renderer, 230, 230, 230, 255);
 			SDL_SetRenderScale(renderer, 2.0f, 2.0f);
-			SDL_RenderDebugText(renderer, 10.0f, 10.0f, "Downloading the new version...");
+			SDL_RenderDebugText(renderer, 10.0f, 10.0f, "Downloading the update...");
 			SDL_SetRenderScale(renderer, 1.0f, 1.0f);
 			snprintf(line, sizeof(line), "version %s  (%llu of %llu MB)", updater_latest_version, received >> 20,
 				total >> 20);
@@ -1106,15 +1106,15 @@ void updater_poll(SDL_Window *window)
 	if (UPDATER_DOWNLOAD_PAGE_ONLY)
 	{
 		snprintf(message, sizeof(message),
-			"A new version of Chupathingy is out (%s; this is %s).\n\n"
-			"Do you want to open its download page? Your saves and settings stay as they are.",
+			"Chupathingy %s is out. You have %s.\n\n"
+			"Open the download page?",
 			updater_latest_version, HALO_VERSION);
 	}
 	else
 	{
 		snprintf(message, sizeof(message),
-			"A new version of Chupathingy is out (%s; this is %s).\n\n"
-			"Do you want to update? The game will close and start the new version.",
+			"Chupathingy %s is out. You have %s.\n\n"
+			"Update now? The game will restart.",
 			updater_latest_version, HALO_VERSION);
 	}
 	{
@@ -1128,7 +1128,7 @@ void updater_poll(SDL_Window *window)
 	{
 		SDL_MessageBoxData confirm = { SDL_MESSAGEBOX_WARNING, window, "Chupathingy: new version",
 			"Stop asking about new versions?\n\n"
-			"To ask again, set auto = true in the [update] section of config.toml.",
+			"Turn Check for Updates back on in Settings to ask again.",
 			2, confirm_buttons, NULL };
 		int confirmed = 0;
 
