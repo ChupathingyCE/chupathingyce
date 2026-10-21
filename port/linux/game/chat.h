@@ -1,7 +1,8 @@
 /*
 CHAT.H
 
-Text chat between Chupathingy machines (chat.c; docs/delta.md, Chat).
+Text chat between Chupathingy machines, bridged to OpenCE's (chat.c;
+docs/delta.md, Chat).
 */
 
 #ifndef __CHAT_H
@@ -23,6 +24,13 @@ int chat_server_say(char const *text);
 /* a note of this machine's own in the chat (as its refusals are): what
 came of the player's ask to change teams (team_change.c) */
 void chat_note(char const *text);
+
+/* (network_distributed.c) one of OpenCE's chat messages
+(_distributed_message_chat_up, _down or _config; delta_chat_bridge.h): its
+first entry (size bytes; NULL or 0 for a malformed message, dropped and
+logged once), from a machine (the host's, NONE on a client), and whether it
+came over the sender's stream (anything else is dropped) */
+void chat_bridge_message(long machine_index, int type, void const *entry, int size, int from_stream);
 
 /* the host's mode (enum delta_chat_mode) and whether it filters blocked
 words: a dedicated server's settings (a player's host reads network.chat

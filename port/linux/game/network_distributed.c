@@ -75,6 +75,10 @@ machine (their datum identifiers need not be).
 #include "network_coop.h"
 #include "network_distributed.h"
 #include "network_rules.h"
+#include "../src/delta_chat_bridge.h"
+#ifdef HALO_GAME_BROWSER
+#include "chat.h"
+#endif
 
 #include <limits.h>
 #include <stdio.h>
@@ -4359,6 +4363,9 @@ void network_distributed_handle_message(
 	case _distributed_message_coop_device_states: entry_size = network_coop_device_state_entry_size(); break;
 	case _distributed_message_pickups: entry_size = sizeof(struct distributed_pickup); break;
 	case _distributed_message_aim_assist_policy: entry_size = NETWORK_RULES_AIM_ASSIST_SIZE - sizeof(header); break;
+	case _distributed_message_chat_up:
+	case _distributed_message_chat_down: entry_size = DELTA_CHAT_BRIDGE_LINE_SIZE; break;
+	case _distributed_message_chat_config: entry_size = DELTA_CHAT_BRIDGE_CONFIG_SIZE; break;
 	case _distributed_message_player_inputs: entry_size = sizeof(struct distributed_player_input); break;
 	case _distributed_message_relayed_actions: entry_size = DISTRIBUTED_RELAYED_ACTION_MINIMUM_SIZE; break;
 	case _distributed_message_game_state:
@@ -4373,6 +4380,11 @@ void network_distributed_handle_message(
 	if (header.type == 0 || header.type >= NUMBER_OF_DISTRIBUTED_MESSAGES ||
 		size < sizeof(header) + header.count * entry_size)
 	{
+#ifdef HALO_GAME_BROWSER
+		/* (OpenCE's chat: dropped, and said in the log once) */
+		if (header.type >= _distributed_message_chat_up && header.type <= _distributed_message_chat_config)
+			chat_bridge_message(machine_index, header.type, NULL, 0, FALSE);
+#endif
 		return;
 	}
 	/* (the kinds whose handlers read one entry: not without it) */
@@ -4384,6 +4396,17 @@ void network_distributed_handle_message(
 	case _distributed_message_coop_skip_vote:
 		if (header.count < 1)
 			return;
+		break;
+	case _distributed_message_chat_up:
+	case _distributed_message_chat_down:
+	case _distributed_message_chat_config:
+		if (header.count < 1)
+		{
+#ifdef HALO_GAME_BROWSER
+			chat_bridge_message(machine_index, header.type, NULL, 0, FALSE);
+#endif
+			return;
+		}
 		break;
 	default:
 		break;
@@ -4409,6 +4432,7 @@ void network_distributed_handle_message(
 	case _distributed_message_vehicle_prediction:
 	case _distributed_message_player_inputs:
 	case _distributed_message_coop_skip_vote:
+	case _distributed_message_chat_up:
 		if (machine_index == NONE || game_connection() != _game_connection_network_server)
 			return;
 		break;
@@ -4494,6 +4518,17 @@ void network_distributed_handle_message(
 		break;
 	case _distributed_message_coop_device_states:
 		network_coop_handle_device_states(entries, header.count);
+		break;
+	/* OpenCE's chat (chat.c): a client's line over its machine's stream
+	alone, the host's over the host's connection's stream alone (a datagram
+	from either address could be anyone's); the first entry, the rest let go */
+	case _distributed_message_chat_up:
+	case _distributed_message_chat_down:
+	case _distributed_message_chat_config:
+#ifdef HALO_GAME_BROWSER
+		chat_bridge_message(machine_index, header.type, entries, entry_size,
+			machine_index == NONE ? !network_connection_last_read_was_unreliable() : distributed_handling_stream_message);
+#endif
 		break;
 	case _distributed_message_player_statistics:
 	{
