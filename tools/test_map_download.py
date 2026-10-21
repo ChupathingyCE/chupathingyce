@@ -502,9 +502,9 @@ def test_downloader_never_asks_for_stock_maps():
 
 def test_stock_message_in_the_missing_map_paths():
     cache = (ROOT / "source" / "cache" / "cache_files.c").read_text(encoding="utf-8")
-    assert "Install this map yourself" in cache and "map_archive_stock_message(file" in cache
+    assert "Install this map yourself" in cache and "map_family_stock_need(file" in cache
     browser = (ROOT / "port" / "linux" / "game" / "browser_screen.c").read_text(encoding="utf-8")
-    assert "MAP_ARCHIVE_STOCK_TITLE" in browser and "%s.map comes with Halo PC." in browser
+    assert "MAP_ARCHIVE_STOCK_TITLE" in browser and "map_family_stock_need(" in browser
 
 
 # ---------- the real repository
