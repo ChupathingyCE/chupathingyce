@@ -900,8 +900,8 @@ static void game_action_done(int action, const char *message)
 	snprintf(browser.game_message, sizeof(browser.game_message), "%s", message);
 }
 
-#define NO_KEY_MESSAGE "This copy can't reach your profile: it needs an HTTPS game list and a player key."
-#define NOT_ANSWERING_MESSAGE "The Chupathingy site isn't answering. Try again in a minute."
+#define NO_KEY_MESSAGE "No player key"
+#define NOT_ANSWERING_MESSAGE "Site not answering"
 
 static void update_game_profile(void)
 {
@@ -934,7 +934,7 @@ static void update_game_profile(void)
 		else if (status == 200 || status == 404)
 		{
 			/* (404: linked to none already) */
-			game_action_done(BROWSER_PROFILE_ACTION_DONE, "This copy is no longer linked.");
+			game_action_done(BROWSER_PROFILE_ACTION_DONE, "Unlinked");
 			profile_unlinked();
 			memset(&browser.game_profile, 0, sizeof(browser.game_profile));
 			browser.game_profile_serial++;
@@ -962,7 +962,7 @@ static void update_game_profile(void)
 			browser.game_profile_serial++;
 		}
 		else if (status == 403)
-			game_action_done(BROWSER_PROFILE_ACTION_FAILED, "This profile is locked on the site.");
+			game_action_done(BROWSER_PROFILE_ACTION_FAILED, "Profile locked");
 		else if (status == 503)
 			game_action_done(BROWSER_PROFILE_ACTION_FAILED, "The site can't change that now.");
 		else

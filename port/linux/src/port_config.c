@@ -264,7 +264,7 @@ static const struct config_setting config_settings[] =
 		"\"auto\" shows them with the Chupathingy menus only (the Xbox and Gearbox\n"
 		"menus stay as the originals were), \"on\" with any menus, \"off\" never." },
 	{ "display.delta_profile", _config_boolean, "true", "HALO_DELTA_PROFILE", _environment_value, _platform_all,
-		"Delta Profile in the game: the DELTA PROFILE row of Profiles (the\n"
+		"Delta Profile in the game: the DELTA row of Profiles (the\n"
 		"Chupathingy and Gearbox menus), the \"Delta:\" line on a Halo profile,\n"
 		"and Online Games' Start (=MY PROFILE). False hides them all, and Start\n"
 		"opens the profile's web page as before; Link Profile (RB) stays." },

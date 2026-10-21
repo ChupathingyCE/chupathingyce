@@ -10,15 +10,15 @@ deletion) stay on the site, reached with OPEN ON THE WEB. Linking is per
 copy: every Halo profile on this copy counts for the one Delta profile.
 
 The same sections in every menu set: OVERVIEW, LINKED COPIES, ROLES,
-PRIVACY AND SHARING, then LINK PROFILE (or UNLINK THIS COPY) and OPEN ON THE
+PRIVACY, then LINK PROFILE (or UNLINK THIS COPY) and OPEN ON THE
 WEB. What each shows is made here once (profile_screen_panel_lines):
 - the Chupathingy menus show it with their own widgets
   (port/assets/menus/chupathingy/delta_profile.xml, filled by
-  menu_functions.c), their Privacy and Sharing a settings page of theirs
+  menu_functions.c), their Privacy a settings page of theirs
   (tools/port_settings.py);
 - the Xbox's menus (Online Games' Start) and Gearbox's (Select Profile's
-  DELTA PROFILE) show it on a screen of code over the menus, drawn as
-  Online Games is (browser_screen.c), Privacy and Sharing's rows in it.
+  DELTA) show it on a screen of code over the menus, drawn as
+  Online Games is (browser_screen.c), Privacy's rows in it.
 The dialogs with a QR code (Link Profile, Open on the Web, unlinking another
 copy) and the question before unlinking this one are drawn here for all
 three, over whichever screen asked for them.
@@ -114,7 +114,7 @@ enum
 	_dialog_copies,
 };
 
-/* Privacy and Sharing's rows (the overlay's; the Chupathingy menus' page
+/* Privacy's rows (the overlay's; the Chupathingy menus' page
 has the same: tools/port_settings.py) */
 enum
 {
@@ -137,28 +137,28 @@ struct privacy_row
 static struct privacy_row const privacy_rows[] =
 {
 	{ "SHARE MY PROFILE", _privacy_game, "network.share_profile", { "false", "true" }, { "OFF", "ON" },
-		"Other Chupathingy players in your games learn which profile you are, and see you by its name. Off: you are your game name to them." },
+		"Show your Delta name to Chupathingy players." },
 	{ "RECORD GAMES I JOIN", _privacy_game, "network.report_joined_games", { "true", "false" }, { "ON", "OFF" },
-		"Your copy reports the games you join, so they show on your record. Off: only hosts that report will have them." },
+		"Report the games you join." },
 	{ "RECORD GAMES I HOST", _privacy_game, "network.report_hosted_games", { "true", "false" }, { "ON", "OFF" },
-		"Games you host are reported to the site. Off: they aren't, even while listed." },
+		"Report the games you host." },
 	{ "DELTA STATS DETAIL", _privacy_game, "network.report_events", { "true", "false" }, { "ON", "OFF" },
-		"As host, sends the game's events (kills, weapons, medals) for Delta Stats." },
+		"Send kills, weapons and medals as host." },
 	{ "HIDE MY RECORD", _privacy_site, "hide_stats", { "false", "true" }, { "NO", "YES" },
-		"Hides your record from everyone else. You still see it here and on the site. Saved on the site." },
+		"Hide your record from other players." },
 	{ "HIDE MY HEATMAPS", _privacy_site, "hide_heatmaps", { "false", "true" }, { "NO", "YES" },
-		"Hides your heatmaps from everyone else. Saved on the site." },
+		"Hide your heatmaps from other players." },
 #ifndef HALO_CONSOLE_NO_DISCORD
 	{ "DISCORD STATUS", _privacy_game, "discord.presence", { "full", "minimal", "off" }, { "FULL", "MINIMAL", "OFF" },
-		"What Discord shows of your game. The same setting as Network Setup's." },
+		"What Discord shows while you play." },
 #endif
 	{ "SHOW PROFILE NAMES", _privacy_game, "display.profile_names", { "true", "false" }, { "ON", "OFF" },
-		"On the scoreboard and in the lobby, players who share their profile show by its name. Off: everyone by their game name." },
+		"Show players by their Delta names." },
 };
 
 static char const *const section_names[NUMBER_OF_PROFILE_SECTIONS] =
 {
-	"OVERVIEW", "LINKED COPIES", "ROLES", "PRIVACY AND SHARING", "LINK PROFILE", "OPEN ON THE WEB",
+	"OVERVIEW", "LINKED COPIES", "ROLES", "PRIVACY", "LINK PROFILE", "OPEN ON THE WEB",
 };
 
 /* the multiplayer maps' names in the menus (as Online Games names them) */
@@ -210,7 +210,7 @@ static struct
 		short section;
 		short row;
 	} targets[MAXIMUM_TARGETS];
-	/* the Chupathingy menus' Profiles: the summary their DELTA PROFILE row
+	/* the Chupathingy menus' Profiles: the summary their DELTA row
 	shows asked for (profile_screen_profiles_row) */
 	unsigned long summary_time;
 } profile_screen;
@@ -398,22 +398,6 @@ static char const *role_name(
 	return role;
 }
 
-/* where a role comes from, in the site's words */
-static void role_source_text(
-	struct delta_profile_role const *role,
-	char *text,
-	int size)
-{
-	if (!strcmp(role->source, "owner"))
-		snprintf(text, (size_t)size, "You linked it");
-	else if (!strcmp(role->source, "network"))
-		snprintf(text, (size_t)size, "Network moderator");
-	else
-		snprintf(text, (size_t)size, "Site, from @%s", role->owner);
-	if (role->cached)
-		strncat(text, " (cached)", (size_t)size - strlen(text) - 1);
-}
-
 /* ---------- the panel's lines (every menu set's) */
 
 static short add_line(
@@ -435,47 +419,61 @@ static short add_line(
 	return (short)(count + 1);
 }
 
-/* a state that keeps the profile from showing (spec's states): its lines,
-or 0 when the profile shows */
+static short privacy_value(struct privacy_row const *row);
+
+/* a game type's short name ("Capture the Flag": "CTF") */
+static char const *type_name(
+	char const *type)
+{
+	if (!strcmp(type, "Capture the Flag"))
+		return "CTF";
+	if (!strcmp(type, "King of the Hill"))
+		return "King";
+	return type;
+}
+
+/* a result, short: "Lost 46 to 50" as "Lost 46-50" */
+static void result_text(
+	char const *result,
+	char *text,
+	int size)
+{
+	char const *to = strstr(result, " to ");
+
+	if (to)
+		snprintf(text, (size_t)size, "%.*s-%s", (int)(to - result), result, to + 4);
+	else
+		snprintf(text, (size_t)size, "%s", result);
+}
+
+/* a state that keeps the profile from showing: its lines, or 0 when the
+profile shows */
 static short state_lines(
 	struct profile_line *lines,
 	short maximum)
 {
 	struct browser_profile_status const *status = &profile_screen.status;
-	char text[160];
 	short count = 0;
 
 	if (!config_boolean("network.online"))
-	{
-		count = add_line(lines, count, maximum, _profile_line_text, "Online play is off.");
-		return add_line(lines, count, maximum, _profile_line_dim,
-			pc_menus_set() == 0 ? "Turn it on with network.online in config.toml." :
-				"Turn it on in Settings > Network Setup.");
-	}
+		return add_line(lines, count, maximum, _profile_line_text, "Online play is off");
 	if (status->state == BROWSER_PROFILE_NO_KEY)
-	{
-		count = add_line(lines, count, maximum, _profile_line_text, "This copy can't reach your profile:");
-		return add_line(lines, count, maximum, _profile_line_dim, "it needs an HTTPS game list and a player key.");
-	}
+		return add_line(lines, count, maximum, _profile_line_text, "No player key");
 	if (status->state == BROWSER_PROFILE_NO_LIST)
-		return add_line(lines, count, maximum, _profile_line_text, "There is no game list (network.browser_url).");
+		return add_line(lines, count, maximum, _profile_line_text, "No game list");
 	if (!status->has_profile)
 	{
 		if (status->state == BROWSER_PROFILE_FAILED)
-		{
-			count = add_line(lines, count, maximum, _profile_line_text, "The Chupathingy site isn't answering.");
-			return add_line(lines, count, maximum, _profile_line_dim, "Your games are still recorded when it's back.");
-		}
+			return add_line(lines, count, maximum, _profile_line_warn, "Site not answering");
 		if (system_milliseconds() - profile_screen.opened_time > LOADING_SHOWN_AFTER || !profile_screen.active)
-			return add_line(lines, count, maximum, _profile_line_dim, "Getting your profile\xE2\x80\xA6");
+			return add_line(lines, count, maximum, _profile_line_dim, "Loading\xE2\x80\xA6");
 		return add_line(lines, count, maximum, _profile_line_dim, " ");
 	}
 	if (profile_screen.profile.linked && profile_screen.profile.locked)
 	{
-		snprintf(text, sizeof(text), "@%s", profile_screen.profile.handle);
 		count = add_line(lines, count, maximum, _profile_line_title, "%s", profile_screen.profile.display);
-		count = add_line(lines, count, maximum, _profile_line_sub, "%s", text);
-		return add_line(lines, count, maximum, _profile_line_warn, "This profile is locked on the site.");
+		count = add_line(lines, count, maximum, _profile_line_sub, "@%s", profile_screen.profile.handle);
+		return add_line(lines, count, maximum, _profile_line_warn, "Profile locked");
 	}
 	return 0;
 }
@@ -489,7 +487,7 @@ static short stale_line(
 {
 	if (profile_screen.status.state != BROWSER_PROFILE_FAILED || !profile_screen.status.has_profile)
 		return count;
-	return add_line(lines, count, maximum, _profile_line_warn, "From %lu min ago. The site isn't answering; trying again.",
+	return add_line(lines, count, maximum, _profile_line_warn, "Offline \xC2\xB7 %lu min old",
 		(profile_screen.status.age_seconds + 59) / 60);
 }
 
@@ -498,23 +496,36 @@ static short not_linked_lines(
 	short count,
 	short maximum)
 {
-	char site[128];
-
-	browser_server_name(site, sizeof(site));
 	count = add_line(lines, count, maximum, _profile_line_title, "Not linked");
-	count = add_line(lines, count, maximum, _profile_line_text, "This copy isn't linked to a Delta profile.");
-	count = add_line(lines, count, maximum, _profile_line_dim,
-		"Your games still count under this copy. Link it to see them here and on the web, carry them to your other copies, and take server roles.");
 	if (profile_screen.profile.games > 0)
+		count = add_line(lines, count, maximum, _profile_line_row, "WAITING\t%d game%s", profile_screen.profile.games,
+			profile_screen.profile.games == 1 ? "" : "s");
+	return count;
+}
+
+/* the badges, as many as fit in width characters, then how many more */
+static void badges_text(
+	struct delta_profile const *profile,
+	char *text,
+	int size,
+	int width)
+{
+	short index;
+
+	text[0] = 0;
+	for (index = 0; index < profile->badge_count; index++)
 	{
-		count = add_line(lines, count, maximum, _profile_line_text, "%d game%s waiting for a profile.",
-			profile_screen.profile.games, profile_screen.profile.games == 1 ? " is" : "s are");
+		int more = profile->badge_count - index - 1;
+		int length = (int)strlen(text) + (index ? 3 : 0) + (int)strlen(profile->badges[index]) + (more ? 4 : 0);
+
+		if (index && length > width)
+			break;
+		if (index)
+			strncat(text, " \xC2\xB7 ", (size_t)size - strlen(text) - 1);
+		strncat(text, profile->badges[index], (size_t)size - strlen(text) - 1);
 	}
-	count = add_line(lines, count, maximum, _profile_line_head, "THREE STEPS");
-	count = add_line(lines, count, maximum, _profile_line_text, "1. Choose LINK PROFILE.");
-	count = add_line(lines, count, maximum, _profile_line_text, "2. On a phone or computer, go to %s/connect.", site);
-	count = add_line(lines, count, maximum, _profile_line_text, "3. Enter the code, then confirm here.");
-	return add_line(lines, count, maximum, _profile_line_dim, "No profile yet? The same page makes one.");
+	if (index < profile->badge_count)
+		snprintf(text + strlen(text), (size_t)size - strlen(text), " +%d", profile->badge_count - index);
 }
 
 static short overview_lines(
@@ -528,20 +539,9 @@ static short overview_lines(
 
 	month_year_text(profile->created, since, sizeof(since));
 	count = add_line(lines, count, maximum, _profile_line_title, "%s", profile->display);
-	if (since[0])
-		count = add_line(lines, count, maximum, _profile_line_sub, "@%s \xC2\xB7 on the site since %s", profile->handle, since);
-	else
-		count = add_line(lines, count, maximum, _profile_line_sub, "@%s", profile->handle);
-	/* (three badges at most, then how many more) */
-	badges[0] = 0;
-	for (index = 0; index < profile->badge_count && index < 3; index++)
-	{
-		if (index)
-			strncat(badges, " \xC2\xB7 ", sizeof(badges) - strlen(badges) - 1);
-		strncat(badges, profile->badges[index], sizeof(badges) - strlen(badges) - 1);
-	}
-	if (profile->badge_count > 3)
-		snprintf(badges + strlen(badges), sizeof(badges) - strlen(badges), " +%d", profile->badge_count - 3);
+	count = add_line(lines, count, maximum, _profile_line_sub, "@%s%s%s%s", profile->handle, since[0] ? " \xC2\xB7 since " : "",
+		since, profile->hidden ? " \xC2\xB7 hidden" : "");
+	badges_text(profile, badges, sizeof(badges), 24);
 	if (badges[0])
 		count = add_line(lines, count, maximum, _profile_line_badges, "%s", badges);
 	if (profile->has_record)
@@ -563,20 +563,18 @@ static short overview_lines(
 		number_text(hours, value, sizeof(value));
 		count = add_line(lines, count, maximum, _profile_line_tile, "HOURS\t%s", value);
 		count = add_line(lines, count, maximum, _profile_line_tile, "BEST\t%s",
-			profile->record_best_type[0] ? profile->record_best_type : "-");
+			profile->record_best_type[0] ? type_name(profile->record_best_type) : "-");
 	}
-	count = add_line(lines, count, maximum, _profile_line_dim, profile->hidden ?
-		"Hidden on the site. Only you see this." : "Confirmed games only. More on the web.");
 	if (profile->recent_count)
-		count = add_line(lines, count, maximum, _profile_line_head, "RECENT GAMES");
+		count = add_line(lines, count, maximum, _profile_line_head, "RECENT GAMES\tTYPE\tPLACE\tK-D");
 	for (index = 0; index < profile->recent_count; index++)
 	{
 		struct delta_profile_game const *game = &profile->recent[index];
-		char when[32];
+		char result[48];
 
-		when_text(game->time, when, sizeof(when));
-		count = add_line(lines, count, maximum, _profile_line_game, "%s\t%s\t%s\t%s%s\t%d / %d", when, map_name(game->map),
-			game->type, game->result, game->observed ? " (OBSERVED)" : "", game->kills, game->deaths);
+		result_text(game->result, result, sizeof(result));
+		count = add_line(lines, count, maximum, _profile_line_game, "%s\t%s\t%s\t%d-%d", map_name(game->map),
+			type_name(game->type), result, game->kills, game->deaths);
 	}
 	return count;
 }
@@ -589,22 +587,22 @@ static short copies_lines(
 	struct delta_profile const *profile = &profile_screen.profile;
 	short index;
 
-	count = add_line(lines, count, maximum, _profile_line_head, "%d COP%s LINKED TO @%s", profile->copy_count +
-		profile->more_copies, profile->copy_count + profile->more_copies == 1 ? "Y" : "IES", profile->handle);
 	for (index = 0; index < profile->copy_count; index++)
 	{
 		struct delta_profile_copy const *copy = &profile->copies[index];
-		char linked_when[32], seen[32];
+		char seen[32];
 
-		when_text(copy->linked, linked_when, sizeof(linked_when));
 		when_text(copy->last_seen, seen, sizeof(seen));
-		count = add_line(lines, count, maximum, _profile_line_row, "%s %s%s\tlinked %s, played %s",
-			platform_name(copy->platform), copy->label, copy->this_copy ? " (THIS COPY)" : copy->first ? " (FIRST COPY)" : "", linked_when, seen);
+		if (copy->this_copy)
+			count = add_line(lines, count, maximum, _profile_line_row, "%s %s\tThis copy", platform_name(copy->platform), copy->label);
+		else if (copy->last_seen <= 0)
+			count = add_line(lines, count, maximum, _profile_line_row, "%s %s\tNever played", platform_name(copy->platform), copy->label);
+		else
+			count = add_line(lines, count, maximum, _profile_line_row, "%s %s\tPlayed %s", platform_name(copy->platform), copy->label,
+				seen);
 	}
 	if (profile->more_copies)
-		count = add_line(lines, count, maximum, _profile_line_dim, "%d more on the web.", profile->more_copies);
-	count = add_line(lines, count, maximum, _profile_line_dim,
-		"Lost or gave away a copy? Unlink it, and its games stop counting for you from now on. Games it already played stay on your record.");
+		count = add_line(lines, count, maximum, _profile_line_row, "+%d more\t", profile->more_copies);
 	return count;
 }
 
@@ -617,25 +615,16 @@ static short roles_lines(
 	short index;
 
 	if (!profile->role_count)
-	{
-		count = add_line(lines, count, maximum, _profile_line_text, "You have no roles.");
-		count = add_line(lines, count, maximum, _profile_line_dim, "A server owner can give your profile one on the site.");
-	}
+		count = add_line(lines, count, maximum, _profile_line_text, "No roles");
 	for (index = 0; index < profile->role_count; index++)
 	{
 		struct delta_profile_role const *role = &profile->roles[index];
-		char source[96];
 
-		role_source_text(role, source, sizeof(source));
-		count = add_line(lines, count, maximum, _profile_line_row, "%s\t%s \xC2\xB7 %s \xC2\xB7 %s", role->name,
-			role_name(role->role), source, role->online ? "On" : "Off");
-		if (role->actions[0])
-			count = add_line(lines, count, maximum, _profile_line_dim, "%s", role->actions);
+		count = add_line(lines, count, maximum, _profile_line_row, "%s\t%s \xC2\xB7 %s", role->name, role_name(role->role),
+			role->online ? "On" : "Off");
 	}
 	if (profile->more_roles)
-		count = add_line(lines, count, maximum, _profile_line_dim, "%d more on the web.", profile->more_roles);
-	count = add_line(lines, count, maximum, _profile_line_dim,
-		"Network moderators act only on Chupathingy's own [C] and [D] servers. A role a server gives in its own files shows only on that server.");
+		count = add_line(lines, count, maximum, _profile_line_row, "+%d more\t", profile->more_roles);
 	return count;
 }
 
@@ -645,14 +634,8 @@ static short link_lines(
 	short maximum)
 {
 	if (!linked())
-	{
-		count = add_line(lines, count, maximum, _profile_line_text, "Link this copy to your Delta profile.");
-		return add_line(lines, count, maximum, _profile_line_dim,
-			"A shows a code (and a QR code) to enter on your phone or computer. Every Halo profile on this copy counts for the one Delta profile.");
-	}
-	count = add_line(lines, count, maximum, _profile_line_text, "Unlink this copy from @%s.", profile_screen.profile.handle);
-	return add_line(lines, count, maximum, _profile_line_dim,
-		"Its games stop counting for @%s from now on. Games it already played stay.", profile_screen.profile.handle);
+		return add_line(lines, count, maximum, _profile_line_text, "Link this copy to a Delta profile.");
+	return add_line(lines, count, maximum, _profile_line_text, "Unlink this copy from @%s.", profile_screen.profile.handle);
 }
 
 static short web_lines(
@@ -663,19 +646,24 @@ static short web_lines(
 	char site[128];
 
 	browser_server_name(site, sizeof(site));
-	count = add_line(lines, count, maximum, _profile_line_text, "Your profile page: %s/profile", site);
-	return add_line(lines, count, maximum, _profile_line_dim,
-		"Your password, email, two-step sign-in, export and deleting the profile are there. Sign in on any device.");
+	return add_line(lines, count, maximum, _profile_line_text, "%s/profile", site);
 }
 
+/* Privacy's rows and their values */
 static short privacy_lines(
 	struct profile_line *lines,
 	short count,
 	short maximum)
 {
-	count = add_line(lines, count, maximum, _profile_line_text, "What your copy shares, and what the site shows.");
-	count = add_line(lines, count, maximum, _profile_line_dim,
-		"In games: your profile, the games you join and host, and Delta Stats. On the site: your record and heatmaps. Elsewhere: Discord.");
+	short index;
+
+	for (index = 0; index < NUMBEROF(privacy_rows); index++)
+	{
+		short value = privacy_value(&privacy_rows[index]);
+
+		count = add_line(lines, count, maximum, _profile_line_row, "%s\t%s", privacy_rows[index].label,
+			value == NONE ? "-" : privacy_rows[index].shown[value]);
+	}
 	return count;
 }
 
@@ -687,8 +675,8 @@ short profile_screen_panel_lines(
 	short count;
 
 	refresh(FALSE);
-	/* (Privacy and Sharing's game rows, and Link and Open on the Web, work
-	whatever the state; the rest need the profile) */
+	/* (Privacy's game rows, and Link and Open on the Web, work whatever the
+	state; the rest need the profile) */
 	if (section == _section_privacy)
 		return privacy_lines(lines, 0, maximum);
 	if (section == _section_web)
@@ -697,11 +685,7 @@ short profile_screen_panel_lines(
 	if (count)
 		return section == _section_link && profile_screen.status.has_profile && !linked() ? link_lines(lines, 0, maximum) : count;
 	if (!section_open(section))
-	{
-		count = add_line(lines, 0, maximum, _profile_line_text, "This copy isn't linked to a Delta profile.");
-		return add_line(lines, count, maximum, _profile_line_dim, section == _section_copies ?
-			"Link it to see the copies that count for your profile." : "Link it to see your roles on servers.");
-	}
+		return add_line(lines, 0, maximum, _profile_line_text, "Not linked");
 	switch (section)
 	{
 	case _section_overview: count = linked() ? overview_lines(lines, 0, maximum) : not_linked_lines(lines, 0, maximum); break;
@@ -729,14 +713,14 @@ boolean profile_screen_delta_line(
 	return TRUE;
 }
 
-/* the Chupathingy menus' Profiles, its DELTA PROFILE row chosen: its
-summary (the panel's lines), the profile asked for */
+/* the Chupathingy menus' Profiles, its DELTA row chosen: its
+summary (a title, then label and value rows), the profile asked for */
 short profile_screen_summary(
 	struct profile_line *lines,
 	short maximum)
 {
 	struct delta_profile const *profile = &profile_screen.profile;
-	char value[32], kills[32];
+	char value[32];
 	short count;
 
 	refresh(FALSE);
@@ -744,28 +728,19 @@ short profile_screen_summary(
 	if (count)
 		return count;
 	if (!linked())
-	{
-		count = add_line(lines, count, maximum, _profile_line_title, "Not linked");
-		count = add_line(lines, count, maximum, _profile_line_row, "THIS COPY\tnot linked to a profile");
-		if (profile->games > 0)
-			count = add_line(lines, count, maximum, _profile_line_row, "WAITING\t%d games", profile->games);
-		return add_line(lines, count, maximum, _profile_line_row, "PRESS A\tto link it, or make one");
-	}
+		return not_linked_lines(lines, count, maximum);
 	count = add_line(lines, count, maximum, _profile_line_title, "%s", profile->display);
 	count = add_line(lines, count, maximum, _profile_line_sub, "@%s", profile->handle);
 	if (profile->has_record)
 	{
 		number_text(profile->record_games, value, sizeof(value));
-		number_text(profile->record_wins, kills, sizeof(kills));
-		count = add_line(lines, count, maximum, _profile_line_row, "RECORD\t%s games, %s wins, K/D %.2f", value, kills,
+		count = add_line(lines, count, maximum, _profile_line_row, "GAMES\t%s", value);
+		number_text(profile->record_wins, value, sizeof(value));
+		count = add_line(lines, count, maximum, _profile_line_row, "WINS\t%s", value);
+		count = add_line(lines, count, maximum, _profile_line_row, "K/D\t%.2f",
 			(double)profile->record_kills / (double)(profile->record_deaths ? profile->record_deaths : 1));
 	}
-	if (profile->recent_count)
-	{
-		count = add_line(lines, count, maximum, _profile_line_row, "LAST GAME\t%s, %s, %s", map_name(profile->recent[0].map),
-			profile->recent[0].type, profile->recent[0].result);
-	}
-	return add_line(lines, count, maximum, _profile_line_row, "COPIES LINKED\t%d", profile->copy_count + profile->more_copies);
+	return add_line(lines, count, maximum, _profile_line_row, "COPIES\t%d", profile->copy_count + profile->more_copies);
 }
 
 /* ---------- the actions (every menu set's) */
@@ -1015,7 +990,7 @@ static void privacy_change(
 		platform_log("Delta Profile: could not write %s to config.toml", row->name);
 }
 
-/* Y on Privacy and Sharing: the game's rows at their defaults (the site's
+/* Y on Privacy: the game's rows at their defaults (the site's
 belong to the profile, and stay) */
 static void privacy_defaults(
 	void)
@@ -1397,6 +1372,37 @@ static void prompts_centered(
 	prompts_right(count, buttons, words, center + width * 0.5f, y, PROMPT_BUTTON - 2, PROMPT_TEXT - 1, top, bottom);
 }
 
+/* text cut to width, ending "..." when cut; drawn */
+static void fitted_text(
+	int font,
+	float size,
+	float x,
+	float y,
+	int align,
+	unsigned int color,
+	float width,
+	char const *text)
+{
+	char line[192];
+	long length = (long)strlen(text);
+
+	if (ui_overlay_text_width(font, size, text) <= width)
+	{
+		ui_overlay_text(font, size, x, y, align, color, text);
+		return;
+	}
+	while (length > 0)
+	{
+		length--;
+		while (length > 0 && ((unsigned char)text[length] & 0xC0) == 0x80)
+			length--;
+		snprintf(line, sizeof(line), "%.*s...", (int)length, text);
+		if (ui_overlay_text_width(font, size, line) <= width)
+			break;
+	}
+	ui_overlay_text(font, size, x, y, align, color, line);
+}
+
 /* text broken into lines of width at most (at spaces); the lines drawn */
 static float wrapped_text(
 	int font,
@@ -1596,11 +1602,11 @@ static void draw_lines(
 			y += 21;
 			break;
 		case _profile_line_sub:
-			ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, x, y, UI_ALIGN_LEFT, COLOR_LABEL, line->text);
+			fitted_text(UI_FONT_MENU_SMALL, 9.5f, x, y, UI_ALIGN_LEFT, COLOR_LABEL, width, line->text);
 			y += 14;
 			break;
 		case _profile_line_badges:
-			ui_overlay_text(UI_FONT_MENU_SMALL, 8.0f, x, y, UI_ALIGN_LEFT, COLOR_HEAD, line->text);
+			fitted_text(UI_FONT_MENU_SMALL, 8.0f, x, y, UI_ALIGN_LEFT, COLOR_HEAD, width, line->text);
 			y += 14;
 			break;
 		case _profile_line_tile:
@@ -1623,31 +1629,46 @@ static void draw_lines(
 			break;
 		}
 		case _profile_line_head:
-			y += 3;
-			ui_overlay_text(UI_FONT_MENU_SMALL, 8.5f, x, y, UI_ALIGN_LEFT, COLOR_LABEL, line->text);
-			y += 14;
-			break;
 		case _profile_line_game:
 		{
-			static float const offsets[] = { 0, 58, 150, 230, 330 };
-			short column, columns_count = split_columns(line->text, columns, 5);
+			/* (map, type and place in their columns, kills-deaths at the
+			right; the head names them) */
+			boolean head = line->style == _profile_line_head;
+			float type_x = x + width * 0.42f, place_x = x + width * 0.62f;
+			short columns_count = split_columns(line->text, columns, 4);
 
-			for (column = 0; column < columns_count; column++)
+			if (head)
+				y += 3;
+			fitted_text(UI_FONT_MENU_SMALL, 8.5f, x, y, UI_ALIGN_LEFT, head ? COLOR_LABEL : COLOR_TEXT, type_x - x - 6, columns[0]);
+			if (columns_count > 1)
+				fitted_text(UI_FONT_MENU_SMALL, 8.5f, type_x, y, UI_ALIGN_LEFT, COLOR_LABEL, place_x - type_x - 6, columns[1]);
+			if (columns_count > 2)
 			{
-				ui_overlay_text(UI_FONT_MENU_SMALL, 8.5f, x + offsets[column] * width / 370.0f, y, UI_ALIGN_LEFT,
-					column == 0 || column == 2 ? COLOR_LABEL : column == 3 && !strncmp(columns[3], "Won", 3) ? COLOR_GOOD :
-					column == 3 && !strncmp(columns[3], "Lost", 4) ? COLOR_BAD : COLOR_TEXT, columns[column]);
+				fitted_text(UI_FONT_MENU_SMALL, 8.5f, place_x, y, UI_ALIGN_LEFT, head ? COLOR_LABEL :
+					!strncmp(columns[2], "Won", 3) ? COLOR_GOOD : !strncmp(columns[2], "Lost", 4) ? COLOR_BAD : COLOR_TEXT,
+					width * 0.24f, columns[2]);
 			}
+			if (columns_count > 3)
+				ui_overlay_text(UI_FONT_MENU_SMALL, 8.5f, x + width, y, UI_ALIGN_RIGHT, head ? COLOR_LABEL : COLOR_TEXT, columns[3]);
 			y += 14;
 			break;
 		}
 		case _profile_line_row:
-			split_columns(line->text, columns, 2);
-			ui_overlay_text(UI_FONT_MENU, 10.0f, x, y, UI_ALIGN_LEFT, COLOR_TEXT, columns[0]);
-			if (columns[1] && columns[0] != columns[1])
-				ui_overlay_text(UI_FONT_MENU_SMALL, 8.5f, x + width, y + 1.5f, UI_ALIGN_RIGHT, COLOR_LABEL, columns[1]);
+		{
+			float value_width = 0;
+
+			if (split_columns(line->text, columns, 2) > 1 && columns[1][0])
+			{
+				value_width = ui_overlay_text_width(UI_FONT_MENU_SMALL, 8.5f, columns[1]);
+				if (value_width > width * 0.5f)
+					value_width = width * 0.5f;
+				fitted_text(UI_FONT_MENU_SMALL, 8.5f, x + width, y + 1.5f, UI_ALIGN_RIGHT, COLOR_LABEL, value_width, columns[1]);
+				value_width += 10;
+			}
+			fitted_text(UI_FONT_MENU, 10.0f, x, y, UI_ALIGN_LEFT, COLOR_TEXT, width - value_width, columns[0]);
 			y += 16;
 			break;
+		}
 		case _profile_line_warn:
 			y = wrapped_text(UI_FONT_MENU_SMALL, 9.0f, x, y, width, 12, COLOR_WARN, line->text, 3) + 3;
 			break;
@@ -1661,7 +1682,7 @@ static void draw_lines(
 	}
 }
 
-/* Privacy and Sharing's rows: label, then the value between arrows */
+/* Privacy's rows: label, then the value between arrows */
 static void draw_privacy(
 	float x,
 	float y,
@@ -1691,9 +1712,6 @@ static void draw_privacy(
 			ui_overlay_outline(x - 6, y - 3, width + 12, 20, 5, 1.2f, COLOR_SELECTION_EDGE);
 		}
 		ui_overlay_text(UI_FONT_MENU, 10.0f, x, y, UI_ALIGN_LEFT, off ? COLOR_ROW_DIM : picked ? COLOR_TEXT : COLOR_ROW, row->label);
-		if (row->kind == _privacy_site)
-			ui_overlay_text(UI_FONT_MENU_SMALL, 6.5f, x + ui_overlay_text_width(UI_FONT_MENU, 10.0f, row->label) + 5, y + 3,
-				UI_ALIGN_LEFT, COLOR_HEAD, "SITE");
 		ui_overlay_text(UI_FONT_MENU, 10.0f, x + width - 50, y, UI_ALIGN_CENTER, off ? COLOR_ROW_DIM : COLOR_TEXT,
 			off ? "-" : row->shown[value]);
 		if (picked && !off)
@@ -1713,9 +1731,6 @@ static void draw_privacy(
 			ui_overlay_text(UI_FONT_MENU_SMALL, 8.5f, x, y + 36, UI_ALIGN_LEFT,
 				profile_screen.status.action == BROWSER_PROFILE_ACTION_FAILED ? COLOR_WARN : COLOR_GOOD, profile_screen.status.message);
 	}
-	else
-		wrapped_text(UI_FONT_MENU_SMALL, 8.5f, x, y, width, 11.5f, COLOR_DIM,
-			"Press A to change these. Rows marked SITE are saved on the site and need a connection; the rest are this copy's.", 3);
 }
 
 static void draw_panel(
@@ -1832,8 +1847,6 @@ static void draw_qr(
 			}
 		}
 	}
-	ui_overlay_text(UI_FONT_MENU_SMALL, 9.0f, QR_X + QR_WIDTH / 2, QR_Y + QR_WIDTH + 6, UI_ALIGN_CENTER, COLOR_DIM,
-		"or scan this with your phone");
 }
 
 static void draw_link_dialog(
@@ -1850,14 +1863,13 @@ static void draw_link_dialog(
 	{
 		float left = DIALOG_X + 22, y = DIALOG_Y + 60;
 
-		ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, left, y, UI_ALIGN_LEFT, COLOR_DIM, "On your phone or computer, go to");
+		ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, left, y, UI_ALIGN_LEFT, COLOR_DIM, "Go to");
 		ui_overlay_text_glow(UI_FONT_MENU, 13.0f, left, y + 16, UI_ALIGN_LEFT, COLOR_LABEL, 0x3D8BFF60, connect->page);
-		ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, left, y + 38, UI_ALIGN_LEFT, COLOR_DIM, "and enter:");
+		ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, left, y + 38, UI_ALIGN_LEFT, COLOR_DIM, "Enter");
 		ui_overlay_panel(left, y + 56, 238, 62, FALSE);
 		ui_overlay_text_glow(UI_FONT_MENU, 34.0f, left + 119, y + 69, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFFFF, connect->code);
-		snprintf(text, sizeof(text), "Good for %d:%02d", connect->seconds / 60, connect->seconds % 60);
+		snprintf(text, sizeof(text), "Expires in %d:%02d", connect->seconds / 60, connect->seconds % 60);
 		ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, left, y + 130, UI_ALIGN_LEFT, COLOR_DIM, text);
-		ui_overlay_text(UI_FONT_MENU_SMALL, 9.0f, left, y + 150, UI_ALIGN_LEFT, COLOR_DIM, "No profile yet? The same page makes one.");
 		if (connect->qr_size)
 			draw_qr(connect->qr, (short)connect->qr_size);
 		dialog_prompt(UI_BUTTON_B, "=CLOSE");
@@ -1869,10 +1881,6 @@ static void draw_link_dialog(
 		else
 			snprintf(text, sizeof(text), "Link this copy to @%s?", connect->handle);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 96, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
-		snprintf(text, sizeof(text), "Someone signed in as @%s entered the code.", connect->handle);
-		ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, center, DIALOG_Y + 130, UI_ALIGN_CENTER, COLOR_DIM, text);
-		ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, center, DIALOG_Y + 146, UI_ALIGN_CENTER, COLOR_DIM,
-			"If that isn't you, say no.");
 		if (connect->answered)
 			ui_overlay_text(UI_FONT_MENU, 11.0f, center, DIALOG_Y + 196, UI_ALIGN_CENTER, COLOR_TEXT, "Sending your answer\xE2\x80\xA6");
 		else
@@ -1886,14 +1894,6 @@ static void draw_link_dialog(
 	case BROWSER_CONNECT_CONNECTED:
 		snprintf(text, sizeof(text), "Connected as @%s", connect->handle);
 		ui_overlay_text_glow(UI_FONT_MENU, 17.0f, center, DIALOG_Y + 106, UI_ALIGN_CENTER, COLOR_GOOD, 0x6BE38A80, text);
-		if (connect->previous[0])
-		{
-			snprintf(text, sizeof(text), "Your games count for @%s now.", connect->handle);
-			ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, center, DIALOG_Y + 140, UI_ALIGN_CENTER, COLOR_DIM, text);
-		}
-		else
-			ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, center, DIALOG_Y + 140, UI_ALIGN_CENTER, COLOR_DIM,
-				"This copy's games now count for this profile.");
 		dialog_prompt(UI_BUTTON_B, "=DONE");
 		break;
 	case BROWSER_CONNECT_EXPIRED:
@@ -1932,14 +1932,11 @@ static void draw_unlink_dialog(
 		break;
 	case BROWSER_PROFILE_ACTION_DONE:
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 100, UI_ALIGN_CENTER, COLOR_GOOD, 0x6BE38A80,
-			"This copy is no longer linked.");
-		wrapped_text(UI_FONT_MENU_SMALL, 11.5f, left, DIALOG_Y + 136, width, 15, COLOR_DIM,
-			"Its games count under this copy again. Link it again any time.", 3);
+			"Unlinked");
 		dialog_prompt(UI_BUTTON_A, "=OK");
 		break;
 	case BROWSER_PROFILE_ACTION_FIRST_COPY:
-		snprintf(text, sizeof(text), "This is the copy that made @%s. To stop using the profile, delete it on the web.",
-			profile_screen.profile.handle);
+		snprintf(text, sizeof(text), "This copy made @%s and can't be unlinked.", profile_screen.profile.handle);
 		wrapped_text(UI_FONT_MENU, 12.0f, left, DIALOG_Y + 96, width, 17, COLOR_TEXT, text, 4);
 		dialog_prompt(UI_BUTTON_A, "=OK");
 		break;
@@ -1954,9 +1951,6 @@ static void draw_unlink_dialog(
 
 		snprintf(text, sizeof(text), "Unlink this copy from @%s?", profile_screen.profile.handle);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 90, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
-		snprintf(text, sizeof(text), "Its games stop counting for @%s from now on. Games it already played stay.",
-			profile_screen.profile.handle);
-		wrapped_text(UI_FONT_MENU_SMALL, 11.5f, left, DIALOG_Y + 126, width, 15, COLOR_DIM, text, 3);
 		dialog_prompts(NUMBEROF(buttons), buttons, words);
 		break;
 	}
@@ -1972,13 +1966,10 @@ static void draw_page_dialog(
 	float left = DIALOG_X + 22, y = DIALOG_Y + 60, width = QR_X - left - 16;
 
 	dialog_frame(web ? "OPEN ON THE WEB" : "UNLINK A COPY");
-	ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, left, y, UI_ALIGN_LEFT, COLOR_DIM, "On any device, go to");
+	ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, left, y, UI_ALIGN_LEFT, COLOR_DIM, "Go to");
 	ui_overlay_text_glow(UI_FONT_MENU, 12.0f, left, y + 16, UI_ALIGN_LEFT, COLOR_LABEL, 0x3D8BFF60, profile_screen.page);
-	y = wrapped_text(UI_FONT_MENU_SMALL, 11.5f, left, y + 44, width, 15, COLOR_TEXT, web ?
-		"and sign in. Your password, email, two-step sign-in, export and deleting the profile are there." :
-		"and sign in, then press Unlink next to the copy. Its games stop counting for you from now on.", 5);
 	if (!web)
-		wrapped_text(UI_FONT_MENU_SMALL, 10.5f, left, y + 8, width, 14, COLOR_DIM, "This screen updates on its own.", 2);
+		wrapped_text(UI_FONT_MENU_SMALL, 11.5f, left, y + 44, width, 15, COLOR_TEXT, "Sign in, then unlink the copy.", 2);
 	if (profile_screen.page_qr_size)
 		draw_qr(profile_screen.page_qr, (short)profile_screen.page_qr_size);
 	if (web)

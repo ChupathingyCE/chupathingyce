@@ -1742,7 +1742,7 @@ static void profile_row_text(short row, wchar_t *text)
 		text[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH] = 0;
 	}
 	else if (item > profile_list.count)
-		ustrncpy(text, L"DELTA PROFILE", ROW_TEXT_LENGTH);
+		ustrncpy(text, L"DELTA", ROW_TEXT_LENGTH);
 	else
 	{
 		extern boolean pc_menus_chupathingy(void);
@@ -1778,7 +1778,7 @@ static void profile_list_update(struct widget_instance *list)
 	rows_update(list, profile_list_rows(), profile_row_text);
 	profile = profile_list.chosen < profile_list.count;
 	/* (the panel's header: the kind of profile, Halo's or Delta's) */
-	text_set(named(description, "kind", 0), profile_list.chosen > profile_list.count ? L"DELTA PROFILE" : L"HALO PROFILE");
+	text_set(named(description, "kind", 0), profile_list.chosen > profile_list.count ? L"DELTA" : L"HALO PROFILE");
 	text_set(named(description, "player_profile_right_name", 0),
 		profile ? profile_list.profiles[profile_list.chosen].player_name : L"");
 	visible_set(named(description, "empty_profile_slot_text", 0), !profile && profile_list.chosen == profile_list.count);
@@ -1813,7 +1813,7 @@ static void profile_list_update(struct widget_instance *list)
 	}
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
 	profile_delta_card(description, profile_list.chosen > profile_list.count);
-	/* (Gearbox's DELTA PROFILE button, with a game list) */
+	/* (Gearbox's DELTA button, with a game list) */
 	visible_set(named(list, "profile_manager_button_delta", 0), profile_screen_available());
 #endif
 	profile_name_show(description);
@@ -5855,15 +5855,16 @@ static void gametype_engine_name(struct widget_instance *text_box)
 
 /* ---------- Delta Profile (port/linux/game/profile_screen.c): the
 Chupathingy menus' screen of it (chupathingy/delta_profile.xml), filled
-with what profile_screen.c says of each section; Profiles' DELTA PROFILE
+with what profile_screen.c says of each section; Profiles' DELTA
 row and its summary, and a Halo profile's "Delta:" line; Gearbox's Select
-Profile's DELTA PROFILE button, which opens the screen of code */
+Profile's DELTA button, which opens the screen of code */
 
 #define DELTA_PROFILE_SCREEN_NAME "pc\\chupathingy\\delta_profile\\screen"
 #define DELTA_PRIVACY_SCREEN_NAME "pc\\chupathingy\\settings\\delta_privacy_setup_screen"
-#define DELTA_SIDE_LINES 5
+#define DELTA_SIDE_LINES 2
+#define DELTA_STATS 6
 #define DELTA_LINES 16
-#define DELTA_SUMMARY_ROWS 4
+#define DELTA_SUMMARY_ROWS 5
 /* the help's lines are broken at this many characters */
 #define DELTA_HELP_WIDTH 40
 #define DELTA_HELP_LENGTH 256
@@ -5982,8 +5983,52 @@ static struct widget_instance *delta_named(struct widget_instance *widget, char 
 	return named(widget, name, 0);
 }
 
-/* Profiles' panel: the DELTA PROFILE row's summary (its Spartan, name and
-record), or a Halo profile's "Delta:" line */
+/* text cut to at most limit characters (UTF-8), ending "..." when cut */
+static void delta_fit(char const *text, long limit, char *fitted, long size)
+{
+	long characters = 0, at = 0, cut = 0;
+
+	while (text[at])
+	{
+		if (((unsigned char)text[at] & 0xC0) != 0x80)
+		{
+			if (characters == limit - 3)
+				cut = at;
+			characters++;
+		}
+		at++;
+	}
+	if (characters <= limit || limit <= 3)
+	{
+		snprintf(fitted, (size_t)size, "%s", text);
+		return;
+	}
+	while (cut > 0 && text[cut - 1] == ' ')
+		cut--;
+	snprintf(fitted, (size_t)size, "%.*s...", (int)cut, text);
+}
+
+/* a widget's text, cut to fit limit characters */
+static void delta_text_fit(struct widget_instance *widget, char const *text, long limit)
+{
+	char fitted[256];
+
+	delta_fit(text ? text : "", limit, fitted, sizeof(fitted));
+	delta_text(widget, fitted);
+}
+
+/* how many characters UTF-8 text has */
+static long delta_length(char const *text)
+{
+	long count = 0;
+
+	for (; *text; text++)
+		count += ((unsigned char)*text & 0xC0) != 0x80;
+	return count;
+}
+
+/* Profiles' panel: the DELTA row's summary (its Spartan, name and
+rows), or a Halo profile's "Delta:" line */
 static void profile_delta_card(struct widget_instance *description, boolean delta_row)
 {
 	struct profile_line lines[8];
@@ -5999,7 +6044,8 @@ static void profile_delta_card(struct widget_instance *description, boolean delt
 	if (line_shown)
 		delta_text(named(description, "delta_line", 0), delta_line);
 	if ((widget = named(description, "help", 0)) != NULL)
-		widget->parameters.text_box.string_list_index = delta_row ? 1 : 0;
+		widget->parameters.text_box.string_list_index = 0;
+	visible_set(named(description, "help", 0), !delta_row);
 	visible_set(named(description, "player_profile_right_name", 0), !delta_row);
 	visible_set(named(description, "player_profile_right_data", 0), !delta_row);
 	if (delta_row)
@@ -6025,14 +6071,14 @@ static void profile_delta_card(struct widget_instance *description, boolean delt
 
 		if (lines[index].style == _profile_line_title)
 		{
-			delta_text(named(description, "delta_title", 0), lines[index].text);
+			delta_text_fit(named(description, "delta_title", 0), lines[index].text, 15);
 			continue;
 		}
 		if (slot >= DELTA_SUMMARY_ROWS)
 			break;
 		delta_split(lines[index].text, &label, &value);
-		delta_text(delta_named(description, "delta_label_", slot), label);
-		delta_text(delta_named(description, "delta_value_", slot), value);
+		delta_text_fit(delta_named(description, "delta_label_", slot), label, value[0] ? 14 : 24);
+		delta_text_fit(delta_named(description, "delta_value_", slot), value, 10);
 		slot++;
 	}
 	for (index = 0; index < DELTA_SUMMARY_ROWS; index++)
@@ -6050,14 +6096,19 @@ static void delta_section_text(short row, wchar_t *text)
 	wide_text(profile_screen_section_name(row), text, ROW_TEXT_LENGTH);
 }
 
-/* a slot of the panel (line_label_/line_value_ n): its label and value,
-the label quiet (grey) or a warning (amber) */
-static void delta_slot(struct widget_instance *description, short slot, char const *label, char const *value, short style)
+/* a slot of the panel: its label, a recent game's place, and its value at
+the right; the label quiet (grey), a warning (amber) or text (white) */
+static void delta_slot(struct widget_instance *description, short slot, char const *label, char const *place,
+	char const *value, short style)
 {
 	struct widget_instance *widget = delta_named(description, "line_label_", slot);
+	long value_length = delta_length(value);
 
-	delta_text(widget, label);
-	delta_text(delta_named(description, "line_value_", slot), value);
+	/* (the label's room: the panel's 40 characters, less the value's and
+	the place's) */
+	delta_text_fit(widget, label, place[0] ? 20 : value[0] ? MAX(12, 38 - value_length) : 40);
+	delta_text_fit(delta_named(description, "line_place_", slot), place, 11);
+	delta_text_fit(delta_named(description, "line_value_", slot), value, place[0] ? 6 : 20);
 	if (style == _profile_line_dim)
 		text_color_set(widget, 0.56f, 0.65f, 0.78f);
 	else if (style == _profile_line_warn)
@@ -6067,28 +6118,24 @@ static void delta_slot(struct widget_instance *description, short slot, char con
 }
 
 /* the panel's slots from slot on, filled with lines: a label and its value
-in one slot when both are short, else in two; text broken over as many
-slots as it takes; the record's numbers two to a slot. The next slot */
+in one slot, a recent game's map, place and kills-deaths in theirs, text
+broken over as many slots as it takes. The next slot */
 static short delta_fill_lines(struct widget_instance *description, short slot, struct profile_line *lines, short count)
 {
-	short index, games = 0;
+	short index;
 
 	for (index = 0; index < count && slot < DELTA_LINES; index++)
 	{
 		struct profile_line *line = &lines[index];
 		char const *label, *value;
-		char text[sizeof(line->text)];
 
-		if (line->style == _profile_line_game)
+		if (line->style == _profile_line_game || line->style == _profile_line_head)
 		{
-			/* (three recent games: the panel's room) */
-			if (++games > 3)
-				continue;
-			/* (when and map; then the result, kills and deaths) */
-			char *columns[5] = { line->text, "", "", "", "" };
+			/* (map, type, place, kills-deaths: the type left out here) */
+			char *columns[4] = { line->text, "", "", "" };
 			short column;
 
-			for (column = 1; column < 5; column++)
+			for (column = 1; column < 4; column++)
 			{
 				char *tab = strchr(columns[column - 1], '\t');
 
@@ -6097,53 +6144,29 @@ static short delta_fill_lines(struct widget_instance *description, short slot, s
 				*tab = 0;
 				columns[column] = tab + 1;
 			}
-			snprintf(text, sizeof(text), "%s  %s", columns[0], columns[1]);
-			{
-				char result[96];
-
-				snprintf(result, sizeof(result), "%s %s", columns[3], columns[4]);
-				delta_slot(description, slot++, text, result, line->style);
-			}
+			delta_slot(description, slot++, columns[0], columns[2], columns[3], line->style);
 			continue;
 		}
 		if (line->style == _profile_line_tile)
-		{
-			short in_line;
-
-			/* (three to a slot) */
-			text[0] = 0;
-			for (in_line = 0; in_line < 3 && index < count && lines[index].style == _profile_line_tile; in_line++, index++)
-			{
-				delta_split(lines[index].text, &label, &value);
-				snprintf(text + strlen(text), sizeof(text) - strlen(text), "%s%s %s", in_line ? "   " : "", label, value);
-			}
-			index--;
-			delta_slot(description, slot++, text, "", line->style);
 			continue;
-		}
 		delta_split(line->text, &label, &value);
-		if (value[0] && strlen(label) <= 22 && strlen(value) <= 18)
+		if (value[0] || delta_length(label) <= 40)
 		{
-			delta_slot(description, slot++, label, value, line->style);
+			delta_slot(description, slot++, label, "", value, line->style);
 			continue;
 		}
 		{
-			/* (over as many slots as it takes, its value on the next) */
+			/* (over as many slots as it takes) */
 			char wrapped[DELTA_HELP_LENGTH] = "";
 			char *each, *next;
 
 			delta_help_append(wrapped, label);
-			if (value[0])
-			{
-				snprintf(text, sizeof(text), "  %s", value);
-				delta_help_append(wrapped, text);
-			}
 			for (each = wrapped; each && *each && slot < DELTA_LINES; each = next)
 			{
 				next = strchr(each, '\n');
 				if (next)
 					*next++ = 0;
-				delta_slot(description, slot++, each, "", line->style);
+				delta_slot(description, slot++, each, "", "", line->style);
 			}
 		}
 	}
@@ -6156,7 +6179,7 @@ static void delta_profile_update(struct widget_instance *list)
 {
 	struct widget_instance *description = list->parameters.list.extended_description;
 	struct profile_line lines[24];
-	short section = focused_row(list), count, index, side = 0, slot = 0, first = 0;
+	short section = focused_row(list), count, index, side = 0, slot = 0, first = 0, stat = 0;
 	boolean beside;
 	struct widget_instance *row;
 
@@ -6174,7 +6197,8 @@ static void delta_profile_update(struct widget_instance *list)
 		return;
 	count = profile_screen_panel_lines(section, lines, NUMBEROF(lines));
 	delta_text(named(description, "kind", 0), profile_screen_section_name(section));
-	/* the overview of a profile: the Spartan, its name beside it */
+	/* the overview of a profile: the Spartan; beside it the name, handle,
+	badges and record; the recent games under them */
 	beside = section == 0 && count > 1 && lines[0].style == _profile_line_title && lines[1].style == _profile_line_sub;
 	visible_set(named(description, "qtr_screen_profile_color_pic", 0), beside);
 	visible_set(named(description, "title", 0), beside);
@@ -6188,38 +6212,42 @@ static void delta_profile_update(struct widget_instance *list)
 			player_ui_get_active_player_profile(0, &active);
 			picture->animation.current_frame_index = (short)PIN(active.primary_color_index, 0, COLOR_COUNT - 1);
 		}
-		delta_text(named(description, "title", 0), lines[0].text);
-		for (first = 1; first < count && side < DELTA_SIDE_LINES &&
-			(lines[first].style == _profile_line_sub || lines[first].style == _profile_line_badges); first++)
+		delta_text_fit(named(description, "title", 0), lines[0].text, 15);
+		for (first = 1; first < count && (lines[first].style == _profile_line_sub || lines[first].style == _profile_line_badges ||
+			lines[first].style == _profile_line_tile); first++)
 		{
-			char wrapped[DELTA_HELP_LENGTH] = "";
-			char *each, *next;
-
-			/* (at most 26 characters a line beside the picture) */
-			delta_help_append_width(wrapped, lines[first].text, 26);
-			for (each = wrapped; each && *each && side < DELTA_SIDE_LINES; each = next)
+			if (lines[first].style == _profile_line_tile)
 			{
-				next = strchr(each, '\n');
-				if (next)
-					*next++ = 0;
-				delta_text(delta_named(description, "side_", side++), each);
+				char const *label, *value;
+
+				if (stat >= DELTA_STATS)
+					continue;
+				delta_split(lines[first].text, &label, &value);
+				delta_text(delta_named(description, "stat_label_", stat), label);
+				delta_text_fit(delta_named(description, "stat_value_", stat), value, 12);
+				stat++;
 			}
+			else if (side < DELTA_SIDE_LINES)
+				delta_text_fit(delta_named(description, "side_", side++), lines[first].text, 25);
 		}
 		/* (the rest under the picture) */
-		slot = 8;
+		slot = 11;
 	}
 	for (index = side; index < DELTA_SIDE_LINES; index++)
 		delta_text(delta_named(description, "side_", index), "");
+	for (index = 0; index < DELTA_STATS; index++)
+	{
+		visible_set(delta_named(description, "stat_label_", index), index < stat);
+		visible_set(delta_named(description, "stat_value_", index), index < stat);
+	}
 	for (index = 0; index < slot; index++)
-		delta_slot(description, index, "", "", _profile_line_row);
+		delta_slot(description, index, "", "", "", _profile_line_row);
 	slot = delta_fill_lines(description, slot, lines + first, (short)(count - first));
-	if (section == 3 && slot < DELTA_LINES)
-		delta_slot(description, slot++, "Press A to change these.", "", _profile_line_text);
 	for (index = slot; index < DELTA_LINES; index++)
-		delta_slot(description, index, "", "", _profile_line_row);
+		delta_slot(description, index, "", "", "", _profile_line_row);
 }
 
-/* "port delta profile choose" (a section's A): Privacy and Sharing's page,
+/* "port delta profile choose" (a section's A): Privacy's page,
 or the section's dialog */
 static boolean delta_profile_choose(struct widget_instance *widget, boolean *widget_deleted)
 {
@@ -6266,7 +6294,7 @@ static void delta_profile_back(struct widget_instance *widget, boolean *widget_d
 	}
 }
 
-/* whether the A was on Profiles' DELTA PROFILE row */
+/* whether the A was on Profiles' DELTA row */
 static boolean profile_list_delta_chosen(struct widget_instance const *widget)
 {
 	return widget->parent && widget->parent == profile_list.list && profile_list_delta_row() &&
@@ -6491,7 +6519,7 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "single prev cl item activated"))
 		{
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
-			/* (Profiles' DELTA PROFILE row: Delta Profile's screen) */
+			/* (Profiles' DELTA row: Delta Profile's screen) */
 			if (profile_list_delta_chosen(widget))
 				return delta_profile_open_from(widget, widget_deleted);
 #endif
