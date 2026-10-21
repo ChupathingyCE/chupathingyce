@@ -10,7 +10,8 @@ the background). Everyone else shows by their game name, as before: an
 OpenCE player, a player who does not share, a split screen player (the
 profile is a copy's, not a player's), a profile hidden or locked on the
 site. Only what this copy draws changes: the game's own names, and what
-OpenCE players see, are untouched.
+OpenCE players see, are untouched. A player who shows their clan tag has it
+before their name ("[TAG] Name"), the name cut to fit with "...".
 */
 
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
@@ -94,6 +95,50 @@ boolean profile_names_player(
 	if (!browser_player_card(hex, &card))
 		return FALSE;
 	wide_from_utf8(card.display[0] ? card.display : card.handle, name, size);
+	if (name[0] && card.clan_tag[0] && size > 8)
+	{
+		wchar_t tag[24], shown[64];
+		long tag_length, name_length = 0, room;
+
+		wide_from_utf8(card.clan_tag, tag + 1, NUMBEROF(tag) - 3);
+		tag[0] = '[';
+		tag_length = 1;
+		while (tag[tag_length])
+			tag_length++;
+		tag[tag_length++] = ']';
+		tag[tag_length++] = ' ';
+		tag[tag_length] = 0;
+		while (name[name_length])
+			name_length++;
+		/* (the name's room in the column, the tag's taken; cut, it ends
+		"...") */
+		room = MIN(size, (long)NUMBEROF(shown)) - 1 - tag_length;
+		if (room >= 4)
+		{
+			long index, used = 0;
+
+			for (index = 0; index < tag_length; index++)
+				shown[used++] = tag[index];
+			if (name_length <= room)
+			{
+				for (index = 0; index < name_length; index++)
+					shown[used++] = name[index];
+			}
+			else
+			{
+				for (index = 0; index < room - 3; index++)
+					shown[used++] = name[index];
+				while (used > tag_length && shown[used - 1] == ' ')
+					used--;
+				shown[used++] = '.';
+				shown[used++] = '.';
+				shown[used++] = '.';
+			}
+			shown[used] = 0;
+			for (index = 0; index <= used; index++)
+				name[index] = shown[index];
+		}
+	}
 	return name[0] != 0;
 }
 

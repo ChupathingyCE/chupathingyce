@@ -10,8 +10,10 @@ deletion) stay on the site, reached with OPEN ON THE WEB. Linking is per
 copy: every Halo profile on this copy counts for the one Delta profile.
 
 The same sections in every menu set: OVERVIEW, LINKED COPIES, ROLES,
-PRIVACY, then LINK PROFILE (or UNLINK THIS COPY) and OPEN ON THE
-WEB. What each shows is made here once (profile_screen_panel_lines):
+CLAN, PRIVACY, then LINK PROFILE (or UNLINK THIS COPY) and OPEN ON THE
+WEB. CLAN shows the profile's clan (its emblem, tag, motto and members by
+rank) or the clans that invited it; its A opens a dialog to show or hide
+the tag, leave the clan, or join or decline an invite. What each shows is made here once (profile_screen_panel_lines):
 - the Chupathingy menus show it with their own widgets
   (port/assets/menus/chupathingy/delta_profile.xml, filled by
   menu_functions.c), their Privacy a settings page of theirs
@@ -46,12 +48,14 @@ role, as the site shows its holder; no address anywhere.
 #include "saved games/saved_game_files.h"
 #include "../src/browser.h"
 #include "../src/delta_profile.h"
+#include "../src/clan_emblem.h"
 #include "../src/ui_overlay.h"
 #include "halo_ui_pointer.h"
 #include "halo_profile_screen.h"
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -86,7 +90,16 @@ enum
 	requests 6 a minute) */
 	RETRY_INTERVAL = 30000,
 	COPIES_POLL_INTERVAL = 15000,
+	/* a request for the emblem on the Chupathingy menus' panel is kept
+	this long (the panel asks for it as it updates) */
+	CARD_EMBLEM_KEPT = 120,
+	/* the clan's members its panel shows (more: "+N more"), and the
+	emblem's pixels (square) */
+	CLAN_PANEL_MEMBERS = 9,
+	EMBLEM_PIXELS = 128,
 	MAXIMUM_TARGETS = 32,
+	/* (ui_widget.c's feedback sound for a choice that does nothing) */
+	SOUND_ERROR = 4,
 	MAXIMUM_PANEL_LINES = 24,
 };
 
@@ -96,6 +109,7 @@ enum
 	_section_overview,
 	_section_copies,
 	_section_roles,
+	_section_clan,
 	_section_privacy,
 	/* LINK PROFILE, or UNLINK THIS COPY */
 	_section_link,
@@ -112,6 +126,25 @@ enum
 	_dialog_unlink,
 	_dialog_web,
 	_dialog_copies,
+	_dialog_clan,
+};
+
+/* the clan dialog: its rows, the question before leaving, and a request
+sent (its answer shown) */
+enum
+{
+	_clan_rows,
+	_clan_asking,
+	_clan_sent,
+};
+
+/* the clan dialog's rows with a clan */
+enum
+{
+	_clan_row_tag,
+	_clan_row_leave,
+
+	NUMBER_OF_CLAN_ROWS
 };
 
 /* Privacy's rows (the overlay's; the Chupathingy menus' page
@@ -148,6 +181,8 @@ static struct privacy_row const privacy_rows[] =
 		"Hide your record from other players." },
 	{ "HIDE MY HEATMAPS", _privacy_site, "hide_heatmaps", { "false", "true" }, { "NO", "YES" },
 		"Hide your heatmaps from other players." },
+	{ "SHOW CLAN TAG", _privacy_site, "show_clan_tag", { "true", "false" }, { "ON", "OFF" },
+		"Show your clan tag to Chupathingy players." },
 #ifndef HALO_CONSOLE_NO_DISCORD
 	{ "DISCORD STATUS", _privacy_game, "discord.presence", { "full", "minimal", "off" }, { "FULL", "MINIMAL", "OFF" },
 		"What Discord shows while you play." },
@@ -156,9 +191,13 @@ static struct privacy_row const privacy_rows[] =
 		"Show players by their Delta names." },
 };
 
+/* (halo_profile_screen.h names two of them for the Chupathingy menus) */
+typedef char profile_screen_sections_named[(_section_clan == PROFILE_SCREEN_SECTION_CLAN &&
+	_section_privacy == PROFILE_SCREEN_SECTION_PRIVACY) ? 1 : -1];
+
 static char const *const section_names[NUMBER_OF_PROFILE_SECTIONS] =
 {
-	"OVERVIEW", "LINKED COPIES", "ROLES", "PRIVACY", "LINK PROFILE", "OPEN ON THE WEB",
+	"OVERVIEW", "LINKED COPIES", "ROLES", "CLAN", "PRIVACY", "LINK PROFILE", "OPEN ON THE WEB",
 };
 
 /* the multiplayer maps' names in the menus (as Online Games names them) */
@@ -213,6 +252,16 @@ static struct
 	/* the Chupathingy menus' Profiles: the summary their DELTA row
 	shows asked for (profile_screen_profiles_row) */
 	unsigned long summary_time;
+	/* the clan dialog's row, and where it is (its rows, the question
+	before leaving, a request sent) */
+	short dialog_row;
+	short clan_state;
+	/* the emblem the Chupathingy menus' panel asked for (where, and when) */
+	float card_x, card_y, card_size;
+	unsigned long card_time;
+	/* the emblem's pixels, and which emblem they are */
+	unsigned char *emblem_pixels;
+	int emblem_serial;
 } profile_screen;
 
 /* ---------- the profile */
@@ -265,7 +314,7 @@ linked profile) */
 static boolean section_open(
 	short section)
 {
-	if (section == _section_copies || section == _section_roles)
+	if (section == _section_copies || section == _section_roles || section == _section_clan)
 		return linked() && !profile_screen.profile.locked;
 	return TRUE;
 }
@@ -628,6 +677,63 @@ static short roles_lines(
 	return count;
 }
 
+static char const *rank_name(
+	char const *rank)
+{
+	if (!strcmp(rank, "leader"))
+		return "Leader";
+	if (!strcmp(rank, "officer"))
+		return "Officer";
+	return "Member";
+}
+
+/* the clan: its name, tag and size, motto, then its members by rank (the
+first CLAN_PANEL_MEMBERS, then how many more); or the clans that invited
+the profile */
+static short clan_lines(
+	struct profile_line *lines,
+	short count,
+	short maximum)
+{
+	struct delta_profile const *profile = &profile_screen.profile;
+	short index;
+
+	if (profile->has_clan)
+	{
+		struct delta_profile_clan const *clan = &profile->clan;
+		short shown = (short)MIN(clan->member_count, CLAN_PANEL_MEMBERS + 1);
+
+		if (clan->count > shown)
+			shown = (short)MIN(shown, CLAN_PANEL_MEMBERS);
+		count = add_line(lines, count, maximum, _profile_line_title, "%s", clan->name);
+		count = add_line(lines, count, maximum, _profile_line_sub, "[%s] \xC2\xB7 %d member%s", clan->tag, clan->count,
+			clan->count == 1 ? "" : "s");
+		if (clan->motto[0])
+			count = add_line(lines, count, maximum, _profile_line_badges, "%s", clan->motto);
+		count = add_line(lines, count, maximum, _profile_line_head, "MEMBERS\t\t\tRANK");
+		for (index = 0; index < shown; index++)
+		{
+			struct delta_profile_clan_member const *member = &clan->members[index];
+
+			count = add_line(lines, count, maximum, _profile_line_row, "%s\t%s%s", member->display, rank_name(member->rank),
+				member->you ? " \xC2\xB7 You" : "");
+		}
+		if (clan->count > shown)
+			count = add_line(lines, count, maximum, _profile_line_row, "+%d more\t", clan->count - shown);
+		return count;
+	}
+	count = add_line(lines, count, maximum, _profile_line_title, "No clan");
+	if (!profile->invite_count)
+		return add_line(lines, count, maximum, _profile_line_dim, "No invites");
+	count = add_line(lines, count, maximum, _profile_line_head, "INVITES\t\t\tMEMBERS");
+	for (index = 0; index < profile->invite_count && index < CLAN_PANEL_MEMBERS + 1; index++)
+		count = add_line(lines, count, maximum, _profile_line_row, "[%s] %s\t%d", profile->invites[index].tag,
+			profile->invites[index].name, profile->invites[index].count);
+	if (profile->invite_count > index)
+		count = add_line(lines, count, maximum, _profile_line_row, "+%d more\t", profile->invite_count - index);
+	return count;
+}
+
 static short link_lines(
 	struct profile_line *lines,
 	short count,
@@ -691,6 +797,7 @@ short profile_screen_panel_lines(
 	case _section_overview: count = linked() ? overview_lines(lines, 0, maximum) : not_linked_lines(lines, 0, maximum); break;
 	case _section_copies: count = copies_lines(lines, 0, maximum); break;
 	case _section_roles: count = roles_lines(lines, 0, maximum); break;
+	case _section_clan: count = clan_lines(lines, 0, maximum); break;
 	case _section_link: count = link_lines(lines, 0, maximum); break;
 	default: count = 0; break;
 	}
@@ -750,6 +857,8 @@ static void open_dialog(
 {
 	profile_screen.dialog = dialog;
 	profile_screen.dialog_time = system_milliseconds();
+	profile_screen.dialog_row = 0;
+	profile_screen.clan_state = _clan_rows;
 	browser_profile_action_seen();
 	if (dialog == _dialog_web || dialog == _dialog_copies)
 	{
@@ -834,6 +943,11 @@ boolean profile_screen_section_action(
 			return FALSE;
 		open_dialog(_dialog_copies);
 		return TRUE;
+	case _section_clan:
+		if (!linked() || profile_screen.profile.locked || (!profile_screen.profile.has_clan && !profile_screen.profile.invite_count))
+			return FALSE;
+		open_dialog(_dialog_clan);
+		return TRUE;
 	default:
 		return FALSE;
 	}
@@ -875,6 +989,8 @@ boolean profile_screen_site_setting(
 		snprintf(text, (size_t)size, "%s", profile_screen.profile.hide_heatmaps ? "true" : "false");
 	else if (!strcmp(field, "show_presence"))
 		snprintf(text, (size_t)size, "%s", profile_screen.profile.show_presence ? "true" : "false");
+	else if (!strcmp(field, "show_clan_tag"))
+		snprintf(text, (size_t)size, "%s", profile_screen.profile.show_clan_tag ? "true" : "false");
 	else
 		return FALSE;
 	return TRUE;
@@ -1012,6 +1128,87 @@ static short panel_row_count(
 	return 0;
 }
 
+/* the leader of a clan with other members can't leave it */
+static boolean clan_leader_held(
+	void)
+{
+	struct delta_profile_clan const *clan = &profile_screen.profile.clan;
+
+	return !strcmp(clan->rank, "leader") && clan->count > 1;
+}
+
+static short clan_dialog_rows(
+	void)
+{
+	if (profile_screen.profile.has_clan)
+		return NUMBER_OF_CLAN_ROWS;
+	return (short)profile_screen.profile.invite_count;
+}
+
+static void clan_dialog_button(
+	short button)
+{
+	struct delta_profile const *profile = &profile_screen.profile;
+	short rows = clan_dialog_rows();
+
+	switch (profile_screen.clan_state)
+	{
+	case _clan_sent:
+		/* (the answer read: done, or back to the rows) */
+		if (profile_screen.status.action == BROWSER_PROFILE_ACTION_WORKING)
+			break;
+		if (button == _gamepad_analog_button_a || button == _gamepad_analog_button_b)
+		{
+			if (profile_screen.status.action == BROWSER_PROFILE_ACTION_DONE || !clan_dialog_rows())
+				close_dialog();
+			else
+			{
+				profile_screen.clan_state = _clan_rows;
+				profile_screen.dialog_row = 0;
+				browser_profile_action_seen();
+			}
+		}
+		break;
+	case _clan_asking:
+		if (button == _gamepad_analog_button_a)
+		{
+			browser_profile_clan("leave", 0);
+			profile_screen.clan_state = _clan_sent;
+		}
+		else if (button == _gamepad_analog_button_b)
+			profile_screen.clan_state = _clan_rows;
+		break;
+	default:
+		if (button == _gamepad_binary_button_dpad_up && rows)
+			profile_screen.dialog_row = (short)MAX(0, profile_screen.dialog_row - 1);
+		else if (button == _gamepad_binary_button_dpad_down && rows)
+			profile_screen.dialog_row = (short)MIN(rows - 1, profile_screen.dialog_row + 1);
+		else if (button == _gamepad_analog_button_b)
+			close_dialog();
+		else if (profile->has_clan && profile_screen.dialog_row == _clan_row_tag &&
+			(button == _gamepad_analog_button_a || button == _gamepad_binary_button_dpad_left ||
+			button == _gamepad_binary_button_dpad_right))
+		{
+			browser_profile_privacy("show_clan_tag", !profile->show_clan_tag);
+		}
+		else if (profile->has_clan && profile_screen.dialog_row == _clan_row_leave && button == _gamepad_analog_button_a)
+		{
+			if (clan_leader_held())
+				ui_play_audio_feedback_sound(SOUND_ERROR);
+			else
+				profile_screen.clan_state = _clan_asking;
+		}
+		else if (!profile->has_clan && profile_screen.dialog_row < rows &&
+			(button == _gamepad_analog_button_a || button == _gamepad_analog_button_x))
+		{
+			browser_profile_clan(button == _gamepad_analog_button_a ? "accept" : "decline",
+				profile->invites[profile_screen.dialog_row].id);
+			profile_screen.clan_state = _clan_sent;
+		}
+		break;
+	}
+}
+
 static void dialog_button(
 	short button)
 {
@@ -1069,6 +1266,9 @@ static void dialog_button(
 	case _dialog_copies:
 		if (button == _gamepad_analog_button_b)
 			close_dialog();
+		break;
+	case _dialog_clan:
+		clan_dialog_button(button);
 		break;
 	default:
 		break;
@@ -1495,6 +1695,52 @@ static void draw_spartan(
 	draw_bitmap_in_rect(bitmap, &bounds, &art, NULL, 0xFFFFFFFF, NULL, FALSE);
 }
 
+/* the clan's emblem, size square, x and y its top left (its pixels made
+again only when it changes) */
+static void draw_emblem(
+	float x,
+	float y,
+	float size)
+{
+	int const *fields = profile_screen.profile.clan.emblem;
+	struct clan_emblem emblem;
+	int serial;
+
+	emblem.foreground = fields[0];
+	emblem.background = fields[1];
+	emblem.primary = fields[2];
+	emblem.secondary = fields[3];
+	emblem.background_color = fields[4];
+	serial = clan_emblem_serial(&emblem);
+	if (!profile_screen.emblem_pixels)
+	{
+		profile_screen.emblem_pixels = malloc(EMBLEM_PIXELS * EMBLEM_PIXELS * 4);
+		if (!profile_screen.emblem_pixels)
+			return;
+		profile_screen.emblem_serial = 0;
+	}
+	if (serial != profile_screen.emblem_serial)
+	{
+		clan_emblem_render(&emblem, EMBLEM_PIXELS, profile_screen.emblem_pixels);
+		profile_screen.emblem_serial = serial;
+	}
+	ui_overlay_picture(serial, profile_screen.emblem_pixels, EMBLEM_PIXELS, EMBLEM_PIXELS, x, y, size, size, 0xFFFFFFFF);
+}
+
+/* the Chupathingy menus' panel shows the clan: its emblem there, size
+square (asked for as the panel updates; drawn while it asks); a size of 0:
+not shown from now */
+void profile_screen_card_emblem(
+	float x,
+	float y,
+	float size)
+{
+	profile_screen.card_x = x;
+	profile_screen.card_y = y;
+	profile_screen.card_size = size;
+	profile_screen.card_time = size > 0.0f ? system_milliseconds() : 0;
+}
+
 static void draw_header(
 	float left,
 	float right)
@@ -1682,6 +1928,25 @@ static void draw_lines(
 	}
 }
 
+/* a value's arrow (pointing left or right), centered on x, a 10-point
+line's top at y: thin slices of a triangle (the menu font has no arrows) */
+static void draw_arrow(
+	float x,
+	float y,
+	boolean left,
+	unsigned int color)
+{
+	short slice;
+
+	for (slice = 0; slice < 5; slice++)
+	{
+		float height = 9.0f - slice * 1.8f;
+
+		/* (the tallest slice the arrow's back, the shortest its point) */
+		ui_overlay_rect(x + (left ? 1.5f - slice : slice - 2.5f), y + 3.0f + (9.0f - height) * 0.5f, 1.0f, height, 0, color);
+	}
+}
+
 /* Privacy's rows: label, then the value between arrows */
 static void draw_privacy(
 	float x,
@@ -1716,8 +1981,8 @@ static void draw_privacy(
 			off ? "-" : row->shown[value]);
 		if (picked && !off)
 		{
-			ui_overlay_text(UI_FONT_MENU, 10.0f, x + width - 92, y, UI_ALIGN_CENTER, COLOR_PROMPT, "\xE2\x97\x80");
-			ui_overlay_text(UI_FONT_MENU, 10.0f, x + width - 8, y, UI_ALIGN_CENTER, COLOR_PROMPT, "\xE2\x96\xB6");
+			draw_arrow(x + width - 92, y, TRUE, COLOR_PROMPT);
+			draw_arrow(x + width - 8, y, FALSE, COLOR_PROMPT);
 		}
 		add_target(x - 6, y - 3, x + width + 6, y + 17, NONE, _section_privacy, index);
 		y += 21;
@@ -1765,6 +2030,20 @@ static void draw_panel(
 		}
 		return;
 	}
+	/* (the clan's emblem at the left of its name, tag and motto; its members
+under both) */
+	if (profile_screen.section == _section_clan && linked() && profile_screen.profile.has_clan)
+	{
+		short index;
+
+		ui_overlay_panel(x, y, 84, 84, FALSE);
+		draw_emblem(x + 6, y + 6, 72);
+		for (index = 0; index < count && lines[index].style != _profile_line_head; index++)
+			;
+		draw_lines(lines, index, x + 96, y + 6, width - 96, PANEL_Y + PANEL_HEIGHT - 8);
+		draw_lines(lines + index, (short)(count - index), x, y + 92, width, PANEL_Y + PANEL_HEIGHT - 8);
+		return;
+	}
 	draw_lines(lines, count, x, y, width, PANEL_Y + PANEL_HEIGHT - 8);
 }
 
@@ -1792,7 +2071,9 @@ static void draw_bar(
 	}
 	buttons[count] = UI_BUTTON_B;
 	words[count++] = "=BACK";
-	if (profile_screen.in_panel || panel_row_count() || profile_screen.section >= _section_link)
+	if (profile_screen.in_panel || panel_row_count() || profile_screen.section >= _section_link ||
+		(profile_screen.section == _section_clan && linked() &&
+		(profile_screen.profile.has_clan || profile_screen.profile.invite_count)))
 	{
 		buttons[count] = UI_BUTTON_A;
 		words[count++] = profile_screen.in_panel ? "=CHANGE" : "=SELECT";
@@ -1983,6 +2264,111 @@ static void draw_page_dialog(
 		dialog_prompt(UI_BUTTON_B, "=CANCEL");
 }
 
+/* the clan dialog: the tag shown or not, and leaving; or the invites,
+joined or declined; the question before leaving; a request's answer */
+static void draw_clan_dialog(
+	void)
+{
+	struct delta_profile const *profile = &profile_screen.profile;
+	struct browser_profile_status const *status = &profile_screen.status;
+	struct delta_profile_clan const *clan = &profile->clan;
+	float center = DIALOG_X + DIALOG_WIDTH / 2, left = DIALOG_X + 30, width = DIALOG_WIDTH - 60, y = DIALOG_Y + 64;
+	short rows = clan_dialog_rows(), index, first;
+	char text[192];
+
+	dialog_frame(profile->has_clan ? "CLAN" : "INVITES");
+	if (profile_screen.clan_state == _clan_sent)
+	{
+		if (status->action == BROWSER_PROFILE_ACTION_WORKING || status->action == BROWSER_PROFILE_ACTION_NONE)
+			ui_overlay_text(UI_FONT_MENU, 12.0f, center, DIALOG_Y + 120, UI_ALIGN_CENTER, COLOR_TEXT, "Sending\xE2\x80\xA6");
+		else
+		{
+			if (status->action == BROWSER_PROFILE_ACTION_DONE)
+				ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 100, UI_ALIGN_CENTER, COLOR_GOOD, 0x6BE38A80,
+					status->message);
+			else
+				wrapped_text(UI_FONT_MENU, 12.0f, left, DIALOG_Y + 100, width, 17, COLOR_WARN, status->message, 4);
+			dialog_prompt(UI_BUTTON_A, "=OK");
+		}
+		return;
+	}
+	if (profile_screen.clan_state == _clan_asking)
+	{
+		static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_A };
+		static char const *const words[] = { "=NO", "=YES" };
+
+		snprintf(text, sizeof(text), "Leave [%s] %s?", clan->tag, clan->name);
+		fitted_text(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 90, UI_ALIGN_CENTER, 0xFFFFFFFF, width, text);
+		dialog_prompts(NUMBEROF(buttons), buttons, words);
+		return;
+	}
+	/* (the invites' columns named; the rows: at most 8 at once, the picked
+	one among them) */
+	if (!profile->has_clan)
+	{
+		ui_overlay_text(UI_FONT_MENU_SMALL, 7.5f, left, y - 12, UI_ALIGN_LEFT, COLOR_LABEL, "CLAN");
+		ui_overlay_text(UI_FONT_MENU_SMALL, 7.5f, left + width - 30, y - 12, UI_ALIGN_CENTER, COLOR_LABEL, "MEMBERS");
+	}
+	first = (short)MAX(0, MIN(profile_screen.dialog_row - 3, rows - 8));
+	for (index = first; index < rows && index < first + 8; index++)
+	{
+		boolean picked = index == profile_screen.dialog_row;
+		boolean off = profile->has_clan && index == _clan_row_leave && clan_leader_held();
+		char const *label, *value;
+		char number[16];
+
+		if (profile->has_clan)
+		{
+			label = index == _clan_row_tag ? "SHOW MY TAG" : clan->count == 1 ? "DISBAND CLAN" : "LEAVE CLAN";
+			value = index == _clan_row_tag ? (!profile->has_privacy ? "-" : profile->show_clan_tag ? "ON" : "OFF") : "";
+		}
+		else
+		{
+			snprintf(text, sizeof(text), "[%s] %s", profile->invites[index].tag, profile->invites[index].name);
+			snprintf(number, sizeof(number), "%d", profile->invites[index].count);
+			label = text;
+			value = number;
+		}
+		if (picked)
+		{
+			ui_overlay_rect(left - 6, y - 3, width + 12, 20, 5, COLOR_SELECTION_FILL);
+			ui_overlay_outline(left - 6, y - 3, width + 12, 20, 5, 1.2f, COLOR_SELECTION_EDGE);
+		}
+		fitted_text(UI_FONT_MENU, 10.0f, left, y, UI_ALIGN_LEFT, off ? COLOR_ROW_DIM : picked ? COLOR_TEXT : COLOR_ROW,
+			width - 70, label);
+		if (value[0])
+			ui_overlay_text(UI_FONT_MENU, 10.0f, left + width - 30, y, UI_ALIGN_CENTER, COLOR_TEXT, value);
+		if (picked && profile->has_clan && index == _clan_row_tag)
+		{
+			draw_arrow(left + width - 62, y, TRUE, COLOR_PROMPT);
+			draw_arrow(left + width + 2, y, FALSE, COLOR_PROMPT);
+		}
+		add_target(left - 6, y - 3, left + width + 6, y + 17, NONE, NONE, index);
+		y += 22;
+	}
+	/* (one line under the rows: why the leader can't leave, or how the last
+	change went) */
+	if (profile->has_clan && profile_screen.dialog_row == _clan_row_leave && clan_leader_held())
+		ui_overlay_text(UI_FONT_MENU_SMALL, 9.0f, left, y + 8, UI_ALIGN_LEFT, COLOR_DIM, "Make another member leader first");
+	else if (status->message[0] && status->action != BROWSER_PROFILE_ACTION_NONE)
+		ui_overlay_text(UI_FONT_MENU_SMALL, 9.0f, left, y + 8, UI_ALIGN_LEFT,
+			status->action == BROWSER_PROFILE_ACTION_FAILED ? COLOR_WARN : COLOR_GOOD, status->message);
+	if (profile->has_clan)
+	{
+		static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_A };
+		static char const *const words[] = { "=BACK", "=SELECT" };
+
+		dialog_prompts(NUMBEROF(buttons), buttons, words);
+	}
+	else
+	{
+		static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_X, UI_BUTTON_A };
+		static char const *const words[] = { "=BACK", "=DECLINE", "=JOIN" };
+
+		dialog_prompts(NUMBEROF(buttons), buttons, words);
+	}
+}
+
 static void draw_dialog(
 	float margin)
 {
@@ -1992,6 +2378,7 @@ static void draw_dialog(
 	{
 	case _dialog_link: draw_link_dialog(); break;
 	case _dialog_unlink: draw_unlink_dialog(); break;
+	case _dialog_clan: draw_clan_dialog(); break;
 	default: draw_page_dialog(); break;
 	}
 	ui_overlay_layer(0);
@@ -2004,6 +2391,12 @@ void profile_screen_render(
 	float margin = (float)((halo_screen_width() - 640) / 2 + 2);
 
 	profile_screen.target_count = 0;
+	/* (the Chupathingy menus' panel showing the clan: its emblem) */
+	if (!profile_screen.active && ui_overlay_available() && profile_screen.card_time &&
+		system_milliseconds() - profile_screen.card_time < CARD_EMBLEM_KEPT && linked() && profile_screen.profile.has_clan)
+	{
+		draw_emblem(profile_screen.card_x, profile_screen.card_y, profile_screen.card_size);
+	}
 	if (!ui_overlay_available() || !profile_screen_active())
 		return;
 	if (profile_screen.active)
@@ -2048,6 +2441,13 @@ void profile_screen_pointer(
 		}
 		if (profile_screen.targets[index].button != NONE)
 			press(profile_screen.targets[index].button);
+		else if (profile_screen.dialog == _dialog_clan && profile_screen.targets[index].row != NONE)
+		{
+			/* (a row of the clan dialog: picked, again: chosen) */
+			if (profile_screen.dialog_row == profile_screen.targets[index].row)
+				press(_gamepad_analog_button_a);
+			profile_screen.dialog_row = profile_screen.targets[index].row;
+		}
 		else if (profile_screen.targets[index].row != NONE)
 		{
 			if (profile_screen.in_panel && profile_screen.row == profile_screen.targets[index].row)

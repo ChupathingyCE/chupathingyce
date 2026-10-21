@@ -235,8 +235,13 @@ static struct
 	unsigned long game_profile_asked;
 	struct delta_profile game_profile;
 	int game_unlink_wanted;
-	char game_privacy_field[16];
-	int game_privacy_value;
+	/* the privacy settings to send (one request takes them all) */
+	int game_privacy_count;
+	char game_privacy_fields[4][16];
+	int game_privacy_values[4];
+	/* a clan request waiting (/v1/game/clan): its action and clan */
+	char game_clan_action[12];
+	int game_clan_id;
 	int game_action;
 	char game_message[128];
 	/* the link kept in the save root forgotten (the copy was unlinked) */
@@ -907,16 +912,25 @@ static void update_game_profile(void)
 {
 	static char response[GAME_PROFILE_RESPONSE];
 	static struct delta_profile read;
-	char error[256], field[sizeof(browser.game_privacy_field)], fields[64], path[512];
-	int wanted, unlink, value, status, no_key, ok;
+	char error[256], fields[160], path[512];
+	char clan_action[sizeof(browser.game_clan_action)];
+	int wanted, unlink, privacy_count, status, no_key, ok, clan_id, index;
 
 	pthread_mutex_lock(&browser_lock);
 	wanted = browser.game_profile_wanted && elapsed(browser.game_profile_asked, GAME_PROFILE_INTERVAL);
 	unlink = browser.game_unlink_wanted;
 	browser.game_unlink_wanted = 0;
-	memcpy(field, browser.game_privacy_field, sizeof(field));
-	value = browser.game_privacy_value;
-	browser.game_privacy_field[0] = 0;
+	privacy_count = browser.game_privacy_count;
+	fields[0] = 0;
+	for (index = 0; index < privacy_count; index++)
+	{
+		snprintf(fields + strlen(fields), sizeof(fields) - strlen(fields), "%s\"%s\": %s", index ? ", " : "",
+			browser.game_privacy_fields[index], browser.game_privacy_values[index] ? "true" : "false");
+	}
+	browser.game_privacy_count = 0;
+	memcpy(clan_action, browser.game_clan_action, sizeof(clan_action));
+	clan_id = browser.game_clan_id;
+	browser.game_clan_action[0] = 0;
 	if (browser.profile_forget_wanted)
 	{
 		browser.profile_forget_wanted = 0;
@@ -949,9 +963,8 @@ static void update_game_profile(void)
 		platform_log("Delta Profile: unlink: %s", status == 200 || status == 404 ? "done" : no_key ? "no player key" :
 			status == 409 ? "the first copy" : "no answer");
 	}
-	if (field[0])
+	if (privacy_count)
 	{
-		snprintf(fields, sizeof(fields), "\"%s\": %s", field, value ? "true" : "false");
 		status = game_request("/v1/game/privacy", fields, response, sizeof(response), error, sizeof(error), &no_key);
 		pthread_mutex_lock(&browser_lock);
 		if (no_key)
@@ -968,6 +981,41 @@ static void update_game_profile(void)
 		else
 			game_action_done(BROWSER_PROFILE_ACTION_FAILED, NOT_ANSWERING_MESSAGE);
 		pthread_mutex_unlock(&browser_lock);
+	}
+	if (clan_action[0])
+	{
+		snprintf(fields, sizeof(fields), "\"action\": \"%s\", \"clan\": %d", clan_action, clan_id);
+		status = game_request("/v1/game/clan", fields, response, sizeof(response), error, sizeof(error), &no_key);
+		pthread_mutex_lock(&browser_lock);
+		if (no_key)
+			game_action_done(BROWSER_PROFILE_ACTION_FAILED, NO_KEY_MESSAGE);
+		else if (status == 200 && delta_profile_parse_clan(response, &browser.game_profile))
+		{
+			game_action_done(BROWSER_PROFILE_ACTION_DONE, !strcmp(clan_action, "accept") ? "Joined" :
+				!strcmp(clan_action, "leave") ? "Left" : "Declined");
+			browser.game_profile_serial++;
+		}
+		else if (status >= 400 && status < 500 && status != 429)
+		{
+			/* (the site's words: "Make another member leader first.") */
+			const char *said = strstr(response, "\"error\"");
+			char message[96] = "";
+
+			if (said && (said = strchr(said + 7, '"')) != NULL)
+			{
+				size_t length = strcspn(said + 1, "\"\\");
+
+				snprintf(message, sizeof(message), "%.*s", (int)(length < sizeof(message) - 1 ? length : sizeof(message) - 1),
+					said + 1);
+			}
+			game_action_done(BROWSER_PROFILE_ACTION_FAILED, message[0] ? message : "Not allowed");
+			browser.game_profile_wanted = 1;
+		}
+		else
+			game_action_done(BROWSER_PROFILE_ACTION_FAILED, NOT_ANSWERING_MESSAGE);
+		pthread_mutex_unlock(&browser_lock);
+		platform_log("Delta Profile: clan %s: %s", clan_action, status == 200 ? "done" : no_key ? "no player key" :
+			status ? "refused" : "no answer");
 	}
 	if (!wanted)
 		return;
@@ -2620,10 +2668,31 @@ void browser_profile_unlink(void)
 
 void browser_profile_privacy(const char *field, int value)
 {
+	int index;
+
 	pthread_once(&browser_once, start_thread);
 	pthread_mutex_lock(&browser_lock);
-	snprintf(browser.game_privacy_field, sizeof(browser.game_privacy_field), "%s", field);
-	browser.game_privacy_value = value;
+
+	for (index = 0; index < browser.game_privacy_count && strcmp(browser.game_privacy_fields[index], field); index++)
+		;
+	if (index < 4)
+	{
+		snprintf(browser.game_privacy_fields[index], sizeof(browser.game_privacy_fields[index]), "%s", field);
+		browser.game_privacy_values[index] = value;
+		if (index == browser.game_privacy_count)
+			browser.game_privacy_count++;
+	}
+	browser.game_action = BROWSER_PROFILE_ACTION_WORKING;
+	browser.game_message[0] = 0;
+	pthread_mutex_unlock(&browser_lock);
+}
+
+void browser_profile_clan(const char *action, int clan)
+{
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	snprintf(browser.game_clan_action, sizeof(browser.game_clan_action), "%s", action);
+	browser.game_clan_id = clan;
 	browser.game_action = BROWSER_PROFILE_ACTION_WORKING;
 	browser.game_message[0] = 0;
 	pthread_mutex_unlock(&browser_lock);

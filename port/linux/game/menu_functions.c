@@ -7343,6 +7343,10 @@ Profile's DELTA button, which opens the screen of code */
 #define DELTA_STATS 6
 #define DELTA_LINES 16
 #define DELTA_SUMMARY_ROWS 5
+/* the clan's emblem on the panel (640 by 480) */
+#define DELTA_EMBLEM_X 294.0f
+#define DELTA_EMBLEM_Y 116.0f
+#define DELTA_EMBLEM_SIZE 60.0f
 /* the help's lines are broken at this many characters */
 #define DELTA_HELP_WIDTH 40
 #define DELTA_HELP_LENGTH 256
@@ -7593,6 +7597,8 @@ static void delta_slot(struct widget_instance *description, short slot, char con
 		text_color_set(widget, 0.94f, 0.63f, 0.44f);
 	else if (style == _profile_line_text || style == _profile_line_title)
 		text_color_set(widget, 1.0f, 1.0f, 1.0f);
+	else
+		text_color_set(widget, 0.157f, 0.588f, 1.0f);
 }
 
 /* the panel's slots from slot on, filled with lines: a label and its value
@@ -7658,7 +7664,7 @@ static void delta_profile_update(struct widget_instance *list)
 	struct widget_instance *description = list->parameters.list.extended_description;
 	struct profile_line lines[24];
 	short section = focused_row(list), count, index, side = 0, slot = 0, first = 0, stat = 0;
-	boolean beside;
+	boolean beside, clan;
 	struct widget_instance *row;
 
 	rows_update(list, profile_screen_section_count(), delta_section_text);
@@ -7680,6 +7686,32 @@ static void delta_profile_update(struct widget_instance *list)
 	beside = section == 0 && count > 1 && lines[0].style == _profile_line_title && lines[1].style == _profile_line_sub;
 	visible_set(named(description, "qtr_screen_profile_color_pic", 0), beside);
 	visible_set(named(description, "title", 0), beside);
+	/* the clan: its emblem (drawn over the panel: profile_screen.c), its
+	name, tag and motto beside it, its members under them */
+	clan = section == PROFILE_SCREEN_SECTION_CLAN && count > 1 && lines[0].style == _profile_line_title &&
+		lines[1].style == _profile_line_sub;
+	visible_set(named(description, "clan_title", 0), clan);
+	if (!clan)
+		profile_screen_card_emblem(0.0f, 0.0f, 0.0f);
+	for (index = 0; index < DELTA_SIDE_LINES; index++)
+		visible_set(delta_named(description, "clan_side_", index), clan);
+	if (clan)
+	{
+		short side_line = 0;
+
+		delta_text_fit(named(description, "clan_title", 0), lines[0].text, 20);
+		for (first = 1; first < count && (lines[first].style == _profile_line_sub || lines[first].style == _profile_line_badges);
+			first++)
+		{
+			if (side_line < DELTA_SIDE_LINES)
+				delta_text_fit(delta_named(description, "clan_side_", side_line++), lines[first].text, 33);
+		}
+		for (index = side_line; index < DELTA_SIDE_LINES; index++)
+			delta_text(delta_named(description, "clan_side_", index), "");
+		profile_screen_card_emblem(DELTA_EMBLEM_X, DELTA_EMBLEM_Y, DELTA_EMBLEM_SIZE);
+		/* (the members under the emblem) */
+		slot = 4;
+	}
 	if (beside)
 	{
 		struct player_profile active;
@@ -7731,7 +7763,7 @@ static boolean delta_profile_choose(struct widget_instance *widget, boolean *wid
 {
 	short section = delta_menus.section;
 
-	if (section == 3)
+	if (section == PROFILE_SCREEN_SECTION_PRIVACY)
 		return ui_widget_port_open(widget, DELTA_PRIVACY_SCREEN_NAME, widget_deleted);
 	if (!profile_screen_section_open(section) || !profile_screen_section_action(section))
 		ui_play_audio_feedback_sound(SOUND_ERROR);
@@ -7763,6 +7795,7 @@ boolean pc_menu_delta_profile_open(void)
 /* "port delta profile back": back, to Online Games if it opened it */
 static void delta_profile_back(struct widget_instance *widget, boolean *widget_deleted)
 {
+	profile_screen_card_emblem(0.0f, 0.0f, 0.0f);
 	ui_widget_port_go_back(widget);
 	*widget_deleted = TRUE;
 	if (delta_menus.from_online_games)

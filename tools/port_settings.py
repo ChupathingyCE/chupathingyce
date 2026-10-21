@@ -663,6 +663,8 @@ CHUPATHINGY_ONLY = {
              "Hide your record from other players.", None),
             ("HIDE MY HEATMAPS:", "site.hide_heatmaps", [("NO", "false"), ("YES", "true")],
              "Hide your heatmaps from other players.", None),
+            ("SHOW CLAN TAG:", "site.show_clan_tag", ON_OFF,
+             "Show your clan tag to Chupathingy players.", None),
             ("DISCORD STATUS:", "discord.presence", [("FULL", "full"), ("MINIMAL", "minimal"), ("OFF", "off")],
              "What Discord shows while you play.", "desktop"),
             ("SHOW PROFILE NAMES:", "display.profile_names", ON_OFF,
