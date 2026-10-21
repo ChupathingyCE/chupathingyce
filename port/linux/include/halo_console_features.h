@@ -6,7 +6,8 @@ them, as capabilities any console can turn on (included by
 halo_port_limits.h, which every build's prefix header reads). The shared
 code tests these, never a console's name; a console turns a capability on
 by defining it here from its own build's define (the Switch's
-HALO_SWITCH_CONSOLE, the original Xbox's HALO_XBOX_CONSOLE), or on its
+HALO_SWITCH_CONSOLE, the original Xbox's HALO_XBOX_CONSOLE, the Xbox 360's
+HALO_XBOX360_CONSOLE), or on its
 compile lines (HALO_CONSOLE_PLAYERS, HALO_CONSOLE_DELTA,
 HALO_CONSOLE_MEMORY_CLASS, the HALO_CONSOLE_NO_* of a port's prefix header:
 docs/building.md, "Console ports").
@@ -55,6 +56,37 @@ HALO_CONSOLE_ONLINE_GAMES
 	list (browser_screen_* and the invite join, defined by the port), with
 	the menu's fonts (ui_widget_online_games_font, source/interface/
 	ui_widget.c)
+HALO_CONSOLE_DEBUG_CHANNEL
+	a console without a standard error: the platform layer's log lines and
+	OutputDebugStringA go to its debug channel (console_debug_print,
+	defined by the port), and the game's log lines too (errors.c)
+HALO_CONSOLE_HALT_TO_LAUNCHER
+	a halt (halt_and_catch_fire, source/main/main.c) logs where it was
+	(console_log_backtrace) and returns to the console's launcher
+	(console_exit_to_launcher), both defined by the port
+HALO_CONSOLE_GL_LAYER
+	a console whose OpenGL is a layer of the port's own over another
+	graphics API: the stream and index buffers stay small (an orphaned
+	buffer is new memory until the GPU is done with it), mip levels are
+	copied by blit (no glCopyImageSubData), and the vertex mirror's
+	segments are the window's own memory (console_gl_buffer_alias, defined
+	by the port: port/linux/src/d3d8_gl.c)
+HALO_CONSOLE_XBOX_RENDER_SIZES
+	the Xbox's texture cache and the Xbox's structure surfaces and dynamic
+	triangles in a frame (halo_port_capacity.h), on a console whose build
+	otherwise has the desktop's
+HALO_CONSOLE_BRINGUP_LOG
+	a console's developer tools (HALO_CONSOLE_DEBUG_TOOLS) for its
+	bring-up: the main loop's stages in its profile log
+	(console_profile_stage: cseries/frame_profile.h), the loop's pulse
+	(console_main_loop_tick) and the structure bsp switches in the log
+
+A big-endian console (HALO_BIG_ENDIAN, its prefix header) reads the maps,
+which are the Xbox's, little-endian, through port/console/game's byte swap
+of their headers and tags. A 32-bit console whose memory cannot have the
+Xbox's addresses builds with the 64-bit builds' pointers over a window
+placed wherever it has room (HALO_64BIT with HALO_WINDOW_TRANSLATED, on its
+compile lines: source/cseries/xbox_address.h).
 */
 
 #ifndef __HALO_CONSOLE_FEATURES_H
@@ -72,6 +104,17 @@ HALO_CONSOLE_ONLINE_GAMES
 #ifdef HALO_XBOX_CONSOLE
 #define HALO_CONSOLE_LOG_BUFFER 1
 #define HALO_CONSOLE_ONLINE_GAMES 1
+#endif
+
+#ifdef HALO_XBOX360_CONSOLE
+#define HALO_CONSOLE_NO_WRITE_WATCH 1
+#define HALO_CONSOLE_DEBUG_CHANNEL 1
+#define HALO_CONSOLE_HALT_TO_LAUNCHER 1
+#define HALO_CONSOLE_GL_LAYER 1
+#define HALO_CONSOLE_XBOX_RENDER_SIZES 1
+#ifdef HALO_CONSOLE_DEBUG_TOOLS
+#define HALO_CONSOLE_BRINGUP_LOG 1
+#endif
 #endif
 
 #endif
