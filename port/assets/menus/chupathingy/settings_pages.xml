@@ -216,7 +216,7 @@
 	<widget name="chupathingy/settings/delta_privacy_setup_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
 		<on event="b" back="true"/>
 		<on event="back" back="true"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/header_privacy_sharing"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/header_privacy"/>
 		<child widget="chupathingy/settings/delta_privacy_setup_list"/>
 		<child widget="chupathingy/prompts/y" x="60" y="414"/>
 		<child widget="chupathingy/prompts/defaults" x="82" y="414"/>
@@ -241,10 +241,10 @@
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/delta_privacy_settings_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
 		<on event="b" back="true"/>
 		<on event="back" back="true"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/header_privacy_sharing"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/header_privacy"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/options_menu"/>
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/header_privacy_sharing" controller="1" left="35" top="11" width="605" height="59" bitmap="chupathingy/delta_profile/header_privacy_sharing">
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/header_privacy" controller="1" left="35" top="11" width="605" height="59" bitmap="chupathingy/delta_profile/header_privacy">
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/help" type="text" controller="1" left="68" top="350" width="482" height="60" string_list="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/help_strings" font="ui\large_ui" color="#FFFFFFFF">
 	</widget>
@@ -359,13 +359,13 @@
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/help_strings">
 		<string text=""/>
-		<string text="Other Chupathingy players in your games learn\nwhich profile you are, and see you by its name."/>
-		<string text="Report the games you join, so they show on your\nrecord. Off: only hosts that report have them."/>
-		<string text="Games you host are reported to the site. Off:\nthey aren't, even while listed."/>
-		<string text="As host, send the game's events (kills, weapons,\nmedals) for Delta Stats."/>
-		<string text="Saved on the site: hides your record from everyone\nelse. You still see it here and on the site."/>
-		<string text="Saved on the site: hides your heatmaps from\neveryone else."/>
-		<string text="What Discord shows of your game (as Network\nSetup's)."/>
-		<string text="On the scoreboard and in the lobby, players who\nshare their profile show by its name."/>
+		<string text="Show your Delta name to Chupathingy players."/>
+		<string text="Report the games you join."/>
+		<string text="Report the games you host."/>
+		<string text="Send kills, weapons and medals as host."/>
+		<string text="Hide your record from other players."/>
+		<string text="Hide your heatmaps from other players."/>
+		<string text="What Discord shows while you play."/>
+		<string text="Show players by their Delta names."/>
 	</strings>
 </menus>

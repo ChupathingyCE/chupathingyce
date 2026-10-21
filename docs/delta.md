@@ -1274,19 +1274,19 @@ deletes a profile. The password, email, two-step sign-in, export and
 deletion stay on the site, which OPEN ON THE WEB reaches. Linking is per
 copy: every Halo profile on a copy counts for the same Delta profile.
 
-- **Ways in:** the Chupathingy menus' Profiles have a DELTA PROFILE row
+- **Ways in:** the Chupathingy menus' Profiles have a DELTA row
   below Create New Profile, with a summary in the panel. Gearbox's Select
-  Profile has a DELTA PROFILE button. In every menu set, Online Games'
+  Profile has a DELTA button. In every menu set, Online Games'
   Start opens it (the web page when `display.delta_profile` is false).
   A Halo profile's panel shows one quiet line, "Delta: @handle" or
   "Delta: not linked". With an empty `network.browser_url`, every way in
   is hidden.
 - **Sections:** OVERVIEW (name, the player's Spartan, badges, record,
-  recent games), LINKED COPIES, ROLES, PRIVACY AND SHARING, then LINK
+  recent games), LINKED COPIES, ROLES, PRIVACY, then LINK
   PROFILE or UNLINK THIS COPY, and OPEN ON THE WEB. The Chupathingy menus
   draw them with their own widgets
-  (`port/assets/menus/chupathingy/delta_profile.xml`), and Privacy and
-  Sharing is one of their settings pages. The Xbox and Gearbox menus get a
+  (`port/assets/menus/chupathingy/delta_profile.xml`), and Privacy is one
+  of their settings pages. The Xbox and Gearbox menus get a
   screen drawn as Online Games is. The dialogs (Link Profile, unlinking,
   and the pages of the site with a QR code) are the same in all three.
 - **Requests:** the game sends this copy's player key, over HTTPS only,

@@ -502,7 +502,7 @@ CHUPATHINGY_PAGES = ["controls_setup", CONTROLLER_SCREEN, *SCREENS]
 
 
 # the Chupathingy menus' own pages, which the PC version's menus have not:
-# Delta Profile's PRIVACY AND SHARING (chupathingy/delta_profile.xml opens it;
+# Delta Profile's PRIVACY (chupathingy/delta_profile.xml opens it;
 # port/linux/game/profile_screen.c has the same rows for the other menus).
 # A "site." row is the profile's own setting on the site, which
 # menu_functions.c reads from and writes to it
@@ -510,25 +510,25 @@ DELTA_PRIVACY = "delta_privacy_setup"
 CHUPATHINGY_ONLY = {
     DELTA_PRIVACY: {
         "screen": "delta_privacy_settings_screen",
-        "header": ("header_privacy_sharing", "chupathingy/delta_profile/header_privacy_sharing"),
+        "header": ("header_privacy", "chupathingy/delta_profile/header_privacy"),
         "spacing": 30,
         "rows": [
             ("SHARE MY PROFILE:", "network.share_profile", ON_OFF,
-             "Other Chupathingy players in your games learn\nwhich profile you are, and see you by its name.", None),
+             "Show your Delta name to Chupathingy players.", None),
             ("RECORD GAMES I JOIN:", "network.report_joined_games", ON_OFF,
-             "Report the games you join, so they show on your\nrecord. Off: only hosts that report have them.", None),
+             "Report the games you join.", None),
             ("RECORD GAMES I HOST:", "network.report_hosted_games", ON_OFF,
-             "Games you host are reported to the site. Off:\nthey aren't, even while listed.", None),
+             "Report the games you host.", None),
             ("DELTA STATS DETAIL:", "network.report_events", ON_OFF,
-             "As host, send the game's events (kills, weapons,\nmedals) for Delta Stats.", None),
+             "Send kills, weapons and medals as host.", None),
             ("HIDE MY RECORD:", "site.hide_stats", [("NO", "false"), ("YES", "true")],
-             "Saved on the site: hides your record from everyone\nelse. You still see it here and on the site.", None),
+             "Hide your record from other players.", None),
             ("HIDE MY HEATMAPS:", "site.hide_heatmaps", [("NO", "false"), ("YES", "true")],
-             "Saved on the site: hides your heatmaps from\neveryone else.", None),
+             "Hide your heatmaps from other players.", None),
             ("DISCORD STATUS:", "discord.presence", [("FULL", "full"), ("MINIMAL", "minimal"), ("OFF", "off")],
-             "What Discord shows of your game (as Network\nSetup's).", "desktop"),
+             "What Discord shows while you play.", "desktop"),
             ("SHOW PROFILE NAMES:", "display.profile_names", ON_OFF,
-             "On the scoreboard and in the lobby, players who\nshare their profile show by its name.", None),
+             "Show players by their Delta names.", None),
         ],
     },
 }

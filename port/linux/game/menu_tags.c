@@ -401,7 +401,7 @@ static char const *const port_function_names[] =
 	"port host init", "port host row a", "port host row left", "port host row right", "port host defaults",
 	"port host edit", "port host back",
 	/* (Delta Profile: its sections' A, B, Y and X, and Gearbox's Select
-	Profile's DELTA PROFILE) */
+	Profile's DELTA) */
 	"port delta profile choose", "port delta profile back", "port delta profile refresh", "port delta profile copies",
 	"port delta profile open",
 };
