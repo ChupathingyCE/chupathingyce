@@ -18,10 +18,11 @@ the file.
 | `HALO_DEDICATED_NAME_FILTER` | `false` | `true`: players with a blocked name are warned and kicked ([below](#blocked-names)); `sv_name_filter 1` on the console does the same. |
 | `HALO_DEDICATED_CHAT` | `2` | Text chat between ChupathingyCE players: `2` on, `1` team lines alone, `0` off (`sv_chat` sets it; the environment wins over the settings file). |
 | `HALO_DEDICATED_CHAT_FILTER` | `true` | A chat line with a word of `blocked_names.txt`'s list (the game has it built in) is not passed on; its sender's game says "Not sent: blocked words". Nobody is kicked. |
+| `HALO_DEDICATED_CHAT_LEGACY` | `true` | OpenCE players chat too, over their own text chat, bridged to ChupathingyCE's ([below](#text-chat)), while `HALO_DEDICATED_CHAT` is on. `false`: they get no chat here (`sv_set chat_legacy false`). |
 | `HALO_DEDICATED_CHAT_COOLDOWN` | `5` | Once a player says lines faster than the chat allows (1 a second, 3 at once), their chat pauses for this many seconds and their game says "Chat paused for 5 seconds" (an older game says "Not sent: slow down"). `0`: no pause, each line past the limit is refused alone. Up to 600. |
 | `HALO_DEDICATED_TEAM_CHANGE` | `balanced` | Players changing teams during a team game (the pause menu's CHANGE TEAMS, [below](#team-changes)): `balanced`, `allow` or `off` (`1`, `2` or `0`; the settings file's `team_change`). |
 | `HALO_DEDICATED_TEAM_CHANGE_MARGIN` | `1` | With `balanced`, the most players one team may have over the other after a change, 0 to 16 (`team_change_margin`). |
-| `HALO_DEDICATED_WELCOME` | (none) | A welcome: a server message each Chupathingy player gets in their chat as they join, up to 127 printable ASCII characters (`sv_welcome` sets it). OpenCE players do not see it. |
+| `HALO_DEDICATED_WELCOME` | (none) | A welcome: a server message each Chupathingy player gets in their chat as they join, up to 127 printable ASCII characters (`sv_welcome` sets it). OpenCE players get it as the host's notice in their chat, while they may chat. |
 | `HALO_DEDICATED_POSTGAME_SECONDS` | `20` | How long the carnage report shows after each game before the next game's lobby, 0 to 300 seconds. |
 | `HALO_DEDICATED_SKIP_LOBBY` | `false` | `true`: after the carnage report, if enough players stayed (`HALO_DEDICATED_MINIMUM_PLAYERS`, and teams as the game needs), the next game starts after a 3-second countdown instead of waiting out the lobby's. Otherwise the lobby opens as always. |
 | `HALO_DEDICATED_PLAYLIST_SHUFFLE` | `false` | `true`: each time the playlist starts over, its entries are put in a new random order (the first pass is in the file's order). The entry just played is not first in the next pass. `sv_set playlist_shuffle true` changes it while the server runs. |
@@ -39,7 +40,7 @@ The settings file's keys (`sv_settings` lists them, with where each value
 comes from): `name`, `maximum_players`, `minimum_players`, `idle_limit`,
 `public` (from the next start), `name_filter`, `chat`, `chat_filter`,
 `welcome`, `postgame_seconds`, `skip_lobby`, `chat_cooldown`, `team_change`
-(0 off, 1 balanced, 2 allow), `team_change_margin`, `playlist_shuffle`, and the playlist
+(0 off, 1 balanced, 2 allow), `team_change_margin`, `playlist_shuffle`, `chat_legacy`, and the playlist
 `sv_playlist_use` chose. `sv_set welcome Hello and welcome` takes
 the rest of the line as the value (quotes optional).
 
@@ -50,7 +51,11 @@ the server checks each line (its rate, its text, the player's mute, the
 filter) and passes it to everyone, or to the speaker's team. It writes
 nothing of what is said: not to the log, not to the audit file. What it
 does write is the admins' own: `sv_say`'s messages and each mute, in the
-audit file. OpenCE players are never sent a line and never say one.
+audit file. OpenCE players chat too, over their own text chat, which the
+server bridges: they see every line (accents dropped, cut to 63 characters),
+and theirs pass the same checks and reach everyone. `chat_legacy` (or
+`HALO_DEDICATED_CHAT_LEGACY=false`) leaves them out; with the chat off they
+are left out anyway.
 
 ## Team changes
 
