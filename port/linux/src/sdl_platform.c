@@ -2227,6 +2227,48 @@ void platform_ui_pointer_set_active(BOOL active)
 	}
 }
 
+/* debug.test_input's mouse (xinput_sdl.c): the event a mouse would send,
+at a point of the window; button 0 moves, SDL_BUTTON_LEFT or _RIGHT clicks
+(down and up), and wheel turns the wheel that many notches instead */
+void platform_test_pointer_event(float x, float y, int button, int wheel)
+{
+	SDL_Event event;
+	SDL_WindowID window = platform_window ? SDL_GetWindowID(platform_window) : 0;
+
+	memset(&event, 0, sizeof(event));
+	if (wheel)
+	{
+		event.type = SDL_EVENT_MOUSE_WHEEL;
+		event.wheel.windowID = window;
+		event.wheel.y = (float)wheel;
+		event.wheel.integer_y = wheel;
+		event.wheel.mouse_x = x;
+		event.wheel.mouse_y = y;
+		SDL_PushEvent(&event);
+		return;
+	}
+	if (!button)
+	{
+		event.type = SDL_EVENT_MOUSE_MOTION;
+		event.motion.windowID = window;
+		event.motion.x = x;
+		event.motion.y = y;
+		SDL_PushEvent(&event);
+		return;
+	}
+	event.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+	event.button.windowID = window;
+	event.button.button = (Uint8)button;
+	event.button.down = TRUE;
+	event.button.clicks = 1;
+	event.button.x = x;
+	event.button.y = y;
+	SDL_PushEvent(&event);
+	event.type = SDL_EVENT_MOUSE_BUTTON_UP;
+	event.button.down = FALSE;
+	SDL_PushEvent(&event);
+}
+
 /* what the pointer did since the last call; FALSE when it is not active */
 BOOL platform_ui_pointer_read(struct platform_ui_pointer *pointer)
 {

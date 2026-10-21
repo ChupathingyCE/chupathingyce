@@ -730,8 +730,9 @@ void test_input_hold_action(int hold)
 /* debug.test_input "menu:<buttons>": the buttons pressed one a second, from
 the first poll, for testing the menus: a, b, x, y, lb, rb (white and black),
 up, down, left, right, start, back, key:<a key's name> (a key of the
-keyboard, as SDL names it: key:C; key:W+C holds both), or wait (none),
-separated by spaces or commas */
+keyboard, as SDL names it: key:C; key:W+C holds both), the mouse's (move,
+click, rclick, wheel, below), shot, or wait (none), separated by spaces or
+commas */
 static char test_input_menu[512];
 static Uint64 test_input_menu_since;
 
@@ -758,15 +759,95 @@ static const char *test_input_menu_token(size_t *length)
 	}
 }
 
+#ifndef HALO_ANDROID
+BOOL halo_ui_point_to_window(short x, short y, float *window_x, float *window_y);
+void halo_test_screenshot(void);
+
+/* the mouse's tokens of debug.test_input "menu:": move:<x>:<y>,
+click:<x>:<y>, rclick:<x>:<y> and wheel:<notches> (positive away from the
+user), at a point of the menus' 640x480 (the middle 640 of a wide screen);
+a click moves there first and clicks 300 ms later. And shot saves the
+window to debug.screenshot_directory. Each acts once in its second. */
+static void test_input_menu_pointer(void)
+{
+	static Uint64 step_done = (Uint64)-1;
+	static Uint64 click_step = (Uint64)-1;
+	Uint64 elapsed;
+	Uint64 step;
+	const char *token = test_input_menu;
+	size_t length;
+	char text[64];
+	int x = 0, y = 0, wheel = 0;
+	float window_x, window_y;
+
+	if (!test_input_menu[0])
+		return;
+	elapsed = SDL_GetTicks() - test_input_menu_since;
+	step = elapsed / 1000;
+	for (;;)
+	{
+		token += strspn(token, " ,");
+		length = strcspn(token, " ,");
+		if (!length)
+			return;
+		if (!step)
+			break;
+		step--;
+		token += length;
+	}
+	step = elapsed / 1000;
+	if (length >= sizeof(text))
+		return;
+	memcpy(text, token, length);
+	text[length] = 0;
+	if (!strcmp(text, "shot"))
+	{
+		if (step_done != step)
+			halo_test_screenshot();
+		step_done = step;
+		return;
+	}
+	if (sscanf(text, "wheel:%d", &wheel) == 1)
+	{
+		if (step_done != step)
+			platform_test_pointer_event(0.0f, 0.0f, 0, wheel);
+		step_done = step;
+		return;
+	}
+	if (sscanf(text, "move:%d:%d", &x, &y) != 2 && sscanf(text, "click:%d:%d", &x, &y) != 2 &&
+		sscanf(text, "rclick:%d:%d", &x, &y) != 2)
+	{
+		return;
+	}
+	if (!halo_ui_point_to_window((short)x, (short)y, &window_x, &window_y))
+		return;
+	if (step_done != step)
+	{
+		step_done = step;
+		platform_test_pointer_event(window_x, window_y, 0, 0);
+		platform_log("test input: %s at window %.1f,%.1f", text, window_x, window_y);
+	}
+	if (text[0] != 'm' && click_step != step && elapsed % 1000 >= 300)
+	{
+		click_step = step;
+		platform_test_pointer_event(window_x, window_y, text[0] == 'r' ? SDL_BUTTON_RIGHT : SDL_BUTTON_LEFT, 0);
+	}
+}
+#endif
+
 /* (a key goes in with the keyboard's, as if typed, before the keys drive
 the controller; key:W+C holds both) */
 static void test_input_menu_keys(struct platform_input_state *input)
 {
 	size_t length;
-	const char *token = test_input_menu_token(&length);
+	const char *token;
 	char names[64];
 	char *name, *next;
 
+#ifndef HALO_ANDROID
+	test_input_menu_pointer();
+#endif
+	token = test_input_menu_token(&length);
 	if (!token || length <= 4 || length - 4 >= sizeof(names) || strncmp(token, "key:", 4))
 		return;
 	memcpy(names, token + 4, length - 4);
