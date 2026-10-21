@@ -97,6 +97,9 @@ SCREENS = {
              "Sharper textures seen at an angle.", None),
             ("FULL MODEL DETAIL:", "display.full_model_detail", ON_OFF,
              "Always draw models at their highest detail.", None),
+            ("VIEWMODEL FOV:", "display.viewmodel_field_of_view",
+             [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
+             "How wide your weapon is drawn. Same follows the view.", None),
         ],
     },
     "mouse_settings": {
