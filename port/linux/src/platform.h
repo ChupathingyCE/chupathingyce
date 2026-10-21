@@ -228,9 +228,10 @@ extra going to the texture cache (halo_port_capacity.h) */
 #define PLATFORM_CONTIGUOUS_MINIMUM 0x20000000UL
 #define PLATFORM_CONTIGUOUS_MAXIMUM 0x20000000UL
 #endif
-#elif defined(HALO_ANDROID) && !defined(HALO_64BIT)
+#elif (defined(HALO_ANDROID) && !defined(HALO_64BIT)) || defined(HALO_WINDOW_TRANSLATED)
 /* a 128 MB development kit's: Android's guest image is linked just above it
-(port/android/include/halo_android_abi.h) */
+(port/android/include/halo_android_abi.h); the Xbox 360's window is the
+console's own memory (cseries/xbox_address.h) */
 #define PLATFORM_CONTIGUOUS_SIZE 0x08000000U
 #define PLATFORM_CONTIGUOUS_MAXIMUM PLATFORM_CONTIGUOUS_SIZE
 #else
@@ -242,6 +243,19 @@ port/windows/src/win32_memory_watch.c has the same */
 #define PLATFORM_CONTIGUOUS_MAXIMUM PLATFORM_CONTIGUOUS_SIZE
 #endif
 #define PLATFORM_ANY_PHYSICAL_ADDRESS 0xffffffffU
+
+#ifdef HALO_WINDOW_TRANSLATED
+/* the console's: reserves size bytes of address space, uncommitted (the
+memory mapping calls commit them), and returns where; NULL if it cannot */
+void *platform_xbox_window_reserve(unsigned int size);
+/* reserves the window now if it is not yet (xbox_memory.c does at start-up) */
+void platform_xbox_window_ensure(void);
+/* a host pointer's Xbox address, unchecked */
+#define PLATFORM_XBOX_OFFSET(pointer) \
+	((unsigned long long)(unsigned int)((uintptr_t)(pointer) - xbox_address_space_base))
+#elif defined(HALO_64BIT)
+#define PLATFORM_XBOX_OFFSET(pointer) ((unsigned long long)(uintptr_t)(pointer) - XBOX_ADDRESS_SPACE_BASE)
+#endif
 
 /* Custom Edition maps (Halo PC's, version 609: cache_files_windows.c, CE
 maps) are linked to a tag cache of their own, outside the Xbox window: their

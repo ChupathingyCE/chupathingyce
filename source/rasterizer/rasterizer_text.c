@@ -1197,15 +1197,23 @@ cache_hardware_format_character(
 
 			for (x = 0; x < cell_width; x++)
 			{
+				word texel;
+
 				if (y < padding || y >= padding + font_character->bitmap_height ||
 					x < padding || x >= padding + font_character->bitmap_width)
 				{
-					*destination++ = 0x0FFF;
+					texel = 0x0FFF;
 				}
 				else
 				{
-					*destination++ = (word)((*source++ << 8) | 0x0FFF);
+					texel = (word)((*source++ << 8) | 0x0FFF);
 				}
+#if defined(__BIG_ENDIAN__) || (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+				/* (port: the texture's texels are the map's byte order,
+				little-endian, as its bitmaps' are) */
+				texel = (word)((texel << 8) | (texel >> 8));
+#endif
+				*destination++ = texel;
 			}
 		}
 

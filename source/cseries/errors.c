@@ -428,6 +428,10 @@ void write_to_error_file(
 		write_to_error_file(line, TRUE);
 	}
 
+#ifdef HALO_CONSOLE_DEBUG_CHANNEL
+	/* port: the console's debug channel has the game's log too */
+	OutputDebugStringA(string);
+#endif
 	if (error_globals.output_to_debug_file)
 	{
 #ifndef HALO_CONSOLE_LOG_BUFFER
