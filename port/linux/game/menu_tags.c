@@ -404,6 +404,9 @@ static char const *const port_function_names[] =
 	Profile's DELTA) */
 	"port delta profile choose", "port delta profile back", "port delta profile refresh", "port delta profile copies",
 	"port delta profile open",
+	/* (the settings screens' nested lists, and Controls Setup's) */
+	"port settings views init", "port settings view", "port settings back", "port settings accept",
+	"port controls init", "port controls defaults", "port controls accept", "port controls closed",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from
@@ -431,6 +434,8 @@ static char const *const port_game_data_input_names[] =
 	"port host update",
 	/* (Delta Profile's sections: menu_functions.c) */
 	"port delta profile update",
+	/* (Controls Setup's rows and help) */
+	"port controls update",
 };
 
 static struct
@@ -1490,11 +1495,11 @@ the list moved down; on a custom map's, what is below the list moves down. */
 #define PAUSE_SETTINGS_SCREEN "main_menu/settings_select/player_setup/player_profile_edit/player_profile_edit_screen"
 /* (the Chupathingy menus': their own, in the Xbox's look) */
 #define PAUSE_SETTINGS_SCREEN_CHUPATHINGY "chupathingy/settings/profile_edit_screen"
-/* CONTROLS': Controller Buttons (tools/port_settings.py's CONTROLLER_SCREEN),
-the Gearbox and Chupathingy menus' own */
+/* CONTROLS': Controls Setup (tools/port_settings.py's CONTROLS_SCREEN), the
+Gearbox and Chupathingy menus' own */
 #define PAUSE_CONTROLS_SCREEN \
-	"main_menu/settings_select/player_setup/player_profile_edit/controller_buttons/controller_buttons_screen"
-#define PAUSE_CONTROLS_SCREEN_CHUPATHINGY "chupathingy/settings/controller_buttons_screen"
+	"main_menu/settings_select/player_setup/player_profile_edit/controls_setup/controls_settings_screen"
+#define PAUSE_CONTROLS_SCREEN_CHUPATHINGY "chupathingy/settings/controls_setup_screen"
 #define PAUSE_BUTTON_SPACING 35
 
 /* display.menus: the Xbox's menus, Gearbox's Halo PC menus, or Chupathingy's (the
@@ -1616,7 +1621,7 @@ static void *pause_button(struct cache_file_tag_instance *instances, struct ui_w
 	return button;
 }
 
-/* whether the pause menus have CONTROLS (Controller Buttons, or the Xbox
+/* whether the pause menus have CONTROLS (Controls Setup, or the Xbox
 menus' Controls screen: controls_screen.c), as display.pause_controls says */
 static boolean pause_controls_offered(void)
 {
@@ -2253,7 +2258,7 @@ char const *pc_menus_root_name(
 		long index;
 
 		snprintf(name, sizeof(name), "%s%s", PC_MENU_TAG_PREFIX, open);
-		/* (after a #, what the screen shows: Controller Buttons' "#rebind") */
+		/* (after a #, what the screen shows: Controls Setup's "#rebind") */
 		name[strcspn(name, "#")] = 0;
 		for (index = 0; name[index]; index++)
 		{
@@ -2377,7 +2382,8 @@ struct pc_menu_setting *pc_menu_setting_get(
 ui.map's pictures of the controller's buttons in the menus' prompts ("A =
 SELECT", "B = BACK": ui\shell\bitmaps\a_butn and the rest, and their
 smaller _sm), drawn as the keyboard's key caps while the keyboard or mouse
-was used last (halo_keyboard_prompts), and with the Chupathingy menus always
+was used last (halo_keyboard_prompts: xinput_sdl.c's platform_prompt_scheme,
+which every prompt follows), and with the Chupathingy menus always
 as the device last used names them (an Xbox-like pad's by snapchipper's
 icons, a PlayStation or Nintendo pad's own), as Online Games draws its
 prompts (ui_overlay.c: the keys xinput_sdl.c presses those buttons with), ending

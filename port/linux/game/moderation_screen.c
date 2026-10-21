@@ -556,6 +556,29 @@ static unsigned int banner_color(
 }
 
 /* over the game: a warning the server sent, and a link waiting */
+/* a line of text with a button in it (before, the button, after), drawn as
+the device used last names the button: aligned as the text would be */
+static void text_with_button(
+	int font,
+	float size,
+	float x,
+	float y,
+	int align,
+	unsigned int color,
+	char const *before,
+	int button,
+	char const *after)
+{
+	float glyph = size * 1.1f;
+	float width = ui_overlay_text_width(font, size, before) + 4 + ui_overlay_button_width(button, glyph) + 4 +
+		ui_overlay_text_width(font, size, after);
+	float left = align == UI_ALIGN_CENTER ? x - width / 2 : align == UI_ALIGN_RIGHT ? x - width : x;
+
+	left += ui_overlay_text(font, size, left, y, UI_ALIGN_LEFT, color, before) + 4;
+	left += ui_overlay_button(button, glyph, left, y - (glyph - size) / 2, 0xFFFFFFFF) + 4;
+	ui_overlay_text(font, size, left, y, UI_ALIGN_LEFT, color, after);
+}
+
 static void render_banner(
 	void)
 {
@@ -580,8 +603,8 @@ static void render_banner(
 	{
 		ui_overlay_rect(110, 24, 420, 30, 6, COLOR_PANEL);
 		ui_overlay_outline(110, 24, 420, 30, 6, 1.0f, COLOR_PANEL_EDGE);
-		ui_overlay_text(UI_FONT_REGULAR, 12.0f, 320, 33, UI_ALIGN_CENTER, COLOR_TEXT,
-			"Link request from the server. Pause, then press Y.");
+		text_with_button(UI_FONT_REGULAR, 12.0f, 320, 33, UI_ALIGN_CENTER, COLOR_TEXT,
+			"Link request from the server. Pause, then press", UI_BUTTON_Y, ".");
 	}
 }
 
@@ -698,12 +721,12 @@ void moderation_screen_render(
 
 		if (choice->needs_target)
 		{
-			snprintf(text, sizeof(text), "%s %s? Press A again.", choice->name,
+			snprintf(text, sizeof(text), "%s %s? Press", choice->name,
 				moderation_screen.players[moderation_screen.selected].name);
 		}
 		else
-			snprintf(text, sizeof(text), "%s? Press A again.", choice->name);
-		ui_overlay_text(UI_FONT_BOLD, 13.0f, 120, 340, UI_ALIGN_LEFT, COLOR_WARNING, text);
+			snprintf(text, sizeof(text), "%s? Press", choice->name);
+		text_with_button(UI_FONT_BOLD, 13.0f, 120, 340, UI_ALIGN_LEFT, COLOR_WARNING, text, UI_BUTTON_A, "again.");
 	}
 	if (moderation_screen.status[0])
 		ui_overlay_text(UI_FONT_REGULAR, 12.0f, 120, 360, UI_ALIGN_LEFT, COLOR_DIM, moderation_screen.status);

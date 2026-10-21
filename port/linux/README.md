@@ -279,10 +279,14 @@ gamepads operate controllers 2 to 4. With two or more players on this
 computer (co-op, or split screen in a network game) and only one gamepad,
 that gamepad is controller 2 (player 2) and the keyboard and mouse stay
 controller 1. The gamepad changes controller only when none of its buttons
-is held. The profile's button layout (Settings > Gamepads) is the
-gamepads' only.
+is held. The profile's button layout (Settings > Controls, DEVICE: GAMEPAD)
+is the gamepads' only.
 
-Controller Buttons (Gamepad Setup's BUTTONS, or the pause menu's CONTROLS)
+Controls Setup (Settings > Controls, or the pause menu's CONTROLS) has
+every device's controls in one list: DEVICE chooses KEYBOARD/MOUSE or
+GAMEPAD (the device used last when it opens), and SHOW chooses the keys'
+groups or the mouse's settings, or the controller's settings or buttons.
+The controller's BUTTONS
 sets each action's button on the controller, named as that controller
 names it (RB, R1, Black...): A on an action, then the button wanted; the
 action that had it takes the old one, and A confirms. That makes the
@@ -548,7 +552,7 @@ the setting for one start of the game. It has priority over the file.
 | `input.mouse_sensitivity` | `1.0` | `HALO_MOUSE_SENSITIVITY` | The multiplier for the mouse aim. |
 | `input.mouse_vertical_sensitivity` | `0.0` | `HALO_MOUSE_VERTICAL_SENSITIVITY` | The multiplier for the vertical mouse aim. `0`: the same as `input.mouse_sensitivity`. |
 | `input.invert_mouse` | `false` | `HALO_MOUSE_INVERT=1` sets `true` | `true`: the vertical mouse aim is inverted. |
-| `input.keyboard_prompts` | `true` | `HALO_KEYBOARD_PROMPTS` | `true`: while the keyboard or mouse was used last (or no controller is connected), the button prompts show keys, as Halo PC's did: the HUD's messages name the bound key in brackets ("Hold [E] to pick up"), "Hold BACK for score" names the scoreboard key, and the menus' button pictures ("A = SELECT") become key caps of the keys that press them (Enter, Backspace, Tab, E). A controller's button press switches them back. `false`: always the controller's buttons. Desktop only. |
+| `input.keyboard_prompts` | `true` | `HALO_KEYBOARD_PROMPTS` | Not in the menus: every button prompt follows the device used last. While the keyboard or mouse was used last (or, on the desktop, no controller is connected), the prompts show keys, as Halo PC's did: the HUD's messages name the bound key in brackets ("Hold [E] to pick up"), "Hold BACK for score" names the scoreboard key, and the menus' button pictures ("A = SELECT") become key caps of the keys that press them (Enter, Backspace, Tab, E). A controller's button press switches them back. `false` keeps the controller's buttons everywhere, whatever was used last. |
 | `input.mouse_aim_assist` | `false` | `HALO_MOUSE_AIM_ASSIST` | `true`: the magnetism of the controller also operates for the mouse. `false`: when the mouse moved after the right stick, the view is not slowed or dragged by a target. The autoaim of the bullets operates in both cases. |
 | `controls.<action>` | (the table in "Controls") | `HALO_KEY_<ACTION>` | The keys and mouse buttons of an action, up to two, separated by a comma: `move_forward`, `move_backward`, `strafe_left`, `strafe_right`, `jump`, `crouch`, `fire`, `throw_grenade`, `melee`, `reload`, `zoom`, `switch_weapon`, `switch_grenade`, `action`, `flashlight`, `scoreboard`, `pause`. Keys by their names (`"W"`, `"Space"`, `"Left Ctrl"`, `"F1"`), and `"Mouse Left"`, `"Mouse Right"`, `"Mouse Middle"`, `"Mouse 4"`, `"Mouse 5"`, `"Wheel"` (either way), `"Wheel Up"`, `"Wheel Down"`. |
 | `controls.controller_layout` | `""` | `HALO_CONTROLLER_LAYOUT` | The controller's Custom button layout, which Controller Buttons writes: `"action=button"` for each action, separated by commas (`jump`, `switch_grenade`, `action`, `switch_weapon`, `melee`, `flashlight`, `throw_grenade`, `fire`, `crouch`, `zoom`; `A`, `B`, `X`, `Y`, `LB`, `RB`, `LT`, `RT`, `LS`, `RS`, LB and RB being the Duke's White and Black). An action left out keeps its default button; no button is ever on two actions. Used by profiles whose button layout is Custom. Empty: the default layout. |

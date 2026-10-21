@@ -32,11 +32,17 @@ calls them from PC_MENU_FUNCTION_BASE on):
   config.toml themselves), "port settings defaults" shows the defaults,
   "port settings help" the help of the row chosen (and Video Setup's
   Resolution or Window Size, for the display mode shown);
-- Controls Setup's: the keyboard and mouse's controls, two bindings each,
-  shown a group at a time ("controls update menu"); "controls begin
-  binding" takes the next key or button pressed for the binding left and
-  right choose ("controls binding slot"); OK ("controls screen change set")
-  writes them, "controls screen defaults" shows the defaults.
+- the settings screens' nested lists: "port settings view" (a row that
+  opens one), "port settings back" (B: out of it, else back), "port
+  settings accept" (the Chupathingy menus' A: opens one, else OK);
+- Controls Setup's: every device's controls in one list ("port controls
+  update": the rows of the device and page DEVICE and SHOW choose, and the
+  help). The keyboard and mouse's controls, two bindings each, a group at
+  a time: "controls begin binding" takes the next key or button pressed
+  for the binding left and right choose ("controls binding slot"); the
+  controller's buttons, by "controller begin binding"; OK ("port controls
+  accept") writes the keys and the settings, "port controls defaults"
+  shows the device's defaults.
 
 A spinner's values are its strings' (setting= and values= in its <widget>,
 menu_tags.c's pc_menu_setting).
@@ -606,6 +612,31 @@ boolean pc_menu_profile_edit_begin(void)
 		platform_log("menus: made a player profile for Settings");
 	}
 	player_ui_begin_editing_profile(player_ui_get_active_player_profile_index(0));
+	return TRUE;
+}
+
+/* the profile being edited saved (it has changes). Settings edits the
+profile in use, pc_menu_profile_edit_begin: the players playing it get the
+saved one. They kept the old controls until it was chosen again, and the
+campaign's next save of the level played wrote the old copy back over the
+changes */
+static boolean profile_save_edited(void)
+{
+	long profile_index = player_ui_get_active_player_profile_index(0);
+	struct player_profile profile;
+	short local_player_index;
+
+	if (!player_ui_save_profile())
+		return FALSE;
+	for (local_player_index = 0; local_player_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS; local_player_index++)
+	{
+		if (profile_index != NONE &&
+			player_ui_get_active_player_profile_index(local_player_index) == profile_index &&
+			player_profile_get(profile_index, &profile))
+		{
+			player_ui_set_active_player_profile(local_player_index, profile_index, &profile);
+		}
+	}
 	return TRUE;
 }
 
@@ -1461,23 +1492,6 @@ static void settings_help(struct widget_instance *list)
 		if (label != NONE)
 			index = label + 1;
 	}
-	/* (Button Layout set to Bumper Jumper: its own help, after the rows': the
-	last string, one for each row before it) */
-	if (index && row)
-	{
-		struct widget_instance *spinner = named(row, "button_preset_spinner", 0);
-
-		if (spinner && spinner->parameters.list.selected_index == _button_preset_bumper_jumper)
-		{
-			struct widget_instance *each;
-			short rows = 0;
-
-			for (each = list->child; each; each = each->next)
-				if (each->child && each->child->type == 1 && strncmp(each->name, "button", 6))
-					rows++;
-			index = (short)(rows + 1);
-		}
-	}
 	help->parameters.text_box.string_list_index = index;
 }
 
@@ -1509,6 +1523,233 @@ static void video_rows_show(struct widget_instance *list)
 			index++;
 		list->focused_child = shown;
 		list->parameters.list.selected_index = index;
+	}
+}
+
+/* ---------- the settings screens' nested lists (tools/port_settings.py's
+VIEWS): a row of a list (op_link_<view>) opens another list in the same
+screen, and B goes back out of it. Each list's rows follow a mark, an empty
+widget named view_<view> (view_main for the screen's own); rows before any
+mark are in every list, and a mark of several names ("gamepad_buttons") is
+in each of them. The rows of the list open are shown in the places their
+list gives them, the rest hidden, which the list passes over. Controls
+Setup's lists are its devices' and pages', which its two SHOW rows choose
+(controls_page_update) */
+
+#define VIEW_NAME_LENGTH 24
+
+/* the nested list open on the settings screen shown ("main": none) */
+static char settings_view[VIEW_NAME_LENGTH] = "main";
+
+/* whether a mark's names (view_<name>[_<name>...]) have the view */
+static boolean view_mark_has(char const *mark, char const *view)
+{
+	size_t length = strlen(view);
+
+	mark += 5;
+	while (*mark)
+	{
+		size_t part = strcspn(mark, "_");
+
+		if (part == length && !strncmp(mark, view, length))
+			return TRUE;
+		mark += part;
+		if (*mark == '_')
+			mark++;
+	}
+	return FALSE;
+}
+
+static boolean view_mark(struct widget_instance const *widget)
+{
+	return !strncmp(widget->name, "view_", 5);
+}
+
+/* the list of the screen that has marks, else NULL */
+static struct widget_instance *views_list(struct widget_instance *widget)
+{
+	struct widget_instance *child;
+
+	for (child = widget->child; child; child = child->next)
+	{
+		struct widget_instance *found;
+
+		if (view_mark(child))
+			return widget;
+		found = views_list(child);
+		if (found)
+			return found;
+	}
+	return NULL;
+}
+
+/* whether the row is in the view (the rows before any mark are in all) */
+static boolean row_in_view(struct widget_instance *list, struct widget_instance *row, char const *view)
+{
+	struct widget_instance *child;
+	struct widget_instance const *mark = NULL;
+
+	for (child = list->child; child && child != row; child = child->next)
+	{
+		if (view_mark(child))
+			mark = child;
+	}
+	return !mark || view_mark_has(mark->name, view);
+}
+
+/* the list's first row shown that takes the focus (else NULL) */
+static struct widget_instance *first_row_shown(struct widget_instance *list, short *index)
+{
+	struct widget_instance *child;
+
+	for (*index = 0, child = list->child; child; child = child->next, (*index)++)
+	{
+		if (child->visible && !view_mark(child) && child->child)
+			return child;
+	}
+	return NULL;
+}
+
+static void focus_widget(struct widget_instance *list, struct widget_instance *row)
+{
+	struct widget_instance *child;
+	short index = 0;
+
+	for (child = list->child; child && child != row; child = child->next)
+		index++;
+	if (child)
+	{
+		list->focused_child = child;
+		list->parameters.list.selected_index = index;
+	}
+}
+
+/* the view's rows shown, the others hidden; the focus, on a row hidden,
+to the first shown. And the Chupathingy menus' B prompt: BACK in a nested
+list, CANCEL in the screen's own */
+static void views_show(struct widget_instance *list, char const *view)
+{
+	struct widget_instance *child;
+	struct widget_instance const *mark = NULL;
+	struct widget_instance *screen = screen_of(list);
+
+	for (child = list->child; child; child = child->next)
+	{
+		if (view_mark(child))
+		{
+			mark = child;
+			child->visible = FALSE;
+			continue;
+		}
+		/* (the rows: the Gearbox menus' button bar is after them) */
+		if (!strncmp(child->name, "op_", 3))
+			child->visible = !mark || view_mark_has(mark->name, view);
+	}
+	if (list->focused_child && !list->focused_child->visible)
+	{
+		short index;
+		struct widget_instance *first = first_row_shown(list, &index);
+
+		if (first)
+			focus_widget(list, first);
+	}
+	if (named(screen, "cancel", 0) && named(screen, "back", 0))
+	{
+		visible_set(named(screen, "cancel", 0), !strcmp(view, "main"));
+		visible_set(named(screen, "back", 0), strcmp(view, "main") != 0);
+	}
+}
+
+/* "port settings views init" (the list's created): the screen's own rows */
+static boolean settings_views_init(struct widget_instance *list)
+{
+	snprintf(settings_view, sizeof(settings_view), "%s", "main");
+	views_show(list, settings_view);
+	return TRUE;
+}
+
+/* the row that opens a nested list (op_link_<view>) the widget is, or is
+in; else NULL */
+static struct widget_instance *view_link(struct widget_instance *widget)
+{
+	for (; widget; widget = widget->parent)
+	{
+		if (!strncmp(widget->name, "op_link_", 8))
+			return widget;
+	}
+	return NULL;
+}
+
+/* "port settings view" (A on op_link_<view>): its list opened, the focus
+on its first row */
+static boolean settings_view_open(struct widget_instance *widget)
+{
+	struct widget_instance *link = view_link(widget);
+	struct widget_instance *list = link ? link->parent : NULL;
+	struct widget_instance *first;
+	short index;
+
+	if (!list)
+		return FALSE;
+	snprintf(settings_view, sizeof(settings_view), "%s", link->name + 8);
+	views_show(list, settings_view);
+	first = first_row_shown(list, &index);
+	if (first)
+		focus_widget(list, first);
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	return TRUE;
+}
+
+/* "port settings back" (B, Back): out of the nested list open, to the row
+that opened it; else back from the screen, as B was */
+static boolean settings_view_back(struct widget_instance *widget, boolean *widget_deleted)
+{
+	struct widget_instance *list = views_list(screen_of(widget));
+
+	if (list && strcmp(settings_view, "main"))
+	{
+		char link[8 + VIEW_NAME_LENGTH];
+
+		snprintf(link, sizeof(link), "op_link_%s", settings_view);
+		snprintf(settings_view, sizeof(settings_view), "%s", "main");
+		views_show(list, settings_view);
+		if (named(list, link, 0))
+			focus_widget(list, named(list, link, 0));
+		ui_play_audio_feedback_sound(SOUND_BACK);
+		return TRUE;
+	}
+	ui_play_audio_feedback_sound(SOUND_BACK);
+	ui_widget_port_go_back(widget);
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+
+/* "port settings accept" (the Chupathingy menus' A): on a row that opens a
+nested list, opens it; else the settings written and applied, and back
+from the screen ("port settings save" with back="true") */
+static boolean settings_accept(struct widget_instance *list, boolean *widget_deleted)
+{
+	if (view_link(list->focused_child))
+		return settings_view_open(list->focused_child);
+	settings_each(screen_of(list), setting_changed_save);
+	platform_display_apply();
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	ui_widget_port_go_back(list);
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+
+/* the settings of the rows in the view (Defaults' on a screen of nested
+lists: the list open's alone) */
+static void settings_each_in_view(struct widget_instance *list, char const *view,
+	boolean (*visit)(struct widget_instance *spinner, struct pc_menu_setting *setting))
+{
+	struct widget_instance *row;
+
+	for (row = list->child; row; row = row->next)
+	{
+		if (!view_mark(row) && row_in_view(list, row, view))
+			settings_each(row, visit);
 	}
 }
 
@@ -2217,8 +2458,9 @@ static void controls_update(struct widget_instance *list)
 	}
 }
 
-/* ---------- Controller Buttons (tools/port_settings.py's CONTROLLER_SCREEN):
-the controller's button layout, and each action's button. A on an action
+/* ---------- Controller Buttons (Controls Setup's BUTTONS, its controller's
+page: tools/port_settings.py's CONTROLS_SCREEN): the controller's button
+layout, and each action's button. A on an action
 takes the next button pressed on a controller (Start or Back cancel), shows
 the swap it makes (the action that had that button takes the old one) in
 the two rows and the help, and A confirms it (B cancels). That makes the
@@ -2526,6 +2768,214 @@ static void controller_update(struct widget_instance *list)
 }
 
 #endif
+
+/* ---------- Controls Setup (tools/port_settings.py's CONTROLS_SCREEN):
+every device's controls in one list. DEVICE chooses the keyboard and mouse
+or the controller, as the device used last does when it opens. The
+keyboard's SHOW chooses a group of its keys (controls[] above) or the
+mouse's settings; the controller's SHOW its settings (BUTTON LAYOUT, then
+the profile's) or its buttons (Controller Buttons' rows above). Those are
+the list's views (VIEWS' marks): keyboard, mouse, gamepad and buttons. OK
+writes the keys and the settings; the controller's layout and buttons are
+saved as they change, as they were. The pause menu's CONTROLS, with no
+profile being edited, edits player 1's for the screen (controls_open): OK
+saves it, and it is let go of when the screen closes */
+
+#define CONTROLS_HELP_LENGTH 192
+#define CONTROL_GROUP_MOUSE 3
+
+enum
+{
+	_controls_device_keyboard_mouse,
+	_controls_device_gamepad,
+};
+
+static struct
+{
+	boolean own_edit;
+} controls_page = { FALSE };
+
+#ifndef HALO_CONSOLE_NO_CONTROLS
+int platform_input_scheme(void);
+#endif
+
+static short spinner_shown(struct widget_instance *list, char const *name)
+{
+	struct widget_instance *spinner = named(list, name, 0);
+
+	return spinner ? spinner->parameters.list.selected_index : 0;
+}
+
+/* the view the two SHOWs choose */
+static char const *controls_page_view(struct widget_instance *list)
+{
+	if (spinner_shown(list, "device_spinner") == _controls_device_keyboard_mouse)
+		return spinner_shown(list, "group_spinner") == CONTROL_GROUP_MOUSE ? "mouse" : "keyboard";
+	return spinner_shown(list, "page_spinner") == 1 ? "buttons" : "gamepad";
+}
+
+/* a string of the screen's helps (its settings', by their labels), with
+its line breaks */
+static void controls_page_string(short index, wchar_t *text, size_t count)
+{
+	long tag_index = tag_loaded('ustr',
+		"pc\\main_menu\\settings_select\\player_setup\\player_profile_edit\\controls_setup\\help_strings");
+	wchar_t const *string = tag_index != NONE ? unicode_string_list_get_string(tag_index, index) : NULL;
+
+	ustrncpy(text, string ? string : L"", count - 1);
+	text[count - 1] = 0;
+}
+
+/* "port controls init" (the list's created) */
+static boolean controls_page_init(struct widget_instance *list)
+{
+	struct widget_instance *device = named(list, "device_spinner", 0);
+
+	controls_load(FALSE);
+#ifndef HALO_CONSOLE_NO_CONTROLS
+	controller_screen_init(list);
+#endif
+#ifndef HALO_CONSOLE_NO_CONTROLS
+	if (device)
+	{
+		device->parameters.list.selected_index = platform_input_scheme() == 0 ?
+			_controls_device_keyboard_mouse : _controls_device_gamepad;
+	}
+#else
+	if (device)
+		device->parameters.list.selected_index = _controls_device_gamepad;
+#endif
+#ifndef HALO_CONSOLE_NO_CONTROLS
+	/* (debug.menu_open's "...#rebind": the controller's buttons, one asked
+	for: controller_screen_init) */
+	if (controller_screen.capture != _capture_none && device && named(list, "page_spinner", 0))
+	{
+		device->parameters.list.selected_index = _controls_device_gamepad;
+		named(list, "page_spinner", 0)->parameters.list.selected_index = 1;
+	}
+#endif
+	views_show(list, controls_page_view(list));
+	return TRUE;
+}
+
+/* "port controls update": the view's rows (the keys' and buttons' filled
+in) and the help */
+static void controls_page_update(struct widget_instance *list)
+{
+	char const *view = controls_page_view(list);
+	struct widget_instance *focused;
+	struct widget_instance *help = list->parameters.list.extended_description;
+	char const *line = NULL;
+	wchar_t text[CONTROLS_HELP_LENGTH];
+
+	views_show(list, view);
+	if (!strcmp(view, "keyboard"))
+		controls_update(list);
+#ifndef HALO_CONSOLE_NO_CONTROLS
+	/* (the controller's: its layout put in force, its rows, and the help of
+	its buttons' rows and its layout's) */
+	if (!strcmp(view, "gamepad") || !strcmp(view, "buttons"))
+		controller_update(list);
+#endif
+	focused = list->focused_child;
+	if (!help || !focused)
+		return;
+	if (focused == named(list, "op_device", 0))
+		line = "Choose the keyboard and mouse, or a controller.";
+	else if (focused == named(list, "op_group", 0))
+		line = "Choose a group of keys, or the mouse.";
+	else if (focused == named(list, "op_page", 0))
+		line = "Choose the controller's settings or buttons.";
+	/* (a line with a button in it is one line: the button drawn as the
+	device used last names it) */
+	else if (control_row(focused) || controls_screen.capturing_control != NONE)
+	{
+		line = controls_screen.capturing_control != NONE ?
+			"Press a key or mouse button. Escape cancels,\nDelete clears." :
+			"%a-button changes a key. Left and right choose which.";
+	}
+#ifndef HALO_CONSOLE_NO_CONTROLS
+	else if (focused == named(list, "op_layout", 0) &&
+		spinner_shown(list, "layout_spinner") == _button_preset_bumper_jumper)
+	{
+		line = "Jump with the left bumper.";
+	}
+	else if (focused == named(list, "op_layout", 0) || button_row_of(focused) != NONE)
+		return;
+#endif
+	if (line)
+	{
+		size_t index;
+
+		for (index = 0; line[index] && index + 1 < CONTROLS_HELP_LENGTH; index++)
+			text[index] = (wchar_t)(unsigned char)line[index];
+		text[index] = 0;
+	}
+	else
+	{
+		/* (a setting's row: its label's help, as the settings screens') */
+		short label = focused->child && focused->child->type == 1 ?
+			pc_menu_string_index(focused->child->definition_tag_index) : NONE;
+
+		controls_page_string(label == NONE ? 0 : (short)(label + 1), text, CONTROLS_HELP_LENGTH);
+	}
+	text_set_length(help, text, CONTROLS_HELP_LENGTH);
+}
+
+/* "port controls defaults": the device shown's (the keys and the mouse's
+settings, or the controller's settings and layout) */
+static boolean controls_page_defaults(struct widget_instance *widget)
+{
+	struct widget_instance *list = views_list(screen_of(widget));
+
+	if (!list)
+		return FALSE;
+	if (spinner_shown(list, "device_spinner") == _controls_device_keyboard_mouse)
+	{
+		controls_load(TRUE);
+		settings_each_in_view(list, "mouse", setting_default_show);
+		return TRUE;
+	}
+	settings_each_in_view(list, "gamepad", setting_default_show);
+#ifndef HALO_CONSOLE_NO_CONTROLS
+	controller_screen_defaults(list);
+#endif
+	return TRUE;
+}
+
+/* "port controls accept" (OK): the keys and the settings written; the
+profile the screen edits, if it does, saved */
+static boolean controls_page_accept(struct widget_instance *widget)
+{
+	boolean result;
+
+	settings_each(screen_of(widget), setting_changed_save);
+	result = controls_save();
+	if (controls_page.own_edit)
+	{
+		if (player_ui_edit_profile_is_dirty() && !profile_save_edited())
+			platform_log("menus: could not save the profile's changes");
+		player_ui_end_editing_profile();
+		controls_page.own_edit = FALSE;
+	}
+	return result;
+}
+
+/* "port controls closed" (the list's deleted): no key or button asked for
+any more, and the profile the screen edits, if it does, let go of */
+static boolean controls_page_closed(void)
+{
+	controls_screen.capturing_control = NONE;
+#ifndef HALO_CONSOLE_NO_CONTROLS
+	controller_screen.capture = _capture_none;
+#endif
+	if (controls_page.own_edit)
+	{
+		player_ui_end_editing_profile();
+		controls_page.own_edit = FALSE;
+	}
+	return TRUE;
+}
 
 /* ---------- Multiplayer (port/assets/menus' PLAN: Create Game > Internet
 or LAN; Join Game > Server Browser (blank, for now), LAN, Direct Link): the
@@ -4878,28 +5328,8 @@ static boolean profile_save_changes(struct widget_instance *widget, boolean *wid
 {
 	if (player_ui_edit_profile_is_dirty())
 	{
-		/* (Settings edits the profile in use, pc_menu_profile_edit_begin: the
-		players playing it get the saved one. They kept the old controls until
-		it was chosen again, and the campaign's next save of the level played
-		wrote the old copy back over the changes) */
-		long profile_index = player_ui_get_active_player_profile_index(0);
-
-		if (player_ui_save_profile())
-		{
-			struct player_profile profile;
-			short local_player_index;
-
-			for (local_player_index = 0; local_player_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS; local_player_index++)
-			{
-				if (profile_index != NONE &&
-					player_ui_get_active_player_profile_index(local_player_index) == profile_index &&
-					player_profile_get(profile_index, &profile))
-				{
-					player_ui_set_active_player_profile(local_player_index, profile_index, &profile);
-				}
-			}
+		if (profile_save_edited())
 			return TRUE;
-		}
 		platform_log("menus: could not save the profile's changes");
 		return campaign_fail();
 	}
@@ -4935,9 +5365,10 @@ static boolean pause_change_teams(struct widget_instance *widget)
 }
 
 /* "port pause controls" (the pause menu's CONTROLS: menu_tags.c): the
-Gearbox and Chupathingy menus' opens their Controller Buttons (its handler's
-widget); the Xbox's, which have no such screen, the Controls screen over
-the pause menu (controls_screen.c), for the menu's player */
+Gearbox and Chupathingy menus' opens their Controls Setup (its handler's
+widget), on player 1's profile, edited for it if none is (OK saves it); the
+Xbox's, which have no such screen, the Controls screen over the pause menu
+(controls_screen.c), for the menu's player */
 static boolean controls_open(struct widget_instance *widget)
 {
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_CONTROLS)
@@ -4946,6 +5377,8 @@ static boolean controls_open(struct widget_instance *widget)
 
 	if (pc_menus_set() == 0)
 		controls_screen_open(widget->local_player_index, -1);
+	else if (!player_ui_get_edit_player_profile() && pc_menu_profile_edit_begin())
+		controls_page.own_edit = TRUE;
 	return TRUE;
 #else
 	(void)widget;
@@ -5241,6 +5674,33 @@ static void text_color_clear(struct widget_instance const *widget)
 		if (text_colors[index].widget == widget)
 			text_colors[index].widget = NULL;
 	}
+}
+
+/* a value too long for its spinner scrolls (a marquee) while its row has
+the focus (the pointer over it gives it): Audio Setup's OUTPUT DEVICE, whose
+names the system gives. ui_widget.c asks for each spinner it draws whether
+to scroll its value: how long it has had the focus, in milliseconds, else
+NONE */
+long pc_menu_text_marquee(struct widget_instance const *widget, boolean focus)
+{
+	static struct widget_instance const *shown;
+	static unsigned long since, seen;
+	struct pc_menu_setting *setting;
+	unsigned long now = system_milliseconds();
+
+	if (!focus || spinner_item(widget) || !(setting = pc_menu_setting_get(widget->definition_tag_index)) ||
+		strcmp(setting->setting, "audio.device"))
+	{
+		return NONE;
+	}
+	/* (from the start each time it gets the focus) */
+	if (widget != shown || now - seen > 200)
+	{
+		shown = widget;
+		since = now;
+	}
+	seen = now;
+	return (long)(now - since);
 }
 
 boolean pc_menu_text_color(struct widget_instance const *widget, real_rgb_color *rgb)
@@ -6486,7 +6946,7 @@ static wchar_t const *host_setup_help(short row)
 	case _host_row_port:
 		return L"The UDP port for internet play. Applies on restart.";
 	case _host_row_game_type:
-		return L"Choose the game type. Enter edits it.";
+		return L"Choose the game type. %a-button edits it.";
 	case _host_row_team_change:
 		return host_setup.team_change == 0 ? L"Players can change teams within the margin." :
 			host_setup.team_change == 1 ? L"Players can change teams at any time." :
@@ -8109,7 +8569,44 @@ boolean pc_menu_event_function_invoke(
 		}
 		else if (!strcmp(name, "port settings defaults"))
 		{
-			settings_each(screen_of(widget), setting_default_show);
+			struct widget_instance *list = views_list(screen_of(widget));
+
+			if (list)
+				settings_each_in_view(list, settings_view, setting_default_show);
+			else
+				settings_each(screen_of(widget), setting_default_show);
+		}
+		else if (!strcmp(name, "port settings views init"))
+		{
+			return settings_views_init(widget);
+		}
+		else if (!strcmp(name, "port settings view"))
+		{
+			return settings_view_open(widget);
+		}
+		else if (!strcmp(name, "port settings back"))
+		{
+			return settings_view_back(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port settings accept"))
+		{
+			return settings_accept(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port controls init"))
+		{
+			return controls_page_init(widget);
+		}
+		else if (!strcmp(name, "port controls defaults"))
+		{
+			return controls_page_defaults(widget);
+		}
+		else if (!strcmp(name, "port controls accept"))
+		{
+			return controls_page_accept(widget);
+		}
+		else if (!strcmp(name, "port controls closed"))
+		{
+			return controls_page_closed();
 		}
 		else if (!strcmp(name, "controls screen init") || !strcmp(name, "controls screen defaults"))
 		{
@@ -8284,9 +8781,16 @@ void pc_menu_game_data_function_invoke(
 		lobby_update(widget);
 	else if (!strcmp(name, "port settings help"))
 	{
-		video_rows_show(widget);
+		/* (a screen of nested lists: the one open's rows; Resolution and
+		Window Size are the screen's own) */
+		if (views_list(widget) == widget)
+			views_show(widget, settings_view);
+		if (views_list(widget) != widget || !strcmp(settings_view, "main"))
+			video_rows_show(widget);
 		settings_help(widget);
 	}
+	else if (!strcmp(name, "port controls update"))
+		controls_page_update(widget);
 	else if (!strcmp(name, "controls update menu"))
 		controls_update(widget);
 #ifndef HALO_CONSOLE_NO_CONTROLS

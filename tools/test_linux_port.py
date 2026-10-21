@@ -347,7 +347,7 @@ def test_joined_invite_follows_the_joined_host():
 def test_report_hosted_games_keeps_listing():
     """network.report_hosted_games = false stops what a host sends the game
     list about its games (the carnage report, the Delta Stats batch and its
-    own players' claims) and not the listing, and the Privacy screen sets
+    own players' claims) and not the listing, and Network Setup's PRIVACY sets
     it."""
     root = MENUS.parent.parent.parent
     browser = (root / "port/linux/src/browser.c").read_text()
@@ -358,7 +358,7 @@ def test_report_hosted_games_keeps_listing():
     assert "report_hosted_games" not in hosting
     upload = (root / "port/linux/src/event_upload.c").read_text()
     assert 'config_boolean("network.report_hosted_games")' in upload
-    privacy = (MENUS / "ce/main_menu.settings_select.player_setup.player_profile_edit.privacy_setup.xml").read_text()
+    privacy = (MENUS / "ce/main_menu.settings_select.player_setup.player_profile_edit.network_setup.xml").read_text()
     for setting in ("network.report_hosted_games", "network.report_events", "network.report_joined_games",
                     "crash_reports.upload"):
         assert f'setting="{setting}"' in privacy, setting

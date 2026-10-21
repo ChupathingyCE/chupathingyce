@@ -15,8 +15,8 @@ controller, the keyboard and the mouse, on every port.
 | `menus.json` | The files the game embeds |
 
 `tools/ce_menus.py` writes all of them from the PC version's tags and the
-redraws, but the settings screens (Controls Setup, Gamepads, Mouse, Audio,
-Video and Network Setup, and Privacy), which `tools/port_settings.py` writes in their
+redraws, but the settings screens (Controls Setup, Audio, Video and
+Network Setup), which `tools/port_settings.py` writes in their
 style with what this port has to set: config.toml's settings (a window or
 the full screen, the frame rate, the volumes, internet play, the
 multiplayer HUD), the profile's controller settings, and the keyboard and
@@ -149,9 +149,16 @@ difficulty` are the port's, as the Xbox's take the Xbox's widgets. The
 settings screens': `port settings save` (OK) writes the settings changed
 (config.toml's, or `profile.<field>`: the profile being edited) and applies
 them, `port settings defaults` shows the defaults, `port settings help` the
-help of the row chosen; Controls Setup's `controls ...` bind the keyboard
-and mouse's controls (Enter takes the next key or button pressed; left and
-right choose which of two; Escape cancels, Delete clears); Change Color's
+help of the row chosen. A screen's nested lists (Video Setup's ADVANCED and
+INTERFACE, Network Setup's CHAT and PRIVACY): rows after an empty widget
+named `view_<name>` are that list's (`view_main` the screen's own), `port
+settings view` on a row named `op_link_<name>` opens it, `port settings
+back` goes back out of it, and `port settings accept` (the Chupathingy
+menus' A) opens it or is OK. Controls Setup's `port controls ...` show the
+rows of the device and page its DEVICE and SHOW choose, and its `controls
+...` bind the keyboard and mouse's controls (Enter takes the next key or
+button pressed; left and right choose which of two; Escape cancels, Delete
+clears), `controller ...` the controller's buttons; Change Color's
 `color picker ...` (the Xbox's names) set the profile's colour. The
 Chupathingy menus' GAME SETUP and game type editor
 (`chupathingy/host_setup.xml`): `port host init` and `port host update` (a

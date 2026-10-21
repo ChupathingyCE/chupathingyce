@@ -10,9 +10,9 @@ is: browser_screen.c), laid out as the Xbox's settings screens are: the
 title, the band, a row for each setting with its label in blue capitals and
 its value in white, the row chosen outlined, the help under the rows and
 the prompts at the bottom. The Gearbox and Chupathingy menus have the same
-two screens as their own widgets instead (tools/port_settings.py's
-Controller Buttons and Controls Setup; menu_functions.c drives them), with
-the same rows and words.
+two pages as their own widgets instead, in one list (tools/port_settings.py's
+Controls Setup: DEVICE and SHOW choose them; menu_functions.c drives it),
+with the same rows and words.
 
 The controller's page: BUTTON LAYOUT (left and right choose one of the
 profile's layouts: the Xbox's five, Bumper Jumper, Custom), then each
@@ -634,6 +634,17 @@ static void render_help(
 		ui_overlay_text(UI_FONT_MENU, 18.0f, ROWS_X + 12, HELP_Y + 20, UI_ALIGN_LEFT, COLOR_HELP, second);
 }
 
+/* a help line that starts with a button, drawn as the device used last
+names it (the keyboard's key for it, or the controller's button) */
+static void render_help_button(
+	int button,
+	char const *text)
+{
+	float width = ui_overlay_button(button, 16.0f, ROWS_X + 12, HELP_Y + 1, 0xFFFFFFFF);
+
+	ui_overlay_text(UI_FONT_MENU, 18.0f, ROWS_X + 12 + width + 5, HELP_Y, UI_ALIGN_LEFT, COLOR_HELP, text);
+}
+
 static void render_controller(
 	void)
 {
@@ -723,7 +734,7 @@ static void render_keyboard(
 	else if (focused == 0)
 		render_help("Choose what to show.", NULL);
 	else
-		render_help("A sets the key. Left and right pick which one.", NULL);
+		render_help_button(UI_BUTTON_A, "sets the key. Left and right pick which one.");
 }
 
 /* ---------- public code */
