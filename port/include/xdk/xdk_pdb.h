@@ -1100,12 +1100,22 @@ struct _FILETIME {
 
 union _LARGE_INTEGER {
     struct {
+#ifdef HALO_BIG_ENDIAN
+        long HighPart;
+        unsigned long LowPart;
+#else
         unsigned long LowPart;
         long HighPart;
+#endif
     };
     struct {
+#ifdef HALO_BIG_ENDIAN
+        long HighPart;
+        unsigned long LowPart;
+#else
         unsigned long LowPart;
         long HighPart;
+#endif
     } u;
     __int64 QuadPart;
 };
@@ -1176,12 +1186,22 @@ struct _SYSTEMTIME {
 
 union _ULARGE_INTEGER {
     struct {
+#ifdef HALO_BIG_ENDIAN
+        unsigned long HighPart;
+        unsigned long LowPart;
+#else
         unsigned long LowPart;
         unsigned long HighPart;
+#endif
     };
     struct {
+#ifdef HALO_BIG_ENDIAN
+        unsigned long HighPart;
+        unsigned long LowPart;
+#else
         unsigned long LowPart;
         unsigned long HighPart;
+#endif
     } u;
     unsigned __int64 QuadPart;
 };
