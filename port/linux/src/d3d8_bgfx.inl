@@ -1451,11 +1451,18 @@ static uint32_t bg_sampler_flags(int stage, BOOL mipmapped, BOOL hires)
 	for (axis = 0; axis < 3; axis++)
 	{
 		DWORD mode = state[axis == 0 ? D3DTSS_ADDRESSU : axis == 1 ? D3DTSS_ADDRESSV : D3DTSS_ADDRESSW];
-		/* (border: the edge's, for now) */
 		uint32_t address = mode == D3DTADDRESS_MIRROR ? BGFX_SAMPLER_U_MIRROR :
-			mode == D3DTADDRESS_WRAP ? 0 : BGFX_SAMPLER_U_CLAMP;
+			mode == D3DTADDRESS_WRAP ? 0 : mode == D3DTADDRESS_BORDER ? BGFX_SAMPLER_U_BORDER : BGFX_SAMPLER_U_CLAMP;
 
 		flags |= address << (axis * 2);
+	}
+	/* the border color: the nearest of the three Metal has (bg_init's
+	palette colors 0 to 2 for the other renderers) */
+	{
+		DWORD border = state[D3DTSS_BORDERCOLOR];
+		unsigned long luminance = ((border >> 16) & 0xff) + ((border >> 8) & 0xff) + (border & 0xff);
+
+		flags |= BGFX_SAMPLER_BORDER_COLOR((border >> 24) < 0x80 ? 0 : luminance >= 3 * 0x80 ? 2 : 1);
 	}
 	return flags;
 }
@@ -2979,6 +2986,14 @@ static BOOL bg_initialize(void)
 	bg.window_width = width;
 	bg.window_height = height;
 	bg.reset_flags = init.resolution.reset;
+	/* the border colors (bg_sampler_flags) */
+	{
+		static const float colors[3][4] = { { 0, 0, 0, 0 }, { 0, 0, 0, 1 }, { 1, 1, 1, 1 } };
+		int color;
+
+		for (color = 0; color < 3; color++)
+			bgfx_set_palette_color(color, colors[color]);
+	}
 	platform_log("bgfx: %s, window %dx%d", bgfx_get_renderer_name(bgfx_get_renderer_type()), width, height);
 
 	bg.compiler = shaderc_compiler_initialize();

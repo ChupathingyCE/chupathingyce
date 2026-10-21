@@ -1,5 +1,5 @@
 diff --git a/src/renderer_mtl.cpp b/src/renderer_mtl.cpp
-index 5433668..a541651 100644
+index 5433668..9705ff6 100644
 --- a/src/renderer_mtl.cpp
 +++ b/src/renderer_mtl.cpp
 @@ -20,7 +20,10 @@
@@ -14,7 +14,18 @@ index 5433668..a541651 100644
  
  namespace bgfx { namespace mtl
  {
-@@ -2297,6 +2300,15 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+@@ -197,7 +200,9 @@ namespace bgfx { namespace mtl
+ 		MTL::SamplerAddressModeRepeat,
+ 		MTL::SamplerAddressModeMirrorRepeat,
+ 		MTL::SamplerAddressModeClampToEdge,
+-		MTL::SamplerAddressModeClampToZero,
++		// Border: the color of BGFX_SAMPLER_BORDER_COLOR, one of Metal's three
++		// (0 transparent black, 1 opaque black, 2 opaque white).
++		MTL::SamplerAddressModeClampToBorderColor,
+ 	};
+ 
+ 	static const MTL::SamplerMinMagFilter s_textureFilterMinMag[] =
+@@ -2297,6 +2302,15 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
  				desc->setDepthCompareFunction( (MTL::CompareFunction)s_cmpFunc[func]);
  
  				uint32_t bstencil = unpackStencil(1, _stencil);
@@ -30,7 +41,7 @@ index 5433668..a541651 100644
  				uint32_t frontAndBack = bstencil != BGFX_STENCIL_NONE && bstencil != fstencil;
  				bstencil = frontAndBack ? bstencil : fstencil;
  
-@@ -2306,7 +2318,6 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+@@ -2306,7 +2320,6 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
  					MTL::StencilDescriptor* backfaceDesc  = m_backFaceStencilDescriptor;
  
  					uint32_t readMask  = (fstencil&BGFX_STENCIL_FUNC_RMASK_MASK)>>BGFX_STENCIL_FUNC_RMASK_SHIFT;
@@ -38,7 +49,32 @@ index 5433668..a541651 100644
  
  					frontFaceDesc->setStencilFailureOperation(   (MTL::StencilOperation)s_stencilOp[(fstencil&BGFX_STENCIL_OP_FAIL_S_MASK)>>BGFX_STENCIL_OP_FAIL_S_SHIFT]);
  					frontFaceDesc->setDepthFailureOperation(     (MTL::StencilOperation)s_stencilOp[(fstencil&BGFX_STENCIL_OP_FAIL_Z_MASK)>>BGFX_STENCIL_OP_FAIL_Z_SHIFT]);
-@@ -4373,8 +4384,9 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+@@ -2884,7 +2897,7 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 
+ 		MTL::SamplerState* getSamplerState(uint32_t _flags)
+ 		{
+-			_flags &= BGFX_SAMPLER_BITS_MASK;
++			_flags &= BGFX_SAMPLER_BITS_MASK|BGFX_SAMPLER_BORDER_COLOR_MASK;
+ 			MTL::SamplerState* sampler = m_samplerStateCache.find(_flags);
+ 
+ 			if (NULL == sampler)
+@@ -2897,6 +2910,15 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 				desc->setMinFilter(s_textureFilterMinMag[(_flags & BGFX_SAMPLER_MIN_MASK) >> BGFX_SAMPLER_MIN_SHIFT]);
+ 				desc->setMagFilter(s_textureFilterMinMag[(_flags & BGFX_SAMPLER_MAG_MASK) >> BGFX_SAMPLER_MAG_SHIFT]);
+ 				desc->setMipFilter(   s_textureFilterMip[(_flags & BGFX_SAMPLER_MIP_MASK) >> BGFX_SAMPLER_MIP_SHIFT]);
++				{
++					const uint32_t border = (_flags & BGFX_SAMPLER_BORDER_COLOR_MASK) >> BGFX_SAMPLER_BORDER_COLOR_SHIFT;
++					desc->setBorderColor(1 == border
++						? MTL::SamplerBorderColorOpaqueBlack
++						: 2 == border
++						? MTL::SamplerBorderColorOpaqueWhite
++						: MTL::SamplerBorderColorTransparentBlack
++						);
++				}
+ 				desc->setLodMinClamp(0);
+ 				desc->setLodMaxClamp(FLT_MAX);
+ 				desc->setNormalizedCoordinates(TRUE);
+@@ -4373,8 +4395,9 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
  
  		Query& query = m_query[m_control.m_current];
  		query.m_handle  = _handle;
@@ -49,7 +85,7 @@ index 5433668..a541651 100644
  	}
  
  	void OcclusionQueryMTL::end(MTL::RenderCommandEncoder*& _rce)
-@@ -4387,12 +4399,16 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+@@ -4387,12 +4410,16 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
  
  	void OcclusionQueryMTL::resolve(Frame* _render, bool _wait)
  	{
@@ -68,7 +104,7 @@ index 5433668..a541651 100644
  			if (isValid(query.m_handle) )
  			{
  				uint64_t result = ( (uint64_t*)m_buffer->contents() )[query.m_handle.idx];
-@@ -4657,6 +4673,7 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+@@ -4657,6 +4684,7 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
  			, s_viewName
  			);
  
@@ -76,7 +112,7 @@ index 5433668..a541651 100644
  		m_occlusionQuery.resolve(_render);
  
  		if (0 == (_render->m_debug&BGFX_DEBUG_IFH) )
-@@ -4865,6 +4882,9 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+@@ -4865,6 +4893,9 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
  							m_renderCommandEncoder = rce;
  							m_renderCommandEncoderFrameBufferHandle = fbh;
  
