@@ -15,6 +15,10 @@ client's own objects take the upper half of the object array).
 #ifndef __HALO_PORT_CAPACITY_H
 #define __HALO_PORT_CAPACITY_H
 
+/* a console's memory class (HALO_CONSOLE_MEMORY_EXTRAS: the sizes below
+that a console above its baseline raises) */
+#include "halo_console_memory.h"
+
 /* ---------- game state
 
 The Xbox game state is 0x345000 bytes at 0x80061000 and ends where the tag
@@ -220,8 +224,9 @@ keep the Xbox's cache. */
 #define HALO_PORT_TEXTURE_CACHE_SIZE 0x1600000 /* (0x1600000) */
 #endif
 #ifdef HALO_XBOX_CONSOLE
-/* the console's cache is HALO_PORT_TEXTURE_CACHE_SIZE on a 64 MB Xbox; a
-128 MB one may take more (port/xbox/src/xbox_memory.c), up to this */
+/* the console's cache is HALO_PORT_TEXTURE_CACHE_SIZE on a 64 MB Xbox; one
+above that baseline takes more (port/xbox/src/xbox_memory.c: 44 MB on a 128
+MB console), up to this */
 #define HALO_PORT_TEXTURE_CACHE_MAXIMUM_SIZE 0x4000000
 #endif
 
@@ -245,6 +250,14 @@ state. Android's guest build and the Xbox builds keep the Xbox's. */
 #define HALO_PORT_MAXIMUM_RENDERED_ENVIRONMENT_SURFACES 16384 /* (16384) */
 #define HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES 32768 /* (32768) */
 #endif
+/* the dynamic triangles of a console above its memory baseline
+(halo_console_memory.h): the desktop builds' 65536, in its index buffer
+(192 KB more), made at the start; the baseline's stay the Xbox's */
+#ifdef HALO_XBOX_CONSOLE
+#define HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES_EXTRAS 65536
+#else
+#define HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES_EXTRAS HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES
+#endif
 /* ---------- transparent geometry, particles and lights a frame draws
 
 What one view draws in a frame, past which the rest is not drawn: its
@@ -267,6 +280,15 @@ and the Xbox builds keep the Xbox's. */
 #define HALO_PORT_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS 384 /* (384) */
 #define HALO_PORT_MAXIMUM_RENDERED_PARTICLE_GROUPS 512 /* (512) */
 #define HALO_PORT_MAXIMUM_RENDERED_LIGHTS 128 /* (128) */
+#endif
+/* the transparent geometry groups of a console above its memory baseline
+(halo_console_memory.h): 1024, so a busy fight's plasma and glows keep
+drawing (160 bytes each on the heap, 100 KB more, made at the start); the
+baseline's stay the Xbox's */
+#ifdef HALO_XBOX_CONSOLE
+#define HALO_PORT_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS_EXTRAS 1024
+#else
+#define HALO_PORT_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS_EXTRAS HALO_PORT_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS
 #endif
 
 #endif /* __HALO_PORT_CAPACITY_H */

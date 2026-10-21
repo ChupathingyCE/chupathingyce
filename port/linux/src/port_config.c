@@ -553,10 +553,15 @@ static const struct config_setting config_settings[] =
 	{ "console.simulate_64mb", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
 		"Deprecated, ignored: a devkit gets 64 MB from the XBE's own flag now\n"
 		"(tools/xbox_package.py --devkit-64mb)." },
+	{ "console.memory_class", _config_string, "\"auto\"", NULL, _environment_value, _platform_xbox,
+		"The console's memory class. \"auto\": the console's own; a console of\n"
+		"128 MB or more (the common upgrade, a devkit) gets the extras: larger\n"
+		"texture and sound caches, render buffers and network queues. \"64\":\n"
+		"a stock Xbox's sizes on any console, to test the 64 MB baseline or if\n"
+		"an extra misbehaves. Nothing of the game itself changes with it." },
 	{ "console.large_caches", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
-		"On a 128 MB console, a larger texture cache (44 MB; 64 MB on a 256 MB\n"
-		"console). A stock 64 MB console shows a message and keeps the Xbox's\n"
-		"22 MB." },
+		"Deprecated, ignored: a console of 128 MB or more has the larger caches\n"
+		"on its own now (console.memory_class)." },
 	{ "console.debug_geometry", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
 		"For development: the debug build's debug geometry (lines and triangles\n"
 		"drawn by debug commands), whose buffers take 1440 KB. Off, as the retail\n"

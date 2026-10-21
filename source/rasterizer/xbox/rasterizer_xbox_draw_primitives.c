@@ -359,6 +359,10 @@ static struct dynamic_triangles_globals dynamic_triangles = {0};
 static D3DVertexBuffer *aux_dynamic_unlit_vb = NULL;
 static boolean dynamic_triangles_overflow_warning = FALSE;
 static boolean dynamic_vertices_overflow_warning = FALSE;
+/* port: the dynamic triangles the index buffer holds: the Xbox's, or more on
+a console above its memory baseline (halo_console_memory.h), set as the
+buffer is made */
+static long dynamic_triangles_maximum = RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLES;
 
 
 /* ---------- public code */
@@ -375,9 +379,11 @@ boolean rasterizer_dynamic_geometry_initialize(
 		93,
 		global_d3d_device);
 
+	dynamic_triangles_maximum = HALO_CONSOLE_MEMORY_EXTRAS(RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLES,
+		RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLES_EXTRAS);
 	result = IDirect3DDevice8_CreateIndexBuffer(
 		global_d3d_device,
-		sizeof(struct rasterizer_triangle)*RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLES,
+		sizeof(struct rasterizer_triangle)*dynamic_triangles_maximum,
 		RASTERIZER_DYNAMIC_BUFFER_USAGE,
 		D3DFMT_INDEX16,
 		RASTERIZER_DYNAMIC_BUFFER_POOL,
@@ -632,7 +638,7 @@ long _rasterizer_dynamic_triangles_new(
 
 	if (count>0)
 	{
-		if (dynamic_triangles.triangle_count<RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLES-count &&
+		if (dynamic_triangles.triangle_count<dynamic_triangles_maximum-count &&
 			dynamic_triangles.buffer_count<RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLE_BUFFERS-1)
 		{
 			struct dynamic_triangle_buffer *dynamic_triangle_buffer;

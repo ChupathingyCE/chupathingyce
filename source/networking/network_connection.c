@@ -268,12 +268,17 @@ stock console, as the queues hold what 30 updates a second of that many
 players take in two seconds (about 900 bytes a tick at 16 players) and
 the datagrams of a hitch; the native builds' queues are those of 128 players
 (0x40000 reliable, 0x20000 unreliable). The 256 KB of the old size were
-a quarter of what a 64 MB console had left. */
+a quarter of what a 64 MB console had left. A console above its memory
+baseline (halo_console_memory.h) has four times its baseline's queues, and
+twice the host's for each machine: the hitches it rides out are longer,
+and nothing of it reaches the wire, only how much waits on this console. */
 #ifdef HALO_PORT_CONSOLE_LIMITS
-#define NETWORK_CONNECTION_RELIABLE_QUEUE_SIZE (HALO_PORT_MAXIMUM_NETWORK_PLAYERS*0x1000)
-#define NETWORK_CONNECTION_UNRELIABLE_QUEUE_SIZE (HALO_PORT_MAXIMUM_NETWORK_PLAYERS*0x800)
+#define NETWORK_CONNECTION_RELIABLE_QUEUE_SIZE \
+	HALO_CONSOLE_MEMORY_EXTRAS(HALO_PORT_MAXIMUM_NETWORK_PLAYERS*0x1000, HALO_PORT_MAXIMUM_NETWORK_PLAYERS*0x4000)
+#define NETWORK_CONNECTION_UNRELIABLE_QUEUE_SIZE \
+	HALO_CONSOLE_MEMORY_EXTRAS(HALO_PORT_MAXIMUM_NETWORK_PLAYERS*0x800, HALO_PORT_MAXIMUM_NETWORK_PLAYERS*0x2000)
 /* a host's queue for each machine joined: its messages are small */
-#define NETWORK_CONNECTION_CLIENT_QUEUE_SIZE 0x4000
+#define NETWORK_CONNECTION_CLIENT_QUEUE_SIZE HALO_CONSOLE_MEMORY_EXTRAS(0x4000, 0x8000)
 #else
 #define NETWORK_CONNECTION_RELIABLE_QUEUE_SIZE 0x40000
 #define NETWORK_CONNECTION_UNRELIABLE_QUEUE_SIZE 0x20000

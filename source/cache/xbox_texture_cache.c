@@ -150,7 +150,7 @@ enum
 #ifdef HALO_XBOX_CONSOLE
 /* port: the console's cache is the size its memory class gives it
 (port/xbox/src/xbox_memory.c: the Xbox's 22 MB on a 64 MB console, more on
-a bigger one with console.large_caches), known before the cache is made;
+a bigger one, halo_console_memory.h's extras), known before the cache is made;
 the arrays of a page each are sized for the largest
 (HALO_PORT_TEXTURE_CACHE_MAXIMUM_SIZE) */
 unsigned long xbox_memory_texture_cache_size(void);

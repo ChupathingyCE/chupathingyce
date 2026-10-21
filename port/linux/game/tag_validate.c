@@ -181,13 +181,12 @@ holds */
 static unsigned long tag_validate_claims[CLAIM_WORDS];
 #else
 /* port: on the console, 2.75 MB of the heap, made at the first map's load
-on a console of 128 MB or more (claims_ready). A stock 64 MB console has
-no room for them: its maps load unchecked, as the Xbox game's did, and
-tag_validate_skipped says so to the bsps' check */
+on a console above its memory baseline (claims_ready, halo_console_memory.h:
+128 MB or more on the Xbox). A stock 64 MB console has no room for them:
+its maps load unchecked, as the Xbox game's did, and tag_validate_skipped
+says so to the bsps' check */
 static unsigned long *tag_validate_claims;
 static boolean tag_validate_skipped;
-
-int xbox_memory_class(void);
 
 static boolean claims_ready(
 	void)
@@ -199,7 +198,7 @@ static boolean claims_ready(
 	if (refused)
 		return FALSE;
 	refused = TRUE;
-	if (xbox_memory_class() < 128)
+	if (!HALO_CONSOLE_MEMORY_EXTRAS(FALSE, TRUE))
 	{
 		error(_error_silent, "maps load without the tag checks: a 64 MB console has no room for them (%lu KB)",
 			(unsigned long)(CLAIM_WORDS * sizeof(unsigned long)) >> 10);
