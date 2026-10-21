@@ -225,6 +225,8 @@ static struct
 	{
 		float x0, y0, x1, y1;
 		short button;
+		/* a column's head: the order it puts the list in (NONE: a button) */
+		short sort;
 	} targets[MAXIMUM_TARGETS];
 	short drawn_first;
 } browser_screen;
@@ -427,6 +429,7 @@ static void join_first_player(
 /* (p2p.c: the invite this machine joined last, its hex digits) */
 int p2p_joined_invite(char *text, int size);
 void platform_log(char const *format, ...);
+int config_boolean(char const *name);
 void display_error_text_deferred(wchar_t const *text, short local_player_index);
 
 /* a game left for want of the map, which is not downloaded after all (the
@@ -1697,6 +1700,27 @@ static void add_target(
 		browser_screen.targets[browser_screen.target_count].x1 = x1;
 		browser_screen.targets[browser_screen.target_count].y1 = y1;
 		browser_screen.targets[browser_screen.target_count].button = glyph_buttons[button];
+		browser_screen.targets[browser_screen.target_count].sort = NONE;
+		browser_screen.target_count++;
+	}
+}
+
+/* a column's head, which puts the list in its order */
+static void add_sort_target(
+	float x0,
+	float y0,
+	float x1,
+	float y1,
+	short sort)
+{
+	if (browser_screen.target_count < MAXIMUM_TARGETS)
+	{
+		browser_screen.targets[browser_screen.target_count].x0 = x0;
+		browser_screen.targets[browser_screen.target_count].y0 = y0;
+		browser_screen.targets[browser_screen.target_count].x1 = x1;
+		browser_screen.targets[browser_screen.target_count].y1 = y1;
+		browser_screen.targets[browser_screen.target_count].button = NONE;
+		browser_screen.targets[browser_screen.target_count].sort = sort;
 		browser_screen.target_count++;
 	}
 }
@@ -1855,12 +1879,14 @@ static void draw_sort_mark(
 	ui_overlay_rect(x + 2.0f, y + 2.0f, 1.0f, 1.0f, 0, color);
 }
 
-/* a column's head: white with the mark when the list is in its order */
+/* a column's head: white with the mark when the list is in its order; the
+pointer puts the list in it (sort NONE: not now, under a dialog) */
 static void column_head(
 	float x,
 	int align,
 	char const *text,
-	boolean active)
+	boolean active,
+	short sort)
 {
 	float y = LIST_Y + 7.0f;
 	float width = ui_overlay_text(UI_FONT_MENU_SMALL, HEAD_SIZE, x, y, align, active ? 0xFFFFFFFF : COLOR_HEAD, text);
@@ -1868,6 +1894,13 @@ static void column_head(
 	if (active)
 	{
 		draw_sort_mark(align == UI_ALIGN_RIGHT ? x + 3.0f : x + width + 3.0f, y + HEAD_SIZE * 0.4f, 0xFFFFFFFF);
+	}
+	if (sort != NONE)
+	{
+		/* (the mark's room on both sides, and the head's whole height) */
+		float left = align == UI_ALIGN_RIGHT ? x - width : x;
+
+		add_sort_target(left - 4.0f, LIST_Y, left + width + 12.0f, LIST_Y + LIST_HEAD, sort);
 	}
 }
 
@@ -2570,13 +2603,13 @@ void browser_screen_render(
 
 	/* the list */
 	ui_overlay_panel(LIST_X, LIST_Y, LIST_WIDTH, LIST_HEAD + ROWS_PER_PAGE * LIST_ROW + 3 + LIST_FOOT, FALSE);
-	column_head(COLUMN_NAME, UI_ALIGN_LEFT, "SERVER", browser_screen.sort == SORT_NAME);
-	column_head(COLUMN_MAP, UI_ALIGN_LEFT, "MAP", browser_screen.sort == SORT_MAP);
-	column_head(COLUMN_TYPE, UI_ALIGN_LEFT, "TYPE", browser_screen.sort == SORT_TYPE);
+	column_head(COLUMN_NAME, UI_ALIGN_LEFT, "SERVER", browser_screen.sort == SORT_NAME, dialog ? NONE : SORT_NAME);
+	column_head(COLUMN_MAP, UI_ALIGN_LEFT, "MAP", browser_screen.sort == SORT_MAP, dialog ? NONE : SORT_MAP);
+	column_head(COLUMN_TYPE, UI_ALIGN_LEFT, "TYPE", browser_screen.sort == SORT_TYPE, dialog ? NONE : SORT_TYPE);
 	column_head(COLUMN_PLAYERS - (browser_screen.sort == SORT_PLAYERS ? 9 : 0), UI_ALIGN_RIGHT, "PLAYERS",
-		browser_screen.sort == SORT_PLAYERS);
+		browser_screen.sort == SORT_PLAYERS, dialog ? NONE : SORT_PLAYERS);
 	column_head(COLUMN_PING - (browser_screen.sort == SORT_PING ? 9 : 0), UI_ALIGN_RIGHT, "PING",
-		browser_screen.sort == SORT_PING);
+		browser_screen.sort == SORT_PING, dialog ? NONE : SORT_PING);
 	page_first = (short)(browser_screen.selected - browser_screen.selected % ROWS_PER_PAGE);
 	page_count = (short)MAX(1, (browser_screen.count + ROWS_PER_PAGE - 1) / ROWS_PER_PAGE);
 	if (!dialog)
@@ -2647,12 +2680,38 @@ void browser_screen_pointer(
 		step((short)-pointer->wheel_steps);
 	if (!pointer->left_clicks || !browser_screen.active)
 		return;
+	/* (debug.touch_targets: each tap, as the menus' are logged) */
+	if (config_boolean("debug.touch_targets"))
+	{
+		for (index = 0; index < browser_screen.target_count; index++)
+		{
+			if (pointer->click_x >= browser_screen.targets[index].x0 && pointer->click_x < browser_screen.targets[index].x1 &&
+				pointer->click_y >= browser_screen.targets[index].y0 && pointer->click_y < browser_screen.targets[index].y1)
+				break;
+		}
+		if (index < browser_screen.target_count)
+		{
+			platform_log("touch targets: Online Games tap at %d,%d hit %s %d [%.0f,%.0f,%.0f,%.0f]", pointer->click_x,
+				pointer->click_y, browser_screen.targets[index].sort == NONE ? "button" : "column",
+				browser_screen.targets[index].sort == NONE ? browser_screen.targets[index].button :
+				browser_screen.targets[index].sort, browser_screen.targets[index].x0, browser_screen.targets[index].y0,
+				browser_screen.targets[index].x1, browser_screen.targets[index].y1);
+		}
+		else
+			platform_log("touch targets: Online Games tap at %d,%d hit no button", pointer->click_x, pointer->click_y);
+	}
 	for (index = 0; index < browser_screen.target_count; index++)
 	{
 		if (pointer->click_x >= browser_screen.targets[index].x0 && pointer->click_x < browser_screen.targets[index].x1 &&
 			pointer->click_y >= browser_screen.targets[index].y0 && pointer->click_y < browser_screen.targets[index].y1)
 		{
-			press(browser_screen.targets[index].button);
+			if (browser_screen.targets[index].sort == NONE)
+				press(browser_screen.targets[index].button);
+			else if (browser_screen.sort != browser_screen.targets[index].sort)
+			{
+				browser_screen.sort = browser_screen.targets[index].sort;
+				fetch_games();
+			}
 			return;
 		}
 	}

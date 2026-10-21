@@ -35,6 +35,7 @@ when the player acts.
 #include "../src/browser.h"
 #include "../src/delta_moderation.h"
 #include "../src/ui_overlay.h"
+#include "halo_ui_pointer.h"
 
 int config_boolean(char const *name);
 char const *config_string(char const *name);
@@ -49,6 +50,8 @@ enum
 	MODERATION_EVENT_BUTTON = 3,
 
 	ROWS = 10,
+	/* what the pointer may press, as a frame draws it */
+	MAXIMUM_TARGETS = 24,
 	/* a notice shows this long, a result this long */
 	NOTICE_DURATION = 6000,
 	RESULT_DURATION = 8000,
@@ -141,6 +144,15 @@ static struct
 	role here and where the role comes from, which it tells each player
 	when they sign in and when it changes */
 	char note[DELTA_WIRE_MODERATION_TEXT_SIZE + 1];
+	/* what the last frame drew for the pointer: a prompt's button, or a
+	player's row (button NONE) */
+	short target_count;
+	struct
+	{
+		float x0, y0, x1, y1;
+		short button;
+		short row;
+	} targets[MAXIMUM_TARGETS];
 } moderation_screen;
 
 /* ---------- private code */
@@ -448,14 +460,43 @@ void moderation_screen_process(
 	event_manager_flush();
 }
 
+/* a place the pointer presses a button (or picks a player's row: button
+NONE), for the next frame (moderation_screen_pointer) */
+static void add_target(
+	float x0,
+	float y0,
+	float x1,
+	float y1,
+	short button,
+	short row)
+{
+	if (moderation_screen.target_count < MAXIMUM_TARGETS)
+	{
+		moderation_screen.targets[moderation_screen.target_count].x0 = x0;
+		moderation_screen.targets[moderation_screen.target_count].y0 = y0;
+		moderation_screen.targets[moderation_screen.target_count].x1 = x1;
+		moderation_screen.targets[moderation_screen.target_count].y1 = y1;
+		moderation_screen.targets[moderation_screen.target_count].button = button;
+		moderation_screen.targets[moderation_screen.target_count].row = row;
+		moderation_screen.target_count++;
+	}
+}
+
+/* a button's prompt; the pointer presses it (the d-pad's "Action" steps to
+the next action) */
 static float prompt(
 	int button,
 	char const *words,
 	float x,
 	float y)
 {
+	float left = x;
+
 	x += ui_overlay_button(button, 15.0f, x, y, 0xFFFFFFFF) + 3.0f;
 	x += ui_overlay_text(UI_FONT_BOLD, 12.0f, x, y + 1.5f, UI_ALIGN_LEFT, COLOR_PROMPT, words);
+	add_target(left - 4.0f, y - 4.0f, x + 4.0f, y + 19.0f,
+		button == UI_BUTTON_A ? _gamepad_analog_button_a :
+		button == UI_BUTTON_B ? _gamepad_analog_button_b : _gamepad_binary_button_dpad_right, NONE);
 	return x + 18.0f;
 }
 
@@ -553,6 +594,7 @@ void moderation_screen_render(
 	float x, y;
 	short row, first;
 
+	moderation_screen.target_count = 0;
 	if (!ui_overlay_available() || !moderation->available)
 		return;
 	render_banner();
@@ -630,6 +672,12 @@ void moderation_screen_render(
 	/* the action, then the players */
 	snprintf(text, sizeof(text), "< %s >", moderation_choices[moderation_screen.allowed[moderation_screen.choice]].name);
 	ui_overlay_text(UI_FONT_BOLD, 14.0f, 320, y, UI_ALIGN_CENTER, COLOR_TEXT, text);
+	/* (the pointer steps back on its left half, on with its right) */
+	if (!moderation_screen.confirming)
+	{
+		add_target(116, y - 4, 320, y + 18, _gamepad_binary_button_dpad_left, NONE);
+		add_target(320, y - 4, 524, y + 18, _gamepad_binary_button_dpad_right, NONE);
+	}
 	y += 26;
 	if (moderation_choices[moderation_screen.allowed[moderation_screen.choice]].needs_target)
 	{
@@ -640,6 +688,8 @@ void moderation_screen_render(
 
 			if (index == moderation_screen.selected)
 				ui_overlay_rect(116, y + row * 20 - 2, 408, 19, 3, COLOR_ROW_SELECTED);
+			if (!moderation_screen.confirming)
+				add_target(116, y + row * 20 - 2, 524, y + row * 20 + 18, NONE, index);
 			ui_overlay_text(UI_FONT_REGULAR, 13.0f, 124, y + row * 20, UI_ALIGN_LEFT, COLOR_TEXT,
 				moderation_screen.players[index].name);
 		}
@@ -669,6 +719,42 @@ void moderation_screen_render(
 	x = prompt(UI_BUTTON_A, moderation_screen.confirming ? "Confirm" : "Choose", 120, 392);
 	x = prompt(UI_BUTTON_DPAD_LEFT, "Action", x, 392);
 	prompt(UI_BUTTON_B, moderation_screen.confirming ? "Cancel" : "Back", x, 392);
+}
+
+/* the menus' pointer while the screen is up (ui_widget.c's
+ui_widgets_process_mouse, which gives the menu behind nothing then): a
+prompt presses its button, a click picks a player and a click on the
+picked one is A, a right click is B and the wheel moves through the
+players */
+void moderation_screen_pointer(
+	struct halo_ui_pointer const *pointer)
+{
+	short index;
+
+	if (!moderation_screen.active)
+		return;
+	if (pointer->right_clicks)
+		press(_gamepad_analog_button_b);
+	if (pointer->wheel_steps)
+		press(pointer->wheel_steps > 0 ? _gamepad_binary_button_dpad_up : _gamepad_binary_button_dpad_down);
+	if (!pointer->left_clicks || !moderation_screen.active)
+		return;
+	for (index = 0; index < moderation_screen.target_count; index++)
+	{
+		if (pointer->click_x >= moderation_screen.targets[index].x0 &&
+			pointer->click_x < moderation_screen.targets[index].x1 &&
+			pointer->click_y >= moderation_screen.targets[index].y0 &&
+			pointer->click_y < moderation_screen.targets[index].y1)
+		{
+			if (moderation_screen.targets[index].button != NONE)
+				press(moderation_screen.targets[index].button);
+			else if (moderation_screen.targets[index].row == moderation_screen.selected)
+				press(_gamepad_analog_button_a);
+			else if (moderation_screen.targets[index].row < moderation_screen.player_count)
+				moderation_screen.selected = moderation_screen.targets[index].row;
+			return;
+		}
+	}
 }
 
 #endif
