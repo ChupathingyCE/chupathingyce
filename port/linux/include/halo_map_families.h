@@ -47,6 +47,12 @@ enum
 in file (size bytes) if file is not NULL */
 short map_family_parse(char const *map, char *file, long size);
 
+/* map_family_parse for a map as the game list names it: a name with no folder
+or suffix that is not an Xbox map (deathisland, hugeass: how OpenCE's hosts
+announce every Halo PC map) is a Custom Edition map's, as in the game's
+protocol (custom_maps\<name>) */
+short map_family_parse_listed(char const *map, char *file, long size);
+
 /* a family's suffix ("@ce", "@md"; "" for the Xbox's) */
 char const *map_family_suffix(short family);
 
@@ -119,6 +125,18 @@ places, then for a Custom Edition map <file>_<8 hex digits>.map of that
 version (a download beside another version: map_download.c), and a hashed
 name's base whose hash is the name's (an older host's level name) */
 boolean map_family_find_version(short family, char const *file, unsigned long version, char *path, long size);
+
+/* what a player lacking one of Halo PC's own maps (deathisland, ...; file) is
+told for a game whose host plays the map of version (0 if not known): the
+edition their files say the host plays, _map_family_custom_edition or
+_map_family_halo_pc (the other edition's file is held, and is not the
+host's), else _map_family_xbox (not known). first is the heading, second the
+instruction (two lines, split by a newline), blocker the one line the game
+list shows. A Halo PC retail file and a Custom Edition file both play a game
+of either, when map_stock_pairs (map_stock_pairs.h) has checked them the
+same */
+long map_family_stock_need(char const *file, unsigned long version, char *first, long first_size, char *second,
+	long second_size, char *blocker, long blocker_size);
 
 /* the map a network game is on and the version of it the host plays (0 for
 any, which forgets it): map_family_find gives the file of that version, if

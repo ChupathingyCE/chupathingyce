@@ -1258,13 +1258,22 @@ boolean cache_files_map_present(
 		{
 			platform_log("map version: %s is %08lx here, %08lx on the host", map_name, cache_files_map_version(map_name),
 				version);
-			snprintf(message, sizeof(message),
-				"Your %s map %.63s is another version than the host's. Copy the host's %.63s.map into %s.",
-				map_family_badge(family), file, file, map_family_folder(family));
+			if (family == _map_family_custom_edition && map_archive_stock_name(file))
+			{
+				char first[96], second[160], blocker[160];
+
+				map_family_stock_need(file, version, first, sizeof(first), second, sizeof(second), blocker,
+					sizeof(blocker));
+				snprintf(message, sizeof(message), "Install this map yourself\r\n%s %s", first, second);
+			}
+			else
+				snprintf(message, sizeof(message),
+					"Your %s map %.63s is another version than the host's. Copy the host's %.63s.map into %s.",
+					map_family_badge(family), file, file, map_family_folder(family));
 #ifdef HALO_GAME_BROWSER
 			/* (the host's version may be downloaded beside it, named for its
 			hash: port/linux/src/map_download.c) */
-			if (family == _map_family_custom_edition && !map_archive_stock_name(file))
+			if (family == _map_family_custom_edition)
 			{
 				void browser_screen_map_missing(char const *file, unsigned long version);
 
@@ -1277,10 +1286,10 @@ boolean cache_files_map_present(
 		port/linux/src/map_archive.h) */
 		else if (family == _map_family_custom_edition && map_archive_stock_name(file))
 		{
-			char stock[384];
+			char first[96], second[160], blocker[160];
 
-			map_archive_stock_message(file, stock, sizeof(stock));
-			snprintf(message, sizeof(message), "Install this map yourself\r\n%s", stock);
+			map_family_stock_need(file, version, first, sizeof(first), second, sizeof(second), blocker, sizeof(blocker));
+			snprintf(message, sizeof(message), "Install this map yourself\r\n%s %s", first, second);
 #ifdef HALO_GAME_BROWSER
 			/* (Online Games says so over the main menu, in place of this
 			error: port/linux/game/browser_screen.c) */
