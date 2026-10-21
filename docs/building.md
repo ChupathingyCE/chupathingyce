@@ -13,8 +13,10 @@ the build's generic side (`tools/console_build.py`).
 
 | Repository | Consoles |
 | --- | --- |
-| [ChupathingyCE/warthog-xbox](https://github.com/ChupathingyCE/warthog-xbox) | original Xbox, Xbox 360 |
+| [ChupathingyCE/warthog-xbox](https://github.com/ChupathingyCE/warthog-xbox) | original Xbox |
+| [ChupathingyCE/warthog-360](https://github.com/ChupathingyCE/warthog-360) | Xbox 360 |
 | [ChupathingyCE/warthog-switch](https://github.com/ChupathingyCE/warthog-switch) | Switch |
+| [ChupathingyCE/warthog-wiiu](https://github.com/ChupathingyCE/warthog-wiiu) | Wii U |
 
 A console repository looks like this:
 
