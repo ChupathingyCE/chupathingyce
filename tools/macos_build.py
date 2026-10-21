@@ -57,6 +57,89 @@ def fetch_portable_sdl() -> bool:
     check_sdl_commit(PORTABLE_SDL_DIR)
     return True
 
+# the bgfx test backend (configure.py --renderer=bgfx; port/linux/src/d3d8_bgfx.inl):
+# bgfx, bx and bimg (BSD-2-Clause, their LICENSE files stay with them), fetched at
+# pinned commits and built here as three static libraries, plus Homebrew's shaderc
+# and SPIRV-Cross (Apache-2.0), which turn the generated GLSL into Metal's shaders
+# at run time
+BGFX_THIRD_PARTY = Path("build/macos/third_party")
+BGFX_REPOSITORIES = {
+    "bx": ("https://github.com/bkaradzic/bx.git", "217823bc0a05a7dcf29e5166708b82910cda0623"),
+    "bimg": ("https://github.com/bkaradzic/bimg.git", "5c7eabb1d73cb0c1a3c23c0268dd70e8dca972f7"),
+    "bgfx": ("https://github.com/bkaradzic/bgfx.git", "9849fe96cba81355352e5355ee2d333ea70857ac"),
+}
+# our changes to bgfx, applied to the fetched sources (tools/bgfx-patches)
+BGFX_PATCHES = sorted(Path("tools/bgfx-patches").glob("*.patch"))
+# its limits for the game: views (each target change and clear after draws
+# is one), visibility tests (lens flares, The Library's lights) and Metal's
+# uniform space a frame
+BGFX_DEFINES = ("-DBGFX_CONFIG_MAX_VIEWS=1024 -DBGFX_CONFIG_MAX_OCCLUSION_QUERIES=4096 "
+                "-DBGFX_CONFIG_MTL_UNIFORM_BUFFER_SIZE=33554432")
+BGFX_SPIRV_CROSS_LIBRARIES = ["c", "msl", "hlsl", "cpp", "glsl", "reflect", "core"]
+
+
+def fetch_bgfx() -> bool:
+    """bgfx's, bx's and bimg's sources (once, at their pinned commits): whether they are there"""
+    for name, (url, commit) in BGFX_REPOSITORIES.items():
+        directory = BGFX_THIRD_PARTY / name
+        if (directory / "LICENSE").is_file():
+            continue
+        directory.mkdir(parents=True, exist_ok=True)
+        print(f"Fetching {name} {commit[:12]} (the bgfx test backend's)")
+        git = ["git", "-C", str(directory)]
+        if not (subprocess.run([*git, "init", "-q"]).returncode == 0
+                and subprocess.run([*git, "fetch", "-q", "--depth", "1", url, commit]).returncode == 0
+                and subprocess.run([*git, "checkout", "-q", "FETCH_HEAD"]).returncode == 0):
+            return False
+    # (each patch once: one that applies in reverse is in already)
+    bgfx = BGFX_THIRD_PARTY / "bgfx"
+    for patch in BGFX_PATCHES:
+        if subprocess.run(["git", "-C", str(bgfx), "apply", "--reverse", "--check", str(patch.resolve())],
+                          capture_output=True).returncode == 0:
+            continue
+        print(f"Patching bgfx: {patch.name}")
+        if subprocess.run(["git", "-C", str(bgfx), "apply", str(patch.resolve())]).returncode != 0:
+            return False
+    return True
+
+
+def bgfx_build(n: Writer, architectures: List[str]) -> List[Path]:
+    """the rules for bx, bimg and bgfx as static libraries: the libraries"""
+    bx, bimg, bgfx = (BGFX_THIRD_PARTY / name for name in ("bx", "bimg", "bgfx"))
+    obj_dir = BGFX_THIRD_PARTY / "obj"
+    arch_flags = " ".join(f"-arch {arch}" for arch in architectures)
+    common = (f"{arch_flags} -mmacosx-version-min={MACOS_MINIMUM} -O2 -g -std=c++20 -fno-exceptions -fno-rtti "
+              f"-DBX_CONFIG_DEBUG=0 -I{bx / 'include'} -I{bx / 'include/compat/osx'} -I{bx / '3rdparty'} "
+              f"-I{bimg / 'include'} -I{bimg / '3rdparty/astc-encoder/include'} -I{bimg / '3rdparty/astc-encoder/source'} "
+              f"-I{bgfx / 'include'} -I{bgfx / '3rdparty'} -I{bgfx / '3rdparty/khronos'} "
+              "-Wno-deprecated-declarations")
+    n.rule(name="macos_bgfx_cxx", command=f"clang++ {common} $extra -MMD -MF $out.d -c $in -o $out",
+           description="MACOS BGFX $in", depfile="$out.d", deps="gcc")
+    n.rule(name="macos_bgfx_ar", command="rm -f $out && libtool -static -o $out $in 2>/dev/null",
+           description="MACOS BGFX AR $out")
+    libraries = []
+    units = {
+        "bx": [bx / "src/amalgamated.cpp"],
+        "bimg": [bimg / "src/image.cpp", bimg / "src/image_gnf.cpp",
+                 *sorted((bimg / "3rdparty/astc-encoder/source").glob("*.cpp"))],
+        "bgfx": [bgfx / "src/amalgamated.cpp"],
+    }
+    for name, sources in units.items():
+        objects = []
+        for source in sources:
+            obj = obj_dir / name / (source.stem + ".o")
+            # (bgfx's renderers are Objective-C++ on macOS, for Metal and its layer)
+            n.build(outputs=obj, rule="macos_bgfx_cxx", inputs=source, implicit=BGFX_PATCHES,
+                    variables={"extra": f"-x objective-c++ {BGFX_DEFINES} -DBGFX_CONFIG_RENDERER_METAL=1 -DBGFX_CONFIG_RENDERER_OPENGL=0 "
+                               "-DBGFX_CONFIG_RENDERER_VULKAN=0" if name == "bgfx" else ""})
+            objects.append(obj)
+        library = BGFX_THIRD_PARTY / f"lib{name}.a"
+        n.build(outputs=library, rule="macos_bgfx_ar", inputs=objects)
+        libraries.append(library)
+    # (bgfx first: it needs bimg's and bx's symbols)
+    return list(reversed(libraries))
+
+
 # Apple's libc restricted to ISO C (glibc's is by __STRICT_ANSI__)
 # HALO_LTO=1 builds the whole program with link-time optimisation (clang's
 # -flto on both the objects and the link): a few percent in the renderer's
@@ -101,6 +184,12 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
     # (its SDL: the headers before Homebrew's, the library built below)
     portable_sdl = PORTABLE_SDL_BUILD / "libSDL3.0.dylib"
     sdl_include = f"-I{PORTABLE_SDL_DIR / 'include'} " if portable else ""
+    use_bgfx = getattr(sln, "renderer", "gl") == "bgfx"
+    if use_bgfx and not fetch_bgfx():
+        raise SystemExit("the bgfx test backend needs bgfx's, bx's and bimg's sources (git fetch failed)")
+    # (the platform units' define and headers: d3d8_gl.c, sdl_platform.c)
+    if use_bgfx:
+        sdl_include += f"-DHALO_BGFX -I{BGFX_THIRD_PARTY / 'bgfx/include'} -I{BGFX_THIRD_PARTY / 'bx/include'} "
 
     n.comment("Native macOS build (ninja macos)")
     lp64 = Lp64Build(n, sln, "macos", cc)
@@ -127,6 +216,8 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
             pool="console",
         )
         n.build(outputs=portable_sdl, rule="macos_sdl3", implicit=[PORTABLE_SDL_DIR / "CMakeLists.txt"])
+
+    bgfx_libraries = bgfx_build(n, architectures) if use_bgfx else []
 
     def emit(arch: str, arch_obj_dir: Path, arch_output: Path) -> None:
         """the game for one architecture: its objects and its executable"""
@@ -155,14 +246,20 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
         if portable:
             libraries = [library for library in libraries if library not in ("avcodec", "avformat", "swscale", "avutil")]
         frameworks = config.get("frameworks", [])
+        bgfx_libs = []
+        if use_bgfx:
+            frameworks = [*frameworks, "Metal", "QuartzCore", "Cocoa", "IOKit"]
+            bgfx_libs = [*(str(library) for library in bgfx_libraries),
+                         *(str(HOMEBREW / "lib" / f"libspirv-cross-{name}.a") for name in BGFX_SPIRV_CROSS_LIBRARIES),
+                         str(HOMEBREW / "lib" / "libshaderc_combined.a"), "-lc++", "-lobjc"]
         n.build(
             outputs=arch_output,
             rule="macos_link",
             inputs=objects,
-            implicit=[portable_sdl] if portable else [],
+            implicit=([portable_sdl] if portable else []) + bgfx_libraries,
             variables={
                 "ldflags": " ".join([target, "-g", *LTO_FLAGS]),
-                "libs": " ".join([*([f"-L{PORTABLE_SDL_BUILD}"] if portable else []), f"-L{HOMEBREW / 'lib'}",
+                "libs": " ".join([*bgfx_libs, *([f"-L{PORTABLE_SDL_BUILD}"] if portable else []), f"-L{HOMEBREW / 'lib'}",
                                   *(f"-l{lib}" for lib in libraries), *(f"-framework {fw}" for fw in frameworks)]),
             },
         )
