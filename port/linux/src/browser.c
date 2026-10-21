@@ -2498,6 +2498,12 @@ static void add_known(struct browser_game *games, int count)
 	}
 }
 
+#endif
+
+/* (every build, with the game browser or without: the menus' lobbies ask
+it too, port/linux/game/menu_functions.c) */
+#include <string.h>
+
 /* whether two names are the same, ASCII letters in either case (every
 build has this: the server's and Android's link no SDL string functions) */
 static int browser_ascii_equal(const char *a, const char *b)
@@ -2534,6 +2540,8 @@ int browser_map_is_campaign(const char *map)
 	}
 	return 0;
 }
+
+#ifdef HALO_GAME_BROWSER
 
 int browser_get_games(struct browser_game *games, int maximum_count)
 {

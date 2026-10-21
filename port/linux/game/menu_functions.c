@@ -7637,7 +7637,10 @@ static void host_update(struct widget_instance *list)
 		if (arrows)
 			host_value_set(named(row, "value", 0), value);
 		else if ((page == _host_page_setup && shown == _host_row_name) ||
-			(page != _host_page_setup && shown == SERVER_GAMETYPE_NAME) || shown == _host_row_password)
+#ifdef HALO_GAME_BROWSER
+			(page != _host_page_setup && shown == SERVER_GAMETYPE_NAME) ||
+#endif
+			shown == _host_row_password)
 		{
 			char ascii[TEXT_FIELD_LENGTH];
 
