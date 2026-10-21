@@ -1417,6 +1417,113 @@ static void test_server_config(int rounds)
 	}
 }
 
+/* ---------- game type files, both ways (the game's gametype editor and the
+server write them with server_gametype_format, and read them with
+server_gametype_parse: port/linux/game/gametype_files.c) */
+
+/* a game type as an editor makes one: a base, a name of any printable
+characters, and settings of its engine's (and every engine's), each a value
+its setting takes */
+static void random_gametype(struct server_gametype *gametype)
+{
+	int engine;
+	int field;
+	int length;
+	int index;
+
+	memset(gametype, 0, sizeof(*gametype));
+	gametype->values[SERVER_GAMETYPE_BASE] = (int)(random_next() % (unsigned int)server_builtin_count);
+	gametype->set[SERVER_GAMETYPE_BASE] = 1;
+	engine = server_builtins[gametype->values[SERVER_GAMETYPE_BASE]].engine;
+	length = (int)(random_next() % SERVER_GAMETYPE_TITLE_SIZE);
+	for (index = 0; index < length; index++)
+		gametype->title[index] = (char)(0x20 + random_next() % (0x7F - 0x20));
+	gametype->set[SERVER_GAMETYPE_NAME] = length > 0;
+	for (field = SERVER_GAMETYPE_SCORE_LIMIT; field < SERVER_GAMETYPE_FIELDS; field++)
+	{
+		const struct server_gametype_field *description = &server_gametype_fields[field];
+
+		if ((description->engine && description->engine != engine) || random_next() % 3 == 0)
+			continue;
+		switch (description->kind)
+		{
+		case SERVER_FIELD_BOOLEAN:
+			gametype->values[field] = (int)(random_next() & 1);
+			break;
+		case SERVER_FIELD_CHOICE:
+			gametype->values[field] = description->choices[random_next() % (unsigned int)description->choice_count].value;
+			break;
+		default:
+			gametype->values[field] = description->minimum +
+				(int)(random_next() % (unsigned int)(description->maximum - description->minimum + 1));
+			break;
+		}
+		gametype->set[field] = 1;
+	}
+	/* (capture the flag is played in teams) */
+	if (engine == SERVER_ENGINE_CTF && gametype->set[SERVER_GAMETYPE_TEAMS])
+		gametype->values[SERVER_GAMETYPE_TEAMS] = 1;
+}
+
+static int gametypes_equal(const struct server_gametype *a, const struct server_gametype *b)
+{
+	int field;
+
+	if (strcmp(a->title, b->title))
+		return 0;
+	for (field = 0; field < SERVER_GAMETYPE_FIELDS; field++)
+	{
+		if (!a->set[field] != !b->set[field] || (a->set[field] && field != SERVER_GAMETYPE_NAME &&
+			a->values[field] != b->values[field]))
+		{
+			return 0;
+		}
+	}
+	return 1;
+}
+
+static void test_gametype_files(int rounds)
+{
+	static char text[SERVER_GAMETYPE_TEXT_SIZE];
+	static char again[SERVER_GAMETYPE_TEXT_SIZE];
+	struct server_gametype written, read, back;
+	char error[SERVER_CONFIG_ERROR_SIZE];
+	const char *server_file = "# ctf_pro\nbase = \"ctf\"\nname = \"CTF \\\"Pro\\\"\"\nscore_limit = 9999\n\n"
+		"[items]\nloadout = \"custom\"\nprimary_weapon = \"pistol\"\nsecondary_weapon = \"assault_rifle\"\n\n"
+		"[vehicles]\nred = \"pc\"\nblue = \"custom\"\nblue_ghost = 4\n";
+	int index;
+
+	/* a file a server wrote, as the game reads it, and written back by the
+	game, as the server reads that: the same settings */
+	CHECK(server_gametype_parse(server_file, strlen(server_file), &read, error, sizeof(error)));
+	CHECK(!strcmp(read.title, "CTF \"Pro\"") && read.values[SERVER_GAMETYPE_SCORE_LIMIT] == 9999);
+	CHECK(read.values[SERVER_GAMETYPE_RED_VEHICLES] == SERVER_VEHICLES_PC &&
+		read.values[SERVER_GAMETYPE_BLUE_VEHICLES] == SERVER_VEHICLES_CUSTOM &&
+		read.values[SERVER_GAMETYPE_BLUE_GHOST] == 4 && !read.set[SERVER_GAMETYPE_TIME_LIMIT]);
+	CHECK(server_gametype_format(&read, "ctf_pro", text, sizeof(text)) > 0);
+	CHECK(server_gametype_parse(text, strlen(text), &back, error, sizeof(error)) && gametypes_equal(&read, &back));
+	/* every setting, at its ends */
+	memset(&written, 0, sizeof(written));
+	written.set[SERVER_GAMETYPE_BASE] = 1;
+	written.values[SERVER_GAMETYPE_BASE] = 0;
+	written.set[SERVER_GAMETYPE_SCORE_LIMIT] = 1;
+	written.values[SERVER_GAMETYPE_SCORE_LIMIT] = SERVER_SCORE_LIMIT_MAXIMUM;
+	written.set[SERVER_GAMETYPE_TIME_LIMIT] = 1;
+	written.values[SERVER_GAMETYPE_TIME_LIMIT] = 0;
+	CHECK(server_gametype_format(&written, "ends", text, sizeof(text)) > 0);
+	CHECK(server_gametype_parse(text, strlen(text), &read, error, sizeof(error)) && gametypes_equal(&written, &read));
+	/* game types as the editors make them: written, read, written again,
+	the same text and settings each way */
+	for (index = 0; index < rounds; index++)
+	{
+		random_gametype(&written);
+		CHECK(server_gametype_format(&written, "random", text, sizeof(text)) > 0);
+		CHECK(server_gametype_parse(text, strlen(text), &read, error, sizeof(error)));
+		CHECK(gametypes_equal(&written, &read));
+		CHECK(server_gametype_format(&read, "random", again, sizeof(again)) > 0 && !strcmp(text, again));
+	}
+}
+
 /* ---------- Delta Control's link (control_link_protocol.c) */
 
 /* ---------- blocked names (server/blocked_names.txt) */
@@ -1732,6 +1839,7 @@ int main(int argc, char **argv)
 	test_accounts();
 	test_fields();
 	test_server_config(rounds);
+	test_gametype_files(rounds);
 	test_link(rounds);
 	test_roles_cache(rounds);
 	test_names();

@@ -152,8 +152,12 @@ them, `port settings defaults` shows the defaults, `port settings help` the
 help of the row chosen; Controls Setup's `controls ...` bind the keyboard
 and mouse's controls (Enter takes the next key or button pressed; left and
 right choose which of two; Escape cancels, Delete clears); Change Color's
-`color picker ...` (the Xbox's names) set the profile's colour. The others
-do nothing yet.
+`color picker ...` (the Xbox's names) set the profile's colour. The
+Chupathingy menus' GAME SETUP and game type editor
+(`chupathingy/host_setup.xml`): `port host init` and `port host update` (a
+list's rows, by its screen's name), `port host row a`, `port host row
+left` and `port host row right` (a row's value), `port host defaults`,
+`port host edit` and `port host back`. The others do nothing yet.
 
 ### `<data>`, `<conditional>`, `<replace>`
 

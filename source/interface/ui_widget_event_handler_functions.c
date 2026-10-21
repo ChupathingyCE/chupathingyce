@@ -5929,6 +5929,14 @@ static boolean multiplayer_profile_set_for_game(
 			fclose(file);
 		}
 		player_ui_set_game_variant(&profile);
+		/* port: and its PC options (a custom loadout, the vehicles: as the
+		PC menus' choice gives them, ui_widget_port_gametype_choose) */
+		{
+			struct game_variant_options options;
+
+			if (playlist_profile_get_options(profile_index, &options))
+				player_ui_set_game_variant_options(&options);
+		}
 		if (server)
 			network_game_server_change_game_variant(server, &profile);
 		return TRUE;

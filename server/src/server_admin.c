@@ -39,6 +39,7 @@ given both (dedicated.c). Nothing a client is sent is new.
 #include "dedicated.h"
 #include "server_admin.h"
 #include "server_config.h"
+#include "server_gametype_variant.h"
 
 /* (text chat's, port/linux/game/chat.h) */
 void chat_host_set(int mode, int filter);
@@ -62,8 +63,6 @@ int team_change_host_margin(void);
 
 enum
 {
-	/* (the game's: game_time.h) */
-	ADMIN_TICKS_PER_SECOND = 30,
 	/* the playlists or game types listed, at most */
 	MAXIMUM_LISTED = 256,
 	/* a path in the data folder, with its end */
@@ -500,180 +499,6 @@ static boolean gametype_read(
 	return TRUE;
 }
 
-static void set_variant_flag(
-	struct game_variant *variant,
-	long bit,
-	boolean value)
-{
-	SET_FLAG(variant->universal_variant.flags, bit, value);
-}
-
-/* a game type's settings given to its base's variant and PC options, as
-the game's gametype editor gives them (port/linux/game/menu_functions.c) */
-static void gametype_apply(
-	struct server_gametype const *gametype,
-	struct game_variant *variant,
-	struct game_variant_options *options)
-{
-	struct universal_variant *universal = &variant->universal_variant;
-	union game_engine_variant *engine = &variant->game_engine_variant;
-	short field;
-
-	for (field = 0; field < SERVER_GAMETYPE_FIELDS; field++)
-	{
-		long value = gametype->values[field];
-
-		if (!gametype->set[field])
-			continue;
-		switch (field)
-		{
-		case SERVER_GAMETYPE_SCORE_LIMIT: universal->score_to_win = value; break;
-		case SERVER_GAMETYPE_TIME_LIMIT: options->time_limit = (short)value; break;
-		case SERVER_GAMETYPE_TEAMS: universal->teams = value ? TRUE : FALSE; break;
-		case SERVER_GAMETYPE_LIVES: universal->lives = value; break;
-		case SERVER_GAMETYPE_HEALTH: universal->health = (real)value / 100.0f; break;
-		case SERVER_GAMETYPE_SHIELDS: set_variant_flag(variant, _game_variant_no_shields_bit, !value); break;
-		case SERVER_GAMETYPE_RESPAWN_TIME: universal->respawn_time = value * ADMIN_TICKS_PER_SECOND; break;
-		case SERVER_GAMETYPE_RESPAWN_GROWTH: universal->respawn_time_growth = value * ADMIN_TICKS_PER_SECOND; break;
-		case SERVER_GAMETYPE_SUICIDE_PENALTY: universal->suicide_penalty = value * ADMIN_TICKS_PER_SECOND; break;
-		case SERVER_GAMETYPE_ODD_MAN_OUT: universal->odd_man_out = value ? TRUE : FALSE; break;
-		case SERVER_GAMETYPE_INVISIBLE: set_variant_flag(variant, _game_variant_always_invisible_bit, value != 0); break;
-		case SERVER_GAMETYPE_WEAPON_SET: universal->weapon_set = value; break;
-		case SERVER_GAMETYPE_STARTING_EQUIPMENT:
-			set_variant_flag(variant, _game_variant_generic_starting_equipment_bit, value != 0);
-			break;
-		case SERVER_GAMETYPE_MAP_WEAPONS: options->no_map_weapons = value ? FALSE : TRUE; break;
-		case SERVER_GAMETYPE_INFINITE_GRENADES:
-			set_variant_flag(variant, _game_variant_infinite_grenades_bit, value != 0);
-			break;
-		case SERVER_GAMETYPE_LOADOUT: options->loadout = (byte)value; break;
-		case SERVER_GAMETYPE_PRIMARY_WEAPON: options->primary_weapon = (byte)value; break;
-		case SERVER_GAMETYPE_SECONDARY_WEAPON: options->secondary_weapon = (byte)value; break;
-		case SERVER_GAMETYPE_OBJECTIVES: universal->goal_radar = value; break;
-		case SERVER_GAMETYPE_PLAYERS_ON_RADAR:
-			/* (and the Xbox's flag: other players on the tracker or not) */
-			options->radar_players = (byte)value;
-			set_variant_flag(variant, _game_variant_draw_object_in_motion_sensor_bit, value != _radar_players_none);
-			break;
-		case SERVER_GAMETYPE_FRIENDS_ON_SCREEN:
-			set_variant_flag(variant, _game_variant_allow_friendly_navpoints_bit, value != 0);
-			break;
-		case SERVER_GAMETYPE_FRIENDLY_FIRE: options->friendly_fire = (short)value; break;
-		case SERVER_GAMETYPE_FRIENDLY_FIRE_PENALTY: options->friendly_fire_penalty = (short)value; break;
-		case SERVER_GAMETYPE_AUTO_BALANCE: options->auto_team_balance = value ? TRUE : FALSE; break;
-		case SERVER_GAMETYPE_VEHICLE_RESPAWN: options->vehicle_respawn_time = (short)value; break;
-		case SERVER_GAMETYPE_RED_VEHICLES: options->vehicle_set[0] = (byte)value; break;
-		case SERVER_GAMETYPE_BLUE_VEHICLES: options->vehicle_set[1] = (byte)value; break;
-		case SERVER_GAMETYPE_CTF_ASSAULT: engine->ctf.assault = value ? TRUE : FALSE; break;
-		case SERVER_GAMETYPE_CTF_SINGLE_FLAG_TIME:
-			engine->ctf.single_flag_time = value * ADMIN_TICKS_PER_SECOND;
-			break;
-		case SERVER_GAMETYPE_CTF_FLAG_MUST_RESET: engine->ctf.flag_must_reset = value ? TRUE : FALSE; break;
-		case SERVER_GAMETYPE_CTF_FLAG_AT_HOME_TO_SCORE: engine->ctf.flag_at_home_to_score = value ? TRUE : FALSE; break;
-		case SERVER_GAMETYPE_CTF_RESET_ON_CAPTURE: engine->ctf.reset_on_capture = value ? TRUE : FALSE; break;
-		case SERVER_GAMETYPE_SLAYER_DEATH_BONUS: engine->slayer.no_death_bonus = value ? FALSE : TRUE; break;
-		case SERVER_GAMETYPE_SLAYER_KILL_PENALTY: engine->slayer.no_kill_penalty = value ? FALSE : TRUE; break;
-		case SERVER_GAMETYPE_SLAYER_KILL_IN_ORDER: engine->slayer.kill_in_order = value ? TRUE : FALSE; break;
-		case SERVER_GAMETYPE_KING_MOVING_HILL: engine->king.moving_hill = value ? TRUE : FALSE; break;
-		case SERVER_GAMETYPE_ODDBALL_RANDOM_START: engine->oddball.random_start = value ? TRUE : FALSE; break;
-		case SERVER_GAMETYPE_ODDBALL_SPAWN_DELAY: engine->oddball.ball_spawn_delay = value ? TRUE : FALSE; break;
-		case SERVER_GAMETYPE_ODDBALL_SPEED_WITH_BALL: engine->oddball.speed_with_ball = value; break;
-		case SERVER_GAMETYPE_ODDBALL_TRAIT_WITH_BALL: engine->oddball.trait_with_ball = value; break;
-		case SERVER_GAMETYPE_ODDBALL_TRAIT_WITHOUT_BALL: engine->oddball.trait_without_ball = value; break;
-		case SERVER_GAMETYPE_ODDBALL_BALL_TYPE: engine->oddball.oddball_ball_type = value; break;
-		case SERVER_GAMETYPE_ODDBALL_BALLS: engine->oddball.ball_spawn_count = value; break;
-		case SERVER_GAMETYPE_RACE_TYPE: engine->race.race_type = value; break;
-		case SERVER_GAMETYPE_RACE_TEAM_SCORING: engine->race.team_scoring = value; break;
-		default:
-			if (field >= SERVER_GAMETYPE_RED_WARTHOG && field <= SERVER_GAMETYPE_RED_GUN_TURRET)
-				options->vehicle_counts[0][field - SERVER_GAMETYPE_RED_WARTHOG] = (byte)value;
-			else if (field >= SERVER_GAMETYPE_BLUE_WARTHOG && field <= SERVER_GAMETYPE_BLUE_GUN_TURRET)
-				options->vehicle_counts[1][field - SERVER_GAMETYPE_BLUE_WARTHOG] = (byte)value;
-			break;
-		}
-	}
-	/* (the Xbox's vehicle set: red's, if it is one of its sets, as the
-	editor keeps it) */
-	universal->vehicle_set = options->vehicle_set[0] <= 4 ? options->vehicle_set[0] : 0;
-	/* its name in the game */
-	{
-		long index;
-
-		for (index = 0; index < (long)NUMBEROF(variant->human_readable_game_description) - 1 && gametype->title[index];
-			index++)
-		{
-			variant->human_readable_game_description[index] = (wchar_t)(unsigned char)gametype->title[index];
-		}
-		for (; index < (long)NUMBEROF(variant->human_readable_game_description); index++)
-			variant->human_readable_game_description[index] = 0;
-	}
-}
-
-/* a setting's value in a variant and its PC options (as a file gives it) */
-static long gametype_value(
-	short field,
-	struct game_variant const *variant,
-	struct game_variant_options const *options)
-{
-	struct universal_variant const *universal = &variant->universal_variant;
-	union game_engine_variant const *engine = &variant->game_engine_variant;
-	unsigned long flags = universal->flags;
-
-	switch (field)
-	{
-	case SERVER_GAMETYPE_SCORE_LIMIT: return universal->score_to_win;
-	case SERVER_GAMETYPE_TIME_LIMIT: return options->time_limit;
-	case SERVER_GAMETYPE_TEAMS: return universal->teams != 0;
-	case SERVER_GAMETYPE_LIVES: return universal->lives;
-	case SERVER_GAMETYPE_HEALTH: return (long)(universal->health * 100.0f + 0.5f);
-	case SERVER_GAMETYPE_SHIELDS: return !TEST_FLAG(flags, _game_variant_no_shields_bit);
-	case SERVER_GAMETYPE_RESPAWN_TIME: return universal->respawn_time / ADMIN_TICKS_PER_SECOND;
-	case SERVER_GAMETYPE_RESPAWN_GROWTH: return universal->respawn_time_growth / ADMIN_TICKS_PER_SECOND;
-	case SERVER_GAMETYPE_SUICIDE_PENALTY: return universal->suicide_penalty / ADMIN_TICKS_PER_SECOND;
-	case SERVER_GAMETYPE_ODD_MAN_OUT: return universal->odd_man_out != 0;
-	case SERVER_GAMETYPE_INVISIBLE: return TEST_FLAG(flags, _game_variant_always_invisible_bit);
-	case SERVER_GAMETYPE_WEAPON_SET: return universal->weapon_set;
-	case SERVER_GAMETYPE_STARTING_EQUIPMENT: return TEST_FLAG(flags, _game_variant_generic_starting_equipment_bit);
-	case SERVER_GAMETYPE_MAP_WEAPONS: return !options->no_map_weapons;
-	case SERVER_GAMETYPE_INFINITE_GRENADES: return TEST_FLAG(flags, _game_variant_infinite_grenades_bit);
-	case SERVER_GAMETYPE_LOADOUT: return options->loadout;
-	case SERVER_GAMETYPE_PRIMARY_WEAPON: return options->primary_weapon;
-	case SERVER_GAMETYPE_SECONDARY_WEAPON: return options->secondary_weapon;
-	case SERVER_GAMETYPE_OBJECTIVES: return universal->goal_radar;
-	case SERVER_GAMETYPE_PLAYERS_ON_RADAR: return options->radar_players;
-	case SERVER_GAMETYPE_FRIENDS_ON_SCREEN: return TEST_FLAG(flags, _game_variant_allow_friendly_navpoints_bit);
-	case SERVER_GAMETYPE_FRIENDLY_FIRE: return options->friendly_fire;
-	case SERVER_GAMETYPE_FRIENDLY_FIRE_PENALTY: return options->friendly_fire_penalty;
-	case SERVER_GAMETYPE_AUTO_BALANCE: return options->auto_team_balance != 0;
-	case SERVER_GAMETYPE_VEHICLE_RESPAWN: return options->vehicle_respawn_time;
-	case SERVER_GAMETYPE_RED_VEHICLES: return options->vehicle_set[0];
-	case SERVER_GAMETYPE_BLUE_VEHICLES: return options->vehicle_set[1];
-	case SERVER_GAMETYPE_CTF_ASSAULT: return engine->ctf.assault != 0;
-	case SERVER_GAMETYPE_CTF_SINGLE_FLAG_TIME: return engine->ctf.single_flag_time / ADMIN_TICKS_PER_SECOND;
-	case SERVER_GAMETYPE_CTF_FLAG_MUST_RESET: return engine->ctf.flag_must_reset != 0;
-	case SERVER_GAMETYPE_CTF_FLAG_AT_HOME_TO_SCORE: return engine->ctf.flag_at_home_to_score != 0;
-	case SERVER_GAMETYPE_CTF_RESET_ON_CAPTURE: return engine->ctf.reset_on_capture != 0;
-	case SERVER_GAMETYPE_SLAYER_DEATH_BONUS: return !engine->slayer.no_death_bonus;
-	case SERVER_GAMETYPE_SLAYER_KILL_PENALTY: return !engine->slayer.no_kill_penalty;
-	case SERVER_GAMETYPE_SLAYER_KILL_IN_ORDER: return engine->slayer.kill_in_order != 0;
-	case SERVER_GAMETYPE_KING_MOVING_HILL: return engine->king.moving_hill != 0;
-	case SERVER_GAMETYPE_ODDBALL_RANDOM_START: return engine->oddball.random_start != 0;
-	case SERVER_GAMETYPE_ODDBALL_SPAWN_DELAY: return engine->oddball.ball_spawn_delay != 0;
-	case SERVER_GAMETYPE_ODDBALL_SPEED_WITH_BALL: return engine->oddball.speed_with_ball;
-	case SERVER_GAMETYPE_ODDBALL_TRAIT_WITH_BALL: return engine->oddball.trait_with_ball;
-	case SERVER_GAMETYPE_ODDBALL_TRAIT_WITHOUT_BALL: return engine->oddball.trait_without_ball;
-	case SERVER_GAMETYPE_ODDBALL_BALL_TYPE: return engine->oddball.oddball_ball_type;
-	case SERVER_GAMETYPE_ODDBALL_BALLS: return engine->oddball.ball_spawn_count;
-	case SERVER_GAMETYPE_RACE_TYPE: return engine->race.race_type;
-	case SERVER_GAMETYPE_RACE_TEAM_SCORING: return engine->race.team_scoring;
-	}
-	if (field >= SERVER_GAMETYPE_RED_WARTHOG && field <= SERVER_GAMETYPE_RED_GUN_TURRET)
-		return options->vehicle_counts[0][field - SERVER_GAMETYPE_RED_WARTHOG];
-	if (field >= SERVER_GAMETYPE_BLUE_WARTHOG && field <= SERVER_GAMETYPE_BLUE_GUN_TURRET)
-		return options->vehicle_counts[1][field - SERVER_GAMETYPE_BLUE_WARTHOG];
-	return 0;
-}
-
 boolean server_gametype_resolve(
 	char const *name,
 	struct game_variant *variant,
@@ -699,9 +524,7 @@ boolean server_gametype_resolve(
 	}
 	if (!gametype_read(name, &gametype, problem, problem_size))
 		return FALSE;
-	game_engine_get_variant_by_name(variant, server_builtins[gametype.values[SERVER_GAMETYPE_BASE]].name);
-	game_variant_options_default(variant, options);
-	gametype_apply(&gametype, variant, options);
+	server_gametype_variant_build(&gametype, variant, options);
 	return TRUE;
 }
 
@@ -1553,7 +1376,7 @@ boolean server_admin_gametype(
 
 		if (server_gametype_fields[field].engine && server_gametype_fields[field].engine != engine)
 			continue;
-		server_gametype_value_text(field, gametype_value(field, &variant, &options), value, sizeof(value));
+		server_gametype_value_text(field, server_gametype_variant_value(field, &variant, &options), value, sizeof(value));
 		if (json)
 		{
 			command_output_printf(output, "%s\"%s\": %s", first ? "" : ", ", server_gametype_fields[field].key, value);
