@@ -20,7 +20,7 @@ YES_NO = [("YES", "true"), ("NO", "false")]
 ON_OFF = [("ON", "true"), ("OFF", "false")]
 # (after a screen's helps: shown for Button Layout set to Bumper Jumper, by
 # menu_functions.c's settings_help)
-BUMPER_JUMPER_HELP = ["Jump on the left bumper, so your thumb stays on aim\\n(as in later Halo games)."]
+BUMPER_JUMPER_HELP = ["Jump with the left bumper."]
 SENSITIVITIES = [(f"{value:g}", f"{value:g}") for value in (0.1, 0.15, 0.25, 0.4, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4)]
 VOLUMES = [(str(step), f"{step / 10:g}") for step in range(11)]
 
@@ -44,20 +44,20 @@ SCREENS = {
         "rows": [
             ("DISPLAY MODE:", "display.mode",
              [("FULLSCREEN", "fullscreen"), ("BORDERLESS", "borderless"), ("WINDOWED", "windowed")],
-             "Fullscreen takes the display; borderless covers it\nwith a window. F11 switches to the window.",
+             "Fullscreen, borderless or a window. F11 switches.",
              "desktop"),
             # (port/linux/game/menu_tags.c adds the display's resolutions)
             ("RESOLUTION:", "display.resolution", [("NATIVE", "native")],
-             "What fullscreen and borderless draw at. Fullscreen\nsets the display to it; borderless scales it.",
+             "The resolution for fullscreen and borderless.",
              "desktop"),
             # (port/linux/game/menu_tags.c puts the sizes that fit the desktop
             # in place of this one)
             ("WINDOW SIZE:", "display.window_size", [("1280 x 960", "1280x960")],
-             "The window's size: 4:3, then 16:10, 16:9 and 21:9\n(its edges can also be dragged).", "desktop"),
+             "The size of the window.", "desktop"),
             ("RESOLUTION SCALING:", "display.resolution_scaling", [("NATIVE", "native"), ("ORIGINAL", "original")],
-             "Native draws at the resolution; Original draws\nthe Xbox's 640x480 and scales it up.", "desktop"),
+             "Native draws at full resolution. Original draws at\n640x480 and scales it up.", "desktop"),
             ("V-SYNC:", "display.vsync", ON_OFF,
-             "Wait for the display between frames, so that the\npicture never tears.", None),
+             "Sync frames to the display.", None),
             # (port/linux/game/menu_functions.c: 30 also turns display.interpolation
             # off, the others on; Android, with no frame rate cap, has Smooth
             # Motion in its place. Instant Aim, display.direct_camera, is in
@@ -65,29 +65,29 @@ SCREENS = {
             ("FRAME RATE:", "display.max_fps",
              [("30 (XBOX)", "30"), ("AUTO", "0"), ("60", "60"), ("120", "120"), ("144", "144"),
               ("165", "165"), ("240", "240"), ("NONE", "-1")],
-             "30 draws the game's own frames; the others blend\nbetween them. Auto: twice the display's rate.",
+             "The frame rate limit. Auto is twice the display's\nrefresh rate.",
              "desktop"),
             ("SMOOTH MOTION:", "display.interpolation", ON_OFF,
-             "Draw a frame for every display refresh, blending\nbetween the game's 30 ticks a second.", "android"),
+             "Draw a frame for every display refresh.", "android"),
             ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
-             "Draw the HUD from the high-res redraws; off\ndraws the game's own pictures.", None),
+             "Draw the HUD in high resolution.", None),
             ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
-             "Draw text and titles with high-res fonts; off\ndraws the game's own.", None),
+             "Draw text and titles in high resolution.", None),
             ("ANTI-ALIASING:", "display.anti_aliasing",
              [("OFF", "off"), ("FXAA", "fxaa"), ("SMAA", "smaa"), ("SSAA 2X", "ssaa2x"), ("MSAA 2X", "msaa2x"),
               ("MSAA 4X", "msaa4x"), ("MSAA 8X", "msaa8x")],
-             "Smooth jagged edges, which the Xbox did not. FXAA\nand SMAA are cheap; SSAA and MSAA are sharper.",
+             "Smooth jagged edges.",
              "desktop"),
             ("ANTI-ALIASING:", "display.anti_aliasing",
              [("OFF", "off"), ("FXAA", "fxaa"), ("MSAA 2X", "msaa2x"), ("MSAA 4X", "msaa4x")],
-             "Smooth jagged edges, which the Xbox did not. FXAA\nis cheap; MSAA is sharper.",
+             "Smooth jagged edges.",
              "android", "anti_aliasing_android"),
             ("SHADOW RESOLUTION:", "display.shadow_resolution",
              [("128", "128"), ("256", "256"), ("512", "512"), ("1024", "1024")],
-             "The size objects' shadows are drawn at: 128 as on\nthe Xbox; larger for smoother, as soft, edges.",
+             "The detail of object shadows.",
              None),
             ("PER-PIXEL LIGHTING:", "display.per_pixel_lighting", ON_OFF,
-             "Light models for each pixel, without the facets\nof the Xbox's lighting for each vertex.", None),
+             "Light models per pixel instead of per vertex.", None),
         ],
     },
     "mouse_settings": {
@@ -96,17 +96,17 @@ SCREENS = {
         "spacing": 30,
         "rows": [
             ("HORIZONTAL SENSITIVITY:", "input.mouse_sensitivity", SENSITIVITIES,
-             "How fast the view turns side to side for the\nmouse's movement.", None),
+             "Adjust the horizontal look sensitivity.", None),
             ("VERTICAL SENSITIVITY:", "input.mouse_vertical_sensitivity", [("SAME", "0")] + SENSITIVITIES,
-             "How fast the view turns up and down; Same\nturns it as fast as side to side.", None),
+             "Adjust the vertical look sensitivity.", None),
             ("INVERT VERTICAL AXIS:", "input.invert_mouse", YES_NO,
              "Moving the mouse forward looks down.", None),
             ("AIM ASSIST:", "input.mouse_aim_assist", ON_OFF,
-             "Slow and drag the view along with a target while\naiming with the mouse, as with a controller.", None),
+             "Use controller aim assist with the mouse.", None),
             ("FIELD OF VIEW:", "display.field_of_view",
              [(f"{value}" + (" (XBOX)" if value == 70 else ""), f"{value}")
               for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
-             "How wide the first-person view is, in degrees:\n70 as on the Xbox. Scopes zoom as much as before.",
+             "Adjust the field of view.",
              None),
         ],
     },
@@ -115,17 +115,17 @@ SCREENS = {
         "header": ("header_profile_audio_settings", f"{PE}/audio_settings/header_profile_audio_settings"),
         "spacing": 30,
         "rows": [
-            ("MASTER VOLUME:", "audio.volume", VOLUMES, "The volume of everything.", None),
-            ("MUSIC VOLUME:", "audio.music_volume", VOLUMES, "The music's volume.", None),
+            ("MASTER VOLUME:", "audio.volume", VOLUMES, "Adjust the overall volume.", None),
+            ("MUSIC VOLUME:", "audio.music_volume", VOLUMES, "Adjust the music volume.", None),
             ("EFFECTS VOLUME:", "audio.effects_volume", VOLUMES,
-             "The volume of every other sound: effects and\nspeech.", None),
+             "Adjust the effects and speech volume.", None),
             # (port/linux/game/menu_tags.c adds the system's outputs)
             ("OUTPUT DEVICE:", "audio.device", [("DEFAULT", "default")],
-             "Where the sound plays. Default follows the\nsystem's output as it changes.", "desktop"),
+             "Choose the audio output device.", "desktop"),
             ("REVERB:", "audio.reverb", ON_OFF,
-             "Echo sounds as the place you are in does, and\nmuffle those behind walls, as the Xbox did.", None),
+             "Room echo, and muffled sound behind walls.", None),
             ("SOUND:", "audio.enabled", ON_OFF,
-             "Play sound at all; from the next time the game\nstarts.", None),
+             "Turn all sound on or off. Takes effect on restart.", None),
         ],
     },
     "network_setup": {
@@ -136,32 +136,32 @@ SCREENS = {
         "help_top": 364,
         "rows": [
             ("INTERNET PLAY:", "network.online", ON_OFF,
-             "Host and join games over the internet by invite\nlinks; off keeps to the local network.", None),
+             "Host and join games over the internet.", None),
             ("UPNP PORT FORWARDING:", "network.allow_upnp", ON_OFF,
-             "Let internet play ask the router to forward its\nport, for networks that stop connections.", None),
+             "Ask the router to forward the game's port.", None),
             ("JOIN FROM CLIPBOARD:", "network.join_from_clipboard",
              [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
-             "An invite link copied before switching to the\ngame: ask to join its game, always join, or not.", None),
+             "Join a game from an invite link on the clipboard.", None),
             ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
-             "Look for a new version when the game starts.", None),
+             "Check for a new version at startup.", None),
             ("PLAYER NAMES:", "display.player_names",
              [("ALL", "all"), ("ALLIES", "allies"), ("ENEMIES", "enemies"), ("NONE", "none")],
-             "In multiplayer, whose names are drawn above their\nheads.", None),
+             "Choose whose names show above players.", None),
             ("PLAYER NAME SIZE:", "display.player_name_scale",
              [(f"{value:g}x", f"{value:g}") for value in (0.5, 0.75, 1, 1.25, 1.5, 2)],
-             "How large the players' names are drawn.", None),
+             "Adjust the size of player names.", None),
             ("SCOREBOARD LAYOUT:", "display.scoreboard_team_layout", [("TEAMS", "teams"), ("BY SCORE", "score")],
-             "A team game's scoreboard: a column for each team,\nor every player in order of score.", None),
+             "Show team games by team, or all players by score.", None),
             ("SCOREBOARD PANEL:", "display.scoreboard_background", ON_OFF,
-             "Draw a panel behind the scoreboard, for clearer\ntext.", None),
+             "Draw a panel behind the scoreboard.", None),
             ("MAP DOWNLOADS:", "network.map_downloads", [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
-             "A Custom Edition map a game needs, from the\ncommunity map repository: ask first, or not.", None),
+             "Download missing Custom Edition maps.", None),
             ("DISCORD STATUS:", "discord.presence", [("FULL", "full"), ("MINIMAL", "minimal"), ("OFF", "off")],
-             "What Discord shows: the game, map and score, only\nPlaying Chupathingy, or nothing.", "desktop"),
+             "Choose what your Discord status shows.", "desktop"),
             ("DISCORD SERVER NAME:", "discord.show_server_name", [("SHOW", "true"), ("HIDE", "false")],
-             "Show the name of the network game on Discord.", "desktop"),
+             "Show the game's name on Discord.", "desktop"),
             ("DISCORD JOIN BUTTON:", "discord.show_join", ON_OFF,
-             "While hosting a public game, Discord shows a Join\ngame button that opens its invite.", "desktop"),
+             "Show a Join button on Discord while hosting.", "desktop"),
         ],
     },
     # (opened from the profile menu's PRIVACY row: PRIVACY_ITEM)
@@ -171,13 +171,13 @@ SCREENS = {
         "spacing": 30,
         "rows": [
             ("HOSTED GAME STATS:", "network.report_hosted_games", ON_OFF,
-             "Send the scores and stats of the games you host\nto the game list. Off: they stay listed.", None),
+             "Send stats of games you host to the game list.", None),
             ("DELTA STATS:", "network.report_events", ON_OFF,
-             "Record the games you host (kills, medals and\npositions) for the site's match pages.", None),
+             "Record games you host for Delta match pages.", None),
             ("JOINED GAME STATS:", "network.report_joined_games", ON_OFF,
-             "Report the games you join, which puts them on\nyour profile on the game list.", None),
+             "Add games you join to your game list profile.", None),
             ("CRASH REPORTS:", "crash_reports.upload", [("ASK", "ask"), ("YES", "yes"), ("NO", "no")],
-             "Send a report of a crash to the developers.\nAsk: the game asks after the next one.", "desktop"),
+             "Send crash reports to the developers.", "desktop"),
         ],
     },
     "gamepad_setup": {
@@ -186,21 +186,21 @@ SCREENS = {
         "spacing": 30,
         "rows": [
             ("LOOK SENSITIVITY:", "profile.look_sensitivity", [(str(step), str(step)) for step in range(1, 11)],
-             "How fast the right stick turns the view.", None),
+             "Adjust the look sensitivity.", None),
             ("INVERT LOOK:", "profile.invert_look", YES_NO, "Pushing the right stick up looks down.", None),
             ("INVERT FLIGHT:", "profile.flight_inversion", YES_NO,
-             "Flying vehicles pitch as aircraft do: pushing up\nflies down.", None),
+             "Pushing up flies down in flying vehicles.", None),
             ("AUTO-CENTER LOOK:", "profile.autocenter", YES_NO,
              "Level the view while walking.", None),
             ("BUTTON LAYOUT:", "profile.button_preset",
              [("DEFAULT", "0"), ("SWAP TRIGGERS", "1"), ("SWAP A, L TRIGGER", "2"), ("SWAP B, L TRIGGER", "3"),
               ("SWAP B, R STICK", "4"), ("BUMPER JUMPER", "5")],
-             "Which of the controller's buttons does what (not\nthe keyboard's: Controls Setup sets those).", None),
+             "Change the controller button layout.", None),
             ("STICK LAYOUT:", "profile.joystick_preset",
              [("DEFAULT", "0"), ("SOUTHPAW", "1"), ("LEGACY", "2"), ("LEGACY SOUTHPAW", "3")],
-             "Which stick moves and which looks.", None),
+             "Change the thumbstick layout.", None),
             ("VIBRATION:", "profile.vibration", ON_OFF, "Rumble the controller.", None),
-            ("IN-GAME HELP:", "profile.ingame_help", ON_OFF, "Show the game's hints about its controls.", None),
+            ("IN-GAME HELP:", "profile.ingame_help", ON_OFF, "Show control hints during play.", None),
         ],
     },
 }
@@ -218,15 +218,15 @@ CONTROL_ROWS = 7
 STRING_OVERRIDES = {
     f"{PE}/profile_edit_descriptions": [
         "Rename this profile.\\n\\n\\nProfile:",
-        "Choose the keys and mouse\\nbuttons for each action.\\n\\nProfile:",
-        "Set this profile's controller\\nsensitivity and layouts.\\n\\nProfile:",
-        "Adjust the mouse's sensitivity\\nand aiming.\\n\\nProfile:",
-        "Adjust the volumes and choose\\nwhere the sound plays.\\n\\nProfile:",
-        "Choose a window or the full\\nscreen, the frame rate and more.\\n\\nProfile:",
-        "Internet play, updates and the\\nmultiplayer HUD.\\n\\nProfile:",
-        "Choose what stats and crash\\nreports this copy sends.\\n\\nProfile:",
+        "Change the keyboard and\\nmouse controls.\\n\\nProfile:",
+        "Change the controller\\nconfiguration.\\n\\nProfile:",
+        "Adjust the mouse settings.\\n\\n\\nProfile:",
+        "Adjust the audio settings.\\n\\n\\nProfile:",
+        "Adjust the video settings.\\n\\n\\nProfile:",
+        "Adjust the network and\\nmultiplayer settings.\\n\\nProfile:",
+        "Choose what stats and crash\\nreports are sent.\\n\\nProfile:",
         "Change the current profile's\\nfree-for-all multiplayer color.\\n\\nProfile:",
-        "Halo: Combat Evolved, the Xbox\\ngame, on this computer.\\n\\nProfile:",
+        "About Chupathingy.\\n\\n\\nProfile:",
     ],
 }
 
@@ -372,9 +372,9 @@ def _controls_screen() -> list:
     extra += _button(f"{base}/button_ok", 1, ['<on event="a" run="controls screen change set" back="true"/>',
                                               '<on event="start" run="controls screen change set" back="true"/>'])
     extra += _strings(f"{base}/help_strings", [
-        "Choose what to show, with left and right.",
-        "Enter sets the key chosen; left and right choose\\nwhich of two. Then press the new key or button.",
-        "Press a key, a mouse button or turn the wheel...\\nEscape cancels, Delete clears it.",
+        "Choose a group of controls.",
+        "Enter changes a control. Left and right choose\\nthe first or second key.",
+        "Press a key or mouse button. Escape cancels,\\nDelete clears.",
     ])
     return _screen(folder, spec, rows, ["controls update menu"], ['<on event="created" run="controls screen init"/>'],
                    extra)
@@ -501,12 +501,12 @@ STRING_INSERTS = {
     f"{PE}/profile_edit_options": [(10, ["PRIVACY"])],
     f"{SLAYER_EDIT}/var_kills_to_win": [(5, ["75", "100", "150", "200", "250", "500"])],
     f"{SLAYER_EDIT}/cap_slayer": [(11, [
-        "Seventy-five kills to win. Settle in for a long\\nfight.",
-        "A hundred kills to win. Made for big games.",
-        "A hundred and fifty kills to win. Only a crowded\\nserver gets there.",
-        "Two hundred kills to win. Bring friends. Lots of\\nthem.",
+        "Seventy-five kills to win.",
+        "A hundred kills to win.",
+        "A hundred and fifty kills to win.",
+        "Two hundred kills to win.",
         "Two hundred and fifty kills to win.",
-        "Five hundred kills to win. You'll be here a while.",
+        "Five hundred kills to win.",
     ])],
 }
 
@@ -518,9 +518,10 @@ LOADOUT_WEAPONS = ["NONE", "RANDOM", "ASSAULT RIFLE", "PISTOL", "SHOTGUN", "SNIP
 
 def LOADOUT_HELPS(slot: str) -> list:
     """the helps of a custom loadout's weapon's values"""
-    helps = [f"No {slot} weapon.", f"A random {slot} weapon, of those the map has,\\neach time you spawn."]
+    helps = [f"No {slot} weapon.", f"A random {slot} weapon each time you spawn."]
     for weapon in LOADOUT_WEAPONS[2:]:
-        helps.append(f"Everyone spawns with a {weapon.lower()} as their {slot}\\nweapon (where the map has one).")
+        article = "an" if weapon[0] in "AEIOU" else "a"
+        helps.append(f"Everyone spawns with {article} {weapon.lower()} as their {slot}\\nweapon.")
     return helps
 
 
@@ -530,10 +531,10 @@ STRING_OVERRIDES.update({
     f"{MT}/multiplayer_option_descriptions": [
         "Browse the games on the\\nInternet.",
         "Join a multiplayer game on\\nyour LAN.",
-        "Join a game by its invite link,\\nor one a Discord invite\\nreached.",
-        "Host a game on the Internet:\\nplayers join by its invite\\nlink or Discord.",
+        "Join a game by its invite\\nlink.",
+        "Host a game on the\\nInternet.",
         "Host a game on your LAN\\nonly.",
-        "Play the campaign with a\\nfriend in split screen:\\nplayer 2 on a gamepad.",
+        "Play the campaign with a\\nfriend in split screen.",
         "Set all the attributes for your \\nmultiplayer gametypes and\\nkeep them for future use.",
     ],
     "main_menu/gametype_select/var_gametype_banks": ["STANDARD", "CUSTOM"],
@@ -564,9 +565,9 @@ STRING_OVERRIDES.update({
         "You will start the game with the weapon set that the \\nmap designers custom tailored for it.",
         "Use the generic starting weapons across all maps.",
         "The map's weapons appear where its designers\\nplaced them.",
-        "No weapons appear on the map: with a loadout of\\nNONE and NONE, melee and grenades only.",
+        "No weapons appear on the map.",
         "The weapons follow the weapon set above.",
-        "Everyone starts with the primary and secondary\\nweapons below; the map's weapons are its own.",
+        "Everyone starts with the primary and secondary\\nweapons below.",
         *LOADOUT_HELPS("primary"),
         *LOADOUT_HELPS("secondary"),
     ],
@@ -790,8 +791,8 @@ def _password_screen() -> list:
     # (by its state: menu_functions.c's password_screen_update)
     extra += _strings(f"{base}/help_strings", [
         "",
-        "This game has a password. Type it, then press\\nEnter to join.",
-        "That is not the game's password. Try again.",
+        "Enter the game's password.",
+        "Incorrect password.",
         "Could not join the game.",
     ])
     lines = _screen(base, spec, [(f"{base}/op_password", None)], ["port password update"],
@@ -957,17 +958,17 @@ def _server_settings() -> list:
                                          "PER PLAYER:", "MULTIPLIER:", "PLAYER COLLISIONS:", "PASSWORD:"])
     extra += _strings(f"{base}/help_strings", [
         "",
-        "The name the game shows in the lists of games.\\nEnter changes it.",
-        "The most players the game takes (up to 128).",
-        "Players join this game by its invite link, or your\\nDiscord invite. Enter copies the link again.",
-        "The gametype and its rules, for this game.",
-        "Lives, health, shields and respawning, for this game.",
-        "Weapons, grenades and starting equipment, for\\nthis game.",
-        "Each team's vehicles and their respawn time, for\\nthis game.",
-        "The motion tracker and nav points, for this game.",
-        "Friendly fire and team balance, for this game.",
+        "The game's name in the game list.",
+        "The most players allowed in the game.",
+        "Press Enter to copy the invite link.",
+        "Choose the gametype.",
+        "Lives, health, shields and respawning.",
+        "Weapons, grenades and starting equipment.",
+        "Vehicles and their respawn time.",
+        "The motion tracker and nav points.",
+        "Friendly fire and team balance.",
         # (LISTING's, by its choice)
-        "Anyone can see and join your game: it is listed\\nin everyone's Server Browser.",
+        "Anyone can join from the Server Browser.",
         "Only players with your invite link can join.",
         # (FRIENDLY FIRE's, by its choice, as Teamplay Options' words them)
         "Players can not be hurt by weapons and explosives\\nfired by the other players.",
@@ -975,17 +976,17 @@ def _server_settings() -> list:
         "Damage from the other players will only reduce\\nshields. Health will be unaffected.",
         "Players can be hurt by damage from explosives\\nfired by the other players.",
         # (EXTRA ENEMIES', by its choice: COOP_ENEMIES_MODES' order)
-        "Enemy squads are as the campaign has them.",
-        "Enemy squads grow with the players: by the amount\\nbelow for each player past the first.",
-        "Enemy squads are the amount below times as large,\\nhowever many players there are.",
+        "Normal enemy squads.",
+        "Enemy squads grow with each player.",
+        "Enemy squads grow by the multiplier below.",
         # (PER PLAYER's and MULTIPLIER's)
-        "For each player past the first, enemy squads get\\nthis much more of themselves (100%: as many again).",
+        "Extra enemies for each player past the first.",
         "Each enemy squad is this many times as large.",
         # (PLAYER COLLISIONS', by its choice)
-        "Players bump into each other, as in the campaign.",
-        "Players walk through each other, so that no one\\nblocks a doorway. The AI's characters still block.",
+        "Players bump into each other.",
+        "Players walk through each other.",
         # (PASSWORD's)
-        "Players from the Server Browser must type it to\\njoin (an invite link needs none). Enter sets it.",
+        "Required to join from the Server Browser.",
     ])
     lines = _screen(base, spec, rows, ["server settings update"],
                     ['<on event="created" run="server settings init"/>'], extra)
@@ -1130,7 +1131,7 @@ def _lobby() -> list:
                         for index in range(11)],
                       f'<child widget="{MT}/coop/player_2_button_bar" y="414"/>'])
     lines += _widget(f"{base}/player_profile_help", [("type", "text"), ("width", 350), ("height", 24),
-                                                     ("text", "The new player's profile."),
+                                                     ("text", "Choose the new player's profile."),
                                                      ("font", "ui\\small_ui"), ("color", "#FF2896FF"), ("text_y", 5),
                                                      ("text_flags", "no_focus_test")], [])
     # a game under way's lobby, before joining it (the browser's rows of
@@ -1219,7 +1220,7 @@ def _coop() -> list:
                           '<child widget="main_menu/new_select/list_item_text" x="25"/>',
                           '<child widget="main_menu/new_select/list_item_arrows"/>'])
     lines += _widget(f"{base}/player_2_help", [("type", "text"), ("width", 350), ("height", 24),
-                                               ("text", "Player 2: choose with your controller."),
+                                               ("text", "Player 2, choose a profile."),
                                                ("font", "ui\\small_ui"), ("color", "#FF2896FF"), ("text_y", 5),
                                                ("text_flags", "no_focus_test")], [])
     lines += _widget(f"{base}/player_2_button_bar", [("type", "column_list"), ("width", 640), ("height", 28),

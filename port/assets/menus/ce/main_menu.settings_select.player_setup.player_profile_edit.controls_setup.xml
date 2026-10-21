@@ -108,8 +108,8 @@
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/help_strings">
-		<string text="Choose what to show, with left and right."/>
-		<string text="Enter sets the key chosen; left and right choose\nwhich of two. Then press the new key or button."/>
-		<string text="Press a key, a mouse button or turn the wheel...\nEscape cancels, Delete clears it."/>
+		<string text="Choose a group of controls."/>
+		<string text="Enter changes a control. Left and right choose\nthe first or second key."/>
+		<string text="Press a key or mouse button. Escape cancels,\nDelete clears."/>
 	</strings>
 </menus>

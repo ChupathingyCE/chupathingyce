@@ -166,17 +166,17 @@
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/network_setup/help_strings">
 		<string text=""/>
-		<string text="Host and join games over the internet by invite\nlinks; off keeps to the local network."/>
-		<string text="Let internet play ask the router to forward its\nport, for networks that stop connections."/>
-		<string text="An invite link copied before switching to the\ngame: ask to join its game, always join, or not."/>
-		<string text="Look for a new version when the game starts."/>
-		<string text="In multiplayer, whose names are drawn above their\nheads."/>
-		<string text="How large the players' names are drawn."/>
-		<string text="A team game's scoreboard: a column for each team,\nor every player in order of score."/>
-		<string text="Draw a panel behind the scoreboard, for clearer\ntext."/>
-		<string text="A Custom Edition map a game needs, from the\ncommunity map repository: ask first, or not."/>
-		<string text="What Discord shows: the game, map and score, only\nPlaying Chupathingy, or nothing."/>
-		<string text="Show the name of the network game on Discord."/>
-		<string text="While hosting a public game, Discord shows a Join\ngame button that opens its invite."/>
+		<string text="Host and join games over the internet."/>
+		<string text="Ask the router to forward the game's port."/>
+		<string text="Join a game from an invite link on the clipboard."/>
+		<string text="Check for a new version at startup."/>
+		<string text="Choose whose names show above players."/>
+		<string text="Adjust the size of player names."/>
+		<string text="Show team games by team, or all players by score."/>
+		<string text="Draw a panel behind the scoreboard."/>
+		<string text="Download missing Custom Edition maps."/>
+		<string text="Choose what your Discord status shows."/>
+		<string text="Show the game's name on Discord."/>
+		<string text="Show a Join button on Discord while hosting."/>
 	</strings>
 </menus>

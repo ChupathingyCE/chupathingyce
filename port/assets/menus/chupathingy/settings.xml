@@ -110,15 +110,15 @@ The rows open the pages of settings_pages.xml. -->
 	</widget>
 	<strings name="chupathingy/settings/descriptions">
 		<string text="Rename this profile.\n\n\nCurrent Profile:"/>
-		<string text="Choose the keys and mouse\nbuttons for each action.\n\nCurrent Profile:"/>
-		<string text="Set this profile's controller\nsensitivity and layouts.\n\nCurrent Profile:"/>
-		<string text="Adjust the mouse's sensitivity\nand aiming.\n\nCurrent Profile:"/>
-		<string text="Adjust the volumes and choose\nwhere the sound plays.\n\nCurrent Profile:"/>
-		<string text="Choose a window or the full\nscreen, the frame rate and more.\n\nCurrent Profile:"/>
-		<string text="Internet play, updates and the\nmultiplayer HUD.\n\nCurrent Profile:"/>
-		<string text="Choose what stats and crash\nreports this copy sends.\n\nCurrent Profile:"/>
+		<string text="Change the keyboard and\nmouse controls.\n\nCurrent Profile:"/>
+		<string text="Change the controller\nconfiguration.\n\nCurrent Profile:"/>
+		<string text="Adjust the mouse settings.\n\n\nCurrent Profile:"/>
+		<string text="Adjust the audio settings.\n\n\nCurrent Profile:"/>
+		<string text="Adjust the video settings.\n\n\nCurrent Profile:"/>
+		<string text="Adjust the network and\nmultiplayer settings.\n\nCurrent Profile:"/>
+		<string text="Choose what stats and crash\nreports are sent.\n\nCurrent Profile:"/>
 		<string text="Change the current profile's\nfree-for-all multiplayer color.\n\nCurrent Profile:"/>
-		<string text="Halo: Combat Evolved, the Xbox\ngame, on this computer.\n\nCurrent Profile:"/>
+		<string text="About Chupathingy.\n\n\nCurrent Profile:"/>
 		<string text="Save the changes made\nto this profile.\n\nCurrent Profile:"/>
 	</strings>
 </menus>

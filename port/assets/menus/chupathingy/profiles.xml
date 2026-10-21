@@ -55,7 +55,7 @@ one, B goes back, A chooses). -->
 	<widget name="chupathingy/profiles/help" type="text" controller="1" width="290" height="90" string_list="chupathingy/profiles/help_strings" font="ui\large_ui" color="#FF2896FF">
 	</widget>
 	<strings name="chupathingy/profiles/help_strings">
-		<string text="The profile chosen plays the\ncampaign, and Settings\nchanges its settings."/>
+		<string text="Choose a profile."/>
 	</strings>
 	<widget name="chupathingy/profiles/kind" type="text" controller="1" width="282" height="22" text="HALO PROFILE" font="ui\large_ui" color="#FF2896FF">
 	</widget>

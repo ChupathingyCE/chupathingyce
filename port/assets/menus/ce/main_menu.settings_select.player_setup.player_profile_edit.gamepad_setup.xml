@@ -122,14 +122,14 @@
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/help_strings">
 		<string text=""/>
-		<string text="How fast the right stick turns the view."/>
+		<string text="Adjust the look sensitivity."/>
 		<string text="Pushing the right stick up looks down."/>
-		<string text="Flying vehicles pitch as aircraft do: pushing up\nflies down."/>
+		<string text="Pushing up flies down in flying vehicles."/>
 		<string text="Level the view while walking."/>
-		<string text="Which of the controller's buttons does what (not\nthe keyboard's: Controls Setup sets those)."/>
-		<string text="Which stick moves and which looks."/>
+		<string text="Change the controller button layout."/>
+		<string text="Change the thumbstick layout."/>
 		<string text="Rumble the controller."/>
-		<string text="Show the game's hints about its controls."/>
-		<string text="Jump on the left bumper, so your thumb stays on aim\n(as in later Halo games)."/>
+		<string text="Show control hints during play."/>
+		<string text="Jump with the left bumper."/>
 	</strings>
 </menus>

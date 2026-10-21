@@ -100,11 +100,11 @@
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/help_strings">
 		<string text=""/>
-		<string text="The volume of everything."/>
-		<string text="The music's volume."/>
-		<string text="The volume of every other sound: effects and\nspeech."/>
-		<string text="Where the sound plays. Default follows the\nsystem's output as it changes."/>
-		<string text="Echo sounds as the place you are in does, and\nmuffle those behind walls, as the Xbox did."/>
-		<string text="Play sound at all; from the next time the game\nstarts."/>
+		<string text="Adjust the overall volume."/>
+		<string text="Adjust the music volume."/>
+		<string text="Adjust the effects and speech volume."/>
+		<string text="Choose the audio output device."/>
+		<string text="Room echo, and muffled sound behind walls."/>
+		<string text="Turn all sound on or off. Takes effect on restart."/>
 	</strings>
 </menus>
