@@ -1320,13 +1320,11 @@
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_descriptions">
 		<string text="Rename this profile.\n\n\nProfile:"/>
-		<string text="Change the keyboard, mouse\nand controller settings.\n\nProfile:"/>
-		<string text="Adjust the video settings.\n\n\nProfile:"/>
-		<string text="Adjust the audio settings.\n\n\nProfile:"/>
-		<string text="Adjust the menus, HUD and\nscoreboard.\n\nProfile:"/>
-		<string text="Adjust the network settings.\n\n\nProfile:"/>
-		<string text="Choose what stats and crash\nreports are sent.\n\nProfile:"/>
 		<string text="Change the current profile's\nfree-for-all multiplayer color.\n\nProfile:"/>
+		<string text="Change the keyboard, mouse\nand controller settings.\n\nProfile:"/>
+		<string text="Adjust the video and\ninterface settings.\n\nProfile:"/>
+		<string text="Adjust the audio settings.\n\n\nProfile:"/>
+		<string text="Adjust the network, chat\nand privacy settings.\n\nProfile:"/>
 		<string text="About Chupathingy.\n\n\nProfile:"/>
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options">
@@ -1343,6 +1341,9 @@
 		<string text="PRIVACY"/>
 		<string text="INTERFACE"/>
 		<string text="CONTROLS"/>
+		<string text="DISPLAY"/>
+		<string text="AUDIO"/>
+		<string text="ONLINE"/>
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/cap_video_settings_strings">
 		<string text="Select a display resolution."/>

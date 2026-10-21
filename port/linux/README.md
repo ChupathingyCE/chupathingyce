@@ -446,7 +446,7 @@ all of the others, and the log names the line and the likely fix. If you
 change the value of a line but do not remove its `# `, the line does
 nothing, and the log names it. Words such as `"borderless"` can be in any
 case; a word that a setting does not know is in the log, with what the game
-uses in its place. The Settings menu (Controls, Video, Audio, Interface, Network and Privacy)
+uses in its place. The Settings menu (Controls, Display, Audio and Online)
 changes the useful settings, writes them into the file (only their lines
 change: the line of a setting at its default loses its `#`) and applies
 them at once, but `audio.enabled`, and `display.menus` from the next main
