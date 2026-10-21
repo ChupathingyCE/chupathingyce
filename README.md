@@ -436,6 +436,10 @@ Useful `configure.py` options:
 | `--no-game-browser` | Leaves out the server list, stats and dedicated servers. |
 | `--pgo=off`, `--lto=off` | Faster builds, without profile-guided or link-time optimisation. |
 
+The console ports (original Xbox, Xbox 360, Switch) are built from their own
+repositories, with this one as a submodule: "Console ports" in
+[docs/building.md](docs/building.md#console-ports).
+
 The version being made is in `VERSION`. Releases are built and published by
 the project's release workflow; the builds on this repository's Actions page
 are for checking changes.
