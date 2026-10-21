@@ -442,6 +442,9 @@ static const struct config_setting config_settings[] =
 		"For \"balanced\": how many more players one team may have, 0 to 16." },
 	{ "network.chat_filter", _config_boolean, "true", "HALO_NET_CHAT_FILTER", _environment_value, _platform_all,
 		"In games you host, block chat lines with blocked words." },
+	{ "network.chat_legacy", _config_boolean, "true", "HALO_NET_CHAT_LEGACY", _environment_value, _platform_all,
+		"In games you host, let OpenCE players chat too (over their own\n"
+		"text chat, bridged), while network.chat is on." },
 	{ "network.share_profile", _config_boolean, "false", "HALO_NET_SHARE_PROFILE", _environment_value,
 		_platform_all,
 		"Show your Chupathingy player ID to other Chupathingy players over\n"

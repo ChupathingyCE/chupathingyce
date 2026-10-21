@@ -138,10 +138,10 @@ int delta_chat_bridge_flags(int scope)
 	return scope == _delta_chat_scope_team ? DELTA_CHAT_BRIDGE_TEAM : 0;
 }
 
-int delta_chat_bridge_host_config(int mode, int listed)
+int delta_chat_bridge_host_config(int mode, int legacy)
 {
 	/* (Delta chat has no rule against links: they are allowed here too) */
-	if (mode == _delta_chat_mode_off || listed)
+	if (mode == _delta_chat_mode_off || !legacy)
 		return 0;
 	return DELTA_CHAT_BRIDGE_ALLOWED | DELTA_CHAT_BRIDGE_LINKS;
 }
@@ -186,7 +186,7 @@ void delta_chat_bridge_said(struct delta_chat_bridge_budget *budget, delta_u32 n
 	budget->last_time = now;
 }
 
-int delta_chat_bridge_client_allowed(int known, int flags, int joined_listed)
+int delta_chat_bridge_client_allowed(int known, int flags)
 {
-	return known && !joined_listed && (flags & DELTA_CHAT_BRIDGE_ALLOWED);
+	return known && (flags & DELTA_CHAT_BRIDGE_ALLOWED);
 }

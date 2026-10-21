@@ -2594,34 +2594,14 @@ int browser_game_peer(const char *invite, unsigned long *address)
 	return p2p_peer_address(identifier, address);
 }
 
-/* the invite of the listed game last joined (browser_joined_listed) */
-static char joined_listing[BROWSER_INVITE_LENGTH + 1];
-
 int browser_join(const char *invite)
 {
 	/* ("halo://join/" and the invite's digits) */
 	char link[16 + BROWSER_INVITE_LENGTH];
 
 	snprintf(link, sizeof(link), "halo://join/%s", invite);
-	snprintf(joined_listing, sizeof(joined_listing), "%s", invite);
 	platform_log("Game list: joining a listed game");
 	return p2p_join_invite(link);
-}
-
-int browser_joined_listed(void)
-{
-	char joined[2 * (P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE) + 1];
-	int index;
-
-	if (!joined_listing[0] || !p2p_joined_invite(joined, (int)sizeof(joined)))
-		return 0;
-	/* (hexadecimal digits, in either case) */
-	for (index = 0; joined_listing[index] && joined[index]; index++)
-	{
-		if ((joined_listing[index] | 0x20) != (joined[index] | 0x20))
-			return 0;
-	}
-	return !joined_listing[index] && !joined[index];
 }
 
 int browser_dedicated(void)

@@ -31,11 +31,12 @@ list built in and the player's own chat.filter_file), chat.streamer_mode
 and chat.quick_messages; a player's host network.chat and
 network.chat_filter; a dedicated server its own (chat_host_set).
 
-The bridge keeps to OpenCE's rules: the chat is off for OpenCE machines
-when the host's is off, and in a game listed in the server browser (their
-clients refuse it there); a client takes its host's lines only over the
-host's stream, says nothing till the host's settings allow it, and none in
-a listed game it joined from the server browser. An OpenCE machine's line
+The host decides the bridge for its own game: OpenCE machines may chat when
+its chat is on and network.chat_legacy (a dedicated server's chat_legacy)
+lets them. A client takes its host's lines only over the host's stream and
+says nothing till the host's settings allow it; the player's own chat
+settings (chat.enabled, chat.show, the filter, mutes) decide the rest, as for
+Delta's lines. An OpenCE machine's line
 passes the same checks as a Delta machine's (the budget, the text, the mute,
 the host's mode and filter), and a refusal is told it as the host's notice.
 Text goes to OpenCE as printable ASCII (delta_chat_bridge_to_ascii), at
@@ -83,9 +84,6 @@ int config_boolean(char const *name);
 char const *config_string(char const *name);
 unsigned long config_changes(void);
 void platform_log(char const *format, ...);
-/* p2p_lobby.c's, browser.c's */
-int p2p_lobby_listed(void);
-int browser_joined_listed(void);
 
 /* ---------- constants */
 
@@ -192,6 +190,9 @@ static struct
 	boolean host_set;
 	int host_mode;
 	int host_filtering;
+	/* (whether OpenCE machines may chat; set: a dedicated server's) */
+	boolean host_legacy_set;
+	boolean host_legacy;
 	/* (seconds a player's chat pauses past the rate; set: a dedicated
 	server's) */
 	boolean host_cooldown_set;
@@ -513,14 +514,14 @@ static boolean bridge_machine(short machine)
 		!delta_peer_game_chat_capable(machine, _delta_chat_kind_server);
 }
 
-/* (the host) its settings for OpenCE machines (the chat off in a game
-listed in the server browser, and while the legacy table's kill switch has
-Delta's chat off) */
+/* (the host) its settings for OpenCE machines: its chat's, unless it keeps
+them out of it (network.chat_legacy) or the legacy table's kill switch has
+Delta's chat off */
 static int bridge_host_flags(void)
 {
 	if (delta_capability_disabled(_delta_capability_chat))
 		return 0;
-	return delta_chat_bridge_host_config(chat.host_mode, p2p_lobby_listed());
+	return delta_chat_bridge_host_config(chat.host_mode, chat_host_legacy());
 }
 
 /* (the host) a line (or a notice) to one machine, reliably */
@@ -825,6 +826,23 @@ char const *chat_host_welcome(void)
 	return chat.host_welcome;
 }
 
+void chat_host_set_legacy(int legacy)
+{
+	chat.host_legacy_set = TRUE;
+	chat.host_legacy = legacy != 0;
+}
+
+int chat_host_legacy(void)
+{
+	if (chat.host_legacy_set)
+		return chat.host_legacy;
+#ifndef HALO_SERVER
+	return config_boolean("network.chat_legacy");
+#else
+	return TRUE;
+#endif
+}
+
 int chat_host_mode(void)
 {
 	return chat.host_set || delta_peer_game_role() == 2 ? chat.host_mode : _delta_chat_mode_on;
@@ -948,13 +966,12 @@ static void bridge_up(long machine_index, void const *entry, int size)
 }
 
 /* (a client) whether this copy's chat is OpenCE's: a host without Delta's
-chat, its settings allowing it, and not a listed game joined from the
-server browser */
+chat, and its settings allowing it */
 static boolean bridge_client(void)
 {
 	return game_connection() == _game_connection_network_client && game_in_progress() &&
 		!delta_peer_game_chat_ready() && !delta_capability_disabled(_delta_capability_chat) &&
-		delta_chat_bridge_client_allowed(chat.bridge_known, chat.bridge_flags, browser_joined_listed());
+		delta_chat_bridge_client_allowed(chat.bridge_known, chat.bridge_flags);
 }
 
 /* (a client) the host's line, or its notice, heard as Delta's */
@@ -963,10 +980,9 @@ static void bridge_down(void const *entry, int size)
 	struct delta_chat_bridge_line in;
 	struct delta_wire_chat_line line;
 
-	/* (Delta carries the lines of a host that has it; none in a listed game
-	joined from the server browser) */
+	/* (Delta carries the lines of a host that has it) */
 	if (game_connection() != _game_connection_network_client || delta_peer_game_chat_ready() ||
-		delta_capability_disabled(_delta_capability_chat) || browser_joined_listed() ||
+		delta_capability_disabled(_delta_capability_chat) ||
 		!delta_chat_bridge_read_line((unsigned char const *)entry, size, &in))
 	{
 		return;

@@ -92,9 +92,10 @@ int delta_chat_bridge_scope(int flags);
 int delta_chat_bridge_flags(int scope);
 
 /* the host's settings for its OpenCE machines: its mode (enum
-delta_chat_mode), and whether its game is listed in the server browser
-(OpenCE has the chat off there, and their clients refuse it) */
-int delta_chat_bridge_host_config(int mode, int listed);
+delta_chat_mode), and whether it lets them chat at all (network.chat_legacy,
+a dedicated server's chat_legacy). Links are allowed: Delta chat has no rule
+against them */
+int delta_chat_bridge_host_config(int mode, int legacy);
 
 /* the host's checks of an OpenCE machine's line before it goes on as
 Delta's own (delta_chat_host_decide and the filter come after): its budget,
@@ -106,9 +107,8 @@ int delta_chat_bridge_take(struct delta_chat_bridge_budget *budget, delta_u32 no
 /* the line taken went on: the repeat check remembers it */
 void delta_chat_bridge_said(struct delta_chat_bridge_budget *budget, delta_u32 now, const char *text, int length);
 
-/* (a client) whether it may say and hear OpenCE's lines: the host's settings
-known (and their flags), and whether it joined the game from the server
-browser's listing (no chat there, whatever the host says) */
-int delta_chat_bridge_client_allowed(int known, int flags, int joined_listed);
+/* (a client) whether it may say OpenCE's lines: the host's settings known,
+and their flags */
+int delta_chat_bridge_client_allowed(int known, int flags);
 
 #endif

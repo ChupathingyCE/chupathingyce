@@ -491,33 +491,34 @@ of Delta's goes into the game protocol.
   reliably, over the sender's stream alone. Their text is printable ASCII
   without `|`, at most 63 characters.
   - **A Chupathingy host** sends each machine that has no Delta session
-    taking its lines `chat_config`: allowed (with links: Delta chat has no
-    rule against them) unless its chat is off or the game is listed in the
-    server browser, where OpenCE has the chat off and their clients refuse
-    it. It takes `chat_up` from such a machine's own player only, and
-    checks it as it checks CHAT_SAY: the same budget and cooldown, the
-    repeat check, the text, the machine's mute, then its mode and filter. A
-    refusal goes back as the host's notice. A line taken (and every line of
-    a Delta machine, and the host's own player's) goes to each Delta
-    machine as CHAT_LINE and to each OpenCE machine that may hear it as
-    `chat_down`, its UTF-8 made ASCII (Latin-1's letters without their
-    accents, typographic quotes and dashes as plain ones, anything else
-    `?`) and cut to 63 characters. A server line (`sv_say`, the welcome)
-    goes to OpenCE machines as the host's notice. With the host's chat off (or
-    Delta's chat turned off by the legacy table's kill switch) OpenCE
-    machines are sent nothing but the setting, and a refusal to one that
-    says a line anyway. A vehicle line from
-    OpenCE is a team line here (Delta has no narrower scope), and a team
-    line in a game without teams is everyone's, as OpenCE has it.
+    taking its lines `chat_config`, from its own settings alone: allowed
+    while its chat is on and `network.chat_legacy` (a dedicated server's
+    `chat_legacy`, both on by default) lets OpenCE players chat, and the
+    legacy table's kill switch hasn't turned Delta's chat off. Links are
+    allowed, as Delta chat has no rule against them. OpenCE's own rule of
+    no chat in a game listed in the server browser is theirs: our host
+    doesn't apply it (an OpenCE client that joined from their browser keeps
+    its chat off anyway). It takes `chat_up` from such a machine's own
+    player only, and checks it as it checks CHAT_SAY: the same budget and
+    cooldown, the repeat check, the text, the machine's mute, then its mode
+    and filter. A refusal goes back as the host's notice. A line taken (and
+    every line of a Delta machine, and the host's own player's) goes to
+    each Delta machine as CHAT_LINE and to each OpenCE machine that may
+    hear it as `chat_down`, its UTF-8 made ASCII (Latin-1's letters without
+    their accents, typographic quotes and dashes as plain ones, anything
+    else `?`) and cut to 63 characters. A server line (`sv_say`, the
+    welcome) goes to OpenCE machines as the host's notice. With OpenCE
+    players left out OpenCE machines are sent nothing but the setting, and
+    a refusal to one that says a line anyway. A vehicle line from OpenCE is
+    a team line here (Delta has no narrower scope), and a team line in a
+    game without teams is everyone's, as OpenCE has it.
   - **A Chupathingy client** whose host has no Delta chat (an OpenCE host)
-    says its lines as `chat_up` once the host's `chat_config` allows it,
-    and shows each `chat_down` as a line of the host's game (a notice as a
-    system line), through the same settings, filter and mutes as Delta's
-    lines. It takes nothing but the host's stream, says nothing in a game
-    whose host has no chat or has it off, and in a listed game it joined
-    from the server browser has the chat off whatever the host says, as an
-    OpenCE client does. A host with Delta chat is never bridged: its lines
-    come over Delta alone.
+    follows that host's `chat_config`: it says its lines as `chat_up` once
+    the host allows chat, and shows each `chat_down` as a line of the
+    host's game (a notice as a system line). The player's own settings
+    decide the rest, as for Delta's lines: `chat.enabled`, `chat.show`, the
+    filter and their mutes. It takes nothing but the host's stream. A host
+    with Delta chat is never bridged: its lines come over Delta alone.
   - A message of the wrong size is dropped and the log says so once (the
     machine's index, never its address); nothing about chat ever ends a
     connection.

@@ -39,6 +39,12 @@ void chat_host_set(int mode, int filter);
 int chat_host_mode(void);
 int chat_host_filter(void);
 
+/* whether OpenCE players may chat in this host's games (over OpenCE's own
+chat, bridged), while its chat is on: a dedicated server's chat_legacy, or
+a player's host's network.chat_legacy */
+void chat_host_set_legacy(int legacy);
+int chat_host_legacy(void);
+
 /* (a dedicated server's) the seconds a player's chat pauses once they say
 too much too fast (0: none; 5 unless set), and the welcome each Chupathingy
 player is sent as they join (NULL or empty: none) */

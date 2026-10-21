@@ -224,10 +224,6 @@ int browser_game_peer(const char *invite, unsigned long *address);
 
 /* joins a listed game: its invite, as an invite link would (p2p.c) */
 int browser_join(const char *invite);
-/* whether the game this copy is in is the listed game it joined from the
-server browser (no other invite joined since): OpenCE's text chat is off in
-such a game, whatever its host says (port/linux/game/chat.c) */
-int browser_joined_listed(void);
 
 /* whether this copy is the dedicated server (server/src/dedicated.c:
 HALO_DEDICATED names its playlist): it joins no invite, leaves the clipboard

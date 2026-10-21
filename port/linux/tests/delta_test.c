@@ -654,17 +654,16 @@ static void test_chat_bridge_rules(void)
 	CHECK(delta_chat_bridge_flags(_delta_chat_scope_all) == 0);
 	CHECK(delta_chat_bridge_flags(_delta_chat_scope_team) == DELTA_CHAT_BRIDGE_TEAM);
 
-	/* (off with the host's off, and in a listed game) */
-	CHECK(delta_chat_bridge_host_config(_delta_chat_mode_off, 0) == 0);
-	CHECK(delta_chat_bridge_host_config(_delta_chat_mode_on, 1) == 0);
-	CHECK(delta_chat_bridge_host_config(_delta_chat_mode_team, 1) == 0);
-	CHECK(delta_chat_bridge_host_config(_delta_chat_mode_on, 0) == (DELTA_CHAT_BRIDGE_ALLOWED | DELTA_CHAT_BRIDGE_LINKS));
-	CHECK(delta_chat_bridge_host_config(_delta_chat_mode_team, 0) & DELTA_CHAT_BRIDGE_ALLOWED);
+	/* (off with the host's chat off, or its OpenCE players' chat off) */
+	CHECK(delta_chat_bridge_host_config(_delta_chat_mode_off, 1) == 0);
+	CHECK(delta_chat_bridge_host_config(_delta_chat_mode_on, 0) == 0);
+	CHECK(delta_chat_bridge_host_config(_delta_chat_mode_team, 0) == 0);
+	CHECK(delta_chat_bridge_host_config(_delta_chat_mode_on, 1) == (DELTA_CHAT_BRIDGE_ALLOWED | DELTA_CHAT_BRIDGE_LINKS));
+	CHECK(delta_chat_bridge_host_config(_delta_chat_mode_team, 1) & DELTA_CHAT_BRIDGE_ALLOWED);
 
-	CHECK(!delta_chat_bridge_client_allowed(0, DELTA_CHAT_BRIDGE_ALLOWED, 0));
-	CHECK(!delta_chat_bridge_client_allowed(1, 0, 0));
-	CHECK(!delta_chat_bridge_client_allowed(1, DELTA_CHAT_BRIDGE_ALLOWED, 1));
-	CHECK(delta_chat_bridge_client_allowed(1, DELTA_CHAT_BRIDGE_ALLOWED, 0));
+	CHECK(!delta_chat_bridge_client_allowed(0, DELTA_CHAT_BRIDGE_ALLOWED));
+	CHECK(!delta_chat_bridge_client_allowed(1, 0));
+	CHECK(delta_chat_bridge_client_allowed(1, DELTA_CHAT_BRIDGE_ALLOWED));
 
 	/* (Delta's budget: three at once, then paused for the cooldown) */
 	memset(&budget, 0, sizeof(budget));
