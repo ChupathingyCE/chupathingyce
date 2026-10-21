@@ -68,7 +68,7 @@ extern boolean terminal_command_running;
 
 /* ---------- globals */
 
-extern boolean terminal_render_enable;
+extern short terminal_render_enable;
 
 /* ---------- public code */
 

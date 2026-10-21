@@ -114,7 +114,8 @@ static long terminal_new_line(void);
 
 /* ---------- globals */
 
-boolean terminal_render_enable = TRUE;
+/* 0 = hidden, 1 = always drawn (default), 2 = drawn only while the console is open */
+short terminal_render_enable = 1;
 
 /* name from the 2003 PC demo PDB and the HCEX PDB (terminal file static const short[3]); January's 6 bytes
  * are identical to the demo's and it has no public for it (static) */
@@ -250,7 +251,7 @@ void terminal_draw(
 			rasterizer_draw_string(&terminal_gets_bounds, NULL, NULL, 0, buffer);
 		}
 
-		if (terminal_render_enable)
+		if (terminal_render_enable == 1 || (terminal_render_enable >= 2 && terminal_globals.input_state))
 		{
 			struct output_line_datum *line;
 			long line_index;
