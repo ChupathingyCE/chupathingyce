@@ -464,7 +464,7 @@ def test_stock_maps(harness, name):
     assert kind == "1"
     base = name.lower()
     assert message == (f"{base}.map comes with Halo PC. Copy it "
-                       "from your Halo PC or Custom Edition install into maps_ce, then join again.")
+                       "from Halo PC (maps_pc) or Custom Edition (maps_ce), then join again.")
 
 
 @pytest.mark.parametrize("name", STOCK_FILES + ["UI", "Bitmaps"])
