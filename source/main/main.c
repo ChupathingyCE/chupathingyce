@@ -1164,7 +1164,8 @@ static real first_person_field_of_view_scale(
 		real degrees = (real)config_real("display.field_of_view");
 
 		read_at = config_changes();
-		if (!valid_real(degrees) || degrees == 70.0f)
+		/* (a build without the setting, a console's, reads 0: the original 70) */
+		if (!valid_real(degrees) || degrees <= 0.0f || degrees == 70.0f)
 			scale = 1.0f;
 		else
 		{
