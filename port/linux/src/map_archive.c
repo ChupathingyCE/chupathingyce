@@ -569,7 +569,7 @@ int map_archive_stock_message(const char *name, char *text, int size)
 	for (index = 0; base[index]; index++)
 		base[index] = (char)lower((unsigned char)base[index]);
 	snprintf(text, (size_t)size, "%s.map comes with Halo PC. "
-		"Copy it from your Halo PC or Custom Edition install into maps_ce, then join again.", base);
+		"Copy it from Halo PC (maps_pc) or Custom Edition (maps_ce), then join again.", base);
 	return 1;
 }
 
