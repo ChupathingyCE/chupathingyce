@@ -3,9 +3,19 @@ HALO_CONSOLE_FEATURES.H
 
 What a console build of the shared platform layer and game code asks of
 them, as capabilities any console can turn on (included by
-halo_linux_prefix.h). The shared code tests these, never a console's name;
-a console turns a capability on by defining it here from its own build's
-define. The Switch (HALO_SWITCH_CONSOLE) is the first to use them.
+halo_port_limits.h, which every build's prefix header reads). The shared
+code tests these, never a console's name; a console turns a capability on
+by defining it here from its own build's define (the Switch's
+HALO_SWITCH_CONSOLE, the original Xbox's HALO_XBOX_CONSOLE), or on its
+compile lines (HALO_CONSOLE_PLAYERS, HALO_CONSOLE_DELTA,
+HALO_CONSOLE_MEMORY_CLASS, the HALO_CONSOLE_NO_* of a port's prefix header:
+docs/building.md, "Console ports").
+
+A console's name stays in the shared code only for what is that console's
+alone: the original Xbox's own target (HALO_XBOX_CONSOLE: the game's code
+as the Xbox ran it, one frame a tick on its Direct3D and XDK, where the
+native builds changed it, and its calls into port/xbox), the Switch's
+settings and renderer calls.
 
 HALO_CONSOLE_GPU_RESOURCE_HOOKS
 	a renderer whose GPU reads the game's memory after the draw: resources
@@ -34,6 +44,17 @@ HALO_CONSOLE_LOG_THROTTLE
 	a console whose log writes are slow (debug.txt on a card): the host's
 	notices are logged without their blank lines, at most three a second
 	(port/linux/game/network_distributed.c)
+HALO_CONSOLE_LOG_BUFFER
+	debug.txt's lines kept in memory and written together, a second after
+	the first waits, and at once for an exception, an exit or a crash
+	(error_log_flush and error_log_update, source/cseries/errors.c;
+	console.log_flush)
+HALO_CONSOLE_ONLINE_GAMES
+	the Multiplayer menu's ONLINE GAMES on a build without the desktop's
+	game browser (HALO_GAME_BROWSER): the console's own screen of the game
+	list (browser_screen_* and the invite join, defined by the port), with
+	the menu's fonts (ui_widget_online_games_font, source/interface/
+	ui_widget.c)
 */
 
 #ifndef __HALO_CONSOLE_FEATURES_H
@@ -46,6 +67,11 @@ HALO_CONSOLE_LOG_THROTTLE
 #define HALO_CONSOLE_MAP_LOAD_HOOKS 1
 #define HALO_CONSOLE_STATUS_LINE 1
 #define HALO_CONSOLE_LOG_THROTTLE 1
+#endif
+
+#ifdef HALO_XBOX_CONSOLE
+#define HALO_CONSOLE_LOG_BUFFER 1
+#define HALO_CONSOLE_ONLINE_GAMES 1
 #endif
 
 #endif

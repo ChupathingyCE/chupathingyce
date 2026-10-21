@@ -36,14 +36,11 @@ enum
 	_PLAYERS): the original Xbox's game keeps 16 players and 17 machines (a
 	dedicated host being machine 0; its 64 MB), so its sessions keep no more
 	either */
-#if defined(HALO_XBOX_CONSOLE) && defined(HALO_CONSOLE_PLAYERS)
-	/* (a test build of more than 16 players: its own count, configure.py
+#ifdef HALO_CONSOLE_PLAYERS
+	/* (a console's own count: 16, or a test build's, configure.py
 	--console-players) */
 	DELTA_PEER_MAXIMUM_MACHINES = HALO_CONSOLE_PLAYERS + 1,
 	DELTA_PEER_MAXIMUM_PLAYERS = HALO_CONSOLE_PLAYERS,
-#elif defined(HALO_XBOX_CONSOLE)
-	DELTA_PEER_MAXIMUM_MACHINES = 17,
-	DELTA_PEER_MAXIMUM_PLAYERS = 16,
 #else
 	DELTA_PEER_MAXIMUM_MACHINES = 128,
 	DELTA_PEER_MAXIMUM_PLAYERS = 128,

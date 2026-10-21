@@ -3507,9 +3507,11 @@ void main_loop(
 
 				xbox_log_flush();
 			}
-			/* (debug.txt's waiting lines, once a second: errors.c) */
-			error_log_update();
 		}
+#endif
+#ifdef HALO_CONSOLE_LOG_BUFFER
+		/* port: debug.txt's waiting lines, once a second (errors.c) */
+		error_log_update();
 #endif
 		if (!game_in_editor())
 		{

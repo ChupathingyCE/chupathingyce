@@ -119,7 +119,7 @@ void system_exit(
 		return;
 	}
 #endif
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_LOG_BUFFER
 	/* (the lines debug.txt has not been given yet: errors.c) */
 	error_log_flush();
 #endif
@@ -336,7 +336,7 @@ long generic_exception_filter(
 	{
 		error(_error_silent, "unknown exception %08lX", exception_code);
 	}
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_LOG_BUFFER
 	error_log_flush();
 #endif
 

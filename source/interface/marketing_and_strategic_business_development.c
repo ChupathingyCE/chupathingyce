@@ -113,7 +113,7 @@ static void clean_up_for_image_launch(
 	void)
 {
 	error(_error_silent, "preparing for XLaunchNewImage()...");
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_LOG_BUFFER
 	{
 		/* port: back to the dashboard from the game: debug.txt's waiting
 		lines (errors.c) reach the disk first */

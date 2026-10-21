@@ -131,6 +131,7 @@ def build(cc, kind, directory):
 	shutil.copy(ROOT / "port/linux/include/halo_port_capacity.h", source)
 	shutil.copy(ROOT / "port/linux/include/halo_port_features.h", source)
 	shutil.copy(ROOT / "port/linux/include/halo_console_memory.h", source)
+	shutil.copy(ROOT / "port/linux/include/halo_console_features.h", source)
 	(source / "platform.h").write_text(STUB_PLATFORM)
 	(source / "posix.h").write_text(STUB_POSIX)
 	(source / "SDL3/SDL.h").write_text(STUB_SDL)

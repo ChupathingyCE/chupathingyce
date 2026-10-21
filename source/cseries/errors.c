@@ -121,7 +121,7 @@ char *error_get(
 	return error_globals.message_buffer;
 }
 
-#ifndef HALO_XBOX_CONSOLE
+#ifndef HALO_CONSOLE_LOG_BUFFER
 /* The native builds keep the log open and flush each line: opening and
 closing it per line takes milliseconds on Windows, and a host logs
 thousands of lines when a hundred machines join, load or leave. Each line is
@@ -275,7 +275,7 @@ static void debug_file_port_write(
 }
 
 #endif
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_LOG_BUFFER
 /* port: the console's debug.txt lines are kept in memory and written in one
 go (a FATX file opened, written and closed per line cost milliseconds each
 on the main thread): when the buffer is full, a second after the first line
@@ -386,7 +386,7 @@ void write_to_error_file(
 
 	/* port: the header again in a debug.txt begun again (its reference
 	address places a crash report's addresses) */
-#ifndef HALO_XBOX_CONSOLE
+#ifndef HALO_CONSOLE_LOG_BUFFER
 	if (debug_file_port_rolled)
 	{
 		debug_file_port_rolled = FALSE;
@@ -406,7 +406,7 @@ void write_to_error_file(
 
 	if (error_globals.output_to_debug_file)
 	{
-#ifndef HALO_XBOX_CONSOLE
+#ifndef HALO_CONSOLE_LOG_BUFFER
 		write_to_debug_file(string, date);
 #else
 		char text[1100];

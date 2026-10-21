@@ -6049,7 +6049,7 @@ static boolean solo_level_initialize_list_single_player(
 	return TRUE;
 }
 
-#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 /* port: Online Games (port/linux/game/browser_screen.c, and the console's
 port/xbox/game/xbox_browser_screen.c), as System Link's
 list: opened, the network searching for games (its list's "initialize net

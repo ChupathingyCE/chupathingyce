@@ -688,7 +688,7 @@ struct widget_instance;
 /* port: Controller Buttons asking for a button (menu_functions.c) */
 boolean pc_menu_controller_capture(void);
 #endif
-#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 /* the in-game server browser (port/linux/game/browser_screen.c; the
 console's, port/xbox/game/xbox_browser_screen.c): a screen of code over the
 widgets, as the virtual keyboard is */
@@ -2789,7 +2789,7 @@ boolean widget_event_function_list_widget_goto_next_item(
 			child = widget_instance_get_nth_child(widget, item_index);
 			if (child)
 			{
-				#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
+				#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 				/* (ONLINE GAMES shares System Link's tag: by tag, the first of the two
 				would take the focus) */
 				if (ui_widget_online_games_list(widget))
@@ -2884,7 +2884,7 @@ boolean widget_event_function_list_widget_goto_next_item(
 			}
 			if (child)
 			{
-				#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
+				#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 				/* (ONLINE GAMES shares System Link's tag: by tag, the first of the two
 				would take the focus) */
 				if (ui_widget_online_games_list(widget))
@@ -2943,7 +2943,7 @@ boolean widget_event_function_list_widget_goto_previous_item(
 			child = widget_instance_get_nth_child(widget, item_index);
 			if (child)
 			{
-				#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
+				#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 				/* (ONLINE GAMES shares System Link's tag: by tag, the first of the two
 				would take the focus) */
 				if (ui_widget_online_games_list(widget))
@@ -3045,7 +3045,7 @@ boolean widget_event_function_list_widget_goto_previous_item(
 					}
 				}
 			}
-			#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
+			#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 			/* (ONLINE GAMES shares System Link's tag: by tag, the first of the two
 			would take the focus) */
 			if (ui_widget_online_games_list(widget))
@@ -3440,7 +3440,7 @@ static __inline struct widget_instance *widget_instance_find_by_tag_index(
 	return result;
 }
 
-#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 /* ---------- ONLINE GAMES
 
 The Multiplayer menu's fourth item, after System Link: the game list's
@@ -3556,7 +3556,7 @@ boolean ui_widget_online_games_item(
 		ui_widget_list_position(widget) == ONLINE_GAMES_POSITION;
 }
 
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_ONLINE_GAMES
 /* the menu's fonts, for the console's ONLINE GAMES screen
 (port/xbox/game/xbox_browser_screen.c), so it reads as the menus do: the
 items' (System Link's) for headings, the description's for the rest; NONE
@@ -3640,7 +3640,7 @@ static void event_handler_dispatch(
 	boolean close_current = FALSE;
 	boolean close_all = FALSE;
 
-#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 	/* ONLINE GAMES (System Link's item copied): the game list's screen, not
 	System Link's */
 	if (ui_widget_online_games_item(widget) &&
@@ -5660,13 +5660,13 @@ static void widget_instance_render_text_box(
 		string = widget == ui_widget_port_error_text_box && ui_widget_port_error_text ?
 			(wchar_t *)ui_widget_port_error_text :
 			unicode_string_list_get_string(definition->text_label_string_list.index, string_list_index);
-#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 		/* (ONLINE GAMES' item and description share System Link's tags) */
 		if (ui_widget_online_games_item(widget))
 			string = L"ONLINE GAMES";
 		else if (online_games.described && widget->definition_tag_index == online_games.description_text_tag)
 			/* (broken in lines as the game's own: the text box does not wrap) */
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_ONLINE_GAMES
 			string = L"See the games hosted over \r\nthe internet, on the \r\ncommunity's game list.";
 #else
 			string = L"Find and join games hosted \r\nover the internet, on the \r\ncommunity's game list.";
@@ -8060,7 +8060,7 @@ void render_ui_widgets(
 	{
 		virtual_keyboard_render();
 	}
-#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 	if (browser_screen_active())
 		browser_screen_render();
 #ifndef HALO_CONSOLE_NO_DELTA_PROFILE
@@ -9191,7 +9191,7 @@ void process_ui_widgets(
 	if (pc_menu_controller_capture())
 		return;
 #endif
-#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 #ifdef HALO_GAME_BROWSER
 	/* port: an invite on the clipboard, asked about over the menus */
 	invite_prompt_update(widget_globals.active_widgets[0] != NULL);

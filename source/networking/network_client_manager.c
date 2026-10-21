@@ -3442,7 +3442,7 @@ boolean network_game_client_set_team(
 }
 
 
-#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 /* the game list's game whose invite this machine joined (the Online Games
 screen, port/linux/game/browser_screen.c): joined once its host's game is
 advertised through the tunnel. The host is told by its XNADDR's abEnet,

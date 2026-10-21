@@ -141,7 +141,7 @@ int main(
 #endif
 			main_loop();
 			shell_dispose();
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_LOG_BUFFER
 			error_log_flush();
 #endif
 		}
@@ -155,7 +155,7 @@ int main(
 	}
 	__except (generic_exception_filter(GetExceptionCode(), GetExceptionInformation()))
 	{
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_LOG_BUFFER
 		error_log_flush();
 #endif
 		halt_and_catch_fire();

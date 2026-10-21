@@ -915,7 +915,7 @@ static void multiplayer_type_menu_update_extended_description(
 	among those that take events, as its game counts them (past its labels) */
 	index = ui_widget_port_list_index(list_widget);
 
-#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 	{
 		/* (ONLINE GAMES, an item the menu's tags lack: ui_widget.c) */
 		short ui_widget_online_games_description(struct widget_instance *list_widget, short index);
