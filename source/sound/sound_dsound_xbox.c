@@ -2758,6 +2758,10 @@ static void dsound_channel_queue_sound(
 			channel->sample_offset= 0;
 			channel->packet_count= 0;
 
+			/* port: logged by the audio capture of real play (port/linux/game/audio_probe.c) */
+			audio_probe_sound_started(index, channel->type_flags, sound->name, sound->samples.size,
+				channel->gain, channel->obstruction, channel->occlusion, channel->spatialized);
+
 			result= IDirectSound_CommitDeferredSettings(dsound_globals.direct_sound);
 
 			if (result<0)

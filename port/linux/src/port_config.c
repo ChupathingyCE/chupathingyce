@@ -813,6 +813,12 @@ static const struct config_setting config_settings[] =
 		"the game loads its map, plays its sounds at its spots, records what it\n"
 		"plays beside the file (to compare with tools/audio_probe_compare.py),\n"
 		"and quits. Empty: none." },
+	{ "debug.audio_capture_seconds", _config_real, "0.0", "HALO_AUDIO_CAPTURE_SECONDS", _environment_value,
+		_platform_all,
+		"Record this many seconds of the sound of each game played (solo,\n"
+		"system link or online), with a log of the player's position and every\n"
+		"sound started, to d:\\audio_probe\\capture-<map>-<n>-* (that folder must\n"
+		"be there; port/linux/game/audio_probe.c); 0 none." },
 	{ "debug.exit_after", _config_real, "0.0", "HALO_EXIT_AFTER", _environment_value, _platform_all,
 		"Quit this many seconds after the window opens; 0 never." },
 	{ "debug.hidden_window", _config_boolean, "false", "HALO_HIDDEN_WINDOW", _environment_set_is_true, _platform_desktop,

@@ -41,6 +41,15 @@ The probe file, one statement a line, # starting a comment:
 	spot <name> <x> <y> <z> <yaw> [<pitch>]
 		a camera position, its facing in degrees
 
+debug.audio_capture_seconds (a number of seconds; 0, the default, for none)
+records real play instead, with no probe file: each time this machine's
+first player is in a game (a solo, system link or online one) with a unit,
+the platform records its final mix for that many seconds, as
+d:\audio_probe\capture-<map>-<n>-<platform>-*.wav, and a log beside it
+(-events.txt): the player's position each second, and every sound a channel
+starts, with the channel's type, gain, obstruction and occlusion. Then
+nothing until the next game. The folder d:\audio_probe must be there.
+
 Every sound plays its first permutation, from the same random seed, so that
 two runs play the same samples at the same pitch.
 
@@ -66,6 +75,8 @@ and its two calls then do nothing */
 #include "sound/sound_definitions.h"
 #include "sound/game_sound.h"
 #include "tag_files/tag_groups.h"
+#include "cache/cache_files.h"
+#include "interface/ui_widget.h"
 #include "audio_probe.h"
 
 #include <math.h>
@@ -75,6 +86,8 @@ and its two calls then do nothing */
 #include <string.h>
 
 const char *config_string(char const *name);
+double config_real(char const *name);
+unsigned long system_milliseconds(void);
 /* (sound_classes.c's) */
 extern char const *sound_class_names[];
 void platform_log(char const *format, ...);
@@ -139,10 +152,12 @@ static struct
 	struct audio_probe_spot spots[AUDIO_PROBE_MAXIMUM_SPOTS];
 	short spot_count;
 
-	/* the run */
+	/* the run, timed by the system's clock (the frame's seconds are not
+	the same on every platform's main loop) */
+	unsigned long clock;
 	real timer;
 	/* whether the wait for the map to load has been said to be long */
-	boolean told_waiting;
+	boolean told_waiting, told_started;
 	short map_index;
 	long request_time;
 	short spot_index;
@@ -512,7 +527,7 @@ static void audio_probe_load_map(short map_index)
 		audio_probe_copy(path, sizeof(path), map);
 	else
 		snprintf(path, sizeof(path), "levels\\test\\%s\\%s", map, map);
-	platform_log("audio probe: loading %s", path);
+	platform_log("audio probe: load requested: %s", path);
 	audio_probe.map_index = map_index;
 	audio_probe.request_time = game_in_progress() ? game_time_get() : 0;
 	game_connection_set(_game_connection_local);
@@ -521,6 +536,134 @@ static void audio_probe_load_map(short map_index)
 	audio_probe.state = _audio_probe_loading;
 	audio_probe.timer = 0.0f;
 	audio_probe.told_waiting = FALSE;
+	audio_probe.told_started = FALSE;
+}
+
+/* ---------- recording real play (debug.audio_capture_seconds) */
+
+static struct
+{
+	boolean checked;
+	real seconds;
+	boolean capturing;
+	/* recorded in this game already, and the game (its map and the game
+	time it was at) */
+	boolean done;
+	char map[64];
+	long last_time;
+	unsigned long clock, started, last_position;
+	short count;
+	char prefix[96];
+	FILE *events;
+} play_capture;
+
+static void play_capture_stop(char const *why)
+{
+	if (!play_capture.capturing)
+		return;
+	if (play_capture.events)
+	{
+		fprintf(play_capture.events, "end frame=%lu why=%s\n", audio_capture_frames(), why);
+		fclose(play_capture.events);
+		play_capture.events = NULL;
+	}
+	audio_capture_stop();
+	play_capture.capturing = FALSE;
+	platform_log("audio capture: %s-*.wav done (%s)", play_capture.prefix, why);
+}
+
+static void play_capture_update(boolean main_menu_loaded)
+{
+	long player_index = local_player_get_player_index(0);
+	boolean in_game = !main_menu_loaded && game_in_progress() && player_index != NONE;
+	long unit_index = in_game ? player_get(player_index)->unit_index : NONE;
+	char const *map = in_game ? cache_file_loaded_map_name() : "";
+	unsigned long now = system_milliseconds();
+
+	if (!play_capture.checked)
+	{
+		play_capture.checked = TRUE;
+		play_capture.seconds = (real)config_real("debug.audio_capture_seconds");
+		if (play_capture.seconds > 0.0f)
+			platform_log("audio capture: armed: %.0f s of each game to d:\\audio_probe", play_capture.seconds);
+	}
+	if (play_capture.seconds <= 0.0f)
+		return;
+	/* (a new game: out of one, or another map, or its time started over) */
+	if (!in_game || strcmp(map, play_capture.map) || game_time_get() < play_capture.last_time)
+	{
+		play_capture_stop(in_game ? "a new game" : "the game ended");
+		play_capture.done = FALSE;
+		audio_probe_copy(play_capture.map, sizeof(play_capture.map), map ? map : "");
+	}
+	play_capture.last_time = in_game ? game_time_get() : 0;
+	if (!in_game)
+		return;
+	if (!play_capture.capturing && !play_capture.done && unit_index != NONE)
+	{
+		char path[160];
+		char const *leaf = map;
+		FILE *existing;
+
+		play_capture.done = TRUE;
+		for (; *map; map++)
+		{
+			if (*map == '\\' || *map == '/')
+				leaf = map + 1;
+		}
+		/* (the next number not used, so that a run never writes over the last) */
+		do
+		{
+			play_capture.count++;
+			snprintf(play_capture.prefix, sizeof(play_capture.prefix), "d:\\audio_probe\\capture-%s-%d-%s", leaf,
+				play_capture.count, audio_capture_platform());
+			snprintf(path, sizeof(path), "%s-events.txt", play_capture.prefix);
+			existing = fopen(path, "r");
+			if (existing)
+				fclose(existing);
+		}
+		while (existing && play_capture.count < 999);
+		play_capture.events = fopen(path, "w");
+		if (!play_capture.events || !audio_capture_start(play_capture.prefix))
+		{
+			platform_log("audio capture: cannot record %s (is there a folder d:\\audio_probe?)", play_capture.prefix);
+			if (play_capture.events)
+				fclose(play_capture.events);
+			play_capture.events = NULL;
+			return;
+		}
+		play_capture.capturing = TRUE;
+		play_capture.started = now;
+		play_capture.last_position = 0;
+		fprintf(play_capture.events, "start platform=%s map=%s rate=%lu connection=%d seconds=%.0f\n",
+			audio_capture_platform(), leaf, audio_capture_rate(), game_connection(), play_capture.seconds);
+		platform_log("audio capture: recording %s-*.wav for %.0f s", play_capture.prefix, play_capture.seconds);
+	}
+	if (!play_capture.capturing)
+		return;
+	audio_capture_update();
+	if (now - play_capture.last_position >= 1000 || !play_capture.last_position)
+	{
+		struct observer_result const *camera = observer_get_camera(0);
+
+		play_capture.last_position = now;
+		fprintf(play_capture.events, "position frame=%lu time=%.1f alive=%d x=%.2f y=%.2f z=%.2f\n",
+			audio_capture_frames(), (now - play_capture.started) * 0.001f, unit_index != NONE,
+			camera->position.x, camera->position.y, camera->position.z);
+		fflush(play_capture.events);
+	}
+	if (now - play_capture.started >= (unsigned long)(play_capture.seconds * 1000.0f))
+		play_capture_stop("its time is up");
+}
+
+void audio_probe_sound_started(short channel, short type, char const *name, long bytes, float gain,
+	float obstruction, float occlusion, int spatialized)
+{
+	if (!play_capture.capturing || !play_capture.events)
+		return;
+	fprintf(play_capture.events, "sound frame=%lu channel=%d type=%d gain=%.2f obstruction=%.2f occlusion=%.2f "
+		"spatialized=%d bytes=%ld name=%.32s\n", audio_capture_frames(), channel, type, gain, obstruction, occlusion,
+		spatialized, bytes, name);
 }
 
 void audio_probe_update(
@@ -529,17 +672,44 @@ void audio_probe_update(
 {
 	if (!audio_probe.checked)
 		audio_probe_read_settings();
+	/* (real play's recording, when no probe runs) */
+	if (audio_probe.state == _audio_probe_off)
+		play_capture_update(main_menu_loaded || main_menu_is_active());
 	if (audio_probe.state == _audio_probe_off || audio_probe.state == _audio_probe_done)
 		return;
 	if (audio_probe.capturing)
 		audio_capture_update();
-	audio_probe.timer += seconds;
+	(void)seconds;
+	{
+		unsigned long now = system_milliseconds();
+
+		if (audio_probe.clock)
+			audio_probe.timer += PIN((real)(now - audio_probe.clock) * 0.001f, 0.0f, 1.0f);
+		audio_probe.clock = now;
+	}
+	/* (the main menu as the main loop has it, or as its widgets do) */
+	main_menu_loaded = main_menu_loaded || main_menu_is_active();
 
 	switch (audio_probe.state)
 	{
 	case _audio_probe_menu:
+		if (!main_menu_loaded)
+		{
+			audio_probe.timer = 0.0f;
+		}
+		else if (!audio_probe.told_waiting)
+		{
+			audio_probe.told_waiting = TRUE;
+			platform_log("audio probe: the main menu is up");
+		}
 		if (main_menu_loaded && audio_probe.timer >= AUDIO_PROBE_MENU_WAIT)
 			audio_probe_load_map(0);
+		else if (!main_menu_loaded && !audio_probe.told_started)
+		{
+			audio_probe.told_started = TRUE;
+			platform_log("audio probe: waiting for the main menu (scenario loaded %d, its widgets %d)",
+				main_menu_loaded, main_menu_is_active());
+		}
 		break;
 
 	case _audio_probe_loading:
@@ -547,12 +717,17 @@ void audio_probe_update(
 		if (!main_menu_loaded && game_in_progress() && local_player_get_player_index(0) != NONE &&
 			(!audio_probe.request_time || game_time_get() < audio_probe.request_time))
 		{
-			platform_log("audio probe: %s is up; its first spot in %.0f s", audio_probe.maps[audio_probe.map_index],
-				AUDIO_PROBE_MAP_WAIT);
+			platform_log("audio probe: load done: %s is up; its first spot in %.0f s",
+				audio_probe.maps[audio_probe.map_index], AUDIO_PROBE_MAP_WAIT);
 			audio_probe.state = _audio_probe_waiting;
 			audio_probe.timer = 0.0f;
 		}
-		else if (audio_probe.timer >= 60.0f && !audio_probe.told_waiting)
+		else if (!main_menu_loaded && !audio_probe.told_started)
+		{
+			audio_probe.told_started = TRUE;
+			platform_log("audio probe: load started (the main menu is gone)");
+		}
+		if (audio_probe.state == _audio_probe_loading && audio_probe.timer >= 60.0f && !audio_probe.told_waiting)
 		{
 			audio_probe.told_waiting = TRUE;
 			platform_log("audio probe: still waiting for %s after a minute (main menu %d, game %d, local player %ld)",
@@ -673,6 +848,19 @@ void audio_probe_update(unsigned char main_menu_loaded, float seconds)
 void audio_probe_environment_changed(struct audio_probe_environment const *environment)
 {
 	(void)environment;
+}
+
+void audio_probe_sound_started(short channel, short type, char const *name, long bytes, float gain,
+	float obstruction, float occlusion, int spatialized)
+{
+	(void)channel;
+	(void)type;
+	(void)name;
+	(void)bytes;
+	(void)gain;
+	(void)obstruction;
+	(void)occlusion;
+	(void)spatialized;
 }
 
 #endif

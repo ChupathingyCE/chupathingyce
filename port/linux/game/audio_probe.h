@@ -26,6 +26,11 @@ void audio_probe_update(unsigned char main_menu_loaded, float seconds);
 /* a new listener environment (sound_dsound_xbox.c) */
 void audio_probe_environment_changed(struct audio_probe_environment const *environment);
 
+/* a channel started a sound (sound_dsound_xbox.c), for debug.audio_capture_seconds's
+log */
+void audio_probe_sound_started(short channel, short type, char const *name, long bytes, float gain,
+	float obstruction, float occlusion, int spatialized);
+
 /* ---------- the platform's recording of its final mix
 
 Each platform's DirectSound records what it plays from audio_capture_start
