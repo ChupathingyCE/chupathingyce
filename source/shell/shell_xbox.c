@@ -105,6 +105,7 @@ shell_idle(
 /* port: the start, step by step, in debug.txt before the game's own log is
 up (port/xbox/src/xbox_memory.c) */
 void xbox_memory_startup(void);
+void xbox_stack_startup(void);
 void xbox_boot_log(char const *format, ...);
 unsigned long xbox_memory_free(void);
 void xbox_memory_log_point(const char *where);
@@ -117,6 +118,8 @@ int main(
 	boolean preinitialized;
 
 	xbox_memory_startup();
+	/* (the stack's use, measured from here: port/xbox/src/xbox_stack.c) */
+	xbox_stack_startup();
 	fuck_code_in_the_eye();
 	preinitialized = rasterizer_preinitialize__fill_you_up_with_the_devils_cock();
 	xbox_boot_log("direct3d: the first device %s, %lu KB free", preinitialized ? "made and let go" : "FAILED",

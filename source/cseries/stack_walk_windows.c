@@ -263,7 +263,14 @@ char *symbol_name_from_address(
 	unsigned long fake_address,
 	struct debug_symbol_table *symbol_table)
 {
+#ifdef HALO_CONSOLE_NO_DEBUG_TOOLS
+	/* port: a console's build without its developer tools names a frame in
+	a line of the crash report and no more ("name + offset : object"); the
+	16 KB the debug build kept for it is memory a 64 MB console needs */
+	static char symbol_buffer[0x200] = { 0 };
+#else
 	static char symbol_buffer[0x4000] = { 0 };
+#endif
 	unsigned long address = stack_walk_globals.fixup + fake_address;
 
 	csstrcpy(symbol_buffer, "<unknown>");
@@ -286,7 +293,7 @@ char *symbol_name_from_address(
 
 				_snprintf(
 					symbol_buffer,
-					0x3FFF,
+					sizeof(symbol_buffer) - 1,
 					"%s + %04lX : %s",
 					symbol_table->string_storage + symbol_table->symbols[symbol_index - 1].name_string_offset,
 					address - symbol_table->symbols[symbol_index - 1].rva_base,

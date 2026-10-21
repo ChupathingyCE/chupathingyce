@@ -3495,8 +3495,11 @@ void main_loop(
 				/* (a memory class message, once the main menu is up:
 				port/xbox/src/xbox_memory.c) */
 				extern void xbox_memory_update(void);
+				/* (and the stack's deepest: port/xbox/src/xbox_stack.c) */
+				extern void xbox_stack_update(void);
 
 				xbox_memory_update();
+				xbox_stack_update();
 			}
 			{
 				/* (other threads' lines into debug.txt: internet play's) */

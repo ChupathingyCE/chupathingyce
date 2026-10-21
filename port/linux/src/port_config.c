@@ -1321,14 +1321,34 @@ static void config_set_from_file(struct config_value *value, const struct config
 keep a setting watch this, to read it again */
 static volatile unsigned long config_change_count;
 
+/* the settings the game asked for last, by where their names are: most reads
+pass the same string literal each time (the scoreboard and the HUD ask each
+frame), and a search of the table compares the name with the 200 others
+first. A slot is only a guess, taken when the name at the index it gives is
+the one asked for, so two threads that fill a slot at once, or a name in a
+buffer that later holds another, only cost a search. */
+enum
+{
+	CONFIG_INDEX_GUESSES = 64
+};
+static long config_index_guesses[CONFIG_INDEX_GUESSES];
+
 static long config_setting_index(const char *name)
 {
 	size_t index;
+	long *guess = &config_index_guesses[((size_t)name >> 2) % CONFIG_INDEX_GUESSES];
+	long guessed = *guess;
 
+	/* (the slot holds the index plus one: 0 is no guess) */
+	if (guessed > 0 && guessed <= (long)NUMBER_OF_CONFIG_SETTINGS && !strcmp(config_settings[guessed - 1].name, name))
+		return guessed - 1;
 	for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
 	{
 		if (!strcmp(config_settings[index].name, name))
+		{
+			*guess = (long)index + 1;
 			return (long)index;
+		}
 	}
 	return -1;
 }

@@ -86,6 +86,23 @@ void collision_log_continue_period(
 void collision_log_end_period(
 	void);
 
+#ifdef HALO_CONSOLE_NO_DEBUG_TOOLS
+/* port: the collision log counts every collision test by its kind and its
+user and times each with two reads of the performance counter, and each
+frame clears its record three times and copies it three times, all for the
+debug display that collision_log_render draws. A console's build without
+its developer tools (halo_xbox_prefix.h) has no such display, so the
+counting and timing are nothing here: in a busy multiplayer match the tests
+run in the thousands a tick. The game's results do not depend on any of
+it. The users' stack (global_current_collision_users) stays as it is. */
+#define collision_log_start_time(start_time) ((void)0)
+#define collision_log_end_time(collision_function, start_time) ((void)0)
+#define collision_log_usage(collision_function) ((void)0)
+#define collision_log_begin_period(time_period) ((void)0)
+#define collision_log_continue_period(time_period) ((void)0)
+#define collision_log_end_period() ((void)0)
+#endif
+
 /* ---------- globals */
 
 extern short global_current_collision_user_depth;
