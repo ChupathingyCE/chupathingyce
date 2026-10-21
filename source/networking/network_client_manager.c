@@ -598,6 +598,7 @@ struct message_client_ping
 
 /* port/linux/src/p2p.c's */
 void p2p_hardware_id(char *hex, int size);
+void p2p_joining_host(const unsigned char *identifier);
 
 struct message_client_join_game_request
 {
@@ -2131,6 +2132,7 @@ boolean network_game_client_initiate_join_game(
 	/* (its host's identifier, its XNADDR's abEnet: the game joined again
 	once a map it needs is downloaded, browser_screen.c) */
 	csmemcpy(network_game_client_joined_host, game->xnaddr.data + 2, sizeof(network_game_client_joined_host));
+	p2p_joining_host(network_game_client_joined_host);
 #endif
 
 	csmemcpy(
