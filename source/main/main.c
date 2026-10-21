@@ -396,6 +396,16 @@ symbols in this file:
 #include "interface/player_ui.h"
 #include "interface/marketing_and_strategic_business_development.h"
 #endif
+#include "halo_perf_log.h" /* port: console.perf_log */
+
+/* port: the main loop's stage, for the console's bring-up watchdog
+(port/xbox/src/xbox_port.c); nothing elsewhere */
+#ifdef HALO_XBOX_CONSOLE
+extern char const *volatile xbox_main_stage;
+#define MAIN_STAGE(name) (xbox_main_stage = (name))
+#else
+#define MAIN_STAGE(name) ((void)0)
+#endif
 
 /* ---------- constants */
 
@@ -667,11 +677,14 @@ struct _screenshot_and_framerate_globals
 typedef char screenshot_and_framerate_globals_size_assert[
 	sizeof(struct _screenshot_and_framerate_globals) == 0x38B ? 1 : -1];
 
+#ifndef HALO_XBOX_CONSOLE
 void network_test_update(boolean main_menu_loaded, real seconds);
-#ifdef HALO_GAME_BROWSER
+void audio_probe_update(unsigned char main_menu_loaded, float seconds);
+void team_change_update(void);
+#endif
+#ifdef HALO_PORT_CHAT
 void chat_update(void);
 #endif
-void team_change_update(void);
 
 /* ---------- prototypes */
 
@@ -1289,6 +1302,15 @@ void set_window_camera_values(
 	window->rasterizer_camera.mirrored = FALSE;
 	window->rasterizer_camera.z_near = rasterizer_globals.near_clip_distance;
 	window->rasterizer_camera.z_far = MAX(rasterizer_globals.far_clip_distance, far_clip_distance_floor());
+	/* port: clip distances that are not numbers (the globals not read yet)
+	are the Xbox game's */
+	if (!(window->rasterizer_camera.z_near >= 0.0f) ||
+		!(window->rasterizer_camera.z_far > window->rasterizer_camera.z_near) ||
+		window->rasterizer_camera.z_far - window->rasterizer_camera.z_far != 0.0f)
+	{
+		window->rasterizer_camera.z_near = 0.0625f;
+		window->rasterizer_camera.z_far = 1024.0f;
+	}
 	if (!debug_render_freeze)
 		window->render_camera = window->rasterizer_camera;
 
@@ -2435,6 +2457,7 @@ static boolean main_framerate_throttle_enabled(
 	return rasterizer_globals.framerate_throttle;
 }
 
+#ifndef HALO_XBOX_CONSOLE
 /* The native ports draw a frame whenever the display can show one, paced
 by vsync, and frames fall between the 30 Hz ticks
 (port/linux/game/render_interpolation.c): no vertical blank throttle, and
@@ -2479,6 +2502,7 @@ static void main_update_time_unthrottled(
 		rasterizer_globals.frame_and_vertical_blank_index;
 }
 
+#endif
 static void main_update_time(
 	void)
 {
@@ -2494,11 +2518,13 @@ static void main_update_time(
 	short short_target_index;
 	real seconds_elapsed;
 
+#ifndef HALO_XBOX_CONSOLE
 	if (halo_interpolation_enabled())
 	{
 		main_update_time_unthrottled();
 		return;
 	}
+#endif
 	end_milliseconds = system_milliseconds();
 	minimum_target_index = MAX(
 		main_globals.rasterizer_target_index,
@@ -2743,7 +2769,11 @@ void main_rasterizer_throttle(
 	did_throttle = FALSE;
 	main_globals.rasterizer_throttle_start_index =
 		rasterizer_globals.frame_and_vertical_blank_index + 1;
+#ifndef HALO_XBOX_CONSOLE
 	if (rasterizer_globals.framerate_throttle && !halo_interpolation_enabled())
+#else
+	if (rasterizer_globals.framerate_throttle)
+#endif
 	{
 		target_index = main_globals.rasterizer_target_index;
 		target_index--;
@@ -3024,11 +3054,16 @@ void main_framerate_render(
 			real frame_rate_real;
 			long frame_rate;
 			rectangle2d bounds;
+#ifndef HALO_XBOX_CONSOLE
 			/* room for three digits under C99 snprintf, which (unlike MSVC's
 			_snprintf) keeps a byte of the count for the terminator */
 			char frame_rate_string[8];
+#else
+			char frame_rate_string[4];
+#endif
 
 			bounds = render.camera.window_bounds;
+#ifndef HALO_XBOX_CONSOLE
 			/* The native ports draw at the display's refresh rate, up to
 			hundreds of frames a second: show frames per second averaged over
 			half a second, counting each frame once (split screen draws this
@@ -3055,6 +3090,13 @@ void main_framerate_render(
 				(void)frame_seconds;
 				(void)frame_rate_real;
 			}
+#else
+			frame_seconds = MAX(main_globals.seconds_elapsed, 0.01f);
+			frame_rate_real = 1.0f / frame_seconds;
+			frame_rate = fast_ftol(frame_rate_real);
+			if (main_globals.vblank_interval_held)
+				frame_rate = 60 / main_globals.vblank_interval_current;
+#endif
 
 			_snprintf(
 				frame_rate_string,
@@ -3201,7 +3243,11 @@ void halt_and_catch_fire(
 					1.0f);
 			window_parameters.camera.z_near = rasterizer_globals.near_clip_distance;
 			window_parameters.camera.viewport_bounds.x0 = 0;
+#ifndef HALO_XBOX_CONSOLE
 			window_parameters.camera.viewport_bounds.x1 = (short)halo_screen_width();
+#else
+			window_parameters.camera.viewport_bounds.x1 = 640;
+#endif
 			window_parameters.camera.viewport_bounds.y0 = 0;
 			window_parameters.camera.viewport_bounds.y1 = 480;
 			window_parameters.camera.z_far = rasterizer_globals.far_clip_distance;
@@ -3292,9 +3338,14 @@ static void main_game_render(
 	long window_count;
 	short last_local_player_index;
 
+	MAIN_STAGE("render: lock_global_random_seed");
 	lock_global_random_seed();
+	MAIN_STAGE("render: collision_log_continue_period");
 	collision_log_continue_period(TRUE);
+	MAIN_STAGE("render: sound_render");
+	HALO_PERF_BEGIN(_halo_perf_sound);
 	sound_render();
+	HALO_PERF_END(_halo_perf_sound);
 	force_single_screen = game_engine_force_single_screen();
 	last_local_player_index = NONE;
 
@@ -3311,6 +3362,7 @@ static void main_game_render(
 		window = &global_screenshot_count.windows[window_index];
 		observer = NULL;
 
+		MAIN_STAGE("render: compute_window_bounds");
 		compute_window_bounds(
 			window_index,
 			player_window_count,
@@ -3331,24 +3383,31 @@ static void main_game_render(
 				}
 				else
 				{
+					MAIN_STAGE("render: local_player_get_next");
 					last_local_player_index = local_player_get_next(last_local_player_index);
 				}
 			}
 
 			window->local_player_index = last_local_player_index;
+			MAIN_STAGE("render: observer_get_camera");
 			observer = observer_get_camera(window->local_player_index);
+			MAIN_STAGE("render: render_interpolation_camera");
+#ifndef HALO_XBOX_CONSOLE
 			observer = render_interpolation_camera(window->local_player_index, observer);
+#endif
 		}
 		else
 		{
 			window->local_player_index = NONE;
 		}
 
+		MAIN_STAGE("render: set_window_camera_values");
 		set_window_camera_values(window, observer);
 		window->console_window = FALSE;
 	}
 
 	window = &global_screenshot_count.windows[player_window_count];
+	MAIN_STAGE("render: compute_window_bounds");
 	compute_window_bounds(
 		0,
 		1,
@@ -3356,10 +3415,12 @@ static void main_game_render(
 		&window->rasterizer_camera.window_bounds);
 	window->local_player_index = NONE;
 	window->console_window = TRUE;
+	MAIN_STAGE("render: set_window_camera_values");
 	set_window_camera_values(window, NULL);
 
 	if (global_screenshot_count.count <= 0)
 	{
+		MAIN_STAGE("render: render_frame");
 		render_frame(
 			global_screenshot_count.windows,
 			player_window_count + 1,
@@ -3370,10 +3431,13 @@ static void main_game_render(
 	}
 	else
 	{
+		MAIN_STAGE("render: screenshot_render");
 		screenshot_render(global_screenshot_count.windows);
 	}
 
+	MAIN_STAGE("render: collision_log_end_period");
 	collision_log_end_period();
+	MAIN_STAGE("render: unlock_global_random_seed");
 	unlock_global_random_seed();
 	return;
 }
@@ -3386,6 +3450,7 @@ void main_loop(
 
 	if (!game_in_editor())
 	{
+		MAIN_STAGE("csstrncpy");
 		csstrncpy(main_globals.soloplayer_map_name, "levels\\b30\\b30", NUMBEROF(main_globals.soloplayer_map_name)-1);
 		main_globals.soloplayer_map_name[NUMBEROF(main_globals.soloplayer_map_name)-1] = '\0';
 	}
@@ -3394,122 +3459,201 @@ void main_loop(
 	main_globals.switch_to_structure_bsp_index = NONE;
 	main_globals.halt_time_scale = TRUE;
 
+	MAIN_STAGE("console_initialize");
 	console_initialize();
+	MAIN_STAGE("debug_keys_initialize");
 	debug_keys_initialize();
+	MAIN_STAGE("game_initialize");
 	game_initialize();
+	MAIN_STAGE("console_startup");
 	console_startup();
+	MAIN_STAGE("main_setup_connection");
 	main_setup_connection();
+	MAIN_STAGE("main_initialize_time");
 	main_initialize_time();
 
 	while (TRUE)
 	{
+#ifdef HALO_XBOX_CONSOLE
+		/* port: the loop counted for the bring-up watchdog (port/xbox/src/xbox_port.c);
+		the game list fetched once at the start, on a thread of its own, and
+		logged when it comes (port/xbox/src/xbox_game_list.c) */
+		{
+			extern volatile unsigned long xbox_main_loops;
+			extern void xbox_watchdog_start(void);
+			extern void xbox_game_list_request(void);
+			extern void xbox_game_list_update(void);
+
+			if (!xbox_main_loops)
+			{
+				xbox_watchdog_start();
+				xbox_game_list_request();
+			}
+			xbox_main_loops++;
+			xbox_game_list_update();
+			{
+				/* (a memory class message, once the main menu is up:
+				port/xbox/src/xbox_memory.c) */
+				extern void xbox_memory_update(void);
+				/* (and the stack's deepest: port/xbox/src/xbox_stack.c) */
+				extern void xbox_stack_update(void);
+
+				xbox_memory_update();
+				xbox_stack_update();
+			}
+			{
+				/* (other threads' lines into debug.txt: internet play's) */
+				extern void xbox_log_flush(void);
+
+				xbox_log_flush();
+			}
+		}
+#endif
+#ifdef HALO_CONSOLE_LOG_BUFFER
+		/* port: debug.txt's waiting lines, once a second (errors.c) */
+		error_log_update();
+#endif
 		if (!game_in_editor())
 		{
 			if (main_globals.switch_to_structure_bsp_index!=NONE)
 			{
+				MAIN_STAGE("main_switch_to_structure_bsp_private");
 				main_switch_to_structure_bsp_private();
 			}
 
 			if (main_globals.lost_map)
 			{
+				MAIN_STAGE("main_lost_map_private");
 				main_lost_map_private();
 			}
 
 			if (main_globals.won_map)
 			{
+				MAIN_STAGE("main_won_map_private");
 				main_won_map_private();
 			}
 
 			if (main_globals.respawn)
 			{
+				MAIN_STAGE("main_respawn_private");
 				main_respawn_private();
 			}
 
 			if (main_globals.save_map_completed)
 			{
+				MAIN_STAGE("main_saving_map_private");
 				main_saving_map_private();
 			}
 
 			if (main_globals.defer_map_change)
 			{
+				MAIN_STAGE("main_change_map_name");
 				main_change_map_name();
 			}
 
 			if (main_globals.revert_map)
 			{
+				MAIN_STAGE("main_revert_map_private");
 				main_revert_map_private();
 			}
 
 			if (main_globals.skip_cinematic)
 			{
+				MAIN_STAGE("main_skip_cinematic_private");
 				main_skip_cinematic_private();
 			}
 
 			if (main_globals.reset_map)
 			{
+				MAIN_STAGE("main_reset_map_private");
 				main_reset_map_private();
 			}
 
 			if (main_globals.save_core)
 			{
+				MAIN_STAGE("main_save_core_private");
 				main_save_core_private();
 			}
 
 			if (main_globals.load_core)
 			{
+				MAIN_STAGE("main_load_core_private");
 				main_load_core_private();
 			}
 
 			if (main_globals.want_to_be_at_main_menu)
 			{
+				MAIN_STAGE("main_menu_load");
 				main_menu_load();
 			}
 
 			if (main_globals.load_last_solo_level)
 			{
+				MAIN_STAGE("main_load_last_solo_map");
 				main_load_last_solo_map();
 			}
 
 			if (main_globals.run_xdemos)
 			{
+				MAIN_STAGE("main_run_demos_private");
 				main_run_demos_private();
 			}
 
 			if (main_globals.skip)
 			{
+				MAIN_STAGE("main_skip_private");
 				main_skip_private();
 			}
 
 			if (main_globals.queue_map)
 			{
+				MAIN_STAGE("main_queue_map_private");
 				main_queue_map_private();
 			}
 		}
 		else if (main_globals.reset_map)
 		{
+			MAIN_STAGE("main_reset_map_private");
 			main_reset_map_private();
 		}
 
+		MAIN_STAGE("profile_frame_start");
 		profile_frame_start();
+		MAIN_STAGE("input_frame_begin");
 		input_frame_begin();
+		MAIN_STAGE("input_update");
 		input_update();
+		MAIN_STAGE("input_abstraction_update");
 		input_abstraction_update();
+		MAIN_STAGE("shell_idle");
 		shell_idle();
+		MAIN_STAGE("event_manager_update");
 		event_manager_update();
+		MAIN_STAGE("telnet_console_process");
 		telnet_console_process();
 
 		if (!shell_application_is_paused())
 		{
 			render_frame = TRUE;
 
+#ifndef HALO_XBOX_CONSOLE
 			/* automated system link tests (port/linux/game/network_test.c) */
+			MAIN_STAGE("network_test_update");
 			network_test_update(main_globals.main_menu_scenario_loaded, main_globals.seconds_elapsed);
-#ifdef HALO_GAME_BROWSER
-			/* text chat (port/linux/game/chat.c) */
-			chat_update();
-#endif
 			/* changing teams during a game (port/linux/game/team_change.c) */
 			team_change_update();
+#endif
+#ifdef HALO_PORT_CHAT
+			/* text chat (port/linux/game/chat.c; on a console, its client's
+			part) */
+			MAIN_STAGE("chat_update");
+			chat_update();
+#endif
+			/* the audio probe's scripted recording (port/linux/game/audio_probe.c),
+			on the consoles too */
+			MAIN_STAGE("audio_probe_update");
+			audio_probe_update(main_globals.main_menu_scenario_loaded, main_globals.seconds_elapsed);
+			HALO_PERF_BEGIN(_halo_perf_network);
 			connection = main_globals.connection;
 			if (connection==_game_connection_network_client)
 			{
@@ -3517,6 +3661,7 @@ void main_loop(
 				{
 					display_error_when_main_menu_loaded(6);
 					error(_error_silent, "the game host went down");
+					MAIN_STAGE("network_game_abort");
 					network_game_abort();
 				}
 			}
@@ -3526,12 +3671,14 @@ void main_loop(
 				{
 					display_error_when_main_menu_loaded(1);
 					error(_error_silent, "the game host went down");
+					MAIN_STAGE("network_game_abort");
 					network_game_abort();
 				}
 				else if (!network_game_server_start_frame())
 				{
 					display_error_when_main_menu_loaded(1);
 					error(_error_silent, "the game host went down");
+					MAIN_STAGE("network_game_abort");
 					network_game_abort();
 				}
 			}
@@ -3539,8 +3686,11 @@ void main_loop(
 			{
 				break;
 			}
+			HALO_PERF_END(_halo_perf_network);
 
+			MAIN_STAGE("main_update_time");
 			main_update_time();
+			MAIN_STAGE("process_ui_widgets");
 			process_ui_widgets();
 #ifdef HALO_GAME_BROWSER
 			{
@@ -3555,13 +3705,17 @@ void main_loop(
 				void game_stats_update(void);
 				void discord_game_update(void);
 
+				MAIN_STAGE("dedicated_server_update");
 				dedicated_server_update();
+				MAIN_STAGE("probe_update");
 				probe_update();
+				MAIN_STAGE("game_list_claims_update");
 				game_list_claims_update();
 				game_stats_update();
 				discord_game_update();
 			}
 #endif
+			MAIN_STAGE("bink_playback_update");
 			bink_playback_update();
 
 			/* port: not End or Escape, the Xbox devkit keyboard's way out of a
@@ -3570,90 +3724,136 @@ void main_loop(
 			and a map reset from them took down the main menu or froze a game */
 			if (editor_should_exit())
 			{
+				MAIN_STAGE("main_movie_stop");
 				main_movie_stop();
 
 				if (!game_engine_running())
 				{
+					MAIN_STAGE("main_reset_map");
 					main_reset_map();
 				}
 			}
 
 			if (game_in_progress())
 			{
+				MAIN_STAGE("terminal_update");
 				terminal_update();
 
 				if (!console_update() || main_globals.connection!=_game_connection_local)
 				{
+					MAIN_STAGE("debug_keys_update");
 					debug_keys_update();
+					MAIN_STAGE("cheats_update");
 					cheats_update();
+					MAIN_STAGE("player_control_update");
 					player_control_update((real)main_globals.halt_time_scale*main_globals.seconds_elapsed);
 
+					HALO_PERF_BEGIN(_halo_perf_network);
 					connection = main_globals.connection;
 					if (connection>_game_connection_local && connection<=_game_connection_network_server && !network_game_client_end_frame())
 					{
 						display_error_when_main_menu_loaded(1);
+						MAIN_STAGE("network_game_abort");
 						network_game_abort();
 					}
+					HALO_PERF_END(_halo_perf_network);
 
+					MAIN_STAGE("game_time_update");
 					game_time_update((real)main_globals.halt_time_scale*main_globals.seconds_elapsed);
 
 					render_frame = main_globals.main_menu_scenario_loaded ||
 						(main_globals.halt_time_scale &&
 							(game_time_get_paused() || game_time_get_elapsed()>0 || game_time_get_speed()<1.0f));
+#ifndef HALO_XBOX_CONSOLE
 					/* frames between ticks too (render_interpolation.c) */
 					if (halo_interpolation_enabled())
 						render_frame = main_globals.main_menu_scenario_loaded || main_globals.halt_time_scale;
+#endif
 					render_frame &= !game_engine_running() || game_time_get()>=3;
 
+					MAIN_STAGE("collision_log_continue_period");
 					collision_log_continue_period(1);
+					MAIN_STAGE("director_update");
 					director_update((real)main_globals.halt_time_scale*main_globals.seconds_elapsed);
+					MAIN_STAGE("observer_update");
 					observer_update((real)main_globals.halt_time_scale*main_globals.seconds_elapsed);
+					MAIN_STAGE("collision_log_end_period");
 					collision_log_end_period();
+					MAIN_STAGE("game_engine_update_non_deterministic");
 					game_engine_update_non_deterministic((real)main_globals.halt_time_scale*main_globals.seconds_elapsed);
 				}
 
 				if (main_globals.saving_map)
 				{
+					MAIN_STAGE("main_save_map_private");
 					main_save_map_private();
 				}
 
 				if (render_frame && !debug_no_drawing)
 				{
+					MAIN_STAGE("profile_render_start");
 					profile_render_start();
+					MAIN_STAGE("render_interpolation_frame_begin");
+#ifndef HALO_XBOX_CONSOLE
 					render_interpolation_frame_begin();
+					MAIN_STAGE("main_game_render");
 					main_game_render((double)main_globals.seconds_elapsed);
+					MAIN_STAGE("render_interpolation_frame_end");
 					render_interpolation_frame_end();
+					MAIN_STAGE("profile_render_end");
+#else
+					HALO_PERF_BEGIN(_halo_perf_render);
+					main_game_render((double)main_globals.seconds_elapsed);
+					HALO_PERF_END(_halo_perf_render);
+#endif
 					profile_render_end();
 				}
 			}
 			else
 			{
+				MAIN_STAGE("profile_render_start");
 				profile_render_start();
+				MAIN_STAGE("main_pregame_render");
+				HALO_PERF_BEGIN(_halo_perf_render);
 				main_pregame_render();
+				HALO_PERF_END(_halo_perf_render);
+				MAIN_STAGE("profile_render_end");
 				profile_render_end();
 			}
 
+			MAIN_STAGE("main_rasterizer_throttle");
+			HALO_PERF_BEGIN(_halo_perf_vsync_wait);
 			main_rasterizer_throttle();
+			HALO_PERF_END(_halo_perf_vsync_wait);
 
 			if (render_frame && !debug_no_drawing)
 			{
+				MAIN_STAGE("main_present_frame");
+				HALO_PERF_BEGIN(_halo_perf_present);
 				main_present_frame();
+				HALO_PERF_END(_halo_perf_present);
 			}
 		}
 
+		MAIN_STAGE("input_frame_end");
 		input_frame_end();
+		MAIN_STAGE("profile_frame_end");
 		profile_frame_end();
+		HALO_PERF_FRAME();
+		MAIN_STAGE("main_frame_rate_debug");
 		main_frame_rate_debug();
 
 		if (main_globals.restart_time)
 		{
 			main_globals.restart_time = FALSE;
+			MAIN_STAGE("main_reset_time");
 			main_reset_time();
 			main_globals.halt_time_scale = TRUE;
 		}
 	}
 
 	error(_error_silent, "end of saved film");
+	MAIN_STAGE("main_exit");
 	main_exit();
 
 	return;

@@ -82,6 +82,32 @@ A port adds its own options (toolchains and SDK libraries) with
 
 The shared code tests console capabilities, never a console's name, where
 another console could use the same hook: `HALO_CONSOLE_*` defines and
-`console.*` settings. A console's own code, its build script and its
-packaging stay in its repository. A change to the shared code goes to the
-game first; the console repository then moves its submodule to it.
+`console.*` settings. A port turns a capability on from its own build's
+define in `port/linux/include/halo_console_features.h`, which lists them
+and what each hook asks of the port, or on its compile lines:
+
+| Capability | What it is |
+| --- | --- |
+| `HALO_CONSOLE_PLAYERS` | the players the network tables hold, and the console's session limits (`halo_port_limits.h`) |
+| `HALO_CONSOLE_MEMORY_CLASS` | the port answers for its memory class: the baseline's sizes, or larger caches and buffers above it (`halo_console_memory.h`) |
+| `HALO_CONSOLE_DELTA` | Delta Peer as a client |
+| `HALO_CONSOLE_NO_*` | the desktop extras a console leaves out (`halo_port_features.h`, a port's prefix header) |
+| `HALO_CONSOLE_ONLINE_GAMES` | the console's own Online Games screen |
+| `HALO_CONSOLE_LOG_BUFFER`, `HALO_CONSOLE_LOG_THROTTLE` | a log whose writes are slow |
+| `HALO_CONSOLE_GPU_RESOURCE_HOOKS`, `HALO_CONSOLE_NO_WRITE_WATCH`, `HALO_CONSOLE_HOST_ART`, `HALO_CONSOLE_MAP_LOAD_HOOKS`, `HALO_CONSOLE_STATUS_LINE` | a console renderer of its own |
+
+A console's name stays in the shared code only for what is that console's
+alone: `HALO_XBOX_CONSOLE` is the original Xbox's own target (the game as
+the Xbox ran it, its SDK's calls, the game's calls into `port/xbox`), and
+`HALO_SWITCH_CONSOLE` the Switch's settings and renderer calls.
+
+A console's own code, its build script and its packaging stay in its
+repository. A change to the shared code goes to the game first; the
+console repository then moves its submodule to it.
+
+### Desktop test builds of a console's side
+
+| Option | What it does |
+| --- | --- |
+| `--console-limits` | a desktop build with the original Xbox's network and object limits, to test the console's side of cross-play on one computer ([cross-play.md](cross-play.md)); never a build to ship |
+| `--window-rebase` | the 32-bit Linux build with its Xbox memory window wherever `HALO_WINDOW_BASE` puts it, as the Switch's guest has it; never a build to ship |

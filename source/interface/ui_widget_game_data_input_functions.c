@@ -362,6 +362,7 @@ symbols in this file:
 
 #ifdef HALO_CUSTOM_EDITION
 #include "halo_ui_map_list.h"
+#endif
 
 /* port: a player who shares their Delta profile, by its name on the
 pregame screen (port/linux/game/profile_names.c): their own line, and a
@@ -410,7 +411,6 @@ static wchar_t const *pregame_machine_name(
 	}
 	return count == 1 ? pregame_player_name(found, name, buffer, PREGAME_MACHINE_NAME_SHOWN) : name;
 }
-#endif
 
 /* ---------- constants */
 
@@ -915,7 +915,7 @@ static void multiplayer_type_menu_update_extended_description(
 	among those that take events, as its game counts them (past its labels) */
 	index = ui_widget_port_list_index(list_widget);
 
-#ifdef HALO_GAME_BROWSER
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 	{
 		/* (ONLINE GAMES, an item the menu's tags lack: ui_widget.c) */
 		short ui_widget_online_games_description(struct widget_instance *list_widget, short index);
@@ -2406,11 +2406,14 @@ static void game_options_menu_update_text_desc(
 static void game_options_menu_update_pic_desc(
 	struct widget_instance *widget)
 {
+	/* port: the picture hidden for an extra item without one */
+	static struct widget_instance *hidden_picture = NULL;
 	struct widget_instance *column;
 	struct widget_instance *extended_description;
 	struct widget_instance *spinner_list;
 	struct ui_widget_definition *definition;
 	long description_index;
+	boolean pictured = TRUE;
 
 	match_vassert(
 		"c:\\halo\\SOURCE\\interface\\ui_widget_game_data_input_functions.c",
@@ -2452,7 +2455,11 @@ static void game_options_menu_update_pic_desc(
 
 			if (column == widget->focused_child)
 			{
-				/* port: an extra item shows its spinner's last picture of its own */
+				/* port: an extra item shows its spinner's last picture of its
+				own, or none where the picture has no frame for it (Bumper
+				Jumper: ui_widget.c) */
+				pictured = ui_widget_spinner_item_pictured(spinner_list,
+					spinner_list->parameters.list.selected_list_item_index);
 				description_index += MIN(spinner_list->parameters.list.selected_list_item_index,
 					ui_widget_spinner_own_item_count(spinner_list) - 1);
 				break;
@@ -2464,6 +2471,12 @@ static void game_options_menu_update_pic_desc(
 	}
 
 	extended_description->animation.current_frame_index = (short)description_index;
+	/* (hidden only while such an item is chosen, and shown again after) */
+	if (!pictured || extended_description == hidden_picture)
+	{
+		widget_instance_set_visibility_recursive(extended_description, pictured);
+		hidden_picture = pictured ? NULL : extended_description;
+	}
 	return;
 }
 

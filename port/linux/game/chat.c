@@ -44,9 +44,21 @@ most 63 characters. A message of the wrong size is dropped, said in the log
 once.
 
 debug.chat_test runs a script of lines, for the automated tests.
+
+A console with Delta Peer as a client (HALO_CONSOLE_DELTA) has the client's
+part only: the lines heard (an OpenCE host's too, over its stream), the
+server's, the quick lines, and a USB
+keyboard's T, Y and H (port/xbox/game/xbox_chat_keys.c); it never hosts on
+Delta, so the host's routing and its filter are left out, and its log
+keeps fewer lines. HALO_CONSOLE_NO_CHAT leaves all of it out.
 */
 
+#ifdef HALO_PORT_CHAT
+
+/* (the host's routing: the desktop builds and the dedicated server) */
 #ifdef HALO_GAME_BROWSER
+#define CHAT_HOST
+#endif
 
 #include "cseries.h"
 #include "cseries/cseries_windows.h"
@@ -90,7 +102,11 @@ void platform_log(char const *format, ...);
 enum
 {
 	/* the lines kept for the log, and shown over the game at once */
+#ifdef CHAT_HOST
 	LOG_LINES = 48,
+#else
+	LOG_LINES = 16,
+#endif
 	SHOWN_LINES = 4,
 	LOG_SHOWN_LINES = 12,
 	/* a line shows this long, then fades for this long (milliseconds) */
@@ -109,7 +125,12 @@ enum
 	/* the quick line picked shows this long before it is put away */
 	QUICK_TIME = 4000,
 	MACHINES = 128,
+#ifdef CHAT_HOST
 	PLAYERS = 128,
+#else
+	/* (a console's log lists the players its game holds) */
+	PLAYERS = HALO_PORT_MAXIMUM_NETWORK_PLAYERS,
+#endif
 	NO_TEAM = -1,
 	/* the host's settings told each OpenCE machine again this often (as
 	OpenCE's host does: one that joined since learns them) */
@@ -200,8 +221,10 @@ static struct
 	/* a dedicated server's welcome (empty: none), and the machines sent it
 	since their player joined */
 	char host_welcome[DELTA_WIRE_CHAT_TEXT_SIZE + 1];
+#ifdef CHAT_HOST
 	boolean welcomed[MACHINES];
 	struct delta_chat_filter host_filter;
+#endif
 	int (*moderator_check)(int machine_index);
 	/* the part played last frame (a new game starts the log's state again) */
 	int role;
@@ -214,10 +237,12 @@ static struct
 	A malformed message said in the log once */
 	boolean bridge_known;
 	int bridge_flags;
+#ifdef CHAT_HOST
 	boolean bridge_sent[MACHINES];
 	int bridge_sent_flags[MACHINES];
 	unsigned long bridge_sent_time[MACHINES];
 	struct delta_chat_bridge_budget bridge_budgets[MACHINES];
+#endif
 	boolean bridge_logged;
 } chat;
 
@@ -410,9 +435,11 @@ static boolean muted(short machine, wchar_t const *name)
 /* the filter of what is shown: the built-in list, and the player's file */
 static void filter_read(void)
 {
+#ifdef CHAT_HOST
 	char const *file = config_string("chat.filter_file");
 	static char text[32768];
 	int length;
+#endif
 
 	if (chat.filter_loaded && chat.filter_read_at == config_changes())
 		return;
@@ -420,12 +447,15 @@ static void filter_read(void)
 	chat.filter_read_at = config_changes();
 	delta_chat_filter_clear(&chat.filter);
 	delta_chat_filter_add(&chat.filter, delta_chat_blocked_words, (int)strlen(delta_chat_blocked_words), TRUE);
+#ifdef CHAT_HOST
+	/* (a console has the built-in list alone: no 32 KB for a file) */
 	length = delta_peer_game_read_save_file(file, text, (int)sizeof(text));
 	if (length > 0)
 	{
 		platform_log("chat: %d words of your own blocked (%s)", delta_chat_filter_add(&chat.filter, text, length,
 			FALSE), file);
 	}
+#endif
 }
 
 /* a player's or the server's line heard (or the host's own): kept, as the
@@ -499,6 +529,9 @@ struct bridge_message
 	struct distributed_message_header header;
 	unsigned char entry[DELTA_CHAT_BRIDGE_LINE_SIZE];
 };
+
+#ifdef CHAT_HOST
+/* (the host's side of OpenCE's chat: a console never hosts on Delta) */
 
 static boolean bridge_hosting(void)
 {
@@ -879,6 +912,16 @@ int chat_server_say(char const *text)
 	return route(&line, NO_TEAM, FALSE);
 }
 
+#else
+/* (a console never hosts on Delta: its lines go to the host, and a
+dedicated server's settings are not its) */
+int chat_server_say(char const *text)
+{
+	(void)text;
+	return 0;
+}
+#endif
+
 /* ---------- this copy's player */
 
 static char const *refusal_text(int reason, int scope, int paused_seconds)
@@ -917,6 +960,7 @@ static void bridge_malformed(long machine_index, int type)
 		type, machine_index);
 }
 
+#ifdef CHAT_HOST
 /* (the host) an OpenCE machine's line: checked as a Delta machine's is,
 then routed as the host's own lines are; a refusal told it as a notice */
 static void bridge_up(long machine_index, void const *entry, int size)
@@ -964,6 +1008,7 @@ static void bridge_up(long machine_index, void const *entry, int size)
 	}
 	delta_chat_bridge_said(&chat.bridge_budgets[machine], now, line.text, length);
 }
+#endif
 
 /* (a client) whether this copy's chat is OpenCE's: a host without Delta's
 chat, and its settings allowing it */
@@ -1024,9 +1069,11 @@ void chat_bridge_message(long machine_index, int type, void const *entry, int si
 		return;
 	switch (type)
 	{
+#ifdef CHAT_HOST
 	case _distributed_message_chat_up:
 		bridge_up(machine_index, entry, size);
 		break;
+#endif
 	case _distributed_message_chat_down:
 		bridge_down(entry, size);
 		break;
@@ -1085,6 +1132,7 @@ static void say(short scope, char const *text, int length)
 		return;
 	}
 	chat.sent_scope = scope;
+#ifdef CHAT_HOST
 	if (role == 2)
 	{
 		int reason = host_line(network_game_client_get_local_machine_index(), scope, text, length);
@@ -1092,7 +1140,11 @@ static void say(short scope, char const *text, int length)
 		if (reason)
 			note(refusal_text(reason, scope, 0));
 	}
-	else if (delta_peer_game_chat_ready())
+	else
+#else
+	(void)role;
+#endif
+	if (delta_peer_game_chat_ready())
 	{
 		if (!delta_peer_game_chat_say(scope, text, length))
 			note("Not sent");
@@ -1416,15 +1468,19 @@ void chat_update(void)
 			chat.host_filtering = TRUE;
 		}
 		filter_read();
+#ifdef CHAT_HOST
 		delta_chat_filter_clear(&chat.host_filter);
 		delta_chat_filter_add(&chat.host_filter, delta_chat_blocked_words, (int)strlen(delta_chat_blocked_words),
 			TRUE);
+#endif
 	}
+#ifdef CHAT_HOST
 	if (!chat.host_registered)
 	{
 		chat.host_registered = TRUE;
 		delta_peer_game_set_chat_host(&chat_host);
 	}
+#endif
 	if (role != chat.role)
 	{
 		/* (a new game, or none: what was typed and muted goes) */
@@ -1432,7 +1488,9 @@ void chat_update(void)
 		chat.received_read = delta_peer_game_chat_received();
 		chat.refused_read = delta_peer_game_chat_refused(NULL);
 		chat.said_no_host = FALSE;
+#ifdef CHAT_HOST
 		csmemset(chat.welcomed, 0, sizeof(chat.welcomed));
+#endif
 		chat.mute_count = 0;
 		chat.test_next = NULL;
 		if (chat.typing)
@@ -1446,12 +1504,14 @@ void chat_update(void)
 	/* (a client's OpenCE host tells its settings again in each game) */
 	if (game_connection() != _game_connection_network_client || !game_in_progress())
 		chat.bridge_known = FALSE;
+#ifdef CHAT_HOST
 	if (role == 2)
 	{
 		host_settings();
 		host_welcome();
 		bridge_host_frame();
 	}
+#endif
 	if (role == 1)
 	{
 		struct delta_peer_game_moderation moderation;
@@ -1489,7 +1549,12 @@ void chat_update(void)
 				utf8_to_wide(moderation.notice, (int)strlen(moderation.notice), text, TEXT_LENGTH);
 				wide_from_ascii(moderation.notice_kind == _delta_moderation_notice_warning ? "Server warning" : "Server",
 					name, NAME_LENGTH);
+#ifdef HALO_GAME_BROWSER
 				log_add(_entry_server, 0, NO_TEAM, NONE, name, text)->log_only = TRUE;
+#else
+				/* (a console has no banner: the lines show them) */
+				log_add(_entry_server, 0, NO_TEAM, NONE, name, text);
+#endif
 			}
 			chat.notice_read = moderation.notice_count;
 		}

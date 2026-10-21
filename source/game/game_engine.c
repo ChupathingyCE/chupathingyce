@@ -5666,6 +5666,17 @@ void game_engine_end_game(
 		if (global_network_game_server_get())
 			game_engine_report_game();
 #endif
+#ifdef HALO_XBOX_CONSOLE
+		/* (the first online game that ends: the console's signed platform
+		claim, port/xbox/src/xbox_claim_run.c) */
+		if (game_connection() == _game_connection_network_client ||
+			game_connection() == _game_connection_network_server)
+		{
+			extern void xbox_claim_game_ended(void);
+
+			xbox_claim_game_ended();
+		}
+#endif
 		game_engine_globals.postgame_state = game_engine_mode_postgame_delay;
 		game_engine_globals.postgame_timer = 7.0f;
 		game_engine_play_multiplayer_sound(_multiplayer_sound_game_over);
@@ -9640,7 +9651,24 @@ void game_engine_read_network_state(
 	/* (a state the game type refused is not had: the first it takes is,
 	whose events it only takes) */
 	if (!read)
+	{
+#ifdef HALO_PORT_CONSOLE_LIMITS
+		/* port: the console's limits (halo_port_limits.h): slayer's and
+		ctf's states from a PC host are read; the others' are the PCs' 128
+		slots, which this build does not yet fold, so their scores stay this
+		machine's own (told once a game type) */
+		static long told_types = 0;
+		long type = game_engine_get_type();
+
+		if (type >= 0 && type < 32 && !(told_types & (1L << type)))
+		{
+			told_types |= 1L << type;
+			error(3, "cross-play: the host's state of game type %ld (%ld bytes) is not one this build reads",
+				type, size);
+		}
+#endif
 		return;
+	}
 	game_engine_network_state_read = TRUE;
 	/* the game ended on the host (after what ended it is shown, as the host
 	shows it) */

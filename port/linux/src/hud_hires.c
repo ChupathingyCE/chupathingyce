@@ -326,6 +326,14 @@ unsigned int hud_hires_png_texture(const void *png, unsigned long size, unsigned
 	return png_pixels_texture(pixels, width, height, levels);
 }
 
+#ifdef HALO_CONSOLE_HOST_ART
+unsigned char *hud_hires_png_pixels(const void *png, unsigned long size, unsigned long *width, unsigned long *height)
+{
+	*width = *height = 0;
+	return png_decode(png, size, width, height);
+}
+#endif
+
 unsigned int hud_hires_override_texture(long asset, unsigned long *levels)
 {
 	const struct hud_hires_embedded *embedded;
@@ -413,10 +421,18 @@ static void *decode_thread_main(void *unused)
 	return NULL;
 }
 
+#ifdef HALO_CONSOLE_HOST_ART
+static long assets_queued[MAXIMUM_TEXTURES];
+#endif
+
 void hud_hires_map_unloaded(void)
 {
 	long asset;
 
+#ifdef HALO_CONSOLE_HOST_ART
+	/* (the host's sheets decoded for the map and not drawn) */
+	dk_hud_forget();
+#endif
 	pthread_mutex_lock(&decode_lock);
 	decode_stopping = 1;
 	while (decode_running)
@@ -436,6 +452,21 @@ void hud_hires_map_loaded(const long *assets, long count)
 	pthread_t thread;
 
 	hud_hires_map_unloaded();
+#ifdef HALO_CONSOLE_HOST_ART
+	/* (decoded by the host, on a thread of its own, into its own memory:
+	the Switch's, port/switch/host/host_dk_hud.c. The titles' are decoded when first drawn) */
+	if (!config_boolean("display.high_res_hud"))
+		return;
+	for (index = 0; index < count; index++)
+	{
+		if (assets[index] >= 0 && assets[index] < hud_hires_asset_count() &&
+			!hud_hires_embedded[assets[index]].title)
+			assets_queued[queued++] = assets[index];
+	}
+	dk_hud_prepare(assets_queued, queued);
+	(void)thread;
+	return;
+#endif
 #if defined(HALO_SERVER) || defined(HALO_ANDROID)
 	/* (the dedicated server draws nothing; Android, whose memory is the
 	tightest, decodes each when first drawn: holding a map's decoded HUD

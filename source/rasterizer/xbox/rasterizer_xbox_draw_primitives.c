@@ -242,6 +242,7 @@ symbols in this file:
  */
 #include <xtl.h>
 #include "rasterizer_xbox.h"
+#include "halo_perf_log.h" /* port: console.perf_log */
 
 /* ---------- constants */
 
@@ -358,6 +359,10 @@ static struct dynamic_triangles_globals dynamic_triangles = {0};
 static D3DVertexBuffer *aux_dynamic_unlit_vb = NULL;
 static boolean dynamic_triangles_overflow_warning = FALSE;
 static boolean dynamic_vertices_overflow_warning = FALSE;
+/* port: the dynamic triangles the index buffer holds: the Xbox's, or more on
+a console above its memory baseline (halo_console_memory.h), set as the
+buffer is made */
+static long dynamic_triangles_maximum = RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLES;
 
 
 /* ---------- public code */
@@ -374,9 +379,11 @@ boolean rasterizer_dynamic_geometry_initialize(
 		93,
 		global_d3d_device);
 
+	dynamic_triangles_maximum = HALO_CONSOLE_MEMORY_EXTRAS(RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLES,
+		RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLES_EXTRAS);
 	result = IDirect3DDevice8_CreateIndexBuffer(
 		global_d3d_device,
-		sizeof(struct rasterizer_triangle)*RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLES,
+		sizeof(struct rasterizer_triangle)*dynamic_triangles_maximum,
 		RASTERIZER_DYNAMIC_BUFFER_USAGE,
 		D3DFMT_INDEX16,
 		RASTERIZER_DYNAMIC_BUFFER_POOL,
@@ -631,7 +638,7 @@ long _rasterizer_dynamic_triangles_new(
 
 	if (count>0)
 	{
-		if (dynamic_triangles.triangle_count<RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLES-count &&
+		if (dynamic_triangles.triangle_count<dynamic_triangles_maximum-count &&
 			dynamic_triangles.buffer_count<RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLE_BUFFERS-1)
 		{
 			struct dynamic_triangle_buffer *dynamic_triangle_buffer;
@@ -802,7 +809,11 @@ long _rasterizer_dynamic_vertices_new(
 		}
 		else if (!dynamic_vertices_overflow_warning)
 		{
-			error(_error_silent, "### ERROR too many dynamic vertices requested from rasterizer");
+			error(_error_silent,
+				"### ERROR too many dynamic vertices requested from rasterizer "
+				"(type %d: %ld of %ld used, %ld requested; %ld of %d buffers)",
+				(int)type, (long)group->vertex_count, (long)group->maximum_vertex_count, (long)count,
+				(long)dynamic_vertices.buffer_count, RASTERIZER_MAXIMUM_DYNAMIC_VERTEX_BUFFERS);
 			dynamic_vertices_overflow_warning = TRUE;
 		}
 	}
@@ -1086,6 +1097,7 @@ void rasterizer_draw_dynamic_vertices(
 				"IDirect3DDevice8_SetStreamSource(global_d3d_device, 0, d3d_vertex_buffer, vertex_size)");
 		}
 
+		HALO_PERF_COUNT(_halo_perf_draws, 1);
 		if (IDirect3DDevice8_DrawPrimitive(
 			global_d3d_device,
 			d3d_primitive_type,
@@ -1230,6 +1242,7 @@ void rasterizer_draw_dynamic_triangles_dynamic_vertices(
 				"IDirect3DDevice8_SetIndices(global_d3d_device, dynamic_triangles.d3d_index_buffer, dynamic_vertex_buffer->vertex_start_index)");
 		}
 
+		HALO_PERF_COUNT(_halo_perf_draws, 1);
 		if (IDirect3DDevice8_DrawIndexedPrimitive(
 			global_d3d_device,
 			D3DPT_TRIANGLELIST,
@@ -1365,6 +1378,7 @@ void rasterizer_draw_dynamic_triangles_static_vertices(
 				"IDirect3DDevice8_SetIndices(global_d3d_device, dynamic_triangles.d3d_index_buffer, 0)");
 		}
 
+		HALO_PERF_COUNT(_halo_perf_draws, 1);
 		if (IDirect3DDevice8_DrawIndexedPrimitive(
 			global_d3d_device,
 			D3DPT_TRIANGLELIST,
@@ -1524,6 +1538,7 @@ void rasterizer_draw_dynamic_triangles_static_vertices2(
 				"IDirect3DDevice8_SetIndices(global_d3d_device, dynamic_triangles.d3d_index_buffer, 0)");
 		}
 
+		HALO_PERF_COUNT(_halo_perf_draws, 1);
 		if (IDirect3DDevice8_DrawIndexedPrimitive(
 			global_d3d_device,
 			D3DPT_TRIANGLELIST,
@@ -1671,6 +1686,7 @@ void rasterizer_draw_static_triangles_dynamic_vertices(
 				"IDirect3DDevice8_SetIndices(global_d3d_device, (IDirect3DIndexBuffer8*)triangle_buffer->hardware_format, dynamic_vertex_buffer->vertex_start_index)");
 		}
 
+		HALO_PERF_COUNT(_halo_perf_draws, 1);
 		if (IDirect3DDevice8_DrawIndexedPrimitive(
 			global_d3d_device,
 			d3d_primitive_type_table[triangle_buffer->type],
@@ -1815,6 +1831,7 @@ void rasterizer_draw_static_triangles_static_vertices(
 				"IDirect3DDevice8_SetIndices(global_d3d_device, (IDirect3DIndexBuffer8*)triangle_buffer->hardware_format, 0)");
 		}
 
+		HALO_PERF_COUNT(_halo_perf_draws, 1);
 		if (IDirect3DDevice8_DrawIndexedPrimitive(
 			global_d3d_device,
 			d3d_primitive_type_table[triangle_buffer->type],

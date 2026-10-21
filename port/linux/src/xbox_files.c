@@ -30,6 +30,9 @@ game's log, d:\debug.txt (and debug.old.txt), is in logs/.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef HALO_WINDOW_REBASE
+#include <strings.h>
+#endif
 #include <unistd.h>
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -409,11 +412,48 @@ static const char *log_file_name(const char *xbox_path)
 	}
 	return NULL;
 }
+#ifdef HALO_WINDOW_REBASE
+/* A saved game is the game state written out raw, pointers and all
+(saved games/game_state_xbox.c): z:\savegame.bin, the checkpoint the game
+reverts to, and savegame.bin in the player's profile folder on u:\, the one
+"save and quit" leaves for the next run. Its pointers are into the window
+where it was written, and its header does not say where that was, so read
+with the window elsewhere it points at memory the process is not using.
+With the window moved (cseries/xbox_address.h) the file is named for the
+window's address, savegame-20000000.bin: a run with the window elsewhere
+does not see it and starts the level over, and a later run at that address
+finds it again. Nothing else the game keeps holds a pointer, and stays where
+it is. With the window at its linked address the name is the game's own.
+Returns xbox_path, or the renamed path in buffer. */
+static const char *window_save_path(const char *xbox_path, char *buffer, unsigned long buffer_size)
+{
+	const char *name = xbox_path;
+	const char *cursor;
+
+	if (PLATFORM_CONTIGUOUS_BASE == 0x80000000UL)
+		return xbox_path;
+	for (cursor = xbox_path; *cursor; cursor++)
+	{
+		if (*cursor == '\\' || *cursor == '/' || *cursor == ':')
+			name = cursor + 1;
+	}
+	if (strcasecmp(name, "savegame.bin"))
+		return xbox_path;
+	snprintf(buffer, buffer_size, "%.*ssavegame-%08lx.bin", (int)(name - xbox_path), xbox_path,
+		(unsigned long)PLATFORM_CONTIGUOUS_BASE);
+	return buffer;
+}
+#endif
 
 void platform_translate_path(const char *xbox_path, char *host_path, unsigned long host_path_size)
 {
 	char resolved[1024];
+#ifdef HALO_WINDOW_REBASE
+	char renamed[1024];
+	const char *cursor = window_save_path(xbox_path, renamed, sizeof(renamed));
+#else
 	const char *cursor = xbox_path;
+#endif
 	const char *log_name = log_file_name(xbox_path);
 	unsigned long length;
 
@@ -712,6 +752,26 @@ static struct platform_file *file_from_handle(HANDLE handle)
 	return record ? record->data : NULL;
 }
 
+/* The game is about to write a new map over one of its map cache files
+(source/cache/cache_files_windows.c). The Switch's host keeps those files in
+memory (port/switch/host/host_memory_files.c): the file is emptied and given
+its size back, so the old map's memory goes before the new map's is taken.
+A file on a disk is written over as it is, and the other builds have no
+such call. */
+#ifdef HALO_SWITCH_CONSOLE
+void platform_file_discard(HANDLE handle)
+{
+	struct platform_file *file = file_from_handle(handle);
+	struct posix_file_information information;
+
+	if (file && posix_fstat(file->descriptor, &information) == 0)
+	{
+		posix_truncate(file->descriptor, 0, 0);
+		posix_truncate(file->descriptor, information.size_low, information.size_high);
+	}
+}
+#endif
+
 HANDLE WINAPI CreateFileA(LPCSTR file_name, DWORD desired_access, DWORD share_mode,
 	LPSECURITY_ATTRIBUTES security_attributes, DWORD creation_disposition,
 	DWORD flags_and_attributes, HANDLE template_file)
@@ -814,8 +874,16 @@ static BOOL read_at(struct platform_file *file, LPVOID buffer, DWORD count, LPDW
 	faulting. Guest memory is therefore filled through a bounce buffer: the
 	copy faults like any other write, at the moment the data really lands,
 	so a texture uploaded while the read is in flight is refreshed. */
+#ifdef HALO_CONSOLE_NO_WRITE_WATCH
+	/* The console will not write-protect guest memory (the first, the
+	Switch: its host's host_mman.c), so there is no watch for a bounce to keep honest, and the
+	staging buffer was a 128 KB malloc and free per read - each one a map and
+	an unmap in the host - that made loading a map crawl. */
+	BOOL bounce = FALSE;
+#else
 	BOOL bounce = platform_is_contiguous(buffer) ||
 		platform_is_contiguous((char *)buffer + (count ? count - 1 : 0));
+#endif
 	char *staging = bounce ? malloc(count < READ_BOUNCE_SIZE ? count : READ_BOUNCE_SIZE) : NULL;
 
 	if (bounce && !staging)
@@ -853,6 +921,12 @@ static BOOL read_at(struct platform_file *file, LPVOID buffer, DWORD count, LPDW
 		total += (DWORD)result;
 	}
 	free(staging);
+#ifdef HALO_CONSOLE_NO_WRITE_WATCH
+	/* read straight into guest memory, past the write watch (above): if it
+	was texture memory, its textures are drawn again from it */
+	if (total && platform_is_contiguous(buffer))
+		memory_watch_prepare_write(buffer, total);
+#endif
 	if (bytes_read)
 		*bytes_read = total;
 	return TRUE;

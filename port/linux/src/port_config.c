@@ -12,16 +12,25 @@ written as a value only when the player chooses one (config_write). Once
 the file exists only those lines, the settings a newer version adds and an
 older file's layout (config_version) are changed in it, so that the player's
 edits and comments stay.
+
+The original Xbox builds this file too (warthog-xbox's port/xbox/build.py, HALO_XBOX_CONSOLE):
+its D:\config.toml beside default.xbe has the settings marked for it, read
+and written with the C runtime's files in place of SDL's; it has no
+environment, and a setting not marked for it reads as empty, 0 or false, as
+it did before the console had the file.
 */
 
 #include "platform.h"
 #include "port_config.h"
+#include "halo_port_limits.h"
 #include "posix.h"
 
 #include <time.h>
 #include "tomlc17.h"
 
+#ifndef HALO_XBOX_CONSOLE
 #include <SDL3/SDL.h>
+#endif
 #include <ctype.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -29,6 +38,17 @@ edits and comments stay.
 #include <string.h>
 #ifndef _WIN32
 #include <unistd.h>
+
+#ifdef HALO_SWITCH_CONSOLE
+/* the guest's write is not on the card until the host commits it
+(port/switch/host/host_main.c) */
+void host_storage_commit(void);
+#endif
+#endif
+
+#ifdef HALO_XBOX_CONSOLE
+/* (the console's C runtime's) */
+#define SDL_strncasecmp _strnicmp
 #endif
 
 /* ---------- the settings */
@@ -61,6 +81,9 @@ enum
 	_platform_all = _platform_desktop | _platform_android,
 	/* (of the desktop builds, only Windows) */
 	_platform_windows = 4,
+	/* the original Xbox (port/xbox): not in _platform_all, each of its
+	settings marked for it */
+	_platform_xbox = 8,
 };
 
 struct config_setting
@@ -69,6 +92,7 @@ struct config_setting
 	enum config_type type;
 	/* as it is written in the file */
 	const char *default_value;
+	/* NULL for a setting only the console has */
 	const char *environment;
 	enum config_environment environment_style;
 	unsigned platforms;
@@ -141,6 +165,96 @@ static const struct config_setting config_settings[] =
 		_platform_android,
 		"Where compressed textures are unpacked: \"gpu\", \"cpu\" (more memory) or\n"
 		"\"auto\" (\"cpu\" on Adreno graphics, \"gpu\" on others)." },
+#ifdef HALO_SWITCH_CONSOLE
+	/* the Switch's (port/switch): read by the deko3d renderer in the guest
+	(port/switch/guest/d3d8_dk.c) and by the host from config.toml itself */
+	/* (720 by default: a handheld console's own lines, 1280x720) */
+	{ "display.resolution_limit", _config_string, "\"720\"", "HALO_RESOLUTION_LIMIT", _environment_value,
+		_platform_android,
+		"The lines the game draws at: \"480\" (the game's own), \"720\", \"900\" or\n"
+		"\"1080\" (or any number between), no more than the console shows (1280x720\n"
+		"in handheld, 1920x1080 docked), which the picture is scaled up to. Changes\n"
+		"at once." },
+	{ "display.dynamic_resolution", _config_boolean, "false", "HALO_DYNAMIC_RESOLUTION", _environment_value,
+		_platform_android,
+		"While the GPU would hold the game under 55 frames a second (for half a\n"
+		"second), draw one step lower (1080 to 900, 900 to 720, 720 to 480: never\n"
+		"more), and go back once the frame would fit in 90% of a 60 Hz frame for\n"
+		"a second. Changes at once." },
+	{ "debug.resolution_uncapped", _config_boolean, "false", "HALO_RESOLUTION_UNCAPPED", _environment_value,
+		_platform_android,
+		"Draw at display.resolution_limit's lines even past what the console\n"
+		"shows, scaled down to it: a Switch Lite (720p) drawing 1080p, to test\n"
+		"a docked console's GPU load. Changes at once." },
+	{ "performance.cpu_clock", _config_string, "\"1785\"", "HALO_CPU_CLOCK", _environment_value, _platform_android,
+		"The CPU's clock: \"1785\" (1.7 GHz, the most Nintendo's own games use),\n"
+		"\"1020\" (1 GHz, the console's handheld rate: cooler, and the battery\n"
+		"lasts longer) or \"stock\" (left as the console has it). Changes at once." },
+	{ "debug.log_files", _config_boolean, "true", "HALO_LOG_FILES", _environment_value, _platform_android,
+		"Write the logs to files: the game's debug.txt (beside the data) and the\n"
+		"program's halo.log. false writes neither, which spares the card a write\n"
+		"for each line; nothing is kept to say what went wrong. halo.log takes it\n"
+		"the next start." },
+	{ "debug.mic_probe", _config_boolean, "false", "HALO_MIC_PROBE", _environment_set_is_true, _platform_android,
+		"For two minutes from the start, log what the console's microphone input\n"
+		"hears (port/switch/host/host_mic_probe.c): its inputs, the format it gives\n"
+		"and the sound's level each second. Takes effect the next start." },
+	{ "debug.gpu_trace", _config_boolean, "false", "HALO_GPU_TRACE_FAULTS", _environment_set_is_true, _platform_android,
+		"Keep a record of the GPU's last commands, and after a GPU fault write it and\n"
+		"the console's account of the fault to halo.log (port/switch/host/host_dk.c).\n"
+		"It costs the GPU some time. Takes effect the next start." },
+	{ "debug.gpu_fault_test", _config_boolean, "false", "HALO_GPU_FAULT_TEST", _environment_set_is_true,
+		_platform_android,
+		"Make the GPU fault on purpose at the 1200th frame, to see gpu_trace's record.\n"
+		"Takes effect the next start." },
+	{ "debug.gpu_profile", _config_boolean, "false", "HALO_GPU_PROFILE", _environment_set_is_true, _platform_android,
+		"Every 300 frames, log the GPU's time by part of the frame (the sky, the\n"
+		"objects, the fog...) and what a frame asks of it. Takes effect the next start." },
+	{ "debug.gpu_capture", _config_boolean, "false", "HALO_GPU_CAPTURE", _environment_set_is_true, _platform_android,
+		"With gpu_profile, time one frame of every 300 draw by draw, and log the GPU's\n"
+		"time by shader, target and kind of command. Takes effect the next start." },
+	{ "debug.gpu_experiment", _config_string, "\"\"", "HALO_GPU_EXPERIMENT", _environment_value, _platform_android,
+		"Measurements of what a change could save, comma-separated:\n"
+		"\"no_compression\" (render targets without hardware compression),\n"
+		"\"no_target_barriers\" (no wait before a render target change; may draw\n"
+		"wrong), \"lod_bias\" (textures sampled three levels smaller: blurry).\n"
+		"Empty for none. Takes effect the next start." },
+	{ "debug.gpu_shader_ranges", _config_boolean, "true", "HALO_GPU_SHADER_RANGES", _environment_value,
+		_platform_android,
+		"Leave out of the pixel shaders the clamps their values cannot need\n"
+		"(port/switch/guest/nv2a_psh_dk.c); false writes them all, as before, to\n"
+		"compare the two. Takes effect the next start." },
+	{ "debug.gpu_texture_clip", _config_string, "\"on\"", "HALO_GPU_TEXTURE_CLIP", _environment_value,
+		_platform_android,
+		"Shadows cast on the level drawn only over their map: \"on\", \"off\", or\n"
+		"\"wide\" (clipped by limits nothing reaches, to tell the clip's own effect).\n"
+		"Takes effect the next start." },
+	{ "debug.original_zoom", _config_boolean, "false", "HALO_ORIGINAL_ZOOM", _environment_value, _platform_android,
+		"Draw the zoom's blur as the game does, in passes over the whole screen,\n"
+		"rather than on a small copy blended over it once (about 3.7 ms less of\n"
+		"the GPU's frame at 720p). Takes effect the next start." },
+	{ "debug.gpu_blend_discard", _config_boolean, "true", "HALO_GPU_BLEND_DISCARD", _environment_value,
+		_platform_android,
+		"Let a blended draw's pixels go where they would leave the screen as it was\n"
+		"(the empty parts of particles and glows); false blends them all in, as\n"
+		"before, to compare. Takes effect the next start." },
+	{ "debug.render_thread", _config_boolean, "true", "HALO_RENDER_THREAD", _environment_value, _platform_android,
+		"Turn the game's drawing commands into the GPU's on a thread of their own,\n"
+		"on another core, while the game goes on with its next frame; false runs\n"
+		"them on the game's thread, as before. Takes effect the next start." },
+	{ "debug.gpu_draw_scissor", _config_boolean, "true", "HALO_GPU_DRAW_SCISSOR", _environment_value,
+		_platform_android,
+		"Rasterize an object's shadow and a dynamic light's pass only inside the\n"
+		"rectangle of the screen they can change; false rasterizes their whole\n"
+		"triangles, as before, to compare. Takes effect the next start." },
+	{ "debug.original_blur", _config_boolean, "false", "HALO_ORIGINAL_BLUR", _environment_value, _platform_android,
+		"Draw a blur screen effect (cutscenes) as the game does, in passes over the\n"
+		"whole screen, rather than its passes on a small copy of it. Takes effect\n"
+		"the next start." },
+	{ "debug.gpu_glsl_folder", _config_string, "\"\"", "HALO_GPU_GLSL_FOLDER", _environment_value, _platform_android,
+		"A folder to write each shader the game draws with to, as GLSL named by its\n"
+		"hash (the names gpu_capture logs); the folder must exist. Empty for none." },
+#endif
 	{ "display.vsync", _config_boolean, "true", "HALO_NO_VSYNC", _environment_set_is_false, _platform_all,
 		"Wait for the display between frames." },
 	{ "display.max_fps", _config_integer, "0", "HALO_MAX_FPS", _environment_value, _platform_desktop,
@@ -154,16 +268,16 @@ static const struct config_setting config_settings[] =
 	{ "display.interpolation", _config_boolean, "true", "HALO_INTERPOLATION", _environment_value, _platform_all,
 		"Draw a frame for every display refresh, blending between the game's 30\n"
 		"ticks a second." },
-	{ "display.direct_camera", _config_boolean, "true", "HALO_DIRECT_CAMERA", _environment_value, _platform_desktop,
+	{ "display.direct_camera", _config_boolean, "true", "HALO_DIRECT_CAMERA", _environment_value, _platform_desktop | _platform_xbox,
 		"In first person, turn the view the same frame the mouse moves." },
-	{ "display.field_of_view", _config_real, "70.0", "HALO_FIELD_OF_VIEW", _environment_value, _platform_all,
+	{ "display.field_of_view", _config_real, "70.0", "HALO_FIELD_OF_VIEW", _environment_value, _platform_all | _platform_xbox,
 		"The first-person field of view in degrees, 50 to 120. 70: the Xbox's." },
 	{ "display.viewmodel_field_of_view", _config_real, "0.0", "HALO_VIEWMODEL_FIELD_OF_VIEW", _environment_value,
-		_platform_all,
+		_platform_all | _platform_xbox,
 		"The weapon's field of view, 50 to 120. 0: display.field_of_view's." },
 	{ "display.far_clip_distance", _config_real, "1024.0", "HALO_FAR_CLIP_DISTANCE", _environment_value, _platform_all,
 		"How far the world is drawn, up to 10000. 1024: the Xbox's." },
-	{ "display.match_timer", _config_boolean, "false", "HALO_MATCH_TIMER", _environment_value, _platform_all,
+	{ "display.match_timer", _config_boolean, "false", "HALO_MATCH_TIMER", _environment_value, _platform_all | _platform_xbox,
 		"In a multiplayer game with a time limit, show the time left at the top\n"
 		"of the screen." },
 	{ "display.high_res_hud", _config_boolean, "true", "HALO_HIGH_RES_HUD", _environment_value, _platform_all,
@@ -179,7 +293,7 @@ static const struct config_setting config_settings[] =
 		"A font file for the large text only, as display.high_res_font. Empty:\n"
 		"display.high_res_font's." },
 	{ "display.version_watermark", _config_boolean, "false", "HALO_VERSION_WATERMARK", _environment_value,
-		_platform_all,
+		_platform_all | _platform_xbox,
 		"Show the build's version in the bottom right corner while playing." },
 	{ "display.shadow_resolution", _config_integer, DEFAULT_SHADOW_RESOLUTION, "HALO_SHADOW_RESOLUTION",
 		_environment_value, _platform_all,
@@ -199,15 +313,15 @@ static const struct config_setting config_settings[] =
 	{ "display.player_name_scale", _config_real, "1.0", "HALO_PLAYER_NAME_SCALE", _environment_value, _platform_all,
 		"The size of player names, 0.25 to 4." },
 	{ "display.follow_camera", _config_string, "\"long_waits\"", "HALO_FOLLOW_CAMERA", _environment_value,
-		_platform_all,
+		_platform_all | _platform_xbox,
 		"After a death, follow a living player's view: \"long_waits\" (only\n"
 		"during a long respawn wait), \"always\" or \"off\". LB and RB, or Q and E,\n"
 		"switch players." },
 	{ "display.follow_camera_after", _config_real, "5.0", "HALO_FOLLOW_CAMERA_AFTER", _environment_value,
-		_platform_all,
+		_platform_all | _platform_xbox,
 		"For \"long_waits\": the seconds of respawn wait left that start the\n"
 		"follow camera." },
-	{ "display.powerup_timers", _config_boolean, "false", "HALO_POWERUP_TIMERS", _environment_value, _platform_all,
+	{ "display.powerup_timers", _config_boolean, "false", "HALO_POWERUP_TIMERS", _environment_value, _platform_all | _platform_xbox,
 		"Show the seconds left on your active camouflage, overshield and full\n"
 		"spectrum vision." },
 	{ "display.loading_screen_min_seconds", _config_real, "0.0", "HALO_LOADING_SCREEN_MIN_SECONDS",
@@ -215,11 +329,11 @@ static const struct config_setting config_settings[] =
 		"The shortest time the loading screen stays up, up to 30 seconds; 0 for\n"
 		"no wait. Campaign and split screen only." },
 	{ "display.scoreboard_team_layout", _config_string, "\"teams\"", "HALO_SCOREBOARD_TEAM_LAYOUT", _environment_value,
-		_platform_all,
+		_platform_all | _platform_xbox,
 		"A team game's scoreboard: \"teams\" (a column for each team) or \"score\"\n"
 		"(everyone in order of score)." },
 	{ "display.scoreboard_background", _config_boolean, "true", "HALO_SCOREBOARD_BACKGROUND", _environment_value,
-		_platform_all,
+		_platform_all | _platform_xbox,
 		"Draw a panel behind the multiplayer scoreboard." },
 	{ "display.scoreboard_platforms", _config_string, "\"auto\"", "HALO_SCOREBOARD_PLATFORMS", _environment_value,
 		_platform_all,
@@ -230,10 +344,10 @@ static const struct config_setting config_settings[] =
 	{ "display.profile_names", _config_boolean, "true", "HALO_PROFILE_NAMES", _environment_value, _platform_all,
 		"Show players by their shared Delta profile name in Delta games." },
 	{ "display.show_quit_players", _config_boolean, "true", "HALO_SHOW_QUIT_PLAYERS", _environment_value,
-		_platform_all,
+		_platform_all | _platform_xbox,
 		"Keep players who quit on the multiplayer scoreboard." },
 	{ "display.scoreboard_background_color", _config_string, "\"16, 16, 16, 150\"", "HALO_SCOREBOARD_BACKGROUND_COLOR",
-		_environment_value, _platform_all,
+		_environment_value, _platform_all | _platform_xbox,
 		"The scoreboard panel's colour: \"red, green, blue, alpha\", each 0 to 255." },
 	{ "display.pause_change_teams", _config_boolean, "true", "HALO_PAUSE_CHANGE_TEAMS", _environment_value,
 		_platform_all,
@@ -242,7 +356,7 @@ static const struct config_setting config_settings[] =
 	{ "display.pause_controls", _config_boolean, "true", "HALO_PAUSE_CONTROLS", _environment_value, _platform_all,
 		"Show CONTROLS in the pause menu." },
 #endif
-	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all,
+	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all | _platform_xbox,
 		"Show the banner for a Delta server's warnings and notices." },
 	{ "display.server_message_text_color", _config_string, "\"\"", "HALO_SERVER_MESSAGE_TEXT_COLOR",
 		_environment_value, _platform_all,
@@ -263,9 +377,9 @@ static const struct config_setting config_settings[] =
 		"Play sound." },
 	{ "audio.volume", _config_real, "1.0", "HALO_VOLUME", _environment_value, _platform_all,
 		"The volume of everything, 0.0 to 1.0." },
-	{ "audio.music_volume", _config_real, "1.0", "HALO_MUSIC_VOLUME", _environment_value, _platform_all,
+	{ "audio.music_volume", _config_real, "1.0", "HALO_MUSIC_VOLUME", _environment_value, _platform_all | _platform_xbox,
 		"The music's volume, 0.0 to 1.0." },
-	{ "audio.effects_volume", _config_real, "1.0", "HALO_EFFECTS_VOLUME", _environment_value, _platform_all,
+	{ "audio.effects_volume", _config_real, "1.0", "HALO_EFFECTS_VOLUME", _environment_value, _platform_all | _platform_xbox,
 		"The volume of effects and speech, 0.0 to 1.0." },
 	/* (audio.voice_device is kept for a voice output of its own, later:
 	dsound_sdl.c's audio_device_named opens either) */
@@ -299,23 +413,23 @@ static const struct config_setting config_settings[] =
 		"input.mouse_sensitivity." },
 
 	/* the keyboard and mouse's own controls (port/linux/src/xinput_sdl.c) */
-	{ "chat.enabled", _config_boolean, "true", "HALO_CHAT", _environment_value, _platform_all,
+	{ "chat.enabled", _config_boolean, "true", "HALO_CHAT", _environment_value, _platform_all | _platform_xbox,
 		"Text chat with Chupathingy players. T talks to everyone, Y to your team." },
-	{ "chat.show", _config_string, "\"all\"", "HALO_CHAT_SHOW", _environment_value, _platform_all,
+	{ "chat.show", _config_string, "\"all\"", "HALO_CHAT_SHOW", _environment_value, _platform_all | _platform_xbox,
 		"Whose chat lines show: \"all\", \"team\" or \"off\"." },
-	{ "chat.filter", _config_string, "\"mask\"", "HALO_CHAT_FILTER", _environment_value, _platform_all,
+	{ "chat.filter", _config_string, "\"mask\"", "HALO_CHAT_FILTER", _environment_value, _platform_all | _platform_xbox,
 		"Blocked words in chat: \"mask\" stars them out, \"hide\" hides the line,\n"
 		"\"show\" shows it." },
 	{ "chat.filter_file", _config_string, "\"chat_filter.txt\"", "HALO_CHAT_FILTER_FILE", _environment_value,
 		_platform_all,
 		"Your own blocked words, one per line, in the save folder. \"whole <word>\"\n"
 		"blocks only the whole word. Lines starting with # are comments." },
-	{ "chat.streamer_mode", _config_boolean, "false", "HALO_CHAT_STREAMER_MODE", _environment_value, _platform_all,
+	{ "chat.streamer_mode", _config_boolean, "false", "HALO_CHAT_STREAMER_MODE", _environment_value, _platform_all | _platform_xbox,
 		"Show other players in chat by team name, and always star out blocked\n"
 		"words." },
 	{ "chat.quick_messages", _config_string,
 		"\"Nice shot|Need backup|On my way|Thanks|Good game|Sorry\"", "HALO_CHAT_QUICK_MESSAGES",
-		_environment_value, _platform_all,
+		_environment_value, _platform_all | _platform_xbox,
 		"Controller quick messages, separated by |. D-pad up picks one, D-pad\n"
 		"down sends it. Empty: none." },
 	{ "controls.move_forward", _config_string, "\"W\"", "HALO_KEY_MOVE_FORWARD", _environment_value, _platform_all,
@@ -371,18 +485,18 @@ static const struct config_setting config_settings[] =
 		"pairs separated by commas (\"jump=B,melee=RB\"). Empty: the default." },
 #endif
 
-	{ "game.console_log", _config_string, "\"important\"", "HALO_CONSOLE_LOG", _environment_value, _platform_all,
+	{ "game.console_log", _config_string, "\"important\"", "HALO_CONSOLE_LOG", _environment_value, _platform_all | _platform_xbox,
 		"What the console shows on screen: \"important\", \"all\" or \"none\".\n"
 		"debug.txt has every line." },
 
 	{ "game.language", _config_string, "\"\"", "HALO_LANGUAGE", _environment_value, _platform_all,
 		"The game's language: \"ja\", \"de\", \"fr\", \"es\" or \"it\"; empty for English." },
 
-	{ "game.unlock_all_levels", _config_boolean, "false", "HALO_UNLOCK_ALL_LEVELS", _environment_value, _platform_all,
+	{ "game.unlock_all_levels", _config_boolean, "false", "HALO_UNLOCK_ALL_LEVELS", _environment_value, _platform_all | _platform_xbox,
 		"New profiles start with every campaign level unlocked." },
 
 	{ "game.start_with_one_player", _config_boolean, "false", "HALO_START_WITH_ONE_PLAYER", _environment_value,
-		_platform_all,
+		_platform_all | _platform_xbox,
 		"Let a game you host start with only you. Others can join in progress." },
 
 	{ "game.downloaded_maps", _config_string, "\"\"", "HALO_DOWNLOADED_MAPS", _environment_value, _platform_all,
@@ -413,7 +527,7 @@ static const struct config_setting config_settings[] =
 	{ "network.broadcast", _config_string, "\"\"", "HALO_NET_BROADCAST", _environment_value, _platform_all,
 		"IPv4 addresses for system link announcements, separated by commas\n"
 		"(for VPNs); empty for the local network." },
-	{ "network.online", _config_boolean, "true", "HALO_NET_ONLINE", _environment_value, _platform_all,
+	{ "network.online", _config_boolean, "true", "HALO_NET_ONLINE", _environment_value, _platform_all | _platform_xbox,
 		"Host and join games over the internet by invite links. false: local\n"
 		"network only." },
 	{ "network.join_from_clipboard", _config_string, "\"never\"", "HALO_NET_JOIN_FROM_CLIPBOARD", _environment_value,
@@ -424,7 +538,7 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"Download a missing Custom Edition map from the community repositories:\n"
 		"\"ask\", \"always\" or \"never\"." },
-	{ "network.tunnel_port", _config_integer, "0", "HALO_NET_TUNNEL_PORT", _environment_value, _platform_all,
+	{ "network.tunnel_port", _config_integer, "0", "HALO_NET_TUNNEL_PORT", _environment_value, _platform_all | _platform_xbox,
 		"The UDP port for internet play; 0 picks one." },
 	{ "network.allow_upnp", _config_boolean, "true", "HALO_NET_ALLOW_UPNP", _environment_value, _platform_all,
 		"Ask the router to forward internet play's port (UPnP)." },
@@ -487,12 +601,12 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"How many times larger each co-op enemy squad is, 2 to 32." },
 	{ "network.brokers_file", _config_string, "\"brokers.txt\"",
-		"HALO_NET_BROKERS_FILE", _environment_value, _platform_all,
+		"HALO_NET_BROKERS_FILE", _environment_value, _platform_all | _platform_xbox,
 		"The file of MQTT brokers that connect invites, one host:port per line,\n"
 		"up to 4. Updates replace brokers.txt, so keep your own under another\n"
 		"name." },
 	{ "network.stun_servers", _config_string, "\"stun.l.google.com:19302,stun.cloudflare.com:3478\"",
-		"HALO_NET_STUN", _environment_value, _platform_all,
+		"HALO_NET_STUN", _environment_value, _platform_all | _platform_xbox,
 		"STUN servers that find this machine's internet address, separated by\n"
 		"commas (host:port)." },
 	{ "network.legacy_table", _config_string, "\"\"", "HALO_LEGACY_TABLE", _environment_value, _platform_all,
@@ -527,6 +641,59 @@ static const struct config_setting config_settings[] =
 		"Delta Stats: a folder to keep a copy of each batch sent; empty for\n"
 		"none." },
 #endif
+
+	/* the original Xbox's own (port/xbox/src/xbox_config.c), once empty
+	files beside default.xbe (D:\memory_64.txt and the rest) */
+	{ "console.bypass_security", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
+		"Start the network in its open mode (XNet without its security), which\n"
+		"internet play, the game list and play with the PC builds need; false\n"
+		"keeps System Link's security, Xboxes only. tools/xbox_package.py\n"
+		"writes true unless --secure. Read when the game starts." },
+	{ "console.simulate_64mb", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
+		"Deprecated, ignored: a devkit gets 64 MB from the XBE's own flag now\n"
+		"(tools/xbox_package.py --devkit-64mb)." },
+	{ "console.memory_class", _config_string, "\"auto\"", NULL, _environment_value, _platform_xbox,
+		"The console's memory class. \"auto\": the console's own; a console of\n"
+		"128 MB or more (the common upgrade, a devkit) gets the extras: larger\n"
+		"texture and sound caches, render buffers and network queues. \"64\":\n"
+		"a stock Xbox's sizes on any console, to test the 64 MB baseline or if\n"
+		"an extra misbehaves. Nothing of the game itself changes with it." },
+	{ "console.large_caches", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
+		"Deprecated, ignored: a console of 128 MB or more has the larger caches\n"
+		"on its own now (console.memory_class)." },
+	{ "console.debug_geometry", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
+		"For development: the debug build's debug geometry (lines and triangles\n"
+		"drawn by debug commands), whose buffers take 1440 KB. Off, as the retail\n"
+		"game had none; a stock 64 MB console may not have the room." },
+	{ "console.log_flush", _config_string, "\"buffered\"", NULL, _environment_value, _platform_xbox,
+		"When debug.txt is written. \"buffered\": the game's lines wait in memory\n"
+		"and are written together, once a second, when 8 KB are waiting, and\n"
+		"at once for an assert, an exit or a crash. \"every_line\": each line is\n"
+		"written as it comes (slow, a file opened for each), for a crash hunt\n"
+		"where even the last line before the console stops must be there." },
+	{ "console.trace", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
+		"Detailed traces in debug.txt, for reporting a join that fails: the main\n"
+		"loop each second, every hop of an internet join, the games advertised.\n"
+		"Other hosts appear only as tags, never by their addresses." },
+	{ "console.perf_log", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
+		"For finding what makes a scene slow: once a second, a line in debug.txt\n"
+		"with the frame time (average and worst), the time each part of the frame\n"
+		"took (game ticks, the render's parts, sound, network, present, the wait\n"
+		"for the screen), the draw calls and objects drawn, and a line when the\n"
+		"player zooms in or out. Read when the game starts." },
+	{ "console.join", _config_string, "\"\"", NULL, _environment_value, _platform_xbox,
+		"For testing joins without the game list: a host's LAN address\n"
+		"(\"192.168.1.20\"), which System Link joins directly, or an invite\n"
+		"(\"halo://join/...\"), which Y in ONLINE GAMES joins; empty for none." },
+	{ "console.delta", _config_string, "\"auto\"", NULL, _environment_value, _platform_xbox,
+		"Delta Peer: when joining a game whose host offers it, tell the host\n"
+		"this is an Xbox (its platform, memory and nothing else), so the stats\n"
+		"site, the scoreboard and the server show Xbox. \"auto\": on; \"off\" for\n"
+		"the legacy protocol alone. The game is the same either way." },
+	{ "console.game_list_server", _config_string, "\"\"", NULL, _environment_value, _platform_xbox,
+		"Where to get the game list (\"host\" or \"a.b.c.d\", \":port\" optional)\n"
+		"when warthog.milenko.org does not resolve; empty for none." },
+
 #ifndef HALO_CONSOLE_NO_DISCORD
 	/* (the project's Discord application, "Chupathingy") */
 	{ "discord.application_id", _config_string, "\"1560397272166957136\"", "HALO_DISCORD_APPLICATION",
@@ -554,7 +721,8 @@ static const struct config_setting config_settings[] =
 		"Automated system link tests: \"host:<map>\" or \"join\"; empty for none." },
 	{ "debug.network_test_start", _config_real, "15.0", "HALO_NETWORK_TEST_START", _environment_value, _platform_all,
 		"Seconds after hosting that an automated test game starts." },
-	{ "debug.network_test_kill", _config_real, "0.0", "HALO_NETWORK_TEST_KILL", _environment_value, _platform_all,
+	{ "debug.network_test_kill", _config_real, "0.0", "HALO_NETWORK_TEST_KILL", _environment_value,
+		_platform_all,
 		"Every this many seconds an automated test host kills its last player; 0 never." },
 	{ "debug.network_test_team_change", _config_real, "0.0", "HALO_NETWORK_TEST_TEAM_CHANGE", _environment_value,
 		_platform_all,
@@ -614,6 +782,18 @@ static const struct config_setting config_settings[] =
 		"Scripted chat for tests: steps of\n"
 		"\"<seconds>:<all|team|server|mute|unmute|localmute|log|close|type>[:<text>]\"\n"
 		"separated by ;. Empty: none." },
+	{ "debug.audio_probe", _config_string, "\"\"", "HALO_AUDIO_PROBE", _environment_value, _platform_all | _platform_xbox,
+		"A probe file (port/linux/game/audio_probe.c), named as the game names\n"
+		"its files (d:\\ is the game's folder: on the desktop, the data folder):\n"
+		"the game loads its map, plays its sounds at its spots, records what it\n"
+		"plays beside the file (to compare with tools/audio_probe_compare.py),\n"
+		"and quits. Empty: none." },
+	{ "debug.audio_capture_seconds", _config_real, "0.0", "HALO_AUDIO_CAPTURE_SECONDS", _environment_value,
+		_platform_all | _platform_xbox,
+		"Record this many seconds of the sound of each game played (solo,\n"
+		"system link or online), with a log of the player's position and every\n"
+		"sound started, to d:\\audio_probe\\capture-<map>-<n>-* (that folder must\n"
+		"be there; port/linux/game/audio_probe.c); 0 none." },
 	{ "debug.exit_after", _config_real, "0.0", "HALO_EXIT_AFTER", _environment_value, _platform_all,
 		"Quit this many seconds after the window opens; 0 never." },
 	{ "debug.hidden_window", _config_boolean, "false", "HALO_HIDDEN_WINDOW", _environment_set_is_true, _platform_desktop,
@@ -665,12 +845,28 @@ static const struct config_setting config_settings[] =
 		"Upload textures again every time they are used." },
 	{ "debug.sample_seconds", _config_real, "0.0", "HALO_SAMPLE", _environment_value, _platform_android,
 		"Log where every game thread is this often, in seconds; 0 never." },
+#ifdef HALO_SWITCH_CONSOLE
+	/* read by the Switch host (port/switch/host/host_main.c, host_dk.c) */
+	{ "debug.profiler", _config_boolean, "false", "HALO_PROFILER", _environment_set_is_true, _platform_android,
+		"Profile the game: sample where its threads are (debug.profile_hz times a\n"
+		"second) and write the counts to the profile folder every 20 s, for\n"
+		"tools/switch_profile.py. Takes effect the next start." },
+	{ "debug.profile_hz", _config_integer, "500", "HALO_PROFILE_HZ", _environment_value, _platform_android,
+		"The profiler's samples a second, when debug.profiler is true." },
+	{ "debug.texture_verify_compressed", _config_boolean, "false", "HALO_TEXTURE_VERIFY_COMPRESSED",
+		_environment_set_is_true, _platform_android,
+		"Read each DXT-compressed texture back out of its image after it is written,\n"
+		"and log where it differs from the game's bytes (port/switch/host/host_dk.c).\n"
+		"Slow: it waits for the GPU each time. Takes effect the next start." },
+#endif
 };
 
 #define NUMBER_OF_CONFIG_SETTINGS (sizeof(config_settings) / sizeof(config_settings[0]))
 
 #ifdef HALO_ANDROID
 #define CONFIG_PLATFORM _platform_android
+#elif defined(HALO_XBOX_CONSOLE)
+#define CONFIG_PLATFORM _platform_xbox
 #elif defined(_WIN32)
 #define CONFIG_PLATFORM (_platform_desktop | _platform_windows)
 #else
@@ -702,7 +898,7 @@ static pthread_mutex_t config_lock = PTHREAD_MUTEX_INITIALIZER;
 
 int platform_app_folder(char *path, unsigned long size)
 {
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(HALO_XBOX_CONSOLE)
 	const char *base = SDL_GetBasePath();
 	const char *home = getenv("HOME");
 
@@ -741,7 +937,7 @@ int platform_app_folder(char *path, unsigned long size)
 
 static void config_path(char *path, size_t size)
 {
-#ifndef HALO_ANDROID
+#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 	char folder[1024];
 #endif
 #ifdef __APPLE__
@@ -755,7 +951,7 @@ static void config_path(char *path, size_t size)
 		return;
 	}
 #endif
-#ifndef HALO_ANDROID
+#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 	/* (the application's folder: not the application, which is signed, or
 	the AppImage, which cannot be written) */
 	if (platform_app_folder(folder, sizeof(folder)))
@@ -764,7 +960,10 @@ static void config_path(char *path, size_t size)
 		return;
 	}
 #endif
-#ifdef HALO_ANDROID
+#if defined(HALO_XBOX_CONSOLE)
+	/* beside default.xbe */
+	snprintf(path, size, "d:\\config.toml");
+#elif defined(HALO_ANDROID)
 	/* the data folder, which the app names (port/android/host/host_main.c) */
 	const char *root = getenv("HALO_DATA_ROOT");
 
@@ -780,7 +979,7 @@ static void config_path(char *path, size_t size)
 /* the whole file, NUL terminated, or NULL; free() it */
 static char *config_read_file(const char *path, size_t *size)
 {
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_XBOX_CONSOLE)
 	FILE *file = fopen(path, "rb");
 	char *text = NULL;
 	long length;
@@ -823,14 +1022,25 @@ static char *config_read_file(const char *path, size_t *size)
 
 static int config_write_file(const char *path, const char *text)
 {
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_XBOX_CONSOLE)
 	FILE *file = fopen(path, "wb");
 	int written;
 
 	if (!file)
 		return 0;
 	written = fwrite(text, 1, strlen(text), file) == strlen(text);
+#ifdef HALO_SWITCH_CONSOLE
+	/* leaving the game is _exit, which does not flush the card; without a
+	commit here a setting is kept for this run and gone on the next */
+	if (written)
+		fsync(fileno(file));
+	written = fclose(file) == 0 && written;
+	if (written)
+		host_storage_commit();
+	return written;
+#else
 	return fclose(file) == 0 && written;
+#endif
 #else
 	return SDL_SaveFile(path, text, strlen(text));
 #endif
@@ -945,8 +1155,8 @@ static void config_append_setting(struct config_text *text, const struct config_
 		if (*line)
 			line++;
 	}
-#ifndef HALO_ANDROID
-	/* (Android apps have no environment to set) */
+#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
+	/* (Android apps and the console have no environment to set) */
 	switch (setting->environment_style)
 	{
 	case _environment_value:
@@ -972,7 +1182,18 @@ static char *config_default_text(void)
 	char section[32] = "";
 	size_t index;
 
-#ifdef HALO_ANDROID
+#if defined(HALO_XBOX_CONSOLE)
+	config_append(&text,
+		"# Halo settings\n"
+		"#\n"
+		"# The game writes this file beside default.xbe with the defaults when it\n"
+		"# is missing. A setting at its default is commented out (\"# key =\n"
+		"# value\") and follows the default of the version that runs: take out\n"
+		"# the \"# \" and change the value to choose another. A line starting with\n"
+		"# # does nothing. The game reads this file when it starts: restart it\n"
+		"# after an edit. Delete the file to go back to the defaults.\n"
+		CONFIG_VERSION_TEXT);
+#elif defined(HALO_ANDROID)
 	config_append(&text,
 		"# Halo settings\n"
 		"#\n"
@@ -1135,12 +1356,14 @@ static int config_text_is_false(const char *text)
 	return !strcmp(lower, "0") || !strcmp(lower, "false") || !strcmp(lower, "no") || !strcmp(lower, "off");
 }
 
+#ifndef HALO_XBOX_CONSOLE
 /* whether an environment variable that only has to be set (a
 _environment_set_is_*) is: one empty or false is not */
 static int config_environment_set(const char *text)
 {
 	return text[0] && !config_text_is_false(text);
 }
+#endif
 
 static void config_set_from_text(struct config_value *value, enum config_type type, const char *text)
 {
@@ -1227,14 +1450,34 @@ static void config_set_from_file(struct config_value *value, const struct config
 keep a setting watch this, to read it again */
 static volatile unsigned long config_change_count;
 
+/* the settings the game asked for last, by where their names are: most reads
+pass the same string literal each time (the scoreboard and the HUD ask each
+frame), and a search of the table compares the name with the 200 others
+first. A slot is only a guess, taken when the name at the index it gives is
+the one asked for, so two threads that fill a slot at once, or a name in a
+buffer that later holds another, only cost a search. */
+enum
+{
+	CONFIG_INDEX_GUESSES = 64
+};
+static long config_index_guesses[CONFIG_INDEX_GUESSES];
+
 static long config_setting_index(const char *name)
 {
 	size_t index;
+	long *guess = &config_index_guesses[((size_t)name >> 2) % CONFIG_INDEX_GUESSES];
+	long guessed = *guess;
 
+	/* (the slot holds the index plus one: 0 is no guess) */
+	if (guessed > 0 && guessed <= (long)NUMBER_OF_CONFIG_SETTINGS && !strcmp(config_settings[guessed - 1].name, name))
+		return guessed - 1;
 	for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
 	{
 		if (!strcmp(config_settings[index].name, name))
+		{
+			*guess = (long)index + 1;
 			return (long)index;
+		}
 	}
 	return -1;
 }
@@ -1928,6 +2171,7 @@ static const struct
 	{ "discord.presence", { "full", "minimal", "off", NULL }, "\"full\"" },
 #endif
 	{ "network.platform_limits", { "on", "off", NULL }, "\"on\"" },
+	{ "console.delta", { "auto", "on", "off", NULL }, "\"auto\"" },
 	{ "network.coop_friendly_fire", { "off", "on", "shields_only", "explosives_only", NULL }, NULL },
 	{ "network.coop_enemies_mode", { "none", "per_player", "multiplier", NULL }, "\"none\"" },
 	{ "crash_reports.upload", { "ask", "yes", "no", NULL }, "\"ask\"" },
@@ -2093,7 +2337,7 @@ static int config_skip_line(char *text, int line_number, const char *message)
 	return 1;
 }
 
-#ifndef HALO_ANDROID
+#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 /* a config.toml the game never reads, likely edited in its place: said in
 the log, with the one it reads (path) */
 static void config_report_unread(const char *path)
@@ -2178,7 +2422,7 @@ static void config_load(void)
 	}
 
 	config_path(path, sizeof(path));
-#ifndef HALO_ANDROID
+#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 	config_report_unread(path);
 #endif
 	text = config_read_file(path, &size);
@@ -2297,10 +2541,12 @@ static void config_load(void)
 		free(defaults);
 	}
 
+	/* (the console has no environment) */
+#ifndef HALO_XBOX_CONSOLE
 	for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
 	{
 		const struct config_setting *setting = &config_settings[index];
-		const char *environment = getenv(setting->environment);
+		const char *environment = setting->environment ? getenv(setting->environment) : NULL;
 
 		/* (one set to "", "0", "false", "no" or "off" is as if it were not:
 		HALO_LOG_ADDRESSES=0 never turns a setting on) */
@@ -2320,8 +2566,9 @@ static void config_load(void)
 			break;
 		}
 	}
+#endif
 	config_check_words();
-#ifndef HALO_ANDROID
+#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 	{
 		long mode = config_setting_index("display.mode");
 		long fullscreen = config_setting_index("display.fullscreen");
@@ -2357,7 +2604,43 @@ static const struct config_value *config_value(const char *name, enum config_typ
 		platform_log("settings: no %s setting %s", type == _config_string ? "string" : "such", name);
 		return &none;
 	}
+#ifdef HALO_XBOX_CONSOLE
+	/* (the shared code's settings the console has none of: empty, 0 or
+	false, as before it had config.toml; the first few said in the log) */
+	if (!(config_settings[index].platforms & CONFIG_PLATFORM))
+	{
+		/* (each setting said once, not at each read: the scoreboard asks
+		every frame) */
+		static unsigned char reported[1024];
+
+		if (index < (long)sizeof(reported) && !reported[index])
+		{
+			reported[index] = 1;
+			platform_log("settings: %s is not one of the console's; read as empty", name);
+		}
+		return &none;
+	}
+#endif
 	return &config_values[index];
+}
+
+/* sets a setting for this run only, from its value as text, as its
+environment variable does: config.toml is not changed (the console's old
+switch files, port/xbox/src/xbox_config.c) */
+int config_set(const char *name, const char *value)
+{
+	long index = config_setting_index(name);
+
+	if (index < 0)
+		return 0;
+	/* (the file read first, so that it does not overwrite this) */
+	config_value(name, config_settings[index].type);
+	pthread_mutex_lock(&config_lock);
+	config_set_from_text(&config_values[index], config_settings[index].type, value);
+	config_given[index] = 1;
+	config_change_count++;
+	pthread_mutex_unlock(&config_lock);
+	return 1;
 }
 
 /* ---------- writing a setting */
@@ -2687,6 +2970,7 @@ char *config_file_read(const char *path, size_t *size)
 	return config_read_file(path, size);
 }
 
+#ifndef HALO_PORT_CONSOLE_LIMITS
 /* the settings config.toml changes while the game runs, edited by hand
 (Settings writes them through config_write): the volumes, which their
 readers read again when config_changes moves (dsound_sdl.c,
@@ -2778,6 +3062,13 @@ static void config_follow_file(void)
 	toml_free(result);
 	free(text);
 }
+#else
+/* (not on a console: its config.toml is edited off the console, and a look
+at the disk every second is a hitch the console can do without) */
+static void config_follow_file(void)
+{
+}
+#endif
 
 unsigned long config_changes(void)
 {

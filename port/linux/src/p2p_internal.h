@@ -29,8 +29,14 @@ enum
 	token in hexadecimal, and a terminator */
 	P2P_LINK_SIZE = 12 + 2 * (P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE) + 1,
 	/* the most machines one tunnels to: a host and the rest of a system
-	link game's 128 machines (include/halo_port_limits.h) */
+	link game's 128 machines (include/halo_port_limits.h); the console's
+	build holds its own players (HALO_CONSOLE_PLAYERS, 16 for a stock Xbox)
+	less itself, and turns the others away */
+#ifdef HALO_CONSOLE_PLAYERS
+	P2P_MAXIMUM_PEERS = HALO_CONSOLE_PLAYERS - 1,
+#else
 	P2P_MAXIMUM_PEERS = 127,
+#endif
 };
 
 typedef char p2p_listing_invite_size_assert[P2P_LISTING_INVITE_SIZE == P2P_LINK_SIZE ? 1 : -1];

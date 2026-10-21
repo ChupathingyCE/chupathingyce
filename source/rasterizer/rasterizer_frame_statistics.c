@@ -240,11 +240,34 @@ char const *profile_log_path = "d:\\r-prof.txt";
 
 /* ---------- public code */
 
+#ifdef HALO_XBOX_CONSOLE
+/* port: the temporary buffer (144 KB of a 64 MB Xbox's heap) is only the
+vertex counts' scratch, which the statistics display alone asks for
+(statistics_mode): it is taken when they first are, and a count made
+without it is 0 */
+static word *rasterizer_frame_statistics_temp_buffer_get(
+	void)
+{
+	if (!rasterizer_frame_statistics_temp_buffer)
+	{
+		rasterizer_frame_statistics_temp_buffer = match_malloc(
+			"c:\\halo\\SOURCE\\rasterizer\\rasterizer_frame_statistics.c",
+			41,
+			sizeof(word) *
+				RASTERIZER_MAXIMUM_TRIANGLES_PER_TRIANGLE_BUFFER *
+				NUMBER_OF_VERTICES_PER_TRIANGLE);
+	}
+
+	return rasterizer_frame_statistics_temp_buffer;
+}
+#endif
+
 boolean rasterizer_frame_statistics_initialize(
 	void)
 {
 	boolean success = TRUE;
 
+#ifndef HALO_XBOX_CONSOLE
 	rasterizer_frame_statistics_temp_buffer = match_malloc(
 		"c:\\halo\\SOURCE\\rasterizer\\rasterizer_frame_statistics.c",
 		41,
@@ -257,6 +280,7 @@ boolean rasterizer_frame_statistics_initialize(
 		error(_error_silent, "### ERROR out of memory");
 		success = FALSE;
 	}
+#endif
 
 	return success;
 }
@@ -369,6 +393,9 @@ long rasterizer_frame_statistics_count_static_vertices(
 				vertex_count = vertex_buffer->count;
 			}
 			else
+#ifdef HALO_XBOX_CONSOLE
+			if (rasterizer_frame_statistics_temp_buffer_get())
+#endif
 			{
 				long index_count = triangle_buffer->count * NUMBER_OF_VERTICES_PER_TRIANGLE;
 				long index;
@@ -417,6 +444,14 @@ long rasterizer_frame_statistics_count_dynamic_vertices(
 				"c:\\halo\\SOURCE\\rasterizer\\rasterizer_frame_statistics.c",
 				217,
 				triangle_count<RASTERIZER_MAXIMUM_TRIANGLES_PER_TRIANGLE_BUFFER);
+#ifdef HALO_XBOX_CONSOLE
+			if (!rasterizer_frame_statistics_temp_buffer_get())
+			{
+				rasterizer_dynamic_triangles_unlock(dynamic_triangle_buffer_index);
+
+				return 0;
+			}
+#endif
 			match_assert(
 				"c:\\halo\\SOURCE\\rasterizer\\rasterizer_frame_statistics.c",
 				218,

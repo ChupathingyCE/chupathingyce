@@ -262,6 +262,29 @@ enum network_connection_traffic_event
 
 /* ---------- macros */
 
+/* port: the incoming and outgoing queues, per player the console plays. A
+console (HALO_PORT_CONSOLE_LIMITS) sizes them for its own players, 16 on a
+stock console, as the queues hold what 30 updates a second of that many
+players take in two seconds (about 900 bytes a tick at 16 players) and
+the datagrams of a hitch; the native builds' queues are those of 128 players
+(0x40000 reliable, 0x20000 unreliable). The 256 KB of the old size were
+a quarter of what a 64 MB console had left. A console above its memory
+baseline (halo_console_memory.h) has four times its baseline's queues, and
+twice the host's for each machine: the hitches it rides out are longer,
+and nothing of it reaches the wire, only how much waits on this console. */
+#ifdef HALO_PORT_CONSOLE_LIMITS
+#define NETWORK_CONNECTION_RELIABLE_QUEUE_SIZE \
+	HALO_CONSOLE_MEMORY_EXTRAS(HALO_PORT_MAXIMUM_NETWORK_PLAYERS*0x1000, HALO_PORT_MAXIMUM_NETWORK_PLAYERS*0x4000)
+#define NETWORK_CONNECTION_UNRELIABLE_QUEUE_SIZE \
+	HALO_CONSOLE_MEMORY_EXTRAS(HALO_PORT_MAXIMUM_NETWORK_PLAYERS*0x800, HALO_PORT_MAXIMUM_NETWORK_PLAYERS*0x2000)
+/* a host's queue for each machine joined: its messages are small */
+#define NETWORK_CONNECTION_CLIENT_QUEUE_SIZE HALO_CONSOLE_MEMORY_EXTRAS(0x4000, 0x8000)
+#else
+#define NETWORK_CONNECTION_RELIABLE_QUEUE_SIZE 0x40000
+#define NETWORK_CONNECTION_UNRELIABLE_QUEUE_SIZE 0x20000
+#define NETWORK_CONNECTION_CLIENT_QUEUE_SIZE 0x8000
+#endif
+
 /* ---------- structures */
 
 struct network_connection
@@ -1003,7 +1026,7 @@ static struct network_connection *network_connection_create_client_from_endpoint
 		connection->reliable_endpoint = reliable_endpoint;
 		connection->reliable_incoming_queue = circular_queue_new(
 			"incoming-reliable",
-			0x8000);
+			NETWORK_CONNECTION_CLIENT_QUEUE_SIZE);
 		if (!connection->reliable_incoming_queue)
 		{
 			network_connection_delete(connection);
@@ -1168,7 +1191,7 @@ struct network_connection *network_connection_new(
 				connection = &server->connection;
 				reliable_queue_size = 0;
 				/* room for every machine's input datagrams between two idles */
-				unreliable_queue_size = 0x20000;
+				unreliable_queue_size = NETWORK_CONNECTION_UNRELIABLE_QUEUE_SIZE;
 			}
 			else
 			{
@@ -1186,12 +1209,12 @@ struct network_connection *network_connection_new(
 		if (connection)
 		{
 			/* a few seconds of per-tick updates of 128 players (3.9 KB each) */
-			reliable_queue_size = 0x40000;
+			reliable_queue_size = NETWORK_CONNECTION_RELIABLE_QUEUE_SIZE;
 			/* room for the host's per-tick datagrams (up to
 			DATAGRAM_MAXIMUM_SIZE each) of a slow frame or a hitch: the Xbox
 			game's 0x640 held one, and what the host sent waited in the
 			socket, later every frame */
-			unreliable_queue_size = 0x20000;
+			unreliable_queue_size = NETWORK_CONNECTION_UNRELIABLE_QUEUE_SIZE;
 		}
 	}
 
@@ -1914,7 +1937,7 @@ static boolean network_connection_write_reliable(
 			progress */
 			connection->reliable_outgoing_queue = circular_queue_new(
 				"outgoing-reliable",
-				0x40000);
+				NETWORK_CONNECTION_RELIABLE_QUEUE_SIZE);
 			if (!connection->reliable_outgoing_queue)
 			{
 				return FALSE;

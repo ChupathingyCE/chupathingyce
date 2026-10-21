@@ -129,7 +129,9 @@ symbols in this file:
 #include "bitmaps/bitmaps_inlines.h"
 #include "effects/decals.h"
 #include "game/game_globals.h"
+#ifndef HALO_XBOX_CONSOLE
 #include "main/main.h"
+#endif
 #include "interface/hud_draw.h"
 #include "rasterizer/rasterizer.h"
 #include "rasterizer/rasterizer_console_vars.h"
@@ -376,6 +378,7 @@ static short cached_node_matrix_count = 0;
 static real_matrix4x3 const *cached_node_matrices = NULL;
 static real_matrix4x3 previous_camera_matrix[MAXIMUM_WINDOWS] = {0};
 
+#ifndef HALO_XBOX_CONSOLE
 /* rasterizer_environment_fog_screen_draw initializes a local pointer of the
 same name from this array; MSVC resolved the name in that initializer to
 the array, standard C to the new (uninitialized) local */
@@ -384,6 +387,7 @@ static real_matrix4x3 *previous_camera_matrix_for_window(
 {
 	return &previous_camera_matrix[window_index];
 }
+#endif
 static boolean local_environment_fog_screen_model_flag = FALSE;
 static boolean local_environment_fog_screen_flag = FALSE;
 static word local_fog_screen_layer_bitmap_indices[MAXIMUM_ENVIRONMENT_FOG_SCREEN_LAYERS] = {0};
@@ -903,6 +907,7 @@ static void rasterizer_environment_fog_screen_wind_update(
 	if (screen->wind_velocity.upper > 0.0f)
 	{
 		real_vector2d *target_direction = &wind->target_direction;
+#ifndef HALO_XBOX_CONSOLE
 		/* This runs once a frame, several frames per tick on the native
 		builds (port/linux/game/render_interpolation.c): turn toward the
 		target as far per 30 Hz tick as the Xbox turned per frame. */
@@ -914,6 +919,14 @@ static void rasterizer_environment_fog_screen_wind_update(
 		wind->direction.i *= weight;
 		wind->direction.j *= weight;
 		acceleration_weight = 1.0f - weight;
+#else
+		real weight = 1.0f - screen->wind_acceleration_weight;
+		real acceleration_weight;
+
+		wind->direction.i *= weight;
+		wind->direction.j *= weight;
+		acceleration_weight = screen->wind_acceleration_weight;
+#endif
 		wind->direction.i += target_direction->i * acceleration_weight;
 		wind->direction.j += target_direction->j * acceleration_weight;
 		if (normalize2d(&wind->direction) == 0.0f)
@@ -921,11 +934,19 @@ static void rasterizer_environment_fog_screen_wind_update(
 			wind->direction.i = 1.0f;
 			wind->direction.j = 0.0f;
 		}
+#ifndef HALO_XBOX_CONSOLE
 		scalars_interpolate(
 			wind->magnitude,
 			wind->target_magnitude,
 			acceleration_weight,
 			&wind->magnitude);
+#else
+		scalars_interpolate(
+			wind->magnitude,
+			wind->target_magnitude,
+			screen->wind_acceleration_weight,
+			&wind->magnitude);
+#endif
 		if (global_frame_parameters.game_time_sec - wind->change_time >= wind->change_period)
 		{
 			real_vector2d perpendicular;
@@ -991,8 +1012,14 @@ void _rasterizer_environment_fog_screen_begin(
 
 		if (pass == 0)
 		{
+#ifndef HALO_XBOX_CONSOLE
 			real_matrix4x3 *previous_camera_matrix =
 				previous_camera_matrix_for_window(global_window_parameters.window_index);
+#else
+			real_matrix4x3 *previous_camera_matrix =
+				&previous_camera_matrix[
+					global_window_parameters.window_index];
+#endif
 			real_matrix4x3 wind_matrix = *global_identity4x3;
 			real screen_constants[5][4];
 			real_matrix4x3 matrix;

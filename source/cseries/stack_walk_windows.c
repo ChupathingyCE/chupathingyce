@@ -119,6 +119,11 @@ symbols in this file:
 /* January calls the CRT isspace function rather than the multibyte ctype macro. */
 #undef isspace
 
+/* port: kept in the console's build without the developer tools too: its
+addresses on the halt screen and in debug.txt are how a tester's crash is
+read (against the build's map file) */
+#if 1
+
 /* ---------- constants */
 
 enum
@@ -258,7 +263,14 @@ char *symbol_name_from_address(
 	unsigned long fake_address,
 	struct debug_symbol_table *symbol_table)
 {
+#ifdef HALO_CONSOLE_NO_DEBUG_TOOLS
+	/* port: a console's build without its developer tools names a frame in
+	a line of the crash report and no more ("name + offset : object"); the
+	16 KB the debug build kept for it is memory a 64 MB console needs */
+	static char symbol_buffer[0x200] = { 0 };
+#else
 	static char symbol_buffer[0x4000] = { 0 };
+#endif
 	unsigned long address = stack_walk_globals.fixup + fake_address;
 
 	csstrcpy(symbol_buffer, "<unknown>");
@@ -281,7 +293,7 @@ char *symbol_name_from_address(
 
 				_snprintf(
 					symbol_buffer,
-					0x3FFF,
+					sizeof(symbol_buffer) - 1,
 					"%s + %04lX : %s",
 					symbol_table->string_storage + symbol_table->symbols[symbol_index - 1].name_string_offset,
 					address - symbol_table->symbols[symbol_index - 1].rva_base,
@@ -875,8 +887,13 @@ static void walk_stack(
 {
 	unsigned long level;
 
+#ifndef HALO_XBOX_CONSOLE
 	walk_up_current_frame = (__typeof__(walk_up_current_frame))(__UINTPTR_TYPE__)__builtin_frame_address(0);
 	old_ebp = (__typeof__(old_ebp))walk_up_current_frame;
+#else
+	__asm mov walk_up_current_frame, ebp
+	__asm mov old_ebp, esp
+#endif
 
 	if (!is_valid_ebp())
 	{
@@ -903,3 +920,76 @@ static void walk_stack(
 	*levels_dumped = level;
 	return;
 }
+
+#else
+
+/* port: the console's build without the developer tools (halo_xbox_prefix.h)
+has none of this module; what the rest of the game calls answers with nothing */
+
+long stack_walk_global_function_offset(
+	void)
+{
+	return 0;
+}
+
+void stack_walk_disregard_symbol_names(
+	boolean disregard)
+{
+	return;
+}
+
+void stack_walk(
+	short levels_to_ignore)
+{
+	return;
+}
+
+void free_symbol_table(
+	struct debug_symbol_table *symbol_table)
+{
+	return;
+}
+
+char * symbol_name_from_address(
+	unsigned long fake_address,
+	struct debug_symbol_table *symbol_table)
+{
+	return NULL;
+}
+
+long base_address_from_symbol_name(
+	char const *name,
+	struct debug_symbol_table *symbol_table)
+{
+	return 0;
+}
+
+void stack_walk_dispose(
+	void)
+{
+	return;
+}
+
+void stack_walk_with_context(
+	FILE *error_stream,
+	short levels_to_ignore,
+	CONTEXT *context_pointer)
+{
+	return;
+}
+
+int load_symbol_table(
+	char *filename,
+	struct debug_symbol_table *symbol_table,
+	char *timestamp_str)
+{
+	return 0;
+}
+
+void stack_walk_initialize(
+	void)
+{
+	return;
+}
+
+#endif
