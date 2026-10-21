@@ -7357,7 +7357,7 @@ static struct
 	short section;
 } delta_menus;
 
-static void wide_text(char const *text, wchar_t *wide, long size)
+static void utf8_wide_text(char const *text, wchar_t *wide, long size)
 {
 	unsigned char const *cursor = (unsigned char const *)text;
 	long used = 0;
@@ -7395,7 +7395,7 @@ static void delta_text(struct widget_instance *widget, char const *text)
 {
 	wchar_t wide[ROW_TEXT_LENGTH];
 
-	wide_text(text ? text : "", wide, ROW_TEXT_LENGTH);
+	utf8_wide_text(text ? text : "", wide, ROW_TEXT_LENGTH);
 	text_set(widget, wide);
 }
 
@@ -7570,7 +7570,7 @@ static void profile_delta_card(struct widget_instance *description, boolean delt
 
 static void delta_section_text(short row, wchar_t *text)
 {
-	wide_text(profile_screen_section_name(row), text, ROW_TEXT_LENGTH);
+	utf8_wide_text(profile_screen_section_name(row), text, ROW_TEXT_LENGTH);
 }
 
 /* a slot of the panel: its label, a recent game's place, and its value at
