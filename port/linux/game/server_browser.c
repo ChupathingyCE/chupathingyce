@@ -125,14 +125,14 @@ boolean server_browser_map_blocked(char const *map, wchar_t *message, short leng
 		map_archive_display_name(file, display, (int)sizeof(display));
 		/* (one of Halo PC's own maps: never downloaded, map_archive.h) */
 		if (family == _map_family_custom_edition && map_archive_stock_name(file))
-			snprintf(text, sizeof(text), "%s.map is one of Halo PC's own maps: install it yourself", display);
+			snprintf(text, sizeof(text), "%s.map comes with Halo PC: install it to join", display);
 		else
 			snprintf(text, sizeof(text), server_browser_map_downloadable(map) ?
-				"Needs %s/%s.map: joining offers to download it" : "Needs %s/%s.map to join",
+				"Needs %s/%s.map: join to download it" : "Needs %s/%s.map to join",
 				map_family_folder(family), display);
 		break;
 	case _ce_map_unsupported:
-		snprintf(text, sizeof(text), "%s maps need ChupathingyCE with Halo PC map support.",
+		snprintf(text, sizeof(text), "%s maps aren't supported in this build.",
 			family == _map_family_halomd ? "HaloMD" : "Halo PC");
 		break;
 	default:

@@ -463,7 +463,7 @@ def test_stock_maps(harness, name):
     kind, message = run(harness, "stock", name).split("\n")
     assert kind == "1"
     base = name.lower()
-    assert message == (f"{base}.map is one of Halo PC's own maps, so Chupathingy can't download it. Copy {base}.map "
+    assert message == (f"{base}.map comes with Halo PC. Copy it "
                        "from your Halo PC or Custom Edition install into maps_ce, then join again.")
 
 
@@ -471,7 +471,7 @@ def test_stock_maps(harness, name):
 def test_stock_files(harness, name):
     kind, message = run(harness, "stock", name).split("\n")
     assert kind == "2"
-    assert message.startswith(f"{name.lower()}.map is one of Halo PC's own files, so Chupathingy can't download it.")
+    assert message.startswith(f"{name.lower()}.map comes with Halo PC.")
 
 
 @pytest.mark.parametrize("name,base", [("bloodgulch_1234abcd", "bloodgulch"), ("BloodGulch_DEADBEEF", "bloodgulch"),
@@ -479,7 +479,7 @@ def test_stock_files(harness, name):
 def test_stock_hashed_names(harness, name, base):
     output = run(harness, "stock", name).split("\n")
     assert output[0] in ("1", "2")
-    assert output[1].startswith(f"{base}.map is one of Halo PC's own ")
+    assert output[1].startswith(f"{base}.map comes with Halo PC.")
 
 
 @pytest.mark.parametrize("name", ["sneak", "coldsnap", "Sneak_af352483", "bloodgulch2", "bloodgulch_v2", "hugeass",
@@ -504,7 +504,7 @@ def test_stock_message_in_the_missing_map_paths():
     cache = (ROOT / "source" / "cache" / "cache_files.c").read_text(encoding="utf-8")
     assert "Install this map yourself" in cache and "map_archive_stock_message(file" in cache
     browser = (ROOT / "port" / "linux" / "game" / "browser_screen.c").read_text(encoding="utf-8")
-    assert "MAP_ARCHIVE_STOCK_TITLE" in browser and "so Chupathingy can't download it." in browser
+    assert "MAP_ARCHIVE_STOCK_TITLE" in browser and "%s.map comes with Halo PC." in browser
 
 
 # ---------- the real repository

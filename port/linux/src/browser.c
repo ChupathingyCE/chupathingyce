@@ -591,7 +591,7 @@ static void start_connect(int serial, const unsigned short *name)
 	}
 	if (!player_key(key))
 	{
-		connect_failed(serial, "Link Profile could not read or make this copy's player key. debug.txt has its path.");
+		connect_failed(serial, "Link Profile could not read or make your player key.");
 		return;
 	}
 	p2p_hex(key, PLAYER_KEY_SIZE, key_text);
@@ -1872,7 +1872,7 @@ void browser_connect_start(const unsigned short *name)
 	if (!config_string("network.browser_url")[0])
 	{
 		browser.connect_state = BROWSER_CONNECT_FAILED;
-		snprintf(browser.connect_message, sizeof(browser.connect_message), "No game list (network.browser_url).");
+		snprintf(browser.connect_message, sizeof(browser.connect_message), "No game list.");
 	}
 	pthread_mutex_unlock(&browser_lock);
 }

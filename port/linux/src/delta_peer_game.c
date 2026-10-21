@@ -489,7 +489,7 @@ static void client_map(void)
 			(unsigned long)((((unsigned long long)mine.size_high << 32) | mine.size_low) >> 20),
 			(unsigned long)((((unsigned long long)theirs.size_high << 32) | theirs.size_low) >> 20));
 		snprintf(message, sizeof(message),
-			"Your %s map %.63s.map is not the host's: the two files differ. Replace the one in %s with the host's.",
+			"Your %s map %.63s.map differs from the host's. Replace the one in %s with the host's.",
 			map_family_badge(theirs.family), theirs.name, map_family_folder(theirs.family));
 		for (index = 0; message[index] && index < (int)(sizeof(text) / sizeof(text[0])) - 1; index++)
 			text[index] = (unsigned short)(unsigned char)message[index];

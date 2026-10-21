@@ -299,7 +299,7 @@ static void press(
 		{
 			moderation_screen.signing_in = delta_peer_game_moderation_sign_in();
 			set_status(moderation_screen.signing_in ? "Signing in..." :
-				"Could not sign in (no player key, or this is not the server you joined).");
+				"Could not sign in.");
 		}
 		return;
 	}
@@ -540,7 +540,7 @@ static void render_banner(
 		ui_overlay_rect(110, 24, 420, 30, 6, COLOR_PANEL);
 		ui_overlay_outline(110, 24, 420, 30, 6, 1.0f, COLOR_PANEL_EDGE);
 		ui_overlay_text(UI_FONT_REGULAR, 12.0f, 320, 33, UI_ALIGN_CENTER, COLOR_TEXT,
-			"The server asks to link this game to an account: pause, then press Y");
+			"Link request from the server. Pause, then press Y.");
 	}
 }
 
@@ -577,9 +577,7 @@ void moderation_screen_render(
 		snprintf(text, sizeof(text), "Server: %s", moderation->bind_server);
 		ui_overlay_text(UI_FONT_REGULAR, 13.0f, 120, y + 46, UI_ALIGN_LEFT, COLOR_TEXT, text);
 		ui_overlay_text(UI_FONT_REGULAR, 11.0f, 120, y + 76, UI_ALIGN_LEFT, COLOR_DIM,
-			"Only if you asked for it in the server's control panel. Linking");
-		ui_overlay_text(UI_FONT_REGULAR, 11.0f, 120, y + 90, UI_ALIGN_LEFT, COLOR_DIM,
-			"signs with your moderator key; your player key stays here.");
+			"Link only if you asked for it in the server's control panel.");
 		x = prompt(UI_BUTTON_A, "Link", 120, 392);
 		prompt(UI_BUTTON_B, "Decline", x, 392);
 		return;
@@ -589,9 +587,9 @@ void moderation_screen_render(
 		char key[80];
 
 		ui_overlay_text(UI_FONT_REGULAR, 13.0f, 120, y, UI_ALIGN_LEFT, COLOR_TEXT,
-			"This server has moderators. Sign in if you are one.");
+			"Sign in if you moderate this server.");
 		ui_overlay_text(UI_FONT_REGULAR, 11.0f, 120, y + 24, UI_ALIGN_LEFT, COLOR_DIM,
-			"Signing in shows this server your moderator key:");
+			"Your moderator key:");
 		if (browser_moderator_key(key, sizeof(key)))
 		{
 			snprintf(text, sizeof(text), "%.32s", key);
@@ -621,8 +619,6 @@ void moderation_screen_render(
 	{
 		ui_overlay_text(UI_FONT_REGULAR, 13.0f, 120, y, UI_ALIGN_LEFT, COLOR_TEXT,
 			"Your moderator key has no role on this server.");
-		ui_overlay_text(UI_FONT_REGULAR, 11.0f, 120, y + 22, UI_ALIGN_LEFT, COLOR_DIM,
-			"Its owner can add it: sv_players shows it while you are signed in.");
 		prompt(UI_BUTTON_B, "Back", 120, 392);
 		return;
 	}
