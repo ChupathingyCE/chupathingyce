@@ -131,9 +131,14 @@ void platform_log(const char *format, ...);
 
 enum
 {
+#ifndef HALO_XBOX_CONSOLE
 	/* the native builds' larger game state (halo_port_capacity.h) */
 	GAME_STATE_CPU_SIZE = HALO_PORT_GAME_STATE_CPU_SIZE,
 	GAME_STATE_GPU_SIZE = HALO_PORT_GAME_STATE_GPU_SIZE,
+#else
+	GAME_STATE_CPU_SIZE = HALO_PORT_GAME_STATE_CPU_SIZE,
+	GAME_STATE_GPU_SIZE = HALO_PORT_GAME_STATE_GPU_SIZE,
+#endif
 	GAME_STATE_SIZE = GAME_STATE_CPU_SIZE+GAME_STATE_GPU_SIZE
 };
 
@@ -383,8 +388,12 @@ void game_state_save_to_persistent_storage(
 			game_state_globals.base_address,
 			&game_state_globals.header->checksum,
 			sizeof(*game_state_globals.header),
+#ifndef HALO_XBOX_CONSOLE
 			/* the whole of the native builds' larger game state */
 			GAME_STATE_SIZE);
+#else
+			0x345000);
+#endif
 	}
 
 	return;
@@ -402,8 +411,12 @@ boolean game_state_test_persistent_storage(
 		&header,
 		&header.checksum,
 		sizeof(*game_state_globals.header),
+#ifndef HALO_XBOX_CONSOLE
 		/* the whole of the native builds' larger game state */
 		GAME_STATE_SIZE,
+#else
+		0x345000,
+#endif
 		corrupted))
 	{
 		*difficulty = header.difficulty;
@@ -426,8 +439,12 @@ boolean game_state_test_persistent_storage(
 void game_state_save_core(
 	const char *name)
 {
+#ifndef HALO_XBOX_CONSOLE
 	/* the whole of the native builds' larger game state */
 	if (game_state_write_core(name, game_state_globals.base_address, GAME_STATE_SIZE))
+#else
+	if (game_state_write_core(name, game_state_globals.base_address, 0x345000))
+#endif
 	{
 		console_printf(FALSE, "saved '%s'", name);
 	}
@@ -451,6 +468,24 @@ static boolean game_state_header_valid(
 {
 	boolean valid = FALSE;
 
+#ifdef HALO_XBOX_CONSOLE
+	/* (the native builds take a game state whatever build wrote it; the map,
+	allocation checksum and player count below still have to match) */
+	if (csstrcmp(header->build_number, "01.01.14.2342"))
+	{
+		if (halt_on_error)
+		{
+			// Original bug: %d formats two string pointers. A non-matching bug-fix
+			// build should use %s for both values instead.
+			match_vassert(
+				"c:\\halo\\SOURCE\\saved games\\game_state.c",
+				405,
+				FALSE,
+				csprintf(temporary, "expected build #%d but got #%d", "01.01.14.2342", header->build_number));
+		}
+	}
+	else
+#endif
 	if (csstrcmp(header->map_name, tag_get_name(global_scenario_index)))
 	{
 		if (halt_on_error)
@@ -555,6 +590,16 @@ void *game_state_malloc(
 
 	match_assert("c:\\halo\\SOURCE\\saved games\\game_state.c", 153, !(size&3));
 	match_assert("c:\\halo\\SOURCE\\saved games\\game_state.c", 156, !game_state_globals.locked);
+#ifdef HALO_XBOX_CONSOLE
+	/* port: what did not fit the console's game state, to the debug output */
+	if (game_state_globals.cpu_allocation_size+size>GAME_STATE_CPU_SIZE)
+	{
+		extern unsigned long __cdecl DbgPrint(char const *format, ...);
+
+		DbgPrint("halo: game state full: %s (%s) of %ld bytes, %ld of %ld used\n", name, type, size,
+			game_state_globals.cpu_allocation_size, (long)GAME_STATE_CPU_SIZE);
+	}
+#endif
 	match_assert("c:\\halo\\SOURCE\\saved games\\game_state.c", 159, game_state_globals.cpu_allocation_size+size<=GAME_STATE_CPU_SIZE);
 
 	game_state_allocation_record(name, type, size, FALSE);
@@ -566,6 +611,22 @@ void *game_state_malloc(
 
 	return pointer;
 }
+
+#ifdef HALO_XBOX_CONSOLE
+/* port: the console's game state is the Xbox's size in every build
+(port/xbox/src/xbox_memory.c counts it so) */
+typedef char game_state_xbox_size_assert[GAME_STATE_SIZE == 0x345000 ? 1 : -1];
+
+/* port: the CPU part's use, for the console's memory log
+(port/xbox/src/xbox_memory.c) */
+void game_state_cpu_usage(
+	long *used,
+	long *size)
+{
+	*used = game_state_globals.cpu_allocation_size;
+	*size = GAME_STATE_CPU_SIZE;
+}
+#endif
 
 void *game_state_gpu_malloc(
 	const char *name,
@@ -850,7 +911,9 @@ boolean game_state_image_accept(
 		if (!valid)
 			return FALSE;
 	}
-	csmemcpy(game_state_globals.base_address, image, size);
+	/* (the console reads straight into the game state: nothing to copy) */
+	if (image != game_state_globals.base_address)
+		csmemcpy(game_state_globals.base_address, image, size);
 	error(_error_silent, "the saved game is taken");
 
 	return TRUE;
@@ -1044,9 +1107,13 @@ void game_state_initialize(
 	void)
 {
 	crc_new(&game_state_globals.allocation_size_checksum);
+#ifndef HALO_XBOX_CONSOLE
 	/* the native builds place their larger game state above the tag cache
 	(halo_port_capacity.h, cache/physical_memory_map.c) */
 	game_state_globals.base_address = game_state_allocate_buffer(HALO_PORT_GAME_STATE_BASE_ADDRESS, GAME_STATE_CPU_SIZE, GAME_STATE_GPU_SIZE);
+#else
+	game_state_globals.base_address = game_state_allocate_buffer(HALO_PORT_GAME_STATE_BASE_ADDRESS, GAME_STATE_CPU_SIZE, GAME_STATE_GPU_SIZE);
+#endif
 	game_state_create_or_open_file();
 	game_state_globals.header = game_state_malloc("header", NULL, sizeof(*game_state_globals.header));
 

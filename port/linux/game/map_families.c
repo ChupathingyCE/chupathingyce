@@ -650,7 +650,12 @@ names it (or is "*", every map). */
 
 enum
 {
+#ifdef HALO_XBOX_CONSOLE
+	/* (the console downloads none: only a game.downloaded_maps' names) */
+	MAXIMUM_DOWNLOADED_MAPS = 8,
+#else
 	MAXIMUM_DOWNLOADED_MAPS = 512,
+#endif
 	DOWNLOADED_MAP_NAME_LENGTH = 64,
 };
 
@@ -680,6 +685,11 @@ static boolean map_downloaded_name_is(
 static void map_downloaded_read_list(
 	void)
 {
+#ifdef HALO_XBOX_CONSOLE
+	/* (the console downloads no maps: no list, and no 32 KB to read one in) */
+	map_downloaded_list_read = TRUE;
+}
+#else
 	static char text[MAXIMUM_DOWNLOADED_MAPS * DOWNLOADED_MAP_NAME_LENGTH];
 	unsigned long bytes_read = 0;
 	HANDLE file;
@@ -709,6 +719,7 @@ static void map_downloaded_read_list(
 		line += strspn(line, "\r\n");
 	}
 }
+#endif
 
 void map_downloaded_remember(
 	char const *map_name)

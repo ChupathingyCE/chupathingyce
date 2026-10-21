@@ -75,6 +75,7 @@ symbols in this file:
 #include "networking/network_game_globals.h"
 #include "networking/network_server_manager.h"
 #include "saved games/game_state.h"
+#include "halo_perf_log.h" /* port: console.perf_log */
 /* port/linux/game/network_distributed.c's */
 void network_distributed_tick(void);
 
@@ -472,7 +473,10 @@ void game_time_update(
 
 					for (update_index = 0; update_index < server_updates; update_index++)
 					{
+						HALO_PERF_BEGIN(_halo_perf_tick);
 						game_tick();
+						HALO_PERF_END(_halo_perf_tick);
+						HALO_PERF_COUNT(_halo_perf_ticks, 1);
 						render_interpolation_tick();
 						game_time_globals->server_time++;
 						game_time_globals->local_time++;

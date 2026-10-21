@@ -225,6 +225,7 @@ static void render_debug_profile_stall_tick(
 	real scale);
 /* ---------- globals */
 
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
 short profile_game_value_count = NUMBER_OF_PROFILE_GAME_VALUES;
 struct profile_value profile_game_values[MAXIMUM_PROFILE_VALUES] =
 {
@@ -257,6 +258,8 @@ struct profile_value profile_graph_values[MAXIMUM_PROFILE_VALUES] =
 	{ "pushbuffer", "pushbuffer", &global_real_argb_darkgreen, NONE, NONE, FALSE, TRUE },
 	{ "dt", "dt", &global_real_argb_grey, NONE, NONE, FALSE, TRUE },
 };
+
+#endif
 
 /* ---------- public code */
 
@@ -784,6 +787,7 @@ void interface_draw_bitmap_modulated_p32(
 	return;
 }
 
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
 void profile_graph_toggle(
 	char const *graph_name)
 {
@@ -1228,6 +1232,26 @@ static void render_debug_profile(
 
 	return;
 }
+
+#else
+
+void profile_graph_toggle(
+	char const *graph_name)
+{
+	console_debug_tools_unavailable("profile_graph_toggle");
+
+	return;
+}
+
+/* ---------- private code */
+
+static void render_debug_profile(
+	void)
+{
+	return;
+}
+
+#endif
 
 static void interface_splitscreen_render(
 	void)

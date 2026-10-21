@@ -688,9 +688,10 @@ struct widget_instance;
 /* port: Controller Buttons asking for a button (menu_functions.c) */
 boolean pc_menu_controller_capture(void);
 #endif
-#ifdef HALO_GAME_BROWSER
-/* the in-game server browser (port/linux/game/browser_screen.c): a screen of
-code over the widgets, as the virtual keyboard is */
+#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
+/* the in-game server browser (port/linux/game/browser_screen.c; the
+console's, port/xbox/game/xbox_browser_screen.c): a screen of code over the
+widgets, as the virtual keyboard is */
 boolean browser_screen_active(void);
 void browser_screen_open(void);
 boolean browser_screen_open_map_offer(void);
@@ -1511,6 +1512,8 @@ static boolean ui_check_for_pause_game(
 	void);
 static long spinner_string_list_extra_count(
 	long string_list_index);
+static short spinner_string_list_extra_wider(
+	long string_list_index);
 static wchar_t *spinner_string_list_get_string(
 	long string_list_index,
 	short string_index);
@@ -1518,10 +1521,10 @@ static wchar_t *spinner_string_list_get_string(
 /* ---------- globals */
 
 /* port: text boxes' string list indices from here are the descriptions of
-spinners' extra items (kills_to_win_extra_descriptions), above the Custom
+spinners' extra items (spinner_extras' descriptions), above the Custom
 Edition maps' display indices (custom_edition_maps.c keeps them below 0x7000) */
 #define SPINNER_EXTRA_DESCRIPTION_BASE 0x7000
-/* ... and the pixels a spinner with extra items is wider (for three digits) */
+/* ... and the pixels the kills to win spinner is wider (for three digits) */
 #define SPINNER_EXTRA_WIDTH 12
 
 /* port: the strings a spinner's string list has past the tag's own, as more
@@ -1543,6 +1546,54 @@ static wchar_t const *const kills_to_win_extra_descriptions[] =
 	L"Two hundred and fifty kills to win.",
 	L"Five hundred kills to win. You'll be here a while.",
 };
+
+#ifdef HALO_CONSOLE_NO_CONTROLS
+/* port: a build without the Controls screen (port/linux/game/
+controls_screen.c) offers Bumper Jumper in the profile's own Button
+Layout, after the Xbox's five (player_ui.c sets it; the profile keeps it
+as _button_preset_bumper_jumper, the sixth). The controller picture has
+no frame for it, so it is hidden while the item is chosen */
+static wchar_t const *const button_config_extra_strings[] =
+{
+	L"BUMPER JUMPER",
+};
+
+static wchar_t const *const button_config_extra_descriptions[] =
+{
+	L"Jump with the white button, melee with the\r\nblack, as Bumper Jumper in the Master Chief\r\nCollection.",
+};
+#endif
+
+/* port: the spinners' string lists with extra items, by tag name: their
+strings, their descriptions, how much wider the spinner draws (to the
+left), and whether the list's picture has a frame for them */
+static struct
+{
+	char const *tag_name;
+	wchar_t const *const *strings;
+	wchar_t const *const *descriptions;
+	short count;
+	short wider;
+	boolean pictured;
+} const spinner_extras[] =
+{
+	{
+		"ui\\shell\\main_menu\\settings_select\\multiplayer_setup\\playlist_edit\\slayer_edit\\var_kills_to_win",
+		kills_to_win_extra_strings, kills_to_win_extra_descriptions, NUMBEROF(kills_to_win_extra_strings),
+		SPINNER_EXTRA_WIDTH, TRUE,
+	},
+#ifdef HALO_CONSOLE_NO_CONTROLS
+	{
+		"ui\\shell\\main_menu\\settings_select\\player_setup\\player_profile_edit\\controller_edit\\var_button_config",
+		button_config_extra_strings, button_config_extra_descriptions, NUMBEROF(button_config_extra_strings),
+		0, FALSE,
+	},
+#endif
+};
+
+/* the extra descriptions' text box indices: SPINNER_EXTRA_DESCRIPTION_BASE,
+then each list's in turn, SPINNER_EXTRA_DESCRIPTIONS_EACH apart */
+#define SPINNER_EXTRA_DESCRIPTIONS_EACH 0x20
 
 /* port: an error message of the port's own text (display_error_text_deferred):
 the text waiting for its dialog, then the dialog's text box showing it */
@@ -2480,6 +2531,7 @@ static struct widget_instance *ui_widget_launch_widget(
 	struct widget_instance *new_widget;
 	short local_player_index;
 
+#ifndef HALO_XBOX_CONSOLE
 	/* port: the menus of multiplayer with other machines (not split screen's
 	or co-op's) open only on maps of a build that plays multiplayer with the
 	others (cache_files.c, cache_files_multiplayer_region); otherwise the
@@ -2498,6 +2550,7 @@ static struct widget_instance *ui_widget_launch_widget(
 			return NULL;
 		}
 	}
+#endif
 
 	if (TEST_FLAG(definition->flags, _widget_always_use_tag_controller_index_bit))
 	{
@@ -2736,7 +2789,7 @@ boolean widget_event_function_list_widget_goto_next_item(
 			child = widget_instance_get_nth_child(widget, item_index);
 			if (child)
 			{
-				#ifdef HALO_GAME_BROWSER
+				#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
 				/* (ONLINE GAMES shares System Link's tag: by tag, the first of the two
 				would take the focus) */
 				if (ui_widget_online_games_list(widget))
@@ -2831,7 +2884,7 @@ boolean widget_event_function_list_widget_goto_next_item(
 			}
 			if (child)
 			{
-				#ifdef HALO_GAME_BROWSER
+				#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
 				/* (ONLINE GAMES shares System Link's tag: by tag, the first of the two
 				would take the focus) */
 				if (ui_widget_online_games_list(widget))
@@ -2890,7 +2943,7 @@ boolean widget_event_function_list_widget_goto_previous_item(
 			child = widget_instance_get_nth_child(widget, item_index);
 			if (child)
 			{
-				#ifdef HALO_GAME_BROWSER
+				#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
 				/* (ONLINE GAMES shares System Link's tag: by tag, the first of the two
 				would take the focus) */
 				if (ui_widget_online_games_list(widget))
@@ -2992,7 +3045,7 @@ boolean widget_event_function_list_widget_goto_previous_item(
 					}
 				}
 			}
-			#ifdef HALO_GAME_BROWSER
+			#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
 			/* (ONLINE GAMES shares System Link's tag: by tag, the first of the two
 			would take the focus) */
 			if (ui_widget_online_games_list(widget))
@@ -3016,12 +3069,14 @@ void ui_widgets_close_all(
 {
 	long local_player_index;
 
+#ifndef HALO_XBOX_CONSOLE
 	/* port: the virtual keyboard goes with the widgets (while the widget
 	whose text it edits is still there): left open, it drew on after a game
 	loaded, with the menu map's font, which the game's tags no longer have
 	(a player typing when the host started the game) */
 	if (virtual_keyboard_active())
 		virtual_keyboard_close();
+#endif
 	for (local_player_index = 0;
 		local_player_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS;
 		local_player_index++)
@@ -3385,11 +3440,12 @@ static __inline struct widget_instance *widget_instance_find_by_tag_index(
 	return result;
 }
 
-#ifdef HALO_GAME_BROWSER
+#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
 /* ---------- ONLINE GAMES
 
 The Multiplayer menu's fourth item, after System Link: the game list's
-screen (port/linux/game/browser_screen.c). The menu is the user
+screen (port/linux/game/browser_screen.c; on the original Xbox,
+port/xbox/game/xbox_browser_screen.c, the list read only). The menu is the user
 interface's tags, and has no such item: when the tags load, the menu's
 list gets a copy of System Link's (its look, its tab into the description,
 a row below it), and the items after it and the line under them move down
@@ -3500,6 +3556,28 @@ boolean ui_widget_online_games_item(
 		ui_widget_list_position(widget) == ONLINE_GAMES_POSITION;
 }
 
+#ifdef HALO_XBOX_CONSOLE
+/* the menu's fonts, for the console's ONLINE GAMES screen
+(port/xbox/game/xbox_browser_screen.c), so it reads as the menus do: the
+items' (System Link's) for headings, the description's for the rest; NONE
+before the tags load */
+long ui_widget_online_games_font(
+	boolean heading)
+{
+	if (heading && online_games.list_tag != NONE && online_games.children)
+	{
+		long item_tag = online_games.children[ONLINE_GAMES_SYSTEM_LINK].widget_tag.index;
+
+		if (item_tag != NONE)
+			return ui_widget_definition_get(item_tag)->text_font.index;
+	}
+	if (online_games.description_text_tag != NONE)
+		return ui_widget_definition_get(online_games.description_text_tag)->text_font.index;
+	return NONE;
+}
+#endif
+
+#ifdef HALO_GAME_BROWSER
 /* (ui_widget_event_handler_functions.c's) */
 boolean ui_online_games_start_server(void);
 
@@ -3526,6 +3604,7 @@ boolean ui_widget_online_games_create_game(
 	return ui_widget_load_by_name_or_tag(NULL, map_select, NULL, NONE, screen, online_games.list_tag,
 		ONLINE_GAMES_POSITION) != NULL;
 }
+#endif
 
 /* the Multiplayer menu's description for its focused item
 (ui_widget_game_data_input_functions.c): ONLINE GAMES shows System Link's
@@ -3561,7 +3640,7 @@ static void event_handler_dispatch(
 	boolean close_current = FALSE;
 	boolean close_all = FALSE;
 
-#ifdef HALO_GAME_BROWSER
+#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
 	/* ONLINE GAMES (System Link's item copied): the game list's screen, not
 	System Link's */
 	if (ui_widget_online_games_item(widget) &&
@@ -5581,19 +5660,28 @@ static void widget_instance_render_text_box(
 		string = widget == ui_widget_port_error_text_box && ui_widget_port_error_text ?
 			(wchar_t *)ui_widget_port_error_text :
 			unicode_string_list_get_string(definition->text_label_string_list.index, string_list_index);
-#ifdef HALO_GAME_BROWSER
+#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
 		/* (ONLINE GAMES' item and description share System Link's tags) */
 		if (ui_widget_online_games_item(widget))
 			string = L"ONLINE GAMES";
 		else if (online_games.described && widget->definition_tag_index == online_games.description_text_tag)
 			/* (broken in lines as the game's own: the text box does not wrap) */
+#ifdef HALO_XBOX_CONSOLE
+			string = L"See the games hosted over \r\nthe internet, on the \r\ncommunity's game list.";
+#else
 			string = L"Find and join games hosted \r\nover the internet, on the \r\ncommunity's game list.";
+#endif
 #endif
 		/* port: the description of a spinner's extra item */
 		if (string_list_index >= SPINNER_EXTRA_DESCRIPTION_BASE &&
-			string_list_index < SPINNER_EXTRA_DESCRIPTION_BASE + (short)NUMBEROF(kills_to_win_extra_descriptions))
+			string_list_index < SPINNER_EXTRA_DESCRIPTION_BASE +
+				(short)NUMBEROF(spinner_extras) * SPINNER_EXTRA_DESCRIPTIONS_EACH)
 		{
-			string = (wchar_t *)kills_to_win_extra_descriptions[string_list_index - SPINNER_EXTRA_DESCRIPTION_BASE];
+			short extra = (short)((string_list_index - SPINNER_EXTRA_DESCRIPTION_BASE) / SPINNER_EXTRA_DESCRIPTIONS_EACH);
+			short item = (short)((string_list_index - SPINNER_EXTRA_DESCRIPTION_BASE) % SPINNER_EXTRA_DESCRIPTIONS_EACH);
+
+			if (item < spinner_extras[extra].count)
+				string = (wchar_t *)spinner_extras[extra].descriptions[item];
 		}
 		length = ustrlen(string);
 		widget->parameters.text_box.text = pool_resize_pointer(
@@ -5794,12 +5882,13 @@ static void widget_instance_render_spinner_list(
 
 		csmemset(&parameters, 0, sizeof(parameters));
 		bounds = definition->list_header_bounds;
-		/* port: a spinner with extra items is wider, to the left, its arrow
-		with it */
-		if (spinner_string_list_extra_count(definition->text_label_string_list.index))
+		/* port: a spinner with extra items may be wider, to the left, its
+		arrow with it */
 		{
-			bounds.x0 -= SPINNER_EXTRA_WIDTH;
-			bounds.x1 -= SPINNER_EXTRA_WIDTH;
+			short wider = spinner_string_list_extra_wider(definition->text_label_string_list.index);
+
+			bounds.x0 -= wider;
+			bounds.x1 -= wider;
 		}
 		bounds.x0 += offset.x;
 		bounds.y0 += offset.y;
@@ -5920,12 +6009,13 @@ static void widget_instance_render_spinner_list(
 				bounds.y1 += offset.y;
 				bounds.x0 += offset.x;
 				bounds.y0 += offset.y;
-				/* port: a spinner with extra items (three digits) is wider, to the
-				left */
-				if (spinner_string_list_extra_count(definition->text_label_string_list.index))
+				/* port: a spinner with extra items (three digits) may be wider, to
+				the left */
 				{
-					bounds.x0 -= SPINNER_EXTRA_WIDTH;
-					clip.x0 -= SPINNER_EXTRA_WIDTH;
+					short wider = spinner_string_list_extra_wider(definition->text_label_string_list.index);
+
+					bounds.x0 -= wider;
+					clip.x0 -= wider;
 				}
 				if (focus)
 				{
@@ -5973,6 +6063,7 @@ static void widget_instance_render_spinner_list(
 	return;
 }
 
+#ifndef HALO_XBOX_CONSOLE
 /* ---------- the mouse (desktop builds)
 
 The menus were made for a controller: the d-pad moves the focus through a
@@ -7504,6 +7595,8 @@ static void ui_widgets_process_mouse(
 	return;
 }
 
+#endif
+
 static void widget_instance_render_recursive(
 	struct widget_instance *widget,
 	rectangle2d *clip_rect,
@@ -7539,7 +7632,9 @@ static void widget_instance_render_recursive(
 	}
 	if (!widget->visible)
 		return;
+#ifndef HALO_XBOX_CONSOLE
 	ui_mouse_note_target(widget, definition, offset);
+#endif
 #ifdef HALO_CUSTOM_EDITION
 	/* port: a picture of the menus' map list's own, past ui.map's */
 	bitmap = ui_map_list_picture(widget->animation.current_frame_index);
@@ -7886,18 +7981,22 @@ void render_ui_widgets(
 				bounds.y1 = window_bounds->y1 - window_bounds->y0;
 				offset.x = 0;
 				offset.y = 0;
+#ifndef HALO_XBOX_CONSOLE
 				/* the mouse drives the first player's menus; a widget shown in
 				every viewport (a dialog for everyone) is noted in the first
 				player's render only, and once a frame */
 				ui_mouse_noting_targets = first_players_render && !ui_mouse_targets_settled &&
 					(widget->local_player_index == NONE || widget->local_player_index == 0);
+#endif
 				widget_instance_render_recursive(
 					widget_globals.active_widgets[widget_index],
 					&bounds,
 					offset,
 					TRUE,
 					FALSE);
+#ifndef HALO_XBOX_CONSOLE
 				ui_mouse_noting_targets = FALSE;
+#endif
 				if (widget_globals.debug_show_path)
 				{
 					real_argb_color color = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -7922,6 +8021,7 @@ void render_ui_widgets(
 				}
 			}
 		}
+#ifndef HALO_XBOX_CONSOLE
 		if (first_players_render && !ui_mouse_targets_settled)
 		{
 			/* fit the legends while the rows are still targets (merging
@@ -7934,14 +8034,20 @@ void render_ui_widgets(
 			ui_mouse_targets_settled = TRUE;
 			ui_debug_log_targets();
 		}
+#endif
 		if (widget_globals.fade_to_black >= 0.0f &&
 			widget_globals.fade_to_black <= 1.0f)
 		{
 			real alpha;
 
+#ifndef HALO_XBOX_CONSOLE
 			/* the whole screen, around the centered 640 columns */
 			bounds.x0 = (short)(-(halo_screen_width() - 640) / 2);
 			bounds.x1 = (short)(640 + (halo_screen_width() - 640) / 2);
+#else
+			bounds.x0 = 0;
+			bounds.x1 = 640;
+#endif
 			bounds.y0 = 0;
 			bounds.y1 = 480;
 			if (widget_globals.fade_to_black >= 0.95f)
@@ -7954,7 +8060,7 @@ void render_ui_widgets(
 	{
 		virtual_keyboard_render();
 	}
-#ifdef HALO_GAME_BROWSER
+#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
 	if (browser_screen_active())
 		browser_screen_render();
 #ifndef HALO_CONSOLE_NO_DELTA_PROFILE
@@ -7969,7 +8075,9 @@ void render_ui_widgets(
 		invite_prompt_render();
 	}
 #endif
+#ifndef HALO_XBOX_CONSOLE
 	ui_debug_draw_targets(first_players_render);
+#endif
 
 	return;
 }
@@ -7977,15 +8085,36 @@ void render_ui_widgets(
 /* ---------- private code */
 
 
+/* the spinner_extras entry of a string list, or NONE */
+static short spinner_string_list_extra(
+	long string_list_index)
+{
+	short index;
+
+	if (string_list_index == NONE)
+		return NONE;
+	for (index = 0; index < (short)NUMBEROF(spinner_extras); index++)
+	{
+		if (!csstrcmp(tag_get_name(string_list_index), spinner_extras[index].tag_name))
+			return index;
+	}
+	return NONE;
+}
+
 static long spinner_string_list_extra_count(
 	long string_list_index)
 {
-	if (string_list_index != NONE && !csstrcmp(tag_get_name(string_list_index),
-		"ui\\shell\\main_menu\\settings_select\\multiplayer_setup\\playlist_edit\\slayer_edit\\var_kills_to_win"))
-	{
-		return NUMBEROF(kills_to_win_extra_strings);
-	}
-	return 0;
+	short extra = spinner_string_list_extra(string_list_index);
+
+	return extra == NONE ? 0 : spinner_extras[extra].count;
+}
+
+static short spinner_string_list_extra_wider(
+	long string_list_index)
+{
+	short extra = spinner_string_list_extra(string_list_index);
+
+	return extra == NONE ? 0 : spinner_extras[extra].wider;
 }
 
 /* a spinner's items of its string list's own (the descriptions of a list of
@@ -8005,11 +8134,25 @@ short ui_widget_spinner_extra_description(
 	struct widget_instance *spinner,
 	short item_index)
 {
+	struct ui_widget_definition *definition = ui_widget_definition_get(spinner->definition_tag_index);
+	short extra = spinner_string_list_extra(definition->text_label_string_list.index);
 	short own = ui_widget_spinner_own_item_count(spinner);
 
-	if (item_index < own)
+	if (item_index < own || extra == NONE)
 		return NONE;
-	return (short)(SPINNER_EXTRA_DESCRIPTION_BASE + item_index - own);
+	return (short)(SPINNER_EXTRA_DESCRIPTION_BASE + extra * SPINNER_EXTRA_DESCRIPTIONS_EACH + item_index - own);
+}
+
+/* whether a spinner's item has a picture of its list's own (an extra item
+may have none: the picture is hidden while it is chosen) */
+boolean ui_widget_spinner_item_pictured(
+	struct widget_instance *spinner,
+	short item_index)
+{
+	struct ui_widget_definition *definition = ui_widget_definition_get(spinner->definition_tag_index);
+	short extra = spinner_string_list_extra(definition->text_label_string_list.index);
+
+	return item_index < ui_widget_spinner_own_item_count(spinner) || extra == NONE || spinner_extras[extra].pictured;
 }
 
 /* a string of a string list, or of its extra strings past the tag's own */
@@ -8022,7 +8165,8 @@ static wchar_t *spinner_string_list_get_string(
 	if (string_list && string_index >= string_list->strings.count &&
 		string_index - string_list->strings.count < spinner_string_list_extra_count(string_list_index))
 	{
-		return (wchar_t *)kills_to_win_extra_strings[string_index - string_list->strings.count];
+		return (wchar_t *)spinner_extras[spinner_string_list_extra(string_list_index)].strings[
+			string_index - string_list->strings.count];
 	}
 	return unicode_string_list_get_string(string_list_index, string_index);
 }
@@ -8960,6 +9104,7 @@ static boolean ui_check_for_pause_game(
 			}
 		}
 	}
+#ifndef HALO_XBOX_CONSOLE
 	/* This runs once a frame, several frames per tick on the native builds
 	(port/linux/game/render_interpolation.c): count the lock down in 30 Hz
 	ticks of real time, not in frames. */
@@ -8973,6 +9118,10 @@ static boolean ui_check_for_pause_game(
 		widget_globals.pause_disabled_ticks =
 			FLOOR(widget_globals.pause_disabled_ticks - ticks, 0);
 	}
+#else
+	widget_globals.pause_disabled_ticks =
+		FLOOR(widget_globals.pause_disabled_ticks - 1, 0);
+#endif
 
 	return pause_pressed;
 }
@@ -8992,12 +9141,14 @@ void process_ui_widgets(
 		644,
 		widget_globals.initialized);
 	widget_globals.current_system_milliseconds = system_milliseconds();
+#ifndef HALO_XBOX_CONSOLE
 	ui_widgets_process_mouse();
 	if (ui_widget_port_press_controller != NONE)
 	{
 		event_manager_post_button(ui_widget_port_press_controller, ui_widget_port_press_button);
 		ui_widget_port_press_controller = NONE;
 	}
+#endif
 	if (widget_globals.initialization_thread)
 	{
 		if (!thread_has_exited(widget_globals.initialization_thread))
@@ -9040,6 +9191,7 @@ void process_ui_widgets(
 	if (pc_menu_controller_capture())
 		return;
 #endif
+#if defined(HALO_GAME_BROWSER) || defined(HALO_XBOX_CONSOLE)
 #ifdef HALO_GAME_BROWSER
 	/* port: an invite on the clipboard, asked about over the menus */
 	invite_prompt_update(widget_globals.active_widgets[0] != NULL);
@@ -9049,6 +9201,7 @@ void process_ui_widgets(
 
 		return;
 	}
+#endif
 #ifndef HALO_CONSOLE_NO_DELTA_PROFILE
 	if (profile_screen_active())
 	{

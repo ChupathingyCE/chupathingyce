@@ -94,4 +94,11 @@ Online Games' Link Profile panel, as before */
 
 #endif /* HALO_CONSOLE */
 
+/* text chat (port/linux/game/chat.c): the desktop builds' (HALO_GAME_BROWSER),
+and a console's with Delta Peer as a client (HALO_CONSOLE_DELTA), the
+client's part only, unless it sets HALO_CONSOLE_NO_CHAT */
+#if defined(HALO_GAME_BROWSER) || (defined(HALO_CONSOLE_DELTA) && !defined(HALO_CONSOLE_NO_CHAT))
+#define HALO_PORT_CHAT
+#endif
+
 #endif /* __HALO_PORT_FEATURES_H */

@@ -818,6 +818,12 @@ struct XNetStartupParams {
     unsigned char cfgSockDefaultSendBufsizeInK;
     unsigned char cfgKeyRegMax;
     unsigned char cfgSecRegMax;
+#ifdef HALO_XBOX_CONSOLE
+    /* the XDK the console build links (5933) added one more byte after the
+    2002 build's; XNetStartup ignores parameters of any other size, the
+    bypass flag with them */
+    unsigned char cfgQosDataLimitDiv4;
+#endif
 };
 
 struct _FLOATING_SAVE_AREA {

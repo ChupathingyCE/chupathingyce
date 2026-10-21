@@ -63,6 +63,13 @@ parser.add_argument(
     "(HALO_GAME_BROWSER; port/linux/src/browser.c); on unless --no-game-browser",
 )
 parser.add_argument(
+    "--console-limits",
+    action="store_true",
+    help="native ports (Linux, macOS): the original Xbox build's network and object limits "
+    "(HALO_CONSOLE_LIMITS: 16 players and machines, 2,048 objects), to test the console's side of "
+    "cross-play against the PC builds on one computer (docs/cross-play.md); never a build to ship",
+)
+parser.add_argument(
     "--lto",
     choices=["full", "thin", "off"],
     default="full",
@@ -119,6 +126,7 @@ sln = SimpleNamespace(
     compiler_launcher=args.compiler_launcher,
     port_release=args.release,
     game_browser=args.game_browser,
+    console_limits=args.console_limits,
     port_lto=args.lto,
     port_portable=args.portable,
     port_pgo=args.pgo,

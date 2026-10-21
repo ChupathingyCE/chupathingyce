@@ -188,6 +188,7 @@ struct game_options;
 #include "networking/network_game_globals.h"
 #include "tag_files/tag_files.h"
 #include "cseries/cseries_windows.h"
+#include "halo_perf_log.h" /* port: console.perf_log */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -694,6 +695,15 @@ void game_initialize_for_new_map(
 	from now on go elsewhere, port/linux/game/network_objects.c) */
 	network_objects_placed();
 	ui_widgets_safe_to_load(TRUE);
+#ifdef HALO_XBOX_CONSOLE
+	/* port: a test build of more than 16 players logs its memory at each
+	map's start (port/xbox/src/xbox_memory.c; nothing in a stock build) */
+	{
+		void xbox_memory_log_point(const char *where);
+
+		xbox_memory_log_point("a map started");
+	}
+#endif
 
 	return;
 }
@@ -909,6 +919,14 @@ void game_precache_new_map(
 void game_dispose_from_old_map(
 	void)
 {
+#ifdef HALO_XBOX_CONSOLE
+	/* port: and at its end, with the objects' peaks over it */
+	{
+		void xbox_memory_log_point(const char *where);
+
+		xbox_memory_log_point("a map ending");
+	}
+#endif
 	rasterizer_dispose_from_old_map();
 	game_state_dispose_from_old_map();
 	cheats_dispose_from_old_map();
@@ -969,7 +987,9 @@ void game_frame(
 	contrails_update(frame_dt);
 	particle_systems_update(frame_dt);
 	widgets_update(frame_dt);
+	HALO_PERF_BEGIN(_halo_perf_sound);
 	game_sound_update(frame_dt);
+	HALO_PERF_END(_halo_perf_sound);
 	scenario_frame_update(frame_dt);
 	rasterizer_frame_update(frame_dt);
 	numeric_countdown_timer_update();

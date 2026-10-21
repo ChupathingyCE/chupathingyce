@@ -4095,6 +4095,27 @@ void objects_scripting_attach(
 	return;
 }
 
+#ifdef HALO_XBOX_CONSOLE
+/* port: the objects in use and the object pool's free memory, for the
+console's memory log (port/xbox/src/xbox_memory.c); FALSE with no map */
+int objects_usage(
+	long *count,
+	long *maximum,
+	long *pool_free,
+	long *pool_size,
+	long *pool_contiguous_free)
+{
+	if (!object_header_data || !object_memory_pool || !object_header_data->valid)
+		return FALSE;
+	*count = object_header_data->actual_count;
+	*maximum = MAXIMUM_OBJECTS_PER_MAP;
+	*pool_size = OBJECT_MEMORY_POOL_SIZE;
+	*pool_free = memory_pool_get_free_size(object_memory_pool);
+	*pool_contiguous_free = memory_pool_get_contiguous_free_size(object_memory_pool);
+	return TRUE;
+}
+#endif
+
 void object_delete_immediately(
 	long object_index)
 {
@@ -4112,9 +4133,17 @@ Xbox's amount */
 static long active_garbage_limit(
 	long limit_per_16_players)
 {
+#ifdef HALO_XBOX_CONSOLE
+	/* port: the console's object pool is the Xbox's 1 MB whatever its
+	players (a test build of more than 16, configure.py --console-players):
+	a game it hosts keeps the Xbox's amount of garbage. 16 players or fewer
+	got this amount already */
+	return limit_per_16_players;
+#else
 	long player_count = player_data ? player_data->actual_count : 0;
 
 	return limit_per_16_players * MAX(16, player_count) / 16;
+#endif
 }
 
 /* port: whether a collection of active garbage may be tried

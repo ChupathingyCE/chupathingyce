@@ -4102,7 +4102,10 @@ boolean network_distributed_unban(
 		/* (a bans file larger than this is not rewritten) */
 		MAXIMUM_BANS_FILE_SIZE = 1024 * 1024,
 	};
-	static char contents[MAXIMUM_BANS_FILE_SIZE];
+	/* (the file's lines kept, on the heap only while it is rewritten: a
+	static buffer was a megabyte of every build's image, the console's
+	too) */
+	char *contents;
 	char line[512];
 	long size = 0;
 	long count = 0;
@@ -4111,6 +4114,13 @@ boolean network_distributed_unban(
 
 	if (!file)
 		return FALSE;
+	contents = malloc(MAXIMUM_BANS_FILE_SIZE);
+	if (!contents)
+	{
+		fclose(file);
+		error(_error_log, "no memory to rewrite %s", BANS_FILE);
+		return FALSE;
+	}
 	while (fgets(line, sizeof(line), file))
 	{
 		long length = (long)strlen(line);
@@ -4123,6 +4133,7 @@ boolean network_distributed_unban(
 		if (size + length >= MAXIMUM_BANS_FILE_SIZE)
 		{
 			fclose(file);
+			free(contents);
 			error(_error_log, "%s is too large to rewrite", BANS_FILE);
 			return FALSE;
 		}
@@ -4130,21 +4141,24 @@ boolean network_distributed_unban(
 		size += length;
 	}
 	fclose(file);
-	if (!found)
-		return FALSE;
-	file = fopen(BANS_FILE, "w");
-	if (!file)
+	if (found)
+		file = fopen(BANS_FILE, "w");
+	if (!found || !file)
 	{
-		error(_error_log, "could not open %s to take a ban out of it", BANS_FILE);
+		if (found)
+			error(_error_log, "could not open %s to take a ban out of it", BANS_FILE);
+		free(contents);
 		return FALSE;
 	}
 	if (size && fwrite(contents, 1, (size_t)size, file) != (size_t)size)
 	{
 		fclose(file);
+		free(contents);
 		error(_error_log, "could not write %s", BANS_FILE);
 		return FALSE;
 	}
 	fclose(file);
+	free(contents);
 	return TRUE;
 }
 

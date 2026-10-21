@@ -3651,6 +3651,8 @@ boolean hs_scenario_postprocess(
 /* ---------- constants */
 
 #define MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO 19001
+/* port: the console's stand-in array (hs_allocate) */
+#define HS_SYNTAX_STAND_IN_NODES 2048
 /* port: the size of the "hs globals" array (hs_runtime_initialize), which
 holds the external globals and the map's */
 #define MAXIMUM_HS_GLOBALS 0x400
@@ -13535,14 +13537,25 @@ static boolean hs_root_type_valid(
 it links to twice, or a loop, is damaged), and the function or global it
 names. Each node is walked once, so the stack holds no more than the nodes
 there are */
+static long *hs_expression_refusal_stack = NULL;
+
 static short hs_expression_refusal(
 	long root_expression_index,
 	char const **name)
 {
-	static long stack[MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO+1];
 	long stack_count = 0;
+	long *stack = hs_expression_refusal_stack;
 
 	*name = NULL;
+	if (!stack)
+	{
+		/* (only a map whose nodes are not sound gets here: the stack, 74 KB on
+		the console, is made for the walk and given back by the check) */
+		stack = hs_expression_refusal_stack = (long *)debug_malloc(
+			sizeof(long) * (MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO+1), FALSE, "c:\\halo\\SOURCE\\hs\\hs.c", 13536);
+		if (!stack)
+			return _hs_node_refusal_damaged;
+	}
 	csmemset(hs_syntax_nodes_marked, 0, sizeof(hs_syntax_nodes_marked));
 	stack[stack_count++] = root_expression_index;
 	while (stack_count>0)
@@ -13744,6 +13757,12 @@ static void hs_scenario_functions_check(
 			disabled_global_count);
 	}
 
+	if (hs_expression_refusal_stack)
+	{
+		debug_free(hs_expression_refusal_stack, "c:\\halo\\SOURCE\\hs\\hs.c", 13537);
+		hs_expression_refusal_stack = NULL;
+	}
+
 	return;
 }
 
@@ -13795,10 +13814,20 @@ static void hs_allocate(
 		error(0, "the scenario's script data is missing or damaged; its scripts won't run");
 	}
 
+#ifdef HALO_XBOX_CONSOLE
+	/* port: this stand-in runs no map scripts (they are disabled above),
+	only the console's expressions, so it is small: the full 19001 nodes
+	were 371 KB of a 64 MB Xbox's heap at the menu */
+	hs_syntax_data = data_new(
+		"script node",
+		HS_SYNTAX_STAND_IN_NODES,
+		sizeof(struct hs_syntax_node));
+#else
 	hs_syntax_data = data_new(
 		"script node",
 		MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO,
 		sizeof(struct hs_syntax_node));
+#endif
 	if (hs_syntax_data)
 	{
 		data_make_valid(hs_syntax_data);
