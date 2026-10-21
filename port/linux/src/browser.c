@@ -3,7 +3,7 @@ BROWSER.C
 
 The game list (browser.h; configure.py
 --game-browser): hosted system link games announced to the list server
-(network.browser_url: halo.milenko.org, the community's) with their invites, and the
+(network.browser_url: stats.chupathingy.org, the community's) with their invites, and the
 server's list for System Link to show.
 
 Hosting: the game's server reports its game each frame

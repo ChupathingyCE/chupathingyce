@@ -76,10 +76,10 @@ NEW = {"display.menus": "chupathingy"}
 # the macros each kind of build is compiled with; the others are not macOS
 # (whose own defaults the native build checks on a Mac)
 DEFINES = {
-	"desktop": ["-DHALO_64BIT"],
-	"desktop32": ["-U__APPLE__"],
-	"android": ["-U__APPLE__", "-DHALO_ANDROID"],
-	"server": ["-U__APPLE__", "-DHALO_SERVER", "-DHALO_64BIT"],
+	"desktop": ["-DHALO_64BIT", "-DHALO_GAME_BROWSER"],
+	"desktop32": ["-U__APPLE__", "-DHALO_GAME_BROWSER"],
+	"android": ["-U__APPLE__", "-DHALO_ANDROID", "-DHALO_GAME_BROWSER"],
+	"server": ["-U__APPLE__", "-DHALO_SERVER", "-DHALO_64BIT", "-DHALO_GAME_BROWSER"],
 }
 
 STUB_PLATFORM = """#include <stddef.h>
@@ -373,6 +373,24 @@ def test_before_config_version(program, directory, defaults, kind):
 	check(not lines and len(commented) == 1, f"version 1: vsync, at its default, is not commented out: {lines} {commented}")
 
 
+def test_old_browser_address(program, directory, defaults, kind):
+	"""The community site's first address, written out as the default by an
+	earlier version, follows to stats.chupathingy.org (the same server); any
+	other address is the player's and is kept."""
+	case = Case(program, directory / "browser")
+	values, _ = case.get("network.browser_url")
+	check(values["network.browser_url"] == "https://stats.chupathingy.org", f"browser_url default {values}")
+	case.path.write_text('config_version = 2\n\n[network]\nbrowser_url = "https://halo.milenko.org"\n')
+	values, _ = case.get("network.browser_url")
+	check(values["network.browser_url"] == "https://stats.chupathingy.org", f"old browser_url not followed: {values}")
+	check("halo.milenko.org" not in case.text(), "old browser_url still in the file")
+	check("game list" not in pending(case)[1] and "milenko" not in pending(case)[1], pending(case)[1])
+	case.path.write_text('config_version = 2\n\n[network]\nbrowser_url = "https://lists.example.org"\n')
+	values, _ = case.get("network.browser_url")
+	check(values["network.browser_url"] == "https://lists.example.org", "custom browser_url lost")
+	check('browser_url = "https://lists.example.org"' in case.text(), "custom browser_url not kept in the file")
+
+
 def main():
 	parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 	parser.add_argument("--cc", default=os.environ.get("CC", "cc"))
@@ -383,7 +401,7 @@ def main():
 		for kind in DEFAULTS:
 			program = build(arguments.cc, kind, directory / kind)
 			for test in (test_new_file, test_previous_release_file, test_file_without_the_settings,
-				test_readded_by_older_version, test_before_config_version):
+				test_readded_by_older_version, test_before_config_version, test_old_browser_address):
 				try:
 					test(program, directory / kind / "cases", DEFAULTS[kind], kind)
 					print(f"ok   {kind}: {test.__name__}")

@@ -589,7 +589,7 @@ the setting for one start of the game. It has priority over the file.
 | `network.brokers_file` | `"brokers.txt"` | `HALO_NET_BROKERS_FILE` | The file of the public MQTT brokers that let the machines of an invite find each other, and that carry the listings of the server browser: next to `config.toml`, unless a full path. One `host:port` on each line, up to 4; `#` starts a comment. |
 | `network.stun_servers` | Google and Cloudflare | `HALO_NET_STUN` | The public STUN servers (`host:port`, with commas between them) that give the internet address of a machine. |
 | `network.legacy_table` | `""` | `HALO_LEGACY_TABLE` | For testing, and for admins: a legacy table file, not signed, next to `config.toml` unless a full path. Its row for the wire of the build sets the OpenCE network versions that the game announces and joins, in place of the signed tables. The log shows a warning at start. Refer to `docs/delta.md`. Empty: none. |
-| `network.list_hosted_games` | `true` | `HALO_NET_LIST_GAMES` | `true`: the system link games this machine hosts are listed on `network.browser_url` (halo.milenko.org), where anyone can find and join them. Only public games without a password are listed. `false`: they are kept to invites and the local network, and no carnage report of them is sent. |
+| `network.list_hosted_games` | `true` | `HALO_NET_LIST_GAMES` | `true`: the system link games this machine hosts are listed on `network.browser_url` (stats.chupathingy.org), where anyone can find and join them. Only public games without a password are listed. `false`: they are kept to invites and the local network, and no carnage report of them is sent. |
 | `network.report_hosted_games` | `true` | `HALO_NET_REPORT_HOSTED` | The stats of the games this machine hosts: a listed game's carnage report, its Delta Stats (`network.report_events`) and the host's own players' claims of their lines. `false`: none of them are sent, and the game stays listed (`network.list_hosted_games`). On the Privacy screen (Gearbox menus). |
 | `network.report_joined_games` | `true` | `HALO_NET_REPORT_GAMES` | When an internet game this machine joined ends, the game sends `network.browser_url` its scores as this machine saw them, with this copy's player ID, and confirms this machine's players' lines in the host's report of the game (`POST /v1/claim`), which puts the game on their profiles. `false`: neither, for games this machine joins. Games it hosts are still reported and confirmed (unless `network.report_hosted_games` is off). On the Privacy screen (Gearbox menus). |
 | `network.report_events` | `true` | `HALO_NET_REPORT_EVENTS` | Delta Stats: the games this machine hosts are recorded (kills with weapons and positions, accuracy, medals, objectives, vehicles, pickups) and sent to `network.browser_url` when each ends. Players are their names, never a hardware ID or an address; an OpenCE player is only their name, team and that game's score, place, kills and deaths. `false`: no events are recorded or sent. On the Privacy screen (Gearbox menus). The carnage report of a hosted game is separate: it is sent while the game is listed (`network.list_hosted_games`), unless `network.report_hosted_games` is off, which stops both. Refer to `docs/delta.md`. |
@@ -878,7 +878,7 @@ ChupathingyCE's own parts of the server browser:
   in the Server Browser of OpenCE and ChupathingyCE. The dedicated server
   (`server/`) is public unless `HALO_DEDICATED_PUBLIC=false`.
 - Builds with the game list (`configure.py --game-browser`) also show the
-  games of `network.browser_url` (halo.milenko.org). While the Server
+  games of `network.browser_url` (stats.chupathingy.org). While the Server
   Browser is open, the game reads the list with an HTTPS GET of
   `/v1/games.txt` (at most every 5 seconds), and shows the games of its
   network version, not its own. A game that is also listed on the brokers
@@ -1028,7 +1028,7 @@ activity sent (without the invite).
 
 Builds with the game list (`configure.py --game-browser`) have Online Games
 in the Multiplayer menu: the games on `network.browser_url`
-(halo.milenko.org). The screen looks like the Xbox's menus, drawn by the
+(stats.chupathingy.org). The screen looks like the Xbox's menus, drawn by the
 game itself in the menus' fonts (`port/assets/fonts`). Each game's map has a
 tag for its family: XBX (the Xbox's maps), HCE (Custom Edition), HMD
 (HaloMD) and GBX (Halo PC retail). A lock marks a game with a password, as
