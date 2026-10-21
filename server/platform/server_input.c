@@ -53,6 +53,11 @@ int platform_input_scheme(void)
 	return 0;
 }
 
+int platform_prompt_scheme(void)
+{
+	return 0;
+}
+
 void platform_text_typing(int typing)
 {
 	(void)typing;

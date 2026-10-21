@@ -6053,6 +6053,46 @@ static void widget_instance_render_spinner_list(
 					definition->justification,
 					0,
 					&color);
+				/* port: a value too long for the spinner scrolls left and back
+				while its row has the focus
+				(port/linux/game/menu_functions.c's pc_menu_text_marquee):
+				still for a second at each end, 30 units a second between */
+				{
+					extern long pc_menu_text_marquee(struct widget_instance const *widget, boolean focus);
+					long elapsed = pc_menu_text_marquee(widget, focus);
+
+					if (elapsed != NONE)
+					{
+						rectangle2d measure = bounds;
+						rectangle2d text_bounds;
+						rectangle2d cursor_bounds;
+						short width = (short)(bounds.x1 - bounds.x0);
+						short text_width;
+
+						measure.x1 = (short)(measure.x0 + 4000);
+						draw_string_set_draw_mode(definition->text_font.index, NONE, 0, 0, &color);
+						draw_unicode_string_compute_bounds(&measure, item_text, &text_bounds, &cursor_bounds);
+						text_width = (short)(text_bounds.x1 - text_bounds.x0);
+						if (text_width > width)
+						{
+							long travel = text_width - width + 4;
+							long moving = travel * 1000 / 30;
+							long cycle = elapsed % (2 * (1000 + moving));
+							long shift = cycle < 1000 ? 0 :
+								cycle < 1000 + moving ? (cycle - 1000) * 30 / 1000 :
+								cycle < 2000 + moving ? travel : travel - (cycle - 2000 - moving) * 30 / 1000;
+
+							clip = bounds;
+							bounds.x0 = (short)(bounds.x0 + 2 - shift);
+							bounds.x1 = (short)(bounds.x0 + text_width + 8);
+						}
+						else
+						{
+							draw_string_set_draw_mode(definition->text_font.index, NONE, definition->justification,
+								0, &color);
+						}
+					}
+				}
 				rasterizer_draw_unicode_string(&bounds, &clip, NULL, 0, item_text);
 			}
 		}

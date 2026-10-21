@@ -80,6 +80,7 @@ played instead of HALO_DEDICATED's until HALO_DEDICATED is changed.
 /* (text chat's, port/linux/game/chat.h) */
 void chat_host_set(int mode, int filter);
 void chat_host_set_cooldown(int seconds);
+void chat_host_set_legacy(int legacy);
 void chat_host_set_welcome(char const *text);
 #endif
 /* (team changes', port/linux/game/team_change.h: 0 off, 1 balanced, 2 allow) */
@@ -459,9 +460,19 @@ static void initialize(
 			filter = !(!_stricmp(chat_filter, "false") || !strcmp(chat_filter, "0") || !_stricmp(chat_filter, "no") ||
 				!_stricmp(chat_filter, "off"));
 		}
+		char const *chat_legacy = getenv("HALO_DEDICATED_CHAT_LEGACY");
+		boolean legacy = settings.set[SERVER_SETTING_CHAT_LEGACY] ? settings.values[SERVER_SETTING_CHAT_LEGACY] != 0 :
+			TRUE;
+
+		if (chat_legacy && chat_legacy[0])
+		{
+			legacy = !(!_stricmp(chat_legacy, "false") || !strcmp(chat_legacy, "0") || !_stricmp(chat_legacy, "no") ||
+				!_stricmp(chat_legacy, "off"));
+		}
 		chat_host_set((int)(mode < 0 || mode > 2 ? 2 : mode), filter);
-		error(_error_silent, "dedicated: text chat %s%s", mode == 0 ? "off" : mode == 1 ? "team only" : "on",
-			filter ? ", blocked words filtered" : "");
+		chat_host_set_legacy(legacy);
+		error(_error_silent, "dedicated: text chat %s%s%s", mode == 0 ? "off" : mode == 1 ? "team only" : "on",
+			filter ? ", blocked words filtered" : "", legacy ? "" : ", OpenCE players left out");
 	}
 	/* a player's chat paused after the rate limit trips: 5 seconds unless
 	set; and the welcome, none unless set */

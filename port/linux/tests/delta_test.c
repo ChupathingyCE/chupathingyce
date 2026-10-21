@@ -14,6 +14,7 @@ every parser and of both sides' sessions.
 
 #include "../src/delta_peer.h"
 #include "../src/delta_chat.h"
+#include "../src/delta_chat_bridge.h"
 
 #include "monocypher.h"
 #include "monocypher-ed25519.h"
@@ -525,6 +526,264 @@ static void test_chat_rules(void)
 	CHECK(delta_chat_hears(_delta_chat_scope_team, 1, 1, 1));
 	CHECK(!delta_chat_hears(_delta_chat_scope_team, 1, 0, 1));
 	CHECK(!delta_chat_hears(_delta_chat_scope_team, 0, 0, 0));
+}
+
+/* ---------- the bridge to OpenCE's chat (delta_chat_bridge.h) */
+
+/* whether text is what OpenCE's chat shows as it is: printable ASCII but
+"|", with no space at either end, at most 63 characters */
+static int opence_text(const char *text)
+{
+	int length = (int)strlen(text);
+	int index;
+
+	if (length < 1 || length > DELTA_CHAT_BRIDGE_TEXT_SIZE - 1 || text[0] == ' ' || text[length - 1] == ' ')
+		return 0;
+	for (index = 0; index < length; index++)
+	{
+		if (text[index] < ' ' || text[index] > '~' || text[index] == '|')
+			return 0;
+	}
+	return 1;
+}
+
+static void test_chat_bridge_wire(void)
+{
+	unsigned char entry[DELTA_CHAT_BRIDGE_LINE_SIZE];
+	struct delta_chat_bridge_line line, line_in;
+	int index;
+
+	/* (a line's entry, as OpenCE lays it out: player, flags, two bytes of 0,
+	the text and its end) */
+	memset(&line, 0, sizeof(line));
+	line.player = 3;
+	line.flags = DELTA_CHAT_BRIDGE_TEAM;
+	strcpy(line.text, "hello team");
+	memset(entry, 0xAA, sizeof(entry));
+	delta_chat_bridge_write_line(entry, &line);
+	CHECK(entry[0] == 3 && entry[1] == DELTA_CHAT_BRIDGE_TEAM && entry[2] == 0 && entry[3] == 0);
+	CHECK(!memcmp(entry + 4, "hello team", 11));
+	for (index = 4 + 10; index < DELTA_CHAT_BRIDGE_LINE_SIZE; index++)
+		CHECK(entry[index] == 0);
+	CHECK(delta_chat_bridge_read_line(entry, sizeof(entry), &line_in) && line_in.player == 3 &&
+		line_in.flags == DELTA_CHAT_BRIDGE_TEAM && !strcmp(line_in.text, "hello team"));
+	CHECK(!delta_chat_bridge_read_line(entry, sizeof(entry) - 1, &line_in));
+
+	/* (a text of 64 bytes with no end: 63 kept; "|", controls and bytes
+	past ASCII as "?"; the spaces at either end dropped) */
+	memset(entry, 0, sizeof(entry));
+	memset(entry + 4, 'x', DELTA_CHAT_BRIDGE_TEXT_SIZE);
+	CHECK(delta_chat_bridge_read_line(entry, sizeof(entry), &line_in) &&
+		(int)strlen(line_in.text) == DELTA_CHAT_BRIDGE_TEXT_SIZE - 1);
+	memset(entry, 0, sizeof(entry));
+	memcpy(entry + 4, "  a|b\x01" "c\xE9 ", 9);
+	CHECK(delta_chat_bridge_read_line(entry, sizeof(entry), &line_in) && !strcmp(line_in.text, "a?b?c?"));
+	memset(entry, 0, sizeof(entry));
+	memcpy(entry + 4, "   ", 3);
+	CHECK(!delta_chat_bridge_read_line(entry, sizeof(entry), &line_in));
+
+	/* (the settings: flags and three bytes of 0) */
+	memset(entry, 0xAA, sizeof(entry));
+	delta_chat_bridge_write_config(entry, DELTA_CHAT_BRIDGE_ALLOWED | DELTA_CHAT_BRIDGE_LINKS);
+	CHECK(entry[0] == 3 && entry[1] == 0 && entry[2] == 0 && entry[3] == 0 && entry[4] == 0xAA);
+	CHECK(delta_chat_bridge_read_config(entry, DELTA_CHAT_BRIDGE_CONFIG_SIZE) == 3);
+	CHECK(delta_chat_bridge_read_config(entry, DELTA_CHAT_BRIDGE_CONFIG_SIZE - 1) == -1);
+
+	/* (whatever an entry holds, what is read is OpenCE's text and Delta's) */
+	for (index = 0; index < 20000; index++)
+	{
+		int at;
+
+		for (at = 0; at < DELTA_CHAT_BRIDGE_LINE_SIZE; at++)
+			entry[at] = (unsigned char)next_random();
+		if (delta_chat_bridge_read_line(entry, sizeof(entry), &line_in))
+		{
+			CHECK(opence_text(line_in.text));
+			CHECK(delta_wire_chat_text_valid(line_in.text, (int)strlen(line_in.text),
+				DELTA_WIRE_CHAT_SAY_CHARACTERS) > 0);
+		}
+	}
+}
+
+static void test_chat_bridge_text(void)
+{
+	static const struct
+	{
+		const char *utf8;
+		const char *ascii;
+	} cases[] =
+	{
+		{ "hello", "hello" },
+		{ "caf\xC3\xA9 \xC3\x9C" "ber na\xC3\xAFve \xC3\x85sa", "cafe Uber naive Asa" },
+		{ "\xE2\x80\x9Cquoted\xE2\x80\x9D \xE2\x80\x93 it\xE2\x80\x99s fine\xE2\x80\xA6", "\"quoted\" - it's fine..." },
+		{ "\xE6\x97\xA5\xE6\x9C\xAC gg", "?? gg" },
+		{ "a|b", "a?b" },
+		{ "\xF0\x9F\x98\x80 nice", "? nice" },
+		{ "  padded  ", "padded" },
+		{ "cut \xC3", "cut ?" },
+	};
+	char out[DELTA_CHAT_BRIDGE_TEXT_SIZE];
+	char long_text[DELTA_WIRE_CHAT_SAY_TEXT_SIZE + 1];
+	size_t index;
+
+	for (index = 0; index < sizeof(cases) / sizeof(cases[0]); index++)
+	{
+		int length = delta_chat_bridge_to_ascii(cases[index].utf8, (int)strlen(cases[index].utf8), out);
+
+		CHECK(length == (int)strlen(out) && !strcmp(out, cases[index].ascii));
+		CHECK(opence_text(out));
+	}
+	/* (Delta's 80 characters: OpenCE's 63) */
+	memset(long_text, 'y', 80);
+	long_text[80] = 0;
+	CHECK(delta_chat_bridge_to_ascii(long_text, 80, out) == DELTA_CHAT_BRIDGE_TEXT_SIZE - 1 && opence_text(out));
+	/* (nothing left: no line) */
+	CHECK(delta_chat_bridge_to_ascii("   ", 3, out) == 0 && !out[0]);
+	CHECK(delta_chat_bridge_clean("ok\x7F", 3, out) == 3 && !strcmp(out, "ok?"));
+}
+
+static void test_chat_bridge_rules(void)
+{
+	struct delta_chat_bridge_budget budget;
+	int paused, index;
+
+	CHECK(delta_chat_bridge_scope(0) == _delta_chat_scope_all);
+	CHECK(delta_chat_bridge_scope(DELTA_CHAT_BRIDGE_TEAM) == _delta_chat_scope_team);
+	CHECK(delta_chat_bridge_scope(DELTA_CHAT_BRIDGE_VEHICLE) == _delta_chat_scope_team);
+	CHECK(delta_chat_bridge_scope(DELTA_CHAT_BRIDGE_NOTICE) == _delta_chat_scope_all);
+	CHECK(delta_chat_bridge_flags(_delta_chat_scope_all) == 0);
+	CHECK(delta_chat_bridge_flags(_delta_chat_scope_team) == DELTA_CHAT_BRIDGE_TEAM);
+
+	/* (off with the host's chat off, or its OpenCE players' chat off) */
+	CHECK(delta_chat_bridge_host_config(_delta_chat_mode_off, 1) == 0);
+	CHECK(delta_chat_bridge_host_config(_delta_chat_mode_on, 0) == 0);
+	CHECK(delta_chat_bridge_host_config(_delta_chat_mode_team, 0) == 0);
+	CHECK(delta_chat_bridge_host_config(_delta_chat_mode_on, 1) == (DELTA_CHAT_BRIDGE_ALLOWED | DELTA_CHAT_BRIDGE_LINKS));
+	CHECK(delta_chat_bridge_host_config(_delta_chat_mode_team, 1) & DELTA_CHAT_BRIDGE_ALLOWED);
+
+	CHECK(!delta_chat_bridge_client_allowed(0, DELTA_CHAT_BRIDGE_ALLOWED));
+	CHECK(!delta_chat_bridge_client_allowed(1, 0));
+	CHECK(delta_chat_bridge_client_allowed(1, DELTA_CHAT_BRIDGE_ALLOWED));
+
+	/* (Delta's budget: three at once, then paused for the cooldown) */
+	memset(&budget, 0, sizeof(budget));
+	for (index = 0; index < DELTA_PEER_CHAT_SAY_BURST; index++)
+	{
+		char text[8];
+
+		snprintf(text, sizeof(text), "line %d", index);
+		CHECK(delta_chat_bridge_take(&budget, 1000, 5000, text, (int)strlen(text), &paused) == 0);
+		delta_chat_bridge_said(&budget, 1000, text, (int)strlen(text));
+	}
+	CHECK(delta_chat_bridge_take(&budget, 1000, 5000, "more", 4, &paused) == _delta_chat_refused_too_fast &&
+		paused == 5);
+	CHECK(delta_chat_bridge_take(&budget, 3000, 5000, "more", 4, &paused) == _delta_chat_refused_too_fast &&
+		paused == 3);
+	CHECK(delta_chat_bridge_take(&budget, 6001, 5000, "more", 4, &paused) == 0);
+	delta_chat_bridge_said(&budget, 6001, "more", 4);
+	/* (the same line again too soon; then, past the time, taken) */
+	CHECK(delta_chat_bridge_take(&budget, 9000, 5000, "MORE ", 5, &paused) == _delta_chat_refused_too_fast &&
+		paused == 0);
+	CHECK(delta_chat_bridge_take(&budget, 6001 + DELTA_CHAT_REPEAT_TIME, 5000, "more", 4, &paused) == 0);
+	/* (no cooldown: refused, not paused) */
+	memset(&budget, 0, sizeof(budget));
+	for (index = 0; index < DELTA_PEER_CHAT_SAY_BURST; index++)
+		CHECK(delta_chat_bridge_take(&budget, 0, 0, "x", 1, &paused) == 0);
+	CHECK(delta_chat_bridge_take(&budget, 0, 0, "y", 1, &paused) == _delta_chat_refused_too_fast && paused == 0);
+	CHECK(delta_chat_bridge_take(&budget, 1000, 0, "y", 1, &paused) == 0);
+}
+
+/* both ways at the level of the messages, as the game's chat.c passes
+them: an OpenCE client's chat_up through the host's checks to a Delta line
+and to chat_down for its OpenCE machines; a Delta player's line to OpenCE's
+chat_down; an OpenCE host's chat_down to the line a Delta client shows */
+static void test_chat_bridge_messages(void)
+{
+	unsigned char up[DELTA_CHAT_BRIDGE_LINE_SIZE], down[DELTA_CHAT_BRIDGE_LINE_SIZE];
+	struct delta_chat_bridge_line line, out;
+	struct delta_chat_bridge_budget budget;
+	struct delta_chat_filter filter;
+	struct delta_wire_chat_line delta;
+	int length, scope, paused;
+
+	delta_chat_filter_clear(&filter);
+	delta_chat_filter_add(&filter, delta_chat_blocked_words, (int)strlen(delta_chat_blocked_words), 1);
+	memset(&budget, 0, sizeof(budget));
+
+	/* (OpenCE's client: its player 2's team line, as its chat_send lays it) */
+	memset(up, 0, sizeof(up));
+	up[0] = 2;
+	up[1] = DELTA_CHAT_BRIDGE_TEAM;
+	memcpy(up + 4, "push top mid", 12);
+	CHECK(delta_chat_bridge_read_line(up, sizeof(up), &line));
+	length = (int)strlen(line.text);
+	scope = delta_chat_bridge_scope(line.flags);
+	CHECK(scope == _delta_chat_scope_team);
+	CHECK(delta_wire_chat_text_valid(line.text, length, DELTA_WIRE_CHAT_SAY_CHARACTERS) > 0);
+	CHECK(delta_chat_bridge_take(&budget, 100, 5000, line.text, length, &paused) == 0);
+	CHECK(delta_chat_host_decide(_delta_chat_mode_on, scope, 1, 0,
+		delta_chat_filter_check(&filter, line.text, length, NULL, 0) > 0) == 0);
+	CHECK(delta_chat_host_decide(_delta_chat_mode_off, scope, 1, 0, 0) == _delta_chat_refused_off);
+	/* (... relayed to a Delta machine as CHAT_LINE, and back to OpenCE's) */
+	memset(&delta, 0, sizeof(delta));
+	delta.kind = _delta_chat_kind_player;
+	delta.scope = (unsigned char)scope;
+	delta.length = length;
+	memcpy(delta.text, line.text, (size_t)length);
+	{
+		unsigned char data[DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_CHAT_LINE_SIZE + DELTA_WIRE_CHAT_NAME_SIZE +
+			DELTA_WIRE_CHAT_TEXT_SIZE + 8];
+		struct delta_wire_header header;
+		struct delta_wire_chat_line in;
+		int size = delta_wire_write_chat_line(data, 7, &delta);
+
+		CHECK(size > 0 && delta_wire_read_header(data, size, &header) &&
+			delta_wire_read_chat_line(data + DELTA_WIRE_HEADER_SIZE, header.length, &in) && in.length == length &&
+			!memcmp(in.text, "push top mid", 12) && in.scope == _delta_chat_scope_team);
+	}
+	memset(&out, 0, sizeof(out));
+	out.player = 2;
+	out.flags = (unsigned char)delta_chat_bridge_flags(delta.scope);
+	CHECK(delta_chat_bridge_to_ascii(delta.text, delta.length, out.text) == length);
+	delta_chat_bridge_write_line(down, &out);
+	CHECK(!memcmp(down, up, sizeof(up)));
+
+	/* (a Delta player's line, accents and all, to an OpenCE machine) */
+	memset(&delta, 0, sizeof(delta));
+	delta.kind = _delta_chat_kind_player;
+	delta.scope = _delta_chat_scope_all;
+	strcpy(delta.text, "s\xC3\xAD, se\xC3\xB1or \xE2\x80\x94 gg");
+	delta.length = (int)strlen(delta.text);
+	memset(&out, 0, sizeof(out));
+	out.player = 0;
+	out.flags = (unsigned char)delta_chat_bridge_flags(delta.scope);
+	CHECK(delta_chat_bridge_to_ascii(delta.text, delta.length, out.text) > 0);
+	delta_chat_bridge_write_line(down, &out);
+	CHECK(down[1] == 0 && !strcmp((const char *)down + 4, "si, senor - gg") && opence_text((const char *)down + 4));
+
+	/* (the host's notice, as OpenCE's host sends a mute's) */
+	memset(down, 0, sizeof(down));
+	down[1] = DELTA_CHAT_BRIDGE_NOTICE;
+	memcpy(down + 4, "Bob muted for 20 minutes", 24);
+	CHECK(delta_chat_bridge_read_line(down, sizeof(down), &line) && (line.flags & DELTA_CHAT_BRIDGE_NOTICE) &&
+		delta_wire_chat_text_valid(line.text, (int)strlen(line.text), 0) > 0);
+
+	/* (a blocked word from OpenCE: refused like a Delta player's) */
+	{
+		char blocked[64];
+		int found = 0;
+		const char *candidates[] = { "nazi", "retard", "faggot" };
+		size_t index;
+
+		for (index = 0; index < sizeof(candidates) / sizeof(candidates[0]) && !found; index++)
+		{
+			snprintf(blocked, sizeof(blocked), "you %s", candidates[index]);
+			found = delta_chat_filter_check(&filter, blocked, (int)strlen(blocked), NULL, 0) > 0;
+		}
+		CHECK(found);
+		CHECK(delta_chat_host_decide(_delta_chat_mode_on, _delta_chat_scope_all, 1, 0, found) ==
+			_delta_chat_refused_blocked);
+	}
 }
 
 /* the host's chat for the tests: each machine's team, the mode, the filter,
@@ -2763,6 +3022,10 @@ int main(int argc, char **argv)
 	test_chat_text();
 	test_chat_filter();
 	test_chat_rules();
+	test_chat_bridge_wire();
+	test_chat_bridge_text();
+	test_chat_bridge_rules();
+	test_chat_bridge_messages();
 	test_chat();
 	test_wire_team();
 	test_team();

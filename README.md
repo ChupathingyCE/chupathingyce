@@ -367,7 +367,7 @@ A few people look for most:
 | `audio.volume`, `audio.music_volume`, `audio.effects_volume` | Volumes, from 0.0 to 1.0. |
 | `audio.device` | The output the sound plays on, by name (Audio Setup lists them); `"default"` follows the system's default output. |
 | `input.mouse_sensitivity`, `input.invert_mouse` | Mouse aim. |
-| `input.keyboard_prompts` | `true` (the default) shows the bound key in the HUD's and menus' button prompts after you use the keyboard or mouse, as Halo PC did; `false` always shows the controller's buttons. |
+| `input.keyboard_prompts` | Button prompts follow the device you used last: keys after the keyboard or mouse, as Halo PC did, and buttons after a controller. This setting is no longer in the menus; `false` keeps the controller's buttons everywhere. |
 | `controls.*` | Every key: `controls.jump = "Space"`, or two at once, such as `"F, Mouse 4"`. |
 | `network.browser_url` | The game list Online Games shows (stats.chupathingy.org). |
 | `network.host_public` | Whether games you host are listed for everyone (true) or only joinable by invite (false). |

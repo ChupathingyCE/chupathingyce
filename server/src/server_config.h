@@ -284,6 +284,9 @@ enum
 	SERVER_SETTING_TEAM_CHANGE_MARGIN,
 	/* the playlist's order shuffled each time it starts over */
 	SERVER_SETTING_PLAYLIST_SHUFFLE,
+	/* whether OpenCE players chat too (their own text chat, bridged), while
+	the chat is on */
+	SERVER_SETTING_CHAT_LEGACY,
 	SERVER_SETTINGS,
 	/* a game's players, at most (halo_port_limits.h's) */
 	SERVER_SETTINGS_MAXIMUM_PLAYERS = 128,

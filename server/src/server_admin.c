@@ -46,6 +46,8 @@ void chat_host_set(int mode, int filter);
 int chat_host_mode(void);
 int chat_host_filter(void);
 void chat_host_set_cooldown(int seconds);
+void chat_host_set_legacy(int legacy);
+int chat_host_legacy(void);
 int chat_host_cooldown(void);
 void chat_host_set_welcome(char const *text);
 char const *chat_host_welcome(void);
@@ -1633,6 +1635,7 @@ static void setting_now(
 	case SERVER_SETTING_CHAT_FILTER: snprintf(text, (size_t)size, "%s", chat_host_filter() ? "true" : "false"); break;
 	case SERVER_SETTING_WELCOME: snprintf(text, (size_t)size, "%s", chat_host_welcome()); break;
 	case SERVER_SETTING_CHAT_COOLDOWN: snprintf(text, (size_t)size, "%d", chat_host_cooldown()); break;
+	case SERVER_SETTING_CHAT_LEGACY: snprintf(text, (size_t)size, "%s", chat_host_legacy() ? "true" : "false"); break;
 #endif
 	case SERVER_SETTING_POSTGAME_SECONDS: snprintf(text, (size_t)size, "%ld", status->postgame_seconds); break;
 	case SERVER_SETTING_SKIP_LOBBY: snprintf(text, (size_t)size, "%s", status->skip_lobby ? "true" : "false"); break;
@@ -1674,7 +1677,7 @@ static boolean setting_applies_now(
 		setting == SERVER_SETTING_CHAT || setting == SERVER_SETTING_CHAT_FILTER ||
 		setting == SERVER_SETTING_WELCOME || setting == SERVER_SETTING_POSTGAME_SECONDS ||
 		setting == SERVER_SETTING_SKIP_LOBBY || setting == SERVER_SETTING_CHAT_COOLDOWN ||
-		setting == SERVER_SETTING_PLAYLIST_SHUFFLE ||
+		setting == SERVER_SETTING_PLAYLIST_SHUFFLE || setting == SERVER_SETTING_CHAT_LEGACY ||
 		setting == SERVER_SETTING_TEAM_CHANGE || setting == SERVER_SETTING_TEAM_CHANGE_MARGIN;
 }
 
@@ -1789,7 +1792,7 @@ boolean server_admin_set(
 		if (setting < 0)
 			command_output_printf(output, "(name, maximum_players, minimum_players, idle_limit, public, name_filter, "
 				"chat, chat_filter, welcome, postgame_seconds, skip_lobby, chat_cooldown, team_change, "
-				"team_change_margin, playlist_shuffle)\n");
+				"team_change_margin, playlist_shuffle, chat_legacy)\n");
 		return FALSE;
 	}
 	environment = environment_value((short)setting);
@@ -1831,6 +1834,7 @@ boolean server_admin_set(
 	case SERVER_SETTING_CHAT_FILTER: chat_host_set(chat_host_mode(), change.values[setting]); break;
 	case SERVER_SETTING_WELCOME: chat_host_set_welcome(change.welcome); break;
 	case SERVER_SETTING_CHAT_COOLDOWN: chat_host_set_cooldown(change.values[setting]); break;
+	case SERVER_SETTING_CHAT_LEGACY: chat_host_set_legacy(change.values[setting]); break;
 #endif
 	case SERVER_SETTING_POSTGAME_SECONDS: dedicated_server_set_postgame_seconds(change.values[setting]); break;
 	case SERVER_SETTING_SKIP_LOBBY: dedicated_server_set_skip_lobby(change.values[setting] ? TRUE : FALSE); break;

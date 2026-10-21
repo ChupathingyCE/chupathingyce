@@ -19,7 +19,8 @@ The rows open the pages of settings_pages.xml. -->
 		<child widget="chupathingy/prompts/select" x="512" y="414"/>
 	</widget>
 	<!-- (its rows 28 apart, and SAVE CHANGES under its line at the
-	bottom; CONTROLS, DISPLAY and ONLINE open lists of pages, AUDIO its page) -->
+	bottom; CONTROLS, DISPLAY, AUDIO and ONLINE open their pages, DISPLAY's and
+	ONLINE's with nested lists of more) -->
 	<widget name="chupathingy/settings/list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_items" description="chupathingy/settings/description">
 		<data input="plyr prof edit select menu upd8"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/name_profile_item"/>
@@ -33,13 +34,13 @@ The rows open the pages of settings_pages.xml. -->
 	</widget>
 	<!-- (the rows that open a list of pages or a page: chupathingy/settings_pages.xml) -->
 	<widget name="chupathingy/settings/controls_item" type="text" left="51" top="134" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="12" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
-		<on event="a" open="chupathingy/settings/controls_menu_screen"/>
-		<on event="start" open="chupathingy/settings/controls_menu_screen"/>
+		<on event="a" open="chupathingy/settings/controls_setup_screen"/>
+		<on event="start" open="chupathingy/settings/controls_setup_screen"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<widget name="chupathingy/settings/display_item" type="text" left="51" top="162" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="13" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
-		<on event="a" open="chupathingy/settings/display_menu_screen"/>
-		<on event="start" open="chupathingy/settings/display_menu_screen"/>
+		<on event="a" open="chupathingy/settings/video_settings_screen"/>
+		<on event="start" open="chupathingy/settings/video_settings_screen"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<widget name="chupathingy/settings/audio_settings_item" type="text" left="51" top="190" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="14" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
@@ -48,8 +49,8 @@ The rows open the pages of settings_pages.xml. -->
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<widget name="chupathingy/settings/online_item" type="text" left="51" top="218" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="15" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
-		<on event="a" open="chupathingy/settings/online_menu_screen"/>
-		<on event="start" open="chupathingy/settings/online_menu_screen"/>
+		<on event="a" open="chupathingy/settings/network_setup_screen"/>
+		<on event="start" open="chupathingy/settings/network_setup_screen"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<!-- (the Xbox's SAVE CHANGES, under its line) -->

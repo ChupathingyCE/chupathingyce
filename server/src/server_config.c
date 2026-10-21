@@ -220,6 +220,8 @@ const struct server_setting server_settings_table[SERVER_SETTINGS] =
 		"HALO_DEDICATED_TEAM_CHANGE_MARGIN", "Most players one team may have over the other after a change (balanced)" },
 	{ "playlist_shuffle", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_PLAYLIST_SHUFFLE",
 		"The playlist's order shuffled each time it starts over" },
+	{ "chat_legacy", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_CHAT_LEGACY",
+		"OpenCE players chat too (their own text chat, bridged), while the chat is on" },
 };
 
 /* ---------- private code */

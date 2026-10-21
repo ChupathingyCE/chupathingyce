@@ -254,7 +254,7 @@
 		<string text=""/>
 		<string text="The game's name in the game list."/>
 		<string text="The most players allowed in the game."/>
-		<string text="Press Enter to copy the invite link."/>
+		<string text="Press %a-button to copy the invite link."/>
 		<string text="Choose the gametype."/>
 		<string text="Lives, health, shields and respawning."/>
 		<string text="Weapons, grenades and starting equipment."/>
