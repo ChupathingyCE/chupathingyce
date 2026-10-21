@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- The Chupathingy menus' DELTA PROFILE (Profiles' DELTA PROFILE row, and
-Online Games' Start): the player's own Delta profile, laid out as Profiles
+Online Games' Start): the player's own Delta profile (CLAN's emblem drawn
+over the panel by profile_screen.c), laid out as Profiles
 is: its sections on the left, the section in the Xbox's panel on the right,
 and its prompts (Y asks the site again, B goes back, A chooses). What each
 section says is port/linux/game/profile_screen.c's, put in these widgets by
@@ -37,8 +38,9 @@ Open on the Web, unlinking) are Online Games'. Privacy is a settings page
 		<child widget="chupathingy/profiles/list_item_1" x="51" y="108"/>
 		<child widget="chupathingy/profiles/list_item_2" x="51" y="138"/>
 		<child widget="chupathingy/profiles/list_item_3" x="51" y="168"/>
-		<child widget="chupathingy/profiles/list_item_4" x="51" y="212"/>
+		<child widget="chupathingy/profiles/list_item_4" x="51" y="198"/>
 		<child widget="chupathingy/profiles/list_item_5" x="51" y="242"/>
+		<child widget="chupathingy/profiles/list_item_6" x="51" y="272"/>
 	</widget>
 	<!-- (the section: its name; the overview's Spartan with the name, handle,
 	badges and record (GAMES to MEDALS) beside it; then its rows: a label, a place for a recent
@@ -48,6 +50,9 @@ Open on the Web, unlinking) are Online Games'. Privacy is a settings page
 		<child widget="chupathingy/delta_profile/kind" x="294" y="88"/>
 		<child widget="main_menu/multiplayer_type_select/connected/4way_profile_select/qtr_screen_profile_color_pic" x="280" y="118"/>
 		<child widget="chupathingy/delta_profile/title" x="400" y="124"/>
+		<child widget="chupathingy/delta_profile/clan_title" x="364" y="116"/>
+		<child widget="chupathingy/delta_profile/clan_side_0" x="364" y="142"/>
+		<child widget="chupathingy/delta_profile/clan_side_1" x="364" y="159"/>
 		<child widget="chupathingy/delta_profile/side_0" x="400" y="150"/>
 		<child widget="chupathingy/delta_profile/side_1" x="400" y="167"/>
 		<child widget="chupathingy/delta_profile/stat_label_0" x="400" y="188"/>
@@ -114,6 +119,12 @@ Open on the Web, unlinking) are Online Games'. Privacy is a settings page
 	<widget name="chupathingy/delta_profile/kind" type="text" controller="1" width="290" height="22" font="ui\large_ui" color="#FF2896FF">
 	</widget>
 	<widget name="chupathingy/delta_profile/title" type="text" controller="1" width="180" height="24" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/clan_title" type="text" controller="1" width="216" height="24" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/clan_side_0" type="text" controller="1" width="216" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/clan_side_1" type="text" controller="1" width="216" height="18" font="ui\small_ui" color="#FFFFFFFF">
 	</widget>
 	<widget name="chupathingy/delta_profile/side_0" type="text" controller="1" width="180" height="18" font="ui\small_ui" color="#FF2896FF">
 	</widget>

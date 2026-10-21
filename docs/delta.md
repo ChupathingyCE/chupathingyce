@@ -1282,7 +1282,7 @@ copy: every Halo profile on a copy counts for the same Delta profile.
   "Delta: not linked". With an empty `network.browser_url`, every way in
   is hidden.
 - **Sections:** OVERVIEW (name, the player's Spartan, badges, record,
-  recent games), LINKED COPIES, ROLES, PRIVACY, then LINK
+  recent games), LINKED COPIES, ROLES, CLAN, PRIVACY, then LINK
   PROFILE or UNLINK THIS COPY, and OPEN ON THE WEB. The Chupathingy menus
   draw them with their own widgets
   (`port/assets/menus/chupathingy/delta_profile.xml`), and Privacy is one
@@ -1309,6 +1309,37 @@ copy: every Halo profile on a copy counts for the same Delta profile.
   false` shows everyone by their game name.
 - **Consoles:** `HALO_CONSOLE_NO_DELTA_PROFILE` leaves all of it out. A
   console that has the game list keeps Online Games' Link Profile panel.
+
+### Clans
+
+Clans are groups of Delta profiles, kept by the game list (its
+`clans.py`). A clan has a name, a tag of 2 to 8 letters and digits, a
+motto, an emblem and ranked members (leader, officers, members). Making a
+clan, inviting, ranks, kicking, handing the clan to another member and
+the emblem are on the site (`/profile#clan`, `/clans/TAG`).
+
+- **In the game:** Delta Profile's CLAN section shows the profile's clan:
+  its emblem, name, tag, member count and motto, then its members by rank
+  (the first nine, then how many more). With no clan it lists the clans
+  that invited the profile. Its A opens a dialog: SHOW MY TAG and LEAVE
+  CLAN, or the invites (A joins, X declines). A leader leaves once another
+  member leads, or when alone (the clan goes with them).
+- **The emblem:** a background shape in one color and a foreground shape in
+  two, from Halo's 18 armor colors. The pieces are the site's
+  (`GET /v1/clans/emblem`); `port/linux/src/clan_emblem_table.h` is made
+  from them by `tools/clan_emblem_table.py`, and `clan_emblem.c` draws
+  them the way the site does.
+- **Requests:** `/v1/game/profile` carries `clan` and `clan_invites`, and
+  its privacy `show_clan_tag`; `POST /v1/game/clan` (the player key, an
+  action: `accept`, `decline` or `leave`) answers with the same two.
+- **Tags in games:** a player who shares their profile and shows their tag
+  is "[TAG] Name" on the scoreboard, the postgame report and the lobby, the
+  name cut to fit with "...". The public card (`/v1/game/players`) carries
+  the tag only while its owner shows it. OpenCE players and clients see
+  nothing new.
+- **Privacy:** SHOW CLAN TAG (Delta Profile's Privacy, and the clan dialog)
+  is the site's own setting. Members who hide their service record are left
+  out of the member lists others see, counted as hidden.
 
 ## How it meets everything else
 

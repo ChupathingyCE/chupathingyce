@@ -18,6 +18,10 @@ GAME_COPIES and GAME_ROLES) */
 #define DELTA_PROFILE_RECENT 4
 #define DELTA_PROFILE_COPIES 16
 #define DELTA_PROFILE_ROLES 32
+/* (list_server.py's GAME_CLAN_MEMBERS; invites, at most clans.py's
+PLAYER_INVITES) */
+#define DELTA_PROFILE_CLAN_MEMBERS 24
+#define DELTA_PROFILE_CLAN_INVITES 20
 /* a player ID, in hexadecimal */
 #define DELTA_PROFILE_ID_LENGTH 32
 
@@ -62,6 +66,45 @@ struct delta_profile_role
 	int online;
 };
 
+struct delta_profile_clan_member
+{
+	char display[64];
+	/* "leader", "officer" or "member" */
+	char rank[12];
+	/* this profile's own line */
+	int you;
+};
+
+/* a clan (docs/delta.md, Clans): the profile's own, or one that invited it */
+struct delta_profile_clan
+{
+	int id;
+	char name[72];
+	char tag[16];
+	char motto[200];
+	/* clan_emblem.h's fields: the foreground and background shapes, the
+	primary, secondary and background colors */
+	int emblem[5];
+	long long created;
+	/* the profile's rank in it */
+	char rank[12];
+	/* all its members; those hiding their record (left out of members);
+	those left out to fit */
+	int count;
+	int hidden;
+	int more;
+	int member_count;
+	struct delta_profile_clan_member members[DELTA_PROFILE_CLAN_MEMBERS];
+};
+
+struct delta_profile_invite
+{
+	int id;
+	char name[72];
+	char tag[16];
+	int count;
+};
+
 struct delta_profile
 {
 	/* this copy counts for a profile; when not, the games its ID has */
@@ -98,6 +141,14 @@ struct delta_profile
 	int hide_stats;
 	int hide_heatmaps;
 	int show_presence;
+	/* the clan tag shows before the profile's name in games (the site's
+	show_clan_tag; known with has_privacy) */
+	int show_clan_tag;
+	/* its clan (has_clan), and the clans that invited it */
+	int has_clan;
+	struct delta_profile_clan clan;
+	int invite_count;
+	struct delta_profile_invite invites[DELTA_PROFILE_CLAN_INVITES];
 };
 
 /* another player's public card (POST /v1/game/players): their profile's
@@ -107,6 +158,8 @@ struct delta_profile_card
 	char handle[48];
 	char display[64];
 	char badge[48];
+	/* the clan tag it shows (empty: none) */
+	char clan_tag[16];
 };
 
 /* /v1/game/profile's answer read into profile: 1, else 0 (not JSON, or
@@ -116,6 +169,10 @@ int delta_profile_parse(const char *text, struct delta_profile *profile);
 /* /v1/game/privacy's answer ({"privacy": {...}}) read into profile's
 privacy: 1, else 0 */
 int delta_profile_parse_privacy(const char *text, struct delta_profile *profile);
+
+/* /v1/game/clan's answer ({"clan", "clan_invites"}) read into profile's
+clan and invites: 1, else 0 */
+int delta_profile_parse_clan(const char *text, struct delta_profile *profile);
 
 /* /v1/game/players's answer: found called for each ID it names, with its
 card (NULL: no profile to show); the count named, -1 if not that answer */
