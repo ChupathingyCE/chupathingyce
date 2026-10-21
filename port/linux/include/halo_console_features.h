@@ -65,6 +65,13 @@ HALO_CONSOLE_NO_THREAD_LOCAL
 	(platform_thread_local, port/linux/src/platform.h), and a release
 	build's skipped-assert flag is shared, as on the original Xbox
 	(source/cseries/cseries.h)
+HALO_CONSOLE_WIDE_TIME_T
+	a 32-bit console whose C library's time_t is 64 bits (newlib's): the
+	error log's time() is given a time_t (source/cseries/errors.c)
+HALO_CONSOLE_LOG_ECHO
+	debug.txt's lines also in the platform's log (platform_log), for a
+	console that shows its log on the screen while it has no other way to
+	say why it stopped (source/cseries/errors.c)
 HALO_CONSOLE_ONLINE_GAMES
 	the Multiplayer menu's ONLINE GAMES on a build without the desktop's
 	game browser (HALO_GAME_BROWSER): the console's own screen of the game
@@ -90,6 +97,8 @@ HALO_CONSOLE_ONLINE_GAMES
 #define HALO_CONSOLE_LOG_THROTTLE 1
 #define HALO_CONSOLE_WINDOW_MAXIMUM 0x10000000UL
 #define HALO_CONSOLE_NO_THREAD_LOCAL 1
+#define HALO_CONSOLE_WIDE_TIME_T 1
+#define HALO_CONSOLE_LOG_ECHO 1
 #endif
 
 #ifdef HALO_XBOX_CONSOLE
