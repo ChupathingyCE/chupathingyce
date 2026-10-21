@@ -681,6 +681,11 @@ static const struct config_setting config_settings[] =
 		"took (game ticks, the render's parts, sound, network, present, the wait\n"
 		"for the screen), the draw calls and objects drawn, and a line when the\n"
 		"player zooms in or out. Read when the game starts." },
+	{ "console.perf_gpu_sync", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
+		"With console.perf_log: wait for the graphics chip to finish at each\n"
+		"timed part of the render, so each part's time is what the chip spent\n"
+		"drawing it, not only the processor's share. Slows the game down; for\n"
+		"finding which part is slow on the chip. Read when the game starts." },
 	{ "console.join", _config_string, "\"\"", NULL, _environment_value, _platform_xbox,
 		"For testing joins without the game list: a host's LAN address\n"
 		"(\"192.168.1.20\"), which System Link joins directly, or an invite\n"

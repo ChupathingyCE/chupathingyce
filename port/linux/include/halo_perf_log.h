@@ -19,8 +19,10 @@ second's line.
 #define __HALO_PERF_LOG_H
 
 /* the parts of a frame that are timed. The render's own parts (world to
-HUD) are inside render; sound is partly inside the game tick (game_frame's
-game_sound_update) and partly inside render (sound_render) */
+HUD, and setup to end) are inside render; sound is partly inside the game
+tick (game_frame's game_sound_update) and partly inside render
+(sound_render). The waits (occlusion, texture) are inside whichever part
+they happen in, and are logged on their own as well */
 enum halo_perf_phase
 {
 	_halo_perf_tick,
@@ -34,6 +36,23 @@ enum halo_perf_phase
 	_halo_perf_network,
 	_halo_perf_present,
 	_halo_perf_vsync_wait,
+	/* the render's finer parts, on the second line: the frame's start
+	(rasterizer_frame_begin), a player view's setup before its window (fog,
+	visibility, a mirror's view), the lens flares (split from effects), the
+	HUD's screen effect (the scope's mask, blur and night vision, split from
+	hud) and the end (the console window, EndScene, rasterizer_frame_end) */
+	_halo_perf_render_begin,
+	_halo_perf_render_setup,
+	_halo_perf_render_lens_flares,
+	_halo_perf_render_screen_effect,
+	_halo_perf_render_end,
+	/* (the sound's share that is inside render: sound_render) */
+	_halo_perf_render_sound,
+	/* the processor waiting on the graphics chip for the lens flares'
+	occlusion results, and on the disc for a texture the cache had to load
+	before drawing */
+	_halo_perf_occlusion_wait,
+	_halo_perf_texture_wait,
 	NUMBER_OF_HALO_PERF_PHASES
 };
 
@@ -45,6 +64,9 @@ enum halo_perf_counter
 	_halo_perf_objects,
 	_halo_perf_models,
 	_halo_perf_models_high_lod,
+	/* textures the cache started loading, and the screen effect's passes */
+	_halo_perf_texture_loads,
+	_halo_perf_screen_effect_passes,
 	NUMBER_OF_HALO_PERF_COUNTERS
 };
 
