@@ -526,7 +526,7 @@ def widget_xml(tag: str, widget: dict, tags: Tags, functions: list, inputs: list
         lines.append(f"{inner}<conditional{attributes([('widget', our_name(conditional['widget tag'])), ('if_failed', 'true' if conditional['flags'] & 1 else None)])}/>")
     for child in widget["child widgets"]:
         child_tag = child["widget tag"]
-        if child_tag in LEFT_OUT:
+        if child_tag in LEFT_OUT or our_name(child_tag) in patch.get("leave_out", ()):
             continue
         x, y = CHILD_OFFSETS.get((tag, child_tag), (child["horizontal offset"], child["vertical offset"]))
         x, y = patch.get("offsets", {}).get(our_name(child_tag), (x, y))

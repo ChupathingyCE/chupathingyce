@@ -423,7 +423,7 @@ static char const *const port_game_data_input_names[] =
 	"game settings lists text update", "get edit game settings name", "mp edit profile set rule text",
 	"port password update",
 	/* (the profile settings' picture: the Xbox's of the button settings,
-	on Gamepad Setup's row) */
+	on CONTROLS' row) */
 	"port gamepad layout preview",
 	/* (the Chupathingy menus' settings picture: the same, on its own frames) */
 	"chupathingy settings picture",

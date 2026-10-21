@@ -273,7 +273,7 @@ and the dedicated server have no crash reports.
 
 The keyboard and the mouse are a control scheme of their own for the player
 of controller 1: each action has up to two keys or mouse buttons, which
-Settings > Controls Setup (or `[controls]` in `config.toml`) changes. The
+Settings > Controls > Keyboard (or `[controls]` in `config.toml`) changes. The
 game adds the input of the first gamepad to controller 1. The other
 gamepads operate controllers 2 to 4. With two or more players on this
 computer (co-op, or split screen in a network game) and only one gamepad,
@@ -446,7 +446,7 @@ all of the others, and the log names the line and the likely fix. If you
 change the value of a line but do not remove its `# `, the line does
 nothing, and the log names it. Words such as `"borderless"` can be in any
 case; a word that a setting does not know is in the log, with what the game
-uses in its place. The Settings menu (Video, Mouse, Audio, Network and Controls Setup)
+uses in its place. The Settings menu (Controls, Display, Audio and Online)
 changes the useful settings, writes them into the file (only their lines
 change: the line of a setting at its default loses its `#`) and applies
 them at once, but `audio.enabled`, and `display.menus` from the next main

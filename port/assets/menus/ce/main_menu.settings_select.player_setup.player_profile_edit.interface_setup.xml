@@ -179,9 +179,4 @@
 		<string text="Show keys in prompts when using the keyboard."/>
 		<string text="Show the version while playing."/>
 	</strings>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/interface_profile_item" type="text" left="51" top="234" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="11" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
-		<on event="a" open="main_menu/settings_select/player_setup/player_profile_edit/interface_setup/interface_settings_screen"/>
-		<on event="start" open="main_menu/settings_select/player_setup/player_profile_edit/interface_setup/interface_settings_screen"/>
-		<on event="left_mouse" run="mouse emit accept event"/>
-	</widget>
 </menus>

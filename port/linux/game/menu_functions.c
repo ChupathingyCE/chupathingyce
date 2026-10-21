@@ -1598,14 +1598,14 @@ static boolean color_choose(void)
 profile's button settings as the Xbox's Controller Setup shows them */
 
 /* the picture's frames (the bitmap's: tools/port_settings.py's
-BITMAP_FRAMES): Gamepad Setup's row's, as the list numbers its rows
+BITMAP_FRAMES): CONTROLS' row's, as the list numbers its rows
 (player_profile_edit_select_menu_update_extended_description), and after
-the twelve rows' (FRAME_ORDERS) the Xbox's five of the button settings */
-#define PROFILE_GAMEPAD_FRAME 3
-#define PROFILE_FIRST_LAYOUT_FRAME 12
+the seven rows' (FRAME_ORDERS) the Xbox's five of the button settings */
+#define PROFILE_GAMEPAD_FRAME 2
+#define PROFILE_FIRST_LAYOUT_FRAME 7
 
-/* "port gamepad layout preview" (the picture's own): on Gamepad Setup's
-row, the edited profile's button settings */
+/* "port gamepad layout preview" (the picture's own): on CONTROLS' row, the
+edited profile's button settings */
 static void profile_gamepad_layout(struct widget_instance *picture)
 {
 	struct player_profile *profile = player_ui_get_edit_player_profile();
@@ -1626,9 +1626,9 @@ static void profile_gamepad_layout(struct widget_instance *picture)
 }
 
 /* the Chupathingy menus' settings picture (port/assets/menus/chupathingy):
-a frame for each of its thirteen rows, then the Xbox's five button
-settings, which Gamepad Setup's row shows for the edited profile */
-#define CHUPATHINGY_FIRST_LAYOUT_FRAME 13
+a frame for each of its eight rows, then the Xbox's five button settings,
+which CONTROLS' row shows for the edited profile */
+#define CHUPATHINGY_FIRST_LAYOUT_FRAME 8
 
 /* "chupathingy settings picture" (the picture's own) */
 static void chupathingy_settings_picture(struct widget_instance *picture)
