@@ -92,6 +92,9 @@ SCREENS = {
             ("FAR CLIP:", "display.far_clip_distance",
              [("1024 (XBOX)", "1024"), ("2048", "2048"), ("4096", "4096"), ("8192", "8192"), ("10000", "10000")],
              "How far the world is drawn.", None),
+            ("ANISOTROPIC FILTERING:", "display.anisotropic_filtering",
+             [("OFF", "0"), ("2X", "2"), ("4X", "4"), ("8X", "8"), ("16X", "16")],
+             "Sharper textures seen at an angle.", None),
         ],
     },
     "mouse_settings": {

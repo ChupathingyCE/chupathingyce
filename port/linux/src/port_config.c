@@ -181,6 +181,9 @@ static const struct config_setting config_settings[] =
 	{ "display.shadow_resolution", _config_integer, DEFAULT_SHADOW_RESOLUTION, "HALO_SHADOW_RESOLUTION",
 		_environment_value, _platform_all,
 		"Shadow size in pixels: 128, 256, 512 or 1024. 128: the Xbox's." },
+	{ "display.anisotropic_filtering", _config_integer, "0", "HALO_ANISOTROPIC_FILTERING", _environment_value,
+		_platform_all,
+		"Sharper textures at a slant: 0 (off, the Xbox's), 2, 4, 8 or 16." },
 	{ "display.menus", _config_string, "\"chupathingy\"", "HALO_MENUS", _environment_value, _platform_all,
 		"The menus: \"chupathingy\", \"xbox\" or \"gearbox\". Your own go in a\n"
 		"menus folder beside config.toml. Takes effect after a restart." },
