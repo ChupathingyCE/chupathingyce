@@ -120,7 +120,7 @@ is fine). Settings in the environment override it.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `HALO_NET_BROWSER` | `https://halo.milenko.org` | The game list the server announces to; empty for none. |
+| `HALO_NET_BROWSER` | `https://stats.chupathingy.org` | The game list the server announces to; empty for none. |
 | `HALO_NET_LIST_GAMES` | `true` | `false`: not listed on the game list (invites and the Server Browser still work). |
 | `HALO_NET_REPORT_HOSTED` | `true` | `false`: the server stays listed, but sends no carnage reports or Delta Stats of its games. |
 | `HALO_NET_ONLINE` | `true` | Internet play: how players outside your network reach the server. `false` keeps it to the local network. |
@@ -133,7 +133,7 @@ is fine). Settings in the environment override it.
 | `HALO_NET_PROTOCOL` | `auto` | Delta Peer ([docs/delta.md](../../docs/delta.md)), ChupathingyCE's messages beside OpenCE's protocol, on UDP port 5160 beside the game's 5150: `auto` speaks it with the machines that do (the rest play plain OpenCE); `opence` turns it off; `delta` is `auto` for now. |
 | `HALO_NET_HOST_PLATFORM_LIMITS` | `true` | Keep the game to the players its Delta machines' platforms take (an original Xbox: 16, unless its player opted out); `false` ignores them, for testing. |
 | `HALO_NET_BLOCK_MOUSE_AIM_ASSIST` | `false` | The server's policy on aiming assist for the mouse and keyboard: `false` leaves each player's own setting (`input.mouse_aim_assist`); `true` turns the view's magnetism off for players aiming with the mouse, in every game of the server. Clients are told when they join and when it changes (network version 32). |
-| `SSL_CERT_FILE` | the system's | The certificates the server checks halo.milenko.org's against, when they are somewhere unusual. |
+| `SSL_CERT_FILE` | the system's | The certificates the server checks stats.chupathingy.org's against, when they are somewhere unusual. |
 
 Players' addresses are left out of `debug.txt` and the output, as in the
 game; `HALO_LOG_ADDRESSES=1` logs them whole, for an operator chasing a

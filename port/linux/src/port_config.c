@@ -496,7 +496,7 @@ static const struct config_setting config_settings[] =
 		"Testing only: an unsigned legacy table file (docs/delta.md) that sets\n"
 		"the OpenCE network versions. Empty for none." },
 #ifdef HALO_GAME_BROWSER
-	{ "network.browser_url", _config_string, "\"https://halo.milenko.org\"", "HALO_NET_BROWSER", _environment_value,
+	{ "network.browser_url", _config_string, "\"https://stats.chupathingy.org\"", "HALO_NET_BROWSER", _environment_value,
 		_platform_all,
 		"The game list server; empty for none." },
 	{ "network.list_hosted_games", _config_boolean, "true", "HALO_NET_LIST_GAMES", _environment_value, _platform_all,
@@ -1325,6 +1325,9 @@ static const struct
 	that names "ask" keeps it, one that left it commented out follows
 	"never" without a question */
 	{ "network.join_from_clipboard", "\"ask\"", 0, NULL },
+	/* the community site's first address, the default until stats.chupathingy.org
+	(the same server, so a file that holds it follows without a question) */
+	{ "network.browser_url", "\"https://halo.milenko.org\"", 1, NULL },
 #ifdef HALO_ANDROID
 	{ "audio.buffer_frames", "512", 0, "A larger audio buffer (1024)" },
 #endif

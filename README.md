@@ -110,14 +110,14 @@ and quits.
 
 | You want to | Do this |
 | --- | --- |
-| Join a game | **Multiplayer → Online Games**, pick a game, press **A**. Or press **Join** on [halo.milenko.org](https://halo.milenko.org). |
-| Host a game | **Multiplayer → Online Games → Y (Create Game)**, or host from System Link as usual. Your game is listed online by itself, on halo.milenko.org and in OpenCE's in-game Server Browser (`public_lobby`/`host_public` under `[network]` in `config.toml` turn that off). |
+| Join a game | **Multiplayer → Online Games**, pick a game, press **A**. Or press **Join** on [stats.chupathingy.org](https://stats.chupathingy.org). |
+| Host a game | **Multiplayer → Online Games → Y (Create Game)**, or host from System Link as usual. Your game is listed online by itself, on stats.chupathingy.org and in OpenCE's in-game Server Browser (`public_lobby`/`host_public` under `[network]` in `config.toml` turn that off). |
 | Invite a friend | When you host, the game copies an invite link (`halo://join/…`). Send it; opening it joins your game. |
-| See your stats | Your service record is on [halo.milenko.org](https://halo.milenko.org), found by your name. Games you join count even when the host doesn't run Chupathingy: when an online game you joined ends, the game sends halo.milenko.org the scoreboard as your game saw it (your own line in full; everyone else's name, team, place, score, kills and deaths) with your player ID. Your copy also confirms your line in the host's report, which puts the game on your profile. To turn both off for games you join, set `report_joined_games = false` under `[network]` in `config.toml`. |
-| Stop sharing your hosted games' stats | Set `report_events = false` under `[network]` in `config.toml`. It's on by default: the games you host send their Delta Stats (kills with positions, accuracy, medals, objectives) to halo.milenko.org for its match pages and heatmaps. Never anyone's address or hardware ID; OpenCE players are only their name, team and that game's score, kills and deaths. This stops Delta Stats only: a listed game's carnage report is still sent. To keep your hosted games listed but send neither, set `report_hosted_games = false`; `list_hosted_games = false` stops the listing too. All of these are also on the Privacy screen in Settings (Gearbox menus). |
-| Make an account | On [halo.milenko.org/profile](https://halo.milenko.org/profile), or press **Start** in Online Games to make one for the player you already are. |
-| Link the game without a browser (Steam Deck, Game Mode) | In Online Games, press **RB** (or **C** on the keyboard) for Link Profile. On your phone or computer, go to [halo.milenko.org/connect](https://halo.milenko.org/connect), enter the code the game shows (or scan its QR code), then press **A** in the game to confirm. |
-| Use the PC menus | Set `menus = "pc"` under `[display]` in `config.toml`. **Multiplayer → Join Game → Server Browser** lists the public games of every compatible build and the games of halo.milenko.org, each once. |
+| See your stats | Your service record is on [stats.chupathingy.org](https://stats.chupathingy.org), found by your name. Games you join count even when the host doesn't run Chupathingy: when an online game you joined ends, the game sends stats.chupathingy.org the scoreboard as your game saw it (your own line in full; everyone else's name, team, place, score, kills and deaths) with your player ID. Your copy also confirms your line in the host's report, which puts the game on your profile. To turn both off for games you join, set `report_joined_games = false` under `[network]` in `config.toml`. |
+| Stop sharing your hosted games' stats | Set `report_events = false` under `[network]` in `config.toml`. It's on by default: the games you host send their Delta Stats (kills with positions, accuracy, medals, objectives) to stats.chupathingy.org for its match pages and heatmaps. Never anyone's address or hardware ID; OpenCE players are only their name, team and that game's score, kills and deaths. This stops Delta Stats only: a listed game's carnage report is still sent. To keep your hosted games listed but send neither, set `report_hosted_games = false`; `list_hosted_games = false` stops the listing too. All of these are also on the Privacy screen in Settings (Gearbox menus). |
+| Make an account | On [stats.chupathingy.org/profile](https://stats.chupathingy.org/profile), or press **Start** in Online Games to make one for the player you already are. |
+| Link the game without a browser (Steam Deck, Game Mode) | In Online Games, press **RB** (or **C** on the keyboard) for Link Profile. On your phone or computer, go to [stats.chupathingy.org/connect](https://stats.chupathingy.org/connect), enter the code the game shows (or scan its QR code), then press **A** in the game to confirm. |
+| Use the PC menus | Set `menus = "pc"` under `[display]` in `config.toml`. **Multiplayer → Join Game → Server Browser** lists the public games of every compatible build and the games of stats.chupathingy.org, each once. |
 | List a game from a build that can't list itself | Sign in on the site, open **Host a Game**, and paste your invite link. |
 
 Everything here plays with OpenCE players on a matching network version: they
@@ -127,8 +127,8 @@ one player reported counts only on that player's own record. Their hosts can
 still list them on the site (Host a Game).
 
 <p align="center">
-<img src="docs/screenshots/site-games.jpg" width="49%" alt="halo.milenko.org: games and recent games">
-<img src="docs/screenshots/site-medals.jpg" width="49%" alt="halo.milenko.org: medals">
+<img src="docs/screenshots/site-games.jpg" width="49%" alt="stats.chupathingy.org: games and recent games">
+<img src="docs/screenshots/site-medals.jpg" width="49%" alt="stats.chupathingy.org: medals">
 </p>
 
 ## Features
@@ -141,7 +141,7 @@ still list them on the site (Host a Game).
 - Cross-play with OpenCE players on a matching network version, both ways
 - Dedicated servers anyone can run: a playlist of games, around the clock, on Linux x86, x64 or arm64
 
-**Stats, on [halo.milenko.org](https://halo.milenko.org)**
+**Stats, on [stats.chupathingy.org](https://stats.chupathingy.org)**
 - A carnage report for every finished game, with medals
 - Service records and leaderboards, with confirmed players (your games count toward you, whatever name you use)
 - Accounts, made on the site or from the game, with an encrypted backup of your player identity
@@ -369,7 +369,7 @@ A few people look for most:
 | `input.mouse_sensitivity`, `input.invert_mouse` | Mouse aim. |
 | `input.keyboard_prompts` | `true` (the default) shows the bound key in the HUD's and menus' button prompts after you use the keyboard or mouse, as Halo PC did; `false` always shows the controller's buttons. |
 | `controls.*` | Every key: `controls.jump = "Space"`, or two at once, such as `"F, Mouse 4"`. |
-| `network.browser_url` | The game list Online Games shows (halo.milenko.org). |
+| `network.browser_url` | The game list Online Games shows (stats.chupathingy.org). |
 | `network.host_public` | Whether games you host are listed for everyone (true) or only joinable by invite (false). |
 | `update.auto` | Whether the game updates itself. |
 | `paths.data`, `paths.saves` | Where the maps and the saves are, if not the usual place. |
@@ -383,7 +383,7 @@ overrides the file.
 ## Run a server
 
 The Chupathingy Dedicated Server hosts a playlist of games around the clock,
-with no player of its own, and lists them on halo.milenko.org and in the
+with no player of its own, and lists them on stats.chupathingy.org and in the
 Server Browser. It is its own download for Linux on x86, x64 and arm64
 (Oracle Cloud's free tier and Raspberry Pis included): one file, no libraries
 to install, and no port forwarding. See [server/README.md](server/README.md).
@@ -402,7 +402,7 @@ to install, and no port forwarding. See [server/README.md](server/README.md).
   release plays with.
 - **Delta** is Chupathingy's network family ([docs/delta.md](docs/delta.md)):
   the game list, stats, profile links and dedicated server admin tools on
-  [halo.milenko.org](https://halo.milenko.org), and a channel between
+  [stats.chupathingy.org](https://stats.chupathingy.org), and a channel between
   Chupathingy machines for features of our own (how builds play together:
   [docs/delta-compatibility.md](docs/delta-compatibility.md)). Games with OpenCE players
   use the shared game protocol, so everyone plays together.

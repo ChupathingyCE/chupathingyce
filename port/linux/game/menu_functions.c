@@ -4037,7 +4037,7 @@ static short lobby_browser_rows_place(struct widget_instance *list)
 
 /* ---- the server browser's second source (configure.py --game-browser):
 the games of a game list, network.browser_url (port/linux/src/browser.c;
-halo.milenko.org by default), merged into the listings' as listings of
+stats.chupathingy.org by default), merged into the listings' as listings of
 their own. A game both lists have is shown once, as its listing (the same invite
 token). One on a Halo PC map, which its host lists as <map>@ce (Custom
 Edition) or <map>@md (HaloMD), is marked PC or MD, and joined only where it

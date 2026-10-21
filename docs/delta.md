@@ -11,7 +11,7 @@ advertisement's flag, the handshake with silent fallback, platform keys,
 and the `platform`, `profile`, `ce_maps` and `moderation` capabilities (see
 "Delta Peer"). Delta Stats' event log, server moderators and linking
 servers to the site shipped in 0.7.1b. The site's page for players:
-https://halo.milenko.org/delta
+https://stats.chupathingy.org/delta
 
 Delta is the name for everything ChupathingyCE's machines say to each other
 and to our services beyond the game protocol OpenCE defines. It has one rule
@@ -45,7 +45,7 @@ Delta. Delta works around it (see "The legacy number" below).
       \\  <==================================================>    //
        \\                                                       //
         \\  Delta List / Stats / Link (HTTPS)       Delta List / Stats / Link
-         `------------------->  halo.milenko.org  <-------------'
+         `------------------->  stats.chupathingy.org  <-------------'
                                       ^
                                       | Delta Link (server dials out)
                                       |

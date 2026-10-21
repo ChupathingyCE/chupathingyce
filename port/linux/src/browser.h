@@ -3,7 +3,7 @@ BROWSER.H
 
 The game list (configure.py --game-browser,
 HALO_GAME_BROWSER): the system link games hosted by copies of the game
-anywhere, listed on network.browser_url (halo.milenko.org). A host's
+anywhere, listed on network.browser_url (stats.chupathingy.org). A host's
 game is listed with its invite (p2p.c); a player picks a listed game, which
 joins its invite, and the host's game then shows in System Link as any
 game reached through an invite. See browser.c.
@@ -187,7 +187,7 @@ void browser_host_update(const unsigned short *name, const char *map, short engi
 	short maximum_players, int open, short score_limit, int teams,
 	const struct browser_roster_player *roster, int roster_count);
 
-/* the game list's address as a player types it (halo.milenko.org: no
+/* the game list's address as a player types it (stats.chupathingy.org: no
 scheme), empty for none */
 void browser_server_name(char *text, int size);
 
@@ -259,7 +259,7 @@ own ID has a profile (asked once a run, from the first call on); the
 profile's handle in handle (empty when not linked). Never waits. */
 int browser_profile_linked(char *handle, int size);
 
-/* the profile page (halo.milenko.org/profile), signed in as this copy's
+/* the profile page (stats.chupathingy.org/profile), signed in as this copy's
 player, opened in the web browser (MY PROFILE) */
 void browser_open_profile(void);
 /* a restored key (halo://key/...): kept, then put in place of this copy's
@@ -302,7 +302,7 @@ struct browser_connect
 	int seconds;
 	/* the question answered, the answer on its way */
 	int answered;
-	/* where to type it, as a player types it (halo.milenko.org/connect) */
+	/* where to type it, as a player types it (stats.chupathingy.org/connect) */
 	char page[128];
 	/* who typed the code (confirm) and who the game was linked to before
 	(empty if none), then who it is linked to (connected); what went wrong
