@@ -17,6 +17,9 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/op_report_events" x="54" y="103"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/op_report_joined_games" x="54" y="133"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/op_upload" x="54" y="163" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/op_presence" x="54" y="193" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/op_show_server_name" x="54" y="223" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/op_show_join" x="54" y="253" platform="desktop"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
@@ -60,6 +63,33 @@
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/upload_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ASK|YES|NO" setting="crash_reports.upload" values="ask|yes|no" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
 	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/op_presence" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF" platform="desktop">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/presence_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/presence_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/presence_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/labels" string_index="4" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/presence_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="FULL|MINIMAL|OFF" setting="discord.presence" values="full|minimal|off" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/op_show_server_name" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF" platform="desktop">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/show_server_name_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/show_server_name_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/show_server_name_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/labels" string_index="5" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/show_server_name_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="SHOW|HIDE" setting="discord.show_server_name" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/op_show_join" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF" platform="desktop">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/show_join_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/show_join_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/show_join_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/labels" string_index="6" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/show_join_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" setting="discord.show_join" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/button_defaults" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="3" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="a" run="port settings defaults"/>
 		<on event="start" run="port settings defaults"/>
@@ -75,6 +105,9 @@
 		<string text="DELTA STATS:"/>
 		<string text="JOINED GAME STATS:"/>
 		<string text="CRASH REPORTS:"/>
+		<string text="DISCORD STATUS:"/>
+		<string text="DISCORD SERVER NAME:"/>
+		<string text="DISCORD JOIN BUTTON:"/>
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/help_strings">
 		<string text=""/>
@@ -82,10 +115,8 @@
 		<string text="Record games you host for Delta match pages."/>
 		<string text="Add games you join to your game list profile."/>
 		<string text="Send crash reports to the developers."/>
+		<string text="Choose what your Discord status shows."/>
+		<string text="Show the game's name on Discord."/>
+		<string text="Show a Join button on Discord while hosting."/>
 	</strings>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/privacy_profile_item" type="text" left="51" top="310" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="10" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
-		<on event="a" open="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/privacy_settings_screen"/>
-		<on event="start" open="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/privacy_settings_screen"/>
-		<on event="left_mouse" run="mouse emit accept event"/>
-	</widget>
 </menus>

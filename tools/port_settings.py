@@ -33,9 +33,9 @@ SCREENS = {
     "video_settings": {
         "screen": "video_settings_screen",
         "header": ("header_profile_video_settings", f"{PE}/video_settings/header_profile_video_settings"),
-        # (closer than the other screens' rows, for all ten places to fit
-        # above the help)
-        "spacing": 27,
+        # (close together, for all thirteen places to fit above a help line)
+        "spacing": 24,
+        "help_top": 388,
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
         # display mode chosen uses; Android's Smooth Motion in Frame Rate's,
@@ -69,10 +69,6 @@ SCREENS = {
              "desktop"),
             ("SMOOTH MOTION:", "display.interpolation", ON_OFF,
              "Draw a frame for every display refresh.", "android"),
-            ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
-             "Draw the HUD in high resolution.", None),
-            ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
-             "Draw text and titles in high resolution.", None),
             ("ANTI-ALIASING:", "display.anti_aliasing",
              [("OFF", "off"), ("FXAA", "fxaa"), ("SMAA", "smaa"), ("SSAA 2X", "ssaa2x"), ("MSAA 2X", "msaa2x"),
               ("MSAA 4X", "msaa4x"), ("MSAA 8X", "msaa8x")],
@@ -88,6 +84,22 @@ SCREENS = {
              None),
             ("PER-PIXEL LIGHTING:", "display.per_pixel_lighting", ON_OFF,
              "Light models per pixel instead of per vertex.", None),
+            ("FIELD OF VIEW:", "display.field_of_view",
+             [(f"{value}" + (" (XBOX)" if value == 70 else ""), f"{value}")
+              for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
+             "Adjust the field of view.",
+             None),
+            ("FAR CLIP:", "display.far_clip_distance",
+             [("1024 (XBOX)", "1024"), ("2048", "2048"), ("4096", "4096"), ("8192", "8192"), ("10000", "10000")],
+             "How far the world is drawn.", None),
+            ("ANISOTROPIC FILTERING:", "display.anisotropic_filtering",
+             [("OFF", "0"), ("2X", "2"), ("4X", "4"), ("8X", "8"), ("16X", "16")],
+             "Sharper textures seen at an angle.", None),
+            ("FULL MODEL DETAIL:", "display.full_model_detail", ON_OFF,
+             "Always draw models at their highest detail.", None),
+            ("VIEWMODEL FOV:", "display.viewmodel_field_of_view",
+             [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
+             "How wide your weapon is drawn. Same follows the view.", None),
         ],
     },
     "mouse_settings": {
@@ -103,11 +115,6 @@ SCREENS = {
              "Moving the mouse forward looks down.", None),
             ("AIM ASSIST:", "input.mouse_aim_assist", ON_OFF,
              "Use controller aim assist with the mouse.", None),
-            ("FIELD OF VIEW:", "display.field_of_view",
-             [(f"{value}" + (" (XBOX)" if value == 70 else ""), f"{value}")
-              for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
-             "Adjust the field of view.",
-             None),
         ],
     },
     "audio_settings": {
@@ -128,22 +135,21 @@ SCREENS = {
              "Turn all sound on or off. Takes effect on restart.", None),
         ],
     },
-    "network_setup": {
-        "screen": "network_settings_screen",
-        "header": ("header_profile_network_settings", f"{PE}/network_setup/header_profile_network_settings"),
-        # (as close as Video Setup's, for its twelve rows)
+    # (opened from the profile menu's DISPLAY list: SUBMENUS)
+    "interface_setup": {
+        "screen": "interface_settings_screen",
+        "header": ("header_profile_interface_settings", f"{PE}/interface_setup/header_interface"),
         "spacing": 24,
         "help_top": 364,
         "rows": [
-            ("INTERNET PLAY:", "network.online", ON_OFF,
-             "Host and join games over the internet.", None),
-            ("UPNP PORT FORWARDING:", "network.allow_upnp", ON_OFF,
-             "Ask the router to forward the game's port.", None),
-            ("JOIN FROM CLIPBOARD:", "network.join_from_clipboard",
-             [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
-             "Join a game from an invite link on the clipboard.", None),
-            ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
-             "Check for a new version at startup.", None),
+            # (read when the game starts: menu_tags.c)
+            ("MENU STYLE:", "display.menus",
+             [("CHUPATHINGY", "chupathingy"), ("XBOX", "xbox"), ("GEARBOX", "gearbox")],
+             "Takes effect on restart.", None),
+            ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
+             "Draw the HUD in high resolution.", None),
+            ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
+             "Draw text and titles in high resolution.", None),
             ("PLAYER NAMES:", "display.player_names",
              [("ALL", "all"), ("ALLIES", "allies"), ("ENEMIES", "enemies"), ("NONE", "none")],
              "Choose whose names show above players.", None),
@@ -154,17 +160,57 @@ SCREENS = {
              "Show team games by team, or all players by score.", None),
             ("SCOREBOARD PANEL:", "display.scoreboard_background", ON_OFF,
              "Draw a panel behind the scoreboard.", None),
-            ("MAP DOWNLOADS:", "network.map_downloads", [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
-             "Download missing Custom Edition maps.", None),
-            ("DISCORD STATUS:", "discord.presence", [("FULL", "full"), ("MINIMAL", "minimal"), ("OFF", "off")],
-             "Choose what your Discord status shows.", "desktop"),
-            ("DISCORD SERVER NAME:", "discord.show_server_name", [("SHOW", "true"), ("HIDE", "false")],
-             "Show the game's name on Discord.", "desktop"),
-            ("DISCORD JOIN BUTTON:", "discord.show_join", ON_OFF,
-             "Show a Join button on Discord while hosting.", "desktop"),
+            ("POWERUP TIMERS:", "display.powerup_timers", ON_OFF,
+             "Show the time left on your powerups.", None),
+            ("MATCH TIMER:", "display.match_timer", ON_OFF,
+             "Show the time left at the top of the screen.", None),
+            ("FOLLOW CAMERA:", "display.follow_camera",
+             [("LONG WAITS", "long_waits"), ("ALWAYS", "always"), ("OFF", "off")],
+             "While dead, follow a living player's view.", None),
+            ("KEYBOARD PROMPTS:", "input.keyboard_prompts", ON_OFF,
+             "Show keys in prompts when using the keyboard.", "desktop"),
+            ("VERSION WATERMARK:", "display.version_watermark", ON_OFF,
+             "Show the version while playing.", None),
         ],
     },
-    # (opened from the profile menu's PRIVACY row: PRIVACY_ITEM)
+    # (opened from the profile menu's ONLINE list: SUBMENUS;
+    # chat.quick_messages, a list of lines, is in config.toml alone)
+    "chat_setup": {
+        "screen": "chat_settings_screen",
+        "header": ("header_profile_chat_settings", f"{PE}/chat_setup/header_chat"),
+        "spacing": 30,
+        "rows": [
+            ("CHAT:", "chat.enabled", ON_OFF, "Text chat with other players.", None),
+            ("SHOW CHAT:", "chat.show", [("ALL", "all"), ("TEAM", "team"), ("OFF", "off")],
+             "Choose whose chat lines show.", None),
+            ("WORD FILTER:", "chat.filter", [("MASK", "mask"), ("HIDE", "hide"), ("SHOW", "show")],
+             "Mask, hide or show blocked words.", None),
+            ("STREAMER MODE:", "chat.streamer_mode", ON_OFF,
+             "Show players in chat by team, not by name.", None),
+        ],
+    },
+    "network_setup": {
+        "screen": "network_settings_screen",
+        "header": ("header_profile_network_settings", f"{PE}/network_setup/header_profile_network_settings"),
+        "spacing": 30,
+        "rows": [
+            ("INTERNET PLAY:", "network.online", ON_OFF,
+             "Host and join games over the internet.", None),
+            ("UPNP PORT FORWARDING:", "network.allow_upnp", ON_OFF,
+             "Ask the router to forward the game's port.", None),
+            ("MAP DOWNLOADS:", "network.map_downloads", [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
+             "Download missing Custom Edition maps.", None),
+            ("JOIN FROM CLIPBOARD:", "network.join_from_clipboard",
+             [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
+             "Join a game from an invite link on the clipboard.", None),
+            ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
+             "Check for a new version at startup.", None),
+            ("START WITH ONE PLAYER:", "game.start_with_one_player", ON_OFF,
+             "Let a game you host start with only you.", None),
+        ],
+    },
+    # (opened from the profile menu's ONLINE list: SUBMENUS. The Delta
+    # profile's rows, PR #382's, go after Joined Game Stats)
     "privacy_setup": {
         "screen": "privacy_settings_screen",
         "header": ("header_profile_privacy_settings", f"{PE}/privacy_setup/header_privacy"),
@@ -178,6 +224,12 @@ SCREENS = {
              "Add games you join to your game list profile.", None),
             ("CRASH REPORTS:", "crash_reports.upload", [("ASK", "ask"), ("YES", "yes"), ("NO", "no")],
              "Send crash reports to the developers.", "desktop"),
+            ("DISCORD STATUS:", "discord.presence", [("FULL", "full"), ("MINIMAL", "minimal"), ("OFF", "off")],
+             "Choose what your Discord status shows.", "desktop"),
+            ("DISCORD SERVER NAME:", "discord.show_server_name", [("SHOW", "true"), ("HIDE", "false")],
+             "Show the game's name on Discord.", "desktop"),
+            ("DISCORD JOIN BUTTON:", "discord.show_join", ON_OFF,
+             "Show a Join button on Discord while hosting.", "desktop"),
         ],
     },
     "gamepad_setup": {
@@ -223,14 +275,11 @@ CONTROL_ROWS = 7
 STRING_OVERRIDES = {
     f"{PE}/profile_edit_descriptions": [
         "Rename this profile.\\n\\n\\nProfile:",
-        "Change the keyboard and\\nmouse controls.\\n\\nProfile:",
-        "Change the controller\\nconfiguration.\\n\\nProfile:",
-        "Adjust the mouse settings.\\n\\n\\nProfile:",
-        "Adjust the audio settings.\\n\\n\\nProfile:",
-        "Adjust the video settings.\\n\\n\\nProfile:",
-        "Adjust the network and\\nmultiplayer settings.\\n\\nProfile:",
-        "Choose what stats and crash\\nreports are sent.\\n\\nProfile:",
         "Change the current profile's\\nfree-for-all multiplayer color.\\n\\nProfile:",
+        "Change the keyboard, mouse\\nand controller settings.\\n\\nProfile:",
+        "Adjust the video and\\ninterface settings.\\n\\nProfile:",
+        "Adjust the audio settings.\\n\\n\\nProfile:",
+        "Adjust the network, chat\\nand privacy settings.\\n\\nProfile:",
         "About Chupathingy.\\n\\n\\nProfile:",
     ],
 }
@@ -461,20 +510,108 @@ def _controller_screen() -> list:
                    ["controller update menu"], ['<on event="created" run="controller screen init"/>'], extra)
 
 
-# the profile menu's row for Privacy (not the PC version's: after Network
-# Setup's, its description and picture the eighth: WIDGET_PATCHES, FRAME_COPIES)
-PRIVACY_ITEM = f"{PE}/privacy_profile_item"
+# the profile menu's rows that open a list of pages (CONTROLS, DISPLAY and
+# ONLINE), laid out as the profile menu is (its rows, their help and the
+# profile's name). Each: its title, the row's string of profile_edit_options,
+# the PC style's row (None: the PC version's own, WIDGET_PATCHES) and its top,
+# and its pages: (label, the page's folder, help)
+SUBMENUS = {
+    "controls_menu": ("CONTROLS", 12, None, [
+        ("KEYBOARD", "controls_setup", "Change the keyboard and\\nmouse controls."),
+        ("MOUSE", "mouse_settings", "Adjust the mouse settings.\\n"),
+        ("GAMEPADS", "gamepad_setup", "Change the controller\\nconfiguration."),
+        ("GAMEPAD BUTTONS", CONTROLLER_SCREEN, "Choose the button for\\neach action."),
+    ]),
+    "display_menu": ("DISPLAY", 13, 177, [
+        ("VIDEO", "video_settings", "Adjust the video settings.\\n"),
+        ("INTERFACE", "interface_setup", "Adjust the menus, HUD and\\nscoreboard."),
+    ]),
+    "online_menu": ("ONLINE", 15, 243, [
+        ("NETWORK", "network_setup", "Adjust the network settings.\\n"),
+        ("CHAT", "chat_setup", "Adjust the chat settings.\\n"),
+        ("PRIVACY", "privacy_setup", "Choose what stats and crash\\nreports are sent."),
+    ]),
+}
+# (the pictures: the Xbox's controller for the gamepad's pages, else none)
+BLANK_FRAME = '<frame png="ce/port/blank__0.png" width="4" height="4"/>'
+CONTROLLER_FRAME = f'<frame map="ui\\shell\\{PE.replace("/", chr(92))}\\profile_options" index="1"/>'
 
 
-def _privacy_item() -> list:
-    screen = f"{PE}/privacy_setup/{SCREENS['privacy_setup']['screen']}"
-    return _widget(PRIVACY_ITEM,
-                   [("type", "text"), ("left", 51), ("top", 310), ("width", 232), ("height", 32),
-                    ("bitmap", "bitmaps/list_item_bkd"), ("string_list", f"{PE}/profile_edit_options"),
-                    ("string_index", 10), ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13),
-                    ("text_y", 5)],
-                   [f'<on event="a" open="{screen}"/>', f'<on event="start" open="{screen}"/>',
-                    '<on event="left_mouse" run="mouse emit accept event"/>'])
+def _page_screen(folder: str) -> str:
+    """the PC style's screen of a settings page"""
+    name = {"controls_setup": "controls_settings_screen", CONTROLLER_SCREEN: "controller_buttons_screen"}.get(folder)
+    return f"{PE}/{folder}/{name or SCREENS[folder]['screen']}"
+
+
+def _submenu_list(menu: str, base: str, list_name: str, description: str, top: int, spacing: int,
+                  screen_of, profile: str) -> list:
+    """a list of a submenu's pages (its rows, help and picture): the PC
+    style's (base and names below PE) or the Chupathingy menus'"""
+    _, _, _, pages = SUBMENUS[menu]
+    lines = []
+    children = ['<data input="plyr prof edit select menu upd8"/>']
+    children += [f'<child widget="{base}_item_{index}"/>' for index in range(len(pages))]
+    if list_name.startswith(PE):
+        children.append(f'<child widget="{base}_button_bar" y="414"/>')
+    lines += _widget(list_name, [("type", "column_list"), ("width", 640), ("height", 480),
+                                 ("flags", "pass_unhandled_to_focused_child up_down_tabs_items"),
+                                 ("description", description)], children)
+    for index, (_, folder, _) in enumerate(pages):
+        screen = screen_of(folder)
+        lines += _widget(f"{base}_item_{index}",
+                         [("type", "text"), ("left", 51), ("top", top + index * spacing), ("width", 232),
+                          ("height", 32),
+                          ("bitmap", "bitmaps/list_item_bkd_top" if index == 0 else "bitmaps/list_item_bkd"),
+                          ("string_list", f"{base}_options"), ("string_index", index or None),
+                          ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 5)],
+                         [f'<on event="a" open="{screen}"/>', f'<on event="start" open="{screen}"/>',
+                          '<on event="left_mouse" run="mouse emit accept event"/>'])
+    lines += _widget(description, [("controller", 1), ("left", 275), ("top", 78), ("width", 320),
+                                   ("height", 362), ("bitmap", "bitmaps/list_field")],
+                     [f'<child widget="{base}_description_text"/>', f'<child widget="{base}_picture" x="4"/>'])
+    lines += _widget(f"{base}_description_text",
+                     [("type", "text"), ("controller", 1), ("left", 294), ("top", 290), ("width", 296),
+                      ("height", 110), ("string_list", f"{base}_descriptions"), ("font", "ui\\large_ui"),
+                      ("color", "#FF2896FF")], [])
+    lines += _widget(f"{base}_picture", [("controller", 1), ("left", 288), ("top", 85), ("width", 279),
+                                         ("height", 202), ("bitmap", f"{base}_pictures")], [])
+    frames = [CONTROLLER_FRAME if folder in ("gamepad_setup", CONTROLLER_SCREEN) else BLANK_FRAME
+              for _, folder, _ in pages]
+    lines += [f'\t<bitmap name="{base}_pictures">', *[f"\t\t{frame}" for frame in frames], "\t</bitmap>"]
+    lines += _strings(f"{base}_options", [label for label, _, _ in pages])
+    lines += _strings(f"{base}_descriptions", [f"{text}\\n\\n{profile}" for _, _, text in pages])
+    return lines
+
+
+def _submenu(menu: str) -> list:
+    """the PC style's submenu: its header, list, and a Back button; and the
+    profile menu's row that opens it"""
+    title, string_index, row_top, _ = SUBMENUS[menu]
+    base = f"{PE}/{menu}"
+    screen = f"{base}/{menu}_screen"
+    lines = []
+    lines += _widget(screen, [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child pause_game"),
+                              ("bitmap", "bitmaps/gradient")],
+                     ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
+                      f'<child widget="{base}/header"/>', f'<child widget="{base}/list"/>',
+                      f'<child widget="{PE}/profile_label" x="293" y="375"/>'])
+    lines += _widget(f"{base}/header", [("controller", 1), ("left", 35), ("top", 11), ("width", 605),
+                                        ("height", 59), ("bitmap", f"{base}/header_{title.lower()}")], [])
+    lines += _submenu_list(menu, f"{base}/list", f"{base}/list", f"{base}/description", 78, 33, _page_screen,
+                           "Profile:")
+    lines += _widget(f"{base}/list_button_bar", [("type", "column_list"), ("width", 640), ("height", 28),
+                                                 ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
+                     [f'<child widget="{base}/button_back" x="510" y="1"/>'])
+    lines += _button(f"{base}/button_back", 0, ['<on event="a" back="true"/>', '<on event="start" back="true"/>'])
+    if row_top is not None:
+        lines += _widget(f"{PE}/{menu.split('_')[0]}_profile_item",
+                         [("type", "text"), ("left", 51), ("top", row_top), ("width", 232), ("height", 32),
+                          ("bitmap", "bitmaps/list_item_bkd"), ("string_list", f"{PE}/profile_edit_options"),
+                          ("string_index", string_index), ("font", "ui\\large_ui"), ("color", "#FF2896FF"),
+                          ("text_x", 13), ("text_y", 5)],
+                         [f'<on event="a" open="{screen}"/>', f'<on event="start" open="{screen}"/>',
+                          '<on event="left_mouse" run="mouse emit accept event"/>'])
+    return lines
 
 
 def settings_files() -> dict:
@@ -482,9 +619,10 @@ def settings_files() -> dict:
     files = {}
     for folder, spec in SCREENS.items():
         files[f"{PE}/{folder}".replace("/", ".") + ".xml"] = _setting_screen(folder, spec)
-    files[f"{PE}/privacy_setup".replace("/", ".") + ".xml"] += _privacy_item()
     files[f"{PE}/controls_setup".replace("/", ".") + ".xml"] = _controls_screen()
     files[f"{PE}/{CONTROLLER_SCREEN}".replace("/", ".") + ".xml"] = _controller_screen()
+    for menu in SUBMENUS:
+        files[f"{PE}/{menu}".replace("/", ".") + ".xml"] = _submenu(menu)
     return {name: ['<?xml version="1.0" encoding="UTF-8"?>',
                    "<!-- The port's settings screen, in the PC version's style (tools/port_settings.py) -->",
                    "<menus>", *lines, "</menus>", ""] for name, lines in files.items()}
@@ -608,6 +746,19 @@ def chupathingy_settings_pages() -> list:
                          [("type", "column_list"), ("width", 640), ("height", 480),
                           ("flags", "pass_unhandled_to_focused_child up_down_tabs_children"),
                           ("description", f"{base}/help")], children)
+    # (the profile menu's lists of pages, SUBMENUS: as its rows are laid out,
+    # 28 apart, with the Xbox's prompts)
+    for menu in SUBMENUS:
+        base = f"{CHUPATHINGY}/{menu}"
+        lines += _widget(f"{base}_screen",
+                         [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child pause_game"),
+                          ("bitmap", "bitmaps/gradient")],
+                         ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
+                          f'<child widget="{PE}/{menu}/header"/>', f'<child widget="{base}_list"/>',
+                          f'<child widget="{PE}/profile_label" x="432" y="353"/>',
+                          *_xbox_prompt("b", 360, "back"), *_xbox_prompt("a", 490, "select")])
+        lines += _submenu_list(menu, base, f"{base}_list", f"{base}_description", 78, 28,
+                               lambda folder: f"{CHUPATHINGY}/{folder}_screen", "Current Profile:")
     # (the rows, labels and help of the pages the PC version's menus have not)
     for folder, spec in CHUPATHINGY_ONLY.items():
         lines += _setting_screen(folder, spec)
@@ -633,7 +784,7 @@ MT = "main_menu/multiplayer_type_select"
 # in turn: menu_functions.c's gametype_option_help)
 SLAYER_EDIT = "main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit"
 STRING_INSERTS = {
-    f"{PE}/profile_edit_options": [(10, ["PRIVACY"])],
+    f"{PE}/profile_edit_options": [(10, ["PRIVACY", "INTERFACE", "CONTROLS", "DISPLAY", "AUDIO", "ONLINE"])],
     f"{SLAYER_EDIT}/var_kills_to_win": [(5, ["75", "100", "150", "200", "250", "500"])],
     f"{SLAYER_EDIT}/cap_slayer": [(11, [
         "Seventy-five kills to win.",
@@ -722,13 +873,28 @@ WIDGET_PATCHES = {
     f"{MT}/connected/connected_map_select_wrapper": {"set": {
         "flags": "pass_unhandled_to_focused_child pause_game main_menu_if_no_history tag_controller_index force_handle_mouse",
     }},
-    # (Privacy's row after Network Setup's, and Change Color and About below
-    # it: their offsets from the tops the PC version gave them)
+    # (the rows in the order Change Name, Change Color, Controls, Display,
+    # Audio, Online, About, 33 apart as the PC version's: each in the place
+    # of the PC version's row before it ("swap"; Controls Setup's row is
+    # CONTROLS, Audio Setup's AUDIO, and DISPLAY and ONLINE are SUBMENUS'),
+    # the last two places left out; offsets from the tops each row has)
     f"{PE}/profile_edit_select_list": {
-        "insert_before": {f"{PE}/color_profile_item": [f'<child widget="{PRIVACY_ITEM}"/>']},
-        "offsets": {f"{PE}/color_profile_item": (0, 65), f"{PE}/about_item": (0, 65)},
+        "swap": {f"{PE}/controller_setup_profile_item": f"{PE}/color_profile_item",
+                 f"{PE}/gamepads_profile_item": f"{PE}/controller_setup_profile_item",
+                 f"{PE}/mouse_settings_profile_item": f"{PE}/display_profile_item",
+                 f"{PE}/video_settings_profile_item": f"{PE}/online_profile_item",
+                 f"{PE}/network_settings_profile_item": f"{PE}/about_item"},
+        "leave_out": [f"{PE}/color_profile_item", f"{PE}/about_item"],
+        "offsets": {f"{PE}/controller_setup_profile_item": (0, -166), f"{PE}/gamepads_profile_item": (0, 33),
+                    f"{PE}/network_settings_profile_item": (0, -34)},
     },
-    # (the profile settings' picture: on Gamepad Setup's row, the profile's
+    f"{PE}/controller_setup_profile_item": {"set": {"string_index": SUBMENUS["controls_menu"][1]}, "handlers": [
+        f'<on event="a" open="{PE}/controls_menu/controls_menu_screen"/>',
+        f'<on event="start" open="{PE}/controls_menu/controls_menu_screen"/>',
+        '<on event="left_mouse" run="mouse emit accept event"/>',
+    ]},
+    f"{PE}/audio_settings_profile_item": {"set": {"string_index": 14}},
+    # (the profile settings' picture: on CONTROLS' row, the profile's
     # button settings, BITMAP_FRAMES; menu_functions.c's
     # profile_gamepad_layout)
     f"{PE}/profile_edit_extended_desc_pic": {"inputs": ["port gamepad layout preview"]},
@@ -817,12 +983,12 @@ WIDGET_PATCHES = {
 # 512 by 235 of their 512 by 512: drawn at 279 wide, in the middle of the
 # picture's 279 by 202
 XBOX_CONTROLLER_PICTURES = f"ui\\shell\\{PE.replace('/', chr(92))}\\controller_edit\\config_controller"
-# frames repeated in a PC bitmap (by our names): {place: frame}, the frame
-# (as the PC version numbers them) put in at the place, the frames from it
-# on after it. The profile settings' picture numbers its frames as the list
-# its rows (PRIVACY_ITEM, the eighth, shows Network Setup's)
-FRAME_COPIES = {
-    f"{PE}/profile_options": {7: 6},
+# the frames of a PC bitmap in another order (by our names): the frame (as
+# the PC version numbers them) for each place. The profile settings' picture
+# numbers its frames as the list its rows (CONTROLS shows Gamepads' picture,
+# the controller; DISPLAY Video Setup's, ONLINE Network Setup's)
+FRAME_ORDERS = {
+    f"{PE}/profile_options": [0, 7, 2, 5, 4, 6, 8],
 }
 BITMAP_FRAMES = {
     f"{PE}/profile_options": [(XBOX_CONTROLLER_PICTURES, 4 + preset, 279, 279, 0, 34) for preset in range(5)],
@@ -832,6 +998,9 @@ BITMAP_FRAMES = {
 # are (port/assets/menus/port_svg): bitmap name, text
 TITLES = {
     f"{PE}/privacy_setup/header_privacy": "PRIVACY",
+    f"{PE}/interface_setup/header_interface": "INTERFACE",
+    f"{PE}/chat_setup/header_chat": "CHAT",
+    **{f"{PE}/{menu}/header_{title.lower()}": title for menu, (title, *_) in SUBMENUS.items()},
     f"{MT}/join_game/header_server_browser": "SERVER BROWSER",
     f"{MT}/join_game/header_direct_link": "DIRECT LINK",
     f"{MT}/join_game/header_password": "PASSWORD",

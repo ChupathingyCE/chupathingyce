@@ -315,14 +315,12 @@ boolean network_game_distributed_client(
 
 int config_boolean(char const *name);
 
+/* (read each time: the menus' Start With One Player changes it while the
+game runs) */
 boolean network_game_solo_game(
 	void)
 {
-	static short solo = NONE;
-
-	if (solo == NONE)
-		solo = config_boolean("debug.solo_game") ? TRUE : FALSE;
-	return solo;
+	return config_boolean("game.start_with_one_player") || config_boolean("debug.solo_game") ? TRUE : FALSE;
 }
 
 boolean network_game_is_active(

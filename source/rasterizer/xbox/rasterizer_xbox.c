@@ -2756,6 +2756,23 @@ void rasterizer_set_frustum_z(
 		vertex_constants[column][3] +=
 			global_window_parameters.frustum.projection_matrix[3][column];
 	}
+	/* port: display.viewmodel_field_of_view: the first-person weapon's
+frustum (its own clip distances) narrowed or widened to the weapon's view
+width; only its x and y, the depth as before */
+	if (z_near == rasterizer_globals.first_person_weapon_near_clip_distance &&
+		z_far == rasterizer_globals.first_person_weapon_far_clip_distance)
+	{
+		real scale = first_person_weapon_projection_scale();
+
+		if (scale != 1.0f)
+		{
+			for (row = 0; row < 4; row++)
+			{
+				vertex_constants[0][row] *= scale;
+				vertex_constants[1][row] *= scale;
+			}
+		}
+	}
 	vertex_constants[4][0] = global_window_parameters.camera.position.x;
 	vertex_constants[4][1] = global_window_parameters.camera.position.y;
 	vertex_constants[4][2] = global_window_parameters.camera.position.z;

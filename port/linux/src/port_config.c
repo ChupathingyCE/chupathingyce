@@ -158,6 +158,9 @@ static const struct config_setting config_settings[] =
 		"In first person, turn the view the same frame the mouse moves." },
 	{ "display.field_of_view", _config_real, "70.0", "HALO_FIELD_OF_VIEW", _environment_value, _platform_all,
 		"The first-person field of view in degrees, 50 to 120. 70: the Xbox's." },
+	{ "display.viewmodel_field_of_view", _config_real, "0.0", "HALO_VIEWMODEL_FIELD_OF_VIEW", _environment_value,
+		_platform_all,
+		"The weapon's field of view, 50 to 120. 0: display.field_of_view's." },
 	{ "display.far_clip_distance", _config_real, "1024.0", "HALO_FAR_CLIP_DISTANCE", _environment_value, _platform_all,
 		"How far the world is drawn, up to 10000. 1024: the Xbox's." },
 	{ "display.match_timer", _config_boolean, "false", "HALO_MATCH_TIMER", _environment_value, _platform_all,
@@ -181,6 +184,12 @@ static const struct config_setting config_settings[] =
 	{ "display.shadow_resolution", _config_integer, DEFAULT_SHADOW_RESOLUTION, "HALO_SHADOW_RESOLUTION",
 		_environment_value, _platform_all,
 		"Shadow size in pixels: 128, 256, 512 or 1024. 128: the Xbox's." },
+	{ "display.anisotropic_filtering", _config_integer, "0", "HALO_ANISOTROPIC_FILTERING", _environment_value,
+		_platform_all,
+		"Sharper textures at a slant: 0 (off, the Xbox's), 2, 4, 8 or 16." },
+	{ "display.full_model_detail", _config_boolean, "false", "HALO_FULL_MODEL_DETAIL", _environment_value,
+		_platform_all,
+		"Draw every model at full detail at any distance." },
 	{ "display.menus", _config_string, "\"chupathingy\"", "HALO_MENUS", _environment_value, _platform_all,
 		"The menus: \"chupathingy\", \"xbox\" or \"gearbox\". Your own go in a\n"
 		"menus folder beside config.toml. Takes effect after a restart." },
@@ -371,6 +380,10 @@ static const struct config_setting config_settings[] =
 
 	{ "game.unlock_all_levels", _config_boolean, "false", "HALO_UNLOCK_ALL_LEVELS", _environment_value, _platform_all,
 		"New profiles start with every campaign level unlocked." },
+
+	{ "game.start_with_one_player", _config_boolean, "false", "HALO_START_WITH_ONE_PLAYER", _environment_value,
+		_platform_all,
+		"Let a game you host start with only you. Others can join in progress." },
 
 	{ "game.downloaded_maps", _config_string, "\"\"", "HALO_DOWNLOADED_MAPS", _environment_value, _platform_all,
 		"Maps treated as downloaded, separated by commas (bloodgulch,\n"
@@ -573,7 +586,7 @@ static const struct config_setting config_settings[] =
 	{ "debug.touch_targets", _config_boolean, "false", "HALO_TOUCH_TARGETS", _environment_set_is_true, _platform_all,
 		"Outline the menus' tap targets and log each tap." },
 	{ "debug.solo_game", _config_boolean, "false", "HALO_SOLO_GAME", _environment_set_is_true, _platform_all,
-		"Let a system link or split screen game start with one player." },
+		"Old name for game.start_with_one_player." },
 	{ "debug.network_latency", _config_real, "0.0", "HALO_NETWORK_LATENCY", _environment_value, _platform_all,
 		"Milliseconds to delay everything received; 0 none." },
 	{ "debug.network_loss", _config_real, "0.0", "HALO_NETWORK_LOSS", _environment_value, _platform_all,

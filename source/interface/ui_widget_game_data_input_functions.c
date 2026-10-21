@@ -2998,11 +2998,16 @@ static void multiplayer_game_directions(
 
 	if (server)
 	{
-		boolean waiting_for_machines = !network_game_is_splitscreen_local() &&
+		/* port: neither with game.start_with_one_player, where a lone host
+		starts the game (the text drew over the countdown) */
+		boolean solo = network_game_solo_game();
+		boolean waiting_for_machines = !solo &&
+			!network_game_is_splitscreen_local() &&
 			game &&
 			game->machine_count < 2;
 
 		if (!waiting_for_machines &&
+			!solo &&
 			network_game_is_splitscreen_local() &&
 			game &&
 			game->player_count < 2)

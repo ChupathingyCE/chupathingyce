@@ -3013,7 +3013,7 @@ void network_game_server_begin_game_start_countdown(
 
 /**
  * @brief Whether a team game lacks a player on one of its teams, which
- * holds back the start. Never with debug.solo_game.
+ * holds back the start. Never with game.start_with_one_player.
  * @param server the server whose game is asked about
  * @return TRUE if the start has to wait for more players
  */
@@ -3107,7 +3107,7 @@ boolean server_has_a_player_on_each_machine(
 
 /**
  * @brief Whether enough machines joined to start: two, or one for a
- * splitscreen game or with debug.solo_game.
+ * splitscreen game or with game.start_with_one_player.
  * @param server the server whose game is asked about
  * @return TRUE if the game may start with the machines that joined
  */
@@ -3806,8 +3806,8 @@ static void network_game_server_dump(
 
 /**
  * @brief Starts, adjusts or stops the pregame countdown on an event.
- * With debug.solo_game a lone machine starts the countdown without a
- * remote client.
+ * With game.start_with_one_player a lone machine starts the countdown
+ * without a remote client.
  * @param server the server, in the pregame state
  * @param countdown_event a _network_game_server_countdown_event_*
  */
@@ -4249,7 +4249,7 @@ static void network_game_server_variant_options(
 
 /**
  * @brief Opens the server's game for the stage its variant names. The
- * minimum player count is 1 with debug.solo_game, else 2.
+ * minimum player count is 1 with game.start_with_one_player, else 2.
  * @param server the server
  * @return TRUE if the game was opened; FALSE if the stage is not found
  * (probably a missing playlist)
