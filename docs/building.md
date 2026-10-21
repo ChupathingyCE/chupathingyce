@@ -97,6 +97,12 @@ and what each hook asks of the port, or on its compile lines:
 | `HALO_CONSOLE_ONLINE_GAMES` | the console's own Online Games screen |
 | `HALO_CONSOLE_LOG_BUFFER`, `HALO_CONSOLE_LOG_THROTTLE` | a log whose writes are slow |
 | `HALO_CONSOLE_GPU_RESOURCE_HOOKS`, `HALO_CONSOLE_NO_WRITE_WATCH`, `HALO_CONSOLE_HOST_ART`, `HALO_CONSOLE_MAP_LOAD_HOOKS`, `HALO_CONSOLE_STATUS_LINE` | a console renderer of its own |
+| `HALO_CONSOLE_GL_LAYER` | a console whose OpenGL is the port's own layer over another graphics API |
+| `HALO_CONSOLE_XBOX_RENDER_SIZES` | the Xbox's texture cache and frame draw limits on a build that otherwise has the desktop's |
+| `HALO_CONSOLE_DEBUG_CHANNEL`, `HALO_CONSOLE_HALT_TO_LAUNCHER` | a console without a standard error, whose halts go back to its launcher |
+| `HALO_CONSOLE_BRINGUP_LOG` | with the developer tools, a console's bring-up logs (frame stages, the main loop's pulse, init.txt's `later` commands) |
+| `HALO_BIG_ENDIAN` | a big-endian console: the maps' headers and tags byte-swapped as they load (`port/console/game`, `tools/tag_swap_generate.py`) |
+| `HALO_WINDOW_TRANSLATED` | with `HALO_64BIT`, a 32-bit console's Xbox addresses in a window placed wherever it has room (`source/cseries/xbox_address.h`) |
 
 A console's name stays in the shared code only for what is that console's
 alone: `HALO_XBOX_CONSOLE` is the original Xbox's own target (the game as

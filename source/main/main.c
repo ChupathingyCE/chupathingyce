@@ -403,6 +403,10 @@ symbols in this file:
 #ifdef HALO_XBOX_CONSOLE
 extern char const *volatile xbox_main_stage;
 #define MAIN_STAGE(name) (xbox_main_stage = (name))
+#elif defined(HALO_CONSOLE_BRINGUP_LOG)
+/* (the console's profile log: cseries/frame_profile.h) */
+#include "cseries/frame_profile.h"
+#define MAIN_STAGE(name) FRAME_STAGE(name)
 #else
 #define MAIN_STAGE(name) ((void)0)
 #endif
@@ -3198,6 +3202,18 @@ void halt_and_catch_fire(
 	struct rasterizer_frame_begin_parameters frame_parameters;
 	struct rasterizer_window_begin_parameters window_parameters;
 
+#ifdef HALO_CONSOLE_HALT_TO_LAUNCHER
+	{
+		/* port: no screen to show the error on yet; the log has it
+		(errors.c), and the console goes back to its launcher instead of
+		stopping (the port's console_exit_to_launcher) */
+		void console_log_backtrace(const char *why);
+		void console_exit_to_launcher(void);
+
+		console_log_backtrace("halted");
+		console_exit_to_launcher();
+	}
+#endif
 	if (!global_screenshot_count.halt_recursion_lock)
 	{
 		scenario = global_scenario_try_and_get();
@@ -3476,6 +3492,16 @@ void main_loop(
 
 	while (TRUE)
 	{
+#ifdef HALO_CONSOLE_BRINGUP_LOG
+		/* port: the loop's pulse in the port's log (the console developer
+		tools) */
+		{
+			extern void console_main_loop_tick(void);
+
+			MAIN_STAGE("console_main_loop_tick (the port's log)");
+			console_main_loop_tick();
+		}
+#endif
 #ifdef HALO_XBOX_CONSOLE
 		/* port: the loop counted for the bring-up watchdog (port/xbox/src/xbox_port.c);
 		the game list fetched once at the start, on a thread of its own, and

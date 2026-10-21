@@ -13,6 +13,9 @@ address XBOX_ADDRESS_SPACE_BASE + X (port/linux/src/xbox_memory.c).
 Structures laid out like the Xbox's declare their pointer fields XPTR(type)
 (a 32-bit Xbox address) and convert with XBOX_POINTER and XBOX_ADDRESS.
 
+HALO_WINDOW_TRANSLATED is the same layer in a 32-bit build that cannot have the
+Xbox's addresses (the Xbox 360): a smaller window, anywhere in its memory.
+
 Everywhere else (the Xbox, the matching MSVC build and the 32-bit ports) a
 pointer is an Xbox address: XPTR(type) is `type *` and the conversions do
 nothing, so the code compiles as before.
@@ -29,7 +32,46 @@ casting, tests this. */
 #define HALO_ADDRESS_TRANSLATED 1
 #endif
 
-#ifdef HALO_64BIT
+#if defined(HALO_64BIT) && defined(HALO_WINDOW_TRANSLATED)
+
+/* A 32-bit build whose host cannot have the Xbox's addresses (the Xbox 360:
+0x80000000 up is its executable's): the Xbox addresses the game uses,
+XBOX_WINDOW_LOW to XBOX_WINDOW_HIGH (its heap below 0x80000000, the
+contiguous memory above), are one block of host memory placed wherever the
+host had room. Xbox address X is host address xbox_address_space_base + X,
+modulo 2^32 (the port reserves it: platform_xbox_window_reserve). */
+
+#define XBOX_WINDOW_LOW 0x78000000U
+#define XBOX_WINDOW_HIGH 0x88000000U
+#define XBOX_WINDOW_SIZE (XBOX_WINDOW_HIGH - XBOX_WINDOW_LOW)
+
+/* the host address of Xbox address 0, modulo 2^32 */
+extern unsigned int xbox_address_space_base;
+
+#define XPTR(type) unsigned int
+#define XBOX_NULL 0
+
+static __inline__ __attribute__((always_inline)) void *xbox_pointer(unsigned int address)
+{
+	return address ? (void *)(__UINTPTR_TYPE__)(xbox_address_space_base + address) : (void *)0;
+}
+
+void xbox_address_out_of_range(void const *pointer) __attribute__((noreturn));
+
+static __inline__ __attribute__((always_inline)) unsigned int xbox_address(void const *pointer)
+{
+	unsigned int address = (unsigned int)(__UINTPTR_TYPE__)pointer - xbox_address_space_base;
+
+	if (!pointer)
+		return 0;
+	if (address - XBOX_WINDOW_LOW >= XBOX_WINDOW_SIZE)
+		xbox_address_out_of_range(pointer);
+	return address;
+}
+
+#define POINTER_BITS(pointer) ((__UINTPTR_TYPE__)(pointer))
+
+#elif defined(HALO_64BIT)
 
 /* (a build may place it elsewhere: AddressSanitizer's shadow memory lies
 where these are, so the sanitized builds put it above it, at 48 TB:

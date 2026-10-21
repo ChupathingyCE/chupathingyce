@@ -214,7 +214,8 @@ the Xbox's, 44 MB, and leaves about 15 MB free: Portent's busiest frames
 fit, Foundation's (66 MB) do not, and some of its surfaces can show the
 wrong pixels there. The native 64-bit Android build has no guest image
 and the desktop's window and cache. The Xbox builds (HALO_XBOX_CONSOLE)
-keep the Xbox's cache.
+keep the Xbox's cache, as does a console that asks for the Xbox's sizes
+(HALO_CONSOLE_XBOX_RENDER_SIZES: the Xbox 360's).
 
 The Switch's guest (HALO_ANDROID with HALO_WINDOW_REBASE) is told at start-up
 how large a window its host found room for (platform_contiguous_size, up to
@@ -232,7 +233,7 @@ extern unsigned long platform_contiguous_size;
 #define HALO_PORT_TEXTURE_CACHE_SIZE_VARIES
 #elif defined(HALO_ANDROID) && !defined(HALO_64BIT)
 #define HALO_PORT_TEXTURE_CACHE_SIZE 0x2C00000 /* (0x1600000) */
-#elif !defined(HALO_XBOX_CONSOLE)
+#elif !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_XBOX_RENDER_SIZES)
 #define HALO_PORT_TEXTURE_CACHE_SIZE 0x10000000 /* (0x1600000) */
 #else
 #define HALO_PORT_TEXTURE_CACHE_SIZE 0x1600000 /* (0x1600000) */
@@ -255,9 +256,11 @@ for those maps raise it to 32767 surfaces with a 65536-triangle buffer).
 The desktop builds draw up to 32767 (the count is a short), with twice the
 dynamic triangles, so the BSP's do not leave the rest of a frame's draws
 none. Only what is drawn changes: nothing reaches the network or the game
-state. Android's guest build and the Xbox builds keep the Xbox's. */
+state. Android's guest build and the Xbox builds keep the Xbox's, as does a
+console with HALO_CONSOLE_XBOX_RENDER_SIZES. */
 
-#if !(defined(HALO_ANDROID) && !defined(HALO_64BIT)) && !defined(HALO_XBOX_CONSOLE)
+#if !(defined(HALO_ANDROID) && !defined(HALO_64BIT)) && !defined(HALO_XBOX_CONSOLE) && \
+	!defined(HALO_CONSOLE_XBOX_RENDER_SIZES)
 #define HALO_PORT_MAXIMUM_RENDERED_ENVIRONMENT_SURFACES 32767 /* (16384) */
 #define HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES 65536 /* (32768) */
 #else

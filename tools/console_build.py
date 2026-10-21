@@ -2,8 +2,9 @@
 --console-port DIR).
 
 A console port lives in a repository of its own with this one, the game, as
-a git submodule, and holds only its port: Warthog's original Xbox and Xbox
-360 (ChupathingyCE/warthog-xbox), the Switch's (ChupathingyCE/warthog-switch).
+a git submodule, and holds only its port: Warthog's original Xbox
+(ChupathingyCE/warthog-xbox), the Xbox 360's (ChupathingyCE/warthog-360), the
+Switch's (ChupathingyCE/warthog-switch).
 The game keeps what every console shares: the shared code's console hooks
 (the HALO_CONSOLE_* capabilities), port/console, and this file. From the
 console repository's root:

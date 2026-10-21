@@ -962,6 +962,17 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 					free(converted);
 					return;
 				}
+#ifdef HALO_BIG_ENDIAN
+				/* (each texel is a host word, 0xAARRGGBB: GL_BGRA's bytes are a
+				little-endian word's) */
+				{
+					unsigned long texel, texels = (unsigned long)width * (unsigned long)height *
+						(unsigned long)(target == GL_TEXTURE_3D ? depth : 1);
+
+					for (texel = 0; texel < texels; texel++)
+						converted[texel] = __builtin_bswap32(converted[texel]);
+				}
+#endif
 				if (target == GL_TEXTURE_3D)
 					glTexImage3D(image_target, (GLint)level, GL_RGBA8, width, height, depth, 0, GL_BGRA, GL_UNSIGNED_BYTE, converted);
 				else

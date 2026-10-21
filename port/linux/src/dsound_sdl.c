@@ -308,7 +308,17 @@ static short *decode_pcm(const unsigned char *source, unsigned long size, unsign
 	short *samples = malloc((frames ? frames : 1) * channels * sizeof(short));
 
 	if (samples)
+	{
+#ifdef HALO_BIG_ENDIAN
+		/* (the maps' samples are little-endian) */
+		unsigned long index;
+
+		for (index = 0; index < frames * channels; index++)
+			samples[index] = (short)(source[index * 2] | (source[index * 2 + 1] << 8));
+#else
 		memcpy(samples, source, frames * channels * sizeof(short));
+#endif
+	}
 	*frame_count = samples ? frames : 0;
 	return samples;
 }

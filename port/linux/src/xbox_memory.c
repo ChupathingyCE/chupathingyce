@@ -100,6 +100,45 @@ static int protection_to_host(DWORD protect)
 }
 
 /* Reserve the window before anything else can map into it. */
+#ifdef HALO_WINDOW_TRANSLATED
+/* (the console's window is wherever it has room: platform.h) */
+__attribute__((constructor(101)))
+static void xbox_address_space_reserve(void)
+{
+	void *window;
+
+	if (arena_reserved)
+		return;
+	window = platform_xbox_window_reserve(XBOX_WINDOW_SIZE);
+	if (!window)
+	{
+		platform_log("cannot reserve the Xbox window (%u MB)", (unsigned int)(XBOX_WINDOW_SIZE >> 20));
+		abort();
+	}
+	xbox_address_space_base = (unsigned int)(uintptr_t)window - XBOX_WINDOW_LOW;
+	if (mmap(xbox_pointer(PLATFORM_CONTIGUOUS_BASE), PLATFORM_CONTIGUOUS_SIZE, PROT_READ | PROT_WRITE,
+		MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) != xbox_pointer(PLATFORM_CONTIGUOUS_BASE))
+	{
+		platform_log("cannot commit the Xbox contiguous memory window (%s)", strerror(errno));
+		abort();
+	}
+	platform_log("Xbox window: Xbox addresses 0x%08x to 0x%08x at host 0x%08x (contiguous memory committed: %u MB)",
+		XBOX_WINDOW_LOW, XBOX_WINDOW_HIGH, (unsigned int)(uintptr_t)window,
+		(unsigned int)(PLATFORM_CONTIGUOUS_SIZE >> 20));
+	arena_reserved = TRUE;
+}
+
+void xbox_address_out_of_range(void const *pointer)
+{
+	platform_log("pointer %p is outside the Xbox window and has no Xbox address", pointer);
+	abort();
+}
+
+void platform_xbox_window_ensure(void)
+{
+	xbox_address_space_reserve();
+}
+#else
 __attribute__((constructor(101)))
 #ifdef HALO_64BIT
 static void xbox_address_space_reserve(void)
@@ -270,11 +309,12 @@ void xbox_address_out_of_range(void const *pointer)
 	abort();
 #endif
 }
+#endif /* HALO_WINDOW_TRANSLATED */
 
 BOOL platform_is_contiguous(const void *address)
 {
 #ifdef HALO_64BIT
-	unsigned long long offset = (unsigned long long)(uintptr_t)address - XBOX_ADDRESS_SPACE_BASE;
+	unsigned long long offset = PLATFORM_XBOX_OFFSET(address);
 #else
 	unsigned long value = (unsigned long)address;
 #endif
@@ -477,7 +517,11 @@ unsigned long platform_contiguous_block_size(const void *address)
 
 	if (!platform_is_contiguous(address))
 		return 0;
+#ifdef HALO_64BIT
+	first = contiguous_page(address);
+#else
 	first = ((unsigned long)address - PLATFORM_CONTIGUOUS_BASE) / PAGE_SIZE_BYTES;
+#endif
 	pthread_mutex_lock(&arena_lock);
 	count = block_page_count[first];
 	pthread_mutex_unlock(&arena_lock);

@@ -691,6 +691,12 @@ void *create_network_game_message(
 	void *message;
 
 	encoded_message_size.value = sizeof(encoded_message);
+#if defined(__BIG_ENDIAN__) || (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+	/* port: the encoder reads and writes the short, which a big-endian
+	machine keeps in the long's high half: the long's low half there, as on
+	the Xbox (a size under 64K, so the high half is 0 either way) */
+	encoded_message_size.value = (long)sizeof(encoded_message) << 16;
+#endif
 
 	switch ((short)message_type)
 	{
@@ -842,6 +848,9 @@ void *create_network_game_message(
 
 	if (encode_network_game_message(message_struct, encoded_message, &encoded_message_size.encoded, message_type, 1))
 	{
+#if defined(__BIG_ENDIAN__) || (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+		encoded_message_size.value = (word)encoded_message_size.encoded;
+#endif
 		/* a message header holds lengths up to HALO_PORT_MAXIMUM_NETWORK_MESSAGE_SIZE-1,
 		header included: a longer message would go out with a wrong length and
 		derail the stream (create_message only asserts on it) */

@@ -154,6 +154,13 @@ symbols in this file:
 #include "models/model_definitions.h"
 #include "objects/objects.h"
 
+/* port: a PowerPC's float loads need their 4 bytes aligned, and a map's
+keyframes are where the map put them: there they are copied out before
+use; elsewhere they are read in place, as the Xbox read them */
+#if defined(__powerpc__) || defined(__PPC__) || defined(_M_PPC)
+#define ANIMATION_ALIGNED_COPIES 1
+#endif
+
 /* ---------- constants */
 
 enum
@@ -2339,7 +2346,11 @@ static void animation_get_keyframe_translation(
 
 	if (keyframe_count==0)
 	{
+#ifdef ANIMATION_ALIGNED_COPIES
+		memcpy(translation, &default_translations[node_index], sizeof(*translation));
+#else
 		*translation = default_translations[node_index];
+#endif
 	}
 	else
 	{
@@ -2364,7 +2375,11 @@ static void animation_get_keyframe_translation(
 		frame) holds the last one */
 		if (frame_index>keyframe_frame_indices[keyframe_count-1])
 		{
+#ifdef ANIMATION_ALIGNED_COPIES
+			memcpy(translation, &keyframe_translations[keyframe_count-1], sizeof(*translation));
+#else
 			*translation = keyframe_translations[keyframe_count-1];
+#endif
 			return;
 		}
 
@@ -2399,7 +2414,11 @@ static void animation_get_keyframe_translation(
 
 		if (real_frame_index==(real)this_keyframe_frame_index)
 		{
+#ifdef ANIMATION_ALIGNED_COPIES
+			memcpy(translation, this_keyframe, sizeof(*translation));
+#else
 			*translation = *this_keyframe;
+#endif
 		}
 		else
 		{
@@ -2414,7 +2433,19 @@ static void animation_get_keyframe_translation(
 				1584,
 				real_frame_index< (real)next_keyframe_frame_index);
 
+#ifdef ANIMATION_ALIGNED_COPIES
+			{
+				/* port: keyframes are where the map put them, not always on 4
+				bytes, which a PowerPC's float loads need */
+				real_point3d this_point, next_point;
+
+				memcpy(&this_point, this_keyframe, sizeof(this_point));
+				memcpy(&next_point, next_keyframe, sizeof(next_point));
+				points_interpolate(&this_point, &next_point, fraction, translation);
+			}
+#else
 			points_interpolate(this_keyframe, next_keyframe, fraction, translation);
+#endif
 		}
 	}
 
@@ -2473,7 +2504,11 @@ static void animation_get_keyframe_scale(
 
 	if (keyframe_count==0)
 	{
+#ifdef ANIMATION_ALIGNED_COPIES
+		memcpy(scale, &default_scales[adjusted_node_index], sizeof(*scale));
+#else
 		*scale = default_scales[adjusted_node_index];
+#endif
 	}
 	else
 	{
@@ -2498,23 +2533,43 @@ static void animation_get_keyframe_scale(
 		frame) holds the last one */
 		if (frame_index>keyframe_frame_indices[keyframe_count-1])
 		{
+#ifdef ANIMATION_ALIGNED_COPIES
+			memcpy(scale, &keyframe_scales[keyframe_count-1], sizeof(*scale));
+#else
 			*scale = keyframe_scales[keyframe_count-1];
+#endif
 			return;
 		}
 
 		if (frame_index<keyframe_frame_indices[0])
 		{
 			this_keyframe_frame_index = 0;
+#ifdef ANIMATION_ALIGNED_COPIES
+			memcpy(&this_keyframe_scale, &default_scales[adjusted_node_index], sizeof(real));
+#else
 			this_keyframe_scale = default_scales[adjusted_node_index];
+#endif
 			next_keyframe_frame_index = keyframe_frame_indices[0];
+#ifdef ANIMATION_ALIGNED_COPIES
+			memcpy(&next_keyframe_scale, &keyframe_scales[0], sizeof(real));
+#else
 			next_keyframe_scale = keyframe_scales[0];
+#endif
 		}
 		else if (frame_index==keyframe_frame_indices[keyframe_count-1])
 		{
 			this_keyframe_frame_index = keyframe_frame_indices[keyframe_count-1];
+#ifdef ANIMATION_ALIGNED_COPIES
+			memcpy(&this_keyframe_scale, &keyframe_scales[keyframe_count-1], sizeof(real));
+#else
 			this_keyframe_scale = keyframe_scales[keyframe_count-1];
+#endif
 			next_keyframe_frame_index = this_keyframe_frame_index+1;
+#ifdef ANIMATION_ALIGNED_COPIES
+			memcpy(&next_keyframe_scale, &default_scales[adjusted_node_index], sizeof(real));
+#else
 			next_keyframe_scale = default_scales[adjusted_node_index];
+#endif
 		}
 		else
 		{
@@ -2526,9 +2581,17 @@ static void animation_get_keyframe_scale(
 				keyframe_index>=0 && keyframe_index<keyframe_count-1);
 
 			this_keyframe_frame_index = keyframe_frame_indices[keyframe_index];
+#ifdef ANIMATION_ALIGNED_COPIES
+			memcpy(&this_keyframe_scale, &keyframe_scales[keyframe_index], sizeof(real));
+#else
 			this_keyframe_scale = keyframe_scales[keyframe_index];
+#endif
 			next_keyframe_frame_index = keyframe_frame_indices[keyframe_index+1];
+#ifdef ANIMATION_ALIGNED_COPIES
+			memcpy(&next_keyframe_scale, &keyframe_scales[keyframe_index+1], sizeof(real));
+#else
 			next_keyframe_scale = keyframe_scales[keyframe_index+1];
+#endif
 		}
 
 		if (real_frame_index==(real)this_keyframe_frame_index)
@@ -2733,3 +2796,209 @@ static void animation_set_rest_orientations(
 
 	return;
 }
+
+#if defined(__BIG_ENDIAN__) || (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+/* port: a big-endian machine's animations. An animation's frame info,
+default data and frame data are the map's little-endian words and floats in
+tag data (bytes to the tag system), laid out as the readers above read them:
+made the machine's as the map loads (port/console/game/tag_byte_swap.c),
+each part within the data's size. */
+
+static void animation_swap_words(byte *data, long size, long offset, long count, long word_size)
+{
+	long index;
+
+	if (offset<0 || count<=0 || offset>size || count>(size-offset)/word_size)
+	{
+		return;
+	}
+	data += offset;
+	for (index = 0; index<count; index++, data += word_size)
+	{
+		if (word_size==2)
+		{
+			byte swap = data[0];
+
+			data[0] = data[1];
+			data[1] = swap;
+		}
+		else
+		{
+			byte swap = data[0];
+
+			data[0] = data[3];
+			data[3] = swap;
+			swap = data[1];
+			data[1] = data[2];
+			data[2] = swap;
+		}
+	}
+}
+
+/* the keyframes a node header list covers (its highest first keyframe plus
+count) */
+static long animation_keyframe_total(byte const *data, long size, long offset, long header_count)
+{
+	long total = 0;
+	long index;
+
+	if (offset<0 || header_count<=0 || offset>size || header_count>(size-offset)/4)
+	{
+		return 0;
+	}
+	for (index = 0; index<header_count; index++)
+	{
+		unsigned long header = ((unsigned long const *)(data+offset))[index];
+		long end = (long)(header>>COMPRESSED_ANIMATION_NODE_HEADER_KEYFRAME_COUNT_BITS)+
+			(long)(header&(FLAG(COMPRESSED_ANIMATION_NODE_HEADER_KEYFRAME_COUNT_BITS)-1));
+
+		if (end>total)
+		{
+			total = end;
+		}
+	}
+	return total;
+}
+
+static void animation_byte_swap(struct animation *animation)
+{
+	long node_count = animation->node_count;
+	long rotations = animation_node_flag_count(animation->nodes_with_rotation_flags[0], animation->nodes_with_rotation_flags[1], animation->node_count);
+	long translations = animation_node_flag_count(animation->nodes_with_translation_flags[0], animation->nodes_with_translation_flags[1], animation->node_count);
+	long scales = animation_node_flag_count(animation->nodes_with_scale_flags[0], animation->nodes_with_scale_flags[1], animation->node_count);
+	byte *data = animation->data.address ? (byte *)xbox_pointer(animation->data.address) : NULL;
+	long size = animation->data.size;
+	long uncompressed_size = size;
+	short node_index;
+
+	if (node_count<0 || node_count>MAXIMUM_NODES_PER_ANIMATION)
+	{
+		return;
+	}
+	/* the frame info: floats */
+	if (animation->frame_info.address && animation->frame_info.size>0)
+	{
+		animation_swap_words((byte *)xbox_pointer(animation->frame_info.address), animation->frame_info.size, 0,
+			animation->frame_info.size/4, 4);
+	}
+	/* the default data: each node not animated, as the frames hold them */
+	if (animation->default_data.address && animation->default_data.size>0)
+	{
+		byte *defaults = (byte *)xbox_pointer(animation->default_data.address);
+		long defaults_size = animation->default_data.size;
+		long offset = 0;
+
+		for (node_index = 0; node_index<node_count; node_index++)
+		{
+			short long_index = node_index>>LONG_BITS_BITS;
+			unsigned long bit = (unsigned long)1<<(node_index&(LONG_BITS-1));
+
+			if (!(animation->nodes_with_rotation_flags[long_index]&bit))
+			{
+				animation_swap_words(defaults, defaults_size, offset, 4, 2);
+				offset += sizeof(struct compressed_quaternion_8byte);
+			}
+			if (!(animation->nodes_with_translation_flags[long_index]&bit))
+			{
+				animation_swap_words(defaults, defaults_size, offset, 3, 4);
+				offset += sizeof(real_point3d);
+			}
+			if (!(animation->nodes_with_scale_flags[long_index]&bit))
+			{
+				animation_swap_words(defaults, defaults_size, offset, 1, 4);
+				offset += sizeof(real);
+			}
+		}
+	}
+	if (!data || size<=0)
+	{
+		return;
+	}
+	/* the compressed data, after the frames when the animation has both */
+	if (TEST_FLAG(animation->flags, _animation_compressed_bit) &&
+		animation->compressed_data_offset>=0 && animation->compressed_data_offset<size)
+	{
+		byte *compressed = data+animation->compressed_data_offset;
+		long compressed_size = size-animation->compressed_data_offset;
+		struct compressed_animation_header *header = (struct compressed_animation_header *)compressed;
+		long rotation_keyframes, translation_keyframes, scale_keyframes;
+
+		uncompressed_size = animation->compressed_data_offset;
+		if (compressed_size>=(long)offsetof(struct compressed_animation_header, rotation_node_headers))
+		{
+			animation_swap_words(compressed, compressed_size, 0, offsetof(struct compressed_animation_header, rotation_node_headers)/4, 4);
+			animation_swap_words(compressed, compressed_size, offsetof(struct compressed_animation_header, rotation_node_headers), rotations, 4);
+			animation_swap_words(compressed, compressed_size, header->translation_node_headers_offset, translations, 4);
+			animation_swap_words(compressed, compressed_size, header->scale_node_headers_offset, scales, 4);
+			rotation_keyframes = animation_keyframe_total(compressed, compressed_size, offsetof(struct compressed_animation_header, rotation_node_headers), rotations);
+			translation_keyframes = animation_keyframe_total(compressed, compressed_size, header->translation_node_headers_offset, translations);
+			scale_keyframes = animation_keyframe_total(compressed, compressed_size, header->scale_node_headers_offset, scales);
+			animation_swap_words(compressed, compressed_size, header->rotation_keyframe_frame_indices_offset, rotation_keyframes, 2);
+			animation_swap_words(compressed, compressed_size, header->default_rotations_offset, node_count*3, 2);
+			animation_swap_words(compressed, compressed_size, header->rotation_keyframes_offset, rotation_keyframes*3, 2);
+			animation_swap_words(compressed, compressed_size, header->translation_keyframe_frame_indices_offset, translation_keyframes, 2);
+			animation_swap_words(compressed, compressed_size, header->default_translations_offset, node_count*3, 4);
+			animation_swap_words(compressed, compressed_size, header->translation_keyframes_offset, translation_keyframes*3, 4);
+			animation_swap_words(compressed, compressed_size, header->scale_keyframe_frame_indices_offset, scale_keyframes, 2);
+			animation_swap_words(compressed, compressed_size, header->default_scales_offset, node_count, 4);
+			animation_swap_words(compressed, compressed_size, header->scale_keyframes_offset, scale_keyframes, 4);
+		}
+		if (!animation->compressed_data_offset)
+		{
+			return;
+		}
+	}
+	/* the frames: each animated node's rotation, translation and scale */
+	if (animation->frame_size>0 && animation->frame_count>0)
+	{
+		long frame_index;
+
+		for (frame_index = 0; frame_index<animation->frame_count; frame_index++)
+		{
+			long offset = frame_index*animation->frame_size;
+
+			if (offset+animation->frame_size>uncompressed_size)
+			{
+				break;
+			}
+			for (node_index = 0; node_index<node_count; node_index++)
+			{
+				short long_index = node_index>>LONG_BITS_BITS;
+				unsigned long bit = (unsigned long)1<<(node_index&(LONG_BITS-1));
+
+				if (animation->nodes_with_rotation_flags[long_index]&bit)
+				{
+					animation_swap_words(data, uncompressed_size, offset, 4, 2);
+					offset += sizeof(struct compressed_quaternion_8byte);
+				}
+				if (animation->nodes_with_translation_flags[long_index]&bit)
+				{
+					animation_swap_words(data, uncompressed_size, offset, 3, 4);
+					offset += sizeof(real_point3d);
+				}
+				if (animation->nodes_with_scale_flags[long_index]&bit)
+				{
+					animation_swap_words(data, uncompressed_size, offset, 1, 4);
+					offset += sizeof(real);
+				}
+			}
+		}
+	}
+}
+
+/* every animation of an animation graph whose fields are swapped already */
+void animation_graph_byte_swap_data(void *graph_data)
+{
+	struct animation_graph *graph = (struct animation_graph *)graph_data;
+	long animation_index;
+
+	if (!graph || graph->animations.count<=0 || !graph->animations.address)
+	{
+		return;
+	}
+	for (animation_index = 0; animation_index<graph->animations.count; animation_index++)
+	{
+		animation_byte_swap((struct animation *)xbox_pointer(graph->animations.address)+animation_index);
+	}
+}
+#endif
