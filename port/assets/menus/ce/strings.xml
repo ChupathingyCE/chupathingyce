@@ -1320,13 +1320,10 @@
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_descriptions">
 		<string text="Rename this profile.\n\n\nProfile:"/>
-		<string text="Change the keyboard and\nmouse controls.\n\nProfile:"/>
-		<string text="Adjust the mouse settings.\n\n\nProfile:"/>
-		<string text="Change the controller\nconfiguration.\n\nProfile:"/>
+		<string text="Change the keyboard, mouse\nand controller settings.\n\nProfile:"/>
 		<string text="Adjust the video settings.\n\n\nProfile:"/>
 		<string text="Adjust the audio settings.\n\n\nProfile:"/>
 		<string text="Adjust the menus, HUD and\nscoreboard.\n\nProfile:"/>
-		<string text="Adjust the chat settings.\n\n\nProfile:"/>
 		<string text="Adjust the network settings.\n\n\nProfile:"/>
 		<string text="Choose what stats and crash\nreports are sent.\n\nProfile:"/>
 		<string text="Change the current profile's\nfree-for-all multiplayer color.\n\nProfile:"/>
@@ -1345,7 +1342,7 @@
 		<string text="ABOUT"/>
 		<string text="PRIVACY"/>
 		<string text="INTERFACE"/>
-		<string text="CHAT"/>
+		<string text="CONTROLS"/>
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/cap_video_settings_strings">
 		<string text="Select a display resolution."/>

@@ -135,9 +135,14 @@ SCREENS = {
              "Turn all sound on or off. Takes effect on restart.", None),
         ],
     },
-    # (opened from the profile menu's INTERFACE row: PAGE_ITEMS)
+    # (opened from the profile menu's INTERFACE row: PAGE_ITEMS. A button
+    # beside Defaults opens Chat, which has no row of its own: the Chupathingy
+    # menus' X)
     "interface_setup": {
         "screen": "interface_settings_screen",
+        "extra_button": ("button_chat", "CHAT",
+                         [f'<on event="a" open="{PE}/chat_setup/chat_settings_screen"/>',
+                          f'<on event="start" open="{PE}/chat_setup/chat_settings_screen"/>']),
         "header": ("header_profile_interface_settings", f"{PE}/interface_setup/header_interface"),
         "spacing": 24,
         "help_top": 364,
@@ -173,8 +178,8 @@ SCREENS = {
              "Show the version while playing.", None),
         ],
     },
-    # (opened from the profile menu's CHAT row: PAGE_ITEMS; chat.quick_messages,
-    # a list of lines, is in config.toml alone)
+    # (opened from Interface's CHAT button; chat.quick_messages, a list of
+    # lines, is in config.toml alone)
     "chat_setup": {
         "screen": "chat_settings_screen",
         "header": ("header_profile_chat_settings", f"{PE}/chat_setup/header_chat"),
@@ -275,13 +280,10 @@ CONTROL_ROWS = 7
 STRING_OVERRIDES = {
     f"{PE}/profile_edit_descriptions": [
         "Rename this profile.\\n\\n\\nProfile:",
-        "Change the keyboard and\\nmouse controls.\\n\\nProfile:",
-        "Adjust the mouse settings.\\n\\n\\nProfile:",
-        "Change the controller\\nconfiguration.\\n\\nProfile:",
+        "Change the keyboard, mouse\\nand controller settings.\\n\\nProfile:",
         "Adjust the video settings.\\n\\n\\nProfile:",
         "Adjust the audio settings.\\n\\n\\nProfile:",
         "Adjust the menus, HUD and\\nscoreboard.\\n\\nProfile:",
-        "Adjust the chat settings.\\n\\n\\nProfile:",
         "Adjust the network settings.\\n\\n\\nProfile:",
         "Choose what stats and crash\\nreports are sent.\\n\\nProfile:",
         "Change the current profile's\\nfree-for-all multiplayer color.\\n\\nProfile:",
@@ -516,13 +518,12 @@ def _controller_screen() -> list:
 
 
 # the profile menu's rows for the pages the PC version has not (Interface
-# and Chat before Network Setup's, Privacy after it; their descriptions and
-# pictures by their places: WIDGET_PATCHES, FRAME_ORDERS): the page, the row's
-# string of profile_edit_options and its top
+# before Network Setup's, Privacy after it; their descriptions and pictures
+# by their places: WIDGET_PATCHES, FRAME_ORDERS): the page, the row's string
+# of profile_edit_options and its top (the PC version's rows', 33 apart)
 PAGE_ITEMS = {
-    "interface_setup": (f"{PE}/interface_profile_item", 11, 234),
-    "chat_setup": (f"{PE}/chat_profile_item", 12, 260),
-    "privacy_setup": (f"{PE}/privacy_profile_item", 10, 312),
+    "interface_setup": (f"{PE}/interface_profile_item", 11, 210),
+    "privacy_setup": (f"{PE}/privacy_profile_item", 10, 276),
 }
 PRIVACY_ITEM = PAGE_ITEMS["privacy_setup"][0]
 
@@ -539,6 +540,70 @@ def _page_item(folder: str) -> list:
                     '<on event="left_mouse" run="mouse emit accept event"/>'])
 
 
+# the profile menu's CONTROLS row opens a list of the control pages, laid
+# out as the profile menu is (its rows, their help and the profile's name):
+# (label, the page's screen, help)
+CONTROLS_MENU = "controls_menu"
+CONTROLS_PAGES = [
+    ("KEYBOARD", f"{PE}/controls_setup/controls_settings_screen",
+     "Change the keyboard and\\nmouse controls."),
+    ("MOUSE", f"{PE}/mouse_settings/mouse_settings_screen", "Adjust the mouse settings.\\n"),
+    ("GAMEPADS", f"{PE}/gamepad_setup/gamepad_setup_screen", "Change the controller\\nconfiguration."),
+    ("GAMEPAD BUTTONS", f"{PE}/{CONTROLLER_SCREEN}/controller_buttons_screen",
+     "Choose the button for\\neach action."),
+]
+# (the picture of each: none for the keyboard's and the mouse's, the Xbox's
+# controller for the gamepad's)
+CONTROLS_PICTURES = ['<frame png="ce/port/blank__0.png" width="4" height="4"/>'] * 2 + [
+    f'<frame map="ui\\shell\\{PE.replace("/", chr(92))}\\profile_options" index="1"/>'] * 2
+
+
+def _controls_menu() -> list:
+    """the PC style's list of the control pages: its header, rows, help
+    and picture, and a Back button"""
+    base = f"{PE}/{CONTROLS_MENU}"
+    lines = []
+    lines += _widget(f"{base}/{CONTROLS_MENU}_screen",
+                     [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child pause_game"),
+                      ("bitmap", "bitmaps/gradient")],
+                     ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
+                      f'<child widget="{base}/header_controls"/>', f'<child widget="{base}/list"/>',
+                      f'<child widget="{PE}/profile_label" x="293" y="375"/>'])
+    lines += _widget(f"{base}/header_controls", [("controller", 1), ("left", 35), ("top", 11), ("width", 605),
+                                                 ("height", 59), ("bitmap", f"{base}/header_controls")], [])
+    children = ['<data input="plyr prof edit select menu upd8"/>']
+    children += [f'<child widget="{base}/item_{index}"/>' for index in range(len(CONTROLS_PAGES))]
+    children.append(f'<child widget="{base}/button_bar" y="414"/>')
+    lines += _widget(f"{base}/list", [("type", "column_list"), ("width", 640), ("height", 480),
+                                      ("flags", "pass_unhandled_to_focused_child up_down_tabs_items"),
+                                      ("description", f"{base}/description")], children)
+    for index, (_, screen, _) in enumerate(CONTROLS_PAGES):
+        lines += _widget(f"{base}/item_{index}",
+                         [("type", "text"), ("left", 51), ("top", 78 + index * 33), ("width", 232), ("height", 32),
+                          ("bitmap", "bitmaps/list_item_bkd_top" if index == 0 else "bitmaps/list_item_bkd"),
+                          ("string_list", f"{base}/options"), ("string_index", index or None),
+                          ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 5)],
+                         [f'<on event="a" open="{screen}"/>', f'<on event="start" open="{screen}"/>',
+                          '<on event="left_mouse" run="mouse emit accept event"/>'])
+    lines += _widget(f"{base}/description", [("controller", 1), ("left", 275), ("top", 78), ("width", 320),
+                                              ("height", 362), ("bitmap", "bitmaps/list_field")],
+                     [f'<child widget="{base}/description_text"/>', f'<child widget="{base}/picture" x="4"/>'])
+    lines += _widget(f"{base}/description_text",
+                     [("type", "text"), ("controller", 1), ("left", 294), ("top", 290), ("width", 296),
+                      ("height", 110), ("string_list", f"{base}/descriptions"), ("font", "ui\\large_ui"),
+                      ("color", "#FF2896FF")], [])
+    lines += _widget(f"{base}/picture", [("controller", 1), ("left", 288), ("top", 85), ("width", 279),
+                                         ("height", 202), ("bitmap", f"{base}/pictures")], [])
+    lines += [f'\t<bitmap name="{base}/pictures">', *[f"\t\t{frame}" for frame in CONTROLS_PICTURES], "\t</bitmap>"]
+    lines += _widget(f"{base}/button_bar", [("type", "column_list"), ("width", 640), ("height", 28),
+                                            ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
+                     [f'<child widget="{base}/button_back" x="510" y="1"/>'])
+    lines += _button(f"{base}/button_back", 0, ['<on event="a" back="true"/>', '<on event="start" back="true"/>'])
+    lines += _strings(f"{base}/options", [label for label, _, _ in CONTROLS_PAGES])
+    lines += _strings(f"{base}/descriptions", [f"{text}\\n\\nProfile:" for _, _, text in CONTROLS_PAGES])
+    return lines
+
+
 def settings_files() -> dict:
     """the files of the port's screens, by their names in ce/"""
     files = {}
@@ -548,6 +613,7 @@ def settings_files() -> dict:
         files[f"{PE}/{folder}".replace("/", ".") + ".xml"] += _page_item(folder)
     files[f"{PE}/controls_setup".replace("/", ".") + ".xml"] = _controls_screen()
     files[f"{PE}/{CONTROLLER_SCREEN}".replace("/", ".") + ".xml"] = _controller_screen()
+    files[f"{PE}/{CONTROLS_MENU}".replace("/", ".") + ".xml"] = _controls_menu()
     return {name: ['<?xml version="1.0" encoding="UTF-8"?>',
                    "<!-- The port's settings screen, in the PC version's style (tools/port_settings.py) -->",
                    "<menus>", *lines, "</menus>", ""] for name, lines in files.items()}
@@ -651,10 +717,13 @@ def chupathingy_settings_pages() -> list:
                         '<on event="y" run="port settings defaults"/>']
             prompts = (_xbox_prompt("y", 60, "defaults") + _xbox_prompt("b", 360, "cancel") +
                        _xbox_prompt("a", 490, "accept"))
-            # (Gamepad Setup's X: Controller Buttons)
+            # (Gamepad Setup's X: Controller Buttons; Interface's: Chat)
             if folder == "gamepad_setup":
                 handlers.append(f'<on event="x" open="{CHUPATHINGY}/{CONTROLLER_SCREEN}_screen"/>')
                 prompts += _xbox_prompt("x", 215, "buttons")
+            if folder == "interface_setup":
+                handlers.append(f'<on event="x" open="{CHUPATHINGY}/chat_setup_screen"/>')
+                prompts += _xbox_prompt("x", 215, "chat")
         header = spec["header"][0]
         lines += _widget(f"{CHUPATHINGY}/{folder}_screen",
                          [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child pause_game"),
@@ -694,7 +763,7 @@ MT = "main_menu/multiplayer_type_select"
 # in turn: menu_functions.c's gametype_option_help)
 SLAYER_EDIT = "main_menu/settings_select/multiplayer_setup/playlist_edit/slayer_edit"
 STRING_INSERTS = {
-    f"{PE}/profile_edit_options": [(10, ["PRIVACY", "INTERFACE", "CHAT"])],
+    f"{PE}/profile_edit_options": [(10, ["PRIVACY", "INTERFACE", "CONTROLS"])],
     f"{SLAYER_EDIT}/var_kills_to_win": [(5, ["75", "100", "150", "200", "250", "500"])],
     f"{SLAYER_EDIT}/cap_slayer": [(11, [
         "Seventy-five kills to win.",
@@ -783,24 +852,27 @@ WIDGET_PATCHES = {
     f"{MT}/connected/connected_map_select_wrapper": {"set": {
         "flags": "pass_unhandled_to_focused_child pause_game main_menu_if_no_history tag_controller_index force_handle_mouse",
     }},
-    # (the rows in the order Controls, Mouse, Gamepads, Video, Audio,
-    # Interface, Chat, Network, Privacy: Mouse in Gamepads' place and Video in
-    # Audio's ("swap"), the pages the PC version has not (PAGE_ITEMS) put in,
-    # 26 apart; offsets from the tops the PC version gave each place's row)
+    # (the rows in the order Controls, Video, Audio, Interface, Network,
+    # Privacy, 33 apart as the PC version's: Controls Setup's row is CONTROLS,
+    # which opens the control pages' list (_controls_menu), and the rows
+    # after it take the places of Gamepads, Mouse, Audio, Video and Network
+    # ("swap"); offsets from the tops each row has)
     f"{PE}/profile_edit_select_list": {
-        "swap": {f"{PE}/gamepads_profile_item": f"{PE}/mouse_settings_profile_item",
-                 f"{PE}/mouse_settings_profile_item": f"{PE}/gamepads_profile_item",
-                 f"{PE}/audio_settings_profile_item": f"{PE}/video_settings_profile_item",
-                 f"{PE}/video_settings_profile_item": f"{PE}/audio_settings_profile_item"},
-        "insert_before": {f"{PE}/network_settings_profile_item": [f'<child widget="{PAGE_ITEMS["interface_setup"][0]}"/>',
-                                                                  f'<child widget="{PAGE_ITEMS["chat_setup"][0]}"/>'],
-                          f"{PE}/color_profile_item": [f'<child widget="{PRIVACY_ITEM}"/>']},
-        "offsets": {f"{PE}/controller_setup_profile_item": (0, -7), f"{PE}/gamepads_profile_item": (0, -47),
-                    f"{PE}/mouse_settings_profile_item": (0, 12), f"{PE}/audio_settings_profile_item": (0, -61),
-                    f"{PE}/video_settings_profile_item": (0, -2), f"{PE}/network_settings_profile_item": (0, 9),
-                    f"{PE}/color_profile_item": (0, 61), f"{PE}/about_item": (0, 54)},
+        "swap": {f"{PE}/gamepads_profile_item": f"{PE}/video_settings_profile_item",
+                 f"{PE}/mouse_settings_profile_item": f"{PE}/audio_settings_profile_item",
+                 f"{PE}/audio_settings_profile_item": PAGE_ITEMS["interface_setup"][0],
+                 f"{PE}/video_settings_profile_item": f"{PE}/network_settings_profile_item",
+                 f"{PE}/network_settings_profile_item": PRIVACY_ITEM},
+        "offsets": {f"{PE}/gamepads_profile_item": (0, -99), f"{PE}/mouse_settings_profile_item": (0, -33),
+                    f"{PE}/video_settings_profile_item": (0, -34),
+                    f"{PE}/color_profile_item": (0, 32), f"{PE}/about_item": (0, 32)},
     },
-    # (the profile settings' picture: on Gamepad Setup's row, the profile's
+    f"{PE}/controller_setup_profile_item": {"set": {"string_index": 12}, "handlers": [
+        f'<on event="a" open="{PE}/{CONTROLS_MENU}/{CONTROLS_MENU}_screen"/>',
+        f'<on event="start" open="{PE}/{CONTROLS_MENU}/{CONTROLS_MENU}_screen"/>',
+        '<on event="left_mouse" run="mouse emit accept event"/>',
+    ]},
+    # (the profile settings' picture: on CONTROLS' row, the profile's
     # button settings, BITMAP_FRAMES; menu_functions.c's
     # profile_gamepad_layout)
     f"{PE}/profile_edit_extended_desc_pic": {"inputs": ["port gamepad layout preview"]},
@@ -891,10 +963,11 @@ WIDGET_PATCHES = {
 XBOX_CONTROLLER_PICTURES = f"ui\\shell\\{PE.replace('/', chr(92))}\\controller_edit\\config_controller"
 # the frames of a PC bitmap in another order (by our names): the frame (as
 # the PC version numbers them) for each place. The profile settings' picture
-# numbers its frames as the list its rows (PAGE_ITEMS: Interface shows
-# Video Setup's, Chat and Privacy Network Setup's)
+# numbers its frames as the list its rows (CONTROLS shows Gamepads' picture,
+# the controller; PAGE_ITEMS: Interface shows Video Setup's, Privacy Network
+# Setup's)
 FRAME_ORDERS = {
-    f"{PE}/profile_options": [0, 1, 3, 2, 5, 4, 5, 6, 6, 6, 7, 8],
+    f"{PE}/profile_options": [0, 2, 5, 4, 5, 6, 6, 7, 8],
 }
 BITMAP_FRAMES = {
     f"{PE}/profile_options": [(XBOX_CONTROLLER_PICTURES, 4 + preset, 279, 279, 0, 34) for preset in range(5)],
@@ -906,6 +979,7 @@ TITLES = {
     f"{PE}/privacy_setup/header_privacy": "PRIVACY",
     f"{PE}/interface_setup/header_interface": "INTERFACE",
     f"{PE}/chat_setup/header_chat": "CHAT",
+    f"{PE}/{CONTROLS_MENU}/header_controls": "CONTROLS",
     f"{MT}/join_game/header_server_browser": "SERVER BROWSER",
     f"{MT}/join_game/header_direct_link": "DIRECT LINK",
     f"{MT}/join_game/header_password": "PASSWORD",

@@ -148,11 +148,14 @@
 		<child widget="chupathingy/prompts/cancel" x="382" y="414"/>
 		<child widget="chupathingy/prompts/a" x="490" y="414"/>
 		<child widget="chupathingy/prompts/accept" x="512" y="414"/>
+		<child widget="chupathingy/prompts/x" x="215" y="414"/>
+		<child widget="chupathingy/prompts/chat" x="237" y="414"/>
 	</widget>
 	<widget name="chupathingy/settings/interface_setup_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/player_setup/player_profile_edit/interface_setup/help">
 		<data input="port settings help"/>
 		<on event="a" run="port settings save" back="true"/>
 		<on event="y" run="port settings defaults"/>
+		<on event="x" open="chupathingy/settings/chat_setup_screen"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/interface_setup/op_menus" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/interface_setup/op_high_res_hud" x="54" y="97"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/interface_setup/op_high_res_text" x="54" y="121"/>

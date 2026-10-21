@@ -83,9 +83,4 @@
 		<string text="Mask, hide or show blocked words."/>
 		<string text="Show players in chat by team, not by name."/>
 	</strings>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/chat_profile_item" type="text" left="51" top="260" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="12" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
-		<on event="a" open="main_menu/settings_select/player_setup/player_profile_edit/chat_setup/chat_settings_screen"/>
-		<on event="start" open="main_menu/settings_select/player_setup/player_profile_edit/chat_setup/chat_settings_screen"/>
-		<on event="left_mouse" run="mouse emit accept event"/>
-	</widget>
 </menus>

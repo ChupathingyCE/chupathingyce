@@ -60,6 +60,8 @@ too. -->
 	</widget>
 	<widget name="chupathingy/prompts/buttons" type="text" controller="1" width="140" height="22" text="=BUTTONS" font="ui\large_ui" color="#FF2896FF">
 	</widget>
+	<widget name="chupathingy/prompts/chat" type="text" controller="1" width="140" height="22" text="=CHAT" font="ui\large_ui" color="#FF2896FF">
+	</widget>
 	<widget name="chupathingy/prompts/edit_game_type" type="text" controller="1" width="180" height="22" text="=EDIT GAME TYPE" font="ui\large_ui" color="#FF2896FF">
 	</widget>
 	<widget name="chupathingy/prompts/page" type="text" controller="1" width="100" height="22" text="=PAGE" font="ui\large_ui" color="#FF2896FF">
