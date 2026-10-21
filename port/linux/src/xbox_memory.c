@@ -55,14 +55,23 @@ Xbox kernel does.
 #define CONTIGUOUS_PAGE_COUNT (PLATFORM_CONTIGUOUS_SIZE / PAGE_SIZE_BYTES)
 
 /* per page: 0 free, otherwise the protection of the block (PAGE_*); the
-first page of a block also records the block length */
-static DWORD page_protection[CONTIGUOUS_PAGE_COUNT];
-static unsigned long block_page_count[CONTIGUOUS_PAGE_COUNT];
+first page of a block also records the block length. As many as the largest
+window has (platform.h); CONTIGUOUS_PAGE_COUNT is this one's */
+static DWORD page_protection[PLATFORM_CONTIGUOUS_MAXIMUM / PAGE_SIZE_BYTES];
+static unsigned long block_page_count[PLATFORM_CONTIGUOUS_MAXIMUM / PAGE_SIZE_BYTES];
 static BOOL arena_reserved = FALSE;
 static pthread_mutex_t arena_lock = PTHREAD_MUTEX_INITIALIZER;
 #ifdef HALO_CUSTOM_EDITION
 int platform_ce_tag_cache_ready = FALSE;
 unsigned int platform_ce_conversion_room = 0;
+#endif
+#ifdef HALO_WINDOW_REBASE
+/* where the window is and how large (cseries/xbox_address.h): the linked
+address until the guest's runtime is told the host's, before any
+constructor runs (port/android/guest/runtime/guest_start.c), or the Linux
+build reads HALO_WINDOW_BASE (below) */
+unsigned long platform_contiguous_base = 0x80000000UL;
+unsigned long platform_contiguous_size = PLATFORM_CONTIGUOUS_MINIMUM;
 #endif
 #ifdef HALO_64BIT
 
@@ -103,6 +112,38 @@ static void contiguous_arena_reserve(void)
 	void *result;
 	long host_page_size = sysconf(_SC_PAGESIZE);
 #else
+#if defined(HALO_WINDOW_REBASE) && !defined(HALO_ANDROID)
+	/* the Linux build's test of a moved window: HALO_WINDOW_BASE, in hex,
+	on a whole number of the window's size; unset, the linked address */
+	const char *setting = getenv("HALO_WINDOW_BASE");
+
+	if (setting && *setting)
+	{
+		unsigned long base = strtoul(setting, NULL, 16);
+
+		if (base && !(base % PLATFORM_CONTIGUOUS_SIZE) && base <= 0xffffffffUL - PLATFORM_CONTIGUOUS_SIZE + 1)
+			platform_contiguous_base = base;
+		else
+			platform_log("HALO_WINDOW_BASE=%s is not a multiple of %#lx: the window stays at %#lx", setting,
+				(unsigned long)PLATFORM_CONTIGUOUS_SIZE, platform_contiguous_base);
+	}
+#endif
+#ifdef HALO_WINDOW_REBASE
+	if (platform_contiguous_size < PLATFORM_CONTIGUOUS_MINIMUM)
+	{
+		platform_log("the host's window is %lu MB at %#lx; this build needs %lu MB", platform_contiguous_size >> 20,
+			platform_contiguous_base, (unsigned long)PLATFORM_CONTIGUOUS_MINIMUM >> 20);
+		abort();
+	}
+	/* (a larger window than the tables are for: the rest goes unused) */
+	if (platform_contiguous_size > PLATFORM_CONTIGUOUS_MAXIMUM)
+	{
+		platform_log("the host's window is %lu MB; this build uses %lu MB of it", platform_contiguous_size >> 20,
+			(unsigned long)PLATFORM_CONTIGUOUS_MAXIMUM >> 20);
+		platform_contiguous_size = PLATFORM_CONTIGUOUS_MAXIMUM;
+	}
+	platform_log("contiguous window at %08lx, %lu MB", platform_contiguous_base, platform_contiguous_size >> 20);
+#endif
 	void *wanted = (void *)PLATFORM_CONTIGUOUS_BASE;
 	void *result = mmap(wanted, PLATFORM_CONTIGUOUS_SIZE, PROT_NONE,
 		MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED_NOREPLACE, -1, 0);
@@ -427,6 +468,22 @@ void *platform_contiguous_alloc(unsigned long size, unsigned long alignment,
 	pthread_mutex_unlock(&arena_lock);
 	return address;
 }
+
+#if defined(HALO_CONSOLE_GPU_RESOURCE_HOOKS) || defined(HALO_CONSOLE_NO_WRITE_WATCH)
+/* the length of the block address is the start of, or 0 */
+unsigned long platform_contiguous_block_size(const void *address)
+{
+	unsigned long first, count = 0;
+
+	if (!platform_is_contiguous(address))
+		return 0;
+	first = ((unsigned long)address - PLATFORM_CONTIGUOUS_BASE) / PAGE_SIZE_BYTES;
+	pthread_mutex_lock(&arena_lock);
+	count = block_page_count[first];
+	pthread_mutex_unlock(&arena_lock);
+	return count * PAGE_SIZE_BYTES;
+}
+#endif
 
 void platform_contiguous_free(void *address)
 {

@@ -29,6 +29,12 @@ edits and comments stay.
 #include <string.h>
 #ifndef _WIN32
 #include <unistd.h>
+
+#ifdef HALO_SWITCH_CONSOLE
+/* the guest's write is not on the card until the host commits it
+(port/switch/host/host_main.c) */
+void host_storage_commit(void);
+#endif
 #endif
 
 /* ---------- the settings */
@@ -141,6 +147,96 @@ static const struct config_setting config_settings[] =
 		_platform_android,
 		"Where compressed textures are unpacked: \"gpu\", \"cpu\" (more memory) or\n"
 		"\"auto\" (\"cpu\" on Adreno graphics, \"gpu\" on others)." },
+#ifdef HALO_SWITCH_CONSOLE
+	/* the Switch's (port/switch): read by the deko3d renderer in the guest
+	(port/switch/guest/d3d8_dk.c) and by the host from config.toml itself */
+	/* (720 by default: a handheld console's own lines, 1280x720) */
+	{ "display.resolution_limit", _config_string, "\"720\"", "HALO_RESOLUTION_LIMIT", _environment_value,
+		_platform_android,
+		"The lines the game draws at: \"480\" (the game's own), \"720\", \"900\" or\n"
+		"\"1080\" (or any number between), no more than the console shows (1280x720\n"
+		"in handheld, 1920x1080 docked), which the picture is scaled up to. Changes\n"
+		"at once." },
+	{ "display.dynamic_resolution", _config_boolean, "false", "HALO_DYNAMIC_RESOLUTION", _environment_value,
+		_platform_android,
+		"While the GPU would hold the game under 55 frames a second (for half a\n"
+		"second), draw one step lower (1080 to 900, 900 to 720, 720 to 480: never\n"
+		"more), and go back once the frame would fit in 90% of a 60 Hz frame for\n"
+		"a second. Changes at once." },
+	{ "debug.resolution_uncapped", _config_boolean, "false", "HALO_RESOLUTION_UNCAPPED", _environment_value,
+		_platform_android,
+		"Draw at display.resolution_limit's lines even past what the console\n"
+		"shows, scaled down to it: a Switch Lite (720p) drawing 1080p, to test\n"
+		"a docked console's GPU load. Changes at once." },
+	{ "performance.cpu_clock", _config_string, "\"1785\"", "HALO_CPU_CLOCK", _environment_value, _platform_android,
+		"The CPU's clock: \"1785\" (1.7 GHz, the most Nintendo's own games use),\n"
+		"\"1020\" (1 GHz, the console's handheld rate: cooler, and the battery\n"
+		"lasts longer) or \"stock\" (left as the console has it). Changes at once." },
+	{ "debug.log_files", _config_boolean, "true", "HALO_LOG_FILES", _environment_value, _platform_android,
+		"Write the logs to files: the game's debug.txt (beside the data) and the\n"
+		"program's halo.log. false writes neither, which spares the card a write\n"
+		"for each line; nothing is kept to say what went wrong. halo.log takes it\n"
+		"the next start." },
+	{ "debug.mic_probe", _config_boolean, "false", "HALO_MIC_PROBE", _environment_set_is_true, _platform_android,
+		"For two minutes from the start, log what the console's microphone input\n"
+		"hears (port/switch/host/host_mic_probe.c): its inputs, the format it gives\n"
+		"and the sound's level each second. Takes effect the next start." },
+	{ "debug.gpu_trace", _config_boolean, "false", "HALO_GPU_TRACE_FAULTS", _environment_set_is_true, _platform_android,
+		"Keep a record of the GPU's last commands, and after a GPU fault write it and\n"
+		"the console's account of the fault to halo.log (port/switch/host/host_dk.c).\n"
+		"It costs the GPU some time. Takes effect the next start." },
+	{ "debug.gpu_fault_test", _config_boolean, "false", "HALO_GPU_FAULT_TEST", _environment_set_is_true,
+		_platform_android,
+		"Make the GPU fault on purpose at the 1200th frame, to see gpu_trace's record.\n"
+		"Takes effect the next start." },
+	{ "debug.gpu_profile", _config_boolean, "false", "HALO_GPU_PROFILE", _environment_set_is_true, _platform_android,
+		"Every 300 frames, log the GPU's time by part of the frame (the sky, the\n"
+		"objects, the fog...) and what a frame asks of it. Takes effect the next start." },
+	{ "debug.gpu_capture", _config_boolean, "false", "HALO_GPU_CAPTURE", _environment_set_is_true, _platform_android,
+		"With gpu_profile, time one frame of every 300 draw by draw, and log the GPU's\n"
+		"time by shader, target and kind of command. Takes effect the next start." },
+	{ "debug.gpu_experiment", _config_string, "\"\"", "HALO_GPU_EXPERIMENT", _environment_value, _platform_android,
+		"Measurements of what a change could save, comma-separated:\n"
+		"\"no_compression\" (render targets without hardware compression),\n"
+		"\"no_target_barriers\" (no wait before a render target change; may draw\n"
+		"wrong), \"lod_bias\" (textures sampled three levels smaller: blurry).\n"
+		"Empty for none. Takes effect the next start." },
+	{ "debug.gpu_shader_ranges", _config_boolean, "true", "HALO_GPU_SHADER_RANGES", _environment_value,
+		_platform_android,
+		"Leave out of the pixel shaders the clamps their values cannot need\n"
+		"(port/switch/guest/nv2a_psh_dk.c); false writes them all, as before, to\n"
+		"compare the two. Takes effect the next start." },
+	{ "debug.gpu_texture_clip", _config_string, "\"on\"", "HALO_GPU_TEXTURE_CLIP", _environment_value,
+		_platform_android,
+		"Shadows cast on the level drawn only over their map: \"on\", \"off\", or\n"
+		"\"wide\" (clipped by limits nothing reaches, to tell the clip's own effect).\n"
+		"Takes effect the next start." },
+	{ "debug.original_zoom", _config_boolean, "false", "HALO_ORIGINAL_ZOOM", _environment_value, _platform_android,
+		"Draw the zoom's blur as the game does, in passes over the whole screen,\n"
+		"rather than on a small copy blended over it once (about 3.7 ms less of\n"
+		"the GPU's frame at 720p). Takes effect the next start." },
+	{ "debug.gpu_blend_discard", _config_boolean, "true", "HALO_GPU_BLEND_DISCARD", _environment_value,
+		_platform_android,
+		"Let a blended draw's pixels go where they would leave the screen as it was\n"
+		"(the empty parts of particles and glows); false blends them all in, as\n"
+		"before, to compare. Takes effect the next start." },
+	{ "debug.render_thread", _config_boolean, "true", "HALO_RENDER_THREAD", _environment_value, _platform_android,
+		"Turn the game's drawing commands into the GPU's on a thread of their own,\n"
+		"on another core, while the game goes on with its next frame; false runs\n"
+		"them on the game's thread, as before. Takes effect the next start." },
+	{ "debug.gpu_draw_scissor", _config_boolean, "true", "HALO_GPU_DRAW_SCISSOR", _environment_value,
+		_platform_android,
+		"Rasterize an object's shadow and a dynamic light's pass only inside the\n"
+		"rectangle of the screen they can change; false rasterizes their whole\n"
+		"triangles, as before, to compare. Takes effect the next start." },
+	{ "debug.original_blur", _config_boolean, "false", "HALO_ORIGINAL_BLUR", _environment_value, _platform_android,
+		"Draw a blur screen effect (cutscenes) as the game does, in passes over the\n"
+		"whole screen, rather than its passes on a small copy of it. Takes effect\n"
+		"the next start." },
+	{ "debug.gpu_glsl_folder", _config_string, "\"\"", "HALO_GPU_GLSL_FOLDER", _environment_value, _platform_android,
+		"A folder to write each shader the game draws with to, as GLSL named by its\n"
+		"hash (the names gpu_capture logs); the folder must exist. Empty for none." },
+#endif
 	{ "display.vsync", _config_boolean, "true", "HALO_NO_VSYNC", _environment_set_is_false, _platform_all,
 		"Wait for the display between frames." },
 	{ "display.max_fps", _config_integer, "0", "HALO_MAX_FPS", _environment_value, _platform_desktop,
@@ -662,6 +758,20 @@ static const struct config_setting config_settings[] =
 		"Upload textures again every time they are used." },
 	{ "debug.sample_seconds", _config_real, "0.0", "HALO_SAMPLE", _environment_value, _platform_android,
 		"Log where every game thread is this often, in seconds; 0 never." },
+#ifdef HALO_SWITCH_CONSOLE
+	/* read by the Switch host (port/switch/host/host_main.c, host_dk.c) */
+	{ "debug.profiler", _config_boolean, "false", "HALO_PROFILER", _environment_set_is_true, _platform_android,
+		"Profile the game: sample where its threads are (debug.profile_hz times a\n"
+		"second) and write the counts to the profile folder every 20 s, for\n"
+		"tools/switch_profile.py. Takes effect the next start." },
+	{ "debug.profile_hz", _config_integer, "500", "HALO_PROFILE_HZ", _environment_value, _platform_android,
+		"The profiler's samples a second, when debug.profiler is true." },
+	{ "debug.texture_verify_compressed", _config_boolean, "false", "HALO_TEXTURE_VERIFY_COMPRESSED",
+		_environment_set_is_true, _platform_android,
+		"Read each DXT-compressed texture back out of its image after it is written,\n"
+		"and log where it differs from the game's bytes (port/switch/host/host_dk.c).\n"
+		"Slow: it waits for the GPU each time. Takes effect the next start." },
+#endif
 };
 
 #define NUMBER_OF_CONFIG_SETTINGS (sizeof(config_settings) / sizeof(config_settings[0]))
@@ -827,7 +937,18 @@ static int config_write_file(const char *path, const char *text)
 	if (!file)
 		return 0;
 	written = fwrite(text, 1, strlen(text), file) == strlen(text);
+#ifdef HALO_SWITCH_CONSOLE
+	/* leaving the game is _exit, which does not flush the card; without a
+	commit here a setting is kept for this run and gone on the next */
+	if (written)
+		fsync(fileno(file));
+	written = fclose(file) == 0 && written;
+	if (written)
+		host_storage_commit();
+	return written;
+#else
 	return fclose(file) == 0 && written;
+#endif
 #else
 	return SDL_SaveFile(path, text, strlen(text));
 #endif

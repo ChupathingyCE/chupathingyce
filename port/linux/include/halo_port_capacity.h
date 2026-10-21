@@ -63,9 +63,23 @@ the Xbox's, 44 MB, and leaves about 15 MB free: Portent's busiest frames
 fit, Foundation's (66 MB) do not, and some of its surfaces can show the
 wrong pixels there. The native 64-bit Android build has no guest image
 and the desktop's window and cache. The Xbox builds (HALO_XBOX_CONSOLE)
-keep the Xbox's cache. */
+keep the Xbox's cache.
 
-#if defined(HALO_ANDROID) && !defined(HALO_64BIT)
+A console's guest with HALO_WINDOW_REBASE (the Switch's) is told at
+start-up how large a window its host found room for
+(platform_contiguous_size, up to 256 MB: port/linux/src/platform.h), and
+the cache is half of it where that is more than a development kit's 128
+MB, as on the desktop, and Android's otherwise; the tables kept per page of
+the cache are sized for the largest (HALO_PORT_TEXTURE_CACHE_MAXIMUM_SIZE). */
+
+#if defined(HALO_ANDROID) && !defined(HALO_64BIT) && defined(HALO_WINDOW_REBASE)
+extern unsigned long platform_contiguous_size;
+#define HALO_PORT_TEXTURE_CACHE_SIZE \
+	(platform_contiguous_size > 0x08000000UL ? platform_contiguous_size / 2 : 0x2C00000UL) /* (0x1600000) */
+#define HALO_PORT_TEXTURE_CACHE_MAXIMUM_SIZE 0x8000000
+/* (the size is known only at start-up: cache/xbox_texture_cache.c) */
+#define HALO_PORT_TEXTURE_CACHE_SIZE_VARIES
+#elif defined(HALO_ANDROID) && !defined(HALO_64BIT)
 #define HALO_PORT_TEXTURE_CACHE_SIZE 0x2C00000 /* (0x1600000) */
 #elif !defined(HALO_XBOX_CONSOLE)
 #define HALO_PORT_TEXTURE_CACHE_SIZE 0x10000000 /* (0x1600000) */

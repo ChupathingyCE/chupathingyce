@@ -76,6 +76,9 @@ void physical_memory_allocate(
 #ifdef HALO_64BIT
 #line 46 "c:\\halo\\SOURCE\\cache\\physical_memory_map.c"
 	match_assert(__FILE__, __LINE__, XBOX_ADDRESS(physical_memory_map_globals.game_state_base_address)==GAME_STATE_BASE_ADDRESS);
+#elif defined(HALO_WINDOW_REBASE)
+#line 46 "c:\\halo\\SOURCE\\cache\\physical_memory_map.c"
+	match_assert(__FILE__, __LINE__, (unsigned long)XBOX_ADDRESS(physical_memory_map_globals.game_state_base_address)==GAME_STATE_BASE_ADDRESS);
 #else
 #line 46 "c:\\halo\\SOURCE\\cache\\physical_memory_map.c"
 	match_assert(__FILE__, __LINE__, (unsigned long)physical_memory_map_globals.game_state_base_address==GAME_STATE_BASE_ADDRESS);
@@ -85,6 +88,9 @@ void physical_memory_allocate(
 #ifdef HALO_64BIT
 #line 50 "c:\\halo\\SOURCE\\cache\\physical_memory_map.c"
 	match_assert(__FILE__, __LINE__, XBOX_ADDRESS(physical_memory_map_globals.tag_cache_base_address)==TAG_CACHE_BASE_ADDRESS);
+#elif defined(HALO_WINDOW_REBASE)
+#line 50 "c:\\halo\\SOURCE\\cache\\physical_memory_map.c"
+	match_assert(__FILE__, __LINE__, (unsigned long)XBOX_ADDRESS(physical_memory_map_globals.tag_cache_base_address)==TAG_CACHE_BASE_ADDRESS);
 #else
 #line 50 "c:\\halo\\SOURCE\\cache\\physical_memory_map.c"
 	match_assert(__FILE__, __LINE__, (unsigned long)physical_memory_map_globals.tag_cache_base_address==TAG_CACHE_BASE_ADDRESS);

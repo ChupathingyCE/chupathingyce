@@ -150,6 +150,10 @@ always runs and the handler is compiled out. */
 
 #include "halo_port_limits.h"
 
+/* ---------- what a console build asks of the shared code */
+
+#include "halo_console_features.h"
+
 /* the Xbox Winsock headers' fd_set in game units (platform units see glibc's,
 which is larger) */
 #ifndef HALO_LINUX_PLATFORM_LAYER
