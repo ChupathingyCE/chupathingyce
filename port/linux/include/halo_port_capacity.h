@@ -223,7 +223,7 @@ more than a development kit's 128 MB, as on the desktop, and Android's
 otherwise; the tables kept per page of the cache are sized for the largest
 (HALO_PORT_TEXTURE_CACHE_MAXIMUM_SIZE). */
 
-#if defined(HALO_ANDROID) && defined(HALO_WINDOW_REBASE)
+#if defined(HALO_ANDROID) && !defined(HALO_64BIT) && defined(HALO_WINDOW_REBASE)
 extern unsigned long platform_contiguous_size;
 #define HALO_PORT_TEXTURE_CACHE_SIZE \
 	(platform_contiguous_size > 0x08000000UL ? platform_contiguous_size / 2 : 0x2C00000UL) /* (0x1600000) */
