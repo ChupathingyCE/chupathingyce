@@ -4584,6 +4584,41 @@ void network_distributed_handle_message(
 				text[index] = '?';
 		}
 		console_warning("%s", text);
+#ifdef HALO_CONSOLE_LOG_THROTTLE
+		/* (where the log is slow to write: on the Switch, the first,
+		debug.txt is on the card, and each line written
+		waits for it on the game thread: a server's map vote, a screen of
+		notices a second padded with blank ones, took frames to 2.5 s. Its
+		blank lines are not written, and at most three a second, the rest
+		counted on the next one that is) */
+		{
+			static unsigned long second_start;
+			static long logged_this_second, left_out;
+			unsigned long now = system_milliseconds();
+
+			for (index = 0; text[index] == ' '; index++)
+			{
+			}
+			if (!text[index])
+				break;
+			if (now - second_start >= 1000)
+			{
+				second_start = now;
+				logged_this_second = 0;
+			}
+			if (logged_this_second >= 3)
+			{
+				left_out++;
+				break;
+			}
+			logged_this_second++;
+			if (left_out)
+			{
+				error(_error_log, "the host: (%ld more lines not written here)", left_out);
+				left_out = 0;
+			}
+		}
+#endif
 		error(_error_log, "the host: %s", text);
 		break;
 	}

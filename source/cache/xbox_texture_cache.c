@@ -125,7 +125,7 @@ symbols in this file:
 
 enum
 {
-#ifndef HALO_XBOX_CONSOLE
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_PORT_TEXTURE_CACHE_SIZE_VARIES)
 	/* (the native builds' size: halo_port_capacity.h; the Xbox's 0x580
 	pages, 0x1600000 bytes) */
 	XBOX_TEXTURE_CACHE_PAGE_COUNT = HALO_PORT_TEXTURE_CACHE_SIZE >> 14,
@@ -133,7 +133,7 @@ enum
 	XBOX_TEXTURE_CACHE_PAGE_SIZE_BITS = 14,
 	XBOX_TEXTURE_CACHE_PAGE_SIZE = 1 << XBOX_TEXTURE_CACHE_PAGE_SIZE_BITS,
 	XBOX_TEXTURE_CACHE_STEAL_GUARD_SIZE = 0x104000,
-#ifndef HALO_XBOX_CONSOLE
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_PORT_TEXTURE_CACHE_SIZE_VARIES)
 	XBOX_TEXTURE_CACHE_STEALABLE_PAGE_COUNT =
 		XBOX_TEXTURE_CACHE_PAGE_COUNT -
 		2 * (XBOX_TEXTURE_CACHE_STEAL_GUARD_SIZE / XBOX_TEXTURE_CACHE_PAGE_SIZE),
@@ -141,7 +141,7 @@ enum
 	XBOX_TEXTURE_CACHE_ARRAY_PAGE_COUNT = XBOX_TEXTURE_CACHE_PAGE_COUNT,
 #endif
 	XBOX_TEXTURE_CACHE_ENTRY_SIZE = 0x20,
-#ifndef HALO_XBOX_CONSOLE
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_PORT_TEXTURE_CACHE_SIZE_VARIES)
 	XBOX_TEXTURE_CACHE_SIZE = HALO_PORT_TEXTURE_CACHE_SIZE,
 #endif
 	XBOX_TEXTURE_CACHE_PROTECTION = 0x404,
@@ -156,6 +156,15 @@ the arrays of a page each are sized for the largest
 unsigned long xbox_memory_texture_cache_size(void);
 
 #define XBOX_TEXTURE_CACHE_SIZE ((long)xbox_memory_texture_cache_size())
+#define XBOX_TEXTURE_CACHE_PAGE_COUNT (XBOX_TEXTURE_CACHE_SIZE >> XBOX_TEXTURE_CACHE_PAGE_SIZE_BITS)
+#define XBOX_TEXTURE_CACHE_STEALABLE_PAGE_COUNT (XBOX_TEXTURE_CACHE_PAGE_COUNT - \
+	2 * (XBOX_TEXTURE_CACHE_STEAL_GUARD_SIZE / XBOX_TEXTURE_CACHE_PAGE_SIZE))
+#define XBOX_TEXTURE_CACHE_ARRAY_PAGE_COUNT (HALO_PORT_TEXTURE_CACHE_MAXIMUM_SIZE >> 14)
+#elif defined(HALO_PORT_TEXTURE_CACHE_SIZE_VARIES)
+/* port: the Switch's cache follows the size of the window its host found
+room for (halo_port_capacity.h), known before the cache is made; the arrays
+of a page each are sized for the largest, as the console's are */
+#define XBOX_TEXTURE_CACHE_SIZE ((long)HALO_PORT_TEXTURE_CACHE_SIZE)
 #define XBOX_TEXTURE_CACHE_PAGE_COUNT (XBOX_TEXTURE_CACHE_SIZE >> XBOX_TEXTURE_CACHE_PAGE_SIZE_BITS)
 #define XBOX_TEXTURE_CACHE_STEALABLE_PAGE_COUNT (XBOX_TEXTURE_CACHE_PAGE_COUNT - \
 	2 * (XBOX_TEXTURE_CACHE_STEAL_GUARD_SIZE / XBOX_TEXTURE_CACHE_PAGE_SIZE))
@@ -796,6 +805,17 @@ void texture_cache_new(
 		105,
 		xbox_texture_cache_globals.base_address != NULL,
 		"xbox_texture_cache_globals.base_address");
+#ifdef HALO_PORT_TEXTURE_CACHE_SIZE_VARIES
+	{
+		void platform_log(char const *format, ...);
+
+		/* port: the cache's size follows the window's (halo_port_capacity.h),
+		so each run says what it got */
+		platform_log("texture cache: %ld MB, %ld pages of 16 KB, at %p",
+			XBOX_TEXTURE_CACHE_SIZE / (1024 * 1024), XBOX_TEXTURE_CACHE_PAGE_COUNT,
+			xbox_texture_cache_globals.base_address);
+	}
+#endif
 
 	return;
 }
