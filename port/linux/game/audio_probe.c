@@ -141,6 +141,8 @@ static struct
 
 	/* the run */
 	real timer;
+	/* whether the wait for the map to load has been said to be long */
+	boolean told_waiting;
 	short map_index;
 	long request_time;
 	short spot_index;
@@ -375,8 +377,9 @@ static void audio_probe_read_settings(void)
 	if (extension && extension > separator)
 		*extension = 0;
 	audio_probe.state = _audio_probe_menu;
-	platform_log("audio probe: %s: %d maps, %d spots, %d sounds a spot", path, audio_probe.map_count,
-		audio_probe.spot_count, audio_probe.sound_count);
+	platform_log("audio probe: armed: %s: %d maps, %d spots, %d sounds a spot; the first map loads %.0f s after "
+		"the main menu", path, audio_probe.map_count, audio_probe.spot_count, audio_probe.sound_count,
+		AUDIO_PROBE_MENU_WAIT);
 }
 
 /* ---------- the run */
@@ -517,6 +520,7 @@ static void audio_probe_load_map(short map_index)
 	main_menu_switch_to_single_player();
 	audio_probe.state = _audio_probe_loading;
 	audio_probe.timer = 0.0f;
+	audio_probe.told_waiting = FALSE;
 }
 
 void audio_probe_update(
@@ -543,8 +547,17 @@ void audio_probe_update(
 		if (!main_menu_loaded && game_in_progress() && local_player_get_player_index(0) != NONE &&
 			(!audio_probe.request_time || game_time_get() < audio_probe.request_time))
 		{
+			platform_log("audio probe: %s is up; its first spot in %.0f s", audio_probe.maps[audio_probe.map_index],
+				AUDIO_PROBE_MAP_WAIT);
 			audio_probe.state = _audio_probe_waiting;
 			audio_probe.timer = 0.0f;
+		}
+		else if (audio_probe.timer >= 60.0f && !audio_probe.told_waiting)
+		{
+			audio_probe.told_waiting = TRUE;
+			platform_log("audio probe: still waiting for %s after a minute (main menu %d, game %d, local player %ld)",
+				audio_probe.maps[audio_probe.map_index], main_menu_loaded, game_in_progress(),
+				local_player_get_player_index(0));
 		}
 		break;
 
