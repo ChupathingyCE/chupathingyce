@@ -1147,13 +1147,14 @@ void *_texture_cache_bitmap_get_hardware_format(
 				xbox_texture_cache_globals.textures,
 				bitmap->cache_block_index);
 			/* (port: console.perf_log's texture wait) */
-			boolean texture_was_loading = block && !texture->loaded;
+			boolean texture_was_loading = FALSE;
 
 			lruv_block_touch(
 				xbox_texture_cache_globals.cache,
 				bitmap->cache_block_index);
-			if (texture_was_loading)
+			if (block && !texture->loaded)
 			{
+				texture_was_loading = TRUE;
 				if (debug_texture_cache)
 				{
 					console_warning(
