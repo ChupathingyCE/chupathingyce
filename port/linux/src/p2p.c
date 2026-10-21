@@ -2421,6 +2421,25 @@ unsigned long p2p_public_address(void)
 	return result;
 }
 
+/* a game is being joined, whichever way (a listed game, an invite, a direct
+address, the local network, a server's change of game): the invite stays
+only if the host is the invite's, its identifier the one p2p_identifier_from_hash
+gives; any other join forgets it, so a report of the game never goes out
+under another game's invite */
+void p2p_joining_host(const unsigned char *identifier)
+{
+	unsigned char host[P2P_IDENTIFIER_SIZE];
+
+	pthread_mutex_lock(&p2p_lock);
+	p2p_identifier_from_hash(p2p.join_host_hash, host);
+	if (memcmp(host, identifier, P2P_IDENTIFIER_SIZE))
+	{
+		memset(p2p.join_host_hash, 0, sizeof(p2p.join_host_hash));
+		memset(p2p.join_token, 0, sizeof(p2p.join_token));
+	}
+	pthread_mutex_unlock(&p2p_lock);
+}
+
 /* the code of the invite this machine last joined through (its host's key
 hash and token, in hexadecimal), as a host's p2p_hosting_invite */
 int p2p_joined_invite(char *text, int size)
@@ -2430,7 +2449,9 @@ int p2p_joined_invite(char *text, int size)
 	int result;
 
 	pthread_mutex_lock(&p2p_lock);
-	result = memcmp(p2p.join_host_hash, none, sizeof(none)) != 0 && size > (int)sizeof(code) * 2;
+	/* (not while hosting: a game of its own has no joined invite) */
+	result = !p2p.hosting && memcmp(p2p.join_host_hash, none, sizeof(none)) != 0 &&
+		size > (int)sizeof(code) * 2;
 	if (result)
 	{
 		memcpy(code, p2p.join_host_hash, P2P_KEY_HASH_SIZE);
