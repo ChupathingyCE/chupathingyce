@@ -109,9 +109,6 @@ symbols in this file:
 #include "rasterizer_xbox.h"
 #include "rasterizer_xbox_pixel_shader.h"
 #include "halo_perf_log.h" /* port: console.perf_log */
-#ifdef HALO_XBOX_CONSOLE
-#include "halo_console_memory.h"
-#endif
 #ifdef HALO_64BIT
 #include "cseries/cseries_windows.h" /* (declared: its result is not an int) */
 #endif
@@ -216,6 +213,8 @@ enum
 };
 
 static boolean screen_effect_source_swizzled = FALSE;
+/* (with a mask, stage 0 reads the mask, not the picture) */
+static boolean screen_effect_source_masked = FALSE;
 #endif
 
 
@@ -489,7 +488,7 @@ static void rasterizer_screen_effect_set_texture_transforms(
 			short row;
 			short column;
 
-			for (row = 0; row < 8; row++)
+			for (row = screen_effect_source_masked ? 2 : 0; row < 8; row++)
 			{
 				for (column = 0; column < 4; column++)
 					constants[row][column] *= (row & 1) ?
@@ -513,68 +512,65 @@ passes of four taps each) costs the graphics chip 1.75 ms a pass, of which
 1.1 ms is the four reads of the last pass's picture: a linear texture
 (the back buffer, or the depth buffer's memory as the second target), which
 the chip's texture cache reads poorly. Read once, the picture costs 0.8 ms a
-pass. On a console with the extras, the passes between the first and the
-last go between two swizzled 1024x512 targets instead (4 MB, made the first
-time a convolution is drawn): the first pass still reads the back buffer and
-the last still writes it, with the same blend, so the picture is the same.
+pass. So the even passes, which wrote the depth buffer's memory, write a
+swizzled 1024x512 target instead (2 MB the port sets aside at the start,
+xbox_memory_screen_effect_target), and the odd ones read it: the passes
+still alternate with the back buffer, the first still reads it and the last
+still writes it with the same blend, so the picture is the same.
 A linear texture clamps its reads at the screen's last row and column; the
-swizzled one's last are far past them, so each pass also copies its last
-column and row into a margin beside the picture (the margin's pixels are
-that edge's own: the same pass, its texture coordinates held at the edge),
-and a read past the edge finds what the clamp would have given it. */
-static D3DTexture *screen_effect_swizzled_textures[2] = { NULL, NULL };
-static D3DSurface *screen_effect_swizzled_surfaces[2] = { NULL, NULL };
-static boolean screen_effect_swizzled_failed = FALSE;
+swizzled one's last are far past them, so each pass into it also copies
+its last column and row into a margin beside the picture (the margin's
+pixels are that edge's own: the same pass, its texture coordinates held at
+the edge), and a read past the edge finds what the clamp would have given
+it. */
+void *xbox_memory_screen_effect_target(unsigned long *size);
 
-static boolean rasterizer_screen_effect_swizzled_targets(
+static D3DTexture screen_effect_swizzled_texture;
+static D3DSurface *screen_effect_swizzled_surface = NULL;
+static boolean screen_effect_swizzled_tried = FALSE;
+
+enum
+{
+	/* the texture's format: in Direct3D's first DMA context, its border
+	from the border color, two-dimensional, A8R8G8B8 swizzled, one level,
+	1024 (2^10) by 512 (2^9) */
+	RASTERIZER_SCREEN_EFFECT_SWIZZLED_FORMAT = 0x00000029 | (D3DFMT_A8R8G8B8 << 8) | (1 << 16) | (10 << 20) | (9 << 24),
+	RASTERIZER_SCREEN_EFFECT_SWIZZLED_COMMON = 0x00040001
+};
+
+static boolean rasterizer_screen_effect_swizzled_target(
 	void)
 {
-	short index;
+	void *memory;
+	unsigned long size;
 
-	if (screen_effect_swizzled_surfaces[1])
-		return TRUE;
-	if (screen_effect_swizzled_failed)
+	if (screen_effect_swizzled_tried)
+		return screen_effect_swizzled_surface != NULL;
+	screen_effect_swizzled_tried = TRUE;
+	memory = xbox_memory_screen_effect_target(&size);
+	if (!memory || size < RASTERIZER_SCREEN_EFFECT_SWIZZLED_WIDTH * RASTERIZER_SCREEN_EFFECT_SWIZZLED_HEIGHT * 4)
 		return FALSE;
-	for (index = 0; index < 2; index++)
-	{
-		if (IDirect3DDevice8_CreateTexture(
-				global_d3d_device,
-				RASTERIZER_SCREEN_EFFECT_SWIZZLED_WIDTH,
-				RASTERIZER_SCREEN_EFFECT_SWIZZLED_HEIGHT,
-				1,
-				D3DUSAGE_RENDERTARGET,
-				D3DFMT_A8R8G8B8,
-				D3DPOOL_DEFAULT,
-				&screen_effect_swizzled_textures[index]) < 0 ||
-			!screen_effect_swizzled_textures[index] ||
-			IDirect3DTexture8_GetSurfaceLevel(
-				screen_effect_swizzled_textures[index],
-				0,
-				&screen_effect_swizzled_surfaces[index]) < 0 ||
-			!screen_effect_swizzled_surfaces[index])
-		{
-			screen_effect_swizzled_failed = TRUE;
-			screen_effect_swizzled_surfaces[0] = NULL;
-			screen_effect_swizzled_surfaces[1] = NULL;
-			error(_error_silent, "### ERROR the screen effect's swizzled targets could not be made; it draws as the Xbox did");
-			return FALSE;
-		}
-	}
-	return TRUE;
+	csmemset(&screen_effect_swizzled_texture, 0, sizeof(screen_effect_swizzled_texture));
+	screen_effect_swizzled_texture.Common = RASTERIZER_SCREEN_EFFECT_SWIZZLED_COMMON;
+	screen_effect_swizzled_texture.Format = RASTERIZER_SCREEN_EFFECT_SWIZZLED_FORMAT;
+	D3DResource_Register((D3DResource *)&screen_effect_swizzled_texture, memory);
+	if (IDirect3DTexture8_GetSurfaceLevel(&screen_effect_swizzled_texture, 0, &screen_effect_swizzled_surface) < 0)
+		screen_effect_swizzled_surface = NULL;
+	if (!screen_effect_swizzled_surface)
+		error(_error_silent, "### ERROR the screen effect's swizzled target could not be used; it draws as the Xbox did");
+	return screen_effect_swizzled_surface != NULL;
 }
 
-/* whether this effect's passes may go through the swizzled targets: a
-convolution of the whole 640x480 screen, without a mask or the video
-effect, whose reads stay within the margin past the screen's edge (a warp
-reads up to half its radius past it, a blur its radius) */
+/* whether this effect's passes may go through the swizzled target: a
+convolution of the whole 640x480 screen, not the video effect, whose reads
+stay within the margin past the screen's edge (a warp reads up to half its
+radius past it, a blur its radius) */
 static boolean rasterizer_screen_effect_uses_swizzled_targets(
 	struct rasterizer_cinematic_screen_effect_parameters const *parameters,
 	short pass_count)
 {
-	return console_memory_extras() &&
-		pass_count >= 2 &&
+	return pass_count >= 2 &&
 		parameters->convolution_type != _rasterizer_screen_effect_convolution_type_none &&
-		!parameters->convolution_mask &&
 		!parameters->video_on &&
 		parameters->convolution_radius >= 0.0f &&
 		parameters->convolution_radius + 2.0f <= (real)RASTERIZER_SCREEN_EFFECT_SWIZZLED_MARGIN &&
@@ -583,7 +579,7 @@ static boolean rasterizer_screen_effect_uses_swizzled_targets(
 		global_window_parameters.camera.viewport_bounds.y0 == 0 &&
 		global_window_parameters.camera.viewport_bounds.x1 == RASTERIZER_SCREEN_EFFECT_SCREEN_WIDTH &&
 		global_window_parameters.camera.viewport_bounds.y1 == RASTERIZER_SCREEN_EFFECT_SCREEN_HEIGHT &&
-		rasterizer_screen_effect_swizzled_targets();
+		rasterizer_screen_effect_swizzled_target();
 }
 
 static void rasterizer_screen_effect_set_viewport(
@@ -870,6 +866,13 @@ void _rasterizer_screen_effect(
 					{
 						if (stage == 0)
 							rasterizer_set_texture_bitmap_data(0, parameters->convolution_mask);
+#ifdef HALO_XBOX_CONSOLE
+						else if (swizzled_passes && (pass & 1))
+							IDirect3DDevice8_SetTexture(
+								global_d3d_device,
+								stage,
+								(D3DBaseTexture *)&screen_effect_swizzled_texture);
+#endif
 						else if (stage == 1)
 							rasterizer_set_target_as_texture(1, source_target, FALSE);
 						else if (stage == 2)
@@ -882,11 +885,11 @@ void _rasterizer_screen_effect(
 					else
 					{
 #ifdef HALO_XBOX_CONSOLE
-						if (swizzled_passes && pass > 0)
+						if (swizzled_passes && (pass & 1))
 							IDirect3DDevice8_SetTexture(
 								global_d3d_device,
 								stage,
-								(D3DBaseTexture *)screen_effect_swizzled_textures[(pass - 1) & 1]);
+								(D3DBaseTexture *)&screen_effect_swizzled_texture);
 						else
 #endif
 						if (stage == 0)
@@ -937,17 +940,18 @@ void _rasterizer_screen_effect(
 				0);
 
 #ifdef HALO_XBOX_CONSOLE
-			screen_effect_source_swizzled = swizzled_passes && pass > 0;
+			screen_effect_source_swizzled = swizzled_passes && (pass & 1);
+			screen_effect_source_masked = parameters->convolution_mask != NULL;
 #endif
 			rasterizer_screen_effect_set_texture_transforms(parameters, pass, pass_count);
 
 #ifdef HALO_XBOX_CONSOLE
 			screen_effect_source_swizzled = FALSE;
-			if (swizzled_passes && pass < pass_count - 1)
+			if (swizzled_passes && !(pass & 1))
 			{
 				IDirect3DDevice8_SetRenderTarget(
 					global_d3d_device,
-					screen_effect_swizzled_surfaces[pass & 1],
+					screen_effect_swizzled_surface,
 					NULL);
 				rasterizer_screen_effect_set_viewport(
 					0,
@@ -1405,7 +1409,7 @@ void _rasterizer_screen_effect(
 					"IDirect3DDevice8_End(global_d3d_device)");
 			}
 #ifdef HALO_XBOX_CONSOLE
-			if (swizzled_passes && pass < pass_count - 1)
+			if (swizzled_passes && !(pass & 1))
 				rasterizer_screen_effect_draw_margins(viewport_width, viewport_height);
 #endif
 		}
