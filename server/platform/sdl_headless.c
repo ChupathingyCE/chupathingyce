@@ -282,6 +282,13 @@ SDL_AudioDeviceID SDL_GetAudioStreamDevice(SDL_AudioStream *stream)
 	return 0;
 }
 
+const char *SDL_GetAudioDeviceName(SDL_AudioDeviceID device)
+{
+	(void)device;
+	headless_set_error("the server plays no sound");
+	return NULL;
+}
+
 bool SDL_GetAudioDeviceFormat(SDL_AudioDeviceID device, SDL_AudioSpec *specification, int *sample_frames)
 {
 	(void)device;
