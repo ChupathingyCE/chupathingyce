@@ -98,6 +98,10 @@ boolean ui_widgets_active(
 	void);
 boolean ui_widgets_active_for_local_player(
 	short local_player_index);
+/* port: a menu, the virtual keyboard or a screen of code over them takes
+the input (the chat waits) */
+boolean ui_widgets_take_input(
+	void);
 void ui_widgets_inhibit_processing(
 	boolean inhibit);
 void draw_bitmap_in_rect(
@@ -160,11 +164,14 @@ real_argb_color get_ui_argb_white(
 pixel32 modulate_pixel32_by_real_alpha(
 	pixel32 argb,
 	real alpha);
-/* port: a spinner's items of its string list's own, and the description of
-an extra item (ui_widget.c) */
+/* port: a spinner's items of its string list's own, the description of an
+extra item, and whether its list's picture shows it (ui_widget.c) */
 short ui_widget_spinner_own_item_count(
 	struct widget_instance *spinner);
 short ui_widget_spinner_extra_description(
+	struct widget_instance *spinner,
+	short item_index);
+boolean ui_widget_spinner_item_pictured(
 	struct widget_instance *spinner,
 	short item_index);
 void ui_widget_delete(

@@ -76,6 +76,29 @@ about 384 KB; a console draws them as sampled each tick, as retail */
 #define HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
 #endif
 
+/* the Controls screen (port/linux/game/controls_screen.c), the pause menu's
+CONTROLS and the controller's custom layout (port/linux/src/controller_layout.c):
+a console keeps its profile's layouts; the switch also leaves out
+controls.controller_layout and display.pause_controls */
+#ifndef HALO_CONSOLE_NO_CONTROLS
+#define HALO_CONSOLE_NO_CONTROLS
+#endif
+
+/* Delta Profile in the game (port/linux/game/profile_screen.c): its screen,
+its ways in from the menus, and players shown by their profile's name on
+the scoreboard and in the lobby; a console that gets the game list keeps
+Online Games' Link Profile panel, as before */
+#ifndef HALO_CONSOLE_NO_DELTA_PROFILE
+#define HALO_CONSOLE_NO_DELTA_PROFILE
+#endif
+
 #endif /* HALO_CONSOLE */
+
+/* text chat (port/linux/game/chat.c): the desktop builds' (HALO_GAME_BROWSER),
+and a console's with Delta Peer as a client (HALO_CONSOLE_DELTA), the
+client's part only, unless it sets HALO_CONSOLE_NO_CHAT */
+#if defined(HALO_GAME_BROWSER) || (defined(HALO_CONSOLE_DELTA) && !defined(HALO_CONSOLE_NO_CHAT))
+#define HALO_PORT_CHAT
+#endif
 
 #endif /* __HALO_PORT_FEATURES_H */

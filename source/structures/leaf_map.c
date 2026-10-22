@@ -581,7 +581,7 @@ boolean leaf_map_leaf_spans_polygon(
 	for (face_index = 0; face_index < leaf->faces.count; face_index++)
 	{
 		struct map_leaf_face *face = TAG_BLOCK_GET_ELEMENT(&leaf->faces, face_index, struct map_leaf_face);
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 		struct bsp3d_node *node = TAG_BLOCK_GET_ELEMENT(&LEAF_MAP_BSP(leaf_map)->nodes, face->node_index, struct bsp3d_node);
 		real_plane3d *face_plane = TAG_BLOCK_GET_ELEMENT(&LEAF_MAP_BSP(leaf_map)->planes, node->plane_designator, real_plane3d);
 #else
@@ -703,7 +703,7 @@ void leaf_map_get_leaf_bounds(
 		for (face_index = 0; face_index < leaf->faces.count; face_index++)
 		{
 			struct map_leaf_face *face = TAG_BLOCK_GET_ELEMENT(&leaf->faces, face_index, struct map_leaf_face);
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 			struct bsp3d_node *node = TAG_BLOCK_GET_ELEMENT(&LEAF_MAP_BSP(leaf_map)->nodes, face->node_index, struct bsp3d_node);
 			real_plane3d *plane = TAG_BLOCK_GET_ELEMENT(&LEAF_MAP_BSP(leaf_map)->planes, node->plane_designator, real_plane3d);
 #else
@@ -796,7 +796,7 @@ void render_debug_leaf_faces(
 	real_point3d previous_vertex;
 	short face_index;
 
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 	match_assert(
 		"c:\\halo\\SOURCE\\structures\\leaf_map.c",
 		940,
@@ -910,7 +910,7 @@ static boolean find_like_crossing(
 	{
 		long traversal_node = node_stack_read(levels_up);
 		struct bsp3d_node *node = TAG_BLOCK_GET_ELEMENT(
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 			&LEAF_MAP_BSP(leaf_map)->nodes,
 #else
 			&leaf_map->bsp->nodes,
@@ -1029,7 +1029,7 @@ static void leaf_map_build_leaf_faces(
 	struct leaf_map *leaf_map,
 	long node_index)
 {
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 	struct bsp3d_node *node = TAG_BLOCK_GET_ELEMENT(&LEAF_MAP_BSP(leaf_map)->nodes, node_index, struct bsp3d_node);
 #else
 	struct bsp3d_node *node = TAG_BLOCK_GET_ELEMENT(&leaf_map->bsp->nodes, node_index, struct bsp3d_node);
@@ -1086,7 +1086,7 @@ static void leaf_map_build_leaf_face_for_leaf_on_node(
 {
 	long node_index = index_from_node(node_designator);
 	real_plane3d *reference_plane = TAG_BLOCK_GET_ELEMENT(
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 		&LEAF_MAP_BSP(leaf_map)->planes,
 		TAG_BLOCK_GET_ELEMENT(&LEAF_MAP_BSP(leaf_map)->nodes, node_index, struct bsp3d_node)->plane_designator,
 #else
@@ -1114,13 +1114,13 @@ static void leaf_map_build_leaf_face_for_leaf_on_node(
 		if (traversal_node != node_designator)
 		{
 			plane = *TAG_BLOCK_GET_ELEMENT(
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 				&LEAF_MAP_BSP(leaf_map)->planes,
 #else
 				&leaf_map->bsp->planes,
 #endif
 				TAG_BLOCK_GET_ELEMENT(
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 					&LEAF_MAP_BSP(leaf_map)->nodes,
 #else
 					&leaf_map->bsp->nodes,
@@ -1199,7 +1199,7 @@ static void leaf_map_build_portals(
 	struct leaf_map *leaf_map,
 	long node_index)
 {
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 	struct bsp3d_node *node = TAG_BLOCK_GET_ELEMENT(&LEAF_MAP_BSP(leaf_map)->nodes, node_index, struct bsp3d_node);
 #else
 	struct bsp3d_node *node = TAG_BLOCK_GET_ELEMENT(&leaf_map->bsp->nodes, node_index, struct bsp3d_node);
@@ -1247,7 +1247,7 @@ static void leaf_map_build_portals_from_leaf(
 	long node_index,
 	short levels_up)
 {
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 	struct bsp3d_node *node = TAG_BLOCK_GET_ELEMENT(&LEAF_MAP_BSP(leaf_map)->nodes, node_index, struct bsp3d_node);
 #else
 	struct bsp3d_node *node = TAG_BLOCK_GET_ELEMENT(&leaf_map->bsp->nodes, node_index, struct bsp3d_node);
@@ -1377,13 +1377,13 @@ static void leaf_map_build_portal_from_leaves(
 					portal_index,
 					struct leaf_portal);
 				real_plane3d *plane = TAG_BLOCK_GET_ELEMENT(
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 					&LEAF_MAP_BSP(leaf_map)->planes,
 #else
 					&leaf_map->bsp->planes,
 #endif
 					TAG_BLOCK_GET_ELEMENT(
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 						&LEAF_MAP_BSP(leaf_map)->nodes,
 #else
 						&leaf_map->bsp->nodes,
@@ -1396,7 +1396,7 @@ static void leaf_map_build_portal_from_leaves(
 				real area;
 
 				portal->plane_index = TAG_BLOCK_GET_ELEMENT(
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 					&LEAF_MAP_BSP(leaf_map)->nodes,
 #else
 					&leaf_map->bsp->nodes,
@@ -1462,7 +1462,7 @@ static void leaf_face_get_vertex3d(
 	short vertex_index,
 	real_point3d *result)
 {
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 	struct bsp3d_node *node = TAG_BLOCK_GET_ELEMENT(&LEAF_MAP_BSP(map)->nodes, face->node_index, struct bsp3d_node);
 	real_plane3d *plane = TAG_BLOCK_GET_ELEMENT(&LEAF_MAP_BSP(map)->planes, node->plane_designator, real_plane3d);
 #else

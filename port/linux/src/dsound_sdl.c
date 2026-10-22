@@ -30,6 +30,9 @@ the game's completion callback is not meant to run concurrently with it.
 Without an audio device, a clock thread runs the same mixer into a scratch
 buffer, so streams still drain at their real rate.
 
+The audio probe (port/linux/game/audio_probe.c) records the mixer's output,
+and the reverb's input and output apart (recording).
+
 audio.volume sets the master volume (default 1.0); audio.reverb = false
 turns the reverb off; audio.resampling = "linear" resamples by linear
 interpolation instead (resampling); audio.enabled = false skips opening a
@@ -305,7 +308,17 @@ static short *decode_pcm(const unsigned char *source, unsigned long size, unsign
 	short *samples = malloc((frames ? frames : 1) * channels * sizeof(short));
 
 	if (samples)
+	{
+#ifdef HALO_BIG_ENDIAN
+		/* (the maps' samples are little-endian) */
+		unsigned long index;
+
+		for (index = 0; index < frames * channels; index++)
+			samples[index] = (short)(source[index * 2] | (source[index * 2 + 1] << 8));
+#else
 		memcpy(samples, source, frames * channels * sizeof(short));
+#endif
+	}
 	*frame_count = samples ? frames : 0;
 	return samples;
 }
@@ -1116,11 +1129,236 @@ static void limit(float *output, unsigned long frames)
 	}
 }
 
+/* ---------- recording
+
+What the mixer plays, for the audio probe (port/linux/game/audio_probe.c,
+audio_probe.h): <prefix>-final.wav is the output as it goes to the device,
+<prefix>-dry.wav the voices' mix before the reverb, <prefix>-reverb.wav the
+reverb's output (the reflections and the late reverberation, at the reverb's
+level), each 32-bit float stereo at OUTPUT_RATE. The final mix comes through
+the limiter, LIMITER_LOOKAHEAD - 1 frames behind the other two. The mixer
+puts what it mixes in a ring; the game's thread writes it out
+(audio_capture_update), so the audio thread never waits on a file. */
+
+#define CAPTURE_BUSES 3
+#define CAPTURE_RING_FRAMES (OUTPUT_RATE * 4)
+
+static const char *const capture_bus_names[CAPTURE_BUSES] = { "final", "dry", "reverb" };
+
+static pthread_mutex_t capture_lock = PTHREAD_MUTEX_INITIALIZER;
+static struct
+{
+	volatile BOOL on;
+	/* CAPTURE_BUSES rings of CAPTURE_RING_FRAMES stereo frames */
+	float *ring;
+	/* frames put in the rings and taken out, from the start */
+	unsigned long put, taken;
+	/* frames mixed since the start (put, and any the full rings lost) */
+	unsigned long frames;
+	unsigned long lost;
+	FILE *files[CAPTURE_BUSES];
+	unsigned long file_frames;
+	/* the mixer's (mix) */
+	float dry[MIX_CHUNK_FRAMES * OUTPUT_CHANNELS];
+	float reverb[MIX_CHUNK_FRAMES * OUTPUT_CHANNELS];
+} capture;
+
+static void capture_push(const float *output, unsigned long frames)
+{
+	const float *buses[CAPTURE_BUSES];
+	unsigned long bus, frame;
+
+	buses[0] = output;
+	buses[1] = capture.dry;
+	buses[2] = capture.reverb;
+	pthread_mutex_lock(&capture_lock);
+	/* (stopped since this mix began) */
+	if (!capture.on)
+	{
+		pthread_mutex_unlock(&capture_lock);
+		return;
+	}
+	if (capture.put - capture.taken + frames > CAPTURE_RING_FRAMES)
+	{
+		capture.lost += frames;
+	}
+	else
+	{
+		for (frame = 0; frame < frames; frame++)
+		{
+			unsigned long slot = (capture.put + frame) % CAPTURE_RING_FRAMES;
+
+			for (bus = 0; bus < CAPTURE_BUSES; bus++)
+			{
+				float *ring = capture.ring + (bus * CAPTURE_RING_FRAMES + slot) * OUTPUT_CHANNELS;
+
+				ring[0] = buses[bus][frame * OUTPUT_CHANNELS];
+				ring[1] = buses[bus][frame * OUTPUT_CHANNELS + 1];
+			}
+		}
+		capture.put += frames;
+	}
+	capture.frames += frames;
+	pthread_mutex_unlock(&capture_lock);
+}
+
+static void capture_write_u32(FILE *file, unsigned long value)
+{
+	unsigned char bytes[4];
+
+	bytes[0] = (unsigned char)value;
+	bytes[1] = (unsigned char)(value >> 8);
+	bytes[2] = (unsigned char)(value >> 16);
+	bytes[3] = (unsigned char)(value >> 24);
+	fwrite(bytes, 1, 4, file);
+}
+
+static void capture_write_u16(FILE *file, unsigned int value)
+{
+	unsigned char bytes[2];
+
+	bytes[0] = (unsigned char)value;
+	bytes[1] = (unsigned char)(value >> 8);
+	fwrite(bytes, 1, 2, file);
+}
+
+/* a WAVE header of 32-bit float stereo frames */
+static void capture_write_header(FILE *file, unsigned long frames)
+{
+	unsigned long data_bytes = frames * OUTPUT_CHANNELS * sizeof(float);
+
+	fwrite("RIFF", 1, 4, file);
+	capture_write_u32(file, 4 + 8 + 18 + 8 + data_bytes);
+	fwrite("WAVEfmt ", 1, 8, file);
+	capture_write_u32(file, 18);
+	capture_write_u16(file, 3); /* WAVE_FORMAT_IEEE_FLOAT */
+	capture_write_u16(file, OUTPUT_CHANNELS);
+	capture_write_u32(file, OUTPUT_RATE);
+	capture_write_u32(file, OUTPUT_RATE * OUTPUT_CHANNELS * sizeof(float));
+	capture_write_u16(file, OUTPUT_CHANNELS * sizeof(float));
+	capture_write_u16(file, 32);
+	capture_write_u16(file, 0);
+	fwrite("data", 1, 4, file);
+	capture_write_u32(file, data_bytes);
+}
+
+int audio_capture_start(char const *path_prefix)
+{
+	unsigned long bus;
+
+	if (capture.on)
+		return 0;
+	capture.ring = calloc((size_t)CAPTURE_BUSES * CAPTURE_RING_FRAMES * OUTPUT_CHANNELS, sizeof(float));
+	if (!capture.ring)
+		return 0;
+	for (bus = 0; bus < CAPTURE_BUSES; bus++)
+	{
+		char name[512], path[1024];
+
+		/* (the probe's path is the game's, an Xbox path) */
+		snprintf(name, sizeof(name), "%s-%s.wav", path_prefix, capture_bus_names[bus]);
+		platform_translate_path(name, path, sizeof(path));
+		capture.files[bus] = fopen(path, "wb");
+		if (!capture.files[bus])
+		{
+			platform_log("audio probe: cannot write %s", path);
+			while (bus-- > 0)
+				fclose(capture.files[bus]);
+			free(capture.ring);
+			capture.ring = NULL;
+			return 0;
+		}
+		capture_write_header(capture.files[bus], 0);
+	}
+	pthread_mutex_lock(&capture_lock);
+	capture.put = capture.taken = capture.frames = capture.lost = 0;
+	capture.file_frames = 0;
+	capture.on = TRUE;
+	pthread_mutex_unlock(&capture_lock);
+	platform_log("audio probe: recording the mixer (audio.volume %.2f, reverb %s, %s resampling, the final mix %d "
+		"frames behind the buses)", master_volume, reverb_enabled ? "on" : "off",
+		resampling_linear ? "linear" : "sinc", LIMITER_LOOKAHEAD - 1);
+	return 1;
+}
+
+unsigned long audio_capture_frames(void)
+{
+	unsigned long frames;
+
+	pthread_mutex_lock(&capture_lock);
+	frames = capture.frames;
+	pthread_mutex_unlock(&capture_lock);
+	return frames;
+}
+
+unsigned long audio_capture_rate(void)
+{
+	return OUTPUT_RATE;
+}
+
+char const *audio_capture_platform(void)
+{
+	return "pc";
+}
+
+void audio_capture_update(void)
+{
+	unsigned long put, bus;
+
+	if (!capture.ring)
+		return;
+	pthread_mutex_lock(&capture_lock);
+	put = capture.put;
+	pthread_mutex_unlock(&capture_lock);
+	/* (the frames between taken and put are the mixer's no longer) */
+	while (capture.taken != put)
+	{
+		unsigned long slot = capture.taken % CAPTURE_RING_FRAMES;
+		unsigned long count = put - capture.taken;
+
+		if (count > CAPTURE_RING_FRAMES - slot)
+			count = CAPTURE_RING_FRAMES - slot;
+		for (bus = 0; bus < CAPTURE_BUSES; bus++)
+			fwrite(capture.ring + (bus * CAPTURE_RING_FRAMES + slot) * OUTPUT_CHANNELS, sizeof(float) * OUTPUT_CHANNELS,
+				count, capture.files[bus]);
+		capture.file_frames += count;
+		pthread_mutex_lock(&capture_lock);
+		capture.taken += count;
+		pthread_mutex_unlock(&capture_lock);
+	}
+}
+
+void audio_capture_stop(void)
+{
+	unsigned long bus;
+
+	if (!capture.on)
+		return;
+	pthread_mutex_lock(&capture_lock);
+	capture.on = FALSE;
+	pthread_mutex_unlock(&capture_lock);
+	audio_capture_update();
+	for (bus = 0; bus < CAPTURE_BUSES; bus++)
+	{
+		fseek(capture.files[bus], 0, SEEK_SET);
+		capture_write_header(capture.files[bus], capture.file_frames);
+		fclose(capture.files[bus]);
+		capture.files[bus] = NULL;
+	}
+	if (capture.lost)
+		platform_log("audio probe: the recording lost %lu frames (the game's thread was held up); what follows is "
+			"that much early", capture.lost);
+	platform_log("audio probe: recorded %lu frames", capture.file_frames);
+	free(capture.ring);
+	capture.ring = NULL;
+}
+
 static void mix(float *output, unsigned long frames)
 {
 	struct sdl_stream *stream;
 	DSI3DL2LISTENER properties;
 	BOOL enabled = reverb_enabled, changed = FALSE;
+	BOOL capturing = capture.on && frames <= MIX_CHUNK_FRAMES;
 	unsigned long serial = 0;
 
 	memset(output, 0, frames * OUTPUT_CHANNELS * sizeof(float));
@@ -1140,6 +1378,8 @@ static void mix(float *output, unsigned long frames)
 	pthread_mutex_unlock(&mixer_lock);
 	if (changed)
 		reverb_update(&properties, serial);
+	if (capturing)
+		memcpy(capture.dry, output, frames * OUTPUT_CHANNELS * sizeof(float));
 	/* the reverb runs while something reverberates, and stops once it is
 	turned off and faded out, or quiet */
 	if (!reverb.silent || (enabled && reverb_sent(reverb.send, frames)))
@@ -1148,7 +1388,16 @@ static void mix(float *output, unsigned long frames)
 		if ((!enabled && reverb.level <= 0.0f) || reverb.quiet > REVERB_QUIET_FRAMES)
 			reverb_clear();
 	}
+	if (capturing)
+	{
+		unsigned long index;
+
+		for (index = 0; index < frames * OUTPUT_CHANNELS; index++)
+			capture.reverb[index] = output[index] - capture.dry[index];
+	}
 	limit(output, frames);
+	if (capturing)
+		capture_push(output, frames);
 }
 
 /* ---------- output */

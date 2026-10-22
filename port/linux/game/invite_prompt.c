@@ -305,7 +305,7 @@ void invite_prompt_render(
 		ui_overlay_rect(150, 60, 340, 26, 6, COLOR_BANNER);
 		ui_overlay_outline(150, 60, 340, 26, 6, 1.0f, COLOR_BANNER_EDGE);
 		ui_overlay_text(UI_FONT_REGULAR, 11.0f, 320, 67, UI_ALIGN_CENTER, COLOR_TEXT,
-			"An invite is on your clipboard: pause to answer it");
+			"Invite on your clipboard. Pause to answer.");
 		return;
 	}
 
@@ -335,11 +335,6 @@ void invite_prompt_render(
 		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, DIALOG_Y + 84, UI_ALIGN_CENTER, dim, invite_prompt.name);
 		if (invite_prompt.map[0])
 			ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, DIALOG_Y + 100, UI_ALIGN_CENTER, dim, invite_prompt.map);
-	}
-	else
-	{
-		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, center, DIALOG_Y + 88, UI_ALIGN_CENTER, dim,
-			"An invite link was copied before switching to the game.");
 	}
 
 	/* B before A, as the Xbox's dialogs have them */

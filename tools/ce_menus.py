@@ -367,11 +367,10 @@ class Art:
             self.draw(relative, index, len(data), width, height, MENUS / png, self.shown.get(tag, []))
             self.pngs.append(png)
             lines.append(f"\t\t<frame{attributes([('png', png), ('width', width), ('height', height)])}/>")
-        # (frames repeated: port_settings.FRAME_COPIES)
-        frames = lines[1:]
-        for place, frame in sorted(port_settings.FRAME_COPIES.get(our_name(tag), {}).items()):
-            frames.insert(place, lines[1 + frame])
-        lines[1:] = frames
+        # (frames in another order, repeated or not: port_settings.FRAME_ORDERS)
+        order = port_settings.FRAME_ORDERS.get(our_name(tag))
+        if order:
+            lines[1:] = [lines[1 + frame] for frame in order]
         # (the port's frames after them: the Xbox map's, scaled)
         for source, index, width, height, x, y in port_settings.BITMAP_FRAMES.get(our_name(tag), []):
             self.added_frames.append((our_name(tag), source, index))
@@ -527,7 +526,7 @@ def widget_xml(tag: str, widget: dict, tags: Tags, functions: list, inputs: list
         lines.append(f"{inner}<conditional{attributes([('widget', our_name(conditional['widget tag'])), ('if_failed', 'true' if conditional['flags'] & 1 else None)])}/>")
     for child in widget["child widgets"]:
         child_tag = child["widget tag"]
-        if child_tag in LEFT_OUT:
+        if child_tag in LEFT_OUT or our_name(child_tag) in patch.get("leave_out", ()):
             continue
         x, y = CHILD_OFFSETS.get((tag, child_tag), (child["horizontal offset"], child["vertical offset"]))
         x, y = patch.get("offsets", {}).get(our_name(child_tag), (x, y))
@@ -713,6 +712,8 @@ def main() -> None:
     (MENUS / "UNWIRED.md").write_text("\n".join(report))
     files = sorted(path.relative_to(MENUS).as_posix() for path in MENUS.rglob("*.xml"))
     files += sorted(art.pngs)
+    # (the Chupathingy menus' own pictures, drawn by hand: kept)
+    files += sorted(path.relative_to(MENUS).as_posix() for path in (MENUS / "chupathingy").rglob("*.png"))
     (MENUS / "menus.json").write_text(json.dumps({
         "comment": "The menus' files the game embeds (tools/ce_menus.py, tools/embed_assets.py).",
         "files": files,

@@ -11,7 +11,7 @@ advertisement's flag, the handshake with silent fallback, platform keys,
 and the `platform`, `profile`, `ce_maps` and `moderation` capabilities (see
 "Delta Peer"). Delta Stats' event log, server moderators and linking
 servers to the site shipped in 0.7.1b. The site's page for players:
-https://halo.milenko.org/delta
+https://stats.chupathingy.org/delta
 
 Delta is the name for everything ChupathingyCE's machines say to each other
 and to our services beyond the game protocol OpenCE defines. It has one rule
@@ -45,7 +45,7 @@ Delta. Delta works around it (see "The legacy number" below).
       \\  <==================================================>    //
        \\                                                       //
         \\  Delta List / Stats / Link (HTTPS)       Delta List / Stats / Link
-         `------------------->  halo.milenko.org  <-------------'
+         `------------------->  stats.chupathingy.org  <-------------'
                                       ^
                                       | Delta Link (server dials out)
                                       |
@@ -345,12 +345,17 @@ plays, with `ce_maps` agreed by both:
   in beside `maps/` (the Xbox's own): 0 the Xbox's (`maps/`), 1 Halo PC
   Custom Edition (`<file>@ce`, `maps_ce/`, with Custom Edition's
   `bitmaps.map`, `sounds.map` and `loc.map`), 2 HaloMD (`<file>@md`,
-  `maps_md/`), 3 Halo PC retail (`<file>@pc`, `maps_pc/`). A family number a
-  build does not know is carried as it is, and its client checks nothing.
+  `maps_md/`), 3 Halo PC retail (`<file>@pc`, `maps_pc/`), 4 an Xbox map
+  pack's (`<file>@<pack>`, `maps_<pack>/`: Halo CE+'s `bloodgulch@cex` in
+  `maps_cex/`; named `<file>.<pack>` in a MAP, since a name has no `@`, and
+  hashed as a Halo PC map is). A family number a build does not know is
+  carried as it is, and its client checks nothing.
 - **Names on the legacy wire** stay OpenCE's: a host names a Custom Edition
   map `custom_maps\<file>` in the game's settings (OpenCE's build-145 form,
   network version 22), and HaloMD and Halo PC retail maps
-  `maps_md\<file>.md` and `maps_pc\<file>.pc`, which OpenCE's clients do not
+  `maps_md\<file>.md` and `maps_pc\<file>.pc`, and a map pack's
+  `maps_<pack>\<file>.<pack>` (with the game record's map version its
+  file's fingerprint, `halo_map_packs.h`), which OpenCE's clients do not
   have and are told they miss. Our clients read those back as `<file>@ce`,
   `@md` and `@pc`. MAP is what carries the real identity between our
   machines.
@@ -443,9 +448,9 @@ Text chat between Delta players, and the host's own lines (server messages),
 over Delta Peer: `chat` (bit 3) carries players' lines, `server_messages`
 (bit 2) the host's (CHAT_LINE of kind server or system). Each is agreed per
 pair, so OpenCE machines never send or receive either, and a Delta client
-that takes server messages but not chat is sent only those. Should OpenCE
-ship a text chat of its own, it would be bridged here, never mixed into the
-game protocol.
+that takes server messages but not chat is sent only those. OpenCE's own
+text chat is bridged to it (below): the two meet in the host, and nothing
+of Delta's goes into the game protocol.
 
 - **Saying.** A client sends CHAT_SAY: its scope (everyone or team) and up
   to 120 bytes of UTF-8 (80 characters). The host checks the session, the
@@ -478,10 +483,55 @@ game protocol.
 - **Nothing is kept.** Neither the host nor the dedicated server writes
   down what is said; the site never sees it. Only the admins' own actions
   (`sv_say`, mutes) are in the server's audit file.
+- **OpenCE's chat (the bridge).** OpenCE's text chat goes over the game's
+  distributed messages, which the bridge takes as they are (their format
+  as of OpenCE's CC0 version of 2026-10-18; message types 87 to 89, which a
+  build without them drops as unknown): `chat_up`, a client's line to its
+  host (a 68-byte entry: the player's absolute index, flags, two bytes of
+  0, and 64 bytes of text); `chat_down`, the host's line to a machine that
+  hears it, the same entry (the flags: bit 0 the team, bit 1 the vehicle,
+  bit 2 the host's notice, its text alone); and `chat_config`, the host's
+  settings to each client (4 bytes: bit 0 chat allowed, bit 1 links
+  allowed), sent as they change and every 3 seconds. Each takes one entry,
+  reliably, over the sender's stream alone. Their text is printable ASCII
+  without `|`, at most 63 characters.
+  - **A Chupathingy host** sends each machine that has no Delta session
+    taking its lines `chat_config`, from its own settings alone: allowed
+    while its chat is on and `network.chat_legacy` (a dedicated server's
+    `chat_legacy`, both on by default) lets OpenCE players chat, and the
+    legacy table's kill switch hasn't turned Delta's chat off. Links are
+    allowed, as Delta chat has no rule against them. OpenCE's own rule of
+    no chat in a game listed in the server browser is theirs: our host
+    doesn't apply it (an OpenCE client that joined from their browser keeps
+    its chat off anyway). It takes `chat_up` from such a machine's own
+    player only, and checks it as it checks CHAT_SAY: the same budget and
+    cooldown, the repeat check, the text, the machine's mute, then its mode
+    and filter. A refusal goes back as the host's notice. A line taken (and
+    every line of a Delta machine, and the host's own player's) goes to
+    each Delta machine as CHAT_LINE and to each OpenCE machine that may
+    hear it as `chat_down`, its UTF-8 made ASCII (Latin-1's letters without
+    their accents, typographic quotes and dashes as plain ones, anything
+    else `?`) and cut to 63 characters. A server line (`sv_say`, the
+    welcome) goes to OpenCE machines as the host's notice. With OpenCE
+    players left out OpenCE machines are sent nothing but the setting, and
+    a refusal to one that says a line anyway. A vehicle line from OpenCE is
+    a team line here (Delta has no narrower scope), and a team line in a
+    game without teams is everyone's, as OpenCE has it.
+  - **A Chupathingy client** whose host has no Delta chat (an OpenCE host)
+    follows that host's `chat_config`: it says its lines as `chat_up` once
+    the host allows chat, and shows each `chat_down` as a line of the
+    host's game (a notice as a system line). The player's own settings
+    decide the rest, as for Delta's lines: `chat.enabled`, `chat.show`, the
+    filter and their mutes. It takes nothing but the host's stream. A host
+    with Delta chat is never bridged: its lines come over Delta alone.
+  - A message of the wrong size is dropped and the log says so once (the
+    machine's index, never its address); nothing about chat ever ends a
+    connection.
 
-The game's side is `port/linux/game/chat.c` (keys, the log, routing),
-`port/linux/src/delta_chat.c` (the filter and the host's rules, tested in
-`delta_test.c`) and the dedicated server's `sv_say`, `sv_chat`, `sv_mute`
+The game's side is `port/linux/game/chat.c` (keys, the log, routing, the
+bridge), `port/linux/src/delta_chat.c` (the filter and the host's rules)
+and `port/linux/src/delta_chat_bridge.c` (OpenCE's entries, the text's
+conversion, the bridge's checks), both tested in `delta_test.c`, and the dedicated server's `sv_say`, `sv_chat`, `sv_mute`
 and `sv_unmute` (`server/docs/admin.md`).
 
 ### Team changes
@@ -1265,6 +1315,81 @@ Stats' event log records moderation through it.
 - **Players** (exists): Link Profile ties a game install to a site profile
   with a code (`/v1/link`, `/v1/connect`, `/v1/claim`).
 - **Servers** (exists): see Delta Control, The link to the site.
+
+### Delta Profile in the game
+
+The player's own Delta profile, shown in the game
+(`port/linux/game/profile_screen.c`). The game never makes, renames or
+deletes a profile. The password, email, two-step sign-in, export and
+deletion stay on the site, which OPEN ON THE WEB reaches. Linking is per
+copy: every Halo profile on a copy counts for the same Delta profile.
+
+- **Ways in:** the Chupathingy menus' Profiles have a DELTA row
+  below Create New Profile, with a summary in the panel. Gearbox's Select
+  Profile has a DELTA button. In every menu set, Online Games'
+  Start opens it (the web page when `display.delta_profile` is false).
+  A Halo profile's panel shows one quiet line, "Delta: @handle" or
+  "Delta: not linked". With an empty `network.browser_url`, every way in
+  is hidden.
+- **Sections:** OVERVIEW (name, the player's Spartan, badges, record,
+  recent games), LINKED COPIES, ROLES, CLAN, PRIVACY, then LINK
+  PROFILE or UNLINK THIS COPY, and OPEN ON THE WEB. The Chupathingy menus
+  draw them with their own widgets
+  (`port/assets/menus/chupathingy/delta_profile.xml`), and Privacy is one
+  of their settings pages. The Xbox and Gearbox menus get a
+  screen drawn as Online Games is. The dialogs (Link Profile, unlinking,
+  and the pages of the site with a QR code) are the same in all three.
+- **Requests:** the game sends this copy's player key, over HTTPS only,
+  to the game list: `POST /v1/game/profile` (the profile, its copies, roles
+  and privacy), `/v1/game/unlink` (this copy only) and `/v1/game/privacy`
+  (the site's own privacy settings). The site takes 6 requests a minute
+  from a key, so the game asks at most every 10 seconds, and again when the
+  answer is a minute old. Another copy is unlinked on the site
+  (`/profile#copies`), signed in, never with a key alone. The answer is
+  kept in memory only. `debug.txt` says whether it loaded, never what it
+  holds.
+- **Profile names:** in a game on Delta, a player whose copy shares its
+  profile (`network.share_profile`, Delta Peer's `profile` capability)
+  shows by the profile's display name on the scoreboard, the postgame
+  report and the lobby (`port/linux/game/profile_names.c`). The game asks
+  the site for those players' public cards (`POST /v1/game/players`, no
+  key). A machine with more than one player keeps the game names, because
+  a profile belongs to a copy. OpenCE players, players who don't share,
+  and what OpenCE clients see are unchanged. `display.profile_names =
+  false` shows everyone by their game name.
+- **Consoles:** `HALO_CONSOLE_NO_DELTA_PROFILE` leaves all of it out. A
+  console that has the game list keeps Online Games' Link Profile panel.
+
+### Clans
+
+Clans are groups of Delta profiles, kept by the game list (its
+`clans.py`). A clan has a name, a tag of 2 to 8 letters and digits, a
+motto, an emblem and ranked members (leader, officers, members). Making a
+clan, inviting, ranks, kicking, handing the clan to another member and
+the emblem are on the site (`/profile#clan`, `/clans/TAG`).
+
+- **In the game:** Delta Profile's CLAN section shows the profile's clan:
+  its emblem, name, tag, member count and motto, then its members by rank
+  (the first nine, then how many more). With no clan it lists the clans
+  that invited the profile. Its A opens a dialog: SHOW MY TAG and LEAVE
+  CLAN, or the invites (A joins, X declines). A leader leaves once another
+  member leads, or when alone (the clan goes with them).
+- **The emblem:** a background shape in one color and a foreground shape in
+  two, from Halo's 18 armor colors. The pieces are the site's
+  (`GET /v1/clans/emblem`); `port/linux/src/clan_emblem_table.h` is made
+  from them by `tools/clan_emblem_table.py`, and `clan_emblem.c` draws
+  them the way the site does.
+- **Requests:** `/v1/game/profile` carries `clan` and `clan_invites`, and
+  its privacy `show_clan_tag`; `POST /v1/game/clan` (the player key, an
+  action: `accept`, `decline` or `leave`) answers with the same two.
+- **Tags in games:** a player who shares their profile and shows their tag
+  is "[TAG] Name" on the scoreboard, the postgame report and the lobby, the
+  name cut to fit with "...". The public card (`/v1/game/players`) carries
+  the tag only while its owner shows it. OpenCE players and clients see
+  nothing new.
+- **Privacy:** SHOW CLAN TAG (Delta Profile's Privacy, and the clan dialog)
+  is the site's own setting. Members who hide their service record are left
+  out of the member lists others see, counted as hidden.
 
 ## How it meets everything else
 

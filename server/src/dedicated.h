@@ -55,6 +55,7 @@ struct dedicated_status
 	waiting in the lobby (when enough players stayed) */
 	long postgame_seconds;
 	boolean skip_lobby;
+	boolean playlist_shuffle;
 	char name[16];
 	unsigned long uptime_seconds;
 };
@@ -83,6 +84,7 @@ void dedicated_server_set_name(char const *name);
 void dedicated_server_set_name_filter(boolean name_filter);
 void dedicated_server_set_postgame_seconds(long seconds);
 void dedicated_server_set_skip_lobby(boolean skip_lobby);
+void dedicated_server_set_playlist_shuffle(boolean shuffle);
 
 /* a playlist (a path in the data folder, "admin/playlists/x.txt") played
 from the next game, or at once in the lobby; from its first entry, or

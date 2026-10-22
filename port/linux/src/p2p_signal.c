@@ -98,11 +98,21 @@ enum
 	push out (one each UNPROVEN_ANSWER_INTERVAL at most, after the first
 	few: about 11 seconds), so a joiner's proof, which follows its answer at
 	once, finds its own */
+#ifndef P2P_JOINER_ONLY
 	MAXIMUM_ASKERS = 256,
+#else
+	/* (a machine that only joins hosts no game on the internet: a few for
+	the requests that find it hosting on the local network only) */
+	MAXIMUM_ASKERS = 16,
+#endif
 	/* the requests a session was made from, which make none again (a
 	host takes at most a few new players a minute: this is hours of them;
 	one is not forgotten while its host nonce lasts: USED_REQUEST_TIME) */
+#ifndef P2P_JOINER_ONLY
 	MAXIMUM_USED_REQUESTS = 1024,
+#else
+	MAXIMUM_USED_REQUESTS = 64,
+#endif
 	/* (a slot's: hceu/3/lobby/s/ and a key hash in hex) */
 	TOPIC_SIZE = 64,
 	NONCE_SIZE = 8,

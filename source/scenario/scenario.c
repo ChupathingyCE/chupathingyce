@@ -1078,6 +1078,10 @@ boolean scenario_switch_structure_bsp(
 		had_old_structure_bsp = FALSE;
 
 		match_assert("c:\\halo\\SOURCE\\scenario\\scenario.c", 0x2B7, global_scenario);
+#ifdef HALO_CONSOLE_BRINGUP_LOG
+		/* port: bring-up (the console developer tools), which bsp is loaded when */
+		error(_error_silent, "structure bsp switch: %d -> %d", global_structure_bsp_index, structure_bsp_index);
+#endif
 		main_stop_time();
 		collision_log_enable(FALSE);
 
@@ -1213,6 +1217,18 @@ boolean scenario_load(
 				tag_loaded(GAME_GLOBALS_TAG, "globals\\globals"));
 			if (scenario_switch_structure_bsp(0))
 				result = TRUE;
+#ifdef HALO_CONSOLE_MAP_LOAD_HOOKS
+			/* port: a console's renderer (the Switch's deko3d renderer, the
+			first) puts this map's shaders first in its compile queue and loads them now, under the loading
+			screen, rather than at their first draw (port/switch/guest,
+			dk_shaders.c); the OpenGL renderer does nothing with it */
+			if (result)
+			{
+				extern void d3d8_gl_map_loaded(const char *name);
+
+				d3d8_gl_map_loaded(name);
+			}
+#endif
 		}
 		else
 		{

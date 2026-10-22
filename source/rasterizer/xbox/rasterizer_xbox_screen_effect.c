@@ -108,6 +108,7 @@ symbols in this file:
 #include <xtl.h>
 #include "rasterizer_xbox.h"
 #include "rasterizer_xbox_pixel_shader.h"
+#include "halo_perf_log.h" /* port: console.perf_log */
 #ifdef HALO_64BIT
 #include "cseries/cseries_windows.h" /* (declared: its result is not an int) */
 #endif
@@ -438,6 +439,7 @@ static void rasterizer_screen_effect_set_texture_transforms(
 				223,
 				main_get_window_count()<=1);
 
+#ifndef HALO_XBOX_CONSOLE
 			/* The native builds draw several frames per tick
 			(port/linux/game/render_interpolation.c): move the noise 30 times
 			a second, as the Xbox did once a frame, not every frame. */
@@ -453,6 +455,12 @@ static void rasterizer_screen_effect_set_texture_transforms(
 				random_value = real_seed_random(&noise_seed);
 				constants[5][3] += noise_scale.j * random_value * noise_size.j;
 			}
+#else
+			random_value = real_seed_random(get_global_local_random_seed_address());
+			constants[4][3] += noise_scale.i * random_value * noise_size.i;
+			random_value = real_seed_random(get_global_local_random_seed_address());
+			constants[5][3] += noise_scale.j * random_value * noise_size.j;
+#endif
 		}
 
 		IDirect3DDevice8_SetVertexShaderConstant(
@@ -567,6 +575,7 @@ void _rasterizer_screen_effect(
 			_rasterizer_vertex_shader_screen_effect,
 			_rasterizer_vertex_type_screen,
 			_rasterizer_vertex_shader_permutation_default);
+		HALO_PERF_COUNT(_halo_perf_screen_effect_passes, pass_count);
 
 		for (pass = 0; pass < pass_count; pass++)
 		{
@@ -1015,10 +1024,17 @@ void _rasterizer_screen_effect(
 
 			if (pass == 0 && main_get_window_count() > 1 && pass_count != 1)
 			{
+#ifndef HALO_XBOX_CONSOLE
 				vertex_bounds.x0 = 2 * global_window_parameters.camera.viewport_bounds.x0 *
 					(1.0f / (real)halo_screen_width()) - 1.0f;
 				vertex_bounds.x1 = 2 * global_window_parameters.camera.viewport_bounds.x1 *
 					(1.0f / (real)halo_screen_width()) - 1.0f;
+#else
+				vertex_bounds.x0 = 2 * global_window_parameters.camera.viewport_bounds.x0 *
+					(1.0f / 640.0f) - 1.0f;
+				vertex_bounds.x1 = 2 * global_window_parameters.camera.viewport_bounds.x1 *
+					(1.0f / 640.0f) - 1.0f;
+#endif
 				vertex_bounds.y0 = -2 * global_window_parameters.camera.viewport_bounds.y0 *
 					(1.0f / 480.0f) + 1.0f;
 				vertex_bounds.y1 = -2 * global_window_parameters.camera.viewport_bounds.y1 *

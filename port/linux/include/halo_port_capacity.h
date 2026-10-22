@@ -15,6 +15,10 @@ client's own objects take the upper half of the object array).
 #ifndef __HALO_PORT_CAPACITY_H
 #define __HALO_PORT_CAPACITY_H
 
+/* a console's memory class (HALO_CONSOLE_MEMORY_EXTRAS: the sizes below
+that a console above its baseline raises) */
+#include "halo_console_memory.h"
+
 /* ---------- game state
 
 The Xbox game state is 0x345000 bytes at 0x80061000 and ends where the tag
@@ -29,94 +33,108 @@ fill 3,165,260 of its 0x305000 bytes); the GPU part holds only the decal
 vertices, as on the Xbox. A change to a pool's size changes the game state's
 layout: saved games of builds before it no longer load. */
 
+#ifdef HALO_XBOX_CONSOLE
+/* the console (port/xbox) keeps the Xbox's game state and pools: its 64 MB
+hold no more (docs/cross-play.md) */
+
+#if defined(HALO_CONSOLE_PLAYERS) && HALO_CONSOLE_PLAYERS > 16
+/* a test build of more than 16 players (configure.py --console-players)
+keeps the Xbox's game state, in its place and of its size: of what scales
+with the players, only the players table is in it (0xD4 bytes a player:
+24 players take 1,696 bytes more, 32 players 3,392), and the Xbox's pools
+left 948 bytes free.
+The room comes from the GPU part, whose decal vertices
+(rasterizer_xbox_decals.c's DECAL_VERTEX_CACHE_SIZE) take 0x28000 of its
+0x40000: 64 KB of the unused rest goes to the CPU part. Nothing else moves,
+and no memory is added. The rest of what scales with the players is
+outside the game state (the netcode's arrays and queues: about 170 KB at
+24 players, 360 KB at 32; xbox_memory.c's log) */
+#define HALO_PORT_GAME_STATE_BASE_ADDRESS 0x80061000
+#define HALO_PORT_GAME_STATE_CPU_SIZE 0x315000
+#define HALO_PORT_GAME_STATE_GPU_SIZE 0x30000
+#else
+#define HALO_PORT_GAME_STATE_BASE_ADDRESS 0x80061000
+#define HALO_PORT_GAME_STATE_CPU_SIZE 0x305000
+#define HALO_PORT_GAME_STATE_GPU_SIZE 0x40000
+#endif
+#define HALO_PORT_GAME_STATE_SIZE (HALO_PORT_GAME_STATE_CPU_SIZE+HALO_PORT_GAME_STATE_GPU_SIZE)
+
+/* ---------- AI */
+
+#define HALO_PORT_MAXIMUM_ACTORS 256
+#define HALO_PORT_MAXIMUM_PROPS 768
+#define HALO_PORT_MAXIMUM_SWARMS 32
+#define HALO_PORT_MAXIMUM_SWARM_COMPONENTS 256
+
+/* ---------- objects */
+
+#define HALO_PORT_MAXIMUM_OBJECTS_PER_MAP 2048
+#define HALO_PORT_OBJECT_MEMORY_POOL_SIZE 0x100000
+/* each of the two reference lists of every cluster partition (collideable
+objects, noncollideable objects, lights) */
+#define HALO_PORT_MAXIMUM_CLUSTER_REFERENCES 2048
+#define HALO_PORT_MAXIMUM_RENDERED_OBJECTS 256
+#define HALO_PORT_MAXIMUM_CACHED_OBJECT_RENDER_STATES 256
+/* objects one explosion can damage */
+#define HALO_PORT_MAXIMUM_AREA_OF_EFFECT_OBJECTS 64
+/* script object lists, and the object references they all share */
+#define HALO_PORT_MAXIMUM_OBJECT_LISTS_PER_MAP 48
+#define HALO_PORT_MAXIMUM_LISTED_OBJECTS_PER_MAP 128
+/* widgets (light volumes, antennas, flags, glows, lightning) */
+#define HALO_PORT_MAXIMUM_WIDGETS 64
+#define HALO_PORT_MAXIMUM_LIGHT_VOLUMES 256
+
+/* ---------- effects, particles, lights and sounds */
+
+#define HALO_PORT_MAXIMUM_EFFECTS 256
+#define HALO_PORT_MAXIMUM_EFFECT_LOCATIONS 512
+#define HALO_PORT_MAXIMUM_PARTICLES 1024
+#define HALO_PORT_MAXIMUM_PARTICLE_SYSTEMS 64
+#define HALO_PORT_MAXIMUM_SYSTEM_PARTICLES 512
+#define HALO_PORT_MAXIMUM_CONTRAILS 256
+#define HALO_PORT_MAXIMUM_CONTRAIL_POINTS 1024
+#define HALO_PORT_MAXIMUM_LIGHTS_PER_MAP 896
+#define HALO_PORT_MAXIMUM_GAME_LOOPING_SOUNDS 1024
+
+#elif defined(HALO_CONSOLE_LIMITS)
+/* a desktop build with the console's limits (halo_port_limits.h): the
+desktop's game state, the console's objects and effects, so its object
+indices are the console's */
+
+#define HALO_PORT_GAME_STATE_BASE_ADDRESS 0x81A00000
+#define HALO_PORT_GAME_STATE_CPU_SIZE 0xFC0000
+#define HALO_PORT_GAME_STATE_GPU_SIZE 0x40000
+#define HALO_PORT_GAME_STATE_SIZE (HALO_PORT_GAME_STATE_CPU_SIZE+HALO_PORT_GAME_STATE_GPU_SIZE)
+
+#define HALO_PORT_MAXIMUM_ACTORS 256
+#define HALO_PORT_MAXIMUM_PROPS 768
+#define HALO_PORT_MAXIMUM_SWARMS 32
+#define HALO_PORT_MAXIMUM_SWARM_COMPONENTS 256
+#define HALO_PORT_MAXIMUM_OBJECTS_PER_MAP 2048
+#define HALO_PORT_OBJECT_MEMORY_POOL_SIZE 0x100000
+#define HALO_PORT_MAXIMUM_CLUSTER_REFERENCES 2048
+#define HALO_PORT_MAXIMUM_RENDERED_OBJECTS 256
+#define HALO_PORT_MAXIMUM_CACHED_OBJECT_RENDER_STATES 256
+#define HALO_PORT_MAXIMUM_AREA_OF_EFFECT_OBJECTS 64
+#define HALO_PORT_MAXIMUM_OBJECT_LISTS_PER_MAP 48
+#define HALO_PORT_MAXIMUM_LISTED_OBJECTS_PER_MAP 128
+#define HALO_PORT_MAXIMUM_WIDGETS 64
+#define HALO_PORT_MAXIMUM_LIGHT_VOLUMES 256
+#define HALO_PORT_MAXIMUM_EFFECTS 256
+#define HALO_PORT_MAXIMUM_EFFECT_LOCATIONS 512
+#define HALO_PORT_MAXIMUM_PARTICLES 1024
+#define HALO_PORT_MAXIMUM_PARTICLE_SYSTEMS 64
+#define HALO_PORT_MAXIMUM_SYSTEM_PARTICLES 512
+#define HALO_PORT_MAXIMUM_CONTRAILS 256
+#define HALO_PORT_MAXIMUM_CONTRAIL_POINTS 1024
+#define HALO_PORT_MAXIMUM_LIGHTS_PER_MAP 896
+#define HALO_PORT_MAXIMUM_GAME_LOOPING_SOUNDS 1024
+
+#else
 #define HALO_PORT_GAME_STATE_BASE_ADDRESS 0x81A00000 /* (0x80061000) */
 #define HALO_PORT_GAME_STATE_CPU_SIZE 0x13C0000 /* (0x305000) */
 #define HALO_PORT_GAME_STATE_GPU_SIZE 0x40000 /* (0x40000) */
 #define HALO_PORT_GAME_STATE_SIZE (HALO_PORT_GAME_STATE_CPU_SIZE+HALO_PORT_GAME_STATE_GPU_SIZE)
-
-/* ---------- texture cache
-
-The texture cache (cache/xbox_texture_cache.c) holds the pixels of the
-bitmaps the renderer draws, in 16 KB pages, and is allocated top-down in
-the Xbox memory window (cache/physical_memory_map.c). When a frame's
-bitmaps do not fit, the cache cannot load the rest ("YOU GOT STABBED" in
-debug.txt) and the surfaces drawn with them show whatever is at their
-pixels' addresses. The Xbox's maps fit the Xbox's 22 MB. Halo PC's maps
-keep their bump maps in 32 bits a pixel, not the Xbox's 8-bit palettized
-ones, and community maps draw many large ones at once: Portent's busiest
-frames draw 23 MB, Foundation's 66 MB.
-
-The desktop builds (Linux, macOS and Windows, 32-bit and 64-bit) are not
-held to the Xbox's memory: their window is 512 MB (port/linux/src/platform.h) and
-their cache 256 MB, about four times Foundation's busiest frame and more
-than bigass_v3's (over 64 MB, DamnationCE's measurement, as OpenCE's
-build-145 has it); with it the window still has about 170 MB free. A block's
-pages are taken only as the game writes them (xbox_memory.c), so a map
-that fills a fraction of the cache takes no more. Nothing of the cache's
-size reaches the network or the game state.
-
-Android's guest build keeps the development kit's 128 MB window (its
-guest image is linked just above it), 82 MB of it above the game state. Besides the
-texture cache, Portent and Foundation take about 23 MB of that in a game
-(the sound cache and Direct3D's resources), so Android's cache is twice
-the Xbox's, 44 MB, and leaves about 15 MB free: Portent's busiest frames
-fit, Foundation's (66 MB) do not, and some of its surfaces can show the
-wrong pixels there. The native 64-bit Android build has no guest image
-and the desktop's window and cache. The Xbox builds (HALO_XBOX_CONSOLE)
-keep the Xbox's cache. */
-
-#if defined(HALO_ANDROID) && !defined(HALO_64BIT)
-#define HALO_PORT_TEXTURE_CACHE_SIZE 0x2C00000 /* (0x1600000) */
-#elif !defined(HALO_XBOX_CONSOLE)
-#define HALO_PORT_TEXTURE_CACHE_SIZE 0x10000000 /* (0x1600000) */
-#else
-#define HALO_PORT_TEXTURE_CACHE_SIZE 0x1600000 /* (0x1600000) */
-#endif
-
-/* ---------- structure rendering
-
-The structure BSP's surfaces (its triangles) drawn in a frame
-(render/render.h: past them, the farther are not drawn) and the dynamic
-triangles a frame's draws take, the BSP's among them (rasterizer.h). The
-Xbox's maps fit the Xbox's 16384 surfaces; big community maps draw more
-(Halo PC's own engine stopped at 16384 too, and the PC community's tools
-for those maps raise it to 32767 surfaces with a 65536-triangle buffer).
-The desktop builds draw up to 32767 (the count is a short), with twice the
-dynamic triangles, so the BSP's do not leave the rest of a frame's draws
-none. Only what is drawn changes: nothing reaches the network or the game
-state. Android's guest build and the Xbox builds keep the Xbox's. */
-
-#if !(defined(HALO_ANDROID) && !defined(HALO_64BIT)) && !defined(HALO_XBOX_CONSOLE)
-#define HALO_PORT_MAXIMUM_RENDERED_ENVIRONMENT_SURFACES 32767 /* (16384) */
-#define HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES 65536 /* (32768) */
-#else
-#define HALO_PORT_MAXIMUM_RENDERED_ENVIRONMENT_SURFACES 16384 /* (16384) */
-#define HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES 32768 /* (32768) */
-#endif
-
-/* ---------- transparent geometry, particles and lights a frame draws
-
-What one view draws in a frame, past which the rest is not drawn: its
-transparent geometry groups (each a projectile's or an effect's transparent
-model, glow, light volume or run of particles: a busy multiplayer fight
-spends the Xbox's 384, and plasma bolts, the plasma pistol's charge glow
-and the rest stop drawing), the runs of particles that share a definition,
-and the dynamic lights (an assault rifle's flashlight, each plasma bolt's
-light) found in the clusters it sees. The desktop builds draw several
-times as many. Only what is drawn changes: these are rebuilt every frame,
-outside the game state, and nothing of them reaches the network, so
-machines with other limits still play the same game. Android's guest build
-and the Xbox builds keep the Xbox's. */
-
-#if !(defined(HALO_ANDROID) && !defined(HALO_64BIT)) && !defined(HALO_XBOX_CONSOLE)
-#define HALO_PORT_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS 2048 /* (384) */
-#define HALO_PORT_MAXIMUM_RENDERED_PARTICLE_GROUPS 2048 /* (512) */
-#define HALO_PORT_MAXIMUM_RENDERED_LIGHTS 512 /* (128) */
-#else
-#define HALO_PORT_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS 384 /* (384) */
-#define HALO_PORT_MAXIMUM_RENDERED_PARTICLE_GROUPS 512 /* (512) */
-#define HALO_PORT_MAXIMUM_RENDERED_LIGHTS 128 /* (128) */
-#endif
 
 /* ---------- AI
 
@@ -164,5 +182,130 @@ without its widget */
 #define HALO_PORT_MAXIMUM_CONTRAIL_POINTS 8192 /* (1024) */
 #define HALO_PORT_MAXIMUM_LIGHTS_PER_MAP 4096 /* (896) */
 #define HALO_PORT_MAXIMUM_GAME_LOOPING_SOUNDS 4096 /* (1024) */
+
+#endif /* HALO_XBOX_CONSOLE */
+
+/* ---------- texture cache
+
+The texture cache (cache/xbox_texture_cache.c) holds the pixels of the
+bitmaps the renderer draws, in 16 KB pages, and is allocated top-down in
+the Xbox memory window (cache/physical_memory_map.c). When a frame's
+bitmaps do not fit, the cache cannot load the rest ("YOU GOT STABBED" in
+debug.txt) and the surfaces drawn with them show whatever is at their
+pixels' addresses. The Xbox's maps fit the Xbox's 22 MB. Halo PC's maps
+keep their bump maps in 32 bits a pixel, not the Xbox's 8-bit palettized
+ones, and community maps draw many large ones at once: Portent's busiest
+frames draw 23 MB, Foundation's 66 MB.
+
+The desktop builds (Linux, macOS and Windows, 32-bit and 64-bit) are not
+held to the Xbox's memory: their window is 512 MB (port/linux/src/platform.h) and
+their cache 256 MB, about four times Foundation's busiest frame and more
+than bigass_v3's (over 64 MB, DamnationCE's measurement, as OpenCE's
+build-145 has it); with it the window still has about 170 MB free. A block's
+pages are taken only as the game writes them (xbox_memory.c), so a map
+that fills a fraction of the cache takes no more. Nothing of the cache's
+size reaches the network or the game state.
+
+Android's guest build keeps the development kit's 128 MB window (its
+guest image is linked just above it), 82 MB of it above the game state. Besides the
+texture cache, Portent and Foundation take about 23 MB of that in a game
+(the sound cache and Direct3D's resources), so Android's cache is twice
+the Xbox's, 44 MB, and leaves about 15 MB free: Portent's busiest frames
+fit, Foundation's (66 MB) do not, and some of its surfaces can show the
+wrong pixels there. The native 64-bit Android build has no guest image
+and the desktop's window and cache. The Xbox builds (HALO_XBOX_CONSOLE)
+keep the Xbox's cache, as does a console that asks for the Xbox's sizes
+(HALO_CONSOLE_XBOX_RENDER_SIZES: the Xbox 360's).
+
+The Switch's guest (HALO_ANDROID with HALO_WINDOW_REBASE) is told at start-up
+how large a window its host found room for (platform_contiguous_size, up to
+256 MB: port/linux/src/platform.h), and the cache is half of it where that is
+more than a development kit's 128 MB, as on the desktop, and Android's
+otherwise; the tables kept per page of the cache are sized for the largest
+(HALO_PORT_TEXTURE_CACHE_MAXIMUM_SIZE). */
+
+#if defined(HALO_ANDROID) && !defined(HALO_64BIT) && defined(HALO_WINDOW_REBASE)
+extern unsigned long platform_contiguous_size;
+#define HALO_PORT_TEXTURE_CACHE_SIZE \
+	(platform_contiguous_size > 0x08000000UL ? platform_contiguous_size / 2 : 0x2C00000UL) /* (0x1600000) */
+#define HALO_PORT_TEXTURE_CACHE_MAXIMUM_SIZE 0x8000000
+/* (the size is known only at start-up: cache/xbox_texture_cache.c) */
+#define HALO_PORT_TEXTURE_CACHE_SIZE_VARIES
+#elif defined(HALO_ANDROID) && !defined(HALO_64BIT)
+#define HALO_PORT_TEXTURE_CACHE_SIZE 0x2C00000 /* (0x1600000) */
+#elif !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_XBOX_RENDER_SIZES)
+#define HALO_PORT_TEXTURE_CACHE_SIZE 0x10000000 /* (0x1600000) */
+#else
+#define HALO_PORT_TEXTURE_CACHE_SIZE 0x1600000 /* (0x1600000) */
+#endif
+#ifdef HALO_XBOX_CONSOLE
+/* the console's cache is HALO_PORT_TEXTURE_CACHE_SIZE on a 64 MB Xbox; one
+above that baseline takes more (port/xbox/src/xbox_memory.c: 44 MB on a 128
+MB console), up to this */
+#define HALO_PORT_TEXTURE_CACHE_MAXIMUM_SIZE 0x4000000
+#endif
+
+/* ---------- structure rendering
+
+The structure BSP's surfaces (its triangles) drawn in a frame
+(render/render.h: past them, the farther are not drawn) and the dynamic
+triangles a frame's draws take, the BSP's among them (rasterizer.h). The
+Xbox's maps fit the Xbox's 16384 surfaces; big community maps draw more
+(Halo PC's own engine stopped at 16384 too, and the PC community's tools
+for those maps raise it to 32767 surfaces with a 65536-triangle buffer).
+The desktop builds draw up to 32767 (the count is a short), with twice the
+dynamic triangles, so the BSP's do not leave the rest of a frame's draws
+none. Only what is drawn changes: nothing reaches the network or the game
+state. Android's guest build and the Xbox builds keep the Xbox's, as does a
+console with HALO_CONSOLE_XBOX_RENDER_SIZES. */
+
+#if !(defined(HALO_ANDROID) && !defined(HALO_64BIT)) && !defined(HALO_XBOX_CONSOLE) && \
+	!defined(HALO_CONSOLE_XBOX_RENDER_SIZES)
+#define HALO_PORT_MAXIMUM_RENDERED_ENVIRONMENT_SURFACES 32767 /* (16384) */
+#define HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES 65536 /* (32768) */
+#else
+#define HALO_PORT_MAXIMUM_RENDERED_ENVIRONMENT_SURFACES 16384 /* (16384) */
+#define HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES 32768 /* (32768) */
+#endif
+/* the dynamic triangles of a console above its memory baseline
+(halo_console_memory.h): the desktop builds' 65536, in its index buffer
+(192 KB more), made at the start; the baseline's stay the Xbox's */
+#ifdef HALO_XBOX_CONSOLE
+#define HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES_EXTRAS 65536
+#else
+#define HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES_EXTRAS HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES
+#endif
+/* ---------- transparent geometry, particles and lights a frame draws
+
+What one view draws in a frame, past which the rest is not drawn: its
+transparent geometry groups (each a projectile's or an effect's transparent
+model, glow, light volume or run of particles: a busy multiplayer fight
+spends the Xbox's 384, and plasma bolts, the plasma pistol's charge glow
+and the rest stop drawing), the runs of particles that share a definition,
+and the dynamic lights (an assault rifle's flashlight, each plasma bolt's
+light) found in the clusters it sees. The desktop builds draw several
+times as many. Only what is drawn changes: these are rebuilt every frame,
+outside the game state, and nothing of them reaches the network, so
+machines with other limits still play the same game. Android's guest build
+and the Xbox builds keep the Xbox's. */
+
+#if !(defined(HALO_ANDROID) && !defined(HALO_64BIT)) && !defined(HALO_XBOX_CONSOLE)
+#define HALO_PORT_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS 2048 /* (384) */
+#define HALO_PORT_MAXIMUM_RENDERED_PARTICLE_GROUPS 2048 /* (512) */
+#define HALO_PORT_MAXIMUM_RENDERED_LIGHTS 512 /* (128) */
+#else
+#define HALO_PORT_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS 384 /* (384) */
+#define HALO_PORT_MAXIMUM_RENDERED_PARTICLE_GROUPS 512 /* (512) */
+#define HALO_PORT_MAXIMUM_RENDERED_LIGHTS 128 /* (128) */
+#endif
+/* the transparent geometry groups of a console above its memory baseline
+(halo_console_memory.h): 1024, so a busy fight's plasma and glows keep
+drawing (160 bytes each on the heap, 100 KB more, made at the start); the
+baseline's stay the Xbox's */
+#ifdef HALO_XBOX_CONSOLE
+#define HALO_PORT_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS_EXTRAS 1024
+#else
+#define HALO_PORT_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS_EXTRAS HALO_PORT_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS
+#endif
 
 #endif /* __HALO_PORT_CAPACITY_H */

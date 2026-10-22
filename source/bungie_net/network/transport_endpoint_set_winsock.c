@@ -137,10 +137,27 @@ struct transport_endpoint_set
 	long needs_compaction;
 };
 
+#ifndef HALO_XBOX_CONSOLE
 /* the native builds raise FD_SETSIZE (port prefix headers) so that a server's
 set holds its listening socket and a socket for every machine */
 typedef char winsock_fd_set_size_assert[
 	FD_SETSIZE >= HALO_PORT_MAXIMUM_NETWORK_MACHINES + 1 ? 1 : -1];
+#else
+typedef char winsock_fd_set_size_assert[
+	sizeof(fd_set) == 0x104 ? 1 : -1];
+typedef char transport_endpoint_set_ep_array_offset_assert[
+	offsetof(struct transport_endpoint_set, ep_array) == 0x104 ? 1 : -1];
+typedef char transport_endpoint_set_max_endpoints_offset_assert[
+	offsetof(struct transport_endpoint_set, max_endpoints) == 0x108 ? 1 : -1];
+typedef char transport_endpoint_set_last_endpoint_index_offset_assert[
+	offsetof(struct transport_endpoint_set, last_endpoint_index) == 0x10C ? 1 : -1];
+typedef char transport_endpoint_set_current_endpoint_index_offset_assert[
+	offsetof(struct transport_endpoint_set, current_endpoint_index) == 0x110 ? 1 : -1];
+typedef char transport_endpoint_set_needs_compaction_offset_assert[
+	offsetof(struct transport_endpoint_set, needs_compaction) == 0x114 ? 1 : -1];
+typedef char transport_endpoint_set_size_assert[
+	sizeof(struct transport_endpoint_set) == 0x118 ? 1 : -1];
+#endif
 
 /* ---------- prototypes */
 
@@ -177,8 +194,12 @@ static long get_next_available_set_array_index(
 		0x39,
 		set);
 	/* January permits one-past-capacity here; preserve the original boundary. */
+#ifndef HALO_XBOX_CONSOLE
 	/* ... except in the native builds, which keep to the array */
 	if (set->last_endpoint_index >= set->max_endpoints - 1)
+#else
+	if (set->last_endpoint_index > set->max_endpoints - 1)
+#endif
 	{
 		return NONE;
 	}
@@ -249,6 +270,24 @@ void transport_pop_key(
 	return;
 }
 
+#ifdef HALO_XBOX_CONSOLE
+/* (an XNet export the XDK leaves out of its headers: what the network
+settings and DHCP gave the console. Its layout is a guess no header
+confirms, so it has room to spare past the fields read here: a larger
+structure in the library writes into that, not past it. To be measured
+against xnetd.lib, as XNetStartupParams and XNADDR were) */
+typedef struct
+{
+	DWORD dwFlags;
+	IN_ADDR ina, inaMask, inaGateway, inaDnsPrimary, inaDnsSecondary, inaDhcpServer;
+	char achPppServer[4][64];
+	char reserved[512];
+} XNetConfigStatus;
+long __stdcall XNetGetConfigStatus(XNetConfigStatus *status);
+/* (D:\config.toml's, port/linux/src/port_config.h) */
+int config_boolean(char const *name);
+#endif
+
 short transport_initialize(
 	void)
 {
@@ -281,12 +320,33 @@ short transport_initialize(
 			(link_status & XNET_ETHERNET_LINK_FULL_DUPLEX) ? " in full-duplex mode" : "",
 			(link_status & XNET_ETHERNET_LINK_HALF_DUPLEX) ? " in half-duplex mode" : "");
 
+#ifdef HALO_XBOX_CONSOLE
+		/* port: console.bypass_security in D:\config.toml (port/xbox/src/
+		xbox_config.c, which takes the old D:\bypass_security.txt for one
+		release) */
+		if (config_boolean("console.bypass_security"))
+#else
 		bypass_file = fopen("d:\\bypass_security.txt", "r");
 		if (bypass_file)
+#endif
 		{
 			error(_error_silent, "XNET_STARTUP_BYPASS_SECURITY [ON]");
 			startup_params.cfgFlags |= XNET_STARTUP_BYPASS_SECURITY;
+#ifndef HALO_XBOX_CONSOLE
 			fclose(bypass_file);
+#else
+			/* port: internet play over plain IP needs room for DHCP, DNS and
+			TCP that secure system link never did: the pool and queues a
+			dashboard uses, and XNet's own security tables left at their
+			defaults */
+			startup_params.cfgPrivatePoolSizeInPages = 64;
+			startup_params.cfgEnetReceiveQueueLength = 16;
+			startup_params.cfgIpFragMaxSimultaneous = 16;
+			startup_params.cfgIpFragMaxPacketDiv256 = 32;
+			startup_params.cfgSockMaxSockets = 64;
+			startup_params.cfgKeyRegMax = 0;
+			startup_params.cfgSecRegMax = 0;
+#endif
 		}
 
 		if (XNetStartup(&startup_params) != 0)
@@ -313,6 +373,67 @@ short transport_initialize(
 			}
 		}
 		while (address_status == XNET_GET_XNADDR_PENDING);
+
+#ifdef HALO_XBOX_CONSOLE
+		/* port: with security bypassed, wait for an IP address too (DHCP can
+		finish after the link is up), and say what the console got */
+		if (startup_params.cfgFlags & XNET_STARTUP_BYPASS_SECURITY)
+		{
+			deadline = system_milliseconds() + 20000;
+			while (!(address_status & (XNET_GET_XNADDR_STATIC | XNET_GET_XNADDR_DHCP | XNET_GET_XNADDR_PPPOE)) &&
+				system_milliseconds() < deadline)
+			{
+				Sleep(250);
+				address_status = XNetGetTitleXnAddr(&global_address);
+			}
+			{
+				/* (the address through the log's one formatter, port/xbox/src/
+				xbox_port.c's log_address: a LAN address whole, a public one
+				as a tag; and whether XNet was given a gateway and DNS) */
+				extern char const *log_address(unsigned char const *bytes, int length, int port, char *text, int size);
+				XNetConfigStatus config;
+				char address_text[56];
+				unsigned char const *g, *d;
+
+				memset(&config, 0, sizeof(config));
+				XNetGetConfigStatus(&config);
+				g = (unsigned char const *)&config.inaGateway;
+				d = (unsigned char const *)&config.inaDnsPrimary;
+				error(_error_log, "xbox title address %s, config flags 0x%08lx, gateway %s, dns %s",
+					log_address((unsigned char const *)&global_address.ina, 4, -1, address_text, sizeof(address_text)),
+					(unsigned long)config.dwFlags, (g[0] | g[1] | g[2] | g[3]) ? "set" : "none",
+					(d[0] | d[1] | d[2] | d[3]) ? "set" : "none");
+			}
+			error(_error_log, "xbox title address: status 0x%08lx%s%s%s%s",
+				(unsigned long)address_status,
+				(address_status & XNET_GET_XNADDR_DHCP) ? " dhcp" : "",
+				(address_status & XNET_GET_XNADDR_STATIC) ? " static" : "",
+				(address_status & XNET_GET_XNADDR_GATEWAY) ? " gateway" : " (no gateway)",
+				(address_status & XNET_GET_XNADDR_DNS) ? " dns" : " (no dns servers)");
+		}
+		{
+			/* port: whether the console's address is XLink Kai's for its MAC
+			(10.252.EE.FF, port/xbox/src/xbox_xlink.c and docs/xlink.md in
+			warthog-xbox), so a player setting up system link over Kai sees
+			what to set: yes or
+			no, and Kai's address (from the MAC's last two bytes) only with
+			console.trace; never the MAC itself */
+			extern int xbox_xlink_report(unsigned char const *mac, unsigned long address, int detailed, char *text,
+				int size);
+			extern int xbox_trace_enabled(void);
+			char xlink_text[192];
+			unsigned long address = ((unsigned long)((unsigned char const *)&global_address.ina)[0] << 24) |
+				((unsigned long)((unsigned char const *)&global_address.ina)[1] << 16) |
+				((unsigned long)((unsigned char const *)&global_address.ina)[2] << 8) |
+				(unsigned long)((unsigned char const *)&global_address.ina)[3];
+
+			if (xbox_xlink_report(global_address.abEnet, address, xbox_trace_enabled(), xlink_text,
+				sizeof(xlink_text)))
+			{
+				error(_error_log, "%s", xlink_text);
+			}
+		}
+#endif
 
 		XNetRandom(global_nonce, sizeof(global_nonce));
 		transport_initialized = TRUE;

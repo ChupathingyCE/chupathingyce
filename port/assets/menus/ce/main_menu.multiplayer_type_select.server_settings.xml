@@ -15,21 +15,22 @@
 		<data input="server settings update"/>
 		<on event="created" run="server settings init"/>
 		<child widget="main_menu/multiplayer_type_select/server_settings/op_server_name" x="54" y="73"/>
-		<child widget="main_menu/multiplayer_type_select/server_settings/op_max_players" x="54" y="99"/>
-		<child widget="main_menu/multiplayer_type_select/server_settings/op_invite" x="54" y="125"/>
-		<child widget="main_menu/multiplayer_type_select/server_settings/op_listing" x="54" y="151"/>
-		<child widget="main_menu/multiplayer_type_select/server_settings/op_password" x="54" y="177"/>
-		<child widget="main_menu/multiplayer_type_select/server_settings/op_friendly_fire" x="54" y="203"/>
-		<child widget="main_menu/multiplayer_type_select/server_settings/op_extra_enemies" x="54" y="229"/>
-		<child widget="main_menu/multiplayer_type_select/server_settings/op_enemies_per_player" x="54" y="255"/>
-		<child widget="main_menu/multiplayer_type_select/server_settings/op_enemies_multiplier" x="54" y="255"/>
-		<child widget="main_menu/multiplayer_type_select/server_settings/op_player_collisions" x="54" y="281"/>
-		<child widget="main_menu/multiplayer_type_select/server_settings/op_game_type" x="54" y="203"/>
-		<child widget="main_menu/multiplayer_type_select/server_settings/op_player_options" x="54" y="229"/>
-		<child widget="main_menu/multiplayer_type_select/server_settings/op_item_options" x="54" y="255"/>
-		<child widget="main_menu/multiplayer_type_select/server_settings/op_vehicle_options" x="54" y="281"/>
-		<child widget="main_menu/multiplayer_type_select/server_settings/op_indicator_options" x="54" y="307"/>
-		<child widget="main_menu/multiplayer_type_select/server_settings/op_team_options" x="54" y="333"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/op_max_players" x="54" y="97"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/op_invite" x="54" y="121"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/op_listing" x="54" y="145"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/op_password" x="54" y="169"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/op_friendly_fire" x="54" y="193"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/op_extra_enemies" x="54" y="217"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/op_enemies_per_player" x="54" y="241"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/op_enemies_multiplier" x="54" y="241"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/op_player_collisions" x="54" y="265"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/op_game_type" x="54" y="193"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/op_player_options" x="54" y="217"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/op_item_options" x="54" y="241"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/op_vehicle_options" x="54" y="265"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/op_indicator_options" x="54" y="289"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/op_team_options" x="54" y="313"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/op_host_options" x="54" y="337"/>
 		<child widget="main_menu/multiplayer_type_select/server_settings/button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/multiplayer_type_select/server_settings/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
@@ -214,6 +215,14 @@
 	</widget>
 	<widget name="main_menu/multiplayer_type_select/server_settings/team_options_value" type="text" controller="1" width="280" height="22" font="ui\small_ui" color="#FF2896FF" align="center" text_y="5" text_flags="no_focus_test">
 	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/op_host_options" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="a" open="main_menu/multiplayer_type_select/server_settings/host_options/host_options_screen"/>
+		<on event="start" open="main_menu/multiplayer_type_select/server_settings/host_options/host_options_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options_label"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options_label" type="text" controller="1" width="300" height="22" string_list="main_menu/multiplayer_type_select/server_settings/labels" string_index="16" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
 	<widget name="main_menu/multiplayer_type_select/server_settings/button_defaults" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="3" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
@@ -239,31 +248,127 @@
 		<string text="MULTIPLIER:"/>
 		<string text="PLAYER COLLISIONS:"/>
 		<string text="PASSWORD:"/>
+		<string text="HOST OPTIONS"/>
 	</strings>
 	<strings name="main_menu/multiplayer_type_select/server_settings/help_strings">
 		<string text=""/>
-		<string text="The name the game shows in the lists of games.\nEnter changes it."/>
-		<string text="The most players the game takes (up to 128)."/>
-		<string text="Players join this game by its invite link, or your\nDiscord invite. Enter copies the link again."/>
-		<string text="The gametype and its rules, for this game."/>
-		<string text="Lives, health, shields and respawning, for this game."/>
-		<string text="Weapons, grenades and starting equipment, for\nthis game."/>
-		<string text="Each team's vehicles and their respawn time, for\nthis game."/>
-		<string text="The motion tracker and nav points, for this game."/>
-		<string text="Friendly fire and team balance, for this game."/>
-		<string text="Anyone can see and join your game: it is listed\nin everyone's Server Browser."/>
+		<string text="The game's name in the game list."/>
+		<string text="The most players allowed in the game."/>
+		<string text="Press %a-button to copy the invite link."/>
+		<string text="Choose the gametype."/>
+		<string text="Lives, health, shields and respawning."/>
+		<string text="Weapons, grenades and starting equipment."/>
+		<string text="Vehicles and their respawn time."/>
+		<string text="The motion tracker and nav points."/>
+		<string text="Friendly fire and team balance."/>
+		<string text="Anyone can join from the Server Browser."/>
 		<string text="Only players with your invite link can join."/>
 		<string text="Players can not be hurt by weapons and explosives\nfired by the other players."/>
 		<string text="Players can be hurt by weapons or explosives\nfired by the other players."/>
 		<string text="Damage from the other players will only reduce\nshields. Health will be unaffected."/>
 		<string text="Players can be hurt by damage from explosives\nfired by the other players."/>
-		<string text="Enemy squads are as the campaign has them."/>
-		<string text="Enemy squads grow with the players: by the amount\nbelow for each player past the first."/>
-		<string text="Enemy squads are the amount below times as large,\nhowever many players there are."/>
-		<string text="For each player past the first, enemy squads get\nthis much more of themselves (100%: as many again)."/>
+		<string text="Normal enemy squads."/>
+		<string text="Enemy squads grow with each player."/>
+		<string text="Enemy squads grow by the multiplier below."/>
+		<string text="Extra enemies for each player past the first."/>
 		<string text="Each enemy squad is this many times as large."/>
-		<string text="Players bump into each other, as in the campaign."/>
-		<string text="Players walk through each other, so that no one\nblocks a doorway. The AI's characters still block."/>
-		<string text="Players from the Server Browser must type it to\njoin (an invite link needs none). Enter sets it."/>
+		<string text="Players bump into each other."/>
+		<string text="Players walk through each other."/>
+		<string text="Required to join from the Server Browser."/>
+		<string text="Team switching, chat filter, aim assist and port."/>
+	</strings>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/host_options_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
+		<on event="b" back="true"/>
+		<on event="back" back="true"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/header_host_options"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/options_menu"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/header_host_options" controller="1" left="35" top="11" width="605" height="59" bitmap="main_menu/multiplayer_type_select/server_settings/header_host_options">
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/help" type="text" controller="1" left="68" top="350" width="482" height="60" string_list="main_menu/multiplayer_type_select/server_settings/host_options/help_strings" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/options_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/multiplayer_type_select/server_settings/host_options/help">
+		<data input="port settings help"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/op_team_change" x="54" y="73"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/op_team_change_margin" x="54" y="103"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/op_chat_filter" x="54" y="133"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/op_block_mouse_aim_assist" x="54" y="163"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/op_tunnel_port" x="54" y="193"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/button_bar" y="414"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/button_defaults" y="1"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/button_ok" x="380" y="1"/>
+		<child widget="common_button_cancel" x="510" y="1"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/op_team_change" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/team_change_label"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/team_change_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/team_change_label" type="text" controller="1" width="300" height="22" string_list="main_menu/multiplayer_type_select/server_settings/host_options/labels" string_index="0" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/team_change_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="BALANCED|ALLOW|OFF" setting="network.team_change" values="balanced|allow|off" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/op_team_change_margin" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/team_change_margin_label"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/team_change_margin_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/team_change_margin_label" type="text" controller="1" width="300" height="22" string_list="main_menu/multiplayer_type_select/server_settings/host_options/labels" string_index="1" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/team_change_margin_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16" setting="network.team_change_margin" values="0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/op_chat_filter" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/chat_filter_label"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/chat_filter_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/chat_filter_label" type="text" controller="1" width="300" height="22" string_list="main_menu/multiplayer_type_select/server_settings/host_options/labels" string_index="2" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/chat_filter_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" setting="network.chat_filter" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/op_block_mouse_aim_assist" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/block_mouse_aim_assist_label"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/block_mouse_aim_assist_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/block_mouse_aim_assist_label" type="text" controller="1" width="300" height="22" string_list="main_menu/multiplayer_type_select/server_settings/host_options/labels" string_index="3" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/block_mouse_aim_assist_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ALLOWED|BLOCKED" setting="network.block_mouse_aim_assist" values="false|true" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/op_tunnel_port" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/tunnel_port_label"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/tunnel_port_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/tunnel_port_label" type="text" controller="1" width="300" height="22" string_list="main_menu/multiplayer_type_select/server_settings/host_options/labels" string_index="4" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/tunnel_port_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="AUTO|2302|2303|2304|2305|2306|2307|2308|2309|2310" setting="network.tunnel_port" values="0|2302|2303|2304|2305|2306|2307|2308|2309|2310" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/button_defaults" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="3" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" run="port settings defaults"/>
+		<on event="start" run="port settings defaults"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/button_ok" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="1" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" run="port settings save" back="true"/>
+		<on event="start" run="port settings save" back="true"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<strings name="main_menu/multiplayer_type_select/server_settings/host_options/labels">
+		<string text="TEAM SWITCHING:"/>
+		<string text="TEAM SWITCH MARGIN:"/>
+		<string text="CHAT FILTER:"/>
+		<string text="MOUSE AIM ASSIST:"/>
+		<string text="PORT:"/>
+	</strings>
+	<strings name="main_menu/multiplayer_type_select/server_settings/host_options/help_strings">
+		<string text=""/>
+		<string text="When players can change teams."/>
+		<string text="How uneven the teams can get when BALANCED."/>
+		<string text="Block chat lines with blocked words."/>
+		<string text="Allow or block aim assist for mouse players."/>
+		<string text="The UDP port for internet play. Applies on restart."/>
 	</strings>
 </menus>

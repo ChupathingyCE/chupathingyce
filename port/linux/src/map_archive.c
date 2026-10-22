@@ -568,9 +568,8 @@ int map_archive_stock_message(const char *name, char *text, int size)
 	/* (the install's file names, lowercase) */
 	for (index = 0; base[index]; index++)
 		base[index] = (char)lower((unsigned char)base[index]);
-	snprintf(text, (size_t)size, "%s.map is one of Halo PC's own %s, so Chupathingy can't download it. "
-		"Copy %s.map from your Halo PC or Custom Edition install into maps_ce, then join again.", base,
-		stock == MAP_ARCHIVE_STOCK_FILE ? "files" : "maps", base);
+	snprintf(text, (size_t)size, "%s.map comes with Halo PC. "
+		"Copy it from Halo PC (maps_pc) or Custom Edition (maps_ce), then join again.", base);
 	return 1;
 }
 

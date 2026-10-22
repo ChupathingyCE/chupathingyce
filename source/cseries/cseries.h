@@ -129,6 +129,36 @@ semicolon). */
 #define match_warn(file, line, expr) if (!(expr)) { display_assert(#expr, MATCH_FILE(file), MATCH_LINE(line), FALSE); }
 #define match_vwarn(file, line, expr, string) if (!(expr)) { display_assert(string, MATCH_FILE(file), MATCH_LINE(line), FALSE); }
 #endif
+#if defined(HALO_CONSOLE_NO_DEBUG_ASSERTS) && !defined(HALO_CONSOLE_KEEP_ASSERTS)
+/* port: a console's release-style build (configure.py
+--console-no-debug-asserts): the debug decomp's asserts are compiled out, as
+the retail game compiled them out. An expression is not evaluated and its
+message is not formatted; it is still compiled (dead code), so it keeps
+naming variables that exist. The checks that catch real memory damage stay:
+the build passes HALO_CONSOLE_KEEP_ASSERTS to source/memory (data arrays and
+their handles, memory pools, the caches, the packet and bit stream codecs)
+and source/cseries (the memory and string functions' bounds, the heap), and
+there they are as in the debug build. The few asserts whose expression does
+work the game needs are match_assert_evaluated / match_vassert_evaluated:
+here the expression is evaluated and not checked. Halts (halt, vhalt) are
+untouched: they cost nothing until they stop the game. The desktop builds
+never define it. */
+#define HALO_ASSERTS_COMPILED_OUT
+#undef match_assert
+#undef match_vassert
+#undef match_warn
+#undef match_vwarn
+#define match_assert(file, line, expr) if (0) { (void)(expr); }
+#define match_vassert(file, line, expr, string) if (0) { (void)(expr); }
+#define match_warn(file, line, expr) if (0) { (void)(expr); }
+#define match_vwarn(file, line, expr, string) if (0) { (void)(expr); }
+#define match_assert_evaluated(file, line, expr) { (void)(expr); }
+#define match_vassert_evaluated(file, line, expr, string) { (void)(expr); }
+#else
+/* an assert whose expression the game needs done (see above) */
+#define match_assert_evaluated(file, line, expr) match_assert(file, line, expr)
+#define match_vassert_evaluated(file, line, expr, string) match_vassert(file, line, expr, string)
+#endif
 #define match_dassert(file, line, expr, diagnostic) do { match_vassert(file, line, expr, diagnostic); } while (FALSE)
 #define match_dwarn(file, line, expr, diagnostic) do { match_vwarn(file, line, expr, diagnostic); } while (FALSE)
 #define match_dhalt(file, line, diagnostic) do { match_vhalt(file, line, diagnostic); } while (FALSE)
@@ -223,8 +253,15 @@ unsigned long string_hash(char const *string);
 
 void system_exit(long code);
 #ifdef HALO_RELEASE
-/* set by display_assert when a release build skips a fatal assertion */
+/* set by display_assert when a release build skips a fatal assertion (one
+for each thread; the console's one, whose compiler's thread-local storage
+the Xbox's loader does not lay out, is shared: its asserts are the game
+thread's) */
+#ifndef HALO_XBOX_CONSOLE
 extern __thread boolean display_assert_skipped;
+#else
+extern boolean display_assert_skipped;
+#endif
 #endif
 
 /* ---------- prototypes/MAIN.C */
@@ -339,8 +376,16 @@ __inline long fast_ftol(
 {
 	long result;
 
+#ifndef HALO_XBOX_CONSOLE
 	/* FISTP: round to nearest under the default control word */
 	result = (long)__builtin_rint((double)value);
+#else
+	__asm
+	{
+		fld value
+		fistp result
+	}
+#endif
 
 	return result;
 }

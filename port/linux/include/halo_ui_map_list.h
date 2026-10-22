@@ -56,4 +56,11 @@ void ui_map_list_family_name(short family, char const *file, wchar_t *name, long
 struct bitmap_data *ui_map_list_family_picture(short family, char const *file);
 boolean ui_map_list_family_present(short family, char const *file);
 
+/* the same by a game's map's name (<file>, <file>@ce, <file>@<pack>: a map
+pack's needs its pack's name), and its tag and what the tag stands for (a
+pack's map's its pack's: CE+, Halo CE+); builds with HALO_MAP_LIST */
+void ui_map_list_map_name(char const *map, wchar_t *name, long size);
+boolean ui_map_list_map_present(char const *map);
+void ui_map_list_map_tag(char const *map, char *tag, long tag_size, char *title, long title_size);
+
 #endif

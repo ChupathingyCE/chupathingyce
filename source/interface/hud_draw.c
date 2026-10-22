@@ -420,6 +420,7 @@ static boolean hud_bad_bitmap_reported = FALSE;
 
 /* Inspect the guarded caller's frame, not the return site of this helper.
  * A normal prologue would replace EBP and defeat the paired stack check. */
+#ifndef HALO_XBOX_CONSOLE
 __attribute__((noinline)) long get_return_eip(
 	void)
 {
@@ -436,6 +437,17 @@ __attribute__((noinline)) long get_return_eip(
 	return (long)(__INTPTR_TYPE__)__builtin_return_address(1);
 #endif
 }
+#else
+__declspec(naked) long get_return_eip(
+	void)
+{
+	__asm
+	{
+		mov eax, [ebp+4]
+		ret
+	}
+}
+#endif
 
 real hud_globals_get_scale(
 	boolean in_multiplayer)
@@ -1345,6 +1357,7 @@ void hud_draw_bitmap(
 	return;
 }
 
+#ifndef HALO_XBOX_CONSOLE
 /* port: a screen wider than 640 widens the HUD's window, which the HUD's
 elements keep to by their corners (the ammo counter to the left edge). The
 zoomed view's elements (the sniper rifle's angle ticks and range numbers)
@@ -1404,6 +1417,7 @@ void hud_zoomed_layout_end(
 	render.camera.window_bounds = *saved_window_bounds;
 }
 
+#endif
 void hud_draw_static_element(
 	short local_player_index,
 	struct hud_absolute_placement_definition const *absolute_placement,

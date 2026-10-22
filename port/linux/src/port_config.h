@@ -3,11 +3,12 @@ PORT_CONFIG.H
 
 The native ports' settings, read from config.toml (port_config.c): next to
 the executable on the desktop, in the data folder (the one holding maps/)
-on Android. A missing file is written with the defaults, commented out, so
-that a setting the player has not chosen follows the version's default (a
-file from before that is updated once). Each setting can also be set for
-one run with its HALO_* environment variable, which wins over the file (the
-tools and the Android app pass settings that way).
+on Android, beside default.xbe (D:\) on the original Xbox. A missing file
+is written with the defaults, commented out, so that a setting the player
+has not chosen follows the version's default (a file from before that is
+updated once). Each setting can also be set for one run with its HALO_*
+environment variable, which wins over the file (the tools and the Android
+app pass settings that way; the console has none).
 
 Settings are named "section.key", as in the file: "display.vsync".
 */
@@ -26,6 +27,9 @@ const char *config_string(const char *name);
 writes it into config.toml (only its line changes); 1 on success */
 int config_write(const char *name, const char *value);
 int config_write_boolean(const char *name, int value);
+/* sets a setting for this run only, as its environment variable does
+(config.toml is not changed); 1 on success */
+int config_set(const char *name, const char *value);
 /* a setting's value as text ("true", "60", "1.5", "all"); 0 if there is no
 such setting */
 int config_text(const char *name, char *text, size_t size);

@@ -378,6 +378,12 @@ match_vassert(file, line, 													\
 match_vassert(file, line, valid_real_matrix4x3(matrix), csprintf(temporary, "%s: assert_valid_real_matrix4x3", string));	\
 
 
+#ifdef HALO_ASSERTS_COMPILED_OUT
+/* port: a release-style console build's (cseries.h): the matrix is not
+looked at either */
+#define match_assert_valid_real_matrix4x3(file, line, matrix) if (0) { (void)(matrix); }
+#define match_assert_valid_real_matrix4x3_custom_string(file, line, matrix, custom_string) if (0) { (void)(matrix); }
+#else
 #define match_assert_valid_real_matrix4x3(file, line, matrix)							\
 if (!valid_real_matrix4x3(matrix))														\
 {																						\
@@ -390,6 +396,7 @@ if (!valid_real_matrix4x3(matrix))															\
 	char const* string = (custom_string);													\
 	match_assert_valid_real_matrix4x3_internal(file, line, matrix, string);					\
 }
+#endif
 
 /* ---------- structures */
 

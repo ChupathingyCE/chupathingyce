@@ -906,6 +906,7 @@ void player_effect_get_camera_effect_matrix(
 
 	if (local_player_index != NONE)
 	{
+#ifndef HALO_XBOX_CONSOLE
 		/* The camera is drawn every frame, several frames per tick on the
 		native builds (port/linux/game/render_interpolation.c), and each draw
 		shook it in a new random direction: shake once a tick, as on the
@@ -920,6 +921,7 @@ void player_effect_get_camera_effect_matrix(
 		tick_seed *= 0x7FEB352DUL;
 		tick_seed ^= tick_seed >> 15;
 		*local_seed = tick_seed;
+#endif
 		game_time_get();
 
 		if (TEST_FLAG(player_effect_globals->global_flags, _scripted_player_effect_active_bit))
@@ -1114,11 +1116,15 @@ void player_effect_get_camera_effect_matrix(
 					continuous->vibrate_frequencies[0],
 					continuous->vibrate_frequencies[1]);
 
+#ifndef HALO_XBOX_CONSOLE
 				/* Looping sounds add their continuous shake once a frame
 				(game_sound.c), so it is used up once a frame too: a frame that
 				runs no tick (port/linux/game/render_interpolation.c) must not
 				keep it and have the next frame's shake added on top. */
 				effect->continuous_effect_timer = 1;
+#else
+				effect->continuous_effect_timer += game_time_get_elapsed();
+#endif
 
 				if (effect->continuous_effect_timer > 0)
 				{
@@ -1136,7 +1142,9 @@ void player_effect_get_camera_effect_matrix(
 				matrix4x3_multiply(matrix, &effect_matrix, matrix);
 			}
 		}
+#ifndef HALO_XBOX_CONSOLE
 		*local_seed = saved_local_seed;
+#endif
 	}
 
 	return;

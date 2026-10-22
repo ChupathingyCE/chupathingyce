@@ -86,6 +86,9 @@ symbols in this file:
 #include "game/game_engine_playlist.h"
 #include "text/text_group.h"
 #include "tag_files/tag_groups.h"
+#ifdef HALO_GAME_BROWSER
+#include "gametype_files.h" /* port: port/linux/game/gametype_files.c */
+#endif
 /* the saved game file checksum is an XDK content signature. */
 #include <xtl.h>
 
@@ -276,6 +279,11 @@ void playlist_profiles_dispose(
 void playlist_profile_delete(
 	long playlist_profile_index)
 {
+#ifdef HALO_GAME_BROWSER
+	/* port: its game type file goes with it (gametype_files.c) */
+	if (playlist_profile_index != NONE)
+		gametype_files_profile_deleted(playlist_profile_index);
+#endif
 	if (playlist_profile_index != NONE &&
 		!delete_enumerated_saved_game_file(playlist_profile_index))
 	{
@@ -540,6 +548,11 @@ void playlist_profile_save_with_options(
 		}
 		playlist_profile_write_options = *options;
 		playlist_profile_write(playlist_profile_index, variant);
+#ifdef HALO_GAME_BROWSER
+		/* port: and its game type file, the dedicated server's format
+		(gametype_files.c) */
+		gametype_files_profile_saved(playlist_profile_index, variant, options);
+#endif
 	}
 
 	return;

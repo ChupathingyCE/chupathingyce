@@ -3,7 +3,7 @@ PROBE.C
 
 The game list's probe (server/docs/docker.md): with HALO_PROBE naming an
 invite (its digits, as halo://join/ is followed by), the game reads the
-game that invite leads to and quits. halo.milenko.org lists games hosted
+game that invite leads to and quits. stats.chupathingy.org lists games hosted
 by copies without the game list this way: a signed-in player gives their
 invite, the site probes it to show what it leads to, and probes it again
 while it is listed. Built into the game browser's builds (configure.py

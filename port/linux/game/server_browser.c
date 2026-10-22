@@ -72,7 +72,7 @@ asked again for another map, or now and then) */
 static short ce_map_state(char const *map)
 {
 	char file[MAP_FILE_LENGTH];
-	short family = map_family_parse(map, file, sizeof(file));
+	short family = map_family_parse_listed(map, file, sizeof(file));
 
 	if (family == _map_family_xbox)
 		return _ce_map_none;
@@ -81,7 +81,7 @@ static short ce_map_state(char const *map)
 	{
 		csstrncpy(ce_map_check.map, map, sizeof(ce_map_check.map) - 1);
 		ce_map_check.map[sizeof(ce_map_check.map) - 1] = 0;
-		ce_map_check.answer = ui_map_list_family_present(family, file) ? _ce_map_present : _ce_map_missing;
+		ce_map_check.answer = ui_map_list_map_present(map) ? _ce_map_present : _ce_map_missing;
 		ce_map_check.time = system_milliseconds();
 	}
 	return ce_map_check.answer;
@@ -95,11 +95,11 @@ static short ce_map_state(char const *map)
 short server_browser_map_family(char const *map, wchar_t *text, short length)
 {
 	char file[MAP_FILE_LENGTH];
-	short family = map_family_parse(map, file, sizeof(file));
+	short family = map_family_parse_listed(map, file, sizeof(file));
 
 	if (family == _map_family_xbox)
 		return family;
-	ui_map_list_family_name(family, file, text, length);
+	ui_map_list_map_name(map, text, length);
 	if (!text[0])
 		text_from_ascii("Unknown map", text, length);
 	return family;
@@ -109,14 +109,14 @@ boolean server_browser_map_downloadable(char const *map)
 {
 	char file[MAP_FILE_LENGTH];
 
-	return map_family_parse(map, file, sizeof(file)) == _map_family_custom_edition &&
+	return map_family_parse_listed(map, file, sizeof(file)) == _map_family_custom_edition &&
 		ce_map_state(map) == _ce_map_missing && map_download_possible(file);
 }
 
 boolean server_browser_map_blocked(char const *map, wchar_t *message, short length)
 {
-	char file[MAP_FILE_LENGTH], display[MAP_FILE_LENGTH], text[MAP_FILE_LENGTH + 64];
-	short family = map_family_parse(map, file, sizeof(file));
+	char file[MAP_FILE_LENGTH], display[MAP_FILE_LENGTH], text[MAP_FILE_LENGTH + 192];
+	short family = map_family_parse_listed(map, file, sizeof(file));
 
 	switch (ce_map_state(map))
 	{
@@ -125,14 +125,26 @@ boolean server_browser_map_blocked(char const *map, wchar_t *message, short leng
 		map_archive_display_name(file, display, (int)sizeof(display));
 		/* (one of Halo PC's own maps: never downloaded, map_archive.h) */
 		if (family == _map_family_custom_edition && map_archive_stock_name(file))
-			snprintf(text, sizeof(text), "%s.map is one of Halo PC's own maps: install it yourself", display);
+		{
+			char first[96], second[160];
+
+			map_family_stock_need(file, 0, first, sizeof(first), second, sizeof(second), text, sizeof(text));
+		}
+		/* (a pack's map: its pack's folder, maps_<pack>) */
+		else if (family == _map_family_pack)
+		{
+			char pack[MAP_PACK_ID_LENGTH + 1];
+
+			map_family_pack_id(map, pack, sizeof(pack));
+			snprintf(text, sizeof(text), "Needs maps_%s/%s.map to join", pack, file);
+		}
 		else
 			snprintf(text, sizeof(text), server_browser_map_downloadable(map) ?
-				"Needs %s/%s.map: joining offers to download it" : "Needs %s/%s.map to join",
+				"Needs %s/%s.map: join to download it" : "Needs %s/%s.map to join",
 				map_family_folder(family), display);
 		break;
 	case _ce_map_unsupported:
-		snprintf(text, sizeof(text), "%s maps need ChupathingyCE with Halo PC map support.",
+		snprintf(text, sizeof(text), "%s maps aren't supported in this build.",
 			family == _map_family_halomd ? "HaloMD" : "Halo PC");
 		break;
 	default:

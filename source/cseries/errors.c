@@ -121,6 +121,7 @@ char *error_get(
 	return error_globals.message_buffer;
 }
 
+#ifndef HALO_CONSOLE_LOG_BUFFER
 /* The native builds keep the log open and flush each line: opening and
 closing it per line takes milliseconds on Windows, and a host logs
 thousands of lines when a hundred machines join, load or leave. Each line is
@@ -273,6 +274,109 @@ static void debug_file_port_write(
 	debug_file_port_size += (long)(csstrlen(prefix) + csstrlen(string));
 }
 
+#endif
+#ifdef HALO_CONSOLE_LOG_BUFFER
+/* port: the console's debug.txt lines are kept in memory and written in one
+go (a FATX file opened, written and closed per line cost milliseconds each
+on the main thread): when the buffer is full, a second after the first line
+waiting (error_log_update, the main loop's), before any other write to the
+file (xbox_boot_log), and at once for an EXCEPTION line, an exit and a crash
+(system_exit, generic_exception_filter), so that what a crash hunt needs is
+on the disk. console.log_flush = "every_line" in D:\config.toml writes each
+line as it comes, as before. */
+enum
+{
+	ERROR_LOG_BUFFER_SIZE = 8192,
+	ERROR_LOG_FLUSH_INTERVAL = 1000,
+};
+
+const char *config_string(const char *name); /* (port_config.h) */
+
+static char error_log_buffer[ERROR_LOG_BUFFER_SIZE];
+static long error_log_buffer_size = 0;
+static unsigned long error_log_oldest_time = 0;
+static volatile long error_log_lock = 0;
+static long error_log_every_line = -1;
+
+void error_log_flush(
+	void)
+{
+	long spin;
+
+	/* (a moment's wait for another thread; a crash report written while
+	this thread held the lock goes on without it) */
+	for (spin = 0; spin < 1000000 && __sync_lock_test_and_set(&error_log_lock, 1); spin++)
+	{
+	}
+	if (error_log_buffer_size > 0)
+	{
+		FILE *handle = fopen("d:\\debug.txt", "a+b");
+
+		if (handle)
+		{
+			fwrite(error_log_buffer, 1, (size_t)error_log_buffer_size, handle);
+			fclose(handle);
+		}
+		error_log_buffer_size = 0;
+	}
+	__sync_lock_release(&error_log_lock);
+
+	return;
+}
+
+/* the main loop's, once a pass: the lines that have waited a second */
+void error_log_update(
+	void)
+{
+	if (error_log_buffer_size > 0 &&
+		(unsigned long)(system_milliseconds() - error_log_oldest_time) >= ERROR_LOG_FLUSH_INTERVAL)
+	{
+		error_log_flush();
+	}
+
+	return;
+}
+
+static void error_log_append(
+	char const *text,
+	long length)
+{
+	long spin;
+
+	if (error_log_every_line < 0)
+	{
+		error_log_every_line = !strcmp(config_string("console.log_flush"), "every_line");
+	}
+	if (length > ERROR_LOG_BUFFER_SIZE)
+	{
+		length = ERROR_LOG_BUFFER_SIZE;
+	}
+	if (error_log_buffer_size + length > ERROR_LOG_BUFFER_SIZE)
+	{
+		error_log_flush();
+	}
+	for (spin = 0; spin < 1000000 && __sync_lock_test_and_set(&error_log_lock, 1); spin++)
+	{
+	}
+	if (error_log_buffer_size + length <= ERROR_LOG_BUFFER_SIZE)
+	{
+		if (!error_log_buffer_size)
+		{
+			error_log_oldest_time = system_milliseconds();
+		}
+		memcpy(error_log_buffer + error_log_buffer_size, text, (size_t)length);
+		error_log_buffer_size += length;
+	}
+	__sync_lock_release(&error_log_lock);
+	if (error_log_every_line || strstr(text, "EXCEPTION"))
+	{
+		error_log_flush();
+	}
+
+	return;
+}
+
+#endif
 void write_to_error_file(
 	char *string,
 	boolean date)
@@ -282,7 +386,7 @@ void write_to_error_file(
 
 	/* port: the header again in a debug.txt begun again (its reference
 	address places a crash report's addresses) */
-#ifndef HALO_XBOX_CONSOLE
+#ifndef HALO_CONSOLE_LOG_BUFFER
 	if (debug_file_port_rolled)
 	{
 		debug_file_port_rolled = FALSE;
@@ -300,9 +404,47 @@ void write_to_error_file(
 		write_to_error_file(line, TRUE);
 	}
 
+#ifdef HALO_CONSOLE_DEBUG_CHANNEL
+	/* port: the console's debug channel has the game's log too */
+	OutputDebugStringA(string);
+#endif
 	if (error_globals.output_to_debug_file)
 	{
+#ifndef HALO_CONSOLE_LOG_BUFFER
 		write_to_debug_file(string, date);
+#else
+		char text[1100];
+		long length = 0;
+
+		if (date)
+		{
+			long timeptr;
+			struct tm *_time;
+
+			time(&timeptr);
+			_time = localtime(&timeptr);
+			if (_time)
+			{
+				length = sprintf(
+					text,
+					"%02d.%02d.%02d %02d:%02d:%02d  ",
+					_time->tm_mon + 1,
+					_time->tm_mday,
+					_time->tm_year % 100,
+					_time->tm_hour,
+					_time->tm_min,
+					_time->tm_sec);
+			}
+			else
+			{
+				length = sprintf(text, "<TIME UNAVAILABLE>  ");
+			}
+		}
+		/* (a line is cut to fit, as the buffer's) */
+		strncpy(text + length, string, sizeof(text) - 1 - length);
+		text[sizeof(text) - 1] = 0;
+		error_log_append(text, (long)strlen(text));
+#endif
 	}
 #ifdef HALO_SERVER
 	{
