@@ -2821,10 +2821,10 @@ void damage_get_network_state(
 	state->recent_shield_damage = object->object.recent_shield_damage;
 }
 
-#ifndef HALO_CONSOLE_NO_NETWORK_TEST
-/* the automated network tests (port/linux/game/network_test.c): kills the
-object as falling damage does (an act of god), but credited to a player, so
-that the kill counts in the game's scores */
+/* kills the object as falling damage does (an act of god), but credited to a
+player, so that the kill counts in the game's scores: the network tests'
+(port/linux/game/network_test.c) and, in every build, the host's kills for
+a player (network_damage_host_kill_for_player: Bomb's goal blast) */
 void damage_kill_object_for_player(
 	long object_index,
 	long player_index)
@@ -2846,11 +2846,11 @@ void damage_kill_object_for_player(
 	damage.owner_team_index = (short)player->team_index;
 	object_cause_damage(&damage, object_index, NONE, NONE, NONE, NULL);
 }
-#endif
 
 /* port: the object killed now, counting nothing (no death, no kill, no
 statistics), as unit_kill_no_statistics has it at its next update: Bomb's
-blast (game_engine_bomb.c) */
+blast (game_engine_bomb.c); damage_kill_object_for_player, above, is the
+kill that credits a player */
 void damage_kill_object_no_statistics(
 	long object_index)
 {
