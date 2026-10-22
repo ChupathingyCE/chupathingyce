@@ -47,8 +47,8 @@ the duration.
 | `sv_ban <player> [duration] [reason]` | Drops the player and keeps their machine out: for ever, or for a while (`30m`, `2h`, `7d`, `1w`, `1d12h`; a bare number is minutes). Every player in the game is told. bans.txt's reason says by whom, how long and why. |
 | `sv_unban <ban>` | Takes a ban out, by its number in `sv_banlist`. |
 | `sv_banlist` | The bans: number, when, hardware id, how long is left, the players' names and why. Never their addresses. |
-| `sv_map <map> <game type>` | Plays that map and game type now: the game in progress ends at once (no carnage report), and after the new one the playlist goes on where it was. In the lobby it is set at once. Maps: `bloodgulch`, a Custom Edition map as `<name>@ce`, a HaloMD map as `<name>@md`, a Halo PC map as `<name>@pc` ([Playlists](playlists.md)). Game types: `slayer`, `team_slayer`, `ctf`, `king`, `oddball`, `race`, ... |
-| `sv_maps` | The maps this server can play (its multiplayer maps: Xbox, `<name>@ce`, `<name>@md`, `<name>@pc`) and the game types `sv_map` takes. |
+| `sv_map <map> <game type>` | Plays that map and game type now: the game in progress ends at once (no carnage report), and after the new one the playlist goes on where it was. In the lobby it is set at once. Maps: `bloodgulch`, a Custom Edition map as `<name>@ce`, a HaloMD map as `<name>@md`, a Halo PC map as `<name>@pc`, an Xbox map pack's as `<name>@<pack>` (`wizard@cex`) ([Playlists](playlists.md)). Game types: `slayer`, `team_slayer`, `ctf`, `king`, `oddball`, `race`, ... |
+| `sv_maps` | The maps this server can play (its multiplayer maps: Xbox, `<name>@ce`, `<name>@md`, `<name>@pc`, the Xbox map packs' `<name>@<pack>`) and the game types `sv_map` takes. In JSON (the control API), `map_packs` names each pack's map: `{"wizard@cex": {"name": "Gothra", "pack": "Halo CE+", "tag": "CE+"}}`. |
 | `sv_mapcycle` | The playlist, and which entry is playing or next. |
 | `sv_mapcycle_next` | Skips to the playlist's next entry now (the game in progress ends without its carnage report). |
 | `sv_end_game` | Ends the game in progress, as its score limit would: the carnage report shows, then the next entry's lobby opens. |
@@ -180,7 +180,7 @@ Authorization: Bearer chce_4f0c...e91a
 | `POST /v1/command` with `{"command": "<command>"}` | `{"ok": true, "output": "..."}`: whether the command did what it was asked, and what it printed. Any command above. |
 | `GET /v1/bans` | `sv_banlist` as JSON: `{"bans": [{"number": 1, "when": "2026-10-05 02:18:03", "id": "c382...", "players": "Player", "reason": "...", "until": 1791182883, "seconds_left": 1793}], "count": 1}`. `until` and `seconds_left` are `null` for a ban for ever. |
 | `GET /v1/mapcycle` | `sv_mapcycle` as JSON: the playlist's `entries` (`number`, `map`, `game_type`), the `entry` playing, `state`, and what a command `chosen` now or set `next` (or `null`). |
-| `GET /v1/maps` | `sv_maps` as JSON: `{"maps": ["beavercreek", ...], "game_types": ["slayer", ...]}`. |
+| `GET /v1/maps` | `sv_maps` as JSON: `{"maps": ["beavercreek", ..., "wizard@cex"], "game_types": ["slayer", ...], "map_packs": {"wizard@cex": {"name": "Gothra", "pack": "Halo CE+", "tag": "CE+"}}}` (`map_packs` since map packs: the Xbox map packs' maps' names). |
 | `GET /v1/playlists`, `/v1/gametypes`, `/v1/settings`, `/v1/moderators`, `/v1/link` | `sv_playlists`, `sv_gametypes`, `sv_settings`, `sv_mod_list`, `sv_link_status` as JSON. |
 | `POST /v1/query` with `{"command": "sv_playlist big"}` | A read command's JSON (`sv_playlist`, `sv_gametype`, ...). |
 | `POST /v1/file` with `{"kind": "playlist", "name": "big", "text": "..."}` | A playlist's (or, `"gametype"`, a game type's) file, saved whole, checked first: `{"ok", "output"}`. |

@@ -2416,6 +2416,16 @@ static void main_won_map_private(
 void main_set_map_name(
 	char const *map_name)
 {
+#ifdef HALO_MAP_LIST
+	/* port: with a map pack's own menus (game.pack_menus), a level only the
+	pack has is the pack's: its menus name cex_museum, which is
+	cex_museum@cex here (port/linux/game/map_packs.c) */
+	void map_pack_menus_map_name(char const *map_name, char *name, long size);
+	char pack_map_name[NUMBEROF(main_globals.soloplayer_map_name)];
+
+	map_pack_menus_map_name(map_name, pack_map_name, sizeof(pack_map_name));
+	map_name = pack_map_name;
+#endif
 	main_globals.want_to_be_at_main_menu = FALSE;
 	csstrncpy(main_globals.soloplayer_map_name, map_name, NUMBEROF(main_globals.soloplayer_map_name) - 1);
 	main_globals.soloplayer_map_name[NUMBEROF(main_globals.soloplayer_map_name) - 1] = 0;

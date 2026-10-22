@@ -47,7 +47,8 @@ small VPS will do.
    maps of the North American (NTSC) Xbox disc, as the players do. Halo PC
    maps go in folders beside `maps`: Custom Edition maps (with Custom
    Edition's `bitmaps.map`, `sounds.map` and `loc.map`) in `maps_ce`,
-   HaloMD maps in `maps_md`, Halo PC retail maps in `maps_pc`
+   HaloMD maps in `maps_md`, Halo PC retail maps in `maps_pc`, an Xbox map
+   pack's maps (Halo CE+'s) in its own folder (`maps_cex`)
    ([Playlists](docs/playlists.md)).
 3. Put a playlist in the data folder's `playlists` folder (the download's,
    or your own), and start the server:
@@ -156,7 +157,7 @@ is on.
 | [docs/settings.md](docs/settings.md) | Every setting, the command line, exit statuses, and the files the server writes. |
 | [docs/admin.md](docs/admin.md) | Running a server: its commands, its console, startup commands, the control API and web admin page (and reaching them safely). |
 | [docs/moderation.md](docs/moderation.md) | Moderators and the control panel: roles, accounts, second factors, invitations, in-game moderation, HTTPS, the link to stats.chupathingy.org, and security notes. |
-| [docs/playlists.md](docs/playlists.md) | Playlists: the maps (Xbox, `@ce`, `@md`), the game types, and the ones included. |
+| [docs/playlists.md](docs/playlists.md) | Playlists: the maps (Xbox, `@ce`, `@md`, the Xbox map packs' `@cex`), the game types, and the ones included. |
 | [docs/docker.md](docs/docker.md) | The container image, the systemd services, more servers on one host, and the game list's probe. |
 | [docs/building.md](docs/building.md) | Building the server: the targets, musl and glibc, and how it differs from the game. |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in the server, release by release. |

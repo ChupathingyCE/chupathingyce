@@ -13411,6 +13411,13 @@ static char const *const hs_globals_denied_to_downloaded_maps[]=
 (hs_scenario_functions_check) */
 static boolean hs_scenario_downloaded = FALSE;
 
+/* port: whether the map whose scripts are checked is a known map pack's own
+ui.map, played with game.pack_menus (port/linux/game/map_packs.c): its menus
+may switch levels with map_name, as the pack's own release's do (the bonus
+level its menu opens), which no other map's scripts may. What it names goes
+through main_set_map_name, a level only the pack has being the pack's */
+static boolean hs_scenario_pack_menus = FALSE;
+
 static boolean hs_name_listed(
 	char const *name,
 	char const *const *list)
@@ -13469,8 +13476,11 @@ static short hs_syntax_node_refusal(
 		return _hs_node_refusal_damaged;
 	function = hs_function_get(function_index);
 	*name = function->name;
-	if (!hs_function_allowed_in_maps[function_index])
+	if (!hs_function_allowed_in_maps[function_index] &&
+		!(hs_scenario_pack_menus && !csstrcmp(function->name, "map_name")))
+	{
 		return _hs_node_refusal_function;
+	}
 	if (hs_scenario_downloaded && hs_name_listed(function->name, hs_functions_denied_to_downloaded_maps))
 		return _hs_node_refusal_downloaded_function;
 
@@ -13676,6 +13686,15 @@ static void hs_scenario_functions_check(
 	hs_scenario_downloaded = map_is_downloaded(cache_file_loaded_map_name());
 	if (hs_scenario_downloaded)
 		error(_error_silent, "%s is a downloaded map: its scripts may call and set less", cache_file_loaded_map_name());
+#endif
+#ifdef HALO_MAP_LIST
+	{
+		boolean map_pack_menus_known(void);
+
+		hs_scenario_pack_menus = map_pack_menus_known() && !csstrcmp(cache_file_loaded_map_name(), "ui");
+		if (hs_scenario_pack_menus)
+			error(_error_silent, "ui is a known map pack's menus: its scripts may call map_name");
+	}
 #endif
 	csmemset(hs_syntax_nodes_marked, 0, sizeof(hs_syntax_nodes_marked));
 	for (script_index = 0; script_index<scenario->hs_scripts.count; script_index++)

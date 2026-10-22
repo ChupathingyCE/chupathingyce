@@ -49,6 +49,9 @@ change.
 #include "networking/network_game_protocol.h"
 #include "networking/network_server_manager.h"
 #include "halo_map_families.h"
+#ifdef HALO_MAP_LIST
+#include "halo_map_packs.h"
+#endif
 #include "command_line.h"
 #include "dedicated.h"
 #include "delta.h"
@@ -229,8 +232,10 @@ static struct server_command const server_commands[] =
 	{ "sv_banlist", "sv_banlist", "The bans in bans.txt: number, when, hardware id, players, how long.", 1, 1, FALSE,
 		command_banlist },
 	{ "sv_map", "sv_map <map> <game type>", "Plays a map (bloodgulch, a Custom Edition map as name@ce, a HaloMD map as "
-		"name@md, a Halo PC map as name@pc) and game type (slayer, ctf, ...) now; then the playlist goes on.", 3, 3, FALSE, command_map },
-	{ "sv_maps", "sv_maps", "The maps this server can play (its multiplayer maps: Xbox, name@ce, name@md, name@pc) and "
+		"name@md, a Halo PC map as name@pc, an Xbox map pack's as name@pack: wizard@cex) and game type (slayer, ctf, "
+		"...) now; then the playlist goes on.", 3, 3, FALSE, command_map },
+	{ "sv_maps", "sv_maps", "The maps this server can play (its multiplayer maps: Xbox, name@ce, name@md, name@pc, "
+		"the Xbox map packs' name@pack) and "
 		"the game types sv_map takes.", 1, 1, FALSE, command_maps },
 	{ "sv_mapcycle", "sv_mapcycle", "The playlist, and which entry is played.", 1, 1, FALSE, command_mapcycle },
 	{ "sv_mapcycle_next", "sv_mapcycle_next", "Skips to the playlist's next entry now.", 1, 1, TRUE,
@@ -657,6 +662,21 @@ boolean server_map_playable(
 		}
 		return TRUE;
 	}
+#ifdef HALO_MAP_LIST
+	/* (an Xbox map pack's: maps_<pack>\<file>.map) */
+	if (family == _map_family_pack)
+	{
+		if (!map_family_xbox_path(map, path, sizeof(path)) || !file_is_multiplayer_map(path))
+		{
+			char pack[MAP_PACK_ID_LENGTH + 1];
+
+			map_family_pack_id(map, pack, sizeof(pack));
+			command_output_printf(output, "no multiplayer map %s in maps_%s\n", file, pack);
+			return FALSE;
+		}
+		return TRUE;
+	}
+#endif
 #ifdef HALO_CUSTOM_EDITION
 	if (!map_family_find(family, file, path, sizeof(path)) || !file_is_multiplayer_map(path))
 	{
@@ -1036,7 +1056,7 @@ static boolean command_map(
 	(void)json;
 	if (!command_line_map_name_valid(line->words[1]))
 	{
-		command_output_printf(output, "%s is not a map's name (bloodgulch, name@ce, name@md, name@pc)\n", line->words[1]);
+		command_output_printf(output, "%s is not a map's name (bloodgulch, name@ce, name@md, name@pc, name@cex)\n", line->words[1]);
 		return FALSE;
 	}
 	csmemset(&empty, 0, sizeof(empty));
@@ -1278,6 +1298,20 @@ static void map_listing_found(
 }
 #endif
 
+#ifdef HALO_MAP_LIST
+/* an Xbox map pack's multiplayer map found (map_pack_list): <file>@<pack> */
+static void map_listing_pack_found(
+	char const *pack,
+	char const *file,
+	void *context)
+{
+	char name[80];
+
+	if (map_pack_map_name(pack, file, name, sizeof(name)) && command_line_map_name_valid(name))
+		map_listing_add((struct map_listing *)context, name);
+}
+#endif
+
 static int map_listing_compare(
 	void const *a,
 	void const *b)
@@ -1334,6 +1368,10 @@ static boolean command_maps(
 		}
 	}
 #endif
+#ifdef HALO_MAP_LIST
+	/* (the Xbox map packs' in their maps_<pack> folders: wizard@cex) */
+	map_pack_list(map_listing_pack_found, &listing);
+#endif
 	qsort(listing.names, (size_t)listing.count, sizeof(listing.names[0]), map_listing_compare);
 	if (json)
 	{
@@ -1344,6 +1382,42 @@ static boolean command_maps(
 			command_output_json_string(output, listing.names[index]);
 		}
 		command_output_printf(output, "], \"game_types\": [");
+		for (index = 0; index < (long)NUMBEROF(server_game_types); index++)
+		{
+			command_output_printf(output, "%s", index ? ", " : "");
+			command_output_json_string(output, server_game_types[index]);
+		}
+#ifdef HALO_MAP_LIST
+		/* (additive: the Xbox map packs' maps' names and packs, by map:
+		{"wizard@cex": {"name": "Gothra", "pack": "Halo CE+", "tag": "CE+"}}) */
+		command_output_printf(output, "], \"map_packs\": {");
+		{
+			boolean first = TRUE;
+
+			for (index = 0; index < listing.count; index++)
+			{
+				char file[64], pack[MAP_PACK_ID_LENGTH + 1], name[96], title[96], tag[16];
+
+				if (!map_family_pack_id(listing.names[index], pack, sizeof(pack)))
+					continue;
+				map_family_parse(listing.names[index], file, sizeof(file));
+				map_pack_names(pack, file, 0, name, sizeof(name), title, sizeof(title));
+				map_pack_tag(pack, tag, sizeof(tag));
+				command_output_printf(output, "%s", first ? "" : ", ");
+				command_output_json_string(output, listing.names[index]);
+				command_output_printf(output, ": {\"name\": ");
+				command_output_json_string(output, name);
+				command_output_printf(output, ", \"pack\": ");
+				command_output_json_string(output, title);
+				command_output_printf(output, ", \"tag\": ");
+				command_output_json_string(output, tag);
+				command_output_printf(output, "}");
+				first = FALSE;
+			}
+		}
+		command_output_printf(output, "}}");
+		return TRUE;
+#endif
 		for (index = 0; index < (long)NUMBEROF(server_game_types); index++)
 		{
 			command_output_printf(output, "%s", index ? ", " : "");

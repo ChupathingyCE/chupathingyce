@@ -39,6 +39,7 @@ clock runs on).
 
 #include "halo_menus.h"
 #include "halo_keyboard.h"
+#include "halo_map_packs.h"
 #ifdef HALO_GAME_BROWSER
 #include "../src/ui_overlay.h"
 #ifdef HALO_GAME_BROWSER
@@ -92,9 +93,10 @@ adds to */
 #define MULTIPLAYER_COLLECTION "ui\\shell\\multiplayer"
 /* a campaign map's pause screen, which pause_patch adds to */
 #define SOLO_PAUSE_SCREEN "ui\\shell\\solo_game\\pause_game\\pause_game"
-/* the tags pause_patch adds: four buttons and their texts, and the tops of
-the stock box's pieces (the campaign's has six) */
-#define PAUSE_PATCH_TAGS (8 + 2 * 6)
+/* the tags pause_patch adds: four buttons and their texts, and the middle
+and bottom parts of the stock box's pieces, a widget and a bitmap each (the
+campaign's has six pieces) */
+#define PAUSE_PATCH_TAGS (8 + 4 * 6)
 /* what a frame of ui.map's is drawn as in a game map, which has not got it */
 #define BLANK_PNG "ce/port/blank__0.png"
 #define UI_WIDGET_DEFINITION_TAG 'DeLa'
@@ -1496,10 +1498,9 @@ the list moved down; on a custom map's, what is below the list moves down. */
 /* (the Chupathingy menus': their own, in the Xbox's look) */
 #define PAUSE_SETTINGS_SCREEN_CHUPATHINGY "chupathingy/settings/profile_edit_screen"
 /* CONTROLS': Controls Setup (tools/port_settings.py's CONTROLS_SCREEN), the
-Gearbox and Chupathingy menus' own */
+Gearbox menus' own */
 #define PAUSE_CONTROLS_SCREEN \
 	"main_menu/settings_select/player_setup/player_profile_edit/controls_setup/controls_settings_screen"
-#define PAUSE_CONTROLS_SCREEN_CHUPATHINGY "chupathingy/settings/controls_setup_screen"
 #define PAUSE_BUTTON_SPACING 35
 
 /* display.menus: the Xbox's menus, Gearbox's Halo PC menus, or Chupathingy's (the
@@ -1622,11 +1623,12 @@ static void *pause_button(struct cache_file_tag_instance *instances, struct ui_w
 }
 
 /* whether the pause menus have CONTROLS (Controls Setup, or the Xbox
-menus' Controls screen: controls_screen.c), as display.pause_controls says */
+menus' Controls screen: controls_screen.c), as display.pause_controls says;
+the Chupathingy menus' never have it (their SETTINGS opens Controls) */
 static boolean pause_controls_offered(void)
 {
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_CONTROLS)
-	return config_boolean("display.pause_controls") != 0;
+	return menus_chosen() != _menus_chupathingy && config_boolean("display.pause_controls") != 0;
 #else
 	return FALSE;
 #endif
@@ -1643,8 +1645,7 @@ static short pause_list_patch(struct cache_file_tag_instance *instances, struct 
 	long count = list->child_widgets.count, child;
 	boolean controls = pause_controls_offered();
 	/* (the Xbox's menus have none of ours: the Controls screen, by code) */
-	long controls_widget = !controls || !build.menus ? NONE :
-		widget_named(menus_chosen() == _menus_chupathingy ? PAUSE_CONTROLS_SCREEN_CHUPATHINGY : PAUSE_CONTROLS_SCREEN);
+	long controls_widget = !controls || !build.menus ? NONE : widget_named(PAUSE_CONTROLS_SCREEN);
 	long added = (change_teams != FALSE) + (settings != FALSE) + (controls != FALSE) + (end_game != FALSE);
 	struct ui_widget_child_reference *grown = allocate((count + added) * sizeof(struct ui_widget_child_reference));
 	struct ui_widget_definition const *model = tag_get(UI_WIDGET_DEFINITION_TAG, children[resume].widget_tag.index);
@@ -1724,16 +1725,21 @@ static boolean pause_box_stock(struct ui_widget_definition const *box)
 }
 
 /* the stock box drawn taller, once in a map (the screens share it): each
-piece drawn to PAUSE_BOX_SPLIT rows past grow (in its plain middle, below
-the objectives' header and above the buttons' key), then a copy of it from
-its row PAUSE_BOX_SPLIT on, so the box is as the Xbox draws it with its
-middle grow longer */
+piece drawn to PAUSE_BOX_SPLIT rows (below the objectives' header), then its
+plain middle, from that row to PAUSE_BOX_KEY, stretched grow rows longer,
+then the rest of it from its row PAUSE_BOX_KEY on (the buttons' key), so the
+box is as the Xbox draws it with its middle grow longer. (Drawing the top
+part grow rows further instead showed the key's line and dark band in the
+middle of the box once the menu grew by three rows or more.) */
 #define PAUSE_BOX_SPLIT 45
+#define PAUSE_BOX_KEY 120
 
-/* a piece's lower part: a copy of it, its bitmap drawn from row split on */
-static long pause_box_lower(struct cache_file_tag_instance *instances, long piece_tag, short split)
+/* a part of a piece: a copy of it, its bitmap drawn from row from, its rows
+rows of it drawn height rows tall */
+static long pause_box_part(struct cache_file_tag_instance *instances, long piece_tag, short from, short rows,
+	short height)
 {
-	struct ui_widget_definition *lower = allocate(sizeof(*lower));
+	struct ui_widget_definition *part = allocate(sizeof(*part));
 	struct bitmap_group *group = allocate(sizeof(*group));
 	struct bitmap_data *bitmap = allocate(sizeof(*bitmap));
 	struct menu_frame_placement *placements = realloc(menu_tags.placements,
@@ -1741,13 +1747,13 @@ static long pause_box_lower(struct cache_file_tag_instance *instances, long piec
 	struct bitmap_group const *source;
 	long widget_tag, bitmap_tag;
 
-	if (!lower || !group || !bitmap || !placements)
+	if (!part || !group || !bitmap || !placements || rows <= 0 || height <= 0)
 		return NONE;
 	menu_tags.placements = placements;
-	memcpy(lower, tag_get(UI_WIDGET_DEFINITION_TAG, piece_tag), sizeof(*lower));
-	if (lower->background_bitmap.index == NONE)
+	memcpy(part, tag_get(UI_WIDGET_DEFINITION_TAG, piece_tag), sizeof(*part));
+	if (part->background_bitmap.index == NONE)
 		return NONE;
-	source = bitmap_group_get(lower->background_bitmap.index);
+	source = bitmap_group_get(part->background_bitmap.index);
 	if (source->bitmaps.count < 1)
 		return NONE;
 	memcpy(group, source, sizeof(*group));
@@ -1758,24 +1764,48 @@ static long pause_box_lower(struct cache_file_tag_instance *instances, long piec
 	placements[menu_tags.placement_count].x = 0;
 	placements[menu_tags.placement_count].y = 0;
 	placements[menu_tags.placement_count].width = bitmap->width;
-	placements[menu_tags.placement_count].height = bitmap->height;
-	placements[menu_tags.placement_count].texel_y = split;
+	/* (the whole bitmap's height, as it is drawn: rows rows to height) */
+	placements[menu_tags.placement_count].height = (short)((long)height * bitmap->height / rows);
+	placements[menu_tags.placement_count].texel_y = from;
 	menu_tags.placement_count++;
 	bitmap_tag = next_tag();
-	instance_set(instances, BITMAP_GROUP_TAG, bitmap_tag, "pause/box_lower", "", group);
-	reference_set(&lower->background_bitmap, BITMAP_GROUP_TAG, bitmap_tag);
-	lower->bounds.y1 = (short)(lower->bounds.y1 - split);
+	instance_set(instances, BITMAP_GROUP_TAG, bitmap_tag, "pause/box_part", "", group);
+	reference_set(&part->background_bitmap, BITMAP_GROUP_TAG, bitmap_tag);
+	part->bounds.y1 = (short)(part->bounds.y0 + height);
 	widget_tag = next_tag();
-	instance_set(instances, UI_WIDGET_DEFINITION_TAG, widget_tag, "pause/box_lower", "", lower);
+	instance_set(instances, UI_WIDGET_DEFINITION_TAG, widget_tag, "pause/box_part", "", part);
 	return widget_tag;
+}
+
+/* the stock box's pieces cut to end where the next begins: the campaign's
+pause screen places pausebox2_right 8 units into pausebox2_left_center
+(the multiplayer maps' place them edge to edge), and the box's middle,
+drawn twice there, showed as a lighter bar down its right side */
+static void pause_box_trim(struct ui_widget_definition const *box)
+{
+	struct ui_widget_child_reference const *pieces = xbox_pointer(box->child_widgets.address);
+	long piece;
+
+	for (piece = 0; piece + 1 < box->child_widgets.count; piece++)
+	{
+		struct ui_widget_definition *definition;
+		short end;
+
+		if (pieces[piece].widget_tag.index == NONE || pieces[piece + 1].widget_tag.index == NONE)
+			continue;
+		definition = tag_get(UI_WIDGET_DEFINITION_TAG, pieces[piece].widget_tag.index);
+		end = (short)(pieces[piece + 1].horizontal_offset - pieces[piece].horizontal_offset);
+		if (end > definition->bounds.x0 && end < definition->bounds.x1)
+			definition->bounds.x1 = end;
+	}
 }
 
 static void pause_box_grow(struct cache_file_tag_instance *instances, struct ui_widget_definition *box, short grow)
 {
 	struct ui_widget_child_reference *pieces = xbox_pointer(box->child_widgets.address);
 	long count = box->child_widgets.count, piece;
-	struct ui_widget_child_reference *grown = allocate(2 * count * sizeof(struct ui_widget_child_reference));
-	short split = PAUSE_BOX_SPLIT;
+	struct ui_widget_child_reference *grown = allocate(3 * count * sizeof(struct ui_widget_child_reference));
+	short split = PAUSE_BOX_SPLIT, key = PAUSE_BOX_KEY;
 
 	if (!grown || count > 6)
 		return;
@@ -1787,22 +1817,30 @@ static void pause_box_grow(struct cache_file_tag_instance *instances, struct ui_
 		if (pieces[piece].widget_tag.index == NONE)
 			continue;
 		definition = tag_get(UI_WIDGET_DEFINITION_TAG, pieces[piece].widget_tag.index);
-		if (definition->bounds.y1 - definition->bounds.y0 < split + grow)
+		if (definition->bounds.y1 - definition->bounds.y0 <= key)
 			return;
 	}
 	memcpy(grown, pieces, count * sizeof(*grown));
 	for (piece = 0; piece < count; piece++)
 	{
-		grown[count + piece] = pieces[piece];
+		struct ui_widget_definition const *definition;
+		struct ui_widget_child_reference *middle = &grown[count + 2 * piece], *lower = middle + 1;
+
+		*middle = *lower = pieces[piece];
 		if (pieces[piece].widget_tag.index == NONE)
 			continue;
-		reference_set(&grown[count + piece].widget_tag, UI_WIDGET_DEFINITION_TAG,
-			pause_box_lower(instances, pieces[piece].widget_tag.index, split));
-		if (grown[count + piece].widget_tag.index == NONE)
+		definition = tag_get(UI_WIDGET_DEFINITION_TAG, pieces[piece].widget_tag.index);
+		reference_set(&middle->widget_tag, UI_WIDGET_DEFINITION_TAG,
+			pause_box_part(instances, pieces[piece].widget_tag.index, split, key - split, key - split + grow));
+		reference_set(&lower->widget_tag, UI_WIDGET_DEFINITION_TAG,
+			pause_box_part(instances, pieces[piece].widget_tag.index, key, definition->bounds.y1 - definition->bounds.y0 - key,
+				definition->bounds.y1 - definition->bounds.y0 - key));
+		if (middle->widget_tag.index == NONE || lower->widget_tag.index == NONE)
 			return;
-		grown[count + piece].vertical_offset = (short)(pieces[piece].vertical_offset + split + grow);
+		middle->vertical_offset = (short)(pieces[piece].vertical_offset + split);
+		lower->vertical_offset = (short)(pieces[piece].vertical_offset + key + grow);
 	}
-	/* (the upper parts cut short only once every lower part is made) */
+	/* (the top parts cut short only once every other part is made) */
 	for (piece = 0; piece < count; piece++)
 	{
 		struct ui_widget_definition *upper;
@@ -1810,10 +1848,10 @@ static void pause_box_grow(struct cache_file_tag_instance *instances, struct ui_
 		if (pieces[piece].widget_tag.index == NONE)
 			continue;
 		upper = tag_get(UI_WIDGET_DEFINITION_TAG, pieces[piece].widget_tag.index);
-		upper->bounds.y1 = (short)(upper->bounds.y0 + split + grow);
+		upper->bounds.y1 = (short)(upper->bounds.y0 + split);
 	}
 	box->child_widgets.address = XBOX_ADDRESS(grown);
-	box->child_widgets.count = 2 * count;
+	box->child_widgets.count = 3 * count;
 	box->bounds.y1 = (short)(box->bounds.y1 + grow);
 }
 
@@ -1901,6 +1939,8 @@ static void pause_screen_patch(struct cache_file_tag_instance *instances, long s
 	}
 	if (box_child != NONE && !*box_grown)
 	{
+		/* (trimmed first: the box's taller parts are copies of its pieces) */
+		pause_box_trim(tag_get(UI_WIDGET_DEFINITION_TAG, children[box_child].widget_tag.index));
 		pause_box_grow(instances, tag_get(UI_WIDGET_DEFINITION_TAG, children[box_child].widget_tag.index), *grow);
 		*box_grown = TRUE;
 	}
@@ -2002,6 +2042,11 @@ static short menus_chosen(void)
 	char const *value = config_string("display.menus");
 	char lower[16];
 	size_t index;
+
+	/* (a map pack's own menus, game.pack_menus, are its ui.map's as they
+	are: none of ours are built over them, map_packs.c) */
+	if (map_pack_menus())
+		return _menus_xbox;
 
 	for (index = 0; index + 1 < sizeof(lower) && value[index]; index++)
 		lower[index] = (char)(value[index] >= 'A' && value[index] <= 'Z' ? value[index] - 'A' + 'a' : value[index]);

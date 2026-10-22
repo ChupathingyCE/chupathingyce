@@ -182,6 +182,8 @@ SCREENS = {
             ("JOIN FROM CLIPBOARD:", "network.join_from_clipboard",
              [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
              "Join a game from an invite link on the clipboard.", None),
+            ("COPY INVITE LINK:", "network.copy_to_clipboard", ON_OFF,
+             "Copy your game's invite link when you host.", None),
             ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
              "Check for a new version at startup.", None),
             ("START WITH ONE PLAYER:", "game.start_with_one_player", ON_OFF,
