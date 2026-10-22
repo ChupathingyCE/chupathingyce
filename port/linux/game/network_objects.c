@@ -3401,3 +3401,101 @@ boolean network_objects_wire_entries(
 	return FALSE;
 }
 #endif
+
+#if defined(HALO_BIG_ENDIAN) || defined(HALO_NETWORK_WIRE_CAPTURE)
+/* (network_distributed.h) this module's sample entries */
+word network_objects_wire_sample(
+	byte type,
+	byte *entries)
+{
+	short index;
+
+	switch (type)
+	{
+	case _distributed_message_object_changes:
+	{
+		struct distributed_object_change *changes = (struct distributed_object_change *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			struct distributed_object_change *change = &changes[index];
+			short color;
+
+			WIRE_SAMPLE(change->change);
+			WIRE_SAMPLE(change->flags);
+			WIRE_SAMPLE(change->owner_player_index);
+			WIRE_SAMPLE(change->forced_shader_permutation_index);
+			WIRE_SAMPLE(change->object_index);
+			WIRE_SAMPLE(change->definition_index);
+			WIRE_SAMPLE(change->owner_team_index);
+			WIRE_SAMPLE(change->variant_number);
+			WIRE_SAMPLES(change->position.n);
+			WIRE_SAMPLES(change->forward.n);
+			WIRE_SAMPLES(change->up.n);
+			WIRE_SAMPLES(change->translational_velocity.n);
+			WIRE_SAMPLES(change->angular_velocity.n);
+			for (color = 0; color < NUMBER_OF_OBJECT_CHANGE_COLORS; color++)
+				WIRE_SAMPLES(change->change_colors[color].n);
+			WIRE_SAMPLES(change->region_permutations);
+		}
+		return (word)(2 * sizeof(*changes));
+	}
+	case _distributed_message_object_states:
+	case _distributed_message_vehicle_prediction:
+	{
+		struct distributed_object_state *states = (struct distributed_object_state *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			struct distributed_object_state *state = &states[index];
+
+			WIRE_SAMPLE(state->object_index);
+			WIRE_SAMPLE(state->flags);
+			WIRE_SAMPLE(state->time);
+			WIRE_SAMPLES(state->position.n);
+			WIRE_SAMPLE_VECTOR(state->forward);
+			WIRE_SAMPLE_VECTOR(state->up);
+			WIRE_SAMPLE_VECTOR(state->translational_velocity);
+			WIRE_SAMPLE_VECTOR(state->angular_velocity);
+		}
+		return (word)(2 * sizeof(*states));
+	}
+	case _distributed_message_inventories:
+	{
+		struct distributed_inventory *inventories = (struct distributed_inventory *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			struct distributed_inventory *inventory = &inventories[index];
+			short weapon;
+
+			WIRE_SAMPLE(inventory->unit_index);
+			WIRE_SAMPLES(inventory->grenade_counts);
+			WIRE_SAMPLE(inventory->current_weapon_index);
+			WIRE_SAMPLES(inventory->weapon_indices);
+			for (weapon = 0; weapon < MAXIMUM_WEAPONS_PER_UNIT; weapon++)
+			{
+				WIRE_SAMPLES(inventory->rounds_total[weapon]);
+				WIRE_SAMPLES(inventory->rounds_loaded[weapon]);
+			}
+			WIRE_SAMPLES(inventory->age);
+		}
+		return (word)(2 * sizeof(*inventories));
+	}
+	case _distributed_message_damage_animations:
+	{
+		struct distributed_damage_animation *animations = (struct distributed_damage_animation *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			WIRE_SAMPLE(animations[index].unit_index);
+			WIRE_SAMPLE(animations[index].animation_index);
+			WIRE_SAMPLE(animations[index].type);
+			WIRE_SAMPLE(animations[index].number);
+		}
+		return (word)(2 * sizeof(*animations));
+	}
+	}
+	return 0;
+}
+#endif

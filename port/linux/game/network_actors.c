@@ -951,3 +951,73 @@ boolean network_actors_wire_entries(
 	return FALSE;
 }
 #endif
+
+#if defined(HALO_BIG_ENDIAN) || defined(HALO_NETWORK_WIRE_CAPTURE)
+/* (network_distributed.h) this module's sample entries */
+word network_actors_wire_sample(
+	byte type,
+	byte *entries)
+{
+	short index;
+
+	switch (type)
+	{
+	case _distributed_message_actor_states:
+	{
+		struct distributed_actor_state *states = (struct distributed_actor_state *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			struct distributed_actor_state *state = &states[index];
+
+			WIRE_SAMPLE(state->unit_index);
+			WIRE_SAMPLE(state->vehicle_index);
+			WIRE_SAMPLE(state->seat_index);
+			WIRE_SAMPLE(state->flags);
+			WIRE_SAMPLE(state->impulse_number);
+			WIRE_SAMPLE(state->impulse);
+			WIRE_SAMPLE(state->animation_state);
+			WIRE_SAMPLE(state->aiming_speed);
+			WIRE_SAMPLE(state->primary_trigger);
+			WIRE_SAMPLE(state->control_flags);
+			WIRE_SAMPLES(state->throttle);
+			WIRE_SAMPLE(state->active_camouflage);
+			WIRE_SAMPLE(state->speech_number);
+			WIRE_SAMPLE(state->team);
+			WIRE_SAMPLES(state->facing);
+			WIRE_SAMPLES(state->aiming);
+			WIRE_SAMPLES(state->looking);
+			WIRE_SAMPLE(state->impulse_alignment);
+			WIRE_SAMPLE(state->run_blindly_angle);
+			WIRE_SAMPLE(state->body_vitality);
+			WIRE_SAMPLE(state->shield_vitality);
+			WIRE_SAMPLE(state->speech_sound);
+			WIRE_SAMPLE(state->user_animation_graph);
+			WIRE_SAMPLE(state->user_animation);
+			WIRE_SAMPLE(state->user_animation_number);
+			WIRE_SAMPLE(state->user_animation_interpolate);
+			WIRE_SAMPLES(state->position.n);
+			WIRE_SAMPLE_VECTOR(state->velocity);
+			WIRE_SAMPLE_VECTOR(state->forward);
+			WIRE_SAMPLE_VECTOR(state->up);
+		}
+		return (word)(2 * sizeof(*states));
+	}
+	case _distributed_message_actor_damage:
+	{
+		struct distributed_actor_damage *units = (struct distributed_actor_damage *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			WIRE_SAMPLE(units[index].unit_index);
+			WIRE_SAMPLE(units[index].current_shield_damage);
+			WIRE_SAMPLE(units[index].recent_shield_damage);
+			WIRE_SAMPLE(units[index].current_body_damage);
+			WIRE_SAMPLE(units[index].recent_body_damage);
+		}
+		return (word)(2 * sizeof(*units));
+	}
+	}
+	return 0;
+}
+#endif
