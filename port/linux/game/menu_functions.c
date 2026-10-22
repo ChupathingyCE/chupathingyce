@@ -5865,7 +5865,10 @@ static void lobby_update(struct widget_instance *list)
 
 			usnprintf(text + length, NUMBEROF(text) - 1 - length, L" %d", seconds);
 		}
-		if (global_network_game_server_get() && p2p_invite_link(link, sizeof(link)))
+		/* (copied by itself only with network.copy_to_clipboard:
+		sdl_platform.c) */
+		if (global_network_game_server_get() && config_boolean("network.copy_to_clipboard") &&
+			p2p_invite_link(link, sizeof(link)))
 		{
 			size_t length = ustrlen(text);
 

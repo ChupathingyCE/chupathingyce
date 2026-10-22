@@ -539,6 +539,10 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"An invite link on the clipboard when the game comes to the front:\n"
 		"\"ask\", \"always\" (join it) or \"never\"." },
+	{ "network.copy_to_clipboard", _config_boolean, "false", "HALO_NET_COPY_TO_CLIPBOARD", _environment_value,
+		_platform_all,
+		"Put a game's invite link on the clipboard when you start to host it.\n"
+		"false: the log has it, and the Gearbox menus' Server Settings copy it." },
 	{ "network.map_downloads", _config_string, "\"ask\"", "HALO_NET_MAP_DOWNLOADS", _environment_value,
 		_platform_all,
 		"Download a missing Custom Edition map from the community repositories:\n"
