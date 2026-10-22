@@ -295,6 +295,15 @@ struct message_server_game_advertise
 	byte join_game_token[JOIN_GAME_TOKEN_LENGTH];
 };
 
+#ifdef HALO_BIG_ENDIAN
+static void message_server_game_advertise_byte_swap(struct message_server_game_advertise *advertisement);
+#ifdef HALO_PORT_CONSOLE_LIMITS
+/* (the console's limits fold the settings record by its little-endian bytes:
+network_game_layout.c) */
+#error a big-endian build with the console's limits does not fold the game settings yet
+#endif
+#endif
+
 struct message_server_pong
 {
 	long timestamp;
@@ -816,6 +825,9 @@ static boolean network_game_client_handle_message_server_game_advertise(
 			&packet_version,
 			_network_game_packet_class_advertisement))
 		{
+#ifdef HALO_BIG_ENDIAN
+			message_server_game_advertise_byte_swap(&advertisement);
+#endif
 #ifdef HALO_XBOX_CONSOLE
 			/* port: with console.trace (port/xbox/src/xbox_port.c), each
 			host's advertisement, a few times then every 10 seconds (the
@@ -1153,6 +1165,9 @@ static boolean network_game_client_receive_game_settings_piece(
 #endif
 				result = network_game_client_game_settings_updated(client, &network_game_client_settings_folded);
 #else
+#ifdef HALO_BIG_ENDIAN
+				network_game_byte_swap(&network_game_client_settings_staging, TRUE);
+#endif
 				result = network_game_client_game_settings_updated(client, &network_game_client_settings_staging);
 #endif
 				if (!result)
@@ -1748,3 +1763,28 @@ static boolean network_game_client_handle_message_server_graceful_game_exit_post
 
 	return result;
 }
+
+#ifdef HALO_BIG_ENDIAN
+/* port: a big-endian console: the advertisement is the raw bytes of the
+structure (message_server_game_advertise_packet), little-endian as the PCs
+and the original Xbox lay it out; between this machine's order and the
+wire's, either way. Its nonces, keys and address are bytes (the address and
+its port in network order, as the transport has them) */
+void distributed_wire_swap(void *data, long count, long size);
+
+static void message_server_game_advertise_byte_swap(
+	struct message_server_game_advertise *advertisement)
+{
+	distributed_wire_swap(&advertisement->port, 3, sizeof(word));
+	distributed_wire_swap(advertisement->game_name, NUMBEROF(advertisement->game_name), sizeof(wchar_t));
+	distributed_wire_swap(&advertisement->map.version, 1, sizeof(long));
+	/* (the engine type, the counts, the variant's setting and the flags) */
+	distributed_wire_swap(&advertisement->engine_type, 6, sizeof(short));
+}
+
+/* (the numbers turned together are side by side) */
+typedef char message_server_game_advertise_wire_assert[
+	offsetof(struct message_server_game_advertise, platform) == offsetof(struct message_server_game_advertise, port) + 4 &&
+	offsetof(struct message_server_game_advertise, flags) ==
+		offsetof(struct message_server_game_advertise, engine_type) + 10 ? 1 : -1];
+#endif

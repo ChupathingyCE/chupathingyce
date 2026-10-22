@@ -900,3 +900,54 @@ void network_actors_drive(
 		}
 	}
 }
+
+#ifdef HALO_BIG_ENDIAN
+/* (network_distributed.h) this module's entries in the wire's order */
+boolean network_actors_wire_entries(
+	byte type,
+	byte *entries,
+	short count,
+	long size)
+{
+	short index;
+
+	switch (type)
+	{
+	case _distributed_message_actor_states:
+	{
+		struct distributed_actor_state *states = (struct distributed_actor_state *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*states) <= size; index++)
+		{
+			WIRE_SWAP_FIELDS(&states[index], struct distributed_actor_state, unit_index, vehicle_index,
+				sizeof(long));
+			WIRE_SWAP_FIELD(&states[index], struct distributed_actor_state, seat_index, sizeof(short));
+			WIRE_SWAP_FIELD(&states[index], struct distributed_actor_state, control_flags, sizeof(word));
+			/* (the facing, aiming and looking angles, the impulse's alignment,
+			the blind run's angle and the vitalities) */
+			WIRE_SWAP_FIELDS(&states[index], struct distributed_actor_state, facing, shield_vitality,
+				sizeof(short));
+			WIRE_SWAP_FIELDS(&states[index], struct distributed_actor_state, speech_sound, user_animation_graph,
+				sizeof(long));
+			WIRE_SWAP_FIELD(&states[index], struct distributed_actor_state, user_animation, sizeof(short));
+			WIRE_SWAP_FIELD(&states[index], struct distributed_actor_state, position, sizeof(real));
+			WIRE_SWAP_FIELDS(&states[index], struct distributed_actor_state, velocity, up, sizeof(short));
+		}
+		return TRUE;
+	}
+	case _distributed_message_actor_damage:
+	{
+		struct distributed_actor_damage *units = (struct distributed_actor_damage *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*units) <= size; index++)
+		{
+			WIRE_SWAP_FIELD(&units[index], struct distributed_actor_damage, unit_index, sizeof(long));
+			WIRE_SWAP_FIELDS(&units[index], struct distributed_actor_damage, current_shield_damage,
+				recent_body_damage, sizeof(word));
+		}
+		return TRUE;
+	}
+	}
+	return FALSE;
+}
+#endif

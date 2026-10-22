@@ -2388,3 +2388,64 @@ void network_damage_new_game(
 	for (player_index = 0; player_index < DAMAGE_RATE_CACHE_SIZE; player_index++)
 		damage_rate_cache[player_index].source_index = NONE;
 }
+
+#ifdef HALO_BIG_ENDIAN
+/* (network_distributed.h) this module's entries in the wire's order */
+static void distributed_damage_wire(
+	struct distributed_damage *damage)
+{
+	WIRE_SWAP_FIELDS(damage, struct distributed_damage, definition_index, flags, sizeof(long));
+	WIRE_SWAP_FIELD(damage, struct distributed_damage, owner_team_index, sizeof(short));
+	WIRE_SWAP_FIELD(damage, struct distributed_damage, owner_object_index, sizeof(long));
+	/* (the origin, epicenter and direction, then the scales) */
+	WIRE_SWAP_FIELDS(damage, struct distributed_damage, origin, material_effect_scale, sizeof(real));
+	WIRE_SWAP_FIELD(damage, struct distributed_damage, material_type, sizeof(short));
+}
+
+boolean network_damage_wire_entries(
+	byte type,
+	byte *entries,
+	short count,
+	long size)
+{
+	short index;
+
+	switch (type)
+	{
+	case _distributed_message_damage_events:
+	{
+		struct distributed_damage_event *events = (struct distributed_damage_event *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*events) <= size; index++)
+		{
+			WIRE_SWAP_FIELD(&events[index], struct distributed_damage_event, object_index, sizeof(long));
+			distributed_damage_wire(&events[index].damage);
+			WIRE_SWAP_FIELD(&events[index], struct distributed_damage_event, being_damaged_flags, sizeof(long));
+			WIRE_SWAP_FIELDS(&events[index], struct distributed_damage_event, shield_damage, total_damage,
+				sizeof(real));
+			WIRE_SWAP_FIELDS(&events[index], struct distributed_damage_event, body_part, material_index,
+				sizeof(short));
+			WIRE_SWAP_FIELD(&events[index], struct distributed_damage_event, killer_score, sizeof(long));
+		}
+		return TRUE;
+	}
+	case _distributed_message_hit_reports:
+	{
+		struct distributed_hit_report *reports = (struct distributed_hit_report *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*reports) <= size; index++)
+		{
+			WIRE_SWAP_FIELD(&reports[index], struct distributed_hit_report, object_index, sizeof(long));
+			distributed_damage_wire(&reports[index].damage);
+			WIRE_SWAP_FIELDS(&reports[index], struct distributed_hit_report, target_position, object_normal,
+				sizeof(real));
+			WIRE_SWAP_FIELDS(&reports[index], struct distributed_hit_report, node_index, material_index,
+				sizeof(short));
+			WIRE_SWAP_FIELD(&reports[index], struct distributed_hit_report, host_time, sizeof(long));
+		}
+		return TRUE;
+	}
+	}
+	return FALSE;
+}
+#endif

@@ -2835,3 +2835,17 @@ long game_engine_bomb_round(
 }
 
 #endif /* HALO_GAME_BROWSER */
+
+#if defined(HALO_BIG_ENDIAN) && defined(HALO_GAME_BROWSER)
+/* port: (game_engine.h) the state in the wire's byte order, either way */
+void game_engine_bomb_network_state_byte_swap(
+	byte *buffer,
+	long size)
+{
+	struct bomb_network_state *state = (struct bomb_network_state *)buffer;
+
+	if (size != (long)sizeof(*state))
+		return;
+	GAME_ENGINE_NETWORK_STATE_SWAP(state, weapon_index, arm_ticks, sizeof(long));
+}
+#endif
