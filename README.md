@@ -486,7 +486,7 @@ Useful `configure.py` options:
 | `--no-game-browser` | Leaves out the server list, stats and dedicated servers. |
 | `--pgo=off`, `--lto=off` | Faster builds, without profile-guided or link-time optimisation. |
 
-The console ports (original Xbox, Xbox 360, Switch) are built from their own
+The console ports (original Xbox, Xbox 360, Switch, Wii U) are built from their own
 repositories, with this one as a submodule: "Console ports" in
 [docs/building.md](docs/building.md#console-ports).
 
@@ -535,7 +535,8 @@ version (`GPL-3.0-or-later`). It comes with no warranty. The full text is in
   implement, under any license, without using this code.
 - **Third-party code, fonts and art** keep their own licenses, which are
   beside them (`port/third_party`, `port/assets/fonts`,
-  `port/linux/ui/fonts`, `port/assets/prompts`, `port/assets/hud`), and the release downloads
+  `port/linux/ui/fonts`, `port/assets/prompts`, `port/assets/hud`,
+  `port/assets/hrtf`), and the release downloads
   carry their notices.
 - **Halo itself is not covered.** The license covers the work of
   Chupathingy's authors. It gives no rights in Halo, its maps or anything
@@ -594,6 +595,10 @@ not be part of our community.
   domain), plus our own Xbox 360 ring and Wii U GamePad; the names and logos
   are their owners' trademarks, used only to identify platforms.
 - Controller button icons by snapchipper, CC0 (`port/assets/prompts`).
+- Headphone 3D sound (`audio.hrtf`): head-related impulse responses from the
+  [SADIE II database](https://www.york.ac.uk/sadie-project/database.html)
+  (KEMAR, subject D2), University of York, Apache License 2.0
+  (`port/assets/hrtf`).
 - High-res HUD art on the Xbox maps: Aerocatia's and Jessie's HUD art from
   [Halo PC Restored](https://github.com/Aerocatia/halopc-restored) (release
   r220), used with Aerocatia's permission on the condition that both are

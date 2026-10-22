@@ -154,8 +154,15 @@ SCREENS = {
             # menu_functions.c's pc_menu_text_marquee)
             ("OUTPUT DEVICE:", "audio.device", [("DEFAULT", "default")],
              "Choose the audio output device.", "desktop"),
+            # (read when the game starts: dsound_sdl.c)
+            ("SPEAKERS:", "audio.channels", [("AUTO", "auto"), ("STEREO", "stereo"), ("5.1", "5.1"), ("7.1", "7.1")],
+             "Stereo or surround. Takes effect on restart.", "desktop"),
+            ("HEADPHONE 3D:", "audio.hrtf", [("OFF", "off"), ("ON", "on"), ("AUTO", "auto")],
+             "3D sound for headphones. Auto: on with headphones.", None),
             ("REVERB:", "audio.reverb", ON_OFF,
              "Room echo, and muffled sound behind walls.", None),
+            ("DOPPLER:", "audio.doppler", ON_OFF,
+             "Pitch shift of moving sounds, as on the Xbox.", None),
             ("SOUND:", "audio.enabled", ON_OFF,
              "Turn all sound on or off. Takes effect on restart.", None),
         ],

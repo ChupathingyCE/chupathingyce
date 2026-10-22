@@ -1,3 +1,8 @@
+/* The stubs, for the builds with no decoder of their own: bink_ffmpeg.c
+implements the SDK's own entry points behind the same HALO_BINK_FFMPEG the
+build sets, and this file compiles to nothing when it is. */
+#ifndef HALO_BINK_FFMPEG
+
 /*
 BINK_NULL.C
 
@@ -43,7 +48,9 @@ void __stdcall BinkSetIOSize(unsigned long io_size)
 HBINK __stdcall BinkOpen(const char *name, unsigned long flags)
 {
 	(void)flags;
-	platform_log("Bink video is not supported; skipping \"%s\"", name ? name : "");
+	/* (no movie at all: attract_mode.c has said so already) */
+	if (name && name[0])
+		platform_log("Bink video: skipping \"%s\" (this build has no movie decoder)", name);
 	return NULL;
 }
 
@@ -65,3 +72,5 @@ long __stdcall BinkCopyToBuffer(HBINK bink, void *destination, long destination_
 
 void __stdcall BinkGetSummary(HBINK bink, void *summary) { (void)bink; (void)summary; }
 void __stdcall BinkGetRealtime(HBINK bink, void *realtime, unsigned long frame_count) { (void)bink; (void)realtime; (void)frame_count; }
+
+#endif /* !HALO_BINK_FFMPEG */

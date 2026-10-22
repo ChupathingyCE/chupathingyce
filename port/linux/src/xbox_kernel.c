@@ -138,7 +138,12 @@ void platform_unimplemented(const char *name)
 
 /* ---------- last error */
 
+#ifdef HALO_CONSOLE_NO_THREAD_LOCAL
+PLATFORM_THREAD_LOCAL_SLOT(DWORD, platform_last_error)
+#define platform_last_error (*platform_last_error_slot())
+#else
 static __thread DWORD platform_last_error;
+#endif
 
 DWORD WINAPI GetLastError(void)
 {
@@ -254,8 +259,15 @@ struct platform_apc
 	void *context[3];
 };
 
+#ifdef HALO_CONSOLE_NO_THREAD_LOCAL
+PLATFORM_THREAD_LOCAL_SLOT(struct platform_apc *, platform_apc_head)
+PLATFORM_THREAD_LOCAL_SLOT(struct platform_apc *, platform_apc_tail)
+#define platform_apc_head (*platform_apc_head_slot())
+#define platform_apc_tail (*platform_apc_tail_slot())
+#else
 static __thread struct platform_apc *platform_apc_head;
 static __thread struct platform_apc *platform_apc_tail;
+#endif
 
 void platform_queue_apc(platform_apc_routine routine, void *context0, void *context1, void *context2)
 {
