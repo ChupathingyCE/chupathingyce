@@ -1218,7 +1218,7 @@ static void cache_files_verify_language(
 console stopped, and in what) */
 #define CACHE_FILE_TRACE(...) console_trace(__VA_ARGS__)
 #else
-#define CACHE_FILE_TRACE(...)
+#define CACHE_FILE_TRACE(...) ((void)0)
 #endif
 
 #ifdef HALO_XBOX_CONSOLE
