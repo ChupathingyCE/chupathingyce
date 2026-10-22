@@ -3126,7 +3126,7 @@ static short maximum_players_choices(void)
 	return count;
 }
 #else
-#define maximum_players_choices() ((short)NUMBEROF(maximum_players))
+#define maximum_players_choices() NUMBEROF(maximum_players)
 #endif
 #line 3097
 /* the most players a hosted game starts with (16), up to the list's 128 */
