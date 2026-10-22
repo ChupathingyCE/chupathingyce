@@ -207,7 +207,9 @@ save root, it copies the saves from the folder earlier versions used
 map cache, which it rebuilds. That folder is left as it was. The file
 `shared_saves_checked.txt` in the save root records that the copy was done;
 delete it to copy again. A save root set in `paths.saves` or
-`HALO_SAVE_ROOT` is never copied into.
+`HALO_SAVE_ROOT` is never copied into. On macOS, the save root is
+`~/Library/Application Support/ChupathingyCE/saves`, and the saves are
+copied into it once from the same `halo-linux` folder.
 
 The game makes the folders when it needs them. Names of files and folders
 are not case-sensitive, as on the Xbox.
@@ -498,10 +500,10 @@ the setting for one start of the game. It has priority over the file.
 | `display.window_size` | `""` | `HALO_WINDOW_SIZE` | The size of the window, as `"<width>x<height>"`, such as `"1920x1080"`, 640x480 or more. You can change the size of the window; the game's picture takes its shape. Empty: `display.window_scale` decides. Video Setup's Window Size sets it, from sizes of each shape (4:3, 16:10, 16:9 and 21:9) that fit the desktop; it shows with Windowed. |
 | `display.window_scale` | `2` | `HALO_WINDOW_SCALE` | Used when `display.window_size` is empty: the size of the window, as a multiple of 640x480. |
 | `display.vsync` | `true` | `HALO_NO_VSYNC=1` sets `false` | `true`: each frame waits for the display. |
-| `display.max_fps` | `0` | `HALO_MAX_FPS` | With vsync off, the most frames each second. `0`: twice the display's refresh rate. `-1`: no limit, which can hang some Intel graphics (Raptor Lake), resetting the desktop's graphics too. |
+| `display.max_fps` | `0` | `HALO_MAX_FPS` | With vsync off, the most frames each second. `0`: twice the display's refresh rate (on Android, 120). `-1`: no limit, which can hang some Intel graphics (Raptor Lake), resetting the desktop's graphics too, and heats a phone. |
 | `display.anti_aliasing` | `"msaa2x"` on 64-bit computers, `"off"` on 32-bit ones, Android and the server | `HALO_ANTI_ALIASING` | The smoothing of jagged edges, which the Xbox did not have. `"off"`: none, as on the Xbox. `"fxaa"` or `"smaa"`: a pass over the 3D view after the game draws it. The HUD and the menus stay sharp. SMAA is the sharper and costs more. `"ssaa2x"`: the game draws at two times the resolution in each direction (at most the GPU's largest texture), and the picture is scaled down. The GPU does four times the work. Not with `display.resolution_scaling = "original"`. `"msaa2x"`, `"msaa4x"` or `"msaa8x"`: each pixel of the 3D view has that many samples (at most the GPU's). On Android, `"smaa"` gives FXAA and `"ssaa2x"` none. A change applies from the next frame. Refer to "Anti-aliasing" in "What operates". |
 | `debug.gpu_flush_draws` | `-1` | `HALO_GPU_FLUSH_DRAWS` | Flush the GPU's pipeline every this many draws. `-1`: every 3 on Intel graphics with Mesa's driver, which can otherwise hang in the game's long runs of small draws and reset the desktop's graphics too. `0`: never. |
-| `display.interpolation` | `true` | `HALO_INTERPOLATION` | `true`: one frame for each refresh of the display. `false`: 30 frames each second, as on the Xbox. Video Setup's Frame Rate sets it on the desktop (30 (Xbox) is `false`, the others `true`); Android's has Smooth Motion. Refer to "Frame rate". |
+| `display.interpolation` | `true` | `HALO_INTERPOLATION` | `true`: one frame for each refresh of the display. `false`: 30 frames each second, as on the Xbox. Video Setup's Frame Rate sets it (30 (Xbox) is `false`, the others `true`). Refer to "Frame rate". |
 | `display.direct_camera` | `true` | `HALO_DIRECT_CAMERA` | `true`: in first person, on foot, the view points where the player aims in each frame, not where the last tick left it. Refer to "Frame rate". Not in Video Setup: config.toml only. |
 | `display.field_of_view` | `70.0` | `HALO_FIELD_OF_VIEW` | How wide the first-person view is, in degrees across a 4:3 picture: `70`, as on the Xbox, from `50` to `120`. On a wider screen the view shows more at the sides, as before. Scopes zoom in by as much as before. Only the first-person view changes: cutscenes, the third-person views and the game itself (aim, auto-aim, what each machine sends) do not. Video Setup's Field of View sets it in the menus. |
 | `display.viewmodel_field_of_view` | `0.0` | `HALO_VIEWMODEL_FIELD_OF_VIEW` | How wide the first-person weapon and arms are drawn, in degrees as `display.field_of_view`: `0` (the default) follows `display.field_of_view`, as before; `50` to `120` draws them at that width whatever the view's, so a wide view does not stretch them. `70`: the weapon as on the Xbox. Drawing only. |

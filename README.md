@@ -57,13 +57,16 @@ Get the latest release from the [Releases page](https://github.com/ChupathingyCE
 
 | Platform | Download | Notes |
 | --- | --- | --- |
-| Windows | `chupathingyce-windows-release.zip` | Windows 10 or later. |
+| Windows (64-bit) | `chupathingyce-windows64-release.zip` | Windows 10 or later, 64-bit. |
+| Windows (32-bit, older PCs) | `chupathingyce-windows-release.zip` | Windows 10 or later. |
 | Linux (64-bit) | `chupathingyce-linux64-release.zip` | glibc 2.31 or later (Debian 11, Ubuntu 20.04). Brings its own SDL3. See [port/linux/README.md](port/linux/README.md). |
 | Linux (32-bit, older systems) | `chupathingyce-linux-release.zip` | glibc 2.31 or later (32-bit). Brings its own SDL3. See [port/linux/README.md](port/linux/README.md). |
 | Android | `chupathingyce-android-release.zip` | Android 9 or later, 64-bit. See [port/android/README.md](port/android/README.md). |
 | Mac | `chupathingyce-macos-release.zip` | macOS 13 or later, Apple silicon or Intel. |
 
 The game checks for new releases when it starts and asks before updating. On Linux there is also an AppImage, on the test builds for now.
+The Windows and Linux builds are for x86 and x64 PCs; there are no ARM builds of
+the game for them yet.
 
 We don't pay for code signing yet, so the first start needs one extra step:
 
@@ -84,7 +87,8 @@ disc image (`.iso` or `.xiso`) of Halo: Combat Evolved. Any region works.
 
 The same screen accepts your Halo PC retail CD image (`.iso`), which fills
 `maps_pc`, and the Halo Custom Edition installer (`halocesetup_en_1.00.exe`),
-which fills `maps_ce`. Or choose **Make the folders** to get empty `maps`,
+which fills `maps_ce` (not on Android yet, where **Import maps** takes
+loose `.map` files or a `.zip` of them). Or choose **Make the folders** to get empty `maps`,
 `maps_ce`, `maps_pc` and `maps_md` folders and copy the files in yourself.
 
 On Android, copy the disc image to your phone first; the maps, settings and
@@ -95,8 +99,8 @@ On Linux, the maps and settings (`config.toml`) go next to the `halo`
 executable, and the saves in `~/.local/share/chupathingyce` (or
 `$XDG_DATA_HOME/chupathingyce`). On Windows, the saves go in
 `%APPDATA%\ChupathingyCE`. The first start copies your profiles, saved games
-and game types from the folder earlier versions used (`halo-linux`, or
-`%APPDATA%\halo` on Windows), which is left as it was. The 64-bit and
+and game types from the folder earlier versions used (`halo-linux`, on Linux
+and on a Mac, or `%APPDATA%\halo` on Windows), which is left as it was. The 64-bit and
 32-bit builds use the same places, so switching from one to the other keeps
 your saves and settings.
 
@@ -162,10 +166,22 @@ still list them on the site (Host a Game).
 | The game | Yes | Yes, Apple silicon and Intel | Yes | Yes |
 | Online Games, hosting, stats | Yes | Yes | Yes | Yes |
 | Dedicated server | The game, for a test | The game, for a test | Yes: x86, x64 and arm64, and Docker | |
-| Updates itself | Yes | Not yet | Yes | Yes |
+| Updates itself | Yes | Opens the download page | Yes; not the AppImage | Yes |
 | Halo PC (Custom Edition) maps | Yes | Yes | Yes | Yes, see below |
 | HaloMD maps | Yes | Yes | Yes | Yes, see below |
 | Server Browser in the PC menus | Yes | Yes | Yes | Yes |
+| Halo PC CD and CE installer import at first start | Yes | Yes | Yes | Not yet |
+| Discord presence and Join | Yes | Yes | Yes | No |
+| Choice of audio output | Yes | Yes | Yes | No (the system's) |
+| Crash reports | Yes | Yes | Yes | Not yet |
+| Intro and cutscene movies | Not in release builds | Not in release builds | Not in release builds | Not in release builds |
+
+Some defaults differ by platform: anti-aliasing is MSAA 2x on 64-bit
+computers and off on 32-bit ones and Android, and the Mac starts in a window
+instead of fullscreen. Release builds don't play the intro, attract or
+cutscene movies on any platform yet. On a Steam Deck in Game Mode, the game
+shows no system dialogs (they can crash there): the main menu's version line
+says when a new version is out, and you update from Desktop Mode.
 
 ## Builds
 
@@ -389,7 +405,7 @@ A few people look for most:
 | `display.window_scale` | The window's size, as a multiple of 640x480. |
 | `display.vsync`, `display.max_fps` | Vertical sync, and a frame rate cap with V-Sync off (0 for twice the display's refresh rate, -1 for none). |
 | `display.interpolation` | `false` keeps the game's own 30 frames a second; Video Setup's Frame Rate at 30 (Xbox) sets it. |
-| `display.direct_camera` | Instant aim: the view turns the frame the mouse moves. On by default; config.toml only. |
+| `display.direct_camera` | Instant aim: the view turns the frame the mouse, stick or touch moves it. On by default; config.toml only. |
 | `display.menus` | `"chupathingy"` (the default: the Xbox's look with Halo PC's settings, profiles and more), `"xbox"` (as close to the console as can be) or `"gearbox"` (Halo PC's menus with their Server Browser; `"pc"` still works). |
 | `display.high_res_text` | `true` draws the game's text (menus and HUD) with sharp fonts at your resolution; `false` uses the maps' original bitmap fonts. The Server Browser and the moderation overlays use the system's fonts either way. For a blocky look overall, also set `display.resolution_scaling = "original"`. |
 | `display.high_res_font`, `display.high_res_font_large` | Your own font file for the sharp text and Online Games, in place of the built-in fonts: put it in `data/fonts` beside `maps` and give its name (`high_res_font = "MyFont.ttf"`), or a full path. `_large` sets one for the large text only. Empty uses the built-in fonts; a file that can't be read is noted in `logs/debug.txt` and the built-in font is used. The font is yours: Chupathingy ships none but its own free ones, and never sends yours anywhere. |

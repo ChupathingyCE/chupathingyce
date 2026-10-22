@@ -20,8 +20,7 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_window_size" x="54" y="97" platform="desktop"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_resolution_scaling" x="54" y="121" platform="desktop"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_vsync" x="54" y="145"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_max_fps" x="54" y="169" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_interpolation" x="54" y="169" platform="android"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_max_fps" x="54" y="169"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_anti_aliasing" x="54" y="193" platform="desktop"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_anti_aliasing_android" x="54" y="193" platform="android"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_field_of_view" x="54" y="217"/>
@@ -100,7 +99,7 @@
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/vsync_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" setting="display.vsync" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_max_fps" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF" platform="desktop">
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_max_fps" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/max_fps_label"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/max_fps_spinner" x="320" y="1"/>
 	</widget>
@@ -366,7 +365,7 @@
 		<string text="The size of the window."/>
 		<string text="Native draws at full resolution. Original draws at\n640x480 and scales it up."/>
 		<string text="Sync frames to the display."/>
-		<string text="The frame rate limit. Auto is twice the display's\nrefresh rate."/>
+		<string text="The frame rate limit; 30 is the Xbox's. Auto is twice\nthe display's refresh rate."/>
 		<string text="Draw a frame for every display refresh."/>
 		<string text="Smooth jagged edges."/>
 		<string text="Smooth jagged edges."/>

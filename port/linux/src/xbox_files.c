@@ -299,21 +299,9 @@ int platform_logs_folder_early(char *path, unsigned long size)
 	return 1;
 }
 
-#ifdef __APPLE__
-/* whether this Mac has saves in the folder the game used before the
-application had its own (~/.local/share/halo-linux) */
-static BOOL saves_exist(const char *home)
-{
-	char path[MAX_PATH];
-
-	snprintf(path, sizeof(path), "%s/.local/share/halo-linux", home);
-	return directory_exists(path);
-}
-#endif
-
-#ifndef __APPLE__
 /* once, on the first start with the game's own save root: the saves of the
-folder it shared with other builds, copied into it (never moved: they still
+folder it shared with other builds (on macOS, the one the game used before
+the application had its own), copied into it (never moved: they may still
 use it) */
 static void copy_shared_saves(const char *shared, const char *root)
 {
@@ -332,7 +320,6 @@ static void copy_shared_saves(const char *shared, const char *root)
 		break;
 	}
 }
-#endif
 
 const char *platform_save_root(void)
 {
@@ -344,15 +331,19 @@ const char *platform_save_root(void)
 		const char *data_home = getenv("XDG_DATA_HOME");
 		const char *home = getenv("HOME");
 #ifdef __APPLE__
+		char shared[MAX_PATH];
+
 		if (*environment)
 			snprintf(root, sizeof(root), "%s", environment);
 		/* the macOS application keeps everything in its folder in
-		Application Support (platform_app_folder), unless this Mac has saves
-		from before (and its player key: browser.c), in the folder below */
-		else if (platform_app_folder(root, sizeof(root)) &&
-			!(home && *home && saves_exist(home)))
+		Application Support (platform_app_folder), with the saves (and the
+		player key: browser.c) of the folder it used before,
+		~/.local/share/halo-linux, copied once, as on Linux */
+		else if (platform_app_folder(root, sizeof(root)))
 		{
 			strncat(root, "/saves", sizeof(root) - strlen(root) - 1);
+			if (save_folder_shared(_save_folder_linux, NULL, data_home, home, shared, sizeof(shared)))
+				copy_shared_saves(shared, root);
 		}
 		else if (data_home && *data_home)
 			snprintf(root, sizeof(root), "%s/halo-linux", data_home);
