@@ -35,4 +35,13 @@ void server_link_finish_command(unsigned int id, int ok, const char *output);
 object */
 void server_link_set_status(const char *json);
 
+/* the server's badge (docs/server-badges.md): server_badge.cert in the data
+folder (read again when it changes), while the server is linked and the
+certificate names the link key. Its bytes (at most size) and their count,
+else 0. Checked no further here (server_badge.c reads it) */
+int server_link_badge_certificate(unsigned char *certificate, int size);
+/* the link key's signature (64 bytes) of message, as a badge's proof: 1,
+else 0 (not linked) */
+int server_link_badge_sign(const unsigned char *message, int size, unsigned char *signature);
+
 #endif
