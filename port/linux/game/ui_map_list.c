@@ -6,7 +6,12 @@ the game (ui_widget_event_handler_functions.c's multiplayer level list): the
 Xbox's thirteen maps first, as they were, then the Custom Edition maps
 (Halo PC's, played as <name>@ce), each named with [CE], then HaloMD's maps
 (Halo PC retail's, played as <name>@md), each named with [MD]: each family
-in its folders (halo_map_families.h), in the order of their names.
+in its folders (halo_map_families.h), in the order of their names, then a
+map pack's maps (Halo CE+ and the like, Xbox maps played as <name>@<pack>
+from maps_<pack>: halo_map_packs.h), each named with its pack's tag ([CE+]),
+in the order of their packs. The builds with the
+port's map list (HALO_MAP_LIST) have it, the original Xbox's among them
+(the pack's maps alone: it plays no Halo PC map).
 
 A row past the Xbox's has no string or bitmap frame of its own in ui.map:
 its text comes from here, by a string list index of
@@ -165,13 +170,17 @@ static void ce_map_tidy_name(
 	name[length] = 0;
 }
 
-#ifdef HALO_CUSTOM_EDITION
+#ifdef HALO_MAP_LIST
 
+#include "halo_map_packs.h"
+
+#ifdef HALO_CUSTOM_EDITION
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmaps.h"
 #include "rasterizer/rasterizer_swizzle.h"
 
 #include <xtl.h>
+#endif
 #include <stdlib.h>
 
 /* ---------- constants */
@@ -179,9 +188,14 @@ static void ce_map_tidy_name(
 enum
 {
 	XBOX_MAP_COUNT = 13,
-	/* (the Xbox's thirteen, then the Custom Edition and HaloMD maps found,
-	up to this many rows in all) */
+	/* (the Xbox's thirteen, then the Custom Edition, HaloMD, Halo PC and
+	map packs' maps found, up to this many rows in all; on the original
+	Xbox, which has a pack's alone, its thirteen and as many again) */
+#ifdef HALO_XBOX_CONSOLE
+	MAXIMUM_MAP_LIST = 40,
+#else
 	MAXIMUM_MAP_LIST = 256,
+#endif
 	MAP_NAME_LENGTH = 64,
 	DISPLAY_NAME_LENGTH = 48,
 	DESCRIPTION_LENGTH = 160,
@@ -191,7 +205,11 @@ enum
 	UI_MAP_LIST_STRINGS_PER_ROW = 4,
 	/* bitmap frames from here are Halo PC's map pictures */
 	UI_MAP_LIST_PICTURE_BASE = 0x4000,
+};
 
+#ifdef HALO_CUSTOM_EDITION
+enum
+{
 	/* Halo PC's ui.map: its cache file's version, the address its tags are
 	read at, and its map list's entry for an unknown level */
 	CE_CACHE_VERSION = 609,
@@ -204,6 +222,7 @@ enum
 	/* (the bitmaps' type of a 2D texture, as the game's) */
 	CE_BITMAP_TYPE_2D = 0,
 };
+#endif
 
 /* ---------- structures */
 
@@ -218,16 +237,17 @@ struct ui_map_entry
 	short picture_index;
 };
 
-/* ---------- prototypes */
-
-char const *cache_files_map_directory(void);
-long bitmap_format_to_d3d_format(short format, word flags);
-
 /* ---------- globals */
 
 static struct ui_map_entry ui_map_list[MAXIMUM_MAP_LIST];
 static char *ui_map_list_names_array[MAXIMUM_MAP_LIST];
 static long ui_map_list_count_value;
+
+#ifdef HALO_CUSTOM_EDITION
+/* ---------- prototypes */
+
+char const *cache_files_map_directory(void);
+long bitmap_format_to_d3d_format(short format, word flags);
 
 /* what Halo PC's ui.map has of its map list, read once */
 static struct
@@ -244,6 +264,7 @@ static struct
 /* Halo PC's ui.map's tags, while they are read (ce_ui_read) */
 static byte *ce_tags;
 static unsigned long ce_tags_size;
+#endif
 
 /* ---------- private code */
 
@@ -272,6 +293,20 @@ static void wide_append(
 	wide_copy(destination + length, size - length, source);
 }
 
+/* (a name's bytes as wide characters) */
+static void wide_from_text(
+	wchar_t *destination,
+	long size,
+	char const *source)
+{
+	long index;
+
+	for (index = 0; index < size - 1 && source[index]; index++)
+		destination[index] = (wchar_t)(unsigned char)source[index];
+	destination[index] = 0;
+}
+
+#ifdef HALO_CUSTOM_EDITION
 static boolean file_read(
 	HANDLE file,
 	unsigned long offset,
@@ -506,6 +541,7 @@ static void ce_ui_read(
 	}
 	CloseHandle(file);
 }
+#endif
 
 static void add_entry(
 	char const *map_name,
@@ -530,6 +566,55 @@ static void add_entry(
 	ui_map_list_count_value++;
 }
 
+/* a map pack's map's row (<file>@<pack>, maps_<pack>: halo_map_packs.h):
+named as the library of known Xbox mod maps or the pack's maplist.txt names
+it, marked with its pack's tag ([CE+]), with the picture of the Xbox's map
+of its file's name (the pack's own are in its ui.map, not read) or, in the
+pack's own menus, that row itself (map_pack_menus: its ui.map has the
+pack's strings and pictures there) */
+static void add_pack_entry(
+	char const *map_name,
+	short xbox_index)
+{
+	char file[MAP_NAME_LENGTH], pack[MAP_PACK_ID_LENGTH + 1], tag[16];
+	char name[DISPLAY_NAME_LENGTH], title[DISPLAY_NAME_LENGTH], text[DESCRIPTION_LENGTH];
+	wchar_t wide[DISPLAY_NAME_LENGTH];
+	wchar_t mark[16];
+	wchar_t display_name[DISPLAY_NAME_LENGTH];
+	wchar_t lobby_name[DISPLAY_NAME_LENGTH];
+	wchar_t description[DESCRIPTION_LENGTH];
+	short picture_index = xbox_index != NONE ? xbox_index : 9;
+	short known;
+
+	map_family_parse(map_name, file, sizeof(file));
+	if (!map_family_pack_id(map_name, pack, sizeof(pack)))
+		return;
+	for (known = 0; xbox_index == NONE && known < 13; known++)
+	{
+		if (!_stricmp(file, ce_maps[known].file))
+			picture_index = ce_maps[known].xbox_picture_index;
+	}
+	map_pack_names(pack, file, 0, name, DISPLAY_NAME_LENGTH - 8, title, sizeof(title));
+	map_pack_tag(pack, tag, sizeof(tag));
+	wide_from_text(mark, NUMBEROF(mark), tag);
+	snprintf(text, sizeof(text), "%s\r\n\r\n%s.map in maps_%s", title, file, pack);
+	/* (a pack the library doesn't know: "the maps_foo pack" begun with a capital) */
+	if (text[0] >= 'a' && text[0] <= 'z')
+		text[0] = (char)(text[0] - 'a' + 'A');
+	wide_from_text(wide, NUMBEROF(wide), name);
+	wide_from_text(description, NUMBEROF(description), text);
+	wide_copy(lobby_name, DISPLAY_NAME_LENGTH, wide);
+	wide_append(lobby_name, DISPLAY_NAME_LENGTH, L" [");
+	wide_append(lobby_name, DISPLAY_NAME_LENGTH, mark);
+	wide_append(lobby_name, DISPLAY_NAME_LENGTH, L"]");
+	wide_copy(display_name, DISPLAY_NAME_LENGTH, wide);
+	wide_append(display_name, DISPLAY_NAME_LENGTH, L"\r\n[");
+	wide_append(display_name, DISPLAY_NAME_LENGTH, mark);
+	wide_append(display_name, DISPLAY_NAME_LENGTH, L"]");
+	add_entry(map_name, display_name, lobby_name, description, xbox_index, picture_index);
+}
+
+#ifdef HALO_CUSTOM_EDITION
 /* a Custom Edition or HaloMD map's details from its own file, where its
 row has no description of Halo PC's: how many spawn points its scenario
 has and whether it places vehicles (the cache file's header and tag index,
@@ -694,6 +779,7 @@ static void add_pc_entry(
 	snprintf(map_name, sizeof(map_name), "%s%s", file, map_family_suffix(family));
 	add_entry(map_name, display_name, lobby_name, description, NONE, picture_index);
 }
+#endif
 
 /* the files found of a family's maps, while the list is filled */
 struct found_files
@@ -712,6 +798,33 @@ static void file_found(
 		snprintf(found->names[found->count++], MAP_NAME_LENGTH, "%s", file);
 }
 
+/* a pack's map found: by its name, <file>@<pack> */
+static void pack_map_found(
+	char const *pack,
+	char const *file,
+	void *context)
+{
+	struct found_files *found = context;
+
+	if (found->count < MAXIMUM_MAP_LIST)
+	{
+		if (map_pack_map_name(pack, file, found->names[found->count], MAP_NAME_LENGTH))
+			found->count++;
+	}
+}
+
+/* (packs' maps in the order of their packs, then of their files) */
+static int pack_map_compare(
+	void const *a,
+	void const *b)
+{
+	char const *first = (char const *)a;
+	char const *second = (char const *)b;
+	int order = _stricmp(strrchr(first, '@'), strrchr(second, '@'));
+
+	return order ? order : _stricmp(first, second);
+}
+
 /* ---------- public code */
 
 /* the list anew: the Xbox's maps (the game's thirteen names, in its order),
@@ -721,17 +834,42 @@ void ui_map_list_refresh(
 {
 	static struct found_files found;
 	/* (the counts last logged, to log each change once) */
-	static long logged_counts[NUMBER_OF_MAP_FAMILIES] = { -1, -1, -1, -1 };
-	long counts[NUMBER_OF_MAP_FAMILIES] = { XBOX_MAP_COUNT, 0, 0, 0 };
+	static long logged_counts[NUMBER_OF_MAP_FAMILIES] = { -1, -1, -1, -1, -1 };
+	long counts[NUMBER_OF_MAP_FAMILIES] = { XBOX_MAP_COUNT, 0, 0, 0, 0 };
+	/* (with a pack's own menus, its maps of the Xbox's names are those rows:
+	map_pack_menus) */
+	char const *pack_menus = map_pack_menus();
+	boolean pack_row[XBOX_MAP_COUNT];
 	short index, family;
+	long file;
 
 	ui_map_list_count_value = 0;
 	for (index = 0; index < XBOX_MAP_COUNT; index++)
-		add_entry(xbox_maps[index], L"", L"", L"", index, index);
-	for (family = _map_family_custom_edition; family < NUMBER_OF_MAP_FAMILIES; family++)
+	{
+		char const *name = xbox_maps[index];
+		char const *cursor;
+
+		for (cursor = name; *cursor; cursor++)
+		{
+			if (*cursor == '\\')
+				name = cursor + 1;
+		}
+		pack_row[index] = pack_menus && map_pack_present(pack_menus, name);
+		if (pack_row[index])
+		{
+			char map_name[MAP_NAME_LENGTH];
+
+			pack_row[index] = map_pack_map_name(pack_menus, name, map_name, sizeof(map_name));
+			if (pack_row[index])
+				add_pack_entry(map_name, index);
+		}
+		if (!pack_row[index])
+			add_entry(xbox_maps[index], L"", L"", L"", index, index);
+	}
+#ifdef HALO_CUSTOM_EDITION
+	for (family = _map_family_custom_edition; family <= _map_family_halo_pc; family++)
 	{
 		extern int platform_ce_tag_cache_ready;
-		long file;
 
 		/* (none of them would load without their tag cache, which the
 		platform layer could not map: port/linux/src/xbox_memory.c) */
@@ -747,11 +885,29 @@ void ui_map_list_refresh(
 			add_pc_entry(family, found.names[file]);
 		counts[family] = found.count;
 	}
+#endif
+	/* (a map pack's maps, Xbox maps read by the Xbox's loader: no tag
+	cache of their own) */
+	found.count = 0;
+	map_pack_list(pack_map_found, &found);
+	qsort(found.names, found.count, MAP_NAME_LENGTH, pack_map_compare);
+	for (file = 0; file < found.count; file++)
+	{
+		/* (one of the pack's menus' own rows already) */
+		for (index = 0; index < XBOX_MAP_COUNT &&
+			!(pack_row[index] && !_stricmp(found.names[file], ui_map_list[index].map_name)); index++)
+			;
+		if (index == XBOX_MAP_COUNT)
+			add_pack_entry(found.names[file], NONE);
+	}
+	counts[_map_family_pack] = found.count;
+	(void)family;
 	if (memcmp(counts, logged_counts, sizeof(counts)))
 	{
 		memcpy(logged_counts, counts, sizeof(counts));
-		error(_error_silent, "the menus' map list: %ld Custom Edition maps, %ld HaloMD maps, %ld Halo PC maps",
-			counts[_map_family_custom_edition], counts[_map_family_halomd], counts[_map_family_halo_pc]);
+		error(_error_silent, "the menus' map list: %ld Custom Edition maps, %ld HaloMD maps, %ld Halo PC maps, "
+			"%ld map pack maps%s", counts[_map_family_custom_edition], counts[_map_family_halomd],
+			counts[_map_family_halo_pc], counts[_map_family_pack], pack_menus ? " (a pack's own menus)" : "");
 	}
 }
 
@@ -811,9 +967,14 @@ NULL for any other */
 struct bitmap_data *ui_map_list_picture(
 	short frame_index)
 {
+#ifdef HALO_CUSTOM_EDITION
 	if (frame_index < UI_MAP_LIST_PICTURE_BASE || frame_index - UI_MAP_LIST_PICTURE_BASE >= ce_ui.picture_count)
 		return NULL;
 	return &ce_ui.pictures[frame_index - UI_MAP_LIST_PICTURE_BASE];
+#else
+	(void)frame_index;
+	return NULL;
+#endif
 }
 
 /* the text of a string list index of this list's (UI_MAP_LIST_STRING_BASE
@@ -846,12 +1007,18 @@ struct bitmap_data *ui_map_list_family_picture(
 	short family,
 	char const *file)
 {
+#ifdef HALO_CUSTOM_EDITION
 	long index = family == _map_family_custom_edition || family == _map_family_halo_pc ? ce_map_index(file) : NONE;
 
 	if (index == NONE)
 		return NULL;
 	ce_ui_read();
 	return index < ce_ui.picture_count ? &ce_ui.pictures[index] : NULL;
+#else
+	(void)family;
+	(void)file;
+	return NULL;
+#endif
 }
 
 /* whether a family's folders have a map of this file's name, of its
@@ -860,9 +1027,18 @@ boolean ui_map_list_family_present(
 	short family,
 	char const *file)
 {
-	char path[512];
+	/* (a pack's map is asked for by its name: ui_map_list_map_present) */
+	if (family == _map_family_pack)
+		return FALSE;
+#ifdef HALO_CUSTOM_EDITION
+	{
+		char path[512];
 
-	return family != _map_family_xbox && map_family_find(family, file, path, sizeof(path));
+		return family != _map_family_xbox && map_family_find(family, file, path, sizeof(path));
+	}
+#else
+	return FALSE;
+#endif
 }
 
 #endif
@@ -880,6 +1056,8 @@ void ui_map_list_family_name(
 	wchar_t const *known = family == _map_family_halomd ? halomd_map_name(file) : NULL;
 	long length;
 
+#ifdef HALO_MAP_LIST
+#endif
 	if (index == NONE && !known)
 	{
 		ce_map_tidy_name(file, name, size);
@@ -902,3 +1080,65 @@ void ui_map_list_family_name(
 		name[length] = known[length];
 	name[length] = 0;
 }
+
+#ifdef HALO_MAP_LIST
+/* a game's map's name, by the map's name (<file>, <file>@ce, ...): a pack's
+map's (<file>@<pack>) as the library or its pack's maplist.txt names it, any
+other as ui_map_list_family_name names it */
+void ui_map_list_map_name(
+	char const *map,
+	wchar_t *name,
+	long size)
+{
+	char file[MAP_NAME_LENGTH], pack[MAP_PACK_ID_LENGTH + 1];
+	short family = map_family_parse_listed(map, file, sizeof(file));
+
+	if (family == _map_family_pack && map_family_pack_id(map, pack, sizeof(pack)))
+	{
+		char text[96], title[8];
+
+		map_pack_names(pack, file, 0, text, sizeof(text), title, sizeof(title));
+		wide_from_text(name, size, text);
+		return;
+	}
+	ui_map_list_family_name(family, file, name, size);
+}
+
+/* whether this machine has a game's map past the Xbox's, by its name: a
+pack's in its maps_<pack> folder, another in its family's folders */
+boolean ui_map_list_map_present(
+	char const *map)
+{
+	char file[MAP_NAME_LENGTH], pack[MAP_PACK_ID_LENGTH + 1];
+	short family = map_family_parse_listed(map, file, sizeof(file));
+
+	if (family == _map_family_pack)
+		return map_family_pack_id(map, pack, sizeof(pack)) && map_pack_present(pack, file);
+	return ui_map_list_family_present(family, file);
+}
+
+/* a game's map's tag (map_family_tag; a pack's map its pack's: CE+), and
+what it stands for (map_family_title; a pack's map its pack's name), into
+text */
+void ui_map_list_map_tag(
+	char const *map,
+	char *tag,
+	long tag_size,
+	char *title,
+	long title_size)
+{
+	char pack[MAP_PACK_ID_LENGTH + 1];
+	short family = map_family_parse_listed(map, NULL, 0);
+
+	if (family == _map_family_pack && map_family_pack_id(map, pack, sizeof(pack)))
+	{
+		map_pack_tag(pack, tag, tag_size);
+		map_pack_title(pack, title, title_size);
+		if (title[0] >= 'a' && title[0] <= 'z')
+			title[0] = (char)(title[0] - 'a' + 'A');
+		return;
+	}
+	snprintf(tag, (size_t)tag_size, "%s", map_family_tag(family));
+	snprintf(title, (size_t)title_size, "%s", map_family_title(family));
+}
+#endif

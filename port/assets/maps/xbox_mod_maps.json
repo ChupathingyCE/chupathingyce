@@ -1,0 +1,150 @@
+{
+  "comment": "Known Xbox-format map packs (each in its maps_<id> folder) and their maps, by their files' fingerprints. Format: port/assets/maps/README.md. After editing, run tools/xbox_mod_maps.py.",
+  "packs": {
+    "cex": {
+      "aliases": ["ceplus", "ce+"],
+      "name": "Halo CE+",
+      "tag": "CE+",
+      "team": "VKMT",
+      "credits": "Halo CE+ X (Original Xbox) by VKMT: Sean T (project lead, tagging, Xbox porting, design and balancing), Ludus (project lead, 3D art), Elote (Canyon, the singleplayer level), and the others the release's ModDB page credits.",
+      "source": ""
+    }
+  },
+  "maps": [
+    {
+      "fingerprint": "77188ba8",
+      "pack": "cex",
+      "file": "beavercreek",
+      "name": "Delta Ruined",
+      "pack_version": "1.01",
+      "author": "VKMT",
+      "source": ""
+    },
+    {
+      "fingerprint": "92f96180",
+      "pack": "cex",
+      "file": "bloodgulch",
+      "name": "Abyss",
+      "pack_version": "1.01",
+      "author": "VKMT",
+      "source": ""
+    },
+    {
+      "fingerprint": "abc9226b",
+      "pack": "cex",
+      "file": "boardingaction",
+      "name": "Nitra",
+      "pack_version": "1.01",
+      "author": "VKMT",
+      "source": ""
+    },
+    {
+      "fingerprint": "35d05b03",
+      "pack": "cex",
+      "file": "carousel",
+      "name": "Magnitude",
+      "pack_version": "1.01",
+      "author": "VKMT",
+      "source": ""
+    },
+    {
+      "fingerprint": "307de412",
+      "pack": "cex",
+      "file": "cex_museum",
+      "name": "CE+ Museum",
+      "pack_version": "1.01",
+      "author": "VKMT",
+      "source": ""
+    },
+    {
+      "fingerprint": "c759da54",
+      "pack": "cex",
+      "file": "chillout",
+      "name": "CO2",
+      "pack_version": "1.01",
+      "author": "VKMT",
+      "source": ""
+    },
+    {
+      "fingerprint": "da1229a7",
+      "pack": "cex",
+      "file": "damnation",
+      "name": "Fissure Fall",
+      "pack_version": "1.01",
+      "author": "VKMT",
+      "source": ""
+    },
+    {
+      "fingerprint": "30974033",
+      "pack": "cex",
+      "file": "hangemhigh",
+      "name": "Fallout",
+      "pack_version": "1.01",
+      "author": "VKMT",
+      "source": ""
+    },
+    {
+      "fingerprint": "65f52524",
+      "pack": "cex",
+      "file": "longest",
+      "name": "Intensity",
+      "pack_version": "1.01",
+      "author": "VKMT",
+      "source": ""
+    },
+    {
+      "fingerprint": "94652288",
+      "pack": "cex",
+      "file": "prisoner",
+      "name": "Hektik",
+      "pack_version": "1.01",
+      "author": "VKMT",
+      "source": ""
+    },
+    {
+      "fingerprint": "2cd590fa",
+      "pack": "cex",
+      "file": "putput",
+      "name": "Chiron TL35",
+      "pack_version": "1.01",
+      "author": "VKMT",
+      "source": ""
+    },
+    {
+      "fingerprint": "5d4ca835",
+      "pack": "cex",
+      "file": "ratrace",
+      "name": "Underground",
+      "pack_version": "1.01",
+      "author": "VKMT",
+      "source": ""
+    },
+    {
+      "fingerprint": "cfc37153",
+      "pack": "cex",
+      "file": "sidewinder",
+      "name": "Retribution",
+      "pack_version": "1.01",
+      "author": "VKMT",
+      "source": ""
+    },
+    {
+      "fingerprint": "8058870e",
+      "pack": "cex",
+      "file": "ui",
+      "name": "Menus",
+      "pack_version": "1.01",
+      "author": "VKMT",
+      "source": ""
+    },
+    {
+      "fingerprint": "d984d506",
+      "pack": "cex",
+      "file": "wizard",
+      "name": "Gothra",
+      "pack_version": "1.01",
+      "author": "VKMT",
+      "source": ""
+    }
+  ]
+}

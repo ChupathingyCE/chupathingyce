@@ -345,12 +345,17 @@ plays, with `ce_maps` agreed by both:
   in beside `maps/` (the Xbox's own): 0 the Xbox's (`maps/`), 1 Halo PC
   Custom Edition (`<file>@ce`, `maps_ce/`, with Custom Edition's
   `bitmaps.map`, `sounds.map` and `loc.map`), 2 HaloMD (`<file>@md`,
-  `maps_md/`), 3 Halo PC retail (`<file>@pc`, `maps_pc/`). A family number a
-  build does not know is carried as it is, and its client checks nothing.
+  `maps_md/`), 3 Halo PC retail (`<file>@pc`, `maps_pc/`), 4 an Xbox map
+  pack's (`<file>@<pack>`, `maps_<pack>/`: Halo CE+'s `bloodgulch@cex` in
+  `maps_cex/`; named `<file>.<pack>` in a MAP, since a name has no `@`, and
+  hashed as a Halo PC map is). A family number a build does not know is
+  carried as it is, and its client checks nothing.
 - **Names on the legacy wire** stay OpenCE's: a host names a Custom Edition
   map `custom_maps\<file>` in the game's settings (OpenCE's build-145 form,
   network version 22), and HaloMD and Halo PC retail maps
-  `maps_md\<file>.md` and `maps_pc\<file>.pc`, which OpenCE's clients do not
+  `maps_md\<file>.md` and `maps_pc\<file>.pc`, and a map pack's
+  `maps_<pack>\<file>.<pack>` (with the game record's map version its
+  file's fingerprint, `halo_map_packs.h`), which OpenCE's clients do not
   have and are told they miss. Our clients read those back as `<file>@ce`,
   `@md` and `@pc`. MAP is what carries the real identity between our
   machines.

@@ -141,6 +141,9 @@ symbols in this file:
 #include "sound/sound_manager.h"
 #include "tag_schema.h"
 #include "halo_map_families.h"
+#ifdef HALO_MAP_LIST
+#include "halo_map_packs.h"
+#endif
 #include "models/models.h"
 
 /* ---------- constants */
@@ -1011,6 +1014,25 @@ boolean cache_file_header_verify(
 #endif
 		header->tag_data_offset > header->file_length - header->tag_data_size)
 	{
+#ifdef HALO_CONSOLE_OVERSIZED_MAPS
+		/* port: a map whose tags are larger than the tag cache (a map
+		pack's, built for a larger one) is not damaged; it says so */
+		if (header->tag_data_size > TAG_CACHE_SIZE
+#ifdef HALO_CUSTOM_EDITION
+			&& !CACHE_FILE_VERSION_IS_PC(header->version)
+#endif
+			)
+		{
+			error(
+				_error_silent,
+				"the map '%s' cannot load: its tags need %ld KB, more than the tag cache's %ld MB",
+				scenario_name,
+				(long)((header->tag_data_size + 1023) / 1024),
+				(long)(TAG_CACHE_SIZE / (1024 * 1024)));
+
+			return FALSE;
+		}
+#endif
 		error(
 			_error_silent,
 			"the cache file '%s' is damaged: %08x bytes of tag data at %08x, in %08x bytes",
@@ -1087,7 +1109,9 @@ boolean cache_files_map_plays_multiplayer(
 	build[0] = 0;
 	if (!map_name || !map_name[0])
 		return TRUE;
-	snprintf(path, sizeof(path), "%s%s.map", cache_files_map_directory(), tag_name_strip_path(map_name));
+	/* port: (a pack's map, <file>@<pack>, in maps_<pack>) */
+	if (!map_family_xbox_path(tag_name_strip_path(map_name), path, sizeof(path)))
+		return TRUE;
 	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
 	if (file != INVALID_HANDLE_VALUE)
 	{
@@ -1148,10 +1172,23 @@ version 29 send it (port/linux/src/map_archive.h, map_archive_hash_version:
 hashed once a run, map_file_hash.c), a HaloMD or Halo PC retail map's header
 checksum, as hosts of 23 to 28 sent any Halo PC map's; either differs between
 versions of a map. 0, which a client checks nothing for, for the Xbox's
-maps, whose builds of other regions play together. */
+maps, whose builds of other regions play together. A pack's Xbox map's
+(<file>@<pack>) is its file's fingerprint (map_pack_fingerprint), on every
+build: two versions of a pack have two. */
 unsigned long cache_files_map_version(
 	char const *map_name)
 {
+#ifdef HALO_MAP_LIST
+	{
+		char pack_file[64], pack[MAP_PACK_ID_LENGTH + 1];
+
+		if (map_name && map_family_parse(map_name, pack_file, sizeof(pack_file)) == _map_family_pack &&
+			map_family_pack_id(map_name, pack, sizeof(pack)))
+		{
+			return map_pack_fingerprint(pack, pack_file);
+		}
+	}
+#endif
 #ifdef HALO_CUSTOM_EDITION
 	/* (port/linux/src/map_file_hash.h) */
 	int map_file_hash_version(char const *path, unsigned int *version);
@@ -1219,6 +1256,70 @@ unsigned long cache_files_map_choose(
 	return cache_files_map_version(map_name);
 }
 
+#ifdef HALO_MAP_LIST
+/* port: whether this machine has a pack's map (map_name, <file>@<pack>) of
+the host's version (version, the host's fingerprint of it; 0 for any): when
+not, what the player is told, naming the map and its pack by the library of
+known Xbox mod maps (by the host's fingerprint), else by the pack's
+maplist.txt, else by its file's name, and where it goes: the pack's folder,
+maps_<pack> (halo_map_packs.h) */
+static boolean cache_files_map_pack_present(
+	char const *map_name,
+	unsigned long version,
+	char *message,
+	long size)
+{
+	void platform_log(char const *format, ...);
+	char file[64], pack[MAP_PACK_ID_LENGTH + 1], name[96], title[96], path[256];
+	unsigned long mine;
+
+	map_family_parse(map_name, file, sizeof(file));
+	map_family_pack_id(map_name, pack, sizeof(pack));
+	mine = map_pack_fingerprint(pack, file);
+	if (mine && (!version || mine == version))
+	{
+		struct cache_file_header header;
+		unsigned long bytes_read = 0;
+		HANDLE handle;
+		boolean verified = FALSE;
+
+		/* (its header checked, as an Xbox map's is: precaching one that does
+		not verify stops the game on the header's assert) */
+		if (map_family_xbox_path(map_name, path, sizeof(path)) &&
+			(handle = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL)) != INVALID_HANDLE_VALUE)
+		{
+			verified = ReadFile(handle, &header, sizeof(header), &bytes_read, NULL) && bytes_read == sizeof(header) &&
+				cache_file_header_verify(&header, path, FALSE) && header.version == 5;
+			CloseHandle(handle);
+		}
+		if (verified)
+		{
+			if (version)
+				platform_log("map version: %s is the host's %08lx", map_name, version);
+			return TRUE;
+		}
+		platform_log("map damaged: %s's header does not verify", path);
+		snprintf(message, (size_t)size, "Can't load %.63s from maps_%s: the map file is damaged or not this game's",
+			file, pack);
+		return FALSE;
+	}
+	map_pack_names(pack, file, version, name, sizeof(name), title, sizeof(title));
+	if (!mine)
+	{
+		platform_log("map missing: %s (maps_%s), the host's %08lx", map_name, pack, version);
+		snprintf(message, (size_t)size, "This game uses %.63s's %.63s (%.63s.map in maps_%s). Install it in maps_%s "
+			"and join again.", title, name, file, pack, pack);
+	}
+	else
+	{
+		platform_log("map version: %s is %08lx here, %08lx on the host", map_name, mine, version);
+		snprintf(message, (size_t)size, "This game uses %.63s's %.63s, and your maps_%s\\%.63s.map is another "
+			"version. Install the host's in maps_%s and join again.", title, name, pack, file, pack);
+	}
+	return FALSE;
+}
+#endif
+
 /* port: whether this machine has the map a network game is on (a client
 joining it: network_client_manager.c); when not, tells the player which map
 is missing and the folder to copy it into, in the error the main menu shows
@@ -1249,6 +1350,16 @@ boolean cache_files_map_present(
 	if (!map_name || !map_name[0])
 		return TRUE;
 	family = map_family_parse(map_name, file, sizeof(file));
+	/* (a pack's Xbox map: its maps_<pack> folder's file, of the host's
+	fingerprint when the host says which) */
+#ifdef HALO_MAP_LIST
+	if (family == _map_family_pack)
+	{
+		if (cache_files_map_pack_present(map_name, version, message, sizeof(message)))
+			return TRUE;
+	}
+	else
+#endif
 #ifdef HALO_CUSTOM_EDITION
 	if (family != _map_family_xbox)
 	{
