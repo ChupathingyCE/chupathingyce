@@ -390,6 +390,10 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"The audio buffer in sample frames, 64 to 8192. Raise it if the sound\n"
 		"cuts out; lower it for less delay." },
+	{ "audio.channels", _config_string, "\"auto\"", "HALO_AUDIO_CHANNELS", _environment_value, _platform_desktop,
+		"\"stereo\", \"5.1\" or \"7.1\" (surround, as the Xbox's Dolby Digital),\n"
+		"or \"auto\": 5.1 or 7.1 when the sound device has 6 or 8 channels, else\n"
+		"stereo. Read when the game starts." },
 
 	{ "audio.reverb", _config_boolean, "true", "HALO_REVERB", _environment_value, _platform_all,
 		"Echo sounds to match the place you are in." },

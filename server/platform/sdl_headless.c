@@ -262,6 +262,15 @@ void SDL_DestroyAudioStream(SDL_AudioStream *stream)
 	(void)stream;
 }
 
+bool SDL_GetAudioDeviceFormat(SDL_AudioDeviceID device, SDL_AudioSpec *specification, int *sample_frames)
+{
+	(void)device;
+	(void)specification;
+	(void)sample_frames;
+	headless_set_error("the server plays no sound");
+	return false;
+}
+
 SDL_AudioStream *SDL_OpenAudioDeviceStream(SDL_AudioDeviceID device, const SDL_AudioSpec *specification,
 	SDL_AudioStreamCallback callback, void *userdata)
 {
