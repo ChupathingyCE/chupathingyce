@@ -405,10 +405,10 @@ void game_engine_network_state_byte_swap(byte *buffer, long size);
 
 /* (network_distributed.c) a message of size bytes, its message header in
 this machine's order (the transport's on both sides), in the other order:
-its tick, then its entries by its kind. A copy in one of two buffers (one
-for messages sent, one for those received), which the next message that
-way reuses; the message itself if it is too large or of a kind no module
-knows. */
+its tick, then its entries by its kind (a kind no module knows, its header
+alone). A copy in one of two buffers (one for messages sent, one for those
+received), which the next message that way reuses; the message itself if
+it is too large to be one. */
 void *distributed_wire_copy(void const *message, word size, boolean received);
 /* what the netcode packs itself, a number at a time in the wire's order (a
 field of several by its parts' size) */

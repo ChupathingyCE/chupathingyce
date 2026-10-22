@@ -5038,13 +5038,13 @@ void *distributed_wire_copy(
 		return (void *)message;
 	csmemcpy(copy, message, size);
 	WIRE_SWAP_FIELD(header, struct distributed_message_header, game_time, sizeof(long));
+	/* (a kind no module knows, which the handler drops: its header alone) */
 	if (!distributed_wire_entries(header->type, entries, header->count, entries_size) &&
 		!network_objects_wire_entries(header->type, entries, header->count, entries_size) &&
 		!network_damage_wire_entries(header->type, entries, header->count, entries_size) &&
-		!network_actors_wire_entries(header->type, entries, header->count, entries_size) &&
-		!network_coop_wire_entries(header->type, entries, header->count, entries_size))
+		!network_actors_wire_entries(header->type, entries, header->count, entries_size))
 	{
-		return (void *)message;
+		network_coop_wire_entries(header->type, entries, header->count, entries_size);
 	}
 	return copy;
 }
