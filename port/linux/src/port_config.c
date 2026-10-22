@@ -354,7 +354,7 @@ static const struct config_setting config_settings[] =
 		"Show CHANGE TEAMS in the pause menu of a team game." },
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	{ "display.pause_controls", _config_boolean, "true", "HALO_PAUSE_CONTROLS", _environment_value, _platform_all,
-		"Show CONTROLS in the pause menu." },
+		"Show CONTROLS in the Xbox and Gearbox menus' pause menu." },
 #endif
 	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all | _platform_xbox,
 		"Show the banner for a Delta server's warnings and notices." },
@@ -514,6 +514,11 @@ static const struct config_setting config_settings[] =
 		"hugeass@ce), or \"*\" for all. Their scripts can't change your settings\n"
 		"or other players' games." },
 
+	{ "game.pack_menus", _config_string, "\"\"", "HALO_PACK_MENUS", _environment_value, _platform_all | _platform_xbox,
+		"Play with a map pack's own menus, by the pack's folder name: \"cex\" uses\n"
+		"maps_cex/ui.map (Halo CE+'s) in place of the game's; \"\" (the default)\n"
+		"keeps the game's. Takes effect after a restart." },
+
 	{ "game.move_old_map_folders", _config_string, "\"ask\"", "HALO_MOVE_OLD_MAP_FOLDERS", _environment_value,
 		_platform_all,
 		"Move maps from the old maps/ce and md_maps folders to maps_ce, maps_md\n"
@@ -544,6 +549,10 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"An invite link on the clipboard when the game comes to the front:\n"
 		"\"ask\", \"always\" (join it) or \"never\"." },
+	{ "network.copy_to_clipboard", _config_boolean, "false", "HALO_NET_COPY_TO_CLIPBOARD", _environment_value,
+		_platform_all,
+		"Put a game's invite link on the clipboard when you start to host it.\n"
+		"false: the log has it, and the Gearbox menus' Server Settings copy it." },
 	{ "network.map_downloads", _config_string, "\"ask\"", "HALO_NET_MAP_DOWNLOADS", _environment_value,
 		_platform_all,
 		"Download a missing Custom Edition map from the community repositories:\n"

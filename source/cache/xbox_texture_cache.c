@@ -834,6 +834,42 @@ void texture_cache_close(
 	return;
 }
 
+#ifdef HALO_XBOX_CONSOLE
+/* port: a linear bitmap whose rows are packed, a row's texels after the
+last's, though they are not whole steps of the pitch (a map pack's, its tags
+converted from Halo PC's: CE+'s ui.map's cex_grad, 10 texels wide): the
+hardware reads rows a pitch apart, so once read its rows are spread to the
+pitch, in place (its cache block holds the padded size:
+rasterizer_xbox_bitmap_get_pixel_data_size). Called on a bitmap whose sizes
+texture_cache_bitmap_valid has checked */
+static boolean texture_cache_bitmap_rows_packed(
+	struct bitmap_data *bitmap)
+{
+	long row_pitch = bitmap_mipmap_get_row_pitch(bitmap, 0);
+
+	return TEST_FLAG(bitmap->flags, _bitmap_linear_bit) &&
+		bitmap->type == _bitmap_type_2d &&
+		row_pitch % D3DTEXTURE_PITCH_ALIGNMENT != 0 &&
+		bitmap->pixels_size == row_pitch * bitmap->height;
+}
+
+static void texture_cache_bitmap_spread_rows(
+	struct bitmap_data *bitmap)
+{
+	long row_pitch = bitmap_mipmap_get_row_pitch(bitmap, 0);
+	long pitch = (row_pitch + D3DTEXTURE_PITCH_ALIGNMENT - 1) & ~(D3DTEXTURE_PITCH_ALIGNMENT - 1);
+	byte *pixels = xbox_pointer(bitmap->base_address);
+	long row;
+
+	for (row = bitmap->height - 1; row > 0; row--)
+	{
+		memmove(pixels + row * pitch, pixels + row * row_pitch, row_pitch);
+	}
+
+	return;
+}
+#endif
+
 /* port: whether a map's bitmap is one the hardware format can describe and
 the texture cache can size: a type and format the tables have, sizes up to
 the device's (D3DDevice_GetDeviceCaps: 4096, a volume 512; retail's are 2048
@@ -882,6 +918,10 @@ static boolean texture_cache_bitmap_valid(
 
 			any_pitch = cache_file_tags_are_ce();
 		}
+#endif
+#ifdef HALO_XBOX_CONSOLE
+		/* port: packed rows are spread to the pitch once read (above) */
+		any_pitch = any_pitch || texture_cache_bitmap_rows_packed(bitmap);
 #endif
 		valid =
 			row_pitch>0 &&
@@ -1170,6 +1210,12 @@ void *_texture_cache_bitmap_get_hardware_format(
 				{
 					if (!texture->used)
 					{
+#ifdef HALO_XBOX_CONSOLE
+						if (texture_cache_bitmap_rows_packed(bitmap))
+						{
+							texture_cache_bitmap_spread_rows(bitmap);
+						}
+#endif
 						texture->used = TRUE;
 					}
 					hardware_format = &texture->hardware_format;

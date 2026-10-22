@@ -586,9 +586,19 @@ static void client_map(void)
 			"there): leaving the game", name,
 			(unsigned long)((((unsigned long long)mine.size_high << 32) | mine.size_low) >> 20),
 			(unsigned long)((((unsigned long long)theirs.size_high << 32) | theirs.size_low) >> 20));
-		snprintf(message, sizeof(message),
-			"Your %s map %.63s.map differs from the host's. Replace the one in %s with the host's.",
-			map_family_badge(theirs.family), theirs.name, map_family_folder(theirs.family));
+		/* (a map pack's, named <file>.<pack> in a MAP: its maps_<pack>) */
+		if (theirs.family == _map_family_pack && strrchr(theirs.name, '.'))
+		{
+			const char *dot = strrchr(theirs.name, '.');
+
+			snprintf(message, sizeof(message),
+				"Your maps_%s\\%.*s.map differs from the host's. Replace it with the host's in maps_%s.", dot + 1,
+				(int)(dot - theirs.name), theirs.name, dot + 1);
+		}
+		else
+			snprintf(message, sizeof(message),
+				"Your %s map %.63s.map differs from the host's. Replace the one in %s with the host's.",
+				map_family_badge(theirs.family), theirs.name, map_family_folder(theirs.family));
 		for (index = 0; message[index] && index < (int)(sizeof(text) / sizeof(text[0])) - 1; index++)
 			text[index] = (unsigned short)(unsigned char)message[index];
 		text[index] = 0;
