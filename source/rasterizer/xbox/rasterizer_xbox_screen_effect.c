@@ -1038,6 +1038,10 @@ void _rasterizer_screen_effect(
 		short stage;
 		short viewport_width;
 		short viewport_height;
+		short pixel_x0;
+		short pixel_y0;
+		short pixel_x1;
+		short pixel_y1;
 		real_rectangle2d vertex_bounds;
 		unsigned long light_enhancement_input;
 		unsigned long desaturation_input;
@@ -1594,6 +1598,34 @@ void _rasterizer_screen_effect(
 				vertex_bounds.x1 = vertex_bounds.y0 = 1.0f;
 			}
 
+			pixel_x0 = 0;
+			pixel_y0 = 0;
+			pixel_x1 = viewport_width;
+			pixel_y1 = viewport_height;
+#ifndef HALO_XBOX_CONSOLE
+			/* port: the native builds move each screen-space vertex half a
+			pixel of the game's right and down (nv2a_vsh.c), as the HUD's
+			quads are offset half a pixel left and up to meet the Xbox's
+			pixel centers. This quad covers the whole view and is not
+			offset, so with the screen drawn at several pixels to the
+			Xbox's one, its top row and left column of pixels were left
+			out: the zoom's scope mask and blur did not reach them. A pixel
+			of the game more on each side covers them; the view's bounds
+			clip the rest, and the texture coordinates keep to the same
+			pixels. */
+			if (!(pass == 0 && main_get_window_count() > 1 && pass_count != 1))
+			{
+				vertex_bounds.x0 -= 2.0f / (real)viewport_width;
+				vertex_bounds.x1 += 2.0f / (real)viewport_width;
+				vertex_bounds.y0 += 2.0f / (real)viewport_height;
+				vertex_bounds.y1 -= 2.0f / (real)viewport_height;
+				pixel_x0 -= 1;
+				pixel_y0 -= 1;
+				pixel_x1 += 1;
+				pixel_y1 += 1;
+			}
+#endif
+
 			if (IDirect3DDevice8_Begin(
 				global_d3d_device,
 				D3DPT_TRIANGLEFAN) >= 0 && success)
@@ -1611,8 +1643,8 @@ void _rasterizer_screen_effect(
 			if (IDirect3DDevice8_SetVertexData2s(
 				global_d3d_device,
 				4,
-				0,
-				viewport_height) >= 0 && success)
+				pixel_x0,
+				pixel_y1) >= 0 && success)
 			{
 				success = TRUE;
 			}
@@ -1621,7 +1653,7 @@ void _rasterizer_screen_effect(
 				success = FALSE;
 				rasterizer_error(
 					0,
-					"IDirect3DDevice8_SetVertexData2s(global_d3d_device, 4, 0, viewport_height)");
+					"IDirect3DDevice8_SetVertexData2s(global_d3d_device, 4, pixel_x0, pixel_y1)");
 			}
 
 			if (IDirect3DDevice8_SetVertexData2f(
@@ -1643,8 +1675,8 @@ void _rasterizer_screen_effect(
 			if (IDirect3DDevice8_SetVertexData2s(
 				global_d3d_device,
 				4,
-				viewport_width,
-				viewport_height) >= 0 && success)
+				pixel_x1,
+				pixel_y1) >= 0 && success)
 			{
 				success = TRUE;
 			}
@@ -1653,7 +1685,7 @@ void _rasterizer_screen_effect(
 				success = FALSE;
 				rasterizer_error(
 					0,
-					"IDirect3DDevice8_SetVertexData2s(global_d3d_device, 4, viewport_width, viewport_height)");
+					"IDirect3DDevice8_SetVertexData2s(global_d3d_device, 4, pixel_x1, pixel_y1)");
 			}
 
 			if (IDirect3DDevice8_SetVertexData2f(
@@ -1675,8 +1707,8 @@ void _rasterizer_screen_effect(
 			if (IDirect3DDevice8_SetVertexData2s(
 				global_d3d_device,
 				4,
-				viewport_width,
-				0) >= 0 && success)
+				pixel_x1,
+				pixel_y0) >= 0 && success)
 			{
 				success = TRUE;
 			}
@@ -1685,7 +1717,7 @@ void _rasterizer_screen_effect(
 				success = FALSE;
 				rasterizer_error(
 					0,
-					"IDirect3DDevice8_SetVertexData2s(global_d3d_device, 4, viewport_width, 0)");
+					"IDirect3DDevice8_SetVertexData2s(global_d3d_device, 4, pixel_x1, pixel_y0)");
 			}
 
 			if (IDirect3DDevice8_SetVertexData2f(
@@ -1707,8 +1739,8 @@ void _rasterizer_screen_effect(
 			if (IDirect3DDevice8_SetVertexData2s(
 				global_d3d_device,
 				4,
-				0,
-				0) >= 0 && success)
+				pixel_x0,
+				pixel_y0) >= 0 && success)
 			{
 				success = TRUE;
 			}
@@ -1717,7 +1749,7 @@ void _rasterizer_screen_effect(
 				success = FALSE;
 				rasterizer_error(
 					0,
-					"IDirect3DDevice8_SetVertexData2s(global_d3d_device, 4, 0, 0)");
+					"IDirect3DDevice8_SetVertexData2s(global_d3d_device, 4, pixel_x0, pixel_y0)");
 			}
 
 			if (IDirect3DDevice8_SetVertexData2f(
