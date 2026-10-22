@@ -110,6 +110,10 @@ void WINAPI D3DResource_Register(D3DResource *resource, void *base)
 #endif
 }
 
+#ifdef HALO_CONSOLE_GPU_RESOURCE_HOOKS
+static void vertex_buffer_rename_forget(const D3DVertexBuffer *buffer);
+#endif
+
 ULONG WINAPI D3DResource_Release(D3DResource *resource)
 {
 	DWORD *fields = (DWORD *)resource;
@@ -123,6 +127,10 @@ ULONG WINAPI D3DResource_Release(D3DResource *resource)
 	/* resources the game built itself (not D3DCOMMON_D3DCREATED) are never freed here */
 	if (!count && (fields[0] & D3DCOMMON_D3DCREATED))
 	{
+#ifdef HALO_CONSOLE_GPU_RESOURCE_HOOKS
+		if ((fields[0] & D3DCOMMON_TYPE_MASK) == D3DCOMMON_TYPE_VERTEXBUFFER)
+			vertex_buffer_rename_forget((const D3DVertexBuffer *)resource);
+#endif
 		if ((fields[0] & D3DCOMMON_TYPE_MASK) == D3DCOMMON_TYPE_INDEXBUFFER)
 #ifdef HALO_64BIT
 			platform_contiguous_free(xbox_pointer(fields[1]));
@@ -140,15 +148,161 @@ ULONG WINAPI D3DResource_Release(D3DResource *resource)
 	return count;
 }
 
-BOOL WINAPI D3DResource_IsBusy(D3DResource *resource)
+#ifdef HALO_CONSOLE_GPU_RESOURCE_HOOKS
+/* Under the OpenGL renderer nothing is busy: the mirror (d3d8_gl.c) copies
+a draw's data at the draw, so an answer is never waited on. A console's
+renderer defines these for real (the first, the Switch's deko3d renderer:
+port/switch/guest/d3d8_dk.c) - the GPU
+reads the game's memory after the draw, so a resource is busy until the GPU
+is past the last draw that read it, which the resource's Lock field records
+as the Xbox's runtime did - and its strong definitions replace these weak
+ones in its image only. */
+__attribute__((weak)) BOOL halo_resource_busy(D3DResource *resource)
 {
 	(void)resource;
 	return FALSE;
 }
 
-void WINAPI D3DResource_BlockUntilNotBusy(D3DResource *resource)
+__attribute__((weak)) void halo_resource_wait(D3DResource *resource)
 {
 	(void)resource;
+}
+
+/* as the Xbox's runtime does it, a lock that may write over memory the GPU
+is still reading waits for the GPU; no-overwrite and read-only locks
+promise not to */
+static void lock_wait(const void *resource, DWORD flags)
+{
+	if (!(flags & (D3DLOCK_NOOVERWRITE | D3DLOCK_READONLY)))
+		halo_resource_wait((D3DResource *)resource);
+}
+
+/* A vertex buffer's ring of storage. The game rewrites its dynamic vertex
+buffers every frame, its first lock of each a frame waiting (flags 0) for
+the GPU to finish the last frame's draws from it - under deko3d, which
+submits a frame at its end, that is most of the GPU's time on the last frame
+(13% of the game thread in a match, the GPU being far from busy). A lock
+that would wait gives the buffer other storage instead - one the GPU is done
+with, or a new one, up to RENAME_LIMIT - and the GPU goes on reading the old.
+The game writes every range it draws a frame after that first lock, so the
+new storage needs nothing of the old. Only for buffers this file made (their
+Data is its to replace; the rasterizer reads no dynamic buffer's Data
+itself), and only where something is busy, which under OpenGL nothing is. */
+#define RENAME_LIMIT 4
+#define RENAMED_BUFFERS 64
+
+static struct renamed_buffer
+{
+	D3DVertexBuffer *buffer;
+	unsigned long size;
+	int count;
+	DWORD storage[RENAME_LIMIT];
+	/* the submission that last read each (D3DResource.Lock, kept here while
+	the storage is not the buffer's) */
+	DWORD last_use[RENAME_LIMIT];
+} renamed_buffers[RENAMED_BUFFERS];
+
+static struct renamed_buffer *renamed_find(const D3DVertexBuffer *buffer)
+{
+	int index;
+
+	for (index = 0; index < RENAMED_BUFFERS; index++)
+	{
+		if (renamed_buffers[index].buffer == buffer)
+			return &renamed_buffers[index];
+	}
+	return NULL;
+}
+
+/* TRUE if the buffer now has storage the GPU is not reading */
+static BOOL vertex_buffer_rename(D3DVertexBuffer *buffer)
+{
+	struct renamed_buffer *ring = renamed_find(buffer);
+	D3DResource probe;
+	int index, current = -1;
+
+	if (!ring)
+	{
+		ring = renamed_find(NULL);
+		if (!ring)
+			return FALSE;
+		ring->buffer = buffer;
+		ring->size = platform_contiguous_block_size(resource_data(buffer->Data));
+		ring->count = 1;
+		ring->storage[0] = buffer->Data;
+		ring->last_use[0] = 0;
+	}
+	for (index = 0; index < ring->count; index++)
+	{
+		if (ring->storage[index] == buffer->Data)
+			current = index;
+	}
+	if (current < 0 || !ring->size)
+		return FALSE;
+	ring->last_use[current] = buffer->Lock;
+	memset(&probe, 0, sizeof(probe));
+	for (index = 0; index < ring->count; index++)
+	{
+		if (index == current)
+			continue;
+		probe.Lock = ring->last_use[index];
+		if (!halo_resource_busy(&probe))
+		{
+			buffer->Data = ring->storage[index];
+			buffer->Lock = 0;
+			return TRUE;
+		}
+	}
+	if (ring->count < RENAME_LIMIT)
+	{
+		void *memory = allocate_resource_memory(ring->size);
+
+		if (memory)
+		{
+			ring->storage[ring->count] = PLATFORM_VIRTUAL_TO_PHYSICAL(memory);
+			ring->last_use[ring->count] = 0;
+			buffer->Data = ring->storage[ring->count++];
+			buffer->Lock = 0;
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+/* (D3DResource_Release) the storage other than the buffer's own, freed */
+static void vertex_buffer_rename_forget(const D3DVertexBuffer *buffer)
+{
+	struct renamed_buffer *ring = renamed_find(buffer);
+	int index;
+
+	if (!ring)
+		return;
+	for (index = 0; index < ring->count; index++)
+	{
+		if (ring->storage[index] != buffer->Data)
+			platform_contiguous_free(PLATFORM_PHYSICAL_TO_VIRTUAL(ring->storage[index]));
+	}
+	memset(ring, 0, sizeof(*ring));
+}
+#endif
+
+BOOL WINAPI D3DResource_IsBusy(D3DResource *resource)
+{
+#ifdef HALO_CONSOLE_GPU_RESOURCE_HOOKS
+	return halo_resource_busy(resource);
+#else
+	(void)resource;
+	return FALSE;
+#endif
+}
+
+void WINAPI D3DResource_BlockUntilNotBusy(D3DResource *resource)
+{
+#ifdef HALO_CONSOLE_GPU_RESOURCE_HOOKS
+	halo_resource_wait(resource);
+#else
+	(void)resource;
+#endif
 }
 
 /* ---------- textures */
@@ -257,18 +411,35 @@ static void lock_level(const DWORD *resource, unsigned long face, unsigned long 
 	}
 	locked->Pitch = (INT)pitch;
 	locked->pBits = bits;
+#ifdef HALO_CONSOLE_NO_WRITE_WATCH
+	/* The console will not write-protect guest memory (the Switch, the
+	first), so the renderer's write watch cannot see the game write a texture; a lock is taken to
+	mean one is coming (the glyph cache's characters, every hardware bitmap
+	the game updates, go through here), and the texture up to this face is
+	drawn again from memory at its next use. */
+	if (resource_data(resource[1]))
+		memory_watch_prepare_write(resource_data(resource[1]), xgpu_texture_face_size(&description) * (face + 1));
+#endif
 }
 
 void WINAPI D3DTexture_LockRect(D3DTexture *texture, UINT level, D3DLOCKED_RECT *locked, CONST RECT *rectangle, DWORD flags)
 {
+#ifdef HALO_CONSOLE_GPU_RESOURCE_HOOKS
+	lock_wait(texture, flags);
+#else
 	(void)flags;
+#endif
 	lock_level((const DWORD *)texture, 0, level, locked, rectangle);
 }
 
 void WINAPI D3DCubeTexture_LockRect(D3DCubeTexture *texture, D3DCUBEMAP_FACES face, UINT level,
 	D3DLOCKED_RECT *locked, CONST RECT *rectangle, DWORD flags)
 {
+#ifdef HALO_CONSOLE_GPU_RESOURCE_HOOKS
+	lock_wait(texture, flags);
+#else
 	(void)flags;
+#endif
 	lock_level((const DWORD *)texture, (unsigned long)face, level, locked, rectangle);
 }
 
@@ -280,7 +451,11 @@ void WINAPI D3DVolumeTexture_LockBox(D3DVolumeTexture *texture, UINT level, D3DL
 	unsigned long row_pitch, slice;
 	char *bits;
 
+#ifdef HALO_CONSOLE_GPU_RESOURCE_HOOKS
+	lock_wait(texture, flags);
+#else
 	(void)flags;
+#endif
 	xgpu_texture_describe(resource[3], resource[4], &description);
 	row_pitch = xgpu_texture_level_pitch(&description, level);
 	slice = row_pitch * level_dimension(description.height, level);
@@ -292,6 +467,11 @@ void WINAPI D3DVolumeTexture_LockBox(D3DVolumeTexture *texture, UINT level, D3DL
 	locked->RowPitch = (INT)row_pitch;
 	locked->SlicePitch = (INT)slice;
 	locked->pBits = bits;
+#ifdef HALO_CONSOLE_NO_WRITE_WATCH
+	/* as lock_level */
+	if (resource_data(resource[1]))
+		memory_watch_prepare_write(resource_data(resource[1]), xgpu_texture_face_size(&description));
+#endif
 }
 
 static void describe_level(const DWORD *resource, unsigned long level, D3DSURFACE_DESC *description)
@@ -352,7 +532,11 @@ void WINAPI D3DSurface_GetDesc(D3DSurface *surface, D3DSURFACE_DESC *description
 
 void WINAPI D3DSurface_LockRect(D3DSurface *surface, D3DLOCKED_RECT *locked, CONST RECT *rectangle, DWORD flags)
 {
+#ifdef HALO_CONSOLE_GPU_RESOURCE_HOOKS
+	lock_wait(surface, flags);
+#else
 	(void)flags;
+#endif
 	lock_level((const DWORD *)surface, 0, 0, locked, rectangle);
 }
 
@@ -390,9 +574,34 @@ HRESULT WINAPI D3DDevice_CreateVertexBuffer(UINT length, DWORD usage, DWORD fvf,
 
 void WINAPI D3DVertexBuffer_Lock(D3DVertexBuffer *buffer, UINT offset, UINT size, BYTE **data, DWORD flags)
 {
-	(void)size;
+#ifdef HALO_CONSOLE_GPU_RESOURCE_HOOKS
+	/* (a buffer the GPU still reads gets other storage, if it can) */
+	if (!(flags & (D3DLOCK_NOOVERWRITE | D3DLOCK_READONLY)) && (buffer->Common & D3DCOMMON_D3DCREATED) &&
+		halo_resource_busy((D3DResource *)buffer))
+		vertex_buffer_rename(buffer);
+	lock_wait(buffer, flags);
+#else
 	(void)flags;
+#endif
 	*data = buffer->Data ? (BYTE *)resource_data(buffer->Data) + offset : NULL;
+#ifdef HALO_CONSOLE_NO_WRITE_WATCH
+	/* as lock_level: the vertex mirror (d3d8_gl.c) cannot see the write
+	coming, so the lock says it (the detail objects - grass - rebuild their
+	vertices in a locked buffer every frame). Size 0 is the whole buffer. */
+	if (*data)
+	{
+		if (!size)
+		{
+			unsigned long length = platform_contiguous_block_size(resource_data(buffer->Data));
+
+			size = length > offset ? (UINT)(length - offset) : 0;
+		}
+		if (size)
+			memory_watch_prepare_write(*data, size);
+	}
+#else
+	(void)size;
+#endif
 }
 
 HRESULT WINAPI D3DDevice_CreateIndexBuffer(UINT length, DWORD usage, D3DFORMAT format, D3DPOOL pool, D3DIndexBuffer **result)
@@ -479,8 +688,21 @@ HRESULT WINAPI D3DDevice_CreatePalette(D3DPALETTESIZE size, D3DPalette **result)
 
 void WINAPI D3DPalette_Lock(D3DPalette *palette, D3DCOLOR **colors, DWORD flags)
 {
+#ifdef HALO_CONSOLE_GPU_RESOURCE_HOOKS
+	lock_wait(palette, flags);
+#else
 	(void)flags;
+#endif
 	*colors = (D3DCOLOR *)resource_data(palette->Data);
+#ifdef HALO_CONSOLE_NO_WRITE_WATCH
+	/* as lock_level */
+	if (*colors)
+	{
+		unsigned long length = platform_contiguous_block_size(*colors);
+
+		memory_watch_prepare_write(*colors, length ? length : 256 * sizeof(D3DCOLOR));
+	}
+#endif
 }
 
 /* ---------- D3DX */

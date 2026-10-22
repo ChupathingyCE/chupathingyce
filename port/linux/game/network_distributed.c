@@ -74,6 +74,11 @@ machine (their datum identifiers need not be).
 #include "units/bipeds.h"
 #include "network_coop.h"
 #include "network_distributed.h"
+#include "network_rules.h"
+#include "../src/delta_chat_bridge.h"
+#ifdef HALO_PORT_CHAT
+#include "chat.h"
+#endif
 
 #include <limits.h>
 #include <stdio.h>
@@ -105,8 +110,11 @@ void p2p_hardware_id_sanitize(char *destination, int size, const char *source);
 void p2p_discord_sanitize(char *destination, int size, const char *source, int name);
 void p2p_discord_identity(char *id, int id_size, char *name, int name_size);
 unsigned long p2p_peer_endpoint_address(unsigned long virtual_address);
-/* network_connection.c's */
+/* network_connection.c's, ui_widget.c's, port_config.c's, network_client_manager.c's */
 boolean network_connection_last_read_was_unreliable(void);
+boolean main_menu_is_active(void);
+int config_boolean(char const *name);
+unsigned int network_game_client_host_network_version(void);
 unsigned long system_milliseconds(void);
 void console_warning(const char *format, ...);
 
@@ -131,6 +139,7 @@ host's copies go as its own ticks have them) ... */
 sender had, either way (distributed_sender_times): as long as a machine may
 go silent before it is dropped */
 #define DISTRIBUTED_TIME_WINDOW_TICKS (15 * TICKS_PER_SECOND)
+typedef char distributed_time_window_assert[DISTRIBUTED_TIME_WINDOW_TICKS == NETWORK_RULES_TIME_WINDOW_TICKS ? 1 : -1];
 /* a Discord user's id and name as kept, with their ends (p2p.h's
 P2P_DISCORD_ID_SIZE and P2P_DISCORD_NAME_SIZE) */
 #define DISCORD_ID_SIZE 24
@@ -335,7 +344,10 @@ struct distributed_player_input
 	byte player_index;
 	/* co-op: the structure BSP the client has loaded */
 	byte structure_bsp_index;
-	byte pad[2];
+	/* network co-op: 1 if this player plays without friendly fire between
+	players, else 0 (a client of this build sends 0; the host only records it) */
+	byte coop_no_friendly_fire;
+	byte pad;
 	/* the client's tick */
 	long tick;
 	/* the latest host tick the client has had a message of (the host
@@ -349,6 +361,11 @@ typedef char distributed_player_input_size_assert[
 	sizeof(struct distributed_player_input) == 12 + 0x20 + 2 * DISTRIBUTED_INPUT_HISTORY ? 1 : -1];
 typedef char distributed_player_input_action_offset_assert[
 	offsetof(struct distributed_player_input, action) == 12 ? 1 : -1];
+typedef char distributed_player_input_head_assert[
+	offsetof(struct distributed_player_input, coop_no_friendly_fire) == 2 &&
+	offsetof(struct distributed_player_input, tick) == 4 &&
+	offsetof(struct distributed_player_input, host_time) == 8 &&
+	NETWORK_RULES_INPUT_HEAD_SIZE == 12 && NETWORK_RULES_INPUT_SIZE == 52 ? 1 : -1];
 
 /* a player's input as the host ran it, as this machine has it: the host's
 update (the same for every player of a tick) goes once a message, and on
@@ -545,6 +562,8 @@ static struct distributed_own_position
 	long time;
 	long unit_index;
 	real_point3d position;
+	/* the elevator the unit was in floor contact with (NONE: none) */
+	long elevator_index;
 } distributed_own_positions[MAXIMUM_LOCAL_PLAYERS][OWN_POSITION_TICKS];
 static real distributed_own_round_trip;
 /* the host: the players each machine had when it last told the host that it
@@ -1620,6 +1639,25 @@ static boolean distributed_apply_state(
 	return TRUE;
 }
 
+/* the elevator (a machine of an elevator's definition) a biped is in floor
+contact with, NONE for none: one it remembers after a jump or a step off
+is not (bipeds.c keeps it a moment) */
+static long distributed_floor_elevator(
+	long unit_index)
+{
+	struct biped_datum *biped = (struct biped_datum *)object_try_and_get_and_verify_type(unit_index,
+		_object_mask_biped);
+
+	if (!biped || biped->biped.elevator_object_index == NONE ||
+		!object_try_and_get_and_verify_type(biped->biped.elevator_object_index, _object_mask_machine))
+	{
+		return NONE;
+	}
+	return network_rules_floor_contact(TEST_FLAG(biped->biped.flags, _biped_airborne_bit),
+		biped->biped.support_surface_index != NONE, biped->biped.elevator_ticks) ?
+		biped->biped.elevator_object_index : NONE;
+}
+
 /* (a client) where its own players' units are this tick, noted */
 static void distributed_note_own_positions(
 	void)
@@ -1639,8 +1677,12 @@ static void distributed_note_own_positions(
 			unit_index = NONE;
 		own->time = game_time_get();
 		own->unit_index = unit_index;
+		own->elevator_index = NONE;
 		if (unit_index != NONE)
+		{
 			own->position = object_get(unit_index)->object.position;
+			own->elevator_index = distributed_floor_elevator(unit_index);
+		}
 	}
 }
 
@@ -1688,8 +1730,11 @@ static void distributed_correct_own_unit(
 			error.i = state->position.x - own->position.x;
 			error.j = state->position.y - own->position.y;
 			error.k = state->position.z - own->position.z;
-			if (!(error.i * error.i + error.j * error.j + error.k * error.k >
-				LOCAL_CORRECTION_TOLERANCE * LOCAL_CORRECTION_TOLERANCE))
+			/* (on the elevator it was recorded on, how high the host has it
+			is the elevator's phase, which each machine's own copy carries
+			up and down: not corrected, the height left out) */
+			if (!network_rules_elevator_correction(own->elevator_index, distributed_floor_elevator(unit_index),
+				&error.i))
 			{
 				return;
 			}
@@ -2018,9 +2063,11 @@ static boolean distributed_on_foot_move_valid(
 	return dx * dx + dy * dy + rise * rise <= reach * reach && -dz <= fall_reach;
 }
 
-/* (the host) whether a unit rides an elevator that is moving (bipeds.c's
-elevator, kept a moment after the unit leaves its floor, as in a jump) */
-static boolean distributed_riding_moving_elevator(
+/* (the host) whether a unit rides an elevator (bipeds.c's elevator, which it
+keeps a moment after the unit leaves its floor, as in a jump): one that is
+moving, or that the unit stands on at rest. A stopped elevator remembered
+alone, after a jump, is not riding it. */
+static boolean distributed_riding_elevator(
 	long unit_index)
 {
 	struct biped_datum *biped = (struct biped_datum *)object_try_and_get_and_verify_type(unit_index,
@@ -2030,13 +2077,14 @@ static boolean distributed_riding_moving_elevator(
 	if (!biped || biped->biped.elevator_object_index == NONE)
 		return FALSE;
 	elevator = (struct device_datum *)object_try_and_get_and_verify_type(biped->biped.elevator_object_index,
-		_object_mask_device);
-	return elevator && elevator->device.position_velocity != 0.0f;
+		_object_mask_machine);
+	return network_rules_riding_elevator(elevator != NULL, elevator && elevator->device.position_velocity != 0.0f,
+		distributed_floor_elevator(unit_index) != NONE);
 }
 
 /* (the host) a client's player's prediction of its unit on foot, taken
 where it says within a tolerance (distributed_apply_predictions). Riding a
-moving elevator, only across: a client's elevator follows the host's
+an elevator (moving, or stood on), only across: a client's elevator follows the host's
 (network_coop.c), behind it by the time the host's word takes to come, and
 the client's prediction a round trip behind the host's elevator when it
 comes. Taken up and down too, it would put the host's unit under its own
@@ -2054,7 +2102,7 @@ static void distributed_take_prediction(
 	real_point3d position = state->position;
 	real dx, dy, dz;
 
-	if (distributed_riding_moving_elevator(unit_index))
+	if (distributed_riding_elevator(unit_index))
 		position.z = object->object.position.z;
 	dx = position.x - object->object.position.x;
 	dy = position.y - object->object.position.y;
@@ -2377,6 +2425,12 @@ static struct
 	real_euler_angles2d facing;
 } distributed_input_facings[MAXIMUM_TRACKED_PLAYERS];
 
+/* (the host) whether each player's last input said it plays without
+friendly fire (a co-op client's choice: byte 2 of its input entry), by
+absolute index. Recorded as read; the host's own friendly fire setting
+decides what hurts. */
+static boolean distributed_coop_declined[MAXIMUM_TRACKED_PLAYERS];
+
 /* (the host, in co-op) a client player's input counted in the scripts'
 action tests, as a local player's is (player_control_action_test_note) */
 static void distributed_note_input_actions(
@@ -2433,6 +2487,9 @@ static void distributed_handle_inputs(
 		if (network_coop_active() && player->unit_index != NONE)
 			distributed_note_input_actions(input->player_index, &action);
 		network_coop_note_player_structure_bsp(input->player_index, input->structure_bsp_index);
+		/* (whether the player declined friendly fire: any value but 0; kept
+		for the player, which no rule of this host uses yet) */
+		distributed_coop_declined[input->player_index] = input->coop_no_friendly_fire != 0;
 		update_server_handle_distributed_input(DATUM_INDEX_NEW(input->player_index, player->identifier), input->tick,
 			&action, input->control_flags, DISTRIBUTED_INPUT_HISTORY);
 		if (input->host_time != NONE && (host_time == NONE || input->host_time > host_time))
@@ -3103,6 +3160,90 @@ static void distributed_send_pings(
 	}
 }
 
+/* ---------- the aim assist policy */
+
+/* the message (NETWORK_RULES_AIM_ASSIST_SIZE bytes) */
+struct distributed_aim_assist_message
+{
+	struct distributed_message_header header;
+	word block_mouse;
+	word reserved;
+};
+
+typedef char distributed_aim_assist_message_size_assert[
+	sizeof(struct distributed_aim_assist_message) == NETWORK_RULES_AIM_ASSIST_SIZE &&
+	offsetof(struct distributed_aim_assist_message, block_mouse) == 8 &&
+	offsetof(struct distributed_aim_assist_message, reserved) == 10 ? 1 : -1];
+
+/* the version that has the policy (a host of an older one cannot speak it) */
+#define AIM_ASSIST_POLICY_NETWORK_VERSION 32
+
+/* a client: whether the host's policy blocks the mouse's magnetism. Blocked
+at the start of every game until the host speaks, so that a client cannot opt
+in before it does; a host of a version before the policy cannot speak, so its
+games allow what the player's own setting does. */
+static boolean distributed_aim_assist_blocked_by_host = TRUE;
+/* the host: the value last sent (NONE: none this game) */
+static long distributed_aim_assist_sent = NONE;
+
+static boolean distributed_aim_assist_setting(
+	void)
+{
+	return config_boolean("network.block_mouse_aim_assist") != 0;
+}
+
+boolean network_aim_assist_blocked(
+	void)
+{
+	short connection = game_connection();
+
+	return network_rules_aim_assist_blocks(game_in_progress(), main_menu_is_active(),
+		connection == _game_connection_network_server, connection == _game_connection_network_client,
+		distributed_aim_assist_setting(), distributed_aim_assist_blocked_by_host);
+}
+
+/* (the host) the setting to one client machine, or to every client (NONE) */
+static void distributed_send_aim_assist(
+	long machine_index)
+{
+	union
+	{
+		struct distributed_aim_assist_message message;
+		byte bytes[NETWORK_RULES_AIM_ASSIST_SIZE];
+	} policy;
+
+	network_rules_aim_assist_write(policy.bytes, distributed_aim_assist_setting(), game_time_get());
+	if (machine_index == NONE)
+	{
+		distributed_send(&policy.message, _distributed_message_aim_assist_policy, 1, sizeof(policy.message),
+			_distributed_to_clients_reliably);
+	}
+	else
+	{
+		distributed_send_to_machine_reliably(machine_index, &policy.message, _distributed_message_aim_assist_policy, 1,
+			sizeof(policy.message));
+	}
+}
+
+/* (the host) a client has loaded: it is told the policy. If the setting is not what the
+clients were last told, they all are, once (and the next tick need not). */
+static void distributed_tell_aim_assist(
+	long machine_index)
+{
+	long wanted = distributed_aim_assist_setting() ? 1 : 0;
+
+	if (wanted != distributed_aim_assist_sent)
+	{
+		distributed_aim_assist_sent = wanted;
+		distributed_send_aim_assist(NONE);
+	}
+	else if (machine_index != NONE)
+	{
+		distributed_send_aim_assist(machine_index);
+	}
+}
+
+
 /* Co-op: the host's structure BSP. Clients switch BSP only when told
 (their own trigger volumes don't, players.c). A switch is sent at once and
 reliably; it is also resent regularly so a client that joined late catches
@@ -3295,6 +3436,7 @@ void network_distributed_new_game(
 	csmemset(distributed_host_speeds, 0, sizeof(distributed_host_speeds));
 	csmemset(distributed_round_trips, 0, sizeof(distributed_round_trips));
 	csmemset(distributed_input_facings, 0, sizeof(distributed_input_facings));
+	csmemset(distributed_coop_declined, 0, sizeof(distributed_coop_declined));
 	csmemset(distributed_client_clocks, 0, sizeof(distributed_client_clocks));
 	csmemset(distributed_client_identities, 0, sizeof(distributed_client_identities));
 	distributed_identity_sent = FALSE;
@@ -3349,6 +3491,13 @@ void network_distributed_new_game(
 	distributed_machines.in_tick = FALSE;
 	distributed_machines.valid = FALSE;
 	distributed_host_time = NONE;
+	/* (a client: blocked until the host speaks, if the host is known to have
+	a version with the policy; a host not known, such as one joined by an
+	invitation, is heard when it speaks) */
+	distributed_aim_assist_blocked_by_host =
+		network_game_client_host_network_version() != 0xFFFF &&
+		network_game_client_host_network_version() >= AIM_ASSIST_POLICY_NETWORK_VERSION;
+	distributed_aim_assist_sent = NONE;
 	distributed_statistics_due = FALSE;
 	distributed_pickup_count = 0;
 	/* (each player's latest input: player_queues_new.c) */
@@ -3410,6 +3559,8 @@ void network_distributed_tick(
 		network_actors_host_tick();
 		network_coop_host_tick();
 		distributed_send_pickups();
+		/* (a change of the setting, or the first tick of a game) */
+		distributed_tell_aim_assist(NONE);
 		if (game_time_get() % GAME_STATE_INTERVAL_TICKS == 0)
 			distributed_send_game_state(NONE);
 	}
@@ -3437,48 +3588,38 @@ static boolean distributed_message_time_bounded(
 {
 	short sender = machine_index == NONE ? HOST_SENDER : (short)machine_index;
 	long *latest;
-	unsigned long distance;
 	short type;
+	int taken;
+	int32_t latest_tick;
 
 	if (sender < 0 || sender >= MAXIMUM_SENDERS)
 		return FALSE;
 	latest = &distributed_sender_times[sender];
-	if (*latest == NONE)
-	{
-		*latest = game_time;
-		return TRUE;
-	}
-	/* (unsigned: no tick, however far, overflows it) */
-	distance = game_time > *latest ?
-		(unsigned long)game_time - (unsigned long)*latest :
-		(unsigned long)*latest - (unsigned long)game_time;
-	if (distance > DISTRIBUTED_TIME_WINDOW_TICKS)
+	latest_tick = (int32_t)*latest;
+	taken = network_rules_stamp_window(&latest_tick, (int32_t)game_time, from_stream, DISTRIBUTED_TIME_WINDOW_TICKS);
+	if (taken == 0)
 	{
 		static unsigned long last_logged_time;
 		static boolean logged;
+		unsigned long now = system_milliseconds();
 
-		if (!from_stream)
+		if (!logged || now - last_logged_time >= 1000)
 		{
-			unsigned long now = system_milliseconds();
-
-			if (!logged || now - last_logged_time >= 1000)
-			{
-				error(_error_silent, "distributed message stamped %ld ticks from its sender's latest in a datagram; dropped",
-					game_time > *latest ? (long)distance : -(long)distance);
-				last_logged_time = now;
-				logged = TRUE;
-			}
-			return FALSE;
+			error(_error_silent, "distributed message stamped %ld ticks from its sender's latest in a datagram; dropped",
+				game_time - *latest);
+			last_logged_time = now;
+			logged = TRUE;
 		}
+		return FALSE;
+	}
+	*latest = latest_tick;
+	if (taken == 2)
+	{
 		/* (the sender's own word: what a datagram sent as from it had moved
 		its latest to is forgotten) */
-		*latest = game_time;
 		for (type = 0; type < NUMBER_OF_DISTRIBUTED_MESSAGES; type++)
 			distributed_received_times[sender][type] = NONE;
-		return TRUE;
 	}
-	if (game_time > *latest)
-		*latest = game_time;
 	return TRUE;
 }
 
@@ -3965,7 +4106,10 @@ boolean network_distributed_unban(
 		/* (a bans file larger than this is not rewritten) */
 		MAXIMUM_BANS_FILE_SIZE = 1024 * 1024,
 	};
-	static char contents[MAXIMUM_BANS_FILE_SIZE];
+	/* (the file's lines kept, on the heap only while it is rewritten: a
+	static buffer was a megabyte of every build's image, the console's
+	too) */
+	char *contents;
 	char line[512];
 	long size = 0;
 	long count = 0;
@@ -3974,6 +4118,13 @@ boolean network_distributed_unban(
 
 	if (!file)
 		return FALSE;
+	contents = malloc(MAXIMUM_BANS_FILE_SIZE);
+	if (!contents)
+	{
+		fclose(file);
+		error(_error_log, "no memory to rewrite %s", BANS_FILE);
+		return FALSE;
+	}
 	while (fgets(line, sizeof(line), file))
 	{
 		long length = (long)strlen(line);
@@ -3986,6 +4137,7 @@ boolean network_distributed_unban(
 		if (size + length >= MAXIMUM_BANS_FILE_SIZE)
 		{
 			fclose(file);
+			free(contents);
 			error(_error_log, "%s is too large to rewrite", BANS_FILE);
 			return FALSE;
 		}
@@ -3993,21 +4145,24 @@ boolean network_distributed_unban(
 		size += length;
 	}
 	fclose(file);
-	if (!found)
-		return FALSE;
-	file = fopen(BANS_FILE, "w");
-	if (!file)
+	if (found)
+		file = fopen(BANS_FILE, "w");
+	if (!found || !file)
 	{
-		error(_error_log, "could not open %s to take a ban out of it", BANS_FILE);
+		if (found)
+			error(_error_log, "could not open %s to take a ban out of it", BANS_FILE);
+		free(contents);
 		return FALSE;
 	}
 	if (size && fwrite(contents, 1, (size_t)size, file) != (size_t)size)
 	{
 		fclose(file);
+		free(contents);
 		error(_error_log, "could not write %s", BANS_FILE);
 		return FALSE;
 	}
 	fclose(file);
+	free(contents);
 	return TRUE;
 }
 
@@ -4221,6 +4376,10 @@ void network_distributed_handle_message(
 	case _distributed_message_coop_screen_effect: entry_size = network_coop_screen_effect_entry_size(); break;
 	case _distributed_message_coop_device_states: entry_size = network_coop_device_state_entry_size(); break;
 	case _distributed_message_pickups: entry_size = sizeof(struct distributed_pickup); break;
+	case _distributed_message_aim_assist_policy: entry_size = NETWORK_RULES_AIM_ASSIST_SIZE - sizeof(header); break;
+	case _distributed_message_chat_up:
+	case _distributed_message_chat_down: entry_size = DELTA_CHAT_BRIDGE_LINE_SIZE; break;
+	case _distributed_message_chat_config: entry_size = DELTA_CHAT_BRIDGE_CONFIG_SIZE; break;
 	case _distributed_message_player_inputs: entry_size = sizeof(struct distributed_player_input); break;
 	case _distributed_message_relayed_actions: entry_size = DISTRIBUTED_RELAYED_ACTION_MINIMUM_SIZE; break;
 	case _distributed_message_game_state:
@@ -4235,6 +4394,11 @@ void network_distributed_handle_message(
 	if (header.type == 0 || header.type >= NUMBER_OF_DISTRIBUTED_MESSAGES ||
 		size < sizeof(header) + header.count * entry_size)
 	{
+#ifdef HALO_PORT_CHAT
+		/* (OpenCE's chat: dropped, and said in the log once) */
+		if (header.type >= _distributed_message_chat_up && header.type <= _distributed_message_chat_config)
+			chat_bridge_message(machine_index, header.type, NULL, 0, FALSE);
+#endif
 		return;
 	}
 	/* (the kinds whose handlers read one entry: not without it) */
@@ -4246,6 +4410,17 @@ void network_distributed_handle_message(
 	case _distributed_message_coop_skip_vote:
 		if (header.count < 1)
 			return;
+		break;
+	case _distributed_message_chat_up:
+	case _distributed_message_chat_down:
+	case _distributed_message_chat_config:
+		if (header.count < 1)
+		{
+#ifdef HALO_PORT_CHAT
+			chat_bridge_message(machine_index, header.type, NULL, 0, FALSE);
+#endif
+			return;
+		}
 		break;
 	default:
 		break;
@@ -4271,6 +4446,7 @@ void network_distributed_handle_message(
 	case _distributed_message_vehicle_prediction:
 	case _distributed_message_player_inputs:
 	case _distributed_message_coop_skip_vote:
+	case _distributed_message_chat_up:
 		if (machine_index == NONE || game_connection() != _game_connection_network_server)
 			return;
 		break;
@@ -4357,6 +4533,17 @@ void network_distributed_handle_message(
 	case _distributed_message_coop_device_states:
 		network_coop_handle_device_states(entries, header.count);
 		break;
+	/* OpenCE's chat (chat.c): a client's line over its machine's stream
+	alone, the host's over the host's connection's stream alone (a datagram
+	from either address could be anyone's); the first entry, the rest let go */
+	case _distributed_message_chat_up:
+	case _distributed_message_chat_down:
+	case _distributed_message_chat_config:
+#ifdef HALO_PORT_CHAT
+		chat_bridge_message(machine_index, header.type, entries, entry_size,
+			machine_index == NONE ? !network_connection_last_read_was_unreliable() : distributed_handling_stream_message);
+#endif
+		break;
 	case _distributed_message_player_statistics:
 	{
 		/* the host's count of kills, deaths, ... */
@@ -4432,6 +4619,41 @@ void network_distributed_handle_message(
 				text[index] = '?';
 		}
 		console_warning("%s", text);
+#ifdef HALO_CONSOLE_LOG_THROTTLE
+		/* (where the log is slow to write: on the Switch, the first,
+		debug.txt is on the card, and each line written
+		waits for it on the game thread: a server's map vote, a screen of
+		notices a second padded with blank ones, took frames to 2.5 s. Its
+		blank lines are not written, and at most three a second, the rest
+		counted on the next one that is) */
+		{
+			static unsigned long second_start;
+			static long logged_this_second, left_out;
+			unsigned long now = system_milliseconds();
+
+			for (index = 0; text[index] == ' '; index++)
+			{
+			}
+			if (!text[index])
+				break;
+			if (now - second_start >= 1000)
+			{
+				second_start = now;
+				logged_this_second = 0;
+			}
+			if (logged_this_second >= 3)
+			{
+				left_out++;
+				break;
+			}
+			logged_this_second++;
+			if (left_out)
+			{
+				error(_error_log, "the host: (%ld more lines not written here)", left_out);
+				left_out = 0;
+			}
+		}
+#endif
 		error(_error_log, "the host: %s", text);
 		break;
 	}
@@ -4442,6 +4664,8 @@ void network_distributed_handle_message(
 		/* (its count 1: the client asks again, having failed to make one of
 		the host's objects) */
 		network_objects_client_asked(machine_index, header.count != 0);
+		/* (and the host's policy on aiming assist) */
+		distributed_tell_aim_assist(machine_index);
 		/* (a machine new at its index, which may have joined the game in
 		progress: every player's statistics and the game type's state, after
 		the objects it names) */
@@ -4467,6 +4691,21 @@ void network_distributed_handle_message(
 	case _distributed_message_relayed_actions:
 		distributed_handle_actions((byte const *)entries, (byte const *)message + size, header.count);
 		break;
+	case _distributed_message_aim_assist_policy:
+	{
+		/* the host's policy on aiming assist: reliably, of exactly the size,
+		not from a datagram, and not at the main menu's scene; anything else
+		is dropped and leaves the policy as it was. A host takes none. */
+		int block;
+
+		if (machine_index == NONE && game_connection() == _game_connection_network_client && !main_menu_is_active() &&
+			network_rules_aim_assist_read((byte const *)message, size, network_connection_last_read_was_unreliable(),
+				&block))
+		{
+			distributed_aim_assist_blocked_by_host = block != 0;
+		}
+		break;
+	}
 	case _distributed_message_pickups:
 	{
 		/* what the host says this machine's players picked up */

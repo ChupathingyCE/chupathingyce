@@ -281,14 +281,23 @@ def musl_math_cflags(abi: str) -> str:
 # (HALO_CUSTOM_EDITION). Every build has them: Linux here (32-bit and
 # 64-bit) and the dedicated server, macOS (lp64_build.py), Windows (32-bit
 # and 64-bit: windows_build.py) and Android (android_build.py). Only the
-# Xbox builds (Warthog) do not.
-CUSTOM_EDITION_DEFINES = ["-DHALO_CUSTOM_EDITION"]
+# Xbox builds (Warthog) do not. With them the port's own menus' map list
+# and map packs' Xbox maps (maps_cex/<name>.map, <name>@cex:
+# port/linux/game/ui_map_list.c, map_packs.c; HALO_MAP_LIST), which the
+# original Xbox's build has too (port/xbox/build.py).
+CUSTOM_EDITION_DEFINES = ["-DHALO_CUSTOM_EDITION", "-DHALO_MAP_LIST"]
 
 
 def game_browser_defines(sln: Any) -> List[str]:
     """configure.py --game-browser: the game list and server browser
     (port/linux/src/browser.c), on unless --no-game-browser"""
-    return ["-DHALO_GAME_BROWSER"] if getattr(sln, "game_browser", False) else []
+    defines = ["-DHALO_GAME_BROWSER"] if getattr(sln, "game_browser", False) else []
+    # configure.py --console-limits: the console's network and object limits
+    # (port/linux/include/halo_port_limits.h), to test its side of cross-play
+    # on the desktop; never a build to ship
+    if getattr(sln, "console_limits", False):
+        defines.append("-DHALO_CONSOLE_LIMITS")
+    return defines
 
 
 def march_flag(sln: Any) -> str:
@@ -799,7 +808,11 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     units = Linux32Units(sln=sln, config=config, game_browser=getattr(sln, "game_browser", False),
                          semantics_header=semantics_header, platform_semantics_header=platform_semantics_header,
                          embedded_assets=embedded_assets, sysroot_flags=sysroot_cflags,
-                           ffmpeg=(ffmpeg_cflags, ffmpeg_libs))
+                         ffmpeg=(ffmpeg_cflags, ffmpeg_libs),
+                         # configure.py --window-rebase: the memory window wherever
+                         # HALO_WINDOW_BASE puts it (source/cseries/xbox_address.h), to
+                         # test on the desktop what the Switch needs; never a build to ship
+                         extra_flags=["-DHALO_WINDOW_REBASE"] if getattr(sln, "window_rebase", False) else [])
 
     def emit(obj_dir: Path, output: Path, extra_cflags: List[str], extra_ldflags: List[str],
              implicit_inputs: List[Path], validator: Optional[Path] = None) -> None:
@@ -836,7 +849,10 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
                 rule="linux_cc",
                 inputs=tool,
                 implicit=sysroot_inputs,
-                variables={"cflags": " ".join([posix_cflags, f"-I{ZLIB_DIR}", *ZLIB_DEFINES, posix_extra])},
+                # (and the build's own defines, --window-rebase's: the game's
+                # objects it links were compiled with them)
+                variables={"cflags": " ".join([posix_cflags, f"-I{ZLIB_DIR}", *ZLIB_DEFINES, posix_extra,
+                                               *units.extra_flags])},
             )
             tool_objects = [tool_object, obj_dir / (game_dir / "tag_validate.o"),
                             *(obj_dir / source.with_suffix(".o") for source in sorted(game_dir.glob("tag_schema*.c"))),

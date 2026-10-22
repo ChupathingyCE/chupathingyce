@@ -17,8 +17,11 @@ the tests both call it.
 
 enum
 {
-	/* the most a download, or the map unpacked from it, may be */
-	MAP_ARCHIVE_MAXIMUM_SIZE = 200 * 1024 * 1024,
+	/* the most a download, the map unpacked from it, or a map file hashed
+	may be: 1 GB (community maps run past 300 MB, Bigass V3 among them; the
+	loader takes up to 2 GB, and every offset here is an unsigned int, read
+	and hashed in pieces) */
+	MAP_ARCHIVE_MAXIMUM_SIZE = 1024 * 1024 * 1024,
 	/* a cache file's header */
 	MAP_ARCHIVE_HEADER_SIZE = 0x800,
 	/* a map's file name, at most (its header's name field, less its

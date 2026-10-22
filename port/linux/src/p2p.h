@@ -41,6 +41,7 @@ void p2p_hosting_invite_announced(const char *invite);
 unsigned long p2p_peer_public_address(unsigned long game_address);
 unsigned long p2p_public_address(void);
 int p2p_joined_invite(char *text, int size);
+void p2p_joining_host(const unsigned char *identifier);
 #endif
 #endif
 

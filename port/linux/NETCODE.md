@@ -201,6 +201,32 @@ and still takes an older host's header checksum and the hashed level names
 (`port/linux/game/map_families.c`, `map_family_find_version`). A host hashes
 a map once a run, when its game is put on it.
 
+Version 30 carries the riders of an elevator by its node's movement of the
+same tick (sampled before the machine updates, applied after its node
+matrices are made: they were carried by the tick before, and went the wrong
+way on the tick an elevator reversed), takes a stopped elevator the unit
+stands on as riding it (the host takes only where the client's player is
+across, not how high), and has a client discard the height of the host's
+correction on the elevator it was recorded on up to 4.0 world units; version
+31 sends the pregame keep-alive as the 4 bytes its field list always had (the
+last two 0, not the sender's stack), drops a datagram stamped more than 450
+ticks (15 seconds) from the latest taken from its sender (over a sender's
+stream any stamp is taken, and a far one moves the latest), takes
+client_ready, client_identity and hit reports from a client's stream alone,
+and lets a second game on one computer play (a client takes another port if
+the client port is in use; the host answers a machine at the port its
+datagrams came from); version 32 adds the host's policy on aiming assist for
+the mouse and keyboard: message 90 (12 bytes: the header, a 16-bit 0 or 1,
+16 bits of 0) to a client when it has loaded and to every client when the
+host's `network.block_mouse_aim_assist` changes, which a client honors by
+turning the view's magnetism off for a player aiming with the mouse; a
+client is blocked until a host of 32 or later speaks, and a host never takes
+the message. A client's input entry says in its third byte (padding before)
+whether its player plays co-op without friendly fire; this host reads it and
+decides friendly fire by its own setting. Messages 87 to 89 are OpenCE's
+text chat, which Delta chat bridges (`docs/delta.md`, Chat): a build without
+them drops them as unknown, so they take no version of their own.
+
 A host never checks a joining client's version: the client reads the
 host's from its advertisement and joins only a version it plays with. That
 is its own, or one of a range (HALO_PORT_NETWORK_VERSION_MINIMUM to

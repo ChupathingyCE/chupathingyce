@@ -75,6 +75,9 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries/cseries.h"
+#ifdef HALO_PORT_CONSOLE_LIMITS
+#include "cseries/errors.h"
+#endif
 
 #include "game/game_engine_place.h"
 #include "game/game_engine_slayer.h"
@@ -766,6 +769,34 @@ long game_engine_slayer_write_network_state(
 	return sizeof(state);
 }
 
+#ifdef HALO_PORT_CONSOLE_LIMITS
+/* port: the console's limits (halo_port_limits.h): a PC host's state has
+its arrays at the network's 128 slots, folded into this build's
+(port/linux/game/network_game_layout.c); the players past them were refused
+with the game settings, so what is dropped is empty */
+struct network_game_layout_field
+{
+	unsigned short element_size;
+	unsigned char per_slot;
+	unsigned char blank;
+};
+unsigned long network_game_layout_fields_size(struct network_game_layout_field const *fields, int field_count,
+	int slots);
+int network_game_layout_fold_fields(unsigned char const *from, unsigned long from_size, int from_slots,
+	unsigned char *to, unsigned long to_size, int to_slots, struct network_game_layout_field const *fields,
+	int field_count, int *dropped);
+
+static struct network_game_layout_field const slayer_network_state_fields[] =
+{
+	{ sizeof(long), TRUE, 0 }, /* globals.team_score */
+	{ sizeof(long), TRUE, 0 }, /* globals.individual_score */
+	{ sizeof(byte), TRUE, 0xFF }, /* targets (NO_PLAYER) */
+	{ sizeof(word), TRUE, 0 }, /* speeds */
+};
+
+#define SLAYER_NETWORK_STATE_FIELDS ((int)(sizeof(slayer_network_state_fields) / sizeof(slayer_network_state_fields[0])))
+#endif
+
 boolean game_engine_slayer_read_network_state(
 	byte const *buffer,
 	long size,
@@ -775,9 +806,34 @@ boolean game_engine_slayer_read_network_state(
 	struct data_iterator iterator;
 	struct player_datum *player;
 
+#ifdef HALO_PORT_CONSOLE_LIMITS
+	if (size == (long)network_game_layout_fields_size(slayer_network_state_fields, SLAYER_NETWORK_STATE_FIELDS,
+		HALO_PORT_WIRE_NETWORK_PLAYERS))
+	{
+		static boolean told = FALSE;
+		int dropped;
+
+		if (sizeof(state) != network_game_layout_fields_size(slayer_network_state_fields, SLAYER_NETWORK_STATE_FIELDS,
+			HALO_PORT_MAXIMUM_NETWORK_PLAYERS) ||
+			network_game_layout_fold_fields(buffer, (unsigned long)size, HALO_PORT_WIRE_NETWORK_PLAYERS,
+				(unsigned char *)&state, sizeof(state), HALO_PORT_MAXIMUM_NETWORK_PLAYERS, slayer_network_state_fields,
+				SLAYER_NETWORK_STATE_FIELDS, &dropped))
+		{
+			return FALSE;
+		}
+		if (dropped && !told)
+		{
+			told = TRUE;
+			error(3, "cross-play: the host's slayer state had %d entries past this build's %d players (dropped)",
+				dropped, (int)HALO_PORT_MAXIMUM_NETWORK_PLAYERS);
+		}
+	}
+	else
+#endif
 	if (size != (long)sizeof(state))
 		return FALSE;
-	csmemcpy(&state, buffer, sizeof(state));
+	else
+		csmemcpy(&state, buffer, sizeof(state));
 	slayer_globals = state.globals;
 	data_iterator_new(&iterator, player_data);
 	while ((player = (struct player_datum *)data_iterator_next(&iterator)))

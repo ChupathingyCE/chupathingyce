@@ -1,5 +1,7 @@
 # Delta: ChupathingyCE's network family
 
+See also [Delta: compatibility](delta-compatibility.md), the design for how builds play together.
+
 Status (October 13, 2026, for 0.7.4e): in progress. Delta List, Stats, Link
 and Control run under the names in the table below; the legacy number's
 table and its signed loader are built, and the cross-play gate that
@@ -9,7 +11,7 @@ advertisement's flag, the handshake with silent fallback, platform keys,
 and the `platform`, `profile`, `ce_maps` and `moderation` capabilities (see
 "Delta Peer"). Delta Stats' event log, server moderators and linking
 servers to the site shipped in 0.7.1b. The site's page for players:
-https://halo.milenko.org/delta
+https://stats.chupathingy.org/delta
 
 Delta is the name for everything ChupathingyCE's machines say to each other
 and to our services beyond the game protocol OpenCE defines. It has one rule
@@ -43,7 +45,7 @@ Delta. Delta works around it (see "The legacy number" below).
       \\  <==================================================>    //
        \\                                                       //
         \\  Delta List / Stats / Link (HTTPS)       Delta List / Stats / Link
-         `------------------->  halo.milenko.org  <-------------'
+         `------------------->  stats.chupathingy.org  <-------------'
                                       ^
                                       | Delta Link (server dials out)
                                       |
@@ -343,12 +345,17 @@ plays, with `ce_maps` agreed by both:
   in beside `maps/` (the Xbox's own): 0 the Xbox's (`maps/`), 1 Halo PC
   Custom Edition (`<file>@ce`, `maps_ce/`, with Custom Edition's
   `bitmaps.map`, `sounds.map` and `loc.map`), 2 HaloMD (`<file>@md`,
-  `maps_md/`), 3 Halo PC retail (`<file>@pc`, `maps_pc/`). A family number a
-  build does not know is carried as it is, and its client checks nothing.
+  `maps_md/`), 3 Halo PC retail (`<file>@pc`, `maps_pc/`), 4 an Xbox map
+  pack's (`<file>@<pack>`, `maps_<pack>/`: Halo CE+'s `bloodgulch@cex` in
+  `maps_cex/`; named `<file>.<pack>` in a MAP, since a name has no `@`, and
+  hashed as a Halo PC map is). A family number a build does not know is
+  carried as it is, and its client checks nothing.
 - **Names on the legacy wire** stay OpenCE's: a host names a Custom Edition
   map `custom_maps\<file>` in the game's settings (OpenCE's build-145 form,
   network version 22), and HaloMD and Halo PC retail maps
-  `maps_md\<file>.md` and `maps_pc\<file>.pc`, which OpenCE's clients do not
+  `maps_md\<file>.md` and `maps_pc\<file>.pc`, and a map pack's
+  `maps_<pack>\<file>.<pack>` (with the game record's map version its
+  file's fingerprint, `halo_map_packs.h`), which OpenCE's clients do not
   have and are told they miss. Our clients read those back as `<file>@ce`,
   `@md` and `@pc`. MAP is what carries the real identity between our
   machines.
@@ -441,9 +448,9 @@ Text chat between Delta players, and the host's own lines (server messages),
 over Delta Peer: `chat` (bit 3) carries players' lines, `server_messages`
 (bit 2) the host's (CHAT_LINE of kind server or system). Each is agreed per
 pair, so OpenCE machines never send or receive either, and a Delta client
-that takes server messages but not chat is sent only those. Should OpenCE
-ship a text chat of its own, it would be bridged here, never mixed into the
-game protocol.
+that takes server messages but not chat is sent only those. OpenCE's own
+text chat is bridged to it (below): the two meet in the host, and nothing
+of Delta's goes into the game protocol.
 
 - **Saying.** A client sends CHAT_SAY: its scope (everyone or team) and up
   to 120 bytes of UTF-8 (80 characters). The host checks the session, the
@@ -476,10 +483,55 @@ game protocol.
 - **Nothing is kept.** Neither the host nor the dedicated server writes
   down what is said; the site never sees it. Only the admins' own actions
   (`sv_say`, mutes) are in the server's audit file.
+- **OpenCE's chat (the bridge).** OpenCE's text chat goes over the game's
+  distributed messages, which the bridge takes as they are (their format
+  as of OpenCE's CC0 version of 2026-10-18; message types 87 to 89, which a
+  build without them drops as unknown): `chat_up`, a client's line to its
+  host (a 68-byte entry: the player's absolute index, flags, two bytes of
+  0, and 64 bytes of text); `chat_down`, the host's line to a machine that
+  hears it, the same entry (the flags: bit 0 the team, bit 1 the vehicle,
+  bit 2 the host's notice, its text alone); and `chat_config`, the host's
+  settings to each client (4 bytes: bit 0 chat allowed, bit 1 links
+  allowed), sent as they change and every 3 seconds. Each takes one entry,
+  reliably, over the sender's stream alone. Their text is printable ASCII
+  without `|`, at most 63 characters.
+  - **A Chupathingy host** sends each machine that has no Delta session
+    taking its lines `chat_config`, from its own settings alone: allowed
+    while its chat is on and `network.chat_legacy` (a dedicated server's
+    `chat_legacy`, both on by default) lets OpenCE players chat, and the
+    legacy table's kill switch hasn't turned Delta's chat off. Links are
+    allowed, as Delta chat has no rule against them. OpenCE's own rule of
+    no chat in a game listed in the server browser is theirs: our host
+    doesn't apply it (an OpenCE client that joined from their browser keeps
+    its chat off anyway). It takes `chat_up` from such a machine's own
+    player only, and checks it as it checks CHAT_SAY: the same budget and
+    cooldown, the repeat check, the text, the machine's mute, then its mode
+    and filter. A refusal goes back as the host's notice. A line taken (and
+    every line of a Delta machine, and the host's own player's) goes to
+    each Delta machine as CHAT_LINE and to each OpenCE machine that may
+    hear it as `chat_down`, its UTF-8 made ASCII (Latin-1's letters without
+    their accents, typographic quotes and dashes as plain ones, anything
+    else `?`) and cut to 63 characters. A server line (`sv_say`, the
+    welcome) goes to OpenCE machines as the host's notice. With OpenCE
+    players left out OpenCE machines are sent nothing but the setting, and
+    a refusal to one that says a line anyway. A vehicle line from OpenCE is
+    a team line here (Delta has no narrower scope), and a team line in a
+    game without teams is everyone's, as OpenCE has it.
+  - **A Chupathingy client** whose host has no Delta chat (an OpenCE host)
+    follows that host's `chat_config`: it says its lines as `chat_up` once
+    the host allows chat, and shows each `chat_down` as a line of the
+    host's game (a notice as a system line). The player's own settings
+    decide the rest, as for Delta's lines: `chat.enabled`, `chat.show`, the
+    filter and their mutes. It takes nothing but the host's stream. A host
+    with Delta chat is never bridged: its lines come over Delta alone.
+  - A message of the wrong size is dropped and the log says so once (the
+    machine's index, never its address); nothing about chat ever ends a
+    connection.
 
-The game's side is `port/linux/game/chat.c` (keys, the log, routing),
-`port/linux/src/delta_chat.c` (the filter and the host's rules, tested in
-`delta_test.c`) and the dedicated server's `sv_say`, `sv_chat`, `sv_mute`
+The game's side is `port/linux/game/chat.c` (keys, the log, routing, the
+bridge), `port/linux/src/delta_chat.c` (the filter and the host's rules)
+and `port/linux/src/delta_chat_bridge.c` (OpenCE's entries, the text's
+conversion, the bridge's checks), both tested in `delta_test.c`, and the dedicated server's `sv_say`, `sv_chat`, `sv_mute`
 and `sv_unmute` (`server/docs/admin.md`).
 
 ### Team changes
@@ -643,6 +695,51 @@ What each side checks, since 0.7.5a:
   since it was set two past the number (30 for 28). The join logs
   "presumed additive", so a report from such a game says so.
 
+### Wire compatibility ranges
+
+Since 0.8.0a a wire is not an island. `DELTA_WIRE_COMPATIBILITY` in
+`delta.h` gives each wire the oldest wire it plays the game with, without a
+desync and without losing what the older wire has: a feature the older wire
+lacks is dropped or unused with it, and content it can't play ends the join
+cleanly. `chupa-32a` plays with `chupa-28a` and newer (OpenCE's 30 to 32 are
+additive: a machine of 29 drops message 90 and ignores the co-op input byte;
+31's keep-alive, stamp window and stream-only messages were already in 29);
+`chupa-29a` plays with `chupa-28a`. A row is written with its release and
+never changed: a build can't learn of a newer one, so a host also says its
+range in its advertisement.
+
+**The advertisement.** A Delta host still writes its major and a wire in the
+old slot (`DELTA_ADVERTISED_WIRE_OFFSET`), but the wire there is its *oldest
+compatible wire that a released client knows* (from
+`DELTA_WIRE_FIRST_ADVERTISED`, `chupa-29a`, the first wire advertised), so a
+released client, which compares the slot for an exact match, joins. After the
+slot, in six reserved bytes that were free (`DELTA_ADVERTISED_RANGE_OFFSET`,
+`DELTA_ADVERTISED_RANGE_SIZE`), come the range bytes:
+
+| Byte | Meaning |
+| --- | --- |
+| 0 | layout version, 1 |
+| 1, 2 | the host's own wire: its number and its letter (32, 'a') |
+| 3, 4 | its oldest compatible wire: number and letter (28, 'a') |
+| 5 | a check: 0xA5 xor the five bytes before |
+
+All zero when absent. OpenCE's machines, and released builds, leave and
+ignore them.
+
+**The client's decision** (`delta_compat_decide`): it joins when the host's
+own wire is in the client's range (the client's oldest to its own), or the
+client's wire is in the host's range; without valid range bytes, when the old
+slot's wire is the client's own (the rule since 0.7.5a). It refuses, naming
+both wires, only when neither holds. A host of another major, or one without
+the slot, is joined by its OpenCE number, as before.
+
+**The cost of one slot.** A released client that checks the slot exactly sees
+the host's oldest compatible wire, `chupa-29a` for a 0.8.0a host: 0.7.5
+players join it, and 0.8.0's (`chupa-32a`, an exact-match client, out for a
+few hours before 0.8.0a) see another wire until they update. 0.8.0a and later
+read the range bytes and join both. The 32 row's first OpenCE build is
+build-244.
+
 ### Following policy
 
 ChupathingyCE has its own code and roadmap. Since October 9, 2026 it takes no
@@ -697,7 +794,10 @@ breaking:
 	X(26, "build-184", additive) /* internet play's signalling, version 4 (WebRTC, for browsers; p2p_signal.c reads 3 and 4); game messages as 25 */ \
 	X(27, "build-189", additive) /* Custom Edition map sharing's messages (a machine of 26 drops them); game messages as 25 */ \
 	X(28, "build-201", additive) /* no message changed: a script's switch_bsp keeps a multiplayer game's first, the flashlight past the Xbox limits, a second weapon readied while firing (wire chupa-28a) */ \
-	X(29, "build-206", additive) /* a Custom Edition map by its own name, its hash's first 32 bits its version in the game record (a client of 29 also takes 28's hashed names and header checksums; wire chupa-29a) */
+	X(29, "build-206", additive) /* a Custom Edition map by its own name, its hash's first 32 bits its version in the game record (a client of 29 also takes 28's hashed names and header checksums; wire chupa-29a) */ \
+	X(30, "build-206", additive) /* elevator riders carried by the tick's own movement, a host takes only the across of a client's word on a unit riding an elevator (moving, or stood on at rest), a client discards the height of a correction on its elevator up to 4.0 */ \
+	X(31, "build-206", additive) /* the pregame keep-alive's fourth byte pair sent as zero and the packet table's field lists on their own messages, datagrams stamped more than 450 ticks from the sender's latest dropped, client_ready, client_identity and hit reports taken from a stream alone, a second game on one computer (its own port) */ \
+	X(32, "build-244", additive) /* the host's policy on aiming assist for the mouse and keyboard (message 90), a client's input saying whether its player plays co-op without friendly fire (wire chupa-32a) */
 ```
 
 `tools/test_delta.py` (in CI) checks `halo_port_limits.h` against it: hosts
@@ -739,6 +839,9 @@ Known history, from `port/linux/NETCODE.md` and OpenCE's commits:
 | 27 | build-189 | OpenCE's Custom Edition map sharing: new messages, which a machine of 26 drops (we don't share maps: a joining machine without the map is told which one it misses, as before). Signalling as 26, a token joined more than once | additive |
 | 28 | build-201 | no message, kind or struct changed: a multiplayer script's `switch_bsp` keeps the game's first BSP (a map with a copy of its place per sky no longer reloads), the flashlight and dynamic lights stay on past the Xbox's player and vehicle limits, and a second weapon picked up while firing is readied. A release (wire `chupa-28a`), so older builds' wire never gets a row for it: a host of 27 would reload such a map while its OpenCE clients of 28 kept it | additive |
 | 29 | build-206 | no message or struct changed, but two fields mean something else: a Custom Edition map's level name is its own (`custom_maps\hugeass`, not `custom_maps\hugeass_<8 hex digits>`), and the game record's map version is the first 32 bits of the map's whole-file hash, where 23 to 28 sent its header checksum. Our clients of 29 take both meanings, so they still join hosts of 28; our clients of 28 refuse a host of 29's Custom Edition map as another version (Xbox maps play). A release (wire `chupa-29a`), so older builds' wire never gets a row for it: a host of 28 sends the header checksum, which OpenCE's clients of 29 take for another version | additive |
+| 30 | | A rule every machine computes alike: the riders of an elevator are carried by its node's movement of the tick (sampled before the machine updates, applied once its node matrices are made), not the previous tick's, which went the wrong way on the tick an elevator reversed. A host takes only the across of a client's word on a unit riding an elevator, one that is moving or that the unit stands on at rest (a remembered elevator alone, after a jump, is not riding); a client discards the height of the host's correction while it stands on the elevator it recorded, up to 4.0 world units. No message changed: a machine of 29 carries riders a tick late, and its host's states correct them | additive |
+| 31 | | The pregame keep-alive is a 4-byte message whose last two bytes are 0 (they were the sender's stack), and the packet table lists begin game, graceful exit and keep-alive each with its own fields (the bytes of the others as before). A datagram stamped more than 450 ticks (15 seconds) from the latest taken from its sender is dropped; over a sender's stream any stamp is taken. client_ready, client_identity and hit reports are taken from a client's stream alone. A second game on one computer: a client takes any free port if the client port is in use, and the host answers a machine at the port its datagrams came from, finds a client by address preferring a machine that is not its own, and answers a game search from another port at that port. Message layouts as before | additive |
+| 32 | | The host's policy on aiming assist for the mouse and keyboard, a new message (90, 12 bytes, reliable: the header, 0 or 1 as a 16-bit value, 16 bits of 0), sent to a client when it has loaded and to every client when the setting (`network.block_mouse_aim_assist`) changes; a client honors it, and is blocked until a host of 32 or later speaks. A client's input entry says in byte 2 (padding before) whether its player plays co-op without friendly fire; our hosts read it and keep their own friendly fire setting. A release (wire `chupa-32a`), so older builds' wire never gets a row for it. A machine of 29 to 31 drops message 90 and ignores the byte. The rows' first builds are not recorded (the table keeps 29's) | additive |
 
 ### Automation
 
@@ -1213,6 +1316,81 @@ Stats' event log records moderation through it.
   with a code (`/v1/link`, `/v1/connect`, `/v1/claim`).
 - **Servers** (exists): see Delta Control, The link to the site.
 
+### Delta Profile in the game
+
+The player's own Delta profile, shown in the game
+(`port/linux/game/profile_screen.c`). The game never makes, renames or
+deletes a profile. The password, email, two-step sign-in, export and
+deletion stay on the site, which OPEN ON THE WEB reaches. Linking is per
+copy: every Halo profile on a copy counts for the same Delta profile.
+
+- **Ways in:** the Chupathingy menus' Profiles have a DELTA row
+  below Create New Profile, with a summary in the panel. Gearbox's Select
+  Profile has a DELTA button. In every menu set, Online Games'
+  Start opens it (the web page when `display.delta_profile` is false).
+  A Halo profile's panel shows one quiet line, "Delta: @handle" or
+  "Delta: not linked". With an empty `network.browser_url`, every way in
+  is hidden.
+- **Sections:** OVERVIEW (name, the player's Spartan, badges, record,
+  recent games), LINKED COPIES, ROLES, CLAN, PRIVACY, then LINK
+  PROFILE or UNLINK THIS COPY, and OPEN ON THE WEB. The Chupathingy menus
+  draw them with their own widgets
+  (`port/assets/menus/chupathingy/delta_profile.xml`), and Privacy is one
+  of their settings pages. The Xbox and Gearbox menus get a
+  screen drawn as Online Games is. The dialogs (Link Profile, unlinking,
+  and the pages of the site with a QR code) are the same in all three.
+- **Requests:** the game sends this copy's player key, over HTTPS only,
+  to the game list: `POST /v1/game/profile` (the profile, its copies, roles
+  and privacy), `/v1/game/unlink` (this copy only) and `/v1/game/privacy`
+  (the site's own privacy settings). The site takes 6 requests a minute
+  from a key, so the game asks at most every 10 seconds, and again when the
+  answer is a minute old. Another copy is unlinked on the site
+  (`/profile#copies`), signed in, never with a key alone. The answer is
+  kept in memory only. `debug.txt` says whether it loaded, never what it
+  holds.
+- **Profile names:** in a game on Delta, a player whose copy shares its
+  profile (`network.share_profile`, Delta Peer's `profile` capability)
+  shows by the profile's display name on the scoreboard, the postgame
+  report and the lobby (`port/linux/game/profile_names.c`). The game asks
+  the site for those players' public cards (`POST /v1/game/players`, no
+  key). A machine with more than one player keeps the game names, because
+  a profile belongs to a copy. OpenCE players, players who don't share,
+  and what OpenCE clients see are unchanged. `display.profile_names =
+  false` shows everyone by their game name.
+- **Consoles:** `HALO_CONSOLE_NO_DELTA_PROFILE` leaves all of it out. A
+  console that has the game list keeps Online Games' Link Profile panel.
+
+### Clans
+
+Clans are groups of Delta profiles, kept by the game list (its
+`clans.py`). A clan has a name, a tag of 2 to 8 letters and digits, a
+motto, an emblem and ranked members (leader, officers, members). Making a
+clan, inviting, ranks, kicking, handing the clan to another member and
+the emblem are on the site (`/profile#clan`, `/clans/TAG`).
+
+- **In the game:** Delta Profile's CLAN section shows the profile's clan:
+  its emblem, name, tag, member count and motto, then its members by rank
+  (the first nine, then how many more). With no clan it lists the clans
+  that invited the profile. Its A opens a dialog: SHOW MY TAG and LEAVE
+  CLAN, or the invites (A joins, X declines). A leader leaves once another
+  member leads, or when alone (the clan goes with them).
+- **The emblem:** a background shape in one color and a foreground shape in
+  two, from Halo's 18 armor colors. The pieces are the site's
+  (`GET /v1/clans/emblem`); `port/linux/src/clan_emblem_table.h` is made
+  from them by `tools/clan_emblem_table.py`, and `clan_emblem.c` draws
+  them the way the site does.
+- **Requests:** `/v1/game/profile` carries `clan` and `clan_invites`, and
+  its privacy `show_clan_tag`; `POST /v1/game/clan` (the player key, an
+  action: `accept`, `decline` or `leave`) answers with the same two.
+- **Tags in games:** a player who shares their profile and shows their tag
+  is "[TAG] Name" on the scoreboard, the postgame report and the lobby, the
+  name cut to fit with "...". The public card (`/v1/game/players`) carries
+  the tag only while its owner shows it. OpenCE players and clients see
+  nothing new.
+- **Privacy:** SHOW CLAN TAG (Delta Profile's Privacy, and the clan dialog)
+  is the site's own setting. Members who hide their service record are left
+  out of the member lists others see, counted as hidden.
+
 ## How it meets everything else
 
 - **OpenCE clients and hosts:** see only the legacy protocol and number.
@@ -1281,7 +1459,7 @@ check it too):
 - **`serial`**: 1 to 4294967294 (0xFFFFFFFF says "takes no tables" on the wire); each table published gets a higher one.
   **`issued`**: when it was made (Unix seconds), for people; optional.
 - **Rows by wire, not by build.** Each build has a wire ID (`DELTA_WIRE` in
-  `delta.h`, `chupa-29a` today; `chupa-28a` was 0.7.4e's and 0.7.5's, `chupa-26a` was 0.7.2e's and 0.7.3e's, `chupa-24a` was 0.7.1e's, `chupa-23a` 0.7.1b's, `chupa-20a` 0.7.0b's): the revision of the game protocol it
+  `delta.h`, `chupa-32a` today; `chupa-29a` came before it; `chupa-28a` was 0.7.4e's and 0.7.5's, `chupa-26a` was 0.7.2e's and 0.7.3e's, `chupa-24a` was 0.7.1e's, `chupa-23a` 0.7.1b's, `chupa-20a` 0.7.0b's): the revision of the game protocol it
   actually speaks. A row says which OpenCE numbers that wire was proven to
   play with: the number a host announces, and the range of hosts' numbers a
   client joins (each 1 to 65535, `minimum <= announce <= maximum`). An old

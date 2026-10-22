@@ -842,9 +842,11 @@ void ce_hud_tags_loaded(
 	ce_hud_meter_bitmap_count = 0;
 	/* (the button icons first: a message icons bitmap's bitmaps are moved,
 	and the meters' are listed by where they are) */
+	/* (and the room above it, where the moved blocks may be:
+	ce_resources_allocate) */
 	image.data = xbox_pointer(CE_IMAGE_TAG_CACHE_BASE);
 	image.base = CE_IMAGE_TAG_CACHE_BASE;
-	image.size = CE_IMAGE_TAG_CACHE_SIZE;
+	image.size = CE_IMAGE_TAG_CACHE_SIZE + CE_CONVERSION_ROOM;
 	ce_hud_button_icon_group_count = 0;
 	for (index = 0; index < tag_count; index++)
 	{

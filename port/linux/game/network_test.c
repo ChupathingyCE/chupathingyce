@@ -55,6 +55,10 @@ each machine's player ask to change teams every so often (team_change.c).
 Called from the main loop every frame (main.c).
 */
 
+/* port: none of this in a console's build (halo_port_features.h) but
+network_test_update, which does nothing there */
+#ifndef HALO_CONSOLE_NO_NETWORK_TEST
+
 #include "cseries.h"
 #include "main/main.h"
 #include "bink/bink_playback.h"
@@ -1281,3 +1285,17 @@ void network_test_update(
 		break;
 	}
 }
+
+#else
+
+#include "cseries.h"
+
+/* (the main loop's call, answered with nothing) */
+void network_test_update(
+	boolean main_menu_loaded,
+	real seconds)
+{
+	return;
+}
+
+#endif /* HALO_CONSOLE_NO_NETWORK_TEST */

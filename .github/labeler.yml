@@ -75,6 +75,9 @@ maps:
           - port/linux/game/ce_*.h
           - port/linux/game/map_families.c
           - port/linux/game/halomd_map_names.h
+          - port/linux/game/map_packs.c
+          - port/linux/game/xbox_mod_maps.h
+          - port/assets/maps/**
           - port/linux/game/pal_tags.c
 
 documentation:

@@ -103,6 +103,9 @@ struct network_machine *network_game_client_get_machine(
 	struct network_game_client *client);
 short network_game_client_get_machine_index(
 	struct network_game_client *client);
+/* port: the joined game's host's network version (0xFFFF: not known) */
+unsigned int network_game_client_host_network_version(
+	void);
 boolean network_game_client_advertised_game_is_valid(
 	struct network_advertised_game *advertised_game);
 struct network_advertised_game *network_game_client_get_available_games(

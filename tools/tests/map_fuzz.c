@@ -76,6 +76,8 @@ enum
 	/* Custom Edition maps' (platform.h) */
 	CE_TAG_CACHE_BASE = 0x40440000,
 	CE_TAG_CACHE_SIZE = 0x1700000,
+	/* (and the room above it: platform.h) */
+	CE_CONVERSION_ROOM_SIZE = 0x4c0000,
 	/* the game's heap and contiguous memory, as far as these units use them
 	(xbox_heap.c's range) */
 	ARENA_BASE = 0x42000000,
@@ -201,6 +203,8 @@ static jmp_buf fuzz_exit;
 static boolean fuzz_exit_armed;
 static unsigned long fuzz_arena_next;
 static unsigned long fuzz_arena_end;
+/* (platform.h's: the room above the tag cache is mapped) */
+unsigned int platform_ce_conversion_room = CE_CONVERSION_ROOM_SIZE;
 
 /* ---------- the Xbox address space */
 
@@ -232,7 +236,7 @@ static void fuzz_address_space_reserve(void)
 		abort();
 	}
 	fuzz_commit(XBOX_TAG_CACHE_BASE, XBOX_TAG_CACHE_SIZE);
-	fuzz_commit(CE_TAG_CACHE_BASE, CE_TAG_CACHE_SIZE);
+	fuzz_commit(CE_TAG_CACHE_BASE, CE_TAG_CACHE_SIZE + CE_CONVERSION_ROOM_SIZE);
 	fuzz_commit(ARENA_BASE, ARENA_SIZE);
 	fuzz_arena_initialize();
 }
@@ -348,6 +352,12 @@ void XPhysicalFree(void *pointer)
 
 void D3DResource_Register(struct D3DResource *resource, void *base)
 {
+}
+
+/* (ce_hud.c's ui.map, for the Xbox's button icons: none here) */
+char const *cache_files_map_directory(void)
+{
+	return "";
 }
 
 unsigned long system_milliseconds(void)

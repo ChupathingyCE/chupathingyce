@@ -19,7 +19,10 @@ enum
 	_transport_endpoint_readable_bit,
 	_transport_endpoint_in_set_bit,
 	_transport_endpoint_nonblocking_bit,
-	_transport_endpoint_client_bit
+	_transport_endpoint_client_bit,
+	/* port: a bind that fails when another socket of the computer holds the
+	port (no address reuse): a second game on one computer is told so */
+	_transport_endpoint_exclusive_bit
 };
 
 /* ---------- structures */
@@ -86,6 +89,10 @@ void cancel_connect_process(
 short set_endpoint_blocking(
 	struct transport_endpoint *endpoint,
 	long blocking);
+/* port: before its bind, the endpoint does not share its port with another
+socket of the computer (a bind to one in use fails, _transport_error_bind_endpoint) */
+void set_endpoint_exclusive(
+	struct transport_endpoint *endpoint);
 short bind_endpoint(
 	struct transport_endpoint *endpoint,
 	struct transport_address *address);

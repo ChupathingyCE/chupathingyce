@@ -36,14 +36,24 @@ enum
 	/* the native builds' (halo_port_capacity.h: the Xbox's 384 on Android
 	and the Xbox builds) */
 	RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS = HALO_PORT_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS,
+	/* a console above its memory baseline's (halo_console_memory.h) */
+	RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS_EXTRAS = HALO_PORT_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS_EXTRAS,
 	RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS2 = 32,
 	/* the native builds' (halo_port_capacity.h: the Xbox's 32768 on Android
 	and the Xbox builds) */
 	RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLES = HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES,
+	/* a console above its memory baseline's (halo_console_memory.h) */
+	RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLES_EXTRAS = HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES_EXTRAS,
 	RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLE_BUFFERS = 1024,
+#ifndef HALO_XBOX_CONSOLE
 	/* four per particle (build_sprites_begin), for the native builds' larger
 	particle pool (halo_port_capacity.h) */
 	RASTERIZER_MAXIMUM_DYNAMIC_UNLIT_VERTICES = 4 * HALO_PORT_MAXIMUM_PARTICLES,
+#else
+	/* (3 x the 4096 of the Xbox's 1024 particles: a busy 16-player match
+	spent 8192 on sprites, the frame's particles drawn in several passes) */
+	RASTERIZER_MAXIMUM_DYNAMIC_UNLIT_VERTICES = 12288,
+#endif
 	RASTERIZER_MAXIMUM_DYNAMIC_LIT_VERTICES = 2,
 	RASTERIZER_MAXIMUM_DYNAMIC_SCREEN_VERTICES = 16384,
 	RASTERIZER_MAXIMUM_DYNAMIC_MODEL_VERTICES = 2048,

@@ -4,6 +4,24 @@ What changed in the ChupathingyCE Dedicated Server. The server is released
 with the game and has its version; the game's own changes are in its
 release notes.
 
+## Unreleased
+
+- Xbox map packs: each pack's maps in its own `maps_<pack>` folder of the
+  data folder (Halo CE+'s in `maps_cex`), named `<name>@<pack>` in
+  playlists, `sv_map` and `sv_maps` (`wizard@cex`); `/v1/maps` adds
+  `map_packs` (each pack map's name, pack and tag). The listing names a
+  pack's map ("Gothra", Halo CE+) for players without it. Deploy: a CE+
+  server needs the pack's `maps` folder copied to `data/maps_cex` and a
+  playlist naming `@cex` maps; nothing changes for the other servers.
+- Network versions 30, 31 and 32. Announces 32 and joins as a client hosts
+  of 11 through 33. Redeploy: a legacy table can't follow this one (wire
+  `chupa-32a`).
+- `HALO_NET_BLOCK_MOUSE_AIM_ASSIST` (default `false`): turns the view's
+  magnetism off for players aiming with the mouse, in every game of the
+  server; clients are told when they join and when it changes.
+- Riders of an elevator are carried by its movement of the same tick, and a
+  second game on one computer can play (a client takes any free port).
+
 ## 0.7.5b
 
 - No server changes of its own; built from the same code as the game's 0.7.5b.

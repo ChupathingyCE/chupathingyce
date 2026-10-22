@@ -269,3 +269,14 @@ byte structure_bsp_get_cluster_encoded_sound_distance(
 
 
 /* ---------- private code */
+
+#if defined(__BIG_ENDIAN__) || (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+/* port: where a structure bsp keeps its clusters' visibility (bit vectors of
+the map's little-endian longs in tag data), for a big-endian machine's map
+loader to make them the machine's longs (port/console/game/tag_byte_swap.c) */
+unsigned long structure_bsp_cluster_data_offset(
+	void)
+{
+	return (unsigned long)offsetof(struct structure_bsp, cluster_data);
+}
+#endif

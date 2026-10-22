@@ -40,7 +40,9 @@ drive the controller.
 #include "sdl_platform.h"
 #include "port_config.h"
 #include "touch_input.h"
+#include "controller_layout.h"
 #include "halo_keyboard.h"
+#include "../game/network_rules.h"
 
 #include <SDL3/SDL.h>
 #include <math.h>
@@ -55,6 +57,8 @@ drive the controller.
 
 /* main/console.c */
 extern unsigned char console_is_active(void);
+/* the host's policy on the mouse's aiming assist (network_distributed.c) */
+extern unsigned char network_aim_assist_blocked(void);
 /* port/linux/game/menu_functions.c: two or more players on this machine
 (co-op, or split screen in a network game) */
 extern unsigned char pc_menu_split_players(void);
@@ -94,6 +98,8 @@ static int wheel_direction = 0;
 (halo_linux_mouse_aiming) */
 static Uint64 mouse_aimed_ms = 0;
 static Uint64 stick_aimed_ms = 0;
+/* (and when a touch screen last looked: Android) */
+static Uint64 touch_aimed_ms = 0;
 
 /* the right stick's deflection that counts as aiming with it, clear of a
 worn stick's drift */
@@ -150,6 +156,12 @@ int halo_linux_mouse_look(short gamepad_index, float *yaw, float *pitch)
 	/* the touch controls' swipe; it is not the mouse's aiming
 	(halo_linux_mouse_aiming), so a thumb keeps the stick's magnetism */
 	touch_input_look(scale, yaw, pitch);
+	if (*yaw != 0.0f || *pitch != 0.0f)
+	{
+		pthread_mutex_lock(&mouse_lock);
+		touch_aimed_ms = SDL_GetTicks();
+		pthread_mutex_unlock(&mouse_lock);
+	}
 #endif
 	if (x == 0.0f && y == 0.0f)
 		return *yaw != 0.0f || *pitch != 0.0f;
@@ -174,6 +186,17 @@ int halo_linux_mouse_aiming(short gamepad_index)
 		read_at = config_changes();
 		aim_assist = config_boolean("input.mouse_aim_assist");
 	}
+	/* the host's policy (network.block_mouse_aim_assist, network_distributed.c)
+	turns the magnetism off for whoever aims with the mouse, whatever their
+	own setting: the mouse aims unless the right stick (or a touch) did last,
+	and no stick aiming at all is the mouse's */
+	if (network_aim_assist_blocked())
+	{
+		pthread_mutex_lock(&mouse_lock);
+		aiming = network_rules_mouse_is_aim_device(mouse_aimed_ms, stick_aimed_ms, touch_aimed_ms);
+		pthread_mutex_unlock(&mouse_lock);
+		return aiming;
+	}
 	if (aim_assist)
 		return FALSE;
 	pthread_mutex_lock(&mouse_lock);
@@ -182,18 +205,43 @@ int halo_linux_mouse_aiming(short gamepad_index)
 	return aiming;
 }
 
-/* the device the player last used (the overlay's button prompts,
-ui_overlay.c, and the game's: halo_keyboard_prompts): 0 the keyboard (or
-mouse), 1 an Xbox-like pad, 2 a PlayStation pad, 3 a Nintendo pad */
+/* the device the player last used (Controls Setup's page, and the button
+prompts: platform_prompt_scheme): 0 the keyboard (or mouse), 1 an Xbox-like
+pad, 2 a PlayStation pad, 3 a Nintendo pad */
 static int last_input_scheme = 1;
 static BOOL last_input_seen = FALSE;
+/* (the kind of pad used last, for prompts that never show keys) */
+static int last_pad_scheme = 1;
 
 int platform_input_scheme(void)
 {
-	/* (before any input: a pad if one is connected, else the keyboard) */
+	/* (before any input: a pad if one is connected, else the keyboard; on
+	Android the controller's, whose buttons its touch controls are drawn
+	as) */
 	if (!last_input_seen)
+	{
+#ifdef HALO_ANDROID
+		return 1;
+#else
 		return SDL_HasGamepad() ? 1 : 0;
+#endif
+	}
 	return last_input_scheme;
+}
+
+/* the device every button prompt is drawn for: the menus' (the Chupathingy
+menus' and the code-drawn screens', ui_overlay.c; the Xbox and Gearbox
+menus' pictures, menu_tags.c) and the HUD's (halo_keyboard_prompts). The
+device used last, but with input.keyboard_prompts set to false (in
+config.toml alone: the menus no longer have it) never the keyboard: the
+controller's buttons always, as that setting's false was */
+int platform_prompt_scheme(void)
+{
+	int scheme = platform_input_scheme();
+
+	if (scheme == 0 && !config_boolean("input.keyboard_prompts"))
+		return last_pad_scheme;
+	return scheme;
 }
 
 static int scheme_of(SDL_Gamepad *gamepad)
@@ -373,6 +421,8 @@ static void keyboard_gamepad(const struct platform_input_state *input, XINPUT_GA
 	pad->bAnalogButtons[XINPUT_GAMEPAD_Y] |= analog(k[SDL_SCANCODE_TAB]);
 	/* (Online Games' Link Profile: browser_screen.c) */
 	pad->bAnalogButtons[XINPUT_GAMEPAD_BLACK] |= analog(k[SDL_SCANCODE_C]);
+	/* (and Q, the left bumper's: the game type editor's pages, with C) */
+	pad->bAnalogButtons[XINPUT_GAMEPAD_WHITE] |= analog(k[SDL_SCANCODE_Q]);
 }
 
 static BOOL chat_typing;
@@ -558,17 +608,14 @@ int halo_keyboard_action_shown(int action, char *shown, unsigned long size)
 }
 
 /* the game's button prompts show the keyboard's keys (Halo PC's) in place
-of the controller's buttons: input.keyboard_prompts, while the keyboard or
-mouse was used last (or, before any input, with no controller connected).
-Android's touch controls are drawn as the controller's buttons, so its
-prompts stay the controller's. */
+of the controller's buttons while the keyboard or mouse was used last (or,
+before any input, on the desktop with no controller connected):
+platform_prompt_scheme's. Android's touch controls are drawn as the
+controller's buttons, and touches leave the prompts the controller's; a
+keyboard or mouse used there shows its keys too. */
 int halo_keyboard_prompts(void)
 {
-#ifdef HALO_ANDROID
-	return 0;
-#else
-	return config_boolean("input.keyboard_prompts") && platform_input_scheme() == 0;
-#endif
+	return platform_prompt_scheme() == 0;
 }
 
 static void bindings_read(void)
@@ -708,8 +755,9 @@ void test_input_hold_action(int hold)
 /* debug.test_input "menu:<buttons>": the buttons pressed one a second, from
 the first poll, for testing the menus: a, b, x, y, lb, rb (white and black),
 up, down, left, right, start, back, key:<a key's name> (a key of the
-keyboard, as SDL names it: key:C; key:W+C holds both), or wait (none),
-separated by spaces or commas */
+keyboard, as SDL names it: key:C; key:W+C holds both), the mouse's (move,
+click, rclick, wheel, below), shot, or wait (none), separated by spaces or
+commas */
 static char test_input_menu[512];
 static Uint64 test_input_menu_since;
 
@@ -736,15 +784,95 @@ static const char *test_input_menu_token(size_t *length)
 	}
 }
 
+#ifndef HALO_ANDROID
+BOOL halo_ui_point_to_window(short x, short y, float *window_x, float *window_y);
+void halo_test_screenshot(void);
+
+/* the mouse's tokens of debug.test_input "menu:": move:<x>:<y>,
+click:<x>:<y>, rclick:<x>:<y> and wheel:<notches> (positive away from the
+user), at a point of the menus' 640x480 (the middle 640 of a wide screen);
+a click moves there first and clicks 300 ms later. And shot saves the
+window to debug.screenshot_directory. Each acts once in its second. */
+static void test_input_menu_pointer(void)
+{
+	static Uint64 step_done = (Uint64)-1;
+	static Uint64 click_step = (Uint64)-1;
+	Uint64 elapsed;
+	Uint64 step;
+	const char *token = test_input_menu;
+	size_t length;
+	char text[64];
+	int x = 0, y = 0, wheel = 0;
+	float window_x, window_y;
+
+	if (!test_input_menu[0])
+		return;
+	elapsed = SDL_GetTicks() - test_input_menu_since;
+	step = elapsed / 1000;
+	for (;;)
+	{
+		token += strspn(token, " ,");
+		length = strcspn(token, " ,");
+		if (!length)
+			return;
+		if (!step)
+			break;
+		step--;
+		token += length;
+	}
+	step = elapsed / 1000;
+	if (length >= sizeof(text))
+		return;
+	memcpy(text, token, length);
+	text[length] = 0;
+	if (!strcmp(text, "shot"))
+	{
+		if (step_done != step)
+			halo_test_screenshot();
+		step_done = step;
+		return;
+	}
+	if (sscanf(text, "wheel:%d", &wheel) == 1)
+	{
+		if (step_done != step)
+			platform_test_pointer_event(0.0f, 0.0f, 0, wheel);
+		step_done = step;
+		return;
+	}
+	if (sscanf(text, "move:%d:%d", &x, &y) != 2 && sscanf(text, "click:%d:%d", &x, &y) != 2 &&
+		sscanf(text, "rclick:%d:%d", &x, &y) != 2)
+	{
+		return;
+	}
+	if (!halo_ui_point_to_window((short)x, (short)y, &window_x, &window_y))
+		return;
+	if (step_done != step)
+	{
+		step_done = step;
+		platform_test_pointer_event(window_x, window_y, 0, 0);
+		platform_log("test input: %s at window %.1f,%.1f", text, window_x, window_y);
+	}
+	if (text[0] != 'm' && click_step != step && elapsed % 1000 >= 300)
+	{
+		click_step = step;
+		platform_test_pointer_event(window_x, window_y, text[0] == 'r' ? SDL_BUTTON_RIGHT : SDL_BUTTON_LEFT, 0);
+	}
+}
+#endif
+
 /* (a key goes in with the keyboard's, as if typed, before the keys drive
 the controller; key:W+C holds both) */
 static void test_input_menu_keys(struct platform_input_state *input)
 {
 	size_t length;
-	const char *token = test_input_menu_token(&length);
+	const char *token;
 	char names[64];
 	char *name, *next;
 
+#ifndef HALO_ANDROID
+	test_input_menu_pointer();
+#endif
+	token = test_input_menu_token(&length);
 	if (!token || length <= 4 || length - 4 >= sizeof(names) || strncmp(token, "key:", 4))
 		return;
 	memcpy(names, token + 4, length - 4);
@@ -933,6 +1061,74 @@ static int sdl_gamepads(SDL_Gamepad *gamepads[PORT_COUNT])
 	return found;
 }
 
+/* the gamepad last used (its SDL id; 0 none yet), which the Controls screen
+names first (Android has no SDL_GetGamepadID: the first) */
+#ifndef HALO_ANDROID
+static SDL_JoystickID last_used_gamepad;
+#endif
+
+int platform_gamepad_count(void)
+{
+	SDL_Gamepad *gamepads[PORT_COUNT];
+
+	return sdl_gamepads(gamepads);
+}
+
+/* a gamepad's name (as it names itself, else its kind's) and its kind
+(controller_layout.h's CONTROLLER_KIND_*): index -1 is the one last used,
+else the first; -1 if there is none */
+int platform_gamepad_describe(int index, char *name, size_t size)
+{
+	SDL_Gamepad *gamepads[PORT_COUNT];
+	SDL_Gamepad *gamepad = NULL;
+	int count = sdl_gamepads(gamepads), type, kind, each;
+	const char *own;
+
+	if (size)
+		name[0] = 0;
+	if (index < 0)
+	{
+#ifndef HALO_ANDROID
+		for (each = 0; each < count && !gamepad; each++)
+		{
+			if (last_used_gamepad && SDL_GetGamepadID(gamepads[each]) == last_used_gamepad)
+				gamepad = gamepads[each];
+		}
+#else
+		(void)each;
+#endif
+		index = 0;
+	}
+	if (!gamepad && index < count)
+		gamepad = gamepads[index];
+	if (!gamepad)
+		return -1;
+	switch (SDL_GetGamepadType(gamepad))
+	{
+	case SDL_GAMEPAD_TYPE_XBOX360: type = 1; break;
+	case SDL_GAMEPAD_TYPE_XBOXONE: type = 2; break;
+	case SDL_GAMEPAD_TYPE_PS3: type = 3; break;
+	case SDL_GAMEPAD_TYPE_PS4: type = 4; break;
+	case SDL_GAMEPAD_TYPE_PS5: type = 5; break;
+	case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO:
+	case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_LEFT:
+	case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT:
+	case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR: type = 6; break;
+	default: type = 0; break;
+	}
+#ifdef HALO_ANDROID
+	/* (the guest reaches SDL only through host_imports.list, which has no
+	SDL_GetGamepadName or SDL_GetGamepadID: the kind's name, the first pad) */
+	own = NULL;
+#else
+	own = SDL_GetGamepadName(gamepad);
+#endif
+	kind = controller_layout_kind(type, own);
+	if (size)
+		snprintf(name, size, "%s", own && *own ? own : controller_layout_kind_title(kind));
+	return kind;
+}
+
 /* whether one gamepad is port 1's (port_gamepad) */
 static BOOL lone_gamepad_split;
 
@@ -1041,7 +1237,11 @@ static void sdl_gamepad_state(SDL_Gamepad *gamepad, XINPUT_GAMEPAD *pad)
 		if (used)
 		{
 			last_input_scheme = scheme_of(gamepad);
+			last_pad_scheme = last_input_scheme;
 			last_input_seen = TRUE;
+#ifndef HALO_ANDROID
+			last_used_gamepad = SDL_GetGamepadID(gamepad);
+#endif
 		}
 	}
 	/* a stick only overrides the keyboard when it is pushed further */

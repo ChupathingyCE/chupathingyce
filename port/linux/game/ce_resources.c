@@ -89,6 +89,10 @@ enum
 	CE_PERMUTATION_COMPRESSION_OFFSET = 0x28,
 	CE_PERMUTATION_NEXT_OFFSET = 0x2a,
 	CE_PERMUTATION_SAMPLES_OFFSET = 0x40,
+	/* Halo PC's flag on a permutation's samples (on their tag data's
+	flags, after its size): they are in sounds.map, at the offset the tag
+	data gives, not in the map */
+	CE_SAMPLES_EXTERNAL_FLAG = 1,
 	CE_PERMUTATION_MOUTH_DATA_OFFSET = 0x54,
 	CE_PERMUTATION_SUBTITLE_DATA_OFFSET = 0x68,
 	/* the most a map's decoded sounds take on disk (z:\ce_sounds.pcm), 512
@@ -151,6 +155,11 @@ static HANDLE ce_decoded_sounds_file;
 static char ce_decoded_sounds_path[256];
 /* the space left in the map's tag cache (ce_resources_allocate) */
 static unsigned long ce_free_next, ce_free_end;
+/* and in the room above it (platform.h), once that runs out: the next free
+address there, 0 while the tag cache's room is used. Allocations only ever
+move up, so a mark (ce_resources_free_mark) is the lowest address of all
+that is allocated after it */
+static unsigned long ce_room_next;
 
 /* ---------- private code */
 
@@ -725,6 +734,15 @@ static boolean ce_retail_bitmaps(
 	return TRUE;
 }
 
+/* a permutation's samples in sounds.map (Halo PC's flag on them), not in
+the map: Halo PC read each permutation's samples from the file its flag
+names, whatever the map's version or whether its tag is indexed */
+static boolean ce_samples_external(
+	byte const *permutation)
+{
+	return (ce_read_long(permutation + CE_PERMUTATION_SAMPLES_OFFSET + 4) & CE_SAMPLES_EXTERNAL_FLAG) != 0;
+}
+
 /* a retail map's sound tag: its external permutations' samples found in
 Custom Edition's sounds.map, and the tag's samples read from there (*type);
 or, if they are not all there, of the same sizes, the sound made silent */
@@ -758,8 +776,7 @@ static boolean ce_retail_sound(
 			return TRUE;
 		}
 		for (permutation_index = 0; permutation_index < permutation_count; permutation_index++)
-			external |= (ce_read_long(permutations + permutation_index * CE_SOUND_PERMUTATION_SIZE +
-				CE_PERMUTATION_SAMPLES_OFFSET + 4) & 1) != 0;
+			external |= ce_samples_external(permutations + permutation_index * CE_SOUND_PERMUTATION_SIZE);
 	}
 	if (!external)
 		return TRUE;
@@ -827,6 +844,64 @@ static boolean ce_retail_sound(
 	}
 	if (copy)
 		free(copy);
+	return TRUE;
+}
+
+/* a Custom Edition map's own sound tag (not indexed): its permutations'
+samples in the map, or, those flagged so, in sounds.map at the offsets they
+give (ce_samples_external): the tools that rebuilt maps pointed a sound's
+permutations at sounds.map when it already held the same samples (Super
+Campaign Refined's c10: 912 permutations of 250 of its sounds, ADPCM and Ogg
+Vorbis, which were read from the map at sounds.map's offsets and played as
+loud noise). A sound whose samples are
+all in sounds.map is read from there (*type), as an indexed sound's are; one
+with some in each file is copied whole into the decoded sounds' file, each
+permutation from its own (ce_sounds_decode). FALSE (refused, saying why) if
+sounds.map is needed and cannot be opened */
+static boolean ce_custom_sound(
+	struct ce_image *image,
+	struct ce_tag_instance const *instance,
+	byte *type)
+{
+	byte *sound = ce_image_pointer(image, instance->base_address, CE_SOUND_HEADER_SIZE);
+	char const *name = ce_image_tag_name(image, instance);
+	byte *ranges;
+	long range_count, range_index;
+	long external = 0, internal = 0;
+
+	/* (a sound whose blocks are not in the tags is refused when it is
+	checked: ce_sound_check) */
+	if (!sound || !ce_image_block(image, sound + CE_SOUND_PITCH_RANGES_OFFSET, CE_SOUND_PITCH_RANGE_SIZE,
+		CE_MAXIMUM_ELEMENTS, name, &range_count, &ranges))
+	{
+		return TRUE;
+	}
+	for (range_index = 0; range_index < range_count; range_index++)
+	{
+		byte *permutations;
+		long permutation_count, permutation_index;
+
+		if (!ce_image_block(image, ranges + range_index * CE_SOUND_PITCH_RANGE_SIZE + CE_PITCH_RANGE_PERMUTATIONS_OFFSET,
+			CE_SOUND_PERMUTATION_SIZE, CE_MAXIMUM_ELEMENTS, name, &permutation_count, &permutations))
+		{
+			return TRUE;
+		}
+		for (permutation_index = 0; permutation_index < permutation_count; permutation_index++)
+		{
+			byte const *permutation = permutations + permutation_index * CE_SOUND_PERMUTATION_SIZE;
+
+			if (ce_samples_external(permutation))
+				external++;
+			else if ((long)ce_read_long(permutation + CE_PERMUTATION_SAMPLES_OFFSET) > 0)
+				internal++;
+		}
+	}
+	if (!external)
+		return TRUE;
+	if (!ce_resource_map_open(_ce_resource_sounds))
+		return FALSE;
+	if (!internal)
+		*type = (byte)(_ce_resource_sounds + 1);
 	return TRUE;
 }
 
@@ -901,6 +976,10 @@ static boolean ce_resources_place(
 				if (!found)
 					return FALSE;
 			}
+			/* (a Custom Edition map's own sounds whose samples are in
+			sounds.map) */
+			else if (instance->group_tag == 'snd!' && !ce_custom_sound(image, instance, &types[index]))
+				return FALSE;
 			continue;
 		}
 		if (!ce_resource_map_open(type))
@@ -1030,7 +1109,9 @@ static boolean ce_bitmaps_check(
 
 /* a sound's pitch ranges and permutations: all in the tags, each played
 permutation one of its range's, and each permutation's samples in the file
-they are read from, its mouth data and subtitles in the tags */
+they are read from (sounds.map's for an indexed sound's and for those
+flagged in it, ce_samples_external; else the map's), its mouth data and
+subtitles in the tags */
 static boolean ce_sound_check(
 	struct ce_image const *image,
 	struct ce_tag_instance const *instance,
@@ -1039,7 +1120,6 @@ static boolean ce_sound_check(
 {
 	byte *sound = ce_image_pointer(image, instance->base_address, CE_SOUND_HEADER_SIZE);
 	char const *name = ce_image_tag_name(image, instance);
-	unsigned long file_size = indexed ? ce_resource_maps[_ce_resource_sounds].file_size : map_file_size;
 	byte *ranges;
 	long range_count, range_index;
 
@@ -1072,6 +1152,8 @@ static boolean ce_sound_check(
 			byte *permutation = permutations + permutation_index * CE_SOUND_PERMUTATION_SIZE;
 			long samples_size = (long)ce_read_long(permutation + CE_PERMUTATION_SAMPLES_OFFSET);
 			long samples_offset = (long)ce_read_long(permutation + CE_PERMUTATION_SAMPLES_OFFSET + 8);
+			boolean external = indexed || ce_samples_external(permutation);
+			unsigned long file_size;
 			short next;
 			unsigned long ignored_size;
 			byte *ignored;
@@ -1079,11 +1161,14 @@ static boolean ce_sound_check(
 			memcpy(&next, permutation + CE_PERMUTATION_NEXT_OFFSET, sizeof(next));
 			if (next != NONE && (next < 0 || next >= permutation_count))
 				return ce_refuse("sound %s: a permutation follows on with permutation %d", name, next);
+			if (external && !ce_resource_map_open(_ce_resource_sounds))
+				return FALSE;
+			file_size = external ? ce_resource_maps[_ce_resource_sounds].file_size : map_file_size;
 			if (samples_size < 0 || samples_offset < 0 ||
 				!ce_range_within((unsigned long)samples_offset, (unsigned long)samples_size, file_size))
 			{
 				return ce_refuse("sound %s: samples (%ld bytes at %ld) not in %s", name, samples_size, samples_offset,
-					indexed ? "sounds.map" : "the map");
+					external ? "sounds.map" : "the map");
 			}
 			if (!ce_image_data(image, permutation + CE_PERMUTATION_MOUTH_DATA_OFFSET, name, &ignored_size, &ignored) ||
 				!ce_image_data(image, permutation + CE_PERMUTATION_SUBTITLE_DATA_OFFSET, name, &ignored_size,
@@ -1151,6 +1236,7 @@ boolean ce_resources_tags_loaded(
 	ce_indexed_tags = system_malloc(tag_count);
 	ce_indexed_tag_count = ce_indexed_tags ? tag_count : 0;
 	ce_free_next = ce_free_end = 0;
+	ce_room_next = 0;
 	if (!ce_indexed_tags)
 		return FALSE;
 	image.data = xbox_pointer(CE_IMAGE_TAG_CACHE_BASE);
@@ -1256,7 +1342,11 @@ played as noise when they were left as they were): each permutation's
 samples decoded (ce_vorbis.c) into z:\ce_sounds.pcm, where they are then
 read from, and the sound and its permutations marked uncompressed. Their
 channels and rate stay the sound's (an Ogg of others is left as it was,
-which the game does not play). (The sounds' blocks and samples were checked:
+which the game does not play). Each permutation's samples are read from
+sounds.map or the map as Halo PC read them (ce_samples_external); a map's
+own sound of another compression with samples in both files, which the
+engine reads from one file, has them copied as they are into the same file
+(ce_custom_sound). (The sounds' blocks and samples were checked:
 ce_resources_check; their compression first made their permutations':
 ce_sound_compression_repair.) */
 static void ce_sounds_decode(
@@ -1268,7 +1358,7 @@ static void ce_sounds_decode(
 	char path[256];
 	HANDLE file = NULL;
 	unsigned long written = 0;
-	long sounds = 0, in_map = 0, permutations_decoded = 0, repaired = 0;
+	long sounds = 0, in_map = 0, permutations_decoded = 0, repaired = 0, copied = 0;
 	long index;
 	/* (a sound's decoded permutations, changed once all of them are) */
 	struct ce_decoded_permutation *decoded = NULL;
@@ -1288,26 +1378,41 @@ static void ce_sounds_decode(
 		struct ce_tag_instance *instance = (struct ce_tag_instance *)((byte *)tag_instances +
 			index * CE_TAG_INSTANCE_SIZE);
 		byte *sound;
-		HANDLE source;
 		unsigned long pitch_range_count, pitch_ranges, pitch_range;
 		unsigned long sound_start, decoded_index;
 		short encoding, sample_rate;
-		boolean all = TRUE;
+		boolean all = TRUE, ogg, from_map = FALSE, from_sounds_map = FALSE;
 
 		if (instance->group_tag != 'snd!')
 			continue;
-		/* (its samples' file: sounds.map's for a sound copied in from there,
-		the map's for one of its own) */
-		if (ce_indexed_tags[index] == _ce_resource_sounds + 1)
-			source = sounds_map;
-		else if (!ce_indexed_tags[index])
-			source = map_file;
-		else
+		/* (sounds.map's samples for a sound copied in from there; a map's
+		own sound's from either file, by each permutation's flag) */
+		if (ce_indexed_tags[index] && ce_indexed_tags[index] != _ce_resource_sounds + 1)
 			continue;
 		sound = xbox_pointer(instance->base_address);
 		if (ce_sound_compression_repair(sound))
 			repaired++;
-		if (!source || *(short *)(sound + CE_SOUND_COMPRESSION_OFFSET) != CE_SOUND_COMPRESSION_OGG)
+		pitch_range_count = *(unsigned long *)(sound + CE_SOUND_PITCH_RANGES_OFFSET);
+		pitch_ranges = *(unsigned long *)(sound + CE_SOUND_PITCH_RANGES_OFFSET + 4);
+		for (pitch_range = 0; !ce_indexed_tags[index] && pitch_range < pitch_range_count; pitch_range++)
+		{
+			byte *range = (byte *)xbox_pointer(pitch_ranges) + pitch_range * CE_SOUND_PITCH_RANGE_SIZE;
+			unsigned long permutation_count = *(unsigned long *)(range + CE_PITCH_RANGE_PERMUTATIONS_OFFSET);
+			byte *permutations = xbox_pointer(*(unsigned long *)(range + CE_PITCH_RANGE_PERMUTATIONS_OFFSET + 4));
+			unsigned long permutation;
+
+			for (permutation = 0; permutation < permutation_count; permutation++)
+			{
+				byte *at = permutations + permutation * CE_SOUND_PERMUTATION_SIZE;
+
+				if (ce_samples_external(at))
+					from_sounds_map = TRUE;
+				else if (*(long *)(at + CE_PERMUTATION_SAMPLES_OFFSET) > 0)
+					from_map = TRUE;
+			}
+		}
+		ogg = *(short *)(sound + CE_SOUND_COMPRESSION_OFFSET) == CE_SOUND_COMPRESSION_OGG;
+		if (!ogg && !(from_map && from_sounds_map))
 			continue;
 		/* (this copy of the game's own file: two copies sharing the save
 		root each write theirs. An older one is deleted first; on Windows
@@ -1340,8 +1445,6 @@ static void ce_sounds_decode(
 		}
 		encoding = *(short *)(sound + CE_SOUND_ENCODING_OFFSET);
 		sample_rate = *(short *)(sound + CE_SOUND_SAMPLE_RATE_OFFSET);
-		pitch_range_count = *(unsigned long *)(sound + CE_SOUND_PITCH_RANGES_OFFSET);
-		pitch_ranges = *(unsigned long *)(sound + CE_SOUND_PITCH_RANGES_OFFSET + 4);
 		/* (all or nothing: every permutation is decoded and written before
 		any is changed. A sound read from the decoded file with a permutation
 		left pointing into its own file, or the other way about, would play
@@ -1361,6 +1464,7 @@ static void ce_sounds_decode(
 				byte *at = (byte *)xbox_pointer(permutations) + permutation * CE_SOUND_PERMUTATION_SIZE;
 				long size = *(long *)(at + CE_PERMUTATION_SAMPLES_OFFSET);
 				unsigned long offset = *(unsigned long *)(at + CE_PERMUTATION_SAMPLES_OFFSET + 8);
+				HANDLE source = ce_indexed_tags[index] || ce_samples_external(at) ? sounds_map : map_file;
 				unsigned char *data;
 				short *samples = NULL;
 				int channels = 0, rate = 0, frames;
@@ -1368,9 +1472,14 @@ static void ce_sounds_decode(
 
 				if (size <= 0)
 					continue;
+				if (!source)
+				{
+					all = FALSE;
+					break;
+				}
 				/* (another compression's samples stay in the sound's own file,
 				which a decoded sound is no longer read from) */
-				if (*(short *)(at + CE_PERMUTATION_COMPRESSION_OFFSET) != CE_SOUND_COMPRESSION_OGG)
+				if (ogg && *(short *)(at + CE_PERMUTATION_COMPRESSION_OFFSET) != CE_SOUND_COMPRESSION_OGG)
 				{
 					error(_error_silent, "Custom Edition maps: %s: an Ogg Vorbis sound with a permutation of "
 						"another compression; left as it was", (char const *)xbox_pointer(instance->name));
@@ -1391,6 +1500,28 @@ static void ce_sounds_decode(
 					decoded_capacity = capacity;
 				}
 				data = malloc((size_t)size);
+				if (!ogg)
+				{
+					/* (a sound with samples in both files: copied as they are) */
+					bytes = (unsigned long)size;
+					if (!data || !ce_read(source, offset, data, bytes) ||
+						bytes > CE_MAXIMUM_DECODED_SOUNDS_SIZE - written ||
+						!WriteFile(file, data, bytes, &bytes_written, NULL) || bytes_written != bytes)
+					{
+						error(_error_silent, "Custom Edition maps: %s: its samples in the map and sounds.map could not "
+							"be copied", (char const *)xbox_pointer(instance->name));
+						free(data);
+						all = FALSE;
+						break;
+					}
+					free(data);
+					decoded[decoded_count].permutation = at;
+					decoded[decoded_count].offset = written;
+					decoded[decoded_count].size = bytes;
+					decoded_count++;
+					written += bytes;
+					continue;
+				}
 				frames = data && ce_read(source, offset, data, (unsigned long)size) ?
 					ce_vorbis_decode(data, size, &channels, &rate, &samples) : -1;
 				if (data)
@@ -1439,21 +1570,28 @@ static void ce_sounds_decode(
 
 			*(long *)(at + CE_PERMUTATION_SAMPLES_OFFSET) = (long)decoded[decoded_index].size;
 			*(unsigned long *)(at + CE_PERMUTATION_SAMPLES_OFFSET + 8) = decoded[decoded_index].offset;
+			if (!ogg)
+				continue;
 			*(unsigned long *)(at + 0x38) = decoded[decoded_index].size;
 			*(short *)(at + CE_PERMUTATION_COMPRESSION_OFFSET) = CE_SOUND_COMPRESSION_NONE;
 		}
+		ce_indexed_tags[index] = CE_DECODED_SOUND;
+		if (!ogg)
+		{
+			copied++;
+			continue;
+		}
 		permutations_decoded += (long)decoded_count;
 		*(short *)(sound + CE_SOUND_COMPRESSION_OFFSET) = CE_SOUND_COMPRESSION_NONE;
-		ce_indexed_tags[index] = CE_DECODED_SOUND;
 		sounds++;
-		if (source == map_file)
+		if (from_map)
 			in_map++;
 	}
 	free(decoded);
 	ce_decoded_sounds_file = file;
 	error(_error_silent, "Custom Edition maps: %ld Ogg Vorbis sounds decoded, %ld of them the map's (%ld permutations, "
-		"%lu bytes); %ld sounds given their permutations' compression", sounds, in_map, permutations_decoded, written,
-		repaired);
+		"%lu bytes); %ld sounds given their permutations' compression; %ld with samples in both the map and sounds.map "
+		"copied", sounds, in_map, permutations_decoded, written, repaired, copied);
 }
 
 /* the resource map a tag's pixels or samples are read from (cache_files_windows.c),
@@ -1471,15 +1609,28 @@ HANDLE ce_resources_file_for_tag(
 }
 
 /* size bytes (16-byte aligned) of the map's tag cache, after its tags and
-resources (ce_models.c): their Xbox address, or 0 if there is no room */
+resources (ce_models.c), or once that room is used, of the room above the
+tag cache (platform.h; Halo PC kept what the port puts here, its models'
+and level's buffers, outside its tag cache): their Xbox address, or 0 if
+there is no room */
 unsigned long ce_resources_allocate(
 	unsigned long size)
 {
+	unsigned long room_base = CE_IMAGE_TAG_CACHE_BASE + CE_IMAGE_TAG_CACHE_SIZE;
+	unsigned long room_end = room_base + CE_CONVERSION_ROOM;
 	unsigned long address = ce_free_next;
 
-	if (!address || address > ce_free_end || size > ce_free_end - address)
+	if (!address)
 		return 0;
-	ce_free_next = (address + size + 15) & ~15UL;
+	if (!ce_room_next && address <= ce_free_end && size <= ce_free_end - address)
+	{
+		ce_free_next = (address + size + 15) & ~15UL;
+		return address;
+	}
+	address = ce_room_next ? ce_room_next : room_base;
+	if (address > room_end || size > room_end - address)
+		return 0;
+	ce_room_next = (address + size + 15) & ~15UL;
 	return address;
 }
 
@@ -1488,14 +1639,24 @@ when it unloads, ce_resources_free_to) */
 unsigned long ce_resources_free_mark(
 	void)
 {
-	return ce_free_next;
+	return ce_room_next ? ce_room_next : ce_free_next;
 }
 
 void ce_resources_free_to(
 	unsigned long mark)
 {
-	if (mark && mark <= ce_free_next)
+	if (!mark)
+		return;
+	if (ce_room_next && mark >= CE_IMAGE_TAG_CACHE_BASE + CE_IMAGE_TAG_CACHE_SIZE)
+	{
+		if (mark <= ce_room_next)
+			ce_room_next = mark;
+	}
+	else if (mark <= ce_free_next)
+	{
 		ce_free_next = mark;
+		ce_room_next = 0;
+	}
 }
 
 /* the map unloaded (cache_files.c) */
@@ -1504,6 +1665,7 @@ void ce_resources_tags_unloaded(
 {
 	ce_indexed_tag_count = 0;
 	ce_free_next = ce_free_end = 0;
+	ce_room_next = 0;
 }
 
 #endif

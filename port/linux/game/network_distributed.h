@@ -106,6 +106,19 @@ enum
 	/* co-op: where the host's devices are (doors, elevators), when they move
 	(network_coop.c) */
 	_distributed_message_coop_device_states = 77,
+	/* OpenCE's text chat, which Delta chat bridges (game/chat.c,
+	src/delta_chat_bridge.h): a player's line to the host and the host's line
+	(or notice) to a machine that hears it, reliably, each a 68-byte entry;
+	and the host's chat settings to each client, a 4-byte entry. 87 to 89 as
+	in OpenCE's version of 2026-10-18 */
+	_distributed_message_chat_up = 87,
+	_distributed_message_chat_down = 88,
+	_distributed_message_chat_config = 89,
+	/* the host's policy on aiming assist for the mouse and keyboard, reliably
+	to a client when it has loaded and when the host's setting changes
+	(network.block_mouse_aim_assist): 12 bytes, the header and a 16-bit
+	value (1: blocked) and 16 bits of 0. 90 as in OpenCE's network version 32. */
+	_distributed_message_aim_assist_policy = 90,
 
 	NUMBER_OF_DISTRIBUTED_MESSAGES
 };
@@ -249,6 +262,12 @@ real distributed_angle_unpack(short value, boolean signed_angle);
 /* shields and health in 16 bits */
 word distributed_vitality_pack(real value);
 real distributed_vitality_unpack(word value);
+
+/* whether the host's policy blocks the mouse and keyboard's aiming assist
+(the view's magnetism) now: the host's setting on a host, the host's word on
+a client (blocked until it speaks, or always allowed by a host of a version
+that has no such policy), never in single player or the menus */
+boolean network_aim_assist_blocked(void);
 
 /* ---------- prototypes/NETWORK_ACTORS.C */
 

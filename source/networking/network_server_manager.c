@@ -804,6 +804,12 @@ a datagram is matched to without asking every connection for its address
 (network_game_server_get_client_machine_at_address) */
 static unsigned long network_game_server_client_machine_addresses[MAXIMUM_NETWORK_MACHINE_COUNT];
 
+/* port: the port the last datagram of each joined client machine came from
+(0: none yet), which the host answers its per-tick datagrams at: a second
+game on one computer has a port of its own. Kept only of a datagram from the
+machine's own address (network_game_server_note_datagram_port). */
+static word network_game_server_client_machine_datagram_ports[MAXIMUM_NETWORK_MACHINE_COUNT];
+
 /* port: the update number up to which a machine that has loaded (at the
 start, or joining the game in progress) gets the host's game update every
 tick; after that once a second (network_game_server_update_ticks) */
@@ -1237,6 +1243,7 @@ struct network_game_server *network_game_server_create(
 				server->client_machines[i].machine_index = NONE;
 				server->client_machines[i].flags = 0;
 				network_game_server_client_machine_addresses[i] = 0;
+				network_game_server_client_machine_datagram_ports[i] = 0;
 				network_game_invalidate_machine(&server->game, i);
 			}
 
@@ -2149,6 +2156,7 @@ boolean network_game_server_accept_client_machine_into_game(
 					}
 				}
 				network_game_server_client_machine_addresses[machine_index] = address.address.long_words[0];
+				network_game_server_client_machine_datagram_ports[machine_index] = 0;
 				network_game_server_client_machine_join_times[machine_index] = system_milliseconds();
 			}
 			else
@@ -3005,7 +3013,7 @@ void network_game_server_begin_game_start_countdown(
 
 /**
  * @brief Whether a team game lacks a player on one of its teams, which
- * holds back the start. Never with debug.solo_game.
+ * holds back the start. Never with game.start_with_one_player.
  * @param server the server whose game is asked about
  * @return TRUE if the start has to wait for more players
  */
@@ -3099,7 +3107,7 @@ boolean server_has_a_player_on_each_machine(
 
 /**
  * @brief Whether enough machines joined to start: two, or one for a
- * splitscreen game or with debug.solo_game.
+ * splitscreen game or with game.start_with_one_player.
  * @param server the server whose game is asked about
  * @return TRUE if the game may start with the machines that joined
  */
@@ -3294,29 +3302,62 @@ struct network_game_server_client_machine *network_game_server_get_client_machin
 	unsigned long ip_address)
 {
 	struct network_game_server_client_machine *client_machine = NULL;
+	long pass;
 	long i;
 
 	match_assert(NETWORK_SERVER_MANAGER_FILE, 0x74D, server && ip_address);
 
 	/* port: from the addresses the machines joined from (every datagram
-	asked each machine's connection for its address) */
-	for (i = 0; i < MAXIMUM_NETWORK_MACHINE_COUNT; i++)
+	asked each machine's connection for its address). A second game on the
+	host's own computer has the host's own machine's address: the machine
+	that is not the host's own comes first, then any. */
+	for (pass = 0; pass < 2 && !client_machine; pass++)
 	{
-		/* (a machine in the game: not a connection that has not joined) */
-		if (network_game_server_client_machine_addresses[i] == ip_address &&
-			network_game_server_client_machine_is_joined_to_game(server, &server->client_machines[i]))
+		for (i = 0; i < MAXIMUM_NETWORK_MACHINE_COUNT; i++)
 		{
-			match_assert(NETWORK_SERVER_MANAGER_FILE, 0x755,
-				server->client_machines[i].connection);
+			/* (a machine in the game: not a connection that has not joined) */
+			if (network_game_server_client_machine_addresses[i] == ip_address &&
+				network_game_server_client_machine_is_joined_to_game(server, &server->client_machines[i]) &&
+				(pass == 1 || !network_game_server_client_machine_is_local(server, &server->client_machines[i])))
+			{
+				match_assert(NETWORK_SERVER_MANAGER_FILE, 0x755,
+					server->client_machines[i].connection);
 
-			client_machine = &server->client_machines[i];
-			break;
+				client_machine = &server->client_machines[i];
+				break;
+			}
 		}
 	}
 
 	/* (none: a datagram from a machine not in the game, which is dropped
 	without a line in the log for each) */
 	return client_machine;
+}
+
+/* port: a datagram of the machine came from this port of its address (the
+lookup by address found it, so the address is its own) */
+void network_game_server_note_datagram_port(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *client_machine,
+	word port)
+{
+	long index = (long)(client_machine - server->client_machines);
+
+	if (port && index >= 0 && index < MAXIMUM_NETWORK_MACHINE_COUNT)
+	{
+		network_game_server_client_machine_datagram_ports[index] = port;
+	}
+}
+
+/* ... and the port to answer it at (0: none known, the client port) */
+word network_game_server_get_datagram_port(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *client_machine)
+{
+	long index = (long)(client_machine - server->client_machines);
+
+	return index >= 0 && index < MAXIMUM_NETWORK_MACHINE_COUNT ?
+		network_game_server_client_machine_datagram_ports[index] : 0;
 }
 
 boolean network_game_server_game_can_start(
@@ -3496,6 +3537,7 @@ boolean network_game_server_remove_client_machine_from_game(
 			server->client_machines[i].machine_index = NONE;
 			server->client_machines[i].flags = 0;
 			network_game_server_client_machine_addresses[i] = 0;
+			network_game_server_client_machine_datagram_ports[i] = 0;
 			success = TRUE;
 			break;
 		}
@@ -3764,8 +3806,8 @@ static void network_game_server_dump(
 
 /**
  * @brief Starts, adjusts or stops the pregame countdown on an event.
- * With debug.solo_game a lone machine starts the countdown without a
- * remote client.
+ * With game.start_with_one_player a lone machine starts the countdown
+ * without a remote client.
  * @param server the server, in the pregame state
  * @param countdown_event a _network_game_server_countdown_event_*
  */
@@ -4157,6 +4199,11 @@ void network_game_server_port_set_cooperative(
 {
 	if (!server || server->state != _network_game_server_state_pregame)
 		return;
+#ifdef HALO_XBOX_CONSOLE
+	/* port: no network co-op on the console (port/xbox/game/xbox_coop.c) */
+	(void)difficulty;
+	return;
+#endif
 	server->game.difficulty = difficulty;
 	/* (Server Setup's default for co-op, menu_functions.c's
 	COOPERATIVE_DEFAULT_PLAYERS, until it sets its own) */
@@ -4207,7 +4254,7 @@ static void network_game_server_variant_options(
 
 /**
  * @brief Opens the server's game for the stage its variant names. The
- * minimum player count is 1 with debug.solo_game, else 2.
+ * minimum player count is 1 with game.start_with_one_player, else 2.
  * @param server the server
  * @return TRUE if the game was opened; FALSE if the stage is not found
  * (probably a missing playlist)

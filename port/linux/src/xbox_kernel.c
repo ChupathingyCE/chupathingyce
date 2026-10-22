@@ -31,7 +31,11 @@ void platform_log(const char *format, ...)
 	FILE *handle;
 #endif
 
+	/* (a console whose standard error is its debug channel gets the line
+	from console_debug_print below: HALO_CONSOLE_DEBUG_CHANNEL) */
+#ifndef HALO_CONSOLE_DEBUG_CHANNEL
 	fputs(PLATFORM_LOG_PREFIX, stderr);
+#endif
 	va_start(arguments, format);
 #ifdef HALO_64BIT
 	vsnprintf(buffer, sizeof(buffer), format, arguments);
@@ -39,10 +43,27 @@ void platform_log(const char *format, ...)
 	vfprintf(stderr, format, arguments);
 #endif
 	va_end(arguments);
-#ifdef HALO_64BIT
+#if defined(HALO_64BIT) && !defined(HALO_CONSOLE_DEBUG_CHANNEL)
 	fputs(buffer, stderr);
 #endif
+#ifndef HALO_CONSOLE_DEBUG_CHANNEL
 	fputc('\n', stderr);
+#endif
+#ifdef HALO_CONSOLE_DEBUG_CHANNEL
+	{
+		/* the console has no standard error: its debug channel and its own
+		log (the port's console_debug_print) */
+		void console_debug_print(const char *text);
+		char line[2048];
+
+		va_start(arguments, format);
+		snprintf(line, sizeof(line) - 2, "halo: ");
+		vsnprintf(line + 6, sizeof(line) - 8, format, arguments);
+		va_end(arguments);
+		strcat(line, "\r\n");
+		console_debug_print(line);
+	}
+#endif
 #ifdef HALO_SERVER
 	{
 		/* the dedicated server's recent log, for its control API
@@ -992,6 +1013,13 @@ VOID WINAPI GlobalMemoryStatus(LPMEMORYSTATUS status)
 
 VOID WINAPI OutputDebugStringA(LPCSTR string)
 {
+#ifdef HALO_CONSOLE_DEBUG_CHANNEL
+	void console_debug_print(const char *text);
+
+	if (string)
+		console_debug_print(string);
+#else
 	if (string)
 		fputs(string, stderr);
+#endif
 }

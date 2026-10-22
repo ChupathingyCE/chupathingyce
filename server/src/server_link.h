@@ -1,7 +1,7 @@
 /*
 SERVER_LINK.H
 
-Delta Control's link to halo.milenko.org (control_link.c; docs/delta.md,
+Delta Control's link to stats.chupathingy.org (control_link.c; docs/delta.md,
 Delta Control): optional, off until the server's owner links it (sv_link),
 and never at all with HALO_DEDICATED_LINK=false. The server dials out (no
 port to open); the site relays commands of the accounts its owner gave a

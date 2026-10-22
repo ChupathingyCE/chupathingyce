@@ -1304,6 +1304,18 @@ real_matrix4x3 *object_get_node_matrices(
 	return (real_matrix4x3 *)object_header_block_get(object_index, &object_get(object_index)->object.node_matrices);
 }
 
+/* port: the object's outgoing functions; while a frame is drawn, between
+the last two ticks (port/linux/game/render_interpolation.c) */
+real *object_get_function_values(
+	long object_index)
+{
+	real *interpolated = render_interpolation_object_function_values(object_index);
+
+	if (interpolated)
+		return interpolated;
+	return object_get(object_index)->object.outgoing_function_values;
+}
+
 char const *object_get_attachment_marker_name(
 	long object_index,
 	short attachment_index)
@@ -1565,7 +1577,7 @@ boolean object_get_function_value(
 		it reads as off */
 		if (VALID_INDEX(function_index, NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS))
 		{
-			*value_reference = object->object.outgoing_function_values[function_index];
+			*value_reference = object_get_function_values(object_index)[function_index];
 
 			result = TEST_FLAG(object->object.functions_active_flags, function_index);
 		}
@@ -3837,6 +3849,8 @@ static boolean object_update(
 	struct object_definition *object_definition = object_definition_get(object->definition_index);
 
 	boolean result = TRUE;
+	boolean elevator_sampled = FALSE;
+	real_point3d elevator_sample;
 	if (!TEST_FLAG(header->flags, _object_header_do_not_update_bit))
 	{
 		if (TEST_FLAG(object->object.flags, _object_garbage_bit))
@@ -3854,6 +3868,10 @@ static boolean object_update(
 			}
 		}
 
+		/* port: an elevator's node, before the machine moves it (machine_elevator_carry_riders) */
+		elevator_sampled = object->object.type == _object_type_machine &&
+			machine_elevator_sample(object_index, &elevator_sample);
+
 		object_type_update(object_index);
 		if (object_definition->object.collision_model.index!=NONE)
 		{
@@ -3865,6 +3883,11 @@ static boolean object_update(
 		if (!TEST_FLAG(object->object.flags, _object_do_not_recompute_node_matrices_bit))
 		{
 			object_compute_node_matrices(object_index);
+		}
+
+		if (elevator_sampled)
+		{
+			machine_elevator_carry_riders(object_index, &elevator_sample);
 		}
 
 		object_compute_function_values(object_index);
@@ -4072,6 +4095,27 @@ void objects_scripting_attach(
 	return;
 }
 
+#ifdef HALO_XBOX_CONSOLE
+/* port: the objects in use and the object pool's free memory, for the
+console's memory log (port/xbox/src/xbox_memory.c); FALSE with no map */
+int objects_usage(
+	long *count,
+	long *maximum,
+	long *pool_free,
+	long *pool_size,
+	long *pool_contiguous_free)
+{
+	if (!object_header_data || !object_memory_pool || !object_header_data->valid)
+		return FALSE;
+	*count = object_header_data->actual_count;
+	*maximum = MAXIMUM_OBJECTS_PER_MAP;
+	*pool_size = OBJECT_MEMORY_POOL_SIZE;
+	*pool_free = memory_pool_get_free_size(object_memory_pool);
+	*pool_contiguous_free = memory_pool_get_contiguous_free_size(object_memory_pool);
+	return TRUE;
+}
+#endif
+
 void object_delete_immediately(
 	long object_index)
 {
@@ -4089,9 +4133,17 @@ Xbox's amount */
 static long active_garbage_limit(
 	long limit_per_16_players)
 {
+#ifdef HALO_XBOX_CONSOLE
+	/* port: the console's object pool is the Xbox's 1 MB whatever its
+	players (a test build of more than 16, configure.py --console-players):
+	a game it hosts keeps the Xbox's amount of garbage. 16 players or fewer
+	got this amount already */
+	return limit_per_16_players;
+#else
 	long player_count = player_data ? player_data->actual_count : 0;
 
 	return limit_per_16_players * MAX(16, player_count) / 16;
+#endif
 }
 
 /* port: whether a collection of active garbage may be tried

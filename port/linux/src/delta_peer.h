@@ -33,9 +33,18 @@ game state; its limits only make a host take fewer players.
 enum
 {
 	/* a game's machines and players (HALO_PORT_MAXIMUM_NETWORK_MACHINES and
-	_PLAYERS) */
+	_PLAYERS): the original Xbox's game keeps 16 players and 17 machines (a
+	dedicated host being machine 0; its 64 MB), so its sessions keep no more
+	either */
+#ifdef HALO_CONSOLE_PLAYERS
+	/* (a console's own count: 16, or a test build's, configure.py
+	--console-players) */
+	DELTA_PEER_MAXIMUM_MACHINES = HALO_CONSOLE_PLAYERS + 1,
+	DELTA_PEER_MAXIMUM_PLAYERS = HALO_CONSOLE_PLAYERS,
+#else
 	DELTA_PEER_MAXIMUM_MACHINES = 128,
 	DELTA_PEER_MAXIMUM_PLAYERS = 128,
+#endif
 	/* a room limit nothing sets */
 	DELTA_PEER_NO_LIMIT = 255,
 
@@ -392,6 +401,16 @@ struct delta_peer_host_peer
 	struct delta_rate team_rate;
 };
 
+/* the room for a signed legacy table going out or coming in: the console
+relays none (it sets only the serial hook, to DELTA_WIRE_TABLE_NONE: relaying()
+is false),
+and its 64 MB do not keep 32 KB for one */
+#ifdef HALO_XBOX_CONSOLE
+#define DELTA_PEER_TABLE_BYTES 1
+#else
+#define DELTA_PEER_TABLE_BYTES DELTA_LEGACY_SIGNED_SIZE
+#endif
+
 /* a signed legacy table coming in, piece by piece: one at a time, from one
 machine */
 struct delta_peer_table_in
@@ -404,7 +423,7 @@ struct delta_peer_table_in
 	/* the pieces in (bit n: the piece at n * DELTA_WIRE_TABLE_CHUNK) */
 	delta_u32 pieces;
 	delta_u32 time;
-	unsigned char data[DELTA_LEGACY_SIGNED_SIZE];
+	unsigned char data[DELTA_PEER_TABLE_BYTES];
 };
 
 struct delta_peer
@@ -452,7 +471,7 @@ struct delta_peer
 	goes out (its serial: 0 not read yet), and one coming in */
 	delta_u32 table_out_serial;
 	int table_out_size;
-	unsigned char table_out[DELTA_LEGACY_SIGNED_SIZE];
+	unsigned char table_out[DELTA_PEER_TABLE_BYTES];
 	struct delta_peer_table_in table_in;
 
 	/* both: what is known of each machine, the room, and each player's
@@ -660,15 +679,21 @@ int delta_peer_protocol(void);
 /* the host's advertisement flags to add (DELTA_ADVERTISED_FLAG, or 0) */
 unsigned char delta_peer_advertised_flags(void);
 /* the game wire after them (DELTA_ADVERTISED_WIRE_OFFSET), in the
-advertisement's reserved bytes (size of them): zeros unless the flag is set */
+advertisement's reserved bytes (size of them): this build's oldest
+compatible wire in the old slot, then its own wire and that range
+(delta_compat.h); zeros unless the flag is set */
 void delta_peer_advertised_wire(unsigned char *reserved, int size);
-/* whether a host's advertisement (its reserved bytes) is of this machine's
-game wire: 1 when both speak Delta, of one major and one wire (the OpenCE
-numbers then don't matter), 0 when the host's wire is another (its wire
+/* whether a host's advertisement (its reserved bytes) is of a wire this
+machine plays with: 1 when both speak Delta, of one major, and the host's
+wire is in this machine's compatible range or this machine's in the host's
+(the OpenCE numbers then don't matter), 0 when it is not (the host's wire
 into theirs, of theirs_size), -1 when either side doesn't say (this machine
 on the legacy protocol, a host without Delta, of another major, or built
 before the wire was advertised): the OpenCE numbers decide */
 int delta_peer_advertised_wire_matches(const unsigned char *reserved, int size, char *theirs, int theirs_size);
+/* the number of the wire a host's advertisement says it plays (32 for
+chupa-32a); 0 when it says none, or this machine does not read it */
+int delta_peer_advertised_host_wire(const unsigned char *reserved, int size);
 /* the hosted game's player limit: DELTA_PEER_NO_LIMIT unless a Delta
 machine (or this host's own key) takes fewer */
 int delta_peer_host_player_limit(void);
@@ -703,6 +728,9 @@ the scoreboard asks this before it shows any) */
 int delta_peer_game_on_delta(void);
 /* a machine's profile claim: its player ID and revision (0 if none) */
 int delta_peer_machine_profile(int machine_index, unsigned char *player_id, delta_u32 *revision);
+/* a player's machine's profile claim, while the machine has that one player
+alone: its player ID (DELTA_WIRE_PLAYER_ID_SIZE bytes) */
+int delta_peer_player_profile(int player_index, unsigned char *player_id);
 /* the game's room: delta_peer_room_has and _room_limit of the session */
 int delta_peer_game_room_has(int capability);
 int delta_peer_game_room_limit(int limit);

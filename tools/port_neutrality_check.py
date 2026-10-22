@@ -13,8 +13,10 @@ differ on purpose, and are reported for review.
 
 The revisions are checked out as worktrees in --workdir (default
 build/neutrality), which must be on a case-sensitive file system: the port's
-include/StdDef.h would otherwise stand in for <stddef.h>. On Linux the host's
-32-bit headers serve (--sysroot unneeded). Elsewhere, --sysroot names a tree
+include/StdDef.h would otherwise stand in for <stddef.h>. Each revision is
+configured with --portable, so its units compile against the build's own
+downloaded system root (build/linux/third_party) on Linux (--sysroot
+unneeded). Elsewhere, --sysroot names a tree
 holding a 32-bit x86 Linux usr/include, for instance Debian's i386 libc6-dev
 and linux-libc-dev packages extracted into one folder; on macOS a
 case-sensitive work folder is a disk image:
@@ -61,8 +63,12 @@ def prepare(workdir: Path, name: str, revision: str) -> Path:
         run(["git", "worktree", "remove", "--force", str(tree)], ROOT, check=False)
         shutil.rmtree(tree, ignore_errors=True)
     run(["git", "worktree", "add", "--detach", "-f", str(tree), revision], ROOT)
-    run([sys.executable, "configure.py"], tree)
-    run(["ninja", "build/linux/halo_msvc_semantics.h", "build/linux/platform_msvc_semantics.h"], tree)
+    # --portable: the Linux build's own system root (Debian's glibc and
+    # SDL 3, downloaded into build/linux/third_party), which every unit is
+    # compiled against
+    run([sys.executable, "configure.py", "--portable"], tree)
+    run(["ninja", "build/linux/third_party/stamp",
+         "build/linux/halo_msvc_semantics.h", "build/linux/platform_msvc_semantics.h"], tree)
     # the sources the build generates (the high-res HUD's textures), which
     # the units are compiled from
     generated = [line.split(":")[0] for line in run(["ninja", "-t", "targets", "all"], tree).stdout.splitlines()

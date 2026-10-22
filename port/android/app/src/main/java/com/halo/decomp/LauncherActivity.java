@@ -1,6 +1,7 @@
 package com.halo.decomp;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.ShortcutInfo;
 import android.content.pm.ShortcutManager;
@@ -59,10 +60,41 @@ public class LauncherActivity extends Activity {
         passOnInvite(getIntent());
         addImportShortcut();
         if (haveData()) {
-            startGame();
+            if (!offer64BitBuild())
+                startGame();
             return;
         }
         buildInterface();
+    }
+
+    /**
+     * After a start that failed because Android's Java runtime holds the
+     * fixed addresses this build needs (port/android/host/host_main.c writes
+     * memory_map.txt then, and removes it after a start that works): the
+     * native 64-bit build, which needs none, offered in its place. True if
+     * the offer is shown.
+     */
+    private boolean offer64BitBuild() {
+        if (Updater.native64() || dataRoot == null || !new File(dataRoot, "memory_map.txt").isFile())
+            return false;
+        new AlertDialog.Builder(this)
+            .setTitle("This device needs the 64-bit build")
+            .setMessage("The game could not start last time: Android's Java runtime on this device holds the "
+                + "memory this build needs at a fixed address.\n\nThe 64-bit build of the same version needs no "
+                + "fixed address. It installs over this one and keeps your game data and saves.")
+            .setCancelable(false)
+            .setPositiveButton("Get the 64-bit build", (dialog, which) -> {
+                if (BuildConfig.HALO_RELEASE_BUILD) {
+                    Updater.switchTo64Bit(this);
+                } else {
+                    startActivity(new Intent(Intent.ACTION_VIEW,
+                        Uri.parse("https://github.com/ChupathingyCE/chupathingyce/releases")));
+                    finish();
+                }
+            })
+            .setNegativeButton("Try again", (dialog, which) -> startGame())
+            .show();
+        return true;
     }
 
     /**

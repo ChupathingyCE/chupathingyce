@@ -1891,6 +1891,34 @@ static void scoreboard_draw_row(
 	return;
 }
 
+/* port: a player by their Delta profile's name, as long as the column (16
+characters) */
+#define SCOREBOARD_PROFILE_NAME_LENGTH 17
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+/* port/linux/game/profile_names.c's */
+boolean profile_names_player(long player_index, wchar_t *name, long size);
+#endif
+
+/* port: the name a scoreboard shows a player by: their Delta profile's when
+they share it (port/linux/game/profile_names.c; in buffer, as long as the
+column), else their own */
+static wchar_t const *scoreboard_player_name(
+	long player_index,
+	struct player_datum const *player,
+	wchar_t *buffer,
+	long size)
+{
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+	if (profile_names_player(DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index), buffer, size))
+		return buffer;
+#else
+	(void)player_index;
+	(void)buffer;
+	(void)size;
+#endif
+	return player->name;
+}
+
 #ifdef HALO_GAME_BROWSER
 /* menu_tags.c's: 0 the Xbox's menus, 1 Gearbox's, 2 the Chupathingy menus */
 short pc_menus_set(void);
@@ -2256,6 +2284,8 @@ static void game_engine_rasterize_scoreboard(
 		struct statistic_buffer *entry;
 		struct player_datum *player;
 		wchar_t *status_string;
+		wchar_t const *shown_name;
+		wchar_t profile_name[SCOREBOARD_PROFILE_NAME_LENGTH];
 		real_argb_color *row_color;
 
 		if (row >= rows || position >= list_counts[list])
@@ -2289,12 +2319,13 @@ static void game_engine_rasterize_scoreboard(
 			else
 				usprintf(ping_string, L"%ld", ping);
 		}
+		shown_name = scoreboard_player_name(entry->player_index, player, profile_name, SCOREBOARD_PROFILE_NAME_LENGTH);
 		usnprintf(
 			row_string,
 			NUMBEROF(row_string),
 			L"\t%s\t%s\t%s\t%s",
 			campaign ? L"" : get_place_string(entry),
-			player->name,
+			shown_name,
 			status_string,
 			ping_string);
 		row_string[NUMBEROF(row_string) - 1] = 0;
@@ -2500,6 +2531,35 @@ static void drawline(
 	return;
 }
 
+/* port: the carnage report's prompt, kept inside the 4:3 screen. Retail's
+start where the Xbox's buttons fit; the keyboard's keys ("[Space] =pick
+game") and wider buttons ran past the screen's right edge into a wide
+screen's sides. A prompt that would end past POSTGAME_PROMPT_RIGHT starts
+that much further left (measured by drawing it unseen first); one that
+fits is where retail drew it */
+enum
+{
+	POSTGAME_PROMPT_RIGHT = 610
+};
+
+static void postgame_draw_prompt(
+	rectangle2d const *bounds,
+	wchar_t const *prompt,
+	real_argb_color const *color)
+{
+	rectangle2d drawn = *bounds;
+	real_argb_color unseen = *color;
+
+	unseen.alpha = 0.0f;
+	draw_string_set_color(&unseen);
+	draw_string_and_hack_in_icons(&drawn, NULL, NULL, 0, prompt, FALSE);
+	drawn = *bounds;
+	if (draw_string_and_hack_in_icons_end_x > POSTGAME_PROMPT_RIGHT)
+		drawn.x0 = (short)MAX(0, drawn.x0 - (draw_string_and_hack_in_icons_end_x - POSTGAME_PROMPT_RIGHT));
+	draw_string_set_color(color);
+	draw_string_and_hack_in_icons(&drawn, NULL, NULL, 0, prompt, FALSE);
+}
+
 void game_engine_post_rasterize_post_game(
 	void)
 {
@@ -2661,6 +2721,7 @@ void game_engine_post_rasterize_post_game(
 		struct player_datum *player = player_get(player_index);
 		real_argb_color team_colors[2];
 		wchar_t const *place_string;
+		wchar_t profile_name[SCOREBOARD_PROFILE_NAME_LENGTH];
 
 		if (player->local_player_index != NONE)
 			draw_string_set_color(&normal_color);
@@ -2688,7 +2749,8 @@ void game_engine_post_rasterize_post_game(
 			draw_string_set_color(
 				&team_colors[PIN(team_index, 0, 1)]);
 		}
-		usnprintf(row_string, NUMBEROF(row_string), L" \t \t%s", player->name);
+		usnprintf(row_string, NUMBEROF(row_string), L" \t \t%s",
+			scoreboard_player_name(player_index, player, profile_name, SCOREBOARD_PROFILE_NAME_LENGTH));
 		row_string[NUMBEROF(row_string) - 1] = 0;
 		drawline(row_string, draw_row, 0);
 		draw_string_set_color(&winner_color);
@@ -2767,13 +2829,7 @@ void game_engine_post_rasterize_post_game(
 					unicode_string_list_get_string(string_list_index, 0x48);
 			else
 				prompt = L"";
-			draw_string_and_hack_in_icons(
-				&bounds,
-				NULL,
-				NULL,
-				0,
-				prompt,
-				FALSE);
+			postgame_draw_prompt(&bounds, prompt, &prompt_color);
 			return;
 		}
 
@@ -2783,13 +2839,7 @@ void game_engine_post_rasterize_post_game(
 			prompt = unicode_string_list_get_string(string_list_index, 0x49);
 		else
 			prompt = L"";
-		draw_string_and_hack_in_icons(
-			&bounds,
-			NULL,
-			NULL,
-			0,
-			prompt,
-			FALSE);
+		postgame_draw_prompt(&bounds, prompt, &prompt_color);
 	}
 
 	return;
@@ -5615,6 +5665,17 @@ void game_engine_end_game(
 #ifdef HALO_GAME_BROWSER
 		if (global_network_game_server_get())
 			game_engine_report_game();
+#endif
+#ifdef HALO_XBOX_CONSOLE
+		/* (the first online game that ends: the console's signed platform
+		claim, port/xbox/src/xbox_claim_run.c) */
+		if (game_connection() == _game_connection_network_client ||
+			game_connection() == _game_connection_network_server)
+		{
+			extern void xbox_claim_game_ended(void);
+
+			xbox_claim_game_ended();
+		}
 #endif
 		game_engine_globals.postgame_state = game_engine_mode_postgame_delay;
 		game_engine_globals.postgame_timer = 7.0f;
@@ -9590,7 +9651,24 @@ void game_engine_read_network_state(
 	/* (a state the game type refused is not had: the first it takes is,
 	whose events it only takes) */
 	if (!read)
+	{
+#ifdef HALO_PORT_CONSOLE_LIMITS
+		/* port: the console's limits (halo_port_limits.h): slayer's and
+		ctf's states from a PC host are read; the others' are the PCs' 128
+		slots, which this build does not yet fold, so their scores stay this
+		machine's own (told once a game type) */
+		static long told_types = 0;
+		long type = game_engine_get_type();
+
+		if (type >= 0 && type < 32 && !(told_types & (1L << type)))
+		{
+			told_types |= 1L << type;
+			error(3, "cross-play: the host's state of game type %ld (%ld bytes) is not one this build reads",
+				type, size);
+		}
+#endif
 		return;
+	}
 	game_engine_network_state_read = TRUE;
 	/* the game ended on the host (after what ended it is shown, as the host
 	shows it) */

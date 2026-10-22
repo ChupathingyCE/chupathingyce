@@ -292,14 +292,22 @@ enum
 {
 	_transport_type_udp = 0x11,
 	_transport_type_tcp,
+#ifndef HALO_XBOX_CONSOLE
 	/* every machine of a session may connect at once */
 	MAXIMUM_PENDING_CONNECTIONS = HALO_PORT_MAXIMUM_NETWORK_MACHINES,
+#else
+	MAXIMUM_PENDING_CONNECTIONS = 32,
+#endif
 	MAXIMUM_ENDPOINT_THREADS = 64,
+#ifndef HALO_XBOX_CONSOLE
 	/* a host's connection to a machine holds the updates that machine has
 	not acknowledged, up to 128 ticks of 3.9 KB with 128 players, and the
 	host's connection to its own client all it sends in one frame; a full
 	buffer blocks the host (network_connection_write) */
 	MINIMUM_ENDPOINT_SOCKET_BUFFER_SIZE = 1024 * 1024,
+#else
+	MINIMUM_ENDPOINT_SOCKET_BUFFER_SIZE = 16 * 1024,
+#endif
 };
 
 /* ---------- macros */
@@ -1130,6 +1138,12 @@ short set_endpoint_blocking(
 	return error;
 }
 
+void set_endpoint_exclusive(
+	struct transport_endpoint *ep)
+{
+	SET_FLAG(ep->flags, _transport_endpoint_exclusive_bit, TRUE);
+}
+
 short bind_endpoint(
 	struct transport_endpoint *ep,
 	struct transport_address *address)
@@ -1162,6 +1176,12 @@ short bind_endpoint(
 			if (ep->socket == INVALID_SOCKET)
 			{
 				error = _transport_error_unknown;
+			}
+			else if (TEST_FLAG(ep->flags, _transport_endpoint_exclusive_bit))
+			{
+				int option = FALSE;
+
+				setsockopt(ep->socket, SOL_SOCKET, SO_REUSEADDR, (char const *)&option, sizeof(option));
 			}
 		}
 	}
@@ -1740,7 +1760,7 @@ static SOCKET create_socket(
 			winsock_error_to_string(WSAGetLastError());
 		}
 
-#ifndef HALO_WINDOWS
+#if !defined(HALO_WINDOWS) && !defined(HALO_XBOX_CONSOLE)
 		/* Linux (and Android) grow a stream socket's buffers as far as the
 		connection needs, to several megabytes; setting a size would fix them,
 		at no more than the system's limit (about 416 KB by default) */
@@ -1784,7 +1804,7 @@ static SOCKET create_socket(
 		{
 			winsock_error_to_string(WSAGetLastError());
 		}
-#ifndef HALO_WINDOWS
+#if !defined(HALO_WINDOWS) && !defined(HALO_XBOX_CONSOLE)
 		}
 #endif
 	}

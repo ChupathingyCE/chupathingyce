@@ -485,11 +485,18 @@ Thus:
 
 If the addresses are not available, the game shows a message, and writes
 the mappings below 4 GB to `memory_map.txt` in the data folder and to the
-log.
+log. At the next start, while that file is there, the app offers the native
+64-bit build of the same version (refer to "The native 64-bit build"), which
+needs no fixed address: a release build downloads it from the release and
+installs it over this one, and other builds open the release page. "Try
+again" starts the game as usual. A start that works removes the file.
 
 The Halo PC maps contain pointers to their own tag cache, at `0x40440000`
 to `0x41b40000`. The host also reserves this range at the start, in the
-same way, but the game can start without it. ART's main space starts at
+same way, but the game can start without it. It also reserves the 4.75 MB
+above it, to `0x42000000`, if that is free, for the converted models and
+level of the largest maps (`port/linux/src/platform.h`); without it, those
+maps are refused. ART's main space starts at
 `0x12c00000` and is as large as the Java heap of the device
 (`dalvik.vm.heapsize`). If that heap is larger than about 700 MB, the main
 space covers the range, and the host does not take it. Then the game does

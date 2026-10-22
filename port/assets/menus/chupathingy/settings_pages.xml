@@ -16,70 +16,100 @@
 		<child widget="chupathingy/prompts/change" x="512" y="414"/>
 	</widget>
 	<widget name="chupathingy/settings/controls_setup_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/help">
-		<data input="controls update menu"/>
-		<on event="created" run="controls screen init"/>
-		<on event="x" run="controls screen change set" back="true"/>
-		<on event="y" run="controls screen defaults"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_group" x="54" y="73"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_command_1" x="54" y="103"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_command_2" x="54" y="133"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_command_3" x="54" y="163"/>
+		<data input="port controls update"/>
+		<on event="created" run="port controls init"/>
+		<on event="deleted" run="port controls closed"/>
+		<on event="x" run="port controls accept" back="true"/>
+		<on event="y" run="port controls defaults"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_device" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/view_keyboard_mouse" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_group" x="54" y="97"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/view_keyboard" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_command_1" x="54" y="121"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_command_2" x="54" y="145"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_command_3" x="54" y="169"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_command_4" x="54" y="193"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_command_5" x="54" y="223"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_command_6" x="54" y="253"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_command_7" x="54" y="283"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_command_5" x="54" y="217"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_command_6" x="54" y="241"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_command_7" x="54" y="265"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/view_mouse" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_mouse_sensitivity" x="54" y="121"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_mouse_vertical_sensitivity" x="54" y="145"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_invert_mouse" x="54" y="169"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_mouse_aim_assist" x="54" y="193"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/view_gamepad_buttons" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_page" x="54" y="97"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/view_gamepad" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_layout" x="54" y="121"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_look_sensitivity" x="54" y="145"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_invert_look" x="54" y="169"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_flight_inversion" x="54" y="193"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_autocenter" x="54" y="217"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_joystick_preset" x="54" y="241"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_vibration" x="54" y="265"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_ingame_help" x="54" y="289"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/view_buttons" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_button_1" x="54" y="121"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_button_2" x="54" y="145"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_button_3" x="54" y="169"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_button_4" x="54" y="193"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_button_5" x="54" y="217"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_button_6" x="54" y="241"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_button_7" x="54" y="265"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_button_8" x="54" y="289"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_button_9" x="54" y="313"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controls_setup/op_button_10" x="54" y="337"/>
 	</widget>
 	<widget name="chupathingy/settings/video_settings_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
-		<on event="b" back="true"/>
-		<on event="back" back="true"/>
+		<on event="b" run="port settings back"/>
+		<on event="back" run="port settings back"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/header_profile_video_settings"/>
 		<child widget="chupathingy/settings/video_settings_list"/>
 		<child widget="chupathingy/prompts/y" x="60" y="414"/>
 		<child widget="chupathingy/prompts/defaults" x="82" y="414"/>
-		<child widget="chupathingy/prompts/b" x="360" y="414"/>
-		<child widget="chupathingy/prompts/cancel" x="382" y="414"/>
 		<child widget="chupathingy/prompts/a" x="490" y="414"/>
 		<child widget="chupathingy/prompts/accept" x="512" y="414"/>
+		<child widget="chupathingy/prompts/b" x="360" y="414"/>
+		<child widget="chupathingy/prompts/cancel" x="382" y="414"/>
+		<child widget="chupathingy/prompts/back" x="382" y="414"/>
 	</widget>
 	<widget name="chupathingy/settings/video_settings_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/player_setup/player_profile_edit/video_settings/help">
 		<data input="port settings help"/>
-		<on event="a" run="port settings save" back="true"/>
+		<on event="created" run="port settings views init"/>
+		<on event="a" run="port settings accept"/>
 		<on event="y" run="port settings defaults"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/view_main" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_mode" x="54" y="73" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_resolution" x="54" y="100" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_window_size" x="54" y="100" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_resolution_scaling" x="54" y="127" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_vsync" x="54" y="154"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_max_fps" x="54" y="181" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_interpolation" x="54" y="181" platform="android"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_high_res_hud" x="54" y="208"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_high_res_text" x="54" y="235"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_anti_aliasing" x="54" y="262" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_anti_aliasing_android" x="54" y="262" platform="android"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_shadow_resolution" x="54" y="289"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_per_pixel_lighting" x="54" y="316"/>
-	</widget>
-	<widget name="chupathingy/settings/mouse_settings_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
-		<on event="b" back="true"/>
-		<on event="back" back="true"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/header_profile_mouse_settings"/>
-		<child widget="chupathingy/settings/mouse_settings_list"/>
-		<child widget="chupathingy/prompts/y" x="60" y="414"/>
-		<child widget="chupathingy/prompts/defaults" x="82" y="414"/>
-		<child widget="chupathingy/prompts/b" x="360" y="414"/>
-		<child widget="chupathingy/prompts/cancel" x="382" y="414"/>
-		<child widget="chupathingy/prompts/a" x="490" y="414"/>
-		<child widget="chupathingy/prompts/accept" x="512" y="414"/>
-	</widget>
-	<widget name="chupathingy/settings/mouse_settings_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/help">
-		<data input="port settings help"/>
-		<on event="a" run="port settings save" back="true"/>
-		<on event="y" run="port settings defaults"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/op_mouse_sensitivity" x="54" y="73"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/op_mouse_vertical_sensitivity" x="54" y="103"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/op_invert_mouse" x="54" y="133"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/op_mouse_aim_assist" x="54" y="163"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/op_field_of_view" x="54" y="193"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_resolution" x="54" y="97" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_window_size" x="54" y="97" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_resolution_scaling" x="54" y="121" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_vsync" x="54" y="145"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_max_fps" x="54" y="169" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_interpolation" x="54" y="169" platform="android"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_anti_aliasing" x="54" y="193" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_anti_aliasing_android" x="54" y="193" platform="android"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_field_of_view" x="54" y="217"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_viewmodel_field_of_view" x="54" y="241"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_link_advanced" x="54" y="265"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_link_interface" x="54" y="289"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/view_advanced" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_shadow_resolution" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_per_pixel_lighting" x="54" y="97"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_full_model_detail" x="54" y="121"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_anisotropic_filtering" x="54" y="145"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_far_clip_distance" x="54" y="169"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/view_interface" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_menus" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_high_res_hud" x="54" y="97"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_high_res_text" x="54" y="121"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_player_names" x="54" y="145"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_player_name_scale" x="54" y="169"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_scoreboard_team_layout" x="54" y="193"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_scoreboard_background" x="54" y="217"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_powerup_timers" x="54" y="241"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_match_timer" x="54" y="265"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_follow_camera" x="54" y="289"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings/op_version_watermark" x="54" y="313"/>
 	</widget>
 	<widget name="chupathingy/settings/audio_settings_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
 		<on event="b" back="true"/>
@@ -88,10 +118,10 @@
 		<child widget="chupathingy/settings/audio_settings_list"/>
 		<child widget="chupathingy/prompts/y" x="60" y="414"/>
 		<child widget="chupathingy/prompts/defaults" x="82" y="414"/>
-		<child widget="chupathingy/prompts/b" x="360" y="414"/>
-		<child widget="chupathingy/prompts/cancel" x="382" y="414"/>
 		<child widget="chupathingy/prompts/a" x="490" y="414"/>
 		<child widget="chupathingy/prompts/accept" x="512" y="414"/>
+		<child widget="chupathingy/prompts/b" x="360" y="414"/>
+		<child widget="chupathingy/prompts/cancel" x="382" y="414"/>
 	</widget>
 	<widget name="chupathingy/settings/audio_settings_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/help">
 		<data input="port settings help"/>
@@ -105,78 +135,212 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_enabled" x="54" y="223"/>
 	</widget>
 	<widget name="chupathingy/settings/network_setup_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
-		<on event="b" back="true"/>
-		<on event="back" back="true"/>
+		<on event="b" run="port settings back"/>
+		<on event="back" run="port settings back"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/header_profile_network_settings"/>
 		<child widget="chupathingy/settings/network_setup_list"/>
 		<child widget="chupathingy/prompts/y" x="60" y="414"/>
 		<child widget="chupathingy/prompts/defaults" x="82" y="414"/>
-		<child widget="chupathingy/prompts/b" x="360" y="414"/>
-		<child widget="chupathingy/prompts/cancel" x="382" y="414"/>
 		<child widget="chupathingy/prompts/a" x="490" y="414"/>
 		<child widget="chupathingy/prompts/accept" x="512" y="414"/>
+		<child widget="chupathingy/prompts/b" x="360" y="414"/>
+		<child widget="chupathingy/prompts/cancel" x="382" y="414"/>
+		<child widget="chupathingy/prompts/back" x="382" y="414"/>
 	</widget>
 	<widget name="chupathingy/settings/network_setup_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/player_setup/player_profile_edit/network_setup/help">
 		<data input="port settings help"/>
-		<on event="a" run="port settings save" back="true"/>
+		<on event="created" run="port settings views init"/>
+		<on event="a" run="port settings accept"/>
 		<on event="y" run="port settings defaults"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/view_main" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_online" x="54" y="73"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_allow_upnp" x="54" y="97"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_join_from_clipboard" x="54" y="121"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_auto" x="54" y="145"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_player_names" x="54" y="169"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_player_name_scale" x="54" y="193"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_scoreboard_team_layout" x="54" y="217"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_scoreboard_background" x="54" y="241"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_map_downloads" x="54" y="265"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_presence" x="54" y="289" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_show_server_name" x="54" y="313" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_show_join" x="54" y="337" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_allow_upnp" x="54" y="103"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_map_downloads" x="54" y="133"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_join_from_clipboard" x="54" y="163"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_auto" x="54" y="193"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_start_with_one_player" x="54" y="223"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_link_chat" x="54" y="253"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_link_privacy" x="54" y="283"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/view_chat" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_enabled" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_show" x="54" y="103"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_filter" x="54" y="133"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_streamer_mode" x="54" y="163"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/view_privacy" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_report_hosted_games" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_report_events" x="54" y="103"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_report_joined_games" x="54" y="133"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_upload" x="54" y="163" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_presence" x="54" y="193" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_show_server_name" x="54" y="223" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_setup/op_show_join" x="54" y="253" platform="desktop"/>
 	</widget>
-	<widget name="chupathingy/settings/privacy_setup_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
+	<widget name="chupathingy/settings/delta_privacy_setup_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
 		<on event="b" back="true"/>
 		<on event="back" back="true"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/header_profile_privacy_settings"/>
-		<child widget="chupathingy/settings/privacy_setup_list"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/header_privacy"/>
+		<child widget="chupathingy/settings/delta_privacy_setup_list"/>
 		<child widget="chupathingy/prompts/y" x="60" y="414"/>
 		<child widget="chupathingy/prompts/defaults" x="82" y="414"/>
-		<child widget="chupathingy/prompts/b" x="360" y="414"/>
-		<child widget="chupathingy/prompts/cancel" x="382" y="414"/>
 		<child widget="chupathingy/prompts/a" x="490" y="414"/>
 		<child widget="chupathingy/prompts/accept" x="512" y="414"/>
+		<child widget="chupathingy/prompts/b" x="360" y="414"/>
+		<child widget="chupathingy/prompts/cancel" x="382" y="414"/>
 	</widget>
-	<widget name="chupathingy/settings/privacy_setup_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/help">
+	<widget name="chupathingy/settings/delta_privacy_setup_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/help">
 		<data input="port settings help"/>
 		<on event="a" run="port settings save" back="true"/>
 		<on event="y" run="port settings defaults"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/op_report_hosted_games" x="54" y="73"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/op_report_events" x="54" y="103"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/op_report_joined_games" x="54" y="133"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/privacy_setup/op_upload" x="54" y="163" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_share_profile" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_report_joined_games" x="54" y="103"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_report_hosted_games" x="54" y="133"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_report_events" x="54" y="163"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_hide_stats" x="54" y="193"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_hide_heatmaps" x="54" y="223"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_show_clan_tag" x="54" y="253"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_presence" x="54" y="283" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_profile_names" x="54" y="313"/>
 	</widget>
-	<widget name="chupathingy/settings/gamepad_setup_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/delta_privacy_settings_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
 		<on event="b" back="true"/>
 		<on event="back" back="true"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/header_profile_controller_setting"/>
-		<child widget="chupathingy/settings/gamepad_setup_list"/>
-		<child widget="chupathingy/prompts/y" x="60" y="414"/>
-		<child widget="chupathingy/prompts/defaults" x="82" y="414"/>
-		<child widget="chupathingy/prompts/b" x="360" y="414"/>
-		<child widget="chupathingy/prompts/cancel" x="382" y="414"/>
-		<child widget="chupathingy/prompts/a" x="490" y="414"/>
-		<child widget="chupathingy/prompts/accept" x="512" y="414"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/header_privacy"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/options_menu"/>
 	</widget>
-	<widget name="chupathingy/settings/gamepad_setup_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/help">
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/header_privacy" controller="1" left="35" top="11" width="605" height="59" bitmap="chupathingy/delta_profile/header_privacy">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/help" type="text" controller="1" left="68" top="350" width="482" height="60" string_list="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/help_strings" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/options_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/help">
 		<data input="port settings help"/>
-		<on event="a" run="port settings save" back="true"/>
-		<on event="y" run="port settings defaults"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/op_look_sensitivity" x="54" y="73"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/op_invert_look" x="54" y="103"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/op_flight_inversion" x="54" y="133"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/op_autocenter" x="54" y="163"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/op_button_preset" x="54" y="193"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/op_joystick_preset" x="54" y="223"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/op_vibration" x="54" y="253"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/op_ingame_help" x="54" y="283"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_share_profile" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_report_joined_games" x="54" y="103"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_report_hosted_games" x="54" y="133"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_report_events" x="54" y="163"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_hide_stats" x="54" y="193"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_hide_heatmaps" x="54" y="223"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_show_clan_tag" x="54" y="253"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_presence" x="54" y="283" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_profile_names" x="54" y="313"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/button_bar" y="414"/>
 	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/button_defaults" y="1"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/button_ok" x="380" y="1"/>
+		<child widget="common_button_cancel" x="510" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_share_profile" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/share_profile_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/share_profile_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/share_profile_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/labels" string_index="0" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/share_profile_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" setting="network.share_profile" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_report_joined_games" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/report_joined_games_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/report_joined_games_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/report_joined_games_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/labels" string_index="1" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/report_joined_games_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" setting="network.report_joined_games" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_report_hosted_games" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/report_hosted_games_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/report_hosted_games_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/report_hosted_games_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/labels" string_index="2" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/report_hosted_games_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" setting="network.report_hosted_games" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_report_events" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/report_events_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/report_events_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/report_events_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/labels" string_index="3" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/report_events_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" setting="network.report_events" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_hide_stats" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/hide_stats_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/hide_stats_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/hide_stats_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/labels" string_index="4" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/hide_stats_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="NO|YES" setting="site.hide_stats" values="false|true" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_hide_heatmaps" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/hide_heatmaps_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/hide_heatmaps_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/hide_heatmaps_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/labels" string_index="5" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/hide_heatmaps_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="NO|YES" setting="site.hide_heatmaps" values="false|true" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_show_clan_tag" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/show_clan_tag_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/show_clan_tag_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/show_clan_tag_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/labels" string_index="6" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/show_clan_tag_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" setting="site.show_clan_tag" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_presence" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF" platform="desktop">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/presence_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/presence_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/presence_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/labels" string_index="7" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/presence_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="FULL|MINIMAL|OFF" setting="discord.presence" values="full|minimal|off" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/op_profile_names" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/profile_names_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/profile_names_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/profile_names_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/labels" string_index="8" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/profile_names_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" setting="display.profile_names" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/button_defaults" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="3" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" run="port settings defaults"/>
+		<on event="start" run="port settings defaults"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/button_ok" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="1" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" run="port settings save" back="true"/>
+		<on event="start" run="port settings save" back="true"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<strings name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/labels">
+		<string text="SHARE MY PROFILE:"/>
+		<string text="RECORD GAMES I JOIN:"/>
+		<string text="RECORD GAMES I HOST:"/>
+		<string text="DELTA STATS DETAIL:"/>
+		<string text="HIDE MY RECORD:"/>
+		<string text="HIDE MY HEATMAPS:"/>
+		<string text="SHOW CLAN TAG:"/>
+		<string text="DISCORD STATUS:"/>
+		<string text="SHOW PROFILE NAMES:"/>
+	</strings>
+	<strings name="main_menu/settings_select/player_setup/player_profile_edit/delta_privacy_setup/help_strings">
+		<string text=""/>
+		<string text="Show your Delta name to Chupathingy players."/>
+		<string text="Report the games you join."/>
+		<string text="Report the games you host."/>
+		<string text="Send kills, weapons and medals as host."/>
+		<string text="Hide your record from other players."/>
+		<string text="Hide your heatmaps from other players."/>
+		<string text="Show your clan tag to Chupathingy players."/>
+		<string text="What Discord shows while you play."/>
+		<string text="Show players by their Delta names."/>
+	</strings>
 </menus>

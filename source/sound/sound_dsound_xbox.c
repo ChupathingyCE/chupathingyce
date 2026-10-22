@@ -16,6 +16,7 @@ SOUND_DSOUND_XBOX.C
 #include "sound/sound_environment_definitions.h"
 #include "sound/sound_preferences.h"
 #include "text/draw_string.h"
+#include "audio_probe.h" /* port: port/linux/game/audio_probe.c */
 
 #include <xtl.h>
 
@@ -36,7 +37,6 @@ enum
 	MAXIMUM_SOUND_PACKETS = 4,
 	MAXIMUM_SOUND_PACKET_SIZE = 8192,
 	MAXIMUM_COMPRESSED_SOUND_PACKET_SIZE = 2304,
-	SOUND_CACHE_SIZE = 0x400000,
 	SOUND_COMPRESSED_BLOCK_SIZE = 36,
 	SOUND_COMPRESSED_SAMPLES_PER_BLOCK = 64,
 	MAXIMUM_DSOUND_MIXBINS = 8
@@ -1293,6 +1293,45 @@ struct sound_platform_definition platform_sound_dsound =
 
 static char dsound_error_string[MAXIMUM_DSOUND_ERROR_STRING_LENGTH+1];
 
+#ifdef HALO_XBOX_CONSOLE
+/* port: the first channels to start, into debug.txt, and whether each then
+went on to stream (its packets are refilled from DirectSound's callback,
+which cannot log, so the count is read from the main loop) */
+enum
+{
+	XBOX_SOUND_LOG_LINES = 24,
+	/* past the first fill: refilled from the callback */
+	XBOX_SOUND_STREAMING_PACKETS = MAXIMUM_SOUND_PACKETS+2,
+};
+
+static long xbox_sound_log_lines;
+static long xbox_sound_started;
+static long xbox_sound_failures;
+static volatile long xbox_channel_packets[MAXIMUM_SOUND_CHANNELS];
+static boolean xbox_channel_watched[MAXIMUM_SOUND_CHANNELS];
+
+unsigned long xbox_memory_free(void);
+
+/* port: a sound that could not start, said (the first few a map, then
+counted into the map's summary): the name, why, and what memory is left. The
+packet queue runs from DirectSound's callback and the main loop alike, so the
+text is built in place and logged from the main loop's thread only when the
+caller is on it (queued failures are counted and shown by dsound_flush). */
+static void xbox_sound_failed(
+	char const *name,
+	char const *why)
+{
+	xbox_sound_failures++;
+	if (xbox_sound_failures<=8)
+	{
+		error(_error_silent, "sound: could not start %.32s: %s, %lu KB free",
+			name ? name : "?", why, xbox_memory_free()/1024);
+	}
+}
+#else
+#define xbox_sound_failed(name, why) ((void)0)
+#endif
+
 /* ---------- public code */
 
 unsigned long sound_samples_per_second(
@@ -1443,6 +1482,24 @@ static void dsound_begin_scene(
 
 	dsound_error_string[0]= 0;
 	interrupt_result= 0;
+
+#ifdef HALO_XBOX_CONSOLE
+	{
+		short index;
+
+		for (index= 0; index<dsound_globals.actual_channel_count && index<MAXIMUM_SOUND_CHANNELS; index++)
+		{
+			if (xbox_channel_watched[index] && xbox_channel_packets[index]>=XBOX_SOUND_STREAMING_PACKETS)
+			{
+				struct sound_channel *channel= channel_get(index);
+
+				xbox_channel_watched[index]= FALSE;
+				error(_error_silent, "sound: channel %d refilled (%ld packets, gain %.2f)",
+					index, xbox_channel_packets[index], channel->gain);
+			}
+		}
+	}
+#endif
 
 	return;
 }
@@ -1654,6 +1711,19 @@ static void dsound_flush(
 {
 	short index;
 
+#ifdef HALO_XBOX_CONSOLE
+	/* port: the map is going: its sounds in one line, and the first few of
+	the next map are logged again (the 24 lines were all spent at the menu) */
+	if (xbox_sound_started || xbox_sound_failures)
+	{
+		error(_error_silent, "sound: %ld started, %ld could not start this map, %lu KB free",
+			xbox_sound_started, xbox_sound_failures, xbox_memory_free()/1024);
+	}
+	xbox_sound_started= 0;
+	xbox_sound_failures= 0;
+	xbox_sound_log_lines= 0;
+#endif
+
 	for (index= 0; index<dsound_globals.actual_channel_count; index++)
 	{
 		struct sound_channel *channel= channel_get(index);
@@ -1767,6 +1837,25 @@ static void dsound_set_listener_properties(
 		i3dl2.flHFReference= environment->hf_reference;
 
 		IDirectSound_SetI3DL2Listener(dsound_globals.direct_sound, &i3dl2, DS3D_DEFERRED);
+
+		/* port: logged by the audio probe (port/linux/game/audio_probe.c) */
+		{
+			struct audio_probe_environment probe_environment;
+
+			probe_environment.room= i3dl2.lRoom;
+			probe_environment.room_hf= i3dl2.lRoomHF;
+			probe_environment.room_rolloff_factor= i3dl2.flRoomRolloffFactor;
+			probe_environment.decay_time= i3dl2.flDecayTime;
+			probe_environment.decay_hf_ratio= i3dl2.flDecayHFRatio;
+			probe_environment.reflections= i3dl2.lReflections;
+			probe_environment.reflections_delay= i3dl2.flReflectionsDelay;
+			probe_environment.reverb= i3dl2.lReverb;
+			probe_environment.reverb_delay= i3dl2.flReverbDelay;
+			probe_environment.diffusion= i3dl2.flDiffusion;
+			probe_environment.density= i3dl2.flDensity;
+			probe_environment.hf_reference= i3dl2.flHFReference;
+			audio_probe_environment_changed(&probe_environment);
+		}
 	}
 
 	return;
@@ -2649,15 +2738,24 @@ static boolean dsound_channel_queue_packet(
 						sound_cache_sound_hardware_lock(sound);
 
 						queued= TRUE;
+#ifdef HALO_XBOX_CONSOLE
+						if (index<MAXIMUM_SOUND_CHANNELS)
+						{
+							xbox_channel_packets[index]++;
+						}
+#endif
 					}
 					else
 					{
+						xbox_sound_failed(sound->name, result==DSERR_OUTOFMEMORY ?
+							"out of memory queuing a packet" : "packet refused");
 						interrupt_time_error(&result, "couldn't queue sound packet.");
 					}
 				}
 			}
 			else
 			{
+				xbox_sound_failed(channel->playing_permutation->name, "outside the sound cache");
 				sprintf(
 					temporary,
 					/* port: %.32s, the name is the map's 32 characters */
@@ -2670,6 +2768,7 @@ static boolean dsound_channel_queue_packet(
 		}
 		else
 		{
+			xbox_sound_failed(channel->playing_permutation->name, "not in the sound cache");
 			interrupt_time_error(NULL, "trying to queue sound but samples is null.");
 		}
 	}
@@ -2737,6 +2836,21 @@ static void dsound_channel_queue_sound(
 			channel->playing_permutation= sound;
 			channel->sample_offset= 0;
 			channel->packet_count= 0;
+
+			/* port: logged by the audio capture of real play (port/linux/game/audio_probe.c) */
+			audio_probe_sound_started(index, channel->type_flags, sound->name, sound->samples.size,
+				channel->gain, channel->obstruction, channel->occlusion, channel->spatialized);
+#ifdef HALO_XBOX_CONSOLE
+			xbox_sound_started++;
+			if (index<MAXIMUM_SOUND_CHANNELS && xbox_sound_log_lines<XBOX_SOUND_LOG_LINES)
+			{
+				xbox_sound_log_lines++;
+				xbox_channel_packets[index]= 0;
+				xbox_channel_watched[index]= TRUE;
+				error(_error_silent, "sound: channel %d (type %d) starts %.32s, %ld bytes, gain %.2f",
+					index, channel->type_flags, sound->name, sound->samples.size, channel->gain);
+			}
+#endif
 
 			result= IDirectSound_CommitDeferredSettings(dsound_globals.direct_sound);
 

@@ -618,6 +618,12 @@ enum
 
 #define CE_ALIGNED(size) (((size) + 15) & ~15UL)
 
+/* (the most one allocation of a model's conversion takes, which the check
+leaves room for: ce_map_checks.h) */
+typedef char verify_ce_largest_conversion_allocation[
+	CE_ALIGNED((CE_MAXIMUM_PART_TRIANGLES + 2) * 2) <= CE_LARGEST_CONVERSION_ALLOCATION &&
+	CE_ALIGNED(CE_MAXIMUM_GEOMETRY_PARTS * XBOX_PART_SIZE) <= CE_LARGEST_CONVERSION_ALLOCATION ? 1 : -1];
+
 static long ce_read_long32(
 	byte const *at)
 {

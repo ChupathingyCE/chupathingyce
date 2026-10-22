@@ -25,12 +25,23 @@ load, so this stays simple rather than clever.
 #include <string.h>
 #include <sys/mman.h>
 
-/* (above Custom Edition maps' tag cache, platform.h) */
+#ifdef HALO_WINDOW_TRANSLATED
+/* the window's part below the contiguous memory (xbox_address.h), committed
+as the heap grows: the console has no pages backed on first touch */
+#define XBOX_HEAP_BASE XBOX_WINDOW_LOW
+#define XBOX_HEAP_END PLATFORM_CONTIGUOUS_BASE
+#define HEAP_COMMIT_GRANULARITY 0x100000U
+#else
+/* (above Custom Edition maps' tag cache and the room above it, platform.h) */
 #define XBOX_HEAP_BASE 0x42000000U
 #define XBOX_HEAP_END 0x7f000000U
+#endif
 #define HEAP_MAGIC 0x68656170U /* 'heap' */
 #define SMALL_CLASS_COUNT 13 /* 16 bytes .. 64 KB of payload */
 #define LARGE_GRANULARITY 0x10000U
+
+typedef char verify_heap_above_ce_tag_cache[PLATFORM_CE_TAG_CACHE_BASE + PLATFORM_CE_TAG_CACHE_SIZE +
+	PLATFORM_CE_CONVERSION_ROOM_SIZE <= XBOX_HEAP_BASE ? 1 : -1];
 
 struct heap_block
 {
@@ -49,6 +60,10 @@ static unsigned char *heap_next;
 static unsigned char *heap_end;
 static struct free_node *small_free[SMALL_CLASS_COUNT];
 static struct free_node *large_free;
+#ifdef HALO_WINDOW_TRANSLATED
+/* the end of the committed part */
+static unsigned char *heap_committed;
+#endif
 
 static BOOL heap_initialize(void)
 {
@@ -56,6 +71,9 @@ static BOOL heap_initialize(void)
 
 	if (heap_next)
 		return TRUE;
+#ifdef HALO_WINDOW_TRANSLATED
+	heap_committed = base;
+#else
 	/* (no swap reserved: nearly 1 GB of address space, of which the game
 	touches a small part; a machine with 1 GB of memory refuses it otherwise) */
 	if (mmap(base, XBOX_HEAP_END - XBOX_HEAP_BASE, PROT_READ | PROT_WRITE,
@@ -66,6 +84,7 @@ static BOOL heap_initialize(void)
 			(XBOX_HEAP_END - XBOX_HEAP_BASE) >> 20);
 		abort();
 	}
+#endif
 	heap_next = base;
 	heap_end = xbox_pointer(XBOX_HEAP_END);
 	return TRUE;
@@ -91,6 +110,23 @@ static struct heap_block *carve(size_t capacity)
 
 	if ((size_t)(heap_end - heap_next) < sizeof(*block) + capacity)
 		return NULL;
+#ifdef HALO_WINDOW_TRANSLATED
+	if (heap_next + sizeof(*block) + capacity > heap_committed)
+	{
+		size_t wanted = (size_t)(heap_next + sizeof(*block) + capacity - heap_committed);
+		size_t size = (wanted + HEAP_COMMIT_GRANULARITY - 1) & ~(size_t)(HEAP_COMMIT_GRANULARITY - 1);
+
+		if (size > (size_t)(heap_end - heap_committed))
+			size = (size_t)(heap_end - heap_committed);
+		if (mmap(heap_committed, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) !=
+			heap_committed)
+		{
+			platform_log("cannot commit %u more bytes of the Xbox heap (%s)", (unsigned int)size, strerror(errno));
+			return NULL;
+		}
+		heap_committed += size;
+	}
+#endif
 	block = (struct heap_block *)heap_next;
 	heap_next += sizeof(*block) + capacity;
 	block->capacity = capacity;
@@ -98,9 +134,22 @@ static struct heap_block *carve(size_t capacity)
 	return block;
 }
 
+#ifdef HALO_WINDOW_TRANSLATED
+/* the bytes carved from the heap so far (its high-water mark: freed blocks
+are reused, not returned), for a console's memory report */
+size_t xbox_heap_used(void)
+{
+	return heap_next ? (size_t)(heap_next - (unsigned char *)xbox_pointer(XBOX_HEAP_BASE)) : 0;
+}
+
+#endif
 BOOL xbox_heap_contains(const void *pointer)
 {
+#ifdef HALO_WINDOW_TRANSLATED
+	unsigned int offset = (unsigned int)(uintptr_t)pointer - xbox_address_space_base;
+#else
 	unsigned long long offset = (unsigned long long)(uintptr_t)pointer - XBOX_ADDRESS_SPACE_BASE;
+#endif
 
 	return offset >= XBOX_HEAP_BASE && offset < XBOX_HEAP_END;
 }

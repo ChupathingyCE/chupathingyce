@@ -109,7 +109,7 @@ static void old_map_folders_offer(BOOL quiet)
 	const char *setting = config_string("game.move_old_map_folders");
 	char moves[256];
 	char text[1024];
-	SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "ChupathingyCE: map folders", text, 2,
+	SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "Chupathingy: map folders", text, 2,
 		buttons, NULL };
 	int answer = 0;
 
@@ -125,11 +125,9 @@ static void old_map_folders_offer(BOOL quiet)
 			return;
 		}
 		snprintf(text, sizeof(text),
-			"Halo PC maps have folders of their own beside the maps folder now: maps_ce for Custom Edition "
-			"maps, maps_md for HaloMD maps and maps_pc for the maps of your Halo PC disc.\n\n"
+			"Halo PC maps now go in maps_ce (Custom Edition), maps_md (HaloMD) and maps_pc (Halo PC disc).\n\n"
 			"Move your older folders there?\n\n%s\n\n"
-			"Each folder is moved whole: nothing is copied or deleted. If you leave them, their maps still "
-			"play from where they are.",
+			"Nothing is copied or deleted.",
 			moves);
 		if (!SDL_ShowMessageBox(&question, &answer))
 			return;
@@ -178,7 +176,7 @@ static void new_defaults_offer(BOOL quiet)
 	};
 	char changes[1024];
 	char text[1536];
-	SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "ChupathingyCE: new settings", text, 2,
+	SDL_MessageBoxData question = { SDL_MESSAGEBOX_INFORMATION, NULL, "Chupathingy: new settings", text, 2,
 		buttons, NULL };
 	int answer = 0;
 
@@ -191,10 +189,9 @@ static void new_defaults_offer(BOOL quiet)
 		return;
 	}
 	snprintf(text, sizeof(text),
-		"This version changes some of the game's default settings, which you have not changed yourself:\n\n"
+		"This version changes some default settings:\n\n"
 		"%s\n\n"
-		"Use the new settings, or keep your settings as they are now? You can change any of them later in "
-		"the game's settings or in config.toml.",
+		"Use the new settings, or keep yours?",
 		changes);
 	if (!SDL_ShowMessageBox(&question, &answer))
 	{
@@ -225,10 +222,8 @@ static void data_check_maps(void)
 	new_defaults_offer(quiet);
 	platform_maps_folder_check(&maps);
 	snprintf(where, sizeof(where),
-		"Put the Xbox maps from your Halo: Combat Evolved disc image in %s/maps. Halo PC "
-		"maps go in folders beside it: Custom Edition maps (with Custom Edition's bitmaps.map, "
-		"sounds.map and loc.map) in maps_ce, HaloMD maps in maps_md, and the maps of your "
-		"Halo PC disc in maps_pc.",
+		"Put the Xbox maps from your Halo: Combat Evolved disc image in %s/maps. "
+		"Custom Edition maps go in maps_ce, HaloMD maps in maps_md, Halo PC disc maps in maps_pc.",
 		maps.root);
 	switch (maps.state)
 	{
@@ -237,19 +232,17 @@ static void data_check_maps(void)
 		if (!maps.stray_pc_maps)
 			return;
 		snprintf(message, sizeof(message),
-			"These maps in the maps folder are Halo PC maps, which play only from maps_ce, maps_md or "
-			"maps_pc: %s%s.\n\n%s",
+			"These Halo PC maps are in the maps folder: %s%s.\n\n%s",
 			maps.stray_names, maps.stray_pc_maps > PLATFORM_MAPS_FOLDER_NAMED ? " and more" : "", where);
 		platform_log("maps folder: %ld Halo PC maps in %s/maps (%s)", maps.stray_pc_maps, maps.root,
 			maps.stray_names);
 		if (!quiet)
-			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "ChupathingyCE", message, NULL);
+			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Chupathingy", message, NULL);
 		return;
 	case _maps_folder_halo_pc:
 		snprintf(message, sizeof(message),
 			"The maps folder holds Halo PC maps, not the Xbox maps: its ui.map is from %s.\n\n%s\n\n"
-			"To copy the Xbox maps out of your disc image again, move this maps folder aside and "
-			"start ChupathingyCE.",
+			"To copy the Xbox maps from your disc image, move this maps folder aside and start Chupathingy.",
 			maps.ui_version == 609 ? "Halo PC (Custom Edition)" : "Halo PC", where);
 		break;
 	default:
@@ -262,10 +255,9 @@ static void data_check_maps(void)
 		}
 		snprintf(message, sizeof(message),
 			"Halo's Xbox maps were not found: %s/maps has no ui.map.%s\n\n%s\n\n"
-			"To copy the Xbox maps out of your disc image, move the maps folder aside and start "
-			"ChupathingyCE.",
+			"To copy the Xbox maps from your disc image, move the maps folder aside and start Chupathingy.",
 			maps.root, maps.stray_pc_maps || maps.pc_maps_beside ?
-				" Its Halo PC maps play only alongside the Xbox maps." : "",
+				" Halo PC maps need the Xbox maps too." : "",
 			where);
 		break;
 	}
@@ -273,7 +265,7 @@ static void data_check_maps(void)
 		maps.ui_version);
 	platform_log("%s", message);
 	if (!quiet)
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "ChupathingyCE", message, NULL);
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Chupathingy", message, NULL);
 	exit(EXIT_FAILURE);
 }
 #endif
@@ -289,14 +281,12 @@ static void crash_reports_start(void)
 		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "No" },
 	};
 	static const char text[] =
-		"ChupathingyCE crashed the last time it ran.\n\n"
-		"Do you want to send crash reports to the developers? They help us find and fix crashes.\n\n"
-		"A report holds the game's version, where in the game it crashed and the calls that led there, and the "
-		"end of its log, debug.txt, with IP addresses taken out. Reports go to the ChupathingyCE site "
-		"(network.browser_url) and its developers.\n\n"
-		"The answer is kept in config.toml (crash_reports.upload): Yes sends the report of this crash and of "
-		"every later one, No never sends one.";
-	SDL_MessageBoxData question = { SDL_MESSAGEBOX_WARNING, NULL, "ChupathingyCE crashed", text, 2, buttons, NULL };
+		"Chupathingy crashed the last time it ran.\n\n"
+		"Send crash reports to the developers?\n\n"
+		"A report holds the game's version, where it crashed and the end of debug.txt, with IP addresses "
+		"removed.\n\n"
+		"Yes sends this report and later ones. No never sends one.";
+	SDL_MessageBoxData question = { SDL_MESSAGEBOX_WARNING, NULL, "Chupathingy crashed", text, 2, buttons, NULL };
 	char folder[1024], log[1024], old_folder[1024], old_log[1024];
 	const char *consent;
 	int pending, answer = 0;
@@ -678,9 +668,8 @@ static BOOL data_make_folders(const char *destination)
 	platform_log("made the maps folders in %s", destination);
 	snprintf(message, sizeof(message),
 		"The folders are in %s:\n\n"
-		"maps: the Xbox maps (the maps folder of your Halo: Combat Evolved disc, with ui.map). "
-		"Chupathingy needs these to play.\n"
-		"maps_ce: Custom Edition maps, with Custom Edition's bitmaps.map, sounds.map and loc.map.\n"
+		"maps: the Xbox maps, with ui.map. Required.\n"
+		"maps_ce: Custom Edition maps, with bitmaps.map, sounds.map and loc.map.\n"
 		"maps_pc: the maps from your Halo PC disc.\n"
 		"maps_md: HaloMD maps.\n\n"
 		"Put the files in, then choose Check again.",
@@ -730,13 +719,11 @@ BOOL platform_offer_game_data(const char *destination)
 		return FALSE;
 	}
 	snprintf(message, sizeof(message),
-		"Chupathingy plays Halo with the maps from your Xbox disc. How do you want to add them?\n\n"
-		"Xbox disc image: copy the maps folder out of a disc image (.iso) of Halo: Combat Evolved, "
-		"about 2 GB, into %s/maps.\n\n"
-		"Halo PC or Custom Edition (optional): add the maps from your Halo PC CD image (.iso) or the "
+		"Chupathingy needs the maps from your Halo: Combat Evolved Xbox disc. Add them from:\n\n"
+		"Xbox disc image: a disc image (.iso), copied into %s/maps.\n\n"
+		"Halo PC or Custom Edition (optional): a Halo PC CD image (.iso) or the "
 		"Custom Edition installer (halocesetup_en_1.00.exe).\n\n"
-		"Make the folders: make the empty map folders, and put the files in yourself.\n\n"
-		"(Or set paths.data in config.toml.)",
+		"Make the folders: empty map folders to fill yourself.",
 		destination);
 	for (;;)
 	{
@@ -788,8 +775,7 @@ BOOL platform_offer_game_data(const char *destination)
 			char done[1400];
 
 			platform_log("imported %llu MB of maps into %s/%s", written >> 20, destination, folder);
-			snprintf(done, sizeof(done), "%s\n\nChupathingy still needs the Xbox maps to play: choose "
-				"Xbox disc image next.",
+			snprintf(done, sizeof(done), "%s\n\nNext, add the Xbox maps: choose Xbox disc image.",
 				written ? (kind == _data_halo_pc_disc ? "The Halo PC maps are in maps_pc." :
 					"The Custom Edition maps are in maps_ce.") :
 				(kind == _data_halo_pc_disc ? "maps_pc already has these maps." :
@@ -1569,7 +1555,7 @@ void platform_clipboard_set(const char *text)
 	SDL_SetClipboardText(text);
 }
 
-/* network.join_from_clipboard: "ask" (the default), "always" or "never"
+/* network.join_from_clipboard: "never" (the default), "ask" or "always"
 (true and false, of older versions, are "always" and "never":
 port_config.c) */
 enum
@@ -1586,9 +1572,9 @@ static int platform_clipboard_join_setting(void)
 	/* (in lowercase, true and false read as these: config_check_words) */
 	if (!strcmp(setting, "always"))
 		return _clipboard_join_always;
-	if (!strcmp(setting, "never"))
-		return _clipboard_join_never;
-	return _clipboard_join_ask;
+	if (!strcmp(setting, "ask"))
+		return _clipboard_join_ask;
+	return _clipboard_join_never;
 }
 
 /* an invite found on the clipboard, waiting for the player's answer (the
@@ -1629,7 +1615,7 @@ static void platform_invite_clipboard(BOOL look)
 		snprintf(seen, sizeof(seen), "%s", invite);
 		platform_log("Internet play: the invite link is on the clipboard");
 #ifdef HALO_ANDROID
-		SDL_ShowAndroidToast("Hosting: the invite link is on the clipboard", 1, -1, 0, 0);
+		SDL_ShowAndroidToast("Invite link copied", 1, -1, 0, 0);
 #endif
 	}
 	setting = look ? platform_clipboard_join_setting() : _clipboard_join_never;
@@ -1659,7 +1645,7 @@ static void platform_invite_clipboard(BOOL look)
 				if (p2p_join_invite(text))
 				{
 #ifdef HALO_ANDROID
-					SDL_ShowAndroidToast("Joining the invite on the clipboard", 1, -1, 0, 0);
+					SDL_ShowAndroidToast("Joining the invite", 1, -1, 0, 0);
 #endif
 				}
 			}
@@ -1737,14 +1723,14 @@ static void platform_game_list_requests(void)
 			return;
 		}
 		snprintf(message, sizeof(message),
-			"A link asks to replace this copy's player key, which confirms your games on the game list.\n\n"
-			"Your games are now confirmed as player %.8s. With the new key they will be player %.8s.\n\n"
-			"Replace the key only with your own, from your profile on the game list.",
+			"A link asks to replace your player key.\n\n"
+			"Current: player %.8s. New: player %.8s.\n\n"
+			"Replace it only with your own key, from your profile on the game list.",
 			old_id[0] ? old_id : "(none)", new_id);
 		memset(&question, 0, sizeof(question));
 		question.flags = SDL_MESSAGEBOX_WARNING;
 		question.window = platform_window;
-		question.title = "Halo: replace your player key?";
+		question.title = "Chupathingy: replace your player key?";
 		question.message = message;
 		question.numbuttons = 2;
 		question.buttons = buttons;
@@ -1908,7 +1894,7 @@ void platform_pump_events(void)
 		case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
 			if (SDL_GetModState() & SDL_KMOD_GUI)
 			{
-				platform_quit_notice("Command-W does not close the game: press Command-Q twice to quit");
+				platform_quit_notice("Press Command-Q twice to quit");
 				break;
 			}
 			pthread_mutex_unlock(&input_lock);
@@ -2225,6 +2211,48 @@ void platform_ui_pointer_set_active(BOOL active)
 	{
 		show_pointer(FALSE);
 	}
+}
+
+/* debug.test_input's mouse (xinput_sdl.c): the event a mouse would send,
+at a point of the window; button 0 moves, SDL_BUTTON_LEFT or _RIGHT clicks
+(down and up), and wheel turns the wheel that many notches instead */
+void platform_test_pointer_event(float x, float y, int button, int wheel)
+{
+	SDL_Event event;
+	SDL_WindowID window = platform_window ? SDL_GetWindowID(platform_window) : 0;
+
+	memset(&event, 0, sizeof(event));
+	if (wheel)
+	{
+		event.type = SDL_EVENT_MOUSE_WHEEL;
+		event.wheel.windowID = window;
+		event.wheel.y = (float)wheel;
+		event.wheel.integer_y = wheel;
+		event.wheel.mouse_x = x;
+		event.wheel.mouse_y = y;
+		SDL_PushEvent(&event);
+		return;
+	}
+	if (!button)
+	{
+		event.type = SDL_EVENT_MOUSE_MOTION;
+		event.motion.windowID = window;
+		event.motion.x = x;
+		event.motion.y = y;
+		SDL_PushEvent(&event);
+		return;
+	}
+	event.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+	event.button.windowID = window;
+	event.button.button = (Uint8)button;
+	event.button.down = TRUE;
+	event.button.clicks = 1;
+	event.button.x = x;
+	event.button.y = y;
+	SDL_PushEvent(&event);
+	event.type = SDL_EVENT_MOUSE_BUTTON_UP;
+	event.button.down = FALSE;
+	SDL_PushEvent(&event);
 }
 
 /* what the pointer did since the last call; FALSE when it is not active */

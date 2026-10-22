@@ -16,10 +16,45 @@ a finishing place in 7 bits.
 #ifndef __HALO_PORT_LIMITS_H
 #define __HALO_PORT_LIMITS_H
 
+/* what a console build asks of the shared code (its capabilities) */
+#include "halo_console_features.h"
+
 /* ---------- session limits */
 
+/* A console's build (HALO_CONSOLE_PLAYERS, the original Xbox's) stays the
+Xbox: 16 players, though on as many machines as players, one each, as the
+native builds' players come. HALO_CONSOLE_LIMITS gives a desktop build the
+console's limits, to test the console's side of cross-play against the PC
+builds on one computer (configure.py --console-limits); it is never a
+release. */
+#if defined(HALO_CONSOLE_PLAYERS) || defined(HALO_CONSOLE_LIMITS)
+#define HALO_PORT_CONSOLE_LIMITS 1
+#ifdef HALO_CONSOLE_PLAYERS
+/* HALO_CONSOLE_PLAYERS (configure.py --console-players) is the players the
+console's build takes: 16, the Xbox's, unless a test build asks for 32 or 64
+(which a stock console's memory does not hold: the build says so when it
+starts). The tables of the players, the machines and the tunnel's peers
+(P2P_MAXIMUM_PEERS, p2p_internal.h) are sized by it; a host's game with more
+is left as a full game is (network_client_message_handler.c). */
+#define HALO_PORT_MAXIMUM_NETWORK_PLAYERS HALO_CONSOLE_PLAYERS
+/* one more machine than players: a dedicated host is machine #0, so 16
+players are machines #1 to #16 */
+#define HALO_PORT_MAXIMUM_NETWORK_MACHINES (HALO_CONSOLE_PLAYERS + 1)
+#else
+#define HALO_PORT_MAXIMUM_NETWORK_PLAYERS 16
+#define HALO_PORT_MAXIMUM_NETWORK_MACHINES 16
+#endif
+#else
 #define HALO_PORT_MAXIMUM_NETWORK_PLAYERS 128
 #define HALO_PORT_MAXIMUM_NETWORK_MACHINES 128
+#endif
+
+/* the slots on the network: the PC builds' (128 and 128 since network
+version 11; network version 28 keeps them), which never change; a build with the console's limits folds the PCs' game settings
+record and game type states into its own slots as they arrive
+(port/linux/game/network_game_layout.c, docs/cross-play.md) */
+#define HALO_PORT_WIRE_NETWORK_PLAYERS 128
+#define HALO_PORT_WIRE_NETWORK_MACHINES 128
 
 /* a host polls its listening socket and one socket per machine; the Xbox's
 Winsock headers default to 64 (the prefix headers define FD_SETSIZE from
@@ -29,6 +64,10 @@ this before any of them is read) */
 /* ---------- memory capacity for these limits (game state and pools) */
 
 #include "halo_port_capacity.h"
+
+/* ---------- the desktop extras a console's build leaves out */
+
+#include "halo_port_features.h"
 
 /* ---------- struct network_game layout
 
@@ -50,6 +89,10 @@ machines, 16 players) are 0x226 and 0x434. */
 #define HALO_PORT_NETWORK_GAME_VARIANT_OPTIONS_OFFSET (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0xA)
 #define HALO_PORT_NETWORK_GAME_LOCAL_DATA_OFFSET (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0x26)
 #define HALO_PORT_NETWORK_GAME_SIZE (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0x2A)
+/* ... at the network's slots (13,120 bytes) */
+#define HALO_PORT_WIRE_NETWORK_GAME_SIZE (HALO_PORT_NETWORK_GAME_MACHINES_OFFSET + \
+	HALO_PORT_WIRE_NETWORK_MACHINES * HALO_PORT_NETWORK_MACHINE_SIZE + 2 + \
+	HALO_PORT_WIRE_NETWORK_PLAYERS * HALO_PORT_NETWORK_PLAYER_SIZE + 0x2A)
 
 /* ---------- system link protocol
 
@@ -66,7 +109,7 @@ is newer (network_client_manager.c). A host advertises it, with its netcode,
 in its game's advertisement's reserved bytes (network_server_message_handler.c),
 which hosts built before there was a version send as zeros: version 0.
 Raise it with any change to what the machines send each other. */
-#define HALO_PORT_NETWORK_VERSION 29
+#define HALO_PORT_NETWORK_VERSION 32
 /* ... the versions whose hosts a client joins: its own, and those that differ
 from it only in what the other machines leave out (a message a machine of
 the other version does not know it drops). Which are which is delta.h's
@@ -78,7 +121,7 @@ here, which the command repository reads). A host
 never checks a client's version: the client does (network_client_manager.c),
 so the range is the client's. */
 #define HALO_PORT_NETWORK_VERSION_MINIMUM 11
-#define HALO_PORT_NETWORK_VERSION_MAXIMUM 30
+#define HALO_PORT_NETWORK_VERSION_MAXIMUM 33
 /* ... the numbers in use (port/linux/src/delta.c): the three above, until a
 legacy table (docs/delta.md) widens them; code asks these, not the numbers */
 int delta_legacy_announce(void);

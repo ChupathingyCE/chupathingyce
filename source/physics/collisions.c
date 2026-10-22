@@ -495,8 +495,10 @@ boolean collision_test_vector(
 	collision->type = NONE;
 	collision->start_location.leaf_index = NONE;
 	collision->start_location.cluster_index = NONE;
+	collision->start_location.bonus = NONE;
 	collision->location.leaf_index = NONE;
 	collision->location.cluster_index = NONE;
+	collision->location.bonus = NONE;
 	collision->t = 1.0f;
 
 	if (test_environment)
@@ -1151,8 +1153,10 @@ boolean collision_test_pill_new(
 	collision->type = NONE;
 	collision->start_location.leaf_index = NONE;
 	collision->start_location.cluster_index = NONE;
+	collision->start_location.bonus = NONE;
 	collision->location.leaf_index = NONE;
 	collision->location.cluster_index = NONE;
+	collision->location.bonus = NONE;
 	collision->t = 1.0f;
 
 	if (collision_bsp_test_pill_new(

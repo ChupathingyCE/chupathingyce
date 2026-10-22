@@ -475,6 +475,13 @@
 
   // ---------- maps
 
+  // an Xbox map pack's map as its pack names it ("wizard@cex: Gothra (CE+)",
+  // from /v1/maps's map_packs; a server before map packs sends none)
+  function mapLabel(name) {
+    const pack = maps && maps.map_packs && maps.map_packs[name];
+    return pack ? `${name}: ${pack.name} (${pack.tag})` : name;
+  }
+
   function option(value, text) {
     const node = element('option', text === undefined ? value : text);
     node.value = value;
@@ -488,7 +495,7 @@
     const [cycle, status] = await Promise.all([api('/v1/mapcycle'), api('/v1/status')]);
     if (!maps) {
       maps = await api('/v1/maps');
-      $('map-select').replaceChildren(...maps.maps.map((name) => option(name)));
+      $('map-select').replaceChildren(...maps.maps.map((name) => option(name, mapLabel(name))));
       $('type-select').replaceChildren(...maps.game_types.map((name) => option(name)));
     }
     if (maps.maps.includes(status.map)) $('map-select').value = status.map;
@@ -787,7 +794,7 @@
       body.append(row);
     });
     const typeNames = (types.builtins || []).map((type) => type.name).concat((types.gametypes || []).map((type) => type.name));
-    $('editor-map').replaceChildren(...maps.maps.map((name) => option(name)));
+    $('editor-map').replaceChildren(...maps.maps.map((name) => option(name, mapLabel(name))));
     $('editor-type').replaceChildren(...typeNames.map((name) => option(name)));
     $('gametype-new-base').replaceChildren(...typeNames.map((name) => option(name)));
     const typesBody = $('gametypes-body');

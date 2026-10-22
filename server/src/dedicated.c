@@ -38,8 +38,9 @@ Browser), and is withdrawn when the server stops.
 
 The playlist: one entry a line, a map (its name, "bloodgulch", its path, a
 Custom Edition map in maps_ce as <name>@ce, "timberland@ce", a HaloMD map
-in maps_md as <name>@md, "phoenix3_15@md", or a Halo PC retail map in
-maps_pc as <name>@pc: halo_map_families.h) and a game
+in maps_md as <name>@md, "phoenix3_15@md", a Halo PC retail map in
+maps_pc as <name>@pc, or an Xbox map pack's map in maps_<pack> as
+<name>@<pack>, Halo CE+'s "wizard@cex": halo_map_families.h) and a game
 type (game_engine_get_variant_by_name's names: slayer, team_slayer, ctf,
 king, oddball, race, ...); # starts a comment.
 
@@ -80,6 +81,7 @@ played instead of HALO_DEDICATED's until HALO_DEDICATED is changed.
 /* (text chat's, port/linux/game/chat.h) */
 void chat_host_set(int mode, int filter);
 void chat_host_set_cooldown(int seconds);
+void chat_host_set_legacy(int legacy);
 void chat_host_set_welcome(char const *text);
 #endif
 /* (team changes', port/linux/game/team_change.h: 0 off, 1 balanced, 2 allow) */
@@ -182,6 +184,9 @@ static struct
 	long postgame_seconds;
 	boolean skip_lobby;
 	boolean skip_lobby_now;
+	/* the playlist's order shuffled each time it starts over (HALO_DEDICATED_PLAYLIST_SHUFFLE) */
+	boolean playlist_shuffle;
+	unsigned long shuffle_state;
 
 	boolean entry_set;
 	boolean entry_teams;
@@ -399,6 +404,22 @@ static void initialize(
 		else
 			dedicated.skip_lobby = settings.set[SERVER_SETTING_SKIP_LOBBY] && settings.values[SERVER_SETTING_SKIP_LOBBY];
 	}
+	{
+		char const *shuffle = getenv("HALO_DEDICATED_PLAYLIST_SHUFFLE");
+
+		if (shuffle && shuffle[0])
+		{
+			dedicated.playlist_shuffle = !_stricmp(shuffle, "true") || !strcmp(shuffle, "1") ||
+				!_stricmp(shuffle, "yes") || !_stricmp(shuffle, "on");
+		}
+		else
+		{
+			dedicated.playlist_shuffle = settings.set[SERVER_SETTING_PLAYLIST_SHUFFLE] &&
+				settings.values[SERVER_SETTING_PLAYLIST_SHUFFLE];
+		}
+		if (dedicated.playlist_shuffle)
+			error(_error_silent, "dedicated: the playlist is shuffled each time it starts over");
+	}
 	if (dedicated.postgame_seconds != DEFAULT_POSTGAME_SECONDS || dedicated.skip_lobby)
 	{
 		error(_error_silent, "dedicated: the carnage report shows %ld seconds%s", dedicated.postgame_seconds,
@@ -440,9 +461,19 @@ static void initialize(
 			filter = !(!_stricmp(chat_filter, "false") || !strcmp(chat_filter, "0") || !_stricmp(chat_filter, "no") ||
 				!_stricmp(chat_filter, "off"));
 		}
+		char const *chat_legacy = getenv("HALO_DEDICATED_CHAT_LEGACY");
+		boolean legacy = settings.set[SERVER_SETTING_CHAT_LEGACY] ? settings.values[SERVER_SETTING_CHAT_LEGACY] != 0 :
+			TRUE;
+
+		if (chat_legacy && chat_legacy[0])
+		{
+			legacy = !(!_stricmp(chat_legacy, "false") || !strcmp(chat_legacy, "0") || !_stricmp(chat_legacy, "no") ||
+				!_stricmp(chat_legacy, "off"));
+		}
 		chat_host_set((int)(mode < 0 || mode > 2 ? 2 : mode), filter);
-		error(_error_silent, "dedicated: text chat %s%s", mode == 0 ? "off" : mode == 1 ? "team only" : "on",
-			filter ? ", blocked words filtered" : "");
+		chat_host_set_legacy(legacy);
+		error(_error_silent, "dedicated: text chat %s%s%s", mode == 0 ? "off" : mode == 1 ? "team only" : "on",
+			filter ? ", blocked words filtered" : "", legacy ? "" : ", OpenCE players left out");
 	}
 	/* a player's chat paused after the rate limit trips: 5 seconds unless
 	set; and the welcome, none unless set */
@@ -586,6 +617,75 @@ static boolean map_is_campaign_level(
 	return FALSE;
 }
 
+/* a random number below limit (a small generator, seeded from the clock) */
+static unsigned long shuffle_random(
+	unsigned long limit)
+{
+	if (!dedicated.shuffle_state)
+		dedicated.shuffle_state = system_milliseconds() * 2654435761u + 1u;
+	dedicated.shuffle_state ^= dedicated.shuffle_state << 13;
+	dedicated.shuffle_state ^= dedicated.shuffle_state >> 17;
+	dedicated.shuffle_state ^= dedicated.shuffle_state << 5;
+	return dedicated.shuffle_state % limit;
+}
+
+static void swap_entries(
+	long a,
+	long b)
+{
+	char map[DEDICATED_MAP_SIZE];
+	char variant[DEDICATED_VARIANT_SIZE];
+	boolean teams = dedicated.teams[a];
+
+	csmemcpy(map, dedicated.maps[a], sizeof(map));
+	csmemcpy(dedicated.maps[a], dedicated.maps[b], sizeof(map));
+	csmemcpy(dedicated.maps[b], map, sizeof(map));
+	csmemcpy(variant, dedicated.variants[a], sizeof(variant));
+	csmemcpy(dedicated.variants[a], dedicated.variants[b], sizeof(variant));
+	csmemcpy(dedicated.variants[b], variant, sizeof(variant));
+	dedicated.teams[a] = dedicated.teams[b];
+	dedicated.teams[b] = teams;
+}
+
+/* the playlist's entries in a new random order, the entry just played (at
+`last`) not first when another can be */
+static void shuffle_playlist(
+	long last)
+{
+	char map[DEDICATED_MAP_SIZE];
+	char variant[DEDICATED_VARIANT_SIZE];
+	long index;
+
+	csmemcpy(map, dedicated.maps[last], sizeof(map));
+	csmemcpy(variant, dedicated.variants[last], sizeof(variant));
+	for (index = dedicated.entry_count - 1; index > 0; index--)
+		swap_entries(index, (long)shuffle_random((unsigned long)index + 1));
+	for (index = 0; index < dedicated.entry_count; index++)
+	{
+		if (strcmp(dedicated.maps[index], map) || strcmp(dedicated.variants[index], variant))
+		{
+			if (index)
+				swap_entries(0, index);
+			break;
+		}
+	}
+}
+
+/* the playlist's next entry; past the last, the playlist starts over
+(shuffled, with HALO_DEDICATED_PLAYLIST_SHUFFLE) */
+static void advance_entry(
+	void)
+{
+	long last = dedicated.entry;
+
+	dedicated.entry = (dedicated.entry + 1) % dedicated.entry_count;
+	if (!dedicated.entry && dedicated.playlist_shuffle && dedicated.entry_count > 1)
+	{
+		shuffle_playlist(last);
+		error(_error_silent, "dedicated: the playlist starts over, shuffled");
+	}
+}
+
 /* the playlist's entry (or the map and game type a command chose), set on
 the server (in its pregame) */
 static boolean set_entry(
@@ -614,7 +714,7 @@ static boolean set_entry(
 		if (dedicated.chosen_playing)
 			dedicated.chosen_playing = FALSE;
 		else
-			dedicated.entry = (dedicated.entry + 1) % dedicated.entry_count;
+			advance_entry();
 		return FALSE;
 	}
 	if (!server_gametype_resolve(variant_name, &variant, &options, problem, sizeof(problem)))
@@ -623,7 +723,7 @@ static boolean set_entry(
 		if (dedicated.chosen_playing)
 			dedicated.chosen_playing = FALSE;
 		else
-			dedicated.entry = (dedicated.entry + 1) % dedicated.entry_count;
+			advance_entry();
 		return FALSE;
 	}
 	main_set_multiplayer_map_name(map);
@@ -724,7 +824,7 @@ void dedicated_server_update(
 			if (dedicated.chosen_playing)
 				dedicated.chosen_playing = FALSE;
 			else if (!dedicated.pending)
-				dedicated.entry = (dedicated.entry + 1) % dedicated.entry_count;
+				advance_entry();
 			/* (another playlist, or this one saved again, from now) */
 			if (dedicated.pending)
 				apply_pending_playlist(!chosen);
@@ -904,6 +1004,7 @@ void dedicated_server_get_status(
 	status->name_filter = dedicated.name_filter;
 	status->postgame_seconds = dedicated.postgame_seconds;
 	status->skip_lobby = dedicated.skip_lobby;
+	status->playlist_shuffle = dedicated.playlist_shuffle;
 	for (index = 0; index < (long)NUMBEROF(status->name) - 1 && dedicated.name[index]; index++)
 		status->name[index] = (char)dedicated.name[index];
 	status->name[index] = 0;
@@ -986,7 +1087,7 @@ void dedicated_server_skip(
 		if (dedicated.chosen_playing)
 			dedicated.chosen_playing = FALSE;
 		else if (dedicated.entry_count)
-			dedicated.entry = (dedicated.entry + 1) % dedicated.entry_count;
+			advance_entry();
 	}
 	next_game_now();
 }
@@ -1037,6 +1138,12 @@ void dedicated_server_set_postgame_seconds(
 {
 	dedicated.postgame_seconds = seconds < 0 ? 0 : seconds > SERVER_SETTINGS_MAXIMUM_POSTGAME_SECONDS ?
 		SERVER_SETTINGS_MAXIMUM_POSTGAME_SECONDS : seconds;
+}
+
+void dedicated_server_set_playlist_shuffle(
+	boolean shuffle)
+{
+	dedicated.playlist_shuffle = shuffle;
 }
 
 void dedicated_server_set_skip_lobby(

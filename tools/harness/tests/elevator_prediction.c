@@ -21,7 +21,10 @@ unit there.
 /* ---------- the fake world */
 
 #define _object_mask_biped 1
-#define _object_mask_device 2
+#define _object_mask_machine 2
+#define _biped_airborne_bit 0
+#define TEST_FLAG(flags, bit) (((flags) >> (bit)) & 1)
+#define NONE (-1)
 
 /* the objects: a player's unit (a biped) and an elevator (a device) */
 struct fake_object
@@ -33,6 +36,9 @@ struct fake_object
 	} object;
 	struct
 	{
+		unsigned long flags;
+		long support_surface_index;
+		char elevator_ticks;
 		long elevator_object_index;
 	} biped;
 	struct
@@ -75,6 +81,7 @@ struct distributed_unit_state
 #define HOST_BLEND_DISTANCE 0.5f
 
 #include "config.inc"
+#include "network_rules.c"
 
 static struct
 {
@@ -144,7 +151,7 @@ static void ride(long elevator_index, real rise, long round_trip)
 	objects[UNIT].mask = _object_mask_biped;
 	objects[UNIT].biped.elevator_object_index = elevator_index;
 	objects[UNIT].object.position.z = floor;
-	objects[ELEVATOR].mask = _object_mask_device;
+	objects[ELEVATOR].mask = _object_mask_machine;
 	objects[ELEVATOR].device.position_velocity = rise;
 	for (tick = 1; tick <= 90; tick++)
 	{
@@ -168,7 +175,7 @@ static void ride(long elevator_index, real rise, long round_trip)
 /* a player at 10 on the elevator (none: on the ground), moving at
 velocity, and the client's word on its height, once: where the host has
 it after */
-static real taken_height(long elevator_index, real velocity, real client_z)
+static real taken_height_standing(long elevator_index, real velocity, real client_z, char elevator_ticks)
 {
 	struct distributed_on_foot_bound bound;
 
@@ -176,8 +183,11 @@ static real taken_height(long elevator_index, real velocity, real client_z)
 	bound.rise = 1000.0f;
 	objects[UNIT].mask = _object_mask_biped;
 	objects[UNIT].biped.elevator_object_index = elevator_index;
+	objects[UNIT].biped.flags = 0;
+	objects[UNIT].biped.support_surface_index = 1;
+	objects[UNIT].biped.elevator_ticks = elevator_ticks;
 	objects[UNIT].object.position.z = 10.0f;
-	objects[ELEVATOR].mask = _object_mask_device;
+	objects[ELEVATOR].mask = _object_mask_machine;
 	objects[ELEVATOR].device.position_velocity = velocity;
 	game_time = 1;
 	distributed_predictions[0].valid = TRUE;
@@ -185,6 +195,11 @@ static real taken_height(long elevator_index, real velocity, real client_z)
 	distributed_predictions[0].state.position.z = client_z;
 	distributed_take_prediction(0, UNIT, &bound);
 	return objects[UNIT].object.position.z;
+}
+
+static real taken_height(long elevator_index, real velocity, real client_z)
+{
+	return taken_height_standing(elevator_index, velocity, client_z, 0);
 }
 
 int main(int argc, char **argv)
@@ -205,6 +220,24 @@ int main(int argc, char **argv)
 		real height = taken_height(ELEVATOR, 0.0f, 9.8f);
 
 		CHECK(height == 9.8f, "at rest, the client's height 9.8 not taken: %f", height);
+		return 0;
+	}
+	/* a stopped elevator the player stands on (its counter just set): the
+	host's height kept, as the client's word is a round trip behind */
+	CASE("stopped-elevator-standing")
+	{
+		real height = taken_height_standing(ELEVATOR, 0.0f, 9.0f, 60);
+
+		CHECK(height == 10.0f, "standing on a stopped elevator, the host's height 10 not kept: %f", height);
+		return 0;
+	}
+	/* after a jump from a stopped elevator (the counter running down): the
+	client's height taken */
+	CASE("stopped-elevator-left")
+	{
+		real height = taken_height_standing(ELEVATOR, 0.0f, 9.0f, 30);
+
+		CHECK(height == 9.0f, "after leaving a stopped elevator, the client's height 9 not taken: %f", height);
 		return 0;
 	}
 	/* on foot on the ground, no elevator: the client's height taken */
