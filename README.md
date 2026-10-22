@@ -470,16 +470,9 @@ Useful `configure.py` options:
 | `--no-game-browser` | Leaves out the server list, stats and dedicated servers. |
 | `--pgo=off`, `--lto=off` | Faster builds, without profile-guided or link-time optimisation. |
 
-The console ports (original Xbox, Xbox 360, Switch) are built from their own
+The console ports (original Xbox, Xbox 360, Switch, Wii U) are built from their own
 repositories, with this one as a submodule: "Console ports" in
 [docs/building.md](docs/building.md#console-ports).
-
-| Console | Status | Maintained by | Repository |
-| --- | --- | --- | --- |
-| Nintendo Switch | Working: boots and plays on Switch hardware (October 2026) | [thelinkin3000](https://github.com/thelinkin3000) | [warthog-switch](https://github.com/ChupathingyCE/warthog-switch) |
-| Original Xbox | Testing | Milenko | [warthog-xbox](https://github.com/ChupathingyCE/warthog-xbox) |
-| Xbox 360 | In development | Milenko | [warthog-360](https://github.com/ChupathingyCE/warthog-360) |
-| Wii U | Scaffolding only | Milenko | [warthog-wiiu](https://github.com/ChupathingyCE/warthog-wiiu) |
 
 The version being made is in `VERSION`. Releases are built and published by
 the project's release workflow; the builds on this repository's Actions page
