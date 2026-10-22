@@ -190,7 +190,7 @@ dedicated server. Each kind has a folder of its own beside the game's
 
 Where the game's `maps` folder is:
 
-| Platform | The folder holding `maps`, `maps_ce`, `maps_md` and `maps_pc` |
+| Platform | The folder holding `maps`, `maps_ce`, `maps_md`, `maps_pc` and the map packs' `maps_<pack>` |
 | --- | --- |
 | Mac | `~/Library/Application Support/ChupathingyCE/` |
 | Linux | next to the `halo` executable |
@@ -323,6 +323,40 @@ the visible-object and bigger-BSP limits they raised are already raised here,
 and the widescreen view is the game's own, but the maps made for gameplay
 plug-ins (3rd Person, Rocket Surfing, Spartan) play without them, as plain
 Halo.
+
+## Xbox map packs
+
+Chupathingy also plays community packs of Xbox maps, such as Halo CE+ X
+(Original Xbox) by VKMT, on every build, the original Xbox's too. Such a pack
+is a set of Xbox-format maps, usually saved under the Xbox's own maps' file
+names (CE+'s Abyss is its `bloodgulch.map`), so each pack gets a folder of
+its own beside `maps`, named for the pack, and its maps never replace or get
+confused with the retail ones:
+
+| Folder | Pack | Played online as |
+| --- | --- | --- |
+| `maps_cex` (also `maps_ceplus`, `maps_ce+`) | Halo CE+ | `<name>@cex` (`bloodgulch@cex`) |
+| `maps_<name>` | any other pack | `<file>@<name>` |
+
+To install a pack, copy the contents of the pack's `maps` folder, its
+`maplist.txt` included, into its folder: for Halo CE+, into `maps_cex`. Leave
+your retail maps in `maps`. Chupathingy doesn't host or ship pack files: get
+the pack from its release page. A pack isn't its folder's name: a map the
+library knows is its pack's in any `maps_*` folder, so players whose folders
+are called differently still play together.
+
+The pack's maps appear in the multiplayer map lists after the others, marked
+with the pack's tag ([CE+]) and named by the library of known packs
+(`port/assets/maps`), by the pack's `maplist.txt`, or by their file names.
+Online they show as "Abyss" with a CE+ badge, and a player joins only with
+the same version of the pack's map: one without it is told which pack and
+folder it needs ("This game uses Halo CE+'s Abyss (bloodgulch.map in
+maps_cex)"). OpenCE and older Chupathingy builds can't join these games.
+
+The pack's own `ui.map` isn't used: the game's menus stay the game's. To play
+with the pack's own menus instead, set `game.pack_menus = "cex"` in
+`config.toml` and restart. A pack folder needs a name of 1 to 8 letters and
+digits, other than `ce`, `md`, `pc`, `de`, `fr`, `es` and `it`.
 
 ## Settings (config.toml)
 
@@ -485,7 +519,8 @@ version (`GPL-3.0-or-later`). It comes with no warranty. The full text is in
   implement, under any license, without using this code.
 - **Third-party code, fonts and art** keep their own licenses, which are
   beside them (`port/third_party`, `port/assets/fonts`,
-  `port/linux/ui/fonts`, `port/assets/prompts`, `port/assets/hud`), and the release downloads
+  `port/linux/ui/fonts`, `port/assets/prompts`, `port/assets/hud`,
+  `port/assets/hrtf`), and the release downloads
   carry their notices.
 - **Halo itself is not covered.** The license covers the work of
   Chupathingy's authors. It gives no rights in Halo, its maps or anything
@@ -544,6 +579,10 @@ not be part of our community.
   domain), plus our own Xbox 360 ring and Wii U GamePad; the names and logos
   are their owners' trademarks, used only to identify platforms.
 - Controller button icons by snapchipper, CC0 (`port/assets/prompts`).
+- Headphone 3D sound (`audio.hrtf`): head-related impulse responses from the
+  [SADIE II database](https://www.york.ac.uk/sadie-project/database.html)
+  (KEMAR, subject D2), University of York, Apache License 2.0
+  (`port/assets/hrtf`).
 - High-res HUD art on the Xbox maps: Aerocatia's and Jessie's HUD art from
   [Halo PC Restored](https://github.com/Aerocatia/halopc-restored) (release
   r220), used with Aerocatia's permission on the condition that both are

@@ -194,7 +194,14 @@ static void test_command_line(void)
 	CHECK(!command_line_map_name_valid("..@ce"));
 	CHECK(!command_line_map_name_valid("levels\\test\\x"));
 	CHECK(!command_line_map_name_valid("a/b"));
-	CHECK(!command_line_map_name_valid("a@xx"));
+	CHECK(command_line_map_name_valid("wizard@cex"));
+	CHECK(command_line_map_name_valid("a@xx"));
+	CHECK(!command_line_map_name_valid("a@de"));
+	CHECK(!command_line_map_name_valid("a@toolongid"));
+	CHECK(!command_line_map_name_valid("a@"));
+	CHECK(!command_line_map_name_valid("@cex"));
+	CHECK(!command_line_map_name_valid("a@c-x"));
+	CHECK(!command_line_map_name_valid("a@b@cex"));
 	CHECK(!command_line_map_name_valid("a b"));
 
 	CHECK(command_line_server_name_valid("[D] Slayer"));

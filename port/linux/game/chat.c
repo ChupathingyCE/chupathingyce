@@ -1582,6 +1582,13 @@ void chat_update(void)
 			typing_keys();
 		else if (chat.log_open)
 			log_keys();
+		else if (ui_widgets_take_input())
+		{
+			/* (a menu's input: the pause menu's and Game Setup's rows are
+			moved through with the d-pad and the arrow keys, the quick
+			lines' buttons, and a name is typed with the chat's keys) */
+			chat.quick_shown = FALSE;
+		}
 		else
 		{
 			if (pressed & (1UL << HALO_KEYBOARD_CHAT_ALL) && may_talk(_delta_chat_scope_all))

@@ -66,7 +66,11 @@ with Docker, over SSH, as the `halo-dedicated` systemd service:
    `sounds.map` and `loc.map` to `/opt/halo-dedicated/data/maps_ce`,
    HaloMD maps to `/opt/halo-dedicated/data/maps_md`, Halo PC retail maps to
    `/opt/halo-dedicated/data/maps_pc` (the older `maps/ce/` and `md_maps`
-   are still read).
+   are still read). An Xbox map pack goes in its own folder there: Halo
+   CE+'s maps (its `maps` folder, `maplist.txt` included) in
+   `/opt/halo-dedicated/data/maps_cex`, played in playlists as
+   `<name>@cex` ([Playlists](playlists.md)). The data folder is mounted
+   whole, so a pack folder needs no mount of its own.
 2. Run `server/deploy/deploy.sh user@host path/to/chupathingyce-server`,
    with the server for the host's architecture. It copies the server and
    the playlists, builds the image for that architecture, and installs and

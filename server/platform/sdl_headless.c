@@ -19,6 +19,7 @@ SDL is; only SDL's headers are needed, for the declarations.
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 static char headless_error[128] = "";
@@ -260,6 +261,34 @@ const char *SDL_GetAudioDeviceName(SDL_AudioDeviceID device)
 void SDL_DestroyAudioStream(SDL_AudioStream *stream)
 {
 	(void)stream;
+}
+
+/* (milliseconds since the server started, as SDL counts them) */
+Uint64 SDL_GetTicks(void)
+{
+	static struct timespec start;
+	struct timespec now;
+
+	if (!start.tv_sec && !start.tv_nsec)
+		clock_gettime(CLOCK_MONOTONIC, &start);
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (Uint64)((long long)(now.tv_sec - start.tv_sec) * 1000 +
+		(now.tv_nsec - start.tv_nsec) / 1000000);
+}
+
+SDL_AudioDeviceID SDL_GetAudioStreamDevice(SDL_AudioStream *stream)
+{
+	(void)stream;
+	return 0;
+}
+
+bool SDL_GetAudioDeviceFormat(SDL_AudioDeviceID device, SDL_AudioSpec *specification, int *sample_frames)
+{
+	(void)device;
+	(void)specification;
+	(void)sample_frames;
+	headless_set_error("the server plays no sound");
+	return false;
 }
 
 SDL_AudioStream *SDL_OpenAudioDeviceStream(SDL_AudioDeviceID device, const SDL_AudioSpec *specification,

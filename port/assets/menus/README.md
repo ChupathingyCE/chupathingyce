@@ -164,7 +164,8 @@ Chupathingy menus' GAME SETUP and game type editor
 (`chupathingy/host_setup.xml`): `port host init` and `port host update` (a
 list's rows, by its screen's name), `port host row a`, `port host row
 left` and `port host row right` (a row's value), `port host defaults`,
-`port host edit` and `port host back`. The others do nothing yet.
+`port host edit` and `port host back` (out of HOST RULES' nested list
+first, else back). The others do nothing yet.
 
 ### `<data>`, `<conditional>`, `<replace>`
 

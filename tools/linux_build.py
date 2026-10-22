@@ -214,8 +214,11 @@ def musl_math_cflags(abi: str) -> str:
 # (HALO_CUSTOM_EDITION). Every build has them: Linux here (32-bit and
 # 64-bit) and the dedicated server, macOS (lp64_build.py), Windows (32-bit
 # and 64-bit: windows_build.py) and Android (android_build.py). Only the
-# Xbox builds (Warthog) do not.
-CUSTOM_EDITION_DEFINES = ["-DHALO_CUSTOM_EDITION"]
+# Xbox builds (Warthog) do not. With them the port's own menus' map list
+# and map packs' Xbox maps (maps_cex/<name>.map, <name>@cex:
+# port/linux/game/ui_map_list.c, map_packs.c; HALO_MAP_LIST), which the
+# original Xbox's build has too (port/xbox/build.py).
+CUSTOM_EDITION_DEFINES = ["-DHALO_CUSTOM_EDITION", "-DHALO_MAP_LIST"]
 
 
 def game_browser_defines(sln: Any) -> List[str]:

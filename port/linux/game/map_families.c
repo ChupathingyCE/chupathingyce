@@ -11,6 +11,9 @@ play it); the files are looked for only on the builds that play such maps
 #include "cseries.h"
 #include "cseries/cseries_windows.h"
 #include "halo_map_families.h"
+#ifdef HALO_MAP_LIST
+#include "halo_map_packs.h"
+#endif
 #include "../src/map_archive.h"
 #include "../src/map_file_hash.h"
 #include "map_stock_pairs.h"
@@ -47,6 +50,8 @@ static struct
 	{ "@ce", "HALO PC", "maps_ce", "Custom Edition", "HCE", "Custom Edition map", 0x6FB2FF },
 	{ "@md", "HALOMD", "maps_md", "HaloMD", "HMD", "HaloMD map", 0xB59BFF },
 	{ "@pc", "HALO PC RETAIL", "maps_pc", "Halo PC", "GBX", "Halo PC map", 0xD9B45A },
+	/* (a pack's suffix and folder are its own: @cex, maps_cex) */
+	{ "", "MAP PACK", "maps", "map pack", "PAK", "Map pack map", 0xE88A5A },
 };
 
 /* the names a game's map has in the game's protocol (its settings and its
@@ -67,6 +72,10 @@ static struct
 	{ "custom_maps\\", "" },
 	{ "maps_md\\", ".md" },
 	{ "maps_pc\\", ".pc" },
+	/* (a pack's: maps_<pack>\<file>.<pack>, map_family_wire_name; with its
+	ending, since maps_cex\<file> alone would be the retail <file> to a build
+	that reads the folder off, as builds before packs do) */
+	{ "", "" },
 };
 
 /* ---------- public code */
@@ -91,10 +100,22 @@ short map_family_parse(
 	{
 		long suffix_length = (long)strlen(map_families[family].suffix);
 
-		if (length > suffix_length && !_stricmp(base + length - suffix_length, map_families[family].suffix))
+		if (suffix_length && length > suffix_length &&
+			!_stricmp(base + length - suffix_length, map_families[family].suffix))
 		{
 			length -= suffix_length;
 			break;
+		}
+	}
+	/* (a pack's map: <file>@<pack>) */
+	if (family == _map_family_xbox)
+	{
+		char const *at = strrchr(base, '@');
+
+		if (at && at > base && map_pack_id_valid(at + 1, (long)strlen(at + 1)))
+		{
+			family = _map_family_pack;
+			length = (long)(at - base);
 		}
 	}
 	if (file && size > 0)
@@ -128,6 +149,100 @@ short map_family_parse_listed(
 			return family;
 	}
 	return _map_family_custom_edition;
+}
+
+boolean map_family_is_xbox_format(
+	short family)
+{
+	return family == _map_family_xbox || family == _map_family_pack;
+}
+
+/* the names no pack may have: the other families' suffixes, and the Xbox's
+language folders (maps_de, ...) */
+static char const *const reserved_pack_ids[] = { "ce", "md", "pc", "de", "fr", "es", "it" };
+
+boolean map_pack_id_valid(
+	char const *id,
+	long length)
+{
+	long index;
+
+	if (!id || length < 1 || length > MAP_PACK_ID_LENGTH)
+		return FALSE;
+	for (index = 0; index < length; index++)
+	{
+		char character = id[index];
+
+		if (!((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9')))
+		{
+			return FALSE;
+		}
+	}
+	for (index = 0; index < (long)NUMBEROF(reserved_pack_ids); index++)
+	{
+		if ((long)strlen(reserved_pack_ids[index]) == length && !_strnicmp(id, reserved_pack_ids[index], (size_t)length))
+			return FALSE;
+	}
+	return TRUE;
+}
+
+boolean map_family_pack_id(
+	char const *map,
+	char *pack,
+	long size)
+{
+	char const *at;
+	long index;
+
+	if (size > 0)
+		pack[0] = 0;
+	if (!map || map_family_parse(map, NULL, 0) != _map_family_pack || size <= MAP_PACK_ID_LENGTH)
+		return FALSE;
+	at = strrchr(map, '@') + 1;
+	for (index = 0; at[index]; index++)
+		pack[index] = (char)(at[index] >= 'A' && at[index] <= 'Z' ? at[index] - 'A' + 'a' : at[index]);
+	pack[index] = 0;
+	return TRUE;
+}
+
+/* (cache_files.c's) */
+char const *cache_files_map_directory(void);
+
+boolean map_family_xbox_path(
+	char const *map_name,
+	char *path,
+	long size)
+{
+	char file[MAP_FAMILY_FILE_LENGTH], pack[MAP_PACK_ID_LENGTH + 1];
+	int length;
+
+	if (size <= 0)
+		return FALSE;
+	if (map_family_parse(map_name, file, sizeof(file)) == _map_family_pack &&
+		map_family_pack_id(map_name, pack, sizeof(pack)))
+	{
+#ifdef HALO_MAP_LIST
+		/* (the folder that has it: a pack is not its folder's name,
+		halo_map_packs.h) */
+		length = map_pack_file_path(pack, file, path, size) ? (int)strlen(path) : -1;
+#else
+		length = snprintf(path, (size_t)size, "d:\\maps_%s\\%s.map", pack, file);
+#endif
+	}
+#ifdef HALO_MAP_LIST
+	/* (a pack's own menus, game.pack_menus: its ui.map for the game's) */
+	else if (!_stricmp(map_name, "ui") && map_pack_menus())
+		length = map_pack_file_path(map_pack_menus(), "ui", path, size) ? (int)strlen(path) : -1;
+#endif
+	else
+		length = snprintf(path, (size_t)size, "%s%s.map", cache_files_map_directory(), map_name);
+	if (length < 0 || length >= size)
+	{
+		path[0] = 0;
+		return FALSE;
+	}
+	return TRUE;
 }
 
 char const *map_family_suffix(
@@ -185,6 +300,13 @@ void map_family_wire_name(
 		return;
 	if (family == _map_family_xbox)
 		snprintf(wire, (size_t)size, "%s", map);
+	else if (family == _map_family_pack)
+	{
+		char pack[MAP_PACK_ID_LENGTH + 1];
+
+		map_family_pack_id(map, pack, sizeof(pack));
+		snprintf(wire, (size_t)size, "maps_%s\\%s.%s", pack, file, pack);
+	}
 	else
 		snprintf(wire, (size_t)size, "%s%s%s", map_family_wire_names[family].folder, file,
 			map_family_wire_names[family].ending);
@@ -201,6 +323,9 @@ short map_family_from_wire_name(
 	{
 		char const *folder = map_family_wire_names[family].folder;
 		char const *ending = map_family_wire_names[family].ending;
+
+		if (!folder[0])
+			continue;
 		size_t folder_length = strlen(folder);
 		size_t ending_length = strlen(ending);
 		size_t length = strlen(wire);
@@ -223,6 +348,39 @@ short map_family_from_wire_name(
 			snprintf(map, (size_t)size, "%.*s%s", (int)file_length, file, map_families[family].suffix);
 		return family;
 	}
+	/* (a pack's map: maps_<pack>\<file>.<pack>, read back as <file>@<pack>,
+	the pack's name in lowercase as its folder's) */
+	if (!_strnicmp(wire, "maps_", 5))
+	{
+		char const *pack = wire + 5;
+		char const *separator = strchr(pack, '\\');
+		char const *file = separator ? separator + 1 : NULL;
+		char const *dot = file ? strrchr(file, '.') : NULL;
+		long pack_length = separator ? (long)(separator - pack) : 0;
+		long file_length = dot ? (long)(dot - file) : 0;
+
+		if (dot && file_length > 0 && file_length < MAP_FAMILY_FILE_LENGTH && map_pack_id_valid(pack, pack_length) &&
+			(long)strlen(dot + 1) == pack_length && !_strnicmp(dot + 1, pack, (size_t)pack_length) &&
+			!memchr(file, '\\', (size_t)file_length) && !memchr(file, '/', (size_t)file_length) &&
+			!memchr(file, '@', (size_t)file_length))
+		{
+			long index;
+
+			if (size > 0)
+			{
+				snprintf(map, (size_t)size, "%.*s@", (int)file_length, file);
+				for (index = 0; index < pack_length && (long)strlen(map) < size - 1; index++)
+				{
+					char character = pack[index];
+					long length = (long)strlen(map);
+
+					map[length] = (char)(character >= 'A' && character <= 'Z' ? character - 'A' + 'a' : character);
+					map[length + 1] = 0;
+				}
+			}
+			return _map_family_pack;
+		}
+	}
 	if (size > 0)
 		snprintf(map, (size_t)size, "%s", wire);
 	return map_family_parse(wire, NULL, 0);
@@ -241,6 +399,7 @@ enum
 	CACHE_TYPE_MULTIPLAYER = 1,
 	CUSTOM_EDITION_CACHE_VERSION = 609,
 	HALO_PC_CACHE_VERSION = 7,
+	XBOX_CACHE_VERSION = 5,
 };
 
 /* each family's places, in the order they are looked in: a folder (under
@@ -301,7 +460,6 @@ static struct map_family_place const resource_places[] =
 
 /* ---------- prototypes */
 
-char const *cache_files_map_directory(void);
 void platform_log(char const *format, ...);
 
 /* ---------- private code */
@@ -330,6 +488,8 @@ static struct map_family_place const *family_places(
 static long family_cache_version(
 	short family)
 {
+	if (map_family_is_xbox_format(family))
+		return XBOX_CACHE_VERSION;
 	return family == _map_family_custom_edition ? CUSTOM_EDITION_CACHE_VERSION : HALO_PC_CACHE_VERSION;
 }
 
