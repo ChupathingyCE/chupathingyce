@@ -329,7 +329,7 @@ static const struct config_setting config_settings[] =
 		"Keep the original loading screen up for a while when a level loads,\n"
 		"as loading from the Xbox's disc did, for the times below; false loads\n"
 		"every level as fast as it can." },
-	{ "display.loading_screen_campaign_seconds", _config_real, "5.0", "HALO_LOADING_SCREEN_CAMPAIGN_SECONDS",
+	{ "display.loading_screen_campaign_seconds", _config_real, "0.0", "HALO_LOADING_SCREEN_CAMPAIGN_SECONDS",
 		_environment_value, _platform_all,
 		"The least seconds the loading screen stays up when a campaign level\n"
 		"loads on this machine alone, split screen co-op too (up to 30); 0 for\n"

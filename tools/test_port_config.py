@@ -395,7 +395,7 @@ def test_renamed_setting(program, directory, defaults, kind):
 		"display.loading_screen_multiplayer_seconds")
 	cases = {
 		"chosen": (old_block + "loading_screen_min_seconds = 8\n", 8.0, ["loading_screen_campaign_seconds = 8"]),
-		"commented": (old_block + "# loading_screen_min_seconds = 0.0\n", 5.0, []),
+		"commented": (old_block + "# loading_screen_min_seconds = 0.0\n", 0.0, []),
 		"both": (old_block + "loading_screen_min_seconds = 8\n\nloading_screen_campaign_seconds = 3.0\n", 3.0,
 			["loading_screen_campaign_seconds = 3.0"]),
 	}
