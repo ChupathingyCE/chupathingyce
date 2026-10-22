@@ -619,3 +619,39 @@ void map_pack_menus_map_name(
 			snprintf(name, (size_t)size, "%s", pack_map);
 	}
 }
+
+/* ---------- the game list
+
+A host's announcement (port/linux/src/browser.c) names a pack's map by its
+name, its pack's and the pack's tag, so that the list, the site and players
+without the pack show "Gothra (Halo CE+)" (docs/delta.md, "Delta List").
+Plain types: the platform layer calls it. */
+
+int map_pack_listing(
+	char const *map,
+	char *title,
+	int title_size,
+	char *pack,
+	int pack_size,
+	char *tag,
+	int tag_size)
+{
+	char file[64], id[MAP_PACK_ID_LENGTH + 1];
+
+	if (title_size > 0)
+		title[0] = 0;
+	if (pack_size > 0)
+		pack[0] = 0;
+	if (tag_size > 0)
+		tag[0] = 0;
+	if (!map || !map_family_pack_id(map, id, sizeof(id)))
+		return 0;
+	map_family_parse(map, file, sizeof(file));
+	map_pack_names(id, file, 0, title, title_size, pack, pack_size);
+	map_pack_tag(id, tag, tag_size);
+	/* (a pack the library doesn't know: "the maps_foo pack" as the list's
+	"maps_foo") */
+	if (!map_pack_library_pack(id) && pack_size > 0)
+		snprintf(pack, (size_t)pack_size, "maps_%s", id);
+	return 1;
+}

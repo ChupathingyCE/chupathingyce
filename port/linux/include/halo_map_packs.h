@@ -125,4 +125,10 @@ boolean map_pack_menus_known(void);
 other name as it is */
 void map_pack_menus_map_name(char const *map_name, char *name, long size);
 
+/* a listed map's name, its pack's name and the pack's tag (map_name as the
+game names it, <file>@<pack>), for a host's announcement: 0 (all empty) for
+another family's map. Plain types: the platform layer calls it */
+int map_pack_listing(char const *map, char *title, int title_size, char *pack, int pack_size, char *tag,
+	int tag_size);
+
 #endif

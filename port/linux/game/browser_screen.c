@@ -330,6 +330,22 @@ static char const *map_display_name(
 	return text;
 }
 
+/* a listed game's map as players name it: an Xbox map pack's by the name
+its host announces ("Gothra": a player without the pack has no other), any
+other as map_display_name names it */
+static char const *game_map_display_name(
+	struct browser_game const *game,
+	char *text,
+	long size)
+{
+	if (map_family(game->map) == _map_family_pack && game->map_title[0])
+	{
+		snprintf(text, (size_t)size, "%s", game->map_title);
+		return text;
+	}
+	return map_display_name(game->map, text, size);
+}
+
 /* whether a game's map can be played here: an Xbox map, or a Custom Edition
 or HaloMD map in its family's folders, missing, or on a build without them;
 the folders asked again when fresh, or for another map, or now and then */
@@ -831,7 +847,7 @@ static long compare_games(
 	{
 		char a_name[64], b_name[64];
 
-		order = strcmp(map_display_name(a->map, a_name, sizeof(a_name)), map_display_name(b->map, b_name, sizeof(b_name)));
+		order = strcmp(game_map_display_name(a, a_name, sizeof(a_name)), game_map_display_name(b, b_name, sizeof(b_name)));
 		/* (an Xbox map before Halo PC's of the same name, Custom Edition's
 		before HaloMD's) */
 		if (!order)
@@ -1154,7 +1170,7 @@ boolean browser_screen_invite_game(
 			char text[64];
 
 			utf8_name(games[index].name, name, name_size);
-			snprintf(map, (size_t)map_size, "%s", map_display_name(games[index].map, text, sizeof(text)));
+			snprintf(map, (size_t)map_size, "%s", game_map_display_name(&games[index], text, sizeof(text)));
 			return TRUE;
 		}
 	}
@@ -2355,7 +2371,7 @@ static void draw_row(
 		draw_lock(COLUMN_NAME + width + 4, text_y + 1, ROW_SIZE * 0.75f, color);
 	/* the map: a name too long for the room left of its family's tag smaller,
 	its middle where the others' is */
-	map_name = map_display_name(game->map, text, sizeof(text));
+	map_name = game_map_display_name(game, text, sizeof(text));
 	size = ROW_SIZE;
 	while (size > 8.0f && ui_overlay_text_width(UI_FONT_MENU, size, map_name) > badge_x - 4 - COLUMN_MAP)
 		size -= 0.5f;
@@ -2469,7 +2485,7 @@ static void draw_details(
 stock map's, while it loads or without one: map_art.c), else a card with
 the map's name over its family's color (a custom map's) */
 	map_file(selected->map, file, sizeof(file));
-	map_label = map_display_name(selected->map, map_name, sizeof(map_name));
+	map_label = game_map_display_name(selected, map_name, sizeof(map_name));
 	{
 		boolean drawn = FALSE;
 		char art_path[64];
@@ -2556,6 +2572,9 @@ the map's name over its family's color (a custom map's) */
 		char tag[16], title[64];
 
 		ui_map_list_map_tag(selected->map, tag, sizeof(tag), title, sizeof(title));
+		/* (an Xbox map pack's as its host names it) */
+		if (family == _map_family_pack && selected->map_pack[0])
+			snprintf(title, sizeof(title), "%s", selected->map_pack);
 		ui_overlay_text(UI_FONT_MENU_SMALL, DETAIL_SIZE - 1.0f, x + 10 + family_badge_width(family, selected->map, BADGE_SIZE),
 			line_y + 0.5f, UI_ALIGN_LEFT, COLOR_DIM, title);
 	}

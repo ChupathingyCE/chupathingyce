@@ -679,7 +679,7 @@ int server_playlist_parse(const char *text, size_t length, int strict, struct se
 			}
 			if (!command_line_map_name_valid(words[0]))
 			{
-				set_error(error, error_size, line, "%s is not a map's name (bloodgulch, name@ce, name@md)", words[0],
+				set_error(error, error_size, line, "%s is not a map's name (bloodgulch, name@ce, name@md, name@cex)", words[0],
 					NULL);
 				return 0;
 			}

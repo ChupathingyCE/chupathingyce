@@ -210,6 +210,12 @@ int main(int argc, char **argv)
 	}
 	else if (!strcmp(argv[1], "list"))
 		map_pack_list(listed, NULL);
+	else if (!strcmp(argv[1], "listing"))
+	{
+		char tag[16];
+		int listed = map_pack_listing(argv[2], name, sizeof(name), title, sizeof(title), tag, sizeof(tag));
+		printf("%d %s|%s|%s\n", listed, name, title, tag);
+	}
 	else if (!strcmp(argv[1], "tag"))
 	{
 		map_pack_tag(argv[2], name, sizeof(name));
@@ -339,6 +345,15 @@ def test_list(packs):
     # (each pack's multiplayer maps; not its ui.map, campaign level or other
     # files, nor maps_de's)
     assert sorted(packs("list")) == ["cex bloodgulch", "cex wizard", "foo bloodgulch"]
+
+
+def test_listing(packs):
+    # (a host's announcement of a pack's map: its name, pack and tag; none
+    # for another family's)
+    assert packs("listing", "bloodgulch@cex") == ["1 Abyss|Halo CE+|CE+"]
+    assert packs("listing", "bloodgulch@foo") == ["1 Bloodgulch|maps_foo|FOO"]
+    assert packs("listing", "bloodgulch") == ["0 ||"]
+    assert packs("listing", "timberland@ce") == ["0 ||"]
 
 
 def test_tags(packs):
