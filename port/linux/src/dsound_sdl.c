@@ -21,8 +21,10 @@ resampling) and applies:
 	  environment's HF reference: a sound behind a wall is muffled.
 3D voices also send to an I3DL2 reverb of the environment the listener is in
 (reverb). On stereo output with audio.hrtf on, 3D voices are rendered for
-headphones instead of panned (binaural rendering). Doppler and cones are not
-modelled. A look-ahead limiter keeps the
+headphones instead of panned (binaural rendering). A moving 3D voice is
+Doppler shifted (doppler_ratio; audio.doppler = false leaves it), and a
+voice whose tag gives it a sound cone is quieter facing away
+(voice_cone_gain), as DirectSound did both. A look-ahead limiter keeps the
 sum under full scale (limit).
 
 The output is stereo, 5.1 or 7.1 (audio.channels; "auto" is 5.1 or 7.1 on
@@ -141,6 +143,14 @@ struct sdl_stream
 	millibels with occlusion, and its rolloff factor (SetI3DL2Source) */
 	LONG room, room_hf;
 	float room_rolloff_factor;
+	/* SetVelocity (units a second), and the Doppler shift the mixer is
+	ramping from (doppler_ratio); SetConeAngles (degrees),
+	SetConeOrientation and SetConeOutsideVolume (millibels): voice_cone_gain */
+	float velocity[3];
+	float current_doppler;
+	DWORD cone_inside, cone_outside;
+	float cone_orientation[3];
+	LONG cone_outside_volume;
 
 	struct voice_packet packets[MAXIMUM_STREAM_PACKETS];
 	unsigned long packet_head;
@@ -190,9 +200,12 @@ static struct
 	float top[3];
 	float rolloff_factor;
 	/* meters a unit (SetDistanceFactor): the game sets 3.048, a world unit
-	being 10 feet. Only Doppler, which is not modelled, would use it */
+	being 10 feet. Only Doppler uses it (doppler_ratio) */
 	float distance_factor;
-} listener = { { 0, 0, 0 }, { 0, 0, 1 }, { 0, 1, 0 }, 1.0f, 1.0f };
+	/* SetVelocity: units a second (the game leaves it 0, giving each
+	voice's velocity relative to the listener) */
+	float velocity[3];
+} listener = { { 0, 0, 0 }, { 0, 0, 1 }, { 0, 1, 0 }, 1.0f, 1.0f, { 0, 0, 0 } };
 
 static float master_volume = 1.0f;
 /* 2, 6 or 8 (audio.channels: stereo, 5.1, 7.1), chosen when the device
@@ -215,6 +228,8 @@ static BOOL resampling_linear = FALSE;
 /* audio.hrtf: whether 3D voices are rendered for headphones (hrtf_update),
 and how far the mixer has faded to it (0 to 1) */
 static volatile BOOL hrtf_wanted = FALSE;
+/* audio.doppler */
+static BOOL doppler_enabled = TRUE;
 static float hrtf_level = 0.0f;
 
 static float gain_from_millibels(LONG millibels)
@@ -392,6 +407,8 @@ static float distance_attenuation(const struct sdl_stream *stream, float distanc
 	return minimum / (minimum + rolloff_factor * (distance - minimum));
 }
 
+static float clamp_real(float value, float minimum, float maximum);
+
 static float clamp_unit(float value)
 {
 	return value < 0.0f ? 0.0f : value > 1.0f ? 1.0f : value;
@@ -422,6 +439,77 @@ static void voice_direction(const struct sdl_stream *stream, float *side, float 
 	*ahead = dot3(offset, listener.front);
 }
 
+/* DirectSound's sound cone: a voice is at its full level inside half its
+inside angle of where it faces, at its outside volume beyond half its
+outside angle, and between the two in between (in millibels). The game
+sets each sound's cone from its tag; the retail maps' sounds leave the
+angles 0 (and the channels start at 0), which the Xbox played as no cone,
+as it does 360. The I3DL2 room send is not coned: the room still hears a
+sound facing away */
+static float voice_cone_gain(const struct sdl_stream *stream)
+{
+	float to_listener[3], length, facing, angle, inside, outside, fraction;
+	int axis;
+
+	if (!stream->cone_outside || (stream->cone_inside >= 360 && stream->cone_outside >= 360))
+		return 1.0f;
+	for (axis = 0; axis < 3; axis++)
+	{
+		to_listener[axis] = stream->mode == DS3DMODE_HEADRELATIVE ? -stream->position[axis] :
+			listener.position[axis] - stream->position[axis];
+	}
+	length = sqrtf(dot3(to_listener, to_listener)) * sqrtf(dot3(stream->cone_orientation, stream->cone_orientation));
+	if (length <= 1.0e-6f)
+		return 1.0f;
+	facing = dot3(to_listener, stream->cone_orientation) / length;
+	angle = acosf(facing < -1.0f ? -1.0f : facing > 1.0f ? 1.0f : facing) * 57.29578f;
+	inside = 0.5f * (float)stream->cone_inside;
+	outside = 0.5f * (float)(stream->cone_outside > stream->cone_inside ? stream->cone_outside : stream->cone_inside);
+	if (angle <= inside)
+		return 1.0f;
+	if (angle >= outside || outside <= inside)
+		return gain_from_millibels(stream->cone_outside_volume);
+	fraction = (angle - inside) / (outside - inside);
+	return gain_from_millibels((LONG)(fraction * (float)stream->cone_outside_volume));
+}
+
+/* DirectSound's Doppler shift of a 3D voice, the factor its frequency is
+played at: (c - vl) / (c - vs), vl and vs the listener's and the voice's
+speeds towards each other along the line between them, c the speed of
+sound, the velocities turned into meters a second by the distance factor
+(the game: 3.048). The Xbox shifted the game's moving sounds so (a
+Warthog, a Banshee, a projectile going past); the game gives each voice's
+velocity relative to the listener. Held within a factor of 2 either way,
+the speeds below c */
+#define DOPPLER_SPEED_OF_SOUND 343.0f
+#define DOPPLER_MAXIMUM 2.0f
+
+static float doppler_ratio(const struct sdl_stream *stream)
+{
+	float to_listener[3], length, listener_speed = 0.0f, source_speed, ratio;
+	int axis;
+
+	if (!doppler_enabled || !stream->has_3d || stream->mode == DS3DMODE_DISABLE)
+		return 1.0f;
+	for (axis = 0; axis < 3; axis++)
+	{
+		to_listener[axis] = stream->mode == DS3DMODE_HEADRELATIVE ? -stream->position[axis] :
+			listener.position[axis] - stream->position[axis];
+	}
+	length = sqrtf(dot3(to_listener, to_listener));
+	if (length <= 1.0e-4f)
+		return 1.0f;
+	/* (towards the listener: the voice's velocity along the line, and the
+	listener's along it the other way) */
+	source_speed = dot3(stream->velocity, to_listener) / length * listener.distance_factor;
+	if (stream->mode != DS3DMODE_HEADRELATIVE)
+		listener_speed = -dot3(listener.velocity, to_listener) / length * listener.distance_factor;
+	source_speed = clamp_real(source_speed, -0.9f * DOPPLER_SPEED_OF_SOUND, 0.9f * DOPPLER_SPEED_OF_SOUND);
+	listener_speed = clamp_real(listener_speed, -0.9f * DOPPLER_SPEED_OF_SOUND, 0.9f * DOPPLER_SPEED_OF_SOUND);
+	ratio = (DOPPLER_SPEED_OF_SOUND + listener_speed) / (DOPPLER_SPEED_OF_SOUND - source_speed);
+	return clamp_real(ratio, 1.0f / DOPPLER_MAXIMUM, DOPPLER_MAXIMUM);
+}
+
 /* the gains of a 3D voice to the left and right, and the room rolloff's
 attenuation of its room send */
 static void spatialize(const struct sdl_stream *stream, float *left, float *right, float *room)
@@ -450,8 +538,8 @@ static void spatialize(const struct sdl_stream *stream, float *left, float *righ
 		*left = cosf(angle) * 1.41421356f * 0.70710678f;
 		*right = sinf(angle) * 1.41421356f * 0.70710678f;
 	}
-	*left *= attenuation * gain_from_millibels(stream->direct);
-	*right *= attenuation * gain_from_millibels(stream->direct);
+	*left *= attenuation * gain_from_millibels(stream->direct) * voice_cone_gain(stream);
+	*right *= attenuation * gain_from_millibels(stream->direct) * voice_cone_gain(stream);
 }
 
 /* the voice's gains to the left and right, and to the reverb (only 3D voices
@@ -596,7 +684,7 @@ static void voice_surround_gains(const struct sdl_stream *stream, float gains[2]
 		}
 		surround_pan(side, ahead, spread, gains[0]);
 		attenuation = distance_attenuation(stream, distance, listener.rolloff_factor) *
-			gain_from_millibels(stream->direct);
+			gain_from_millibels(stream->direct) * voice_cone_gain(stream);
 		for (speaker = 0; speaker < MAXIMUM_OUTPUT_CHANNELS; speaker++)
 		{
 			gains[0][speaker] *= attenuation;
@@ -833,7 +921,7 @@ static float hrtf_target(const struct sdl_stream *stream, float share, float fil
 		}
 	}
 	return share * distance_attenuation(stream, distance, listener.rolloff_factor) *
-		gain_from_millibels(stream->direct) * stream->volume * master_volume;
+		gain_from_millibels(stream->direct) * voice_cone_gain(stream) * stream->volume * master_volume;
 }
 
 /* a voice starting (over), or taken up by the rendering again: silence
@@ -1117,7 +1205,8 @@ static BOOL voice_has_frames(struct sdl_stream *stream)
 the reverb's send (frames of mono) */
 static void mix_voice(struct sdl_stream *stream, float *output, float *send, unsigned long frames)
 {
-	double step;
+	double step, ramp_step, base_step;
+	float doppler, target_doppler;
 	float target_left, target_right, target_room, left, right, room, ramp_left, ramp_right, ramp_room, scale;
 	float target_direct_lowpass, target_room_lowpass, direct_lowpass, room_lowpass;
 	float ramp_direct_lowpass, ramp_room_lowpass;
@@ -1136,10 +1225,23 @@ static void mix_voice(struct sdl_stream *stream, float *output, float *send, uns
 
 	if (stream->paused || !stream->packet_count || !stream->sample_rate)
 		return;
-	step = (double)(stream->frequency ? stream->frequency : stream->sample_rate) / OUTPUT_RATE;
+	base_step = (double)(stream->frequency ? stream->frequency : stream->sample_rate) / OUTPUT_RATE;
+	/* the Doppler shift, moving from the last mix's to this one's over the
+	mix, so that a voice going past glides */
+	target_doppler = doppler_ratio(stream);
+	doppler = stream->current_doppler > 0.0f ? stream->current_doppler : target_doppler;
+	step = base_step * doppler;
+	ramp_step = base_step * (target_doppler - doppler) / (double)frames;
+	stream->current_doppler = target_doppler;
 	/* the low pass narrowed for a voice taking frames faster than the output
-	rate, and the frames it reaches on each side */
-	scale = step > 1.0 ? (float)(1.0 / (step < RESAMPLER_MAXIMUM_STRETCH ? step : RESAMPLER_MAXIMUM_STRETCH)) : 1.0f;
+	rate (at the fastest it is in this mix), and the frames it reaches on
+	each side */
+	{
+		double fastest = step > base_step * target_doppler ? step : base_step * target_doppler;
+
+		scale = fastest > 1.0 ? (float)(1.0 / (fastest < RESAMPLER_MAXIMUM_STRETCH ? fastest :
+			RESAMPLER_MAXIMUM_STRETCH)) : 1.0f;
+	}
 	width = (long)ceilf(RESAMPLER_ZERO_CROSSINGS / scale);
 	/* a voice that ran dry and stopped (below) starts over once it has
 	frames again: stream_process starts over only a stream with no packets,
@@ -1316,6 +1418,7 @@ static void mix_voice(struct sdl_stream *stream, float *output, float *send, uns
 		direct_lowpass += ramp_direct_lowpass;
 		room_lowpass += ramp_room_lowpass;
 		stream->phase += step;
+		step += ramp_step;
 		while (stream->phase >= 1.0)
 		{
 			stream->phase -= 1.0;
@@ -2313,6 +2416,7 @@ static void audio_start(void)
 	master_volume = (float)config_real("audio.volume");
 	reverb_enabled = config_boolean("audio.reverb");
 	resampling_linear = !strcmp(config_string("audio.resampling"), "linear");
+	doppler_enabled = config_boolean("audio.doppler");
 	resampler_initialize();
 	resampler_phases_initialize();
 	reverb_initialize();
@@ -2574,6 +2678,7 @@ VOID WINAPI DirectSoundDoWork(void)
 		master_volume = (float)config_real("audio.volume");
 		reverb_enabled = config_boolean("audio.reverb");
 		resampling_linear = !strcmp(config_string("audio.resampling"), "linear");
+		doppler_enabled = config_boolean("audio.doppler");
 		audio_device_update();
 		hrtf_update();
 	}
@@ -2671,7 +2776,17 @@ HRESULT WINAPI IDirectSound_SetPosition(LPDIRECTSOUND sound, FLOAT x, FLOAT y, F
 	return DS_OK;
 }
 
-HRESULT WINAPI IDirectSound_SetVelocity(LPDIRECTSOUND sound, FLOAT x, FLOAT y, FLOAT z, DWORD apply) { (void)sound; (void)x; (void)y; (void)z; (void)apply; return DS_OK; }
+HRESULT WINAPI IDirectSound_SetVelocity(LPDIRECTSOUND sound, FLOAT x, FLOAT y, FLOAT z, DWORD apply)
+{
+	(void)sound;
+	(void)apply;
+	pthread_mutex_lock(&mixer_lock);
+	listener.velocity[0] = x;
+	listener.velocity[1] = y;
+	listener.velocity[2] = z;
+	pthread_mutex_unlock(&mixer_lock);
+	return DS_OK;
+}
 
 static void normalize3(float *vector)
 {
@@ -2732,6 +2847,10 @@ HRESULT WINAPI IDirectSound_CreateSoundStream(LPDIRECTSOUND sound, LPCDSSTREAMDE
 	stream->mode = DS3DMODE_NORMAL;
 	stream->minimum_distance = DS3D_DEFAULTMINDISTANCE;
 	stream->maximum_distance = DS3D_DEFAULTMAXDISTANCE;
+	/* DirectSound's defaults: no cone, facing +z */
+	stream->cone_inside = stream->cone_outside = 360;
+	stream->cone_orientation[2] = 1.0f;
+	stream->current_doppler = 1.0f;
 	resampler_reset(stream);
 	pthread_mutex_lock(&mixer_lock);
 	stream->next = streams;
@@ -2888,10 +3007,26 @@ HRESULT WINAPI IDirectSoundStream_Pause(LPDIRECTSOUNDSTREAM stream, DWORD pause)
 	STREAM_SETTER(record->paused = pause == DSSTREAMPAUSE_PAUSE)
 }
 
-HRESULT WINAPI IDirectSoundStream_SetVelocity(LPDIRECTSOUNDSTREAM stream, FLOAT x, FLOAT y, FLOAT z, DWORD apply) { (void)stream; (void)x; (void)y; (void)z; (void)apply; return DS_OK; }
-HRESULT WINAPI IDirectSoundStream_SetConeAngles(LPDIRECTSOUNDSTREAM stream, DWORD inside, DWORD outside, DWORD apply) { (void)stream; (void)inside; (void)outside; (void)apply; return DS_OK; }
-HRESULT WINAPI IDirectSoundStream_SetConeOrientation(LPDIRECTSOUNDSTREAM stream, FLOAT x, FLOAT y, FLOAT z, DWORD apply) { (void)stream; (void)x; (void)y; (void)z; (void)apply; return DS_OK; }
-HRESULT WINAPI IDirectSoundStream_SetConeOutsideVolume(LPDIRECTSOUNDSTREAM stream, LONG volume, DWORD apply) { (void)stream; (void)volume; (void)apply; return DS_OK; }
+HRESULT WINAPI IDirectSoundStream_SetVelocity(LPDIRECTSOUNDSTREAM stream, FLOAT x, FLOAT y, FLOAT z, DWORD apply)
+{
+	(void)apply;
+	STREAM_SETTER(record->velocity[0] = x; record->velocity[1] = y; record->velocity[2] = z)
+}
+HRESULT WINAPI IDirectSoundStream_SetConeAngles(LPDIRECTSOUNDSTREAM stream, DWORD inside, DWORD outside, DWORD apply)
+{
+	(void)apply;
+	STREAM_SETTER(record->cone_inside = inside; record->cone_outside = outside)
+}
+HRESULT WINAPI IDirectSoundStream_SetConeOrientation(LPDIRECTSOUNDSTREAM stream, FLOAT x, FLOAT y, FLOAT z, DWORD apply)
+{
+	(void)apply;
+	STREAM_SETTER(record->cone_orientation[0] = x; record->cone_orientation[1] = y; record->cone_orientation[2] = z)
+}
+HRESULT WINAPI IDirectSoundStream_SetConeOutsideVolume(LPDIRECTSOUNDSTREAM stream, LONG volume, DWORD apply)
+{
+	(void)apply;
+	STREAM_SETTER(record->cone_outside_volume = volume)
+}
 
 /* ---------- buffers
 
