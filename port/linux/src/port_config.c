@@ -175,6 +175,10 @@ static const struct config_setting config_settings[] =
 		"\"1080\" (or any number between), no more than the console shows (1280x720\n"
 		"in handheld, 1920x1080 docked), which the picture is scaled up to. Changes\n"
 		"at once." },
+	{ "display.big_sprite_limit", _config_integer, "8", "HALO_BIG_SPRITE_LIMIT", _environment_value, _platform_android,
+		"The most sprites covering more than half the view drawn in a frame (the\n"
+		"Xbox's 11): each is a layer over most of the screen, and the Halo level's\n"
+		"falls have 11 sheets of mist. Changes at once." },
 	{ "display.dynamic_resolution", _config_boolean, "false", "HALO_DYNAMIC_RESOLUTION", _environment_value,
 		_platform_android,
 		"While the GPU would hold the game under 55 frames a second (for half a\n"
@@ -190,6 +194,31 @@ static const struct config_setting config_settings[] =
 		"The CPU's clock: \"1785\" (1.7 GHz, the most Nintendo's own games use),\n"
 		"\"1020\" (1 GHz, the console's handheld rate: cooler, and the battery\n"
 		"lasts longer) or \"stock\" (left as the console has it). Changes at once." },
+#ifdef HALO_SWITCH_CONSOLE
+	/* gyro aiming (port/linux/src/xinput_sdl.c): the controller's gyroscope,
+	each local player from their own */
+	{ "input.gyro_aim", _config_string, "\"false\"", "HALO_GYRO_AIM", _environment_value, _platform_android,
+		"Aim with the controller's gyroscope, each local player from their own (a\n"
+		"Pro Controller, the console held in the hands, or one Joy-Con; of two,\n"
+		"the right one): \"true\" always, \"zoom\" only while zoomed in (a scope),\n"
+		"\"false\" never. Gamepads, Gyro Aim, or here. Changes at once." },
+	{ "input.gyro_sensitivity_horizontal", _config_real, "1.0", "HALO_GYRO_SENSITIVITY_HORIZONTAL",
+		_environment_value, _platform_android,
+		"How far the view turns left and right for the gyroscope, when\n"
+		"input.gyro_aim is on. 1 is the sensor's own turn. 0.25 to 10." },
+	{ "input.gyro_sensitivity_vertical", _config_real, "1.0", "HALO_GYRO_SENSITIVITY_VERTICAL",
+		_environment_value, _platform_android,
+		"How far the view turns up and down for the gyroscope, when\n"
+		"input.gyro_aim is on. 1 is the sensor's own turn. 0.25 to 10." },
+	{ "input.gyro_invert_horizontal", _config_boolean, "false", "HALO_GYRO_INVERT_HORIZONTAL",
+		_environment_value, _platform_android,
+		"Invert the gyroscope's yaw. false: turning the controller right looks\n"
+		"right. true: turning it right looks left. The stick's invert is its own." },
+	{ "input.gyro_invert_vertical", _config_boolean, "false", "HALO_GYRO_INVERT_VERTICAL",
+		_environment_value, _platform_android,
+		"Invert the gyroscope's pitch. false: tilting the controller up looks up.\n"
+		"true: tilting it up looks down. The stick's invert is its own." },
+#endif
 	{ "debug.log_files", _config_boolean, "true", "HALO_LOG_FILES", _environment_value, _platform_android,
 		"Write the logs to files: the game's debug.txt (beside the data) and the\n"
 		"program's halo.log. false writes neither, which spares the card a write\n"

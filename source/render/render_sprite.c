@@ -90,6 +90,29 @@ symbols in this file:
 #include "tag_files/tag_files.h"
 #include "tag_files/tag_groups.h"
 
+#ifdef HALO_SWITCH_CONSOLE
+/* port: port/linux/src/port_config.c's */
+long config_integer(char const *name);
+unsigned long config_changes(void);
+
+/* port: display.big_sprite_limit, read again when a setting changes */
+static long build_sprite_big_limit(
+	void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static long limit = 11;
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		limit = config_integer("display.big_sprite_limit");
+		if (limit < 0)
+			limit = 11;
+	}
+	return limit;
+}
+#endif
+
 /* ---------- constants */
 
 enum build_sprites_internal_flags
@@ -526,7 +549,15 @@ void build_sprite(
 						real coverage = render_frustum_cube_view_fraction(&render.frustum, &bounding_rectangle);
 
 						build_sprite_globals.screen_coverage += coverage;
+#ifdef HALO_SWITCH_CONSOLE
+						/* port: past display.big_sprite_limit sprites covering
+						half the view (the Xbox's 11), the rest left out: each is
+						a layer over most of the screen (the Halo level's falls,
+						11 mist sheets at 5.5 ms of a Switch Lite's GPU) */
+						if (coverage>0.5f && build_sprite_globals.big_sprite_count++>=build_sprite_big_limit())
+#else
 						if (coverage>0.5f && build_sprite_globals.big_sprite_count++>10)
+#endif
 						{
 							group->sprite_count--;
 							data->sprite_count--;
