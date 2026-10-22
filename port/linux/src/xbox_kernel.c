@@ -343,6 +343,9 @@ DWORD WINAPI WaitForSingleObjectEx(HANDLE object, DWORD milliseconds, BOOL alert
 	struct timespec deadline;
 	DWORD result = WAIT_OBJECT_0;
 
+#ifdef HALO_CONSOLE_WAIT_POLL
+	console_wait_poll();
+#endif
 	if (alertable && platform_run_apcs())
 		return WAIT_IO_COMPLETION;
 
@@ -368,6 +371,31 @@ DWORD WINAPI WaitForSingleObjectEx(HANDLE object, DWORD milliseconds, BOOL alert
 			result = WAIT_TIMEOUT;
 			break;
 		}
+#ifdef HALO_CONSOLE_WAIT_POLL
+		/* (in slices, the console served between them) */
+		if (milliseconds != 0)
+		{
+			struct timespec slice;
+
+			clock_gettime(CLOCK_REALTIME, &slice);
+			slice.tv_nsec += 16000000L;
+			if (slice.tv_nsec >= 1000000000L)
+			{
+				slice.tv_sec++;
+				slice.tv_nsec -= 1000000000L;
+			}
+			if (milliseconds == INFINITE ||
+				slice.tv_sec < deadline.tv_sec ||
+				(slice.tv_sec == deadline.tv_sec && slice.tv_nsec < deadline.tv_nsec))
+			{
+				pthread_cond_timedwait(&handle->condition, &handle->lock, &slice);
+				pthread_mutex_unlock(&handle->lock);
+				console_wait_poll();
+				pthread_mutex_lock(&handle->lock);
+				continue;
+			}
+		}
+#endif
 		if (milliseconds == INFINITE)
 		{
 			pthread_cond_wait(&handle->condition, &handle->lock);
@@ -711,6 +739,9 @@ DWORD WINAPI SleepEx(DWORD milliseconds, BOOL alertable)
 {
 	struct timespec duration;
 
+#ifdef HALO_CONSOLE_WAIT_POLL
+	console_wait_poll();
+#endif
 	if (alertable && platform_run_apcs())
 		return WAIT_IO_COMPLETION;
 	if (milliseconds == 0)
@@ -723,6 +754,20 @@ DWORD WINAPI SleepEx(DWORD milliseconds, BOOL alertable)
 		for (;;)
 			pause();
 	}
+#ifdef HALO_CONSOLE_WAIT_POLL
+	/* (in slices, the console served between them) */
+	while (milliseconds > 16)
+	{
+		duration.tv_sec = 0;
+		duration.tv_nsec = 16000000L;
+		while (nanosleep(&duration, &duration) == -1 && errno == EINTR)
+			;
+		milliseconds -= 16;
+		console_wait_poll();
+		if (alertable && platform_run_apcs())
+			return WAIT_IO_COMPLETION;
+	}
+#endif
 	duration.tv_sec = milliseconds / 1000;
 	duration.tv_nsec = (long)(milliseconds % 1000) * 1000000L;
 	while (nanosleep(&duration, &duration) == -1 && errno == EINTR)
