@@ -357,6 +357,33 @@ int command_line_map_name_valid(
 	if (length > 3 && (!strcmp(text + length - 3, "@ce") || !strcmp(text + length - 3, "@md") ||
 		!strcmp(text + length - 3, "@pc")))
 		base_length = length - 3;
+	/* (an Xbox map pack's map: <file>@<pack>, its pack 1 to 8 letters and
+	digits, none of the other families' suffixes nor the Xbox's language
+	folders: halo_map_families.h) */
+	else if (strchr(text, '@'))
+	{
+		static const char *const reserved[] = { "ce", "md", "pc", "de", "fr", "es", "it" };
+		const char *pack = strrchr(text, '@') + 1;
+		int pack_length = (int)strlen(pack);
+		int index;
+
+		if (pack_length < 1 || pack_length > 8)
+			return 0;
+		for (index = 0; index < pack_length; index++)
+		{
+			if (!((pack[index] >= 'a' && pack[index] <= 'z') || (pack[index] >= 'A' && pack[index] <= 'Z') ||
+				(pack[index] >= '0' && pack[index] <= '9')))
+			{
+				return 0;
+			}
+		}
+		for (index = 0; index < (int)(sizeof(reserved) / sizeof(reserved[0])); index++)
+		{
+			if (lower(pack[0]) == reserved[index][0] && pack_length == 2 && lower(pack[1]) == reserved[index][1])
+				return 0;
+		}
+		base_length = length - pack_length - 1;
+	}
 	if (!base_length)
 		return 0;
 	for (length = 0; length < base_length; length++)

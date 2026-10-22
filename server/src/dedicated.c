@@ -38,8 +38,9 @@ Browser), and is withdrawn when the server stops.
 
 The playlist: one entry a line, a map (its name, "bloodgulch", its path, a
 Custom Edition map in maps_ce as <name>@ce, "timberland@ce", a HaloMD map
-in maps_md as <name>@md, "phoenix3_15@md", or a Halo PC retail map in
-maps_pc as <name>@pc: halo_map_families.h) and a game
+in maps_md as <name>@md, "phoenix3_15@md", a Halo PC retail map in
+maps_pc as <name>@pc, or an Xbox map pack's map in maps_<pack> as
+<name>@<pack>, Halo CE+'s "wizard@cex": halo_map_families.h) and a game
 type (game_engine_get_variant_by_name's names: slayer, team_slayer, ctf,
 king, oddball, race, ...); # starts a comment.
 

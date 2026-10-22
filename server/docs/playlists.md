@@ -52,6 +52,28 @@ map's game with the map in their `custom_maps/`; HaloMD and Halo PC retail
 games are ChupathingyCE's only (an OpenCE player is told the map is
 missing).
 
+**Xbox map packs** (community packs of Xbox maps, such as Halo CE+ X), each
+in its own `maps_<pack>/` folder beside `maps/`, go in as `<name>@<pack>`:
+Halo CE+'s maps are in `maps_cex/` and its Gothra is `wizard@cex`, whatever
+retail map shares the file name:
+
+```
+wizard@cex       slayer
+bloodgulch@cex   ctf
+```
+
+Copy the pack's `maps` folder (its `maplist.txt` too) into `maps_<pack>/`;
+the retail maps stay in `maps/`. Pack maps are Xbox maps, so any server
+plays them (32-bit or 64-bit, no Custom Edition files needed). The server's
+listing names each by its pack's name ("Gothra", Halo CE+), from the
+library of known packs (`port/assets/maps`) or the pack's `maplist.txt`.
+Desktop players and Xbox consoles (Warthog) of a build with map packs join
+with the same version of the pack in their own `maps_<pack>`; a player
+without it is told which pack and folder it needs. OpenCE and older builds
+can't join these games (they are told the map is missing). A pack's folder
+name is 1 to 8 letters and digits, other than `ce`, `md`, `pc`, `de`, `fr`,
+`es` and `it`.
+
 The older folders still work: `maps/ce/` (ChupathingyCE 0.7.0b and before),
 `md_maps/`, and OpenCE's `custom_maps/` for Custom Edition maps. A file
 named `<name>@ce.map` (`@md`, `@pc`) in `maps/` plays too. The server never

@@ -81,7 +81,7 @@ static short ce_map_state(char const *map)
 	{
 		csstrncpy(ce_map_check.map, map, sizeof(ce_map_check.map) - 1);
 		ce_map_check.map[sizeof(ce_map_check.map) - 1] = 0;
-		ce_map_check.answer = ui_map_list_family_present(family, file) ? _ce_map_present : _ce_map_missing;
+		ce_map_check.answer = ui_map_list_map_present(map) ? _ce_map_present : _ce_map_missing;
 		ce_map_check.time = system_milliseconds();
 	}
 	return ce_map_check.answer;
@@ -99,7 +99,7 @@ short server_browser_map_family(char const *map, wchar_t *text, short length)
 
 	if (family == _map_family_xbox)
 		return family;
-	ui_map_list_family_name(family, file, text, length);
+	ui_map_list_map_name(map, text, length);
 	if (!text[0])
 		text_from_ascii("Unknown map", text, length);
 	return family;
@@ -129,6 +129,14 @@ boolean server_browser_map_blocked(char const *map, wchar_t *message, short leng
 			char first[96], second[160];
 
 			map_family_stock_need(file, 0, first, sizeof(first), second, sizeof(second), text, sizeof(text));
+		}
+		/* (a pack's map: its pack's folder, maps_<pack>) */
+		else if (family == _map_family_pack)
+		{
+			char pack[MAP_PACK_ID_LENGTH + 1];
+
+			map_family_pack_id(map, pack, sizeof(pack));
+			snprintf(text, sizeof(text), "Needs maps_%s/%s.map to join", pack, file);
 		}
 		else
 			snprintf(text, sizeof(text), server_browser_map_downloadable(map) ?

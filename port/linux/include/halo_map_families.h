@@ -12,7 +12,18 @@ its file's name, and each with a folder of its own beside maps\:
   - HaloMD's maps (Halo PC retail's cache version 7, the maps of HaloMD's
     mod list), played as <name>@md: maps_md\<name>.map;
   - Halo PC retail's own maps (version 7, from the player's Halo PC disc),
-    played as <name>@pc: maps_pc\<name>.map.
+    played as <name>@pc: maps_pc\<name>.map;
+  - community packs of Xbox maps (Halo CE+ and the like: Xbox
+    cache files, version 5, often saved under the Xbox's own maps' file
+    names), each pack in a folder of its own, maps_<pack>, its maps played
+    as <name>@<pack>: maps_cex\bloodgulch.map is bloodgulch@cex, CE+'s Abyss
+    (halo_map_packs.h). They are Xbox maps, read by the Xbox's loader and
+    copied into its cache slots as those are, but never taken for the
+    retail map, or another pack's, of the same file name: the slot, the
+    game's settings, the menus and the last map played all name them
+    <name>@<pack>. A pack's name is 1 to 8 letters and digits, none of the
+    other families' suffixes (ce, md, pc) nor the Xbox's language folders'
+    (de, fr, es, it).
 
 A file named for its family (<name>@ce.map) is played from its family's
 folder or from maps\ itself. The older places are read too: maps\ce
@@ -25,8 +36,9 @@ loc.map) are Custom Edition's, for every family past the Xbox's.
 
 The suffixes are this port's. In the game's protocol a Custom Edition map
 is named as OpenCE's build-145 names it, custom_maps\<name>, and HaloMD's
-and Halo PC retail's maps maps_md\<name>.md and maps_pc\<name>.pc, which no
-OpenCE client has (map_family_wire_name); Delta Peer carries each map's
+and Halo PC retail's maps maps_md\<name>.md and maps_pc\<name>.pc, and a
+pack's Xbox map maps_<pack>\<name>.<pack>, which no OpenCE client (nor a
+ChupathingyCE build before map packs) has (map_family_wire_name); Delta Peer carries each map's
 identity between ChupathingyCE machines (docs/delta.md).
 */
 
@@ -39,6 +51,8 @@ enum
 	_map_family_custom_edition,
 	_map_family_halomd,
 	_map_family_halo_pc,
+	/* (Delta Peer's MAP carries the number: a new family goes last) */
+	_map_family_pack,
 	NUMBER_OF_MAP_FAMILIES
 };
 
@@ -53,18 +67,42 @@ announce every Halo PC map) is a Custom Edition map's, as in the game's
 protocol (custom_maps\<name>) */
 short map_family_parse_listed(char const *map, char *file, long size);
 
-/* a family's suffix ("@ce", "@md"; "" for the Xbox's) */
+/* (a pack's name, at most, without its terminator) */
+#define MAP_PACK_ID_LENGTH 8
+
+/* whether a family's maps are Xbox cache files (version 5), which the Xbox's
+loader reads and its cache slots hold: the Xbox's own and a pack's */
+boolean map_family_is_xbox_format(short family);
+
+/* whether a name can be a map pack's (1 to 8 letters and digits, any case,
+none of the reserved names) */
+boolean map_pack_id_valid(char const *id, long length);
+
+/* a map pack's map's pack (<file>@<pack>: its name, in lowercase), into
+pack (MAP_PACK_ID_LENGTH + 1 bytes or more): FALSE for another family's */
+boolean map_family_pack_id(char const *map, char *pack, long size);
+
+/* the file an Xbox-format map's name (as the loader has it: <file>, or
+<file>@<pack>) is read from: maps_<pack>\<file>.map for a pack's, else
+the maps folder's <name>.map, as the game always read it (with a pack's own
+menus, game.pack_menus, ui is the pack's ui.map). FALSE (path empty) if it
+does not fit */
+boolean map_family_xbox_path(char const *map_name, char *path, long size);
+
+/* a family's suffix ("@ce", "@md"; "" for the Xbox's, and for a pack's,
+whose suffix is its pack's: @cex) */
 char const *map_family_suffix(short family);
 
 /* a family's name as the menus and the server browser show it on a game
-("HALO PC", "HALOMD", "HALO PC RETAIL"; "" for the Xbox's) */
+("HALO PC", "HALOMD", "HALO PC RETAIL", "MAP PACK"; "" for the Xbox's) */
 char const *map_family_badge(short family);
 
 /* a family's short tag on a listed game's map, the same in every menu set
 and on the game list's pages: XBX (the Xbox's, maps\), HCE (Custom
 Edition's, maps_ce\, @ce), HMD (HaloMD's, maps_md\, @md), GBX (Halo PC
-retail's, Gearbox's, maps_pc\, @pc); what it stands for ("Custom Edition
-map"), and its color (0xRRGGBB) */
+retail's, Gearbox's, maps_pc\, @pc), PAK (a map pack's Xbox map: each
+pack's own tag where it is known, map_pack_tag); what it stands for
+("Custom Edition map"), and its color (0xRRGGBB) */
 char const *map_family_tag(short family);
 char const *map_family_title(short family);
 unsigned long map_family_color(short family);
@@ -75,16 +113,18 @@ unsigned long map_family_color(short family);
 #define MAP_FAMILY_COLOR_MCC 0x5FD3C8
 
 /* the folder a player puts a family's maps in, as the menus tell them
-("maps_ce", "maps_md", "maps_pc"; "maps" for the Xbox's) */
+("maps_ce", "maps_md", "maps_pc"; "maps" for the Xbox's; a pack's is
+maps_<pack>, map_pack_folder) */
 char const *map_family_folder(short family);
 
 /* a family's name in logs and messages ("Custom Edition", "HaloMD",
-"Halo PC", "Xbox") */
+"Halo PC", "map pack", "Xbox") */
 char const *map_family_kind(short family);
 
 /* a map's name (a scenario's name or path, or <file>@ce, @md, @pc) as the
 game's protocol has it (the game's settings, its advertisement): an Xbox
-map's as it is, custom_maps\<file>, maps_md\<file>.md, maps_pc\<file>.pc */
+map's as it is, custom_maps\<file>, maps_md\<file>.md, maps_pc\<file>.pc,
+maps_<pack>\<file>.<pack> */
 void map_family_wire_name(char const *map, char *wire, long size);
 
 /* the map a name in the game's protocol names, as this port names it
@@ -103,7 +143,7 @@ void map_downloaded_remember(char const *map_name);
 
 #ifdef HALO_CUSTOM_EDITION
 /* a family's cache version: 609 for Custom Edition's, 7 for HaloMD's and
-Halo PC retail's */
+Halo PC retail's, 5 for the Xbox's and a pack's */
 long map_family_cache_version(short family);
 
 /* the path of a Custom Edition resource map (bitmaps, sounds, loc; or
