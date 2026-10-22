@@ -7,7 +7,8 @@ the middle of the map: a team scores by carrying it into the other team's
 goal, which ends the round. The goals are the map's CTF flag markers and the
 bomb is the map's oddball ball, on the ground halfway between the goals (or
 where the host's game.bomb_spawns puts it on that map), so every map with
-two CTF bases plays it.
+two CTF bases plays it. A known Grifball court (bomb_courts) has its own
+ball's spot, goal volumes and out of bounds instead.
 
 Bomb is played only between ChupathingyCE machines that agree on Delta
 Peer's bomb capability: a host drops every other machine
@@ -136,6 +137,10 @@ enum
 	BOMB_BLAST_PAUSE_TICKS = 5 * TICKS_PER_SECOND / 2,
 	/* the globals' grenades the blast is drawn with */
 	MAXIMUM_BOMB_BLAST_EFFECTS = 2,
+	/* the most weapons a court gives (bomb_courts) */
+	MAXIMUM_BOMB_COURT_WEAPONS = 2,
+	/* the most out of bounds volumes a court names (bomb_courts) */
+	MAXIMUM_BOMB_COURT_OUT_OF_BOUNDS = 2,
 };
 
 /* the shipped multiplayer sounds Bomb borrows (game_engine_multiplayer_sounds.c):
@@ -175,9 +180,12 @@ enum
 
 static struct
 {
-	/* each team's goal (its CTF flag marker): a team scores at the other's */
+	/* each team's goal (its CTF flag marker, or a court's trigger volume:
+	the volume's floor, in its middle): a team scores at the other's */
 	boolean has_goal[NUMBER_OF_BOMB_TEAMS];
 	real_point3d goals[NUMBER_OF_BOMB_TEAMS];
+	/* a court's goals' trigger volumes (NONE: the marker's radius) */
+	short goal_volumes[NUMBER_OF_BOMB_TEAMS];
 	/* where the bomb starts and resets */
 	real_point3d spawn;
 	/* the bomb (the host's object, at the same index on every machine) */
@@ -206,6 +214,16 @@ static struct
 	long fist_definition_index;
 	/* the host giving them (no one picks them up otherwise) */
 	boolean giving_fists;
+	/* a court's (bomb_courts): its scripts off, and its weapons players
+	get in place of the sword (NONE: a weapon the map doesn't have) */
+	boolean court;
+	long court_weapons[MAXIMUM_BOMB_COURT_WEAPONS];
+	/* a court's own ball (NONE: none), which is not placed: the bomb starts
+	where it would be */
+	long court_ball_definition_index;
+	/* a court's out of bounds trigger volumes (NONE: none): a player in one
+	is killed, and the bomb lying in one is reset, as its scripts did */
+	short out_of_bounds_volumes[MAXIMUM_BOMB_COURT_OUT_OF_BOUNDS];
 	/* the players drawn in the carrier's color (by absolute index) */
 	boolean highlighted[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
 	/* each player's (by absolute index), for the game's report: ticks with
@@ -254,6 +272,38 @@ static struct
 	byte rounds;
 	byte round_overs;
 } bomb_events;
+
+/* the Custom Edition maps that are Grifball courts with a game of their
+own, by their version (cache_files_map_version: the first 32 bits of the
+whole file's hash): their scripts are off while Bomb plays on them (they
+run the map's own ball, goals, score and the game's end), and its players
+get the court's own weapons, the first in their hands. What the scripts
+did that Bomb needs, the court's entry names: its ball (the bomb starts
+where the map places it, and it is not placed), its goals' and its out of
+bounds trigger volumes */
+static struct bomb_court
+{
+	unsigned long version;
+	char const *weapons[MAXIMUM_BOMB_COURT_WEAPONS];
+	char const *ball;
+	/* each team's goal, red's and blue's (the one it defends) */
+	char const *goal_volumes[NUMBER_OF_BOMB_TEAMS];
+	char const *out_of_bounds_volumes[MAXIMUM_BOMB_COURT_OUT_OF_BOUNDS];
+} const bomb_courts[] =
+{
+	/* grifball@ce, HaloNet's Grifball court (166 MB, a CTF map): its
+	scripts make its own ball (weapons\grifball\grifball, placed on the
+	court's middle), score red's when the ball is in "bluegoal" (blue's
+	end) and blue's in "redgoal", blow it up there with a tank shell's
+	explosion that kills whoever is near, and kill a player in "OOB" (the
+	ball in it goes back to its spawn); its CTF flags are off the court,
+	and its energy sword detonates when dropped, so bomb_find_sword passes
+	it by */
+	{ 0x62b910c6UL, {
+		"h3mt\\weapons\\covenant\\gravity_hammer\\gravity_hammer",
+		"weapons\\energy_sword\\energy_sword backup",
+	}, "weapons\\grifball\\grifball", { "redgoal", "bluegoal" }, { "OOB", NULL } },
+};
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -728,6 +778,159 @@ static long bomb_find_sword(void)
 	return NONE;
 }
 
+/* the scenario's trigger volume of that name (NONE: none) */
+static short bomb_find_trigger_volume(char const *name)
+{
+	struct scenario *scenario = global_scenario_get();
+	short index;
+
+	for (index = 0; name && index < scenario->trigger_volumes.count; index++)
+	{
+		struct scenario_trigger_volume *volume =
+			TAG_BLOCK_GET_ELEMENT(&scenario->trigger_volumes, index, struct scenario_trigger_volume);
+
+		if (!csstrcasecmp(volume->name, name))
+			return index;
+	}
+	if (name)
+		bomb_log("the court has no trigger volume %s", name);
+	return NONE;
+}
+
+/* the middle of a trigger volume's floor */
+static void bomb_trigger_volume_floor(short volume_index, real_point3d *point)
+{
+	struct scenario_trigger_volume *volume =
+		TAG_BLOCK_GET_ELEMENT(&global_scenario_get()->trigger_volumes, volume_index, struct scenario_trigger_volume);
+	real_point3d middle;
+
+	if (volume->type == _scenario_trigger_volume_type_oriented)
+	{
+		real_matrix4x3 matrix;
+
+		middle.x = volume->extents.i * 0.5f;
+		middle.y = volume->extents.j * 0.5f;
+		middle.z = 0.0f;
+		matrix4x3_from_point_and_vectors(&matrix, &volume->position, &volume->forward, &volume->up);
+		matrix4x3_transform_point(&matrix, &middle, point);
+	}
+	else
+	{
+		point->x = (volume->bounds.x0 + volume->bounds.x1) * 0.5f;
+		point->y = (volume->bounds.y0 + volume->bounds.y1) * 0.5f;
+		point->z = volume->bounds.z0;
+	}
+}
+
+/* where the map places its court's ball (FALSE: it doesn't) */
+static boolean bomb_find_court_ball(real_point3d *position)
+{
+	struct scenario *scenario = global_scenario_get();
+	short index;
+
+	if (bomb_globals.court_ball_definition_index == NONE)
+		return FALSE;
+	for (index = 0; index < scenario->weapons.count; index++)
+	{
+		struct scenario_weapon_datum *weapon = TAG_BLOCK_GET_ELEMENT(&scenario->weapons, index,
+			struct scenario_weapon_datum);
+
+		if (VALID_INDEX(weapon->object.palette_entry_index, scenario->weapon_palette.count) &&
+			TAG_BLOCK_GET_ELEMENT(&scenario->weapon_palette, weapon->object.palette_entry_index,
+				struct scenario_object_palette_entry)->reference.index == bomb_globals.court_ball_definition_index)
+		{
+			*position = weapon->object.position;
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+/* the court the map is (bomb_courts), if it is one: its weapons, ball and
+trigger volumes found */
+static void bomb_find_court(void)
+{
+	unsigned long version;
+	long court_index;
+	short index;
+
+	bomb_globals.court = FALSE;
+	for (index = 0; index < MAXIMUM_BOMB_COURT_WEAPONS; index++)
+		bomb_globals.court_weapons[index] = NONE;
+	bomb_globals.court_ball_definition_index = NONE;
+	for (index = 0; index < NUMBER_OF_BOMB_TEAMS; index++)
+		bomb_globals.goal_volumes[index] = NONE;
+	for (index = 0; index < MAXIMUM_BOMB_COURT_OUT_OF_BOUNDS; index++)
+		bomb_globals.out_of_bounds_volumes[index] = NONE;
+	if (!CACHE_FILE_TAGS_ARE_CE() || !cache_file_loaded_map_name())
+		return;
+	version = cache_files_map_version(cache_file_loaded_map_name());
+	for (court_index = 0; court_index < (long)NUMBEROF(bomb_courts); court_index++)
+	{
+		if (bomb_courts[court_index].version != version)
+			continue;
+		bomb_globals.court = TRUE;
+		for (index = 0; index < MAXIMUM_BOMB_COURT_WEAPONS; index++)
+		{
+			if (bomb_courts[court_index].weapons[index])
+			{
+				bomb_globals.court_weapons[index] =
+					tag_loaded(WEAPON_DEFINITION_TAG, bomb_courts[court_index].weapons[index]);
+			}
+		}
+		if (bomb_courts[court_index].ball)
+		{
+			bomb_globals.court_ball_definition_index =
+				tag_loaded(WEAPON_DEFINITION_TAG, bomb_courts[court_index].ball);
+		}
+		for (index = 0; index < NUMBER_OF_BOMB_TEAMS; index++)
+			bomb_globals.goal_volumes[index] = bomb_find_trigger_volume(bomb_courts[court_index].goal_volumes[index]);
+		for (index = 0; index < MAXIMUM_BOMB_COURT_OUT_OF_BOUNDS; index++)
+		{
+			bomb_globals.out_of_bounds_volumes[index] =
+				bomb_find_trigger_volume(bomb_courts[court_index].out_of_bounds_volumes[index]);
+		}
+		bomb_log("court %s (%08lx): its scripts off, its weapons %lx %lx, its ball %lx, its goals' volumes %d %d, "
+			"out of bounds %d", cache_file_loaded_map_name(), version, (unsigned long)bomb_globals.court_weapons[0],
+			(unsigned long)bomb_globals.court_weapons[1], (unsigned long)bomb_globals.court_ball_definition_index,
+			bomb_globals.goal_volumes[0], bomb_globals.goal_volumes[1], bomb_globals.out_of_bounds_volumes[0]);
+		return;
+	}
+}
+
+boolean game_engine_bomb_scripts_off(
+	void)
+{
+	return bomb_running() && bomb_globals.court;
+}
+
+boolean game_engine_bomb_weapon_placement_allowed(
+	struct scenario_object_datum const *placement,
+	struct tag_block *palette)
+{
+	/* (every machine places the same: the court's own ball, on none) */
+	return !bomb_running() || !bomb_globals.court || bomb_globals.court_ball_definition_index == NONE ||
+		!VALID_INDEX(placement->palette_entry_index, palette->count) ||
+		TAG_BLOCK_GET_ELEMENT(palette, placement->palette_entry_index,
+			struct scenario_object_palette_entry)->reference.index != bomb_globals.court_ball_definition_index;
+}
+
+/* a court's out of bounds volume an object is in (FALSE: none) */
+static boolean bomb_out_of_bounds(long object_index)
+{
+	short index;
+
+	for (index = 0; index < MAXIMUM_BOMB_COURT_OUT_OF_BOUNDS; index++)
+	{
+		if (bomb_globals.out_of_bounds_volumes[index] != NONE &&
+			scenario_trigger_volume_test_object(bomb_globals.out_of_bounds_volumes[index], object_index))
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
 boolean game_engine_bomb_melee_only(
 	void)
 {
@@ -745,11 +948,33 @@ void game_engine_bomb_give_sword(
 		bomb_globals.fist_definition_index;
 
 	/* (a client has the host's: network_objects.c) */
-	if (!game_engine_bomb_melee_only() || unit_index == NONE || definition_index == NONE ||
-		network_game_distributed_client())
+	if (!game_engine_bomb_melee_only() || unit_index == NONE || network_game_distributed_client())
+		return;
+	/* (a court's own weapons: the last first, in place of the loadout's;
+	each one after it into the unit's hands, so that the first ends there) */
+	if (bomb_globals.court)
 	{
+		boolean added = FALSE;
+		short index;
+
+		for (index = MAXIMUM_BOMB_COURT_WEAPONS - 1; index >= 0; index--)
+		{
+			if (bomb_globals.court_weapons[index] == NONE)
+				continue;
+			object_placement_data_new(&placement_data, bomb_globals.court_weapons[index], NONE);
+			weapon_index = object_new(&placement_data);
+			if (weapon_index != NONE && unit_add_weapon_to_inventory(unit_index, weapon_index,
+				added ? _unit_add_weapon_starting : _unit_add_weapon_replace))
+			{
+				added = TRUE;
+			}
+			else if (weapon_index != NONE)
+				object_delete(weapon_index);
+		}
 		return;
 	}
+	if (definition_index == NONE)
+		return;
 	object_placement_data_new(&placement_data, definition_index, NONE);
 	weapon_index = object_new(&placement_data);
 	if (weapon_index == NONE)
@@ -1027,6 +1252,13 @@ static void bomb_find_spawn(void)
 	long flag_index = NONE;
 	short index;
 
+	/* (a court's own ball's spot) */
+	if (bomb_find_court_ball(&bomb_globals.spawn))
+	{
+		bomb_log("spawn at the court's ball (%.2f %.2f %.2f)", bomb_globals.spawn.x, bomb_globals.spawn.y,
+			bomb_globals.spawn.z);
+		return;
+	}
 	has_point = bomb_spawn_setting(setting ? setting : "", &point, &has_height) ||
 		bomb_spawn_setting(bomb_built_in_spawns, &point, &has_height);
 	if (!has_point && bomb_globals.has_goal[0] && bomb_globals.has_goal[1])
@@ -1275,9 +1507,20 @@ static boolean bomb_engine_initialize_for_new_map(void)
 	{
 		bomb_globals.fist_definition_index = NONE;
 	}
+	bomb_find_court();
+	/* (a court gives its own weapons: no fists) */
+	if (bomb_globals.court)
+		bomb_globals.fist_definition_index = NONE;
 
 	for (team_index = 0; team_index < NUMBER_OF_BOMB_TEAMS; team_index++)
 	{
+		/* (a court's goal: its trigger volume) */
+		if (bomb_globals.goal_volumes[team_index] != NONE)
+		{
+			bomb_trigger_volume_floor(bomb_globals.goal_volumes[team_index], &bomb_globals.goals[team_index]);
+			bomb_globals.has_goal[team_index] = TRUE;
+			continue;
+		}
 		flag_index = find_netgame_flag(NULL, 0.0f, 0.0f, _netgame_flag_ctf_flag, (short)team_index);
 		if (flag_index != NONE)
 		{
@@ -1290,6 +1533,10 @@ static boolean bomb_engine_initialize_for_new_map(void)
 	}
 
 	bomb_find_spawn();
+	bomb_log("goals red (%.2f %.2f %.2f) blue (%.2f %.2f %.2f), the bomb's spawn (%.2f %.2f %.2f)",
+		bomb_globals.goals[0].x, bomb_globals.goals[0].y, bomb_globals.goals[0].z, bomb_globals.goals[1].x,
+		bomb_globals.goals[1].y, bomb_globals.goals[1].z, bomb_globals.spawn.x, bomb_globals.spawn.y,
+		bomb_globals.spawn.z);
 
 	/* (the goals' outlines, drawn as the hill is) */
 	render_dynamic_quad_initialize();
@@ -1751,6 +1998,14 @@ static void bomb_engine_player_update(long player_index)
 	/* (a client has the host's shields, scores and rounds) */
 	if (network_game_distributed_client())
 		return;
+	/* (a court's out of bounds: the player killed, as its scripts did) */
+	if (player->unit_index != NONE && bomb_out_of_bounds(player->unit_index) &&
+		!TEST_FLAG(object_get(player->unit_index)->object.damage_flags, _object_dead_bit))
+	{
+		bomb_log_player("out of bounds: killed", player_index);
+		unit_kill(player->unit_index);
+		return;
+	}
 	if (carrying && traits.shields == _trait_shields_overshield)
 		bomb_overshield_update(player_index);
 	/* (one score a goal: none from the goal to the next round, the bomb
@@ -1760,10 +2015,13 @@ static void bomb_engine_player_update(long player_index)
 	{
 		long goal_team = (player->team_index + 1) % NUMBER_OF_BOMB_TEAMS;
 		struct object_datum *unit = object_get(player->unit_index);
+		boolean in_goal = bomb_globals.goal_volumes[goal_team] != NONE ?
+			scenario_trigger_volume_test_object(bomb_globals.goal_volumes[goal_team], player->unit_index) :
+			bomb_globals.has_goal[goal_team] &&
+				distance_squared3d(&bomb_globals.goals[goal_team], &unit->object.position) <
+					BOMB_GOAL_RADIUS * BOMB_GOAL_RADIUS;
 
-		if (bomb_globals.has_goal[goal_team] &&
-			distance_squared3d(&bomb_globals.goals[goal_team], &unit->object.position) <
-				BOMB_GOAL_RADIUS * BOMB_GOAL_RADIUS)
+		if (in_goal)
 		{
 			bomb_globals.arm_ticks++;
 			if (bomb_globals.arm_ticks >=
@@ -1800,7 +2058,18 @@ are bomb_update_goals') */
 	else
 		game_engine_clear_goal_position(BOMB_GOAL_BOMB);
 
-	/* (a client has the bomb where the host puts it) */
+	/* (a client has the bomb where the host puts it; a court's bomb lying
+	out of bounds goes back at once, as its scripts sent their ball) */
+	if (!network_game_distributed_client() && weapon->object.parent_object_index == NONE &&
+		TEST_FLAG(weapon->object.flags, _object_connected_to_map_bit) && bomb_out_of_bounds(weapon_index))
+	{
+		bomb_log("reset: out of bounds at (%.2f %.2f %.2f)", weapon->object.position.x, weapon->object.position.y,
+			weapon->object.position.z);
+		bomb_reset();
+		bomb_events.resets++;
+		bomb_show_reset();
+		return;
+	}
 	if (!network_game_distributed_client() && reset_time > 0 &&
 		(unsigned long)(game_time_get() - weapon->item.last_owned_time) > (unsigned long)(reset_time * TICKS_PER_SECOND) &&
 		TEST_FLAG(weapon->object.flags, _object_connected_to_map_bit) && weapon->object.parent_object_index == NONE)

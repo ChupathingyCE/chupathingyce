@@ -924,7 +924,8 @@ void weapon_set_total_rounds(
 void weapon_delete(
 	long weapon_index)
 {
-	if (game_engine_running())
+	/* port: not for a Custom Edition map's (objects.c, object_delete) */
+	if (game_engine_running() && !CACHE_FILE_TAGS_ARE_CE())
 	{
 #if defined(HALO_CONSOLE) || defined(HALO_XBOX_CONSOLE)
 		/* port: on the consoles a warning in debug.txt, and the game goes on:

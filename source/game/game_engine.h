@@ -469,6 +469,14 @@ boolean game_engine_bomb_hides_weapon(long definition_index);
 round's clock and each team's rounds, the planted bomb's countdown, and the
 carrier's arming */
 void game_engine_bomb_rasterize(long player_index);
+/* whether the map's scripts are off: a Bomb game on a court with a game of
+its own (game_engine_bomb.c, bomb_courts) */
+boolean game_engine_bomb_scripts_off(void);
+/* whether a map's placed weapon is placed: a Bomb game on a court places
+none of the court's own ball (the bomb takes its place) */
+struct scenario_object_datum;
+boolean game_engine_bomb_weapon_placement_allowed(struct scenario_object_datum const *placement,
+	struct tag_block *palette);
 /* whether a weapon's pickup line is not shown (the bomb's: the game's own
 message says who has it) */
 boolean game_engine_bomb_hides_pickup(long weapon_definition_index);
