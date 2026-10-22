@@ -402,6 +402,42 @@ boolean network_coop_wire_entries(byte type, byte *entries, short count, long si
 /* (game_engine.c) the game type's state the host sends (game_engine_write_
 network_state), between this machine's order and the wire's */
 void game_engine_network_state_byte_swap(byte *buffer, long size);
+
+/* (network_distributed.c) a message of size bytes, its message header in
+this machine's order (the transport's on both sides), in the other order:
+its tick, then its entries by its kind. A copy in one of two buffers (one
+for messages sent, one for those received), which the next message that
+way reuses; the message itself if it is too large or of a kind no module
+knows. */
+void *distributed_wire_copy(void const *message, word size, boolean received);
+/* what the netcode packs itself, a number at a time in the wire's order (a
+field of several by its parts' size) */
+byte *distributed_wire_put(byte *cursor, void const *data, short size, short part);
+boolean distributed_wire_take(byte const **cursor, byte const *end, void *data, short size, short part);
+#endif
+
+/* network_distributed.c's hooks into its sends (each on the line it goes
+with, so that a little-endian build's code is what it was): nothing on a
+little-endian machine */
+#ifdef HALO_BIG_ENDIAN
+#define WIRE_MESSAGE(message, size) distributed_wire_copy(message, size, FALSE)
+#define WIRE_MESSAGE_OUT(message, size) ((message) = WIRE_MESSAGE(message, size))
+#define WIRE_HEADER_OUT(header) WIRE_SWAP_FIELD(header, struct distributed_message_header, game_time, sizeof(long))
+#define WIRE_WORD_OUT(value) distributed_wire_swap(value, 1, sizeof(word))
+/* (the one prefix, the relayed actions' update: a long) */
+#define WIRE_PREFIX_OUT(prefix, size) distributed_wire_swap(prefix, (size) == sizeof(long) ? 1 : 0, sizeof(long))
+#define distributed_put(cursor, data, size) distributed_wire_put(cursor, data, size, size)
+#define distributed_take(cursor, end, data, size) distributed_wire_take(cursor, end, data, size, size)
+#define distributed_put_parts(cursor, data, size, part) distributed_wire_put(cursor, data, size, part)
+#define distributed_take_parts(cursor, end, data, size, part) distributed_wire_take(cursor, end, data, size, part)
+#else
+#define WIRE_MESSAGE(message, size) (message)
+#define WIRE_MESSAGE_OUT(message, size)
+#define WIRE_HEADER_OUT(header)
+#define WIRE_WORD_OUT(value)
+#define WIRE_PREFIX_OUT(prefix, size)
+#define distributed_put_parts(cursor, data, size, part) distributed_put(cursor, data, size)
+#define distributed_take_parts(cursor, end, data, size, part) distributed_take(cursor, end, data, size)
 #endif
 
 #endif // __NETWORK_DISTRIBUTED_H
