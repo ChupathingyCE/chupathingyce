@@ -416,6 +416,32 @@ byte *distributed_wire_put(byte *cursor, void const *data, short size, short par
 boolean distributed_wire_take(byte const **cursor, byte const *end, void *data, short size, short part);
 #endif
 
+#if defined(HALO_BIG_ENDIAN) || defined(HALO_NETWORK_WIRE_CAPTURE)
+/* ---------- the wire's samples (network_distributed.c's
+network_wire_self_test)
+
+A sample of each kind of message, its fields filled one by one with numbers
+of their own types' sizes (in this machine's order): a little-endian build
+made with HALO_NETWORK_WIRE_CAPTURE writes their bytes, which are the wire's
+(wire_samples.h); a big-endian one turns its own into the wire's order and
+compares. */
+/* the field (of size bytes: a byte, a short or a long) given the next
+number */
+void wire_sample_set(void *field, long size);
+#define WIRE_SAMPLE(field) wire_sample_set(&(field), (long)sizeof(field))
+/* ... each element of an array of them */
+void wire_sample_array(void *array, long count, long size);
+#define WIRE_SAMPLES(array) \
+	wire_sample_array(array, (long)(sizeof(array) / sizeof((array)[0])), (long)sizeof((array)[0]))
+#define WIRE_SAMPLE_VECTOR(vector) (WIRE_SAMPLE((vector).i), WIRE_SAMPLE((vector).j), WIRE_SAMPLE((vector).k))
+/* each module's sample entries of a kind (two, or one of a kind its
+handler reads one of): their bytes, 0 for a kind not the module's */
+word network_objects_wire_sample(byte type, byte *entries);
+word network_damage_wire_sample(byte type, byte *entries);
+word network_actors_wire_sample(byte type, byte *entries);
+word network_coop_wire_sample(byte type, byte *entries);
+#endif
+
 /* network_distributed.c's hooks into its sends (each on the line it goes
 with, so that a little-endian build's code is what it was): nothing on a
 little-endian machine */

@@ -2449,3 +2449,81 @@ boolean network_damage_wire_entries(
 	return FALSE;
 }
 #endif
+
+#if defined(HALO_BIG_ENDIAN) || defined(HALO_NETWORK_WIRE_CAPTURE)
+/* (network_distributed.h) this module's sample entries */
+static void distributed_damage_sample(
+	struct distributed_damage *damage)
+{
+	WIRE_SAMPLE(damage->definition_index);
+	WIRE_SAMPLE(damage->flags);
+	WIRE_SAMPLE(damage->owner_player_index);
+	WIRE_SAMPLE(damage->owner_team_index);
+	WIRE_SAMPLE(damage->owner_object_index);
+	WIRE_SAMPLES(damage->origin.n);
+	WIRE_SAMPLES(damage->epicenter.n);
+	WIRE_SAMPLES(damage->direction.n);
+	WIRE_SAMPLE(damage->scale);
+	WIRE_SAMPLE(damage->multiplier);
+	WIRE_SAMPLE(damage->material_effect_scale);
+	WIRE_SAMPLE(damage->material_type);
+}
+
+word network_damage_wire_sample(
+	byte type,
+	byte *entries)
+{
+	short index;
+
+	switch (type)
+	{
+	case _distributed_message_damage_events:
+	{
+		struct distributed_damage_event *events = (struct distributed_damage_event *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			struct distributed_damage_event *event = &events[index];
+
+			WIRE_SAMPLE(event->kind);
+			WIRE_SAMPLE(event->player_index);
+			WIRE_SAMPLE(event->kill_flags);
+			WIRE_SAMPLE(event->object_index);
+			distributed_damage_sample(&event->damage);
+			WIRE_SAMPLE(event->being_damaged_flags);
+			WIRE_SAMPLE(event->shield_damage);
+			WIRE_SAMPLE(event->body_damage);
+			WIRE_SAMPLE(event->body_damage_multiplier);
+			WIRE_SAMPLE(event->total_damage);
+			WIRE_SAMPLE(event->body_part);
+			WIRE_SAMPLE(event->node_index);
+			WIRE_SAMPLE(event->region_index);
+			WIRE_SAMPLE(event->material_index);
+			WIRE_SAMPLE(event->killer_score);
+		}
+		return (word)(2 * sizeof(*events));
+	}
+	case _distributed_message_hit_reports:
+	{
+		struct distributed_hit_report *reports = (struct distributed_hit_report *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			struct distributed_hit_report *report = &reports[index];
+
+			WIRE_SAMPLE(report->object_index);
+			distributed_damage_sample(&report->damage);
+			WIRE_SAMPLES(report->target_position.n);
+			WIRE_SAMPLES(report->object_normal.n);
+			WIRE_SAMPLE(report->node_index);
+			WIRE_SAMPLE(report->region_index);
+			WIRE_SAMPLE(report->material_index);
+			WIRE_SAMPLE(report->has_normal);
+			WIRE_SAMPLE(report->host_time);
+		}
+		return (word)(2 * sizeof(*reports));
+	}
+	}
+	return 0;
+}
+#endif

@@ -5049,3 +5049,588 @@ void *distributed_wire_copy(
 	return copy;
 }
 #endif
+
+#if defined(HALO_BIG_ENDIAN) || defined(HALO_NETWORK_WIRE_CAPTURE)
+/* ---------- the wire's samples (network_distributed.h)
+
+Every kind of message the byte order turns, filled field by field with
+numbers of the fields' own sizes; the units' states and the relayed actions
+as the netcode packs them; and the game settings record's header, first
+machine, first player and tail. A little-endian build made with
+HALO_NETWORK_WIRE_CAPTURE writes their bytes (wire_samples.h, from the
+32-bit Linux build: HALO_WIRE_CAPTURE=1 in its environment, read before main,
+writes it to the standard output); a big-endian one compares its own, turned to the wire's order, with
+them, and turns them back to compare with its own (network_wire_self_test). */
+
+#include "networking/network_game_manager.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+void network_game_byte_swap(struct network_game *game, boolean to_host);
+
+/* (the settings record's sample: its header, first machine, first player
+and tail) */
+#define WIRE_SAMPLE_RECORD 0xFF
+#define WIRE_SAMPLE_GAME_TIME 0x0A0B0C0D
+
+static byte const wire_sample_kinds[] =
+{
+	_distributed_message_player_statistics,
+	_distributed_message_pings,
+	_distributed_message_structure_bsp,
+	_distributed_message_pickups,
+	_distributed_message_player_inputs,
+	_distributed_message_player_prediction,
+	_distributed_message_unit_states,
+	_distributed_message_relayed_actions,
+	_distributed_message_object_changes,
+	_distributed_message_object_states,
+	_distributed_message_vehicle_prediction,
+	_distributed_message_inventories,
+	_distributed_message_damage_animations,
+	_distributed_message_damage_events,
+	_distributed_message_hit_reports,
+	_distributed_message_actor_states,
+	_distributed_message_actor_damage,
+	_distributed_message_coop_presentation,
+	_distributed_message_coop_events,
+	_distributed_message_coop_device_groups,
+	_distributed_message_coop_object_names,
+	_distributed_message_coop_object_transforms,
+	_distributed_message_coop_object_looks,
+	_distributed_message_coop_device_states,
+	_distributed_message_coop_screen_effect,
+	_distributed_message_coop_skip_vote,
+	WIRE_SAMPLE_RECORD,
+};
+
+static unsigned long wire_sample_next;
+
+void wire_sample_set(
+	void *field,
+	long size)
+{
+	/* (each number's bytes all different, lowest first: 0x01, 0x02, ...
+	then the next number's, so a byte out of place shows) */
+	unsigned long value = 0;
+	long index;
+
+	for (index = size - 1; index >= 0; index--)
+		value = (value << 8) | ((wire_sample_next * 4 + (unsigned long)index) % 251 + 1);
+	wire_sample_next++;
+	switch (size)
+	{
+	case 1: { byte number = (byte)value; csmemcpy(field, &number, 1); break; }
+	case 2: { word number = (word)value; csmemcpy(field, &number, 2); break; }
+	case 4: { unsigned long number = value; csmemcpy(field, &number, 4); break; }
+	}
+}
+
+void wire_sample_array(
+	void *array,
+	long count,
+	long size)
+{
+	long index;
+
+	for (index = 0; index < count; index++)
+		wire_sample_set((byte *)array + index * size, size);
+}
+
+static void wire_sample_unit_state(
+	struct distributed_unit_state *state)
+{
+	csmemset(state, 0, sizeof(*state));
+	WIRE_SAMPLE(state->player_index);
+	state->flags = (byte)(FLAG(_distributed_unit_alive_bit) | FLAG(_distributed_unit_placed_bit) |
+		FLAG(_distributed_unit_predicted_bit));
+	WIRE_SAMPLE(state->unit_flags);
+	WIRE_SAMPLE(state->unit_index);
+	WIRE_SAMPLE(state->vehicle_index);
+	WIRE_SAMPLE(state->seat_index);
+	WIRE_SAMPLE(state->active_camouflage);
+	WIRE_SAMPLES(state->position.n);
+	WIRE_SAMPLE_VECTOR(state->velocity);
+	WIRE_SAMPLE_VECTOR(state->forward);
+	WIRE_SAMPLE_VECTOR(state->up);
+	WIRE_SAMPLE(state->predicted_time);
+	WIRE_SAMPLE(state->body_vitality);
+	WIRE_SAMPLE(state->shield_vitality);
+	WIRE_SAMPLE(state->current_body_damage);
+	WIRE_SAMPLE(state->recent_body_damage);
+	WIRE_SAMPLE(state->current_shield_damage);
+	WIRE_SAMPLE(state->recent_shield_damage);
+	WIRE_SAMPLES(state->powerup_durations);
+}
+
+static void wire_sample_relayed_action(
+	struct distributed_relayed_action *relayed)
+{
+	csmemset(relayed, 0, sizeof(*relayed));
+	WIRE_SAMPLE(relayed->player_index);
+	WIRE_SAMPLE(relayed->desired_weapon_index);
+	WIRE_SAMPLE(relayed->desired_grenade_index);
+	WIRE_SAMPLE(relayed->desired_zoom_level);
+	WIRE_SAMPLES(relayed->control_flags);
+	WIRE_SAMPLE(relayed->yaw);
+	WIRE_SAMPLE(relayed->pitch);
+	WIRE_SAMPLE(relayed->throttle_i);
+	WIRE_SAMPLE(relayed->throttle_j);
+	WIRE_SAMPLE(relayed->primary_trigger);
+}
+
+/* this module's sample entries (as network_distributed.h's) */
+static word distributed_wire_sample(
+	byte type,
+	byte *entries)
+{
+	short index;
+
+	switch (type)
+	{
+	case _distributed_message_player_statistics:
+	{
+		struct distributed_player_statistics *players = (struct distributed_player_statistics *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			struct game_statistics *statistics = &players[index].statistics;
+
+			WIRE_SAMPLE(players[index].player_index);
+			WIRE_SAMPLE(statistics->sort_key);
+			WIRE_SAMPLE(statistics->games_played);
+			WIRE_SAMPLE(statistics->games_won);
+			WIRE_SAMPLE(statistics->kills_in_a_row);
+			WIRE_SAMPLE(statistics->multiple_kills);
+			WIRE_SAMPLE(statistics->last_kill_time);
+			WIRE_SAMPLES(statistics->kills);
+			WIRE_SAMPLES(statistics->assists);
+			WIRE_SAMPLE(statistics->friendly_fire_kills);
+			WIRE_SAMPLE(statistics->deaths);
+			WIRE_SAMPLE(statistics->suicides);
+			WIRE_SAMPLE(statistics->shots_fired);
+			WIRE_SAMPLE(statistics->shots_hit);
+			WIRE_SAMPLE(statistics->seconds_online);
+			WIRE_SAMPLE(statistics->killed_teammate_since_last_death);
+			WIRE_SAMPLE(statistics->custom_data_size);
+			WIRE_SAMPLE(statistics->multiplayer_statistics.oddball_statistics.time_with_the_ball);
+			WIRE_SAMPLE(statistics->multiplayer_statistics.oddball_statistics.ball_carrier_kills);
+			WIRE_SAMPLE(statistics->multiplayer_statistics.oddball_statistics.kills_as_ball_carrier);
+		}
+		return (word)(2 * sizeof(*players));
+	}
+	case _distributed_message_pings:
+	{
+		struct distributed_player_ping *pings = (struct distributed_player_ping *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			WIRE_SAMPLE(pings[index].player_index);
+			WIRE_SAMPLE(pings[index].milliseconds);
+		}
+		return (word)(2 * sizeof(*pings));
+	}
+	case _distributed_message_structure_bsp:
+	{
+		struct distributed_structure_bsp *structure_bsp = (struct distributed_structure_bsp *)entries;
+
+		WIRE_SAMPLE(structure_bsp->structure_bsp_index);
+		return (word)sizeof(*structure_bsp);
+	}
+	case _distributed_message_pickups:
+	{
+		struct distributed_pickup *pickups = (struct distributed_pickup *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			WIRE_SAMPLE(pickups[index].player_index);
+			WIRE_SAMPLE(pickups[index].kind);
+			WIRE_SAMPLE(pickups[index].count);
+			WIRE_SAMPLE(pickups[index].definition_index);
+		}
+		return (word)(2 * sizeof(*pickups));
+	}
+	case _distributed_message_player_inputs:
+	{
+		struct distributed_player_input *inputs = (struct distributed_player_input *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			struct distributed_player_input *input = &inputs[index];
+
+			WIRE_SAMPLE(input->player_index);
+			WIRE_SAMPLE(input->structure_bsp_index);
+			WIRE_SAMPLE(input->coop_no_friendly_fire);
+			WIRE_SAMPLE(input->tick);
+			WIRE_SAMPLE(input->host_time);
+			WIRE_SAMPLE(input->action.control_flags);
+			WIRE_SAMPLES(input->action.desired_facing.n);
+			WIRE_SAMPLES(input->action.throttle.n);
+			WIRE_SAMPLE(input->action.primary_trigger);
+			WIRE_SAMPLE(input->action.desired_weapon_index);
+			WIRE_SAMPLE(input->action.desired_grenade_index);
+			WIRE_SAMPLE(input->action.desired_zoom_level);
+			WIRE_SAMPLES(input->control_flags);
+		}
+		return (word)(2 * sizeof(*inputs));
+	}
+	case _distributed_message_player_prediction:
+	case _distributed_message_unit_states:
+	{
+		/* (packed) */
+		struct distributed_unit_state state;
+		word size = 0;
+
+		for (index = 0; index < 2; index++)
+		{
+			wire_sample_unit_state(&state);
+			size += distributed_unit_state_write(&state, TRUE, entries + size);
+		}
+		return size;
+	}
+	case _distributed_message_relayed_actions:
+	{
+		/* (packed, after the update, as distributed_packer_begin puts it) */
+		struct distributed_relayed_action relayed;
+		long update;
+		word size = sizeof(update);
+
+		WIRE_SAMPLE(update);
+		csmemcpy(entries, &update, sizeof(update));
+		WIRE_PREFIX_OUT(entries, sizeof(update));
+		for (index = 0; index < 2; index++)
+		{
+			wire_sample_relayed_action(&relayed);
+			size += distributed_relayed_action_write(&relayed, entries + size);
+		}
+		return size;
+	}
+	}
+	return 0;
+}
+
+/* a sample of the kind: its message (the message header 0) and its size, 0
+for none */
+static word wire_sample_message(
+	byte type,
+	byte *message)
+{
+	struct distributed_message_header *header = (struct distributed_message_header *)message;
+	byte *entries = message + sizeof(*header);
+	word size;
+
+	csmemset(message, 0, sizeof(*header) + MAXIMUM_MESSAGE_SIZE / 2);
+	wire_sample_next = type;
+	size = distributed_wire_sample(type, entries);
+	if (!size)
+		size = network_objects_wire_sample(type, entries);
+	if (!size)
+		size = network_damage_wire_sample(type, entries);
+	if (!size)
+		size = network_actors_wire_sample(type, entries);
+	if (!size)
+		size = network_coop_wire_sample(type, entries);
+	if (!size)
+		return 0;
+	header->type = type;
+	header->count = (byte)((type == _distributed_message_structure_bsp || type == _distributed_message_coop_presentation ||
+		type == _distributed_message_coop_object_names || type == _distributed_message_coop_screen_effect ||
+		type == _distributed_message_coop_skip_vote) ? 1 : 2);
+	header->game_time = WIRE_SAMPLE_GAME_TIME;
+	return (word)(sizeof(*header) + size);
+}
+
+/* the settings record's sample (oddball's rules, so the variant's union is
+turned by its game type) */
+static struct network_game wire_sample_game;
+
+static void wire_sample_record(
+	struct network_game *game)
+{
+	csmemset(game, 0, sizeof(*game));
+	wire_sample_next = WIRE_SAMPLE_RECORD;
+	WIRE_SAMPLES(game->name);
+	WIRE_SAMPLE(game->map.version);
+	WIRE_SAMPLE(game->map.name[0]);
+	WIRE_SAMPLES(game->variant.human_readable_game_description);
+	game->variant.game_engine_index = game_engine_oddball;
+	WIRE_SAMPLE(game->variant.universal_variant.teams);
+	WIRE_SAMPLE(game->variant.universal_variant.flags);
+	WIRE_SAMPLE(game->variant.universal_variant.goal_radar);
+	WIRE_SAMPLE(game->variant.universal_variant.odd_man_out);
+	WIRE_SAMPLE(game->variant.universal_variant.respawn_time_growth);
+	WIRE_SAMPLE(game->variant.universal_variant.respawn_time);
+	WIRE_SAMPLE(game->variant.universal_variant.suicide_penalty);
+	WIRE_SAMPLE(game->variant.universal_variant.lives);
+	WIRE_SAMPLE(game->variant.universal_variant.health);
+	WIRE_SAMPLE(game->variant.universal_variant.score_to_win);
+	WIRE_SAMPLE(game->variant.universal_variant.weapon_set);
+	WIRE_SAMPLE(game->variant.universal_variant.vehicle_set);
+	WIRE_SAMPLE(game->variant.game_engine_variant.oddball.random_start);
+	WIRE_SAMPLE(game->variant.game_engine_variant.oddball.ball_spawn_delay);
+	WIRE_SAMPLE(game->variant.game_engine_variant.oddball.speed_with_ball);
+	WIRE_SAMPLE(game->variant.game_engine_variant.oddball.trait_with_ball);
+	WIRE_SAMPLE(game->variant.game_engine_variant.oddball.trait_without_ball);
+	WIRE_SAMPLE(game->variant.game_engine_variant.oddball.oddball_ball_type);
+	WIRE_SAMPLE(game->variant.game_engine_variant.oddball.ball_spawn_count);
+	WIRE_SAMPLE(game->variant.flags);
+	WIRE_SAMPLE(game->cooperative_flags);
+	WIRE_SAMPLE(game->minimum_players);
+	WIRE_SAMPLE(game->maximum_players);
+	WIRE_SAMPLE(game->maximum_teams);
+	WIRE_SAMPLE(game->difficulty);
+	WIRE_SAMPLE(game->machine_count);
+	WIRE_SAMPLES(game->machines[0].name);
+	WIRE_SAMPLE(game->machines[0].machine_index);
+	WIRE_SAMPLE(game->player_count);
+	WIRE_SAMPLES(game->players[0].name);
+	WIRE_SAMPLE(game->players[0].primary_color_index);
+	WIRE_SAMPLE(game->players[0].icon_index);
+	WIRE_SAMPLE(game->players[0].machine_index);
+	WIRE_SAMPLE(game->players[0].controller_index);
+	WIRE_SAMPLE(game->players[0].team_index);
+	WIRE_SAMPLE(game->players[0].player_list_index);
+	WIRE_SAMPLE(game->__unknown426);
+	WIRE_SAMPLE(game->random_seed);
+	WIRE_SAMPLE(game->number_of_games_played);
+	WIRE_SAMPLE(game->variant_options.time_limit);
+	WIRE_SAMPLE(game->variant_options.friendly_fire);
+	WIRE_SAMPLE(game->variant_options.friendly_fire_penalty);
+	WIRE_SAMPLE(game->variant_options.vehicle_respawn_time);
+	WIRE_SAMPLE(game->variant_options.auto_team_balance);
+	WIRE_SAMPLE(game->variant_options.radar_players);
+	WIRE_SAMPLES(game->variant_options.vehicle_set);
+	WIRE_SAMPLE(game->variant_options.loadout);
+	WIRE_SAMPLE(game->local_data.game_objects_loaded);
+}
+
+/* the parts of a record the sample has, into bytes (the header and the
+first machine, the first player, the tail: the same on every layout) or
+back; their size */
+static long wire_sample_record_parts(
+	struct network_game *game,
+	byte *bytes,
+	boolean into_bytes)
+{
+	long const parts[3][2] =
+	{
+		{ 0, (long)(offsetof(struct network_game, machines) + sizeof(game->machines[0])) },
+		{ (long)offsetof(struct network_game, players), (long)sizeof(game->players[0]) },
+		{ (long)offsetof(struct network_game, __unknown426),
+			(long)(sizeof(*game) - offsetof(struct network_game, __unknown426)) },
+	};
+	long size = 0;
+	short part;
+
+	for (part = 0; part < 3; part++)
+	{
+		if (into_bytes)
+			csmemcpy(bytes + size, (byte *)game + parts[part][0], parts[part][1]);
+		else
+			csmemcpy((byte *)game + parts[part][0], bytes + size, parts[part][1]);
+		size += parts[part][1];
+	}
+	return size;
+}
+
+#ifdef HALO_NETWORK_WIRE_CAPTURE
+/* a little-endian build's samples, which are the wire's, as wire_samples.h */
+__attribute__((constructor)) static void wire_samples_capture(
+	void)
+{
+	static byte message[sizeof(message_header) + MAXIMUM_MESSAGE_SIZE];
+	FILE *file = stdout;
+	short kind;
+
+	if (!getenv("HALO_WIRE_CAPTURE"))
+		return;
+	fprintf(file, "/*\nWIRE_SAMPLES.H\n\nThe wire's bytes of network_distributed.c's samples (network_wire_self_test),\n"
+		"captured from the 32-bit Linux build made with HALO_NETWORK_WIRE_CAPTURE\n"
+		"(HALO_WIRE_CAPTURE=1 in its environment, to the standard output). Generated:\n"
+		"a change to the samples or to a message's layout captures it again.\n\n"
+		"Each sample: its kind, its size (two bytes, low first), then its bytes past\n"
+		"the message header; the kind 0 ends them.\n*/\n\n"
+		"static unsigned char const wire_samples[] =\n{\n");
+	for (kind = 0; kind < (short)NUMBEROF(wire_sample_kinds); kind++)
+	{
+		byte type = wire_sample_kinds[kind];
+		byte *bytes;
+		long size;
+		long index;
+
+		if (type == WIRE_SAMPLE_RECORD)
+		{
+			wire_sample_record(&wire_sample_game);
+			size = wire_sample_record_parts(&wire_sample_game, message, TRUE);
+			bytes = message;
+		}
+		else
+		{
+			size = (long)wire_sample_message(type, message) - (long)sizeof(message_header);
+			bytes = message + sizeof(message_header);
+		}
+		fprintf(file, "\t%d, %ld, %ld,", (int)type, size & 0xFF, size >> 8);
+		for (index = 0; index < size; index++)
+			fprintf(file, "%s0x%02x,", index % 16 ? " " : "\n\t\t", bytes[index]);
+		fprintf(file, "\n");
+	}
+	fprintf(file, "\t0\n};\n");
+	fflush(file);
+	exit(0);
+}
+#endif
+
+#ifdef HALO_BIG_ENDIAN
+#include "wire_samples.h"
+
+/* the samples, turned to the wire's order and compared with the PC's bytes
+(wire_samples.h), and those turned back and compared with this machine's;
+the count that differ, and a line saying so in report */
+long network_wire_self_test(
+	char *report,
+	long report_size)
+{
+	static byte message[sizeof(message_header) + MAXIMUM_MESSAGE_SIZE];
+	static byte expected[sizeof(message_header) + MAXIMUM_MESSAGE_SIZE];
+	static struct network_game turned;
+	byte const *sample = wire_samples;
+	long samples = 0;
+	long failed = 0;
+	long written = 0;
+
+	report[0] = 0;
+	while (*sample)
+	{
+		byte type = sample[0];
+		long size = sample[1] | (sample[2] << 8);
+		byte const *bytes = sample + 3;
+		long mismatch = NONE;
+		char const *which = "sent";
+		long ours;
+		long index;
+
+		sample += 3 + size;
+		samples++;
+		if (type == WIRE_SAMPLE_RECORD)
+		{
+			wire_sample_record(&wire_sample_game);
+			turned = wire_sample_game;
+			network_game_byte_swap(&turned, FALSE);
+			ours = wire_sample_record_parts(&turned, expected, TRUE);
+			for (index = 0; index < size && index < ours && mismatch == NONE; index++)
+			{
+				if (expected[index] != bytes[index])
+					mismatch = index;
+			}
+			if (mismatch == NONE && ours == size)
+			{
+				csmemset(&turned, 0, sizeof(turned));
+				wire_sample_record_parts(&turned, (byte *)bytes, FALSE);
+				network_game_byte_swap(&turned, TRUE);
+				wire_sample_record_parts(&turned, message, TRUE);
+				wire_sample_record_parts(&wire_sample_game, expected, TRUE);
+				which = "received";
+				for (index = 0; index < size && mismatch == NONE; index++)
+				{
+					if (message[index] != expected[index])
+						mismatch = index;
+				}
+			}
+		}
+		else
+		{
+			byte *wire;
+
+			ours = (long)wire_sample_message(type, expected) - (long)sizeof(message_header);
+			wire = (byte *)distributed_wire_copy(expected, (word)(ours + sizeof(message_header)), FALSE);
+			for (index = 0; index < size && index < ours && mismatch == NONE; index++)
+			{
+				if (wire[sizeof(message_header) + index] != bytes[index])
+					mismatch = index;
+			}
+			if (mismatch == NONE && ours == size)
+			{
+				which = "received";
+				csmemset(message, 0, sizeof(message_header));
+				csmemcpy(message + sizeof(message_header), bytes, size);
+				wire = (byte *)distributed_wire_copy(message, (word)(size + sizeof(message_header)), TRUE);
+				if (type == _distributed_message_player_prediction || type == _distributed_message_unit_states ||
+					type == _distributed_message_relayed_actions)
+				{
+					/* (packed: taken and packed again, as the PC's) */
+					byte const *cursor = wire + sizeof(message_header) + sizeof(struct distributed_message_header);
+					byte const *end = wire + sizeof(message_header) + size;
+					byte *repacked = message + sizeof(message_header) + sizeof(struct distributed_message_header);
+					long update;
+					short entry;
+
+					if (type == _distributed_message_relayed_actions)
+					{
+						distributed_take(&cursor, end, &update, sizeof(update));
+						csmemcpy(repacked, &update, sizeof(update));
+						WIRE_PREFIX_OUT(repacked, sizeof(update));
+						repacked += sizeof(update);
+					}
+					for (entry = 0; entry < 2; entry++)
+					{
+						word taken;
+
+						if (type == _distributed_message_relayed_actions)
+						{
+							struct distributed_relayed_action relayed;
+
+							taken = distributed_relayed_action_read(cursor, end, &relayed);
+							repacked += distributed_relayed_action_write(&relayed, repacked);
+						}
+						else
+						{
+							struct distributed_unit_state state;
+
+							taken = distributed_unit_state_read(cursor, end, &state);
+							repacked += distributed_unit_state_write(&state, TRUE, repacked);
+						}
+						cursor += taken;
+					}
+					/* (the header as it came, turned: its tick this machine's) */
+					csmemcpy(message + sizeof(message_header), wire + sizeof(message_header),
+						sizeof(struct distributed_message_header));
+					WIRE_HEADER_OUT((struct distributed_message_header *)(message + sizeof(message_header)));
+					for (index = 0; index < size && mismatch == NONE; index++)
+					{
+						if (message[sizeof(message_header) + index] != bytes[index])
+							mismatch = index;
+					}
+				}
+				else
+				{
+					for (index = 0; index < size && mismatch == NONE; index++)
+					{
+						if (wire[sizeof(message_header) + index] != expected[sizeof(message_header) + index])
+							mismatch = index;
+					}
+				}
+			}
+		}
+		if (ours != size || mismatch != NONE)
+		{
+			failed++;
+			if (written < report_size - 1)
+			{
+				int length = ours != size ?
+					snprintf(report + written, (size_t)(report_size - written), "%s%d: %ld bytes, the PC's %ld",
+						failed > 1 ? "; " : "", (int)type, ours, size) :
+					snprintf(report + written, (size_t)(report_size - written), "%s%d %s: byte %ld",
+						failed > 1 ? "; " : "", (int)type, which, mismatch);
+
+				if (length > 0)
+					written += length;
+			}
+		}
+	}
+	if (!failed)
+		snprintf(report, (size_t)report_size, "all %ld samples as the PC's bytes, both ways", samples);
+	return failed;
+}
+#endif
+#endif
