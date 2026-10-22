@@ -175,6 +175,10 @@ static const struct config_setting config_settings[] =
 		"\"1080\" (or any number between), no more than the console shows (1280x720\n"
 		"in handheld, 1920x1080 docked), which the picture is scaled up to. Changes\n"
 		"at once." },
+	{ "display.big_sprite_limit", _config_integer, "8", "HALO_BIG_SPRITE_LIMIT", _environment_value, _platform_android,
+		"The most sprites covering more than half the view drawn in a frame (the\n"
+		"Xbox's 11): each is a layer over most of the screen, and the Halo level's\n"
+		"falls have 11 sheets of mist. Changes at once." },
 	{ "display.dynamic_resolution", _config_boolean, "false", "HALO_DYNAMIC_RESOLUTION", _environment_value,
 		_platform_android,
 		"While the GPU would hold the game under 55 frames a second (for half a\n"
