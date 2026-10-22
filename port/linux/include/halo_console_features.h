@@ -80,6 +80,12 @@ HALO_CONSOLE_BRINGUP_LOG
 	bring-up: the main loop's stages in its profile log
 	(console_profile_stage: cseries/frame_profile.h), the loop's pulse
 	(console_main_loop_tick) and the structure bsp switches in the log
+HALO_CONSOLE_OVERSIZED_MAPS
+	a console that copies maps to the Xbox's fixed-size cache files: a map
+	larger than its type's (a map pack's multiplayer maps, past retail's
+	47 MB) is copied to a campaign map's instead, and a map whose tags do
+	not fit the tag cache says so (source/cache/cache_files_windows.c,
+	cache_files.c). The retail maps fit their own and are cached as before
 
 A big-endian console (HALO_BIG_ENDIAN, its prefix header) reads the maps,
 which are the Xbox's, little-endian, through port/console/game's byte swap
@@ -104,6 +110,7 @@ compile lines: source/cseries/xbox_address.h).
 #ifdef HALO_XBOX_CONSOLE
 #define HALO_CONSOLE_LOG_BUFFER 1
 #define HALO_CONSOLE_ONLINE_GAMES 1
+#define HALO_CONSOLE_OVERSIZED_MAPS 1
 #endif
 
 #ifdef HALO_XBOX360_CONSOLE

@@ -1603,6 +1603,9 @@ static short cached_map_files_find_free_map(
 			return NONE;
 	}
 
+#ifdef HALO_CONSOLE_OVERSIZED_MAPS
+find_in_range:
+#endif
 	for (map_file_index = first_map_file_index;
 		map_file_index <= last_map_file_index;
 		map_file_index++)
@@ -1625,6 +1628,21 @@ static short cached_map_files_find_free_map(
 			}
 		}
 	}
+
+#ifdef HALO_CONSOLE_OVERSIZED_MAPS
+	/* port: a map larger than its type's cache files (a map pack's
+	multiplayer maps, past retail's 47 MB) is copied to a campaign map's,
+	which hold 278 MB; the utility partition has no room for larger ones
+	(the six take 732 MB of its 750). A retail map always fits its own */
+	if (best_map_file_index == NONE && first_map_file_index != 0)
+	{
+		error(_error_silent, "map of %08x bytes is larger than its type's cache files (%08lx bytes): it takes a campaign map's",
+			file_length, (unsigned long)cached_map_file_get_size(first_map_file_index));
+		first_map_file_index = 0;
+		last_map_file_index = 1;
+		goto find_in_range;
+	}
+#endif
 
 	match_assert(
 		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
