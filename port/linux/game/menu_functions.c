@@ -5404,7 +5404,7 @@ static boolean pause_change_teams(struct widget_instance *widget)
 }
 
 /* "port pause controls" (the pause menu's CONTROLS: menu_tags.c): the
-Gearbox and Chupathingy menus' opens their Controls Setup (its handler's
+Gearbox menus' opens their Controls Setup (its handler's
 widget), on player 1's profile, edited for it if none is (OK saves it); the
 Xbox's, which have no such screen, the Controls screen over the pause menu
 (controls_screen.c), for the menu's player */
