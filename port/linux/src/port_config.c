@@ -394,6 +394,9 @@ static const struct config_setting config_settings[] =
 		"\"stereo\", \"5.1\" or \"7.1\" (surround, as the Xbox's Dolby Digital),\n"
 		"or \"auto\": 5.1 or 7.1 when the sound device has 6 or 8 channels, else\n"
 		"stereo. Read when the game starts." },
+	{ "audio.doppler", _config_boolean, "true", "HALO_AUDIO_DOPPLER", _environment_value, _platform_all,
+		"Shift the pitch of moving sounds (a Warthog or a projectile going past),\n"
+		"as the Xbox did; false keeps them at their pitch." },
 	{ "audio.hrtf", _config_string, "\"off\"", "HALO_AUDIO_HRTF", _environment_value, _platform_all,
 		"Binaural 3D sound for headphones (HRTF): \"off\", \"on\", or \"auto\" for\n"
 		"on when the output's name says it is headphones. Stereo output only." },
