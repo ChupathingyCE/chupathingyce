@@ -586,6 +586,9 @@ not be part of our community.
   "force HUD use high resolution scale" flags): ugoboom, tested with
   Aerocatia's [halopc-restored](https://github.com/Aerocatia/halopc-restored)
   resource maps.
+- Grifball courts: Bomb plays on SlappyThePirate's "Grifball Beta" court
+  (`grifball.map`), which is open to use with credit; the map is not
+  included.
 - HaloMD map names: from [MacGamingMods](https://macgamingmods.com)' public
   HaloMD mod list, so the menus can show each map's own name.
 - Missing Custom Edition maps: downloaded from the community map
@@ -640,6 +643,8 @@ with their authors credited in each commit.
   first.
 - Sabriel and ugoboom: the Halo PC map reports and regression lists behind
   most of the Custom Edition fixes.
+- Sabriel, roundzabout and Mega: Grifball playtesting and the bugs and
+  tweaks it turned up.
 - MrBruh (build-145's Custom
   Edition loader, from DamnationCE's work by
   [xshxdex98](https://github.com/xshxdex98)): maps that need OpenSauce refused

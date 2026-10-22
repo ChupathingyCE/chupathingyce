@@ -6,6 +6,9 @@ release notes.
 
 ## Unreleased
 
+- Bomb and Grifball game types for playlists (`bomb`, `grifball`,
+  `grifball_open_pitch`, `bomb.*` fields), played only with Chupathingy
+  clients; standard game types are unchanged.
 - Xbox map packs: each pack's maps in its own `maps_<pack>` folder of the
   data folder (Halo CE+'s in `maps_cex`), named `<name>@<pack>` in
   playlists, `sv_map` and `sv_maps` (`wizard@cex`); `/v1/maps` adds
