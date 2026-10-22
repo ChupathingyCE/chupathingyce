@@ -222,12 +222,18 @@ boolean map_family_xbox_path(
 	if (map_family_parse(map_name, file, sizeof(file)) == _map_family_pack &&
 		map_family_pack_id(map_name, pack, sizeof(pack)))
 	{
+#ifdef HALO_MAP_LIST
+		/* (the folder that has it: a pack is not its folder's name,
+		halo_map_packs.h) */
+		length = map_pack_file_path(pack, file, path, size) ? (int)strlen(path) : -1;
+#else
 		length = snprintf(path, (size_t)size, "d:\\maps_%s\\%s.map", pack, file);
+#endif
 	}
 #ifdef HALO_MAP_LIST
 	/* (a pack's own menus, game.pack_menus: its ui.map for the game's) */
 	else if (!_stricmp(map_name, "ui") && map_pack_menus())
-		length = snprintf(path, (size_t)size, "d:\\maps_%s\\ui.map", map_pack_menus());
+		length = map_pack_file_path(map_pack_menus(), "ui", path, size) ? (int)strlen(path) : -1;
 #endif
 	else
 		length = snprintf(path, (size_t)size, "%s%s.map", cache_files_map_directory(), map_name);

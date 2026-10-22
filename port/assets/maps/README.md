@@ -33,6 +33,7 @@ letters and digits, never `ce`, `md`, `pc` (the Halo PC families) or `de`,
 
 | Field | What it is |
 | --- | --- |
+| `aliases` | other names the pack's folder can have after `maps_` (`["ceplus", "ce+"]`: `maps_ceplus`, `maps_ce+`), 1 to 16 lowercase letters, digits, `+`, `_`, `-`; optional |
 | `name` | the pack's name (`Halo CE+`) |
 | `tag` | its short mark in the menus and Online Games, at most 4 characters (`CE+`) |
 | `team` | the team or author that made it |
@@ -62,6 +63,12 @@ letters and digits, never `ce`, `md`, `pc` (the Halo PC families) or `de`,
 | `pack_version` | the pack's version this file is from, if known; else `""` |
 | `author` | the map's original author or credits, if known; else `""` |
 | `source` | a public page about the map (`https://...`), if any; never a download of the files |
+
+A pack is not its folder's name: a map whose fingerprint is in the library
+belongs to its pack in whatever `maps_*` folder it is, and is hosted,
+announced and joined as `<file>@<id>` (`sidewinder@cex`), so two players whose
+folders are named differently still match. Folders the library doesn't know
+keep their names.
 
 Every text is printable ASCII, at most 95 characters (credits 400, a tag 4).
 Fingerprints are unique: each version of a pack's file is an entry of its
