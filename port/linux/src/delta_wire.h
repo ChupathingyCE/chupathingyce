@@ -168,7 +168,17 @@ enum
 	DELTA_WIRE_MAXIMUM_OBJECT_NAMES_ENTRIES =
 		(DELTA_WIRE_MAXIMUM_PAYLOAD - DELTA_WIRE_OBJECT_NAMES_SIZE) / DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE,
 	/* (the game's MAXIMUM_OBJECT_NAMES_PER_SCENARIO) */
-	DELTA_WIRE_MAXIMUM_OBJECT_NAMES = 512
+	DELTA_WIRE_MAXIMUM_OBJECT_NAMES = 512,
+
+	/* server badges (docs/server-badges.md): the client's nonce, the
+	host's signature of it, and its certificate, at most this long (a
+	format 1 certificate with a 31-character label) */
+	DELTA_WIRE_BADGE_NONCE_SIZE = 32,
+	DELTA_WIRE_BADGE_SIGNATURE_SIZE = 64,
+	DELTA_WIRE_BADGE_CERTIFICATE_SIZE = 143,
+	/* the messages' fixed parts (the certificate follows BADGE's) */
+	DELTA_WIRE_BADGE_ASK_SIZE = 32,
+	DELTA_WIRE_BADGE_SIZE = 100
 };
 
 /* UNIT_VITALS's entry flags: the unit's shield, as the game's own unit
@@ -391,7 +401,11 @@ enum delta_message_type
 	_delta_message_team_request = 23,
 	/* host to client: what the host did with it */
 	_delta_message_team_result = 24,
-	/* (25 and 26 are kept for server badges, a draft) */
+	/* server badges (both agreed to server_badge): client to host, a
+	fresh nonce */
+	_delta_message_badge_ask = 25,
+	/* host to client: its certificate and its signature of the nonce */
+	_delta_message_badge = 26,
 	/* object sync (both agreed to object_sync): host to client, units'
 	shield and health as they changed, and a few of the rest in turn */
 	_delta_message_unit_vitals = 27,
@@ -789,6 +803,19 @@ struct delta_wire_object_names
 	struct delta_wire_object_name entries[DELTA_WIRE_MAXIMUM_OBJECT_NAMES_ENTRIES];
 };
 
+struct delta_wire_badge
+{
+	/* the BADGE_ASK's */
+	unsigned char nonce[DELTA_WIRE_BADGE_NONCE_SIZE];
+	/* the certificate's server key's signature of the nonce
+	(server_badge.h's proof message) */
+	unsigned char signature[DELTA_WIRE_BADGE_SIGNATURE_SIZE];
+	/* the certificate as the host has it, 0 bytes for none (server_badge.h
+	reads it) */
+	unsigned short certificate_length;
+	unsigned char certificate[DELTA_WIRE_BADGE_CERTIFICATE_SIZE];
+};
+
 /* a datagram's header: 1 if it is Delta's (the magic) and its length is the
 datagram's; the payload follows at data + DELTA_WIRE_HEADER_SIZE. A header of
 another major is still read (to answer it with LEGACY) */
@@ -894,6 +921,14 @@ int delta_wire_read_object_names(const unsigned char *payload, int size, struct 
 /* (0 for what the reader would refuse) */
 int delta_wire_write_unit_vitals(unsigned char *data, delta_u32 session, const struct delta_wire_unit_vitals *vitals);
 int delta_wire_write_object_names(unsigned char *data, delta_u32 session, const struct delta_wire_object_names *names);
+
+/* server badges' messages. A certificate longer than its field is refused
+(its bytes are not read here: server_badge.c does) */
+int delta_wire_read_badge_ask(const unsigned char *payload, int size, unsigned char *nonce);
+int delta_wire_read_badge(const unsigned char *payload, int size, struct delta_wire_badge *badge);
+/* (0 for what the reader would refuse) */
+int delta_wire_write_badge_ask(unsigned char *data, delta_u32 session, const unsigned char *nonce);
+int delta_wire_write_badge(unsigned char *data, delta_u32 session, const struct delta_wire_badge *badge);
 
 /* whether length bytes of text are a line to show: valid UTF-8 (shortest
 forms, no surrogates, nothing past U+10FFFF), no control characters (C0,

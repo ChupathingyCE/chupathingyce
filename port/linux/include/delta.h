@@ -146,7 +146,10 @@ enum delta_capability
 	(TEAM_RESULT); the change itself reaches every machine, OpenCE's too,
 	through the game's own player respawn */
 	_delta_capability_team_change = 15,
-	/* reserved for server badges (a draft, not built yet): never set here */
+	/* a dedicated server's badge (docs/server-badges.md): a client asks its
+	host (BADGE_ASK) and is answered with the host's certificate and a
+	signature of the client's nonce (BADGE). A host offers it only with a
+	certificate of its own */
 	_delta_capability_server_badge = 16,
 	/* what the game's own messages leave out of the host's objects
 	(docs/delta.md, Object sync): every unit's shield and health as they
