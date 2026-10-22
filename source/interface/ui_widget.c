@@ -2225,6 +2225,38 @@ void ui_set_next_level(
 	return;
 }
 
+/* port: whether a screen of code is up over the widgets (Online Games, the
+clipboard invite's question, moderation's screen, Controls, Delta Profile),
+which takes the input as the menus do */
+static boolean ui_widget_screens_of_code_active(
+	void)
+{
+#ifdef HALO_GAME_BROWSER
+	boolean active = invite_prompt_active() || browser_screen_active() || moderation_screen_active();
+
+#ifndef HALO_CONSOLE_NO_CONTROLS
+	active = active || controls_screen_active();
+#endif
+#ifndef HALO_CONSOLE_NO_DELTA_PROFILE
+	active = active || profile_screen_active();
+#endif
+
+	return active;
+#else
+	return FALSE;
+#endif
+}
+
+/* port: whether a menu, the virtual keyboard or a screen of code over them
+takes the controllers' and the keyboard's input: the chat's keys and its
+quick lines' d-pad wait meanwhile (port/linux/game/chat.c), as the pause
+menu's and Game Setup's rows are moved through with them */
+boolean ui_widgets_take_input(
+	void)
+{
+	return ui_widgets_active() || virtual_keyboard_active() || ui_widget_screens_of_code_active();
+}
+
 boolean ui_widgets_active(
 	void)
 {
@@ -7430,13 +7462,7 @@ static void ui_widgets_process_mouse(
 	closes it (BACK) is not also a click on the menu behind, which drew no
 	targets under it and would have taken the click as its A (ONLINE GAMES,
 	opening it again) */
-	overlay_active = invite_prompt_active() || browser_screen_active() || moderation_screen_active();
-#ifndef HALO_CONSOLE_NO_CONTROLS
-	overlay_active = overlay_active || controls_screen_active();
-#endif
-#ifndef HALO_CONSOLE_NO_DELTA_PROFILE
-	overlay_active = overlay_active || profile_screen_active();
-#endif
+	overlay_active = ui_widget_screens_of_code_active();
 	if (pointer_active && !keyboard_active && invite_prompt_active())
 		invite_prompt_pointer(&pointer);
 #ifndef HALO_CONSOLE_NO_DELTA_PROFILE
