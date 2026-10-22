@@ -1211,6 +1211,79 @@ static void merge_button(XINPUT_GAMEPAD *pad, int analog_index, BOOL down)
 		pad->bAnalogButtons[analog_index] = 0xff;
 }
 
+#ifdef HALO_SWITCH_CONSOLE
+/* ---------- gyro aiming (the Switch)
+
+The controller's gyroscope turns the view as well as the stick, each local
+player from their own pad: the host reads the sensor (port/switch/host/
+host_sdl2.c, host_sdl_gamepad_gyro) and gives the turn since the last call
+in radians, which player_control.c adds to the view as it adds the mouse's.
+Whether it aims is input.gyro_aim (true always, zoom only while zoomed in:
+halo_linux_gyro_zoom_only), and its horizontal and vertical sensitivity and
+invert are its own, apart from the stick's. */
+void host_sdl_gamepad_gyro(unsigned int gamepad, float *yaw, float *pitch);
+
+static struct
+{
+	int enabled;
+	int zoom_only;
+	int invert_horizontal;
+	int invert_vertical;
+	float sensitivity_horizontal;
+	float sensitivity_vertical;
+	unsigned long read_at;
+} gyro = { 0, 0, 0, 0, 1.0f, 1.0f, (unsigned long)-1 };
+
+/* (read again when the settings change) */
+static void gyro_settings_read(void)
+{
+	const char *aim;
+
+	if (gyro.read_at == config_changes())
+		return;
+	gyro.read_at = config_changes();
+	aim = config_string("input.gyro_aim");
+	gyro.zoom_only = !strcmp(aim, "zoom");
+	gyro.enabled = gyro.zoom_only || !strcmp(aim, "true");
+	gyro.invert_horizontal = config_boolean("input.gyro_invert_horizontal");
+	gyro.invert_vertical = config_boolean("input.gyro_invert_vertical");
+	gyro.sensitivity_horizontal = (float)config_real("input.gyro_sensitivity_horizontal");
+	gyro.sensitivity_vertical = (float)config_real("input.gyro_sensitivity_vertical");
+}
+
+/* whether the gyroscope aims only while the player is zoomed in
+(input.gyro_aim = "zoom"): player_control.c drops its turn otherwise */
+int halo_linux_gyro_zoom_only(void)
+{
+	gyro_settings_read();
+	return gyro.zoom_only;
+}
+
+/* radians of yaw and pitch the pad on port gamepad_index turned since the
+last call, with the settings' sensitivity and invert; FALSE for nothing */
+int halo_linux_gyro_look(short gamepad_index, float *yaw, float *pitch)
+{
+	SDL_Gamepad *gamepads[PORT_COUNT];
+	SDL_Gamepad *gamepad;
+	int count;
+	float turn_yaw, turn_pitch;
+
+	*yaw = 0.0f;
+	*pitch = 0.0f;
+	gyro_settings_read();
+	if (!gyro.enabled || gamepad_index < 0)
+		return FALSE;
+	count = sdl_gamepads(gamepads);
+	gamepad = port_gamepad(gamepads, count, gamepad_index);
+	if (!gamepad)
+		return FALSE;
+	host_sdl_gamepad_gyro((unsigned int)(uintptr_t)gamepad, &turn_yaw, &turn_pitch);
+	*yaw = (gyro.invert_horizontal ? -turn_yaw : turn_yaw) * gyro.sensitivity_horizontal;
+	*pitch = (gyro.invert_vertical ? -turn_pitch : turn_pitch) * gyro.sensitivity_vertical;
+	return *yaw != 0.0f || *pitch != 0.0f;
+}
+#endif
+
 static void sdl_gamepad_state(SDL_Gamepad *gamepad, XINPUT_GAMEPAD *pad)
 {
 	static const struct

@@ -755,7 +755,7 @@ jobs:
   macos:
     # Apple silicon, with Xcode's clang: the universal application (Apple
     # silicon and Intel, self-contained: tools/macos_build.py, --portable),
-    # with its own SDL3, built once and cached. The application goes up as
+    # with its own SDL3 and the movies' FFmpeg, built once and cached. The application goes up as
     # a tar, which keeps its symbolic links and permissions (its signature
     # needs them).
     runs-on: macos-15
@@ -779,7 +779,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: build/macos/third_party
-          key: macos-sdl3-${{ hashFiles('tools/android_build.py', 'tools/macos_build.py') }}
+          key: macos-sdl3-${{ hashFiles('tools/android_build.py', 'tools/macos_build.py', 'tools/ffmpeg_build.py') }}
 
       - name: Debug
         run: python3 tools/ci_build.py macos debug

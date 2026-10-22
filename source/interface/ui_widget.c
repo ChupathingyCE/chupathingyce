@@ -2281,12 +2281,27 @@ boolean ui_widgets_active(
 	return result;
 }
 
+/* port: whether the Chupathingy menus are up (port/linux/game/menu_tags.c) */
+boolean pc_menus_chupathingy(
+	void);
+
 boolean main_menu_screen_is_active(
 	void)
 {
 	if (we_are_at_the_main_menu == TRUE &&
 		widget_globals.active_widgets[0] &&
 		strcmp(widget_globals.active_widgets[0]->name, "the_main_menu") == 0)
+	{
+		return TRUE;
+	}
+	/* port: the Chupathingy menus' main menu (chupathingy/main_menu.xml) is
+	named for its file, "main_menu", so attract mode, which starts only on
+	the main menu, never found it */
+	if (we_are_at_the_main_menu == TRUE &&
+		widget_globals.active_widgets[0] &&
+		pc_menus_chupathingy() &&
+		pc_menu_tag(widget_globals.active_widgets[0]->definition_tag_index) &&
+		strcmp(widget_globals.active_widgets[0]->name, "main_menu") == 0)
 	{
 		return TRUE;
 	}

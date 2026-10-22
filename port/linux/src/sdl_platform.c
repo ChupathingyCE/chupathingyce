@@ -95,6 +95,8 @@ void updater_poll(SDL_Window *window);
 #endif
 /* (and the version, for the window's title) */
 const char *updater_version(void);
+/* (whether the game runs under gamescope, where no dialog is shown) */
+int updater_gamescope(void);
 
 /* the older folders of Halo PC maps (maps/ce, md_maps) moved into the new
 ones (maps_ce, maps_md) once, as game.move_old_map_folders says: asked, in
@@ -148,11 +150,12 @@ static void old_map_folders_offer(BOOL quiet)
 }
 
 /* whether the game is run without anyone to answer a question (a test run,
-a null renderer) */
+a null renderer), or where a question cannot be shown (under gamescope, the
+Steam Deck's Game Mode: updater_gamescope) */
 static BOOL platform_run_is_quiet(void)
 {
 	BOOL quiet = config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0 ||
-		config_boolean("debug.null_renderer");
+		config_boolean("debug.null_renderer") || updater_gamescope();
 
 #ifdef HALO_GAME_BROWSER
 	quiet = quiet || browser_headless();
@@ -185,7 +188,8 @@ static void new_defaults_offer(BOOL quiet)
 	if (quiet)
 	{
 		platform_log("settings: this version changes some defaults (%s); they are asked about when the game is "
-			"run with someone to answer, and until then your settings stay as they were", changes);
+			"run where it can ask (not a test run, nor Steam Deck Game Mode), and until then your settings stay "
+			"as they were", changes);
 		return;
 	}
 	snprintf(text, sizeof(text),
@@ -313,9 +317,10 @@ static void crash_reports_start(void)
 	}
 	if (strcmp(consent, "yes"))
 	{
-		/* (not for runs nobody is watching: the reports wait) */
+		/* (not for runs nobody is watching, nor under gamescope: the reports
+		wait) */
 		if (config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0 ||
-			!SDL_ShowMessageBox(&question, &answer))
+			updater_gamescope() || !SDL_ShowMessageBox(&question, &answer))
 		{
 			return;
 		}
@@ -712,12 +717,17 @@ BOOL platform_offer_game_data(const char *destination)
 	};
 	char message[1400];
 
-	/* not for runs nobody is watching */
-	if (config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0 ||
-		!SDL_Init(SDL_INIT_VIDEO))
+	/* not for runs nobody is watching, nor under gamescope (the player adds
+	the maps from the desktop) */
+	if (config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0)
+		return FALSE;
+	if (updater_gamescope())
 	{
+		platform_log("no game data: start Chupathingy once from Desktop Mode to add the maps");
 		return FALSE;
 	}
+	if (!SDL_Init(SDL_INIT_VIDEO))
+		return FALSE;
 	snprintf(message, sizeof(message),
 		"Chupathingy needs the maps from your Halo: Combat Evolved Xbox disc. Add them from:\n\n"
 		"Xbox disc image: a disc image (.iso), copied into %s/maps.\n\n"
@@ -1305,11 +1315,11 @@ void platform_video_drawable_size(int *width, int *height)
 	SDL_GetWindowSizeInPixels(platform_window, width, height);
 }
 
-#ifndef HALO_ANDROID
 /* with vsync off, the time between frames display.max_fps asks for (0:
 twice the display's refresh rate), or 0 for no limit. A GPU never left idle
 can hang (Intel's Raptor Lake graphics, whose reset then takes the desktop
-with it); the limit gives it a rest every frame. */
+with it), and a phone drawing as fast as it can heats up and drains its
+battery; the limit gives either a rest every frame. */
 static Uint64 frame_interval_ns(void)
 {
 	static int vsync;
@@ -1328,36 +1338,60 @@ static Uint64 frame_interval_ns(void)
 	rate = (float)maximum;
 	if (!maximum)
 	{
+#ifndef HALO_ANDROID
 		SDL_DisplayID display = SDL_GetDisplayForWindow(platform_window);
 		const SDL_DisplayMode *mode = display ? SDL_GetCurrentDisplayMode(display) : NULL;
 
 		rate = 2.0f * (mode && mode->refresh_rate > 0.0f ? mode->refresh_rate : 60.0f);
+#else
+		/* (the Android guest's SDL has no display modes to ask) */
+		rate = 2.0f * 60.0f;
+#endif
 	}
 	return (Uint64)(1e9f / rate);
 }
 
+#ifndef HALO_ANDROID
+#define frame_clock_ns SDL_GetTicksNS
+#define frame_delay_ns SDL_DelayPrecise
+#else
+/* (the Android guest's SDL has neither SDL_GetTicksNS nor
+SDL_DelayPrecise: the system's clock and sleep) */
+static Uint64 frame_clock_ns(void)
+{
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (Uint64)now.tv_sec * 1000000000u + (Uint64)now.tv_nsec;
+}
+
+static void frame_delay_ns(Uint64 nanoseconds)
+{
+	struct timespec wait;
+
+	wait.tv_sec = (time_t)(nanoseconds / 1000000000u);
+	wait.tv_nsec = (long)(nanoseconds % 1000000000u);
+	nanosleep(&wait, NULL);
+}
 #endif
+
 void platform_video_swap(void)
 {
-#ifndef HALO_ANDROID
 	static Uint64 next_frame;
 	Uint64 interval, now;
 
-#endif
 	SDL_GL_SwapWindow(platform_window);
-#ifndef HALO_ANDROID
 	interval = frame_interval_ns();
 	if (!interval)
 		return;
-	now = SDL_GetTicksNS();
+	now = frame_clock_ns();
 	if (next_frame > now)
 	{
-		SDL_DelayPrecise(next_frame - now);
+		frame_delay_ns(next_frame - now);
 		now = next_frame;
 	}
 	/* (a frame more than an interval late starts the count again) */
 	next_frame = now - next_frame > interval ? now + interval : next_frame + interval;
-#endif
 }
 
 void platform_mouse_capture(BOOL capture)
@@ -1595,8 +1629,10 @@ int platform_take_clipboard_invite(char *text, int size)
 	return taken;
 }
 
-/* puts a new invite on the clipboard, and joins one found there when the
-game comes to the front, or asks first (network.join_from_clipboard) */
+/* puts a new invite on the clipboard (network.copy_to_clipboard), and joins
+one found there when the game comes to the front, or asks first
+(network.join_from_clipboard); both off by default, so the clipboard is the
+player's own until a setting says otherwise */
 static void platform_invite_clipboard(BOOL look)
 {
 	/* the last clipboard text looked at, so each invite is joined once */
@@ -1611,12 +1647,16 @@ static void platform_invite_clipboard(BOOL look)
 #endif
 	if (invite)
 	{
-		SDL_SetClipboardText(invite);
+		/* (the game's own invite is never joined, copied or not) */
 		snprintf(seen, sizeof(seen), "%s", invite);
-		platform_log("Internet play: the invite link is on the clipboard");
+		if (config_boolean("network.copy_to_clipboard"))
+		{
+			SDL_SetClipboardText(invite);
+			platform_log("Internet play: the invite link is on the clipboard");
 #ifdef HALO_ANDROID
-		SDL_ShowAndroidToast("Invite link copied", 1, -1, 0, 0);
+			SDL_ShowAndroidToast("Invite link copied", 1, -1, 0, 0);
 #endif
+		}
 	}
 	setting = look ? platform_clipboard_join_setting() : _clipboard_join_never;
 	if (setting != _clipboard_join_never)
@@ -1727,6 +1767,14 @@ static void platform_game_list_requests(void)
 			"Current: player %.8s. New: player %.8s.\n\n"
 			"Replace it only with your own key, from your profile on the game list.",
 			old_id[0] ? old_id : "(none)", new_id);
+		/* (no question under gamescope: the key stays) */
+		if (updater_gamescope())
+		{
+			platform_log("Game list: a link asks to replace the player key; not asking under gamescope "
+				"(Steam Deck Game Mode): open it from Desktop Mode");
+			browser_answer_key_link(0);
+			return;
+		}
 		memset(&question, 0, sizeof(question));
 		question.flags = SDL_MESSAGEBOX_WARNING;
 		question.window = platform_window;
@@ -1753,7 +1801,8 @@ static void platform_show_pending_message(void)
 	memcpy(title, platform_message_title, sizeof(title));
 	memcpy(text, platform_message_text, sizeof(text));
 	pthread_mutex_unlock(&platform_message_lock);
-	if (!pending)
+	/* (under gamescope, the log only: platform_show_message logged it) */
+	if (!pending || updater_gamescope())
 		return;
 #ifdef HALO_ANDROID
 	SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, title, text, NULL);

@@ -38,9 +38,12 @@ SCREENS = {
         "spacing": 24,
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
-        # display mode chosen uses; Android's Smooth Motion in Frame Rate's,
-        # and its anti-aliasing in the desktop's)
+        # display mode chosen uses; Android's anti-aliasing in the desktop's)
         "same_place": ["display.window_size", "display.interpolation", "anti_aliasing_android"],
+        # (rows written but placed on no page: Smooth Motion, which Frame
+        # Rate sets on every platform, kept so the rows after it keep their
+        # strings)
+        "unplaced": ["display.interpolation"],
         "rows": [
             ("DISPLAY MODE:", "display.mode",
              [("FULLSCREEN", "fullscreen"), ("BORDERLESS", "borderless"), ("WINDOWED", "windowed")],
@@ -59,14 +62,13 @@ SCREENS = {
             ("V-SYNC:", "display.vsync", ON_OFF,
              "Sync frames to the display.", None),
             # (port/linux/game/menu_functions.c: 30 also turns display.interpolation
-            # off, the others on; Android, with no frame rate cap, has Smooth
-            # Motion in its place. Instant Aim, display.direct_camera, is in
-            # config.toml alone)
+            # off, the others on, on every platform. Instant Aim,
+            # display.direct_camera, is in config.toml alone)
             ("FRAME RATE:", "display.max_fps",
              [("30 (XBOX)", "30"), ("AUTO", "0"), ("60", "60"), ("120", "120"), ("144", "144"),
               ("165", "165"), ("240", "240"), ("NONE", "-1")],
-             "The frame rate limit. Auto is twice the display's\nrefresh rate.",
-             "desktop"),
+             "The frame rate limit; 30 is the Xbox's. Auto is twice\nthe display's refresh rate.",
+             None),
             ("SMOOTH MOTION:", "display.interpolation", ON_OFF,
              "Draw a frame for every display refresh.", "android"),
             ("ANTI-ALIASING:", "display.anti_aliasing",
@@ -152,8 +154,15 @@ SCREENS = {
             # menu_functions.c's pc_menu_text_marquee)
             ("OUTPUT DEVICE:", "audio.device", [("DEFAULT", "default")],
              "Choose the audio output device.", "desktop"),
+            # (read when the game starts: dsound_sdl.c)
+            ("SPEAKERS:", "audio.channels", [("AUTO", "auto"), ("STEREO", "stereo"), ("5.1", "5.1"), ("7.1", "7.1")],
+             "Stereo or surround. Takes effect on restart.", "desktop"),
+            ("HEADPHONE 3D:", "audio.hrtf", [("OFF", "off"), ("ON", "on"), ("AUTO", "auto")],
+             "3D sound for headphones. Auto: on with headphones.", None),
             ("REVERB:", "audio.reverb", ON_OFF,
              "Room echo, and muffled sound behind walls.", None),
+            ("DOPPLER:", "audio.doppler", ON_OFF,
+             "Pitch shift of moving sounds, as on the Xbox.", None),
             ("SOUND:", "audio.enabled", ON_OFF,
              "Turn all sound on or off. Takes effect on restart.", None),
         ],
@@ -175,6 +184,8 @@ SCREENS = {
             ("JOIN FROM CLIPBOARD:", "network.join_from_clipboard",
              [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
              "Join a game from an invite link on the clipboard.", None),
+            ("COPY INVITE LINK:", "network.copy_to_clipboard", ON_OFF,
+             "Copy your game's invite link when you host.", None),
             ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
              "Check for a new version at startup.", None),
             ("START WITH ONE PLAYER:", "game.start_with_one_player", ON_OFF,
@@ -430,7 +441,8 @@ def _setting_rows(base: str, spec: dict) -> tuple:
             extra += _link_row(base, key, label_index)
         else:
             _, row, key, place, label_index = entry
-            rows.append((f"{base}/op_{key}", row[4], place))
+            if row[1] not in spec.get("unplaced", ()):
+                rows.append((f"{base}/op_{key}", row[4], place))
             extra += _setting_row(base, row, key, label_index)
     # (the help of the row whose label is string n is n + 1: the buttons' is 0)
     strings = _strings(f"{base}/labels", labels)

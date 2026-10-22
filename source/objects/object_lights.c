@@ -747,7 +747,7 @@ boolean lights_port_recover(
 	struct object_iterator iterator;
 	struct object_datum *object;
 
-	if (data->signature == 'd@t@' && data->data == XBOX_ADDRESS(data + 1) && data->valid && data->next_identifier &&
+	if (data->signature == 'd@t@' && data->data == DATA_ARRAY_OWN_ELEMENTS(data) && data->valid && data->next_identifier &&
 		data->maximum_count == MAXIMUM_LIGHTS_PER_MAP && data->size == sizeof(struct light_datum) &&
 		data->count >= 0 && data->count <= data->maximum_count &&
 		data->actual_count >= 0 && data->actual_count <= data->count &&
