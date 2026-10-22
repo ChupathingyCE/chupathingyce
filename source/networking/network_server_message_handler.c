@@ -789,7 +789,7 @@ int network_game_layout_convert(const unsigned char *from, int from_machines, in
 static byte network_game_server_wire_buffer[HALO_PORT_WIRE_NETWORK_GAME_SIZE];
 #endif
 
-#ifndef HALO_PORT_CONSOLE_LIMITS
+#if !defined(HALO_PORT_CONSOLE_LIMITS) || defined(HALO_BIG_ENDIAN)
 static struct network_game network_game_server_wire_record;
 #endif
 
@@ -803,6 +803,12 @@ static void const *network_game_server_wire_game(
 
 	if (*game_size != (long)sizeof(struct network_game))
 		return game;
+#ifdef HALO_BIG_ENDIAN
+	/* (widened by its bytes as the wire has them, little-endian) */
+	csmemcpy(&network_game_server_wire_record, game, sizeof(network_game_server_wire_record));
+	network_game_byte_swap(&network_game_server_wire_record, FALSE);
+	game = &network_game_server_wire_record;
+#endif
 	if (network_game_layout_convert((unsigned char const *)game, MAXIMUM_NETWORK_MACHINE_COUNT,
 		MAXIMUM_NUMBER_OF_PLAYERS, network_game_server_wire_buffer, HALO_PORT_WIRE_NETWORK_MACHINES,
 		HALO_PORT_WIRE_NETWORK_PLAYERS, &clamped) != 0)
