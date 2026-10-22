@@ -23,14 +23,19 @@ resampling) and applies:
 (reverb). Doppler and cones are not modelled. A look-ahead limiter keeps the
 sum under full scale (limit).
 
-The output is stereo or 5.1 (audio.channels). For 5.1 the speaker config
+The output is stereo, 5.1 or 7.1 (audio.channels; "auto" is 5.1 or 7.1 on
+a device of 6 or 8 channels, else stereo). For surround the speaker config
 reports AC-3, as an Xbox set to Dolby Digital does: the game then sends its
-2D voices to the center and back mix bins too (dsound_initialize_channel),
-3D voices and stereo voices positioned in the world are panned around the
-five full range speakers (surround_pan), and the reverb plays from the
-front and back pairs. The mix bins 0-5 are in SDL's 5.1 order (FL, FR, FC,
-LFE, BL, BR), so bin n is output channel n. The game sends nothing to the
-LFE bin. Stereo output mixes exactly as before.
+2D voices to the center and back mix bins too (dsound_initialize_channel).
+3D voices are panned around the speakers the Xbox's DirectSound panned them
+between, the front and back pairs (and on 7.1 the sides), not the center,
+which is the 2D voices' (surround_pan). The reverb plays from those
+speakers too, each its own mix of the late reverberation. The mix bins 0-5
+are in SDL's channel order (FL, FR, FC, LFE, BL, BR; 7.1 adds SL, SR), so
+bin n is output channel n; on 7.1 the back bins play from the side and back
+pairs. The game sends nothing to the LFE bin, and neither does the mixer: a
+receiver's bass management takes the low end of the other speakers to the
+subwoofer, as it did for the Xbox. Stereo output mixes exactly as before.
 
 Packets the mixer has finished are completed from DirectSoundDoWork, which
 the game calls every frame, and from Flush, never from the audio thread:
@@ -63,7 +68,7 @@ chooses stereo or 5.1 (port_config.c).
 
 #define OUTPUT_RATE 48000
 #define OUTPUT_CHANNELS 2 /* the stereo mix's, and the reverb's outputs */
-#define MAXIMUM_OUTPUT_CHANNELS 6
+#define MAXIMUM_OUTPUT_CHANNELS 8
 #define MAXIMUM_STREAM_PACKETS 64
 #define MIX_CHUNK_FRAMES 1024
 
@@ -112,8 +117,8 @@ struct sdl_stream
 	float volume;             /* SetVolume */
 	float mix_left, mix_right;
 	float headroom;
-	/* on 5.1 (output_channels 6): the gains from each source channel to
-	each speaker mix bin (SetMixBins, SetMixBinVolumes) */
+	/* on surround output: the gains from each source channel to each
+	speaker mix bin (SetMixBins, SetMixBinVolumes) */
 	float surround_bins[2][MAXIMUM_OUTPUT_CHANNELS];
 
 	/* 3D */
@@ -171,8 +176,9 @@ static struct
 } listener = { { 0, 0, 0 }, { 0, 0, 1 }, { 0, 1, 0 }, 1.0f, 1.0f };
 
 static float master_volume = 1.0f;
-/* 2 or 6 (audio.channels), chosen when the device first opens; the game
-sets its mix bins by it, so it holds while the game runs */
+/* 2, 6 or 8 (audio.channels: stereo, 5.1, 7.1), chosen when the device
+first opens; the game sets its mix bins by it, so it holds while the game
+runs (another device is given the same channels, which SDL converts) */
 static unsigned long output_channels = 2;
 
 /* the I3DL2 listener properties (SetI3DL2Listener), which the reverb models:
@@ -363,35 +369,47 @@ static float distance_attenuation(const struct sdl_stream *stream, float distanc
 	return minimum / (minimum + rolloff_factor * (distance - minimum));
 }
 
-/* the gains of a 3D voice to the left and right, and the room rolloff's
-attenuation of its room send */
-static void spatialize(const struct sdl_stream *stream, float *left, float *right, float *room)
+static float clamp_unit(float value)
 {
-	float offset[3], right_axis[3], distance, attenuation, pan, side, ahead;
+	return value < 0.0f ? 0.0f : value > 1.0f ? 1.0f : value;
+}
+
+/* where a 3D voice is from the listener: to the right, up and ahead, in the
+game's units */
+static void voice_direction(const struct sdl_stream *stream, float *side, float *up, float *ahead)
+{
+	float offset[3], right_axis[3];
 	int axis;
 
 	if (stream->mode == DS3DMODE_HEADRELATIVE)
 	{
-		for (axis = 0; axis < 3; axis++)
-			offset[axis] = stream->position[axis];
-		side = offset[0];
-		ahead = offset[2];
+		*side = stream->position[0];
+		*up = stream->position[1];
+		*ahead = stream->position[2];
+		return;
 	}
-	else
-	{
-		for (axis = 0; axis < 3; axis++)
-			offset[axis] = stream->position[axis] - listener.position[axis];
-		/* left-handed: right = top x front */
-		right_axis[0] = listener.top[1] * listener.front[2] - listener.top[2] * listener.front[1];
-		right_axis[1] = listener.top[2] * listener.front[0] - listener.top[0] * listener.front[2];
-		right_axis[2] = listener.top[0] * listener.front[1] - listener.top[1] * listener.front[0];
-		side = dot3(offset, right_axis);
-		ahead = dot3(offset, listener.front);
-	}
+	for (axis = 0; axis < 3; axis++)
+		offset[axis] = stream->position[axis] - listener.position[axis];
+	/* left-handed: right = top x front */
+	right_axis[0] = listener.top[1] * listener.front[2] - listener.top[2] * listener.front[1];
+	right_axis[1] = listener.top[2] * listener.front[0] - listener.top[0] * listener.front[2];
+	right_axis[2] = listener.top[0] * listener.front[1] - listener.top[1] * listener.front[0];
+	*side = dot3(offset, right_axis);
+	*up = dot3(offset, listener.top);
+	*ahead = dot3(offset, listener.front);
+}
+
+/* the gains of a 3D voice to the left and right, and the room rolloff's
+attenuation of its room send */
+static void spatialize(const struct sdl_stream *stream, float *left, float *right, float *room)
+{
+	float distance, attenuation, pan, side, up, ahead;
+
+	voice_direction(stream, &side, &up, &ahead);
 	/* in the game's units, those of the minimum and maximum distances: the
 	distance factor turns units into meters for Doppler, and scaling by it
 	here put every 3D sound 3 times as far away, up to 10 dB quieter */
-	distance = sqrtf(dot3(offset, offset));
+	distance = sqrtf(side * side + up * up + ahead * ahead);
 	attenuation = distance_attenuation(stream, distance, listener.rolloff_factor);
 	*room = distance_attenuation(stream, distance, environment.flRoomRolloffFactor + stream->room_rolloff_factor);
 
@@ -450,57 +468,87 @@ static void voice_gains(const struct sdl_stream *stream, float *left, float *rig
 	*room *= stream->volume * master_volume;
 }
 
-/* the 5.1 speakers around the listener, clockwise from the center, and
-their directions in radians (ITU-R BS.775: fronts at 30 degrees, backs at
-110) */
-#define SURROUND_RING_SPEAKERS 5
-static const unsigned long surround_ring_channel[SURROUND_RING_SPEAKERS] = { 2, 1, 5, 4, 0 };
-static const float surround_ring_angle[SURROUND_RING_SPEAKERS + 1] =
+/* the speakers 3D voices are panned between, clockwise from the front right,
+and their directions in radians clockwise from straight ahead. On 5.1 these
+are the Xbox's four 3D speakers, the front and back pairs (ITU-R BS.775: the
+fronts at 30 degrees, the backs at 110): its DirectSound panned 3D voices
+around them and kept the center for 2D voices (the game's mono ones,
+dsound_initialize_channel), so a sound straight ahead is between the front
+pair. On 7.1 the sides are at 90 degrees and the backs at 150 */
+struct surround_speaker
 {
-	0.0f, 0.52359878f, 1.91986218f, 4.36332313f, 5.75958653f, 6.28318531f,
+	unsigned long channel;
+	float angle;
 };
+
+#define SURROUND_51_SPEAKERS 4
+#define SURROUND_71_SPEAKERS 6
+static const struct surround_speaker surround_51[SURROUND_51_SPEAKERS] =
+{
+	{ 1, 0.52359878f }, { 5, 1.91986218f }, { 4, 4.36332313f }, { 0, 5.75958653f },
+};
+static const struct surround_speaker surround_71[SURROUND_71_SPEAKERS] =
+{
+	{ 1, 0.52359878f }, { 7, 1.57079633f }, { 5, 2.61799388f }, { 4, 3.66519143f }, { 6, 4.71238898f },
+	{ 0, 5.75958653f },
+};
+
+static const struct surround_speaker *surround_speakers(unsigned long *count)
+{
+	*count = output_channels == 8 ? SURROUND_71_SPEAKERS : SURROUND_51_SPEAKERS;
+	return output_channels == 8 ? surround_71 : surround_51;
+}
 
 /* the speaker gains of a sound from a direction, side (right) and ahead: an
 equal power pan between the two speakers either side of it, blended (in
-power) towards all five equally by spread, 0 to 1. Their power sums to 1, as
-the stereo pan's does */
+power) towards all of them equally by spread, 0 to 1. Their power sums to 1,
+as the stereo pan's does */
 static void surround_pan(float side, float ahead, float spread, float *gains)
 {
-	float angle = atan2f(side, ahead);
-	unsigned long segment, speaker;
+	unsigned long count, index, speaker;
+	const struct surround_speaker *speakers = surround_speakers(&count);
+	float angle = atan2f(side, ahead), from, width, position;
 
 	for (speaker = 0; speaker < MAXIMUM_OUTPUT_CHANNELS; speaker++)
 		gains[speaker] = 0.0f;
 	if (angle < 0.0f)
 		angle += 6.28318531f;
-	for (segment = 0; segment < SURROUND_RING_SPEAKERS - 1; segment++)
+	/* the pair either side: index and the next, the last pair across the
+	front */
+	for (index = 0; index + 1 < count && angle >= speakers[index + 1].angle; index++)
+		;
+	if (angle < speakers[0].angle || index == count - 1)
 	{
-		if (angle < surround_ring_angle[segment + 1])
-			break;
+		index = count - 1;
+		from = speakers[index].angle;
+		width = speakers[0].angle + 6.28318531f - from;
+		position = (angle < speakers[0].angle ? angle + 6.28318531f : angle) - from;
 	}
+	else
 	{
-		float width = surround_ring_angle[segment + 1] - surround_ring_angle[segment];
-		float position = (angle - surround_ring_angle[segment]) / width;
-
-		position = position < 0.0f ? 0.0f : position > 1.0f ? 1.0f : position;
-		gains[surround_ring_channel[segment]] = cosf(position * 1.57079633f);
-		gains[surround_ring_channel[(segment + 1) % SURROUND_RING_SPEAKERS]] = sinf(position * 1.57079633f);
+		from = speakers[index].angle;
+		width = speakers[index + 1].angle - from;
+		position = angle - from;
 	}
-	for (speaker = 0; speaker < SURROUND_RING_SPEAKERS; speaker++)
+	position = clamp_unit(position / width);
+	gains[speakers[index].channel] = cosf(position * 1.57079633f);
+	gains[speakers[(index + 1) % count].channel] = sinf(position * 1.57079633f);
+	for (index = 0; index < count; index++)
 	{
-		float *gain = &gains[surround_ring_channel[speaker]];
+		float *gain = &gains[speakers[index].channel];
 
-		*gain = sqrtf((1.0f - spread) * *gain * *gain + spread / SURROUND_RING_SPEAKERS);
+		*gain = sqrtf((1.0f - spread) * *gain * *gain + spread / (float)count);
 	}
 }
 
-/* on 5.1, a voice's gains from each source channel to each speaker (the
-direct path's; its room send and low passes are voice_gains'):
-	- a 3D voice is panned around the speakers from its direction, a little
-	  spread so that it never vanishes between two, spread out towards all
-	  five inside its minimum distance and above or below, as the stereo pan
-	  centres those;
-	- a 2D voice goes by its mix bins. */
+/* on surround output, a voice's gains from each source channel to each
+speaker (the direct path's; its room send and low passes are voice_gains'):
+	- a 3D voice is panned around the 3D speakers from its direction, a
+	  little spread so that it never vanishes between two, spread out
+	  towards all of them inside its minimum distance and above or below, as
+	  the stereo pan centres those;
+	- a 2D voice goes by its mix bins: on 7.1 the Xbox's back bins play from
+	  the side and back pairs. */
 static void voice_surround_gains(const struct sdl_stream *stream, float gains[2][MAXIMUM_OUTPUT_CHANNELS])
 {
 	float scale = stream->volume * master_volume;
@@ -509,28 +557,11 @@ static void voice_surround_gains(const struct sdl_stream *stream, float gains[2]
 	memset(gains, 0, 2 * sizeof(gains[0]));
 	if (stream->has_3d && stream->mode != DS3DMODE_DISABLE)
 	{
-		float offset[3], right_axis[3], side, ahead, distance, horizontal, attenuation, spread = 0.1f;
-		int axis;
+		float side, up, ahead, distance, horizontal, attenuation, spread = 0.1f;
 
-		if (stream->mode == DS3DMODE_HEADRELATIVE)
-		{
-			for (axis = 0; axis < 3; axis++)
-				offset[axis] = stream->position[axis];
-			side = offset[0];
-			ahead = offset[2];
-		}
-		else
-		{
-			for (axis = 0; axis < 3; axis++)
-				offset[axis] = stream->position[axis] - listener.position[axis];
-			right_axis[0] = listener.top[1] * listener.front[2] - listener.top[2] * listener.front[1];
-			right_axis[1] = listener.top[2] * listener.front[0] - listener.top[0] * listener.front[2];
-			right_axis[2] = listener.top[0] * listener.front[1] - listener.top[1] * listener.front[0];
-			side = dot3(offset, right_axis);
-			ahead = dot3(offset, listener.front);
-		}
+		voice_direction(stream, &side, &up, &ahead);
 		horizontal = sqrtf(side * side + ahead * ahead);
-		distance = sqrtf(dot3(offset, offset));
+		distance = sqrtf(side * side + up * up + ahead * ahead);
 		if (horizontal <= 1.0e-4f)
 			spread = 1.0f;
 		else if (distance > 1.0e-4f && 0.5f * (1.0f - horizontal / distance) > spread)
@@ -556,6 +587,16 @@ static void voice_surround_gains(const struct sdl_stream *stream, float gains[2]
 		memcpy(gains, stream->surround_bins, 2 * sizeof(gains[0]));
 		if (stream->channels == 1)
 			memset(gains[1], 0, sizeof(gains[1]));
+		if (output_channels == 8)
+		{
+			int row;
+
+			for (row = 0; row < 2; row++)
+			{
+				gains[row][6] = gains[row][4] *= 0.70710678f;
+				gains[row][7] = gains[row][5] *= 0.70710678f;
+			}
+		}
 	}
 	for (speaker = 0; speaker < MAXIMUM_OUTPUT_CHANNELS; speaker++)
 	{
@@ -734,8 +775,8 @@ static void mix_voice(struct sdl_stream *stream, float *output, float *send, uns
 	float ramp_direct_lowpass, ramp_room_lowpass;
 	long width;
 	unsigned long frame;
-	/* on 5.1, the speakers' gains (voice_surround_gains) */
-	BOOL surround = output_channels == 6;
+	/* on surround output, the speakers' gains (voice_surround_gains) */
+	BOOL surround = output_channels > 2;
 	float target_surround[2][MAXIMUM_OUTPUT_CHANNELS], surround_gains[2][MAXIMUM_OUTPUT_CHANNELS];
 	float ramp_surround[2][MAXIMUM_OUTPUT_CHANNELS];
 	unsigned long speaker;
@@ -882,11 +923,11 @@ static void mix_voice(struct sdl_stream *stream, float *output, float *send, uns
 		{
 			/* the first row's gains take the left (a mono voice's only)
 			channel, the second the right */
-			float *speakers = output + frame * MAXIMUM_OUTPUT_CHANNELS;
+			float *speakers = output + frame * output_channels;
 			float first = sample_left;
 			float second = stream->channels == 2 ? sample_right : 0.0f;
 
-			for (speaker = 0; speaker < MAXIMUM_OUTPUT_CHANNELS; speaker++)
+			for (speaker = 0; speaker < output_channels; speaker++)
 			{
 				speakers[speaker] += first * surround_gains[0][speaker] + second * surround_gains[1][speaker];
 				surround_gains[0][speaker] += ramp_surround[0][speaker];
@@ -973,6 +1014,25 @@ static const float reverb_line_times[REVERB_LINES] = { 29.7f, 37.1f, 41.1f, 43.7
 static const float reverb_input_signs[REVERB_LINES] = { 1, -1, -1, 1, 1, -1, -1, 1 };
 static const float reverb_left_signs[REVERB_LINES] = { 1, -1, 1, -1, 1, -1, 1, -1 };
 static const float reverb_right_signs[REVERB_LINES] = { 1, 1, -1, -1, 1, 1, -1, -1 };
+/* on surround output, the reverb plays from every speaker 3D voices pan
+between (surround_speakers), as the Xbox's did from its four: each output
+another row of the 8 x 8 Hadamard matrix, the stereo pair's first,
+orthogonal to each other, so that each speaker's reverberation is unlike
+its neighbours' and the room surrounds the listener. In the order of
+reverb_outputs */
+static const float reverb_surround_signs[SURROUND_71_SPEAKERS][REVERB_LINES] =
+{
+	{ 1, -1, 1, -1, 1, -1, 1, -1 },
+	{ 1, 1, -1, -1, 1, 1, -1, -1 },
+	{ 1, 1, 1, 1, -1, -1, -1, -1 },
+	{ 1, -1, 1, -1, -1, 1, -1, 1 },
+	{ 1, 1, -1, -1, -1, -1, 1, 1 },
+	{ 1, -1, -1, 1, -1, 1, 1, -1 },
+};
+/* the output channels of those rows: the front pair, the back pair, the
+sides (7.1) */
+static const unsigned long reverb_outputs_51[SURROUND_51_SPEAKERS] = { 0, 1, 4, 5 };
+static const unsigned long reverb_outputs_71[SURROUND_71_SPEAKERS] = { 0, 1, 4, 5, 6, 7 };
 
 /* what an environment sets: delays in samples, and gains */
 struct reverb_parameters
@@ -1127,6 +1187,15 @@ static void reverb_process(const float *send, float *output, unsigned long frame
 {
 	const struct reverb_parameters *from = &reverb.from, *to = &reverb.to;
 	float input_scale = 1.0f / sqrtf((float)REVERB_LINES), peak = 0.0f;
+	/* the outputs (on stereo, the left and right channels); the taps are
+	shared out between them, and each plays the late reverberation at its
+	share of the stereo pair's power */
+	static const unsigned long stereo_outputs[2] = { 0, 1 };
+	unsigned long reverb_count = output_channels == 8 ? SURROUND_71_SPEAKERS :
+		output_channels == 6 ? SURROUND_51_SPEAKERS : 2;
+	const unsigned long *reverb_outputs = output_channels == 8 ? reverb_outputs_71 :
+		output_channels == 6 ? reverb_outputs_51 : stereo_outputs;
+	float output_scale = sqrtf(2.0f / (float)reverb_count);
 	unsigned long frame;
 	int index;
 
@@ -1135,14 +1204,15 @@ static void reverb_process(const float *send, float *output, unsigned long frame
 	{
 		/* how far the fade from the old environment to the new is */
 		float fade = 1.0f - (float)reverb.fade / REVERB_FADE_FRAMES;
-		float early[OUTPUT_CHANNELS] = { 0.0f, 0.0f };
-		float outputs[REVERB_LINES], late_left = 0.0f, late_right = 0.0f, feedback_sum = 0.0f, value;
+		float early[SURROUND_71_SPEAKERS] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+		float late[SURROUND_71_SPEAKERS] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+		float outputs[REVERB_LINES], feedback_sum = 0.0f, value;
 		float diffusion = reverb_blend(from->diffusion, to->diffusion, fade);
 
 		reverb.delay[reverb.delay_position & (REVERB_DELAY_SIZE - 1)] = send[frame];
 		for (index = 0; index < REVERB_TAPS; index++)
 		{
-			early[index % OUTPUT_CHANNELS] += reverb_tap_signs[index] * reverb_read(reverb.delay, REVERB_DELAY_SIZE - 1,
+			early[index % reverb_count] += reverb_tap_signs[index] * reverb_read(reverb.delay, REVERB_DELAY_SIZE - 1,
 				reverb.delay_position, from->taps[index], to->taps[index], fade);
 		}
 
@@ -1170,8 +1240,18 @@ static void reverb_process(const float *send, float *output, unsigned long frame
 			float damping = reverb_blend(from->damping[index], to->damping[index], fade);
 
 			reverb.lowpass[index] = flush_denormal(line_output + damping * (reverb.lowpass[index] - line_output));
-			late_left += reverb_left_signs[index] * reverb.lowpass[index];
-			late_right += reverb_right_signs[index] * reverb.lowpass[index];
+			if (reverb_count == 2)
+			{
+				late[0] += reverb_left_signs[index] * reverb.lowpass[index];
+				late[1] += reverb_right_signs[index] * reverb.lowpass[index];
+			}
+			else
+			{
+				unsigned long row;
+
+				for (row = 0; row < reverb_count; row++)
+					late[row] += reverb_surround_signs[row][index] * reverb.lowpass[index];
+			}
 			outputs[index] = reverb.lowpass[index] * reverb_blend(from->feedback[index], to->feedback[index], fade);
 			feedback_sum += outputs[index];
 		}
@@ -1186,24 +1266,15 @@ static void reverb_process(const float *send, float *output, unsigned long frame
 		{
 			float reflections_gain = reverb_blend(from->reflections_gain, to->reflections_gain, fade);
 			float late_gain = reverb_blend(from->late_gain, to->late_gain, fade);
-			float left = early[0] * reflections_gain + late_left * late_gain;
-			float right = early[1] * reflections_gain + late_right * late_gain;
+			unsigned long row;
 
-			if (output_channels == 6)
+			for (row = 0; row < reverb_count; row++)
 			{
-				/* from the front and back pairs, at the same power */
-				output[frame * 6] += left * reverb.level * 0.70710678f;
-				output[frame * 6 + 1] += right * reverb.level * 0.70710678f;
-				output[frame * 6 + 4] += left * reverb.level * 0.70710678f;
-				output[frame * 6 + 5] += right * reverb.level * 0.70710678f;
+				float sample = early[row] * reflections_gain + late[row] * late_gain * output_scale;
+
+				output[frame * output_channels + reverb_outputs[row]] += sample * reverb.level;
+				peak = fabsf(sample) > peak ? fabsf(sample) : peak;
 			}
-			else
-			{
-				output[frame * 2] += left * reverb.level;
-				output[frame * 2 + 1] += right * reverb.level;
-			}
-			peak = fabsf(left) > peak ? fabsf(left) : peak;
-			peak = fabsf(right) > peak ? fabsf(right) : peak;
 			peak = fabsf(send[frame]) > peak ? fabsf(send[frame]) : peak;
 		}
 		if (reverb.fade && !--reverb.fade)
@@ -1748,8 +1819,10 @@ static void audio_device_update(void)
 	}
 }
 
-/* audio.channels: "stereo", "5.1", or "auto" for 5.1 when the device has
-at least six channels. Android plays stereo */
+/* audio.channels: "stereo", "5.1", "7.1", or "auto": 5.1 when the device
+has six (or seven) channels, 7.1 when it has eight, else stereo. A device
+of some other count is an interface's outputs more likely than speakers
+around the room, so it plays stereo. Android plays stereo */
 static unsigned long choose_output_channels(SDL_AudioDeviceID device)
 {
 #if defined(HALO_ANDROID) || defined(HALO_WEB) || defined(HALO_ARM64_GUEST)
@@ -1763,11 +1836,20 @@ static unsigned long choose_output_channels(SDL_AudioDeviceID device)
 		return 2;
 	if (!strcmp(setting, "5.1"))
 		return 6;
+	if (!strcmp(setting, "7.1"))
+		return 8;
 	if (strcmp(setting, "auto"))
-		platform_log("audio.channels \"%s\" is not \"auto\", \"stereo\" or \"5.1\"; using auto", setting);
-	if ((SDL_GetAudioDeviceFormat(device, &format, NULL) ||
-		SDL_GetAudioDeviceFormat(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &format, NULL)) && format.channels >= 6)
+		platform_log("audio.channels \"%s\" is not \"auto\", \"stereo\", \"5.1\" or \"7.1\"; using auto", setting);
+	if (!SDL_GetAudioDeviceFormat(device, &format, NULL) &&
+		!SDL_GetAudioDeviceFormat(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &format, NULL))
+	{
+		return 2;
+	}
+	platform_log("audio: the output has %d channels", format.channels);
+	if (format.channels == 6 || format.channels == 7)
 		return 6;
+	if (format.channels == 8)
+		return 8;
 	return 2;
 #endif
 }
@@ -1790,7 +1872,7 @@ static void audio_start(void)
 	if (config_boolean("audio.enabled") && platform_sdl_initialize())
 	{
 		output_channels = choose_output_channels(audio_device_named(config_string("audio.device")));
-		platform_log("sound: %s", output_channels == 6 ? "5.1 surround" : "stereo");
+		platform_log("sound: %s", output_channels == 8 ? "7.1 surround" : output_channels == 6 ? "5.1 surround" : "stereo");
 		audio_spec.format = SDL_AUDIO_F32;
 		audio_spec.channels = (int)output_channels;
 		audio_spec.freq = OUTPUT_RATE;
@@ -2067,7 +2149,7 @@ HRESULT WINAPI IDirectSound_GetCaps(LPDIRECTSOUND sound, LPDSCAPS caps)
 HRESULT WINAPI IDirectSound_GetSpeakerConfig(LPDIRECTSOUND sound, LPDWORD speaker_config)
 {
 	(void)sound;
-	*speaker_config = output_channels == 6 ? DSSPEAKER_ENABLE_AC3 : DSSPEAKER_STEREO;
+	*speaker_config = output_channels > 2 ? DSSPEAKER_ENABLE_AC3 : DSSPEAKER_STEREO;
 	return DS_OK;
 }
 
