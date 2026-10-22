@@ -4732,6 +4732,29 @@ static short lobby_browser_map_name(struct p2p_listing const *game, wchar_t *tex
 	return family;
 }
 
+/* a game's map's mark after its name: before, after (" (", ")"), and its
+family's (HALOMD, HALO PC) or its pack's tag (CE+) between, in capitals
+(long: the Rules line's), else its short tag (MD, PC, CE+) after a space */
+static void lobby_browser_map_mark(struct p2p_listing const *game, short family, boolean long_mark, wchar_t *mark,
+	short size)
+{
+	char tag[16], title[64], text[24];
+	short index;
+
+	mark[0] = 0;
+	if (family == _map_family_xbox)
+		return;
+	if (family == _map_family_pack)
+		ui_map_list_map_tag(game->map, tag, sizeof(tag), title, sizeof(title));
+	else
+		snprintf(tag, sizeof(tag), "%s", family == _map_family_halomd ? (long_mark ? "HALOMD" : "MD") :
+			long_mark ? "HALO PC" : "PC");
+	snprintf(text, sizeof(text), long_mark ? " (%s)" : " %s", tag);
+	for (index = 0; text[index] && index < size - 1; index++)
+		mark[index] = (wchar_t)(unsigned char)text[index];
+	mark[index] = 0;
+}
+
 /* the Players line: how many of how many (and who, when it is known) */
 static void lobby_browser_players_text(struct p2p_listing const *game, wchar_t *text, short size)
 {
@@ -4748,6 +4771,7 @@ static void lobby_browser_rules_text(struct p2p_listing const *game, wchar_t *te
 	wchar_t map[ROW_TEXT_LENGTH];
 	wchar_t score[16];
 	wchar_t host[64];
+	wchar_t mark[24];
 	short score_limit = lobby_browser_score_limit(game);
 	short family;
 
@@ -4759,8 +4783,9 @@ static void lobby_browser_rules_text(struct p2p_listing const *game, wchar_t *te
 	/* (a dedicated server's game says so: its listing's flag, p2p_lobby.c;
 	a game list's game, its host as the list says) */
 	lobby_browser_host_text(game, host, NUMBEROF(host));
+	lobby_browser_map_mark(game, family, TRUE, mark, NUMBEROF(mark));
 	usnprintf(text, size - 1, L"%s%s on %s%s%s%s%s%s", gametype[0] ? gametype : engine_names[PIN(game->engine_type, 0, 5)],
-		score, map, family == _map_family_halomd ? L" (HALOMD)" : family != _map_family_xbox ? L" (HALO PC)" : L"",
+		score, map, mark,
 		game->dedicated && !host[0] ? L" (DEDICATED)" : L"", host,
 		!game->open ? L": full or starting" : game->in_progress ? L": under way" : L"",
 		game->locked ? L", password" : L"");
@@ -4831,9 +4856,11 @@ static void lobby_browser_update(struct widget_instance *list)
 		family = lobby_browser_map_name(game, text);
 		if (family != _map_family_xbox)
 		{
+			wchar_t mark[24];
 			short length = (short)ustrlen(text);
 
-			usnprintf(text + length, ROW_TEXT_LENGTH - 1 - length, family == _map_family_halomd ? L" MD" : L" PC");
+			lobby_browser_map_mark(game, family, FALSE, mark, NUMBEROF(mark));
+			usnprintf(text + length, ROW_TEXT_LENGTH - 1 - length, L"%s", mark);
 			text[ROW_TEXT_LENGTH - 1] = 0;
 		}
 		text_set(named(row, "server_item_map", 0), text);

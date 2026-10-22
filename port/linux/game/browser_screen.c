@@ -309,7 +309,7 @@ static char const *map_display_name(
 		unsigned short characters[48];
 		long length;
 
-		ui_map_list_family_name(family, file, name, NUMBEROF(name));
+		ui_map_list_map_name(path, name, NUMBEROF(name));
 		for (length = 0; length < NUMBEROF(name) && name[length]; length++)
 			characters[length] = (unsigned short)name[length];
 		utf8_text(characters, length, text, size);
@@ -348,7 +348,7 @@ static short ce_map_state(
 	{
 		csstrncpy(browser_screen.ce_map, game->map, sizeof(browser_screen.ce_map) - 1);
 		browser_screen.ce_map[sizeof(browser_screen.ce_map) - 1] = 0;
-		browser_screen.ce_map_answer = ui_map_list_family_present(family, file) ? _ce_map_present : _ce_map_missing;
+		browser_screen.ce_map_answer = ui_map_list_map_present(game->map) ? _ce_map_present : _ce_map_missing;
 		browser_screen.ce_map_time = system_milliseconds();
 	}
 	return browser_screen.ce_map_answer;
@@ -910,6 +910,14 @@ static char const *ce_map_blocker(
 		{
 			snprintf(text, (size_t)size, "Needs %s/%s.map: join to download it", map_family_folder(family),
 				display);
+		}
+		/* (a pack's map: its pack's folder, maps_<pack>) */
+		else if (family == _map_family_pack)
+		{
+			char pack[MAP_PACK_ID_LENGTH + 1];
+
+			map_family_pack_id(game->map, pack, sizeof(pack));
+			snprintf(text, (size_t)size, "Needs maps_%s/%s.map to join", pack, file);
 		}
 		else
 			snprintf(text, (size_t)size, "Needs %s/%s.map to join", map_family_folder(family), display);
@@ -1853,19 +1861,35 @@ static void text_with_button(
 
 /* ---------- drawing: the list's pieces */
 
-/* a map's family tag (XBX, HCE, HMD, GBX: map_family_tag), size its text's
-height: its width */
+/* a game's map's tag (XBX, HCE, HMD, GBX: map_family_tag; a pack's map its
+pack's, CE+: ui_map_list_map_tag), by the map's name (NULL: the family's) */
+static char const *family_badge_tag(
+	short family,
+	char const *map)
+{
+	static char tag[16];
+	char title[64];
+
+	if (!map || family != _map_family_pack)
+		return map_family_tag(family);
+	ui_map_list_map_tag(map, tag, sizeof(tag), title, sizeof(title));
+	return tag;
+}
+
+/* a map's family tag, size its text's height: its width */
 static float family_badge_width(
 	short family,
+	char const *map,
 	float size)
 {
-	return ui_overlay_text_width(UI_FONT_MENU, size, map_family_tag(family)) + size * 1.1f;
+	return ui_overlay_text_width(UI_FONT_MENU, size, family_badge_tag(family, map)) + size * 1.1f;
 }
 
 /* the tag at x (its left), centred on text whose top is text_y and height
 text_size: a thin pill in the family's color */
 static void draw_family_badge(
 	short family,
+	char const *map,
 	float size,
 	float x,
 	float text_y,
@@ -1875,12 +1899,12 @@ static void draw_family_badge(
 	unsigned int color = (unsigned int)(map_family_color(family) << 8);
 	float height = size * 1.7f;
 	float y = text_y + text_size * 0.5f - height * 0.5f;
-	float width = family_badge_width(family, size);
+	float width = family_badge_width(family, map, size);
 
 	ui_overlay_rect(x, y, width, height, height * 0.3f, color | (dim ? 0x0C : 0x1C));
 	ui_overlay_outline(x, y, width, height, height * 0.3f, 0.75f, color | (dim ? 0x50 : 0xA8));
 	ui_overlay_text(UI_FONT_MENU, size, x + width * 0.5f, y + (height - size) * 0.5f + 0.2f, UI_ALIGN_CENTER,
-		color | (dim ? 0x80 : 0xFF), map_family_tag(family));
+		color | (dim ? 0x80 : 0xFF), family_badge_tag(family, map));
 }
 
 /* a padlock, size high, at x (its left), y (its top): a game with a
@@ -2115,8 +2139,8 @@ static void draw_map_offer(
 
 	dialog_frame(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT,
 		browser_screen.offer == _offer_stock ? MAP_ARCHIVE_STOCK_TITLE : "MISSING MAP");
-	draw_family_badge(_map_family_custom_edition, BADGE_SIZE + 1.5f,
-		CONNECT_X + CONNECT_WIDTH - 22 - family_badge_width(_map_family_custom_edition, BADGE_SIZE + 1.5f), CONNECT_Y + 20,
+	draw_family_badge(_map_family_custom_edition, NULL, BADGE_SIZE + 1.5f,
+		CONNECT_X + CONNECT_WIDTH - 22 - family_badge_width(_map_family_custom_edition, NULL, BADGE_SIZE + 1.5f), CONNECT_Y + 20,
 		12.0f, FALSE);
 
 	switch (browser_screen.offer)
@@ -2309,7 +2333,7 @@ static void draw_row(
 	unsigned int color = picked ? COLOR_ROW_SELECTED : game->open ? COLOR_ROW : COLOR_ROW_DIM;
 	unsigned int glow = picked ? 0x6FB2FFC0 : 0;
 	short family = map_family(game->map);
-	float badge_x = COLUMN_TYPE - 10 - family_badge_width(family, BADGE_SIZE);
+	float badge_x = COLUMN_TYPE - 10 - family_badge_width(family, game->map, BADGE_SIZE);
 	float size, width;
 
 	if (picked)
@@ -2337,7 +2361,7 @@ static void draw_row(
 		size -= 0.5f;
 	ui_overlay_text_glow(UI_FONT_MENU, size, COLUMN_MAP, text_y + (ROW_SIZE - size) / 2, UI_ALIGN_LEFT, color, glow,
 		map_name);
-	draw_family_badge(family, BADGE_SIZE, badge_x, text_y, ROW_SIZE, !game->open && !picked);
+	draw_family_badge(family, game->map, BADGE_SIZE, badge_x, text_y, ROW_SIZE, !game->open && !picked);
 	ui_overlay_text_glow(UI_FONT_MENU, ROW_SIZE, COLUMN_TYPE, text_y, UI_ALIGN_LEFT, color, glow,
 		type_name(game, text, sizeof(text)));
 	snprintf(text, sizeof(text), "%d/%d", game->players, game->maximum_players);
@@ -2478,7 +2502,9 @@ the map's name over its family's color (a custom map's) */
 			}
 		}
 #endif
-		if (!drawn && map_art_site_path(family == _map_family_xbox, file, art_path, (int)sizeof(art_path)))
+		/* (a map pack's map has its stock file's name, not its art: a card) */
+		if (!drawn && family != _map_family_pack &&
+			map_art_site_path(family == _map_family_xbox, file, art_path, (int)sizeof(art_path)))
 		{
 			unsigned char const *pixels;
 			int width, height, serial;
@@ -2525,9 +2551,14 @@ the map's name over its family's color (a custom map's) */
 	DETAIL_LINE("Status:", text);
 	DETAIL_LINE("Map:", map_label);
 	/* (its family, spelled out beside its tag) */
-	draw_family_badge(family, BADGE_SIZE, x + 6, line_y, DETAIL_SIZE, FALSE);
-	ui_overlay_text(UI_FONT_MENU_SMALL, DETAIL_SIZE - 1.0f, x + 10 + family_badge_width(family, BADGE_SIZE), line_y + 0.5f,
-		UI_ALIGN_LEFT, COLOR_DIM, map_family_title(family));
+	draw_family_badge(family, selected->map, BADGE_SIZE, x + 6, line_y, DETAIL_SIZE, FALSE);
+	{
+		char tag[16], title[64];
+
+		ui_map_list_map_tag(selected->map, tag, sizeof(tag), title, sizeof(title));
+		ui_overlay_text(UI_FONT_MENU_SMALL, DETAIL_SIZE - 1.0f, x + 10 + family_badge_width(family, selected->map, BADGE_SIZE),
+			line_y + 0.5f, UI_ALIGN_LEFT, COLOR_DIM, title);
+	}
 	type_name(selected, text, sizeof(text));
 	if (selected->score_limit)
 		snprintf(text + strlen(text), sizeof(text) - strlen(text), " to %d", selected->score_limit);

@@ -39,6 +39,7 @@ clock runs on).
 
 #include "halo_menus.h"
 #include "halo_keyboard.h"
+#include "halo_map_packs.h"
 #ifdef HALO_GAME_BROWSER
 #include "../src/ui_overlay.h"
 #ifdef HALO_GAME_BROWSER
@@ -2002,6 +2003,11 @@ static short menus_chosen(void)
 	char const *value = config_string("display.menus");
 	char lower[16];
 	size_t index;
+
+	/* (a map pack's own menus, game.pack_menus, are its ui.map's as they
+	are: none of ours are built over them, map_packs.c) */
+	if (map_pack_menus())
+		return _menus_xbox;
 
 	for (index = 0; index + 1 < sizeof(lower) && value[index]; index++)
 		lower[index] = (char)(value[index] >= 'A' && value[index] <= 'Z' ? value[index] - 'A' + 'a' : value[index]);

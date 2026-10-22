@@ -681,7 +681,7 @@ struct widget_instance;
 #ifdef HALO_64BIT
 #include "interface/ui_widget_instance.h"
 #endif
-#ifdef HALO_CUSTOM_EDITION
+#ifdef HALO_MAP_LIST
 #include "halo_ui_map_list.h"
 #endif
 #ifndef HALO_CONSOLE_NO_CONTROLS
@@ -5652,7 +5652,7 @@ static void widget_instance_render_text_box(
 			string_list_index = definition->string_list_index;
 		else
 			string_list_index = widget->parameters.text_box.string_list_index;
-#ifdef HALO_CUSTOM_EDITION
+#ifdef HALO_MAP_LIST
 		/* port: a string of the menus' map list's own, past ui.map's */
 		string = (wchar_t *)ui_map_list_text(string_list_index);
 		if (!string)
@@ -7675,7 +7675,7 @@ static void widget_instance_render_recursive(
 #ifndef HALO_XBOX_CONSOLE
 	ui_mouse_note_target(widget, definition, offset);
 #endif
-#ifdef HALO_CUSTOM_EDITION
+#ifdef HALO_MAP_LIST
 	/* port: a picture of the menus' map list's own, past ui.map's */
 	bitmap = ui_map_list_picture(widget->animation.current_frame_index);
 	if (!bitmap)

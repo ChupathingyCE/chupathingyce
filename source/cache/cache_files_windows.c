@@ -189,6 +189,9 @@ symbols in this file:
 #ifdef HALO_CUSTOM_EDITION
 #include "main/console.h"
 #endif
+/* port: the map families' names and files (port/linux/game/map_families.c):
+a pack's Xbox maps, <file>@<pack>, are read from maps_<pack> */
+#include "halo_map_families.h"
 #include "tag_files/files.h"
 #include "tag_files/tag_files.h"
 #include "scenario/scenario_definitions.h"
@@ -402,6 +405,9 @@ static void cached_map_file_set_modification_date(
 	short map_file_index);
 static void cached_map_file_read_header(
 	short map_file_index);
+static void cached_map_file_name_family(
+	short map_file_index,
+	char const *map_name);
 static void cached_map_files_delete(
 	short map_file_index);
 static void cache_files_verify_language(
@@ -470,7 +476,8 @@ char const *ce_map_refusal_message(void);
 static boolean ce_map_name_is(
 	const char *map_name)
 {
-	return map_family_parse(map_name, NULL, 0) != _map_family_xbox;
+	/* (a pack's Xbox map, <file>@<pack>, is the Xbox loader's: not one of these) */
+	return !map_family_is_xbox_format(map_family_parse(map_name, NULL, 0));
 }
 
 /* the map named <name>@ce, @md or @pc opened in its slot (once): FALSE if
@@ -820,7 +827,12 @@ boolean cache_files_precache_map_begin(
 			header (cached_map_files_find_map): a map file whose header names
 			another map would be copied again each time it was asked for, for
 			ever */
-			if (_stricmp(header.name, cache_map_name) != 0)
+			/* (a pack's map, <file>@<pack>, names itself <file>: its slot is
+			named <file>@<pack> once it is copied, cached_map_file_name_family) */
+			char header_file[64];
+
+			map_family_parse(cache_map_name, header_file, sizeof(header_file));
+			if (_stricmp(header.name, header_file) != 0 || strlen(cache_map_name) >= sizeof(header.name))
 			{
 				error(_error_silent, "map '%s' names itself '%s' in its header: refused", cache_map_name, header.name);
 				platform_log("map %s.map names itself '%s' in its header; a map's name must be its file's",
@@ -928,6 +940,8 @@ void cache_files_precache_map_end(
 	texture_cache_return_memory();
 	cached_map_file_set_modification_date(cache_file_globals.copying_to_map_file_index);
 	cached_map_file_read_header(cache_file_globals.copying_to_map_file_index);
+	cached_map_file_name_family(cache_file_globals.copying_to_map_file_index,
+		cache_file_globals.copying_to_map_file_name);
 	cache_file_globals.copy_in_progress = FALSE;
 	cache_file_globals.copying_to_map_file_index = NONE;
 
@@ -1520,9 +1534,8 @@ static void cache_file_get_map_path(
 	{
 		MAXIMUM_MAP_PATH_LENGTH = 256,
 	};
-	int length = snprintf(path, MAXIMUM_MAP_PATH_LENGTH, "%s%s.map", cache_files_map_directory(), map_name);
-
-	if (length < 0 || length >= MAXIMUM_MAP_PATH_LENGTH)
+	/* (a pack's map, <file>@<pack>, is maps_<pack>'s <file>.map: map_family_xbox_path) */
+	if (!map_family_xbox_path(map_name, path, MAXIMUM_MAP_PATH_LENGTH))
 	{
 		error(_error_silent, "map path for '%.64s' is too long", map_name);
 		path[0] = 0;
@@ -1882,6 +1895,53 @@ static void cached_map_file_read_header(
 		cached_map_file_invalidate(map_file_index);
 	}
 
+	return;
+}
+
+/* port: a slot that a pack's map (<file>@<pack>: halo_map_families.h) was
+copied into is named <file>@<pack>, in its header in memory and on the cache
+drive, so that it is found by that name (cached_map_files_find_map) and
+never taken for the retail map, or another pack's, of the same file's name,
+in this run or the next (cache_files_open_cache_files checks it against
+maps_<pack>'s file then). The header's name is its bytes alone, the same in
+either byte order */
+static void cached_map_file_name_family(
+	short map_file_index,
+	char const *map_name)
+{
+	struct cached_map_file *map_file = cached_map_file_get(map_file_index);
+	struct cache_file_header raw;
+	OVERLAPPED overlapped;
+	volatile boolean completion_flag;
+
+	if (map_family_parse(map_name, NULL, 0) == _map_family_xbox || !map_file->header.name[0] ||
+		strlen(map_name) >= sizeof(map_file->header.name))
+	{
+		return;
+	}
+	completion_flag = FALSE;
+	cached_map_issue_async_read(map_file->file, &overlapped, &raw, sizeof(raw), 0, &completion_flag,
+		cache_file_blocking_io_completion_routine);
+	cached_map_block_on_async_request(&completion_flag);
+	if (completion_flag)
+	{
+		memset(raw.name, 0, sizeof(raw.name));
+		strncpy(raw.name, map_name, sizeof(raw.name) - 1);
+		completion_flag = FALSE;
+		cached_map_issue_async_write(map_file->file, &overlapped, &raw, sizeof(raw), 0, &completion_flag,
+			cache_file_blocking_io_completion_routine);
+		cached_map_block_on_async_request(&completion_flag);
+	}
+	if (!completion_flag)
+	{
+		error(_error_silent, "cached map '%s': its slot could not be named for its family", map_name);
+		memset(&map_file->header, 0, sizeof(map_file->header));
+		return;
+	}
+	memset(map_file->header.name, 0, sizeof(map_file->header.name));
+	strncpy(map_file->header.name, map_name, sizeof(map_file->header.name) - 1);
+	/* (the header written is the copy's: its date stays the copy's, which
+	cached_map_file_current compares the pack's file with) */
 	return;
 }
 

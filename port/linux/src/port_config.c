@@ -504,6 +504,11 @@ static const struct config_setting config_settings[] =
 		"hugeass@ce), or \"*\" for all. Their scripts can't change your settings\n"
 		"or other players' games." },
 
+	{ "game.pack_menus", _config_string, "\"\"", "HALO_PACK_MENUS", _environment_value, _platform_all | _platform_xbox,
+		"Play with a map pack's own menus, by the pack's folder name: \"cex\" uses\n"
+		"maps_cex/ui.map (Halo CE+'s) in place of the game's; \"\" (the default)\n"
+		"keeps the game's. Takes effect after a restart." },
+
 	{ "game.move_old_map_folders", _config_string, "\"ask\"", "HALO_MOVE_OLD_MAP_FOLDERS", _environment_value,
 		_platform_all,
 		"Move maps from the old maps/ce and md_maps folders to maps_ce, maps_md\n"

@@ -85,7 +85,8 @@ HALO_CONSOLE_OVERSIZED_MAPS
 	larger than its type's (a map pack's multiplayer maps, past retail's
 	47 MB) is copied to a campaign map's instead, and a map whose tags do
 	not fit the tag cache says so (source/cache/cache_files_windows.c,
-	cache_files.c). The retail maps fit their own and are cached as before
+	cache_files.c). The retail maps fit their own and are cached as before.
+	The desktop builds with map packs (HALO_MAP_LIST) have it too
 
 A big-endian console (HALO_BIG_ENDIAN, its prefix header) reads the maps,
 which are the Xbox's, little-endian, through port/console/game's byte swap
@@ -110,6 +111,12 @@ compile lines: source/cseries/xbox_address.h).
 #ifdef HALO_XBOX_CONSOLE
 #define HALO_CONSOLE_LOG_BUFFER 1
 #define HALO_CONSOLE_ONLINE_GAMES 1
+#define HALO_CONSOLE_OVERSIZED_MAPS 1
+#endif
+
+/* (the desktop builds copy maps to the Xbox's cache files too: a map pack's
+larger maps take a campaign map's there as well) */
+#if defined(HALO_MAP_LIST) && !defined(HALO_CONSOLE_PLAYERS) && !defined(HALO_CONSOLE_OVERSIZED_MAPS)
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #endif
 
