@@ -893,10 +893,6 @@ void game_variant_byte_swap(
 		NETWORK_GAME_SWAP(variant, game_engine_variant.race.race_type, game_engine_variant.race.team_scoring,
 			sizeof(long));
 		break;
-	case game_engine_bomb:
-		NETWORK_GAME_SWAP(variant, game_engine_variant.bomb.arm_time, game_engine_variant.bomb.round_time,
-			sizeof(long));
-		break;
 	}
 	NETWORK_GAME_SWAP(variant, flags, flags, sizeof(word));
 }
