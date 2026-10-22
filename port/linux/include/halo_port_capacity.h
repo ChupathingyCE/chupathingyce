@@ -222,9 +222,12 @@ how large a window its host found room for (platform_contiguous_size, up to
 256 MB: port/linux/src/platform.h), and the cache is half of it where that is
 more than a development kit's 128 MB, as on the desktop, and Android's
 otherwise; the tables kept per page of the cache are sized for the largest
-(HALO_PORT_TEXTURE_CACHE_MAXIMUM_SIZE). */
+(HALO_PORT_TEXTURE_CACHE_MAXIMUM_SIZE). A console that finds room for its
+window itself (HALO_CONSOLE_WINDOW_MAXIMUM, the Wii U's 256 MB) has the
+same. */
 
-#if defined(HALO_ANDROID) && !defined(HALO_64BIT) && defined(HALO_WINDOW_REBASE)
+#if (defined(HALO_ANDROID) && !defined(HALO_64BIT) && defined(HALO_WINDOW_REBASE)) || \
+	defined(HALO_CONSOLE_WINDOW_MAXIMUM)
 extern unsigned long platform_contiguous_size;
 #define HALO_PORT_TEXTURE_CACHE_SIZE \
 	(platform_contiguous_size > 0x08000000UL ? platform_contiguous_size / 2 : 0x2C00000UL) /* (0x1600000) */

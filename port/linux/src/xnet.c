@@ -339,7 +339,12 @@ static int winsock_result(int result)
 	return result;
 }
 
+#ifdef HALO_CONSOLE_NO_THREAD_LOCAL
+PLATFORM_THREAD_LOCAL_SLOT(int, winsock_last_error)
+#define winsock_last_error (*winsock_last_error_slot())
+#else
 static __thread int winsock_last_error;
+#endif
 
 int WSAAPI WSAGetLastError(void)
 {

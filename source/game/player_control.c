@@ -1320,6 +1320,34 @@ static void get_local_player_input_blob(
 							input->facing_delta.pitch += mouse_pitch;
 						}
 					}
+#ifdef HALO_SWITCH_CONSOLE
+					{
+						/* port: the controller's gyroscope (port/linux/src/xinput_sdl.c),
+						as the mouse's turn above, with its own invert; with
+						input.gyro_aim = "zoom" only while zoomed in, for fine aiming
+						(read and dropped otherwise, so that zooming in does not jump) */
+						extern int halo_linux_gyro_look(short gamepad_index, real *yaw, real *pitch);
+						extern int halo_linux_gyro_zoom_only(void);
+						real gyro_yaw;
+						real gyro_pitch;
+
+						if (halo_linux_gyro_look(gamepad_index, &gyro_yaw, &gyro_pitch) &&
+							!(control->zoom_level == NONE && halo_linux_gyro_zoom_only()))
+						{
+							if (player->unit_index != NONE && control->zoom_level != NONE)
+							{
+								real inverse_zoom = 1.f / unit_get_zoom_magnification(
+									player->unit_index,
+									control->zoom_level);
+
+								gyro_yaw *= inverse_zoom;
+								gyro_pitch *= inverse_zoom;
+							}
+							input->facing_delta.yaw += gyro_yaw;
+							input->facing_delta.pitch += gyro_pitch;
+						}
+					}
+#endif
 				}
 				else
 				{
