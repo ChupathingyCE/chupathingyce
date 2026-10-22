@@ -753,7 +753,7 @@ static boolean game_state_image_data_valid(
 		return game_state_image_refuse(name, "is a data array of another signature");
 	if (data->maximum_count != maximum_count || data->size != element_size)
 		return game_state_image_refuse(name, "is a data array of another capacity");
-	if (data->data != XBOX_ADDRESS(live + 1))
+	if (data->data != DATA_ARRAY_OWN_ELEMENTS(live))
 		return game_state_image_refuse(name, "is a data array whose elements are elsewhere");
 	if (data->count < 0 || data->count > data->maximum_count ||
 		data->first_free_absolute_index < 0 || data->first_free_absolute_index > data->maximum_count ||
@@ -946,7 +946,7 @@ made valid for the map, with an identifier to give out and counts that fit
 static boolean game_state_data_array_good(
 	struct data_array const *data)
 {
-	return data->signature == 'd@t@' && data->data == XBOX_ADDRESS(data + 1) && data->valid && data->next_identifier &&
+	return data->signature == 'd@t@' && data->data == DATA_ARRAY_OWN_ELEMENTS(data) && data->valid && data->next_identifier &&
 		data->count >= 0 && data->count <= data->maximum_count &&
 		data->actual_count >= 0 && data->actual_count <= data->count &&
 		data->first_free_absolute_index >= 0 && data->first_free_absolute_index <= data->maximum_count;

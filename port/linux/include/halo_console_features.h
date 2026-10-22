@@ -7,7 +7,7 @@ halo_port_limits.h, which every build's prefix header reads). The shared
 code tests these, never a console's name; a console turns a capability on
 by defining it here from its own build's define (the Switch's
 HALO_SWITCH_CONSOLE, the original Xbox's HALO_XBOX_CONSOLE, the Xbox 360's
-HALO_XBOX360_CONSOLE), or on its
+HALO_XBOX360_CONSOLE, the Wii U's HALO_WIIU_CONSOLE), or on its
 compile lines (HALO_CONSOLE_PLAYERS, HALO_CONSOLE_DELTA,
 HALO_CONSOLE_MEMORY_CLASS, the HALO_CONSOLE_NO_* of a port's prefix header:
 docs/building.md, "Console ports").
@@ -50,6 +50,28 @@ HALO_CONSOLE_LOG_BUFFER
 	the first waits, and at once for an exception, an exit or a crash
 	(error_log_flush and error_log_update, source/cseries/errors.c;
 	console.log_flush)
+HALO_CONSOLE_WINDOW_MAXIMUM
+	a console that puts the Xbox's memory window where it finds room
+	(HALO_WINDOW_REBASE, source/cseries/xbox_address.h) and tells the
+	platform layer its size before any constructor runs
+	(platform_contiguous_base and platform_contiguous_size): the window is
+	from a development kit's 128 MB up to this many bytes
+	(port/linux/src/platform.h), and the texture cache half of it
+	(halo_port_capacity.h)
+HALO_CONSOLE_NO_THREAD_LOCAL
+	a console whose executables have no thread-local storage (the Wii U's
+	RPX: its loader takes no TLS relocations): the platform layer's
+	per-thread variables are in blocks the port keeps for each thread
+	(platform_thread_local, port/linux/src/platform.h), and a release
+	build's skipped-assert flag is shared, as on the original Xbox
+	(source/cseries/cseries.h)
+HALO_CONSOLE_WIDE_TIME_T
+	a 32-bit console whose C library's time_t is 64 bits (newlib's): the
+	error log's time() is given a time_t (source/cseries/errors.c)
+HALO_CONSOLE_LOG_ECHO
+	debug.txt's lines also in the platform's log (platform_log), for a
+	console that shows its log on the screen while it has no other way to
+	say why it stopped (source/cseries/errors.c)
 HALO_CONSOLE_ONLINE_GAMES
 	the Multiplayer menu's ONLINE GAMES on a build without the desktop's
 	game browser (HALO_GAME_BROWSER): the console's own screen of the game
@@ -106,6 +128,15 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_MAP_LOAD_HOOKS 1
 #define HALO_CONSOLE_STATUS_LINE 1
 #define HALO_CONSOLE_LOG_THROTTLE 1
+#endif
+
+#ifdef HALO_WIIU_CONSOLE
+#define HALO_CONSOLE_NO_WRITE_WATCH 1
+#define HALO_CONSOLE_LOG_THROTTLE 1
+#define HALO_CONSOLE_WINDOW_MAXIMUM 0x10000000UL
+#define HALO_CONSOLE_NO_THREAD_LOCAL 1
+#define HALO_CONSOLE_WIDE_TIME_T 1
+#define HALO_CONSOLE_LOG_ECHO 1
 #endif
 
 #ifdef HALO_XBOX_CONSOLE
