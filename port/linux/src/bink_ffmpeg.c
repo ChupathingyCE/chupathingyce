@@ -16,9 +16,15 @@ directly by the game, and BinkCopyToBuffer writes into a linear X8R8G8B8
 texture it has locked. The sound goes back the other way: the game hands Bink
 its own DirectSound (BinkSetSoundSystem, BinkOpenDirectSound) and the movie's
 decoded sound is queued into a stream of it, as the game's own sounds are.
-*/
 
-#ifdef HALO_BINK_FFMPEG
+A movie that cannot be played is skipped as the Xbox skips a missing one:
+BinkOpen answers NULL with one line in the log, and bink_playback.c goes on
+to what follows (the main menu after the intro, the menu's countdown after
+an attract movie). One that stops decoding partway (a truncated file) ends
+there instead of holding its last frame until its header's length runs out.
+This is the one movie implementation of the desktop and Android builds (the
+Windows builds and the consoles keep bink_null.c's stubs for now).
+*/
 
 #ifdef HALO_BINK_FFMPEG
 
@@ -71,6 +77,7 @@ struct BINK
 	uint8_t *audio_out;
 	int audio_out_size;
 	int sound_system_ready;
+	int ended;                  /* the decoder has nothing more to give */
 };
 
 typedef struct BINK *HBINK;
@@ -93,13 +100,19 @@ dsound_sdl.c, the one its own sounds play through) before opening a movie:
 the movie's decoded sound is queued into a stream of it, so it is mixed
 with the game's sounds and at the game's volume (port_config's
 audio.volume). A game with no DirectSound plays the movie without sound,
-as it did before there was a decoder. */
+as it did before there was a decoder.
+
+The game passes the object as an unsigned long, which a 64-bit build cuts to
+32 bits; the object itself is the game's own (dsound_get), so it is taken
+from there, and the parameter only says whether there is one. */
+LPDIRECTSOUND dsound_get(void);
+
 static LPDIRECTSOUND bink_dsound;
 
 void *__stdcall BinkOpenDirectSound(unsigned long param)
 {
-	bink_dsound = (LPDIRECTSOUND)param;
-	return param ? (void *)param : NULL;
+	bink_dsound = param ? dsound_get() : NULL;
+	return bink_dsound ? (void *)bink_dsound : NULL;
 }
 
 long __stdcall BinkSetSoundSystem(bink_sound_system_open_proc open, unsigned long param)
@@ -186,25 +199,78 @@ static void bink_audio_queue(struct BINK *bink)
 }
 
 
+/* the movie's file: the game's own path ("d:\bink\intro_es.bik") through the
+port's file layer, which knows where the game's data is (the disc's folder on
+Linux and macOS, the app's assets on Android); a movie that is not there is
+also looked for in assets/bink/, where a checkout keeps the disc's */
+static int bink_movie_path(const char *name, char *path, size_t path_size)
+{
+	const char *base;
+	FILE *file;
+
+	if (name[0] && name[1] == ':')
+		platform_translate_path(name, path, (unsigned long)path_size);
+	else
+		snprintf(path, path_size, "%s", name);
+	file = fopen(path, "rb");
+	if (file)
+	{
+		fclose(file);
+		return 1;
+	}
+	base = strrchr(name, '\\');
+	if (!base)
+		base = strrchr(name, '/');
+	base = base ? base + 1 : name;
+	snprintf(path, path_size, "assets/bink/%s", base);
+	file = fopen(path, "rb");
+	if (file)
+	{
+		fclose(file);
+		return 1;
+	}
+	return 0;
+}
+
+/* the movie, skipped: one line, and the game goes on as with a missing file */
+static HBINK bink_skip(struct BINK *bink, const char *name, const char *reason)
+{
+	platform_log("Bink video: skipping \"%s\" (%s)", name, reason);
+	if (bink)
+	{
+		swr_free(&bink->to_sound);
+		sws_freeContext(bink->to_rgba);
+		if (bink->format)
+			avformat_close_input(&bink->format);
+		avcodec_free_context(&bink->video);
+		avcodec_free_context(&bink->audio);
+		av_packet_free(&bink->packet);
+		av_frame_free(&bink->decoded);
+		av_frame_free(&bink->rgba);
+		av_frame_free(&bink->audio_frame);
+		free(bink->pixels);
+		free(bink);
+	}
+	return NULL;
+}
+
 HBINK __stdcall BinkOpen(const char *name, unsigned long flags)
 {
 	struct BINK *bink;
 	const AVCodec *codec;
+	AVRational rate;
 	double fps;
 	char path[1024];
 
 	(void)flags;
-	/* the movie's name is the game's own path ("d:\bink\intro_es.bik"): the
-	port's file layer is what knows where the game's data is (the disc's
-	folder on Linux, the app's assets on Android) */
-	if (name && name[0] && name[1] == ':')
-		platform_translate_path(name, path, sizeof(path));
-	else if (name)
-		snprintf(path, sizeof(path), "%s", name);
-	else
+	/* (no movie at all, in any language: attract_mode.c has said so already) */
+	if (!name || !name[0])
 		return NULL;
-	if (!name)
-		return NULL;
+	/* (FFmpeg's own messages about a damaged file would be one per packet in
+	the console; the one line below is the movie's) */
+	av_log_set_level(AV_LOG_QUIET);
+	if (!bink_movie_path(name, path, sizeof(path)))
+		return bink_skip(NULL, name, "not found");
 	bink = calloc(1, sizeof(*bink));
 	if (!bink)
 		return NULL;
@@ -213,70 +279,56 @@ HBINK __stdcall BinkOpen(const char *name, unsigned long flags)
 	bink->decoded_frame = -1;
 	bink->submitted = -1;
 	if (avformat_open_input(&bink->format, path, NULL, NULL) < 0)
-	{
-		platform_log("Bink video: \"%s\" cannot be opened", path);
-		free(bink);
-		return NULL;
-	}
-	platform_log("Bink video: %s opened (%d streams)", path, bink->format->nb_streams);
+		return bink_skip(bink, name, "not a movie FFmpeg can open");
 	if (avformat_find_stream_info(bink->format, NULL) < 0)
-	{
-		platform_log("Bink video: %s: find_stream_info failed", path);
-		goto fail;
-	}
+		return bink_skip(bink, name, "no stream information");
 	bink->video_stream = av_find_best_stream(bink->format, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
 	if (bink->video_stream < 0)
-	{
-		platform_log("Bink video: %s: no video stream", path);
-		goto fail;
-	}
+		return bink_skip(bink, name, "no video");
 	codec = avcodec_find_decoder(bink->format->streams[bink->video_stream]->codecpar->codec_id);
 	if (!codec)
-	{
-		platform_log("Bink video: %s: no decoder for codec %d", path,
-			(int)bink->format->streams[bink->video_stream]->codecpar->codec_id);
-		goto fail;
-	}
+		return bink_skip(bink, name, "no decoder for its video");
 	bink->video = avcodec_alloc_context3(codec);
-	if (!bink->video)
-		goto fail;
-	if (avcodec_parameters_to_context(bink->video, bink->format->streams[bink->video_stream]->codecpar) < 0)
-		goto fail;
-	if (avcodec_open2(bink->video, codec, NULL) < 0)
+	if (!bink->video ||
+		avcodec_parameters_to_context(bink->video, bink->format->streams[bink->video_stream]->codecpar) < 0 ||
+		avcodec_open2(bink->video, codec, NULL) < 0 ||
+		bink->video->width <= 0 || bink->video->height <= 0)
 	{
-		platform_log("Bink video: %s: open2 (%dx%d) failed", path, bink->video->width, bink->video->height);
-		goto fail;
+		return bink_skip(bink, name, "its video cannot be decoded");
 	}
 
 	bink->Width = (unsigned long)bink->video->width;
 	bink->Height = (unsigned long)bink->video->height;
-	fps = av_guess_frame_rate(bink->format, bink->format->streams[bink->video_stream], NULL).num /
-		(double)av_guess_frame_rate(bink->format, bink->format->streams[bink->video_stream], NULL).den;
+	rate = av_guess_frame_rate(bink->format, bink->format->streams[bink->video_stream], NULL);
+	fps = rate.den ? rate.num / (double)rate.den : 0.0;
 	bink->frame_seconds = fps > 0.0 ? 1.0 / fps : 1.0 / 15.0;
+	/* (the Bink header's own count, which the demuxer reads) */
 	bink->Frames = bink->format->streams[bink->video_stream]->nb_frames > 0 ?
 		(unsigned long)bink->format->streams[bink->video_stream]->nb_frames :
 		(unsigned long)(bink->format->duration / (AV_TIME_BASE * bink->frame_seconds) + 0.5);
+	if (bink->Frames < 1)
+		return bink_skip(bink, name, "no frames");
 
 	bink->pixels_pitch = (long)bink->Width * 4;
 	bink->pixels = malloc((size_t)bink->pixels_pitch * bink->Height);
 	if (!bink->pixels)
-		goto fail;
+		return bink_skip(bink, name, "out of memory");
 	memset(bink->pixels, 0, (size_t)bink->pixels_pitch * bink->Height);
 	bink->packet = av_packet_alloc();
 	bink->decoded = av_frame_alloc();
 	bink->rgba = av_frame_alloc();
 	bink->audio_frame = av_frame_alloc();
 	if (!bink->packet || !bink->decoded || !bink->rgba || !bink->audio_frame)
-		goto fail;
+		return bink_skip(bink, name, "out of memory");
 	bink->rgba->format = AV_PIX_FMT_BGRA;
 	bink->rgba->width = (int)bink->Width;
 	bink->rgba->height = (int)bink->Height;
 	if (av_frame_get_buffer(bink->rgba, 0) < 0)
-		goto fail;
+		return bink_skip(bink, name, "out of memory");
 	bink->to_rgba = sws_getContext((int)bink->Width, (int)bink->Height, bink->video->pix_fmt,
 		(int)bink->Width, (int)bink->Height, AV_PIX_FMT_BGRA, SWS_BILINEAR, NULL, NULL, NULL);
 	if (!bink->to_rgba)
-		goto fail;
+		return bink_skip(bink, name, "no conversion for its pixels");
 
 	/* the movie's own sound, if the disc's file carries one */
 	bink->audio_stream = av_find_best_stream(bink->format, AVMEDIA_TYPE_AUDIO, -1, -1, NULL, 0);
@@ -307,24 +359,10 @@ HBINK __stdcall BinkOpen(const char *name, unsigned long flags)
 			}
 		}
 	}
+	platform_log("Bink video: playing \"%s\" (%ux%u, %u frames)", name,
+		(unsigned int)bink->Width, (unsigned int)bink->Height, (unsigned int)bink->Frames);
 	bink->start_ticks = SDL_GetTicks();
 	return bink;
-
-fail:
-	platform_log("Bink video: \"%s\" cannot be decoded", name);
-	if (bink)
-	{
-		if (bink->format)
-			avformat_close_input(&bink->format);
-		avcodec_free_context(&bink->video);
-		avcodec_free_context(&bink->audio);
-		av_packet_free(&bink->packet);
-		av_frame_free(&bink->decoded);
-		av_frame_free(&bink->rgba);
-		free(bink->pixels);
-		free(bink);
-	}
-	return NULL;
 }
 
 /* The audio packet into the game's stream. The decoder holds a frame back,
@@ -362,18 +400,37 @@ static int bink_next_video_frame(struct BINK *bink)
 			bink->decoded_frame++;
 			return 1;
 		}
-		if (received == AVERROR_EOF)
+		if (received != AVERROR(EAGAIN))
+		{
+			/* (the end, or a frame it cannot decode: the movie ends here) */
+			bink->ended = 1;
 			return 0;
+		}
 
 		/* (EAGAIN: it wants another packet) */
 		for (;;)
 		{
 			if (av_read_frame(bink->format, bink->packet) < 0)
-				return 0;
+			{
+				/* (the file's end, early when it is truncated: what the decoder
+				still holds comes out, and then the movie ends) */
+				if (avcodec_send_packet(bink->video, NULL) < 0)
+				{
+					bink->ended = 1;
+					return 0;
+				}
+				break;
+			}
 			if (bink->packet->stream_index == bink->video_stream)
 			{
-				avcodec_send_packet(bink->video, bink->packet);
+				int sent = avcodec_send_packet(bink->video, bink->packet);
+
 				av_packet_unref(bink->packet);
+				if (sent < 0 && sent != AVERROR(EAGAIN))
+				{
+					bink->ended = 1;
+					return 0;
+				}
 				break;
 			}
 			if (bink->packet->stream_index == bink->audio_stream && bink->sound_system_ready)
@@ -387,7 +444,7 @@ static int bink_next_video_frame(struct BINK *bink)
 /* decodes into pixels until the frame the game asked for is the one there */
 static void bink_decode_to(struct BINK *bink, int frame)
 {
-	while (bink->decoded_frame < frame)
+	while (bink->decoded_frame < frame && !bink->ended)
 		if (!bink_next_video_frame(bink))
 			return;
 }
@@ -423,6 +480,11 @@ void __stdcall BinkNextFrame(HBINK bink)
 		return;
 	bink->LastFrameNum = bink->FrameNum;
 	bink->FrameNum++;
+	/* a movie that stopped decoding before its header's length (a truncated
+	file) ends now: bink_playback.c stops at FrameNum == Frames-1, and holding
+	the last frame for the rest of the length would look like a hang */
+	if (bink->ended && bink->FrameNum + 1 < bink->Frames)
+		bink->Frames = bink->FrameNum + 1;
 }
 
 long __stdcall BinkCopyToBuffer(HBINK bink, void *destination, long destination_pitch,
@@ -496,6 +558,7 @@ void __stdcall BinkClose(HBINK bink)
 	sws_freeContext(bink->to_rgba);
 	av_frame_free(&bink->rgba);
 	av_frame_free(&bink->decoded);
+	av_frame_free(&bink->audio_frame);
 	av_packet_free(&bink->packet);
 	avcodec_free_context(&bink->video);
 	avcodec_free_context(&bink->audio);
@@ -505,8 +568,5 @@ void __stdcall BinkClose(HBINK bink)
 	free(bink->pixels);
 	free(bink);
 }
-
-
-#endif /* HALO_BINK_FFMPEG */
 
 #endif /* HALO_BINK_FFMPEG */

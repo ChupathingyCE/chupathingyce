@@ -48,7 +48,9 @@ void __stdcall BinkSetIOSize(unsigned long io_size)
 HBINK __stdcall BinkOpen(const char *name, unsigned long flags)
 {
 	(void)flags;
-	platform_log("Bink video is not supported; skipping \"%s\"", name ? name : "");
+	/* (no movie at all: attract_mode.c has said so already) */
+	if (name && name[0])
+		platform_log("Bink video: skipping \"%s\" (this build has no movie decoder)", name);
 	return NULL;
 }
 
