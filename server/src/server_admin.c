@@ -983,7 +983,7 @@ boolean server_admin_playlist_add(
 	}
 	if (!command_line_map_name_valid(line->words[2]))
 	{
-		command_output_printf(output, "%s is not a map's name (bloodgulch, name@ce, name@md)\n", line->words[2]);
+		command_output_printf(output, "%s is not a map's name (bloodgulch, name@ce, name@md, name@cex)\n", line->words[2]);
 		return FALSE;
 	}
 	if (strlen(line->words[3]) >= SERVER_PLAYLIST_TYPE_SIZE)

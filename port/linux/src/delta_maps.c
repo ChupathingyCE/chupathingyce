@@ -243,6 +243,16 @@ int delta_maps_identity(const char *map_name, struct delta_wire_map *map)
 	if (!map_name || !map_name[0])
 		return -1;
 	family = map_family_parse(map_name, file, sizeof(file));
+	/* (a map pack's map is named <file>.<pack> in a MAP: a name has no @) */
+	if (family == _map_family_pack)
+	{
+		char pack[MAP_PACK_ID_LENGTH + 1];
+		size_t length = strlen(file);
+
+		if (!map_family_pack_id(map_name, pack, sizeof(pack)) || length + 1 + strlen(pack) >= sizeof(file))
+			return -1;
+		snprintf(file + length, sizeof(file) - length, ".%s", pack);
+	}
 	if (!delta_wire_map_name_valid(file))
 		return -1;
 	strcpy(map->name, file);
@@ -251,8 +261,13 @@ int delta_maps_identity(const char *map_name, struct delta_wire_map *map)
 	if (family == _map_family_xbox)
 		return 1;
 #ifdef HALO_CUSTOM_EDITION
-	if (!map_family_find(family, file, path, sizeof(path)))
+	/* (a map pack's Xbox map: its maps_<pack> folder's file, hashed as a
+	Halo PC map's is, since two packs' maps of one file name differ) */
+	if (family == _map_family_pack ? !map_family_xbox_path(map_name, path, sizeof(path)) :
+		!map_family_find(family, file, path, sizeof(path)))
+	{
 		return -1;
+	}
 	result = file_hash(path, map->hash, &map->size_low, &map->size_high);
 	if (result == 1)
 		map->flags = DELTA_WIRE_MAP_HASHED;
@@ -268,6 +283,16 @@ int delta_maps_name(const struct delta_wire_map *map, char *name, int size)
 {
 	if (!map || map->family >= NUMBER_OF_MAP_FAMILIES || !delta_wire_map_name_valid(map->name))
 		return 0;
+	/* (a map pack's, <file>.<pack>: <file>@<pack>) */
+	if (map->family == _map_family_pack)
+	{
+		const char *dot = strrchr(map->name, '.');
+
+		if (!dot || dot == map->name || !map_pack_id_valid(dot + 1, (long)strlen(dot + 1)))
+			return 0;
+		snprintf(name, (size_t)size, "%.*s@%s", (int)(dot - map->name), map->name, dot + 1);
+		return 1;
+	}
 	snprintf(name, (size_t)size, "%s%s", map->name, map_family_suffix(map->family));
 	return 1;
 }

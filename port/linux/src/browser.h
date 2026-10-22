@@ -102,6 +102,11 @@ struct browser_game
 	answers pings) */
 	char region[8];
 	unsigned long capabilities;
+	/* an Xbox map pack's map's name and its pack's, as its host announces
+	them (the list's fields 20 and 21: "Gothra", "Halo CE+"; empty for
+	another map, or a host that doesn't) */
+	char map_title[48];
+	char map_pack[48];
 };
 
 /* one player's line of a finished game's carnage report */
