@@ -2505,7 +2505,10 @@ static struct
 	short action;
 	short button;
 	unsigned long capture_time;
-} controller_screen = { 0, 0, 0, { 0 }, -1, "", _capture_none, 0, NONE, 0 };
+	/* the layout was made Custom by a swap, not by the spinner, which is
+	then turned to it (controller_update) */
+	boolean spinner_follows;
+} controller_screen = { 0, 0, 0, { 0 }, -1, "", _capture_none, 0, NONE, 0, FALSE };
 
 /* the player's layouts and controller, as they are now */
 static void controller_read(void)
@@ -2635,6 +2638,7 @@ static void controller_capture_apply(void)
 		controller_screen.joystick_preset);
 	player_ui_custom_layout_changed();
 	controller_read();
+	controller_screen.spinner_follows = TRUE;
 }
 
 /* each frame (ui_widget.c's process_ui_widgets): while a button is asked for,
@@ -2711,6 +2715,14 @@ static void controller_update(struct widget_instance *list)
 	wchar_t text[HELP_TEXT_LENGTH];
 
 	controller_read();
+	/* (a swap made the layout Custom: the spinner shows it, else the next
+	frame would put the layout the spinner still showed back in force) */
+	if (spinner && controller_screen.spinner_follows)
+	{
+		if (controller_screen.button_preset < spinner->parameters.list.number_of_items)
+			spinner->parameters.list.selected_index = controller_screen.button_preset;
+		controller_screen.spinner_follows = FALSE;
+	}
 	if (spinner && controller_screen.capture == _capture_none &&
 		spinner->parameters.list.selected_index != controller_screen.button_preset)
 	{
