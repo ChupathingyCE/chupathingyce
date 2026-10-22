@@ -671,6 +671,21 @@ void game_stats_game_extra(
 	text[0] = 0;
 	if (!game_stats.recording)
 		return;
+	/* the game type: the host's engine (a client's report has it already),
+	the gametype's name, and a Bomb game's own members (docs/bomb.md,
+	Reports) */
+	{
+		char name[96];
+		char bomb[256];
+
+		browser_json_name(name, sizeof(name), (unsigned short const *)game_engine_get_variant()->human_readable_game_description,
+			12);
+		if (host)
+			used = stats_append(text, size, used, "\"engine\": %d, ", (int)game_engine_get_variant()->game_engine_index);
+		used = stats_append(text, size, used, "\"gametype\": %s, ", name);
+		if (game_engine_bomb_report_game(bomb, sizeof(bomb)))
+			used = stats_append(text, size, used, "%s, ", bomb);
+	}
 	used = stats_append(text, size, used,
 		"\"stats\": 1, \"sources\": {\"statistics\": \"%s\", \"team_scores\": \"%s\", \"medals\": \"%s\", "
 		"\"weapons\": \"%s\", \"departed\": \"%s\"}, \"departed\": [",

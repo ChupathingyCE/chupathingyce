@@ -79,6 +79,7 @@ symbols in this file:
 
 #include <math.h>
 #include <string.h>
+#include "game/game_engine.h"
 
 /* ---------- constants */
 
@@ -2057,6 +2058,21 @@ void hud_render_weapon_interface(
 		0x1D8,
 		player->local_player_index==render.local_player_index);
 
+#ifdef HALO_GAME_BROWSER
+	/* port: a melee-only Bomb game's unseen fists show the bare crosshair,
+	as no weapon does (game_engine_bomb.c) */
+	if (weapon_index != NONE && game_engine_bomb_hides_weapon(weapon_get(weapon_index)->definition_index))
+	{
+		struct weapon_interface_state weapon_state = { 0 };
+
+		crosshairs_draw(
+			player,
+			NONE,
+			hud_globals->defaults.default_weapon_hud.index,
+			&weapon_state);
+	}
+	else
+#endif
 	if (weapon_index != NONE)
 	{
 		struct weapon_datum *weapon = weapon_get(weapon_index);

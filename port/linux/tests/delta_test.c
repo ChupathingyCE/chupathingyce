@@ -39,6 +39,10 @@ static int failures;
 #define PROFILE_BIT ((delta_u32)1 << _delta_capability_profile)
 #define MODERATION_BIT ((delta_u32)1 << _delta_capability_moderation)
 #define MAPS_BIT ((delta_u32)1 << _delta_capability_ce_maps)
+/* (bomb and bomb_traits: this build's Bomb; bomb alone, a Grifball test
+build 2 or 3's) */
+#define OLD_BOMB_BIT ((delta_u32)1 << _delta_capability_bomb)
+#define BOMB_BIT (OLD_BOMB_BIT | (delta_u32)1 << _delta_capability_bomb_traits)
 #define CHAT_BIT ((delta_u32)1 << _delta_capability_chat)
 #define SERVER_MESSAGES_BIT ((delta_u32)1 << _delta_capability_server_messages)
 #define TEAM_CHANGE_BIT ((delta_u32)1 << _delta_capability_team_change)
@@ -1931,6 +1935,217 @@ static void test_maps(void)
 	queued = 0;
 }
 
+/* ---------- Bomb game types: their traits, and machines without bomb */
+
+static void sample_traits(struct delta_wire_traits *traits, int health)
+{
+	memset(traits, 0, sizeof(*traits));
+	traits->kind = DELTA_WIRE_TRAITS_BOMB;
+	traits->everyone.health = (unsigned short)health;
+	traits->everyone.damage = 200;
+	traits->everyone.resistance = 100;
+	traits->everyone.speed = 100;
+	traits->everyone.shields = DELTA_WIRE_SHIELDS_NONE;
+	traits->carrier.health = 100;
+	traits->carrier.damage = 100;
+	traits->carrier.resistance = 150;
+	traits->carrier.speed = 150;
+	traits->carrier.shields = DELTA_WIRE_SHIELDS_OVERSHIELD;
+	traits->carrier.highlight = 1;
+}
+
+static void test_wire_traits(void)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	struct delta_wire_header header;
+	struct delta_wire_traits traits, read;
+	int size;
+
+	/* a round trip, and its layout */
+	sample_traits(&traits, 10);
+	size = delta_wire_write_traits(data, 0x1234, &traits);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TRAITS_MOVEMENT_SIZE);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_traits && header.length == 48);
+	/* (22: 18 to 21 are chat's) */
+	CHECK(data[3] == 22);
+	CHECK(data[12] == DELTA_WIRE_TRAITS_BOMB && data[16] == 10 && data[17] == 0 && data[18] == 200);
+	CHECK(data[24] == DELTA_WIRE_SHIELDS_NONE && data[28 + 8] == DELTA_WIRE_SHIELDS_OVERSHIELD && data[28 + 9] == 1);
+	CHECK(delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, header.length, &read) &&
+		!memcmp(&read, &traits, sizeof(read)));
+	/* (a longer payload, a later version's, is read for these fields) */
+	CHECK(delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, header.length + 8, &read) && read.everyone.health == 10);
+	/* short ones are refused */
+	CHECK(!delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_TRAITS_SIZE - 1, &read));
+	/* none: no sets */
+	memset(&traits, 0, sizeof(traits));
+	size = delta_wire_write_traits(data, 1, &traits);
+	CHECK(size && delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_TRAITS_SIZE, &read) &&
+		read.kind == DELTA_WIRE_TRAITS_NONE && read.everyone.health == 0);
+	/* out of range, or unknown, is refused each way, never mended */
+	sample_traits(&traits, DELTA_WIRE_TRAIT_HEALTH_MINIMUM - 1);
+	CHECK(!delta_wire_write_traits(data, 1, &traits));
+	sample_traits(&traits, 10);
+	traits.carrier.speed = DELTA_WIRE_TRAIT_SPEED_MAXIMUM + 1;
+	CHECK(!delta_wire_write_traits(data, 1, &traits));
+	sample_traits(&traits, 10);
+	traits.carrier.shields = NUMBER_OF_DELTA_WIRE_SHIELDS;
+	CHECK(!delta_wire_write_traits(data, 1, &traits));
+	sample_traits(&traits, 10);
+	size = delta_wire_write_traits(data, 1, &traits);
+	data[12] = 9;
+	CHECK(!delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_TRAITS_SIZE, &read));
+	data[12] = DELTA_WIRE_TRAITS_BOMB;
+	data[28 + 9] = 2;
+	CHECK(!delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_TRAITS_SIZE, &read));
+	data[28 + 9] = 1;
+	data[16] = 0xFF;
+	data[17] = 0xFF;
+	CHECK(!delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_TRAITS_SIZE, &read));
+	CHECK(read.kind == 0 && read.everyone.health == 0);
+
+	/* the movement traits, after the first 28 bytes (an earlier host's 28
+	alone read as unchanged), in their ranges or refused */
+	sample_traits(&traits, 10);
+	traits.everyone.jump = 125;
+	traits.everyone.gravity = 70;
+	traits.everyone.melee = 150;
+	traits.carrier.melee = 67;
+	size = delta_wire_write_traits(data, 1, &traits);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TRAITS_MOVEMENT_SIZE &&
+		data[12 + 28] == DELTA_WIRE_TRAITS_MOVEMENT_VERSION && data[12 + 32] == 125 && data[12 + 34] == 70 &&
+		data[12 + 36] == 150 && data[12 + 40] == 0 && data[12 + 44] == 67);
+	CHECK(delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_TRAITS_MOVEMENT_SIZE, &read) &&
+		!memcmp(&read, &traits, sizeof(read)));
+	CHECK(delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_TRAITS_SIZE, &read) &&
+		read.everyone.health == 10 && read.everyone.jump == 0 && read.everyone.gravity == 0 &&
+		read.everyone.melee == 0);
+	traits.everyone.jump = DELTA_WIRE_TRAIT_JUMP_MAXIMUM + 1;
+	CHECK(!delta_wire_write_traits(data, 1, &traits));
+	traits.everyone.jump = 125;
+	traits.carrier.gravity = DELTA_WIRE_TRAIT_GRAVITY_MINIMUM - 1;
+	CHECK(!delta_wire_write_traits(data, 1, &traits));
+}
+
+static void test_bomb(void)
+{
+	/* (node 3 never speaks Delta: an OpenCE machine) */
+	int joined[4] = { 0, 1, 1, 0 };
+	struct delta_wire_traits traits, heard;
+	delta_u32 generation;
+	delta_u32 now = 500000;
+	int step;
+
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT | BOMB_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, PLATFORM_BIT | BOMB_BIT, _delta_platform_pc_macos, 0, 0);
+	/* (an older build of ours: Delta, and bomb without bomb_traits) */
+	node_start(2, 0x0400007F, 40002, PLATFORM_BIT | OLD_BOMB_BIT, _delta_platform_pc_windows, 0, 0);
+	node_start(3, 0x0500007F, 40003, PLATFORM_BIT | BOMB_BIT, _delta_platform_pc_linux, 0, 0);
+	game_reset();
+	game_add(1);
+	game_add(2);
+	game_add(3);
+	frame(now, 4, joined, 1);
+	/* the first frame: every machine in its window, the host's own lacking
+	nothing */
+	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 0, _delta_capability_bomb));
+	CHECK(!delta_peer_machine_pending(&nodes[0].peer, now, 0));
+	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 3, _delta_capability_bomb));
+	CHECK(delta_peer_machine_pending(&nodes[0].peer, now, 3));
+	for (step = 0; step < 3; step++, now += 300)
+		frame(now, 4, joined, 1);
+	/* the handshakes: one agreed, one did not (at once), one silent */
+	CHECK(nodes[1].peer.agreed & BOMB_BIT);
+	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 1, _delta_capability_bomb));
+	CHECK(!delta_peer_machine_pending(&nodes[0].peer, now, 1));
+	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 2, _delta_capability_bomb));
+	CHECK(delta_peer_machine_lacks(&nodes[0].peer, now, 2, _delta_capability_bomb_traits));
+	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 3, _delta_capability_bomb));
+	CHECK(delta_peer_machine_pending(&nodes[0].peer, now, 3));
+	CHECK(!delta_peer_room_has(&nodes[0].peer, _delta_capability_bomb_traits));
+	/* the window over: the silent machine lacks it too */
+	for (step = 0; step < 12; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_machine_lacks(&nodes[0].peer, now, 3, _delta_capability_bomb));
+	CHECK(!delta_peer_machine_pending(&nodes[0].peer, now, 3));
+	/* (machines not in the game, and nonsense, lack nothing) */
+	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 7, _delta_capability_bomb));
+	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, -1, _delta_capability_bomb));
+	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 1, NUMBER_OF_DELTA_CAPABILITIES));
+	CHECK(!delta_peer_machine_lacks(&nodes[1].peer, now, 2, _delta_capability_bomb));
+	/* a machine leaving and another at its index: a window of its own */
+	game_remove(3);
+	frame(now, 4, joined, 1);
+	nodes[3].ipv4 = 0x0600007F;
+	game_add(3);
+	frame(now, 4, joined, 1);
+	CHECK(delta_peer_machine_pending(&nodes[0].peer, now, 3));
+	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 3, _delta_capability_bomb));
+	/* ... the room has bomb once every machine does */
+	game_remove(2);
+	game_remove(3);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_room_has(&nodes[0].peer, _delta_capability_bomb));
+	CHECK(delta_peer_room_has(&nodes[1].peer, _delta_capability_bomb));
+	game_add(2);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 4, joined, 1);
+
+	/* traits: to the client that agreed, at once, and again in a while */
+	CHECK(delta_peer_host_traits(&nodes[1].peer, NULL) == 0);
+	sample_traits(&traits, 10);
+	delta_peer_set_traits(&nodes[0].peer, &traits);
+	frame(now, 4, joined, 1);
+	generation = delta_peer_host_traits(&nodes[1].peer, &heard);
+	CHECK(generation && !memcmp(&heard, &traits, sizeof(traits)));
+	CHECK(delta_peer_host_traits(&nodes[2].peer, NULL) == 0);
+	delta_peer_set_traits(&nodes[0].peer, &traits);
+	for (step = 0; step < 30; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_host_traits(&nodes[1].peer, NULL) == generation);
+	/* new traits, a lost datagram: sent again within the interval */
+	sample_traits(&traits, 25);
+	nodes[0].mute = 1;
+	delta_peer_set_traits(&nodes[0].peer, &traits);
+	frame(now, 4, joined, 1);
+	nodes[0].mute = 0;
+	CHECK(delta_peer_host_traits(&nodes[1].peer, NULL) == generation);
+	for (step = 0; step < 20; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_host_traits(&nodes[1].peer, &heard) != generation && heard.everyone.health == 25);
+	/* traits from a stranger, of another session, or to a host are dropped */
+	{
+		unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+		int size;
+
+		generation = delta_peer_host_traits(&nodes[1].peer, NULL);
+		sample_traits(&traits, 400);
+		size = delta_wire_write_traits(data, nodes[1].peer.session + 1, &traits);
+		delta_peer_receive(&nodes[1].peer, now, HOST_IPV4, DELTA_PEER_PORT, data, size);
+		size = delta_wire_write_traits(data, nodes[1].peer.session, &traits);
+		delta_peer_receive(&nodes[1].peer, now, 0x0900007F, DELTA_PEER_PORT, data, size);
+		CHECK(delta_peer_host_traits(&nodes[1].peer, &heard) == generation && heard.everyone.health == 25);
+		delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, nodes[1].port, data, size);
+	}
+	/* none: the game is no Bomb game type any more */
+	delta_peer_set_traits(&nodes[0].peer, NULL);
+	for (step = 0; step < 30; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_host_traits(&nodes[1].peer, NULL) == generation);
+	/* the host's table turns bomb off: it is not offered, and every other
+	machine lacks it */
+	nodes[0].disabled = BOMB_BIT;
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_machine_lacks(&nodes[0].peer, now, 1, _delta_capability_bomb));
+	nodes[0].disabled = 0;
+	/* leaving forgets the host's traits */
+	joined[1] = 0;
+	frame(now, 4, joined, 1);
+	CHECK(delta_peer_host_traits(&nodes[1].peer, NULL) == 0);
+	queued = 0;
+}
+
 /* ---------- the legacy table's relay */
 
 /* frames every step milliseconds until the time */
@@ -2942,6 +3157,12 @@ static void test_random(long iterations)
 					CHECK(!map.family || (map.flags & DELTA_WIRE_MAP_HASHED));
 				}
 			}
+			{
+				struct delta_wire_traits traits;
+
+				if (delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, header.length, &traits))
+					CHECK(delta_wire_traits_valid(&traits));
+			}
 			if (delta_wire_read_roster(data + DELTA_WIRE_HEADER_SIZE, header.length, &roster))
 				CHECK(roster.count <= DELTA_WIRE_MAXIMUM_ROSTER_ENTRIES);
 			for (index = 0; index < DELTA_WIRE_BUILD_SIZE + 1 && hello.build[index]; index++)
@@ -3013,6 +3234,8 @@ int main(int argc, char **argv)
 	test_strangers();
 	test_kill_switch();
 	test_maps();
+	test_wire_traits();
+	test_bomb();
 	test_relay();
 	test_relay_refused();
 	test_wire_moderation();

@@ -17,7 +17,11 @@ know, which are put right when the map's tags load:
     and MCC's "0.5 HUD scale" halves its scale again, after that. (What the
     HUD globals draw with no placement of their own to scale, the digits and
     the waypoints' arrows, is scaled by those flags as it is drawn:
-    hud_bitmap_group_scale, hud_draw.c.)
+    hud_bitmap_group_scale, hud_draw.c.) A number's digits are drawn at the
+    HUD's scale, not its placement's, so a number keeps the flag, and
+    hud_draw_numbers draws a flagged number's digits at half size (a custom
+    HUD's ammunition and grenade counts: grifball's Halo 3 HUD drew them
+    twice Halo PC's size, over its panels).
   - A HUD meter's bitmap: the meter shader (rasterizer_xbox_dynavobgeom.c)
     compares the texel's color with the meter's value (the order the meter
     fills in) and draws only where there is alpha (its shape). Halo PC keeps
@@ -423,10 +427,8 @@ static void ce_hud_weapon_interface(
 		TRUE, NULL);
 	ce_hud_block_placements(hud + WEAPON_HUD_METERS_OFFSET, WEAPON_HUD_METER_SIZE, WEAPON_HUD_ELEMENT_OFFSET,
 		TRUE, NULL);
-	/* (numbers draw a HUD number tag's digits, spaced in its pixels, not a
-	bitmap of their own) */
-	ce_hud_block_placements(hud + WEAPON_HUD_NUMBERS_OFFSET, WEAPON_HUD_NUMBER_SIZE, WEAPON_HUD_ELEMENT_OFFSET,
-		FALSE, NULL);
+	/* (numbers keep their flag: hud_draw_numbers draws a flagged number's
+	digits at half size) */
 	ce_hud_items_placements(hud + WEAPON_HUD_CROSSHAIRS_OFFSET, WEAPON_HUD_CROSSHAIRS_SIZE,
 		WEAPON_HUD_CROSSHAIR_ITEM_SIZE);
 	ce_hud_items_placements(hud + WEAPON_HUD_OVERLAYS_OFFSET, WEAPON_HUD_OVERLAYS_SIZE, WEAPON_HUD_OVERLAY_ITEM_SIZE);
@@ -437,7 +439,6 @@ static void ce_hud_grenade_interface(
 {
 	ce_hud_element_placement(hud + GRENADE_HUD_BACKGROUND_OFFSET);
 	ce_hud_element_placement(hud + GRENADE_HUD_COUNT_BACKGROUND_OFFSET);
-	ce_hud_placement(hud + GRENADE_HUD_COUNT_NUMBERS_OFFSET, NULL);
 	ce_hud_block_placements(hud + GRENADE_HUD_OVERLAY_ITEMS_OFFSET, WEAPON_HUD_OVERLAY_ITEM_SIZE, 0, FALSE,
 		hud + GRENADE_HUD_OVERLAY_BITMAP_OFFSET);
 }

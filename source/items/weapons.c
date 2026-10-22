@@ -667,6 +667,15 @@ void weapon_ready(
 	weapon_reset(weapon_index);
 	weapon_set_state(weapon_index, _weapon_state_ready, TRUE);
 	first_person_weapon_message_from_weapon(weapon_index, _first_person_weapon_message_ready);
+#ifdef HALO_GAME_BROWSER
+	/* port: a melee-only Bomb game's unseen fists are ready at once, with
+	none of the pistol's draw: no sound, no wait (game_engine_bomb.c) */
+	if (game_engine_bomb_hides_weapon(weapon->definition_index))
+	{
+		weapon->weapon.state_timer = 0;
+		return;
+	}
+#endif
 	weapon_effect_new(weapon_index, weapon_definition->weapon.ready_effect.index, 0.f, 0.f);
 	weapon->weapon.state_timer = weapon_get_first_person_animation_time(weapon_index, 0, _first_person_weapon_animation_ready, NONE);
 
@@ -773,6 +782,13 @@ char const *weapon_get_label(
 		struct weapon_definition *weapon_definition = weapon_definition_get(weapon->definition_index);
 
 		label = weapon_definition->weapon.label;
+#ifdef HALO_GAME_BROWSER
+		/* port: a melee-only Bomb game's unseen fists are held as no weapon
+		is: the unit stands, runs and strikes empty-handed
+		(game_engine_bomb.c) */
+		if (game_engine_bomb_hides_weapon(weapon->definition_index))
+			label = "unarmed";
+#endif
 	}
 
 	return label;
@@ -908,7 +924,8 @@ void weapon_set_total_rounds(
 void weapon_delete(
 	long weapon_index)
 {
-	if (game_engine_running())
+	/* port: not for a Custom Edition map's (objects.c, object_delete) */
+	if (game_engine_running() && !CACHE_FILE_TAGS_ARE_CE())
 	{
 #if defined(HALO_CONSOLE) || defined(HALO_XBOX_CONSOLE)
 		/* port: on the consoles a warning in debug.txt, and the game goes on:

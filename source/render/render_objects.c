@@ -113,6 +113,7 @@ symbols in this file:
 #include "rasterizer/rasterizer_console_vars.h"
 #include "rasterizer/rasterizer_model_types.h"
 #include "halo_perf_log.h" /* port: console.perf_log */
+#include "game/game_engine.h"
 
 /* ---------- constants */
 
@@ -513,7 +514,13 @@ static void render_object_list(
 				}
 			}
 
-			if (!TEST_FLAG(object->object.flags, _object_invisible_bit))
+			/* (port: nor a melee-only Bomb game's unseen fists,
+			game_engine_bomb.c) */
+			if (!TEST_FLAG(object->object.flags, _object_invisible_bit)
+#ifdef HALO_GAME_BROWSER
+				&& !game_engine_bomb_hides_weapon(object->definition_index)
+#endif
+				)
 			{
 				struct object_definition *definition =
 					object_definition_get(object->definition_index);

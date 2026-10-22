@@ -964,6 +964,10 @@ static void hs_object_orient(
 			0x1CC,
 			&flag->position);
 
+		/* port: a weapon a unit holds is dropped first, so the unit
+		holds none that is out in the world (units.c, unit_release_item) */
+		if (set_position && unit_release_item(object_index))
+			object = object_get(object_index);
 		if (set_position && object->object.parent_object_index != NONE)
 		{
 			unit = unit_try_and_get(object_index);

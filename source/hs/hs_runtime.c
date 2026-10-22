@@ -284,6 +284,7 @@ symbols in this file:
 #include "interface/terminal.h"
 #include "main/console.h"
 #include "game/game.h"
+#include "game/game_engine.h"
 #ifdef HALO_64BIT
 #include "cseries/cseries_windows.h"
 #endif
@@ -1228,6 +1229,12 @@ void hs_runtime_update(
 
 			if (thread->type==_hs_thread_type_console_command)
 				console_command_running = TRUE;
+#ifdef HALO_GAME_BROWSER
+			/* port: a court's scripts, off in a Bomb game, which plays the
+			court's game itself (game_engine_bomb.c, bomb_courts) */
+			if (thread->type==_hs_thread_type_script && game_engine_bomb_scripts_off())
+				continue;
+#endif
 			if (thread->sleep_until>=0 && thread->sleep_until<=time)
 				hs_thread_main(thread_index);
 		}

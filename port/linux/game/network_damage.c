@@ -694,6 +694,20 @@ boolean network_damage_deals(
 	return TRUE;
 }
 
+/* (the host) the object killed now, the kill credited to a player who may
+be another machine's: a kill the host makes for them (Bomb's goal blast,
+game_engine_bomb.c), which no report of theirs brings */
+void network_damage_host_kill_for_player(
+	long object_index,
+	long player_index)
+{
+	void damage_kill_object_for_player(long object_index, long player_index);
+
+	damage_dealing_report = TRUE;
+	damage_kill_object_for_player(object_index, player_index);
+	damage_dealing_report = FALSE;
+}
+
 /* whether a client replaying the host's killing blow leaves out its
 players' screen effects (which came as their own) */
 boolean network_damage_replaying_kill(

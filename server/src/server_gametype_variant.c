@@ -135,6 +135,24 @@ void server_gametype_variant_apply(
 		case SERVER_GAMETYPE_ODDBALL_BALLS: engine->oddball.ball_spawn_count = value; break;
 		case SERVER_GAMETYPE_RACE_TYPE: engine->race.race_type = value; break;
 		case SERVER_GAMETYPE_RACE_TEAM_SCORING: engine->race.team_scoring = value; break;
+		case SERVER_GAMETYPE_BOMB_ARM_TIME: engine->bomb.arm_time = value; break;
+		case SERVER_GAMETYPE_BOMB_RESET_TIME: engine->bomb.reset_time = value; break;
+		case SERVER_GAMETYPE_BOMB_ROUND_TIME: engine->bomb.round_time = value; break;
+		case SERVER_GAMETYPE_BOMB_NEW_ROUND_ON_SCORE:
+			SET_FLAG(engine->bomb.flags, _bomb_new_round_on_score_bit, value != 0);
+			break;
+		case SERVER_GAMETYPE_BOMB_MELEE_ONLY:
+			SET_FLAG(engine->bomb.flags, _bomb_melee_only_bit, value != 0);
+			/* (and its loadout: none, and no weapons on the map) */
+			if (value)
+			{
+				options->loadout = _loadout_custom;
+				options->primary_weapon = _loadout_weapon_none;
+				options->secondary_weapon = _loadout_weapon_none;
+				options->no_map_weapons = TRUE;
+			}
+			break;
+		case SERVER_GAMETYPE_BOMB_TRAITS: engine->bomb.traits = (byte)value; break;
 		default:
 			if (field >= SERVER_GAMETYPE_RED_WARTHOG && field <= SERVER_GAMETYPE_RED_GUN_TURRET)
 				options->vehicle_counts[0][field - SERVER_GAMETYPE_RED_WARTHOG] = (byte)value;
@@ -217,6 +235,12 @@ long server_gametype_variant_value(
 	case SERVER_GAMETYPE_ODDBALL_BALLS: return engine->oddball.ball_spawn_count;
 	case SERVER_GAMETYPE_RACE_TYPE: return engine->race.race_type;
 	case SERVER_GAMETYPE_RACE_TEAM_SCORING: return engine->race.team_scoring;
+	case SERVER_GAMETYPE_BOMB_ARM_TIME: return engine->bomb.arm_time;
+	case SERVER_GAMETYPE_BOMB_RESET_TIME: return engine->bomb.reset_time;
+	case SERVER_GAMETYPE_BOMB_ROUND_TIME: return engine->bomb.round_time;
+	case SERVER_GAMETYPE_BOMB_NEW_ROUND_ON_SCORE: return TEST_FLAG(engine->bomb.flags, _bomb_new_round_on_score_bit) != 0;
+	case SERVER_GAMETYPE_BOMB_MELEE_ONLY: return TEST_FLAG(engine->bomb.flags, _bomb_melee_only_bit) != 0;
+	case SERVER_GAMETYPE_BOMB_TRAITS: return engine->bomb.traits;
 	}
 	if (field >= SERVER_GAMETYPE_RED_WARTHOG && field <= SERVER_GAMETYPE_RED_GUN_TURRET)
 		return options->vehicle_counts[0][field - SERVER_GAMETYPE_RED_WARTHOG];

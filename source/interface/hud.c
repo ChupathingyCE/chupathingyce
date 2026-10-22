@@ -783,6 +783,11 @@ void hud_picked_up_weapon(
 	short local_player_index,
 	long weapon_definition_index)
 {
+#ifdef HALO_GAME_BROWSER
+	/* port: Bomb's bomb is the map's oddball ball: no "odd ball" line */
+	if (game_engine_bomb_hides_pickup(weapon_definition_index))
+		return;
+#endif
 	if (local_player_index != NONE)
 	{
 		hud_add_item_message(
