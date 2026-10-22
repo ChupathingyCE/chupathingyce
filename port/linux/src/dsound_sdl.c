@@ -20,7 +20,9 @@ resampling) and applies:
 	  and occlusion levels, their high frequency levels a low pass at the
 	  environment's HF reference: a sound behind a wall is muffled.
 3D voices also send to an I3DL2 reverb of the environment the listener is in
-(reverb). Doppler and cones are not modelled. A look-ahead limiter keeps the
+(reverb). On stereo output with audio.hrtf on, 3D voices are rendered for
+headphones instead of panned (binaural rendering). Doppler and cones are not
+modelled. A look-ahead limiter keeps the
 sum under full scale (limit).
 
 The output is stereo, 5.1 or 7.1 (audio.channels; "auto" is 5.1 or 7.1 on
@@ -82,6 +84,12 @@ chooses stereo or 5.1 (port_config.c).
 #define RESAMPLER_KAISER_BETA 6.5
 #define RESAMPLER_MAXIMUM_STRETCH 2
 #define RESAMPLER_HISTORY 128
+
+/* the binaural rendering (hrtf) */
+#define HRTF_MAXIMUM_TAPS 64
+#define HRTF_MAXIMUM_DELAY 48
+#define HRTF_INPUT 2048 /* a mix and the longest delay before it, a power of 2 */
+#define HRTF_FADE_SECONDS 0.1f
 
 /* ---------- voices */
 
@@ -156,6 +164,17 @@ struct sdl_stream
 	/* the direct path's low pass, for each channel, and the room send's */
 	float direct_lowpass[2];
 	float room_lowpass;
+	/* the binaural rendering's (hrtf): the voice's mono direct path, the
+	last taps - 1 samples of each ear's copy of it delayed by its interaural
+	delay, where the input is written next, and the filters, delays and
+	gain it is moving from (none yet while hrtf_valid is FALSE) */
+	float hrtf_input[HRTF_INPUT];
+	float hrtf_tail[2][HRTF_MAXIMUM_TAPS];
+	unsigned long hrtf_position;
+	float hrtf_filters[2][HRTF_MAXIMUM_TAPS];
+	float hrtf_delays[2];
+	float current_hrtf;
+	BOOL hrtf_valid;
 };
 
 static pthread_mutex_t mixer_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -193,6 +212,10 @@ static unsigned long environment_serial;
 static BOOL reverb_enabled = TRUE;
 /* audio.resampling = "linear" */
 static BOOL resampling_linear = FALSE;
+/* audio.hrtf: whether 3D voices are rendered for headphones (hrtf_update),
+and how far the mixer has faded to it (0 to 1) */
+static volatile BOOL hrtf_wanted = FALSE;
+static float hrtf_level = 0.0f;
 
 static float gain_from_millibels(LONG millibels)
 {
@@ -605,6 +628,331 @@ static void voice_surround_gains(const struct sdl_stream *stream, float gains[2]
 	}
 }
 
+/* ---------- binaural rendering
+
+audio.hrtf = "on" (or "auto", on an output whose name says it is
+headphones) renders 3D voices for headphones on stereo output: each one is
+heard through the head-related impulse responses of its direction, the
+filtering of the head and the outer ears, and the far ear hears it later,
+by the interaural delay, so that a sound is placed all around the listener,
+above and behind too, instead of between the ears. The Xbox's DirectSound
+filtered 3D voices with HRTFs of its own (the game asks for its full
+quality ones, DirectSoundUseFullHRTF); these are measured ones, the SADIE II
+database's KEMAR, diffuse-field equalized, so that they place a sound
+without changing its tone overall (port/assets/hrtf, tools/hrtf_assets.py).
+
+The responses are a grid of directions, each ear's made minimum phase and
+HRTF taps long, its delay apart: a voice's filter is the four directions
+around it blended by how near each is, and its delays blended the same way,
+which keeps the blend free of the comb filtering of mixing two delays. Each
+mix the filter and the delays move to the voice's direction: the output
+crossfades from the old filter's to the new one's over the mix, and each
+ear's delay slides to its new length, so a moving sound moves smoothly,
+without clicks. Inside its minimum distance a voice blends towards the
+stereo pan's centered sound (the player's own footsteps and weapons stay in
+the head, as the stereo pan keeps them), and turning audio.hrtf on or off
+fades over HRTF_FADE_SECONDS. Its level is the stereo pan's: both ears
+together have a power of 1 over all directions. 2D voices, the reverb and
+surround output are as they were. */
+
+extern const unsigned int dsound_hrtf_data[];
+extern const unsigned long dsound_hrtf_data_size;
+
+static struct
+{
+	BOOL loaded;
+	unsigned long taps, elevations, azimuths;
+	/* radians */
+	float first_elevation, elevation_step, azimuth_step;
+	/* for each direction (elevation by elevation, azimuth counterclockwise
+	from ahead), each ear's taps, last first (hrtf_convolve), and its delay in
+	samples; taps is the file's rounded up to a multiple of 4, the first
+	ones 0 */
+	float *filters;
+	float *delays;
+} hrtf;
+
+static unsigned long hrtf_read_u32(const unsigned char *data)
+{
+	return (unsigned long)data[0] | ((unsigned long)data[1] << 8) | ((unsigned long)data[2] << 16) |
+		((unsigned long)data[3] << 24);
+}
+
+static float hrtf_read_float(const unsigned char *data)
+{
+	unsigned int bits = (unsigned int)hrtf_read_u32(data);
+	float value;
+
+	memcpy(&value, &bits, sizeof(value));
+	return value;
+}
+
+static int hrtf_read_s16(const unsigned char *data)
+{
+	return (short)(data[0] | (data[1] << 8));
+}
+
+/* the embedded responses (the file tools/hrtf_assets.py describes); FALSE
+without them */
+static BOOL hrtf_load(void)
+{
+	const unsigned char *data = (const unsigned char *)dsound_hrtf_data;
+	unsigned long size = (unsigned long)dsound_hrtf_data_size, count, index, ear, tap, record, file_taps;
+	float scale;
+
+	if (hrtf.loaded)
+		return TRUE;
+	if (size < 40 || memcmp(data, "HRTF", 4) || hrtf_read_u32(data + 4) != 1 ||
+		hrtf_read_u32(data + 8) != OUTPUT_RATE)
+	{
+		return FALSE;
+	}
+	file_taps = hrtf_read_u32(data + 12);
+	hrtf.taps = (file_taps + 3) & ~3UL;
+	hrtf.elevations = hrtf_read_u32(data + 16);
+	hrtf.first_elevation = hrtf_read_float(data + 20) * 0.017453293f;
+	hrtf.elevation_step = hrtf_read_float(data + 24) * 0.017453293f;
+	hrtf.azimuths = hrtf_read_u32(data + 28);
+	hrtf.azimuth_step = hrtf_read_float(data + 32) * 0.017453293f;
+	scale = hrtf_read_float(data + 36);
+	count = hrtf.elevations * hrtf.azimuths;
+	record = 4 + 4 * file_taps;
+	if (!file_taps || hrtf.taps > HRTF_MAXIMUM_TAPS || !count || hrtf.elevation_step <= 0.0f ||
+		hrtf.azimuth_step <= 0.0f || size < 40 + count * record)
+	{
+		return FALSE;
+	}
+	hrtf.filters = calloc(count * 2 * hrtf.taps, sizeof(float));
+	hrtf.delays = malloc(count * 2 * sizeof(float));
+	if (!hrtf.filters || !hrtf.delays)
+	{
+		free(hrtf.filters);
+		free(hrtf.delays);
+		return FALSE;
+	}
+	for (index = 0; index < count; index++)
+	{
+		const unsigned char *entry = data + 40 + index * record;
+
+		for (ear = 0; ear < 2; ear++)
+		{
+			float delay = (float)hrtf_read_s16(entry + 2 * ear) / 256.0f;
+
+			hrtf.delays[index * 2 + ear] = delay < 0.0f ? 0.0f : delay > HRTF_MAXIMUM_DELAY ? HRTF_MAXIMUM_DELAY : delay;
+			for (tap = 0; tap < file_taps; tap++)
+			{
+				hrtf.filters[(index * 2 + ear) * hrtf.taps + hrtf.taps - 1 - tap] =
+					(float)hrtf_read_s16(entry + 4 + 2 * (ear * file_taps + tap)) * scale;
+			}
+		}
+	}
+	hrtf.loaded = TRUE;
+	return TRUE;
+}
+
+/* the filters and delays of a voice from a direction (side to the right, up,
+ahead): the four grid directions around it, blended */
+static void hrtf_direction(float side, float up, float ahead, float filters[2][HRTF_MAXIMUM_TAPS], float *delays)
+{
+	float horizontal = sqrtf(side * side + ahead * ahead);
+	float azimuth = atan2f(-side, ahead), elevation = atan2f(up, horizontal);
+	float ring, step, ring_fraction, step_fraction;
+	unsigned long rings[2], steps[2], ear, tap;
+	int corner;
+
+	if (azimuth < 0.0f)
+		azimuth += 6.28318531f;
+	ring = (elevation - hrtf.first_elevation) / hrtf.elevation_step;
+	if (ring < 0.0f)
+		ring = 0.0f;
+	if (ring > (float)(hrtf.elevations - 1))
+		ring = (float)(hrtf.elevations - 1);
+	rings[0] = (unsigned long)ring;
+	rings[1] = rings[0] + 1 < hrtf.elevations ? rings[0] + 1 : rings[0];
+	ring_fraction = ring - (float)rings[0];
+	step = azimuth / hrtf.azimuth_step;
+	steps[0] = (unsigned long)step % hrtf.azimuths;
+	steps[1] = (steps[0] + 1) % hrtf.azimuths;
+	step_fraction = step - floorf(step);
+	memset(filters, 0, 2 * sizeof(filters[0]));
+	delays[0] = delays[1] = 0.0f;
+	for (corner = 0; corner < 4; corner++)
+	{
+		unsigned long index = rings[corner >> 1] * hrtf.azimuths + steps[corner & 1];
+		float weight = ((corner >> 1) ? ring_fraction : 1.0f - ring_fraction) *
+			((corner & 1) ? step_fraction : 1.0f - step_fraction);
+
+		if (weight <= 0.0f)
+			continue;
+		for (ear = 0; ear < 2; ear++)
+		{
+			const float *source = hrtf.filters + (index * 2 + ear) * hrtf.taps;
+
+			for (tap = 0; tap < hrtf.taps; tap++)
+				filters[ear][tap] += source[tap] * weight;
+			delays[ear] += hrtf.delays[index * 2 + ear] * weight;
+		}
+	}
+}
+
+/* how much of a 3D voice the binaural rendering takes (0 to 1), the rest
+the stereo pan's: none on surround output or with audio.hrtf off, and the
+fade between while it is turned on or off */
+static float hrtf_share(const struct sdl_stream *stream)
+{
+	if (hrtf_level <= 0.0f || output_channels != 2 || !stream->has_3d || stream->mode == DS3DMODE_DISABLE)
+		return 0.0f;
+	return hrtf_level;
+}
+
+/* a voice's target for this mix: its filters and delays, and its gain (the
+direct path's, as spatialize's but for the pan). Inside its minimum
+distance the filters blend towards the centered sound (each ear the voice
+as it is, at the stereo pan's level) and the delays towards none: the
+filters are minimum phase, their energy at their start, so the blend does
+not cancel itself as mixing the two outputs would */
+static float hrtf_target(const struct sdl_stream *stream, float share, float filters[2][HRTF_MAXIMUM_TAPS],
+	float *delays)
+{
+	float side, up, ahead, distance;
+
+	voice_direction(stream, &side, &up, &ahead);
+	distance = sqrtf(side * side + up * up + ahead * ahead);
+	hrtf_direction(side, up, ahead, filters, delays);
+	if (stream->minimum_distance > 0.0f && distance < stream->minimum_distance)
+	{
+		float near = distance / stream->minimum_distance;
+		unsigned long ear, tap;
+
+		for (ear = 0; ear < 2; ear++)
+		{
+			for (tap = 0; tap < hrtf.taps; tap++)
+				filters[ear][tap] *= near;
+			filters[ear][hrtf.taps - 1] += (1.0f - near) * 0.70710678f;
+			delays[ear] *= near;
+		}
+	}
+	return share * distance_attenuation(stream, distance, listener.rolloff_factor) *
+		gain_from_millibels(stream->direct) * stream->volume * master_volume;
+}
+
+/* a voice starting (over), or taken up by the rendering again: silence
+behind it */
+static void hrtf_reset(struct sdl_stream *stream)
+{
+	memset(stream->hrtf_input, 0, sizeof(stream->hrtf_input));
+	memset(stream->hrtf_tail, 0, sizeof(stream->hrtf_tail));
+	stream->hrtf_position = 0;
+	stream->current_hrtf = 0.0f;
+	stream->hrtf_valid = FALSE;
+}
+
+/* the sample of input delay + 1 samples before position (a cubic Hermite
+interpolation between the four around it). The delay is never negative, so
+a conversion to int is its floor: floorf is a call into the C library on
+32-bit x86, which made this five times slower there */
+static float hrtf_delayed(const float *input, unsigned long position, float delay)
+{
+	/* (a sample more than the delay, so the newest of the four is one
+	written already) */
+	int whole = (int)delay;
+	float fraction = delay - (float)whole;
+	unsigned long newest = position - 1 - (unsigned long)whole;
+	float y0 = input[(newest + 1) & (HRTF_INPUT - 1)];
+	float y1 = input[newest & (HRTF_INPUT - 1)];
+	float y2 = input[(newest - 1) & (HRTF_INPUT - 1)];
+	float y3 = input[(newest - 2) & (HRTF_INPUT - 1)];
+	float c1 = 0.5f * (y2 - y0);
+	float c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
+	float c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
+
+	return ((c3 * fraction + c2) * fraction + c1) * fraction + y1;
+}
+
+/* adds to sums (frames of them) the filter (taps of it, last first) run
+over samples (taps - 1 before the first frame's, then the frames'): tap by
+tap over all the frames, which vectorizes, each tap a constant */
+static void hrtf_convolve(const float *filter, const float *samples, float *sums, unsigned long frames,
+	unsigned long taps)
+{
+	unsigned long tap, frame;
+
+	for (tap = 0; tap < taps; tap++)
+	{
+		float weight = filter[tap];
+		const float *source = samples + tap;
+
+		for (frame = 0; frame < frames; frame++)
+			sums[frame] += weight * source[frame];
+	}
+}
+
+/* the binaural rendering of a voice's mono direct path, mono (frames of it,
+at most MIX_CHUNK_FRAMES), added to output (frames of stereo); its targets
+for the mix computed by hrtf_target. The mix's input goes in first; then
+for each ear its delayed copy, the delay sliding to the new one, and that
+filtered a block at a time */
+static void hrtf_mix(struct sdl_stream *stream, const float *mono, float *output, unsigned long frames,
+	float target_gain, float filters[2][HRTF_MAXIMUM_TAPS], const float *delays)
+{
+	unsigned long taps = hrtf.taps, position = stream->hrtf_position, frame, ear;
+	BOOL fading;
+	float gain, ramp_gain;
+	/* an ear's samples: the taps - 1 before the mix, then the mix's; and
+	the old filter's sums and the new one's */
+	float samples[HRTF_MAXIMUM_TAPS + MIX_CHUNK_FRAMES], old_sums[MIX_CHUNK_FRAMES], new_sums[MIX_CHUNK_FRAMES];
+
+	if (!stream->hrtf_valid)
+	{
+		memcpy(stream->hrtf_filters, filters, sizeof(stream->hrtf_filters));
+		stream->hrtf_delays[0] = delays[0];
+		stream->hrtf_delays[1] = delays[1];
+		stream->hrtf_valid = TRUE;
+	}
+	fading = memcmp(stream->hrtf_filters, filters, sizeof(stream->hrtf_filters)) != 0;
+	gain = stream->current_hrtf;
+	ramp_gain = (target_gain - gain) / (float)frames;
+	for (frame = 0; frame < frames; frame++)
+	{
+		stream->hrtf_input[(position + frame) & (HRTF_INPUT - 1)] = mono[frame] * gain;
+		gain += ramp_gain;
+	}
+	for (ear = 0; ear < 2; ear++)
+	{
+		float delay = stream->hrtf_delays[ear], ramp_delay = (delays[ear] - delay) / (float)frames;
+		float *delayed = samples + taps - 1;
+
+		memcpy(samples, stream->hrtf_tail[ear], (taps - 1) * sizeof(float));
+		for (frame = 0; frame < frames; frame++)
+		{
+			delayed[frame] = hrtf_delayed(stream->hrtf_input, position + frame, delay);
+			delay += ramp_delay;
+		}
+		memset(old_sums, 0, frames * sizeof(float));
+		hrtf_convolve(stream->hrtf_filters[ear], samples, old_sums, frames, taps);
+		if (fading)
+		{
+			float fade = 0.0f, ramp_fade = 1.0f / (float)frames;
+
+			memset(new_sums, 0, frames * sizeof(float));
+			hrtf_convolve(filters[ear], samples, new_sums, frames, taps);
+			for (frame = 0; frame < frames; frame++)
+			{
+				old_sums[frame] += (new_sums[frame] - old_sums[frame]) * fade;
+				fade += ramp_fade;
+			}
+		}
+		for (frame = 0; frame < frames; frame++)
+			output[frame * 2 + ear] += old_sums[frame];
+		memcpy(stream->hrtf_tail[ear], samples + frames, (taps - 1) * sizeof(float));
+	}
+	stream->hrtf_position = position + frames;
+	memcpy(stream->hrtf_filters, filters, sizeof(stream->hrtf_filters));
+	stream->hrtf_delays[0] = delays[0];
+	stream->hrtf_delays[1] = delays[1];
+	stream->current_hrtf = target_gain;
+}
+
 /* ---------- resampling
 
 Each voice is resampled to the output rate by band-limited interpolation (J.
@@ -780,6 +1128,11 @@ static void mix_voice(struct sdl_stream *stream, float *output, float *send, uns
 	float target_surround[2][MAXIMUM_OUTPUT_CHANNELS], surround_gains[2][MAXIMUM_OUTPUT_CHANNELS];
 	float ramp_surround[2][MAXIMUM_OUTPUT_CHANNELS];
 	unsigned long speaker;
+	/* on stereo output with audio.hrtf, the binaural rendering's share of a
+	3D voice, and its targets (hrtf) */
+	float share, target_hrtf = 0.0f, hrtf_filters[2][HRTF_MAXIMUM_TAPS], hrtf_delays[2];
+	float hrtf_mono[MIX_CHUNK_FRAMES];
+	BOOL binaural;
 
 	if (stream->paused || !stream->packet_count || !stream->sample_rate)
 		return;
@@ -801,6 +1154,17 @@ static void mix_voice(struct sdl_stream *stream, float *output, float *send, uns
 	voice_gains(stream, &target_left, &target_right, &target_room, &target_direct_lowpass, &target_room_lowpass);
 	if (surround)
 		voice_surround_gains(stream, target_surround);
+	share = frames <= MIX_CHUNK_FRAMES ? hrtf_share(stream) : 0.0f;
+	if (!stream->gains_valid)
+		hrtf_reset(stream);
+	if (share > 0.0f)
+	{
+		target_hrtf = hrtf_target(stream, share, hrtf_filters, hrtf_delays);
+		target_left *= 1.0f - share;
+		target_right *= 1.0f - share;
+	}
+	/* (a voice turned all the way down needs none of it) */
+	binaural = target_hrtf > 0.0f || stream->current_hrtf > 0.0f;
 	if (!stream->gains_valid)
 	{
 		if (surround)
@@ -860,7 +1224,7 @@ static void mix_voice(struct sdl_stream *stream, float *output, float *send, uns
 		if (stream->silence > (unsigned long)(2 * width))
 			break;
 
-		if (!left && !right && !room && !ramp_left && !ramp_right && !ramp_room)
+		if (!left && !right && !room && !ramp_left && !ramp_right && !ramp_room && !binaural)
 		{
 			/* a voice turned all the way down (out of earshot), and not
 			sending to the reverb, only moves on */
@@ -919,6 +1283,8 @@ static void mix_voice(struct sdl_stream *stream, float *output, float *send, uns
 		}
 		stream->direct_lowpass[0] = sample_left;
 		stream->direct_lowpass[1] = sample_right;
+		if (binaural)
+			hrtf_mono[frame] = stream->channels == 1 ? sample_left : 0.5f * (sample_left + sample_right);
 		if (surround)
 		{
 			/* the first row's gains take the left (a mono voice's only)
@@ -956,6 +1322,10 @@ static void mix_voice(struct sdl_stream *stream, float *output, float *send, uns
 			stream->center++;
 		}
 	}
+	if (binaural && frame)
+		hrtf_mix(stream, hrtf_mono, output, frame, target_hrtf, hrtf_filters, hrtf_delays);
+	else if (!binaural && stream->hrtf_valid)
+		hrtf_reset(stream);
 	stream->current_left = target_left;
 	stream->current_right = target_right;
 	stream->current_room = target_room;
@@ -1018,7 +1388,7 @@ static const float reverb_right_signs[REVERB_LINES] = { 1, 1, -1, -1, 1, 1, -1, 
 between (surround_speakers), as the Xbox's did from its four: each output
 another row of the 8 x 8 Hadamard matrix, the stereo pair's first,
 orthogonal to each other, so that each speaker's reverberation is unlike
-its neighbours' and the room surrounds the listener. In the order of
+its neighbors' and the room surrounds the listener. In the order of
 reverb_outputs */
 static const float reverb_surround_signs[SURROUND_71_SPEAKERS][REVERB_LINES] =
 {
@@ -1607,6 +1977,15 @@ void audio_capture_stop(void)
 	capture.ring = NULL;
 }
 
+/* hrtf_level moved towards audio.hrtf's (hrtf_update) */
+static void hrtf_fade(unsigned long frames)
+{
+	float target = hrtf_wanted && hrtf.loaded && output_channels == 2 ? 1.0f : 0.0f;
+	float step = (float)frames / (HRTF_FADE_SECONDS * OUTPUT_RATE);
+
+	hrtf_level = clamp_real(target, hrtf_level - step, hrtf_level + step);
+}
+
 static void mix(float *output, unsigned long frames)
 {
 	struct sdl_stream *stream;
@@ -1617,6 +1996,7 @@ static void mix(float *output, unsigned long frames)
 
 	memset(output, 0, frames * output_channels * sizeof(float));
 	memset(reverb.send, 0, frames * sizeof(float));
+	hrtf_fade(frames);
 	pthread_mutex_lock(&mixer_lock);
 	for (stream = streams; stream; stream = stream->next)
 		mix_voice(stream, output, reverb.send, frames);
@@ -1817,6 +2197,74 @@ static void audio_device_update(void)
 		platform_log("cannot open an audio device (%s); sound is silent", SDL_GetError());
 		audio_silent_clock_start();
 	}
+}
+
+/* whether the output's name says it is headphones (a headset, earbuds),
+for audio.hrtf = "auto": SDL does not say what is plugged in, but the
+systems name a headphone output so (macOS "External Headphones", AirPods,
+PipeWire's and Windows' "Headphones", a USB or Bluetooth headset) */
+static BOOL audio_output_is_headphones(char *name, unsigned long name_size)
+{
+	static const char *const words[] = { "headphone", "headset", "airpods", "earbuds", "earphone", "buds", "beats" };
+	char lowered[256];
+	const char *device_name;
+	unsigned long index;
+
+	name[0] = '\0';
+	if (!audio_stream)
+		return FALSE;
+	device_name = SDL_GetAudioDeviceName(SDL_GetAudioStreamDevice(audio_stream));
+	if (!device_name)
+		return FALSE;
+	snprintf(name, name_size, "%s", device_name);
+	for (index = 0; device_name[index] && index + 1 < sizeof(lowered); index++)
+		lowered[index] = (char)(device_name[index] >= 'A' && device_name[index] <= 'Z' ? device_name[index] + 32 :
+			device_name[index]);
+	lowered[index] = '\0';
+	for (index = 0; index < sizeof(words) / sizeof(words[0]); index++)
+	{
+		if (strstr(lowered, words[index]))
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/* audio.hrtf read again (the game's thread): "on", "off", or "auto" for on
+when the output is headphones, checked again as the output changes; the
+responses loaded the first time they are wanted, here, not on the mixer's
+thread */
+static BOOL hrtf_automatic = FALSE;
+
+static void hrtf_update(void)
+{
+	static int logged = -1;
+	const char *setting = config_string("audio.hrtf");
+	char name[256] = "";
+	BOOL wanted;
+
+	hrtf_automatic = !strcmp(setting, "auto");
+	if (!strcmp(setting, "on"))
+		wanted = TRUE;
+	else if (!strcmp(setting, "auto"))
+		wanted = audio_output_is_headphones(name, sizeof(name));
+	else
+		wanted = FALSE;
+	if (wanted && !hrtf_load())
+	{
+		if (logged != 2)
+			platform_log("audio: the HRTF data is missing; 3D sounds are panned");
+		logged = 2;
+		wanted = FALSE;
+	}
+	if (wanted && output_channels != 2)
+		wanted = FALSE;
+	if ((int)wanted != logged && logged != 2)
+	{
+		platform_log("audio: binaural 3D sound (audio.hrtf \"%s\") %s%s%s%s", setting, wanted ? "on" : "off",
+			name[0] ? " (output \"" : "", name, name[0] ? "\")" : "");
+		logged = (int)wanted;
+	}
+	hrtf_wanted = wanted;
 }
 
 /* audio.channels: "stereo", "5.1", "7.1", or "auto": 5.1 when the device
@@ -2127,6 +2575,19 @@ VOID WINAPI DirectSoundDoWork(void)
 		reverb_enabled = config_boolean("audio.reverb");
 		resampling_linear = !strcmp(config_string("audio.resampling"), "linear");
 		audio_device_update();
+		hrtf_update();
+	}
+	else if (hrtf_automatic)
+	{
+		static unsigned long checked_at;
+		unsigned long now = (unsigned long)SDL_GetTicks();
+
+		/* (the system's output may have moved to headphones, or off them) */
+		if (now - checked_at > 1000)
+		{
+			checked_at = now;
+			hrtf_update();
+		}
 	}
 	streams_complete_finished();
 }
