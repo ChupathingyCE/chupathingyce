@@ -383,11 +383,13 @@ static short first_person_weapon_index_from_weapon_index(
 static short first_person_weapon_index_from_unit_index(
 	long unit_index);
 
+#ifndef HALO_XBOX_CONSOLE
 /* port/linux/game/pal_tags.c's */
 boolean pal_tags_first_person_advance(short local_player_index, long graph_index, short animation_index,
 	short frame_index);
 real pal_tags_first_person_fraction(short local_player_index, long graph_index, short animation_index,
 	short frame_index);
+#endif
 
 /* ---------- globals */
 
@@ -535,7 +537,7 @@ void first_person_weapon_draw(
 							model_node_matrices,
 							NULL,
 							weapon->object.outgoing_change_colors,
-							weapon->object.outgoing_function_values,
+							object_get_function_values(first_person_weapon->weapon_index),
 							lighting,
 							&render.camera.position,
 							0.0f,
@@ -560,7 +562,7 @@ void first_person_weapon_draw(
 							model_node_matrices,
 							NULL,
 							unit->object.outgoing_change_colors,
-							unit->object.outgoing_function_values,
+							object_get_function_values(unit_index),
 							lighting,
 							&render.camera.position,
 							0.0f,
@@ -1114,6 +1116,7 @@ static void first_person_weapon_build_node_matrices(
 		euler_angles2d_from_vector3d(&first_person_weapon->render_facing, &render.camera.forward);
 		first_person_weapon->render_position= render.camera.position;
 	}
+#ifndef HALO_XBOX_CONSOLE
 	/* The native ports draw several frames per tick. The turning sway
 	(first_person_weapon_update) takes the facing change since the last
 	frame as a tick's worth: move the last facing on once a tick. */
@@ -1127,6 +1130,10 @@ static void first_person_weapon_build_node_matrices(
 			last_render_ticks[local_player_index]= game_time_get();
 		}
 	}
+#else
+	first_person_weapon->last_render_facing= first_person_weapon->render_facing;
+	first_person_weapon->last_render_position= first_person_weapon->render_position;
+#endif
 	euler_angles2d_from_vector3d(&first_person_weapon->render_facing, &render.camera.forward);
 	first_person_weapon->render_position= render.camera.position;
 	first_person_weapon->render_forward= render.camera.forward;
@@ -1177,6 +1184,7 @@ static void first_person_weapon_build_node_matrices(
 						state_animation,
 						first_person_weapon->state_animation.frame_index,
 						first_person_weapon->node_orientations);
+#ifndef HALO_XBOX_CONSOLE
 					/* port: a PAL map's animation, slowed to the NTSC maps' pace,
 					between the frame it is on and the next: held on the frame, it
 					stood still for that tick, and a reload moved in fits and starts
@@ -1211,6 +1219,7 @@ static void first_person_weapon_build_node_matrices(
 							}
 						}
 					}
+#endif
 				}
 				else
 				{
@@ -1433,6 +1442,7 @@ static void first_person_weapon_build_node_matrices(
 			&render.camera.position,
 			&render.camera.forward,
 			&render.camera.up);
+#ifndef HALO_XBOX_CONSOLE
 		/* the pose between the last two ticks (render_interpolation.c) */
 		/* port: no more nodes than the weapon's matrices hold (a map's count) */
 		render_interpolation_first_person(
@@ -1440,6 +1450,7 @@ static void first_person_weapon_build_node_matrices(
 			first_person_weapon->node_matrices,
 			(short)MIN(animation_graph->nodes.count, MAXIMUM_NODES_PER_ANIMATION),
 			&render.camera);
+#endif
 	}
 
 	return;
@@ -1827,6 +1838,7 @@ static void first_person_weapon_update(
 			}
 		}
 
+#ifndef HALO_XBOX_CONSOLE
 		/* port: a PAL map's first-person animation at the NTSC maps' pace,
 		which the weapon's timing keeps (port/linux/game/pal_tags.c) */
 		if (!pal_tags_first_person_advance(local_player_index,
@@ -1837,6 +1849,7 @@ static void first_person_weapon_update(
 			sound_definition_index= NONE;
 		}
 		else
+#endif
 		animation_update_result= animation_update_render_only(
 			weapon_definition->weapon.interface_definition.first_person_animations.index,
 			&first_person_weapon->state_animation,

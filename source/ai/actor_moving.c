@@ -1419,7 +1419,7 @@ static void actor_move_vector_avoidance(
 		struct object_datum *object = object_get(object_index);
 		boolean direction_chosen = FALSE;
 		struct actor_debug_info *debug_info =
-			&actor_debug_array[DATUM_INDEX_TO_ABSOLUTE_INDEX(actor_index)];
+			ACTOR_DEBUG_INFO_GET(actor_index);
 		struct vector_avoidance_data avoidance_data;
 		real avoidance_weights[VECTOR_AVOIDANCE_NUMBER_OF_DIRECTIONS];
 		real_vector3d movement_vector;
@@ -2009,7 +2009,7 @@ boolean actor_path_refresh(
 					&actor->input.position.body_position,
 					&actor->control.path.destination.point);
 				struct actor_debug_info *debug_info =
-					&actor_debug_array[DATUM_INDEX_TO_ABSOLUTE_INDEX(actor_index)];
+					ACTOR_DEBUG_INFO_GET(actor_index);
 
 				debug_info->last_path_refresh = game_time_get();
 

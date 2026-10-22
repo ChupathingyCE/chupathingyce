@@ -357,7 +357,7 @@ static void relay_frame(struct delta_peer *peer, struct delta_peer_relay *relay,
 		{
 			int size = peer->env.legacy_table_signed(peer->env.context, peer->table_out, (int)sizeof(peer->table_out));
 
-			peer->table_out_serial = size > 0 && size <= DELTA_LEGACY_SIGNED_SIZE ? serial : 0;
+			peer->table_out_serial = size > 0 && size <= (int)sizeof(peer->table_out) ? serial : 0;
 			peer->table_out_size = peer->table_out_serial ? size : 0;
 			if (!peer->table_out_serial)
 				return;

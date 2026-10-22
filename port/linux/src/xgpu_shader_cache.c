@@ -50,6 +50,11 @@ struct cached_shader
 	unsigned long length;
 	/* in the file already */
 	BOOL saved;
+#ifdef HALO_CONSOLE_GL_LAYER
+	/* compiled once and refused: not tried again for every draw (a
+	console's GL layer compiles on the console, slowly) */
+	BOOL failed;
+#endif
 };
 
 struct cached_pair
@@ -376,10 +381,17 @@ GLuint xgpu_shader_cache_compile(GLenum type, const char *source, const char *wh
 	entry = shader_find(hash);
 	if (entry && entry->shader)
 		return entry->shader;
+#ifdef HALO_CONSOLE_GL_LAYER
+	if (entry && entry->failed)
+		return 0;
+#endif
 	if (!entry && !(entry = shader_add(hash, type)))
 		return xgpu_compile_shader(type, source, what);
 	entry->length = length;
 	entry->shader = xgpu_compile_shader(type, source, what);
+#ifdef HALO_CONSOLE_GL_LAYER
+	entry->failed = !entry->shader;
+#endif
 	shader_name_set(entry);
 	if (entry->shader && !entry->saved && file_has_room(17 + length) && write_shader_record(cache.file, entry, source))
 	{

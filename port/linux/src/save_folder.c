@@ -198,7 +198,9 @@ static int copy_file(const char *from, const char *to, int by_rename)
 	input = open(from, O_RDONLY | O_BINARY);
 	if (input < 0)
 		return 0;
-	output = open(destination, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0644);
+	/* (the user's alone, as the originals are: the player key among them,
+	which a copy readable by others would not be taken as) */
+	output = open(destination, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0600);
 	if (output < 0)
 	{
 		close(input);

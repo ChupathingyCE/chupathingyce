@@ -173,21 +173,65 @@ The Xbox maps physical memory at virtual 0x80000000 + P. The layer commits
 that window of the Xbox address space (cseries/xbox_address.h) at start-up and
 hands out page-granular blocks from it, so the physical/virtual arithmetic
 the game and Direct3D rely on keeps working. PLATFORM_CONTIGUOUS_BASE is an
-Xbox address. */
+Xbox address.
 
+With HALO_WINDOW_REBASE (cseries/xbox_address.h) the window is wherever the
+host put it, and PLATFORM_CONTIGUOUS_BASE is that address: the layer's own
+arithmetic on the window (its pages, its protection, the renderer's mirror)
+is in host addresses, as in the other 32-bit builds, and only what crosses
+into the game's data goes through xbox_pointer and xbox_address. The size
+is as large as the host found room for (platform_contiguous_size), from
+PLATFORM_CONTIGUOUS_MINIMUM, this build's own, which the host's window has
+to be at least, to PLATFORM_CONTIGUOUS_MAXIMUM, which sizes the tables the
+layer keeps for each page of the window. In the other builds the size is
+this build's, and the maximum the same. */
+
+#ifdef HALO_WINDOW_REBASE
+#define PLATFORM_CONTIGUOUS_BASE (platform_contiguous_base)
+#else
 #define PLATFORM_CONTIGUOUS_BASE 0x80000000U
+#endif
+#ifdef HALO_WINDOW_REBASE
+#define PLATFORM_CONTIGUOUS_SIZE (platform_contiguous_size)
 #if defined(HALO_ANDROID) && !defined(HALO_64BIT)
+/* the Switch's guest: a 128 MB development kit's, or the 256 MB the host
+holds for it at its pinned address (port/switch/host/host_memory.c), the
+extra going to the texture cache (halo_port_capacity.h) */
+#define PLATFORM_CONTIGUOUS_MINIMUM 0x08000000UL
+#define PLATFORM_CONTIGUOUS_MAXIMUM 0x10000000UL
+#else
+/* the Linux build's test of a moved window: the desktop's size, always */
+#define PLATFORM_CONTIGUOUS_MINIMUM 0x20000000UL
+#define PLATFORM_CONTIGUOUS_MAXIMUM 0x20000000UL
+#endif
+#elif (defined(HALO_ANDROID) && !defined(HALO_64BIT)) || defined(HALO_WINDOW_TRANSLATED)
 /* a 128 MB development kit's: Android's guest image is linked just above it
-(port/android/include/halo_android_abi.h) */
+(port/android/include/halo_android_abi.h); the Xbox 360's window is the
+console's own memory (cseries/xbox_address.h) */
 #define PLATFORM_CONTIGUOUS_SIZE 0x08000000U
+#define PLATFORM_CONTIGUOUS_MAXIMUM PLATFORM_CONTIGUOUS_SIZE
 #else
 /* the desktop builds' (Linux, macOS, Windows) and the native 64-bit
 Android build's: four times a 128 MB
 development kit's, for their larger texture cache (halo_port_capacity.h);
 port/windows/src/win32_memory_watch.c has the same */
 #define PLATFORM_CONTIGUOUS_SIZE 0x20000000U
+#define PLATFORM_CONTIGUOUS_MAXIMUM PLATFORM_CONTIGUOUS_SIZE
 #endif
 #define PLATFORM_ANY_PHYSICAL_ADDRESS 0xffffffffU
+
+#ifdef HALO_WINDOW_TRANSLATED
+/* the console's: reserves size bytes of address space, uncommitted (the
+memory mapping calls commit them), and returns where; NULL if it cannot */
+void *platform_xbox_window_reserve(unsigned int size);
+/* reserves the window now if it is not yet (xbox_memory.c does at start-up) */
+void platform_xbox_window_ensure(void);
+/* a host pointer's Xbox address, unchecked */
+#define PLATFORM_XBOX_OFFSET(pointer) \
+	((unsigned long long)(unsigned int)((uintptr_t)(pointer) - xbox_address_space_base))
+#elif defined(HALO_64BIT)
+#define PLATFORM_XBOX_OFFSET(pointer) ((unsigned long long)(uintptr_t)(pointer) - XBOX_ADDRESS_SPACE_BASE)
+#endif
 
 /* Custom Edition maps (Halo PC's, version 609: cache_files_windows.c, CE
 maps) are linked to a tag cache of their own, outside the Xbox window: their
@@ -226,10 +270,34 @@ void *platform_contiguous_alloc(unsigned long size, unsigned long alignment,
 	unsigned long physical_address, DWORD protect);
 void platform_contiguous_free(void *address);
 BOOL platform_is_contiguous(const void *address);
+#if defined(HALO_CONSOLE_GPU_RESOURCE_HOOKS) || defined(HALO_CONSOLE_NO_WRITE_WATCH)
+/* the length of the contiguous block starting at address, or 0 (a console's
+resource locks, d3d8_resources.c) */
+unsigned long platform_contiguous_block_size(const void *address);
+#endif
 /* write guest memory like DMA does, ignoring its page protection */
 void platform_contiguous_write(void *destination, const void *source, size_t size);
+#ifdef HALO_WINDOW_REBASE
+/* A physical address is an offset into the window, but the game also hands
+these the window's addresses, as the data was linked or as they are where
+the window is, which on the Xbox setting bit 31 made the same. The three are
+told apart as on the Xbox: an offset is less than the window's size, and
+every address in the window is at least that, because the window starts on
+a whole number of its size; xbox_pointer then moves a linked address and
+leaves one already moved. */
+#define PLATFORM_PHYSICAL_TO_VIRTUAL(physical) \
+	((unsigned long)(physical) < PLATFORM_CONTIGUOUS_SIZE ? \
+		(void *)(PLATFORM_CONTIGUOUS_BASE + (unsigned long)(physical)) : xbox_pointer(physical))
+#define PLATFORM_VIRTUAL_TO_PHYSICAL(address) \
+	((unsigned long)xbox_pointer(address) - PLATFORM_CONTIGUOUS_BASE)
+/* an address in the window, in the terms PLATFORM_CONTIGUOUS_BASE is in */
+#define PLATFORM_WINDOW_ADDRESS(pointer) ((unsigned long)(pointer))
+#else
 #define PLATFORM_PHYSICAL_TO_VIRTUAL(physical) xbox_pointer((unsigned long)(physical) | PLATFORM_CONTIGUOUS_BASE)
 #define PLATFORM_VIRTUAL_TO_PHYSICAL(address) ((unsigned long)XBOX_ADDRESS(address) & ~PLATFORM_CONTIGUOUS_BASE)
+/* an address in the window, in the terms PLATFORM_CONTIGUOUS_BASE is in */
+#define PLATFORM_WINDOW_ADDRESS(pointer) ((unsigned long)XBOX_ADDRESS(pointer))
+#endif
 
 /* ---------- the game's heap (xbox_heap.c), in the Xbox address space */
 

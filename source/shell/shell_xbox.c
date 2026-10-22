@@ -101,23 +101,63 @@ shell_idle(
 	return;
 }
 
+#ifdef HALO_XBOX_CONSOLE
+/* port: the start, step by step, in debug.txt before the game's own log is
+up (port/xbox/src/xbox_memory.c) */
+void xbox_memory_startup(void);
+void xbox_stack_startup(void);
+void xbox_boot_log(char const *format, ...);
+unsigned long xbox_memory_free(void);
+void xbox_memory_log_point(const char *where);
+#endif
+
 int main(
 	void)
 {
+#ifdef HALO_XBOX_CONSOLE
+	boolean preinitialized;
+
+	xbox_memory_startup();
+	/* (the stack's use, measured from here: port/xbox/src/xbox_stack.c) */
+	xbox_stack_startup();
+	fuck_code_in_the_eye();
+	preinitialized = rasterizer_preinitialize__fill_you_up_with_the_devils_cock();
+	xbox_boot_log("direct3d: the first device %s, %lu KB free", preinitialized ? "made and let go" : "FAILED",
+		xbox_memory_free() >> 10);
+	physical_memory_allocate();
+#else
 	fuck_code_in_the_eye();
 	rasterizer_preinitialize__fill_you_up_with_the_devils_cock();
 	physical_memory_allocate();
+#endif
 
 	__try
 	{
 		if (shell_initialize())
 		{
+#ifdef HALO_XBOX_CONSOLE
+			xbox_boot_log("started: %lu KB free at the main loop", xbox_memory_free() >> 10);
+			xbox_memory_log_point("the main loop");
+#endif
 			main_loop();
 			shell_dispose();
+#ifdef HALO_CONSOLE_LOG_BUFFER
+			error_log_flush();
+#endif
 		}
+#ifdef HALO_XBOX_CONSOLE
+		else
+		{
+			xbox_boot_log("shell_initialize FAILED (Direct3D or the sound: the lines above), %lu KB free",
+				xbox_memory_free() >> 10);
+		}
+#endif
 	}
 	__except (generic_exception_filter(GetExceptionCode(), GetExceptionInformation()))
 	{
+#ifdef HALO_CONSOLE_LOG_BUFFER
+		error_log_flush();
+#endif
 		halt_and_catch_fire();
 	}
 

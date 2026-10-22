@@ -492,6 +492,17 @@ void *debug_malloc(
 		}
 	}
 
+#ifdef HALO_XBOX_CONSOLE
+	/* port: the console's large allocations, and any that fails, in
+	debug.txt (port/xbox/src/xbox_memory.c): what a 64 MB console runs out
+	of */
+	if (pointer == NULL || size >= 0x4000)
+	{
+		void xbox_memory_heap_allocation(char const *file, long line, unsigned long size, void const *address);
+
+		xbox_memory_heap_allocation(file, line, size, pointer);
+	}
+#endif
 	if (pointer != NULL)
 	{
 		debug_memory_globals.current_heap_size += size;

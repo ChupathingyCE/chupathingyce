@@ -238,7 +238,14 @@ static void rasterizer_draw_hires_character_with_dropshadow(
 
 
 static struct hardware_character_cache hardware_character_cache;
+#ifndef HALO_CONSOLE_NO_HIRES
 static struct bitmap_data *hires_text_atlas = NULL;
+#else
+/* port: the consoles draw the maps' own fonts, as the Xbox did: no atlas
+(its texture was 128 KB of a 64 MB console), and the high-res paths below
+are never taken */
+#define hires_text_atlas ((struct bitmap_data *)NULL)
+#endif
 static long hires_text_font = NONE;
 /* port: the text's scale about a point (rasterizer_text_set_scale) */
 static real text_scale = 1.0f;
@@ -286,6 +293,7 @@ rasterizer_text_cache_initialize(
 			hardware_character_cache.bitmap = bitmap;
 			hardware_character_cache.initialized = TRUE;
 
+#ifndef HALO_CONSOLE_NO_HIRES
 			/* port: the high-res text atlas's placeholder */
 			hires_text_atlas = bitmap_2d_new(
 				HIRES_TEXT_ATLAS_BITMAP_SIZE,
@@ -304,6 +312,7 @@ rasterizer_text_cache_initialize(
 					HIRES_TEXT_ATLAS_BITMAP_SIZE,
 					HIRES_TEXT_ATLAS_BITMAP_SIZE);
 			}
+#endif
 		}
 		else
 		{
@@ -361,12 +370,14 @@ rasterizer_text_cache_dispose(
 		rasterizer_text_cache_flush();
 		bitmap_delete(hardware_character_cache.bitmap);
 		hardware_character_cache.initialized = FALSE;
+#ifndef HALO_CONSOLE_NO_HIRES
 		if (hires_text_atlas)
 		{
 			text_hires_register_atlas(NULL, 0, 0);
 			bitmap_delete(hires_text_atlas);
 			hires_text_atlas = NULL;
 		}
+#endif
 	}
 
 	return;
@@ -1186,15 +1197,23 @@ cache_hardware_format_character(
 
 			for (x = 0; x < cell_width; x++)
 			{
+				word texel;
+
 				if (y < padding || y >= padding + font_character->bitmap_height ||
 					x < padding || x >= padding + font_character->bitmap_width)
 				{
-					*destination++ = 0x0FFF;
+					texel = 0x0FFF;
 				}
 				else
 				{
-					*destination++ = (word)((*source++ << 8) | 0x0FFF);
+					texel = (word)((*source++ << 8) | 0x0FFF);
 				}
+#if defined(__BIG_ENDIAN__) || (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+				/* (port: the texture's texels are the map's byte order,
+				little-endian, as its bitmaps' are) */
+				texel = (word)((texel << 8) | (texel >> 8));
+#endif
+				*destination++ = texel;
 			}
 		}
 

@@ -360,9 +360,57 @@ symbols in this file:
 #endif
 #include "halo_menus.h" /* port: PC_MENU_FUNCTION_BASE */
 
-#ifdef HALO_CUSTOM_EDITION
+#ifdef HALO_MAP_LIST
 #include "halo_ui_map_list.h"
 #endif
+
+/* port: a player who shares their Delta profile, by its name on the
+pregame screen (port/linux/game/profile_names.c): their own line, and a
+machine of one player (its panel names the machine); others as before */
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+boolean profile_names_player(long player_index, wchar_t *name, long size);
+#endif
+/* (as long as the panels show: a player's line 16 characters, another
+machine's name 12; longer is cut with "...") */
+#define PREGAME_PROFILE_NAME_LENGTH 33
+#define PREGAME_PLAYER_NAME_SHOWN 17
+#define PREGAME_MACHINE_NAME_SHOWN 13
+
+static wchar_t const *pregame_player_name(
+	long player_index,
+	wchar_t const *name,
+	wchar_t *buffer,
+	long shown)
+{
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+	if (player_index != NONE && profile_names_player(player_index, buffer, shown))
+		return buffer;
+#else
+	(void)player_index;
+	(void)buffer;
+	(void)shown;
+#endif
+	return name;
+}
+
+static wchar_t const *pregame_machine_name(
+	struct network_game const *game,
+	short machine_index,
+	wchar_t const *name,
+	wchar_t *buffer)
+{
+	long index, found = NONE, count = 0;
+
+	for (index = 0; index < (long)NUMBEROF(game->players); index++)
+	{
+		if (network_player_is_valid(&game->players[index]) && game->players[index].machine_index == machine_index)
+		{
+			found = index;
+			count++;
+		}
+	}
+	return count == 1 ? pregame_player_name(found, name, buffer, PREGAME_MACHINE_NAME_SHOWN) : name;
+}
 
 /* ---------- constants */
 
@@ -867,7 +915,7 @@ static void multiplayer_type_menu_update_extended_description(
 	among those that take events, as its game counts them (past its labels) */
 	index = ui_widget_port_list_index(list_widget);
 
-#ifdef HALO_GAME_BROWSER
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_ONLINE_GAMES)
 	{
 		/* (ONLINE GAMES, an item the menu's tags lack: ui_widget.c) */
 		short ui_widget_online_games_description(struct widget_instance *list_widget, short index);
@@ -1535,8 +1583,10 @@ static void network_pregame_status_screen_update(
 			}
 			else
 			{
-				long name_length = ustrlen(
-					game->players[local_player_indices[local_player_index]].name);
+				wchar_t profile_name[PREGAME_PROFILE_NAME_LENGTH];
+				wchar_t const *shown_name = pregame_player_name(local_player_indices[local_player_index],
+					game->players[local_player_indices[local_player_index]].name, profile_name, PREGAME_PLAYER_NAME_SHOWN);
+				long name_length = ustrlen(shown_name);
 
 				name_text->parameters.text_box.text = ui_widget_realloc(
 					name_text->parameters.text_box.text,
@@ -1547,7 +1597,7 @@ static void network_pregame_status_screen_update(
 				{
 					ustrncpy(
 						name_text->parameters.text_box.text,
-						game->players[local_player_indices[local_player_index]].name,
+						shown_name,
 						name_length);
 					name_text->parameters.text_box.text[name_length] = 0;
 				}
@@ -1615,6 +1665,8 @@ static void network_pregame_status_screen_update(
 			{
 				struct widget_instance *remote_machine_icon;
 				struct widget_instance *remote_machine_name_text;
+				wchar_t machine_profile_name[PREGAME_PROFILE_NAME_LENGTH];
+				wchar_t const *machine_shown;
 				struct widget_instance *player_widget;
 
 				match_vassert(
@@ -1652,7 +1704,9 @@ static void network_pregame_status_screen_update(
 				else
 				{
 					remote_machine_icon->animation.current_frame_index = 1;
-					length = ustrlen(game->machines[machine_indices[machine_widget_index]].name);
+					machine_shown = pregame_machine_name(game, game->machines[machine_indices[machine_widget_index]].machine_index,
+						game->machines[machine_indices[machine_widget_index]].name, machine_profile_name);
+					length = ustrlen(machine_shown);
 					remote_machine_name_text->parameters.text_box.text = ui_widget_realloc(
 						remote_machine_name_text->parameters.text_box.text,
 						(word)(2 * length + 2),
@@ -1662,7 +1716,7 @@ static void network_pregame_status_screen_update(
 					{
 						ustrncpy(
 							remote_machine_name_text->parameters.text_box.text,
-							game->machines[machine_indices[machine_widget_index]].name,
+							machine_shown,
 							length);
 						remote_machine_name_text->parameters.text_box.text[length] = 0;
 					}
@@ -2352,11 +2406,14 @@ static void game_options_menu_update_text_desc(
 static void game_options_menu_update_pic_desc(
 	struct widget_instance *widget)
 {
+	/* port: the picture hidden for an extra item without one */
+	static struct widget_instance *hidden_picture = NULL;
 	struct widget_instance *column;
 	struct widget_instance *extended_description;
 	struct widget_instance *spinner_list;
 	struct ui_widget_definition *definition;
 	long description_index;
+	boolean pictured = TRUE;
 
 	match_vassert(
 		"c:\\halo\\SOURCE\\interface\\ui_widget_game_data_input_functions.c",
@@ -2398,7 +2455,11 @@ static void game_options_menu_update_pic_desc(
 
 			if (column == widget->focused_child)
 			{
-				/* port: an extra item shows its spinner's last picture of its own */
+				/* port: an extra item shows its spinner's last picture of its
+				own, or none where the picture has no frame for it (Bumper
+				Jumper: ui_widget.c) */
+				pictured = ui_widget_spinner_item_pictured(spinner_list,
+					spinner_list->parameters.list.selected_list_item_index);
 				description_index += MIN(spinner_list->parameters.list.selected_list_item_index,
 					ui_widget_spinner_own_item_count(spinner_list) - 1);
 				break;
@@ -2410,6 +2471,12 @@ static void game_options_menu_update_pic_desc(
 	}
 
 	extended_description->animation.current_frame_index = (short)description_index;
+	/* (hidden only while such an item is chosen, and shown again after) */
+	if (!pictured || extended_description == hidden_picture)
+	{
+		widget_instance_set_visibility_recursive(extended_description, pictured);
+		hidden_picture = pictured ? NULL : extended_description;
+	}
 	return;
 }
 
@@ -2429,7 +2496,7 @@ static void multiplayer_game_set_text_box_for_map_name(
 	if (game)
 	{
 		map_name = game->map.name;
-#ifdef HALO_CUSTOM_EDITION
+#ifdef HALO_MAP_LIST
 	/* port: a map past the Xbox's is named as the menus' map list names it */
 	if (strchr(map_name, '@'))
 	{
@@ -2711,7 +2778,7 @@ static void multiplayer_game_set_bitmap_for_map(
 	if (game)
 	{
 		map_name = game->map.name;
-#ifdef HALO_CUSTOM_EDITION
+#ifdef HALO_MAP_LIST
 	/* port: a map past the Xbox's shows the menus' map list's picture for it */
 	if (strchr(map_name, '@'))
 	{
@@ -2944,11 +3011,16 @@ static void multiplayer_game_directions(
 
 	if (server)
 	{
-		boolean waiting_for_machines = !network_game_is_splitscreen_local() &&
+		/* port: neither with game.start_with_one_player, where a lone host
+		starts the game (the text drew over the countdown) */
+		boolean solo = network_game_solo_game();
+		boolean waiting_for_machines = !solo &&
+			!network_game_is_splitscreen_local() &&
 			game &&
 			game->machine_count < 2;
 
 		if (!waiting_for_machines &&
+			!solo &&
 			network_game_is_splitscreen_local() &&
 			game &&
 			game->player_count < 2)
@@ -4279,7 +4351,7 @@ static void mp_level_select_list_update_displayed_items(
 				_ui_widget_type_text_box,
 			"expected a text box widget for the list item's third child (map description)");
 
-#ifdef HALO_CUSTOM_EDITION
+#ifdef HALO_MAP_LIST
 		/* port: the rows are the menus' map list's: an Xbox map's string and
 		frame are its own, another's text that list's */
 		map_name->parameters.text_box.string_list_index =

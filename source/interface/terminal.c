@@ -59,7 +59,9 @@ symbols in this file:
 #include "telnet_console.h"
 #include "rasterizer.h"
 #include "render.h"
+#ifndef HALO_XBOX_CONSOLE
 #include "main/main.h"
+#endif
 #include "draw_string.h"
 #include "byte_swapping.h"
 #include "tag_groups.h"
@@ -114,7 +116,8 @@ static long terminal_new_line(void);
 
 /* ---------- globals */
 
-boolean terminal_render_enable = TRUE;
+/* 0 = hidden, 1 = always drawn (default), 2 = drawn only while the console is open */
+short terminal_render_enable = 1;
 
 /* name from the 2003 PC demo PDB and the HCEX PDB (terminal file static const short[3]); January's 6 bytes
  * are identical to the demo's and it has no public for it (static) */
@@ -250,7 +253,7 @@ void terminal_draw(
 			rasterizer_draw_string(&terminal_gets_bounds, NULL, NULL, 0, buffer);
 		}
 
-		if (terminal_render_enable)
+		if (terminal_render_enable == 1 || (terminal_render_enable >= 2 && terminal_globals.input_state))
 		{
 			struct output_line_datum *line;
 			long line_index;
@@ -383,6 +386,54 @@ void terminal_printf(
 	return;
 }
 
+#ifdef HALO_CONSOLE_STATUS_LINE
+/* port: the status line, while it is on screen (terminal_status_printf):
+a console's shader cache says how its compile is going (the Switch's) */
+static long terminal_status_line_index = NONE;
+
+void terminal_status_printf(
+	real_argb_color const *color,
+	char const *format,
+	...)
+{
+	struct output_line_datum *line = NULL;
+	char *arglist;
+	int count;
+
+	if (!terminal_globals.initialized)
+		return;
+	/* the line it was, unless it faded or the oldest line's place was
+	taken for a new one */
+	if (terminal_status_line_index != NONE)
+		line = datum_try_and_get(terminal_globals.output_lines, terminal_status_line_index);
+	if (!line)
+	{
+		terminal_status_line_index = terminal_new_line();
+		line = output_line_get(terminal_status_line_index);
+	}
+	line->timer = 0;
+	if (color)
+	{
+		line->color = *color;
+	}
+	else
+	{
+		line->color.alpha = 1.f;
+		line->color.red = 0.7f;
+		line->color.green = 0.7f;
+		line->color.blue = 0.7f;
+	}
+	va_start(arglist, format);
+	count = _vsnprintf(line->buffer, NUMBEROF(line->buffer)-2, format, arglist);
+	va_end(arglist);
+	if (count < 0 || count >= (int)(NUMBEROF(line->buffer)-2))
+		line->buffer[NUMBEROF(line->buffer)-2] = 0;
+	line->tabstop = strstr(line->buffer, "|t") != 0;
+
+	return;
+}
+#endif
+
 /* ---------- private code */
 
 static void terminal_remove_line(
@@ -455,6 +506,7 @@ static void terminal_update_output(
 {
 	struct output_line_datum *line;
 	long line_index = terminal_globals.newest_output_line_index;
+#ifndef HALO_XBOX_CONSOLE
 	/* This runs once a frame, several frames per tick on the native builds
 	(port/linux/game/render_interpolation.c): count the line timers in 30 Hz
 	ticks of real time, as they counted on the Xbox, not in frames. */
@@ -464,6 +516,7 @@ static void terminal_update_output(
 	leftover_ticks += main_get_seconds_elapsed() * TICKS_PER_SECOND;
 	ticks = (long)leftover_ticks;
 	leftover_ticks -= (real)ticks;
+#endif
 
 	while (line_index!=NONE)
 	{
@@ -471,7 +524,11 @@ static void terminal_update_output(
 		
 		line = output_line_get(line_index);
 		older_line_index = line->older_line_index;
+#ifndef HALO_XBOX_CONSOLE
 		line->timer += ticks;
+#else
+		line->timer++;
+#endif
 
 		if (line->timer>OUTPUT_TOTAL_TIME)
 		{

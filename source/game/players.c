@@ -4878,6 +4878,13 @@ void players_update_after_game(
 								"!!!WARNING!!! teleported player triggering a bsp switch!!!");
 						}
 
+#ifdef HALO_CONSOLE_BRINGUP_LOG
+						/* port: bring-up (the console developer tools), the volume that asked for it */
+						error(_error_silent, "bsp switch trigger volume %d (volume %d): %d -> %d",
+							bsp_switch_trigger_volume_index, bsp_switch_trigger_volume->trigger_volume_index,
+							bsp_switch_trigger_volume->source_structure_bsp_index,
+							bsp_switch_trigger_volume->destination_structure_bsp_index);
+#endif
 						players_globals->bsp_check_recursive_switch_ticks = 0;
 						players_globals->local_player_triggered_switch =
 							player->local_player_index;

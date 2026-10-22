@@ -48,8 +48,8 @@
 	</strings>
 	<strings name="main_menu/multiplayer_type_select/join_game/password/help_strings">
 		<string text=""/>
-		<string text="This game has a password. Type it, then press\nEnter to join."/>
-		<string text="That is not the game's password. Try again."/>
+		<string text="Enter the game's password."/>
+		<string text="Incorrect password."/>
 		<string text="Could not join the game."/>
 	</strings>
 	<widget name="main_menu/multiplayer_type_select/join_game/header_server_browser" controller="1" left="35" top="11" width="363" height="59" bitmap="main_menu/multiplayer_type_select/join_game/header_server_browser">

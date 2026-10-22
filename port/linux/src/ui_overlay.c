@@ -30,7 +30,7 @@ are the controller's button icons (a texture array, a layer each).
 
 /* (xinput_sdl.c: the device the player last used: 0 keyboard, 1 Xbox-like,
 2 PlayStation, 3 Nintendo) */
-int platform_input_scheme(void);
+int platform_prompt_scheme(void);
 /* (interface/progress_bar.c: the loading screen is up) */
 extern unsigned char progress_bar_is_active(void);
 
@@ -158,7 +158,7 @@ static const int button_fonts[4] =
 
 static int scheme(void)
 {
-	int value = platform_input_scheme();
+	int value = platform_prompt_scheme();
 
 	return value >= 0 && value < 4 ? value : 1;
 }

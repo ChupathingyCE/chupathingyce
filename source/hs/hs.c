@@ -2844,6 +2844,9 @@ symbols in this file:
 #include "units/units.h"
 #include "units/vehicles.h"
 #include "coop_scripts.h" /* port: port/linux/game/coop_scripts.c */
+#ifdef HALO_BIG_ENDIAN
+#include "console_endian.h" /* port: the maps' byte order (hs_syntax_data_byte_swap) */
+#endif
 
 /* ---------- constants */
 
@@ -3008,7 +3011,7 @@ static void evaluator( \
 	if (arguments) \
 	{ \
 		union hs_real_value result; \
-		result.real_value = function(arguments[0]); \
+		result.real_value = function(*HS_SLOT(unsigned short, arguments)); \
 		hs_return(thread_index, result.long_value); \
 	} \
 	return; \
@@ -3270,7 +3273,7 @@ static void evaluator( \
 struct hs_object_list_get_element_arguments
 {
 	long object_list_index;
-	unsigned short element_index;
+	HS_SLOT_MEMBER(unsigned short, element_index)
 };
 
 union hs_real_value
@@ -3281,7 +3284,7 @@ union hs_real_value
 
 union hs_short_result
 {
-	short short_value;
+	HS_UNION_SLOT(short, short_value)
 	long value;
 };
 
@@ -3289,9 +3292,9 @@ union hs_evaluation_argument
 {
 	long long_value;
 	real real_value;
-	short short_value;
-	unsigned short unsigned_short_value;
-	boolean boolean_value;
+	HS_UNION_SLOT(short, short_value)
+	HS_UNION_SLOT(unsigned short, unsigned_short_value)
+	HS_UNION_SLOT(boolean, boolean_value)
 	XPTR(char const) string_value; /* script values are 32 bits: an Xbox address */
 };
 
@@ -3301,7 +3304,7 @@ typedef char hs_evaluation_argument_size_assert[sizeof(union hs_evaluation_argum
 
 struct hs_arguments_boolean
 {
-	boolean value;
+	HS_SLOT_MEMBER(boolean, value)
 };
 
 struct hs_arguments_long
@@ -3311,20 +3314,20 @@ struct hs_arguments_long
 
 struct hs_arguments_word
 {
-	word value;
+	HS_SLOT_MEMBER(word, value)
 };
 
 struct hs_arguments_short_long
 {
-	short value0;
-	word pad0;
+	HS_SLOT_MEMBER(short, value0)
+	HS_SLOT_TRAILING_PAD(word pad0;)
 	long value1;
 };
 
 struct hs_arguments_long_word
 {
 	long value0;
-	word value1;
+	HS_SLOT_MEMBER(word, value1)
 };
 
 struct hs_arguments_string
@@ -3353,9 +3356,9 @@ struct hs_arguments_long_long_string
 
 struct hs_arguments_short_word
 {
-	short value0;
-	word pad0;
-	word value1;
+	HS_SLOT_MEMBER(short, value0)
+	HS_SLOT_TRAILING_PAD(word pad0;)
+	HS_SLOT_MEMBER(word, value1)
 };
 
 struct hs_arguments_long_long_long
@@ -3416,7 +3419,7 @@ struct hs_arguments_long_long_string_word
 	long value0;
 	long value1;
 	XPTR(char const) value2; /* script values are 32 bits: an Xbox address */
-	word value3;
+	HS_SLOT_MEMBER(word, value3)
 };
 
 struct hs_arguments_long_long_long_boolean
@@ -3424,7 +3427,7 @@ struct hs_arguments_long_long_long_boolean
 	long value0;
 	long value1;
 	XPTR(char const) value2; /* script values are 32 bits: an Xbox address */
-	boolean value3;
+	HS_SLOT_MEMBER(boolean, value3)
 };
 
 struct hs_arguments_long_long_long_boolean_word
@@ -3432,9 +3435,9 @@ struct hs_arguments_long_long_long_boolean_word
 	long value0;
 	long value1;
 	XPTR(char const) value2; /* script values are 32 bits: an Xbox address */
-	boolean value3;
-	byte pad3[3];
-	word value4;
+	HS_SLOT_MEMBER(boolean, value3)
+	HS_SLOT_TRAILING_PAD(byte pad3[3];)
+	HS_SLOT_MEMBER(word, value4)
 };
 
 struct hs_arguments_real
@@ -3465,21 +3468,21 @@ struct hs_arguments_real_real_real_real
 
 struct hs_arguments_word_word_word_real
 {
-	word value0;
-	word pad0;
-	word value1;
-	word pad1;
-	word value2;
-	word pad2;
+	HS_SLOT_MEMBER(word, value0)
+	HS_SLOT_TRAILING_PAD(word pad0;)
+	HS_SLOT_MEMBER(word, value1)
+	HS_SLOT_TRAILING_PAD(word pad1;)
+	HS_SLOT_MEMBER(word, value2)
+	HS_SLOT_TRAILING_PAD(word pad2;)
 	real value3;
 };
 
 struct hs_arguments_word_word_long_real
 {
-	word value0;
-	word pad0;
-	word value1;
-	word pad1;
+	HS_SLOT_MEMBER(word, value0)
+	HS_SLOT_TRAILING_PAD(word pad0;)
+	HS_SLOT_MEMBER(word, value1)
+	HS_SLOT_TRAILING_PAD(word pad1;)
 	long value2;
 	real value3;
 };
@@ -3490,8 +3493,8 @@ struct hs_arguments_real_real_real_real_boolean_real
 	real value1;
 	real value2;
 	real value3;
-	boolean value4;
-	byte pad4[3];
+	HS_SLOT_MEMBER(boolean, value4)
+	HS_SLOT_TRAILING_PAD(byte pad4[3];)
 	real value5;
 };
 
@@ -3499,7 +3502,7 @@ struct hs_arguments_long_real_word
 {
 	long value0;
 	real value1;
-	word value2;
+	HS_SLOT_MEMBER(word, value2)
 };
 
 struct hs_arguments_long_real_real
@@ -3514,15 +3517,15 @@ struct hs_arguments_real_real_real_word
 	real value0;
 	real value1;
 	real value2;
-	word value3;
+	HS_SLOT_MEMBER(word, value3)
 };
 
 struct hs_arguments_short_word_real_real_real
 {
-	short value0;
-	word pad0;
-	word value1;
-	word pad1;
+	HS_SLOT_MEMBER(short, value0)
+	HS_SLOT_TRAILING_PAD(word pad0;)
+	HS_SLOT_MEMBER(word, value1)
+	HS_SLOT_TRAILING_PAD(word pad1;)
 	real value2;
 	real value3;
 	real value4;
@@ -3530,33 +3533,33 @@ struct hs_arguments_short_word_real_real_real
 
 struct hs_arguments_word_word_word
 {
-	word value0;
-	word pad0;
-	word value1;
-	word pad1;
-	word value2;
+	HS_SLOT_MEMBER(word, value0)
+	HS_SLOT_TRAILING_PAD(word pad0;)
+	HS_SLOT_MEMBER(word, value1)
+	HS_SLOT_TRAILING_PAD(word pad1;)
+	HS_SLOT_MEMBER(word, value2)
 };
 
 struct hs_arguments_word_word_long
 {
-	word value0;
-	word pad0;
-	word value1;
-	word pad1;
+	HS_SLOT_MEMBER(word, value0)
+	HS_SLOT_TRAILING_PAD(word pad0;)
+	HS_SLOT_MEMBER(word, value1)
+	HS_SLOT_TRAILING_PAD(word pad1;)
 	long value2;
 };
 
 struct hs_arguments_long_word_boolean
 {
 	long value0;
-	word value1;
-	word pad1;
-	boolean value2;
+	HS_SLOT_MEMBER(word, value1)
+	HS_SLOT_TRAILING_PAD(word pad1;)
+	HS_SLOT_MEMBER(boolean, value2)
 };
 
 union hs_boolean_result
 {
-	boolean boolean;
+	HS_UNION_SLOT(boolean, boolean)
 	long value;
 };
 
@@ -3651,6 +3654,8 @@ boolean hs_scenario_postprocess(
 /* ---------- constants */
 
 #define MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO 19001
+/* port: the console's stand-in array (hs_allocate) */
+#define HS_SYNTAX_STAND_IN_NODES 2048
 /* port: the size of the "hs globals" array (hs_runtime_initialize), which
 holds the external globals and the map's */
 #define MAXIMUM_HS_GLOBALS 0x400
@@ -13208,6 +13213,48 @@ data array too (which hs_scenario_postprocess and the data array code go by,
 the nodes' count above all): inside the tag cache, and the data array of
 script nodes it has room for. The shipped maps' all are, of 19001 nodes
 (their names differ: a30's is "static script node"). */
+#ifdef HALO_BIG_ENDIAN
+/* port: a map's script syntax (a data array in the scenario's tag data) in
+a big-endian console's byte order, once: the array's header and every node
+(its value as the 32-bit number it is: HS_SLOT) */
+static void hs_syntax_data_byte_swap(
+	struct data_array *data,
+	long size)
+{
+	struct hs_syntax_node *node;
+	long node_index;
+
+	if (size < (long)sizeof(struct data_array) || data->signature != CONSOLE_BSWAP32('d@t@'))
+	{
+		return;
+	}
+	data->maximum_count = (short)CONSOLE_BSWAP16(data->maximum_count);
+	data->size = (short)CONSOLE_BSWAP16(data->size);
+	data->signature = CONSOLE_BSWAP32(data->signature);
+	data->first_free_absolute_index = (short)CONSOLE_BSWAP16(data->first_free_absolute_index);
+	data->count = (short)CONSOLE_BSWAP16(data->count);
+	data->actual_count = (short)CONSOLE_BSWAP16(data->actual_count);
+	data->next_identifier = (short)CONSOLE_BSWAP16(data->next_identifier);
+	data->data = CONSOLE_BSWAP32(data->data);
+	node = (struct hs_syntax_node *)(data + 1);
+	for (node_index = 0;
+		node_index < data->maximum_count &&
+		(long)(sizeof(struct data_array) + (node_index + 1) * sizeof(struct hs_syntax_node)) <= size;
+		node_index++, node++)
+	{
+		node->datum_header = (short)CONSOLE_BSWAP16(node->datum_header);
+		node->index = (short)CONSOLE_BSWAP16(node->index);
+		node->type = (short)CONSOLE_BSWAP16(node->type);
+		node->flags = (short)CONSOLE_BSWAP16(node->flags);
+		node->next_node_index = CONSOLE_BSWAP32(node->next_node_index);
+		node->string_offset = CONSOLE_BSWAP32(node->string_offset);
+		node->data = CONSOLE_BSWAP32(node->data);
+	}
+
+	return;
+}
+#endif
+
 static boolean hs_scenario_syntax_data_valid(
 	struct scenario const *scenario)
 {
@@ -13228,6 +13275,9 @@ static boolean hs_scenario_syntax_data_valid(
 	{
 		return FALSE;
 	}
+#ifdef HALO_BIG_ENDIAN
+	hs_syntax_data_byte_swap((struct data_array *)address, scenario->hs_syntax_data.size);
+#endif
 
 #ifdef HALO_CUSTOM_EDITION
 	/* port: a Custom Edition or HaloMD map's array, which Halo PC's tools
@@ -13361,6 +13411,13 @@ static char const *const hs_globals_denied_to_downloaded_maps[]=
 (hs_scenario_functions_check) */
 static boolean hs_scenario_downloaded = FALSE;
 
+/* port: whether the map whose scripts are checked is a known map pack's own
+ui.map, played with game.pack_menus (port/linux/game/map_packs.c): its menus
+may switch levels with map_name, as the pack's own release's do (the bonus
+level its menu opens), which no other map's scripts may. What it names goes
+through main_set_map_name, a level only the pack has being the pack's */
+static boolean hs_scenario_pack_menus = FALSE;
+
 static boolean hs_name_listed(
 	char const *name,
 	char const *const *list)
@@ -13419,8 +13476,11 @@ static short hs_syntax_node_refusal(
 		return _hs_node_refusal_damaged;
 	function = hs_function_get(function_index);
 	*name = function->name;
-	if (!hs_function_allowed_in_maps[function_index])
+	if (!hs_function_allowed_in_maps[function_index] &&
+		!(hs_scenario_pack_menus && !csstrcmp(function->name, "map_name")))
+	{
 		return _hs_node_refusal_function;
+	}
 	if (hs_scenario_downloaded && hs_name_listed(function->name, hs_functions_denied_to_downloaded_maps))
 		return _hs_node_refusal_downloaded_function;
 
@@ -13535,14 +13595,25 @@ static boolean hs_root_type_valid(
 it links to twice, or a loop, is damaged), and the function or global it
 names. Each node is walked once, so the stack holds no more than the nodes
 there are */
+static long *hs_expression_refusal_stack = NULL;
+
 static short hs_expression_refusal(
 	long root_expression_index,
 	char const **name)
 {
-	static long stack[MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO+1];
 	long stack_count = 0;
+	long *stack = hs_expression_refusal_stack;
 
 	*name = NULL;
+	if (!stack)
+	{
+		/* (only a map whose nodes are not sound gets here: the stack, 74 KB on
+		the console, is made for the walk and given back by the check) */
+		stack = hs_expression_refusal_stack = (long *)debug_malloc(
+			sizeof(long) * (MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO+1), FALSE, "c:\\halo\\SOURCE\\hs\\hs.c", 13536);
+		if (!stack)
+			return _hs_node_refusal_damaged;
+	}
 	csmemset(hs_syntax_nodes_marked, 0, sizeof(hs_syntax_nodes_marked));
 	stack[stack_count++] = root_expression_index;
 	while (stack_count>0)
@@ -13615,6 +13686,15 @@ static void hs_scenario_functions_check(
 	hs_scenario_downloaded = map_is_downloaded(cache_file_loaded_map_name());
 	if (hs_scenario_downloaded)
 		error(_error_silent, "%s is a downloaded map: its scripts may call and set less", cache_file_loaded_map_name());
+#endif
+#ifdef HALO_MAP_LIST
+	{
+		boolean map_pack_menus_known(void);
+
+		hs_scenario_pack_menus = map_pack_menus_known() && !csstrcmp(cache_file_loaded_map_name(), "ui");
+		if (hs_scenario_pack_menus)
+			error(_error_silent, "ui is a known map pack's menus: its scripts may call map_name");
+	}
 #endif
 	csmemset(hs_syntax_nodes_marked, 0, sizeof(hs_syntax_nodes_marked));
 	for (script_index = 0; script_index<scenario->hs_scripts.count; script_index++)
@@ -13744,6 +13824,12 @@ static void hs_scenario_functions_check(
 			disabled_global_count);
 	}
 
+	if (hs_expression_refusal_stack)
+	{
+		debug_free(hs_expression_refusal_stack, "c:\\halo\\SOURCE\\hs\\hs.c", 13537);
+		hs_expression_refusal_stack = NULL;
+	}
+
 	return;
 }
 
@@ -13795,10 +13881,20 @@ static void hs_allocate(
 		error(0, "the scenario's script data is missing or damaged; its scripts won't run");
 	}
 
+#ifdef HALO_XBOX_CONSOLE
+	/* port: this stand-in runs no map scripts (they are disabled above),
+	only the console's expressions, so it is small: the full 19001 nodes
+	were 371 KB of a 64 MB Xbox's heap at the menu */
+	hs_syntax_data = data_new(
+		"script node",
+		HS_SYNTAX_STAND_IN_NODES,
+		sizeof(struct hs_syntax_node));
+#else
 	hs_syntax_data = data_new(
 		"script node",
 		MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO,
 		sizeof(struct hs_syntax_node));
+#endif
 	if (hs_syntax_data)
 	{
 		data_make_valid(hs_syntax_data);
@@ -15771,7 +15867,7 @@ boolean hs_scenario_postprocess(
 			MAXIMUM_HS_SCRIPTS_PER_SCENARIO);
 		hs_scenario_scripts_disable(scenario);
 	}
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 	hs_syntax_data = (struct data_array *)xbox_pointer(scenario->hs_syntax_data.address);
 	hs_syntax_data->data = xbox_address((char *)hs_syntax_data+sizeof(struct data_array));
 #else

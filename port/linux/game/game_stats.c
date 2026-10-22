@@ -87,7 +87,7 @@ enum
 	WEAPON_KEY_LENGTH = 64,
 };
 
-/* the medals, by the site's keys (halo.milenko.org's site.js, MEDALS) */
+/* the medals, by the site's keys (stats.chupathingy.org's site.js, MEDALS) */
 enum
 {
 	_medal_double_kill,

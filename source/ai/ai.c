@@ -1799,6 +1799,7 @@ void ai_disconnect_from_structure_bsp(
 			{
 				prop->body_location.cluster_index = NONE;
 				prop->body_location.leaf_index = NONE;
+				prop->body_location.bonus = NONE;
 				prop->pathfinding_surface_index = NONE;
 
 				prop = prop_iterator_next(&prop_iterator);

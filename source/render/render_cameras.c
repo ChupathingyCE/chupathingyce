@@ -1104,7 +1104,81 @@ void render_camera_mirror(
 	return;
 }
 
+static void render_camera_build_frustum_checked(
+	const struct render_camera *camera,
+	const real_rectangle2d *frustum_bounds,
+	struct render_frustum *frustum,
+	boolean build_projection);
+
+/* port: a real that is a number and not infinite */
+static boolean render_camera_real_finite(
+	real value)
+{
+	return value - value == 0.0f;
+}
+
+static boolean render_camera_vector_finite(
+	const real *v)
+{
+	return render_camera_real_finite(v[0]) && render_camera_real_finite(v[1]) &&
+		render_camera_real_finite(v[2]);
+}
+
+/* port: a camera whose planes, position, vectors or field of view are not
+numbers (a first menu frame on a console, NaN planes: the debug build halted
+at the frustum's asserts) is built as a camera with the game's own defaults
+in their place, said once; the frame is drawn, not lost */
 void render_camera_build_frustum(
+	const struct render_camera *camera,
+	const real_rectangle2d *frustum_bounds,
+	struct render_frustum *frustum,
+	boolean build_projection)
+{
+	if (!render_camera_real_finite(camera->z_near) || !render_camera_real_finite(camera->z_far) ||
+		!(camera->z_near >= 0.0f) || !(camera->z_far > camera->z_near) ||
+		!render_camera_real_finite(camera->vertical_field_of_view) ||
+		!(camera->vertical_field_of_view > _real_epsilon && camera->vertical_field_of_view < _pi - _real_epsilon) ||
+		!render_camera_vector_finite(&camera->position.x) ||
+		!render_camera_vector_finite(&camera->forward.i) ||
+		!render_camera_vector_finite(&camera->up.i))
+	{
+		static boolean reported = FALSE;
+		struct render_camera safe = *camera;
+
+		if (!reported)
+		{
+			reported = TRUE;
+			/* (in thousandths, whole numbers: a value that is not a number still prints) */
+			error(2, "### ERROR a camera is not numbers (near %ld far %ld fov %ld, x1000); built with the game's defaults",
+				(long)(camera->z_near * 1000.0f), (long)(camera->z_far * 1000.0f),
+				(long)(camera->vertical_field_of_view * 1000.0f));
+		}
+		if (!render_camera_real_finite(safe.z_near) || !(safe.z_near >= 0.0f) ||
+			!render_camera_real_finite(safe.z_far) || !(safe.z_far > safe.z_near))
+		{
+			safe.z_near = 0.0625f;
+			safe.z_far = 1024.0f;
+		}
+		if (!render_camera_real_finite(safe.vertical_field_of_view) ||
+			!(safe.vertical_field_of_view > _real_epsilon && safe.vertical_field_of_view < _pi - _real_epsilon))
+		{
+			safe.vertical_field_of_view = 1.2f;
+		}
+		if (!render_camera_vector_finite(&safe.position.x))
+			safe.position = *global_origin3d;
+		if (!render_camera_vector_finite(&safe.forward.i) || !render_camera_vector_finite(&safe.up.i))
+		{
+			safe.forward = *global_forward3d;
+			safe.up = *global_up3d;
+		}
+		render_camera_build_frustum_checked(&safe, frustum_bounds, frustum, build_projection);
+
+		return;
+	}
+	render_camera_build_frustum_checked(camera, frustum_bounds, frustum, build_projection);
+}
+
+static void render_camera_build_frustum_checked(
 	const struct render_camera *camera,
 	const real_rectangle2d *frustum_bounds,
 	struct render_frustum *frustum,

@@ -187,7 +187,9 @@ enum
 	SERVER_GAMETYPE_RACE_TEAM_SCORING,
 
 	SERVER_GAMETYPE_FIELDS,
-	/* a side's vehicles, "custom": their counts */
+	/* a side's vehicles, "pc": every one the map places, as Halo PC places
+	them (game_engine.h's VARIANT_VEHICLE_SET_PC); "custom": their counts */
+	SERVER_VEHICLES_PC = 0xFE,
 	SERVER_VEHICLES_CUSTOM = 0xFF,
 	/* a vehicle's count on a side, at most (game_engine.h's) */
 	SERVER_VEHICLES_MAXIMUM = 4,
@@ -280,6 +282,11 @@ enum
 	a change, while balanced */
 	SERVER_SETTING_TEAM_CHANGE,
 	SERVER_SETTING_TEAM_CHANGE_MARGIN,
+	/* the playlist's order shuffled each time it starts over */
+	SERVER_SETTING_PLAYLIST_SHUFFLE,
+	/* whether OpenCE players chat too (their own text chat, bridged), while
+	the chat is on */
+	SERVER_SETTING_CHAT_LEGACY,
 	SERVER_SETTINGS,
 	/* a game's players, at most (halo_port_limits.h's) */
 	SERVER_SETTINGS_MAXIMUM_PLAYERS = 128,

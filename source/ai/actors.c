@@ -1203,6 +1203,7 @@ void actor_flush_structure_indices(
 
 	actor->input.position.body_location.cluster_index = NONE;
 	actor->input.position.body_location.leaf_index = NONE;
+	actor->input.position.body_location.bonus = NONE;
 	actor->input.pathfinding_surface_index = NONE;
 	actor->stimuli.combat_transition_guard_point_surface_index = NONE;
 
@@ -1721,7 +1722,7 @@ static void actor_input_update(
 		if (actor->meta.encounter_index != NONE)
 		{
 			struct actor_debug_info *actor_debug_info =
-				&actor_debug_array[DATUM_INDEX_TO_ABSOLUTE_INDEX(actor_index)];
+				ACTOR_DEBUG_INFO_GET(actor_index);
 			struct encounter_definition *encounter_definition =
 				TAG_BLOCK_GET_ELEMENT(
 					&global_scenario_get()->ai_encounters,
@@ -2366,7 +2367,7 @@ long actor_new(
 				actor->firing_positions.pursuit_prop_index = NONE;
 
 				actor_debug_info =
-					&actor_debug_array[DATUM_INDEX_TO_ABSOLUTE_INDEX(actor_index)];
+					ACTOR_DEBUG_INFO_GET(actor_index);
 				csmemset(actor_debug_info, 0, sizeof(*actor_debug_info));
 				actor_debug_info->last_path_refresh = NONE;
 				actor_debug_info->last_projectile_aiming_time = NONE;

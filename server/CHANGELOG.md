@@ -6,6 +6,13 @@ release notes.
 
 ## Unreleased
 
+- Xbox map packs: each pack's maps in its own `maps_<pack>` folder of the
+  data folder (Halo CE+'s in `maps_cex`), named `<name>@<pack>` in
+  playlists, `sv_map` and `sv_maps` (`wizard@cex`); `/v1/maps` adds
+  `map_packs` (each pack map's name, pack and tag). The listing names a
+  pack's map ("Gothra", Halo CE+) for players without it. Deploy: a CE+
+  server needs the pack's `maps` folder copied to `data/maps_cex` and a
+  playlist naming `@cex` maps; nothing changes for the other servers.
 - Network versions 30, 31 and 32. Announces 32 and joins as a client hosts
   of 11 through 33. Redeploy: a legacy table can't follow this one (wire
   `chupa-32a`).

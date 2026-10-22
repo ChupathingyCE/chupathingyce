@@ -55,7 +55,7 @@ static void print_usage(FILE *stream)
 	fprintf(stream,
 		"Usage: HALO_DEDICATED=playlists/<name>.txt chupathingyce-server\n"
 		"\n"
-		"Hosts system link games from a playlist, listed on halo.milenko.org and in\n"
+		"Hosts system link games from a playlist, listed on stats.chupathingy.org and in\n"
 		"the in-game Server Browser. The data folder (HALO_DATA_ROOT, else the\n"
 		"current folder or the program's) holds maps/ (ui.map and the multiplayer\n"
 		"maps) and the playlist.\n"

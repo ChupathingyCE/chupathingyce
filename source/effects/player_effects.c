@@ -759,10 +759,12 @@ void player_effect_get_screen_flash(
 			screen_flash->type = _render_screen_flash_type_lighten;
 			screen_flash->color.rgb = player_effect_globals->screen_fade.color;
 			screen_flash->color.alpha = 1.0f;
+			/* port: faded by the frame, not the tick
+			(port/linux/game/render_interpolation.c) */
 			screen_flash->intensity = player_effect_globals->screen_fade.ticks > 0
 				? transition_function_evaluate(
 					_transition_function_cosine,
-					PIN((real)(game_time_get() - player_effect_globals->screen_fade.start_time) / player_effect_globals->screen_fade.ticks, 0.0f, 1.0f))
+					PIN(render_interpolation_ticks_since(game_time_get(), player_effect_globals->screen_fade.start_time) / player_effect_globals->screen_fade.ticks, 0.0f, 1.0f))
 				: 1.0f;
 
 			if (!player_effect_globals->screen_fade.fading_out)
@@ -789,9 +791,23 @@ void player_effect_get_screen_flash(
 				screen_flash->type = render_screen_flash_type_map[flash->type];
 				screen_flash->color = flash->screen_flash_color;
 				if (flash->duration > 0.0f)
+				{
+					real time_left = (real)effect->screen_flash_time_left;
+
+					/* port: between ticks, the time left at the frame
+					drawn: the ticks this frame ran come off below, after
+					it is drawn (port/linux/game/render_interpolation.c) */
+					if (render_interpolation_drawing() && time_left > 0.0f)
+					{
+						time_left = PIN(
+							time_left - game_time_get_elapsed() + 1.0f - render_interpolation_fraction(),
+							0.0f,
+							time_left);
+					}
 					screen_flash->intensity = transition_function_evaluate(
 						flash->fade_function,
-						flash->zero_scale_factor * ((real)effect->screen_flash_time_left / flash->duration));
+						flash->zero_scale_factor * (time_left / flash->duration));
+				}
 				else
 					screen_flash->intensity = flash->zero_scale_factor;
 
@@ -890,6 +906,7 @@ void player_effect_get_camera_effect_matrix(
 
 	if (local_player_index != NONE)
 	{
+#ifndef HALO_XBOX_CONSOLE
 		/* The camera is drawn every frame, several frames per tick on the
 		native builds (port/linux/game/render_interpolation.c), and each draw
 		shook it in a new random direction: shake once a tick, as on the
@@ -904,6 +921,7 @@ void player_effect_get_camera_effect_matrix(
 		tick_seed *= 0x7FEB352DUL;
 		tick_seed ^= tick_seed >> 15;
 		*local_seed = tick_seed;
+#endif
 		game_time_get();
 
 		if (TEST_FLAG(player_effect_globals->global_flags, _scripted_player_effect_active_bit))
@@ -1098,11 +1116,15 @@ void player_effect_get_camera_effect_matrix(
 					continuous->vibrate_frequencies[0],
 					continuous->vibrate_frequencies[1]);
 
+#ifndef HALO_XBOX_CONSOLE
 				/* Looping sounds add their continuous shake once a frame
 				(game_sound.c), so it is used up once a frame too: a frame that
 				runs no tick (port/linux/game/render_interpolation.c) must not
 				keep it and have the next frame's shake added on top. */
 				effect->continuous_effect_timer = 1;
+#else
+				effect->continuous_effect_timer += game_time_get_elapsed();
+#endif
 
 				if (effect->continuous_effect_timer > 0)
 				{
@@ -1120,7 +1142,9 @@ void player_effect_get_camera_effect_matrix(
 				matrix4x3_multiply(matrix, &effect_matrix, matrix);
 			}
 		}
+#ifndef HALO_XBOX_CONSOLE
 		*local_seed = saved_local_seed;
+#endif
 	}
 
 	return;

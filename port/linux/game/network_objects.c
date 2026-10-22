@@ -65,6 +65,9 @@ same datum index (identifier and all), so that any message can name one:
 #include "cutscene/cinematics.h"
 #include "network_coop.h"
 #include "network_distributed.h"
+#ifdef HALO_PORT_CONSOLE_LIMITS
+#include "cseries/errors.h"
+#endif
 
 #include <math.h>
 
@@ -485,6 +488,52 @@ static struct
 	long create_failures;
 	long own_objects_removed;
 } objects_statistics;
+
+#ifdef HALO_PORT_CONSOLE_LIMITS
+/* port: the console's limits (halo_port_limits.h): the host's object
+indices this machine was told of, against its smaller object array. A PC
+host's indices run to 8,192: one at LOCAL_OBJECTS_FIRST_INDEX or above
+takes the place of this machine's own (a projectile, an effect), one past
+MAXIMUM_TRACKED_OBJECTS is not made here at all (docs/cross-play.md, "Object
+slots"). Logged as the highest grows past each 256, and for each game */
+static struct
+{
+	long highest;
+	long logged_highest;
+	long in_own_half;
+	long past_capacity;
+} objects_cross_play;
+
+static void objects_cross_play_host_index(
+	long absolute_index)
+{
+	if (absolute_index >= MAXIMUM_TRACKED_OBJECTS)
+		objects_cross_play.past_capacity++;
+	else if (absolute_index >= LOCAL_OBJECTS_FIRST_INDEX)
+		objects_cross_play.in_own_half++;
+	if (absolute_index <= objects_cross_play.highest)
+		return;
+	objects_cross_play.highest = absolute_index;
+	if (absolute_index / 256 > objects_cross_play.logged_highest / 256)
+	{
+		objects_cross_play.logged_highest = absolute_index;
+		error(3, "cross-play: the host's objects reach index %ld (this build: its own from %d, %d in all)",
+			absolute_index, (int)LOCAL_OBJECTS_FIRST_INDEX, (int)MAXIMUM_TRACKED_OBJECTS);
+	}
+}
+
+static void objects_cross_play_new_game(
+	void)
+{
+	if (objects_cross_play.highest > 0)
+	{
+		error(3, "cross-play: last game's host objects: highest index %ld, %ld creates in this build's own half, %ld past its %d; %ld made, %ld failed",
+			objects_cross_play.highest, objects_cross_play.in_own_half, objects_cross_play.past_capacity,
+			(int)MAXIMUM_TRACKED_OBJECTS, objects_statistics.creates, objects_statistics.create_failures);
+	}
+	csmemset(&objects_cross_play, 0, sizeof(objects_cross_play));
+}
+#endif
 
 void network_distributed_item_statistics(
 	long *creates,
@@ -2404,6 +2453,10 @@ void network_objects_handle_changes(
 		struct distributed_object_change const *change = &changes[index];
 		long absolute_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(change->object_index);
 
+#ifdef HALO_PORT_CONSOLE_LIMITS
+		if (change->change == _object_change_create && change->object_index != NONE && absolute_index >= 0)
+			objects_cross_play_host_index(absolute_index);
+#endif
 		if (!distributed_object_index_valid(change->object_index) ||
 			absolute_index < 0 || absolute_index >= MAXIMUM_TRACKED_OBJECTS)
 		{
@@ -3223,6 +3276,9 @@ void network_objects_new_game(
 	short local_player_index;
 	short index;
 
+#ifdef HALO_PORT_CONSOLE_LIMITS
+	objects_cross_play_new_game();
+#endif
 	csmemset(objects_host_inventories, 0, sizeof(objects_host_inventories));
 	host_damage_animation_count = 0;
 	csmemset(client_damage_animations, 0, sizeof(client_damage_animations));

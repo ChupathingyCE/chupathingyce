@@ -112,13 +112,18 @@ symbols in this file:
 #include "saved games/game_state.h"
 #include "rasterizer/rasterizer_console_vars.h"
 #include "rasterizer/rasterizer_model_types.h"
+#include "halo_perf_log.h" /* port: console.perf_log */
 
 /* ---------- constants */
 
 enum
 {
+#ifndef HALO_XBOX_CONSOLE
 	/* the native builds' larger render state cache (halo_port_capacity.h) */
 	MAXIMUM_CACHED_OBJECT_RENDER_STATES = HALO_PORT_MAXIMUM_CACHED_OBJECT_RENDER_STATES,
+#else
+	MAXIMUM_CACHED_OBJECT_RENDER_STATES = 256,
+#endif
 	NUMBER_OF_SHADOW_VOLUME_PLANES = 6,
 	MAXIMUM_OBJECT_RENDER_STATE_AGE = 1000,
 	OBJECT_RENDER_STATE_LARGE_INTERVAL = 3,
@@ -198,9 +203,14 @@ typedef char object_render_data_size_assert[
 #endif
 typedef char object_render_state_size_assert[
 	sizeof(struct object_render_state) == 0x100 ? 1 : -1];
+#ifndef HALO_XBOX_CONSOLE
 /* the native builds render up to MAXIMUM_RENDERED_OBJECTS (objects.h) */
 typedef char render_object_globals_size_assert[
 	sizeof(struct render_object_globals) == 4 + MAXIMUM_RENDERED_OBJECTS * sizeof(long) ? 1 : -1];
+#else
+typedef char render_object_globals_size_assert[
+	sizeof(struct render_object_globals) == 0x404 ? 1 : -1];
+#endif
 
 /* ---------- prototypes */
 
@@ -349,6 +359,7 @@ void render_objects(
 
 	rasterizer_models_begin(FALSE);
 	find_rendered_objects();
+	HALO_PERF_COUNT(_halo_perf_objects, render_object_globals.rendered_object_count);
 
 	data.shadow = FALSE;
 
@@ -525,7 +536,7 @@ static void render_object_list(
 							model_effect.modifier_animation.colors =
 								object->object.outgoing_change_colors;
 							model_effect.modifier_animation.values =
-								object->object.outgoing_function_values;
+								object_get_function_values(object_index);
 						}
 						else
 						{
@@ -607,7 +618,7 @@ static void render_object_list(
 						object_get_node_matrices(object_index),
 						object->object.region_permutations,
 						object->object.outgoing_change_colors,
-						object->object.outgoing_function_values,
+						object_get_function_values(object_index),
 						data->lighting,
 						&object->object.bounding_sphere_center,
 						object->object.bounding_sphere_radius,
@@ -629,7 +640,7 @@ static void render_object_list(
 						object_get_node_matrices(object_index),
 						object->object.region_permutations,
 						object->object.outgoing_change_colors,
-						object->object.outgoing_function_values,
+						object_get_function_values(object_index),
 						data->lighting,
 						&object->object.bounding_sphere_center,
 						object->object.bounding_sphere_radius,
@@ -645,7 +656,7 @@ static void render_object_list(
 				struct render_animation animation;
 
 				animation.colors = object->object.outgoing_change_colors;
-				animation.values = object->object.outgoing_function_values;
+				animation.values = object_get_function_values(object_index);
 				widgets_render(object_index, data->lighting, &animation);
 			}
 
@@ -889,11 +900,15 @@ static void object_render_state_refresh(
 	struct object_render_state *state = object_render_state_get(render_state_index);
 	long scene_age = render.scene_index - state->render_scene_index;
 	long render_age = render.frame_index - state->render_frame_index;
+#ifndef HALO_XBOX_CONSOLE
 	/* The native builds draw several frames per tick
 	(port/linux/game/render_interpolation.c), and a refresh moves the lighting
 	a fixed step toward its target: refresh at the intervals in ticks the
 	Xbox refreshed at in frames, so lighting changes as fast as it did. */
 	long refresh_age = game_time_get() - state->refresh_frame_index;
+#else
+	long refresh_age = render.frame_index - state->refresh_frame_index;
+#endif
 	boolean refresh = FALSE;
 
 	if (refresh_age < 0 || scene_age < 0)
@@ -932,7 +947,11 @@ static void object_render_state_refresh(
 		state->object_index = object_index;
 		lights_prepare_for_object_static(object_index, &state->desired_lighting);
 		state->level_of_detail_pixels = level_of_detail_pixels;
+#ifndef HALO_XBOX_CONSOLE
 		state->refresh_frame_index = game_time_get();
+#else
+		state->refresh_frame_index = render.frame_index;
+#endif
 	}
 
 	if (rebuild || scene_age > 0)
