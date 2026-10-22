@@ -1498,10 +1498,9 @@ the list moved down; on a custom map's, what is below the list moves down. */
 /* (the Chupathingy menus': their own, in the Xbox's look) */
 #define PAUSE_SETTINGS_SCREEN_CHUPATHINGY "chupathingy/settings/profile_edit_screen"
 /* CONTROLS': Controls Setup (tools/port_settings.py's CONTROLS_SCREEN), the
-Gearbox and Chupathingy menus' own */
+Gearbox menus' own */
 #define PAUSE_CONTROLS_SCREEN \
 	"main_menu/settings_select/player_setup/player_profile_edit/controls_setup/controls_settings_screen"
-#define PAUSE_CONTROLS_SCREEN_CHUPATHINGY "chupathingy/settings/controls_setup_screen"
 #define PAUSE_BUTTON_SPACING 35
 
 /* display.menus: the Xbox's menus, Gearbox's Halo PC menus, or Chupathingy's (the
@@ -1624,11 +1623,12 @@ static void *pause_button(struct cache_file_tag_instance *instances, struct ui_w
 }
 
 /* whether the pause menus have CONTROLS (Controls Setup, or the Xbox
-menus' Controls screen: controls_screen.c), as display.pause_controls says */
+menus' Controls screen: controls_screen.c), as display.pause_controls says;
+the Chupathingy menus' never have it (their SETTINGS opens Controls) */
 static boolean pause_controls_offered(void)
 {
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_CONTROLS)
-	return config_boolean("display.pause_controls") != 0;
+	return menus_chosen() != _menus_chupathingy && config_boolean("display.pause_controls") != 0;
 #else
 	return FALSE;
 #endif
@@ -1645,8 +1645,7 @@ static short pause_list_patch(struct cache_file_tag_instance *instances, struct 
 	long count = list->child_widgets.count, child;
 	boolean controls = pause_controls_offered();
 	/* (the Xbox's menus have none of ours: the Controls screen, by code) */
-	long controls_widget = !controls || !build.menus ? NONE :
-		widget_named(menus_chosen() == _menus_chupathingy ? PAUSE_CONTROLS_SCREEN_CHUPATHINGY : PAUSE_CONTROLS_SCREEN);
+	long controls_widget = !controls || !build.menus ? NONE : widget_named(PAUSE_CONTROLS_SCREEN);
 	long added = (change_teams != FALSE) + (settings != FALSE) + (controls != FALSE) + (end_game != FALSE);
 	struct ui_widget_child_reference *grown = allocate((count + added) * sizeof(struct ui_widget_child_reference));
 	struct ui_widget_definition const *model = tag_get(UI_WIDGET_DEFINITION_TAG, children[resume].widget_tag.index);
