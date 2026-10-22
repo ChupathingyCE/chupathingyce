@@ -185,6 +185,9 @@ enum effect_flags
 	_effect_invisible_bit,
 	_effect_delete_on_stop_bit,
 	_effect_nonviolent_bit,
+	/* port: drawn, with its sounds and lights, but dealing no damage
+	(effects_port_harmless) */
+	_effect_port_harmless_bit,
 	NUMBER_OF_EFFECT_FLAGS
 };
 
@@ -608,6 +611,10 @@ struct data_array *effect_location_data;
 boolean effects_corpse_nonviolent = TRUE;
 
 boolean debug_effects_nonviolent = FALSE;
+
+/* port: the effects made while it is set deal no damage (Bomb's goal blast
+draws grenade explosions, its damage its own: game_engine_bomb.c) */
+boolean effects_port_harmless = FALSE;
 
 /* the effect marker list the effect_new_*_from_markers entry points hand to
 effect_marker_list_get_markers_by_name (January's own name for this static is unrecovered) */
@@ -1562,6 +1569,8 @@ static long effect_allocate(
 				effect->owner_object_index = owner_object_index;
 				effect->local_player_index = NONE;
 				effect->header.flags = 0;
+				if (effects_port_harmless)
+					SET_FLAG(effect->header.flags, _effect_port_harmless_bit, TRUE);
 
 				effect_set_event(effect_index, 0);
 			}
@@ -1759,6 +1768,8 @@ static void effect_generate_part(
 			struct object_datum *owner =
 				object_try_and_get(effect->owner_object_index);
 
+			if (TEST_FLAG(effect->header.flags, _effect_port_harmless_bit))
+				break;
 			damage_data_new(&damage, part_definition->reference.index);
 
 			if (owner)

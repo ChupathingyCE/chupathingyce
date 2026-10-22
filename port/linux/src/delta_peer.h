@@ -91,6 +91,8 @@ enum
 	/* the game's map (MAP) is sent to a client at once when it changes, and
 	again this often (a datagram lost) */
 	DELTA_PEER_MAP_INTERVAL = 5000,
+	/* ... and the game's player traits (TRAITS) the same way */
+	DELTA_PEER_TRAITS_INTERVAL = 5000,
 
 	/* moderation (milliseconds where a time): the host takes MOD_ACTION
 	from a machine at most this often (and at once); checks a machine's
@@ -394,6 +396,9 @@ struct delta_peer_host_peer
 	none), and when */
 	delta_u32 map_sent_generation;
 	delta_u32 map_time;
+	/* the game's traits as last sent to it (traits_generation), and when */
+	delta_u32 traits_sent_generation;
+	delta_u32 traits_time;
 	struct delta_peer_host_moderation moderation;
 	struct delta_peer_host_chat chat;
 	/* team changes: the last TEAM_REQUEST's sequence, and their rate */
@@ -449,6 +454,16 @@ struct delta_peer
 	changes (0: none set) */
 	struct delta_wire_map map;
 	delta_u32 map_generation;
+	/* the game's player traits (delta_peer_set_traits), and a number raised
+	each time they change (0: none set) */
+	struct delta_wire_traits traits;
+	delta_u32 traits_generation;
+	/* each game machine's address and when the host first saw it in the
+	game with it (0 address: not in the game): its handshake's window starts
+	there (delta_peer_machine_lacks) */
+	delta_u32 machine_seen_ipv4[DELTA_PEER_MAXIMUM_MACHINES];
+	delta_u32 machine_seen_time[DELTA_PEER_MAXIMUM_MACHINES];
+	unsigned char machine_seen[DELTA_PEER_MAXIMUM_MACHINES];
 
 	/* the client's */
 	int client_state;
@@ -466,6 +481,10 @@ struct delta_peer
 	none heard) */
 	struct delta_wire_map host_map;
 	delta_u32 host_map_generation;
+	/* the host's traits (TRAITS), and a number raised each time they change
+	(0: none heard) */
+	struct delta_wire_traits host_traits;
+	delta_u32 host_traits_generation;
 
 	/* both: the legacy table relayed; this machine's signed table as it
 	goes out (its serial: 0 not read yet), and one coming in */
@@ -545,6 +564,26 @@ void delta_peer_set_map(struct delta_peer *peer, const struct delta_wire_map *ma
 each time it changed (0 if none heard: a host without Delta, or that did not
 agree to ce_maps) */
 delta_u32 delta_peer_host_map(const struct delta_peer *peer, struct delta_wire_map *map);
+
+/* the host's: the game's player traits, sent to each client that agreed to
+bomb (NULL: none, nothing sent). Called each frame; traits the same as the
+last change nothing */
+void delta_peer_set_traits(struct delta_peer *peer, const struct delta_wire_traits *traits);
+/* the client's: the host's traits as TRAITS said them last, and the number
+raised each time they changed (0 if none heard) */
+delta_u32 delta_peer_host_traits(const struct delta_peer *peer, struct delta_wire_traits *traits);
+/* the host's: whether a machine of its game lacks a capability: it speaks
+Delta and did not agree to it (at once), or it has said nothing for the
+handshake's window (DELTA_PEER_HANDSHAKE_TIME) since the host first saw it
+in the game (an OpenCE machine, one of another major, or one whose Delta
+cannot reach the host). 0 for one that has it, one still in its window, the
+host's own, or a machine not in the game; a capability this host does not
+offer itself is lacked by every other machine */
+int delta_peer_machine_lacks(const struct delta_peer *peer, delta_u32 now, int machine_index, int capability);
+/* ... and whether one is still in its window: in the game, not the host's,
+no session yet and its window not over (a game that needs the capability
+waits for it) */
+int delta_peer_machine_pending(const struct delta_peer *peer, delta_u32 now, int machine_index);
 
 /* ---------- moderation (docs/delta.md, Moderation)
 
@@ -731,6 +770,21 @@ int delta_peer_machine_profile(int machine_index, unsigned char *player_id, delt
 /* a player's machine's profile claim, while the machine has that one player
 alone: its player ID (DELTA_WIRE_PLAYER_ID_SIZE bytes) */
 int delta_peer_player_profile(int player_index, unsigned char *player_id);
+/* Bomb game types (docs/bomb.md): the host's game's player traits, sent to
+the clients that agreed to bomb (NULL: none: the game is no Bomb game
+type); the client's: the host's traits, and the number raised each time
+they changed (0: none heard, or not a client); whether a machine of the
+hosted game lacks a capability (delta_peer_machine_lacks: every other
+machine does while this host has no Delta), and whether it is still in its
+handshake's window */
+void delta_peer_game_set_traits(const struct delta_wire_traits *traits);
+delta_u32 delta_peer_game_host_traits(struct delta_wire_traits *traits);
+int delta_peer_game_machine_lacks(int machine_index, int capability);
+/* whether a player's machine agreed to a capability with the host, as this
+machine knows it (its own, the host's, the roster's); none for a player
+without one */
+int delta_peer_game_player_has(int player_index, int capability);
+int delta_peer_game_machine_pending(int machine_index);
 /* the game's room: delta_peer_room_has and _room_limit of the session */
 int delta_peer_game_room_has(int capability);
 int delta_peer_game_room_limit(int limit);

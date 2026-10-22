@@ -239,6 +239,43 @@ static struct playlist_profile_data playlist_profile_default_data =
 	TRUE
 };
 
+#ifdef HALO_GAME_BROWSER
+/* port: the port's own built-in gametypes, after the map's 26 (their names
+are the port's: the map's string list has none) */
+static struct
+{
+	struct game_variant *(*build)(struct game_variant *variant);
+	wchar_t const *name;
+} const playlist_profile_port_defaults[] =
+{
+	{ build_game_variant_bomb, L"Bomb" },
+	{ build_game_variant_grifball, L"Grifball" },
+	{ build_game_variant_grifball_open_pitch, L"Open Pitch" },
+};
+#define NUMBER_OF_PORT_DEFAULT_PLAYLIST_PROFILES \
+	(short)(sizeof(playlist_profile_port_defaults) / sizeof(playlist_profile_port_defaults[0]))
+#else
+#define NUMBER_OF_PORT_DEFAULT_PLAYLIST_PROFILES 0
+#endif
+
+/* port: a default gametype's name: the map's string list's, else the
+port's own (NULL for none) */
+wchar_t const *playlist_profile_default_name(
+	short profile_index,
+	long string_list_index)
+{
+#ifdef HALO_GAME_BROWSER
+	if (profile_index >= NUMBER_OF_DEFAULT_PLAYLIST_PROFILES &&
+		profile_index < NUMBER_OF_DEFAULT_PLAYLIST_PROFILES + NUMBER_OF_PORT_DEFAULT_PLAYLIST_PROFILES)
+	{
+		return playlist_profile_port_defaults[profile_index - NUMBER_OF_DEFAULT_PLAYLIST_PROFILES].name;
+	}
+#endif
+	if (profile_index < 0 || profile_index >= NUMBER_OF_DEFAULT_PLAYLIST_PROFILES || string_list_index == NONE)
+		return NULL;
+	return unicode_string_list_get_string(string_list_index, profile_index);
+}
+
 /* ---------- public code */
 
 void playlist_profiles_initialize(
@@ -602,18 +639,24 @@ static void playlist_profile_create_default_profiles_on_disk(
 		long profile_index;
 
 		for (profile_index = 0;
-			profile_index < NUMBER_OF_DEFAULT_PLAYLIST_PROFILES;
+			profile_index < NUMBER_OF_DEFAULT_PLAYLIST_PROFILES + NUMBER_OF_PORT_DEFAULT_PLAYLIST_PROFILES;
 			profile_index++)
 		{
-			wchar_t *display_name;
+			wchar_t const *display_name;
 			boolean file_written = FALSE;
 
+#ifdef HALO_GAME_BROWSER
+			if (profile_index >= NUMBER_OF_DEFAULT_PLAYLIST_PROFILES)
+			{
+				variant = *playlist_profile_port_defaults[profile_index - NUMBER_OF_DEFAULT_PLAYLIST_PROFILES].build(
+					&temporary);
+			}
+			else
+#endif
 			variant = *playlist_profile_default_data.default_variant_building_functions[
 				profile_index](&temporary);
 
-			display_name = unicode_string_list_get_string(
-				string_list_index,
-				(short)profile_index);
+			display_name = playlist_profile_default_name((short)profile_index, string_list_index);
 
 			/* port: cleared, so the bytes past the checksum are the same
 			every start (they were stack leftovers) */

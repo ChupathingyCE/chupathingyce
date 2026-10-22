@@ -94,18 +94,22 @@ enum delta_capability
 	from their player key, and kicks and bans from the game
 	(docs/delta.md, Moderation) */
 	_delta_capability_moderation = 10,
-	/* a host answers Online Games' pings before joining (p2p_probe.c):
-	announced on Delta List only, never offered in a HELLO or WELCOME
-	(docs/delta.md, Pings before joining) */
 	/* Bomb game types (Bomb, Grifball: docs/bomb.md) and their player traits
 	(TRAITS). Room-wide: a host plays a Bomb game type only with machines
 	that agreed to it, and drops any other (delta_peer_machine_lacks) */
 	_delta_capability_bomb = 11,
+	/* a host answers Online Games' pings before joining (p2p_probe.c):
+	announced on Delta List only, never offered in a HELLO or WELCOME
+	(docs/delta.md, Pings before joining) */
 	_delta_capability_ping = 12,
-	/* taken by the Bomb builds (Grifball: docs/bomb.md): TRAITS' movement and
-	melee traits, and TRAITS at its own number (22). Never set by this
-	build */
+	/* TRAITS' movement and melee traits (jump, gravity, melee reach): a
+	player has them only while its machine and the host both agreed to it,
+	so that each machine moves and strikes as the host has it, and an
+	earlier build's players play as they always did */
 	_delta_capability_bomb_movement = 13,
+	/* TRAITS at its own number (22): Grifball test builds 2 and 3 sent it
+	as 18, chat's CHAT_CONFIG. Room-wide with bomb: a host plays a Bomb game
+	type only with machines that agreed to both, and drops any other */
 	_delta_capability_bomb_traits = 14,
 	/* changing teams during a game (docs/delta.md, Team changes): a client
 	asks its host (TEAM_REQUEST), the host decides and answers

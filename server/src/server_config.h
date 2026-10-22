@@ -53,6 +53,9 @@ enum
 	SERVER_ENGINE_ODDBALL,
 	SERVER_ENGINE_KING,
 	SERVER_ENGINE_RACE,
+	/* Bomb and Grifball (game_engine_bomb.c): played only with clients that
+	have Delta Peer's bomb capability; the server drops any other */
+	SERVER_ENGINE_BOMB,
 };
 
 struct server_builtin
@@ -185,6 +188,13 @@ enum
 
 	SERVER_GAMETYPE_RACE_TYPE,
 	SERVER_GAMETYPE_RACE_TEAM_SCORING,
+
+	SERVER_GAMETYPE_BOMB_ARM_TIME,
+	SERVER_GAMETYPE_BOMB_RESET_TIME,
+	SERVER_GAMETYPE_BOMB_ROUND_TIME,
+	SERVER_GAMETYPE_BOMB_NEW_ROUND_ON_SCORE,
+	SERVER_GAMETYPE_BOMB_MELEE_ONLY,
+	SERVER_GAMETYPE_BOMB_TRAITS,
 
 	SERVER_GAMETYPE_FIELDS,
 	/* a side's vehicles, "pc": every one the map places, as Halo PC places
