@@ -65,8 +65,18 @@ int CloseHandle(HANDLE handle);
 # (Win32 over POSIX: d:\ is HARNESS_ROOT, backslashes slashes)
 STUBS = r"""
 #include <dirent.h>
-#include <fnmatch.h>
 #include <sys/stat.h>
+/* (a pattern of one '*', any case: "*.map", "maps_*") */
+static int harness_match(const char *pattern, const char *name)
+{
+	const char *star = strchr(pattern, '*');
+	size_t prefix = star ? (size_t)(star - pattern) : strlen(pattern), suffix = star ? strlen(star + 1) : 0;
+	size_t length = strlen(name);
+	if (!star)
+		return !strcasecmp(pattern, name);
+	return length >= prefix + suffix && !strncasecmp(name, pattern, prefix) &&
+		!strcasecmp(name + length - suffix, star + 1);
+}
 struct harness_find { DIR *directory; char pattern[256]; char folder[1024]; };
 static struct harness_find *finds[64];
 static void harness_path(char const *game, char *path, size_t size)
@@ -128,7 +138,7 @@ static int harness_find_next(struct harness_find *find, WIN32_FIND_DATAA *data)
 	{
 		char path[1300];
 		struct stat status;
-		if (fnmatch(find->pattern, entry->d_name, FNM_CASEFOLD))
+		if (!harness_match(find->pattern, entry->d_name))
 			continue;
 		snprintf(path, sizeof(path), "%s/%s", find->folder, entry->d_name);
 		stat(path, &status);
