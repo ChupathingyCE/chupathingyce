@@ -1777,6 +1777,29 @@ static long pause_box_part(struct cache_file_tag_instance *instances, long piece
 	return widget_tag;
 }
 
+/* the stock box's pieces cut to end where the next begins: the campaign's
+pause screen places pausebox2_right 8 units into pausebox2_left_center
+(the multiplayer maps' place them edge to edge), and the box's middle,
+drawn twice there, showed as a lighter bar down its right side */
+static void pause_box_trim(struct ui_widget_definition const *box)
+{
+	struct ui_widget_child_reference const *pieces = xbox_pointer(box->child_widgets.address);
+	long piece;
+
+	for (piece = 0; piece + 1 < box->child_widgets.count; piece++)
+	{
+		struct ui_widget_definition *definition;
+		short end;
+
+		if (pieces[piece].widget_tag.index == NONE || pieces[piece + 1].widget_tag.index == NONE)
+			continue;
+		definition = tag_get(UI_WIDGET_DEFINITION_TAG, pieces[piece].widget_tag.index);
+		end = (short)(pieces[piece + 1].horizontal_offset - pieces[piece].horizontal_offset);
+		if (end > definition->bounds.x0 && end < definition->bounds.x1)
+			definition->bounds.x1 = end;
+	}
+}
+
 static void pause_box_grow(struct cache_file_tag_instance *instances, struct ui_widget_definition *box, short grow)
 {
 	struct ui_widget_child_reference *pieces = xbox_pointer(box->child_widgets.address);
@@ -1916,6 +1939,8 @@ static void pause_screen_patch(struct cache_file_tag_instance *instances, long s
 	}
 	if (box_child != NONE && !*box_grown)
 	{
+		/* (trimmed first: the box's taller parts are copies of its pieces) */
+		pause_box_trim(tag_get(UI_WIDGET_DEFINITION_TAG, children[box_child].widget_tag.index));
 		pause_box_grow(instances, tag_get(UI_WIDGET_DEFINITION_TAG, children[box_child].widget_tag.index), *grow);
 		*box_grown = TRUE;
 	}
