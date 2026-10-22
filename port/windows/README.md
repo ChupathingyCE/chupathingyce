@@ -218,7 +218,8 @@ argument to a function of the C runtime.
 
 ## Limits
 
-- Bink video is not available on this build. The game skips the movies.
+- Bink video is not available on this build yet (its FFmpeg has to be built
+  with the build's own MSVC-target toolchain). The game skips the movies.
   The disc extraction at the first start still copies the disc's `bink/`
   movies (only the ones that are missing) next to `maps\`.
 - The game uses only the ANSI file functions. A path to the data or the
