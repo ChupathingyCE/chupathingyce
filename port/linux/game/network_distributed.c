@@ -5461,9 +5461,9 @@ long network_wire_self_test(
 					type == _distributed_message_relayed_actions)
 				{
 					/* (packed: taken and packed again, as the PC's) */
-					byte const *cursor = wire + sizeof(message_header) + sizeof(struct distributed_message_header);
+					byte const *cursor = wire + sizeof(struct distributed_message_header);
 					byte const *end = wire + sizeof(message_header) + size;
-					byte *repacked = message + sizeof(message_header) + sizeof(struct distributed_message_header);
+					byte *repacked = message + sizeof(struct distributed_message_header);
 					long update;
 					short entry;
 
@@ -5495,9 +5495,8 @@ long network_wire_self_test(
 						cursor += taken;
 					}
 					/* (the header as it came, turned: its tick this machine's) */
-					csmemcpy(message + sizeof(message_header), wire + sizeof(message_header),
-						sizeof(struct distributed_message_header));
-					WIRE_HEADER_OUT((struct distributed_message_header *)(message + sizeof(message_header)));
+					csmemcpy(message, wire, sizeof(struct distributed_message_header));
+					WIRE_HEADER_OUT((struct distributed_message_header *)message);
 					for (index = 0; index < size && mismatch == NONE; index++)
 					{
 						if (message[sizeof(message_header) + index] != bytes[index])
