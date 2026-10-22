@@ -4,7 +4,9 @@ The game and most of the platform layer are the Linux build's
 (tools/linux_build.py, port/linux); this build compiles them as native
 64-bit code (arm64, or a universal application with x86_64), as
 tools/lp64_build.py (shared with ``ninja linux64``) describes, with macOS's
-C library, SDL3 and FFmpeg from Homebrew, and the macOS-only units in
+C library, SDL3 from Homebrew (or its own, --portable), the movies' FFmpeg
+built here for each architecture (tools/ffmpeg_build.py, static: no
+Homebrew library in the application), and the macOS-only units in
 port/macos/src.
 
 The result is build/macos/halo and the application bundle
@@ -18,7 +20,7 @@ from pathlib import Path
 from typing import Any, List
 
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
-from .linux_build import OPTIMISATION
+from .linux_build import OPTIMISATION, ffmpeg_build
 from .lp64_build import (
     Lp64Build,
     Lp64Host,
@@ -132,13 +134,17 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
         """the game for one architecture: its objects and its executable"""
         target = f"--target={arch}-apple-macos{MACOS_MINIMUM}"
         excluded = set(lp64_excluded()) | set(config.get("exclude_sources", []))
-        # an application for other Macs (configure.py --portable): self-contained
-        # (its libraries in it, bundle.py), and without FFmpeg, whose libraries
-        # (and their licenses) would come with it: movies are skipped, as the
-        # other platforms' builds do (bink_null.c, not port/macos/src/macos_bink.c)
-        if portable:
-            excluded.discard("port/linux/src/bink_null.c")
-            excluded.add("port/macos/src/macos_bink.c")
+        # the movies' FFmpeg, for this architecture: static, so the application
+        # carries no library of Homebrew's (configure.py --without-ffmpeg: the
+        # stubs, and the game skips the movies)
+        ffmpeg_cflags: List[str] = []
+        ffmpeg_libs: List[str] = []
+        ffmpeg_inputs: List[Path] = []
+        if getattr(sln, "with_ffmpeg", True):
+            ffmpeg_cflags, ffmpeg_libs, ffmpeg_stamp, ffmpeg_archives = ffmpeg_build(
+                n, f"macos_{arch}", build_dir / "third_party" / f"ffmpeg-{arch}", cc, "darwin",
+                "aarch64" if arch == "arm64" else arch, [target], group=False)
+            ffmpeg_inputs = [ffmpeg_stamp, *ffmpeg_archives]
         host = Lp64Host(
             name="macos",
             target_flags=[target],
@@ -148,21 +154,20 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
             excluded=excluded,
             # macOS-only platform units, with the host's ABI (port/macos/src)
             host_sources=sorted((PORT_DIR / "src").glob("*.c")),
+            ffmpeg_cflags=ffmpeg_cflags,
         )
-        objects = lp64.objects(host, generated_sources, arch_obj_dir)
+        objects = lp64.objects(host, generated_sources, arch_obj_dir, implicit_inputs=ffmpeg_inputs)
 
         libraries = config.get("libraries", [])
-        if portable:
-            libraries = [library for library in libraries if library not in ("avcodec", "avformat", "swscale", "avutil")]
         frameworks = config.get("frameworks", [])
         n.build(
             outputs=arch_output,
             rule="macos_link",
             inputs=objects,
-            implicit=[portable_sdl] if portable else [],
+            implicit=[*([portable_sdl] if portable else []), *ffmpeg_inputs],
             variables={
                 "ldflags": " ".join([target, "-g", *LTO_FLAGS]),
-                "libs": " ".join([*([f"-L{PORTABLE_SDL_BUILD}"] if portable else []), f"-L{HOMEBREW / 'lib'}",
+                "libs": " ".join([*ffmpeg_libs, *([f"-L{PORTABLE_SDL_BUILD}"] if portable else []), f"-L{HOMEBREW / 'lib'}",
                                   *(f"-l{lib}" for lib in libraries), *(f"-framework {fw}" for fw in frameworks)]),
             },
         )

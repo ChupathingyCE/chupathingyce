@@ -9,7 +9,8 @@ link games as if they were on one LAN, without a server of this project's.
   other key can be found to have; the first 6 are the machine's identifier,
   which its XNADDR also carries) and a random 16-byte token. A machine
   makes one when its game starts hosting (the game listens for
-  connections), logs it and puts it on the clipboard. Only a public game's
+  connections), logs it, and puts it on the clipboard when
+  network.copy_to_clipboard says so (sdl_platform.c). Only a public game's
   is published (the server browser: p2p_lobby.c; and its Join game button
   on Discord: p2p_discord.c): without an invite there is no way to find or
   join a private game.
@@ -2806,9 +2807,10 @@ static void update_hosting(void)
 		{
 			char shown[128];
 
-			/* (whole on the clipboard and in the menus) */
+			/* (whole in the menus, and on the clipboard with
+			network.copy_to_clipboard) */
 			platform_log("Internet play: hosting. Invite players with this link (it only works while this "
-				"copy of the game runs; it is on the clipboard): %s",
+				"copy of the game runs): %s",
 				p2p_invite_log_text(p2p.invite, shown, sizeof(shown)));
 		}
 		if (!p2p.invite_copied)

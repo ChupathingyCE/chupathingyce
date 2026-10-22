@@ -4,7 +4,7 @@ P2P.H
 Internet play (p2p.c): machines that shared an invite reach each other's
 system link games as if they were on one LAN. xnet.c routes the game's
 traffic for them through here; sdl_platform.c passes invite links in and
-out through the clipboard.
+out through the clipboard, as the player's settings allow.
 
 Addresses and ports are in network byte order.
 */
@@ -99,7 +99,7 @@ a stream's) */
 void p2p_socket_closed(int socket, unsigned short datagram_port);
 
 /* text for the clipboard (a new invite link), once; NULL if none. Called
-from the main thread */
+from the main thread, which copies it only with network.copy_to_clipboard */
 const char *p2p_take_clipboard_text(void);
 
 /* whether a game this machine hosts may be joined from the internet (an

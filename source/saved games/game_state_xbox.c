@@ -407,11 +407,23 @@ boolean game_state_read_from_file(
 	}
 	else
 	{
+#ifdef HALO_SWITCH_CONSOLE
+		/* port: a file that cannot be read, or an image that is not taken
+		(game_state_image_accept: a saved game of another build, or one
+		written with the window elsewhere), is not the end of the game:
+		game_state_revert starts the map over on FALSE, as it says. The
+		assert below is live in this build (the desktop's release builds
+		drop it), and halted the game before the revert could. */
+		error(_error_silent, "couldn't read saved game file (#%d): the map starts over", GetLastError());
+#else
+#line 410
 		match_vassert(
 			"c:\\halo\\SOURCE\\saved games\\game_state_xbox.c",
 			156,
 			FALSE,
 			csprintf(temporary, "couldn't read saved game file (#%d)", GetLastError()));
+#endif
+#line 415
 	}
 	free(image);
 #endif

@@ -179,10 +179,19 @@ wchar_t *msvc_wcspbrk(const wchar_t *string, const wchar_t *characters)
 	return NULL;
 }
 
+#ifdef HALO_CONSOLE_NO_THREAD_LOCAL
+PLATFORM_THREAD_LOCAL_SLOT(wchar_t *, wcstok_next)
+#endif
+
 wchar_t *msvc_wcstok(wchar_t *string, const wchar_t *delimiters)
 {
 	/* MSVC keeps the tokenizer state per thread */
+#ifdef HALO_CONSOLE_NO_THREAD_LOCAL
+	wchar_t **next_slot = wcstok_next_slot();
+#define next (*next_slot)
+#else
 	static __thread wchar_t *next;
+#endif
 	wchar_t *token;
 
 	if (string)
@@ -202,6 +211,9 @@ wchar_t *msvc_wcstok(wchar_t *string, const wchar_t *delimiters)
 	else
 		next = NULL;
 	return token;
+#ifdef HALO_CONSOLE_NO_THREAD_LOCAL
+#undef next
+#endif
 }
 
 wchar_t *msvc_wcsdup(const wchar_t *string)
