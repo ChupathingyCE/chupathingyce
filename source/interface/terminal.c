@@ -116,8 +116,9 @@ static long terminal_new_line(void);
 
 /* ---------- globals */
 
-/* 0 = hidden, 1 = always drawn (default), 2 = drawn only while the console is open */
-short terminal_render_enable = 1;
+/* 0 = hidden, 1 = always drawn, 2 = drawn only while the console is open (the
+default: the console's output stays off the game until it is opened) */
+short terminal_render_enable = 2;
 
 /* name from the 2003 PC demo PDB and the HCEX PDB (terminal file static const short[3]); January's 6 bytes
  * are identical to the demo's and it has no public for it (static) */
