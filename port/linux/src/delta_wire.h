@@ -111,7 +111,31 @@ enum
 	DELTA_WIRE_TEAM_REQUEST_SIZE = 8,
 	DELTA_WIRE_TEAM_RESULT_SIZE = 8,
 	/* TEAM_REQUEST's team: whichever team the player is not on */
-	DELTA_WIRE_TEAM_OTHER = 0xFF
+	DELTA_WIRE_TEAM_OTHER = 0xFF,
+
+	/* match rules (docs/delta.md, Match rules) */
+	DELTA_WIRE_RULES_SIZE = 8,
+	/* the start countdown's seconds, at most; and the item respawn's */
+	DELTA_WIRE_RULES_MAXIMUM_COUNTDOWN = 30,
+	DELTA_WIRE_RULES_MAXIMUM_ITEM_RESPAWN = 600
+};
+
+/* RULES' flags (the rules played, and the rules the host asked for); a bit
+is never reused, and a machine ignores bits it does not know */
+enum
+{
+	/* the pistol and the unscoped sniper rifle fire with no bloom (no
+	spread): every machine of the game plays it */
+	DELTA_RULES_NO_BLOOM = 0x01,
+	/* a countdown at the game's start (countdown seconds): every player
+	frozen and no damage dealt until it ends */
+	DELTA_RULES_COUNTDOWN = 0x02,
+	/* weapons and powerups respawn every item_respawn seconds (the host's
+	alone: it places them) */
+	DELTA_RULES_ITEM_RESPAWN = 0x04,
+	/* the host's own players watch and do not spawn (the host's alone) */
+	DELTA_RULES_HOST_SPECTATES = 0x08,
+	DELTA_RULES_KNOWN = 0x0F
 };
 
 /* TEAM_RESULT's results; a number is never reused */
@@ -312,7 +336,11 @@ enum delta_message_type
 	player asks to change teams */
 	_delta_message_team_request = 23,
 	/* host to client: what the host did with it */
-	_delta_message_team_result = 24
+	_delta_message_team_result = 24,
+	/* host to client, if both agreed to competitive: the rules the game
+	plays by and those the host asked for, whenever they change and with
+	each roster */
+	_delta_message_rules = 25
 };
 
 /* MAP's flags */
@@ -569,6 +597,21 @@ struct delta_wire_team_result
 	unsigned short seconds;
 };
 
+struct delta_wire_rules
+{
+	/* DELTA_RULES_*: the rules played now */
+	unsigned char flags;
+	/* DELTA_RULES_*: the rules the host asked for (those not in flags are
+	off for this game: a machine of it does not play them) */
+	unsigned char requested;
+	/* the start countdown's seconds (1 to DELTA_WIRE_RULES_MAXIMUM_COUNTDOWN
+	with DELTA_RULES_COUNTDOWN requested, else 0) */
+	unsigned char countdown;
+	/* the item respawn's seconds (1 to DELTA_WIRE_RULES_MAXIMUM_ITEM_RESPAWN
+	with DELTA_RULES_ITEM_RESPAWN requested, else 0) */
+	unsigned short item_respawn;
+};
+
 /* a datagram's header: 1 if it is Delta's (the magic) and its length is the
 datagram's; the payload follows at data + DELTA_WIRE_HEADER_SIZE. A header of
 another major is still read (to answer it with LEGACY) */
@@ -656,6 +699,11 @@ int delta_wire_read_team_result(const unsigned char *payload, int size, struct d
 int delta_wire_write_team_request(unsigned char *data, delta_u32 session,
 	const struct delta_wire_team_request *request);
 int delta_wire_write_team_result(unsigned char *data, delta_u32 session, const struct delta_wire_team_result *result);
+
+/* RULES (match rules): 1 if it reads right (flags within requested, the
+countdown and item respawn in range); 0 for what the reader would refuse */
+int delta_wire_read_rules(const unsigned char *payload, int size, struct delta_wire_rules *rules);
+int delta_wire_write_rules(unsigned char *data, delta_u32 session, const struct delta_wire_rules *rules);
 
 /* whether length bytes of text are a line to show: valid UTF-8 (shortest
 forms, no surrogates, nothing past U+10FFFF), no control characters (C0,

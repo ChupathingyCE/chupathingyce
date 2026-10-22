@@ -192,6 +192,8 @@ static void forget_all(struct delta_peer *peer)
 	peer->table_in.active = 0;
 	memset(&peer->host_map, 0, sizeof(peer->host_map));
 	peer->host_map_generation = 0;
+	memset(&peer->host_rules, 0, sizeof(peer->host_rules));
+	peer->host_rules_generation = 0;
 	memset(peer->machines, 0, sizeof(peer->machines));
 	peer->room_capabilities = 0;
 	peer->room_players = DELTA_PEER_NO_LIMIT;
@@ -1710,6 +1712,66 @@ delta_u32 delta_peer_host_map(const struct delta_peer *peer, struct delta_wire_m
 	return peer->host_map_generation;
 }
 
+/* the match rules to each client that agreed to competitive: at once when
+they changed, then every DELTA_PEER_RULES_INTERVAL */
+static void host_send_rules(struct delta_peer *peer, delta_u32 now)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int index;
+
+	if (!peer->rules_generation || !(offered(peer) & CAPABILITY(_delta_capability_competitive)))
+		return;
+	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+	{
+		struct delta_peer_host_peer *client = &peer->peers[index];
+		int size;
+
+		if (!client->used || !(client->agreed & CAPABILITY(_delta_capability_competitive)))
+			continue;
+		if (client->rules_sent_generation == peer->rules_generation &&
+			!elapsed(now, client->rules_time, DELTA_PEER_RULES_INTERVAL))
+		{
+			continue;
+		}
+		size = delta_wire_write_rules(data, client->session, &peer->rules);
+		if (!size)
+			return;
+		peer_send(peer, client->ipv4, client->port, data, size);
+		client->rules_sent_generation = peer->rules_generation;
+		client->rules_time = now;
+	}
+}
+
+void delta_peer_set_rules(struct delta_peer *peer, const struct delta_wire_rules *rules)
+{
+	int index;
+
+	if (!rules)
+	{
+		memset(&peer->rules, 0, sizeof(peer->rules));
+		peer->rules_generation = 0;
+		return;
+	}
+	if (peer->rules_generation && peer->rules.flags == rules->flags && peer->rules.requested == rules->requested &&
+		peer->rules.countdown == rules->countdown && peer->rules.item_respawn == rules->item_respawn)
+	{
+		return;
+	}
+	peer->rules = *rules;
+	/* (never 0, which is none) */
+	peer->rules_generation = peer->rules_generation + 1 ? peer->rules_generation + 1 : 1;
+	/* (each client is sent them at once) */
+	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+		peer->peers[index].rules_sent_generation = 0;
+}
+
+delta_u32 delta_peer_host_rules(const struct delta_peer *peer, struct delta_wire_rules *rules)
+{
+	if (rules)
+		*rules = peer->host_rules;
+	return peer->host_rules_generation;
+}
+
 void delta_peer_host_frame(struct delta_peer *peer, delta_u32 now, const struct delta_peer_game_machine *machines,
 	int count, const signed char *player_machines)
 {
@@ -1802,6 +1864,7 @@ void delta_peer_host_frame(struct delta_peer *peer, delta_u32 now, const struct 
 		peer->roster_dirty = 0;
 	}
 	host_send_maps(peer, now);
+	host_send_rules(peer, now);
 
 	{
 		int sends = 0;
@@ -1871,6 +1934,8 @@ static void client_legacy(struct delta_peer *peer, const char *why)
 	peer->table_in.active = 0;
 	memset(&peer->host_map, 0, sizeof(peer->host_map));
 	peer->host_map_generation = 0;
+	memset(&peer->host_rules, 0, sizeof(peer->host_rules));
+	peer->host_rules_generation = 0;
 	memset(peer->machines, 0, sizeof(peer->machines));
 	if (valid_machine(own))
 		peer->machines[own] = local;
@@ -2346,6 +2411,26 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 		}
 		peer->team_result = result;
 		peer->team_results++;
+		break;
+	}
+	case _delta_message_rules:
+	{
+		struct delta_wire_rules rules;
+
+		if (peer->client_state != _delta_peer_client_delta ||
+			!(peer->agreed & offered(peer) & CAPABILITY(_delta_capability_competitive)) ||
+			!delta_wire_read_rules(payload, header.length, &rules))
+		{
+			peer->dropped++;
+			break;
+		}
+		if (!peer->host_rules_generation || peer->host_rules.flags != rules.flags ||
+			peer->host_rules.requested != rules.requested || peer->host_rules.countdown != rules.countdown ||
+			peer->host_rules.item_respawn != rules.item_respawn)
+		{
+			peer->host_rules = rules;
+			peer->host_rules_generation = peer->host_rules_generation + 1 ? peer->host_rules_generation + 1 : 1;
+		}
 		break;
 	}
 	case _delta_message_map:

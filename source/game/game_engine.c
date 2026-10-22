@@ -571,6 +571,7 @@ symbols in this file:
 #include "networking/network_game_manager.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "follow_camera.h" /* port: port/linux/game/follow_camera.c */
+#include "competitive.h" /* port: port/linux/game/competitive.c */
 /* (network_server_manager_internal.h's: the host's game record) */
 struct network_game *network_game_server_get_game(struct network_game_server *server);
 #include "objects.h"
@@ -3843,9 +3844,12 @@ static void game_engine_post_rasterize_in_game(
 
 	gamepad = input_get_gamepad_state(local_player_index);
 	fade = game_engine_globals.hud_message_timers[local_player_index];
+	/* (port: or shown without the button, display.auto_scoreboard:
+	competitive.c) */
 	if ((!gamepad ||
 		!gamepad->buttons[_gamepad_binary_button_back]) &&
-		(!game_engine || game_engine_globals.postgame_state != game_engine_mode_postgame_delay))
+		(!game_engine || game_engine_globals.postgame_state != game_engine_mode_postgame_delay) &&
+		!competitive_scoreboard_shown((short)local_player_index))
 	{
 		/* a frame is no longer a tick (render_interpolation.c): fade in half
 		a second, not in 15 frames */
@@ -8929,6 +8933,10 @@ static void game_engine_update_item_spawn(
 			{
 				respawn_period = respawn_time * TICKS_PER_SECOND;
 			}
+			/* port: the host's item respawn (competitive.c), for every
+			weapon and powerup of the map */
+			if (competitive_item_respawn_ticks() > 0)
+				respawn_period = competitive_item_respawn_ticks();
 
 			if (game_time_get() % respawn_period == 0)
 			{
@@ -9365,6 +9373,11 @@ boolean game_engine_should_spawn_player(
 		struct player_datum *player = player_get(player_index);
 
 		if (player->quit_out_of_game == TRUE)
+		{
+			should_spawn = FALSE;
+		}
+		/* port: the host's own players watch (competitive.c) */
+		else if (competitive_player_spectates(player_index))
 		{
 			should_spawn = FALSE;
 		}

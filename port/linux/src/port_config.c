@@ -321,6 +321,18 @@ static const struct config_setting config_settings[] =
 		_platform_all | _platform_xbox,
 		"For \"long_waits\": the seconds of respawn wait left that start the\n"
 		"follow camera." },
+	{ "display.auto_scoreboard", _config_string, "\"off\"", "HALO_AUTO_SCOREBOARD", _environment_value,
+		_platform_all | _platform_xbox,
+		"Show the scoreboard without holding the button: \"off\", \"dead\" (while\n"
+		"you wait to respawn) or \"always\"." },
+	{ "display.death_camera", _config_string, "\"retail\"", "HALO_DEATH_CAMERA", _environment_value,
+		_platform_all | _platform_xbox,
+		"After a death: \"retail\" (the camera moves to other players after 15\n"
+		"seconds) or \"body\" (it stays on your body)." },
+	{ "display.simple_colors", _config_boolean, "false", "HALO_SIMPLE_COLORS", _environment_value,
+		_platform_all | _platform_xbox,
+		"In games without teams, draw every other player red. Team games are\n"
+		"red and blue already." },
 	{ "display.powerup_timers", _config_boolean, "false", "HALO_POWERUP_TIMERS", _environment_value, _platform_all | _platform_xbox,
 		"Show the seconds left on your active camouflage, overshield and full\n"
 		"spectrum vision." },
@@ -556,6 +568,21 @@ static const struct config_setting config_settings[] =
 		"For \"balanced\": how many more players one team may have, 0 to 16." },
 	{ "network.chat_filter", _config_boolean, "true", "HALO_NET_CHAT_FILTER", _environment_value, _platform_all,
 		"In games you host, block chat lines with blocked words." },
+	{ "network.no_bloom", _config_boolean, "false", "HALO_NET_NO_BLOOM", _environment_value, _platform_all,
+		"In games you host, the pistol and the unscoped sniper rifle fire with no\n"
+		"bloom (spread). Only while every player is on Chupathingy." },
+	{ "network.start_countdown", _config_integer, "0", "HALO_NET_START_COUNTDOWN", _environment_value,
+		_platform_all,
+		"In games you host, the seconds everyone waits frozen at the start, 0 to\n"
+		"30 (0: none). Only while every player is on Chupathingy." },
+	{ "network.item_respawn", _config_integer, "0", "HALO_NET_ITEM_RESPAWN", _environment_value,
+		_platform_all | _platform_xbox,
+		"In games you host, the seconds between weapon and powerup respawns, 1\n"
+		"to 600 (0: the map's own)." },
+	{ "network.host_spectates", _config_boolean, "false", "HALO_NET_HOST_SPECTATES", _environment_value,
+		_platform_all | _platform_xbox,
+		"In network games you host, your players watch and never spawn: a\n"
+		"neutral host without a dedicated server." },
 	{ "network.chat_legacy", _config_boolean, "true", "HALO_NET_CHAT_LEGACY", _environment_value, _platform_all,
 		"In games you host, let OpenCE players chat too (over their own\n"
 		"text chat, bridged), while network.chat is on." },
@@ -2163,6 +2190,8 @@ static const struct
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, "\"teams\"" },
 	{ "display.scoreboard_platforms", { "auto", "on", "off", NULL }, "\"auto\"" },
 	{ "display.follow_camera", { "long_waits", "always", "off", NULL }, "\"long_waits\"" },
+	{ "display.auto_scoreboard", { "off", "dead", "always", NULL }, "\"off\"" },
+	{ "display.death_camera", { "retail", "body", NULL }, "\"retail\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
 	{ "audio.resampling", { "sinc", "linear", NULL }, "\"sinc\"" },
 	{ "input.touch_controls", { "on", "auto", "off", NULL }, "\"on\"" },

@@ -25,6 +25,7 @@ symbols in this file:
 #include "game/players.h"
 #include "memory/data.h"
 #include "objects/objects.h"
+#include "competitive.h" /* port: port/linux/game/competitive.c */
 
 /* ---------- constants */
 
@@ -118,6 +119,10 @@ void dead_camera_new(
 		switch_timer = game_engine_running()
 			? dead_camera_constants.multiplayer_switch_timer
 			: dead_camera_constants.singleplayer_switch_timer;
+		/* port: display.death_camera = "body" keeps a multiplayer death
+		camera on the body (port/linux/game/competitive.c) */
+		if (game_engine_running() && !competitive_death_camera_switches())
+			switch_timer = FLT_MAX;
 	}
 	camera->switch_timer = switch_timer;
 	camera->player_index = local_player_get_player_index(local_player_index);
@@ -203,6 +208,8 @@ void dead_camera_update(
 		camera->switch_timer = game_engine_running()
 			? dead_camera_constants.multiplayer_switch_timer
 			: dead_camera_constants.singleplayer_switch_timer;
+		if (game_engine_running() && !competitive_death_camera_switches())
+			camera->switch_timer = FLT_MAX;
 	}
 
 	match_vassert(

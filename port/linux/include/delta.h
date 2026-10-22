@@ -112,6 +112,11 @@ enum delta_capability
 	(TEAM_RESULT); the change itself reaches every machine, OpenCE's too,
 	through the game's own player respawn */
 	_delta_capability_team_change = 15,
+	/* the host's match rules (docs/delta.md, Match rules): host to client
+	(RULES), what the game plays by. Room-wide for the rules every machine
+	must play alike (no bloom, the start countdown): a host turns those off
+	while any machine of its game is without it */
+	_delta_capability_competitive = 16,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };

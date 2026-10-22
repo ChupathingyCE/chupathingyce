@@ -211,6 +211,7 @@ symbols in this file:
 
 #include "real_math.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#include "competitive.h" /* port: port/linux/game/competitive.c */
 
 /* ---------- constants */
 
@@ -656,6 +657,17 @@ static void handle_one_player_input(
 		player_control_port_menu_has_controller(local_player_index))
 	{
 		csmemset(&input, 0, sizeof(input));
+	}
+	/* port: the start countdown's hold (port/linux/game/competitive.c, a
+	match rule every machine of the game plays): the player may look about,
+	and do nothing else */
+	if (competitive_countdown_frozen())
+	{
+		input.throttle.i = 0.f;
+		input.throttle.j = 0.f;
+		input.primary_trigger = 0.f;
+		input.unit_control_flags = 0;
+		input.player_control_flags = 0;
 	}
 
 	if (game_connection() == _game_connection_local)

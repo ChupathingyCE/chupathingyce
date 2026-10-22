@@ -407,6 +407,9 @@ int delta_peer_protocol(void)
 		local.capabilities |= (delta_u32)1 << _delta_capability_chat |
 			(delta_u32)1 << _delta_capability_server_messages;
 #endif
+		/* (the host's match rules: the console plays them as a client,
+		port/linux/game/competitive.c) */
+		local.capabilities |= (delta_u32)1 << _delta_capability_competitive;
 #else
 		local.capabilities = (delta_u32)1 << _delta_capability_platform | (delta_u32)1 << _delta_capability_profile |
 			(delta_u32)1 << _delta_capability_ce_maps;
@@ -416,6 +419,9 @@ int delta_peer_protocol(void)
 		/* (changing teams during a game: a host offers it once its team
 		host is set, team_change.c) */
 		local.capabilities |= (delta_u32)1 << _delta_capability_team_change;
+		/* (the host's match rules, which a client plays and a host sends:
+		port/linux/game/competitive.c) */
+		local.capabilities |= (delta_u32)1 << _delta_capability_competitive;
 #endif
 		/* (moderation: a client signs with its player key's moderator key; a
 		host offers it only with the dedicated server's moderation) */
@@ -1126,4 +1132,29 @@ unsigned int delta_peer_game_team_result(struct delta_wire_team_result *result)
 	if (!delta_game.ready)
 		return 0;
 	return delta_peer_client_team_result(&delta_game.peer, result);
+}
+
+/* ---------- match rules (competitive.c) */
+
+void delta_peer_game_set_rules(const struct delta_wire_rules *rules)
+{
+	if (delta_peer_protocol() == _delta_peer_protocol_opence)
+		return;
+	delta_peer_set_rules(&delta_game.peer, rules);
+}
+
+unsigned int delta_peer_game_host_rules(struct delta_wire_rules *rules)
+{
+	if (!delta_game.ready || delta_game.role != _role_client)
+	{
+		if (rules)
+			memset(rules, 0, sizeof(*rules));
+		return 0;
+	}
+	return delta_peer_host_rules(&delta_game.peer, rules);
+}
+
+int delta_peer_game_hosting(void)
+{
+	return delta_game.ready && delta_game.role == _role_host && delta_game.port != 0;
 }

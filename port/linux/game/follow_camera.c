@@ -33,6 +33,7 @@ spectator's (coop_spectate_camera).
 
 #include "halo_port_limits.h"
 #include "follow_camera.h"
+#include "competitive.h"
 
 /* ---------- constants */
 
@@ -141,8 +142,12 @@ static boolean follow_camera_long_wait(
 {
 	struct player_datum *player = player_get(player_index);
 
-	if (game_engine_man_out(player_index) || follow_camera_engine_holds_spawns())
+	/* (a host's own player who watches, competitive.c, waits for good) */
+	if (game_engine_man_out(player_index) || follow_camera_engine_holds_spawns() ||
+		competitive_player_spectates(player_index))
+	{
 		return TRUE;
+	}
 	return player->respawn_timer > follow_camera_after_ticks();
 }
 
@@ -173,7 +178,8 @@ static long follow_camera_next(
 	long count = 0;
 	long position = NONE;
 	long team_index = player_get(self)->team_index;
-	boolean teams = game_engine_has_teams();
+	/* (a host's own player who watches follows anyone) */
+	boolean teams = game_engine_has_teams() && !competitive_player_spectates(self);
 	long pass;
 
 	/* teammates first, then (with none alive, or no teams) everyone */
@@ -211,7 +217,7 @@ static long follow_camera_first(
 	long best = NONE;
 	long best_score = 0;
 
-	if (game_engine_has_teams())
+	if (game_engine_has_teams() && !competitive_player_spectates(self))
 		return follow_camera_next(self, NONE, 1);
 	if (dead != NONE && DATUM_INDEX_TO_ABSOLUTE_INDEX(dead) < HALO_PORT_MAXIMUM_NETWORK_PLAYERS &&
 		follow_camera_killers_cleared)

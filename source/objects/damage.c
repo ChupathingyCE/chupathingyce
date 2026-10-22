@@ -138,6 +138,7 @@ symbols in this file:
 #include "units/bipeds.h"
 #include "units/units.h"
 #include "units/vehicles.h"
+#include "competitive.h" /* port: port/linux/game/competitive.c */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -1451,6 +1452,11 @@ void object_cause_damage(
 	long damaged_object_indices[16];
 	/* port: the gametype's friendly fire (game_engine_friendly_damage) */
 	short friendly_damage;
+
+	/* port: the host deals no damage during the start countdown
+	(port/linux/game/competitive.c) */
+	if (competitive_damage_blocked())
+		return;
 
 	/* the distributed netcode (port/linux/NETCODE.md): the host deals
 	damage; a client reports its own players' hits instead, and the host

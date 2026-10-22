@@ -689,6 +689,7 @@ void team_change_update(void);
 #ifdef HALO_PORT_CHAT
 void chat_update(void);
 #endif
+void competitive_update(void);
 
 /* ---------- prototypes */
 
@@ -3677,6 +3678,10 @@ void main_loop(
 			MAIN_STAGE("chat_update");
 			chat_update();
 #endif
+			/* match rules (port/linux/game/competitive.c), on the consoles
+			too */
+			MAIN_STAGE("competitive_update");
+			competitive_update();
 			/* the audio probe's scripted recording (port/linux/game/audio_probe.c),
 			on the consoles too */
 			MAIN_STAGE("audio_probe_update");

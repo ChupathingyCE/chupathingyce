@@ -1182,6 +1182,58 @@ int delta_wire_write_team_result(unsigned char *data, delta_u32 session, const s
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TEAM_RESULT_SIZE;
 }
 
+/* (the rules a reader keeps: those it knows, played only if asked for, the
+countdown and item respawn in range when asked for and 0 when not) */
+static int rules_valid(struct delta_wire_rules *rules)
+{
+	rules->requested &= DELTA_RULES_KNOWN;
+	rules->flags &= DELTA_RULES_KNOWN;
+	if (rules->flags & ~rules->requested)
+		return 0;
+	if (!(rules->requested & DELTA_RULES_COUNTDOWN))
+		rules->countdown = 0;
+	else if (rules->countdown < 1 || rules->countdown > DELTA_WIRE_RULES_MAXIMUM_COUNTDOWN)
+		return 0;
+	if (!(rules->requested & DELTA_RULES_ITEM_RESPAWN))
+		rules->item_respawn = 0;
+	else if (rules->item_respawn < 1 || rules->item_respawn > DELTA_WIRE_RULES_MAXIMUM_ITEM_RESPAWN)
+		return 0;
+	return 1;
+}
+
+int delta_wire_read_rules(const unsigned char *payload, int size, struct delta_wire_rules *rules)
+{
+	clear(rules, (int)sizeof(*rules));
+	if (!payload || size < DELTA_WIRE_RULES_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	rules->flags = payload[0];
+	rules->requested = payload[1];
+	rules->countdown = payload[2];
+	rules->item_respawn = read_u16(payload + 4);
+	if (!rules_valid(rules))
+	{
+		clear(rules, (int)sizeof(*rules));
+		return 0;
+	}
+	return 1;
+}
+
+int delta_wire_write_rules(unsigned char *data, delta_u32 session, const struct delta_wire_rules *rules)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+	struct delta_wire_rules checked = *rules;
+
+	if (!rules_valid(&checked) || checked.flags != rules->flags || checked.requested != rules->requested)
+		return 0;
+	clear(payload, DELTA_WIRE_RULES_SIZE);
+	payload[0] = checked.flags;
+	payload[1] = checked.requested;
+	payload[2] = checked.countdown;
+	write_u16(payload + 4, checked.item_respawn);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_rules, DELTA_WIRE_RULES_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_RULES_SIZE;
+}
+
 int delta_wire_chat_text_valid(const char *text, int length, int maximum_characters)
 {
 	const unsigned char *bytes = (const unsigned char *)text;

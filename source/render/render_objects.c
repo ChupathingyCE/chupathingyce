@@ -113,6 +113,7 @@ symbols in this file:
 #include "rasterizer/rasterizer_console_vars.h"
 #include "rasterizer/rasterizer_model_types.h"
 #include "halo_perf_log.h" /* port: console.perf_log */
+#include "competitive.h" /* port: port/linux/game/competitive.c */
 
 /* ---------- constants */
 
@@ -612,12 +613,14 @@ static void render_object_list(
 						}
 					}
 
+					/* (port: a player's colors as this machine draws them,
+					display.simple_colors: port/linux/game/competitive.c) */
 					render_model(
 						definition->object.model.index,
 						level_of_detail_pixels,
 						object_get_node_matrices(object_index),
 						object->object.region_permutations,
-						object->object.outgoing_change_colors,
+						competitive_change_colors(object_index, object->object.outgoing_change_colors),
 						object_get_function_values(object_index),
 						data->lighting,
 						&object->object.bounding_sphere_center,

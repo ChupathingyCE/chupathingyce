@@ -237,6 +237,8 @@ symbols in this file:
 #include "effects/contrail_definitions.h"
 #endif
 
+#include "competitive.h" /* port: port/linux/game/competitive.c */
+
 /* port/linux/game/pal_tags.c's */
 short pal_tags_first_person_frames(long graph_index, short animation_index, short frames);
 
@@ -2587,7 +2589,21 @@ static void trigger_create_projectiles(
 				if (!TEST_FLAG(trigger_definition->flags, _weapon_trigger_use_error_when_unzoomed_bit) ||
 					!TEST_FLAG(weapon->weapon.control_flags, _weapon_control_zoomed_bit))
 				{
-					random_vector_in_cone3d(&data.forward, trigger_definition->projectile_error_inner_cone_angle, error, &data.forward);
+					/* port: no bloom (port/linux/game/competitive.c, a match
+					rule every machine of the game plays): the shot goes
+					straight, and the spread's random numbers are drawn and
+					thrown away, so every other draw stays the same */
+					if (competitive_no_bloom(weapon->definition_index,
+						TEST_FLAG(weapon->weapon.control_flags, _weapon_control_zoomed_bit)))
+					{
+						real_vector3d unused_forward;
+
+						random_vector_in_cone3d(&data.forward, trigger_definition->projectile_error_inner_cone_angle, error, &unused_forward);
+					}
+					else
+					{
+						random_vector_in_cone3d(&data.forward, trigger_definition->projectile_error_inner_cone_angle, error, &data.forward);
+					}
 				}
 
 				if (projectile_index==0)

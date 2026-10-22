@@ -123,6 +123,7 @@ symbols in this file:
 #include "dead_camera.h"
 #include "coop_spectate.h" /* port: port/linux/game/coop_spectate.c */
 #include "follow_camera.h" /* port: port/linux/game/follow_camera.c */
+#include "competitive.h" /* port: port/linux/game/competitive.c */
 #include "editor_flying_camera.h"
 #include "first_person_camera.h"
 #include "flying_camera.h"
@@ -726,7 +727,8 @@ static void director_choose_camera_game(
 		/* port: and a network co-op player who hasn't spawned yet, waiting for
 		the level's first checkpoint, watches too */
 		boolean use_dead_camera = player->unit_index == NONE &&
-			(player->statistics.deaths > 0 || players_coop_waiting_to_start(player_index));
+			(player->statistics.deaths > 0 || players_coop_waiting_to_start(player_index) ||
+				competitive_player_spectates(player_index));
 
 		/* (port: not a client in another's game, the host's rules: a flying
 		camera would see all of it, and one behind the player round its

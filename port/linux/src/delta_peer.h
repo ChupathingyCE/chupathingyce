@@ -91,6 +91,8 @@ enum
 	/* the game's map (MAP) is sent to a client at once when it changes, and
 	again this often (a datagram lost) */
 	DELTA_PEER_MAP_INTERVAL = 5000,
+	/* the host's match rules (RULES) likewise */
+	DELTA_PEER_RULES_INTERVAL = 5000,
 
 	/* moderation (milliseconds where a time): the host takes MOD_ACTION
 	from a machine at most this often (and at once); checks a machine's
@@ -399,6 +401,10 @@ struct delta_peer_host_peer
 	/* team changes: the last TEAM_REQUEST's sequence, and their rate */
 	delta_u32 team_sequence;
 	struct delta_rate team_rate;
+	/* the match rules as last sent to it (the host's rules_generation; 0:
+	none), and when */
+	delta_u32 rules_sent_generation;
+	delta_u32 rules_time;
 };
 
 /* the room for a signed legacy table going out or coming in: the console
@@ -449,6 +455,10 @@ struct delta_peer
 	changes (0: none set) */
 	struct delta_wire_map map;
 	delta_u32 map_generation;
+	/* the match rules (delta_peer_set_rules), and a number raised each time
+	they change (0: none set) */
+	struct delta_wire_rules rules;
+	delta_u32 rules_generation;
 
 	/* the client's */
 	int client_state;
@@ -466,6 +476,10 @@ struct delta_peer
 	none heard) */
 	struct delta_wire_map host_map;
 	delta_u32 host_map_generation;
+	/* the host's match rules (RULES), and a number raised each time they
+	change (0: none heard) */
+	struct delta_wire_rules host_rules;
+	delta_u32 host_rules_generation;
 
 	/* both: the legacy table relayed; this machine's signed table as it
 	goes out (its serial: 0 not read yet), and one coming in */
@@ -545,6 +559,15 @@ void delta_peer_set_map(struct delta_peer *peer, const struct delta_wire_map *ma
 each time it changed (0 if none heard: a host without Delta, or that did not
 agree to ce_maps) */
 delta_u32 delta_peer_host_map(const struct delta_peer *peer, struct delta_wire_map *map);
+
+/* the host's: the match rules, sent to each client that agreed to
+competitive (NULL: none, nothing sent). Called each frame; rules the same
+as the last change nothing */
+void delta_peer_set_rules(struct delta_peer *peer, const struct delta_wire_rules *rules);
+/* the client's: the host's match rules as RULES said them last, and the
+number raised each time they changed (0 if none heard: a host without
+Delta, or that did not agree to competitive) */
+delta_u32 delta_peer_host_rules(const struct delta_peer *peer, struct delta_wire_rules *rules);
 
 /* ---------- moderation (docs/delta.md, Moderation)
 
@@ -744,6 +767,13 @@ void delta_peer_game_set_team_host(const struct delta_peer_team_host *host);
 int delta_peer_game_team_ready(void);
 unsigned int delta_peer_game_team_request(int player, int team);
 unsigned int delta_peer_game_team_result(struct delta_wire_team_result *result);
+
+/* match rules (port/linux/game/competitive.c): the host's rules to send
+(NULL: none); the client's host's rules (a number that changes with them, 0
+if none heard); whether this machine hosts with Delta now */
+void delta_peer_game_set_rules(const struct delta_wire_rules *rules);
+unsigned int delta_peer_game_host_rules(struct delta_wire_rules *rules);
+int delta_peer_game_hosting(void);
 
 /* ---------- what Delta List says of a hosted game (browser.c's
 announcement; docs/delta.md, Delta List) */
