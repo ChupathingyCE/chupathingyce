@@ -196,6 +196,78 @@ PROFILE_USE_FLAGS = [
 ]
 
 
+# voice chat's codec (port/third_party/opus; network_voice.c): the
+# floating-point library in plain C, its files as sources.txt lists them
+OPUS_DIR = Path("port/third_party/opus")
+# FFmpeg (LGPL) decodes the movies, which the port has no decoder for
+# (bink_ffmpeg.c implements the SDK's own entry points behind it, and
+# bink_null.c keeps the stubs). The build brings its own, for this target and
+# against the build's own system root, rather than taking the build machine's:
+# the game is 32-bit code and the build machine's FFmpeg is usually not, a
+# build meant to run on older systems must not take the build machine's glibc
+# either, and -- the reason this is not optional -- a library called from the
+# game's own units has to share their ABI, which a system's FFmpeg does not
+# (av_guess_frame_rate returns a structure by value, and with -freg-struct-return
+# on one side only it comes back wrong).
+FFMPEG_LIBS = ["libavformat", "libavcodec", "libswscale", "libswresample", "libavutil"]
+
+# (the ones of the game's own flags that FFmpeg has to see too)
+FFMPEG_ABI_FLAGS = [
+    "-fshort-wchar", "-malign-double", "-fcommon", "-fno-pic", "-fno-strict-aliasing",
+    "-fwrapv", "-fno-delete-null-pointer-checks", "-freg-struct-return", "-ffp-contract=off",
+]
+
+def ffmpeg_build(n: Writer, name: str, root: Path, cc: str, target_os: str, arch: str,
+                 target: Sequence[str], abi: Sequence[str] = (), sysroot: Optional[Path] = None,
+                 sysroot_stamp: Optional[Path] = None, group: bool = True
+                 ) -> Tuple[List[str], List[str], Path, List[Path]]:
+    """The movies' FFmpeg for one target, built in root (tools/ffmpeg_build.py).
+    Returns its compiler flags, its libraries, the stamp the units wait for, and
+    the libraries themselves (which the link waits for). The 64-bit builds and
+    macOS's take it too (tools/lp64_build.py)."""
+    archives = [root / "build" / library / f"{library}.a" for library in FFMPEG_LIBS]
+    stamp = root / "ffmpeg.stamp"
+    n.rule(
+        name=f"{name}_ffmpeg",
+        command=(f"$python {Path('tools/ffmpeg_build.py')} {root} --target-os {target_os} --arch {arch} "
+                 f"--cc {cc} --target \"{' '.join(target)}\" --flags \"{' '.join(abi)}\""
+                 + (f" --sysroot {sysroot}" if sysroot else "")),
+        description=f"{name.upper()} FFMPEG (the movies' decoder)",
+        restat=True,
+        pool="console",
+    )
+    n.build(outputs=[*archives, stamp], rule=f"{name}_ffmpeg",
+            implicit=[Path("tools/ffmpeg_build.py"), *([sysroot_stamp] if sysroot_stamp else [])])
+    # (the sources include FFmpeg's headers, the generated ones among them)
+    cflags = ["-DHALO_BINK_FFMPEG", f"-I{root / 'src'}", f"-I{root / 'build'}"]
+    # (FFmpeg's libraries call each other's symbols: the group is what a static
+    # link needs to resolve them in one pass; Apple's linker needs none)
+    link = ([str(archive) for archive in archives] if not group
+            else ["-Wl,--start-group", *[str(archive) for archive in archives], "-Wl,--end-group"])
+    return cflags, link, stamp, archives
+
+
+def linux_ffmpeg(n: Writer, build_dir: Path, cc: str, sysroot: Path, sysroot_stamp: Path
+                 ) -> Tuple[List[str], List[str], Path, List[Path]]:
+    """The 32-bit build's FFmpeg, with the port's ABI and against its system root"""
+    return ffmpeg_build(n, "linux", build_dir / "ffmpeg", cc, "linux", "x86",
+                        ["--target=i686-linux-gnu", "-m32"], FFMPEG_ABI_FLAGS, sysroot, sysroot_stamp)
+
+
+OPUS_DEFINES = ("-DOPUS_BUILD", "-DVAR_ARRAYS", "-DHAVE_LRINTF", "-DHAVE_LRINT")
+
+
+def opus_sources() -> List[Path]:
+    """Opus's library sources (port/third_party/opus/sources.txt)"""
+    return [OPUS_DIR / line.strip() for line in (OPUS_DIR / "sources.txt").read_text().splitlines() if line.strip()]
+
+
+def opus_cflags(abi: str) -> str:
+    """the flags Opus's sources build with, on the platform layer's ABI"""
+    return " ".join([abi, "-std=gnu11", "-O2", *OPUS_DEFINES, *(f"-I{OPUS_DIR / name}" for name in
+                                                            ("include", "celt", "silk", "silk/float")), "-w"])
+
+
 def musl_math_sources() -> List[Path]:
     """musl's maths functions the game uses (port/third_party/musl-math)"""
     return sorted((MUSL_MATH_DIR / "src").glob("*.c"))
@@ -282,16 +354,14 @@ class PortableSdl:
     license: Path
 
 
-def portable_sdl(n: Writer, sln: Any, build_dir: Path, cc: str, name: str = "linux", arch: str = "i386",
-                 toolchain: Path = SYSROOT_TOOLCHAIN) -> PortableSdl:
-    """The portable build's system root and SDL3, in build_dir, with rules
-    named for the build (linux, linux64) and its ``{name}_copy`` rule."""
+def linux_sysroot(n: Writer, build_dir: Path, name: str = "linux", arch: str = "i386"
+                  ) -> Tuple[Path, Path]:
+    """The build's system root (Debian 11, tools/linux_sysroot.py): its stamp
+    and its folder. The portable build draws against it, and the movies' FFmpeg
+    is built against it whichever build this is."""
     third_party = build_dir / "third_party"
     sysroot = third_party / "sysroot"
-    sdl_source = third_party / "SDL3"
     stamp = third_party / "stamp"
-    sdl_build = build_dir / "sdl3-build"
-    libsdl = sdl_build / "libSDL3.so.0"
     label = name.upper()
     n.rule(
         name=f"{name}_sysroot",
@@ -299,9 +369,25 @@ def portable_sdl(n: Writer, sln: Any, build_dir: Path, cc: str, name: str = "lin
         description=f"{label} SYSROOT (Debian 11 {arch}, SDL3 source)",
         restat=True,
     )
+    sdl_license_source = third_party / "SDL3" / "LICENSE.txt"
+    n.build(outputs=stamp, rule=f"{name}_sysroot", implicit=[SYSROOT_SCRIPT],
+            implicit_outputs=[sdl_license_source])
+    return stamp, sysroot
+
+
+def portable_sdl(n: Writer, sln: Any, build_dir: Path, cc: str, sysroot: Path, stamp: Path,
+                 name: str = "linux", arch: str = "i386",
+                 toolchain: Path = SYSROOT_TOOLCHAIN) -> PortableSdl:
+    """The portable build's SDL3, in build_dir, with rules named for the build
+    (linux, linux64) and its ``{name}_copy`` rule. The system root it draws
+    against comes from linux_sysroot()."""
+    third_party = build_dir / "third_party"
+    sdl_source = third_party / "SDL3"
+    sdl_build = build_dir / "sdl3-build"
+    libsdl = sdl_build / "libSDL3.so.0"
+    label = name.upper()
     # (and SDL's license, which the release carries)
     sdl_license_source = sdl_source / "LICENSE.txt"
-    n.build(outputs=stamp, rule=f"{name}_sysroot", implicit=[SYSROOT_SCRIPT], implicit_outputs=[sdl_license_source])
     launcher = getattr(sln, "compiler_launcher", None)
     options = SDL_OPTIONS + ([f"-DCMAKE_C_COMPILER_LAUNCHER={launcher}"] if launcher else [])
     n.rule(
@@ -450,6 +536,10 @@ class Linux32Units:
     platform_sources: List[Path] = field(default_factory=list)
     # more units with the host's ABI, as posix_*.c (after the platform units)
     native_sources: List[Path] = field(default_factory=list)
+    # (the movies' FFmpeg: its compiler flags and its libraries, for the build
+    # that brings it; the dedicated server leaves both empty and keeps the
+    # stubs, since it shows no movies)
+    ffmpeg: Tuple[List[str], List[str]] = ([], [])
     # include flags for the platform and host-ABI units (SDL's headers)
     include_flags: List[str] = field(default_factory=list)
     # the portable build's system root and SDL's headers, after the
@@ -479,7 +569,8 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
     # does not, so that an overrun nobody has met cannot end a game)
     abi = " ".join(_retarget(LINUX_ABI_FLAGS, units.target_flags) + target
                    + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else ["-fstack-protector-strong"])
-                   + browser_defines + CUSTOM_EDITION_DEFINES + units.extra_flags)
+                   + browser_defines + CUSTOM_EDITION_DEFINES + units.extra_flags
+                   + units.ffmpeg[0])
     port_include = PORT_DIR / "include"
     sdk_flags = f"-idirafter {XDK_INCLUDE}"
     posix_flags = _retarget(POSIX_FLAGS, units.target_flags)
@@ -691,17 +782,38 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     embedded_assets = (hud_assets_build(n, "linux", build_dir / "generated" / "hud_hires_assets.c")
                        + ui_fonts_build(n, "linux", build_dir / "generated" / "ui_fonts.c", sln))
 
-    # the portable build's system root and SDL3, or the build machine's
-    sdl = portable_sdl(n, sln, build_dir, cc) if getattr(sln, "port_portable", False) else None
+    # (the movies' FFmpeg, unless this build leaves it out: configure.py
+    # --without-ffmpeg. Then the stubs build and the game skips the movies;
+    # the system root is then only the portable build's)
+    with_ffmpeg = getattr(sln, "with_ffmpeg", True)
+    sysroot_stamp: Optional[Path] = None
+    sysroot: Optional[Path] = None
+    if getattr(sln, "port_portable", False) or with_ffmpeg:
+        sysroot_stamp, sysroot = linux_sysroot(n, build_dir)
+    ffmpeg_cflags: List[str] = []
+    ffmpeg_libs: List[str] = []
+    ffmpeg_inputs: List[Path] = []
+    if with_ffmpeg:
+        ffmpeg_cflags, ffmpeg_libs, ffmpeg_stamp, ffmpeg_archives = linux_ffmpeg(
+            n, build_dir, cc, sysroot, sysroot_stamp)
+        ffmpeg_inputs = [ffmpeg_stamp, *ffmpeg_archives]
+
+    # the portable build's SDL3, or the build machine's
+    sdl = (portable_sdl(n, sln, build_dir, cc, sysroot, sysroot_stamp)
+           if getattr(sln, "port_portable", False) else None)
     sysroot_cflags = sdl.cflags if sdl else []
     sysroot_ldflags = sdl.ldflags if sdl else []
-    sysroot_inputs = [sdl.stamp] if sdl else []
+    # (what every unit waits for: the system root's stamp and, when this build
+    # has them, the movies' FFmpeg, headers and libraries alike)
+    sysroot_inputs = ([sdl.stamp] if sdl else ([sysroot_stamp] if sysroot_stamp else [])) + ffmpeg_inputs
     sdl_outputs = [build_dir / sdl.libsdl.name, sdl.license] if sdl else []
 
     libs = " ".join(f"-l{lib}" for lib in config.get("libraries", []))
+    libs = " ".join([libs, *ffmpeg_libs]).strip()
     units = Linux32Units(sln=sln, config=config, game_browser=getattr(sln, "game_browser", False),
                          semantics_header=semantics_header, platform_semantics_header=platform_semantics_header,
                          embedded_assets=embedded_assets, sysroot_flags=sysroot_cflags,
+                         ffmpeg=(ffmpeg_cflags, ffmpeg_libs),
                          # configure.py --window-rebase: the memory window wherever
                          # HALO_WINDOW_BASE puts it (source/cseries/xbox_address.h), to
                          # test on the desktop what the Switch needs; never a build to ship

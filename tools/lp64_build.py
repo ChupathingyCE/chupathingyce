@@ -144,6 +144,10 @@ class Lp64Host:
     # more platform units with the Xbox's ABI, rewritten and built as
     # port/linux/src's (the dedicated server's: tools/server_build.py)
     platform_sources: List[Path] = field(default_factory=list)
+    # the movies' FFmpeg (linux_build.ffmpeg_build): its define and headers, for
+    # the movies' units (port/linux/src/bink_ffmpeg.c and bink_null.c), or none
+    # for the stubs
+    ffmpeg_cflags: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -317,6 +321,8 @@ class Lp64Build:
                 add(source, posix_cflags, native=True)
             elif source.name in VERSION_SOURCES:
                 add(lp64(source), f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
+            elif source.name in ("bink_ffmpeg.c", "bink_null.c"):
+                add(lp64(source), " ".join([platform_cflags, *host.ffmpeg_cflags]))
             elif source.name == "text_hires.c":
                 # (it includes stb_truetype by a path from its own folder: the
                 # copy's folder has no third_party beside it, the original's has)

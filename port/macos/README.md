@@ -11,7 +11,8 @@ Linux build's, and [port/linux/README.md](../linux/README.md) describes them.
 
 - macOS 13 or later on Apple silicon.
 - The Xcode command line tools (`xcode-select --install`): clang and the SDK.
-- SDL3, FFmpeg (Bink video) and ninja from Homebrew: `brew install sdl3 ffmpeg ninja`.
+- SDL3 and ninja from Homebrew: `brew install sdl3 ninja`. The movies' FFmpeg is
+  built by the build itself (`tools/ffmpeg_build.py`).
 - The game data in `assets/maps` (see the [README](../../README.md)).
 
 ```sh
@@ -70,11 +71,11 @@ treats an Xbox address as a pointer, or the reverse, does not compile.
   `.bik` movies) beside `maps/`, only the files that are missing. The game
   reads `d:\bink\<name>.bik` there, and falls back to `assets/bink/`.
 - Bink video (the intro, attract and credits movies) is decoded with FFmpeg
-  (`port/macos/src/macos_bink.c`) behind the Bink calls the game makes, in
-  place of the other ports' `bink_null.c`, in a build made on this Mac only:
-  the application for other Macs (`configure.py --portable`, which the
-  downloads are) leaves FFmpeg out and skips the movies, as the other
-  platforms do (`tools/macos_build.py`).
+  behind the Bink calls the game makes (`port/linux/src/bink_ffmpeg.c`, the
+  same as the Linux and Android builds). FFmpeg is built here for each
+  architecture and linked statically, so the application for other Macs
+  (`configure.py --portable`) carries no Homebrew library. A missing or
+  unreadable movie is skipped, as on the Xbox.
 - The application bundle (`port/macos/bundle.py`, `Info.plist`) registers the
   `halo://` and Discord URL schemes that internet play invites use.
 - Command-W (the Window menu's Close) does not close the game, as W moves
