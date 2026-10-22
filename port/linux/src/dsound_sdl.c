@@ -88,7 +88,7 @@ chooses stereo or 5.1 (port_config.c).
 /* the binaural rendering (hrtf) */
 #define HRTF_MAXIMUM_TAPS 64
 #define HRTF_MAXIMUM_DELAY 48
-#define HRTF_HISTORY 128
+#define HRTF_INPUT 2048 /* a mix and the longest delay before it, a power of 2 */
 #define HRTF_FADE_SECONDS 0.1f
 
 /* ---------- voices */
@@ -164,13 +164,12 @@ struct sdl_stream
 	/* the direct path's low pass, for each channel, and the room send's */
 	float direct_lowpass[2];
 	float room_lowpass;
-	/* the binaural rendering's (hrtf): the voice's mono direct path, each
-	ear's copy of it delayed by its interaural delay (each written twice,
-	HRTF_HISTORY apart, so the filter reads its taps in one run), where
-	they are written next, and the filters, delays and gain it is moving
-	from (none yet while hrtf_valid is FALSE) */
-	float hrtf_input[HRTF_HISTORY];
-	float hrtf_ears[2][2 * HRTF_HISTORY];
+	/* the binaural rendering's (hrtf): the voice's mono direct path, the
+	last taps - 1 samples of each ear's copy of it delayed by its interaural
+	delay, where the input is written next, and the filters, delays and
+	gain it is moving from (none yet while hrtf_valid is FALSE) */
+	float hrtf_input[HRTF_INPUT];
+	float hrtf_tail[2][HRTF_MAXIMUM_TAPS];
 	unsigned long hrtf_position;
 	float hrtf_filters[2][HRTF_MAXIMUM_TAPS];
 	float hrtf_delays[2];
@@ -666,7 +665,7 @@ static struct
 	/* radians */
 	float first_elevation, elevation_step, azimuth_step;
 	/* for each direction (elevation by elevation, azimuth counterclockwise
-	from ahead), each ear's taps, last first (hrtf_dot), and its delay in
+	from ahead), each ear's taps, last first (hrtf_convolve), and its delay in
 	samples; taps is the file's rounded up to a multiple of 4, the first
 	ones 0 */
 	float *filters;
@@ -842,24 +841,27 @@ behind it */
 static void hrtf_reset(struct sdl_stream *stream)
 {
 	memset(stream->hrtf_input, 0, sizeof(stream->hrtf_input));
-	memset(stream->hrtf_ears, 0, sizeof(stream->hrtf_ears));
+	memset(stream->hrtf_tail, 0, sizeof(stream->hrtf_tail));
 	stream->hrtf_position = 0;
 	stream->current_hrtf = 0.0f;
 	stream->hrtf_valid = FALSE;
 }
 
 /* the sample of input delay + 1 samples before position (a cubic Hermite
-interpolation between the four around it) */
+interpolation between the four around it). The delay is never negative, so
+a conversion to int is its floor: floorf is a call into the C library on
+32-bit x86, which made this five times slower there */
 static float hrtf_delayed(const float *input, unsigned long position, float delay)
 {
 	/* (a sample more than the delay, so the newest of the four is one
 	written already) */
-	float back = floorf(delay) + 1.0f, fraction = delay + 1.0f - back;
-	unsigned long newest = position - (unsigned long)back;
-	float y0 = input[(newest + 1) & (HRTF_HISTORY - 1)];
-	float y1 = input[newest & (HRTF_HISTORY - 1)];
-	float y2 = input[(newest - 1) & (HRTF_HISTORY - 1)];
-	float y3 = input[(newest - 2) & (HRTF_HISTORY - 1)];
+	int whole = (int)delay;
+	float fraction = delay - (float)whole;
+	unsigned long newest = position - 1 - (unsigned long)whole;
+	float y0 = input[(newest + 1) & (HRTF_INPUT - 1)];
+	float y1 = input[newest & (HRTF_INPUT - 1)];
+	float y2 = input[(newest - 1) & (HRTF_INPUT - 1)];
+	float y3 = input[(newest - 2) & (HRTF_INPUT - 1)];
 	float c1 = 0.5f * (y2 - y0);
 	float c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
 	float c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
@@ -867,32 +869,38 @@ static float hrtf_delayed(const float *input, unsigned long position, float dela
 	return ((c3 * fraction + c2) * fraction + c1) * fraction + y1;
 }
 
-/* the sum of a[i] b[i], four at a time (so that it vectorizes, the sums'
-order being given); count a multiple of 4 */
-static float hrtf_dot(const float *a, const float *b, unsigned long count)
+/* adds to sums (frames of them) the filter (taps of it, last first) run
+over samples (taps - 1 before the first frame's, then the frames'): tap by
+tap over all the frames, which vectorizes, each tap a constant */
+static void hrtf_convolve(const float *filter, const float *samples, float *sums, unsigned long frames,
+	unsigned long taps)
 {
-	float sum0 = 0.0f, sum1 = 0.0f, sum2 = 0.0f, sum3 = 0.0f;
-	unsigned long index;
+	unsigned long tap, frame;
 
-	for (index = 0; index < count; index += 4)
+	for (tap = 0; tap < taps; tap++)
 	{
-		sum0 += a[index] * b[index];
-		sum1 += a[index + 1] * b[index + 1];
-		sum2 += a[index + 2] * b[index + 2];
-		sum3 += a[index + 3] * b[index + 3];
+		float weight = filter[tap];
+		const float *source = samples + tap;
+
+		for (frame = 0; frame < frames; frame++)
+			sums[frame] += weight * source[frame];
 	}
-	return (sum0 + sum1) + (sum2 + sum3);
 }
 
-/* the binaural rendering of a voice's mono direct path, mono (frames of it),
-added to output (frames of stereo); its targets for the mix computed by
-hrtf_target */
+/* the binaural rendering of a voice's mono direct path, mono (frames of it,
+at most MIX_CHUNK_FRAMES), added to output (frames of stereo); its targets
+for the mix computed by hrtf_target. The mix's input goes in first; then
+for each ear its delayed copy, the delay sliding to the new one, and that
+filtered a block at a time */
 static void hrtf_mix(struct sdl_stream *stream, const float *mono, float *output, unsigned long frames,
 	float target_gain, float filters[2][HRTF_MAXIMUM_TAPS], const float *delays)
 {
-	unsigned long taps = hrtf.taps, frame, ear;
+	unsigned long taps = hrtf.taps, position = stream->hrtf_position, frame, ear;
 	BOOL fading;
-	float gain, ramp_gain, delay[2], ramp_delay[2], fade = 0.0f, ramp_fade = 1.0f / (float)frames;
+	float gain, ramp_gain;
+	/* an ear's samples: the taps - 1 before the mix, then the mix's; and
+	the old filter's sums and the new one's */
+	float samples[HRTF_MAXIMUM_TAPS + MIX_CHUNK_FRAMES], old_sums[MIX_CHUNK_FRAMES], new_sums[MIX_CHUNK_FRAMES];
 
 	if (!stream->hrtf_valid)
 	{
@@ -904,36 +912,41 @@ static void hrtf_mix(struct sdl_stream *stream, const float *mono, float *output
 	fading = memcmp(stream->hrtf_filters, filters, sizeof(stream->hrtf_filters)) != 0;
 	gain = stream->current_hrtf;
 	ramp_gain = (target_gain - gain) / (float)frames;
-	for (ear = 0; ear < 2; ear++)
-	{
-		delay[ear] = stream->hrtf_delays[ear];
-		ramp_delay[ear] = (delays[ear] - delay[ear]) / (float)frames;
-	}
 	for (frame = 0; frame < frames; frame++)
 	{
-		unsigned long position = stream->hrtf_position;
-
-		stream->hrtf_input[position & (HRTF_HISTORY - 1)] = mono[frame] * gain;
-		for (ear = 0; ear < 2; ear++)
-		{
-			float *ring = stream->hrtf_ears[ear];
-			unsigned long slot = position & (HRTF_HISTORY - 1);
-			const float *oldest;
-			float sum;
-
-			ring[slot] = ring[slot + HRTF_HISTORY] = hrtf_delayed(stream->hrtf_input, position, delay[ear]);
-			/* the taps' samples, oldest first, in one run */
-			oldest = ring + slot + HRTF_HISTORY + 1 - taps;
-			sum = hrtf_dot(stream->hrtf_filters[ear], oldest, taps);
-			if (fading)
-				sum += (hrtf_dot(filters[ear], oldest, taps) - sum) * fade;
-			output[frame * 2 + ear] += sum;
-			delay[ear] += ramp_delay[ear];
-		}
+		stream->hrtf_input[(position + frame) & (HRTF_INPUT - 1)] = mono[frame] * gain;
 		gain += ramp_gain;
-		fade += ramp_fade;
-		stream->hrtf_position = position + 1;
 	}
+	for (ear = 0; ear < 2; ear++)
+	{
+		float delay = stream->hrtf_delays[ear], ramp_delay = (delays[ear] - delay) / (float)frames;
+		float *delayed = samples + taps - 1;
+
+		memcpy(samples, stream->hrtf_tail[ear], (taps - 1) * sizeof(float));
+		for (frame = 0; frame < frames; frame++)
+		{
+			delayed[frame] = hrtf_delayed(stream->hrtf_input, position + frame, delay);
+			delay += ramp_delay;
+		}
+		memset(old_sums, 0, frames * sizeof(float));
+		hrtf_convolve(stream->hrtf_filters[ear], samples, old_sums, frames, taps);
+		if (fading)
+		{
+			float fade = 0.0f, ramp_fade = 1.0f / (float)frames;
+
+			memset(new_sums, 0, frames * sizeof(float));
+			hrtf_convolve(filters[ear], samples, new_sums, frames, taps);
+			for (frame = 0; frame < frames; frame++)
+			{
+				old_sums[frame] += (new_sums[frame] - old_sums[frame]) * fade;
+				fade += ramp_fade;
+			}
+		}
+		for (frame = 0; frame < frames; frame++)
+			output[frame * 2 + ear] += old_sums[frame];
+		memcpy(stream->hrtf_tail[ear], samples + frames, (taps - 1) * sizeof(float));
+	}
+	stream->hrtf_position = position + frames;
 	memcpy(stream->hrtf_filters, filters, sizeof(stream->hrtf_filters));
 	stream->hrtf_delays[0] = delays[0];
 	stream->hrtf_delays[1] = delays[1];
