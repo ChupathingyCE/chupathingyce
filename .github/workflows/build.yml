@@ -585,8 +585,8 @@ jobs:
           key: ccache-android64-${{ github.sha }}
 
   windows:
-    # The runner image has LLVM, Python and Visual Studio's x86 libraries and
-    # Windows SDK.
+    # The runner image has LLVM, Python, MSYS2 (the movies' FFmpeg builds
+    # under its shell) and Visual Studio's x86 libraries and Windows SDK.
     runs-on: windows-2025
     timeout-minutes: 40
     defaults:
@@ -624,6 +624,16 @@ jobs:
         with:
           path: build/windows/third_party
           key: windows-third-party-${{ hashFiles('tools/windows_build.py') }}
+
+      # the movies' FFmpeg (tools/ffmpeg_build.py), built once and cached:
+      # its configure and make run under the runner's MSYS2, which needs make
+      - name: MSYS2 make
+        run: /c/msys64/usr/bin/pacman.exe -S --noconfirm --needed make diffutils
+
+      - uses: actions/cache@v4
+        with:
+          path: build/windows/ffmpeg
+          key: windows-ffmpeg-${{ hashFiles('tools/ffmpeg_build.py') }}
 
       - name: Debug
         run: python tools/ci_build.py windows debug
@@ -710,6 +720,16 @@ jobs:
         with:
           path: build/windows/third_party
           key: windows-third-party-${{ hashFiles('tools/windows_build.py') }}
+
+      # the movies' FFmpeg (tools/ffmpeg_build.py), built once and cached:
+      # its configure and make run under the runner's MSYS2, which needs make
+      - name: MSYS2 make
+        run: /c/msys64/usr/bin/pacman.exe -S --noconfirm --needed make diffutils
+
+      - uses: actions/cache@v4
+        with:
+          path: build/windows64/ffmpeg
+          key: windows64-ffmpeg-${{ hashFiles('tools/ffmpeg_build.py') }}
 
       - name: Debug
         run: python tools/ci_build.py windows64 debug

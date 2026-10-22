@@ -23,7 +23,13 @@ to what follows (the main menu after the intro, the menu's countdown after
 an attract movie). One that stops decoding partway (a truncated file) ends
 there instead of holding its last frame until its header's length runs out.
 This is the one movie implementation of the desktop and Android builds (the
-Windows builds and the consoles keep bink_null.c's stubs for now).
+consoles keep bink_null.c's stubs for now).
+
+Only Bink is opened: the file goes to FFmpeg's bink demuxer by name (no
+probing for another format), through its file protocol only, and its streams
+must be Bink video and Bink audio; anything else is skipped as a damaged
+movie is. The FFmpeg the builds make has nothing else in it either
+(tools/ffmpeg_build.py, tools/android_ffmpeg.py).
 */
 
 #ifdef HALO_BINK_FFMPEG
@@ -278,13 +284,36 @@ HBINK __stdcall BinkOpen(const char *name, unsigned long flags)
 	bink->audio_stream = -1;
 	bink->decoded_frame = -1;
 	bink->submitted = -1;
-	if (avformat_open_input(&bink->format, path, NULL, NULL) < 0)
-		return bink_skip(bink, name, "not a movie FFmpeg can open");
+	/* (the bink demuxer forced, the file protocol and that demuxer the only
+	ones FFmpeg may use for it) */
+	{
+		const AVInputFormat *bink_format = av_find_input_format("bink");
+		AVDictionary *options = NULL;
+		int opened;
+
+		if (!bink_format)
+			return bink_skip(bink, name, "no Bink demuxer in this build");
+		bink->format = avformat_alloc_context();
+		if (!bink->format)
+			return bink_skip(bink, name, "out of memory");
+		av_dict_set(&options, "protocol_whitelist", "file", 0);
+		av_dict_set(&options, "format_whitelist", "bink", 0);
+		av_dict_set(&options, "codec_whitelist", "binkvideo,binkaudio_rdft,binkaudio_dct", 0);
+		opened = avformat_open_input(&bink->format, path, bink_format, &options);
+		av_dict_free(&options);
+		/* (a failed open frees the context and clears the pointer) */
+		if (opened < 0)
+			return bink_skip(bink, name, "not a Bink movie");
+	}
+	if (!bink->format->iformat || strcmp(bink->format->iformat->name, "bink") != 0)
+		return bink_skip(bink, name, "not a Bink movie");
 	if (avformat_find_stream_info(bink->format, NULL) < 0)
 		return bink_skip(bink, name, "no stream information");
 	bink->video_stream = av_find_best_stream(bink->format, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
 	if (bink->video_stream < 0)
 		return bink_skip(bink, name, "no video");
+	if (bink->format->streams[bink->video_stream]->codecpar->codec_id != AV_CODEC_ID_BINKVIDEO)
+		return bink_skip(bink, name, "its video is not Bink video");
 	codec = avcodec_find_decoder(bink->format->streams[bink->video_stream]->codecpar->codec_id);
 	if (!codec)
 		return bink_skip(bink, name, "no decoder for its video");
@@ -332,6 +361,13 @@ HBINK __stdcall BinkOpen(const char *name, unsigned long flags)
 
 	/* the movie's own sound, if the disc's file carries one */
 	bink->audio_stream = av_find_best_stream(bink->format, AVMEDIA_TYPE_AUDIO, -1, -1, NULL, 0);
+	if (bink->audio_stream >= 0 &&
+		bink->format->streams[bink->audio_stream]->codecpar->codec_id != AV_CODEC_ID_BINKAUDIO_RDFT &&
+		bink->format->streams[bink->audio_stream]->codecpar->codec_id != AV_CODEC_ID_BINKAUDIO_DCT)
+	{
+		/* (a sound that is not Bink's: the movie plays silent) */
+		bink->audio_stream = -1;
+	}
 	if (bink->audio_stream >= 0)
 	{
 		const AVCodec *acodec = avcodec_find_decoder(
