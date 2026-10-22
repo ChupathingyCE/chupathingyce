@@ -185,6 +185,7 @@ struct game_options;
 #include "rasterizer/common/rasterizer_common.h"
 #endif
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#include "loading_screen.h" /* port: port/linux/game/loading_screen.c */
 #include "networking/network_game_globals.h"
 #include "tag_files/tag_files.h"
 #include "cseries/cseries_windows.h"
@@ -809,7 +810,7 @@ void game_precache_new_map(
 	boolean blocking)
 {
 	long map_status;
-	/* port: display.loading_screen_min_seconds */
+	/* port: display.loading_screen */
 	unsigned long hold_milliseconds = blocking ? game_loading_screen_hold_milliseconds(map_name) : 0;
 	unsigned long hold_start = system_milliseconds();
 
@@ -904,6 +905,9 @@ void game_precache_new_map(
 					game_globals->loading_progress = progress;
 				}
 #endif
+				/* (skipped, the load itself still runs to its end) */
+				if (hold_milliseconds > 0 && loading_screen_skip_pressed())
+					hold_milliseconds = 0;
 				game_loading_screen_hold_progress(hold_start, hold_milliseconds, map_status != 0);
 				main_pregame_render();
 				main_rasterizer_throttle();
@@ -933,7 +937,7 @@ void game_precache_new_map(
 	else if (hold_milliseconds > 0)
 	{
 		/* port: a map already in its cache file loads at once; the loading
-		screen is still held for display.loading_screen_min_seconds */
+		screen is still held for display.loading_screen's seconds */
 		game_loading_screen_hold(hold_start, hold_milliseconds);
 	}
 
@@ -1096,25 +1100,52 @@ void game_set_game_variant_from_name(
 /* ---------- private code */
 
 /* port_config.c */
+int config_boolean(char const *name);
 double config_real(char const *name);
 
-/* port: display.loading_screen_min_seconds (0, the default, for none): the
-least time the original loading screen stays up when a level loads, as
-loading from the Xbox's disc took, where the port's loads are over before it
-shows. Only in a game no other machine is in (campaign, a split screen game):
-this loop runs nothing of the network, so a game on it is not held. Never for
-the main menu's map. */
+/* port: display.loading_screen (false for none) and its seconds: the least
+time the original loading screen stays up when a level loads, as loading
+from the Xbox's disc took, where the port's loads are over before it shows.
+A campaign level on this machine alone (split screen co-op too) has its
+own, and every other game (split screen multiplayer, and any game on the
+network, network co-op too) the multiplayer one. This loop runs nothing of
+the network, so a multiplayer game is held at most 5 seconds, far from the
+15 a host waits on a silent machine (NETWORK_GAME_SERVER_CLIENT_TIMEOUT);
+machines finish loading at their own times as it is. Never for the main
+menu's map, a saved film, or the dedicated server and the game list's probe,
+which show nothing. */
 static unsigned long game_loading_screen_hold_milliseconds(
 	char const *map_name)
 {
-	double seconds = config_real("display.loading_screen_min_seconds");
+	double seconds, maximum = 30.0;
 
-	if (!(seconds > 0.0) || !_stricmp(tag_name_strip_path(map_name), "ui"))
+	if (!config_boolean("display.loading_screen") || !_stricmp(tag_name_strip_path(map_name), "ui"))
 		return 0;
-	if (game_connection() != _game_connection_local && !network_game_is_splitscreen_local())
+#ifdef HALO_GAME_BROWSER
+	{ boolean dedicated_server_active(void);
+	  boolean probe_active(void);
+	  if (dedicated_server_active() || probe_active())
+		return 0; }
+#endif
+	if (game_connection() == _game_connection_local)
+	{
+		seconds = config_real("display.loading_screen_campaign_seconds");
+	}
+	else if (game_connection() == _game_connection_network_client ||
+		game_connection() == _game_connection_network_server)
+	{
+		/* (a split screen game is a network game no other machine is in) */
+		seconds = config_real("display.loading_screen_multiplayer_seconds");
+		maximum = 5.0;
+	}
+	else
+	{
+		return 0;
+	}
+	if (!(seconds > 0.0))
 		return 0;
 
-	return (unsigned long)(PIN(seconds, 0.0, 30.0) * 1000.0);
+	return (unsigned long)(PIN(seconds, 0.0, maximum) * 1000.0);
 }
 
 /* while the loading screen is held, its picture moves on with the time held
@@ -1145,6 +1176,8 @@ static void game_loading_screen_hold(
 	progress_bar_begin(global_scenario_index != NONE);
 	do
 	{
+		if (loading_screen_skip_pressed())
+			break;
 		game_loading_screen_hold_progress(hold_start, hold_milliseconds, TRUE);
 		main_pregame_render();
 		main_rasterizer_throttle();

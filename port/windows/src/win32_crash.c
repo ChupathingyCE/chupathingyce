@@ -534,11 +534,11 @@ static int crash_ask(void)
 {
 	typedef int (WINAPI *message_box_timeout_proc)(HWND, LPCWSTR, LPCWSTR, UINT, WORD, DWORD);
 	static const wchar_t text[] =
-		L"Halo crashed.\n\n"
+		L"Chupathingy crashed.\n\n"
 		L"Do you want to send crash reports to the developers? They help us find and fix crashes.\n\n"
 		L"A report holds the game's version, where in the game it crashed and the calls that led there, the state "
 		L"of the game when it crashed (the call stacks and registers of its threads, and the list of its program "
-		L"files) and the end of its log, halo.log, with IP addresses taken out. Reports go to the ChupathingyCE "
+		L"files) and the end of its log, halo.log, with IP addresses taken out. Reports go to the Chupathingy "
 		L"site (network.browser_url) and its developers.\n\n"
 		L"The answer is kept in config.toml (crash_reports.upload): Yes sends the report of this crash and of "
 		L"every later one, No never sends one.";
@@ -547,8 +547,8 @@ static int crash_ask(void)
 	message_box_timeout_proc message_box_timeout =
 		(message_box_timeout_proc)(void *)GetProcAddress(GetModuleHandleW(L"user32.dll"), "MessageBoxTimeoutW");
 	UINT style = MB_YESNO | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND;
-	int answer = message_box_timeout ? message_box_timeout(NULL, text, L"Halo crashed", style, 0,
-		CONSENT_WAIT_MILLISECONDS) : MessageBoxW(NULL, text, L"Halo crashed", style);
+	int answer = message_box_timeout ? message_box_timeout(NULL, text, L"Chupathingy crashed", style, 0,
+		CONSENT_WAIT_MILLISECONDS) : MessageBoxW(NULL, text, L"Chupathingy crashed", style);
 
 	return answer == IDYES ? 1 : answer == IDNO ? 0 : -1;
 }

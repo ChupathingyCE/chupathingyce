@@ -42,6 +42,25 @@ void platform_unimplemented(const char *name);
 
 #define PLATFORM_UNIMPLEMENTED() platform_unimplemented(__func__)
 
+/* ---------- thread-local variables
+
+A console whose executables have no thread-local storage
+(HALO_CONSOLE_NO_THREAD_LOCAL, halo_console_features.h) keeps the platform
+layer's variables of each thread in a block its port gives each thread for
+each key (platform_thread_local: zeroed the first time; key is a static of
+the caller's, NULL until then). PLATFORM_THREAD_LOCAL_SLOT(type, name)
+declares name_slot(), the calling thread's variable. */
+
+#ifdef HALO_CONSOLE_NO_THREAD_LOCAL
+void *platform_thread_local(void **key, unsigned long size);
+#define PLATFORM_THREAD_LOCAL_SLOT(type, name) \
+	static void *name##_key; \
+	static type *name##_slot(void) \
+	{ \
+		return (type *)platform_thread_local(&name##_key, sizeof(type)); \
+	}
+#endif
+
 /* ---------- errors */
 
 /* translate errno into a Win32 error code and store it as GetLastError() */
@@ -199,6 +218,11 @@ holds for it at its pinned address (port/switch/host/host_memory.c), the
 extra going to the texture cache (halo_port_capacity.h) */
 #define PLATFORM_CONTIGUOUS_MINIMUM 0x08000000UL
 #define PLATFORM_CONTIGUOUS_MAXIMUM 0x10000000UL
+#elif defined(HALO_CONSOLE_WINDOW_MAXIMUM)
+/* a console that puts the window where it finds room
+(halo_console_features.h): a development kit's 128 MB at least */
+#define PLATFORM_CONTIGUOUS_MINIMUM 0x08000000UL
+#define PLATFORM_CONTIGUOUS_MAXIMUM HALO_CONSOLE_WINDOW_MAXIMUM
 #else
 /* the Linux build's test of a moved window: the desktop's size, always */
 #define PLATFORM_CONTIGUOUS_MINIMUM 0x20000000UL

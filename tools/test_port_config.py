@@ -17,6 +17,8 @@ player's can have:
   settings keep their old values and the file stays as it is, the player is
   asked once, "keep mine" writes the old values and "use the new settings"
   lets them follow the new defaults; the question never comes again;
+- a file with a setting under its older name: a value the player chose
+  goes on under the new one, and the old name's lines are taken out;
 - the per-platform defaults of each build (DEFAULTS below).
 
 Needs only a C compiler. Usage: test_port_config.py [--cc clang]
@@ -378,6 +380,57 @@ def test_before_config_version(program, directory, defaults, kind):
 	check(not lines and len(commented) == 1, f"version 1: vsync, at its default, is not commented out: {lines} {commented}")
 
 
+def test_renamed_setting(program, directory, defaults, kind):
+	"""A setting under its older name (config_renamed in port_config.c):
+	display.loading_screen_min_seconds, until v0.8.0b. A value the player
+	chose goes on under the new name, display.loading_screen_campaign_seconds,
+	and the multiplayer one starts at its default; a line only commented out
+	is taken out, and the new settings are at their defaults; a value already
+	under the new name is the one kept. Each time the old name's lines are
+	gone, and the next start changes nothing."""
+	old_block = ("\n# Keep the original loading screen up for at least this many seconds\n"
+		"# when a level loads (up to 30); 0 for no wait.\n"
+		"# (for one run: HALO_LOADING_SCREEN_MIN_SECONDS=<value>)\n")
+	names = ("display.loading_screen", "display.loading_screen_campaign_seconds",
+		"display.loading_screen_multiplayer_seconds")
+	cases = {
+		"chosen": (old_block + "loading_screen_min_seconds = 8\n", 8.0, ["loading_screen_campaign_seconds = 8"]),
+		"commented": (old_block + "# loading_screen_min_seconds = 0.0\n", 0.0, []),
+		"both": (old_block + "loading_screen_min_seconds = 8\n\nloading_screen_campaign_seconds = 3.0\n", 3.0,
+			["loading_screen_campaign_seconds = 3.0"]),
+	}
+	for name, (lines, campaign, campaign_lines) in cases.items():
+		case = Case(program, directory / f"renamed_{name}")
+		case.get("display.vsync")
+		text = case.text()
+		# (the file as 0.8.0 had it: the new settings not there yet, the old one)
+		for key in ("loading_screen", "loading_screen_campaign_seconds", "loading_screen_multiplayer_seconds"):
+			text = re.sub(rf"\n(# [^\n]*\n)*# {key} = [^\n]*\n", "\n", text)
+		text = text.replace("\n[display]\n", "\n[display]\n" + lines, 1)
+		case.path.write_text(text)
+		values, output = case.get(*names)
+		check(values["display.loading_screen"] == "true", f"renamed/{name}: loading_screen is {values}")
+		check(float(values["display.loading_screen_campaign_seconds"]) == campaign,
+			f"renamed/{name}: campaign is {values['display.loading_screen_campaign_seconds']}, not {campaign}")
+		check(float(values["display.loading_screen_multiplayer_seconds"]) == 0.0,
+			f"renamed/{name}: multiplayer is {values['display.loading_screen_multiplayer_seconds']}")
+		check("unknown setting" not in output, f"renamed/{name}: the old name is reported: {output}")
+		text = case.text()
+		check("loading_screen_min_seconds" not in text, f"renamed/{name}: the old name's lines stay")
+		values_lines, commented = value_lines(text, "loading_screen_campaign_seconds")
+		values_lines = [line.strip() for line in values_lines]
+		check(values_lines == campaign_lines and len(commented) == (0 if campaign_lines else 1),
+			f"renamed/{name}: campaign's lines are {values_lines} {commented}")
+		# (the player's own line under the new name stays as they wrote it)
+		check(text.count("The least seconds the loading screen stays up when a campaign level") == (0 if name == "both" else 1),
+			f"renamed/{name}: campaign's help text is not there once")
+		values_lines, commented = value_lines(text, "loading_screen_multiplayer_seconds")
+		check(not values_lines and len(commented) == 1, f"renamed/{name}: multiplayer's lines are {values_lines} {commented}")
+		before = text
+		case.get(*names)
+		check(case.text() == before, f"renamed/{name}: the file changed on the next start")
+
+
 def test_old_browser_address(program, directory, defaults, kind):
 	"""The community site's first address, written out as the default by an
 	earlier version, follows to stats.chupathingy.org (the same server); any
@@ -406,7 +459,8 @@ def main():
 		for kind in DEFAULTS:
 			program = build(arguments.cc, kind, directory / kind)
 			for test in (test_new_file, test_previous_release_file, test_file_without_the_settings,
-				test_readded_by_older_version, test_before_config_version, test_old_browser_address):
+				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
+				test_old_browser_address):
 				try:
 					test(program, directory / kind / "cases", DEFAULTS[kind], kind)
 					print(f"ok   {kind}: {test.__name__}")

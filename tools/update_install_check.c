@@ -64,6 +64,12 @@ const char *build_identity_user_agent(void)
 	return "chupathingyce-update-test/" HALO_VERSION;
 }
 
+void build_identity_watermark_update(const char *version, const char *where)
+{
+	(void)version;
+	(void)where;
+}
+
 int config_boolean(const char *name)
 {
 	return !strcmp(name, "update.auto");
