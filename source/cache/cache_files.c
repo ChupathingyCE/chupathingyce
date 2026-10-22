@@ -1011,6 +1011,25 @@ boolean cache_file_header_verify(
 #endif
 		header->tag_data_offset > header->file_length - header->tag_data_size)
 	{
+#ifdef HALO_CONSOLE_OVERSIZED_MAPS
+		/* port: a map whose tags are larger than the tag cache (a map
+		pack's, built for a larger one) is not damaged; it says so */
+		if (header->tag_data_size > TAG_CACHE_SIZE
+#ifdef HALO_CUSTOM_EDITION
+			&& !CACHE_FILE_VERSION_IS_PC(header->version)
+#endif
+			)
+		{
+			error(
+				_error_silent,
+				"the map '%s' cannot load: its tags need %ld KB, more than the tag cache's %ld MB",
+				scenario_name,
+				(long)((header->tag_data_size + 1023) / 1024),
+				(long)(TAG_CACHE_SIZE / (1024 * 1024)));
+
+			return FALSE;
+		}
+#endif
 		error(
 			_error_silent,
 			"the cache file '%s' is damaged: %08x bytes of tag data at %08x, in %08x bytes",
