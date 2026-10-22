@@ -354,7 +354,7 @@ static const struct config_setting config_settings[] =
 		"Show CHANGE TEAMS in the pause menu of a team game." },
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	{ "display.pause_controls", _config_boolean, "true", "HALO_PAUSE_CONTROLS", _environment_value, _platform_all,
-		"Show CONTROLS in the pause menu." },
+		"Show CONTROLS in the Xbox and Gearbox menus' pause menu." },
 #endif
 	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all | _platform_xbox,
 		"Show the banner for a Delta server's warnings and notices." },
