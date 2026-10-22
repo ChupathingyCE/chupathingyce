@@ -7,6 +7,7 @@ threads, asynchronous procedure calls, time, memory and debug output.
 
 #include "platform.h"
 #include "posix.h"
+#include "thread_stop.h"
 
 #include <errno.h>
 #include <sched.h>
@@ -619,13 +620,20 @@ static void *thread_main(void *context)
 	struct platform_handle *handle = thread->handle;
 	DWORD exit_code;
 	BOOL free_now;
+	char name[48];
+	int stop_slot;
 
 	pthread_mutex_lock(&handle->lock);
 	while (thread->suspended)
 		pthread_cond_wait(&handle->condition, &handle->lock);
 	pthread_mutex_unlock(&handle->lock);
 
+	/* (named in the log at the game's end if it is still there, by where
+	it starts: the game's threads do not see thread_stop.h's signal) */
+	snprintf(name, sizeof(name), "game thread at %p", (void *)thread->start);
+	stop_slot = thread_stop_enter(name, 0);
 	exit_code = thread->start(thread->parameter);
+	thread_stop_leave(stop_slot);
 
 	pthread_mutex_lock(&handle->lock);
 	thread->exit_code = exit_code;
