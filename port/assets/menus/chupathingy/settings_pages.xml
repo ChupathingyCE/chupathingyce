@@ -131,8 +131,11 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_music_volume" x="54" y="103"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_effects_volume" x="54" y="133"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_device" x="54" y="163" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_reverb" x="54" y="193"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_enabled" x="54" y="223"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_channels" x="54" y="193" platform="desktop"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_hrtf" x="54" y="223"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_reverb" x="54" y="253"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_doppler" x="54" y="283"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_enabled" x="54" y="313"/>
 	</widget>
 	<widget name="chupathingy/settings/network_setup_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
 		<on event="b" run="port settings back"/>
