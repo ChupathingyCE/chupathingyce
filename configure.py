@@ -121,12 +121,16 @@ parser.add_argument(
     help="clang with the arm64_32 target for the Android guest (default: clang)",
 )
 parser.add_argument(
-    "--with-ffmpeg",
-    action="store_true",
-    help="build the movies' FFmpeg (the Bink decoder behind the SDK's entry points): "
-         "LGPL, static, for this target. Without it the stubs build and the game skips "
-         "the movies, which is the default",
+    "--without-ffmpeg",
+    dest="with_ffmpeg",
+    action="store_false",
+    help="leave the movies' FFmpeg out (the Bink decoder behind the SDK's entry points: LGPL, "
+         "static, built for each target): the stubs build and the game skips the movies",
 )
+# (the default since every desktop build plays the movies; kept for the
+# scripts that still ask for it)
+parser.add_argument("--with-ffmpeg", dest="with_ffmpeg", action="store_true", help=argparse.SUPPRESS)
+parser.set_defaults(with_ffmpeg=True)
 add_console_arguments(parser)
 for port in console_ports:
     if hasattr(port.module, "add_arguments"):

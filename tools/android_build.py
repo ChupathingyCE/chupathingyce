@@ -375,17 +375,17 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     generated_headers = [*xdk_headers(), alltypes, syscall_h, version_h, gl_stamp,
                          semantics_header, platform_semantics_header]
 
-    # ---------- the movies' decoder: FFmpeg for the guest's ABI (--with-ffmpeg)
+    # ---------- the movies' decoder: FFmpeg for the guest's ABI
 
     # The guest plays the movies through the game's own entry points
     # (port/linux/src/bink_ffmpeg.c) over FFmpeg, as the Linux build does; the
     # libraries have to be built for the guest's ABI (ILP32 AArch64, the port's
-    # musl), which tools/android_ffmpeg.py does. Without --with-ffmpeg the guest
+    # musl), which tools/android_ffmpeg.py does. With --without-ffmpeg the guest
     # keeps the stubs, as upstream, and the game skips the movies.
     ffmpeg_guest = BUILD / "ffmpeg-guest"
     ffmpeg_archives: List[Path] = []
     ffmpeg_stamp: Optional[Path] = None
-    if getattr(sln, "with_ffmpeg", False):
+    if getattr(sln, "with_ffmpeg", True):
         ffmpeg_archives = [ffmpeg_guest / "build" / library / f"{library}.a"
                            for library in ("libavformat", "libavcodec", "libswscale",
                                            "libswresample", "libavutil")]

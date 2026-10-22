@@ -200,12 +200,6 @@ PROFILE_USE_FLAGS = [
 # floating-point library in plain C, its files as sources.txt lists them
 OPUS_DIR = Path("port/third_party/opus")
 # FFmpeg (LGPL) decodes the movies, which the port has no decoder for
-# (bink_ffmpeg.c implements the SDK's own entry points behind it). It is taken
-# from the system when it is there; without it the tree keeps bink_null.c and
-# the game skips the movies, exactly as it did before. A portable build draws
-# against its own system root, which carries none, so it always keeps the
-# stubs (and taking the build machine's would break its link).
-# FFmpeg (LGPL) decodes the movies, which the port has no decoder for
 # (bink_ffmpeg.c implements the SDK's own entry points behind it, and
 # bink_null.c keeps the stubs). The build brings its own, for this target and
 # against the build's own system root, rather than taking the build machine's:
@@ -223,30 +217,41 @@ FFMPEG_ABI_FLAGS = [
     "-fwrapv", "-fno-delete-null-pointer-checks", "-freg-struct-return", "-ffp-contract=off",
 ]
 
-def linux_ffmpeg(n: Writer, build_dir: Path, cc: str, sysroot: Path, sysroot_stamp: Path
+def ffmpeg_build(n: Writer, name: str, root: Path, cc: str, target_os: str, arch: str,
+                 target: Sequence[str], abi: Sequence[str] = (), sysroot: Optional[Path] = None,
+                 sysroot_stamp: Optional[Path] = None, group: bool = True
                  ) -> Tuple[List[str], List[str], Path, List[Path]]:
-    """The movies' FFmpeg: builds it here (tools/linux_ffmpeg.py). Returns its
-    compiler flags, its libraries, the stamp the units wait for, and the
-    libraries themselves (which the link waits for)."""
-    root = build_dir / "ffmpeg"
+    """The movies' FFmpeg for one target, built in root (tools/ffmpeg_build.py).
+    Returns its compiler flags, its libraries, the stamp the units wait for, and
+    the libraries themselves (which the link waits for). The 64-bit builds and
+    macOS's take it too (tools/lp64_build.py)."""
     archives = [root / "build" / library / f"{library}.a" for library in FFMPEG_LIBS]
     stamp = root / "ffmpeg.stamp"
     n.rule(
-        name="linux_ffmpeg",
-        command=(f"$python {Path('tools/linux_ffmpeg.py')} {root} --sysroot {sysroot} --cc {cc} "
-                 f"--flags \"{' '.join(FFMPEG_ABI_FLAGS)}\"") ,
-        description="LINUX FFMPEG (the movies' decoder)",
+        name=f"{name}_ffmpeg",
+        command=(f"$python {Path('tools/ffmpeg_build.py')} {root} --target-os {target_os} --arch {arch} "
+                 f"--cc {cc} --target \"{' '.join(target)}\" --flags \"{' '.join(abi)}\""
+                 + (f" --sysroot {sysroot}" if sysroot else "")),
+        description=f"{name.upper()} FFMPEG (the movies' decoder)",
         restat=True,
         pool="console",
     )
-    n.build(outputs=[*archives, stamp], rule="linux_ffmpeg",
-            implicit=[Path("tools/linux_ffmpeg.py"), sysroot_stamp])
+    n.build(outputs=[*archives, stamp], rule=f"{name}_ffmpeg",
+            implicit=[Path("tools/ffmpeg_build.py"), *([sysroot_stamp] if sysroot_stamp else [])])
     # (the sources include FFmpeg's headers, the generated ones among them)
     cflags = ["-DHALO_BINK_FFMPEG", f"-I{root / 'src'}", f"-I{root / 'build'}"]
     # (FFmpeg's libraries call each other's symbols: the group is what a static
-    # link needs to resolve them in one pass)
-    link = ["-Wl,--start-group", *[str(archive) for archive in archives], "-Wl,--end-group"]
+    # link needs to resolve them in one pass; Apple's linker needs none)
+    link = ([str(archive) for archive in archives] if not group
+            else ["-Wl,--start-group", *[str(archive) for archive in archives], "-Wl,--end-group"])
     return cflags, link, stamp, archives
+
+
+def linux_ffmpeg(n: Writer, build_dir: Path, cc: str, sysroot: Path, sysroot_stamp: Path
+                 ) -> Tuple[List[str], List[str], Path, List[Path]]:
+    """The 32-bit build's FFmpeg, with the port's ABI and against its system root"""
+    return ffmpeg_build(n, "linux", build_dir / "ffmpeg", cc, "linux", "x86",
+                        ["--target=i686-linux-gnu", "-m32"], FFMPEG_ABI_FLAGS, sysroot, sysroot_stamp)
 
 
 OPUS_DEFINES = ("-DOPUS_BUILD", "-DVAR_ARRAYS", "-DHAVE_LRINTF", "-DHAVE_LRINT")
@@ -777,10 +782,10 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     embedded_assets = (hud_assets_build(n, "linux", build_dir / "generated" / "hud_hires_assets.c")
                        + ui_fonts_build(n, "linux", build_dir / "generated" / "ui_fonts.c", sln))
 
-    # (the movies' FFmpeg, only when this build asks for it: configure.py
-    # --with-ffmpeg. Without it the stubs build, as upstream, and the game
-    # skips the movies; the system root is then only the portable build's)
-    with_ffmpeg = getattr(sln, "with_ffmpeg", False)
+    # (the movies' FFmpeg, unless this build leaves it out: configure.py
+    # --without-ffmpeg. Then the stubs build and the game skips the movies;
+    # the system root is then only the portable build's)
+    with_ffmpeg = getattr(sln, "with_ffmpeg", True)
     sysroot_stamp: Optional[Path] = None
     sysroot: Optional[Path] = None
     if getattr(sln, "port_portable", False) or with_ffmpeg:

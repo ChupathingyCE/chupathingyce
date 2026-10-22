@@ -1,10 +1,13 @@
-"""FFmpeg for the Linux builds: the movies' decoder.
+"""FFmpeg for the desktop builds: the movies' decoder.
 
-The port's Linux builds play the movies through the game's own entry points
+The port plays the movies through the game's own entry points
 (port/linux/src/bink_ffmpeg.c) over FFmpeg, and FFmpeg is not on every build
 machine (and a 32-bit build cannot take a 64-bit system's). This builds the
-five libraries (LGPL, no GPL parts) for the build the port makes: 32-bit x86,
-against the Debian 11 i386 system root of tools/linux_sysroot.py, static.
+five libraries (LGPL, no GPL parts) for the build the port makes, static: the
+32-bit Linux build (x86, against the Debian 11 i386 system root of
+tools/linux_sysroot.py), the 64-bit Linux build and each architecture of the
+macOS application. The Android guest's is tools/android_ffmpeg.py, through
+that build's own pipeline.
 
 Only what the movies use is built: the Bink demuxer, its video and audio
 decoders, swscale (the frame to the texture's BGRA) and swresample (the sound
@@ -12,13 +15,17 @@ to the mixer's 16-bit stereo). No assembly, no network, no programs, and no
 threads: the movies decode synchronously.
 
 The libraries are called from the game's own units, so they are built with the
-same ABI those units have (tools/linux_build.py passes them with --flags): the
-port's flags change how structures are laid out and how they come back from a
-function (-malign-double, -freg-struct-return), and one mismatch is a crash
+same ABI those units have (the build passes them with --flags): on 32-bit x86
+the port's flags change how structures are laid out and how they come back from
+a function (-malign-double, -freg-struct-return), and one mismatch is a crash
 inside a call that returns a small structure, such as av_guess_frame_rate.
 
-Usage: linux_ffmpeg.py <build directory> [--sysroot <sysroot>] [--cc <compiler>]
-                        [--flags "<the port's ABI flags>"]
+Usage: ffmpeg_build.py <build directory> [--target-os linux|darwin] [--arch x86|x86_64|aarch64]
+                       [--sysroot <sysroot>] [--cc <compiler>]
+                       [--target "<the compiler's target flags>"] [--flags "<the port's ABI flags>"]
+
+The defaults are the 32-bit Linux build's: --target-os linux --arch x86
+--target "--target=i686-linux-gnu -m32".
 """
 
 import hashlib
@@ -71,23 +78,27 @@ def main():
     sysroot_argument = sys.argv[sys.argv.index("--sysroot") + 1] if "--sysroot" in sys.argv else None
     compiler = sys.argv[sys.argv.index("--cc") + 1] if "--cc" in sys.argv else "clang"
     abi = sys.argv[sys.argv.index("--flags") + 1].split() if "--flags" in sys.argv else []
+    target_os = sys.argv[sys.argv.index("--target-os") + 1] if "--target-os" in sys.argv else "linux"
+    arch = sys.argv[sys.argv.index("--arch") + 1] if "--arch" in sys.argv else "x86"
+    target = (sys.argv[sys.argv.index("--target") + 1].split() if "--target" in sys.argv
+              else ["--target=i686-linux-gnu", "-m32"])
     root.mkdir(parents=True, exist_ok=True)
     sysroot = Path(sysroot_argument).resolve() if sysroot_argument else None
 
     source = fetch(root)
-    print(f"linux_ffmpeg.py: FFmpeg {FFMPEG_VERSION} in {source}")
+    print(f"ffmpeg_build.py: FFmpeg {FFMPEG_VERSION} in {source} ({target_os}, {arch})")
 
     build = root / "build"
-    # (the port's own target: 32-bit x86, and against its system root when it
-    # has one, so that the libraries are the ones the build links to)
-    target = [f"--target=i686-linux-gnu", "-m32"]
+    # (the port's own target, and against its system root when it has one, so
+    # that the libraries are the ones the build links to)
     sysroot_flags = []
     if sysroot:
-        sysroot_flags = [f"--sysroot={sysroot}", "-isystem", f"{sysroot}/usr/include/i386-linux-gnu",
-                         "-L", f"{sysroot}/usr/lib/i386-linux-gnu"]
+        multiarch = "i386-linux-gnu" if arch == "x86" else f"{arch}-linux-gnu"
+        sysroot_flags = [f"--sysroot={sysroot}", "-isystem", f"{sysroot}/usr/include/{multiarch}",
+                         "-L", f"{sysroot}/usr/lib/{multiarch}"]
     configure = [source / "configure",
                  f"--prefix={root / 'out'}",
-                 "--target-os=linux", "--arch=x86", "--enable-cross-compile",
+                 f"--target-os={target_os}", f"--arch={arch}", "--enable-cross-compile",
                  f"--cc={compiler}",
                  "--extra-cflags=" + " ".join(target + abi + sysroot_flags),
                  "--extra-ldflags=" + " ".join(target + sysroot_flags),
@@ -100,7 +111,9 @@ def main():
                  # codec id)
                  "--enable-demuxer=bink",
                  "--enable-decoder=bink,binkaudio_dct,binkaudio_rdft",
-                 "--enable-protocol=file", "--enable-swscale", "--enable-swresample"]
+                 "--enable-protocol=file", "--enable-swscale", "--enable-swresample",
+                 # (a shared library's, the 64-bit Android app's: position independent)
+                 *(["--enable-pic"] if "-fPIC" in target else [])]
     stamp = root / "configure.stamp"
     if stamp.is_file() and stamp.read_text() != "\n".join(str(part) for part in configure):
         # (the options changed: the whole build starts over, generated sources
@@ -112,20 +125,20 @@ def main():
             run(configure, cwd=build, stdout=log, stderr=subprocess.STDOUT)
         stamp.write_text("\n".join(str(part) for part in configure))
 
-    print(f"linux_ffmpeg.py: building with {compiler}")
+    print(f"ffmpeg_build.py: building with {compiler}")
     with open(root / "build.log", "w") as log:
         try:
             run(["make", "-j", str(os.cpu_count() or 4)], cwd=build, stdout=log, stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
             # (the compiler's own words are the only clue to a failure, and this
             # log is their only home: show the tail before giving up)
-            print(f"linux_ffmpeg.py: make failed, the tail of {root / 'build.log'}:")
+            print(f"ffmpeg_build.py: make failed, the tail of {root / 'build.log'}:")
             print("\n".join((root / "build.log").read_text(errors="replace").splitlines()[-40:]))
             raise
 
     missing = [library for library in LIBRARIES if not (build / library / f"{library}.a").is_file()]
     if missing:
-        raise SystemExit("linux_ffmpeg.py: missing " + ", ".join(missing))
+        raise SystemExit("ffmpeg_build.py: missing " + ", ".join(missing))
     # (the stamp tools/linux_build.py waits for: the headers exist from here,
     # whatever the build's order; written only when its content changes, so that
     # a rebuild of these libraries does not relink the whole game)
@@ -133,7 +146,7 @@ def main():
     content = "\n".join(LIBRARIES) + "\n"
     if not game_stamp.is_file() or game_stamp.read_text() != content:
         game_stamp.write_text(content)
-    print("linux_ffmpeg.py: " + ", ".join(f"{library}.a" for library in LIBRARIES))
+    print("ffmpeg_build.py: " + ", ".join(f"{library}.a" for library in LIBRARIES))
 
 
 if __name__ == "__main__":
