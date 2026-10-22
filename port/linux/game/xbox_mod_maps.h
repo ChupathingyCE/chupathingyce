@@ -2,16 +2,17 @@
 XBOX_MOD_MAPS.H
 
 The library of known Xbox-format map packs and their maps (map_packs.c):
-each pack by its folder's name (maps_<id>), with its name, tag, team,
-credits and a public page about it; each map by its file's fingerprint,
-with its pack, file, name, the pack's version, its author and a public page
-about it, where known. Written by tools/xbox_mod_maps.py from
-port/assets/maps/xbox_mod_maps.json; not edited by hand.
+each pack by its folder's name (maps_<id>) and the other names the folder
+can have, with its name, tag, team, credits and a public page about it; each
+map by its file's fingerprint, with its pack, file, name, the pack's version,
+its author and a public page about it, where known. Written by
+tools/xbox_mod_maps.py from port/assets/maps/xbox_mod_maps.json; not edited by
+hand.
 */
 
 static struct xbox_mod_pack const xbox_mod_packs[] =
 {
-	{ "cex", "Halo CE+", "CE+", "VKMT", "Halo CE+ X (Original Xbox) by VKMT: Sean T (project lead, tagging, Xbox porting, design and balancing), Ludus (project lead, 3D art), Elote (Canyon, the singleplayer level), and the others the release's ModDB page credits.", "" },
+	{ "cex", "ceplus,ce+", "Halo CE+", "CE+", "VKMT", "Halo CE+ X (Original Xbox) by VKMT: Sean T (project lead, tagging, Xbox porting, design and balancing), Ludus (project lead, 3D art), Elote (Canyon, the singleplayer level), and the others the release's ModDB page credits.", "" },
 };
 
 static struct xbox_mod_map const xbox_mod_maps[] =

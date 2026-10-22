@@ -2,6 +2,7 @@
   "comment": "Known Xbox-format map packs (each in its maps_<id> folder) and their maps, by their files' fingerprints. Format: port/assets/maps/README.md. After editing, run tools/xbox_mod_maps.py.",
   "packs": {
     "cex": {
+      "aliases": ["ceplus", "ce+"],
       "name": "Halo CE+",
       "tag": "CE+",
       "team": "VKMT",

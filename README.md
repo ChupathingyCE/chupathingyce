@@ -335,13 +335,15 @@ confused with the retail ones:
 
 | Folder | Pack | Played online as |
 | --- | --- | --- |
-| `maps_cex` | Halo CE+ | `<name>@cex` (`bloodgulch@cex`) |
+| `maps_cex` (also `maps_ceplus`, `maps_ce+`) | Halo CE+ | `<name>@cex` (`bloodgulch@cex`) |
 | `maps_<name>` | any other pack | `<file>@<name>` |
 
 To install a pack, copy the contents of the pack's `maps` folder, its
 `maplist.txt` included, into its folder: for Halo CE+, into `maps_cex`. Leave
 your retail maps in `maps`. Chupathingy doesn't host or ship pack files: get
-the pack from its release page.
+the pack from its release page. A pack isn't its folder's name: a map the
+library knows is its pack's in any `maps_*` folder, so players whose folders
+are called differently still play together.
 
 The pack's maps appear in the multiplayer map lists after the others, marked
 with the pack's tag ([CE+]) and named by the library of known packs

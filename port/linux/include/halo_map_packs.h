@@ -12,7 +12,11 @@ them, a line a map:
 	bloodgulch - Abyss
 
 A player copies the pack's maps folder (its maplist.txt with it) into the
-pack's folder. Packs live beside the retail maps and beside each other,
+pack's folder, or one of the names the library knows it by (maps_ceplus is
+CE+'s too). A pack is not its folder's name: a map whose fingerprint is in
+the library below belongs to the library's pack whatever folder it is in, so
+it is hosted, announced and joined as <file>@cex by players whose folders are
+called otherwise. Packs live beside the retail maps and beside each other,
 whatever file names they share. The pack's own ui.map is not read unless
 the player asks for the pack's menus (game.pack_menus): the game's menus
 stay the game's.
@@ -24,19 +28,21 @@ game loads. The fingerprint also finds the map in the library of known Xbox
 mod maps (port/assets/maps/xbox_mod_maps.json, built into
 xbox_mod_maps.h), which names it, and its pack, for a player without the
 pack's maplist.txt or the pack itself. The library also knows the packs'
-folders (cex: Halo CE+); a maps_<name> folder it doesn't know is a pack
-too, named by its folder.
+folders and their aliases (cex: Halo CE+, also maps_ceplus and maps_ce+); a
+maps_<name> folder it doesn't know is a pack too, named by its folder.
 */
 
 #ifndef HALO_MAP_PACKS_H
 #define HALO_MAP_PACKS_H
 
-/* a known pack (xbox_mod_maps.h): its folder's name (maps_<id>), its name,
-its short tag in the menus, its team and credits, and a public page about
-it ("" where not known) */
+/* a known pack (xbox_mod_maps.h): its folder's name (maps_<id>), the other
+folder names it is known by (aliases, a comma-separated list: "ceplus,ce+"),
+its name, its short tag in the menus, its team and credits, and a public page
+about it ("" where not known) */
 struct xbox_mod_pack
 {
 	char const *id;
+	char const *aliases;
 	char const *name;
 	char const *tag;
 	char const *team;
@@ -78,6 +84,12 @@ boolean map_pack_present(char const *pack, char const *file);
 /* a pack's map's name as the game names it, <file>@<pack>, into map: FALSE
 if it does not fit a cache slot's name (31 characters) */
 boolean map_pack_map_name(char const *pack, char const *file, char *map, long size);
+
+/* the path of a pack's <file>.map, into path: in the folder that has it (the
+pack's, else an alias's, else for a pack in the library any maps_* folder
+whose file of that name is one the library knows as the pack's), else in the
+pack's own; FALSE if it does not fit */
+boolean map_pack_file_path(char const *pack, char const *file, char *path, long size);
 
 /* a pack's folder (maps_<pack>), its name (the library's, else "the
 maps_<pack> pack"), and its tag in the menus (the library's, else its name

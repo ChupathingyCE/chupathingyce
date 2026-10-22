@@ -40,6 +40,10 @@ FNV_PRIME = 16777619
 PACK_ID = re.compile(r"^[a-z0-9]{1,8}$")
 RESERVED_IDS = {"ce", "md", "pc", "de", "fr", "es", "it"}
 PACK_FIELDS = ("name", "tag", "team", "credits", "source")
+# the other names a pack's folder can have (maps_ceplus, maps_ce+ for cex): a
+# list in the library, "ceplus,ce+" in the header; not ids, so a few
+# characters more are allowed
+ALIAS = re.compile(r"^[a-z0-9+_-]{1,16}$")
 MAP_FIELDS = ("fingerprint", "pack", "file", "name", "pack_version", "author", "source")
 TEXT_LIMIT = 95
 CREDITS_LIMIT = 400
@@ -51,11 +55,12 @@ HEADER = """/*
 XBOX_MOD_MAPS.H
 
 The library of known Xbox-format map packs and their maps (map_packs.c):
-each pack by its folder's name (maps_<id>), with its name, tag, team,
-credits and a public page about it; each map by its file's fingerprint,
-with its pack, file, name, the pack's version, its author and a public page
-about it, where known. Written by tools/xbox_mod_maps.py from
-port/assets/maps/xbox_mod_maps.json; not edited by hand.
+each pack by its folder's name (maps_<id>) and the other names the folder
+can have, with its name, tag, team, credits and a public page about it; each
+map by its file's fingerprint, with its pack, file, name, the pack's version,
+its author and a public page about it, where known. Written by
+tools/xbox_mod_maps.py from port/assets/maps/xbox_mod_maps.json; not edited by
+hand.
 */
 
 """
@@ -111,14 +116,25 @@ def load(path: Path = LIBRARY) -> tuple:
     for pack_id, pack in sorted(data.get("packs", {}).items()):
         if not PACK_ID.match(pack_id) or pack_id in RESERVED_IDS:
             raise ValueError(f"pack {pack_id!r}: an id is 1 to 8 lowercase letters and digits, not {sorted(RESERVED_IDS)}")
-        unknown = set(pack) - set(PACK_FIELDS)
+        unknown = set(pack) - set(PACK_FIELDS) - {"aliases"}
         if unknown:
             raise ValueError(f"pack {pack_id}: unknown fields {sorted(unknown)}")
+        aliases = pack.get("aliases", [])
+        if not isinstance(aliases, list) or any(not isinstance(a, str) or not ALIAS.match(a) or
+                                                a in RESERVED_IDS for a in aliases):
+            raise ValueError(f"pack {pack_id}: aliases are folder names (after maps_) of 1 to 16 lowercase letters, "
+                             f"digits, + _ -, not {sorted(RESERVED_IDS)}")
         row = {field: check_text(f"pack {pack_id}", pack, field, CREDITS_LIMIT if field == "credits" else
                                  TAG_LIMIT if field == "tag" else TEXT_LIMIT) for field in PACK_FIELDS}
         if not row["name"] or not row["tag"]:
             raise ValueError(f"pack {pack_id}: name and tag are needed")
+        row["aliases"] = ",".join(aliases)
         packs[pack_id] = row
+    names = {}
+    for pack_id, row in packs.items():
+        for name in [pack_id, *filter(None, row["aliases"].split(","))]:
+            if names.setdefault(name, pack_id) != pack_id or (name != pack_id and name in packs):
+                raise ValueError(f"pack {pack_id}: the folder name {name!r} is another pack's")
     maps, seen = [], set()
     for entry in data.get("maps", []):
         where = f"map {entry.get('pack', '?')}/{entry.get('file', '?')}"
@@ -146,7 +162,8 @@ def load(path: Path = LIBRARY) -> tuple:
 def header_text(packs: dict, maps: list) -> str:
     text = HEADER + "static struct xbox_mod_pack const xbox_mod_packs[] =\n{\n"
     for pack_id, row in packs.items():
-        text += f"\t{{ {c_literal(pack_id)}, " + ", ".join(c_literal(row[field]) for field in PACK_FIELDS) + " },\n"
+        text += (f"\t{{ {c_literal(pack_id)}, {c_literal(row['aliases'])}, " +
+                 ", ".join(c_literal(row[field]) for field in PACK_FIELDS) + " },\n")
     text += "};\n\nstatic struct xbox_mod_map const xbox_mod_maps[] =\n{\n"
     for value, row in maps:
         text += f"\t{{ 0x{value:08x}UL, " + ", ".join(c_literal(row[field]) for field in MAP_FIELDS[1:]) + " },\n"
