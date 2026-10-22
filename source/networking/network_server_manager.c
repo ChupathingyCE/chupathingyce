@@ -5150,7 +5150,7 @@ unsigned long network_game_server_machine_ipv4_address(
 			csmemset(&reliable, 0, sizeof(reliable));
 			csmemset(&unreliable, 0, sizeof(unreliable));
 			network_connection_get_address(machine->connection, &reliable, &unreliable);
-			return SWAP4(reliable.address.ipv4_address);
+			return NETWORK_SWAP4(reliable.address.ipv4_address);
 		}
 	}
 

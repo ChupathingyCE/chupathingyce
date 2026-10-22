@@ -77,7 +77,8 @@ HALO_CONSOLE_ONLINE_GAMES
 	game browser (HALO_GAME_BROWSER): the console's own screen of the game
 	list (browser_screen_* and the invite join, defined by the port), with
 	the menu's fonts (ui_widget_online_games_font, source/interface/
-	ui_widget.c)
+	ui_widget.c; the original Xbox's port/xbox/game/xbox_browser_screen.c,
+	the Xbox 360's port/xbox360/game/x360_browser_screen.c)
 HALO_CONSOLE_DEBUG_CHANNEL
 	a console without a standard error: the platform layer's log lines and
 	OutputDebugStringA go to its debug channel (console_debug_print,
@@ -151,6 +152,7 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_HALT_TO_LAUNCHER 1
 #define HALO_CONSOLE_GL_LAYER 1
 #define HALO_CONSOLE_XBOX_RENDER_SIZES 1
+#define HALO_CONSOLE_ONLINE_GAMES 1
 #ifdef HALO_CONSOLE_DEBUG_TOOLS
 #define HALO_CONSOLE_BRINGUP_LOG 1
 #endif

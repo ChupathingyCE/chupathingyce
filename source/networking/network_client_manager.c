@@ -3662,7 +3662,7 @@ static void network_game_client_delta_frame(
 		csmemset(&reliable, 0, sizeof(reliable));
 		csmemset(&unreliable, 0, sizeof(unreliable));
 		network_connection_get_address(client->connection, &reliable, &unreliable);
-		host = (delta_u32)SWAP4(reliable.address.ipv4_address);
+		host = (delta_u32)NETWORK_SWAP4(reliable.address.ipv4_address);
 	}
 	for (index = 0; index < DELTA_PEER_MAXIMUM_PLAYERS; index++)
 	{
