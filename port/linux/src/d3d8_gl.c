@@ -26,6 +26,7 @@ Conventions carried over from the Xbox:
 #include "halo_ui_pointer.h"
 #include "ui_point.h"
 #include "port_config.h"
+#include "thread_stop.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -1022,7 +1023,9 @@ static void *vertical_blank_thread(void *unused)
 
 	(void)unused;
 	clock_gettime(CLOCK_MONOTONIC, &next);
-	for (;;)
+	/* (until the game's end asks the platform layer's threads to stop,
+	thread_stop.h) */
+	while (!thread_stop_requested())
 	{
 		D3DCALLBACK callback;
 
@@ -1049,6 +1052,10 @@ static void *vertical_blank_thread(void *unused)
 		if (callback)
 			callback(0);
 	}
+	/* (a wait for a vertical blank that will not come returns: below) */
+	pthread_mutex_lock(&vertical_blank_lock);
+	pthread_cond_broadcast(&vertical_blank_condition);
+	pthread_mutex_unlock(&vertical_blank_lock);
 	return NULL;
 }
 
@@ -1057,11 +1064,8 @@ static void vertical_blank_start(void)
 	pthread_mutex_lock(&vertical_blank_lock);
 	if (!vertical_blank_thread_started)
 	{
-		pthread_t thread;
-
-		if (pthread_create(&thread, NULL, vertical_blank_thread, NULL) == 0)
+		if (thread_stop_create("vertical blank", vertical_blank_thread, NULL) == 0)
 		{
-			pthread_detach(thread);
 			vertical_blank_thread_started = TRUE;
 		}
 		else
@@ -1094,7 +1098,7 @@ void WINAPI D3DDevice_BlockUntilVerticalBlank(void)
 	vertical_blank_start();
 	pthread_mutex_lock(&vertical_blank_lock);
 	count = vertical_blank_count;
-	while (vertical_blank_count == count)
+	while (vertical_blank_count == count && !thread_stop_requested())
 		pthread_cond_wait(&vertical_blank_condition, &vertical_blank_lock);
 	pthread_mutex_unlock(&vertical_blank_lock);
 }
@@ -5249,7 +5253,7 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 	}
 	else
 	{
-		while (pending_flips >= 2)
+		while (pending_flips >= 2 && !thread_stop_requested())
 			pthread_cond_wait(&vertical_blank_condition, &vertical_blank_lock);
 		pending_flips++;
 	}

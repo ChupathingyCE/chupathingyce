@@ -42,6 +42,7 @@ device; audio.buffer_frames sets the device's buffer (port_config.c).
 #include "platform.h"
 #include "sdl_platform.h"
 #include "port_config.h"
+#include "thread_stop.h"
 
 #include <SDL3/SDL.h>
 #include <math.h>
@@ -1439,7 +1440,9 @@ static void *silent_clock_thread(void *parameter)
 
 	(void)parameter;
 	clock_gettime(CLOCK_MONOTONIC, &next);
-	for (;;)
+	/* (until the game's end asks the platform layer's threads to stop,
+	thread_stop.h) */
+	while (!thread_stop_requested())
 	{
 		/* (stopped while a stream opened later, on another audio.device,
 		plays) */
@@ -1512,13 +1515,10 @@ int platform_audio_device_names(char const **names, int maximum)
 
 static void audio_silent_clock_start(void)
 {
-	pthread_t thread;
-
 	if (audio_silent_clock)
 		return;
 	audio_silent_clock = TRUE;
-	pthread_create(&thread, NULL, silent_clock_thread, NULL);
-	pthread_detach(thread);
+	thread_stop_create("silent audio clock", silent_clock_thread, NULL);
 }
 
 /* the stream opened on audio.device's output (else the default's); FALSE
