@@ -1595,8 +1595,10 @@ int platform_take_clipboard_invite(char *text, int size)
 	return taken;
 }
 
-/* puts a new invite on the clipboard, and joins one found there when the
-game comes to the front, or asks first (network.join_from_clipboard) */
+/* puts a new invite on the clipboard (network.copy_to_clipboard), and joins
+one found there when the game comes to the front, or asks first
+(network.join_from_clipboard); both off by default, so the clipboard is the
+player's own until a setting says otherwise */
 static void platform_invite_clipboard(BOOL look)
 {
 	/* the last clipboard text looked at, so each invite is joined once */
@@ -1611,12 +1613,16 @@ static void platform_invite_clipboard(BOOL look)
 #endif
 	if (invite)
 	{
-		SDL_SetClipboardText(invite);
+		/* (the game's own invite is never joined, copied or not) */
 		snprintf(seen, sizeof(seen), "%s", invite);
-		platform_log("Internet play: the invite link is on the clipboard");
+		if (config_boolean("network.copy_to_clipboard"))
+		{
+			SDL_SetClipboardText(invite);
+			platform_log("Internet play: the invite link is on the clipboard");
 #ifdef HALO_ANDROID
-		SDL_ShowAndroidToast("Invite link copied", 1, -1, 0, 0);
+			SDL_ShowAndroidToast("Invite link copied", 1, -1, 0, 0);
 #endif
+		}
 	}
 	setting = look ? platform_clipboard_join_setting() : _clipboard_join_never;
 	if (setting != _clipboard_join_never)

@@ -383,7 +383,7 @@ static const struct config_setting config_settings[] =
 		"Show CHANGE TEAMS in the pause menu of a team game." },
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	{ "display.pause_controls", _config_boolean, "true", "HALO_PAUSE_CONTROLS", _environment_value, _platform_all,
-		"Show CONTROLS in the pause menu." },
+		"Show CONTROLS in the Xbox and Gearbox menus' pause menu." },
 #endif
 	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all | _platform_xbox,
 		"Show the banner for a Delta server's warnings and notices." },
@@ -419,6 +419,16 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"The audio buffer in sample frames, 64 to 8192. Raise it if the sound\n"
 		"cuts out; lower it for less delay." },
+	{ "audio.channels", _config_string, "\"auto\"", "HALO_AUDIO_CHANNELS", _environment_value, _platform_desktop,
+		"\"stereo\", \"5.1\" or \"7.1\" (surround, as the Xbox's Dolby Digital),\n"
+		"or \"auto\": 5.1 or 7.1 when the sound device has 6 or 8 channels, else\n"
+		"stereo. Read when the game starts." },
+	{ "audio.doppler", _config_boolean, "true", "HALO_AUDIO_DOPPLER", _environment_value, _platform_all,
+		"Shift the pitch of moving sounds (a Warthog or a projectile going past),\n"
+		"as the Xbox did; false keeps them at their pitch." },
+	{ "audio.hrtf", _config_string, "\"off\"", "HALO_AUDIO_HRTF", _environment_value, _platform_all,
+		"Binaural 3D sound for headphones (HRTF): \"off\", \"on\", or \"auto\" for\n"
+		"on when the output's name says it is headphones. Stereo output only." },
 
 	{ "audio.reverb", _config_boolean, "true", "HALO_REVERB", _environment_value, _platform_all,
 		"Echo sounds to match the place you are in." },
@@ -568,6 +578,10 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"An invite link on the clipboard when the game comes to the front:\n"
 		"\"ask\", \"always\" (join it) or \"never\"." },
+	{ "network.copy_to_clipboard", _config_boolean, "false", "HALO_NET_COPY_TO_CLIPBOARD", _environment_value,
+		_platform_all,
+		"Put a game's invite link on the clipboard when you start to host it.\n"
+		"false: the log has it, and the Gearbox menus' Server Settings copy it." },
 	{ "network.map_downloads", _config_string, "\"ask\"", "HALO_NET_MAP_DOWNLOADS", _environment_value,
 		_platform_all,
 		"Download a missing Custom Edition map from the community repositories:\n"

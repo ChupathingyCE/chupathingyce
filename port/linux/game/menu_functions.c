@@ -2505,7 +2505,10 @@ static struct
 	short action;
 	short button;
 	unsigned long capture_time;
-} controller_screen = { 0, 0, 0, { 0 }, -1, "", _capture_none, 0, NONE, 0 };
+	/* the layout was made Custom by a swap, not by the spinner, which is
+	then turned to it (controller_update) */
+	boolean spinner_follows;
+} controller_screen = { 0, 0, 0, { 0 }, -1, "", _capture_none, 0, NONE, 0, FALSE };
 
 /* the player's layouts and controller, as they are now */
 static void controller_read(void)
@@ -2635,6 +2638,7 @@ static void controller_capture_apply(void)
 		controller_screen.joystick_preset);
 	player_ui_custom_layout_changed();
 	controller_read();
+	controller_screen.spinner_follows = TRUE;
 }
 
 /* each frame (ui_widget.c's process_ui_widgets): while a button is asked for,
@@ -2711,6 +2715,14 @@ static void controller_update(struct widget_instance *list)
 	wchar_t text[HELP_TEXT_LENGTH];
 
 	controller_read();
+	/* (a swap made the layout Custom: the spinner shows it, else the next
+	frame would put the layout the spinner still showed back in force) */
+	if (spinner && controller_screen.spinner_follows)
+	{
+		if (controller_screen.button_preset < spinner->parameters.list.number_of_items)
+			spinner->parameters.list.selected_index = controller_screen.button_preset;
+		controller_screen.spinner_follows = FALSE;
+	}
 	if (spinner && controller_screen.capture == _capture_none &&
 		spinner->parameters.list.selected_index != controller_screen.button_preset)
 	{
@@ -5439,7 +5451,7 @@ static boolean pause_change_teams(struct widget_instance *widget)
 }
 
 /* "port pause controls" (the pause menu's CONTROLS: menu_tags.c): the
-Gearbox and Chupathingy menus' opens their Controls Setup (its handler's
+Gearbox menus' opens their Controls Setup (its handler's
 widget), on player 1's profile, edited for it if none is (OK saves it); the
 Xbox's, which have no such screen, the Controls screen over the pause menu
 (controls_screen.c), for the menu's player */
@@ -5900,7 +5912,10 @@ static void lobby_update(struct widget_instance *list)
 
 			usnprintf(text + length, NUMBEROF(text) - 1 - length, L" %d", seconds);
 		}
-		if (global_network_game_server_get() && p2p_invite_link(link, sizeof(link)))
+		/* (copied by itself only with network.copy_to_clipboard:
+		sdl_platform.c) */
+		if (global_network_game_server_get() && config_boolean("network.copy_to_clipboard") &&
+			p2p_invite_link(link, sizeof(link)))
 		{
 			size_t length = ustrlen(text);
 
@@ -6751,7 +6766,8 @@ with it), the internet play port, the game type (left and right choose
 another, Y or A edits it), and the host's rules of config.toml
 (network.team_change and its margin, network.chat_filter,
 network.block_mouse_aim_assist), written as START GAME (A) opens the lobby.
-B leaves them as they were.
+The host's rules are a nested list, as the settings screens' are: HOST
+RULES opens it, and B goes back out of it. B leaves them as they were.
 
 The editor shows every setting of the game type, as the dedicated server's
 game type files have them (server/src/server_config.c's table), a page at
@@ -6771,7 +6787,7 @@ update") fills them with the rows the screen shows, and their events
 gametype's choice did) */
 #define HOST_EDIT_SCREEN "pc\\chupathingy\\host\\edit_general"
 #define HOST_LOBBY_SCREEN "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\pregame\\connected_pregame_screen"
-#define HOST_SETUP_ROWS 11
+#define HOST_SETUP_ROWS 8
 #define HOST_EDIT_ROWS 10
 /* a message (a game type not saved) shows this long in place of the help */
 #define HOST_MESSAGE_DURATION 4000
@@ -6791,6 +6807,8 @@ enum
 	_host_row_team_change_margin,
 	_host_row_chat_filter,
 	_host_row_aim_assist,
+	/* (the row that opens the host's rules, the four above) */
+	_host_row_rules,
 	_host_row_start,
 	NUMBER_OF_HOST_ROWS
 };
@@ -6798,7 +6816,7 @@ enum
 static wchar_t const *const host_row_labels[NUMBER_OF_HOST_ROWS] =
 {
 	L"GAME NAME:", L"MAX PLAYERS:", L"PUBLIC LOBBY:", L"PASSWORD:", L"PORT:", L"GAME TYPE:", L"TEAM SWITCHING:",
-	L"TEAM SWITCH MARGIN:", L"CHAT FILTER:", L"MOUSE AIM ASSIST:", L"START GAME",
+	L"TEAM SWITCH MARGIN:", L"CHAT FILTER:", L"MOUSE AIM ASSIST:", L"HOST RULES", L"START GAME",
 };
 
 /* the editor's pages, by their screens' names */
@@ -6836,6 +6854,8 @@ static struct
 	/* a message in place of the help, and when it was given */
 	wchar_t message[128];
 	unsigned long message_time;
+	/* whether GAME SETUP shows the host's rules (HOST RULES' nested list) */
+	boolean rules_open;
 #ifdef HALO_GAME_BROWSER
 	/* the game type being edited, and its base's values */
 	boolean editing;
@@ -6915,6 +6935,12 @@ static boolean host_listing_shown(void)
 	return config_boolean("network.online") && config_boolean("network.public_lobby");
 }
 
+/* whether a row is one of the host's rules (HOST RULES' nested list) */
+static boolean host_rules_row(short row)
+{
+	return row >= _host_row_team_change && row <= _host_row_aim_assist;
+}
+
 static void host_setup_rows(void)
 {
 	short row;
@@ -6922,7 +6948,8 @@ static void host_setup_rows(void)
 	host_setup.row_count = 0;
 	for (row = 0; row < NUMBER_OF_HOST_ROWS; row++)
 	{
-		if ((row == _host_row_public && !host_listing_shown()) ||
+		if (host_rules_row(row) != host_setup.rules_open ||
+			(row == _host_row_public && !host_listing_shown()) ||
 			(row == _host_row_password && (!host_listing_shown() || multiplayer.game_private)) ||
 			(row == _host_row_team_change_margin && host_setup.team_change != 0))
 		{
@@ -7032,6 +7059,8 @@ static wchar_t const *host_setup_help(short row)
 	case _host_row_aim_assist:
 		return host_setup.block_aim_assist ? L"Aim assist is off for mouse players." :
 			L"Each player's own aim assist setting decides.";
+	case _host_row_rules:
+		return L"Team switching, the chat filter and mouse aim assist.";
 	case _host_row_start:
 		return L"Open the lobby.";
 	}
@@ -7583,6 +7612,7 @@ static boolean host_initialize(struct widget_instance *list)
 	host_setup.first = 0;
 	host_setup.focused = 0;
 	host_setup.message[0] = 0;
+	host_setup.rules_open = FALSE;
 	if (page == _host_page_setup)
 	{
 		if (server != host_setup.server || !server)
@@ -7731,6 +7761,23 @@ static void host_update(struct widget_instance *list)
 		text_set_length(help, text, NUMBEROF(text));
 }
 
+/* HOST RULES' nested list opened (the focus on its first row) or closed
+(the focus back on HOST RULES) */
+static void host_rules_show(struct widget_instance *list, boolean open)
+{
+	short slot = 0;
+
+	host_setup.rules_open = open;
+	host_setup.first = 0;
+	host_setup_rows();
+	while (!open && slot < host_setup.row_count - 1 && host_setup.rows[slot] != _host_row_rules)
+		slot++;
+	if (list)
+		focus_row(list, slot);
+	host_setup.focused = slot;
+	ui_play_audio_feedback_sound(open ? SOUND_FORWARD : SOUND_BACK);
+}
+
 static void host_name_done(char const *text)
 {
 	game_name_done(text);
@@ -7760,6 +7807,11 @@ static boolean host_row_a(struct widget_instance *row, boolean *widget_deleted)
 	if (setup && shown == _host_row_password)
 	{
 		text_field_begin_masked(row, multiplayer.game_password, PASSWORD_LENGTH, server_password_done);
+		return TRUE;
+	}
+	if (setup && shown == _host_row_rules)
+	{
+		host_rules_show(row->parent, TRUE);
 		return TRUE;
 	}
 #ifdef HALO_GAME_BROWSER
@@ -7857,6 +7909,11 @@ static boolean host_back(struct widget_instance *widget, boolean *widget_deleted
 	if (text_field_editing(NULL))
 	{
 		text_field_end(FALSE);
+		return TRUE;
+	}
+	if (host_setup.rules_open && named(widget, "setup_list", 0))
+	{
+		host_rules_show(named(widget, "setup_list", 0), FALSE);
 		return TRUE;
 	}
 #ifdef HALO_GAME_BROWSER
