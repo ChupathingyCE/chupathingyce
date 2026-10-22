@@ -297,11 +297,6 @@ struct message_server_game_advertise
 
 #ifdef HALO_BIG_ENDIAN
 static void message_server_game_advertise_byte_swap(struct message_server_game_advertise *advertisement);
-#ifdef HALO_PORT_CONSOLE_LIMITS
-/* (the console's limits fold the settings record by its little-endian bytes:
-network_game_layout.c) */
-#error a big-endian build with the console's limits does not fold the game settings yet
-#endif
 #endif
 
 struct message_server_pong
@@ -1134,6 +1129,11 @@ static boolean network_game_client_receive_game_settings_piece(
 						network_game_client_rejected_by_game(client, source_address, _rejection_code_game_is_full);
 						return TRUE;
 					}
+#ifdef HALO_BIG_ENDIAN
+					/* (folded as the wire has it, little-endian: then in this
+					machine's order) */
+					network_game_byte_swap(&network_game_client_settings_folded, TRUE);
+#endif
 					if (clamped && !network_game_client_settings_told_clamped)
 					{
 						network_game_client_settings_told_clamped = TRUE;
