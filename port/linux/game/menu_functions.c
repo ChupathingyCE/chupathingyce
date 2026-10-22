@@ -3094,6 +3094,23 @@ void ui_widget_port_post_button(short controller_index, short button_index);
 
 static wchar_t const *const engine_names[] = { L"", L"CTF", L"SLAYER", L"ODDBALL", L"KING OF THE HILL", L"RACE" };
 static short const maximum_players[] = { 2, 4, 8, 12, 16, 24, 32, 48, 64, 96, 128 };
+#ifdef HALO_SWITCH_CONSOLE
+/* port: the most players a game hosted here may have: 48, which the console
+was measured to hold (a LAN game of 48 machines, its socket budget and its
+frames: port/switch/host/host_main.c, host_net.c); the count of the choices
+of the most players is those up to it */
+#define HOSTED_PLAYERS_LIMIT 48
+static short maximum_players_choices(void)
+{
+	short count = 0;
+
+	while (count < NUMBEROF(maximum_players) && maximum_players[count] <= HOSTED_PLAYERS_LIMIT)
+		count++;
+	return count;
+}
+#else
+#define maximum_players_choices() ((short)NUMBEROF(maximum_players))
+#endif
 /* the most players a hosted game starts with (16), up to the list's 128 */
 #define HOST_DEFAULT_MAXIMUM_PLAYERS_INDEX 4
 
@@ -3718,7 +3735,17 @@ static boolean server_settings_initialize(struct widget_instance *list)
 		ustrncpy(multiplayer.game_name, profile.player_name, NUMBEROF(multiplayer.game_name) - 1);
 	}
 	if (spinner)
+	{
+#ifdef HALO_SWITCH_CONSOLE
+		/* port: the choices up to HOSTED_PLAYERS_LIMIT (the spinner's left and
+		right wrap at its count of items) */
+		spinner->parameters.list.number_of_items = (word)MIN(spinner->parameters.list.number_of_items,
+			maximum_players_choices());
+		*server_settings_maximum_players_index() = (short)PIN(*server_settings_maximum_players_index(), 0,
+			maximum_players_choices() - 1);
+#endif
 		spinner->parameters.list.selected_index = *server_settings_maximum_players_index();
+	}
 	/* (PUBLIC or PRIVATE: this game's; the screen is made again on coming
 	back from an option's screen) */
 	if ((spinner = named(list, "listing_spinner", 0)) != NULL)
@@ -3745,7 +3772,7 @@ static void server_settings_update(struct widget_instance *list)
 
 	if (spinner)
 		*server_settings_maximum_players_index() = (short)PIN(spinner->parameters.list.selected_index, 0,
-			NUMBEROF(maximum_players) - 1);
+			maximum_players_choices() - 1);
 	wide_to_text(multiplayer.game_name, text, sizeof(text));
 	text_field_show(named(list, "server_name_value", 0), text, text_field_editing(row));
 	if (multiplayer.mode != _multiplayer_mode_host_internet)
@@ -7005,7 +7032,7 @@ static boolean host_setup_change(short row, short direction)
 	{
 	case _host_row_maximum_players:
 		multiplayer.maximum_players_index = (short)PIN(multiplayer.maximum_players_index + direction, 0,
-			NUMBEROF(maximum_players) - 1);
+			maximum_players_choices() - 1);
 		return TRUE;
 	case _host_row_public:
 		multiplayer.game_private = !multiplayer.game_private;
