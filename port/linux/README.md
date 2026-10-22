@@ -1157,7 +1157,7 @@ crafted file) is refused, and the level starts over.
 | Memory | The port reserves the Xbox memory at `0x80000000`. Thus the game gets the fixed addresses that it expects. |
 | Saved games | The Xbox `UDATA` layout, with SHA-1 signatures. |
 | Networking | Winsock on BSD sockets. System link on a local network and on the internet. |
-| Bink video | Not available on this build. The game skips the movies, although the disc extraction copies them to `bink/` (`d:\bink\*.bik`) for a build that plays them (macOS does). |
+| Bink video | Decoded with FFmpeg behind the Bink calls the game makes (`port/linux/src/bink_ffmpeg.c`), from the disc's `bink/` folder (`d:\bink\*.bik`). The build makes its own static FFmpeg for its target (`tools/ffmpeg_build.py`; `configure.py --without-ffmpeg` leaves it out). A missing or unreadable movie is skipped, as on the Xbox. |
 
 ## How the port operates
 

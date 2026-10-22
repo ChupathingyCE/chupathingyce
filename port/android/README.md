@@ -86,8 +86,8 @@ A crash report gives addresses in `libmain.so`. To get the names, enter
 
 The game needs the `maps/` folder from an Xbox disc image (`.xiso` or
 `.iso`) of any version of the game. The app extracts `maps/` from the disc
-image, and the Bink movies (`bink/`) that the folder lacks. The movies are
-not played on this build yet. The app keeps the data in
+image, and the Bink movies (`bink/`) that the folder lacks, which the game
+plays. The app keeps the data in
 `/sdcard/Android/data/dev.horrible.chupathingyce/files`.
 
 To install the data with the app:
@@ -594,8 +594,10 @@ assembly of the port is necessary:
 
 ## Limits
 
-- Bink video is not available on this build. The game skips the movies.
-  The app still copies the disc's `bink/` movies with `maps/`.
+- Bink video is decoded with FFmpeg behind the Bink calls the game makes
+  (`port/linux/src/bink_ffmpeg.c`, as on Linux and macOS), built for the
+  guest (`tools/android_ffmpeg.py`) and for the 64-bit app
+  (`tools/ffmpeg_build.py`). A missing or unreadable movie is skipped.
 - The Xbox memory is the 128 MB of a development kit, not the 512 MB of the
   computer builds. Thus the texture cache is 44 MB, not 128 MB
   (`port/linux/include/halo_port_capacity.h`). This is sufficient for the
