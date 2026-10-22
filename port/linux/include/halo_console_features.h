@@ -137,6 +137,7 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_WIDE_TIME_T 1
 #define HALO_CONSOLE_LOG_ECHO 1
 #define HALO_CONSOLE_WAIT_POLL 1
+#define HALO_CONSOLE_GL_LAYER 1
 #endif
 
 #ifdef HALO_XBOX_CONSOLE
