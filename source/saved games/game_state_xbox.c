@@ -416,12 +416,14 @@ boolean game_state_read_from_file(
 		drop it), and halted the game before the revert could. */
 		error(_error_silent, "couldn't read saved game file (#%d): the map starts over", GetLastError());
 #else
+#line 410
 		match_vassert(
 			"c:\\halo\\SOURCE\\saved games\\game_state_xbox.c",
 			156,
 			FALSE,
 			csprintf(temporary, "couldn't read saved game file (#%d)", GetLastError()));
 #endif
+#line 415
 	}
 	free(image);
 #endif

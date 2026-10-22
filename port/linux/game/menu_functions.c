@@ -2817,6 +2817,7 @@ static char const *controls_page_view(struct widget_instance *list)
 	if (spinner_shown(list, "page_spinner") == 2)
 		return "gyro";
 #endif
+#line 2814
 	return spinner_shown(list, "page_spinner") == 1 ? "buttons" : "gamepad";
 }
 
@@ -2894,8 +2895,10 @@ static void controls_page_update(struct widget_instance *list)
 #ifdef HALO_SWITCH_CONSOLE
 		line = "Choose the controller's settings, buttons or gyro.";
 #else
+#line 2888
 		line = "Choose the controller's settings or buttons.";
 #endif
+#line 2889
 	/* (a line with a button in it is one line: the button drawn as the
 	device used last names it) */
 	else if (control_row(focused) || controls_screen.capturing_control != NONE)
@@ -2950,6 +2953,7 @@ static boolean controls_page_defaults(struct widget_instance *widget)
 #ifdef HALO_SWITCH_CONSOLE
 	settings_each_in_view(list, "gyro", setting_default_show);
 #endif
+#line 2940
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	controller_screen_defaults(list);
 #endif
@@ -3124,6 +3128,7 @@ static short maximum_players_choices(void)
 #else
 #define maximum_players_choices() ((short)NUMBEROF(maximum_players))
 #endif
+#line 3097
 /* the most players a hosted game starts with (16), up to the list's 128 */
 #define HOST_DEFAULT_MAXIMUM_PLAYERS_INDEX 4
 
@@ -3757,8 +3762,10 @@ static boolean server_settings_initialize(struct widget_instance *list)
 		*server_settings_maximum_players_index() = (short)PIN(*server_settings_maximum_players_index(), 0,
 			maximum_players_choices() - 1);
 #endif
+#line 3721
 		spinner->parameters.list.selected_index = *server_settings_maximum_players_index();
 	}
+#line 3722
 	/* (PUBLIC or PRIVATE: this game's; the screen is made again on coming
 	back from an option's screen) */
 	if ((spinner = named(list, "listing_spinner", 0)) != NULL)
