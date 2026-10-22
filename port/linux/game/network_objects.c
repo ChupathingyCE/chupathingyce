@@ -3329,3 +3329,75 @@ void network_objects_new_game(
 		}
 	}
 }
+
+#ifdef HALO_BIG_ENDIAN
+/* (network_distributed.h) this module's entries in the wire's order */
+boolean network_objects_wire_entries(
+	byte type,
+	byte *entries,
+	short count,
+	long size)
+{
+	short index;
+
+	switch (type)
+	{
+	case _distributed_message_object_changes:
+	{
+		struct distributed_object_change *changes = (struct distributed_object_change *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*changes) <= size; index++)
+		{
+			WIRE_SWAP_FIELDS(&changes[index], struct distributed_object_change, object_index, definition_index,
+				sizeof(long));
+			WIRE_SWAP_FIELDS(&changes[index], struct distributed_object_change, owner_team_index, variant_number,
+				sizeof(short));
+			/* (the position, the axes, the velocities and the colors) */
+			WIRE_SWAP_FIELDS(&changes[index], struct distributed_object_change, position, change_colors,
+				sizeof(real));
+		}
+		return TRUE;
+	}
+	case _distributed_message_object_states:
+	case _distributed_message_vehicle_prediction:
+	{
+		struct distributed_object_state *states = (struct distributed_object_state *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*states) <= size; index++)
+		{
+			WIRE_SWAP_FIELD(&states[index], struct distributed_object_state, object_index, sizeof(long));
+			WIRE_SWAP_FIELD(&states[index], struct distributed_object_state, time, sizeof(short));
+			WIRE_SWAP_FIELD(&states[index], struct distributed_object_state, position, sizeof(real));
+			WIRE_SWAP_FIELDS(&states[index], struct distributed_object_state, forward, angular_velocity,
+				sizeof(short));
+		}
+		return TRUE;
+	}
+	case _distributed_message_inventories:
+	{
+		struct distributed_inventory *inventories = (struct distributed_inventory *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*inventories) <= size; index++)
+		{
+			WIRE_SWAP_FIELD(&inventories[index], struct distributed_inventory, unit_index, sizeof(long));
+			WIRE_SWAP_FIELD(&inventories[index], struct distributed_inventory, weapon_indices, sizeof(long));
+			WIRE_SWAP_FIELDS(&inventories[index], struct distributed_inventory, rounds_total, age, sizeof(short));
+		}
+		return TRUE;
+	}
+	case _distributed_message_damage_animations:
+	{
+		struct distributed_damage_animation *animations = (struct distributed_damage_animation *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*animations) <= size; index++)
+		{
+			WIRE_SWAP_FIELD(&animations[index], struct distributed_damage_animation, unit_index, sizeof(long));
+			WIRE_SWAP_FIELD(&animations[index], struct distributed_damage_animation, animation_index,
+				sizeof(short));
+		}
+		return TRUE;
+	}
+	}
+	return FALSE;
+}
+#endif

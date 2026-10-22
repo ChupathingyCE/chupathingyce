@@ -858,3 +858,18 @@ boolean game_engine_slayer_read_network_state(
 	}
 	return TRUE;
 }
+
+#ifdef HALO_BIG_ENDIAN
+/* port: (game_engine.h) the state in the wire's byte order, either way */
+void game_engine_slayer_network_state_byte_swap(
+	byte *buffer,
+	long size)
+{
+	struct slayer_network_state *state = (struct slayer_network_state *)buffer;
+
+	if (size != (long)sizeof(*state))
+		return;
+	GAME_ENGINE_NETWORK_STATE_SWAP(state, globals.team_score, globals.individual_score, sizeof(long));
+	GAME_ENGINE_NETWORK_STATE_SWAP(state, speeds, speeds, sizeof(word));
+}
+#endif

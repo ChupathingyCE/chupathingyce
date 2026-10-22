@@ -9675,3 +9675,30 @@ void game_engine_read_network_state(
 	if (postgame_state != 0 && game_engine_globals.postgame_state == 0)
 		game_engine_end_game();
 }
+
+#ifdef HALO_BIG_ENDIAN
+/* port: (port/linux/game/network_distributed.h) the state the host sends,
+between this machine's byte order and the wire's: whether the game is over,
+then the game type's */
+void game_engine_network_state_byte_swap(
+	byte *buffer,
+	long size)
+{
+	if (!game_engine || size < (long)sizeof(long))
+		return;
+	distributed_wire_swap(buffer, 1, sizeof(long));
+	buffer += sizeof(long);
+	size -= sizeof(long);
+	switch (game_engine_get_type())
+	{
+	case game_engine_ctf: game_engine_ctf_network_state_byte_swap(buffer, size); break;
+	case game_engine_slayer: game_engine_slayer_network_state_byte_swap(buffer, size); break;
+	case game_engine_oddball: game_engine_oddball_network_state_byte_swap(buffer, size); break;
+	case game_engine_king: game_engine_king_network_state_byte_swap(buffer, size); break;
+	case game_engine_race: game_engine_race_network_state_byte_swap(buffer, size); break;
+#ifdef HALO_GAME_BROWSER
+	case game_engine_bomb: game_engine_bomb_network_state_byte_swap(buffer, size); break;
+#endif
+	}
+}
+#endif

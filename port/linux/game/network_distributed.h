@@ -367,4 +367,41 @@ void network_damage_handle_events(void const *entries, short count);
 void network_damage_handle_reports(long machine_index, void const *entries, short count);
 word network_damage_entry_size(byte type);
 
+#ifdef HALO_BIG_ENDIAN
+/* ---------- the wire's byte order (a big-endian console)
+
+The messages go as the PCs and the original Xbox send them, each number
+little-endian. A big-endian machine (HALO_BIG_ENDIAN: the Xbox 360's and the
+Wii U's PowerPC) turns a message into that order as it is sent and back as
+it comes (network_distributed.c's distributed_wire_message), entry by entry
+by its kind; the entries the netcode packs itself (the units' states, the
+relayed actions) are put in that order as they are packed (distributed_put).
+A little-endian build has none of this: its structures are the wire's. */
+
+/* count numbers of size bytes each (2 or 4; any other size is left as it
+is) at data, each reversed in place; data need not be aligned */
+void distributed_wire_swap(void *data, long count, long size);
+/* a field of the structure at entry, its numbers of size bytes each */
+#define WIRE_SWAP_FIELD(entry, type, field, size) \
+	distributed_wire_swap((byte *)(entry) + offsetof(type, field), \
+		(long)(sizeof(((type *)0)->field) / (size)), (size))
+/* the fields from first to last of the structure at entry, all of them
+numbers of size bytes each, with no padding between them */
+#define WIRE_SWAP_FIELDS(entry, type, first, last, size) \
+	distributed_wire_swap((byte *)(entry) + offsetof(type, first), \
+		(long)((offsetof(type, last) + sizeof(((type *)0)->last) - offsetof(type, first)) / (size)), (size))
+
+/* the entries of a module's kinds of message (count of them at entries, of
+size bytes in all: only whole entries are turned) between this machine's
+order and the wire's, either way (each entry's layout is fixed); FALSE for
+a kind not the module's */
+boolean network_objects_wire_entries(byte type, byte *entries, short count, long size);
+boolean network_damage_wire_entries(byte type, byte *entries, short count, long size);
+boolean network_actors_wire_entries(byte type, byte *entries, short count, long size);
+boolean network_coop_wire_entries(byte type, byte *entries, short count, long size);
+/* (game_engine.c) the game type's state the host sends (game_engine_write_
+network_state), between this machine's order and the wire's */
+void game_engine_network_state_byte_swap(byte *buffer, long size);
+#endif
+
 #endif // __NETWORK_DISTRIBUTED_H

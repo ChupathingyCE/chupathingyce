@@ -724,4 +724,25 @@ void game_show_score_extended(
 	long team_index);
 
 #endif
+#ifdef HALO_BIG_ENDIAN
+/* port: a big-endian console (port/linux/game/network_distributed.h): the
+game types' states the host sends (game_engine_write_network_state) are
+little-endian on the wire, as the PCs and the original Xbox send them. Each
+game type's turns its own between this machine's order and the wire's
+(either way: their layouts are fixed), a state of another size left as it
+is (its read refuses it). */
+void distributed_wire_swap(void *data, long count, long size);
+/* the fields from first to last of the state, numbers of size bytes each
+with no padding between them */
+#define GAME_ENGINE_NETWORK_STATE_SWAP(state, first, last, size) \
+	distributed_wire_swap(&(state)->first, \
+		(long)(((byte *)&(state)->last + sizeof((state)->last) - (byte *)&(state)->first) / (size)), (size))
+void game_engine_slayer_network_state_byte_swap(byte *buffer, long size);
+void game_engine_ctf_network_state_byte_swap(byte *buffer, long size);
+void game_engine_oddball_network_state_byte_swap(byte *buffer, long size);
+void game_engine_king_network_state_byte_swap(byte *buffer, long size);
+void game_engine_race_network_state_byte_swap(byte *buffer, long size);
+void game_engine_bomb_network_state_byte_swap(byte *buffer, long size);
+#endif
+
 #endif // __GAME_ENGINE_H
