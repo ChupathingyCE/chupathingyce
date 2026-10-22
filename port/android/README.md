@@ -258,16 +258,17 @@ These settings are only for Android:
 
 ## Internet play
 
-Internet play operates as on Linux, but without Discord. When the game
-hosts a system link game, it puts the invite link on the clipboard and
-shows a notice.
+Internet play operates as on Linux, but without Discord. With
+`network.copy_to_clipboard` set to `true`, when the game hosts a system link
+game, it puts the invite link on the clipboard and shows a notice.
 
 To join a game, do one of these steps:
 
 - Open the link. The app is the handler of `halo://join/...` links. If the
   game does not operate, the app starts it. The app writes the link to
   `files/join_link.txt`, and the game reads it.
-- Copy the link and go to the game.
+- Copy the link and select PASTE LINK in Join Game's Direct Link (or set
+  `network.join_from_clipboard` to `"ask"` and go to the game).
 
 On the local network:
 

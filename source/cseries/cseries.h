@@ -256,8 +256,8 @@ void system_exit(long code);
 /* set by display_assert when a release build skips a fatal assertion (one
 for each thread; the console's one, whose compiler's thread-local storage
 the Xbox's loader does not lay out, is shared: its asserts are the game
-thread's) */
-#ifndef HALO_XBOX_CONSOLE
+thread's; so is a console's without thread-local storage) */
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_NO_THREAD_LOCAL)
 extern __thread boolean display_assert_skipped;
 #else
 extern boolean display_assert_skipped;
