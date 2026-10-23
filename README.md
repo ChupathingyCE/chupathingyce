@@ -27,8 +27,9 @@ decompilation. It runs natively on Windows, Mac (Apple silicon and Intel),
 Linux (including Steam Deck) and Android, with no emulator, and it is built for stability and
 community play: the original Xbox campaign and multiplayer maps, Halo PC and
 Custom Edition maps, online games with the community's servers, and releases
-you can count on. Xbox and Xbox 360 versions are built separately, by
-[Warthog](https://github.com/ChupathingyCE/warthog) (source only, for now).
+you can count on. The console versions (original Xbox, Xbox 360, Wii U and
+Switch) live in repositories of their own, with this one as their base: see
+[Console ports](docs/building.md#console-ports) for where each one stands.
 
 **To play:** [download](#download) the build for your system, start it, and
 point it at your own copy of the game ([first start](#you-need-your-own-copy-of-halo)).
@@ -156,6 +157,11 @@ still list them on the site (Host a Game).
 - LAN parties the old way: System Link on your own network and split screen need no internet and no account
 - High-res HUD and text, and widescreen menus
 - Controller prompts for Xbox, PlayStation and Nintendo pads, and the keyboard
+- Grifball and Bomb games, with a court to play them on
+- Online co-op: host the campaign on the Internet for friends ([how](#online-co-op))
+- Surround sound (5.1 and 7.1), Doppler shifts and sound cones as on the Xbox, and an optional headphone 3D mode, all set on one Audio Setup screen
+- The intro, attract and cutscene movies, on every desktop build and Android
+- Community Xbox map packs, such as Halo CE+, beside the retail maps ([Xbox map packs](#xbox-map-packs))
 - Text chat in games with other Chupathingy players, and a follow camera while you wait to respawn
 - Updates itself on Windows, Linux and Android: it checks for new releases when it starts, asks first, and only trusts the files a signed list of update files names (on Mac it opens the download)
 
@@ -172,14 +178,14 @@ still list them on the site (Host a Game).
 | Server Browser in the PC menus | Yes | Yes | Yes | Yes |
 | Halo PC CD and CE installer import at first start | Yes | Yes | Yes | Not yet |
 | Discord presence and Join | Yes | Yes | Yes | No |
-| Choice of audio output | Yes | Yes | Yes | No (the system's) |
+| Choice of audio output, surround and Audio Setup | Yes | Yes | Yes | No (the system's) |
 | Crash reports | Yes | Yes | Yes | Not yet |
-| Intro and cutscene movies | Not in release builds | Not in release builds | Not in release builds | Not in release builds |
+| Intro, attract and cutscene movies (Bink, with FFmpeg) | Yes | Yes | Yes | Yes |
 
 Some defaults differ by platform: anti-aliasing is MSAA 2x on 64-bit
 computers and off on 32-bit ones and Android, and the Mac starts in a window
-instead of fullscreen. Release builds don't play the intro, attract or
-cutscene movies on any platform yet. On a Steam Deck in Game Mode, the game
+instead of fullscreen. The movies are the ones on your disc's `bink` folder,
+which the first-start import copies; a movie that is missing is skipped. On a Steam Deck in Game Mode, the game
 shows no system dialogs (they can crash there): the main menu's version line
 says when a new version is out, and you update from Desktop Mode.
 
@@ -190,6 +196,20 @@ says when a new version is out, and you update from Desktop Mode.
 - **Testing** builds are hand-rolled builds of a branch, published as pre-releases named "(test builds)". The current one is the [Grifball test](https://chupathingy.org/grifball).
 - **Linux AppImage** is on the test builds for now.
 - **What's coming** is the [0.8.0 milestone](https://github.com/ChupathingyCE/chupathingyce/milestone/5) and its unreleased [release notes](docs/release-notes/0.8.0.md).
+
+## Online co-op
+
+The campaign can be hosted for friends over the Internet:
+
+1. Multiplayer > **CREATE GAME** > **INTERNET**.
+2. On the map list, switch the chooser in the top row from MULTIPLAYER to
+   **SINGLEPLAYER**, then pick a level and a difficulty.
+3. Continue to **Server Setup** (friendly fire, extra enemies, player
+   collisions and listing are set there) and start the game.
+
+Friends join it like any other game. The CO-OP CAMPAIGN entry of the
+Multiplayer menu is the Xbox's split screen co-op on one computer, not an
+online game. The original Xbox can't host or join online co-op.
 
 ## Halo PC maps
 
@@ -416,10 +436,14 @@ A few people look for most:
 | `game.unlock_all_levels` | `true` gives new profiles every campaign level. By default a new profile starts at The Pillar of Autumn, as on the Xbox. Profiles made by earlier versions had every level open; `profile_reset_campaign` in the console starts one over. |
 | `audio.volume`, `audio.music_volume`, `audio.effects_volume` | Volumes, from 0.0 to 1.0. |
 | `audio.device` | The output the sound plays on, by name (Audio Setup lists them); `"default"` follows the system's default output. |
+| `audio.channels` | `"auto"` follows your output (5.1 on a 6-channel device, 7.1 on 8, else stereo); `"stereo"`, `"5.1"` or `"7.1"` set it. Desktop only; read at start. |
+| `audio.hrtf` | Headphone 3D sound: `"off"` (the default), `"on"`, or `"auto"` (on when the output's name says headphones). Stereo output only. |
+| `audio.doppler` | Moving sounds shift in pitch as on the Xbox (on by default). |
 | `input.mouse_sensitivity`, `input.invert_mouse` | Mouse aim. |
 | `input.keyboard_prompts` | Button prompts follow the device you used last: keys after the keyboard or mouse, as Halo PC did, and buttons after a controller. This setting is no longer in the menus; `false` keeps the controller's buttons everywhere. |
 | `controls.*` | Every key: `controls.jump = "Space"`, or two at once, such as `"F, Mouse 4"`. |
 | `network.browser_url` | The game list Online Games shows (stats.chupathingy.org). |
+| `network.copy_to_clipboard` | `false` (the default) leaves the clipboard alone; `true` puts the invite link of a game you host on it. The link is also in the log and under INVITE LINK in the Gearbox menus' Server Settings. |
 | `network.host_public` | Whether games you host are listed for everyone (true) or only joinable by invite (false). |
 | `update.auto` | Whether the game updates itself. |
 | `paths.data`, `paths.saves` | Where the maps and the saves are, if not the usual place. |
