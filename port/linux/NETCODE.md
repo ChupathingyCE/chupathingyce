@@ -227,6 +227,31 @@ decides friendly fire by its own setting. Messages 87 to 89 are OpenCE's
 text chat, which Delta chat bridges (`docs/delta.md`, Chat): a build without
 them drops them as unknown, so they take no version of their own.
 
+Versions 33 to 36 are OpenCE's, which this build's clients play while its
+hosts still announce 32 (`network_rules_of_version`, by the version the host
+advertised; a host not known plays by the older rules). Version 33 adds a
+second bit to the settings' co-op byte (bit 1: the players' hits do their AI
+allies no harm), which only a host acts on. Version 34 changes no message:
+scenery and devices that are a shield alone (Rat Race's energy shields, a
+Custom Edition map's tripmines) are static targets too, which a client
+reports its hits on and applies the host's events to; a client runs the
+shields of static targets itself (no host sends them); a client reports no
+damage whose owner object is a static target (a tripmine going off, which
+the host deals); and a host's event naming an index that is no object on the
+client, the host's copy of one made during play, is applied to the client's
+nearest static target to the damage's origin, within its bounding sphere and
+2.0 world units (and an area effect's cutoff radius). Version 35 grows the
+gametype's PC options from 0x1C to 0x2C bytes (OpenCE's SWAT, Infection,
+Gun Game and Hardcore), so the settings record is 13,136 bytes at the
+network's slots, not 13,120: a client takes the size by the host's version
+(either, from a host not known), makes a newer record the older layout
+before anything reads it, and sanitizes the 16 further bytes
+(`network_rules.c`). A game that plays one of those game types is left, and
+the player told which, as this build doesn't play them yet. Version 36 adds
+message 91, the host's shield effects (12 bytes: the header, a 16-bit 0 to 5,
+16 bits of 0), reliably from the host; a client takes it and draws stock,
+the only shield look this build has.
+
 A host never checks a joining client's version: the client reads the
 host's from its advertisement and joins only a version it plays with. That
 is its own, or one of a range (HALO_PORT_NETWORK_VERSION_MINIMUM to

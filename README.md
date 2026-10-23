@@ -20,7 +20,7 @@
 <img src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android-lightgrey" alt="Platforms: Windows, macOS, Linux, Android">
 </p>
 
-> **Compatible with OpenCE build-244 (network version 32) for online play.** Players on that build join our games, and ours join games hosted on network versions 11 through 33. Browser builds can't join our games, nor we theirs.
+> **Compatible with OpenCE build-244 (network version 32) for online play.** Players on that build join our games, and ours join games hosted on network versions 11 through 37. Browser builds can't join our games, nor we theirs.
 
 Chupathingy is a free, open-source port of the Halo: Combat Evolved
 decompilation. It runs natively on Windows, Mac (Apple silicon and Intel),

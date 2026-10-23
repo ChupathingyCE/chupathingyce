@@ -200,9 +200,7 @@ symbols in this file:
 #include "networking/network_client_manager.h"
 #include "networking/network_client_message_handler.h"
 #include "networking/network_game_manager.h"
-#ifdef HALO_PORT_CONSOLE_LIMITS
 #include "networking/network_game_protocol.h"
-#endif
 #include "networking/network_messages.h"
 
 /* port/linux/game/network_distributed.c's */
@@ -1056,7 +1054,9 @@ int network_game_layout_convert(const unsigned char *from, int from_machines, in
 	unsigned char *to, int to_machines, int to_players, int *clamped);
 const char *network_game_layout_error_string(int error);
 
-static byte network_game_client_settings_staging[HALO_PORT_WIRE_NETWORK_GAME_SIZE];
+/* (room for the record of network version 35 on, 16 bytes longer:
+network_game_client_settings_size) */
+static byte network_game_client_settings_staging[HALO_PORT_WIRE_NETWORK_GAME_SIZE + 16];
 static struct network_game network_game_client_settings_folded;
 /* (the fold's offsets, network_game_layout.h's, against this build's record,
 network version 20's: co-op's cooperative_flags in the Xbox's padding byte
@@ -1072,9 +1072,92 @@ typedef char network_game_layout_size_assert[
 typedef char network_game_layout_wire_assert[HALO_PORT_WIRE_NETWORK_GAME_SIZE == 13120 ? 1 : -1];
 static boolean network_game_client_settings_told_clamped = FALSE;
 #else
-static struct network_game network_game_client_settings_staging;
+/* (and room for the record of network version 35 on, 16 bytes longer:
+network_game_client_settings_size) */
+static struct
+{
+	struct network_game game;
+	byte further[16];
+} network_game_client_settings_staging;
 #endif
 static long network_game_client_settings_staging_size = 0;
+
+/* port: OpenCE's network versions 35 on (port/linux/game/network_rules.c):
+the gametype's options grow from 0x1C to 0x2C bytes, and the record with
+them. A client takes the record's size from the host's advertised version,
+or, for a host not known (joined by an invitation), the size its pieces say,
+and makes a newer record the older layout before anything reads it; the
+further bytes are kept here, sanitized. */
+int network_rules_settings_size_taken(unsigned version, unsigned total_size);
+void network_rules_settings_fold_options(unsigned char *record, unsigned char *extended);
+void network_rules_extended_options_default(unsigned char *options);
+void network_rules_extended_options_sanitize(unsigned char *options);
+int network_rules_extended_options_mode(unsigned char const *options, int slayer, int teams, int *hardcore);
+void display_error_text_deferred(wchar_t const *text, short local_player_index);
+
+enum
+{
+	/* (network_rules.h's) */
+	NETWORK_GAME_CLIENT_SETTINGS_SIZE = 13120,
+	NETWORK_GAME_CLIENT_SETTINGS_EXTENDED_SIZE = 13120 + 16,
+	NETWORK_GAME_CLIENT_EXTENDED_OPTIONS_VERSION = 35,
+};
+
+typedef char network_game_client_settings_size_assert[
+	HALO_PORT_WIRE_NETWORK_GAME_SIZE == NETWORK_GAME_CLIENT_SETTINGS_SIZE &&
+	sizeof(network_game_client_settings_staging) >= NETWORK_GAME_CLIENT_SETTINGS_EXTENDED_SIZE ? 1 : -1];
+
+static byte network_game_client_extended_options[16];
+
+/* the OpenCE game type the record plays that this build does not (its name
+for the player and the log), or NULL: Infection, Gun Game and SWAT on the
+Slayer engine, Hardcore on any (network_rules_extended_options_mode) */
+static wchar_t const *network_game_client_unsupported_game_type(
+	struct network_game const *game,
+	char const **name)
+{
+	int hardcore;
+	int mode = network_rules_extended_options_mode(network_game_client_extended_options,
+		game->variant.game_engine_index == game_engine_slayer, game->variant.universal_variant.teams != 0, &hardcore);
+
+	switch (mode)
+	{
+	case 1:
+		*name = "SWAT";
+		return L"This game uses an OpenCE game type\r\nChupathingy doesn't support yet\r\n(SWAT).";
+	case 2:
+		*name = "Infection";
+		return L"This game uses an OpenCE game type\r\nChupathingy doesn't support yet\r\n(Infection).";
+	case 3:
+		*name = "Gun Game";
+		return L"This game uses an OpenCE game type\r\nChupathingy doesn't support yet\r\n(Gun Game).";
+	}
+	if (hardcore)
+	{
+		*name = "Hardcore";
+		return L"This game uses an OpenCE game type\r\nChupathingy doesn't support yet\r\n(Hardcore).";
+	}
+	return NULL;
+}
+
+/* port: a game of one of OpenCE's game types this build does not play is
+left, and the player told which, rather than played out of step with its
+host (its state, its rules); Slayer, the other game types and co-op play */
+static boolean network_game_client_leave_unsupported_game_type(
+	struct network_game_client *client,
+	struct network_game const *game,
+	struct transport_address *source_address)
+{
+	char const *name = NULL;
+	wchar_t const *text = network_game_client_unsupported_game_type(game, &name);
+
+	if (!text)
+		return FALSE;
+	network_event("cross-play: leaving the host's game: it plays OpenCE's %s, which this build does not", name);
+	display_error_text_deferred(text, NONE);
+	network_game_client_rejected_by_game(client, source_address, _rejection_code_game_is_closed);
+	return TRUE;
+}
 
 static boolean network_game_client_receive_game_settings_piece(
 	struct network_game_client *client,
@@ -1083,9 +1166,11 @@ static boolean network_game_client_receive_game_settings_piece(
 {
 	boolean result = TRUE;
 
-	if (piece->total_size != sizeof(network_game_client_settings_staging) ||
+	/* port: the record's size by the host's version (13,120 bytes to 34,
+	13,136 from 35), either for a host not known */
+	if (!network_rules_settings_size_taken(network_game_client_host_network_version(), piece->total_size) ||
 		piece->length > sizeof(piece->data) ||
-		piece->offset + piece->length > sizeof(network_game_client_settings_staging))
+		piece->offset + piece->length > piece->total_size)
 	{
 		network_event("got a message_server_game_settings_update piece for a different game layout");
 		network_game_client_settings_staging_size = 0;
@@ -1113,6 +1198,32 @@ static boolean network_game_client_receive_game_settings_piece(
 			if (network_game_client_settings_staging_size == piece->total_size)
 			{
 				network_game_client_settings_staging_size = 0;
+				/* port: a record of 35 on made the older layout, its further
+				options kept; an older one's are the defaults. A host not
+				known that sends the newer is taken for one of 35. */
+				if (piece->total_size == NETWORK_GAME_CLIENT_SETTINGS_EXTENDED_SIZE)
+				{
+					network_rules_settings_fold_options((byte *)&network_game_client_settings_staging,
+						network_game_client_extended_options);
+					network_rules_extended_options_sanitize(network_game_client_extended_options);
+					{
+						static byte logged[2] = { 0xFF, 0xFF };
+
+						if (logged[0] != network_game_client_extended_options[0] ||
+							logged[1] != network_game_client_extended_options[1])
+						{
+							logged[0] = network_game_client_extended_options[0];
+							logged[1] = network_game_client_extended_options[1];
+							network_event("the host's gametype has OpenCE's options: mode %d, hardcore %d",
+								(int)logged[0], (int)logged[1]);
+						}
+					}
+					network_game_client_note_host_network_version(NETWORK_GAME_CLIENT_EXTENDED_OPTIONS_VERSION);
+				}
+				else
+				{
+					network_rules_extended_options_default(network_game_client_extended_options);
+				}
 #ifdef HALO_PORT_CONSOLE_LIMITS
 				{
 					int clamped;
@@ -1150,6 +1261,11 @@ static boolean network_game_client_receive_game_settings_piece(
 							(int)network_game_client_settings_folded.machine_count,
 							(int)network_game_client_settings_folded.player_count);
 				}
+				if (network_game_client_leave_unsupported_game_type(client, &network_game_client_settings_folded,
+					source_address))
+				{
+					return TRUE;
+				}
 				/* port: no network co-op on the console (port/xbox/game/
 				xbox_coop.c): a game that turns co-op (its host set it in the
 				lobby, or a listing missed it) is left, and the player told */
@@ -1166,9 +1282,14 @@ static boolean network_game_client_receive_game_settings_piece(
 				result = network_game_client_game_settings_updated(client, &network_game_client_settings_folded);
 #else
 #ifdef HALO_BIG_ENDIAN
-				network_game_byte_swap(&network_game_client_settings_staging, TRUE);
+				network_game_byte_swap(&network_game_client_settings_staging.game, TRUE);
 #endif
-				result = network_game_client_game_settings_updated(client, &network_game_client_settings_staging);
+				if (network_game_client_leave_unsupported_game_type(client, &network_game_client_settings_staging.game,
+					source_address))
+				{
+					return TRUE;
+				}
+				result = network_game_client_game_settings_updated(client, &network_game_client_settings_staging.game);
 #endif
 				if (!result)
 				{
