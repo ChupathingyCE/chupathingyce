@@ -276,3 +276,41 @@ int network_rules_static_within(float distance_squared, float radius, float reac
 
 	return limit >= 0.0f && distance_squared <= limit * limit;
 }
+
+int network_rules_host_settings_size(unsigned announce, unsigned delta_version, int waiting)
+{
+	if (announce < NETWORK_RULES_EXTENDED_OPTIONS_VERSION)
+		return NETWORK_RULES_SETTINGS_SIZE;
+	if (delta_version)
+		return network_rules_settings_size(delta_version < announce ? delta_version : announce);
+	return waiting ? 0 : NETWORK_RULES_SETTINGS_EXTENDED_SIZE;
+}
+
+int network_rules_host_static_damage_reported(unsigned announce, unsigned delta_version)
+{
+	if (delta_version)
+		return !(delta_version >= NETWORK_RULES_EXTENDED_OPTIONS_VERSION &&
+			announce >= NETWORK_RULES_EXTENDED_OPTIONS_VERSION);
+	return announce < NETWORK_RULES_STATIC_SHIELDS_VERSION;
+}
+
+void network_rules_settings_extended_copy(uint8_t const *record, uint8_t const *extended, int offset, int length,
+	uint8_t *out)
+{
+	/* (where the further options go: in front of the older record's local
+	data, its last 4 bytes) */
+	int further = NETWORK_RULES_SETTINGS_SIZE - 4;
+	int index;
+
+	for (index = 0; index < length; index++)
+	{
+		int at = offset + index;
+
+		if (at < further)
+			out[index] = record[at];
+		else if (at < further + NETWORK_RULES_EXTENDED_OPTIONS_SIZE)
+			out[index] = extended[at - further];
+		else
+			out[index] = record[at - NETWORK_RULES_EXTENDED_OPTIONS_SIZE];
+	}
+}

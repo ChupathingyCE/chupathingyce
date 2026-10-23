@@ -252,6 +252,34 @@ message 91, the host's shield effects (12 bytes: the header, a 16-bit 0 to 5,
 16 bits of 0), reliably from the host; a client takes it and draws stock,
 the only shield look this build has.
 
+A host plays by the number it announces (`delta_legacy_announce()`: the
+built-in one, or a legacy table's), which is the number of every OpenCE
+machine in its game, as they join only their own. From 34 a host takes
+scenery and devices that are a shield alone as static targets (their hits
+reported, their damage sent to every machine), finds the nearest of its own
+static targets (within its bounding sphere and 1.0 more) for a client's hit
+report on an index that names none of its units, weapons, equipment or
+static targets (a tripmine each machine made at an index of its own), and
+deals a static target's own damage (a tripmine's going off) itself for the
+machines whose players no longer report it: OpenCE's of 34 on, and Delta
+machines that take 35's record from it; an older build's report is still
+taken, so it is never dealt twice. From 35 the game settings record is 16
+bytes longer (13,136: the gametype's options 0x2C bytes, OpenCE's own game
+types' bytes; this host plays none of them and sends their defaults), and a
+machine takes only the size of its version. An OpenCE machine takes the
+announced number's; a Delta machine the record of the older of its HELLO's
+number (the newest it plays, `DELTA_LEGACY_NEWEST`; builds before 36 said
+32 or older there) and the host's. A Delta host that announces 35 or later
+therefore holds a joining machine's record until its HELLO comes, or the
+handshake's 4 seconds are over (an OpenCE machine); the size is then that
+machine's while it is connected; the game does not start while a machine
+waits for its record, and a machine joining it in progress is started once
+its record has gone. Under 35 every machine gets the older record
+at once, as before. A host of 33 sends co-op's second bit as 0 (the players'
+hits harm their AI allies, as OpenCE's default), and sends no message 91
+(shield effects): a client of 36 then draws stock, which is all this build
+draws.
+
 A host never checks a joining client's version: the client reads the
 host's from its advertisement and joins only a version it plays with. That
 is its own, or one of a range (HALO_PORT_NETWORK_VERSION_MINIMUM to

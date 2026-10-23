@@ -75,6 +75,9 @@ boolean distributed_get_death(short dead_player_index, byte *killing_player_inde
 	boolean *killed_by_vehicle);
 /* cache_files.c's */
 boolean tag_index_is_group(long tag_index, long group_tag);
+/* (the host) whether a machine's players report a static target's own
+damage (network_server_message_handler.c) */
+boolean network_game_server_machine_reports_static_damage(long machine_index);
 /* game_engine.c's */
 long game_engine_network_player_score(long player_index);
 /* physics.c's (world units a tick, each tick) */
@@ -742,8 +745,15 @@ version 34 the host deals itself, whoever placed it) */
 	{
 		struct player_datum *owner = player_try_and_get(damage->owner_player_index);
 
-		if (owner && !owner->quit_out_of_game &&
-			distributed_player_machine((short)DATUM_INDEX_TO_ABSOLUTE_INDEX(damage->owner_player_index)) != NONE)
+		long owner_machine = distributed_player_machine((short)DATUM_INDEX_TO_ABSOLUTE_INDEX(damage->owner_player_index));
+
+		/* (from network version 34, a static target's own damage, a
+		tripmine's going off, dealt here whoever placed it, unless the
+		placer's machine still reports it: an older build's) */
+		if (owner && !owner->quit_out_of_game && owner_machine != NONE &&
+			!(network_rules_of_version(NETWORK_RULES_STATIC_SHIELDS_VERSION) &&
+				damage->owner_object_index != NONE && static_target(damage->owner_object_index) &&
+				!network_game_server_machine_reports_static_damage(owner_machine)))
 		{
 			distributed_damage_material((struct damage_data *)damage, object_index, material_index);
 			return FALSE;
@@ -2034,8 +2044,31 @@ void network_damage_handle_reports(
 	for (index = 0; index < count; index++)
 	{
 		struct distributed_hit_report const *report = &reports[index];
+		struct distributed_hit_report matched;
 		struct damage_data damage;
 
+		/* (from network version 34, a report on an index that names none of
+		this machine's units, weapons, equipment or static targets: the
+		client's own copy of a static target made during play, a tripmine,
+		is this machine's nearest to where the client had it, within its
+		bounding sphere and 1.0 more) */
+		if (network_rules_of_version(NETWORK_RULES_STATIC_SHIELDS_VERSION) &&
+			distributed_object_index_valid(report->object_index) &&
+			DATUM_INDEX_TO_ABSOLUTE_INDEX(report->object_index) < MAXIMUM_OBJECTS_PER_MAP &&
+			distributed_point_valid(&report->target_position, REPORT_WORLD_BOUND) &&
+			!object_try_and_get_and_verify_type(report->object_index,
+				_object_mask_biped | _object_mask_vehicle | _object_mask_weapon | _object_mask_equipment) &&
+			!static_target(report->object_index))
+		{
+			long nearest = static_target_nearest(&report->target_position, NETWORK_RULES_STATIC_REPORT_REACH);
+
+			if (nearest != NONE)
+			{
+				matched = *report;
+				matched.object_index = nearest;
+				report = &matched;
+			}
+		}
 		if (!distributed_report_valid(machine_index, report, &damage))
 		{
 			damage_rejected_reports++;

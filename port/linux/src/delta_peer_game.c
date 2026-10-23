@@ -429,7 +429,10 @@ int delta_peer_protocol(void)
 		local.capabilities |= (delta_u32)1 << _delta_capability_bomb_movement;
 		local.capabilities |= (delta_u32)1 << _delta_capability_bomb_traits;
 #endif
-		local.legacy_version = HALO_PORT_NETWORK_VERSION;
+		/* (the newest network version whose rules it plays as a client: a
+		host sends it the settings record of that version's layout, by the
+		number the host announces) */
+		local.legacy_version = DELTA_LEGACY_NEWEST;
 		delta_peer_local_key(&local.key);
 #ifdef HALO_XBOX_CONSOLE
 		snprintf(local.build, sizeof(local.build), "Warthog %s", HALO_VERSION);
@@ -888,6 +891,13 @@ int delta_peer_game_machine_pending(int machine_index)
 	if (delta_peer_protocol() == _delta_peer_protocol_opence || delta_game.role != _role_host || !delta_game.port)
 		return 0;
 	return delta_peer_machine_pending(&delta_game.peer, GetTickCount(), machine_index);
+}
+
+int delta_peer_game_machine_legacy_version(int machine_index)
+{
+	if (delta_peer_protocol() == _delta_peer_protocol_opence || delta_game.role != _role_host || !delta_game.port)
+		return 0;
+	return delta_peer_machine_legacy_version(&delta_game.peer, machine_index);
 }
 
 int delta_peer_game_room_has(int capability)

@@ -1799,6 +1799,13 @@ int delta_peer_machine_pending(const struct delta_peer *peer, delta_u32 now, int
 	return !elapsed(now, peer->machine_seen_time[machine_index], DELTA_PEER_HANDSHAKE_TIME);
 }
 
+int delta_peer_machine_legacy_version(const struct delta_peer *peer, int machine_index)
+{
+	if (peer->mode != _mode_host || !valid_machine(machine_index) || !peer->peers[machine_index].used)
+		return 0;
+	return peer->peers[machine_index].hello.legacy_version;
+}
+
 int delta_peer_machine_lacks(const struct delta_peer *peer, delta_u32 now, int machine_index, int capability)
 {
 	const struct delta_peer_game_machine *machine;

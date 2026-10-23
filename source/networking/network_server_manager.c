@@ -746,6 +746,8 @@ static boolean network_game_server_drop_client_machine(
 static void network_game_server_start_late_joiner(
 	struct network_game_server *server,
 	struct network_game_server_client_machine *machine);
+static void network_game_server_start_waiting_late_joiners(
+	struct network_game_server *server);
 static void network_game_server_keep_late_joiners_alive(
 	struct network_game_server *server);
 static boolean network_game_server_add_new_client(
@@ -1493,6 +1495,9 @@ boolean network_game_server_idle(
 #ifdef HALO_GAME_BROWSER
 	network_game_server_delta_frame(server);
 #endif
+	/* (the settings record to machines it waited for: network version 35's) */
+	network_game_server_settings_frame(server);
+	network_game_server_start_waiting_late_joiners(server);
 
 	if (network_game_server_game_is_valid(server))
 	{
@@ -2757,6 +2762,13 @@ static boolean network_game_server_player_among(
 	return FALSE;
 }
 
+/* port: machines joining the game in progress whose start waits for their
+settings record's size (network version 35's longer record: a Delta host
+that announces 35 or later waits for a joining machine's HELLO first,
+network_server_message_handler.c); started by
+network_game_server_start_waiting_late_joiners once it is known */
+static boolean network_game_server_late_joiner_waiting[MAXIMUM_NETWORK_MACHINE_COUNT];
+
 /* the settings (with the machine's players) and the start, to the machine
 alone, the start with the host's game time */
 static void network_game_server_start_late_joiner(
@@ -2765,6 +2777,23 @@ static void network_game_server_start_late_joiner(
 {
 	struct message_server_begin_game begin_game = { 0 };
 	struct network_message *message;
+
+	{
+		long slot = machine - server->client_machines;
+
+		if (network_game_server_settings_waiting(server, machine))
+		{
+			if (slot >= 0 && slot < MAXIMUM_NETWORK_MACHINE_COUNT && !network_game_server_late_joiner_waiting[slot])
+			{
+				network_game_server_late_joiner_waiting[slot] = TRUE;
+				network_event("machine #%d joins the game in progress once its game settings record's size is known",
+					machine->machine_index);
+			}
+			return;
+		}
+		if (slot >= 0 && slot < MAXIMUM_NETWORK_MACHINE_COUNT)
+			network_game_server_late_joiner_waiting[slot] = FALSE;
+	}
 
 	/* (the message carries 16 bits: the client has the rest from its first
 	game update; never 0, which is a game starting) */
@@ -2787,6 +2816,32 @@ static void network_game_server_start_late_joiner(
 	}
 	network_event("machine #%d joins the game in progress at game tick #%ld", machine->machine_index,
 		begin_game.unused);
+}
+
+/* port: each frame, the machines joining the game in progress whose start
+waited for their settings record's size (above), once it is known */
+static void network_game_server_start_waiting_late_joiners(
+	struct network_game_server *server)
+{
+	long slot;
+
+	for (slot = 0; slot < MAXIMUM_NETWORK_MACHINE_COUNT; slot++)
+	{
+		struct network_game_server_client_machine *machine = server->client_machines + slot;
+
+		if (!network_game_server_late_joiner_waiting[slot])
+			continue;
+		if (server->state != _network_game_server_state_ingame ||
+			!network_game_server_client_machine_is_joined_to_game(server, machine) ||
+			TEST_FLAG(machine->flags, _network_client_machine_level_loaded_bit) ||
+			TEST_FLAG(machine->flags, _network_client_machine_started_late_bit))
+		{
+			network_game_server_late_joiner_waiting[slot] = FALSE;
+			continue;
+		}
+		if (!network_game_server_settings_waiting(server, machine))
+			network_game_server_start_late_joiner(server, machine);
+	}
 }
 
 /* the machines joining the game in progress (in the pregame, or loading)
@@ -4818,6 +4873,8 @@ static boolean network_game_server_idle_pregame_tasks(
 			else if (countdown_timer_get_time_remaining(
 				&server->countdown_state.timer) == 0 &&
 				network_game_server_have_all_machines_have_precached(server) &&
+				/* (port: and none still waits for its settings record) */
+				!network_game_server_settings_owed(server) &&
 				server->countdown_state.paused == FALSE)
 			{
 				/* (the game stays open: a machine may join it in progress,

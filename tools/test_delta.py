@@ -57,6 +57,8 @@ def test_limits_follow_the_table():
         "hosts must announce a version of the table"
     assert define(limits, "HALO_PORT_NETWORK_VERSION_MAXIMUM") >= newest, \
         "clients must join hosts up to the table's newest version, at least"
+    assert define(DELTA.read_text(encoding="utf-8"), "DELTA_LEGACY_NEWEST") == newest, \
+        "a Delta client's HELLO says the table's newest version, the newest whose rules it plays"
     assert define(limits, "HALO_PORT_NETWORK_VERSION_MINIMUM") == last_breaking, \
         "clients must join hosts back to the table's newest breaking version"
     presumed = define(DELTA.read_text(encoding="utf-8"), "DELTA_LEGACY_PRESUMED")
