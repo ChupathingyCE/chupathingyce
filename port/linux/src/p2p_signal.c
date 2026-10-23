@@ -400,7 +400,11 @@ static int elapsed(unsigned long since, unsigned long time)
 
 static unsigned short network_short(unsigned short value)
 {
+#ifdef HALO_BIG_ENDIAN
+	return value;
+#else
 	return (unsigned short)(value << 8 | value >> 8);
+#endif
 }
 
 /* whether some of a budget is left now (maximum at once, one more each
