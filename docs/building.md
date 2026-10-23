@@ -13,10 +13,10 @@ the build's generic side (`tools/console_build.py`).
 
 | Repository | Console | Status | Maintained by |
 | --- | --- | --- | --- |
-| [ChupathingyCE/warthog-xbox](https://github.com/ChupathingyCE/warthog-xbox) | original Xbox | Test builds: plays online, up to 32 players | Milenko |
-| [ChupathingyCE/warthog-360](https://github.com/ChupathingyCE/warthog-360) | Xbox 360 | In development: main menu and sound on hardware | Milenko |
-| [ChupathingyCE/warthog-switch](https://github.com/ChupathingyCE/warthog-switch) | Switch | Working: boots and plays on Switch hardware | [thelinkin3000](https://github.com/thelinkin3000) |
-| [ChupathingyCE/warthog-wiiu](https://github.com/ChupathingyCE/warthog-wiiu) | Wii U | In development: boots to the main menu on hardware, no picture yet | Milenko |
+| [ChupathingyCE/warthog-xbox](https://github.com/ChupathingyCE/warthog-xbox) | original Xbox | Test builds: plays online, up to 32 players, with Halo CE+ maps | Milenko |
+| [ChupathingyCE/warthog-360](https://github.com/ChupathingyCE/warthog-360) | Xbox 360 | Plays and joins servers on RGH hardware; test builds on Discord | Milenko |
+| [ChupathingyCE/warthog-switch](https://github.com/ChupathingyCE/warthog-switch) | Switch | Working: boots and plays on Switch hardware; CI builds it | [thelinkin3000](https://github.com/thelinkin3000) |
+| [ChupathingyCE/warthog-wiiu](https://github.com/ChupathingyCE/warthog-wiiu) | Wii U | Plays on hardware and joins servers online; [public test build](https://github.com/ChupathingyCE/warthog-wiiu/releases/tag/test-20261022) | Milenko |
 
 A console repository looks like this:
 
