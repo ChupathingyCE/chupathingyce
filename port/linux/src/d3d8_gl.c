@@ -58,6 +58,10 @@ static BOOL bg_back_buffer_size(int *width, int *height, int *pixel_width, int *
 void d3d8_surface_initialize(D3DSurface *surface, D3DFORMAT format, unsigned long width, unsigned long height);
 void d3d8_surface_resize(D3DSurface *surface, D3DFORMAT format, unsigned long width, unsigned long height);
 
+/* port/linux/game/stats_log.c: display.stats_log's line names the renderer the
+driver reports, once the context exists (gl_initialize below) */
+void stats_log_set_renderer(const char *vendor, const char *renderer);
+
 #ifdef HALO_GL_ES
 /* OpenGL ES 3 (port/android/README.md): the desktop formats, enumerants
 and entry points used below that ES lacks */
@@ -2075,6 +2079,8 @@ static void gl_initialize(void)
 	xgpu_shader_cache_warm(program_adopt);
 	xgpu_gl_state_invalidate();
 	device.gl_ready = TRUE;
+	/* display.stats_log's line: the driver's own text for the renderer */
+	stats_log_set_renderer((const char *)glGetString(GL_VENDOR), (const char *)glGetString(GL_RENDERER));
 	if (anti_aliasing_value < 0)
 		anti_aliasing_read();
 	else
