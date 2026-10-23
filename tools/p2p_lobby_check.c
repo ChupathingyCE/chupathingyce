@@ -376,6 +376,23 @@ static void lobby_checks(void)
 	p2p_set_hosting_public(0);
 	check(new_invite_count == count + 1 && !hosting_open(), "a private game makes a new invite and is not listed by it");
 	p2p_set_hosting_public(1);
+	/* a listing of a network version this build cannot join: kept, its
+	version shown for the browser to mark, but a tampered one still not */
+	{
+		unsigned char other[512], signed_again[512];
+		int newer = HALO_PORT_NETWORK_VERSION_MAXIMUM + 3;
+
+		memcpy(other, published, (size_t)published_size);
+		other[3] = (unsigned char)(newer >> 8);
+		other[4] = (unsigned char)newer;
+		other[9] = (unsigned char)(other[9] + 60);
+		restamp(other, published_size, 0, signed_again);
+		hear(signed_again, published_size, 0, NULL);
+		check(games(&listing) == 1 && listing.version == newer, "a listing of a newer version is kept, with its version");
+		signed_again[9] = (unsigned char)(signed_again[9] + 1);
+		hear(signed_again, published_size, 0, NULL);
+		check(games(&listing) == 1 && listing.version == newer, "a tampered one of another version is ignored");
+	}
 }
 
 int main(void)

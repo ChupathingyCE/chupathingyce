@@ -196,6 +196,12 @@ way) are one game, kept at its newest version, and of copies of that, the
 last heard (heard_times: p2p_now's); two hosts' games of one version stay
 apart. The game list's rule too (its one_per_version_set) */
 int p2p_listing_older_copy(const struct p2p_listing *games, const unsigned long *heard_times, int count, int index);
+/* p2p_listing_older_copy, for a client that joins versions minimum to
+maximum: games of other versions are kept too (the browser marks them, and
+joins none), but each as a game of their own side of the window only, and
+never beside a copy that is joinable */
+int p2p_listing_hidden_copy(const struct p2p_listing *games, const unsigned long *heard_times, int count, int index,
+	int minimum, int maximum);
 /* a game the browser could not join: kept, marked failed, for this run */
 void p2p_lobby_mark_failed(const unsigned char *identifier);
 /* a locked game's invite (into its invite), if the password is its own:
