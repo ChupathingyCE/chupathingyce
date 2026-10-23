@@ -5,14 +5,18 @@ The port plays the movies through the game's own entry points
 machine (and a 32-bit build cannot take a 64-bit system's). This builds the
 five libraries (LGPL, no GPL parts) for the build the port makes, static: the
 32-bit Linux build (x86, against the Debian 11 i386 system root of
-tools/linux_sysroot.py), the 64-bit Linux build and each architecture of the
-macOS application. The Android guest's is tools/android_ffmpeg.py, through
+tools/linux_sysroot.py), the 64-bit Linux build, each architecture of the
+macOS application and the two Windows builds (clang for the MSVC target, as
+the game itself is built: tools/windows_build.py; FFmpeg's configure and make
+run under MSYS2's shell there). The Android guest's is tools/android_ffmpeg.py, through
 that build's own pipeline.
 
 Only what the movies use is built: the Bink demuxer, its video and audio
-decoders, swscale (the frame to the texture's BGRA) and swresample (the sound
-to the mixer's 16-bit stereo). No assembly, no network, no programs, and no
-threads: the movies decode synchronously.
+decoders, the file protocol, swscale (the frame to the texture's BGRA) and
+swresample (the sound to the mixer's 16-bit stereo). Every other demuxer,
+decoder, parser, filter and protocol is left out (--disable-everything), so
+the libraries cannot open anything but a Bink file on disk. No assembly, no
+network, no programs, and no threads: the movies decode synchronously.
 
 The libraries are called from the game's own units, so they are built with the
 same ABI those units have (the build passes them with --flags): on 32-bit x86
@@ -20,7 +24,7 @@ the port's flags change how structures are laid out and how they come back from
 a function (-malign-double, -freg-struct-return), and one mismatch is a crash
 inside a call that returns a small structure, such as av_guess_frame_rate.
 
-Usage: ffmpeg_build.py <build directory> [--target-os linux|darwin] [--arch x86|x86_64|aarch64]
+Usage: ffmpeg_build.py <build directory> [--target-os linux|darwin|win32|win64] [--arch x86|x86_64|aarch64]
                        [--sysroot <sysroot>] [--cc <compiler>]
                        [--target "<the compiler's target flags>"] [--flags "<the port's ABI flags>"]
 
@@ -46,7 +50,30 @@ FFMPEG_SHA256 = "40973d44970dbc83ef302b0609f2e74982be2d85916dd2ee7472d30678a7abe
 LIBRARIES = ["libavformat", "libavcodec", "libswscale", "libswresample", "libavutil"]
 
 
+# Windows: MSYS2's shell, which FFmpeg's configure and make need (the runner
+# image has it; its make comes from pacman, .github/workflows/build.yml)
+MSYS2_BASH = Path(os.environ.get("MSYS2_ROOT", r"C:\msys64")) / "usr" / "bin" / "bash.exe"
+
+
+def msys_path(path):
+    """a Windows path as MSYS2 spells it (C:\\a\\b is /c/a/b): make cannot take
+    a drive's colon in its paths"""
+    text = str(path).replace("\\", "/")
+    if len(text) > 1 and text[1] == ":":
+        text = f"/{text[0].lower()}{text[2:]}"
+    return text
+
+
 def run(command, **kwargs):
+    if sys.platform == "win32":
+        # (through MSYS2's login shell, which keeps the runner's PATH, where
+        # clang and LLVM's tools are)
+        import shlex
+        env = dict(os.environ, MSYS2_PATH_TYPE="inherit", CHERE_INVOKING="1", MSYSTEM="MSYS")
+        line = " ".join(shlex.quote(msys_path(part) if isinstance(part, Path) else str(part))
+                        for part in command)
+        subprocess.run([str(MSYS2_BASH), "-lc", line], check=True, env=env, **kwargs)
+        return
     subprocess.run([str(part) for part in command], check=True, **kwargs)
 
 
@@ -96,17 +123,23 @@ def main():
         multiarch = "i386-linux-gnu" if arch == "x86" else f"{arch}-linux-gnu"
         sysroot_flags = [f"--sysroot={sysroot}", "-isystem", f"{sysroot}/usr/include/{multiarch}",
                          "-L", f"{sysroot}/usr/lib/{multiarch}"]
+    windows = target_os in ("win32", "win64")
+    # (Windows: LLVM's archiver, and lld for configure's test programs, as the
+    # game links)
+    windows_tools = ["--ar=llvm-ar", "--nm=llvm-nm", "--ranlib=llvm-ranlib"] if windows else []
+    link_flags = ["-fuse-ld=lld"] if windows else []
     configure = [source / "configure",
-                 f"--prefix={root / 'out'}",
+                 f"--prefix={msys_path(root / 'out') if windows else root / 'out'}",
                  f"--target-os={target_os}", f"--arch={arch}", "--enable-cross-compile",
                  f"--cc={compiler}",
                  "--extra-cflags=" + " ".join(target + abi + sysroot_flags),
-                 "--extra-ldflags=" + " ".join(target + sysroot_flags),
+                 "--extra-ldflags=" + " ".join(target + link_flags + sysroot_flags),
+                 *windows_tools,
                  "--disable-everything", "--disable-programs", "--disable-doc",
                  "--disable-network", "--disable-autodetect", "--disable-asm",
                  "--disable-shared", "--enable-static", "--disable-debug", "--enable-small",
                  "--disable-avfilter", "--disable-avdevice", "--disable-postproc",
-                 "--disable-linux-perf", "--disable-pthreads",
+                 "--disable-linux-perf", "--disable-pthreads", "--disable-w32threads",
                  # (the video decoder's configure name is "bink": "binkvideo" is only its
                  # codec id)
                  "--enable-demuxer=bink",

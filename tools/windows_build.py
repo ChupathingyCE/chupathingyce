@@ -28,10 +28,10 @@ import urllib.request
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from .version import VERSION_SOURCES, identity_defines, release_build, resource_version, version
-from .linux_build import (CUSTOM_EDITION_DEFINES, LINUX_PROFILE, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
+from .linux_build import (CUSTOM_EDITION_DEFINES, LINUX_PROFILE, ffmpeg_build, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
                           XDK_INCLUDE, game_browser_defines, lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
                           game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
                           xdk_headers)
@@ -179,6 +179,9 @@ class WindowsTarget:
     ldflags: List[str]
     # the comment above its rules
     comment: str
+    # FFmpeg's names for it (tools/ffmpeg_build.py: --target-os, --arch)
+    ffmpeg_os: str = "win32"
+    ffmpeg_arch: str = "x86"
     # optimised with a profile (pgo/): the committed ones are the 32-bit builds'
     pgo: bool = True
     # leaves out what the 64-bit builds do (port/linux/port.json "lp64")
@@ -254,6 +257,8 @@ WINDOWS64 = WindowsTarget(
         "-Wl,/STACK:0x800000",
     ],
     comment="Native 64-bit Windows build (ninja windows64)",
+    ffmpeg_os="win64",
+    ffmpeg_arch="x86_64",
     pgo=False,
     lp64_exclusions=True,
 )
@@ -467,8 +472,20 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
                                                            else ["-fstack-protector-strong"])
                    + game_browser_defines(sln))
     sdl_include = SDL_DIR / "include"
+    # the movies' FFmpeg (port/linux/src/bink_ffmpeg.c), static, built with
+    # the same clang for the same target (tools/ffmpeg_build.py); with
+    # configure.py --without-ffmpeg, bink_null.c's stubs skip the movies
+    ffmpeg_cflags: List[str] = []
+    ffmpeg_libs: List[str] = []
+    ffmpeg_inputs: List[Path] = []
+    if getattr(sln, "with_ffmpeg", True):
+        ffmpeg_cflags, ffmpeg_libs, ffmpeg_stamp, ffmpeg_archives = ffmpeg_build(
+            n, prefix, build / "ffmpeg", cc, target.ffmpeg_os, target.ffmpeg_arch,
+            [f"--target={target.triple}"], group=False)
+        ffmpeg_inputs = [ffmpeg_stamp, *ffmpeg_archives]
     libs = " ".join(
         [_quote(sdl_lib / "SDL3.lib")]
+        + ffmpeg_libs
         + [f"-l{lib}" for lib in config.get("libraries", [])]
     )
     # (the linker's map beside the program, halo.map: its functions'
@@ -488,7 +505,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         extra = " ".join(extra_cflags)
         objects: List[Path] = []
 
-        def add_object(source: Path, cflags: str) -> None:
+        def add_object(source: Path, cflags: str, waits_for: Sequence[Path] = ()) -> None:
             obj = obj_dir / source.with_suffix(".o")
             objects.append(obj)
             compiled = inline_export_wrapper(source, build)
@@ -496,7 +513,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
                 outputs=obj,
                 rule=f"{prefix}_cc",
                 inputs=compiled,
-                implicit=[*xdk_headers(), prefix_header, tags_header, source, *implicit_inputs],
+                implicit=[*xdk_headers(), prefix_header, tags_header, source, *implicit_inputs, *waits_for],
                 variables={"cflags": f"{cflags} {extra}"},
             )
 
@@ -568,6 +585,8 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
                 # (the game list's requests: on Winsock, with Mbed TLS, as
                 # on Linux)
                 add_object(source, f"{win32_cflags} -I{MBEDTLS_DIR / 'include'}")
+            elif source.name in ("bink_ffmpeg.c", "bink_null.c"):
+                add_object(source, " ".join([platform_cflags, *ffmpeg_cflags]), ffmpeg_inputs)
             elif source.name == "posix_ui_font.c":
                 # (the overlay's fonts: stb_truetype; their data, tools/embed_assets.py --fonts)
                 add_object(source, f"{platform_cflags} -I{STB_DIR}")
@@ -619,6 +638,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
             outputs=output,
             rule=f"{prefix}_link",
             inputs=objects + extra_objects + [resource],
+            implicit=ffmpeg_inputs,
             variables={"ldflags": " ".join(base_ldflags + extra_ldflags), "libs": libs},
         )
 
