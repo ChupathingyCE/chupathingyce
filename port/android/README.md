@@ -253,6 +253,7 @@ These settings are only for Android:
 | --- | --- |
 | `input.touch_controls` | The touch controls in a game. `"on"` (the default): shown on a touchscreen, also with a controller connected. `"auto"`: shown only while no controller is connected. `"off"`: never shown. A device without a touchscreen never shows them. The menus take taps with each value. |
 | `display.screen_width` | The number of columns of the 480-line picture. `0` (the default): the shape of the display (1068 on a 20:9 phone). `640`: the 4:3 shape of the Xbox. |
+| `display.stats_log` | `false` (the default): `true` writes a line a second to the log with the frame rate, the mode, the map, the renderer and the size of the 3D view, for a bug report or to compare two builds. |
 | `display.texture_decode` | Where the compressed (DXT) textures of the maps are unpacked. `"auto"` (the default): by the game on Adreno graphics (Snapdragon), whose driver draws them with dark speckles, and by the driver on other graphics. `"gpu"`: by the driver. `"cpu"`: by the game, as they load (more memory, as on Mali). |
 | `debug.sample_seconds` | Refer to "Find problems". |
 
