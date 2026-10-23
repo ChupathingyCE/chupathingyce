@@ -100,6 +100,7 @@ void stats_log_tick(void)
 {
 	static unsigned long window_start;
 	static unsigned long frames;
+	static long counted_frame = -1;
 	unsigned long now;
 	unsigned long elapsed;
 	rectangle2d bounds;
@@ -110,6 +111,10 @@ void stats_log_tick(void)
 		frames = 0;
 		return;
 	}
+	/* split screen draws the overlays once a view: count each frame once */
+	if (render.frame_index == counted_frame)
+		return;
+	counted_frame = render.frame_index;
 	now = system_milliseconds();
 	frames++;
 	if (!window_start)
