@@ -64,7 +64,7 @@ static char const *stats_log_mode(void)
 	case game_engine_oddball: return "Oddball";
 	case game_engine_king: return "King";
 	case game_engine_race: return "Race";
-	case game_engine_terminator: return "Juggernaut";
+	case game_engine_bomb: return "Bomb";
 	default: return "Game";
 	}
 }
