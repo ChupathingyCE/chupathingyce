@@ -104,7 +104,10 @@ void data_initialize(
 	data->maximum_count = maximum_count;
 	data->size = size;
 	data->signature = 'd@t@';
-#ifdef HALO_64BIT
+	/* (an Xbox address wherever addresses are translated, the 64-bit builds'
+	and the 32-bit ones' with the window moved: what every reader
+	(xbox_pointer) and the game state's checks of the arrays expect) */
+#ifdef HALO_ADDRESS_TRANSLATED
 	data->data = xbox_address(data+1);
 #else
 	data->data = data+1;
