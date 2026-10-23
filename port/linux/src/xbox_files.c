@@ -943,6 +943,15 @@ static BOOL write_at(struct platform_file *file, LPCVOID buffer, DWORD count, LP
 				*bytes_written = total;
 			return FALSE;
 		}
+		/* (a write that takes nothing ends the loop, which would otherwise ask
+		for it again forever) */
+		if (result == 0)
+		{
+			SetLastError(ERROR_DISK_FULL);
+			if (bytes_written)
+				*bytes_written = total;
+			return FALSE;
+		}
 		total += (DWORD)result;
 	}
 	if (bytes_written)

@@ -63,6 +63,7 @@ only look up and create stand-ins.
 #include "delta.h"
 #include "log_address.h"
 #include "ikcp.h"
+#include "thread_stop.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -2981,7 +2982,6 @@ static void update_upnp(void)
 {
 	static int allowed = -1;
 	int ask;
-	pthread_t thread;
 
 	if (allowed < 0)
 		allowed = config_boolean("network.allow_upnp") ? 1 : 0;
@@ -3000,13 +3000,12 @@ static void update_upnp(void)
 		p2p.upnp_release_registered = 1;
 		atexit(upnp_release);
 	}
-	if (pthread_create(&thread, NULL, upnp_thread, NULL) != 0)
+	if (thread_stop_create("internet play UPnP", upnp_thread, NULL) != 0)
 	{
 		p2p.upnp_working = 0;
 		p2p.upnp_time = p2p_now();
 		return;
 	}
-	pthread_detach(thread);
 }
 
 const char *p2p_take_clipboard_text(void)
@@ -3449,7 +3448,9 @@ static void *p2p_thread(void *unused)
 	/* (here: it may wait for a program) */
 	p2p_register_url_scheme("halo", "Halo: Combat Evolved invite");
 #endif
-	for (;;)
+	/* (until the game's end asks the platform layer's threads to stop,
+	thread_stop.h: a pass at most LOOP_INTERVAL * 5 away) */
+	while (!thread_stop_requested())
 	{
 		int read_count = 0, write_count = 0, error_count = 0;
 		int asked_read_count, asked_write_count;
@@ -3634,13 +3635,13 @@ static void *p2p_thread(void *unused)
 		poll_invite_file();
 #endif
 	}
+	pthread_mutex_unlock(&p2p_lock);
 	return NULL;
 }
 
 void p2p_initialize(unsigned long local_address)
 {
 	char invite[256];
-	pthread_t thread;
 	long tunnel_port = config_integer("network.tunnel_port");
 	int index;
 
@@ -3690,13 +3691,12 @@ void p2p_initialize(unsigned long local_address)
 		p2p.handoff_socket = open_socket(SOCK_DGRAM, network_long(0x7F000001), network_short(HANDOFF_PORT), NULL);
 #endif
 	stun_setup();
-	if (pthread_create(&thread, NULL, p2p_thread, NULL) != 0)
+	if (thread_stop_create("internet play", p2p_thread, NULL) != 0)
 	{
 		close_socket(&p2p.tunnel_socket);
 		close_socket(&p2p.handoff_socket);
 		return;
 	}
-	pthread_detach(thread);
 	p2p.running = 1;
 	if (pending_startup_invite[0])
 	{

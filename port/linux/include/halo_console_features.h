@@ -99,6 +99,12 @@ HALO_CONSOLE_XBOX_RENDER_SIZES
 	the Xbox's texture cache and the Xbox's structure surfaces and dynamic
 	triangles in a frame (halo_port_capacity.h), on a console whose build
 	otherwise has the desktop's
+HALO_CONSOLE_WAIT_POLL
+	a console whose system must be served by the thread that runs the game
+	(the Wii U's HOME button): console_wait_poll, defined by the port, is
+	called by every wait that thread makes in the platform layer and the
+	game's cache files, and console_trace puts a line in the port's log for
+	the steps of a cache file's making (cache_files_windows.c)
 HALO_CONSOLE_BRINGUP_LOG
 	a console's developer tools (HALO_CONSOLE_DEBUG_TOOLS) for its
 	bring-up: the main loop's stages in its profile log
@@ -140,6 +146,8 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_WIDE_TIME_T 1
 #define HALO_CONSOLE_LOG_ECHO 1
 #define HALO_CONSOLE_ONLINE_GAMES 1
+#define HALO_CONSOLE_WAIT_POLL 1
+#define HALO_CONSOLE_GL_LAYER 1
 #endif
 
 #ifdef HALO_XBOX_CONSOLE
@@ -164,6 +172,12 @@ larger maps take a campaign map's there as well) */
 #ifdef HALO_CONSOLE_DEBUG_TOOLS
 #define HALO_CONSOLE_BRINGUP_LOG 1
 #endif
+#endif
+
+#ifdef HALO_CONSOLE_WAIT_POLL
+/* (defined by the port) */
+void console_wait_poll(void);
+void console_trace(const char *format, ...);
 #endif
 
 #endif
