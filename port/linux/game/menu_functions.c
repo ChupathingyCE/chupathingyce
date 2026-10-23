@@ -94,6 +94,7 @@ their handlers open opens.
 #include "networking/network_connection.h"
 #ifdef HALO_GAME_BROWSER
 #include "../src/browser.h"
+#include "halo_port_limits.h"
 #endif
 /* (its games on Halo PC maps: server_browser.c) */
 #include "halo_map_families.h"
@@ -4726,6 +4727,18 @@ static short lobby_browser_score_limit(struct p2p_listing const *game)
 	return listed ? listed->score_limit : 0;
 }
 
+/* a game list's game of another network version than this build joins: -1
+older, 1 newer, else 0 (a listing's, and any game of this version) */
+static int lobby_browser_version_state(struct p2p_listing const *game, short *version)
+{
+	struct browser_game const *listed = lobby_browser_listed_game(game);
+
+	if (!listed)
+		return 0;
+	*version = (short)listed->version;
+	return browser_game_version_state(listed);
+}
+
 /* the Rules line's host, when the list has it (docs/delta.md, Delta List):
 " (MAC HOST, DELTA)", " (DEDICATED, LINUX, DELTA)", " (OPENCE)"; "" if not */
 static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *text, short size)
@@ -4748,6 +4761,14 @@ static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *tex
 		(dedicated || platform[0]) && listed->protocol ? L", " : L"",
 		listed->protocol == BROWSER_PROTOCOL_DELTA ? L"DELTA" : L"",
 		listed->protocol == BROWSER_PROTOCOL_OPENCE ? L"OPENCE" : L"");
+	/* (its network version: an OpenCE host's always, a Delta host's when not this build's) */
+	if (listed->version && (listed->protocol == BROWSER_PROTOCOL_OPENCE ||
+		(listed->protocol == BROWSER_PROTOCOL_DELTA && listed->version != delta_legacy_announce())))
+	{
+		short length = (short)ustrlen(text);
+
+		usnprintf(text + length, size - 1 - length, L", NETWORK %d", listed->version);
+	}
 	text[size - 1] = 0;
 	if (text[0])
 	{
@@ -4783,7 +4804,23 @@ static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *tex
 	(void)size;
 	text[0] = 0;
 }
+
+static int lobby_browser_version_state(struct p2p_listing const *game, short *version)
+{
+	(void)game;
+	(void)version;
+	return 0;
+}
 #endif
+
+/* why a game of another network version is not joined (state from
+lobby_browser_version_state), in a message's words */
+static void lobby_browser_version_text(int state, short version, wchar_t *text, short size)
+{
+	usnprintf(text, size - 1, L"This game runs %s version (network %d) and can't be joined.",
+		state < 0 ? L"an older" : L"a newer", version);
+	text[size - 1] = 0;
+}
 
 /* a game's map as the menus show it, and its family (a Halo PC map's named
 as the menus' map list names it: server_browser.c) */
@@ -4867,7 +4904,7 @@ static void lobby_browser_update(struct widget_instance *list)
 	wchar_t text[ROW_TEXT_LENGTH * 2];
 	wchar_t players[ROW_TEXT_LENGTH * 2];
 	unsigned long now = system_milliseconds();
-	short chosen;
+	short chosen, version_of = 0;
 	boolean message;
 
 	lobby_browser.count = lobby_browser_valid_games(lobby_browser.games,
@@ -4932,8 +4969,13 @@ static void lobby_browser_update(struct widget_instance *list)
 		usnprintf(text, ROW_TEXT_LENGTH - 1, L"%d/%d", game->player_count, game->maximum_player_count);
 		text_set(named(row, "server_item_players", 0), text);
 		/* (no ping yet: its host is reached only on joining) */
-		text_set(named(row, "server_item_ping", 0), game->failed ? L"FAILED" : !game->open ? L"CLOSED" :
-			game->in_progress ? L"LIVE" : L"");
+		{
+			short version;
+			int state = lobby_browser_version_state(game, &version);
+
+			text_set(named(row, "server_item_ping", 0), game->failed ? L"FAILED" : state ? (state < 0 ? L"OLD" : L"NEW") :
+				!game->open ? L"CLOSED" : game->in_progress ? L"LIVE" : L"");
+		}
 		/* (the lock: a game with a password. Its bitmap's first frame is
 		empty, the PC version's for no lock; the next is the lock, in the
 		menus' blue) */
@@ -5018,6 +5060,13 @@ static void lobby_browser_update(struct widget_instance *list)
 		}
 		else if (lobby_browser.message[0] && now - lobby_browser.message_time < LOBBY_BROWSER_MESSAGE_TIME)
 			usnprintf(text, NUMBEROF(text) - 1, L"%s", lobby_browser.message);
+		/* (a game of another network version) */
+		else if (chosen < lobby_browser.count &&
+			lobby_browser_version_state(&lobby_browser.games[chosen], &version_of))
+		{
+			lobby_browser_version_text(lobby_browser_version_state(&lobby_browser.games[chosen], &version_of), version_of,
+				text, NUMBEROF(text));
+		}
 		/* (what stops the chosen game being joined here: its Halo PC map) */
 		else if (chosen < lobby_browser.count &&
 			server_browser_map_blocked(lobby_browser.games[chosen].map, text, NUMBEROF(text)))
@@ -5129,6 +5178,19 @@ static boolean lobby_browser_select(struct widget_instance *widget, short contro
 	if (index >= lobby_browser.count)
 		return campaign_fail();
 	game = &lobby_browser.games[index];
+	/* (a game of another network version is listed, not joined) */
+	{
+		wchar_t blocked[ROW_TEXT_LENGTH * 2];
+		short version = 0;
+		int state = lobby_browser_version_state(game, &version);
+
+		if (state)
+		{
+			lobby_browser_version_text(state, version, blocked, NUMBEROF(blocked));
+			lobby_browser_message(blocked);
+			return campaign_fail();
+		}
+	}
 	/* (a Halo PC map's game, only with the map: a join without it would
 	fail at its loading) */
 	{
