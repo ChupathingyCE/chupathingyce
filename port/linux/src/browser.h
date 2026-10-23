@@ -197,9 +197,13 @@ scheme), empty for none */
 void browser_server_name(char *text, int size);
 
 /* the listed games, asking the server for the list again if the last one
-is more than a few seconds old: those of this machine's network version,
-without this machine's own. Returns their count. */
+is more than a few seconds old: with games of other network versions
+(browser_game_version_state), without this machine's own. Returns their
+count. */
 int browser_get_games(struct browser_game *games, int maximum_count);
+/* whether this build can join a game by its network version: 0 if it can
+(or may try), -1 if the game runs an older version, 1 a newer one */
+int browser_game_version_state(const struct browser_game *game);
 /* whether a game's map (a scenario's name or path) is a campaign level: a
 co-op game, which no server browser lists (a direct join or an invite still
 reaches it) */

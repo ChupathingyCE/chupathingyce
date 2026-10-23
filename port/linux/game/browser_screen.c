@@ -74,6 +74,7 @@ the right button is B.
 #include "networking/network_game_globals.h"
 #include "networking/network_client_manager.h"
 #include "../src/browser.h"
+#include "halo_port_limits.h"
 #include "../src/browser_ping.h"
 #include "../src/map_art.h"
 #include "../src/map_download.h"
@@ -689,6 +690,7 @@ static void offer_button(
 }
 
 static char const *game_type_blocker(struct browser_game const *game);
+static char const *version_blocker(struct browser_game const *game, char *text, long size);
 
 /* a game picked: its invite joined (the tunnel to its host), then its game
 joined once advertised through it (browser_screen_process) */
@@ -700,6 +702,15 @@ static void join_selected(
 	if (browser_screen.selected < 0 || browser_screen.selected >= browser_screen.count)
 		return;
 	game = &browser_screen.games[browser_screen.selected];
+	{
+		char text[96];
+
+		if (version_blocker(game, text, sizeof(text)))
+		{
+			set_status(text);
+			return;
+		}
+	}
 	if (!game->open)
 	{
 		set_status("That game is not accepting players.");
@@ -845,7 +856,9 @@ static long compare_games(
 {
 	long order;
 
-	/* (closed games last, whatever the order) */
+	/* (closed games last, those of another version after them, whatever the order) */
+	if (!browser_game_version_state(a) != !browser_game_version_state(b))
+		return browser_game_version_state(a) ? 1 : -1;
 	if (a->open != b->open)
 		return a->open ? -1 : 1;
 	switch (browser_screen.sort)
@@ -925,6 +938,22 @@ static char const *game_type_blocker(
 		return NULL;
 	return game->engine == game_engine_bomb ? "Bomb and Grifball need a Chupathingy build with Bomb." :
 		"A game type this build does not have: update Chupathingy to join.";
+}
+
+/* why a game of another network version is not joined, or NULL for one this
+build can: it is listed and marked, not hidden */
+static char const *version_blocker(
+	struct browser_game const *game,
+	char *text,
+	long size)
+{
+	int state = browser_game_version_state(game);
+
+	if (!state)
+		return NULL;
+	snprintf(text, (size_t)size, "This game runs %s version (network %d) and can't be joined.",
+		state < 0 ? "an older" : "a newer", game->version);
+	return text;
 }
 
 /* what this machine lacks to join a game on a Custom Edition map, or NULL
@@ -1568,7 +1597,7 @@ static char const *host_tag(
 }
 
 /* the details' Host line ("Linux, Delta", "Official server (Linux), Delta",
-"OpenCE (legacy)"); NULL when the list does not say */
+"OpenCE (legacy, network 26)"); NULL when the list does not say */
 static char const *host_text(
 	struct browser_game const *game,
 	char *text,
@@ -1579,7 +1608,20 @@ static char const *host_text(
 		game->host_platform < NUMBEROF(platform_names) ? platform_names[game->host_platform] : NULL;
 	char const *protocol = game->protocol == BROWSER_PROTOCOL_DELTA ? "Delta" :
 		game->protocol == BROWSER_PROTOCOL_OPENCE ? "OpenCE (legacy)" : NULL;
-	char host[48];
+	char host[48], with_version[40];
+
+	/* (its network version: an OpenCE host's always, a Delta host's when it
+	is not this build's) */
+	if (game->protocol == BROWSER_PROTOCOL_OPENCE && game->version)
+	{
+		snprintf(with_version, sizeof(with_version), "OpenCE (legacy, network %d)", game->version);
+		protocol = with_version;
+	}
+	else if (game->protocol == BROWSER_PROTOCOL_DELTA && game->version && game->version != delta_legacy_announce())
+	{
+		snprintf(with_version, sizeof(with_version), "Delta, network %d", game->version);
+		protocol = with_version;
+	}
 
 	if (game->hosting == BROWSER_HOSTING_DEDICATED || game->hosting == BROWSER_HOSTING_OFFICIAL)
 	{
@@ -2372,7 +2414,8 @@ static void draw_row(
 	float text_y = y + (LIST_ROW - ROW_SIZE) * 0.5f + 0.5f;
 	char text[160], name[64];
 	char const *map_name;
-	unsigned int color = picked ? COLOR_ROW_SELECTED : game->open ? COLOR_ROW : COLOR_ROW_DIM;
+	int version_state = browser_game_version_state(game);
+	unsigned int color = picked ? COLOR_ROW_SELECTED : game->open && !version_state ? COLOR_ROW : COLOR_ROW_DIM;
 	unsigned int glow = picked ? 0x6FB2FFC0 : 0;
 	short family = map_family(game->map);
 	float badge_x = COLUMN_TYPE - 10 - family_badge_width(family, game->map, BADGE_SIZE);
@@ -2394,7 +2437,16 @@ static void draw_row(
 	utf8_name(game->name, name, sizeof(name));
 	width = ui_overlay_text_glow(UI_FONT_MENU, ROW_SIZE, COLUMN_NAME, text_y, UI_ALIGN_LEFT, color, glow, name);
 	if (game->locked)
+	{
 		draw_lock(COLUMN_NAME + width + 4, text_y + 1, ROW_SIZE * 0.75f, color);
+		width += ROW_SIZE;
+	}
+	/* (a game this build can't join, by its network version: marked) */
+	if (version_state)
+	{
+		ui_overlay_text(UI_FONT_MENU, 6.5f, COLUMN_NAME + width + 5, y + (LIST_ROW - 6.5f) * 0.5f + 0.5f, UI_ALIGN_LEFT,
+			COLOR_CLOSED, version_state < 0 ? "OLD VERSION" : "NEW VERSION");
+	}
 	/* the map: a name too long for the room left of its family's tag smaller,
 	its middle where the others' is */
 	map_name = game_map_display_name(game, text, sizeof(text));
@@ -2463,7 +2515,8 @@ static void draw_list_footer(
 	float y = (float)(LIST_Y + LIST_HEAD + ROWS_PER_PAGE * LIST_ROW) + 3;
 	float text_y = y + (LIST_FOOT - FOOT_SIZE) * 0.5f;
 	char blocker_text[BROWSER_MAP_LENGTH + 64];
-	char const *blocker = !selected ? NULL : game_type_blocker(selected) ? game_type_blocker(selected) :
+	char const *blocker = !selected ? NULL : version_blocker(selected, blocker_text, sizeof(blocker_text)) ?
+		blocker_text : game_type_blocker(selected) ? game_type_blocker(selected) :
 		ce_map_blocker(selected, blocker_text, sizeof(blocker_text));
 	char text[96];
 	float width;
@@ -2589,7 +2642,8 @@ the map's name over its family's color (a custom map's) */
 			label) + 4; \
 		x += ui_overlay_text(UI_FONT_MENU, DETAIL_SIZE, x, y, UI_ALIGN_LEFT, COLOR_TEXT, value); \
 		y += DETAIL_LINE_STEP;
-	snprintf(text, sizeof(text), "%s%s", selected->open ? "Accepting players" : "In progress",
+	snprintf(text, sizeof(text), "%s%s", browser_game_version_state(selected) ? (browser_game_version_state(selected) < 0 ? "Older version" : "Newer version") :
+		selected->open ? "Accepting players" : "In progress",
 		selected->locked ? ", password" : "");
 	DETAIL_LINE("Status:", text);
 	DETAIL_LINE("Map:", map_label);
@@ -2670,7 +2724,7 @@ static void draw_bar_prompts(
 	static char const *const words[] = { "=CREATE GAME", "=REFRESH", "=BACK", "=JOIN" };
 	/* (A greyed for a game whose Halo PC map or game type can't be played
 	here, and with no game to join) */
-	boolean on[] = { TRUE, TRUE, TRUE, selected != NULL &&
+	boolean on[] = { TRUE, TRUE, TRUE, selected != NULL && !browser_game_version_state(selected) &&
 		!(ce_map_state(selected, FALSE) >= _ce_map_missing && !ce_map_downloadable(selected) && !ce_map_stock(selected)) &&
 		!game_type_blocker(selected) };
 	short count = selected ? 4 : 3;

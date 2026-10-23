@@ -16,9 +16,9 @@ server forgets a game it is not told about for a while, so a copy of the
 game that quits without withdrawing drops off by itself.
 
 Browsing: browser_get_games asks for the list when the last one is more
-than LIST_INTERVAL old, and returns what it has meanwhile. Only games of
-this machine's network version are kept (the others could not be joined),
-and never this machine's own.
+than LIST_INTERVAL old, and returns what it has meanwhile. Games of another
+network version than this machine can join are kept too, for the screens to
+mark (browser_game_version_state); never this machine's own.
 
 The requests (posix_browser.c) block, so they are made on a thread of this
 file's, which the first call starts; the game's threads only exchange state
@@ -1788,13 +1788,10 @@ static void update_list(void)
 				*next++ = 0;
 			if (!line[0])
 				continue;
-			/* (a game of another OpenCE number too when its host speaks
-			Delta: joining it goes by the game wire its advertisement says,
-			network_game_client_advertised_game_compatible) */
-			if (parse_game(line, &games[count]) &&
-				((games[count].version >= delta_legacy_minimum() && games[count].version <= delta_legacy_maximum()) ||
-				(games[count].protocol == BROWSER_PROTOCOL_DELTA && delta_peer_protocol() != _delta_peer_protocol_opence)) &&
-				strcmp(games[count].invite, own))
+			/* (a game of another number is kept, marked by the screens: a
+			Delta host's may still be joined, by the game wire its
+			advertisement says, network_game_client_advertised_game_compatible) */
+			if (parse_game(line, &games[count]) && strcmp(games[count].invite, own))
 			{
 				count++;
 			}
@@ -2580,6 +2577,16 @@ int browser_map_is_campaign(const char *map)
 }
 
 #ifdef HALO_GAME_BROWSER
+
+int browser_game_version_state(const struct browser_game *game)
+{
+	/* (a Delta host's other number may still be joined, as above) */
+	if (game->protocol == BROWSER_PROTOCOL_DELTA && delta_peer_protocol() != _delta_peer_protocol_opence)
+		return 0;
+	if (game->version < delta_legacy_minimum())
+		return -1;
+	return game->version > delta_legacy_maximum() ? 1 : 0;
+}
 
 int browser_get_games(struct browser_game *games, int maximum_count)
 {
