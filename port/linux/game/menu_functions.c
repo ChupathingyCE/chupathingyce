@@ -4386,11 +4386,18 @@ static long lobby_browser_compare_text(char const *a, char const *b)
 	}
 }
 
+static int lobby_browser_version_state(struct p2p_listing const *game, short *version);
+
 /* two games' order in the column chosen (0: as p2p_lobby_games has them) */
 static long lobby_browser_compare(struct p2p_listing const *a, struct p2p_listing const *b)
 {
 	long order;
+	short version;
+	int a_state = lobby_browser_version_state(a, &version), b_state = lobby_browser_version_state(b, &version);
 
+	/* (a game of another network version last, whichever way sorted) */
+	if (!a_state != !b_state)
+		return a_state ? 1 : -1;
 	switch (lobby_browser.sort)
 	{
 	case _lobby_browser_sort_name: order = lobby_browser_compare_text(a->name, b->name); break;
@@ -4734,7 +4741,11 @@ static int lobby_browser_version_state(struct p2p_listing const *game, short *ve
 	struct browser_game const *listed = lobby_browser_listed_game(game);
 
 	if (!listed)
-		return 0;
+	{
+		/* (a listing the game list lacks, over the brokers: by its own number) */
+		*version = (short)game->version;
+		return browser_version_state(game->version);
+	}
 	*version = (short)listed->version;
 	return browser_game_version_state(listed);
 }
@@ -4807,9 +4818,8 @@ static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *tex
 
 static int lobby_browser_version_state(struct p2p_listing const *game, short *version)
 {
-	(void)game;
-	(void)version;
-	return 0;
+	*version = (short)game->version;
+	return browser_version_state(game->version);
 }
 #endif
 
