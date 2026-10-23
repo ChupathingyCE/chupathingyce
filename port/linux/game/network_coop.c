@@ -3111,3 +3111,319 @@ static void client_play_presentation(
 	if (presentation)
 		client_presentation_apply(presentation);
 }
+
+#ifdef HALO_BIG_ENDIAN
+/* (network_distributed.h) this module's entries in the wire's order */
+boolean network_coop_wire_entries(
+	byte type,
+	byte *entries,
+	short count,
+	long size)
+{
+	short index;
+
+	switch (type)
+	{
+	case _distributed_message_coop_presentation:
+	{
+		struct distributed_coop_presentation *presentations = (struct distributed_coop_presentation *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*presentations) <= size; index++)
+		{
+			struct distributed_coop_presentation *presentation = &presentations[index];
+
+			WIRE_SWAP_FIELDS(presentation, struct distributed_coop_presentation, fade_ticks, fade_elapsed,
+				sizeof(short));
+			WIRE_SWAP_FIELD(presentation, struct distributed_coop_presentation, fade_start_time, sizeof(long));
+			WIRE_SWAP_FIELD(presentation, struct distributed_coop_presentation, camera_position, sizeof(real));
+			/* (the camera's axes, then its field of view) */
+			WIRE_SWAP_FIELDS(presentation, struct distributed_coop_presentation, camera_forward,
+				camera_field_of_view, sizeof(short));
+			WIRE_SWAP_FIELDS(presentation, struct distributed_coop_presentation, unit_hud_flags,
+				timer_reference_time, sizeof(long));
+			WIRE_SWAP_FIELDS(presentation, struct distributed_coop_presentation, timer_ticks, timer_corner,
+				sizeof(short));
+			WIRE_SWAP_FIELD(presentation, struct distributed_coop_presentation, camera_object_index, sizeof(long));
+			WIRE_SWAP_FIELD(presentation, struct distributed_coop_presentation, camera_object_offset, sizeof(real));
+			WIRE_SWAP_FIELD(presentation, struct distributed_coop_presentation, activating_cluster, sizeof(short));
+			/* (the players' vitality, then the teams' allegiances) */
+			WIRE_SWAP_FIELDS(presentation, struct distributed_coop_presentation, players_maximum_body_vitality,
+				friendly_teams, sizeof(long));
+		}
+		return TRUE;
+	}
+	case _distributed_message_coop_events:
+	{
+		struct distributed_coop_event *events = (struct distributed_coop_event *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*events) <= size; index++)
+		{
+			WIRE_SWAP_FIELDS(&events[index], struct distributed_coop_event, number, name_index, sizeof(short));
+			WIRE_SWAP_FIELDS(&events[index], struct distributed_coop_event, object_index, reals, sizeof(long));
+		}
+		return TRUE;
+	}
+	case _distributed_message_coop_device_groups:
+	{
+		struct distributed_coop_device_group *groups = (struct distributed_coop_device_group *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*groups) <= size; index++)
+		{
+			WIRE_SWAP_FIELDS(&groups[index], struct distributed_coop_device_group, group_index, name_index,
+				sizeof(short));
+			WIRE_SWAP_FIELDS(&groups[index], struct distributed_coop_device_group, object_index, definition_index,
+				sizeof(long));
+			WIRE_SWAP_FIELD(&groups[index], struct distributed_coop_device_group, value, sizeof(real));
+		}
+		return TRUE;
+	}
+	case _distributed_message_coop_object_names:
+	{
+		struct distributed_coop_object_names *names = (struct distributed_coop_object_names *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*names) <= size; index++)
+		{
+			WIRE_SWAP_FIELDS(&names[index], struct distributed_coop_object_names, structure_bsp_index, name_count,
+				sizeof(short));
+		}
+		return TRUE;
+	}
+	case _distributed_message_coop_object_transforms:
+	{
+		struct distributed_coop_object_transform *transforms = (struct distributed_coop_object_transform *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*transforms) <= size; index++)
+		{
+			WIRE_SWAP_FIELD(&transforms[index], struct distributed_coop_object_transform, name_index, sizeof(short));
+			WIRE_SWAP_FIELDS(&transforms[index], struct distributed_coop_object_transform, object_index,
+				definition_index, sizeof(long));
+			WIRE_SWAP_FIELD(&transforms[index], struct distributed_coop_object_transform, position, sizeof(real));
+			WIRE_SWAP_FIELDS(&transforms[index], struct distributed_coop_object_transform, forward, up,
+				sizeof(short));
+		}
+		return TRUE;
+	}
+	case _distributed_message_coop_object_looks:
+	{
+		struct distributed_coop_object_look *looks = (struct distributed_coop_object_look *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*looks) <= size; index++)
+		{
+			WIRE_SWAP_FIELD(&looks[index], struct distributed_coop_object_look, name_index, sizeof(short));
+			WIRE_SWAP_FIELDS(&looks[index], struct distributed_coop_object_look, object_index, definition_index,
+				sizeof(long));
+			WIRE_SWAP_FIELD(&looks[index], struct distributed_coop_object_look, scale, sizeof(real));
+		}
+		return TRUE;
+	}
+	case _distributed_message_coop_device_states:
+	{
+		struct distributed_coop_device_state *states = (struct distributed_coop_device_state *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*states) <= size; index++)
+		{
+			WIRE_SWAP_FIELD(&states[index], struct distributed_coop_device_state, name_index, sizeof(short));
+			/* (the object, its definition, its position and its power) */
+			WIRE_SWAP_FIELDS(&states[index], struct distributed_coop_device_state, object_index, power,
+				sizeof(long));
+		}
+		return TRUE;
+	}
+	case _distributed_message_coop_screen_effect:
+	{
+		struct rasterizer_screen_effect_port_state *states = (struct rasterizer_screen_effect_port_state *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*states) <= size; index++)
+		{
+			WIRE_SWAP_FIELDS(&states[index], struct rasterizer_screen_effect_port_state, convolution_extra_passes,
+				video_overbright_mode, sizeof(short));
+			/* (the tint, then every intensity, radius and time) */
+			WIRE_SWAP_FIELDS(&states[index], struct rasterizer_screen_effect_port_state, filter_desaturation_tint,
+				near_clip_distance, sizeof(real));
+		}
+		return TRUE;
+	}
+	case _distributed_message_coop_skip_vote:
+		return TRUE;
+	}
+	return FALSE;
+}
+#endif
+
+#if defined(HALO_BIG_ENDIAN) || defined(HALO_NETWORK_WIRE_CAPTURE)
+/* (network_distributed.h) this module's sample entries */
+word network_coop_wire_sample(
+	byte type,
+	byte *entries)
+{
+	short index;
+
+	switch (type)
+	{
+	case _distributed_message_coop_presentation:
+	{
+		struct distributed_coop_presentation *presentation = (struct distributed_coop_presentation *)entries;
+
+		WIRE_SAMPLE(presentation->flags);
+		WIRE_SAMPLES(presentation->fade_color);
+		WIRE_SAMPLE(presentation->fade_ticks);
+		WIRE_SAMPLE(presentation->fade_elapsed);
+		WIRE_SAMPLE(presentation->fade_start_time);
+		WIRE_SAMPLES(presentation->camera_position.n);
+		WIRE_SAMPLE_VECTOR(presentation->camera_forward);
+		WIRE_SAMPLE_VECTOR(presentation->camera_up);
+		WIRE_SAMPLE(presentation->camera_field_of_view);
+		WIRE_SAMPLE(presentation->skip_votes);
+		WIRE_SAMPLE(presentation->skip_voters);
+		WIRE_SAMPLE(presentation->unit_hud_flags);
+		WIRE_SAMPLE(presentation->weapon_hud_flags);
+		WIRE_SAMPLE(presentation->timer_reference_time);
+		WIRE_SAMPLE(presentation->timer_ticks);
+		WIRE_SAMPLE(presentation->timer_flash_cutoff);
+		WIRE_SAMPLE(presentation->timer_x);
+		WIRE_SAMPLE(presentation->timer_y);
+		WIRE_SAMPLE(presentation->timer_corner);
+		WIRE_SAMPLE(presentation->camera_scripted);
+		WIRE_SAMPLE(presentation->input_disabled);
+		WIRE_SAMPLE(presentation->camera_object_index);
+		WIRE_SAMPLES(presentation->camera_object_offset.n);
+		WIRE_SAMPLE(presentation->scripted_shake);
+		WIRE_SAMPLE(presentation->players_vitality_set);
+		WIRE_SAMPLE(presentation->activating_cluster);
+		WIRE_SAMPLE(presentation->players_maximum_body_vitality);
+		WIRE_SAMPLE(presentation->players_maximum_shield_vitality);
+		WIRE_SAMPLES(presentation->ally_teams);
+		WIRE_SAMPLES(presentation->friendly_teams);
+		return (word)sizeof(*presentation);
+	}
+	case _distributed_message_coop_events:
+	{
+		struct distributed_coop_event *events = (struct distributed_coop_event *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			struct distributed_coop_event *event = &events[index];
+
+			WIRE_SAMPLE(event->kind);
+			WIRE_SAMPLE(event->type);
+			WIRE_SAMPLE(event->number);
+			WIRE_SAMPLE(event->value);
+			WIRE_SAMPLE(event->frame);
+			WIRE_SAMPLE(event->name_index);
+			WIRE_SAMPLE(event->interpolate);
+			WIRE_SAMPLE(event->object_index);
+			WIRE_SAMPLE(event->target);
+			WIRE_SAMPLE(event->tag_index);
+			WIRE_SAMPLE(event->definition_index);
+			WIRE_SAMPLES(event->reals);
+		}
+		return (word)(2 * sizeof(*events));
+	}
+	case _distributed_message_coop_device_groups:
+	{
+		struct distributed_coop_device_group *groups = (struct distributed_coop_device_group *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			WIRE_SAMPLE(groups[index].group_index);
+			WIRE_SAMPLE(groups[index].name_index);
+			WIRE_SAMPLE(groups[index].object_index);
+			WIRE_SAMPLE(groups[index].definition_index);
+			WIRE_SAMPLE(groups[index].role);
+			WIRE_SAMPLE(groups[index].flags);
+			WIRE_SAMPLE(groups[index].snaps);
+			WIRE_SAMPLE(groups[index].changed);
+			WIRE_SAMPLE(groups[index].value);
+		}
+		return (word)(2 * sizeof(*groups));
+	}
+	case _distributed_message_coop_object_names:
+	{
+		struct distributed_coop_object_names *names = (struct distributed_coop_object_names *)entries;
+
+		WIRE_SAMPLE(names->structure_bsp_index);
+		WIRE_SAMPLE(names->name_count);
+		/* (the first of its bits: the rest as they are, zero) */
+		WIRE_SAMPLE(names->present[0]);
+		WIRE_SAMPLE(names->present[1]);
+		return (word)sizeof(*names);
+	}
+	case _distributed_message_coop_object_transforms:
+	{
+		struct distributed_coop_object_transform *transforms = (struct distributed_coop_object_transform *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			WIRE_SAMPLE(transforms[index].name_index);
+			WIRE_SAMPLE(transforms[index].object_index);
+			WIRE_SAMPLE(transforms[index].definition_index);
+			WIRE_SAMPLES(transforms[index].position.n);
+			WIRE_SAMPLE_VECTOR(transforms[index].forward);
+			WIRE_SAMPLE_VECTOR(transforms[index].up);
+		}
+		return (word)(2 * sizeof(*transforms));
+	}
+	case _distributed_message_coop_object_looks:
+	{
+		struct distributed_coop_object_look *looks = (struct distributed_coop_object_look *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			WIRE_SAMPLE(looks[index].name_index);
+			WIRE_SAMPLE(looks[index].object_index);
+			WIRE_SAMPLE(looks[index].definition_index);
+			WIRE_SAMPLES(looks[index].region_permutations);
+			WIRE_SAMPLE(looks[index].scale);
+		}
+		return (word)(2 * sizeof(*looks));
+	}
+	case _distributed_message_coop_device_states:
+	{
+		struct distributed_coop_device_state *states = (struct distributed_coop_device_state *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			WIRE_SAMPLE(states[index].name_index);
+			WIRE_SAMPLE(states[index].moving);
+			WIRE_SAMPLE(states[index].object_index);
+			WIRE_SAMPLE(states[index].definition_index);
+			WIRE_SAMPLE(states[index].position);
+			WIRE_SAMPLE(states[index].power);
+		}
+		return (word)(2 * sizeof(*states));
+	}
+	case _distributed_message_coop_screen_effect:
+	{
+		struct rasterizer_screen_effect_port_state *state = (struct rasterizer_screen_effect_port_state *)entries;
+
+		WIRE_SAMPLE(state->has_control);
+		WIRE_SAMPLE(state->initialized);
+		WIRE_SAMPLE(state->video_on);
+		WIRE_SAMPLE(state->filter_desaturation_is_additive);
+		WIRE_SAMPLE(state->filter_light_enhancement_uses_convolution_mask);
+		WIRE_SAMPLE(state->filter_desaturation_uses_convolution_mask);
+		WIRE_SAMPLE(state->convolution_extra_passes);
+		WIRE_SAMPLE(state->convolution_type);
+		WIRE_SAMPLE(state->video_overbright_mode);
+		WIRE_SAMPLES(state->filter_desaturation_tint.n);
+		WIRE_SAMPLE(state->video_noise_intensity);
+		WIRE_SAMPLES(state->convolution_radius);
+		WIRE_SAMPLES(state->convolution_time);
+		WIRE_SAMPLES(state->filter_light_enhancement_intensity);
+		WIRE_SAMPLES(state->filter_desaturation_intensity);
+		WIRE_SAMPLES(state->filter_time);
+		WIRE_SAMPLES(state->script_values);
+		WIRE_SAMPLE(state->near_clip_distance);
+		return (word)sizeof(*state);
+	}
+	case _distributed_message_coop_skip_vote:
+	{
+		struct distributed_coop_skip_vote *vote = (struct distributed_coop_skip_vote *)entries;
+
+		WIRE_SAMPLE(vote->voted);
+		return (word)sizeof(*vote);
+	}
+	}
+	return 0;
+}
+#endif

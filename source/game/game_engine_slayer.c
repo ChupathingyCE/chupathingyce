@@ -858,3 +858,37 @@ boolean game_engine_slayer_read_network_state(
 	}
 	return TRUE;
 }
+
+#ifdef HALO_BIG_ENDIAN
+/* port: (game_engine.h) the state in the wire's byte order, either way */
+void game_engine_slayer_network_state_byte_swap(
+	byte *buffer,
+	long size)
+{
+	struct slayer_network_state *state = (struct slayer_network_state *)buffer;
+
+#ifdef HALO_PORT_CONSOLE_LIMITS
+	/* (a PC host's, at the network's 128 slots, which the read folds: by
+	its fields, each element one number or a byte) */
+	if (size == (long)network_game_layout_fields_size(slayer_network_state_fields, SLAYER_NETWORK_STATE_FIELDS,
+		HALO_PORT_WIRE_NETWORK_PLAYERS) && size != (long)sizeof(*state))
+	{
+		int field_index;
+
+		for (field_index = 0; field_index < SLAYER_NETWORK_STATE_FIELDS; field_index++)
+		{
+			struct network_game_layout_field const *field = &slayer_network_state_fields[field_index];
+			long count = field->per_slot ? HALO_PORT_WIRE_NETWORK_PLAYERS : 1;
+
+			distributed_wire_swap(buffer, count, field->element_size);
+			buffer += count * field->element_size;
+		}
+		return;
+	}
+#endif
+	if (size != (long)sizeof(*state))
+		return;
+	GAME_ENGINE_NETWORK_STATE_SWAP(state, globals.team_score, globals.individual_score, sizeof(long));
+	GAME_ENGINE_NETWORK_STATE_SWAP(state, speeds, speeds, sizeof(word));
+}
+#endif
