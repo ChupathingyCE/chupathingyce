@@ -604,9 +604,10 @@ not be part of our community.
 - The port Chupathingy began as a fork of: OpenCE and its contributors, up to
   October 9, 2026 (see [Where it came from](#where-it-came-from)).
 - Later fixes taken from OpenCE (CC0), with their authors kept in the
-  history: Paul Hontz, xshxdex98, hkmodd, eltanschauung, justinfilip, Luke,
-  MrBruh, Addison Bair, thelinkin3000, Brendan Turner and chestahh. The wire
-  format tool (`tools/network_format.py`) is Addison Bair's and MrBruh's.
+  history: startupfoundry, xshxdex98, hkmodd, eltanschauung, justinfilip,
+  bertoaldo, MrBruh, addisonbair, thelinkin3000, bmanturner and chestahh (by
+  their GitHub handles). The wire format tool (`tools/network_format.py`) is
+  addisonbair's and MrBruh's.
 - Chupathingy: [Milenko](https://github.com/MrMilenko) and contributors. The
   icon is MrBruh's helmet, with tusks.
 - Fonts: Cyborg Interface Gothic, the high-res text's font, by fizzy, made
@@ -682,7 +683,7 @@ with their authors credited in each commit.
 
 ### Findings and testing
 
-- [bnunu](https://github.com/bnunu) (Jonas Volman): Custom Edition map
+- [bnunu](https://github.com/bnunu): Custom Edition map
   findings from the custom-edition-maps branch, credited in the commits they
   led to, and the larger texture cache for Halo PC maps, which that branch had
   first.

@@ -249,7 +249,7 @@ format with ours: extract that build's source (for example `git archive
 `python3 tools/network_format.py --compare /tmp/opence`. Their own message
 kinds (votes to kick, voice, map sharing) are expected there, as is our
 `server_pregame_keep_alive` field list (the same bytes on the wire); match
-anything else before taking the number. The tool is OpenCE's (Addison Bair,
+anything else before taking the number. The tool is OpenCE's (addisonbair,
 MrBruh), CC0.
 
 A client plays by its host's rules: in another's game (searching for it,
