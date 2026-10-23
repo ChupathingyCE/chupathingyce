@@ -1227,6 +1227,14 @@ static void cache_files_verify_language(
 	return;
 }
 
+#ifdef HALO_CONSOLE_WAIT_POLL
+/* port: the steps of making a cache file, in the console's log (where a
+console stopped, and in what) */
+#define CACHE_FILE_TRACE(...) console_trace(__VA_ARGS__)
+#else
+#define CACHE_FILE_TRACE(...) ((void)0)
+#endif
+
 #ifdef HALO_XBOX_CONSOLE
 static boolean cached_map_file_current(
 	struct cached_map_file *map_file,
@@ -1257,6 +1265,7 @@ static void cache_files_open_cache_files(
 		valid = FALSE;
 		cached_map_file_get_path(map_file_index, path);
 		size = cached_map_file_get_size(map_file_index);
+		CACHE_FILE_TRACE("cache file %d: CreateFile %s", map_file_index, path);
 		file = CreateFileA(
 			path,
 			GENERIC_READ | GENERIC_WRITE,
@@ -1267,6 +1276,8 @@ static void cache_files_open_cache_files(
 			NULL);
 		if (file != INVALID_HANDLE_VALUE)
 		{
+			CACHE_FILE_TRACE("cache file %d: created or opened, length %lu, wanted %ld", map_file_index,
+				GetFileSize(file, NULL), size);
 			if (GetLastError() == ERROR_ALREADY_EXISTS &&
 				GetFileSize(file, NULL) == (unsigned long)size)
 			{
@@ -1281,6 +1292,7 @@ static void cache_files_open_cache_files(
 				}
 
 				completion_flag = FALSE;
+				CACHE_FILE_TRACE("cache file %d: header write issued", map_file_index);
 				cached_map_issue_async_write(
 					file,
 					&overlapped,
@@ -1290,10 +1302,12 @@ static void cache_files_open_cache_files(
 					&completion_flag,
 					cache_file_blocking_io_completion_routine);
 				cached_map_block_on_async_request(&completion_flag);
+				CACHE_FILE_TRACE("cache file %d: header write done (%d)", map_file_index, (int)completion_flag);
 				if (completion_flag &&
 					SetFilePointer(file, size, NULL, FILE_BEGIN) != INVALID_SET_FILE_POINTER &&
-					SetEndOfFile(file))
+					(CACHE_FILE_TRACE("cache file %d: SetEndOfFile", map_file_index), SetEndOfFile(file)))
 				{
+					CACHE_FILE_TRACE("cache file %d: SetEndOfFile done", map_file_index);
 					valid = TRUE;
 				}
 				else
@@ -1331,7 +1345,9 @@ static void cache_files_open_cache_files(
 			char *cache_map_name = cached_map_file_get(map_file_index)->header.name;
 #endif
 
+			CACHE_FILE_TRACE("cache file %d: header read issued", map_file_index);
 			cached_map_file_read_header(map_file_index);
+			CACHE_FILE_TRACE("cache file %d: header read done", map_file_index);
 #ifdef HALO_64BIT
 			cache_map_name = map_file->header.name;
 #endif
@@ -1693,6 +1709,7 @@ static void CALLBACK cache_file_blocking_io_completion_routine(
 	unsigned long bytes_transferred,
 	OVERLAPPED *overlapped)
 {
+	CACHE_FILE_TRACE("cache file io completion: error %lu, %lu bytes", error_code, bytes_transferred);
 	match_assert(
 		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
 		1405,
@@ -1751,6 +1768,9 @@ static void cached_map_issue_async_request(
 	{
 		unsigned long error_code;
 
+#ifdef HALO_CONSOLE_WAIT_POLL
+		console_wait_poll();
+#endif
 		SleepEx(0, TRUE);
 		SetLastError(ERROR_SUCCESS);
 		if (async_request_function(
@@ -1825,6 +1845,9 @@ static boolean cached_map_block_on_async_request(
 
 	while (!*completion_flag)
 	{
+#ifdef HALO_CONSOLE_WAIT_POLL
+		console_wait_poll();
+#endif
 		if (SleepEx(5000, TRUE) != WAIT_IO_COMPLETION)
 		{
 			break;
