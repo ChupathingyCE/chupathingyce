@@ -249,7 +249,7 @@ int mcc_scripts_prepare(struct mcc_runtime *runtime)
     struct hs_syntax_node *nodes;
     char const *strings;
     long i, missing = 0;
-    short developer=NONE, speed=NONE, scratch[6]={NONE,NONE,NONE,NONE,NONE,NONE};
+    short developer=NONE, score=NONE, speed=NONE, scratch[6]={NONE,NONE,NONE,NONE,NONE,NONE};
     long scratch_strings=NONE;
     static char const scratch_names[6][17]={"__mcc_scratch_f0","__mcc_scratch_f1",
         "__mcc_scratch_f2","__mcc_scratch_f3","__mcc_scratch_f4","__mcc_scratch_f5"};
@@ -345,6 +345,17 @@ int mcc_scripts_prepare(struct mcc_runtime *runtime)
                     return FALSE;
                 }
                 node->data=speed;
+                continue;
+            }
+            /* Debug score is a map-local long, not a multiplayer score or
+             * authority control. Preserve its script reads and writes. */
+            if (!csstrcasecmp(name,"debug_score")) {
+                if (score==NONE) score=mcc_local_global(runtime,scenario,syntax,name,_hs_type_long_integer);
+                if (score==NONE) {
+                    error(_error_silent,"mcc: no scenario storage for debug_score");
+                    return FALSE;
+                }
+                node->data=score;
                 continue;
             }
             if (!csstrcasecmp(name,"developer_mode")) {

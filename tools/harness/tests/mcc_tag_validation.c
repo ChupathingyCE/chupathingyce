@@ -349,6 +349,21 @@ int main(int argc, char **argv)
                     nodes[2].next_sibling_node_index=1;expected=0;
                 }
             }
+            if (!strncmp(argv[1],"graph_model_holes",17)) {
+                short missing_links[3]={NONE,NONE,0},sibling=2;
+                block->count=graph->nodes.count=3;
+                strcpy((char *)model_nodes+312,"gear");
+                memcpy(model_nodes+312+32,missing_links,6);memcpy(model_nodes+156+32,&sibling,2);
+                nodes[0].first_child_node_index=1;nodes[1].next_sibling_node_index=NONE;
+                nodes[2].next_sibling_node_index=nodes[2].first_child_node_index=nodes[2].parent_node_index=NONE;
+                if (!strcmp(argv[1],"graph_model_holes_parent")) {nodes[1].parent_node_index=1;expected=0;}
+                if (!strcmp(argv[1],"graph_model_holes_cycle")) {nodes[1].next_sibling_node_index=1;expected=0;}
+                if (!strcmp(argv[1],"graph_model_holes_name")) {nodes[2].name[1]='x';expected=0;}
+                if (!strcmp(argv[1],"graph_model_holes_link")) {nodes[2].first_child_node_index=1;expected=0;}
+                if (!strcmp(argv[1],"graph_model_holes_model_cycle")) {
+                    short cycle=1;memcpy(model_nodes+312+32,&cycle,2);expected=0;
+                }
+            }
             if (!strcmp(argv[1],"graph_model_mismatch")) {model_nodes[156]='x';expected=0;}
             if (!strcmp(argv[1],"graph_model_outside")) {block->address=runtime.tags+runtime.used-1;expected=0;}
             if (!strcmp(argv[1],"graph_model_cycle")) {short cycle=0;memcpy(model_nodes+156+34,&cycle,2);expected=0;}
@@ -474,6 +489,10 @@ int main(int argc, char **argv)
         }
     }
     if (!strcmp(argv[1],"first_person_slots")) CHECK(((struct test_first_person *)instance[1].root)->animations.count==30);
+    if (!strcmp(argv[1],"graph_model_holes")) {
+        struct test_graph_node *n=((struct test_graph *)instance[1].root)->nodes.address;
+        CHECK(!strcmp(n[2].name,"gear") && n[2].parent_node_index==0);
+    }
     if (!strcmp(argv[1],"graph_model_tail"))
         CHECK(((struct test_graph_node *)((struct test_graph *)instance[1].root)->nodes.address)->first_child_node_index==1);
     if (!strcmp(argv[1],"graph_root_sibling") || !strcmp(argv[1],"graph_root_outside"))

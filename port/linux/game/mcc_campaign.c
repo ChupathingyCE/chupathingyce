@@ -46,6 +46,7 @@ struct mcc_campaign_state {
     struct mcc_campaign_nav nav[MCC_NAV_LIMIT];
     real effects_gain;
     real ambient_base,ambient_scale;
+    real music_gain;
 };
 typedef char mcc_campaign_state_size[sizeof(struct mcc_campaign_state)==MCC_CAMPAIGN_SNAPSHOT_BYTES ? 1 : -1];
 static struct mcc_campaign_state mcc_campaign;
@@ -104,8 +105,9 @@ void mcc_campaign_begin(void)
         mcc_original_ignore_player=mcc_ignore_player ? *mcc_ignore_player : FALSE;
     }
     memset(&mcc_campaign,0,sizeof(mcc_campaign));
-    mcc_campaign.version=4; mcc_campaign.gravity=1.0f;
+    mcc_campaign.version=5; mcc_campaign.gravity=1.0f;
     mcc_campaign.effects_gain=1.0f;
+    mcc_campaign.music_gain=1.0f;
     mcc_campaign.dialog_gain=mcc_original_dialog_gain;
     global_gravity=mcc_original_gravity;
     sound_gain_under_dialog=mcc_original_dialog_gain;
@@ -151,14 +153,17 @@ int mcc_campaign_validate(void const *in, unsigned long bytes)
 {
     struct mcc_campaign_state state;
     int i,j;
-    if (!in || (bytes!=sizeof(state) && bytes!=MCC_CAMPAIGN_SNAPSHOT_V1_BYTES)) return 0;
-    memset(&state,0,sizeof(state));state.effects_gain=1.0f;
+    if (!in || (bytes!=sizeof(state) && bytes!=MCC_CAMPAIGN_SNAPSHOT_V4_BYTES && bytes!=MCC_CAMPAIGN_SNAPSHOT_V1_BYTES)) return 0;
+    memset(&state,0,sizeof(state));state.effects_gain=state.music_gain=1.0f;
     state.ambient_base=mcc_original_ambient_base;state.ambient_scale=mcc_original_ambient_scale;
     memcpy(&state,in,bytes);
-    if ((bytes==MCC_CAMPAIGN_SNAPSHOT_V1_BYTES ? state.version!=1u : (state.version<2u || state.version>4u)) ||
-        !(state.effects_gain>=0.0f && state.effects_gain<=4.0f) ||
+    if ((bytes==MCC_CAMPAIGN_SNAPSHOT_V1_BYTES && state.version!=1u) ||
+        (bytes==MCC_CAMPAIGN_SNAPSHOT_V4_BYTES && (state.version<2u || state.version>4u)) ||
+        (bytes==sizeof(state) && state.version!=5u)) return 0;
+    if (!(state.effects_gain>=0.0f && state.effects_gain<=4.0f) ||
+        !(state.music_gain>=0.0f && state.music_gain<=1.0f) ||
         (state.flags & ~(state.version==1u ? 1u : state.version==2u ? 15u :
-            15u|(MCC_EFFECT_MASK<<4)|(state.version==4u ? MCC_CAMPAIGN_FLASHES_DISABLED : 0u))) ||
+            15u|(MCC_EFFECT_MASK<<4)|(state.version>=4u ? MCC_CAMPAIGN_FLASHES_DISABLED : 0u))) ||
         !mcc_campaign_real(state.ambient_base) || !mcc_campaign_real(state.ambient_scale) ||
         !mcc_campaign_real(state.dialog_gain) ||
         !(state.gravity>=-1000.0f && state.gravity<=1000.0f)) return 0;
@@ -187,13 +192,14 @@ int mcc_campaign_restore(void const *in, unsigned long bytes)
 {
     if (!mcc_cache_tags_loaded() || !mcc_campaign_owned || !mcc_campaign_validate(in,bytes)) return 0;
     mcc_campaign.effects_gain=1.0f;
+    mcc_campaign.music_gain=1.0f;
     mcc_campaign.ambient_base=mcc_original_ambient_base;mcc_campaign.ambient_scale=mcc_original_ambient_scale;
     memcpy(&mcc_campaign,in,bytes);
     if (bytes==MCC_CAMPAIGN_SNAPSHOT_V1_BYTES)
         mcc_campaign.flags|=(mcc_original_loud_dialog ? 2u : 0u) | (mcc_original_ignore_player ? 4u : 0u);
     if (mcc_campaign.version<4u && !mcc_original_screen_flashes)
         mcc_campaign.flags|=MCC_CAMPAIGN_FLASHES_DISABLED;
-    mcc_campaign.version=4;
+    mcc_campaign.version=5;
     mcc_script_effects_restore((mcc_campaign.flags>>4)&MCC_EFFECT_MASK);
     global_gravity=mcc_original_gravity*mcc_campaign.gravity;
     sound_gain_under_dialog=mcc_campaign.dialog_gain;
@@ -253,7 +259,7 @@ boolean mcc_campaign_unlimited_ammo(void)
 real mcc_campaign_mix_gain(boolean music)
 {
     if (!mcc_cache_tags_loaded() || !mcc_campaign_owned) return 1.0f;
-    return (mcc_campaign.flags&8u) ? 0.0f : music ? 1.0f : mcc_campaign.effects_gain;
+    return (mcc_campaign.flags&8u) ? 0.0f : music ? mcc_campaign.music_gain : mcc_campaign.effects_gain;
 }
 
 static void mcc_sound_enable_evaluate(short function, long thread, boolean initialize)
@@ -293,6 +299,40 @@ static void mcc_effects_gain_set_evaluate(short function, long thread, boolean i
     if (mcc_campaign_owned && game_connection()!=_game_connection_network_client &&
         gain>=0.0f && gain<=4.0f) mcc_campaign.effects_gain=gain;
     hs_return(thread,0);
+}
+
+/* The map's music multiplier does not overwrite the player's volume setting. */
+static void mcc_music_gain_set_evaluate(short function, long thread, boolean initialize)
+{
+    long *args=hs_macro_function_evaluate(function,thread,initialize);
+    real gain;
+    if (!args) return;
+    gain=mcc_campaign_argument(args[0]);
+    if (mcc_cache_tags_loaded() && mcc_campaign_owned &&
+        game_connection()!=_game_connection_network_client && gain>=0.0f && gain<=1.0f)
+        mcc_campaign.music_gain=gain;
+    hs_return(thread,0);
+}
+
+/* MCC's MP team query returns living units, including remote players.
+ * Team numbers are player teams, not the unit's campaign allegiance. */
+static void mcc_team_players_evaluate(short function, long thread, boolean initialize)
+{
+    long *args=hs_macro_function_evaluate(function,thread,initialize);
+    long list,index;
+    short team;
+    if (!args) return;
+    team=(short)args[0];
+    list=object_list_new();
+    if (list!=NONE && mcc_cache_tags_loaded() && team>=0 && team<HALO_PORT_MAXIMUM_NETWORK_PLAYERS) {
+        for (index=data_next_index(player_data,NONE);index!=NONE;index=data_next_index(player_data,index)) {
+            struct player_datum *player=player_try_and_get(index);
+            struct unit_datum *unit=player ? unit_try_and_get(player->unit_index) : NULL;
+            if (unit && !player->quit_out_of_game && player->team_index==team &&
+                !TEST_FLAG(unit->object.damage_flags,_object_dead_bit)) object_list_add(list,player->unit_index);
+        }
+    }
+    hs_return(thread,list);
 }
 
 static void mcc_campaign_nav_change(short kind, short team, short arrow, long reference,
@@ -625,7 +665,9 @@ static struct mcc_campaign_definition mcc_campaign_functions[]={
     {{_hs_type_void,0,"unit_kill",hs_macro_function_parse,mcc_unit_kill_evaluate,NULL,NULL,1,{_hs_type_unit}},{0}},
     {{_hs_type_void,0,"unit_kill_silent",hs_macro_function_parse,mcc_unit_kill_silent_evaluate,NULL,NULL,1,{_hs_type_unit}},{0}},
     {{_hs_type_boolean,0,"game_is_cooperative",hs_macro_function_parse,mcc_cooperative_evaluate,NULL,NULL,0,{0}},{0}},
-    {{_hs_type_boolean,0,"unit_get_current_flashlight_state",hs_macro_function_parse,mcc_flashlight_evaluate,NULL,NULL,1,{_hs_type_unit}},{0}}
+    {{_hs_type_boolean,0,"unit_get_current_flashlight_state",hs_macro_function_parse,mcc_flashlight_evaluate,NULL,NULL,1,{_hs_type_unit}},{0}},
+    {{_hs_type_void,0,"sound_set_music_gain",hs_macro_function_parse,mcc_music_gain_set_evaluate,NULL,NULL,1,{_hs_type_real}},{0}},
+    {{_hs_type_object_list,0,"players_on_multiplayer_team",hs_macro_function_parse,mcc_team_players_evaluate,NULL,NULL,1,{_hs_type_short_integer}},{0}}
 };
 
 struct hs_function_definition *mcc_campaign_function(short index)

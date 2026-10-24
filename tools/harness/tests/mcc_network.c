@@ -24,7 +24,7 @@ typedef float real;
 #define _game_connection_network_client 2
 #define _distributed_message_mcc_grenades 83
 #define _distributed_message_mcc_campaign 84
-#define MCC_CAMPAIGN_SNAPSHOT_BYTES 752
+/* MCC_CAMPAIGN_SIZE */
 #define _distributed_to_clients 0
 struct distributed_message_header {word header;byte type,count;long time;};
 struct object_iterator {long index;int done;};

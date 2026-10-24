@@ -1,5 +1,6 @@
 """Exercise MCC's independent inventory packets, prediction and throw ledger."""
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -21,6 +22,10 @@ def mcc_network_tool(tmp_path_factory):
                                if not line.startswith("#include"))
     damage = (ROOT / "port/linux/game/mcc_network_damage.inc").read_text()
     prefix = (ROOT / "tools/harness/tests/mcc_network.c").read_text()
+    # The packet harness must use the current production snapshot size.
+    header = (ROOT / "port/linux/game/mcc_campaign.h").read_text()
+    size = re.search(r"^#define MCC_CAMPAIGN_SNAPSHOT_BYTES (\d+)u", header, re.M).group(1)
+    prefix = prefix.replace("/* MCC_CAMPAIGN_SIZE */", "#define MCC_CAMPAIGN_SNAPSHOT_BYTES " + size)
     source = work / "network.c"
     source.write_text(prefix.replace("/* MCC_INVENTORY_IMPLEMENTATION */", implementation)
                      .replace("/* MCC_DAMAGE_IMPLEMENTATION */", damage))

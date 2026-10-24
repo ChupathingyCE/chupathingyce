@@ -278,25 +278,39 @@ static struct tag_schema_field const *mcc_field(struct tag_schema_definition con
 }
 
 /* Some compiled graphs omit their parent hierarchy. Recover it only from
- * the model referenced by the same object, with identical ordered names.
+ * the model referenced by the same object, with matching ordered names.
+ * Unnamed, unlinked slots can be filled without changing node indices.
  * Multiple associated models must agree; the normal tree check follows. */
 static int mcc_animation_model_tree(struct mcc_validation_context *context,
     struct tag_block const *nodes,struct tag_schema_definition const *schema)
 {
     struct mcc_validation_header *header=mcc_validation.header;
     short links[64][3];
+    char names[64][32];
     long i,j,root_child;
-    int found=0,parents_omitted=1,links_omitted=1;
+    int found=0,parents_omitted=1,links_omitted=1,holes=0;
     if (!schema->name || schema->size!=64 || nodes->count<2 || nodes->count>64) return 0;
     for (j=0;j<nodes->count;j++) {
-        byte const *node=(byte *)xbox_pointer(nodes->address)+j*64;
+        byte const *node=(byte *)nodes->address+j*64;
         if (mcc_integer(node+36,2,0)!=0) parents_omitted=0;
         if (mcc_integer(node+32,2,0)!=NONE || mcc_integer(node+34,2,0)!=NONE ||
             mcc_integer(node+36,2,0)!=NONE) links_omitted=0;
     }
-    if (!parents_omitted && !links_omitted) return 0;
-    if (mcc_integer((byte *)xbox_pointer(nodes->address)+32,2,0)!=NONE) return 0;
-    root_child=mcc_integer((byte *)xbox_pointer(nodes->address)+34,2,0);
+    /* Descent's Pelican retains node slots for absent landing-gear bones.
+     * Only completely unnamed, unlinked slots qualify as holes. */
+    for (j=0;j<nodes->count;j++) {
+        byte const *node=(byte *)nodes->address+j*64;
+        if (!node[0]) {
+            unsigned k;
+            for (k=0;k<32;k++) if (node[k]) return 0;
+            if (!j || mcc_integer(node+32,2,0)!=NONE || mcc_integer(node+34,2,0)!=NONE ||
+                mcc_integer(node+36,2,0)!=NONE) return 0;
+            holes=1;
+        }
+    }
+    if (!parents_omitted && !links_omitted && !holes) return 0;
+    if (mcc_integer((byte *)nodes->address+32,2,0)!=NONE) return 0;
+    root_child=mcc_integer((byte *)nodes->address+34,2,0);
     for (i=0;i<header->count;i++) {
         struct mcc_validation_instance *object=header->instances+i,*model;
         struct tag_block const *model_nodes;
@@ -310,13 +324,14 @@ static int mcc_animation_model_tree(struct mcc_validation_context *context,
         if (!model || model->group!='mode' || !mcc_range(context->region,context->length,model->root,232)) return 0;
         model_nodes=(struct tag_block const *)((byte *)model->root+184);
         if (model_nodes->count!=nodes->count ||
-            !mcc_range(context->region,context->length,xbox_pointer(model_nodes->address),nodes->count*156)) return 0;
+            !mcc_range(context->region,context->length,model_nodes->address,nodes->count*156)) return 0;
         for (j=0;j<nodes->count;j++) {
-            byte const *source=(byte const *)xbox_pointer(model_nodes->address)+j*156;
-            byte const *target=(byte const *)xbox_pointer(nodes->address)+j*64;
-            if (!memchr(source,0,32) || !memchr(target,0,32) || strcmp((char const *)source,(char const *)target)) return 0;
-            if (found && memcmp(links[j],source+32,6)) return 0;
-            memcpy(links[j],source+32,6);
+            byte const *source=(byte const *)model_nodes->address+j*156;
+            byte const *target=(byte const *)nodes->address+j*64;
+            if (!source[0] || !memchr(source,0,32) || !memchr(target,0,32) ||
+                (target[0] && strcmp((char const *)source,(char const *)target))) return 0;
+            if (found && (memcmp(links[j],source+32,6) || strcmp(names[j],(char const *)source))) return 0;
+            memcpy(links[j],source+32,6);memcpy(names[j],source,32);
         }
         found=1;
     }
@@ -324,17 +339,41 @@ static int mcc_animation_model_tree(struct mcc_validation_context *context,
     /* Exile's Flood Banshee retains the matching model's non-root links,
      * but puts the last sibling in the root's first-child slot. Admit that
      * exact convention as well as omitted links, never an arbitrary tree. */
-    if (root_child!=NONE) {
+    if (holes) {
+        /* Named nodes must still describe the same parent relationships.
+         * Sibling order may differ, but every retained edge must agree with
+         * the model. No animation or vertex node indices are remapped. */
+        for (j=0;j<nodes->count;j++) {
+            byte const *node=(byte *)nodes->address+j*64;
+            long sibling,child,parent,step,cursor;
+            if (!node[0]) continue;
+            sibling=mcc_integer(node+32,2,0);child=mcc_integer(node+34,2,0);
+            parent=mcc_integer(node+36,2,0);
+            if (j && parent!=links[j][2]) return 0;
+            if (sibling!=NONE && (sibling<=0 || sibling>=nodes->count || sibling==j ||
+                links[sibling][2]!=links[j][2])) return 0;
+            if (child!=NONE && (child<=0 || child>=nodes->count || child==j || links[child][2]!=j)) return 0;
+            cursor=j;step=0;
+            while (cursor!=NONE) {
+                if (cursor<0 || cursor>=nodes->count || step++>=nodes->count) return 0;
+                cursor=mcc_integer((byte *)nodes->address+cursor*64+32,2,0);
+            }
+        }
+    } else if (root_child!=NONE) {
         long child=links[0][1],last=NONE,steps=0;
         for (j=1;j<nodes->count;j++)
-            if (memcmp((byte *)xbox_pointer(nodes->address)+j*64+32,links[j],6)) return 0;
+            if (memcmp((byte *)nodes->address+j*64+32,links[j],6)) return 0;
         while (child!=NONE) {
             if (child<=0 || child>=nodes->count || steps++>=nodes->count) return 0;
             last=child;child=links[child][0];
         }
         if (root_child!=last) return 0;
     }
-    for (j=0;j<nodes->count;j++) memcpy((byte *)xbox_pointer(nodes->address)+j*64+32,links[j],6);
+    for (j=0;j<nodes->count;j++) {
+        byte *node=(byte *)nodes->address+j*64;
+        if (holes && !node[0]) memcpy(node,names[j],32);
+        memcpy(node+32,links[j],6);
+    }
     return 1;
 }
 
@@ -366,7 +405,7 @@ static int mcc_animation_graph_check(struct mcc_validation_context *context,
     recovered=mcc_animation_model_tree(context,nodes,nodes_schema);
     memset(reached, 0, sizeof(reached)); head = tail = 0;
     if (nodes->count) {
-        byte const *root = xbox_pointer(nodes->address);
+        byte const *root = nodes->address;
         long root_sibling=mcc_integer(root + sibling->offset, 2, 0);
         /* Validate the complete child tree before normalizing the unused
          * root sibling. Some MCC graphs point it back into that tree. */
@@ -375,12 +414,12 @@ static int mcc_animation_graph_check(struct mcc_validation_context *context,
     }
     while (head < tail) {
         long index = queue[head++];
-        byte const *node = (byte const *)xbox_pointer(nodes->address) + index * nodes_schema->size;
+        byte const *node = (byte const *)nodes->address + index * nodes_schema->size;
         long child_index = mcc_integer(node + child->offset, 2, 0);
         while (child_index != NONE) {
             byte *descendant;
             if (child_index < 0 || child_index >= nodes->count || reached[child_index] || tail >= 64) return 0;
-            descendant = (byte *)xbox_pointer(nodes->address) + child_index * nodes_schema->size;
+            descendant = (byte *)nodes->address + child_index * nodes_schema->size;
             /* An explicit, uniquely reached child supplies an omitted
              * parent. Conflicting parents and cyclic links still fail. */
             if (mcc_integer(descendant + parent->offset, 2, 0)==NONE) {
@@ -395,9 +434,9 @@ static int mcc_animation_graph_check(struct mcc_validation_context *context,
     if (tail != nodes->count) return 0;
     if (parents_recovered) mcc_problem(context,0,"omitted animation parents restored from the complete child tree");
     if (recovered) mcc_problem(context,0,"animation hierarchy restored from its associated model's matching nodes");
-    if (nodes->count && mcc_integer((byte *)xbox_pointer(nodes->address)+sibling->offset,2,0)!=NONE) {
+    if (nodes->count && mcc_integer((byte *)nodes->address+sibling->offset,2,0)!=NONE) {
         short none=NONE;
-        memcpy((byte *)xbox_pointer(nodes->address)+sibling->offset,&none,sizeof(none));
+        memcpy((byte *)nodes->address+sibling->offset,&none,sizeof(none));
         mcc_problem(context,0,"unused root sibling cleared after validating the complete node tree");
     }
     if (!animations->count) return 1;
@@ -407,7 +446,7 @@ static int mcc_animation_graph_check(struct mcc_validation_context *context,
     for (first = 0; first < animations->count; ++first) {
         long index = first;
         while (index != NONE && !states[index]) {
-            byte const *animation = (byte const *)xbox_pointer(animations->address) + index * animations_schema->size;
+            byte const *animation = (byte const *)animations->address + index * animations_schema->size;
             states[index] = 1;
             index = mcc_integer(animation + next->offset, 2, 0);
             if (index != NONE && (index < 0 || index >= animations->count)) { free(states); return 0; }
@@ -415,7 +454,7 @@ static int mcc_animation_graph_check(struct mcc_validation_context *context,
         if (index != NONE && states[index] == 1) { free(states); return 0; }
         index = first;
         while (index != NONE && states[index] == 1) {
-            byte const *animation = (byte const *)xbox_pointer(animations->address) + index * animations_schema->size;
+            byte const *animation = (byte const *)animations->address + index * animations_schema->size;
             states[index] = 2; index = mcc_integer(animation + next->offset, 2, 0);
         }
     }
@@ -460,7 +499,7 @@ static void mcc_fields(struct mcc_validation_context *context, byte *address,
                 if (stage == 0) {
                     unsigned long bytes;
                     long maximum = field->maximum;
-                    block->definition = XBOX_NULL;
+                    block->definition = NULL;
                     /* The MCC table owns extended names; never truncate indices
                      * embedded in scripts, placements and saved objects. */
                     if (schema->name && !strcmp(schema->name, "scenario") &&
@@ -492,19 +531,19 @@ static void mcc_fields(struct mcc_validation_context *context, byte *address,
                      * pointer-bearing block is eligible only when entirely
                      * zero (no pointers or counts). Its checks still apply. */
                     if (bytes && context->region==mcc_validation.runtime->tags &&
-                        mcc_range(context->region,context->length,xbox_pointer(block->address),bytes) &&
+                        mcc_range(context->region,context->length,block->address,bytes) &&
                         (mcc_interned_name(element) ||
-                         (mcc_validation_any_claimed(xbox_pointer(block->address),bytes) &&
-                          (mcc_value_block(element) || mcc_zero_block(xbox_pointer(block->address),bytes))))) {
+                         (mcc_validation_any_claimed(block->address,bytes) &&
+                          (mcc_value_block(element) || mcc_zero_block(block->address,bytes))))) {
                         void *copy;
                         if (!(copy=mcc_runtime_allocate(mcc_validation.runtime,bytes))) {
                             mcc_problem(context,1,"no room to isolate interned block");break;
                         }
-                        memcpy(copy,xbox_pointer(block->address),bytes);block->address=xbox_address(copy);
+                        memcpy(copy,block->address,bytes);block->address=copy;
                         context->length=mcc_validation.runtime->used;
                     }
-                    if (bytes && (!mcc_range(context->region, context->length, xbox_pointer(block->address), bytes) ||
-                        !mcc_claim_allocation(xbox_pointer(block->address), bytes, element))) {
+                    if (bytes && (!mcc_range(context->region, context->length, block->address, bytes) ||
+                        !mcc_claim_allocation(block->address, bytes, element))) {
                         char message[192];
                         snprintf(message,sizeof(message),"block %s at +%08lx (%lu bytes) leaves loaded data or overlaps another allocation",
                             element->name,(unsigned long)((uintptr_t)block->address-(uintptr_t)context->region),bytes);
@@ -525,11 +564,11 @@ static void mcc_fields(struct mcc_validation_context *context, byte *address,
                         block->count = maximum;
                         mcc_problem(context, 0, "block reduced to engine capacity");
                     }
-                    if (!block->count) block->address = XBOX_NULL;
+                    if (!block->count) block->address = NULL;
                 } else {
                     long item;
                     for (item = 0; item < block->count && !context->rejected; ++item)
-                        mcc_walk(context, (byte *)xbox_pointer(block->address) + item * element->size, element, stage == 2);
+                        mcc_walk(context, (byte *)block->address + item * element->size, element, stage == 2);
                 }
             } else if (field->type == _tag_schema_data || field->type == _tag_schema_file_data) {
                 if (stage == 0) {
@@ -542,13 +581,13 @@ static void mcc_fields(struct mcc_validation_context *context, byte *address,
                         !strcmp(schema->name, "scenario") && field->name &&
                         !strcmp(field->name, "hs_syntax_data"))
                         maximum = MCC_SYNTAX_MAXIMUM_DATA_BYTES;
-                    data->definition = XBOX_NULL;
+                    data->definition = NULL;
                     if (data->size < 0) { mcc_problem(context, 1, "negative data size"); break; }
                     if (field->type == _tag_schema_file_data) {
                         if (!mcc_validation_file_contains((struct tag_validation *)context, data->file_offset, data->size))
                             mcc_problem(context, 1, "file data leaves MCC stream");
                     } else if (data->size) {
-                        if (mcc_range(context->region, context->length, xbox_pointer(data->address), data->size)) {
+                        if (mcc_range(context->region, context->length, data->address, data->size)) {
                             /* Optimized animation, text and unused input-device
                              * metadata can share prefixes or padding. Isolate
                              * these bytes before the normal format callbacks. */
@@ -557,22 +596,22 @@ static void mcc_fields(struct mcc_validation_context *context, byte *address,
                                 !strcmp(schema->name,"unicode_string_list_entry") ||
                                 !strcmp(schema->name,"mcc_device_defaults")) &&
                                 context->region==mcc_validation.runtime->tags &&
-                                mcc_validation_any_claimed(xbox_pointer(data->address),data->size)) {
+                                mcc_validation_any_claimed(data->address,data->size)) {
                                 void *copy=mcc_runtime_allocate(mcc_validation.runtime,data->size);
                                 if (!copy) {mcc_problem(context,1,"no room to isolate shared data");break;}
-                                memcpy(copy,xbox_pointer(data->address),data->size);data->address=xbox_address(copy);
+                                memcpy(copy,data->address,data->size);data->address=copy;
                                 context->length=mcc_validation.runtime->used;
                             }
-                            if (!mcc_claim_allocation(xbox_pointer(data->address), (unsigned long)data->size, NULL))
+                            if (!mcc_claim_allocation(data->address, (unsigned long)data->size, NULL))
                                 mcc_problem(context, 1, "data overlaps another allocation");
-                        } else if (!mcc_geometry_contains(mcc_validation.runtime, xbox_pointer(data->address), data->size)) {
+                        } else if (!mcc_geometry_contains(mcc_validation.runtime, data->address, data->size)) {
                             mcc_problem(context, 1, "data leaves loaded bytes and owned geometry");
                         }
                     }
                     if (maximum > 0 && data->size > maximum) {
                         data->size = maximum; mcc_problem(context, 0, "data reduced to engine capacity");
                     }
-                    if (!data->size && field->type == _tag_schema_data) data->address = XBOX_NULL;
+                    if (!data->size && field->type == _tag_schema_data) data->address = NULL;
                 }
             } else if (field->type == _tag_schema_check) {
                 if (stage == 2) {
@@ -605,10 +644,10 @@ static void mcc_fields(struct mcc_validation_context *context, byte *address,
                     if (field->type == _tag_schema_reference) {
                         if (*handle != NONE && instance) {
                             reference->group_tag = instance->group;
-                            reference->name = xbox_address(instance->name);
+                            reference->name = instance->name;
                             reference->name_length = (long)strlen(instance->name);
                         } else {
-                            reference->name = xbox_address(mcc_validation_empty_name);
+                            reference->name = mcc_validation_empty_name;
                             reference->name_length = 0;
                         }
                     }

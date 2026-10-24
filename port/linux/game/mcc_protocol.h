@@ -2,11 +2,12 @@
 #ifndef MCC_PROTOCOL_H
 #define MCC_PROTOCOL_H
 
-/* Peers agree on bounded conditional execution for MCC equipment scripts. */
-#define MCC_PROTOCOL_VERSION 50
+/* OpenCE 38 uses advertisement byte 3 for the gametype kind. MCC capability
+ * moves to bytes 4-5; version 56 carries checkpointed music gain in MCC campaign snapshots. */
+#define MCC_PROTOCOL_VERSION 56
 #define MCC_PROTOCOL_ADVERTISED_FLAG 0x04
-#define MCC_PROTOCOL_ADVERTISED_VERSION_OFFSET 3
-#define MCC_PROTOCOL_JOIN_KIND 91
+#define MCC_PROTOCOL_ADVERTISED_VERSION_OFFSET 4
+#define MCC_PROTOCOL_JOIN_KIND 92
 #define MCC_PROTOCOL_JOIN_MAX 256
 
 struct network_game;

@@ -56,7 +56,7 @@ def run_case(args, name, binary):
                HALO_NET_ONLINE="0", HALO_NET_PUBLIC_LOBBY="0", HALO_NET_ALLOW_UPNP="0",
                HALO_NET_ADDRESS="127.0.0.236", HALO_NET_BROADCAST="127.0.0.237",
                HALO_NET_JOIN_FROM_CLIPBOARD="0", HALO_UPDATE_ANSWER="never", HALO_CRASH_REPORTS="no",
-               HALO_TELNET_CONSOLE="1", HALO_TELNET_CONSOLE_PORT=str(args.port))
+               HALO_CONSOLE_LOG="all", HALO_TELNET_CONSOLE="1", HALO_TELNET_CONSOLE_PORT=str(args.port))
     transcript = ""
     process = connection = None
     def trace():

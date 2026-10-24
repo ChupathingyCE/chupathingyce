@@ -212,6 +212,13 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[1],"developer_capacity")) scenario->hs_globals.count=1024-hs_external_global_count;
         else runtime.capacity=runtime.used;
     }
+    if (!strncmp(argv[1],"score_",6)) {
+        strcpy(strings,"set");strcpy(strings+4,"debug_score");
+        nodes[2].flags=13;nodes[2].data=0x8001;nodes[2].string_offset=4;
+        nodes[2].type=_hs_type_long_integer;
+        if (!strcmp(argv[1],"score_capacity")) {scenario->hs_globals.count=1024-hs_external_global_count;expected=0;}
+        if (!strcmp(argv[1],"score_allocation")) {runtime.capacity=runtime.used;expected=0;}
+    }
     if (argc>=3) strcpy(strings+(!strcmp(argv[1],"skull_read") || !strcmp(argv[1],"skull_wrong_type") ? 0 : 4),argv[2]);
     if (argc==4) nodes[0].type=!strcmp(argv[3],"real") ? _hs_type_real :
         !strcmp(argv[3],"long") ? _hs_type_long_integer : _hs_type_boolean;
@@ -230,19 +237,26 @@ int main(int argc, char **argv) {
         nodes[2].string_offset=nodes[3].string_offset=4;
         nodes[2].type=nodes[3].type=_hs_type_real;
     }
-    if (!strcmp(argv[1],"speed")) {
-        strcpy(strings,"game_speed_value");
+    if (!strcmp(argv[1],"speed") || !strcmp(argv[1],"score")) {
+        strcpy(strings,!strcmp(argv[1],"score") ? "debug_score" : "game_speed_value");
         nodes[0].flags=nodes[2].flags=13;nodes[0].data=nodes[2].data=0x8001;
         nodes[0].string_offset=nodes[2].string_offset=0;
-        nodes[0].type=nodes[2].type=_hs_type_real;
+        nodes[0].type=nodes[2].type=!strcmp(argv[1],"score") ? _hs_type_long_integer : _hs_type_real;
     }
     CHECK(mcc_scripts_prepare(&runtime) == expected);
-    if (!strcmp(argv[1],"speed")) {
+    if (!strcmp(argv[1],"score_write")) {
+        struct hs_global *global=scenario->hs_globals.address;
+        CHECK(scenario->hs_globals.count==1 && nodes[2].data==0 && (nodes[2].flags&4));
+        CHECK(global->type==_hs_type_long_integer && !strcmp(global->name,"debug_score"));
+        free(runtime.tags);return 0;
+    }
+    if (!strcmp(argv[1],"speed") || !strcmp(argv[1],"score")) {
         struct hs_global *global=scenario->hs_globals.address;
         struct hs_syntax_node *initial=datum_try_and_get(syntax,global->initialization_expression_index);
         CHECK(scenario->hs_globals.count==1 && nodes[0].data==0 && nodes[2].data==0);
-        CHECK(global->type==_hs_type_real && initial && initial->data==0x3f800000);
-        CHECK(!strcmp(global->name,"game_speed_value"));
+        CHECK(global->type==nodes[0].type && initial);
+        CHECK(initial->data==(!strcmp(argv[1],"score") ? 0 : 0x3f800000));
+        CHECK(!strcmp(global->name,!strcmp(argv[1],"score") ? "debug_score" : "game_speed_value"));
         free(runtime.tags);return 0;
     }
     if (!strcmp(argv[1],"scratch")) {

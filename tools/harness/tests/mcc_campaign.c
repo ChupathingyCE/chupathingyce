@@ -121,7 +121,9 @@ short hud_get_nav_point_render_type(short local,real_point3d const *h,real_point
 void custom_render_nav_point(short local,real_point3d const *p,short arrow,short type) {
     (void)local;(void)arrow;(void)type;draws++;drawn=*p;
 }
-long object_list_new(void) {count=0;return 8;}
+static int list_failure;
+long object_list_new(void) {count=0;return list_failure ? NONE : 8;}
+long data_next_index(struct data_array *data,long index) {(void)data;return index<2 ? index+1 : NONE;}
 void object_list_add(long list,long object) {(void)list;added[count++]=object;}
 long object_list_get_first(long list,long *cursor) {(void)list;*cursor=0;return 0;}
 long object_list_get_next(long list,long *cursor) {(void)list;return ++*cursor==1 ? 2 : NONE;}
@@ -154,7 +156,45 @@ int main(int argc,char **argv) {
     scenario.cutscene_flags.address=flags;scenario.cutscene_flags.count=2;
     flags[1].position.x=10;
     mcc_campaign_begin();
-    if(!strcmp(argv[1],"flashlight")) {
+    if(!strcmp(argv[1],"music")) {
+        CHECK(mcc_campaign_mix_gain(TRUE)==1);
+        args[0]=bits(.25f);call("sound_set_music_gain");
+        CHECK(mcc_campaign_mix_gain(TRUE)==.25f && mcc_campaign_mix_gain(FALSE)==1);
+        mcc_campaign_snapshot(saved);CHECK(mcc_campaign_validate(saved,sizeof(saved)));
+        mcc_campaign_begin();CHECK(mcc_campaign_mix_gain(TRUE)==1);
+        connection=_game_connection_network_client;
+        CHECK(mcc_campaign_restore(saved,sizeof(saved)));
+        args[0]=bits(.75f);call("sound_set_music_gain");CHECK(mcc_campaign_mix_gain(TRUE)==.25f);
+        connection=_game_connection_local;
+        args[0]=0x7fc00000;call("sound_set_music_gain");CHECK(mcc_campaign_mix_gain(TRUE)==.25f);
+        args[0]=0x7f800000;call("sound_set_music_gain");CHECK(mcc_campaign_mix_gain(TRUE)==.25f);
+        args[0]=bits(-1);call("sound_set_music_gain");CHECK(mcc_campaign_mix_gain(TRUE)==.25f);
+        args[0]=bits(1.01f);call("sound_set_music_gain");CHECK(mcc_campaign_mix_gain(TRUE)==.25f);
+        memcpy(bad,saved,sizeof(bad));bad[767]=0x7f;CHECK(!mcc_campaign_validate(bad,sizeof(bad)));
+        memcpy(bad,saved,sizeof(bad));bad[0]=4;CHECK(!mcc_campaign_validate(bad,sizeof(bad)));
+        CHECK(mcc_campaign_restore(bad,MCC_CAMPAIGN_SNAPSHOT_V4_BYTES));CHECK(mcc_campaign_mix_gain(TRUE)==1);
+        args[0]=bits(0);call("sound_set_music_gain");CHECK(mcc_campaign_mix_gain(TRUE)==0);
+        args[0]=bits(1);call("sound_set_music_gain");CHECK(mcc_campaign_mix_gain(TRUE)==1);
+        args[0]=0;call("sound_enable");CHECK(mcc_campaign_mix_gain(TRUE)==0);
+        args[0]=1;call("sound_enable");CHECK(mcc_campaign_mix_gain(TRUE)==1);
+        loaded=FALSE;args[0]=bits(.5f);call("sound_set_music_gain");CHECK(mcc_campaign_mix_gain(TRUE)==1);
+        loaded=TRUE;CHECK(mcc_campaign_mix_gain(TRUE)==1);
+        mcc_campaign_dispose();CHECK(mcc_campaign_mix_gain(TRUE)==1);
+    } else if(!strcmp(argv[1],"team_players")) {
+        args[0]=1;call("players_on_multiplayer_team");CHECK(result==8 && count==3);
+        units[1].object.damage_flags=1u<<_object_dead_bit;
+        players[2].team_index=0;call("players_on_multiplayer_team");CHECK(count==1 && added[0]==0);
+        args[0]=0;call("players_on_multiplayer_team");CHECK(count==1 && added[0]==2);
+        players[2].unit_index=NONE;call("players_on_multiplayer_team");CHECK(count==0);
+        args[0]=1;players[0].quit_out_of_game=TRUE;call("players_on_multiplayer_team");CHECK(count==0);
+        args[0]=-1;call("players_on_multiplayer_team");CHECK(count==0);
+        args[0]=HALO_PORT_MAXIMUM_NETWORK_PLAYERS;call("players_on_multiplayer_team");CHECK(count==0);
+        args[0]=1;players[0].quit_out_of_game=FALSE;loaded=FALSE;
+        call("players_on_multiplayer_team");CHECK(count==0);
+        loaded=TRUE;connection=_game_connection_network_client;
+        call("players_on_multiplayer_team");CHECK(count==1);
+        list_failure=1;call("players_on_multiplayer_team");CHECK(result==NONE && count==0);
+    } else if(!strcmp(argv[1],"flashlight")) {
         units[0].object.type=_object_type_biped;
         args[0]=0;call("unit_get_current_flashlight_state");CHECK(!result);
         SET_FLAG(units[0].unit.flags,_unit_integrated_light_on_bit,TRUE);
@@ -181,7 +221,7 @@ int main(int argc,char **argv) {
         fade_ticks=20;CHECK(!mcc_campaign_fade_active());
         fade_ticks=NONE;CHECK(!mcc_campaign_fade_active());
         memcpy(bad,saved,sizeof(bad));bad[0]=3;CHECK(!mcc_campaign_validate(bad,sizeof(bad)));
-        bad[13]&=~8;CHECK(mcc_campaign_restore(bad,sizeof(bad)));CHECK(screen_flashes);
+        bad[13]&=~8;CHECK(mcc_campaign_restore(bad,MCC_CAMPAIGN_SNAPSHOT_V4_BYTES));CHECK(screen_flashes);
         mcc_campaign_dispose();CHECK(screen_flashes && !mcc_campaign_fade_active());
         screen_flashes=FALSE;mcc_campaign_begin();screen_flashes=TRUE;mcc_campaign_dispose();CHECK(!screen_flashes);
         loaded=FALSE;CHECK(!mcc_campaign_global_settable(7));
@@ -402,7 +442,7 @@ int main(int argc,char **argv) {
     } else if(!strcmp(argv[1],"validation")) {
         mcc_campaign_snapshot(saved);CHECK(mcc_campaign_validate(saved,sizeof(saved)));
         CHECK(!mcc_campaign_validate(saved,sizeof(saved)-1));
-        memcpy(bad,saved,sizeof(saved));bad[0]=5;CHECK(!mcc_campaign_restore(bad,sizeof(bad)));
+        memcpy(bad,saved,sizeof(saved));bad[0]=6;CHECK(!mcc_campaign_restore(bad,sizeof(bad)));
         memcpy(bad,saved,sizeof(saved));bad[13]=16;CHECK(!mcc_campaign_restore(bad,sizeof(bad)));
         memcpy(bad,saved,sizeof(saved));{long nan=0x7fc00000;memcpy(bad+4,&nan,4);}CHECK(!mcc_campaign_restore(bad,sizeof(bad)));
         memcpy(bad,saved,sizeof(saved));bad[16]=4;CHECK(!mcc_campaign_restore(bad,sizeof(bad)));
