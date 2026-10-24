@@ -175,6 +175,9 @@ the effects as a 16-bit value (0 stock to 5) and 16 bits that are 0 */
 /* how far (world units) past a static target's bounding sphere a host's
 event on another copy of one reaches, before an area effect's cutoff */
 #define NETWORK_RULES_STATIC_EVENT_REACH 2.0f
+/* ... and a client's hit report on its own copy reaches past the host's
+nearest one's (a host's matching) */
+#define NETWORK_RULES_STATIC_REPORT_REACH 1.0f
 
 /* the size of the game settings record a client takes from a host of the
 version (the network's slots): 0 for a version not known, whose record
@@ -220,5 +223,34 @@ float network_rules_static_event_reach(int area, float cutoff_radius);
 /* whether a copy at distance_squared from the point, of the bounding sphere
 radius, is within the reach of it (both ends included) */
 int network_rules_static_within(float distance_squared, float radius, float reach);
+
+/* ---------- a host's side of network versions 34 and 35
+
+A host announces one number (delta_legacy_announce), and an OpenCE machine
+joins only a host of its own, so an OpenCE machine of the game is of that
+number. A Delta machine says in its HELLO the newest version whose rules it
+plays (DELTA_LEGACY_NEWEST; builds before 35 their own number, 32 or older),
+and plays by the host's advertised number up to it. */
+
+/* (a host) the size of the game settings record it sends a machine of its
+game (13,120 or 13,136 bytes), of announce, the number it announces;
+delta_version, the number the machine's HELLO said (0: none: an OpenCE
+machine, or a Delta one whose HELLO has not come); waiting, whether a HELLO
+may still come. 0: wait for it. A host of 34 or older sends every machine
+the older record at once. */
+int network_rules_host_settings_size(unsigned announce, unsigned delta_version, int waiting);
+/* (a host) whether a machine's players report the damage a static target
+deals (a tripmine's going off; network version 34): an OpenCE machine of a
+host of 34 on does not, nor a Delta machine that takes 35's record from the
+host (one that may be of 34 alone, joined by an invitation, is taken to
+report: then the damage is lost, never dealt twice) */
+int network_rules_host_static_damage_reported(unsigned announce, unsigned delta_version);
+/* the bytes offset to offset + length of the record of 35's layout made
+from the older one (record, NETWORK_RULES_SETTINGS_SIZE bytes as the wire
+has it) and the 16 further option bytes (extended), into out: the older
+record's bytes but its last 4, then the further ones, then those 4 (its
+local data) */
+void network_rules_settings_extended_copy(uint8_t const *record, uint8_t const *extended, int offset, int length,
+	uint8_t *out);
 
 #endif /* __NETWORK_RULES_H */

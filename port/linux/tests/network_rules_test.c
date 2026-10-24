@@ -415,6 +415,75 @@ static void test_static_reach(void)
 	CHECK(network_rules_static_event_reach(0, 1.5f) == 2.0f);
 }
 
+static void test_host_settings(void)
+{
+	static uint8_t record[NETWORK_RULES_SETTINGS_SIZE];
+	static uint8_t wire[NETWORK_RULES_SETTINGS_EXTENDED_SIZE];
+	static uint8_t folded[NETWORK_RULES_SETTINGS_EXTENDED_SIZE];
+	uint8_t further[NETWORK_RULES_EXTENDED_OPTIONS_SIZE];
+	uint8_t extended[NETWORK_RULES_EXTENDED_OPTIONS_SIZE];
+	int index, offset;
+
+	/* a host of 34 or older: the older record to everyone, at once */
+	CHECK(network_rules_host_settings_size(32, 0, 1) == 0x3340);
+	CHECK(network_rules_host_settings_size(34, 36, 0) == 0x3340);
+	/* of 36: an OpenCE machine (no HELLO, none to wait for) the newer */
+	CHECK(network_rules_host_settings_size(36, 0, 0) == 0x3350);
+	/* ... one whose HELLO may still come is waited for */
+	CHECK(network_rules_host_settings_size(36, 0, 1) == 0);
+	/* ... a Delta build of 32 (0.8.0e's HELLO) the older, one of 36 the newer */
+	CHECK(network_rules_host_settings_size(36, 32, 1) == 0x3340);
+	CHECK(network_rules_host_settings_size(36, 36, 1) == 0x3350);
+	CHECK(network_rules_host_settings_size(35, 36, 0) == 0x3350);
+	/* a Delta build newer than the host's number: the host's */
+	CHECK(network_rules_host_settings_size(36, 40, 0) == 0x3350);
+
+	/* who reports a static target's own damage: OpenCE's from 34 do not */
+	CHECK(network_rules_host_static_damage_reported(32, 0));
+	CHECK(!network_rules_host_static_damage_reported(34, 0));
+	CHECK(!network_rules_host_static_damage_reported(36, 0));
+	/* ... Delta builds before 35 do, as do this build's of a host under 35
+	(dealt once, by their report, or lost; never twice) */
+	CHECK(network_rules_host_static_damage_reported(36, 32));
+	CHECK(network_rules_host_static_damage_reported(32, 36));
+	CHECK(network_rules_host_static_damage_reported(34, 36));
+	CHECK(!network_rules_host_static_damage_reported(36, 36));
+
+	/* the record of 35's layout made from the older, piece by piece (the
+	pieces of 0xE00 of the test vectors: the last 0x950), folds back to it */
+	for (index = 0; index < (int)sizeof(record); index++)
+		record[index] = (uint8_t)(index * 13 + 5);
+	network_rules_extended_options_default(further);
+	for (offset = 0; offset < (int)sizeof(wire); offset += 0xE00)
+	{
+		int length = (int)sizeof(wire) - offset < 0xE00 ? (int)sizeof(wire) - offset : 0xE00;
+
+		if (offset == 0x2A00)
+			CHECK(length == 0x950);
+		network_rules_settings_extended_copy(record, further, offset, length, wire + offset);
+	}
+	/* the options' further bytes of a plain game, at 0x333C to 0x334B */
+	CHECK(wire[0x333C] == 0x00 && wire[0x333D] == 0x00 && wire[0x333E] == 0x01 && wire[0x333F] == 0x96 &&
+		wire[0x3340] == 0xC8 && wire[0x3341] == 0x05 && wire[0x3342] == 0x0A && wire[0x3343] == 0x01 &&
+		wire[0x3344] == 0x00 && wire[0x3345] == 0x01);
+	for (index = 0x3346; index < 0x334C; index++)
+		CHECK(wire[index] == 0);
+	/* the local data after them */
+	for (index = 0; index < 4; index++)
+		CHECK(wire[0x334C + index] == record[0x333C + index]);
+	for (index = 0; index < (int)sizeof(folded); index++)
+		folded[index] = wire[index];
+	network_rules_settings_fold_options(folded, extended);
+	for (index = 0; index < (int)sizeof(record); index++)
+		CHECK(folded[index] == record[index]);
+	for (index = 0; index < NETWORK_RULES_EXTENDED_OPTIONS_SIZE; index++)
+		CHECK(extended[index] == further[index]);
+	/* one piece across the further bytes' edges */
+	network_rules_settings_extended_copy(record, further, 0x3338, 0x18, folded);
+	CHECK(folded[0] == record[0x3338] && folded[3] == record[0x333B] && folded[4] == further[0] &&
+		folded[19] == further[15] && folded[20] == record[0x333C] && folded[23] == record[0x333F]);
+}
+
 int main(void)
 {
 	test_aim_assist_message();
@@ -428,6 +497,7 @@ int main(void)
 	test_extended_options();
 	test_shield_effects_message();
 	test_static_reach();
+	test_host_settings();
 	if (failures)
 	{
 		printf("network_rules_test: %d failure(s)\n", failures);

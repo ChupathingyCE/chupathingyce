@@ -836,33 +836,263 @@ static void const *network_game_server_wire_game(
 #endif
 }
 
+/* port: OpenCE's network versions 35 on (port/linux/game/network_rules.c):
+the record is 16 bytes longer, the gametype's options 0x2C bytes, and a
+machine takes only the size of its version. A host announces one number, and
+an OpenCE machine joined by it, so it takes that number's record; a Delta
+machine takes the record of its own newest version (its HELLO's) or the
+host's, whichever is older: a build before 35 the old record whatever this
+host announces. Which machine is which is known only once its HELLO has
+come, so while this host speaks Delta and announces 35 or later a machine is
+sent no record until its HELLO or the handshake's window (4 s) is over; then
+the size is the machine's for as long as it is connected. Under 35 every
+machine takes the old record at once, as before. The further options are
+the defaults: this host plays none of OpenCE's own game types. */
+int network_rules_host_settings_size(unsigned announce, unsigned delta_version, int waiting);
+int network_rules_host_static_damage_reported(unsigned announce, unsigned delta_version);
+void network_rules_settings_extended_copy(unsigned char const *record, unsigned char const *extended, int offset,
+	int length, unsigned char *out);
+void network_rules_extended_options_default(unsigned char *options);
+#ifdef HALO_GAME_BROWSER
+unsigned char delta_peer_advertised_flags(void);
+int delta_peer_game_machine_legacy_version(int machine_index);
+#endif
+
+enum
+{
+	/* (network_rules.h's NETWORK_RULES_SETTINGS_SIZE and _EXTENDED_SIZE) */
+	NETWORK_GAME_SERVER_SETTINGS_SIZE = 13120,
+	NETWORK_GAME_SERVER_SETTINGS_EXTENDED_SIZE = 13120 + 16,
+	/* how long a machine's record waits for its HELLO (delta_peer.h's
+	DELTA_PEER_HANDSHAKE_TIME) */
+	NETWORK_GAME_SERVER_SETTINGS_HELLO_WAIT = 4000,
+};
+
+typedef char network_game_server_settings_size_assert[
+	HALO_PORT_WIRE_NETWORK_GAME_SIZE == NETWORK_GAME_SERVER_SETTINGS_SIZE ? 1 : -1];
+
+/* each client machine's record: the connection it is for, since when it is
+waited for, its size once known (0: not yet), and whether the record is owed
+it (it was held back: network_game_server_settings_frame sends it) */
+static struct network_game_server_settings_machine
+{
+	struct network_connection *connection;
+	unsigned long since;
+	long size;
+	boolean owed;
+} network_game_server_settings_machines[MAXIMUM_NETWORK_MACHINE_COUNT];
+
+static long network_game_server_settings_slot(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine)
+{
+	long slot;
+
+	for (slot = 0; slot < MAXIMUM_NETWORK_MACHINE_COUNT; slot++)
+	{
+		if (network_game_server_get_client_machine_at_index(server, slot) == machine)
+			return slot;
+	}
+	return NONE;
+}
+
+/* the network version the machine's HELLO said (0: none, or no Delta) */
+static unsigned network_game_server_machine_delta_version(
+	long machine_index)
+{
+#ifdef HALO_GAME_BROWSER
+	if (machine_index == NONE)
+		return 0;
+	return (unsigned)delta_peer_game_machine_legacy_version((int)machine_index);
+#else
+	(void)machine_index;
+	return 0;
+#endif
+}
+
+/* a machine has just been let into the game: its record is decided anew */
+static void network_game_server_settings_machine_joined(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine)
+{
+	long slot = network_game_server_settings_slot(server, machine);
+
+	if (slot != NONE)
+		csmemset(&network_game_server_settings_machines[slot], 0, sizeof(network_game_server_settings_machines[slot]));
+}
+
+/* the size of the record the machine takes, 0 while it is waited for */
+static long network_game_server_settings_size(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine)
+{
+	long slot = network_game_server_settings_slot(server, machine);
+	struct network_game_server_settings_machine *entry;
+	struct network_connection *connection = network_game_server_get_client_connection(machine);
+	unsigned long now = system_milliseconds();
+	unsigned announce = (unsigned)delta_legacy_announce();
+	unsigned delta_version = 0;
+	boolean waiting = FALSE;
+	long machine_index = NONE;
+
+	if (slot == NONE)
+		return network_rules_host_settings_size(announce, 0, FALSE);
+	entry = &network_game_server_settings_machines[slot];
+	if (entry->connection != connection)
+	{
+		csmemset(entry, 0, sizeof(*entry));
+		entry->connection = connection;
+	}
+	if (entry->size)
+		return entry->size;
+	if (!entry->since)
+		entry->since = now ? now : 1;
+	/* (the host's own machine takes either: it joined by no advertisement) */
+	if (!network_game_server_client_machine_is_local(server, machine))
+	{
+		if (network_game_server_get_client_machine(server, machine, &machine_index))
+			delta_version = network_game_server_machine_delta_version(machine_index);
+#ifdef HALO_GAME_BROWSER
+		waiting = delta_peer_advertised_flags() != 0 &&
+			now - entry->since < NETWORK_GAME_SERVER_SETTINGS_HELLO_WAIT;
+#endif
+	}
+	entry->size = network_rules_host_settings_size(announce, delta_version, waiting);
+	if (entry->size && announce >= 35)
+	{
+		network_event("machine #%ld takes the game settings record of %ld bytes (this host's network version %u, "
+			"its HELLO's %u: 0 for none)", machine_index, entry->size, announce, delta_version);
+	}
+	return entry->size;
+}
+
+/* the pieces of the record (wire, of wire_size, as the network has it) to the
+machine, of size (13,136: with the further options in front of its last 4) */
+static boolean network_game_server_send_settings_pieces(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine,
+	void const *wire,
+	long wire_size,
+	long size)
+{
+	struct message_server_game_settings_update message;
+	unsigned char further[NETWORK_GAME_SERVER_SETTINGS_EXTENDED_SIZE - NETWORK_GAME_SERVER_SETTINGS_SIZE];
+	long offset;
+
+	/* (a record of another layout goes as it is) */
+	if (wire_size != NETWORK_GAME_SERVER_SETTINGS_SIZE)
+		size = wire_size;
+	network_rules_extended_options_default(further);
+	for (offset = 0; offset < size; offset += sizeof(message.data))
+	{
+		void *encoded_message;
+
+		message.total_size = (word)size;
+		message.offset = (word)offset;
+		message.length = (word)MIN((long)sizeof(message.data), size - offset);
+		message.pad = 0;
+		csmemset(message.data, 0, sizeof(message.data));
+		if (size == wire_size)
+			csmemcpy(message.data, (byte const *)wire + offset, message.length);
+		else
+			network_rules_settings_extended_copy((unsigned char const *)wire, further, (int)offset, (int)message.length,
+				message.data);
+		encoded_message = create_network_game_message(_message_server_game_settings_update, &message, sizeof(message));
+		if (!encoded_message || !network_game_server_send_message_to_client_machine(server, machine, encoded_message))
+			return FALSE;
+	}
+	return TRUE;
+}
+
 boolean network_game_server_send_game_settings_to_client_machine(
 	struct network_game_server *server,
 	struct network_game_server_client_machine *machine,
 	void const *game,
 	long game_size)
 {
-	struct message_server_game_settings_update message;
-	long offset;
+	long size = network_game_server_settings_size(server, machine);
+	long slot;
 
+	/* (waited for: sent once its size is known) */
+	if (!size)
+	{
+		slot = network_game_server_settings_slot(server, machine);
+		if (slot != NONE)
+			network_game_server_settings_machines[slot].owed = TRUE;
+		return TRUE;
+	}
 	game = network_game_server_wire_game(game, &game_size);
 	if (game_size <= 0)
 		return FALSE;
-	for (offset = 0; offset < game_size; offset += sizeof(message.data))
-	{
-		void *encoded_message;
+	return network_game_server_send_settings_pieces(server, machine, game, game_size, size);
+}
 
-		message.total_size = (word)game_size;
-		message.offset = (word)offset;
-		message.length = (word)MIN((long)sizeof(message.data), game_size - offset);
-		message.pad = 0;
-		csmemset(message.data, 0, sizeof(message.data));
-		csmemcpy(message.data, (byte const *)game + offset, message.length);
-		encoded_message = create_network_game_message(_message_server_game_settings_update, &message, sizeof(message));
-		if (!encoded_message || !network_game_server_send_message_to_client_machine(server, machine, encoded_message))
-			return FALSE;
+/* port: each frame, the record to the machines it was held back from whose
+size is now known; and whether any machine in the game still waits for its
+record (the game does not start until none does) */
+void network_game_server_settings_frame(
+	struct network_game_server *server)
+{
+	long slot;
+
+	for (slot = 0; slot < MAXIMUM_NETWORK_MACHINE_COUNT; slot++)
+	{
+		struct network_game_server_client_machine *machine;
+
+		if (!network_game_server_settings_machines[slot].owed)
+			continue;
+		machine = network_game_server_get_client_machine_at_index(server, slot);
+		if (!network_game_server_client_machine_is_joined_to_game(server, machine) ||
+			network_game_server_get_client_connection(machine) != network_game_server_settings_machines[slot].connection)
+		{
+			network_game_server_settings_machines[slot].owed = FALSE;
+			continue;
+		}
+		if (!network_game_server_settings_size(server, machine))
+			continue;
+		network_game_server_settings_machines[slot].owed = FALSE;
+		if (!network_game_server_send_game_settings_to_client_machine(server, machine,
+			network_game_server_get_game(server), sizeof(struct network_game)))
+		{
+			network_event("failed to send machine #%ld its game settings", slot);
+		}
 	}
-	return TRUE;
+}
+
+boolean network_game_server_settings_waiting(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine)
+{
+	return network_game_server_settings_size(server, machine) == 0;
+}
+
+boolean network_game_server_settings_owed(
+	struct network_game_server *server)
+{
+	long slot;
+
+	for (slot = 0; slot < MAXIMUM_NETWORK_MACHINE_COUNT; slot++)
+	{
+		if (network_game_server_settings_machines[slot].owed &&
+			network_game_server_client_machine_is_joined_to_game(server,
+				network_game_server_get_client_machine_at_index(server, slot)))
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+/* port: whether the players of a machine of the game report the damage a
+static target deals (a tripmine's going off): OpenCE's machines from 34 do
+not, nor Delta machines that read 35's record from this host
+(network_rules_host_static_damage_reported); for the others this host deals
+it itself (network_damage.c) */
+boolean network_game_server_machine_reports_static_damage(
+	long machine_index)
+{
+	return network_rules_host_static_damage_reported((unsigned)delta_legacy_announce(),
+		network_game_server_machine_delta_version(machine_index)) != 0;
 }
 
 /* the client machines in the game, as the message handlers number them
@@ -1126,8 +1356,9 @@ boolean network_game_server_send_game_settings_to_all_machines(
 	void const *game,
 	long game_size)
 {
-	struct message_server_game_settings_update message;
-	long offset;
+	long machine_index;
+	long wire_size = game_size;
+	void const *wire;
 	boolean result = TRUE;
 
 	match_assert(
@@ -1135,39 +1366,40 @@ boolean network_game_server_send_game_settings_to_all_machines(
 		0x1C8,
 		server);
 
-	game = network_game_server_wire_game(game, &game_size);
-	if (game_size <= 0)
+	wire = network_game_server_wire_game(game, &wire_size);
+	if (wire_size <= 0)
 		return FALSE;
-	/* every piece goes out even if one fails for a machine: the others
-	would otherwise keep the old settings (a machine whose connection failed
-	is closed, and is skipped when the update is sent again) */
-	for (offset = 0; offset < game_size; offset += sizeof(message.data))
+	/* port: to each machine (of the size it takes: network_game_server_
+	settings_size), as network_game_server_send_message_to_all_machines
+	picks them. Every machine is sent every piece even if one fails for
+	another: the others would otherwise keep the old settings (a machine
+	whose connection failed is closed, and is skipped when the update is
+	sent again) */
+	for (machine_index = 0; machine_index < MAXIMUM_NETWORK_MACHINE_COUNT; machine_index++)
 	{
-		void *encoded_message;
+		struct network_game_server_client_machine *machine =
+			network_game_server_get_client_machine_at_index(server, machine_index);
+		struct network_connection *connection;
+		long size;
 
-		message.total_size = (word)game_size;
-		message.offset = (word)offset;
-		message.length = (word)MIN((long)sizeof(message.data), game_size - offset);
-		message.pad = 0;
-		csmemset(message.data, 0, sizeof(message.data));
-		csmemcpy(message.data, (byte const *)game + offset, message.length);
-		encoded_message = create_network_game_message(
-			_message_server_game_settings_update,
-			&message,
-			sizeof(message));
-		if (encoded_message)
+		if (!network_game_server_client_machine_is_joined_to_game(server, machine) ||
+			network_game_server_machine_is_loading_late(server, machine))
 		{
-			/* (a piece that failed stays failed: the next is no retry of it) */
-			if (!network_game_server_send_message_to_all_machines(server, encoded_message))
-			{
-				network_event(
-					"failed to send message_server_game_settings_update message to all machines");
-				result = FALSE;
-			}
+			continue;
 		}
-		else
+		connection = network_game_server_get_client_connection(machine);
+		if (!connection || !network_connection_active(connection))
+			continue;
+		size = network_game_server_settings_size(server, machine);
+		if (!size)
 		{
-			network_event("failed to create a message_server_game_settings_update message");
+			network_game_server_settings_machines[machine_index].owed = TRUE;
+			continue;
+		}
+		if (!network_game_server_send_settings_pieces(server, machine, wire, wire_size, size))
+		{
+			network_event(
+				"failed to send message_server_game_settings_update message to all machines");
 			result = FALSE;
 		}
 	}
@@ -2078,6 +2310,9 @@ static boolean network_game_server_handle_message_client_join_game_request(
 
 							if (result == TRUE)
 							{
+								/* port: its record's size decided anew (network
+								version 35's longer one, or the older) */
+								network_game_server_settings_machine_joined(server, server_client_machine);
 								/* (a machine joining the game in progress: to it alone,
 								the others are in game) */
 								if (late_join)

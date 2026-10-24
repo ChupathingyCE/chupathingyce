@@ -276,7 +276,8 @@ that has no such policy), never in single player or the menus */
 boolean network_aim_assist_blocked(void);
 /* whether the game is played by the rules of the network version or a
 later one: a client by its host's advertised version (one not known plays
-by the older rules), this machine by its own (HALO_PORT_NETWORK_VERSION) */
+by the older rules), a host by the number it announces
+(delta_legacy_announce) */
 boolean network_rules_of_version(unsigned int version);
 /* a client: the host's shield effects (0 stock to 5, message 91), stock
 until it says; this build draws stock whatever they are */

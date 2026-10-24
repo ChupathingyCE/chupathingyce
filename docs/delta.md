@@ -682,6 +682,20 @@ What each side checks, since 0.7.5a:
   its join request doesn't say its number. So an OpenCE client of a newer
   number sees our games only once we announce that number (a signed table
   or a release, below).
+- **One number a host, so one OpenCE generation a game.** Since that
+  number is the only thing an OpenCE client goes by, a host can't hold
+  OpenCE players of two numbers in one game, and from 35 they couldn't
+  play together anyway (35's game settings record is 16 bytes longer, and
+  a machine refuses a record of the other size). Delta players join every
+  host whatever it announces: a host goes by each Delta machine's HELLO,
+  whose legacy number says the newest version that build plays
+  (`DELTA_LEGACY_NEWEST`), and sends it the record of the older of that and
+  its own; an OpenCE machine gets the announced number's. A host that
+  announces 35 or later holds a joining machine's record until its HELLO or
+  the handshake's 4 seconds have passed, as only then is it known which
+  (NETCODE.md, "Versions"). To serve OpenCE players of an older number
+  and a newer one at once, run two hosts, one announcing each: a local
+  table (`network.legacy_table`, below) sets a server's number.
 - **The next number is presumed additive.** Our client joins hosts of the
   next OpenCE number (`DELTA_LEGACY_PRESUMED`, 1, past the one announced)
   from the day OpenCE raises it, before anything is followed. The built-in

@@ -3242,8 +3242,10 @@ boolean network_rules_of_version(
 {
 	unsigned int host;
 
+	/* (a host, or a game of this machine's own: by the number it announces,
+	the built-in one or a legacy table's, which its OpenCE machines are of) */
 	if (game_connection() != _game_connection_network_client)
-		return HALO_PORT_NETWORK_VERSION >= version;
+		return (unsigned int)delta_legacy_announce() >= version;
 	host = network_game_client_host_network_version();
 	return host != NETWORK_RULES_VERSION_UNKNOWN && host >= version;
 }

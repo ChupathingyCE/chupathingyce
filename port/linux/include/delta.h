@@ -241,6 +241,15 @@ raise that changes an existing message is breaking: a release follows it
 (docs/delta.md, "The legacy number"). */
 #define DELTA_LEGACY_PRESUMED 1
 
+/* the newest OpenCE network version whose rules this build plays as a
+client (DELTA_LEGACY_VERSIONS' newest row: tools/test_delta.py). A Delta
+client says it in its HELLO, and a host goes by it, with the number it
+announces, for what that client reads: the game settings record of 35's
+layout, and whether it reports a static target's own damage
+(network_rules_host_settings_size). Builds before it said their
+HALO_PORT_NETWORK_VERSION there, 32 or older. */
+#define DELTA_LEGACY_NEWEST 36
+
 /* OpenCE's network versions (HALO_PORT_NETWORK_VERSION in its builds), the
 first of its releases with each, and whether the version's change is one the
 version before plays multiplayer with as it is (additive: messages a machine
