@@ -50,6 +50,9 @@ main menu shows next (ui_widget.c; the game's 16-bit wchar_t) */
 char *main_get_multiplayer_map_name(void);
 void network_game_abort(void);
 void display_error_text_when_main_menu_loaded(const unsigned short *text);
+/* the newest network version whose layout this build reads (port/linux/game/
+network_rules.c) */
+unsigned network_rules_layout_newest(void);
 
 enum
 {
@@ -431,8 +434,9 @@ int delta_peer_protocol(void)
 #endif
 		/* (the newest network version whose rules it plays as a client: a
 		host sends it the settings record of that version's layout, by the
-		number the host announces) */
-		local.legacy_version = DELTA_LEGACY_NEWEST;
+		number the host announces; past DELTA_LEGACY_NEWEST, a signed legacy
+		table's layouts' newest) */
+		local.legacy_version = network_rules_layout_newest();
 		delta_peer_local_key(&local.key);
 #ifdef HALO_XBOX_CONSOLE
 		snprintf(local.build, sizeof(local.build), "Warthog %s", HALO_VERSION);

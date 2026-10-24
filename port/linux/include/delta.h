@@ -210,8 +210,13 @@ legacy table's "platform_policy" section is to tune them without a release
 legacy table (port/linux/src/delta.c; docs/delta.md, "The legacy table as
 config") has a row of OpenCE numbers for each wire, which CI adds to only
 after a cross-play test of that wire; a build reads its own wire's row alone.
-Give each release that changes what the machines send a new one. */
-#define DELTA_WIRE "chupa-32a"
+Give each release that changes what the machines send a new one, and each
+build that learns a legacy layout or behavior (a newer DELTA_LEGACY_NEWEST):
+a row widens every build of its wire, so a wire's builds must all play the
+same OpenCE versions (docs/delta.md, "When the wire changes"). chupa-38a:
+0.8.0e and the Xbox build of 2026-10-21 said chupa-32a and play 32 (33's one
+bit is the host's), 0.8.0f and 0.8.0g said it too and play to 38. */
+#define DELTA_WIRE "chupa-38a"
 
 /* Wire compatibility ranges: the oldest wire each one plays the game with,
 without a desync and without losing what the older wire has (a feature the
@@ -226,7 +231,20 @@ as released clients compare it for an exact match (delta_compat.h). */
 #define DELTA_WIRE_FIRST_ADVERTISED "chupa-29a"
 #define DELTA_WIRE_COMPATIBILITY(X) \
 	X("chupa-29a", "chupa-28a") /* maps by their own names: 29 also takes 28's hashed names and checksums */ \
-	X("chupa-32a", "chupa-28a") /* 30 to 32 are additive; a host of 32 plays with 28 to 31 (docs/delta.md) */
+	X("chupa-32a", "chupa-28a") /* 30 to 32 are additive; a host of 32 plays with 28 to 31 (docs/delta.md) */ \
+	X("chupa-38a", "chupa-28a") /* 33 to 38 played by the host's number; a host announcing 32 plays as chupa-32a's */
+
+/* Each wire's newest OpenCE network version that every build of it plays by
+its own rules (DELTA_LEGACY_NEWEST when it was made): the most a signed
+table's row may widen that wire's builds to safely, without layouts. A row is
+added with the wire and never changed (tools/test_delta.py holds the released
+ones); DELTA_WIRE's is DELTA_LEGACY_NEWEST, so a build that learns a newer
+version's rules has a new wire. */
+#define DELTA_WIRE_LEGACY_NEWEST(X) \
+	X("chupa-28a", 28) \
+	X("chupa-29a", 29) \
+	X("chupa-32a", 33) \
+	X("chupa-38a", 38)
 
 /* how many OpenCE numbers past the newest this build knows (the table
 below, and the one announced, the newest this build or the signed table has
@@ -330,6 +348,39 @@ int delta_legacy_override(void);
 and sends them to other machines): not with a local table in use, nor
 without a key to check one with */
 int delta_legacy_relay(void);
+
+/* ---------- layouts: the table's facts about newer OpenCE versions
+
+A wire from chupa-38a on reads "layouts" in its row: for a network version,
+the facts a host of it sends that this build reads by data, not code (the
+game settings record's size, the gametype's options' length, the distributed
+messages a machine that does not know them drops, the shield effects
+message's largest value; docs/delta.md, "Layouts"). A fact holds for its
+version and every later one until the next fact, and is used only for
+versions past DELTA_LEGACY_NEWEST (the build's own rules are the built-in
+facts) and only within the limits network_rules.c sets (port/linux/game/
+network_rules.h): a fact past them is not taken. Plain numbers, 0 for a fact
+not said. */
+#define DELTA_LAYOUT_FACTS 16
+#define DELTA_LAYOUT_KIND_BYTES 32
+struct delta_layout_fact
+{
+	unsigned short version;
+	/* the game settings record's bytes at the network's 128 machines and
+	128 players, and the gametype's options' bytes in it */
+	unsigned short settings_size;
+	unsigned short options_size;
+	/* the largest value the shield effects message (91) takes */
+	unsigned short shield_effects_maximum;
+	/* the distributed message kinds a host of the version sends that a
+	machine that does not know them drops: a bit a kind (kind 8 is bit 0 of
+	byte 1) */
+	unsigned char dropped[DELTA_LAYOUT_KIND_BYTES];
+};
+
+/* the table in use's facts for this build's wire (its own row's, or the
+local override's), oldest first, into facts (at most count): how many */
+int delta_legacy_layouts(struct delta_layout_fact *facts, int count);
 
 /* the largest document, and signed table */
 #define DELTA_LEGACY_DOCUMENT_SIZE 16384

@@ -39,7 +39,8 @@ what fixes it.
 ### Wires
 
 Each build has a wire ID, `DELTA_WIRE` in `port/linux/include/delta.h`
-(`chupa-32a` in 0.8.0; `chupa-29a` and `chupa-28a` before it). It names the
+(`chupa-38a` from the release after 0.8.0g, `chupa-32a` in 0.8.0 to 0.8.0g;
+`chupa-29a` and `chupa-28a` before it). It names the
 revision of the game protocol the build actually speaks, which is not the same
 thing as the legacy network number the original game protocol advertises. A
 release that changes how a game plays gives itself a new wire.

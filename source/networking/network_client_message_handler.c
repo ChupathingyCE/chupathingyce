@@ -1054,9 +1054,10 @@ int network_game_layout_convert(const unsigned char *from, int from_machines, in
 	unsigned char *to, int to_machines, int to_players, int *clamped);
 const char *network_game_layout_error_string(int error);
 
-/* (room for the record of network version 35 on, 16 bytes longer:
-network_game_client_settings_size) */
-static byte network_game_client_settings_staging[HALO_PORT_WIRE_NETWORK_GAME_SIZE + 16];
+/* (room for the record of network version 35 on, 16 bytes longer, and the
+most a signed table's layouts may add: network_rules.h's
+NETWORK_RULES_SETTINGS_MAXIMUM) */
+static byte network_game_client_settings_staging[HALO_PORT_WIRE_NETWORK_GAME_SIZE + 16 + 64];
 static struct network_game network_game_client_settings_folded;
 /* (the fold's offsets, network_game_layout.h's, against this build's record,
 network version 20's: co-op's cooperative_flags in the Xbox's padding byte
@@ -1072,12 +1073,13 @@ typedef char network_game_layout_size_assert[
 typedef char network_game_layout_wire_assert[HALO_PORT_WIRE_NETWORK_GAME_SIZE == 13120 ? 1 : -1];
 static boolean network_game_client_settings_told_clamped = FALSE;
 #else
-/* (and room for the record of network version 35 on, 16 bytes longer:
-network_game_client_settings_size) */
+/* (and room for the record of network version 35 on, 16 bytes longer, and
+the most a signed table's layouts may add: network_rules.h's
+NETWORK_RULES_SETTINGS_MAXIMUM) */
 static struct
 {
 	struct network_game game;
-	byte further[16];
+	byte further[16 + 64];
 } network_game_client_settings_staging;
 #endif
 static long network_game_client_settings_staging_size = 0;
@@ -1087,9 +1089,13 @@ the gametype's options grow from 0x1C to 0x2C bytes, and the record with
 them. A client takes the record's size from the host's advertised version,
 or, for a host not known (joined by an invitation), the size its pieces say,
 and makes a newer record the older layout before anything reads it; the
-further bytes are kept here, sanitized. */
+further bytes are kept here, sanitized. A version past the ones this build
+knows has the layout a signed legacy table's facts give it (network_rules.h,
+"layouts"): its options may be longer and bytes may follow the local data,
+which this build has no use for. */
 int network_rules_settings_size_taken(unsigned version, unsigned total_size);
-void network_rules_settings_fold_options(unsigned char *record, unsigned char *extended);
+int network_rules_settings_options_size(unsigned version, unsigned total_size);
+void network_rules_settings_fold(unsigned char *record, int total_size, int options_size, unsigned char *extended);
 void network_rules_extended_options_default(unsigned char *options);
 void network_rules_extended_options_sanitize(unsigned char *options);
 int network_rules_extended_options_mode(unsigned char const *options, int slayer, int teams, int *hardcore);
@@ -1100,12 +1106,14 @@ enum
 	/* (network_rules.h's) */
 	NETWORK_GAME_CLIENT_SETTINGS_SIZE = 13120,
 	NETWORK_GAME_CLIENT_SETTINGS_EXTENDED_SIZE = 13120 + 16,
+	NETWORK_GAME_CLIENT_SETTINGS_MAXIMUM = 13120 + 16 + 64,
+	NETWORK_GAME_CLIENT_OPTIONS_SIZE = 0x1C,
 	NETWORK_GAME_CLIENT_EXTENDED_OPTIONS_VERSION = 35,
 };
 
 typedef char network_game_client_settings_size_assert[
 	HALO_PORT_WIRE_NETWORK_GAME_SIZE == NETWORK_GAME_CLIENT_SETTINGS_SIZE &&
-	sizeof(network_game_client_settings_staging) >= NETWORK_GAME_CLIENT_SETTINGS_EXTENDED_SIZE ? 1 : -1];
+	sizeof(network_game_client_settings_staging) >= NETWORK_GAME_CLIENT_SETTINGS_MAXIMUM ? 1 : -1];
 
 static byte network_game_client_extended_options[16];
 
@@ -1167,8 +1175,10 @@ static boolean network_game_client_receive_game_settings_piece(
 	boolean result = TRUE;
 
 	/* port: the record's size by the host's version (13,120 bytes to 34,
-	13,136 from 35), either for a host not known */
+	13,136 from 35, a newer version's by the table's layouts), either of the
+	first two for a host not known */
 	if (!network_rules_settings_size_taken(network_game_client_host_network_version(), piece->total_size) ||
+		piece->total_size > NETWORK_GAME_CLIENT_SETTINGS_MAXIMUM ||
 		piece->length > sizeof(piece->data) ||
 		piece->offset + piece->length > piece->total_size)
 	{
@@ -1197,14 +1207,18 @@ static boolean network_game_client_receive_game_settings_piece(
 			network_game_client_settings_staging_size += piece->length;
 			if (network_game_client_settings_staging_size == piece->total_size)
 			{
+				int options_size;
+
 				network_game_client_settings_staging_size = 0;
 				/* port: a record of 35 on made the older layout, its further
 				options kept; an older one's are the defaults. A host not
 				known that sends the newer is taken for one of 35. */
-				if (piece->total_size == NETWORK_GAME_CLIENT_SETTINGS_EXTENDED_SIZE)
+				options_size = network_rules_settings_options_size(network_game_client_host_network_version(),
+					piece->total_size);
+				if (options_size > NETWORK_GAME_CLIENT_OPTIONS_SIZE)
 				{
-					network_rules_settings_fold_options((byte *)&network_game_client_settings_staging,
-						network_game_client_extended_options);
+					network_rules_settings_fold((byte *)&network_game_client_settings_staging, piece->total_size,
+						options_size, network_game_client_extended_options);
 					network_rules_extended_options_sanitize(network_game_client_extended_options);
 					{
 						static byte logged[2] = { 0xFF, 0xFF };
