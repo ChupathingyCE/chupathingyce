@@ -8,4 +8,6 @@ int mcc_checkpoint_validate(void const *image, unsigned long total_bytes,
 int mcc_checkpoint_restore(void const *image, unsigned long total_bytes,
     unsigned long cpu_used, unsigned long cpu_capacity);
 void mcc_checkpoint_dispose(void);
+void *mcc_checkpoint_script_storage(void *image, unsigned long used,
+    unsigned long capacity, unsigned long bytes);
 #endif

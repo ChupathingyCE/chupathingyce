@@ -1,6 +1,6 @@
 /* Included after the native interpreter's declarations. This MCC-only
  * adapter uses its existing stack service, so arguments, recursion, sleep
- * and checkpoint state remain inside each native 512-byte thread stack. */
+ * and checkpoint state remain inside each checkpointed thread stack. */
 #include "mcc_script_parameters.h"
 #include "mcc_campaign.h"
 #include "mcc_game_speed.h"
@@ -9,7 +9,7 @@
  * result. MCC's deeply nested equipment selectors need not retain all those
  * forwarding frames. Keep script-call frames (lexical parameters) intact and
  * only elide identical result types, so native casts and sleep remain valid.
- * All live state stays in the native checkpointed thread buffer. */
+ * All live state stays in the checkpointed thread buffer. */
 static boolean mcc_hs_if_tail(short function, long thread_index, boolean initialize)
 {
     struct hs_thread_datum *thread;

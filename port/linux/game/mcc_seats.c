@@ -6,8 +6,16 @@
 #include "objects/objects.h"
 #include "units/units.h"
 #include "units/unit_definitions.h"
+#include "ai/actors.h"
 #include "mcc_cache.h"
 #include "mcc_seats.h"
+
+/* A passenger cannot choose a destination independently of its vehicle.
+ * Halo Kart can seat an actor while its danger-avoidance action is active. */
+boolean mcc_seat_blocks_avoidance(long actor_index)
+{
+    return mcc_cache_tags_loaded() && actor_get(actor_index)->input.vehicle_passenger;
+}
 
 struct unit_datum *mcc_seat_parent(long object_index)
 {

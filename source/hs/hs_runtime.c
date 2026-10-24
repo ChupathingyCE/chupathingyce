@@ -351,14 +351,15 @@ enum
 #define hs_syntax_get(expression_index) \
 	((struct hs_syntax_node *)datum_get(hs_syntax_data, (expression_index)))
 
+/* port: MCC selects its own checked stack end; native limits are unchanged. */
 /* a thread is valid when it lies inside the thread data array and its stack pointer and
    the fill mark of its topmost frame lie inside its own inline stack buffer */
 #define valid_thread(thread) \
 	((byte *)(thread)>=(byte *)xbox_pointer(hs_thread_data->data) && \
 	(byte *)(thread)<(byte *)xbox_pointer(hs_thread_data->data)+hs_thread_data->count*hs_thread_data->size && \
 	(byte *)(thread)->stack>=(thread)->stack_data && \
-	(byte *)(thread)->stack<(thread)->stack_data+HS_THREAD_STACK_SIZE && \
-	(thread)->stack->data+(thread)->stack->size<=(thread)->stack_data+HS_THREAD_STACK_SIZE)
+	(byte *)(thread)->stack<mcc_hs_stack_end(thread) && \
+	(thread)->stack->data+(thread)->stack->size<=mcc_hs_stack_end(thread))
 
 #define HS_GLOBAL_DESIGNATOR_IS_EXTERNAL(designator) \
 	TEST_FLAG((designator), _hs_global_external_bit)
@@ -759,6 +760,7 @@ boolean debug_trigger_volumes;
 
 /* ---------- public code */
 
+#include "mcc_script_threads.inl" /* port: MCC-only bounded thread storage. */
 #include "mcc_script_runtime.inl"
 
 void hs_runtime_initialize(
@@ -802,6 +804,8 @@ void hs_runtime_initialize_for_new_map(
 {
 	long internal_thread_index;
 
+	/* port: select the MCC-owned array only after its cache was accepted. */
+	mcc_hs_threads_activate();
 	data_make_valid(hs_thread_data);
 	hs_runtime_globals.initialized = TRUE;
 	hs_runtime_globals.executing_thread_index = NONE;
@@ -1406,13 +1410,14 @@ static boolean hs_stack_push(
 	struct hs_stack_frame *new_frame = (struct hs_stack_frame *)
 		((byte *)thread->stack+thread->stack->size+sizeof(struct hs_stack_frame));
 
+	/* port: MCC uses its own bound; Xbox/CE keep the inline stack limit. */
 	match_hs_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x35e, thread_index,
-		(byte *) (new_frame+1)<thread->stack_data+HS_THREAD_STACK_SIZE,
+		(byte *) (new_frame+1)<mcc_hs_stack_end(thread),
 		"stack overflow.");
 
 	/* port: a frame past the thread's stack isn't pushed (it would be
 	written over the next thread's datum): the thread is ended instead */
-	if ((byte *)(new_frame+1)>=thread->stack_data+HS_THREAD_STACK_SIZE ||
+	if ((byte *)(new_frame+1)>=mcc_hs_stack_end(thread) ||
 		TEST_FLAG(thread->flags, _hs_thread_stack_overflow_bit))
 	{
 		hs_stack_overflow(thread_index);
@@ -2997,14 +3002,15 @@ static void *hs_stack_allocate(
 		valid_thread(thread), "corrupted stack.");
 	match_hs_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x37e, thread_index,
 		size, "attempt to allocate zero space from the stack.");
+	/* port: MCC uses its own bound; Xbox/CE keep the inline stack limit. */
 	match_hs_assert("c:\\halo\\SOURCE\\hs\\hs_runtime.c", 0x37f, thread_index,
-		frame->data+frame->size+size<=thread->stack_data+HS_THREAD_STACK_SIZE,
+		frame->data+frame->size+size<=mcc_hs_stack_end(thread),
 		"stack overflow.");
 
 	/* port: none past the thread's stack (hs_stack_overflow); the caller
 	returns on NULL */
 	if (size<0 ||
-		size>thread->stack_data+HS_THREAD_STACK_SIZE-(frame->data+frame->size) ||
+		size>mcc_hs_stack_end(thread)-(frame->data+frame->size) ||
 		TEST_FLAG(thread->flags, _hs_thread_stack_overflow_bit))
 	{
 		hs_stack_overflow(thread_index);

@@ -602,6 +602,14 @@ static void game_state_set_revert_time(
 	return;
 }
 
+/* port: read-only arena bounds for MCC-owned state; no allocator changes. */
+void *game_state_port_cpu_region(unsigned long *used, unsigned long *capacity)
+{
+	*used=game_state_globals.cpu_allocation_size;
+	*capacity=GAME_STATE_CPU_SIZE;
+	return game_state_globals.base_address;
+}
+
 void *game_state_malloc(
 	const char *name,
 	const char *type,

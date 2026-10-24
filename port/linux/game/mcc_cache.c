@@ -14,6 +14,7 @@
 #include "mcc_package.h"
 #include "mcc_tag_validate.h"
 #include "mcc_checkpoint.h"
+#include "mcc_script_threads.h"
 #include "mcc_object_names.h"
 #include "mcc_grenades.h"
 #include "mcc_script_parameters.h"
@@ -258,6 +259,7 @@ void mcc_cache_tags_unload(void)
     mcc_hud_glyphs_dispose();
     mcc_campaign_dispose();
     mcc_ui_teams_reset();
+    mcc_script_threads_dispose();
     mcc_checkpoint_dispose();
     mcc_grenades_reset();
     mcc_object_names_clear();
@@ -346,6 +348,8 @@ struct cache_file_tag_header *mcc_cache_tags_load(char const *name, void *header
     }
     /* The cache header checksum feeds native save validation as well as the lobby. */
     memcpy((unsigned char *)header + 0x64, &package_checksum, 4);
+    problem = "MCC script stack storage is unavailable";
+    if (!mcc_script_threads_prepare()) goto failed;
     mcc_loaded = TRUE;
     mcc_campaign_begin();
     error(_error_silent, "mcc: loaded %s (%lu tags, %lu bytes of runtime tags)", name,

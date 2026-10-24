@@ -254,7 +254,7 @@ are not an MCC implementation dependency. The independent components are:
 | `port/linux/game/mcc_scripts.c` | Name-based MCC function/global linking and supported MCC native functions. |
 | `port/linux/game/mcc_campaign.c` | Local-player/authority queries, gravity, campaign markers and scoped global permissions. |
 | `port/linux/game/mcc_syntax.c` | MCC's 32,767-slot syntax validation and traversal workspace. |
-| `port/linux/game/mcc_script_parameters.c` and `mcc_script_runtime.inl` | MCC parameter metadata/scopes and interpreter frames inside the existing HS stack. |
+| `port/linux/game/mcc_script_parameters.c`, `mcc_script_runtime.inl`, `mcc_script_threads.inl` | MCC parameter metadata/scopes and bounded, checkpointed interpreter stacks. |
 | `port/linux/game/mcc_objects.c` | MCC multiplayer vehicle placement masks. |
 | `port/linux/game/mcc_grenades.c` | MCC slots 2/3, salted unit inventories, pickup/throw/drop behavior and HUD. |
 | `port/linux/game/mcc_player.c` | MCC grenade selection/action checks and starting-profile counts. |
@@ -477,7 +477,44 @@ a branch of the same result type, its forwarding frame can be released before
 evaluating that branch. This prevents MeinCrap 2's nested equipment selectors
 from exhausting the stack, while retaining script parameter scopes and all
 live state in the checkpointed buffer. Branches requiring a cast use the native
-evaluation path. The existing 512-byte stack remains the recursion/depth bound.
+evaluation path. MCC uses 4,096-byte bounded stacks in its own 256-thread array;
+Xbox/Custom Edition retain their existing 512-byte stacks and thread layouts.
+`mcc_script_threads.inl` selects this array only for accepted MCC maps. Halo
+Kart's `main` exhausted 512 bytes both while selecting NPC steering commands
+and while awarding an item, stopping both features. The larger bound supports
+these nested calls without rewriting the map's scripts or removing overflow
+checks. It is a compatibility capacity, not a claim about MCC's own limit.
+
+The array occupies approximately 1 MiB below the existing MCC checkpoint
+slots, only after the CPU allocator's high-water mark proves the region unused.
+The native allocation records and checksum remain unchanged. The small arena
+bounds accessor and interpreter hooks are necessary because those private
+engine state and stack bounds have no existing external interface. All storage
+ownership, validation and migration live in MCC modules. Unload, failed load
+and later Xbox/CE loads restore the original array and unused bytes.
+
+Complete saves, including the host's co-op revert image, include the array.
+Before accepting it, the MCC checkpoint path checks its version, checksum, array metadata, thread
+bounds, frame chain and result destinations. Supported old checkpoints with
+native inline stacks are checked and migrated with their intra-thread pointers
+relocated. MCC protocol 57 requires matching script-stack capacity on peers;
+the verified OpenCE protocol is unchanged. Script initialization can run while
+loading on either peer, but only the host runs the race scripts and AI during
+co-op. Existing object, actor and scenery-animation replication carries their
+effects; thread stacks are not a new network message. This adds no client
+command or permission to execute scripts on the host. Malformed or insufficient
+storage is refused rather than truncated.
+
+Halo Kart C34 also exposed passenger AI entering the native danger-avoidance
+action, whose firing-position selector asserts that the actor is not a
+passenger. `mcc_seat_blocks_avoidance` prevents that action for MCC passengers
+and completes it if scripted seating happens after entry. Two additive hooks
+in `action_avoid.c` are needed at those action boundaries; they leave the
+existing Xbox/CE path and movable MCC actors unchanged. The diagnostic run
+identified action 13 (avoid), evaluation mode 6 (avoid), and driver type 0
+(not a driver). This guard does not suppress the selector's assertion or
+rewrite the race's steering commands.
+
 Dynamic console calls with
 parameters are not supported by this extension; the cached map's calls
 are the supported path. MCC syntax now retains its full 32,767-slot arena,

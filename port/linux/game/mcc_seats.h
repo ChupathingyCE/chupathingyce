@@ -8,5 +8,6 @@ boolean mcc_seat_nearby(long player_index, long target_index, short *seat_index)
 boolean mcc_seat_action(long player_index, long target_index, short seat_index);
 boolean mcc_seat_update(long unit_index);
 void mcc_seat_camera(struct player_control_unit_camera_info *info);
+boolean mcc_seat_blocks_avoidance(long actor_index);
 
 #endif

@@ -12,6 +12,7 @@
 #include "mcc_grenades.h"
 #include "mcc_campaign.h"
 #include "mcc_object_names.h"
+#include "mcc_script_threads.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,6 +21,17 @@
 #define MCC_CHECKPOINT_TOTAL_PAYLOAD (MCC_CHECKPOINT_PAYLOAD_LIMIT + MCC_CAMPAIGN_SNAPSHOT_BYTES)
 #define MCC_CHECKPOINT_FOOTER_BYTES 96u
 #define MCC_CHECKPOINT_SLOT_BYTES (MCC_CHECKPOINT_TOTAL_PAYLOAD + MCC_CHECKPOINT_FOOTER_BYTES)
+
+/* Reserve below every supported name/inventory slot, aligned for thread data. */
+void *mcc_checkpoint_script_storage(void *image, unsigned long used,
+    unsigned long capacity, unsigned long bytes)
+{
+    unsigned long reserved=MCC_CHECKPOINT_SLOT_BYTES+MCC_OBJECT_NAMES_SNAPSHOT_MAXIMUM+16;
+    unsigned long offset;
+    if (!image || capacity<reserved || bytes>capacity-reserved) return NULL;
+    offset=(capacity-reserved-bytes)&~15u;
+    return used<=offset ? (unsigned char *)image+offset : NULL;
+}
 
 static struct {
     unsigned char *original;
@@ -197,7 +209,7 @@ int mcc_checkpoint_capture(void *image, unsigned long total,
     if (!mcc_cache_tags_loaded()) return 1;
     tail = mcc_checkpoint_tail(image, total, used, capacity);
     if (!tail || !mcc_checkpoint_identity(header) || !mcc_checkpoint_claim(tail) ||
-        !mcc_checkpoint_names_capture(image, used, capacity)) goto failed;
+        !mcc_checkpoint_names_capture(image, used, capacity) || !mcc_script_threads_capture()) goto failed;
     bytes = mcc_grenades_snapshot(NULL, 0);
     if (bytes < 8 || bytes > MCC_CHECKPOINT_PAYLOAD_LIMIT) goto failed;
     footer = tail + MCC_CHECKPOINT_TOTAL_PAYLOAD;
@@ -256,6 +268,7 @@ int mcc_checkpoint_validate(void const *image, unsigned long total,
         (campaign_bytes && !mcc_campaign_validate(tail + bytes - campaign_bytes, campaign_bytes)) ||
         !mcc_checkpoint_units(image, current_image, used, tail) ||
         !mcc_checkpoint_names_validate(image, current_image, used, capacity) ||
+        !mcc_script_threads_validate(image,current_image,used,capacity) ||
         !mcc_checkpoint_claim(current_tail)) goto failed;
     return 1;
 failed:
@@ -269,7 +282,8 @@ int mcc_checkpoint_restore(void const *image, unsigned long total,
     unsigned char *tail;
     uint32_t bytes, campaign_bytes, version;
     if (!mcc_cache_tags_loaded()) return 1;
-    if (!mcc_checkpoint_validate(image, total, used, capacity, image)) return 0;
+    if (!mcc_checkpoint_validate(image, total, used, capacity, image) ||
+        !mcc_script_threads_restore((void *)image,used,capacity)) return 0;
     if (mcc_object_names_active()) {
         unsigned long names_bytes = mcc_object_names_snapshot(NULL);
         unsigned char *names = mcc_checkpoint_names_tail(image, used, capacity, names_bytes);

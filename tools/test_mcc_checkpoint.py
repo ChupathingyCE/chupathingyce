@@ -56,6 +56,11 @@ static long game_state_allocation_count;
 static int native_valid=1;
 ''' + '#include "' + (ROOT / "port/linux/game/mcc_checkpoint.c").as_posix() + '"\n' + r'''
 boolean mcc_cache_tags_loaded(void) {return loaded;}
+int mcc_script_threads_capture(void) {return 1;}
+int mcc_script_threads_validate(void const *a,void const *b,unsigned long c,unsigned long d)
+{(void)a;(void)b;(void)c;(void)d;return 1;}
+int mcc_script_threads_restore(void *a,unsigned long b,unsigned long c)
+{(void)a;(void)b;(void)c;return 1;}
 static int campaign_restores;
 static unsigned long name_bytes;
 static unsigned char name_state[MCC_OBJECT_NAMES_SNAPSHOT_MAXIMUM];
