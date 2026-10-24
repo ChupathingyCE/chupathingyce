@@ -234,6 +234,22 @@ static const struct config_setting config_settings[] =
 		"It costs the GPU some time. Takes effect the next start." },
 	{ "debug.gpu_fault_test", _config_boolean, "false", "HALO_GPU_FAULT_TEST", _environment_set_is_true,
 		_platform_android,
+#ifdef HALO_SWITCH_CONSOLE
+	{ "display.particle_limit", _config_integer, "2048", "HALO_PARTICLE_LIMIT", _environment_value, _platform_all,
+#else
+	{ "display.particle_limit", _config_integer, "4096", "HALO_PARTICLE_LIMIT", _environment_value, _platform_all,
+#endif
+		"The most particles (sparks, smoke, casings, debris) alive at once; past\n"
+		"it the oldest goes to make room for each new one. The Xbox's limit was\n"
+		"1024. 0 for the port's own 8192 (a 64-player firefight fills them, and\n"
+		"every one costs the processor and the GPU: 2048 on the Switch, 4096\n"
+		"elsewhere). Changes at once." },
+	{ "debug.original_particles", _config_boolean, "false", "HALO_ORIGINAL_PARTICLES", _environment_value, _platform_all,
+		"Move the particles that are not attached to an object (sparks, casings,\n"
+		"debris) at every frame drawn, as before, rather than once a 30 Hz tick\n"
+		"as on the Xbox and drawn between their ticks (which spares the CPU two\n"
+		"in three of their collision tests at 60 frames a second, more at 120).\n"
+		"Takes effect at the next map." },
 		"Make the GPU fault on purpose at the 1200th frame, to see gpu_trace's record.\n"
 		"Takes effect the next start." },
 	{ "debug.gpu_profile", _config_boolean, "false", "HALO_GPU_PROFILE", _environment_set_is_true, _platform_android,
