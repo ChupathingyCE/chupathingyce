@@ -234,7 +234,8 @@ screen, behind a wall, too small to draw) moves once every
 PARTICLE_UNSEEN_TICKS ticks instead, by all the time it was owed: unseen
 for MAXIMUM_PARTICLE_UNRENDERED_FRAME_COUNT ticks it is deleted anyway, and
 in a 64-player game most of a match's sparks and casings are another
-player's. debug.original_particles moves them each frame, as before. The
+player's. display.particle_ticks off moves them each frame, as before (the
+desktop's default; the consoles' is on, HALO_CONSOLE_PARTICLE_TICKS). The
 slots are by the particle's absolute index, with its whole datum index to
 tell a reused slot; none of it is game state. */
 #define PARTICLE_UNSEEN_TICKS 4
@@ -328,7 +329,7 @@ void particles_initialize_for_new_map(
 	long slot;
 
 	data_make_valid(particle_data);
-	particles_each_frame = config_boolean("debug.original_particles") != 0;
+	particles_each_frame = config_boolean("display.particle_ticks") == 0;
 	particles_made_oldest = particles_made_count = 0;
 	for (slot = 0; slot < HALO_PORT_MAXIMUM_PARTICLES; slot++)
 		particle_tick_owner[slot] = NONE;

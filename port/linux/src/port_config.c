@@ -244,11 +244,16 @@ static const struct config_setting config_settings[] =
 		"1024. 0 for the port's own 8192 (a 64-player firefight fills them, and\n"
 		"every one costs the processor and the GPU: 2048 on the Switch, 4096\n"
 		"elsewhere). Changes at once." },
-	{ "debug.original_particles", _config_boolean, "false", "HALO_ORIGINAL_PARTICLES", _environment_value, _platform_all,
+#ifdef HALO_CONSOLE_PARTICLE_TICKS
+	{ "display.particle_ticks", _config_boolean, "true", "HALO_PARTICLE_TICKS", _environment_value, _platform_all,
+#else
+	{ "display.particle_ticks", _config_boolean, "false", "HALO_PARTICLE_TICKS", _environment_value, _platform_all,
+#endif
 		"Move the particles that are not attached to an object (sparks, casings,\n"
-		"debris) at every frame drawn, as before, rather than once a 30 Hz tick\n"
-		"as on the Xbox and drawn between their ticks (which spares the CPU two\n"
-		"in three of their collision tests at 60 frames a second, more at 120).\n"
+		"debris) once a 30 Hz tick, as on the Xbox, and draw them between their\n"
+		"ticks: two in three of their collision tests spared at 60 frames a\n"
+		"second, more at 120. false moves them at every frame drawn, smooth at\n"
+		"high refresh rates: the desktop's default; the consoles' is true.\n"
 		"Takes effect at the next map." },
 		"Make the GPU fault on purpose at the 1200th frame, to see gpu_trace's record.\n"
 		"Takes effect the next start." },
