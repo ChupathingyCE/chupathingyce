@@ -234,6 +234,8 @@ static const struct config_setting config_settings[] =
 		"It costs the GPU some time. Takes effect the next start." },
 	{ "debug.gpu_fault_test", _config_boolean, "false", "HALO_GPU_FAULT_TEST", _environment_set_is_true,
 		_platform_android,
+		"Make the GPU fault on purpose at the 1200th frame, to see gpu_trace's record.\n"
+		"Takes effect the next start." },
 #ifdef HALO_SWITCH_CONSOLE
 	{ "display.particle_limit", _config_integer, "2048", "HALO_PARTICLE_LIMIT", _environment_value, _platform_all,
 #else
@@ -277,8 +279,6 @@ static const struct config_setting config_settings[] =
 		"0 for no limit, as on the Xbox (a near light's highlights cover most\n"
 		"of the screen: the costliest pass of a firefight): the desktop's\n"
 		"default; the consoles' is 2. Changes at once." },
-		"Make the GPU fault on purpose at the 1200th frame, to see gpu_trace's record.\n"
-		"Takes effect the next start." },
 	{ "debug.gpu_profile", _config_boolean, "false", "HALO_GPU_PROFILE", _environment_set_is_true, _platform_android,
 		"Every 300 frames, log the GPU's time by part of the frame (the sky, the\n"
 		"objects, the fog...) and what a frame asks of it. Takes effect the next start." },
