@@ -5,7 +5,7 @@ The distributed netcode's rules that need no game to decide: what a client
 does with the host's word on its own player standing on an elevator, which
 datagrams are near enough in time to be taken, the bytes of the aim assist
 policy message and of a player's input entry, which device a player aims
-with, and what versions 33 to 36 changed (the game settings record's size by
+with, and what versions 33 to 38 changed (the game settings record's size by
 the host's version, the gametype's further options, the host's shield effects
 message, how near a static target's copy must be). network_distributed.c asks, the unit tests (port/linux/tests/
 network_rules_test.c) check the answers byte for byte. Nothing here has a
@@ -16,6 +16,7 @@ every machine the game runs on.
 #ifndef __NETWORK_RULES_H
 #define __NETWORK_RULES_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 /* ---------- constants */
@@ -120,7 +121,7 @@ what the host last said (blocked until it speaks), never otherwise */
 int network_rules_aim_assist_blocks(int game_in_progress, int main_menu_active, int is_host, int is_client,
 	int host_setting, int client_policy_blocked);
 
-/* ---------- network versions 33 to 36 */
+/* ---------- network versions 33 to 38 */
 
 /* the versions that changed what a client does: 34 has shield-only scenery
 and devices as static targets (every machine recharges them, a client
@@ -167,10 +168,10 @@ enum
 };
 
 /* the host's shield effects (message 91, reliable, to a client): the header,
-the effects as a 16-bit value (0 stock to 5) and 16 bits that are 0 */
+the effects as a 16-bit value (0 stock to 6; 6 leaves each machine its own player's look) and 16 bits that are 0 */
 #define NETWORK_RULES_SHIELD_EFFECTS_KIND 91
 #define NETWORK_RULES_SHIELD_EFFECTS_SIZE 12
-#define NETWORK_RULES_SHIELD_EFFECTS_MAXIMUM 5
+#define NETWORK_RULES_SHIELD_EFFECTS_MAXIMUM 6
 
 /* how far (world units) past a static target's bounding sphere a host's
 event on another copy of one reaches, before an area effect's cutoff */
@@ -205,6 +206,16 @@ the mode only on the Slayer engine (SWAT on any, Infection with teams alone,
 Gun Game free for all alone), else NETWORK_RULES_MODE_NONE; hardcore (on any
 engine) in *hardcore */
 int network_rules_extended_options_mode(uint8_t const *options, int slayer, int teams, int *hardcore);
+/* a game's kind byte in a listing or a LAN advertisement (version 37): the
+low seven bits an OpenCE game type's number (0 none, 1 SWAT, 2 Infection,
+3 Gun Game), bit 7 Hardcore. Its name for a list, in capitals, or NULL for
+a game with no name of its own (a stock game). The mode counts only on the
+Slayer engine (2 in the stock order, 1 CTF to 5 Race) and an unknown mode is
+none; Hardcore on its own is "HARDCORE " and the engine's name (no name for
+an engine outside 1 to 5). short_form: "HC SWAT" for "HARDCORE SWAT". The
+name is the game types this build does not play, so a name is also the
+reason to leave the game unjoined. Nothing here rejects a kind */
+char const *network_rules_kind_name(int kind, int engine, int short_form);
 
 /* writes the shield effects message (NETWORK_RULES_SHIELD_EFFECTS_SIZE bytes,
 a reliable data message of one entry); effects past the last are stock */

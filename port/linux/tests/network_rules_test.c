@@ -386,6 +386,8 @@ static void test_shield_effects_message(void)
 	CHECK(!network_rules_shield_effects_read(vector, 12, 1, &effects));
 	memcpy(bad, vector, 12);
 	bad[8] = 6;
+	CHECK(network_rules_shield_effects_read(bad, 12, 0, &effects) && effects == 6);
+	bad[8] = 7;
 	CHECK(!network_rules_shield_effects_read(bad, 12, 0, &effects));
 	memcpy(bad, vector, 12);
 	bad[10] = 1;
@@ -399,6 +401,31 @@ static void test_shield_effects_message(void)
 	/* effects past the last are written as stock */
 	network_rules_shield_effects_write(message, 9, 0);
 	CHECK(message[8] == 0 && message[9] == 0);
+	network_rules_shield_effects_write(message, 6, 0);
+	CHECK(message[8] == 6 && message[9] == 0);
+}
+
+static void test_listing_kind(void)
+{
+	/* a mode only on the Slayer engine (2) */
+	CHECK(strcmp(network_rules_kind_name(0x83, 2, 0), "HARDCORE GUN GAME") == 0);
+	CHECK(strcmp(network_rules_kind_name(0x83, 2, 1), "HC GUN GAME") == 0);
+	CHECK(strcmp(network_rules_kind_name(0x01, 2, 0), "SWAT") == 0);
+	CHECK(strcmp(network_rules_kind_name(0x02, 2, 0), "INFECTION") == 0);
+	CHECK(strcmp(network_rules_kind_name(0x03, 2, 1), "GUN GAME") == 0);
+	CHECK(strcmp(network_rules_kind_name(0x81, 2, 1), "HC SWAT") == 0);
+	CHECK(strcmp(network_rules_kind_name(0x82, 2, 1), "HC INFECTION") == 0);
+	/* any other engine: the mode counts as none, hardcore stays */
+	CHECK(strcmp(network_rules_kind_name(0x83, 1, 0), "HARDCORE CTF") == 0);
+	CHECK(strcmp(network_rules_kind_name(0x83, 1, 1), "HC CTF") == 0);
+	CHECK(network_rules_kind_name(0x03, 1, 0) == NULL);
+	CHECK(strcmp(network_rules_kind_name(0x80, 5, 0), "HARDCORE RACE") == 0);
+	CHECK(strcmp(network_rules_kind_name(0x80, 4, 1), "HC KING") == 0);
+	/* a mode it does not know is none; no name for an engine outside 1 to 5 */
+	CHECK(network_rules_kind_name(0x05, 2, 0) == NULL);
+	CHECK(strcmp(network_rules_kind_name(0x85, 2, 0), "HARDCORE SLAYER") == 0);
+	CHECK(network_rules_kind_name(0x80, 0, 0) == NULL && network_rules_kind_name(0x80, 6, 0) == NULL);
+	CHECK(network_rules_kind_name(0x00, 2, 0) == NULL);
 }
 
 static void test_static_reach(void)
@@ -496,6 +523,7 @@ int main(void)
 	test_settings_size();
 	test_extended_options();
 	test_shield_effects_message();
+	test_listing_kind();
 	test_static_reach();
 	test_host_settings();
 	if (failures)

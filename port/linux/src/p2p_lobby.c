@@ -125,6 +125,9 @@ struct listing
 	char name[P2P_LISTING_NAME_SIZE + 1];
 	char map[P2P_LISTING_MAP_SIZE + 1];
 	char gametype[P2P_LISTING_GAMETYPE_SIZE + 1];
+	/* the stamp's first byte: the game's kind (version 37; the rest of the
+	stamp is reserved, and whatever it holds is signed over and kept) */
+	unsigned char kind;
 	/* the signed part's size */
 	int signed_size;
 };
@@ -368,6 +371,9 @@ static int listing_read(const unsigned char *bytes, int size, struct listing *li
 	{
 		return 0;
 	}
+	if (offset + STAMP_SIZE > size)
+		return 0;
+	listing->kind = bytes[offset];
 	offset += STAMP_SIZE;
 	if (offset + P2P_SIGNATURE_SIZE != size)
 		return 0;
@@ -691,6 +697,7 @@ static void listing_take(const struct queued *queued, const struct listing *list
 	shown->player_count = (unsigned char)listing->player_count;
 	shown->maximum_player_count = (unsigned char)listing->maximum_player_count;
 	shown->engine_type = (unsigned char)listing->engine_type;
+	shown->kind = listing->kind;
 	shown->open = (listing->flags & _listing_open) != 0;
 	shown->in_progress = (listing->flags & _listing_in_progress) != 0;
 	shown->has_teams = (listing->flags & _listing_has_teams) != 0;

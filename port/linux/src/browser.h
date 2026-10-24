@@ -107,6 +107,9 @@ struct browser_game
 	another map, or a host that doesn't) */
 	char map_title[48];
 	char map_pack[48];
+	/* the kind its public listing says (p2p_listing's; 0 when it has none
+	or isn't heard): OpenCE's game types and Hardcore, by name in the list */
+	unsigned char kind;
 };
 
 /* one player's line of a finished game's carnage report */
