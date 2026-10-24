@@ -234,6 +234,19 @@ static const struct config_setting config_settings[] =
 		"It costs the GPU some time. Takes effect the next start." },
 	{ "debug.gpu_fault_test", _config_boolean, "false", "HALO_GPU_FAULT_TEST", _environment_set_is_true,
 		_platform_android,
+	{ "display.dynamic_light_limit", _config_integer, "8", "HALO_DYNAMIC_LIGHT_LIMIT", _environment_value, _platform_all,
+		"The most dynamic lights (muzzle flashes, plasma, explosions) that light\n"
+		"the level at once: the biggest on the screen keep their light on the\n"
+		"walls and floor, the rest light only the objects near them. 0 for no\n"
+		"limit, as on the Xbox (each redraws the level it reaches twice: a\n"
+		"firefight of many is the most of a busy frame's GPU time). Changes at\n"
+		"once." },
+	{ "display.specular_light_limit", _config_integer, "2", "HALO_SPECULAR_LIGHT_LIMIT", _environment_value, _platform_all,
+		"Of those, the most that add their specular highlights (the shine on\n"
+		"metal and wet floors): the biggest on the screen, the first-person\n"
+		"weapon's first. The others still light the level, without the shine.\n"
+		"0 for no limit, as on the Xbox (a near light's highlights cover most\n"
+		"of the screen: the costliest pass of a firefight). Changes at once." },
 		"Make the GPU fault on purpose at the 1200th frame, to see gpu_trace's record.\n"
 		"Takes effect the next start." },
 	{ "debug.gpu_profile", _config_boolean, "false", "HALO_GPU_PROFILE", _environment_set_is_true, _platform_android,
