@@ -143,3 +143,136 @@ int network_rules_aim_assist_blocks(int game_in_progress, int main_menu_active, 
 		return client_policy_blocked != 0;
 	return 0;
 }
+
+int network_rules_settings_size(unsigned version)
+{
+	if (version == NETWORK_RULES_VERSION_UNKNOWN)
+		return 0;
+	return version >= NETWORK_RULES_EXTENDED_OPTIONS_VERSION ? NETWORK_RULES_SETTINGS_EXTENDED_SIZE :
+		NETWORK_RULES_SETTINGS_SIZE;
+}
+
+int network_rules_settings_size_taken(unsigned version, unsigned total_size)
+{
+	int size = network_rules_settings_size(version);
+
+	if (size)
+		return total_size == (unsigned)size;
+	return total_size == NETWORK_RULES_SETTINGS_SIZE || total_size == NETWORK_RULES_SETTINGS_EXTENDED_SIZE;
+}
+
+void network_rules_settings_fold_options(uint8_t *record, uint8_t *extended)
+{
+	/* (the older record's last 4 bytes are its local data, after the
+	options' first 0x1C: there, in the newer, the further 16 begin) */
+	uint8_t *further = record + NETWORK_RULES_SETTINGS_SIZE - 4;
+	uint8_t local[4];
+	int index;
+
+	for (index = 0; index < 4; index++)
+		local[index] = further[NETWORK_RULES_EXTENDED_OPTIONS_SIZE + index];
+	for (index = 0; index < NETWORK_RULES_EXTENDED_OPTIONS_SIZE; index++)
+		extended[index] = further[index];
+	for (index = 0; index < 4; index++)
+		further[index] = local[index];
+	for (index = 0; index < NETWORK_RULES_EXTENDED_OPTIONS_SIZE; index++)
+		record[NETWORK_RULES_SETTINGS_SIZE + index] = 0;
+}
+
+/* a ranged byte: its default outside the range */
+static uint8_t ranged(uint8_t value, uint8_t least, uint8_t most, uint8_t otherwise)
+{
+	return value < least || value > most ? otherwise : value;
+}
+
+void network_rules_extended_options_default(uint8_t *options)
+{
+	int index;
+
+	for (index = 0; index < NETWORK_RULES_EXTENDED_OPTIONS_SIZE; index++)
+		options[index] = 0;
+	options[NETWORK_RULES_OPTION_FIRST_ZOMBIES] = 1;
+	options[NETWORK_RULES_OPTION_ZOMBIE_SPEED] = 150;
+	options[NETWORK_RULES_OPTION_SKULL_DAMAGE] = 200;
+	options[NETWORK_RULES_OPTION_ZOMBIE_RESPAWN] = 5;
+	options[NETWORK_RULES_OPTION_COUNTDOWN] = 10;
+	options[NETWORK_RULES_OPTION_ZOMBIE_SHIELDS] = 1;
+	options[NETWORK_RULES_OPTION_MELEE_DEMOTES] = 1;
+}
+
+void network_rules_extended_options_sanitize(uint8_t *options)
+{
+	int index;
+
+	if (options[NETWORK_RULES_OPTION_MODE] >= NETWORK_RULES_NUMBER_OF_MODES)
+		options[NETWORK_RULES_OPTION_MODE] = NETWORK_RULES_MODE_NONE;
+	options[NETWORK_RULES_OPTION_HARDCORE] = options[NETWORK_RULES_OPTION_HARDCORE] != 0;
+	options[NETWORK_RULES_OPTION_FIRST_ZOMBIES] = ranged(options[NETWORK_RULES_OPTION_FIRST_ZOMBIES], 1, 16, 1);
+	options[NETWORK_RULES_OPTION_ZOMBIE_SPEED] = ranged(options[NETWORK_RULES_OPTION_ZOMBIE_SPEED], 100, 200, 150);
+	options[NETWORK_RULES_OPTION_SKULL_DAMAGE] = ranged(options[NETWORK_RULES_OPTION_SKULL_DAMAGE], 100, 250, 200);
+	options[NETWORK_RULES_OPTION_ZOMBIE_RESPAWN] = ranged(options[NETWORK_RULES_OPTION_ZOMBIE_RESPAWN], 1, 30, 5);
+	options[NETWORK_RULES_OPTION_COUNTDOWN] = ranged(options[NETWORK_RULES_OPTION_COUNTDOWN], 0, 30, 10);
+	options[NETWORK_RULES_OPTION_ZOMBIE_SHIELDS] = options[NETWORK_RULES_OPTION_ZOMBIE_SHIELDS] != 0;
+	if (options[NETWORK_RULES_OPTION_WEAPON_ORDER] > 2)
+		options[NETWORK_RULES_OPTION_WEAPON_ORDER] = 0;
+	options[NETWORK_RULES_OPTION_MELEE_DEMOTES] = options[NETWORK_RULES_OPTION_MELEE_DEMOTES] != 0;
+	for (index = NETWORK_RULES_OPTION_MELEE_DEMOTES + 1; index < NETWORK_RULES_EXTENDED_OPTIONS_SIZE; index++)
+		options[index] = 0;
+}
+
+int network_rules_extended_options_mode(uint8_t const *options, int slayer, int teams, int *hardcore)
+{
+	int mode = options[NETWORK_RULES_OPTION_MODE];
+
+	*hardcore = options[NETWORK_RULES_OPTION_HARDCORE] != 0;
+	if (!slayer || (mode == NETWORK_RULES_MODE_INFECTION && !teams) || (mode == NETWORK_RULES_MODE_GUN_GAME && teams) ||
+		mode >= NETWORK_RULES_NUMBER_OF_MODES)
+	{
+		return NETWORK_RULES_MODE_NONE;
+	}
+	return mode;
+}
+
+void network_rules_shield_effects_write(uint8_t *message, int effects, int32_t game_time)
+{
+	put16(message, (NETWORK_RULES_SHIELD_EFFECTS_SIZE << 4) | (NETWORK_RULES_MESSAGE_TYPE_DATA << 2));
+	message[2] = NETWORK_RULES_SHIELD_EFFECTS_KIND;
+	message[3] = 1;
+	put32(message + 4, (uint32_t)game_time);
+	put16(message + 8, effects >= 0 && effects <= NETWORK_RULES_SHIELD_EFFECTS_MAXIMUM ? (unsigned)effects : 0);
+	put16(message + 10, 0);
+}
+
+int network_rules_shield_effects_read(uint8_t const *message, int size, int from_datagram, int *effects)
+{
+	unsigned header;
+
+	if (from_datagram || size != NETWORK_RULES_SHIELD_EFFECTS_SIZE)
+		return 0;
+	header = get16(message);
+	if ((header >> 4) != NETWORK_RULES_SHIELD_EFFECTS_SIZE || ((header >> 2) & 3) != NETWORK_RULES_MESSAGE_TYPE_DATA ||
+		message[2] != NETWORK_RULES_SHIELD_EFFECTS_KIND || message[3] != 1)
+	{
+		return 0;
+	}
+	if (get16(message + 8) > NETWORK_RULES_SHIELD_EFFECTS_MAXIMUM || get16(message + 10) != 0)
+		return 0;
+	*effects = (int)get16(message + 8);
+	return 1;
+}
+
+float network_rules_static_event_reach(int area, float cutoff_radius)
+{
+	float reach = NETWORK_RULES_STATIC_EVENT_REACH;
+
+	if (area && cutoff_radius > 0.0f)
+		reach += cutoff_radius;
+	return reach;
+}
+
+int network_rules_static_within(float distance_squared, float radius, float reach)
+{
+	float limit = radius + reach;
+
+	return limit >= 0.0f && distance_squared <= limit * limit;
+}

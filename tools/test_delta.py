@@ -51,16 +51,18 @@ def test_limits_follow_the_table():
     table = rows()
     newest = table[-1][0]
     last_breaking = max(number for number, _, kind in table if kind == "breaking")
-    assert define(limits, "HALO_PORT_NETWORK_VERSION") == newest, \
-        "hosts must announce the table's newest version"
+    # (hosts announce a version of the table, which may be older than its
+    # newest: clients play by a newer host's version before our hosts do)
+    assert define(limits, "HALO_PORT_NETWORK_VERSION") in [number for number, _, _ in table], \
+        "hosts must announce a version of the table"
     assert define(limits, "HALO_PORT_NETWORK_VERSION_MAXIMUM") >= newest, \
         "clients must join hosts up to the table's newest version, at least"
     assert define(limits, "HALO_PORT_NETWORK_VERSION_MINIMUM") == last_breaking, \
         "clients must join hosts back to the table's newest breaking version"
     presumed = define(DELTA.read_text(encoding="utf-8"), "DELTA_LEGACY_PRESUMED")
     assert presumed >= 1
-    assert define(limits, "HALO_PORT_NETWORK_VERSION_MAXIMUM") >= define(limits, "HALO_PORT_NETWORK_VERSION") + presumed, \
-        "clients must join hosts of the versions past their own presumed additive (DELTA_LEGACY_PRESUMED)"
+    assert define(limits, "HALO_PORT_NETWORK_VERSION_MAXIMUM") >= newest + presumed, \
+        "clients must join hosts of the versions past the table's newest presumed additive (DELTA_LEGACY_PRESUMED)"
 
 
 def test_advertised_wire_fits():

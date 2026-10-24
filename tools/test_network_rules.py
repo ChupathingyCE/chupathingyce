@@ -1,4 +1,4 @@
-"""Tests of network versions 30 to 32: the C tests of the rules every machine
+"""Tests of network versions 30 to 36: the C tests of the rules every machine
 shares (port/linux/tests/network_rules_test.c: the aim assist policy
 message's and the input entry's bytes, the stamp window, the elevator's
 correction and riders, the policy's reach), built with the build machine's C
@@ -109,6 +109,31 @@ def test_aim_assist_policy_is_message_90():
     assert "#define AIM_ASSIST_POLICY_NETWORK_VERSION 32" in source
 
 
+def test_shield_effects_are_message_91():
+    header = DISTRIBUTED_H.read_text(encoding="utf-8")
+    assert re.search(r"_distributed_message_shield_effects = 91,", header)
+    source = DISTRIBUTED_C.read_text(encoding="utf-8")
+    # a client takes it from the host's stream only; a host takes none; it is
+    # stock again at every game
+    handler = source[source.index("case _distributed_message_shield_effects:\n\t{"):]
+    handler = handler[:handler.index("break;")]
+    assert "machine_index == NONE" in handler and "_game_connection_network_client" in handler
+    assert "network_connection_last_read_was_unreliable()" in handler
+    assert "distributed_shield_effects = 0;" in source
+
+
+def test_settings_record_by_the_hosts_version():
+    """the client takes the record's size by the host's version, makes a newer
+    record the older layout, and leaves a game of OpenCE's own game types"""
+    source = (ROOT / "source/networking/network_client_message_handler.c").read_text(encoding="utf-8")
+    piece = source[source.index("static boolean network_game_client_receive_game_settings_piece("):]
+    piece = piece[:piece.index("\n}\n")]
+    assert "network_rules_settings_size_taken(network_game_client_host_network_version(), piece->total_size)" in piece
+    assert "network_rules_settings_fold_options(" in piece and "network_rules_extended_options_sanitize(" in piece
+    assert piece.count("network_game_client_leave_unsupported_game_type(") == 2
+    assert "doesn't support yet" in source
+
+
 def test_policy_setting_is_documented():
     config = (ROOT / "port/linux/src/port_config.c").read_text(encoding="utf-8")
     assert re.search(r'"network\.block_mouse_aim_assist", _config_boolean, "false", "HALO_NET_BLOCK_MOUSE_AIM_ASSIST"', config)
@@ -121,8 +146,9 @@ def test_the_version_and_the_wire():
     delta = (ROOT / "port/linux/include/delta.h").read_text(encoding="utf-8")
     assert "#define HALO_PORT_NETWORK_VERSION 32\n" in limits
     assert '#define DELTA_WIRE "chupa-32a"' in delta
-    for number in (30, 31, 32):
+    for number in (30, 31, 32, 33, 34, 35, 36):
         assert re.search(rf'X\({number}, "build-\d+", additive\)', delta)
+    assert "#define HALO_PORT_NETWORK_VERSION_MAXIMUM 37\n" in limits
 
 
 def test_elevator_carry_of_the_tick_is_for_network_games_only():

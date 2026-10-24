@@ -3237,6 +3237,32 @@ boolean network_aim_assist_blocked(
 		distributed_aim_assist_setting(), distributed_aim_assist_blocked_by_host);
 }
 
+boolean network_rules_of_version(
+	unsigned int version)
+{
+	unsigned int host;
+
+	if (game_connection() != _game_connection_network_client)
+		return HALO_PORT_NETWORK_VERSION >= version;
+	host = network_game_client_host_network_version();
+	return host != NETWORK_RULES_VERSION_UNKNOWN && host >= version;
+}
+
+/* a client: the host's shield effects, as it last said (message 91), stock
+at the start of every game. They are its choice of how every machine draws
+players' shields, for fairness; this build has no glow or light show of its
+own and draws stock, which a stock host's game is exactly, and the others
+differ from only in their look. */
+static short distributed_shield_effects = 0;
+/* (whether the host has said them this game, for the log) */
+static boolean distributed_shield_effects_heard = FALSE;
+
+short network_shield_effects(
+	void)
+{
+	return distributed_shield_effects;
+}
+
 /* (the host) the setting to one client machine, or to every client (NONE) */
 static void distributed_send_aim_assist(
 	long machine_index)
@@ -3533,6 +3559,8 @@ void network_distributed_new_game(
 		network_game_client_host_network_version() != 0xFFFF &&
 		network_game_client_host_network_version() >= AIM_ASSIST_POLICY_NETWORK_VERSION;
 	distributed_aim_assist_sent = NONE;
+	distributed_shield_effects = 0;
+	distributed_shield_effects_heard = FALSE;
 	distributed_statistics_due = FALSE;
 	distributed_pickup_count = 0;
 	/* (each player's latest input: player_queues_new.c) */
@@ -4487,6 +4515,7 @@ void network_distributed_handle_message(
 	case _distributed_message_coop_device_states: entry_size = network_coop_device_state_entry_size(); break;
 	case _distributed_message_pickups: entry_size = sizeof(struct distributed_pickup); break;
 	case _distributed_message_aim_assist_policy: entry_size = NETWORK_RULES_AIM_ASSIST_SIZE - sizeof(header); break;
+	case _distributed_message_shield_effects: entry_size = NETWORK_RULES_SHIELD_EFFECTS_SIZE - sizeof(header); break;
 	case _distributed_message_chat_up:
 	case _distributed_message_chat_down: entry_size = DELTA_CHAT_BRIDGE_LINE_SIZE; break;
 	case _distributed_message_chat_config: entry_size = DELTA_CHAT_BRIDGE_CONFIG_SIZE; break;
@@ -4828,6 +4857,34 @@ void network_distributed_handle_message(
 		}
 		break;
 	}
+	case _distributed_message_shield_effects:
+	{
+		/* the host's shield effects: as the aim assist policy, reliably, of
+		exactly the size, not from a datagram; anything else is dropped. A
+		host takes none. */
+		int effects;
+#ifdef HALO_BIG_ENDIAN
+		byte choice[NETWORK_RULES_SHIELD_EFFECTS_SIZE];
+
+		if (size == sizeof(choice))
+		{
+			csmemcpy(choice, message, sizeof(choice));
+			distributed_wire_swap(choice, 1, sizeof(message_header));
+			message = (word const *)choice;
+		}
+#endif
+
+		if (machine_index == NONE && game_connection() == _game_connection_network_client &&
+			network_rules_shield_effects_read((byte const *)message, size, network_connection_last_read_was_unreliable(),
+				&effects))
+		{
+			if (effects != distributed_shield_effects || !distributed_shield_effects_heard)
+				error(_error_log, "the host's shield effects are %d (drawn as stock)", effects);
+			distributed_shield_effects = (short)effects;
+			distributed_shield_effects_heard = TRUE;
+		}
+		break;
+	}
 	case _distributed_message_pickups:
 	{
 		/* what the host says this machine's players picked up */
@@ -4987,6 +5044,7 @@ static boolean distributed_wire_entries(
 	case _distributed_message_objects_synchronized:
 	/* (network_rules.c's, written and read as the wire has it) */
 	case _distributed_message_aim_assist_policy:
+	case _distributed_message_shield_effects:
 		return TRUE;
 	}
 	return FALSE;

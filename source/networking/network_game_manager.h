@@ -48,6 +48,11 @@ enum
 	/* the players pass through each other (Server Setup's PLAYER COLLISIONS:
 	OFF, co-op's): network_coop_player_collisions */
 	_network_game_cooperative_no_player_collisions_bit = 0,
+	/* the players' hits do their AI allies no harm (OpenCE's network version
+	33, its Server Setup's ALLY FRIENDLY FIRE: OFF): a host's rule alone, so
+	a client takes the bit and does nothing with it; this build's hosts send
+	it as 0 */
+	_network_game_cooperative_no_ally_damage_bit = 1,
 };
 
 struct network_game

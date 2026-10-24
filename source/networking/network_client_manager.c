@@ -831,6 +831,20 @@ unsigned int network_game_client_host_network_version(
 	return network_game_client_joined_version;
 }
 
+/* port: what the host showed of its version where it was not known (a game
+joined by an invitation): the version it is at least, which its rules then
+follow (a record of 35's layout, network_client_message_handler.c); a known
+version stays as it was advertised */
+void network_game_client_note_host_network_version(
+	unsigned int version)
+{
+	if (network_game_client_joined_version == 0xFFFF)
+	{
+		network_event("the host's network version is at least %u, by its game settings", version);
+		network_game_client_joined_version = version;
+	}
+}
+
 
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA)
 /* port/linux/src/delta_peer_game.c's */
