@@ -7,10 +7,12 @@ datagrams are near enough in time to be taken, the bytes of the aim assist
 policy message and of a player's input entry, which device a player aims
 with, and what versions 33 to 38 changed (the game settings record's size by
 the host's version, the gametype's further options, the host's shield effects
-message, how near a static target's copy must be). network_distributed.c asks, the unit tests (port/linux/tests/
-network_rules_test.c) check the answers byte for byte. Nothing here has a
-dependency but the C library; multi-byte values are little-endian, as on
-every machine the game runs on.
+message, how near a static target's copy must be), and the layouts those
+versions' facts make, which a signed legacy table extends for newer versions
+(delta.h, "layouts"). network_distributed.c asks, the unit tests (port/linux/
+tests/network_rules_test.c) check the answers byte for byte. Nothing here has
+a dependency but the C library and delta.h's numbers; multi-byte values are
+little-endian, as on every machine the game runs on.
 */
 
 #ifndef __NETWORK_RULES_H
@@ -18,6 +20,8 @@ every machine the game runs on.
 
 #include <stddef.h>
 #include <stdint.h>
+
+struct delta_layout_fact;
 
 /* ---------- constants */
 
@@ -221,10 +225,12 @@ char const *network_rules_kind_name(int kind, int engine, int short_form);
 a reliable data message of one entry); effects past the last are stock */
 void network_rules_shield_effects_write(uint8_t *message, int effects, int32_t game_time);
 /* checks a message that came from the host as network_rules_aim_assist_read
-does: the size, the data type, kind 91, one entry, effects 0 to 5, the 16
-bits after them 0, not from a datagram. Returns whether to take it, and in
+does: the size, the data type, kind 91, one entry, effects 0 to maximum (the
+host's layout's, NETWORK_RULES_SHIELD_EFFECTS_MAXIMUM built in), the 16 bits
+after them 0, not from a datagram. Returns whether to take it, and in
 *effects what it says. */
-int network_rules_shield_effects_read(uint8_t const *message, int size, int from_datagram, int *effects);
+int network_rules_shield_effects_read(uint8_t const *message, int size, int from_datagram, int maximum,
+	int *effects);
 
 /* (a client) how far past a static target's bounding sphere the host's event
 on another copy of one reaches: NETWORK_RULES_STATIC_EVENT_REACH, and an area
@@ -263,5 +269,89 @@ record's bytes but its last 4, then the further ones, then those 4 (its
 local data) */
 void network_rules_settings_extended_copy(uint8_t const *record, uint8_t const *extended, int offset, int length,
 	uint8_t *out);
+
+/* ---------- layouts: a host's version's facts, built in and from the table
+
+What this build reads of a host of a network version as data: the game
+settings record's size, the gametype's options' bytes in it (the record is
+its first 0x3320 bytes, the options, its 4 bytes of local data, and from a
+table's facts any bytes after them), the shield effects message's largest
+value, and the distributed message kinds such a host sends that a machine
+that does not know them drops. Built in: what versions 11 to
+DELTA_LEGACY_NEWEST (delta.h) are, and for a newer version the newest's. A
+signed legacy table's facts (delta.h's struct delta_layout_fact) extend a
+version past DELTA_LEGACY_NEWEST only, and only within these limits (the
+buffers every build has room for); a fact's field past them is not taken. */
+
+/* the gametype's options in the record: to 34, and from 35 */
+#define NETWORK_RULES_OPTIONS_SIZE 0x1C
+#define NETWORK_RULES_OPTIONS_EXTENDED_SIZE (NETWORK_RULES_OPTIONS_SIZE + NETWORK_RULES_EXTENDED_OPTIONS_SIZE)
+/* the record's bytes before the options */
+#define NETWORK_RULES_SETTINGS_HEAD_SIZE (NETWORK_RULES_SETTINGS_SIZE - 4 - NETWORK_RULES_OPTIONS_SIZE)
+/* how many bytes a table may add past 35's record (the options and the
+bytes after the local data together) */
+#define NETWORK_RULES_LAYOUT_GROWTH_MAXIMUM 64
+#define NETWORK_RULES_SETTINGS_MAXIMUM (NETWORK_RULES_SETTINGS_EXTENDED_SIZE + NETWORK_RULES_LAYOUT_GROWTH_MAXIMUM)
+/* the most the shield effects message's largest value may be raised to (a
+value this build has no look for is drawn as stock) */
+#define NETWORK_RULES_SHIELD_EFFECTS_LIMIT 15
+
+struct network_rules_layout
+{
+	/* the host's version (NETWORK_RULES_VERSION_UNKNOWN: not known) */
+	unsigned version;
+	/* the record's bytes (0 for a version not known: either built-in size)
+	and the options' bytes in it (0: by the record's size) */
+	int settings_size;
+	int options_size;
+	int shield_effects_maximum;
+	/* the kinds a machine that does not know them drops, a bit a kind */
+	uint8_t dropped[32];
+	/* how many of the table's facts' fields were taken, and how many were
+	past the limits and were not */
+	int learned;
+	int refused;
+};
+
+/* the built-in facts of a version */
+void network_rules_layout_built_in(unsigned version, struct network_rules_layout *layout);
+/* a table's facts (count of them, oldest first) applied to a layout from
+network_rules_layout_built_in: each fact of a version past DELTA_LEGACY_NEWEST,
+up to the layout's, in order; a size may only grow (the bytes after the local
+data never shrink), to the limits; the shield effects' largest value only
+rise, to NETWORK_RULES_SHIELD_EFFECTS_LIMIT; dropped kinds add */
+void network_rules_layout_apply(struct network_rules_layout *layout, struct delta_layout_fact const *facts,
+	int count);
+/* where the table's facts come from (delta.c's delta_legacy_layouts, told
+at start; none: the built-in facts alone, as on a build without the table) */
+void network_rules_set_layout_source(int (*source)(struct delta_layout_fact *facts, int count));
+/* a version's layout: built in, and the table's facts applied */
+void network_rules_layout(unsigned version, struct network_rules_layout *layout);
+/* the newest version whose layout this build reads: DELTA_LEGACY_NEWEST, or
+the table's newest fact past it (a Delta client's HELLO says it) */
+unsigned network_rules_layout_newest(void);
+/* whether a layout says a host of it sends kind, a machine not knowing it
+dropping it */
+int network_rules_layout_drops(struct network_rules_layout const *layout, unsigned kind);
+
+/* the options' bytes in a record of total_size from a host of the version
+(of a version not known, by its size: 35's for the longer record) */
+int network_rules_settings_options_size(unsigned version, unsigned total_size);
+/* a record of a layout with options_size bytes of options (total_size bytes
+as the wire has it, past NETWORK_RULES_SETTINGS_SIZE) made the older layout
+in place: the 16 further option bytes 35 named into extended, the local data
+moved up after the first 0x1C, the rest zeros (bytes this build has no use
+for) */
+void network_rules_settings_fold(uint8_t *record, int total_size, int options_size, uint8_t *extended);
+/* (a host) the options' bytes of the record it sends a machine (as
+network_rules_host_settings_size: a version's) */
+int network_rules_host_settings_options(unsigned announce, unsigned delta_version);
+/* the bytes offset to offset + length of the record of a layout with
+options_size bytes of options made from the older one (record) and the 16
+further option bytes 35 named (extended): the older record's bytes but its
+last 4, the further ones, zeros for options this build has none of, the 4
+bytes of local data, then zeros */
+void network_rules_settings_layout_copy(uint8_t const *record, uint8_t const *extended, int options_size,
+	int offset, int length, uint8_t *out);
 
 #endif /* __NETWORK_RULES_H */

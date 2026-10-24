@@ -847,11 +847,15 @@ come, so while this host speaks Delta and announces 35 or later a machine is
 sent no record until its HELLO or the handshake's window (4 s) is over; then
 the size is the machine's for as long as it is connected. Under 35 every
 machine takes the old record at once, as before. The further options are
-the defaults: this host plays none of OpenCE's own game types. */
+the defaults: this host plays none of OpenCE's own game types. A version
+past the ones this build knows has the layout a signed legacy table's facts
+give it (network_rules.h, "layouts"): options and bytes after the local data
+this build has no use for go as zeros. */
 int network_rules_host_settings_size(unsigned announce, unsigned delta_version, int waiting);
+int network_rules_host_settings_options(unsigned announce, unsigned delta_version);
+void network_rules_settings_layout_copy(unsigned char const *record, unsigned char const *extended, int options_size,
+	int offset, int length, unsigned char *out);
 int network_rules_host_static_damage_reported(unsigned announce, unsigned delta_version);
-void network_rules_settings_extended_copy(unsigned char const *record, unsigned char const *extended, int offset,
-	int length, unsigned char *out);
 void network_rules_extended_options_default(unsigned char *options);
 #ifdef HALO_GAME_BROWSER
 unsigned char delta_peer_advertised_flags(void);
@@ -872,13 +876,15 @@ typedef char network_game_server_settings_size_assert[
 	HALO_PORT_WIRE_NETWORK_GAME_SIZE == NETWORK_GAME_SERVER_SETTINGS_SIZE ? 1 : -1];
 
 /* each client machine's record: the connection it is for, since when it is
-waited for, its size once known (0: not yet), and whether the record is owed
-it (it was held back: network_game_server_settings_frame sends it) */
+waited for, its size once known (0: not yet) and its options' bytes, and
+whether the record is owed it (it was held back:
+network_game_server_settings_frame sends it) */
 static struct network_game_server_settings_machine
 {
 	struct network_connection *connection;
 	unsigned long since;
 	long size;
+	long options;
 	boolean owed;
 } network_game_server_settings_machines[MAXIMUM_NETWORK_MACHINE_COUNT];
 
@@ -921,10 +927,12 @@ static void network_game_server_settings_machine_joined(
 		csmemset(&network_game_server_settings_machines[slot], 0, sizeof(network_game_server_settings_machines[slot]));
 }
 
-/* the size of the record the machine takes, 0 while it is waited for */
-static long network_game_server_settings_size(
+/* the size of the record the machine takes, 0 while it is waited for (and
+its options' bytes in *options, if asked) */
+static long network_game_server_settings_layout(
 	struct network_game_server *server,
-	struct network_game_server_client_machine *machine)
+	struct network_game_server_client_machine *machine,
+	long *options)
 {
 	long slot = network_game_server_settings_slot(server, machine);
 	struct network_game_server_settings_machine *entry;
@@ -936,7 +944,11 @@ static long network_game_server_settings_size(
 	long machine_index = NONE;
 
 	if (slot == NONE)
+	{
+		if (options)
+			*options = network_rules_host_settings_options(announce, 0);
 		return network_rules_host_settings_size(announce, 0, FALSE);
+	}
 	entry = &network_game_server_settings_machines[slot];
 	if (entry->connection != connection)
 	{
@@ -944,7 +956,11 @@ static long network_game_server_settings_size(
 		entry->connection = connection;
 	}
 	if (entry->size)
+	{
+		if (options)
+			*options = entry->options;
 		return entry->size;
+	}
 	if (!entry->since)
 		entry->since = now ? now : 1;
 	/* (the host's own machine takes either: it joined by no advertisement) */
@@ -958,6 +974,9 @@ static long network_game_server_settings_size(
 #endif
 	}
 	entry->size = network_rules_host_settings_size(announce, delta_version, waiting);
+	entry->options = network_rules_host_settings_options(announce, delta_version);
+	if (options)
+		*options = entry->options;
 	if (entry->size && announce >= 35)
 	{
 		network_event("machine #%ld takes the game settings record of %ld bytes (this host's network version %u, "
@@ -966,14 +985,23 @@ static long network_game_server_settings_size(
 	return entry->size;
 }
 
+static long network_game_server_settings_size(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine)
+{
+	return network_game_server_settings_layout(server, machine, NULL);
+}
+
 /* the pieces of the record (wire, of wire_size, as the network has it) to the
-machine, of size (13,136: with the further options in front of its last 4) */
+machine, of size (13,136: with the further options in front of its last 4)
+and its options' bytes */
 static boolean network_game_server_send_settings_pieces(
 	struct network_game_server *server,
 	struct network_game_server_client_machine *machine,
 	void const *wire,
 	long wire_size,
-	long size)
+	long size,
+	long options)
 {
 	struct message_server_game_settings_update message;
 	unsigned char further[NETWORK_GAME_SERVER_SETTINGS_EXTENDED_SIZE - NETWORK_GAME_SERVER_SETTINGS_SIZE];
@@ -995,8 +1023,8 @@ static boolean network_game_server_send_settings_pieces(
 		if (size == wire_size)
 			csmemcpy(message.data, (byte const *)wire + offset, message.length);
 		else
-			network_rules_settings_extended_copy((unsigned char const *)wire, further, (int)offset, (int)message.length,
-				message.data);
+			network_rules_settings_layout_copy((unsigned char const *)wire, further, (int)options, (int)offset,
+				(int)message.length, message.data);
 		encoded_message = create_network_game_message(_message_server_game_settings_update, &message, sizeof(message));
 		if (!encoded_message || !network_game_server_send_message_to_client_machine(server, machine, encoded_message))
 			return FALSE;
@@ -1010,7 +1038,8 @@ boolean network_game_server_send_game_settings_to_client_machine(
 	void const *game,
 	long game_size)
 {
-	long size = network_game_server_settings_size(server, machine);
+	long options = 0;
+	long size = network_game_server_settings_layout(server, machine, &options);
 	long slot;
 
 	/* (waited for: sent once its size is known) */
@@ -1024,7 +1053,7 @@ boolean network_game_server_send_game_settings_to_client_machine(
 	game = network_game_server_wire_game(game, &game_size);
 	if (game_size <= 0)
 		return FALSE;
-	return network_game_server_send_settings_pieces(server, machine, game, game_size, size);
+	return network_game_server_send_settings_pieces(server, machine, game, game_size, size, options);
 }
 
 /* port: each frame, the record to the machines it was held back from whose
@@ -1380,7 +1409,7 @@ boolean network_game_server_send_game_settings_to_all_machines(
 		struct network_game_server_client_machine *machine =
 			network_game_server_get_client_machine_at_index(server, machine_index);
 		struct network_connection *connection;
-		long size;
+		long size, options = 0;
 
 		if (!network_game_server_client_machine_is_joined_to_game(server, machine) ||
 			network_game_server_machine_is_loading_late(server, machine))
@@ -1390,13 +1419,13 @@ boolean network_game_server_send_game_settings_to_all_machines(
 		connection = network_game_server_get_client_connection(machine);
 		if (!connection || !network_connection_active(connection))
 			continue;
-		size = network_game_server_settings_size(server, machine);
+		size = network_game_server_settings_layout(server, machine, &options);
 		if (!size)
 		{
 			network_game_server_settings_machines[machine_index].owed = TRUE;
 			continue;
 		}
-		if (!network_game_server_send_settings_pieces(server, machine, wire, wire_size, size))
+		if (!network_game_server_send_settings_pieces(server, machine, wire, wire_size, size, options))
 		{
 			network_event(
 				"failed to send message_server_game_settings_update message to all machines");

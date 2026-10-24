@@ -719,10 +719,14 @@ Since 0.8.0a a wire is not an island. `DELTA_WIRE_COMPATIBILITY` in
 `delta.h` gives each wire the oldest wire it plays the game with, without a
 desync and without losing what the older wire has: a feature the older wire
 lacks is dropped or unused with it, and content it can't play ends the join
-cleanly. `chupa-32a` plays with `chupa-28a` and newer (OpenCE's 30 to 32 are
-additive: a machine of 29 drops message 90 and ignores the co-op input byte;
-31's keep-alive, stamp window and stream-only messages were already in 29);
-`chupa-29a` plays with `chupa-28a`. A row is written with its release and
+cleanly. `chupa-38a` (the builds with OpenCE's 33 to 38) plays with
+`chupa-28a` and newer, as `chupa-32a` does: a host of 32 is the same game to
+both, and a host of 35 or later sends each Delta machine the settings record
+of the newest version its HELLO says it reads. `chupa-32a` plays with
+`chupa-28a` and newer (OpenCE's 30 to 32 are additive: a machine of 29 drops
+message 90 and ignores the co-op input byte; 31's keep-alive, stamp window
+and stream-only messages were already in 29); `chupa-29a` plays with
+`chupa-28a`. A row is written with its release and
 never changed: a build can't learn of a newer one, so a host also says its
 range in its advertisement.
 
@@ -1495,7 +1499,7 @@ check it too):
 - **`serial`**: 1 to 4294967294 (0xFFFFFFFF says "takes no tables" on the wire); each table published gets a higher one.
   **`issued`**: when it was made (Unix seconds), for people; optional.
 - **Rows by wire, not by build.** Each build has a wire ID (`DELTA_WIRE` in
-  `delta.h`, `chupa-32a` today; `chupa-29a` came before it; `chupa-28a` was 0.7.4e's and 0.7.5's, `chupa-26a` was 0.7.2e's and 0.7.3e's, `chupa-24a` was 0.7.1e's, `chupa-23a` 0.7.1b's, `chupa-20a` 0.7.0b's): the revision of the game protocol it
+  `delta.h`, `chupa-38a` today; `chupa-32a` was 0.8.0's to 0.8.0g's and the original Xbox build of 2026-10-21's; `chupa-29a` came before it; `chupa-28a` was 0.7.4e's and 0.7.5's, `chupa-26a` was 0.7.2e's and 0.7.3e's, `chupa-24a` was 0.7.1e's, `chupa-23a` 0.7.1b's, `chupa-20a` 0.7.0b's): the revision of the game protocol it
   actually speaks. A row says which OpenCE numbers that wire was proven to
   play with: the number a host announces, and the range of hosts' numbers a
   client joins (each 1 to 65535, `minimum <= announce <= maximum`). An old
@@ -1529,8 +1533,14 @@ check it too):
   it was built to allow, so a table can relax a limit only as far as the
   built-in default and tighten it only within the documented bounds. Until
   Delta Peer reads it, builds pass over it.
+- **`layouts`** (optional, in a row of `chupa-38a` and later wires): facts
+  about OpenCE versions the wire's builds read by data ("Layouts", below).
+  Builds of older wires, and every build reading another wire's row, pass
+  over it.
 - Unknown fields are skipped, so later fields don't break older builds. A key
-  twice in one object is a broken table.
+  twice in one object is a broken table. Nothing nests more than eight deep
+  (the document itself is one; another wire's row is three): every build's
+  parser drops a deeper table whole, so `tools/delta_table.py` refuses one.
 
 The **signature** is Ed25519 (RFC 8032) over the document's exact bytes,
 written as 128 hex digits. The servers keep the two as files side by side:
@@ -1555,7 +1565,14 @@ delta_table.py keygen --out KEY.pem
 ```
 
 `make` writes this build's wire and numbers (`delta.h`, `halo_port_limits.h`)
-and, with `--from`, keeps the other wires' rows of the table before it.
+and, with `--from`, keeps the other wires' rows of the table before it. For a
+wire that reads layouts it also writes this build's own facts (its versions
+past the one it announces), keeps the facts past them the table before had,
+and adds `--layout WIRE=VERSION:FIELD=VALUE[,...]` facts (`dropped_messages`
+as kinds joined by `+`, for example `--layout
+chupa-38a=39:options_size=48,dropped_messages=92`), refusing one its builds
+would not take. `--row` and `--take-back` change a row's numbers and keep its
+layouts.
 
 ### The key
 
@@ -1643,15 +1660,109 @@ the next serial, and `verify` checks the epoch against `delta_key.h`'s keys
 - A table that doesn't verify is dropped quietly (one line in the log, never
   an address); nothing is shown to the player.
 
+### Layouts
+
+The numbers say which OpenCE versions a wire plays; they can't say how. A
+raise that only adds bytes at the end of the gametype's options, a message an
+older machine drops, or a value of a known enum still needed a release,
+because the build's reading of those was code. Since `chupa-38a` it is data:
+a row's `layouts` gives, by OpenCE version, the facts a host of that version
+sends that the build reads by number (`network_rules.h`, "layouts"):
+
+```json
+"chupa-38a": {
+  "announce": 32, "minimum": 11, "maximum": 40,
+  "layouts": {
+    "35": { "settings_size": 13136, "options_size": 44 },
+    "39": { "options_size": 48, "dropped_messages": [92] },
+    "40": { "shield_effects_maximum": 7 }
+  }
+}
+```
+
+| Field | What it is | The limit |
+| --- | --- | --- |
+| `settings_size` | the game settings record's bytes at the network's 128 machines and players (13,120 to 34, 13,136 from 35); bytes past the options and the 4 of local data come after them, and a build has no use for them | at most 13,200 (`NETWORK_RULES_SETTINGS_MAXIMUM`: 35's and 64), and never fewer than the version before had, or than the options leave room for |
+| `options_size` | the gametype's options' bytes in it (0x1C to 34, 0x2C from 35); the record grows with them, in front of the local data; a build reads the 0x2C it knows and ignores the rest (a host sends zeros) | never shorter than before, the record within its limit |
+| `shield_effects_maximum` | the largest value the shield effects message (91) takes (6 built in); a value a build has no look for is drawn as stock | never lower than before, at most 15 |
+| `dropped_messages` | distributed message kinds a host of the version sends that a machine that doesn't know them drops (91 from 36 built in) | kinds 1 to 255; only kinds the build doesn't know are affected |
+
+A fact holds for its version and every later one until the next. A build
+uses facts only for versions past its own rules (`DELTA_LEGACY_NEWEST`, 38
+for `chupa-38a`): for its own versions its rules are the facts, and the table
+carries them too (`make` writes them, 33 to 38 for `chupa-38a`) only to say
+so. A fact's field past its limit is not taken (the build keeps the version
+before's), and the tool refuses to write one. The layout of a version is what
+every part reads: the record size a client expects of a host of it (a piece
+of another size ends the join, as before), how a client folds a longer
+record into its own (`network_rules_settings_fold`) and a host makes one
+(`network_rules_settings_layout_copy`), the newest version a Delta client's
+HELLO says it reads (the table's newest fact past 38), so that our hosts send
+it that version's record, the largest shield effects value a client takes,
+and which unknown kinds are expected (a kind neither the build nor the table
+knows is dropped too, and said in the log once a game, as the sign of a
+change the table has not caught up with). The table only adds: nothing in it
+can make a build read past a buffer, shrink what it reads, or handle a kind
+it handles differently, and a layout the host doesn't actually have ends the
+join cleanly rather than playing on.
+
+So the next OpenCE raise that only adds trailing option bytes, a message an
+older machine drops, or a new value of the shield effects message is a table
+row: the cross-play gate (or a person) runs `delta-table.yml` with the wire's
+widened numbers and its fact (`layouts`: `chupa-38a=39:options_size=48`), and
+no release follows. A raise that changes what an existing byte means, or adds
+behavior a machine must run alike (a new game type's rules, a message whose
+loss desyncs), is still a release.
+
+### When the wire changes
+
+A row widens every build of its wire alike, so every build of a wire must
+play the same OpenCE versions. **Bump the wire whenever a build learns a
+legacy layout or behavior**: a newer `DELTA_LEGACY_NEWEST`, a row added to
+`DELTA_LEGACY_VERSIONS`, or a layout read by code rather than the table.
+`DELTA_WIRE_LEGACY_NEWEST` in `delta.h` records each wire's newest version
+(`chupa-32a`'s is 33: 0.8.0e and the Xbox build of 2026-10-21 said
+`chupa-32a` and play 32, its one co-op bit the host's, while 0.8.0f and 0.8.0g
+said it too and play to 38, so no row could widen `chupa-32a` past 33), and
+`tools/test_delta.py` fails when `DELTA_LEGACY_NEWEST` or the version table's
+newest row passes the current wire's entry, or a released entry changes. A
+new wire gets a `DELTA_WIRE_COMPATIBILITY` row (usually the same oldest wire
+as the one before) so it keeps playing with the builds before it, and its own
+row in the table once its gate passes.
+
+A table needs no row for a wire to be safe for it: without one a build keeps
+its built-in numbers. A row narrower than a build's built-in numbers makes
+that build drop the whole table (and the kill switch and layouts with it), so
+`chupa-32a` has no row: its builds' built-in maximums are 33, 37 and 39, and
+any row either narrows the newer ones or widens 0.8.0e.
+
 ### Local override
 
 `network.legacy_table` in config.toml (`HALO_LEGACY_TABLE` for servers)
 names an unsigned file in the same format (beside config.toml unless a full
 path), for testing and for an admin who knows better. Its row for the build's
-wire is used as it is (it may narrow too); its serial is not checked. It logs
-a warning at start, and while it is set no signed table is fetched, taken or
-relayed. A file that can't be read, or has no row for the wire, leaves the
-built-in numbers in use (and says so).
+wire is used as it is (it may narrow too), with its layouts; its serial is
+not checked. It logs a warning at start, and while it is set no signed table
+is fetched, taken or relayed. A file that can't be read, or has no row for
+the wire, leaves the built-in numbers in use (and says so).
+
+This is how one server announces a newer number than the published table,
+for example a [C] server that announces 38 so that OpenCE build-268 players
+(an exact match) list and join it, while our players of `chupa-28a` and later
+join it as before (a Delta client joins by wire, and gets the record of its
+own version). On a `chupa-38a` build (0.8.0g and earlier say `chupa-32a`:
+use that row name there), `legacy-38.json` beside the server's config:
+
+```json
+{"delta_legacy": 1, "serial": 1,
+ "wires": {"chupa-38a": {"announce": 38, "minimum": 11, "maximum": 39}}}
+```
+
+and `HALO_LEGACY_TABLE=legacy-38.json` (or `network.legacy_table =
+"legacy-38.json"`). The server's log says "a local, unsigned legacy table is
+in use ... announcing 38", and `sv_status` "Following OpenCE network version
+38 (a local table)". It stops relaying signed tables meanwhile; remove the
+setting once a published table announces the number.
 
 ### In the code
 
@@ -1676,6 +1787,7 @@ keep working.
 | `delta_legacy_override()` | whether a local, unsigned table is in use |
 | `delta_legacy_relay()` | whether Delta Peer relays tables: not with an override, nor with no key |
 | `delta_legacy_following(text, size)` | "Following OpenCE build-145 (table 2)", for the log's header and `sv_status` |
+| `delta_legacy_layouts(facts, count)` | the table in use's layout facts for this wire, oldest first (`network_rules.c` asks, told of it at start) |
 
 `tools/test_delta.py` checks the tool and builds `delta.c` with a test key
 (`tools/delta_check.c`) to check what the game takes and drops.

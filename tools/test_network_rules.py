@@ -129,7 +129,11 @@ def test_settings_record_by_the_hosts_version():
     piece = source[source.index("static boolean network_game_client_receive_game_settings_piece("):]
     piece = piece[:piece.index("\n}\n")]
     assert "network_rules_settings_size_taken(network_game_client_host_network_version(), piece->total_size)" in piece
-    assert "network_rules_settings_fold_options(" in piece and "network_rules_extended_options_sanitize(" in piece
+    assert "network_rules_settings_fold(" in piece and "network_rules_extended_options_sanitize(" in piece
+    # (a newer version's layout from the table: the options' bytes by the
+    # host's version, the record no larger than the staging's room)
+    assert "network_rules_settings_options_size(network_game_client_host_network_version()," in piece
+    assert "piece->total_size > NETWORK_GAME_CLIENT_SETTINGS_MAXIMUM" in piece
     assert piece.count("network_game_client_leave_unsupported_game_type(") == 2
     assert "doesn't support yet" in source
 
@@ -145,7 +149,7 @@ def test_the_version_and_the_wire():
     limits = (ROOT / "port/linux/include/halo_port_limits.h").read_text(encoding="utf-8")
     delta = (ROOT / "port/linux/include/delta.h").read_text(encoding="utf-8")
     assert "#define HALO_PORT_NETWORK_VERSION 32\n" in limits
-    assert '#define DELTA_WIRE "chupa-32a"' in delta
+    assert '#define DELTA_WIRE "chupa-38a"' in delta
     for number in (30, 31, 32, 33, 34, 35, 36, 37, 38):
         assert re.search(rf'X\({number}, "build-\d+", additive\)', delta)
     assert "#define HALO_PORT_NETWORK_VERSION_MAXIMUM 39\n" in limits
