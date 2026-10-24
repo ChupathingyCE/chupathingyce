@@ -227,7 +227,7 @@ decides friendly fire by its own setting. Messages 87 to 89 are OpenCE's
 text chat, which Delta chat bridges (`docs/delta.md`, Chat): a build without
 them drops them as unknown, so they take no version of their own.
 
-Versions 33 to 36 are OpenCE's, which this build's clients play while its
+Versions 33 to 38 are OpenCE's, which this build's clients play while its
 hosts still announce 32 (`network_rules_of_version`, by the version the host
 advertised; a host not known plays by the older rules). Version 33 adds a
 second bit to the settings' co-op byte (bit 1: the players' hits do their AI
@@ -250,7 +250,14 @@ before anything reads it, and sanitizes the 16 further bytes
 the player told which, as this build doesn't play them yet. Version 36 adds
 message 91, the host's shield effects (12 bytes: the header, a 16-bit 0 to 5,
 16 bits of 0), reliably from the host; a client takes it and draws stock,
-the only shield look this build has.
+the only shield look this build has. Version 37 puts a game's kind (an OpenCE
+game type in the low seven bits, Hardcore in bit 7) in a byte that was zero:
+the advertisement's fourth reserved byte and the first byte of the internet
+listing's stamp. Our readers take any value there (the listing's signature
+covers the stamp as sent) and the game list names the game types this build
+doesn't play, marking them like a game of a newer build; our own hosts send
+a stock game's kind, 0. Version 38 lets message 91 carry 6, each machine's
+own look, which this build draws as stock too.
 
 A host plays by the number it announces (`delta_legacy_announce()`: the
 built-in one, or a legacy table's), which is the number of every OpenCE

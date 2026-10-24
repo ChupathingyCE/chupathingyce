@@ -1,4 +1,4 @@
-"""Tests of network versions 30 to 36: the C tests of the rules every machine
+"""Tests of network versions 30 to 38: the C tests of the rules every machine
 shares (port/linux/tests/network_rules_test.c: the aim assist policy
 message's and the input entry's bytes, the stamp window, the elevator's
 correction and riders, the policy's reach), built with the build machine's C
@@ -146,9 +146,9 @@ def test_the_version_and_the_wire():
     delta = (ROOT / "port/linux/include/delta.h").read_text(encoding="utf-8")
     assert "#define HALO_PORT_NETWORK_VERSION 32\n" in limits
     assert '#define DELTA_WIRE "chupa-32a"' in delta
-    for number in (30, 31, 32, 33, 34, 35, 36):
+    for number in (30, 31, 32, 33, 34, 35, 36, 37, 38):
         assert re.search(rf'X\({number}, "build-\d+", additive\)', delta)
-    assert "#define HALO_PORT_NETWORK_VERSION_MAXIMUM 37\n" in limits
+    assert "#define HALO_PORT_NETWORK_VERSION_MAXIMUM 39\n" in limits
 
 
 def test_elevator_carry_of_the_tick_is_for_network_games_only():

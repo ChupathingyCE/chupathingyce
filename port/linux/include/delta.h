@@ -248,7 +248,7 @@ announces, for what that client reads: the game settings record of 35's
 layout, and whether it reports a static target's own damage
 (network_rules_host_settings_size). Builds before it said their
 HALO_PORT_NETWORK_VERSION there, 32 or older. */
-#define DELTA_LEGACY_NEWEST 36
+#define DELTA_LEGACY_NEWEST 38
 
 /* OpenCE's network versions (HALO_PORT_NETWORK_VERSION in its builds), the
 first of its releases with each, and whether the version's change is one the
@@ -292,7 +292,9 @@ first; the command repository's watch adds a row when it follows OpenCE's raise
 	X(33, "build-266", additive) /* co-op's second switch in the settings' co-op byte (bit 1: the players' hits spare their AI allies), the host's to act on; in no release of OpenCE's, its testing builds alone */ \
 	X(34, "build-266", additive) /* no message changed: scenery and devices that are a shield alone are static targets too, every machine runs static targets' shields, a client reports no damage a static target deals, a static target's copy made during play found by the nearest; in no release */ \
 	X(35, "build-266", additive) /* OpenCE's own game types (SWAT, Infection, Gun Game, Hardcore): the gametype's options 0x2C bytes, the settings record 16 bytes longer, which a machine of 34 cannot read; this build reads both, by the host's number, and leaves a game of one it does not play; in no release */ \
-	X(36, "build-266", additive) /* the host's shield effects, a new message (91) a machine of 35 drops */
+	X(36, "build-266", additive) /* the host's shield effects, a new message (91) a machine of 35 drops */ \
+	X(37, "build-268", additive) /* a listed game's kind (an OpenCE game type and Hardcore) in a byte that was zero: the advertisement's fourth reserved byte and the internet listing's stamp; this build shows the name in the list and marks the games it does not play; no message or record changed */ \
+	X(38, "build-268", additive) /* the shield effects message takes a seventh value, 6, for each machine's own look; this build draws stock for it, as for the others */
 
 /* ---------- the legacy table (port/linux/src/delta.c)
 

@@ -182,6 +182,10 @@ struct p2p_listing
 	unsigned char sealed_token[P2P_LISTING_SEALED_TOKEN_SIZE];
 	/* the network version it was listed under (0: not known) */
 	unsigned short version;
+	/* the game's kind (version 37: an OpenCE game type's number in the low
+	seven bits, Hardcore in bit 7; 0 for a stock game or an older host),
+	read from the listing's stamp; only a name for the list */
+	unsigned char kind;
 };
 /* a copy of the public games found, each once (p2p_listing_older_copy), in
 the order shown (the most players first; then those not failed, the open

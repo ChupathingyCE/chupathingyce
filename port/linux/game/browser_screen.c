@@ -75,6 +75,7 @@ the right button is B.
 #include "networking/network_client_manager.h"
 #include "../src/browser.h"
 #include "halo_port_limits.h"
+#include "network_rules.h"
 #include "../src/browser_ping.h"
 #include "../src/map_art.h"
 #include "../src/map_download.h"
@@ -934,6 +935,19 @@ static char const *game_type_blocker(
 	long last = game_engine_race;
 #endif
 
+	/* (a game of OpenCE's own game types, by the kind its listing says, as the
+	game's own message says it on joining: network_client_message_handler.c) */
+	{
+		static char opence_text[96];
+		char const *kind = network_rules_kind_name(game->kind, game->engine, 0);
+
+		if (kind)
+		{
+			snprintf(opence_text, sizeof(opence_text), "This game uses an OpenCE game type (%s) Chupathingy doesn't support yet.",
+				kind);
+			return opence_text;
+		}
+	}
 	if (game->engine >= 0 && game->engine <= last)
 		return NULL;
 	return game->engine == game_engine_bomb ? "Bomb and Grifball need a Chupathingy build with Bomb." :
@@ -1562,6 +1576,13 @@ static char const *type_name(
 			snprintf(text, (size_t)size, "Co-op (%s)", difficulties[game->difficulty - 1]);
 		else
 			snprintf(text, (size_t)size, "Co-op");
+		return text;
+	}
+	/* (OpenCE's game types and Hardcore, by name) */
+	engine = network_rules_kind_name(game->kind, game->engine, 1);
+	if (engine)
+	{
+		snprintf(text, (size_t)size, "%s", engine);
 		return text;
 	}
 	engine = game->engine >= 0 && game->engine < NUMBEROF(engine_names) && engine_names[game->engine][0] ?

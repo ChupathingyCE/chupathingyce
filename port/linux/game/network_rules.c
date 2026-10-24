@@ -233,6 +233,25 @@ int network_rules_extended_options_mode(uint8_t const *options, int slayer, int 
 	return mode;
 }
 
+char const *network_rules_kind_name(int kind, int engine, int short_form)
+{
+	static char const *const modes[][2] = {
+		{ "SWAT", "HC SWAT" }, { "INFECTION", "HC INFECTION" }, { "GUN GAME", "HC GUN GAME" } };
+	static char const *const modes_full[] = { "HARDCORE SWAT", "HARDCORE INFECTION", "HARDCORE GUN GAME" };
+	static char const *const engines[][2] = {
+		{ "HARDCORE CTF", "HC CTF" }, { "HARDCORE SLAYER", "HC SLAYER" }, { "HARDCORE ODDBALL", "HC ODDBALL" },
+		{ "HARDCORE KING", "HC KING" }, { "HARDCORE RACE", "HC RACE" } };
+	int mode = kind & 0x7F;
+	int hardcore = (kind & 0x80) != 0;
+
+	short_form = short_form != 0;
+	if (engine == 2 && mode >= NETWORK_RULES_MODE_SWAT && mode < NETWORK_RULES_NUMBER_OF_MODES)
+		return hardcore ? (short_form ? modes[mode - 1][1] : modes_full[mode - 1]) : modes[mode - 1][0];
+	if (hardcore && engine >= 1 && engine <= 5)
+		return engines[engine - 1][short_form];
+	return NULL;
+}
+
 void network_rules_shield_effects_write(uint8_t *message, int effects, int32_t game_time)
 {
 	put16(message, (NETWORK_RULES_SHIELD_EFFECTS_SIZE << 4) | (NETWORK_RULES_MESSAGE_TYPE_DATA << 2));

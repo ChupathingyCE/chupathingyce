@@ -3254,7 +3254,9 @@ boolean network_rules_of_version(
 at the start of every game. They are its choice of how every machine draws
 players' shields, for fairness; this build has no glow or light show of its
 own and draws stock, which a stock host's game is exactly, and the others
-differ from only in their look. */
+differ from only in their look. 6 (version 38) leaves each machine its own
+player's look; this build has no look of its own to choose, so it draws stock
+for it too. */
 static short distributed_shield_effects = 0;
 /* (whether the host has said them this game, for the log) */
 static boolean distributed_shield_effects_heard = FALSE;
@@ -4881,7 +4883,7 @@ void network_distributed_handle_message(
 				&effects))
 		{
 			if (effects != distributed_shield_effects || !distributed_shield_effects_heard)
-				error(_error_log, "the host's shield effects are %d (drawn as stock)", effects);
+				error(_error_log, "the host's shield effects are %d (drawn as stock, as this build has no other)", effects);
 			distributed_shield_effects = (short)effects;
 			distributed_shield_effects_heard = TRUE;
 		}
