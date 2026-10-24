@@ -1,7 +1,7 @@
 {
   "delta_legacy": 1,
-  "serial": 6,
-  "issued": 1792821168,
+  "serial": 7,
+  "issued": 1792821769,
   "wires": {
     "chupa-20a": {
       "announce": 23,
@@ -16,9 +16,10 @@
       "follows": "build-169"
     },
     "chupa-38a": {
-      "announce": 32,
+      "announce": 38,
       "minimum": 11,
       "maximum": 39,
+      "follows": "build-268",
       "layouts": {
         "33": {
           "settings_size": 13120,
