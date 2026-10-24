@@ -188,7 +188,12 @@ The game writes every range it draws a frame after that first lock, so the
 new storage needs nothing of the old. Only for buffers this file made (their
 Data is its to replace; the rasterizer reads no dynamic buffer's Data
 itself), and only where something is busy, which under OpenGL nothing is. */
-#define RENAME_LIMIT 4
+/* (16: each render window resets the dynamic buffers, so a frame of
+several renames each of them again, and the storage stays the GPU's for
+the frames in flight. At 4 the particles' buffer ran out where c40's
+Sentinels' beams are seen through the crystal, and each frame waited for
+the GPU, 40 ms. The particles' is under 1 MB) */
+#define RENAME_LIMIT 16
 #define RENAMED_BUFFERS 64
 
 static struct renamed_buffer
@@ -577,8 +582,20 @@ void WINAPI D3DVertexBuffer_Lock(D3DVertexBuffer *buffer, UINT offset, UINT size
 #ifdef HALO_CONSOLE_GPU_RESOURCE_HOOKS
 	/* (a buffer the GPU still reads gets other storage, if it can) */
 	if (!(flags & (D3DLOCK_NOOVERWRITE | D3DLOCK_READONLY)) && (buffer->Common & D3DCOMMON_D3DCREATED) &&
-		halo_resource_busy((D3DResource *)buffer))
-		vertex_buffer_rename(buffer);
+		halo_resource_busy((D3DResource *)buffer) && !vertex_buffer_rename(buffer))
+	{
+		/* (a wait for the GPU in the middle of a frame: said, once in a while) */
+		static unsigned long waits, said_at;
+
+		if (waits++ - said_at >= 600 || waits == 1)
+		{
+			struct renamed_buffer *ring = renamed_find(buffer);
+
+			said_at = waits;
+			platform_log("a busy vertex buffer waited for the GPU (%lu times so far): %d of its %d storages in use, "
+				"%lu bytes each", waits, ring ? ring->count : 0, RENAME_LIMIT, ring ? ring->size : 0UL);
+		}
+	}
 	lock_wait(buffer, flags);
 #else
 	(void)flags;
