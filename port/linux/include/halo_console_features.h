@@ -24,6 +24,12 @@ HALO_CONSOLE_GPU_RESOURCE_HOOKS
 	halo_resource_wait, weak in port/linux/src/d3d8_resources.c, defined
 	for real by the console's renderer), and a busy dynamic vertex buffer
 	gets other storage instead of waiting
+HALO_CONSOLE_LIGHT_LIMITS
+	the dynamic light limits on by default: of the dynamic lights on the
+	screen, the 8 largest light the level and the 2 largest add their
+	specular highlights (display.dynamic_light_limit and
+	display.specular_light_limit, source/objects/object_lights.c). The
+	desktop builds default both to 0, every light lit as before, and opt in
 HALO_CONSOLE_NO_WRITE_WATCH
 	a console that will not write-protect guest memory, so the renderer's
 	write watch cannot see the game write a resource: locks and file reads
@@ -136,6 +142,7 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_MAP_LOAD_HOOKS 1
 #define HALO_CONSOLE_STATUS_LINE 1
 #define HALO_CONSOLE_LOG_THROTTLE 1
+#define HALO_CONSOLE_LIGHT_LIMITS 1
 #endif
 
 #ifdef HALO_WIIU_CONSOLE
@@ -148,12 +155,14 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_ONLINE_GAMES 1
 #define HALO_CONSOLE_WAIT_POLL 1
 #define HALO_CONSOLE_GL_LAYER 1
+#define HALO_CONSOLE_LIGHT_LIMITS 1
 #endif
 
 #ifdef HALO_XBOX_CONSOLE
 #define HALO_CONSOLE_LOG_BUFFER 1
 #define HALO_CONSOLE_ONLINE_GAMES 1
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
+#define HALO_CONSOLE_LIGHT_LIMITS 1
 #endif
 
 /* (the desktop builds copy maps to the Xbox's cache files too: a map pack's
@@ -169,6 +178,7 @@ larger maps take a campaign map's there as well) */
 #define HALO_CONSOLE_GL_LAYER 1
 #define HALO_CONSOLE_XBOX_RENDER_SIZES 1
 #define HALO_CONSOLE_ONLINE_GAMES 1
+#define HALO_CONSOLE_LIGHT_LIMITS 1
 #ifdef HALO_CONSOLE_DEBUG_TOOLS
 #define HALO_CONSOLE_BRINGUP_LOG 1
 #endif
