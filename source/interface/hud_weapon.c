@@ -2127,6 +2127,8 @@ void hud_render_weapon_interface(
 				weapon_index,
 				hud_index,
 				&weapon_state);
+			/* port: keep MCC child and inherited HUD components in one safe frame. */
+			mcc_hud_weapon_frame_begin(hud_index);
 			render_weapon_hud(
 				hud_index,
 				player->local_player_index,
@@ -2135,6 +2137,7 @@ void hud_render_weapon_interface(
 				NULL,
 				NULL,
 				NULL);
+			mcc_hud_weapon_frame_end(); /* port: do not affect later HUD draws. */
 			play_weapon_hud_sounds(
 				player->local_player_index,
 				hud_index,

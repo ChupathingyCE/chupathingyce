@@ -433,10 +433,12 @@ boolean mcc_cache_bitmap_valid(struct bitmap_data *bitmap)
     return mcc_loaded && mcc_bitmaps_valid(&mcc_loaded_cache, bitmap);
 }
 
-void const *mcc_cache_bitmap_pixels(struct bitmap_data const *bitmap,unsigned long *bytes)
+void const *mcc_cache_bitmap_pixels(struct bitmap_data const *bitmap,unsigned long *bytes,int *coverage)
 {
     uint32_t size=0;
-    void const *pixels=mcc_loaded ? mcc_bitmaps_pixels(&mcc_loaded_cache,bitmap,&size) : NULL;
+    void const *pixels;
+    if (coverage) *coverage=0;
+    pixels=mcc_loaded ? mcc_bitmaps_pixels(&mcc_loaded_cache,bitmap,&size,coverage) : NULL;
     if (bytes) *bytes=size;
     return pixels;
 }

@@ -9,6 +9,9 @@ struct hud_placement_definition;
 struct hud_absolute_placement_definition;
 struct icon_hud_element_definition;
 
+/* MCC conversion owns this value in native placement padding. */
+#define MCC_HUD_NATIVE_FRAME 0x4D53
+
 /* Neutral for every non-MCC cache. No native or CE tag is rewritten. */
 real mcc_hud_canvas_scale(void);
 real mcc_hud_bitmap_scale(long bitmap_group_index);
@@ -16,6 +19,8 @@ boolean mcc_hud_icon_draw(long bitmap_group_index, struct bitmap_data const *bit
     real_rectangle2d const *clip, rectangle2d *cursor, pixel32 color,
     struct icon_hud_element_definition const *icon, boolean menu);
 void mcc_hud_glyphs_dispose(void);
+void mcc_hud_weapon_frame_begin(long hud_index);
+void mcc_hud_weapon_frame_end(void);
 struct hud_absolute_placement_definition const *mcc_hud_child_placement(
     struct hud_absolute_placement_definition const *parent, void const *element,
     struct hud_absolute_placement_definition *storage);

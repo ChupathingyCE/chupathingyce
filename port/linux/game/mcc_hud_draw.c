@@ -8,6 +8,8 @@
 #include "interface/hud.h"
 #include "interface/hud_definitions.h"
 #include "interface/hud_draw.h"
+#include "interface/weapon_hud_interface_definition.h"
+#include "tag_files/tag_groups.h"
 #include "text/draw_string.h"
 #include "rasterizer/rasterizer.h"
 #include "rasterizer/xbox/rasterizer_xbox_hardware_bitmaps.h"
@@ -30,6 +32,31 @@ static struct {
     boolean attempted;
 } mcc_buttons[14];
 static short mcc_buttons_style;
+static short mcc_weapon_frame=NONE;
+
+/* One weapon draw can traverse shared parent HUD tags. Choose one frame for
+ * the complete hierarchy so a custom child cannot split from a stock parent.
+ * Scope the override to this draw, not the shared tag or the next player's HUD. */
+void mcc_hud_weapon_frame_begin(long hud_index)
+{
+    struct weapon_hud_interface_definition const *hud;
+    short depth;
+    mcc_weapon_frame=NONE;
+    if (!mcc_cache_tags_loaded()) return;
+    mcc_weapon_frame=FALSE;
+    for (depth=0;hud_index!=NONE && depth<16;depth++) {
+        hud=tag_get('wphi',hud_index);
+        if (!mcc_cache_contains(hud,sizeof(*hud)) ||
+            hud->absolute_placement.pad!=MCC_HUD_NATIVE_FRAME) return;
+        hud_index=hud->parent_hud.index;
+    }
+    mcc_weapon_frame=hud_index==NONE;
+}
+
+void mcc_hud_weapon_frame_end(void)
+{
+    mcc_weapon_frame=NONE;
+}
 
 void mcc_hud_glyphs_dispose(void)
 {
@@ -231,6 +258,8 @@ boolean mcc_hud_anchor_point(short anchor, struct hud_placement_definition const
     rectangle2d frame;
     long horizontal_inset;
     if (!mcc_cache_tags_loaded() || anchor<0 || anchor>8 || anchor==4) return FALSE;
+    if (anchor<4 && (mcc_weapon_frame!=NONE ? mcc_weapon_frame :
+        placement->pad==MCC_HUD_NATIVE_FRAME)) return FALSE;
     horizontal_inset=halo_screen_width()/20;
     /* MCC's 2.5% title-safe frame versus the Xbox's 7.5%. Derive each
      * player's frame from its viewport; leave the small split-screen seam

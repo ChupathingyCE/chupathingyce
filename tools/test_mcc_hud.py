@@ -315,7 +315,8 @@ def anchor_tool(tmp_path_factory):
         pytest.skip("clang is needed")
     work = tmp_path_factory.mktemp("mcc-anchors")
     source = (ROOT / "port/linux/game/mcc_hud_draw.c").read_text()
-    routines = "\n".join(function(source, n) for n in ["mcc_hud_edge", "mcc_hud_frame_inset", "mcc_hud_anchor_point",
+    routines = "\n".join(function(source, n) for n in ["mcc_hud_weapon_frame_begin", "mcc_hud_weapon_frame_end",
+                            "mcc_hud_edge", "mcc_hud_frame_inset", "mcc_hud_anchor_point",
                             "mcc_hud_anchor_bounds", "mcc_hud_anchor_number"])
     code = r'''
 #include <stdlib.h>
@@ -326,20 +327,50 @@ typedef struct {short x,y;} point2d;
 typedef struct {short x0,y0,x1,y1;} rectangle2d;
 typedef struct {float x0,x1,y0,y1;} real_rectangle2d;
 struct bitmap_data {short width,height;point2d registration_point;};
-struct hud_placement_definition {point2d offset;};
+struct hud_placement_definition {point2d offset;short pad;};
+#define MCC_HUD_NATIVE_FRAME 0x4D53
+#define NONE (-1)
+static short mcc_weapon_frame=NONE;
 #define TRUE 1
 #define FALSE 0
 #define MIN(a,b) ((a)<(b)?(a):(b))
 static int loaded;
+struct weapon_hud_interface_definition {
+    struct {long index;} parent_hud;
+    struct {short pad;} absolute_placement;
+};
+static struct weapon_hud_interface_definition hud[2];
+static void *tag_get(long group,long index) {(void)group;return index>=0&&index<2 ? hud+index : NULL;}
+static int mcc_cache_contains(void const *p,long size) {(void)size;return p==hud||p==hud+1;}
 static long halo_screen_width(void) {return 840;}
 static int mcc_cache_tags_loaded(void) {return loaded;}
 ''' + routines + r'''
 int main(int argc,char **argv) {
-    struct hud_placement_definition placement={{10,20}};
+    struct hud_placement_definition placement={{10,20},0};
     rectangle2d window={40,30,840,430},viewport={20,10,860,450};
     point2d point={-99,-99};
     real_rectangle2d bounds={-99,-99,-99,-99};
     short cursor=-99,anchor;int a,b,c;float scale;
+    if(argc==2) {
+        int test=atoi(argv[1]);
+        loaded=test!=0;
+        hud[0].parent_hud.index=1;hud[1].parent_hud.index=NONE;
+        hud[0].absolute_placement.pad=hud[1].absolute_placement.pad=MCC_HUD_NATIVE_FRAME;
+        placement.pad=MCC_HUD_NATIVE_FRAME;
+        if(test==2)hud[0].absolute_placement.pad=0;
+        if(test==3)hud[1].absolute_placement.pad=0;
+        if(test==4)hud[1].parent_hud.index=0;
+        if(test==5)hud[1].parent_hud.index=9;
+        mcc_hud_weapon_frame_begin(0);
+        a=mcc_hud_anchor_point(0,&placement,NULL,1,&window,&viewport,&point);
+        if(a!=(test>=2))return 10;
+        if(test>=2 && (point.x!=16 || point.y!=26))return 11;
+        mcc_hud_weapon_frame_end();
+        if(mcc_weapon_frame!=NONE || mcc_hud_anchor_point(0,&placement,NULL,1,&window,&viewport,&point))return 12;
+        placement.pad=0;
+        if(mcc_hud_anchor_point(0,&placement,NULL,1,&window,&viewport,&point)!=loaded)return 13;
+        return 0;
+    }
     if(argc!=4 && argc!=5)return 2;
     if(argc==5) {
         if(atoi(argv[4])==1) {window=(rectangle2d){64,36,422,236};viewport=(rectangle2d){0,0,426,240};}
@@ -363,6 +394,12 @@ int main(int argc,char **argv) {
     result=subprocess.run(command,capture_output=True,text=True)
     assert result.returncode==0,result.stderr
     return binary
+
+
+@pytest.mark.parametrize("case",range(6))
+def test_weapon_frame_keeps_parent_and_child_together_and_resets(anchor_tool,case):
+    result=subprocess.run([str(anchor_tool),str(case)],capture_output=True,text=True)
+    assert result.returncode==0,result.stderr
 
 
 @pytest.fixture(scope="module")

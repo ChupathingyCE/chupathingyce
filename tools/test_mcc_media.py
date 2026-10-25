@@ -58,7 +58,7 @@ def media_tool(tmp_path_factory):
 #define MCC_AUDIO_FRAME_LIMIT 0x1000000u
 struct sound_permutation {struct {uint32_t file_offset,size;} samples; uint32_t sample_buffer_size; int compression;};
 struct mcc_runtime {void *audio;};
-struct hud_placement_definition {struct {short x,y;} offset;struct {float i,j;} scale; short multiplayer_scaling_flags;};
+struct hud_placement_definition {struct {short x,y;} offset;struct {float i,j;} scale; short multiplayer_scaling_flags,pad;};
 struct bitmap_data {short type,width,height,depth,format,mipmap_count;unsigned short flags;void *base_address;};
 typedef unsigned char byte;
 #define FALSE 0
@@ -108,7 +108,7 @@ int main(int argc,char **argv) {
         return 0;
     }
     if (!strcmp(argv[1],"hud")) {
-        struct hud_placement_definition p={{20,-12},{2.0f,4.0f},4};
+        struct hud_placement_definition p={{20,-12},{2.0f,4.0f},4,0};
         mcc_hud_scale(&p,1);
         if(p.scale.i!=0.5f || p.scale.j!=1.0f || p.multiplayer_scaling_flags ||
             p.offset.x!=20 || p.offset.y!=-12) return 9;
@@ -436,27 +436,38 @@ int main(void) {
     }
     for(frame=0;frame<3;frame++)for(i=0;i<count;i++) {
         unsigned n=frame&1 ? count-1-i : i;
-        unsigned char const *pixels=mcc_bitmaps_pixels(&runtime,&bitmaps[n],&bytes);
+        unsigned char const *pixels=mcc_bitmaps_pixels(&runtime,&bitmaps[n],&bytes,NULL);
         if(pixels!=items[n].pixels || bytes!=chain_bytes || pixels[0]!=n || pixels[bytes-1]!=255-n)return 3;
     }
+    {
+        int coverage=99;
+        items[0].channels=4;
+        if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],&bytes,&coverage)!=items[0].pixels || coverage!=1)return 15;
+        items[0].channels=1;
+        if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],&bytes,&coverage)!=items[0].pixels || coverage)return 16;
+        coverage=99;copy=bitmaps[0];
+        if(mcc_bitmaps_pixels(&runtime,&copy,&bytes,&coverage) || coverage || bytes)return 17;
+        coverage=99;
+        if(mcc_bitmaps_pixels(NULL,&bitmaps[0],&bytes,&coverage) || coverage || bytes)return 18;
+    }
     copy=bitmaps[0];bytes=123;
-    if(mcc_bitmaps_pixels(&runtime,&copy,&bytes) || bytes)return 4;
+    if(mcc_bitmaps_pixels(&runtime,&copy,&bytes,NULL) || bytes)return 4;
     bitmaps[0].tag_index++;bytes=123;
-    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],&bytes) || bytes)return 5;
+    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],&bytes,NULL) || bytes)return 5;
     bitmaps[0]=copy;bitmaps[0].pixels_offset++;bytes=123;
-    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],&bytes) || bytes)return 6;
+    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],&bytes,NULL) || bytes)return 6;
     bitmaps[0]=copy;bitmaps[0].pixels_size--;bytes=123;
-    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],&bytes) || bytes)return 7;
+    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],&bytes,NULL) || bytes)return 7;
     bitmaps[0]=copy;bitmaps[0].width=0;bytes=123;
-    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],&bytes) || bytes)return 8;
+    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],&bytes,NULL) || bytes)return 8;
     bitmaps[0]=copy;items[0].size=bitmaps[0].pixels_size=chain_bytes-1;bytes=123;
-    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],&bytes) || bytes)return 9;
+    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],&bytes,NULL) || bytes)return 9;
     items[0].size=bitmaps[0].pixels_size=chain_bytes;
-    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],NULL)!=items[0].pixels)return 10;
-    bytes=123;if(mcc_bitmaps_pixels(NULL,&bitmaps[0],&bytes) || bytes)return 11;
-    bytes=123;if(mcc_bitmaps_pixels(&runtime,NULL,&bytes) || bytes)return 12;
+    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],NULL,NULL)!=items[0].pixels)return 10;
+    bytes=123;if(mcc_bitmaps_pixels(NULL,&bitmaps[0],&bytes,NULL) || bytes)return 11;
+    bytes=123;if(mcc_bitmaps_pixels(&runtime,NULL,&bytes,NULL) || bytes)return 12;
     runtime.bitmaps=NULL;bytes=123;
-    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],&bytes) || bytes)return 13;
+    if(mcc_bitmaps_pixels(&runtime,&bitmaps[0],&bytes,NULL) || bytes)return 13;
     for(i=0;i<count;i++)free(items[i].pixels);
     {
         struct mcc_textures *owned=calloc(1,sizeof(*owned));
@@ -498,7 +509,8 @@ def test_bc1_red_and_partial_block(media_tool, tmp_path):
 
 def test_mcc_multipurpose_channel_order(media_tool, tmp_path):
     assert pixel_vector(media_tool, tmp_path, bytes([10,20,30,40]), 11, usage=2, side=1) == [0x1E0A1428]
-    assert pixel_vector(media_tool, tmp_path, bytes([10,20,30,40]), 11, usage=4, side=1) == [0x1E282828]
+    # Blue keeps the fill threshold; green and alpha preserve edge coverage.
+    assert pixel_vector(media_tool, tmp_path, bytes([10,20,30,40]), 11, usage=4, side=1) == [0x1E281E28]
 
 
 def test_bc7_mode6_opaque_red(media_tool, tmp_path):

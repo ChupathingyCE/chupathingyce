@@ -375,6 +375,19 @@ that require different channel layouts gets separate MCC-owned tag and
 pixel copies, with the relevant consumer's reference redirected. The tag
 index can grow into a separate checked allocation for those copies.
 
+Unflagged (Gearbox-order) MCC meters also omit the Xbox RGB opacity tint.
+Their converted clone stores fill order in red/blue and authored shape coverage
+in green/alpha. The MCC texture bridge selects the renderer's existing filtered
+coverage and discrete-threshold interfaces for that clone only. This preserves
+the scene beneath partially covered edge pixels, filters curved fills like
+their adjacent outlines, and avoids interpolating ammunition segment IDs.
+The original bitmap, explicitly Xbox-order MCC meters, and Xbox/CE texture
+paths keep their existing sampling. Descent provided concrete examples:
+`decent\ui\hud\odst_eva` uses opacity 1 for its unflagged shield meter;
+its shield and health shapes occupy different curves within 512-by-64 images.
+Those authored shapes and the space between them are retained, not enlarged
+to fill their surrounding outline.
+
 Unflagged MCC HUD placements use a 960p canvas, converted to native 480p
 coordinates in MCC-owned tags. Legacy high-resolution placements (flag 4)
 already carry 480p anchor offsets and retain them. Bitmap size conversion
@@ -403,6 +416,33 @@ The field occupies the native header's padding at byte 6, as documented by
 Each draw resolves a temporary placement without changing the parent tag.
 This places A50_Revisited's visor at the screen edges; invalid child anchors
 retain the parent placement. Xbox/CE returns the original parent untouched.
+
+Stock corner HUDs use the native safe frame instead of the wider MCC frame.
+`mcc_hud_layout.inl` recognizes complete component layouts before conversion
+from their anchors, placement, bitmap names/dimensions/registration points,
+sequence and sprite geometry, number layout and overlay counts. Handles,
+padding, colors and independently centered crosshairs do not select the frame.
+The fingerprints were measured from locally installed MCC version-13 a10,
+b30, b40, d40, bloodgulch, deathisland and carousel caches. No map assets are
+embedded. Unknown layouts retain the authored MCC frame; this is deliberately
+conservative and is not a security or content-identity check.
+
+Recognition writes a marker into runtime-owned MCC placement padding, clearing
+map-supplied values first. A weapon and its inherited parent HUDs share one
+frame: `mcc_hud_weapon_frame_begin` uses the native frame only when the entire
+bounded chain is recognized, and `mcc_hud_weapon_frame_end` clears the choice
+after that draw. The three-line additive hook in `hud_weapon.c` is needed
+because a parent tag can be shared by both custom and stock weapon HUDs;
+conversion alone cannot know which child is currently drawing it. No shared
+parent tag is mutated during rendering. Xbox/CE dispatch remains neutral.
+
+The asset-free layout, channel and texture-ownership tests are in
+`tools/test_mcc_hud_layout.py`, `tools/test_mcc_shader_channels.py` and
+`tools/test_mcc_texture_bridge.py`. `tools/test_mcc_hud_meter_render.py` renders
+synthetic converted meters through the production GPU shader, checking full,
+empty and partial fill with fractional coverage and placement. Visual checks
+must also cover real stock/custom MCC HUDs at native resolution; synthetic
+tests alone cannot establish that every authored layout matches MCC.
 
 MCC Chicago shaders that explicitly request Custom Edition blending (extra
 flag `0x4`) use black-neutral modulation for double multiply. Frogfoot's

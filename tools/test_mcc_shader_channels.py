@@ -38,7 +38,7 @@ typedef struct {float x0,x1,y0,y1;} real_rectangle2d;
 typedef struct {float x,y;} real_point2d;
 struct tag_block {long count;void *address,*definition;};
 struct tag_data {long size,flags,file_offset;void *address,*definition;};
-struct meter_hud_element_definition {struct {uint32_t index;} meter_bitmap;short sequence_index;unsigned char meter_flags;};
+struct meter_hud_element_definition {struct {uint32_t index;} meter_bitmap;short sequence_index;unsigned char meter_flags;float opacity,fade;};
 #define BITMAP_GROUP_TAG 'bitm'
 #define NONE -1
 static uint32_t global_vector_palette[256];
@@ -70,7 +70,7 @@ int main(int argc,char **argv) {
      * change. Misreading alpha as change color instead tints all texels. */
     unsigned char dxt1[8]={0,0xF8,0,0,0,0,0,0};
     unsigned char rgba[4]={10,20,30,40};
-    struct meter_hud_element_definition xbox_meter={{source},NONE,0x3F},gearbox_meter={{source},NONE,0x1F};
+    struct meter_hud_element_definition xbox_meter={{source},NONE,0x3F,1.0f,0.75f},gearbox_meter={{source},NONE,0x1F,1.0f,0.5f};
     int reverse;
     if(argc!=2)return 1;reverse=atoi(argv[1]);
     runtime.tags=calloc(1,65536);runtime.tag_index=runtime.tags;runtime.used=512;
@@ -121,13 +121,15 @@ int main(int argc,char **argv) {
        textures.items[0].channels!=1 || textures.items[1].channels!=2 || textures.items[2].channels!=4)return 16;
     if(xbox_meter.meter_flags!=0x3F || gearbox_meter.meter_flags!=0x1F ||
        memcmp(&original_descriptor,descriptor,sizeof(*descriptor)))return 17;
+    if(xbox_meter.opacity!=1.0f || gearbox_meter.opacity!=0.0f ||
+       xbox_meter.fade!=0.75f || gearbox_meter.fade!=0.5f)return 21;
     /* Transparent outside-shape pixel has nonzero fill order. Preserve
      * alpha zero in Xbox order, while an unflagged meter must swap it. */
     rgba[0]=rgba[1]=rgba[2]=128;rgba[3]=0;
     mcc_bitmap_decode(rgba,decoded,1,1,11,textures.items[0].channels);
     if(decoded[0]!=0x00808080u)return 18;
     mcc_bitmap_decode(rgba,decoded,1,1,11,textures.items[2].channels);
-    if(decoded[0]!=0x80000000u)return 19;
+    if(decoded[0]!=0x80008000u)return 19;
     xbox_meter.meter_bitmap.index=gearbox_meter.meter_bitmap.index=0xFFFFFFFFu;
     if(!mcc_meter_usage(&runtime,&textures,&xbox_meter) || !mcc_meter_usage(&runtime,&textures,&gearbox_meter) ||
        runtime.report.tag_count!=3)return 20;

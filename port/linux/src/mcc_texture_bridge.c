@@ -36,6 +36,23 @@ void *mcc_texture_bridge_find(void const *bitmap)
     return NULL;
 }
 
+/* Converted Gearbox meter clones carry shape coverage in green. Reuse the
+ * renderer's coverage interface without changing any native texture state. */
+void mcc_texture_bridge_meter(void const *bitmap)
+{
+    struct mcc_gpu_texture *entry;
+    for (entry=mcc_gpu_textures[mcc_texture_bucket(bitmap)];entry;entry=entry->next)
+        if (entry->bitmap==bitmap) {
+            /* Filter the authored coverage like the adjacent HUD outline;
+             * keep fill thresholds discrete so ammunition segments cannot
+             * bleed into their neighbours. The Xbox meter sampler is point. */
+            entry->description.hires=TRUE;
+            entry->description.hires_coverage=TRUE;
+            entry->description.hires_point_threshold=TRUE;
+            return;
+        }
+}
+
 static void *mcc_texture_register(void const *bitmap,unsigned long format,
     unsigned long size,void const *pixels,unsigned long bytes,
     unsigned long width,unsigned long height,unsigned long pitch)
