@@ -10,7 +10,14 @@
     "backgroundColor": "#0d1114",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "dev.horrible.chupathingyce"
+      "bundleIdentifier": "dev.horrible.chupathingyce",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsLocalNetworking": true
+        },
+        "NSLocalNetworkUsageDescription": "ChupathingyCE connects to the development server on your computer, and to maps you download from your own network."
+      }
     },
     "android": {
       "package": "dev.horrible.chupathingyce.launcher",
