@@ -252,6 +252,9 @@ int halo_ios_run(const char *data_root, const char *hardware_id, char *error, in
 	/* the game is played in landscape, as on Android (its manifest's
 	sensorLandscape), whichever way the launcher was held */
 	SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+	/* the home bar hidden, and a swipe up from the bottom edge (where the
+	touch controls' Crouch and stick are) taken twice before iOS acts on it */
+	SDL_SetHint(SDL_HINT_IOS_HIDE_HOME_INDICATOR, "2");
 	describe_display();
 	write_brokers(data_root);
 	log_line("data %s, saves %s", data_root, save_root);

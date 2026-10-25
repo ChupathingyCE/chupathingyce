@@ -8,8 +8,8 @@ rewrite) with HALO_ANDROID, which gives it OpenGL ES 3, the touch controls'
 hooks and the mobile storage, and HALO_IOS where iOS differs
 (patches/chupathingyce). What the Android build's host does around the game
 is port/ios/src: the entry point (ios_main.c), the OpenGL ES helpers
-(ios_gl.c), the touch controls' hooks (ios_touch.c) and the stack the game
-runs on (ios_stack.S).
+(ios_gl.c), the touch controls and their hooks (ios_touch.m) and the stack
+the game runs on (ios_stack.S).
 
 The result is build/ios/libhalo.a, a static library the app links
 (app/modules/halo-native), and build/ios/libhalo_check.dylib, the same
@@ -145,6 +145,19 @@ def generate(n: Any, sln: Any, port: Any) -> None:
     for source in sorted(port.path("src").glob("*.S")):
         obj = build_dir / "obj" / "port" / source.with_suffix(".o").name
         n.build(outputs=obj, rule="ios_as", inputs=source)
+        objects.append(obj)
+
+    # the touch controls' overlay (ios_touch.m), UIKit's: Objective-C with
+    # ARC, which needs only SDL's headers
+    n.rule(
+        name="ios_objc",
+        command=f"{IOS_CC} {IOS_TARGET} -fobjc-arc -std=gnu11 {OPTIMISATION} -g -Wall "
+        f"-I{_quote(sdl / 'include')} -c $in -o $out",
+        description="IOS OBJC $out",
+    )
+    for source in sorted(port.path("src").glob("*.m")):
+        obj = build_dir / "obj" / "port" / source.with_suffix(".o").name
+        n.build(outputs=obj, rule="ios_objc", inputs=source)
         objects.append(obj)
 
     # Apple's -filelist reads each line as a path, as it is: ninja quotes
