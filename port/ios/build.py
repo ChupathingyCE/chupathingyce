@@ -147,9 +147,12 @@ def generate(n: Any, sln: Any, port: Any) -> None:
         n.build(outputs=obj, rule="ios_as", inputs=source)
         objects.append(obj)
 
+    # Apple's -filelist reads each line as a path, as it is: ninja quotes
+    # the ones with spaces (source/saved games), so the quotes come off first
+    unquote = "sed -e \"s/^'//\" -e \"s/'$$//\" $out.rsp > $out.list"
     n.rule(
         name="ios_library",
-        command=f"rm -f $out && {IOS_LIBTOOL} -static -no_warning_for_no_symbols -o $out -filelist $out.rsp",
+        command=f"rm -f $out && {unquote} && {IOS_LIBTOOL} -static -no_warning_for_no_symbols -o $out -filelist $out.list",
         description="IOS LIBRARY $out",
         rspfile="$out.rsp",
         rspfile_content="$in_newline",
@@ -158,7 +161,7 @@ def generate(n: Any, sln: Any, port: Any) -> None:
 
     n.rule(
         name="ios_check",
-        command=f"{IOS_CC} {IOS_TARGET} -dynamiclib -o $out -Wl,-filelist,$out.rsp $libs",
+        command=f"{unquote} && {IOS_CC} {IOS_TARGET} -dynamiclib -o $out -Wl,-filelist,$out.list $libs",
         description="IOS LINK CHECK $out",
         rspfile="$out.rsp",
         rspfile_content="$in_newline",
