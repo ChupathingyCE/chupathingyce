@@ -57,20 +57,21 @@ typedef char mcc_pause_child_size[sizeof(struct mcc_pause_child) == 0x50 ? 1 : -
 typedef char mcc_pause_child_offset[offsetof(struct mcc_pause_widget, children) == 0x3E0 ? 1 : -1];
 
 enum { MCC_PAUSE_MAX_TAGS = 512, MCC_PAUSE_ARENA_BYTES = 2 * 1024 * 1024 };
-enum { SOLO, COOP_HOST, COOP_CLIENT, MP_LOCAL, MP_HOST, MP_HOST_TEAMS, MP_CLIENT, MP_CLIENT_TEAMS, MODE_COUNT };
-enum { LABEL_RESUME, LABEL_REVERT, LABEL_RESTART, LABEL_SAVE_QUIT, LABEL_LEAVE, LABEL_SETTINGS,
-    LABEL_TEAMS, LABEL_END, LABEL_RED, LABEL_BLUE, LABEL_CANCEL, LABEL_OK, LABEL_OBJECTIVES,
-    LABEL_CONFIRM_REVERT, LABEL_CONFIRM_RESTART, LABEL_CONFIRM_SAVE_QUIT, LABEL_CONFIRM_LEAVE,
-    LABEL_CONFIRM_END, LABEL_ATTENTION, LABEL_TEAM_TITLE, LABEL_RESTART_LEVEL, LABEL_FOOTER, LABEL_COUNT };
-enum { CONFIRM_REVERT, CONFIRM_RESTART, CONFIRM_SAVE_QUIT, CONFIRM_LEAVE, CONFIRM_END, CONFIRM_COUNT };
+enum { SOLO, COOP_HOST, COOP_CLIENT, MP_LOCAL, MP_HOST, MP_CLIENT, MODE_COUNT };
+enum { LABEL_RESUME, LABEL_REVERT, LABEL_SAVE_QUIT, LABEL_LEAVE, LABEL_SETTINGS,
+    LABEL_END, LABEL_OBJECTIVES, LABEL_CONFIRM_REVERT, LABEL_CONFIRM_RESTART,
+    LABEL_CONFIRM_SAVE_QUIT, LABEL_ATTENTION, LABEL_RESTART_LEVEL, LABEL_FOOTER,
+    LABEL_SELECT, LABEL_ACCEPT, LABEL_SAVING, LABEL_FRIENDLY_ON, LABEL_FRIENDLY_OFF, LABEL_COUNT };
+
+enum { CONFIRM_REVERT, CONFIRM_RESTART, CONFIRM_SAVE_QUIT, CONFIRM_COUNT };
 static char const *const mcc_pause_labels[LABEL_COUNT] = {
-    "RESUME GAME", "REVERT TO SAVED", "RESTART GAME", "SAVE AND QUIT", "LEAVE GAME", "SETTINGS",
-    "CHOOSE TEAM", "END GAME", "RED TEAM", "BLUE TEAM", "CANCEL", "OK", "MISSION OBJECTIVES:",
-    "All progress since the last checkpoint will be lost.",
-    "Restart this game? Current progress will be lost.",
-    "Save your last checkpoint and return to the main menu?",
-    "Are you sure you want to leave this game?",
-    "End this round and return to the lobby?", "ATTENTION", "CHOOSE TEAM", "RESTART LEVEL", "%a-button SELECT   %b-button BACK"
+    "RESUME GAME", "REVERT TO SAVED", "SAVE AND QUIT", "LEAVE GAME", "SETTINGS",
+    "END GAME", "MISSION OBJECTIVES:",
+    "All progress since the\r\nlast checkpoint will\r\nbe lost.",
+    "All progress on this \r\nlevel will be lost.",
+    "Saving last checkpoint...\r\nplease don't turn off\r\nyour Xbox console.",
+    "ATTENTION", "RESTART LEVEL", "=CANCEL", "=SELECT", "=OK", "SAVING...",
+    "FRIENDLY FIRE ON", "FRIENDLY FIRE OFF"
 };
 
 static struct {
@@ -83,7 +84,6 @@ static struct {
     struct mcc_pause_tag tags[MCC_PAUSE_MAX_TAGS];
     long roots[MODE_COUNT][MCC_PAUSE_LAYOUT_COUNT];
     long confirm[MCC_PAUSE_LAYOUT_COUNT][2][CONFIRM_COUNT];
-    long team[MCC_PAUSE_LAYOUT_COUNT];
 } mcc_pause;
 
 static void *mcc_pause_allocate(unsigned long size)
@@ -218,92 +218,105 @@ static long mcc_pause_button(short layout, short width, short height, short labe
     return handle;
 }
 
+/* Borrow only the port's redraws through independent bitmap groups. The
+ * stock three-piece layout tiles the middle and overlaps the right cap. */
 static long mcc_pause_panel(short layout, short width, short height, enum mcc_pause_art_kind kind)
 {
     long panel = mcc_pause_widget("panel", 0, width, height, layout, NONE);
-    mcc_pause_background(panel, width, height, kind);
+    if ((kind == MCC_PAUSE_ART_FOOTER_PANEL || kind == MCC_PAUSE_ART_OBJECTIVES_PANEL) &&
+        (height == 194 || height == 229 || height == 195 || height == 225)) {
+        long pieces[3];
+        short x[3] = {0, 16, 0}, y[3] = {0}, i;
+        enum mcc_pause_art_kind first = kind == MCC_PAUSE_ART_OBJECTIVES_PANEL ?
+            MCC_PAUSE_ART_OBJECTIVES_LEFT : MCC_PAUSE_ART_FOOTER_LEFT;
+        x[2] = width - 16;
+        for (i = 0; i < 3; i++) {
+            short piece_width = i == 1 ? width - 24 : 16;
+            pieces[i] = mcc_pause_widget("panel_piece", 0, piece_width, height, layout, NONE);
+            mcc_pause_background(pieces[i], piece_width, height, first + i);
+        }
+        mcc_pause_children(panel, pieces, x, y, 3);
+    } else mcc_pause_background(panel, width, height, kind);
     return panel;
+}
+
+static long mcc_pause_key(short layout, boolean confirm)
+{
+    long key = mcc_pause_widget("button_key", 0, 200, 22, layout, NONE), children[4];
+    short x[4] = {0, 16, 90, 107}, y[4] = {0}, i;
+    if (confirm) { x[2] = 88; x[3] = 103; }
+    for (i = 0; i < 4; i++) {
+        struct mcc_pause_widget *widget;
+        children[i] = mcc_pause_widget("key_item", i % 2 ? 1 : 0,
+            i % 2 ? (i == 1 ? 63 : (confirm ? 60 : 93)) : 16, 20, layout,
+            i == 1 ? LABEL_FOOTER : i == 3 ? (confirm ? LABEL_ACCEPT : LABEL_SELECT) : NONE);
+        widget = mcc_pause_definition(children[i]);
+        if (widget && i % 2) widget->font.index = mcc_pause.assets.small_font[layout];
+        if (!(i % 2)) mcc_pause_background(children[i], 16, 20,
+            i == 0 ? MCC_PAUSE_ART_BUTTON_B : MCC_PAUSE_ART_BUTTON_A);
+    }
+    mcc_pause_children(key, children, x, y, 4);
+    return key;
 }
 
 static long mcc_pause_dialog(short layout, boolean pauses, short kind)
 {
     static short const actions[CONFIRM_COUNT] = {MCC_PAUSE_ACTION_REVERT, MCC_PAUSE_ACTION_RESTART,
-        MCC_PAUSE_ACTION_QUIT, MCC_PAUSE_ACTION_QUIT, MCC_PAUSE_ACTION_END_GAME};
+        MCC_PAUSE_ACTION_QUIT};
     long *saved = &mcc_pause.confirm[layout][pauses != FALSE][kind];
-    long root, children[5], buttons[2], list;
+    long root, children[4];
     short width = layout == MCC_PAUSE_QUARTER ? 320 : 640, height = layout == MCC_PAUSE_FULL ? 480 : 240;
-    short panel_width = layout == MCC_PAUSE_QUARTER ? 292 : 360, panel_height = 176;
-    short px = (short)((width - panel_width) / 2), py = (short)((height - panel_height) / 2);
-    short xs[5] = {0}, ys[5] = {0}, bx[2] = {0}, by[2] = {0};
+    short px = (width - 256) / 2, py = layout == MCC_PAUSE_FULL ? 176 : 40;
+    short xs[4] = {0}, ys[4] = {0};
     struct mcc_pause_widget *widget;
+    struct mcc_pause_event *events;
+    boolean saving = kind == CONFIRM_SAVE_QUIT;
+    short i;
     if (*saved != NONE) return *saved;
     root = mcc_pause_widget("confirmation", 0, width, height, layout, NONE);
     widget = mcc_pause_definition(root);
     if (!widget) return NONE;
     widget->flags = 1 | (pauses ? 2 : 0);
     mcc_pause_background(root, width, height, MCC_PAUSE_ART_DIM);
-    mcc_pause_events(root, 0, NONE, 512, TRUE);
-    children[0] = mcc_pause_panel(layout, panel_width, panel_height, MCC_PAUSE_ART_PANEL);
+    /* Root-level A/Start and B/Back match the Xbox modal. The callback owns
+     * controller-local cleanup; never close another split-screen tree. */
+    events = mcc_pause_allocate((saving ? 1 : 5) * sizeof(*events));
+    if (!events) return NONE;
+    widget->events.address = events; widget->events.count = saving ? 1 : 5;
+    widget->close_ms = saving ? 3000 : 0;
+    for (i = 0; i < widget->events.count; i++) {
+        events[i].event = saving ? 25 : i == 0 ? 1 : i == 1 ? 13 : i == 2 ? 0 : i == 3 ? 12 : 28;
+        events[i].flags = saving || i >= 2 ? 128 : 512;
+        events[i].function = saving || i >= 2 ? actions[kind] : 0;
+        mcc_pause_reference(&events[i].widget, 'DeLa', NONE);
+        mcc_pause_reference(&events[i].sound, 'snd!', NONE);
+    }
+    children[0] = mcc_pause_panel(layout, 256, 160, MCC_PAUSE_ART_ALERT);
     xs[0] = px; ys[0] = py;
-    children[1] = mcc_pause_widget("attention", 1, panel_width - 24, 24, layout, LABEL_ATTENTION);
-    xs[1] = px + 12; ys[1] = py + 8;
-    children[2] = mcc_pause_widget("confirmation_text", 1, panel_width - 24, 84, layout, LABEL_CONFIRM_REVERT + kind);
-    widget = mcc_pause_definition(children[2]);
-    if (widget) widget->font.index = mcc_pause.assets.small_font[layout];
-    xs[2] = px + 12; ys[2] = py + 40;
-    list = mcc_pause_widget("confirmation_choices", 3, panel_width - 16, 30, layout, NONE);
-    widget = mcc_pause_definition(list);
-    if (widget) widget->flags = 1 | 64; /* Left/right navigation. */
-    /* Cancel is first so an accidental second accept cannot destroy progress. */
-    buttons[0] = mcc_pause_button(layout, (panel_width - 20) / 2, 27, LABEL_CANCEL, 0, NONE, 512);
-    buttons[1] = mcc_pause_button(layout, (panel_width - 20) / 2, 27, LABEL_OK, actions[kind], NONE,
-        128 | (kind <= CONFIRM_RESTART ? 4 : 0));
-    bx[1] = (panel_width - 16) / 2;
-    mcc_pause_children(list, buttons, bx, by, 2);
-    children[3] = list; xs[3] = px + 8; ys[3] = py + 136;
-    mcc_pause_children(root, children, xs, ys, 4);
+    children[1] = mcc_pause_widget("attention", 1, 220, 20, layout, saving ? LABEL_SAVING : LABEL_ATTENTION);
+    xs[1] = px + 9; ys[1] = py + 4;
+    children[2] = mcc_pause_widget("confirmation_text", 1, 230, 92, layout, LABEL_CONFIRM_REVERT + kind);
+    xs[2] = px + 9; ys[2] = py + 36;
+    if (!saving) {
+        children[3] = mcc_pause_key(layout, TRUE); xs[3] = px + 76; ys[3] = py + 134;
+        widget = mcc_pause_definition(children[3]);
+        if (widget) widget->bounds.right = 163;
+    }
+    mcc_pause_children(root, children, xs, ys, saving ? 3 : 4);
     *saved = root;
-    return root;
-}
-
-static long mcc_pause_team_screen(short layout)
-{
-    long root, children[3], buttons[3], list;
-    short width = layout == MCC_PAUSE_QUARTER ? 320 : 640, height = layout == MCC_PAUSE_FULL ? 480 : 240;
-    short x[3] = {0}, y[3] = {0}, bx[3] = {0}, by[3] = {0, 32, 64};
-    struct mcc_pause_widget *widget;
-    if (mcc_pause.team[layout] != NONE) return mcc_pause.team[layout];
-    root = mcc_pause_widget("choose_team", 0, width, height, layout, NONE);
-    widget = mcc_pause_definition(root);
-    if (!widget) return NONE;
-    widget->flags = 1;
-    mcc_pause_background(root, width, height, MCC_PAUSE_ART_DIM);
-    mcc_pause_events(root, 0, NONE, 512, TRUE);
-    children[0] = mcc_pause_panel(layout, 226, 156, MCC_PAUSE_ART_PANEL); x[0] = (width - 226) / 2; y[0] = (height - 156) / 2;
-    children[1] = mcc_pause_widget("choose_team_caption", 1, 202, 24, layout, LABEL_TEAM_TITLE);
-    x[1] = (width - 202) / 2; y[1] = y[0] + 8;
-    list = mcc_pause_widget("teams", 3, 202, 96, layout, NONE);
-    widget = mcc_pause_definition(list); if (widget) widget->flags = 0x21;
-    buttons[0] = mcc_pause_button(layout, 202, 27, LABEL_RED, MCC_PAUSE_ACTION_RED_TEAM, NONE, 128);
-    buttons[1] = mcc_pause_button(layout, 202, 27, LABEL_BLUE, MCC_PAUSE_ACTION_BLUE_TEAM, NONE, 128);
-    buttons[2] = mcc_pause_button(layout, 202, 27, LABEL_CANCEL, 0, NONE, 512);
-    mcc_pause_children(list, buttons, bx, by, 3);
-    children[2] = list; x[2] = (width - 202) / 2; y[2] = y[0] + 44;
-    mcc_pause_children(root, children, x, y, 3);
-    mcc_pause.team[layout] = root;
     return root;
 }
 
 static long mcc_pause_screen(short mode, short layout)
 {
     boolean campaign = mode <= COOP_CLIENT, pauses = mode == SOLO;
-    boolean host = mode == COOP_HOST || mode == MP_HOST || mode == MP_HOST_TEAMS;
-    boolean teams = mode == MP_HOST_TEAMS || mode == MP_CLIENT_TEAMS;
+    boolean host = mode == COOP_HOST || mode == MP_HOST;
     long root, list, children[6], buttons[6];
     short width = layout == MCC_PAUSE_QUARTER ? 320 : 640, height = layout == MCC_PAUSE_FULL ? 480 : 240;
     short count = 0, child_count = 0, xs[6] = {0}, ys[6] = {0}, bx[6] = {0}, by[6] = {0};
     short row = campaign ? (layout == MCC_PAUSE_QUARTER ? 24 : 28) : (layout == MCC_PAUSE_FULL ? 35 : 27);
-    short campaign_growth = campaign && mcc_pause.assets.settings && layout == MCC_PAUSE_FULL ? 36 : 0;
+    short campaign_growth = campaign && mcc_pause.assets.settings && layout == MCC_PAUSE_FULL ?
+        (mode == SOLO ? 36 : 66) : 0;
     short button_width = campaign && layout == MCC_PAUSE_QUARTER ? 264 : 202;
     short button_height = row < 28 ? row - 1 : 27, x, y, panel_height, i;
     struct mcc_pause_widget *widget;
@@ -318,25 +331,23 @@ static long mcc_pause_screen(short mode, short layout)
     buttons[count++] = mcc_pause_button(layout, button_width, button_height, LABEL_RESUME, MCC_PAUSE_ACTION_RESUME, NONE, 128);
     if (campaign_growth)
         buttons[count++] = mcc_pause_button(layout, button_width, button_height, LABEL_SETTINGS, MCC_PAUSE_ACTION_SETTINGS, NONE, 128);
-    if (campaign && mode != COOP_CLIENT) {
+    if (campaign_growth && mode != SOLO)
+        buttons[count++] = mcc_pause_button(layout, button_width, button_height, LABEL_FRIENDLY_ON, MCC_PAUSE_ACTION_FRIENDLY_FIRE, NONE, 128 | 16);
+    if (campaign) {
         buttons[count++] = mcc_pause_button(layout, button_width, button_height, LABEL_REVERT, 0,
             mcc_pause_dialog(layout, pauses, CONFIRM_REVERT), 8);
         buttons[count++] = mcc_pause_button(layout, button_width, button_height, LABEL_RESTART_LEVEL, 0,
             mcc_pause_dialog(layout, pauses, CONFIRM_RESTART), 8);
     }
-    if (teams) buttons[count++] = mcc_pause_button(layout, button_width, button_height, LABEL_TEAMS, 0, mcc_pause_team_screen(layout), 8);
     /* The native profile editor is 640x480. Its lower controls do not fit
      * split-screen viewports; those players use Settings from the main menu. */
     if (!campaign && mcc_pause.assets.settings && layout == MCC_PAUSE_FULL)
         buttons[count++] = mcc_pause_button(layout, button_width, button_height, LABEL_SETTINGS, MCC_PAUSE_ACTION_SETTINGS, NONE, 128);
-    if (!campaign && (host || mode == MP_LOCAL))
-        buttons[count++] = mcc_pause_button(layout, button_width, button_height, LABEL_RESTART, 0,
-            mcc_pause_dialog(layout, FALSE, CONFIRM_RESTART), 8);
     if (!campaign && host)
-        buttons[count++] = mcc_pause_button(layout, button_width, button_height, LABEL_END, 0,
-            mcc_pause_dialog(layout, FALSE, CONFIRM_END), 8);
-    buttons[count++] = mcc_pause_button(layout, button_width, button_height, mode == SOLO ? LABEL_SAVE_QUIT : LABEL_LEAVE, 0,
-        mcc_pause_dialog(layout, pauses, mode == SOLO ? CONFIRM_SAVE_QUIT : CONFIRM_LEAVE), 8);
+        buttons[count++] = mcc_pause_button(layout, button_width, button_height, LABEL_END, MCC_PAUSE_ACTION_END_GAME, NONE, 128);
+    buttons[count++] = mcc_pause_button(layout, button_width, button_height, campaign ? LABEL_SAVE_QUIT : LABEL_LEAVE,
+        campaign ? 0 : MCC_PAUSE_ACTION_QUIT,
+        campaign ? mcc_pause_dialog(layout, pauses, CONFIRM_SAVE_QUIT) : NONE, campaign ? 8 : 128);
     if (campaign) {
         x = layout == MCC_PAUSE_QUARTER ? 28 : 72;
         y = layout == MCC_PAUSE_FULL ? 171 : (layout == MCC_PAUSE_HALF ? 51 : 26);
@@ -350,10 +361,12 @@ static long mcc_pause_screen(short mode, short layout)
             xs[child_count] = 287; ys[child_count++] = y - 9;
         }
     } else {
-        panel_height = count * row + 48;
-        x = (width - 202) / 2; y = (height - panel_height) / 2 + 10;
+        panel_height = layout == MCC_PAUSE_FULL ? 159 + (count - 2) * 35 : count * row + 48;
+        x = layout == MCC_PAUSE_FULL ? 218 : (width - 202) / 2;
+        y = layout == MCC_PAUSE_FULL ? 207 - (count - 2) * 35 / 2 : (height - panel_height) / 2 + 10;
         children[child_count] = mcc_pause_panel(layout, 226, panel_height, MCC_PAUSE_ART_FOOTER_PANEL);
-        xs[child_count] = x - 8; ys[child_count++] = y - 10;
+        xs[child_count] = x - (layout == MCC_PAUSE_FULL ? 12 : 8);
+        ys[child_count++] = y - (layout == MCC_PAUSE_FULL ? 43 : 10);
     }
     list = mcc_pause_widget("pause_actions", 3, button_width, count * row, layout, NONE);
     widget = mcc_pause_definition(list); if (widget) widget->flags = 0x21;
@@ -380,19 +393,24 @@ static long mcc_pause_screen(short mode, short layout)
         ys[child_count++] = layout == MCC_PAUSE_FULL ? 195 : (layout == MCC_PAUSE_HALF ? 75 : 154);
     }
     {
-        short footer_width = campaign ? (layout == MCC_PAUSE_QUARTER ? 264 : 180) : 202;
-        long footer = mcc_pause_widget("button_key", 1, footer_width, 18, layout, LABEL_FOOTER);
-        widget = mcc_pause_definition(footer);
-        /* Native icon text advances through each token; centering the
-         * individual fragments would separate the glyphs from their labels. */
-        if (widget) { widget->font.index = mcc_pause.assets.small_font[layout]; widget->justification = 0; }
+        long footer = mcc_pause_key(layout, FALSE);
         children[child_count] = footer;
-        xs[child_count] = campaign ? (layout == MCC_PAUSE_QUARTER ? 28 : 87) : x;
+        xs[child_count] = campaign ? (layout == MCC_PAUSE_QUARTER ? 28 : 87) : x + 17;
         ys[child_count++] = campaign ? (layout == MCC_PAUSE_FULL ? 296 + campaign_growth : layout == MCC_PAUSE_HALF ? 176 : 216) :
-            y - 10 + panel_height - 24;
+            y - (layout == MCC_PAUSE_FULL ? 43 : 10) + panel_height - 25;
     }
     mcc_pause_children(root, children, xs, ys, child_count);
     return root;
+}
+
+void mcc_pause_friendly_fire(boolean enabled)
+{
+    long i;
+    for (i = 0; i < mcc_pause.count; i++) {
+        struct mcc_pause_widget *widget = mcc_pause_definition(mcc_pause.tags[i].handle);
+        if (widget && (widget->string_index == LABEL_FRIENDLY_ON || widget->string_index == LABEL_FRIENDLY_OFF))
+            widget->string_index = enabled ? LABEL_FRIENDLY_ON : LABEL_FRIENDLY_OFF;
+    }
 }
 
 void mcc_pause_dispose(void)
@@ -414,7 +432,6 @@ boolean mcc_pause_build(long first_index, short first_salt, struct mcc_pause_ass
     mcc_pause.arena = system_malloc(MCC_PAUSE_ARENA_BYTES);
     if (!mcc_pause.arena) return FALSE;
     memset(mcc_pause.confirm, 0xFF, sizeof(mcc_pause.confirm));
-    memset(mcc_pause.team, 0xFF, sizeof(mcc_pause.team));
     strings = mcc_pause_allocate(sizeof(*strings));
     entries = mcc_pause_allocate(LABEL_COUNT * sizeof(*entries));
     if (!strings || !entries) goto failed;
@@ -451,9 +468,10 @@ boolean mcc_pause_text_wrap_needed(long handle)
 long mcc_pause_select(boolean campaign, boolean network, boolean host, boolean teams, short local_count, boolean first_player)
 {
     short layout, mode;
+    (void)teams; /* The Xbox pause menu does not vary with the team setting. */
     if (!mcc_pause.arena || mcc_pause.failed || local_count < 1 || local_count > 4) return NONE;
     layout = local_count == 1 ? MCC_PAUSE_FULL : local_count == 2 || (local_count == 3 && first_player) ? MCC_PAUSE_HALF : MCC_PAUSE_QUARTER;
     mode = campaign ? (!network ? SOLO : host ? COOP_HOST : COOP_CLIENT) :
-        !network ? MP_LOCAL : host ? (teams ? MP_HOST_TEAMS : MP_HOST) : (teams ? MP_CLIENT_TEAMS : MP_CLIENT);
+        !network ? MP_LOCAL : host ? MP_HOST : MP_CLIENT;
     return mcc_pause.roots[mode][layout];
 }

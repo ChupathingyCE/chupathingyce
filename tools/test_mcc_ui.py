@@ -42,6 +42,12 @@ def ui_tool(tmp_path_factory):
 #include <stdio.h>
 #include <string.h>
 #include <wchar.h>
+#ifdef _WIN32
+#define csstrcasecmp _stricmp
+#else
+#include <strings.h>
+#define csstrcasecmp strcasecmp
+#endif
 typedef unsigned char boolean;
 typedef unsigned short word;
 #define TRUE 1
@@ -73,6 +79,14 @@ struct ui_widget_event_handler_reference {uint32_t flags;short event_type,functi
 struct tag_reference widget_tag,sound_effect;char script[32];};
 struct ui_widget_conditional_reference {struct tag_reference widget_tag;long flags;};
 struct widget_stack_data {int unused;};
+static int friendly=1,friendly_label=1,config_writes,config_success=1;
+static int config_boolean(char const *name){assert(!strcmp(name,"network.coop_own_friendly_fire"));return friendly;}
+static int config_write(char const *name,char const *value){
+    assert(!strcmp(name,"network.coop_own_friendly_fire"));config_writes++;
+    assert(!strcmp(value,friendly?"false":"true"));
+    if(config_success)friendly=!friendly;return config_success;
+}
+static void mcc_pause_friendly_fire(boolean enabled){friendly_label=enabled;}
 static struct {struct widget_instance *active_widgets[4];void *widget_stack[4];} widget_globals;
 struct network_player {int valid;short machine_index,controller_index;char team_index;};
 struct network_game {struct {struct {boolean teams;} universal_variant;} variant;struct network_player players[4];};
@@ -114,7 +128,7 @@ static boolean mcc_pause_owns(long tag){return pause_owned&&tag==300;}
 static void *tag_get(long group,long index){(void)group;return index==100?owned:unowned;}
 static char *tag_get_name(long index){(void)index;return (char *)widget_tag_name;}
 static boolean mcc_cache_contains(void const *p,long size){return p==owned && size<=sizeof(owned);}
-static char const *config_string(char const *name){(void)name;return pc_menus?"pc":"xbox";}
+static char const *config_string(char const *name){(void)name;return pc_menus==2?"PC":pc_menus?"pc":"xbox";}
 static short game_connection(void){return connection;}
 static void display_error_text_deferred(wchar_t const *text,short controller){assert(controller>=0&&controller<4);message_count++;message=text;}
 static void *global_network_game_server_get(void){return connection==_game_connection_network_server?&game:NULL;}
@@ -264,7 +278,8 @@ int main(int argc,char **argv){
         fire(&widget,0,&action);CHECK(team_sent==2&&sent_player.team_index==0,19);
         game.variant.universal_variant.teams=FALSE;CHECK(!fire(&widget,0,&action)&&message_count==1,20);return 0;
     }
-    if(!strcmp(argv[1],"settings")){
+    if(!strcmp(argv[1],"settings")||!strcmp(argv[1],"settings-uppercase")){
+        if(!strcmp(argv[1],"settings-uppercase"))pc_menus=2;
         campaign=FALSE;scenario.type=1;
         action.function=137;action.flags=136;action.widget_tag.index=300;
         CHECK(fire(&widget,0,&action)&&settings_open==1&&profile_begin==1,21);
@@ -375,6 +390,18 @@ int main(int argc,char **argv){
         CHECK(released_widget==heap_widget&&!widget_globals.active_widgets[2],58);
         widget.definition_tag_index=300;connection=1;free_widget_on_delete=FALSE;
         CHECK(!fire(&widget,0,&action)&&end_count==1&&message_count==1,59);return 0;
+    }
+    if(!strcmp(argv[1],"friendly-fire")){
+        widget.definition_tag_index=300;action.function=MCC_PAUSE_ACTION_FRIENDLY_FIRE;action.flags=128;
+        CHECK(!fire(&widget,0,&action)&&!config_writes,147);
+        coop=TRUE;connection=1;
+        CHECK(!fire(&widget,0,&action)&&config_writes==1&&!friendly&&!friendly_label,148);
+        CHECK(!fire(&widget,0,&action)&&config_writes==2&&friendly&&friendly_label,149);
+        config_success=0;
+        CHECK(!fire(&widget,0,&action)&&config_writes==3&&friendly&&friendly_label,150);
+        widget.definition_tag_index=100;
+        CHECK(!fire(&widget,0,&action)&&config_writes==3,151);
+        CHECK(!revert_count&&!restart_count&&!end_count&&!deleted_count&&!quit_count,152);return 0;
     }
     if(!strcmp(argv[1],"trusted-settings")){
         widget.definition_tag_index=300;action.function=MCC_PAUSE_ACTION_SETTINGS;action.flags=128;
@@ -551,7 +578,7 @@ int main(int argc,char **argv){
         CHECK(!fire(&widget,0,&action)&&!deleted_count,66);
         pause_owned=TRUE;mcc=FALSE;
         CHECK(!fire(&widget,0,&action)&&!deleted_count,67);
-        mcc=TRUE;action.function=MCC_PAUSE_ACTION_SETTINGS+1;
+        mcc=TRUE;action.function=MCC_PAUSE_ACTION_FRIENDLY_FIRE+1;
         CHECK(!mcc_ui_trusted_action(&widget,action.function)&&!fire(&widget,0,&action)&&!deleted_count,68);return 0;
     }
     if(!strcmp(argv[1],"isolation")){
@@ -585,8 +612,8 @@ int main(int argc,char **argv){
 
 
 @pytest.mark.parametrize("case", ["metadata", "confirmation", "client-denial", "no-checkpoint", "restart",
-                                 "quit", "team", "team-balance", "settings", "save", "new-game", "isolation", "unsupported", "script",
-                                 "trusted-pause", "trusted-teams", "trusted-end", "trusted-settings", "trusted-isolation", "settings-namespace",
+                                 "quit", "team", "team-balance", "settings", "settings-uppercase", "save", "new-game", "isolation", "unsupported", "script",
+                                 "trusted-pause", "trusted-teams", "trusted-end", "trusted-settings", "friendly-fire", "trusted-isolation", "settings-namespace",
                                  "split-resume", "split-team", "split-team-denied", "split-quit", "split-quit-sync", "local-quit",
                                  "network-stale-solo", "campaign-stale-catalog", "settings-no-scenario",
                                  "settings-controller", "settings-split-denied", "settings-busy", "settings-lifecycle",
@@ -618,6 +645,7 @@ static int mcc, wants_settings, pc=1, campaign_tag, multiplayer_tag;
 static int built, built_campaign;
 static int mcc_cache_tags_loaded(void){return mcc;}
 static int mcc_ui_settings_needed(char const *name){(void)name;return wants_settings;}
+static int network_coop_campaign_map(void){return 0;}
 static int full_screen_campaign_map(void){return campaign_tag;}
 static long tag_loaded(long group,char const *name){(void)group;(void)name;return multiplayer_tag?1:NONE;}
 static int menus_pc_chosen(void){return pc;}

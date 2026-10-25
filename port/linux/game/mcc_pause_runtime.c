@@ -33,7 +33,8 @@ typedef char mcc_pause_instance_size[sizeof(struct mcc_pause_instance)==32?1:-1]
 struct mcc_pause_art {
     short width, height;
     enum mcc_pause_art_kind kind;
-    long handle;
+    long handle, asset;
+    boolean borrowed;
     char name[64];
     struct bitmap_group group;
     struct bitmap_group_sequence sequence;
@@ -51,6 +52,39 @@ void cache_files_set_tag_instances(void *instances, long count);
 char const *config_string(char const *name);
 void platform_log(char const *format, ...);
 void xgpu_mcc_texture_unbind(unsigned long const *resource);
+long hud_hires_asset_count(void);
+char const *hud_hires_asset_tag(long asset);
+void hud_hires_register_placeholder(long asset, unsigned long const *texture);
+boolean pc_menu_tag(long tag);
+int config_boolean(char const *name);
+
+/* The native menu loader owns these redraw textures until after MCC pause
+ * teardown. Copy descriptors and select our own frame; never alter its group,
+ * sequence, texture or ownership. */
+static boolean mcc_pause_borrow_art(struct mcc_pause_art *art)
+{
+    static char const *names[] = {"pc\\pause\\pausebox_left", "pc\\pause\\pausebox_center", "pc\\pause\\pausebox_right",
+        "pc\\pause\\objectives_left", "pc\\pause\\objectives_center", "pc\\pause\\objectives_right"};
+    char const *name;
+    long tag, frame = 0, count = 1;
+    struct bitmap_group const *group;
+    if (art->kind == MCC_PAUSE_ART_ALERT) name = "pc\\bitmaps\\alert_bkd";
+    else if (art->kind >= MCC_PAUSE_ART_FOOTER_LEFT && art->kind <= MCC_PAUSE_ART_OBJECTIVES_RIGHT) {
+        name = names[art->kind - MCC_PAUSE_ART_FOOTER_LEFT];
+        if (art->kind >= MCC_PAUSE_ART_OBJECTIVES_LEFT) frame = art->height == 225 ? 1 : 0;
+        else frame = art->height == 194 ? 0 : art->height == 229 ? 1 : art->height == 195 ? 2 : 3;
+    } else return FALSE;
+    tag = tag_loaded('bitm', name);
+    if (tag == NONE || !pc_menu_tag(tag)) return FALSE;
+    group = tag_get('bitm', tag);
+    if (!group || !group->bitmaps.address || frame < 0 || frame >= group->bitmaps.count) return FALSE;
+    art->frames[0] = ((struct bitmap_data const *)group->bitmaps.address)[frame];
+    art->group.bitmaps.count = count;
+    art->sequence.bitmap_count = (short)count;
+    art->borrowed = TRUE;
+    return TRUE;
+}
+
 
 static short mcc_pause_power_two(short value)
 {
@@ -71,6 +105,28 @@ static boolean mcc_pause_inside(short x, short y, short w, short h, short inset)
     return !dx || !dy || dx*dx+dy*dy<=r*r;
 }
 
+/* Antialias the stock two-unit outline at the logical resolution. The
+ * Xbox highlight has a dark translucent fill and a ten-unit corner radius. */
+static unsigned long mcc_pause_highlight_pixel(short x, short y, short width, short height)
+{
+    long sx, sy, alpha = 0, red = 0, green = 0, blue = 0;
+    for (sy = 0; sy < 8; sy++) for (sx = 0; sx < 8; sx++) {
+        long px = x * 16 + sx * 2 + 1, py = y * 16 + sy * 2 + 1;
+        long dx = px < 160 ? 160 - px : px > width * 16 - 160 ? px - (width * 16 - 160) : 0;
+        long dy = py < 160 ? 160 - py : py > height * 16 - 160 ? py - (height * 16 - 160) : 0;
+        boolean inside = dx * dx + dy * dy <= 160 * 160;
+        boolean fill = px >= 32 && py >= 32 && px < (width - 2) * 16 && py < (height - 2) * 16 &&
+            dx * dx + dy * dy <= 128 * 128;
+        if (!inside) continue;
+        alpha += fill ? 187 : 255;
+        red += fill ? 0 : 41 * 255;
+        green += fill ? 13 * 187 : 149 * 255;
+        blue += fill ? 32 * 187 : 255 * 255;
+    }
+    return alpha ? ((unsigned long)(alpha / 64) << 24) | ((red / alpha) << 16) |
+        ((green / alpha) << 8) | (blue / alpha) : 0;
+}
+
 static long mcc_pause_art_add(short width, short height, enum mcc_pause_art_kind kind)
 {
     struct mcc_pause_art *art;
@@ -82,18 +138,30 @@ static long mcc_pause_art_add(short width, short height, enum mcc_pause_art_kind
     }
     if(pause_runtime.art_count==MCC_PAUSE_MAX_ART) goto failed;
     art=&pause_runtime.art[pause_runtime.art_count++];
-    art->width=width;art->height=height;art->kind=kind;
+    art->width=width;art->height=height;art->kind=kind;art->asset=NONE;
     art->handle=(0x5A00UL<<16)|(pause_runtime.original_count+pause_runtime.art_count-1);
     snprintf(art->name,sizeof(art->name),"mcc_pause\\art_%d_%dx%d",(int)kind,(int)width,(int)height);
     art->sequence.bitmap_count=kind==MCC_PAUSE_ART_HIGHLIGHT?2:1;
     art->group.sequences.count=1;art->group.sequences.address=&art->sequence;
     art->group.bitmaps.count=art->sequence.bitmap_count;art->group.bitmaps.address=art->frames;
+    if (kind == MCC_PAUSE_ART_ALERT || kind >= MCC_PAUSE_ART_FOOTER_LEFT) {
+        if (!mcc_pause_borrow_art(art)) goto failed;
+        return art->handle;
+    }
+    if (kind == MCC_PAUSE_ART_BUTTON_A || kind == MCC_PAUSE_ART_BUTTON_B) {
+        char const *name = kind == MCC_PAUSE_ART_BUTTON_A ?
+            "ui\\shell\\bitmaps\\a_butn_sm" : "ui\\shell\\bitmaps\\b_butn_sm";
+        for (i = 0; i < hud_hires_asset_count(); i++)
+            if (!strcmp(hud_hires_asset_tag(i), name)) { art->asset = i; break; }
+        if (art->asset == NONE) goto failed;
+    }
     for(i=0;i<art->sequence.bitmap_count;i++) {
         struct bitmap_data *bitmap=&art->frames[i];
         unsigned long *pixels;
         short x,y;
         bitmap->signature='bitm';bitmap->width=kind==MCC_PAUSE_ART_DIM?4:mcc_pause_power_two(width);
         bitmap->height=kind==MCC_PAUSE_ART_DIM?4:mcc_pause_power_two(height);bitmap->depth=1;
+        if (art->asset != NONE) bitmap->width = bitmap->height = 32;
         bitmap->format=11;bitmap->flags=1;bitmap->tag_index=art->handle;
         bitmap->cache_block_index=NONE;
         bitmap->pixels_size=bitmap->width*bitmap->height*4;
@@ -105,9 +173,9 @@ static long mcc_pause_art_add(short width, short height, enum mcc_pause_art_kind
             unsigned long color=0;
             if(kind==MCC_PAUSE_ART_DIM) color=0x80000000UL;
             else if((kind==MCC_PAUSE_ART_PANEL || kind==MCC_PAUSE_ART_FOOTER_PANEL ||
-                kind==MCC_PAUSE_ART_OBJECTIVES_PANEL || kind==MCC_PAUSE_ART_CAMPAIGN_PANEL || i==1) && mcc_pause_inside(x,y,width,height,0))
+                kind==MCC_PAUSE_ART_OBJECTIVES_PANEL || kind==MCC_PAUSE_ART_CAMPAIGN_PANEL) && mcc_pause_inside(x,y,width,height,0))
                 color=mcc_pause_inside(x,y,width,height,2)?
-                    (kind==MCC_PAUSE_ART_HIGHLIGHT?0x60204A75UL:0xC00A2649UL):0xFF2896FFUL;
+                    0xC00A2649UL:0xFF2896FFUL;
             /* The Xbox campaign body fades from (10,38,73) to (5,13,28).
              * Scale only the body, leaving its header, footer and outline intact. */
             if(color==0xC00A2649UL && (kind==MCC_PAUSE_ART_FOOTER_PANEL ||
@@ -130,10 +198,13 @@ static long mcc_pause_art_add(short width, short height, enum mcc_pause_art_kind
                     /* The Xbox footer is black with alpha 191, replacing the body. */
                     color=y==height-28?0xFF2896FFUL:0xBF000000UL;
             }
+            if (kind == MCC_PAUSE_ART_HIGHLIGHT && i == 1)
+                color = mcc_pause_highlight_pixel(x, y, width, height);
             pixels[y*bitmap->width+x]=color;
         }
         if(!rasterizer_bitmap_new(bitmap)) goto failed;
         rasterizer_bitmap_changed(bitmap);
+        if (art->asset != NONE) hud_hires_register_placeholder(art->asset, bitmap->hardware_format);
     }
     return art->handle;
 failed:
@@ -153,6 +224,9 @@ void mcc_pause_runtime_unload(void)
     mcc_pause_dispose();
     for(i=0;i<pause_runtime.art_count;i++) for(j=0;j<2;j++) {
         struct bitmap_data *bitmap=&pause_runtime.art[i].frames[j];
+        if (pause_runtime.art[i].borrowed) continue;
+        if (pause_runtime.art[i].asset != NONE && j == 0)
+            hud_hires_register_placeholder(pause_runtime.art[i].asset, NULL);
         if(bitmap->hardware_format) {
             /* A normal frame end clears texture stages, but partial load
              * cleanup must also be safe before the next frame completes. */
@@ -231,6 +305,7 @@ long mcc_pause_runtime_screen(short local_count, boolean first_player)
     network=game_connection()==_game_connection_network_server || game_connection()==_game_connection_network_client;
     host=global_network_game_server_get()!=NULL;
     if(global_scenario->type==1) teams=game_engine_get_variant()->universal_variant.teams;
+    mcc_pause_friendly_fire(config_boolean("network.coop_own_friendly_fire"));
     return mcc_pause_select(global_scenario->type==0,network,host,teams,local_count,first_player);
 }
 #else

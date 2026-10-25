@@ -77,6 +77,8 @@ static unsigned gpu_calls,gpu_live,gpu_changed,gpu_deleted,fail_gpu;
 static unsigned published,restored,logs;
 static boolean active=TRUE,null_renderer;
 static int connection;
+static int borrowed_failure;
+static unsigned long const *placeholders[2];
 static long large_font=0x11110000,small_font=0x11120001,live_count;
 static void *live_table,*original_table;
 static struct test_scenario {short type;} scenario,*global_scenario;
@@ -108,11 +110,28 @@ static short game_connection(void){return (short)connection;}
 static void *global_network_game_server_get(void){return connection==_game_connection_network_server?&variant:NULL;}
 #define game_engine_get_variant() (&variant)
 static long tag_loaded(long group,char const *name) {
+    if(group=='bitm') {assert(!strncmp(name,"pc\\",3));return borrowed_failure==1?NONE:77;}
     assert(group=='font');
     if(!strcmp(name,"ui\\large_ui"))return large_font;
     if(!strcmp(name,"ui\\small_ui"))return small_font;
     assert(0);return NONE;
 }
+static struct bitmap_data borrowed_frames[4];
+static struct bitmap_group borrowed_group;
+static struct bitmap_data borrowed_copy[4];
+static struct bitmap_group borrowed_group_copy;
+static unsigned long borrowed_pixels[4];
+static void *tag_get(long group,long tag) {
+    assert(group=='bitm'&&tag==77);
+    return &borrowed_group;
+}
+boolean pc_menu_tag(long tag){return tag==77&&borrowed_failure!=2;}
+long hud_hires_asset_count(void){return 2;}
+char const *hud_hires_asset_tag(long a){return a==0?"ui\\shell\\bitmaps\\a_butn_sm":"ui\\shell\\bitmaps\\b_butn_sm";}
+void hud_hires_register_placeholder(long a,unsigned long const *p){
+    assert(a>=0&&a<2);if(p)assert(!placeholders[a]);placeholders[a]=p;
+}
+int config_boolean(char const *name){assert(!strcmp(name,"network.coop_own_friendly_fire"));return TRUE;}
 char const *config_string(char const *name){assert(!strcmp(name,"display.menus"));return "pc";}
 void platform_log(char const *format,...){assert(format);logs++;}
 void *cache_files_tag_instances(long *count){*count=live_count;return live_table;}
@@ -153,6 +172,11 @@ static void rasterizer_bitmap_delete(struct bitmap_data *bitmap) {
 static struct mcc_pause_instance original[2];
 static unsigned char original_copy[sizeof(original)];
 static void setup(void) {
+    int i;
+    for(i=0;i<4;i++) {borrowed_frames[i].width=16;borrowed_frames[i].height=256;
+        borrowed_frames[i].base_address=&borrowed_pixels[i];borrowed_frames[i].tag_index=77;}
+    borrowed_group.bitmaps.count=4;borrowed_group.bitmaps.address=borrowed_frames;
+    memcpy(borrowed_copy,borrowed_frames,sizeof(borrowed_copy));borrowed_group_copy=borrowed_group;
     memset(original,0,sizeof(original));
     original[0].group=original[1].group='font';original[0].handle=0x11110000;original[1].handle=0x11120001;
     original[0].name="ui\\large_ui";original[1].name="ui\\small_ui";
@@ -166,6 +190,9 @@ static int clean(void) {
     mcc_pause_runtime_unload();
     CHECK(live_table==original_table&&live_count==2&&!live_allocations&&!gpu_live&&!mcc_pause_tag_count());
     CHECK(!device.textures[0]&&!device.textures[1]&&!device.textures[2]&&device.textures[3]==&scenario);
+    CHECK(!placeholders[0]&&!placeholders[1]);
+    CHECK(!memcmp(borrowed_frames,borrowed_copy,sizeof(borrowed_copy)));
+    CHECK(!memcmp(&borrowed_group,&borrowed_group_copy,sizeof(borrowed_group)));
     CHECK(!memcmp(original_copy,original,sizeof(original)));return 0;
 }
 static int inventory(void) {
@@ -184,8 +211,10 @@ static int inventory(void) {
             CHECK(group->sequences.count==1&&sequence->first_bitmap_index==0&&
                 sequence->bitmap_count==group->bitmaps.count&&group->bitmaps.count>=1&&group->bitmaps.count<=2);
             for(j=0;j<group->bitmaps.count;j++) {
-                CHECK(frames[j].tag_index==table[i].handle&&frames[j].base_address);
-                CHECK(frames[j].hardware_format||null_renderer);
+                CHECK(frames[j].base_address);
+                if(frames[j].tag_index==77) CHECK(frames[j].base_address>= (void *)borrowed_pixels &&
+                    frames[j].base_address < (void *)(borrowed_pixels+4));
+                else {CHECK(frames[j].tag_index==table[i].handle);CHECK(frames[j].hardware_format||null_renderer);}
             }
         } else CHECK(table[i].group=='DeLa'||table[i].group=='ustr');
     }
@@ -195,6 +224,7 @@ static int pixel_check(void) {
     long i,j;int x,y;
     for(i=0;i<pause_runtime.art_count;i++) {
         struct mcc_pause_art const *art=&pause_runtime.art[i];
+        if(art->borrowed)continue;
         for(j=0;j<art->group.bitmaps.count;j++) {
             struct bitmap_data const *bitmap=&art->frames[j];
             unsigned long const *pixels=bitmap->base_address;
@@ -218,7 +248,10 @@ static int pixel_check(void) {
                 unsigned long color=pixels[y*bitmap->width+x];
                 if(art->kind==MCC_PAUSE_ART_DIM)CHECK(color==0x80000000UL);
                 else if(x>=art->width||y>=art->height)CHECK(!color);
-                else if(art->kind==MCC_PAUSE_ART_HIGHLIGHT&&!j)CHECK(!color);
+                else if(art->kind==MCC_PAUSE_ART_HIGHLIGHT) {
+                    if(!j)CHECK(!color);
+                    else {CHECK((color>>24)<=255);if(x==art->width/2&&y==art->height/2)CHECK(color==0xBB000D20UL);}
+                }
                 else if((art->kind==MCC_PAUSE_ART_OBJECTIVES_PANEL||art->kind==MCC_PAUSE_ART_FOOTER_PANEL||
                     art->kind==MCC_PAUSE_ART_CAMPAIGN_PANEL) &&
                     (color>>24)==0xC0) {
@@ -235,6 +268,16 @@ static int pixel_check(void) {
 int main(int argc,char **argv) {
     unsigned calls,textures,k;long old;
     CHECK(argc==2);setup();
+    if(!strcmp(argv[1],"borrowed-failure")) {
+        for(borrowed_failure=1;borrowed_failure<=4;borrowed_failure++) {
+            setup();
+            if(borrowed_failure==3)borrowed_group.bitmaps.count=0;
+            if(borrowed_failure==4)borrowed_group.bitmaps.address=NULL;
+            borrowed_group_copy=borrowed_group;
+            CHECK(!mcc_pause_runtime_load()&&!published);CHECK(!clean());
+        }
+        borrowed_failure=0;setup();CHECK(mcc_pause_runtime_load());CHECK(!inventory());CHECK(!clean());return 0;
+    }
     if(!strcmp(argv[1],"inactive")) {
         active=FALSE;CHECK(!mcc_pause_runtime_load());
         CHECK(!malloc_calls&&!gpu_calls&&!published&&!mcc_pause_runtime_active());
@@ -316,7 +359,7 @@ int main(int argc,char **argv) {
 
 
 @pytest.mark.parametrize("case", ["inactive", "publish", "pixels", "null-renderer", "fonts", "table-bounds", "art-bounds",
-                                 "malloc-failure", "gpu-failure", "lifetime", "selection"])
+                                 "malloc-failure", "gpu-failure", "borrowed-failure", "lifetime", "selection"])
 def test_mcc_pause_runtime(runtime_tool, case):
     result = subprocess.run([str(runtime_tool), case], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, f"{case}: exit {result.returncode}\n{result.stdout}{result.stderr}"

@@ -168,36 +168,41 @@ without changing their contents.
 
 | Context | Available actions |
 | --- | --- |
-| Local campaign | Resume Game, Revert to Saved, Restart Level, Save and Quit. |
-| Cooperative host | Resume Game, Revert to Saved, Restart Level, Leave Game. |
-| Cooperative client | Resume and Leave Game. |
-| Local multiplayer | Resume, Restart Game and Leave Game. |
-| Multiplayer host | Resume, Restart Game, End Game and Leave Game; Choose Team in team games. |
-| Multiplayer client | Resume and Leave Game; Choose Team in team games. |
+| Local campaign | Resume Game, Settings, Revert to Saved, Restart Level, Save and Quit. |
+| Cooperative host and client | The campaign actions plus Friendly Fire On/Off. Clients cannot perform host-only checkpoint/restart actions. |
+| Local multiplayer and multiplayer client | Resume Game, Settings and Leave Game. |
+| Multiplayer host | Resume Game, Settings, End Game and Leave Game. |
 
-All full-screen MCC pause menus offer **Settings**, including campaign,
-network co-op and multiplayer, with either main-menu style. This opens
-OpenCE�s native in-game audio, video and controls screens for the initiating
-controller, using upstream�s option filtering and profile saving. Campaign
-menus use 30-pixel row spacing and taller panels to accommodate the option. Split-screen players use Settings
-from the main menu, since the native editor needs a full viewport.
-Restart,
-revert and leaving/end-game actions use confirmation
-dialogs with Cancel selected initially. B returns from a confirmation to
-the pause screen; Start closes the current player's menu and its navigation
-history. At the main pause screen, either resumes play. Resume and team
-selection also close only the initiating player's menu, preserving other
-local players' screens. Each pause layout uses the native A/B button-icon
-tokens in its footer, drawing the map's HUD button glyphs beside Select/Back.
-Only local campaign pauses
-the simulation; network games continue while a menu is open.
+The full-screen menus match the Xbox layouts and content, including the
+port's Settings and co-op Friendly Fire additions. The extra MCC Choose Team
+and multiplayer Restart Game entries have been removed for content parity.
+Authored widgets still use the existing MCC action adapter. Split-screen
+players use Settings from the main menu, since the editor needs a full viewport.
 
-Save and Quit preserves the last valid local campaign checkpoint. Revert
-requires a valid checkpoint, and cooperative restart/revert remain
-host-controlled. A network restart retains the selected map, variant,
-options and players through the native lobby/countdown route. End Game is
-host-only and ends the round. Team changes remain subject to authenticated
-player identity, host authority and balance checks.
+Revert and Restart use the Xbox ATTENTION dialog: B/Back cancels and
+A/Start accepts. Save and Quit uses the three-second SAVING screen and
+preserves the last valid checkpoint; it does not create a new checkpoint.
+The wording, including the inherited Xbox-console saving message, follows
+the Xbox reference. Multiplayer Leave and host End Game act directly, as
+on Xbox. Only local campaign menus pause simulation; network games continue.
+
+Footers use separate B=CANCEL and A=SELECT widgets, with B=CANCEL and A=OK
+on confirmations. Their bitmap placeholders reference OpenCE's embedded
+small menu-button redraws, independently of the map's gameplay glyphs.
+Panel and alert bitmap descriptors borrow the native menu loader's redraw
+textures read-only, with MCC-owned groups and frame selections. Unload drops
+these descriptors before the native menu loader releases the textures.
+Selection highlights are drawn independently with antialiased rounded edges.
+
+Friendly Fire changes only the existing `network.coop_own_friendly_fire`
+preference, through the same configuration service as Xbox. The generated
+button reloads its label after a successful change. This introduces no new
+network message or authority: checkpoint/restart and End Game still require
+the host; clients cannot turn the preference into control of other players.
+The menu callbacks close only their initiating controller's tree and history.
+
+All full-screen Settings entries open OpenCE's existing in-game audio, video
+and controls editor, with upstream's option filtering and profile saving.
 
 The MCC Settings route uses the initiating controller's profile and widget
 history. It does not replace another active profile editor. Its ownership
@@ -793,7 +798,7 @@ Xbox names were the four vibrate-alias calls and six
 uncompressed cubemaps in the fixture confirmed mip-major storage (all six
 faces within each mip): lower mip pixels matched upper mip averages to
 less than 0.26/255 mean RGB error. Face-major interpretation produced
-37–80/255 error. BC7 follows the same layout in the adapter; that particular
+37â80/255 error. BC7 follows the same layout in the adapter; that particular
 layout comparison did not independently test BC7.
 
 The second supplied fixture, `Nitra v2/dangercanyon.map`, also passes the
@@ -1083,7 +1088,7 @@ a complete playthrough. Its four script refusals were traced to writes to
   in the campaign snapshot's flag bit 3. It preserves player volume settings,
   survives checkpoints, follows the host, and clears on map disposal.
 - `map_reset` uses the existing restart operation: a local reset in
-  singleplayer, and the MCC pause menu's reliable round restart in a network
+  singleplayer, and the MCC action adapter's reliable round restart in a network
   game. A client cannot request it through this script function.
 
 B30 Evolved also exposed two rendering problems, handled only for MCC:
@@ -1248,7 +1253,7 @@ The MCC function table additionally supports `list_count_not_dead`,
 sleeping, and unknown scripts are not reported as completed. The authoritative
 clock uses local/server game ticks, or the latest received host tick on clients.
 
-Effects gain is an MCC-owned multiplier (default 1, accepted range 0–4).
+Effects gain is an MCC-owned multiplier (default 1, accepted range 0â4).
 It affects non-music sound classes without changing saved user volume settings.
 The small additive connection in the common sound mixer returns a neutral
 multiplier outside an active MCC campaign. The MCC writable-global whitelist
@@ -1288,7 +1293,7 @@ Several data corrections are confined to MCC conversion:
 - Non-power-of-two 2D bitmaps retain their dimensions in a linear ARGB texture.
   Their declared source mip chain is validated, but only the base level is
   retained because the native linear texture path has no mipmaps. This handles
-  Aerowalk's 1920×1080 HUD bitmap.
+  Aerowalk's 1920Ã1080 HUD bitmap.
 
 Judgement's `game_time_authoritative` conversion is supported, but the supplied
 Workshop package declares `InheritSharedFiles: FromMCC` and references 687
@@ -1543,6 +1548,66 @@ and leaves Xbox/Custom Edition paths unchanged. Existing host-controlled
 inventory synchronization is sufficient, but network version 38 prevents
 peers with the previous aiming behavior from joining.
 
+
+## Large texture sets, cinematic abort and incomplete animation links
+
+The MCC bitmap adapter permits up to 2 GiB of converted texture storage per
+map. Individual allocations remain limited to 128 MiB, and each tag retains
+its existing bounded virtual stream. Allocation failures refuse the map with
+a diagnostic; the larger budget is not a guarantee that every platform has
+enough free address space or memory. Unconverted pixels no longer require an
+extra intermediate copy. The MCC bitmap-group callback checks owned converted
+allocations and sequence ranges instead of applying the legacy file-backed
+bitmap budget, which would otherwise empty XAM's 4096-pixel textures. Xbox and
+Custom Edition retain their own validation and storage limits.
+
+XAM A30 additionally has a graph with all links omitted and several graphs
+with missing parent indices. Fully omitted links can be recovered only from
+an associated model with matching ordered node names; associated models must
+agree. An omitted parent can be derived from an explicit child link only while
+validating a complete, uniquely reachable tree. Flood Forgotten Exile's Flood
+Banshee has a separate pattern: its root names the last sibling rather than
+the first child. Recovery requires matching names and every non-root link to
+agree with the associated model. Conflicting links, cycles and unreachable
+nodes remain rejected. Repairs are logged and confined to converted MCC tags.
+
+The MCC-only zero-argument, void `cinematic_abort` adapter schedules OpenCE's
+existing cinematic skip operation. This preserves its skippable-checkpoint
+requirements and host-controlled co-op revert. A network client cannot invoke
+that operation through this adapter. No new packet or client authority is
+introduced. The signature is documented at
+https://andrew.gg/scripts/00reference.html; the evaluator mapping to cinematic
+skip is independently documented at
+https://surreptitiousresearch.github.io/halocea_docs/21_script_presentation.html.
+Implementation uses the existing OpenCE interface, not MCC implementation code.
+
+
+Validation on Windows (portable release, based on main `dccbc62b`):
+
+- 1,032 MCC tests passed, two skipped; 128 legacy cache-format tests passed,
+  four skipped. The final zero-argument evaluator correction passed all 13
+  campaign-handler tests, including client/inactive-map guards. Validator
+  callback dispatch was also rechecked with all 85 validator cases passing.
+- Original Workshop XAM A30, Better with Friends B40 and Flood Forgotten Exile
+  STKFT_V1 each completed a 100-second hidden renderer-enabled run, with a
+  marker after 150 simulation ticks, no assertions and normal exit. XAM
+  converted 1,285,707,392 texture bytes and reached mission segment `01_start`.
+  That executable's SHA-256 is
+  `d36af2b0ac5248215ac42a4062ca4136127fc72d17d81360e34593f2ec2c6ba9`.
+- None of the three supplied Better with Friends maps contains a
+  `cinematic_abort` symbol. The adapter was therefore exercised explicitly
+  through the live MCC console interpreter on B40, followed by 150 simulation
+  ticks and normal exit in a 45-second run. This caught and corrected an
+  argument-stack assertion in the initial adapter; the test stub now rejects
+  zero-argument macro evaluation too. Final executable SHA-256:
+  `b2839039ed14f37c7d3a127d18d116c0d7daac3201ea81553fe90209ce0e1693`.
+- Local Android and Web Ninja targets are unavailable. These runs do not
+  establish full campaign completion, visual correctness of every asset,
+  actual checkpoint-skipping behavior in an authored `cinematic_abort` map,
+  online co-op behavior or Linux/Android/Web runtime compatibility.
+
+All implementation changes are in MCC modules. No shared engine source,
+Xbox/Custom Edition loader or network message layout was changed.
 For authored biped seats and their network isolation, see [MCC seats](mcc_seats.md).
 
 ### Cursed Halo authored effects (October 13)

@@ -37,6 +37,8 @@ struct mcc_ui_widget_prefix {
 typedef char mcc_ui_controller_offset[offsetof(struct mcc_ui_widget_prefix, controller) == 2 * sizeof(void *) ? 1 : -1];
 
 char const *config_string(char const *name);
+int config_boolean(char const *name);
+int config_write(char const *name, char const *value);
 boolean pc_menu_tag(long tag_index);
 boolean ui_widget_port_dispatch_event(struct widget_instance *widget, short type, short controller, boolean *deleted);
 
@@ -116,7 +118,7 @@ boolean mcc_ui_trusted_action(struct widget_instance *widget, word function)
 {
     struct mcc_ui_widget_prefix const *prefix = (void const *)widget;
     return widget && mcc_cache_tags_loaded() &&
-        function >= MCC_PAUSE_ACTION_RESUME && function <= MCC_PAUSE_ACTION_SETTINGS &&
+        function >= MCC_PAUSE_ACTION_RESUME && function <= MCC_PAUSE_ACTION_FRIENDLY_FIRE &&
         mcc_pause_owns(prefix->definition);
 }
 
@@ -246,7 +248,7 @@ boolean mcc_ui_event_function(struct widget_instance *widget,
     if (!mcc_ui_owns_widget(widget)) return FALSE;
     controller = mcc_ui_controller(widget, event);
     *result = TRUE;
-    if (function >= MCC_PAUSE_ACTION_RESUME && function <= MCC_PAUSE_ACTION_SETTINGS) {
+    if (function >= MCC_PAUSE_ACTION_RESUME && function <= MCC_PAUSE_ACTION_FRIENDLY_FIRE) {
         if (!mcc_ui_trusted_action(widget, function)) {
             *result = FALSE;
             return TRUE;
@@ -282,6 +284,12 @@ boolean mcc_ui_event_function(struct widget_instance *widget,
             if (*result) mcc_ui_close_for_controller(controller, deleted);
             return TRUE;
         case MCC_PAUSE_ACTION_SETTINGS: function = 137; break;
+        case MCC_PAUSE_ACTION_FRIENDLY_FIRE:
+            if (!network_coop_active()) { *result = FALSE; return TRUE; }
+            *result = config_write("network.coop_own_friendly_fire",
+                config_boolean("network.coop_own_friendly_fire") ? "false" : "true");
+            mcc_pause_friendly_fire(config_boolean("network.coop_own_friendly_fire"));
+            return TRUE;
         }
     }
     switch (function) {
@@ -292,10 +300,12 @@ boolean mcc_ui_event_function(struct widget_instance *widget,
             break;
         }
         main_revert_map(); /* Existing engine host-revert path synchronizes co-op. */
+        mcc_ui_close_for_controller(controller, deleted);
         break;
     case 12: /* Confirm restart level. */
     case 163: /* PC multiplayer options: restart game. */
         *result = mcc_ui_restart(controller);
+        if (*result) mcc_ui_close_for_controller(controller, deleted);
         break;
     case 13: /* Campaign quit: retain this MCC campaign's checkpoint. */
         if (network_coop_active()) {

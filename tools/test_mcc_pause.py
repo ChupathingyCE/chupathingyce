@@ -94,7 +94,7 @@ static long art(short width,short height,enum mcc_pause_art_kind kind) {
     unsigned i;
     if(++art_calls==fail_art)return NONE;
     assert(width>0&&height>0&&width<=640&&height<=480);
-    assert(kind>=MCC_PAUSE_ART_PANEL&&kind<=MCC_PAUSE_ART_CAMPAIGN_PANEL);
+    assert(kind>=MCC_PAUSE_ART_PANEL&&kind<=MCC_PAUSE_ART_OBJECTIVES_RIGHT);
     for(i=0;i<art_count;i++)if(art_records[i].width==width&&art_records[i].height==height&&
         art_records[i].kind==kind)return art_records[i].handle;
     assert(art_count<NUMBEROF(art_records));
@@ -139,7 +139,7 @@ static unsigned actions(long handle,unsigned depth) {
     assert(depth<10);
     for(i=0;i<w->event_handlers.count;i++) {
         if((events[i].flags&128)&&events[i].function>=MCC_PAUSE_ACTION_RESUME&&
-            events[i].function<=MCC_PAUSE_ACTION_SETTINGS)
+            events[i].function<=MCC_PAUSE_ACTION_FRIENDLY_FIRE)
             result|=1u<<(events[i].function-MCC_PAUSE_ACTION_RESUME);
         if(events[i].flags&8)result|=actions(events[i].widget_tag.index,depth+1);
     }
@@ -196,20 +196,21 @@ static int context_check(boolean do_bounds) {
                 unsigned record;
                 for(record=0;record<art_count;record++)
                     if(art_records[record].handle==panel->background_bitmap.index)break;
-                CHECK(record<art_count);
-                CHECK(art_records[record].kind==MCC_PAUSE_ART_FOOTER_PANEL);
+                if(panel->child_widgets.count) {
+                    CHECK(panel->child_widgets.count==3);
+                } else { CHECK(record<art_count); CHECK(art_records[record].kind==MCC_PAUSE_ART_FOOTER_PANEL); }
                 CHECK(children[footer].vertical_offset>=children[0].vertical_offset+panel->bounds.y1-28);
             }
             if(campaign&&layout==0&&assets.settings) {
                 struct ui_widget_definition const *buttons=widget(children[list].widget_tag.index);
                 struct ui_widget_child_reference const *rows=buttons->child_widgets.address;
-                CHECK(widget(children[0].widget_tag.index)->bounds.y1==195);
-                CHECK(children[footer].vertical_offset==332);
+                CHECK(widget(children[0].widget_tag.index)->bounds.y1==(network?225:195));
+                CHECK(children[footer].vertical_offset==(network?362:332));
                 CHECK(rows[1].vertical_offset-rows[0].vertical_offset==30);
             }
             CHECK(children[footer].vertical_offset>=children[list].vertical_offset+
                 widget(children[list].widget_tag.index)->bounds.y1);
-            CHECK(widget(children[footer].widget_tag.index)->text_font.index==assets.small_font[layout]);
+            CHECK(widget(children[footer].widget_tag.index)->child_widgets.count==4);
             CHECK(widget(children[footer].widget_tag.index)->event_handlers.count==0);
             if(campaign&&layout!=2) {
                 /* The stock campaign panels have a five-pixel gap. */
@@ -220,14 +221,14 @@ static int context_check(boolean do_bounds) {
         bits=actions(root,0);
         CHECK(bits&1u); /* Resume is always reachable. */
         CHECK(bits&(1u<<(MCC_PAUSE_ACTION_QUIT-MCC_PAUSE_ACTION_RESUME)));
-        if(network&&!host)CHECK(!(bits&((1u<<1)|(1u<<2)|(1u<<3)|(1u<<5))));
+        if(network&&!host)CHECK(!(bits&((1u<<3)|(1u<<5)))); /* Co-op shows Xbox actions; callbacks deny clients. */
         if(campaign)CHECK(!(bits&((1u<<5)|(1u<<6)|(1u<<7))));
         /* The native Settings screen requires a full viewport, including
          * when the first player owns the half-screen in a three-player game. */
         CHECK(!!(bits&(1u<<8))==(assets.settings&&count==1));
         if(!campaign)CHECK(!(bits&((1u<<1)|(1u<<3))));
         if(!network||campaign||!teams)CHECK(!(bits&((1u<<6)|(1u<<7))));
-        if(!campaign&&network&&teams)CHECK((bits&((1u<<6)|(1u<<7)))==((1u<<6)|(1u<<7)));
+        CHECK(!(bits&((1u<<6)|(1u<<7)))); /* No extra MCC team menu. */
         if(!campaign&&network&&host)CHECK(bits&(1u<<5));
     }
     return 0;
@@ -254,6 +255,34 @@ int main(int argc,char **argv) {
             CHECK(!mcc_pause_owns(t->handle^0x01000000));
             for(j=0;j<i;j++)CHECK(strcmp(t->name,mcc_pause_tag_at(j)->name)!=0&&t->handle!=mcc_pause_tag_at(j)->handle);
         }
+    } else if(!strcmp(argv[1],"parity")) {
+        long root=mcc_pause_select(TRUE,TRUE,TRUE,FALSE,1,TRUE);
+        struct ui_widget_definition const *w=widget(root);
+        struct ui_widget_child_reference const *children=w->child_widgets.address,*rows;
+        struct ui_widget_definition const *list=widget(children[2].widget_tag.index);
+        CHECK(list->child_widgets.count==6);rows=list->child_widgets.address;
+        CHECK(widget(rows[2].widget_tag.index)->string_list_index==LABEL_FRIENDLY_ON);
+        mcc_pause_friendly_fire(FALSE);
+        CHECK(widget(rows[2].widget_tag.index)->string_list_index==LABEL_FRIENDLY_OFF);
+        mcc_pause_friendly_fire(TRUE);
+        CHECK(widget(rows[2].widget_tag.index)->string_list_index==LABEL_FRIENDLY_ON);
+        CHECK(widget(rows[5].widget_tag.index)->string_list_index==LABEL_SAVE_QUIT);
+        root=mcc_pause_select(FALSE,TRUE,TRUE,TRUE,1,TRUE);w=widget(root);children=w->child_widgets.address;
+        list=widget(children[1].widget_tag.index);rows=list->child_widgets.address;
+        CHECK(list->child_widgets.count==4);
+        CHECK(widget(rows[0].widget_tag.index)->string_list_index==LABEL_RESUME);
+        CHECK(widget(rows[1].widget_tag.index)->string_list_index==LABEL_SETTINGS);
+        CHECK(widget(rows[2].widget_tag.index)->string_list_index==LABEL_END);
+        CHECK(widget(rows[3].widget_tag.index)->string_list_index==LABEL_LEAVE);
+        CHECK(((struct ui_widget_event_handler_reference *)widget(rows[2].widget_tag.index)->event_handlers.address)[0].function==MCC_PAUSE_ACTION_END_GAME);
+        /* Observed Xbox multiplayer panel, list and footer coordinates. */
+        CHECK(children[0].horizontal_offset==206&&children[0].vertical_offset==129);
+        CHECK(children[1].horizontal_offset==218&&children[1].vertical_offset==172);
+        CHECK(children[2].horizontal_offset==235&&children[2].vertical_offset==333);
+        root=mcc_pause_select(FALSE,TRUE,FALSE,TRUE,1,TRUE);w=widget(root);children=w->child_widgets.address;
+        CHECK(children[0].horizontal_offset==206&&children[0].vertical_offset==147);
+        CHECK(children[1].horizontal_offset==218&&children[1].vertical_offset==190);
+        CHECK(children[2].horizontal_offset==235&&children[2].vertical_offset==316);
     } else if(!strcmp(argv[1],"contexts")) {
         CHECK(!context_check(FALSE));
     } else if(!strcmp(argv[1],"layout")) {
@@ -267,7 +296,7 @@ int main(int argc,char **argv) {
             w=t->data;e=w->event_handlers.address;
             for(j=0;j<w->event_handlers.count;j++) {
                 CHECK(!(e[j].flags&1024)&&!e[j].script[0]);
-                if(e[j].flags&128)CHECK(e[j].function>=MCC_PAUSE_ACTION_RESUME&&e[j].function<=MCC_PAUSE_ACTION_SETTINGS);
+                if(e[j].flags&128)CHECK(e[j].function>=MCC_PAUSE_ACTION_RESUME&&e[j].function<=MCC_PAUSE_ACTION_FRIENDLY_FIRE);
                 if(e[j].flags&8)CHECK(find(e[j].widget_tag.index)&&mcc_pause_owns(e[j].widget_tag.index));
                 if(e[j].event_type==0) {
                     long k;
@@ -301,7 +330,7 @@ int main(int argc,char **argv) {
                 }
             }
         }
-        CHECK(resume_accept&&resume_back&&red&&blue);
+        CHECK(resume_accept&&resume_back&&!red&&!blue);
     } else if(!strcmp(argv[1],"dialogs")) {
         unsigned dialogs=0;
         for(i=0;i<mcc_pause_tag_count();i++) {
@@ -315,17 +344,17 @@ int main(int argc,char **argv) {
             if(strcmp(w->name,"confirmation"))continue;
             dialogs++;children=w->child_widgets.address;
             for(j=0;j<w->child_widgets.count;j++)if(widget(children[j].widget_tag.index)->type==3)list=children[j].widget_tag.index;
-            CHECK(list!=NONE);
-            children=widget(list)->child_widgets.address;
-            e=widget(children[0].widget_tag.index)->event_handlers.address;
-            CHECK(e[0].event_type==0&&e[0].flags==512); /* Native default focus starts on Cancel. */
-            e=widget(children[1].widget_tag.index)->event_handlers.address;
-            CHECK(e[0].event_type==0&&(e[0].flags&128)&&e[0].function!=MCC_PAUSE_ACTION_RESUME);
+            CHECK(list==NONE); /* Xbox prompts are root-level A/B actions, not a selectable list. */
             e=w->event_handlers.address;
-            CHECK(w->event_handlers.count==2&&e[0].event_type==1&&e[1].event_type==13&&e[0].flags==512&&e[1].flags==512);
-            objectives=0;
-            CHECK(!walk_bounds(t->handle,0,0,w->bounds.x1,w->bounds.y1,
-                w->bounds.x1==320?2:w->bounds.y1==240?1:0,0));
+            if(w->milliseconds_to_auto_close) {
+                CHECK(w->milliseconds_to_auto_close==3000&&w->event_handlers.count==1);
+                CHECK(e[0].event_type==25&&e[0].function==MCC_PAUSE_ACTION_QUIT);
+            } else {
+                CHECK(w->event_handlers.count==5);
+                CHECK(e[0].event_type==1&&e[0].flags==512);
+                CHECK(e[2].event_type==0&&e[3].event_type==12&&e[4].event_type==28);
+                CHECK(e[2].function==e[3].function&&e[3].function==e[4].function);
+            }
         }
         CHECK(dialogs>=15);
     } else if(!strcmp(argv[1],"paragraphs")) {
@@ -381,12 +410,12 @@ int main(int argc,char **argv) {
             struct tag_block const *block=t->data;
             struct tag_data const *entries=block->address;
             if(t->group!='ustr')continue;
-            lists++;CHECK(block->count>=20&&block->count<128);
+            lists++;CHECK(block->count==LABEL_COUNT);
             for(j=0;j<block->count;j++) {
                 unsigned short const *text=entries[j].address;long k;
                 CHECK(text&&entries[j].size>=2&&entries[j].size<=256&&!(entries[j].size&1));
                 CHECK(!text[entries[j].size/2-1]);
-                for(k=0;k<entries[j].size/2-1;k++)CHECK(text[k]>=32&&text[k]<127);
+                for(k=0;k<entries[j].size/2-1;k++)CHECK((text[k]>=32&&text[k]<127)||text[k]==13||text[k]==10);
             }
         }
         CHECK(lists==1);
@@ -445,7 +474,7 @@ int main(int argc,char **argv) {
     return binary
 
 
-@pytest.mark.parametrize("case", ["identity", "contexts", "layout", "actions", "controller-close", "dialogs", "paragraphs", "strings",
+@pytest.mark.parametrize("case", ["identity", "parity", "contexts", "layout", "actions", "controller-close", "dialogs", "paragraphs", "strings",
                                  "wrap-boundaries", "wrap-lines", "wrap-isolation", "failure", "art-failure", "invalid", "lifetime"])
 def test_mcc_pause_builder(pause_tool, case):
     result = subprocess.run([str(pause_tool), case], capture_output=True, text=True, timeout=30)

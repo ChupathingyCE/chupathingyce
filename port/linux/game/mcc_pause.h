@@ -14,7 +14,16 @@ enum mcc_pause_art_kind {
     MCC_PAUSE_ART_DIM,
     MCC_PAUSE_ART_FOOTER_PANEL,
     MCC_PAUSE_ART_OBJECTIVES_PANEL,
-    MCC_PAUSE_ART_CAMPAIGN_PANEL
+    MCC_PAUSE_ART_CAMPAIGN_PANEL,
+    MCC_PAUSE_ART_ALERT,
+    MCC_PAUSE_ART_BUTTON_A,
+    MCC_PAUSE_ART_BUTTON_B,
+    MCC_PAUSE_ART_FOOTER_LEFT,
+    MCC_PAUSE_ART_FOOTER_CENTER,
+    MCC_PAUSE_ART_FOOTER_RIGHT,
+    MCC_PAUSE_ART_OBJECTIVES_LEFT,
+    MCC_PAUSE_ART_OBJECTIVES_CENTER,
+    MCC_PAUSE_ART_OBJECTIVES_RIGHT
 };
 
 /* Logical viewport sizes: 640x480, 640x240, 320x240. The art callback owns
@@ -44,5 +53,6 @@ boolean mcc_pause_text_wrap_needed(long handle);
 long mcc_pause_select(boolean campaign, boolean network, boolean host, boolean teams,
     short local_count, boolean first_player);
 void mcc_pause_dispose(void);
+void mcc_pause_friendly_fire(boolean enabled);
 
 #endif
