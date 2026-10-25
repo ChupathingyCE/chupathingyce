@@ -35,6 +35,9 @@ rather than the app vanishing.
 #include "halo_ios.h"
 
 #include <SDL3/SDL.h>
+/* (SDL_SetMainReady only: the app's main() is its own, not SDL's) */
+#define SDL_MAIN_HANDLED
+#include <SDL3/SDL_main.h>
 #include <errno.h>
 #include <stdarg.h>
 #include <stdint.h>
