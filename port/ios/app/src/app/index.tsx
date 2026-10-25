@@ -18,6 +18,7 @@ import {
   type ScrollViewInstance,
 } from 'react-native';
 
+import { MemoryCheck } from '../components/MemoryCheck';
 import { checkAddress, DownloadError, startDownload, type Download } from '../lib/download';
 import { importImage, importMapFiles, pickFiles, SPACE_NEEDED, tryOpen, type Picked } from '../lib/importDisc';
 import { summary } from '../lib/mapImport';
@@ -269,6 +270,8 @@ export default function Launcher() {
           </Pressable>
         </View>
       )}
+
+      {state.kind === 'idle' && <MemoryCheck />}
 
       <Text style={styles.footer} selectable>
         Data folder: {dataRoot().uri}

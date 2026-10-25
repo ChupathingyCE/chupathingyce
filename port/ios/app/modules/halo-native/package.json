@@ -1,0 +1,9 @@
+{
+  "name": "halo-native",
+  "version": "0.1.0",
+  "description": "The game's native side for the iOS launcher: for now, a check of the address space iOS gives the app",
+  "main": "index.ts",
+  "license": "GPL-3.0-or-later",
+  "author": "JizzyRivers",
+  "homepage": "https://github.com/JizzyRivers/warthog-ios"
+}
