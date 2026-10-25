@@ -63,7 +63,7 @@ def geometry_tool(tmp_path_factory):
     includes = ["port/windows/include/crt", "port/windows/include", "source", "source/cseries",
                 "source/math", "source/tag_files", "source/rasterizer", "source/structures",
                 "source/cache", "source/render", "port/include/xdk", "port/linux/game"]
-    command = [compiler, "--target=i686-pc-windows-msvc", "-fuse-ld=lld", "-fms-extensions",
+    command = [compiler, "-include", str(ROOT / "port/linux/game/mcc_loading.h"), str(ROOT / "tools/mcc_loading_stub.c"), "--target=i686-pc-windows-msvc", "-fuse-ld=lld", "-fms-extensions",
                "-std=gnu89", "-O1", "-DDEBUG", "-Dxbox", "-D_CRT_SECURE_NO_WARNINGS",
                "-Wno-nonportable-include-path", "-Wno-c99-compat", "-Wno-visibility",
                "-include", str(ROOT/"port/windows/include/halo_windows_prefix.h"),

@@ -138,7 +138,7 @@ int main(int argc,char **argv) {
     path = work / "masks.c"
     path.write_text(source)
     output = work / ("masks.exe" if sys.platform == "win32" else "masks")
-    command = [clang, "-std=gnu99", "-O2", "-Wall", "-Wextra", "-Werror",
+    command = [clang, "-include", str(ROOT / "port/linux/game/mcc_loading.h"), str(ROOT / "tools/mcc_loading_stub.c"), "-std=gnu99", "-O2", "-Wall", "-Wextra", "-Werror",
                "-Wno-multichar", "-Wno-unused-function", "-I", str(ROOT / "port/third_party/bcdec"),
                str(path), "-o", str(output)]
     if sys.platform == "win32":

@@ -8,6 +8,7 @@
 #include "interface/unit_hud_interface_definition.h"
 #include "rasterizer/rasterizer_swizzle.h"
 #include "mcc_runtime.h"
+#include "mcc_loading.h"
 #include "mcc_resources.h"
 #include <stdlib.h>
 #include <string.h>
@@ -297,6 +298,7 @@ static void mcc_bitmap_decode(unsigned char const *input,uint32_t *output,
         for (y=0;y<height;y+=4) for (x=0;x<width;x+=4) {
             unsigned char rgba[64];
             unsigned dx,dy;
+            if (!x && !(y & 63u)) mcc_loading_pulse();
             if (format==14) bcdec_bc1(input,rgba,16);
             else if (format==15) bcdec_bc2(input,rgba,16);
             else if (format==16) bcdec_bc3(input,rgba,16);
@@ -604,6 +606,7 @@ int mcc_bitmaps_prepare(struct mcc_runtime *runtime)
             error(_error_silent,"mcc bitmaps: cannot convert texture %lu of tag %08lx; map refused",index,textures->items[index].handle);
             return 0;
         }
+        mcc_loading_update(MCC_LOADING_BITMAPS, index + 1, textures->count);
     }
     error(_error_silent,"mcc bitmaps: %lu textures converted to %lu bytes",textures->count,textures->end);
     return 1;

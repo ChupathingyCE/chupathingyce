@@ -183,6 +183,7 @@ struct game_options;
 #include "units/vehicles.h"
 #ifdef HALO_64BIT
 #include "rasterizer/common/rasterizer_common.h"
+#include "mcc_loading.h" /* port: port/linux/game/mcc_loading.c */
 #endif
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "loading_screen.h" /* port: port/linux/game/loading_screen.c */
@@ -635,6 +636,7 @@ boolean game_load(
 		game_options_verify(options));
 
 	random_seed_debug_log(TRUE);
+	mcc_loading_begin(options->map_name); /* port: no-op for Xbox/CE loads */
 	csmemcpy(&game_globals->options, options, sizeof(*options));
 	/* port: debug.determinism's games all play from one seed
 	(port/linux/game/determinism_check.c) */
@@ -646,6 +648,7 @@ boolean game_load(
 		game_globals->map_loaded = TRUE;
 	}
 
+	mcc_loading_end(game_globals->map_loaded); /* port: includes failed MCC loads */
 	return game_globals->map_loaded;
 }
 

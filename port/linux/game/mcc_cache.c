@@ -22,6 +22,7 @@
 #include "mcc_texture_cache.h"
 #include "mcc_ui_teams.h"
 #include "mcc_hud_draw.h"
+#include "mcc_loading.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -308,9 +309,12 @@ struct cache_file_tag_header *mcc_cache_tags_load(char const *name, void *header
     problem = mcc_cache_status_string(status);
     if (status != MCC_CACHE_OK) goto failed;
     problem = "no unambiguous matching MCC resources (see the preceding diagnostic)";
-    if (!mcc_resources_select(runtime,raw) || !mcc_resources_checksum(runtime,
+    if (!mcc_resources_select(runtime,raw)) goto failed;
+    mcc_loading_update(MCC_LOADING_RESOURCES, 1, 3);
+    if (!mcc_resources_checksum(runtime,
         (runtime->report.external_bitmap_count ? 1u : 0u)|(runtime->report.external_sound_count ? 2u : 0u),
         &package_checksum)) goto failed;
+    mcc_loading_update(MCC_LOADING_RESOURCES, 2, 3);
     problem = "the loaded MCC content does not match the admitted SHA-256 fingerprint";
     if (!mcc_identity_loaded(name,runtime)) goto failed;
     runtime->capacity = MCC_CACHE_TAG_CAPACITY;
@@ -331,9 +335,16 @@ struct cache_file_tag_header *mcc_cache_tags_load(char const *name, void *header
     problem = "the MCC scenario identity could not be retained for saved games";
     if (!mcc_scenario_identity(runtime, name)) goto failed;
     problem = "MCC tag conversion failed (see the preceding diagnostic)";
-    if (!mcc_hud_bitmaps_prepare(runtime) || !mcc_tags_prepare(runtime) || !mcc_scripts_prepare(runtime) ||
-        !mcc_geometry_prepare(runtime) || !mcc_audio_prepare(runtime) ||
-        !mcc_bitmaps_prepare(runtime)) goto failed;
+    mcc_loading_stage(MCC_LOADING_TAGS);
+    if (!mcc_hud_bitmaps_prepare(runtime) || !mcc_tags_prepare(runtime)) goto failed;
+    mcc_loading_stage(MCC_LOADING_SCRIPTS);
+    if (!mcc_scripts_prepare(runtime)) goto failed;
+    mcc_loading_stage(MCC_LOADING_GEOMETRY);
+    if (!mcc_geometry_prepare(runtime)) goto failed;
+    mcc_loading_stage(MCC_LOADING_AUDIO);
+    if (!mcc_audio_prepare(runtime)) goto failed;
+    mcc_loading_stage(MCC_LOADING_BITMAPS);
+    if (!mcc_bitmaps_prepare(runtime)) goto failed;
     /* The runtime tag table is stock-shaped. The independent wire reader's
      * report retains model offsets; no other loader sees an MCC header. */
     memset(runtime->tags + 16, 0, 20);
@@ -341,6 +352,7 @@ struct cache_file_tag_header *mcc_cache_tags_load(char const *name, void *header
     memcpy(runtime->tags + 12, &runtime->report.tag_count, 4);
     memcpy(runtime->tags + 32, "sgat", 4);
     problem = "converted MCC tags did not pass engine validation";
+    mcc_loading_stage(MCC_LOADING_VALIDATION);
     if (!mcc_tags_validate(runtime)) goto failed;
     if (!mcc_runtime_read(runtime, 0, MCC_CACHE_HEADER_BYTES, header)) {
         problem = "the map header could not be read";
@@ -351,6 +363,7 @@ struct cache_file_tag_header *mcc_cache_tags_load(char const *name, void *header
     problem = "MCC script stack storage is unavailable";
     if (!mcc_script_threads_prepare()) goto failed;
     mcc_loaded = TRUE;
+    mcc_loading_stage(MCC_LOADING_SCENARIO);
     mcc_campaign_begin();
     error(_error_silent, "mcc: loaded %s (%lu tags, %lu bytes of runtime tags)", name,
         (unsigned long)runtime->report.tag_count, (unsigned long)runtime->used);

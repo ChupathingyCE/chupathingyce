@@ -7,6 +7,7 @@
 #include "mcc_runtime.h"
 #include "mcc_resources.h"
 #include "mcc_vorbis.h"
+#include "mcc_loading.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -148,6 +149,7 @@ static int mcc_audio_store(struct mcc_audio_storage *storage, struct mcc_pcm con
     for (block=0;block<blocks;block++) {
         unsigned char *out=storage->bytes+storage->used+block*36*channels;
         int channel;
+        if (!(block & 255u)) mcc_loading_pulse();
         for (channel=0;channel<channels;channel++) {
             uint32_t pair;
             out[channel*4]=(unsigned char)states[channel].value;
@@ -205,6 +207,7 @@ int mcc_audio_prepare(struct mcc_runtime *runtime)
         struct sound_definition *sound;
         uint32_t range_index,rate,output_rate;
         int channels;
+        mcc_loading_update(MCC_LOADING_AUDIO, index, runtime->report.tag_count);
         if (entry[0]!=(uint32_t)SOUND_DEFINITION_TAG) continue;
         failed_range=failed_permutation=failed_codec=NONE;
         stage="sound header";
@@ -227,6 +230,7 @@ int mcc_audio_prepare(struct mcc_runtime *runtime)
                 struct mcc_pcm pcm;
                 int ok,external;
                 char resource_name[288],group_name[288];
+                mcc_loading_pulse();
                 failed_permutation=permutation_index;stage="permutation header";
                 failed_codec=permutation ? permutation->compression : NONE;
                 if (!permutation || permutation->samples.size<0 || permutation->samples.size>0x4000000) goto failed;

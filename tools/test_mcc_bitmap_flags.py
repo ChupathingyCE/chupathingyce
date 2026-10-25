@@ -257,7 +257,7 @@ int main(int argc,char **argv) {
     path = work / "bitmap.c"
     path.write_text(source)
     output = work / ("bitmap.exe" if sys.platform == "win32" else "bitmap")
-    command = [compiler, "-std=c99", "-O1", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function",
+    command = [compiler, "-include", str(ROOT / "port/linux/game/mcc_loading.h"), str(ROOT / "tools/mcc_loading_stub.c"), "-std=c99", "-O1", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function",
                "-I", str(ROOT / "port/third_party/bcdec"), str(path), "-o", str(output)]
     if sys.platform == "win32":
         command[1:1] = ["--target=i686-pc-windows-msvc", "-fuse-ld=lld", "-D_CRT_SECURE_NO_WARNINGS"]

@@ -3,6 +3,7 @@
  * the Xbox validator state nor any Custom Edition validation mode is used. */
 #include "mcc_tag_validate.h"
 #include "mcc_runtime.h"
+#include "mcc_loading.h"
 #include "mcc_syntax.h"
 #include "mcc_object_names.h"
 #include "tag_schema.h"
@@ -795,6 +796,8 @@ int mcc_tags_validate(struct mcc_runtime *runtime)
             struct mcc_validation_instance *instance = &header->instances[i];
             struct tag_schema_group const *group = mcc_group(instance->group);
             context.handle = instance->handle;
+            mcc_loading_update(MCC_LOADING_VALIDATION,
+                (unsigned long)pass * header->count + i, (unsigned long)header->count * 2);
             if (instance->root && group && group->definition && !mcc_validation.aliases[i])
                 mcc_walk(&context, instance->root, group->definition, pass);
         }

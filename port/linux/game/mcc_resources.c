@@ -1,6 +1,7 @@
 /* MCC resource cache reader. The on-disk header and twelve-byte entries are
  * decoded explicitly; no CE resource state or readers are shared. */
 #include "mcc_runtime.h"
+#include "mcc_loading.h"
 #include "mcc_resources.h"
 #include "mcc_identity.h"
 #include "mcc_sha256.h"
@@ -159,6 +160,7 @@ static int mcc_resource_equal(FILE *a,FILE *b)
     if (fseek(a,0,SEEK_SET) || fseek(b,0,SEEK_SET)) return 0;
     do {
         n=fread(left,1,sizeof(left),a);m=fread(right,1,sizeof(right),b);
+        mcc_loading_pulse();
         if (n!=m || memcmp(left,right,n)) return 0;
     } while (n);
     return !ferror(a) && !ferror(b);
@@ -249,8 +251,10 @@ int mcc_resources_checksum(struct mcc_runtime *runtime,unsigned resources,uint32
         if (fseek(file,0,SEEK_SET)) return 0;
         /* Fingerprint the selected contents, not their installation location. */
         crc=(crc>>8)^table[(crc^type)&255];
-        while ((bytes=fread(buffer,1,sizeof(buffer),file))!=0)
+        while ((bytes=fread(buffer,1,sizeof(buffer),file))!=0) {
             for (k=0;k<bytes;k++) crc=(crc>>8)^table[(crc^buffer[k])&255];
+            mcc_loading_pulse();
+        }
         if (ferror(file)) return 0;
         crc=(crc>>8)^table[(crc^0xff)&255];
     }
@@ -286,6 +290,7 @@ int mcc_resources_fingerprint(struct mcc_runtime *runtime,unsigned char digest[3
         if (bytes>sizeof(buffer)) bytes=sizeof(buffer);
         if (!runtime->source.read(runtime->source.context,offset,bytes,buffer)) return 0;
         mcc_sha256_add(&hash,buffer,(int)bytes);
+        mcc_loading_pulse();
     }
     for (type=1;type<=2;type++) {
         if (!(type==1 ? runtime->report.external_bitmap_count : runtime->report.external_sound_count)) continue;
@@ -298,6 +303,7 @@ int mcc_resources_fingerprint(struct mcc_runtime *runtime,unsigned char digest[3
             if (bytes>sizeof(buffer)) bytes=sizeof(buffer);
             if (fread(buffer,1,bytes,resource->stream)!=bytes) return 0;
             mcc_sha256_add(&hash,buffer,(int)bytes);
+            mcc_loading_pulse();
         }
     }
     mcc_sha256_end(&hash,digest);

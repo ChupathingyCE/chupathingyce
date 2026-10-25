@@ -10,6 +10,7 @@
 #include "rasterizer/rasterizer_model_types.h"
 #include "structures/structure_bsp_definitions.h"
 #include "mcc_runtime.h"
+#include "mcc_loading.h"
 
 /* (rasterizer_xbox_hardware_geometry.c's) */
 boolean rasterizer_vertex_buffer_new(struct vertex_buffer *vertex_buffer, long vertex_type, long count,
@@ -303,6 +304,7 @@ int mcc_geometry_prepare(struct mcc_runtime *r) {
         struct mcc_converted_model *known;
         unsigned char *geometries,*new_geometries;
         long g;
+        mcc_loading_update(MCC_LOADING_GEOMETRY, i, r->report.tag_count);
         if (mg_u32(entry)!='mod2') continue;
         model=mcc_runtime_pointer(r,mg_u32(entry+0x14),sizeof(*model));
         if (!model) return mg_error("model header lies outside loaded tags");

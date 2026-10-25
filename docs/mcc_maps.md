@@ -6,6 +6,20 @@ menus. It is an experimental
 runtime adapter, with explicit format limits below. A successful menu
 probe or file audit is not proof that a map plays correctly.
 
+## Loading feedback
+
+MCC map conversion displays OpenCE's original animated loading effect. Its
+progress follows resource checks, conversion and validation, then initial
+scenario setup. It represents completed work, not a time estimate. Long audio
+and texture operations refresh the display between bounded pieces of work;
+a single blocking read or allocation can still pause it briefly. A refused
+map closes the effect and uses the existing error message.
+
+The screen uses the Xbox installation's `maps/loading.tga` imported from the
+disc image. If that file is missing, the original renderer has no loading
+picture to show. Lobby/catalog checks before loading are unchanged. The effect
+does not run gameplay or alter network readiness, authority or map validation.
+
 ## Installation and menus
 
 Put the map in the game data root's `mcc_maps` directory, beside `maps` and

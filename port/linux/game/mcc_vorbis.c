@@ -7,6 +7,7 @@
  * (vorbis_book_decodevs_add, vorbis_book_decodev_add, vorbis_book_decodevv_add).
  */
 #include "mcc_vorbis.h"
+#include "mcc_loading.h"
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -58,6 +59,7 @@ static int mcc_ogg_validate(unsigned char const *bytes, uint32_t size, uint32_t 
     while (offset<size) {
         unsigned char const *page=bytes+offset;
         uint32_t length=27, count, crc=0;
+        mcc_loading_pulse();
         if (ended || size-offset<27 || memcmp(page,"OggS",4) || page[4] || (page[5]&~7)) return 0;
         count=page[26];
         if (count>size-offset-length) return 0;
@@ -202,6 +204,7 @@ int mcc_vorbis_decode(unsigned char const *bytes, uint32_t size, uint32_t frame_
     for (;;) {
         int got=stb_vorbis_get_frame_short_interleaved(&stream,stream.channels,packet,8192*2);
         uint32_t retain;
+        mcc_loading_pulse();
         if (stream.error) goto done;
         if (!got) break;
         decoded+=(uint32_t)got;

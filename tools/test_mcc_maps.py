@@ -248,7 +248,7 @@ int main(int argc,char **argv) {
                           ("mcc_path", "mcc_scenario_identity", "mcc_file_read", "mcc_open", "mcc_cache_checksum", "mcc_cache_present"))
     source.write_text(source_code.replace("int main(int argc,char **argv)", "#define fopen mcc_test_fopen\n#define fread mcc_test_fread\n" + admission + "\n#undef fopen\n#undef fread\nint main(int argc,char **argv)"))
     output = work / ("catalog.exe" if sys.platform == "win32" else "catalog")
-    command = [compiler, "-std=c99", "-Wall", "-Wextra", "-Werror",
+    command = [compiler, "-include", str(ROOT / "port/linux/game/mcc_loading.h"), str(ROOT / "tools/mcc_loading_stub.c"), "-std=c99", "-Wall", "-Wextra", "-Werror",
                "-I", str(work), "-I", str(ROOT / "port/linux/game"), str(source),
                str(ROOT / "port/linux/game/mcc_maps.c"),
                str(ROOT / "port/linux/game/mcc_package.c"),

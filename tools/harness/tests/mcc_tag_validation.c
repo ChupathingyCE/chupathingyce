@@ -4,6 +4,7 @@
 #include "mcc_runtime.h"
 #include "mcc_tag_validate.h"
 #include "mcc_syntax.h"
+#include "../../mcc_loading_stub.c"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
