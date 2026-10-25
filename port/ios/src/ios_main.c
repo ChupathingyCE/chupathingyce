@@ -249,6 +249,9 @@ int halo_ios_run(const char *data_root, const char *hardware_id, char *error, in
 	/* the app's main() is SDL's to know nothing of: the game is started
 	from it, not by SDL_RunApp */
 	SDL_SetMainReady();
+	/* the game is played in landscape, as on Android (its manifest's
+	sensorLandscape), whichever way the launcher was held */
+	SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
 	describe_display();
 	write_brokers(data_root);
 	log_line("data %s, saves %s", data_root, save_root);

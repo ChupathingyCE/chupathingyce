@@ -32,6 +32,9 @@ export interface MemoryProbe {
 
 interface HaloNative {
   probeMemory(): Promise<MemoryProbe>;
+  /** starts the game; it takes over the app and does not return, so the
+  promise only rejects, with the reason the game could not start */
+  start(): Promise<never>;
 }
 
 export const halo = requireOptionalNativeModule<HaloNative>('HaloNative');

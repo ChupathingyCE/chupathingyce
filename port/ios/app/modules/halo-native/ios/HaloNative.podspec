@@ -20,7 +20,18 @@ Pod::Spec.new do |s|
 
   s.dependency 'ExpoModulesCore'
 
-  s.source_files = "**/*.{h,m,swift}"
+  s.source_files = "*.{h,m,swift}"
+  # the game (libhalo.a, port/ios/build.py) and SDL3, built for iOS; the app's
+  # workflow puts them here (.github/workflows/ios.yml)
+  s.vendored_libraries = 'lib/*.a'
+  s.preserve_paths = 'lib/*.a'
+  # what SDL3 and the game need of iOS (port/ios/build.py, IOS_FRAMEWORKS)
+  s.frameworks = %w[
+    Foundation UIKit OpenGLES QuartzCore CoreGraphics CoreVideo Metal
+    CoreAudio AudioToolbox AVFoundation GameController CoreMotion CoreHaptics
+    CoreBluetooth UniformTypeIdentifiers
+  ]
+  s.libraries = 'iconv'
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
     'SWIFT_COMPILATION_MODE' => 'wholemodule'

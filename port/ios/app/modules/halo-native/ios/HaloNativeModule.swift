@@ -4,9 +4,13 @@ import os
 import UIKit
 
 /*
-The game's native side, as the iOS launcher sees it. For now it only
-measures what the game's memory needs of iOS, which decides how the game is
-built for it:
+The game's native side, as the iOS launcher sees it: it starts the game
+(port/ios/src/ios_main.c, linked in from lib/libhalo.a), and it measures
+what the game's memory needs of iOS. With the game linked in, its Xbox
+address space is already reserved when the check runs (xbox_memory.c, as
+the app loads), so the check then shows what is left beside it.
+
+The check:
 
 - the 64-bit builds' Xbox address space (chupathingyce's
   source/cseries/xbox_address.h, port/linux/src/xbox_memory.c): 4 GB
@@ -144,9 +148,30 @@ private func probeLargest() -> UInt64 {
   return low * windowSize
 }
 
+/* port/ios/include/halo_ios.h's entry point, in lib/libhalo.a. Declared
+here rather than through a header, so the pod needs no module map; its
+arguments are pointers and a 32-bit integer, passed alike by Swift and C */
+@_silgen_name("halo_ios_run")
+private func halo_ios_run(
+  _ dataRoot: UnsafePointer<CChar>, _ hardwareId: UnsafePointer<CChar>,
+  _ error: UnsafeMutablePointer<CChar>, _ errorSize: Int32) -> Int32
+
 public final class HaloNativeModule: Module {
   public func definition() -> ModuleDefinition {
     Name("HaloNative")
+
+    /* starts the game, on the main thread: it does not return once the
+    game is running (the process ends with it), so the promise is only
+    rejected, with the reason the game could not start */
+    AsyncFunction("start") { (promise: Promise) in
+      DispatchQueue.main.async {
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].path
+        let hardwareId = UIDevice.current.identifierForVendor?.uuidString ?? ""
+        var error = [CChar](repeating: 0, count: 1024)
+        _ = halo_ios_run(documents, hardwareId, &error, Int32(error.count))
+        promise.reject("ERR_HALO_START", String(cString: error))
+      }
+    }
 
     AsyncFunction("probeMemory") { () -> [String: Any] in
       return [

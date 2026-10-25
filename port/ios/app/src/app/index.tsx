@@ -19,6 +19,7 @@ import {
   type ScrollViewInstance,
 } from 'react-native';
 
+import { halo } from '../../modules/halo-native';
 import { MemoryCheck } from '../components/MemoryCheck';
 import { checkAddress, DownloadError, startDownload, type Download } from '../lib/download';
 import { importImage, importMapFiles, pickFiles, SPACE_NEEDED, tryOpen, type Picked } from '../lib/importDisc';
@@ -129,6 +130,18 @@ export default function Launcher() {
     } finally {
       setReady(hasGameData());
     }
+  }
+
+  /* starts the game (modules/halo-native), which takes over the app: the
+  promise settles only if it cannot start */
+  function play(): void {
+    if (!halo) {
+      Alert.alert('Not in Expo Go', 'The game is native code: it plays in the development build, not in Expo Go.');
+      return;
+    }
+    halo.start().catch((e: unknown) => {
+      Alert.alert('The game could not start', e instanceof Error ? e.message : String(e));
+    });
   }
 
   /* imports the maps in opened files, then says what it did */
@@ -247,11 +260,7 @@ export default function Launcher() {
             <Text style={styles.title}>Ready</Text>
             <Text style={styles.body}>{"The game's data is in place."}</Text>
             {state.error && <Text style={styles.error}>{state.error}</Text>}
-            <Pressable
-              style={styles.button}
-              onPress={() =>
-                Alert.alert('Not in Expo Go', 'The game is native code: it plays in the development build, not in Expo Go.')
-              }>
+            <Pressable style={styles.button} onPress={play}>
               <Text style={styles.buttonText}>Play</Text>
             </Pressable>
             {importMapsButton}
