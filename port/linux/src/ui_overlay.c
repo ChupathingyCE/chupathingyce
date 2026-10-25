@@ -1439,7 +1439,7 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	}
 	}
 
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, platform_window_framebuffer());
 	glViewport(0, 0, window_width, window_height);
 	glDisable(GL_SCISSOR_TEST);
 	glDisable(GL_DEPTH_TEST);

@@ -34,9 +34,15 @@ int gl_functions_load(void)
 		!strcmp(#name, "glVertexAttribIFormat") || !strcmp(#name, "glVertexAttribBinding") || \
 		!strcmp(#name, "glBindVertexBuffer") || !strcmp(#name, "glGetQueryBufferObjectuiv") || \
 		!strcmp(#name, "glBindTextures"))
+#ifdef HALO_ANDROID
+/* ES 3.2's; on 3.0 (iOS's newest) gl_initialize does without it */
+#define GL_ES_OPTIONAL_FUNCTION(name) !strcmp(#name, "glDrawElementsBaseVertex")
+#else
+#define GL_ES_OPTIONAL_FUNCTION(name) 0
+#endif
 #define GL_LOAD_FUNCTION(name) \
 	halo_##name = (__typeof__(halo_##name))SDL_GL_GetProcAddress(#name); \
-	if (!halo_##name && !GL_OPTIONAL_FUNCTION(name)) \
+	if (!halo_##name && !GL_OPTIONAL_FUNCTION(name) && !GL_ES_OPTIONAL_FUNCTION(name)) \
 	{ \
 		platform_log("OpenGL function %s is unavailable", #name); \
 		success = FALSE; \

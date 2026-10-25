@@ -1104,7 +1104,7 @@ void posix_discord_close(int handle)
 		close(handle);
 }
 
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(HALO_IOS)
 /* the Mac's hardware UUID (System Information's, IOPlatformUUID), as text, 0
 if it cannot be read (p2p.c's hardware id; Linux has /etc/machine-id, which
 macOS does not) */

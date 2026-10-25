@@ -5324,7 +5324,7 @@ static void write_screenshot(struct render_target_entry *target)
 (debug.screenshot_window) */
 static void write_window_screenshot(int window_width, int window_height)
 {
-	glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, platform_window_framebuffer());
 	write_screenshot_from("window", (unsigned long)window_width, (unsigned long)window_height, FALSE);
 }
 
@@ -5450,7 +5450,7 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		/* (the lookup can create a framebuffer and bind it to both targets,
 		so it comes before the window is bound as the draw target) */
 		read_framebuffer = framebuffer_get(back_buffer->target.texture, 0);
-		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, platform_window_framebuffer());
 		glDisable(GL_SCISSOR_TEST);
 		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -5468,7 +5468,7 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		/* the picture's alpha is the render target's, which the game uses
 		for its own blending, not coverage: the window is opaque whatever
 		the driver gave its pixels (sdl_platform.c asks for none) */
-		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, platform_window_framebuffer());
 		glDisable(GL_SCISSOR_TEST);
 		glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
