@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  ImageBackground,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -197,7 +197,8 @@ export default function Launcher() {
   );
 
   return (
-    <ImageBackground source={BACKGROUND} style={styles.background} resizeMode="cover">
+    <View style={styles.background}>
+      <Image source={BACKGROUND} style={StyleSheet.absoluteFill} resizeMode="cover" />
       <ScrollView
         ref={scroll}
         contentContainerStyle={styles.container}
@@ -306,7 +307,7 @@ export default function Launcher() {
           Data folder: {dataRoot().uri}
         </Text>
       </ScrollView>
-    </ImageBackground>
+    </View>
   );
 }
 
