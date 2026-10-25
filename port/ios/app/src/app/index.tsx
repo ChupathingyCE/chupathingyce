@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  ImageBackground,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -34,6 +35,21 @@ type ImportKind = 'disc' | 'maps';
 
 const KEEP_AWAKE_TAG = 'import';
 
+/* the launcher's background (assets/art/background.svg, rendered) */
+const BACKGROUND = require('../../assets/background.png');
+
+/* a line at the top, a new one each time the app opens */
+const QUIPS = [
+  'Leave the plasma pistol. Take the gabagool.',
+  'Fuhgeddaboudit. The maps are in good hands.',
+  'Nobody touches ui.map. Capisce?',
+  'Respawn? In this family, we drive.',
+  'I got a buggy, a jacket and a bad feeling about this ring.',
+  'Back in the day, a man copied his own disc.',
+  'You come into my garage, on the day of the LAN party...',
+  'With all due respect, the Flood are not family.',
+];
+
 function gigabytes(bytes: number): string {
   return `${(bytes / 1e9).toFixed(2)} GB`;
 }
@@ -52,6 +68,7 @@ export default function Launcher() {
   const [state, setState] = useState<State>({ kind: 'idle' });
   const [ready, setReady] = useState(hasGameData);
   const [address, setAddress] = useState('');
+  const [quip] = useState(() => QUIPS[Math.floor(Math.random() * QUIPS.length)]);
   const lastReport = useRef(0);
   const scroll = useRef<ScrollViewInstance>(null);
 
@@ -167,122 +184,128 @@ export default function Launcher() {
   );
 
   return (
-    <ScrollView
-      ref={scroll}
-      contentContainerStyle={styles.container}
-      /* (the keyboard's height is added at the end, so the address field
-      can scroll above it) */
-      automaticallyAdjustKeyboardInsets
-      keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="interactive">
-      {state.kind === 'importing' && (
-        <View style={styles.card}>
-          <Text style={styles.title}>{state.title}</Text>
-          {state.total === 0 ? (
-            <ActivityIndicator color={colors.accent} />
-          ) : (
-            <>
-              <View style={styles.track}>
-                <View style={[styles.bar, { width: `${(100 * state.done) / state.total}%` }]} />
-              </View>
-              <Text style={styles.body}>
-                {state.status} · {gigabytes(state.done)} of {gigabytes(state.total)}
-              </Text>
-            </>
-          )}
-          <Text style={styles.body}>
-            {state.cancel
-              ? 'The download goes on in the background, but not if the app is closed.'
-              : 'Keep the app open: iOS pauses it in the background.'}
-          </Text>
-          {state.cancel && (
-            <Pressable style={styles.secondary} onPress={state.cancel}>
-              <Text style={styles.secondaryText}>Cancel</Text>
+    <ImageBackground source={BACKGROUND} style={styles.background} resizeMode="cover">
+      <ScrollView
+        ref={scroll}
+        contentContainerStyle={styles.container}
+        /* (the keyboard's height is added at the end, so the address field
+        can scroll above it) */
+        automaticallyAdjustKeyboardInsets
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive">
+        <Text style={styles.quip}>{quip}</Text>
+
+        {state.kind === 'importing' && (
+          <View style={styles.card}>
+            <Text style={styles.title}>{state.title}</Text>
+            {state.total === 0 ? (
+              <ActivityIndicator color={colors.accent} />
+            ) : (
+              <>
+                <View style={styles.track}>
+                  <View style={[styles.bar, { width: `${(100 * state.done) / state.total}%` }]} />
+                </View>
+                <Text style={styles.body}>
+                  {state.status} · {gigabytes(state.done)} of {gigabytes(state.total)}
+                </Text>
+              </>
+            )}
+            <Text style={styles.body}>
+              {state.cancel
+                ? 'The download goes on in the background, but not if the app is closed.'
+                : 'Keep the app open: iOS pauses it in the background.'}
+            </Text>
+            {state.cancel && (
+              <Pressable style={styles.secondary} onPress={state.cancel}>
+                <Text style={styles.secondaryText}>Cancel</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
+        {state.kind === 'idle' && !ready && (
+          <View style={styles.card}>
+            <Text style={styles.title}>{"The game's data is not here yet"}</Text>
+            <Text style={styles.body}>
+              Pick an Xbox disc image of Halo: Combat Evolved (.xiso or .iso, any version) and the app copies its
+              maps and movies, about {gigabytes(SPACE_NEEDED)} with room to spare. Or pick a .zip of the maps folder
+              from your own disc, or give the address of one below. Bring your own copy: the app comes with none of
+              the game&apos;s files.
+            </Text>
+            {state.error && <Text style={styles.error}>{state.error}</Text>}
+            <Pressable style={styles.button} onPress={() => void runImport('disc', false)}>
+              <Text style={styles.buttonText}>Pick the disc image</Text>
             </Pressable>
-          )}
-        </View>
-      )}
+            <Pressable style={styles.secondary} onPress={() => void runImport('maps', false)}>
+              <Text style={styles.secondaryText}>Pick a zip of the maps folder</Text>
+            </Pressable>
+          </View>
+        )}
 
-      {state.kind === 'idle' && !ready && (
-        <View style={styles.card}>
-          <Text style={styles.title}>{"The game's data is not here yet"}</Text>
-          <Text style={styles.body}>
-            Pick an Xbox disc image of Halo: Combat Evolved (.xiso or .iso, any version) and the app copies its
-            maps and movies, about {gigabytes(SPACE_NEEDED)} with room to spare. Or pick a .zip of the maps folder
-            from your own disc, or give the address of one below. Bring your own copy: the app comes with none of
-            the game&apos;s files.
-          </Text>
-          {state.error && <Text style={styles.error}>{state.error}</Text>}
-          <Pressable style={styles.button} onPress={() => void runImport('disc', false)}>
-            <Text style={styles.buttonText}>Pick the disc image</Text>
-          </Pressable>
-          <Pressable style={styles.secondary} onPress={() => void runImport('maps', false)}>
-            <Text style={styles.secondaryText}>Pick a zip of the maps folder</Text>
-          </Pressable>
-        </View>
-      )}
+        {state.kind === 'idle' && ready && (
+          <View style={styles.card}>
+            <Text style={styles.title}>Ready</Text>
+            <Text style={styles.body}>{"The game's data is in place."}</Text>
+            {state.error && <Text style={styles.error}>{state.error}</Text>}
+            <Pressable
+              style={styles.button}
+              onPress={() =>
+                Alert.alert('Not in Expo Go', 'The game is native code: it plays in the development build, not in Expo Go.')
+              }>
+              <Text style={styles.buttonText}>Play</Text>
+            </Pressable>
+            {importMapsButton}
+            <Pressable style={styles.secondary} onPress={() => void runImport('disc', false)}>
+              <Text style={styles.secondaryText}>Import a disc image again</Text>
+            </Pressable>
+          </View>
+        )}
 
-      {state.kind === 'idle' && ready && (
-        <View style={styles.card}>
-          <Text style={styles.title}>Ready</Text>
-          <Text style={styles.body}>{"The game's data is in place."}</Text>
-          {state.error && <Text style={styles.error}>{state.error}</Text>}
-          <Pressable
-            style={styles.button}
-            onPress={() =>
-              Alert.alert('Not in Expo Go', 'The game is native code: it plays in the development build, not in Expo Go.')
-            }>
-            <Text style={styles.buttonText}>Play</Text>
-          </Pressable>
-          {importMapsButton}
-          <Pressable style={styles.secondary} onPress={() => void runImport('disc', false)}>
-            <Text style={styles.secondaryText}>Import a disc image again</Text>
-          </Pressable>
-        </View>
-      )}
+        {state.kind === 'idle' && (
+          <View style={styles.card}>
+            <Text style={styles.title}>Download maps</Text>
+            <Text style={styles.body}>
+              The address of a .zip of maps (a maps folder, or Halo PC maps), or of a .map. It is downloaded, its
+              maps imported as a picked file&apos;s are, and the download deleted.
+            </Text>
+            <TextInput
+              style={styles.input}
+              value={address}
+              onChangeText={setAddress}
+              placeholder="https://example.com/maps.zip"
+              placeholderTextColor={colors.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              textContentType="URL"
+              returnKeyType="go"
+              onFocus={() => setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 300)}
+              onSubmitEditing={() => void runDownload()}
+            />
+            <Pressable
+              style={[styles.button, address.trim() === '' && styles.disabled]}
+              disabled={address.trim() === ''}
+              onPress={() => void runDownload()}>
+              <Text style={styles.buttonText}>Download and import</Text>
+            </Pressable>
+          </View>
+        )}
 
-      {state.kind === 'idle' && (
-        <View style={styles.card}>
-          <Text style={styles.title}>Download maps</Text>
-          <Text style={styles.body}>
-            The address of a .zip of maps (a maps folder, or Halo PC maps), or of a .map. It is downloaded, its
-            maps imported as a picked file&apos;s are, and the download deleted.
-          </Text>
-          <TextInput
-            style={styles.input}
-            value={address}
-            onChangeText={setAddress}
-            placeholder="https://example.com/maps.zip"
-            placeholderTextColor={colors.muted}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-            textContentType="URL"
-            returnKeyType="go"
-            onFocus={() => setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 300)}
-            onSubmitEditing={() => void runDownload()}
-          />
-          <Pressable
-            style={[styles.button, address.trim() === '' && styles.disabled]}
-            disabled={address.trim() === ''}
-            onPress={() => void runDownload()}>
-            <Text style={styles.buttonText}>Download and import</Text>
-          </Pressable>
-        </View>
-      )}
+        {state.kind === 'idle' && <MemoryCheck />}
 
-      {state.kind === 'idle' && <MemoryCheck />}
-
-      <Text style={styles.footer} selectable>
-        Data folder: {dataRoot().uri}
-      </Text>
-    </ScrollView>
+        <Text style={styles.footer} selectable>
+          Data folder: {dataRoot().uri}
+        </Text>
+      </ScrollView>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
+  background: { flex: 1, backgroundColor: colors.background },
   container: { padding: 16, gap: 16, maxWidth: 640, width: '100%', alignSelf: 'center' },
-  card: { backgroundColor: colors.surface, borderRadius: 12, padding: 20, gap: 12 },
+  card: { backgroundColor: colors.card, borderRadius: 12, padding: 20, gap: 12 },
+  quip: { color: colors.neon, fontSize: 17, fontStyle: 'italic', textAlign: 'center', paddingVertical: 8 },
   title: { color: colors.text, fontSize: 20, fontWeight: '600' },
   body: { color: colors.muted, fontSize: 15, lineHeight: 21 },
   error: { color: colors.error, fontSize: 15 },

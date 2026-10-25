@@ -69,7 +69,7 @@ export function MemoryCheck() {
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: colors.surface, borderRadius: 12, padding: 20, gap: 12 },
+  card: { backgroundColor: colors.card, borderRadius: 12, padding: 20, gap: 12 },
   title: { color: colors.text, fontSize: 20, fontWeight: '600' },
   body: { color: colors.muted, fontSize: 15, lineHeight: 21 },
   result: { color: colors.text, fontSize: 13, fontFamily: 'Menlo', lineHeight: 19 },
