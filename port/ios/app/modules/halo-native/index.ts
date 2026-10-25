@@ -4,9 +4,21 @@
  */
 import { requireOptionalNativeModule } from 'expo';
 
+export interface Reservation {
+  ok: boolean;
+  base?: string;
+  aligned?: boolean;
+  step?: string;
+  error?: string;
+}
+
 export interface MemoryProbe {
   /** 4 GB reserved and aligned, with 512 MB committed in it: the 64-bit builds' layout */
-  addressSpace: { ok: boolean; base?: string; step?: string; error?: string };
+  addressSpace: Reservation;
+  /** 4 GB reserved as it comes, with 512 MB committed in it */
+  direct: Reservation;
+  /** 4 GB asked for at 4 GB-aligned addresses, with 512 MB committed in it */
+  alignedHint: Reservation & { tried?: number };
   /** a 256 MB reservation: the console window's */
   window: { ok: boolean; base?: string; belowFourGigabytes?: boolean; error?: string };
   /** the largest single reservation, to the nearest 256 MB */

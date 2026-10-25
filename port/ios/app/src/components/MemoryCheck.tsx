@@ -6,19 +6,27 @@
 import { useState } from 'react';
 import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
 
-import { halo, type MemoryProbe } from '../../modules/halo-native';
+import { halo, type MemoryProbe, type Reservation } from '../../modules/halo-native';
 import { colors } from '../theme';
 
 function gigabytes(bytes: number): string {
   return `${(bytes / 2 ** 30).toFixed(2)} GB`;
 }
 
+function reservation(result: Reservation | undefined): string {
+  /* (an older build of the native side has no such result) */
+  if (!result) return 'not in this build';
+  if (!result.ok) return `no (${result.step}: ${result.error})`;
+  return `yes, at ${result.base}${result.aligned ? ', aligned' : ''}`;
+}
+
 export function report(probe: MemoryProbe): string {
-  const space = probe.addressSpace;
   const window = probe.window;
   return [
     `${probe.model}, ${probe.system}`,
-    `4 GB address space: ${space.ok ? `yes, at ${space.base}` : `no (${space.step}: ${space.error})`}`,
+    `4 GB via 8 GB: ${reservation(probe.addressSpace)}`,
+    `4 GB as it comes: ${reservation(probe.direct)}`,
+    `4 GB aligned (hint): ${reservation(probe.alignedHint)}`,
     `256 MB window: ${window.ok ? `at ${window.base}${window.belowFourGigabytes ? ' (below 4 GB)' : ''}` : `no (${window.error})`}`,
     `largest reservation: ${gigabytes(probe.largestReservation)}`,
     `memory the app may use: ${gigabytes(probe.availableMemory)} of ${gigabytes(probe.physicalMemory)}`,

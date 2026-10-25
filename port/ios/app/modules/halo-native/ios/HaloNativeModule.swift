@@ -67,14 +67,53 @@ private func probeAddressSpace() -> [String: Any] {
   }
   let space = UnsafeMutableRawPointer(bitPattern: UInt(base))!
   defer { release(space, addressSpaceSize) }
+  return commitContiguous(space)
+}
 
-  /* the contiguous memory, at 0x80000000 in it as on the Xbox */
+/* the contiguous memory, at 0x80000000 in a reserved address space as on
+the Xbox, committed read-write (never touched) */
+private func commitContiguous(_ space: UnsafeMutableRawPointer) -> [String: Any] {
   let contiguous = space.advanced(by: 0x8000_0000)
   let committed = mmap(contiguous, Int(contiguousSize), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | MAP_FIXED, -1, 0)
+  let aligned = UInt64(UInt(bitPattern: space)) & (addressSpaceSize - 1) == 0
   if committed != contiguous {
-    return ["ok": false, "step": "commit 512 MB in it", "error": describe(errno), "base": hex(space)]
+    return ["ok": false, "step": "commit 512 MB in it", "error": describe(errno), "base": hex(space), "aligned": aligned]
   }
-  return ["ok": true, "base": hex(space)]
+  return ["ok": true, "base": hex(space), "aligned": aligned]
+}
+
+/* 4 GB wherever iOS puts it: Xbox address X is then base + X, as the
+64-bit builds' conversions compute it, but not the pointer's low 32 bits */
+private func probeDirect() -> [String: Any] {
+  let (space, error) = reserve(addressSpaceSize)
+  guard let space else {
+    return ["ok": false, "step": "reserve 4 GB", "error": describe(error)]
+  }
+  defer { release(space, addressSpaceSize) }
+  return commitContiguous(space)
+}
+
+/* 4 GB at a 4 GB-aligned address, asked for as a hint at each one from
+8 GB up: what the 64-bit builds' layout gives elsewhere */
+private func probeAlignedHint() -> [String: Any] {
+  var tried = 0
+  for index in UInt64(2)...UInt64(64) {
+    let wanted = UnsafeMutableRawPointer(bitPattern: UInt(index * addressSpaceSize))
+    let result = mmap(wanted, Int(addressSpaceSize), PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0)
+    tried += 1
+    if result == nil || result == failed {
+      continue
+    }
+    if result != wanted {
+      munmap(result, Int(addressSpaceSize))
+      continue
+    }
+    defer { release(result!, addressSpaceSize) }
+    var report = commitContiguous(result!)
+    report["tried"] = tried
+    return report
+  }
+  return ["ok": false, "step": "no aligned 4 GB from 8 to 256 GB", "error": "tried \(tried)"]
 }
 
 /* the console window: 256 MB wherever there is room */
@@ -112,6 +151,8 @@ public final class HaloNativeModule: Module {
     AsyncFunction("probeMemory") { () -> [String: Any] in
       return [
         "addressSpace": probeAddressSpace(),
+        "direct": probeDirect(),
+        "alignedHint": probeAlignedHint(),
         "window": probeWindow(),
         "largestReservation": Double(probeLargest()),
         "availableMemory": Double(os_proc_available_memory()),
