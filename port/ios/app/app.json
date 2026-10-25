@@ -18,6 +18,7 @@
         },
         "NSLocalNetworkUsageDescription": "ChupathingyCE connects to the development server on your computer, and to maps you download from your own network.",
         "UIFileSharingEnabled": true,
+        "UIApplicationSupportsIndirectInputEvents": true,
         "LSSupportsOpeningDocumentsInPlace": true
       }
     },

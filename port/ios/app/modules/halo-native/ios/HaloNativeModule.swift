@@ -162,15 +162,21 @@ public final class HaloNativeModule: Module {
 
     /* starts the game, on the main thread: it does not return once the
     game is running (the process ends with it), so the promise is only
-    rejected, with the reason the game could not start */
+    rejected, with the reason the game could not start. It is a run loop
+    block, not the main queue's: a block of the main queue that never
+    returns holds the queue, and the GameController framework tells SDL of
+    controllers through it (SDL's event pump runs the run loop, which drains
+    the queue only outside its blocks) */
     AsyncFunction("start") { (promise: Promise) in
-      DispatchQueue.main.async {
+      let mainLoop = CFRunLoopGetMain()
+      CFRunLoopPerformBlock(mainLoop, CFRunLoopMode.commonModes.rawValue) {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].path
         let hardwareId = UIDevice.current.identifierForVendor?.uuidString ?? ""
         var error = [CChar](repeating: 0, count: 1024)
         _ = halo_ios_run(documents, hardwareId, &error, Int32(error.count))
         promise.reject("ERR_HALO_START", String(cString: error))
       }
+      CFRunLoopWakeUp(mainLoop)
     }
 
     AsyncFunction("probeMemory") { () -> [String: Any] in
