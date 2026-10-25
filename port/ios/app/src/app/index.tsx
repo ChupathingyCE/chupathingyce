@@ -6,8 +6,9 @@
  */
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { checkAddress, DownloadError, startDownload, type Download } from '../lib/download';
 import { importImage, importMapFiles, pickFiles, SPACE_NEEDED, tryOpen, type Picked } from '../lib/importDisc';
 import { summary } from '../lib/mapImport';
 import { dataRoot, hasGameData, makeDataFolders, type OpenImage } from '../lib/storage';
@@ -16,7 +17,7 @@ import { colors } from '../theme';
 
 type State =
   | { kind: 'idle'; error?: string }
-  | { kind: 'importing'; title: string; status: string; done: number; total: number };
+  | { kind: 'importing'; title: string; status: string; done: number; total: number; cancel?: () => void };
 
 type ImportKind = 'disc' | 'maps';
 
@@ -39,6 +40,7 @@ async function keptAwake<T>(work: () => Promise<T>): Promise<T> {
 export default function Launcher() {
   const [state, setState] = useState<State>({ kind: 'idle' });
   const [ready, setReady] = useState(hasGameData);
+  const [address, setAddress] = useState('');
   const lastReport = useRef(0);
 
   useEffect(() => {
@@ -47,11 +49,11 @@ export default function Launcher() {
   }, []);
 
   /* a report per megabyte is far more than the screen needs */
-  const report = useCallback((title: string, status: string, done: number, total: number) => {
+  const report = useCallback((title: string, status: string, done: number, total: number, cancel?: () => void) => {
     const now = Date.now();
     if (now - lastReport.current < 200 && done < total) return;
     lastReport.current = now;
-    setState({ kind: 'importing', title, status, done, total });
+    setState({ kind: 'importing', title, status, done, total, cancel });
   }, []);
 
   async function runImport(kind: ImportKind, copy: boolean): Promise<void> {
@@ -90,21 +92,56 @@ export default function Launcher() {
         );
         setState({ kind: 'idle' });
       } else {
-        const title = 'Importing maps';
-        setState({ kind: 'importing', title, status: '', done: 0, total: 0 });
-        const result = await keptAwake(() =>
-          importMapFiles(opened, (status, done, total) => report(title, status, done, total)),
-        );
-        setState({ kind: 'idle' });
-        const disc = result.imported.some((path) => path.startsWith('maps/'));
-        Alert.alert(
-          'Import maps',
-          summary(result) +
-            (disc && !hasGameData() ? "\n\nThe disc's maps need ui.map too: it was not among them." : ''),
-        );
+        await importOpened(opened);
       }
     } catch (e) {
       const message = e instanceof ExtractError ? e.message : `The import failed: ${String(e)}`;
+      setState({ kind: 'idle', error: message });
+    } finally {
+      setReady(hasGameData());
+    }
+  }
+
+  /* imports the maps in opened files, then says what it did */
+  async function importOpened(opened: { file: Picked; image: OpenImage }[]): Promise<void> {
+    const title = 'Importing maps';
+    setState({ kind: 'importing', title, status: '', done: 0, total: 0 });
+    const result = await keptAwake(() =>
+      importMapFiles(opened, (status, done, total) => report(title, status, done, total)),
+    );
+    setState({ kind: 'idle' });
+    const disc = result.imported.some((path) => path.startsWith('maps/'));
+    Alert.alert(
+      'Import maps',
+      summary(result) + (disc && !hasGameData() ? "\n\nThe disc's maps need ui.map too: it was not among them." : ''),
+    );
+  }
+
+  /* downloads a .zip of maps (or a .map) from the address the player gave,
+  then imports it as a picked one */
+  async function runDownload(): Promise<void> {
+    const url = checkAddress(address);
+    if (typeof url === 'string') {
+      setState({ kind: 'idle', error: url });
+      return;
+    }
+    const title = 'Downloading';
+    let download: Download | null = null;
+    const cancel = () => download?.cancel();
+    setState({ kind: 'importing', title, status: url.host, done: 0, total: 0, cancel });
+    download = startDownload(url, (written, total) => report(title, url.host, written, Math.max(total, 0), cancel));
+    try {
+      const file = await keptAwake(() => download.done);
+      if (!file) {
+        setState({ kind: 'idle' });
+        return;
+      }
+      const image = tryOpen(file);
+      if (!image) throw new DownloadError('The downloaded file could not be opened.');
+      await importOpened([{ file, image }]);
+    } catch (e) {
+      const message =
+        e instanceof DownloadError || e instanceof ExtractError ? e.message : `The import failed: ${String(e)}`;
       setState({ kind: 'idle', error: message });
     } finally {
       setReady(hasGameData());
@@ -134,7 +171,16 @@ export default function Launcher() {
               </Text>
             </>
           )}
-          <Text style={styles.body}>Keep the app open: iOS pauses it in the background.</Text>
+          <Text style={styles.body}>
+            {state.cancel
+              ? 'The download goes on in the background, but not if the app is closed.'
+              : 'Keep the app open: iOS pauses it in the background.'}
+          </Text>
+          {state.cancel && (
+            <Pressable style={styles.secondary} onPress={state.cancel}>
+              <Text style={styles.secondaryText}>Cancel</Text>
+            </Pressable>
+          )}
         </View>
       )}
 
@@ -144,7 +190,8 @@ export default function Launcher() {
           <Text style={styles.body}>
             Pick an Xbox disc image of Halo: Combat Evolved (.xiso or .iso, any version) and the app copies its
             maps and movies, about {gigabytes(SPACE_NEEDED)} with room to spare. Or pick a .zip of the maps folder
-            from your own disc. Bring your own copy: the app never downloads the game.
+            from your own disc, or give the address of one below. Bring your own copy: the app comes with none of
+            the game&apos;s files.
           </Text>
           {state.error && <Text style={styles.error}>{state.error}</Text>}
           <Pressable style={styles.button} onPress={() => void runImport('disc', false)}>
@@ -175,6 +222,35 @@ export default function Launcher() {
         </View>
       )}
 
+      {state.kind === 'idle' && (
+        <View style={styles.card}>
+          <Text style={styles.title}>Download maps</Text>
+          <Text style={styles.body}>
+            The address of a .zip of maps (a maps folder, or Halo PC maps), or of a .map. It is downloaded, its
+            maps imported as a picked file&apos;s are, and the download deleted.
+          </Text>
+          <TextInput
+            style={styles.input}
+            value={address}
+            onChangeText={setAddress}
+            placeholder="https://example.com/maps.zip"
+            placeholderTextColor={colors.muted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            textContentType="URL"
+            returnKeyType="go"
+            onSubmitEditing={() => void runDownload()}
+          />
+          <Pressable
+            style={[styles.button, address.trim() === '' && styles.disabled]}
+            disabled={address.trim() === ''}
+            onPress={() => void runDownload()}>
+            <Text style={styles.buttonText}>Download and import</Text>
+          </Pressable>
+        </View>
+      )}
+
       <Text style={styles.footer} selectable>
         Data folder: {dataRoot().uri}
       </Text>
@@ -194,5 +270,14 @@ const styles = StyleSheet.create({
   secondaryText: { color: colors.accent, fontSize: 15 },
   track: { height: 8, borderRadius: 4, backgroundColor: colors.background, overflow: 'hidden' },
   bar: { height: 8, backgroundColor: colors.accent },
+  disabled: { opacity: 0.4 },
+  input: {
+    color: colors.text,
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 15,
+  },
   footer: { color: colors.muted, fontSize: 12, textAlign: 'center' },
 });
