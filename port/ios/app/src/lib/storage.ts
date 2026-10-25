@@ -31,8 +31,14 @@ export function hasGameData(): boolean {
   return new File(dataRoot(), 'maps', 'ui.map').exists;
 }
 
+/** a size from the native side as a number: iOS's 64-bit ones come as BigInt,
+whatever the types say, and a BigInt cannot be mixed with numbers */
+export function bytes(value: number | bigint | null | undefined): number {
+  return value == null ? 0 : Number(value);
+}
+
 export function availableSpace(): number {
-  return Paths.availableDiskSpace;
+  return bytes(Paths.availableDiskSpace);
 }
 
 function entry(path: string): string[] {
@@ -98,7 +104,7 @@ export function openImage(uri: string): OpenImage {
   const file = new File(uri);
   const handle: FileHandle = file.open(FileMode.ReadOnly);
   return {
-    size: handle.size ?? file.size,
+    size: bytes(handle.size ?? file.size),
     async read(offset, length) {
       /* a read may return less than asked before the end: read on until
       length or the end of the image */

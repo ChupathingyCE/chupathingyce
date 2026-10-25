@@ -6,7 +6,17 @@
  */
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  type ScrollViewInstance,
+} from 'react-native';
 
 import { checkAddress, DownloadError, startDownload, type Download } from '../lib/download';
 import { importImage, importMapFiles, pickFiles, SPACE_NEEDED, tryOpen, type Picked } from '../lib/importDisc';
@@ -42,6 +52,7 @@ export default function Launcher() {
   const [ready, setReady] = useState(hasGameData);
   const [address, setAddress] = useState('');
   const lastReport = useRef(0);
+  const scroll = useRef<ScrollViewInstance>(null);
 
   useEffect(() => {
     /* made on the first start, as the Android launcher does */
@@ -155,7 +166,14 @@ export default function Launcher() {
   );
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView
+      ref={scroll}
+      contentContainerStyle={styles.container}
+      /* (the keyboard's height is added at the end, so the address field
+      can scroll above it) */
+      automaticallyAdjustKeyboardInsets
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="interactive">
       {state.kind === 'importing' && (
         <View style={styles.card}>
           <Text style={styles.title}>{state.title}</Text>
@@ -240,6 +258,7 @@ export default function Launcher() {
             keyboardType="url"
             textContentType="URL"
             returnKeyType="go"
+            onFocus={() => setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 300)}
             onSubmitEditing={() => void runDownload()}
           />
           <Pressable

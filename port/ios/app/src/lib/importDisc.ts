@@ -13,7 +13,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 
 import { importMaps, type ImportProgress, type Report } from './mapImport';
-import { availableSpace, dataDestination, makeDataFolders, openImage, type OpenImage } from './storage';
+import { availableSpace, bytes, dataDestination, makeDataFolders, openImage, type OpenImage } from './storage';
 import { extractMaps, ExtractError, type Progress } from './xiso';
 
 /* the maps of every version of the game, the movies and room to spare */
@@ -24,7 +24,7 @@ export type Picked = { uri: string; name: string; size?: number; copied: boolean
 export async function pickFiles(copy: boolean, multiple: boolean): Promise<Picked[]> {
   const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: copy, type: '*/*', multiple });
   if (result.canceled) return [];
-  return result.assets.map((asset) => ({ uri: asset.uri, name: asset.name, size: asset.size, copied: copy }));
+  return result.assets.map((asset) => ({ uri: asset.uri, name: asset.name, size: bytes(asset.size), copied: copy }));
 }
 
 /** opens a picked file; null when iOS does not let the app read it there */

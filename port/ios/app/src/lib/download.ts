@@ -11,7 +11,7 @@ import { File, Paths, type DownloadTask } from 'expo-file-system';
 
 import { downloadName } from './address';
 import type { Picked } from './importDisc';
-import { availableSpace } from './storage';
+import { availableSpace, bytes } from './storage';
 
 export { checkAddress } from './address';
 
@@ -49,7 +49,9 @@ export function startDownload(url: URL, progress: (written: number, total: numbe
 
   const task: DownloadTask = File.createDownloadTask(url.toString(), destination, {
     sessionType: 'background',
-    onProgress: ({ bytesWritten, totalBytes }) => {
+    onProgress: (event) => {
+      const bytesWritten = bytes(event.bytesWritten);
+      const totalBytes = bytes(event.totalBytes);
       if (!tooLarge && totalBytes > 0 && totalBytes * 2.05 > availableSpace() + bytesWritten) {
         tooLarge = totalBytes;
         task.cancel();
@@ -63,7 +65,7 @@ export function startDownload(url: URL, progress: (written: number, total: numbe
     try {
       const file = await task.downloadAsync();
       if (!file) throw new DownloadError('The download stopped.');
-      return { uri: file.uri, name, size: file.size, copied: true };
+      return { uri: file.uri, name, size: bytes(file.size), copied: true };
     } catch (e) {
       remove();
       if (tooLarge)
