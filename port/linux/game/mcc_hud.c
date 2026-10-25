@@ -121,6 +121,16 @@ static void mcc_hud_offset(struct hud_placement_definition *placement)
     placement->multiplayer_scaling_flags&=~4;
 }
 
+/* Stock messages sit 60 native pixels below the safe-frame corner. Match
+ * that placement, not the font, icon sheet or tag name: those may be replaced
+ * independently. Other authored offsets and edge/center anchors stay MCC. */
+static void mcc_hud_message_frame(struct hud_messaging_parameters_definition *message)
+{
+    if (message->absolute_placement.corner==0 && !message->placement.offset.x &&
+        message->placement.offset.y==60)
+        message->placement.pad=MCC_HUD_NATIVE_FRAME;
+}
+
 static void mcc_hud_scale(struct hud_placement_definition *placement,int half)
 {
     float factor=half ? 0.25f : 0.5f;
@@ -227,6 +237,7 @@ int mcc_hud_bitmaps_prepare(struct mcc_runtime *r)
             struct hud_globals_definition *globals=mcc_runtime_pointer(r,entry[5],sizeof(*globals));
             if (!globals || !mcc_hud_default(r,globals,&empty)) return 0;
             mcc_hud_offset(&globals->messaging.placement);
+            mcc_hud_message_frame(&globals->messaging);
             globals->waypoint.top_offset*=0.5f;
             globals->waypoint.bottom_offset*=0.5f;
             globals->waypoint.left_offset*=0.5f;

@@ -1,11 +1,13 @@
-/* Stock layout recognition, before canvas conversion. Only known complete
- * component layouts use the native safe frame. Tag handles, padding and colors
- * are excluded; anchors, placements, bitmap identities and sprite choices are
- * included. Unknown/custom layouts retain the MCC frame. This is a visual
- * compatibility fingerprint, not a map identity or a trust boundary. */
+/* Stock layout recognition, before canvas conversion. Unit HUDs include
+ * bitmap geometry; weapon/grenade panels use their authored placements so
+ * replacement artwork does not move an otherwise stock counter. Handles,
+ * padding and colors are excluded. Grenade frames follow the counter panel,
+ * independently of its overlaid icon. Unknown layouts retain the MCC frame.
+ * This is a visual compatibility fingerprint, not a map identity or trust boundary. */
 struct mcc_hud_layout {
     uint64_t hash;
     short marker;
+    int panel;
 };
 
 static void mcc_hud_layout_bytes(struct mcc_hud_layout *layout,void const *data,unsigned size)
@@ -27,7 +29,11 @@ static int mcc_hud_layout_bitmap(struct mcc_runtime *r,struct mcc_hud_layout *la
     uint32_t *entry,n,count,i,sprites;
     unsigned char *p,*data,*items;
     unsigned char half;
-    if (handle==UINT32_MAX) {mcc_hud_layout_bytes(layout,&handle,4);return 1;}
+    uint64_t hash=layout->hash;
+    if (handle==UINT32_MAX) {
+        if (!layout->panel) mcc_hud_layout_bytes(layout,&handle,4);
+        return 1;
+    }
     if ((handle&65535)>=r->report.tag_count) return 0;
     entry=(uint32_t *)(r->tag_index+(handle&65535)*32);
     if (entry[0]!='bitm' || entry[3]!=handle) return 0;
@@ -63,13 +69,14 @@ static int mcc_hud_layout_bitmap(struct mcc_runtime *r,struct mcc_hud_layout *la
             mcc_hud_layout_bytes(layout,items+i*0x20+8,24);
         }
     }
+    if (layout->panel) layout->hash=hash;
     return 1;
 }
 
 static int mcc_hud_layout_element(struct mcc_runtime *r,struct mcc_hud_layout *layout,unsigned char *p,int meter)
 {
     mcc_hud_layout_placement(layout,p);
-    mcc_hud_layout_bytes(layout,p+(meter ? 0x46 : 0x54),2);
+    if (!layout->panel) mcc_hud_layout_bytes(layout,p+(meter ? 0x46 : 0x54),2);
     /* A new multitexture overlay makes this an authored layout. */
     mcc_hud_layout_bytes(layout,p+0x58,4);
     return mcc_hud_layout_bitmap(r,layout,mcc_hud_word(p+0x30));
@@ -77,10 +84,12 @@ static int mcc_hud_layout_element(struct mcc_runtime *r,struct mcc_hud_layout *l
 
 static uint64_t mcc_hud_layout_visit(struct mcc_runtime *r,uint32_t const *entry,short marker)
 {
-    struct mcc_hud_layout layout={UINT64_C(14695981039346656037),0};
+    struct mcc_hud_layout layout={UINT64_C(14695981039346656037),0,0};
     unsigned char *p,*block,*items;
     uint32_t i,k,n,count,item_count;
+    uint64_t counter=0;
     layout.marker=marker;
+    layout.panel=entry[0]=='wphi' || entry[0]=='grhi';
     if (entry[0]!='unhi' && entry[0]!='wphi' && entry[0]!='grhi') return 0;
     p=mcc_runtime_pointer(r,entry[5],entry[0]=='unhi' ? 0x56C : entry[0]=='wphi' ? 0x17C : 0x1F8);
     if (!p) return 0;
@@ -136,6 +145,10 @@ static uint64_t mcc_hud_layout_visit(struct mcc_runtime *r,uint32_t const *entry
             !mcc_hud_layout_element(r,&layout,p+0x8C,0)) return 0;
         mcc_hud_layout_placement(&layout,p+0xF4);
         mcc_hud_layout_bytes(&layout,p+0x138,3);
+        /* A replacement ability icon can change its own size and offsets
+         * without moving the stock counter panel. Still validate and mark
+         * every overlay below so the icon follows the panel's frame. */
+        counter=layout.hash;
         if (!mcc_hud_layout_bitmap(r,&layout,mcc_hud_word(p+0x158))) return 0;
         items=mcc_hud_block(r,p+0x15C,0x88,&count);
         if (!items) return 0;
@@ -145,15 +158,15 @@ static uint64_t mcc_hud_layout_visit(struct mcc_runtime *r,uint32_t const *entry
             mcc_hud_layout_bytes(&layout,items+n*0x88+0x44,12);
         }
     }
-    return layout.hash;
+    return entry[0]=='grhi' ? counter : layout.hash;
 }
 
 static int mcc_hud_layout_stock(uint64_t hash)
 {
     /* Populated from verified stock layouts; see docs/mcc_maps.md. */
     static uint64_t const stock[]={
-        UINT64_C(0x3cf2a59bae8de0d8), /* weapons/assault rifle/assault rifle */
-        UINT64_C(0xf0d5bee0a5ee7529), /* ui/hud/master rounds */
+        UINT64_C(0xfe9912f6fa6cee40), /* weapons/assault rifle/assault rifle */
+        UINT64_C(0x617a95573df35cff), /* ui/hud/master rounds */
         UINT64_C(0x599b5d8c29b488d9), /* empty weapon and vehicle layouts */
         UINT64_C(0xdae7d140356c5987), /* ui/hud/cyborg */
         UINT64_C(0xdcc5dce49eadef63), /* ui/hud/cyborg_mp */
@@ -164,17 +177,15 @@ static int mcc_hud_layout_stock(uint64_t hash)
         UINT64_C(0x4bbfb22456b5d2a7), /* ui/hud/passenger_4 */
         UINT64_C(0xaeaa8f07a6e6218f), /* ui/hud/passenger */
         UINT64_C(0x4154cb686f605697), /* ui/hud/passenger_3 */
-        UINT64_C(0x9307585cd4369553), /* weapons/pistol/pistol */
-        UINT64_C(0xdece388eb7f0ca7a), /* ui/hud/master plasma */
-        UINT64_C(0x4ce307ed13e853ef), /* ui/hud/default */
-        UINT64_C(0x5f42f1407f353937), /* ui/hud/plasma_flare */
+        UINT64_C(0xd2df5105c6b535f1), /* weapons/pistol/pistol */
+        UINT64_C(0xf4c02f83062d6b36), /* ui/hud/master plasma */
+        UINT64_C(0x977160e4edc42603), /* stock grenade counter panel */
         UINT64_C(0x4b69ec9cb98575df), /* ui/hud/banshee */
         UINT64_C(0x3b92979c241132f3), /* ui/hud/ghost */
-        UINT64_C(0xe600bc9837d5e7a1), /* weapons/rocket launcher/rocket_launcher */
-        UINT64_C(0x94bd69e719b8ebe5), /* weapons/needler/needler */
-        UINT64_C(0xc49fdc326cf571a1), /* weapons/sniper rifle/sniper rifle */
-        UINT64_C(0x09a9d8c195959627), /* weapons/shotgun/shotgun */
-        UINT64_C(0x64d8d429e3c22bda), /* ui/hud/master fuel */
+        UINT64_C(0x27101a9941fef0fd), /* rocket launcher / needler */
+        UINT64_C(0x13822baa01abf9cb), /* weapons/sniper rifle/sniper rifle */
+        UINT64_C(0x9db3034c280a8425), /* weapons/shotgun/shotgun */
+        UINT64_C(0x6c16cbbd63242ec0), /* ui/hud/master fuel */
     };
     unsigned i;
     for (i=0;i<NUMBEROF(stock);i++) if (hash==stock[i]) return hash!=0;

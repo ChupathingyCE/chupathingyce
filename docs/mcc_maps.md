@@ -418,9 +418,13 @@ This places A50_Revisited's visor at the screen edges; invalid child anchors
 retain the parent placement. Xbox/CE returns the original parent untouched.
 
 Stock corner HUDs use the native safe frame instead of the wider MCC frame.
-`mcc_hud_layout.inl` recognizes complete component layouts before conversion
-from their anchors, placement, bitmap names/dimensions/registration points,
-sequence and sprite geometry, number layout and overlay counts. Handles,
+`mcc_hud_layout.inl` recognizes component layouts before conversion from their
+anchors, placements, number layout and overlay counts. Unit HUD recognition
+also includes bitmap names/dimensions/registration points and sprite geometry.
+Weapon and grenade counter panels deliberately exclude artwork identity and
+sprite choices: a custom replacement bitmap does not relocate a stock counter.
+Grenade icons retain their own authored size and offset within the counter's
+frame. Bitmap and overlay references are still bounds-checked. Handles,
 padding, colors and independently centered crosshairs do not select the frame.
 The fingerprints were measured from locally installed MCC version-13 a10,
 b30, b40, d40, bloodgulch, deathisland and carousel caches. No map assets are
@@ -429,12 +433,24 @@ conservative and is not a security or content-identity check.
 
 Recognition writes a marker into runtime-owned MCC placement padding, clearing
 map-supplied values first. A weapon and its inherited parent HUDs share one
-frame: `mcc_hud_weapon_frame_begin` uses the native frame only when the entire
-bounded chain is recognized, and `mcc_hud_weapon_frame_end` clears the choice
+frame: `mcc_hud_weapon_frame_begin` follows the outermost populated parent
+layout in the bounded chain, ignoring empty/crosshair-only parents. A chain
+with distinct authored anchors retains the MCC frame. This lets a custom ammo
+meter inherit its stock parent counter's margin without moving shared tags or
+classifying the whole map as stock. `mcc_hud_weapon_frame_end` clears the choice
 after that draw. The three-line additive hook in `hud_weapon.c` is needed
 because a parent tag can be shared by both custom and stock weapon HUDs;
 conversion alone cannot know which child is currently drawing it. No shared
 parent tag is mutated during rendering. Xbox/CE dispatch remains neutral.
+
+Stock top-left messages (zero horizontal offset, 60 native pixels down) use
+the same native safe margin. Other message offsets and anchors retain their
+authored MCC placement. With High-Res HUD enabled, MCC controller glyphs use
+the native HUD's dimensions, capital-center alignment and text advance, with
+the selected button style and split-screen scaling. Low-resolution glyphs
+retain their existing geometry. Mercury Falling's pistol, ability counters
+and vehicle prompts exposed these separate cases; the rules do not depend
+on map or weapon names. Descent's custom layouts remain separate.
 
 The asset-free layout, channel and texture-ownership tests are in
 `tools/test_mcc_hud_layout.py`, `tools/test_mcc_shader_channels.py` and

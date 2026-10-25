@@ -46,6 +46,43 @@ int main(int argc,char **argv) {
     word(b+0x60,1);word(b+0x64,3000);
     word(b+0x54,1);word(b+0x58,3100);
     word(3100+0x34,1);word(3100+0x38,3200);
+    if(test>=21) { /* Unit HUD geometry remains part of recognition. */
+        static unsigned const elements[]={0x24,0x8c,0xf4,0x17c,0x1e4,0x26c,0x2d4};
+        unsigned j;
+        memset(arena+p,0,0x56c);entry[0]='unhi';
+        for(j=0;j<sizeof(elements)/sizeof(*elements);j++)word(p+elements[j]+0x30,UINT32_MAX);
+        word(p+0x24+0x30,0xe0000001);
+        baseline=mcc_hud_layout_visit(&r,entry,0);if(!baseline)return 18;
+        if(test==21)arena[4000]='X';
+        else if(test==22)word(3000+4,64);
+        else if(test==23)word(3000+16,7);
+        else if(test==24)word(3200+8,0x3f800000);
+        else if(test==25)word(p+0x24+0x54,2);
+        modified=mcc_hud_layout_visit(&r,entry,0);
+        return !modified || modified==baseline;
+    }
+    if(test>=15) {
+        entry[0]='grhi';
+        word(p+0x24+0x30,0xe0000001);word(p+0x8c+0x30,0xe0000001);
+        word(p+0x158,0xe0000001);word(p+0x15c,1);word(p+0x160,5000);
+        baseline=mcc_hud_layout_visit(&r,entry,0);if(!baseline)return 12;
+        if(test==15) { /* Icon artwork/scale/offset/sequence are not the counter frame. */
+            word(p+0x158,UINT32_MAX);word(5000,0xfffe00a9);
+            word(5000+4,0x3faa3d71);word(5000+0x48,7);
+        } else if(test==16)word(p+0xf4,25); /* counter position */
+        else if(test==17)word(p+0x24,21); /* panel position */
+        else if(test==18)word(p+0x138,3); /* digit layout */
+        else if(test==19)word(p+0x160,8190); /* truncated overlay */
+        else if(test==20)word(p+0x158,0xe0010001); /* stale icon reference */
+        modified=mcc_hud_layout_visit(&r,entry,mark);
+        if(test==15) {
+            if(modified!=baseline)return 13;
+            memcpy(&stored,arena+5000+14,2);if(stored!=mark)return 14;
+            memcpy(&stored,arena+p+0xf4+14,2);if(stored!=mark)return 15;
+        } else if(test<=18) {if(!modified || modified==baseline)return 16;}
+        else if(modified)return 17;
+        return 0;
+    }
     baseline=mcc_hud_layout_visit(&r,entry,0);
     if(!baseline || mcc_hud_layout_stock(baseline))return 2;
     if(test==0) { /* Colors, padding and crosshairs do not select the corner frame. */
@@ -68,9 +105,9 @@ int main(int argc,char **argv) {
     else if(test==14)word(e+0x24+0x58,1); /* authored overlay count */
     modified=mcc_hud_layout_visit(&r,entry,0);
     if(test==0 && modified!=baseline)return 3;
-    if(test>=1 && test<=6 && (!modified || modified==baseline))return 4;
+    if((test==1 || test==2 || test==14) && (!modified || modified==baseline))return 4;
+    if(((test>=3 && test<=6) || test==13) && modified!=baseline)return 19;
     if(test>=7 && test<=12 && modified)return 5;
-    if(test>=13 && (!modified || modified==baseline))return 11;
     memcpy(&stored,arena+p+0x3e,2);if(stored)return 6;
     if(test==0) {
         memcpy(&stored,arena+e+0x24+14,2);if(stored)return 7;
@@ -91,7 +128,7 @@ int main(int argc,char **argv) {
     return binary
 
 
-@pytest.mark.parametrize("case", range(15))
+@pytest.mark.parametrize("case", range(26))
 def test_layout_identity_bounds_and_owned_markers(layout_tool, case):
     result = subprocess.run([str(layout_tool), str(case)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
