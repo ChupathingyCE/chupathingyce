@@ -1,4 +1,3 @@
-/// <reference types="node" />
 /**
  * Tests for src/lib/xiso.ts against disc images built here, in memory:
  * npm test (Node's own runner, which runs the TypeScript as it is).
@@ -6,7 +5,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { extractMaps, ExtractError, isPlainName, type Destination } from '../src/lib/xiso.ts';
+import { extractMaps, ExtractError, isPlainName } from '../src/lib/xiso.ts';
+import { bytes, memoryDestination, reader } from './memory.ts';
 
 const SECTOR = 2048;
 
@@ -71,44 +71,6 @@ function buildImage(root: FakeFile[], partition = 0): Uint8Array {
   return image;
 }
 
-function reader(image: Uint8Array) {
-  return { read: async (offset: number, length: number) => image.slice(offset, offset + length) };
-}
-
-/* a data folder in memory: files by path, folders as a set */
-function memoryDestination() {
-  const files = new Map<string, Uint8Array>();
-  const folders = new Set<string>(['']);
-  const destination: Destination = {
-    makeDirectory: (path) => void folders.add(path),
-    isDirectory: (path) => folders.has(path),
-    list: (path) =>
-      [...files.keys(), ...folders]
-        .filter((p) => p.startsWith(`${path}/`) && !p.slice(path.length + 1).includes('/'))
-        .map((p) => p.slice(path.length + 1)),
-    exists: (path) => files.has(path),
-    create(path) {
-      assert.ok(folders.has(path.split('/').slice(0, -1).join('/')), `no folder for ${path}`);
-      const parts: Uint8Array[] = [];
-      files.set(path, new Uint8Array());
-      return {
-        write: async (bytes) => void parts.push(bytes.slice()),
-        close: () => files.set(path, new Uint8Array(Buffer.concat(parts))),
-      };
-    },
-    async move(from, to) {
-      files.set(to, files.get(from)!);
-      files.delete(from);
-    },
-    remove(path) {
-      files.delete(path);
-      folders.delete(path);
-    },
-  };
-  return { files, folders, destination };
-}
-
-const bytes = (text: string) => new TextEncoder().encode(text);
 const big = new Uint8Array((1 << 20) * 2 + 123).map((_, i) => i * 7);
 
 const halo = (): FakeFile[] => [

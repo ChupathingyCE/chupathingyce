@@ -11,6 +11,7 @@
     "expo-linking": "~58.0.14",
     "expo-router": "~58.0.26",
     "expo-status-bar": "~58.0.4",
+    "fflate": "^0.8.3",
     "react": "19.3.0",
     "react-native": "0.88.0",
     "react-native-safe-area-context": "~5.10.1",
@@ -19,6 +20,8 @@
   "devDependencies": {
     "@types/node": "^24.19.2",
     "@types/react": "~19.3.0",
+    "eslint": "^9.0.0",
+    "eslint-config-expo": "~58.0.4",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -26,8 +29,9 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "test": "node --test --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/xiso.test.ts",
-    "typecheck": "tsc --noEmit"
+    "test": "node --test --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \"test/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "lint": "expo lint"
   },
   "private": true,
   "license": "GPL-3.0-or-later"
