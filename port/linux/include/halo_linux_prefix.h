@@ -43,6 +43,11 @@ typedef __WCHAR_TYPE__ wchar_t;
 #define _WCHAR_T_DECLARED
 typedef unsigned short wint_t;
 #define _WINT_T_DECLARED
+/* (no such flag in FreeBSD's <sys/mman.h> unless the BSD names are visible;
+its swap is not reserved either way) */
+#ifndef MAP_NORESERVE
+#define MAP_NORESERVE 0
+#endif
 #endif
 
 /* ---------- pointers inside Xbox data (the 64-bit build; a no-op for the
@@ -89,6 +94,11 @@ typedef unsigned short wint_t;
 /* the XDK's Winsock declares a 32-bit u_long; the host's is 64 */
 #define u_long halo_host_u_long
 #include <sys/types.h>
+#ifdef __FreeBSD__
+/* (FreeBSD's <unistd.h> declares fflagstostr and strtofflags with u_long: read
+here, with the host's name, before the game's own u_long exists) */
+#include <unistd.h>
+#endif
 #undef u_long
 #ifdef __ANDROID__
 /* bionic declares POSIX's strnlen and random whatever the feature macros
