@@ -83,11 +83,6 @@ looks for a new version and offers its download page) */
 #else
 #define UPDATER_DOWNLOAD_PAGE_ONLY 0
 #endif
-#ifdef __FreeBSD__
-#define UPDATER_UNSUPPORTED 1
-#else
-#define UPDATER_UNSUPPORTED 0
-#endif
 /* the latest release's page, where the macOS application is downloaded */
 #define UPDATE_RELEASE_PAGE "https://github.com/" UPDATE_REPOSITORY "/releases/latest"
 #ifndef HALO_BUILD_FLAVOR
@@ -1040,7 +1035,7 @@ void updater_start(void)
 	is watching, but for a test with its answer; a packaged install's
 	update.auto is off, and its no is the one the file or the environment
 	gave: config_packaged_update_check) */
-	if (UPDATER_UNSUPPORTED || !(HALO_RELEASE_BUILD || UPDATER_TEST) ||
+	if (!(HALO_RELEASE_BUILD || UPDATER_TEST) ||
 		!(packaged ? config_packaged_update_check() : config_boolean("update.auto")) ||
 		(!config_string("debug.update_answer")[0] && (config_boolean("debug.hidden_window") ||
 			config_real("debug.exit_after") > 0.0 || config_string("debug.network_test")[0])))

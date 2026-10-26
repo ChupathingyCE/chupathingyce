@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# root build script: writes build.ninja for the native ports (Linux, Windows,
+# root build script: writes build.ninja for the native ports (Linux, other Unix hosts, Windows,
 # Android, macOS) and the dedicated server (Linux), and for the console ports
 # given with --console-port (tools/console_build.py). Run from a console
 # repository, with the game as its submodule, it writes that repository's
@@ -18,11 +18,11 @@ from tools.android_build import android_configure_inputs, generate_android_build
 from tools.android64_build import android64_configure_inputs, generate_android64_build
 from tools.console_build import (GAME_ROOT, add_console_arguments, console_configure_inputs, load_console_port,
                                  relative)
-from tools.freebsd64_build import freebsd64_configure_inputs, generate_freebsd64_build
 from tools.linux_build import generate_linux_build, linux_configure_inputs
 from tools.linux64_build import generate_linux64_build, linux64_configure_inputs
 from tools.macos_build import generate_macos_build, macos_configure_inputs
 from tools.server_build import generate_server_build, server_configure_inputs
+from tools.unix64_build import generate_unix64_build, unix64_configure_inputs, unix_host
 from tools.version import commit_inputs
 from tools.windows_build import generate_windows_build, windows_configure_inputs
 
@@ -190,11 +190,12 @@ n.variable("python", f'"{sys.executable}"')
 n.newline()
 
 if not console_only:
-    # (the Linux targets are Linux's: FreeBSD's is `ninja freebsd64`)
-    if not sys.platform.startswith("freebsd"):
+    # (the Linux targets are Linux's: the other Unix hosts' are their own,
+    # `ninja freebsd64`: tools/unix64_build.py)
+    if unix_host() is None:
         generate_linux_build(n, sln)
         generate_linux64_build(n, sln)
-    generate_freebsd64_build(n, sln)
+    generate_unix64_build(n, sln)
     generate_android_build(n, sln)
     generate_android64_build(n, sln)
     generate_windows_build(n, sln)
@@ -219,7 +220,7 @@ n.build(
         *([] if console_only else [
             *linux_configure_inputs(),
             *linux64_configure_inputs(),
-            *freebsd64_configure_inputs(),
+            *unix64_configure_inputs(),
             *android_configure_inputs(),
             *android64_configure_inputs(),
             *windows_configure_inputs(),
@@ -237,7 +238,7 @@ n.newline()
 # build is left out when SDL cannot be fetched, for instance), or a console
 # repository's own port
 default = ("windows" if is_windows() else "macos" if sys.platform == "darwin"
-           else "freebsd64" if sys.platform.startswith("freebsd") else "linux")
+           else unix_host().name if unix_host() else "linux")
 if console_only:
     default = console_ports[0].name
 if f"\nbuild {default}: " in out.getvalue():

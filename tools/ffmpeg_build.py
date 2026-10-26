@@ -158,8 +158,9 @@ def main():
         stamp.write_text("\n".join(str(part) for part in configure))
 
     print(f"ffmpeg_build.py: building with {compiler}")
-    # (FFmpeg's makefiles are GNU make's: on FreeBSD, `make` is BSD make)
-    make = "gmake" if sys.platform.startswith("freebsd") else "make"
+    # (FFmpeg's makefiles are GNU make's: on the BSDs, `make` is BSD make and
+    # GNU make is `gmake`)
+    make = "gmake" if shutil.which("gmake") else "make"
     with open(root / "build.log", "w") as log:
         try:
             run([make, "-j", str(os.cpu_count() or 4)], cwd=build, stdout=log, stderr=subprocess.STDOUT)

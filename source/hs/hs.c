@@ -3618,10 +3618,8 @@ void hs_dispose_from_old_map(
 static long alphabetize_file_references(
 	struct file_reference const *left,
 	struct file_reference const *right);
-#ifndef isspace /* (a macro in FreeBSD's <ctype.h>) */
 int isspace(
 	int character);
-#endif
 boolean hs_scenario_merge(
 	struct scenario *scenario,
 	struct scenario *source_scenario);

@@ -145,6 +145,9 @@ class Lp64Host:
     excluded: Set[str] = field(default_factory=set)
     # the host's own platform units, with posix_flags
     host_sources: List[Path] = field(default_factory=list)
+    # the platform units' extra flags, ahead of halo_linux_prefix.h (the
+    # host's own force-included headers: port/unix)
+    platform_flags: List[str] = field(default_factory=list)
     # more platform units with the Xbox's ABI, rewritten and built as
     # port/linux/src's (the dedicated server's: tools/server_build.py)
     platform_sources: List[Path] = field(default_factory=list)
@@ -298,7 +301,7 @@ class Lp64Build:
 
         platform_dir = Path(linux_config["platform_sources"])
         platform_cflags = " ".join([
-            abi, " ".join(LP64_PLATFORM_FLAGS),
+            abi, " ".join(LP64_PLATFORM_FLAGS), *([" ".join(host.platform_flags)] if host.platform_flags else []),
             f"-include {_quote(prefix_header)}", f"-include {_quote(self.platform_semantics_header)}",
             f"-I{_quote(lp64(platform_dir))}", f"-I{_quote(port_include)}",
             f"-I{_quote(lp64(TOML_DIR))}", f"-I{_quote(lp64(KCP_DIR))}",

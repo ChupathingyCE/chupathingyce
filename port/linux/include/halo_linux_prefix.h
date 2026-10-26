@@ -31,46 +31,6 @@ typedef unsigned short wint_t;
 #define _WINT_T 1
 #endif
 
-/* ---------- FreeBSD's wide characters (the native 64-bit build)
-
-FreeBSD types wchar_t as a plain int (sys/_types.h: ___wchar_t), whatever
--fshort-wchar says, and wint_t likewise. The game's are 16 bits wide (the
-Xbox structures hold wchar_t arrays): typed here first, ahead of every header,
-so that stddef.h's and wchar.h's own (their _DECLARED guards) are skipped. */
-
-#ifdef __FreeBSD__
-typedef __WCHAR_TYPE__ wchar_t;
-#define _WCHAR_T_DECLARED
-typedef unsigned short wint_t;
-#define _WINT_T_DECLARED
-/* (no such flag in FreeBSD's <sys/mman.h> unless the BSD names are visible;
-its swap is not reserved either way) */
-#ifndef MAP_NORESERVE
-#define MAP_NORESERVE 0
-#endif
-/* FreeBSD's libc calls its own _open, _close, _read, _write (and has _fstat,
-_lseek, _stat) through their exported names, and the executable's definitions
-(msvc_crt.c: the MSVC names libtiff uses) preempt them: fopen reached the
-game's _open, which loaded the configuration with fopen, and so on until the
-stack ended. Spelled apart, in every unit and header alike. */
-#define _open halo_msvc_open
-#define _close halo_msvc_close
-#define _read halo_msvc_read
-#define _write halo_msvc_write
-#define _lseek halo_msvc_lseek
-#define _fstat halo_msvc_fstat
-#define _stat halo_msvc_stat
-
-/* (Linux's MAP_FIXED_NOREPLACE: FreeBSD's MAP_EXCL with MAP_FIXED, which the
-BSD names hide) */
-#ifndef MAP_EXCL
-#define MAP_EXCL 0x00004000
-#endif
-#ifndef MAP_FIXED_NOREPLACE
-#define MAP_FIXED_NOREPLACE (MAP_FIXED | MAP_EXCL)
-#endif
-#endif
-
 /* ---------- pointers inside Xbox data (the 64-bit build; a no-op for the
 32-bit ones) */
 
@@ -115,11 +75,6 @@ typedef unsigned short wint_t;
 /* the XDK's Winsock declares a 32-bit u_long; the host's is 64 */
 #define u_long halo_host_u_long
 #include <sys/types.h>
-#ifdef __FreeBSD__
-/* (FreeBSD's <unistd.h> declares fflagstostr and strtofflags with u_long: read
-here, with the host's name, before the game's own u_long exists) */
-#include <unistd.h>
-#endif
 #undef u_long
 #ifdef __ANDROID__
 /* bionic declares POSIX's strnlen and random whatever the feature macros

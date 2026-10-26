@@ -89,8 +89,6 @@ const char *platform_data_root(void)
 #ifdef __APPLE__
 			uint32_t ex_size = sizeof(executable);
 			ssize_t length = _NSGetExecutablePath(executable, &ex_size) == 0 ? (ssize_t)strlen(executable) : -1;
-#elif defined(__FreeBSD__)
-			ssize_t length = posix_executable_path(executable, (int)sizeof(executable));
 #else
 			ssize_t length = readlink("/proc/self/exe", executable, sizeof(executable) - 1);
 #endif
@@ -252,8 +250,6 @@ static int executable_folder(char *path, unsigned long size)
 #ifdef __APPLE__
 	uint32_t executable_size = sizeof(executable);
 	ssize_t length = _NSGetExecutablePath(executable, &executable_size) == 0 ? (ssize_t)strlen(executable) : -1;
-#elif defined(__FreeBSD__)
-	ssize_t length = posix_executable_path(executable, (int)sizeof(executable));
 #else
 	ssize_t length = readlink("/proc/self/exe", executable, sizeof(executable) - 1);
 #endif

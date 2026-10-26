@@ -40,9 +40,6 @@ Built with the host's ABI, as the other posix_*.c.
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#ifdef __FreeBSD__
-#include <sys/sysctl.h>
-#endif
 #include <unistd.h>
 
 #define MAXIMUM_REDIRECTS 8
@@ -599,25 +596,11 @@ int update_executable_path(char *path, int size)
 	replaced: it is not offered updates yet) */
 	if (appimage && *appimage)
 		return 0;
-#ifdef __FreeBSD__
-	/* (no /proc/self/exe: procfs is not mounted by default) */
-	{
-		int name[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1 };
-		size_t path_size = (size_t)size;
-
-		if (size <= 1 || sysctl(name, 4, path, &path_size, NULL, 0) != 0 || path_size == 0)
-			return 0;
-		path[size - 1] = 0;
-		(void)length;
-		return 1;
-	}
-#else
 	length = readlink("/proc/self/exe", path, (size_t)size - 1);
 	if (length <= 0)
 		return 0;
 	path[length] = 0;
 	return 1;
-#endif
 }
 
 int update_replace_file(const char *path, const char *new_path, const char *old_path)
