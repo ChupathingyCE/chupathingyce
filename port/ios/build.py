@@ -19,7 +19,7 @@ game calls is missing.
 Run from the game's folder, which the 64-bit build's rules are written for:
 
     cd chupathingyce
-    python3 configure.py --console-port ../port/ios --ios-sdl ../build/sdl3-ios
+    python3 configure.py --release --console-port ../port/ios --ios-sdl ../build/sdl3-ios
     ninja ios
 
 --ios-sdl is SDL3 built and installed for iOS (.github/workflows/engine.yml
