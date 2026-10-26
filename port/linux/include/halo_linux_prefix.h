@@ -48,6 +48,19 @@ its swap is not reserved either way) */
 #ifndef MAP_NORESERVE
 #define MAP_NORESERVE 0
 #endif
+/* FreeBSD's libc calls its own _open, _close, _read, _write (and has _fstat,
+_lseek, _stat) through their exported names, and the executable's definitions
+(msvc_crt.c: the MSVC names libtiff uses) preempt them: fopen reached the
+game's _open, which loaded the configuration with fopen, and so on until the
+stack ended. Spelled apart, in every unit and header alike. */
+#define _open halo_msvc_open
+#define _close halo_msvc_close
+#define _read halo_msvc_read
+#define _write halo_msvc_write
+#define _lseek halo_msvc_lseek
+#define _fstat halo_msvc_fstat
+#define _stat halo_msvc_stat
+
 /* (Linux's MAP_FIXED_NOREPLACE: FreeBSD's MAP_EXCL with MAP_FIXED, which the
 BSD names hide) */
 #ifndef MAP_EXCL
