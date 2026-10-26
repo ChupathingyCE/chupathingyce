@@ -1,0 +1,90 @@
+# The iOS app, as XcodeGen makes its Xcode project (`xcodegen generate` in
+# app/, which .github/workflows/ios.yml runs on the macOS runner): a UIKit
+# launcher in Swift (Sources) that imports the game's data and starts the
+# game, linked in from lib/libhalo.a (port/ios/build.py) with lib/libSDL3.a.
+name: ChupathingyCE
+options:
+  deploymentTarget:
+    iOS: "16.4"
+  createIntermediateGroups: true
+
+targets:
+  ChupathingyCE:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+      - Resources
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: ChupathingyCE
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSRequiresIPhoneOS: true
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default
+                UISceneDelegateClassName: "$(PRODUCT_MODULE_NAME).SceneDelegate"
+        # the launcher turns with the device; the game asks SDL for landscape
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # (the game's window is the whole screen: no Split View)
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UIUserInterfaceStyle: Dark
+        # the data folder in the Files app (On My iPhone, ChupathingyCE)
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UIApplicationSupportsIndirectInputEvents: true
+        # maps downloaded from the address the player gives, http:// too;
+        # the game's own play over the local network
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: >-
+          ChupathingyCE finds and joins games on your local network.
+    settings:
+      base:
+        PRODUCT_NAME: ChupathingyCE
+        PRODUCT_BUNDLE_IDENTIFIER: dev.horrible.chupathingyce
+        MARKETING_VERSION: "0.2.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/Bridging.h
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO
+        # the game and SDL3 (the workflow puts them in lib/); -ObjC for the
+        # Objective-C classes of both, which nothing names until they run
+        LIBRARY_SEARCH_PATHS: "$(PROJECT_DIR)/lib"
+        OTHER_LDFLAGS: ["-lhalo", "-lSDL3", "-ObjC"]
+    # what SDL3 and the game need of iOS (port/ios/build.py, IOS_FRAMEWORKS)
+    dependencies:
+      - sdk: Foundation.framework
+      - sdk: UIKit.framework
+      - sdk: OpenGLES.framework
+      - sdk: QuartzCore.framework
+      - sdk: CoreGraphics.framework
+      - sdk: CoreVideo.framework
+      - sdk: Metal.framework
+      - sdk: CoreAudio.framework
+      - sdk: AudioToolbox.framework
+      - sdk: AVFoundation.framework
+      - sdk: GameController.framework
+      - sdk: CoreMotion.framework
+      - sdk: CoreHaptics.framework
+      - sdk: CoreBluetooth.framework
+      - sdk: UniformTypeIdentifiers.framework
+      - sdk: libiconv.tbd
+      - sdk: libz.tbd

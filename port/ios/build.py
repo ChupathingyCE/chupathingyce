@@ -12,7 +12,7 @@ is port/ios/src: the entry point (ios_main.c), the OpenGL ES helpers
 the game runs on (ios_stack.S).
 
 The result is build/ios/libhalo.a, a static library the app links
-(app/modules/halo-native), and build/ios/libhalo_check.dylib, the same
+(app/project.yml), and build/ios/libhalo_check.dylib, the same
 objects linked with SDL3 and iOS's frameworks, which fails if anything the
 game calls is missing.
 

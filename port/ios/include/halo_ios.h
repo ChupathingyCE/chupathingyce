@@ -2,7 +2,7 @@
 HALO_IOS.H
 
 The game's entry point for the iOS app (port/ios/src/ios_main.c), which the
-app's native module calls (app/modules/halo-native).
+launcher calls (app/Sources/App.swift, Game.start).
 */
 
 #ifndef __HALO_IOS_H
