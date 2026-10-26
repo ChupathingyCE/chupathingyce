@@ -211,6 +211,11 @@ static void contiguous_arena_reserve(void)
 		xbox_address_space_base = base;
 		wanted = result = (void *)base;
 	}
+#elif defined(__FreeBSD__)
+	/* (FreeBSD may place a mapping elsewhere than its hint: demand the
+	address, MAP_EXCL keeping what is mapped there, and have the error say why) */
+	result = mmap(wanted, XBOX_ADDRESS_SPACE_SIZE, PROT_NONE,
+		MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED_NOREPLACE, -1, 0);
 #else
 	result = mmap(wanted, XBOX_ADDRESS_SPACE_SIZE, PROT_NONE,
 		MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);

@@ -48,6 +48,14 @@ its swap is not reserved either way) */
 #ifndef MAP_NORESERVE
 #define MAP_NORESERVE 0
 #endif
+/* (Linux's MAP_FIXED_NOREPLACE: FreeBSD's MAP_EXCL with MAP_FIXED, which the
+BSD names hide) */
+#ifndef MAP_EXCL
+#define MAP_EXCL 0x00004000
+#endif
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE (MAP_FIXED | MAP_EXCL)
+#endif
 #endif
 
 /* ---------- pointers inside Xbox data (the 64-bit build; a no-op for the
