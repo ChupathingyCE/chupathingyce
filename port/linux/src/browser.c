@@ -1262,10 +1262,12 @@ static const char *build_architecture(void)
 	return "arm64";
 #elif defined(__x86_64__) || defined(_M_X64)
 	return "x64";
-#elif defined(__i386__) || defined(_M_IX86)
-	return "x86";
+/* (32-bit ARM ahead of _M_IX86, which halo_linux_prefix.h defines for the
+XDK's headers on every 32-bit build) */
 #elif defined(__arm__) || defined(_M_ARM)
 	return "arm";
+#elif defined(__i386__) || defined(_M_IX86)
+	return "x86";
 #else
 	return "";
 #endif
