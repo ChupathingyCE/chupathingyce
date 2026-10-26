@@ -13,9 +13,28 @@ the host ABI and _FILE_OFFSET_BITS=64.
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/types.h>
+#ifdef __FreeBSD__
+#include <sys/sysctl.h>
+#endif
 #include <unistd.h>
 
 #include "posix.h"
+
+#ifdef __FreeBSD__
+/* The running executable's path: FreeBSD mounts no /proc by default, so the
+kernel's own answer (KERN_PROC_PATHNAME) stands in for /proc/self/exe. Its
+length, or -1 (sysctl refuses a path that does not fit). */
+int posix_executable_path(char *path, int size)
+{
+	int name[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1 };
+	size_t length = (size_t)size;
+
+	if (size <= 1 || sysctl(name, 4, path, &length, NULL, 0) != 0 || length == 0)
+		return -1;
+	path[size - 1] = '\0';
+	return (int)strlen(path);
+}
+#endif
 
 static void split64(unsigned long long value, posix_ulong *low, posix_ulong *high)
 {

@@ -167,6 +167,10 @@ static void segv_handler(int signal_number, siginfo_t *information, void *contex
 	pc = ucontext->uc_mcontext.gregs[REG_RIP];
 	frame = ucontext->uc_mcontext.gregs[REG_RBP];
 	stack = ucontext->uc_mcontext.gregs[REG_RSP];
+#elif defined(__FreeBSD__) && defined(__x86_64__)
+	pc = ucontext->uc_mcontext.mc_rip;
+	frame = ucontext->uc_mcontext.mc_rbp;
+	stack = ucontext->uc_mcontext.mc_rsp;
 #endif
 	length = snprintf(line, sizeof(line), PLATFORM_LOG_PREFIX "fault at %p, pc %llx fp %llx sp %llx\n",
 		information->si_addr, pc, frame, stack);

@@ -447,6 +447,16 @@ and cleared with the status word's (64-bit code computes with the SSE unit) */
 	((environment).__mxcsr = ((environment).__mxcsr & ~0x7f80u) | (((environment).__control & 0x0c00u) << 3) | \
 		(((environment).__control & 0x3fu) << 7))
 #define FENV_SSE_CLEAR_STATUS(environment) ((environment).__mxcsr &= ~0x3fu)
+#elif defined(__FreeBSD__) && defined(__x86_64__)
+/* (FreeBSD's amd64 fenv_t nests the x87 environment, __x87.__control and
+__x87.__status, and keeps __mxcsr apart as macOS's does: kept in step the same way) */
+#define FENV_CONTROL_WORD(environment) ((environment).__x87.__control)
+#define FENV_STATUS_WORD(environment) ((environment).__x87.__status)
+#define FENV_SSE_STATUS(environment) ((environment).__mxcsr & 0x3f)
+#define FENV_SSE_FOLLOW_CONTROL(environment) \
+	((environment).__mxcsr = ((environment).__mxcsr & ~0x7f80u) | (((environment).__x87.__control & 0x0c00u) << 3) | \
+		(((environment).__x87.__control & 0x3fu) << 7))
+#define FENV_SSE_CLEAR_STATUS(environment) ((environment).__mxcsr &= ~0x3fu)
 #elif defined(__x86_64__)
 /* (64-bit glibc's fesetenv loads __mxcsr as given: kept in step the same way) */
 #define FENV_CONTROL_WORD(environment) ((environment).__control_word)

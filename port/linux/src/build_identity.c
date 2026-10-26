@@ -42,6 +42,8 @@ HALO_BUILD_FLAVOR.
 #define BUILD_IDENTITY_PLATFORM "Windows"
 #elif defined(__APPLE__)
 #define BUILD_IDENTITY_PLATFORM "macOS"
+#elif defined(__FreeBSD__)
+#define BUILD_IDENTITY_PLATFORM "FreeBSD"
 #else
 #define BUILD_IDENTITY_PLATFORM "Linux"
 #endif

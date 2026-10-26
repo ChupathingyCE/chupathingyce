@@ -173,6 +173,9 @@ static void context_registers(void *context, uintptr_t *pc, uintptr_t *frame)
 #elif defined(__linux__) && defined(__x86_64__)
 	*pc = (uintptr_t)ucontext->uc_mcontext.gregs[REG_RIP];
 	*frame = (uintptr_t)ucontext->uc_mcontext.gregs[REG_RBP];
+#elif defined(__FreeBSD__) && defined(__x86_64__)
+	*pc = (uintptr_t)ucontext->uc_mcontext.mc_rip;
+	*frame = (uintptr_t)ucontext->uc_mcontext.mc_rbp;
 #elif defined(__linux__) && defined(__i386__)
 	*pc = (uintptr_t)ucontext->uc_mcontext.gregs[REG_EIP];
 	*frame = (uintptr_t)ucontext->uc_mcontext.gregs[REG_EBP];

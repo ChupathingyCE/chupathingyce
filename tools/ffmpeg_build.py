@@ -158,9 +158,11 @@ def main():
         stamp.write_text("\n".join(str(part) for part in configure))
 
     print(f"ffmpeg_build.py: building with {compiler}")
+    # (FFmpeg's makefiles are GNU make's: on FreeBSD, `make` is BSD make)
+    make = "gmake" if sys.platform.startswith("freebsd") else "make"
     with open(root / "build.log", "w") as log:
         try:
-            run(["make", "-j", str(os.cpu_count() or 4)], cwd=build, stdout=log, stderr=subprocess.STDOUT)
+            run([make, "-j", str(os.cpu_count() or 4)], cwd=build, stdout=log, stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
             # (the compiler's own words are the only clue to a failure, and this
             # log is their only home: show the tail before giving up)
