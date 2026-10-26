@@ -19,20 +19,23 @@ game calls is missing.
 Run from the game's folder, which the 64-bit build's rules are written for:
 
     cd chupathingyce
-    python3 configure.py --without-ffmpeg --console-port ../port/ios --ios-sdl ../build/sdl3-ios
+    python3 configure.py --console-port ../port/ios --ios-sdl ../build/sdl3-ios
     ninja ios
 
 --ios-sdl is SDL3 built and installed for iOS (.github/workflows/engine.yml
-builds it): its include/ and lib/libSDL3.a.
+builds it): its include/ and lib/libSDL3.a. The movies' FFmpeg is built here
+too (chupathingyce's tools/ffmpeg_build.py, as for macOS) and goes into
+libhalo.a; --without-ffmpeg leaves it out, and the game skips the movies.
 """
 
 import platform
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any, List
 
 from tools.embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
-from tools.linux_build import OPTIMISATION
+from tools.linux_build import OPTIMISATION, ffmpeg_build
 from tools.lp64_build import (
     Lp64Build,
     Lp64Host,
@@ -74,6 +77,11 @@ IOS_LIBRARIES = ["iconv", "m"]
 
 # the game's entry point, renamed: the app has its own main
 ENTRY_SOURCE = "source/shell/shell_xbox.c"
+
+
+def ios_sdk(*arguments: str) -> str:
+    """what xcrun answers of the iPhone SDK (its compiler's path, the SDK's)"""
+    return subprocess.check_output(["xcrun", "--sdk", "iphoneos", *arguments], text=True).strip()
 
 
 def add_arguments(parser: Any) -> None:
@@ -124,6 +132,17 @@ def generate(n: Any, sln: Any, port: Any) -> None:
         "-DHALO_ANDROID=1",
         "-DHALO_IOS=1",
     ]
+    # the movies' FFmpeg (configure.py --without-ffmpeg: the stubs). Its
+    # configure takes a compiler, not xcrun's command line: the SDK's clang,
+    # and the SDK as the system root
+    ffmpeg_cflags: List[str] = []
+    ffmpeg_archives: List[Path] = []
+    ffmpeg_inputs: List[Path] = []
+    if getattr(sln, "with_ffmpeg", True):
+        ffmpeg_cflags, _, ffmpeg_stamp, ffmpeg_archives = ffmpeg_build(
+            n, "ios", build_dir / "ffmpeg", ios_sdk("--find", "clang"), "darwin", "aarch64",
+            [IOS_TARGET, f"-isysroot {ios_sdk('--show-sdk-path')}"], group=False)
+        ffmpeg_inputs = [ffmpeg_stamp, *ffmpeg_archives]
     host = Lp64Host(
         name="ios",
         target_flags=target_flags,
@@ -134,10 +153,11 @@ def generate(n: Any, sln: Any, port: Any) -> None:
         host_include=f"-I{_quote(sdl / 'include')} -I{_quote(port.path('include'))}",
         excluded=set(lp64_excluded()),
         host_sources=sorted(port.path("src").glob("*.c")),
+        ffmpeg_cflags=ffmpeg_cflags,
     )
     generated_sources = (hud_assets_build(n, "ios", build_dir / "generated" / "hud_hires_assets.c")
                          + ui_fonts_build(n, "ios", build_dir / "generated" / "ui_fonts.c", sln))
-    objects = lp64.objects(host, generated_sources, build_dir / "obj")
+    objects = lp64.objects(host, generated_sources, build_dir / "obj", implicit_inputs=ffmpeg_inputs)
 
     # the game's stack (ios_stack.S), assembled on its own: the C units'
     # flags are not an assembler's
@@ -165,12 +185,14 @@ def generate(n: Any, sln: Any, port: Any) -> None:
     unquote = "sed -e \"s/^'//\" -e \"s/'$$//\" $out.rsp > $out.list"
     n.rule(
         name="ios_library",
-        command=f"rm -f $out && {unquote} && {IOS_LIBTOOL} -static -no_warning_for_no_symbols -o $out -filelist $out.list",
+        command=f"rm -f $out && {unquote} && {IOS_LIBTOOL} -static -no_warning_for_no_symbols -o $out -filelist $out.list $archives",
         description="IOS LIBRARY $out",
         rspfile="$out.rsp",
         rspfile_content="$in_newline",
     )
-    n.build(outputs=library, rule="ios_library", inputs=objects)
+    # (FFmpeg's archives in it too: the app links the one library)
+    n.build(outputs=library, rule="ios_library", inputs=objects, implicit=ffmpeg_archives,
+            variables={"archives": " ".join(_quote(archive) for archive in ffmpeg_archives)})
 
     n.rule(
         name="ios_check",
@@ -183,8 +205,9 @@ def generate(n: Any, sln: Any, port: Any) -> None:
         outputs=check,
         rule="ios_check",
         inputs=objects,
-        implicit=[sdl / "lib" / "libSDL3.a"],
+        implicit=[sdl / "lib" / "libSDL3.a", *ffmpeg_archives],
         variables={"libs": " ".join([
+            *(_quote(archive) for archive in ffmpeg_archives),
             f"-L{_quote(sdl / 'lib')}", "-lSDL3",
             *(f"-l{name}" for name in IOS_LIBRARIES),
             *(f"-framework {name}" for name in IOS_FRAMEWORKS),
