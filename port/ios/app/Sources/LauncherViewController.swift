@@ -349,7 +349,7 @@ final class LauncherViewController: UIViewController, UIDocumentPickerDelegate, 
     let title = "Downloading"
     let host = url.host ?? ""
     UIApplication.shared.isIdleTimerDisabled = true
-    let cancel = { [weak self] in self?.download?.cancel() }
+    let cancel: () -> Void = { [weak self] in self?.download?.cancel() }
     state = .importing(title: title, status: host, done: 0, total: 0, cancel: cancel)
     download = Download(
       url,
