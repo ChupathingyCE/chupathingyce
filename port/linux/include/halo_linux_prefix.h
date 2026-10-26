@@ -31,6 +31,20 @@ typedef unsigned short wint_t;
 #define _WINT_T 1
 #endif
 
+/* ---------- FreeBSD's wide characters (the native 64-bit build)
+
+FreeBSD types wchar_t as a plain int (sys/_types.h: ___wchar_t), whatever
+-fshort-wchar says, and wint_t likewise. The game's are 16 bits wide (the
+Xbox structures hold wchar_t arrays): typed here first, ahead of every header,
+so that stddef.h's and wchar.h's own (their _DECLARED guards) are skipped. */
+
+#ifdef __FreeBSD__
+typedef __WCHAR_TYPE__ wchar_t;
+#define _WCHAR_T_DECLARED
+typedef unsigned short wint_t;
+#define _WINT_T_DECLARED
+#endif
+
 /* ---------- pointers inside Xbox data (the 64-bit build; a no-op for the
 32-bit ones) */
 
