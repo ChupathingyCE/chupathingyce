@@ -10,6 +10,8 @@ lib/libhalo.a, and the system's zlib, which reads the map zips (Zip.swift).
 
 /* port/ios/include/halo_ios.h */
 int halo_ios_run(const char *data_root, const char *hardware_id, char *error, int error_size);
+void halo_ios_set_invite(const char *link);
+int halo_ios_open_link(const char *link);
 
 /* port/linux/src/xiso.h */
 typedef void (*xiso_progress_proc)(void *context, const char *file, unsigned long long done,

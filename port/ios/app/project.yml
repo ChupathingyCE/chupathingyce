@@ -47,6 +47,11 @@ targets:
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         UIApplicationSupportsIndirectInputEvents: true
+        # invite links (halo://join/..., halo://key/...), opened from a
+        # message or a page: the game joins them
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.horrible.chupathingyce.invite
+            CFBundleURLSchemes: [halo]
         # maps downloaded from the address the player gives, http:// too;
         # the game's own play over the local network
         NSAppTransportSecurity:

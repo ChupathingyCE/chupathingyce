@@ -36,6 +36,18 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     window.rootViewController = LauncherViewController()
     window.makeKeyAndVisible()
     self.window = window
+    /* (the app started from an invite link) */
+    open(connectionOptions.urlContexts)
+  }
+
+  func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+    open(URLContexts)
+  }
+
+  private func open(_ contexts: Set<UIOpenURLContext>) {
+    guard let link = contexts.first?.url, link.scheme?.lowercased() == "halo" else { return }
+    Game.open(link.absoluteString)
+    (window?.rootViewController as? LauncherViewController)?.inviteChanged()
   }
 }
 
@@ -73,6 +85,17 @@ enum GameData {
 }
 
 enum Game {
+  /* the invite link the launcher holds until Play, if any */
+  private(set) static var invite: String?
+
+  /* an invite link the app was opened with: the running game's at once,
+  else the game starts with it */
+  static func open(_ link: String) {
+    if halo_ios_open_link(link) != 0 { return }
+    invite = link
+    halo_ios_set_invite(link)
+  }
+
   /* Starts the game (halo_ios_run, port/ios/src/ios_main.c) on the main
   thread. It does not return once the game is running; failed is called
   with the reason it could not start. It runs as a run loop block, not the

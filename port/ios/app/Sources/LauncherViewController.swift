@@ -215,7 +215,11 @@ final class LauncherViewController: UIViewController, UIDocumentPickerDelegate, 
       } else {
         views = [
           label("Ready", size: 20, color: Colors.text, weight: .semibold),
-          label("The game's data is in place.", size: 15, color: Colors.muted),
+          label(
+            Game.invite == nil
+              ? "The game's data is in place."
+              : "An invite is waiting: the game joins it when it starts.",
+            size: 15, color: Game.invite == nil ? Colors.muted : Colors.neon),
         ]
         if let error { views.append(label(error, size: 15, color: Colors.error)) }
         views.append(button("Play", primary: true) { [weak self] in self?.play() })
@@ -240,6 +244,11 @@ final class LauncherViewController: UIViewController, UIDocumentPickerDelegate, 
     let footer = label("Data folder: \(GameData.root.path)", size: 12, color: Colors.muted)
     footer.textAlignment = .center
     stack.addArrangedSubview(footer)
+  }
+
+  /* an invite link opened while the launcher is up */
+  func inviteChanged() {
+    if case .idle = state { render() }
   }
 
   private func updateDownloadButton() {

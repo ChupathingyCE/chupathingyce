@@ -19,6 +19,13 @@ vendor identifier). Returns only if the game cannot start, with a message
 for the player in error; once it has started, the game ends the process. */
 int halo_ios_run(const char *data_root, const char *hardware_id, char *error, int error_size);
 
+/* An invite link (halo://join/..., or a player key's halo://key/...) the
+app was opened with: before halo_ios_run, the game starts with it and joins
+it; once the game runs, halo_ios_open_link hands it over, and returns 0 if
+the game is not running yet */
+void halo_ios_set_invite(const char *link);
+int halo_ios_open_link(const char *link);
+
 #ifdef __cplusplus
 }
 #endif
