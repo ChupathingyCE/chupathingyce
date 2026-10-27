@@ -1789,10 +1789,12 @@ static boolean command_link_status(
 	boolean json,
 	struct command_output *output)
 {
-	char text[512];
+	char text[4096];
+	struct command_actor const *actor = server_command_running.actor;
 
 	(void)line;
-	server_link_status(json ? 1 : 0, text, sizeof(text));
+	server_link_status(json ? 1 : 0, actor && (actor->permissions & SERVER_PERMISSION_ROLES) ? 1 : 0, text,
+		sizeof(text));
 	command_output_printf(output, "%s%s", text, json ? "" : "\n");
 	return TRUE;
 }

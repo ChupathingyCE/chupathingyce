@@ -165,6 +165,7 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_WAIT_POLL 1
 #define HALO_CONSOLE_GL_LAYER 1
 #define HALO_CONSOLE_LIGHT_LIMITS 1
+#define HALO_CONSOLE_OVERSIZED_MAPS 1
 #endif
 
 #ifdef HALO_XBOX_CONSOLE
@@ -190,6 +191,7 @@ larger maps take a campaign map's there as well) */
 #define HALO_CONSOLE_XBOX_RENDER_SIZES 1
 #define HALO_CONSOLE_ONLINE_GAMES 1
 #define HALO_CONSOLE_LIGHT_LIMITS 1
+#define HALO_CONSOLE_OVERSIZED_MAPS 1
 #ifdef HALO_CONSOLE_DEBUG_TOOLS
 #define HALO_CONSOLE_BRINGUP_LOG 1
 #endif
